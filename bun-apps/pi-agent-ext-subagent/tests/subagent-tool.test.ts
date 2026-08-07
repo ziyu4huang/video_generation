@@ -566,16 +566,18 @@ test("formatSubagentProgress on empty history shows the '…' placeholder", () =
   assert.match(out, /…/);
 });
 
-test("formatSubagentProgress toolCall entry includes the tool name", () => {
-  const history: AgentHistoryEntry[] = [{ role: "assistant", kind: "toolCall", toolName: "grep", text: "{}" }];
+test("formatSubagentProgress toolCall entry includes the verb-led phrase", () => {
+  const history: AgentHistoryEntry[] = [
+    { role: "assistant", kind: "toolCall", toolName: "grep", text: '{"pattern":"foo"}' },
+  ];
   const out = formatSubagentProgress(history, 1000);
-  assert.match(out, /grep/);
+  assert.match(out, /Searching for "foo"/);
 });
 
-test("formatSubagentProgress toolResult entry includes '→ done'", () => {
+test("formatSubagentProgress toolResult entry is verb-led past (no '→ done')", () => {
   const history: AgentHistoryEntry[] = [{ role: "tool", kind: "toolResult", toolName: "read", text: "contents" }];
   const out = formatSubagentProgress(history, 1000);
-  assert.match(out, /read → done/);
+  assert.match(out, /↳ Read/);
 });
 
 test("formatSubagentProgress text entry includes the (truncated) first line", () => {
@@ -587,12 +589,12 @@ test("formatSubagentProgress text entry includes the (truncated) first line", ()
   assert.ok(!out.includes("more detail"), "only the first line is shown");
 });
 
-test("formatSubagentProgress error entry is marked distinctly (not indistinguishable from plain text)", () => {
+test("formatSubagentProgress error entry is marked distinctly as `Failed to …`", () => {
   const history: AgentHistoryEntry[] = [
     { role: "tool", kind: "error", toolName: "bash", text: "command not found: foo", isError: true },
   ];
   const out = formatSubagentProgress(history, 1000);
-  assert.match(out, /⚠/, "error entries carry a distinct marker");
+  assert.match(out, /Failed to run/, "error entries carry the Failed-to marker");
   assert.match(out, /command not found: foo/);
 });
 
@@ -787,30 +789,30 @@ test("formatSubagentLive includes a trace line per recent history entry", () => 
     { role: "assistant", kind: "toolCall", toolName: "grep", text: "{}" },
   ];
   const out = formatSubagentLive(history, 1000);
-  assert.match(out, /→ read/);
-  assert.match(out, /← read/);
-  assert.match(out, /→ grep/);
+  assert.match(out, /→ Using read/);
+  assert.match(out, /✓ Used read/);
+  assert.match(out, /→ Using grep/);
 });
 
-test("formatSubagentLive surfaces a truncated tool-arg/result preview on each trace line (debug visibility)", () => {
-  // compactAgentHistory already captures tool-call arguments (as a compact JSON
-  // string) and tool-result text into `text`. The trace line must surface a
-  // short slice of each so the expanded view reads as a transcript.
+test("formatSubagentLive surfaces the verb-led target on each trace line (debug visibility)", () => {
+  // compactAgentHistory captures tool-call args (as compact JSON) into `text`;
+  // the trace line surfaces the parsed target as a verb-led phrase. A toolResult
+  // recovers the target from its matched preceding call.
   const history: AgentHistoryEntry[] = [
     { role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"src/foo.ts"}' },
     { role: "tool", kind: "toolResult", toolName: "read", text: "export const x = 1;" },
   ];
   const out = formatSubagentLive(history, 1000);
-  assert.match(out, /→ read.*src\/foo\.ts/, "tool-call arguments are surfaced on the trace line");
-  assert.match(out, /← read.*export const x/, "tool-result text is surfaced on the trace line");
+  assert.match(out, /→ Reading src\/foo\.ts/, "tool-call target is surfaced as a verb-led phrase");
+  assert.match(out, /✓ Read src\/foo\.ts/, "tool-result recovers the matched call's target");
 });
 
-test("formatSubagentLive leaves a bare `{}` arg payload off the trace line (no noise)", () => {
-  // An empty-args tool call renders as a clean `→ name` marker — the `{}` adds
+test("formatSubagentLive renders a bare-args call as `→ Using <tool>` (no noise)", () => {
+  // An empty-args tool call renders as a clean verb-only phrase — the `{}` adds
   // no information and would clutter the trace.
   const history: AgentHistoryEntry[] = [{ role: "assistant", kind: "toolCall", toolName: "ls", text: "{}" }];
   const out = formatSubagentLive(history, 0);
-  assert.match(out, /→ ls$/m, "bare {} args are not appended");
+  assert.match(out, /→ Using ls$/m, "bare {} args collapse to a verb-only phrase");
 });
 
 test("formatSubagentLive caps the trace at maxTraceLines (default 100)", () => {
@@ -843,9 +845,9 @@ test("renderSubagentResult isPartial+collapsed shows ≤2 header lines; expanded
   const expanded = renderSubagentResult({ content: [{ type: "text", text }] }, { expanded: true, isPartial: true }, T);
   assert.ok(collapsed.split("\n").length <= 2, "collapsed shows at most the 2-line header");
   assert.ok(expanded.split("\n").length > collapsed.split("\n").length, "expanded shows the trace too");
-  assert.match(expanded, /→ read/);
-  assert.match(expanded, /← read/);
-  assert.ok(!collapsed.includes("← read"), "collapsed hides the trace");
+  assert.match(expanded, /→ Using read/);
+  assert.match(expanded, /✓ Used read/);
+  assert.ok(!collapsed.includes("✓ Used read"), "collapsed hides the trace (the ✓ result line is trace-only)");
 });
 
 test("renderSubagentResult isPartial preserves a plain streamed line when collapsed (backward-compat)", () => {
@@ -1240,19 +1242,30 @@ test("renderCall drops the resolved-model segment after the run ends (end() tear
 });
 
 // ── formatHistoryLine (exported for the /subagents live-follow view) ──
-test("formatHistoryLine renders a toolCall as '→ name <args>'", () => {
+test("formatHistoryLine renders a toolCall as `→ <verb-led phrase>`", () => {
   const out = formatHistoryLine({ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"a.ts"}' });
-  assert.match(out, /^→ read /);
-  assert.ok(out.includes("a.ts"), "surfaces a short args preview");
+  assert.match(out, /^→ Reading a\.ts/);
+  assert.ok(out.includes("a.ts"), "surfaces the parsed target");
 });
 
-test("formatHistoryLine renders a toolResult as '← name ✓ <preview>'", () => {
+test("formatHistoryLine renders a toolResult as `✓ <past phrase>` (orphan → verb-only)", () => {
+  // no ctx → no matchedCallArgs → verb-only past `Read`
   const out = formatHistoryLine({ role: "tool", kind: "toolResult", toolName: "read", text: "file contents here" });
-  assert.match(out, /^← read ✓/);
-  assert.ok(out.includes("file contents"), "surfaces a short result preview");
+  assert.match(out, /^✓ Read$/);
+  // with matched args the target is recovered
+  const paired = formatHistoryLine(
+    { role: "tool", kind: "toolResult", toolName: "read", text: "file contents here" },
+    { matchedCallArgs: { path: "a.ts" } },
+  );
+  assert.match(paired, /^✓ Read a\.ts/);
 });
 
-test("formatHistoryLine renders an error as '⚠ …'", () => {
+test("formatHistoryLine renders a whole-turn error as `⚠ …` (no double `✗ ⚠`)", () => {
   const out = formatHistoryLine({ role: "assistant", kind: "error", text: "boom", isError: true });
   assert.match(out, /^⚠ boom/);
+});
+
+test("formatHistoryLine renders a tool error with the `✗ Failed to …` marker", () => {
+  const out = formatHistoryLine({ role: "tool", kind: "error", toolName: "bash", text: "exit 1", isError: true });
+  assert.match(out, /^✗ Failed to run: exit 1/);
 });

@@ -27,6 +27,7 @@ import { isSddReportActionable, parseSddReport, type SddReport } from "./sdd-rep
 import { type SpawnSubagentOptions, type SpawnSubagentResult, spawnSubagent } from "./spawn-subagent.js";
 import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
+import { formatToolAction, matchedCallArgsFor } from "./tool-action-label.js";
 import { computeBaseline, type RepoBaseline } from "./watchdog/repo-diff.js";
 import { normalizeWatchdogParam, type WatchdogResult } from "./watchdog/types.js";
 import { runWatchdog } from "./watchdog/watchdog.js";
@@ -228,18 +229,23 @@ export function taskPreview(task: string, n = 80): string {
   return oneLine.length > n ? `${oneLine.slice(0, n - 1)}…` : oneLine;
 }
 
-/** Describe the most recent history entry as a short one-line activity string. */
-function describeLastActivity(last: AgentHistoryEntry | undefined): string {
+/** Describe the most recent history entry as a short one-line activity string.
+ *  Delegates the PHRASE to {@link formatToolAction} and adds NO glyph prefix —
+ *  callers (`formatSubagentProgress`) prepend their own `↳`. */
+function describeLastActivity(
+  last: AgentHistoryEntry | undefined,
+  ctx?: { matchedCallArgs?: Record<string, unknown> },
+): string {
   if (!last) return "…";
   switch (last.kind) {
     case "toolCall":
-      return last.toolName ?? "tool";
+      return formatToolAction(last);
     case "toolResult":
-      return `${last.toolName ?? "tool"} → done`;
+      return formatToolAction(last, { matchedCallArgs: ctx?.matchedCallArgs });
     case "error":
-      // Errors are the moment progress streaming matters most — mark them
-      // distinctly so they never read as routine chatter.
-      return `⚠ ${last.text.slice(0, 60)}`;
+      // Errors are the moment progress streaming matters most — `formatToolAction`
+      // already conveys failure (`Failed to …` / `⚠ …`), so no extra marker here.
+      return formatToolAction(last);
     case "text":
       return (last.text.split("\n")[0] ?? "").slice(0, 60);
     default:
@@ -259,41 +265,32 @@ function describeLastActivity(last: AgentHistoryEntry | undefined): string {
 export function formatSubagentProgress(history: AgentHistoryEntry[], elapsedMs: number, minToolCalls = 0): string {
   const last = history[history.length - 1];
   const toolCalls = Math.max(history.filter((h) => h.kind === "toolCall").length, minToolCalls);
-  const activity = describeLastActivity(last);
+  const activity = describeLastActivity(last, { matchedCallArgs: matchedCallArgsFor(history, history.length - 1) });
   const elapsedS = (elapsedMs / 1000).toFixed(1);
   return `↳ ${activity}\n  ↳ ${elapsedS}s elapsed · ${toolCalls} tool call${toolCalls === 1 ? "" : "s"}`;
 }
 
-/**
- * Short inline preview of a tool call's arguments or a tool result's text,
- * for the expanded live-output trace. `compactAgentHistory` already captures
- * both into `AgentHistoryEntry.text` (args as a compact JSON string, results as
- * their text) — this surfaces a one-line slice so the trace reads as a real
- * transcript (what was called + what came back), not just call markers.
- * Returns "" for an empty payload or a bare `{}` (no useful args), so those
- * lines stay as clean `→ name` / `← name ✓` markers.
- */
-function previewPayload(text: string | undefined, max = 100): string {
-  if (!text) return "";
-  const one = text.replace(/\s+/g, " ").trim();
-  if (!one || one === "{}") return "";
-  return ` ${truncateToWidth(one, max)}`;
-}
-
-/** Render one history entry as a single readable trace line (live-output buffer). */
-export function formatHistoryLine(e: AgentHistoryEntry): string {
+/** Render one history entry as a single readable trace line (live-output buffer).
+ *  Owns only the surface MARKER (`→`/`✓`/`✗`); the PHRASE comes from
+ *  {@link formatToolAction}. The optional `ctx.matchedCallArgs` lets a toolResult
+ *  line recover the target it acted on (obtain via `matchedCallArgsFor`). */
+export function formatHistoryLine(e: AgentHistoryEntry, ctx?: { matchedCallArgs?: Record<string, unknown> }): string {
   switch (e.kind) {
     case "toolCall":
-      // `text` holds the JSON-stringified arguments (compactAgentHistory).
-      // Surface a short preview so the expanded trace shows WHAT the subagent
-      // called, not just the tool name — the core debug-visibility gap.
-      return `→ ${e.toolName ?? "tool"}${previewPayload(e.text)}`;
+      // `text` holds the JSON-stringified arguments (compactAgentHistory);
+      // formatToolAction parses them into a verb-led phrase (e.g. `Reading a.ts`).
+      return `→ ${formatToolAction(e)}`;
     case "toolResult":
-      // `text` holds the tool's result text. Surface a short preview of it too,
-      // so the expanded trace reads as a real transcript, not just call markers.
-      return `← ${e.toolName ?? "tool"} ✓${previewPayload(e.text)}`;
-    case "error":
-      return `⚠ ${e.text.slice(0, 200)}`;
+      // Results carry no args; ctx.matchedCallArgs (from the matching preceding
+      // toolCall) recovers the target → `✓ Read a.ts`. Orphan → verb-only `✓ Read`.
+      return `✓ ${formatToolAction(e, { matchedCallArgs: ctx?.matchedCallArgs })}`;
+    case "error": {
+      // `formatToolAction` already emits `⚠ <line>` for whole-turn assistant
+      // errors — pass it through unchanged so we never double up `✗ ⚠`. Tool
+      // errors (`Failed to …`) get the `✗` marker.
+      const phrase = formatToolAction(e);
+      return phrase.startsWith("⚠") ? phrase : `✗ ${phrase}`;
+    }
     case "text":
       return (e.text.split("\n")[0] ?? "").slice(0, 200);
     default:
@@ -317,7 +314,11 @@ export function formatSubagentLive(
   maxTraceLines = 100,
 ): string {
   const header = formatSubagentProgress(history, elapsedMs, minToolCalls);
-  const trace = history.slice(-maxTraceLines).map(formatHistoryLine);
+  // matchedCallArgsFor scans the trace window (not the full history) — for runs
+  // under the cap this is identical; a result whose call fell outside the recent
+  // window degrades gracefully to verb-only.
+  const window = history.slice(-maxTraceLines);
+  const trace = window.map((e, i) => formatHistoryLine(e, { matchedCallArgs: matchedCallArgsFor(window, i) }));
   return trace.length ? `${header}\n${trace.join("\n")}` : header;
 }
 

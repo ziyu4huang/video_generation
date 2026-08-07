@@ -133,6 +133,9 @@ export type {
   SubagentsToolOptions,
 } from "./subagents-tool.js";
 export { createSubagentsTool, renderBatchResult, subagentsToolSchema } from "./subagents-tool.js";
+// tool-action-label (shared verb-led phrase helper — see ticket 02)
+export type { ToolActionContext } from "./tool-action-label.js";
+export { formatToolAction, matchedCallArgsFor } from "./tool-action-label.js";
 export type {
   WatchdogFinding,
   WatchdogL1Result,

@@ -19,7 +19,7 @@ import type {
   SubagentsToolDetails,
   SubagentToolDetails,
 } from "./index.js";
-import { formatHistoryLine, summarizeLatestAction } from "./index.js";
+import { formatHistoryLine, matchedCallArgsFor, summarizeLatestAction } from "./index.js";
 import { formatAbsoluteTime, formatRelativeTime } from "./time-format.js";
 
 /** Tail-f window: how many recent trace lines the follow view shows. */
@@ -584,7 +584,10 @@ export class SubagentViewer {
     lines.push(truncateToWidth(`  ${head}`, width));
     lines.push(truncateToWidth(th.fg("borderMuted", "─".repeat(Math.max(0, width))), width));
 
-    const trace = (this.followedSnapshot?.history ?? []).slice(-FOLLOW_TRACE_LINES).map(formatHistoryLine);
+    const traceWindow = (this.followedSnapshot?.history ?? []).slice(-FOLLOW_TRACE_LINES);
+    const trace = traceWindow.map((e, i) =>
+      formatHistoryLine(e, { matchedCallArgs: matchedCallArgsFor(traceWindow, i) }),
+    );
     if (trace.length === 0) trace.push("…");
     for (const ln of trace) {
       lines.push(truncateToWidth(`  ${th.fg("toolOutput", ln)}`, width));
