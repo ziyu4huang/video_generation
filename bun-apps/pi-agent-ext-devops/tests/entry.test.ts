@@ -1,8 +1,9 @@
 /**
- * Smoke test for the extension entry: it registers exactly the three tools with
- * the right names + that await_pr_merge requires `prNumber` and sweep_branches
- * is fully optional (dry-run by default). (Tool behavior is covered by the
- * pr-logic/recipe/gh/branch-* tests; execute() isn't called here.)
+ * Smoke test for the extension entry: it registers exactly the four tools with
+ * the right names + that await_pr_merge requires `prNumber`, sweep_branches
+ * is fully optional (dry-run by default), and local_ci has no required params
+ * (defaults to origin/main..HEAD). (Tool behavior is covered by the
+ * pr-logic/recipe/gh/branch-* and ci-recipe tests — execute() is not exercised here.)
  */
 import { test, expect, describe } from "bun:test";
 import entry from "../extensions/devops.js";
@@ -19,10 +20,10 @@ function fakePi() {
 }
 
 	describe("devops extension entry", () => {
-		test("registers await_pr_merge + pr_status + sweep_branches tools", () => {
+		test("registers await_pr_merge + pr_status + sweep_branches + local_ci tools", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
-			expect(pi.tools.map((t) => t.name).sort()).toEqual(["await_pr_merge", "pr_status", "sweep_branches"]);
+			expect(pi.tools.map((t) => t.name).sort()).toEqual(["await_pr_merge", "local_ci", "pr_status", "sweep_branches"]);
 		});
 
 		test("await_pr_merge requires prNumber", () => {
@@ -38,6 +39,16 @@ function fakePi() {
 			const tool = pi.tools.find((t) => t.name === "sweep_branches");
 			expect(tool?.parameters.required ?? []).toEqual([]);
 			for (const opt of ["execute", "confirm", "includeLocal", "includeRemote", "protected", "prune", "limit"]) {
+				expect(tool?.parameters.properties).toHaveProperty(opt);
+			}
+		});
+
+		test("local_ci has no required params (defaults to origin/main..HEAD)", () => {
+			const pi = fakePi();
+			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
+			const tool = pi.tools.find((t) => t.name === "local_ci");
+			expect(tool?.parameters.required ?? []).toEqual([]);
+			for (const opt of ["baseRef", "packages", "all", "strict", "includeGates"]) {
 				expect(tool?.parameters.properties).toHaveProperty(opt);
 			}
 		});
