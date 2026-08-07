@@ -39,6 +39,13 @@ export interface CiOutcome {
 	/** Info-only: a non-zero schema-cost exit NEVER affects `overall`. */
 	schemaCost?: { exitCode: number; note: string };
 	elapsedMs: number;
+	/**
+	 * Set when change detection (ci-changed-packages.sh) FAILED — non-zero exit
+	 * or unparseable/empty stdout. Then `overall` is "fail", `packages`/`gates`
+	 * are empty, and the per-package loop + gates are skipped: a detection error
+	 * must NEVER be coerced to an empty package set (that yields a false-green).
+	 */
+	detectionError?: string;
 }
 
 export interface CiOptions {
@@ -137,7 +144,24 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	}
 
 	// 2. Determine target packages: explicit list > --all > change detection.
-	const pkgNames = await resolvePackages(opts, baseRef, headRef, spawn);
+	//    A detection ERROR (non-zero exit OR unparseable stdout) is surfaced here
+	//    and short-circuits to a fail outcome — it must NEVER be coerced to an
+	//    empty package set, because an empty set skips the per-package loop and a
+	//    coincidentally-green gate suite would then report overall:"pass" (a
+	//    false-green the agent would act on by `gh ship`-ing a broken state).
+	const resolved = await resolvePackages(opts, baseRef, headRef, spawn);
+	if (resolved.error) {
+		return {
+			overall: "fail",
+			baseRef,
+			headRef,
+			packages: [],
+			gates: [],
+			elapsedMs: Date.now() - t0,
+			detectionError: resolved.error,
+		};
+	}
+	const pkgNames = resolved.packages;
 
 	// 3. Per package: typecheck (by precedence) + test.
 	const packages: CiPackageResult[] = [];
@@ -212,15 +236,33 @@ async function resolvePackages(
 	baseRef: string,
 	headRef: string,
 	spawn: SpawnFn,
-): Promise<string[]> {
-	if (Array.isArray(opts.packages)) return opts.packages;
+): Promise<{ packages: string[]; error?: string }> {
+	if (Array.isArray(opts.packages)) return { packages: opts.packages };
 	if (opts.all) {
 		const r = await spawn("bash", ["scripts/ci-changed-packages.sh", "--all"], { cwd: opts.repoRoot });
-		return Object.keys((parseJson(r.stdout) ?? {}) as Record<string, unknown>);
+		const error = detectionFailure(r.exitCode, r.stdout);
+		if (error) return { packages: [], error };
+		return { packages: Object.keys(parseJson(r.stdout) as Record<string, unknown>) };
 	}
 	const r = await spawn("bash", ["scripts/ci-changed-packages.sh", baseRef, headRef], { cwd: opts.repoRoot });
-	const obj = (parseJson(r.stdout) ?? {}) as Record<string, unknown>;
-	return Object.entries(obj)
-		.filter(([, v]) => v === true)
-		.map(([k]) => k);
+	const error = detectionFailure(r.exitCode, r.stdout);
+	if (error) return { packages: [], error };
+	const obj = parseJson(r.stdout) as Record<string, unknown>;
+	return {
+		packages: Object.entries(obj)
+			.filter(([, v]) => v === true)
+			.map(([k]) => k),
+	};
+}
+
+/**
+ * A detection run FAILED iff it exited non-zero OR its stdout is empty /
+ * unparseable as JSON. Returns the human-readable reason, or undefined when the
+ * run is healthy. Detection failure must propagate as `overall:"fail"` — never
+ * be coerced to an empty package set (that is the false-green M3 guards against).
+ */
+function detectionFailure(exitCode: number, stdout: string): string | undefined {
+	if (exitCode !== 0) return `ci-changed-packages.sh exited ${exitCode}`;
+	if (parseJson(stdout) === null) return "ci-changed-packages.sh returned unparseable output";
+	return undefined;
 }

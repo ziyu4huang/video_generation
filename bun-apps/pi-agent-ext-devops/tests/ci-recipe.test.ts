@@ -288,3 +288,69 @@ describe("runLocalCi — base-ref guard", () => {
 		expect(calls.some((c) => c.args[0] === "scripts/ci-changed-packages.sh")).toBe(false);
 	});
 });
+
+describe("runLocalCi — detection failure fails LOUD (no false-green) [review M3]", () => {
+	/** base/head detection matcher with a configurable exit/stdout. */
+	const detectRaw = (result: SpawnResult) => ({
+		match: (c, a) => c === "bash" && a[0] === "scripts/ci-changed-packages.sh" && !a.includes("--all"),
+		result,
+	});
+
+	test("base/head detection exit 1 → overall fail; NO per-package spawns; NO gate spawns", async () => {
+		const { fn, calls } = mkSpawn([
+			verifyOk(),
+			detectRaw({ stdout: "", stderr: "boom", exitCode: 1 }),
+		]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			readPkg: mkReadPkg({ "pkg-a": { typecheck: "tsc --noEmit", test: "bun test" } }),
+			// gates left ON deliberately: a detection error must skip them regardless.
+		});
+		expect(out.overall).toBe("fail");
+		expect(out.packages).toEqual([]);
+		expect(out.gates).toEqual([]);
+		expect(out.detectionError).toMatch(/exited 1/);
+		// no per-package spawns (no `bun run test` / `bun run typecheck` anywhere).
+		expect(calls.some((c) => c.cmd === "bun" && c.args[0] === "run" && (c.args[1] === "test" || c.args[1] === "typecheck"))).toBe(false);
+		// no gate spawns.
+		expect(calls.some((c) => c.args[0] === "scripts/ci-file-size-guard.sh")).toBe(false);
+		expect(calls.some((c) => c.args[0] === "scripts/check-lockfile-duplicate-versions.sh")).toBe(false);
+	});
+
+	test("base/head detection exit 0 but non-JSON garbage stdout → overall fail; detectionError set", async () => {
+		const { fn, calls } = mkSpawn([
+			verifyOk(),
+			detectRaw({ stdout: "not json {{{", stderr: "", exitCode: 0 }),
+		]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+		});
+		expect(out.overall).toBe("fail");
+		expect(out.detectionError).toMatch(/unparseable/);
+		expect(out.packages).toEqual([]);
+		// nothing ran past detection.
+		expect(calls.some((c) => c.cmd === "bun" && c.args[1] === "test")).toBe(false);
+	});
+
+	test("--all detection exit 1 → overall fail; detectionError set", async () => {
+		const { fn, calls } = mkSpawn([
+			verifyOk(),
+			{ match: (c, a) => c === "bash" && a[0] === "scripts/ci-changed-packages.sh" && a.includes("--all"), result: { stdout: "", stderr: "boom", exitCode: 1 } },
+		]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			all: true,
+			spawn: fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+		});
+		expect(out.overall).toBe("fail");
+		expect(out.detectionError).toMatch(/exited 1/);
+		expect(out.packages).toEqual([]);
+		// the base/head variant was NOT used, and no package ran.
+		expect(calls.some((c) => c.args[0] === "scripts/ci-changed-packages.sh" && !c.args.includes("--all"))).toBe(false);
+		expect(calls.some((c) => c.cmd === "bun" && c.args[1] === "test")).toBe(false);
+	});
+});
