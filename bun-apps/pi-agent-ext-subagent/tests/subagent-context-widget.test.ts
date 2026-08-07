@@ -1,7 +1,7 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { InFlightSubagent } from "../src/index.js";
-import { isCtrlO, SubagentContextWidget } from "../src/subagent-context-widget.js";
+import { countNoun, isCtrlO, SubagentContextWidget } from "../src/subagent-context-widget.js";
 
 // Identity theme so render() returns plain text we can assert on (mirrors the
 // old subagent-progress-widget.test.ts).
@@ -127,9 +127,10 @@ test("isCtrlO is false for ordinary input (letters, arrows, other control bytes)
   assert.equal(isCtrlO("\x1b[A"), false);
 });
 
-test("the count header documents the /subagents drill-down", () => {
+test("the count header documents BOTH the Ctrl-O expand hint and the /subagents drill-down", () => {
   const w = new SubagentContextWidget({ getRunning: () => [run({ foreground: false })] });
   const out = w.render(T).join("\n");
+  assert.match(out, /Ctrl-O to expand/, "header advertises the box-expand keystroke (ticket 03)");
   assert.match(out, /\/subagents for detail/);
 });
 
@@ -163,10 +164,44 @@ test("(Stage B) a workflow run (agent='workflow') renders under a workflow-speci
     ],
   });
   const out = w.render(T).join("\n");
-  assert.match(out, /1 background/, "the workflow run is counted as a background run");
+  // Ticket 04: a lone workflow run is now counted with the workflow noun, NOT
+  // the old fixed "subagent" noun.
+  assert.match(out, /1 background workflow running/, "the workflow run is counted with the workflow noun");
   assert.ok(out.includes("workflow"), "header shows the workflow title, not 'subagent'");
   assert.ok(out.includes("preview_wf · Scan · 1/2 agents"), "header shows the workflow preview");
   assert.ok(!out.includes("flash"), "no subagent model slot for a workflow entry");
   // Collapsed by default — no fabricated live trace for a workflow.
   assert.ok(!out.includes("→ read"), "no live trace line for a workflow entry");
+});
+
+// --- ticket 04: countNoun picks the header noun from the actual run mix ---
+
+function wf(over: Partial<InFlightSubagent> = {}): InFlightSubagent {
+  return run({ id: "wf:1", agent: "workflow", model: undefined, taskPreview: "wf preview", ...over });
+}
+
+test("countNoun: a single subagent → 'subagent'", () => {
+  assert.equal(countNoun([run({ foreground: false })]), "subagent");
+});
+
+test("countNoun: two subagents → 'subagents'", () => {
+  assert.equal(
+    countNoun([run({ id: "r1", foreground: false }), run({ id: "r2", foreground: false })]),
+    "subagents",
+  );
+});
+
+test("countNoun: a single workflow → 'workflow' (NOT 'subagent')", () => {
+  assert.equal(countNoun([wf({ foreground: false })]), "workflow");
+});
+
+test("countNoun: two workflows → 'workflows'", () => {
+  assert.equal(
+    countNoun([wf({ id: "wf:1", foreground: false }), wf({ id: "wf:2", foreground: false })]),
+    "workflows",
+  );
+});
+
+test("countNoun: a mixed set (1 subagent + 1 workflow) → 'runs'", () => {
+  assert.equal(countNoun([run({ id: "r1", foreground: false }), wf({ id: "wf:1", foreground: false })]), "runs");
 });

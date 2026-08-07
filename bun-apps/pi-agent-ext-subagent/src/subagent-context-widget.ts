@@ -47,6 +47,21 @@ export function isCtrlO(data: string): boolean {
   return data.includes("\x0f");
 }
 
+/**
+ * Pick the count-header noun from the actual run mix. A workflow-only run set
+ * must NOT be labelled "subagent" (the old fixed noun did exactly that when a
+ * single workflow was live). `subagents` = runs with `r.agent !== "workflow"`;
+ * `workflows` = the rest. Singular for a lone run of one kind, plural for many
+ * of one kind, and the neutral `"runs"` for a mixed set (always ≥2).
+ */
+export function countNoun(running: InFlightSubagent[]): string {
+  const subagents = running.filter((r) => r.agent !== "workflow").length;
+  const workflows = running.length - subagents;
+  if (workflows === 0) return subagents === 1 ? "subagent" : "subagents";
+  if (subagents === 0) return workflows === 1 ? "workflow" : "workflows";
+  return "runs";
+}
+
 export class SubagentContextWidget {
   /**
    * Collapsed (headers-only) by default. Stage A never wires `toggle()` to a key
@@ -78,10 +93,14 @@ export class SubagentContextWidget {
     // also catches omitted/undefined (the registry normalizes to false).
     const running = this.opts.getRunning().filter((r) => !r.foreground);
     if (running.length === 0) return [];
-    const noun = running.length === 1 ? "subagent" : "subagents";
-    // Count header doubles as the drill-down hint: the collapsed box shows only
-    // headers, so direct the user to /subagents for the live tool trace.
-    const lines: string[] = [` ${running.length} background ${noun} running · /subagents for detail `];
+    const noun = countNoun(running);
+    // Count header doubles as the discoverability surface: ticket 03 shipped
+    // box-expand on Ctrl-O (the onTerminalInput hook), and this header is where
+    // the user learns the keystroke — plus the /subagents drill-down for the
+    // live tool trace.
+    const lines: string[] = [
+      ` ${running.length} background ${noun} running · Ctrl-O to expand · /subagents for detail `,
+    ];
     for (const r of running) {
       lines.push(...this.renderRun(r, theme));
     }
