@@ -3,7 +3,7 @@
  *
  * Refactored for overlay unification: no longer owns a `setWidget` lifecycle.
  * The CoreTaskStatusWidget (shared/status-widget.ts) owns the single
- * above-editor widget key and renders this section alongside the goal section
+ * below-editor widget key and renders this section alongside the goal section
  * in a fixed order. TodoOverlay is now a state-holder that exposes
  * `render(theme, width)` and pokes `refresh()` (the composite's update) when
  * its content changes.

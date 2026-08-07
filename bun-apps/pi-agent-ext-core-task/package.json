@@ -2,7 +2,7 @@
   "name": "@repo/pi-agent-ext-core-task",
   "private": true,
   "version": "0.1.0",
-  "description": "Pi extension: the task-execution cockpit — /goal (+ goal_complete tool) drives one objective to completion; todo (+ /todos) tracks in-session steps; ask_user_question is the structured option selector; plus the shared composite above-editor status widget. goal+todo share the widget + lifecycle hooks; ask_user_question is a self-contained modal (merged 2026-07-18). Unified entry core-task.ts.",
+  "description": "Pi extension: the task-execution cockpit — /goal (+ goal_complete tool) drives one objective to completion; todo (+ /todos) tracks in-session steps; ask_user_question is the structured option selector; plus the shared composite below-editor status widget. goal+todo share the widget + lifecycle hooks; ask_user_question is a self-contained modal (merged 2026-07-18). Unified entry core-task.ts.",
   "license": "MIT",
   "keywords": [
     "pi-package",

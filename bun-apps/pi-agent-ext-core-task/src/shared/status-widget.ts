@@ -1,10 +1,10 @@
 /**
- * shared/status-widget.ts — single above-editor widget for the composite
+ * shared/status-widget.ts — single below-editor widget for the composite
  * status display (goal, todo, and now wayfind / the plan coordinator),
  * rendered in a FIXED order.
  *
  * WHY ONE KEY (not one per feature):
- * The pi-coding-agent SDK stores above-editor widgets in a Map and renders them
+ * The pi-coding-agent SDK stores below-editor widgets in a Map and renders them
  * via `widgets.values()` — i.e. JS Map INSERTION ORDER. There is no order/index
  * API on `setWidget`. Two separate keys (the old "pi-goal" + "rpiv-todos")
  * therefore stack in registration order, and whenever one is cleared
@@ -12,7 +12,7 @@
  * visible flicker/reorder while a /goal is active with a non-empty todo list.
  *
  * One composite key ("pi-core-task") makes stacking deterministic by
- * construction: the only above-editor widget can't reorder relative to itself.
+ * construction: the only below-editor widget can't reorder relative to itself.
  * Sections render sorted by their `order` field (goal=0, todo=1, wayfind=2,
  * the plan coordinator=3); sections without an explicit `order` sort after all
  * ordered sections, in `addSection` call order.

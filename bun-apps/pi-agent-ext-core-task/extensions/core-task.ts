@@ -5,7 +5,7 @@
  * pi-agent-ext-ask-user (pi-ask-user.ts) into a single extension entry.
  *
  * goal + todo are kept together because they share:
- *   • CoreTaskStatusWidget — a single above-editor widget key ("pi-core-task")
+ *   • CoreTaskStatusWidget — a single below-editor widget key ("pi-core-task")
  *     that renders goal (top) + todo (bottom) in fixed order. Splitting them
  *     across two extensions would reintroduce the widget-key flicker bug the
  *     composite widget was built to fix (the SDK orders widgets by Map
@@ -69,7 +69,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	registerTodoTool(pi);
 	registerTodosCommand(pi);
 
-	// ── Goal + Todo overlays → ONE composite above-editor widget ─────────────
+	// ── Goal + Todo overlays → ONE composite below-editor widget ─────────────
 	// A single widget key makes stacking deterministic; goal renders on top,
 	// todo below. The overlays are thin render() state-holders; all setWidget
 	// lifecycle lives in CoreTaskStatusWidget.
