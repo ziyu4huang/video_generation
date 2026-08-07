@@ -35,8 +35,14 @@ export function formatContent(op: Op, state: TaskState): string {
 			const transition = op.fromStatus !== op.toStatus ? ` (${op.fromStatus} → ${op.toStatus})` : "";
 			return `Updated #${op.id}${transition}`;
 		}
-		case "delete":
-			return `Deleted #${op.id}: ${op.subject}`;
+		case "delete": {
+			const base = `Deleted #${op.id}: ${op.subject}`;
+			if (op.dependentsAffected && op.dependentsAffected.length > 0) {
+				const depList = op.dependentsAffected.map((id) => `#${id}`).join(", ");
+				return `${base}\n  ⚠ Removed dependency from: ${depList}`;
+			}
+			return base;
+		}
 		case "clear":
 			return `Cleared ${op.count} tasks`;
 		case "list": {

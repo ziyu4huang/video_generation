@@ -13,7 +13,7 @@
  */
 import { test, expect, describe } from "bun:test";
 import type { Task, TaskAction, TaskMutationParams } from "../todo/tool/types";
-import { isTransitionValid } from "../todo/state/invariants";
+import { isTransitionValid, validateReferentialIntegrity } from "../todo/state/invariants";
 import type { TaskState } from "../todo/state/state";
 import { applyTaskMutation, type Op, type ApplyResult } from "../todo/state/state-reducer";
 import { detectCycle, deriveBlocks } from "../todo/state/task-graph";
@@ -220,6 +220,169 @@ describe("applyTaskMutation — list/get/delete/clear", () => {
   test("delete on missing id errors", () => {
     const result = applyTaskMutation(emptyState(), "delete", { id: 99 });
     expect(result.op).toEqual({ kind: "error", message: "#99 not found" });
+  });
+
+  // ─── core-task-review #10: todo delete referential integrity ─────────────────
+
+  test("#10: delete prunes blockedBy from dependent tasks", () => {
+    // Create tasks: A blockedBy B, B blockedBy C
+    let state = emptyState();
+    state = applyTaskMutation(state, "create", { subject: "C" }).state;
+    state = applyTaskMutation(state, "create", { subject: "B", blockedBy: [1] }).state;
+    state = applyTaskMutation(state, "create", { subject: "A", blockedBy: [2] }).state;
+
+    // Before delete: A has blockedBy [2], B has blockedBy [1]
+    expect(state.tasks[2].blockedBy).toEqual([2]);
+    expect(state.tasks[1].blockedBy).toEqual([1]);
+
+    // Delete task B (id=2)
+    const result = applyTaskMutation(state, "delete", { id: 2 });
+
+    // B should be marked deleted
+    expect(result.state.tasks[1].status).toBe("deleted");
+
+    // A's blockedBy should no longer contain B (id=2)
+    const taskA = result.state.tasks.find((t) => t.id === 3);
+    expect(taskA?.blockedBy).toBeUndefined(); // dropped when empty
+
+    // Op should report dependent A (id=3) as affected
+    expect(result.op.kind).toBe("delete");
+    if (result.op.kind === "delete") {
+      expect(result.op.dependentsAffected).toEqual([3]);
+    }
+  });
+
+  test("#10: delete with multiple dependents prunes all blockedBy entries", () => {
+    // Create tasks: root, and three tasks depending on it
+    let state = emptyState();
+    state = applyTaskMutation(state, "create", { subject: "root" }).state;
+    state = applyTaskMutation(state, "create", { subject: "dep1", blockedBy: [1] }).state;
+    state = applyTaskMutation(state, "create", { subject: "dep2", blockedBy: [1] }).state;
+    state = applyTaskMutation(state, "create", { subject: "dep3", blockedBy: [1] }).state;
+
+    // All deps should have blockedBy [1]
+    expect(state.tasks[1].blockedBy).toEqual([1]);
+    expect(state.tasks[2].blockedBy).toEqual([1]);
+    expect(state.tasks[3].blockedBy).toEqual([1]);
+
+    // Delete root
+    const result = applyTaskMutation(state, "delete", { id: 1 });
+
+    // All deps should have blockedBy removed
+    expect(result.state.tasks[1].blockedBy).toBeUndefined();
+    expect(result.state.tasks[2].blockedBy).toBeUndefined();
+    expect(result.state.tasks[3].blockedBy).toBeUndefined();
+
+    // Op should report all three dependents
+    expect(result.op.kind).toBe("delete");
+    if (result.op.kind === "delete") {
+      expect(result.op.dependentsAffected?.sort()).toEqual([2, 3, 4]);
+    }
+  });
+
+  test("#10: delete with no dependents yields no dependentsAffected", () => {
+    // Create a task with no dependents
+    let state = emptyState();
+    state = applyTaskMutation(state, "create", { subject: "lone task" }).state;
+
+    // Delete it
+    const result = applyTaskMutation(state, "delete", { id: 1 });
+
+    // Op should have no dependentsAffected (undefined, not empty array)
+    expect(result.op.kind).toBe("delete");
+    if (result.op.kind === "delete") {
+      expect(result.op.dependentsAffected).toBeUndefined();
+    }
+  });
+
+  test("#10: delete prunes only the deleted id from multi-dependency blockedBy", () => {
+    // Create tasks: A, B, C, D; D blockedBy [A, B, C]
+    let state = emptyState();
+    state = applyTaskMutation(state, "create", { subject: "A" }).state;
+    state = applyTaskMutation(state, "create", { subject: "B" }).state;
+    state = applyTaskMutation(state, "create", { subject: "C" }).state;
+    state = applyTaskMutation(state, "create", { subject: "D", blockedBy: [1, 2, 3] }).state;
+
+    // Delete only B (id=2)
+    const result = applyTaskMutation(state, "delete", { id: 2 });
+
+    // D's blockedBy should now be [1, 3] (B removed)
+    const taskD = result.state.tasks.find((t) => t.id === 4);
+    expect(taskD?.blockedBy?.sort()).toEqual([1, 3]);
+
+    // Op should report D as the only affected dependent
+    expect(result.op.kind).toBe("delete");
+    if (result.op.kind === "delete") {
+      expect(result.op.dependentsAffected).toEqual([4]);
+    }
+  });
+});
+
+// ─── validateReferentialIntegrity ──────────────────────────────────────────────
+
+describe("validateReferentialIntegrity", () => {
+  test("returns unchanged tasks when deleted id not in any blockedBy", () => {
+    const tasks: Task[] = [
+      { id: 1, subject: "a", status: "pending" },
+      { id: 2, subject: "b", status: "pending" },
+    ];
+    const result = validateReferentialIntegrity(tasks, 99);
+    expect(result.updatedTasks).toEqual(tasks);
+    expect(result.dependentsAffected).toEqual([]);
+  });
+
+  test("removes deleted id from single dependent's blockedBy", () => {
+    const tasks: Task[] = [
+      { id: 1, subject: "a", status: "pending" },
+      { id: 2, subject: "b", status: "pending", blockedBy: [1] },
+    ];
+    const result = validateReferentialIntegrity(tasks, 1);
+    expect(result.updatedTasks[1].blockedBy).toBeUndefined();
+    expect(result.dependentsAffected).toEqual([2]);
+  });
+
+  test("removes deleted id from multiple dependents' blockedBy", () => {
+    const tasks: Task[] = [
+      { id: 1, subject: "root", status: "pending" },
+      { id: 2, subject: "dep1", status: "pending", blockedBy: [1] },
+      { id: 3, subject: "dep2", status: "pending", blockedBy: [1] },
+    ];
+    const result = validateReferentialIntegrity(tasks, 1);
+    expect(result.updatedTasks[1].blockedBy).toBeUndefined();
+    expect(result.updatedTasks[2].blockedBy).toBeUndefined();
+    expect(result.dependentsAffected.sort()).toEqual([2, 3]);
+  });
+
+  test("drops blockedBy field when it becomes empty after prune", () => {
+    const tasks: Task[] = [
+      { id: 1, subject: "a", status: "pending" },
+      { id: 2, subject: "b", status: "pending", blockedBy: [1] },
+    ];
+    const result = validateReferentialIntegrity(tasks, 1);
+    expect("blockedBy" in result.updatedTasks[1]).toBe(false);
+  });
+
+  test("keeps non-empty blockedBy after partial prune", () => {
+    const tasks: Task[] = [
+      { id: 1, subject: "a", status: "pending" },
+      { id: 2, subject: "b", status: "pending" },
+      { id: 3, subject: "c", status: "pending", blockedBy: [1, 2] },
+    ];
+    const result = validateReferentialIntegrity(tasks, 1);
+    expect(result.updatedTasks[2].blockedBy).toEqual([2]);
+  });
+
+  test("does not modify the deleted task itself", () => {
+    const tasks: Task[] = [
+      { id: 1, subject: "a", status: "pending" },
+      { id: 2, subject: "b", status: "pending", blockedBy: [1] },
+    ];
+    const result = validateReferentialIntegrity(tasks, 2);
+    // Task 2 (the deleted one) should be unchanged
+    expect(result.updatedTasks[1]).toEqual(tasks[1]);
+    // Task 1 should be unchanged (it doesn't depend on 2)
+    expect(result.updatedTasks[0]).toEqual(tasks[0]);
+    expect(result.dependentsAffected).toEqual([]);
   });
 });
 
