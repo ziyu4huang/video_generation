@@ -72,7 +72,7 @@ const SEAM_KEYS: readonly SeamKey[] = [
 	{ key: "__piKickHeartbeat",       crossPackage: false }, //   () => void     intra-core-task (goal → loop)
 	{ key: "__piPlanIncomplete",      crossPackage: true },  //  (cwd) => boolean        (wayfind → power-tool)
 	{ key: "__piPlanPhases",          crossPackage: true },  //     (cwd) => PlanPhaseInfo[] (wayfind → power-tool)
-	{ key: "__piPlanSummary",         crossPackage: false }, //    (cwd) => string       (wayfind only; not yet consumed)
+	{ key: "__piPlanSummary",         crossPackage: true },  //    (cwd) => string       (core-task → wayfind)
 	{ key: "__piWayfindGrill",        crossPackage: true },  //   (sessionId) => boolean (wayfind → hermes-memory)
 ];
 const SEAM_KEY_SET = new Set<string>(SEAM_KEYS.map((s) => s.key));
@@ -86,8 +86,7 @@ const SEAM_KEY_SET = new Set<string>(SEAM_KEYS.map((s) => s.key));
 const RE_QUOTED = /"__pi[A-Z][A-Za-z0-9]*"/g;
 const RE_ACCESS = /\.__pi[A-Z][A-Za-z0-9]*/g;
 
-/** Walk every extension's production `src/` and collect each `__pi*` token →
- *  the set of packages that reference it. Skips comments + test/fixture dirs. */
+/** Walk every extension's production `src/` AND `extensions/` (the canonical seam-registration entry where keys are published) and collect each `__pi*` token → the set of packages that reference it. Skips comments + test/fixture dirs. */
 function scanSeamReferences(): Map<string, Set<string>> {
 	const refs = new Map<string, Set<string>>();
 	const note = (tok: string, pkg: string) => {
@@ -112,7 +111,10 @@ function scanSeamReferences(): Map<string, Set<string>> {
 			}
 		}
 	};
-	for (const pkg of EXTS) walk(join(ROOT, pkg, "src"), pkg);
+	for (const pkg of EXTS) {
+		walk(join(ROOT, pkg, "src"), pkg);
+		walk(join(ROOT, pkg, "extensions"), pkg); // canonical seam-registration entry (CLAUDE.md); publish sites live here
+	}
 	return refs;
 }
 
