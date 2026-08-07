@@ -63,6 +63,10 @@ Core-task publishes four coordination seams for cross-extension communication:
 All are one-way publishes from core-task; only wayfind (and `/loop` for `__piGoalActive`) reads them.
 _Avoid_: hook, signal (they are published globalThis readers, not event hooks)
 
+**Process-singleton state**:
+Todo/goal state are module-level singletons, safe under pi's native one-session-per-process lifecycle (sequential teardown→create). Known caveat: in-process subagents (`WorkflowAgent.run` → `createAgentSession`) share these singletons, causing cross-contamination — see ticket #16 for the hardening fix.
+_Avoid_: global state, shared cell (the singleton is safe natively; the subagent path is the exception)
+
 ## Language — ask_user_question
 
 The `ask_user_question` tool: a structured option selector with a free-text "Other" fallback. Extracted from power-tool; ported from @juicesharp/rpiv-ask-user-question.
