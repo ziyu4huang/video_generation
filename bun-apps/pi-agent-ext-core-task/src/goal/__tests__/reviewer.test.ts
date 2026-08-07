@@ -63,6 +63,68 @@ describe("reviewer — classifyFindingText", () => {
 		expect(classifyFindingText("short")).toBeUndefined();
 		expect(classifyFindingText("architectural-class finding")).toBeUndefined();
 	});
+
+	describe("M-anti-pattern: false-positive completion-prose keywords (ticket 05)", () => {
+		it("M-anti-pattern: 'no issues' / 'no issue' / 'without issues' does not trigger the reviewer", () => {
+			// These are benign completion prose, not real bug signals
+			expect(classifyFindingText("- no issues found")).toBeUndefined();
+			expect(classifyFindingText("- no issue with the implementation")).toBeUndefined();
+			expect(classifyFindingText("- completed without any issues")).toBeUndefined();
+			expect(classifyFindingText("- this is a non-issue")).toBeUndefined();
+			expect(classifyFindingText("- all tests pass, no issues")).toBeUndefined();
+		});
+
+		it("M-anti-pattern: 'added enhancements' / 'made improvements' does not trigger the reviewer", () => {
+			// These are retrospective completion summaries, not "could be improved" signals
+			expect(classifyFindingText("- added several improvements to the parser")).toBeUndefined();
+			expect(classifyFindingText("- made enhancements to the UI")).toBeUndefined();
+			expect(classifyFindingText("- added multiple enhancements")).toBeUndefined();
+			expect(classifyFindingText("- made minor improvements")).toBeUndefined();
+			expect(classifyFindingText("- included several small improvements")).toBeUndefined();
+			expect(classifyFindingText("- implemented minor enhancements")).toBeUndefined();
+		});
+
+		it("M-anti-pattern: legitimate 'issue' detections still fire (no false negatives)", () => {
+			// Real issue mentions should still be detected
+			expect(classifyFindingText("- there is an issue with the auth flow")).toBe("bug");
+			expect(classifyFindingText("- found a critical issue in the parser")).toBe("bug");
+			expect(classifyFindingText("- TODO: investigate the issue")).toBe("bug");
+			expect(classifyFindingText("- the issue causes a regression")).toBe("bug");
+		});
+
+		it("M-anti-pattern: legitimate 'improvement' detections still fire (no false negatives)", () => {
+			// Real improvement signals (suggestions, not retrospective claims) should still be detected
+			expect(classifyFindingText("- could be improved by adding caching")).toBe("refactor");
+			expect(classifyFindingText("- this module could be improved")).toBe("refactor");
+			expect(classifyFindingText("- consider adding improvement X")).toBe("refactor");
+			expect(classifyFindingText("- would be nice to have an enhancement here")).toBe("refactor");
+		});
+
+		it("M-anti-pattern: mixed completion with false friends enqueues 0 items", () => {
+			// A clean completion that says "no issues; added several enhancements"
+			// should enqueue zero items (regression test from ticket 05)
+			const out = extractFindings(
+				[
+					{ name: "summary", text: "no issues; added several enhancements" },
+				],
+				10,
+			);
+			expect(out).toEqual([]);
+		});
+
+		it("M-anti-pattern: a genuine 'TODO: fix the broken loader' finding still enqueues", () => {
+			// Real findings must still be detected (no false negatives)
+			const out = extractFindings(
+				[
+					{ name: "summary", text: "- TODO: fix the broken loader" },
+				],
+				10,
+			);
+			expect(out).toHaveLength(1);
+			expect(out[0].class).toBe("bug");
+			expect(out[0].text).toContain("fix the broken loader");
+		});
+	});
 });
 
 describe("reviewer — text helpers", () => {

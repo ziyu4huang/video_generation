@@ -101,6 +101,30 @@ const CLASS_PATTERNS: Array<{ class: FindingClass; re: RegExp }> = [
 const SKIP_LINE = /^\s*(test|it|describe|assert|expect)\s*\(|^\s*(const|let|var|function|import|export|require)\b|\{\s*\.\.\.\s*\}|,\s*\.\.\.$|^\s*\||^\s*[{\[\]}]|^\s*['"]|^\s*ℹ/; // ℹ = test-runner/status noise ("ℹ todo 0" was enqueued as a /list item by the 0.26.2 reviewer)
 const REVIEWER_VOCAB = /architectural-class|bug-class|refactor-class|strategic-class|reviewer found|cascade step|\*\*Mode\*\*|problems\s*\/\s*\(?(improvements|architectural)/i;
 
+/** Anti-patterns (false friends): benign completion-prose that matches
+ * CLASS_PATTERNS but is NOT a finding. These are "no issues" / "added
+ * enhancements" style retrospectives, not real signals. The anti-pattern
+ * check runs AFTER a keyword hit and suppresses classification when the
+ * surrounding text is a known false friend. Ref: ticket 05 —
+ * reviewer false-positive anti-patterns. */
+const FALSE_FRIEND_PATTERNS = [
+	// Negated "issue" forms — completion says "no issues", not "there is an issue"
+	/\bno issues?\b/i,
+	/\bnon-issue\b/i,
+	/\bwithout (any )?issues?\b/i,
+	// Benign improvement/enhancement mentions in completion prose
+	// e.g. "added several improvements" / "made enhancements" — these are
+	// retrospective summaries, not "could be improved" signals
+	/(?:added|made|included|implemented) (?:several |minor |small |multiple )*(?:improvements?|enhancements)/i,
+];
+
+/** Check whether a line that matched a CLASS_PATTERN is actually a false
+ * friend (benign completion prose). Returns true if the line matches an
+ * anti-pattern and should be suppressed. */
+function isFalseFriend(line: string): boolean {
+	return FALSE_FRIEND_PATTERNS.some((re) => re.test(line));
+}
+
 export function classifyFindingText(line: string): FindingClass | undefined {
 	// Strip list markers here too (extractFindings already does, but direct
 	// callers/tests pass raw report lines like "- ℹ todo 0").
@@ -108,7 +132,12 @@ export function classifyFindingText(line: string): FindingClass | undefined {
 	if (t.length < 8) return undefined;
 	if (SKIP_LINE.test(t) || REVIEWER_VOCAB.test(t)) return undefined;
 	for (const { class: cls, re } of CLASS_PATTERNS) {
-		if (re.test(t)) return cls;
+		if (re.test(t)) {
+			// Anti-pattern check: suppress false friends (benign completion prose)
+			// that match keywords but are not real findings. Ref: ticket 05.
+			if (isFalseFriend(t)) return undefined;
+			return cls;
+		}
 	}
 	return undefined;
 }
