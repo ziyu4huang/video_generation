@@ -1306,3 +1306,55 @@ describe("planProgressLineFromPeer + buildGoalSystemPrompt (fusion)", () => {
 		}
 	});
 });
+
+// ─── Reviewer data-loss regression (core-task-review #04) ───────────────────
+
+describe("reviewer data-loss: ui.confirm throwing after enqueue preserves list", () => {
+	test("preserves enqueued list when ui.confirm throws after enqueue (data-loss regression)", async () => {
+		const { mock: mockPi, ctx, overlay } = await startGoalForTest({
+			// Mock ui.confirm to throw (simulates UI race / IPC error)
+			confirm: async (_title: string, _message: string) => {
+				throw new Error("UI confirm failed (simulated IPC error)");
+			},
+		});
+
+		// Enable the reviewer AFTER startGoalForTest (which disables it)
+		goalState.reviewerEnabled = true;
+
+		const tool = mockPi.tools[0]!;
+
+		// Call goal_complete with a completion summary that contains TODO/FIXME items.
+		// The reviewer will extract these as bug findings and enqueue them to the list.
+		// Then ui.confirm will throw, and the catch block should preserve the list.
+		const result = await tool.execute(
+			"call-reviewer-throw",
+			{ summary: "Done, but there are some TODOs left:\n- TODO: fix the leak\n- FIXME: race condition" },
+			new AbortController().signal,
+			() => undefined,
+			ctx,
+		);
+
+		// The goal should still complete gracefully (non-fatal error)
+		expect(result.terminate).toBe(true);
+		expect(lastGoalStatus(mockPi)).toBeNull();
+
+		// KEY ASSERTION: the enqueued list items must SURVIVE the throw
+		// This is the regression test for the data-loss bug.
+		// The reviewer should have extracted the TODO and FIXME as bug findings
+		// and enqueued them, and the catch block should preserve them.
+		expect(goalState.list.length).toBeGreaterThan(0);
+		// The enqueued items should contain the TODO/FIXME text
+		const listTexts = goalState.list.map((item) => item.text).join(" ");
+		expect(listTexts).toContain("TODO");
+		expect(listTexts).toContain("FIXME");
+
+		// Cleanup: session_shutdown to reset state
+		const shutdownHandlers = mockPi.events.get("session_shutdown");
+		if (shutdownHandlers && shutdownHandlers.length > 0) {
+			(shutdownHandlers[0] as (event: unknown, ctx: unknown) => void)({}, ctx);
+		}
+
+		// Reset reviewer state for other tests
+		goalState.reviewerEnabled = false;
+	});
+});
