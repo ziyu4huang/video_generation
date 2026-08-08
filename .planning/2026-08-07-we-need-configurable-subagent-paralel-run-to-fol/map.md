@@ -1,4 +1,5 @@
 ---
+effort: 2026-08-07-we-need-configurable-subagent-paralel-run-to-fol
 status: active
 ---
 

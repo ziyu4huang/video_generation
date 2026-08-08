@@ -1,4 +1,5 @@
 ---
+effort: 2026-07-19-goal-todo-handoff-stopgap
 superseded-by: 2026-07-19-a
 ---
 

@@ -1,4 +1,5 @@
 ---
+effort: 2026-08-08-pi-agent-ext-knowledge-card-obsidian-surealdb-or
 status: active
 ---
 
