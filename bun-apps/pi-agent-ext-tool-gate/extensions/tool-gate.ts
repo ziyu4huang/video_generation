@@ -30,6 +30,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { appendFileSync } from "node:fs";
 import { Type } from "typebox";
+import { estimateToolCost } from "@repo/pi-agent-ext-power-tool/schema-cost";
 
 // ── Tool categories ──────────────────────────────────────────────
 
@@ -409,23 +410,20 @@ export function computeBannerSaved(
 }
 
 /**
- * Estimate a single tool's API schema-cost in tokens. Replicates the
- * schema-cost CLI heuristic verbatim (`schema-cost.ts:20`):
- *   Math.round((description.length + JSON.stringify(parameters).length) / 4)
- * charsPerToken = 4 (no real tokenizer). Pure + dependency-free — inlined here
- * (not imported from pi-agent-ext-power-tool) to keep this always-on extension
- * decoupled. Missing description/parameters are treated as empty (0). The
- * JSON.stringify is guarded so a malformed schema never crashes session_start.
+ * Token-cost estimate for a tool's schema. Delegates to power-tool's canonical
+ * estimateToolCost (src/schema-cost) — the former inlined duplicate is gone, so
+ * the schema-cost-agreement pinning test is obsolete. Kept as a thin wrapper so
+ * existing call sites (session_start / before_agent_start / computeBannerSaved)
+ * and tests keep their import + numeric return contract. `parameters` defaults
+ * to `{}` (matching the prior inline heuristic, which measured undefined params
+ * as JSON.stringify({})==2) so the unit test `measureToolTokens({})==1` holds;
+ * `estimateToolCost` itself would otherwise count undefined params as 0.
  */
 export function measureToolTokens(tool: { description?: string; parameters?: unknown }): number {
-  const desc = (tool.description ?? "").length;
-  let params = 0;
-  try {
-    params = JSON.stringify(tool.parameters ?? {}).length;
-  } catch {
-    params = 0; // non-serializable schema — fail-safe, never crash
-  }
-  return Math.round((desc + params) / 4);
+  return estimateToolCost(
+    { description: tool.description, parameters: tool.parameters ?? {} },
+    "(tool-gate)",
+  ).approxTokens;
 }
 
 export default function toolGateExtension(pi: ExtensionAPI) {
