@@ -287,8 +287,10 @@ export function formatHistoryLine(e: AgentHistoryEntry, ctx?: { matchedCallArgs?
     case "error": {
       // `formatToolAction` already emits `⚠ <line>` for whole-turn assistant
       // errors — pass it through unchanged so we never double up `✗ ⚠`. Tool
-      // errors (`Failed to …`) get the `✗` marker.
-      const phrase = formatToolAction(e);
+      // errors (`Failed to …`) get the `✗` marker. Pass matchedCallArgs so a
+      // tool error recovers the target it acted on (e.g. `✗ Failed to edit
+      // src/parser.ts: …`) — consistent with the toolResult branch above.
+      const phrase = formatToolAction(e, { matchedCallArgs: ctx?.matchedCallArgs });
       return phrase.startsWith("⚠") ? phrase : `✗ ${phrase}`;
     }
     case "text":
