@@ -13,13 +13,6 @@ last: 2026-08-01
 tool-gate savings-claim single-source-of-truth — RESOLVED (2026-08-02, commits fecade51 + 7ff58cdd, code-reviewed). CLAIMED_SAVED_TOK=8050 (qa/savings.ts) is THE gross single source; the NET claim is DERIVED (CLAIMED_NET_TOK = CLAIMED_SAVED_TOK − ENABLE_TOOL_OVERHEAD_TOK = 7807; prose ~7,800). Every prose mention (README/CONTEXT/tool-gate.ts header/PRD) cites ~8,050 gross / ~7,800 net + points to `bun run qa:savings` for live numbers. THREE guards: (1) DRIFT_BAND=0.2 (±20%) + pure withinDriftBand() + gross deviation-band test; (2) net-band + enable_tool-overhead-band tests; (3) PROSE-DRIFT test (qa/savings-prose-lock.test.ts) — fails CI if any `~N,NNN` figure in prose isn't in SANCTIONED_PROSE_TOK, closing the prose↔constant gap that once let 3 different gross numbers (7,900/7,940/8,050) coexist. ±20% width is deliberate (zai-mcp env swing ~1.1k ≈ 14% of claim; tighter flakes when zai loads). CONVENTION: never hardcode a competing savings figure in prose; cite CLAIMED_SAVED_TOK / CLAIMED_NET_TOK; refresh measured baselines (OFF ~18k / ON ~10k / measured net ~7,865) only via qa:savings.
 §
 ---
-id: 5c86201f-383c-4db6-a2ba-18e31ec00e57
-created: 2026-08-02
-last: 2026-08-02
----
-Feature PRs ship code-only, planning artifacts stay as churn (2026-08-02, reinforced): PR #1005 (pin field), #1007 (dangling-ref sweep), #1009 (numeric isolation), and #1010 (await_pr_merge hardening) all shipped exactly the feature source + test files, leaving `.planning/` and MEMORY.md changes unstaged. This is the established convention — stage only the code files, leave planning/memory churn local. Verified across four consecutive PRs.
-§
----
 id: c3730717-abf2-44df-a291-22189f107c69
 created: 2026-08-02
 last: 2026-08-02
@@ -75,3 +68,25 @@ For a finished feature worktree whose branch is merged, two cleanups:
   B) remove the worktree entirely: `git worktree remove <path>`
 
 `git checkout main` in a non-primary worktree FAILS with "fatal: 'main' is already used by worktree at ..." — this is expected, not an error. To sync main: `git -C /Users/huangziyu/proj/video_generation pull --ff-only`. To delete the merged local branch in a non-primary worktree: `git switch --detach origin/main && git branch -D <branch>` (cannot checkout main, so detach first).
+§
+---
+id: 4acc8063-92a7-4a6c-a86b-d0cf42ed2f20
+created: 2026-08-07
+last: 2026-08-07
+---
+PR delivery workflow (2026-08-02/2026-08-07): Feature PRs ship code-only; planning artifacts (MEMORY.md, .planning/) stay unstaged as churn. Verified across PRs #1005, #1007, #1009, #1010. Workflow ends at PR delivery (commit → push → open PR → close ticket with PR ref) — do NOT run gh ship or merge. DevOps "local CI → gh ship immediately" applies to different contexts; for pi-agent-ext-devops, stop at PR creation/opening for review/testing.
+§
+---
+id: 57c27b80-f292-41a2-b24e-bbbb505ce279
+created: 2026-08-07
+last: 2026-08-07
+---
+## Merge workflow — local CI only
+
+**Rule:** Open PR → run local CI (`bun run check && bun test` in changed package(s)) → squash-merge immediately via `gh ship` (never wait for remote GitHub Actions CI).
+
+- Remote CI is intentionally **disabled** (`.github/workflows/ci.yml` → `ci.yml.disabled`)
+- Branch protection is **removed** (no required status checks)
+- `gh ship` alias: `pr merge --squash` (user-global)
+- This is a global standing rule documented in `~/.pi/agent/AGENTS.md`
+- One-off exception: #1048 was merged manually by user; going forward, agent runs full cycle including merge
