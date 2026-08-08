@@ -1,11 +1,11 @@
 ---
 type: task
 status: open
-blocked by: 03, 04
+blocked by:
 ---
 # 12 — Scaffold core-interface package + KnowledgePipeline
 
-> **Blocked by 03 + 04 (interface stability):** both reshape the `KnowledgePipeline` interface this task scaffolds — 03 → graph edges in ingest/retrieve return types (possibly a new graph primitive); 04 → embed/vector params + touchpoints on ingest/retrieve. Do not build until both close, or the contract gets reworked.
+> 03 + 04 closed 2026-08-08 (graph + embed contracts pinned); contract pinned by ticket 11. **UNBLOCKED** — design at `specs/2026-08-08-core-interface-design.md`. Build via /wayfind seed.
 
 ## Question / scope
 Implement the `@repo/pi-agent-ext-core-interface` workspace package per ticket 11's contract, and ship its first tenant so ticket 06's typed impl unblocks.
