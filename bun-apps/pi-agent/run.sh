@@ -177,4 +177,23 @@ if [ -f "$SCRIPT_DIR/src/cli.ts" ] && [ -f "$SCRIPT_DIR/run-dir/check-deps.ts" ]
   bun "$SCRIPT_DIR/run-dir/check-deps.ts" || true
 fi
 
+# Source-mode layout self-heal (AFTER check-deps so the store target exists):
+# this monorepo keeps the Bun workspace at bun-apps/ below the git root, so pi
+# boots from a repo-root cwd that has no node_modules. Bun treats the git root
+# as the run's project root and, on every launch, materializes a workspace-link
+# farm into <git-root>/node_modules (junk: pure symlinks into the global store,
+# re-created after every `git clean -dxf`). Pinning a symlink to the REAL
+# workspace store satisfies Bun's resolution, so the farm is never built.
+# Create-if-missing only — never clobbers an existing dir/link; skipped when
+# the git root IS the workspace root (single-workspace-at-top repos, deployed
+# layouts) or when the store target is absent (deps broken anyway).
+if [ -f "$SCRIPT_DIR/src/cli.ts" ] && command -v git >/dev/null 2>&1; then
+  REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+  WORKSPACE_ROOT="$(cd -P "$SCRIPT_DIR/.." && pwd)"
+  if [ -n "$REPO_ROOT" ] && [ "$REPO_ROOT" != "$WORKSPACE_ROOT" ] \
+      && [ -d "$WORKSPACE_ROOT/node_modules" ] && [ ! -e "$REPO_ROOT/node_modules" ]; then
+    ln -s bun-apps/node_modules "$REPO_ROOT/node_modules"
+  fi
+fi
+
 exec bun "$ENTRY" "$@"
