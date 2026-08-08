@@ -49,4 +49,4 @@ Ship `improve-codebase-architecture` as a wayfind skill (code-quality-roadmap de
 
 ## Status
 
-**CHARTED -> route clear -> SPEC WRITTEN.** DECIDE resolved (sourcing, report medium, trigger style); ticket 04 (offline converter) resolved by prototype (`brainstorm/`, commit bf122d1c). Spec written: `spec.md`. Next: Superpowers **writing-plans** -> SDD -> ship; then record the shipping decision back on the roadmap.
+**DELIVERED.** Shipped via PR #1105 (squash-merge to main). All 5 plan tasks done: command-style skill + offline Markdown/HTML converter (npm-vendored mermaid, no CDN, firewall-friendly) + tests (golden snapshot / offline-assertion / gated Playwright paint-check) + guard gate green + e2e dogfood report. Roadmap deliverable C complete; next is D (resolving-merge-conflicts).
