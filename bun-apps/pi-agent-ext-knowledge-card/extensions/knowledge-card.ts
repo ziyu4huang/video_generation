@@ -69,6 +69,11 @@ import {
 	healGraph,
 	formatHealth,
 } from "../src/retrieve.ts";
+import { runConvergenceLoop } from "../src/loop.ts";
+import {
+	publishKnowledgePipeline,
+	unpublishKnowledgePipeline,
+} from "../src/knowledge-pipeline-seam.ts";
 import {
 	spawnSubagent as __defaultSpawnSubagent,
 	type SpawnSubagentOptions,
@@ -643,6 +648,10 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 		} catch {
 			// getAllToolDefinitions is a runtime patch — absent in some contexts.
 		}
+		// Publish zk's 4-function knowledge surface as the __piKnowledgePipeline
+		// seam (typed via @repo/pi-agent-ext-core-interface). Live for the session;
+		// unpublishKnowledgePipeline() tears it down at session_shutdown.
+		publishKnowledgePipeline({ collectInputFiles, ingestRecords, runConvergenceLoop, retrieveRecords });
 	});
 
 	// ── Auto-converge hermes memory → graph on session_shutdown (ADR-0001) ──
@@ -653,6 +662,10 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	// disables); convergeHermesMemory tolerates a missing hermes dir. Never
 	// blocks shutdown.
 	pi.on("session_shutdown", async (_event, ctx) => {
+		// Unpublish the seam first — it was published unconditionally at
+		// session_start, so it must be torn down unconditionally (before the
+		// OB_HERMES_AUTOCONVERGE early-return below).
+		unpublishKnowledgePipeline();
 		if (process.env.OB_HERMES_AUTOCONVERGE === "0") return;
 		try {
 			const cwd = (ctx as { cwd?: string } | undefined)?.cwd ?? process.cwd();
