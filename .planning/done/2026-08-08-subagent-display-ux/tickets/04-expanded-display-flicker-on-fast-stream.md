@@ -1,6 +1,7 @@
 ---
 type: task
 status: closed
+origin: 2026-08-08-subagent-expanded-display-flicker/tickets/01-expanded-display-flicker-on-fast-stream.md
 ---
 
 ## Question

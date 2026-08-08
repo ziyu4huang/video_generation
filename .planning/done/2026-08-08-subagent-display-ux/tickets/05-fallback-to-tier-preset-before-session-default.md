@@ -1,6 +1,7 @@
 ---
 type: task
 status: closed
+origin: 2026-08-08-subagents-follow-model-preset/tickets/01-fallback-to-tier-preset-before-session-default.md
 ---
 
 ## Question
@@ -28,6 +29,8 @@ the caller's `tier`) — not silently to an arbitrary session default.
   can't bypass.
 
 ## Resolution
+
+Shipped via #1106 (`fix(subagent): fall back to tier (preset) before session default`).
 
 On an UNavailable explicit model, resolve the caller's `tier` (→ active
 `/models-preset`) BEFORE the session default, and warn loudly:

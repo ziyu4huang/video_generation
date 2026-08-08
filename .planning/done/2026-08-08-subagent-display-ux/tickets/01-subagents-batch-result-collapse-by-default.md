@@ -1,6 +1,7 @@
 ---
 type: task
 status: closed
+origin: 2026-08-08-subagent-display-glanceable-by-default/tickets/01-subagents-batch-result-collapse-by-default.md
 ---
 
 ## Resolution
