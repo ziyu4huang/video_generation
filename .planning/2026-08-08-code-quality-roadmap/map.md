@@ -38,10 +38,14 @@ Ship the code-quality skill deliverables B–D as globally-auto-invocable skills
 
 ## Not yet specified
 
-- C/D content sourcing (Matt-Pocock vs pi-original vs hybrid) — TBD when each ships (B chose Matt-Pocock-adapt).
+- D content sourcing (Matt-Pocock vs pi-original vs hybrid) — TBD when it ships. (C resolved 2026-08-08: Matt-Pocock-adapt — see [2026-08-08-improve-codebase-architecture](../2026-08-08-improve-codebase-architecture/map.md).)
 
 ## Out of scope
 
 - Editing superpowers skill bodies or adding non-upstream skills (ADR-0004).
 - The ask-user TUI feature (shipped, PR #1086).
 - E's content (parked).
+
+## Cross-effort links
+
+- **Shares-decision-with:** [2026-08-08-improve-codebase-architecture](../2026-08-08-improve-codebase-architecture/map.md) — deliverable C; its content-sourcing (Matt-Pocock-adapt), report medium, and trigger style decided there. Updates this map's C-sourcing fog (resolved).
