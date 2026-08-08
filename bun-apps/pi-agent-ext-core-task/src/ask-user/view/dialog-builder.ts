@@ -13,6 +13,12 @@ import type { TabBar } from "./components/tab-bar.js";
 import type { StatefulView } from "./stateful-view.js";
 import type { TabComponents } from "./tab-components.js";
 import { QuestionTabStrategy, SubmitTabStrategy, type TabContentStrategy } from "./tab-content-strategy.js";
+// Stage 3b: route chrome literals through t() at their render sites. The
+// HINT_PART_* / heading consts below stay as English strings (source of truth /
+// dictionary keys); every site where they are RENDERED (joined into the footer
+// hint, printed as a heading/prompt) wraps the const in t(). Under the default
+// `en` locale t() is identity, so render output is byte-identical to before.
+import { t } from "../state/i18n-bridge.js";
 
 export const HINT_PART_ENTER = "Enter to select";
 export const HINT_PART_NAV = "↑/↓ to navigate";
@@ -95,7 +101,7 @@ export class DialogView implements StatefulView<DialogProps> {
 				for (const segment of wrapped) lines.push(this.config.theme.bold(segment));
 			}
 		} else {
-			lines.push(this.config.theme.bold(REVIEW_HEADING));
+			lines.push(this.config.theme.bold(t(REVIEW_HEADING)));
 		}
 
 		// Tab bar (multi-question mode)
@@ -146,7 +152,7 @@ export class DialogView implements StatefulView<DialogProps> {
 	private renderSubmitBody(width: number): string[] {
 		const lines: string[] = [];
 		lines.push("");
-		lines.push(READY_PROMPT);
+		lines.push(t(READY_PROMPT));
 		// Check for unanswered questions
 		const unanswered: string[] = [];
 		for (let i = 0; i < this.config.questions.length; i++) {
@@ -155,7 +161,7 @@ export class DialogView implements StatefulView<DialogProps> {
 			}
 		}
 		if (unanswered.length > 0) {
-			lines.push(this.config.theme.fg("warning", `${INCOMPLETE_WARNING_PREFIX} ${unanswered.join(", ")}`));
+			lines.push(this.config.theme.fg("warning", `${t(INCOMPLETE_WARNING_PREFIX)} ${unanswered.join(", ")}`));
 		}
 		lines.push("");
 		if (this.config.submitPicker) {
@@ -165,21 +171,21 @@ export class DialogView implements StatefulView<DialogProps> {
 	}
 
 	private buildHintText(state: DialogState): string {
-		if (state.notesVisible) return `${HINT_PART_ENTER} / ${HINT_PART_CANCEL}`;
+		if (state.notesVisible) return `${t(HINT_PART_ENTER)} / ${t(HINT_PART_CANCEL)}`;
 		const isMulti = this.config.isMulti;
 		const onSubmitTab = isMulti && state.currentTab >= this.config.questions.length;
-		if (onSubmitTab) return `${HINT_PART_NAV} · ${HINT_PART_TAB} · Enter to submit · Esc to cancel`;
-		if (state.inputMode) return `${HINT_PART_ENTER} · ↑/↓ · Esc`;
-		const hintParts = [HINT_PART_ENTER, HINT_PART_NAV];
-		if (isMulti) hintParts.push(HINT_PART_TAB);
+		if (onSubmitTab) return `${t(HINT_PART_NAV)} · ${t(HINT_PART_TAB)} · Enter to submit · ${t(HINT_PART_CANCEL)}`;
+		if (state.inputMode) return `${t(HINT_PART_ENTER)} · ↑/↓ · Esc`;
+		const hintParts = [t(HINT_PART_ENTER), t(HINT_PART_NAV)];
+		if (isMulti) hintParts.push(t(HINT_PART_TAB));
 		// Multi-select questions toggle with Space — surface it so the user
 		// knows how to mark options (the HINT_MULTISELECT_SUFFIX existed but was
 		// never appended, leaving the hint to misleadingly say only "Enter to select").
 		const focusedQuestion =
 			state.currentTab < this.config.questions.length ? this.config.questions[state.currentTab] : undefined;
-		if (focusedQuestion?.multiSelect) hintParts.push(HINT_PART_TOGGLE);
-		if (state.focusedOptionHasPreview) hintParts.push(`n ${HINT_PART_NOTES}`);
-		hintParts.push(HINT_PART_CANCEL);
+		if (focusedQuestion?.multiSelect) hintParts.push(t(HINT_PART_TOGGLE));
+		if (state.focusedOptionHasPreview) hintParts.push(`n ${t(HINT_PART_NOTES)}`);
+		hintParts.push(t(HINT_PART_CANCEL));
 		return hintParts.join(" · ");
 	}
 }
