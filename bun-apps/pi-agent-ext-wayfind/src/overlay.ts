@@ -11,7 +11,7 @@
  */
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { readEffortMeta } from "./map.js";
+import { readEffortMeta } from "./lifecycle.js";
 
 export type WayfindState =
   | "grilling"

@@ -3,8 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-// SUT still lives in map.ts at this point; Task 3 flips this to "../src/lifecycle.js".
-import { completeEffort, setEffortStatus } from "../src/map.js";
+import { completeEffort, setEffortStatus } from "../src/lifecycle.js";
 import { doneDir } from "../src/model.js";
 
 let cwd = "";

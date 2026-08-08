@@ -12,15 +12,8 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  appendDecision,
-  closeTicket,
-  readEffortMeta,
-  readMap,
-  touchEffortManifest,
-  writeMap,
-  writeTicket,
-} from "../src/map.js";
+import { readEffortMeta } from "../src/lifecycle.js";
+import { appendDecision, closeTicket, readMap, touchEffortManifest, writeMap, writeTicket } from "../src/map.js";
 import {
   type EffortMeta,
   type MapDecision,
