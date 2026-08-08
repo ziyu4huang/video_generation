@@ -52,3 +52,7 @@ produce the same side-by-side summary, now **three-way** (direct / VLM / hybrid)
 Does the hybrid arm recover the quality direct lost, **at acceptable speed**
 (faster than pure-VLM, slower than pure-direct)? This is the evidence ticket 05
 turns into the final recommendation.
+
+## Related (cross-effort, 2026-08-08 review)
+
+- `2026-08-08-pi-agent-ext-knowledge-card-obsidian-surealdb-or`/02 CLOSED chose **pdf = mupdf via file2md** as the extractor for the knowledge pipeline. If this ticket's "hybrid AB arm" is now subsumed by that decision, close as superseded-by-08-08/02; otherwise note the relationship and proceed.
