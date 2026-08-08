@@ -34,6 +34,21 @@
  * the injection is reversible for debugging. No-op when `responseLanguage` is
  * absent / non-string / blank, or the tag is empty.
  *
+ * ASK_USER_LANGUAGE (Stage 1: content hardening)
+ * ----------------------------------------------
+ * This patch ALSO emits an `<ask_user_language>` block sourced from the
+ * independent `askUserLanguage` setting — STRICTLY fixing the language of
+ * ask_user_question CONTENT (question/header/labels/descriptions/previews),
+ * OVERRIDING responseLanguage for that content only. Because a second prototype
+ * wrap is blocked by the WeakSet + WRAP_TAG guard (wrapInstallAgentNextTurnRefresh
+ * is idempotent per-prototype), BOTH blocks ride the SAME single per-turn wrap:
+ * currentForcedBlock() → resolveCombinedForcedBlock() returns response block
+ * FIRST + ask-user block second (joined by a blank line). The ask-user block has
+ * its OWN env gate `BUN_PI_FORCE_ASK_USER_LANGUAGE` (default on), read in-file
+ * via envFlag — independent of the file-level import gate, so it can be toggled
+ * without disabling the response block. Byte-identical no-op when askUserLanguage
+ * is unset (the combined block equals today's response-only block exactly).
+ *
  * TESTABILITY
  * -----------
  * `mapLanguageTag` + `resolveForcedBlock` are pure (settings/tag in, block text
@@ -45,6 +60,7 @@
 import { AgentSession, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { envFlag } from "./index.ts";
 
 /** Canonical instruction label per BCP-47 tag (pi owns the wording). Lowercased key. */
 const LANGUAGE_LABELS: Record<string, string> = {
@@ -80,6 +96,28 @@ export function mapLanguageTag(tag: string): string | undefined {
 }
 
 /**
+ * Pure: map a BCP-47 language tag to the FORCED ask_user_question CONTENT block.
+ * This STRICTLY fixes the language of everything the model authors via the
+ * ask_user_question tool (question text, headers, option labels, option
+ * descriptions, previews) INDEPENDENTLY of responseLanguage — and OVERRIDES
+ * responseLanguage for ask_user_question content ONLY. Conversation replies
+ * still follow responseLanguage. Mirrors mapLanguageTag (shares LANGUAGE_LABELS)
+ * but emits an <ask_user_language> block with the explicit "overrides
+ * response_language" wording. Returns null for an empty/blank tag.
+ */
+export function mapAskUserLanguageTag(tag: string): { block: string } | null {
+	const trimmed = tag.trim();
+	if (!trimmed) return null;
+	const label = LANGUAGE_LABELS[trimmed.toLowerCase()] ?? `the language denoted by the BCP-47 tag "${trimmed}"`;
+	const block = [
+		`<ask_user_language priority="forced" overrides="response_language">`,
+		`For ALL content you author via the ask_user_question tool — question text, headers, option labels, option descriptions, and previews — you MUST use ${label} (${trimmed.toLowerCase()}). This OVERRIDES response_language for ask_user_question content ONLY. Conversation replies still follow response_language.`,
+		`</ask_user_language>`,
+	].join("\n");
+	return { block };
+}
+
+/**
  * Pure: given parsed settings, return the forced block to prepend (or undefined
  * to do nothing). Returns undefined when `responseLanguage` is absent /
  * non-string / blank. Does not read process.env or the filesystem.
@@ -90,6 +128,23 @@ export function resolveForcedBlock(
 	const lang = (settings as { responseLanguage?: unknown } | undefined)?.responseLanguage;
 	if (typeof lang !== "string") return undefined;
 	return mapLanguageTag(lang);
+}
+
+/**
+ * Given parsed settings, return the FORCED ask_user_question content block (or
+ * null to do nothing). Reads the `askUserLanguage` key INDEPENDENTLY of
+ * responseLanguage (mirrors how resolveForcedBlock reads responseLanguage).
+ * Additionally gated by BUN_PI_FORCE_ASK_USER_LANGUAGE (default ON) via envFlag
+ * — a gate independent of the file-level BUN_PI_FORCE_RESPONSE_LANGUAGE import
+ * gate, so ask-user can be disabled without disabling the response block. Returns
+ * null when `askUserLanguage` is absent / non-string, the tag is empty, or the
+ * gate is OFF. Reads process.env (via envFlag) — NOT pure-re-settings.
+ */
+export function resolveAskUserForcedBlock(settings: unknown): string | null {
+	if (!envFlag("BUN_PI_FORCE_ASK_USER_LANGUAGE", true)) return null;
+	const lang = (settings as { askUserLanguage?: unknown } | undefined)?.askUserLanguage;
+	if (typeof lang !== "string") return null;
+	return mapAskUserLanguageTag(lang)?.block ?? null;
 }
 
 /** Best-effort read of ~/.pi/agent/settings.json. Non-fatal: undefined on any
@@ -104,9 +159,34 @@ function readUserSettings(): Record<string, unknown> | undefined {
 	}
 }
 
-/** Read settings fresh and return the current forced block (or undefined). */
+/**
+ * Pure-ish combiner (modulo envFlag read inside resolveAskUserForcedBlock): given
+ * parsed settings, return the COMBINED per-turn block to prepend — response
+ * block FIRST, then the ask-user block (when set AND its gate on), joined by a
+ * blank line. If the ask-user block is null, returns the response block
+ * UNCHANGED (byte-identical to today's response-only behavior). If the response
+ * block is null but the ask-user block is set, returns the ask-user block alone.
+ * Returns undefined when NEITHER resolves — the wrap's getBlock then does
+ * nothing. This is the resolver wired into wrapInstallAgentNextTurnRefresh via
+ * currentForcedBlock; exported so the combining logic (incl. the byte-identical
+ * no-op guarantee when askUserLanguage is unset) is directly unit-testable
+ * without touching the filesystem.
+ */
+export function resolveCombinedForcedBlock(
+	settings: Record<string, unknown> | undefined,
+): string | undefined {
+	const responseBlock = resolveForcedBlock(settings);
+	const askUserBlock = resolveAskUserForcedBlock(settings);
+	if (askUserBlock && responseBlock) return `${responseBlock}\n\n${askUserBlock}`;
+	if (askUserBlock) return askUserBlock;
+	return responseBlock;
+}
+
+/** Read settings fresh and return the current COMBINED forced block (or
+ *  undefined). Per-turn (re-reads settings.json) so /response-language and
+ *  /ask-user-language both flip live with no reload. */
 function currentForcedBlock(): string | undefined {
-	return resolveForcedBlock(readUserSettings());
+	return resolveCombinedForcedBlock(readUserSettings());
 }
 
 // ── Module-scoped tracking ───────────────────────────────────────────────
