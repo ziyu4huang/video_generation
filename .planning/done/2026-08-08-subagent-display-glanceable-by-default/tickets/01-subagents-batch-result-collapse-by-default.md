@@ -1,7 +1,11 @@
 ---
 type: task
-status: open
+status: closed
 ---
+
+## Resolution
+
+Shipped via #1099 (`feat(subagents): collapse batch result by default, expand on Ctrl-O`). The `subagents` fan-out RESULT now renders a terse batch summary + one-line per-child status by default, reusing the context-widget's collapse/expand path; full per-child output expands on Ctrl-O (all children at once, matching the global toggle). 65619da4 on origin/main.
 
 ## Question
 
