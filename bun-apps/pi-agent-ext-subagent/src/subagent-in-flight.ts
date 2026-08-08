@@ -47,6 +47,15 @@ export interface InFlightSubagent {
    *  shows all regardless. `start()` defaults it to `false` when omitted. */
   foreground?: boolean;
   taskPreview: string;
+  /** Work-intent preview — `workIntentPreview(task)` computed once at `start()`
+   *  (strips a leading `Working dir:`/`Cwd:`/`Repo:` preamble line, single-lined,
+   *  ≤60 chars). The docked context box feeds THIS (not `taskPreview`, which is
+   *  already single-lined so its preamble can't be stripped) into
+   *  `renderSubagentCall` so the header surfaces the actual work intent (ticket 04,
+   *  finding 1 — #1101's strip was dead on the context box). `taskPreview` stays
+   *  the viewer/persistence verbatim path. Optional: old/test entries fall back to
+   *  `taskPreview` when absent. */
+  workIntent?: string;
   startedAt: number;
   /** Latest compact history snapshot (for the live-output trace). */
   history?: AgentHistoryEntry[];

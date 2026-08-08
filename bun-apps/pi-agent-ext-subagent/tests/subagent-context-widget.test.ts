@@ -2,6 +2,7 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { InFlightSubagent } from "../src/index.js";
 import { countNoun, isCtrlO, SubagentContextWidget } from "../src/subagent-context-widget.js";
+import { workIntentPreview } from "../src/subagent-tool.js";
 
 // Identity theme so render() returns plain text we can assert on (mirrors the
 // old subagent-progress-widget.test.ts).
@@ -243,4 +244,49 @@ test("countNoun: two workflows → 'workflows'", () => {
 
 test("countNoun: a mixed set (1 subagent + 1 workflow) → 'runs'", () => {
   assert.equal(countNoun([run({ id: "r1", foreground: false }), wf({ id: "wf:1", foreground: false })]), "runs");
+});
+
+// --- ticket 04 finding 1: work-intent strip on the DOCKED context-box header ---
+// #1101 claimed to strip the `Working dir:` preamble on BOTH the inline live
+// header AND the docked context box, but its tests only exercised
+// renderSubagentCall with a raw multi-line task. The docked box fed the
+// already-single-lined `taskPreview` into renderSubagentCall, so
+// workIntentPreview's preamble branch never matched and the box still showed
+// "Working dir: …". This test closes that gap: the entry now carries a
+// precomputed `workIntent`, and renderRun feeds THAT (not taskPreview).
+
+test("ticket 04 / finding 1: docked header strips the `Working dir:` preamble and surfaces the work intent", () => {
+  const rawTask =
+    "Working dir: /Users/x/proj\n" +
+    "\n" +
+    "Audit the subagent display code for fallback consistency.";
+  // The tool precomputes workIntent once at start() (mirrors subagent-tool.execute).
+  const entry = run({
+    id: "strip-r1",
+    foreground: false,
+    taskPreview: "Working dir: /Users/x/proj Audit the subagent display code for fallback consistency.",
+    workIntent: workIntentPreview(rawTask),
+    history: [],
+  });
+  const w = new SubagentContextWidget({ getRunning: () => [entry] });
+  const out = w.render(T).join("\n");
+  assert.ok(
+    out.includes("Audit the subagent display code for fallback consistency."),
+    "header surfaces the actual work intent (first non-preamble line)",
+  );
+  assert.ok(!out.includes("Working dir:"), "the cwd/repo preamble is stripped from the docked header");
+});
+
+test("ticket 04 / finding 1: docked header still shows the preamble when workIntent is absent (backward-compat)", () => {
+  // An entry that never populated workIntent (old caller / synthetic test entry)
+  // falls back to taskPreview — no crash, no fabricated strip.
+  const entry = run({
+    id: "nofallback-r1",
+    foreground: false,
+    taskPreview: "Working dir: /Users/x/proj do the thing",
+    history: [],
+  });
+  const w = new SubagentContextWidget({ getRunning: () => [entry] });
+  const out = w.render(T).join("\n");
+  assert.ok(out.includes("Working dir:"), "falls back to taskPreview verbatim when workIntent is absent");
 });

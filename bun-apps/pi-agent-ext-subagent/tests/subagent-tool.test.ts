@@ -694,7 +694,9 @@ test("renderSubagentCall shows subagent ▸ agent ▸ model ▸ task (omits agen
   const withRole = renderSubagentCall({ task: "fix the bug", agent: "implementer", model: "x/flash" }, T);
   assert.ok(withRole.includes("subagent"));
   assert.ok(withRole.includes("implementer"));
-  assert.ok(withRole.includes("x/flash"));
+  // ticket 04 finding 5: model segment is shortened via shortModel (x/flash → flash)
+  assert.ok(withRole.includes("flash"));
+  assert.ok(!withRole.includes("x/flash"), "provider prefix dropped on the call line");
   assert.ok(withRole.includes("fix the bug"));
   const noRole = renderSubagentCall({ task: "explore" }, T);
   assert.ok(noRole.includes("subagent"));
@@ -713,7 +715,8 @@ test("renderSubagentCall appends resolved model as a separate segment when tier 
     { agent: "auditor", tier: "medium", task: "x", resolvedModel: "google/gemma-4-12b-qat" },
     T,
   );
-  assert.match(out, /tier:medium ▸ google\/gemma-4-12b-qat ▸/);
+  // ticket 04 finding 5: resolved segment is shortened (google/gemma-4-12b-qat → gemma-4-12b-qat)
+  assert.match(out, /tier:medium ▸ gemma-4-12b-qat ▸/);
 });
 
 test("renderSubagentCall omits resolved model before resolution (undefined)", () => {
@@ -724,7 +727,8 @@ test("renderSubagentCall omits resolved model before resolution (undefined)", ()
 
 test("renderSubagentCall omits resolved model when it equals the explicit model slot (no dup)", () => {
   const out = renderSubagentCall({ agent: "scout", model: "x/flash", task: "x", resolvedModel: "x/flash" }, T);
-  assert.equal((out.match(/x\/flash/g) || []).length, 1);
+  // Both shorten to "flash"; since they match, the resolved segment is omitted.
+  assert.equal((out.match(/flash/g) || []).length, 1);
 });
 
 test("renderSubagentCall shows both explicit model and a different resolved model", () => {
@@ -732,8 +736,11 @@ test("renderSubagentCall shows both explicit model and a different resolved mode
     { agent: "scout", model: "x/flash", task: "x", resolvedModel: "google/gemma-4-12b-qat" },
     T,
   );
-  assert.match(out, /x\/flash/);
-  assert.match(out, /google\/gemma-4-12b-qat/);
+  // Both shortened on the call line (ticket 04 finding 5).
+  assert.match(out, /flash/);
+  assert.match(out, /gemma-4-12b-qat/);
+  assert.ok(!out.includes("x/flash"), "provider prefix dropped on the explicit model slot");
+  assert.ok(!out.includes("google/gemma-4-12b-qat"), "provider prefix dropped on the resolved segment");
 });
 
 test("renderSubagentResult collapsed is short; expanded contains the full report", () => {
@@ -793,6 +800,55 @@ test("renderSubagentResult shows cost/tokens when usage.total > 0, omits when 0 
     T,
   );
   assert.ok(!noUsage.includes("$"), "omits cost when usage is absent entirely");
+});
+
+// --- ticket 04 finding 3: settled result meta persists the fallback indicator ---
+// The live call line showed `▸ opus ▸ → glm-5.2` mid-run, but on settle the meta
+// collapsed to just the actual model and the fallback became invisible. Persist
+// a `requested → actual` segment (shortened) on the settled meta so a surprising
+// fallback survives settle.
+test("renderSubagentResult settled meta shows `requested → actual` (shortened) when d.fellBack", () => {
+  const out = renderSubagentResult(
+    {
+      content: [{ type: "text", text: "done" }],
+      details: {
+        exitCode: 0,
+        timedOut: false,
+        taskPreview: "p",
+        elapsedMs: 1000,
+        status: "done",
+        model: "zai/glm-5.2",
+        requestedModel: "anthropic/claude-opus-4-1",
+        fellBack: true,
+      },
+    },
+    { expanded: false },
+    T,
+  );
+  assert.match(out, /claude-opus-4-1 → glm-5\.2/, "the fallback indicator persists after settle");
+  assert.ok(!out.includes("anthropic/claude-opus-4-1"), "requested id shortened on the meta (finding 5)");
+  assert.ok(!out.includes("zai/glm-5.2"), "actual id shortened on the meta (finding 5)");
+});
+
+test("renderSubagentResult settled meta shows only the actual model (shortened) when NOT fellBack", () => {
+  const out = renderSubagentResult(
+    {
+      content: [{ type: "text", text: "done" }],
+      details: {
+        exitCode: 0,
+        timedOut: false,
+        taskPreview: "p",
+        elapsedMs: 1000,
+        status: "done",
+        model: "zai/glm-5.2",
+      },
+    },
+    { expanded: false },
+    T,
+  );
+  assert.ok(out.includes("glm-5.2"), "the actual model is shown");
+  assert.ok(!out.includes("zai/glm-5.2"), "actual id shortened on the meta (finding 5)");
+  assert.doesNotMatch(out, /→ glm/, "no fallback indicator when there was no fallback");
 });
 
 test("renderSubagentResult renders an 'aborted' badge (distinct from failed/timedout)", () => {
@@ -1329,7 +1385,7 @@ test("renderCall reads resolvedModel from the registry and binds invalidate", ()
       invalidated++;
     },
   } as never);
-  assert.match(text.render(200).join("\n"), /tier:medium ▸ google\/gemma-4-12b-qat ▸/);
+  assert.match(text.render(200).join("\n"), /tier:medium ▸ gemma-4-12b-qat ▸/);
   // invalidate was bound — a later updateModel re-renders the call line
   reg.updateModel("tc9", "anthropic/claude-opus");
   assert.equal(invalidated, 1);
@@ -1346,7 +1402,7 @@ test("renderCall drops the resolved-model segment after the run ends (end() tear
     lastComponent: before,
     invalidate: () => {},
   } as never);
-  assert.match(before.render(200).join("\n"), /google\/gemma-4-12b-qat/);
+  assert.match(before.render(200).join("\n"), /gemma-4-12b-qat/);
   // After completion the entry is gone — segment reverts; model lives on the result line.
   reg.end("tc-end");
   const after = new Text("", 0, 0);
@@ -1357,7 +1413,7 @@ test("renderCall drops the resolved-model segment after the run ends (end() tear
   } as never);
   const rendered = after.render(200).join("\n");
   assert.match(rendered, /tier:medium/);
-  assert.doesNotMatch(rendered, /google\/gemma-4-12b-qat/);
+  assert.doesNotMatch(rendered, /gemma-4-12b-qat/);
 });
 
 // ── formatHistoryLine (exported for the /subagents live-follow view) ──
@@ -1587,11 +1643,14 @@ test("renderSubagentCall with fellBack:true adds → fallback indicator", () => 
     },
     T,
   );
-  // Both the requested and actual models are present
-  assert.ok(String(out).includes("anthropic/claude-opus-4-1"), "requested model still visible");
-  assert.ok(String(out).includes("zai/glm-5.2"), "actual model shown");
+  // ticket 04 finding 5: the DISPLAY is shortened via shortModel. The audit
+  // field (details.requestedModel) keeps the full spec; only the call line is
+  // shortened so the collapsed line stays within terminal width.
+  assert.ok(String(out).includes("claude-opus-4-1"), "requested model still visible (shortened)");
+  assert.ok(!String(out).includes("anthropic/claude-opus-4-1"), "provider prefix dropped on the request slot");
+  assert.ok(String(out).includes("glm-5.2"), "actual model shown (shortened)");
   // The fallback indicator (→) appears before the actual model
-  assert.match(String(out), /→ zai\/glm-5\.2/);
+  assert.match(String(out), /→ glm-5\.2/);
 });
 
 test("renderSubagentCall with fellBack:false renders normally (no → prefix)", () => {
@@ -1605,9 +1664,10 @@ test("renderSubagentCall with fellBack:false renders normally (no → prefix)", 
     },
     T,
   );
-  // The resolved model segment is plain (no fallback indicator)
-  assert.ok(String(out).includes("google/gemma-4-12b-qat"));
-  assert.doesNotMatch(String(out), /→ google/);
+  // The resolved model segment is plain (no fallback indicator); shortened on display.
+  assert.ok(String(out).includes("gemma-4-12b-qat"));
+  assert.ok(!String(out).includes("google/gemma-4-12b-qat"), "provider prefix dropped on the resolved segment");
+  assert.doesNotMatch(String(out), /→ gemma/);
 });
 
 test("renderSubagentCall with fellBack omitted (backward-compat) renders normally", () => {
@@ -1615,8 +1675,9 @@ test("renderSubagentCall with fellBack omitted (backward-compat) renders normall
     { agent: "auditor", tier: "medium", task: "x", resolvedModel: "google/gemma-4-12b-qat" },
     T,
   );
-  assert.ok(String(out).includes("google/gemma-4-12b-qat"));
-  assert.doesNotMatch(String(out), /→ google/);
+  assert.ok(String(out).includes("gemma-4-12b-qat"));
+  assert.ok(!String(out).includes("google/gemma-4-12b-qat"), "provider prefix dropped on the resolved segment");
+  assert.doesNotMatch(String(out), /→ gemma/);
 });
 
 test("execute with model fallback → details.requestedModel + fellBack set", async () => {

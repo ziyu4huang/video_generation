@@ -17,7 +17,8 @@ import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent
 import { spawnSubagent } from "./spawn-subagent.js";
 import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
-import { DEFAULT_TIMEOUT_MS, deriveSubagentStatus, taskPreview } from "./subagent-tool.js";
+import { shortModel } from "./agent-row-display.js";
+import { DEFAULT_TIMEOUT_MS, deriveSubagentStatus, taskPreview, workIntentPreview } from "./subagent-tool.js";
 
 /** Tree-mutating tools a read-only child may NEVER carry (non-overridable). */
 export const READ_ONLY_EXCLUDED = ["edit", "write", "bash"] as const;
@@ -49,6 +50,13 @@ export type BatchResultSlot =
       task: string;
       /** Resolved child model (never a hardcoded id). */
       model: string;
+      /** The originally-requested model spec, when the resolution fell back to a
+       *  different model (ticket 04, finding 2 — #1103's actual-model capture
+       *  never reached the batch tool). Full spec for the audit trace; the
+       *  DISPLAY shortens it via shortModel(). Absent on normal resolution. */
+      requestedModel?: string;
+      /** True when the model resolution fell back. Absent on normal resolution. */
+      fellBack?: boolean;
       /** Per-child wall-clock from dispatch start. */
       elapsedMs: number;
     }
@@ -63,6 +71,10 @@ export type BatchResultSlot =
       task: string;
       /** Resolved child model (never a hardcoded id). */
       model: string;
+      /** See the done/timedout/aborted variant (ticket 04, finding 2). */
+      requestedModel?: string;
+      /** See the done/timedout/aborted variant (ticket 04, finding 2). */
+      fellBack?: boolean;
       /** 0 for gate-skipped (never ran); real for per-child budget aborts. */
       elapsedMs: number;
     }
@@ -269,6 +281,16 @@ export function createSubagentsTool(
         // Register in-flight so `/subagents` shows this child while it runs.
         const childRunId = `${toolCallId}:${index}`;
         const childT0 = Date.now();
+        // Per-child resolved-model + fallback capture (ticket 04, finding 2 —
+        // #1103's actual-model capture never reached the batch tool, so a batch
+        // child that fell back rendered the REQUESTED model under a ✓ done badge).
+        // Mirrors the singular tool: onModelResolved captures the ACTUAL model,
+        // onModelFallback captures the requested spec + marks fellBack. The slot
+        // then stores the actual model (not the stale childModel) plus the audit
+        // fields so the renderer can show `requested → actual`.
+        let childResolvedModel: string | undefined;
+        let childFellBack = false;
+        let childRequestedSpec: string | undefined;
         // Per-child AbortController (Frontier A): the user can abort ONE child via
         // registry.abort(childRunId) → this controller fires. We FAN IN the parent
         // turn `signal` so a whole-turn Esc still aborts batch children (new —
@@ -280,6 +302,9 @@ export function createSubagentsTool(
           id: childRunId,
           model: childModel,
           taskPreview: preview,
+          // Precompute the work-intent strip from the RAW task so the docked
+          // context box surfaces it (ticket 04, finding 1).
+          workIntent: workIntentPreview(task.task),
           startedAt: childT0,
           batchId: toolCallId,
           abort: () => childAc.abort(),
@@ -294,7 +319,15 @@ export function createSubagentsTool(
         const childSpawnOpts: SpawnSubagentOptions = {
           ...childOpts,
           externalSignal: childAc.signal,
-          onModelResolved: (modelId) => options.inFlight?.updateModel(childRunId, modelId),
+          onModelResolved: (modelId) => {
+            childResolvedModel = modelId;
+            options.inFlight?.updateModel(childRunId, modelId);
+          },
+          onModelFallback: (requestedSpec) => {
+            childFellBack = true;
+            childRequestedSpec = requestedSpec;
+            options.inFlight?.markFallback(childRunId, requestedSpec);
+          },
           onHistory: (history) => {
             options.inFlight?.update(childRunId, history);
             // Single-line batch progress feed — kills the blind spinner on the
@@ -345,6 +378,12 @@ export function createSubagentsTool(
         // Map the slot — preserve per-child hard-budget routing (Task 3) alongside
         // failed->null and the normal done/timedout path, + the user-aborted path.
         const status = userAborted ? "aborted" : deriveSubagentStatus(result);
+        // The ACTUAL model the child ran on (childResolvedModel from
+        // onModelResolved), else the requested display string when resolution
+        // never fired (ticket 04, finding 2 — the singular tool mirrors this).
+        const slotModel = childResolvedModel ?? childModel;
+        const slotRequestedModel = childFellBack ? childRequestedSpec : undefined;
+        const slotFellBack = childFellBack || undefined;
         if (userAborted) {
           slots[index] = {
             output: "",
@@ -352,7 +391,9 @@ export function createSubagentsTool(
             id: task.id,
             index,
             task: preview,
-            model: childModel,
+            model: slotModel,
+            requestedModel: slotRequestedModel,
+            fellBack: slotFellBack,
             elapsedMs: Date.now() - childT0,
           };
         } else if (status === "failed") {
@@ -365,7 +406,9 @@ export function createSubagentsTool(
             id: task.id,
             index,
             task: preview,
-            model: childModel,
+            model: slotModel,
+            requestedModel: slotRequestedModel,
+            fellBack: slotFellBack,
             elapsedMs: Date.now() - childT0,
           };
         } else {
@@ -376,7 +419,9 @@ export function createSubagentsTool(
             index,
             usage: result.usage,
             task: preview,
-            model: childModel,
+            model: slotModel,
+            requestedModel: slotRequestedModel,
+            fellBack: slotFellBack,
             elapsedMs: Date.now() - childT0,
           };
         }
@@ -390,7 +435,11 @@ export function createSubagentsTool(
             id: generateSubagentRunId(),
             toolCallId,
             task: task.task,
-            model: childModel,
+            // Persist the ACTUAL model + audit fields when it fell back (mirrors
+            // the singular tool — ticket 04, finding 2).
+            model: slotModel,
+            requestedModel: slotRequestedModel,
+            fellBack: slotFellBack,
             tier: task.tier,
             cwd: childOpts.cwd ?? defaultCwd,
             status,
@@ -548,7 +597,16 @@ export function renderSubagentsResult(
               : slotStatus === "aborted"
                 ? theme.fg("dim", "⊘ aborted")
                 : theme.fg("error", "✗ failed");
-      const model = theme.fg("muted", (slot as { model: string }).model ?? "default");
+      // Model segment: on a fallback show `requested → actual` (both shortened
+      // via shortModel so the collapsed line stays within terminal width —
+      // ticket 04, findings 2 + 5). The audit field stays the full spec; only
+      // the DISPLAY is shortened.
+      const slotObj = slot as { model: string; requestedModel?: string; fellBack?: boolean };
+      const modelLabel =
+        slotObj.fellBack && slotObj.requestedModel
+          ? `${shortModel(slotObj.requestedModel)} → ${shortModel(slotObj.model) ?? "default"}`
+          : shortModel(slotObj.model) ?? "default";
+      const model = theme.fg("muted", modelLabel);
       const elapsed = `${((slot as { elapsedMs: number }).elapsedMs / 1000).toFixed(1)}s`;
       const taskPreview60 = truncateToWidth((slot as { task: string }).task ?? "", 60);
       const idTag = slot.id ? `${theme.fg("dim", `(${slot.id})`)} ` : "";
