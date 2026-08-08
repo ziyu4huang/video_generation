@@ -1,7 +1,14 @@
 /**
- * tool-gating augmentation — lets a tool's `ToolDefinition` carry an owner-declared
- * `gating` field. Duplicated (identically) in each pilot package so no cross-package
- * type dependency is introduced; a drift-guard test asserts structural agreement.
+ * tool-gating augmentation — the SINGLE SHARED SOURCE OF TRUTH.
+ *
+ * Lets a tool's `ToolDefinition` carry an owner-declared `gating` field.
+ * Formerly duplicated (byte-identical) across ~14 packages so no cross-package
+ * type dependency was introduced; a drift-guard test asserted structural
+ * agreement. That duplication is now collapsed into THIS package. Consumers
+ * surface the augmentation in their isolated typecheck by adding
+ *     /// <reference types="@repo/pi-tool-gating-contract" />
+ * as the first line of their primary entry (or by adding this file to their
+ * tsconfig `include`).
  *
  * `getAllToolDefinitions()` is added at runtime by the repo's
  * `ext-api-get-all-tool-definitions` monkey-patch (bun-apps/pi-agent/src/patches/);
@@ -15,9 +22,10 @@
  * `registerTool`) vanishes with TS2339. Verified empirically.
  *
  * To get an AUGMENTATION (declaration merging) instead, the file must be a MODULE
- * — hence the top-level `import` + `export {}`. Module augmentations in a module
- * file are picked up because the `types` dir glob is in the package tsconfig
- * `include`; no explicit runtime import is needed. `Gating` is surfaced globally
+ * — hence the top-level `import`. Module augmentations in a module file are
+ * picked up once the file is part of the program (via the `/// <reference
+ * types="@repo/pi-tool-gating-contract" />` directive, or a tsconfig `include`
+ * entry); no explicit runtime import is needed. `Gating` is surfaced globally
  * via `declare global` so call sites (e.g. `buildEffectiveGates`'s
  * `gating?: Gating` param) reference it without an import — matching the brief's
  * "ambient `Gating`" intent. Verified clean via `bunx tsc --noEmit -p tsconfig.json`
@@ -50,5 +58,3 @@ declare module "@earendil-works/pi-coding-agent" {
     getAllToolDefinitions?(): ToolDefinition[];
   }
 }
-
-export {};

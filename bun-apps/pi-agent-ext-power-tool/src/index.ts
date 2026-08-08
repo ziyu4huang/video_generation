@@ -1,3 +1,4 @@
+/// <reference types="@repo/pi-tool-gating-contract" />
 /**
  * pi-agent-ext-power-tool — extension factory.
  *

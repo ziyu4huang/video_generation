@@ -116,6 +116,7 @@
       "name": "@repo/pi-agent-ext-core-task",
       "version": "0.1.0",
       "devDependencies": {
+        "@repo/pi-tool-gating-contract": "workspace:*",
         "@types/bun": "latest",
         "typescript": "^6.0.3",
       },
@@ -294,6 +295,7 @@
         "typebox": "^1.3.7",
       },
       "devDependencies": {
+        "@repo/pi-tool-gating-contract": "workspace:*",
         "@types/bun": "latest",
         "typescript": "^6.0.3",
       },
@@ -384,6 +386,7 @@
         "@repo/pi-agent-ext-web-access": "workspace:*",
         "@repo/pi-agent-ext-workflow": "workspace:*",
         "@repo/pi-agent-ext-zai-mcp": "workspace:*",
+        "@repo/pi-tool-gating-contract": "workspace:*",
       },
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": "0.84.1",
@@ -468,6 +471,13 @@
         "@earendil-works/pi-coding-agent": "0.84.1",
         "@earendil-works/pi-tui": "0.84.1",
         "typebox": "*",
+      },
+    },
+    "pi-tool-gating-contract": {
+      "name": "@repo/pi-tool-gating-contract",
+      "version": "0.1.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "0.84.1",
       },
     },
   },
@@ -873,6 +883,8 @@
     "@repo/pi-agent-ext-workflow": ["@repo/pi-agent-ext-workflow@workspace:pi-agent-ext-workflow"],
 
     "@repo/pi-agent-ext-zai-mcp": ["@repo/pi-agent-ext-zai-mcp@workspace:pi-agent-ext-zai-mcp"],
+
+    "@repo/pi-tool-gating-contract": ["@repo/pi-tool-gating-contract@workspace:pi-tool-gating-contract"],
 
     "@silvia-odwyer/photon-node": ["@silvia-odwyer/photon-node@0.3.4", "", {}, "sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA=="],
 

@@ -1,3 +1,4 @@
+/// <reference types="@repo/pi-tool-gating-contract" />
 /**
  * Dynamic Tool Gate Extension — reduces API tools schema overhead
  *
