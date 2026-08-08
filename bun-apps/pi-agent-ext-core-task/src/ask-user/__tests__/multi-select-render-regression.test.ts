@@ -9,7 +9,8 @@
  * feedback ("I cannot choice") and the user couldn't tell how to submit.
  * MultiSelectView was built + prop-driven but never rendered (orphan).
  */
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { __setLocaleForTest } from "../state/i18n-bridge.js";
 import { QuestionnaireSession } from "../state/questionnaire-session.js";
 import { buildItemsForQuestion } from "../ask-user-question.js";
 import type { QuestionParams, QuestionnaireResult } from "../tool/types.js";
@@ -59,6 +60,15 @@ function renderBody(s: { component: { render(w: number): string[] } }): string {
 	// skip the header + footer lines, keep the body
 	return s.component.render(120).join("\n");
 }
+
+// Determinism: this regression asserts ENGLISH chrome literals (Next sentinel,
+// "Space to toggle"). Those are t()-localized, so under a zh-TW locale (e.g. a
+// developer who set `askUserLanguage`) they render as translated strings and
+// the assertions break. Pin locale=en for this file so it is deterministic
+// regardless of ambient ~/.pi/agent/settings.json, and restore the pin after so
+// it never leaks into sibling tests / the production path.
+beforeEach(() => __setLocaleForTest("en"));
+afterEach(() => __setLocaleForTest(null));
 
 describe("multi-select render + selection regression", () => {
 	test("renders checkbox affordance ([ ] / Next) for a multi-select question", () => {

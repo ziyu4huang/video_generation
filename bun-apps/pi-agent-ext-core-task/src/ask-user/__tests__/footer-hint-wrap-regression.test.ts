@@ -8,7 +8,8 @@
  * terminal the tail (e.g. "Esc to cancel") was truncated. Same missed-wrap
  * pattern as the question header — fixed alongside it.
  */
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { __setLocaleForTest } from "../state/i18n-bridge.js";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { QuestionnaireSession } from "../state/questionnaire-session.js";
 import { buildItemsForQuestion } from "../ask-user-question.js";
@@ -53,6 +54,15 @@ function makeSession(columns: number) {
 		collapseKey: "off",
 	});
 }
+
+// Determinism: this regression asserts ENGLISH chrome footer literals ("Enter
+// to select", "Esc to cancel", "navigate"). Those are t()-localized, so under a
+// zh-TW locale (e.g. a developer who set `askUserLanguage`) they render as
+// translated strings and the assertions break. Pin locale=en for this file so it
+// is deterministic regardless of ambient ~/.pi/agent/settings.json, and restore
+// the pin after so it never leaks into sibling tests / the production path.
+beforeEach(() => __setLocaleForTest("en"));
+afterEach(() => __setLocaleForTest(null));
 
 describe("footer hint wrap regression", () => {
 	test("long footer hint wraps across multiple lines (not truncated)", () => {

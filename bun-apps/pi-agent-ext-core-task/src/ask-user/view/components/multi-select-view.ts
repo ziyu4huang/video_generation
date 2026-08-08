@@ -6,6 +6,11 @@ import { type Theme } from "@earendil-works/pi-coding-agent";
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { StatefulView } from "../stateful-view.js";
 import type { QuestionData } from "../../tool/types.js";
+// Stage 3b: route chrome literals through t() at their render sites. The
+// `Next` default (nextLabel) and the `Type something.` free-text placeholder
+// are dictionary keys; under the default `en` locale t() is identity, so this
+// changes NO existing render output.
+import { t } from "../../state/i18n-bridge.js";
 
 export interface MultiSelectRow {
 	checked: boolean;
@@ -88,14 +93,14 @@ export class MultiSelectView implements StatefulView<MultiSelectViewProps> {
 			const buffer = o.inputBuffer.length > 0 ? o.inputBuffer : "▌";
 			return [`${prefix}${buffer}`];
 		}
-		const label = "Type something.";
+		const label = t("Type something.");
 		const styled = o.active ? this.theme.fg("accent", this.theme.bold(`${label}`)) : label;
 		return [`${prefix}${styled}`];
 	}
 
 	private renderNext(width: number): string[] {
 		const pointer = this.props.nextActive ? "❯ " : "  ";
-		const label = this.props.nextLabel;
+		const label = t(this.props.nextLabel);
 		const styled = this.props.nextActive ? this.theme.fg("accent", this.theme.bold(`${pointer}${label}`)) : `${pointer}${label}`;
 		return [styled];
 	}

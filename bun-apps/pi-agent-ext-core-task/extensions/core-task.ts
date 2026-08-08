@@ -38,6 +38,7 @@ import { TOOL_NAME } from "../src/todo/tool/types";
 import { getSharedStatusWidget } from "../src/shared/status-widget.js";
 import registerAskUser from "../src/ask-user";
 import { registerResponseLanguage } from "../src/response-language/response-language.js";
+import { registerAskUserLanguage } from "../src/response-language/ask-user-language.js";
 import { getPlanPhases, getPlanSummary, isPlanIncomplete, refreshPlan, shouldRefreshAfterTool } from "../src/plan/coordinator.js";
 
 const extension: ExtensionFactory = (pi: ExtensionAPI) => {
@@ -64,6 +65,9 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 
 	// ── /response-language command (relocated from pi-agent-ext-response-language) ─
 	registerResponseLanguage(pi);
+
+	// ── /ask-user-language command (independent of responseLanguage; overrides it for ask_user_question) ──
+	registerAskUserLanguage(pi);
 
 	// ── Todo tool + /todos command ────────────────────────────────────────
 	registerTodoTool(pi);
