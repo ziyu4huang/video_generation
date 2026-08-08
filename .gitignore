@@ -99,3 +99,7 @@ vault/
 task_plan.md
 progress.md
 findings.md
+
+# python/embed-bench: isolated venv + generated benchmark output
+python/embed-bench/.venv/
+python/embed-bench/results/
