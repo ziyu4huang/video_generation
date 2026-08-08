@@ -23,6 +23,9 @@ import { runMergeRecipe } from "../src/recipe.js";
 import { runSweep, type SweepOutcome } from "../src/branch-recipe.js";
 import { runLocalCi, type CiOutcome } from "../src/ci-recipe.js";
 import { runSync, type SyncMode, type SyncOutcome } from "../src/sync-recipe.js";
+import { runRetrospect, type RetrospectOutcome } from "../src/retrospect-recipe.js";
+import { runPrepare, type PrepareOutcome } from "../src/prepare-recipe.js";
+import { runVerifyMerge, type VerifyMergeOutcome } from "../src/verify-merge-recipe.js";
 
 /** Render a sweep outcome as a compact, human-readable plan/summary. */
 function formatSweep(o: SweepOutcome): string {
@@ -99,6 +102,70 @@ function formatSync(o: SyncOutcome): string {
 	if (o.submodules.length) {
 		const dirty = o.submodules.filter((s) => !s.clean).length;
 		L.push(`  submodules: ${o.submodules.length} (${dirty} not-clean).`);
+	}
+	for (const w of o.warnings) L.push(`  ⚠ ${w}`);
+	if (o.commands.length) {
+		L.push("  commands:");
+		for (const c of o.commands) L.push(`    $ ${c}`);
+	}
+	return L.join("\n");
+}
+
+/** Render a retrospect outcome: summary line, anomalies (warn/info), warnings,
+ *  and the recorded commands (the recipe is read-only, so every command is too). */
+function formatRetrospect(o: RetrospectOutcome): string {
+	const L: string[] = [];
+	L.push(`🔍 retrospect: ${o.summary}`);
+	if (o.anomalies.length === 0) {
+		L.push("  no anomalies detected.");
+	} else {
+		for (const a of o.anomalies) {
+			L.push(`  ${a.severity === "warn" ? "⚠" : "ℹ"} [${a.kind}] ${a.message}`);
+		}
+	}
+	for (const w of o.warnings) L.push(`  ⚠ ${w}`);
+	if (o.commands.length) {
+		L.push("  commands:");
+		for (const c of o.commands) L.push(`    $ ${c}`);
+	}
+	return L.join("\n");
+}
+
+/** Render a prepare outcome: head line (complete/aborted), step ledger, warnings,
+ *  and the mutating commands issued (or the dry-run plan). */
+function formatPrepare(o: PrepareOutcome): string {
+	const L: string[] = [];
+	const head = o.aborted
+		? `⛔ prepare_branch ABORTED [${o.aborted.reason}]: ${o.aborted.message}${o.aborted.hint ? ` — ${o.aborted.hint}` : ""}`
+		: `✅ prepare_branch complete.`;
+	L.push(`${head} branch=${o.branch || "?"}, base=${o.base || "?"}.`);
+	for (const s of o.steps) {
+		L.push(`  ${s.step}: ${s.ok ? "✓" : "✗"}`);
+	}
+	for (const w of o.warnings) L.push(`  ⚠ ${w}`);
+	if (o.commands.length) {
+		L.push("  commands:");
+		for (const c of o.commands) L.push(`    $ ${c}`);
+	}
+	return L.join("\n");
+}
+
+/** Render a verify-merge outcome: verdict line (CLEAN/CONTAMINATED/NOT-MERGED),
+ *  out-of-scope files, warnings, and the read-only commands issued. */
+function formatVerifyMerge(o: VerifyMergeOutcome): string {
+	const L: string[] = [];
+	if (o.aborted) {
+		L.push(`⛔ verify_merge ABORTED [${o.aborted.reason}]: ${o.aborted.message}`);
+	} else if (!o.merged) {
+		L.push(`• verify_merge: PR #${o.pr} not merged (state=${o.state}). verdict=${o.verdict}.`);
+	} else {
+		const icon = o.verdict === "CLEAN" ? "✅" : "⚠";
+		L.push(
+			`${icon} verify_merge: PR #${o.pr} MERGED${o.mergeSha ? ` (${o.mergeSha.slice(0, 7)})` : ""} — ${o.fileCount} file(s), +${o.insertions}/-${o.deletions}. verdict=${o.verdict}.${o.branchSpent ? " branch spent." : " branch NOT spent."}`,
+		);
+		if (o.outOfScope.length) {
+			L.push(`  out-of-scope (${o.outOfScope.length}): ${o.outOfScope.map((f) => f.path).join(", ")}`);
+		}
 	}
 	for (const w of o.warnings) L.push(`  ⚠ ${w}`);
 	if (o.commands.length) {
@@ -289,6 +356,115 @@ export default function (pi: ExtensionAPI): void {
 			const mode: SyncMode = rawMode === "rebase" || rawMode === "pull" ? rawMode : "full";
 			const outcome = await runSync({ client, spawn, repoRoot, mode, dryRun: params.dryRun === true, force: params.force === true, signal });
 			return { details: outcome, content: [{ type: "text" as const, text: formatSync(outcome) }] };
+		},
+	});
+
+	pi.registerTool({
+		name: "devops_retrospect",
+		label: "Advisory post-run retrospective (anomaly review)",
+		description:
+			"Advisory post-run retrospective: inspects recent git ops + branch/worktree/divergence state, flags anomalies (force-push, scope drift, worktree-conflict, dirty-tree, divergence). Advisory only — never blocks.",
+		gating: { keywords: ["retrospect", "review", "reflect", "post-run", "anomaly"] },
+		promptSnippet:
+			"Advisory retrospective after a mutating recipe: flags force-push / scope-drift / worktree-conflict / dirty-tree / divergence. Read-only, never blocks.",
+		parameters: Type.Object({
+			expectedScope: Type.Optional(
+				Type.Array(Type.String(), { description: "Optional scope prefixes; recent touched paths outside ALL prefixes surface as a scope-drift anomaly." }),
+			),
+			lookback: Type.Optional(Type.Integer({ description: "How many reflog/log entries to scan (default 12)." })),
+		}),
+		async execute(_id, params, signal) {
+			const spawn = createLiveSpawn(process.cwd());
+			const client = createBranchClient(spawn);
+			// Resolve the repo root WITHOUT chdir (no top-level cd) — fall back to
+			// process.cwd() if not in a git worktree.
+			const root = await spawn("git", ["rev-parse", "--show-toplevel"]);
+			const repoRoot = root.exitCode === 0 ? root.stdout.trim() : process.cwd();
+			const outcome = await runRetrospect({
+				client,
+				spawn,
+				repoRoot,
+				expectedScope: params.expectedScope as string[] | undefined,
+				lookback: params.lookback as number | undefined,
+				signal,
+			});
+			return { details: outcome, content: [{ type: "text" as const, text: formatRetrospect(outcome) }] };
+		},
+	});
+
+	pi.registerTool({
+		name: "prepare_branch",
+		label: "Worktree-aware branch prepare (create / rebase / force-push)",
+		description:
+			"Worktree-aware branch prepare: create off base, rebase onto base, and/or force-push-with-lease. Covers the BEHIND state await_pr_merge blocks on; aborts cleanly on worktree-conflict or rebase-conflict.",
+		gating: { keywords: ["prepare", "rebase", "force-push", "branch", "behind"] },
+		promptSnippet:
+			"Prepare a branch worktree-safely: create off base, rebase onto base, and/or force-push-with-lease. Covers the BEHIND state; throw-free aborts on conflicts. dryRun shows the plan.",
+		parameters: Type.Object({
+			branch: Type.Optional(Type.String({ description: "Target branch. Default: the current branch." })),
+			base: Type.Optional(Type.String({ description: "Rebase/create base. Default: origin/<defaultBranch>." })),
+			create: Type.Optional(Type.Boolean({ description: "Create the branch off `base` (git checkout -b)." })),
+			rebase: Type.Optional(Type.Boolean({ description: "Rebase the branch onto `base`." })),
+			forcePush: Type.Optional(
+				Type.Boolean({ description: "Force-push the branch (--force-with-lease). Default false (never force-pushes by accident)." }),
+			),
+			dryRun: Type.Optional(Type.Boolean({ description: "Compute + record commands; spawn ZERO mutations (default false)." })),
+		}),
+		async execute(_id, params, signal) {
+			const spawn = createLiveSpawn(process.cwd());
+			const client = createBranchClient(spawn);
+			// Resolve the repo root WITHOUT chdir (no top-level cd) — fall back to
+			// process.cwd() if not in a git worktree.
+			const root = await spawn("git", ["rev-parse", "--show-toplevel"]);
+			const repoRoot = root.exitCode === 0 ? root.stdout.trim() : process.cwd();
+			const outcome = await runPrepare({
+				client,
+				spawn,
+				repoRoot,
+				branch: params.branch as string | undefined,
+				base: params.base as string | undefined,
+				create: params.create as boolean | undefined,
+				rebase: params.rebase as boolean | undefined,
+				forcePush: params.forcePush as boolean | undefined,
+				dryRun: params.dryRun as boolean | undefined,
+				signal,
+			});
+			return { details: outcome, content: [{ type: "text" as const, text: formatPrepare(outcome) }] };
+		},
+	});
+
+	pi.registerTool({
+		name: "verify_merge",
+		label: "Post-merge verify (merge state + scope + branch-spent)",
+		description:
+			"Post-merge verify: confirm the PR merged, inspect the merge commit's actual file scope (vs an optional expectedScope → CLEAN/CONTAMINATED), and whether the feature branch is spent. Replaces manual `git show --stat` verification.",
+		gating: { keywords: ["verify", "merge", "scope", "contaminated", "spent"] },
+		promptSnippet:
+			"Post-merge verify: confirm merged, inspect the merge's file scope (CLEAN/CONTAMINATED vs expectedScope), check branch-spent. Read-only.",
+		parameters: Type.Object({
+			pr: Type.Integer({ description: "The PR number to verify." }),
+			expectedScope: Type.Optional(
+				Type.Array(Type.String(), { description: "Optional scope prefixes; touched files outside ALL prefixes → CONTAMINATED." }),
+			),
+		}),
+		async execute(_id, params, signal) {
+			const spawn = createLiveSpawn(process.cwd());
+			const gh = createGhClient(spawn);
+			const client = createBranchClient(spawn);
+			// Resolve the repo root WITHOUT chdir (no top-level cd) — fall back to
+			// process.cwd() if not in a git worktree.
+			const root = await spawn("git", ["rev-parse", "--show-toplevel"]);
+			const repoRoot = root.exitCode === 0 ? root.stdout.trim() : process.cwd();
+			const outcome = await runVerifyMerge({
+				gh,
+				client,
+				spawn,
+				repoRoot,
+				pr: params.pr as number,
+				expectedScope: params.expectedScope as string[] | undefined,
+				signal,
+			});
+			return { details: outcome, content: [{ type: "text" as const, text: formatVerifyMerge(outcome) }] };
 		},
 	});
 }

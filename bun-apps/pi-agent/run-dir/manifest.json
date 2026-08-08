@@ -10,6 +10,7 @@
       "name": "pi-agent-ext-devops",
       "entry": "pi-agent-ext-devops/extensions/devops.ts",
       "bundleMode": "thin",
+      "testGate": "cd bun-apps/pi-agent-ext-devops && bun test",
       "version": "0.1.0"
     },
     "pi-agent-ext-flux2/extensions/flux2.ts",
@@ -58,7 +59,8 @@
     "pi-agent-ext-hermes-memory/skills",
     "pi-agent-ext-superpowers/skills",
     "pi-agent-ext-web-access/skills",
-    "pi-agent-ext-archify/skills"
+    "pi-agent-ext-archify/skills",
+    "pi-agent-ext-devops/skills"
   ],
   "binarySkills": [
     "pi-agent-ext-hermes-memory/skills",
