@@ -19,7 +19,7 @@ A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pd
 - 2026-07-30-file2md-for-pdf-... — PDF extractor (mupdf+VLM hybrid VERDICTED; feeds ticket 02). Live prototype ticket 04 stays there. ABSORBED.
 - 2026-07-28-hermes-surrealdb-graph-search — graph-augmented recall via RELATE edges, SHIPPED (feat/hermes-surrealdb-graph-search, 758 tests green). Prior art for tickets 03/10. ABSORBED.
 - 2026-07-29-brainstorm-to-improve-pi-agent-ext-hermes-memory — embed/backend decisions (ChromaDB rejected; sqlite-vec/SurrealDB-for-graph). Drift tickets closed citing ticket 04. ABSORBED.
-- 11 (closed) → task 12: scaffold @repo/pi-agent-ext-core-interface (KnowledgePipeline + publishSeam/readSeam + SEAM_KEYS registry); blocks 06's typed impl.
+- 11 (closed) → task 12: scaffold @repo/pi-agent-ext-core-interface (KnowledgePipeline + publishSeam/readSeam + SEAM_KEYS registry); blocks 06's typed impl. **Re-blocked by 03 + 04** — both reshape the interface 12 builds; build only after they close.
 
 ## Decisions so far
 - 01: unified Card {id, kind, content, frontmatter, embed?, graph?}; hermes store kind-agnostic via pluggable serializer; dedup = single store call-site behind pluggable strategy. CLOSED.
@@ -30,6 +30,7 @@ A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pd
 - Wayfind card granularity: per-ticket (tickets/NN.md = card kind=planning-ticket; map.md = index). -> ticket 08
 - Staleness: source-dependency graph (deps declared; re-validate on change). -> ticket 10
 - Carry-over (feeds 04): embed = SurrealDB-only (+ lm-studio); SQLite non-embed CRUD only.
+- Next grill order: **03** (two-layer graph — biggest KnowledgePipeline interface footprint), then **04** (embed, partially pre-decided), then **05** (interface-independent). One decision per session.
 
 ## Not yet specified
 - Image embed strategy (text-embed of merged content vs +CLIP image-vector). -> ticket 07
