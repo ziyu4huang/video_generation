@@ -919,6 +919,67 @@ test("renderSubagentResult isPartial preserves a plain streamed line when collap
   assert.equal(out, "↳ reading src/foo.ts");
 });
 
+// ── effort 2026-08-08 expanded-display-flicker (ticket 01): streaming-expanded viewport-safe tail ──
+// The streaming-expanded (ctrl+o) live view is capped to a viewport-safe TAIL so
+// the box stays small + height-stable (fits the terminal viewport → no per-frame
+// fullRender → no whole-TUI flicker). Must mirror src `STREAMING_EXPANDED_TAIL`.
+const STREAMING_TAIL = 16;
+
+test("renderSubagentResult isPartial+expanded caps the trace to a viewport-safe tail (drops oldest)", () => {
+  // 2 header lines + MANY trace lines (> 2 + STREAMING_TAIL) → box is capped.
+  const header = "H-line-1\nH-line-2";
+  const trace = Array.from({ length: 50 }, (_, i) => `trace-${i}`).join("\n");
+  const text = `${header}\n${trace}`;
+  const out = renderSubagentResult({ content: [{ type: "text", text }] }, { expanded: true, isPartial: true }, T);
+  const lines = out.split("\n");
+  assert.equal(lines.length, 2 + 1 + STREAMING_TAIL, "2 header + 1 ellipsis + last STREAMING_TAIL trace");
+  assert.equal(lines[0], "H-line-1");
+  assert.equal(lines[1], "H-line-2");
+  assert.equal(lines[2], "…", "an ellipsis marks the dropped middle");
+  // last STREAMING_TAIL trace lines retained, in order: trace-(50-16)..trace-49
+  const expectedTail = Array.from({ length: STREAMING_TAIL }, (_, i) => `trace-${50 - STREAMING_TAIL + i}`);
+  assert.deepEqual(lines.slice(3), expectedTail, "newest trace retained in order");
+  assert.ok(!out.includes("trace-0") && !out.includes("trace-33"), "oldest trace dropped");
+  assert.ok(out.includes("trace-49"), "newest trace kept");
+});
+
+test("renderSubagentResult isPartial+expanded shows ALL lines when few enough (no ellipsis)", () => {
+  // 2 header lines + FEW trace lines (≤ 2 + STREAMING_TAIL) → small enough already.
+  const header = "H-line-1\nH-line-2";
+  const few = STREAMING_TAIL - 6; // 10 trace → 12 total ≤ 18 → all shown, no cap
+  const trace = Array.from({ length: few }, (_, i) => `trace-${i}`).join("\n");
+  const text = `${header}\n${trace}`;
+  const out = renderSubagentResult({ content: [{ type: "text", text }] }, { expanded: true, isPartial: true }, T);
+  assert.ok(!out.includes("…"), "no ellipsis when small enough");
+  assert.equal(out.split("\n").length, 2 + few, "all lines shown");
+  assert.ok(out.includes("trace-0") && out.includes(`trace-${few - 1}`), "every trace line retained");
+});
+
+test("renderSubagentResult isPartial+collapsed stays at 2 header lines regardless of trace size", () => {
+  const header = "H-line-1\nH-line-2";
+  const trace = Array.from({ length: 50 }, (_, i) => `trace-${i}`).join("\n");
+  const text = `${header}\n${trace}`;
+  const out = renderSubagentResult({ content: [{ type: "text", text }] }, { expanded: false, isPartial: true }, T);
+  assert.equal(out.split("\n").length, 2, "collapsed = just the 2-line header");
+  assert.ok(!out.includes("trace-0"), "collapsed hides the trace");
+});
+
+test("renderSubagentResult NON-partial+expanded renders the FULL report (streaming cap does not apply)", () => {
+  // Settled report path must be UNCHANGED: no cap, even with a tall report.
+  const details: SubagentToolDetails = {
+    exitCode: 0,
+    timedOut: false,
+    taskPreview: "p",
+    elapsedMs: 12_350,
+    status: "done",
+  };
+  const full = Array.from({ length: 60 }, (_, i) => `Line ${i} of report`).join("\n");
+  const out = renderSubagentResult({ content: [{ type: "text", text: full }], details }, { expanded: true }, T);
+  assert.ok(!out.includes("…"), "no ellipsis on the settled report");
+  assert.ok(out.includes("Line 0 of report") && out.includes("Line 59 of report"), "full report retained top-to-bottom");
+  assert.equal(out.split("\n").length, 1 + 60, "1 (badge+meta header) + all 60 report lines — uncapped");
+});
+
 // ── Part B: in-flight registry wiring ──
 
 test("execute registers on inFlight at start, streams history, deregisters on completion", async () => {
