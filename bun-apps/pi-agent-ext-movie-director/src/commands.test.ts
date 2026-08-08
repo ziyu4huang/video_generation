@@ -345,6 +345,28 @@ describe("dispatch captions forwarding (compose-motion)", () => {
 	});
 });
 
+// ─── dispatch compose-hyperframes (agent-facing wiring for compose:hyperframes) ─
+// renderHyperframes()'s own logic is fully covered by hyperframes_native.test.ts
+// (18 tests). These cover only what the dispatch case adds on top of it: the
+// missing-editDecisions error contract and pre-compose gate enforcement — the
+// same posture as compose-remotion, which has no dispatch-level render test
+// either (would require a real hyperframes binary).
+describe("dispatch compose-hyperframes", () => {
+	test("requires editDecisions.cuts", async () => {
+		const res = await dispatch("compose-hyperframes", {});
+		expect(res.ok).toBe(false);
+		if (res.ok) return;
+		expect(res.error).toBe("compose-hyperframes requires {editDecisions:{version,cuts:[...]}}");
+	});
+
+	test("refuses to render on a pre-compose fail verdict (never reaches renderHyperframes)", async () => {
+		const res = await dispatch("compose-hyperframes", { editDecisions: { version: "1.0", cuts: [] } });
+		expect(res.ok).toBe(false);
+		if (res.ok) return;
+		expect(res.error).toContain("GATE VIOLATION: pre-compose failed");
+	});
+});
+
 describe("evaluate-lipsync", () => {
 	test("requires videoPath", async () => {
 		const res = await dispatch("evaluate-lipsync", {});

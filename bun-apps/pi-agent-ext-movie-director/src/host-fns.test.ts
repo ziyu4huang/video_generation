@@ -28,8 +28,8 @@ describe("movie.* host-fns", () => {
     expect(HOST_FN_TIMEOUT_MS.generate).toBeGreaterThanOrEqual(600_000);
   });
 
-  test("compose-motion / compose-remotion / compose have long timeouts", () => {
-    for (const c of ["compose-motion", "compose-remotion", "compose"]) {
+  test("compose-motion / compose-remotion / compose-hyperframes / compose have long timeouts", () => {
+    for (const c of ["compose-motion", "compose-remotion", "compose-hyperframes", "compose"]) {
       expect(HOST_FN_TIMEOUT_MS[c]).toBeGreaterThanOrEqual(900_000);
     }
   });
