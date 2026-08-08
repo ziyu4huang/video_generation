@@ -204,12 +204,18 @@ export function renderStatus(r: StatusReport): string {
 // premises / footguns) stay with the agent — this writes a template the agent
 // fills. The command handler runs tidy + notifies; this function does not.
 
-/** Local timestamp as YYYYMMDD_HHMMSS (matches scripts/tidy-next-goals.sh). */
+/** Local timestamp as YYYYMMDD_HHMMSS (the canonical next-goal filename stamp). */
 function nextGoalTimestamp(now: Date = new Date()): string {
   const p = (n: number) => String(n).padStart(2, "0");
   const d = now;
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
+
+/** Canonical `output/next-goal-*.md` filename matcher: `next-goal-` + the
+ *  YYYYMMDD_HHMMSS stamp from {@link nextGoalTimestamp} + `.md`. Shared (single
+ *  source of truth) with `tidy-next-goals.ts`, which uses it to detect
+ *  already-normalized names instead of re-deriving the format. */
+export const NEXT_GOAL_FILENAME_RE = /^next-goal-[0-9]{8}_[0-9]{6}\.md$/;
 
 export interface CloseEffortReflection {
   /** Repo-relative path written, e.g. "output/next-goal-20260723_033000.md". */

@@ -21,7 +21,6 @@
  * Type-only imports keep this module cycle-free with index.ts.
  */
 
-import { spawnSync } from "node:child_process";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { seedPlan, syncChainState } from "./chain.js";
 import { PKG_NAME } from "./constants.js";
@@ -32,6 +31,7 @@ import { buildGrillPriming } from "./grill.js";
 import type { WayfindOverlay } from "./overlay.js";
 import { procedurePath } from "./procedures.js";
 import { getSessionId, isGrillActive, type RuntimeState } from "./state.js";
+import { tidyNextGoals } from "./tidy-next-goals.js";
 import {
   chartMap,
   claimNextTicket,
@@ -168,9 +168,9 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     }
     // Best-effort tidy (keep last N); the note is already written regardless.
     try {
-      spawnSync("bash", ["scripts/tidy-next-goals.sh"], { cwd: ctx.cwd });
+      tidyNextGoals(ctx.cwd);
     } catch {
-      // tidy is best-effort; ignore if bash / the script is unavailable.
+      // tidy is best-effort; ignore if output/ is unavailable.
     }
     overlay.setLine("done", `done: ${effort}`);
     const filedNote = r.filedTo ? ` · filed to ${r.filedTo}` : r.fileError ? ` · filing failed: ${r.fileError}` : "";
