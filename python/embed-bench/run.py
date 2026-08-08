@@ -37,7 +37,7 @@ def _time_single_calls(embed_fn, sample_text: str, reps: int) -> list[float]:
     return durations
 
 
-def _skipped_row(model_name: str, backend_name: str) -> dict:
+def _skipped_row(model_name: str, backend_name: str, reason: str = "unavailable") -> dict:
     return {
         "model": model_name,
         "backend": backend_name,
@@ -47,6 +47,7 @@ def _skipped_row(model_name: str, backend_name: str) -> dict:
         "p50_ms": "not tested",
         "p95_ms": "not tested",
         "throughput_per_sec": "not tested",
+        "reason": reason,
     }
 
 
@@ -81,7 +82,7 @@ def _run_combo(backend_name: str, model_name: str, embed_fn, chunks: list[Chunk]
         }
     except Exception as exc:
         print(f"  {backend_name}/{model_name} failed mid-run, marking not tested: {exc}", file=sys.stderr)
-        return _skipped_row(model_name, backend_name)
+        return _skipped_row(model_name, backend_name, reason=repr(exc))
 
 
 def main() -> None:
@@ -114,12 +115,14 @@ def main() -> None:
             print(f"Running lmstudio / {model_name}...")
             rows.append(_run_combo("lmstudio", model_name, lambda t, c=config: lmstudio.embed_batch(c["lmstudio_model_id"], t), chunks, queries))
         else:
+            print(f"  lmstudio / {model_name} not available, skipping")
             rows.append(_skipped_row(model_name, "lmstudio"))
 
         if llamacpp.is_available():
             print(f"Running llamacpp / {model_name}...")
             rows.append(_run_combo("llamacpp", model_name, lambda t: llamacpp.embed_batch(t), chunks, queries))
         else:
+            print(f"  llamacpp / {model_name} not available, skipping")
             rows.append(_skipped_row(model_name, "llamacpp"))
 
         mlx_repo = config.get("mlx_hf_repo")
@@ -127,6 +130,7 @@ def main() -> None:
             print(f"Running mlx_native / {model_name}...")
             rows.append(_run_combo("mlx_native", model_name, lambda t, r=mlx_repo: mlx_native.embed_batch(r, t), chunks, queries))
         else:
+            print(f"  mlx_native / {model_name} not available, skipping")
             rows.append(_skipped_row(model_name, "mlx_native"))
 
     write_report(rows, args.output_dir)
