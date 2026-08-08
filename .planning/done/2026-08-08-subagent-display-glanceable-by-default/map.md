@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-08-subagent-display-glanceable-by-default
 created: 2026-08-08
-last: 2026-08-10
-status: active
+last: 2026-08-08
+status: complete
 ---
 
 ## Destination

@@ -1,7 +1,9 @@
 ---
 effort: 2026-08-08-subagents-follow-model-preset
 title: Subagents follow the active model-preset on fallback
-status: done
+created: 2026-08-08
+last: 2026-08-08
+status: complete
 ---
 
 ## Question
