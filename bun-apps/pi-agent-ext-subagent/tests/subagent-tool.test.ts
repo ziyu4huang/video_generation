@@ -1269,3 +1269,16 @@ test("formatHistoryLine renders a tool error with the `✗ Failed to …` marker
   const out = formatHistoryLine({ role: "tool", kind: "error", toolName: "bash", text: "exit 1", isError: true });
   assert.match(out, /^✗ Failed to run: exit 1/);
 });
+
+test("formatHistoryLine renders a tool error WITH its target when matchedCallArgs is supplied", () => {
+  // Consistent with the toolResult branch: formatSubagentLive passes the
+  // matching preceding toolCall's args via matchedCallArgsFor. A tool error
+  // must recover the target it acted on (e.g. `✗ Failed to edit src/parser.ts: …`)
+  // instead of the verb-only `✗ Failed to edit: …`.
+  const out = formatHistoryLine(
+    { role: "tool", kind: "error", toolName: "edit", text: "oldText not found", isError: true },
+    { matchedCallArgs: { path: "src/parser.ts", edits: [{ oldText: "foo", newText: "bar" }] } },
+  );
+  assert.match(out, /^✗ Failed to edit src\/parser\.ts: oldText not found/);
+  assert.ok(out.includes("src/parser.ts"), "surfaces the target the tool acted on");
+});
