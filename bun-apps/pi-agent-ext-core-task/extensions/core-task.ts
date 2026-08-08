@@ -1,3 +1,4 @@
+/// <reference types="@repo/pi-tool-gating-contract" />
 /**
  * pi-agent-ext-core-task — the task-execution cockpit: /goal + todo + ask_user_question + shared composite status widget.
  *
