@@ -229,6 +229,27 @@ export function taskPreview(task: string, n = 80): string {
   return oneLine.length > n ? `${oneLine.slice(0, n - 1)}…` : oneLine;
 }
 
+/** Display-only helper: strip a leading cwd/repo preamble line from the task
+ *  and return the first non-empty remaining line, truncated to `n` chars.
+ *  The orchestrator's task prompt convention opens with a line like
+ *  `Working dir: /path/to/repo` — this surfaces the actual work intent instead.
+ *  Falls back to the first non-empty line (same as {@link taskPreview}) when
+ *  there is no preamble. Does NOT mutate the raw task string. */
+export function workIntentPreview(task: string, n = 60): string {
+  const lines = task.split("\n");
+  // Strip a leading cwd/repo preamble line (case-insensitive).
+  const startIdx = lines.length > 0 && /^(working dir|cwd|repo)\s*:\s*\S+/i.test(lines[0]?.trim() ?? "") ? 1 : 0;
+  // Take the first non-empty line after the optional preamble.
+  for (let i = startIdx; i < lines.length; i++) {
+    const trimmed = lines[i]?.trim();
+    if (trimmed && trimmed.length > 0) {
+      return trimmed.length > n ? `${trimmed.slice(0, n - 1)}…` : trimmed;
+    }
+  }
+  // All lines were empty or preamble-only — fall back to single-line.
+  return taskPreview(task, n);
+}
+
 /** Describe the most recent history entry as a short one-line activity string.
  *  Delegates the PHRASE to {@link formatToolAction} and adds NO glyph prefix —
  *  callers (`formatSubagentProgress`) prepend their own `↳`. */
@@ -436,7 +457,7 @@ export function renderSubagentCall(
   if (args.resolvedModel && args.resolvedModel !== slot) {
     parts.push(theme.fg("muted", args.resolvedModel));
   }
-  parts.push(theme.fg("dim", `"${taskPreview(args.task, 60)}"`));
+  parts.push(theme.fg("dim", `"${workIntentPreview(args.task, 60)}"`));
   return parts.join(" ▸ ");
 }
 

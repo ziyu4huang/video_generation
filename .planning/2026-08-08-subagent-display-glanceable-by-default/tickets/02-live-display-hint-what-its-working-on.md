@@ -1,7 +1,11 @@
 ---
 type: task
-status: open
+status: closed
 ---
+
+## Resolution
+
+Added `workIntentPreview()` display-only helper in `subagent-tool.ts` that strips a leading "Working dir:"/"Cwd:"/"Repo:" preamble line from subagent tasks, surfacing the first actual work-intent line instead of boilerplate. Applied it in `renderSubagentCall()` — because `subagent-context-widget.ts` reuses `renderSubagentCall`, this single edit fixes both the inline live-display header AND the docked context-widget header. Raw `taskPreview()` usages in `execute()`'s persisted run records and `/subagents` viewer remain verbatim. +8 tests (7 for `workIntentPreview`, 1 for `renderSubagentCall` integration); gate green at 532 pass.
 
 ## Question
 
