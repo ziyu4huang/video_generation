@@ -65,7 +65,8 @@ export interface ProviderEntry {
     | "bun:whisper"
     | "bun:clip"
     | "compose:remotion"
-    | "compose:motion";
+    | "compose:motion"
+    | "compose:hyperframes";
   configured: boolean;
   notes?: string;
   /**
@@ -390,7 +391,7 @@ export const REGISTRY: ProviderEntry[] = [
   // Composition runtimes.
   { name: "compose_remotion", capability: "composition", provider: "remotion", backend: "native_swift", invoke: "compose:remotion", configured: true, notes: "Remotion Node subprocess (src/remotion.ts) — the ONLY templated composer (layered section_title overlays, crossfade, per-cut animation). Binary resolves REMOTION_BIN → PATH → the bundled <EXT_ROOT>/remotion install (run `bun install` in remotion/ + `remotion browser ensure`); probeConfigured reflects that, so the composition rollup advertises remotion truthfully. compose_motion drops edit.overlays — use this runtime when overlays/layered text are required" },
   { name: "compose_motion", capability: "composition", provider: "motion", backend: "ffmpeg", invoke: "compose:motion", configured: true, notes: "ffmpeg motion compositor (src/compose_motion.ts, Item J) — per-cut ken-burns/zoom/pan via zoompan + xfade crossfade; callable wherever ffmpeg+zoompan+xfade resolve (no browser/swift)" },
-  { name: "compose_hyperframes", capability: "composition", provider: "hyperframes", backend: "cloud_http", invoke: "fetch", configured: false, notes: "GAP: vendor-gated — HyperFrames/Motion Canvas are browser-only React frameworks (no headless CLI; @motion-canvas/cli 404 on npm). Not callable on this machine; use compose_motion (lightweight) or compose_remotion (templated)" },
+  { name: "compose_hyperframes", capability: "composition", provider: "hyperframes", backend: "native_swift", invoke: "compose:hyperframes", configured: true, notes: "HyperFrames CLI subprocess (src/hyperframes_native.ts) — a THIRD templated composer: generates a GSAP-driven HTML composition per render (ken-burns/zoom/pan cuts, section_title overlays, fade-at-boundary transitions), rendered headlessly via the vendor CLI's bundled Puppeteer+Chrome. Binary resolves HYPERFRAMES_BIN → `hyperframes` on PATH → `bunx hyperframes` (the vendor's own supported invocation, unlike remotion's bunx fallback). v1 does not wire edit.audio (narration/music) — use compose_remotion when audio is required. The former GAP note (\"no headless CLI\") was stale — hyperframes@0.7.100 ships a real render CLI; verified end-to-end (2026-08-08) against a real multi-cut+overlay edit_decisions." },
   { name: "compose_ffmpeg", capability: "composition", provider: "ffmpeg", backend: "ffmpeg", invoke: "ffmpeg", configured: true, notes: "concat/trim/subtitle-burn via ffmpeg" },
 
   // TTS — cloud HTTP (iteration 3) + local fallback.

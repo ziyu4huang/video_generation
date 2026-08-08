@@ -19,6 +19,7 @@ import {
   _setVisionRuntimeForTest,
   _setFlux2BinaryForTest,
   _setLmStudioReachableForTest,
+  _setHyperframesCliForTest,
   type WhisperResult,
   type ClipResult,
 } from "./providers.ts";
@@ -36,6 +37,10 @@ beforeAll(() => {
   // darwin-only, so without this pin enhancement would be a gap on Linux CI.
   _setFlux2BinaryForTest(true);
   _setLmStudioReachableForTest(true);
+  // bunx ships with bun itself, so this is genuinely true on every runner —
+  // pinned anyway for the same determinism reason as the others (never trust
+  // real PATH state in a unit test).
+  _setHyperframesCliForTest(true);
 });
 afterAll(() => {
   _setFfmpegAvailableForTest(undefined);
@@ -45,6 +50,7 @@ afterAll(() => {
   _setVisionRuntimeForTest("clip", undefined);
   _setFlux2BinaryForTest(undefined);
   _setLmStudioReachableForTest(undefined);
+  _setHyperframesCliForTest(undefined);
 });
 
 describe("buildSubtitle (pure)", () => {
@@ -240,10 +246,10 @@ describe("probeConfigured + probedMenuSummary", () => {
     }
   });
 
-  it("Item A acceptance: composition GAPs list is [hyperframes] only after remotion repair", () => {
-    // When remotion resolves, composition.available_providers includes remotion
-    // AND ffmpeg AND motion (the Item J runtime); the only remaining GAP is
-    // hyperframes (browser-only, vendor-gated).
+  it("Item A acceptance: composition has ZERO gaps once remotion resolves too", () => {
+    // When remotion resolves (motion/ffmpeg/hyperframes are pinned available in
+    // beforeAll already), all four composition providers are callable — the
+    // former standing hyperframes GAP was closed 2026-08-08 (hyperframes_native.ts).
     _setRemotionProbeForTest(true);
     try {
       const m = probedMenuSummary(NO_ENV);
@@ -251,11 +257,12 @@ describe("probeConfigured + probedMenuSummary", () => {
       expect(composition.available_providers).toContain("remotion");
       expect(composition.available_providers).toContain("ffmpeg");
       expect(composition.available_providers).toContain("motion");
-      expect(composition.unavailable_providers).toEqual(["hyperframes"]);
+      expect(composition.available_providers).toContain("hyperframes");
+      expect(composition.unavailable_providers).toEqual([]);
       // composition_runtimes rollup reflects the same truth.
       expect(m.composition_runtimes.remotion).toBe(true);
       expect(m.composition_runtimes.motion).toBe(true);
-      expect(m.composition_runtimes.hyperframes).toBe(false);
+      expect(m.composition_runtimes.hyperframes).toBe(true);
     } finally {
       _setRemotionProbeForTest(false);
     }
@@ -284,13 +291,23 @@ describe("probeConfigured + probedMenuSummary", () => {
     }
   });
 
-  it("Item J: compose_hyperframes stays a documented vendor-gated GAP", () => {
+  it("compose_hyperframes is callable iff the hyperframes CLI resolves (HYPERFRAMES_BIN or bunx)", () => {
     const hf = REGISTRY.find((p) => p.name === "compose_hyperframes")!;
-    expect(hf.configured).toBe(false);
-    expect(hf.notes!.startsWith("GAP")).toBe(true);
-    expect(probeConfigured(hf, NO_ENV)).toBe(false); // never callable headless
-    const m = probedMenuSummary(NO_ENV);
-    expect(m.gaps.map((g) => g.name)).toContain("compose_hyperframes");
+    expect(hf.configured).toBe(true);
+    expect(hf.backend).toBe("native_swift");
+    expect(hf.invoke).toBe("compose:hyperframes");
+    expect(hf.notes!.startsWith("GAP")).toBe(false);
+    // CLI present (test-pinned true in beforeAll) → callable.
+    expect(probeConfigured(hf, NO_ENV)).toBe(true);
+    // CLI absent → not callable, and it reappears in the GAP rollup.
+    _setHyperframesCliForTest(false);
+    try {
+      expect(probeConfigured(hf, NO_ENV)).toBe(false);
+      const m = probedMenuSummary(NO_ENV);
+      expect(m.gaps.map((g) => g.name)).not.toContain("compose_hyperframes"); // GAP is a static-notes signal, not probe-driven
+    } finally {
+      _setHyperframesCliForTest(true);
+    }
   });
 });
 
