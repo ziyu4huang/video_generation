@@ -20,12 +20,14 @@ A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pd
 - 2026-07-28-hermes-surrealdb-graph-search — graph-augmented recall via RELATE edges, SHIPPED (feat/hermes-surrealdb-graph-search, 758 tests green). Prior art for tickets 03/10. ABSORBED.
 - 2026-07-29-brainstorm-to-improve-pi-agent-ext-hermes-memory — embed/backend decisions (ChromaDB rejected; sqlite-vec/SurrealDB-for-graph). Drift tickets closed citing ticket 04. ABSORBED.
 - 11 (closed) → task 12: scaffold @repo/pi-agent-ext-core-interface (KnowledgePipeline + publishSeam/readSeam + SEAM_KEYS registry); blocks 06's typed impl. **UNBLOCKED** (03 + 04 closed) — ready to build via /wayfind seed. Build-track follow-ons: embed index (surreal primary + sqlite-vec fallback), obsidian vault-mind migration, A/B bench vector extension.
+- 05 (closed) → task 13: migrate memory-cards into the unified store at graduation (blocked by 06). Migration is mechanical (01's pluggable serializer); gate = store built + proven on knowledge-cards first.
 
 ## Decisions so far
 - 01: unified Card {id, kind, content, frontmatter, embed?, graph?}; hermes store kind-agnostic via pluggable serializer; dedup = single store call-site behind pluggable strategy. CLOSED.
 - 02: extractors — md/txt native; pdf=mupdf via file2md (hybrid mupdf-body+VLM-figures, per file2md verdict); docx=mammoth; pptx=pptxtojson; one card per section/page/slide (~512 tok); provenance frontmatter. CLOSED.
 - 03: two-layer knowledge graph — wiki-link layer formalized as-is (shared-tag scoreOverlap, no expansion); typed entity-relation layer = md frontmatter source-of-truth (`relations:`) + derived DB index; hybrid relation schema (fixed core + free-form); LLM typed-relation extraction OPT-IN (default off, `kg.llm`/`PI_KG_LLM`). Fork 4 collapsed into carry-over. CLOSED.
 - 04: embed backend — model = `text-embedding-nomic-embed-text-v1.5` (768-dim) via LM Studio (zk's existing default, standardized); CONSOLIDATE now (new nomic index serves card-store + obsidian; deprecate vault-mind/ChromaDB `:8000`); touchpoints = ingest card-embed (stored) + query embed; vector store = embed rides backend-ab, SurrealDB native PRIMARY, sqlite-vec FALLBACK. Carry-over "SurrealDB-only" corrected. UNBLOCKS task 12. CLOSED.
+- 05: migration = MIGRATE AT GRADUATION (memory-cards coexist during build, migrate in as the final milestone; tracked → task 13); DB↔md drift = FIELD-CLASSIFICATION policy — Tier 1 md-canonical (md wins, re-index), Tier 2 derived cache (regenerate, no write-back), Tier 3 DB-authoritative opt-in (no md write-through; the worth-scoring precedent), merge-plan only for genuine md↔db content conflicts (reuse hermes `merge-plan.ts` hash/optimistic-concurrency primitives). CLOSED.
 - Hermes-as-spine (revise 01): hermes owns pipeline orchestration + store; zk = graph/ingest/RAG primitives provider. -> ticket 06
 - 11: core-interface package contract pinned — @repo/pi-agent-ext-core-interface hosts typed interfaces + SEAM_KEYS (single source of truth) + publishSeam/readSeam accessors (compile-time orphan prevention); lockstep pi-core; incremental migration (KnowledgePipeline first). CLOSED. Impl → task 12.
 - Image input: BOTH OCR + vision-LLM (google/gemma-4-12b-qat via lm-studio), one merged card. -> ticket 07
@@ -33,7 +35,7 @@ A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pd
 - Staleness: source-dependency graph (deps declared; re-validate on change). -> ticket 10
 - Carry-over (feeds 04): embed = SurrealDB-only (+ lm-studio); SQLite non-embed CRUD only.
   (SUPERSEDED by 04 — see Decisions: embed rides backend-ab; SurrealDB primary, sqlite-vec fallback.)
-- Next grill order: **05** (migration/sync — interface-independent, doesn't block the build). One per session. (03, 04 closed; task 12 unblocked.)
+- Next grill order: **07** (image-card model + extractor; blocked-by 06 closed). One per session. (05 closed — migrate-at-graduation + 3-tier drift policy → task 13; task 12 still the ready build path via /wayfind seed.)
 
 ## Not yet specified
 - Image embed strategy (text-embed of merged content vs +CLIP image-vector). -> ticket 07
