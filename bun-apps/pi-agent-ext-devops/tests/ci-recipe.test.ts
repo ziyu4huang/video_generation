@@ -167,7 +167,9 @@ describe("runLocalCi — aggregation", () => {
 		const { fn } = mkSpawn([
 			verifyOk(),
 			detect(JSON.stringify({ "pkg-a": true })),
-			{ match: (c, a) => c === "bun" && a[0] === "scripts/check-schema-cost.ts", result: { stdout: "", stderr: "regression", exitCode: 1 } },
+			// runSchemaCostCheck is IMPORTED now (no `bun scripts/check-schema-cost.ts`
+			// spawn); its internal tools-metrics spawn is the one faked here.
+			{ match: (c, a) => c === "bun" && a.includes("tools-metrics") && a.includes("--schema-cost") && a.includes("--json"), result: { stdout: "", stderr: "", exitCode: 1 } },
 		]);
 		const out = await runLocalCi({
 			repoRoot: REPO,
@@ -266,13 +268,17 @@ describe("runLocalCi — strict audit gates", () => {
 		expect(out.gates).toEqual([]);
 		expect(out.schemaCost).toBeUndefined();
 		// no GATE script ran (detection's ci-changed-packages.sh is fine — it's not a gate).
+		// NB: schema-cost is no longer a spawned script — runSchemaCostCheck is an
+		// in-process import, and it is skipped entirely when includeGates=false, so
+		// the tools-metrics instrument spawn never happens either.
 		const gateFiles = [
-			"ci-file-size-guard.sh", "check-lockfile-duplicate-versions.sh", "check-schema-cost.ts",
+			"ci-file-size-guard.sh", "check-lockfile-duplicate-versions.sh",
 			"test-determinism-audit.sh", "test-portability-audit.sh", "check-workflow-patterns.mjs", "verify-skills.ts",
 		];
 		for (const f of gateFiles) {
 			expect(calls.some((c) => c.args.includes(`scripts/${f}`)), `did NOT spawn gate ${f}`).toBe(false);
 		}
+		expect(calls.some((c) => c.args.includes("tools-metrics") && c.args.includes("--schema-cost")), "did NOT spawn tools-metrics").toBe(false);
 	});
 });
 

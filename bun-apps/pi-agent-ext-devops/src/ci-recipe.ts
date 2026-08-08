@@ -17,6 +17,7 @@
  * repo-wide "never wait for remote CI; self-verify then `gh ship`" rule.
  */
 import type { SpawnFn } from "./spawn.js";
+import { runSchemaCostCheck } from "./schema-cost-check.js";
 
 export interface CiPackageResult {
 	name: string;
@@ -207,7 +208,9 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 			gates.push({ name: spec.file, exitCode: r.exitCode, blocking: spec.blocking });
 		}
 		// schema-cost is ALWAYS info-only — a regression here must not block a merge.
-		const sc = await spawn("bun", ["scripts/check-schema-cost.ts"], { cwd: opts.repoRoot });
+		// Imported (not spawned) so the check runs in-process; its internal
+		// tools-metrics spawn still goes through the injectable SpawnFn seam.
+		const sc = await runSchemaCostCheck({ repoRoot: opts.repoRoot, spawn });
 		schemaCost = { exitCode: sc.exitCode, note: "info-only — never affects overall" };
 	}
 
