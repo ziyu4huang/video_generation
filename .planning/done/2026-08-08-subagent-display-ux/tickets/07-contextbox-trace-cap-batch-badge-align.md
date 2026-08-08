@@ -1,6 +1,7 @@
 ---
 type: task
 status: closed
+origin: 2026-08-08-subagent-display-glanceable-by-default/tickets/05-contextbox-trace-cap-batch-badge-align.md
 ---
 
 ## Question
@@ -60,6 +61,8 @@ emits.
 - Do NOT change the `#1108` fallback display.
 
 ## Resolution
+
+Shipped via #1110 (`fix(subagent): context-box trace tail-cap + batch per-slot badge alignment`).
 
 Implemented in `fix/subagent-trace-cap-batch-align`:
 - `STREAMING_EXPANDED_TAIL` exported + shared `capTraceTail(lines, tail)` helper

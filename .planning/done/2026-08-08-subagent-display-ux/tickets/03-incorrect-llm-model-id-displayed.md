@@ -1,6 +1,7 @@
 ---
 type: task
 status: closed
+origin: 2026-08-08-subagent-display-glanceable-by-default/tickets/03-incorrect-llm-model-id-displayed.md
 ---
 
 ## Question
