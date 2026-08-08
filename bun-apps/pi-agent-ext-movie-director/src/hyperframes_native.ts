@@ -19,10 +19,15 @@
  * transition model) — see that file's comments for the React original this
  * mirrors.
  *
- * v1 scope: cuts (media ken-burns/zoom/pan + text cuts) and overlays
- * (section_title). `edit.audio` (narration/music) is NOT yet wired — same
- * documented-gap pattern as compose_motion.ts dropping edit.overlays; a
- * warning is emitted rather than silently ignored.
+ * v1 scope: cuts (media ken-burns/zoom/pan + text cuts), overlays
+ * (section_title), and `edit.audio.narration` (a single static-volume
+ * `<audio>` element, staged like any other source). `edit.audio.music`
+ * (loop/fade/offset) is NOT wired — HyperFrames has no native loop
+ * equivalent to Remotion's `<Audio loop>` and the framework forbids driving
+ * media playback directly, so looping would require tiling multiple
+ * `<audio>` clips across the timeline (future work). Same documented-gap
+ * pattern as compose_motion.ts dropping edit.overlays; a warning is emitted
+ * rather than silently ignored.
  *
  * The HyperFrames CLI is resolved, in order: HYPERFRAMES_BIN env → `hyperframes`
  * on PATH → `bunx hyperframes` fallback (mirrors remotion.ts's resolveRemotionBin
@@ -239,6 +244,23 @@ export function buildHyperframesComposition(
     tweenLines.push(`tl.fromTo("#${id}-inner", { opacity: 1 }, { opacity: 0, duration: ${fin}, ease: "power2.out" }, ${Math.max(start, ov.out_seconds - fin)});`);
   });
 
+  // Narration audio: a single static-volume <audio> element on its own
+  // reserved track (0=cuts, 1=overlays, 2=narration). No data-duration (plays
+  // its full intrinsic length, clipped by the root's data-duration, mirroring
+  // Remotion's <Audio> being bounded by the composition's own frame count)
+  // and no GSAP tween (RemotionAudio.narration has no fade fields). Same
+  // failure-tolerant pattern as a cut with a missing source: warn and skip,
+  // never fail the whole composition.
+  let audioBlock = "";
+  const narration = edit.audio?.narration;
+  if (narration) {
+    if (narration.src && (existsSync(narration.src) || /^(https?:|data:)/.test(narration.src))) {
+      audioBlock = `<audio id="narration" src="${escapeHtml(resolveSrc(narration.src, "narration"))}" data-start="0" data-track-index="2" data-volume="${narration.volume ?? 1}"></audio>`;
+    } else {
+      warnings.push(`narration source missing: ${narration.src ?? "(none)"}`);
+    }
+  }
+
   const html = `<!doctype html>
 <html lang="en">
   <head>
@@ -254,6 +276,7 @@ export function buildHyperframesComposition(
     <div id="root" data-composition-id="edit" data-start="0" data-duration="${durationSeconds}" data-width="${opts.width}" data-height="${opts.height}">
       ${cutBlocks.join("\n      ")}
       ${overlayBlocks.join("\n      ")}
+      ${audioBlock}
     </div>
     <script>
       window.__timelines = window.__timelines || {};
@@ -345,8 +368,8 @@ export async function renderHyperframes(
     return { version: "1.0", outputs: [], warnings: ["hyperframes binary not found (set HYPERFRAMES_BIN or install hyperframes on PATH)"], verification_notes: ["hyperframes compose failed: binary unavailable"] };
   }
 
-  if (edit.audio?.narration || edit.audio?.music) {
-    warnings.push("hyperframes compose tier does not yet wire edit.audio (narration/music) — v1 scope is cuts+overlays only");
+  if (edit.audio?.music) {
+    warnings.push("hyperframes compose tier does not support edit.audio.music (loop/fade) — use compose-remotion when music is required");
   }
 
   const width = opts.width ?? 1920;

@@ -185,6 +185,39 @@ describe("buildHyperframesComposition — pure HTML generator", () => {
     expect(built.html).toMatch(/id="overlay-0"[^>]*data-track-index="1"/);
     expect(built.durationSeconds).toBe(3); // max(cut.out=3, overlay.out=2)
   });
+
+  it("emits a narration <audio> element on data-track-index=2 with default volume 1", () => {
+    const edit: RemotionEditDecisions = {
+      version: "1.0",
+      cuts: [{ id: "a", type: "text", text: "A", in_seconds: 0, out_seconds: 3 }],
+      audio: { narration: { src: "https://example.com/narration.mp3" } },
+    };
+    const built = buildHyperframesComposition(edit, { width: 1920, height: 1080 });
+    expect(built.html).toMatch(/<audio id="narration" src="https:\/\/example\.com\/narration\.mp3" data-start="0" data-track-index="2" data-volume="1">/);
+    expect(built.warnings).toEqual([]);
+  });
+
+  it("emits narration with a custom volume and no data-duration", () => {
+    const edit: RemotionEditDecisions = {
+      version: "1.0",
+      cuts: [{ id: "a", type: "text", text: "A", in_seconds: 0, out_seconds: 3 }],
+      audio: { narration: { src: "https://example.com/narration.mp3", volume: 0.8 } },
+    };
+    const built = buildHyperframesComposition(edit, { width: 1920, height: 1080 });
+    expect(built.html).toContain('data-volume="0.8"');
+    expect(built.html).not.toMatch(/<audio[^>]*data-duration/);
+  });
+
+  it("warns and omits the audio element when narration source is missing", () => {
+    const edit: RemotionEditDecisions = {
+      version: "1.0",
+      cuts: [{ id: "a", type: "text", text: "A", in_seconds: 0, out_seconds: 3 }],
+      audio: { narration: { src: "/does/not/exist.mp3" } },
+    };
+    const built = buildHyperframesComposition(edit, { width: 1920, height: 1080 });
+    expect(built.warnings.some((w) => w.includes("narration source missing"))).toBe(true);
+    expect(built.html).not.toContain("<audio");
+  });
 });
 
 describe("renderHyperframes (mocked binary)", () => {
@@ -292,17 +325,56 @@ describe("renderHyperframes (mocked binary)", () => {
     }
   });
 
-  it("warns (without failing) when edit.audio is present — v1 does not wire audio", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "md-hf-audio-"));
+  it("warns (without failing) when edit.audio.music is present — v1 does not wire music", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-hf-music-"));
     try {
       const edit: RemotionEditDecisions = {
         version: "1.0",
         cuts: [{ id: "t", type: "text", text: "Hi", in_seconds: 0, out_seconds: 2 }],
-        audio: { narration: { src: "/some/narration.mp3" } },
+        audio: { music: { src: "/some/music.mp3" } },
       };
       const report = await renderHyperframes(edit, { workDir: dir, output: join(dir, "out.mp4") }, { spawnImpl: fakeSpawn() });
       expect(report.outputs).toHaveLength(1);
-      expect(report.warnings.some((w) => w.includes("does not yet wire edit.audio"))).toBe(true);
+      expect(report.warnings.some((w) => w.includes("does not support edit.audio.music"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("stages and wires narration audio with no warning", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-hf-narration-"));
+    try {
+      const narrationSrc = join(dir, "narration.mp3");
+      writeFileSync(narrationSrc, "x");
+      const edit: RemotionEditDecisions = {
+        version: "1.0",
+        cuts: [{ id: "t", type: "text", text: "Hi", in_seconds: 0, out_seconds: 2 }],
+        audio: { narration: { src: narrationSrc, volume: 0.9 } },
+      };
+      const report = await renderHyperframes(edit, { workDir: dir, output: join(dir, "out.mp4") }, { spawnImpl: fakeSpawn() });
+      expect(report.outputs).toHaveLength(1);
+      expect(report.warnings).toEqual([]);
+
+      const html = readFileSync(join(dir, "hyperframes-composition.html"), "utf8");
+      expect(html).toContain('data-volume="0.9"');
+      expect(html).toContain("hyperframes-assets/narration__narration.mp3");
+      expect(existsSync(join(dir, "hyperframes-assets", "narration__narration.mp3"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("warns but still renders when narration source is missing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-hf-narration-miss-"));
+    try {
+      const edit: RemotionEditDecisions = {
+        version: "1.0",
+        cuts: [{ id: "t", type: "text", text: "Hi", in_seconds: 0, out_seconds: 2 }],
+        audio: { narration: { src: join(dir, "ghost-narration.mp3") } },
+      };
+      const report = await renderHyperframes(edit, { workDir: dir, output: join(dir, "out.mp4") }, { spawnImpl: fakeSpawn() });
+      expect(report.outputs).toHaveLength(1);
+      expect(report.warnings.some((w) => w.includes("narration source missing"))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
