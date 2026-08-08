@@ -805,3 +805,68 @@ test("ticket 04 / finding 2 + 5: collapsed batch renderer shows `requested → a
   assert.ok(!collapsed.includes("anthropic/claude-opus-4-1"), "requested id is shortened on the collapsed line");
   assert.ok(!collapsed.includes("zai/glm-5.2"), "actual id is shortened on the collapsed line");
 });
+
+// --- ticket 05 / finding 6: collapsed batch per-slot badges are padded to a fixed width ---
+// The badge text width varies by terminal status (✓ done=6 / ⏱ timedout=10 /
+// ⛔ budget=8 / ⊘ aborted=9 / ✗ failed=8). Without padding, the unequal widths
+// leave the `model · elapsed · task` columns drifting between rows. Pad each
+// badge to the widest so a quick vertical scan of an N-children batch aligns.
+
+const BATCH_BADGE_TEXTS = ["✓ done", "⏱ timedout", "⛔ budget", "⊘ aborted", "✗ failed"] as const;
+
+test("ticket 05 / finding 6: collapsed batch per-slot badges are padded to a fixed width so columns align", () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      { output: "ok", status: "done", index: 0, task: "t-done", model: "x/flash", elapsedMs: 1000 },
+      { output: "", status: "timedout", index: 1, task: "t-timedout", model: "x/flash", elapsedMs: 30000 },
+      { output: "", status: "aborted", index: 2, task: "t-aborted", model: "x/flash", elapsedMs: 500 },
+      {
+        status: "budget",
+        source: "batch" as const,
+        exhaustion: { kind: "tokens" as const, limit: 1, actual: 2 },
+        index: 3,
+        task: "t-budget",
+        model: "x/flash",
+        elapsedMs: 0,
+      },
+      null, // failed — no model column (renders `(child failed)`); excluded from the model-offset assertion
+    ],
+    dispatched: 3,
+    skipped: 1,
+    elapsedMs: 31500,
+  };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: false },
+    THEME,
+  );
+  // The 4 non-failed slots each render a model column; the failed slot does not.
+  const slotLines = collapsed.split("\n").filter((l) => l.includes("flash"));
+  assert.equal(slotLines.length, 4, "the 4 non-failed slots each render a model column");
+
+  // The model token starts at the SAME offset on every slot line — the badges
+  // are padded to a fixed width so the `model · elapsed · task` columns line up
+  // regardless of terminal status.
+  const offsets = slotLines.map((l) => l.indexOf("flash"));
+  assert.ok(
+    offsets.every((o) => o === offsets[0]),
+    `model column starts at a consistent offset across rows (got ${JSON.stringify(offsets)})`,
+  );
+
+  // Equal offsets only prove alignment when the natural widths differ — and they
+  // do (✓ done=6 vs ⏱ timedout=10). Verify the SHORT `✓ done` badge was actually
+  // PADDED: there must be MORE whitespace between `done` and the model than the
+  // bare 2-space column separator (i.e. ≥1 pad space).
+  const doneLine = slotLines.find((l) => l.includes("✓ done")) ?? "";
+  assert.ok(doneLine, "the done slot line is present");
+  const gap = doneLine.slice(doneLine.indexOf("done") + "done".length, doneLine.indexOf("flash"));
+  assert.ok(
+    gap.length > 2,
+    `✓ done (natural width 6) is padded to match the widest badge (gap between done and model="${gap}")`,
+  );
+
+  // Every badge the renderer can emit is present in the collapsed output.
+  for (const badge of BATCH_BADGE_TEXTS) {
+    assert.ok(collapsed.includes(badge), `collapsed renders the ${badge} badge`);
+  }
+});
