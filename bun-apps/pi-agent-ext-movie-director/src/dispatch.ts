@@ -57,6 +57,7 @@ import { projectDir } from "./paths.ts";
 import { composeVideo, finalReview, type EditDecisions } from "./compose.ts";
 import { renderRemotion, type RemotionEditDecisions } from "./remotion.ts";
 import { composeMotion, type MotionDeps } from "./compose_motion.ts";
+import { renderHyperframes } from "./hyperframes_native.ts";
 import { preComposeGate, enforcePreCompose } from "./precompose-gate.ts";
 import { runPipeline, slugifyTopic, type DriverOptions } from "./driver.ts";
 import { wireProduce } from "./driver-wiring.ts";
@@ -80,6 +81,7 @@ export const COMMANDS = [
   "compose",
   "compose-remotion",
   "compose-motion",
+  "compose-hyperframes",
   "pre-compose",
   "final-review",
   "cost-estimate",
@@ -241,6 +243,16 @@ export const COMMAND_REFERENCE = [
   "                        `pre-compose` call is now optional — a preview, not a prerequisite — since these two commands",
   "                        run the check themselves). Only overridePreCompose:true bypasses a fail, and only after an",
   "                        explicit human/agent decision to ship past it — a `warn` verdict never blocks either way.",
+  "  • compose-hyperframes — {editDecisions, workDir?, output?, width?, height?, narrativeDurationSeconds?,",
+  "                        overridePreCompose?} → renders the edit through a generated HyperFrames HTML composition",
+  "                        (templated compose tier, third alongside compose-remotion/compose-motion): per-cut ken-burns/",
+  "                        zoom/pan + section_title overlays + fade-at-boundary crossfades, rendered headlessly via the",
+  "                        vendor CLI's bundled Puppeteer+Chrome. Same editDecisions shape as compose-remotion (cuts[]/",
+  "                        overlays[]/transition/theme). v1 does NOT wire edit.audio (narration/music) — use",
+  "                        compose-remotion when audio is required. Spawns the `hyperframes` CLI (set HYPERFRAMES_BIN,",
+  "                        or falls back to PATH then `bunx hyperframes`). Enforces the SAME pre-compose gate as",
+  "                        compose-remotion/compose-motion — refuses to render on a fail verdict unless",
+  "                        overridePreCompose=true. Returns a render_report (render_grammar:'hyperframes').",
   "  • pre-compose      — {editDecisions, narrativeDurationSeconds?} → deterministic gate BEFORE the expensive render:",
   "                        delivery promise (cuts/duration/sources/audio) + slideshow risk (static-image fraction) +",
   "                        cut_duration_vs_source (a video cut requesting more than its source clip's real duration —",
@@ -695,6 +707,22 @@ export async function dispatch(command: Command, opts: Record<string, unknown>, 
           transitionSeconds: opts.transitionSeconds ? Number(opts.transitionSeconds) : undefined,
           captions,
         }, deps?.composeMotionDeps);
+        return { ok: true, text: jsonOut(report) };
+      }
+      case "compose-hyperframes": {
+        const edit = opts.editDecisions as RemotionEditDecisions | undefined;
+        if (!edit || !Array.isArray(edit.cuts)) {
+          return { ok: false, error: "compose-hyperframes requires {editDecisions:{version,cuts:[...]}}" };
+        }
+        const preComposeCheck = await enforcePreCompose(edit, opts);
+        if (preComposeCheck) return preComposeCheck;
+        const workDir = opts.workDir ? String(opts.workDir) : projectDir(String(opts.projectId ?? "_compose_hyperframes"));
+        const report = await renderHyperframes(edit, {
+          workDir,
+          output: opts.output ? String(opts.output) : undefined,
+          width: opts.width ? Number(opts.width) : undefined,
+          height: opts.height ? Number(opts.height) : undefined,
+        });
         return { ok: true, text: jsonOut(report) };
       }
       case "pre-compose": {

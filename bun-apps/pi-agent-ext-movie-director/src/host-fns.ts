@@ -33,6 +33,7 @@ export const HOST_FN_TIMEOUT_MS: Record<string, number> = {
   compose: 900_000,
   "compose-remotion": 900_000,
   "compose-motion": 900_000,
+  "compose-hyperframes": 900_000,
   "final-review": 120_000,
 };
 
