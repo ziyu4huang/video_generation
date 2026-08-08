@@ -1,6 +1,6 @@
 # 01 — thread the parent's gated active set into spawned subagents (#1)
 
-**Status:** IN PROGRESS
+**Status:** CLOSED
 
 ## Change
 In `pi-agent-ext-subagent`, when the `subagent` / `subagents` caller omits an explicit `tools` allowlist, default the child's tool set to the parent's CURRENT active set (`pi.getActiveTools()`) instead of the full `getAllToolDefinitions()` universe.
@@ -19,3 +19,6 @@ A child whose task needs a tool the parent has gated OUT won't have it registere
 ## Verification
 - `pi-agent-ext-subagent` `bun test` green; add a test asserting a no-`tools` spawn receives the parent's active set (not the full universe).
 - Confirm an explicit-`tools` spawn still narrows to exactly the requested set.
+
+## Resolution
+Implemented in PR #1127 (squash commit aee00a44). Threaded a `getActiveTools` accessor (mirroring getExtensionTools/getMainModel) read lazily at spawn time; default applied at both `subagent` (singular) and `subagents` (plural) spawn seams with precedence explicit-tools > agentType-binding > parent-active-set. Explicit `tools` override preserved. 8 new tests; subagent suite 568 pass.

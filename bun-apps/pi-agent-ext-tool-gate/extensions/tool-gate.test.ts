@@ -1034,6 +1034,30 @@ describe("tool-gate runtime reads owner-declared gating", () => {
     expect(recomputeActive).toContain("zai_web_search_web_search_prime");               // zai explicitly requested → active
     expect(recomputeActive).not.toContain("unobtanium_tool"); // X must stay dormant during the recompute
   });
+
+  test("#2 before_agent_start self-seeds sticky when session_start was skipped (in-process subagent child)", async () => {
+    // A child spawned via WorkflowAgent.run never fires session_start, so tool-gate's
+    // sticky starts empty. before_agent_start must seed it from effectiveCore so core
+    // tools stay active. See .planning/2026-08-08-fix-subagent-spawn-seam.../ ticket 02.
+    const activeCalls: string[][] = [];
+    let beforeAgentStart: ((e: any, ctx?: any) => Promise<void>) | null = null;
+    const pi = {
+      getAllToolDefinitions: () => [
+        { name: "read", gating: { core: true } },
+        { name: "bash", gating: { core: true } },
+        { name: "flux2", gating: { keywords: ["flux", "image"] } },
+      ],
+      on: (chan: string, h: any) => { if (chan === "before_agent_start") beforeAgentStart = h; return () => {}; },
+      setActiveTools: (names: string[]) => { activeCalls.push(names); },
+      registerTool: () => {},
+    } as unknown as Parameters<typeof toolGateExtension>[0];
+    toolGateExtension(pi);
+    // do NOT fire session_start — simulate the in-process subagent child
+    await beforeAgentStart!({ prompt: "a benign prompt containing no gate keyword" });
+    const active = activeCalls[activeCalls.length - 1];
+    expect(active).toEqual(expect.arrayContaining(["read", "bash"])); // core seeded from effectiveCore
+    expect(active).not.toContain("flux2");                            // gated, no keyword → dormant
+  });
 });
 
 // Ticket 14 — telemetry undercount fix.

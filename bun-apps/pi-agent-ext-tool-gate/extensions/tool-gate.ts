@@ -488,6 +488,18 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     allToolNames = all.map((t) => t.name);
     const eff = buildEffectiveGates(all);
     effectiveGates = eff.gates; effectiveCore = eff.core; effectiveTracked = eff.tracked;
+    // #2 — in-process subagent children (WorkflowAgent.run → createAgentSession) skip
+    // session_start (bindExtensions is never called for them), so `sticky` starts and
+    // stays empty: core tools land in effectiveTracked but never in sticky → they get
+    // filtered out, and measuredTokens is built lazily every turn instead of once.
+    // Seed idempotently here. This touches ONLY tool-gate's own closure state — do NOT
+    // instead fire session_start in the child, which would wipe the parent's core-task
+    // singletons (shared module cells). See .planning/2026-08-08-fix-subagent-spawn-seam-
+    // tool-gate-core-task/ ticket 02 + map.md KEY CONSTRAINT.
+    if (sticky.size === 0) {
+      sticky = new Set(effectiveCore);
+      measuredTokens = new Map(all.map((t) => [t.name, measureToolTokens(t)]));
+    }
     for (const t of all) {
       if (!measuredTokens.has(t.name)) measuredTokens.set(t.name, measureToolTokens(t));
     }
