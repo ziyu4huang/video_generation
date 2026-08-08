@@ -1,6 +1,8 @@
 # python/embed-bench/backends/mlx_native.py
 from __future__ import annotations
 
+import sys
+
 from mlx_embeddings.utils import load
 
 _loaded_models: dict[str, tuple] = {}
@@ -18,7 +20,8 @@ def is_available(hf_repo: str | None) -> bool:
     try:
         _get_model(hf_repo)
         return True
-    except Exception:
+    except Exception as exc:
+        print(f"mlx_native unavailable for {hf_repo}: {exc}", file=sys.stderr)
         return False
 
 
