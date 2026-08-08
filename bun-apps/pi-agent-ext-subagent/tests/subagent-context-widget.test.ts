@@ -73,24 +73,28 @@ test("box pluralizes the count header for multiple background runs", () => {
   assert.ok(out.includes("implementer") && out.includes("reviewer"));
 });
 
-test("(e) collapsed by default — the live tool tree is NOT shown until toggle()", () => {
+test("(e) collapsed by default — shows the rich header + ONE latest activity line (not the full trace tree)", () => {
   const w = new SubagentContextWidget({ getRunning: () => [run({ foreground: false })] });
   assert.equal(w.isExpanded(), false);
   const collapsed = w.render(T).join("\n");
-  // collapsed shows only the count header + the rich header line — no trace
-  // markers produced by formatSubagentLive (→ toolName / "tool call").
-  assert.ok(!collapsed.includes("→ read"), "collapsed hides the live trace lines");
-  assert.ok(!collapsed.includes("tool call"), "collapsed hides the elapsed/count line");
+  // collapsed shows the latest single activity line (here a toolCall → `↳ Using read`).
+  assert.match(collapsed, /↳ Using read/, "collapsed shows the latest activity line");
+  // collapsed does NOT show the expanded trace tree: no paired `✓` result lines,
+  // no elapsed/count progress header (those live behind toggle()).
+  assert.ok(!collapsed.includes("✓ Used read"), "collapsed hides paired result lines");
+  assert.ok(!collapsed.includes("tool call"), "collapsed hides the elapsed/count progress header");
 });
 
-test("toggle() expands a background run to show the live tool tree (formatSubagentLive)", () => {
+test("toggle() expands a background run to show the grouped live trace (formatSubagentTrace)", () => {
   const w = new SubagentContextWidget({ getRunning: () => [run({ foreground: false })] });
   w.toggle();
   assert.equal(w.isExpanded(), true);
   const out = w.render(T).join("\n");
-  assert.ok(out.includes("Using read"), "expanded shows the live tool trace");
-  assert.match(out, /\d+\.\d+s elapsed/, "expanded shows live elapsed");
-  assert.match(out, /1 tool call/, "expanded shows the tool-call count");
+  // A lone trailing toolCall (no result yet) renders in-flight: `→ Using read …`
+  // with compact progress appended on the SAME line.
+  assert.match(out, /→ Using read …/, "expanded marks the un-paired call in-flight (`→ …`)");
+  assert.match(out, /\d+\.\d+s · \d+ call/, "expanded appends compact progress to the in-flight line");
+  assert.match(out, /1 call(?!s)/, "expanded uses the singular `call` for one tool call");
 });
 
 test("toggle() flips back to collapsed", () => {
@@ -100,7 +104,48 @@ test("toggle() flips back to collapsed", () => {
   w.toggle();
   assert.equal(w.isExpanded(), false);
   const out = w.render(T).join("\n");
-  assert.ok(!out.includes("→ read"), "collapsed again hides the trace");
+  // Collapsed again: the latest activity line is back, but the grouped trace
+  // (paired `✓` lines, progress) is hidden.
+  assert.match(out, /↳ Using read/, "collapsed shows the single latest line again");
+  assert.ok(!out.includes("✓ Used read"), "collapsed hides the grouped result lines");
+});
+
+// --- ticket 1: collapsed shows the latest single activity/prose line ---
+
+test("collapsed shows QUOTED assistant prose when the latest entry is text (vs a tool activity)", () => {
+  // The quotes are the visual signal that distinguishes "the child is typing
+  // this" from "the child is running this tool".
+  const w = new SubagentContextWidget({
+    getRunning: () => [
+      run({
+        foreground: false,
+        history: [
+          { role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"a.ts"}' },
+          { role: "tool", kind: "toolResult", toolName: "read", text: "x" },
+          { role: "assistant", kind: "text", text: "Let me check the other file next." },
+        ],
+      }),
+    ],
+  });
+  const out = w.render(T).join("\n");
+  assert.match(out, /↳ "Let me check the other file next\."/, "collapsed quotes the latest prose");
+  assert.ok(!out.includes("✓ Read a.ts"), "collapsed does not render the grouped trace");
+});
+
+test("collapsed shows verb-led past activity when the latest entry is a toolResult", () => {
+  const w = new SubagentContextWidget({
+    getRunning: () => [
+      run({
+        foreground: false,
+        history: [
+          { role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"a.ts"}' },
+          { role: "tool", kind: "toolResult", toolName: "read", text: "x" },
+        ],
+      }),
+    ],
+  });
+  const out = w.render(T).join("\n");
+  assert.match(out, /↳ Read a\.ts/, "collapsed shows the latest past-tense activity");
 });
 
 // --- ticket 03: Ctrl-O (0x0F) detection for the onTerminalInput handler ---
@@ -185,10 +230,7 @@ test("countNoun: a single subagent → 'subagent'", () => {
 });
 
 test("countNoun: two subagents → 'subagents'", () => {
-  assert.equal(
-    countNoun([run({ id: "r1", foreground: false }), run({ id: "r2", foreground: false })]),
-    "subagents",
-  );
+  assert.equal(countNoun([run({ id: "r1", foreground: false }), run({ id: "r2", foreground: false })]), "subagents");
 });
 
 test("countNoun: a single workflow → 'workflow' (NOT 'subagent')", () => {
@@ -196,10 +238,7 @@ test("countNoun: a single workflow → 'workflow' (NOT 'subagent')", () => {
 });
 
 test("countNoun: two workflows → 'workflows'", () => {
-  assert.equal(
-    countNoun([wf({ id: "wf:1", foreground: false }), wf({ id: "wf:2", foreground: false })]),
-    "workflows",
-  );
+  assert.equal(countNoun([wf({ id: "wf:1", foreground: false }), wf({ id: "wf:2", foreground: false })]), "workflows");
 });
 
 test("countNoun: a mixed set (1 subagent + 1 workflow) → 'runs'", () => {
