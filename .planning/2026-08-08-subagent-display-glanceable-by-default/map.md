@@ -1,0 +1,27 @@
+---
+effort: 2026-08-08-subagent-display-glanceable-by-default
+created: 2026-08-08
+last: 2026-08-08
+status: active
+---
+
+## Destination
+Every subagent display surface — the live context-widget AND completed `subagents`/`subagent` tool results — is glanceable by default: collapsed, one-line summaries, no verbose dumps. Full detail expands on Ctrl-O, reusing the context-widget's collapse/expand pattern.
+
+## Notes
+- The live context-widget already does collapse-by-default + Ctrl-O expand (#1078 box toggle; #1097 collapsed prose/activity live-line + expanded grouped call/result trace). That surface is DONE.
+- This effort extends the same pattern to COMPLETED tool-result displays — the `subagents` fan-out batch result dumps full per-child output by default (see ticket 01).
+
+## Decisions so far
+- (none yet — first ticket filed 2026-08-08)
+
+## Not yet specified
+- Whether the `subagent` (single) tool result needs the same treatment (only `subagents` batch is flagged so far).
+- Whether Ctrl-O expands all batch children at once or per-child.
+
+## Out of scope
+- (none yet)
+
+## Cross-effort links
+- Builds-on: `.planning/done/2026-08-07-continue-improve-pi-ext-subagents-related-still-` (verb-led logs + context-widget collapse/expand foundation).
+- Builds-on: `.planning/done/2026-08-07-current-subagent-run-show-in-context-and-bottom-` (the persistent context widget).
