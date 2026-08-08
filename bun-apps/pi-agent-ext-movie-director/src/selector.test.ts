@@ -4,7 +4,7 @@ import {
   rankedProviders,
   NoConfiguredProviderError,
 } from "./selector.ts";
-import { _setFfmpegAvailableForTest, _setRemotionProbeForTest, _setMotionFiltersForTest, _setWhisperRuntimeForTest, _setVisionRuntimeForTest, _setRunPyRuntimeForTest, _setKrea2BinaryForTest, _setFlux2BinaryForTest, _setMusicgenBinaryForTest, _setLmStudioReachableForTest, probeConfigured } from "./providers.ts";
+import { _setFfmpegAvailableForTest, _setRemotionProbeForTest, _setMotionFiltersForTest, _setWhisperRuntimeForTest, _setVisionRuntimeForTest, _setRunPyRuntimeForTest, _setKrea2BinaryForTest, _setFlux2BinaryForTest, _setMusicgenBinaryForTest, _setLmStudioReachableForTest, _setHyperframesCliForTest, probeConfigured } from "./providers.ts";
 import { REGISTRY, type Capability, type ProviderEntry } from "./registry.ts";
 
 // Selector availability is runtime-probed (ffmpeg on PATH, cloud keys in env).
@@ -17,6 +17,11 @@ beforeAll(() => {
   _setFfmpegAvailableForTest(true);
   _setRemotionProbeForTest(false);
   _setMotionFiltersForTest(false);
+  // Same reasoning as remotion/motion-filters above: pin the hyperframes CLI
+  // absent so compose_ffmpeg stays the deterministic composition pick — bunx
+  // genuinely resolves on most dev/CI hosts, which would otherwise make
+  // compose_hyperframes (native_swift, ranked above ffmpeg) win instead.
+  _setHyperframesCliForTest(false);
   _setWhisperRuntimeForTest(true);
   _setVisionRuntimeForTest("clip", true);
   // Pin the swift image-director binaries present so the default image_generation
@@ -42,6 +47,7 @@ afterAll(() => {
   _setFfmpegAvailableForTest(undefined);
   _setRemotionProbeForTest(undefined);
   _setMotionFiltersForTest(undefined);
+  _setHyperframesCliForTest(undefined);
   _setWhisperRuntimeForTest(undefined);
   _setVisionRuntimeForTest("clip", undefined);
   _setKrea2BinaryForTest(undefined);

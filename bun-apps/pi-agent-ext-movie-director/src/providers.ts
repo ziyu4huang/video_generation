@@ -24,6 +24,7 @@ import { REGISTRY as REGISTRY_ALL, type Capability, type ProviderEntry } from ".
 import { EXT_ROOT } from "./paths.ts";
 import { renderRemotion, type RemotionEditDecisions } from "./remotion.ts";
 import { composeMotion, type SpawnImpl } from "./compose_motion.ts";
+import { renderHyperframes } from "./hyperframes_native.ts";
 import { enforcePreCompose } from "./precompose-gate.ts";
 import type { RenderReport, CaptionsOptions } from "./compose.ts";
 import type { Adapter, Artifact, GenerateRequest, ToolResult } from "./bridge.ts";
@@ -121,6 +122,46 @@ function motionFiltersAvailable(): boolean {
 /** Force the motion-filter probe result (tests inject a deterministic value). */
 export function _setMotionFiltersForTest(v: boolean | undefined): void {
   motionFiltersCached = v;
+}
+
+// ─── hyperframes CLI probe (compose:hyperframes) ─────────────────────────────
+
+/**
+ * True if a usable `hyperframes` CLI resolves. Mirrors `remotionBinaryAvailable`
+ * but treats the `bunx hyperframes` fallback as genuinely available (unlike
+ * remotion's bundled-local-install expectation, `bunx <pkg>` IS hyperframes'
+ * vendor-documented invocation — its own README leads with `npx hyperframes
+ * <command>`), so this probe only needs HYPERFRAMES_BIN (if set) to exist, or
+ * bunx itself to resolve on PATH.
+ */
+function hyperframesOnPath(): boolean {
+  try {
+    const r = spawnSync("hyperframes", ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+    return r.status === 0;
+  } catch {
+    return false;
+  }
+}
+function bunxOnPath(): boolean {
+  try {
+    const r = spawnSync("bunx", ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+    return r.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+let hyperframesCliCached: boolean | undefined;
+function hyperframesCliAvailable(env: Record<string, string | undefined>): boolean {
+  if (hyperframesCliCached != null) return hyperframesCliCached;
+  if (env.HYPERFRAMES_BIN) hyperframesCliCached = existsSync(env.HYPERFRAMES_BIN);
+  else hyperframesCliCached = hyperframesOnPath() || bunxOnPath();
+  return hyperframesCliCached;
+}
+
+/** Force the hyperframes-CLI probe result (tests inject a deterministic value). */
+export function _setHyperframesCliForTest(v: boolean | undefined): void {
+  hyperframesCliCached = v;
 }
 
 const CLOUD_KEY_FOR: Record<string, string> = {
@@ -306,6 +347,11 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
       // callable iff ffmpeg is on PATH AND its build has zoompan+xfade (the motion
       // compositor's only deps — no browser, no swift). Reuses the ffmpeg cache.
       return entry.configured && ffmpegAvailable() && motionFiltersAvailable();
+    case "compose:hyperframes":
+      // callable iff HYPERFRAMES_BIN resolves, OR `hyperframes`/`bunx` resolves on
+      // PATH — bunx is the vendor's own supported invocation (not a "not really
+      // installed" fallback the way it is for remotion).
+      return entry.configured && hyperframesCliAvailable(env);
     case "swift:ltx":
       // callable iff the built ltx-video binary exists on disk. Unlike krea2/flux2
       // (which the GUI auto-builds), ltx-video's binary is NOT always present on a
@@ -1258,6 +1304,57 @@ export const composeMotionAdapter: Adapter = async (req: GenerateRequest): Promi
   }
 };
 
+// ─── compose:hyperframes adapter (delegates to renderHyperframes) ────────────
+
+/**
+ * Adapter wrapper so `selectAndGenerate("composition", {...})` routes to the
+ * HyperFrames runtime. Same edit shape as compose-remotion/compose-motion
+ * (RemotionEditDecisions) so an agent can drive any of the three runtimes from
+ * one edit. Maps the RenderReport → ToolResult.
+ */
+export const composeHyperframesAdapter: Adapter = async (req: GenerateRequest): Promise<ToolResult> => {
+  const opts = (req.options ?? {}) as { editDecisions?: RemotionEditDecisions; workDir?: string; output?: string; width?: number; height?: number };
+  const edit = opts.editDecisions;
+  if (!edit || !Array.isArray(edit.cuts)) {
+    return fail(req, "hyperframes", "compose:hyperframes requires options.editDecisions.{version,cuts:[...]}");
+  }
+  // GATE: same rationale as composeRemotionAdapter/composeMotionAdapter above —
+  // this is an ungated second entry point to renderHyperframes() alongside
+  // whatever gated `compose-hyperframes` dispatch command wraps it.
+  const preComposeCheck = await enforcePreCompose(edit, (req.options ?? {}) as Record<string, unknown>);
+  if (preComposeCheck) return fail(req, "hyperframes", preComposeCheck.error);
+  const outputDir = req.outputDir ?? process.cwd();
+  const workDir = opts.workDir ?? outputDir;
+  const started = Date.now();
+  try {
+    const report: RenderReport = await renderHyperframes(edit, {
+      workDir,
+      output: opts.output,
+      width: opts.width,
+      height: opts.height,
+    });
+    const ok = report.outputs.length > 0;
+    return {
+      success: ok,
+      provider: "hyperframes",
+      command: req.command || "compose-hyperframes",
+      artifacts: report.outputs.map((o) => ({
+        path: resolve(o.path),
+        kind: "video" as const,
+        bytes: o.file_size_bytes,
+        role: "composed",
+      })),
+      error: ok ? null : (report.warnings[0] ?? "hyperframes produced no output"),
+      cost_usd: 0, // local CLI subprocess — honest $0 marginal
+      duration_seconds: report.render_time_seconds ?? (Date.now() - started) / 1000,
+      seed: null,
+      model: "hyperframes",
+    };
+  } catch (err) {
+    return fail(req, "hyperframes", err instanceof Error ? err.message : String(err), (Date.now() - started) / 1000);
+  }
+};
+
 /** The non-native adapter map (merged into realAdapters by bridge.ts). */
 export function nonNativeAdapters(_env?: Record<string, string | undefined>): Partial<Record<ProviderEntry["invoke"], Adapter>> {
   return {
@@ -1267,6 +1364,7 @@ export function nonNativeAdapters(_env?: Record<string, string | undefined>): Pa
     "bun:clip": clipAdapter, // video_understand (Item I sibling) — CLIP via torch MPS
     "compose:remotion": composeRemotionAdapter, // composition runtime (iteration G #280) — Remotion Node subprocess
     "compose:motion": composeMotionAdapter, // composition runtime (Item J) — ffmpeg zoompan+xfade motion compositor
+    "compose:hyperframes": composeHyperframesAdapter, // composition runtime — generated HTML rendered via the hyperframes CLI
     "macos:say": macosSayAdapter, // tts fallback — macOS `say`, zero-cost/zero-key local narration
     fetch: (req: GenerateRequest) => cloudHttpAdapter(req, _env),
   };
