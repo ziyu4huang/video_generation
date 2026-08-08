@@ -107,6 +107,3 @@ findings.md
 # curated static Tailwind build, ~20 KB) IS still committed — only this binary
 # is ignored.
 bun-apps/pi-agent-ext-wayfind/vendor/mermaid.min.js
-
-# Effort-scoped SDD workspace scratch (briefs/reports/reviews/ledger) — local-only.
-.planning/*/sdd/
