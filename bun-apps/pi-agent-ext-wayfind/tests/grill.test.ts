@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { buildGrillPriming, buildPlanSeed, parseDecisions, parseGlossary } from "../src/grill.js";
+import {
+  appendSettledVocabulary,
+  buildGrillPriming,
+  buildPlanSeed,
+  type GlossaryTerm,
+  parseDecisions,
+  parseGlossary,
+} from "../src/grill.js";
 
 describe("buildGrillPriming", () => {
   it("produces a with-docs priming that names both skills + the capture discipline", () => {
@@ -121,5 +128,29 @@ describe("parseDecisions", () => {
 
   it("returns [] for empty input", () => {
     expect(parseDecisions("")).toEqual([]);
+  });
+});
+
+describe("appendSettledVocabulary", () => {
+  it("is a no-op when glossary is empty", () => {
+    const lines: string[] = ["x"];
+    appendSettledVocabulary(lines, []);
+    expect(lines).toEqual(["x"]);
+  });
+
+  it("pushes heading + each term (default heading)", () => {
+    const lines: string[] = [];
+    const g: GlossaryTerm[] = [
+      { term: "Foo", definition: "a foo" },
+      { term: "Bar", definition: "a bar" },
+    ];
+    appendSettledVocabulary(lines, g);
+    expect(lines).toEqual(["## Settled vocabulary", "", "- **Foo**: a foo", "- **Bar**: a bar", ""]);
+  });
+
+  it("honours a custom heading (grill's (from CONTEXT.md) variant)", () => {
+    const lines: string[] = [];
+    appendSettledVocabulary(lines, [{ term: "X", definition: "y" }], "## Settled vocabulary (from CONTEXT.md)");
+    expect(lines[0]).toBe("## Settled vocabulary (from CONTEXT.md)");
   });
 });
