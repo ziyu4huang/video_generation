@@ -494,8 +494,26 @@ export function renderSubagentCall(
  * the whole-TUI flicker (see {@link renderSubagentResult}'s isPartial branch).
  * Only the STREAMING view is capped; the settled expanded report renders in
  * full (no repeated clears → no flicker).
+ *
+ * Exported + shared with the context-box expanded trace (decision: ticket 05,
+ * finding 4) — `extensions/subagent.ts` wires Ctrl-O with `{ consume: false }`
+ * so Ctrl-O expands BOTH surfaces together; the cap must hold on both to keep
+ * the #1104 flicker fix intact on the surface #1104 didn't touch.
  */
-const STREAMING_EXPANDED_TAIL = 16;
+export const STREAMING_EXPANDED_TAIL = 16;
+
+/**
+ * Cap a trace's tail to at most `tail` lines, prefixing a `…` (ellipsis) line
+ * when the trace exceeds the cap. Shared cap policy between the INLINE
+ * streaming-expanded view ({@link renderSubagentResult}'s isPartial+expanded
+ * branch) and the context-box expanded trace
+ * ({@link SubagentContextWidget} `renderRun`'s expanded branch) — both surfaces
+ * must hold the #1104 viewport-safe tail so a tall box never re-trips the
+ * whole-TUI fullRender flicker. Pure render helper; no data-model change.
+ */
+export function capTraceTail(lines: string[], tail: number): string[] {
+  return lines.length <= tail ? lines : ["…", ...lines.slice(-tail)];
+}
 
 /** Theme the result: collapsed = badge+meta+headline; expanded = full report. */
 export function renderSubagentResult(
@@ -517,10 +535,13 @@ export function renderSubagentResult(
     // the first changed line inside the viewport → differential render → no
     // fullRender. The settled (non-partial) expanded report is unaffected.
     const lines = text.split("\n");
+    // Keep the first 2 (progress header) then cap the trace tail via the SHARED
+    // helper so this surface and the context-box expanded trace hold the SAME
+    // viewport-safe cap (ticket 05, finding 4). Byte-identical to the prior
+    // inline ternary: capTraceTail checks `trace.length <= tail`, which is
+    // `lines.length - 2 <= tail` ⟺ `lines.length <= 2 + tail`.
     const shown = options.expanded
-      ? lines.length <= 2 + STREAMING_EXPANDED_TAIL
-        ? lines
-        : [...lines.slice(0, 2), "…", ...lines.slice(-STREAMING_EXPANDED_TAIL)]
+      ? [...lines.slice(0, 2), ...capTraceTail(lines.slice(2), STREAMING_EXPANDED_TAIL)]
       : lines.slice(0, 2);
     return shown.map((l) => theme.fg("dim", l)).join("\n");
   }

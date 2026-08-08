@@ -545,6 +545,34 @@ export function renderSubagentsCall(
   return parts.join(" ▸ ");
 }
 
+/** Fixed-width status badges for the collapsed batch per-slot line (ticket 05,
+ *  finding 6). The badge text width varies by terminal status
+ *  (`✓ done` / `⏱ timedout` / `⛔ budget` / `⊘ aborted` / `✗ failed`); padding
+ *  each badge to the widest keeps the following `model · elapsed · task`
+ *  columns aligned across rows so a quick vertical scan of an N-children batch
+ *  stays aligned. Fixed-width pad only — no terminal-width dependency. */
+const BATCH_STATUS_BADGES = {
+  done: { text: "✓ done", tone: "success" as const },
+  timedout: { text: "⏱ timedout", tone: "warning" as const },
+  budget: { text: "⛔ budget", tone: "warning" as const },
+  aborted: { text: "⊘ aborted", tone: "dim" as const },
+  failed: { text: "✗ failed", tone: "error" as const },
+};
+const BATCH_BADGE_WIDTH = Math.max(...Object.values(BATCH_STATUS_BADGES).map((b) => b.text.length));
+
+/** Render a fixed-width status badge for the collapsed batch per-slot line so
+ *  the following `model · elapsed · task` columns line up across rows
+ *  (ticket 05, finding 6). Pads the badge text to {@link BATCH_BADGE_WIDTH} so a
+ *  short `✓ done` (6) matches a wide `⏱ timedout` (10) before the columns
+ *  follow. Unknown statuses fall back to the `failed` badge. */
+function batchStatusBadge(status: string, theme: Theme): string {
+  const b =
+    status in BATCH_STATUS_BADGES
+      ? BATCH_STATUS_BADGES[status as keyof typeof BATCH_STATUS_BADGES]
+      : BATCH_STATUS_BADGES.failed;
+  return theme.fg(b.tone, b.text.padEnd(BATCH_BADGE_WIDTH));
+}
+
 /** Theme the batch result: collapsed = header + per-child one-liners; expanded = full themed output. */
 export function renderSubagentsResult(
   result: { content: Array<{ type: string; text?: string }>; details?: SubagentsToolDetails },
@@ -583,20 +611,14 @@ export function renderSubagentsResult(
     for (let i = 0; i < d.results.length; i++) {
       const slot = d.results[i];
       if (slot === null) {
-        lines.push(theme.fg("dim", `  [${i}] ${theme.fg("error", "✗ failed")}  ·  (child failed)`));
+        lines.push(theme.fg("dim", `  [${i}] ${batchStatusBadge("failed", theme)}  ·  (child failed)`));
         continue;
       }
       const slotStatus = (slot as { status: string }).status;
-      const badge =
-        slotStatus === "done"
-          ? theme.fg("success", "✓ done")
-          : slotStatus === "timedout"
-            ? theme.fg("warning", "⏱ timedout")
-            : slotStatus === "budget"
-              ? theme.fg("warning", "⛔ budget")
-              : slotStatus === "aborted"
-                ? theme.fg("dim", "⊘ aborted")
-                : theme.fg("error", "✗ failed");
+      // Fixed-width badge (ticket 05, finding 6): pad to the widest badge text so
+      // the `model · elapsed · task` columns line up across rows regardless of
+      // status (`✓ done`=6 vs `⏱ timedout`=10, etc.).
+      const badge = batchStatusBadge(slotStatus, theme);
       // Model segment: on a fallback show `requested → actual` (both shortened
       // via shortModel so the collapsed line stays within terminal width —
       // ticket 04, findings 2 + 5). The audit field stays the full spec; only

@@ -2,7 +2,7 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { InFlightSubagent } from "../src/index.js";
 import { countNoun, isCtrlO, SubagentContextWidget } from "../src/subagent-context-widget.js";
-import { workIntentPreview } from "../src/subagent-tool.js";
+import { STREAMING_EXPANDED_TAIL, workIntentPreview } from "../src/subagent-tool.js";
 
 // Identity theme so render() returns plain text we can assert on (mirrors the
 // old subagent-progress-widget.test.ts).
@@ -289,4 +289,50 @@ test("ticket 04 / finding 1: docked header still shows the preamble when workInt
   const w = new SubagentContextWidget({ getRunning: () => [entry] });
   const out = w.render(T).join("\n");
   assert.ok(out.includes("Working dir:"), "falls back to taskPreview verbatim when workIntent is absent");
+});
+
+// --- ticket 05 / finding 4: context-box expanded trace is tail-capped (latent #1104 flicker) ---
+// #1104 capped the INLINE streaming-expanded view (STREAMING_EXPANDED_TAIL) so a
+// tall box never re-trips the whole-TUI fullRender flicker. The context-box
+// expanded branch (renderRun) renders the FULL history with no cap — and
+// extensions/subagent.ts wires Ctrl-O with { consume: false }, so Ctrl-O
+// expands BOTH surfaces together. A long background trace would re-trip the
+// exact flicker #1104 killed, on the surface #1104 didn't touch. The natural
+// path is currently unreachable (background runs render a no-trace header), so
+// this constructs the scenario directly to lock the cap in.
+
+/** 40-entry history = 20 (toolCall + toolResult) pairs, each reading f<N>.ts,
+ *  so formatSubagentTrace emits 20 `✓ Read f<N>.ts` lines + 1 progress line
+ *  (21 trace lines) — well over STREAMING_EXPANDED_TAIL. */
+function longHistory(): { role: "assistant"; kind: "toolCall"; toolName: string; text: string }[] {
+  const entries: { role: "assistant"; kind: "toolCall"; toolName: string; text: string }[] = [];
+  for (let i = 0; i < 20; i++) {
+    entries.push({ role: "assistant", kind: "toolCall", toolName: "read", text: `{"path":"f${i}.ts"}` });
+    entries.push({ role: "tool" as never, kind: "toolResult", toolName: "read", text: "content" } as never);
+  }
+  return entries as never;
+}
+
+test("ticket 05 / finding 4: expanded context-box trace is tail-capped (does not emit the full long history)", () => {
+  const w = new SubagentContextWidget({
+    getRunning: () => [run({ id: "cap-r1", foreground: false, history: longHistory() as never })],
+  });
+  w.toggle(); // expanded
+  const lines = w.render(T);
+  // The cap is: count header (1) + per-run header (1) + ellipsis (1) + last
+  // STREAMING_EXPANDED_TAIL trace lines. The trace MUST NOT render all 20 ✓
+  // lines (the full history).
+  assert.ok(
+    lines.length <= 1 + 1 + 1 + STREAMING_EXPANDED_TAIL,
+    `capped to ≤ count+header+ellipsis+tail (got ${lines.length})`,
+  );
+  assert.ok(lines.some((l) => l.includes("…")), "an ellipsis marks the dropped middle");
+  // The oldest entries are dropped (cap keeps the TAIL) — f0 is not rendered.
+  const joined = lines.join("\n");
+  assert.ok(!joined.includes("f0.ts"), "oldest trace entries are dropped by the tail cap");
+  assert.ok(!joined.includes("f4.ts"), "early trace entries are dropped by the tail cap");
+  // The newest entries survive — f19 (the last pair) is kept.
+  assert.ok(joined.includes("f19.ts"), "the newest trace entries are retained");
+  // The progress line (20 calls) survives inside the tail.
+  assert.match(joined, /20 calls/, "the compact progress line survives inside the tail");
 });

@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-08-subagent-display-glanceable-by-default
 created: 2026-08-08
-last: 2026-08-09
+last: 2026-08-10
 status: active
 ---
 
@@ -13,6 +13,7 @@ Every subagent display surface — the live context-widget AND completed `subage
 - This effort extends the same pattern to COMPLETED tool-result displays — the `subagents` fan-out batch result dumps full per-child output by default (see ticket 01).
 - Ticket 03 — BUG: subagent display may show an incorrect model id (e.g. `anthropic/claude-opus-4-1` when the env's actual/default models are GLM + deepseek). Root-cause needed: display showing requested-model-with-silent-fallback, or resolution/storage bug? Related to ticket 02 (both header accuracy). CLOSED via #1103.
 - Ticket 04 — post-merge display-review regression fixes (#1101 work-intent strip dead on the docked context box; #1103 actual-model-on-fallback never extended to the `subagents` batch tool; fallback `→` vanishes on settle + missing on context-box header; collapsed call/result lines overflow on long model ids). One PR.
+- Ticket 05 — post-#1108 display-review polish, 2 P2s: (4) context-box expanded trace is uncapped, a latent #1104 whole-TUI flicker re-introduction since Ctrl-O expands BOTH surfaces together via `{ consume: false }`; (6) collapsed batch per-slot badge widths vary by terminal status, leaving the `model · elapsed · task` columns drifting between rows. One PR.
 
 ## Decisions so far
 - (none yet — first ticket filed 2026-08-08)
