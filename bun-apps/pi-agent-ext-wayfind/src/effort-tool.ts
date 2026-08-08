@@ -20,15 +20,8 @@
  */
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import {
-  computeFrontier,
-  type EffortMeta,
-  readMap,
-  today,
-  validateEffortMap,
-  type WayfindMap,
-  writeMap,
-} from "./map.js";
+import { readMap, writeMap } from "./map.js";
+import { computeFrontier, type EffortMeta, today, validateEffortMap, type WayfindMap } from "./model.js";
 
 // ─── create ──────────────────────────────────────────────────────────────────
 

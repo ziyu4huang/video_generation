@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 // SUT still lives in map.ts at this point; Task 3 flips this to "../src/lifecycle.js".
-import { completeEffort, doneDir, setEffortStatus } from "../src/map.js";
+import { completeEffort, setEffortStatus } from "../src/map.js";
+import { doneDir } from "../src/model.js";
 
 let cwd = "";
 afterEach(() => {
@@ -88,5 +90,14 @@ describe("completeEffort", () => {
     const res = completeEffort(cwd, effort);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.reason).toContain("already exists");
+  });
+});
+
+describe("model.ts purity (fs-free invariant)", () => {
+  it("does not import node:fs", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, "..", "src", "model.ts"), "utf-8");
+    expect(src).not.toContain('from "node:fs"');
+    expect(src).not.toContain("require(");
   });
 });

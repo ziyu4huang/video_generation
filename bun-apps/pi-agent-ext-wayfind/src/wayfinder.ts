@@ -14,17 +14,8 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  appendDecision,
-  completeEffort,
-  computeFrontier,
-  readMap,
-  type Ticket,
-  today,
-  type WayfindMap,
-  writeMap,
-  writeTicket,
-} from "./map.js";
+import { appendDecision, completeEffort, readMap, writeMap, writeTicket } from "./map.js";
+import { computeFrontier, type Ticket, today, type WayfindMap } from "./model.js";
 
 /** Slugify a free-text destination/effort name: lowercase, hyphenate, trim. */
 export function slugify(text: string): string {

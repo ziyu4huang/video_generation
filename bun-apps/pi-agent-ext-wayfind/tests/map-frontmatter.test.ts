@@ -15,19 +15,21 @@ import { join } from "node:path";
 import {
   appendDecision,
   closeTicket,
-  type EffortMeta,
-  type MapDecision,
-  parseMapFrontmatter,
   readEffortMeta,
   readMap,
-  serializeMapFrontmatter,
-  today,
   touchEffortManifest,
-  validateEffortMap,
-  type WayfindMap,
   writeMap,
   writeTicket,
 } from "../src/map.js";
+import {
+  type EffortMeta,
+  type MapDecision,
+  parseMapFrontmatter,
+  serializeMapFrontmatter,
+  today,
+  validateEffortMap,
+  type WayfindMap,
+} from "../src/model.js";
 
 const META_FULL: EffortMeta = {
   effort: "2026-08-02-core-task-review",

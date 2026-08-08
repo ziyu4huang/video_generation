@@ -2,17 +2,16 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readMap, writeMap } from "../src/map.js";
 import {
   computeFrontier,
   parseDecisionLine,
   parseMapBody,
   parseTicketFile,
-  readMap,
   serializeTicket,
   type Ticket,
   type WayfindMap,
-  writeMap,
-} from "../src/map.js";
+} from "../src/model.js";
 
 describe("parseMapBody", () => {
   it("splits a ##-delimited body into named sections", () => {

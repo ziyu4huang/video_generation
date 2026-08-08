@@ -3,15 +3,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  completeEffort,
-  parseMapFrontmatter,
-  readEffortMeta,
-  readMap,
-  setEffortStatus,
-  today,
-  writeMap,
-} from "../src/map.js";
+import { completeEffort, readEffortMeta, readMap, setEffortStatus, writeMap } from "../src/map.js";
+import { parseMapFrontmatter, today } from "../src/model.js";
 import type { StatusReport } from "../src/wayfinder.js";
 import {
   addTicket,
