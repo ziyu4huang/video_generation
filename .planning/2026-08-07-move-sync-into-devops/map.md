@@ -1,4 +1,5 @@
 ---
+effort: 2026-08-07-move-sync-into-devops
 status: complete
 ---
 ## Destination
