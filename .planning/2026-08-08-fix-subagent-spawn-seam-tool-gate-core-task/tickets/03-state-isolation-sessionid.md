@@ -19,5 +19,5 @@ This is the GATE for ever safely firing `session_start` in children (the alterna
 ## Progress
 - Stage 1 (power-tool accumulator): DONE — PR #1132 (commit cf265a73). Map-per-sid + "" fallback; hooks/inspect_pathology threaded; session_shutdown cleanup. warning.ts dedup deferred.
 - Stage 2 (core-task todo store): DONE — this PR. Map-per-sid with renderSid-default trick (no-arg accessors → parent/display bucket; execute threads ctx sid). Renderer/overlay/command call sites unchanged.
-- Stage 3 (core-task loopState): TODO.
-- Stage 4 (core-task goalState): TODO (highest risk — ~30 fields across goal.ts).
+- Stage 3 (core-task loopState): DONE — this PR. Map-per-sid + renderSid-default (mirrors todo); ~70 loop.ts sites converted; no owned timer (borrows goal heartbeat).
+- Stage 4 (core-task goalState): TODO — the remaining dedicated effort (highest risk: owns the heartbeat timer + ~250 sites across goal.ts).

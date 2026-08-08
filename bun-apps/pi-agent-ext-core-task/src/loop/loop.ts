@@ -6,7 +6,7 @@
  */
 import type { ExtensionAPI, ExtensionFactory, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import {
-	loopState, createLoop, applyMeasurement, applyMetriclessTick, isBoundedStop, stopLoop,
+	getLoopState, createLoop, applyMeasurement, applyMetriclessTick, isBoundedStop, stopLoop,
 	cloneLoop, type LoopState, type LoopStopReason,
 } from "./loop-state.js";
 import { runMeasure } from "./loop-metric.js";
@@ -21,8 +21,6 @@ import {
 	backoffMs, shouldPauseAfterBackoff, HEARTBEAT_MAX_NUDGES,
 } from "../goal/backoff.js";
 
-export { loopState };
-
 const MEASURE_NULL_STOP = 3;
 const HYPOTHESIS_RE = /^HYPOTHESIS:\s*(.*)$/m;
 
@@ -30,7 +28,9 @@ export function parseHypothesis(text: string): string {
 	return HYPOTHESIS_RE.exec(text)?.[1]?.trim() ?? "";
 }
 
-export function isLoopActive(): boolean { return !!loopState.activeLoop?.active; }
+/** `sid` keys the per-sessionId loop-state bucket (optimization #3, ticket #16).
+ *  No-arg falls back to the renderSid (parent/display) bucket. */
+export function isLoopActive(sid?: string): boolean { return !!getLoopState(sid).activeLoop?.active; }
 
 export function buildLoopContinuationPrompt(loop: LoopState, marker: string): string {
 	const metricRule = loop.mode === "metric"
@@ -66,10 +66,12 @@ function extractLoopContinuationMarker(prompt: string): string | undefined {
 	return LOOP_CONTINUATION_MARKER_PATTERN.exec(prompt)?.[1];
 }
 
-/** Clear loopState.continuationPending when its continuation prompt is delivered. */
-function markLoopContinuationDelivered(prompt: string): void {
+/** Clear loopState.continuationPending when its continuation prompt is delivered.
+ *  `sid` keys the per-sessionId bucket; the before_agent_start hook (no ctx) calls
+ *  this no-arg → renderSid (parent/display) bucket. Optimization #3 / ticket #16. */
+function markLoopContinuationDelivered(prompt: string, sid?: string): void {
 	const marker = extractLoopContinuationMarker(prompt);
-	if (marker && loopState.continuationPending?.marker === marker) loopState.continuationPending = undefined;
+	if (marker && getLoopState(sid).continuationPending?.marker === marker) getLoopState(sid).continuationPending = undefined;
 }
 
 // Mirrors goal.ts's StatusContext (structural subset) so the agent_end call site
@@ -83,6 +85,13 @@ interface LoopTickCtx {
 	sessionManager?: unknown;
 	// token accounting: goal.ts reads ctx.sessionManager / a token total. Reuse
 	// the SAME helper goal.ts uses (currentTokenTotal) — see T7 wiring note.
+}
+
+/** Resolve the sessionId from a LoopTickCtx's sessionManager. Returns "" when
+ *  unavailable (no sessionManager / no getSessionId) so callers key the
+ *  default/renderSid bucket. Optimization #3 / ticket #16 (mirrors todo store). */
+function sidOf(ctx: LoopTickCtx): string {
+	return (ctx.sessionManager as { getSessionId?: () => string } | undefined)?.getSessionId?.() ?? "";
 }
 
 /** Sum assistant usage across the session branch — mirrors goal.ts's currentTokenTotal (T8-final Finding A). */
@@ -101,17 +110,21 @@ function currentTokenTotal(ctx: LoopTickCtx): number {
 	return total;
 }
 
-/** Zero anti-repetition + measure-failure counters at lifecycle boundaries — mirrors goal.ts's resetHardeningCounters, plus consecutiveMeasureNull (T8-final Finding B). */
-function resetLoopHardeningCounters(): void {
-	loopState.consecutiveStuck = 0;
-	loopState.stuckStartedAt = undefined;
-	loopState.recentPrints = [];
-	loopState.recentTexts = [];
-	loopState.recentToolResults = [];
-	loopState.toollessStreak = 0;
-	loopState.toolRanThisTurn = false;
-	loopState.nudgeCount = 0;
-	loopState.consecutiveMeasureNull = 0;
+/** Zero anti-repetition + measure-failure counters at lifecycle boundaries — mirrors goal.ts's resetHardeningCounters, plus consecutiveMeasureNull (T8-final Finding B).
+ *  `sid` keys the per-sessionId bucket; ctx-bearing callers (finishLoop, /loop start)
+ *  thread the real sid so a child loop resets ITS OWN counters. No-arg → renderSid
+ *  (parent/display) bucket. Optimization #3 / ticket #16. */
+function resetLoopHardeningCounters(sid?: string): void {
+	const s = getLoopState(sid);
+	s.consecutiveStuck = 0;
+	s.stuckStartedAt = undefined;
+	s.recentPrints = [];
+	s.recentTexts = [];
+	s.recentToolResults = [];
+	s.toollessStreak = 0;
+	s.toolRanThisTurn = false;
+	s.nudgeCount = 0;
+	s.consecutiveMeasureNull = 0;
 }
 
 /**
@@ -119,75 +132,77 @@ function resetLoopHardeningCounters(): void {
  * event shape matches goal.ts's agent_end event: { messages?: unknown[] }.
  */
 export async function runLoopTick(pi: ExtensionAPI, ctx: LoopTickCtx, event: { messages?: unknown[] }): Promise<void> {
-	if (!loopState.activeLoop?.active) return;
-	loopState.lastActivityAt = Date.now();
-	const loopId = loopState.activeLoop.id;
+	const sid = sidOf(ctx);
+	const s = getLoopState(sid);
+	if (!s.activeLoop?.active) return;
+	s.lastActivityAt = Date.now();
+	const loopId = s.activeLoop.id;
 	const finalAssistant = findFinalAssistantMessage(event.messages ?? []);
 
 	// iteration + usage (tokens= bound): reuse goal.ts's currentTokenTotal so the
 	// widget's tokensUsed reflects real session usage instead of a frozen 0.
-	loopState.activeLoop = {
-		...loopState.activeLoop,
-		iteration: loopState.activeLoop.iteration + 1,
-		tokensUsed: Math.max(0, currentTokenTotal(ctx) - loopState.baselineTokens),
+	s.activeLoop = {
+		...s.activeLoop,
+		iteration: s.activeLoop.iteration + 1,
+		tokensUsed: Math.max(0, currentTokenTotal(ctx) - s.baselineTokens),
 	};
 
 	// Transient error classification (mirrors goal.ts agent_end)
 	if (finalAssistant?.stopReason === "aborted" || finalAssistant?.stopReason === "error") {
 		if (isRetryableGoalInterruption(finalAssistant)) {
-			loopState.loopRecovery = { loopId, kind: isGoalContextOverflow(finalAssistant) ? "compaction_retry" : "provider_retry" };
-			persistLoop(loopState.extensionApi as ExtensionAPI, loopState.activeLoop);
+			s.loopRecovery = { loopId, kind: isGoalContextOverflow(finalAssistant) ? "compaction_retry" : "provider_retry" };
+			persistLoop(s.extensionApi as ExtensionAPI, s.activeLoop);
 			return;
 		}
 		finishLoop(ctx, "error", `Loop stopped: unrecoverable error.`);
 		return;
 	}
-	loopState.loopRecovery = undefined;
+	s.loopRecovery = undefined;
 
 	const assistantText = finalAssistant?.content?.map((c: { text?: string }) => c.text ?? "").join(" ") ?? "";
 	const hypothesis = parseHypothesis(assistantText);
 
 	// Metric vs metricless
-	if (loopState.activeLoop.mode === "metric" && loopState.activeLoop.measureCmd) {
-		const value = await runMeasure(pi as unknown as { exec: (p: string, a: string[], o: { cwd: string; timeout: number }) => Promise<{ stdout?: string; exitCode?: number }> }, loopState.activeLoop.measureCmd, ctx.cwd);
+	if (s.activeLoop.mode === "metric" && s.activeLoop.measureCmd) {
+		const value = await runMeasure(pi as unknown as { exec: (p: string, a: string[], o: { cwd: string; timeout: number }) => Promise<{ stdout?: string; exitCode?: number }> }, s.activeLoop.measureCmd, ctx.cwd);
 		if (value === null) {
-			loopState.consecutiveMeasureNull += 1;
-			if (loopState.consecutiveMeasureNull >= MEASURE_NULL_STOP) { finishLoop(ctx, "measure-error", `Loop stopped: measure command failed ${loopState.consecutiveMeasureNull}× in a row.`); return; }
-			loopState.activeLoop = applyMetriclessTick(loopState.activeLoop, hypothesis || "(no measure value)");
+			s.consecutiveMeasureNull += 1;
+			if (s.consecutiveMeasureNull >= MEASURE_NULL_STOP) { finishLoop(ctx, "measure-error", `Loop stopped: measure command failed ${s.consecutiveMeasureNull}× in a row.`); return; }
+			s.activeLoop = applyMetriclessTick(s.activeLoop, hypothesis || "(no measure value)");
 		} else {
-			loopState.consecutiveMeasureNull = 0;
-			loopState.activeLoop = applyMeasurement(loopState.activeLoop, value, hypothesis || "(no hypothesis)");
+			s.consecutiveMeasureNull = 0;
+			s.activeLoop = applyMeasurement(s.activeLoop, value, hypothesis || "(no hypothesis)");
 		}
 	} else {
-		loopState.activeLoop = applyMetriclessTick(loopState.activeLoop, hypothesis || "(no hypothesis)");
+		s.activeLoop = applyMetriclessTick(s.activeLoop, hypothesis || "(no hypothesis)");
 	}
 
 	// Bounds
-	const bound = isBoundedStop(loopState.activeLoop);
+	const bound = isBoundedStop(s.activeLoop);
 	if (bound) { finishLoop(ctx, bound, stopMessage(bound)); return; }
 
 	// Anti-repetition (mirror goal.ts: fingerprint, classify, intervene)
-	const toolRanThisTurn = loopState.toolRanThisTurn;
-	loopState.toolRanThisTurn = false;
-	loopState.toollessStreak = toolRanThisTurn ? 0 : loopState.toollessStreak + 1;
-	loopState.nudgeCount = toolRanThisTurn ? 0 : loopState.nudgeCount + 1;
-	if (loopState.nudgeCount >= HEARTBEAT_MAX_NUDGES) { finishLoop(ctx, "repetition", `Loop stopped: 3 consecutive no-tool turns.`); return; }
+	const toolRanThisTurn = s.toolRanThisTurn;
+	s.toolRanThisTurn = false;
+	s.toollessStreak = toolRanThisTurn ? 0 : s.toollessStreak + 1;
+	s.nudgeCount = toolRanThisTurn ? 0 : s.nudgeCount + 1;
+	if (s.nudgeCount >= HEARTBEAT_MAX_NUDGES) { finishLoop(ctx, "repetition", `Loop stopped: 3 consecutive no-tool turns.`); return; }
 
 	const print = textFingerprint(assistantText);
-	loopState.recentPrints = pushCapped(loopState.recentPrints, print, REPETITION.printWindow);
-	loopState.recentTexts = pushCapped(loopState.recentTexts, assistantText.slice(0, 1000), REPETITION.textWindow);
-	const reason = detectLoopStuck({ assistantText, recentPrints: loopState.recentPrints, previousText: loopState.recentTexts[loopState.recentTexts.length - 2], recentToolResults: loopState.recentToolResults, toollessStreak: loopState.toollessStreak });
+	s.recentPrints = pushCapped(s.recentPrints, print, REPETITION.printWindow);
+	s.recentTexts = pushCapped(s.recentTexts, assistantText.slice(0, 1000), REPETITION.textWindow);
+	const reason = detectLoopStuck({ assistantText, recentPrints: s.recentPrints, previousText: s.recentTexts[s.recentTexts.length - 2], recentToolResults: s.recentToolResults, toollessStreak: s.toollessStreak });
 	if (reason) {
-		loopState.consecutiveStuck += 1;
-		if (loopState.stuckStartedAt === undefined) loopState.stuckStartedAt = Date.now();
-		if (loopState.consecutiveStuck >= REPETITION.maxInterventions) { finishLoop(ctx, "repetition", `Loop stopped: stuck ${loopState.consecutiveStuck} iterations (${reason}).`); return; }
-		if (shouldPauseAfterBackoff(Date.now() - loopState.stuckStartedAt!, loopState.toollessStreak)) { finishLoop(ctx, "repetition", `Loop stopped: backoff cap (${reason}).`); return; }
-		await sendLoopPrompt(pi, ctx, loopInterventionDirective(loopState.consecutiveStuck, reason, loopState.recentTexts));
+		s.consecutiveStuck += 1;
+		if (s.stuckStartedAt === undefined) s.stuckStartedAt = Date.now();
+		if (s.consecutiveStuck >= REPETITION.maxInterventions) { finishLoop(ctx, "repetition", `Loop stopped: stuck ${s.consecutiveStuck} iterations (${reason}).`); return; }
+		if (shouldPauseAfterBackoff(Date.now() - s.stuckStartedAt!, s.toollessStreak)) { finishLoop(ctx, "repetition", `Loop stopped: backoff cap (${reason}).`); return; }
+		await sendLoopPrompt(pi, ctx, loopInterventionDirective(s.consecutiveStuck, reason, s.recentTexts));
 		return;
 	}
-	loopState.consecutiveStuck = 0; loopState.stuckStartedAt = undefined;
+	s.consecutiveStuck = 0; s.stuckStartedAt = undefined;
 
-	persistLoop(loopState.extensionApi as ExtensionAPI, loopState.activeLoop);
+	persistLoop(s.extensionApi as ExtensionAPI, s.activeLoop);
 	const wait = backoffMs(0);
 	if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 	await sendLoopContinuation(pi, ctx);
@@ -196,16 +211,19 @@ export async function runLoopTick(pi: ExtensionAPI, ctx: LoopTickCtx, event: { m
 function stopMessage(reason: LoopStopReason): string { return `Loop stopped: ${reason}.`; }
 
 function finishLoop(ctx: LoopTickCtx, reason: LoopStopReason, notifyMsg: string): void {
-	if (loopState.activeLoop) {
-		loopState.activeLoop = stopLoop(loopState.activeLoop, reason);
-		loopState.activeLoop.history = pushCapped(loopState.activeLoop.history, { iteration: loopState.activeLoop.iteration, at: Date.now(), hypothesis: "(stop)", verdict: "metricless" }, 50);
+	const sid = sidOf(ctx);
+	const s = getLoopState(sid);
+	if (s.activeLoop) {
+		s.activeLoop = stopLoop(s.activeLoop, reason);
+		s.activeLoop.history = pushCapped(s.activeLoop.history, { iteration: s.activeLoop.iteration, at: Date.now(), hypothesis: "(stop)", verdict: "metricless" }, 50);
 	}
-	clearPersistedLoop(loopState.extensionApi as ExtensionAPI);
-	loopState.activeLoop = undefined;
-	loopState.continuationPending = undefined;
+	clearPersistedLoop(s.extensionApi as ExtensionAPI);
+	s.activeLoop = undefined;
+	s.continuationPending = undefined;
 	// Reset anti-repetition/measure counters so a later /loop start (same session)
-	// does not inherit this loop's dirty state (T8-final Finding B).
-	resetLoopHardeningCounters();
+	// does not inherit this loop's dirty state (T8-final Finding B). Thread the
+	// same sid so a CHILD loop clears its own counters, not the parent's.
+	resetLoopHardeningCounters(sid);
 	// Re-evaluate the heartbeat: with no loop (and typically no goal) active,
 	// syncHeartbeatTimer's shouldRun flips false and the interval is torn down.
 	// No-op if goal() was never registered (seam undefined).
@@ -214,12 +232,14 @@ function finishLoop(ctx: LoopTickCtx, reason: LoopStopReason, notifyMsg: string)
 }
 
 async function sendLoopContinuation(pi: ExtensionAPI, ctx: LoopTickCtx): Promise<void> {
-	if (!loopState.activeLoop) return;
-	if (loopState.continuationPending?.loopId === loopState.activeLoop.id) return;
+	const sid = sidOf(ctx);
+	const s = getLoopState(sid);
+	if (!s.activeLoop) return;
+	if (s.continuationPending?.loopId === s.activeLoop.id) return;
 	if (ctx.hasPendingMessages?.()) return;
-	const marker = continuationMarker(loopState.activeLoop);
-	const prompt = buildLoopContinuationPrompt(loopState.activeLoop, marker);
-	loopState.continuationPending = { loopId: loopState.activeLoop.id, iteration: loopState.activeLoop.iteration, marker, prompt };
+	const marker = continuationMarker(s.activeLoop);
+	const prompt = buildLoopContinuationPrompt(s.activeLoop, marker);
+	s.continuationPending = { loopId: s.activeLoop.id, iteration: s.activeLoop.iteration, marker, prompt };
 	const delivered = await sendLoopPrompt(pi, ctx, prompt);
 	if (!delivered) {
 		// Spec §8: a continuation send failure must stop the loop (never silently
@@ -231,8 +251,9 @@ async function sendLoopContinuation(pi: ExtensionAPI, ctx: LoopTickCtx): Promise
 
 /** Heartbeat re-fire entry — called by goal.ts's generalized heartbeat when a loop is active + idle + stalled. */
 export async function refireLoopContinuation(pi: ExtensionAPI, ctx: LoopTickCtx): Promise<void> {
-	if (!isLoopActive()) return;
-	if (loopState.continuationPending) return;
+	const sid = sidOf(ctx);
+	if (!isLoopActive(sid)) return;
+	if (getLoopState(sid).continuationPending) return;
 	await sendLoopContinuation(pi, ctx);
 }
 
@@ -256,29 +277,31 @@ export function registerLoop(pi: ExtensionAPI, overlay: LoopOverlayLike): void {
 		description: "Run a process loop: /loop [start \"<target>\" measure=<cmd> ... | stop | status]",
 		getArgumentCompletions: completeLoopArguments,
 		handler: async (args: string, ctx: LoopTickCtx) => {
+			const sid = sidOf(ctx);
+			const s = getLoopState(sid);
 			const parsed = parseLoopCommand(args ?? "");
 			if (typeof parsed === "string") { ctx.ui.notify(parsed, "warning"); return; }
-			if (parsed.kind === "show") { ctx.ui.notify(showLoopText(), "info"); return; }
+			if (parsed.kind === "show") { ctx.ui.notify(showLoopText(sid), "info"); return; }
 			if (parsed.kind === "stop") {
-				if (!loopState.activeLoop) { ctx.ui.notify("No active loop.", "info"); return; }
+				if (!s.activeLoop) { ctx.ui.notify("No active loop.", "info"); return; }
 				finishLoop(ctx, "user", "Loop stopped by user.");
 				overlay.update(undefined);
 				return;
 			}
 			// start
-			if (loopState.activeLoop) { ctx.ui.notify("A loop is already active. Run /loop stop first.", "warning"); return; }
+			if (s.activeLoop) { ctx.ui.notify("A loop is already active. Run /loop stop first.", "warning"); return; }
 			// mutual exclusion with goal is enforced in goal.ts (T7) via isGoalActive();
 			// double-check the globalThis seam here too:
 			const goalActive = (globalThis as Record<string, unknown>).__piGoalActive;
 			if (typeof goalActive === "function" && goalActive() === true) {
 				ctx.ui.notify("A goal is active. Run /goal clear or complete it before starting a loop.", "warning"); return;
 			}
-			resetLoopHardeningCounters();
-			loopState.activeLoop = createLoop({ target: parsed.target, mode: parsed.mode, measureCmd: parsed.measureCmd, direction: parsed.direction, maxIterations: parsed.maxIterations, timeLimitMs: parsed.timeLimitMs, tokenBudget: parsed.tokenBudget, plateauWindow: parsed.plateauWindow });
-			loopState.extensionApi = pi;
-			loopState.baselineTokens = currentTokenTotal(ctx);
-			persistLoop(pi, loopState.activeLoop);
-			overlay.update(loopState.activeLoop);
+			resetLoopHardeningCounters(sid);
+			s.activeLoop = createLoop({ target: parsed.target, mode: parsed.mode, measureCmd: parsed.measureCmd, direction: parsed.direction, maxIterations: parsed.maxIterations, timeLimitMs: parsed.timeLimitMs, tokenBudget: parsed.tokenBudget, plateauWindow: parsed.plateauWindow });
+			s.extensionApi = pi;
+			s.baselineTokens = currentTokenTotal(ctx);
+			persistLoop(pi, s.activeLoop);
+			overlay.update(s.activeLoop);
 			// Arm the heartbeat supervision for the loop (goal XOR loop): now that
 			// loopState.activeLoop is set, syncHeartbeatTimer's shouldRun is true and
 			// the interval starts. No-op if goal() was never registered (seam undefined).
@@ -296,13 +319,17 @@ export function registerLoop(pi: ExtensionAPI, overlay: LoopOverlayLike): void {
 	// (Registered here — not in goal.ts — to avoid a goal↔loop import cycle; the
 	// loop uses a distinct `pi-loop-continuation:` marker that goal's extractor does
 	// not match, so the two hooks coexist without interference.)
+	//
+	// No sid here: before_agent_start carries no ctx/sessionManager, so this clears
+	// the renderSid (parent/display) bucket. In the common single-session case that
+	// is the active session's bucket (setLoopRenderSid ran at session_start).
 	pi.on("before_agent_start", (event: { systemPrompt?: string; prompt?: string }) => {
 		if (event.prompt) markLoopContinuationDelivered(event.prompt);
 	});
 }
 
-function showLoopText(): string {
-	const l = loopState.activeLoop;
+function showLoopText(sid?: string): string {
+	const l = getLoopState(sid).activeLoop;
 	if (!l) return "No active loop.";
 	const best = l.bestValue !== undefined ? ` best=${l.bestValue}` : "";
 	return `⟳ loop #${l.iteration + 1} (${l.mode})${best} stall=${l.stallCount}/${l.plateauWindow}`;
@@ -311,5 +338,9 @@ function showLoopText(): string {
 /** Called by core-task.ts session_start/session_compact to recover an active loop. */
 export function restoreLoopFromSession(sessionManager: unknown, overlay: LoopOverlayLike): void {
 	const loop = loadLoopFromSession(sessionManager);
-	if (loop) { loopState.activeLoop = loop; overlay.update(loop); }
+	if (loop) {
+		const sid = (sessionManager as { getSessionId?: () => string } | undefined)?.getSessionId?.() ?? "";
+		getLoopState(sid).activeLoop = loop;
+		overlay.update(loop);
+	}
 }

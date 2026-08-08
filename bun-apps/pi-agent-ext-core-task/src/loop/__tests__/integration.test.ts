@@ -21,7 +21,7 @@ import { __resetGoalState, goalState } from "../../goal/state.js";
 import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALL_MS } from "../../goal/backoff.js";
 import { registerLoop } from "../loop.js";
 import type { LoopOverlayLike } from "../overlay.js";
-import { __resetLoopState, loopState, createLoop } from "../loop-state.js";
+import { __resetLoopState, getLoopState, createLoop } from "../loop-state.js";
 
 // ─── Fake-pi harness (ported from goal/__tests__/goal.test.ts) ──────────────
 
@@ -169,7 +169,7 @@ describe("loop 3 integration", () => {
 
 		// Activate a loop directly (no /loop start) so the code path under test
 		// is the agent_end dispatch, not the start handler.
-		loopState.activeLoop = createLoop({ target: "t", mode: "metricless" });
+		getLoopState().activeLoop = createLoop({ target: "t", mode: "metricless" });
 		const sentBefore = mock.sentUserMessages.length;
 
 		const agentEndHandlers = mock.events.get("agent_end");
@@ -188,8 +188,8 @@ describe("loop 3 integration", () => {
 		);
 
 		// The loop tick incremented iteration (0 -> 1) …
-		expect(loopState.activeLoop).toBeDefined();
-		expect(loopState.activeLoop?.iteration).toBe(1);
+		expect(getLoopState().activeLoop).toBeDefined();
+		expect(getLoopState().activeLoop?.iteration).toBe(1);
 		// … and dispatched a followUp continuation prompt.
 		expect(mock.sentUserMessages.length).toBeGreaterThan(sentBefore);
 		expect(mock.sentUserMessages.at(-1)?.options).toMatchObject({ deliverAs: "followUp" });
@@ -215,7 +215,7 @@ describe("loop 3 integration", () => {
 		expect(notifications.some((n) => n.level === "warning")).toBe(true);
 		expect(notifications.some((n) => /goal is active/i.test(n.message))).toBe(true);
 		// … and NO loop was created.
-		expect(loopState.activeLoop).toBeUndefined();
+		expect(getLoopState().activeLoop).toBeUndefined();
 		expect(mock.sentUserMessages.length).toBe(0);
 	});
 
@@ -256,14 +256,14 @@ describe("loop 3 integration", () => {
 			const sessionStart = mock.events.get("session_start")?.[0];
 			await (sessionStart as ((e: unknown, c: unknown) => void) | undefined)?.({}, ctx);
 
-			// /loop start sets loopState.activeLoop and — via the __piKickHeartbeat
+			// /loop start sets getLoopState().activeLoop and — via the __piKickHeartbeat
 			// seam — calls syncHeartbeatTimer, whose widened shouldRun
 			// (`goal active || isLoopActive()`) now starts the 15s heartbeat for a
 			// loop-only session. It also sends the "Loop started" prompt (msg #1).
 			const loopCmd = mock.commands.get("loop");
 			expect(loopCmd).toBeDefined();
 			await (loopCmd!.handler as (args: string, ctx: unknown) => Promise<void>)('start "improve test names"', ctx);
-			expect(loopState.activeLoop).toBeDefined();
+			expect(getLoopState().activeLoop).toBeDefined();
 			expect(mock.sentUserMessages.length).toBe(1);
 
 			// The generalized heartbeat (15s interval) is now running.
@@ -281,7 +281,7 @@ describe("loop 3 integration", () => {
 			expect(mock.sentUserMessages.length).toBeGreaterThan(sentBefore);
 			expect(mock.sentUserMessages.at(-1)?.text ?? "").toMatch(/pi-loop-continuation/);
 			// The loop's continuation is now tracked in loopState (not goalState).
-			expect(loopState.continuationPending).toBeDefined();
+			expect(getLoopState().continuationPending).toBeDefined();
 		} finally {
 			globalThis.setInterval = realSetInterval;
 			globalThis.clearInterval = realClearInterval;
@@ -290,7 +290,7 @@ describe("loop 3 integration", () => {
 	});
 
 	test("loop continues across multiple iterations (does not stall at iteration 1)", async () => {
-		// Regression for the Task-8 bug: loopState.continuationPending was SET by
+		// Regression for the Task-8 bug: getLoopState().continuationPending was SET by
 		// sendLoopContinuation but NEVER cleared on delivery, so the SECOND agent_end
 		// hit sendLoopContinuation's own guard and sent nothing → the loop stalled
 		// after ~2 iterations. The fix mirrors goal.ts's before_agent_start →
@@ -310,7 +310,7 @@ describe("loop 3 integration", () => {
 
 		// Activate a metricless loop directly (no /loop start) so the code path
 		// under test is the agent_end dispatch + continuation, not the start handler.
-		loopState.activeLoop = createLoop({ target: "improve naming", mode: "metricless" });
+		getLoopState().activeLoop = createLoop({ target: "improve naming", mode: "metricless" });
 
 		const agentEndHandlers = mock.events.get("agent_end");
 		expect(agentEndHandlers?.length).toBe(1);
@@ -320,7 +320,7 @@ describe("loop 3 integration", () => {
 			// continuation into an intervention directive. The bug under test is the
 			// continuation-clearing stall, not the stuck-classifier; isolating it keeps
 			// BOTH agent_end turns on the normal continuation path (marker-bearing).
-			loopState.toolRanThisTurn = true;
+			getLoopState().toolRanThisTurn = true;
 			await (agentEndHandlers![0] as (event: { messages?: unknown[] }, ctx: unknown) => Promise<void>)(
 				{
 					messages: [
@@ -346,19 +346,19 @@ describe("loop 3 integration", () => {
 		// ── Iteration 0 → 1: agent_end fires, runLoopTick sends continuation #1. ──
 		const sentBefore = mock.sentUserMessages.length;
 		await fireAgentEnd("attempt one");
-		expect(loopState.activeLoop).toBeDefined();
-		expect(loopState.activeLoop?.iteration).toBe(1);
+		expect(getLoopState().activeLoop).toBeDefined();
+		expect(getLoopState().activeLoop?.iteration).toBe(1);
 		expect(mock.sentUserMessages.length).toBeGreaterThan(sentBefore);
 		const continuation1 = mock.sentUserMessages.at(-1)!;
 		expect(continuation1.text).toMatch(/pi-loop-continuation/);
-		expect(loopState.continuationPending).toBeDefined();
+		expect(getLoopState().continuationPending).toBeDefined();
 
 		// ── Deliver continuation #1: before_agent_start clears continuationPending. ──
 		// This is the clearing step the fix adds. WITHOUT the fix this is a no-op
 		// (no loop before_agent_start hook exists; goal's hook won't match the loop
 		// marker) → continuationPending stays set → the next agent_end stalls.
 		fireBeforeAgentStart(continuation1.text);
-		expect(loopState.continuationPending).toBeUndefined();
+		expect(getLoopState().continuationPending).toBeUndefined();
 
 		// ── Iteration 1 → 2: agent_end fires again. ────────────────────────────────
 		// WITHOUT the fix: sendLoopContinuation hits its own guard
@@ -366,7 +366,7 @@ describe("loop 3 integration", () => {
 		// continuation #2 is sent and the loop keeps looping.
 		const sentBetween = mock.sentUserMessages.length;
 		await fireAgentEnd("attempt two");
-		expect(loopState.activeLoop?.iteration).toBe(2);
+		expect(getLoopState().activeLoop?.iteration).toBe(2);
 		expect(mock.sentUserMessages.length).toBeGreaterThan(sentBetween);
 		expect(mock.sentUserMessages.at(-1)?.text).toMatch(/pi-loop-continuation/);
 
@@ -397,8 +397,8 @@ describe("loop 3 integration", () => {
 			},
 		});
 
-		loopState.activeLoop = createLoop({ target: "t", mode: "metricless", tokenBudget: 100 });
-		loopState.baselineTokens = 0;
+		getLoopState().activeLoop = createLoop({ target: "t", mode: "metricless", tokenBudget: 100 });
+		getLoopState().baselineTokens = 0;
 
 		const agentEndHandlers = mock.events.get("agent_end");
 		expect(agentEndHandlers?.length).toBe(1);
@@ -412,7 +412,7 @@ describe("loop 3 integration", () => {
 		);
 
 		// The loop stopped on the tokens bound (activeLoop cleared by finishLoop) ...
-		expect(loopState.activeLoop).toBeUndefined();
+		expect(getLoopState().activeLoop).toBeUndefined();
 		// ... and the stop notification names the tokens reason.
 		expect(notifications.some((n) => /tokens/i.test(n.message))).toBe(true);
 	});
@@ -432,23 +432,23 @@ describe("loop 3 integration", () => {
 
 		// Start loop A, then dirty its hardening state as if it ran stuck + failed measures.
 		await (loopCmd!.handler as (args: string, ctx: unknown) => Promise<void>)('start "loop A"', ctx);
-		expect(loopState.activeLoop?.target).toBe("loop A");
-		loopState.consecutiveStuck = 2;
-		loopState.recentTexts = ["dirty-fingerprint"];
-		loopState.consecutiveMeasureNull = 2;
+		expect(getLoopState().activeLoop?.target).toBe("loop A");
+		getLoopState().consecutiveStuck = 2;
+		getLoopState().recentTexts = ["dirty-fingerprint"];
+		getLoopState().consecutiveMeasureNull = 2;
 
 		// /loop stop -> finishLoop -> resetLoopHardeningCounters clears the dirt.
 		await (loopCmd!.handler as (args: string, ctx: unknown) => Promise<void>)("stop", ctx);
-		expect(loopState.consecutiveStuck).toBe(0);
-		expect(loopState.recentTexts).toEqual([]);
-		expect(loopState.consecutiveMeasureNull).toBe(0);
+		expect(getLoopState().consecutiveStuck).toBe(0);
+		expect(getLoopState().recentTexts).toEqual([]);
+		expect(getLoopState().consecutiveMeasureNull).toBe(0);
 
 		// Start loop B — resetLoopHardeningCounters runs again (idempotent); loop B
 		// starts from a clean slate, not loop A's leftovers.
 		await (loopCmd!.handler as (args: string, ctx: unknown) => Promise<void>)('start "loop B"', ctx);
-		expect(loopState.activeLoop?.target).toBe("loop B");
-		expect(loopState.consecutiveStuck).toBe(0);
-		expect(loopState.recentTexts).toEqual([]);
-		expect(loopState.consecutiveMeasureNull).toBe(0);
+		expect(getLoopState().activeLoop?.target).toBe("loop B");
+		expect(getLoopState().consecutiveStuck).toBe(0);
+		expect(getLoopState().recentTexts).toEqual([]);
+		expect(getLoopState().consecutiveMeasureNull).toBe(0);
 	});
 });

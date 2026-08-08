@@ -29,7 +29,7 @@ import type { ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-a
 import goal, { isGoalActive } from "../src/goal/goal.js";
 import { registerLoop, restoreLoopFromSession } from "../src/loop/loop.js";
 import { LoopOverlay } from "../src/loop/overlay.js";
-import { loopState } from "../src/loop/loop-state.js";
+import { setLoopRenderSid, __resetLoopState } from "../src/loop/loop-state.js";
 import { GoalOverlay } from "../src/goal/overlay.js";
 import { registerTodoTool, registerTodosCommand } from "../src/todo/todo";
 import { TodoOverlay } from "../src/todo/overlay";
@@ -107,6 +107,10 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 		replaceState(EMPTY_STATE);
 		latestCwd = ctx.cwd;
 		refreshPlan(ctx.cwd); // parse + cache the active effort's plan (for the plan coordinator; NOT for todo seeding)
+		// Capture the same parent/display session id for the loop-state renderSid
+		// bucket — no-arg getLoopState() in ctx-less/display sites reads this —
+		// BEFORE restoring any persisted loop into that bucket. Optimization #3 / #16.
+		setLoopRenderSid((ctx as { sessionManager?: { getSessionId: () => string } }).sessionManager?.getSessionId() ?? "");
 		restoreLoopFromSession((ctx as { sessionManager?: unknown }).sessionManager, loopOverlay);
 		if (ctx.hasUI) {
 			statusWidget.setUICtx(ctx.ui);
@@ -135,6 +139,8 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 		// doesn't inherit stale parent todos. (Children key their own buckets;
 		// their own session_shutdown — if any — cleans those.)
 		__resetState((ctx as { sessionManager?: { getSessionId: () => string } }).sessionManager?.getSessionId());
+		// Drop this session's loop-state bucket too (mirrors the todo cleanup above).
+		__resetLoopState((ctx as { sessionManager?: { getSessionId: () => string } }).sessionManager?.getSessionId());
 		goalOverlay.dispose();
 		loopOverlay.dispose();
 		todoOverlay.dispose();
