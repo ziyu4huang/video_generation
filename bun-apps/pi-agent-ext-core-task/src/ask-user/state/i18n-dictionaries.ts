@@ -50,6 +50,7 @@ export const DICTIONARIES: Record<string, Record<string, string>> = {
 
 		// view/dialog-builder.ts — HINT_PART_* footer hints
 		"Enter to select": "Enter 選取",
+		"Enter to submit": "Enter 提交",
 		"↑/↓ to navigate": "↑/↓ 移動",
 		"Space to toggle": "Space 切換",
 		"n to add notes": "n 新增備註",

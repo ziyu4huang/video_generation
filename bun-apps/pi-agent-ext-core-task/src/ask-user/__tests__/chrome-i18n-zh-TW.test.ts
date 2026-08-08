@@ -118,5 +118,9 @@ describe("ask-user TUI chrome — zh-TW localization (Stage 3b wiring)", () => {
 		// submit-picker.ts render sites
 		expect(out).toContain("提交"); // Submit
 		expect(out).toContain("取消"); // Cancel
+
+		// dialog-builder.ts buildHintText onSubmitTab branch — "Enter to submit"
+		// was left raw (un-wired) by Stage 3b; Stage 3c localizes it.
+		expect(out).toContain("Enter 提交"); // "Enter to submit" (submit-tab footer hint)
 	});
 });

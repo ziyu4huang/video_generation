@@ -9,7 +9,8 @@
  * descriptions, preview content, multi-select rows) already used
  * wrapTextWithAnsi — only the question header line was missed.
  */
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { __setLocaleForTest } from "../state/i18n-bridge.js";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { QuestionnaireSession } from "../state/questionnaire-session.js";
 import { buildItemsForQuestion } from "../ask-user-question.js";
@@ -53,6 +54,14 @@ function makeSession(columns: number, params: QuestionParams = PARAMS) {
 		collapseKey: "off",
 	});
 }
+
+// Determinism: the footer hint (t()-localized chrome) is rendered into the
+// output this test scans. Pin locale=en so the render is deterministic
+// regardless of ambient ~/.pi/agent/settings.json (a developer who set
+// `askUserLanguage` would otherwise get translated chrome here), and restore
+// the pin after so it never leaks into sibling tests / the production path.
+beforeEach(() => __setLocaleForTest("en"));
+afterEach(() => __setLocaleForTest(null));
 
 describe("question wrap regression", () => {
 	test("long question wraps across multiple rendered lines (not truncated)", () => {

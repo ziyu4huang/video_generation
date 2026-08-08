@@ -174,7 +174,7 @@ export class DialogView implements StatefulView<DialogProps> {
 		if (state.notesVisible) return `${t(HINT_PART_ENTER)} / ${t(HINT_PART_CANCEL)}`;
 		const isMulti = this.config.isMulti;
 		const onSubmitTab = isMulti && state.currentTab >= this.config.questions.length;
-		if (onSubmitTab) return `${t(HINT_PART_NAV)} · ${t(HINT_PART_TAB)} · Enter to submit · ${t(HINT_PART_CANCEL)}`;
+		if (onSubmitTab) return `${t(HINT_PART_NAV)} · ${t(HINT_PART_TAB)} · ${t("Enter to submit")} · ${t(HINT_PART_CANCEL)}`;
 		if (state.inputMode) return `${t(HINT_PART_ENTER)} · ↑/↓ · Esc`;
 		const hintParts = [t(HINT_PART_ENTER), t(HINT_PART_NAV)];
 		if (isMulti) hintParts.push(t(HINT_PART_TAB));
