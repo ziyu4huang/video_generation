@@ -13,7 +13,10 @@ export interface IngestOptions {
   vaultPath: string; source: SourceFamily; sourceLabel: string; folder?: string;
   mocPath?: string; dryRun?: boolean; maxLinks?: number; wikiAware?: boolean; linkWeighting?: LinkWeighting;
 }
-export interface IngestCardReport { id: string; title: string; status: string; }
+// Mirrors zk's actual IngestCardReport ({id,path,status,links}); the plan's
+// draft wrongly declared `title` (zk has none) — return-type covariance requires
+// the contract to be a SUBSET of zk's fields.
+export interface IngestCardReport { id: string; path: string; status: string; links: number; }
 export interface IngestSummary {
   source: SourceFamily; sourceLabel: string; total: number; created: number; updated: number;
   unchanged: number; skipped: number; linked: number; wikiMerged: number; mocUpdated: boolean;
