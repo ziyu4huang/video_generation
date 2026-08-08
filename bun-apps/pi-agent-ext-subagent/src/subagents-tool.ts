@@ -93,6 +93,14 @@ export interface SubagentsToolOptions {
   cwd?: string;
   getExtensionTools?: () => ToolDefinition[] | undefined;
   getMainModel?: () => string | undefined;
+  /**
+   * Parent session's CURRENT active tool-name set (the gated set). When a child
+   * task omits an explicit `tools` allowlist, it defaults to THIS set instead of
+   * re-inheriting the full ~55-tool definition universe (optimization #1,
+   * `.planning/2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task/` ticket 01).
+   * An explicit per-task `tools` always overrides.
+   */
+  getActiveTools?: () => string[] | undefined;
   /** Injectable spawn for tests (defaults to the real spawnSubagent). */
   spawn?: (opts: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
   inFlight?: SubagentInFlightRegistry;
@@ -143,16 +151,22 @@ export function clampConcurrency(n: number | undefined, max = MAX_CONCURRENCY): 
   return Math.min(Math.floor(n), max);
 }
 
-/** Build the per-child spawn opts, folding in the non-overridable read-only exclusion. */
+/** Build the per-child spawn opts, folding in the non-overridable read-only exclusion.
+ *  `ctx.activeTools` is the parent's gated active set — used as the per-task `tools`
+ *  default when the task omits an explicit allowlist (optimization #1). */
 export function mergeReadOnlyExclusion(
   task: BatchTask,
-  ctx: { defaultCwd: string; mainModel?: string; extensionTools?: ToolDefinition[] },
+  ctx: { defaultCwd: string; mainModel?: string; extensionTools?: ToolDefinition[]; activeTools?: string[] },
 ): SpawnSubagentOptions {
   const excludeTools = Array.from(new Set([...(task.excludeTools ?? []), ...READ_ONLY_EXCLUDED]));
   const opts: SpawnSubagentOptions = {
     task: task.task,
     cwd: task.cwd ?? ctx.defaultCwd,
-    tools: task.tools,
+    // Default to the parent's gated active set (not the full definition universe)
+    // so a spawned child doesn't re-pay the ~18k tok/req schema baseline the
+    // parent gated down to ~10k. An explicit per-task `tools` always overrides.
+    // See .planning/2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task/ ticket 01.
+    tools: task.tools ?? ctx.activeTools,
     excludeTools,
     timeoutMs: task.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     tokenBudget: task.tokenBudget,
@@ -226,6 +240,8 @@ export function createSubagentsTool(
       const concurrency = clampConcurrency(params.concurrency);
       const mainModel = options.getMainModel?.();
       const extensionTools = options.getExtensionTools?.();
+      // Parent's gated active set — the per-task `tools` default (optimization #1).
+      const activeTools = options.getActiveTools?.();
       // Shared per-provider rate-limit gate (the OUTER cap across subagents +
       // workflow). Undefined when the session has no resolvable provider model
       // → run() is a pass-through and behavior is unchanged. The provider is the
@@ -277,7 +293,7 @@ export function createSubagentsTool(
           }
           return;
         }
-        const childOpts = mergeReadOnlyExclusion(task, { defaultCwd, mainModel, extensionTools });
+        const childOpts = mergeReadOnlyExclusion(task, { defaultCwd, mainModel, extensionTools, activeTools });
         // Register in-flight so `/subagents` shows this child while it runs.
         const childRunId = `${toolCallId}:${index}`;
         const childT0 = Date.now();

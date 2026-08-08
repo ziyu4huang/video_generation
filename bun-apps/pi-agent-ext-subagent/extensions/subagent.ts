@@ -33,6 +33,16 @@ export default function extension(pi: ExtensionAPI) {
     cwd,
     getExtensionTools: () => extensionToolsHolder.current,
     getMainModel: () => mainModelHolder.current,
+    // Parent's gated active set, read lazily at spawn time so a child inherits
+    // the freshest ~24-tool gated set (optimization #1), not the full ~55-tool
+    // universe. Best-effort: getActiveTools may be unavailable in some hosts.
+    getActiveTools: () => {
+      try {
+        return pi.getActiveTools();
+      } catch {
+        return undefined;
+      }
+    },
     inFlight,
     persistence,
   });
@@ -60,6 +70,13 @@ export default function extension(pi: ExtensionAPI) {
     cwd,
     getExtensionTools: () => extensionToolsHolder.current,
     getMainModel: () => mainModelHolder.current,
+    getActiveTools: () => {
+      try {
+        return pi.getActiveTools();
+      } catch {
+        return undefined;
+      }
+    },
     inFlight,
     persistence,
   });

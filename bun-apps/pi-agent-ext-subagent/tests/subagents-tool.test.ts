@@ -2,7 +2,7 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { DEFAULT_BATCH_CONCURRENCY, MAX_BATCH_TASKS, MAX_CONCURRENCY } from "../src/config.js";
 import { createSubagentsTool as fromIndex } from "../src/index.js";
-import type { SpawnSubagentResult } from "../src/spawn-subagent.js";
+import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
 import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
 import type { SubagentsToolDetails } from "../src/subagents-tool.js";
@@ -55,6 +55,29 @@ test("mergeReadOnlyExclusion defaults timeoutMs and carries per-child budgets", 
   assert.equal(opts.spendBudget, 0.5);
 });
 
+// ── optimization #1: default to the parent's gated active tool set ──
+// (see .planning/2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task/ ticket 01)
+// A read-only batch child must NOT re-inherit the full ~55-tool definition universe;
+// when a task omits `tools`, it defaults to the parent's CURRENT active set so the
+// child re-pays only the ~10k gated schema baseline. An explicit per-task `tools`
+// always overrides.
+
+test("mergeReadOnlyExclusion defaults a no-tools task to ctx.activeTools", () => {
+  const opts = mergeReadOnlyExclusion(
+    { task: "t" },
+    { defaultCwd: "/repo", activeTools: ["read", "grep", "find", "ls"] },
+  );
+  assert.deepEqual(opts.tools, ["read", "grep", "find", "ls"], "no-tools task inherits the parent's gated set");
+});
+
+test("mergeReadOnlyExclusion: explicit per-task tools override ctx.activeTools", () => {
+  const opts = mergeReadOnlyExclusion(
+    { task: "t", tools: ["read"] },
+    { defaultCwd: "/repo", activeTools: ["read", "grep", "find", "ls"] },
+  );
+  assert.deepEqual(opts.tools, ["read"], "explicit per-task tools win over the active-set default");
+});
+
 const NO_SIGNAL = undefined as never;
 const NO_CTX = { cwd: "/repo" } as never;
 
@@ -95,6 +118,53 @@ test("execute fans out, returns positional results in input order", async () => 
   assert.equal((res.details.results[0] as { status: string }).status, "done");
   assert.equal(res.details.dispatched, 3);
   assert.equal(res.details.skipped, 0);
+});
+
+// ── optimization #1: default to the parent's gated active tool set (execute path) ──
+// A read-only batch child must NOT re-inherit the full ~55-tool definition universe;
+// a no-tools task narrows to the parent's CURRENT active set (getActiveTools). An
+// explicit per-task `tools` always overrides. (ticket 01)
+
+/** Injectable spawn that captures the FULL opts (incl. `tools`) per call. */
+function fakeSpawnCapture() {
+  const calls: Array<SpawnSubagentOptions> = [];
+  return {
+    calls,
+    spawn: async (opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> => {
+      calls.push(opts);
+      return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    },
+  };
+}
+
+test("a no-tools batch child defaults to the parent's gated active set", async () => {
+  const f = fakeSpawnCapture();
+  const tool = createSubagentsTool({
+    cwd: "/repo",
+    spawn: f.spawn,
+    getActiveTools: () => ["read", "grep", "find", "ls", "subagent"],
+  });
+  await tool.execute("call-active", { tasks: [{ task: "t" }] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(
+    f.calls[0]?.tools,
+    ["read", "grep", "find", "ls", "subagent"],
+    "a no-tools child narrows to the parent's gated active set, not the full universe",
+  );
+});
+
+test("an explicit per-task `tools` override wins over the active-set default", async () => {
+  const f = fakeSpawnCapture();
+  const tool = createSubagentsTool({
+    cwd: "/repo",
+    spawn: f.spawn,
+    getActiveTools: () => ["read", "grep", "find", "ls", "subagent"],
+  });
+  await tool.execute("call-override", { tasks: [{ task: "t", tools: ["read", "grep"] }] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(
+    f.calls[0]?.tools,
+    ["read", "grep"],
+    "explicit per-task tools still narrow to EXACTLY the requested set",
+  );
 });
 
 test("a failed child becomes a null slot (partial-failure tolerant)", async () => {
