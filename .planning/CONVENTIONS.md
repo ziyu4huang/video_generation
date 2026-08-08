@@ -16,3 +16,7 @@ When efforts overlap (one supersedes/absorbs another, or shares a decision), add
 ## Periodic review
 
 When starting a new effort, skim existing efforts' `## Decisions so far` + `## Cross-effort links` for prior decisions that bear on the new work — cite them rather than re-deciding. If a new effort obsoletes an old ticket, close the old one as superseded the same session; do not let it linger.
+
+## Commit & push .planning/ artifacts (standing rule)
+
+`.planning/` artifacts (effort folders, specs/, plans/) are durable shared planning — MUST be committed & pushed to `origin/main`; never leave a new `.planning/<effort>/` dir untracked (`??`). When you write/update anything under `.planning/`, `git add` it into the branch's commits/PR. See `CLAUDE.md` § Planning artifacts for the full rule. Carve-outs (stay local): `task_plan.md` / `progress.md` / `findings.md`, and the flat `.planning/sdd/` fallback.
