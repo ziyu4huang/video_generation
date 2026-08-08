@@ -480,6 +480,16 @@ export function renderSubagentCall(
   return parts.join(" ▸ ");
 }
 
+/**
+ * Max trace lines shown in the streaming-expanded (ctrl+o) live view. Keeps
+ * the box ≈2 (header) + 1 (ellipsis) + this-many (tail) rows so it fits a
+ * normal terminal viewport — preventing the per-frame fullRender that causes
+ * the whole-TUI flicker (see {@link renderSubagentResult}'s isPartial branch).
+ * Only the STREAMING view is capped; the settled expanded report renders in
+ * full (no repeated clears → no flicker).
+ */
+const STREAMING_EXPANDED_TAIL = 16;
+
 /** Theme the result: collapsed = badge+meta+headline; expanded = full report. */
 export function renderSubagentResult(
   result: { content: Array<{ type: string; text?: string }>; details?: SubagentToolDetails },
@@ -490,10 +500,21 @@ export function renderSubagentResult(
   if (options.isPartial) {
     // Streaming progress update. The payload (formatSubagentLive) is a 2-line
     // header + a ≤100-line activity trace. Collapsed (default) shows just the
-    // header; expanded (ctrl+o / app.tools.expand) shows the trace so a
-    // long-running subagent's recent work is inspectable without aborting.
+    // header. Expanded (ctrl+o / app.tools.expand) shows the trace so a
+    // long-running subagent's recent work is inspectable without aborting —
+    // BUT capped to a viewport-safe tail (see STREAMING_EXPANDED_TAIL): the
+    // full ≤102-row box is taller than the terminal viewport, so its first
+    // line sits above the bottom-anchored viewport top and trips the TUI's
+    // per-frame fullRender (full-screen clear+rewrite) at ~4Hz → whole-TUI
+    // flicker. Keeping the streaming-expanded box small + height-stable keeps
+    // the first changed line inside the viewport → differential render → no
+    // fullRender. The settled (non-partial) expanded report is unaffected.
     const lines = text.split("\n");
-    const shown = options.expanded ? lines : lines.slice(0, 2);
+    const shown = options.expanded
+      ? lines.length <= 2 + STREAMING_EXPANDED_TAIL
+        ? lines
+        : [...lines.slice(0, 2), "…", ...lines.slice(-STREAMING_EXPANDED_TAIL)]
+      : lines.slice(0, 2);
     return shown.map((l) => theme.fg("dim", l)).join("\n");
   }
   const d = result.details;
