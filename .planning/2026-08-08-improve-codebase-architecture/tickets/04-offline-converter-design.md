@@ -15,3 +15,16 @@ Raise fidelity with a cheap prototype: take the candidate-card Markdown structur
 
 type: prototype
 blocked by: 02 (report medium decided)
+
+## Resolution (2026-08-08)
+
+**Resolved by prototype** (`.planning/2026-08-08-improve-codebase-architecture/brainstorm/`, commit bf122d1c). A minimal Bun converter was built + run on a realistic sample; it emits a self-contained offline HTML (no CDN) that opens in a browser. The 4 choices:
+
+1. **Tailwind offline -> static CSS** (prototype hand-written; production = curated static Tailwind build, inlined). Play-CDN JIT rejected.
+2. **Mermaid offline -> inlined vendored `mermaid.min.js`** (UMD global, `mermaid.initialize` startOnLoad).
+3. **Editorial visuals -> Mermaid where graph-shaped, ASCII `<pre>` where editorial.**
+4. **Converter shape -> Bun script, CLI `render <in.md> [out.html]`, default `$TMPDIR`, self-contained offline HTML.**
+
+Production caveats (deferred to spec/SDD): real Markdown parser, real Tailwind build, mermaid vendored in the package, golden-HTML snapshot test, Playwright render-check. HTML is ~3.4 MiB (~99% inlined mermaid) — acceptable for a one-time render.
+
+closed: 2026-08-08

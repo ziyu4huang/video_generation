@@ -49,4 +49,4 @@ Ship `improve-codebase-architecture` as a wayfind skill (code-quality-roadmap de
 
 ## Status
 
-**CHARTED -> route clear.** DECIDE resolved (sourcing, report medium, trigger style). One open prototype ticket on the frontier — the offline converter ([04](tickets/04-offline-converter-design.md)) — to de-risk before spec. Next: Superpowers **brainstorm** (prototype the converter, draft the skill + converter design) -> **to-spec** -> SDD -> ship, then record the shipping decision back on the roadmap.
+**CHARTED -> route clear -> SPEC WRITTEN.** DECIDE resolved (sourcing, report medium, trigger style); ticket 04 (offline converter) resolved by prototype (`brainstorm/`, commit bf122d1c). Spec written: `spec.md`. Next: Superpowers **writing-plans** -> SDD -> ship; then record the shipping decision back on the roadmap.
