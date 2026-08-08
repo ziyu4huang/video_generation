@@ -18,6 +18,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import toolGateExtension from "./tool-gate.ts";
+import { CORE_NAMES } from "./core-names.fixture.ts";
 import flux2Extension from "@repo/pi-agent-ext-flux2/extensions/flux2.ts";
 import ltxExtension from "@repo/pi-agent-ext-ltx/extensions/ltx.ts";
 import movieExtension from "@repo/pi-agent-ext-movie-director/extensions/movie-director.ts";
@@ -82,10 +83,6 @@ function ltxMimic(pi: any) {
 		}
 	});
 }
-
-// ticket 04 — CORE_TOOLS export deleted; redefine the 22 always-active core names
-// locally (mirrors the runtime owner-declared core: 18 in-repo + 4 built-ins).
-const CORE_NAMES = ["read","write","edit","bash","todo","goal_complete","memory","memory_search","session_search","ask_user_question","enable_tool","skill_manage","grill_decision","obsidian","obsidian_help","zk_card","zk_ask","zk_ingest","knowledge_query","web_search","fetch_content","get_search_content"];
 
 const ALL = [...CORE_NAMES, "flux2", "flux2_help", "ltx", "ltx_help", "movie", "movie_help"];
 
