@@ -22,6 +22,11 @@
  * See docs/ROADMAP.md for full roadmap and Hermes competitive analysis.
  */
 
+// Cross-extension seam: re-export zk's KnowledgePipeline defensive reader
+// so ticket 06's spine orchestration can consume it (graceful undefined when
+// zk is absent).
+export { getKnowledgePipeline } from "./knowledge-pipeline-seam.js";
+
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "./store/memory-store.js";

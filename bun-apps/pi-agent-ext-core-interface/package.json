@@ -1,0 +1,14 @@
+{
+  "name": "@repo/pi-agent-ext-core-interface",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Typed cross-extension seam contracts: SEAM_KEYS registry + publishSeam/readSeam accessors + KnowledgePipeline interface.",
+  "license": "MIT",
+  "keywords": ["pi-package", "seam", "contracts", "types"],
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "files": ["src", "README.md"],
+  "scripts": { "test": "bun test", "check": "tsc --noEmit" },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "0.84.1", "typebox": "*" },
+  "devDependencies": { "typescript": "^6.0.3" }
+}

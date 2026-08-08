@@ -43,13 +43,16 @@ import * as assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { SEAM_KEY_ENTRIES } from "@repo/pi-agent-ext-core-interface";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // bun-apps/
 const EXTS = readdirSync(ROOT)
 	.filter((d) => d.startsWith("pi-agent-ext-") && existsSync(join(ROOT, d, "package.json")));
 
 /**
- * The canonical `__pi*` seam-key contract. A key lives here iff it is a
+ * The canonical `__pi*` seam-key contract. The registry now lives in
+ * `@repo/pi-agent-ext-core-interface` (`SEAM_KEY_ENTRIES`, single source of
+ * truth) — aliased into `SEAM_KEYS` below; a key belongs iff it is a
  * process-global coordination/data surface. Value-shape noted per key; only the
  * object-valued status widget also carries a SHAPE invariant (see spec below).
  *
@@ -66,15 +69,10 @@ const EXTS = readdirSync(ROOT)
  */
 type SeamKey = { key: string; crossPackage: boolean };
 
-const SEAM_KEYS: readonly SeamKey[] = [
-	{ key: "__piCoreTaskStatusWidget", crossPackage: true },  // OBJECT; shape-guarded (core-task → wayfind, power-tool)
-	{ key: "__piGoalActive",          crossPackage: false }, //   () => boolean  intra-core-task (goal → loop); power-tool reads it display-only
-	{ key: "__piKickHeartbeat",       crossPackage: false }, //   () => void     intra-core-task (goal → loop)
-	{ key: "__piPlanIncomplete",      crossPackage: true },  //  (cwd) => boolean        (wayfind → power-tool)
-	{ key: "__piPlanPhases",          crossPackage: true },  //     (cwd) => PlanPhaseInfo[] (wayfind → power-tool)
-	{ key: "__piPlanSummary",         crossPackage: true },  //    (cwd) => string       (core-task → wayfind)
-	{ key: "__piWayfindGrill",        crossPackage: true },  //   (sessionId) => boolean (wayfind → hermes-memory)
-];
+// Aliased from the core-interface registry so the scanner + the
+// `findSelfOnlySeams` predicate keep their `SeamKey` element shape
+// ({ key, crossPackage }). 8 keys: 7 legacy + __piKnowledgePipeline.
+const SEAM_KEYS: readonly SeamKey[] = SEAM_KEY_ENTRIES;
 const SEAM_KEY_SET = new Set<string>(SEAM_KEYS.map((s) => s.key));
 
 // ─── source scan ────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@
     "": {
       "name": "video-generation-monorepo",
       "devDependencies": {
+        "@repo/pi-agent-ext-core-interface": "workspace:*",
         "@types/bun": "latest",
       },
     },
@@ -112,6 +113,17 @@
         "@earendil-works/pi-tui": "0.84.1",
       },
     },
+    "pi-agent-ext-core-interface": {
+      "name": "@repo/pi-agent-ext-core-interface",
+      "version": "0.1.0",
+      "devDependencies": {
+        "typescript": "^6.0.3",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "0.84.1",
+        "typebox": "*",
+      },
+    },
     "pi-agent-ext-core-task": {
       "name": "@repo/pi-agent-ext-core-task",
       "version": "0.1.0",
@@ -191,6 +203,7 @@
       "version": "0.7.23",
       "dependencies": {
         "@earendil-works/pi-tui": "0.84.1",
+        "@repo/pi-agent-ext-core-interface": "workspace:*",
         "proper-lockfile": "^4.1.2",
         "yaml": "^2.9.0",
       },
@@ -216,6 +229,7 @@
         "@earendil-works/pi-ai": "0.84.1",
         "@earendil-works/pi-coding-agent": "0.84.1",
         "@earendil-works/pi-tui": "0.84.1",
+        "@repo/pi-agent-ext-core-interface": "workspace:*",
         "@repo/pi-agent-ext-obsidian": "*",
         "@repo/pi-agent-ext-subagent": "workspace:*",
         "typebox": "*",
@@ -841,6 +855,8 @@
     "@repo/pi-agent-ext-archify": ["@repo/pi-agent-ext-archify@workspace:pi-agent-ext-archify"],
 
     "@repo/pi-agent-ext-btw": ["@repo/pi-agent-ext-btw@workspace:pi-agent-ext-btw"],
+
+    "@repo/pi-agent-ext-core-interface": ["@repo/pi-agent-ext-core-interface@workspace:pi-agent-ext-core-interface"],
 
     "@repo/pi-agent-ext-core-task": ["@repo/pi-agent-ext-core-task@workspace:pi-agent-ext-core-task"],
 
@@ -2019,6 +2035,8 @@
     "@repo/pi-agent-ext-archify/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@repo/pi-agent-ext-btw/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@repo/pi-agent-ext-core-interface/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@repo/pi-agent-ext-core-task/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
