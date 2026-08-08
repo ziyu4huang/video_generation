@@ -276,7 +276,7 @@ export interface DedupDecision {
   containment (`near-dup.ts findNearDuplicate`, threshold
   `DEFAULT_NEAR_DUP_THRESHOLD = 0.6`), topic recurrence (`topic-key.ts
   findTopicRecurrence`), and hash/optimistic-concurrency
-  (`merge-plan.ts hashEntry`/`snapshotBaseHash`/`baseHashMatched`). The 06a
+  (`merge-plan.ts hashEntry`/`snapshotBaseHash`; plus the `baseHashMatched` field on `ApplyResult` — note `baseHashMatched` is a field, not a function). The 06a
   impl wires these behind `DedupStrategy.dedup` so the store's single call-site
   delegates here for memory kinds. Logic is reused, not reinvented.
 - **`KnowledgeDedupStrategy` (kind: knowledge) — DECISION, revisitable in 06b:**

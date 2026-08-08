@@ -436,7 +436,9 @@ describe("card-agnostic store (SQLite round-trip)", () => {
 
 - [ ] **Step 4: Additive migration for existing DBs** (`src/store/sqlite/sqlite-backend.ts`):
   - Add an idempotent migration step (mirroring the existing `memories_new` table-rewrite at ~815/855): if `memories.target` CHECK lacks `'knowledge'` OR `frontmatter` column is absent, rebuild `memories` into `memories_new` with the widened schema + copy rows (memory rows get `frontmatter = NULL`), swap, re-create the FTS triggers + `idx_memories_md_id`.
-  - Gate on a schema-version bump in `extension_metadata` so it runs once.
+  - Prefer a 2-step migration: (a) cheap `ALTER TABLE memories ADD COLUMN frontmatter TEXT` (nullable, no rewrite); (b) the table rewrite is needed ONLY for the `target` CHECK widen. This minimizes the rewrite scope vs. a single combined `memories_new`.
+  - **Column-preservation requirement (data-loss guard):** The new `memories_new` CREATE + the INSERT … SELECT MUST carry the FULL current column set — `id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, status, supersedes, superseded_by, parent_ids, md_id, state, severity, pin` — PLUS the new nullable `frontmatter`. **Do NOT copy the column list from the legacy `migrateLegacyMemoriesTargetConstraint` template** (it predates `md_id/state/severity/pin` and omits them — copy-pasting it would silently drop those columns = data loss). Add a migration test that seeds a memory row with non-default `md_id`, `state`, `severity`, `pin` and asserts they survive the rewrite.
+  - Gate the migration on `PRAGMA table_info(memories)` / `sqlite_master` SQL-text inspection (the codebase precedent at `sqlite-backend.ts` ~lines 802–808). Note: `extension_metadata` is used only for opaque key/value copy (~lines 423–435), **never** for migration gating — do not repurpose it for that.
 
 - [ ] **Step 5: Round-trip knowledge frontmatter in the SQLite repo** (`src/store/sqlite/sqlite-memory-repo.ts`):
   - Add `frontmatter` to `MEMORY_SELECT_COLUMNS` + `MemoryRow` + `mapRow` (decode JSON → object; `null` → leave absent).
@@ -446,7 +448,7 @@ describe("card-agnostic store (SQLite round-trip)", () => {
 - [ ] **Step 6: Write the kind-agnostic façade** `src/store/card-store.ts`:
   - `createCardStore({ memoryDir, dbBackend })`: build the `BackendBundle` via the existing `createBackendBundle`, register `serializers` (MemorySerializer ×3 kinds + KnowledgeSerializer) and `dedupStrategies` (MemoryDedupStrategy + KnowledgeDedupStrategy), return `{ upsertCard, getCard, getCardsByKind }`.
   - `upsertCard(card)`: look up `dedupStrategies.get(card.kind)`, call `dedup(card, await getCardsByKind(card.kind))`:
-    - `keep` → INSERT (map `Card` → `MemorySyncInput`-shaped row: `mdId=card.id`, `target=card.kind`, `content=card.content`, `frontmatter=JSON` for knowledge).
+    - `keep` → INSERT. When upserting a **knowledge** Card, construct the `memories` row with: `target='knowledge'`, `category=NULL` (knowledge has no category; column is nullable), `state='active'` (NOT NULL DEFAULT), `pin=0` (NOT NULL DEFAULT), `severity=NULL` (nullable), `md_id=Card.id` (the join key), `content=Card.content`, `frontmatter=JSON.stringify(Card.frontmatter)`. Other memory-specific columns (`failure_reason`, `tool_state`, `corrected_to`, `supersedes*`, `mw_*`, `parent_ids`) = NULL for knowledge rows.
     - `skip`/`merge` → no-op in 06a (knowledge `merge` is 06b; memory `merge` already handled by the existing consolidation path — out of scope to rewire here).
   - `getCard(id)` → SELECT by `md_id` → map row → `Card` (decode `frontmatter` JSON for knowledge).
   - `getCardsByKind(kind)` → SELECT by `target` → map rows → `Card[]`.
