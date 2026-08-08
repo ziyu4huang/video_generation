@@ -5,12 +5,15 @@ import { createSubagentsTool as fromIndex } from "../src/index.js";
 import type { SpawnSubagentResult } from "../src/spawn-subagent.js";
 import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
 import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
+import type { SubagentsToolDetails } from "../src/subagents-tool.js";
 import {
   clampConcurrency,
   createSubagentsTool,
   mergeReadOnlyExclusion,
   READ_ONLY_EXCLUDED,
   renderBatchResult,
+  renderSubagentsCall,
+  renderSubagentsResult,
 } from "../src/subagents-tool.js";
 
 test("createSubagentsTool has name 'subagents' + executionMode 'sequential'", () => {
@@ -566,4 +569,143 @@ test("renderBatchResult renders an aborted section; header counts aborted only w
   });
   assert.match(noAborted, /^## subagents batch \(1 ok · 1 failed · 0 skipped\)/);
   assert.doesNotMatch(noAborted, /aborted/);
+});
+
+// ── renderSubagentsCall / renderSubagentsResult (pure helpers, themed strings) ──
+// Identity theme so assertions see plain text.
+const THEME = {
+  fg: (_c: string, s: string) => s,
+  bg: (_c: string, s: string) => s,
+  bold: (s: string) => s,
+} as never;
+
+test("renderSubagentsCall shows subagents ▸ N tasks · concurrency C ▸ first task preview", () => {
+  const out = renderSubagentsCall(
+    { tasks: [{ task: "audit the codebase" }, { task: "review PR" }], concurrency: 2 },
+    THEME,
+  );
+  assert.ok(out.includes("subagents"));
+  assert.ok(out.includes("2 tasks"));
+  assert.ok(out.includes("concurrency 2"));
+  assert.ok(out.includes("audit the codebase"));
+});
+
+test("renderSubagentsCall omits concurrency when undefined and task when empty", () => {
+  const out = renderSubagentsCall({ tasks: [] }, THEME);
+  assert.ok(out.includes("subagents"));
+  assert.ok(out.includes("0 tasks"));
+  assert.ok(!out.includes("concurrency"));
+  // No task preview when empty
+  assert.ok(!out.includes('"'));
+});
+
+test("renderSubagentsResult collapsed: header + per-child one-liners with badges, counts, task preview", () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      { output: "hello", status: "done", id: "a", index: 0, task: "audit the security layer thoroughly", model: "x/flash", elapsedMs: 3500 },
+      { output: "", status: "aborted", id: "b", index: 1, task: "review the PR for style issues", model: "x/flash", elapsedMs: 1200 },
+      null as never,
+      { status: "budget", source: "batch" as const, exhaustion: { kind: "tokens" as const, limit: 50000, actual: 70000 }, id: "c", index: 3, task: "run the benchmarks on main", model: "x/flash", elapsedMs: 0 },
+      { output: "ok", status: "timedout", index: 4, task: "generate docs", model: "y/gemma", elapsedMs: 30100 },
+    ],
+    dispatched: 3,
+    skipped: 1,
+    elapsedMs: 12350,
+  };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "ignored-model-text" }], details },
+    { expanded: false },
+    THEME,
+  );
+  // Header
+  assert.match(collapsed, /subagents batch/);
+  assert.match(collapsed, /2 ok/);
+  assert.match(collapsed, /1 aborted/);
+  assert.match(collapsed, /1 failed/);
+  assert.match(collapsed, /1 skipped/);
+  assert.match(collapsed, /12\.3s/);
+  // Badges
+  assert.match(collapsed, /✓ done/);
+  assert.match(collapsed, /⊘ aborted/);
+  assert.match(collapsed, /✗ failed/);
+  assert.match(collapsed, /⛔ budget/);
+  assert.match(collapsed, /⏱ timedout/);
+  // Task previews (truncated)
+  assert.ok(collapsed.includes("audit the security layer thoroughly") || collapsed.includes("audit the security layer"));
+  assert.ok(collapsed.includes("review the PR for style issues") || collapsed.includes("review the PR for"));
+  // Model info
+  assert.match(collapsed, /x\/flash/);
+  assert.match(collapsed, /y\/gemma/);
+  // Elapsed times
+  assert.match(collapsed, /3\.5s/);
+  assert.match(collapsed, /30\.1s/);
+  // Null slot
+  assert.match(collapsed, /child failed/);
+  // Ctrl-O hint
+  assert.match(collapsed, /Ctrl-O to expand/);
+  assert.match(collapsed, /subagents for detail/);
+  // Shorter than expanded
+  assert.ok(collapsed.length < 800, `collapsed is short (got ${collapsed.length})`);
+});
+
+test("renderSubagentsResult expanded: header + per-child full themed output", () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      { output: "Full audit report\nLine two\nLine three", status: "done", id: "a", index: 0, task: "audit", model: "x/flash", elapsedMs: 3500 },
+    ],
+    dispatched: 1,
+    skipped: 0,
+    elapsedMs: 3500,
+  };
+  const expanded = renderSubagentsResult(
+    { content: [{ type: "text", text: "ignored" }], details },
+    { expanded: true },
+    THEME,
+  );
+  assert.match(expanded, /subagents batch/);
+  assert.match(expanded, /### \[0\]/);
+  assert.match(expanded, /\(a\) done/);
+  assert.ok(expanded.includes("Full audit report"));
+  assert.ok(expanded.includes("Line three"));
+});
+
+test("renderSubagentsResult collapsed: null slot renders as a terse failed line", () => {
+  const details: SubagentsToolDetails = {
+    results: [null],
+    dispatched: 0,
+    skipped: 0,
+    elapsedMs: 10,
+  };
+  const out = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: false },
+    THEME,
+  );
+  assert.match(out, /✗ failed/);
+  assert.match(out, /child failed/);
+});
+
+test("renderSubagentsResult no details → dim raw text fallback", () => {
+  const out = renderSubagentsResult(
+    { content: [{ type: "text", text: "raw fallback" }] },
+    { expanded: false },
+    THEME,
+  );
+  assert.equal(out, "raw fallback");
+});
+
+test("renderSubagentsResult isPartial+collapsed shows a compact single-line; expanded shows full", () => {
+  const text = "subagents · 2/4 running · latest: read src/foo.ts";
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text }] },
+    { expanded: false, isPartial: true },
+    THEME,
+  );
+  assert.ok(collapsed.split("\n").length === 1, "collapsed is a single line");
+  const expanded = renderSubagentsResult(
+    { content: [{ type: "text", text }] },
+    { expanded: true, isPartial: true },
+    THEME,
+  );
+  assert.equal(expanded, text, "expanded shows the full streaming text");
 });

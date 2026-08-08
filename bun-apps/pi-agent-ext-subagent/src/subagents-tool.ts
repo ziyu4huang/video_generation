@@ -5,8 +5,8 @@
  * always excluded (non-overridable) so children sharing the parent's working
  * tree can never race on writes. See .planning/done/2026-08-01-what-s-next-for-subagent-develop-map/.
  */
-import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { defineTool, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import type { AgentUsage, BudgetExhaustion } from "./agent.js";
 import { checkBudgetExhaustion } from "./agent.js";
@@ -173,11 +173,13 @@ export async function runWithConcurrency<T, R>(
   return results;
 }
 
-export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDefinition {
+export function createSubagentsTool(
+  options: SubagentsToolOptions = {},
+): ToolDefinition<typeof subagentsToolSchema, SubagentsToolDetails> {
   const spawn = options.spawn ?? spawnSubagent;
   const defaultCwd = options.cwd ?? process.cwd();
 
-  return defineTool({
+  return defineTool<typeof subagentsToolSchema, SubagentsToolDetails>({
     name: "subagents",
     label: "Subagents",
     description:
@@ -435,6 +437,16 @@ export function createSubagentsTool(options: SubagentsToolOptions = {}): ToolDef
       };
       return { content: [{ type: "text" as const, text: renderBatchResult(details) }], details };
     },
+    renderCall(args, theme, _context) {
+      const text = (_context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+      text.setText(renderSubagentsCall(args, theme));
+      return text;
+    },
+    renderResult(result, options, theme, _context) {
+      const text = (_context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+      text.setText(renderSubagentsResult(result, options, theme));
+      return text;
+    },
   });
 }
 
@@ -466,4 +478,106 @@ export function renderBatchResult(details: SubagentsToolDetails): string {
     })
     .join("\n\n");
   return `${header}\n\n${body}`;
+}
+
+/** Theme the call line shown WHILE the batch runs. */
+export function renderSubagentsCall(
+  args: { tasks?: Array<{ task: string }>; concurrency?: number },
+  theme: Theme,
+): string {
+  const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagents"))];
+  const taskCount = args.tasks?.length ?? 0;
+  parts.push(theme.fg("muted", `${taskCount} tasks`));
+  if (args.concurrency !== undefined) parts.push(theme.fg("muted", `concurrency ${args.concurrency}`));
+  if (args.tasks && args.tasks.length > 0) {
+    const first = taskPreview(args.tasks[0].task, 60);
+    parts.push(theme.fg("dim", `"${first}"`));
+  }
+  return parts.join(" ▸ ");
+}
+
+/** Theme the batch result: collapsed = header + per-child one-liners; expanded = full themed output. */
+export function renderSubagentsResult(
+  result: { content: Array<{ type: string; text?: string }>; details?: SubagentsToolDetails },
+  options: { expanded?: boolean; isPartial?: boolean },
+  theme: Theme,
+): string {
+  const d = result.details;
+  if (!d) {
+    const text = result.content.find((c) => c.type === "text")?.text ?? "";
+    return theme.fg("dim", text);
+  }
+
+  // Streaming: compact progress line.
+  if (options.isPartial) {
+    const text = result.content.find((c) => c.type === "text")?.text ?? "";
+    // The batch onUpdate emits "subagents · k/N running · latest: ..." — keep it compact.
+    if (options.expanded) return theme.fg("dim", text);
+    return theme.fg("dim", text.split("\n")[0] ?? text);
+  }
+
+  // Build the batch header.
+  const done = d.results.filter(
+    (s) => s && (s as { status: string }).status !== "budget" && (s as { status: string }).status !== "aborted",
+  ).length;
+  const aborted = d.results.filter((s) => s && (s as { status: string }).status === "aborted").length;
+  const failed = d.results.filter((s) => s === null).length;
+  const header =
+    `subagents batch (${done} ok` +
+    (aborted ? ` · ${aborted} aborted` : "") +
+    ` · ${failed} failed` +
+    ` · ${d.skipped} skipped) — ${(d.elapsedMs / 1000).toFixed(1)}s`;
+
+  if (!options.expanded) {
+    // Collapsed: header + one line per slot with status badge.
+    const lines: string[] = [theme.bold(header)];
+    for (let i = 0; i < d.results.length; i++) {
+      const slot = d.results[i];
+      if (slot === null) {
+        lines.push(theme.fg("dim", `  [${i}] ${theme.fg("error", "✗ failed")}  ·  (child failed)`));
+        continue;
+      }
+      const slotStatus = (slot as { status: string }).status;
+      const badge =
+        slotStatus === "done"
+          ? theme.fg("success", "✓ done")
+          : slotStatus === "timedout"
+            ? theme.fg("warning", "⏱ timedout")
+            : slotStatus === "budget"
+              ? theme.fg("warning", "⛔ budget")
+              : slotStatus === "aborted"
+                ? theme.fg("dim", "⊘ aborted")
+                : theme.fg("error", "✗ failed");
+      const model = theme.fg("muted", (slot as { model: string }).model ?? "default");
+      const elapsed = `${((slot as { elapsedMs: number }).elapsedMs / 1000).toFixed(1)}s`;
+      const taskPreview60 = truncateToWidth((slot as { task: string }).task ?? "", 60);
+      const idTag = slot.id ? `${theme.fg("dim", `(${slot.id})`)} ` : "";
+      lines.push(
+        `  ${theme.fg("dim", `[${i}]`)} ${idTag}${badge}  ${model}  ·  ${elapsed}  ·  ${theme.fg("dim", taskPreview60)}`,
+      );
+    }
+    lines.push(theme.fg("dim", "Ctrl-O to expand · /subagents for detail"));
+    return lines.join("\n");
+  }
+
+  // Expanded: header + per-child full themed output (mirrors renderBatchResult structure).
+  const body = d.results
+    .map((slot, i) => {
+      if (slot === null)
+        return `${theme.bold(`### [${i}] failed`)}
+${theme.fg("dim", "_(null — child failed; re-run via the singular `subagent` tool to see the error)_")}`;
+      if (slot.status === "budget") {
+        const label = slot.source === "child" ? "child budget" : "batch budget";
+        return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped`)} — ${theme.fg("warning", `${label}: ${slot.exhaustion.kind} ${slot.exhaustion.actual} > ${slot.exhaustion.limit}`)}`;
+      }
+      if (slot.status === "aborted") {
+        return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} aborted`)}
+${theme.fg("dim", "_(user-aborted mid-flight)_")}`;
+      }
+      const output = slot.output || "_(empty output)_";
+      return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} ${slot.status}`)}
+${theme.fg("toolOutput", output)}`;
+    })
+    .join("\n\n");
+  return `${theme.bold(header)}\n\n${body}`;
 }
