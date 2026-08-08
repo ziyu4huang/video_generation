@@ -33,6 +33,7 @@ Ship the code-quality skill deliverables B–D as globally-auto-invocable skills
 - [Superpowers off-limits for this track](../specs/2026-08-07-codebase-design-skill-design.md) — ADR-0004/0005 forbid local skill edits; only `using-superpowers/references/*` + `src/superpowers.ts` may deviate.
 - [E parked] — context-management/handover sequenced after A–D.
 - [ask-user TUI language hardening shipped] — unrelated detour, PR #1086 (askUserLanguage setting).
+- [01 placement: all B/C/D → wayfind](tickets/01-placement-home-for-code-quality-skills.md) — consolidate alongside codebase-design; no new package.
 
 ## Not yet specified
 

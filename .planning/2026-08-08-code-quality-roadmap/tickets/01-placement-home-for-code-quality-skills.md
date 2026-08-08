@@ -1,7 +1,7 @@
 ---
 type: grilling
 blocking:
-status: open
+status: closed
 ---
 
 # Placement: home package for B/C/D code-quality skills
@@ -20,3 +20,9 @@ Constraint: superpowers is locked (ADR-0004) — not an option for any of B/C/D.
 This is the GATING decision: until placement is fixed, B cannot be scoped/built (brainstorming + writing-plans need to know the home package).
 
 ## Resolution
+
+**B/C/D all go in `pi-agent-ext-wayfind/skills/`**, alongside codebase-design (matches A; no new package).
+
+Rationale: consistency with the shipped A (codebase-design already lives there); zero new-package overhead (no manifest/registration/schema-cost canary wiring); wayfind is the designated adaptable pi-skill home. Accepted trade-off: wayfind holds both DECIDE-process skills (grilling/to-spec/to-tickets) and code-quality skills — acceptable since all are agent-craft skills and the boundary is conceptual, not technical.
+
+Per-deliverable auto-invocability + content sourcing → ticket 02.
