@@ -633,9 +633,11 @@ test("renderSubagentsResult collapsed: header + per-child one-liners with badges
   // Task previews (truncated)
   assert.ok(collapsed.includes("audit the security layer thoroughly") || collapsed.includes("audit the security layer"));
   assert.ok(collapsed.includes("review the PR for style issues") || collapsed.includes("review the PR for"));
-  // Model info
-  assert.match(collapsed, /x\/flash/);
-  assert.match(collapsed, /y\/gemma/);
+  // Model info (ticket 04 finding 5: shortened via shortModel on the collapsed line)
+  assert.match(collapsed, /flash/);
+  assert.match(collapsed, /gemma/);
+  assert.ok(!collapsed.includes("x/flash"), "provider prefix dropped on the collapsed batch line");
+  assert.ok(!collapsed.includes("y/gemma"), "provider prefix dropped on the collapsed batch line");
   // Elapsed times
   assert.match(collapsed, /3\.5s/);
   assert.match(collapsed, /30\.1s/);
@@ -708,4 +710,98 @@ test("renderSubagentsResult isPartial+collapsed shows a compact single-line; exp
     THEME,
   );
   assert.equal(expanded, text, "expanded shows the full streaming text");
+});
+
+// --- ticket 04 finding 2: batch child fallback stores AND renders the ACTUAL model ---
+// #1103's actual-model capture never reached the batch tool — a batch child that
+// requested e.g. anthropic/claude-opus-4-1 and fell back to zai/glm-5.2 rendered
+// the REQUESTED opus under a ✓ done badge, with no → / requestedModel anywhere.
+// Mirrors the singular tool: onModelResolved captures the ACTUAL model,
+// onModelFallback captures the requested spec + marks fellBack; the slot stores
+// the actual model + audit fields, and the collapsed renderer shows `requested → actual`.
+
+test("ticket 04 / finding 2: a batch child that falls back stores the ACTUAL model + requestedModel/fellBack in the slot", async () => {
+  const spawn = async (opts: {
+    onModelResolved?: (id: string) => void;
+    onModelFallback?: (spec: string) => void;
+  }): Promise<SpawnSubagentResult> => {
+    // Simulate fallback: onModelFallback fires first, then onModelResolved with the actual.
+    opts.onModelFallback?.("anthropic/claude-opus-4-1");
+    opts.onModelResolved?.("zai/glm-5.2");
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never });
+  const res = await tool.execute(
+    "batch-fallback",
+    { tasks: [{ task: "#0", model: "anthropic/claude-opus-4-1" }] },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  const slot = res.details.results[0] as {
+    model: string;
+    requestedModel?: string;
+    fellBack?: boolean;
+    status: string;
+  };
+  assert.equal(slot.status, "done");
+  assert.equal(slot.model, "zai/glm-5.2", "slot.model = the ACTUAL model that ran (not the requested opus)");
+  assert.equal(slot.requestedModel, "anthropic/claude-opus-4-1", "requestedModel = the audit spec that fell back");
+  assert.equal(slot.fellBack, true, "fellBack is marked");
+});
+
+test("ticket 04 / finding 2: a batch child with NORMAL resolution stores the resolved model and NO audit fields", async () => {
+  const spawn = async (opts: { onModelResolved?: (id: string) => void }): Promise<SpawnSubagentResult> => {
+    opts.onModelResolved?.("zai/glm-5.2");
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never });
+  const res = await tool.execute(
+    "batch-normal",
+    { tasks: [{ task: "#0", model: "zai/glm-5.2" }] },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  const slot = res.details.results[0] as {
+    model: string;
+    requestedModel?: string;
+    fellBack?: boolean;
+  };
+  assert.equal(slot.model, "zai/glm-5.2", "normal resolution → slot.model = the resolved model");
+  assert.equal(slot.requestedModel, undefined, "no audit field when there was no fallback");
+  assert.equal(slot.fellBack, undefined, "no fellBack when there was no fallback");
+});
+
+test("ticket 04 / finding 2 + 5: collapsed batch renderer shows `requested → actual` (shortened) on a fallback child", () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      {
+        output: "ok",
+        status: "done",
+        index: 0,
+        task: "audit the display code",
+        model: "zai/glm-5.2",
+        requestedModel: "anthropic/claude-opus-4-1",
+        fellBack: true,
+        elapsedMs: 1000,
+      },
+    ],
+    dispatched: 1,
+    skipped: 0,
+    elapsedMs: 1000,
+  };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "ignored" }], details },
+    { expanded: false },
+    THEME,
+  );
+  // The actual model is shown under a ✓ done badge (NOT the stale requested opus).
+  assert.match(collapsed, /✓ done/);
+  assert.ok(collapsed.includes("glm-5.2"), "the ACTUAL model is shown");
+  // The requested → actual fallback indicator is rendered, both shortened.
+  assert.match(collapsed, /claude-opus-4-1 → glm-5\.2/);
+  // The full provider-prefixed ids do NOT appear (Finding 5 shortening).
+  assert.ok(!collapsed.includes("anthropic/claude-opus-4-1"), "requested id is shortened on the collapsed line");
+  assert.ok(!collapsed.includes("zai/glm-5.2"), "actual id is shortened on the collapsed line");
 });

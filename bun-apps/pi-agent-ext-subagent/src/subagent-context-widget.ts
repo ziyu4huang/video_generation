@@ -129,7 +129,20 @@ export class SubagentContextWidget {
       return [`${INDENT}${wfHeader}`];
     }
     const header = renderSubagentCall(
-      { agent: r.agent, model: r.model, task: r.taskPreview, resolvedModel: r.resolvedModel },
+      {
+        agent: r.agent,
+        model: r.model,
+        // Feed the precomputed work-intent strip (not the single-lined
+        // taskPreview) so the preamble is stripped on the docked header too
+        // (ticket 04, finding 1 — #1101's strip was dead here). Falls back to
+        // taskPreview for entries that never populated workIntent.
+        task: r.workIntent ?? r.taskPreview,
+        resolvedModel: r.resolvedModel,
+        // Persist the fallback indicator on the docked header — the registry
+        // already carries fellBack/requestedModel from markFallback (ticket 04,
+        // finding 3 — the box never passed it, so the `→` was missing here).
+        fellBack: r.fellBack,
+      },
       theme,
     );
     const history = r.history;

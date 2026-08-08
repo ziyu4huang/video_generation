@@ -15,6 +15,7 @@ import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { type TSchema, Type } from "typebox";
 import type { AgentUsage, BudgetExhaustion } from "./agent.js";
 import type { AgentHistoryEntry } from "./agent-history.js";
+import { shortModel } from "./agent-row-display.js";
 import {
   type AgentDefinition,
   type AgentRegistry,
@@ -463,17 +464,23 @@ export function renderSubagentCall(
   const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagent"))];
   if (args.agent) parts.push(theme.fg("accent", args.agent));
   // Requested-model slot: explicit model, else capability, else tier, else "default".
-  const slot =
-    args.model ?? (args.capability ? `capability:${args.capability}` : args.tier ? `tier:${args.tier}` : "default");
+  // shortModel() drops the provider prefix on a real model id (ticket 04, finding 5 —
+  // a full `anthropic/claude-opus-4-1` overflows the one-line glance). `tier:`/`capability:`/
+  // `default` carry no `/` so shortModel() leaves them untouched.
+  const slot = shortModel(
+    args.model ?? (args.capability ? `capability:${args.capability}` : args.tier ? `tier:${args.tier}` : "default"),
+  )!;
   parts.push(theme.fg("muted", slot));
   // Concrete model resolved mid-run (onModelResolved). Separate segment so the
   // requested tier/model stays visible. Skipped when it matches the slot (e.g.
   // an explicit model that resolved to itself) to avoid duplication.
-  if (args.resolvedModel && args.resolvedModel !== slot) {
+  const resolvedShort = args.resolvedModel ? shortModel(args.resolvedModel) : undefined;
+  if (resolvedShort && resolvedShort !== slot) {
     // When the resolution fell back, prefix with a fallback indicator (`→`)
-    // so the display reads e.g. "anthropic/claude-opus-4-1 ▸ → zai/glm-5.2".
-    // Normal resolution (no fallback) is unchanged.
-    const label = args.fellBack ? `→ ${args.resolvedModel}` : args.resolvedModel;
+    // so the display reads e.g. "claude-opus-4-1 ▸ → glm-5.2". shortModel keeps
+    // the segment narrow so the collapsed line stays within terminal width
+    // (ticket 04, finding 5). Normal resolution (no fallback) is unchanged.
+    const label = args.fellBack ? `→ ${resolvedShort}` : resolvedShort;
     parts.push(theme.fg("muted", label));
   }
   parts.push(theme.fg("dim", `"${workIntentPreview(args.task, 60)}"`));
@@ -546,8 +553,19 @@ export function renderSubagentResult(
       ? theme.fg("warning", ` · ⚠ ${d.scopeCheck.outOfScope.length} out-of-scope`)
       : "";
   const budgetTag = d.budget ? theme.fg("warning", ` · ${d.budget.kind}:${d.budget.actual}/${d.budget.limit}`) : "";
+  // Settled result meta (ticket 04, findings 3 + 5): the live call line shows
+  // the fallback `→ actual` mid-run, but on settle that segment vanished and
+  // the meta collapsed to the bare actual model — a surprising fallback became
+  // invisible. Persist a dim `requested → actual` segment when `d.fellBack` so
+  // the discrepancy survives settle. shortModel() keeps it narrow on the
+  // one-line collapsed result; `d.requestedModel` (the audit field) stays the
+  // FULL spec, only the DISPLAY is shortened.
+  const modelSeg =
+    d.fellBack && d.requestedModel
+      ? `${shortModel(d.requestedModel)} → ${shortModel(d.model) ?? "default"}`
+      : shortModel(d.model) ?? "default";
   const meta =
-    theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`) +
+    theme.fg("muted", `${modelSeg} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`) +
     sddTag +
     scopeTag +
     budgetTag;
@@ -737,6 +755,10 @@ export function createSubagentTool(
         agent: params.agent,
         model: displayModelBeforeResolve,
         taskPreview: taskPreview(params.task),
+        // Precompute the work-intent strip from the RAW task so the docked
+        // context box can surface it (ticket 04, finding 1 — taskPreview is
+        // already single-lined, so workIntentPreview can't strip its preamble).
+        workIntent: workIntentPreview(params.task),
         startedAt: t0,
         abort: () => childAc.abort(),
         // Rendered inline in the CURRENT turn by this tool's own call/result line
