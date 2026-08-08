@@ -66,3 +66,7 @@ mechanism (de-orphaning a contract that existed but wired to nothing).
   `obsidian_distill` stays a manual opt-in for high-value docs.
 - **Re-architecting the working hermes shutdown-pull** — it works (ADR-0001); untouched.
   See "Single convergence pattern?" above for the coherence follow-on.
+
+## Cross-effort links (2026-08-08 review)
+
+- **Absorbed-by:** `2026-08-08-pi-agent-ext-knowledge-card-obsidian-surealdb-or` — this effort's CLOSED ingest decisions (zk_ingest source:generic, opt-in knowledge flag, pi:knowledge bus, file2md->hub emit contract) are carried forward there (ticket 02). Remaining OPEN tickets (sink subscriber, file2md emit side) are superseded by the 2026-08-08 implementation plan. Per CONVENTIONS: close these as superseded (backlog item in .planning/REVIEW-2026-08-08.md).
