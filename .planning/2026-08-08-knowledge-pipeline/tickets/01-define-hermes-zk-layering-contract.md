@@ -34,3 +34,12 @@ The store abstracts over both file backings via the serializer interface; no for
 Downstream: 03 (graph) and 04 (embed + ChromaDB) now have the card model + strategy seam; 05 (migration/sync) sees a card-agnostic store with per-kind serializers, so memory-cards adopt `kind: memory` in place (coexistence is the natural default — no migration needed for 05's answer).
 
 closed: 2026-08-08 (unified card-agnostic store contract pinned; unblocks 03/04/05)
+
+## Correction (superseded by 06 — 2026-08-08)
+
+This ticket's three core decisions STAND unchanged:
+1. Unified card-agnostic `Card { id, kind, content, frontmatter, embed?, graph? }`.
+2. Hermes store made kind-agnostic via a pluggable serializer.
+3. Dedup = single store call-site behind a pluggable strategy.
+
+SUPERSEDED by [ticket 06](06-hermes-spine-orchestration.md): the orchestration/layering framing implicit here — graph/ingest/RAG sitting "above" in zk driving the pipeline — is revised to **hermes-as-spine**. Hermes owns the pipeline orchestration entry (`ingestPath` / `walkAndIngest`) + store; zk is a primitives provider consumed by hermes via the typed `KnowledgePipeline` interface (ticket 11 scaffolds its home). See 06's Resolution for the pinned contract.

@@ -101,3 +101,7 @@ MinerU `hybrid-engine` vs `pipeline` on hardest cases, VLM-as-figure-describer.)
 - **Python / torch extractors (MinerU, Marker, Docling) — ruled OUT by D4**
   (no-Python constraint). The `python/venv-abtest` built during the first AB test
   is now dead weight and can be deleted. JS/WASM only from here.
+
+---
+
+> **ABSORBED-BY `2026-08-08-knowledge-pipeline`** (2026-08-08 unification). PDF extractor verdict (mupdf body + VLM figures hybrid) feeds canonical ticket 02. This effort's live prototype ticket 04 (hybrid A/B arm) remains HERE. See `.planning/2026-08-08-knowledge-pipeline/map.md`.
