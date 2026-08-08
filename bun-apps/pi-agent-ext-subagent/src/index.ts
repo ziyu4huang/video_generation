@@ -1,11 +1,19 @@
 // agent
-export type { AgentRunOptions, AgentRunResult, AgentUsage, StructuredSession, WorkflowAgentOptions } from "./agent.js";
+export type {
+  AgentRunOptions,
+  AgentRunResult,
+  AgentUsage,
+  FallbackDecision,
+  StructuredSession,
+  WorkflowAgentOptions,
+} from "./agent.js";
 export {
   checkBudgetExhaustion,
   extractValidated,
   lastAssistantError,
   listAvailableModelSpecs,
   resolveAgentModelSpec,
+  resolveFallbackModel,
   resolveStructuredOutput,
   throwIfProviderLimit,
   WorkflowAgent,
