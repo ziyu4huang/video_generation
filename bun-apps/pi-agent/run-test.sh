@@ -15,6 +15,12 @@
 #                 read-only env exports — auto-discovered by `bun test`).
 #   readonly (2.5) + read-only deploy e2e (freeze + foreign-cwd run + zero   ~6s
 #                  writes to the frozen tree). Opt-in tier (not in the stack).
+#   smoke    (2.7) + LIVE local-LLM check: boots the real launcher in print   ~30s
+#                  mode against LM Studio (google/gemma-4-12b-qat on
+#                  localhost:1234) — zero cost, zero egress, fully local.
+#                  Skips (passes) when LM Studio is down; fails if it's up
+#                  but the default model isn't loaded. Opt-in tier; also
+#                  folded into full (skips when down).
 #   full    (3)  + readonly + sibling pi-* unit baseline (whole stack).     ~70s
 #
 # USAGE
@@ -22,7 +28,8 @@
 #   ./run-test.sh quick            # pre-commit, no build
 #   ./run-test.sh high
 #   ./run-test.sh readonly         # read-only deploy e2e only
-#   ./run-test.sh full             # whole stack (incl. readonly)
+#   ./run-test.sh smoke            # live check vs local LM Studio only
+#   ./run-test.sh full             # whole stack (incl. readonly + smoke)
 #   ./run-test.sh --effort=medium
 #   ./run-test.sh --list           # print the tier table, exit 0
 #   ./run-test.sh medium --bail    # extra flags forwarded to `bun test`
@@ -51,7 +58,7 @@ while [ $# -gt 0 ]; do
 		--effort=*) EFFORT="${1#*=}"; shift ;;
 		--effort) EFFORT="${2:-}"; shift 2 ;;
 		-l|--list) LIST=1; shift ;;
-		quick|medium|high|readonly|full|0|1|2|3) EFFORT="$1"; shift ;;
+		quick|medium|high|readonly|smoke|full|0|1|2|3) EFFORT="$1"; shift ;;
 		*) EXTRA+=("$1"); shift ;;
 	esac
 done
@@ -68,7 +75,10 @@ $(Y "pi-agent run-test.sh — effort tiers (each ⊇ the one above)"):
   $(G medium)  $(D '~11s')   + build + patch e2e (patches fire / splice / providers)  $(Y "[default]")
   $(G high)    $(D '~50s')   + deploy + 4-cwd extension-loading e2e (bundle/snapshot/standalone) + run.sh/pi-agent.sh launcher e2e
   $(G readonly) $(D '~6s')   read-only deploy e2e ONLY (freeze + foreign-cwd run + zero writes)
-  $(G full)    $(D '~70s')   + readonly + sibling pi-* unit baseline (whole stack)
+  $(G smoke)   $(D '~30s')   LIVE local-LLM check vs LM Studio (gemma-4-12b-qat, localhost:1234);
+                            zero cost/egress. Skips when LM Studio is down, fails if the
+                            model isn't loaded. Also folded into $(G full) (skips when down).
+  $(G full)    $(D '~70s')   + readonly + smoke + sibling pi-* unit baseline (whole stack)
 
 Env gates the e2e test files read:
   PI_AGENT_E2E=1          enable e2e-patches        (medium+)
@@ -80,8 +90,8 @@ EOF
 if [ "$LIST" -eq 1 ]; then print_list; exit 0; fi
 
 case "$EFFORT" in
-	quick|medium|high|readonly|full) ;;
-	*) echo "$(R "error"): unknown effort '$EFFORT' (want: quick|medium|high|readonly|full)" >&2
+	quick|medium|high|readonly|smoke|full) ;;
+	*) echo "$(R "error"): unknown effort '$EFFORT' (want: quick|medium|high|readonly|smoke|full)" >&2
 	   echo "try: ./run-test.sh --list" >&2; exit 2 ;;
 esac
 
@@ -119,6 +129,36 @@ run_readonly() {
 	export PI_AGENT_E2E=1
 	export PI_AGENT_E2E_DEPLOY=1
 	( cd "$SCRIPT_DIR" && bun test src/__tests__/e2e-readonly.test.ts ${EXTRA[@]+"${EXTRA[@]}"} )
+}
+
+# LIVE local-LLM smoke test. Boots the REAL launcher (`run.sh`) in print mode
+# against LM Studio (localhost:1234) with the fast default model — zero cost,
+# zero egress, fully self-contained. Opt-in tier — run via `./run-test.sh
+# smoke`; also folded into `full`. Skips (rc 0) when LM Studio is down (an
+# environment condition, not a repo bug); fails with a hint when LM Studio is
+# up but the default model isn't loaded. Sets SMOKE_SKIPPED=1 so the caller
+# can print the skip notice (step() only surfaces the log on failure).
+SMOKE_MODEL="google/gemma-4-12b-qat"
+SMOKE_SKIPPED=0
+run_smoke() {
+	local base="http://localhost:1234/v1" models
+	models="$(curl -sf -m 3 "$base/models" 2>/dev/null)" || {
+		SMOKE_SKIPPED=1
+		return 0
+	}
+	if ! grep -q "\"$SMOKE_MODEL\"" <<<"$models"; then
+		echo "$(R '✗ smoke FAILED') — $SMOKE_MODEL not loaded in LM Studio (load it in My Models first)" >&2
+		return 1
+	fi
+	"$SCRIPT_DIR/run.sh" --provider lm-studio --model "$SMOKE_MODEL" --no-session -p "hi" >/dev/null 2>&1
+}
+
+# step() wrapper: prints the ✓/✗ line via step, then the skip notice to the
+# terminal (step captures all output into the log, which is only surfaced on
+# failure — a silent skip would read as a pass).
+smoke_step() {
+	step "live lm-studio smoke (smoke)" run_smoke
+	[ "$SMOKE_SKIPPED" -eq 1 ] && echo "$(Y '· smoke skipped') — LM Studio not running on localhost:1234 (start it for the live check)"
 }
 
 # Sibling pi-* suites for the "full" stack-health check. pi-agent-ext-file2md's script wraps
@@ -174,10 +214,15 @@ case "$EFFORT" in
 	readonly)
 		step "read-only deploy e2e (readonly)" run_readonly
 		;;
+	smoke)
+		smoke_step
+		;;
 	full)
 		step "unit + patch + extension e2e (high)" run_extensions
 		echo "$(Y "▶ read-only deploy contract")"
 		step "read-only deploy e2e" run_readonly
+		echo "$(Y "▶ live local-LLM smoke (skips when LM Studio is down)")"
+		smoke_step
 		echo "$(Y "▶ sibling stack-health baseline")"
 		for pkg in pi-obsidian pi-knowledge-card pi-agent-cli pi-agent-ext-file2md; do
 			step "$pkg unit" run_pkg_unit "$pkg"
