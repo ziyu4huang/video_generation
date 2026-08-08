@@ -220,7 +220,7 @@ export default function (pi: ExtensionAPI): void {
 		name: "local_ci",
 		label: "Local CI verification",
 		description:
-			"Run local CI — typecheck + tests scoped to the packages changed vs origin/main, plus the repo's quality gates (file-size guard, lockfile-duplicate guard; optional audit gates under strict; info-only schema-cost). Returns a STRUCTURED pass/fail so you can self-verify before merge. OFFLINE (no network): uses the same committed scripts remote CI uses (scripts/ci-changed-packages.sh, scripts/ci-file-size-guard.sh, …), so a green run is the local proxy for a green remote run. Use to self-verify before merge; await_pr_merge / merge should gate on this.",
+			"Run local CI — typecheck + tests scoped to the packages changed vs origin/main, plus the repo's quality gates (file-size guard, lockfile-duplicate guard; optional audit gates under strict; info-only schema-cost). Returns a STRUCTURED pass/fail so you can self-verify before merge. OFFLINE (no network): change detection runs in-process (extension-native TS) and the gate suite uses the same committed scripts remote CI uses (scripts/ci-file-size-guard.sh, …), so a green run is the local proxy for a green remote run. Use to self-verify before merge; await_pr_merge / merge should gate on this.",
 		gating: { keywords: ["ci", "test", "typecheck", "verify", "gate", "green", "merge", "local ci"] },
 		promptSnippet:
 			"Local CI: typecheck + tests for changed packages vs origin/main, plus repo gates. Structured pass/fail, offline. Self-verify before `gh ship`.",
@@ -231,7 +231,7 @@ export default function (pi: ExtensionAPI): void {
 			packages: Type.Optional(
 				Type.Array(Type.String(), { description: "Explicit package list (bun-apps/<name>); skips change detection entirely." }),
 			),
-			all: Type.Optional(Type.Boolean({ description: "Run every bun-apps/* package (ci-changed-packages.sh --all)." })),
+			all: Type.Optional(Type.Boolean({ description: "Run every bun-apps/* package (computeChangedPackages all:true)." })),
 			strict: Type.Optional(
 				Type.Boolean({ description: "Add the audit gates (determinism / portability / workflow-patterns / verify-skills). Default false." }),
 			),
