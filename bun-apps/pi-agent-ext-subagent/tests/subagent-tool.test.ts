@@ -20,6 +20,7 @@ import {
   renderSubagentCall,
   renderSubagentResult,
   taskPreview,
+  workIntentPreview,
 } from "../src/subagent-tool.js";
 
 /** Injectable spawn that records the opts it was called with. */
@@ -560,6 +561,61 @@ test("deriveSubagentStatus + taskPreview helpers", () => {
   assert.equal(taskPreview(long).length, 80);
   assert.ok(taskPreview(long).endsWith("…"));
   assert.equal(taskPreview("a\n b\n  c"), "a b c");
+});
+
+// ── workIntentPreview (ticket 02 — surfaces work intent, strips cwd boilerplate) ──
+test("workIntentPreview strips a leading 'Working dir: /path' line", () => {
+  const task = "Working dir: /Users/huangziyu/proj/video_generation__subagent\nDo the thing now";
+  const out = workIntentPreview(task, 60);
+  assert.equal(out, "Do the thing now");
+});
+
+test("workIntentPreview strips a leading 'Cwd: /path' line", () => {
+  const task = "Cwd: /somewhere/else\nFix the login bug";
+  const out = workIntentPreview(task, 60);
+  assert.equal(out, "Fix the login bug");
+});
+
+test("workIntentPreview strips a leading 'Repo: /org/repo' line", () => {
+  const task = "Repo: /Users/me/my-project\nAdd unit tests for auth";
+  const out = workIntentPreview(task, 60);
+  assert.equal(out, "Add unit tests for auth");
+});
+
+test("workIntentPreview falls back to the first line when there is no preamble", () => {
+  const task = "Investigate the crash in renderSubagentCall";
+  const out = workIntentPreview(task);
+  assert.equal(out, task);
+});
+
+test("workIntentPreview truncates the intent line to n chars", () => {
+  const task =
+    "Working dir: /x\nThis is a very long intent line that needs to be truncated to fit within the preview width limit";
+  const out = workIntentPreview(task, 40);
+  assert.equal(out.length, 40);
+  assert.ok(out.endsWith("…"));
+});
+
+test("workIntentPreview skips blank lines after the preamble", () => {
+  const task = "Working dir: /x\n\n\nReal work starts here";
+  const out = workIntentPreview(task, 60);
+  assert.equal(out, "Real work starts here");
+});
+
+test("workIntentPreview handles task with only a preamble line (fallback)", () => {
+  const task = "Working dir: /Users/x/proj";
+  const out = workIntentPreview(task, 60);
+  assert.equal(out, "Working dir: /Users/x/proj");
+});
+
+// ── renderSubagentCall uses workIntentPreview (ticket 02) ──
+test("renderSubagentCall header uses workIntentPreview — strips Working dir preamble", () => {
+  const out = renderSubagentCall(
+    { agent: "implementer", task: "Working dir: /x\nFix the race condition in subagent-tool" },
+    T,
+  );
+  assert.ok(String(out).includes("Fix the race condition in subagent-tool"));
+  assert.ok(!String(out).includes("Working dir"));
 });
 
 // ── formatSubagentProgress (onHistory → progress-line rendering) ──
