@@ -33,7 +33,7 @@ import { loopState } from "../src/loop/loop-state.js";
 import { GoalOverlay } from "../src/goal/overlay.js";
 import { registerTodoTool, registerTodosCommand } from "../src/todo/todo";
 import { TodoOverlay } from "../src/todo/overlay";
-import { replaceState } from "../src/todo/state/store";
+import { __resetState, replaceState, setRenderSid } from "../src/todo/state/store";
 import { EMPTY_STATE } from "../src/todo/state/state";
 import { TOOL_NAME } from "../src/todo/tool/types";
 import { getSharedStatusWidget } from "../src/shared/status-widget.js";
@@ -99,6 +99,11 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 		// never seeded from disk plans, so each session starts empty. Permanent
 		// task tracking lives in wayfind/superpowers plans & tickets — read
 		// those on demand; do not auto-load them into the session todo.
+		//
+		// Capture the parent/display session id so ctx-less display code
+		// (renderers/overlay/command — no sessionManager on ToolRenderContext)
+		// reads the parent's todos via the no-arg accessors' renderSid default.
+		setRenderSid((ctx as { sessionManager?: { getSessionId: () => string } }).sessionManager?.getSessionId() ?? "");
 		replaceState(EMPTY_STATE);
 		latestCwd = ctx.cwd;
 		refreshPlan(ctx.cwd); // parse + cache the active effort's plan (for the plan coordinator; NOT for todo seeding)
@@ -125,7 +130,11 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 		statusWidget.update();
 	});
 
-	pi.on("session_shutdown", async () => {
+	pi.on("session_shutdown", async (_event, ctx) => {
+		// Drop this session's todo bucket so a later session reusing the process
+		// doesn't inherit stale parent todos. (Children key their own buckets;
+		// their own session_shutdown — if any — cleans those.)
+		__resetState((ctx as { sessionManager?: { getSessionId: () => string } }).sessionManager?.getSessionId());
 		goalOverlay.dispose();
 		loopOverlay.dispose();
 		todoOverlay.dispose();

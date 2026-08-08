@@ -41,8 +41,12 @@ export function registerTodoTool(pi: ExtensionAPI): void {
 		parameters: TodoParamsSchema,
 
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-			const result = applyTaskMutation(getState(), params.action, params as TaskMutationParams);
-			commitState(result.state);
+			// Thread the real ctx sessionId so an in-process subagent child writes its
+			// own bucket rather than the parent's (renderCall/renderResult/command stay
+			// no-arg → renderSid/parent bucket; they render the parent TUI). Ticket #16.
+			const sid = _ctx?.sessionManager?.getSessionId();
+			const result = applyTaskMutation(getState(sid), params.action, params as TaskMutationParams);
+			commitState(result.state, sid);
 			return buildToolResult(params.action, params as TaskMutationParams, result.state, result.op);
 		},
 

@@ -1,6 +1,6 @@
 # 03 — sessionId-keyed state isolation for core-task/accumulator (#3, = core-task ticket #16)
 
-**Status:** DEFERRED
+**Status:** IN PROGRESS
 
 ## Change
 Key the process-global module singletons by sessionId: todo (`core-task/src/todo/state/store.ts`), goal (`src/goal/state.ts`), plan coordinator, loop state, and power-tool's pathology accumulator (`pi-agent-ext-power-tool/src/pathology/accumulator.ts`) — `Map<sessionId, State>` instead of a bare module `let`. Reset on each session's `session_start`.
@@ -15,3 +15,9 @@ This is the GATE for ever safely firing `session_start` in children (the alterna
 - A subagent that calls `todo` does NOT appear in the parent's todo list.
 - Parent + child pathology accumulators are independent.
 - All existing core-task + power-tool tests green.
+
+## Progress
+- Stage 1 (power-tool accumulator): DONE — PR #1132 (commit cf265a73). Map-per-sid + "" fallback; hooks/inspect_pathology threaded; session_shutdown cleanup. warning.ts dedup deferred.
+- Stage 2 (core-task todo store): DONE — this PR. Map-per-sid with renderSid-default trick (no-arg accessors → parent/display bucket; execute threads ctx sid). Renderer/overlay/command call sites unchanged.
+- Stage 3 (core-task loopState): TODO.
+- Stage 4 (core-task goalState): TODO (highest risk — ~30 fields across goal.ts).

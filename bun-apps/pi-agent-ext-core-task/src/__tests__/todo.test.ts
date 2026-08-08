@@ -714,3 +714,40 @@ describe("cross-session store isolation", () => {
     expect(EMPTY_STATE.nextId).toBe(1);
   });
 });
+
+// ─── Optimization #3 / ticket #16: per-sessionId store isolation ──────────────
+
+describe("per-sessionId store isolation (ticket #16)", () => {
+  const { setRenderSid, replaceState, getState, __resetState } = require("../todo/state/store");
+
+  beforeEach(() => {
+    __resetState(); // no-arg: clear ALL buckets + reset renderSid
+  });
+
+  test("#3 todo store isolated per sessionId (parent vs in-process child)", () => {
+    setRenderSid("parent");
+    // parent adds a task
+    replaceState({ tasks: [{ id: 1, subject: "parent task", status: "pending" } as any], nextId: 2 }, "parent");
+    // child (distinct sid) adds a DIFFERENT task — must NOT touch the parent bucket
+    replaceState({ tasks: [{ id: 1, subject: "child task", status: "pending" } as any], nextId: 2 }, "child");
+
+    expect(getState("parent").tasks.map((t: any) => t.subject)).toEqual(["parent task"]);
+    expect(getState("child").tasks.map((t: any) => t.subject)).toEqual(["child task"]);
+    // no-arg reads the renderSid (parent) bucket — display code sees the parent's todos
+    expect(getState().tasks.map((t: any) => t.subject)).toEqual(["parent task"]);
+    // resetting the child leaves the parent intact
+    __resetState("child");
+    expect(getState("parent").tasks).toHaveLength(1);
+    expect(getState("child").tasks).toHaveLength(0);
+  });
+
+  test("no-arg accessors default to the renderSid bucket (display path)", () => {
+    setRenderSid("display");
+    // no-arg replaceState writes the renderSid bucket
+    replaceState({ tasks: [{ id: 1, subject: "visible", status: "in_progress" } as any], nextId: 2 });
+    // an explicit other-sid write must not leak into the display bucket
+    replaceState({ tasks: [{ id: 1, subject: "hidden", status: "pending" } as any], nextId: 2 }, "other");
+    expect(getState().tasks.map((t: any) => t.subject)).toEqual(["visible"]);
+    expect(getState("other").tasks.map((t: any) => t.subject)).toEqual(["hidden"]);
+  });
+});
