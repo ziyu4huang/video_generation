@@ -19,18 +19,19 @@ A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pd
 - 2026-07-30-file2md-for-pdf-... — PDF extractor (mupdf+VLM hybrid VERDICTED; feeds ticket 02). Live prototype ticket 04 stays there. ABSORBED.
 - 2026-07-28-hermes-surrealdb-graph-search — graph-augmented recall via RELATE edges, SHIPPED (feat/hermes-surrealdb-graph-search, 758 tests green). Prior art for tickets 03/10. ABSORBED.
 - 2026-07-29-brainstorm-to-improve-pi-agent-ext-hermes-memory — embed/backend decisions (ChromaDB rejected; sqlite-vec/SurrealDB-for-graph). Drift tickets closed citing ticket 04. ABSORBED.
-- 11 (closed) → task 12: scaffold @repo/pi-agent-ext-core-interface (KnowledgePipeline + publishSeam/readSeam + SEAM_KEYS registry); blocks 06's typed impl. **Re-blocked by 03 + 04** — both reshape the interface 12 builds; build only after they close.
+- 11 (closed) → task 12: scaffold @repo/pi-agent-ext-core-interface (KnowledgePipeline + publishSeam/readSeam + SEAM_KEYS registry); blocks 06's typed impl. **Re-blocked by 04** (03 closed; 04 still reshapes the embed/vector surface 12 builds). Build only after 04 closes.
 
 ## Decisions so far
 - 01: unified Card {id, kind, content, frontmatter, embed?, graph?}; hermes store kind-agnostic via pluggable serializer; dedup = single store call-site behind pluggable strategy. CLOSED.
 - 02: extractors — md/txt native; pdf=mupdf via file2md (hybrid mupdf-body+VLM-figures, per file2md verdict); docx=mammoth; pptx=pptxtojson; one card per section/page/slide (~512 tok); provenance frontmatter. CLOSED.
+- 03: two-layer knowledge graph — wiki-link layer formalized as-is (shared-tag scoreOverlap, no expansion); typed entity-relation layer = md frontmatter source-of-truth (`relations:`) + derived DB index; hybrid relation schema (fixed core + free-form); LLM typed-relation extraction OPT-IN (default off, `kg.llm`/`PI_KG_LLM`). Fork 4 collapsed into carry-over. CLOSED.
 - Hermes-as-spine (revise 01): hermes owns pipeline orchestration + store; zk = graph/ingest/RAG primitives provider. -> ticket 06
 - 11: core-interface package contract pinned — @repo/pi-agent-ext-core-interface hosts typed interfaces + SEAM_KEYS (single source of truth) + publishSeam/readSeam accessors (compile-time orphan prevention); lockstep pi-core; incremental migration (KnowledgePipeline first). CLOSED. Impl → task 12.
 - Image input: BOTH OCR + vision-LLM (google/gemma-4-12b-qat via lm-studio), one merged card. -> ticket 07
 - Wayfind card granularity: per-ticket (tickets/NN.md = card kind=planning-ticket; map.md = index). -> ticket 08
 - Staleness: source-dependency graph (deps declared; re-validate on change). -> ticket 10
 - Carry-over (feeds 04): embed = SurrealDB-only (+ lm-studio); SQLite non-embed CRUD only.
-- Next grill order: **03** (two-layer graph — biggest KnowledgePipeline interface footprint), then **04** (embed, partially pre-decided), then **05** (interface-independent). One decision per session.
+- Next grill order: **04** (embed backend — last blocker on task 12), then **05** (migration/sync, interface-independent). One decision per session. (03 closed.)
 
 ## Not yet specified
 - Image embed strategy (text-embed of merged content vs +CLIP image-vector). -> ticket 07
