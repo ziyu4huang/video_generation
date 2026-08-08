@@ -38,8 +38,14 @@ export interface SubagentToolDetails {
   timedOut: boolean;
   /** Role label (params.agent), if provided. */
   agent?: string;
-  /** params.model, or "default". */
+  /** The ACTUAL model that ran (provider/id), or the requested display string when unresolvable. */
   model?: string;
+  /** The originally-requested model spec (params.model or agentDef.model), when
+   *  the resolution fell back to a different actual model. Absent when the
+   *  requested model resolved normally. Old records without this field stay valid. */
+  requestedModel?: string;
+  /** True when the model resolution fell back to a different model than requested. */
+  fellBack?: boolean;
   /** First ~80 chars of params.task, single-lined. */
   taskPreview: string;
   /** Wall-clock of the run, ms. */
@@ -442,7 +448,16 @@ export function formatSubagentTrace(history: AgentHistoryEntry[], elapsedMs: num
 
 /** Theme the call line shown WHILE the subagent runs (pi's spinner conveys activity). */
 export function renderSubagentCall(
-  args: { agent?: string; model?: string; capability?: string; tier?: string; task: string; resolvedModel?: string },
+  args: {
+    agent?: string;
+    model?: string;
+    capability?: string;
+    tier?: string;
+    task: string;
+    resolvedModel?: string;
+    /** True when the model resolution fell back (actual model differs from requested). */
+    fellBack?: boolean;
+  },
   theme: Theme,
 ): string {
   const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagent"))];
@@ -455,7 +470,11 @@ export function renderSubagentCall(
   // requested tier/model stays visible. Skipped when it matches the slot (e.g.
   // an explicit model that resolved to itself) to avoid duplication.
   if (args.resolvedModel && args.resolvedModel !== slot) {
-    parts.push(theme.fg("muted", args.resolvedModel));
+    // When the resolution fell back, prefix with a fallback indicator (`→`)
+    // so the display reads e.g. "anthropic/claude-opus-4-1 ▸ → zai/glm-5.2".
+    // Normal resolution (no fallback) is unchanged.
+    const label = args.fellBack ? `→ ${args.resolvedModel}` : args.resolvedModel;
+    parts.push(theme.fg("muted", label));
   }
   parts.push(theme.fg("dim", `"${workIntentPreview(args.task, 60)}"`));
   return parts.join(" ▸ ");
@@ -681,6 +700,8 @@ export function createSubagentTool(
       // The concrete provider/id the child actually ran on, captured from
       // WorkflowAgent once resolved. Falls back to the requested display string.
       let resolvedModel: string | undefined;
+      // True when the model resolution fell back (onModelFallback fired).
+      let fellBack = false;
 
       // Per-child AbortController (Frontier A): the user can abort ONE running
       // child via registry.abort(toolCallId) → this controller fires. We FAN IN
@@ -731,6 +752,10 @@ export function createSubagentTool(
             resolvedModel = id;
             options.inFlight?.updateModel(toolCallId, id);
           },
+          onModelFallback: (requestedSpec) => {
+            fellBack = true;
+            options.inFlight?.markFallback(toolCallId, requestedSpec);
+          },
           onHistory:
             onUpdate || options.inFlight || options.persistence
               ? (history: AgentHistoryEntry[]) => {
@@ -770,6 +795,8 @@ export function createSubagentTool(
             agent: params.agent,
             task: params.task,
             model,
+            requestedModel: fellBack ? (requestedModel ?? undefined) : undefined,
+            fellBack: fellBack || undefined,
             tier,
             cwd: runCwd,
             status: "aborted",
@@ -840,6 +867,8 @@ export function createSubagentTool(
           timedOut: result.timedOut,
           agent: params.agent,
           model,
+          requestedModel: fellBack ? (requestedModel ?? undefined) : undefined,
+          fellBack: fellBack || undefined,
           taskPreview: taskPreview(params.task),
           elapsedMs,
           startedAt: t0,
@@ -863,6 +892,8 @@ export function createSubagentTool(
           agent: params.agent,
           task: params.task,
           model,
+          requestedModel: fellBack ? (requestedModel ?? undefined) : undefined,
+          fellBack: fellBack || undefined,
           tier,
           cwd: runCwd,
           status: details.status,
@@ -895,9 +926,11 @@ export function createSubagentTool(
       // (end()), so after completion this reads undefined and the segment
       // reverts — the model then lives on the result line (d.model). While
       // running, onModelResolved → updateModel keeps this fresh + re-renders.
-      const resolvedModel = options.inFlight?.get(context.toolCallId)?.resolvedModel;
+      const entry = options.inFlight?.get(context.toolCallId);
+      const resolvedModel = entry?.resolvedModel;
+      const fellBack = entry?.fellBack;
       options.inFlight?.bindInvalidate(context.toolCallId, context.invalidate);
-      text.setText(renderSubagentCall({ ...args, resolvedModel }, theme));
+      text.setText(renderSubagentCall({ ...args, resolvedModel, fellBack }, theme));
       return text;
     },
     renderResult(result, options, theme, _context) {

@@ -465,6 +465,7 @@ export class WorkflowAgent {
     // Resolve a requested model spec to a Model object. A given-but-unresolved
     // spec falls back to the session default (with a warning) rather than failing.
     let resolvedModel: Model<any> | undefined;
+    let modelFallbackSpec: string | undefined;
     if (modelSpec) {
       resolvedModel = await this.resolveModel(modelSpec);
       if (resolvedModel) {
@@ -472,6 +473,7 @@ export class WorkflowAgent {
       } else {
         console.warn(`[workflow] model "${modelSpec}" not found; using session default`);
         options.onModelFallback?.(modelSpec);
+        modelFallbackSpec = modelSpec;
       }
     }
 
@@ -490,6 +492,19 @@ export class WorkflowAgent {
       // Per-call model wins over any sessionOptions.model.
       ...(resolvedModel ? { model: resolvedModel } : {}),
     });
+
+    // On fallback, emit the ACTUAL model the session resolved to so downstream
+    // (display + durable record) learns what actually ran — not just the
+    // requested-but-unavailable spec. `session.model` reflects the session's
+    // resolved default after createAgentSession.
+    if (modelFallbackSpec) {
+      const actualModel = session.model;
+      if (actualModel) {
+        options.onModelResolved?.(
+          `${actualModel.provider}/${actualModel.id}`,
+        );
+      }
+    }
 
     let removeAbortListener: (() => void) | undefined;
     let removeHistoryListener: (() => void) | undefined;
