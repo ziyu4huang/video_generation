@@ -205,6 +205,15 @@ export interface SubagentToolOptions {
   getExtensionTools?: () => ToolDefinition[] | undefined;
   /** Parent session's current model (provider/id), captured at session_start. Lets an untagged dispatch default to the live session model. */
   getMainModel?: () => string | undefined;
+  /**
+   * Parent session's CURRENT active tool-name set (the gated set, ~24 names).
+   * Read lazily at spawn time so it reflects the freshest gating. When the
+   * caller omits an explicit `tools` allowlist (and no agentType binds one),
+   * the child defaults to THIS set instead of re-inheriting the full ~55-tool
+   * definition universe. See `.planning/2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task/`
+   * ticket 01 (optimization #1). The caller's explicit `tools` always overrides.
+   */
+  getActiveTools?: () => string[] | undefined;
   /** Injectable spawn for tests (defaults to the real spawnSubagent). */
   spawn?: (opts: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
   /** Injectable agentType registry for tests (defaults to loadAgentRegistry(cwd) per call). */
@@ -794,9 +803,16 @@ export function createSubagentTool(
             .filter((s): s is string => Boolean(s))
             .join("\n\n") || undefined;
 
+        // Default to the parent's gated active set (not the full definition universe)
+        // so a spawned subagent doesn't re-pay the ~18k tok/req schema baseline the
+        // parent gated down to ~10k. Precedence: explicit per-call `tools` > agentType
+        // `tools` binding > parent's gated active set (the fallback when neither
+        // restricts). See .planning/2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task/
+        // ticket 01 (optimization #1). Caller's explicit `tools` still overrides.
+        const defaultActiveTools = options.getActiveTools?.();
         const result = await spawn({
           task: params.task,
-          tools: params.tools ?? agentDef?.tools,
+          tools: params.tools ?? agentDef?.tools ?? defaultActiveTools,
           excludeTools: params.excludeTools ?? agentDef?.disallowedTools,
           model: requestedModel,
           tier,

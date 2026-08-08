@@ -326,6 +326,60 @@ test("agentType: explicit params.model/tools/excludeTools override the binding",
   assert.deepEqual(f.calls[0]?.tools, ["read", "bash"], "explicit tools win");
 });
 
+// ── optimization #1: default to the parent's gated active tool set ──
+// (see .planning/2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task/ ticket 01)
+// A spawned subagent must NOT re-inherit the full ~55-tool definition universe;
+// when the caller omits `tools` (and no agentType binds one), it defaults to the
+// parent's CURRENT active set (getActiveTools) so the child re-pays only the
+// ~10k gated schema baseline, not ~18k. Explicit `tools` always overrides.
+
+test("no-tools spawn defaults to the parent's gated active set (getActiveTools), not the full universe", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({
+    spawn: f.spawn,
+    getActiveTools: () => ["read", "grep", "find", "ls", "subagent"],
+  });
+  await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(
+    f.calls[0]?.tools,
+    ["read", "grep", "find", "ls", "subagent"],
+    "a no-tools spawn narrows to the parent's gated active set, not the full universe",
+  );
+});
+
+test("explicit `tools` override wins over the active-set default", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({
+    spawn: f.spawn,
+    getActiveTools: () => ["read", "grep", "find", "ls", "subagent"],
+  });
+  await tool.execute("id", { task: "t", tools: ["read", "grep"] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(
+    f.calls[0]?.tools,
+    ["read", "grep"],
+    "explicit tools still narrow to EXACTLY the requested set",
+  );
+});
+
+test("agentType `tools` binding wins over the active-set default", async () => {
+  const registry = mkRegistry([{ name: "reader", tools: ["read", "grep"], prompt: "Read only.", source: "project" }]);
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({
+    spawn: f.spawn,
+    agentRegistry: registry,
+    getActiveTools: () => ["read", "grep", "find", "ls", "subagent"],
+  });
+  await tool.execute("id", { task: "t", agentType: "reader" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(f.calls[0]?.tools, ["read", "grep"], "agentType binding narrows; active set is only the fallback");
+});
+
+test("no active set + no tools leaves tools undefined (best-effort when getActiveTools is unset)", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.tools, undefined, "no default + no tools → undefined (caller/runner decides)");
+});
+
 test("unknown agentType returns a tool-level error listing available names, without calling spawn", async () => {
   const registry = mkRegistry([{ name: "reviewer", prompt: "Review.", source: "project" }]);
   const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
