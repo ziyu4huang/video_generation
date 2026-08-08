@@ -28,3 +28,14 @@ Spine contract pinned across 4 forks. Hermes is the spine; zk is a primitives pr
 Grounding code facts: zk already owns the full card-pipeline (`ingestRecords`, `runConvergenceLoop`, graph/RAG/merge, `collectInputFiles` walk); hermes owns the store (`MemoryRepository` / backend-ab, memory-shaped → generalize per 01) + FTS search, and has NO embeddings and NO file→card pipeline today; obsidian delegates embed to an external vault-mind/ChromaDB service.
 
 closed: implemented-as-decision (contract pinned); impl blocked by ticket 11 (core-interface pkg).
+
+## Implementation split (2026-08-09)
+
+Ticket 06's implementation is split into two grilling/build tracks:
+
+- **06a — card-agnostic store** (the store half). Generalize hermes `MemoryStore`/`MemoryRepository` → a kind-agnostic store over `Card { id, kind, content, frontmatter, embed?, graph? }` + pluggable serializer (memory + knowledge) + pluggable dedup strategy (memory + knowledge). Memory-cards coexist (regression-green); the existing vault-md knowledge corpus round-trips through SQLite. zk unchanged (read-only). Spec + TDD plan:
+  - `.planning/2026-08-08-knowledge-pipeline/specs/2026-08-08-hermes-card-store.md`
+  - `.planning/2026-08-08-knowledge-pipeline/plans/2026-08-08-hermes-card-store.md`
+- **06b — spine orchestrator** (the orchestration half — TBD, separate grilling). `ingestPath(dir|file)` / `walkAndIngest` (directory-walk + type-dispatch policy), the zk→store mirror wiring via the `KnowledgePipeline` seam (consumed defensively), the embed index (ticket 04), drift hooks (ticket 05 Tier 1/2/3), and the memory-card migration milestone (ticket 13, gated on 06a).
+
+06a stands alone (no zk changes, no orchestrator); 06b depends on 06a's store being built + proven on knowledge-cards first.
