@@ -31,9 +31,10 @@
     "check": "biome check .",
     "format": "biome format --write .",
     "lint": "biome lint .",
-    "build": "bunx tsc",
+    "build": "bun run architecture:vendor && bunx tsc",
     "dev": "tsx src/index.ts",
     "architecture:render": "bun run src/architecture-render.ts",
+    "architecture:vendor": "bun run scripts/vendor-mermaid.ts",
     "architecture:css": "bunx @tailwindcss/cli -i src/architecture.css -o vendor/tailwind.css --minify",
     "prepublishOnly": "bun run build"
   },
@@ -61,7 +62,8 @@
   },
   "license": "MIT",
   "dependencies": {
-    "marked": "^15"
+    "marked": "^15",
+    "mermaid": "^11"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "0.84.1",

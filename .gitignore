@@ -99,3 +99,11 @@ vault/
 task_plan.md
 progress.md
 findings.md
+
+# Vendored mermaid UMD bundle — ~3.4 MiB, regenerated at build time by
+# `architecture:vendor` (copies node_modules/mermaid/dist/mermaid.min.js).
+# Sourced from npm (runtime dep of @repo/pi-agent-ext-wayfind); never committed
+# because it exceeds the repo's 2 MB pre-commit guard. vendor/tailwind.css (the
+# curated static Tailwind build, ~20 KB) IS still committed — only this binary
+# is ignored.
+bun-apps/pi-agent-ext-wayfind/vendor/mermaid.min.js
