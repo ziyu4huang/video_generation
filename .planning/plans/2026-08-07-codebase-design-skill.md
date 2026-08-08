@@ -173,3 +173,5 @@ Plan complete. Two execution options:
 **1. Subagent-Driven (recommended)** — dispatch a fresh subagent per task, review between tasks, fast iteration. REQUIRED SUB-SKILL: superpowers:subagent-driven-development.
 
 **2. Inline Execution** — run tasks in this session via executing-plans with checkpoints. REQUIRED SUB-SKILL: superpowers:executing-plans.
+
+> **PIVOT (2026-08-07):** Tasks 2/5/7 were executed against `pi-agent-ext-superpowers`, which is a byte-identical `obra/superpowers` port (ADR-0004) — those edits were reverted. `codebase-design` was re-homed to `pi-agent-ext-wayfind` (`skills/codebase-design/`, commit 31feaffb), validated GREEN. The `brainstorming`/`writing-plans` wiring was dropped (superpowers forbids editing pinned bodies); the skill is globally auto-invocable by description instead. See the spec's "Post-validation pivot" section.

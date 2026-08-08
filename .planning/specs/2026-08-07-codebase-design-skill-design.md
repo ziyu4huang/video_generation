@@ -129,3 +129,13 @@ No skill or edit ships without RED→GREEN→REFACTOR via subagents.
 - A fresh agent, given a module-interface design task, uses the deep-module vocabulary correctly, reaches for the deletion test, and invokes design-it-twice on non-trivial interface decisions.
 - `brainstorming` and `writing-plans` reference `superpowers:codebase-design` by name and the vocabulary is used during their respective design phases.
 - All three new files and both edits pass the writing-skills RED→GREEN→REFACTOR gate.
+
+## Post-validation pivot (2026-08-07)
+
+**Outcome differs from the placement/wiring above.** During Task 8 verification, `bun test` revealed that `pi-agent-ext-superpowers` is a **strict byte-identical port of `obra/superpowers`** (exactly 14 skills; ADR-0004/0005/0006 forbid any local edit to skill bodies or any non-upstream addition). Adding `codebase-design` there and wiring `brainstorming`/`writing-plans` violated that contract and failed deliberate regression-guard tests.
+
+**Actual resolution:**
+- `codebase-design` is re-homed to **`pi-agent-ext-wayfind`** (`skills/codebase-design/`), the "Pi-native port of Matt Pocock's suite," which adapts freely (no byte-identity contract). Validated content preserved (RED 0/3 → GREEN 3/3); the condensed-vs-full edit kept; `description:` rewritten to start `Use when` (wayfind frontmatter rule); per-skill provenance footer removed (wayfind centralizes attribution in README).
+- The `brainstorming`/`writing-plans` wiring (Approach 2) was **dropped** — superpowers forbids editing pinned bodies. Instead `codebase-design` is **globally auto-invocable by its description**, capturing the core "shared vocabulary" value (the model reaches for it whenever a design involves module boundaries). The explicit `REQUIRED SUB-SKILL` nudge was the casualty.
+
+**Strategic implication for the roadmap:** superpowers is off-limits for the *entire* code-quality track. **B** (code-review rubric — would edit ported `requesting-code-review`/`code-reviewer.md`), **C** (improve-codebase-architecture — new skill), and **D** (resolving-merge-conflicts — new skill) all need non-superpowers homes (wayfind or new dedicated packages). Re-anchor the roadmap accordingly before starting B/C/D.
