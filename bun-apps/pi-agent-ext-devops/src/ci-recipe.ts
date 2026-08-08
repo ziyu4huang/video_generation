@@ -11,13 +11,19 @@
  * testable with a recording fake and has zero coupling to the real filesystem /
  * git state. The live `SpawnFn` (`createLiveSpawn`) is the only untested seam.
  *
- * Detection + gate scripts are the SAME committed scripts remote CI uses
- * (scripts/ci-changed-packages.sh, scripts/ci-file-size-guard.sh, …), so a green
- * run here is the local proxy for a green remote run — the rationale for the
- * repo-wide "never wait for remote CI; self-verify then `gh ship`" rule.
+ * Change detection runs IN-PROCESS (src/changed-packages.ts — the extension-native
+ * TS port of the former scripts/ci-changed-packages.sh); the GATE suite uses the
+ * SAME committed scripts remote CI uses (scripts/ci-file-size-guard.sh, …), so a
+ * green run here is the local proxy for a green remote run — the rationale for
+ * the repo-wide "never wait for remote CI; self-verify then `gh ship`" rule.
  */
 import type { SpawnFn } from "./spawn.js";
 import { runSchemaCostCheck } from "./schema-cost-check.js";
+import {
+	computeChangedPackages,
+	type ChangedPackagesMap,
+	type ComputeChangedPackagesOptions,
+} from "./changed-packages.js";
 
 export interface CiPackageResult {
 	name: string;
@@ -41,10 +47,11 @@ export interface CiOutcome {
 	schemaCost?: { exitCode: number; note: string };
 	elapsedMs: number;
 	/**
-	 * Set when change detection (ci-changed-packages.sh) FAILED — non-zero exit
-	 * or unparseable/empty stdout. Then `overall` is "fail", `packages`/`gates`
-	 * are empty, and the per-package loop + gates are skipped: a detection error
-	 * must NEVER be coerced to an empty package set (that yields a false-green).
+	 * Set when change detection FAILED — `computeChangedPackages` threw (a genuine
+	 * I/O failure; its fail-open cases return all-true instead of throwing). Then
+	 * `overall` is "fail", `packages`/`gates` are empty, and the per-package loop
+	 * + gates are skipped: a detection error must NEVER be coerced to an empty
+	 * package set (that yields a false-green).
 	 */
 	detectionError?: string;
 }
@@ -57,7 +64,7 @@ export interface CiOptions {
 	headRef?: string;
 	/** Explicit package list → skip change detection entirely. */
 	packages?: string[];
-	/** Run every bun-apps/* package (ci-changed-packages.sh --all). */
+	/** Run every bun-apps/* package (computeChangedPackages all:true). */
 	all?: boolean;
 	/** Add the audit gates (determinism / portability / workflow-patterns / verify-skills). */
 	strict?: boolean;
@@ -69,6 +76,12 @@ export interface CiOptions {
 	signal?: AbortSignal;
 	/** Injectable package.json reader. Default: read <pkgDir>/package.json. */
 	readPkg?: (pkgDir: string) => Promise<{ scripts?: Record<string, string> }>;
+	/**
+	 * Injectable changed-package detector. Default: `computeChangedPackages`
+	 * (the extension-native TS port of the former ci-changed-packages.sh).
+	 * Tests inject a fake so the recipe stays filesystem/git-free.
+	 */
+	detectChangedPackages?: (opts: ComputeChangedPackagesOptions) => Promise<ChangedPackagesMap>;
 }
 
 /** A gate's invocation: how to spawn it + whether its failure fails `overall`. */
@@ -150,7 +163,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	//    empty package set, because an empty set skips the per-package loop and a
 	//    coincidentally-green gate suite would then report overall:"pass" (a
 	//    false-green the agent would act on by `gh ship`-ing a broken state).
-	const resolved = await resolvePackages(opts, baseRef, headRef, spawn);
+	const resolved = await resolvePackages(opts, baseRef, headRef);
 	if (resolved.error) {
 		return {
 			overall: "fail",
@@ -233,39 +246,33 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	};
 }
 
-/** Resolve the target package set per the precedence rules (detection may spawn). */
+/** Resolve the target package set per the precedence rules (detection may run). */
 async function resolvePackages(
 	opts: CiOptions,
 	baseRef: string,
 	headRef: string,
-	spawn: SpawnFn,
 ): Promise<{ packages: string[]; error?: string }> {
 	if (Array.isArray(opts.packages)) return { packages: opts.packages };
-	if (opts.all) {
-		const r = await spawn("bash", ["scripts/ci-changed-packages.sh", "--all"], { cwd: opts.repoRoot });
-		const error = detectionFailure(r.exitCode, r.stdout);
-		if (error) return { packages: [], error };
-		return { packages: Object.keys(parseJson(r.stdout) as Record<string, unknown>) };
+	const detect = opts.detectChangedPackages ?? computeChangedPackages;
+	// A detection ERROR is surfaced here and short-circuits to a fail outcome —
+	// it must NEVER be coerced to an empty package set, because an empty set
+	// skips the per-package loop and a coincidentally-green gate suite would then
+	// report overall:"pass" (a false-green the agent would act on by `gh ship`-ing
+	// a broken state). computeChangedPackages only throws on a genuine I/O
+	// failure (its own fail-open cases return all-true instead); tests simulate a
+	// detection failure by injecting a detect fn that throws.
+	let map: ChangedPackagesMap;
+	try {
+		map = opts.all
+			? await detect({ repoRoot: opts.repoRoot, all: true, spawn: opts.spawn })
+			: await detect({ repoRoot: opts.repoRoot, baseRef, headRef, spawn: opts.spawn });
+	} catch (e) {
+		return { packages: [], error: `changed-packages detection failed: ${(e as Error).message}` };
 	}
-	const r = await spawn("bash", ["scripts/ci-changed-packages.sh", baseRef, headRef], { cwd: opts.repoRoot });
-	const error = detectionFailure(r.exitCode, r.stdout);
-	if (error) return { packages: [], error };
-	const obj = parseJson(r.stdout) as Record<string, unknown>;
+	if (opts.all) return { packages: Object.keys(map) };
 	return {
-		packages: Object.entries(obj)
+		packages: Object.entries(map)
 			.filter(([, v]) => v === true)
 			.map(([k]) => k),
 	};
-}
-
-/**
- * A detection run FAILED iff it exited non-zero OR its stdout is empty /
- * unparseable as JSON. Returns the human-readable reason, or undefined when the
- * run is healthy. Detection failure must propagate as `overall:"fail"` — never
- * be coerced to an empty package set (that is the false-green M3 guards against).
- */
-function detectionFailure(exitCode: number, stdout: string): string | undefined {
-	if (exitCode !== 0) return `ci-changed-packages.sh exited ${exitCode}`;
-	if (parseJson(stdout) === null) return "ci-changed-packages.sh returned unparseable output";
-	return undefined;
 }
