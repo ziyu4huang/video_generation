@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { parsePlan } from "../../pi-agent-ext-core-task/src/plan/parse.ts";
 import { flattenTicketsToPlan, seedFromDecisions, syncChainState } from "../src/chain.js";
 import type { GlossaryTerm, ResolvedDecision } from "../src/grill.js";
-import { readMap, type Ticket, writeMap, writeTicket } from "../src/map.js";
+import { readMap, writeMap, writeTicket } from "../src/map.js";
+import type { Ticket } from "../src/model.js";
 
 function mk(id: string, slug: string, title: string, blocking: string[] = [], opts: Partial<Ticket> = {}): Ticket {
   return { id, slug, title, question: "q", type: "task", blocking, status: "open", ...opts };

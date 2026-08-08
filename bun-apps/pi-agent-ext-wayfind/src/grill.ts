@@ -21,6 +21,22 @@ export interface GlossaryTerm {
   definition: string;
 }
 
+/** Emit the "## Settled vocabulary" block — heading, blank, one `- **term**: def`
+ *  line per glossary term, trailing blank. No-op when the glossary is empty.
+ *  Shared by `buildPlanSeed` (custom heading) and chain.ts's
+ *  `flattenTicketsToPlan` / `seedFromDecisions` (default heading), so the three
+ *  emitters stay byte-identical. */
+export function appendSettledVocabulary(
+  lines: string[],
+  glossary: GlossaryTerm[],
+  heading = "## Settled vocabulary",
+): void {
+  if (glossary.length === 0) return;
+  lines.push(heading, "");
+  for (const g of glossary) lines.push(`- **${g.term}**: ${g.definition}`);
+  lines.push("");
+}
+
 /** Shared `**Term**: value` matcher for the two CONTEXT.md readers.
  *  - requireBullet=false (glossary): `**Term**: def`, empty value allowed.
  *  - requireBullet=true  (decisions): `- **Term**: answer`, answer required.
@@ -154,14 +170,7 @@ export function buildPlanSeed(decisions: ResolvedDecision[], glossary: GlossaryT
   lines.push(goalLine);
   lines.push("");
 
-  if (glossary.length > 0) {
-    lines.push("## Settled vocabulary (from CONTEXT.md)");
-    lines.push("");
-    for (const g of glossary) {
-      lines.push(`- **${g.term}**: ${g.definition}`);
-    }
-    lines.push("");
-  }
+  appendSettledVocabulary(lines, glossary, "## Settled vocabulary (from CONTEXT.md)");
 
   if (decisions.length > 0) {
     lines.push("### Task 1: act on the resolved decisions");

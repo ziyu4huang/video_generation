@@ -17,7 +17,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEffort, effortStatus, makeWayfindEffortTool, validateEffort } from "../src/effort-tool.js";
-import { type EffortMeta, readMap } from "../src/map.js";
+import { readMap } from "../src/map.js";
+import type { EffortMeta } from "../src/model.js";
 import { addTicket, resolveTicket } from "../src/wayfinder.js";
 
 const fresh = () => mkdtempSync(join(tmpdir(), "wf-effort-tool-"));

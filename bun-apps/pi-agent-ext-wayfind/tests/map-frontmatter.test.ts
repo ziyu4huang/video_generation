@@ -12,22 +12,17 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readEffortMeta } from "../src/lifecycle.js";
+import { appendDecision, closeTicket, readMap, touchEffortManifest, writeMap, writeTicket } from "../src/map.js";
 import {
-  appendDecision,
-  closeTicket,
   type EffortMeta,
   type MapDecision,
   parseMapFrontmatter,
-  readEffortMeta,
-  readMap,
   serializeMapFrontmatter,
   today,
-  touchEffortManifest,
   validateEffortMap,
   type WayfindMap,
-  writeMap,
-  writeTicket,
-} from "../src/map.js";
+} from "../src/model.js";
 
 const META_FULL: EffortMeta = {
   effort: "2026-08-02-core-task-review",
