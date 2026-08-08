@@ -132,7 +132,13 @@ export type {
   SubagentsToolDetails,
   SubagentsToolOptions,
 } from "./subagents-tool.js";
-export { createSubagentsTool, renderBatchResult, subagentsToolSchema } from "./subagents-tool.js";
+export {
+  createSubagentsTool,
+  renderBatchResult,
+  renderSubagentsCall,
+  renderSubagentsResult,
+  subagentsToolSchema,
+} from "./subagents-tool.js";
 // tool-action-label (shared verb-led phrase helper — see ticket 02)
 export type { ToolActionContext } from "./tool-action-label.js";
 export { formatToolAction, matchedCallArgsFor } from "./tool-action-label.js";
