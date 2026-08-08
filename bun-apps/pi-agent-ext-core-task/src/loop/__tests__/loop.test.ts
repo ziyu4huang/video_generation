@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { parseHypothesis, buildLoopContinuationPrompt, isLoopActive } from "../loop.js";
-import { __resetLoopState, loopState, createLoop } from "../loop-state.js";
+import { __resetLoopState, getLoopState, createLoop } from "../loop-state.js";
 
 test("parseHypothesis extracts the HYPOTHESIS: line", () => {
 	expect(parseHypothesis("HYPOTHESIS: try caching\nsome code")).toBe("try caching");
@@ -23,7 +23,7 @@ test("buildLoopContinuationPrompt metricless omits the no-self-report rule", () 
 test("isLoopActive reflects loopState", () => {
 	__resetLoopState();
 	expect(isLoopActive()).toBe(false);
-	loopState.activeLoop = createLoop({ target: "t", mode: "metricless" });
+	getLoopState().activeLoop = createLoop({ target: "t", mode: "metricless" });
 	expect(isLoopActive()).toBe(true);
 	__resetLoopState();
 });
