@@ -37,7 +37,8 @@ def _split_paragraphs(body: str) -> list[str]:
 
 def _pack_paragraphs(paragraphs: list[str]) -> list[str]:
     """Greedily pack paragraphs into chunks near TARGET_CHUNK_CHARS, never
-    exceeding MAX_CHUNK_CHARS."""
+    exceeding MAX_CHUNK_CHARS. A single paragraph longer than MAX_CHUNK_CHARS
+    is hard-split (character slicing) so no output chunk ever exceeds the cap."""
     chunks: list[str] = []
     current: list[str] = []
     current_len = 0
@@ -46,6 +47,16 @@ def _pack_paragraphs(paragraphs: list[str]) -> list[str]:
             chunks.append("\n\n".join(current))
             current = []
             current_len = 0
+        if len(paragraph) > MAX_CHUNK_CHARS:
+            # Oversized single paragraph: flush whatever's pending, then
+            # hard-split this paragraph into MAX_CHUNK_CHARS-sized pieces.
+            if current:
+                chunks.append("\n\n".join(current))
+                current = []
+                current_len = 0
+            for start in range(0, len(paragraph), MAX_CHUNK_CHARS):
+                chunks.append(paragraph[start : start + MAX_CHUNK_CHARS])
+            continue
         current.append(paragraph)
         current_len += len(paragraph)
         if current_len >= TARGET_CHUNK_CHARS:
@@ -61,11 +72,13 @@ def chunk_markdown_file(path: Path, root: Path) -> list[Chunk]:
     text = path.read_text(encoding="utf-8")
     relative_path = str(path.relative_to(root))
     chunks: list[Chunk] = []
+    index = 0
     for heading, body in _split_sections(text):
         paragraphs = _split_paragraphs(body)
-        for index, chunk_text in enumerate(_pack_paragraphs(paragraphs)):
+        for chunk_text in _pack_paragraphs(paragraphs):
             chunk_id = f"{relative_path}::{heading or 'root'}::{index}"
             chunks.append(Chunk(chunk_id=chunk_id, source_path=relative_path, heading=heading, text=chunk_text))
+            index += 1
     return chunks
 
 

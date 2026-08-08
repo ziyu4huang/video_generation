@@ -47,3 +47,32 @@ def test_load_and_chunk_scans_all_markdown_files_recursively(tmp_path):
     chunks = load_and_chunk([tmp_path])
 
     assert {c.source_path for c in chunks} == {"a.md", "nested/b.md"}
+
+
+def test_chunk_markdown_file_unique_ids_across_repeated_headings(tmp_path):
+    md_path = tmp_path / "dup.md"
+    md_path.write_text(
+        "# Notes\n\nFirst notes section.\n\n# Other\n\nUnrelated section.\n\n# Notes\n\nSecond notes section.\n",
+        encoding="utf-8",
+    )
+
+    chunks = chunk_markdown_file(md_path, tmp_path)
+
+    chunk_ids = [c.chunk_id for c in chunks]
+    assert len(chunk_ids) == len(set(chunk_ids))
+    # Both "Notes" sections must be represented, each with a unique id.
+    notes_chunks = [c for c in chunks if c.heading == "Notes"]
+    assert len(notes_chunks) == 2
+    assert notes_chunks[0].chunk_id != notes_chunks[1].chunk_id
+
+
+def test_pack_paragraphs_hard_splits_oversized_single_paragraph(tmp_path):
+    md_path = tmp_path / "oversized.md"
+    huge_paragraph = "x" * 2500  # single paragraph, no blank-line breaks, exceeds MAX_CHUNK_CHARS
+    md_path.write_text(f"# Big\n\n{huge_paragraph}\n", encoding="utf-8")
+
+    chunks = chunk_markdown_file(md_path, tmp_path)
+
+    assert all(len(c.text) <= 2000 for c in chunks)
+    # Reassembling the hard-split pieces should reproduce the original paragraph content.
+    assert "".join(c.text for c in chunks) == huge_paragraph
