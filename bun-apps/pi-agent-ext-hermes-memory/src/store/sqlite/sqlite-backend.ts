@@ -323,6 +323,12 @@ export class SqliteBackend implements Backend {
     // CHECK(target IN ('memory','user')) constraints to include 'failure'.
     this.ensureLegacySchemaColumns(db);
     this.migrateLegacyMemoriesTargetConstraint(db);
+    // 06a (knowledge-pipeline): widen the current 3-value target CHECK
+    // (memory/user/failure) to include 'knowledge' for knowledge-cards. Runs
+    // AFTER the legacy 2-value migration so a legacy DB is normalized to
+    // 3-value first, then widened to 4-value here. Idempotent (skips when the
+    // CHECK already mentions 'knowledge').
+    this.migrateMemoriesTargetCheckAddKnowledge(db);
     this.rebuildMemoryFts(db);
   }
 
@@ -749,6 +755,13 @@ export class SqliteBackend implements Backend {
     if (!names.has('pin')) {
       db.exec('ALTER TABLE memories ADD COLUMN pin INTEGER NOT NULL DEFAULT 0');
     }
+    // 06a (knowledge-pipeline): step (a) of the 2-step migration — the cheap
+    // nullable `frontmatter` column add (no table rewrite). Step (b), the
+    // `memories_new` rewrite, fires separately in
+    // `migrateMemoriesTargetCheckAddKnowledge` ONLY to widen the `target` CHECK.
+    if (!names.has('frontmatter')) {
+      db.exec('ALTER TABLE memories ADD COLUMN frontmatter TEXT');
+    }
   }
 
   /** UPSP §9 (#06): add `used_at` to a pre-existing `session_assembly` table
@@ -882,6 +895,143 @@ export class SqliteBackend implements Backend {
       db.exec('ALTER TABLE memories_new RENAME TO memories');
     });
 
+    db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      tx();
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON');
+    }
+  }
+
+  /** 06a (knowledge-pipeline): widen the `memories.target` CHECK from the
+   *  current 3-value form (memory/user/failure) to include 'knowledge'. This is
+   *  step (b) of the 2-step migration — step (a) (the cheap nullable
+   *  `frontmatter` ALTER) ran in `ensureMemoriesColumns`.
+   *
+   *  Gated on `sqlite_master` SQL-text inspection (the precedent at
+   *  `migrateLegacyMemoriesTargetConstraint`): skips when the CREATE TABLE
+   *  already mentions 'knowledge' (fresh install or already migrated); only
+   *  fires on the exact 3-value CHECK shape. `extension_metadata` is NOT used
+   *  for gating (it is opaque key/value copy only).
+   *
+   *  DATA-LOSS GUARD: the `memories_new` CREATE + INSERT…SELECT carry the FULL
+   *  current column set — id, project, target, category, content,
+   *  failure_reason, tool_state, corrected_to, created, last_referenced,
+   *  mw_success, mw_fail, status, supersedes, superseded_by, parent_ids, md_id,
+   *  state, severity, pin — PLUS the new nullable `frontmatter`. This list is
+   *  deliberately NOT copied from the legacy `migrateLegacyMemoriesTargetConstraint`
+   *  template (which predates md_id/state/severity/pin and omits them —
+   *  copy-pasting it would silently drop those columns). After the rename, the
+   *  memories FTS triggers + indexes are recreated (DROP TABLE drops them) so
+   *  memory_fts stays in sync; `rebuildMemoryFts` (called next) repopulates the
+   *  index. Memory rows are carried through verbatim — byte-for-byte unchanged. */
+  private migrateMemoriesTargetCheckAddKnowledge(db: DatabaseLike): void {
+    const tableSqlRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'").get() as { sql?: string } | undefined;
+    const tableSql = tableSqlRow?.sql ?? '';
+    if (!tableSql) return;
+
+    // Fresh installs + already-migrated DBs already mention 'knowledge'.
+    if (/'knowledge'/.test(tableSql)) return;
+
+    // Only rewrite the exact current 3-value CHECK (memory/user/failure).
+    // Older 2-value shapes are first normalized by migrateLegacyMemoriesTargetConstraint.
+    const isThreeValueCheck = /target\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*target\s+IN\s*\(\s*'memory'\s*,\s*'user'\s*,\s*'failure'\s*\)\s*\)/i.test(tableSql);
+    if (!isThreeValueCheck) return;
+
+    // The FULL current column set + the new nullable frontmatter. Declared once
+    // and reused for CREATE + INSERT…SELECT so the two can never drift (a drift
+    // here is exactly the silent-column-drop the guard exists to prevent).
+    const fullColumns = [
+      'id', 'project', 'target', 'category', 'content',
+      'failure_reason', 'tool_state', 'corrected_to',
+      'created', 'last_referenced', 'mw_success', 'mw_fail', 'status',
+      'supersedes', 'superseded_by', 'parent_ids',
+      'md_id', 'state', 'severity', 'pin', 'frontmatter',
+    ];
+    const colList = fullColumns.join(', ');
+
+    const doRewrite = (): void => {
+      // The legacy target migration (when it ran for a 2-value table) rebuilt
+      // `memories` WITHOUT md_id/state/severity/pin/frontmatter (its template
+      // predates those columns). Re-running ensureMemoriesColumns here is
+      // idempotent and re-adds exactly those via cheap ALTERs so the
+      // INSERT…SELECT below can carry the full set. For a current 3-value DB
+      // (the data-loss-guard case with REAL md_id/state/severity/pin data) the
+      // legacy migration did NOT fire, so this is a no-op and those values are
+      // carried through verbatim.
+      this.ensureMemoriesColumns(db);
+
+      db.exec(`
+        CREATE TABLE memories_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project TEXT,
+          target TEXT NOT NULL CHECK (target IN ('memory', 'user', 'failure', 'knowledge')),
+          category TEXT CHECK (category IN ('failure', 'correction', 'insight', 'preference', 'convention', 'tool-quirk')),
+          content TEXT NOT NULL,
+          failure_reason TEXT,
+          tool_state TEXT,
+          corrected_to TEXT,
+          created DATE NOT NULL,
+          last_referenced DATE NOT NULL,
+          mw_success INTEGER NOT NULL DEFAULT 0,
+          mw_fail INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'active',
+          supersedes INTEGER,
+          superseded_by INTEGER,
+          parent_ids TEXT,
+          md_id TEXT,
+          state TEXT NOT NULL DEFAULT 'active',
+          severity INTEGER,
+          pin INTEGER NOT NULL DEFAULT 0,
+          frontmatter TEXT
+        );
+      `);
+
+      db.exec(`
+        INSERT INTO memories_new (${colList})
+        SELECT ${colList}
+        FROM memories;
+      `);
+
+      // DROP TABLE also drops the memories_ai/ad/au triggers + idx_memories_*
+      // indexes attached to it; recreate them after the rename so memory_fts
+      // keeps syncing (all IF NOT EXISTS).
+      db.exec('DROP TABLE memories');
+      db.exec('ALTER TABLE memories_new RENAME TO memories');
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+          INSERT INTO memory_fts(rowid, content) VALUES (new.id, new.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+          INSERT INTO memory_fts(memory_fts, rowid, content) VALUES ('delete', old.id, old.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
+          INSERT INTO memory_fts(memory_fts, rowid, content) VALUES ('delete', old.id, old.content);
+          INSERT INTO memory_fts(rowid, content) VALUES (new.id, new.content);
+        END;
+        CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
+        CREATE INDEX IF NOT EXISTS idx_memories_target ON memories(target);
+        CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_md_id ON memories(md_id);
+      `);
+    };
+
+    if (!db.transaction) {
+      db.exec('PRAGMA foreign_keys = OFF');
+      try {
+        db.exec('BEGIN IMMEDIATE');
+        doRewrite();
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        throw err;
+      } finally {
+        db.exec('PRAGMA foreign_keys = ON');
+      }
+      return;
+    }
+
+    const tx = db.transaction(() => doRewrite());
     db.exec('PRAGMA foreign_keys = OFF');
     try {
       tx();

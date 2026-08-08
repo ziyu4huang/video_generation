@@ -373,6 +373,95 @@ describe('SqliteBackend', () => {
       migratedManager.close();
     });
 
+    it('widens the target CHECK to allow knowledge AND preserves md_id/state/severity/pin (06a task 5 — data-loss guard)', () => {
+      // Forge a CURRENT-shape memories table: the 3-value target CHECK
+      // (memory/user/failure) WITHOUT 'knowledge', and the full column set
+      // EXCEPT the new `frontmatter` column (simulating a DB from before this
+      // task). Seed a row with NON-default md_id/state/severity/pin, reopen via
+      // SqliteBackend (which runs the 06a migration), and assert BOTH:
+      //   (a) the row's md_id/state/severity/pin survive the table rewrite
+      //       (the data-loss guard — a rewrite that dropped these columns would
+      //       silently default them), AND
+      //   (b) 'knowledge' is now insertable (the CHECK was widened).
+      const dbPath = path.join(tmpDir, 'sessions.db');
+      const legacyDb = new Database(dbPath);
+
+      legacyDb.exec(`
+        CREATE TABLE memories (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project TEXT,
+          target TEXT NOT NULL CHECK (target IN ('memory', 'user', 'failure')),
+          category TEXT CHECK (category IN ('failure', 'correction', 'insight', 'preference', 'convention', 'tool-quirk')),
+          content TEXT NOT NULL,
+          failure_reason TEXT,
+          tool_state TEXT,
+          corrected_to TEXT,
+          created DATE NOT NULL,
+          last_referenced DATE NOT NULL,
+          mw_success INTEGER NOT NULL DEFAULT 0,
+          mw_fail INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'active',
+          supersedes INTEGER,
+          superseded_by INTEGER,
+          parent_ids TEXT,
+          md_id TEXT,
+          state TEXT NOT NULL DEFAULT 'active',
+          severity INTEGER,
+          pin INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+      legacyDb.prepare(`
+        INSERT INTO memories (project, target, category, content, created, last_referenced, mw_success, mw_fail, status, md_id, state, severity, pin)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run('proj-1', 'failure', 'failure', 'non-default payload', '2026-05-09', '2026-05-09', 7, 3, 'active', 'md-abc-123', 'resolved', 2, 1);
+      legacyDb.close();
+
+      const migratedManager = new SqliteBackend(tmpDir);
+      const migratedDb = migratedManager.getDb();
+
+      // (a) data-loss guard: every column carried through the rewrite verbatim.
+      const row = migratedDb.prepare(
+        'SELECT md_id, state, severity, pin, mw_success, mw_fail, status, project, target, category, content FROM memories'
+      ).get() as {
+        md_id: string | null;
+        state: string;
+        severity: number | null;
+        pin: number;
+        mw_success: number;
+        mw_fail: number;
+        status: string;
+        project: string | null;
+        target: string;
+        category: string | null;
+        content: string;
+      };
+      assert.strictEqual(row.md_id, 'md-abc-123', 'md_id must survive the rewrite');
+      assert.strictEqual(row.state, 'resolved', 'state must survive the rewrite');
+      assert.strictEqual(row.severity, 2, 'severity must survive the rewrite');
+      assert.strictEqual(row.pin, 1, 'pin must survive the rewrite');
+      assert.strictEqual(row.mw_success, 7, 'mw_success must survive the rewrite');
+      assert.strictEqual(row.mw_fail, 3, 'mw_fail must survive the rewrite');
+      assert.strictEqual(row.content, 'non-default payload', 'content must survive the rewrite');
+      assert.strictEqual(row.target, 'failure', 'target must survive the rewrite');
+
+      // The new nullable frontmatter column is present (added by the cheap
+      // ALTER step) and NULL for the memory row.
+      const cols = (migratedDb.prepare('PRAGMA table_info(memories)').all() as { name: string }[]).map((c) => c.name);
+      assert.ok(cols.includes('frontmatter'), 'frontmatter column must exist after migration');
+      const fmRow = migratedDb.prepare('SELECT frontmatter FROM memories').get() as { frontmatter: string | null };
+      assert.strictEqual(fmRow.frontmatter, null, 'frontmatter is NULL for memory rows');
+
+      // (b) the CHECK was widened: 'knowledge' is now accepted.
+      assert.doesNotThrow(() => {
+        migratedDb.prepare(`
+          INSERT INTO memories (target, content, created, last_referenced, md_id, frontmatter)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run('knowledge', 'a knowledge card', '2026-05-09', '2026-05-09', 'k-1', '{"id":"k-1"}');
+      }, 'knowledge target must be insertable after the CHECK widen');
+
+      migratedManager.close();
+    });
+
     it('should migrate legacy target CHECK constraint to allow failure entries', () => {
       const dbPath = path.join(tmpDir, 'sessions.db');
       const legacyDb = new Database(dbPath);

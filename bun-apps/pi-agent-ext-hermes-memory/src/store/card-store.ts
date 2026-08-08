@@ -1,0 +1,213 @@
+/**
+ * card-store.ts — the kind-agnostic Card store façade (06a task 5).
+ *
+ * A THIN additive surface over the existing SQLite backend. It owns the
+ * knowledge-card round-trip into the `memories` table directly (via the
+ * concrete `SqliteBackend` handle) and dispatches dedup per-kind through the
+ * registered `DedupStrategy`. It does NOT replace `MemoryStore`'s memory path
+ * — memory/user/failure cards keep their proven section-md + MemoryStore path
+ * byte-for-byte unchanged. `sqlite-memory-repo.ts` is intentionally left
+ * untouched (the knowledge SQL lives here) to guarantee zero memory-path drift.
+ *
+ * 06a scope:
+ *  - `upsertCard`/`getCard`/`getCardsByKind` are exercised on kind "knowledge".
+ *  - SurrealDB knowledge persistence is a no-op placeholder (06a is SQLite-only
+ *    for knowledge): `createCardStore` throws a clear error for non-sqlite
+ *    backends rather than silently no-op'ing.
+ *  - `Card.embed`/`Card.graph` are NOT persisted/indexed here (04/03/06b); they
+ *    round-trip as `undefined` through the SQLite path.
+ */
+
+import { SqliteBackend, runWithTransientRetry } from "./sqlite/sqlite-backend.js";
+import type { Card, CardKind } from "./card.js";
+import type { CardSerializer } from "./card-serializer.js";
+import type { DedupStrategy } from "./dedup-strategy.js";
+import { MemorySerializer } from "./memory-serializer.js";
+import { KnowledgeSerializer } from "./knowledge-serializer.js";
+import { MemoryDedupStrategy } from "./memory-dedup.js";
+import { KnowledgeDedupStrategy } from "./knowledge-dedup.js";
+import { today } from "./memory-format.js";
+
+export interface CardStore {
+  /** Idempotent upsert of one Card through the per-kind dedup strategy.
+   *  `keep` → INSERT; `skip`/`merge` → no-op in 06a (memory `merge` is already
+   *  handled by the existing MemoryStore consolidation path; knowledge `merge`
+   *  is a 06b concern). */
+  upsertCard(card: Card): Promise<void>;
+  /** Fetch the Card whose canonical id (`memories.md_id`) equals `id`, or null. */
+  getCard(id: string): Promise<Card | null>;
+  /** All Cards of one kind (`memories.target` = kind). */
+  getCardsByKind(kind: CardKind): Promise<Card[]>;
+  /** The registered serializer for a kind (spec §7 registry). The 06a SQLite
+   *  path stores `Card.frontmatter` as JSON directly and does not invoke it;
+   *  exposed for the 06b orchestrator's disk-read path. */
+  serializerFor(kind: CardKind): CardSerializer | undefined;
+  /** Close the backing backend (release the SQLite handle). */
+  close(): Promise<void>;
+}
+
+export interface CreateCardStoreOptions {
+  memoryDir: string;
+  /** Backend selector. 06a exercises "sqlite"; "surrealdb" is rejected
+   *  (knowledge persistence on Surreal is a 03/04/06b placeholder). */
+  dbBackend?: "sqlite";
+}
+
+/** Columns the façade reads/maps for a Card. `frontmatter` is the 06a JSON
+ *  envelope (knowledge only; NULL for memory kinds). */
+const CARD_SELECT_COLUMNS = "target, md_id, content, frontmatter";
+
+type CardRow = {
+  target: string;
+  md_id: string | null;
+  content: string;
+  frontmatter: string | null;
+};
+
+/** Map a `memories` row → Card. `frontmatter` JSON is decoded for knowledge
+ *  rows; for memory kinds (NULL in 06a) a minimal envelope keeps the Card
+ *  well-formed — the memory path is read by MemoryStore, not this façade. */
+function rowToCard(row: CardRow): Card {
+  let frontmatter: Record<string, unknown>;
+  if (row.frontmatter) {
+    try {
+      const parsed = JSON.parse(row.frontmatter);
+      frontmatter =
+        parsed !== null && typeof parsed === "object"
+          ? (parsed as Record<string, unknown>)
+          : { id: row.md_id };
+    } catch {
+      frontmatter = { id: row.md_id };
+    }
+  } else {
+    frontmatter = { id: row.md_id };
+  }
+  return {
+    id: row.md_id!,
+    kind: row.target as CardKind,
+    content: row.content,
+    frontmatter,
+  };
+}
+
+export async function createCardStore(options: CreateCardStoreOptions): Promise<CardStore> {
+  const dbBackend = options.dbBackend ?? "sqlite";
+  if (dbBackend !== "sqlite") {
+    throw new Error(
+      `createCardStore (06a) supports only the sqlite backend for knowledge rows (got "${dbBackend}"); ` +
+        "SurrealDB knowledge persistence is a 03/04/06b placeholder.",
+    );
+  }
+
+  // Construct the SQLite backend directly (this IS the existing init path —
+  // `createBackendBundle` for sqlite does exactly `new SqliteBackend(memoryDir)`
+  // + init(), running the same migrations/WAL setup). Constructing directly
+  // gives the concrete handle the knowledge SQL below needs (getDb /
+  // withCorruptionRecovery) without a MemoryConfig or interface narrowing.
+  const backend = new SqliteBackend(options.memoryDir);
+  await backend.init();
+
+  // Per-kind registries (spec §7). One serializer per kind; the memory dedup
+  // strategy is kind-agnostic in logic, so one instance covers memory/user/
+  // failure. The dedup registry IS used by upsertCard; the serializer registry
+  // is exposed via serializerFor (06b's disk-read path consumes it).
+  const serializers = new Map<CardKind, CardSerializer>([
+    ["memory", new MemorySerializer("memory")],
+    ["user", new MemorySerializer("user")],
+    ["failure", new MemorySerializer("failure")],
+    ["knowledge", new KnowledgeSerializer()],
+  ]);
+  const memoryDedup = new MemoryDedupStrategy();
+  const dedupStrategies = new Map<CardKind, DedupStrategy>([
+    ["memory", memoryDedup],
+    ["user", memoryDedup],
+    ["failure", memoryDedup],
+    ["knowledge", new KnowledgeDedupStrategy()],
+  ]);
+
+  const getDb = () => backend.getDb();
+
+  /** Read all Cards of one target kind, wrapped in the same retry/recovery
+   *  envelope as `SqliteMemoryRepository`'s reads. */
+  function fetchCardsByTarget(target: string): Promise<Card[]> {
+    return runWithTransientRetry(() =>
+      backend.withCorruptionRecovery(() => {
+        const rows = getDb()
+          .prepare(
+            `SELECT ${CARD_SELECT_COLUMNS} FROM memories WHERE target = ? AND md_id IS NOT NULL ORDER BY id`,
+          )
+          .all(target) as CardRow[];
+        return rows.map(rowToCard);
+      }),
+    );
+  }
+
+  const store: CardStore = {
+    async upsertCard(card: Card): Promise<void> {
+      const strategy = dedupStrategies.get(card.kind);
+      if (!strategy) {
+        throw new Error(`createCardStore: no dedup strategy registered for kind "${card.kind}"`);
+      }
+      const existing = await fetchCardsByTarget(card.kind);
+      const decision = strategy.dedup(card, existing);
+      // 06a: keep → INSERT; skip/merge → no-op (memory merge is the existing
+      // MemoryStore consolidation path; knowledge merge is 06b).
+      if (decision.action !== "keep") return;
+
+      await runWithTransientRetry(() =>
+        backend.withCorruptionRecovery(() => {
+          if (card.kind !== "knowledge") {
+            // Non-knowledge kinds are not exercised by the 06a acceptance
+            // (memory cards keep their MemoryStore path). Surface a clear error
+            // rather than inventing a memory INSERT that could diverge from the
+            // proven section-md codec.
+            throw new Error(
+              `createCardStore.upsertCard (06a) persists knowledge cards only; kind "${card.kind}" ` +
+                "uses the existing MemoryStore path.",
+            );
+          }
+          // Knowledge row mapping (spec §7): target='knowledge',
+          // md_id=Card.id (the join key), content=Card.content,
+          // frontmatter=JSON envelope. Memory-specific columns (category/
+          // failure_reason/tool_state/corrected_to/supersedes*/mw_*/parent_ids)
+          // are NULL; the NOT NULL columns get their defaults (state='active',
+          // pin=0, status='active', mw_success/mw_fail=0, created/last_referenced
+          // = today).
+          getDb()
+            .prepare(
+              `INSERT INTO memories
+                 (project, target, category, content, failure_reason, tool_state, corrected_to,
+                  created, last_referenced, mw_success, mw_fail, status, md_id, state, severity, pin, frontmatter)
+               VALUES (?, ?, NULL, ?, NULL, NULL, NULL, ?, ?, 0, 0, 'active', ?, 'active', NULL, 0, ?)`,
+            )
+            .run(null, "knowledge", card.content, today(), today(), card.id, JSON.stringify(card.frontmatter));
+        }),
+      );
+    },
+
+    getCard(id: string): Promise<Card | null> {
+      return runWithTransientRetry(() =>
+        backend.withCorruptionRecovery(() => {
+          const row = getDb()
+            .prepare(`SELECT ${CARD_SELECT_COLUMNS} FROM memories WHERE md_id = ? LIMIT 1`)
+            .get(id) as CardRow | undefined;
+          return row && row.md_id !== null ? rowToCard(row) : null;
+        }),
+      );
+    },
+
+    getCardsByKind(kind: CardKind): Promise<Card[]> {
+      return fetchCardsByTarget(kind);
+    },
+
+    serializerFor(kind: CardKind): CardSerializer | undefined {
+      return serializers.get(kind);
+    },
+
+    async close(): Promise<void> {
+      await backend.close();
+    },
+  };
+
+  return store;
+}

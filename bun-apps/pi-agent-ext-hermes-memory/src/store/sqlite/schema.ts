@@ -72,7 +72,7 @@ export const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS memories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project TEXT,
-    target TEXT NOT NULL CHECK (target IN ('memory', 'user', 'failure')),
+    target TEXT NOT NULL CHECK (target IN ('memory', 'user', 'failure', 'knowledge')),
     category TEXT CHECK (category IN ('failure', 'correction', 'insight', 'preference', 'convention', 'tool-quirk')),
     content TEXT NOT NULL,
     failure_reason TEXT,
@@ -89,7 +89,11 @@ export const SCHEMA_SQL = `
     md_id TEXT,
     state TEXT NOT NULL DEFAULT 'active',
     severity INTEGER,
-    pin INTEGER NOT NULL DEFAULT 0
+    pin INTEGER NOT NULL DEFAULT 0,
+    -- 06a (knowledge-pipeline): nullable JSON envelope for kinds whose metadata
+    -- has no dedicated column (knowledge-cards). NULL for memory/user/failure
+    -- rows (their metadata stays in the dedicated columns above, unchanged).
+    frontmatter TEXT
   );
 
   -- FTS5 index for memory search
