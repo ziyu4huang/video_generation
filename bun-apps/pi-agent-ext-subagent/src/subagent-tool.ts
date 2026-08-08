@@ -253,6 +253,45 @@ function describeLastActivity(
   }
 }
 
+/** First non-empty (trimmed) line of a multi-line string; "" if every line is blank. */
+function firstNonEmptyLine(text: string): string {
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line) return line;
+  }
+  return "";
+}
+
+/** Truncate `s` to `max` chars with a trailing ellipsis when it exceeds. */
+function truncateEnd(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
+/**
+ * Collapsed-box live line — the latest history entry as a single `↳ …` line.
+ *  - assistant prose (role "assistant", kind "text", non-empty body) → QUOTED
+ *    first non-empty line (`↳ "…"`, ≤80 chars). The quotes are the visual signal
+ *    that distinguishes "the child is thinking/typing this" from "the child is
+ *    running this tool".
+ *  - anything else → verb-led activity via {@link describeLastActivity}
+ *    (`↳ Reading src/x.ts`). Returns null only for empty history (the caller
+ *    then omits the line entirely).
+ *
+ * Pure render helper — no data-model / compaction change.
+ */
+export function latestMessageLine(history: AgentHistoryEntry[]): string | null {
+  if (history.length === 0) return null;
+  const last = history[history.length - 1];
+  if (last.role === "assistant" && last.kind === "text" && last.text.trim()) {
+    return `↳ "${truncateEnd(firstNonEmptyLine(last.text), 80)}"`;
+  }
+  // Pass matchedCallArgs so a toolResult last recovers its target (mirrors
+  // formatSubagentProgress). describeLastActivity's error branch ignores ctx,
+  // so an error stays verb-led `Failed to …` here (the expanded trace via
+  // formatHistoryLine recovers the target — see formatSubagentTrace tests).
+  return `↳ ${describeLastActivity(last, { matchedCallArgs: matchedCallArgsFor(history, history.length - 1) })}`;
+}
+
 /**
  * Render the latest compact history snapshot as a one/two-line progress update.
  *
@@ -322,6 +361,62 @@ export function formatSubagentLive(
   const window = history.slice(-maxTraceLines);
   const trace = window.map((e, i) => formatHistoryLine(e, { matchedCallArgs: matchedCallArgsFor(window, i) }));
   return trace.length ? `${header}\n${trace.join("\n")}` : header;
+}
+
+/**
+ * Expanded-box live trace — pairs each toolCall with its IMMEDIATELY-following
+ * toolResult into ONE past-tense `✓ <phrase>` line (consuming BOTH entries),
+ * marks a trailing un-paired toolCall as in-flight (`→ <phrase> …`), and
+ * appends COMPACT progress (`<elapsed>s · <N> calls`) to the in-flight line —
+ * or a trailing line when no call is in flight. Interspersed `text` (assistant
+ * prose) and `error` entries render inline via {@link formatHistoryLine}.
+ *
+ * Kept a SEPARATE function from {@link formatSubagentLive}: the INLINE tool
+ * surface (renderSubagentResult's isPartial branch) relies on formatSubagentLive
+ * starting with a 2-line progress header so its COLLAPSED view (`slice(0, 2)`)
+ * stays a clean elapsed/count summary. This pairing pass is the CONTEXT-BOX
+ * expanded trace only — restructured without touching the inline surface's
+ * contract. (`formatHistoryLine` itself stays unchanged so the /subagents
+ * viewer — a separate consumer — is unaffected.)
+ *
+ * Pure render layer — no data-model / compaction change.
+ */
+export function formatSubagentTrace(history: AgentHistoryEntry[], elapsedMs: number, minToolCalls = 0): string {
+  if (history.length === 0) return "";
+  const lines: string[] = [];
+  // Index into `lines` of the in-flight `→ …` entry, if any. In a normal
+  // sequential agent loop there is at most one (the latest un-paired call);
+  // progress attaches there. If several un-paired calls appear (a truncated
+  // mid-stream window), the latest wins as "the" in-flight call.
+  let inFlightIdx = -1;
+  for (let i = 0; i < history.length; i++) {
+    const e = history[i];
+    if (e.kind === "toolCall") {
+      const next = history[i + 1];
+      if (next && next.kind === "toolResult") {
+        // Paired call+result → collapse to ONE past-tense line; consume both.
+        lines.push(`✓ ${formatToolAction(next, { matchedCallArgs: matchedCallArgsFor(history, i + 1) })}`);
+        i++;
+      } else {
+        // Trailing un-paired call → in-flight (present-tense + ellipsis).
+        lines.push(`→ ${formatToolAction(e)} …`);
+        inFlightIdx = lines.length - 1;
+      }
+    } else {
+      // Orphan toolResult (no preceding call in the window), error, or text →
+      // inline via formatHistoryLine (matchedCallArgsFor recovers a target for
+      // an orphan result/error, else verb-only).
+      lines.push(formatHistoryLine(e, { matchedCallArgs: matchedCallArgsFor(history, i) }));
+    }
+  }
+  const toolCalls = Math.max(history.filter((h) => h.kind === "toolCall").length, minToolCalls);
+  const progress = `${(elapsedMs / 1000).toFixed(1)}s · ${toolCalls} call${toolCalls === 1 ? "" : "s"}`;
+  if (inFlightIdx >= 0) {
+    lines[inFlightIdx] = `${lines[inFlightIdx]}   ${progress}`;
+  } else {
+    lines.push(progress);
+  }
+  return lines.join("\n");
 }
 
 /** Theme the call line shown WHILE the subagent runs (pi's spinner conveys activity). */

@@ -15,6 +15,8 @@ import {
   formatSubagentLive,
   formatSubagentProgress,
   formatSubagentResult,
+  formatSubagentTrace,
+  latestMessageLine,
   renderSubagentCall,
   renderSubagentResult,
   taskPreview,
@@ -1281,4 +1283,176 @@ test("formatHistoryLine renders a tool error WITH its target when matchedCallArg
   );
   assert.match(out, /^✗ Failed to edit src\/parser\.ts: oldText not found/);
   assert.ok(out.includes("src/parser.ts"), "surfaces the target the tool acted on");
+});
+
+// ── ticket 1: latestMessageLine (collapsed-box live line) ──
+
+test("latestMessageLine returns null for empty history (caller omits the line)", () => {
+  assert.equal(latestMessageLine([]), null);
+});
+
+test("latestMessageLine: assistant prose last → QUOTED first non-empty line (≤80)", () => {
+  // The quotes are the visual signal distinguishing prose from a tool activity.
+  const out = latestMessageLine([
+    { role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"a.ts"}' },
+    { role: "tool", kind: "toolResult", toolName: "read", text: "x" },
+    { role: "assistant", kind: "text", text: "\n  \nNow checking the tests folder next." },
+  ]);
+  assert.equal(out, '↳ "Now checking the tests folder next."');
+});
+
+test("latestMessageLine: prose uses the first NON-empty line (skips blank leaders)", () => {
+  const out = latestMessageLine([{ role: "assistant", kind: "text", text: "\n   \nFirst real line.\nsecond line." }]);
+  assert.equal(out, '↳ "First real line."');
+});
+
+test("latestMessageLine: prose longer than 80 chars is ellipsized", () => {
+  const long = "A".repeat(120);
+  const out = latestMessageLine([{ role: "assistant", kind: "text", text: long }]);
+  // 79 chars + ellipsis, wrapped in quotes.
+  assert.match(out, /^↳ "A{79}…"$/);
+});
+
+test("latestMessageLine: a toolCall last → verb-led PRESENT activity (no quotes)", () => {
+  const out = latestMessageLine([
+    { role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"src/foo.ts"}' },
+  ]);
+  assert.equal(out, "↳ Reading src/foo.ts");
+});
+
+test("latestMessageLine: a toolResult last → verb-led PAST activity (no quotes)", () => {
+  const out = latestMessageLine([
+    { role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"src/foo.ts"}' },
+    { role: "tool", kind: "toolResult", toolName: "read", text: "export const x = 1;" },
+  ]);
+  assert.equal(out, "↳ Read src/foo.ts");
+});
+
+test("latestMessageLine: an error last → the failure phrase (verb-led via describeLastActivity)", () => {
+  const out = latestMessageLine([
+    { role: "assistant", kind: "toolCall", toolName: "edit", text: '{"path":"src/p.ts"}' },
+    { role: "tool", kind: "error", toolName: "edit", text: "oldText not found", isError: true },
+  ]);
+  // describeLastActivity's error branch delegates to formatToolAction(error) — a
+  // verb-led `Failed to …` phrase. The target is NOT recovered here (the
+  // expanded trace via formatHistoryLine does recover it — see formatSubagentTrace
+  // tests); the collapsed line is a compact verb-led summary.
+  assert.match(out, /^↳ Failed to edit: oldText not found/);
+});
+
+test("latestMessageLine: a whole-turn assistant error last → the `⚠ …` phrase", () => {
+  const out = latestMessageLine([{ role: "assistant", kind: "error", text: "model overloaded", isError: true }]);
+  assert.equal(out, "↳ ⚠ model overloaded");
+});
+
+test("latestMessageLine: assistant text that is blank/whitespace falls back to activity", () => {
+  // An assistant text entry whose body is all whitespace is NOT prose — fall
+  // through to the verb-led activity branch (describeLastActivity(text) → first
+  // line ≤60, which is "" here; formatToolAction would say `…thinking`, but
+  // describeLastActivity slices the raw first line). This guards the trim() gate.
+  const out = latestMessageLine([
+    { role: "assistant", kind: "toolCall", toolName: "grep", text: '{"pattern":"foo"}' },
+    { role: "assistant", kind: "text", text: "   \n  " },
+  ]);
+  assert.ok(!out?.startsWith('↳ "'), "blank prose is not quoted");
+});
+
+// ── ticket 2: formatSubagentTrace (expanded-box grouped trace) ──
+
+test("formatSubagentTrace: empty history → empty string", () => {
+  assert.equal(formatSubagentTrace([], 1000), "");
+});
+
+test("formatSubagentTrace: a paired call+result collapses to ONE past-tense `✓` line (right target)", () => {
+  const out = formatSubagentTrace(
+    [
+      { role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"src/foo.ts"}' },
+      { role: "tool", kind: "toolResult", toolName: "read", text: "export const x = 1;" },
+    ],
+    2100,
+  );
+  const lines = out.split("\n");
+  assert.equal(lines.length, 2, "one past-tense line + one trailing progress line (no in-flight call)");
+  assert.match(lines[0], /^✓ Read src\/foo\.ts$/, "call+result collapse to one past-tense line with the right target");
+  assert.match(lines[1], /^2\.1s · 1 call$/, "trailing progress line when no call is in flight");
+});
+
+test("formatSubagentTrace: a trailing un-paired toolCall is in-flight (`→ …`) with progress on the same line", () => {
+  const out = formatSubagentTrace(
+    [{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"src/baz.ts"}' }],
+    2100,
+  );
+  const lines = out.split("\n");
+  assert.equal(lines.length, 1, "a single in-flight line carries the progress (no trailing line)");
+  assert.match(
+    lines[0],
+    /^→ Reading src\/baz\.ts … {3}2\.1s · 1 call$/,
+    "in-flight marker + ellipsis + compact progress on one line",
+  );
+});
+
+test("formatSubagentTrace: interspersed assistant prose renders inline between pairs", () => {
+  const out = formatSubagentTrace(
+    [
+      { role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"a.ts"}' },
+      { role: "tool", kind: "toolResult", toolName: "read", text: "x" },
+      { role: "assistant", kind: "text", text: "Looks good, moving on." },
+      { role: "assistant", kind: "toolCall", toolName: "grep", text: '{"pattern":"TODO"}' },
+      { role: "tool", kind: "toolResult", toolName: "grep", text: "3 hits" },
+    ],
+    0,
+  );
+  const lines = out.split("\n");
+  assert.match(lines[0], /^✓ Read a\.ts$/, "first pair collapsed");
+  assert.equal(lines[1], "Looks good, moving on.", "prose rendered inline");
+  assert.match(lines[2], /^✓ Searched for "TODO"$/, "second pair collapsed with its own target");
+  assert.match(lines[3], /^0\.0s · 2 calls$/, "trailing progress (no in-flight call)");
+});
+
+test("formatSubagentTrace: an error entry renders inline via formatHistoryLine", () => {
+  const out = formatSubagentTrace(
+    [
+      { role: "assistant", kind: "toolCall", toolName: "edit", text: '{"path":"src/p.ts"}' },
+      { role: "tool", kind: "error", toolName: "edit", text: "oldText not found", isError: true },
+    ],
+    500,
+  );
+  const lines = out.split("\n");
+  // The error is NOT a toolResult, so the call does NOT pair with it — the call
+  // stays in-flight (carrying progress on its line) and the error renders as a
+  // separate inline line via formatHistoryLine (`✗ Failed to …`).
+  assert.match(lines[0], /^→ Editing src\/p\.ts … {3}0\.5s · 1 call$/, "the un-paired call is in-flight with progress");
+  assert.match(lines[1], /^✗ Failed to edit src\/p\.ts: oldText not found/, "error inline via formatHistoryLine");
+});
+
+test("formatSubagentTrace: an ORPHAN result (no preceding call in the window) renders inline (verb-only past)", () => {
+  const out = formatSubagentTrace([{ role: "tool", kind: "toolResult", toolName: "read", text: "orphan contents" }], 0);
+  const lines = out.split("\n");
+  assert.match(lines[0], /^✓ Read$/, "orphan result → verb-only past via formatHistoryLine");
+  assert.match(lines[1], /^0\.0s · 0 calls$/, "trailing progress");
+});
+
+test("formatSubagentTrace: two CONSECUTIVE un-paired calls → both in-flight; the latest carries progress", () => {
+  // A truncated mid-stream window can show two calls before any result. The
+  // latest wins as "the" in-flight call (progress attaches there); the earlier
+  // one stays a bare `→ …`.
+  const out = formatSubagentTrace(
+    [
+      { role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"a.ts"}' },
+      { role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"b.ts"}' },
+    ],
+    3000,
+  );
+  const lines = out.split("\n");
+  assert.match(lines[0], /^→ Reading a\.ts …$/, "earlier un-paired call is a bare in-flight line (no progress)");
+  assert.match(lines[1], /^→ Reading b\.ts … {3}3\.0s · 2 calls$/, "latest un-paired call carries the progress");
+});
+
+test("formatSubagentTrace: minToolCalls floors the displayed count", () => {
+  const out = formatSubagentTrace(
+    [{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"a.ts"}' }],
+    0,
+    3,
+  );
+  assert.match(out, /3 calls/, "floor wins when history reports fewer calls");
 });

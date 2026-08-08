@@ -4,8 +4,9 @@
  * shown inline by Surface A (the registering tool's own call/result line in the
  * CURRENT turn). Background/concurrent runs register with `foreground: false`;
  * this box filters to those and renders Surface A's rich header format
- * (reusing `renderSubagentCall` / `formatSubagentLive`), collapsed to the header
- * line by default. Foreground runs (foreground: true — the current turn's
+ * (reusing `renderSubagentCall` / the context-box trace helpers), collapsed to
+ * the header + latest single activity line by default. Foreground runs
+ * (foreground: true — the current turn's
  * `subagent` / `subagents` calls, rendered inline by their
  * ToolExecutionComponent) are EXCLUDED so the two surfaces never duplicate.
  *
@@ -27,7 +28,7 @@
  */
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { InFlightSubagent, SubagentInFlightRegistry } from "./index.js";
-import { formatSubagentLive, renderSubagentCall } from "./subagent-tool.js";
+import { formatSubagentTrace, latestMessageLine, renderSubagentCall } from "./subagent-tool.js";
 
 export interface SubagentContextWidgetOpts {
   /** Live source of in-flight runs (defaults to `registry.list()` at the wiring site). */
@@ -107,10 +108,12 @@ export class SubagentContextWidget {
     return lines;
   }
 
-  /** One run = a rich header line (collapsed), or header + live trace (expanded).
-   *  The header reuses Surface A's `renderSubagentCall`; the trace reuses
-   *  `formatSubagentLive` — the SAME formatting helpers as the inline surface,
-   *  just a different render slot. */
+  /** One run = a rich header line (collapsed: header + latest single activity
+   *  line), or header + grouped live trace (expanded). The header reuses Surface
+   *  A's `renderSubagentCall`; the collapsed latest-line uses `latestMessageLine`
+   *  (prose-else-activity); the expanded trace uses `formatSubagentTrace` (paired
+   *  call/result → one `✓`, in-flight `→ …`). `formatSubagentLive` stays the
+   *  INLINE tool surface's payload (its 2-line header contract is untouched). */
   private renderRun(r: InFlightSubagent, theme: Theme): string[] {
     // Workflow runs (decision 03 = b2) register into the same registry so they
     // surface here and in /subagents. They don't fit the subagent-shaped
@@ -130,15 +133,25 @@ export class SubagentContextWidget {
       theme,
     );
     const history = r.history;
-    if (!this.expanded || !history || history.length === 0) {
+    if (!history || history.length === 0) {
       return [`${INDENT}${header}`];
     }
-    // minToolCalls floors the displayed count so a snapshot never visibly
-    // regresses (mirrors the singular tool's running-max). The box polls (no
-    // per-run running max), so the floor is the current count itself.
+    if (!this.expanded) {
+      // Collapsed: the rich header + ONE latest activity/prose line (so the
+      // user sees what the child is doing RIGHT NOW without expanding). Prose
+      // (assistant text) renders QUOTED to distinguish it from a tool activity.
+      const lines = [`${INDENT}${header}`];
+      const live = latestMessageLine(history);
+      if (live) lines.push(`${INDENT}${INDENT}${live}`);
+      return lines;
+    }
+    // Expanded: paired call/result → one past-tense `✓`; trailing un-paired
+    // call → in-flight `→ …`; compact progress on the in-flight line (else a
+    // trailing line). minToolCalls floors the count so a snapshot never visibly
+    // regresses (the box polls, so the floor is the current count itself).
     const minToolCalls = history.filter((h) => h.kind === "toolCall").length;
-    const live = formatSubagentLive(history, Date.now() - r.startedAt, minToolCalls);
-    return [`${INDENT}${header}`, ...live.split("\n").map((l) => `${INDENT}${INDENT}${l}`)];
+    const trace = formatSubagentTrace(history, Date.now() - r.startedAt, minToolCalls);
+    return [`${INDENT}${header}`, ...trace.split("\n").map((l) => `${INDENT}${INDENT}${l}`)];
   }
 
   invalidate(): void {
