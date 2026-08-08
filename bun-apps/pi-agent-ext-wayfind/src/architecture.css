@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/* Only emit utilities that literally appear in the converter template → deterministic build. */
+@source "./architecture-render.ts";
+
+@layer components {
+  .legend {
+    @apply flex flex-wrap gap-3.5 text-xs uppercase tracking-wider text-slate-600 border-b border-stone-200 pb-4 mb-8;
+  }
+  .card {
+    @apply bg-white border border-stone-200 rounded-2xl overflow-hidden shadow-sm;
+  }
+  .card[data-strength="emerald"] {
+    @apply border-l-[5px] border-l-emerald-600;
+  }
+  .card[data-strength="amber"] {
+    @apply border-l-[5px] border-l-amber-600;
+  }
+  .card[data-strength="slate"] {
+    @apply border-l-[5px] border-l-slate-500;
+  }
+  .badge {
+    @apply text-[0.7rem] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap;
+  }
+  .badge\.emerald {
+    @apply bg-emerald-50 text-emerald-600 border border-emerald-200;
+  }
+  .badge\.amber {
+    @apply bg-amber-50 text-amber-600 border border-amber-200;
+  }
+  .badge\.slate {
+    @apply bg-slate-50 text-slate-600 border border-stone-300;
+  }
+  .before-after {
+    @apply grid grid-cols-2 gap-4 my-2;
+  }
+  .diagram {
+    @apply bg-stone-50 border border-stone-200 rounded-xl p-2.5 flex flex-col min-w-0;
+  }
+  .cap {
+    @apply text-[0.72rem] font-bold uppercase tracking-wider text-slate-600 my-1;
+  }
+  .ascii {
+    @apply m-0 bg-transparent overflow-auto font-mono text-[0.74rem] leading-snug text-slate-800 whitespace-pre;
+  }
+  .mermaid {
+    @apply m-0 bg-transparent text-center;
+  }
+  .adr {
+    @apply bg-amber-50 border border-amber-200 rounded-lg px-3.5 py-2.5 text-sm text-amber-800 mt-1.5;
+  }
+  .top {
+    @apply mt-10 bg-slate-900 text-stone-50 rounded-2xl p-7;
+  }
+}
