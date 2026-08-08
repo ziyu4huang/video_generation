@@ -44,6 +44,11 @@ export interface SubagentRunRecord {
   task: string;
   /** Resolved model (provider/id), or the requested display string. */
   model: string;
+  /** The originally-requested model spec, when resolution fell back to a
+   *  different model. Absent when resolution succeeded normally. */
+  requestedModel?: string;
+  /** True when model resolution fell back to a different model. */
+  fellBack?: boolean;
   /** Requested tier, if any. */
   tier?: string;
   /** Working directory of the run (for future viewer scoping). */

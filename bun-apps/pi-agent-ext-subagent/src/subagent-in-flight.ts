@@ -23,6 +23,11 @@ export interface InFlightSubagent {
   /** Concrete provider/id once the child resolves its model (onModelResolved).
    * Undefined until resolution — the call line shows tier/model-request until then. */
   resolvedModel?: string;
+  /** The originally-requested model spec (before resolution). Set when the
+   *  resolution fell back to a different model (markFallback). */
+  requestedModel?: string;
+  /** True when the model resolution fell back to a different model than requested. */
+  fellBack?: boolean;
   /** The batch tool's own toolCallId, set on every child of a `subagents` batch so
    *  the /subagents viewer can group them under one header. Undefined for singular
    *  `subagent` dispatches (flat, ungrouped) and workflow agents. */
@@ -91,6 +96,18 @@ export class SubagentInFlightRegistry {
     const r = this.runs.get(id);
     if (!r) return;
     r.resolvedModel = model;
+    r.invalidate?.();
+  }
+
+  /** Mark a run as having fallen back to a different model than requested.
+   *  Sets `requestedModel` + `fellBack` on the entry without touching
+   *  `resolvedModel` (that is still set by `updateModel` when the actual
+   *  model is known). No-op after end(). */
+  markFallback(id: string, requestedModel: string): void {
+    const r = this.runs.get(id);
+    if (!r) return;
+    r.requestedModel = requestedModel;
+    r.fellBack = true;
     r.invalidate?.();
   }
 

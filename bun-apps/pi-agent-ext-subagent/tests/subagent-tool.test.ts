@@ -1512,3 +1512,116 @@ test("formatSubagentTrace: minToolCalls floors the displayed count", () => {
   );
   assert.match(out, /3 calls/, "floor wins when history reports fewer calls");
 });
+
+// ── ticket 03: model-fallback display + audit fields ──
+
+test("renderSubagentCall with fellBack:true adds → fallback indicator", () => {
+  const out = renderSubagentCall(
+    {
+      agent: "implementer",
+      model: "anthropic/claude-opus-4-1",
+      task: "do the thing",
+      resolvedModel: "zai/glm-5.2",
+      fellBack: true,
+    },
+    T,
+  );
+  // Both the requested and actual models are present
+  assert.ok(String(out).includes("anthropic/claude-opus-4-1"), "requested model still visible");
+  assert.ok(String(out).includes("zai/glm-5.2"), "actual model shown");
+  // The fallback indicator (→) appears before the actual model
+  assert.match(String(out), /→ zai\/glm-5\.2/);
+});
+
+test("renderSubagentCall with fellBack:false renders normally (no → prefix)", () => {
+  const out = renderSubagentCall(
+    {
+      agent: "scout",
+      tier: "small",
+      task: "x",
+      resolvedModel: "google/gemma-4-12b-qat",
+      fellBack: false,
+    },
+    T,
+  );
+  // The resolved model segment is plain (no fallback indicator)
+  assert.ok(String(out).includes("google/gemma-4-12b-qat"));
+  assert.doesNotMatch(String(out), /→ google/);
+});
+
+test("renderSubagentCall with fellBack omitted (backward-compat) renders normally", () => {
+  const out = renderSubagentCall(
+    { agent: "auditor", tier: "medium", task: "x", resolvedModel: "google/gemma-4-12b-qat" },
+    T,
+  );
+  assert.ok(String(out).includes("google/gemma-4-12b-qat"));
+  assert.doesNotMatch(String(out), /→ google/);
+});
+
+test("execute with model fallback → details.requestedModel + fellBack set", async () => {
+  const f = fakeSpawn((opts) => {
+    // Simulate fallback: onModelFallback fires first, then onModelResolved with actual
+    opts.onModelFallback?.("anthropic/claude-opus-4-1");
+    opts.onModelResolved?.("zai/glm-5.2");
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  });
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const res = await tool.execute(
+    "id",
+    { task: "t", model: "anthropic/claude-opus-4-1" },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(res.details.model, "zai/glm-5.2", "model = ACTUAL (what ran)");
+  assert.equal(res.details.requestedModel, "anthropic/claude-opus-4-1", "requestedModel = the spec that fell back");
+  assert.equal(res.details.fellBack, true);
+});
+
+test("execute with normal resolution (no fallback) → no audit fields", async () => {
+  const f = fakeSpawn((opts) => {
+    // Normal resolution: onModelResolved fires without onModelFallback
+    opts.onModelResolved?.("anthropic/claude-sonnet-4");
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  });
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const res = await tool.execute(
+    "id",
+    { task: "t", model: "anthropic/claude-sonnet-4" },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(res.details.model, "anthropic/claude-sonnet-4");
+  assert.equal(res.details.requestedModel, undefined, "requestedModel absent when no fallback");
+  assert.equal(res.details.fellBack, undefined, "fellBack absent when no fallback");
+});
+
+test("execute persists requestedModel + fellBack on fallback", async () => {
+  const { saved, persistence } = fakePersistence();
+  const f = fakeSpawn((opts) => {
+    opts.onModelFallback?.("anthropic/claude-opus-4-1");
+    opts.onModelResolved?.("zai/glm-5.2");
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  });
+  const tool = createSubagentTool({ spawn: f.spawn, persistence });
+  await tool.execute("id", { task: "t", model: "anthropic/claude-opus-4-1" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].model, "zai/glm-5.2", "persisted model = actual");
+  assert.equal(saved[0].requestedModel, "anthropic/claude-opus-4-1", "persisted requestedModel = audit trace");
+  assert.equal(saved[0].fellBack, true);
+});
+
+test("execute with normal resolution → persistence omits audit fields", async () => {
+  const { saved, persistence } = fakePersistence();
+  const f = fakeSpawn((opts) => {
+    opts.onModelResolved?.("anthropic/claude-sonnet-4");
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  });
+  const tool = createSubagentTool({ spawn: f.spawn, persistence });
+  await tool.execute("id", { task: "t", model: "anthropic/claude-sonnet-4" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].model, "anthropic/claude-sonnet-4");
+  assert.equal(saved[0].requestedModel, undefined, "requestedModel absent when no fallback");
+  assert.equal(saved[0].fellBack, undefined, "fellBack absent when no fallback");
+});
