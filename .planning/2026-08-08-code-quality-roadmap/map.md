@@ -34,12 +34,11 @@ Ship the code-quality skill deliverables B–D as globally-auto-invocable skills
 - [E parked] — context-management/handover sequenced after A–D.
 - [ask-user TUI language hardening shipped] — unrelated detour, PR #1086 (askUserLanguage setting).
 - [01 placement: all B/C/D → wayfind](tickets/01-placement-home-for-code-quality-skills.md) — consolidate alongside codebase-design; no new package.
+- [02 next deliverable: B (code-review), Matt-Pocock-adapted](tickets/02-next-deliverable-scope-and-source.md) — description-based auto-invocability; transition to Superpowers brainstorm for B.
 
 ## Not yet specified
 
-- Exact content/sourcing for B/C/D: Matt-Pocock-derived (e.g. his `requesting-code-review` / `code-reviewer.md`) vs pi-original vs hybrid.
-- B's auto-invocability mechanism: description-based (like codebase-design) vs invocation-only (like grill-me-with-docs).
-- Whether C/D warrant a new dedicated `pi-agent-ext-design` package (cleaner separation) vs consolidating into wayfind.
+- C/D content sourcing (Matt-Pocock vs pi-original vs hybrid) — TBD when each ships (B chose Matt-Pocock-adapt).
 
 ## Out of scope
 
