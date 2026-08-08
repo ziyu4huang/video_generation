@@ -1,6 +1,6 @@
 ---
 type: grilling
-status: open
+status: closed
 blocked by:
 ---
 # 11 — Core-interface package (typed cross-extension contracts)
