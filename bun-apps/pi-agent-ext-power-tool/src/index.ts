@@ -1256,16 +1256,28 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   // After each call, surface a non-invasive status warning if a HIGH-severity
   // loop / consecutive-error is active (Phase 1.1). session_start resets
   // per-session state (diagnostics are self-contained).
-  pi.on("tool_execution_start", recordCallStart);
+  //
+  // All accumulator ops are keyed by ctx.sessionManager.getSessionId() (UUIDv7,
+  // distinct per SessionManager) so an in-process subagent child — same process,
+  // skips session_start — gets its OWN buffer instead of polluting the parent's.
+  // ctx-less callers (absent ctx/sessionManager) fall back to the "" bucket.
+  // Optimization #3 / ticket #16, stage 1.
+  pi.on("tool_execution_start", (e, ctx) => recordCallStart(e, ctx?.sessionManager?.getSessionId()));
   pi.on("tool_execution_end", (event, ctx) => {
-    recordCallEnd(event);
-    surfacePathologyWarning(ctx, getCalls());
+    const sid = ctx?.sessionManager?.getSessionId();
+    recordCallEnd(event, sid);
+    surfacePathologyWarning(ctx, getCalls(sid));
   });
-  pi.on("turn_end", recordTurnEnd);
-  pi.on("session_start", () => {
-    resetAccumulator();
+  pi.on("turn_end", (e, ctx) => recordTurnEnd(e, ctx?.sessionManager?.getSessionId()));
+  pi.on("session_start", (_e, ctx) => {
+    resetAccumulator(ctx?.sessionManager?.getSessionId());
     resetWarning();
   });
+  // Delete this session's pathology bucket on shutdown so the Map doesn't grow
+  // unbounded across many sessions in one process. (In-process children that
+  // skip session_start also skip session_shutdown, but their buckets are tiny
+  // and process-lifetime-bounded; keying already isolates them from the parent.)
+  pi.on("session_shutdown", (_e, ctx) => resetAccumulator(ctx?.sessionManager?.getSessionId()));
 };
 
 export default extension;
