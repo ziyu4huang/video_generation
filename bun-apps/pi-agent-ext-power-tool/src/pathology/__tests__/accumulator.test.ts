@@ -69,3 +69,55 @@ describe("accumulator — turn counting (v2)", () => {
     expect(getTurnCount()).toBeNull();
   });
 });
+
+describe("accumulator — session isolation (optimization #3 / ticket #16)", () => {
+  beforeEach(() => resetAccumulator());
+
+  test("#3 accumulator isolated per sessionId (parent vs in-process child)", () => {
+    const parentSid = "parent-uuid";
+    const childSid = "child-uuid";
+    resetAccumulator(); // clear all buckets
+
+    // Parent records a call.
+    recordCallStart({ toolCallId: "p1", toolName: "bash", args: { command: "x" } }, parentSid);
+    recordCallEnd({ toolCallId: "p1", toolName: "bash", result: "ok", isError: false }, parentSid);
+    // Child records a different call.
+    recordCallStart({ toolCallId: "c1", toolName: "read", args: { path: "y" } }, childSid);
+    recordCallEnd({ toolCallId: "c1", toolName: "read", result: "ok", isError: false }, childSid);
+
+    // Independent buffers — child did not pollute the parent (the ticket #16 bug).
+    expect(getCalls(parentSid)).toHaveLength(1);
+    expect(getCalls(parentSid)[0].toolName).toBe("bash");
+    expect(getCalls(childSid)).toHaveLength(1);
+    expect(getCalls(childSid)[0].toolName).toBe("read");
+
+    // Resetting the child does NOT touch the parent.
+    resetAccumulator(childSid);
+    expect(getCalls(childSid)).toHaveLength(0);
+    expect(getCalls(parentSid)).toHaveLength(1);
+
+    // A no-sid caller hits the "" fallback bucket (legacy) and does NOT touch a
+    // named bucket — so ctx-less code paths can never crosstalk with a session.
+    recordCallStart({ toolCallId: "n1", toolName: "edit", args: {} });
+    expect(getCalls()).toHaveLength(1);
+    expect(getCalls(parentSid)).toHaveLength(1);
+  });
+
+  test("turnCount is isolated per sessionId", () => {
+    const parentSid = "parent-uuid";
+    const childSid = "child-uuid";
+    resetAccumulator();
+
+    recordTurnEnd({ turnIndex: 2 }, parentSid);
+    expect(getTurnCount(parentSid)).toBe(3);
+    // Child never saw a turn_end — null, not the parent's count.
+    expect(getTurnCount(childSid)).toBeNull();
+    // A never-seen sid is also null (empty bucket).
+    expect(getTurnCount("never-seen")).toBeNull();
+
+    // Child's turn doesn't move the parent's count.
+    recordTurnEnd({ turnIndex: 0 }, childSid);
+    expect(getTurnCount(childSid)).toBe(1);
+    expect(getTurnCount(parentSid)).toBe(3);
+  });
+});

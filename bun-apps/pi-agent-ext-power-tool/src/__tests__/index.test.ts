@@ -149,6 +149,9 @@ const BASE_CTX = {
   hasUI: false,
   isIdle: () => true,
   isProjectTrusted: () => true,
+  // Non-optional on the real ExtensionContext; the inspect_pathology tool keys
+  // its accumulator read by session id (optimization #3 / ticket #16).
+  sessionManager: { getSessionId: () => "test-session" },
   getContextUsage: () => ({ tokens: 1000, contextWindow: 200000, percent: 0.5 }),
   getSystemPrompt: () => "x".repeat(1000),
   getSystemPromptOptions: () => buildSnapshotOpts(),
