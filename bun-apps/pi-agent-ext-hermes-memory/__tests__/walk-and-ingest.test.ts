@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { publishSeam, type KnowledgePipeline } from "@repo/pi-agent-ext-core-interface";
 import { walkAndIngest } from "../src/walk-and-ingest.js";
+import { createCardStore } from "../src/store/card-store.js";
 
 const KEY = "__piKnowledgePipeline";
 const FOLDER = "Zettelkasten/knowledge-graph";
@@ -20,7 +21,23 @@ function makeStubPipeline(): KnowledgePipeline {
       mkdirSync(dir, { recursive: true });
       const cards = records.map((r) => {
         const slug = r.id.replace(/[^A-Za-z0-9._-]+/g, "-").toLowerCase();
-        writeFileSync(join(dir, `${slug}.md`), `---\nid: ${r.id}\ntitle: ${r.title}\n---\n# ${r.title}\n`);
+        // Emit VALID zettel vault-md (the shape zk's renderCard produces) so the
+        // 06a KnowledgeSerializer accepts it in the DB-mirror step (task 5).
+        const recordTags = Array.isArray(r.tags) ? r.tags.filter((t) => t !== "zettel") : [];
+        const fmTags = ["zettel", ...recordTags];
+        const body = [
+          "---",
+          `id: ${r.id}`,
+          "created: 2026-01-01",
+          `tags: [${fmTags.join(", ")}]`,
+          "---",
+          `# ${r.title}`,
+          "",
+          "## 核心想法",
+          r.detail || r.title,
+          "",
+        ].join("\n");
+        writeFileSync(join(dir, `${slug}.md`), body + "\n");
         return { id: r.id, path: `${opts.folder}/${slug}.md`, status: "created", links: 0 };
       });
       return {
@@ -100,6 +117,53 @@ describe("walkAndIngest (orchestrator: walk → adapt → ingest → heal)", () 
     assert.equal(receipt.seamPresent, false);
     assert.match(receipt.reason ?? "", /seam not present/i);
     assert.equal(receipt.mirrored, 0);
+  });
+
+  it("DB-mirrors vault-md into the unified card-store (idempotent, single dedup site)", async () => {
+    const jsonl = [
+      '{"id":"r1","type":"lever","title":"Rec One","detail":"d1","tags":["a"],"dimension":null,"confidence":1,"status":"active","superseded_by":null}',
+      '{"id":"r2","type":"gotcha","title":"Rec Two","detail":"d2","tags":["b"],"dimension":null,"confidence":1,"status":"active","superseded_by":null}',
+      '{"id":"r3","type":"pattern","title":"Rec Three","detail":"d3","tags":["c"],"dimension":null,"confidence":1,"status":"active","superseded_by":null}',
+    ].join("\n");
+    writeFileSync(join(inputDir, "run.knowledge.jsonl"), jsonl);
+    publishSeam(KEY, makeStubPipeline());
+    // Reuse the SAME SQLite DB the memory-cards use (06a unified store). The
+    // mirror opens createCardStore({memoryDir}) against a temp memory dir here;
+    // in production this resolves to the existing hermes memory DB dir (NOT the
+    // obsidian vault — no <vault>/.knowledge-db).
+    const memDir = mkdtempSync(join(tmpdir(), "kvi-mem-"));
+    try {
+      const r1 = await walkAndIngest(inputDir, { memoryDir: memDir });
+      assert.equal(r1.ok, true);
+      assert.ok(r1.mirrored >= 3, `mirrored ≥3 vault-md cards (got ${r1.mirrored})`);
+
+      // The DB mirror holds the cards — ids match the vault-md knowledge-cards.
+      const store1 = await createCardStore({ memoryDir: memDir });
+      try {
+        const cards = await store1.getCardsByKind("knowledge");
+        assert.ok(cards.length >= 3, `≥3 knowledge rows in the unified store (got ${cards.length})`);
+        const ids = new Set(cards.map((c) => c.id));
+        assert.ok(ids.has("r1") && ids.has("r2") && ids.has("r3"), "ids r1/r2/r3 mirrored");
+        for (const c of cards) assert.equal(c.kind, "knowledge");
+      } finally {
+        await store1.close();
+      }
+
+      // Re-running walkAndIngest on the same input is IDEMPOTENT: the vault-md
+      // corpus is unchanged → KnowledgeDedupStrategy (id-upsert) yields ZERO new
+      // rows. mirrored is stable; the row count does not double.
+      const r2 = await walkAndIngest(inputDir, { memoryDir: memDir });
+      assert.equal(r2.mirrored, r1.mirrored, "mirrored stable on re-run");
+      const store2 = await createCardStore({ memoryDir: memDir });
+      try {
+        const cards2 = await store2.getCardsByKind("knowledge");
+        assert.equal(cards2.length, 3, "exactly 3 rows after re-run (no duplicates)");
+      } finally {
+        await store2.close();
+      }
+    } finally {
+      rmSync(memDir, { recursive: true, force: true });
+    }
   });
 
   it("reports generic family as detected-but-deferred (not ingested)", async () => {

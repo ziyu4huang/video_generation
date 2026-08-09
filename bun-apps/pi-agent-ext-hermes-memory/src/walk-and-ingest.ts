@@ -1,9 +1,12 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import type { IngestSummary, HealReceipt, LinkWeighting } from "@repo/pi-agent-ext-core-interface";
 import { getKnowledgePipeline } from "./knowledge-pipeline-seam.js";
 import { resolveKnowledgeVaultPath, KNOWLEDGE_FOLDER_DEFAULT, KNOWLEDGE_MOC_DEFAULT } from "./knowledge-vault-path.js";
 import { walkKnowledgeSources, type WalkOptions } from "./knowledge-walk.js";
 import { parseKnowledgeJsonl } from "./knowledge-jsonl.js";
+import { AGENT_ROOT } from "./paths.js";
+import { createCardStore } from "./store/card-store.js";
 
 /** Options for walkAndIngest. Extends the walk policy opts with ingest/heal scope. */
 export interface WalkAndIngestOptions extends WalkOptions {
@@ -19,6 +22,12 @@ export interface WalkAndIngestOptions extends WalkOptions {
   wikiAware?: boolean;
   /** Link ranking weighting. */
   linkWeighting?: LinkWeighting;
+  /** The SQLite memory dir backing the 06a unified card-store (the SAME DB the
+   *  memory-cards use). Defaults to the existing hermes memory DB dir
+   *  (`<AGENT_ROOT>/pi-hermes-memory`) — NEVER inside the obsidian vault. The
+   *  mirror opens createCardStore({memoryDir}) against this dir so knowledge
+   *  rows land in the same `sessions.db` the memory-cards use. */
+  memoryDir?: string;
 }
 
 /** Receipt for a walkAndIngest run. mirrored + driftStub are placeholders in
@@ -100,7 +109,16 @@ export async function walkAndIngest(
   // 7. Heal (leaf, once). hermes decides WHEN; zk provides the primitive.
   const heal = await kp.healGraph({ vaultPath, folder, mocPath });
 
-  // 8 (DB-mirror) + 9 (drift stub) land in tasks 5/7. Placeholders for now.
+  // 8. DB-mirror (single dedup site, Decision 4). Read <vaultPath>/<folder>/*.md
+  // → KnowledgeSerializer.deserialize → card-store.upsertCard (knowledge kind).
+  // The store IS the 06a unified card-store — the SAME SQLite DB the memory-cards
+  // use (kind-dispatched; a separate knowledge store would defeat 06a). The DB
+  // dir is the existing hermes memory DB dir (`<AGENT_ROOT>/pi-hermes-memory`),
+  // NEVER inside the obsidian vault. Re-mirror is idempotent via
+  // KnowledgeDedupStrategy (id-upsert). Hermes READS vault-md; it does NOT write it.
+  const mirrored = await mirrorVaultMdToStore(vaultPath, folder, opts.memoryDir);
+
+  // 9 (drift stub) lands in task 7.
 
   // 10. Receipt.
   return {
@@ -109,9 +127,52 @@ export async function walkAndIngest(
     folder,
     ingest,
     heal,
-    mirrored: 0,
+    mirrored,
     driftStub: { filesHashed: 0 },
     skipped: walk.skipped,
     seamPresent: true,
   };
+}
+
+/** Mirror step 8 (Decision 4): read `<vaultPath>/<folder>/*.md` → deserialize
+ *  via the store's knowledge serializer (the 06a registry) → upsertCard. The
+ *  store reuses the SAME SQLite DB the memory-cards use (`<memoryDir>/sessions.db`);
+ *  `memoryDir` defaults to the existing hermes memory DB dir, NEVER inside the
+ *  vault. Returns the # of deserialized knowledge cards pushed through the
+ *  single dedup site. Idempotent: re-mirroring an unchanged corpus yields zero
+ *  new rows (KnowledgeDedupStrategy = id-upsert). */
+async function mirrorVaultMdToStore(vaultPath: string, folder: string, memoryDir?: string): Promise<number> {
+  const dir = memoryDir ?? join(AGENT_ROOT, "pi-hermes-memory");
+  const store = await createCardStore({ memoryDir: dir });
+  let mirrored = 0;
+  try {
+    const serializer = store.serializerFor("knowledge");
+    const folderDir = join(vaultPath, folder);
+    let mdFiles: string[] = [];
+    try {
+      mdFiles = readdirSync(folderDir).filter((n) => n.endsWith(".md")).sort();
+    } catch {
+      // Folder absent (no cards written) → mirror is a no-op.
+      return 0;
+    }
+    for (const name of mdFiles) {
+      const abs = join(folderDir, name);
+      let bytes = "";
+      try {
+        bytes = readFileSync(abs, "utf8");
+      } catch {
+        continue; // a partially-flushed/pulled file: skip defensively
+      }
+      // KnowledgeSerializer.deserialize tolerates a non-zettel/partial file → []
+      // (defensive; never throws on one malformed vault file).
+      const cards = serializer ? serializer.deserialize(bytes, { filePath: join(folder, name) }) : [];
+      for (const card of cards) {
+        await store.upsertCard(card);
+        mirrored++;
+      }
+    }
+  } finally {
+    await store.close();
+  }
+  return mirrored;
 }
