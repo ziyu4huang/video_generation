@@ -1,5 +1,7 @@
 # Wayfind — port 5 new upstream skills — 2026-08-08
 
+> **Status:** done — merged via PR #1138 (skills `prototype`, `resolving-merge-conflicts`, `to-questionnaire`, `wizard`, `handoff` shipped to origin/main).
+
 ## Context
 Triage of Matt Pocock's upstream skills (/Users/huangziyu/proj/pi-ext-matt-skills) found 5 clean, harness-agnostic, zero-overlap skills absent from the pi-native wayfind port. This effort ports them with light pi-adaptation.
 
