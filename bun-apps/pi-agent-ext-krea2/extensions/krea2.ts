@@ -156,11 +156,16 @@ function makeKrea2Tool() {
     // {names:["krea2","krea2_help"]} gate). Per ticket 06's semantics-preserving
     // rule, the SAME gating is mirrored on krea2_help so both activate together
     // and reconstructOwnerDeclaredGates collapses them back into one multi-name
-    // gate (names[0] === "krea2"). Keywords-only — no `requires` (mirrors the
-    // original GATES entry: "krea"/"草圖"/"快速生成" are narrow enough that
-    // bare-word false-fires are unlikely without noun∧verb gating).
+    // gate (names[0] === "krea2"). Keywords cover the narrow krea/草圖/快速生成/
+    // sketch/real-time triggers; the noun∧verb `requires` path mirrors flux2 so
+    // keyword-free paraphrases (doodle a concept / live-draw a mockup / 畫草稿)
+    // also reach the gate (gate-recall adversarial floor 0.9).
     gating: {
       keywords: ["krea", "krea2", "草圖", "快速生成", "即時生成", "實時繪圖", "sketch", "real-time", "real time"],
+      requires: {
+        nouns: ["doodle", "concept", "mockup", "draft", "草稿", "概念"],
+        verbs: ["draw", "doodle", "live-draw", "render", "畫", "塗鴉", "速寫"],
+      },
     },
     promptSnippet:
       "Generate/edit images with Krea 2 Turbo (Swift/MLX). One tool, 2 subcommands (t2i, i2i); " +
@@ -261,6 +266,10 @@ function makeKrea2HelpTool() {
     // the gate fires, both names activate together. See krea2's gating comment.
     gating: {
       keywords: ["krea", "krea2", "草圖", "快速生成", "即時生成", "實時繪圖", "sketch", "real-time", "real time"],
+      requires: {
+        nouns: ["doodle", "concept", "mockup", "draft", "草稿", "概念"],
+        verbs: ["draw", "doodle", "live-draw", "render", "畫", "塗鴉", "速寫"],
+      },
     },
     description:
       "On-demand reference for the `krea2` tool. Pass {command} for option keys/defaults/path rules + example; omit to list subcommands.",
@@ -323,20 +332,14 @@ const extension: ExtensionFactory = (pi) => {
  * no `satisfies` / type import, so the extension never depends on tool-gate
  * (avoids a circular dep); shape is enforced by tool-gate's drift-guard test.
  *  - controls[]  carry a current keyword → MUST fire.
- *  - adversarial[] are keyword-free "I need this tool" phrasings. NOTE: the
- *    krea2 gate is keywords-only (no `requires`), so keyword-free paraphrases
- *    CANNOT fire — recall is structurally 0%. This is a REAL FINDING (flagged
- *    for review): the gate cannot match paraphrased intent, only exact
- *    keywords. recallFloor is pinned to the OBSERVED value (0), not silently
- *    to pass — broadening keywords risks false-fires, and adding a requires
- *    path to the runtime gating is the clean fix but is out of scope for this
- *    QA-data-only change. The adversarial probes stay as genuine-intent
- *    witnesses of the gap.
+ *  - adversarial[] are keyword-free "I need this tool" phrasings that fire via
+ *    the noun∧verb `requires` path on the runtime gating. recallFloor 0.9 = the
+ *    calibrated target now that the krea2 gate carries a requires path (was 0
+ *    when the gate was keywords-only and paraphrased intent could not fire).
  */
 export const __GATE_PROBES__ = {
 	gate: "krea2",
-	// floor 0 = OBSERVED recall (keywords-only gate, no requires path; see above).
-	recallFloor: 0,
+	recallFloor: 0.9,
 	adversarial: ["doodle a quick concept", "live-draw a fast mockup", "快速畫一個草稿"],
 	controls: ["sketch the idea", "用 krea2 快速生成", "real-time draw"],
 };
