@@ -2,7 +2,7 @@
 effort: 2026-08-07-let-s-self-reflection-base-on-wayfind-error-and-
 created: 2026-08-07
 last: 2026-08-09
-status: active
+status: complete
 ---
 
 # Wayfinder map: 2026-08-07-let-s-self-reflection-base-on-wayfind-error-and-
