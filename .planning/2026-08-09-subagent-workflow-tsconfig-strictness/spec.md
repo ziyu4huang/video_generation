@@ -35,3 +35,7 @@ Make `bun run typecheck` GREEN for: pi-agent-ext-subagent, pi-agent-ext-workflow
 - Touching any other package's tsconfig (only subagent + workflow).
 - The standalone-result suppression (Task 4 of the pairing plan) — separate.
 - Runtime gating / dispatch / render behavior.
+
+## Discovered during implementation
+
+`pi-agent-ext-movie-director` and `pi-agent-ext-cli` stay typecheck-red after this change, but ONLY on a separate pre-existing cluster in `pi-agent-ext-ltx` and `pi-agent-ext-flux2` (untouched packages), confirmed identical at BASE (0bb07cde). This effort eliminates the subagent/workflow/knowledge-card errors those packages carried (54 each). The ltx/flux2 cluster is a separate follow-up, out of this effort's TUI scope.
