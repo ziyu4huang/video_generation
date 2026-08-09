@@ -1,6 +1,6 @@
 # Dynamic Tool Gate
 
-> Keeps core tools always active while gating heavy domain-specific tools behind prompt keyword matching — saving ~12,300 tokens per request (~61%; the ~12,300 gross claim is the single source of truth in `qa/savings.ts` — locked to measured reality by a ±20% deviation-band test; figures drift as the gate set changes — re-run `bun run qa:savings` for live numbers; zai-mcp adds ~1.1k when registered).
+> Keeps core tools always active while gating heavy domain-specific tools behind prompt keyword matching — saving ~9,800 tokens per request (~52%; the ~9,800 gross claim is the single source of truth in `qa/savings.ts` — locked to measured reality by a ±20% deviation-band test; figures drift as the gate set changes — re-run `bun run qa:savings` for live numbers; zai-mcp adds ~1.1k when registered).
 
 ## The Problem
 
@@ -10,7 +10,7 @@ This extension solves that by keeping lightweight core tools always active and h
 
 ```
 Baseline:  ~55 tools → ~18,000 tok/req   (measured via `bun run qa`)
-Gated:    ON at start ~10,000 tok/req   (saves ~12,300 tok/turn gross, ~61%; **net ~12,100** after the ~243 tok `enable_tool` escape-hatch overhead — audit I-6; zai-mcp env-gated)
+Gated:    ON at start ~10,000 tok/req   (saves ~9,800 tok/turn gross, ~52%; **net ~9,600** after the ~243 tok `enable_tool` escape-hatch overhead — audit I-6; zai-mcp env-gated)
 ```
 
 > Figures are measured by `bun run qa` (power-tool `schema-cost`). Only
@@ -164,7 +164,7 @@ On session start, a transient above-editor widget (keyed `"tool-gate"`) shows th
 
 ```
 🔧 Tool gate: 24/52 active
-saves ~12300 tok/req
+saves ~9800 tok/req
 ```
 
 The banner uses `setWidget` (not `notify`) so it never clobbers or is clobbered by other extensions' startup messages. It auto-dismisses after 8 seconds.
@@ -230,7 +230,7 @@ bun test --cwd bun-apps/pi-agent-ext-tool-gate
 
 ### Savings (`qa/savings.ts`)
 
-Validates the "~12,300 tok/req saved" claim by measuring the actual token cost difference between the ungated baseline and the gated configuration. Uses the same schema-cost measurement as the runtime telemetry (`(desc+params)/4` heuristic) to ensure offline and runtime numbers agree by construction.
+Validates the "~9,800 tok/req saved" claim by measuring the actual token cost difference between the ungated baseline and the gated configuration. Uses the same schema-cost measurement as the runtime telemetry (`(desc+params)/4` heuristic) to ensure offline and runtime numbers agree by construction.
 
 ```bash
 bun run qa:savings     # standalone, shows per-gate breakdown

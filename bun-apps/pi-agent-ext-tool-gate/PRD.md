@@ -15,7 +15,7 @@ A pi extension that acts as a **cost-control / visibility layer** between `pi.ge
 - **Sticky activation**: once a gate fires, its tools stay active for the rest of the session — a workflow using `flux2` never loses the tool mid-task when a follow-up like *"make it bigger"* drops the trigger keyword.
 - **Fail-open**: any tool not explicitly tracked (new tools from other extensions) is always active, so tool-gate can never accidentally hide functionality it doesn't know about.
 
-Net effect: **~18,000 → ~10,000 tok/req (~61% saved; gross ~12,300, net ~12,100 after the `enable_tool` escape-hatch overhead)**, measured by `bun run qa:savings` (re-run for live numbers; figures drift as the gate set changes).
+Net effect: **~18,000 → ~10,000 tok/req (~52% saved; gross ~9,800, net ~9,600 after the `enable_tool` escape-hatch overhead)**, measured by `bun run qa:savings` (re-run for live numbers; figures drift as the gate set changes).
 
 ## Main focus
 
@@ -29,7 +29,7 @@ pi session ── getAllTools() ──▶ tool-gate ── setActiveTools(active
         CORE_TOOLS (always on)                 GATES (lazy, hidden until intent)
         ~24 lightweight tools                  ~31 heavy domain tools
         ─ never gated ─                        ─ fire on keyword / noun∧verb ─
-                                                saves ~12,300 tok/req
+                                                saves ~9,800 tok/req
                                   │
                           enable_tool (always on) ◀── escape hatch for misses
 ```
