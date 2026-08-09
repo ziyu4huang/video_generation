@@ -20,6 +20,7 @@
  */
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { type EffortListResult, type EffortSearchResult, listEfforts, searchEfforts } from "./effort-query.js";
 import { readMap, writeMap } from "./map.js";
 import {
   computeFrontier,
@@ -49,6 +50,8 @@ export interface EffortCreateResult {
   /** True when the map already existed (create refused). */
   existed: boolean;
   meta: EffortMeta | null;
+  /** Set only by the tool's missing-`effort` guard (throw-free ok:false). */
+  error?: string;
 }
 
 /**
@@ -93,6 +96,8 @@ export interface EffortValidateResult {
   exists: boolean;
   problems: string[];
   meta: EffortMeta | null;
+  /** Set only by the tool's missing-`effort` guard (throw-free ok:false). */
+  error?: string;
 }
 
 /** Run the conformance check on an effort's map (missing Destination, effort mismatch). */
@@ -140,6 +145,8 @@ export interface EffortStatusResult {
   /** Low-res per-ticket inventory (titles + statuses + blocking edges, NO bodies).
    *  Empty array on a missing effort or an effort with no tickets. */
   tickets: EffortStatusTicket[];
+  /** Set only by the tool's missing-`effort` guard (throw-free ok:false). */
+  error?: string;
 }
 
 /** Compact read-only summary: manifest + ticket counts + frontier + fog. */
@@ -192,6 +199,7 @@ export function effortStatus(cwd: string, effort: string): EffortStatusResult {
 // ─── text renderers (tool result `content`) ──────────────────────────────────
 
 function renderCreate(r: EffortCreateResult): string {
+  if (r.error) return r.error;
   if (!r.ok) {
     return `Effort '${r.effort}' already exists at ${r.path} — create refused (edit it directly, or use /wayfind to chart).`;
   }
@@ -199,12 +207,14 @@ function renderCreate(r: EffortCreateResult): string {
 }
 
 export function renderValidate(r: EffortValidateResult): string {
+  if (r.error) return r.error;
   if (!r.exists) return `No map at .planning/${r.effort}/map.md — nothing to validate.`;
   if (r.ok) return `Effort '${r.effort}' is valid (manifest present, Destination set).`;
   return `Effort '${r.effort}' is INVALID:\n  - ${r.problems.join("\n  - ")}`;
 }
 
 function renderStatus(r: EffortStatusResult): string {
+  if (r.error) return r.error;
   if (!r.ok) return `No map at .planning/${r.effort}/map.md.`;
   const status = r.meta?.status ?? "(no manifest)";
   const lines = [
@@ -230,6 +240,47 @@ function renderStatus(r: EffortStatusResult): string {
   return lines.join("\n");
 }
 
+function renderList(r: EffortListResult): string {
+  if (!r.ok) return r.error ? `Failed to list efforts: ${r.error}` : "Failed to list efforts under .planning/.";
+  if (r.efforts.length === 0) return "No efforts found under .planning/.";
+  const lines = [`${r.efforts.length} effort${r.efforts.length === 1 ? "" : "s"} under .planning/:`, ""];
+  for (const e of r.efforts) {
+    const c = e.ticketCounts;
+    const last = e.lastModified ? `  last=${e.lastModified}` : "";
+    lines.push(
+      `${e.slug}  [${e.status}]  open=${c.open} closed=${c.closed} claimed=${c.claimed}  frontier=${e.frontierSize}  fog=${e.fog}${last}`,
+    );
+    if (e.destination) lines.push(`    ${e.destination}`);
+  }
+  return lines.join("\n");
+}
+
+function renderSearch(r: EffortSearchResult): string {
+  if (!r.ok) return r.error ? `Search failed: ${r.error}` : "Search failed.";
+  const filterParts: string[] = [];
+  if (r.filters.effort) filterParts.push(`effort:${r.filters.effort}`);
+  if (r.filters.status) filterParts.push(`status:${r.filters.status}`);
+  if (r.filters.type) filterParts.push(`type:${r.filters.type}`);
+  const filterStr = filterParts.length > 0 ? ` [${filterParts.join(", ")}]` : "";
+  const header = `search: "${r.query}"${filterStr}`;
+  if (r.matches.length === 0) return `${header}\nNo matches.`;
+  const lines = [header, ""];
+  r.matches.forEach((m, i) => {
+    const n = i + 1;
+    // Fall back to the title when the body snippet is empty (title-only match).
+    const snippet = m.snippet || m.title;
+    if (m.kind === "ticket") {
+      lines.push(`${n}. [${m.effort}] #${m.ticketId} ${m.title} (${m.status},${m.type}) score=${m.score} — ${snippet}`);
+    } else {
+      lines.push(`${n}. [${m.effort}] · decision: ${m.title} — ${snippet}`);
+    }
+  });
+  if (r.truncated) {
+    lines.push(`… (truncated — more matches exist beyond the top ${r.matches.length})`);
+  }
+  return lines.join("\n");
+}
+
 // ─── the tool ────────────────────────────────────────────────────────────────
 
 export function makeWayfindEffortTool() {
@@ -241,27 +292,66 @@ export function makeWayfindEffortTool() {
       "action:'create' scaffolds map.md with a front-matter manifest (refuses if it exists); " +
       "action:'validate' checks conformance (missing Destination, front-matter effort≠folder); " +
       "action:'status' returns a budget-bounded low-res summary — manifest + ticket counts + frontier + a per-ticket {id,title,status,blocking} inventory with NO verbatim bodies. " +
-      "Prefer action:'status' over reading whole map.md / ticket files for inventory or audit: it returns only titles, statuses, and blocking edges, never decision bodies, so it can't blow the token budget (failure memory #455). " +
+      "action:'list' enumerates every effort under .planning/ with a compact summary (status / ticket counts / frontier / fog / last); action:'search' runs a cross-effort keyword search over tickets + map decisions (term-frequency, field-weighted, ranked top-K, filterable by effort/status/type). " +
+      +"Prefer action:'status' over reading whole map.md / ticket files for inventory or audit: it returns only titles, statuses, and blocking edges, never decision bodies, so it can't blow the token budget (failure memory #455). " +
       "Use this for the mechanical manifest/structure ops — the reflective charting/synthesis stays with the /wayfind commands.",
     gating: { core: true },
     parameters: Type.Object({
-      action: Type.Union([Type.Literal("create"), Type.Literal("validate"), Type.Literal("status")], {
-        description:
-          "create = scaffold a new effort + manifest map.md; validate = conformance check; status = budget-bounded low-res inventory (titles + statuses + blocking edges, no verbatim bodies).",
-      }),
-      effort: Type.String({
-        description: "Effort slug — the .planning/<effort>/ folder name (e.g. '2026-08-02-core-task-review').",
-      }),
+      action: Type.Union(
+        [
+          Type.Literal("create"),
+          Type.Literal("validate"),
+          Type.Literal("status"),
+          Type.Literal("list"),
+          Type.Literal("search"),
+        ],
+        {
+          description:
+            "create = scaffold a new effort + manifest map.md; validate = conformance check; status = budget-bounded low-res inventory (titles + statuses + blocking edges, no verbatim bodies); list = enumerate every effort under .planning/ with a compact summary; search = cross-effort keyword search over tickets + decisions (ranked, filterable).",
+        },
+      ),
+      effort: Type.Optional(
+        Type.String({
+          description:
+            "Effort slug — the .planning/<effort>/ folder name (e.g. '2026-08-02-core-task-review'). REQUIRED for create/validate/status; an optional scope filter for search; ignored by list.",
+        }),
+      ),
       destination: Type.Optional(
         Type.String({ description: "create only: the effort's one-line goal (writes ## Destination)." }),
       ),
       notes: Type.Optional(Type.String({ description: "create only: free-form notes (writes ## Notes)." })),
       owner: Type.Optional(Type.String({ description: "create only: owner recorded in the front-matter manifest." })),
+      query: Type.Optional(
+        Type.String({ description: "search: keyword query (term-frequency, field-weighted ranking)." }),
+      ),
+      statusFilter: Type.Optional(
+        Type.Union([Type.Literal("open"), Type.Literal("closed")], {
+          description: "search: restrict to a ticket status (drops decision docs).",
+        }),
+      ),
+      typeFilter: Type.Optional(
+        Type.Union(
+          [Type.Literal("research"), Type.Literal("prototype"), Type.Literal("grilling"), Type.Literal("task")],
+          { description: "search: restrict to a ticket type (drops decision docs)." },
+        ),
+      ),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const cwd = ctx.cwd;
       switch (params.action) {
         case "create": {
+          if (!params.effort) {
+            const r: EffortCreateResult = {
+              ok: false,
+              effort: "",
+              path: "",
+              existed: false,
+              meta: null,
+              error:
+                "Missing required param 'effort' — create needs an effort slug (the .planning/<effort>/ folder name).",
+            };
+            return { content: [{ type: "text" as const, text: renderCreate(r) }], details: r };
+          }
           const r = createEffort(cwd, {
             effort: params.effort,
             destination: params.destination ?? "",
@@ -271,12 +361,54 @@ export function makeWayfindEffortTool() {
           return { content: [{ type: "text" as const, text: renderCreate(r) }], details: r };
         }
         case "validate": {
+          if (!params.effort) {
+            const r: EffortValidateResult = {
+              ok: false,
+              exists: false,
+              effort: "",
+              problems: [],
+              meta: null,
+              error:
+                "Missing required param 'effort' — validate needs an effort slug (the .planning/<effort>/ folder name).",
+            };
+            return { content: [{ type: "text" as const, text: renderValidate(r) }], details: r };
+          }
           const r = validateEffort(cwd, params.effort);
           return { content: [{ type: "text" as const, text: renderValidate(r) }], details: r };
         }
         case "status": {
+          if (!params.effort) {
+            const r: EffortStatusResult = {
+              ok: false,
+              exists: false,
+              effort: "",
+              destination: "",
+              meta: null,
+              open: 0,
+              closed: 0,
+              claimed: 0,
+              fog: 0,
+              frontier: [],
+              tickets: [],
+              error:
+                "Missing required param 'effort' — status needs an effort slug (the .planning/<effort>/ folder name).",
+            };
+            return { content: [{ type: "text" as const, text: renderStatus(r) }], details: r };
+          }
           const r = effortStatus(cwd, params.effort);
           return { content: [{ type: "text" as const, text: renderStatus(r) }], details: r };
+        }
+        case "list": {
+          const r = listEfforts(cwd);
+          return { content: [{ type: "text" as const, text: renderList(r) }], details: r };
+        }
+        case "search": {
+          const r = searchEfforts(cwd, params.query ?? "", {
+            effort: params.effort,
+            status: params.statusFilter,
+            type: params.typeFilter,
+          });
+          return { content: [{ type: "text" as const, text: renderSearch(r) }], details: r };
         }
       }
     },

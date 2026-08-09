@@ -234,7 +234,14 @@ describe("effortStatus — low-res ticket inventory (status action, #455)", () =
     const out = await tool.execute("s3", { action: "status", effort: "inv" }, undefined, undefined, ctx(cwd));
     const contentText = out.content[0]?.text ?? "";
     const blob = `${JSON.stringify(r)}\n${contentText}`;
-    for (const canary of ["SECRETQ1-alpha", "SECRETW2-bravo", "SECRETA3-charlie", "SECRETR4-delta", "round-trips a row", "went with sqlite"]) {
+    for (const canary of [
+      "SECRETQ1-alpha",
+      "SECRETW2-bravo",
+      "SECRETA3-charlie",
+      "SECRETR4-delta",
+      "round-trips a row",
+      "went with sqlite",
+    ]) {
       expect(blob).not.toContain(canary);
     }
     rmSync(cwd, { recursive: true, force: true });
@@ -309,6 +316,281 @@ describe("makeWayfindEffortTool", () => {
     const tool = makeWayfindEffortTool();
     const stat = await tool.execute("s2", { action: "status", effort: "missing" }, undefined, undefined, ctx(cwd));
     expect(stat.details.ok).toBe(false);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
+// ─── makeWayfindEffortTool — list + search actions (ticket 15 T3) ─────────────
+//
+// Phase 1 effort-query wired into the tool: action:'list' enumerates efforts;
+// action:'search' runs cross-effort keyword search. The `effort` param becomes
+// OPTIONAL (ignored by list; an optional scope filter for search; still REQUIRED
+// for create/validate/status, which now guard and return ok:false when missing).
+// Seeded sandbox mirrors tests/effort-query.test.ts: an effort "kg" with a
+// SurrealDB ticket (closed), a grilling ticket (open), and a map decision.
+
+/** Seed an effort "kg" with a SurrealDB ticket + a grilling ticket + a decision. */
+function seedKgEffort(cwd: string): void {
+  const dir = join(cwd, ".planning", "kg");
+  mkdirSync(join(dir, "tickets"), { recursive: true });
+  writeFileSync(
+    join(dir, "map.md"),
+    [
+      "---",
+      "effort: kg",
+      "status: active",
+      "---",
+      "",
+      "# Wayfinder map: kg",
+      "",
+      "## Destination",
+      "",
+      "Ship a knowledge graph memory layer over SurrealDB.",
+      "",
+      "## Notes",
+      "",
+      "Exploring HNSW recall.",
+      "",
+      "## Decisions so far",
+      "",
+      "- [Use knowledge graph core](tickets/05-graph-core.md) — Knowledge graph backs recall.",
+      "",
+      "## Not yet specified",
+      "",
+      "<!-- none -->",
+      "",
+      "## Out of scope",
+      "",
+      "<!-- none -->",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+  // 01 — closed; title + resolution mention SurrealDB.
+  writeFileSync(
+    join(dir, "tickets", "01-embed-backend.md"),
+    [
+      "---",
+      "type: task",
+      "status: closed",
+      "---",
+      "",
+      "# Resolve embed backend (SurrealDB)",
+      "",
+      "## Question",
+      "",
+      "How do we store embeddings?",
+      "",
+      "## Resolution",
+      "",
+      "SurrealDB HNSW index gives sub-ms recall.",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+  // 02 — grilling-type, open; title + question mention SurrealDB.
+  writeFileSync(
+    join(dir, "tickets", "02-grill-storage.md"),
+    [
+      "---",
+      "type: grilling",
+      "status: open",
+      "---",
+      "",
+      "# Grill SurrealDB tradeoffs",
+      "",
+      "## Question",
+      "",
+      "Should SurrealDB be the store for the graph?",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
+/** Seed a second effort "other" whose destination also mentions SurrealDB so the
+ *  effort filter has a cross-effort match to drop. */
+function seedOtherEffort(cwd: string): void {
+  const dir = join(cwd, ".planning", "other");
+  mkdirSync(join(dir, "tickets"), { recursive: true });
+  writeFileSync(
+    join(dir, "map.md"),
+    [
+      "---",
+      "effort: other",
+      "status: active",
+      "---",
+      "",
+      "# Wayfinder map: other",
+      "",
+      "## Destination",
+      "",
+      "Unrelated SurrealDB prototypes.",
+      "",
+      "## Notes",
+      "",
+      "none",
+      "",
+      "## Decisions so far",
+      "",
+      "<!-- none yet -->",
+      "",
+      "## Not yet specified",
+      "",
+      "<!-- none -->",
+      "",
+      "## Out of scope",
+      "",
+      "<!-- none -->",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
+describe("makeWayfindEffortTool — list + search (ticket 15 T3)", () => {
+  const ctx = (cwd: string) => ({ cwd }) as any;
+
+  it("action 'list' returns ok + non-empty content + an efforts array", async () => {
+    const cwd = fresh();
+    seedKgEffort(cwd);
+    const tool = makeWayfindEffortTool();
+
+    const out = await tool.execute("l1", { action: "list" }, undefined, undefined, ctx(cwd));
+    expect(out.details.ok).toBe(true);
+    expect(Array.isArray(out.details.efforts)).toBe(true);
+    expect(out.details.efforts.length).toBe(1);
+    expect(out.details.efforts[0]?.slug).toBe("kg");
+    expect((out.content[0]?.text ?? "").length).toBeGreaterThan(0);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("action 'list' reports 'No efforts found' on an empty .planning", async () => {
+    const cwd = fresh();
+    const tool = makeWayfindEffortTool();
+    const out = await tool.execute("l2", { action: "list" }, undefined, undefined, ctx(cwd));
+    expect(out.details.ok).toBe(true);
+    expect(out.details.efforts).toEqual([]);
+    expect((out.content[0]?.text ?? "").toLowerCase()).toContain("no efforts");
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("action 'search' ranks the SurrealDB ticket #1", async () => {
+    const cwd = fresh();
+    seedKgEffort(cwd);
+    const tool = makeWayfindEffortTool();
+
+    const out = await tool.execute("s1", { action: "search", query: "surrealdb" }, undefined, undefined, ctx(cwd));
+    expect(out.details.ok).toBe(true);
+    expect(Array.isArray(out.details.matches)).toBe(true);
+    expect(out.details.matches.length).toBeGreaterThan(0);
+    expect(out.details.matches[0]?.title).toContain("SurrealDB");
+    expect(out.details.matches[0]?.score).toBeGreaterThan(0);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("action 'search' with effort filter scopes matches to that effort", async () => {
+    const cwd = fresh();
+    seedKgEffort(cwd);
+    seedOtherEffort(cwd); // would match "surrealdb" without the filter
+    const tool = makeWayfindEffortTool();
+
+    const out = await tool.execute(
+      "s2",
+      { action: "search", query: "surrealdb", effort: "kg" },
+      undefined,
+      undefined,
+      ctx(cwd),
+    );
+    expect(out.details.ok).toBe(true);
+    expect(out.details.matches.length).toBeGreaterThan(0);
+    for (const m of out.details.matches) expect(m.effort).toBe("kg");
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("action 'search' with statusFilter=open keeps only open tickets", async () => {
+    const cwd = fresh();
+    seedKgEffort(cwd);
+    const tool = makeWayfindEffortTool();
+    const out = await tool.execute(
+      "s3",
+      { action: "search", query: "surrealdb", statusFilter: "open" },
+      undefined,
+      undefined,
+      ctx(cwd),
+    );
+    expect(out.details.ok).toBe(true);
+    for (const m of out.details.matches) {
+      expect(m.kind).toBe("ticket");
+      expect(m.status).toBe("open");
+    }
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("action 'search' with typeFilter=grilling keeps only grilling tickets", async () => {
+    const cwd = fresh();
+    seedKgEffort(cwd);
+    const tool = makeWayfindEffortTool();
+    const out = await tool.execute(
+      "s4",
+      { action: "search", query: "surrealdb", typeFilter: "grilling" },
+      undefined,
+      undefined,
+      ctx(cwd),
+    );
+    expect(out.details.ok).toBe(true);
+    expect(out.details.matches.length).toBeGreaterThan(0);
+    for (const m of out.details.matches) {
+      expect(m.kind).toBe("ticket");
+      expect(m.type).toBe("grilling");
+    }
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("smoke: create then status still work and require effort (effort present path unchanged)", async () => {
+    const cwd = fresh();
+    const tool = makeWayfindEffortTool();
+
+    const created = await tool.execute(
+      "c1",
+      { action: "create", effort: "demo", destination: "D" },
+      undefined,
+      undefined,
+      ctx(cwd),
+    );
+    expect(created.details.ok).toBe(true);
+    expect(created.details.existed).toBe(false);
+
+    const stat = await tool.execute("s5", { action: "status", effort: "demo" }, undefined, undefined, ctx(cwd));
+    expect(stat.details.ok).toBe(true);
+    expect(stat.details.open).toBe(0);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("status WITHOUT effort returns ok:false (no throw)", async () => {
+    const cwd = fresh();
+    const tool = makeWayfindEffortTool();
+    const stat = await tool.execute("s6", { action: "status" }, undefined, undefined, ctx(cwd));
+    expect(stat.details.ok).toBe(false);
+    expect((stat.content[0]?.text ?? "").toLowerCase()).toContain("effort");
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("create WITHOUT effort returns ok:false (no throw)", async () => {
+    const cwd = fresh();
+    const tool = makeWayfindEffortTool();
+    const r = await tool.execute("c2", { action: "create", destination: "D" }, undefined, undefined, ctx(cwd));
+    expect(r.details.ok).toBe(false);
+    expect((r.content[0]?.text ?? "").toLowerCase()).toContain("effort");
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("validate WITHOUT effort returns ok:false (no throw)", async () => {
+    const cwd = fresh();
+    const tool = makeWayfindEffortTool();
+    const r = await tool.execute("v2", { action: "validate" }, undefined, undefined, ctx(cwd));
+    expect(r.details.ok).toBe(false);
+    expect((r.content[0]?.text ?? "").toLowerCase()).toContain("effort");
     rmSync(cwd, { recursive: true, force: true });
   });
 });
