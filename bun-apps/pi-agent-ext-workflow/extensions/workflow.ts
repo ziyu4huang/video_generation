@@ -30,6 +30,22 @@ import {
   WorkflowManager,
 } from "../src/index.js";
 
+/**
+ * Gate-Recall Guard probe set (QA-DATA only — NOT part of the runtime
+ * `gating` object). Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts.
+ * Plain object: no `satisfies` / type import, so this extension never depends
+ * on tool-gate (avoids a circular dep); shape is enforced by tool-gate's
+ * drift-guard test. Dispatch gate → controls-only (recallFloor 0, adversarial
+ * []): narrow keywords are intentional, so we assert the predicate fires on
+ * its own keywords, not paraphrased intent.
+ */
+export const __GATE_PROBES__ = {
+	gate: "workflow",
+	recallFloor: 0,
+	adversarial: [],
+	controls: ["orchestrate a fan-out of tasks", "run a multi-step pipeline", "用 workflow 編排"],
+};
+
 export default function extension(pi: ExtensionAPI) {
   // Single manager/storage shared by the workflow tool and the /workflows command,
   // so background runs started by the tool are reachable from the command.

@@ -177,6 +177,65 @@ function formatVerifyMerge(o: VerifyMergeOutcome): string {
 	return L.join("\n");
 }
 
+/**
+ * Gate-Recall Guard probe sets (QA-DATA only — NOT part of the runtime
+ * `gating` object). Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts.
+ * devops registers EIGHT keyword-gated tool groups, so it exports EIGHT named
+ * probe consts. Plain objects: no `satisfies` / type import, so this extension
+ * never depends on tool-gate (avoids a circular dep); shape is enforced by
+ * tool-gate's drift-guard test. Dispatch gates → controls-only (recallFloor 0,
+ * adversarial []): narrow keywords are intentional, so we assert each
+ * predicate fires on its own keywords, not paraphrased intent.
+ */
+export const PI_DEPLOY_PROBES = {
+	gate: "pi_deploy",
+	recallFloor: 0,
+	adversarial: [],
+	controls: ["build the pi-agent bundle", "deploy the extension", "打包 pi-agent"],
+};
+export const AWAIT_PR_MERGE_PROBES = {
+	gate: "await_pr_merge",
+	recallFloor: 0,
+	adversarial: [],
+	controls: ["merge the pr", "ship the pull-request", "wait for pr merge"],
+};
+export const SWEEP_BRANCHES_PROBES = {
+	gate: "sweep_branches",
+	recallFloor: 0,
+	adversarial: [],
+	controls: ["sweep stale branches", "prune and cleanup branches", "delete-branch remotely"],
+};
+export const LOCAL_CI_PROBES = {
+	gate: "local_ci",
+	recallFloor: 0,
+	adversarial: [],
+	controls: ["run local ci", "typecheck and test", "verify the gate is green"],
+};
+export const SYNC_REPO_PROBES = {
+	gate: "sync_repo",
+	recallFloor: 0,
+	adversarial: [],
+	controls: ["sync with origin/main", "fetch and rebase", "merge --ff-only"],
+};
+export const DEVOPS_RETROSPECT_PROBES = {
+	gate: "devops_retrospect",
+	recallFloor: 0,
+	adversarial: [],
+	controls: ["run a retrospect", "review for anomalies", "reflect on the post-run"],
+};
+export const PREPARE_BRANCH_PROBES = {
+	gate: "prepare_branch",
+	recallFloor: 0,
+	adversarial: [],
+	controls: ["prepare the branch", "rebase before force-push", "branch is behind, prepare it"],
+};
+export const VERIFY_MERGE_PROBES = {
+	gate: "verify_merge",
+	recallFloor: 0,
+	adversarial: [],
+	controls: ["verify the merge scope", "check for contaminated merge", "verify spent correctly"],
+};
+
 export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "await_pr_merge",

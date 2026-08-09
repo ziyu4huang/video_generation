@@ -44,6 +44,19 @@ import { __GATE_PROBES__ as krea2Probes } from "@repo/pi-agent-ext-krea2/extensi
 import { __GATE_PROBES__ as file2mdProbes } from "@repo/pi-agent-ext-file2md/extensions/file2md.ts";
 import { COLLECT_VIDEOS_PROBES, ARXIV_SEARCH_PROBES } from "@repo/pi-agent-ext-research-tool/extensions/research-tool.ts";
 import { __GATE_PROBES__ as zaiProbes } from "@repo/pi-agent-ext-zai-mcp/extensions/zai-mcp.ts";
+import { __GATE_PROBES__ as workflowProbes } from "@repo/pi-agent-ext-workflow/extensions/workflow.ts";
+import { __GATE_PROBES__ as inspectProbes } from "@repo/pi-agent-ext-power-tool/extensions/power-tool.ts";
+import {
+	PI_DEPLOY_PROBES,
+	AWAIT_PR_MERGE_PROBES,
+	SWEEP_BRANCHES_PROBES,
+	LOCAL_CI_PROBES,
+	SYNC_REPO_PROBES,
+	DEVOPS_RETROSPECT_PROBES,
+	PREPARE_BRANCH_PROBES,
+	VERIFY_MERGE_PROBES,
+} from "@repo/pi-agent-ext-devops/extensions/devops.ts";
+import { __GATE_PROBES__ as memorySupersedeProbes } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-supersede-tool.ts";
 
 /** Every authored probe set (drift-guard iterates this). */
 export const ALL_PROBE_SETS: GateProbeSet[] = [
@@ -55,6 +68,18 @@ export const ALL_PROBE_SETS: GateProbeSet[] = [
 	COLLECT_VIDEOS_PROBES,
 	ARXIV_SEARCH_PROBES,
 	zaiProbes,
+	// Dispatch / utility gates — controls-only (recallFloor 0, adversarial []):
+	workflowProbes,
+	inspectProbes,
+	memorySupersedeProbes,
+	PI_DEPLOY_PROBES,
+	AWAIT_PR_MERGE_PROBES,
+	SWEEP_BRANCHES_PROBES,
+	LOCAL_CI_PROBES,
+	SYNC_REPO_PROBES,
+	DEVOPS_RETROSPECT_PROBES,
+	PREPARE_BRANCH_PROBES,
+	VERIFY_MERGE_PROBES,
 ];
 
 /** Probe set per canonical gate name (harness looks up by group-member name). */

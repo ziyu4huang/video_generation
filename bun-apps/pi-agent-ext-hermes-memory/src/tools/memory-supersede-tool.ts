@@ -221,3 +221,19 @@ export function registerMemorySupersedeTool(
     },
   });
 }
+
+/**
+ * Gate-Recall Guard probe set (QA-DATA only — NOT part of the runtime `gating`
+ * object). Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts. Plain
+ * object: no `satisfies` / type import, so this extension never depends on
+ * tool-gate (avoids a circular dep); shape is enforced by tool-gate's
+ * drift-guard test. Dispatch gate → controls-only (recallFloor 0, adversarial
+ * []): narrow keywords are intentional, so we assert the predicate fires on
+ * its own keywords, not paraphrased intent.
+ */
+export const __GATE_PROBES__ = {
+	gate: "memory_supersede",
+	recallFloor: 0,
+	adversarial: [],
+	controls: ["supersede the old memory", "retire that outdated note", "replace the memory entry"],
+};
