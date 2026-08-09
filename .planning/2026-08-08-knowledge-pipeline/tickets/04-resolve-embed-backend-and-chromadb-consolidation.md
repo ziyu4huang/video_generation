@@ -35,4 +35,32 @@ Embed backend + ChromaDB consolidation pinned. The pipeline standardizes on zk's
 
 **Milestone:** closing 04 UNBLOCKS task 12 (last blocker removed; 03 already closed). Build-blocking decision phase DONE.
 
+### Round 2 refinement (2026-08-09)
+
+Fork C's "sqlite-vec FALLBACK" is SUPERSEDED — sqlite-vec is NOT loadable in Bun: `bun:sqlite` is compiled with `SQLITE_OMIT_LOAD_EXTENSION` ("This build of sqlite3 does not support dynamic extension loading"), and `better-sqlite3` (the only `loadExtension`-capable driver) crashes Bun with a NAPI fatal panic. Vectors now ride SurrealDB HNSW ONLY: verified SurrealDB v3.2.3 (`DEFINE INDEX <name> ON <table> FIELDS vec HNSW DIMENSION 768 DIST COSINE TYPE F32;`, KNN via 2-arg `<|k,EF|>` — v3 removed the old `<|k|>`), HNSW p95 ~13 ms wall / ~2 ms server-side at 1,000 768-dim vectors. SQLite fallback is now NON-vector CRUD + FTS5 only — semantic/vector search is simply unavailable when SurrealDB is down, NOT a JS cosine. Embed model UNCHANGED this round (`text-embedding-nomic-embed-text-v1.5`, 768-dim, via LM Studio). OPEN (not addressed this round): embed-bench shows nomic fastest but bge-m3 higher recall@1 (0.909 vs 0.864) — model pick may be revisited in a later fork.
+
+### Round 2 refinement — embed index build policy (2026-08-09): lazy + background backfill
+
+Decision — Embed index build policy: lazy + background backfill (Round 2 grill; refines Ticket 04 Fork B; dated 2026-08-09).
+
+The embed/vector index (SurrealDB HNSW, per the vector-backend decision recorded elsewhere in these files) is built LAZILY — not eagerly at ingest:
+
+- Lazy-first: ingest stays embed-free (matches the current 06b spine walk-and-ingest.ts [CRUD-mirror + heal only] AND zk's semantic.ts, which already computes embeds lazily on first semantic query, persisted to <vault>/.knowledge-semantic/<model>.json, brute-force in-memory cosine).
+- On-demand query embed: a query embeds the query string and searches; if HNSW is cold/partial for some cards, it brute-force cosine-searches the persisted local cache for the un-backfilled cards and merges; an async backfill is fired. Queries never block; semantic results return immediately.
+- Background backfill: a deferred INCREMENTAL backfill (reusing the existing session-backfill.ts pattern — setTimeout(0), inProgress-guarded, idempotent re-check, error-isolated, shutdown-drained) warms SurrealDB HNSW for new/changed cards. Triggers: after each ingest-walk, and on first cold query. Incremental only (deltas).
+- Delta-keyed invalidation (fixes zk's whole-cache-rebuild weakness): keyed by per-card content-hash + embed-model version — only new/changed cards re-embed.
+- Dedup at ingest: uses the existing pluggable DedupStrategy (FTS/hash) — no vector dependency at ingest. Vector-dedup becomes an optional depth-pass once HNSW warms.
+- Two-tier vector storage (mirrors backend-factory surreal-primary / sqlite-fallback): SurrealDB HNSW = fast path; zk's persisted JSON cache = complete-set brute-force cosine fallback when SurrealDB is down. Same nomic embedder feeds both (one embed system, two storage tiers) — patches the "vectors vanish when SurrealDB down" gap from the vector-backend decision.
+
+SUPERSEDES/REFINES Ticket 04 Fork B ("INGEST CARD-EMBED (stored) + QUERY EMBED"): the eager-at-ingest half is REPLACED by lazy+backfill; the query-embed half STANDS.
+
+### Round 2 refinement — embed model (2026-08-09): nomic confirmed + bge-m3 upgrade path
+
+Decision — Embed model: nomic (CONFIRMED) + bge-m3 upgrade path (Round 2 grill; confirms Ticket 04 model pin; dated 2026-08-09).
+
+- Model: text-embedding-nomic-embed-text-v1.5 (768-dim) via LM Studio — CONFIRMED (zk's SEMANTIC_MODEL_DEFAULT; zero migration).
+- NEW context (from the lazy+backfill decision): the embed model is now a RUNTIME-SWAPPABLE config — delta-keyed by model version (bump version -> backfill re-embeds). So the model is NOT an architectural lock-in.
+- Documented upgrade path: bge-m3 (1024-dim). embed-bench shows bge-m3 recall@1 0.909 / MRR 0.947 vs nomic 0.864 / 0.899 (~4.5pp recall edge), at ~2.5x embed time (absorbed by the background backfill). UPGRADE TRIGGER: if real-workload recall (dedup/search) falls below target, switch to bge-m3 (config + model-version bump + backfill re-embed).
+- Bench facts (python/embed-bench/results/report.md, LM Studio): nomic recall@1 0.864 / 121/s / 768-dim; bge-m3 0.909 / 47/s / 1024-dim; qwen3-embedding-0.6b 0.909 / 32/s / 1024-dim (dominated by bge-m3).
+
 closed: implemented-as-decision (embed backend contract pinned).
