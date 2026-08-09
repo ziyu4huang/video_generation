@@ -32,6 +32,7 @@ public struct HTTPServer: @unchecked Sendable {
         do {
             requestBody = try await request.decode(as: EmbeddingsRequest.self, context: context)
         } catch {
+            context.logger.error("embeddings request decode failed", error: error)
             return try errorResponse(
                 .badRequest, message: "request body is not valid JSON for the OpenAI embeddings schema")
         }
@@ -45,6 +46,7 @@ public struct HTTPServer: @unchecked Sendable {
         do {
             vectors = try await engine.embed(texts: texts)
         } catch {
+            context.logger.error("embedding inference failed", error: error)
             return try errorResponse(
                 .internalServerError, message: "embedding inference failed", type: "internal_error")
         }
