@@ -98,7 +98,11 @@ export function tokenizeAnsi(line: string): AnsiToken[] {
       if (next === "[") {
         // CSI: ends at a final byte in 0x40–0x7e.
         j++;
-        while (j < line.length && !(line[j] >= "@" && line[j] <= "~")) j++;
+        while (j < line.length) {
+          const c = line[j];
+          if (c !== undefined && c >= "@" && c <= "~") break;
+          j++;
+        }
         j++;
       } else if (next === "]" || next === "_" || next === "P" || next === "^") {
         // String sequence: ends at BEL (\x07) or ST (\x1b\\).

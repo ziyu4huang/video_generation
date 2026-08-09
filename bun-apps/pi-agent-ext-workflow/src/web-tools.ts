@@ -47,9 +47,10 @@ export function parseBingResults(html: string, limit: number): Array<{ url: stri
   const seen = new Set<string>();
   for (const m of html.matchAll(/<h2[^>]*>\s*<a[^>]+href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/g)) {
     const url = m[1];
+    if (!url) continue; // regex href="[^"]+" guarantees a non-empty url on match
     if (/\.bing\.com|go\.microsoft\.com/.test(url) || seen.has(url)) continue;
     seen.add(url);
-    out.push({ url, title: m[2].replace(/<[^>]+>/g, "").trim() });
+    out.push({ url, title: (m[2] ?? "").replace(/<[^>]+>/g, "").trim() });
     if (out.length >= limit) break;
   }
   return out;

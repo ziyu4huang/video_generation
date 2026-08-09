@@ -214,7 +214,8 @@ function scrapeJsonStrings(text: string): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const re = /"(path|file|note|command|query|pattern|url|name|task|action|id)"\s*:\s*"([^"]*)"/g;
   for (let m: RegExpExecArray | null = re.exec(text); m !== null; m = re.exec(text)) {
-    out[m[1]] = m[2];
+    const key = m[1];
+    if (key !== undefined) out[key] = m[2];
   }
   return out;
 }
@@ -341,6 +342,7 @@ export function matchedCallArgsFor(history: AgentHistoryEntry[], index: number):
   if (entry.toolCallId) {
     for (let i = index - 1; i >= 0; i--) {
       const prev = history[i];
+      if (!prev) continue; // invariant: i >= 0 and < history.length (loop bound)
       if (prev.kind === "toolCall" && prev.toolCallId === entry.toolCallId) {
         return parseArgs(prev.text);
       }
@@ -351,6 +353,7 @@ export function matchedCallArgsFor(history: AgentHistoryEntry[], index: number):
   const name = entry.toolName;
   for (let i = index - 1; i >= 0; i--) {
     const prev = history[i];
+    if (!prev) continue; // invariant: i >= 0 and < history.length (loop bound)
     if (prev.kind === "toolCall" && prev.toolName === name) {
       return parseArgs(prev.text);
     }

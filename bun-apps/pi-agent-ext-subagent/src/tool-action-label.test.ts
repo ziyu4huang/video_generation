@@ -136,14 +136,15 @@ test("non-JSON text → scraper finds a quoted key, else toolName fallback", () 
 test("matchedCallArgsFor: paired result recovers the call's args", () => {
   const history: AgentHistoryEntry[] = [call("read", '{"path":"a.ts"}'), result("read")];
   assert.deepEqual(matchedCallArgsFor(history, 1), { path: "a.ts" });
-  // → phrase shows the target
-  assert.equal(formatToolAction(history[1], withArgs(matchedCallArgsFor(history, 1) ?? {})), "Read a.ts");
+  // → phrase shows the target (history[1] is the result() entry built above)
+  assert.equal(formatToolAction(history[1]!, withArgs(matchedCallArgsFor(history, 1) ?? {})), "Read a.ts");
 });
 
 test("matchedCallArgsFor: orphan result (no preceding call) → undefined → verb-only", () => {
   const history: AgentHistoryEntry[] = [result("read")];
   assert.equal(matchedCallArgsFor(history, 0), undefined);
-  assert.equal(formatToolAction(history[0]), "Read");
+  // history[0] is the single result() entry built above
+  assert.equal(formatToolAction(history[0]!), "Read");
 });
 
 test("matchedCallArgsFor: skips a different tool to find the matching call", () => {
