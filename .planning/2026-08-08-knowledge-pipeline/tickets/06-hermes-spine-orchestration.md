@@ -1,5 +1,6 @@
 ---
 type: grilling
+status: implemented
 claimed: pi/memory-session (grilling 06)
 blocked by:
 ---
@@ -29,20 +30,20 @@ Grounding code facts: zk already owns the full card-pipeline (`ingestRecords`, `
 
 closed: implemented-as-decision (contract pinned); impl blocked by ticket 11 (core-interface pkg).
 
-## Implementation split (2026-08-09)
+## Implementation split (2026-08-09) — ✅ both tracks SHIPPED
 
-Ticket 06's implementation is split into two grilling/build tracks:
+Ticket 06's implementation was split into two grilling/build tracks; **both are now shipped** (contract closed 2026-08-08, typed impl complete 2026-08-09):
 
-- **06a — card-agnostic store** (the store half). Generalize hermes `MemoryStore`/`MemoryRepository` → a kind-agnostic store over `Card { id, kind, content, frontmatter, embed?, graph? }` + pluggable serializer (memory + knowledge) + pluggable dedup strategy (memory + knowledge). Memory-cards coexist (regression-green); the existing vault-md knowledge corpus round-trips through SQLite. zk unchanged (read-only). Spec + TDD plan:
-  - `.planning/2026-08-08-knowledge-pipeline/specs/2026-08-08-hermes-card-store.md`
-  - `.planning/2026-08-08-knowledge-pipeline/plans/2026-08-08-hermes-card-store.md`
-- **06b — spine orchestrator** (the orchestration half — TBD, separate grilling). `ingestPath(dir|file)` / `walkAndIngest` (directory-walk + type-dispatch policy), the zk→store mirror wiring via the `KnowledgePipeline` seam (consumed defensively), the embed index (ticket 04), drift hooks (ticket 05 Tier 1/2/3), and the memory-card migration milestone (ticket 13, gated on 06a).
+- **06a — card-agnostic store** ✅ **SHIPPED — PR #1141** (squash `61e6019a`; spec+plan was PR #1137). Generalized hermes `MemoryStore`/`MemoryRepository` → a kind-agnostic store over `Card { id, kind, content, frontmatter, embed?, graph? }` + pluggable `CardSerializer` (memory + knowledge) + pluggable `DedupStrategy` (memory + knowledge). Memory-cards coexist byte-identical (regression-green); knowledge-cards round-trip from vault-md. zk unchanged (read-only).
+  - Spec: `.planning/2026-08-08-knowledge-pipeline/specs/2026-08-08-hermes-card-store.md`
+  - Plan: `.planning/2026-08-08-knowledge-pipeline/plans/2026-08-08-hermes-card-store.md`
+- **06b — spine orchestrator** ✅ **SHIPPED — PR #1146** (squash `3bd0d694`; spec+plan was PR #1143). `walkAndIngest` (policy walk + source-family detection + ingest + heal + DB-mirror into the unified store) + `healGraph` published as a 5th `KnowledgePipeline` seam leaf + `knowledge_search`/`knowledge_ingest` tools + Tier-1 drift stub. Embed (04) / full drift (05) / migration (13) stay out.
 
-06a stands alone (no zk changes, no orchestrator); 06b depends on 06a's store being built + proven on knowledge-cards first.
+06a stood alone (no zk changes, no orchestrator); 06b depended on 06a's store being built + proven on knowledge-cards first.
 
-## 06b spec + plan drafted (2026-08-09)
+## 06b spec + plan + impl (2026-08-09) — ✅ SHIPPED
 
-06b (spine orchestrator) spec + TDD plan are drafted (author-docs only; not implemented):
+06b (spine orchestrator) spec + TDD plan were drafted (PR #1143), then **implemented in PR #1146** (squash `3bd0d694`). The 4 grilled decisions below are now realized in code:
 
 - Spec: `.planning/2026-08-08-knowledge-pipeline/specs/2026-08-08-hermes-spine-orchestrator.md`
 - Plan: `.planning/2026-08-08-knowledge-pipeline/plans/2026-08-08-hermes-spine-orchestrator.md`
