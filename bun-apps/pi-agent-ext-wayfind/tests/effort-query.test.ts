@@ -9,13 +9,58 @@
  * `type` / `status` / `claimed` / `blocking` front-matter).
  */
 import { describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { enumerateEfforts, listEfforts, searchEfforts } from "../src/effort-query.js";
+import { makeWayfindEffortTool } from "../src/effort-tool.js";
 
 const fresh = () => mkdtempSync(join(tmpdir(), "wf-effort-query-"));
 const planning = (cwd: string) => join(cwd, ".planning");
+
+/**
+ * Snapshot the `.planning` tree in the sandbox: recursive file list (relative
+ * paths, sorted) + each file's utf-8 content + each file's mtimeMs. Two equal
+ * snapshots prove no file was added/removed, no content modified, and no mtime
+ * bumped (i.e. nothing was written). Reads never change mtimeMs on APFS, so all
+ * three dimensions are asserted together in the read-only invariant test.
+ */
+function snapshotPlanning(cwd: string): {
+  files: string[];
+  contents: Map<string, string>;
+  mtimes: Map<string, number>;
+} {
+  const root = planning(cwd);
+  const files: string[] = [];
+  if (existsSync(root)) {
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.isFile()) files.push(relative(root, full));
+      }
+    };
+    walk(root);
+  }
+  files.sort();
+  const contents = new Map<string, string>();
+  const mtimes = new Map<string, number>();
+  for (const f of files) {
+    const full = join(root, f);
+    contents.set(f, readFileSync(full, "utf-8"));
+    mtimes.set(f, statSync(full).mtimeMs);
+  }
+  return { files, contents, mtimes };
+}
 
 /** Seed a raw `map.md` under `.planning/<effort>/` (scaffolds the dir + tickets/). */
 function seedMap(cwd: string, effort: string, body: string): void {
@@ -565,5 +610,181 @@ describe("searchEfforts", () => {
     const r = searchEfforts("/nonexistent-effort-query-root-xyz/cwd", "surrealdb");
     expect(r.ok).toBe(true);
     expect(r.matches).toEqual([]);
+  });
+
+  // ─── acceptance: combined status+type filter (ticket 15 T4 verification) ────
+  //
+  // The ticket's Verification calls out `--status closed --type grilling`. Seed
+  // a dedicated effort with one closed+grilling ticket (the keeper), a
+  // closed+task ticket (dropped by the type filter), an open+grilling ticket
+  // (dropped by the status filter), and a map decision that also matches the
+  // query (dropped because EITHER filter excludes decision docs). Assert only
+  // the keeper survives — and that no decision leaks through.
+  it("combined {status:'closed', type:'grilling'} keeps only the closed+grilling ticket (decisions excluded)", () => {
+    const cwd = fresh();
+    seedMap(
+      cwd,
+      "mix",
+      [
+        "---",
+        "effort: mix",
+        "status: active",
+        "---",
+        "",
+        "# Wayfinder map: mix",
+        "",
+        "## Destination",
+        "",
+        "SurrealDB destination line.",
+        "",
+        "## Notes",
+        "",
+        "none",
+        "",
+        "## Decisions so far",
+        "",
+        "- [Use surrealdb core](tickets/09-core.md) — SurrealDB backs recall.",
+        "",
+        "## Not yet specified",
+        "",
+        "<!-- none -->",
+        "",
+        "## Out of scope",
+        "",
+        "<!-- none -->",
+        "",
+      ].join("\n"),
+    );
+    // keeper: closed + grilling, matches "surrealdb" in title + resolution.
+    seedTicket(
+      cwd,
+      "mix",
+      "01-keeper.md",
+      [
+        "---",
+        "type: grilling",
+        "status: closed",
+        "---",
+        "",
+        "# Grill SurrealDB closed",
+        "",
+        "## Question",
+        "",
+        "SurrealDB?",
+        "",
+        "## Resolution",
+        "",
+        "SurrealDB chosen.",
+        "",
+      ].join("\n"),
+    );
+    // dropped by the type filter: closed + task.
+    seedTicket(
+      cwd,
+      "mix",
+      "02-task-closed.md",
+      [
+        "---",
+        "type: task",
+        "status: closed",
+        "---",
+        "",
+        "# SurrealDB task",
+        "",
+        "## Resolution",
+        "",
+        "SurrealDB done.",
+        "",
+      ].join("\n"),
+    );
+    // dropped by the status filter: open + grilling.
+    seedTicket(
+      cwd,
+      "mix",
+      "03-grill-open.md",
+      [
+        "---",
+        "type: grilling",
+        "status: open",
+        "---",
+        "",
+        "# SurrealDB open grill",
+        "",
+        "## Question",
+        "",
+        "SurrealDB open?",
+        "",
+      ].join("\n"),
+    );
+
+    const r = searchEfforts(cwd, "surrealdb", { status: "closed", type: "grilling" });
+    expect(r.ok).toBe(true);
+    expect(r.filters.status).toBe("closed");
+    expect(r.filters.type).toBe("grilling");
+    // only the closed+grilling ticket survives
+    expect(r.matches.length).toBe(1);
+    const only = r.matches[0];
+    expect(only.kind).toBe("ticket");
+    expect(only.ticketId).toBe("01");
+    expect(only.status).toBe("closed");
+    expect(only.type).toBe("grilling");
+    expect(only.title).toContain("SurrealDB");
+    // decisions are excluded under either status or type filter
+    expect(r.matches.some((m) => m.kind === "decision")).toBe(false);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
+// ─── read-only invariant — Phase 1 never writes (ticket 15 T4) ───────────────
+//
+// The ticket's load-bearing requirement: "Phase 1 never writes; git canonical."
+// Seed a real .planning tree (>=2 efforts + tickets + a map decision), snapshot
+// the full tree (file list + each file's content + each file's mtimeMs),
+// exercise EVERY read path — listEfforts, searchEfforts (plain + filtered), and
+// the tool's list + search via makeWayfindEffortTool().execute — then
+// re-snapshot and assert byte-for-byte invariance: no files added or removed,
+// no content modified, no mtime bumped. Reads never change mtimeMs on APFS, so
+// all three dimensions are asserted together.
+
+describe("read-only invariant — list/search never write to .planning (ticket 15 T4)", () => {
+  it("leaves the .planning tree byte-identical after list/search + tool list/search", async () => {
+    const cwd = fresh();
+    seedSearch(cwd); // 2 efforts (kg, other) + tickets + a map decision
+
+    const before = snapshotPlanning(cwd);
+    // sanity: the snapshot captured a real multi-effort tree (not an empty dir)
+    expect(before.files).toContain(join("kg", "map.md"));
+    expect(before.files).toContain(join("other", "map.md"));
+    expect(before.files.some((f) => f.includes("tickets") && f.endsWith(".md"))).toBe(true);
+    expect(before.files.length).toBeGreaterThanOrEqual(2);
+
+    // Exercise every Phase-1 read path: direct functions + the tool wrapper.
+    expect(listEfforts(cwd).ok).toBe(true);
+    expect(searchEfforts(cwd, "surrealdb").ok).toBe(true);
+    expect(searchEfforts(cwd, "graph", { status: "closed" }).ok).toBe(true);
+
+    const tool = makeWayfindEffortTool();
+    const ctx = { cwd } as any;
+    const listOut = await tool.execute("inv-list", { action: "list" }, undefined, undefined, ctx);
+    expect(listOut.details.ok).toBe(true);
+    const searchOut = await tool.execute(
+      "inv-search",
+      { action: "search", query: "surrealdb" },
+      undefined,
+      undefined,
+      ctx,
+    );
+    expect(searchOut.details.ok).toBe(true);
+
+    const after = snapshotPlanning(cwd);
+
+    // 1) no files added or removed
+    expect(after.files).toEqual(before.files);
+    // 2) no content modified for any file
+    for (const f of before.files) expect(after.contents.get(f)).toBe(before.contents.get(f));
+    // 3) no mtime bumped on any file (reads never write -> mtimeMs stable on APFS)
+    for (const f of before.files) expect(after.mtimes.get(f)).toBe(before.mtimes.get(f));
+
+    rmSync(cwd, { recursive: true, force: true });
   });
 });
