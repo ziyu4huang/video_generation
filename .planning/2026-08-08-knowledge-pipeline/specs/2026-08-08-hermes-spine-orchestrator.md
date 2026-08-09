@@ -214,7 +214,7 @@ by hermes.
   **Resolved default (Option A, REVISITABLE):** 06b `walkAndIngest` ingests the
   **workflow-jsonl** family (`.knowledge.jsonl`) — hermes parses JSONL itself
   (~40 lines against the core-interface `KnowledgeRecord` type; pure `JSON.parse`
-  + field coercion, ZERO zk-internal deps → low drift risk) → `ingestRecords`.
+  + field coercion → low drift risk) → `ingestRecords`. **Low drift risk BECAUSE** (a) the shared `KnowledgeRecord` type in core-interface pins the field contract at the seam, AND (b) workflow-jsonl is trivial JSONL with no obsidian/frontmatter/entity deep-dependency coupling. The genuinely drift-prone family (generic-md, which pulls in the deep-dep parse web) is correctly DEFERRED — swap to Option B (a 6th `ingestFiles` seam leaf) exactly when generic-md ingest becomes in-scope.
   The **generic-md** family (needs the deep-dep `adaptGenericMarkdown`) is
   DETECTED by the walk but its ingest is **deferred** behind a future seam leaf
   (Option B). The hermes/auto-memory families are memory-card sources, out of
