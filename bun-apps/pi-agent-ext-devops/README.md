@@ -64,6 +64,34 @@ The same footgun recurs in **branch cleanup**: `git branch --merged` is silently
 
 Registered in `bun-apps/pi-agent/run-dir/manifest.json` (`extensions[]`). The tools are non-tracked by the tool-gate, so they're always active.
 
+## Build & verify tools (absorbed from the former `pi-agent-ext-deploy`)
+
+The extension also owns the two thin build/verify wrappers that previously
+lived in a standalone `pi-agent-ext-deploy` package. Each keeps its OWN
+owner-declared gating keywords (build/deploy/verify/bundle), distinct from the
+PR/merge keywords above. The scripts stay the single source of truth; the tools
+only orchestrate + parse.
+
+### `pi_deploy`
+
+Build and deploy the pi-agent bundle + thin extension bundles (mirrors
+`bun-apps/pi-agent/scripts/deploy.ts`: codegen → bundle pi-agent.js → thin ext
+bundles → factory-verify → freeze). Params: `mode` (bundle|snapshot|standalone|exe,
+default bundle), `outDir` (path-guarded to `<repo>/dist/` or `$TMPDIR`),
+`noFreeze`. Returns mode, outDir, pi-agent.js size, ext-bundle built/failed
+counts, exit code, and a log path.
+
+### `pi_verify`
+
+Run a `run-test.sh` tier (quick|medium|high|readonly|full, default medium) and
+report per-step pass/fail. `high` = the exact CI `deploy -- verify` job.
+Params: `tier`, `bail`. Returns steps, exit code, and a log path.
+
+Both resolve the **source** `bun-apps/pi-agent` dir at runtime (`PI_AGENT_DIR`
+env or an upward walk for a sibling `pi-agent/` containing `scripts/deploy.ts` +
+`run-test.sh`) and refuse to spawn if unreachable — `deploy.ts` / `run-test.sh`
+exist only in the source repo, never in a deployed bundle.
+
 ## Test
 
 ```bash

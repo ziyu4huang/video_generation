@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolvePiAgentDir, assertSafeOutDir } from "./run.ts";
+import { resolvePiAgentDir, assertSafeOutDir } from "../src/deploy-run.ts";
 
 /** Build a fake repo tree so resolvePiAgentDir's walk can be tested in isolation. */
 function fakeRepo(): string {
@@ -12,19 +12,20 @@ function fakeRepo(): string {
 	mkdirSync(join(piAgent, "scripts"), { recursive: true });
 	writeFileSync(join(piAgent, "scripts", "deploy.ts"), "// fake");
 	writeFileSync(join(piAgent, "run-test.sh"), "# fake");
-	// the extension lives at <root>/bun-apps/pi-agent-ext-deploy/extensions/deploy.ts
-	const extDir = join(root, "bun-apps", "pi-agent-ext-deploy", "extensions");
+	// the deploy-run module now lives at
+	// <root>/bun-apps/pi-agent-ext-devops/src/deploy-run.ts
+	const extDir = join(root, "bun-apps", "pi-agent-ext-devops", "src");
 	mkdirSync(extDir, { recursive: true });
-	const modFile = join(extDir, "deploy.ts");
-	writeFileSync(modFile, "// fake ext");
+	const modFile = join(extDir, "deploy-run.ts");
+	writeFileSync(modFile, "// fake module");
 	return modFile;
 }
 
 describe("resolvePiAgentDir", () => {
 	test("PI_AGENT_DIR env override wins when it points at a real pi-agent dir", () => {
 		const modFile = fakeRepo();
-		// modFile is `<root>/bun-apps/pi-agent-ext-deploy/extensions/deploy.ts`;
-		// three ".." drop deploy.ts + extensions + pi-agent-ext-deploy, landing at
+		// modFile is `<root>/bun-apps/pi-agent-ext-devops/src/deploy-run.ts`;
+		// three ".." drop deploy-run.ts + src + pi-agent-ext-devops, landing at
 		// `<root>/bun-apps`, where the sibling pi-agent/ lives.
 		const envPiAgent = join(modFile, "..", "..", "..", "pi-agent");
 		const got = resolvePiAgentDir({ PI_AGENT_DIR: envPiAgent } as NodeJS.ProcessEnv, `file://${modFile}`);

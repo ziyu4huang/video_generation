@@ -66,16 +66,16 @@ const verifyOk = (base = "origin/main") => ({
 });
 
 describe("runLocalCi — detection + scoping", () => {
-	test("detection keeps only true packages; deploy NOT run; overall pass", async () => {
+	test("detection keeps only true packages; the false-marked one NOT run; overall pass", async () => {
 		const { fn, calls } = mkSpawn([verifyOk()]);
-		const detect = mkDetect({ "pi-agent-ext-core-task": true, "pi-agent-ext-deploy": false });
+		const detect = mkDetect({ "pi-agent-ext-core-task": true, "pi-agent-ext-research-tool": false });
 		const out = await runLocalCi({
 			repoRoot: REPO,
 			spawn: fn,
 			detectChangedPackages: detect.fn,
 			readPkg: mkReadPkg({
 				"pi-agent-ext-core-task": { typecheck: "tsc --noEmit", test: "bun test" },
-				"pi-agent-ext-deploy": { typecheck: "tsc --noEmit", test: "bun test" },
+				"pi-agent-ext-research-tool": { typecheck: "tsc --noEmit", test: "bun test" },
 			}),
 			// gates off so the assertion is purely about package scoping.
 			includeGates: false,
@@ -85,8 +85,8 @@ describe("runLocalCi — detection + scoping", () => {
 
 		const testPkgs = calls.filter((c) => c.cmd === "bun" && c.args[0] === "run" && c.args[1] === "test").map((c) => pkgOf(c.cwd));
 		expect(testPkgs).toEqual(["pi-agent-ext-core-task"]);
-		// deploy was marked false → never spawned at all.
-		expect(calls.some((c) => pkgOf(c.cwd) === "pi-agent-ext-deploy")).toBe(false);
+		// research-tool was marked false → never spawned at all.
+		expect(calls.some((c) => pkgOf(c.cwd) === "pi-agent-ext-research-tool")).toBe(false);
 	});
 
 	test("all=true invokes detection with all:true and runs EVERY listed package", async () => {

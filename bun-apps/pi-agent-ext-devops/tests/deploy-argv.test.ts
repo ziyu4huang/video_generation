@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildDeployArgv, buildVerifyArgv } from "./argv.ts";
+import { buildDeployArgv, buildVerifyArgv } from "../src/deploy-argv.ts";
 
 describe("buildDeployArgv", () => {
 	test("defaults to --bundle, no outDir, no --no-freeze", () => {

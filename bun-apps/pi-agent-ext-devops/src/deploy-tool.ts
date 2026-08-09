@@ -4,8 +4,8 @@
  * scripts/deploy.ts (single source of truth); this file only orchestrates +
  * parses.
  */
-import { buildDeployArgv, type DeployMode, type DeployParams } from "./argv.ts";
-import { assertSafeOutDir, resolvePiAgentDir, runScript, tailOutput } from "./run.ts";
+import { buildDeployArgv, type DeployMode, type DeployParams } from "./deploy-argv.ts";
+import { assertSafeOutDir, resolvePiAgentDir, runScript, tailOutput } from "./deploy-run.ts";
 import { resolve } from "node:path";
 
 const DEPLOY_TIMEOUT_MS = 5 * 60 * 1000;

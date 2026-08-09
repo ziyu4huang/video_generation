@@ -10,7 +10,6 @@
  * production runs at session_start). No agent run, no LLM.
  */
 import toolGateDefault, { gateFires, matchIntent, buildEffectiveGates, injectBuiltinCore, BUILTIN_CORE, type ToolGate } from "../extensions/tool-gate.ts";
-import deployDefault from "@repo/pi-agent-ext-deploy";
 import file2mdDefault from "@repo/pi-agent-ext-file2md/extensions/file2md.ts";
 import flux2Default from "@repo/pi-agent-ext-flux2/extensions/flux2.ts";
 import krea2Default from "@repo/pi-agent-ext-krea2/extensions/krea2.ts";
@@ -36,7 +35,10 @@ import subagentDefault from "@repo/pi-agent-ext-subagent/extensions/subagent.ts"
 // buildEffectiveGates's `if (!g) continue`). wayfind registers wayfind_effort
 // (gating:{ core:true } → routed to the core set, not a gate). Driving both
 // default factories against the capturing stub promotes these owner-declared
-// tools into CORPUS_EFF so the --strict ungated count drops to 0.
+// tools into CORPUS_EFF so the --strict ungated count drops to 0. NOTE: devops
+// ALSO registers pi_deploy + pi_verify (absorbed from the former pi-agent-ext-
+// deploy extension) — both carry owner-declared gating, so they ride via
+// devopsDefault here (no separate deploy capture).
 import devopsDefault from "@repo/pi-agent-ext-devops/extensions/devops.ts";
 import wayfindDefault from "@repo/pi-agent-ext-wayfind/extensions/wayfind.ts";
 // ticket 12 — zai-mcp registers tools DYNAMICALLY at session_start (names come
@@ -212,7 +214,7 @@ const builtinCoreDefs = () => [...BUILTIN_CORE].map((name) => ({ name }));
 
 export const CORPUS_EFF = buildEffectiveGates(
 	injectBuiltinCore([
-		...captureOwnerDeclaredDefs([coreTaskRegistrar, toolGateDefault, deployDefault, file2mdDefault, flux2Default, krea2Default, ltxDefault, movieDefault, researchDefault, workflowDefault, subagentDefault, devopsDefault, wayfindDefault, zaiRegistrar, powerToolDefault, knowledgeCardDefault, webAccessDefault, obsidianDefault, hermesMemoryRegistrar]),
+		...captureOwnerDeclaredDefs([coreTaskRegistrar, toolGateDefault, file2mdDefault, flux2Default, krea2Default, ltxDefault, movieDefault, researchDefault, workflowDefault, subagentDefault, devopsDefault, wayfindDefault, zaiRegistrar, powerToolDefault, knowledgeCardDefault, webAccessDefault, obsidianDefault, hermesMemoryRegistrar]),
 		...builtinCoreDefs(),
 	] as never),
 );

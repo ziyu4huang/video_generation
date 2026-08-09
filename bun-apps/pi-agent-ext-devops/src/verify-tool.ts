@@ -2,8 +2,8 @@
  * verify-tool.ts — pi_verify: build argv, run run-test.sh at a chosen tier,
  * parse its step summary. run-test.sh stays the single source of truth.
  */
-import { buildVerifyArgv, type VerifyParams, type VerifyTier } from "./argv.ts";
-import { resolvePiAgentDir, runScript, tailOutput } from "./run.ts";
+import { buildVerifyArgv, type VerifyParams, type VerifyTier } from "./deploy-argv.ts";
+import { resolvePiAgentDir, runScript, tailOutput } from "./deploy-run.ts";
 
 const TIER_TIMEOUT_MS: Record<VerifyTier, number> = {
 	quick: 60_000,
