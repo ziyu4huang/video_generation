@@ -20,13 +20,15 @@ function fakePi() {
 }
 
 	describe("devops extension entry", () => {
-		test("registers await_pr_merge + pr_status + sweep_branches + local_ci + sync_repo + devops_retrospect + prepare_branch + verify_merge tools", () => {
+		test("registers await_pr_merge + pr_status + sweep_branches + local_ci + sync_repo + devops_retrospect + prepare_branch + verify_merge + pi_deploy + pi_verify tools", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
 			expect(pi.tools.map((t) => t.name).sort()).toEqual([
 				"await_pr_merge",
 				"devops_retrospect",
 				"local_ci",
+				"pi_deploy",
+				"pi_verify",
 				"pr_status",
 				"prepare_branch",
 				"sweep_branches",
@@ -115,5 +117,27 @@ function fakePi() {
 			expect(tool?.parameters.required).toEqual(["pr"]);
 			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual(["expectedScope", "pr"]);
 			expect(tool?.description).toMatch(/CLEAN\/CONTAMINATED|scope/);
+		});
+
+		test("pi_deploy has optional mode/outDir/noFreeze (no required params) + owner-declared gating", () => {
+			const pi = fakePi();
+			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
+			const tool = pi.tools.find((t) => t.name === "pi_deploy");
+			expect(tool?.parameters.required ?? []).toEqual([]);
+			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual(["mode", "noFreeze", "outDir"]);
+			// gating keywords preserved verbatim from the dissolved deploy extension.
+			expect(tool?.gating?.keywords).toEqual(["build bundle", "bundle pi-agent", "pi-agent bundle", "run-test"]);
+			expect((tool as any)?.gating?.requires?.nouns).toContain("pi-agent");
+			expect((tool as any)?.gating?.requires?.verbs).toContain("deploy");
+		});
+
+		test("pi_verify has optional tier/bail (no required params) + mirrors pi_deploy gating", () => {
+			const pi = fakePi();
+			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
+			const tool = pi.tools.find((t) => t.name === "pi_verify");
+			expect(tool?.parameters.required ?? []).toEqual([]);
+			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual(["bail", "tier"]);
+			// mirrored gating — same keywords as pi_deploy.
+			expect(tool?.gating?.keywords).toEqual(["build bundle", "bundle pi-agent", "pi-agent bundle", "run-test"]);
 		});
 	});

@@ -16,7 +16,7 @@ afterAll(() => {
 	}
 });
 
-describeMaybe("pi-agent-ext-deploy real e2e (PI_AGENT_E2E=1)", () => {
+describeMaybe("pi_deploy/pi_verify real e2e (PI_AGENT_E2E=1)", () => {
 	test("pi_deploy bundle into a temp outDir succeeds with all ext bundles built", async () => {
 		const outDir = mkdtempSync(join(tmpdir(), "deploy-ext-e2e-"));
 		tempDirs.push(outDir);

@@ -93,6 +93,8 @@ tree, or an unexpected ahead+behind / far-behind divergence. Run it last for a
 | One-shot PR state + check tally (inspect, don't merge) | `pr_status` |
 | Sync this repo/worktree to the latest default branch | `sync_repo` |
 | Classify + clean up merged local/remote branches | `sweep_branches` |
+| Build + deploy the pi-agent bundle + thin ext bundles (mirrors `scripts/deploy.ts`) | `pi_deploy` |
+| Run a pi-agent `run-test.sh` tier (quick/medium/high/readonly/full) to self-verify | `pi_verify` |
 
 ## Discipline
 

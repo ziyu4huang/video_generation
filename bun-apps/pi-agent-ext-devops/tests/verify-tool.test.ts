@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseVerifyOutput } from "./verify-tool.ts";
+import { parseVerifyOutput } from "../src/verify-tool.ts";
 
 // run-test.sh wraps ✓/✗ in ANSI color and prints "✓ <name>  (Ns)" / "✗ <name>  (Ns)".
 const OUTPUT = `\x1b[33m▶ pi-agent run-test.sh — effort=high\x1b[0m

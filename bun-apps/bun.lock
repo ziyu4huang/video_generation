@@ -138,22 +138,11 @@
         "typebox": "^1.3.6",
       },
     },
-    "pi-agent-ext-deploy": {
-      "name": "@repo/pi-agent-ext-deploy",
-      "version": "0.1.0",
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^6.0.3",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-coding-agent": "0.84.1",
-        "typebox": "*",
-      },
-    },
     "pi-agent-ext-devops": {
       "name": "@repo/pi-agent-ext-devops",
       "version": "0.1.0",
       "devDependencies": {
+        "@types/bun": "latest",
         "typescript": "^6.0.3",
       },
       "peerDependencies": {
@@ -384,7 +373,6 @@
       },
       "devDependencies": {
         "@repo/pi-agent-ext-core-task": "workspace:*",
-        "@repo/pi-agent-ext-deploy": "workspace:*",
         "@repo/pi-agent-ext-devops": "workspace:*",
         "@repo/pi-agent-ext-file2md": "workspace:*",
         "@repo/pi-agent-ext-flux2": "workspace:*",
@@ -859,8 +847,6 @@
     "@repo/pi-agent-ext-core-interface": ["@repo/pi-agent-ext-core-interface@workspace:pi-agent-ext-core-interface"],
 
     "@repo/pi-agent-ext-core-task": ["@repo/pi-agent-ext-core-task@workspace:pi-agent-ext-core-task"],
-
-    "@repo/pi-agent-ext-deploy": ["@repo/pi-agent-ext-deploy@workspace:pi-agent-ext-deploy"],
 
     "@repo/pi-agent-ext-devops": ["@repo/pi-agent-ext-devops@workspace:pi-agent-ext-devops"],
 
@@ -2039,8 +2025,6 @@
     "@repo/pi-agent-ext-core-interface/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@repo/pi-agent-ext-core-task/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
-
-    "@repo/pi-agent-ext-deploy/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@repo/pi-agent-ext-devops/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 

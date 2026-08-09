@@ -64,7 +64,7 @@ Tool-gate controls 11 gates covering ~31 tools. The owning extension column is t
 | **arxiv** | `arxiv_search`, `arxiv_fetch2md`, `arxiv_paper` | pi-agent-ext-research-tool | keywords + noun∧verb |
 | **movie** | `movie`, `movie_help` | pi-agent-ext-movie-director | keywords |
 | **zai-mcp** | `zai_web_search_web_search_prime`, `zai_web_reader_webReader` | pi-agent-ext-zai-mcp *(env-gated on ZAI_API_KEY)* | keywords |
-| **pi_deploy** | `pi_deploy`, `pi_verify` | pi-agent-ext-deploy | keywords + noun∧verb |
+| **pi_deploy** | `pi_deploy`, `pi_verify` | pi-agent-ext-devops | keywords + noun∧verb |
 
 ## Core tools (always active) — owners
 

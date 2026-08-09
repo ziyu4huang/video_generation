@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseDeployOutput } from "./deploy-tool.ts";
+import { parseDeployOutput } from "../src/deploy-tool.ts";
 
 const SUCCESS_OUTPUT = `
 ▶ bundle → /tmp/out/pi-agent.js
