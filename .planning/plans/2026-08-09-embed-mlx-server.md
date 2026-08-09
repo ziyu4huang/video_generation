@@ -814,12 +814,6 @@ import Foundation
 import Hummingbird
 import NIOCore
 
-// `@unchecked Sendable`, not plain `Sendable`: Hummingbird's `Router<Context>`
-// is a non-Sendable class (mutable `trie` used only during route
-// registration in `init`). `router` here is a `let`, set once and never
-// mutated afterward, so this is safe — verified during Task 5's review by
-// reproducing the strict-concurrency compile error with plain `Sendable`
-// and confirming it disappears with this annotation.
 public struct HTTPServer: @unchecked Sendable {
     public let router: Router<BasicRequestContext>
 
@@ -850,6 +844,7 @@ public struct HTTPServer: @unchecked Sendable {
         do {
             requestBody = try await request.decode(as: EmbeddingsRequest.self, context: context)
         } catch {
+            context.logger.error("embeddings request decode failed", error: error)
             return try errorResponse(
                 .badRequest, message: "request body is not valid JSON for the OpenAI embeddings schema")
         }
@@ -863,6 +858,7 @@ public struct HTTPServer: @unchecked Sendable {
         do {
             vectors = try await engine.embed(texts: texts)
         } catch {
+            context.logger.error("embedding inference failed", error: error)
             return try errorResponse(
                 .internalServerError, message: "embedding inference failed", type: "internal_error")
         }
