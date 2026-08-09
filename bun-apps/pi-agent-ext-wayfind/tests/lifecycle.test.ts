@@ -100,3 +100,12 @@ describe("model.ts purity (fs-free invariant)", () => {
     expect(src).not.toContain("require(");
   });
 });
+
+describe("markdown.ts purity (fs-free invariant)", () => {
+  it("does not import node:fs", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, "..", "src", "markdown.ts"), "utf-8");
+    expect(src).not.toContain('from "node:fs"');
+    expect(src).not.toContain("require(");
+  });
+});

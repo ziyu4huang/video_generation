@@ -40,8 +40,8 @@ import {
 	healGraph,
 	retrieveRecords,
 	type GraphHealthResult,
-	type LinkWeighting,
 } from "./retrieve.ts";
+import { type LinkWeighting } from "./entities.ts";
 
 // ---------------------------------------------------------------------------
 // Public types

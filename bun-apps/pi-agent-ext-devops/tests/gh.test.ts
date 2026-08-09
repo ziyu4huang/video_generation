@@ -14,6 +14,7 @@ import {
 	parseMergedPrs,
 	parseOpenPrRefs,
 	parseContained,
+	parseDirtyPaths,
 	createBranchClient,
 	type SpawnFn,
 	type SpawnResult,
@@ -237,6 +238,34 @@ describe("parseContained", () => {
 	});
 });
 
+describe("parseDirtyPaths", () => {
+	test("parses modified/added/deleted tracked paths, repo-relative", () => {
+		const out = parseDirtyPaths(" M .agents/memory/MEMORY.md\nA  src/new.ts\nD  gone.md\n");
+		expect(out).toEqual([".agents/memory/MEMORY.md", "src/new.ts", "gone.md"]);
+	});
+
+	test("EXCLUDES untracked (??) and ignored (!!)", () => {
+		const out = parseDirtyPaths(" M a.txt\n?? untracked.txt\n!! ignored.log\n");
+		expect(out).toEqual(["a.txt"]);
+	});
+
+	test("rename R/C keeps the POST-rename destination path", () => {
+		const out = parseDirtyPaths("R  old.txt -> renamed.ts\nC  copy.ts -> copy2.ts\n");
+		expect(out).toEqual(["renamed.ts", "copy2.ts"]);
+	});
+
+	test("strips core.quotePath quoting on tracked paths", () => {
+		const out = parseDirtyPaths(' M "src/weird \"name\".txt"\n');
+		expect(out).toEqual(['src/weird "name".txt']);
+	});
+
+	test("empty / short lines → empty array (never throws)", () => {
+		expect(parseDirtyPaths("")).toEqual([]);
+		expect(parseDirtyPaths("\n\n")).toEqual([]);
+		expect(parseDirtyPaths("ab\n")).toEqual([]); // 2-char line (< 3) skipped
+	});
+});
+
 describe("createBranchClient (glue)", () => {
 	/** spawn that records every call + returns canned results by match. */
 	function rec(responses: Array<{ match: (cmd: string, args: string[]) => boolean; result: SpawnResult }>) {
@@ -350,5 +379,18 @@ describe("createBranchClient (glue)", () => {
 			{ match: (c, a) => c === "git" && a.includes("--delete"), result: { stdout: "", stderr: "remote rejected", exitCode: 1 } },
 		]);
 		await expect(createBranchClient(fn).deleteRemoteBranch("feat/x")).rejects.toThrow(/git push origin --delete feat\/x failed .*1.*remote rejected/);
+	});
+
+	test("dirtyPaths issues git -C <dir> status --porcelain=v1", async () => {
+		const { fn, calls } = rec([
+			{ match: (c, a) => c === "git" && a.includes("status"), result: { stdout: " M .agents/memory/MEMORY.md\n?? skip.txt\n", stderr: "", exitCode: 0 } },
+		]);
+		expect(await createBranchClient(fn).dirtyPaths("/repo-wt")).toEqual([".agents/memory/MEMORY.md"]);
+		expect(calls[0]).toEqual({ cmd: "git", args: ["-C", "/repo-wt", "status", "--porcelain=v1"] });
+	});
+
+	test("isClean stays available on the full BranchClient (true on exit 0)", async () => {
+		const { fn } = rec([{ match: (c, a) => c === "git" && a.includes("diff"), result: { stdout: "", stderr: "", exitCode: 0 } }]);
+		expect(await createBranchClient(fn).isClean("/repo-wt")).toBe(true);
 	});
 });

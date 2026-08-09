@@ -22,6 +22,12 @@ recipes live in tested code (`src/`).
   `gh ship` (await_pr_merge gates on this).
 - **sync_repo** — sync this worktree/repo to the latest default branch
   (full/rebase/pull; worktree-aware; aborts on divergent unless `force`).
+  **Preserves auto-managed hot files**: the default advance aborts `dirty_tree`
+  on uncommitted work, EXCEPT preserve-listed paths (default
+  `.agents/memory/MEMORY.md` — hermes-managed, dirty in ~every worktree) which
+  are stashed before the advance and restored after. Override via `preserve:`;
+  `preserve: []` disables it (strict gate). Outcomes carry `preserved?:
+  { paths, restored, conflict? }`.
 - **devops_retrospect** — advisory post-run anomaly review (never blocks).
 - **prepare_branch** — worktree-aware branch prepare (create / rebase /
   force-push-with-lease). Covers the BEHIND state.
@@ -49,7 +55,10 @@ distinct from the PR/merge keywords above.
   / `src/retrospect-recipe.ts` / `src/prepare-recipe.ts` / `src/verify-merge-recipe.ts`
   — orchestration, I/O behind injectable clients (tested with fakes).
 - `src/gh.ts` — the real `GhClient` / `BranchClient` wrapping the `gh`/`git` CLI;
-  pure JSON/text parsers.
+  pure JSON/text parsers. `BranchClient.dirtyPaths(dir)` lists TRACKED dirty
+  paths (repo-relative; excludes untracked/ignored) via `git status --porcelain=v1`;
+  `isClean` remains for other recipes. `SyncClient` now `Pick`s `dirtyPaths`
+  (not `isClean`) so the per-path preserve split runs on one query.
 - `src/deploy-argv.ts` — PURE param→argv mapping for pi_deploy/pi_verify
   (unit-tested, isolated from spawning).
 - `src/deploy-run.ts` — locate the source `bun-apps/pi-agent` dir (`PI_AGENT_DIR`

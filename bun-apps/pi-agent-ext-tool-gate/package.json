@@ -17,7 +17,8 @@
     "test": "bun test",
     "qa:savings": "bun run qa/savings.ts",
     "qa:miss": "bun run qa/miss-rate.ts",
-    "qa:miss-ab": "bun run qa/miss-rate-ab.ts",
+    "qa:miss-ab": "bun run qa/gate-recall.ts",
+    "qa:gate-recall": "bun run qa/gate-recall.ts",
     "qa:coverage": "bun run qa/coverage.ts",
     "qa": "bun run qa/run.ts"
   },

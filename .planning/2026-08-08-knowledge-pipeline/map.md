@@ -3,6 +3,19 @@ status: active
 ---
 # Knowledge pipeline — memory/files -> cards -> graph -> DB-CRUD -> obsidian
 
+## Milestone — Spine COMPLETE (2026-08-09)
+
+The hermes spine is built end-to-end. Typed seam + card-agnostic store + orchestrator all shipped:
+
+- **Ticket 12** — typed seam scaffolded: `@repo/pi-agent-ext-core-interface` (`SEAM_KEYS` 8 keys + `publishSeam`/`readSeam` + `KnowledgePipeline` interface). **PR #1131** (squash `3793a390`).
+- **Ticket 06a** — card-agnostic store: `Card{kind}` + pluggable `CardSerializer` (memory/knowledge) + pluggable `DedupStrategy`; memory-cards coexist byte-identical, knowledge-cards round-trip vault-md. **PR #1141** (squash `61e6019a`).
+- **Ticket 06b** — spine orchestrator: `walkAndIngest` (policy walk + family-detect + ingest + heal + DB-mirror into the unified store) + `healGraph` published as a 5th `KnowledgePipeline` seam leaf + `knowledge_search`/`knowledge_ingest` tools + Tier-1 drift stub. **PR #1146** (squash `3bd0d694`).
+
+**Now unblocked:** 07 (image cards), 08/09/10 (planning cards + sync + staleness), 13 (memory-card graduation).
+**Effort-query phasing:** 08/09/10 (full planning-card pipeline) = PHASE 2; PHASE 1 = ticket 15 (lightweight list + search over .planning, read-only, standalone — UNBLOCKED).
+**Still-open build tracks:** 03 (typed entity-relation graph layer), 14 (embed/vector index build — SurrealDB HNSW + lazy backfill; UNBLOCKED, 04 closed), 05 (full 3-tier drift — 06b stubbed Tier-1 only), 15 (effort-query Phase 1 — lightweight list + search over .planning, read-only; UNBLOCKED, standalone — Phase 2 = 08/09/10).
+**Known issue:** #1130 — `__piRateLimitState` orphan (pi-agent-ext-subagent) unregistered → `test:seam` red.
+
 ## Destination
 A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pdf/docx/pptx/images, or a whole directory the agent walks) -> knowledge-cards (git-canonical md) -> two-layer knowledge graph -> DB-accelerated CRUD (SurrealDB+embed for query/duplicate/conflict; SQLite for non-embed CRUD) -> obsidian vault on disk. DB<->md bidirectional sync. Orchestration lives in the memory-card extension (hermes) as the spine; knowledge-card (zk) provides graph/ingest/RAG primitives. The pipeline also self-applies to wayfinder's own .planning/<effort> for CRUD/query/duplicate/conflict/staleness.
 
@@ -19,15 +32,18 @@ A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pd
 - 2026-07-30-file2md-for-pdf-... — PDF extractor (mupdf+VLM hybrid VERDICTED; feeds ticket 02). Live prototype ticket 04 stays there. ABSORBED.
 - 2026-07-28-hermes-surrealdb-graph-search — graph-augmented recall via RELATE edges, SHIPPED (feat/hermes-surrealdb-graph-search, 758 tests green). Prior art for tickets 03/10. ABSORBED.
 - 2026-07-29-brainstorm-to-improve-pi-agent-ext-hermes-memory — embed/backend decisions (ChromaDB rejected; sqlite-vec/SurrealDB-for-graph). Drift tickets closed citing ticket 04. ABSORBED.
-- 11 (closed) → task 12: scaffold @repo/pi-agent-ext-core-interface (KnowledgePipeline + publishSeam/readSeam + SEAM_KEYS registry); blocks 06's typed impl. **UNBLOCKED** (03 + 04 closed) — ready to build via /wayfind seed. Build-track follow-ons: embed index (surreal primary + sqlite-vec fallback), obsidian vault-mind migration, A/B bench vector extension.
+- 11 (closed) → task 12: scaffold @repo/pi-agent-ext-core-interface (KnowledgePipeline + publishSeam/readSeam + SEAM_KEYS registry); blocks 06's typed impl. **SHIPPED — PR #1131** (squash `3793a390`): 8-key `SEAM_KEYS` + `SEAM_KEY_ENTRIES` + `publishSeam`/`readSeam` (compile-time orphan prevention); zk publishes `__piKnowledgePipeline`, hermes consumes defensively; repo `seam-contract.test.ts` migrated to `SEAM_KEY_ENTRIES`. Build-track follow-ons: embed index (surreal primary + sqlite-vec fallback), obsidian vault-mind migration, A/B bench vector extension.
 - 05 (closed) → task 13: migrate memory-cards into the unified store at graduation (blocked by 06). Migration is mechanical (01's pluggable serializer); gate = store built + proven on knowledge-cards first.
-- 06 (closed) → impl SPLIT into **06a (card-agnostic store)** [SHIPPED #1141] + **06b (spine orchestrator)**. 06a spec: `specs/2026-08-08-hermes-card-store.md`; 06a plan: `plans/2026-08-08-hermes-card-store.md`. 06a generalizes `MemoryStore` → `Card{kind}` + pluggable serializer (memory+knowledge) + pluggable dedup strategy; knowledge corpus round-trips SQLite; zk unchanged. **06b spec + plan DRAFTED (not implemented)**: `specs/2026-08-08-hermes-spine-orchestrator.md` + `plans/2026-08-08-hermes-spine-orchestrator.md` — `walkAndIngest` (walk + family-detect + ingest + NEW `healGraph` seam leaf + DB-mirror via card-store + Tier-1 drift stub) + `knowledge_search` tool; 4 grilled decisions pinned (leaf-only orchestration, hermes-owns-walk, knowledge_search tool, DB-mirror-only writes). Embed (04) / full drift (05) / migration (13) OUT of 06b.
+- 06 (closed) → impl SPLIT into **06a (card-agnostic store)** [**SHIPPED #1141**, squash `61e6019a`; spec+plan PR #1137] + **06b (spine orchestrator)** [**SHIPPED #1146**, squash `3bd0d694`; spec+plan PR #1143]. 06a generalizes `MemoryStore` → `Card{kind}` + pluggable serializer (memory+knowledge) + pluggable dedup strategy; knowledge corpus round-trips SQLite; zk unchanged. 06b implements `walkAndIngest` (walk + family-detect + ingest + NEW `healGraph` seam leaf + DB-mirror via card-store + Tier-1 drift stub) + `knowledge_search` tool; 4 grilled decisions pinned (leaf-only orchestration, hermes-owns-walk, knowledge_search tool, DB-mirror-only writes). Embed (04) / full drift (05) / migration (13) OUT of 06b.
 
 ## Decisions so far
 - 01: unified Card {id, kind, content, frontmatter, embed?, graph?}; hermes store kind-agnostic via pluggable serializer; dedup = single store call-site behind pluggable strategy. CLOSED.
 - 02: extractors — md/txt native; pdf=mupdf via file2md (hybrid mupdf-body+VLM-figures, per file2md verdict); docx=mammoth; pptx=pptxtojson; one card per section/page/slide (~512 tok); provenance frontmatter. CLOSED.
 - 03: two-layer knowledge graph — wiki-link layer formalized as-is (shared-tag scoreOverlap, no expansion); typed entity-relation layer = md frontmatter source-of-truth (`relations:`) + derived DB index; hybrid relation schema (fixed core + free-form); LLM typed-relation extraction OPT-IN (default off, `kg.llm`/`PI_KG_LLM`). Fork 4 collapsed into carry-over. CLOSED.
 - 04: embed backend — model = `text-embedding-nomic-embed-text-v1.5` (768-dim) via LM Studio (zk's existing default, standardized); CONSOLIDATE now (new nomic index serves card-store + obsidian; deprecate vault-mind/ChromaDB `:8000`); touchpoints = ingest card-embed (stored) + query embed; vector store = embed rides backend-ab, SurrealDB native PRIMARY, sqlite-vec FALLBACK. Carry-over "SurrealDB-only" corrected. UNBLOCKS task 12. CLOSED.
+  (ROUND-2 2026-08-09: sqlite-vec FALLBACK dropped — not loadable in Bun; SurrealDB HNSW is the primary/only vector store, verified v3.2.3 ~13ms p95 @1k vecs; SQLite fallback = non-vector CRUD/FTS only.)
+  (ROUND-2 2026-08-09, Fork B): embed index built LAZILY (not eager-at-ingest) + background backfill (session-backfill.ts pattern) warming SurrealDB HNSW; delta-keyed (per-card hash + model ver); dedup-at-ingest stays FTS/hash; SurrealDB-down falls back to zk JSON-cache cosine. Supersedes 04 Fork B's eager-at-ingest.)
+  (ROUND-2 2026-08-09, model): nomic CONFIRMED (768-dim, no migration); under lazy+backfill the model is runtime-swappable (delta-keyed by model ver) -> bge-m3 (recall@1 0.909 vs 0.864) is the documented upgrade if real-workload recall < target. qwen3 dominated by bge-m3.)
 - 05: migration = MIGRATE AT GRADUATION (memory-cards coexist during build, migrate in as the final milestone; tracked → task 13); DB↔md drift = FIELD-CLASSIFICATION policy — Tier 1 md-canonical (md wins, re-index), Tier 2 derived cache (regenerate, no write-back), Tier 3 DB-authoritative opt-in (no md write-through; the worth-scoring precedent), merge-plan only for genuine md↔db content conflicts (reuse hermes `merge-plan.ts` hash/optimistic-concurrency primitives). CLOSED.
 - Hermes-as-spine (revise 01): hermes owns pipeline orchestration + store; zk = graph/ingest/RAG primitives provider. -> ticket 06
 - 11: core-interface package contract pinned — @repo/pi-agent-ext-core-interface hosts typed interfaces + SEAM_KEYS (single source of truth) + publishSeam/readSeam accessors (compile-time orphan prevention); lockstep pi-core; incremental migration (KnowledgePipeline first). CLOSED. Impl → task 12.
@@ -36,7 +52,7 @@ A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pd
 - Staleness: source-dependency graph (deps declared; re-validate on change). -> ticket 10
 - Carry-over (feeds 04): embed = SurrealDB-only (+ lm-studio); SQLite non-embed CRUD only.
   (SUPERSEDED by 04 — see Decisions: embed rides backend-ab; SurrealDB primary, sqlite-vec fallback.)
-- Next grill order: **07** (image-card model + extractor; blocked-by 06 closed). One per session. (05 closed — migrate-at-graduation + 3-tier drift policy → task 13; task 12 still the ready build path via /wayfind seed.)
+- Next grill order: **04-BUILD** (DB-native embed index — current session decision; SurrealDB primary + sqlite-vec fallback, per Decision 04). Spine [12 + 06a + 06b] shipped; 07/08/09/10/13 remain unblocked but not picked. One per session. (05 closed — migrate-at-graduation + 3-tier drift policy → task 13; spine milestone done — see top of map.)
 
 ## Not yet specified
 - Image embed strategy (text-embed of merged content vs +CLIP image-vector). -> ticket 07

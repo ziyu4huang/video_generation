@@ -1304,7 +1304,7 @@ export async function coverageReport(opts: {
 			// vault set is grouped by the SAME family key CoverageSourceSpec uses.
 			// Legacy/empty-source cards fall through to "unknown" (never a checked
 			// family → not counted as sourceOrphaned, gracefully ignored).
-			const fam = (meta.source ?? "").split(":")[0].trim() || "unknown";
+			const fam = (meta.source ?? "").split(":")[0]?.trim() || "unknown";
 			const set = vaultByFamily.get(fam) ?? new Set<string>();
 			set.add(meta.source_id);
 			vaultByFamily.set(fam, set);

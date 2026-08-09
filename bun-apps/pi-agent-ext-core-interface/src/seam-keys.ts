@@ -10,6 +10,14 @@ export const SEAM_KEYS = {
   __piPlanSummary:          { crossPackage: true },
   __piWayfindGrill:         { crossPackage: true },
   __piKnowledgePipeline:    { crossPackage: true },
+  // __piRateLimitState: the key LITERAL is owned solely in
+  // pi-agent-ext-subagent (rate-limiter.ts GLOBAL_KEY); pi-agent-ext-workflow
+  // shares the budget through the exported getGlobalRateLimiter /
+  // setRateLimitCapResolver API — NO duplicated literal, hence NO drift
+  // surface between packages. Per the seam-contract topology (crossPackage:true
+  // requires the literal referenced by >=2 packages) this is intra-package →
+  // crossPackage:false, exempt from the NO SELF-ONLY SEAMS invariant.
+  __piRateLimitState:       { crossPackage: false },
 } as const;
 
 export type SeamKey = keyof typeof SEAM_KEYS;

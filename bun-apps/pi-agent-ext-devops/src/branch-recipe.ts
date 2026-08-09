@@ -29,6 +29,10 @@ export interface BranchClient {
 	revParse(rev: string): Promise<string | undefined>;
 	/** True iff <dir> has no TRACKED changes vs HEAD (untracked files ignored). */
 	isClean(dir: string): Promise<boolean>;
+	/** TRACKED dirty paths (repo-relative) in <dir> — staged + unstaged
+	 *  (modified/added/deleted/renamed/typechange); EXCLUDES untracked (`??`)
+	 *  and ignored. Empty when clean. */
+	dirtyPaths(dir: string): Promise<string[]>;
 	/** ahead/behind commit counts between two refs (0 when a ref is missing). */
 	aheadBehind(base: string, head: string): Promise<{ ahead: number; behind: number }>;
 	fetchPrune(): Promise<void>;

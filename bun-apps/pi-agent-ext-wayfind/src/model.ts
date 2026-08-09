@@ -9,6 +9,13 @@
 
 import { join } from "node:path";
 
+import { parseMapBody } from "./markdown.js";
+
+// Re-export so importers of model.ts (map.ts, tests, and this file's own
+// parseTicketFile) are unaffected by the parser's move to the fs-free
+// markdown.ts core. (architecture-deepening #2 — unify section parsers.)
+export { parseMapBody };
+
 export type TicketType = "research" | "prototype" | "grilling" | "task";
 export type TicketStatus = "open" | "closed";
 
@@ -90,34 +97,6 @@ export interface CompleteEffortResult {
 const MAP_FM_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 const EFFORT_STATUSES = new Set<EffortStatus>(["active", "complete", "paused"]);
 
-/** Parse a `## Section`-delimited body into a map of section→text. Sections
- *  without a heading (preamble) land under key "". */
-export function parseMapBody(md: string): Record<string, string> {
-  const sections: Record<string, string> = {};
-  const lines = md.split(/\r?\n/);
-  let current = "";
-  let buf: string[] = [];
-  const flush = () => {
-    sections[current] = buf.join("\n").trim();
-    buf = [];
-  };
-  for (const line of lines) {
-    const m = line.match(/^##\s+(.*)$/);
-    if (m) {
-      flush();
-      // Lenient key: take the text before a ( / em-dash / en-dash / colon suffix
-      // so `## Resolution (closed …)` / `## Section — desc` / `## Notes: x`
-      // key as "Resolution" / "Section" / "Notes" (hand-authored suffixed
-      // headers otherwise silently break section/closure detection).
-      current = m[1].split(/[(\u2014\u2013:]/)[0].trim();
-    } else {
-      buf.push(line);
-    }
-  }
-  flush();
-  return sections;
-}
-
 /**
  * Parse an OPTIONAL leading YAML front-matter block from a `map.md` body.
  * Returns `{ meta: null, body: <unchanged> }` when there is no front-matter
@@ -196,10 +175,26 @@ export function parseTicketFile(content: string, id: string, slug: string): Tick
         .replace(/^\[|\]$/g, "");
       if (key === "type") type = (val as TicketType) || type;
       else if (key === "blocking" || key === "blocked_by" || key === "blocked by") {
+        // Failure memory #471: validate each edge is a bare ticket number. The
+        // parser used to silently coerce ANY value into blocking[] (a bracketed
+        // slug like `blocking: ["01-foo"]` or a bare `blocking: abc` parsed to
+        // `["01-foo"]` / `["abc"]`), quietly breaking the dependency graph —
+        // computeFrontier never matches a closed id, so the edge just vanished.
+        // Now strip per-entry quotes (so the bracketed form `blocking: ["01", "02"]`
+        // is accepted alongside the bare form) and THROW on any non-numeric entry
+        // — surfaced, never silent.
         blocking = val
           .split(/[,\s]+/)
-          .map((s) => s.trim())
+          .map((s) => s.trim().replace(/^["']|["']$/g, ""))
           .filter(Boolean);
+        for (const b of blocking) {
+          if (!/^\d+$/.test(b)) {
+            throw new Error(
+              `ticket ${id}: invalid 'blocking' entry "${b}" — must be a bare ticket number ` +
+                `(digits only), e.g. \`blocking: 01, 02\`.`,
+            );
+          }
+        }
       } else if (key === "claimed") claimed = val || undefined;
       else if (key === "status") status = val === "closed" ? "closed" : "open";
     }

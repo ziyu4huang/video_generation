@@ -214,7 +214,8 @@ function scrapeJsonStrings(text: string): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const re = /"(path|file|note|command|query|pattern|url|name|task|action|id)"\s*:\s*"([^"]*)"/g;
   for (let m: RegExpExecArray | null = re.exec(text); m !== null; m = re.exec(text)) {
-    out[m[1]] = m[2];
+    const key = m[1];
+    if (key !== undefined) out[key] = m[2];
   }
   return out;
 }
@@ -319,18 +320,40 @@ export function formatToolAction(entry: AgentHistoryEntry, ctx?: ToolActionConte
 }
 
 /**
- * For a toolResult/error at `index`, scan BACKWARD to the nearest preceding
- * toolCall with the same toolName and return its parsed args — so the result
- * can recover the target it acted on. Returns `undefined` for orphans, for
- * non-result/error entries, or when the matched call had no recoverable args.
+ * For a toolResult/error at `index`, recover the args of the call it answers so
+ * the result can recover the target it acted on. Returns `undefined` for orphans,
+ * for non-result/error entries, or when the matched call had no recoverable args.
+ *
+ * Pairing strategy (id-first, name-fallback — trace fidelity under batching):
+ *  1. If the entry carries a `toolCallId`, scan BACKWARD for the nearest
+ *     preceding toolCall whose `toolCallId` MATCHES. Under batching (one turn
+ *     emits N same-tool calls, then N matching results) this is the only signal
+ *     that disambiguates which result answers which call. Returns `undefined`
+ *     only if no call shares the id (truncated window / mismatched upstream).
+ *  2. Otherwise (no id, or id with no matching call) scan BACKWARD to the
+ *     nearest preceding toolCall with the SAME toolName — the legacy path that
+ *     handles older/id-less transcripts unchanged.
  */
 export function matchedCallArgsFor(history: AgentHistoryEntry[], index: number): Record<string, unknown> | undefined {
   const entry = history[index];
   if (!entry) return undefined;
   if (entry.kind !== "toolResult" && entry.kind !== "error") return undefined;
+  // 1. id-first: find the call whose toolCallId matches this result's id.
+  if (entry.toolCallId) {
+    for (let i = index - 1; i >= 0; i--) {
+      const prev = history[i];
+      if (!prev) continue; // invariant: i >= 0 and < history.length (loop bound)
+      if (prev.kind === "toolCall" && prev.toolCallId === entry.toolCallId) {
+        return parseArgs(prev.text);
+      }
+    }
+  }
+  // 2. name fallback (legacy / id-less / unmatched-id): nearest preceding
+  //    same-name call.
   const name = entry.toolName;
   for (let i = index - 1; i >= 0; i--) {
     const prev = history[i];
+    if (!prev) continue; // invariant: i >= 0 and < history.length (loop bound)
     if (prev.kind === "toolCall" && prev.toolName === name) {
       return parseArgs(prev.text);
     }

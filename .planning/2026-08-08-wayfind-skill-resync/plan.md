@@ -1,5 +1,7 @@
 # Wayfind skill re-sync — 2026-08-08
 
+> **Status:** done — merged via PR #1134 (`grilling` adopted upstream frontier-interview model; `to-spec` / `domain-modeling` / `to-tickets` verified no-change).
+
 ## Context
 `pi-agent-ext-wayfind` is a Pi-native port of Matt Pocock's skills (upstream `/Users/huangziyu/proj/pi-ext-matt-skills`). A drift check (port cut 2026-07-15; upstream moved 2026-07-16) evaluated 4 candidate skills.
 

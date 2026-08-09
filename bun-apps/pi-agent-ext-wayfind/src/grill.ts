@@ -11,6 +11,8 @@
  *      task_plan.md seed — the grill→plan handoff.
  */
 
+import { extractSection } from "./markdown.js";
+
 export interface ResolvedDecision {
   title: string;
   answer: string;
@@ -59,26 +61,6 @@ export function parseGlossary(contextMd: string): GlossaryTerm[] {
     out.push({ term: m.term, definition: m.value });
   }
   return out;
-}
-
-/** Extract the body of a named `## Section` from a markdown doc (the text
- *  between this heading and the next `## ` or end-of-doc). Self-contained so
- *  grill.ts stays fs-free (it deliberately does not import map.ts, which pulls
- *  node:fs). Returns "" when the section is absent. */
-function extractSection(md: string, heading: string): string {
-  const target = `## ${heading}`;
-  const lines = md.split(/\r?\n/);
-  let started = false;
-  const out: string[] = [];
-  for (const line of lines) {
-    if (line.startsWith("## ")) {
-      if (started) break; // reached the next section
-      if (line.trim() === target) started = true;
-      continue;
-    }
-    if (started) out.push(line);
-  }
-  return out.join("\n");
 }
 
 /** Parse the `## Decisions` section of a CONTEXT.md into `{title, answer}`

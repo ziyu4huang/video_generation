@@ -63,14 +63,42 @@ import { parseSubmoduleStatus } from "./gh.js";
 
 export type SyncMode = "full" | "rebase" | "pull";
 
+/** Auto-managed "hot files" preserved across a sync advance by default (stashed
+ *  before, restored after) instead of aborting dirty_tree. Seeded with the
+ *  hermes memory file — dirty in ~every worktree, so the default sync would
+ *  otherwise ALWAYS refuse. Override via `SyncOptions.preserve`; pass `[]` to
+ *  disable preserve entirely. */
+export const DEFAULT_PRESERVE_PATHS = [".agents/memory/MEMORY.md"];
+
+/** Result of a stash+restore cycle for preserve-listed hot files. `restored` is
+ *  false when the `git stash pop` conflicted (the stash is KEPT in that case;
+ *  `conflict` carries the stderr so the caller can surface it). */
+export interface SyncPreserved {
+	/** Paths that were stashed (== the preserve-listed dirty paths at park time). */
+	paths: string[];
+	/** True iff `git stash pop` succeeded (working tree restored). */
+	restored: boolean;
+	/** Present (with the pop stderr/stdout) iff `restored` is false. */
+	conflict?: string;
+}
+
+/** True iff `path` matches a preserve-list entry: an exact path, or a directory
+ *  prefix (entry ending in `/`, OR an entry treated as a prefix by appending
+ *  `/`). Mirrors the preserve semantics on SyncOptions. */
+function isPreservable(path: string, preserve: string[]): boolean {
+	return preserve.some((e) => path === e || path.startsWith(e.endsWith("/") ? e : e + "/"));
+}
+
 /**
  * The read-only git surface sync_repo needs. A `Pick` of BranchClient so the
  * live `createBranchClient` (full BranchClient) satisfies it, while tests inject
- * a minimal fake covering only these six methods.
+ * a minimal fake covering only these six methods. NOTE: cleanliness is derived
+ * from `dirtyPaths` (empty ⇒ clean) so the per-path preserve split can run on
+ * the SAME query — `isClean` stays on the full BranchClient for other recipes.
  */
 export type SyncClient = Pick<
 	BranchClient,
-	"defaultBranch" | "currentBranch" | "worktreeList" | "revParse" | "isClean" | "aheadBehind"
+	"defaultBranch" | "currentBranch" | "worktreeList" | "revParse" | "dirtyPaths" | "aheadBehind"
 >;
 
 export interface SyncAdvanced {
@@ -128,6 +156,9 @@ export interface SyncOutcome {
 	commands: string[];
 	/** Set when a mutating mode refused to run (dirty tree, divergent, …). */
 	aborted?: SyncAbort;
+	/** Preserve-listed hot files stashed across the advance + restore result.
+	 *  Present iff a stash actually ran (non-dryRun, only preserve-listed dirty). */
+	preserved?: SyncPreserved;
 	elapsedMs: number;
 }
 
@@ -144,6 +175,13 @@ export interface SyncOptions {
 	 * origin/<D>` (discards divergent commits). Ignored by rebase/pull.
 	 */
 	force?: boolean;
+	/** Paths (exact, or dir prefix ending in `/`) whose uncommitted changes are
+	 *  auto-preserved across the advance (stashed before, restored after)
+	 *  instead of aborting dirty_tree. Default: DEFAULT_PRESERVE_PATHS
+	 *  (`.agents/memory/MEMORY.md`). Only the listed paths are preserved; ALL
+	 *  OTHER uncommitted tracked work still aborts dirty_tree. Pass `[]` to
+	 *  disable preserve entirely. */
+	preserve?: string[];
 	signal?: AbortSignal;
 }
 
@@ -167,11 +205,14 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	const mode: SyncMode = opts.mode ?? "full";
 	const dry = opts.dryRun === true;
 	const force = opts.force === true;
+	// Preserve list: undefined ⇒ default seed (hermes MEMORY.md); [] ⇒ disabled.
+	const preserve = opts.preserve === undefined ? DEFAULT_PRESERVE_PATHS : opts.preserve;
 	const { client, spawn, repoRoot } = opts;
 	const commands: string[] = [];
 	const warnings: string[] = [];
 	const advanced: SyncAdvanced[] = [];
 	const submodules: SyncSubmodule[] = [];
+	let preserved: SyncPreserved | undefined;
 
 	/** Issue a git command: always record it (for `commands`); skip execution
 	 *  entirely under dryRun (returns a canned success). */
@@ -200,6 +241,7 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		warnings,
 		commands,
 		aborted,
+		preserved,
 		elapsedMs: Date.now() - t0,
 	});
 
@@ -235,16 +277,24 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		const needCheckout = !defaultWt; // <D> checked out nowhere → claim it here
 		const advanceTarget = defaultWt ?? repoRoot;
 
-		// Pre-flight: the worktree holding <D> must be clean (both merge --ff-only
-		// and reset --hard on a dirty tree risk losing staged/unstaged tracked
-		// work). Warn always; abort only when actually mutating.
-		const clean = await client.isClean(advanceTarget);
-		if (!clean) warnings.push(`worktree '${advanceTarget}' has uncommitted tracked changes.`);
-		if (!dry && !clean) {
+		// Pre-flight (per-path preserve split): separate dirty paths into
+		// preservable (auto-managed hot files) vs real (everything else). Real
+		// dirty → STILL abort dirty_tree (genuine uncommitted work — safety gate
+		// intact). Only-preservable dirty → stash those paths before the advance,
+		// restore after (never lose them). Warn always; abort only when mutating.
+		const dirty = await client.dirtyPaths(advanceTarget);
+		const preservable = dirty.filter((p) => isPreservable(p, preserve));
+		const real = dirty.filter((p) => !isPreservable(p, preserve));
+		if (dirty.length > 0) {
+			warnings.push(
+				`worktree '${advanceTarget}' has ${dirty.length} uncommitted tracked change(s) (${real.length} real, ${preservable.length} preserve-listed).`,
+			);
+		}
+		if (!dry && real.length > 0) {
 			return outcome({
 				aborted: true,
 				reason: "dirty_tree",
-				message: `dirty tree at ${advanceTarget}; aborting before fetch (stash or commit first).`,
+				message: `dirty tree at ${advanceTarget}; ${real.length} uncommitted path(s) outside the preserve list (stash or commit first).`,
 			});
 		}
 
@@ -268,34 +318,66 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		}
 		const from = (await client.revParse(D)) ?? "";
 
+		// PARK preserve-listed hot files RIGHT BEFORE the mutating advance (so
+		// read-only detection aborts above never leave them stashed). Recorded in
+		// commands[] under dryRun too; the stash actually runs only when mutating.
+		const wantPark = preservable.length > 0;
+		const parkedPaths = preservable;
+		if (wantPark) {
+			const push = await git(advanceTarget, ["stash", "push", "-m", "sync_repo preserve", "--", ...preservable]);
+			if (!dry && push.exitCode !== 0) {
+				return outcome({ aborted: true, reason: "preserve_failed", message: `stash push of preserve paths failed: ${trim(push.stderr || push.stdout)}` });
+			}
+		}
+
+		// The advance — the only mutating op that needs a clean tree.
+		let advanceAborted: SyncAbort | undefined;
 		if (force) {
-			// 7a. DESTRUCTIVE (opt-in): reset --hard origin/<D> — discards any
-			//     divergent/unpushed commits on <D>. Warned in the result.
+			// DESTRUCTIVE (opt-in): reset --hard origin/<D> — discards any
+			// divergent/unpushed commits on <D>. Warned in the result.
 			const reset = await git(advanceTarget, ["reset", "--hard", `origin/${D}`]);
 			if (reset.exitCode !== 0) {
 				warnings.push(`reset --hard failed: ${trim(reset.stderr || reset.stdout)}`);
-				return outcome({ aborted: true, reason: "reset_failed", message: `reset --hard origin/${D} failed` });
+				advanceAborted = { aborted: true, reason: "reset_failed", message: `reset --hard origin/${D} failed` };
+			} else {
+				warnings.push(
+					`force:true — used 'git reset --hard origin/${D}', which discards any divergent/unpushed commits on '${D}'.`,
+				);
 			}
-			warnings.push(
-				`force:true — used 'git reset --hard origin/${D}', which discards any divergent/unpushed commits on '${D}'.`,
-			);
 		} else {
-			// 7b. SAFE DEFAULT: merge --ff-only. We already fetched, so this avoids
-			//     pull's double-fetch. git REFUSES (exit non-zero) when local <D>
-			//     has divergent/unpushed commits — so the fast-forward can NEVER
-			//     lose a commit. On refusal, abort (no reset, no submodule sync)
-			//     and tell the caller exactly how to force the destructive path.
+			// SAFE DEFAULT: merge --ff-only. We already fetched, so this avoids
+			// pull's double-fetch. git REFUSES (exit non-zero) when local <D>
+			// has divergent/unpushed commits — so the fast-forward can NEVER
+			// lose a commit. On refusal, abort (after restoring the stash below).
 			const ff = await git(advanceTarget, ["merge", "--ff-only", `origin/${D}`]);
 			if (ff.exitCode !== 0) {
-				return outcome({
+				advanceAborted = {
 					aborted: true,
 					reason: "divergent",
 					defaultBranch: D,
 					message: `default branch '${D}' has commits not on origin/${D}; refusing to fast-forward.`,
 					hint: `default branch '${D}' has commits not on origin/${D}; refusing to fast-forward. Re-run with force:true to reset --hard (discards those local commits).`,
-				});
+				};
 			}
 		}
+
+		// POP RIGHT AFTER the advance — restore the parked hot files whether the
+		// advance succeeded OR refused (so a divergent/reset abort never strands
+		// them in a stash). On pop conflict: keep the stash + warn (edits safe).
+		if (wantPark) {
+			const pop = await git(advanceTarget, ["stash", "pop"]);
+			if (!dry) {
+				if (pop.exitCode !== 0) {
+					preserved = { paths: parkedPaths, restored: false, conflict: trim(pop.stderr || pop.stdout) };
+					warnings.push(`preserve restore: stash pop conflicted at ${advanceTarget}; local edits kept in stash (git -C ${advanceTarget} stash list).`);
+				} else {
+					preserved = { paths: parkedPaths, restored: true };
+				}
+			}
+		}
+
+		// Surface a refusal now — AFTER the stash was restored.
+		if (advanceAborted) return outcome(advanceAborted);
 		advanced.push({ worktree: advanceTarget, branch: D, from, to });
 
 		// 8. Verify local <D> now equals origin/<D> (the bash verify_default_at_latest
@@ -324,13 +406,20 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		warnings.push("detached HEAD — cannot rebase/merge a detached worktree.");
 		return outcome({ aborted: true, reason: "detached_head", message: "detached HEAD; cannot advance a detached worktree" });
 	}
-	const clean = await client.isClean(repoRoot);
-	if (!clean) warnings.push(`worktree '${repoRoot}' has uncommitted tracked changes.`);
-	if (!dry && !clean) {
+	// Pre-flight (per-path preserve split): see full-mode for the rationale.
+	const dirty = await client.dirtyPaths(repoRoot);
+	const preservable = dirty.filter((p) => isPreservable(p, preserve));
+	const real = dirty.filter((p) => !isPreservable(p, preserve));
+	if (dirty.length > 0) {
+		warnings.push(
+			`worktree '${repoRoot}' has ${dirty.length} uncommitted tracked change(s) (${real.length} real, ${preservable.length} preserve-listed).`,
+		);
+	}
+	if (!dry && real.length > 0) {
 		return outcome({
 			aborted: true,
 			reason: "dirty_tree",
-			message: `dirty tree at ${repoRoot}; aborting before fetch (stash or commit first).`,
+			message: `dirty tree at ${repoRoot}; ${real.length} uncommitted path(s) outside the preserve list (stash or commit first).`,
 		});
 	}
 
@@ -343,20 +432,47 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	}
 	const from = (await client.revParse("HEAD")) ?? "";
 
+	// PARK preserve-listed hot files RIGHT BEFORE the mutating rebase/merge.
+	const wantPark = preservable.length > 0;
+	const parkedPaths = preservable;
+	if (wantPark) {
+		const push = await git(repoRoot, ["stash", "push", "-m", "sync_repo preserve", "--", ...preservable]);
+		if (!dry && push.exitCode !== 0) {
+			return outcome({ aborted: true, reason: "preserve_failed", message: `stash push of preserve paths failed: ${trim(push.stderr || push.stdout)}` });
+		}
+	}
+
+	// The advance — the only mutating op that needs a clean tree.
+	let advanceAborted: SyncAbort | undefined;
 	if (mode === "rebase") {
 		const r = await git(repoRoot, ["rebase", `origin/${D}`]);
 		if (r.exitCode !== 0) {
 			warnings.push(`rebase failed: ${trim(r.stderr || r.stdout)}`);
-			return outcome({ aborted: true, reason: "rebase_failed", message: `rebase onto origin/${D} failed (resolve conflicts, then re-run).` });
+			advanceAborted = { aborted: true, reason: "rebase_failed", message: `rebase onto origin/${D} failed (resolve conflicts, then re-run).` };
 		}
 	} else {
 		// pull → real merge, never fast-forward (per spec: "merge instead of ff").
 		const r = await git(repoRoot, ["merge", "--no-edit", "--no-ff", `origin/${D}`]);
 		if (r.exitCode !== 0) {
 			warnings.push(`merge failed: ${trim(r.stderr || r.stdout)}`);
-			return outcome({ aborted: true, reason: "merge_failed", message: `merge origin/${D} failed (resolve conflicts, then re-run).` });
+			advanceAborted = { aborted: true, reason: "merge_failed", message: `merge origin/${D} failed (resolve conflicts, then re-run).` };
 		}
 	}
+
+	// POP RIGHT AFTER the advance — restore parked hot files even on a refusal.
+	if (wantPark) {
+		const pop = await git(repoRoot, ["stash", "pop"]);
+		if (!dry) {
+			if (pop.exitCode !== 0) {
+				preserved = { paths: parkedPaths, restored: false, conflict: trim(pop.stderr || pop.stdout) };
+				warnings.push(`preserve restore: stash pop conflicted at ${repoRoot}; local edits kept in stash (git -C ${repoRoot} stash list).`);
+			} else {
+				preserved = { paths: parkedPaths, restored: true };
+			}
+		}
+	}
+
+	if (advanceAborted) return outcome(advanceAborted);
 	const after = (await client.revParse("HEAD")) ?? "";
 	advanced.push({ worktree: repoRoot, branch: current, from, to: after });
 	return outcome();

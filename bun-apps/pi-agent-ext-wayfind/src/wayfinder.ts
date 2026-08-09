@@ -18,15 +18,27 @@ import { completeEffort } from "./lifecycle.js";
 import { appendDecision, readMap, writeMap, writeTicket } from "./map.js";
 import { computeFrontier, type Ticket, today, type WayfindMap } from "./model.js";
 
-/** Slugify a free-text destination/effort name: lowercase, hyphenate, trim. */
+/** Slugify a free-text destination/effort name: lowercase, hyphenate, trim,
+ *  then truncate to ≤48 chars at a WORD BOUNDARY.
+ *
+ *  Truncation cuts at the last `-` at or before index 48 (never mid-word) and
+ *  re-trims any trailing dash the cut leaves behind — failure memory #444: a
+ *  naive `.slice(0, 48)` shipped mid-word fragments ("...theta-io") and
+ *  dangling tails ("...-prevous-wayfind-"). When the first 48 chars contain no
+ *  `-` (a single long word), there's no boundary to back up to, so the hard
+ *  cut stands. Locked by `tests/slug.test.ts`. */
 export function slugify(text: string): string {
-  return (
-    text
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 48) || "effort"
-  );
+  let s = text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (s.length > 48) {
+    s = s.slice(0, 48);
+    const lastDash = s.lastIndexOf("-");
+    if (lastDash > 0) s = s.slice(0, lastDash);
+    s = s.replace(/-+$/g, ""); // re-trim a trailing dash the boundary cut exposed
+  }
+  return s || "effort";
 }
 
 /** Today's date as `YYYY-MM-DD` (local) — used to prefix effort ids so they

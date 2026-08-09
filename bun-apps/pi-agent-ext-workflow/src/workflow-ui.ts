@@ -227,7 +227,9 @@ export class NavigatorState {
   followLive = true;
 
   private top(): StackFrame {
-    return this.stack[this.stack.length - 1];
+    // invariant: stack is never empty — initialized with a root frame, and pop()
+    // refuses to go below length 1, so the last element is always defined.
+    return this.stack[this.stack.length - 1]!;
   }
   get kind(): ViewKind {
     return this.top().kind;

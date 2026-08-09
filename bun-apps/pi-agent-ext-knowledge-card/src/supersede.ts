@@ -70,7 +70,7 @@ export function markSuperseded(
 	const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
 	if (!fmMatch) return { found: true, updated: false, path: targetPath };
 
-	const before = fmMatch[1];
+	const before = fmMatch[1]!; // invariant: fmMatch truthy (guarded above) + 1 mandatory capture group
 	let fm = before.replace(/^status:.*$/m, `status: superseded`);
 	if (/^superseded_by:/m.test(fm)) {
 		fm = fm.replace(/^superseded_by:.*$/m, `superseded_by: ${yamlScalar(supersededById)}`);
