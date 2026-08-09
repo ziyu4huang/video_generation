@@ -1,7 +1,7 @@
 ---
 type: task
 blocking: []
-status: open
+status: closed
 ---
 
 ## Question
@@ -14,3 +14,6 @@ The agent re-applies a patch without investigating **why** a prior patch was una
 ## Acceptance
 - The "investigate-WHY-before-repatch" step is present in `procedures/wayfinder.md`.
 - The procedure file renders/parses cleanly and the procedure-path resolver still points to it (no broken reference).
+
+## Resolution
+Fixed in `658f64e7`: added an explicit "investigate-WHY-before-repatch" step to `procedures/wayfinder.md` (root-cause-first: reverted? test gap? wrong layer? stale worktree? cite memory/commit/diff), placed where fix-iteration arises.

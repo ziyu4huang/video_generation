@@ -1,7 +1,7 @@
 ---
 type: task
 blocking: []
-status: open
+status: closed
 ---
 
 ## Question
@@ -14,3 +14,6 @@ status: open
 ## Acceptance
 - The fallback never crosses effort boundaries; `goal_complete` no longer false-positives on a plan-less effort.
 - Test proves an unrelated plan is rejected; `bun test` + `bun run typecheck` green in `pi-agent-ext-core-task`.
+
+## Resolution
+Fixed in `6b9ad2c2`: `discoverActivePlan` returns "no active plan" instead of falling back across effort boundaries when the active effort's `plans/` dir is empty/absent; test asserts an unrelated plan from another effort/docs is rejected.

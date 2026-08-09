@@ -1,7 +1,7 @@
 ---
 type: task
 blocking: []
-status: open
+status: closed
 ---
 
 ## Question
@@ -19,3 +19,6 @@ Slugify truncation can cut mid-word or leave a stray trailing dash (e.g. `...-pr
 - Truncation regression tests exist and pass (`bun test` in `pi-agent-ext-wayfind`).
 - A deliberately-broken truncation (e.g. naive `.slice(0,48)` with no re-trim) fails the new tests (RED proven).
 - `bun run typecheck` green.
+
+## Resolution
+Fixed in `18f16900`: slugify now slices at the last `-` at/before the 48-char limit and re-trims leading/trailing dashes; regression coverage added in `tests/slug.test.ts` (word-boundary truncation, re-trim, the `...-prevous-wayfind-`-style case, and short-name passthrough).

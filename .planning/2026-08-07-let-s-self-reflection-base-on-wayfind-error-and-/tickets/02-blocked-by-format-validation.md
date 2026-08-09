@@ -1,7 +1,7 @@
 ---
 type: task
 blocking: []
-status: open
+status: closed
 ---
 
 ## Question
@@ -14,3 +14,6 @@ Malformed `blocked by:` / `blocking:` values (bracketed slugs like `[01]`, or mi
 ## Acceptance
 - Malformed `blocking` is detected + surfaced (no silent no-op).
 - Tests cover good + each bad format; `bun test` + `bun run typecheck` green in `pi-agent-ext-wayfind`.
+
+## Resolution
+Fixed in `1eb51c1c`: `parseTicketFile` now validates `blocking` entries are bare numbers and throws on non-numeric/bracketed-slug input (no silent skip); good format `01, 02` still accepted. Tests cover the good format and each malformed variant.

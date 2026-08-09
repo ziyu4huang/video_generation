@@ -1,7 +1,7 @@
 ---
 type: task
 blocking: []
-status: open
+status: closed
 ---
 
 ## Question
@@ -16,3 +16,6 @@ Subagents reading whole `map.md` files verbatim exhaust token budgets — failur
 ## Acceptance
 - `wayfind_effort` `status` action exists, returns budget-bounded low-res output (no full decision bodies), and is tested.
 - `bun test` + `bun run typecheck` green in `pi-agent-ext-wayfind`.
+
+## Resolution
+Fixed in `09e3c166`: extended the `wayfind_effort` tool with a `status` action returning effort-level status plus a budget-bounded per-ticket `{ id, title, status, blocking }` inventory (no verbatim decision bodies); added tests for shape, no-body-leak, and missing-effort handling.
