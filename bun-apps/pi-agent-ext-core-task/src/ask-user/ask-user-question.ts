@@ -71,7 +71,7 @@ export function registerAskUserQuestionTool(pi: ExtensionAPI): void {
 	const guidance = validateGuidanceFields(loadConfig().guidance);
 	pi.registerTool({
 		name: ASK_USER_QUESTION_TOOL_NAME,
-		gating: { core: true },
+		gating: { keywords: ["ask", "question", "questions", "clarify", "clarifying", "ambiguous", "ambiguity", "preference", "preferences", "choose", "choice", "decide", "decision", "option", "options", "recommend", "recommendation", "confirm"] },
 		label: "Ask User Question",
 		description: `Ask the user one or more structured questions during execution. Use when you need to:
 1. Gather user preferences or requirements
