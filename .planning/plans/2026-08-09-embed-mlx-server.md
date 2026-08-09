@@ -581,16 +581,28 @@ public final class MLXEmbeddingBackend: EmbeddingBackend {
                 encoded.map { tokens in
                     MLXArray(tokens + Array(repeating: padValue, count: batchMaxLength - tokens.count))
                 })
-            let mask = (padded .!= padValue)
+            // Built from each sequence's real (pre-padding) length, NOT from
+            // comparing against padValue: `tokenizer.encode` appends a real
+            // EOS token to every sequence, and that EOS token's id is the
+            // same as padValue. Comparing against padValue (as the upstream
+            // README example does) would incorrectly mask out every
+            // sequence's real trailing EOS token as if it were padding,
+            // corrupting both self-attention and .mean/.max/.last pooling —
+            // found and fixed during Task 4's code review.
+            let lengths = encoded.map(\.count)
+            let maskInts = lengths.map { length in
+                Array(repeating: 1, count: length) + Array(repeating: 0, count: batchMaxLength - length)
+            }
+            let mask = stacked(maskInts.map { MLXArray($0) }) .!= 0
             let tokenTypes = MLXArray.zeros(like: padded)
 
             let output = model(padded, positionIds: nil, tokenTypeIds: tokenTypes, attentionMask: mask)
             // `mask:` is passed explicitly here (the upstream README example
-            // omits it) because `.mean`/`.max`/`.last` pooling strategies use
-            // it to exclude padding positions — without it they'd silently
-            // average/select over padding tokens too. `.cls`/`.first`/`.none`
-            // ignore the mask, so this is a no-op for those strategies and a
-            // real correctness fix for the others.
+            // omits it entirely) because `.mean`/`.max`/`.last` pooling
+            // strategies use it to exclude padding positions — without it
+            // they'd silently average/select over padding tokens too.
+            // `.cls`/`.first`/`.none` ignore the mask, so this is a no-op for
+            // those strategies and a real correctness fix for the others.
             let result = pooling(output, mask: mask, normalize: true, applyLayerNorm: true)
             result.eval()
 
