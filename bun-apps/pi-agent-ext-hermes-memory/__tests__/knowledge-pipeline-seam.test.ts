@@ -54,12 +54,14 @@ describe("hermes reads KnowledgePipeline defensively", () => {
         scanned: 0,
         excluded: 0,
       }),
+      healGraph: async () => ({ mocRegenerated: false, deadLinksPruned: 0, linksDeduped: 0, cardsTouched: [] }),
     };
     publishSeam(KEY, fake);
     const kp = getKnowledgePipeline();
     assert.equal(kp, fake);
     assert.equal(typeof kp?.collectInputFiles, "function");
     assert.equal(typeof kp?.ingestRecords, "function");
+    assert.equal(typeof kp?.healGraph, "function");
     assert.equal(typeof kp?.runConvergenceLoop, "function");
     assert.equal(typeof kp?.retrieveRecords, "function");
   });

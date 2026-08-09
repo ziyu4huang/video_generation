@@ -46,6 +46,9 @@ import { registerSessionSearchTool } from "./tools/session-search-tool.js";
 import { createPerfRecorder } from "./perf.js";
 import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
 import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
+import { registerKnowledgeSearchTool } from "./tools/knowledge-search-tool.js";
+import { registerKnowledgeIngestTool } from "./tools/knowledge-ingest-tool.js";
+import { resolveKnowledgeVaultPath } from "./knowledge-vault-path.js";
 import { captureAssembly } from "./handlers/session-assembly.js";
 import { setupBackgroundReview } from "./handlers/background-review.js";
 import { setupSessionFlush } from "./handlers/session-flush.js";
@@ -386,6 +389,16 @@ export default async function (pi: ExtensionAPI) {
   // memory writes land in the parent store (same effect as the old -e subprocess).
   const memoryToolDef = registerMemoryTool(pi, store, projectStore, memoryRepo, projectName);
   registerGrillDecisionTool(pi, store, memoryRepo);
+
+  // ── 3b. Register the knowledge tools (06b). knowledge_search wraps zk's
+  // retrieveRecords (vault-md graph); knowledge_ingest wraps walkAndIngest
+  // (walk → zk ingest → heal → DB-mirror). Both degrade gracefully when the zk
+  // seam is absent or the vault env is unset — registration never calls the
+  // resolver, so a missing vault env does NOT crash session init (the resolver
+  // throws at call time and the tool surfaces a clear message). The mirror
+  // reuses the SAME SQLite DB the memory-cards use (the global memory dir). ──
+  registerKnowledgeSearchTool(pi, resolveKnowledgeVaultPath);
+  registerKnowledgeIngestTool(pi, { memoryDir: globalDir });
 
   // ── 4. Register the skill tool ──
   registerSkillTool(pi, skillStore);
