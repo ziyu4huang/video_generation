@@ -43,9 +43,41 @@ export interface RetrieveOptions {
 export interface RetrieveResult {
   count: number; cards: RetrievedCard[]; digest: string; folder: string; scanned: number; excluded: number;
 }
+/** Scoped graph-heal options. Maps 1:1 to zk's GraphHealthOptions
+ *  (retrieve.ts). The convergence-folder scope keeps heal from touching
+ *  human-authored cards outside it. */
+export interface HealOptions {
+  /** Absolute vault path (the convergence sink). */
+  vaultPath: string;
+  /** Convergence folder inside the vault (default: Zettelkasten/knowledge-graph). */
+  folder?: string;
+  /** MOC note path, vault-relative (default: Tags/Knowledge Graph.md). */
+  mocPath?: string;
+}
+
+/** Receipt for a scoped graph-heal. Maps 1:1 to zk's HealResult (retrieve.ts);
+ *  renamed HealReceipt here as the canonical seam contract. zk's richer type
+ *  assigns structurally at the publishSeam call site (the contract is a SUBSET
+ *  promise, per the core-interface pattern). */
+export interface HealReceipt {
+  /** true iff the MOC was regenerated from on-disk cards. */
+  mocRegenerated: boolean;
+  /** # of dead canonical `[[…]]` link lines pruned in-card. */
+  deadLinksPruned: number;
+  /** # of duplicate canonical link lines deduped within `## 連結`. */
+  linksDeduped: number;
+  /** Vault-relative paths of cards the heal mutated. */
+  cardsTouched: string[];
+}
+
 export interface KnowledgePipeline {
   collectInputFiles(paths: string[], opts: { source: SourceFamily; cwd: string }): CollectInputFilesResult;
   ingestRecords(records: KnowledgeRecord[], opts: IngestOptions): Promise<IngestSummary>;
+  /** Scoped graph-heal (06b). A LEAF primitive — regenerate the convergence-folder
+   *  MOC from on-disk cards + prune dead canonical [[…]] links in-card. No ingest,
+   *  no convergence loop, no probe. zk already implements it (retrieve.ts);
+   *  hermes calls it AFTER ingest to keep the vault graph healthy. */
+  healGraph(opts: HealOptions): Promise<HealReceipt>;
   runConvergenceLoop(opts: ConvergeOptions): Promise<ConvergeReceipt>;
   retrieveRecords(opts: RetrieveOptions): Promise<RetrieveResult>;
 }

@@ -4,4 +4,5 @@ export type {
   KnowledgePipeline, KnowledgeRecord, SourceFamily, LinkWeighting,
   IngestOptions, IngestSummary, ConvergeOptions, ConvergeReceipt,
   RetrieveOptions, RetrieveResult, CollectInputFilesResult,
+  HealOptions, HealReceipt,
 } from "./interfaces/knowledge-pipeline.js";
