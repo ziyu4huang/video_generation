@@ -12,6 +12,29 @@
 
 ---
 
+## Status: COMPLETE (2026-08-09) — this is now a build record, not a spec
+
+All 9 tasks are implemented, reviewed, and verified end-to-end (see Task 9's
+recorded result at the bottom). **`swift/embed-mlx-server/README.md` is the
+canonical reference from here on; the code itself is the source of truth.**
+
+The code blocks below were kept byte-identical to the shipped source through
+Task 8. A final holistic review then landed one more round of cross-cutting
+fixes (commit `d8a51522`) which these blocks do **not** reflect:
+
+- validation extended to `--micro-batch-size` / `--max-length` and added to
+  `self-test`; port floor 0 → 1
+- self-test pass criterion now requires a margin, not just `near > far`
+- `ServerConfig` no longer imports MLXEmbedders; `MLXEmbeddingBackend.load`
+  takes a plain repo string
+- `OpenAIEmbeddingsSchema` no longer imports Hummingbird (the
+  `ResponseCodable` conformance was never exercised)
+- `PlaceholderTests.swift` deleted (19 real tests remain)
+
+Read the actual files, not these blocks, if you need current behavior.
+
+---
+
 ## Important: dependency version pin
 
 This plan pins `mlx-swift-lm` to **exact `2.31.3`**, not the latest tag (`3.31.4`). This was verified directly against the tagged source trees on GitHub, not assumed:
