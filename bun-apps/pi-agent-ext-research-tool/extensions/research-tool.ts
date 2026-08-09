@@ -69,16 +69,21 @@ const collectVideosTool = defineTool({
 	// gate). Per ticket 09's semantics-preserving rule, the SAME gating is
 	// mirrored on organize_vault_notes + import_memory_to_vault so all three
 	// activate together and reconstructOwnerDeclaredGates collapses them back
-	// into one multi-name gate (names[0] === "collect_videos"). Mirrors the
-	// original GATES entry verbatim: keywords only (bilibili/youtube/collect
-	// videos/vault phrases + CJK) — no `requires`, since these are unambiguous
-	// source/vault intents that never false-fire the way image/video nouns do.
+	// into one multi-name gate (names[0] === "collect_videos"). Keywords cover
+	// the unambiguous bilibili/youtube/collect videos/vault phrases + CJK; the
+	// noun∧verb `requires` path mirrors flux2 so keyword-free paraphrases (gather
+	// clips / pull footage / 整理 vault 筆記) also reach the gate (gate-recall
+	// adversarial floor 0.9).
 	gating: {
 		keywords: [
 			"bilibili", "youtube", "collect videos", "video trending",
 			"vault notes", "organize vault", "import memory",
 			"收集影片", "整理筆記",
 		],
+		requires: {
+			nouns: ["clip", "clips", "footage", "videos", "platform", "vault", "影片", "短片", "平台", "筆記"],
+			verbs: ["gather", "collect", "pull", "organize", "scrape", "收集", "整理", "抓"],
+		},
 	},
 	parameters: Type.Object({
 		platform: Type.Union([Type.Literal("bilibili"), Type.Literal("youtube")], {
@@ -204,6 +209,10 @@ const organizeTool = defineTool({
 			"vault notes", "organize vault", "import memory",
 			"收集影片", "整理筆記",
 		],
+		requires: {
+			nouns: ["clip", "clips", "footage", "videos", "platform", "vault", "影片", "短片", "平台", "筆記"],
+			verbs: ["gather", "collect", "pull", "organize", "scrape", "收集", "整理", "抓"],
+		},
 	},
 	parameters: Type.Object({
 		vaultRoot: Type.Optional(Type.String({ description: "Vault root (absolute or cwd-relative). Default: active vault." })),
@@ -248,6 +257,10 @@ const importMemoryTool = defineTool({
 			"vault notes", "organize vault", "import memory",
 			"收集影片", "整理筆記",
 		],
+		requires: {
+			nouns: ["clip", "clips", "footage", "videos", "platform", "vault", "影片", "短片", "平台", "筆記"],
+			verbs: ["gather", "collect", "pull", "organize", "scrape", "收集", "整理", "抓"],
+		},
 	},
 	parameters: Type.Object({
 		outputPath: Type.Optional(Type.String({ description: "JSONL output (absolute or cwd-relative). Default: <vault>/collections/study_news.jsonl." })),
@@ -580,11 +593,10 @@ const extension: ExtensionFactory = (pi) => {
 // (avoids a circular dep); shape is enforced by tool-gate's drift-guard test.
 //   - controls[]  carry a current keyword → MUST fire.
 //   - adversarial[] are keyword-free "I need this tool" phrasings that fire via
-//     the noun∧verb `requires` path.
-// REAL FINDING — collect_videos is keywords-only (no `requires`), so keyword-
-// free paraphrases cannot fire; recall is calibrated to the observed floor in
-// tool-gate Task 8 with a loud comment, the probes staying as genuine-intent
-// witnesses. arxiv_search DOES have a requires path, but its only zh noun
+//     the noun∧verb `requires` path on the runtime gating.
+// collect_videos now carries a requires path (mirrors flux2/ltx), so its
+// adversarial recall is calibrated to the 0.9 target (was 0 when keywords-
+// only). arxiv_search ALSO has a requires path, but its only zh noun
 // (論文) collides with a keyword — so a clean keyword-free zh adversarial is
 // impossible (any zh probe firing via requires contains 論文). The arxiv
 // adversarial set is therefore EN-only; this zh-noun/keyword collision is a
@@ -592,10 +604,8 @@ const extension: ExtensionFactory = (pi) => {
 // ---------------------------------------------------------------------------
 export const COLLECT_VIDEOS_PROBES = {
 	gate: "collect_videos",
-	// floor 0 = OBSERVED recall (keywords-only gate, no requires path; see the
-	// REAL FINDING note above — paraphrased intent structurally cannot fire).
-	recallFloor: 0,
-	adversarial: ["gather clips from video platforms", "pull trending footage for research", "把 vault 的筆記排一下"],
+	recallFloor: 0.9,
+	adversarial: ["gather clips from video platforms", "pull trending footage for research", "把 vault 的筆記整理一下"],
 	controls: ["collect videos from bilibili", "organize vault notes", "收集影片"],
 };
 export const ARXIV_SEARCH_PROBES = {

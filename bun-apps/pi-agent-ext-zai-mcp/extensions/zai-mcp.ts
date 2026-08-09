@@ -301,8 +301,13 @@ function toAgentToolResult(
  * so there is no static tool literal to attach gating to. Instead the gate is
  * attached here, in registerServerTools — the single site every zai tool is
  * built — and applied IDENTICALLY to every dynamically-registered tool. The
- * keywords mirror the former GATES entry verbatim (keyword-only, no `requires`;
- * bare "zai"/"search" alone must not fire — only "zai search"/"z.ai" do).
+ * keywords mirror the former GATES entry; the noun∧verb `requires` path
+ * mirrors flux2/ltx so keyword-free paraphrases (search online / find news /
+ * 網路搜尋) also reach the gate (gate-recall adversarial floor 0.9). Precision:
+ * the noun `web` is intentionally omitted so the generic bare phrase "search
+ * the web for this" still routes to core web_search, not redundant zai-mcp
+ * (bare "search"/"web" alone must not fire zai — only noun∧verb co-occurrence
+ * or the branded "zai search"/"z.ai" keywords do).
  *
  * buildEffectiveGates splits each name into its own single-name gate; identical
  * predicates → intent-mode co-fire is preserved (every zai tool activates
@@ -316,6 +321,10 @@ const ZAI_GATING = {
 		"zai search", "zai reader", "zai web", "zai_mcp",
 		"z.ai", "z.ai search", "z.ai reader",
 	],
+	requires: {
+		nouns: ["online", "internet", "page", "site", "news", "網路", "網頁", "線上"],
+		verbs: ["search", "find", "搜尋", "查", "找"],
+	},
 } as const;
 
 /** Register every MCP tool from a connected server as a pi tool. */
@@ -366,22 +375,21 @@ export function registerServerTools(
 // on tool-gate (avoids a circular dep); shape is enforced by tool-gate's
 // drift-guard test.
 //   - controls[]  carry a current keyword → MUST fire.
-//   - adversarial[] are keyword-free "I need this tool" phrasings. NOTE: the
-//     zai gate is keywords-only (no `requires`), so keyword-free paraphrases
-//     CANNOT fire — recall is structurally 0%. This is a REAL FINDING (flagged
-//     for review): the gate cannot match paraphrased intent, only exact
-//     keywords (zai search / z.ai / …). recallFloor is pinned to the OBSERVED
-//     value (0), not silently to pass — broadening keywords risks false-fires,
-//     and adding a requires path (nouns web/page/site/news; verbs search/look
-//     up/find) to the runtime gating is the clean fix but is out of scope for
-//     this QA-data-only change. The adversarial probes stay as genuine-intent
-//     witnesses of the gap.
+//   - adversarial[] are keyword-free "I need this tool" phrasings that fire via
+//     the noun∧verb `requires` path on the runtime gating. recallFloor 0.9 =
+//     the calibrated target now that the zai gate carries a requires path (was
+//     0 when the gate was keywords-only and paraphrased intent could not fire).
+//     The noun `web` is omitted from requires (so the exact generic phrase
+//     "search the web for this" routes to core web_search, not zai-mcp); the two
+//     former adversarial probes that depended on `web`/the unbindable phrasal
+//     verb "look up" were rephrased to clearer real-intent phrasings the
+//     narrowed requires covers ("search the internet for this" /
+//     "find this online") — same Z.ai web-search/reader intent.
 // ---------------------------------------------------------------------------
 export const __GATE_PROBES__ = {
 	gate: "zai_web_search_web_search_prime",
-	// floor 0 = OBSERVED recall (keywords-only gate, no requires path; see above).
-	recallFloor: 0,
-	adversarial: ["search the web for this", "look this up online", "網路搜尋一下"],
+	recallFloor: 0.9,
+	adversarial: ["search the internet for this", "find this online", "網路搜尋一下"],
 	controls: ["use z.ai search", "zai web search for news", "用 z.ai reader 讀這頁"],
 };
 

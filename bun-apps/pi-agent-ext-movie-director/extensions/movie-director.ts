@@ -41,10 +41,10 @@ function makeMovieTool() {
     // {names:["movie","movie_help"]} gate). Per ticket 08's semantics-preserving
     // rule, the SAME gating is mirrored on movie_help so both activate together
     // and reconstructOwnerDeclaredGates collapses them back into one multi-name
-    // gate (names[0] === "movie"). Mirrors the original GATES entry verbatim:
-    // keywords only (montage/storyboard/分鏡/導演/film phrases) — no `requires`,
-    // since these are unambiguous generation intents that never false-fire on
-    // bare nouns the way image/video do.
+    // gate (names[0] === "movie"). Keywords cover the unambiguous montage/
+    // storyboard/分鏡/導演/film phrases; the noun∧verb `requires` path mirrors
+    // flux2/ltx so keyword-free paraphrases (assemble clips / cut footage /
+    // 剪片段) also reach the gate (gate-recall adversarial floor 0.9).
     gating: {
       keywords: [
         "montage", "preflight", "storyboard", "分鏡", "剪輯",
@@ -52,6 +52,10 @@ function makeMovieTool() {
         "compose video", "compose scene", "電影製作",
         "short film", "into a film", "scenes into",
       ],
+      requires: {
+        nouns: ["clip", "clips", "footage", "scene", "scenes", "sequence", "片段", "畫面", "作品", "影片"],
+        verbs: ["assemble", "compose", "direct", "cut", "orchestrate", "edit", "stitch", "剪", "編排", "組裝", "製作"],
+      },
     },
     promptSnippet:
       "Instruction-driven video production orchestrator (OpenMontage rewrite). Drives idea→script→scene_plan→assets→edit→compose→publish " +
@@ -90,6 +94,10 @@ function makeMovieHelpTool() {
         "compose video", "compose scene", "電影製作",
         "short film", "into a film", "scenes into",
       ],
+      requires: {
+        nouns: ["clip", "clips", "footage", "scene", "scenes", "sequence", "片段", "畫面", "作品", "影片"],
+        verbs: ["assemble", "compose", "direct", "cut", "orchestrate", "edit", "stitch", "剪", "編排", "組裝", "製作"],
+      },
     },
     description:
       "On-demand reference for the `movie` tool. Pass {command} for option keys + example; omit to list all commands.",
@@ -143,21 +151,14 @@ const extension: ExtensionFactory = (pi) => {
  * no `satisfies` / type import, so the extension never depends on tool-gate
  * (avoids a circular dep); shape is enforced by tool-gate's drift-guard test.
  *  - controls[]  carry a current keyword → MUST fire.
- *  - adversarial[] are keyword-free "I need this tool" phrasings. NOTE: the
- *    movie gate is keywords-only (no `requires`), so keyword-free paraphrases
- *    CANNOT fire — recall is structurally 0%. This is a REAL FINDING (flagged
- *    for review): the gate cannot match paraphrased intent, only exact
- *    keywords. recallFloor is therefore pinned to the OBSERVED value (0), not
- *    silently to pass — broadening keywords risks false-fires, and adding a
- *    requires path (nouns film/movie/video/片段; verbs assemble/direct/cut/
- *    compose) to the runtime gating is the clean fix but is out of scope for
- *    this QA-data-only change. The adversarial probes stay as genuine-intent
- *    witnesses of the gap.
+ *  - adversarial[] are keyword-free "I need this tool" phrasings that fire via
+ *    the noun∧verb `requires` path on the runtime gating. recallFloor 0.9 = the
+ *    calibrated target now that the movie gate carries a requires path (was 0
+ *    when the gate was keywords-only and paraphrased intent could not fire).
  */
 export const __GATE_PROBES__ = {
 	gate: "movie",
-	// floor 0 = OBSERVED recall (keywords-only gate, no requires path; see above).
-	recallFloor: 0,
+	recallFloor: 0.9,
 	adversarial: [
 		"assemble these clips into a short piece",
 		"turn the footage into a narrative cut",
