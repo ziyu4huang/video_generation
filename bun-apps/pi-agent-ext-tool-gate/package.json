@@ -30,6 +30,7 @@
     "@repo/pi-agent-ext-power-tool": "workspace:*"
   },
   "devDependencies": {
+    "@repo/pi-agent-ext-core-interface": "workspace:*",
     "@repo/pi-agent-ext-core-task": "workspace:*",
     "@repo/pi-agent-ext-devops": "workspace:*",
     "@repo/pi-agent-ext-file2md": "workspace:*",
@@ -45,7 +46,6 @@
     "@repo/pi-agent-ext-wayfind": "workspace:*",
     "@repo/pi-agent-ext-web-access": "workspace:*",
     "@repo/pi-agent-ext-workflow": "workspace:*",
-    "@repo/pi-agent-ext-zai-mcp": "workspace:*",
-    "@repo/pi-tool-gating-contract": "workspace:*"
+    "@repo/pi-agent-ext-zai-mcp": "workspace:*"
   }
 }

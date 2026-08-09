@@ -6,7 +6,7 @@
   "license": "MIT",
   "keywords": ["pi-package", "seam", "contracts", "types"],
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": { ".": { "types": "./src/types.d.ts", "default": "./src/index.ts" } },
   "files": ["src", "README.md"],
   "scripts": { "test": "bun test", "check": "tsc --noEmit" },
   "peerDependencies": { "@earendil-works/pi-coding-agent": "0.84.1", "typebox": "*" },

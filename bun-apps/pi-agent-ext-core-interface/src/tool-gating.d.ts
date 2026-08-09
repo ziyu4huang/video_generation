@@ -4,9 +4,9 @@
  * Lets a tool's `ToolDefinition` carry an owner-declared `gating` field.
  * Formerly duplicated (byte-identical) across ~14 packages so no cross-package
  * type dependency was introduced; a drift-guard test asserted structural
- * agreement. That duplication is now collapsed into THIS package. Consumers
- * surface the augmentation in their isolated typecheck by adding
- *     /// <reference types="@repo/pi-tool-gating-contract" />
+ * agreement. That duplication is now collapsed into `@repo/pi-agent-ext-core-interface`.
+ * Consumers surface the augmentation in their isolated typecheck by adding
+ *     /// <reference types="@repo/pi-agent-ext-core-interface" />
  * as the first line of their primary entry (or by adding this file to their
  * tsconfig `include`).
  *
