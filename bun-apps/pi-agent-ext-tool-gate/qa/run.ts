@@ -26,6 +26,7 @@ import {
 	type CoverageReport,
 } from "./coverage.ts";
 import { evaluateCorpus, tally, type CorpusResult } from "./evaluate.ts";
+import { evaluateGateRecall, type GateRecallReport } from "./gate-recall.ts";
 import {
 	evaluateReachability,
 	summarizeReachability,
@@ -64,6 +65,7 @@ export interface QaResult {
 	savings: SavingsReport;
 	coverage: CoverageReport;
 	corpus: CorpusResult;
+	gateRecall: GateRecallReport;
 	l2: L2Block;
 	savingsProblems: string[];
 	coverageProblems: string[];
@@ -76,6 +78,7 @@ export async function runQa(opts: QaOptions = {}): Promise<QaResult> {
 	const savings = await measureSavings(opts.root);
 	const coverage = await measureCoverage(opts.root, opts.coverageThreshold);
 	const corpus = evaluateCorpus();
+	const gateRecall = evaluateGateRecall();
 
 	let l2: L2Block;
 	if (opts.l2) {
@@ -94,14 +97,18 @@ export async function runQa(opts: QaOptions = {}): Promise<QaResult> {
 	const strictOk = corpus.taskBreakingGates.length === 0; // false-fires excluded
 	const strictCoverageOk = coverage.ungated.length === 0; // coverage gate (--strict only)
 	const pass =
-		(opts.strict ? intendedOk && strictOk && strictCoverageOk : intendedOk) && savingsFloorMet;
+		(opts.strict ? intendedOk && strictOk && strictCoverageOk : intendedOk) &&
+		savingsFloorMet &&
+		gateRecall.pass;
 	const reason = !savingsFloorMet
 		? `savings below floor (need ≥${SAVINGS_FLOOR.pct}% AND ≥${SAVINGS_FLOOR.tok.toLocaleString()} tok; got ${savings.savedPct}%/${savings.savedTok.toLocaleString()})`
 		: !corpus.intendedPass
 			? `L1 intended-behavior bar failed (see must-fire/must-not-fire/escape cases)`
 			: !sane
 				? `savings/coverage structurally broken: ${[...savingsProblems, ...coverageProblems].join("; ")}`
-				: opts.strict && !strictOk
+				: !gateRecall.pass
+					? `gate-recall: ${gateRecall.rows.filter((r) => r.verdict === "FAIL").length} gate(s) below recall floor or with broken controls`
+					: opts.strict && !strictOk
 					? `--strict: ${corpus.taskBreakingGates.length} task-breaking gate(s) open (${corpus.taskBreakingGates.join(", ")}) — false-fires excluded`
 					: opts.strict && !strictCoverageOk
 						? `--strict: ${coverage.ungated.length} ungated heavy tool(s) (${coverage.ungated.map((u) => u.name).join(", ")}) — add a gate or confirm always-on`
@@ -114,6 +121,7 @@ export async function runQa(opts: QaOptions = {}): Promise<QaResult> {
 		savings,
 		coverage,
 		corpus,
+		gateRecall,
 		l2,
 		savingsProblems,
 		coverageProblems,
@@ -276,6 +284,7 @@ async function main() {
 		`L1:        must-fire ${tally(c.mustFire)} · must-not-fire ${tally(c.mustNotFire)} · escape-name ${tally(c.escapeName)} · escape-intent ${tally(c.escapeIntent)}`,
 		`coverage:  ${r.coverage.ungated.length} ungated heavy tool(s) · ${r.coverage.gatedHeavy} gated-heavy  [${r.coverage.pass ? "✅" : "❌"}${r.mode.strict ? " --strict gates" : " non-gating"}]`,
 		`capability: ${c.taskBreakingGates.length} task-breaking gate(s)${c.taskBreakingGates.length ? ` [${c.taskBreakingGates.join(", ")}]` : ""} · ${c.precisionRisks.filter((x) => x.fires).length} benign false-fire(s) [never gate]${r.mode.strict ? "  ← strict gates on task-breaking" : ""}`,
+		`gate-recall: ${r.gateRecall.rows.filter((x) => x.verdict === "PASS").length}/${r.gateRecall.rows.length} gates pass · ${r.gateRecall.uncovered.length} uncovered`,
 	];
 	if (r.l2.enabled && r.l2.reachability) {
 		const rs = r.l2.reachability;
