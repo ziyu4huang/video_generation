@@ -230,6 +230,7 @@ class JsonRpcLspClient {
   private readonly child: ChildProcessWithoutNullStreams;
   private stderr = "";
   private exited = false;
+  private terminating = false;
   private readonly exitWaiters: Array<() => void> = [];
 
   constructor(child: ChildProcessWithoutNullStreams) {
@@ -269,17 +270,21 @@ class JsonRpcLspClient {
 
   async shutdown(): Promise<void> {
     if (this.exited) return;
-    try {
-      await this.request("shutdown", null, SHUTDOWN_TIMEOUT_MS);
-      this.notify("exit", null);
-    } catch {
-      this.child.kill("SIGTERM");
+    if (!this.terminating) {
+      try {
+        await this.request("shutdown", null, SHUTDOWN_TIMEOUT_MS);
+        this.notify("exit", null);
+      } catch {
+        this.kill();
+      }
     }
     await this.waitForExit(SHUTDOWN_TIMEOUT_MS);
   }
 
   kill(): void {
-    if (!this.exited) this.child.kill("SIGTERM");
+    if (this.exited || this.terminating) return;
+    this.terminating = true;
+    this.child.kill("SIGTERM");
   }
 
   stderrTail(): string {
@@ -341,7 +346,7 @@ class JsonRpcLspClient {
   private failProtocol(error: Error): void {
     if (this.exited) return;
     this.rejectPending(error);
-    this.child.kill("SIGTERM");
+    this.kill();
   }
 
   private waitForExit(timeoutMs: number): Promise<void> {

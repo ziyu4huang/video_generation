@@ -70,3 +70,7 @@ import {
 The values/types in the table above (`spawnSubagent`, `WorkflowAgent`, errors, the tool factories, …) are safe to import from the package **root** — only the two singletons demand the `src/` subpath. (Since PR #821 the viewer + command live in this package, so they import the singletons via the in-package relative path. The `src/` subpath rule above is retained as forward-compat advice for any future peer extension that wants to observe runs directly — none do today.)
 
 See `docs/adr/0001-why-extracted.md` for the full rationale and `CONTEXT.md` for the ubiquitous language.
+
+## Upstream sync
+
+This package has **dual provenance**: the package body (33 src files) was extracted from `pi-agent-ext-workflow` (#789), while the 2 watchdog files (`src/watchdog/lsp-diagnostics.ts`, `src/watchdog/repo-diff.ts`) are a selective port from `nicobailon/pi-subagents`. The watchdog ports are documented in [`docs/upstream/pi-subagents.pin.md`](docs/upstream/pi-subagents.pin.md) — consult it before any upstream sync so those ports aren't lost again.
