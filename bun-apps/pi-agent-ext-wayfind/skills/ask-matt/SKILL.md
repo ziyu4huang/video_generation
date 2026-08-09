@@ -10,7 +10,7 @@ You don't remember every skill, so ask.
 
 A **flow** is a path through the skills. Most paths run along one **main flow**, and three **on-ramps** merge onto it. Everything else is standalone, or a vocabulary layer that runs underneath.
 
-> **Skill index rebuilt for this port.** Every reference below is a skill in this extension's `skills/` dir — the `executing-plans`, `test-driven-development`, and `systematic-debugging` skills live in the sibling **superpowers** extension. `teach` and `triage` are planned for a second batch and are not yet ported; they're noted where the main flow expects them.
+> **Skill index rebuilt for this port.** Every reference below is a skill in this extension's `skills/` dir — the `executing-plans`, `test-driven-development`, and `systematic-debugging` skills live in the sibling **superpowers** extension.
 
 ## The main flow: idea → ship
 
@@ -39,7 +39,7 @@ The limit on this is the **[smart zone](https://www.aihero.dev/ai-coding-diction
 
 A starting situation that generates work, then merges onto the main flow.
 
-- **Bugs and requests piling up** → **triage** _(planned, not yet ported)_. It moves issues through triage roles and produces agent-ready tickets, which **executing-plans** later picks up. Until it lands, sort incoming issues into agent-ready tickets yourself with **to-tickets**, then they pick up executing-plans. Triage is only for issues **you didn't create** — bug reports, incoming feature requests, anything that arrives raw. Tickets that `to-tickets` produced are already agent-ready, so **don't triage them**.
+- **Bugs and requests piling up** → **triage**. It moves issues through triage roles and produces agent-ready briefs, which **executing-plans** later picks up. Triage is only for issues **you didn't create** — bug reports, incoming feature requests, anything that arrives raw. Tickets that `to-tickets` produced are already agent-ready, so **don't triage them**.
 
 - **Something's broken** → the **systematic-debugging** skill (superpowers). For the hard ones: the bug that resists a first glance, the intermittent flake, the regression that crept in between two known-good states. It refuses to theorise until it has a **tight feedback loop** — one command that already goes red on *this* bug — then fixes with a regression test. Its post-mortem hands off to the **improve-codebase-architecture** skill when the real finding is that there's no good seam to lock the bug down.
 
@@ -83,4 +83,4 @@ Off the main flow entirely.
 - **to-questionnaire** — when the thing blocking you isn't in your head or the codebase but in **someone else's**, this writes them a questionnaire to fill in. It's the inverse of `grill-me`: instead of interviewing you about the subject, it interviews you about the **send** — who it's going to, what you need back — and aims the questions at the gap. What comes back is material for `grill-me-with-docs` or `to-spec`.
 - **wizard** — for the steps only a **human** can take: provisioning infrastructure, setting up credentials or CI secrets, clicking through an unfamiliar third-party dashboard, running a one-off migration or cutover. It generates an interactive bash script that opens each URL, captures each value, and writes it into `.env` and GitHub secrets — so the procedure stops being something you re-explain to an agent every time. Model-reachable, so the agent reaches for it the moment it hits a wall only you can pass. If the agent could just do it itself, it should; this is for where a human is genuinely in the loop.
 - **writing-for-agents** — reference for writing documents agents consume: skills, `AGENTS.md`, pointed-at docs.
-- **teach** _(planned, not yet ported)_ — learn a concept over multiple sessions, using the current directory as a stateful workspace.
+- **teach** — learn a concept over multiple sessions, using the current directory as a stateful workspace.
