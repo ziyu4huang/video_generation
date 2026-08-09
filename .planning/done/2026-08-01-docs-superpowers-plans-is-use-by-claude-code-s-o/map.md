@@ -1,3 +1,10 @@
+---
+effort: 2026-08-01-docs-superpowers-plans-is-use-by-claude-code-s-o
+created: 2026-08-01
+last: 2026-08-09
+status: complete
+---
+
 # Wayfinder map: 2026-08-01-docs-superpowers-plans-is-use-by-claude-code-s-o
 
 ## Destination

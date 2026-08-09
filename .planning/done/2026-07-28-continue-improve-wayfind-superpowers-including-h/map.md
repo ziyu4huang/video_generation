@@ -1,3 +1,10 @@
+---
+effort: 2026-07-28-continue-improve-wayfind-superpowers-including-h
+created: 2026-07-28
+last: 2026-08-09
+status: complete
+---
+
 # Wayfinder map: 2026-07-28-continue-improve-wayfind-superpowers-including-h
 
 ## Destination

@@ -1,3 +1,10 @@
+---
+effort: 2026-07-30-let-s-use-wayfind-superpower-ext-angle-to-review
+created: 2026-07-30
+last: 2026-08-09
+status: complete
+---
+
 # Map — review+improve pi-agent-ext-tool-gate (wayfind+superpowers angle)
 
 ## Destination

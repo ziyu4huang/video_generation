@@ -1,5 +1,8 @@
 ---
 effort: let-s-make-superpower-status-can-full-integrate-
+created: 2026-07-19
+last: 2026-08-09
+status: complete
 superseded-by: 2026-07-19-a
 ---
 

@@ -1,3 +1,10 @@
+---
+effort: 2026-07-27-perfect-wayfind-superpowers-core-task-coexistence
+created: 2026-07-27
+last: 2026-08-09
+status: complete
+---
+
 ## Destination
 
 A state where `pi-agent-ext-wayfind`, `pi-agent-ext-superpowers`, and the adjacent `pi-agent-ext-core-task` coexist as **parallel, non-connecting pipelines** (per superpowers ADR-0005) but every seam is seamless: no unpushed reversal lingering, no unguarded cross-extension contract that silently drifts, no shared-state collision surface left unaddressed. The destination is *decisions* (how to formalize each seam) plus one concrete ship (the unpushed ADR-0004), not new features.

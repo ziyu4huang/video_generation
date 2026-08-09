@@ -1,3 +1,10 @@
+---
+effort: 2026-07-21-review-bun-apps-pi-agent-ext-superpowers-see-if-
+created: 2026-07-21
+last: 2026-08-09
+status: complete
+---
+
 # Map — Review & refine the superpowers ↔ wayfind boundary
 
 ## Destination
