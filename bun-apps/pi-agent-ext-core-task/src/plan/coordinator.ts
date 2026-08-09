@@ -7,9 +7,10 @@
  * consumes these via internal-call (tracer-bullet 3) — NOT via globalThis.
  *
  * Discovery: the active effort = the `.planning/<effort>/` with the newest
- * `map.md`; aggregate phases from its `plans/*.md`. Fallback: newest plan in
- * `docs/superpowers/plans/` (when no effort plans exist). Multi-plan precision /
- * effort-selection refinement = ticket 05 (deferred).
+ * `map.md`; aggregate phases from its `plans/*.md`. No cross-effort fallback: if
+ * the active effort has no `plans/`, there is "no active plan" (#278). Legacy
+ * global fallback (docs/superpowers/plans/) only when no effort exists at all.
+ * Multi-plan precision / effort-selection refinement = ticket 05 (deferred).
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -74,8 +75,13 @@ export function discoverActivePlan(cwd: string): ParsedPlan | undefined {
 			for (const f of files) phases.push(...parsePlan(readFileSync(f, "utf8"), f).phases);
 			return { phases, sourcePath: plansDir };
 		}
+		// Active effort exists but has no plans/ — surface "no active plan" for THIS
+		// effort instead of cross-contaminating from the global docs/superpowers/
+		// plans/ (≈ .planning/plans/) or another effort's plans (failure memory
+		// #278: an unrelated stale plan → goal_complete false-positive).
+		return undefined;
 	}
-	// Fallback: newest plan in docs/superpowers/plans/
+	// Legacy fallback (no effort at all): newest plan in docs/superpowers/plans/.
 	const dsFiles = listMd(join(cwd, "docs", "superpowers", "plans"));
 	if (dsFiles.length > 0) {
 		const newest = dsFiles

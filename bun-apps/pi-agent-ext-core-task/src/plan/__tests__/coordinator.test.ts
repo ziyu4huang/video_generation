@@ -6,6 +6,7 @@ import {
 	__resetCoordinator,
 	computeIncomplete,
 	computeSummary,
+	discoverActivePlan,
 	getPlanPhases,
 	getPlanSummary,
 	isPlanIncomplete,
@@ -64,6 +65,48 @@ describe("discoverActivePlan (fs)", () => {
 	});
 
 	it("no plan → empty phases, not incomplete, empty summary", () => {
+		refreshPlan(tmp);
+		expect(getPlanPhases(tmp)).toEqual([]);
+		expect(isPlanIncomplete(tmp)).toBe(false);
+		expect(getPlanSummary(tmp)).toBe("");
+	});
+
+	// Failure memory #278: an active effort (map.md) with NO plans/ dir must NOT
+	// fall back to the global docs/superpowers/plans/ (≈ .planning/plans/) or any
+	// other cross-effort plan — that returns an unrelated stale plan and causes a
+	// goal_complete false-positive. Must surface "no active plan" instead.
+	it("active effort with no plans/ must not pick up docs/superpowers/plans/ (#278)", () => {
+		// Active effort exists (newest map.md) but has no plans/ subdir.
+		mkdirSync(join(tmp, ".planning", "lonely-effort"), { recursive: true });
+		writeFileSync(join(tmp, ".planning", "lonely-effort", "map.md"), "# lonely\n");
+		// Unrelated stale plan sitting in the global fallback dir.
+		mkdirSync(join(tmp, "docs", "superpowers", "plans"), { recursive: true });
+		writeFileSync(
+			join(tmp, "docs", "superpowers", "plans", "stale.md"),
+			"# Stale\n### Task 1: Old thing\n- [x] done\n",
+		);
+
+		// Direct: discoverActivePlan must NOT return the stale global plan.
+		expect(discoverActivePlan(tmp)).toBeUndefined();
+		// Pipeline: the cached readers must report "no active plan".
+		refreshPlan(tmp);
+		expect(getPlanPhases(tmp)).toEqual([]);
+		expect(isPlanIncomplete(tmp)).toBe(false);
+		expect(getPlanSummary(tmp)).toBe("");
+	});
+
+	it("active effort with empty plans/ must not fall back to docs/superpowers/plans/ (#278)", () => {
+		// Active effort: map.md present, plans/ dir exists but holds no .md.
+		mkdirSync(join(tmp, ".planning", "eff", "plans"), { recursive: true });
+		writeFileSync(join(tmp, ".planning", "eff", "map.md"), "# eff\n");
+		// Unrelated stale plan sitting in the global fallback dir.
+		mkdirSync(join(tmp, "docs", "superpowers", "plans"), { recursive: true });
+		writeFileSync(
+			join(tmp, "docs", "superpowers", "plans", "stale.md"),
+			"# Stale\n### Task 1: Old thing\n- [x] done\n",
+		);
+
+		expect(discoverActivePlan(tmp)).toBeUndefined();
 		refreshPlan(tmp);
 		expect(getPlanPhases(tmp)).toEqual([]);
 		expect(isPlanIncomplete(tmp)).toBe(false);
