@@ -92,3 +92,7 @@ isolates concurrent sessions by default.
 - **Connectors / importers.** Remnic's `connector-*` (Bee, Fireflies, Granola,
   Limitless, Omi, Replit, WeClone) and `import-*` (ChatGPT, Claude, Gemini,
   mem0, supermemory, weclone) — cross-source ingestion, Pi-only rules out.
+
+---
+
+> **ABSORBED-BY `2026-08-08-knowledge-pipeline`** (2026-08-08 unification). Embed/backend decisions (ChromaDB rejected; sqlite-vec + SurrealDB-for-graph) feed canonical ticket 04. This effort's drift tickets (decisions already in Decisions-so-far) to be closed citing canonical ticket 04. See `.planning/2026-08-08-knowledge-pipeline/map.md`.

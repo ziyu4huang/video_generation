@@ -28,7 +28,13 @@
  */
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { InFlightSubagent, SubagentInFlightRegistry } from "./index.js";
-import { formatSubagentTrace, latestMessageLine, renderSubagentCall } from "./subagent-tool.js";
+import {
+  capTraceTail,
+  formatSubagentTrace,
+  latestMessageLine,
+  renderSubagentCall,
+  STREAMING_EXPANDED_TAIL,
+} from "./subagent-tool.js";
 
 export interface SubagentContextWidgetOpts {
   /** Live source of in-flight runs (defaults to `registry.list()` at the wiring site). */
@@ -129,7 +135,20 @@ export class SubagentContextWidget {
       return [`${INDENT}${wfHeader}`];
     }
     const header = renderSubagentCall(
-      { agent: r.agent, model: r.model, task: r.taskPreview, resolvedModel: r.resolvedModel },
+      {
+        agent: r.agent,
+        model: r.model,
+        // Feed the precomputed work-intent strip (not the single-lined
+        // taskPreview) so the preamble is stripped on the docked header too
+        // (ticket 04, finding 1 — #1101's strip was dead here). Falls back to
+        // taskPreview for entries that never populated workIntent.
+        task: r.workIntent ?? r.taskPreview,
+        resolvedModel: r.resolvedModel,
+        // Persist the fallback indicator on the docked header — the registry
+        // already carries fellBack/requestedModel from markFallback (ticket 04,
+        // finding 3 — the box never passed it, so the `→` was missing here).
+        fellBack: r.fellBack,
+      },
       theme,
     );
     const history = r.history;
@@ -151,7 +170,16 @@ export class SubagentContextWidget {
     // regresses (the box polls, so the floor is the current count itself).
     const minToolCalls = history.filter((h) => h.kind === "toolCall").length;
     const trace = formatSubagentTrace(history, Date.now() - r.startedAt, minToolCalls);
-    return [`${INDENT}${header}`, ...trace.split("\n").map((l) => `${INDENT}${INDENT}${l}`)];
+    // Cap the trace tail to the SAME policy as the inline streaming-expanded
+    // view (STREAMING_EXPANDED_TAIL). Ctrl-O expands BOTH surfaces together
+    // via { consume: false } (extensions/subagent.ts), so the cap must hold on
+    // both — otherwise a tall background run's expanded box re-trips the
+    // whole-TUI fullRender flicker #1104 killed, on the surface #1104 didn't
+    // touch (ticket 05, finding 4). The trace here is SEPARATE from the header
+    // (the inline surface's payload bundles a 2-line header + trace; here it's
+    // a header line + trace), so cap the trace lines directly.
+    const traceLines = capTraceTail(trace.split("\n"), STREAMING_EXPANDED_TAIL);
+    return [`${INDENT}${header}`, ...traceLines.map((l) => `${INDENT}${INDENT}${l}`)];
   }
 
   invalidate(): void {

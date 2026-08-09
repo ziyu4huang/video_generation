@@ -152,18 +152,52 @@ export interface LoopRuntimeState {
 	consecutiveMeasureNull: number;
 }
 
-export const loopState: LoopRuntimeState = {
-	activeLoop: undefined, extensionApi: undefined, continuationPending: undefined, loopRecovery: undefined,
-	baselineTokens: 0,
-	consecutiveStuck: 0, stuckStartedAt: undefined, recentPrints: [], recentTexts: [], recentToolResults: [],
-	toollessStreak: 0, toolRanThisTurn: false, lastActivityAt: Date.now(), lastWedgeAlertAt: 0, nudgeCount: 0,
-	consecutiveMeasureNull: 0,
-};
+// ─── Per-sessionId runtime state (optimization #3, ticket #16) ───────────────
+// loopState was a process-global mutable singleton read/written directly at ~70
+// sites in loop.ts. Key it by sessionId so an in-process subagent child driving
+// the loop machinery does NOT mutate the parent's loop runtime state (the same
+// ticket-#16 defect as the todo store). Mirrors todo/state/store.ts: no-arg
+// getLoopState() defaults to a module-captured `renderSid` (the parent/display
+// session id, set at session_start via setLoopRenderSid) so ctx-less/display
+// sites read the parent's bucket unchanged; ctx-bearing sites thread the real
+// ctx.sessionManager.getSessionId(). loopState owns NO timer (it borrows goal's
+// heartbeat), so this is clean mechanical keying — no interval-teardown seam.
+const DEFAULT_SID = "";
+let renderSid: string = DEFAULT_SID;
+const states = new Map<string, LoopRuntimeState>();
 
-export function __resetLoopState(): void {
-	loopState.activeLoop = undefined; loopState.extensionApi = undefined; loopState.continuationPending = undefined;
-	loopState.loopRecovery = undefined; loopState.baselineTokens = 0; loopState.consecutiveStuck = 0; loopState.stuckStartedAt = undefined;
-	loopState.recentPrints = []; loopState.recentTexts = []; loopState.recentToolResults = [];
-	loopState.toollessStreak = 0; loopState.toolRanThisTurn = false; loopState.lastActivityAt = Date.now();
-	loopState.lastWedgeAlertAt = 0; loopState.nudgeCount = 0; loopState.consecutiveMeasureNull = 0;
+function freshState(): LoopRuntimeState {
+	return {
+		activeLoop: undefined, extensionApi: undefined, continuationPending: undefined, loopRecovery: undefined,
+		baselineTokens: 0,
+		consecutiveStuck: 0, stuckStartedAt: undefined, recentPrints: [], recentTexts: [], recentToolResults: [],
+		toollessStreak: 0, toolRanThisTurn: false, lastActivityAt: Date.now(), lastWedgeAlertAt: 0, nudgeCount: 0,
+		consecutiveMeasureNull: 0,
+	};
+}
+
+function bucket(sid?: string): LoopRuntimeState {
+	const key = sid ?? renderSid; // no-arg → display (parent) bucket
+	let s = states.get(key);
+	if (!s) { s = freshState(); states.set(key, s); }
+	return s;
+}
+
+/** Capture the parent/display session id at session_start. No-arg getLoopState()
+ *  falls back to this bucket so ctx-less/display sites read the parent's loop
+ *  state. (Namespaced setLoopRenderSid — todo already owns setRenderSid.) */
+export function setLoopRenderSid(sid: string): void {
+	renderSid = sid;
+}
+
+export function getLoopState(sid?: string): LoopRuntimeState {
+	return bucket(sid);
+}
+
+/** Test seam + session_shutdown cleanup. No-arg: clear ALL buckets + reset
+ *  renderSid (test clear-all). With an explicit sid: delete that single bucket
+ *  (per-session teardown). */
+export function __resetLoopState(sid?: string): void {
+	if (sid === undefined) { states.clear(); renderSid = DEFAULT_SID; }
+	else states.delete(sid);
 }

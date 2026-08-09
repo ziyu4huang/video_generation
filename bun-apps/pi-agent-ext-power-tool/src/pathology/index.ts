@@ -93,13 +93,14 @@ export function makeInspectPathologyTool() {
           details: null,
         };
       }
-      const calls = getCalls();
+      const sid = ctx.sessionManager.getSessionId();
+      const calls = getCalls(sid);
       const usage = ctx.getContextUsage();
       const contextPercent = usage?.percent ?? null;
       const input: PathologyInput = {
         calls,
         contextPercent,
-        turnCount: getTurnCount(),
+        turnCount: getTurnCount(sid),
         loopRepeatThreshold: params.loop_repeat_threshold,
         errorRateThreshold: params.error_rate_threshold,
         saturationPercent: params.saturation_percent,

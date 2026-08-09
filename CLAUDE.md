@@ -65,6 +65,14 @@ bun run --cwd bun-apps/gui-movie-director check:schema                  # valida
 python/venv/bin/python -m pytest python/mlx-movie-director/app/tests [--run-gpu]
 ```
 
+## Planning artifacts (standing rule)
+
+Wayfind `.planning/` artifacts are **durable, shared planning** — they MUST be committed and pushed to `origin/main`, never left local-only. This covers effort folders (`.planning/<effort>/` incl. `map.md`, `spec.md`, `tickets/`, `plans/`, `brainstorm/`, `sdd/`), plus `.planning/specs/` and `.planning/plans/`.
+
+Whenever you create or update anything under `.planning/`, `git add .planning/...` and include it in the branch's commits/PR so it lands on `origin/main`. Never leave a new `.planning/<effort>/` directory as untracked (`??`) in `git status`. The repo's `.gitignore` already encodes this (`.planning/<effort>/` artifacts ARE committed); this rule enforces following it.
+
+**Carve-outs that stay ignored/local** (do NOT commit): per-filename transient scratch (`task_plan.md`, `progress.md`, `findings.md`) and the flat no-effort `.planning/sdd/` fallback dir.
+
 ## Key Directories
 
 ```

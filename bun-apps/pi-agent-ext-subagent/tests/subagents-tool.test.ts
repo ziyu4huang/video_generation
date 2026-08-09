@@ -2,7 +2,7 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { DEFAULT_BATCH_CONCURRENCY, MAX_BATCH_TASKS, MAX_CONCURRENCY } from "../src/config.js";
 import { createSubagentsTool as fromIndex } from "../src/index.js";
-import type { SpawnSubagentResult } from "../src/spawn-subagent.js";
+import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
 import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
 import type { SubagentsToolDetails } from "../src/subagents-tool.js";
@@ -55,6 +55,29 @@ test("mergeReadOnlyExclusion defaults timeoutMs and carries per-child budgets", 
   assert.equal(opts.spendBudget, 0.5);
 });
 
+// ── optimization #1: default to the parent's gated active tool set ──
+// (see .planning/2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task/ ticket 01)
+// A read-only batch child must NOT re-inherit the full ~55-tool definition universe;
+// when a task omits `tools`, it defaults to the parent's CURRENT active set so the
+// child re-pays only the ~10k gated schema baseline. An explicit per-task `tools`
+// always overrides.
+
+test("mergeReadOnlyExclusion defaults a no-tools task to ctx.activeTools", () => {
+  const opts = mergeReadOnlyExclusion(
+    { task: "t" },
+    { defaultCwd: "/repo", activeTools: ["read", "grep", "find", "ls"] },
+  );
+  assert.deepEqual(opts.tools, ["read", "grep", "find", "ls"], "no-tools task inherits the parent's gated set");
+});
+
+test("mergeReadOnlyExclusion: explicit per-task tools override ctx.activeTools", () => {
+  const opts = mergeReadOnlyExclusion(
+    { task: "t", tools: ["read"] },
+    { defaultCwd: "/repo", activeTools: ["read", "grep", "find", "ls"] },
+  );
+  assert.deepEqual(opts.tools, ["read"], "explicit per-task tools win over the active-set default");
+});
+
 const NO_SIGNAL = undefined as never;
 const NO_CTX = { cwd: "/repo" } as never;
 
@@ -95,6 +118,53 @@ test("execute fans out, returns positional results in input order", async () => 
   assert.equal((res.details.results[0] as { status: string }).status, "done");
   assert.equal(res.details.dispatched, 3);
   assert.equal(res.details.skipped, 0);
+});
+
+// ── optimization #1: default to the parent's gated active tool set (execute path) ──
+// A read-only batch child must NOT re-inherit the full ~55-tool definition universe;
+// a no-tools task narrows to the parent's CURRENT active set (getActiveTools). An
+// explicit per-task `tools` always overrides. (ticket 01)
+
+/** Injectable spawn that captures the FULL opts (incl. `tools`) per call. */
+function fakeSpawnCapture() {
+  const calls: Array<SpawnSubagentOptions> = [];
+  return {
+    calls,
+    spawn: async (opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> => {
+      calls.push(opts);
+      return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    },
+  };
+}
+
+test("a no-tools batch child defaults to the parent's gated active set", async () => {
+  const f = fakeSpawnCapture();
+  const tool = createSubagentsTool({
+    cwd: "/repo",
+    spawn: f.spawn,
+    getActiveTools: () => ["read", "grep", "find", "ls", "subagent"],
+  });
+  await tool.execute("call-active", { tasks: [{ task: "t" }] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(
+    f.calls[0]?.tools,
+    ["read", "grep", "find", "ls", "subagent"],
+    "a no-tools child narrows to the parent's gated active set, not the full universe",
+  );
+});
+
+test("an explicit per-task `tools` override wins over the active-set default", async () => {
+  const f = fakeSpawnCapture();
+  const tool = createSubagentsTool({
+    cwd: "/repo",
+    spawn: f.spawn,
+    getActiveTools: () => ["read", "grep", "find", "ls", "subagent"],
+  });
+  await tool.execute("call-override", { tasks: [{ task: "t", tools: ["read", "grep"] }] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(
+    f.calls[0]?.tools,
+    ["read", "grep"],
+    "explicit per-task tools still narrow to EXACTLY the requested set",
+  );
 });
 
 test("a failed child becomes a null slot (partial-failure tolerant)", async () => {
@@ -633,9 +703,11 @@ test("renderSubagentsResult collapsed: header + per-child one-liners with badges
   // Task previews (truncated)
   assert.ok(collapsed.includes("audit the security layer thoroughly") || collapsed.includes("audit the security layer"));
   assert.ok(collapsed.includes("review the PR for style issues") || collapsed.includes("review the PR for"));
-  // Model info
-  assert.match(collapsed, /x\/flash/);
-  assert.match(collapsed, /y\/gemma/);
+  // Model info (ticket 04 finding 5: shortened via shortModel on the collapsed line)
+  assert.match(collapsed, /flash/);
+  assert.match(collapsed, /gemma/);
+  assert.ok(!collapsed.includes("x/flash"), "provider prefix dropped on the collapsed batch line");
+  assert.ok(!collapsed.includes("y/gemma"), "provider prefix dropped on the collapsed batch line");
   // Elapsed times
   assert.match(collapsed, /3\.5s/);
   assert.match(collapsed, /30\.1s/);
@@ -708,4 +780,163 @@ test("renderSubagentsResult isPartial+collapsed shows a compact single-line; exp
     THEME,
   );
   assert.equal(expanded, text, "expanded shows the full streaming text");
+});
+
+// --- ticket 04 finding 2: batch child fallback stores AND renders the ACTUAL model ---
+// #1103's actual-model capture never reached the batch tool — a batch child that
+// requested e.g. anthropic/claude-opus-4-1 and fell back to zai/glm-5.2 rendered
+// the REQUESTED opus under a ✓ done badge, with no → / requestedModel anywhere.
+// Mirrors the singular tool: onModelResolved captures the ACTUAL model,
+// onModelFallback captures the requested spec + marks fellBack; the slot stores
+// the actual model + audit fields, and the collapsed renderer shows `requested → actual`.
+
+test("ticket 04 / finding 2: a batch child that falls back stores the ACTUAL model + requestedModel/fellBack in the slot", async () => {
+  const spawn = async (opts: {
+    onModelResolved?: (id: string) => void;
+    onModelFallback?: (spec: string) => void;
+  }): Promise<SpawnSubagentResult> => {
+    // Simulate fallback: onModelFallback fires first, then onModelResolved with the actual.
+    opts.onModelFallback?.("anthropic/claude-opus-4-1");
+    opts.onModelResolved?.("zai/glm-5.2");
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never });
+  const res = await tool.execute(
+    "batch-fallback",
+    { tasks: [{ task: "#0", model: "anthropic/claude-opus-4-1" }] },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  const slot = res.details.results[0] as {
+    model: string;
+    requestedModel?: string;
+    fellBack?: boolean;
+    status: string;
+  };
+  assert.equal(slot.status, "done");
+  assert.equal(slot.model, "zai/glm-5.2", "slot.model = the ACTUAL model that ran (not the requested opus)");
+  assert.equal(slot.requestedModel, "anthropic/claude-opus-4-1", "requestedModel = the audit spec that fell back");
+  assert.equal(slot.fellBack, true, "fellBack is marked");
+});
+
+test("ticket 04 / finding 2: a batch child with NORMAL resolution stores the resolved model and NO audit fields", async () => {
+  const spawn = async (opts: { onModelResolved?: (id: string) => void }): Promise<SpawnSubagentResult> => {
+    opts.onModelResolved?.("zai/glm-5.2");
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never });
+  const res = await tool.execute(
+    "batch-normal",
+    { tasks: [{ task: "#0", model: "zai/glm-5.2" }] },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  const slot = res.details.results[0] as {
+    model: string;
+    requestedModel?: string;
+    fellBack?: boolean;
+  };
+  assert.equal(slot.model, "zai/glm-5.2", "normal resolution → slot.model = the resolved model");
+  assert.equal(slot.requestedModel, undefined, "no audit field when there was no fallback");
+  assert.equal(slot.fellBack, undefined, "no fellBack when there was no fallback");
+});
+
+test("ticket 04 / finding 2 + 5: collapsed batch renderer shows `requested → actual` (shortened) on a fallback child", () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      {
+        output: "ok",
+        status: "done",
+        index: 0,
+        task: "audit the display code",
+        model: "zai/glm-5.2",
+        requestedModel: "anthropic/claude-opus-4-1",
+        fellBack: true,
+        elapsedMs: 1000,
+      },
+    ],
+    dispatched: 1,
+    skipped: 0,
+    elapsedMs: 1000,
+  };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "ignored" }], details },
+    { expanded: false },
+    THEME,
+  );
+  // The actual model is shown under a ✓ done badge (NOT the stale requested opus).
+  assert.match(collapsed, /✓ done/);
+  assert.ok(collapsed.includes("glm-5.2"), "the ACTUAL model is shown");
+  // The requested → actual fallback indicator is rendered, both shortened.
+  assert.match(collapsed, /claude-opus-4-1 → glm-5\.2/);
+  // The full provider-prefixed ids do NOT appear (Finding 5 shortening).
+  assert.ok(!collapsed.includes("anthropic/claude-opus-4-1"), "requested id is shortened on the collapsed line");
+  assert.ok(!collapsed.includes("zai/glm-5.2"), "actual id is shortened on the collapsed line");
+});
+
+// --- ticket 05 / finding 6: collapsed batch per-slot badges are padded to a fixed width ---
+// The badge text width varies by terminal status (✓ done=6 / ⏱ timedout=10 /
+// ⛔ budget=8 / ⊘ aborted=9 / ✗ failed=8). Without padding, the unequal widths
+// leave the `model · elapsed · task` columns drifting between rows. Pad each
+// badge to the widest so a quick vertical scan of an N-children batch aligns.
+
+const BATCH_BADGE_TEXTS = ["✓ done", "⏱ timedout", "⛔ budget", "⊘ aborted", "✗ failed"] as const;
+
+test("ticket 05 / finding 6: collapsed batch per-slot badges are padded to a fixed width so columns align", () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      { output: "ok", status: "done", index: 0, task: "t-done", model: "x/flash", elapsedMs: 1000 },
+      { output: "", status: "timedout", index: 1, task: "t-timedout", model: "x/flash", elapsedMs: 30000 },
+      { output: "", status: "aborted", index: 2, task: "t-aborted", model: "x/flash", elapsedMs: 500 },
+      {
+        status: "budget",
+        source: "batch" as const,
+        exhaustion: { kind: "tokens" as const, limit: 1, actual: 2 },
+        index: 3,
+        task: "t-budget",
+        model: "x/flash",
+        elapsedMs: 0,
+      },
+      null, // failed — no model column (renders `(child failed)`); excluded from the model-offset assertion
+    ],
+    dispatched: 3,
+    skipped: 1,
+    elapsedMs: 31500,
+  };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: false },
+    THEME,
+  );
+  // The 4 non-failed slots each render a model column; the failed slot does not.
+  const slotLines = collapsed.split("\n").filter((l) => l.includes("flash"));
+  assert.equal(slotLines.length, 4, "the 4 non-failed slots each render a model column");
+
+  // The model token starts at the SAME offset on every slot line — the badges
+  // are padded to a fixed width so the `model · elapsed · task` columns line up
+  // regardless of terminal status.
+  const offsets = slotLines.map((l) => l.indexOf("flash"));
+  assert.ok(
+    offsets.every((o) => o === offsets[0]),
+    `model column starts at a consistent offset across rows (got ${JSON.stringify(offsets)})`,
+  );
+
+  // Equal offsets only prove alignment when the natural widths differ — and they
+  // do (✓ done=6 vs ⏱ timedout=10). Verify the SHORT `✓ done` badge was actually
+  // PADDED: there must be MORE whitespace between `done` and the model than the
+  // bare 2-space column separator (i.e. ≥1 pad space).
+  const doneLine = slotLines.find((l) => l.includes("✓ done")) ?? "";
+  assert.ok(doneLine, "the done slot line is present");
+  const gap = doneLine.slice(doneLine.indexOf("done") + "done".length, doneLine.indexOf("flash"));
+  assert.ok(
+    gap.length > 2,
+    `✓ done (natural width 6) is padded to match the widest badge (gap between done and model="${gap}")`,
+  );
+
+  // Every badge the renderer can emit is present in the collapsed output.
+  for (const badge of BATCH_BADGE_TEXTS) {
+    assert.ok(collapsed.includes(badge), `collapsed renders the ${badge} badge`);
+  }
 });

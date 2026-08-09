@@ -1,6 +1,7 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { updateSticky, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens, filterActive, buildEffectiveGates, injectBuiltinCore, BUILTIN_CORE } from "./tool-gate.ts";
-import type { ToolGate } from "./tool-gate.ts";
+import { updateSticky, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens, filterActive, buildEffectiveGates, injectBuiltinCore, BUILTIN_CORE, gatesWithSameGating } from "./tool-gate.ts";
+import type { ToolGate, CoOccurrence } from "./tool-gate.ts";
+import { CORE_NAMES, CORE_SET, CORE_TOOLS_ARRAY } from "./core-names.fixture.ts";
 import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
 import toolGateExtension from "./tool-gate.ts";
 import file2mdExtension from "@repo/pi-agent-ext-file2md/extensions/file2md.ts";
@@ -15,15 +16,10 @@ import researchExtension from "@repo/pi-agent-ext-research-tool/extensions/resea
 import workflowExtension from "@repo/pi-agent-ext-workflow/extensions/workflow.ts";
 import subagentExtension from "@repo/pi-agent-ext-subagent/extensions/subagent.ts";
 
-// ticket 04 — the hardcoded CORE_TOOLS export was deleted; this test-local
-// fixture replaces every former CORE_TOOLS reference. CORE_NAMES = the 22
-// always-active names (mirrors the runtime owner-declared core: 18 in-repo
-// tools + 4 pi-coding-agent built-ins); CORE_SET = the same as a Set for
-// has() / new Set(...).
-const CORE_NAMES = ["read","write","edit","bash","todo","goal_complete","memory","memory_search","session_search","ask_user_question","enable_tool","skill_manage","grill_decision","obsidian","obsidian_help","zk_card","zk_ask","zk_ingest","knowledge_query","web_search","fetch_content","get_search_content"];
-const CORE_SET = new Set(CORE_NAMES);
-/** Spread the core names into an array (CORE_NAMES is the canonical list). */
-const CORE_TOOLS_ARRAY = (): string[] => CORE_NAMES.slice();
+// CORE_NAMES / CORE_SET / CORE_TOOLS_ARRAY now imported from the shared
+// ./core-names.fixture.ts (22 always-active names: 18 owner-declared in-repo
+// core tools + 4 pi-coding-agent built-ins). Formerly duplicated verbatim here
+// AND in self-promotion-interaction.test.ts; centralized to stop drift.
 
 // file2md/vision_ask (ticket 04) + flux2/flux2_help (ticket 05) + krea2/
 // krea2_help (ticket 06) + ltx/ltx_help (ticket 07) + movie/movie_help
@@ -285,6 +281,57 @@ describe("matchIntent (S1)", () => {
   });
 });
 
+describe("gatesWithSameGating (sibling co-activation)", () => {
+  // Pure unit tests for the gating-fingerprint sibling-grouping helper that
+  // backs enable_tool NAME-mode sibling co-activation. Sibling identity =
+  // identical {keywords, requires} fingerprint (description excluded; keyword /
+  // noun / verb declaration order independent via sort).
+  const gate = (
+    names: string[], keywords: string[], requires?: CoOccurrence, description = "d",
+  ): ToolGate => ({ names, keywords, requires, description });
+
+  test("two gates with identical keywords AND identical requires → both siblings (plus input)", () => {
+    const a = gate(["a"], ["x", "y"], { nouns: ["cat"], verbs: ["make"] });
+    const b = gate(["b"], ["x", "y"], { nouns: ["cat"], verbs: ["make"] }, "d2");
+    const res = gatesWithSameGating(a, [a, b]);
+    expect(res).toEqual(expect.arrayContaining([a, b]));
+    expect(res).toHaveLength(2);
+  });
+
+  test("identical keywords but one has `requires` and the other doesn't → NOT siblings (separate groups)", () => {
+    const a = gate(["a"], ["x"], { nouns: ["cat"], verbs: ["make"] });
+    const b = gate(["b"], ["x"], undefined, "d2");
+    // a has requires, b doesn't → distinct fingerprints → a is its own group.
+    expect(gatesWithSameGating(a, [a, b])).toEqual([a]);
+    expect(gatesWithSameGating(b, [a, b])).toEqual([b]);
+  });
+
+  test("different keywords → separate groups", () => {
+    const a = gate(["a"], ["x"]);
+    const b = gate(["b"], ["z"], undefined, "d2");
+    expect(gatesWithSameGating(a, [a, b])).toEqual([a]);
+    expect(gatesWithSameGating(b, [a, b])).toEqual([b]);
+  });
+
+  test("keyword declaration order independence: [a,b] and [b,a] → same fingerprint → siblings", () => {
+    const a = gate(["a"], ["alpha", "beta"]);
+    const b = gate(["b"], ["beta", "alpha"], undefined, "d2");
+    const res = gatesWithSameGating(a, [a, b]);
+    expect(res).toEqual(expect.arrayContaining([a, b]));
+    expect(res).toHaveLength(2);
+  });
+
+  test("the input gate is always included in the result even if it's the only member", () => {
+    const a = gate(["a"], ["solo"]);
+    expect(gatesWithSameGating(a, [a])).toEqual([a]);
+  });
+
+  test("empty `all` with a gate not present → returns [] (filters from `all`, not synthetic)", () => {
+    const a = gate(["a"], ["x"]);
+    expect(gatesWithSameGating(a, [])).toEqual([]);
+  });
+});
+
 describe("telemetry helpers (S1)", () => {
   // Hermeticity (matches hermes config.test.ts PR #938): the live agent harness
   // exports TOOL_GATE_LOG_PATH, which makes emitToolGateLog write to a FILE
@@ -443,21 +490,19 @@ describe("enable_tool (S1 A escape hatch)", () => {
     expect(calls[calls.length - 1].setActiveTools).toEqual(expect.arrayContaining(["workflow", "workflow_help"]));
   });
 
-  test("name 'workflow' activates the workflow gate", async () => {
+  test("name 'workflow' co-activates its sibling gates (identical gating)", async () => {
     // workflow/workflow_help owner-declared (tickets 10 + 11) → buildEffectiveGates
-    // splits each into its own single-name gate. enable_tool NAME-mode looks up the
-    // gate BY NAME and activates ONLY that gate's names → name:"workflow"
-    // activates the ["workflow"] single-name gate, NOT sibling workflow_help.
-    // This is the enable_tool NAME-mode co-activation consequence of the
-    // combined-gate split (cross-cutting; tracked in the map) — noted here, NOT
-    // fixed. (zai-mcp likewise split into single-name owner-declared gates as of
-    // ticket 12; every multi-name rollout shares this NAME-mode sibling gap.)
+    // splits each into its own single-name gate, but the two share IDENTICAL
+    // owner-declared gating (same keywords). They co-fire as a family under
+    // intent mode (matchIntent returns both) and auto-gating (updateSticky);
+    // enable_tool NAME mode now mirrors that — requesting one sibling activates
+    // ALL siblings with an identical gating fingerprint, so the escape hatch is
+    // consistent regardless of whether a tool is requested by name or by intent.
     const { enableTool, calls } = setupPi([...CORE_NAMES, "workflow", "workflow_help"]);
     const res = await enableTool.execute("id", { name: "workflow" });
     expect(res.content[0].text).toContain("workflow");
-    expect(calls[calls.length - 1].setActiveTools).toEqual(expect.arrayContaining(["workflow"]));
-    // sibling workflow_help is NOT co-activated in NAME-mode (the known gap):
-    expect(calls[calls.length - 1].setActiveTools).not.toContain("workflow_help");
+    const lastActive = calls[calls.length - 1].setActiveTools;
+    expect(lastActive).toEqual(expect.arrayContaining(["workflow", "workflow_help"]));
   });
 
   test("no-match intent returns a non-error result pointing to list", async () => {
@@ -478,14 +523,13 @@ describe("enable_tool (S1 A escape hatch)", () => {
     const res = await enableTool.execute("id", { name: "workflow" });
     expect(res.content[0].text).toContain("workflow");
     const lastActive = calls[calls.length - 1].setActiveTools;
-    // workflow must be active. NAME-mode activates only the named single-name
-    // gate (tickets 10 + 11 split workflow into single-name owner-declared
-    // gates) — sibling workflow_help is NOT co-activated (the enable_tool
-    // NAME-mode co-activation gap, cross-cutting/tracked in the map; noted, not fixed).
-    expect(lastActive).toEqual(expect.arrayContaining(["workflow"]));
-    expect(lastActive).not.toContain("workflow_help");
-    // zai-mcp must NOT be active (was not requested, and filterActive doesn't
-    // re-fire gates against lastPrompt — only the named gate is activated)
+    // workflow + its sibling workflow_help co-activate (identical gating
+    // fingerprint — NAME mode now mirrors intent mode's sibling co-firing).
+    expect(lastActive).toEqual(expect.arrayContaining(["workflow", "workflow_help"]));
+    // zai-mcp must NOT be active: it has DIFFERENT gating from workflow, so it
+    // is not a sibling and must not co-activate. This proves co-activation is
+    // gated by identical gating, not "everything". filterActive also doesn't
+    // re-fire gates against lastPrompt — only the requested sibling group fires.
     expect(lastActive).not.toContain("zai_web_search_web_search_prime");
     expect(lastActive).not.toContain("zai_web_reader_webReader");
   });
@@ -535,7 +579,7 @@ describe("enable_tool (S1 A escape hatch)", () => {
 });
 
 describe("filterActive (F1 fix)", () => {
-  test("tools not in TRACKED_TOOLS are always active (fail-open)", () => {
+  test("tools not in the tracked set are always active (fail-open)", () => {
     const sticky = new Set(CORE_SET);
     const active = filterActive([...CORE_NAMES, "some_new_tool"], sticky);
     expect(active).toContain("some_new_tool");
@@ -989,6 +1033,30 @@ describe("tool-gate runtime reads owner-declared gating", () => {
     const recomputeActive = activeCalls[activeCalls.length - 1];
     expect(recomputeActive).toContain("zai_web_search_web_search_prime");               // zai explicitly requested → active
     expect(recomputeActive).not.toContain("unobtanium_tool"); // X must stay dormant during the recompute
+  });
+
+  test("#2 before_agent_start self-seeds sticky when session_start was skipped (in-process subagent child)", async () => {
+    // A child spawned via WorkflowAgent.run never fires session_start, so tool-gate's
+    // sticky starts empty. before_agent_start must seed it from effectiveCore so core
+    // tools stay active. See .planning/2026-08-08-fix-subagent-spawn-seam.../ ticket 02.
+    const activeCalls: string[][] = [];
+    let beforeAgentStart: ((e: any, ctx?: any) => Promise<void>) | null = null;
+    const pi = {
+      getAllToolDefinitions: () => [
+        { name: "read", gating: { core: true } },
+        { name: "bash", gating: { core: true } },
+        { name: "flux2", gating: { keywords: ["flux", "image"] } },
+      ],
+      on: (chan: string, h: any) => { if (chan === "before_agent_start") beforeAgentStart = h; return () => {}; },
+      setActiveTools: (names: string[]) => { activeCalls.push(names); },
+      registerTool: () => {},
+    } as unknown as Parameters<typeof toolGateExtension>[0];
+    toolGateExtension(pi);
+    // do NOT fire session_start — simulate the in-process subagent child
+    await beforeAgentStart!({ prompt: "a benign prompt containing no gate keyword" });
+    const active = activeCalls[activeCalls.length - 1];
+    expect(active).toEqual(expect.arrayContaining(["read", "bash"])); // core seeded from effectiveCore
+    expect(active).not.toContain("flux2");                            // gated, no keyword → dormant
   });
 });
 

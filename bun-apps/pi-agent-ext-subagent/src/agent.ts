@@ -199,6 +199,65 @@ export function resolveAgentModelSpec(
   return undefined;
 }
 
+/**
+ * Fallback decision when an explicitly-requested model spec turns out to be
+ * UNavailable. The caller's `tier` (→ active /models-preset) degrades BEFORE
+ * the session default, so subagents follow the preset by default instead of
+ * silently landing on an arbitrary session default. (Previously an explicit
+ * model short-circuited the tier, then the tier was discarded on fallback.)
+ *
+ * Pure + injectable (the async resolver + the tier config are passed in) so the
+ * decision is unit-testable independent of the real ModelRegistry /
+ * createAgentSession. Returns:
+ *   - `{ kind: "tier", spec }` — a tier is set AND its preset model resolves in
+ *     the registry; use `spec` as the fallback model.
+ *   - `{ kind: "sessionDefault" }` — no tier, the tier isn't configured, or its
+ *     model is also unavailable; use the session default.
+ * `warning` is a loud one-line message naming requested → tier → actual (or →
+ * session default) for the run log.
+ */
+export interface FallbackDecision {
+  kind: "tier" | "sessionDefault";
+  /** When `kind === "tier"`: the preset model spec to fall back to. */
+  spec?: string;
+  /** Loud one-line warning for the run log. */
+  warning: string;
+}
+
+export async function resolveFallbackModel(
+  requestedSpec: string,
+  options: { tier?: string },
+  config: ModelTierConfig | null,
+  resolveModel: (spec: string) => Promise<unknown>,
+): Promise<FallbackDecision> {
+  if (options.tier && config) {
+    const tierModelSpec = resolveTierModel(options.tier, config);
+    if (tierModelSpec) {
+      if (await resolveModel(tierModelSpec)) {
+        return {
+          kind: "tier",
+          spec: tierModelSpec,
+          warning: `[subagent] requested model "${requestedSpec}" unavailable; fell back to tier "${options.tier}" → "${tierModelSpec}" (active preset)`,
+        };
+      }
+      return {
+        kind: "sessionDefault",
+        warning: `[subagent] requested model "${requestedSpec}" unavailable; tier "${options.tier}" → "${tierModelSpec}" also unavailable; using session default`,
+      };
+    }
+    return {
+      kind: "sessionDefault",
+      warning: `[subagent] requested model "${requestedSpec}" unavailable; tier "${options.tier}" not configured in the active preset; using session default`,
+    };
+  }
+  return {
+    kind: "sessionDefault",
+    warning: `[subagent] requested model "${requestedSpec}" unavailable; ${
+      options.tier ? `tier "${options.tier}" has no model-tiers config to resolve; ` : "no tier given; "
+    }using session default`,
+  };
+}
+
 export interface WorkflowAgentOptions {
   cwd?: string;
   /** Extra tools available to the subagent in addition to the structured output tool. */
@@ -463,15 +522,41 @@ export class WorkflowAgent {
     const modelSpec = resolveAgentModelSpec(options, this.mainModel, () => this.getTierConfig());
 
     // Resolve a requested model spec to a Model object. A given-but-unresolved
-    // spec falls back to the session default (with a warning) rather than failing.
+    // spec degrades to the caller's tier (→ active /models-preset) BEFORE the
+    // session default, with a loud warning — so subagents follow the preset by
+    // default instead of silently landing on an arbitrary session default.
     let resolvedModel: Model<any> | undefined;
+    let modelFallbackSpec: string | undefined;
     if (modelSpec) {
       resolvedModel = await this.resolveModel(modelSpec);
       if (resolvedModel) {
         options.onModelResolved?.(`${resolvedModel.provider}/${resolvedModel.id}`);
       } else {
-        console.warn(`[workflow] model "${modelSpec}" not found; using session default`);
+        // The explicit model is unavailable. Fire the fellBack flag (ticket-03
+        // display) in ALL fallback cases, then degrade to the caller's tier
+        // (active preset) before the session default.
         options.onModelFallback?.(modelSpec);
+        const decision = await resolveFallbackModel(modelSpec, options, this.getTierConfig(), (spec) =>
+          this.resolveModel(spec),
+        );
+        console.warn(decision.warning);
+        if (decision.kind === "tier" && decision.spec) {
+          // The preset's tier model resolved — run on it and report it as the
+          // ACTUAL model (display + record). modelFallbackSpec stays unset so
+          // the post-session block does NOT re-emit onModelResolved.
+          resolvedModel = await this.resolveModel(decision.spec);
+          if (resolvedModel) {
+            options.onModelResolved?.(`${resolvedModel.provider}/${resolvedModel.id}`);
+          } else {
+            // Edge: resolved in the predicate but not now (no-op in-memory race)
+            // — fall through to the session default rather than running modelless.
+            modelFallbackSpec = modelSpec;
+          }
+        } else {
+          // No tier, or the tier's model is also unavailable → session default.
+          // The post-session block emits the session's actual model (ticket-03).
+          modelFallbackSpec = modelSpec;
+        }
       }
     }
 
@@ -490,6 +575,17 @@ export class WorkflowAgent {
       // Per-call model wins over any sessionOptions.model.
       ...(resolvedModel ? { model: resolvedModel } : {}),
     });
+
+    // On fallback, emit the ACTUAL model the session resolved to so downstream
+    // (display + durable record) learns what actually ran — not just the
+    // requested-but-unavailable spec. `session.model` reflects the session's
+    // resolved default after createAgentSession.
+    if (modelFallbackSpec) {
+      const actualModel = session.model;
+      if (actualModel) {
+        options.onModelResolved?.(`${actualModel.provider}/${actualModel.id}`);
+      }
+    }
 
     let removeAbortListener: (() => void) | undefined;
     let removeHistoryListener: (() => void) | undefined;

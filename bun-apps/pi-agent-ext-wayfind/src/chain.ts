@@ -14,8 +14,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PLAN_PHASES_KEY } from "./constants.js";
-import { buildPlanSeed, type GlossaryTerm, parseDecisions, parseGlossary, type ResolvedDecision } from "./grill.js";
-import { appendDecision, closeTicket, readMap, type Ticket } from "./map.js";
+import {
+  appendSettledVocabulary,
+  buildPlanSeed,
+  type GlossaryTerm,
+  parseDecisions,
+  parseGlossary,
+  type ResolvedDecision,
+} from "./grill.js";
+import { appendDecision, closeTicket, readMap } from "./map.js";
+import type { Ticket } from "./model.js";
 
 /**
  * Structural mirror of the plan coordinator's `PhaseInfo` — NO cross-package
@@ -128,11 +136,7 @@ export function flattenTicketsToPlan(tickets: Ticket[], glossary: GlossaryTerm[]
     "**Goal:** _(Seeded from wayfind tickets — sharpen into a one-sentence end state.)_",
     "",
   ];
-  if (glossary.length > 0) {
-    lines.push("## Settled vocabulary", "");
-    for (const g of glossary) lines.push(`- **${g.term}**: ${g.definition}`);
-    lines.push("");
-  }
+  appendSettledVocabulary(lines, glossary);
   ordered.forEach((t, i) => {
     lines.push(`### Task ${i + 1} — [${t.id}-${t.slug}] ${t.title}`);
     if (t.whatToBuild) lines.push(`> ${t.whatToBuild.trim()}`);
@@ -155,11 +159,7 @@ export function seedFromDecisions(decisions: ResolvedDecision[], glossary: Gloss
     "**Goal:** _(Seeded from resolved grill decisions — sharpen into a one-sentence end state.)_",
     "",
   ];
-  if (glossary.length > 0) {
-    lines.push("## Settled vocabulary", "");
-    for (const g of glossary) lines.push(`- **${g.term}**: ${g.definition}`);
-    lines.push("");
-  }
+  appendSettledVocabulary(lines, glossary);
   decisions.forEach((d, i) => {
     lines.push(`### Task ${i + 1} — ${d.title}`, `- ${d.answer}`, "");
   });

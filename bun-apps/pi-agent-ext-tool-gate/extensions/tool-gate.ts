@@ -1,3 +1,4 @@
+/// <reference types="@repo/pi-tool-gating-contract" />
 /**
  * Dynamic Tool Gate Extension — reduces API tools schema overhead
  *
@@ -30,6 +31,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { appendFileSync } from "node:fs";
 import { Type } from "typebox";
+import { estimateToolCost } from "@repo/pi-agent-ext-power-tool/schema-cost";
 
 // ── Tool categories ──────────────────────────────────────────────
 
@@ -51,18 +53,6 @@ export interface ToolGate {
   /** Optional co-occurrence trigger (noun ∧ verb). See CoOccurrence. */
   requires?: CoOccurrence;
 }
-
-/** The set of tools this extension explicitly tracks at module load. Empty
- *  by default (always-on core is now fully owner-declared — tickets 02 + 03
- *  migrated all 22 core members to owner-declared `gating:{ core: true }`, so
- *  the former hardcoded CORE_TOOLS fallback was deleted in ticket 04). Owner-
- *  declared gates + core are discovered at runtime via
- *  getAllToolDefinitions() + buildEffectiveGates() and surfaced as
- *  EffectiveGates.tracked. Unknown tools (not in the effective tracked set) are
- *  always active (fail-open). Precomputed as an empty placeholder so the
- *  filterActive default fail-opens until the session_start build populates the
- *  real effective tracked set. */
-export const TRACKED_TOOLS = new Set<string>();
 
 /** The 4 pi-coding-agent built-in tools that tool-gate treats as always-active
  *  core. Ticket 03 (Path B, chosen at ticket 01): pi-coding-agent is an IMMUTABLE
@@ -145,13 +135,12 @@ export function buildEffectiveGates(
  *  are active only when present in `sticky`. Does NOT mutate sticky or
  *  evaluate gate keywords — gate firing is a separate concern.
  *
- *  `tracked` defaults to the module's TRACKED_TOOLS so pre-existing call
- *  sites (Task 1) keep their current behavior; Task 2 threads the
- *  `EffectiveGates.tracked` set here. */
+ *  `tracked` defaults to an empty set (everything fail-open); every runtime
+ *  call site threads the session-built `EffectiveGates.tracked` explicitly. */
 export function filterActive(
   allToolNames: string[],
   sticky: Set<string>,
-  tracked: Set<string> = TRACKED_TOOLS,
+  tracked: Set<string> = new Set<string>(),
 ): string[] {
   return allToolNames.filter((name) => !tracked.has(name) || sticky.has(name));
 }
@@ -327,6 +316,42 @@ export function matchIntent(
   });
 }
 
+/**
+ * Structural fingerprint of a gate's owner-declared gating — its `keywords` and
+ * optional `requires` (noun∧verb) co-occurrence spec. Two gates with the same
+ * fingerprint share identical gating and therefore co-fire together under
+ * {@link matchIntent} / {@link updateSticky}: when one fires on a prompt, every
+ * sibling fires. `description` is intentionally excluded (it is not a match
+ * surface — see {@link matchIntent}). Pure + deterministic regardless of
+ * declaration order (keywords/nouns/verbs are sorted). Used by enable_tool NAME
+ * mode to co-activate siblings, so the escape hatch behaves consistently whether
+ * a tool is requested by name or by intent.
+ */
+function gateGatingKey(gate: ToolGate): string {
+  return JSON.stringify({
+    keywords: [...gate.keywords].sort(),
+    requires: gate.requires
+      ? {
+          nouns: [...(gate.requires.nouns ?? [])].sort(),
+          verbs: [...(gate.requires.verbs ?? [])].sort(),
+        }
+      : null,
+  });
+}
+
+/**
+ * Every gate in `all` whose owner-declared gating is identical to `gate`'s — the
+ * sibling group that co-fires together (always includes `gate` itself). Pure.
+ * Used by enable_tool NAME mode so requesting one member of a gated family (e.g.
+ * `workflow`) also activates its siblings (e.g. `workflow_help`,
+ * `workflow_control`, `subagent`, `subagents`) — matching the co-firing that
+ * already happens under intent mode and auto-gating.
+ */
+export function gatesWithSameGating(gate: ToolGate, all: ToolGate[]): ToolGate[] {
+  const key = gateGatingKey(gate);
+  return all.filter((g) => gateGatingKey(g) === key);
+}
+
 // ── Telemetry (S3-lite, baked in) ─────────────────────────────────
 // Opt-in: silent by default. Enable stderr output via TOOL_GATE_LOG=1, or
 // write JSONL to a file via TOOL_GATE_LOG_PATH. Non-essential: write failures
@@ -386,23 +411,20 @@ export function computeBannerSaved(
 }
 
 /**
- * Estimate a single tool's API schema-cost in tokens. Replicates the
- * schema-cost CLI heuristic verbatim (`schema-cost.ts:20`):
- *   Math.round((description.length + JSON.stringify(parameters).length) / 4)
- * charsPerToken = 4 (no real tokenizer). Pure + dependency-free — inlined here
- * (not imported from pi-agent-ext-power-tool) to keep this always-on extension
- * decoupled. Missing description/parameters are treated as empty (0). The
- * JSON.stringify is guarded so a malformed schema never crashes session_start.
+ * Token-cost estimate for a tool's schema. Delegates to power-tool's canonical
+ * estimateToolCost (src/schema-cost) — the former inlined duplicate is gone, so
+ * the schema-cost-agreement pinning test is obsolete. Kept as a thin wrapper so
+ * existing call sites (session_start / before_agent_start / computeBannerSaved)
+ * and tests keep their import + numeric return contract. `parameters` defaults
+ * to `{}` (matching the prior inline heuristic, which measured undefined params
+ * as JSON.stringify({})==2) so the unit test `measureToolTokens({})==1` holds;
+ * `estimateToolCost` itself would otherwise count undefined params as 0.
  */
 export function measureToolTokens(tool: { description?: string; parameters?: unknown }): number {
-  const desc = (tool.description ?? "").length;
-  let params = 0;
-  try {
-    params = JSON.stringify(tool.parameters ?? {}).length;
-  } catch {
-    params = 0; // non-serializable schema — fail-safe, never crash
-  }
-  return Math.round((desc + params) / 4);
+  return estimateToolCost(
+    { description: tool.description, parameters: tool.parameters ?? {} },
+    "(tool-gate)",
+  ).approxTokens;
 }
 
 export default function toolGateExtension(pi: ExtensionAPI) {
@@ -428,7 +450,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
   };
   let effectiveGates: ToolGate[] = [];
   let effectiveCore: Set<string> = new Set<string>();
-  let effectiveTracked: Set<string> = TRACKED_TOOLS;
+  let effectiveTracked: Set<string> = new Set<string>();
 
   let allToolNames: string[] = [];
   let sticky = new Set<string>();
@@ -466,6 +488,18 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     allToolNames = all.map((t) => t.name);
     const eff = buildEffectiveGates(all);
     effectiveGates = eff.gates; effectiveCore = eff.core; effectiveTracked = eff.tracked;
+    // #2 — in-process subagent children (WorkflowAgent.run → createAgentSession) skip
+    // session_start (bindExtensions is never called for them), so `sticky` starts and
+    // stays empty: core tools land in effectiveTracked but never in sticky → they get
+    // filtered out, and measuredTokens is built lazily every turn instead of once.
+    // Seed idempotently here. This touches ONLY tool-gate's own closure state — do NOT
+    // instead fire session_start in the child, which would wipe the parent's core-task
+    // singletons (shared module cells). See .planning/2026-08-08-fix-subagent-spawn-seam-
+    // tool-gate-core-task/ ticket 02 + map.md KEY CONSTRAINT.
+    if (sticky.size === 0) {
+      sticky = new Set(effectiveCore);
+      measuredTokens = new Map(all.map((t) => [t.name, measureToolTokens(t)]));
+    }
     for (const t of all) {
       if (!measuredTokens.has(t.name)) measuredTokens.set(t.name, measureToolTokens(t));
     }
@@ -537,19 +571,35 @@ export default function toolGateExtension(pi: ExtensionAPI) {
         if (params.name) {
           via = "name";
           const gate = effectiveGates.find((g) => g.names.includes(params.name as string));
-          // F3: if the gate exists but is already fully active, say so instead
-          // of misleadingly reporting "Activated".
-          if (gate && gate.names.every((n) => sticky.has(n))) {
-            emitToolGateLog({
-              kind: "activate", ts: new Date().toISOString(),
-              via, intent: params.name as string, matchedGate: null, activated: [],
-            });
-            return {
-              details: undefined,
-              content: [{ type: "text" as const, text: `'${params.name}' is already active.` }],
-            };
+          if (!gate) {
+            matched = [];
+          } else {
+            // Sibling co-activation: buildEffectiveGates splits each owner-declared
+            // tool into a single-name gate, so a name resolves to exactly one gate —
+            // but tools that share identical owner-declared gating (e.g. workflow /
+            // workflow_help / workflow_control / subagent / subagents) co-fire as a
+            // family under intent mode (matchIntent) and auto-gating (updateSticky).
+            // Extend that same behavior to NAME mode so the escape hatch is
+            // consistent regardless of how a tool is requested. Sibling identity =
+            // identical gating fingerprint (see gatesWithSameGating).
+            const siblings = gatesWithSameGating(gate, effectiveGates);
+            // Mirror matchIntent's already-active filtering: keep only gates that
+            // still have at least one dormant (not-yet-sticky) name, so the reported
+            // `activated` list contains only newly-on tools.
+            const dormant = siblings.filter((g) => !g.names.every((n) => sticky.has(n)));
+            if (dormant.length === 0) {
+              // F3: the matched gate AND all its siblings are already fully active.
+              emitToolGateLog({
+                kind: "activate", ts: new Date().toISOString(),
+                via, intent: params.name as string, matchedGate: null, activated: [],
+              });
+              return {
+                details: undefined,
+                content: [{ type: "text" as const, text: `'${params.name}' is already active.` }],
+              };
+            }
+            matched = dormant;
           }
-          matched = gate ? [gate] : [];
         } else if (params.intent) {
           matched = matchIntent(params.intent, effectiveGates, sticky);
         } else {
@@ -582,9 +632,9 @@ export default function toolGateExtension(pi: ExtensionAPI) {
         // F1 fix: compute the active list directly from sticky — do NOT
         // re-evaluate gates against the turn prompt (updateSticky), which
         // would silently activate additional gates beyond the one explicitly
-        // requested. Pass effectiveTracked so owner-declared gated tools (which
-        // may be absent from the module-level TRACKED_TOOLS) are NOT treated as
-        // fail-open — without this they'd be spuriously active on recompute.
+        // requested. Pass effectiveTracked so owner-declared gated tools are
+        // NOT treated as fail-open — without this they'd be spuriously active
+        // on recompute.
         const active = filterActive(allToolNames, sticky, effectiveTracked);
         pi.setActiveTools(active);
         emitToolGateLog({

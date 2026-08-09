@@ -2,6 +2,7 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { InFlightSubagent } from "../src/index.js";
 import { countNoun, isCtrlO, SubagentContextWidget } from "../src/subagent-context-widget.js";
+import { STREAMING_EXPANDED_TAIL, workIntentPreview } from "../src/subagent-tool.js";
 
 // Identity theme so render() returns plain text we can assert on (mirrors the
 // old subagent-progress-widget.test.ts).
@@ -243,4 +244,95 @@ test("countNoun: two workflows → 'workflows'", () => {
 
 test("countNoun: a mixed set (1 subagent + 1 workflow) → 'runs'", () => {
   assert.equal(countNoun([run({ id: "r1", foreground: false }), wf({ id: "wf:1", foreground: false })]), "runs");
+});
+
+// --- ticket 04 finding 1: work-intent strip on the DOCKED context-box header ---
+// #1101 claimed to strip the `Working dir:` preamble on BOTH the inline live
+// header AND the docked context box, but its tests only exercised
+// renderSubagentCall with a raw multi-line task. The docked box fed the
+// already-single-lined `taskPreview` into renderSubagentCall, so
+// workIntentPreview's preamble branch never matched and the box still showed
+// "Working dir: …". This test closes that gap: the entry now carries a
+// precomputed `workIntent`, and renderRun feeds THAT (not taskPreview).
+
+test("ticket 04 / finding 1: docked header strips the `Working dir:` preamble and surfaces the work intent", () => {
+  const rawTask =
+    "Working dir: /Users/x/proj\n" +
+    "\n" +
+    "Audit the subagent display code for fallback consistency.";
+  // The tool precomputes workIntent once at start() (mirrors subagent-tool.execute).
+  const entry = run({
+    id: "strip-r1",
+    foreground: false,
+    taskPreview: "Working dir: /Users/x/proj Audit the subagent display code for fallback consistency.",
+    workIntent: workIntentPreview(rawTask),
+    history: [],
+  });
+  const w = new SubagentContextWidget({ getRunning: () => [entry] });
+  const out = w.render(T).join("\n");
+  assert.ok(
+    out.includes("Audit the subagent display code for fallback consistency."),
+    "header surfaces the actual work intent (first non-preamble line)",
+  );
+  assert.ok(!out.includes("Working dir:"), "the cwd/repo preamble is stripped from the docked header");
+});
+
+test("ticket 04 / finding 1: docked header still shows the preamble when workIntent is absent (backward-compat)", () => {
+  // An entry that never populated workIntent (old caller / synthetic test entry)
+  // falls back to taskPreview — no crash, no fabricated strip.
+  const entry = run({
+    id: "nofallback-r1",
+    foreground: false,
+    taskPreview: "Working dir: /Users/x/proj do the thing",
+    history: [],
+  });
+  const w = new SubagentContextWidget({ getRunning: () => [entry] });
+  const out = w.render(T).join("\n");
+  assert.ok(out.includes("Working dir:"), "falls back to taskPreview verbatim when workIntent is absent");
+});
+
+// --- ticket 05 / finding 4: context-box expanded trace is tail-capped (latent #1104 flicker) ---
+// #1104 capped the INLINE streaming-expanded view (STREAMING_EXPANDED_TAIL) so a
+// tall box never re-trips the whole-TUI fullRender flicker. The context-box
+// expanded branch (renderRun) renders the FULL history with no cap — and
+// extensions/subagent.ts wires Ctrl-O with { consume: false }, so Ctrl-O
+// expands BOTH surfaces together. A long background trace would re-trip the
+// exact flicker #1104 killed, on the surface #1104 didn't touch. The natural
+// path is currently unreachable (background runs render a no-trace header), so
+// this constructs the scenario directly to lock the cap in.
+
+/** 40-entry history = 20 (toolCall + toolResult) pairs, each reading f<N>.ts,
+ *  so formatSubagentTrace emits 20 `✓ Read f<N>.ts` lines + 1 progress line
+ *  (21 trace lines) — well over STREAMING_EXPANDED_TAIL. */
+function longHistory(): { role: "assistant"; kind: "toolCall"; toolName: string; text: string }[] {
+  const entries: { role: "assistant"; kind: "toolCall"; toolName: string; text: string }[] = [];
+  for (let i = 0; i < 20; i++) {
+    entries.push({ role: "assistant", kind: "toolCall", toolName: "read", text: `{"path":"f${i}.ts"}` });
+    entries.push({ role: "tool" as never, kind: "toolResult", toolName: "read", text: "content" } as never);
+  }
+  return entries as never;
+}
+
+test("ticket 05 / finding 4: expanded context-box trace is tail-capped (does not emit the full long history)", () => {
+  const w = new SubagentContextWidget({
+    getRunning: () => [run({ id: "cap-r1", foreground: false, history: longHistory() as never })],
+  });
+  w.toggle(); // expanded
+  const lines = w.render(T);
+  // The cap is: count header (1) + per-run header (1) + ellipsis (1) + last
+  // STREAMING_EXPANDED_TAIL trace lines. The trace MUST NOT render all 20 ✓
+  // lines (the full history).
+  assert.ok(
+    lines.length <= 1 + 1 + 1 + STREAMING_EXPANDED_TAIL,
+    `capped to ≤ count+header+ellipsis+tail (got ${lines.length})`,
+  );
+  assert.ok(lines.some((l) => l.includes("…")), "an ellipsis marks the dropped middle");
+  // The oldest entries are dropped (cap keeps the TAIL) — f0 is not rendered.
+  const joined = lines.join("\n");
+  assert.ok(!joined.includes("f0.ts"), "oldest trace entries are dropped by the tail cap");
+  assert.ok(!joined.includes("f4.ts"), "early trace entries are dropped by the tail cap");
+  // The newest entries survive — f19 (the last pair) is kept.
+  assert.ok(joined.includes("f19.ts"), "the newest trace entries are retained");
+  // The progress line (20 calls) survives inside the tail.
+  assert.match(joined, /20 calls/, "the compact progress line survives inside the tail");
 });

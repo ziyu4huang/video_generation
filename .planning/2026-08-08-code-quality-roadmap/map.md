@@ -12,7 +12,7 @@ status: active
 Ship the code-quality skill deliverables B–D as globally-auto-invocable skills, each placed in the right package and built via a Superpowers spec→plan→SDD cycle (like A). E (context-management/handover) is parked for a later cycle.
 
 - **B** — code-review guidelines
-- **C** — improve-codebase-architecture
+- **C** — improve-codebase-architecture ✅ (PR #1105)
 - **D** — resolving-merge-conflicts
 
 ## Notes
@@ -35,13 +35,18 @@ Ship the code-quality skill deliverables B–D as globally-auto-invocable skills
 - [ask-user TUI language hardening shipped] — unrelated detour, PR #1086 (askUserLanguage setting).
 - [01 placement: all B/C/D → wayfind](tickets/01-placement-home-for-code-quality-skills.md) — consolidate alongside codebase-design; no new package.
 - [02 next deliverable: B (code-review), Matt-Pocock-adapted](tickets/02-next-deliverable-scope-and-source.md) — description-based auto-invocability; transition to Superpowers brainstorm for B.
+- [C: improve-codebase-architecture SHIPPED to wayfind](../2026-08-08-improve-codebase-architecture/map.md) — command-style skill + offline Markdown/HTML converter, Matt-Pocock-adapted (PR #1105).
 
 ## Not yet specified
 
-- C/D content sourcing (Matt-Pocock vs pi-original vs hybrid) — TBD when each ships (B chose Matt-Pocock-adapt).
+- D content sourcing (Matt-Pocock vs pi-original vs hybrid) — TBD when it ships. (C resolved 2026-08-08: Matt-Pocock-adapt — see [2026-08-08-improve-codebase-architecture](../2026-08-08-improve-codebase-architecture/map.md).)
 
 ## Out of scope
 
 - Editing superpowers skill bodies or adding non-upstream skills (ADR-0004).
 - The ask-user TUI feature (shipped, PR #1086).
 - E's content (parked).
+
+## Cross-effort links
+
+- **Shares-decision-with:** [2026-08-08-improve-codebase-architecture](../2026-08-08-improve-codebase-architecture/map.md) — deliverable C; its content-sourcing (Matt-Pocock-adapt), report medium, and trigger style decided there. Updates this map's C-sourcing fog (resolved).

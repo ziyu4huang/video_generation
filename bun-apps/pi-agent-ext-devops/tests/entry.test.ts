@@ -20,10 +20,19 @@ function fakePi() {
 }
 
 	describe("devops extension entry", () => {
-		test("registers await_pr_merge + pr_status + sweep_branches + local_ci + sync_repo tools", () => {
+		test("registers await_pr_merge + pr_status + sweep_branches + local_ci + sync_repo + devops_retrospect + prepare_branch + verify_merge tools", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
-			expect(pi.tools.map((t) => t.name).sort()).toEqual(["await_pr_merge", "local_ci", "pr_status", "sweep_branches", "sync_repo"]);
+			expect(pi.tools.map((t) => t.name).sort()).toEqual([
+				"await_pr_merge",
+				"devops_retrospect",
+				"local_ci",
+				"pr_status",
+				"prepare_branch",
+				"sweep_branches",
+				"sync_repo",
+				"verify_merge",
+			]);
 		});
 
 		test("await_pr_merge requires prNumber + only the local-ci-gated params (poll-loop params dropped)", () => {
@@ -73,5 +82,38 @@ function fakePi() {
 			for (const opt of ["mode", "dryRun"]) {
 				expect(tool?.parameters.properties).toHaveProperty(opt);
 			}
+		});
+
+		test("devops_retrospect has no required params (expectedScope + lookback optional)", () => {
+			const pi = fakePi();
+			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
+			const tool = pi.tools.find((t) => t.name === "devops_retrospect");
+			expect(tool?.parameters.required ?? []).toEqual([]);
+			for (const opt of ["expectedScope", "lookback"]) {
+				expect(tool?.parameters.properties).toHaveProperty(opt);
+			}
+			// advisory only — never aborts (it has no `aborted` field; worst case is warnings[]).
+			expect(tool?.description).toMatch(/advisory/i);
+			expect(tool?.description).not.toMatch(/abort/i);
+		});
+
+		test("prepare_branch has optional branch/base/create/rebase/forcePush/dryRun (no required params)", () => {
+			const pi = fakePi();
+			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
+			const tool = pi.tools.find((t) => t.name === "prepare_branch");
+			expect(tool?.parameters.required ?? []).toEqual([]);
+			for (const opt of ["branch", "base", "create", "rebase", "forcePush", "dryRun"]) {
+				expect(tool?.parameters.properties).toHaveProperty(opt);
+			}
+			expect(tool?.description).toMatch(/behind/i);
+		});
+
+		test("verify_merge requires pr + only expectedScope optional", () => {
+			const pi = fakePi();
+			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
+			const tool = pi.tools.find((t) => t.name === "verify_merge");
+			expect(tool?.parameters.required).toEqual(["pr"]);
+			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual(["expectedScope", "pr"]);
+			expect(tool?.description).toMatch(/CLEAN\/CONTAMINATED|scope/);
 		});
 	});

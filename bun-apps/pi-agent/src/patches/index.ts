@@ -18,6 +18,7 @@ export type PatchName =
 	| "load-run-dir-resources"
 	| "default-model-env"
 	| "subagent-model-floor"
+	| "ensure-model-tiers"
 	| "ensure-extension-deps"
 	| "ext-context-get-system-prompt-options"
 	| "ext-api-get-all-tool-definitions"
@@ -68,6 +69,17 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // (it imports getAgentDir from @earendil-works/pi-coding-agent, whose repo-root
   // symlinks ensure-extension-deps creates). Disable with BUN_PI_SUBAGENT_MODEL_FLOOR=0.
   { name: "subagent-model-floor", env: "BUN_PI_SUBAGENT_MODEL_FLOOR", defaultValue: true },
+  // ensure-model-tiers: the model-tiers resolver (in pi-agent-ext-subagent)
+  // reads ~/.pi/workflows/model-tiers.json per-dispatch with NO env/cascade
+  // fallback, so on a fresh machine it returns null and silently falls back to
+  // the session model. This patch seeds that file at startup IF absent, from
+  // the typed DEFAULT_MODEL_TIER_CONFIG in src/model-tiers-default.ts (the
+  // glm-lmstudio mapping). Self-contained — imports only the local
+  // model-tiers-default.ts + node builtins (no @earendil-works import), so no
+  // ordering dependency on ensure-extension-deps. Idempotent (existence-only
+  // gate, never clobbers) + best-effort (write wrapped in try/catch). Disable
+  // with BUN_PI_ENSURE_MODEL_TIERS=0.
+  { name: "ensure-model-tiers", env: "BUN_PI_ENSURE_MODEL_TIERS", defaultValue: true },
   // ensure-extension-deps runs LAST among setup patches: it materializes the
   // repo-root node_modules symlinks that let Bun native-import every extension
   // graph (so try-native succeeds and jiti never transforms — see the patch
@@ -189,6 +201,9 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         break;
       case "subagent-model-floor":
         await import("./subagent-model-floor.ts");
+        break;
+      case "ensure-model-tiers":
+        await import("./ensure-model-tiers.ts");
         break;
       case "ensure-extension-deps":
         await import("./ensure-extension-deps.ts");

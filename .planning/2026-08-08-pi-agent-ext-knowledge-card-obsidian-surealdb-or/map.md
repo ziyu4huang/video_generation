@@ -73,3 +73,7 @@ Environment:
 - **Builds-on:** `2026-08-01-continue-improve-the-pipeline-between-extension-...` — that effort's CLOSED ingest decisions (deterministic `zk_ingest source:generic`, opt-in `knowledge` flag, `pi:knowledge` bus, file2md->hub emit contract) are the ingest design this effort's ticket 02 carries forward. That effort is superseded by this one (see its Absorbed-by link).
 - **Shares-decision-with:** `perment-solve-these-issues-architecturely`/02 (single `hermes:<slug>` card namespace; `pi-memory:*` retired) — consistent with this effort's 01 (card-agnostic store + kind discriminator; no conflict).
 - **Cites (embed prior art):** `2026-07-29-brainstorm-to-improve-pi-agent-ext-hermes-memory`/06 (sqlite-vec+MLX-local; SurrealDB-for-graph; ChromaDB OUT) + `2026-08-07-...`/06 (FTS: SQLite won) — detailed in ticket 04's Prior-art note.
+
+---
+
+> **SUPERSEDED-BY `2026-08-08-knowledge-pipeline`** (2026-08-08 unification). All 5 tickets (01-05) migrated verbatim to `.planning/2026-08-08-knowledge-pipeline/tickets/` (same numbers). This dir retains map.md + Decisions history only; live work continues in the canonical effort. See `.planning/2026-08-08-knowledge-pipeline/map.md`.

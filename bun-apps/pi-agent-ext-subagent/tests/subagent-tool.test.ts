@@ -326,6 +326,60 @@ test("agentType: explicit params.model/tools/excludeTools override the binding",
   assert.deepEqual(f.calls[0]?.tools, ["read", "bash"], "explicit tools win");
 });
 
+// ── optimization #1: default to the parent's gated active tool set ──
+// (see .planning/2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task/ ticket 01)
+// A spawned subagent must NOT re-inherit the full ~55-tool definition universe;
+// when the caller omits `tools` (and no agentType binds one), it defaults to the
+// parent's CURRENT active set (getActiveTools) so the child re-pays only the
+// ~10k gated schema baseline, not ~18k. Explicit `tools` always overrides.
+
+test("no-tools spawn defaults to the parent's gated active set (getActiveTools), not the full universe", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({
+    spawn: f.spawn,
+    getActiveTools: () => ["read", "grep", "find", "ls", "subagent"],
+  });
+  await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(
+    f.calls[0]?.tools,
+    ["read", "grep", "find", "ls", "subagent"],
+    "a no-tools spawn narrows to the parent's gated active set, not the full universe",
+  );
+});
+
+test("explicit `tools` override wins over the active-set default", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({
+    spawn: f.spawn,
+    getActiveTools: () => ["read", "grep", "find", "ls", "subagent"],
+  });
+  await tool.execute("id", { task: "t", tools: ["read", "grep"] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(
+    f.calls[0]?.tools,
+    ["read", "grep"],
+    "explicit tools still narrow to EXACTLY the requested set",
+  );
+});
+
+test("agentType `tools` binding wins over the active-set default", async () => {
+  const registry = mkRegistry([{ name: "reader", tools: ["read", "grep"], prompt: "Read only.", source: "project" }]);
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({
+    spawn: f.spawn,
+    agentRegistry: registry,
+    getActiveTools: () => ["read", "grep", "find", "ls", "subagent"],
+  });
+  await tool.execute("id", { task: "t", agentType: "reader" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.deepEqual(f.calls[0]?.tools, ["read", "grep"], "agentType binding narrows; active set is only the fallback");
+});
+
+test("no active set + no tools leaves tools undefined (best-effort when getActiveTools is unset)", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.tools, undefined, "no default + no tools → undefined (caller/runner decides)");
+});
+
 test("unknown agentType returns a tool-level error listing available names, without calling spawn", async () => {
   const registry = mkRegistry([{ name: "reviewer", prompt: "Review.", source: "project" }]);
   const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
@@ -694,7 +748,9 @@ test("renderSubagentCall shows subagent ▸ agent ▸ model ▸ task (omits agen
   const withRole = renderSubagentCall({ task: "fix the bug", agent: "implementer", model: "x/flash" }, T);
   assert.ok(withRole.includes("subagent"));
   assert.ok(withRole.includes("implementer"));
-  assert.ok(withRole.includes("x/flash"));
+  // ticket 04 finding 5: model segment is shortened via shortModel (x/flash → flash)
+  assert.ok(withRole.includes("flash"));
+  assert.ok(!withRole.includes("x/flash"), "provider prefix dropped on the call line");
   assert.ok(withRole.includes("fix the bug"));
   const noRole = renderSubagentCall({ task: "explore" }, T);
   assert.ok(noRole.includes("subagent"));
@@ -713,7 +769,8 @@ test("renderSubagentCall appends resolved model as a separate segment when tier 
     { agent: "auditor", tier: "medium", task: "x", resolvedModel: "google/gemma-4-12b-qat" },
     T,
   );
-  assert.match(out, /tier:medium ▸ google\/gemma-4-12b-qat ▸/);
+  // ticket 04 finding 5: resolved segment is shortened (google/gemma-4-12b-qat → gemma-4-12b-qat)
+  assert.match(out, /tier:medium ▸ gemma-4-12b-qat ▸/);
 });
 
 test("renderSubagentCall omits resolved model before resolution (undefined)", () => {
@@ -724,7 +781,8 @@ test("renderSubagentCall omits resolved model before resolution (undefined)", ()
 
 test("renderSubagentCall omits resolved model when it equals the explicit model slot (no dup)", () => {
   const out = renderSubagentCall({ agent: "scout", model: "x/flash", task: "x", resolvedModel: "x/flash" }, T);
-  assert.equal((out.match(/x\/flash/g) || []).length, 1);
+  // Both shorten to "flash"; since they match, the resolved segment is omitted.
+  assert.equal((out.match(/flash/g) || []).length, 1);
 });
 
 test("renderSubagentCall shows both explicit model and a different resolved model", () => {
@@ -732,8 +790,11 @@ test("renderSubagentCall shows both explicit model and a different resolved mode
     { agent: "scout", model: "x/flash", task: "x", resolvedModel: "google/gemma-4-12b-qat" },
     T,
   );
-  assert.match(out, /x\/flash/);
-  assert.match(out, /google\/gemma-4-12b-qat/);
+  // Both shortened on the call line (ticket 04 finding 5).
+  assert.match(out, /flash/);
+  assert.match(out, /gemma-4-12b-qat/);
+  assert.ok(!out.includes("x/flash"), "provider prefix dropped on the explicit model slot");
+  assert.ok(!out.includes("google/gemma-4-12b-qat"), "provider prefix dropped on the resolved segment");
 });
 
 test("renderSubagentResult collapsed is short; expanded contains the full report", () => {
@@ -793,6 +854,55 @@ test("renderSubagentResult shows cost/tokens when usage.total > 0, omits when 0 
     T,
   );
   assert.ok(!noUsage.includes("$"), "omits cost when usage is absent entirely");
+});
+
+// --- ticket 04 finding 3: settled result meta persists the fallback indicator ---
+// The live call line showed `▸ opus ▸ → glm-5.2` mid-run, but on settle the meta
+// collapsed to just the actual model and the fallback became invisible. Persist
+// a `requested → actual` segment (shortened) on the settled meta so a surprising
+// fallback survives settle.
+test("renderSubagentResult settled meta shows `requested → actual` (shortened) when d.fellBack", () => {
+  const out = renderSubagentResult(
+    {
+      content: [{ type: "text", text: "done" }],
+      details: {
+        exitCode: 0,
+        timedOut: false,
+        taskPreview: "p",
+        elapsedMs: 1000,
+        status: "done",
+        model: "zai/glm-5.2",
+        requestedModel: "anthropic/claude-opus-4-1",
+        fellBack: true,
+      },
+    },
+    { expanded: false },
+    T,
+  );
+  assert.match(out, /claude-opus-4-1 → glm-5\.2/, "the fallback indicator persists after settle");
+  assert.ok(!out.includes("anthropic/claude-opus-4-1"), "requested id shortened on the meta (finding 5)");
+  assert.ok(!out.includes("zai/glm-5.2"), "actual id shortened on the meta (finding 5)");
+});
+
+test("renderSubagentResult settled meta shows only the actual model (shortened) when NOT fellBack", () => {
+  const out = renderSubagentResult(
+    {
+      content: [{ type: "text", text: "done" }],
+      details: {
+        exitCode: 0,
+        timedOut: false,
+        taskPreview: "p",
+        elapsedMs: 1000,
+        status: "done",
+        model: "zai/glm-5.2",
+      },
+    },
+    { expanded: false },
+    T,
+  );
+  assert.ok(out.includes("glm-5.2"), "the actual model is shown");
+  assert.ok(!out.includes("zai/glm-5.2"), "actual id shortened on the meta (finding 5)");
+  assert.doesNotMatch(out, /→ glm/, "no fallback indicator when there was no fallback");
 });
 
 test("renderSubagentResult renders an 'aborted' badge (distinct from failed/timedout)", () => {
@@ -917,6 +1027,67 @@ test("renderSubagentResult isPartial preserves a plain streamed line when collap
     T,
   );
   assert.equal(out, "↳ reading src/foo.ts");
+});
+
+// ── effort 2026-08-08 expanded-display-flicker (ticket 01): streaming-expanded viewport-safe tail ──
+// The streaming-expanded (ctrl+o) live view is capped to a viewport-safe TAIL so
+// the box stays small + height-stable (fits the terminal viewport → no per-frame
+// fullRender → no whole-TUI flicker). Must mirror src `STREAMING_EXPANDED_TAIL`.
+const STREAMING_TAIL = 16;
+
+test("renderSubagentResult isPartial+expanded caps the trace to a viewport-safe tail (drops oldest)", () => {
+  // 2 header lines + MANY trace lines (> 2 + STREAMING_TAIL) → box is capped.
+  const header = "H-line-1\nH-line-2";
+  const trace = Array.from({ length: 50 }, (_, i) => `trace-${i}`).join("\n");
+  const text = `${header}\n${trace}`;
+  const out = renderSubagentResult({ content: [{ type: "text", text }] }, { expanded: true, isPartial: true }, T);
+  const lines = out.split("\n");
+  assert.equal(lines.length, 2 + 1 + STREAMING_TAIL, "2 header + 1 ellipsis + last STREAMING_TAIL trace");
+  assert.equal(lines[0], "H-line-1");
+  assert.equal(lines[1], "H-line-2");
+  assert.equal(lines[2], "…", "an ellipsis marks the dropped middle");
+  // last STREAMING_TAIL trace lines retained, in order: trace-(50-16)..trace-49
+  const expectedTail = Array.from({ length: STREAMING_TAIL }, (_, i) => `trace-${50 - STREAMING_TAIL + i}`);
+  assert.deepEqual(lines.slice(3), expectedTail, "newest trace retained in order");
+  assert.ok(!out.includes("trace-0") && !out.includes("trace-33"), "oldest trace dropped");
+  assert.ok(out.includes("trace-49"), "newest trace kept");
+});
+
+test("renderSubagentResult isPartial+expanded shows ALL lines when few enough (no ellipsis)", () => {
+  // 2 header lines + FEW trace lines (≤ 2 + STREAMING_TAIL) → small enough already.
+  const header = "H-line-1\nH-line-2";
+  const few = STREAMING_TAIL - 6; // 10 trace → 12 total ≤ 18 → all shown, no cap
+  const trace = Array.from({ length: few }, (_, i) => `trace-${i}`).join("\n");
+  const text = `${header}\n${trace}`;
+  const out = renderSubagentResult({ content: [{ type: "text", text }] }, { expanded: true, isPartial: true }, T);
+  assert.ok(!out.includes("…"), "no ellipsis when small enough");
+  assert.equal(out.split("\n").length, 2 + few, "all lines shown");
+  assert.ok(out.includes("trace-0") && out.includes(`trace-${few - 1}`), "every trace line retained");
+});
+
+test("renderSubagentResult isPartial+collapsed stays at 2 header lines regardless of trace size", () => {
+  const header = "H-line-1\nH-line-2";
+  const trace = Array.from({ length: 50 }, (_, i) => `trace-${i}`).join("\n");
+  const text = `${header}\n${trace}`;
+  const out = renderSubagentResult({ content: [{ type: "text", text }] }, { expanded: false, isPartial: true }, T);
+  assert.equal(out.split("\n").length, 2, "collapsed = just the 2-line header");
+  assert.ok(!out.includes("trace-0"), "collapsed hides the trace");
+});
+
+test("renderSubagentResult NON-partial+expanded renders the FULL report (streaming cap does not apply)", () => {
+  // Settled report path must be UNCHANGED: no cap, even with a tall report.
+  const details: SubagentToolDetails = {
+    exitCode: 0,
+    timedOut: false,
+    taskPreview: "p",
+    elapsedMs: 12_350,
+    status: "done",
+  };
+  const full = Array.from({ length: 60 }, (_, i) => `Line ${i} of report`).join("\n");
+  const out = renderSubagentResult({ content: [{ type: "text", text: full }], details }, { expanded: true }, T);
+  assert.ok(!out.includes("…"), "no ellipsis on the settled report");
+  assert.ok(out.includes("Line 0 of report") && out.includes("Line 59 of report"), "full report retained top-to-bottom");
+  assert.equal(out.split("\n").length, 1 + 60, "1 (badge+meta header) + all 60 report lines — uncapped");
 });
 
 // ── Part B: in-flight registry wiring ──
@@ -1268,7 +1439,7 @@ test("renderCall reads resolvedModel from the registry and binds invalidate", ()
       invalidated++;
     },
   } as never);
-  assert.match(text.render(200).join("\n"), /tier:medium ▸ google\/gemma-4-12b-qat ▸/);
+  assert.match(text.render(200).join("\n"), /tier:medium ▸ gemma-4-12b-qat ▸/);
   // invalidate was bound — a later updateModel re-renders the call line
   reg.updateModel("tc9", "anthropic/claude-opus");
   assert.equal(invalidated, 1);
@@ -1285,7 +1456,7 @@ test("renderCall drops the resolved-model segment after the run ends (end() tear
     lastComponent: before,
     invalidate: () => {},
   } as never);
-  assert.match(before.render(200).join("\n"), /google\/gemma-4-12b-qat/);
+  assert.match(before.render(200).join("\n"), /gemma-4-12b-qat/);
   // After completion the entry is gone — segment reverts; model lives on the result line.
   reg.end("tc-end");
   const after = new Text("", 0, 0);
@@ -1296,7 +1467,7 @@ test("renderCall drops the resolved-model segment after the run ends (end() tear
   } as never);
   const rendered = after.render(200).join("\n");
   assert.match(rendered, /tier:medium/);
-  assert.doesNotMatch(rendered, /google\/gemma-4-12b-qat/);
+  assert.doesNotMatch(rendered, /gemma-4-12b-qat/);
 });
 
 // ── formatHistoryLine (exported for the /subagents live-follow view) ──
@@ -1511,4 +1682,122 @@ test("formatSubagentTrace: minToolCalls floors the displayed count", () => {
     3,
   );
   assert.match(out, /3 calls/, "floor wins when history reports fewer calls");
+});
+
+// ── ticket 03: model-fallback display + audit fields ──
+
+test("renderSubagentCall with fellBack:true adds → fallback indicator", () => {
+  const out = renderSubagentCall(
+    {
+      agent: "implementer",
+      model: "anthropic/claude-opus-4-1",
+      task: "do the thing",
+      resolvedModel: "zai/glm-5.2",
+      fellBack: true,
+    },
+    T,
+  );
+  // ticket 04 finding 5: the DISPLAY is shortened via shortModel. The audit
+  // field (details.requestedModel) keeps the full spec; only the call line is
+  // shortened so the collapsed line stays within terminal width.
+  assert.ok(String(out).includes("claude-opus-4-1"), "requested model still visible (shortened)");
+  assert.ok(!String(out).includes("anthropic/claude-opus-4-1"), "provider prefix dropped on the request slot");
+  assert.ok(String(out).includes("glm-5.2"), "actual model shown (shortened)");
+  // The fallback indicator (→) appears before the actual model
+  assert.match(String(out), /→ glm-5\.2/);
+});
+
+test("renderSubagentCall with fellBack:false renders normally (no → prefix)", () => {
+  const out = renderSubagentCall(
+    {
+      agent: "scout",
+      tier: "small",
+      task: "x",
+      resolvedModel: "google/gemma-4-12b-qat",
+      fellBack: false,
+    },
+    T,
+  );
+  // The resolved model segment is plain (no fallback indicator); shortened on display.
+  assert.ok(String(out).includes("gemma-4-12b-qat"));
+  assert.ok(!String(out).includes("google/gemma-4-12b-qat"), "provider prefix dropped on the resolved segment");
+  assert.doesNotMatch(String(out), /→ gemma/);
+});
+
+test("renderSubagentCall with fellBack omitted (backward-compat) renders normally", () => {
+  const out = renderSubagentCall(
+    { agent: "auditor", tier: "medium", task: "x", resolvedModel: "google/gemma-4-12b-qat" },
+    T,
+  );
+  assert.ok(String(out).includes("gemma-4-12b-qat"));
+  assert.ok(!String(out).includes("google/gemma-4-12b-qat"), "provider prefix dropped on the resolved segment");
+  assert.doesNotMatch(String(out), /→ gemma/);
+});
+
+test("execute with model fallback → details.requestedModel + fellBack set", async () => {
+  const f = fakeSpawn((opts) => {
+    // Simulate fallback: onModelFallback fires first, then onModelResolved with actual
+    opts.onModelFallback?.("anthropic/claude-opus-4-1");
+    opts.onModelResolved?.("zai/glm-5.2");
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  });
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const res = await tool.execute(
+    "id",
+    { task: "t", model: "anthropic/claude-opus-4-1" },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(res.details.model, "zai/glm-5.2", "model = ACTUAL (what ran)");
+  assert.equal(res.details.requestedModel, "anthropic/claude-opus-4-1", "requestedModel = the spec that fell back");
+  assert.equal(res.details.fellBack, true);
+});
+
+test("execute with normal resolution (no fallback) → no audit fields", async () => {
+  const f = fakeSpawn((opts) => {
+    // Normal resolution: onModelResolved fires without onModelFallback
+    opts.onModelResolved?.("anthropic/claude-sonnet-4");
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  });
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const res = await tool.execute(
+    "id",
+    { task: "t", model: "anthropic/claude-sonnet-4" },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(res.details.model, "anthropic/claude-sonnet-4");
+  assert.equal(res.details.requestedModel, undefined, "requestedModel absent when no fallback");
+  assert.equal(res.details.fellBack, undefined, "fellBack absent when no fallback");
+});
+
+test("execute persists requestedModel + fellBack on fallback", async () => {
+  const { saved, persistence } = fakePersistence();
+  const f = fakeSpawn((opts) => {
+    opts.onModelFallback?.("anthropic/claude-opus-4-1");
+    opts.onModelResolved?.("zai/glm-5.2");
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  });
+  const tool = createSubagentTool({ spawn: f.spawn, persistence });
+  await tool.execute("id", { task: "t", model: "anthropic/claude-opus-4-1" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].model, "zai/glm-5.2", "persisted model = actual");
+  assert.equal(saved[0].requestedModel, "anthropic/claude-opus-4-1", "persisted requestedModel = audit trace");
+  assert.equal(saved[0].fellBack, true);
+});
+
+test("execute with normal resolution → persistence omits audit fields", async () => {
+  const { saved, persistence } = fakePersistence();
+  const f = fakeSpawn((opts) => {
+    opts.onModelResolved?.("anthropic/claude-sonnet-4");
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  });
+  const tool = createSubagentTool({ spawn: f.spawn, persistence });
+  await tool.execute("id", { task: "t", model: "anthropic/claude-sonnet-4" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].model, "anthropic/claude-sonnet-4");
+  assert.equal(saved[0].requestedModel, undefined, "requestedModel absent when no fallback");
+  assert.equal(saved[0].fellBack, undefined, "fellBack absent when no fallback");
 });

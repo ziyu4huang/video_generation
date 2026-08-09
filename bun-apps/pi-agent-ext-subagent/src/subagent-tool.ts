@@ -15,6 +15,7 @@ import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { type TSchema, Type } from "typebox";
 import type { AgentUsage, BudgetExhaustion } from "./agent.js";
 import type { AgentHistoryEntry } from "./agent-history.js";
+import { shortModel } from "./agent-row-display.js";
 import {
   type AgentDefinition,
   type AgentRegistry,
@@ -38,8 +39,14 @@ export interface SubagentToolDetails {
   timedOut: boolean;
   /** Role label (params.agent), if provided. */
   agent?: string;
-  /** params.model, or "default". */
+  /** The ACTUAL model that ran (provider/id), or the requested display string when unresolvable. */
   model?: string;
+  /** The originally-requested model spec (params.model or agentDef.model), when
+   *  the resolution fell back to a different actual model. Absent when the
+   *  requested model resolved normally. Old records without this field stay valid. */
+  requestedModel?: string;
+  /** True when the model resolution fell back to a different model than requested. */
+  fellBack?: boolean;
   /** First ~80 chars of params.task, single-lined. */
   taskPreview: string;
   /** Wall-clock of the run, ms. */
@@ -198,6 +205,15 @@ export interface SubagentToolOptions {
   getExtensionTools?: () => ToolDefinition[] | undefined;
   /** Parent session's current model (provider/id), captured at session_start. Lets an untagged dispatch default to the live session model. */
   getMainModel?: () => string | undefined;
+  /**
+   * Parent session's CURRENT active tool-name set (the gated set, ~24 names).
+   * Read lazily at spawn time so it reflects the freshest gating. When the
+   * caller omits an explicit `tools` allowlist (and no agentType binds one),
+   * the child defaults to THIS set instead of re-inheriting the full ~55-tool
+   * definition universe. See `.planning/2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task/`
+   * ticket 01 (optimization #1). The caller's explicit `tools` always overrides.
+   */
+  getActiveTools?: () => string[] | undefined;
   /** Injectable spawn for tests (defaults to the real spawnSubagent). */
   spawn?: (opts: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
   /** Injectable agentType registry for tests (defaults to loadAgentRegistry(cwd) per call). */
@@ -442,23 +458,70 @@ export function formatSubagentTrace(history: AgentHistoryEntry[], elapsedMs: num
 
 /** Theme the call line shown WHILE the subagent runs (pi's spinner conveys activity). */
 export function renderSubagentCall(
-  args: { agent?: string; model?: string; capability?: string; tier?: string; task: string; resolvedModel?: string },
+  args: {
+    agent?: string;
+    model?: string;
+    capability?: string;
+    tier?: string;
+    task: string;
+    resolvedModel?: string;
+    /** True when the model resolution fell back (actual model differs from requested). */
+    fellBack?: boolean;
+  },
   theme: Theme,
 ): string {
   const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagent"))];
   if (args.agent) parts.push(theme.fg("accent", args.agent));
   // Requested-model slot: explicit model, else capability, else tier, else "default".
-  const slot =
-    args.model ?? (args.capability ? `capability:${args.capability}` : args.tier ? `tier:${args.tier}` : "default");
+  // shortModel() drops the provider prefix on a real model id (ticket 04, finding 5 —
+  // a full `anthropic/claude-opus-4-1` overflows the one-line glance). `tier:`/`capability:`/
+  // `default` carry no `/` so shortModel() leaves them untouched.
+  const slot = shortModel(
+    args.model ?? (args.capability ? `capability:${args.capability}` : args.tier ? `tier:${args.tier}` : "default"),
+  )!;
   parts.push(theme.fg("muted", slot));
   // Concrete model resolved mid-run (onModelResolved). Separate segment so the
   // requested tier/model stays visible. Skipped when it matches the slot (e.g.
   // an explicit model that resolved to itself) to avoid duplication.
-  if (args.resolvedModel && args.resolvedModel !== slot) {
-    parts.push(theme.fg("muted", args.resolvedModel));
+  const resolvedShort = args.resolvedModel ? shortModel(args.resolvedModel) : undefined;
+  if (resolvedShort && resolvedShort !== slot) {
+    // When the resolution fell back, prefix with a fallback indicator (`→`)
+    // so the display reads e.g. "claude-opus-4-1 ▸ → glm-5.2". shortModel keeps
+    // the segment narrow so the collapsed line stays within terminal width
+    // (ticket 04, finding 5). Normal resolution (no fallback) is unchanged.
+    const label = args.fellBack ? `→ ${resolvedShort}` : resolvedShort;
+    parts.push(theme.fg("muted", label));
   }
   parts.push(theme.fg("dim", `"${workIntentPreview(args.task, 60)}"`));
   return parts.join(" ▸ ");
+}
+
+/**
+ * Max trace lines shown in the streaming-expanded (ctrl+o) live view. Keeps
+ * the box ≈2 (header) + 1 (ellipsis) + this-many (tail) rows so it fits a
+ * normal terminal viewport — preventing the per-frame fullRender that causes
+ * the whole-TUI flicker (see {@link renderSubagentResult}'s isPartial branch).
+ * Only the STREAMING view is capped; the settled expanded report renders in
+ * full (no repeated clears → no flicker).
+ *
+ * Exported + shared with the context-box expanded trace (decision: ticket 05,
+ * finding 4) — `extensions/subagent.ts` wires Ctrl-O with `{ consume: false }`
+ * so Ctrl-O expands BOTH surfaces together; the cap must hold on both to keep
+ * the #1104 flicker fix intact on the surface #1104 didn't touch.
+ */
+export const STREAMING_EXPANDED_TAIL = 16;
+
+/**
+ * Cap a trace's tail to at most `tail` lines, prefixing a `…` (ellipsis) line
+ * when the trace exceeds the cap. Shared cap policy between the INLINE
+ * streaming-expanded view ({@link renderSubagentResult}'s isPartial+expanded
+ * branch) and the context-box expanded trace
+ * ({@link SubagentContextWidget} `renderRun`'s expanded branch) — both surfaces
+ * must hold the #1104 viewport-safe tail so a tall box never re-trips the
+ * whole-TUI fullRender flicker. Pure render helper; no data-model change.
+ */
+export function capTraceTail(lines: string[], tail: number): string[] {
+  return lines.length <= tail ? lines : ["…", ...lines.slice(-tail)];
 }
 
 /** Theme the result: collapsed = badge+meta+headline; expanded = full report. */
@@ -471,10 +534,24 @@ export function renderSubagentResult(
   if (options.isPartial) {
     // Streaming progress update. The payload (formatSubagentLive) is a 2-line
     // header + a ≤100-line activity trace. Collapsed (default) shows just the
-    // header; expanded (ctrl+o / app.tools.expand) shows the trace so a
-    // long-running subagent's recent work is inspectable without aborting.
+    // header. Expanded (ctrl+o / app.tools.expand) shows the trace so a
+    // long-running subagent's recent work is inspectable without aborting —
+    // BUT capped to a viewport-safe tail (see STREAMING_EXPANDED_TAIL): the
+    // full ≤102-row box is taller than the terminal viewport, so its first
+    // line sits above the bottom-anchored viewport top and trips the TUI's
+    // per-frame fullRender (full-screen clear+rewrite) at ~4Hz → whole-TUI
+    // flicker. Keeping the streaming-expanded box small + height-stable keeps
+    // the first changed line inside the viewport → differential render → no
+    // fullRender. The settled (non-partial) expanded report is unaffected.
     const lines = text.split("\n");
-    const shown = options.expanded ? lines : lines.slice(0, 2);
+    // Keep the first 2 (progress header) then cap the trace tail via the SHARED
+    // helper so this surface and the context-box expanded trace hold the SAME
+    // viewport-safe cap (ticket 05, finding 4). Byte-identical to the prior
+    // inline ternary: capTraceTail checks `trace.length <= tail`, which is
+    // `lines.length - 2 <= tail` ⟺ `lines.length <= 2 + tail`.
+    const shown = options.expanded
+      ? [...lines.slice(0, 2), ...capTraceTail(lines.slice(2), STREAMING_EXPANDED_TAIL)]
+      : lines.slice(0, 2);
     return shown.map((l) => theme.fg("dim", l)).join("\n");
   }
   const d = result.details;
@@ -506,8 +583,19 @@ export function renderSubagentResult(
       ? theme.fg("warning", ` · ⚠ ${d.scopeCheck.outOfScope.length} out-of-scope`)
       : "";
   const budgetTag = d.budget ? theme.fg("warning", ` · ${d.budget.kind}:${d.budget.actual}/${d.budget.limit}`) : "";
+  // Settled result meta (ticket 04, findings 3 + 5): the live call line shows
+  // the fallback `→ actual` mid-run, but on settle that segment vanished and
+  // the meta collapsed to the bare actual model — a surprising fallback became
+  // invisible. Persist a dim `requested → actual` segment when `d.fellBack` so
+  // the discrepancy survives settle. shortModel() keeps it narrow on the
+  // one-line collapsed result; `d.requestedModel` (the audit field) stays the
+  // FULL spec, only the DISPLAY is shortened.
+  const modelSeg =
+    d.fellBack && d.requestedModel
+      ? `${shortModel(d.requestedModel)} → ${shortModel(d.model) ?? "default"}`
+      : shortModel(d.model) ?? "default";
   const meta =
-    theme.fg("muted", `${d.model ?? "default"} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`) +
+    theme.fg("muted", `${modelSeg} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`) +
     sddTag +
     scopeTag +
     budgetTag;
@@ -681,6 +769,8 @@ export function createSubagentTool(
       // The concrete provider/id the child actually ran on, captured from
       // WorkflowAgent once resolved. Falls back to the requested display string.
       let resolvedModel: string | undefined;
+      // True when the model resolution fell back (onModelFallback fired).
+      let fellBack = false;
 
       // Per-child AbortController (Frontier A): the user can abort ONE running
       // child via registry.abort(toolCallId) → this controller fires. We FAN IN
@@ -695,6 +785,10 @@ export function createSubagentTool(
         agent: params.agent,
         model: displayModelBeforeResolve,
         taskPreview: taskPreview(params.task),
+        // Precompute the work-intent strip from the RAW task so the docked
+        // context box can surface it (ticket 04, finding 1 — taskPreview is
+        // already single-lined, so workIntentPreview can't strip its preamble).
+        workIntent: workIntentPreview(params.task),
         startedAt: t0,
         abort: () => childAc.abort(),
         // Rendered inline in the CURRENT turn by this tool's own call/result line
@@ -709,9 +803,16 @@ export function createSubagentTool(
             .filter((s): s is string => Boolean(s))
             .join("\n\n") || undefined;
 
+        // Default to the parent's gated active set (not the full definition universe)
+        // so a spawned subagent doesn't re-pay the ~18k tok/req schema baseline the
+        // parent gated down to ~10k. Precedence: explicit per-call `tools` > agentType
+        // `tools` binding > parent's gated active set (the fallback when neither
+        // restricts). See .planning/2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task/
+        // ticket 01 (optimization #1). Caller's explicit `tools` still overrides.
+        const defaultActiveTools = options.getActiveTools?.();
         const result = await spawn({
           task: params.task,
-          tools: params.tools ?? agentDef?.tools,
+          tools: params.tools ?? agentDef?.tools ?? defaultActiveTools,
           excludeTools: params.excludeTools ?? agentDef?.disallowedTools,
           model: requestedModel,
           tier,
@@ -730,6 +831,10 @@ export function createSubagentTool(
           onModelResolved: (id) => {
             resolvedModel = id;
             options.inFlight?.updateModel(toolCallId, id);
+          },
+          onModelFallback: (requestedSpec) => {
+            fellBack = true;
+            options.inFlight?.markFallback(toolCallId, requestedSpec);
           },
           onHistory:
             onUpdate || options.inFlight || options.persistence
@@ -770,6 +875,8 @@ export function createSubagentTool(
             agent: params.agent,
             task: params.task,
             model,
+            requestedModel: fellBack ? (requestedModel ?? undefined) : undefined,
+            fellBack: fellBack || undefined,
             tier,
             cwd: runCwd,
             status: "aborted",
@@ -840,6 +947,8 @@ export function createSubagentTool(
           timedOut: result.timedOut,
           agent: params.agent,
           model,
+          requestedModel: fellBack ? (requestedModel ?? undefined) : undefined,
+          fellBack: fellBack || undefined,
           taskPreview: taskPreview(params.task),
           elapsedMs,
           startedAt: t0,
@@ -863,6 +972,8 @@ export function createSubagentTool(
           agent: params.agent,
           task: params.task,
           model,
+          requestedModel: fellBack ? (requestedModel ?? undefined) : undefined,
+          fellBack: fellBack || undefined,
           tier,
           cwd: runCwd,
           status: details.status,
@@ -895,9 +1006,11 @@ export function createSubagentTool(
       // (end()), so after completion this reads undefined and the segment
       // reverts — the model then lives on the result line (d.model). While
       // running, onModelResolved → updateModel keeps this fresh + re-renders.
-      const resolvedModel = options.inFlight?.get(context.toolCallId)?.resolvedModel;
+      const entry = options.inFlight?.get(context.toolCallId);
+      const resolvedModel = entry?.resolvedModel;
+      const fellBack = entry?.fellBack;
       options.inFlight?.bindInvalidate(context.toolCallId, context.invalidate);
-      text.setText(renderSubagentCall({ ...args, resolvedModel }, theme));
+      text.setText(renderSubagentCall({ ...args, resolvedModel, fellBack }, theme));
       return text;
     },
     renderResult(result, options, theme, _context) {

@@ -17,12 +17,16 @@
     "test": "bun test",
     "qa:savings": "bun run qa/savings.ts",
     "qa:miss": "bun run qa/miss-rate.ts",
+    "qa:miss-ab": "bun run qa/miss-rate-ab.ts",
     "qa:coverage": "bun run qa/coverage.ts",
     "qa": "bun run qa/run.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "0.84.1",
     "typebox": "*"
+  },
+  "dependencies": {
+    "@repo/pi-agent-ext-power-tool": "workspace:*"
   },
   "devDependencies": {
     "@repo/pi-agent-ext-core-task": "workspace:*",
@@ -36,12 +40,12 @@
     "@repo/pi-agent-ext-ltx": "workspace:*",
     "@repo/pi-agent-ext-movie-director": "workspace:*",
     "@repo/pi-agent-ext-obsidian": "workspace:*",
-    "@repo/pi-agent-ext-power-tool": "workspace:*",
     "@repo/pi-agent-ext-research-tool": "workspace:*",
     "@repo/pi-agent-ext-subagent": "workspace:*",
     "@repo/pi-agent-ext-wayfind": "workspace:*",
     "@repo/pi-agent-ext-web-access": "workspace:*",
     "@repo/pi-agent-ext-workflow": "workspace:*",
-    "@repo/pi-agent-ext-zai-mcp": "workspace:*"
+    "@repo/pi-agent-ext-zai-mcp": "workspace:*",
+    "@repo/pi-tool-gating-contract": "workspace:*"
   }
 }

@@ -1,28 +1,26 @@
 ---
 name: grilling
-description: Use when the user wants to grill a decision or idea — a relentless one-question-at-a-time interview, each with a recommended answer.
+description: Use when the user wants to grill a plan, decision, or idea — a relentless round-by-round frontier interview, each question with a recommended answer.
 ---
 
 # Grilling
 
-Interview the user relentlessly about the plan, decision, or idea until you reach shared understanding — **one question at a time**, waiting for feedback before continuing. Asking multiple at once is bewildering: it forces the user to hold several open threads and produces shallow answers instead of resolved decisions. For each question, provide your recommended answer.
+Interview the user relentlessly until you reach a shared understanding. Map this as a **design tree**: every decision branches into the decisions that hang off it.
 
-## Facts vs decisions
+Work the tree in **rounds**. The **frontier** is every decision whose prerequisites are already settled — the questions you can ask _now_ without guessing at answers you haven't heard yet. Ask the whole frontier in one round: number each question and give your recommended answer. Then wait for the user's answers before the next round.
 
-If a *fact* can be found by exploring the environment (filesystem, tools, code, docs), **look it up rather than asking**. Read the file, grep the codebase, check the config — do not make the user transcribe what the repo already states. But the environment reflects the *current branch*, which may lag the line of development — before treating gathered facts as ground truth for a decision, confirm the branch is current (`/wayfind` checks this; otherwise `git rev-list --count HEAD..origin/<default>`); if behind, say so and prefer rebasing.
+Each question should be formatted like so:
 
-The *decisions*, though, are the user's — put each one to them and wait for their answer. Even when you have a strong recommendation, the call is theirs; offer the recommendation, then stop.
+```
+❓ **Q1** - **<question title>**: <question body, might be multiple paragraphs, including multiple choices>
 
-## The discipline
+➡️ <your recommended answer>
+```
 
-- **One question at a time.** Never a questionnaire dump.
-- **Recommended answer for every question.** Don't just probe — propose. The user confirms, rejects, or refines; they rarely have to originate from a blank page.
-- **Resolve dependencies in order.** If decision B depends on A, settle A first. Don't ask about storage before you've agreed what's being stored.
-- **Stay in the decision tree.** Each answer opens new branches and closes others. Follow the ones that matter; note (don't chase) the ones that don't.
-- **Reach for the environment for facts.** A question whose answer lives in the codebase is a research task, not a grill question — see **Facts vs decisions** above for the branch-currency check before trusting what you find.
+Each round the user answers reshapes the tree — settled decisions push the frontier outward and unblock questions that depended on them. Recompute the frontier and ask the next round. A question whose answer depends on another question still open in this round belongs to a _later_ round, not this one.
 
-Do not act on anything until the user confirms you have reached a shared understanding. Grilling produces alignment; acting on it is a separate step the user must approve.
+Finding _facts_ is your job, never the user's. When a frontier question needs a fact from the environment (filesystem, tools, etc.), dispatch a sub-agent to find it — don't ask the user for anything you could look up yourself. Don't block on it: a running exploration is an unsettled prerequisite, so only the questions downstream of it wait for the sub-agent to report — ask the rest of the frontier now. The _decisions_ are the user's — put each to them and wait.
 
-## When to stop
+But the environment reflects the current branch, which may lag the line of development — before treating gathered facts as ground truth for a decision, confirm the branch is current (`/wayfind` checks this; otherwise `git rev-list --count HEAD..origin/<default>`); if behind, say so and prefer rebasing.
 
-You're done grilling when the decision tree is resolved — every branch the plan depends on has a settled answer, and the remaining unknowns are execution details, not decisions. At that point, say so explicitly: "I think we've reached shared understanding — here's what I believe we agreed." Let the user correct any last mismatches before any handoff.
+The session is done when the frontier is empty: every branch of the design tree visited, nothing left silently assumed. Do not act on it until the user confirms you have reached a shared understanding.

@@ -17,7 +17,8 @@ import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent
 import { spawnSubagent } from "./spawn-subagent.js";
 import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
-import { DEFAULT_TIMEOUT_MS, deriveSubagentStatus, taskPreview } from "./subagent-tool.js";
+import { shortModel } from "./agent-row-display.js";
+import { DEFAULT_TIMEOUT_MS, deriveSubagentStatus, taskPreview, workIntentPreview } from "./subagent-tool.js";
 
 /** Tree-mutating tools a read-only child may NEVER carry (non-overridable). */
 export const READ_ONLY_EXCLUDED = ["edit", "write", "bash"] as const;
@@ -49,6 +50,13 @@ export type BatchResultSlot =
       task: string;
       /** Resolved child model (never a hardcoded id). */
       model: string;
+      /** The originally-requested model spec, when the resolution fell back to a
+       *  different model (ticket 04, finding 2 — #1103's actual-model capture
+       *  never reached the batch tool). Full spec for the audit trace; the
+       *  DISPLAY shortens it via shortModel(). Absent on normal resolution. */
+      requestedModel?: string;
+      /** True when the model resolution fell back. Absent on normal resolution. */
+      fellBack?: boolean;
       /** Per-child wall-clock from dispatch start. */
       elapsedMs: number;
     }
@@ -63,6 +71,10 @@ export type BatchResultSlot =
       task: string;
       /** Resolved child model (never a hardcoded id). */
       model: string;
+      /** See the done/timedout/aborted variant (ticket 04, finding 2). */
+      requestedModel?: string;
+      /** See the done/timedout/aborted variant (ticket 04, finding 2). */
+      fellBack?: boolean;
       /** 0 for gate-skipped (never ran); real for per-child budget aborts. */
       elapsedMs: number;
     }
@@ -81,6 +93,14 @@ export interface SubagentsToolOptions {
   cwd?: string;
   getExtensionTools?: () => ToolDefinition[] | undefined;
   getMainModel?: () => string | undefined;
+  /**
+   * Parent session's CURRENT active tool-name set (the gated set). When a child
+   * task omits an explicit `tools` allowlist, it defaults to THIS set instead of
+   * re-inheriting the full ~55-tool definition universe (optimization #1,
+   * `.planning/2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task/` ticket 01).
+   * An explicit per-task `tools` always overrides.
+   */
+  getActiveTools?: () => string[] | undefined;
   /** Injectable spawn for tests (defaults to the real spawnSubagent). */
   spawn?: (opts: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
   inFlight?: SubagentInFlightRegistry;
@@ -131,16 +151,22 @@ export function clampConcurrency(n: number | undefined, max = MAX_CONCURRENCY): 
   return Math.min(Math.floor(n), max);
 }
 
-/** Build the per-child spawn opts, folding in the non-overridable read-only exclusion. */
+/** Build the per-child spawn opts, folding in the non-overridable read-only exclusion.
+ *  `ctx.activeTools` is the parent's gated active set — used as the per-task `tools`
+ *  default when the task omits an explicit allowlist (optimization #1). */
 export function mergeReadOnlyExclusion(
   task: BatchTask,
-  ctx: { defaultCwd: string; mainModel?: string; extensionTools?: ToolDefinition[] },
+  ctx: { defaultCwd: string; mainModel?: string; extensionTools?: ToolDefinition[]; activeTools?: string[] },
 ): SpawnSubagentOptions {
   const excludeTools = Array.from(new Set([...(task.excludeTools ?? []), ...READ_ONLY_EXCLUDED]));
   const opts: SpawnSubagentOptions = {
     task: task.task,
     cwd: task.cwd ?? ctx.defaultCwd,
-    tools: task.tools,
+    // Default to the parent's gated active set (not the full definition universe)
+    // so a spawned child doesn't re-pay the ~18k tok/req schema baseline the
+    // parent gated down to ~10k. An explicit per-task `tools` always overrides.
+    // See .planning/2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task/ ticket 01.
+    tools: task.tools ?? ctx.activeTools,
     excludeTools,
     timeoutMs: task.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     tokenBudget: task.tokenBudget,
@@ -214,6 +240,8 @@ export function createSubagentsTool(
       const concurrency = clampConcurrency(params.concurrency);
       const mainModel = options.getMainModel?.();
       const extensionTools = options.getExtensionTools?.();
+      // Parent's gated active set — the per-task `tools` default (optimization #1).
+      const activeTools = options.getActiveTools?.();
       // Shared per-provider rate-limit gate (the OUTER cap across subagents +
       // workflow). Undefined when the session has no resolvable provider model
       // → run() is a pass-through and behavior is unchanged. The provider is the
@@ -265,10 +293,20 @@ export function createSubagentsTool(
           }
           return;
         }
-        const childOpts = mergeReadOnlyExclusion(task, { defaultCwd, mainModel, extensionTools });
+        const childOpts = mergeReadOnlyExclusion(task, { defaultCwd, mainModel, extensionTools, activeTools });
         // Register in-flight so `/subagents` shows this child while it runs.
         const childRunId = `${toolCallId}:${index}`;
         const childT0 = Date.now();
+        // Per-child resolved-model + fallback capture (ticket 04, finding 2 —
+        // #1103's actual-model capture never reached the batch tool, so a batch
+        // child that fell back rendered the REQUESTED model under a ✓ done badge).
+        // Mirrors the singular tool: onModelResolved captures the ACTUAL model,
+        // onModelFallback captures the requested spec + marks fellBack. The slot
+        // then stores the actual model (not the stale childModel) plus the audit
+        // fields so the renderer can show `requested → actual`.
+        let childResolvedModel: string | undefined;
+        let childFellBack = false;
+        let childRequestedSpec: string | undefined;
         // Per-child AbortController (Frontier A): the user can abort ONE child via
         // registry.abort(childRunId) → this controller fires. We FAN IN the parent
         // turn `signal` so a whole-turn Esc still aborts batch children (new —
@@ -280,6 +318,9 @@ export function createSubagentsTool(
           id: childRunId,
           model: childModel,
           taskPreview: preview,
+          // Precompute the work-intent strip from the RAW task so the docked
+          // context box surfaces it (ticket 04, finding 1).
+          workIntent: workIntentPreview(task.task),
           startedAt: childT0,
           batchId: toolCallId,
           abort: () => childAc.abort(),
@@ -294,7 +335,15 @@ export function createSubagentsTool(
         const childSpawnOpts: SpawnSubagentOptions = {
           ...childOpts,
           externalSignal: childAc.signal,
-          onModelResolved: (modelId) => options.inFlight?.updateModel(childRunId, modelId),
+          onModelResolved: (modelId) => {
+            childResolvedModel = modelId;
+            options.inFlight?.updateModel(childRunId, modelId);
+          },
+          onModelFallback: (requestedSpec) => {
+            childFellBack = true;
+            childRequestedSpec = requestedSpec;
+            options.inFlight?.markFallback(childRunId, requestedSpec);
+          },
           onHistory: (history) => {
             options.inFlight?.update(childRunId, history);
             // Single-line batch progress feed — kills the blind spinner on the
@@ -345,6 +394,12 @@ export function createSubagentsTool(
         // Map the slot — preserve per-child hard-budget routing (Task 3) alongside
         // failed->null and the normal done/timedout path, + the user-aborted path.
         const status = userAborted ? "aborted" : deriveSubagentStatus(result);
+        // The ACTUAL model the child ran on (childResolvedModel from
+        // onModelResolved), else the requested display string when resolution
+        // never fired (ticket 04, finding 2 — the singular tool mirrors this).
+        const slotModel = childResolvedModel ?? childModel;
+        const slotRequestedModel = childFellBack ? childRequestedSpec : undefined;
+        const slotFellBack = childFellBack || undefined;
         if (userAborted) {
           slots[index] = {
             output: "",
@@ -352,7 +407,9 @@ export function createSubagentsTool(
             id: task.id,
             index,
             task: preview,
-            model: childModel,
+            model: slotModel,
+            requestedModel: slotRequestedModel,
+            fellBack: slotFellBack,
             elapsedMs: Date.now() - childT0,
           };
         } else if (status === "failed") {
@@ -365,7 +422,9 @@ export function createSubagentsTool(
             id: task.id,
             index,
             task: preview,
-            model: childModel,
+            model: slotModel,
+            requestedModel: slotRequestedModel,
+            fellBack: slotFellBack,
             elapsedMs: Date.now() - childT0,
           };
         } else {
@@ -376,7 +435,9 @@ export function createSubagentsTool(
             index,
             usage: result.usage,
             task: preview,
-            model: childModel,
+            model: slotModel,
+            requestedModel: slotRequestedModel,
+            fellBack: slotFellBack,
             elapsedMs: Date.now() - childT0,
           };
         }
@@ -390,7 +451,11 @@ export function createSubagentsTool(
             id: generateSubagentRunId(),
             toolCallId,
             task: task.task,
-            model: childModel,
+            // Persist the ACTUAL model + audit fields when it fell back (mirrors
+            // the singular tool — ticket 04, finding 2).
+            model: slotModel,
+            requestedModel: slotRequestedModel,
+            fellBack: slotFellBack,
             tier: task.tier,
             cwd: childOpts.cwd ?? defaultCwd,
             status,
@@ -496,6 +561,34 @@ export function renderSubagentsCall(
   return parts.join(" ▸ ");
 }
 
+/** Fixed-width status badges for the collapsed batch per-slot line (ticket 05,
+ *  finding 6). The badge text width varies by terminal status
+ *  (`✓ done` / `⏱ timedout` / `⛔ budget` / `⊘ aborted` / `✗ failed`); padding
+ *  each badge to the widest keeps the following `model · elapsed · task`
+ *  columns aligned across rows so a quick vertical scan of an N-children batch
+ *  stays aligned. Fixed-width pad only — no terminal-width dependency. */
+const BATCH_STATUS_BADGES = {
+  done: { text: "✓ done", tone: "success" as const },
+  timedout: { text: "⏱ timedout", tone: "warning" as const },
+  budget: { text: "⛔ budget", tone: "warning" as const },
+  aborted: { text: "⊘ aborted", tone: "dim" as const },
+  failed: { text: "✗ failed", tone: "error" as const },
+};
+const BATCH_BADGE_WIDTH = Math.max(...Object.values(BATCH_STATUS_BADGES).map((b) => b.text.length));
+
+/** Render a fixed-width status badge for the collapsed batch per-slot line so
+ *  the following `model · elapsed · task` columns line up across rows
+ *  (ticket 05, finding 6). Pads the badge text to {@link BATCH_BADGE_WIDTH} so a
+ *  short `✓ done` (6) matches a wide `⏱ timedout` (10) before the columns
+ *  follow. Unknown statuses fall back to the `failed` badge. */
+function batchStatusBadge(status: string, theme: Theme): string {
+  const b =
+    status in BATCH_STATUS_BADGES
+      ? BATCH_STATUS_BADGES[status as keyof typeof BATCH_STATUS_BADGES]
+      : BATCH_STATUS_BADGES.failed;
+  return theme.fg(b.tone, b.text.padEnd(BATCH_BADGE_WIDTH));
+}
+
 /** Theme the batch result: collapsed = header + per-child one-liners; expanded = full themed output. */
 export function renderSubagentsResult(
   result: { content: Array<{ type: string; text?: string }>; details?: SubagentsToolDetails },
@@ -534,21 +627,24 @@ export function renderSubagentsResult(
     for (let i = 0; i < d.results.length; i++) {
       const slot = d.results[i];
       if (slot === null) {
-        lines.push(theme.fg("dim", `  [${i}] ${theme.fg("error", "✗ failed")}  ·  (child failed)`));
+        lines.push(theme.fg("dim", `  [${i}] ${batchStatusBadge("failed", theme)}  ·  (child failed)`));
         continue;
       }
       const slotStatus = (slot as { status: string }).status;
-      const badge =
-        slotStatus === "done"
-          ? theme.fg("success", "✓ done")
-          : slotStatus === "timedout"
-            ? theme.fg("warning", "⏱ timedout")
-            : slotStatus === "budget"
-              ? theme.fg("warning", "⛔ budget")
-              : slotStatus === "aborted"
-                ? theme.fg("dim", "⊘ aborted")
-                : theme.fg("error", "✗ failed");
-      const model = theme.fg("muted", (slot as { model: string }).model ?? "default");
+      // Fixed-width badge (ticket 05, finding 6): pad to the widest badge text so
+      // the `model · elapsed · task` columns line up across rows regardless of
+      // status (`✓ done`=6 vs `⏱ timedout`=10, etc.).
+      const badge = batchStatusBadge(slotStatus, theme);
+      // Model segment: on a fallback show `requested → actual` (both shortened
+      // via shortModel so the collapsed line stays within terminal width —
+      // ticket 04, findings 2 + 5). The audit field stays the full spec; only
+      // the DISPLAY is shortened.
+      const slotObj = slot as { model: string; requestedModel?: string; fellBack?: boolean };
+      const modelLabel =
+        slotObj.fellBack && slotObj.requestedModel
+          ? `${shortModel(slotObj.requestedModel)} → ${shortModel(slotObj.model) ?? "default"}`
+          : shortModel(slotObj.model) ?? "default";
+      const model = theme.fg("muted", modelLabel);
       const elapsed = `${((slot as { elapsedMs: number }).elapsedMs / 1000).toFixed(1)}s`;
       const taskPreview60 = truncateToWidth((slot as { task: string }).task ?? "", 60);
       const idTag = slot.id ? `${theme.fg("dim", `(${slot.id})`)} ` : "";

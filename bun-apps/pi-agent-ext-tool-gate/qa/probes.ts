@@ -107,6 +107,18 @@ export const MUST_FIRE: Probe[] = [
 	{ gate: "await_pr_merge", prompt: "wait for PR 42 to merge", note: "keyword wait / pr / merge" },
 	{ gate: "sweep_branches", prompt: "sweep merged branches and clean up", note: "keyword sweep / branch / cleanup" },
 	{ gate: "memory_supersede", prompt: "supersede the wrong memory with a correction", note: "keyword supersede / memory / correction" },
+	// devops registrar — the 5 remaining devops gates (local_ci, sync_repo,
+	// devops_retrospect, prepare_branch, verify_merge) each carry a DISTINCT
+	// keyword-SET signature (individual keywords like merge/verify/rebase/branch
+	// overlap across devops gates, but the full {keywords} set is unique per gate
+	// → a distinct coverage group). One must-fire + one must-not-fire per gate
+	// closes their coverageGaps (the qa gate groups by full signature, so a
+	// mono-probed group counts as covered).
+	{ gate: "local_ci", prompt: "run typecheck and keep the build green before merge", note: "keyword typecheck / green / merge" },
+	{ gate: "sync_repo", prompt: "sync the repo to the latest default branch", note: "keyword sync / default branch" },
+	{ gate: "devops_retrospect", prompt: "do a post-run retrospect of the run", note: "keyword retrospect / post-run" },
+	{ gate: "prepare_branch", prompt: "prepare the feature branch off main", note: "keyword prepare / branch" },
+	{ gate: "verify_merge", prompt: "verify the merge scope is clean not contaminated", note: "keyword verify / merge / scope / contaminated" },
 ];
 
 // ── MUST_NOT_FIRE (lookalikes the gate CORRECTLY rejects) ────────────────────
@@ -144,6 +156,16 @@ export const MUST_NOT_FIRE: Probe[] = [
 	{ gate: "await_pr_merge", prompt: "summarize the open issues", note: "no pr/merge/wait keyword" },
 	{ gate: "sweep_branches", prompt: "delete the temp file", note: 'bare "delete" is not the "delete-branch" keyword' },
 	{ gate: "memory_supersede", prompt: "remember to buy milk", note: '"remember" is not "memory" (word-boundary)' },
+	// devops registrar — the 5 remaining devops gates (see MUST_FIRE). Lookalikes
+	// in the git/build/advisory domain that correctly avoid EVERY keyword of the
+	// named gate. gateFires is checked only against the gate in `gate:`, so
+	// cross-gate keyword overlap (merge/verify/rebase/branch) is irrelevant —
+	// only the named gate's own keyword set must be absent from the prompt.
+	{ gate: "local_ci", prompt: "lint the staged changes", note: "no ci/test/typecheck/verify/gate/merge keyword" },
+	{ gate: "sync_repo", prompt: "clone the repository into a fresh folder", note: "no sync/fetch/rebase/pull keyword" },
+	{ gate: "devops_retrospect", prompt: "summarize what changed in this session", note: "no retrospect/review/anomaly keyword" },
+	{ gate: "prepare_branch", prompt: "commit the staged changes", note: "no prepare/rebase/branch keyword" },
+	{ gate: "verify_merge", prompt: "show the files changed by the last commit", note: "no verify/merge/scope keyword" },
 ];
 
 // ── ESCAPE_NAME — every gate reachable by enable_tool({ name }) ──────────────

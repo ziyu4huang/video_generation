@@ -95,3 +95,7 @@ Root cause: `loadConfig`'s default config path was frozen at module load (`DEFAU
 
 ## Still deferred (YAGNI)
 - **Scoring weight calibration** (`1.0/0.5/0.25`, recency decay, seed top-N ≈10, pool cap ≈20) — tune after real-data use.
+
+---
+
+> **ABSORBED-BY `2026-08-08-knowledge-pipeline`** (2026-08-08 unification). Graph-augmented recall (SurrealDB RELATE edges) is SHIPPED here (feat/hermes-surrealdb-graph-search, 758 tests green) — prior art for canonical tickets 03 (two-layer graph) and 10 (staleness dependency graph). See `.planning/2026-08-08-knowledge-pipeline/map.md`.

@@ -23,6 +23,11 @@ export interface InFlightSubagent {
   /** Concrete provider/id once the child resolves its model (onModelResolved).
    * Undefined until resolution — the call line shows tier/model-request until then. */
   resolvedModel?: string;
+  /** The originally-requested model spec (before resolution). Set when the
+   *  resolution fell back to a different model (markFallback). */
+  requestedModel?: string;
+  /** True when the model resolution fell back to a different model than requested. */
+  fellBack?: boolean;
   /** The batch tool's own toolCallId, set on every child of a `subagents` batch so
    *  the /subagents viewer can group them under one header. Undefined for singular
    *  `subagent` dispatches (flat, ungrouped) and workflow agents. */
@@ -42,6 +47,15 @@ export interface InFlightSubagent {
    *  shows all regardless. `start()` defaults it to `false` when omitted. */
   foreground?: boolean;
   taskPreview: string;
+  /** Work-intent preview — `workIntentPreview(task)` computed once at `start()`
+   *  (strips a leading `Working dir:`/`Cwd:`/`Repo:` preamble line, single-lined,
+   *  ≤60 chars). The docked context box feeds THIS (not `taskPreview`, which is
+   *  already single-lined so its preamble can't be stripped) into
+   *  `renderSubagentCall` so the header surfaces the actual work intent (ticket 04,
+   *  finding 1 — #1101's strip was dead on the context box). `taskPreview` stays
+   *  the viewer/persistence verbatim path. Optional: old/test entries fall back to
+   *  `taskPreview` when absent. */
+  workIntent?: string;
   startedAt: number;
   /** Latest compact history snapshot (for the live-output trace). */
   history?: AgentHistoryEntry[];
@@ -91,6 +105,18 @@ export class SubagentInFlightRegistry {
     const r = this.runs.get(id);
     if (!r) return;
     r.resolvedModel = model;
+    r.invalidate?.();
+  }
+
+  /** Mark a run as having fallen back to a different model than requested.
+   *  Sets `requestedModel` + `fellBack` on the entry without touching
+   *  `resolvedModel` (that is still set by `updateModel` when the actual
+   *  model is known). No-op after end(). */
+  markFallback(id: string, requestedModel: string): void {
+    const r = this.runs.get(id);
+    if (!r) return;
+    r.requestedModel = requestedModel;
+    r.fellBack = true;
     r.invalidate?.();
   }
 

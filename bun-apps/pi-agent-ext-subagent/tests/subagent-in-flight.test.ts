@@ -161,3 +161,34 @@ test("start accepts an entry with no model (a workflow run aggregates agents acr
   assert.equal(entry.foreground, false);
   assert.equal(entry.taskPreview, "preview_wf · Scan · 1/2 agents");
 });
+
+// ── markFallback (ticket 03: model-fallback display) ──
+
+test("markFallback sets requestedModel + fellBack without touching resolvedModel", () => {
+  const reg = new SubagentInFlightRegistry();
+  let invalidated = 0;
+  reg.start({ id: "a", model: "anthropic/claude-opus-4-1", taskPreview: "t", startedAt: 0 });
+  reg.bindInvalidate("a", () => {
+    invalidated++;
+  });
+  reg.markFallback("a", "anthropic/claude-opus-4-1");
+  const entry = reg.get("a");
+  assert.equal(entry?.requestedModel, "anthropic/claude-opus-4-1");
+  assert.equal(entry?.fellBack, true);
+  assert.equal(entry?.resolvedModel, undefined, "resolvedModel is NOT set by markFallback — updateModel handles that");
+  assert.equal(invalidated, 1, "markFallback triggers the bound invalidate");
+});
+
+test("markFallback on an unknown or ended id is a no-op", () => {
+  const reg = new SubagentInFlightRegistry();
+  let invalidated = 0;
+  reg.markFallback("ghost", "x/y"); // unknown id — no throw, no invalidate
+  reg.start({ id: "a", model: "tier:medium", taskPreview: "t", startedAt: 0 });
+  reg.bindInvalidate("a", () => {
+    invalidated++;
+  });
+  reg.end("a");
+  reg.markFallback("a", "x/y"); // ended — no-op
+  assert.equal(reg.get("a"), undefined);
+  assert.equal(invalidated, 0);
+});

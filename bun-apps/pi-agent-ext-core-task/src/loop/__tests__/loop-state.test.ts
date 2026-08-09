@@ -1,7 +1,7 @@
-import { test, expect } from "bun:test";
+import { test, expect, describe, beforeEach } from "bun:test";
 import {
 	createLoop, applyMeasurement, applyMetriclessTick, isBoundedStop, stopLoop,
-	__resetLoopState, loopState, type LoopState,
+	__resetLoopState, type LoopState,
 } from "../loop-state.js";
 
 test("createLoop builds an active metric loop with defaults", () => {
@@ -76,4 +76,41 @@ test("stopLoop sets active=false + stopReason", () => {
 	const l = stopLoop(createLoop({ target: "t", mode: "metricless" }), "user");
 	expect(l.active).toBe(false);
 	expect(l.stopReason).toBe("user");
+});
+
+// ─── Optimization #3 / ticket #16: per-sessionId loop-state isolation ────────
+
+describe("per-sessionId loop-state isolation (ticket #16)", () => {
+	const { setLoopRenderSid, getLoopState, __resetLoopState } = require("../loop-state.js");
+
+	beforeEach(() => {
+		__resetLoopState(); // no-arg: clear ALL buckets + reset renderSid
+	});
+
+	test("#3 loop-state isolated per sessionId (parent vs in-process child)", () => {
+		setLoopRenderSid("parent");
+		// parent activates a loop
+		getLoopState("parent").activeLoop = createLoop({ target: "parent loop", mode: "metricless" });
+		// child (distinct sid) activates a DIFFERENT loop — must NOT touch the parent bucket
+		getLoopState("child").activeLoop = createLoop({ target: "child loop", mode: "metricless" });
+
+		expect(getLoopState("parent").activeLoop?.target).toBe("parent loop");
+		expect(getLoopState("child").activeLoop?.target).toBe("child loop");
+		// no-arg reads the renderSid (parent) bucket — display code sees the parent's loop
+		expect(getLoopState().activeLoop?.target).toBe("parent loop");
+		// resetting the child leaves the parent intact
+		__resetLoopState("child");
+		expect(getLoopState("parent").activeLoop?.target).toBe("parent loop");
+		expect(getLoopState("child").activeLoop).toBeUndefined();
+	});
+
+	test("no-arg accessors default to the renderSid bucket (display path)", () => {
+		setLoopRenderSid("display");
+		// no-arg writes the renderSid bucket
+		getLoopState().consecutiveStuck = 3;
+		// an explicit other-sid write must not leak into the display bucket
+		getLoopState("other").consecutiveStuck = 9;
+		expect(getLoopState().consecutiveStuck).toBe(3);
+		expect(getLoopState("other").consecutiveStuck).toBe(9);
+	});
 });
