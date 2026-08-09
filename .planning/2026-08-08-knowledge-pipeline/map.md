@@ -54,6 +54,7 @@ A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pd
   (SUPERSEDED by 04 — see Decisions: embed rides backend-ab; SurrealDB primary, sqlite-vec fallback.)
 - 08: [Planning-card model](tickets/08-planning-card-model.md) — Hermes owns ingest+store (planning-card serializer plugs in); wayfind is the CRUD/query client. map.md→effort index card, each ticket→planning-ticket card (decisions inline); same SurrealDB/SQLite as knowledge-cards, namespaced; conflicts = closed tickets sharing scope with divergent resolution-gist.
 - 09: [Planning sync policy](tickets/09-planning-sync-policy.md) — .planning is git-canonical; DB mirrors it on-demand (content-hash staleness) + background backfill; git resolves multi-worktree merges (DB re-mirrors, conflict markers flagged); .planning is a Tier-1 instance of ticket 05's 3-tier drift (md wins).
+- [10: Staleness dependency graph](tickets/10-staleness-dependency-graph.md) — v1 auto-infers blocked-by + cited-source-path deps (optional explicit depends_on); re-validate on-access via content-hash + background sweep; stale decisions get a `stale:` flag, block effort graduation, agent re-grills to resolve.
 - Next grill order: **04-BUILD** (DB-native embed index — current session decision; SurrealDB primary + sqlite-vec fallback, per Decision 04). Spine [12 + 06a + 06b] shipped; 07/08/09/10/13 remain unblocked but not picked. One per session. (05 closed — migrate-at-graduation + 3-tier drift policy → task 13; spine milestone done — see top of map.)
 
 ## Not yet specified
