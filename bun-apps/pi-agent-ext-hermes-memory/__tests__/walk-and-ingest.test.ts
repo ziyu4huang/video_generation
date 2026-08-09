@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { publishSeam, type KnowledgePipeline } from "@repo/pi-agent-ext-core-interface";
@@ -19,30 +19,38 @@ function makeStubPipeline(): KnowledgePipeline {
     ingestRecords: async (records, opts) => {
       const dir = join(opts.vaultPath, opts.folder);
       mkdirSync(dir, { recursive: true });
+      let created = 0;
       const cards = records.map((r) => {
         const slug = r.id.replace(/[^A-Za-z0-9._-]+/g, "-").toLowerCase();
-        // Emit VALID zettel vault-md (the shape zk's renderCard produces) so the
-        // 06a KnowledgeSerializer accepts it in the DB-mirror step (task 5).
-        const recordTags = Array.isArray(r.tags) ? r.tags.filter((t) => t !== "zettel") : [];
-        const fmTags = ["zettel", ...recordTags];
-        const body = [
-          "---",
-          `id: ${r.id}`,
-          "created: 2026-01-01",
-          `tags: [${fmTags.join(", ")}]`,
-          "---",
-          `# ${r.title}`,
-          "",
-          "## 核心想法",
-          r.detail || r.title,
-          "",
-        ].join("\n");
-        writeFileSync(join(dir, `${slug}.md`), body + "\n");
-        return { id: r.id, path: `${opts.folder}/${slug}.md`, status: "created", links: 0 };
+        const fp = join(dir, `${slug}.md`);
+        const existed = existsSync(fp);
+        // Idempotent at the file level (models zk's no-op for unchanged records):
+        // only EMIT vault-md when the card is new, so an external edit to an
+        // existing card PERSISTS across re-ingest (the Tier-1 drift hash must
+        // detect it). Existing files keep their bytes untouched here.
+        if (!existed) {
+          const recordTags = Array.isArray(r.tags) ? r.tags.filter((t) => t !== "zettel") : [];
+          const fmTags = ["zettel", ...recordTags];
+          const body = [
+            "---",
+            `id: ${r.id}`,
+            "created: 2026-01-01",
+            `tags: [${fmTags.join(", ")}]`,
+            "---",
+            `# ${r.title}`,
+            "",
+            "## 核心想法",
+            r.detail || r.title,
+            "",
+          ].join("\n");
+          writeFileSync(fp, body + "\n");
+          created++;
+        }
+        return { id: r.id, path: `${opts.folder}/${slug}.md`, status: existed ? "unchanged" : "created", links: 0 };
       });
       return {
         source: opts.source, sourceLabel: opts.sourceLabel, total: records.length,
-        created: records.length, updated: 0, unchanged: 0, skipped: 0, linked: 0, wikiMerged: 0,
+        created, updated: 0, unchanged: records.length - created, skipped: 0, linked: 0, wikiMerged: 0,
         mocUpdated: false, vaultPath: opts.vaultPath, folder: opts.folder, cards, parseErrors: [],
       };
     },
@@ -161,6 +169,48 @@ describe("walkAndIngest (orchestrator: walk → adapt → ingest → heal)", () 
       } finally {
         await store2.close();
       }
+    } finally {
+      rmSync(memDir, { recursive: true, force: true });
+    }
+  });
+
+  it("Tier-1 drift stub: stable sha256 across runs; detects a changed vault-md card", async () => {
+    const jsonl = [
+      '{"id":"d1","type":"lever","title":"Drift One","detail":"base","tags":["d"],"dimension":null,"confidence":1,"status":"active","superseded_by":null}',
+    ].join("\n");
+    writeFileSync(join(inputDir, "run.knowledge.jsonl"), jsonl);
+    publishSeam(KEY, makeStubPipeline());
+    const memDir = mkdtempSync(join(tmpdir(), "kvi-drift-"));
+    try {
+      // Run 1: capture the md-hash set.
+      const r1 = await walkAndIngest(inputDir, { memoryDir: memDir });
+      assert.equal(r1.ok, true);
+      assert.ok(r1.driftStub.filesHashed >= 1, `filesHashed ≥1 (got ${r1.driftStub.filesHashed})`);
+      const h1 = r1.driftStub.currentHashes;
+      assert.ok(h1 && Object.keys(h1).length >= 1, "currentHashes populated");
+      const firstHash = Object.values(h1)[0]!;
+      assert.match(firstHash, /^[0-9a-f]{64}$/, "hash is sha256 (64 hex chars)");
+
+      // Run 2 on the SAME input (unchanged vault-md) → identical hashes (stable).
+      const r2 = await walkAndIngest(inputDir, { memoryDir: memDir, previousHashes: h1 });
+      assert.deepEqual(r2.driftStub.currentHashes, h1, "hashes stable across runs (unchanged corpus)");
+      assert.deepEqual(r2.driftStub.previousHashes, h1, "previousHashes echoed for change-detection");
+
+      // Mutate one vault-md card (simulating an external edit) → its hash changes.
+      const dir = join(vault, FOLDER);
+      const mds = readdirSync(dir).filter((n) => n.endsWith(".md"));
+      assert.ok(mds.length >= 1, "≥1 vault-md file to mutate");
+      const target = join(dir, mds[0]!);
+      writeFileSync(target, readFileSync(target, "utf8") + "\n## mutated externally\n");
+      const r3 = await walkAndIngest(inputDir, { memoryDir: memDir, previousHashes: h1 });
+      const relKey = Object.keys(h1).find((k) => k.endsWith(mds[0]!));
+      assert.ok(relKey, "relPath key found in currentHashes");
+      assert.notEqual(
+        r3.driftStub.currentHashes[relKey],
+        h1[relKey],
+        "mutated card hash changed (drift detected)",
+      );
+      assert.deepEqual(r3.driftStub.previousHashes, h1, "previousHashes still echoed on run 3");
     } finally {
       rmSync(memDir, { recursive: true, force: true });
     }
