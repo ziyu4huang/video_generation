@@ -9,6 +9,13 @@
 
 import { join } from "node:path";
 
+import { parseMapBody } from "./markdown.js";
+
+// Re-export so importers of model.ts (map.ts, tests, and this file's own
+// parseTicketFile) are unaffected by the parser's move to the fs-free
+// markdown.ts core. (architecture-deepening #2 — unify section parsers.)
+export { parseMapBody };
+
 export type TicketType = "research" | "prototype" | "grilling" | "task";
 export type TicketStatus = "open" | "closed";
 
@@ -89,34 +96,6 @@ export interface CompleteEffortResult {
 
 const MAP_FM_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 const EFFORT_STATUSES = new Set<EffortStatus>(["active", "complete", "paused"]);
-
-/** Parse a `## Section`-delimited body into a map of section→text. Sections
- *  without a heading (preamble) land under key "". */
-export function parseMapBody(md: string): Record<string, string> {
-  const sections: Record<string, string> = {};
-  const lines = md.split(/\r?\n/);
-  let current = "";
-  let buf: string[] = [];
-  const flush = () => {
-    sections[current] = buf.join("\n").trim();
-    buf = [];
-  };
-  for (const line of lines) {
-    const m = line.match(/^##\s+(.*)$/);
-    if (m) {
-      flush();
-      // Lenient key: take the text before a ( / em-dash / en-dash / colon suffix
-      // so `## Resolution (closed …)` / `## Section — desc` / `## Notes: x`
-      // key as "Resolution" / "Section" / "Notes" (hand-authored suffixed
-      // headers otherwise silently break section/closure detection).
-      current = m[1].split(/[(\u2014\u2013:]/)[0].trim();
-    } else {
-      buf.push(line);
-    }
-  }
-  flush();
-  return sections;
-}
 
 /**
  * Parse an OPTIONAL leading YAML front-matter block from a `map.md` body.
