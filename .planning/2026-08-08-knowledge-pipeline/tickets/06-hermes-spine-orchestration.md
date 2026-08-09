@@ -39,3 +39,19 @@ Ticket 06's implementation is split into two grilling/build tracks:
 - **06b — spine orchestrator** (the orchestration half — TBD, separate grilling). `ingestPath(dir|file)` / `walkAndIngest` (directory-walk + type-dispatch policy), the zk→store mirror wiring via the `KnowledgePipeline` seam (consumed defensively), the embed index (ticket 04), drift hooks (ticket 05 Tier 1/2/3), and the memory-card migration milestone (ticket 13, gated on 06a).
 
 06a stands alone (no zk changes, no orchestrator); 06b depends on 06a's store being built + proven on knowledge-cards first.
+
+## 06b spec + plan drafted (2026-08-09)
+
+06b (spine orchestrator) spec + TDD plan are drafted (author-docs only; not implemented):
+
+- Spec: `.planning/2026-08-08-knowledge-pipeline/specs/2026-08-08-hermes-spine-orchestrator.md`
+- Plan: `.planning/2026-08-08-knowledge-pipeline/plans/2026-08-08-hermes-spine-orchestrator.md`
+
+**4 grilled decisions pinned** (verbatim in the spec §"The 4 grilled decisions"):
+
+1. **Orchestration = leaf primitives only.** hermes owns `walkAndIngest`; calls zk leaves via `getKnowledgePipeline()`; NEVER calls `runConvergenceLoop`. Heal = a NEW leaf `healGraph(opts): Promise<HealReceipt>` added to `KnowledgePipeline` (core-interface), published by zk, called by hermes after ingest. (Verified grounding: `healGraph` ALREADY exists as a standalone leaf in zk `retrieve.ts` — `loop.ts` composes it as Phase B — so 06b only PUBLISHES it, it does not extract new heal logic.)
+2. **Walk policy = hermes owns it.** `walkAndIngest` implements the policy walk + source-family detection; does NOT use `collectInputFiles` for the policy walk.
+3. **Retrieve UX = new `knowledge_search` tool** wrapping `retrieveRecords`, mirroring `memory-tool.ts`.
+4. **Store writes = DB-mirror only.** zk writes vault-md; hermes reads vault-md → `KnowledgeSerializer` → `card-store.upsertCard` (single dedup site = 06a `KnowledgeDedupStrategy`, id-upsert).
+
+**Scope IN:** `walkAndIngest` (walk + family-detect + ingest + heal + DB-mirror + Tier-1 drift stub), the `healGraph` seam addition, the `knowledge_search` tool, vault-path plumbing (env-only). **OUT (other tickets):** embed (04), full drift (05), graph indexing (03), memory-card migration (13), image ingest (07), `.planning` self-ingest (08/09). A flagged Option B (6th `ingestFiles` seam leaf for full generic-md ingest) is documented but NOT the default path (Option A = workflow-jsonl via hermes-side JSONL parse → `ingestRecords`).
