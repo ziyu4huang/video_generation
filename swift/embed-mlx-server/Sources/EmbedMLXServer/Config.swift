@@ -14,7 +14,15 @@ public struct ServerConfig: Sendable {
     }
 
     public static let defaultPort = 8090
-    public static let defaultModelRepo = "BAAI/bge-m3"
+    // NOT "BAAI/bge-m3" (MLXEmbedders' own pre-registered `.bge_m3` default):
+    // that repo only ships `pytorch_model.bin`, no `.safetensors`, and this
+    // library only downloads/loads safetensors — loading it fails with
+    // "Key ... not found" because no weights were ever fetched. This is the
+    // same MLX-converted repo the Python Phase 0 harness (PR #1128) already
+    // validated (models.json's mlx_hf_repo), confirmed independently here by
+    // checking its file listing has real model.safetensors + quantization
+    // metadata this loader's quantize() path is built to consume.
+    public static let defaultModelRepo = "mlx-community/bge-m3-mlx-8bit"
     public static let defaultMicroBatchSize = 32
     // BGE-M3's real context window (see PR #1128 — this exact value was
     // verified NOT to change recall vs. the harness's old hardcoded 512, but
@@ -22,6 +30,6 @@ public struct ServerConfig: Sendable {
     public static let defaultMaxLength = 8192
 
     public var modelConfiguration: ModelConfiguration {
-        modelRepo == "BAAI/bge-m3" ? .bge_m3 : .init(id: modelRepo)
+        .init(id: modelRepo)
     }
 }
