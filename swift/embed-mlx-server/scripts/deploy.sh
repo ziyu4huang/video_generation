@@ -10,12 +10,11 @@ PACKAGE_DIR="$(dirname "$SCRIPT_DIR")"
 DIST_DIR="$HOME/proj/dist/embed-server"
 VENV_METALLIB="$PACKAGE_DIR/../../../video_generation__venv/lib/python3.13/site-packages/mlx/lib/mlx.metallib"
 
-echo "Building embed-mlx-server (release)..."
-( cd "$PACKAGE_DIR" && swift build -c release --product embed-mlx-server )
-
-mkdir -p "$DIST_DIR"
-cp "$PACKAGE_DIR/.build/release/embed-mlx-server" "$DIST_DIR/embed-mlx-server"
-
+# Validate every input BEFORE touching $DIST_DIR. A failure partway through
+# would otherwise leave a half-updated deploy target (new binary, stale or
+# missing metallib), which is exactly the "broken running service" this
+# script's separation from .build/ exists to prevent.
+#
 # MLX looks for mlx.metallib colocated with the running binary (SwiftPM
 # can't compile Metal shaders itself — see scripts/setup-metallib.sh, which
 # does the same thing for local .build/ runs). The deployed binary needs
@@ -23,10 +22,29 @@ cp "$PACKAGE_DIR/.build/release/embed-mlx-server" "$DIST_DIR/embed-mlx-server"
 # startup with "Failed to load the default metallib".
 if [ ! -f "$VENV_METALLIB" ]; then
     echo "error: metallib not found at $VENV_METALLIB" >&2
-    echo "       is the Python mlx venv set up? (python/venv/bin/pip install mlx)" >&2
+    echo "       is the mlx venv set up? (see scripts/setup-offline.sh, or" >&2
+    echo "       'uv pip install mlx' into ../../../video_generation__venv)" >&2
     exit 1
 fi
-cp "$VENV_METALLIB" "$DIST_DIR/mlx.metallib"
+
+echo "Building embed-mlx-server (release)..."
+( cd "$PACKAGE_DIR" && swift build -c release --product embed-mlx-server )
+
+mkdir -p "$DIST_DIR"
+
+# Copy to a temp name then mv into place: mv within one filesystem is atomic
+# and swaps the directory entry, so a currently-RUNNING service keeps its old
+# inode and is never handed a half-written executable.
+# `cp` already carries the source's mode bits over to the new temp file, so
+# the binary stays executable and the metallib stays plain data.
+install_atomically() {
+    local src="$1" dest="$2"
+    cp "$src" "$dest.tmp"
+    mv -f "$dest.tmp" "$dest"
+}
+
+install_atomically "$PACKAGE_DIR/.build/release/embed-mlx-server" "$DIST_DIR/embed-mlx-server"
+install_atomically "$VENV_METALLIB" "$DIST_DIR/mlx.metallib"
 
 echo "Deployed to $DIST_DIR/embed-mlx-server (+ mlx.metallib)"
 echo "Restart the service to pick up the new binary:"
