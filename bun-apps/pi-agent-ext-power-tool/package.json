@@ -27,7 +27,7 @@
     "typebox": "^1.3.7"
   },
   "devDependencies": {
-    "@repo/pi-tool-gating-contract": "workspace:*",
+    "@repo/pi-agent-ext-core-interface": "workspace:*",
     "@types/bun": "latest",
     "typescript": "^6.0.3"
   }

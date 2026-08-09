@@ -1,3 +1,4 @@
+/// <reference path="./tool-gating.d.ts" />
 export { SEAM_KEYS, SEAM_KEY_ENTRIES, type SeamKey } from "./seam-keys.js";
 export { publishSeam, readSeam, type SeamImplMap } from "./seam.js";
 export type {
