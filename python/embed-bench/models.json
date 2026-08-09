@@ -2,16 +2,19 @@
   "bge-m3": {
     "lmstudio_model_id": "text-embedding-bge-m3",
     "llamacpp_hf_repo": "gpustack/bge-m3-GGUF",
-    "mlx_hf_repo": "mlx-community/bge-m3-mlx-8bit"
+    "mlx_hf_repo": "mlx-community/bge-m3-mlx-8bit",
+    "mlx_max_length": 8192
   },
   "qwen3-embedding-0.6b": {
     "lmstudio_model_id": "text-embedding-qwen3-embedding-0.6b",
     "llamacpp_hf_repo": "Qwen/Qwen3-Embedding-0.6B-GGUF",
-    "mlx_hf_repo": "mlx-community/Qwen3-Embedding-0.6B-8bit"
+    "mlx_hf_repo": "mlx-community/Qwen3-Embedding-0.6B-8bit",
+    "mlx_max_length": 32768
   },
   "nomic-embed-text-v1.5": {
     "lmstudio_model_id": "text-embedding-nomic-embed-text-v1.5",
     "llamacpp_hf_repo": "nomic-ai/nomic-embed-text-v1.5-GGUF",
-    "mlx_hf_repo": null
+    "mlx_hf_repo": null,
+    "mlx_max_length": 8192
   }
 }

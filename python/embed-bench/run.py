@@ -126,9 +126,10 @@ def main() -> None:
             rows.append(_skipped_row(model_name, "llamacpp"))
 
         mlx_repo = config.get("mlx_hf_repo")
+        mlx_max_length = config.get("mlx_max_length", 512)
         if mlx_native.is_available(mlx_repo):
             print(f"Running mlx_native / {model_name}...")
-            rows.append(_run_combo("mlx_native", model_name, lambda t, r=mlx_repo: mlx_native.embed_batch(r, t), chunks, queries))
+            rows.append(_run_combo("mlx_native", model_name, lambda t, r=mlx_repo, m=mlx_max_length: mlx_native.embed_batch(r, t, max_length=m), chunks, queries))
         else:
             print(f"  mlx_native / {model_name} not available, skipping")
             rows.append(_skipped_row(model_name, "mlx_native"))

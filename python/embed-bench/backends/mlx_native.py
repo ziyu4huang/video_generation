@@ -6,6 +6,7 @@ import sys
 from mlx_embeddings.utils import load
 
 _loaded_models: dict[str, tuple] = {}
+_MICRO_BATCH_SIZE = 32
 
 
 def _get_model(hf_repo: str):
@@ -25,14 +26,18 @@ def is_available(hf_repo: str | None) -> bool:
         return False
 
 
-def embed_batch(hf_repo: str, texts: list[str]) -> list[list[float]]:
+def embed_batch(hf_repo: str, texts: list[str], max_length: int = 512) -> list[list[float]]:
     model, tokenizer = _get_model(hf_repo)
-    inputs = tokenizer.batch_encode_plus(
-        texts,
-        return_tensors="mlx",
-        padding=True,
-        truncation=True,
-        max_length=512,
-    )
-    outputs = model(inputs["input_ids"], attention_mask=inputs["attention_mask"])
-    return [row.tolist() for row in outputs.text_embeds]
+    embeddings: list[list[float]] = []
+    for start in range(0, len(texts), _MICRO_BATCH_SIZE):
+        micro_batch = texts[start : start + _MICRO_BATCH_SIZE]
+        inputs = tokenizer.batch_encode_plus(
+            micro_batch,
+            return_tensors="mlx",
+            padding=True,
+            truncation=True,
+            max_length=max_length,
+        )
+        outputs = model(inputs["input_ids"], attention_mask=inputs["attention_mask"])
+        embeddings.extend(row.tolist() for row in outputs.text_embeds)
+    return embeddings
