@@ -50,10 +50,7 @@ public final class MLXEmbeddingBackend: EmbeddingBackend {
             // every sequence's real trailing EOS token as if it were padding,
             // corrupting both self-attention and .mean/.max/.last pooling.
             let lengths = encoded.map(\.count)
-            let maskInts = lengths.map { length in
-                Array(repeating: 1, count: length) + Array(repeating: 0, count: batchMaxLength - length)
-            }
-            let mask = stacked(maskInts.map { MLXArray($0) }) .!= 0
+            let mask = stacked(Self.maskRows(lengths: lengths, batchMaxLength: batchMaxLength).map { MLXArray($0) }) .!= 0
             let tokenTypes = MLXArray.zeros(like: padded)
 
             let output = model(padded, positionIds: nil, tokenTypeIds: tokenTypes, attentionMask: mask)
@@ -61,6 +58,18 @@ public final class MLXEmbeddingBackend: EmbeddingBackend {
             result.eval()
 
             return result.map { $0.asArray(Float.self) }
+        }
+    }
+
+    /// Pure mask-row math, extracted so it's unit-testable without MLX/GPU:
+    /// for each sequence's real (pre-padding) length, produces a row of
+    /// `true` for real-token positions and `false` for padding positions,
+    /// bounded to `batchMaxLength`. This is the exact logic a prior code
+    /// review found buggy when it was inlined and derived from comparing
+    /// against a pad token id instead of the real length.
+    static func maskRows(lengths: [Int], batchMaxLength: Int) -> [[Bool]] {
+        lengths.map { length in
+            Array(repeating: true, count: length) + Array(repeating: false, count: batchMaxLength - length)
         }
     }
 }
