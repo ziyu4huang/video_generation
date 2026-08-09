@@ -79,3 +79,10 @@ created: 2026-08-08
 last: 2026-08-08
 ---
 Coherent development rounds pattern (2026-08-08, proven on devops hardening): When building multiple tools that touch shared files, split into coherent rounds to avoid conflicts. Round 1: self-contained modules (retrospect-recipe, prepare-recipe, verify-recipe + tests) with no shared-file edits. Round 2: integration (extensions/devops.ts registration, routing skill, manifest testGate) in one commit. Pre-check before Round 2: run `bun test` to verify Round 1's 176 pass baseline. Post-Round 2: full suite (179 pass) + `tsc` clean. This pattern prevented integration conflicts and made review tractable.
+§
+---
+id: 6703200a-9d0a-4662-aeb4-8b550a248875
+created: 2026-08-09
+last: 2026-08-09
+---
+Knowledge-pipeline vector/search backend DECISION (Round 2 grill, refines Ticket 04, 2026-08-09): SurrealDB is the PRIMARY backend for the knowledge pipeline, carrying BOTH the CRUD store AND the vector index (HNSW, 768-dim, cosine). Verified SurrealDB v3.2.3 resident @127.0.0.1:8000 — DDL: DEFINE INDEX <name> ON <table> FIELDS vec HNSW DIMENSION 768 DIST COSINE TYPE F32; KNN: SELECT id FROM <table> WHERE vec <|10,100|> [<768 floats>]; (v3 REMOVED the old <|k|> operator — use 2-arg <|k,EF|>); HNSW p95 ~13ms wall / ~2ms server-side @1k 768-dim vectors; DISKANN also works. SQLite is the FALLBACK backend for NON-vector CRUD + FTS5 only (existing surreal->sqlite backend-factory.ts). SQLite does NOT carry vectors. SUPERSEDES Ticket 04's sqlite-vec FALLBACK (sqlite-vec dropped — not loadable in Bun). Embed model unchanged: text-embedding-nomic-embed-text-v1.5 (768-dim) via LM Studio. Recorded in pi-agent-ext-hermes-memory PRD.md + .planning/2026-08-08-knowledge-pipeline/tickets/04 + map.md. OPEN: nomic fastest but bge-m3 higher recall@1 (0.909 vs 0.864) — model pick may revisit.
