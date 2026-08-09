@@ -137,4 +137,34 @@ const extension: ExtensionFactory = (pi) => {
   pi.on("tool_call", (event) => scopeViolationForToolCall(event));
 };
 
+/**
+ * Gate-Recall Guard probe set (QA-DATA only — NOT part of the runtime `gating`
+ * object). Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts. Plain object:
+ * no `satisfies` / type import, so the extension never depends on tool-gate
+ * (avoids a circular dep); shape is enforced by tool-gate's drift-guard test.
+ *  - controls[]  carry a current keyword → MUST fire.
+ *  - adversarial[] are keyword-free "I need this tool" phrasings. NOTE: the
+ *    movie gate is keywords-only (no `requires`), so keyword-free paraphrases
+ *    CANNOT fire — recall is structurally 0%. This is a REAL FINDING (flagged
+ *    for review): the gate cannot match paraphrased intent, only exact
+ *    keywords. recallFloor is therefore pinned to the OBSERVED value (0), not
+ *    silently to pass — broadening keywords risks false-fires, and adding a
+ *    requires path (nouns film/movie/video/片段; verbs assemble/direct/cut/
+ *    compose) to the runtime gating is the clean fix but is out of scope for
+ *    this QA-data-only change. The adversarial probes stay as genuine-intent
+ *    witnesses of the gap.
+ */
+export const __GATE_PROBES__ = {
+	gate: "movie",
+	// floor 0 = OBSERVED recall (keywords-only gate, no requires path; see above).
+	recallFloor: 0,
+	adversarial: [
+		"assemble these clips into a short piece",
+		"turn the footage into a narrative cut",
+		"direct a sequence from these scenes",
+		"把這些片段剪成一支作品",
+	],
+	controls: ["make a movie from these scenes", "compose video from the clips", "做一個分鏡"],
+};
+
 export default extension;

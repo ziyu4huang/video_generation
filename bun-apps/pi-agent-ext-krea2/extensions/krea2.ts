@@ -317,4 +317,28 @@ const extension: ExtensionFactory = (pi) => {
   });
 };
 
+/**
+ * Gate-Recall Guard probe set (QA-DATA only — NOT part of the runtime `gating`
+ * object). Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts. Plain object:
+ * no `satisfies` / type import, so the extension never depends on tool-gate
+ * (avoids a circular dep); shape is enforced by tool-gate's drift-guard test.
+ *  - controls[]  carry a current keyword → MUST fire.
+ *  - adversarial[] are keyword-free "I need this tool" phrasings. NOTE: the
+ *    krea2 gate is keywords-only (no `requires`), so keyword-free paraphrases
+ *    CANNOT fire — recall is structurally 0%. This is a REAL FINDING (flagged
+ *    for review): the gate cannot match paraphrased intent, only exact
+ *    keywords. recallFloor is pinned to the OBSERVED value (0), not silently
+ *    to pass — broadening keywords risks false-fires, and adding a requires
+ *    path to the runtime gating is the clean fix but is out of scope for this
+ *    QA-data-only change. The adversarial probes stay as genuine-intent
+ *    witnesses of the gap.
+ */
+export const __GATE_PROBES__ = {
+	gate: "krea2",
+	// floor 0 = OBSERVED recall (keywords-only gate, no requires path; see above).
+	recallFloor: 0,
+	adversarial: ["doodle a quick concept", "live-draw a fast mockup", "快速畫一個草稿"],
+	controls: ["sketch the idea", "用 krea2 快速生成", "real-time draw"],
+};
+
 export default extension;

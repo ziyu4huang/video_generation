@@ -571,4 +571,42 @@ const extension: ExtensionFactory = (pi) => {
 		"Collect YouTube LLM/AI videos → vault weekly-news/. Needs YOUTUBE_API_KEY. Optional: comma keywords.");
 };
 
+// ---------------------------------------------------------------------------
+// Gate-Recall Guard probe sets (QA-DATA only — NOT part of the runtime
+// `gating` object). Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts.
+// This package registers TWO keyword-gated tool groups (collect_videos +
+// arxiv_search), so it exports TWO named probe consts. Plain objects: no
+// `satisfies` / type import, so this extension never depends on tool-gate
+// (avoids a circular dep); shape is enforced by tool-gate's drift-guard test.
+//   - controls[]  carry a current keyword → MUST fire.
+//   - adversarial[] are keyword-free "I need this tool" phrasings that fire via
+//     the noun∧verb `requires` path.
+// REAL FINDING — collect_videos is keywords-only (no `requires`), so keyword-
+// free paraphrases cannot fire; recall is calibrated to the observed floor in
+// tool-gate Task 8 with a loud comment, the probes staying as genuine-intent
+// witnesses. arxiv_search DOES have a requires path, but its only zh noun
+// (論文) collides with a keyword — so a clean keyword-free zh adversarial is
+// impossible (any zh probe firing via requires contains 論文). The arxiv
+// adversarial set is therefore EN-only; this zh-noun/keyword collision is a
+// separate finding worth a future keyword/requires split.
+// ---------------------------------------------------------------------------
+export const COLLECT_VIDEOS_PROBES = {
+	gate: "collect_videos",
+	// floor 0 = OBSERVED recall (keywords-only gate, no requires path; see the
+	// REAL FINDING note above — paraphrased intent structurally cannot fire).
+	recallFloor: 0,
+	adversarial: ["gather clips from video platforms", "pull trending footage for research", "把 vault 的筆記排一下"],
+	controls: ["collect videos from bilibili", "organize vault notes", "收集影片"],
+};
+export const ARXIV_SEARCH_PROBES = {
+	gate: "arxiv_search",
+	recallFloor: 0.9,
+	adversarial: [
+		"look up papers on diffusion models",
+		"fetch the paper cited in that thread",
+		"read papers about reinforcement learning",
+	],
+	controls: ["search arxiv for transformers", "find papers on rlhf", "找論文"],
+};
+
 export default extension;

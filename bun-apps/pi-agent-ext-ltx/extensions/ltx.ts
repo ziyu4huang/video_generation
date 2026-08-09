@@ -402,4 +402,20 @@ const extension: ExtensionFactory = (pi) => {
   });
 };
 
+/**
+ * Gate-Recall Guard probe set (QA-DATA only — NOT part of the runtime `gating`
+ * object). Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts. Plain object:
+ * no `satisfies` / type import, so the extension never depends on tool-gate
+ * (avoids a circular dep); shape is enforced by tool-gate's drift-guard test.
+ *  - controls[]  carry a current keyword / satisfy requires → MUST fire.
+ *  - adversarial[] are keyword-free "I need this tool" phrasings → should fire
+ *    via the noun∧verb `requires` co-occurrence path.
+ */
+export const __GATE_PROBES__ = {
+	gate: "ltx",
+	recallFloor: 0.9,
+	adversarial: ["animate the sequence into a video", "produce a video clip of that transition", "把這段做成影片"],
+	controls: ["generate a video", "t2v the prompt", "用 ltx 生成影片"],
+};
+
 export default extension;
