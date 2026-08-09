@@ -1,21 +1,21 @@
 # Spec — merge tool-gating-contract into core-interface
 
 ## Problem Statement
-The repo carries a standalone pure-type package `@repo/pi-tool-gating-contract` whose sole file (`tool-gating.d.ts`) globally augments pi's `ToolDefinition` with a `gating` field, declares the `Gating` interface, and types the `getAllToolDefinitions()` runtime patch. It exists to dedupe this augmentation (previously byte-identical across ~14 packages). It is consumed by only 2 real consumers (tool-gate, power-tool) + 1 dead reference (core-task), all via `/// <reference types="..."/>`. A whole package for one ambient `.d.ts` is overhead: an extra package.json/tsconfig, a workspace entry, and a name that diverges from the `pi-agent-ext-core-interface` contracts home. We want one contracts home: fold this augmentation into `pi-agent-ext-core-interface` and delete the standalone package.
+The repo carries a standalone pure-type package `@repo/pi-tool-gating-contract` whose sole file (`tool-gating.d.ts`) globally augments pi's `ToolDefinition` with a `gating` field, declares the `Gating` interface, and types the `getAllToolDefinitions()` runtime patch. It exists to dedupe this augmentation (previously byte-identical across ~14 packages). It is consumed by 3 live consumers (tool-gate, power-tool, core-task), all via `/// <reference types="..."/>`. A whole package for one ambient `.d.ts` is overhead: an extra package.json/tsconfig, a workspace entry, and a name that diverges from the `pi-agent-ext-core-interface` contracts home. We want one contracts home: fold this augmentation into `pi-agent-ext-core-interface` and delete the standalone package.
 
 ## Solution
-Move the gating augmentation into `pi-agent-ext-core-interface`, exposed so that `/// <reference types="@repo/pi-agent-ext-core-interface" />` applies it (ambient mechanism preserved). Switch the 2 real consumers' triple-slash directives from `@repo/pi-tool-gating-contract` to `@repo/pi-agent-ext-core-interface`. Remove core-task's dead triple-slash. Delete the `pi-tool-gating-contract` package and its workspace entry. Zero runtime change.
+Move the gating augmentation into `pi-agent-ext-core-interface`, exposed so that `/// <reference types="@repo/pi-agent-ext-core-interface" />` applies it (ambient mechanism preserved). Rewire all 3 consumers' (tool-gate, power-tool, core-task) triple-slash directives from `@repo/pi-tool-gating-contract` to `@repo/pi-agent-ext-core-interface`. Delete the `pi-tool-gating-contract` package and its workspace entry. Zero runtime change.
 
 ## User Stories
 1. As a maintainer, I want the tool-gating type contract to live in the single contracts home (core-interface), so there is one package for cross-extension type contracts instead of two.
 2. As a maintainer, I want `pi-tool-gating-contract` removed, so there is no standalone package for a single ambient declaration file.
 3. As an extension author (tool-gate / power-tool), I want my `/// <reference>` to point at core-interface, so the `gating` augmentation keeps working with no behavior change.
-4. As a maintainer, I want core-task's dead gating triple-slash removed, so there is no misleading reference to a contract it does not use.
+4. As a maintainer, I want all 3 gating consumers (tool-gate, power-tool, core-task) rewired to core-interface, so the augmentation keeps working from one contracts home with no behavior change.
 
 ## Implementation Decisions
 - Fold `tool-gating.d.ts` content into core-interface as `src/tool-gating.d.ts` (verbatim augmentation: `declare module "@earendil-works/pi-coding-agent"` adding `ToolDefinition.gating?`, plus global `Gating` interface, plus `ExtensionAPI.getAllToolDefinitions?()` declaration).
 - Configure core-interface `package.json` `exports` so the ambient `/// <reference types="@repo/pi-agent-ext-core-interface" />` resolves a types entry carrying the augmentation, while `import` of runtime symbols (`SEAM_KEYS`, `publishSeam`/`readSeam`, `KnowledgePipeline`) still resolves to `src/index.ts`. The exact condition structure is validated empirically by the implementer (acceptance = the triple-slash applies the augmentation + all packages typecheck green).
-- Consumers: `pi-agent-ext-tool-gate` + `pi-agent-ext-power-tool` change their triple-slash `@repo/pi-tool-gating-contract` -> `@repo/pi-agent-ext-core-interface`; `pi-agent-ext-core-task` removes its dead triple-slash (no gating usage).
+- Consumers: `pi-agent-ext-tool-gate`, `pi-agent-ext-power-tool`, `pi-agent-ext-core-task` all change their triple-slash `@repo/pi-tool-gating-contract` -> `@repo/pi-agent-ext-core-interface`. (core-task is a LIVE consumer: 3 `gating:{core:true}` tool sites + `core-gating.test.ts`.)
 - Delete `bun-apps/pi-tool-gating-contract/` (package.json, tool-gating.d.ts, tsconfig.json) and drop it from the bun workspace (`bun install` from `bun-apps/` to regen `bun-apps/bun.lock`).
 - No runtime code changes anywhere. Pure type-system consolidation.
 

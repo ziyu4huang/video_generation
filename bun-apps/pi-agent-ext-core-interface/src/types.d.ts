@@ -14,8 +14,7 @@
 //      types from `./index.js` (so imports resolve) AND references the verbatim
 //      `tool-gating.d.ts` augmentation (so triple-slash consumers get `gating`).
 //
-// `tool-gating.d.ts` is a byte-identical copy of the former standalone
-// `@repo/pi-tool-gating-contract` package's sole file; this file is the wiring
-// that folds it into core-interface's source-as-package shape (no build step).
+// `tool-gating.d.ts` is the gating augmentation (formerly in the standalone
+// `@repo/pi-tool-gating-contract` package, now folded into core-interface).
 export * from "./index.js";
 /// <reference path="./tool-gating.d.ts" />
