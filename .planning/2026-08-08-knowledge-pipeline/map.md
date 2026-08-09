@@ -12,7 +12,8 @@ The hermes spine is built end-to-end. Typed seam + card-agnostic store + orchest
 - **Ticket 06b** — spine orchestrator: `walkAndIngest` (policy walk + family-detect + ingest + heal + DB-mirror into the unified store) + `healGraph` published as a 5th `KnowledgePipeline` seam leaf + `knowledge_search`/`knowledge_ingest` tools + Tier-1 drift stub. **PR #1146** (squash `3bd0d694`).
 
 **Now unblocked:** 07 (image cards), 08/09/10 (planning cards + sync + staleness), 13 (memory-card graduation).
-**Still-open build tracks:** 03 (typed entity-relation graph layer), 14 (embed/vector index build — SurrealDB HNSW + lazy backfill; UNBLOCKED, 04 closed), 05 (full 3-tier drift — 06b stubbed Tier-1 only).
+**Effort-query phasing:** 08/09/10 (full planning-card pipeline) = PHASE 2; PHASE 1 = ticket 15 (lightweight list + search over .planning, read-only, standalone — UNBLOCKED).
+**Still-open build tracks:** 03 (typed entity-relation graph layer), 14 (embed/vector index build — SurrealDB HNSW + lazy backfill; UNBLOCKED, 04 closed), 05 (full 3-tier drift — 06b stubbed Tier-1 only), 15 (effort-query Phase 1 — lightweight list + search over .planning, read-only; UNBLOCKED, standalone — Phase 2 = 08/09/10).
 **Known issue:** #1130 — `__piRateLimitState` orphan (pi-agent-ext-subagent) unregistered → `test:seam` red.
 
 ## Destination
