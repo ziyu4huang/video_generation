@@ -1,6 +1,6 @@
 # Wayfind — port new upstream skills — 2026-08-08
 
-> **Status:** done (batch 2). Batch 1 done — merged via PR #1138. Batch 2 done — `diagnosing-bugs`, `research`, `wait-what` ported; tickets 01–03 closed.
+> **Status:** Batch 2 complete (3 skills ported); effort remains active for future batches. Batch 1 complete — merged via PR #1138. Batch 2 complete — `diagnosing-bugs`, `research`, `wait-what` ported; tickets 01–03 closed.
 > **Last:** 2026-08-09
 
 ## Context
