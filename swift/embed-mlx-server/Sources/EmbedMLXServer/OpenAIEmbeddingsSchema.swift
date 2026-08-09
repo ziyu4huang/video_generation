@@ -1,5 +1,7 @@
-import Hummingbird
-
+// No Hummingbird import: these are pure wire-format types. They were
+// briefly ResponseCodable so route handlers could return them directly,
+// but HTTPServer encodes explicitly via JSONEncoder (it needs to set the
+// status code per branch), so the conformance was never exercised.
 public struct EmbeddingsRequest: Codable, Sendable {
     public let model: String
     public let input: Input
@@ -65,7 +67,7 @@ public struct EmbeddingsUsage: Codable, Sendable {
     }
 }
 
-public struct EmbeddingsResponse: Codable, ResponseCodable {
+public struct EmbeddingsResponse: Codable, Sendable {
     public let object: String
     public let data: [EmbeddingObject]
     public let model: String
@@ -79,7 +81,7 @@ public struct EmbeddingsResponse: Codable, ResponseCodable {
     }
 }
 
-public struct ErrorResponse: Codable, ResponseCodable {
+public struct ErrorResponse: Codable, Sendable {
     public struct ErrorDetail: Codable, Sendable {
         public let message: String
         public let type: String

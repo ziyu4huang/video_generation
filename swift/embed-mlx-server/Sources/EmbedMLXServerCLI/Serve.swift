@@ -21,9 +21,23 @@ extension EmbedMLXServerCLI {
         @Option(name: .customLong("max-length"), help: "Max tokens per input before truncation.")
         var maxLength: Int = ServerConfig.defaultMaxLength
 
+        // Every numeric flag is validated here, not just --port. Without this,
+        // bad values crash instead of erroring: --micro-batch-size 0 trips
+        // EmbeddingEngine's precondition (which is live in release builds, so
+        // it's a hard crash), and --max-length 0 produces a zero-width forward
+        // pass into MLX. Under the launchd plist's KeepAlive:true, a
+        // crash-at-startup becomes a respawn loop into an unrotated log.
+        // Port floor is 1, not 0: port 0 binds an arbitrary ephemeral port and
+        // then logs the misleading "listening on 127.0.0.1:0".
         mutating func validate() throws {
-            guard (0...65535).contains(port) else {
-                throw ValidationError("--port must be between 0 and 65535, got \(port).")
+            guard (1...65535).contains(port) else {
+                throw ValidationError("--port must be between 1 and 65535, got \(port).")
+            }
+            guard microBatchSize > 0 else {
+                throw ValidationError("--micro-batch-size must be positive, got \(microBatchSize).")
+            }
+            guard maxLength > 0 else {
+                throw ValidationError("--max-length must be positive, got \(maxLength).")
             }
         }
 
@@ -34,7 +48,7 @@ extension EmbedMLXServerCLI {
 
             print("[embed-mlx-server serve] loading \(config.modelRepo)...")
             let backend = try await MLXEmbeddingBackend.load(
-                configuration: config.modelConfiguration, maxLength: config.maxLength)
+                repo: config.modelRepo, maxLength: config.maxLength)
             let engine = EmbeddingEngine(backend: backend, microBatchSize: config.microBatchSize)
             let server = HTTPServer(engine: engine, modelName: config.modelRepo)
 

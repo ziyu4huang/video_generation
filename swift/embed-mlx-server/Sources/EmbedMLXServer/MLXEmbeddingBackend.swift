@@ -20,8 +20,12 @@ public final class MLXEmbeddingBackend: EmbeddingBackend {
 
     /// Loads the model once. This is the only place model loading happens —
     /// call it exactly once at process startup, before serving any requests.
-    public static func load(configuration: ModelConfiguration, maxLength: Int) async throws -> MLXEmbeddingBackend {
-        let container = try await loadModelContainer(configuration: configuration)
+    ///
+    /// Takes a plain repo id rather than an MLX `ModelConfiguration` so callers
+    /// (and `ServerConfig`) never have to import MLXEmbedders — this file stays
+    /// the only MLX-aware one in the package.
+    public static func load(repo: String, maxLength: Int) async throws -> MLXEmbeddingBackend {
+        let container = try await loadModelContainer(configuration: .init(id: repo))
         return MLXEmbeddingBackend(container: container, maxLength: maxLength)
     }
 

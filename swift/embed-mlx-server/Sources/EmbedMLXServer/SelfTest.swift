@@ -14,7 +14,21 @@ public struct SelfTestResult: Sendable {
     public let label: String
     public let nearSimilarity: Float
     public let farSimilarity: Float
-    public var passed: Bool { nearSimilarity > farSimilarity }
+
+    public var margin: Float { nearSimilarity - farSimilarity }
+
+    /// A bare `near > far` would let a broken model load pass by luck: the
+    /// classic mis-loaded/degenerate signature is near-constant vectors, which
+    /// give near ≈ far ≈ 1.0 and turn each case into a coin flip. These floors
+    /// close that hole while staying far looser than real BGE-M3 numbers
+    /// (measured: near ≈ 0.94, far ≈ 0.47, margin ≈ 0.47), so a legitimate
+    /// model swap has ~4x headroom before it would trip them.
+    public static let minimumMargin: Float = 0.1
+    public static let minimumNearSimilarity: Float = 0.5
+
+    public var passed: Bool {
+        margin > Self.minimumMargin && nearSimilarity > Self.minimumNearSimilarity
+    }
 }
 
 public enum SelfTest {

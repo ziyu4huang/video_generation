@@ -15,6 +15,12 @@ extension EmbedMLXServerCLI {
         @Option(name: .customLong("max-length"), help: "Max tokens per input before truncation.")
         var maxLength: Int = ServerConfig.defaultMaxLength
 
+        mutating func validate() throws {
+            guard maxLength > 0 else {
+                throw ValidationError("--max-length must be positive, got \(maxLength).")
+            }
+        }
+
         func run() async throws {
             setbuf(stdout, nil)
             let config = ServerConfig(
@@ -23,7 +29,7 @@ extension EmbedMLXServerCLI {
 
             print("[embed-mlx-server self-test] loading \(config.modelRepo)...")
             let backend = try await MLXEmbeddingBackend.load(
-                configuration: config.modelConfiguration, maxLength: config.maxLength)
+                repo: config.modelRepo, maxLength: config.maxLength)
             let engine = EmbeddingEngine(backend: backend, microBatchSize: config.microBatchSize)
 
             let results = try await SelfTest.run(engine: engine)
@@ -32,7 +38,7 @@ extension EmbedMLXServerCLI {
             for result in results {
                 let status = result.passed ? "PASS" : "FAIL"
                 print(
-                    "[\(status)] \(result.label): near=\(result.nearSimilarity) far=\(result.farSimilarity)")
+                    "[\(status)] \(result.label): near=\(result.nearSimilarity) far=\(result.farSimilarity) margin=\(result.margin)")
                 if !result.passed { allPassed = false }
             }
 

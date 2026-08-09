@@ -1,5 +1,7 @@
-import MLXEmbedders
-
+// Deliberately imports nothing: `ServerConfig` is the one type every layer
+// shares, so it stays plain data. Turning `modelRepo` into an MLX
+// `ModelConfiguration` is `MLXEmbeddingBackend`'s job — that file is the only
+// one in the package allowed to know MLX exists.
 public struct ServerConfig: Sendable {
     public let port: Int
     public let modelRepo: String
@@ -28,8 +30,4 @@ public struct ServerConfig: Sendable {
     // verified NOT to change recall vs. the harness's old hardcoded 512, but
     // it removes the truncation as a confound; keep it at the model's real max).
     public static let defaultMaxLength = 8192
-
-    public var modelConfiguration: ModelConfiguration {
-        .init(id: modelRepo)
-    }
 }

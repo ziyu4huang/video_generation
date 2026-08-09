@@ -57,12 +57,19 @@ case "${1:-}" in
         ;;
     status)
         if is_loaded; then
-            launchctl print "$TARGET" | grep -E "state = |pid = "
+            # `|| true`: under `set -e` a non-matching grep would exit 1 with no
+            # output, making `status` look like it failed rather than reporting.
+            launchctl print "$TARGET" | grep -E "state = |pid = " || \
+                echo "(loaded, but no state/pid lines — see: launchctl print $TARGET)"
         else
             echo "Not loaded"
         fi
         ;;
     log)
+        if [[ ! -f "$LOG_FILE" ]]; then
+            echo "No log yet at $LOG_FILE — has the service been started?" >&2
+            exit 1
+        fi
         tail -n "${2:-50}" -f "$LOG_FILE"
         ;;
     *)
