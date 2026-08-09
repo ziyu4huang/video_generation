@@ -118,6 +118,14 @@ not backfilled. A stale stub filed without reaching its destination is `paused`
 (there is no separate "abandoned" value). `wayfind_effort status` reports the
 manifest; `validate` checks it.
 
+**Prefer the `wayfind_effort status` tool action for inventory/audit** over
+reading whole `map.md` / ticket files: it returns a budget-bounded low-res view
+(manifest status + counts + a per-ticket `{id,title,status,blocking}` inventory)
+with NO verbatim decision bodies — so it can't exhaust the token budget (failure
+memory #455). Subagents have no `/wayfind` slash commands, so `status` is their
+only bounded view; reach for it first, then read only the specific ticket you'll
+act on.
+
 ## Invocation
 
 Two modes. Either way, **never resolve more than one ticket per session** — with the exception of research tickets.
