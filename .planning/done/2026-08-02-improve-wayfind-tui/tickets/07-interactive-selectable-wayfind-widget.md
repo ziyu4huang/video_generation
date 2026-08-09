@@ -32,3 +32,19 @@ Two sub-questions to resolve:
 
 type: grilling
 blocked by: 02
+
+---
+
+## Resolution (2026-08-09)
+
+**Spun off to a separate effort — deferred scope expansion.** The placement + history destination this map sealed is unaffected (it shipped via **PR #999** `aa09621c` — below-editor status + per-cwd prompt history + browse hint).
+
+Per the map's seal note, ticket 07 was scope expansion deferred to a future effort. It has now **seeded `2026-08-02-wayfind-interactive-widget`** ("Interactive Status-Bar Launcher — Robust Rebuild", map status: *CHARTED → route clear → PLAN → EXECUTE → SHIP*), so it closes here as graduated/spun-off — **not worked, not abandoned**.
+
+Traceability of the spun-off work (accurate record; **NOT** an abandonment claim):
+- The original launcher shipped as **PR #1019** (`1b5b5c63`, 2026-08-03) — Down-at-empty selector panel via `onTerminalInput` + a `bottom-center` `SelectList` overlay — then was **deliberately deleted 2026-08-07**: `38fe1372` ("remove Down-key status launcher popup" — the `onTerminalInput` teardown was unreliable across session lifecycle) and `50906350` ("remove key-triggered overlay menus that orphaned at bottom" — the overlay orphaned at the bottom with an `invalidate()` re-entry cascade).
+- The spun-off effort `2026-08-02-wayfind-interactive-widget` is **STILL PLANNED**, chartered specifically to rebuild robustly on a different surface — `pi.registerShortcut` (SDK-managed → no teardown hazard) + an overlay-free inline `CustomEditor` (nothing to orphan) — eliminating both documented failure modes. See its `tickets/04-robust-rebuild-after-pr1019-deletion.md`.
+
+The interaction this ticket scoped is therefore tracked forward, not dropped.
+
+closed: 2026-08-09 (spun off → `2026-08-02-wayfind-interactive-widget`)
