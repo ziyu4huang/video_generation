@@ -55,6 +55,23 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     pi.sendUserMessage(priming, { deliverAs: "steer" });
   }
 
+  /** Resolve the active effort for a `/wayfind <cmd> <effort>` subcommand: an
+   *  explicit arg wins, else fall back to the session's active effort. If
+   *  neither resolves, emit the canonical usage warning and return undefined. */
+  function resolveEffortOrWarn(
+    command: string,
+    args: string,
+    ctx: ExtensionCommandContext,
+    sessionId: string,
+  ): string | undefined {
+    const effort = args.trim() || state.activeEffortBySession.get(sessionId);
+    if (!effort) {
+      ctx.ui.notify(`Usage: /wayfind ${command} <effort>  (or run /wayfind <destination> first)`, "warning");
+      return undefined;
+    }
+    return effort;
+  }
+
   async function handleGrillMe(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const topic = args.trim();
     startGrill(ctx, topic, false);
@@ -138,11 +155,8 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
 
   async function handleChainSync(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const sessionId = getSessionId(ctx);
-    const effort = args.trim() || state.activeEffortBySession.get(sessionId);
-    if (!effort) {
-      ctx.ui.notify(`Usage: /wayfind sync <effort>  (or run /wayfind <destination> first)`, "warning");
-      return;
-    }
+    const effort = resolveEffortOrWarn("sync", args, ctx, sessionId);
+    if (!effort) return;
     const r = syncChainState(ctx.cwd, effort);
     if (r.closed.length > 0) {
       ctx.ui.notify(`[${PKG_NAME}] Closed ${r.closed.length} ticket(s): ${r.closed.join(", ")}.`, "info");
@@ -156,11 +170,8 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
 
   async function handleWayfindDone(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const sessionId = getSessionId(ctx);
-    const effort = args.trim() || state.activeEffortBySession.get(sessionId);
-    if (!effort) {
-      ctx.ui.notify(`Usage: /wayfind done <effort>  (or run /wayfind <destination> first)`, "warning");
-      return;
-    }
+    const effort = resolveEffortOrWarn("done", args, ctx, sessionId);
+    if (!effort) return;
     const r = closeEffortReflection(ctx.cwd, effort);
     if ("refused" in r) {
       ctx.ui.notify(`[${PKG_NAME}] done: ${r.refused}`, "warning");
@@ -182,11 +193,8 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
 
   async function handleWayfindSeed(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const sessionId = getSessionId(ctx);
-    const effort = args.trim() || state.activeEffortBySession.get(sessionId);
-    if (!effort) {
-      ctx.ui.notify(`Usage: /wayfind seed <effort>  (or run /wayfind <destination> first)`, "warning");
-      return;
-    }
+    const effort = resolveEffortOrWarn("seed", args, ctx, sessionId);
+    if (!effort) return;
     const outcome = seedPlan(ctx.cwd, { effort });
     if (!outcome) {
       ctx.ui.notify(`[${PKG_NAME}] seed: nothing to seed (no tickets, no CONTEXT.md decisions).`, "warning");
@@ -243,21 +251,15 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
 
   async function handleWayfindValidate(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const sessionId = getSessionId(ctx);
-    const effort = args.trim() || state.activeEffortBySession.get(sessionId);
-    if (!effort) {
-      ctx.ui.notify(`Usage: /wayfind validate <effort>  (or run /wayfind <destination> first)`, "warning");
-      return;
-    }
+    const effort = resolveEffortOrWarn("validate", args, ctx, sessionId);
+    if (!effort) return;
     ctx.ui.notify(renderValidate(validateEffort(ctx.cwd, effort)), "info");
   }
 
   async function handleWayfinderStatus(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const sessionId = getSessionId(ctx);
-    const effort = args.trim() || state.activeEffortBySession.get(sessionId);
-    if (!effort) {
-      ctx.ui.notify("Usage: /wayfind status <effort>  (or run /wayfind <destination> first)", "warning");
-      return;
-    }
+    const effort = resolveEffortOrWarn("status", args, ctx, sessionId);
+    if (!effort) return;
     syncChainState(ctx.cwd, effort);
     const r = statusReport(ctx.cwd, effort);
     if (!r) {
