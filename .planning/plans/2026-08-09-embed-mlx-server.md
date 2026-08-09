@@ -826,10 +826,11 @@ public struct HTTPServer: @unchecked Sendable {
         self.router = router
     }
 
-    public func run(port: Int) async throws {
+    public func run(port: Int, onReady: @escaping @Sendable () async -> Void = {}) async throws {
         let app = Application(
             router: router,
-            configuration: .init(address: .hostname("127.0.0.1", port: port))
+            configuration: .init(address: .hostname("127.0.0.1", port: port)),
+            onServerRunning: { _ in await onReady() }
         )
         try await app.runService()
     }
@@ -983,6 +984,12 @@ extension EmbedMLXServerCLI {
         @Option(name: .customLong("max-length"), help: "Max tokens per input before truncation.")
         var maxLength: Int = ServerConfig.defaultMaxLength
 
+        mutating func validate() throws {
+            guard (0...65535).contains(port) else {
+                throw ValidationError("--port must be between 0 and 65535, got \(port).")
+            }
+        }
+
         func run() async throws {
             setbuf(stdout, nil)
             let config = ServerConfig(
@@ -994,8 +1001,9 @@ extension EmbedMLXServerCLI {
             let engine = EmbeddingEngine(backend: backend, microBatchSize: config.microBatchSize)
             let server = HTTPServer(engine: engine, modelName: config.modelRepo)
 
-            print("[embed-mlx-server serve] listening on 127.0.0.1:\(config.port)")
-            try await server.run(port: config.port)
+            try await server.run(port: config.port) {
+                print("[embed-mlx-server serve] listening on 127.0.0.1:\(config.port)")
+            }
         }
     }
 }
