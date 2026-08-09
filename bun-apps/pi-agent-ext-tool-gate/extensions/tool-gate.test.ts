@@ -17,9 +17,11 @@ import workflowExtension from "@repo/pi-agent-ext-workflow/extensions/workflow.t
 import subagentExtension from "@repo/pi-agent-ext-subagent/extensions/subagent.ts";
 
 // CORE_NAMES / CORE_SET / CORE_TOOLS_ARRAY now imported from the shared
-// ./core-names.fixture.ts (22 always-active names: 18 owner-declared in-repo
-// core tools + 4 pi-coding-agent built-ins). Formerly duplicated verbatim here
-// AND in self-promotion-interaction.test.ts; centralized to stop drift.
+// ./core-names.fixture.ts (20 always-active names: 16 owner-declared in-repo
+// core tools + 4 pi-coding-agent built-ins). #5 gated ask_user_question + todo
+// OUT of core (keyword-gated now) — they are no longer in this set. Formerly
+// duplicated verbatim here AND in self-promotion-interaction.test.ts;
+// centralized to stop drift.
 
 // file2md/vision_ask (ticket 04) + flux2/flux2_help (ticket 05) + krea2/
 // krea2_help (ticket 06) + ltx/ltx_help (ticket 07) + movie/movie_help

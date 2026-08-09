@@ -19,7 +19,7 @@
  *  rolled out TOGETHER as one atomic unit over their single shared combined gate.)
  *
  * Baseline:  ~55 tools → ~18,000 tok/req   (measured via `bun run qa`)
- * Gated:    ON at start ~10,000 tok/req   (saves ~9,800 tok/turn, ~52%; net ~9,600; zai-mcp env-gated)
+ * Gated:    ON at start ~10,000 tok/req   (saves ~12,300 tok/turn, ~61%; net ~12,100; zai-mcp env-gated)
  *
  * Tools reactivate instantly when the prompt mentions relevant keywords, and
  * once activated stay active for the rest of the session (they never re-gate
