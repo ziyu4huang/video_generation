@@ -31,8 +31,19 @@ export interface GateProbeSet {
 	controls: string[];
 }
 
-// Populated in Tasks 5–7 once each gated extension exports `__GATE_PROBES__`.
-// Until then both collections are empty and the harness reports every gate as
-// UNCOVERED (degrade gracefully, never crash).
-export const ALL_PROBE_SETS: GateProbeSet[] = [];
-export const PROBES_BY_GATE: Map<string, GateProbeSet> = new Map();
+// ── Per-extension probe sets ─────────────────────────────────────────────
+// Import path mirrors qa/evaluate.ts exactly (@repo/<pkg>/extensions/<x>.ts)
+// so module resolution matches the very path that builds CORPUS_GATES. Each
+// gated extension exports a PLAIN `__GATE_PROBES__` (or named consts for
+// multi-gate packages); re-typing them as GateProbeSet here is safe because
+// they are plain objects with the same structural shape.
+import { __GATE_PROBES__ as flux2Probes } from "@repo/pi-agent-ext-flux2/extensions/flux2.ts";
+import { __GATE_PROBES__ as ltxProbes } from "@repo/pi-agent-ext-ltx/extensions/ltx.ts";
+import { __GATE_PROBES__ as movieProbes } from "@repo/pi-agent-ext-movie-director/extensions/movie-director.ts";
+import { __GATE_PROBES__ as krea2Probes } from "@repo/pi-agent-ext-krea2/extensions/krea2.ts";
+
+/** Every authored probe set (drift-guard iterates this). */
+export const ALL_PROBE_SETS: GateProbeSet[] = [flux2Probes, ltxProbes, movieProbes, krea2Probes];
+
+/** Probe set per canonical gate name (harness looks up by group-member name). */
+export const PROBES_BY_GATE: Map<string, GateProbeSet> = new Map(ALL_PROBE_SETS.map((p) => [p.gate, p]));

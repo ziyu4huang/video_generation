@@ -455,4 +455,25 @@ const extension: ExtensionFactory = (pi) => {
   });
 };
 
+/**
+ * Gate-Recall Guard probe set (QA-DATA only — NOT part of the runtime `gating`
+ * object). Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts. Plain object:
+ * no `satisfies` / type import, so the extension never depends on tool-gate
+ * (avoids a circular dep); shape is enforced by tool-gate's drift-guard test.
+ *  - controls[]  carry a current keyword / satisfy requires → MUST fire.
+ *  - adversarial[] are keyword-free "I need this tool" phrasings → should fire
+ *    via the noun∧verb `requires` co-occurrence path.
+ */
+export const __GATE_PROBES__ = {
+	gate: "flux2",
+	recallFloor: 0.9,
+	adversarial: [
+		"render the scene you described as a picture",
+		"draw what you just outlined for me",
+		"produce a visual of that concept",
+		"把這段描述做成一張照片",
+	],
+	controls: ["generate an image of a cat", "txt2img a landscape", "用 flux2 產圖"],
+};
+
 export default extension;

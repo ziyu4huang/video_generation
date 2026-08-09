@@ -68,16 +68,23 @@ test("controls-only gate (empty adversarial) → recall 1, verdict = controlsPas
 // ── evaluateGateRecall (Task 3) ────────────────────────────────────────────
 
 import { evaluateGateRecall } from "./gate-recall.ts";
+import { CORPUS_GATES } from "./evaluate.ts";
 
-test("evaluateGateRecall: covered group scored, uncovered group listed", () => {
-	// CORPUS_GATES includes flux2 (covered once Task 5 lands) + many others.
-	// Before probes exist: every group is UNCOVERED, pass is true (nothing fails)
-	// — critical so the qa/run.ts 4th conjunct stays green pre-Tasks-5–7.
+test("evaluateGateRecall: every signature-group is either scored or uncovered", () => {
+	// Durable invariant (holds pre-probes, mid-rollout, and fully calibrated):
+	// each CORPUS_GATES signature-group appears in exactly one of `rows` (has a
+	// probe set, scored) or `uncovered` (no probe set, listed). `pass` simply
+	// mirrors whether every SCORED row passed — UNCOVERED groups never fail
+	// (they're unmeasured), so with zero probes pass is vacuously true (keeps
+	// the qa/run.ts 4th conjunct green pre-Tasks-5–7); once probes land, pass
+	// reflects the real per-gate recall vs floor.
+	const sig = (k: string[], req?: { nouns: string[]; verbs: string[] }) =>
+		JSON.stringify({ keywords: k, requires: req });
+	const groupCount = new Set(CORPUS_GATES.map((g) => sig(g.keywords, g.requires))).size;
 	const r = evaluateGateRecall();
 	expect(Array.isArray(r.uncovered)).toBe(true);
-	expect(r.uncovered.length).toBeGreaterThan(0); // many groups, none probed yet
-	expect(r.rows.length).toBe(0); // nothing scored yet
-	expect(r.pass).toBe(true); // no rows → no failures
+	expect(r.rows.length + r.uncovered.length).toBe(groupCount);
+	expect(r.pass).toBe(r.rows.every((row) => row.verdict === "PASS"));
 });
 
 test("regression: removing a keyword turns a PASS row red", () => {

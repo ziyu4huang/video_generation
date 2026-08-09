@@ -137,4 +137,27 @@ const extension: ExtensionFactory = (pi) => {
   pi.on("tool_call", (event) => scopeViolationForToolCall(event));
 };
 
+/**
+ * Gate-Recall Guard probe set (QA-DATA only — NOT part of the runtime `gating`
+ * object). Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts. Plain object:
+ * no `satisfies` / type import, so the extension never depends on tool-gate
+ * (avoids a circular dep); shape is enforced by tool-gate's drift-guard test.
+ *  - controls[]  carry a current keyword → MUST fire.
+ *  - adversarial[] are keyword-free "I need this tool" phrasings. NOTE: the
+ *    movie gate is keywords-only (no `requires`), so keyword-free paraphrases
+ *    cannot fire — recall is calibrated in tool-gate Task 8 to the observed
+ *    floor with a loud comment; the probes stay as genuine-intent witnesses.
+ */
+export const __GATE_PROBES__ = {
+	gate: "movie",
+	recallFloor: 0.9,
+	adversarial: [
+		"assemble these clips into a short piece",
+		"turn the footage into a narrative cut",
+		"direct a sequence from these scenes",
+		"把這些片段剪成一支作品",
+	],
+	controls: ["make a movie from these scenes", "compose video from the clips", "做一個分鏡"],
+};
+
 export default extension;
