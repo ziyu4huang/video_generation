@@ -113,6 +113,23 @@ export function emitFile2mdKnowledge(pi: ExtensionAPI, payload: File2mdKnowledge
 }
 
 // ---------------------------------------------------------------------------
+// Gate-Recall Guard probe set (QA-DATA only — NOT part of the runtime
+// `gating` object). Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts.
+// Plain object: no `satisfies` / type import, so this extension never depends
+// on tool-gate (avoids a circular dep); shape is enforced by tool-gate's
+// drift-guard test.
+//   - controls[]  carry a current keyword / satisfy requires → MUST fire.
+//   - adversarial[] are keyword-free "I need this tool" phrasings → should fire
+//     via the noun∧verb `requires` co-occurrence path.
+// ---------------------------------------------------------------------------
+export const __GATE_PROBES__ = {
+	gate: "file2md",
+	recallFloor: 0.9,
+	adversarial: ["extract the text from this PDF", "parse the scanned document", "把這份文件讀成文字"],
+	controls: ["ocr this image", "convert the pdf to markdown", "用 file2md 分析圖片"],
+};
+
+// ---------------------------------------------------------------------------
 // Extension
 // ---------------------------------------------------------------------------
 

@@ -360,6 +360,25 @@ export function registerServerTools(
 }
 
 // ---------------------------------------------------------------------------
+// Gate-Recall Guard probe set (QA-DATA only — NOT part of the runtime
+// `gating` object). Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts.
+// Plain object: no `satisfies` / type import, so this extension never depends
+// on tool-gate (avoids a circular dep); shape is enforced by tool-gate's
+// drift-guard test.
+//   - controls[]  carry a current keyword → MUST fire.
+//   - adversarial[] are keyword-free "I need this tool" phrasings. NOTE: the
+//     zai gate is keywords-only (no `requires`), so keyword-free paraphrases
+//     cannot fire — recall is calibrated in tool-gate Task 8 to the observed
+//     floor with a loud comment; the probes stay as genuine-intent witnesses.
+// ---------------------------------------------------------------------------
+export const __GATE_PROBES__ = {
+	gate: "zai_web_search_web_search_prime",
+	recallFloor: 0.9,
+	adversarial: ["search the web for this", "look this up online", "網路搜尋一下"],
+	controls: ["use z.ai search", "zai web search for news", "用 z.ai reader 讀這頁"],
+};
+
+// ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 

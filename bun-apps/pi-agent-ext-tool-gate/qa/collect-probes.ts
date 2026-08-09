@@ -41,9 +41,21 @@ import { __GATE_PROBES__ as flux2Probes } from "@repo/pi-agent-ext-flux2/extensi
 import { __GATE_PROBES__ as ltxProbes } from "@repo/pi-agent-ext-ltx/extensions/ltx.ts";
 import { __GATE_PROBES__ as movieProbes } from "@repo/pi-agent-ext-movie-director/extensions/movie-director.ts";
 import { __GATE_PROBES__ as krea2Probes } from "@repo/pi-agent-ext-krea2/extensions/krea2.ts";
+import { __GATE_PROBES__ as file2mdProbes } from "@repo/pi-agent-ext-file2md/extensions/file2md.ts";
+import { COLLECT_VIDEOS_PROBES, ARXIV_SEARCH_PROBES } from "@repo/pi-agent-ext-research-tool/extensions/research-tool.ts";
+import { __GATE_PROBES__ as zaiProbes } from "@repo/pi-agent-ext-zai-mcp/extensions/zai-mcp.ts";
 
 /** Every authored probe set (drift-guard iterates this). */
-export const ALL_PROBE_SETS: GateProbeSet[] = [flux2Probes, ltxProbes, movieProbes, krea2Probes];
+export const ALL_PROBE_SETS: GateProbeSet[] = [
+	flux2Probes,
+	ltxProbes,
+	movieProbes,
+	krea2Probes,
+	file2mdProbes,
+	COLLECT_VIDEOS_PROBES,
+	ARXIV_SEARCH_PROBES,
+	zaiProbes,
+];
 
 /** Probe set per canonical gate name (harness looks up by group-member name). */
 export const PROBES_BY_GATE: Map<string, GateProbeSet> = new Map(ALL_PROBE_SETS.map((p) => [p.gate, p]));
