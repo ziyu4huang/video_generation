@@ -1496,3 +1496,29 @@ Expected: `Stopped com.video-generation.embed-mlx-server`.
 - [ ] **Step 9: Record the result**
 
 If all steps passed, the Phase 1 implementation is complete and verified end-to-end. If any step failed, do not consider Phase 1 done — file what broke before moving on.
+
+**Result (2026-08-09): all 9 steps PASSED.**
+
+- Deploy produced a 755 binary + 644 `mlx.metallib` in `~/proj/dist/embed-server/`.
+- launchd started the service; log showed Hummingbird's own bind line
+  followed by `[embed-mlx-server serve] listening on 127.0.0.1:8090` — confirming
+  the Task 6 `onServerRunning` ordering fix behaves correctly in production
+  (the readiness line is no longer printed before the socket is actually bound).
+- Real request `{"input": ["hello world", "你好世界"]}` returned
+  `object: list`, 2 items, **1024-dim** embeddings each, indices 0/1 — correct
+  OpenAI shape, and multilingual output confirmed on the real service.
+- Malformed JSON → 400, empty `input` array → 400, and the process survived
+  both (same pid throughout, never crashed).
+- A plain `swift build` left the running service untouched (same pid, still
+  serving) — the `.build/`-vs-`~/proj/dist/` decoupling works as designed.
+- Service stopped cleanly; port 8090 released; `status` reports `Not loaded`.
+
+Known limitation (spec'd, not a defect): `usage.prompt_tokens`/`total_tokens`
+are hardcoded to 0. The plan never wired real token accounting, and no
+consumer in this repo reads those fields. Worth revisiting only if a client
+that bills/limits on reported usage is ever pointed at this server.
+
+Note: the plist remains installed at
+`~/Library/LaunchAgents/com.video-generation.embed-mlx-server.plist`, so with
+`RunAtLoad: true` the service **will start automatically at next login** even
+though it is stopped now. To opt out entirely, remove that file.
