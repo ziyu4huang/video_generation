@@ -35,3 +35,14 @@ The surviving design docs (#1019's spec + plan) are sound; the failure was in th
 ## Blocked by
 
 None.
+
+## Resolution (2026-08-09)
+WON'T-DO / retired. The robust rebuild of the interactive status-bar launcher
+(registerShortcut trigger + overlay-free inline CustomEditor) is not being built.
+v1 (PR #1019) was deleted 2026-08-07 for TUI bugs (38fe1372 — onTerminalInput
+teardown unreliable; 50906350 — orphaned bottom-center overlay → invalidate()
+re-entry cascade → RangeError). A robust rebuild (this effort, PR #1094) was
+chartered to avoid both bugs via pi.registerShortcut + an overlay-free inline
+CustomEditor, but remained unstarted. Decision (2026-08-09): retire as won't-do —
+the below-editor static status shipped in PR #999 (aa09621c) is sufficient.
+closed: 2026-08-09 (wontfix)
