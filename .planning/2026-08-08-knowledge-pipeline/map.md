@@ -52,6 +52,7 @@ A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pd
 - Staleness: source-dependency graph (deps declared; re-validate on change). -> ticket 10
 - Carry-over (feeds 04): embed = SurrealDB-only (+ lm-studio); SQLite non-embed CRUD only.
   (SUPERSEDED by 04 — see Decisions: embed rides backend-ab; SurrealDB primary, sqlite-vec fallback.)
+- 08: [Planning-card model](tickets/08-planning-card-model.md) — Hermes owns ingest+store (planning-card serializer plugs in); wayfind is the CRUD/query client. map.md→effort index card, each ticket→planning-ticket card (decisions inline); same SurrealDB/SQLite as knowledge-cards, namespaced; conflicts = closed tickets sharing scope with divergent resolution-gist.
 - Next grill order: **04-BUILD** (DB-native embed index — current session decision; SurrealDB primary + sqlite-vec fallback, per Decision 04). Spine [12 + 06a + 06b] shipped; 07/08/09/10/13 remain unblocked but not picked. One per session. (05 closed — migrate-at-graduation + 3-tier drift policy → task 13; spine milestone done — see top of map.)
 
 ## Not yet specified
