@@ -64,3 +64,29 @@ test("controls-only gate (empty adversarial) → recall 1, verdict = controlsPas
 	expect(r.recall).toBe(1);
 	expect(r.verdict).toBe("PASS");
 });
+
+// ── evaluateGateRecall (Task 3) ────────────────────────────────────────────
+
+import { evaluateGateRecall } from "./gate-recall.ts";
+
+test("evaluateGateRecall: covered group scored, uncovered group listed", () => {
+	// CORPUS_GATES includes flux2 (covered once Task 5 lands) + many others.
+	// Before probes exist: every group is UNCOVERED, pass is true (nothing fails)
+	// — critical so the qa/run.ts 4th conjunct stays green pre-Tasks-5–7.
+	const r = evaluateGateRecall();
+	expect(Array.isArray(r.uncovered)).toBe(true);
+	expect(r.uncovered.length).toBeGreaterThan(0); // many groups, none probed yet
+	expect(r.rows.length).toBe(0); // nothing scored yet
+	expect(r.pass).toBe(true); // no rows → no failures
+});
+
+test("regression: removing a keyword turns a PASS row red", () => {
+	// Build a gate + probe mirroring a real crisp gate, then weaken it. The
+	// guard MUST go red when an adversarial phrasing that relied on a removed
+	// keyword/verb stops firing.
+	const strong = g(["flux"], { nouns: ["image"], verbs: ["render"] });
+	const weak = g(["flux"], { nouns: ["image"], verbs: ["__never__"] }); // verb removed
+	const probes = { gate: "t", recallFloor: 0.9, adversarial: ["render an image"], controls: ["flux"] };
+	expect(scoreGate(strong, probes).verdict).toBe("PASS");
+	expect(scoreGate(weak, probes).verdict).toBe("FAIL");
+});
