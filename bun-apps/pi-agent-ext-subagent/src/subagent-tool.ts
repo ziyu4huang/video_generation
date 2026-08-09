@@ -319,6 +319,7 @@ function truncateEnd(s: string, max: number): string {
 export function latestMessageLine(history: AgentHistoryEntry[]): string | null {
   if (history.length === 0) return null;
   const last = history[history.length - 1];
+  if (!last) return null; // invariant: history is non-empty (length guarded above)
   if (last.role === "assistant" && last.kind === "text" && last.text.trim()) {
     return `↳ "${truncateEnd(firstNonEmptyLine(last.text), 80)}"`;
   }
@@ -433,6 +434,7 @@ export function formatSubagentTrace(history: AgentHistoryEntry[], elapsedMs: num
   let inFlightIdx = -1;
   for (let i = 0; i < history.length; i++) {
     const e = history[i];
+    if (!e) continue; // invariant: i < history.length (loop bound)
     if (e.kind === "toolCall") {
       // Pair this call with its OWN result: when the call carries a toolCallId,
       // scan forward for the result whose toolCallId matches (handles batching,
@@ -442,7 +444,7 @@ export function formatSubagentTrace(history: AgentHistoryEntry[], elapsedMs: num
       let pairIdx = -1;
       if (e.toolCallId) {
         for (let j = i + 1; j < history.length; j++) {
-          if (history[j].kind === "toolResult" && history[j].toolCallId === e.toolCallId) {
+          if (history[j]?.kind === "toolResult" && history[j]?.toolCallId === e.toolCallId) {
             pairIdx = j;
             break;
           }
@@ -453,10 +455,11 @@ export function formatSubagentTrace(history: AgentHistoryEntry[], elapsedMs: num
         if (next && next.kind === "toolResult") pairIdx = i + 1;
       }
       if (pairIdx >= 0) {
-        // Paired call+result → collapse to ONE past-tense line; consume the result.
+        // invariant: pairIdx is a valid history index (set from an in-range j
+        // above, or from i+1 after a defined-result check) → history[pairIdx] defined.
         consumedResults.add(pairIdx);
         lines.push(
-          `✓ ${formatToolAction(history[pairIdx], { matchedCallArgs: matchedCallArgsFor(history, pairIdx) })}`,
+          `✓ ${formatToolAction(history[pairIdx]!, { matchedCallArgs: matchedCallArgsFor(history, pairIdx) })}`,
         );
       } else {
         // Trailing un-paired call → in-flight (present-tense + ellipsis).

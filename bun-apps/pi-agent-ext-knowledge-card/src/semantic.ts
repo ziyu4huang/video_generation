@@ -123,8 +123,8 @@ export async function getCardEmbeddings(
 	for (const n of names) {
 		const raw = readFileSync(join(folderAbs, n), "utf8");
 		const fmM = raw.match(/^---\n([\s\S]*?)\n---/);
-		const tagsM = fmM?.[1].match(/^tags:\s*\[(.*?)\]/m);
-		const tags = tagsM ? tagsM[1].split(",").map((s) => s.trim().replace(/"/g, "")) : [];
+		const tagsM = fmM?.[1]?.match(/^tags:\s*\[(.*?)\]/m);
+		const tags = tagsM?.[1]?.split(",")?.map((s) => s.trim().replace(/"/g, "")) ?? [];
 		texts.push(cardEmbedText(raw, readTitle(raw), tags));
 	}
 	try {

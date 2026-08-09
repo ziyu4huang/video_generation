@@ -272,7 +272,8 @@ export function sampleTokens(runId: string, total: number, now: number): void {
   if (last && last.ts === now && last.total === total) return;
   samples.push({ ts: now, total });
   // Drop samples beyond the rolling window, always keeping ≥2 so a rate is computable.
-  while (samples.length > 2 && now - samples[0].ts > RATE_WINDOW_MS) samples.shift();
+  // invariant: samples.length > 2 (short-circuit) → samples[0] is defined each check.
+  while (samples.length > 2 && now - samples[0]!.ts > RATE_WINDOW_MS) samples.shift();
   tokenSamples.set(runId, samples);
 }
 
@@ -282,6 +283,7 @@ export function tokensPerSecond(runId: string): number {
   if (!samples || samples.length < 2) return 0;
   const oldest = samples[0];
   const newest = samples[samples.length - 1];
+  if (!oldest || !newest) return 0; // invariant: samples.length >= 2 (guarded above)
   const elapsedMs = newest.ts - oldest.ts;
   if (elapsedMs <= 0) return 0;
   const delta = newest.total - oldest.total;

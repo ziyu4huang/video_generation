@@ -69,7 +69,7 @@ function parsePorcelainZ(raw: string): Array<{ status: string; paths: string[] }
   const out: Array<{ status: string; paths: string[] }> = [];
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
-    if (tok.length < 4) continue;
+    if (!tok || tok.length < 4) continue;
     const status = tok.slice(0, 2);
     const rel = norm(tok.slice(3));
     const paths = [rel];

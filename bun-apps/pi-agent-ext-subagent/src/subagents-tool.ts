@@ -192,7 +192,9 @@ export async function runWithConcurrency<T, R>(
   const workers = Array.from({ length: workerCount }, async () => {
     while (cursor < items.length) {
       const index = cursor++;
-      results[index] = await fn(items[index], index);
+      const item = items[index];
+      if (item === undefined) continue; // invariant: index < items.length (while guard)
+      results[index] = await fn(item, index);
     }
   });
   await Promise.all(workers);
@@ -555,8 +557,11 @@ export function renderSubagentsCall(
   parts.push(theme.fg("muted", `${taskCount} tasks`));
   if (args.concurrency !== undefined) parts.push(theme.fg("muted", `concurrency ${args.concurrency}`));
   if (args.tasks && args.tasks.length > 0) {
-    const first = taskPreview(args.tasks[0].task, 60);
-    parts.push(theme.fg("dim", `"${first}"`));
+    const head = args.tasks[0];
+    if (head) {
+      const first = taskPreview(head.task, 60);
+      parts.push(theme.fg("dim", `"${first}"`));
+    }
   }
   return parts.join(" ▸ ");
 }
@@ -630,6 +635,7 @@ export function renderSubagentsResult(
         lines.push(theme.fg("dim", `  [${i}] ${batchStatusBadge("failed", theme)}  ·  (child failed)`));
         continue;
       }
+      if (!slot) continue; // invariant: i < d.results.length (loop bound)
       const slotStatus = (slot as { status: string }).status;
       // Fixed-width badge (ticket 05, finding 6): pad to the widest badge text so
       // the `model · elapsed · task` columns line up across rows regardless of
