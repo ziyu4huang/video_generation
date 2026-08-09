@@ -14,10 +14,11 @@ public struct HTTPServer: @unchecked Sendable {
         self.router = router
     }
 
-    public func run(port: Int) async throws {
+    public func run(port: Int, onReady: @escaping @Sendable () async -> Void = {}) async throws {
         let app = Application(
             router: router,
-            configuration: .init(address: .hostname("127.0.0.1", port: port))
+            configuration: .init(address: .hostname("127.0.0.1", port: port)),
+            onServerRunning: { _ in await onReady() }
         )
         try await app.runService()
     }

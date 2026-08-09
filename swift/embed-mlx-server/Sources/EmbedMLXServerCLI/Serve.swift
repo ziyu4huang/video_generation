@@ -21,6 +21,12 @@ extension EmbedMLXServerCLI {
         @Option(name: .customLong("max-length"), help: "Max tokens per input before truncation.")
         var maxLength: Int = ServerConfig.defaultMaxLength
 
+        mutating func validate() throws {
+            guard (0...65535).contains(port) else {
+                throw ValidationError("--port must be between 0 and 65535, got \(port).")
+            }
+        }
+
         func run() async throws {
             setbuf(stdout, nil)
             let config = ServerConfig(
@@ -32,8 +38,9 @@ extension EmbedMLXServerCLI {
             let engine = EmbeddingEngine(backend: backend, microBatchSize: config.microBatchSize)
             let server = HTTPServer(engine: engine, modelName: config.modelRepo)
 
-            print("[embed-mlx-server serve] listening on 127.0.0.1:\(config.port)")
-            try await server.run(port: config.port)
+            try await server.run(port: config.port) {
+                print("[embed-mlx-server serve] listening on 127.0.0.1:\(config.port)")
+            }
         }
     }
 }
