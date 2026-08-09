@@ -23,8 +23,8 @@ describe("collectHooks", () => {
         {
           path: "bun-apps/pi-agent-ext-foo/ext.ts",
           hooks: [
-            { event: "turn_end", count: 2 },
-            { event: "before_agent_start", count: 1 },
+            { event: "turn_end", count: 2, fired: 0 },
+            { event: "before_agent_start", count: 1, fired: 0 },
           ],
         },
       ]),
@@ -41,14 +41,14 @@ describe("collectHooks", () => {
     const out = collectHooks(raw);
     expect(out.available).toBe(true);
     expect(out.extensions[0]).toEqual({ path: "p", hooks: [] });
-    expect(out.extensions[1]).toEqual({ path: "(unknown)", hooks: [{ event: "turn_end", count: 1 }] });
+    expect(out.extensions[1]).toEqual({ path: "(unknown)", hooks: [{ event: "turn_end", count: 1, fired: 0 }] });
   });
 });
 
 describe("analyzeHooks", () => {
   test("flags handler on an UNKNOWN event as medium unknown-event-name", () => {
     const findings = analyzeHooks(snap([
-      { path: "ext.ts", hooks: [{ event: "before_agent_starts", count: 1 }] }, // stray 's'
+      { path: "ext.ts", hooks: [{ event: "before_agent_starts", count: 1, fired: 0 }] }, // stray 's'
     ]));
     const f = findings.find((f) => f.check === "unknown-event-name")!;
     expect(f).toBeDefined();
@@ -58,15 +58,15 @@ describe("analyzeHooks", () => {
 
   test("does NOT flag a real event", () => {
     const findings = analyzeHooks(snap([
-      { path: "ext.ts", hooks: [{ event: "turn_end", count: 1 }] },
+      { path: "ext.ts", hooks: [{ event: "turn_end", count: 1, fired: 0 }] },
     ]));
     expect(findings.some((f) => f.check === "unknown-event-name")).toBe(false);
   });
 
   test("emits per-extension inventory (info) + stats (info)", () => {
     const findings = analyzeHooks(snap([
-      { path: "a.ts", hooks: [{ event: "turn_end", count: 2 }, { event: "context", count: 1 }] },
-      { path: "b.ts", hooks: [{ event: "turn_end", count: 1 }] },
+      { path: "a.ts", hooks: [{ event: "turn_end", count: 2, fired: 0 }, { event: "context", count: 1, fired: 0 }] },
+      { path: "b.ts", hooks: [{ event: "turn_end", count: 1, fired: 0 }] },
     ]));
     expect(findings.filter((f) => f.check === "extension-hook-inventory")).toHaveLength(2);
     const stats = findings.find((f) => f.check === "hook-stats")!;
@@ -81,7 +81,7 @@ describe("analyzeHooks", () => {
 
 describe("formatHooksReport", () => {
   const snapshot = snap([
-    { path: "bun-apps/ext-a/a.ts", hooks: [{ event: "turn_end", count: 2 }, { event: "nope", count: 1 }] },
+    { path: "bun-apps/ext-a/a.ts", hooks: [{ event: "turn_end", count: 2, fired: 0 }, { event: "nope", count: 1, fired: 0 }] },
   ]);
   test("text report includes the unknown-event message + inventory line", () => {
     const out = formatHooksReport(snapshot, analyzeHooks(snapshot), false);
@@ -120,7 +120,7 @@ describe("inspect_hooks (tool end-to-end, fake ctx)", () => {
       {},
       undefined,
       undefined,
-      fakeCtx(snap([{ path: "ext.ts", hooks: [{ event: "turn_starts", count: 1 }] }])),
+      fakeCtx(snap([{ path: "ext.ts", hooks: [{ event: "turn_starts", count: 1, fired: 0 }] }])),
     );
     const text = (res.content[0] as { text: string }).text;
     expect(text).toContain('unknown event "turn_starts"');
@@ -133,13 +133,13 @@ describe("inspect_hooks (tool end-to-end, fake ctx)", () => {
       { return_json: true },
       undefined,
       undefined,
-      fakeCtx(snap([{ path: "ext.ts", hooks: [{ event: "turn_end", count: 2 }] }])),
+      fakeCtx(snap([{ path: "ext.ts", hooks: [{ event: "turn_end", count: 2, fired: 0 }] }])),
     );
     const parsed = JSON.parse((res.content[0] as { text: string }).text);
     expect(parsed.summary).toEqual({ total: 0, high: 0, medium: 0, low: 0 });
     expect(parsed.snapshot.extensions[0]).toEqual({
       path: "ext.ts",
-      hooks: [{ event: "turn_end", count: 2 }],
+      hooks: [{ event: "turn_end", count: 2, fired: 0 }],
     });
     expect(Array.isArray(parsed.findings)).toBe(true);
   });

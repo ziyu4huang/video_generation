@@ -18,7 +18,7 @@ describe("applyContextPolyfills", () => {
     expect(typeof ctx.getHooks).toBe("function");
     const snap = (ctx.getHooks as () => unknown)();
     expect(snap).toEqual({
-      extensions: [{ path: "ext.ts", hooks: [{ event: "turn_end", count: 2 }] }],
+      extensions: [{ path: "ext.ts", hooks: [{ event: "turn_end", count: 2, fired: 0 }] }],
       available: true,
     });
   });
