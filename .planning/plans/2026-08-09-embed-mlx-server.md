@@ -1220,6 +1220,10 @@ Expected: builds cleanly.
 
 - [ ] **Step 5: Run the real self-test (downloads BGE-M3 on first run — this is the first real, non-mocked verification of correctness)**
 
+**Prerequisite:** SwiftPM can't compile Metal shaders (needs Xcode) — `swift run`/`swift test` will fail with "Failed to load the default metallib" unless `swift/embed-mlx-server/scripts/setup-metallib.sh` has been run at least once after the most recent `swift build`/`swift build -c release` (same known issue and fix already used by `swift/z-image-director`, `swift/krea2-image-director`, `swift/ltx-video-director`).
+
+Run: `swift/embed-mlx-server/scripts/setup-metallib.sh` (or `setup-metallib.sh release` for a release build), then:
+
 Run: `( cd swift/embed-mlx-server && swift run embed-mlx-server self-test )`
 Expected: `[PASS] english: near=<higher> far=<lower>` and `[PASS] chinese: ...`, exits 0, prints "all cases passed". If either case FAILs, do not proceed to Task 8 — investigate the pooling/masking logic in `MLXEmbeddingBackend` before continuing (this is exactly the kind of quality bug Phase 0 spent a long time chasing).
 
