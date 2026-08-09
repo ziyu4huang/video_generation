@@ -814,7 +814,13 @@ import Foundation
 import Hummingbird
 import NIOCore
 
-public struct HTTPServer: Sendable {
+// `@unchecked Sendable`, not plain `Sendable`: Hummingbird's `Router<Context>`
+// is a non-Sendable class (mutable `trie` used only during route
+// registration in `init`). `router` here is a `let`, set once and never
+// mutated afterward, so this is safe — verified during Task 5's review by
+// reproducing the strict-concurrency compile error with plain `Sendable`
+// and confirming it disappears with this annotation.
+public struct HTTPServer: @unchecked Sendable {
     public let router: Router<BasicRequestContext>
 
     public init(engine: EmbeddingEngine, modelName: String) {
