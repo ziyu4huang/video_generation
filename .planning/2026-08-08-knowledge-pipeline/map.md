@@ -48,7 +48,7 @@ A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pd
 - Staleness: source-dependency graph (deps declared; re-validate on change). -> ticket 10
 - Carry-over (feeds 04): embed = SurrealDB-only (+ lm-studio); SQLite non-embed CRUD only.
   (SUPERSEDED by 04 — see Decisions: embed rides backend-ab; SurrealDB primary, sqlite-vec fallback.)
-- Next grill order: **07** (image-card model + extractor; unblocked — spine [12 + 06a + 06b] shipped). One per session. (05 closed — migrate-at-graduation + 3-tier drift policy → task 13; spine milestone done — see top of map.)
+- Next grill order: **04-BUILD** (DB-native embed index — current session decision; SurrealDB primary + sqlite-vec fallback, per Decision 04). Spine [12 + 06a + 06b] shipped; 07/08/09/10/13 remain unblocked but not picked. One per session. (05 closed — migrate-at-graduation + 3-tier drift policy → task 13; spine milestone done — see top of map.)
 
 ## Not yet specified
 - Image embed strategy (text-embed of merged content vs +CLIP image-vector). -> ticket 07
