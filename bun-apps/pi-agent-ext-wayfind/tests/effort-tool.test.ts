@@ -17,7 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEffort, effortStatus, makeWayfindEffortTool, validateEffort } from "../src/effort-tool.js";
-import { readMap } from "../src/map.js";
+import { readMap, writeTicket } from "../src/map.js";
 import type { EffortMeta } from "../src/model.js";
 import { addTicket, resolveTicket } from "../src/wayfinder.js";
 
@@ -169,6 +169,93 @@ describe("effortStatus", () => {
     expect(r.claimed).toBe(0);
     expect(r.frontier.length).toBe(1); // only #2 on the frontier
     expect(r.frontier[0]?.id).toBe("02");
+    rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
+// ─── effortStatus: budget-bounded low-res ticket inventory (#455) ────────────
+//
+// Failure memory #455: subagents reading whole map.md / ticket files verbatim
+// exhausted token budgets (3×: 100k, 110k, timeout). The `status` action is the
+// agent-callable low-res view (the interactive `/wayfind status` is unavailable
+// to subagents). It MUST surface a per-ticket inventory {id,title,status,blocking}
+// and MUST NOT leak verbatim bodies (Question / What-to-build / Acceptance /
+// Resolution) — that is the whole point of being budget-bounded.
+
+describe("effortStatus — low-res ticket inventory (status action, #455)", () => {
+  const ctx = (cwd: string) => ({ cwd }) as any;
+
+  it("returns a per-ticket inventory {id,title,status,blocking} with NO verbatim bodies", async () => {
+    const cwd = fresh();
+    createEffort(cwd, { effort: "inv", destination: "d" });
+    // Ticket 01 carries rich bodies (Question / What-to-build / Acceptance) with
+    // distinctive canary phrases; resolving it later adds a Resolution body too.
+    writeTicket(cwd, "inv", {
+      id: "01",
+      slug: "pick-storage",
+      title: "Pick storage",
+      question: "SECRETQ1-alpha which store fits?",
+      type: "task",
+      blocking: [],
+      status: "open",
+      whatToBuild: "SECRETW2-bravo the storage layer end to end.",
+      acceptance: ["SECRETA3-charlie round-trips a row"],
+    });
+    writeTicket(cwd, "inv", {
+      id: "02",
+      slug: "wire-ui",
+      title: "Wire UI",
+      question: "how do we surface it?",
+      type: "task",
+      blocking: ["01"],
+      status: "open",
+    });
+    resolveTicket(cwd, "inv", "01", "SECRETR4-delta went with sqlite"); // closes #1, adds resolution body
+
+    const r = effortStatus(cwd, "inv");
+    expect(r.ok).toBe(true);
+    expect(r.exists).toBe(true);
+    expect(r.tickets.length).toBe(2);
+
+    // Per-ticket shape is EXACTLY {id,title,status,blocking} — no body fields.
+    for (const t of r.tickets) {
+      expect(Object.keys(t).sort()).toEqual(["blocking", "id", "status", "title"]);
+    }
+
+    // The inventory carries status + blocking edges (the point of the view).
+    const byId = Object.fromEntries(r.tickets.map((t) => [t.id, t]));
+    expect(byId["01"].status).toBe("closed");
+    expect(byId["01"].blocking).toEqual([]);
+    expect(byId["02"].status).toBe("open");
+    expect(byId["02"].blocking).toEqual(["01"]);
+
+    // NO verbatim body leak — check BOTH structured details and rendered content.
+    const tool = makeWayfindEffortTool();
+    const out = await tool.execute("s3", { action: "status", effort: "inv" }, undefined, undefined, ctx(cwd));
+    const contentText = out.content[0]?.text ?? "";
+    const blob = `${JSON.stringify(r)}\n${contentText}`;
+    for (const canary of ["SECRETQ1-alpha", "SECRETW2-bravo", "SECRETA3-charlie", "SECRETR4-delta", "round-trips a row", "went with sqlite"]) {
+      expect(blob).not.toContain(canary);
+    }
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("returns tickets:[] on an empty effort (map present, no ticket files)", () => {
+    const cwd = fresh();
+    createEffort(cwd, { effort: "empty", destination: "d" });
+    const r = effortStatus(cwd, "empty");
+    expect(r.ok).toBe(true);
+    expect(r.exists).toBe(true);
+    expect(r.tickets).toEqual([]);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("returns ok:false with tickets:[] when the effort is missing (graceful, matches the missing-effort idiom)", () => {
+    const cwd = fresh();
+    const r = effortStatus(cwd, "ghost");
+    expect(r.ok).toBe(false);
+    expect(r.exists).toBe(false);
+    expect(r.tickets).toEqual([]);
     rmSync(cwd, { recursive: true, force: true });
   });
 });

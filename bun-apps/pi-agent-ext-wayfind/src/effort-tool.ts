@@ -21,7 +21,14 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { readMap, writeMap } from "./map.js";
-import { computeFrontier, type EffortMeta, today, validateEffortMap, type WayfindMap } from "./model.js";
+import {
+  computeFrontier,
+  type EffortMeta,
+  type TicketStatus,
+  today,
+  validateEffortMap,
+  type WayfindMap,
+} from "./model.js";
 
 // ─── create ──────────────────────────────────────────────────────────────────
 
@@ -106,6 +113,18 @@ export interface EffortFrontierTicket {
   type: string;
 }
 
+/** Budget-bounded low-res ticket row for the `status` action (#455 hardening).
+ *  Carries ONLY {id,title,status,blocking} — never the verbatim bodies (Question /
+ *  What-to-build / Acceptance / Resolution). Subagents read this inventory instead
+ *  of whole map.md / ticket files so they can't exhaust the token budget. */
+export interface EffortStatusTicket {
+  id: string;
+  title: string;
+  status: TicketStatus;
+  /** Bare ticket-number ids that must close before this one can start. */
+  blocking: string[];
+}
+
 export interface EffortStatusResult {
   ok: boolean;
   effort: string;
@@ -118,6 +137,9 @@ export interface EffortStatusResult {
   claimed: number;
   fog: number;
   frontier: EffortFrontierTicket[];
+  /** Low-res per-ticket inventory (titles + statuses + blocking edges, NO bodies).
+   *  Empty array on a missing effort or an effort with no tickets. */
+  tickets: EffortStatusTicket[];
 }
 
 /** Compact read-only summary: manifest + ticket counts + frontier + fog. */
@@ -135,12 +157,23 @@ export function effortStatus(cwd: string, effort: string): EffortStatusResult {
       claimed: 0,
       fog: 0,
       frontier: [],
+      tickets: [],
     };
   }
   const open = map.tickets.filter((t) => t.status === "open");
   const closed = map.tickets.filter((t) => t.status === "closed").length;
   const claimed = open.filter((t) => t.claimed).length;
   const frontier = computeFrontier(map.tickets).map((t) => ({ id: t.id, title: t.title, type: t.type }));
+  // Budget-bounded low-res inventory (#455): pick ONLY {id,title,status,blocking}
+  // from each parsed ticket — explicitly DISCARD the verbatim body fields
+  // (question / whatToBuild / acceptance / resolution) plus claimed/type/slug, so
+  // the agent gets an inventory without ever reading a whole map/ticket body.
+  const tickets: EffortStatusTicket[] = map.tickets.map((t) => ({
+    id: t.id,
+    title: t.title,
+    status: t.status,
+    blocking: t.blocking,
+  }));
   return {
     ok: true,
     exists: true,
@@ -152,6 +185,7 @@ export function effortStatus(cwd: string, effort: string): EffortStatusResult {
     claimed,
     fog: map.fog.length,
     frontier,
+    tickets,
   };
 }
 
@@ -183,6 +217,16 @@ function renderStatus(r: EffortStatusResult): string {
   } else {
     lines.push("frontier: (clear)");
   }
+  // Budget-bounded ticket inventory: id/title/status/blocking ONLY (no bodies).
+  if (r.tickets.length > 0) {
+    lines.push("tickets:");
+    for (const t of r.tickets) {
+      const blk = t.blocking.length > 0 ? ` blocked-by ${t.blocking.join(",")}` : "";
+      lines.push(`  ${t.id} ${t.title} [${t.status}]${blk}`);
+    }
+  } else {
+    lines.push("tickets: (none)");
+  }
   return lines.join("\n");
 }
 
@@ -196,13 +240,14 @@ export function makeWayfindEffortTool() {
       "Bare agent ops on a wayfinder effort dir (.planning/<effort>/). " +
       "action:'create' scaffolds map.md with a front-matter manifest (refuses if it exists); " +
       "action:'validate' checks conformance (missing Destination, front-matter effort≠folder); " +
-      "action:'status' returns a compact read-only summary (manifest + ticket counts + frontier). " +
+      "action:'status' returns a budget-bounded low-res summary — manifest + ticket counts + frontier + a per-ticket {id,title,status,blocking} inventory with NO verbatim bodies. " +
+      "Prefer action:'status' over reading whole map.md / ticket files for inventory or audit: it returns only titles, statuses, and blocking edges, never decision bodies, so it can't blow the token budget (failure memory #455). " +
       "Use this for the mechanical manifest/structure ops — the reflective charting/synthesis stays with the /wayfind commands.",
     gating: { core: true },
     parameters: Type.Object({
       action: Type.Union([Type.Literal("create"), Type.Literal("validate"), Type.Literal("status")], {
         description:
-          "create = scaffold a new effort + manifest map.md; validate = conformance check; status = read-only summary.",
+          "create = scaffold a new effort + manifest map.md; validate = conformance check; status = budget-bounded low-res inventory (titles + statuses + blocking edges, no verbatim bodies).",
       }),
       effort: Type.String({
         description: "Effort slug — the .planning/<effort>/ folder name (e.g. '2026-08-02-core-task-review').",

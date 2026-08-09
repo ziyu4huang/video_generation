@@ -118,6 +118,14 @@ not backfilled. A stale stub filed without reaching its destination is `paused`
 (there is no separate "abandoned" value). `wayfind_effort status` reports the
 manifest; `validate` checks it.
 
+**Prefer the `wayfind_effort status` tool action for inventory/audit** over
+reading whole `map.md` / ticket files: it returns a budget-bounded low-res view
+(manifest status + counts + a per-ticket `{id,title,status,blocking}` inventory)
+with NO verbatim decision bodies — so it can't exhaust the token budget (failure
+memory #455). Subagents have no `/wayfind` slash commands, so `status` is their
+only bounded view; reach for it first, then read only the specific ticket you'll
+act on.
+
 ## Invocation
 
 Two modes. Either way, **never resolve more than one ticket per session** — with the exception of research tickets.
@@ -144,6 +152,10 @@ User invokes with a map (path) or an effort slug. A ticket is **optional** — w
 4. Resolve it — **zoom as needed**: read the full body of any related or closed ticket on demand; invoke the skills the `## Notes` block names. If in doubt, use `grilling` and `domain-modeling`. For **Task** tickets, call `goal_complete` when the deliverable is met — the goal gate validates plan completion before the ticket can close.
 5. Record the resolution: append the answer as a **resolution** to the ticket, mark it **closed**, and **append a pointer** to the map's Decisions-so-far. The goal auto-closes with `goal_complete`; no separate cleanup needed.
 6. Add newly-surfaced tickets (create-then-wire); graduate any fog the answer has made specifiable, clearing each graduated patch from **Not yet specified** so it lives only as its new ticket. If the answer reveals a ticket — this one or another — sits beyond the destination, **rule it out of scope** rather than resolving it on the route. If the decision invalidates other parts of the map, update or delete those tickets.
+
+### Re-applying a fix? Investigate why the last one didn't stick first
+
+When a ticket's resolution is re-applying a fix that an earlier session (or you) already applied but is no longer present, **don't just re-apply it** — root-cause it first, or it vanishes again. Before re-patching: check `git log -p -- <path>` for whether it was reverted (and why); confirm the prior fix had a test (no test = nothing guards the same reversion); verify you're patching the layer the fix belongs in (a fix on a generated/vendored layer that gets overwritten is a no-op); and make sure you're on the worktree/branch you think you are (a stale worktree turns a "live" fix into a phantom). Cite the memory, commit, or diff as evidence — failure memories **#276/#279**: the agent re-applied a patch without investigating why the prior one was unapplied. If you can't answer *why it didn't stick*, the re-patch is premature — add a ticket for the root cause instead.
 
 **When the map is complete** — the frontier is clear and the destination is reached — run `/wayfind done [effort]` (the command refuses if open tickets remain). It harvests the map's **Not yet specified** as deferred prizes and writes `output/next-goal-<YYYYMMDD_HHMMSS>.md` with the structured parts pre-filled (you fill only the reflective parts — false premises / footguns — that you alone know), then runs `scripts/tidy-next-goals.sh` (keeps the last 10). The command also stamps `status: complete` on the manifest and files the effort into `.planning/done/` (the canonical close — see [Lifecycle status](#lifecycle-status)). If the command is unavailable, do the same by hand: surface false premises / footguns / deferred prizes, pick the next concrete non-gated non-conflicting goal. This closing ceremony is the structural home of the convention — not a memory to recall.
 

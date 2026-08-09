@@ -175,10 +175,26 @@ export function parseTicketFile(content: string, id: string, slug: string): Tick
         .replace(/^\[|\]$/g, "");
       if (key === "type") type = (val as TicketType) || type;
       else if (key === "blocking" || key === "blocked_by" || key === "blocked by") {
+        // Failure memory #471: validate each edge is a bare ticket number. The
+        // parser used to silently coerce ANY value into blocking[] (a bracketed
+        // slug like `blocking: ["01-foo"]` or a bare `blocking: abc` parsed to
+        // `["01-foo"]` / `["abc"]`), quietly breaking the dependency graph —
+        // computeFrontier never matches a closed id, so the edge just vanished.
+        // Now strip per-entry quotes (so the bracketed form `blocking: ["01", "02"]`
+        // is accepted alongside the bare form) and THROW on any non-numeric entry
+        // — surfaced, never silent.
         blocking = val
           .split(/[,\s]+/)
-          .map((s) => s.trim())
+          .map((s) => s.trim().replace(/^["']|["']$/g, ""))
           .filter(Boolean);
+        for (const b of blocking) {
+          if (!/^\d+$/.test(b)) {
+            throw new Error(
+              `ticket ${id}: invalid 'blocking' entry "${b}" — must be a bare ticket number ` +
+                `(digits only), e.g. \`blocking: 01, 02\`.`,
+            );
+          }
+        }
       } else if (key === "claimed") claimed = val || undefined;
       else if (key === "status") status = val === "closed" ? "closed" : "open";
     }

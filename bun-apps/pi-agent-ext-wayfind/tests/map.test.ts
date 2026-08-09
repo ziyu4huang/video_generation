@@ -227,6 +227,46 @@ describe("parseTicketFile: unified body schema (to-tickets fields folded in)", (
   });
 });
 
+// Failure memory #471 — `blocked by:` / `blocking:` format validation.
+//
+// The parser used to silently coerce ANY value into a `blocking[]` (stripping
+// outer brackets, splitting on commas/spaces) — so a bracketed slug like
+// `blocking: ["01-foo"]` or a bare `blocking: abc` parsed to `blocking: ["01-foo"]`
+// / `["abc"]` and the malformed edge quietly vanished (computeFrontier never
+// matches a closed id, so the dependency graph was silently broken). These
+// tests pin the hardened behaviour: bare numbers (the good format, including
+// the bracketed+quoted `blocking: ["01", "02"]` form) parse cleanly, while a
+// non-numeric entry is surfaced as a thrown parse error — never silent.
+describe("parseTicketFile: blocking format validation (failure memory #471)", () => {
+  const ticket = (blockingLine: string): string =>
+    ["---", "type: task", blockingLine, "status: open", "---", "", "# T", "", "## Question", "", "q?"].join("\n");
+
+  it("accepts the bare-number form (blocking: 01, 02)", () => {
+    const t = parseTicketFile(ticket("blocking: 01, 02"), "03", "t");
+    expect(t.blocking).toEqual(["01", "02"]);
+    expect(t.status).toBe("open");
+  });
+
+  it("accepts the bracketed+quoted bare-number form (blocking: [\"01\", \"02\"])", () => {
+    const t = parseTicketFile(ticket('blocking: ["01", "02"]'), "03", "t");
+    expect(t.blocking).toEqual(["01", "02"]);
+    // quotes must be stripped, or the edge silently never matches a closed id
+  });
+
+  it("rejects a bracketed slug entry (blocking: [\"01-foo\"]) — surfaced, not silent", () => {
+    expect(() => parseTicketFile(ticket('blocking: ["01-foo"]'), "03", "t")).toThrow(/blocking/i);
+  });
+
+  it("rejects a bare non-numeric value (blocking: abc) — surfaced, not silent", () => {
+    expect(() => parseTicketFile(ticket("blocking: abc"), "03", "t")).toThrow(/blocking/i);
+  });
+
+  it("accepts the `blocked by:` / `blocked_by:` alias keys too", () => {
+    expect(parseTicketFile(ticket("blocked_by: 01"), "03", "t").blocking).toEqual(["01"]);
+    expect(parseTicketFile(ticket("blocked by: 01"), "03", "t").blocking).toEqual(["01"]);
+  });
+});
+
 describe("computeFrontier", () => {
   const mk = (id: string, opts: Partial<Pick<Ticket, "blocking" | "status" | "claimed">> = {}): Ticket => ({
     id,
