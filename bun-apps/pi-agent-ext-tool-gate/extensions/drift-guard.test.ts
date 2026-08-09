@@ -423,23 +423,13 @@ describe("drift-guard — pilot tools declare valid gating", () => {
 		}
 	});
 
-	test("core-task: goal_complete is core; ask_user_question / todo are keyword-gated", () => {
+	test("core-task: ask_user_question / todo / goal_complete carry gating:{core:true}", () => {
 		const defs = captureRegisteredTools(entry("core-task").register);
 		const names = defs.map((d) => d.name).sort();
 		expect(names).toEqual(["ask_user_question", "goal_complete", "todo"].sort());
 		assertAllValid(defs);
-		// goal_complete stays owner-declared core (always-on; 99 tok — negligible).
-		const goal = defs.find((d) => d.name === "goal_complete");
-		expect(goal?.gating?.core, "'goal_complete' is owner-declared core").toBe(true);
-		// #5: ask_user_question + todo moved OUT of core to keyword gates (slim the
-		// always-on per-turn + child-compounding footprint; recovered via
-		// enable_tool on a miss). Assert each carries a non-empty keyword gate and
-		// is NOT core.
-		for (const name of ["ask_user_question", "todo"]) {
-			const d = defs.find((x) => x.name === name)!;
-			expect(d.gating?.core, `'${name}' is no longer core (keyword-gated)`).not.toBe(true);
-			expect(d.gating?.keywords?.length, `'${name}' carries a non-empty keyword gate`).toBeGreaterThan(0);
-		}
+		// core tools: core === true (exempt from dead-gate; legitimately keyword-less)
+		for (const d of defs) expect(d.gating?.core, `'${d.name}' is owner-declared core`).toBe(true);
 	});
 
 	test("tool-gate: enable_tool carries gating:{core:true}", () => {

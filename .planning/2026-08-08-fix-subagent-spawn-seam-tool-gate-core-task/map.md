@@ -1,6 +1,6 @@
 # fix-subagent-spawn-seam — tool-gate × core-task × subagent cooperation
 
-**Status:** IN PROGRESS — discovery complete (2026-08-08). Optimization #1 (active-set threading) CLOSED (shipped #1127, commit aee00a44); #2 (tool-gate seeding) CLOSED (this PR). #3 (state isolation = open ticket #16), #4 and #6 deferred; #5 in progress (branch fix/core-task-gate-ask-user-todo).
+**Status:** IN PROGRESS — discovery complete (2026-08-08). Optimization #1 (active-set threading) CLOSED (shipped #1127, commit aee00a44); #2 (tool-gate seeding) CLOSED (this PR). #3 (state isolation = open ticket #16) and #4–#6 deferred.
 
 **Supersedes / relates:** Shares-decision-with `2026-07-26-explorer-other-pi-agent-ext-` (fire-and-forget vs supervised runner ruling) and `2026-08-02-improve-extension-co-operation-` (owner-declared gating; no cross-extension deps). Relates-to core-task ticket #16 (state isolation) and the `2026-08-02-core-task-review` backlog.
 
@@ -50,7 +50,7 @@ The child has isolated conversation + model, but its tool universe is the parent
 | **2** | **Seed the child's tool-gate** — idempotent `ensureSeeded()` in `before_agent_start` that seeds `sticky` from `effectiveCore` (and builds `measuredTokens` once) when `sticky` is empty. | Med (correctness + per-turn cost) | Safe, independent | CLOSED (this PR) |
 | **3** | **Isolate core-task/accumulator state by sessionId** — key the module singletons (`Map<sessionId, State>`) so children don't share the parent's todos/goal/pathology. | Med-High (correctness) | Med (touches 4 singletons) | DEFERRED (ticket #16) |
 | 4 | Skip re-loading disk extensions in the child when `customTools` already bridges them. | Low-Med (startup CPU) | Med | DEFERRED |
-| 5 | Slim core-task's always-on footprint — audit whether `ask_user_question` (large modal schema) must be `core:true` vs lightly gated. | Med | Low | IN PROGRESS (this branch) |
+| 5 | Slim core-task's always-on footprint — audit whether `ask_user_question` (large modal schema) must be `core:true` vs lightly gated. | Med | Low | DEFERRED |
 | 6 | Dedupe per-turn gate rebuild in children. | Low | — | Subsumed by #2 |
 
 ## KEY CONSTRAINT (do not violate)

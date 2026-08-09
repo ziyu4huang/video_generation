@@ -119,18 +119,6 @@ export const MUST_FIRE: Probe[] = [
 	{ gate: "devops_retrospect", prompt: "do a post-run retrospect of the run", note: "keyword retrospect / post-run" },
 	{ gate: "prepare_branch", prompt: "prepare the feature branch off main", note: "keyword prepare / branch" },
 	{ gate: "verify_merge", prompt: "verify the merge scope is clean not contaminated", note: "keyword verify / merge / scope / contaminated" },
-	// core-task — ask_user_question + todo are keyword-gated core-task tools
-	// (gating:{ keywords: [...] }, NOT core:true → they're regular gates in
-	// CORPUS_GATES, each with a distinct keyword signature → its own coverage
-	// group). Prompts MUST fire a real keyword — if one doesn't, the keyword set
-	// (not the probe) is the bug. Three must-fire per gate validate the set
-	// breadth (different keywords per prompt), mirroring the flux2/ltx pattern.
-	{ gate: "ask_user_question", prompt: "ask the user a clarifying question about the requirements", note: "keyword ask / clarifying / question" },
-	{ gate: "ask_user_question", prompt: "which option do you prefer to pursue", note: "keyword option" },
-	{ gate: "ask_user_question", prompt: "clarify the ambiguous step before proceeding", note: "keyword clarify / ambiguous" },
-	{ gate: "todo", prompt: "track these steps in a todo list", note: "keyword track / steps / todo" },
-	{ gate: "todo", prompt: "add a task to the checklist and update its status", note: "keyword task / checklist / status" },
-	{ gate: "todo", prompt: "mark the task as done in the plan", note: "keyword task / done / plan" },
 ];
 
 // ── MUST_NOT_FIRE (lookalikes the gate CORRECTLY rejects) ────────────────────
@@ -178,15 +166,6 @@ export const MUST_NOT_FIRE: Probe[] = [
 	{ gate: "devops_retrospect", prompt: "summarize what changed in this session", note: "no retrospect/review/anomaly keyword" },
 	{ gate: "prepare_branch", prompt: "commit the staged changes", note: "no prepare/rebase/branch keyword" },
 	{ gate: "verify_merge", prompt: "show the files changed by the last commit", note: "no verify/merge/scope keyword" },
-	// core-task — ask_user_question + todo lookalikes the gate CORRECTLY
-	// rejects (no keyword present). Required to close the coverage gap: the qa
-	// coverage check needs ≥1 must-not-fire per group too (a group counts as
-	// covered iff it has BOTH a must-fire AND a must-not-fire). Word-boundary
-	// matching matters — "inquire"/"tell" ≠ "ask", "outline"/"schedule" ≠ "plan".
-	{ gate: "ask_user_question", prompt: "tell the user the build finished", note: "addresses the user but no ask/question/clarify/option keyword" },
-	{ gate: "ask_user_question", prompt: "summarize the thread for stakeholders", note: "no ask/question/clarify/decision keyword" },
-	{ gate: "todo", prompt: "write the changelog for the release", note: "work domain but no todo/task/step/plan/status keyword" },
-	{ gate: "todo", prompt: "outline the agenda for the standup", note: "planning domain but no todo/task/track/step keyword" },
 ];
 
 // ── ESCAPE_NAME — every gate reachable by enable_tool({ name }) ──────────────
