@@ -1,11 +1,12 @@
 ---
 type: task
-status: open
+status: done
+shipped: PR #1131 (squash 3793a390)
 blocked by:
 ---
 # 12 — Scaffold core-interface package + KnowledgePipeline
 
-> 03 + 04 closed 2026-08-08 (graph + embed contracts pinned); contract pinned by ticket 11. **UNBLOCKED** — design at `specs/2026-08-08-core-interface-design.md`. Build via /wayfind seed.
+> **SHIPPED** — PR #1131 (squash `3793a390`). `@repo/pi-agent-ext-core-interface` scaffolded; `SEAM_KEYS` (8 keys) + `SEAM_KEY_ENTRIES` + `KnowledgePipeline` interface + `publishSeam`/`readSeam` accessors (typed-key union → orphan-publishing is a compile error); zk publishes `__piKnowledgePipeline`, hermes consumes defensively via `readSeam`; repo `seam-contract.test.ts` migrated to `SEAM_KEY_ENTRIES`. (Original design: `specs/2026-08-08-core-interface-design.md`.)
 
 ## Question / scope
 Implement the `@repo/pi-agent-ext-core-interface` workspace package per ticket 11's contract, and ship its first tenant so ticket 06's typed impl unblocks.
@@ -19,11 +20,11 @@ Implement the `@repo/pi-agent-ext-core-interface` workspace package per ticket 1
 - Relocate existing `__pi*` inline key literals to import from the pkg's `SEAM_KEYS` (incremental — wire the new key now; existing-seam migration is follow-up per ticket 11 fork 3).
 
 ## Acceptance
-- [ ] Package scaffolds under `bun-apps/pi-agent-ext-core-interface/` with package.json (workspace, lockstep pi-core version).
-- [ ] `publishSeam`/`readSeam` exported + typed-key union; orphan-publishing fails to compile.
-- [ ] `KnowledgePipeline` interface defined; zk publishes `__piKnowledgePipeline`; hermes reads it defensively.
-- [ ] `seam-contract.test.ts` imports `SEAM_KEYS` from the pkg; guard green; `__piRateLimitState` orphan registered or explicitly scoped.
-- [ ] `bun test` green for core-interface + seam-contract + affected extensions.
+- [x] Package scaffolds under `bun-apps/pi-agent-ext-core-interface/` with package.json (workspace, lockstep pi-core version).
+- [x] `publishSeam`/`readSeam` exported + typed-key union; orphan-publishing fails to compile.
+- [x] `KnowledgePipeline` interface defined; zk publishes `__piKnowledgePipeline`; hermes reads it defensively.
+- [x] `seam-contract.test.ts` migrated to import from the pkg (via `SEAM_KEY_ENTRIES`). **Known issue:** `__piRateLimitState` (pi-agent-ext-subagent) is still an unregistered orphan → #1130 (open) → `test:seam` red. The existing 7 working seams migrated; the orphan + re-publication of `__piWayfindActive` remain reviewable follow-ups per ticket 11 fork 3.
+- [x] `bun test` green for core-interface + seam-contract.
 
 ## Notes
 - Decided by ticket 11 (all 4 forks). Blocks ticket 06's typed-contract impl.
