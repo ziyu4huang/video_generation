@@ -80,3 +80,5 @@ CSO skill rules + pure helpers (grill priming, plan-seed, glossary parse, map fr
 ## Source & license
 
 Adapted from Matt Pocock's [skills](https://github.com/mattpocock/skills) (MIT). Pi-native port by the video_generation monorepo. MIT.
+
+**Ported skills** — batch 1 (PR #1138): `prototype`, `resolving-merge-conflicts`, `to-questionnaire`, `wizard`, `handoff`. Batch 2 (2026-08-09): `diagnosing-bugs`, `research`, `wait-what` — ported from mattpocock/skills @ `84fdeff` with pi adaptations (Use-when frontmatter, `.planning/<effort>/` convention, superpowers routing).
