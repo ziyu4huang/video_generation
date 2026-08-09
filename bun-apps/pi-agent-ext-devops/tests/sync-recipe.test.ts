@@ -32,12 +32,14 @@ const OTHER = "/repo-main-wt";
 /** A 40-hex SHA repeated for the canned revParse/submodule-status fixtures. */
 const sha = (c: string) => c.repeat(40);
 
-/** Minimal SyncClient fake. `clean`/`revs`/`aheadBehind` default to safe values. */
+/** Minimal SyncClient fake. `dirty`/`revs`/`aheadBehind` default to safe values.
+ *  `dirty` is per-target: a map of worktree dir → list of dirty tracked paths
+ *  (repo-relative); omitted ⇒ [] (clean). */
 function fakeClient(s: {
 	defaultBranch?: string;
 	current?: string;
 	worktrees?: { worktree: string; branch?: string; detached?: boolean }[];
-	clean?: Record<string, boolean>;
+	dirty?: Record<string, string[]>;
 	revs?: Record<string, string>;
 	aheadBehind?: Record<string, { ahead: number; behind: number }>;
 }): SyncClient {
@@ -45,7 +47,7 @@ function fakeClient(s: {
 		defaultBranch: async () => s.defaultBranch,
 		currentBranch: async () => s.current ?? "",
 		worktreeList: async () => s.worktrees ?? [],
-		isClean: async (dir: string) => s.clean?.[dir] ?? true,
+		dirtyPaths: async (dir: string) => s.dirty?.[dir] ?? [],
 		revParse: async (rev: string) => s.revs?.[rev],
 		aheadBehind: async (base: string, head: string) => s.aheadBehind?.[`${base}..${head}`] ?? { ahead: 0, behind: 0 },
 	};
@@ -146,7 +148,7 @@ describe("runSync — full mode DEFAULT (default branch lives in ANOTHER worktre
 				{ worktree: REPO, branch: "feat/x" },
 				{ worktree: OTHER, branch: "main" },
 			],
-			clean: { [OTHER]: false }, // the worktree holding <D> is dirty
+			dirty: { [OTHER]: ["src/foo.ts"] }, // the worktree holding <D> is dirty (a REAL, non-preserve path)
 			revs: { "origin/main": sha("c"), main: sha("a") },
 		});
 		const { fn, calls } = fakeSpawn();
@@ -319,14 +321,14 @@ describe("runSync — dryRun", () => {
 			defaultBranch: "main",
 			current: "main",
 			worktrees: [{ worktree: REPO, branch: "main" }],
-			clean: { [REPO]: false },
+			dirty: { [REPO]: ["src/foo.ts"] }, // a REAL (non-preserve) dirty path
 			revs: { "origin/main": sha("b"), main: sha("a") },
 		});
 		const { fn, calls } = fakeSpawn();
 		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", dryRun: true });
 
 		expect(out.aborted).toBeUndefined(); // dry-run never aborts
-		expect(out.warnings.some((w) => /uncommitted tracked changes/.test(w))).toBe(true);
+		expect(out.warnings.some((w) => /uncommitted tracked change/.test(w))).toBe(true);
 		expect(out.commands.some((c) => c.includes("merge --ff-only"))).toBe(true); // plan still shown
 		expect(out.commands.some((c) => c.includes("reset --hard"))).toBe(false);
 		expect(calls.length).toBe(0);
@@ -339,7 +341,7 @@ describe("runSync — pre-flight abort (dirty tree)", () => {
 			defaultBranch: "main",
 			current: "main",
 			worktrees: [{ worktree: REPO, branch: "main" }],
-			clean: { [REPO]: false },
+			dirty: { [REPO]: ["src/foo.ts"] }, // a REAL (non-preserve) dirty path → still aborts
 			revs: { "origin/main": sha("b"), main: sha("a") },
 		});
 		const { fn, calls } = fakeSpawn();
@@ -427,5 +429,202 @@ describe("runSync — pre-flight warnings (unpushed commits)", () => {
 		expect(out.warnings.some((w) => /feat\/x is 2 commit\(s\) ahead/.test(w))).toBe(true);
 		expect(out.warnings.some((w) => /default branch 'main' is 1 commit\(s\) ahead/.test(w))).toBe(true);
 		expect(out.aborted).toBeUndefined();
+	});
+});
+
+// --- preserve hot files (zk-spawn): auto-managed files stashed+restored ----
+// The default sync must SUCCEED when the only uncommitted changes are
+// preserve-listed "hot files" (hermes .agents/memory/MEMORY.md), stashing them
+// before the advance and restoring after — without weakening the dirty_tree
+// safety gate for genuinely uncommitted work.
+describe("runSync — preserve hot files (stash before, restore after)", () => {
+	const STASH_PUSH = `git -C "${OTHER}" stash push -m sync_repo preserve -- .agents/memory/MEMORY.md`;
+	const STASH_POP = `git -C "${OTHER}" stash pop`;
+
+	test("(a) preservable-only dirty (MEMORY.md) in the OTHER worktree → stash + advance + pop, NOT aborted", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "feat/x",
+			worktrees: [
+				{ worktree: REPO, branch: "feat/x" },
+				{ worktree: OTHER, branch: "main" },
+			],
+			dirty: { [OTHER]: [".agents/memory/MEMORY.md"] }, // only the default preserve file is dirty
+			revs: { "origin/main": sha("c"), main: sha("a") },
+		});
+		const { fn, calls } = fakeSpawn([
+			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS },
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.advanced).toEqual([{ worktree: OTHER, branch: "main", from: sha("a"), to: sha("c") }]);
+		// the full park→advance→restore command sequence, targeting the OTHER worktree.
+		expect(out.commands).toContain(STASH_PUSH);
+		expect(out.commands).toContain(`git -C "${OTHER}" merge --ff-only origin/main`);
+		expect(out.commands).toContain(STASH_POP);
+		expect(out.preserved).toEqual({ paths: [".agents/memory/MEMORY.md"], restored: true });
+		// submodule sync still runs after the advance.
+		expect(out.commands.some((c) => c.includes("submodule update"))).toBe(true);
+		// stash push + pop were actually spawned (non-dry), on the OTHER worktree.
+		expect(calls.some((c) => c.args.includes(OTHER) && c.args.includes("stash") && c.args.includes("push"))).toBe(true);
+		expect(calls.some((c) => c.args.includes(OTHER) && c.args.includes("stash") && c.args.includes("pop"))).toBe(true);
+	});
+
+	test("(b) dirty with BOTH MEMORY.md AND src/foo.ts (real present) → abort dirty_tree, no stash push", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "feat/x",
+			worktrees: [
+				{ worktree: REPO, branch: "feat/x" },
+				{ worktree: OTHER, branch: "main" },
+			],
+			dirty: { [OTHER]: [".agents/memory/MEMORY.md", "src/foo.ts"] },
+			revs: { "origin/main": sha("c"), main: sha("a") },
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.aborted?.reason).toBe("dirty_tree");
+		expect(out.aborted?.message).toMatch(/outside the preserve list/);
+		expect(out.advanced).toEqual([]);
+		// genuine uncommitted work → no stash, no merge, no spawn.
+		expect(out.commands.some((c) => c.includes("stash"))).toBe(false);
+		expect(out.commands.some((c) => c.includes("merge"))).toBe(false);
+		expect(calls.length).toBe(0);
+	});
+
+	test("(c1) preserve: ['build/'] dirty build/out.json → advances (preserved)", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			dirty: { [REPO]: ["build/out.json"] }, // dir-prefix preserve match
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		const { fn } = fakeSpawn([
+			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS },
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", preserve: ["build/"] });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.preserved).toEqual({ paths: ["build/out.json"], restored: true });
+		expect(out.commands).toContain(`git -C "${REPO}" stash push -m sync_repo preserve -- build/out.json`);
+		expect(out.commands).toContain(`git -C "${REPO}" stash pop`);
+	});
+
+	test("(c2) preserve: ['build/'] dirty README.md → abort dirty_tree (not preserved)", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			dirty: { [REPO]: ["README.md"] }, // outside the build/ preserve prefix
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		const { fn } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", preserve: ["build/"] });
+
+		expect(out.aborted?.reason).toBe("dirty_tree");
+		expect(out.commands.some((c) => c.includes("stash"))).toBe(false);
+	});
+
+	test("(d) preserve: [] (disable) → MEMORY.md is now REAL → abort dirty_tree", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			dirty: { [REPO]: [".agents/memory/MEMORY.md"] },
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		const { fn } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", preserve: [] });
+
+		expect(out.aborted?.reason).toBe("dirty_tree");
+		expect(out.commands.some((c) => c.includes("stash"))).toBe(false);
+	});
+
+	test("(e) stash pop conflict → restored:false + warn, stash KEPT (no drop)", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			dirty: { [REPO]: [".agents/memory/MEMORY.md"] },
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		const { fn } = fakeSpawn([
+			{ match: (a) => realArgs(a).join(" ").startsWith("stash pop"), result: { stdout: "", stderr: "CONFLICT (content): Merge conflict in .agents/memory/MEMORY.md", exitCode: 1 } },
+			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS },
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.aborted).toBeUndefined(); // the advance itself succeeded
+		expect(out.preserved?.restored).toBe(false);
+		expect(out.preserved?.conflict).toMatch(/CONFLICT/);
+		expect(out.warnings.some((w) => /stash pop conflicted/.test(w))).toBe(true);
+		// we KEEP the stash on conflict (never drop it).
+		expect(out.commands.some((c) => c.includes("stash drop"))).toBe(false);
+	});
+
+	test("(f) stash push failure → abort preserve_failed, no merge/reset", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			dirty: { [REPO]: [".agents/memory/MEMORY.md"] },
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		const { fn } = fakeSpawn([
+			{ match: (a) => realArgs(a).join(" ").startsWith("stash push"), result: { stdout: "", stderr: "fatal: bad revision", exitCode: 128 } },
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.aborted?.reason).toBe("preserve_failed");
+		expect(out.aborted?.message).toMatch(/stash push of preserve paths failed/);
+		// push failed BEFORE the advance → no merge, no reset, no pop.
+		expect(out.commands.some((c) => c.includes("merge"))).toBe(false);
+		expect(out.commands.some((c) => c.includes("reset"))).toBe(false);
+		expect(out.commands.some((c) => c.includes("stash pop"))).toBe(false);
+		expect(out.advanced).toEqual([]);
+	});
+
+	test("(g) rebase mode with preservable dirty → stash + rebase + pop", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "feat/y",
+			worktrees: [{ worktree: REPO, branch: "feat/y" }],
+			dirty: { [REPO]: [".agents/memory/MEMORY.md"] },
+			revs: { "origin/main": sha("r"), HEAD: sha("h") },
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "rebase" });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.commands).toContain(`git -C "${REPO}" stash push -m sync_repo preserve -- .agents/memory/MEMORY.md`);
+		expect(out.commands).toContain(`git -C "${REPO}" rebase origin/main`);
+		expect(out.commands).toContain(`git -C "${REPO}" stash pop`);
+		expect(out.preserved).toEqual({ paths: [".agents/memory/MEMORY.md"], restored: true });
+		expect(calls.some((c) => c.args.includes("rebase"))).toBe(true);
+	});
+
+	test("(h) dryRun preservable-only dirty → plan shows stash/merge/pop, no abort, zero spawns", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			dirty: { [REPO]: [".agents/memory/MEMORY.md"] },
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", dryRun: true });
+
+		expect(out.aborted).toBeUndefined();
+		// the planned park→advance→restore sequence is recorded (but not spawned).
+		expect(out.commands).toContain(`git -C "${REPO}" stash push -m sync_repo preserve -- .agents/memory/MEMORY.md`);
+		expect(out.commands).toContain(`git -C "${REPO}" merge --ff-only origin/main`);
+		expect(out.commands).toContain(`git -C "${REPO}" stash pop`);
+		// warnings mention the preserve split; preserved is unset under dryRun.
+		expect(out.warnings.some((w) => /preserve-listed/.test(w))).toBe(true);
+		expect(out.preserved).toBeUndefined();
+		expect(calls.length).toBe(0); // zero mutating spawns
 	});
 });
