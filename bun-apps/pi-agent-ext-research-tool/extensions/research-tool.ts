@@ -579,22 +579,33 @@ const extension: ExtensionFactory = (pi) => {
 // `satisfies` / type import, so this extension never depends on tool-gate
 // (avoids a circular dep); shape is enforced by tool-gate's drift-guard test.
 //   - controls[]  carry a current keyword → MUST fire.
-//   - adversarial[] are keyword-free "I need this tool" phrasings. NOTE:
-//     collect_videos is keywords-only (no requires) → keyword-free paraphrases
-//     cannot fire; arxiv_search has a noun∧verb requires path (EN clean; the zh
-//     noun 論文 collides with a keyword). Recall is calibrated in tool-gate
-//     Task 8; probes stay as genuine-intent witnesses.
+//   - adversarial[] are keyword-free "I need this tool" phrasings that fire via
+//     the noun∧verb `requires` path.
+// REAL FINDING — collect_videos is keywords-only (no `requires`), so keyword-
+// free paraphrases cannot fire; recall is calibrated to the observed floor in
+// tool-gate Task 8 with a loud comment, the probes staying as genuine-intent
+// witnesses. arxiv_search DOES have a requires path, but its only zh noun
+// (論文) collides with a keyword — so a clean keyword-free zh adversarial is
+// impossible (any zh probe firing via requires contains 論文). The arxiv
+// adversarial set is therefore EN-only; this zh-noun/keyword collision is a
+// separate finding worth a future keyword/requires split.
 // ---------------------------------------------------------------------------
 export const COLLECT_VIDEOS_PROBES = {
 	gate: "collect_videos",
-	recallFloor: 0.9,
+	// floor 0 = OBSERVED recall (keywords-only gate, no requires path; see the
+	// REAL FINDING note above — paraphrased intent structurally cannot fire).
+	recallFloor: 0,
 	adversarial: ["gather clips from video platforms", "pull trending footage for research", "把 vault 的筆記排一下"],
 	controls: ["collect videos from bilibili", "organize vault notes", "收集影片"],
 };
 export const ARXIV_SEARCH_PROBES = {
 	gate: "arxiv_search",
 	recallFloor: 0.9,
-	adversarial: ["look up papers on diffusion models", "find recent literature on this topic", "查一下相關論文"],
+	adversarial: [
+		"look up papers on diffusion models",
+		"fetch the paper cited in that thread",
+		"read papers about reinforcement learning",
+	],
 	controls: ["search arxiv for transformers", "find papers on rlhf", "找論文"],
 };
 

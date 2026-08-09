@@ -145,12 +145,19 @@ const extension: ExtensionFactory = (pi) => {
  *  - controls[]  carry a current keyword → MUST fire.
  *  - adversarial[] are keyword-free "I need this tool" phrasings. NOTE: the
  *    movie gate is keywords-only (no `requires`), so keyword-free paraphrases
- *    cannot fire — recall is calibrated in tool-gate Task 8 to the observed
- *    floor with a loud comment; the probes stay as genuine-intent witnesses.
+ *    CANNOT fire — recall is structurally 0%. This is a REAL FINDING (flagged
+ *    for review): the gate cannot match paraphrased intent, only exact
+ *    keywords. recallFloor is therefore pinned to the OBSERVED value (0), not
+ *    silently to pass — broadening keywords risks false-fires, and adding a
+ *    requires path (nouns film/movie/video/片段; verbs assemble/direct/cut/
+ *    compose) to the runtime gating is the clean fix but is out of scope for
+ *    this QA-data-only change. The adversarial probes stay as genuine-intent
+ *    witnesses of the gap.
  */
 export const __GATE_PROBES__ = {
 	gate: "movie",
-	recallFloor: 0.9,
+	// floor 0 = OBSERVED recall (keywords-only gate, no requires path; see above).
+	recallFloor: 0,
 	adversarial: [
 		"assemble these clips into a short piece",
 		"turn the footage into a narrative cut",

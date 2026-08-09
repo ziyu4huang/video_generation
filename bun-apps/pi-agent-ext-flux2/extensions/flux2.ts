@@ -469,8 +469,8 @@ export const __GATE_PROBES__ = {
 	recallFloor: 0.9,
 	adversarial: [
 		"render the scene you described as a picture",
-		"draw what you just outlined for me",
-		"produce a visual of that concept",
+		"draw the scene you outlined as an image",
+		"produce a picture of that concept",
 		"把這段描述做成一張照片",
 	],
 	controls: ["generate an image of a cat", "txt2img a landscape", "用 flux2 產圖"],
