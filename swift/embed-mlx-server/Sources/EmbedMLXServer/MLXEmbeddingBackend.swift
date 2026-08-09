@@ -1,0 +1,79 @@
+import MLX
+import MLXEmbedders
+import Tokenizers
+
+/// Wraps `mlx-swift-lm`'s `MLXEmbedders.ModelContainer` as an `EmbeddingBackend`.
+///
+/// Padding is computed independently per call to `embedMicroBatch` (never
+/// across the caller's full input list) — `EmbeddingEngine` is what bounds
+/// the size of each call. `maxLength` truncates before padding so a single
+/// abnormally long input in a batch can't blow up every other item's
+/// padded length within that same micro-batch.
+public final class MLXEmbeddingBackend: EmbeddingBackend {
+    private let container: ModelContainer
+    private let maxLength: Int
+
+    private init(container: ModelContainer, maxLength: Int) {
+        self.container = container
+        self.maxLength = maxLength
+    }
+
+    /// Loads the model once. This is the only place model loading happens —
+    /// call it exactly once at process startup, before serving any requests.
+    ///
+    /// Takes a plain repo id rather than an MLX `ModelConfiguration` so callers
+    /// (and `ServerConfig`) never have to import MLXEmbedders — this file stays
+    /// the only MLX-aware one in the package.
+    public static func load(repo: String, maxLength: Int) async throws -> MLXEmbeddingBackend {
+        let container = try await loadModelContainer(configuration: .init(id: repo))
+        return MLXEmbeddingBackend(container: container, maxLength: maxLength)
+    }
+
+    public func embedMicroBatch(_ texts: [String]) async throws -> [[Float]] {
+        let maxLength = self.maxLength
+        return await container.perform { model, tokenizer, pooling -> [[Float]] in
+            let encoded = texts.map { text -> [Int] in
+                var tokens = tokenizer.encode(text: text, addSpecialTokens: true)
+                if tokens.count > maxLength {
+                    tokens = Array(tokens.prefix(maxLength))
+                }
+                return tokens
+            }
+
+            let batchMaxLength = encoded.map(\.count).max() ?? 0
+            let padValue = tokenizer.eosTokenId ?? 0
+
+            let padded = stacked(
+                encoded.map { tokens in
+                    MLXArray(tokens + Array(repeating: padValue, count: batchMaxLength - tokens.count))
+                })
+            // Built from each sequence's real (pre-padding) length, NOT from
+            // comparing against padValue: `tokenizer.encode` appends a real EOS
+            // token to every sequence, and that EOS token's id is the same as
+            // padValue — comparing against padValue would incorrectly mask out
+            // every sequence's real trailing EOS token as if it were padding,
+            // corrupting both self-attention and .mean/.max/.last pooling.
+            let lengths = encoded.map(\.count)
+            let mask = stacked(Self.maskRows(lengths: lengths, batchMaxLength: batchMaxLength).map { MLXArray($0) }) .!= 0
+            let tokenTypes = MLXArray.zeros(like: padded)
+
+            let output = model(padded, positionIds: nil, tokenTypeIds: tokenTypes, attentionMask: mask)
+            let result = pooling(output, mask: mask, normalize: true, applyLayerNorm: true)
+            result.eval()
+
+            return result.map { $0.asArray(Float.self) }
+        }
+    }
+
+    /// Pure mask-row math, extracted so it's unit-testable without MLX/GPU:
+    /// for each sequence's real (pre-padding) length, produces a row of
+    /// `true` for real-token positions and `false` for padding positions,
+    /// bounded to `batchMaxLength`. This is the exact logic a prior code
+    /// review found buggy when it was inlined and derived from comparing
+    /// against a pad token id instead of the real length.
+    static func maskRows(lengths: [Int], batchMaxLength: Int) -> [[Bool]] {
+        lengths.map { length in
+            Array(repeating: true, count: length) + Array(repeating: false, count: batchMaxLength - length)
+        }
+    }
+}

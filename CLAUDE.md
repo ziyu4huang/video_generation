@@ -13,6 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **MLX pipeline** — `python/mlx-movie-director/run.py` (Z-Image / Flux2 Klein / Lens / LTX-2.3 / SeedVR2, all native MLX)
 - **Bun GUI** — `bun-apps/gui-movie-director` (`bun run dev`; per-worktree port via `bun run gui:port`)
+- **Embedding server** — `swift/embed-mlx-server` (Swift MLX, BGE-M3, OpenAI-compatible `/v1/embeddings`). Installs a **LaunchAgent holding port 8090** — if that port is busy or a stray embed process is running, check `scripts/embed-mlx-server-service.sh status` first. See its README.
 
 ## Monorepo SOP
 
