@@ -121,3 +121,229 @@ export function listEfforts(cwd: string): EffortListResult {
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
+
+// ─── search action ───────────────────────────────────────────────────────────
+//
+// In-memory, dependency-free term-frequency search over every effort's tickets
+// + map decisions (+ a synthetic per-effort "destination" decision doc). Field
+// weights boost title/resolution/what-to-build/question/acceptance/gist over the
+// generic body. Throw-free: a catastrophic failure -> { ok:false, error }.
+
+export type SearchDocKind = "ticket" | "decision";
+
+export interface SearchMatch {
+  kind: SearchDocKind;
+  effort: string;
+  /** Ticket id; set iff kind==="ticket". */
+  ticketId?: string;
+  title: string;
+  /** Ticket status; set iff kind==="ticket". */
+  status?: string;
+  /** Ticket type; set iff kind==="ticket". */
+  type?: string;
+  snippet: string;
+  score: number;
+}
+
+export interface SearchOptions {
+  effort?: string;
+  status?: "open" | "closed";
+  type?: "research" | "prototype" | "grilling" | "task";
+  /** Top-K cap; default 10. */
+  limit?: number;
+}
+
+export interface EffortSearchResult {
+  ok: boolean;
+  query: string;
+  filters: { effort?: string; status?: string; type?: string };
+  matches: SearchMatch[];
+  /** True when total matches (pre-slice) > limit. */
+  truncated: boolean;
+  error?: string;
+}
+
+const STOP = new Set(
+  "the a an and or of to in for on is are be with this that it as at by from we i you not but if then so do does has have had will can should would what which how why when where who".split(
+    " ",
+  ),
+);
+
+/** Lowercase, split on non-alphanumerics, drop length<2 and stop-words. */
+function tokenize(text: string): string[] {
+  return String(text ?? "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 2 && !STOP.has(t));
+}
+
+/** Count exact token matches (tokens already lowercased). */
+function countTerm(tokens: string[], term: string): number {
+  let n = 0;
+  for (const t of tokens) if (t === term) n++;
+  return n;
+}
+
+// Field weights — title/resolution/whatToBuild rank highest, body lowest.
+const W = { title: 8, resolution: 4, whatToBuild: 4, question: 2, acceptance: 2, gist: 2, body: 1 } as const;
+type FieldKey = keyof typeof W;
+const FIELD_KEYS: FieldKey[] = Object.keys(W) as FieldKey[];
+
+/**
+ * Build a snippet around the first whole query-term hit in `body`. Window is
+ * [max(0,idx-70), idx+90] with leading/trailing "…" when truncated. Returns ""
+ * when no query term is present so the renderer can fall back to the title.
+ */
+function makeSnippet(body: string, terms: string[]): string {
+  const low = body.toLowerCase();
+  let idx = -1;
+  for (const t of terms) {
+    const i = low.indexOf(t);
+    if (i >= 0 && (idx < 0 || i < idx)) idx = i;
+  }
+  if (idx < 0) return "";
+  const start = Math.max(0, idx - 70);
+  const end = Math.min(body.length, idx + 90);
+  return (start > 0 ? "\u2026" : "") + body.slice(start, end) + (end < body.length ? "\u2026" : "");
+}
+
+/** Internal scored index document. */
+interface SearchDoc {
+  kind: SearchDocKind;
+  effort: string;
+  ticketId?: string;
+  title: string;
+  status?: string;
+  type?: string;
+  /** Weighted field texts (title/resolution/whatToBuild/question/acceptance/gist/body). */
+  fields: Record<FieldKey, string>;
+  /** Prose concatenated for snippet extraction (title excluded — rendered separately). */
+  snippetText: string;
+}
+
+function emptyFields(): Record<FieldKey, string> {
+  return { title: "", resolution: "", whatToBuild: "", question: "", acceptance: "", gist: "", body: "" };
+}
+
+/** Build the full scored index across every effort (tickets + decisions + one
+ *  synthetic "destination" decision per effort so effort goals are searchable). */
+function buildIndex(cwd: string): SearchDoc[] {
+  const docs: SearchDoc[] = [];
+  for (const slug of enumerateEfforts(cwd)) {
+    const map = readMap(cwd, slug);
+    if (!map) continue;
+
+    for (const t of map.tickets) {
+      const acceptance = (t.acceptance ?? []).join(" ");
+      const body = (t.blocking ?? []).join(" ");
+      docs.push({
+        kind: "ticket",
+        effort: slug,
+        ticketId: t.id,
+        title: t.title,
+        status: t.status,
+        type: t.type,
+        fields: {
+          ...emptyFields(),
+          title: t.title,
+          resolution: t.resolution ?? "",
+          whatToBuild: t.whatToBuild ?? "",
+          question: t.question,
+          acceptance,
+          body,
+        },
+        snippetText: [t.question, t.whatToBuild ?? "", t.resolution ?? "", acceptance, body].filter(Boolean).join("\n"),
+      });
+    }
+
+    for (const d of map.decisions) {
+      docs.push({
+        kind: "decision",
+        effort: slug,
+        title: d.title,
+        fields: { ...emptyFields(), title: d.title, gist: d.gist },
+        snippetText: d.gist,
+      });
+    }
+
+    // Synthetic decision doc so an effort's destination/notes are searchable.
+    const destBody = `${map.destination}\n${map.notes}`;
+    docs.push({
+      kind: "decision",
+      effort: slug,
+      title: `${slug} destination`,
+      fields: { ...emptyFields(), title: `${slug} destination`, body: destBody },
+      snippetText: destBody,
+    });
+  }
+  return docs;
+}
+
+/** score = Σ over queryTerms of Σ over fields of countTerm(tokenize(field), qt) * W[field]. */
+function scoreDoc(doc: SearchDoc, queryTerms: string[]): number {
+  let score = 0;
+  for (const key of FIELD_KEYS) {
+    const toks = tokenize(doc.fields[key]);
+    const w = W[key];
+    for (const qt of queryTerms) score += countTerm(toks, qt) * w;
+  }
+  return score;
+}
+
+/**
+ * Cross-effort keyword search over tickets + decisions. Field-weighted term
+ * frequency; optional effort/status/type filters; top-K ranking with deterministic
+ * tie-breaks (score desc, effort asc, ticketId/title asc). Throw-free.
+ */
+export function searchEfforts(cwd: string, query: string, opts?: SearchOptions): EffortSearchResult {
+  const filters: EffortSearchResult["filters"] = {
+    effort: opts?.effort,
+    status: opts?.status,
+    type: opts?.type,
+  };
+  const queryTerms = tokenize(query);
+  try {
+    let docs = buildIndex(cwd);
+
+    // Filters (apply before ranking).
+    if (opts?.effort) docs = docs.filter((d) => d.effort === opts.effort);
+    if (opts?.status) docs = docs.filter((d) => d.kind === "ticket" && d.status === opts.status);
+    if (opts?.type) docs = docs.filter((d) => d.kind === "ticket" && d.type === opts.type);
+
+    // Score + drop zero-score docs.
+    const scored = docs.map((doc) => ({ doc, score: scoreDoc(doc, queryTerms) })).filter((s) => s.score > 0);
+
+    // Rank: score desc, effort asc, then ticketId asc (tickets) / title asc (decisions).
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const e = a.doc.effort.localeCompare(b.doc.effort);
+      if (e !== 0) return e;
+      if (a.doc.kind === "ticket" && b.doc.kind === "ticket") {
+        return (a.doc.ticketId ?? "").localeCompare(b.doc.ticketId ?? "");
+      }
+      if (a.doc.kind === "decision" && b.doc.kind === "decision") {
+        return a.doc.title.localeCompare(b.doc.title);
+      }
+      // Mixed at equal score+effort: tickets before decisions (deterministic).
+      return a.doc.kind === "ticket" ? -1 : 1;
+    });
+
+    const total = scored.length;
+    const limit = opts?.limit ?? 10;
+    const truncated = total > limit;
+    const matches: SearchMatch[] = scored.slice(0, limit).map(({ doc, score }) => ({
+      kind: doc.kind,
+      effort: doc.effort,
+      ...(doc.ticketId !== undefined ? { ticketId: doc.ticketId } : {}),
+      title: doc.title,
+      ...(doc.status ? { status: doc.status } : {}),
+      ...(doc.type ? { type: doc.type } : {}),
+      snippet: makeSnippet(doc.snippetText, queryTerms),
+      score,
+    }));
+
+    return { ok: true, query, filters, matches, truncated };
+  } catch (err) {
+    return { ok: false, query, filters, matches: [], truncated: false, error: errMsg(err) };
+  }
+}

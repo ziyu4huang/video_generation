@@ -12,7 +12,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { enumerateEfforts, listEfforts } from "../src/effort-query.js";
+import { enumerateEfforts, listEfforts, searchEfforts } from "../src/effort-query.js";
 
 const fresh = () => mkdtempSync(join(tmpdir(), "wf-effort-query-"));
 const planning = (cwd: string) => join(cwd, ".planning");
@@ -303,5 +303,267 @@ describe("listEfforts", () => {
     expect(effC?.status).toBe("active"); // default when no manifest
     expect(effC?.destination).toBe("");
     rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
+// ─── search fixture (Task 2) ───────────────────────────────────────
+// Two efforts: "kg" (knowledge graph) carries the surrealdb ticket (closed,
+// with a SurrealDB HNSW resolution), a grilling-type ticket, two identical-title
+// tickets for the tie-break case, and a map decision whose gist mentions
+// "knowledge graph". "other" has a graph-mentioning destination so the effort
+// filter has something to drop.
+function seedSearch(cwd: string): void {
+  seedMap(
+    cwd,
+    "kg",
+    [
+      "---",
+      "effort: kg",
+      "status: active",
+      "last: 2026-08-09",
+      "---",
+      "",
+      "# Wayfinder map: kg",
+      "",
+      "## Destination",
+      "",
+      "Ship a knowledge graph memory layer over SurrealDB.",
+      "",
+      "## Notes",
+      "",
+      "Exploring HNSW recall.",
+      "",
+      "## Decisions so far",
+      "",
+      "- [Use knowledge graph core](tickets/05-graph-core.md) — Knowledge graph backs recall.",
+      "",
+      "## Not yet specified",
+      "",
+      "- fog one",
+      "",
+      "## Out of scope",
+      "",
+      "<!-- none -->",
+      "",
+    ].join("\n"),
+  );
+  // 01 — closed (resolution forces status closed); title + resolution mention SurrealDB.
+  seedTicket(
+    cwd,
+    "kg",
+    "01-embed-backend.md",
+    [
+      "---",
+      "type: task",
+      "status: closed",
+      "---",
+      "",
+      "# Resolve embed backend (SurrealDB)",
+      "",
+      "## Question",
+      "",
+      "How do we store embeddings?",
+      "",
+      "## Resolution",
+      "",
+      "SurrealDB HNSW index gives sub-ms recall.",
+      "",
+    ].join("\n"),
+  );
+  // 02 — grilling-type, open; title + question mention SurrealDB, question mentions graph.
+  seedTicket(
+    cwd,
+    "kg",
+    "02-grill-storage.md",
+    [
+      "---",
+      "type: grilling",
+      "status: open",
+      "---",
+      "",
+      "# Grill SurrealDB tradeoffs",
+      "",
+      "## Question",
+      "",
+      "Should SurrealDB be the store for the graph?",
+      "",
+    ].join("\n"),
+  );
+  // 03 / 04 — identical titles, equal score on query "duplicate" (tie-break by id asc).
+  seedTicket(
+    cwd,
+    "kg",
+    "03-dup.md",
+    [
+      "---",
+      "type: task",
+      "status: open",
+      "---",
+      "",
+      "# Duplicate title",
+      "",
+      "## Question",
+      "",
+      "alpha widget",
+      "",
+    ].join("\n"),
+  );
+  seedTicket(
+    cwd,
+    "kg",
+    "04-dup.md",
+    [
+      "---",
+      "type: task",
+      "status: open",
+      "---",
+      "",
+      "# Duplicate title",
+      "",
+      "## Question",
+      "",
+      "beta widget",
+      "",
+    ].join("\n"),
+  );
+
+  seedMap(
+    cwd,
+    "other",
+    [
+      "---",
+      "effort: other",
+      "status: active",
+      "---",
+      "",
+      "# Wayfinder map: other",
+      "",
+      "## Destination",
+      "",
+      "Unrelated graph prototypes.",
+      "",
+      "## Notes",
+      "",
+      "none",
+      "",
+      "## Decisions so far",
+      "",
+      "<!-- none yet -->",
+      "",
+      "## Not yet specified",
+      "",
+      "<!-- none -->",
+      "",
+      "## Out of scope",
+      "",
+      "<!-- none -->",
+      "",
+    ].join("\n"),
+  );
+}
+
+// ─── searchEfforts ───────────────────────────────────────────────
+
+describe("searchEfforts", () => {
+  it("ranks a surrealdb ticket #1 with a body snippet containing the term", () => {
+    const cwd = fresh();
+    seedSearch(cwd);
+
+    const r = searchEfforts(cwd, "surrealdb");
+    expect(r.ok).toBe(true);
+    expect(r.error).toBeUndefined();
+    expect(r.query).toBe("surrealdb");
+    expect(r.matches.length).toBeGreaterThan(0);
+
+    const top = r.matches[0];
+    expect(top.kind).toBe("ticket");
+    expect(top.title).toContain("SurrealDB");
+    expect(top.score).toBeGreaterThan(0);
+    expect(top.snippet.toLowerCase()).toContain("urrealdb");
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("status=closed filter keeps only closed tickets (drops decisions)", () => {
+    const cwd = fresh();
+    seedSearch(cwd);
+
+    const r = searchEfforts(cwd, "surrealdb", { status: "closed" });
+    expect(r.ok).toBe(true);
+    expect(r.filters.status).toBe("closed");
+    expect(r.matches.length).toBeGreaterThan(0);
+    for (const m of r.matches) {
+      expect(m.kind).toBe("ticket");
+      expect(m.status).toBe("closed");
+    }
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("type=grilling filter keeps only grilling tickets (drops decisions)", () => {
+    const cwd = fresh();
+    seedSearch(cwd);
+
+    const r = searchEfforts(cwd, "surrealdb", { type: "grilling" });
+    expect(r.ok).toBe(true);
+    expect(r.filters.type).toBe("grilling");
+    expect(r.matches.length).toBeGreaterThan(0);
+    for (const m of r.matches) {
+      expect(m.kind).toBe("ticket");
+      expect(m.type).toBe("grilling");
+    }
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("effort filter scopes to one effort and surfaces the decision match", () => {
+    const cwd = fresh();
+    seedSearch(cwd);
+
+    const r = searchEfforts(cwd, "graph", { effort: "kg" });
+    expect(r.ok).toBe(true);
+    expect(r.filters.effort).toBe("kg");
+    expect(r.matches.length).toBeGreaterThan(0);
+    for (const m of r.matches) expect(m.effort).toBe("kg");
+    // the "knowledge graph" map decision must appear
+    expect(r.matches.some((m) => m.kind === "decision" && m.title.includes("knowledge graph"))).toBe(true);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("breaks equal-score ties deterministically (ticketId asc) across runs", () => {
+    const cwd = fresh();
+    seedSearch(cwd);
+
+    const ids = () => searchEfforts(cwd, "duplicate").matches.map((m) => m.ticketId);
+    const first = ids();
+    const second = ids();
+    expect(first).toEqual(["03", "04"]);
+    expect(first).toEqual(second);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("returns ok:true, matches:[] for an empty query", () => {
+    const cwd = fresh();
+    seedSearch(cwd);
+
+    const r = searchEfforts(cwd, "");
+    expect(r.ok).toBe(true);
+    expect(r.matches).toEqual([]);
+    expect(r.truncated).toBe(false);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("truncates to limit and reports truncated when total > limit", () => {
+    const cwd = fresh();
+    seedSearch(cwd);
+
+    const r = searchEfforts(cwd, "surrealdb", { limit: 1 });
+    expect(r.ok).toBe(true);
+    expect(r.truncated).toBe(true);
+    expect(r.matches.length).toBe(1);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("is throw-free on an unreadable root (ok:true, matches:[])", () => {
+    const r = searchEfforts("/nonexistent-effort-query-root-xyz/cwd", "surrealdb");
+    expect(r.ok).toBe(true);
+    expect(r.matches).toEqual([]);
   });
 });
