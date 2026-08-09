@@ -15,5 +15,16 @@ The literal "click on the status bar" UX — Down moves focus **into** the statu
 Only if, after the panel MVP ships, the inline-hover polish is worth a core patch. If pursued, it seeds a **fresh** `.planning/<date>-inline-focus-core-enhancement/` effort (it's a core change, not an extension change) — this ticket just tracks it.
 
 type: task
-status: deferred
+status: closed
 blocked by: (none — independent future effort)
+
+## Resolution (2026-08-09)
+WON'T-DO / retired. The inline-focusable status bar (Path A core-patch follow-up)
+is not being built. v1 (PR #1019) was deleted 2026-08-07 for TUI bugs (38fe1372 —
+onTerminalInput teardown unreliable; 50906350 — orphaned bottom-center overlay →
+invalidate() re-entry cascade → RangeError). A robust rebuild (this effort,
+PR #1094) was chartered to avoid both bugs via pi.registerShortcut + an
+overlay-free inline CustomEditor, but remained unstarted. Decision (2026-08-09):
+retire as won't-do — the below-editor static status shipped in PR #999 (aa09621c)
+is sufficient.
+closed: 2026-08-09 (wontfix)
