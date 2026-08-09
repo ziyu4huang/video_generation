@@ -1008,8 +1008,13 @@ Modify `swift/embed-mlx-server/Sources/EmbedMLXServerCLI/EmbedMLXServerCLI.swift
 ```swift
 import ArgumentParser
 
+// AsyncParsableCommand, not plain ParsableCommand: swift-argument-parser
+// hard-errors at runtime ("Asynchronous subcommand of a synchronous root")
+// once an AsyncParsableCommand subcommand (Serve) is registered under a
+// synchronous root. Verified during Task 6's review by reverting to
+// ParsableCommand and reproducing the exact error.
 @main
-struct EmbedMLXServerCLI: ParsableCommand {
+struct EmbedMLXServerCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "embed-mlx-server",
         abstract: "OpenAI-compatible /v1/embeddings server over BGE-M3 (native MLX).",
