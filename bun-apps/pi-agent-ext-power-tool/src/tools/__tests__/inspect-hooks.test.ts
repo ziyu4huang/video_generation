@@ -77,6 +77,33 @@ describe("analyzeHooks", () => {
     const findings = analyzeHooks(snap([], false));
     expect(findings.map((f) => f.check)).toEqual(["hooks-unavailable"]);
   });
+
+  // ── Phase 2 (Task 2): never-fired finding ────────────────────────────────
+  test("never-fired: emits a low finding ONLY for fired===0 entries", () => {
+    const findings = analyzeHooks(snap([
+      { path: "bun-apps/ext-a/a.ts", hooks: [{ event: "turn_end", count: 1, fired: 3 }] },
+      { path: "bun-apps/ext-b/b.ts", hooks: [{ event: "tool_call", count: 2, fired: 0 }, { event: "context", count: 1, fired: 0 }] },
+    ]));
+    const nf = findings.filter((f) => f.check === "never-fired");
+    expect(nf).toHaveLength(2); // only the two fired===0 entries
+    for (const f of nf) {
+      expect(f.severity).toBe("low");
+      expect(f.detail).toMatchObject({ fired: 0 });
+    }
+    // exact detail shape + message for the tool_call never-fired entry
+    const tc = nf.find((f) => (f.detail as { event: string }).event === "tool_call")!;
+    expect(tc.detail).toEqual({ path: "bun-apps/ext-b/b.ts", event: "tool_call", count: 2, fired: 0 });
+    expect(tc.message).toBe('bun-apps/ext-b/b.ts handler on "tool_call" never fired (0/2)');
+    // the fired>0 turn_end entry is NOT flagged
+    expect(nf.some((f) => (f.detail as { event: string }).event === "turn_end")).toBe(false);
+  });
+
+  test("never-fired: NONE emitted when every hook fired > 0", () => {
+    const findings = analyzeHooks(snap([
+      { path: "ext.ts", hooks: [{ event: "turn_end", count: 1, fired: 1 }, { event: "context", count: 2, fired: 5 }] },
+    ]));
+    expect(findings.filter((f) => f.check === "never-fired")).toHaveLength(0);
+  });
 });
 
 describe("formatHooksReport", () => {
@@ -94,6 +121,39 @@ describe("formatHooksReport", () => {
     expect(out).toContain("Hooks by event:");
     expect(out).toContain("turn_end");
     expect(out).toContain("ext-a/a.ts"); // the who-list (Fix 1)
+  });
+
+  // ── Phase 2 (Task 2): fires column + never-fired section ────────────────
+  test("never-fired section + fires column rendered when fired===0 exists", () => {
+    const snapshot2 = snap([
+      { path: "bun-apps/ext-a/a.ts", hooks: [{ event: "turn_end", count: 1, fired: 2 }, { event: "tool_call", count: 1, fired: 0 }] },
+    ]);
+    const out = formatHooksReport(snapshot2, analyzeHooks(snapshot2), false);
+    // fires column present with per-extension aggregate value (2 = 2 + 0)
+    expect(out).toContain("fires");
+    expect(out).toContain("2 fires");
+    // never-fired low section heading + message
+    expect(out).toContain("Low — never fired");
+    expect(out).toContain('handler on "tool_call" never fired (0/1)');
+  });
+
+  test("byEvent fires column aggregated per event", () => {
+    const snapshot3 = snap([
+      { path: "bun-apps/ext-a/a.ts", hooks: [{ event: "turn_end", count: 1, fired: 2 }] },
+      { path: "bun-apps/ext-b/b.ts", hooks: [{ event: "turn_end", count: 1, fired: 3 }] },
+    ]);
+    const out = formatHooksReport(snapshot3, analyzeHooks(snapshot3), true);
+    expect(out).toContain("fires");
+    expect(out).toContain("5 fires"); // 2 + 3 aggregated across both extensions
+  });
+
+  test("never-fired section absent when all hooks fired > 0", () => {
+    const snapshot4 = snap([
+      { path: "ext.ts", hooks: [{ event: "turn_end", count: 1, fired: 4 }] },
+    ]);
+    const out = formatHooksReport(snapshot4, analyzeHooks(snapshot4), false);
+    expect(out).not.toContain("Low — never fired");
+    expect(out).not.toContain("never fired");
   });
 });
 
@@ -136,7 +196,8 @@ describe("inspect_hooks (tool end-to-end, fake ctx)", () => {
       fakeCtx(snap([{ path: "ext.ts", hooks: [{ event: "turn_end", count: 2, fired: 0 }] }])),
     );
     const parsed = JSON.parse((res.content[0] as { text: string }).text);
-    expect(parsed.summary).toEqual({ total: 0, high: 0, medium: 0, low: 0 });
+    // turn_end fired:0 → 1 never-fired (low) finding (Phase 2 task 2)
+    expect(parsed.summary).toEqual({ total: 1, high: 0, medium: 0, low: 1 });
     expect(parsed.snapshot.extensions[0]).toEqual({
       path: "ext.ts",
       hooks: [{ event: "turn_end", count: 2, fired: 0 }],

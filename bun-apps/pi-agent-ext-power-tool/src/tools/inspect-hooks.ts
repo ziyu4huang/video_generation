@@ -178,8 +178,9 @@ export function collectHooks(rawExtensions: unknown): HooksSnapshot {
 
 /**
  * PURE: analyze a HooksSnapshot. No SDK, no fs. Order: unknown-event-name
- * (medium), then per-extension inventory (info), then stats (info). If
- * available:false, only a single hooks-unavailable info finding is returned.
+ * (medium), then per-extension inventory (info), then stats (info), then
+ * never-fired (low). If available:false, only a single hooks-unavailable info
+ * finding is returned.
  */
 export function analyzeHooks(snapshot: HooksSnapshot): Finding[] {
   const findings: Finding[] = [];
@@ -230,6 +231,22 @@ export function analyzeHooks(snapshot: HooksSnapshot): Finding[] {
     detail: { extensions: snapshot.extensions.length, handlers: totalHandlers, unknown: totalUnknown },
   });
 
+  // 🟢 never-fired — registered but never fired this session. Low severity
+  // (not an error): rare events legitimately never fire in a short session;
+  // this is a hint that a handler may be dead / wired to the wrong event.
+  for (const ext of snapshot.extensions) {
+    for (const h of ext.hooks) {
+      if (h.fired === 0) {
+        findings.push({
+          severity: "low",
+          check: "never-fired",
+          message: `${shortPath(ext.path)} handler on "${h.event}" never fired (0/${h.count})`,
+          detail: { path: ext.path, event: h.event, count: h.count, fired: 0 },
+        });
+      }
+    }
+  }
+
   return findings;
 }
 
@@ -268,28 +285,38 @@ export function formatHooksReport(
     lines.push("");
   }
 
+  // Low: never-fired (registered but never dispatched this session)
+  const neverFired = findings.filter((f) => f.check === "never-fired");
+  if (neverFired.length > 0) {
+    lines.push(`▶ 🟢 Low — never fired (${neverFired.length}):`);
+    for (const f of neverFired) lines.push(`  • ${f.message}`);
+    lines.push("");
+  }
+
   // Inventory
   if (byEvent) {
-    const byEvt = new Map<string, { exts: string[]; handlers: number }>();
+    const byEvt = new Map<string, { exts: string[]; handlers: number; fires: number }>();
     for (const ext of snapshot.extensions) {
       for (const h of ext.hooks) {
-        const e = byEvt.get(h.event) ?? { exts: [], handlers: 0 };
+        const e = byEvt.get(h.event) ?? { exts: [], handlers: 0, fires: 0 };
         e.exts.push(shortPath(ext.path));
         e.handlers += h.count;
+        e.fires += h.fired;
         byEvt.set(h.event, e);
       }
     }
     lines.push("▶ Hooks by event:");
     for (const [event, e] of [...byEvt].sort((a, b) => b[1].handlers - a[1].handlers)) {
       const flag = KNOWN_EVENTS.has(event) ? "" : "  ⚠ unknown";
-      lines.push(`  ${event.padEnd(28)} ${e.exts.length} ext(s)  ${e.handlers} handler(s)${flag}`);
+      lines.push(`  ${event.padEnd(28)} ${e.exts.length} ext(s)  ${e.handlers} handler(s)  ${e.fires} fires${flag}`);
       lines.push(`  ${"".padEnd(30)}${e.exts.join(", ")}`);
     }
   } else {
     lines.push("▶ Hooks by extension:");
     for (const ext of snapshot.extensions) {
       const handlers = ext.hooks.reduce((s, h) => s + h.count, 0);
-      lines.push(`  ${shortPath(ext.path).padEnd(42)} ${String(ext.hooks.length).padStart(3)} event(s)  ${String(handlers).padStart(3)} handler(s)`);
+      const fires = ext.hooks.reduce((s, h) => s + h.fired, 0);
+      lines.push(`  ${shortPath(ext.path).padEnd(42)} ${String(ext.hooks.length).padStart(3)} event(s)  ${String(handlers).padStart(3)} handler(s)  ${String(fires).padStart(3)} fires`);
     }
   }
   lines.push("");
