@@ -1,7 +1,7 @@
 # Spec — wayfind architecture-deepening (dogfood #3 + #1)
 
 **Date:** 2026-08-08
-**Status:** Primary DONE — merged #1113 (`map.ts` split #3 + renderer unify #1); #4 ceremony dedup DONE — merged #1150; #2 parser unification (fs-free `markdown.ts`) STILL OPEN.
+**Status:** COMPLETE — all items shipped: #1/#3 via #1113 (map.ts split + renderer unify); #4 ceremony dedup via #1150; #2 parser unification via #1152 (fs-free `markdown.ts`).
 **Effort:** `2026-08-08-wayfind-architecture-deepening`
 **Branch:** `feat/wayfind-architecture-deepening`
 **Source finding:** `.planning/2026-08-08-improve-codebase-architecture/architecture-review-2026-08-08.md` (deliverable C's dogfood self-scan of `bun-apps/pi-agent-ext-wayfind/src/`)
