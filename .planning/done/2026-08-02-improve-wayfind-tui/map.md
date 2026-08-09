@@ -1,3 +1,10 @@
+---
+effort: 2026-08-02-improve-wayfind-tui
+created: 2026-08-02
+last: 2026-08-09
+status: complete
+---
+
 # Wayfinder map: 2026-08-02-improve-wayfind-tui
 
 > **Status: SEALED (2026-08-02)** — the original placement + history destination is fully decided and handed to `writing-plans` (see [Handoff](#handoff-to-writing-plans) below). Ticket [07](tickets/07-interactive-selectable-wayfind-widget.md) (interactive selectable widget) is scope expansion, **deferred to a future effort** — it seeds a fresh `.planning/<date>-wayfind-interactive-widget/` map when pursued.
