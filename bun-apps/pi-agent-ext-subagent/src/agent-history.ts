@@ -9,6 +9,12 @@ export interface AgentHistoryEntry {
   kind: AgentHistoryKind;
   text: string;
   toolName?: string;
+  /** Stable id pairing a toolCall (from block.id) with its toolResult
+   *  (from message.toolCallId). Lets the labeler pair a result to its OWN
+   *  call under batching — multiple same-tool calls in one assistant turn make
+   *  toolName-only pairing ambiguous. OPTIONAL for legacy/missing ids; the
+   *  labeler falls back to nearest-preceding-same-name when absent. */
+  toolCallId?: string;
   isError?: boolean;
   timestamp?: number;
 }
@@ -52,6 +58,7 @@ export function compactAgentHistory(messages: unknown[], options: AgentHistoryOp
             role: "assistant",
             kind: "toolCall",
             toolName: block.name,
+            toolCallId: typeof block.id === "string" ? block.id : undefined,
             text: stringifyCompact(block.arguments ?? {}),
             timestamp,
           });
@@ -70,6 +77,7 @@ export function compactAgentHistory(messages: unknown[], options: AgentHistoryOp
         role: "tool",
         kind: message.isError ? "error" : "toolResult",
         toolName,
+        toolCallId: typeof message.toolCallId === "string" ? message.toolCallId : undefined,
         text,
         isError: Boolean(message.isError),
         timestamp,

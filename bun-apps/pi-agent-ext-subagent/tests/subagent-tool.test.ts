@@ -354,11 +354,7 @@ test("explicit `tools` override wins over the active-set default", async () => {
     getActiveTools: () => ["read", "grep", "find", "ls", "subagent"],
   });
   await tool.execute("id", { task: "t", tools: ["read", "grep"] }, NO_SIGNAL, undefined, NO_CTX);
-  assert.deepEqual(
-    f.calls[0]?.tools,
-    ["read", "grep"],
-    "explicit tools still narrow to EXACTLY the requested set",
-  );
+  assert.deepEqual(f.calls[0]?.tools, ["read", "grep"], "explicit tools still narrow to EXACTLY the requested set");
 });
 
 test("agentType `tools` binding wins over the active-set default", async () => {
@@ -997,6 +993,28 @@ test("formatSubagentLive caps the trace at maxTraceLines (default 100)", () => {
   assert.ok(!out.includes("t0"), "entries older than the cap are dropped");
 });
 
+test("formatSubagentLive: BATCHED calls+results label each result with its OWN file (inline trace fidelity)", () => {
+  // The inline/foreground trace (the surface where the three identical
+  // `✓ Read map.md` lines were observed). One turn emits N distinct reads
+  // (toolCallIds tc1/tc2/tc3), then N matching results. Post-fix each result
+  // trace line carries its OWN target — not the last call's.
+  const out = formatSubagentLive(
+    [
+      { role: "assistant", kind: "toolCall", toolName: "read", toolCallId: "tc1", text: '{"path":"PRD.md"}' },
+      { role: "assistant", kind: "toolCall", toolName: "read", toolCallId: "tc2", text: '{"path":"chromadb.md"}' },
+      { role: "assistant", kind: "toolCall", toolName: "read", toolCallId: "tc3", text: '{"path":"map.md"}' },
+      { role: "tool", kind: "toolResult", toolName: "read", toolCallId: "tc1", text: "PRD body" },
+      { role: "tool", kind: "toolResult", toolName: "read", toolCallId: "tc2", text: "chromadb body" },
+      { role: "tool", kind: "toolResult", toolName: "read", toolCallId: "tc3", text: "map body" },
+    ],
+    2000,
+  );
+  // Each result trace line resolves its OWN file (was: three `✓ Read map.md`).
+  assert.match(out, /✓ Read PRD\.md/, "first result labels its OWN file (PRD)");
+  assert.match(out, /✓ Read chromadb\.md/, "second result labels its OWN file (chromadb)");
+  assert.match(out, /✓ Read map\.md/, "third result labels its OWN file (map)");
+});
+
 test("renderSubagentResult isPartial+collapsed shows ≤2 header lines; expanded shows the trace (ctrl-o)", () => {
   const text = formatSubagentLive(
     [
@@ -1086,7 +1104,10 @@ test("renderSubagentResult NON-partial+expanded renders the FULL report (streami
   const full = Array.from({ length: 60 }, (_, i) => `Line ${i} of report`).join("\n");
   const out = renderSubagentResult({ content: [{ type: "text", text: full }], details }, { expanded: true }, T);
   assert.ok(!out.includes("…"), "no ellipsis on the settled report");
-  assert.ok(out.includes("Line 0 of report") && out.includes("Line 59 of report"), "full report retained top-to-bottom");
+  assert.ok(
+    out.includes("Line 0 of report") && out.includes("Line 59 of report"),
+    "full report retained top-to-bottom",
+  );
   assert.equal(out.split("\n").length, 1 + 60, "1 (badge+meta header) + all 60 report lines — uncapped");
 });
 
@@ -1684,6 +1705,30 @@ test("formatSubagentTrace: minToolCalls floors the displayed count", () => {
   assert.match(out, /3 calls/, "floor wins when history reports fewer calls");
 });
 
+test("formatSubagentTrace: BATCHED calls+results (one turn, N reads) each label their OWN file by id", () => {
+  // The core trace-fidelity symptom: one assistant turn emits [read PRD, read
+  // chromadb, read map] (distinct toolCallIds), then the three matching results
+  // follow. Pre-fix every result collapsed to the LAST call -> three identical
+  // `✓ Read map.md` lines (and two calls shown spuriously in-flight). Post-fix
+  // each call pairs with its OWN result by toolCallId -> one correct line each.
+  const out = formatSubagentTrace(
+    [
+      { role: "assistant", kind: "toolCall", toolName: "read", toolCallId: "tc1", text: '{"path":"PRD.md"}' },
+      { role: "assistant", kind: "toolCall", toolName: "read", toolCallId: "tc2", text: '{"path":"chromadb.md"}' },
+      { role: "assistant", kind: "toolCall", toolName: "read", toolCallId: "tc3", text: '{"path":"map.md"}' },
+      { role: "tool", kind: "toolResult", toolName: "read", toolCallId: "tc1", text: "PRD body" },
+      { role: "tool", kind: "toolResult", toolName: "read", toolCallId: "tc2", text: "chromadb body" },
+      { role: "tool", kind: "toolResult", toolName: "read", toolCallId: "tc3", text: "map body" },
+    ],
+    2000,
+  );
+  const lines = out.split("\n");
+  assert.match(lines[0], /^✓ Read PRD\.md$/, "first call pairs with its OWN result (PRD), not map");
+  assert.match(lines[1], /^✓ Read chromadb\.md$/, "second call pairs with its OWN result (chromadb)");
+  assert.match(lines[2], /^✓ Read map\.md$/, "third call pairs with its OWN result (map)");
+  assert.match(lines[3], /^2\.0s · 3 calls$/, "trailing progress (no spurious in-flight calls)");
+});
+
 // ── ticket 03: model-fallback display + audit fields ──
 
 test("renderSubagentCall with fellBack:true adds → fallback indicator", () => {
@@ -1742,13 +1787,7 @@ test("execute with model fallback → details.requestedModel + fellBack set", as
     return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
   });
   const tool = createSubagentTool({ spawn: f.spawn });
-  const res = await tool.execute(
-    "id",
-    { task: "t", model: "anthropic/claude-opus-4-1" },
-    NO_SIGNAL,
-    undefined,
-    NO_CTX,
-  );
+  const res = await tool.execute("id", { task: "t", model: "anthropic/claude-opus-4-1" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(res.details.model, "zai/glm-5.2", "model = ACTUAL (what ran)");
   assert.equal(res.details.requestedModel, "anthropic/claude-opus-4-1", "requestedModel = the spec that fell back");
   assert.equal(res.details.fellBack, true);
@@ -1761,13 +1800,7 @@ test("execute with normal resolution (no fallback) → no audit fields", async (
     return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
   });
   const tool = createSubagentTool({ spawn: f.spawn });
-  const res = await tool.execute(
-    "id",
-    { task: "t", model: "anthropic/claude-sonnet-4" },
-    NO_SIGNAL,
-    undefined,
-    NO_CTX,
-  );
+  const res = await tool.execute("id", { task: "t", model: "anthropic/claude-sonnet-4" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(res.details.model, "anthropic/claude-sonnet-4");
   assert.equal(res.details.requestedModel, undefined, "requestedModel absent when no fallback");
   assert.equal(res.details.fellBack, undefined, "fellBack absent when no fallback");

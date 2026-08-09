@@ -125,3 +125,97 @@ test("summarizeLatestAction falls back to a generic 'tool' label when toolName i
   const action = summarizeLatestAction([{ role: "assistant", kind: "toolCall", text: "{}" }]);
   assert.equal(action, "Using tool");
 });
+
+test("compactAgentHistory threads toolCallId: batched calls carry their OWN id (block.id)", () => {
+  // A single assistant turn batched THREE distinct reads; each toolCall block's
+  // `id` must surface on the compacted entry so results can later pair by id
+  // (not resolve all to the last call). This is the data-model half of the
+  // batched-trace fidelity fix.
+  const history = compactAgentHistory([
+    {
+      role: "assistant",
+      content: [
+        { type: "toolCall", id: "tc1", name: "read", arguments: { path: "PRD.md" } },
+        { type: "toolCall", id: "tc2", name: "read", arguments: { path: "chromadb.md" } },
+        { type: "toolCall", id: "tc3", name: "read", arguments: { path: "map.md" } },
+      ],
+      timestamp: 1,
+    },
+  ]);
+
+  const calls = history.filter((e) => e.kind === "toolCall");
+  assert.equal(calls.length, 3);
+  assert.deepEqual(
+    calls.map((e) => e.toolCallId),
+    ["tc1", "tc2", "tc3"],
+  );
+});
+
+test("compactAgentHistory threads toolCallId: batched results carry their OWN id (message.toolCallId)", () => {
+  // The exact batched symptom: one turn emits N calls, then N matching results
+  // (order preserved). Each result entry must carry the id of ITS OWN call, not
+  // the last call's — pre-fix this was the root of three identical `✓ Read map.md`.
+  const history = compactAgentHistory([
+    {
+      role: "assistant",
+      content: [
+        { type: "toolCall", id: "tc1", name: "read", arguments: { path: "PRD.md" } },
+        { type: "toolCall", id: "tc2", name: "read", arguments: { path: "chromadb.md" } },
+        { type: "toolCall", id: "tc3", name: "read", arguments: { path: "map.md" } },
+      ],
+      timestamp: 1,
+    },
+    {
+      role: "toolResult",
+      toolCallId: "tc1",
+      toolName: "read",
+      content: [{ type: "text", text: "PRD body" }],
+      isError: false,
+      timestamp: 2,
+    },
+    {
+      role: "toolResult",
+      toolCallId: "tc2",
+      toolName: "read",
+      content: [{ type: "text", text: "chromadb body" }],
+      isError: false,
+      timestamp: 3,
+    },
+    {
+      role: "toolResult",
+      toolCallId: "tc3",
+      toolName: "read",
+      content: [{ type: "text", text: "map body" }],
+      isError: false,
+      timestamp: 4,
+    },
+  ]);
+
+  const results = history.filter((e) => e.kind === "toolResult");
+  assert.equal(results.length, 3);
+  // Each result carries its OWN id — NOT all "tc3" (the last call).
+  assert.deepEqual(
+    results.map((e) => e.toolCallId),
+    ["tc1", "tc2", "tc3"],
+  );
+});
+
+test("compactAgentHistory: toolCallId is OPTIONAL — legacy/missing ids stay undefined (no regression)", () => {
+  // Backwards compatibility: a toolCall block without `id` and a toolResult
+  // message without `toolCallId` (older transcripts) must still compact fine,
+  // with toolCallId simply absent — the name-fallback labeler still works.
+  const history = compactAgentHistory([
+    {
+      role: "assistant",
+      content: [{ type: "toolCall", name: "read", arguments: { path: "a.ts" } }],
+      timestamp: 1,
+    },
+    { role: "toolResult", toolName: "read", content: [{ type: "text", text: "a body" }], isError: false, timestamp: 2 },
+  ]);
+
+  assert.equal(history[0].toolCallId, undefined);
+  assert.equal(history[1].toolCallId, undefined);
+  // Existing fields unchanged.
+  assert.equal(history[0].toolName, "read");
+  assert.equal(history[1].kind, "toolResult");
+});
