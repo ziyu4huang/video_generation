@@ -526,10 +526,11 @@ git commit -m "feat(embed-mlx-server): add OpenAI-compatible embeddings request/
 
 ### Task 4: `MLXEmbeddingBackend` — real BGE-M3 inference
 
-Not unit tested (would require downloading and running the real model in CI/dev). Correctness is verified in Task 7 via `--self-test`.
+Not unit tested (would require downloading and running the real model in CI/dev). Correctness is verified in Task 7 via `--self-test`. The one piece of this file that IS pure Swift array logic with no MLX/GPU dependency — the mask-row construction — is extracted into a `static` `maskRows(lengths:batchMaxLength:)` function and unit tested directly (see below): a prior code review found this exact math buggy when it was inlined and derived from comparing against a pad token id instead of each sequence's real length.
 
 **Files:**
 - Create: `swift/embed-mlx-server/Sources/EmbedMLXServer/MLXEmbeddingBackend.swift`
+- Create: `swift/embed-mlx-server/Tests/EmbedMLXServerTests/MLXEmbeddingBackendMaskTests.swift`
 
 - [ ] **Step 1: Implement the backend**
 
@@ -588,10 +589,7 @@ public final class MLXEmbeddingBackend: EmbeddingBackend {
             // every sequence's real trailing EOS token as if it were padding,
             // corrupting both self-attention and .mean/.max/.last pooling.
             let lengths = encoded.map(\.count)
-            let maskInts = lengths.map { length in
-                Array(repeating: 1, count: length) + Array(repeating: 0, count: batchMaxLength - length)
-            }
-            let mask = stacked(maskInts.map { MLXArray($0) }) .!= 0
+            let mask = stacked(Self.maskRows(lengths: lengths, batchMaxLength: batchMaxLength).map { MLXArray($0) }) .!= 0
             let tokenTypes = MLXArray.zeros(like: padded)
 
             let output = model(padded, positionIds: nil, tokenTypeIds: tokenTypes, attentionMask: mask)
@@ -601,18 +599,74 @@ public final class MLXEmbeddingBackend: EmbeddingBackend {
             return result.map { $0.asArray(Float.self) }
         }
     }
+
+    /// Pure mask-row math, extracted so it's unit-testable without MLX/GPU:
+    /// for each sequence's real (pre-padding) length, produces a row of
+    /// `true` for real-token positions and `false` for padding positions,
+    /// bounded to `batchMaxLength`. This is the exact logic a prior code
+    /// review found buggy when it was inlined and derived from comparing
+    /// against a pad token id instead of the real length.
+    static func maskRows(lengths: [Int], batchMaxLength: Int) -> [[Bool]] {
+        lengths.map { length in
+            Array(repeating: true, count: length) + Array(repeating: false, count: batchMaxLength - length)
+        }
+    }
 }
 ```
 
-- [ ] **Step 2: Build to verify it compiles**
+- [ ] **Step 2: Write unit tests for the extracted `maskRows` function**
+
+`swift/embed-mlx-server/Tests/EmbedMLXServerTests/MLXEmbeddingBackendMaskTests.swift`:
+
+```swift
+import XCTest
+@testable import EmbedMLXServer
+
+final class MLXEmbeddingBackendMaskTests: XCTestCase {
+    func testLengthEqualToBatchMaxLengthIsAllTrue() {
+        let rows = MLXEmbeddingBackend.maskRows(lengths: [4], batchMaxLength: 4)
+        XCTAssertEqual(rows, [[true, true, true, true]])
+    }
+
+    func testLengthShorterThanBatchMaxLengthHasTruePrefixThenFalseSuffix() {
+        let rows = MLXEmbeddingBackend.maskRows(lengths: [2], batchMaxLength: 5)
+        XCTAssertEqual(rows, [[true, true, false, false, false]])
+    }
+
+    func testMultipleRowsAreIndependent() {
+        let rows = MLXEmbeddingBackend.maskRows(lengths: [2, 4, 4], batchMaxLength: 4)
+        XCTAssertEqual(rows, [
+            [true, true, false, false],
+            [true, true, true, true],
+            [true, true, true, true],
+        ])
+    }
+
+    func testZeroLengthIsAllFalse() {
+        let rows = MLXEmbeddingBackend.maskRows(lengths: [0], batchMaxLength: 3)
+        XCTAssertEqual(rows, [[false, false, false]])
+    }
+
+    func testEmptyLengthsProducesEmptyResult() {
+        let rows = MLXEmbeddingBackend.maskRows(lengths: [], batchMaxLength: 5)
+        XCTAssertTrue(rows.isEmpty)
+    }
+}
+```
+
+- [ ] **Step 3: Build and test to verify it compiles and the new tests pass**
 
 Run: `( cd swift/embed-mlx-server && swift build )`
 Expected: builds cleanly.
 
-- [ ] **Step 3: Commit**
+Run: `( cd swift/embed-mlx-server && swift test --filter MLXEmbeddingBackendMaskTests )`
+Expected: PASS, 5 tests.
+
+- [ ] **Step 4: Commit**
 
 ```bash
-git add swift/embed-mlx-server/Sources/EmbedMLXServer/MLXEmbeddingBackend.swift
+git add swift/embed-mlx-server/Sources/EmbedMLXServer/MLXEmbeddingBackend.swift \
+  swift/embed-mlx-server/Tests/EmbedMLXServerTests/MLXEmbeddingBackendMaskTests.swift
 git commit -m "feat(embed-mlx-server): add MLXEmbeddingBackend (real BGE-M3 inference)"
 ```
 
