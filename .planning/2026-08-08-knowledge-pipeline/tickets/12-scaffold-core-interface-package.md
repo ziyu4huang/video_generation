@@ -23,7 +23,7 @@ Implement the `@repo/pi-agent-ext-core-interface` workspace package per ticket 1
 - [x] Package scaffolds under `bun-apps/pi-agent-ext-core-interface/` with package.json (workspace, lockstep pi-core version).
 - [x] `publishSeam`/`readSeam` exported + typed-key union; orphan-publishing fails to compile.
 - [x] `KnowledgePipeline` interface defined; zk publishes `__piKnowledgePipeline`; hermes reads it defensively.
-- [x] `seam-contract.test.ts` migrated to import from the pkg (via `SEAM_KEY_ENTRIES`). **Known issue:** `__piRateLimitState` (pi-agent-ext-subagent) is still an unregistered orphan → #1130 (open) → `test:seam` red. The existing 7 working seams migrated; the orphan + re-publication of `__piWayfindActive` remain reviewable follow-ups per ticket 11 fork 3.
+- [x] `seam-contract.test.ts` migrated to import from the pkg (via `SEAM_KEY_ENTRIES`). **Resolved (#1130, closed):** `__piRateLimitState` registered in `SEAM_KEYS` as `crossPackage: false` (the key literal is owned solely in pi-agent-ext-subagent; pi-agent-ext-workflow shares the budget through the exported `getGlobalRateLimiter`/`setRateLimitCapResolver` API — no duplicated literal, no drift surface, so per the seam-contract topology it is intra-package and exempt from the NO SELF-ONLY SEAMS invariant). `SEAM_KEY_ENTRIES` count bumped 8→9; `test:seam` now green. The existing 7 working seams migrated; the re-publication of `__piWayfindActive` remains a reviewable follow-up per ticket 11 fork 3.
 - [x] `bun test` green for core-interface + seam-contract.
 
 ## Notes

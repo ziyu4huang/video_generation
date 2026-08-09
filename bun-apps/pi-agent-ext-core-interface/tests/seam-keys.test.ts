@@ -6,8 +6,8 @@ describe("SEAM_KEYS", () => {
   it("registers __piKnowledgePipeline as crossPackage", () => {
     assert.equal(SEAM_KEYS.__piKnowledgePipeline.crossPackage, true);
   });
-  it("exposes 8 entries in SEAM_KEY_ENTRIES", () => {
-    assert.equal(SEAM_KEY_ENTRIES.length, 8);
+  it("exposes 9 entries in SEAM_KEY_ENTRIES", () => {
+    assert.equal(SEAM_KEY_ENTRIES.length, 9);
     assert.ok(SEAM_KEY_ENTRIES.some((e) => e.key === "__piKnowledgePipeline" && e.crossPackage === true));
   });
   it("SeamKey includes the new key", () => {
