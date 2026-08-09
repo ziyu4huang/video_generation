@@ -1,5 +1,7 @@
 # Wayfind — port ask-matt + writing-for-agents — 2026-08-08
 
+> **Status:** done — merged via PR #1140 (skills `ask-matt` + `writing-for-agents` shipped to origin/main).
+
 ## Context
 MAYBEs deep-dive selected 2 upstream skills to port: ask-matt (the missing router/index for the wayfind family) and writing-for-agents (writing-craft reference, orthogonal to writing-skills). Order: writing-for-agents first (resolves ask-matt's forward reference), then ask-matt.
 

@@ -1,7 +1,9 @@
 ---
 effort: 2026-08-07-we-need-configurable-subagent-paralel-run-to-fol
-status: active
+status: complete
 ---
+
+> **Reconciled 2026-08-09:** DONE + live. Tickets #02 + #03 merged via PR #1062; the per-provider concurrency cap is ACTIVE (configured `rateLimits: { zai: { maxConcurrent: 4 } }`). Only #01 (real GLM Pro RPM/TPM numbers to size N) remains open — external data, not a code gap.
 
 ## Destination
 
