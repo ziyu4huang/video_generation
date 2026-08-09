@@ -1,5 +1,5 @@
 # Ticket 05 — wayfind skill: subagent dispatch discipline
-**status:** draft  **risk:** low  **size:** small  (RECOMMENDED QUICK WIN)
+**status:** done  **risk:** low  **size:** small  (RECOMMENDED QUICK WIN)
 
 ## Goal
 A wayfind skill codifying efficient dispatch — fixes the root cause (mostly
@@ -24,3 +24,12 @@ is SILENT on tokenBudget/spendBudget/commitScope and on impossible-tool tasks.
 ## Notes
 This is the lowest-risk, highest-leverage start — it changes dispatcher
 behavior immediately without code risk, and complements tickets 01–04.
+
+## Shipped
+- Skill: `bun-apps/pi-agent-ext-wayfind/skills/subagent-dispatch-discipline/SKILL.md`
+  (wayfind serves `skills/` wholesale via `pi.skills`; no per-skill manifest
+  edit; ADR-0004 respected — new skill file, no SKILL.md body edit).
+- Passes wayfind `skills.test.ts` CSO rules; `skill-weight.test.ts` (fixed
+  3-skill list) untouched.
+
+Shipped via #1158
