@@ -20,6 +20,7 @@ EOF
 require_plist() {
     if [[ ! -f "$PLIST" ]]; then
         echo "Error: $PLIST not found. Copy scripts/com.video-generation.embed-mlx-server.plist there first." >&2
+        echo "       See swift/embed-mlx-server/README.md — the plist hardcodes absolute paths." >&2
         exit 1
     fi
 }
