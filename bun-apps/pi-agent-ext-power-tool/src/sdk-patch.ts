@@ -15,7 +15,7 @@
  */
 
 import { createRequire } from "node:module";
-import { collectHooks, type HooksSnapshot } from "./tools/inspect-hooks.js";
+import { collectHooks, wrapHookHandlers, type HooksSnapshot } from "./tools/inspect-hooks.js";
 
 let patched = false;
 const sdkRequire = createRequire(import.meta.url);
@@ -73,6 +73,12 @@ export function applyContextPolyfills(
       }
     };
   }
+  // Phase 2: idempotently install the counting wrapper on every registered hook
+  // handler, IN-PLACE on the live extension.handlers arrays. The SDK emit() calls
+  // createContext() at the top of every emit before reading handlers live, so
+  // this wrap lands before dispatch on the first emit. Cheap + idempotent (one
+  // Symbol check per handler per emit) — safe on the hot emit path.
+  wrapHookHandlers(runner.extensions);
 }
 
 export function ensureGetSystemPromptOptions(): boolean {
