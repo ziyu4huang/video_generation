@@ -96,6 +96,17 @@ tree, or an unexpected ahead+behind / far-behind divergence. Run it last for a
 | Build + deploy the pi-agent bundle + thin ext bundles (mirrors `scripts/deploy.ts`) | `pi_deploy` |
 | Run a pi-agent `run-test.sh` tier (quick/medium/high/readonly/full) to self-verify | `pi_verify` |
 
+### `sync_repo` — auto-managed hot files are preserved, not aborted
+
+`sync_repo` advances the default branch (full mode), or rebases/merges the
+current branch. By DEFAULT its dirty-tree gate would refuse the most common sync
+— hermes writes `.agents/memory/MEMORY.md` in ~every worktree, leaving a dirty
+tracked tree. So the gate now **preserves** auto-managed hot files: the default
+preserve list is `['.agents/memory/MEMORY.md']`, stashed before the advance and
+restored after (never lost). All OTHER uncommitted tracked work STILL aborts
+`dirty_tree` (stash or commit it first). Override the list via `preserve:`;
+pass `preserve: []` to disable preserve entirely (strict dirty-tree gate).
+
 ## Discipline
 
 - **No raw-bash git for owned phases.** If a devops tool exists for the

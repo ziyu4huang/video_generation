@@ -278,6 +278,57 @@ export function parseOpenPrRefs(raw: unknown): Set<string> {
 	return set;
 }
 
+/** Unquote a `git` core.quotePath-quoted path: strip the surrounding `"..."` and
+ *  unescape C-style sequences (`\"`, `\\`, `\n`, `\t`, and best-effort for
+ *  `\NNN` octal bytes). Returns the input unchanged when it isn't quoted. */
+function unquoteGitPath(s: string): string {
+	if (s.length < 2 || s[0] !== '"' || s[s.length - 1] !== '"') return s;
+	const inner = s.slice(1, -1);
+	let out = "";
+	for (let i = 0; i < inner.length; i++) {
+		const ch = inner[i];
+		if (ch !== "\\") {
+			out += ch;
+			continue;
+		}
+		const next = inner[i + 1];
+		if (next === '"') { out += '"'; i++; }
+		else if (next === "\\") { out += "\\"; i++; }
+		else if (next === "n") { out += "\n"; i++; }
+		else if (next === "t") { out += "\t"; i++; }
+		else if (next && /[0-7]/.test(next) && /[0-7]/.test(inner[i + 2] ?? "") && /[0-7]/.test(inner[i + 3] ?? "")) {
+			// `\NNN` octal byte → the raw byte char (best-effort; UTF-8 reconstruction
+			// is out of scope — path matching against ASCII preserve lists is unaffected).
+			out += String.fromCharCode(Number.parseInt(inner.slice(i + 1, i + 4), 8));
+			i += 3;
+		} else {
+			out += ch; // keep the backslash for anything unrecognized
+		}
+	}
+	return out;
+}
+
+/** Parse `git status --porcelain=v1` lines into the list of TRACKED dirty paths
+ *  (repo-relative — porcelain is always repo-root-relative regardless of cwd).
+ *  EXCLUDES untracked (`??`) and ignored (`!!`) entries. For renames/copies
+ *  (`R`/`C`), takes the POST-rename (destination) path. Strips the optional
+ *  `"..."` core.quotePath quoting. Empty when clean. */
+export function parseDirtyPaths(stdout: string): string[] {
+	const out: string[] = [];
+	for (const raw of stdout.split("\n")) {
+		const line = raw.replace(/\r$/, "");
+		if (line.length < 3) continue; // need at least XY + space + a path char
+		const xy = line.slice(0, 2);
+		if (xy === "??" || xy === "!!") continue; // untracked / ignored — not dirty tracked
+		let path = line.slice(3); // after the "XY " prefix
+		const arrow = path.indexOf(" -> ");
+		if (arrow !== -1) path = path.slice(arrow + 4); // rename/copy → keep destination
+		path = unquoteGitPath(path);
+		if (path) out.push(path);
+	}
+	return out;
+}
+
 /** Parse `git branch --merged <default>` into the set of fully-contained branch names.
  *  Info-only corroboration (squash merges are missed — that's why gh is authoritative). */
 export function parseContained(stdout: string): Set<string> {
@@ -349,6 +400,14 @@ export function createBranchClient(spawn: SpawnFn): BranchClient {
 			// count (reset --hard / checkout never removes them) — matches bash.
 			const r = await spawn("git", ["-C", dir, "diff", "--quiet", "HEAD"]);
 			return r.exitCode === 0;
+		},
+		async dirtyPaths(dir) {
+			// `git status --porcelain=v1` lists every TRACKED change (staged +
+			// unstaged: modified/added/deleted/renamed/typechange), repo-relative,
+			// EXCLUDING untracked (`??`) and ignored. parseDirtyPaths strips
+			// untracked/ignored + rename `orig -> dest` prefixes + core.quotePath.
+			const r = await spawn("git", ["-C", dir, "status", "--porcelain=v1"]);
+			return parseDirtyPaths(r.stdout);
 		},
 		async aheadBehind(base, head) {
 			// A missing ref → rev-list exits non-zero with empty stdout → intOr0 → 0.
