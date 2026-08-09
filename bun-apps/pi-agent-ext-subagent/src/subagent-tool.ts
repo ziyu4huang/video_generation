@@ -421,6 +421,11 @@ export function formatSubagentLive(
 export function formatSubagentTrace(history: AgentHistoryEntry[], elapsedMs: number, minToolCalls = 0): string {
   if (history.length === 0) return "";
   const lines: string[] = [];
+  // Result indices already rendered inline with their paired call — skipped on
+  // the orphan-result pass so a paired result is never ALSO emitted standalone.
+  // (Batching: one turn emits N calls then N results; a call must pair with its
+  // OWN result by toolCallId, not the immediately-following entry.)
+  const consumedResults = new Set<number>();
   // Index into `lines` of the in-flight `→ …` entry, if any. In a normal
   // sequential agent loop there is at most one (the latest un-paired call);
   // progress attaches there. If several un-paired calls appear (a truncated
@@ -429,20 +434,40 @@ export function formatSubagentTrace(history: AgentHistoryEntry[], elapsedMs: num
   for (let i = 0; i < history.length; i++) {
     const e = history[i];
     if (e.kind === "toolCall") {
-      const next = history[i + 1];
-      if (next && next.kind === "toolResult") {
-        // Paired call+result → collapse to ONE past-tense line; consume both.
-        lines.push(`✓ ${formatToolAction(next, { matchedCallArgs: matchedCallArgsFor(history, i + 1) })}`);
-        i++;
+      // Pair this call with its OWN result: when the call carries a toolCallId,
+      // scan forward for the result whose toolCallId matches (handles batching,
+      // where results follow all calls). Fall back to the IMMEDIATELY-following
+      // result when ids are absent (legacy/sequential interleaving) — preserving
+      // prior behavior for id-less transcripts.
+      let pairIdx = -1;
+      if (e.toolCallId) {
+        for (let j = i + 1; j < history.length; j++) {
+          if (history[j].kind === "toolResult" && history[j].toolCallId === e.toolCallId) {
+            pairIdx = j;
+            break;
+          }
+        }
+      }
+      if (pairIdx < 0) {
+        const next = history[i + 1];
+        if (next && next.kind === "toolResult") pairIdx = i + 1;
+      }
+      if (pairIdx >= 0) {
+        // Paired call+result → collapse to ONE past-tense line; consume the result.
+        consumedResults.add(pairIdx);
+        lines.push(
+          `✓ ${formatToolAction(history[pairIdx], { matchedCallArgs: matchedCallArgsFor(history, pairIdx) })}`,
+        );
       } else {
         // Trailing un-paired call → in-flight (present-tense + ellipsis).
         lines.push(`→ ${formatToolAction(e)} …`);
         inFlightIdx = lines.length - 1;
       }
-    } else {
-      // Orphan toolResult (no preceding call in the window), error, or text →
-      // inline via formatHistoryLine (matchedCallArgsFor recovers a target for
-      // an orphan result/error, else verb-only).
+    } else if (!(e.kind === "toolResult" && consumedResults.has(i))) {
+      // Orphan toolResult (no preceding call / not already consumed), error, or
+      // text → inline via formatHistoryLine (matchedCallArgsFor recovers a target
+      // for an orphan result/error, else verb-only). A result already rendered
+      // inline with its paired call is skipped (consumedResults).
       lines.push(formatHistoryLine(e, { matchedCallArgs: matchedCallArgsFor(history, i) }));
     }
   }
@@ -593,12 +618,9 @@ export function renderSubagentResult(
   const modelSeg =
     d.fellBack && d.requestedModel
       ? `${shortModel(d.requestedModel)} → ${shortModel(d.model) ?? "default"}`
-      : shortModel(d.model) ?? "default";
+      : (shortModel(d.model) ?? "default");
   const meta =
-    theme.fg("muted", `${modelSeg} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`) +
-    sddTag +
-    scopeTag +
-    budgetTag;
+    theme.fg("muted", `${modelSeg} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`) + sddTag + scopeTag + budgetTag;
   if (!options.expanded) {
     const firstLine =
       text

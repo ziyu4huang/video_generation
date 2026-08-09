@@ -4,11 +4,11 @@ import type { AgentHistoryEntry } from "./agent-history.js";
 import type { ToolActionContext } from "./tool-action-label.js";
 import { formatToolAction, matchedCallArgsFor } from "./tool-action-label.js";
 
-function call(toolName: string, text: string): AgentHistoryEntry {
-  return { role: "assistant", kind: "toolCall", toolName, text };
+function call(toolName: string, text: string, toolCallId?: string): AgentHistoryEntry {
+  return { role: "assistant", kind: "toolCall", toolName, text, toolCallId };
 }
-function result(toolName: string, text = "ok"): AgentHistoryEntry {
-  return { role: "tool", kind: "toolResult", toolName, text, isError: false };
+function result(toolName: string, text = "ok", toolCallId?: string): AgentHistoryEntry {
+  return { role: "tool", kind: "toolResult", toolName, text, isError: false, toolCallId };
 }
 function errEntry(toolName: string | undefined, text: string): AgentHistoryEntry {
   return { role: "tool", kind: "error", toolName, text, isError: true };
@@ -159,6 +159,46 @@ test("matchedCallArgsFor returns undefined for non-result/error entries", () => 
   const history: AgentHistoryEntry[] = [call("read", '{"path":"a.ts"}')];
   assert.equal(matchedCallArgsFor(history, 0), undefined);
   assert.equal(matchedCallArgsFor([], 0), undefined);
+});
+
+// ── batched pairing by toolCallId (trace-fidelity fix) ──
+
+test("matchedCallArgsFor: batched same-tool results pair by toolCallId (each resolves its OWN call)", () => {
+  // The exact symptom: one assistant turn emits [read PRD, read chromadb, read map]
+  // (distinct ids), then [result, result, result] follow. Pre-fix the
+  // nearest-preceding-same-name scan resolved ALL three to the LAST call (map.md);
+  // post-fix each result resolves its OWN call's args by id.
+  const history: AgentHistoryEntry[] = [
+    call("read", '{"path":"PRD.md"}', "tc1"),
+    call("read", '{"path":"chromadb.md"}', "tc2"),
+    call("read", '{"path":"map.md"}', "tc3"),
+    result("read", "PRD body", "tc1"),
+    result("read", "chromadb body", "tc2"),
+    result("read", "map body", "tc3"),
+  ];
+  // results at indices 3, 4, 5
+  assert.deepEqual(matchedCallArgsFor(history, 3), { path: "PRD.md" });
+  assert.deepEqual(matchedCallArgsFor(history, 4), { path: "chromadb.md" });
+  assert.deepEqual(matchedCallArgsFor(history, 5), { path: "map.md" });
+});
+
+test("matchedCallArgsFor: legacy (no toolCallId) still falls back to nearest-preceding-same-name", () => {
+  // When ids are absent (older transcripts), the name-based backward scan is the
+  // only signal — it must still work unchanged (backwards compat).
+  const history: AgentHistoryEntry[] = [
+    call("read", '{"path":"PRD.md"}'),
+    call("read", '{"path":"map.md"}'),
+    result("read"),
+  ];
+  // No ids → nearest-preceding-same-name → the last read call (map.md).
+  assert.deepEqual(matchedCallArgsFor(history, 2), { path: "map.md" });
+});
+
+test("matchedCallArgsFor: result id with no matching call id → name fallback (graceful)", () => {
+  // Result carries a toolCallId but no preceding call shares it (truncated window /
+  // mismatched upstream). Must degrade to name-based pairing, NOT return undefined.
+  const history: AgentHistoryEntry[] = [call("read", '{"path":"map.md"}'), result("read", "body", "tc-x")];
+  assert.deepEqual(matchedCallArgsFor(history, 1), { path: "map.md" });
 });
 
 // ── error ──
