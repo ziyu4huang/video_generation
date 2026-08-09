@@ -1,3 +1,10 @@
+---
+effort: 2026-07-23-wayfind-done-command
+created: 2026-07-23
+last: 2026-08-09
+status: complete
+---
+
 # Wayfinder map: `/wayfind done` — distill the closing ceremony out of memory
 
 ## Destination

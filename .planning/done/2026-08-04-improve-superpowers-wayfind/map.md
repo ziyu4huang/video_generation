@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-04-improve-superpowers-wayfind
 created: 2026-08-04
-last: 2026-08-06
+last: 2026-08-09
 status: complete
 ---
 

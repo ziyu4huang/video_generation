@@ -1,3 +1,10 @@
+---
+effort: 2026-07-19-a
+created: 2026-07-19
+last: 2026-08-09
+status: complete
+---
+
 # Map — unify the goal↔plan↔todo coordination (restore skill fidelity + one layer)
 
 ## Destination
