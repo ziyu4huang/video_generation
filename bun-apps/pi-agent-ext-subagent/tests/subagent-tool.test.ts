@@ -993,6 +993,28 @@ test("formatSubagentLive caps the trace at maxTraceLines (default 100)", () => {
   assert.ok(!out.includes("t0"), "entries older than the cap are dropped");
 });
 
+test("formatSubagentLive: BATCHED calls+results label each result with its OWN file (inline trace fidelity)", () => {
+  // The inline/foreground trace (the surface where the three identical
+  // `✓ Read map.md` lines were observed). One turn emits N distinct reads
+  // (toolCallIds tc1/tc2/tc3), then N matching results. Post-fix each result
+  // trace line carries its OWN target — not the last call's.
+  const out = formatSubagentLive(
+    [
+      { role: "assistant", kind: "toolCall", toolName: "read", toolCallId: "tc1", text: '{"path":"PRD.md"}' },
+      { role: "assistant", kind: "toolCall", toolName: "read", toolCallId: "tc2", text: '{"path":"chromadb.md"}' },
+      { role: "assistant", kind: "toolCall", toolName: "read", toolCallId: "tc3", text: '{"path":"map.md"}' },
+      { role: "tool", kind: "toolResult", toolName: "read", toolCallId: "tc1", text: "PRD body" },
+      { role: "tool", kind: "toolResult", toolName: "read", toolCallId: "tc2", text: "chromadb body" },
+      { role: "tool", kind: "toolResult", toolName: "read", toolCallId: "tc3", text: "map body" },
+    ],
+    2000,
+  );
+  // Each result trace line resolves its OWN file (was: three `✓ Read map.md`).
+  assert.match(out, /✓ Read PRD\.md/, "first result labels its OWN file (PRD)");
+  assert.match(out, /✓ Read chromadb\.md/, "second result labels its OWN file (chromadb)");
+  assert.match(out, /✓ Read map\.md/, "third result labels its OWN file (map)");
+});
+
 test("renderSubagentResult isPartial+collapsed shows ≤2 header lines; expanded shows the trace (ctrl-o)", () => {
   const text = formatSubagentLive(
     [
