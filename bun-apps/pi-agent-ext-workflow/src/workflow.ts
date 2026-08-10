@@ -24,6 +24,7 @@ import { DEFAULT_AGENT_TIMEOUT_MS, MAX_AGENT_RETRIES, MAX_AGENTS_PER_RUN, MAX_CO
 import type { HostFnAskOptions, HostFnRegistry } from "./host-fn-registry.js";
 import { createWorkflowLogger } from "./logger.js";
 import { parseModelRoutingFromMeta, resolveModelForPhase } from "./model-routing.js";
+import { createRuntime } from "./workflow-runtime.js";
 import { parseWorkflowScript } from "./workflow-script-parser.js";
 import { createStdlib } from "./workflow-stdlib.js";
 import { createLimiter, runAgentWithTimeout } from "./workflow-timeout.js";
@@ -357,38 +358,10 @@ export async function runWorkflow<T = unknown>(
   // task blocked on the cross-tool budget does not occupy a per-run slot.
   const dispatch = <T>(fn: () => Promise<T>): Promise<T> => rateLimitGate(() => limiter(fn));
 
-  const log = (message: string) => {
-    const text = String(message);
-    state.logs.push(text);
-    logger.log(text);
-  };
-
-  const phase = (title: string, phaseOptions?: { budget?: number }) => {
-    state.currentPhase = title;
-    if (!state.phases.includes(title)) state.phases.push(title);
-    // Carve a soft sub-budget from the run total for work done under this phase.
-    // Re-declaring re-bases from the current spent (idempotent across resume: the
-    // script re-runs phase() and the ceiling is recomputed from live spent).
-    if (typeof phaseOptions?.budget === "number" && phaseOptions.budget > 0) {
-      state.phaseBudgets.set(title, { budget: phaseOptions.budget, startSpent: shared.spent, warned: false });
-    }
-    options.onPhase?.(title);
-  };
-
-  const budget = Object.freeze({
-    total: options.tokenBudget ?? null,
-    spent: () => shared.spent,
-    remaining: () => (options.tokenBudget == null ? Infinity : Math.max(0, options.tokenBudget - shared.spent)),
-  });
-
-  const throwIfAborted = () => {
-    if (options.signal?.aborted) {
-      throw new WorkflowError("workflow aborted", WorkflowErrorCode.WORKFLOW_ABORTED, { recoverable: true });
-    }
-  };
+  const rt = createRuntime({ options, shared, state, logger });
 
   const agent = async (prompt: string, agentOptions: AgentOptions = {}) => {
-    throwIfAborted();
+    rt.throwIfAborted();
 
     // Check agent limit
     if (shared.agentCount >= maxAgents) {
@@ -399,7 +372,7 @@ export async function runWorkflow<T = unknown>(
       );
     }
 
-    if (budget.total !== null && budget.remaining() <= 0) {
+    if (rt.budget.total !== null && rt.budget.remaining() <= 0) {
       throw new WorkflowError("workflow token budget exhausted", WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED, {
         recoverable: false,
       });
@@ -424,7 +397,7 @@ export async function runWorkflow<T = unknown>(
         }
         if (!pb.warned && phaseSpent >= pb.budget * 0.8) {
           pb.warned = true;
-          log(`phase "${assignedPhase}" at ${Math.round((phaseSpent / pb.budget) * 100)}% of its token sub-budget`);
+          rt.log(`phase "${assignedPhase}" at ${Math.round((phaseSpent / pb.budget) * 100)}% of its token sub-budget`);
         }
       }
     }
@@ -434,7 +407,7 @@ export async function runWorkflow<T = unknown>(
     // Resolve a named agentType to its bound definition (tools/model/prompt).
     const agentDef = resolveAgentType(agentOptions.agentType, agentRegistry);
     if (agentOptions.agentType && !agentDef) {
-      log(`unknown agentType "${agentOptions.agentType}"; using default tools/model`);
+      rt.log(`unknown agentType "${agentOptions.agentType}"; using default tools/model`);
     }
 
     // Model precedence: explicit agentOptions.model > agentType.model > tier > phase model.
@@ -502,7 +475,7 @@ export async function runWorkflow<T = unknown>(
       const resolvedIsolation = agentOptions.isolation ?? agentDef?.isolation;
       if (resolvedIsolation === "worktree") {
         worktree = await createWorktree(baseCwd, `${runId}-${callIndex}-${label}`);
-        if (!worktree.isolated) log(`isolation ignored for "${label}" (${worktree.reason})`);
+        if (!worktree.isolated) rt.log(`isolation ignored for "${label}" (${worktree.reason})`);
       }
       const runCwd = worktree?.isolated ? worktree.cwd : undefined;
 
@@ -530,7 +503,7 @@ export async function runWorkflow<T = unknown>(
           usage = undefined;
           sddReport = undefined;
           try {
-            throwIfAborted();
+            rt.throwIfAborted();
 
             // Run agent with timeout. The timeout aborts the agent's OWN child
             // signal (derived from options.signal), so a timed-out session is
@@ -555,7 +528,7 @@ export async function runWorkflow<T = unknown>(
                   },
                   onModelFallback: (spec: string) => {
                     // Make the silent degrade visible in /workflows, not just console.
-                    log(`${label}: model "${spec}" unavailable — using the session default`);
+                    rt.log(`${label}: model "${spec}" unavailable — using the session default`);
                   },
                   onUsage: (u: AgentUsage) => {
                     usage = u;
@@ -572,7 +545,7 @@ export async function runWorkflow<T = unknown>(
               label,
             );
 
-            throwIfAborted();
+            rt.throwIfAborted();
             if (isEmptyTextAgentResult(result, agentOptions.schema)) {
               throw new WorkflowError("Subagent produced no assistant output", WorkflowErrorCode.AGENT_EMPTY_OUTPUT, {
                 recoverable: true,
@@ -601,7 +574,7 @@ export async function runWorkflow<T = unknown>(
             const tokens = recordTokens(null);
 
             if (workflowError.recoverable && attempt < maxAttempts) {
-              log(
+              rt.log(
                 `agent "${label}" attempt ${attempt}/${maxAttempts} failed: ${workflowError.code} ${workflowError.message}; retrying`,
               );
               continue;
@@ -621,7 +594,7 @@ export async function runWorkflow<T = unknown>(
             });
 
             if (workflowError.recoverable) {
-              log(
+              rt.log(
                 `agent "${label}" exhausted ${maxAttempts} attempt${maxAttempts === 1 ? "" : "s"}: ${workflowError.code} ${workflowError.message}`,
               );
               return null;
@@ -638,7 +611,7 @@ export async function runWorkflow<T = unknown>(
   };
 
   const parallel = async (thunks: Array<() => Promise<unknown>>) => {
-    throwIfAborted();
+    rt.throwIfAborted();
     if (!Array.isArray(thunks)) throw new TypeError("parallel() expects an array of functions");
     if (thunks.some((thunk) => typeof thunk !== "function")) {
       throw new TypeError("parallel() expects an array of functions, not promises. Wrap each call: () => agent(...)");
@@ -657,7 +630,7 @@ export async function runWorkflow<T = unknown>(
             if (options.signal?.aborted) throw error;
             const workflowError = wrapError(error);
             if (!workflowError.recoverable) throw workflowError;
-            log(`parallel[${index}] failed: ${workflowError.message}`);
+            rt.log(`parallel[${index}] failed: ${workflowError.message}`);
             return null;
           }
         }),
@@ -672,7 +645,7 @@ export async function runWorkflow<T = unknown>(
     items: unknown[],
     ...stages: Array<(prev: unknown, original: unknown, index: number) => unknown>
   ) => {
-    throwIfAborted();
+    rt.throwIfAborted();
     if (!Array.isArray(items)) throw new TypeError("pipeline() expects an array as the first argument");
     if (stages.some((stage) => typeof stage !== "function")) {
       throw new TypeError("pipeline() stages must be functions: pipeline(items, item => ..., result => ...)");
@@ -682,15 +655,15 @@ export async function runWorkflow<T = unknown>(
         let value: unknown = item;
         for (const stage of stages) {
           try {
-            throwIfAborted();
+            rt.throwIfAborted();
             value = await stage(value, item, index);
-            throwIfAborted();
+            rt.throwIfAborted();
           } catch (error) {
             if (options.signal?.aborted) throw error;
             const workflowError = wrapError(error);
             // Non-recoverable failures halt the whole run (see parallel()).
             if (!workflowError.recoverable) throw workflowError;
-            log(`pipeline[${index}] failed: ${workflowError.message}`);
+            rt.log(`pipeline[${index}] failed: ${workflowError.message}`);
             return null;
           }
         }
@@ -702,7 +675,7 @@ export async function runWorkflow<T = unknown>(
   // Nested workflow(): run a saved workflow (or a raw script) inline, sharing this
   // run's limiter/counters/budget so the global caps hold. One level deep only.
   const workflowFn = async (nameOrScript: string, childArgs?: unknown) => {
-    throwIfAborted();
+    rt.throwIfAborted();
     if (shared.depth >= 1) {
       throw new WorkflowError("workflow() can nest only one level deep", WorkflowErrorCode.SCRIPT_VALIDATION_ERROR, {
         recoverable: false,
@@ -736,7 +709,7 @@ export async function runWorkflow<T = unknown>(
   // whose steering is in-session only. Headless (no UI threaded in): takes the
   // declared default and journals THAT, so a detached/background run never hangs.
   const checkpoint = async (promptText: string, checkpointOptions: CheckpointOptions = {}) => {
-    throwIfAborted();
+    rt.throwIfAborted();
     if (typeof promptText !== "string") throw new TypeError("checkpoint(promptText, options?) needs a prompt string");
     if (shared.agentCount >= maxAgents) {
       throw new WorkflowError(
@@ -769,7 +742,7 @@ export async function runWorkflow<T = unknown>(
     } else {
       reply = checkpointOptions.default ?? true;
     }
-    throwIfAborted();
+    rt.throwIfAborted();
     options.onAgentJournal?.({ index: callIndex, hash: callHash, result: reply, phase: state.currentPhase });
     return reply;
   };
@@ -800,7 +773,7 @@ export async function runWorkflow<T = unknown>(
       ask: confirm ? (promptText: string, o?: HostFnAskOptions) => confirm(promptText, { ...o }) : undefined,
     },
     runId,
-    throwIfAborted,
+    throwIfAborted: rt.throwIfAborted,
   });
 
   const context = vm.createContext({
@@ -816,17 +789,17 @@ export async function runWorkflow<T = unknown>(
     gate: stdlib.gate,
     checkpoint,
     call,
-    log,
-    phase,
+    log: rt.log,
+    phase: rt.phase,
     args: options.args,
     cwd: options.cwd ?? process.cwd(),
     process: Object.freeze({ cwd: () => options.cwd ?? process.cwd() }),
-    budget,
+    budget: rt.budget,
     console: {
-      log,
-      info: log,
-      warn: (m: unknown) => log(`[warn] ${String(m)}`),
-      error: (m: unknown) => log(`[error] ${String(m)}`),
+      log: rt.log,
+      info: rt.log,
+      warn: (m: unknown) => rt.log(`[warn] ${String(m)}`),
+      error: (m: unknown) => rt.log(`[error] ${String(m)}`),
     },
     // Object/Array/JSON/Math/Date/Promise/Set/Map/etc. come from the vm realm
     // itself — we deliberately do NOT inject host built-ins, whose .constructor
@@ -846,7 +819,7 @@ export async function runWorkflow<T = unknown>(
   // Persist logs
   const logFile = logger.persist();
   if (logFile) {
-    log(`Logs persisted to ${logFile}`);
+    rt.log(`Logs persisted to ${logFile}`);
   }
 
   // Emit final token usage
