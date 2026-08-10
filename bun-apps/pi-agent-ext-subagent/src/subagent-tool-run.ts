@@ -271,7 +271,7 @@ export interface SpawnDeps {
       }
     | undefined;
   persistence?: unknown;
-  onUpdate?: ((u: unknown) => void) | undefined;
+  onUpdate?: unknown;
 }
 
 export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: SpawnDeps): SpawnSubagentOptions {
@@ -315,7 +315,7 @@ export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: Sp
               const toolCallsNow = history.filter((h) => h.kind === "toolCall").length;
               progress.maxToolCallsSeen = Math.max(progress.maxToolCallsSeen, toolCallsNow);
               deps.inFlight?.update?.(toolCallId, history);
-              deps.onUpdate?.({
+              (deps.onUpdate as ((u: unknown) => void) | undefined)?.({
                 content: [
                   {
                     type: "text" as const,

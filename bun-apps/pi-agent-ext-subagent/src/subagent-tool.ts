@@ -12,31 +12,32 @@
  */
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import type { TSchema } from "typebox";
-import type { AgentHistoryEntry } from "./agent-history.js";
 import { type AgentDefinition, listAgentTypes, loadAgentRegistry, resolveAgentType } from "./agent-registry.js";
-import { computeScopeCheck, realGitOps, type SubagentScopeCheck } from "./git-scope.js";
-import { parseSddReport } from "./sdd-report.js";
+import { computeScopeCheck, realGitOps } from "./git-scope.js";
 import { spawnSubagent } from "./spawn-subagent.js";
-import { generateSubagentRunId } from "./subagent-run-persistence.js";
 import {
-  deriveSubagentStatus,
-  formatSubagentLive,
+  augmentOutputWithScopeViolation,
+  buildDetails,
+  buildRunRecord,
+  buildSpawnOptions,
+  captureCommitBaseline,
+  captureWatchdogBaseline,
+  resolveDisplayModel,
+  runScopeCheck,
+  runWatchdogReview,
+  type RunProgress,
+} from "./subagent-tool-run.js";
+
+import {
   formatSubagentResult,
   renderSubagentCall,
   renderSubagentResult,
   taskPreview,
   workIntentPreview,
 } from "./subagent-tool-render.js";
-import {
-  DEFAULT_TIMEOUT_MS,
-  isSchemaShaped,
-  type SubagentToolDetails,
-  type SubagentToolOptions,
-  subagentToolSchema,
-} from "./subagent-tool-schema.js";
-import { computeBaseline, type RepoBaseline } from "./watchdog/repo-diff.js";
-import { normalizeWatchdogParam, type WatchdogResult } from "./watchdog/types.js";
+import { isSchemaShaped, type SubagentToolDetails, type SubagentToolOptions, subagentToolSchema } from "./subagent-tool-schema.js";
+import { computeBaseline } from "./watchdog/repo-diff.js";
+import type { WatchdogResult } from "./watchdog/types.js";
 import { runWatchdog } from "./watchdog/watchdog.js";
 import { createWorktree, removeWorktree, type Worktree } from "./worktree.js";
 export function createSubagentTool(
@@ -79,14 +80,8 @@ export function createSubagentTool(
     parameters: subagentToolSchema,
     async execute(toolCallId, params, signal, onUpdate, _ctx) {
       const t0 = Date.now();
-      // A retryOnTransient retry hands onHistory a fresh (shorter) history array
-      // from a brand-new child session — track the running max across the whole
-      // call so the displayed tool-call count never visibly regresses. See
-      // formatSubagentProgress's `minToolCalls` param.
-      let maxToolCallsSeen = 0;
-      // Latest compact history snapshot, retained so the durable record (ticket
-      // 08) can persist the transcript. Updated in the onHistory callback.
-      let lastHistory: AgentHistoryEntry[] | undefined;
+      // Mutable progress box — updated from spawn callbacks, read in teardown/save.
+      const progress: RunProgress = { resolvedModel: undefined, fellBack: false, lastHistory: undefined, maxToolCallsSeen: 0 };
       const runCwd = params.cwd ?? defaultCwd;
       const makeWorktree = options.createWorktree ?? createWorktree;
       const teardownWorktree = options.removeWorktree ?? removeWorktree;
@@ -141,43 +136,20 @@ export function createSubagentTool(
       // before dispatch so the post-run check can diff base..HEAD for out-of-scope
       // committed paths. Only the real-tree case is checked — a worktree-isolated
       // run is discarded after teardown, so it can never pollute the parent tree.
-      const scope = params.commitScope;
-      let baseCommit: string | undefined;
-      if (scope !== undefined && spawnCwd === runCwd) {
-        try {
-          baseCommit = await gitOps.headCommit(runCwd);
-        } catch {
-          baseCommit = undefined;
-        }
-      }
+      const baseCommit = await captureCommitBaseline(params.commitScope, spawnCwd, runCwd, gitOps);
 
       // Opt-in two-layer watchdog (watchdog param): snapshot the repo state NOW so the
       // post-spawn compute can tell whether the child edited anything. Captured on
       // spawnCwd (the real tree or the worktree the child ran in). A throw / non-repo
       // → undefined, which gates the post-spawn run entirely (no review, no summary).
-      const watchdogOpts = normalizeWatchdogParam(params.watchdog);
-      let watchdogBaseline: RepoBaseline | undefined;
-      if (watchdogOpts) {
-        try {
-          watchdogBaseline = computeBaseline(spawnCwd);
-        } catch {
-          watchdogBaseline = undefined;
-        }
-      }
+      const watchdog = captureWatchdogBaseline(spawnCwd, params.watchdog, computeBaseline);
 
       const requestedModel = params.model ?? agentDef?.model;
       const tier = params.tier ?? agentDef?.tier;
       const capability = params.capability;
       const mainModel = options.getMainModel?.();
-      // Shown WHILE the subagent runs, before the resolved model is known: the
-      // requested model, else the capability, else the tier, else the live session model, else "default".
-      const displayModelBeforeResolve =
-        requestedModel ?? (capability ? `capability:${capability}` : tier ? `tier:${tier}` : mainModel) ?? "default";
-      // The concrete provider/id the child actually ran on, captured from
-      // WorkflowAgent once resolved. Falls back to the requested display string.
-      let resolvedModel: string | undefined;
-      // True when the model resolution fell back (onModelFallback fired).
-      let fellBack = false;
+      // Shown WHILE the subagent runs, before the resolved model is known.
+      const displayModelBeforeResolve = resolveDisplayModel(requestedModel, capability, tier, mainModel);
 
       // Per-child AbortController (Frontier A): the user can abort ONE running
       // child via registry.abort(toolCallId) → this controller fires. We FAN IN
@@ -205,67 +177,13 @@ export function createSubagentTool(
         foreground: true,
       });
       try {
-        const instructions =
-          [params.agent ? `You are the ${params.agent} for this task.` : undefined, agentDef?.prompt]
-            .filter((s): s is string => Boolean(s))
-            .join("\n\n") || undefined;
-
-        // Default to the parent's gated active set (not the full definition universe)
-        // so a spawned subagent doesn't re-pay the ~18k tok/req schema baseline the
-        // parent gated down to ~10k. Precedence: explicit per-call `tools` > agentType
-        // `tools` binding > parent's gated active set (the fallback when neither
-        // restricts). See .planning/2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task/
-        // ticket 01 (optimization #1). Caller's explicit `tools` still overrides.
-        const defaultActiveTools = options.getActiveTools?.();
-        const result = await spawn({
-          task: params.task,
-          tools: params.tools ?? agentDef?.tools ?? defaultActiveTools,
-          excludeTools: params.excludeTools ?? agentDef?.disallowedTools,
-          model: requestedModel,
-          tier,
-          capability,
-          mainModel,
-          cwd: spawnCwd,
-          instructions,
-          extensionTools: options.getExtensionTools?.(),
-          externalSignal: childAc.signal,
-          timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-          tokenBudget: params.tokenBudget,
-          spendBudget: params.spendBudget,
-          retryOnTransient: params.retryOnTransient,
-          schema: params.schema as TSchema | undefined,
-          schemaRepairAttempts: params.schemaRepairAttempts,
-          onModelResolved: (id) => {
-            resolvedModel = id;
-            options.inFlight?.updateModel(toolCallId, id);
-          },
-          onModelFallback: (requestedSpec) => {
-            fellBack = true;
-            options.inFlight?.markFallback(toolCallId, requestedSpec);
-          },
-          onHistory:
-            onUpdate || options.inFlight || options.persistence
-              ? (history: AgentHistoryEntry[]) => {
-                  lastHistory = history;
-                  // Progress streaming is diagnostic only — a throwing onUpdate
-                  // (e.g. a TUI re-render failure) must never fail the subagent's
-                  // actual task result.
-                  try {
-                    const toolCallsNow = history.filter((h) => h.kind === "toolCall").length;
-                    maxToolCallsSeen = Math.max(maxToolCallsSeen, toolCallsNow);
-                    options.inFlight?.update(toolCallId, history);
-                    onUpdate?.({
-                      content: [
-                        { type: "text" as const, text: formatSubagentLive(history, Date.now() - t0, maxToolCallsSeen) },
-                      ],
-                      details: undefined as unknown as SubagentToolDetails,
-                    });
-                  } catch {
-                    // swallowed — see comment above
-                  }
-                }
-              : undefined,
-        });
+        const result = await spawn(
+          buildSpawnOptions(
+            { toolCallId, t0, params, agentDef, modelCtx: { requestedModel, tier, capability, mainModel }, spawnCwd, childSignal: childAc.signal },
+            progress,
+            { getActiveTools: options.getActiveTools, getExtensionTools: options.getExtensionTools, inFlight: options.inFlight, persistence: options.persistence, onUpdate },
+          ),
+        );
         const elapsedMs = Date.now() - t0;
         // Per-child abort detection (Frontier A): a USER abort fires childAc
         // only (parent signal intact); a whole-turn Esc fans the parent signal
@@ -275,25 +193,13 @@ export function createSubagentTool(
         if (childAc.signal.aborted && !signal?.aborted) {
           // Partial work is discarded (worktree) or left in-tree (real-tree);
           // scope/watchdog review of a half-finished diff would be noise.
-          const model = resolvedModel ?? displayModelBeforeResolve;
-          options.persistence?.save({
-            id: generateSubagentRunId(),
-            toolCallId,
-            agent: params.agent,
-            task: params.task,
-            model,
-            requestedModel: fellBack ? (requestedModel ?? undefined) : undefined,
-            fellBack: fellBack || undefined,
-            tier,
-            cwd: runCwd,
-            status: "aborted",
-            exitCode: result.exitCode,
-            timedOut: false,
-            startedAt: new Date(t0).toISOString(),
-            elapsedMs,
-            usage: result.usage,
-            output: "Subagent aborted by user.",
-          });
+          const model = progress.resolvedModel ?? displayModelBeforeResolve;
+          options.persistence?.save(
+            buildRunRecord(
+              { toolCallId, agent: params.agent, task: params.task, model, requestedModel, fellBack: progress.fellBack, tier, runCwd, t0, elapsedMs },
+              { status: "aborted", exitCode: result.exitCode, timedOut: false, output: "Subagent aborted by user.", usage: result.usage },
+            ),
+          );
           return {
             content: [{ type: "text" as const, text: "Subagent aborted by user." }],
             details: {
@@ -311,92 +217,48 @@ export function createSubagentTool(
         }
         // Opt-in commit-scope check (commitScope param): detection only. A
         // throwing op is swallowed — the scope guard never fails the run.
-        let scopeCheck: SubagentScopeCheck | undefined;
-        if (scope !== undefined && spawnCwd === runCwd && baseCommit !== undefined) {
-          try {
-            scopeCheck = await computeScopeCheck(gitOps, runCwd, baseCommit, scope);
-          } catch {
-            scopeCheck = undefined;
-          }
-        }
-        let output = formatSubagentResult(result);
-        if (scopeCheck && scopeCheck.outOfScope.length > 0) {
-          // Surface the violation to the parent agent in the result text (not
-          // just the details badge) so the controller cannot miss it — the
-          // recurring `git add -A` sweep lands stray files into squash-merges.
-          const paths = scopeCheck.outOfScope.map((p) => `  - ${p}`).join("\n");
-          output += `\n\n--- ⚠ commit-scope violation (${scopeCheck.outOfScope.length}) ---\nThe subagent committed path(s) OUTSIDE the declared commitScope:\n${paths}\nInspect before merging — this is the recurring \`git add -A\` sweep signal.`;
-        }
+        const scopeCheck = await runScopeCheck(params.commitScope, spawnCwd, runCwd, baseCommit, gitOps, computeScopeCheck);
+        let output = augmentOutputWithScopeViolation(formatSubagentResult(result), scopeCheck);
         // Opt-in two-layer watchdog: run the review against the captured baseline.
         // Soft gate — appends a summary line only when runWatchdog actually ran OR
         // was edit-gated (no diff). A throw anywhere in the watchdog path is caught
         // here so it can NEVER fail the run; in that case a `watchdog-error:` line
         // is appended instead and watchdogResult stays undefined.
         let watchdogResult: WatchdogResult | undefined;
-        if (watchdogOpts && watchdogBaseline) {
-          try {
-            watchdogResult = await runWatchdog({
-              cwd: spawnCwd,
-              before: watchdogBaseline,
-              opts: watchdogOpts,
-              taskLabel: taskPreview(params.task),
-            });
-            if (watchdogResult.ran || watchdogResult.editGated) {
-              output += `\n\n--- 🔍 ${watchdogResult.summary} (soft gate — review findings; not a failure) ---`;
-            }
-          } catch (e) {
-            output += `\n\n--- 🔍 watchdog-error: ${(e as Error).message} ---`;
-          }
+        if (watchdog?.baseline) {
+          const review = await runWatchdogReview(runWatchdog, watchdog.opts, watchdog.baseline, spawnCwd, taskPreview(params.task));
+          if (review.result) watchdogResult = review.result;
+          if (review.outputAppend) output += review.outputAppend;
         }
-        const model = resolvedModel ?? displayModelBeforeResolve;
-        const details: SubagentToolDetails = {
-          exitCode: result.exitCode,
-          timedOut: result.timedOut,
-          agent: params.agent,
-          model,
-          requestedModel: fellBack ? (requestedModel ?? undefined) : undefined,
-          fellBack: fellBack || undefined,
-          taskPreview: taskPreview(params.task),
-          elapsedMs,
-          startedAt: t0,
-          status: deriveSubagentStatus(result),
-          usage: result.usage,
-          budget: result.budget,
-          // SDD report (ticket 04): parse the implementer's `**Status:**` block when
-          // present (non-SDD / schema / failure outputs have no marker → undefined).
-          report: parseSddReport(result.output),
-          scopeCheck,
-          watchdog: watchdogResult,
-        };
+        const model = progress.resolvedModel ?? displayModelBeforeResolve;
+        const details = buildDetails(
+          result,
+          { model, requestedModel, fellBack: progress.fellBack },
+          { task: params.task, agent: params.agent, elapsedMs, startedAt: t0, scopeCheck, watchdog: watchdogResult },
+        );
         // Durable record for post-session replay (ticket 08). Write-once at
         // completion; best-effort — save() swallows errors so this can never
         // fail the run. Covers done/failed/timedout (spawnSubagent returns a
         // result, never throws, on child failure); the pre-flight failEarly
         // paths above do not persist (they are not real runs).
-        options.persistence?.save({
-          id: generateSubagentRunId(),
-          toolCallId,
-          agent: params.agent,
-          task: params.task,
-          model,
-          requestedModel: fellBack ? (requestedModel ?? undefined) : undefined,
-          fellBack: fellBack || undefined,
-          tier,
-          cwd: runCwd,
-          status: details.status,
-          exitCode: details.exitCode,
-          timedOut: details.timedOut,
-          stderr: result.stderr || undefined,
-          startedAt: new Date(t0).toISOString(),
-          elapsedMs,
-          usage: details.usage,
-          budget: details.budget,
-          output,
-          history: lastHistory,
-          report: details.report,
-          scopeCheck: details.scopeCheck,
-          watchdog: watchdogResult,
-        });
+        options.persistence?.save(
+          buildRunRecord(
+            { toolCallId, agent: params.agent, task: params.task, model, requestedModel, fellBack: progress.fellBack, tier, runCwd, t0, elapsedMs },
+            {
+              status: details.status,
+              exitCode: details.exitCode,
+              timedOut: details.timedOut,
+              usage: details.usage,
+              output,
+              stderr: result.stderr || undefined,
+              budget: details.budget,
+              history: progress.lastHistory,
+              report: details.report,
+              scopeCheck: details.scopeCheck,
+              watchdog: watchdogResult,
+            },
+          ),
+        );
         return { content: [{ type: "text" as const, text: output }], details };
       } finally {
         options.inFlight?.end(toolCallId);
