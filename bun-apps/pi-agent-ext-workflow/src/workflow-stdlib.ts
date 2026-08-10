@@ -43,22 +43,19 @@ export interface Stdlib {
 
 /**
  * Fan out `count` agent() calls through `parallel`, labelling each
- * `${labelPrefix} ${i+1}` and forwarding one shared `schema`. Dedup target for
+ * `labelBuilder(i)` and forwarding one shared `schema`. Dedup target for
  * verify()/judgePanel(), which both spelled this `Array.from({length:n}, ...)` pattern inline.
  */
 export async function parallelAgents(
   parallel: ParallelFn,
   agent: AgentFn,
   count: number,
-  labelPrefix: string,
+  labelBuilder: (i: number) => string,
   promptBuilder: (i: number) => string,
   schema: TSchema,
 ): Promise<unknown[]> {
   return parallel(
-    Array.from(
-      { length: count },
-      (_v, i) => () => agent(promptBuilder(i), { label: `${labelPrefix} ${i + 1}`, schema }),
-    ),
+    Array.from({ length: count }, (_v, i) => () => agent(promptBuilder(i), { label: labelBuilder(i), schema })),
   );
 }
 
@@ -109,7 +106,7 @@ export function createStdlib(deps: StdlibDeps): Stdlib {
         parallel,
         agent,
         reviewers,
-        "verify",
+        (i) => `verify ${i + 1}`,
         (i) =>
           `Adversarially review whether the following is REAL/correct. Try to refute it; default to real=false if unsure.${lenses.length ? ` Focus lens: ${lenses[i % lenses.length]}.` : ""}\n\n${claim}`,
         VERIFY_SCHEMA as unknown as TSchema,
@@ -138,7 +135,7 @@ export function createStdlib(deps: StdlibDeps): Stdlib {
               parallel,
               agent,
               judges,
-              `judge ${idx + 1}`,
+              (j) => `judge ${idx + 1}.${j + 1}`,
               () => `Score this candidate from 0 to 1 on: ${rubric}. Reply with the score.\n\nCandidate:\n${text}`,
               JUDGE_SCHEMA as unknown as TSchema,
             )
