@@ -53,9 +53,11 @@ captureOwner(researchExtension);
 // registrars — workflow guards `if (pi.events)` (absent → skipped) and calls
 // pi.on/registerTool; subagent's top-level pi.getActiveTools() is try/caught,
 // registerModelsPresetCommand → pi.registerCommand (no-op'd), pi.registerTool
-// (captured). subagent's ungated companions subagent_runs/subagents carry NO
-// gating → buildEffectiveGates skips them (not fail-open in EFF; they're simply
-// absent from EFF.tracked, matching their ungated-by-design status).
+// (captured). subagent's companion subagent_runs carries NO gating →
+// buildEffectiveGates skips it (not fail-open in EFF; it's simply absent from
+// EFF.tracked, matching its ungated-by-design status). subagents (plural) now
+// carries the workflow family's gating too, so it IS tracked — see the 5-name
+// matchIntent assertion below.
 captureOwner(workflowExtension);
 captureOwner(subagentExtension);
 // zai-mcp (ticket 12) is the odd one out: it registers tools DYNAMICALLY at

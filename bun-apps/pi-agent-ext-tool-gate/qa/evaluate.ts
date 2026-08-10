@@ -146,9 +146,10 @@ function captureOwnerDeclaredDefs(registrars: Array<(pi: any) => void>): Capture
 // fixes CORPUS_GATES ordering (and thus matchIntent's first-match / misroute
 // target in l2.ts). workflowDefault precedes subagentDefault so the canonical
 // signature-group id stays "workflow" (the id qa/probes.ts + findGate key off).
-// The 4 tools share identical keywords-only gating → 4 single-name gates that
-// co-fire (subagent's ungated companions subagent_runs/subagents carry no gating
-// and are skipped by buildEffectiveGates's `if (!g) continue`).
+// The 5 tools share identical keywords-only gating → 5 single-name gates that
+// co-fire (subagent's companion subagent_runs carries no gating and is skipped
+// by buildEffectiveGates's `if (!g) continue`; subagents (plural) now carries
+// the same workflow-family gating and is one of the 5 tracked co-firing gates).
 //
 // NOTE (ticket 12): zaiRegistrar is appended LAST. zai-mcp's default factory
 // captures nothing (dynamic MCP registration), so zaiRegistrar drives
