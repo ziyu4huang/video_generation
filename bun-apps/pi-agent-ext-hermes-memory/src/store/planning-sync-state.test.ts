@@ -1,9 +1,16 @@
 import { after, describe, it } from "node:test";
 import * as assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { planningContentHash, getStoredHash, upsertHash, deleteHash } from "./planning-sync-state.js";
+import {
+  planningContentHash,
+  getStoredHash,
+  upsertHash,
+  deleteHash,
+  refreshPlanningCard,
+  refreshIfStale,
+} from "./planning-sync-state.js";
 import { createCardStore } from "./card-store.js";
 import type { Card } from "./card.js";
 
@@ -82,4 +89,64 @@ describe("card_md_hash round-trip (via CardStore accessors)", () => {
   });
   // Best-effort cleanup AFTER the round-trip suite shares one dir.
   after(() => rmSync(dir, { recursive: true, force: true }));
+});
+
+describe("refreshPlanningCard (09-impl T7)", () => {
+  const root = mkdtempSync(join(tmpdir(), "prefresh-"));
+  const mem = mkdtempSync(join(tmpdir(), "prefresh-mem-"));
+  const effort = "refresh-eff";
+  const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
+  const id = `planning-ticket:${effort}:01`;
+
+  it("inserts when no stored card exists", async () => {
+    mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+    writeFileSync(ticketPath, "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nFirst.\n");
+    const store = await createCardStore({ memoryDir: mem });
+    try {
+      const r = await refreshPlanningCard(store, id, root);
+      assert.equal(r.action, "inserted");
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("updates when the source md changed (drift)", async () => {
+    writeFileSync(ticketPath, "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nEDITED.\n");
+    const store = await createCardStore({ memoryDir: mem });
+    try {
+      const r = await refreshPlanningCard(store, id, root);
+      assert.equal(r.action, "updated");
+      const c = await store.getCard(id);
+      assert.match(c?.content ?? "", /EDITED\./);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("is unchanged (no write) when the source md is the same", async () => {
+    const store = await createCardStore({ memoryDir: mem });
+    try {
+      const r = await refreshPlanningCard(store, id, root);
+      assert.equal(r.action, "unchanged");
+      assert.equal(await refreshIfStale(store, id, root), false);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("returns {action:'absent'} when the source md vanished (caller may delete)", async () => {
+    rmSync(ticketPath);
+    const store = await createCardStore({ memoryDir: mem });
+    try {
+      const r = await refreshPlanningCard(store, id, root);
+      assert.equal((r as { action: string }).action, "absent");
+    } finally {
+      await store.close();
+    }
+  });
+
+  after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(mem, { recursive: true, force: true });
+  });
 });
