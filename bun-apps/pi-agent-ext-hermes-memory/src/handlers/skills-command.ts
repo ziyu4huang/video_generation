@@ -22,7 +22,6 @@ import {
 } from "@earendil-works/pi-tui";
 import {
   DEFAULT_SKILL_FILTERS,
-  MEMORY_SKILLS_KEYMAP,
   buildUnifiedSkillRows,
   cloneFilters,
   collectLoadedSkillsFromCommands,
@@ -32,7 +31,6 @@ import {
   formatSkillsList,
   getSelectedSkillIds,
   matchesCategoryFilter,
-  nextSortMode,
   sortModeLabel,
   type LoadedSkillRow,
   type SkillCategoryFilters,
@@ -45,6 +43,11 @@ import {
   moveSelectedSkills,
   type SkillBatchActionResult,
 } from "./skill-batch-ops.js";
+import {
+  reduceSkillKey,
+  type SkillKeyEffect,
+  type SkillModalState,
+} from "./skill-key-reducer.js";
 
 interface SkillsManagerCallbacks {
   moveSelected: (scope: SkillScope, skillIds: string[]) => Promise<SkillBatchActionResult>;
@@ -199,45 +202,15 @@ export class SkillsManagerModal implements Focusable {
     this.selectedIndex = Math.min(this.selectedIndex, rows.length - 1);
   }
 
-  private toggleSelected(skillId: string): void {
-    const row = this.rows.find((entry) => entry.skillId === skillId);
-    if (!row) return;
-    row.selected = !row.selected;
-  }
-
-  private toggleCurrentSelection(): void {
-    const row = this.getCurrentRow();
-    if (!row) return;
-    this.toggleSelected(row.skillId);
-    this.summaryLines = [
-      `${row.selected ? "Selected" : "Cleared"} ${row.displayName}.`,
-    ];
-    this.tui.requestRender();
-  }
-
-  private selectAllFiltered(): void {
-    const rows = this.filteredRows;
-    for (const row of rows) {
-      row.selected = true;
-    }
-    this.summaryLines = [
-      `Selected ${rows.length} visible skill${rows.length === 1 ? "" : "s"}.`,
-    ];
-    this.tui.requestRender();
-  }
-
-  private clearSelection(): void {
-    for (const row of this.rows) {
-      row.selected = false;
-    }
-    this.summaryLines = ["Cleared all selections."];
-    this.tui.requestRender();
-  }
-
-  private cycleSortMode(): void {
-    this.sortMode = nextSortMode(this.sortMode);
+  /**
+   * cycleSort effect handler. The reducer already advanced this.sortMode
+   * (applied via applySkillModalState); this rebuilds the unified rows under the
+   * new mode, refocuses by the pre-rebuild cursor's skillId, sets the summary,
+   * and renders. The reducer never touches rows.
+   */
+  private rebuildAfterSortCycle(): void {
     const selectedIds = this.getSelectedIds();
-    const currentRow = this.getCurrentRow();
+    const currentSkillId = this.getCurrentRow()?.skillId;
     this.rows = buildUnifiedSkillRows(
       this.managedSkills,
       this.loadedSkills,
@@ -249,8 +222,8 @@ export class SkillsManagerModal implements Focusable {
     const rows = this.filteredRows;
     if (rows.length === 0) {
       this.selectedIndex = 0;
-    } else if (currentRow) {
-      const focusIndex = rows.findIndex((row) => row.skillId === currentRow.skillId);
+    } else if (currentSkillId) {
+      const focusIndex = rows.findIndex((row) => row.skillId === currentSkillId);
       this.selectedIndex = focusIndex >= 0
         ? focusIndex
         : Math.min(this.selectedIndex, rows.length - 1);
@@ -438,19 +411,6 @@ export class SkillsManagerModal implements Focusable {
     }
   }
 
-  private moveSelection(delta: number): void {
-    const rows = this.filteredRows;
-    if (rows.length === 0) return;
-    const next = this.selectedIndex + delta;
-    this.selectedIndex = Math.max(0, Math.min(next, rows.length - 1));
-    this.tui.requestRender();
-  }
-
-  private pageSelection(delta: number): void {
-    const pageSize = Math.max(5, this.getMaxVisibleRows() - 1);
-    this.moveSelection(delta * pageSize);
-  }
-
   private getMaxVisibleRows(): number {
     return Math.max(6, Math.min(14, this.tui.terminal.rows - 22));
   }
@@ -464,121 +424,94 @@ export class SkillsManagerModal implements Focusable {
     }
   }
 
-  private isPrintableInput(data: string): boolean {
-    return data.length === 1 && data >= " " && data !== "\x7f";
+  /**
+   * Key dispatcher: snapshot the modal into a serializable reducer state, run
+   * the pure reduceSkillKey, apply the state delta back, then execute each
+   * emitted side-effect. All branch logic lives in the (unit-tested) reducer;
+   * this method is just the apply-reducer-then-execute shell.
+   */
+  handleInput(data: string): void {
+    const snapshot = this.snapshotSkillModalState();
+    const { state, effects } = reduceSkillKey(snapshot, data);
+    this.applySkillModalState(state);
+    for (const effect of effects) {
+      this.executeSkillKeyEffect(effect, data);
+    }
   }
 
-  handleInput(data: string): void {
-    if (this.closed) return;
+  /** Snapshot the modal's mutable fields into a serializable reducer state. */
+  private snapshotSkillModalState(): SkillModalState {
+    const filtered = this.filteredRows;
+    const currentRow = this.getCurrentRow();
+    return {
+      focusArea: this.focusArea,
+      busy: this.busy,
+      closed: this.closed,
+      pendingDeleteConfirm: this.pendingDeleteConfirm,
+      sortMode: this.sortMode,
+      selectedIndex: this.selectedIndex,
+      selectedIds: new Set(this.getSelectedIds()),
+      query: this.query,
+      rowCount: filtered.length,
+      terminalRows: this.tui.terminal.rows,
+      summaryLines: this.summaryLines,
+      currentSkillId: currentRow?.skillId ?? null,
+      currentDisplayName: currentRow?.displayName ?? null,
+      filteredSkillIds: filtered.map((row) => row.skillId),
+    };
+  }
 
-    if (this.busy) {
-      if (matchesKey(data, Key.escape)) this.closeModal();
-      return;
+  /** Apply the reducer's state delta back onto the modal's fields. */
+  private applySkillModalState(state: SkillModalState): void {
+    this.focusArea = state.focusArea;
+    this.selectedIndex = state.selectedIndex;
+    this.pendingDeleteConfirm = state.pendingDeleteConfirm;
+    this.sortMode = state.sortMode;
+    this.query = state.query;
+    this.summaryLines = state.summaryLines;
+    for (const row of this.rows) {
+      row.selected = state.selectedIds.has(row.skillId);
     }
+  }
 
-    if (this.pendingDeleteConfirm) {
-      if (data === "y" || data === "Y") {
-        const pending = this.pendingDeleteConfirm;
-        this.pendingDeleteConfirm = null;
-        void this.runDeleteConfirmed(pending.skillIds);
-        return;
-      }
-
-      if (data === "n" || data === "N" || matchesKey(data, Key.escape)) {
-        this.pendingDeleteConfirm = null;
-        this.summaryLines = ["Delete cancelled."];
-        this.tui.requestRender();
-      }
-      return;
-    }
-
-    if (this.focusArea === "filters") {
-      this.handleFilterInput(data);
-      return;
-    }
-
-    if (matchesKey(data, Key.escape)) {
-      this.closeModal();
-      return;
-    }
-
-    if (this.focusArea === "search") {
-      if (matchesKey(data, Key.tab) || matchesKey(data, Key.down)) {
+  /** Execute a side-effect emitted by the reducer. */
+  private executeSkillKeyEffect(effect: SkillKeyEffect, data: string): void {
+    switch (effect.effect) {
+      case "close":
+        this.closeModal();
+        break;
+      case "focusSearch":
+        this.focusSearchWithOptionalInput(effect.data);
+        break;
+      case "focusList":
         this.setFocusArea("list");
-        return;
-      }
-
-      this.searchInput.handleInput(data);
-      this.syncQueryFromInput();
-      this.tui.requestRender();
-      return;
-    }
-
-    if (data === MEMORY_SKILLS_KEYMAP.openFilters) {
-      this.openFilterPanel();
-      return;
-    }
-    if (data === MEMORY_SKILLS_KEYMAP.cycleSort) {
-      this.cycleSortMode();
-      return;
-    }
-
-    if (matchesKey(data, Key.tab) || matchesKey(data, Key.slash)) {
-      this.focusSearchWithOptionalInput();
-      return;
-    }
-    if (matchesKey(data, Key.up)) {
-      this.moveSelection(-1);
-      return;
-    }
-    if (matchesKey(data, Key.down)) {
-      this.moveSelection(1);
-      return;
-    }
-    if (matchesKey(data, Key.pageUp)) {
-      this.pageSelection(-1);
-      return;
-    }
-    if (matchesKey(data, Key.pageDown)) {
-      this.pageSelection(1);
-      return;
-    }
-    if (matchesKey(data, Key.home)) {
-      this.selectedIndex = 0;
-      this.tui.requestRender();
-      return;
-    }
-    if (matchesKey(data, Key.end)) {
-      this.selectedIndex = Math.max(0, this.filteredRows.length - 1);
-      this.tui.requestRender();
-      return;
-    }
-    if (matchesKey(data, Key.space)) {
-      this.toggleCurrentSelection();
-      return;
-    }
-    if (data === MEMORY_SKILLS_KEYMAP.selectAllFiltered) {
-      this.selectAllFiltered();
-      return;
-    }
-    if (data === MEMORY_SKILLS_KEYMAP.clearSelection) {
-      this.clearSelection();
-      return;
-    }
-    if (data === MEMORY_SKILLS_KEYMAP.moveGlobal) {
-      void this.runMove("global");
-      return;
-    }
-    if (data === MEMORY_SKILLS_KEYMAP.moveProject) {
-      void this.runMove("project");
-      return;
-    }
-    if (data === MEMORY_SKILLS_KEYMAP.deleteSelected) {
-      this.promptDelete();
-      return;
-    }
-    if (this.isPrintableInput(data) && !["g", "p", "d", "a", "n", "f", "s"].includes(data)) {
-      this.focusSearchWithOptionalInput(data);
+        break;
+      case "openFilters":
+        this.openFilterPanel();
+        break;
+      case "cycleSort":
+        this.rebuildAfterSortCycle();
+        break;
+      case "move":
+        void this.runMove(effect.scope);
+        break;
+      case "promptDelete":
+        this.promptDelete();
+        break;
+      case "deleteRun":
+        void this.runDeleteConfirmed(effect.ids);
+        break;
+      case "delegateSearch":
+        this.searchInput.handleInput(data);
+        this.syncQueryFromInput();
+        this.tui.requestRender();
+        break;
+      case "routeFilters":
+        this.handleFilterInput(data);
+        break;
+      case "requestRender":
+        this.tui.requestRender();
+        break;
     }
   }
 
