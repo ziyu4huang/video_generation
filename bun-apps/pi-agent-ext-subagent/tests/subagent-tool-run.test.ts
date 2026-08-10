@@ -1,9 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { AgentHistoryEntry } from "../src/agent-history.js";
 import type { GitScopeOps, SubagentScopeCheck } from "../src/git-scope.js";
-import type { RepoBaseline } from "../src/watchdog/repo-diff.js";
-import type { WatchdogResult } from "../src/watchdog/types.js";
 import {
   augmentOutputWithScopeViolation,
   captureCommitBaseline,
@@ -12,6 +9,8 @@ import {
   runScopeCheck,
   runWatchdogReview,
 } from "../src/subagent-tool-run.js";
+import type { RepoBaseline } from "../src/watchdog/repo-diff.js";
+import type { WatchdogResult } from "../src/watchdog/types.js";
 
 const fakeGitOps = (head: string | (() => Promise<string>) = "abc"): GitScopeOps =>
   ({ headCommit: typeof head === "string" ? async () => head : head }) as unknown as GitScopeOps;
@@ -34,12 +33,14 @@ test("captureCommitBaseline: returns headCommit on the real tree", async () => {
 });
 
 test("captureCommitBaseline: swallows headCommit throw → undefined", async () => {
-  const ops = fakeGitOps(async () => { throw new Error("no git"); });
+  const ops = fakeGitOps(async () => {
+    throw new Error("no git");
+  });
   assert.equal(await captureCommitBaseline(["src/"], "/r", "/r", ops), undefined);
 });
 
 test("runScopeCheck: undefined unless scope set + real tree + baseCommit present", async () => {
-  const compute = async () => ({ outOfScope: [], inScope: [] } as unknown as SubagentScopeCheck);
+  const compute = async () => ({ outOfScope: [], inScope: [] }) as unknown as SubagentScopeCheck;
   assert.equal(await runScopeCheck(undefined, "/r", "/r", "abc", fakeGitOps(), compute), undefined);
   assert.equal(await runScopeCheck(["src/"], "/wt", "/r", "abc", fakeGitOps(), compute), undefined);
   assert.equal(await runScopeCheck(["src/"], "/r", "/r", undefined, fakeGitOps(), compute), undefined);
@@ -49,9 +50,12 @@ test("runScopeCheck: undefined unless scope set + real tree + baseCommit present
 
 test("captureWatchdogBaseline: undefined when normalizeWatchdogParam rejects; {opts,baseline} otherwise", () => {
   // undefined param → normalizeWatchdogParam returns a falsy opts → undefined
-  assert.equal(captureWatchdogBaseline("/r", undefined, () => ({}) as RepoBaseline), undefined);
+  assert.equal(
+    captureWatchdogBaseline("/r", undefined, () => ({}) as RepoBaseline),
+    undefined,
+  );
   // a truthy param (boolean true) → opts truthy, baseline computed
-  const got = captureWatchdogBaseline("/r", true, () => ({ marker: "x" } as unknown as RepoBaseline));
+  const got = captureWatchdogBaseline("/r", true, () => ({ marker: "x" }) as unknown as RepoBaseline);
   assert.ok(got && "opts" in got && got.baseline);
 });
 
@@ -59,31 +63,72 @@ test("runWatchdogReview: summary line when ran/editGated; empty otherwise; error
   const ran: WatchdogResult = { ran: true, editGated: false, summary: "ok" } as unknown as WatchdogResult;
   const gated: WatchdogResult = { ran: false, editGated: true, summary: "no-diff" } as unknown as WatchdogResult;
   const idle: WatchdogResult = { ran: false, editGated: false, summary: "" } as unknown as WatchdogResult;
-  const fakeRun = async (_input: { cwd: string; before: RepoBaseline; opts: { l1: boolean; l2: boolean }; taskLabel: string }) => ran;
-  assert.ok((await runWatchdogReview(fakeRun, { l1: true, l2: false }, {} as RepoBaseline, "/r", "t")).outputAppend.includes("ok"));
-  assert.ok((await runWatchdogReview(async () => gated, { l1: true, l2: false }, {} as RepoBaseline, "/r", "t")).outputAppend.includes("no-diff"));
-  assert.equal((await runWatchdogReview(async () => idle, { l1: true, l2: false }, {} as RepoBaseline, "/r", "t")).outputAppend, "");
-  const err = await runWatchdogReview(async () => { throw new Error("boom"); }, { l1: true, l2: false }, {} as RepoBaseline, "/r", "t");
+  const fakeRun = async (_input: {
+    cwd: string;
+    before: RepoBaseline;
+    opts: { l1: boolean; l2: boolean };
+    taskLabel: string;
+  }) => ran;
+  assert.ok(
+    (await runWatchdogReview(fakeRun, { l1: true, l2: false }, {} as RepoBaseline, "/r", "t")).outputAppend.includes(
+      "ok",
+    ),
+  );
+  assert.ok(
+    (
+      await runWatchdogReview(async () => gated, { l1: true, l2: false }, {} as RepoBaseline, "/r", "t")
+    ).outputAppend.includes("no-diff"),
+  );
+  assert.equal(
+    (await runWatchdogReview(async () => idle, { l1: true, l2: false }, {} as RepoBaseline, "/r", "t")).outputAppend,
+    "",
+  );
+  const err = await runWatchdogReview(
+    async () => {
+      throw new Error("boom");
+    },
+    { l1: true, l2: false },
+    {} as RepoBaseline,
+    "/r",
+    "t",
+  );
   assert.ok(err.outputAppend.includes("watchdog-error: boom"));
   assert.equal(err.result, undefined);
 });
 
 test("augmentOutputWithScopeViolation: passthrough when none; appends block when out-of-scope", () => {
   assert.equal(augmentOutputWithScopeViolation("done", undefined), "done");
-  const out = augmentOutputWithScopeViolation("done", { outOfScope: ["evil.txt"], inScope: [] } as unknown as SubagentScopeCheck);
+  const out = augmentOutputWithScopeViolation("done", {
+    outOfScope: ["evil.txt"],
+    inScope: [],
+  } as unknown as SubagentScopeCheck);
   assert.ok(out.startsWith("done\n\n--- ⚠ commit-scope violation (1) ---"));
   assert.ok(out.includes("- evil.txt"));
 });
 
 import { buildDetails, buildRunRecord, buildSpawnOptions, type RunProgress } from "../src/subagent-tool-run.js";
-import type { SubagentRunPersistence } from "../src/subagent-run-persistence.js";
-
-type RunRecord = Parameters<SubagentRunPersistence["save"]>[0];
 
 test("buildRunRecord: aborted path JSON-matches the original literal", () => {
   const rec = buildRunRecord(
-    { toolCallId: "call-1", agent: "impl", task: "do thing", model: "tier:big", requestedModel: undefined, fellBack: false, tier: "big", runCwd: "/r", t0: 1_700_000_000_000, elapsedMs: 5000 },
-    { status: "aborted", exitCode: 0, timedOut: false, output: "Subagent aborted by user.", usage: { input: 1, output: 2 } as never },
+    {
+      toolCallId: "call-1",
+      agent: "impl",
+      task: "do thing",
+      model: "tier:big",
+      requestedModel: undefined,
+      fellBack: false,
+      tier: "big",
+      runCwd: "/r",
+      t0: 1_700_000_000_000,
+      elapsedMs: 5000,
+    },
+    {
+      status: "aborted",
+      exitCode: 0,
+      timedOut: false,
+      output: "Subagent aborted by user.",
+      usage: { input: 1, output: 2 } as never,
+    },
   );
   // The original aborted literal had exactly these keys (no stderr/budget/history/report/scopeCheck/watchdog).
   assert.equal(rec.status, "aborted");
@@ -93,27 +138,83 @@ test("buildRunRecord: aborted path JSON-matches the original literal", () => {
   // JSON-equivalent to the original aborted literal (16 keys; no stderr/budget/history/report/scopeCheck/watchdog).
   assert.deepEqual(
     JSON.parse(JSON.stringify(rec)),
-    JSON.parse(JSON.stringify({ id: rec.id, toolCallId: "call-1", agent: "impl", task: "do thing", model: "tier:big", requestedModel: undefined, fellBack: undefined, tier: "big", cwd: "/r", status: "aborted", exitCode: 0, timedOut: false, startedAt: new Date(1_700_000_000_000).toISOString(), elapsedMs: 5000, usage: { input: 1, output: 2 }, output: "Subagent aborted by user." })),
+    JSON.parse(
+      JSON.stringify({
+        id: rec.id,
+        toolCallId: "call-1",
+        agent: "impl",
+        task: "do thing",
+        model: "tier:big",
+        requestedModel: undefined,
+        fellBack: undefined,
+        tier: "big",
+        cwd: "/r",
+        status: "aborted",
+        exitCode: 0,
+        timedOut: false,
+        startedAt: new Date(1_700_000_000_000).toISOString(),
+        elapsedMs: 5000,
+        usage: { input: 1, output: 2 },
+        output: "Subagent aborted by user.",
+      }),
+    ),
   );
 });
 
 test("buildRunRecord: normal path includes the extra fields", () => {
   const rec = buildRunRecord(
-    { toolCallId: "call-1", agent: "impl", task: "do thing", model: "m1", requestedModel: "req", fellBack: true, tier: "big", runCwd: "/r", t0: 1_700_000_000_000, elapsedMs: 9000 },
-    { status: "done", exitCode: 0, timedOut: false, usage: { input: 3 } as never, output: "ok", stderr: undefined, budget: undefined, history: [], report: undefined, scopeCheck: undefined, watchdog: { ran: true } as never },
+    {
+      toolCallId: "call-1",
+      agent: "impl",
+      task: "do thing",
+      model: "m1",
+      requestedModel: "req",
+      fellBack: true,
+      tier: "big",
+      runCwd: "/r",
+      t0: 1_700_000_000_000,
+      elapsedMs: 9000,
+    },
+    {
+      status: "done",
+      exitCode: 0,
+      timedOut: false,
+      usage: { input: 3 } as never,
+      output: "ok",
+      stderr: undefined,
+      budget: undefined,
+      history: [],
+      report: undefined,
+      scopeCheck: undefined,
+      watchdog: { ran: true } as never,
+    },
   );
-  assert.equal(rec.requestedModel, "req");      // fellBack ⇒ requestedModel surfaces
+  assert.equal(rec.requestedModel, "req"); // fellBack ⇒ requestedModel surfaces
   assert.equal(rec.fellBack, true);
   assert.equal(rec.status, "done");
   assert.equal(rec.output, "ok");
 });
 
 test("buildDetails: matches the original normal details shape", () => {
-  const result = { exitCode: 0, timedOut: false, usage: { input: 1 }, budget: undefined, output: "**Status:** DONE", stderr: "" } as never;
+  const result = {
+    exitCode: 0,
+    timedOut: false,
+    usage: { input: 1 },
+    budget: undefined,
+    output: "**Status:** DONE",
+    stderr: "",
+  } as never;
   const d = buildDetails(
     result,
     { model: "m1", requestedModel: "req", fellBack: true },
-    { task: "do thing", agent: "impl", elapsedMs: 5000, startedAt: 1_700_000_000_000, scopeCheck: undefined, watchdog: { ran: true } as never },
+    {
+      task: "do thing",
+      agent: "impl",
+      elapsedMs: 5000,
+      startedAt: 1_700_000_000_000,
+      scopeCheck: undefined,
+      watchdog: { ran: true } as never,
+    },
   );
   assert.equal(d.exitCode, 0);
   assert.equal(d.status, "done");
@@ -124,13 +225,42 @@ test("buildDetails: matches the original normal details shape", () => {
 });
 
 test("buildSpawnOptions: forwards params + wires callbacks that mutate progress", async () => {
-  const progress: RunProgress = { resolvedModel: undefined, fellBack: false, lastHistory: undefined, maxToolCallsSeen: 0 };
+  const progress: RunProgress = {
+    resolvedModel: undefined,
+    fellBack: false,
+    lastHistory: undefined,
+    maxToolCallsSeen: 0,
+  };
   const updatedModel: string[] = [];
-  const inFlight = { updateModel: (id: string, m: string) => updatedModel.push(m), markFallback: () => {}, update: () => {} } as never;
+  const inFlight = {
+    updateModel: (_id: string, m: string) => updatedModel.push(m),
+    markFallback: () => {},
+    update: () => {},
+  } as never;
   const opts = buildSpawnOptions(
-    { toolCallId: "call-1", t0: 1_700_000_000_000, params: { task: "t", timeoutMs: 1000 }, agentDef: { tools: ["read"] }, modelCtx: { requestedModel: "req", tier: undefined, capability: undefined, mainModel: undefined, displayModelBeforeResolve: "req" }, spawnCwd: "/r", childSignal: new AbortController().signal },
+    {
+      toolCallId: "call-1",
+      t0: 1_700_000_000_000,
+      params: { task: "t", timeoutMs: 1000 },
+      agentDef: { tools: ["read"] },
+      modelCtx: {
+        requestedModel: "req",
+        tier: undefined,
+        capability: undefined,
+        mainModel: undefined,
+        displayModelBeforeResolve: "req",
+      },
+      spawnCwd: "/r",
+      childSignal: new AbortController().signal,
+    },
     progress,
-    { getActiveTools: () => undefined, getExtensionTools: () => undefined, inFlight, persistence: undefined, onUpdate: undefined },
+    {
+      getActiveTools: () => undefined,
+      getExtensionTools: () => undefined,
+      inFlight,
+      persistence: undefined,
+      onUpdate: undefined,
+    },
   );
   assert.equal(opts.task, "t");
   assert.equal(opts.timeoutMs, 1000);
