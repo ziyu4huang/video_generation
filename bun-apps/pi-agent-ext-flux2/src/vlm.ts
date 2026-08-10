@@ -72,7 +72,8 @@ export async function askAboutImage(
     // block, so a not-yet-flushed image or an LM Studio connection failure
     // throws instead of resolving {ok:false} as this function's own return
     // type promises its callers. Never let that escape as an uncaught throw.
-    const result = await askImage(imagePath, question, { llm, modelRegistry: await lmStudioRegistry() });
+    await lmStudioRegistry(); // ensure LM Studio registry initialized
+    const result = await askImage(imagePath, question, { llm });
     return { reply: result.reply, ok: result.ok };
   } catch {
     return { reply: "", ok: false };
