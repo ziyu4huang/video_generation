@@ -72,7 +72,7 @@ export const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS memories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project TEXT,
-    target TEXT NOT NULL CHECK (target IN ('memory', 'user', 'failure', 'knowledge')),
+    target TEXT NOT NULL CHECK (target IN ('memory', 'user', 'failure', 'knowledge', 'planning-effort', 'planning-ticket')),
     category TEXT CHECK (category IN ('failure', 'correction', 'insight', 'preference', 'convention', 'tool-quirk')),
     content TEXT NOT NULL,
     failure_reason TEXT,
