@@ -3,7 +3,13 @@
 /** Discriminator for a Card. Generalizes `MemoryTarget`
  *  (`"memory" | "user" | "failure"`) with the new `"knowledge"` kind.
  *  `CardKind ⊋ MemoryTarget`: every MemoryTarget is a CardKind, plus knowledge. */
-export type CardKind = "memory" | "user" | "failure" | "knowledge";
+export type CardKind =
+  | "memory"
+  | "user"
+  | "failure"
+  | "knowledge"
+  | "planning-effort"
+  | "planning-ticket";
 
 /** A card-agnostic record the kind-agnostic store CRUD/queries/dedups over.
  *

@@ -1,0 +1,78 @@
+import { describe, it } from "node:test";
+import * as assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { PlanningEffortSerializer, PlanningTicketSerializer } from "./planning-serializer.js";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const effortDir = join(here, "__fixtures__/planning/2026-08-08-fixture-effort");
+const mapBytes = readFileSync(join(effortDir, "map.md"), "utf8");
+const t08Bytes = readFileSync(join(effortDir, "tickets/08-planning-card-model.md"), "utf8");
+const EFFORT = "2026-08-08-fixture-effort";
+
+describe("PlanningEffortSerializer", () => {
+  const ser = new PlanningEffortSerializer();
+  it("kind === planning-effort", () => assert.equal(ser.kind, "planning-effort"));
+  it("deserialize map.md -> 1 planning-effort card", () => {
+    const cards = ser.deserialize(mapBytes, { filePath: `.planning/${EFFORT}/map.md` });
+    assert.equal(cards.length, 1);
+    const c = cards[0]!;
+    assert.equal(c.kind, "planning-effort");
+    assert.equal(c.id, `planning-effort:${EFFORT}`);
+    assert.equal(c.frontmatter.status, "active");
+    assert.equal(c.frontmatter.title, "Fixture effort — planning-card serializer");
+    assert.match(c.content, /## Destination/);
+  });
+  it("graph.links = ticket numbers cited in the map", () => {
+    const [c] = ser.deserialize(mapBytes, { filePath: `.planning/${EFFORT}/map.md` });
+    assert.deepEqual([...(c!.graph?.links ?? [])].sort(), ["01", "08"]);
+  });
+  it("returns [] without filePath", () => assert.deepEqual(ser.deserialize(mapBytes), []));
+});
+
+describe("PlanningTicketSerializer", () => {
+  const ser = new PlanningTicketSerializer();
+  it("kind === planning-ticket", () => assert.equal(ser.kind, "planning-ticket"));
+  it("deserialize tickets/08 -> planning-ticket card with gist + deps", () => {
+    const cards = ser.deserialize(t08Bytes, {
+      filePath: `.planning/${EFFORT}/tickets/08-planning-card-model.md`,
+    });
+    assert.equal(cards.length, 1);
+    const c = cards[0]!;
+    assert.equal(c.kind, "planning-ticket");
+    assert.equal(c.id, `planning-ticket:${EFFORT}:08`);
+    assert.equal(c.frontmatter.id, "08");
+    assert.equal(c.frontmatter.slug, "planning-card-model");
+    assert.equal(c.frontmatter.type, "grilling");
+    assert.equal(c.frontmatter.status, "closed");
+    assert.equal(c.frontmatter.claimed, "pi/test");
+    assert.deepEqual(c.frontmatter.blockedBy, ["01"]);
+    // ADAPTATION (08-impl T3): Card.frontmatter is `Record<string, unknown>`,
+    // so `.resolutionGist` is `unknown`; assert.match requires `string`. Cast is
+    // type-only — runtime + assertion intent are byte-identical to the plan.
+    assert.match(c.frontmatter.resolutionGist as string, /Hermes owns ingest/);
+    assert.match(c.content, /## Resolution/);
+  });
+  it("graph.relations = blocked-by + cited paths", () => {
+    const [c] = ser.deserialize(t08Bytes, {
+      filePath: `.planning/${EFFORT}/tickets/08-planning-card-model.md`,
+    });
+    const rels = c!.graph?.relations ?? [];
+    assert.ok(
+      rels.some((r) => r.rel === "blocked-by" && r.o === `planning-ticket:${EFFORT}:01`),
+    );
+    assert.ok(
+      rels.some(
+        (r) => r.rel === "cites" && r.o === "bun-apps/pi-agent-ext-hermes-memory/src/store/card.ts",
+      ),
+    );
+    assert.ok(
+      rels.some(
+        (r) =>
+          r.rel === "cites" &&
+          r.o === ".planning/specs/2026-08-09-knowledge-pipeline-phase2-design.md",
+      ),
+    );
+  });
+});

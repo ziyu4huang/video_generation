@@ -1,12 +1,17 @@
 import { readdirSync, lstatSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
+import { planningCardKindFromSegs } from "./store/planning-id.js";
 
 /** Knowledge source families the walk classifies (Option A ingests workflow-jsonl;
  *  generic is detected-but-deferred). Memory-card sources (.agents/memory) are
- *  out of scope and reported in skipped.deferredFamily. */
+ *  out of scope and reported in skipped.deferredFamily. The `planning` family
+ *  (Phase-2 / 08) routes `.planning/<effort>/{map.md,tickets/NN.md}` for the
+ *  seam-independent planning mirror — classified BEFORE the generic `.md`
+ *  fallback so non-card `.planning` md (specs/plans/flat) stays generic/deferred. */
 export interface WalkFiles {
   "workflow-jsonl": string[];
   generic: string[];
+  planning: string[];
 }
 
 export interface WalkSkipped {
@@ -68,7 +73,7 @@ function shouldSkipDir(abs: string, root: string, basename: string): boolean {
 
 function emptyResult(): WalkResult {
   return {
-    files: { "workflow-jsonl": [], generic: [] },
+    files: { "workflow-jsonl": [], generic: [], planning: [] },
     skipped: { dirs: [], binaries: [], symlinks: [], deferredFamily: [] },
   };
 }
@@ -97,6 +102,10 @@ function classify(abs: string, root: string, result: WalkResult, opts: WalkOptio
     return;
   }
   if (ext === ".md") {
+    if (planningCardKindFromSegs(segs)) {
+      result.files.planning.push(abs);
+      return;
+    }
     result.files.generic.push(abs);
     return;
   }
@@ -185,6 +194,7 @@ export function walkKnowledgeSources(input: string | string[], opts: WalkOptions
   }
   result.files["workflow-jsonl"] = dedupeSorted(result.files["workflow-jsonl"]);
   result.files.generic = dedupeSorted(result.files.generic);
+  result.files.planning = dedupeSorted(result.files.planning);
   result.skipped.dirs = dedupeSorted(result.skipped.dirs);
   result.skipped.binaries = dedupeSorted(result.skipped.binaries);
   result.skipped.symlinks = dedupeSorted(result.skipped.symlinks);

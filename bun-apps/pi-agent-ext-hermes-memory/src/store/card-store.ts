@@ -24,8 +24,12 @@ import type { CardSerializer } from "./card-serializer.js";
 import type { DedupStrategy } from "./dedup-strategy.js";
 import { MemorySerializer } from "./memory-serializer.js";
 import { KnowledgeSerializer } from "./knowledge-serializer.js";
+import { PlanningEffortSerializer } from "./planning-serializer.js";
+import { PlanningTicketSerializer } from "./planning-serializer.js";
 import { MemoryDedupStrategy } from "./memory-dedup.js";
 import { KnowledgeDedupStrategy } from "./knowledge-dedup.js";
+import { PlanningEffortDedupStrategy } from "./planning-dedup.js";
+import { PlanningTicketDedupStrategy } from "./planning-dedup.js";
 import { today } from "./memory-format.js";
 
 export interface CardStore {
@@ -116,6 +120,8 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
     ["user", new MemorySerializer("user")],
     ["failure", new MemorySerializer("failure")],
     ["knowledge", new KnowledgeSerializer()],
+    ["planning-effort", new PlanningEffortSerializer()],
+    ["planning-ticket", new PlanningTicketSerializer()],
   ]);
   const memoryDedup = new MemoryDedupStrategy();
   const dedupStrategies = new Map<CardKind, DedupStrategy>([
@@ -123,6 +129,8 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
     ["user", memoryDedup],
     ["failure", memoryDedup],
     ["knowledge", new KnowledgeDedupStrategy()],
+    ["planning-effort", new PlanningEffortDedupStrategy()],
+    ["planning-ticket", new PlanningTicketDedupStrategy()],
   ]);
 
   const getDb = () => backend.getDb();
@@ -154,19 +162,20 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
       // MemoryStore consolidation path; knowledge merge is 06b).
       if (decision.action !== "keep") return;
 
+      const persistableKinds = new Set<CardKind>(["knowledge", "planning-effort", "planning-ticket"]);
       await runWithTransientRetry(() =>
         backend.withCorruptionRecovery(() => {
-          if (card.kind !== "knowledge") {
-            // Non-knowledge kinds are not exercised by the 06a acceptance
+          if (!persistableKinds.has(card.kind)) {
+            // Non-persistable kinds are not exercised by the 06a/08 acceptance
             // (memory cards keep their MemoryStore path). Surface a clear error
             // rather than inventing a memory INSERT that could diverge from the
             // proven section-md codec.
             throw new Error(
-              `createCardStore.upsertCard (06a) persists knowledge cards only; kind "${card.kind}" ` +
+              `createCardStore.upsertCard persists card-store-managed kinds only (knowledge/planning-*); kind "${card.kind}" ` +
                 "uses the existing MemoryStore path.",
             );
           }
-          // Knowledge row mapping (spec §7): target='knowledge',
+          // Card row mapping (spec §7): target=card.kind (knowledge OR planning-*),
           // md_id=Card.id (the join key), content=Card.content,
           // frontmatter=JSON envelope. Memory-specific columns (category/
           // failure_reason/tool_state/corrected_to/supersedes*/mw_*/parent_ids)
@@ -180,7 +189,7 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
                   created, last_referenced, mw_success, mw_fail, status, md_id, state, severity, pin, frontmatter)
                VALUES (?, ?, NULL, ?, NULL, NULL, NULL, ?, ?, 0, 0, 'active', ?, 'active', NULL, 0, ?)`,
             )
-            .run(null, "knowledge", card.content, today(), today(), card.id, JSON.stringify(card.frontmatter));
+            .run(null, card.kind, card.content, today(), today(), card.id, JSON.stringify(card.frontmatter));
         }),
       );
     },

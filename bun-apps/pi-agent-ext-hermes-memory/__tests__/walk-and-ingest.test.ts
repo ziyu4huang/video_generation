@@ -228,3 +228,35 @@ describe("walkAndIngest (orchestrator: walk → adapt → ingest → heal)", () 
     assert.equal(receipt.ingest!.created, 1);
   });
 });
+
+describe("walkAndIngest — planning family (seam-independent)", () => {
+  it("mirrors .planning/ into the card-store without the zk seam", async () => {
+    const root = mkdtempSync(join(tmpdir(), "planning-walk-"));
+    const mem = mkdtempSync(join(tmpdir(), "planning-walk-mem-"));
+    try {
+      const effort = "fixture-walk-effort";
+      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+      writeFileSync(
+        join(root, ".planning", effort, "map.md"),
+        "---\nstatus: active\n---\n# Walk effort\n\n## Destination\nd\n",
+      );
+      writeFileSync(
+        join(root, ".planning", effort, "tickets", "01-x.md"),
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nDone.\n",
+      );
+      // Absolute input -> rel paths retain the `.planning` segment the classifier needs.
+      const receipt = await walkAndIngest(root, { memoryDir: mem });
+      assert.ok(receipt.planningMirrored >= 2, `expected >=2 mirrored, got ${receipt.planningMirrored}`);
+
+      const store = await createCardStore({ memoryDir: mem });
+      const tickets = await store.getCardsByKind("planning-ticket");
+      const efforts = await store.getCardsByKind("planning-effort");
+      await store.close();
+      assert.ok(tickets.some((c) => c.id === `planning-ticket:${effort}:01`));
+      assert.ok(efforts.some((c) => c.id === `planning-effort:${effort}`));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+});
