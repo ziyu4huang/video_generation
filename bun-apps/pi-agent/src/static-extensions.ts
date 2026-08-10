@@ -65,6 +65,7 @@ import subagentExtension from "../../pi-agent-ext-subagent/extensions/subagent.t
 import workflowExtension from "../../pi-agent-ext-workflow/extensions/workflow.ts";
 import knowledgeCardExtension from "../../pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 import powerToolExtension from "../../pi-agent-ext-power-tool/extensions/power-tool.ts";
+import webuiExtension from "../../pi-agent-ext-webui/extensions/webui.ts";
 
 export const STATIC_EXTENSION_FACTORIES = [
 	// Group A — original "general productivity" set
@@ -86,4 +87,7 @@ export const STATIC_EXTENSION_FACTORIES = [
 	// power-tool — always-on diagnostics suite (inspect_context/agent/extensions/
 	// pathology/tui); active not lazy, so belongs inline like the rest of Group B
 	{ name: "pi-agent-ext-power-tool", factory: powerToolExtension },
+	// webui — web frontend co-driving one AgentSession with the TUI behind an
+	// agentic mutex (Bun.serve WS transport; starts lazily on session_start).
+	{ name: "pi-agent-ext-webui", factory: webuiExtension },
 ];
