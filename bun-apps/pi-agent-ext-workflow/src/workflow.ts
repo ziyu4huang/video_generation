@@ -202,6 +202,16 @@ export interface AgentOptions<TSchemaDef extends TSchema | undefined = TSchema |
   spendBudget?: number;
 }
 
+/** agent() global signature shared between runWorkflow, createStdlib, and createRuntime. */
+export type AgentFn = (prompt: string, agentOptions?: AgentOptions) => Promise<unknown>;
+/** parallel() global signature shared between runWorkflow, createStdlib, and createRuntime. */
+export type ParallelFn = (thunks: Array<() => Promise<unknown>>) => Promise<unknown[]>;
+/** pipeline() global signature shared between runWorkflow and createRuntime. */
+export type PipelineFn = (
+  items: unknown[],
+  ...stages: Array<(prev: unknown, original: unknown, index: number) => unknown>
+) => Promise<unknown[]>;
+
 /** Options for a human checkpoint() — a deterministic, journaled, replayable gate. */
 export interface CheckpointOptions {
   /** Reply used when no UI is available (headless/background) and headless != "abort". */
@@ -222,7 +232,7 @@ export interface CheckpointOptions {
   signal?: AbortSignal;
 }
 
-interface RuntimeState {
+export interface RuntimeState {
   currentPhase?: string;
   /**
    * Per-phase soft sub-budgets carved from the run total: phase title -> the
