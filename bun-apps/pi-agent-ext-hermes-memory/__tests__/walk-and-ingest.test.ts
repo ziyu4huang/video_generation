@@ -260,3 +260,69 @@ describe("walkAndIngest — planning family (seam-independent)", () => {
     }
   });
 });
+
+describe("walkAndIngest — planning mirror drift (09-impl T3)", () => {
+  it("INSERTs a new ticket (no stored hash)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pmir-ins-"));
+    const mem = mkdtempSync(join(tmpdir(), "pmir-ins-mem-"));
+    try {
+      const effort = "drift-ins";
+      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+      writeFileSync(join(root, ".planning", effort, "tickets", "01-x.md"),
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nFirst.\n");
+      const r = await walkAndIngest(root, { memoryDir: mem });
+      assert.ok(r.planningMirrored >= 1);
+      const store = await createCardStore({ memoryDir: mem });
+      const c = await store.getCard(`planning-ticket:${effort}:01`);
+      await store.close();
+      assert.match(c?.content ?? "", /First\./);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+
+  it("UPDATEs an edited ticket (hash mismatch) instead of skipping", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pmir-upd-"));
+    const mem = mkdtempSync(join(tmpdir(), "pmir-upd-mem-"));
+    try {
+      const effort = "drift-upd";
+      const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
+      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+      writeFileSync(ticketPath,
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nOriginal.\n");
+      await walkAndIngest(root, { memoryDir: mem });            // mirror once (INSERT + hash)
+      // Edit the ticket content (git-canonical md changed).
+      writeFileSync(ticketPath,
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nEDITED body.\n");
+      const r2 = await walkAndIngest(root, { memoryDir: mem });  // re-mirror → UPDATE
+      assert.ok(r2.planningMirrored >= 1, "edited ticket must be re-mirrored (UPDATE), not skipped");
+      const store = await createCardStore({ memoryDir: mem });
+      const c = await store.getCard(`planning-ticket:${effort}:01`);
+      await store.close();
+      assert.match(c?.content ?? "", /EDITED body\./);
+      assert.doesNotMatch(c?.content ?? "", /Original\./);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+
+  it("skips an UNCHANGED ticket (hash match — no write)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pmir-skip-"));
+    const mem = mkdtempSync(join(tmpdir(), "pmir-skip-mem-"));
+    try {
+      const effort = "drift-skip";
+      const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
+      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+      const body = "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nStable.\n";
+      writeFileSync(ticketPath, body);
+      await walkAndIngest(root, { memoryDir: mem });             // mirror once
+      const r2 = await walkAndIngest(root, { memoryDir: mem });  // re-mirror unchanged
+      assert.equal(r2.planningMirrored, 0, "unchanged ticket must be skipped (hash match)");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+});

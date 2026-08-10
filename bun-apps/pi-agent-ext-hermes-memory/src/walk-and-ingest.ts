@@ -9,6 +9,7 @@ import { parseKnowledgeJsonl } from "./knowledge-jsonl.js";
 import { AGENT_ROOT } from "./paths.js";
 import { createCardStore } from "./store/card-store.js";
 import { planningCardKindFromPath } from "./store/planning-id.js";
+import { planningContentHash, getStoredHash, upsertHash } from "./store/planning-sync-state.js";
 
 /** Options for walkAndIngest. Extends the walk policy opts with ingest/heal scope. */
 export interface WalkAndIngestOptions extends WalkOptions {
@@ -50,6 +51,9 @@ export interface WalkAndIngestReceipt {
   /** # of planning-cards mirrored into the card-store (Phase-2 / 08; 0 when
    *  no .planning/ source is walked). Independent of the zk seam. */
   planningMirrored: number;
+  /** Effort ids whose md carries a conflict marker (scanned in T5). Empty in
+   *  T3 — the field is reserved NOW so T5 is a pure populate-change. */
+  conflictMarkerEfforts: string[];
   /** Tier-1 md-hash drift hook stub (task 7). `currentHashes` is the sha256 of
    *  each mirrored vault-md file (relPath → hash); `previousHashes` echoes the
    *  opts for change-detection. No re-index action (full drift = ticket 05). */
@@ -142,8 +146,10 @@ export async function walkAndIngest(
     Object.assign(currentHashes, m.currentHashes);
   }
 
-  // 8b. Planning DB-mirror (Phase-2 / 08) — independent of the zk seam.
-  const { planningMirrored } = await mirrorPlanningToStore(walk.files.planning, opts.memoryDir);
+  // 8b. Planning DB-mirror (Phase-2 / 09-impl) — hash-compare INSERT/UPDATE/skip.
+  const planMirror = await mirrorPlanningToStore(walk.files.planning, opts.memoryDir);
+  const planningMirrored = planMirror.planningMirrored;
+  const conflictMarkerEfforts = planMirror.conflictMarkerEfforts; // populated in T5
 
   // 10. Receipt.
   if (!kp && walk.files.planning.length === 0) {
@@ -157,6 +163,7 @@ export async function walkAndIngest(
       skipped: walk.skipped,
       seamPresent: false,
       reason: "zk KnowledgePipeline seam not present and no planning source",
+      conflictMarkerEfforts: [],
     };
   }
   return {
@@ -167,6 +174,7 @@ export async function walkAndIngest(
     heal,
     mirrored,
     planningMirrored,
+    conflictMarkerEfforts,
     driftStub: {
       filesHashed: Object.keys(currentHashes).length,
       previousHashes: opts.previousHashes,
@@ -231,19 +239,26 @@ async function mirrorVaultMdToStore(
   return { mirrored, currentHashes };
 }
 
-/** Mirror step 8b (Phase-2 / 08): read each `.planning/<effort>/{map.md,
- *  tickets/NN.md}` planning source -> deserialize via the store's planning
- *  serializers -> upsertCard. Independent of the zk seam (planning is
- *  hermes-internal). Idempotent via the planning dedup strategies (append-once;
- *  content updates are ticket 09). Returns the # of planning cards mirrored.
- *  The store reuses the SAME SQLite DB the memory/knowledge cards use
- *  (`<memoryDir>/sessions.db`); `memoryDir` defaults to the existing hermes
- *  memory DB dir, NEVER inside the vault. No-op when `planningFiles` is empty. */
+/** Mirror step 8b (Phase-2 / 09-impl): self-correcting hash-compare mirror.
+ *  For each planning source: deserialize → compute incoming content-hash
+ *  (planningContentHash, reusing merge-plan.hashEntry) → read the stored hash →
+ *  branch:
+ *    - no existing card (getCard null) → upsertCard (INSERT; dedup keep) + write hash;
+ *    - stored hash ≠ incoming → updateCard (UPDATE content/frontmatter) + refresh hash;
+ *    - hash match → skip (no write; cheap).
+ *  Dedup is consulted ONLY for the new-card identity check (INSERT branch); the
+ *  UPDATE branch bypasses dedup (pure identity cannot express update — the
+ *  DedupDecision union is keep/merge/skip, by design). Returns the # of cards
+ *  mirrored (INSERT+UPDATE; skips not counted) + conflict-marker efforts (T5).
+ *  Independent of the zk seam (planning is hermes-internal). The store reuses the
+ *  SAME SQLite DB the memory/knowledge cards use; memoryDir defaults to the
+ *  existing hermes memory DB dir. No-op when planningFiles is empty. */
 async function mirrorPlanningToStore(
   planningFiles: string[],
   memoryDir?: string,
-): Promise<{ planningMirrored: number }> {
-  if (planningFiles.length === 0) return { planningMirrored: 0 };
+): Promise<{ planningMirrored: number; conflictMarkerEfforts: string[] }> {
+  const conflictMarkerEfforts: string[] = []; // populated in T5
+  if (planningFiles.length === 0) return { planningMirrored: 0, conflictMarkerEfforts };
   const dir = memoryDir ?? join(AGENT_ROOT, "pi-hermes-memory");
   const store = await createCardStore({ memoryDir: dir });
   let planningMirrored = 0;
@@ -260,12 +275,25 @@ async function mirrorPlanningToStore(
       const serializer = store.serializerFor(kind);
       const cards = serializer ? serializer.deserialize(bytes, { filePath: abs }) : [];
       for (const card of cards) {
-        await store.upsertCard(card);
-        planningMirrored++;
+        const incomingHash = planningContentHash(card);
+        const existing = await store.getCard(card.id);
+        const stored = await getStoredHash(store, card.id);
+        if (existing === null || stored === null) {
+          // New card (or first mirror after 08→09): INSERT through dedup, write hash.
+          await store.upsertCard(card);
+          await upsertHash(store, card.id, incomingHash);
+          planningMirrored++;
+        } else if (stored.hash !== incomingHash) {
+          // Drift (md edited): Tier-1 md-wins UPDATE + refresh hash.
+          await store.updateCard(card);
+          await upsertHash(store, card.id, incomingHash);
+          planningMirrored++;
+        }
+        // else: hash match → skip (no write).
       }
     }
   } finally {
     await store.close();
   }
-  return { planningMirrored };
+  return { planningMirrored, conflictMarkerEfforts };
 }
