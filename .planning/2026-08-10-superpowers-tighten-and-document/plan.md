@@ -289,7 +289,7 @@ test("local UNTRACKED scratch under .superpowers/ does not false-red the guard",
   const scratchDir = join(repoRoot, ".superpowers", "sdd", "plan");
   const scratchFile = join(scratchDir, "scratch-task-brief.md");
   Bun.spawnSync(["mkdir", "-p", scratchDir]);
-  Bun.writeSync(scratchFile, "transient\n");
+  Bun.spawnSync(["touch", scratchFile]);
   try {
     const offenders: string[] = [];
     for (const root of ["docs/superpowers", ".superpowers"]) {
@@ -365,7 +365,7 @@ test("local UNTRACKED scratch under .superpowers/ does not false-red the guard",
   const scratchDir = join(repoRoot, ".superpowers", "sdd", "plan");
   const scratchFile = join(scratchDir, "scratch-task-brief.md");
   Bun.spawnSync(["mkdir", "-p", scratchDir]);
-  Bun.writeSync(scratchFile, "transient\n");
+  Bun.spawnSync(["touch", scratchFile]);
   try {
     expect(findLeakedFiles()).toEqual([]);
   } finally {
