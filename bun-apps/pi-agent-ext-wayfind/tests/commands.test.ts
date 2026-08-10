@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,6 +7,7 @@ import { registerCommands } from "../src/commands.js";
 import { createEffort } from "../src/effort-tool.js";
 import { readMap, writeMap, writeTicket } from "../src/map.js";
 import { WayfindOverlay } from "../src/overlay.js";
+import { readWayfindStatusBar } from "../src/settings.js";
 import { createRuntimeState, isGrillActive, type RuntimeState } from "../src/state.js";
 
 /** Minimal ExtensionAPI mock: captures registered commands into a Map and
@@ -532,5 +533,134 @@ describe("/wayfind validate — conformance command", () => {
     const { ctx, notifications } = ctxCapturing(cwd);
     await pi.commands.get("wayfind")?.("validate bad", ctx);
     expect(notifications.some((n) => /destination|invalid/i.test(n))).toBe(true);
+  });
+});
+
+// ─── /wayfind statusbar — opt-in persistent status bar toggle ──────────────
+describe("/wayfind statusbar — opt-in persistent status bar toggle", () => {
+  // writeWayfindStatusBar writes ~/.pi/agent/settings.json — isolate to a tmp
+  // agent dir so the command tests never pollute the real user settings.
+  let agentTmp: string;
+  let prevAgentDir: string | undefined;
+
+  beforeEach(() => {
+    agentTmp = mkdtempSync(join(tmpdir(), "pi-wf-sb-cmd-"));
+    prevAgentDir = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = agentTmp;
+  });
+
+  afterEach(() => {
+    if (prevAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = prevAgentDir;
+    rmSync(agentTmp, { recursive: true, force: true });
+  });
+
+  /** Like setup(), but returns the overlay so the statusbar tests can assert on
+   *  setStatusBarEnabled / isStatusBarEnabled + spy on setActiveEffort. */
+  function setupWithOverlay(): { pi: MockPi; state: RuntimeState; overlay: WayfindOverlay } {
+    const state = createRuntimeState();
+    const overlay = new WayfindOverlay();
+    const pi = createPi();
+    registerCommands(pi as unknown as Parameters<typeof registerCommands>[0], state, overlay);
+    return { pi, state, overlay };
+  }
+
+  it("'on' enables + persists + notifies 'status bar on — start an effort' when no effort is active", async () => {
+    const { pi, overlay } = setupWithOverlay();
+    const cwd = makeCwd();
+    const { ctx, notifications } = ctxCapturing(cwd);
+    await pi.commands.get("wayfind")?.("statusbar on", ctx);
+    expect(overlay.isStatusBarEnabled()).toBe(true);
+    expect(readWayfindStatusBar()).toBe(true);
+    expect(notifications.some((n) => n.includes("status bar on") && n.includes("start an effort"))).toBe(true);
+    // No bogus '🧭 on' banner — the statusbar subcommand is banner-excluded.
+    expect(notifications.every((n) => !n.startsWith("🧭 on"))).toBe(true);
+  });
+
+  it("'off' disables + persists + notifies 'status bar off'", async () => {
+    const { pi, overlay } = setupWithOverlay();
+    overlay.setStatusBarEnabled(true); // start on
+    const { ctx, notifications } = ctxCapturing(makeCwd());
+    await pi.commands.get("wayfind")?.("statusbar off", ctx);
+    expect(overlay.isStatusBarEnabled()).toBe(false);
+    expect(readWayfindStatusBar()).toBe(false);
+    expect(notifications.some((n) => n === "🧭 status bar off")).toBe(true);
+  });
+
+  it("no-arg toggles the current state (on → off → on)", async () => {
+    const { pi, overlay } = setupWithOverlay();
+    const cwd = makeCwd();
+    const { ctx: onCtx } = ctxCapturing(cwd);
+    await pi.commands.get("wayfind")?.("statusbar", onCtx);
+    expect(overlay.isStatusBarEnabled()).toBe(true);
+    const { ctx: offCtx } = ctxCapturing(cwd);
+    await pi.commands.get("wayfind")?.("statusbar", offCtx);
+    expect(overlay.isStatusBarEnabled()).toBe(false);
+  });
+
+  it("enabling pushes the active effort so the line renders immediately, and shows its manifest status", async () => {
+    const { pi, state, overlay } = setupWithOverlay();
+    const cwd = makeCwd();
+    // Seed an active effort with an `active` manifest.
+    writeMap(cwd, {
+      effort: "demo",
+      destination: "d",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+      meta: { effort: "demo", status: "active" },
+    });
+    state.activeEffortBySession.set("test-session", "demo");
+    // Spy on setActiveEffort so we can confirm the statusbar handler pushes it.
+    let spy: { effort?: string; cwd?: string } | undefined;
+    overlay.setActiveEffort = (effort, c) => {
+      spy = { effort, cwd: c };
+    };
+    const { ctx, notifications } = ctxCapturing(cwd);
+
+    await pi.commands.get("wayfind")?.("statusbar on", ctx);
+
+    expect(spy).toEqual({ effort: "demo", cwd });
+    expect(overlay.isStatusBarEnabled()).toBe(true);
+    expect(notifications.some((n) => n.includes("status bar on") && n.includes("demo") && n.includes("active"))).toBe(
+      true,
+    );
+  });
+});
+
+// ─── /wayfind done — clears the overlay active effort on success (auto-hide) ─
+describe("/wayfind done — clears the overlay active effort on success", () => {
+  it("a successful closing ceremony calls overlay.setActiveEffort(undefined, undefined)", async () => {
+    const overlay = new WayfindOverlay();
+    const spyCalls: Array<{ effort?: string; cwd?: string }> = [];
+    overlay.setActiveEffort = (effort, cwd) => {
+      spyCalls.push({ effort, cwd });
+    };
+    const state = createRuntimeState();
+    const pi = createPi();
+    registerCommands(pi as unknown as Parameters<typeof registerCommands>[0], state, overlay);
+
+    const cwd = makeCwd();
+    // An empty-ticket map lets closeEffortReflection succeed (frontier is empty).
+    writeMap(cwd, {
+      effort: "demo",
+      destination: "d",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+      meta: { effort: "demo", status: "active" },
+    });
+    state.activeEffortBySession.set("test-session", "demo");
+
+    const { ctx, notifications } = ctxCapturing(cwd);
+    await pi.commands.get("wayfind")?.("done demo", ctx);
+
+    // The done ceremony succeeded (not refused) + the active effort was cleared.
+    expect(notifications.some((n) => n.includes("done:") && n.includes("demo"))).toBe(true);
+    expect(spyCalls.some((c) => c.effort === undefined && c.cwd === undefined)).toBe(true);
   });
 });

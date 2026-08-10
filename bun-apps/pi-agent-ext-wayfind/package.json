@@ -28,6 +28,7 @@
   "scripts": {
     "test": "bun run check && bun run build && bun run test:unit",
     "test:unit": "bun test",
+    "typecheck": "tsc --noEmit",
     "check": "biome check .",
     "format": "biome format --write .",
     "lint": "biome lint .",

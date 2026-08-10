@@ -194,3 +194,75 @@ describe("WayfindOverlay — clearTransientUnlessSustained (turn_end auto-clear)
     expect(refreshed).toBe(1);
   });
 });
+
+describe("WayfindOverlay — opt-in persistent status bar", () => {
+  /** Build a tmp cwd with a manifest map carrying the given effort + status. */
+  function cwdWithEffort(effort: string, status: "active" | "complete" | "paused"): string {
+    const cwd = mkdtempSync(join(tmpdir(), "wf-sb-"));
+    writeMap(cwd, {
+      effort,
+      destination: "d",
+      notes: "",
+      decisions: [],
+      fog: [],
+      outOfScope: [],
+      tickets: [],
+      meta: { effort, status },
+    });
+    return cwd;
+  }
+
+  test("statusBarOn=true + active effort (status active) → paints the idle effort line", () => {
+    const cwd = cwdWithEffort("demo", "active");
+    const o = new WayfindOverlay();
+    o.setStatusBarEnabled(true);
+    o.setActiveEffort("demo", cwd);
+    expect(o.render(plainTheme, 80)).toEqual(["🧭 wayfind │ 🗺️ demo · active"]);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("statusBarOn=true + status complete → [] (auto-hides a completed effort)", () => {
+    const cwd = cwdWithEffort("demo", "complete");
+    const o = new WayfindOverlay();
+    o.setStatusBarEnabled(true);
+    o.setActiveEffort("demo", cwd);
+    expect(o.render(plainTheme, 80)).toEqual([]);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("statusBarOn=true + no active effort → [] (nothing to show)", () => {
+    const o = new WayfindOverlay();
+    o.setStatusBarEnabled(true);
+    expect(o.render(plainTheme, 80)).toEqual([]);
+  });
+
+  test("statusBarOn=true + a transient action line set → renders the transient line, NOT the idle line (precedence)", () => {
+    const cwd = cwdWithEffort("demo", "active");
+    const o = new WayfindOverlay();
+    o.setStatusBarEnabled(true);
+    o.setActiveEffort("demo", cwd);
+    o.setLine("charting", "charting demo");
+    // The transient action line wins (augmented with manifest status), never the idle effort line.
+    expect(o.render(plainTheme, 80)).toEqual(["🧭 wayfind │ 🗺️ charting demo · active"]);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("statusBarOn=false (default) + active effort → [] (the gating fix — idle line never monopolizes the bar)", () => {
+    const cwd = cwdWithEffort("demo", "active");
+    const o = new WayfindOverlay();
+    // statusBarOn stays false (default — tests construct WayfindOverlay directly).
+    o.setActiveEffort("demo", cwd);
+    expect(o.render(plainTheme, 80)).toEqual([]);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("setStatusBarEnabled(true) flips state + triggers refresh; isStatusBarEnabled reflects it", () => {
+    const o = new WayfindOverlay();
+    expect(o.isStatusBarEnabled()).toBe(false);
+    let refreshed = 0;
+    o.setRefresh(() => refreshed++);
+    o.setStatusBarEnabled(true);
+    expect(o.isStatusBarEnabled()).toBe(true);
+    expect(refreshed).toBe(1);
+  });
+});
