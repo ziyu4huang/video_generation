@@ -30,8 +30,9 @@ so today the duplication is unguarded.
 
 ## Goal
 
-Reduce the local copies to zero (excluding the retained host copy, below), so
-the tool-gating type contract has exactly one source of truth.
+Reduce the local copies to zero within this spec's ten migration units
+(excluding the `pi-agent` host copy, migrated separately in a follow-up task —
+see below), so the tool-gating type contract has exactly one source of truth.
 
 **This is a pure type-level migration. No runtime behavior changes.** The
 verification section requires proving that.
@@ -63,25 +64,40 @@ with no `extends`, so the tsconfig edit is identical in each.
 | 9 | `pi-agent-ext-workflow` | `src/` | `src/workflow-tool.ts`, `src/workflow-control-tool.ts` | 2 declaring files |
 | 10 | `pi-agent-ext-hermes-memory` | `src/` | 8 files under `src/tools/` | **already** declares the dep (`dependencies`, runtime consumer) — skip step 1 |
 
-### Retained: the `pi-agent` host copy
+### The `pi-agent` host copy: migrated in a follow-up
 
-`bun-apps/pi-agent/src/tool-gating.d.ts` is **not** migrated. Its header
-documents a distinct purpose: it makes the augmentation visible to the
-monorepo-wide typecheck, which follows imports into every extension's `src/`.
-It is the one copy whose removal could break a compile context no per-package
-typecheck covers.
+`bun-apps/pi-agent/src/tool-gating.d.ts` was originally **not** migrated as
+part of this spec's ten units. Its header documented a distinct purpose: it
+was believed to make the augmentation visible to the monorepo-wide typecheck,
+which follows imports into every extension's `src/` — the one copy whose
+removal could break a compile context no per-package typecheck covers.
 
-Keeping it is safe for this migration's verification, verified empirically
-rather than assumed: no `pi-agent-ext-*` package imports into `pi-agent/src/`
-(grep for `../../pi-agent/` and `@repo/pi-agent` returns nothing), and
-`pi-agent/src/` appears zero times in `movie-director`'s negative-control `tsc`
-output. The host copy is therefore unreachable from any extension's program and
-cannot mask a missing augmentation in a migrated package.
+A final review disproved that. Deleting the host copy and re-running
+`( cd bun-apps/pi-agent && bunx tsc --noEmit )` produces **0 errors, 0 gating
+errors** — the augmentation is not lost. It arrives transitively:
+`hermes-memory` and `knowledge-card` import `@repo/pi-agent-ext-core-interface`
+at runtime, both packages are statically imported by
+`bun-apps/pi-agent/src/static-extensions.ts`, and the package's
+`exports["."].types` resolves into `src/types.d.ts`, which itself references
+`tool-gating.d.ts`. A positive control (injecting a bogus property beside a
+`gating` declaration in `pi-agent-ext-wayfind/src/effort-tool.ts`) confirmed the
+checker is genuinely live and the augmentation genuinely arrives — this is not
+a case of the typecheck silently failing to cover extension sources.
 
-(Note: `dep-guard` invariant 4 does *not* cover this — it forbids extensions
-from importing `pi-agent-cli`, a different package.)
+The host copy has since been deleted (in a follow-up task) and replaced with an
+explicit edge: `compilerOptions.types: ["bun", "@repo/pi-agent-ext-core-interface"]`
+in `pi-agent/tsconfig.json`, plus a matching `devDependencies` entry in
+`pi-agent/package.json`. This is deliberate insurance, not a load-bearing fix —
+the transitive path above would keep the augmentation working even without it —
+but it means the augmentation no longer silently depends on `hermes-memory` /
+`knowledge-card` continuing to import `core-interface` at runtime.
 
-Removing it is a candidate follow-up, not part of this spec.
+One accepted gap: `dep-guard`'s invariant checking `compilerOptions.types`
+entries against `package.json` (invariant 2, see [Extending `dep-guard`](#extending-dep-guard)
+below) only scans packages matching `pi-agent-ext-*` (`EXTS` in
+`bun-apps/tests/dep-guard.test.ts`). `pi-agent` is the host, not an extension,
+so this new edge is not covered by that invariant — an accepted, documented
+gap rather than an oversight.
 
 ## Design
 
@@ -168,7 +184,7 @@ Its doc comment also records the dependency-field convention stated above
 (types-only → `devDependencies`; runtime consumers → `dependencies` /
 `peerDependencies`), so the convention lives next to its check.
 
-The acyclicity invariant (5) is unaffected: `core-interface` declares no
+The acyclicity invariant (6) is unaffected: `core-interface` declares no
 `@repo/*` dependencies, so it stays a leaf and the ten new edges introduce no
 cycle.
 
@@ -254,7 +270,7 @@ bun run --cwd bun-apps/pi-agent-ext-tool-gate test   # drift-guard
 |---|---|
 | A package's program does not resolve the `types` entry (unproven for 9 of 10) | Verified per package by the "0 gating errors + baseline-equal total" criterion, applied after all deletions |
 | A package is only passing via a neighbour's copy | Addressed by verification rule 2 — verify only in the all-deleted state |
-| Removing the host copy breaks the monorepo-wide typecheck | Host copy is explicitly retained |
+| Removing the host copy breaks the monorepo-wide typecheck | Disproven by final review (0 errors after deletion) plus a positive control; the copy was migrated to an explicit `types` edge, not left dangling |
 | A `gating` declaration is edited by accident | `qa:savings` and `qa:gate-recall` must be numerically identical |
 | `bun.lock` drift blocks CI | Review the lockfile diff before committing |
 

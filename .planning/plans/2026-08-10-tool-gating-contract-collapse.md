@@ -32,7 +32,11 @@ flux2  krea2  file2md  research-tool  wayfind  obsidian  subagent  workflow  mov
 hermes-memory                                                                                  ← already declares the dep
 ```
 
-`bun-apps/pi-agent/src/tool-gating.d.ts` (the host copy) is **retained** — see the spec.
+`bun-apps/pi-agent/src/tool-gating.d.ts` (the host copy) was **not** migrated by
+this plan — see the spec. It was migrated in a later follow-up task (outside
+this plan): deleted and replaced with an explicit `compilerOptions.types`
+edge, after a final review disproved the original "serves the monorepo-wide
+typecheck" justification for keeping it.
 
 ---
 
@@ -415,9 +419,15 @@ Expected: `ok  hermes-memory`, no `ABORT`.
 find /Users/huangziyu/proj/video_generation__embed/bun-apps -name 'tool-gating.d.ts' -not -path '*/node_modules/*'
 ```
 
-Expected: exactly two paths —
+Expected at this step: exactly two paths —
 `bun-apps/pi-agent-ext-core-interface/src/tool-gating.d.ts` (canonical) and
-`bun-apps/pi-agent/src/tool-gating.d.ts` (retained host copy).
+`bun-apps/pi-agent/src/tool-gating.d.ts` (host copy, not migrated by this
+plan).
+
+*Update:* a later follow-up task (outside this plan) migrated the host copy
+too, after a final review disproved the "serves the monorepo-wide typecheck"
+justification for keeping it. As of that follow-up, only the canonical copy
+remains.
 
 - [ ] **Step 3: Commit**
 
@@ -631,7 +641,7 @@ EOF
 
 ## Done criteria
 
-- [ ] `find bun-apps -name tool-gating.d.ts -not -path '*/node_modules/*'` returns exactly 2 paths (canonical + retained host copy)
+- [ ] `find bun-apps -name tool-gating.d.ts -not -path '*/node_modules/*'` returns exactly 2 paths at the end of this plan (canonical + `pi-agent` host copy, not migrated here). A later follow-up task (outside this plan) migrated the host copy too, leaving exactly 1 path.
 - [ ] All 10 packages: `after == before` total errors, `gating == 0` (Task 5, run in the all-deleted state)
 - [ ] `qa:savings` reports `ON at start: 10,113` and `SAVED: 11,011` — unchanged
 - [ ] `qa:gate-recall` reports `0 failing, 0 uncovered`
