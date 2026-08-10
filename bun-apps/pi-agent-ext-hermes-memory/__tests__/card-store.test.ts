@@ -164,4 +164,60 @@ describe("card-agnostic store (SQLite round-trip)", () => {
       rmSync(legacyDir, { recursive: true, force: true });
     }
   });
+
+  it("creates card_dep_hash on a fresh store open (10-impl T2)", async () => {
+    const { RawDatabase } = await import("../src/store/sqlite/sqlite-backend.js");
+    const raw = new RawDatabase(join(dir, "sessions.db"));
+    const row = raw
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='card_dep_hash'")
+      .get() as { name?: string } | undefined;
+    raw.close();
+    assert.equal(row?.name, "card_dep_hash");
+  });
+
+  it("ensures card_dep_hash on a legacy (pre-10) DB via ensureCardDepHashTable", async () => {
+    const legacyDir = mkdtempSync(join(tmpdir(), "carddephash-migrate-"));
+    try {
+      const { RawDatabase } = await import("../src/store/sqlite/sqlite-backend.js");
+      const raw = new RawDatabase(join(legacyDir, "sessions.db"));
+      // A pre-10 DB: has memories + card_md_hash (post-09) but NO card_dep_hash.
+      raw.exec(
+        `CREATE TABLE memories (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           target TEXT NOT NULL CHECK (target IN ('memory','user','failure','knowledge','planning-effort','planning-ticket')),
+           content TEXT NOT NULL, created DATE NOT NULL, last_referenced DATE NOT NULL
+         )`,
+      );
+      raw.exec(
+        `CREATE TABLE card_md_hash (
+           card_id TEXT PRIMARY KEY, content_hash TEXT NOT NULL,
+           mirrored_at DATE NOT NULL, kind TEXT NOT NULL DEFAULT 'mirror'
+         )`,
+      );
+      raw.close();
+      const migrated = await createCardStore({ memoryDir: legacyDir, dbBackend: "sqlite" });
+      await migrated.close();
+      const after = new RawDatabase(join(legacyDir, "sessions.db"));
+      const row = after
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='card_dep_hash'")
+        .get() as { name?: string } | undefined;
+      after.close();
+      assert.equal(row?.name, "card_dep_hash");
+    } finally {
+      rmSync(legacyDir, { recursive: true, force: true });
+    }
+  });
+
+  it("card_dep_hash accessors round-trip (getCardDepHash/upsertCardDepHash/deleteCardDepHash)", async () => {
+    assert.equal(await store.getCardDepHash("planning-ticket:e:01"), null);
+    await store.upsertCardDepHash("planning-ticket:e:01", "deadbeefdeadbeef");
+    const got = await store.getCardDepHash("planning-ticket:e:01");
+    assert.equal(got?.depHash, "deadbeefdeadbeef");
+    assert.ok(got?.validatedAt);
+    // UPSERT overwrites (no kind discriminator — one aggregate row per card).
+    await store.upsertCardDepHash("planning-ticket:e:01", "newhash0000000000");
+    assert.equal((await store.getCardDepHash("planning-ticket:e:01"))?.depHash, "newhash0000000000");
+    await store.deleteCardDepHash("planning-ticket:e:01");
+    assert.equal(await store.getCardDepHash("planning-ticket:e:01"), null);
+  });
 });

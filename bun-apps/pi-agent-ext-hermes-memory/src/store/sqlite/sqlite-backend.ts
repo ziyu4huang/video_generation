@@ -338,6 +338,10 @@ export class SqliteBackend implements Backend {
     // for the planning-card content-hash mirror. Idempotent (CREATE TABLE IF
     // NOT EXISTS). Additive — does NOT touch `memories` (no C3 column-drift).
     this.ensureCardMdHashTable(db);
+    // Phase-2 (knowledge-pipeline / ticket 10): ensure the card_dep_hash table
+    // for the staleness dependency-graph baseline. Idempotent (CREATE TABLE IF
+    // NOT EXISTS). Additive — does NOT touch memories/card_md_hash.
+    this.ensureCardDepHashTable(db);
     this.rebuildMemoryFts(db);
   }
 
@@ -787,6 +791,20 @@ export class SqliteBackend implements Backend {
         kind TEXT NOT NULL DEFAULT 'mirror'
       );
       CREATE INDEX IF NOT EXISTS idx_card_md_hash_kind ON card_md_hash(kind);
+    `);
+  }
+
+  /** 10-impl (ticket 10): ensure the `card_dep_hash` table exists. Idempotent
+   *  (CREATE TABLE IF NOT EXISTS). Additive — does NOT touch `memories` or
+   *  `card_md_hash` (no C3 column-drift; no PK collision with the mirror hash). */
+  private ensureCardDepHashTable(db: DatabaseLike): void {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS card_dep_hash (
+        card_id TEXT PRIMARY KEY,
+        dep_hash TEXT NOT NULL,
+        validated_at DATE NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_card_dep_hash ON card_dep_hash(card_id);
     `);
   }
 
