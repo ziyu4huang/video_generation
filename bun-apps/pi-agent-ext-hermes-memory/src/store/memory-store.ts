@@ -37,6 +37,7 @@ import {
   MEMORY_FILE,
   USER_FILE,
 } from "../constants.js";
+import { splitMemoryEntries } from "../merge-union.js";
 import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy, Provenance, MemorySource, FailureState } from "../types.js";
 import { AGENT_ROOT } from "../paths.js";
 import { envFloat, envInt } from "../utils/env.js";
@@ -1911,7 +1912,7 @@ export class MemoryStore {
     try {
       const raw = await fs.readFile(filePath, "utf-8");
       if (!raw.trim()) return [];
-      return raw.split(ENTRY_DELIMITER).map((e) => e.trim()).filter(Boolean);
+      return splitMemoryEntries(raw);
     } catch {
       return [];
     }
