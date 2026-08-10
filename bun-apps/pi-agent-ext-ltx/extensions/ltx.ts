@@ -290,7 +290,7 @@ function makeLtxTool() {
           extraArgs: params.extraArgs,
           shotLanguage: params.shotLanguage as ShotLanguage | undefined,
           signal,
-          onProgress: (u) => onUpdate?.({ kind: "progress", text: u.text }),
+          onProgress: (u) => onUpdate?.({ content: [{ type: "text" as const, text: u.text }], details: {} }),
         });
 
         const content = details.ok ? summary : `${summary}\n\n── stderr tail ──\n${stderrTail}`;
