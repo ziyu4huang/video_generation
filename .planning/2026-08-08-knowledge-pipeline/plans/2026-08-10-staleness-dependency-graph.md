@@ -38,6 +38,7 @@
 - **ε — graduation behavior:** BLOCK — `closeEffortReflection` returns `{ refused: "N stale decision(s) remain on <effort>…" }` while stale. Pinned by ticket 10 Resolution Q3. **Because the seam is async (β), `closeEffortReflection` becomes `async`** (return type `Promise<CloseEffortReflection | CloseEffortRefused>`); its sole non-test caller `commands.ts:handleWayfindDone` is already async (add one `await`), and the 3 existing `closeEffortReflection` assertions in `wayfinder.test.ts` each get one `await`. This is the only public-signature ripple in the plan and it is localized + mechanical. (The brief sketched a sync seam; that is infeasible against the real async store — `CardStore.getCard`/`getCardsByKind` are async-wrapped. Async is the honest resolution.)
 - **ζ — sweep vs revalidate (cleaner of the brief's "pick one"):** the `session_start` sweep FLAGS stale (it calls `computeStaleness`, which is compare-only after the first-touch seed — it does NOT rebaseline drifted cards, which would wipe stale state every session_start and contradict γ). `refreshStaleness` is the explicit RE-VALIDATE primitive (re-baseline now) — called by the agent re-grill flow via the `planning_stale` tool's `revalidate` action (T6), NOT by the sweep. The sweep's observable write is seeding dep baselines for newly-mirrored cards (fixing "validated as of session start" snapshots so a dep change DURING the session is detectable at graduation).
 - **StaleCard shape (minimal, duplicated across the seam — no shared import):** `{ cardId: string; effort: string; missingDeps?: string[] }`.
+- **η — T4 dep source (Path B — REVISED from the verbatim T4 body):** the 06a store does NOT persist `card.graph` (`card.ts` documents `graph?` as "part of the TYPE but NOT persisted/indexed in 06a … round-trips as `undefined`"; `rowToCard` emits no `graph`; the `memories` table has no graph column). Therefore `computeStaleness` CANNOT source a card's deps from `store.getCard(id).graph.relations` — that path was always `[]`, so staleness was a **no-op** (the structural blocker that forced this amendment). **Path B:** deps are sourced by re-parsing the **git-canonical source `.md`** (Tier-1 md-wins) via a new additive `readSourceCard(store, cardId, fsRoot): Promise<Card | null>` helper, exported from `planning-sync-state.ts` alongside a newly-exported `sourcePathForId` — `readSourceCard` resolves the source path (`sourcePathForId`), reads the md bytes utf8 (absent → null), derives the kind from the id prefix, `store.serializerFor(kind).deserialize(bytes, {filePath})`, and `find(c => c.id === cardId)` (none → null). The deserialized card HAS `graph.relations` (the serializer populates `blocked-by`/`cites`/`depends_on`). `refreshPlanningCard` is refactored to call `readSourceCard` (behavior-preserving extract — its 09-impl tests gate the refactor). First-class `card.graph` persistence is DEFERRED to ticket 03 (graph layer, unbuilt). This mirrors `refreshPlanningCard`'s resolve→read→deserialize→find body, so it is self-contained (NO `memories` migration) and aligns with the md-wins model. T4 tests write a real source `.md` ticket file (+ its cited/`depends_on` dep files) under a temp fsRoot — mirroring `refreshPlanningCard`'s 09-impl test setup.
 
 ---
 
@@ -590,200 +591,129 @@ git -C <WT> commit -m "feat(knowledge-pipeline): dep aggregate hash + validated-
 
 ### Task 4: staleness computation module
 
+> **Path B amendment (decision η):** the verbatim T4 body below sourced deps from `store.getCard(id).graph.relations`, but the 06a store does NOT persist `card.graph` (`card.ts`: "round-trips as `undefined"`; `rowToCard` emits no `graph`). That path was always `[]` → staleness was a no-op. **Path B:** deps come from re-parsing the git-canonical source `.md` via a new `readSourceCard` helper (exported from `planning-sync-state.ts` alongside a newly-exported `sourcePathForId`). Tests write a real source `.md` ticket file under a temp fsRoot. See decision η above.
+
 **Files:**
+- Modify: `bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.ts` (**export** `sourcePathForId`; **add** additive `readSourceCard(store, cardId, fsRoot): Promise<Card | null>`; **refactor** `refreshPlanningCard` to call it — behavior-preserving extract gated by its 09-impl tests)
 - Create: `bun-apps/pi-agent-ext-hermes-memory/src/store/planning-staleness.ts`
 - Create: `bun-apps/pi-agent-ext-hermes-memory/src/store/planning-staleness.test.ts`
 
 **Interfaces:**
-- Consumes: `CardStore` (incl. T2 `getCardDepHash`/`upsertCardDepHash` + `getCard`/`getCardsByKind`); `citedDeps`/`depAggregateHash` from `./planning-sync-state.js`; `Card` from `./card.js`.
+- Consumes: `CardStore` (incl. T2 `getCardDepHash`/`upsertCardDepHash` + `getCardsByKind`); `readSourceCard` + `depAggregateHash` + `writeValidatedBaseline` from `./planning-sync-state.js`; `Card` from `./card.js`.
 - Produces:
   - `StaleCard` (exported) = `{ cardId: string; effort: string; missingDeps?: string[] }`.
-  - `computeStaleness(store, cardId, fsRoot): Promise<{ stale: boolean; missing: string[] }>` — `getCard`; absent → `{stale:false,missing:[]}`; compute current `depAggregateHash`; read stored `getCardDepHash`; FIRST check (no stored baseline) → seed it via `upsertCardDepHash`, return `{stale:false,missing}`; else `stale = current.hash !== stored.depHash || missing.length > 0` (NO write — a stale card stays flagged until explicitly re-validated via T5 `refreshStaleness`).
-  - `getStaleCards(store, effort?, fsRoot): Promise<StaleCard[]>` — `getCardsByKind("planning-ticket")`; optional effort filter (derive effort from the ticket card id); `computeStaleness` each; map stale → `StaleCard`.
+  - `computeStaleness(store, cardId, fsRoot): Promise<{ stale: boolean; missing: string[] }>` — `readSourceCard` (re-parse the source `.md`); unresolvable → `{stale:false,missing:[]}` (can't validate → not stale; NO baseline written); the deserialized card HAS `graph.relations`; compute current `depAggregateHash`; read stored `getCardDepHash`; FIRST check (no stored baseline) → seed it via `writeValidatedBaseline`, return `{stale:false,missing}`; else `stale = current.hash !== stored.depHash || missing.length > 0` (NO write — a stale card stays flagged until explicitly re-validated via T5 `refreshStaleness`).
+  - `getStaleCards(store, effort?, fsRoot): Promise<StaleCard[]>` — `getCardsByKind("planning-ticket")` (enumeration — card ids only, NO graph needed); optional effort filter (derive effort from the ticket card id); `computeStaleness` each; map stale → `StaleCard`.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing test (Path B — see decision η)**
 
-Create `src/store/planning-staleness.test.ts`:
+> **Path B:** deps come from a real source `.md` (re-parsed via `readSourceCard`), NOT from an inline `graph` on a store row (the 06a store does not persist `card.graph`). So the test writes a real `.planning/<effort>/tickets/01-<slug>.md` (+ its cited + `depends_on` dep files) under a temp fsRoot — mirroring `refreshPlanningCard`'s 09-impl test. `computeStaleness` does NOT read the card from the store (only `getCardDepHash`/`upsertCardDepHash`); `getStaleCards` enumerates via `store.getCardsByKind("planning-ticket")`, so a card is `store.upsertCard`'d for THAT test only (its row needs NO graph).
+
+Create `src/store/planning-staleness.test.ts` (sketch — the committed file is authoritative):
 ```ts
-import { after, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { computeStaleness, getStaleCards } from "./planning-staleness.js";
 import { createCardStore } from "./card-store.js";
-import { upsertCardDepHash } from "./planning-sync-state.js";
-import type { Card } from "./card.js";
 
-const root = mkdtempSync(join(tmpdir(), "stale-root-"));
-const mem = mkdtempSync(join(tmpdir(), "stale-mem-"));
-after(() => {
-  rmSync(root, { recursive: true, force: true });
-  rmSync(mem, { recursive: true, force: true });
-});
-
-const ticket = (effort: string, no: string, dep: string): Card => ({
-  id: `planning-ticket:${effort}:${no}`,
-  kind: "planning-ticket",
-  content: "body",
-  frontmatter: { id: no, slug: "x", status: "closed" },
-  graph: { relations: [{ s: `planning-ticket:${effort}:${no}`, rel: "depends_on", o: dep }] },
-});
-
-describe("computeStaleness (10-impl T4)", () => {
-  it("first check seeds the baseline and is NOT stale", async () => {
-    mkdirSync(join(root, "src"), { recursive: true });
-    writeFileSync(join(root, "src", "seed.ts"), "v1");
-    const store = await createCardStore({ memoryDir: mem });
-    try {
-      const card = ticket("seed-eff", "01", "src/seed.ts");
-      await store.upsertCard(card);
-      const r = await computeStaleness(store, card.id, root);
-      assert.equal(r.stale, false);
-      // baseline seeded
-      assert.ok(await store.getCardDepHash(card.id));
-    } finally {
-      await store.close();
-    }
-  });
-
-  it("a changed dep -> stale (compare-only, NO rebaseline)", async () => {
-    writeFileSync(join(root, "src", "seed.ts"), "v2-EDITED");
-    const store = await createCardStore({ memoryDir: mem });
-    try {
-      const r = await computeStaleness(store, "planning-ticket:seed-eff:01", root);
-      assert.equal(r.stale, true);
-    } finally {
-      await store.close();
-    }
-  });
-
-  it("a missing dep -> stale + missing[] populated", async () => {
-    mkdirSync(join(root, "src"), { recursive: true });
-    writeFileSync(join(root, "src", "gone.ts"), "G");
-    const store = await createCardStore({ memoryDir: mem });
-    try {
-      const card = ticket("miss-eff", "01", "src/gone.ts");
-      await store.upsertCard(card);
-      await computeStaleness(store, card.id, root); // seed baseline (file present)
-      rmSync(join(root, "src", "gone.ts"));
-      const r = await computeStaleness(store, card.id, root);
-      assert.equal(r.stale, true);
-      assert.deepEqual(r.missing, ["src/gone.ts"]);
-    } finally {
-      await store.close();
-    }
-  });
-
-  it("absent card -> {stale:false, missing:[]}", async () => {
-    const store = await createCardStore({ memoryDir: mem });
-    try {
-      const r = await computeStaleness(store, "planning-ticket:nope:99", root);
-      assert.equal(r.stale, false);
-      assert.deepEqual(r.missing, []);
-    } finally {
-      await store.close();
-    }
-  });
-});
-
-describe("getStaleCards (10-impl T4)", () => {
-  it("returns only stale tickets; effort filter scopes; clean effort -> empty", async () => {
-    // seed-eff:01 is stale (dep edited above). Add a clean ticket in another effort.
-    mkdirSync(join(root, "src"), { recursive: true });
-    writeFileSync(join(root, "src", "clean.ts"), "clean");
-    const store = await createCardStore({ memoryDir: mem });
-    try {
-      await store.upsertCard(ticket("clean-eff", "01", "src/clean.ts"));
-      await computeStaleness(store, "planning-ticket:clean-eff:01", root); // seed + clean
-      const all = await getStaleCards(store, undefined, root);
-      const ids = all.map((s) => s.cardId).sort();
-      assert.ok(ids.includes("planning-ticket:miss-eff:01") || ids.includes("planning-ticket:seed-eff:01"));
-      assert.ok(!ids.includes("planning-ticket:clean-eff:01"), "clean card must not be stale");
-
-      const scoped = await getStaleCards(store, "clean-eff", root);
-      assert.equal(scoped.length, 0, "clean-eff has no stale tickets");
-    } finally {
-      await store.close();
-    }
-  });
-});
+// Helper: write a source .md that cites `citesPath` in the body + declares
+// `depends_on: <depPath>` in frontmatter, plus writes BOTH dep files (v1).
+// ticketCard() emits a `cites` + a `depends_on` relation -> citedDeps =
+// [citesPath, depPath]. Returns the ticket card id.
+function seedSource(root: string, effort: string, citesPath: string, depPath: string): string {
+  const ticketPath = join(root, ".planning", effort, "tickets", "01-dep-ticket.md");
+  mkdirSync(dirname(ticketPath), { recursive: true });
+  writeFileSync(
+    ticketPath,
+    `---\ntype: task\nstatus: closed\ndepends_on: ${depPath}\n---\n# 01 — dep-ticket\n\n## Resolution\n\nThis decision cites ${citesPath} in the body.\n`,
+  );
+  for (const p of [citesPath, depPath]) {
+    mkdirSync(dirname(join(root, p)), { recursive: true });
+    writeFileSync(join(root, p), "v1");
+  }
+  return `planning-ticket:${effort}:01`;
+}
+// Each `it` uses FRESH temp dirs (root + mem) + cleanup — no cross-test state.
+//
+// Cases (all under computeStaleness unless noted):
+//  • unresolvable cardId (no source .md) -> {stale:false, missing:[]} + NO baseline written
+//    (assert getCardDepHash is null).
+//  • first touch -> {stale:false} AND seeds card_dep_hash (assert getCardDepHash non-null);
+//    second call w/ deps UNCHANGED -> {stale:false}.
+//  • a cited dep file CHANGED (writeFileSync src/a.ts = "v2") -> {stale:true};
+//    second call STILL stale (compare-only, NO rebaseline).
+//  • a depends_on dep file MISSING (rm src/b.ts) -> {stale:true, missing:["src/b.ts"]}.
+//  • getStaleCards: two efforts each w/ OWN dep files; clean-eff -> []; drift stale-eff's
+//    cited dep -> only stale-eff surfaced w/ {cardId, effort}; effort filter scopes;
+//    vanish a dep -> missingDeps populated.
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `( cd bun-apps/pi-agent-ext-hermes-memory && bun test src/store/planning-staleness.test.ts )`
-Expected: FAIL — `Cannot find module "./planning-staleness.js"`.
+Expected: FAIL — `readSourceCard` is not exported (module cannot resolve the dep source).
 
-- [ ] **Step 3: Write the module**
+- [ ] **Step 3: Write the module + the `readSourceCard` helper (Path B)**
 
-Create `src/store/planning-staleness.ts`:
+First, in `src/store/planning-sync-state.ts`: **export** `sourcePathForId` (`function` → `export function`); **add** an additive `readSourceCard` (factored from `refreshPlanningCard`'s resolve→read→deserialize→find body); and **refactor** `refreshPlanningCard` to call `readSourceCard` (behavior-preserving — its 09-impl tests gate the refactor; if risky, leave `refreshPlanningCard` as-is and inline in `computeStaleness`).
 ```ts
-// src/store/planning-staleness.ts — staleness dependency-graph compute layer
-// (Phase-2 / ticket 10). Reuses 08's card.graph.relations (cites + depends_on)
-// + the T3 dep aggregate hash + the T2 card_dep_hash baseline to decide whether
-// a closed planning decision's deps changed since last validation.
-//
-// Two entry points:
-//   - computeStaleness: READ-side. Seeds the baseline on first touch; otherwise
-//     COMPARE-ONLY (no rebaseline) so a stale card stays flagged until explicitly
-//     re-validated (refreshStaleness in planning-sync-state.ts). Used by the
-//     graduation gate, the stale: query, and the session_start sweep.
-//   - getStaleCards: enumerates stale planning-tickets, optionally scoped to one
-//     effort. Drives both the stale: query and the hermes->wayfind reverse seam.
-//
-// Async because CardStore.getCard/getCardsByKind are async-wrapped (retry +
-// corruption recovery) and the dep reads touch the filesystem.
-import type { CardStore } from "./card-store.js";
-import { depAggregateHash } from "./planning-sync-state.js";
+// in planning-sync-state.ts
+export function sourcePathForId(cardId: string, fsRoot: string): string | null { /* unchanged body */ }
 
-/** Minimal cross-seam stale-decision descriptor. Duplicated (no shared import)
- *  in wayfind's stale-seam.ts — ADR-0004. `missingDeps` is present only when one
- *  or more deps are absent on disk (a vanishing dep is itself a staleness signal). */
-export interface StaleCard {
-  cardId: string;
-  effort: string;
-  missingDeps?: string[];
+/** Path B (η): re-parse the git-canonical source .md for cardId -> the Card
+ *  (which HAS graph.relations; the 06a store row does not). null when the source
+ *  is unresolvable / unreadable / the id is not in the file. Mirrors
+ *  refreshPlanningCard's resolve→read→deserialize→find body. */
+export async function readSourceCard(store: CardStore, cardId: string, fsRoot: string): Promise<Card | null> {
+  const src = sourcePathForId(cardId, fsRoot);
+  if (!src) return null;
+  let bytes: string;
+  try { bytes = readFileSync(src, "utf8"); } catch { return null; }
+  const kind = cardId.startsWith("planning-effort:") ? "planning-effort"
+    : cardId.startsWith("planning-ticket:") ? "planning-ticket" : null;
+  if (!kind) return null;
+  const serializer = store.serializerFor(kind);
+  if (!serializer) return null;
+  const cards = serializer.deserialize(bytes, { filePath: src });
+  return cards.find((c) => c.id === cardId) ?? null;
 }
+// refreshPlanningCard now begins: const card = await readSourceCard(store, cardId, fsRoot);
+//   if (!card) return { action: "absent" }; …(rest unchanged)
+```
 
-/** Derive the effort slug from a planning-ticket Card.id
- *  (`planning-ticket:<effort>:<no>` → `<effort>`). null for non-ticket ids. */
+Create `src/store/planning-staleness.ts` (the dep source is `readSourceCard`, NOT `store.getCard`):
+```ts
+import type { CardStore } from "./card-store.js";
+import { depAggregateHash, readSourceCard, writeValidatedBaseline } from "./planning-sync-state.js";
+
+export interface StaleCard { cardId: string; effort: string; missingDeps?: string[] }
+
 function effortOfTicketCardId(cardId: string): string | null {
   if (!cardId.startsWith("planning-ticket:")) return null;
-  const rest = cardId.slice("planning-ticket:".length); // <effort>:<no>
+  const rest = cardId.slice("planning-ticket:".length);
   const sep = rest.lastIndexOf(":");
   return sep > 0 ? rest.slice(0, sep) : null;
 }
 
-/** On-access staleness verdict for ONE card. Seeds the baseline on first touch
- *  (so there is something to compare against) then COMPARES ONLY — a stale card
- *  is NOT re-baselined here (re-baselining is the explicit refreshStaleness op).
- *  Returns {stale:false, missing:[]} for an absent card. */
 export async function computeStaleness(
-  store: CardStore,
-  cardId: string,
-  fsRoot: string,
+  store: CardStore, cardId: string, fsRoot: string,
 ): Promise<{ stale: boolean; missing: string[] }> {
-  const card = await store.getCard(cardId);
-  if (!card) return { stale: false, missing: [] };
+  const card = await readSourceCard(store, cardId, fsRoot); // Path B: deps from source .md
+  if (!card) return { stale: false, missing: [] };          // unresolvable -> can't validate -> not stale
   const { hash: current, missing } = await depAggregateHash(card, fsRoot);
   const stored = await store.getCardDepHash(cardId);
-  if (!stored) {
-    // First check: seed the baseline. The card cannot be "stale since last
-    // validation" before it has ever been validated.
-    await store.upsertCardDepHash(cardId, current);
+  if (!stored) {                                            // FIRST touch -> seed
+    await writeValidatedBaseline(store, card, fsRoot);
     return { stale: false, missing };
   }
-  return { stale: current !== stored.depHash || missing.length > 0, missing };
+  return { stale: current !== stored.depHash || missing.length > 0, missing }; // compare-only
 }
 
-/** All stale planning-ticket cards, optionally scoped to `effort`. Each result
- *  carries the card id, its effort, and (when any deps are absent) the missing
- *  dep paths. Drives the stale: query + the hermes->wayfind reverse seam. */
 export async function getStaleCards(
-  store: CardStore,
-  effort: string | undefined,
-  fsRoot: string,
+  store: CardStore, effort: string | undefined, fsRoot: string,
 ): Promise<StaleCard[]> {
   const tickets = await store.getCardsByKind("planning-ticket");
   const out: StaleCard[] = [];
@@ -792,13 +722,7 @@ export async function getStaleCards(
     if (!cardEffort) continue;
     if (effort && cardEffort !== effort) continue;
     const { stale, missing } = await computeStaleness(store, card.id, fsRoot);
-    if (stale) {
-      out.push({
-        cardId: card.id,
-        effort: cardEffort,
-        ...(missing.length > 0 ? { missingDeps: missing } : {}),
-      });
-    }
+    if (stale) out.push({ cardId: card.id, effort: cardEffort, ...(missing.length > 0 ? { missingDeps: missing } : {}) });
   }
   return out;
 }
@@ -814,11 +738,11 @@ Expected: PASS.
 Run: `( cd bun-apps/pi-agent-ext-hermes-memory && bun run check && bun test )`
 Expected: all green.
 ```bash
-git -C <WT> add bun-apps/pi-agent-ext-hermes-memory/src/store/planning-staleness.ts bun-apps/pi-agent-ext-hermes-memory/src/store/planning-staleness.test.ts
-git -C <WT> commit -m "feat(knowledge-pipeline): staleness computation module (10-impl T4)"
+git -C <WT> add bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.ts bun-apps/pi-agent-ext-hermes-memory/src/store/planning-staleness.ts bun-apps/pi-agent-ext-hermes-memory/src/store/planning-staleness.test.ts
+git -C <WT> commit -m "feat(knowledge-pipeline): staleness computation module — Path B, deps from source .md (10-impl T4)"
 ```
 
-**DoD:** untouched+baselined → not stale; changed dep → stale (no rebaseline); missing dep → stale + `missing` populated; first check seeds baseline; effort filter scopes; full suite green.
+**DoD (Path B):** deps sourced from `readSourceCard` (re-parse of source `.md`), NOT `store.getCard().graph`; unresolvable source → `{stale:false}` + NO baseline; first touch seeds baseline (`writeValidatedBaseline`) → `{stale:false}`; second unchanged call → `{stale:false}`; a cited dep changed → `{stale:true}` (compare-only, no rebaseline); a `depends_on` dep missing → `{stale:true, missing:[path]}`; `getStaleCards` surfaces only stale tickets w/ effort + `missingDeps`, effort filter scopes, clean effort → `[]`; `refreshPlanningCard` behavior preserved (its 09-impl tests green); full suite green (only the known date-aging time-bomb fail unchanged).
 
 ---
 
