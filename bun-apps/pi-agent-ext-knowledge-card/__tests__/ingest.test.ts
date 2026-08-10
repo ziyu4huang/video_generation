@@ -7,7 +7,7 @@
  * records from TWO different sources with overlapping tags and checking the
  * edges actually form across the source boundary.
  */
-import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { test, expect, describe, it, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,7 @@ import {
 	parseKnowledgeJsonl,
 	adaptAutoMemoryMarkdown,
 	adaptHermesMarkdown,
+	stripWikiLinkBrackets,
 	collectInputFiles,
 	slugify,
 	extractDate,
@@ -809,5 +810,26 @@ describe("in-batch canonical-id dedup", () => {
 		// last record wins (upsert-in-place semantics, matching on-disk re-ingest)
 		const body = readFileSync(join(dir, "test-dup.md"), "utf8");
 		expect(body).toContain("second body content");
+	});
+});
+
+describe("stripWikiLinkBrackets", () => {
+	it("unwraps a plain target", () => {
+		expect(stripWikiLinkBrackets("[[foo]]")).toBe("foo");
+	});
+	it("prefers an alias over the target", () => {
+		expect(stripWikiLinkBrackets("[[foo|bar]]")).toBe("bar");
+	});
+	it("strips a heading anchor, keeps the target", () => {
+		expect(stripWikiLinkBrackets("[[foo#section]]")).toBe("foo");
+	});
+	it("alias wins even when an anchor is present", () => {
+		expect(stripWikiLinkBrackets("[[foo#section|bar]]")).toBe("bar");
+	});
+	it("leaves non-wiki-link text untouched", () => {
+		expect(stripWikiLinkBrackets("plain text")).toBe("plain text");
+	});
+	it("handles multiple links in one string", () => {
+		expect(stripWikiLinkBrackets("see [[a]] and [[b|bb]]")).toBe("see a and bb");
 	});
 });
