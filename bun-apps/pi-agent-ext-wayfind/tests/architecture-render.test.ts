@@ -12,6 +12,7 @@ const SAMPLE = readFileSync(
     "..",
     "..",
     ".planning",
+    "done",
     "2026-08-08-improve-codebase-architecture",
     "brainstorm",
     "sample-report.md",
