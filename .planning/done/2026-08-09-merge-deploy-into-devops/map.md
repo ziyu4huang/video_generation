@@ -1,3 +1,6 @@
+---
+status: complete
+---
 # Wayfinder map: 2026-08-09-merge-deploy-into-devops
 
 ## Destination
