@@ -325,7 +325,7 @@ const ZAI_GATING = {
 		nouns: ["online", "internet", "page", "site", "news", "網路", "網頁", "線上"],
 		verbs: ["search", "find", "搜尋", "查", "找"],
 	},
-} as const;
+};
 
 /** Register every MCP tool from a connected server as a pi tool. */
 export function registerServerTools(
