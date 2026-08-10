@@ -1,0 +1,23 @@
+{
+  "name": "@repo/pi-agent-ext-webui",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pi extension: a web frontend co-driving one AgentSession with the TUI behind an agentic mutex. Scaffold (mutex module); full Bun.serve extension lands in tickets 02/04.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "build": "bunx tsc",
+    "test:unit": "bun test",
+    "test": "bun run build && bun run test:unit"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^7.0.2"
+  }
+}
