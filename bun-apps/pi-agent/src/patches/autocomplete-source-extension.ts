@@ -54,13 +54,27 @@ export function owningExtension(
   return m ? m[1] : undefined;
 }
 
-/** Replace the leading [tag] marker with a dedicated [e:<ext>] marker.
- *  "[t] desc" → "[e:wayfind] desc"; "[u:npm:@x/pi-agent-ext-hyperframes] desc"
- *  → "[e:hyperframes] desc"; "[t]" → "[e:wayfind]"; no marker → "[e:wayfind] desc". */
+/** True when the resource originates from a pi-agent-ext-* package, even if a
+ *  clean name can't be parsed from its path/source. Drives the bare [e] fallback
+ *  so an extension-provided entry never falls through to the framework's
+ *  misleading [t] (temporary) scope marker. */
+export function isExtensionSource(
+  sourceInfo: { path?: string; baseDir?: string; source?: string } | undefined,
+): boolean {
+  if (!sourceInfo) return false;
+  const hay = `${sourceInfo.path ?? ""} ${sourceInfo.source ?? ""} ${sourceInfo.baseDir ?? ""}`;
+  return /pi-agent-ext-/i.test(hay);
+}
+
+/** Replace the leading [tag] marker with a dedicated extension marker.
+ *  Non-empty ext → [e:<ext>] (e.g. [e:wayfind]); empty ext → bare [e].
+ *  "[t] desc" → "[e:wayfind] desc"; "[t] desc" + "" → "[e] desc";
+ *  "[u:npm:...] desc" → "[e:hyperframes] desc"; "[t]" + "" → "[e]". */
 export function replaceMarker(rendered: string, ext: string): string {
+  const tag = ext ? `[e:${ext}]` : `[e]`;
   const end = rendered.indexOf("]");
-  if (end >= 0) return `[e:${ext}]${rendered.slice(end + 1)}`;
-  return `[e:${ext}] ${rendered}`;
+  if (end >= 0) return `${tag}${rendered.slice(end + 1)}`;
+  return `${tag} ${rendered}`;
 }
 
 // ── Module-scoped flag: apply once ──────────────────────────────────────────
@@ -87,8 +101,11 @@ export function applyAutocompleteSourceExtensionPatch(): boolean {
     sourceInfo: unknown,
   ): string {
     const base = original.call(this, description, sourceInfo);
-    const ext = owningExtension(sourceInfo as Parameters<typeof owningExtension>[0]);
-    return ext ? replaceMarker(base, ext) : base;
+    const si = sourceInfo as Parameters<typeof owningExtension>[0];
+    const name = owningExtension(si);
+    if (name) return replaceMarker(base, name);
+    if (isExtensionSource(si)) return replaceMarker(base, ""); // bare [e] fallback
+    return base;
   };
   applied = true;
   return true;

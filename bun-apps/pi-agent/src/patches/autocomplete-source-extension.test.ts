@@ -21,6 +21,7 @@ import { InteractiveMode } from "@earendil-works/pi-coding-agent";
 import "./autocomplete-source-extension.ts";
 import {
   applyAutocompleteSourceExtensionPatch,
+  isExtensionSource,
   owningExtension,
   replaceMarker,
 } from "./autocomplete-source-extension.ts";
@@ -68,6 +69,34 @@ describe("owningExtension", () => {
   });
 });
 
+describe("isExtensionSource", () => {
+  test("true for a pi-agent-ext-<name> path", () => {
+    expect(
+      isExtensionSource({
+        path: "/x/bun-apps/pi-agent-ext-wayfind/skills/grilling/SKILL.md",
+      }),
+    ).toBe(true);
+  });
+
+  test("true when pi-agent-ext- is present but the name is unparseable (bare [e] trigger)", () => {
+    expect(isExtensionSource({ path: "/x/bun-apps/pi-agent-ext-/skills/x" })).toBe(true);
+  });
+
+  test("true for an npm source referencing a pi-agent-ext package", () => {
+    expect(isExtensionSource({ source: "npm:@earendil-works/pi-agent-ext-hyperframes" })).toBe(
+      true,
+    );
+  });
+
+  test("false for a user skill path (no pi-agent-ext segment)", () => {
+    expect(isExtensionSource({ path: "/Users/me/.pi/agent/skills/foo/SKILL.md" })).toBe(false);
+  });
+
+  test("false for undefined input", () => {
+    expect(isExtensionSource(undefined)).toBe(false);
+  });
+});
+
 describe("replaceMarker", () => {
   test("replaces a bare [t] tag with [e:<ext>]", () => {
     expect(replaceMarker("[t] desc", "wayfind")).toBe("[e:wayfind] desc");
@@ -85,6 +114,14 @@ describe("replaceMarker", () => {
 
   test("prepends [e:<ext>] when there is no leading [tag]", () => {
     expect(replaceMarker("desc only", "wayfind")).toBe("[e:wayfind] desc only");
+  });
+
+  test("renders bare [e] for an empty name with a description", () => {
+    expect(replaceMarker("[t] desc", "")).toBe("[e] desc");
+  });
+
+  test("renders bare [e] for an empty name with no description", () => {
+    expect(replaceMarker("[t]", "")).toBe("[e]");
   });
 });
 
@@ -119,5 +156,14 @@ describe("InteractiveMode.prototype.prefixAutocompleteDescription patch", () => 
       path: "/node_modules/@earendil-works/pi-agent-ext-hyperframes/index.js",
     });
     expect(result).toBe("[e:hyperframes] render video");
+  });
+
+  test("renders bare [e] for a pi-agent-ext source with an unparseable name", () => {
+    const result = patchedProto.prefixAutocompleteDescription("mystery skill", {
+      scope: "temporary",
+      source: "local",
+      path: "/x/pi-agent-ext-/skills/x",
+    });
+    expect(result.startsWith("[e]")).toBe(true);
   });
 });
