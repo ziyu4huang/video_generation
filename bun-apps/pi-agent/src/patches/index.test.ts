@@ -66,6 +66,7 @@ describe("PATCH_TABLE", () => {
   test("covers all known patches", () => {
     expect(PATCH_TABLE.map((p) => p.name).sort()).toEqual(
       [
+        "autocomplete-source-extension",
         "default-model-env",
         "editor-history-restore",
         "ensure-extension-deps",
