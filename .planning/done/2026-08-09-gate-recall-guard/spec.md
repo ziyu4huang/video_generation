@@ -1,6 +1,6 @@
 # Gate-Recall Guard — generalized keyword-gate regression harness
 
-**Status:** Approved design — pending implementation plan. Effort folder: `.planning/2026-08-09-gate-recall-guard/`.
+**Status:** Implemented & green (2026-08-10) — `bun run qa:gate-recall` PASS, 19 gate-groups scored, 0 uncovered; the dead `qa/miss-rate-ab.ts` was deleted. Archived to `.planning/done/`.
 **Supersedes:** `qa/miss-rate-ab.ts` (dead since #5 revert — both tracked tools are `core:true`).
 **Date:** 2026-08-09.
 
