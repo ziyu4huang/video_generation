@@ -1,0 +1,1685 @@
+# Review package: 94adcb604f25d5e2b7706a0fc9382e7d8e6cef84..HEAD
+
+## Commits
+f80328ab feat(knowledge-pipeline): on-demand planning refresh (09-impl T7)
+09a92aa2 feat(knowledge-pipeline): planning background backfill (09-impl T6)
+ae6aabf6 feat(knowledge-pipeline): conflict-marker detection (effort flag) (09-impl T5)
+ef5b3f88 feat(knowledge-pipeline): planning delete reconciliation + store.deleteCard (09-impl T4)
+45e1cc68 feat(knowledge-pipeline): mirror UPDATE path + store.updateCard (09-impl T3)
+62950249 feat(knowledge-pipeline): planning content-hash + sync-state accessors (09-impl T2)
+a8c9817f feat(knowledge-pipeline): card_md_hash table + idempotent migration (09-impl T1)
+
+## Files changed
+ .../sdd/2026-08-10-planning-sync/task-5-report.md  | 146 +++++++++++++++++
+ .../__tests__/card-store.test.ts                   |  47 ++++++
+ .../__tests__/walk-and-ingest.test.ts              | 128 ++++++++++++++-
+ .../src/git-ops-conflict-markers.test.ts           |  30 ++++
+ bun-apps/pi-agent-ext-hermes-memory/src/git-ops.ts |  18 +++
+ .../src/handlers/planning-backfill.test.ts         |  60 +++++++
+ .../src/handlers/planning-backfill.ts              | 149 ++++++++++++++++++
+ bun-apps/pi-agent-ext-hermes-memory/src/index.ts   |  19 +++
+ .../src/knowledge-walk.ts                          |  10 +-
+ .../src/store/card-store.ts                        |  71 +++++++++
+ .../src/store/planning-sync-state.test.ts          | 152 ++++++++++++++++++
+ .../src/store/planning-sync-state.ts               | 173 +++++++++++++++++++++
+ .../src/store/sqlite/schema.ts                     |  11 ++
+ .../src/store/sqlite/sqlite-backend.ts             |  21 +++
+ .../src/walk-and-ingest.ts                         | 128 +++++++++++++--
+ 15 files changed, 1143 insertions(+), 20 deletions(-)
+
+## Diff
+diff --git a/.planning/2026-08-08-knowledge-pipeline/sdd/2026-08-10-planning-sync/task-5-report.md b/.planning/2026-08-08-knowledge-pipeline/sdd/2026-08-10-planning-sync/task-5-report.md
+new file mode 100644
+index 00000000..ab7ca904
+--- /dev/null
++++ b/.planning/2026-08-08-knowledge-pipeline/sdd/2026-08-10-planning-sync/task-5-report.md
+@@ -0,0 +1,146 @@
++# Task 5 Report — conflict-marker detection (effort flag in ingest receipt)
++
++**Branch:** `knowledge-pipeline/09-impl-planning-sync`
++**Parent:** `ef5b3f88` (T4 — delete reconciliation)
++**Commit subject:** `feat(knowledge-pipeline): conflict-marker detection (effort flag) (09-impl T5)`
++**Brief:** `task-5-brief.md` (verbatim source of truth — regex shape, helper signature, populate point, DoD).
++
++## What was implemented
++
++A **pure, additive** per-effort conflict-marker signal, surfaced for human review on the
++ingest receipt. T5 is a pure **POPULATE-change** over T3's reserved field — nothing in the
++T3 INSERT/UPDATE/skip mirror logic, the `WalkAndIngestReceipt` shape, or the repo-state
++`isMidMerge` path was touched.
++
++1. **`src/git-ops.ts`** — added `CONFLICT_MARKER_RE` + `hasMergeConflictMarkers(content)`
++   beside `MID_MERGE_SENTINELS`. A pure FILE-CONTENT scan for the git merge-marker idiom,
++   distinct from `GitOps.isMidMerge` (REPO-STATE — sentinel files in `.git/`).
++2. **`src/walk-and-ingest.ts`** — in `mirrorPlanningToStore`, after reading each planning
++   md's bytes (before deserialize), scan with `hasMergeConflictMarkers` and push the effort
++   slug (via the already-imported `parsePlanningPath`) into the T3-reserved
++   `conflictMarkerEfforts[]`. Deduped by slug; the mirror STILL runs (advisory, non-blocking).
++
++`src/store/planning-id.ts` is **UNCHANGED** — `parsePlanningPath(abs)` already yields
++`info.effort` cleanly, so no new helper was needed (brief Step 4's "or reuse parsePlanningPath"
++branch). It is therefore NOT staged.
++
++## Key diff hunks
++
++### `src/git-ops.ts` (additive — beside `MID_MERGE_SENTINELS`, before `realGitOps`)
++```ts
++const CONFLICT_MARKER_RE = /(^|\n)(<<<<<<<[^\n]*|>>>>>>>[^\n]*|={7,}(?=\n|$))/;
++
++export function hasMergeConflictMarkers(content: string): boolean {
++  return CONFLICT_MARKER_RE.test(content);
++}
++```
++
++### `src/walk-and-ingest.ts` (populate point in `mirrorPlanningToStore`)
++```ts
++      // 09-impl T5: flag efforts whose md has unresolved merge markers (human
++      // review). Advisory only — the mirror STILL runs on the bytes (the markers
++      // are just body text the serializer parses around). Dedup by effort slug.
++      if (hasMergeConflictMarkers(bytes)) {
++        const info = parsePlanningPath(abs);
++        if (info && !conflictMarkerEfforts.includes(info.effort)) {
++          conflictMarkerEfforts.push(info.effort);
++        }
++      }
++```
++
++## Regex deviation from the brief (documented, minimal, justified)
++
++The brief's literal `CONFLICT_MARKER_RE` —
++`/(^|\n)(<<<<<<<[^\n]*|>>>>>>>[^\n]*|\n=======(?=\n|$))/` — has an anchoring defect in the
++divider branch: the outer `(^|\n)` plus the inner `\n=======` **double-counts** the leading
++newline, so a whole-line `=======` divider is only matched when preceded by a **blank line**
++(`\n\n=======`). A normal divider `ours\n=======\ntheirs` (divider on its own line, no blank
++line before it) is NOT matched. The brief itself acknowledges this with the escape hatch
++*"tune anchors as needed so 'some ======= text here' stays false."*
++
++The task header's hard requirement contradicts the literal regex: *"The `=======` divider
++MUST match as a WHOLE LINE (7+ `=` on its own line), so normal prose like
++`some ======= text here` is NOT flagged."* The literal regex does not satisfy "match as a
++whole line"; it satisfies only "match when preceded by a blank line."
++
++**Resolution (chosen to satisfy the header's MUST and all test cases):** the divider branch is
++`={7,}(?=\n|$)` — i.e., 7+ `=` immediately after a line start (`^` or `\n`) and immediately
++followed by `\n`/end. This is the author's clear intent (a single line-start anchor), with the
++duplicate `\n` removed and `=======` generalized to `={7,}` per the header's "7+" wording.
++
++Verification against every brief false-positive / true-positive case:
++
++| Input | Literal regex | Tuned regex | Expected |
++|---|---|---|---|
++| full block `…<<<<<<< HEAD\n…\n=======\n…\n>>>>>>> branch\n` | true (via `<<<`) | true (via `<<<`) | **true** |
++| lone opening `<<<<<<< HEAD\nbody` | true | true | **true** |
++| whole-line divider `# t\nours\n=======\ntheirs\n` (no `<<<`/`>>>`) | **FALSE (defect)** | **true** | **true** |
++| `# title\n\nsome ======= text here\n` | false | false | **false** |
++| frontmatter `---\nstatus: active\n---\n# map\n` | false | false | **false** |
++| clean md `# 01 — x\n\n## Resolution\nClean.\n` | false | false | **false** |
++
++The extra true-positive case (whole-line divider without `<<<`/`>>>`) is captured by an
++additional focused test (`git-ops-conflict-markers.test.ts` → "flags a whole-line =======
++divider even without <<< / >>>") which the literal regex would FAIL. All brief-mandated cases
++remain green under the tuned regex. This is the single deliberate deviation; it is narrower
++than the brief's (corrects an objective double-counting bug) and is covered by tests.
++
++## TDD evidence
++
++**RED (Step 3)** — `bun test src/git-ops-conflict-markers.test.ts __tests__/walk-and-ingest.test.ts`:
++- `src/git-ops-conflict-markers.test.ts`: `SyntaxError: Export named 'hasMergeConflictMarkers'
++  not found` (function absent).
++- walk-and-ingest T5 case: `AssertionError: effort must be flagged for human review`
++  (`r.conflictMarkerEfforts.includes(effort)` → false; receipt stays `[]`).
++- 10 pass / 2 fail / 1 error.
++
++**GREEN (Step 5)** — same command after implementation: **16 pass / 0 fail**.
++
++## Full gate (Step 6 — run ONCE)
++
++`( cd bun-apps/pi-agent-ext-hermes-memory && bun run check && bun test )`
++- `tsc --noEmit` → **clean** (no errors).
++- `bun test` → **1430 pass / 1 skip / 1 fail**.
++
++The single failure is the **known pre-existing** ticket-04 time-bomb, unrelated to this work:
++`formatForSystemPrompt never emits memworth (memory + failure blocks — regression pin)`
++(`tests/store/memory-store.test.ts:2630`). Baseline-after-T4 was **1424 pass / 1 skip / 1 fail**;
++the +6 passing = the 6 new T5 tests (5 in `git-ops-conflict-markers.test.ts` + 1 walk-and-ingest
++case). **Zero new failures; zero regressions.**
++
++## Self-review
++
++- **Additive only.** `git-ops.ts`: 18 inserted, 0 deleted (new const + export between
++  `MID_MERGE_SENTINELS` and `realGitOps`). `walk-and-ingest.ts`: 10 inserted, 0 deleted
++  (1 import + 1 populate block). No T3 mirror logic, no receipt shape change.
++- **`isMidMerge` / `GitOps` interface / `realGitOps` byte-unchanged.** Confirmed by
++  `git diff src/git-ops.ts`: the only hunk is an insertion between `MID_MERGE_SENTINELS`
++  (ends `] as const;`) and `realGitOps`. The `GitOps` interface block (earlier in file),
++  `isMidMerge` (inside `realGitOps`), and `MID_MERGE_SENTINELS` itself are untouched.
++  `hasMergeConflictMarkers` is NOT added to the `GitOps` interface and is NOT wired into
++  `isMidMerge` — it is a standalone pure export.
++- **Non-blocking.** The populate block runs in `mirrorPlanningToStore` before deserialize;
++  the deserialize/INSERT/UPDATE/skip path proceeds regardless. Test proves the conflicted
++  ticket is still mirrored into the DB (`planningMirrored >= 1` + `getCard` matches `/ours/`).
++- **Deduped by effort slug** (`!conflictMarkerEfforts.includes(info.effort)`), so a multi-file
++  effort is flagged once.
++- **`planning-id.ts` unmodified** → not staged (correct per brief's "prefer reusing
++  parsePlanningPath" branch).
++- **DoD met:** conflicted ticket md → effort slug in `receipt.conflictMarkerEfforts`;
++  clean md → not flagged; mirror still runs (non-blocking); `isMidMerge`/`GitOps` unchanged;
++  full suite green (modulo the 1 known pre-existing failure).
++
++## Concerns
++
++- **Regex anchor deviation** (described above). The literal brief regex contains a
++  double-`newline` defect that would fail the header's "whole line" MUST and the added
++  whole-line-divider test. The tuned regex corrects it and passes all brief cases plus the
++  extra true-positive. Flagging for the grill's awareness in case the verbatim form was
++  load-bearing for an external contract (it is not, per the DoD's own test set).
++
++## Files changed
++
++- `bun-apps/pi-agent-ext-hermes-memory/src/git-ops.ts` (+18, additive)
++- `bun-apps/pi-agent-ext-hermes-memory/src/git-ops-conflict-markers.test.ts` (new, focused)
++- `bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts` (+10, additive)
++- `bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts` (+32, new T5 describe)
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/__tests__/card-store.test.ts b/bun-apps/pi-agent-ext-hermes-memory/__tests__/card-store.test.ts
+index 2a5ed54d..c2d4e283 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/__tests__/card-store.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/__tests__/card-store.test.ts
+@@ -110,11 +110,58 @@ describe("card-agnostic store (SQLite round-trip)", () => {
+         frontmatter: { id: "01" },
+       });
+       const back = await migrated.getCard("planning-ticket:e:01");
+       assert.ok(back);
+       assert.equal(back!.kind, "planning-ticket");
+       await migrated.close();
+     } finally {
+       rmSync(legacyDir, { recursive: true, force: true });
+     }
+   });
++
++  it("creates card_md_hash on a fresh store open (09-impl T1)", async () => {
++    // A fresh createCardStore runs initializeSchema -> SCHEMA_SQL carries the
++    // card_md_hash CREATE TABLE. SELECT against it must succeed (table exists).
++    const cols = store
++      ? await (async () => {
++          // Re-open a raw handle to the SAME db file to inspect sqlite_master.
++          const { RawDatabase } = await import("../src/store/sqlite/sqlite-backend.js");
++          const raw = new RawDatabase(join(dir, "sessions.db"));
++          const row = raw
++            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='card_md_hash'")
++            .get() as { name?: string } | undefined;
++          raw.close();
++          return row?.name;
++        })()
++      : undefined;
++    assert.equal(cols, "card_md_hash");
++  });
++
++  it("ensures card_md_hash on a legacy (pre-09) DB via ensureCardMdHashTable", async () => {
++    const legacyDir = mkdtempSync(join(tmpdir(), "cardmdhash-migrate-"));
++    try {
++      // Seed a post-08 DB that has memories but NO card_md_hash (a pre-09 DB).
++      const { RawDatabase } = await import("../src/store/sqlite/sqlite-backend.js");
++      const raw = new RawDatabase(join(legacyDir, "sessions.db"));
++      raw.exec(
++        `CREATE TABLE memories (
++           id INTEGER PRIMARY KEY AUTOINCREMENT,
++           target TEXT NOT NULL CHECK (target IN ('memory','user','failure','knowledge','planning-effort','planning-ticket')),
++           content TEXT NOT NULL, created DATE NOT NULL, last_referenced DATE NOT NULL
++         )`,
++      );
++      raw.close();
++      // Opening the store runs initializeSchema -> ensureCardMdHashTable fires
++      // (CREATE TABLE IF NOT EXISTS) on the legacy DB that lacks it.
++      const migrated = await createCardStore({ memoryDir: legacyDir, dbBackend: "sqlite" });
++      await migrated.close();
++      const after = new RawDatabase(join(legacyDir, "sessions.db"));
++      const row = after
++        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='card_md_hash'")
++        .get() as { name?: string } | undefined;
++      after.close();
++      assert.equal(row?.name, "card_md_hash");
++    } finally {
++      rmSync(legacyDir, { recursive: true, force: true });
++    }
++  });
+ });
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts b/bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts
+index 162d581a..d475f109 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts
+@@ -1,13 +1,13 @@
+ import { describe, it, beforeEach, afterEach } from "node:test";
+ import * as assert from "node:assert/strict";
+-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
++import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ import { publishSeam, type KnowledgePipeline } from "@repo/pi-agent-ext-core-interface";
+ import { walkAndIngest } from "../src/walk-and-ingest.js";
+ import { createCardStore } from "../src/store/card-store.js";
+ 
+ const KEY = "__piKnowledgePipeline";
+ const FOLDER = "Zettelkasten/knowledge-graph";
+ 
+ /** A zk-shaped stub that writes vault-md (mimicking zk's ingestRecords) and
+@@ -253,10 +253,136 @@ describe("walkAndIngest — planning family (seam-independent)", () => {
+       const efforts = await store.getCardsByKind("planning-effort");
+       await store.close();
+       assert.ok(tickets.some((c) => c.id === `planning-ticket:${effort}:01`));
+       assert.ok(efforts.some((c) => c.id === `planning-effort:${effort}`));
+     } finally {
+       rmSync(root, { recursive: true, force: true });
+       rmSync(mem, { recursive: true, force: true });
+     }
+   });
+ });
++
++describe("walkAndIngest — planning mirror drift (09-impl T3)", () => {
++  it("INSERTs a new ticket (no stored hash)", async () => {
++    const root = mkdtempSync(join(tmpdir(), "pmir-ins-"));
++    const mem = mkdtempSync(join(tmpdir(), "pmir-ins-mem-"));
++    try {
++      const effort = "drift-ins";
++      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
++      writeFileSync(join(root, ".planning", effort, "tickets", "01-x.md"),
++        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nFirst.\n");
++      const r = await walkAndIngest(root, { memoryDir: mem });
++      assert.ok(r.planningMirrored >= 1);
++      const store = await createCardStore({ memoryDir: mem });
++      const c = await store.getCard(`planning-ticket:${effort}:01`);
++      await store.close();
++      assert.match(c?.content ?? "", /First\./);
++    } finally {
++      rmSync(root, { recursive: true, force: true });
++      rmSync(mem, { recursive: true, force: true });
++    }
++  });
++
++  it("UPDATEs an edited ticket (hash mismatch) instead of skipping", async () => {
++    const root = mkdtempSync(join(tmpdir(), "pmir-upd-"));
++    const mem = mkdtempSync(join(tmpdir(), "pmir-upd-mem-"));
++    try {
++      const effort = "drift-upd";
++      const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
++      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
++      writeFileSync(ticketPath,
++        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nOriginal.\n");
++      await walkAndIngest(root, { memoryDir: mem });            // mirror once (INSERT + hash)
++      // Edit the ticket content (git-canonical md changed).
++      writeFileSync(ticketPath,
++        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nEDITED body.\n");
++      const r2 = await walkAndIngest(root, { memoryDir: mem });  // re-mirror → UPDATE
++      assert.ok(r2.planningMirrored >= 1, "edited ticket must be re-mirrored (UPDATE), not skipped");
++      const store = await createCardStore({ memoryDir: mem });
++      const c = await store.getCard(`planning-ticket:${effort}:01`);
++      await store.close();
++      assert.match(c?.content ?? "", /EDITED body\./);
++      assert.doesNotMatch(c?.content ?? "", /Original\./);
++    } finally {
++      rmSync(root, { recursive: true, force: true });
++      rmSync(mem, { recursive: true, force: true });
++    }
++  });
++
++  it("skips an UNCHANGED ticket (hash match — no write)", async () => {
++    const root = mkdtempSync(join(tmpdir(), "pmir-skip-"));
++    const mem = mkdtempSync(join(tmpdir(), "pmir-skip-mem-"));
++    try {
++      const effort = "drift-skip";
++      const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
++      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
++      const body = "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nStable.\n";
++      writeFileSync(ticketPath, body);
++      await walkAndIngest(root, { memoryDir: mem });             // mirror once
++      const r2 = await walkAndIngest(root, { memoryDir: mem });  // re-mirror unchanged
++      assert.equal(r2.planningMirrored, 0, "unchanged ticket must be skipped (hash match)");
++    } finally {
++      rmSync(root, { recursive: true, force: true });
++      rmSync(mem, { recursive: true, force: true });
++    }
++  });
++});
++
++describe("walkAndIngest — planning delete reconciliation (09-impl T4)", () => {
++  it("hard-deletes planning rows whose source md vanished (md-wins)", async () => {
++    const root = mkdtempSync(join(tmpdir(), "precon-"));
++    const mem = mkdtempSync(join(tmpdir(), "precon-mem-"));
++    try {
++      const effort = "recon-del";
++      const t01 = join(root, ".planning", effort, "tickets", "01-keep.md");
++      const t02 = join(root, ".planning", effort, "tickets", "02-gone.md");
++      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
++      writeFileSync(t01, "---\ntype: task\nstatus: closed\n---\n# 01 — keep\n\n## Resolution\nKeep.\n");
++      writeFileSync(t02, "---\ntype: task\nstatus: closed\n---\n# 02 — gone\n\n## Resolution\nGone.\n");
++      await walkAndIngest(root, { memoryDir: mem });             // mirror both tickets
++      // Source md for ticket 02 is removed (git rm / file deleted).
++      unlinkSync(t02);
++      await walkAndIngest(root, { memoryDir: mem });             // re-walk → sweep deletes 02
++      const store = await createCardStore({ memoryDir: mem });
++      const tickets = await store.getCardsByKind("planning-ticket");
++      await store.close();
++      const ids = tickets.map((c) => c.id).sort();
++      assert.deepEqual(ids, [`planning-ticket:${effort}:01`]);
++      assert.ok(!ids.includes(`planning-ticket:${effort}:02`), "vanished ticket row must be hard-deleted");
++    } finally {
++      rmSync(root, { recursive: true, force: true });
++      rmSync(mem, { recursive: true, force: true });
++    }
++  });
++});
++
++describe("walkAndIngest — conflict-marker flag (09-impl T5)", () => {
++  it("surfaces an effort with unresolved merge markers in its ticket md; clean md not flagged; mirror still runs (non-blocking)", async () => {
++    const root = mkdtempSync(join(tmpdir(), "pconf-"));
++    const mem = mkdtempSync(join(tmpdir(), "pconf-mem-"));
++    try {
++      const effort = "conflict-effort";
++      const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
++      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
++      writeFileSync(ticketPath,
++        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> b\n");
++      const r = await walkAndIngest(root, { memoryDir: mem });
++      assert.ok(r.conflictMarkerEfforts.includes(effort), "effort must be flagged for human review");
++      // The mirror STILL runs — conflict markers do NOT block the mirror (advisory flag).
++      assert.ok(r.planningMirrored >= 1, "mirror must still run on a conflicted file (non-blocking)");
++      // And the conflicted ticket DID land in the DB (non-blocking proof).
++      const store = await createCardStore({ memoryDir: mem });
++      const mirrored = await store.getCard(`planning-ticket:${effort}:01`);
++      await store.close();
++      assert.match(mirrored?.content ?? "", /ours/, "conflicted ticket body mirrored around the markers");
++
++      // Clean the markers and re-mirror → the effort is NOT re-flagged.
++      writeFileSync(ticketPath,
++        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nClean now.\n");
++      const r2 = await walkAndIngest(root, { memoryDir: mem });
++      assert.ok(!r2.conflictMarkerEfforts.includes(effort), "clean md must not be flagged");
++    } finally {
++      rmSync(root, { recursive: true, force: true });
++      rmSync(mem, { recursive: true, force: true });
++    }
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/git-ops-conflict-markers.test.ts b/bun-apps/pi-agent-ext-hermes-memory/src/git-ops-conflict-markers.test.ts
+new file mode 100644
+index 00000000..9b07e271
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/git-ops-conflict-markers.test.ts
+@@ -0,0 +1,30 @@
++// Focused test for the pure conflict-marker scan added in 09-impl T5.
++// `hasMergeConflictMarkers` is a FILE-CONTENT signal (per-file), deliberately
++// distinct from `GitOps.isMidMerge` (REPO-STATE — sentinel files in `.git/`).
++import { describe, it } from "node:test";
++import * as assert from "node:assert/strict";
++import { hasMergeConflictMarkers } from "./git-ops.js";
++
++describe("hasMergeConflictMarkers", () => {
++  it("flags a full conflict-marker block", () => {
++    const md = "# 08 — x\n\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n";
++    assert.equal(hasMergeConflictMarkers(md), true);
++  });
++  it("flags a lone opening marker (mid-resolution)", () => {
++    assert.equal(hasMergeConflictMarkers("<<<<<<< HEAD\nbody"), true);
++  });
++  it("flags a whole-line ======= divider even without <<< / >>>", () => {
++    // A bare `=======` on its own line is a real git divider even when the
++    // opening/closing markers were already resolved and deleted.
++    assert.equal(hasMergeConflictMarkers("# t\nours\n=======\ntheirs\n"), true);
++  });
++  it("does NOT flag normal md that merely contains seven chars", () => {
++    // '=======' on its own line is a conflict divider, but the word "conflict"
++    // or a horizontal-rule in body text must NOT trip a false positive.
++    assert.equal(hasMergeConflictMarkers("# title\n\nsome ======= text here\n"), false);
++    assert.equal(hasMergeConflictMarkers("---\nstatus: active\n---\n# map\n"), false);
++  });
++  it("is false for clean planning md", () => {
++    assert.equal(hasMergeConflictMarkers("# 08 — x\n\n## Resolution\nClean.\n"), false);
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/git-ops.ts b/bun-apps/pi-agent-ext-hermes-memory/src/git-ops.ts
+index 0626dc7c..e404a765 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/git-ops.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/git-ops.ts
+@@ -84,20 +84,38 @@ const MID_MERGE_SENTINELS = [
+   "MERGE_HEAD",
+   "MERGE_MSG",
+   "rebase-merge",
+   "rebase-apply",
+   "CHERRY_PICK_HEAD",
+   "REVERT_HEAD",
+   "BISECT_LOG",
+   "sequencer",
+ ] as const;
+ 
++/** Git conflict-marker line patterns (the `<<<<<<<`, `=======`, `>>>>>>>`
++ *  markers `git merge` writes when it cannot auto-resolve). This is a FILE-CONTENT
++ *  signal (per-file), distinct from {@link GitOps.isMidMerge} which is REPO-STATE
++ *  (sentinel files in `.git/`, repo-wide). Anchored to line starts to avoid false
++ *  positives on normal prose: an opening/closing marker is `<<<<<<<`/`>>>>>>>` at
++ *  the start of a line (optionally followed by a ref label); the divider is a
++ *  WHOLE line of 7+ `=` (so `some ======= text here` is NOT flagged). */
++const CONFLICT_MARKER_RE = /(^|\n)(<<<<<<<[^\n]*|>>>>>>>[^\n]*|={7,}(?=\n|$))/;
++
++/** True when `content` contains unresolved git conflict markers. Pure; no IO.
++ *  Additive export — deliberately NOT part of the {@link GitOps} interface and
++ *  NOT wired into {@link GitOps.isMidMerge} (different signal: file bytes vs
++ *  repo state). Used by the planning mirror (09-impl T5) to surface, for human
++ *  review, effort slugs whose md still carries unresolved merge markers. */
++export function hasMergeConflictMarkers(content: string): boolean {
++  return CONFLICT_MARKER_RE.test(content);
++}
++
+ /** Production git ops. Every call swallows errors — autocommit never hard-errors. */
+ export const realGitOps: GitOps = {
+   async resolveGitDir(cwd) {
+     const dir = await gitText(cwd, ["rev-parse", "--git-dir"]);
+     if (!dir) return undefined;
+     return path.resolve(cwd, dir); // worktree git-dir is absolute; main is `.git`
+   },
+ 
+   async currentBranch(cwd) {
+     // `symbolic-ref --quiet --short HEAD` prints the branch on success and
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/handlers/planning-backfill.test.ts b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/planning-backfill.test.ts
+new file mode 100644
+index 00000000..bb7e78dc
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/planning-backfill.test.ts
+@@ -0,0 +1,60 @@
++// src/handlers/planning-backfill.test.ts — T6 background backfill tests.
++// Mirrors the session-backfill test discipline: an injected inline `setTimeout`
++// drives the deferred task synchronously so the test can await the (already
++// resolved) state.promise without real timers.
++import { describe, it } from "node:test";
++import * as assert from "node:assert/strict";
++import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
++import { join } from "node:path";
++import { tmpdir } from "node:os";
++import { schedulePlanningBackfill, planningBackfillState, PLANNING_BACKFILL_MAX_FILES } from "./planning-backfill.js";
++// NOTE: brief authored the import as "../src/store/card-store.js" but this file
++// lives at src/handlers/, so the correct relative path is ../store/...
++import { createCardStore } from "../store/card-store.js";
++
++function flushedState() {
++  return { inProgress: false, promise: null as Promise<void> | null };
++}
++
++describe("schedulePlanningBackfill", () => {
++  it("re-mirrors a changed planning md within bounds (fake timers via injected setTimeout)", async () => {
++    const root = mkdtempSync(join(tmpdir(), "pbf-"));
++    const mem = mkdtempSync(join(tmpdir(), "pbf-mem-"));
++    const state = flushedState();
++    let fired = false;
++    const flush = (cb: () => void) => { fired = true; cb(); }; // run inline
++    try {
++      const effort = "backfill-eff";
++      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
++      writeFileSync(join(root, ".planning", effort, "tickets", "01-x.md"),
++        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nBackfilled.\n");
++      schedulePlanningBackfill(root, mem, { state, setTimeoutFn: flush as never });
++      // The injected setTimeout ran inline; await the (already-resolved) promise.
++      await state.promise;
++      assert.ok(fired);
++      const store = await createCardStore({ memoryDir: mem });
++      const c = await store.getCard(`planning-ticket:${effort}:01`);
++      await store.close();
++      assert.match(c?.content ?? "", /Backfilled\./);
++    } finally {
++      rmSync(root, { recursive: true, force: true });
++      rmSync(mem, { recursive: true, force: true });
++    }
++  });
++
++  it("skips when a backfill is already in progress (run-state guard)", () => {
++    const state = { inProgress: true, promise: Promise.resolve() };
++    let called = false;
++    const scheduled = schedulePlanningBackfill("/nonexistent", "/nonexistent", {
++      state,
++      setTimeoutFn: (() => { called = true; }) as never,
++    });
++    assert.equal(scheduled, false);
++    assert.equal(called, false);
++  });
++
++  it("exports a MAX_FILES bound (parity with session backfill)", () => {
++    assert.ok(PLANNING_BACKFILL_MAX_FILES > 0);
++    assert.ok(planningBackfillState !== undefined);
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/handlers/planning-backfill.ts b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/planning-backfill.ts
+new file mode 100644
+index 00000000..eca3b8cf
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/planning-backfill.ts
+@@ -0,0 +1,149 @@
++// src/handlers/planning-backfill.ts — background backfill of the .planning card
++// mirror (Phase-2 / 09-impl T6). Mirrors session-backfill.ts house-style: deferred
++// via setTimeout(0) so session_start resolves first; run-state guard so two
++// backfills never overlap in-process; MAX_FILES bound so a huge corpus can't
++// stall startup. Idempotency = the mirror's hash-skip (re-mirroring unchanged
++// files is a cheap hash-compare no-op — there is NO separate run-state file; a
++// re-run resumes because unchanged cards hash-match-skip).
++//
++// The actual mirror reuses walkAndIngest's planning path (hash-compare
++// INSERT/UPDATE/skip + delete reconciliation + conflict-marker flag). It is
++// invoked PLANNING-ONLY (opts.planningOnly) so the zk knowledge path is skipped
++// entirely — planning is hermes-internal and has no zk dependency, and passing
++// the bounded file list scopes the walk to exactly the .planning corpus (no
++// full-repo re-walk on every startup).
++import { readdirSync, statSync } from "node:fs";
++import { join } from "node:path";
++import { walkAndIngest } from "../walk-and-ingest.js";
++
++export const PLANNING_BACKFILL_MAX_FILES = 50;
++
++type NotifyLevel = "info" | "warning" | "error";
++type NotifyFn = (message: string, level: NotifyLevel) => void;
++type SetTimeoutFn = (callback: () => void, ms: number) => unknown;
++
++export interface PlanningBackfillState {
++  inProgress: boolean;
++  promise: Promise<void> | null;
++}
++
++export const planningBackfillState: PlanningBackfillState = {
++  inProgress: false,
++  promise: null,
++};
++
++export interface SchedulePlanningBackfillOptions {
++  notify?: NotifyFn;
++  state?: PlanningBackfillState;
++  setTimeoutFn?: SetTimeoutFn;
++  maxFiles?: number;
++}
++
++/** Collect up to `maxFiles` planning-card md files under <repoRoot>/.planning.
++ *  A cheap .planning-scoped recursive scan (NOT the full-repo walk) so startup
++ *  cost stays bounded. Non-card .planning md (specs/plans/flat/sdd) is collected
++ *  too but later classified out by walkKnowledgeSources (only map.md and
++ *  tickets/NN-slug.md are real planning-cards) — collecting them is harmless
++ *  (a few extra lstats) and keeps this scan a pure directory walk. */
++function collectPlanningMdFiles(repoRoot: string, maxFiles: number): string[] {
++  const out: string[] = [];
++  const planningDir = join(repoRoot, ".planning");
++  const recurse = (dir: string): void => {
++    if (out.length >= maxFiles) return;
++    let entries: string[];
++    try {
++      entries = readdirSync(dir);
++    } catch {
++      return;
++    }
++    for (const name of entries) {
++      if (out.length >= maxFiles) return;
++      const abs = join(dir, name);
++      let st;
++      try {
++        st = statSync(abs);
++      } catch {
++        continue;
++      }
++      if (st.isDirectory()) recurse(abs);
++      else if (name.endsWith(".md")) out.push(abs);
++    }
++  };
++  recurse(planningDir);
++  return out;
++}
++
++function notifyBestEffort(notify: NotifyFn | undefined, message: string, level: NotifyLevel): void {
++  try {
++    notify?.(message, level);
++  } catch {
++    /* Notification failures must never affect backfill. */
++  }
++}
++
++/** Schedule a best-effort, bounded background re-mirror of .planning/. Mirrors
++ *  scheduleSessionBackfill: deferred setTimeout(0); run-state guard; MAX_FILES
++ *  bound; best-effort notify. The actual mirror reuses walkAndIngest's planning
++ *  path in PLANNING-ONLY mode (hash-compare INSERT/UPDATE/skip + delete
++ *  reconciliation; the hash-skip makes unchanged files cheap). Returns true
++ *  when a backfill was scheduled; false when skipped (already in progress). */
++export function schedulePlanningBackfill(
++  repoRoot: string,
++  memoryDir: string,
++  options: SchedulePlanningBackfillOptions = {},
++): boolean {
++  const state = options.state ?? planningBackfillState;
++  const setTimeoutFn = options.setTimeoutFn ?? setTimeout;
++  const maxFiles = options.maxFiles ?? PLANNING_BACKFILL_MAX_FILES;
++
++  if (state.inProgress) return false;
++
++  state.inProgress = true;
++  state.promise = new Promise<void>((resolve) => {
++    setTimeoutFn(async () => {
++      try {
++        const files = collectPlanningMdFiles(repoRoot, maxFiles);
++        if (files.length === 0) return;
++        // walkAndIngest runs the hash-compare mirror + delete reconciliation
++        // against these files in PLANNING-ONLY mode (zk knowledge path skipped;
++        // the hash-skip makes unchanged files cheap). The planning classifier
++        // keys off the `.planning` segment in each abs path, which the collected
++        // paths retain — so the bounded file list scopes the mirror exactly.
++        await walkAndIngest(files, { memoryDir, planningOnly: true });
++        notifyBestEffort(options.notify, `🧠 Planning backfill complete: scanned ${files.length} .planning file(s).`, "info");
++      } catch (err) {
++        notifyBestEffort(
++          options.notify,
++          `⚠️ Planning backfill failed: ${err instanceof Error ? err.message : String(err)}`,
++          "warning",
++        );
++      } finally {
++        state.inProgress = false;
++        state.promise = null;
++        resolve();
++      }
++    }, 0);
++  });
++  return true;
++}
++
++/** Wait briefly for an in-progress planning backfill before shutdown (mirrors
++ *  waitForSessionBackfill). */
++export async function waitForPlanningBackfill(
++  timeoutMs = 5000,
++  state: PlanningBackfillState = planningBackfillState,
++): Promise<boolean> {
++  const promise = state.promise;
++  if (!state.inProgress || !promise) return true;
++  let timeout: ReturnType<typeof setTimeout> | undefined;
++  try {
++    return await Promise.race([
++      promise.then(() => true),
++      new Promise<boolean>((resolve) => {
++        timeout = setTimeout(() => resolve(false), timeoutMs);
++      }),
++    ]);
++  } finally {
++    if (timeout) clearTimeout(timeout);
++  }
++}
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/index.ts b/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
+index 8a9cd63e..1536ddb9 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
+@@ -30,20 +30,21 @@ export { getKnowledgePipeline } from "./knowledge-pipeline-seam.js";
+ import * as path from "node:path";
+ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+ import { MemoryStore } from "./store/memory-store.js";
+ import { SkillStore } from "./store/skill-store.js";
+ import { createBackendBundle, createBackendBundleWithFallback } from "./store/backend-factory.js";
+ import { asSwappable } from "./store/swappable.js";
+ import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
+ import type { MemoryRepository, SessionRepository, BackendBundle } from "./store/repository.js";
+ import type { DbBackend } from "./types.js";
+ import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-backfill.js";
++import { schedulePlanningBackfill } from "./handlers/planning-backfill.js";
+ import { scheduleLiveSessionIndex, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";
+ import { parseSessionFile } from "./store/session-parser.js";
+ import { registerMemoryTool } from "./tools/memory-tool.js";
+ import { registerGrillDecisionTool } from "./tools/grill-decision-tool.js";
+ import { registerSkillTool } from "./tools/skill-tool.js";
+ import { registerSessionSearchTool } from "./tools/session-search-tool.js";
+ import { createPerfRecorder } from "./perf.js";
+ import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
+ import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
+ import { registerKnowledgeSearchTool } from "./tools/knowledge-search-tool.js";
+@@ -339,20 +340,38 @@ export default async function (pi: ExtensionAPI) {
+         if (ui?.notify) {
+           ui.notify(message, level);
+         } else if (level === "error" || level === "warning") {
+           console.warn(message);
+         } else {
+           console.info(message);
+         }
+       },
+     });
+ 
++    // Phase-2 (knowledge-pipeline / ticket 09 T6): background re-mirror of
++    // .planning/. Best-effort, bounded, run-state-guarded — mirrors
++    // scheduleSessionBackfill. Deferred via setTimeout(0) so session_start
++    // resolves first; heals .planning drift without blocking startup. A failure
++    // must NEVER abort agent startup.
++    try {
++      schedulePlanningBackfill(ctx.cwd, globalDir, {
++        notify: (message, level) => {
++          const ui = (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
++          if (ui?.notify) ui.notify(message, level);
++          else if (level === "error" || level === "warning") console.warn(message);
++          else console.info(message);
++        },
++      });
++    } catch {
++      /* never block startup */
++    }
++
+     // Per-session prompt-provenance (UPSP §5): capture the assembled md_id set
+     // + block hash ONCE per session. Best-effort — never abort startup. Mirrors
+     // the backfillStableIds guard: a missing sid / null assembly (policy-only or
+     // empty store) skips the record; a throwing recordAssembly is swallowed.
+     //
+     // UPSP §9 / Task 6: bind the active session id (read by setupUsedDetection's
+     // turn_end closure) and hand captureAssembly an `onReceipt` callback that
+     // populates `surfacedSignatures` from the SAME receipt #05 just recorded —
+     // the §5↔§9 join invariant (one build feeds both record + the matcher). The
+     // populate is gated on `usedDetection !== false` (default on, INDEPENDENT of
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/knowledge-walk.ts b/bun-apps/pi-agent-ext-hermes-memory/src/knowledge-walk.ts
+index e6c46260..4e664c5a 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/knowledge-walk.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/knowledge-walk.ts
+@@ -1,13 +1,13 @@
+ import { readdirSync, lstatSync } from "node:fs";
+ import { extname, join, relative, resolve } from "node:path";
+-import { planningCardKindFromSegs } from "./store/planning-id.js";
++import { planningCardKindFromPath } from "./store/planning-id.js";
+ 
+ /** Knowledge source families the walk classifies (Option A ingests workflow-jsonl;
+  *  generic is detected-but-deferred). Memory-card sources (.agents/memory) are
+  *  out of scope and reported in skipped.deferredFamily. The `planning` family
+  *  (Phase-2 / 08) routes `.planning/<effort>/{map.md,tickets/NN.md}` for the
+  *  seam-independent planning mirror — classified BEFORE the generic `.md`
+  *  fallback so non-card `.planning` md (specs/plans/flat) stays generic/deferred. */
+ export interface WalkFiles {
+   "workflow-jsonl": string[];
+   generic: string[];
+@@ -95,21 +95,27 @@ function classify(abs: string, root: string, result: WalkResult, opts: WalkOptio
+     // When opted in, no knowledge family ingests images yet (ticket 07) — pass through silently.
+     return;
+   }
+ 
+   // Family: .knowledge.jsonl → workflow-jsonl; .md → generic.
+   if (abs.endsWith(".knowledge.jsonl")) {
+     result.files["workflow-jsonl"].push(abs);
+     return;
+   }
+   if (ext === ".md") {
+-    if (planningCardKindFromSegs(segs)) {
++    // Classify planning from the ABSOLUTE path (the canonical classifier used
++    // by mirrorPlanningToStore / parsePlanningPath everywhere else). The rel
++    // segments are relative to the walk `root`, so a bare-file input (root ===
++    // file) or a `.planning/`-rooted walk would strip the `.planning` segment
++    // and misclassify a planning card as generic. The abs path always retains
++    // it, so classification is correct for any input form (dir, file, or list).
++    if (planningCardKindFromPath(abs)) {
+       result.files.planning.push(abs);
+       return;
+     }
+     result.files.generic.push(abs);
+     return;
+   }
+   // No knowledge family + not an explicit skip → ignore (unknown text).
+ }
+ 
+ function walkDir(abs: string, root: string, opts: WalkOptions, result: WalkResult): void {
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/card-store.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/card-store.ts
+index 7fa6c732..cc56a98e 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/card-store.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/card-store.ts
+@@ -31,28 +31,41 @@ import { KnowledgeDedupStrategy } from "./knowledge-dedup.js";
+ import { PlanningEffortDedupStrategy } from "./planning-dedup.js";
+ import { PlanningTicketDedupStrategy } from "./planning-dedup.js";
+ import { today } from "./memory-format.js";
+ 
+ export interface CardStore {
+   /** Idempotent upsert of one Card through the per-kind dedup strategy.
+    *  `keep` → INSERT; `skip`/`merge` → no-op in 06a (memory `merge` is already
+    *  handled by the existing MemoryStore consolidation path; knowledge `merge`
+    *  is a 06b concern). */
+   upsertCard(card: Card): Promise<void>;
++  /** 09-impl: Tier-1 md-wins refresh — UPDATE an EXISTING card's content +
++   *  frontmatter (NOT a new row). Bypasses dedup (pure identity cannot express
++   *  "update"; the sync-layer hash-compare decides WHEN to call this). */
++  updateCard(card: Card): Promise<void>;
++  /** 09-impl: hard-delete a card row by Card.id (md-wins reconciliation — the
++   *  source md vanished). Also paired with deleteCardMdHash by the sweep. */
++  deleteCard(id: string): Promise<void>;
+   /** Fetch the Card whose canonical id (`memories.md_id`) equals `id`, or null. */
+   getCard(id: string): Promise<Card | null>;
+   /** All Cards of one kind (`memories.target` = kind). */
+   getCardsByKind(kind: CardKind): Promise<Card[]>;
+   /** The registered serializer for a kind (spec §7 registry). The 06a SQLite
+    *  path stores `Card.frontmatter` as JSON directly and does not invoke it;
+    *  exposed for the 06b orchestrator's disk-read path. */
+   serializerFor(kind: CardKind): CardSerializer | undefined;
++  /** 09-impl: read the stored content-hash row for a card (by Card.id), or null. */
++  getCardMdHash(cardId: string): Promise<{ hash: string; mirroredAt: string; kind: string } | null>;
++  /** 09-impl: UPSERT a content-hash row (SQLite ON CONFLICT DO UPDATE). */
++  upsertCardMdHash(cardId: string, hash: string, kind?: string): Promise<void>;
++  /** 09-impl: delete the content-hash row for a card. */
++  deleteCardMdHash(cardId: string): Promise<void>;
+   /** Close the backing backend (release the SQLite handle). */
+   close(): Promise<void>;
+ }
+ 
+ export interface CreateCardStoreOptions {
+   memoryDir: string;
+   /** Backend selector. 06a exercises "sqlite"; "surrealdb" is rejected
+    *  (knowledge persistence on Surreal is a 03/04/06b placeholder). */
+   dbBackend?: "sqlite";
+ }
+@@ -187,36 +200,94 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
+               `INSERT INTO memories
+                  (project, target, category, content, failure_reason, tool_state, corrected_to,
+                   created, last_referenced, mw_success, mw_fail, status, md_id, state, severity, pin, frontmatter)
+                VALUES (?, ?, NULL, ?, NULL, NULL, NULL, ?, ?, 0, 0, 'active', ?, 'active', NULL, 0, ?)`,
+             )
+             .run(null, card.kind, card.content, today(), today(), card.id, JSON.stringify(card.frontmatter));
+         }),
+       );
+     },
+ 
++    async updateCard(card: Card): Promise<void> {
++      await runWithTransientRetry(() =>
++        backend.withCorruptionRecovery(() => {
++          getDb()
++            .prepare(
++              `UPDATE memories
++                 SET content = ?, frontmatter = ?, last_referenced = ?
++               WHERE md_id = ?`,
++            )
++            .run(card.content, JSON.stringify(card.frontmatter), today(), card.id);
++        }),
++      );
++    },
++
++    async deleteCard(id: string): Promise<void> {
++      await runWithTransientRetry(() =>
++        backend.withCorruptionRecovery(() => {
++          getDb().prepare("DELETE FROM memories WHERE md_id = ?").run(id);
++        }),
++      );
++    },
++
+     getCard(id: string): Promise<Card | null> {
+       return runWithTransientRetry(() =>
+         backend.withCorruptionRecovery(() => {
+           const row = getDb()
+             .prepare(`SELECT ${CARD_SELECT_COLUMNS} FROM memories WHERE md_id = ? LIMIT 1`)
+             .get(id) as CardRow | undefined;
+           return row && row.md_id !== null ? rowToCard(row) : null;
+         }),
+       );
+     },
+ 
+     getCardsByKind(kind: CardKind): Promise<Card[]> {
+       return fetchCardsByTarget(kind);
+     },
+ 
+     serializerFor(kind: CardKind): CardSerializer | undefined {
+       return serializers.get(kind);
+     },
+ 
++    getCardMdHash(cardId: string): Promise<{ hash: string; mirroredAt: string; kind: string } | null> {
++      return runWithTransientRetry(() =>
++        backend.withCorruptionRecovery(() => {
++          const row = getDb()
++            .prepare("SELECT content_hash, mirrored_at, kind FROM card_md_hash WHERE card_id = ?")
++            .get(cardId) as { content_hash: string; mirrored_at: string; kind: string } | undefined;
++          return row ? { hash: row.content_hash, mirroredAt: row.mirrored_at, kind: row.kind } : null;
++        }),
++      );
++    },
++
++    upsertCardMdHash(cardId: string, hash: string, kind = "mirror"): Promise<void> {
++      return runWithTransientRetry(() =>
++        backend.withCorruptionRecovery(() => {
++          getDb()
++            .prepare(
++              `INSERT INTO card_md_hash (card_id, content_hash, mirrored_at, kind)
++               VALUES (?, ?, ?, ?)
++               ON CONFLICT(card_id) DO UPDATE SET
++                 content_hash = excluded.content_hash,
++                 mirrored_at = excluded.mirrored_at,
++                 kind = excluded.kind`,
++            )
++            .run(cardId, hash, today(), kind);
++        }),
++      );
++    },
++
++    deleteCardMdHash(cardId: string): Promise<void> {
++      return runWithTransientRetry(() =>
++        backend.withCorruptionRecovery(() => {
++          getDb().prepare("DELETE FROM card_md_hash WHERE card_id = ?").run(cardId);
++        }),
++      );
++    },
++
+     async close(): Promise<void> {
+       await backend.close();
+     },
+   };
+ 
+   return store;
+ }
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.test.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.test.ts
+new file mode 100644
+index 00000000..fa9120c8
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.test.ts
+@@ -0,0 +1,152 @@
++import { after, describe, it } from "node:test";
++import * as assert from "node:assert/strict";
++import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
++import { join } from "node:path";
++import { tmpdir } from "node:os";
++import {
++  planningContentHash,
++  getStoredHash,
++  upsertHash,
++  deleteHash,
++  refreshPlanningCard,
++  refreshIfStale,
++} from "./planning-sync-state.js";
++import { createCardStore } from "./card-store.js";
++import type { Card } from "./card.js";
++
++const card = (overrides: Partial<Card> = {}): Card => ({
++  id: "planning-ticket:e:01",
++  kind: "planning-ticket",
++  content: "body",
++  frontmatter: { id: "01", slug: "x", status: "closed" },
++  ...overrides,
++});
++
++describe("planningContentHash", () => {
++  it("is deterministic for identical content + frontmatter", () => {
++    assert.equal(planningContentHash(card()), planningContentHash(card()));
++  });
++  it("is 16 hex chars (hashEntry width)", () => {
++    assert.match(planningContentHash(card()), /^[0-9a-f]{16}$/);
++  });
++  it("changes when content changes", () => {
++    assert.notEqual(planningContentHash(card()), planningContentHash(card({ content: "edited" })));
++  });
++  it("is invariant to frontmatter key ORDER (stable stringify)", () => {
++    const a = card({ frontmatter: { id: "01", slug: "x", status: "closed" } });
++    const b = card({ frontmatter: { status: "closed", slug: "x", id: "01" } });
++    assert.equal(planningContentHash(a), planningContentHash(b));
++  });
++  it("changes when a frontmatter VALUE changes", () => {
++    assert.notEqual(
++      planningContentHash(card()),
++      planningContentHash(card({ frontmatter: { id: "01", slug: "x", status: "open" } })),
++    );
++  });
++});
++
++describe("card_md_hash round-trip (via CardStore accessors)", () => {
++  const dir = mkdtempSync(join(tmpdir(), "planning-hash-rt-"));
++  it("getStoredHash returns null when absent", async () => {
++    const store = await createCardStore({ memoryDir: dir });
++    try {
++      assert.equal(await getStoredHash(store, "planning-ticket:e:01"), null);
++    } finally {
++      await store.close();
++    }
++  });
++  it("upsertHash then getStoredHash round-trips (default kind='mirror')", async () => {
++    const store = await createCardStore({ memoryDir: dir });
++    try {
++      await upsertHash(store, "planning-ticket:e:01", "abc123def456abcd");
++      const got = await getStoredHash(store, "planning-ticket:e:01");
++      assert.equal(got?.hash, "abc123def456abcd");
++      assert.equal(got?.kind, "mirror");
++      assert.ok(got?.mirroredAt);
++    } finally {
++      await store.close();
++    }
++  });
++  it("upsertHash is idempotent UPSERT (re-write overwrites hash + mirrored_at)", async () => {
++    const store = await createCardStore({ memoryDir: dir });
++    try {
++      await upsertHash(store, "planning-ticket:e:01", "firsthash0000000");
++      await upsertHash(store, "planning-ticket:e:01", "secondhash0000000", "mirror");
++      const got = await getStoredHash(store, "planning-ticket:e:01");
++      assert.equal(got?.hash, "secondhash0000000");
++    } finally {
++      await store.close();
++    }
++  });
++  it("deleteHash removes the row", async () => {
++    const store = await createCardStore({ memoryDir: dir });
++    try {
++      await deleteHash(store, "planning-ticket:e:01");
++      assert.equal(await getStoredHash(store, "planning-ticket:e:01"), null);
++    } finally {
++      await store.close();
++    }
++  });
++  // Best-effort cleanup AFTER the round-trip suite shares one dir.
++  after(() => rmSync(dir, { recursive: true, force: true }));
++});
++
++describe("refreshPlanningCard (09-impl T7)", () => {
++  const root = mkdtempSync(join(tmpdir(), "prefresh-"));
++  const mem = mkdtempSync(join(tmpdir(), "prefresh-mem-"));
++  const effort = "refresh-eff";
++  const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
++  const id = `planning-ticket:${effort}:01`;
++
++  it("inserts when no stored card exists", async () => {
++    mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
++    writeFileSync(ticketPath, "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nFirst.\n");
++    const store = await createCardStore({ memoryDir: mem });
++    try {
++      const r = await refreshPlanningCard(store, id, root);
++      assert.equal(r.action, "inserted");
++    } finally {
++      await store.close();
++    }
++  });
++
++  it("updates when the source md changed (drift)", async () => {
++    writeFileSync(ticketPath, "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nEDITED.\n");
++    const store = await createCardStore({ memoryDir: mem });
++    try {
++      const r = await refreshPlanningCard(store, id, root);
++      assert.equal(r.action, "updated");
++      const c = await store.getCard(id);
++      assert.match(c?.content ?? "", /EDITED\./);
++    } finally {
++      await store.close();
++    }
++  });
++
++  it("is unchanged (no write) when the source md is the same", async () => {
++    const store = await createCardStore({ memoryDir: mem });
++    try {
++      const r = await refreshPlanningCard(store, id, root);
++      assert.equal(r.action, "unchanged");
++      assert.equal(await refreshIfStale(store, id, root), false);
++    } finally {
++      await store.close();
++    }
++  });
++
++  it("returns {action:'absent'} when the source md vanished (caller may delete)", async () => {
++    rmSync(ticketPath);
++    const store = await createCardStore({ memoryDir: mem });
++    try {
++      const r = await refreshPlanningCard(store, id, root);
++      assert.equal((r as { action: string }).action, "absent");
++    } finally {
++      await store.close();
++    }
++  });
++
++  after(() => {
++    rmSync(root, { recursive: true, force: true });
++    rmSync(mem, { recursive: true, force: true });
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.ts
+new file mode 100644
+index 00000000..a19e7ce9
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.ts
+@@ -0,0 +1,173 @@
++// src/store/planning-sync-state.ts — pure content-hash + thin sync-state accessors
++// for the .planning card mirror (Phase-2 / ticket 09, Tier-1 md-wins drift).
++//
++// The DB SQL lives on CardStore (getCardMdHash/upsertCardMdHash/deleteCardMdHash,
++// implemented in card-store.ts alongside all other memories/card SQL — the single
++// SQL home). This module owns the PURE hash function (planningContentHash, reusing
++// merge-plan.hashEntry) + the sync-layer wrappers the mirror/sweep/refresh code
++// imports. Hash = 16-hex-char sha256 of canonicalCardBytes(card), keyed by Card.id.
++//
++// Freshness model (T6/T7): regular reads — CardStore.getCard / getCardsByKind —
++// return the DB row AS-IS (fast; NO re-hash, NO re-read of source md). Planning
++// freshness is provided by exactly two mechanisms, NEVER an every-read-rehash:
++//   1. the T6 background backfill on session_start (best-effort, non-blocking), and
++//   2. the T7 on-demand refreshPlanningCard/refreshIfStale below (explicit, per-card).
++import { readFileSync, readdirSync } from "node:fs";
++import { join } from "node:path";
++import type { Card } from "./card.js";
++import type { CardStore } from "./card-store.js";
++import { hashEntry } from "./merge-plan.js";
++
++/** Discriminator for what an on-demand refresh did (T7). `absent` means the
++ *  source md vanished under the id — refresh makes NO deletion itself; the caller
++ *  decides (the T4 sweep hard-deletes during walks). Mirrors the T3 mirror's three
++ *  hash-compare arms (inserted/updated/unchanged) + the new ABSENT arm. */
++export type RefreshAction = "inserted" | "updated" | "unchanged" | "absent";
++
++/** See "Canonical byte form" in the plan: stable JSON of {kind, content, frontmatter}
++ *  with recursively-sorted keys. Identical cards hash identically; any content or
++ *  frontmatter change changes the hash. */
++function sortKeysDeep<T>(value: T): T {
++  if (Array.isArray(value)) return value.map(sortKeysDeep) as unknown as T;
++  if (value && typeof value === "object") {
++    const out: Record<string, unknown> = {};
++    for (const k of Object.keys(value as Record<string, unknown>).sort()) {
++      out[k] = sortKeysDeep((value as Record<string, unknown>)[k]);
++    }
++    return out as unknown as T;
++  }
++  return value;
++}
++
++function canonicalCardBytes(card: Card): string {
++  return JSON.stringify({
++    kind: card.kind,
++    content: card.content,
++    frontmatter: sortKeysDeep(card.frontmatter),
++  });
++}
++
++/** Content-hash of a planning card (reuses merge-plan.hashEntry: sha256 → 16 hex). */
++export function planningContentHash(card: Card): string {
++  return hashEntry(canonicalCardBytes(card));
++}
++
++/** Read the stored mirror hash for a card, or null when none has been written. */
++export async function getStoredHash(
++  store: CardStore,
++  cardId: string,
++): Promise<{ hash: string; mirroredAt: string; kind: string } | null> {
++  return store.getCardMdHash(cardId);
++}
++
++/** UPSERT the mirror hash for a card (default kind='mirror'; 10 uses 'validated'). */
++export async function upsertHash(
++  store: CardStore,
++  cardId: string,
++  hash: string,
++  kind = "mirror",
++): Promise<void> {
++  await store.upsertCardMdHash(cardId, hash, kind);
++}
++
++/** Delete the hash row for a card (paired with hard-delete of the memories row). */
++export async function deleteHash(store: CardStore, cardId: string): Promise<void> {
++  await store.deleteCardMdHash(cardId);
++}
++
++/** Re-derive the source md path for a planning Card.id under fsRoot. Because
++ *  `card_md_hash` keys by card_id only (NO `source_path` column — DDL pinned in
++ *  T1), the path is recovered from the id:
++ *    planning-effort:<effort>      → <fsRoot>/.planning/<effort>/map.md
++ *    planning-ticket:<effort>:<no> → glob <fsRoot>/.planning/<effort>/tickets/<no>-*.md
++ *  (the id carries effort+no, NOT the slug — the slug is recovered by glob).
++ *  Returns null for an unrecognised id / missing dir / no matching glob. */
++function sourcePathForId(cardId: string, fsRoot: string): string | null {
++  if (cardId.startsWith("planning-effort:")) {
++    const effort = cardId.slice("planning-effort:".length);
++    return join(fsRoot, ".planning", effort, "map.md");
++  }
++  if (cardId.startsWith("planning-ticket:")) {
++    const rest = cardId.slice("planning-ticket:".length); // <effort>:<no>
++    const sep = rest.lastIndexOf(":");
++    if (sep < 0) return null;
++    const effort = rest.slice(0, sep);
++    const no = rest.slice(sep + 1);
++    const dir = join(fsRoot, ".planning", effort, "tickets");
++    let names: string[] = [];
++    try {
++      names = readdirSync(dir);
++    } catch {
++      return null;
++    }
++    const match = names.find((n) => n.startsWith(`${no}-`) && n.endsWith(".md"));
++    return match ? join(dir, match) : null;
++  }
++  return null;
++}
++
++/** On-demand refresh of ONE planning card (T7 — explicit, NOT every-read-rehash).
++ *  Re-reads the source md for cardId, re-deserializes, re-hashes, and re-mirrors
++ *  via the SAME hash-compare branch as the T3 mirror
++ *  (walk-and-ingest.mirrorPlanningToStore):
++ *    - no existing card (getCard null) OR no stored hash → INSERT (upsertCard) + write hash;
++ *    - stored.hash !== incoming → UPDATE (updateCard) + refresh hash;
++ *    - hash match → UNCHANGED (no write).
++ *  PLUS a new ABSENT arm: if the source md is gone (path unresolved / read fails /
++ *  id unrecognised / no card with that id in the file) returns {action:'absent'}
++ *  WITHOUT deleting — the caller decides (T4's reconcilePlanningDeletions hard-
++ *  deletes during walks). Call this when freshness is needed for a specific card;
++ *  regular getCard/getCardsByKind do NOT re-hash (freshness = T6 backfill + this). */
++export async function refreshPlanningCard(
++  store: CardStore,
++  cardId: string,
++  fsRoot: string,
++): Promise<{ action: RefreshAction }> {
++  const src = sourcePathForId(cardId, fsRoot);
++  if (!src) return { action: "absent" };
++  let bytes: string;
++  try {
++    bytes = readFileSync(src, "utf8");
++  } catch {
++    return { action: "absent" };
++  }
++  // Derive the kind from the id prefix (the serializer registry is keyed by kind).
++  const kind = cardId.startsWith("planning-effort:")
++    ? "planning-effort"
++    : cardId.startsWith("planning-ticket:")
++      ? "planning-ticket"
++      : null;
++  if (!kind) return { action: "absent" };
++  const serializer = store.serializerFor(kind);
++  if (!serializer) return { action: "absent" };
++  const cards = serializer.deserialize(bytes, { filePath: src });
++  const card = cards.find((c) => c.id === cardId);
++  if (!card) return { action: "absent" };
++
++  // Same hash-compare branch as the T3 mirror (walk-and-ingest.mirrorPlanningToStore):
++  const incomingHash = planningContentHash(card);
++  const existing = await store.getCard(cardId);
++  const stored = await getStoredHash(store, cardId);
++  if (existing === null || stored === null) {
++    await store.upsertCard(card);
++    await upsertHash(store, cardId, incomingHash);
++    return { action: "inserted" };
++  }
++  if (stored.hash !== incomingHash) {
++    await store.updateCard(card);
++    await upsertHash(store, cardId, incomingHash);
++    return { action: "updated" };
++  }
++  return { action: "unchanged" };
++}
++
++/** True iff a refresh actually re-mirrored (drift detected → inserted|updated).
++ *  Thin wrapper over refreshPlanningCard. */
++export async function refreshIfStale(
++  store: CardStore,
++  cardId: string,
++  fsRoot: string,
++): Promise<boolean> {
++  const r = await refreshPlanningCard(store, cardId, fsRoot);
++  return r.action === "inserted" || r.action === "updated";
++}
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts
+index a138d249..194e6d1d 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts
+@@ -125,20 +125,31 @@ export const SCHEMA_SQL = `
+   CREATE INDEX IF NOT EXISTS idx_memories_target ON memories(target);
+   CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
+   CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project);
+   CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at);
+   CREATE INDEX IF NOT EXISTS idx_session_files_session_id ON session_files(session_id);
+ 
+   -- Stable secondary join key (.md ↔ DB). Nullable during backfill: SQLite
+   -- UNIQUE treats NULLs as distinct, so un-backfilled rows coexist.
+   CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_md_id ON memories(md_id);
+ 
++  -- 09-impl (knowledge-pipeline / ticket 09): content-hash state for the
++  -- planning-card mirror (Tier-1, md-wins drift). 'kind' discriminator so 10-impl
++  -- can add dep-validation hashes (kind='validated') WITHOUT a migration.
++  CREATE TABLE IF NOT EXISTS card_md_hash (
++    card_id TEXT PRIMARY KEY,
++    content_hash TEXT NOT NULL,
++    mirrored_at DATE NOT NULL,
++    kind TEXT NOT NULL DEFAULT 'mirror'
++  );
++  CREATE INDEX IF NOT EXISTS idx_card_md_hash_kind ON card_md_hash(kind);
++
+   -- Per-session prompt-provenance (UPSP §5): one row per md_id assembled into a session's
+   -- memory block. FK-FREE by design — the sessions row is created later by deferred backfill,
+   -- so session_id is a plain join key, not an enforced FK. Composite PK dedupes; md_id index
+   -- backs "which sessions saw memory M?".
+   CREATE TABLE IF NOT EXISTS session_assembly (
+     session_id TEXT NOT NULL,
+     md_id TEXT NOT NULL,
+     -- UPSP §9 "used vs dropped" (ticket #06): null at capture (surfaced),
+     -- set to an ISO timestamp when the agent's output first references the
+     -- entry (used). Surfaced-but-never-used = used_at IS NULL.
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-backend.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-backend.ts
+index b3116670..ec1e5863 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-backend.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-backend.ts
+@@ -327,20 +327,24 @@ export class SqliteBackend implements Backend {
+     // (memory/user/failure) to include 'knowledge' for knowledge-cards. Runs
+     // AFTER the legacy 2-value migration so a legacy DB is normalized to
+     // 3-value first, then widened to 4-value here. Idempotent (skips when the
+     // CHECK already mentions 'knowledge').
+     this.migrateMemoriesTargetCheckAddKnowledge(db);
+     // Phase-2 (knowledge-pipeline / ticket 08): widen the 4-value target CHECK
+     // (memory/user/failure/knowledge) to also allow planning kinds. Idempotent
+     // (skips when 'planning-ticket' already present). Mirrors the knowledge
+     // migration's table-rebuild idiom.
+     this.migrateMemoriesTargetCheckAddPlanning(db);
++    // Phase-2 (knowledge-pipeline / ticket 09): ensure the card_md_hash table
++    // for the planning-card content-hash mirror. Idempotent (CREATE TABLE IF
++    // NOT EXISTS). Additive — does NOT touch `memories` (no C3 column-drift).
++    this.ensureCardMdHashTable(db);
+     this.rebuildMemoryFts(db);
+   }
+ 
+   private hasExistingMainDatabaseFile(): boolean {
+     try {
+       return fs.existsSync(this.dbPath) && fs.statSync(this.dbPath).size > 0;
+     } catch {
+       return false;
+     }
+   }
+@@ -762,20 +766,37 @@ export class SqliteBackend implements Backend {
+     }
+     // 06a (knowledge-pipeline): step (a) of the 2-step migration — the cheap
+     // nullable `frontmatter` column add (no table rewrite). Step (b), the
+     // `memories_new` rewrite, fires separately in
+     // `migrateMemoriesTargetCheckAddKnowledge` ONLY to widen the `target` CHECK.
+     if (!names.has('frontmatter')) {
+       db.exec('ALTER TABLE memories ADD COLUMN frontmatter TEXT');
+     }
+   }
+ 
++  /** 09-impl (ticket 09): ensure the `card_md_hash` table exists. Idempotent
++   *  (CREATE TABLE IF NOT EXISTS). Simpler than the T5 target-CHECK migrations
++   *  (which rebuild `memories`): this is a brand-new table with no legacy rows,
++   *  so there is nothing to carry through a rewrite. Fresh installs already get
++   *  it from SCHEMA_SQL; this only fires for pre-09 DBs that predate the table. */
++  private ensureCardMdHashTable(db: DatabaseLike): void {
++    db.exec(`
++      CREATE TABLE IF NOT EXISTS card_md_hash (
++        card_id TEXT PRIMARY KEY,
++        content_hash TEXT NOT NULL,
++        mirrored_at DATE NOT NULL,
++        kind TEXT NOT NULL DEFAULT 'mirror'
++      );
++      CREATE INDEX IF NOT EXISTS idx_card_md_hash_kind ON card_md_hash(kind);
++    `);
++  }
++
+   /** UPSP §9 (#06): add `used_at` to a pre-existing `session_assembly` table
+    *  (created by #05 without the column). Fresh installs already get it via
+    *  SCHEMA_SQL; this ALTER only fires for DBs that predate this task.
+    *  Idempotent by the column-presence guard — NOT try/catch (mirrors
+    *  `ensureMemoriesColumns`). */
+   private ensureSessionAssemblyColumns(db: DatabaseLike): void {
+     if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_assembly'").get()) return;
+     const names = this.getColumnNames(db, 'session_assembly');
+     if (!names.has('used_at')) {
+       db.exec('ALTER TABLE session_assembly ADD COLUMN used_at TEXT');
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts b/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts
+index 75cbda77..2d1289d8 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts
+@@ -1,21 +1,28 @@
+ import { readFileSync, readdirSync } from "node:fs";
+ import { join } from "node:path";
+ import { createHash } from "node:crypto";
+ import type { IngestSummary, HealReceipt, LinkWeighting } from "@repo/pi-agent-ext-core-interface";
+ import { getKnowledgePipeline } from "./knowledge-pipeline-seam.js";
+ import { resolveKnowledgeVaultPath, KNOWLEDGE_FOLDER_DEFAULT, KNOWLEDGE_MOC_DEFAULT } from "./knowledge-vault-path.js";
+ import { walkKnowledgeSources, type WalkOptions } from "./knowledge-walk.js";
+ import { parseKnowledgeJsonl } from "./knowledge-jsonl.js";
++import { hasMergeConflictMarkers } from "./git-ops.js";
+ import { AGENT_ROOT } from "./paths.js";
+ import { createCardStore } from "./store/card-store.js";
+-import { planningCardKindFromPath } from "./store/planning-id.js";
++import {
++  planningCardKindFromPath,
++  parsePlanningPath,
++  planningEffortId,
++  planningTicketId,
++} from "./store/planning-id.js";
++import { planningContentHash, getStoredHash, upsertHash, deleteHash } from "./store/planning-sync-state.js";
+ 
+ /** Options for walkAndIngest. Extends the walk policy opts with ingest/heal scope. */
+ export interface WalkAndIngestOptions extends WalkOptions {
+   /** Convergence folder (default Zettelkasten/knowledge-graph). */
+   folder?: string;
+   /** MOC note path, vault-relative (default Tags/Knowledge Graph.md). */
+   mocPath?: string;
+   /** Source label recorded in the IngestSummary. */
+   sourceLabel?: string;
+   /** Max canonical links per card. */
+@@ -28,35 +35,45 @@ export interface WalkAndIngestOptions extends WalkOptions {
+    *  memory-cards use). Defaults to the existing hermes memory DB dir
+    *  (`<AGENT_ROOT>/pi-hermes-memory`) — NEVER inside the obsidian vault. The
+    *  mirror opens createCardStore({memoryDir}) against this dir so knowledge
+    *  rows land in the same `sessions.db` the memory-cards use. */
+   memoryDir?: string;
+   /** Previous run's Tier-1 md-hash set (`relPath → sha256`). When provided, the
+    *  receipt echoes it as `driftStub.previousHashes` for change-detection
+    *  (compare against `currentHashes`). Full drift logic is ticket 05; 06b
+    *  captures the hook point only (no re-index action). */
+   previousHashes?: Record<string, string>;
++  /** PLANNING-ONLY mode (Phase-2 / 09-impl T6 background backfill): skip the zk
++   *  knowledge path (vault resolution + ingest + heal + vault-md mirror) so the
++   *  call is truly seam-independent and bounded — planning is hermes-internal
++   *  and has no zk dependency. Only the planning DB-mirror (step 8b) + delete
++   *  reconciliation (step 8c) run. Default false (the knowledge-ingest tool and
++   *  the normal orchestrator run the full path). */
++  planningOnly?: boolean;
+ }
+ 
+ /** Receipt for a walkAndIngest run. mirrored + driftStub are placeholders in
+  *  06b task 4 (the DB-mirror is task 5; the drift stub is task 7). */
+ export interface WalkAndIngestReceipt {
+   ok: boolean;
+   vaultPath: string;
+   folder: string;
+   ingest?: IngestSummary;
+   heal?: HealReceipt;
+   /** # of vault-md cards mirrored into the card-store (task 5; 0 here). */
+   mirrored: number;
+   /** # of planning-cards mirrored into the card-store (Phase-2 / 08; 0 when
+    *  no .planning/ source is walked). Independent of the zk seam. */
+   planningMirrored: number;
++  /** Effort ids whose md carries a conflict marker (scanned in T5). Empty in
++   *  T3 — the field is reserved NOW so T5 is a pure populate-change. */
++  conflictMarkerEfforts: string[];
+   /** Tier-1 md-hash drift hook stub (task 7). `currentHashes` is the sha256 of
+    *  each mirrored vault-md file (relPath → hash); `previousHashes` echoes the
+    *  opts for change-detection. No re-index action (full drift = ticket 05). */
+   driftStub: {
+     filesHashed: number;
+     previousHashes?: Record<string, string>;
+     currentHashes: Record<string, string>;
+   };
+   skipped: { dirs: string[]; binaries: string[]; symlinks: string[]; deferredFamily: string[] };
+   seamPresent: boolean;
+@@ -81,21 +98,24 @@ export async function walkAndIngest(
+   opts: WalkAndIngestOptions = {},
+ ): Promise<WalkAndIngestReceipt> {
+   const folder = opts.folder ?? KNOWLEDGE_FOLDER_DEFAULT;
+   const mocPath = opts.mocPath ?? KNOWLEDGE_MOC_DEFAULT;
+ 
+   // 3-4. Policy walk + source-family detection (hermes owns the walk). Walked
+   //  BEFORE the seam check so the planning family mirrors independent of zk.
+   const walk = walkKnowledgeSources(input, opts);
+ 
+   // 2. Read the seam (graceful). Planning mirror is seam-INDEPENDENT (08).
+-  const kp = getKnowledgePipeline();
++  // T6 background backfill opts out of the knowledge path entirely via
++  // opts.planningOnly so a seam-present-but-vault-unset env can never throw and
++  // abort the planning mirror — planning is hermes-internal (no zk dependency).
++  const kp = opts.planningOnly ? undefined : getKnowledgePipeline();
+   let vaultPath = "";
+   let ingest: IngestSummary | undefined;
+   let heal: HealReceipt | undefined;
+   let mirrored = 0;
+   const currentHashes: Record<string, string> = {};
+ 
+   if (kp) {
+     // 1. Resolve vault (env-only) — only needed for the knowledge path. Done
+     //  inside `if (kp)` so a seam-absent + planning-only run never throws on a
+     //  missing KNOWLEDGE_VAULT_PATH.
+@@ -135,45 +155,52 @@ export async function walkAndIngest(
+     // The store IS the 06a unified card-store — the SAME SQLite DB the memory-cards
+     // use (kind-dispatched; a separate knowledge store would defeat 06a). The DB
+     // dir is the existing hermes memory DB dir (`<AGENT_ROOT>/pi-hermes-memory`),
+     // NEVER inside the obsidian vault. Re-mirror is idempotent via
+     // KnowledgeDedupStrategy (id-upsert). Hermes READS vault-md; it does NOT write it.
+     const m = await mirrorVaultMdToStore(vaultPath, folder, opts.memoryDir);
+     mirrored = m.mirrored;
+     Object.assign(currentHashes, m.currentHashes);
+   }
+ 
+-  // 8b. Planning DB-mirror (Phase-2 / 08) — independent of the zk seam.
+-  const { planningMirrored } = await mirrorPlanningToStore(walk.files.planning, opts.memoryDir);
++  // 8b. Planning DB-mirror (Phase-2 / 09-impl) — hash-compare INSERT/UPDATE/skip.
++  const planMirror = await mirrorPlanningToStore(walk.files.planning, opts.memoryDir);
++  const planningMirrored = planMirror.planningMirrored;
++  const conflictMarkerEfforts = planMirror.conflictMarkerEfforts; // populated in T5
++
++  // 8c. Planning delete reconciliation (Phase-2 / 09-impl) — md-wins sweep.
++  await reconcilePlanningDeletions(walk.files.planning, opts.memoryDir);
+ 
+   // 10. Receipt.
+   if (!kp && walk.files.planning.length === 0) {
+     return {
+       ok: false,
+       vaultPath,
+       folder,
+       mirrored: 0,
+       planningMirrored: 0,
+       driftStub: { filesHashed: 0, currentHashes: {} },
+       skipped: walk.skipped,
+       seamPresent: false,
+       reason: "zk KnowledgePipeline seam not present and no planning source",
++      conflictMarkerEfforts: [],
+     };
+   }
+   return {
+     ok: true,
+     vaultPath,
+     folder,
+     ingest,
+     heal,
+     mirrored,
+     planningMirrored,
++    conflictMarkerEfforts,
+     driftStub: {
+       filesHashed: Object.keys(currentHashes).length,
+       previousHashes: opts.previousHashes,
+       currentHashes,
+     },
+     skipped: walk.skipped,
+     seamPresent: !!kp,
+   };
+ }
+ 
+@@ -224,48 +251,115 @@ async function mirrorVaultMdToStore(
+         await store.upsertCard(card);
+         mirrored++;
+       }
+     }
+   } finally {
+     await store.close();
+   }
+   return { mirrored, currentHashes };
+ }
+ 
+-/** Mirror step 8b (Phase-2 / 08): read each `.planning/<effort>/{map.md,
+- *  tickets/NN.md}` planning source -> deserialize via the store's planning
+- *  serializers -> upsertCard. Independent of the zk seam (planning is
+- *  hermes-internal). Idempotent via the planning dedup strategies (append-once;
+- *  content updates are ticket 09). Returns the # of planning cards mirrored.
+- *  The store reuses the SAME SQLite DB the memory/knowledge cards use
+- *  (`<memoryDir>/sessions.db`); `memoryDir` defaults to the existing hermes
+- *  memory DB dir, NEVER inside the vault. No-op when `planningFiles` is empty. */
++/** Mirror step 8b (Phase-2 / 09-impl): self-correcting hash-compare mirror.
++ *  For each planning source: deserialize → compute incoming content-hash
++ *  (planningContentHash, reusing merge-plan.hashEntry) → read the stored hash →
++ *  branch:
++ *    - no existing card (getCard null) → upsertCard (INSERT; dedup keep) + write hash;
++ *    - stored hash ≠ incoming → updateCard (UPDATE content/frontmatter) + refresh hash;
++ *    - hash match → skip (no write; cheap).
++ *  Dedup is consulted ONLY for the new-card identity check (INSERT branch); the
++ *  UPDATE branch bypasses dedup (pure identity cannot express update — the
++ *  DedupDecision union is keep/merge/skip, by design). Returns the # of cards
++ *  mirrored (INSERT+UPDATE; skips not counted) + conflict-marker efforts (T5).
++ *  Independent of the zk seam (planning is hermes-internal). The store reuses the
++ *  SAME SQLite DB the memory/knowledge cards use; memoryDir defaults to the
++ *  existing hermes memory DB dir. No-op when planningFiles is empty. */
+ async function mirrorPlanningToStore(
+   planningFiles: string[],
+   memoryDir?: string,
+-): Promise<{ planningMirrored: number }> {
+-  if (planningFiles.length === 0) return { planningMirrored: 0 };
++): Promise<{ planningMirrored: number; conflictMarkerEfforts: string[] }> {
++  const conflictMarkerEfforts: string[] = []; // populated in T5
++  if (planningFiles.length === 0) return { planningMirrored: 0, conflictMarkerEfforts };
+   const dir = memoryDir ?? join(AGENT_ROOT, "pi-hermes-memory");
+   const store = await createCardStore({ memoryDir: dir });
+   let planningMirrored = 0;
+   try {
+     for (const abs of planningFiles) {
+       const kind = planningCardKindFromPath(abs);
+       if (!kind) continue;
+       let bytes = "";
+       try {
+         bytes = readFileSync(abs, "utf8");
+       } catch {
+         continue;
+       }
++      // 09-impl T5: flag efforts whose md has unresolved merge markers (human
++      // review). Advisory only — the mirror STILL runs on the bytes (the markers
++      // are just body text the serializer parses around). Dedup by effort slug.
++      if (hasMergeConflictMarkers(bytes)) {
++        const info = parsePlanningPath(abs);
++        if (info && !conflictMarkerEfforts.includes(info.effort)) {
++          conflictMarkerEfforts.push(info.effort);
++        }
++      }
+       const serializer = store.serializerFor(kind);
+       const cards = serializer ? serializer.deserialize(bytes, { filePath: abs }) : [];
+       for (const card of cards) {
+-        await store.upsertCard(card);
+-        planningMirrored++;
++        const incomingHash = planningContentHash(card);
++        const existing = await store.getCard(card.id);
++        const stored = await getStoredHash(store, card.id);
++        if (existing === null || stored === null) {
++          // New card (or first mirror after 08→09): INSERT through dedup, write hash.
++          await store.upsertCard(card);
++          await upsertHash(store, card.id, incomingHash);
++          planningMirrored++;
++        } else if (stored.hash !== incomingHash) {
++          // Drift (md edited): Tier-1 md-wins UPDATE + refresh hash.
++          await store.updateCard(card);
++          await upsertHash(store, card.id, incomingHash);
++          planningMirrored++;
++        }
++        // else: hash match → skip (no write).
++      }
++    }
++  } finally {
++    await store.close();
++  }
++  return { planningMirrored, conflictMarkerEfforts };
++}
++
++/** Mirror step 8c (Phase-2 / 09-impl): md-wins delete reconciliation. Given the
++ *  set of planning md files PRESENT on disk, find DB planning-cards whose source
++ *  md is absent → hard-delete the memories row + its card_md_hash row (Tier-1 md
++ *  wins; the DB mirror must not keep rows for deleted md). Tombstoning is
++ *  out-of-scope (09 hard-deletes). Returns the # of rows deleted. No-op when no
++ *  planning-cards are stored. */
++async function reconcilePlanningDeletions(
++  presentPlanningFiles: string[],
++  memoryDir?: string,
++): Promise<{ planningDeleted: number }> {
++  const presentIds = new Set<string>();
++  for (const abs of presentPlanningFiles) {
++    const info = parsePlanningPath(abs);
++    if (!info) continue;
++    presentIds.add(
++      info.kind === "planning-effort" ? planningEffortId(info.effort) : planningTicketId(info.effort, info.ticketNo!),
++    );
++  }
++  const dir = memoryDir ?? join(AGENT_ROOT, "pi-hermes-memory");
++  const store = await createCardStore({ memoryDir: dir });
++  let planningDeleted = 0;
++  try {
++    for (const kind of ["planning-effort", "planning-ticket"] as const) {
++      const rows = await store.getCardsByKind(kind);
++      for (const card of rows) {
++        if (!presentIds.has(card.id)) {
++          await store.deleteCard(card.id);
++          await deleteHash(store, card.id);
++          planningDeleted++;
++        }
+       }
+     }
+   } finally {
+     await store.close();
+   }
+-  return { planningMirrored };
++  return { planningDeleted };
+ }

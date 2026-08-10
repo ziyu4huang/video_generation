@@ -1,0 +1,678 @@
+# Review package: f80328ab..9b459077
+
+## Commits
+9b459077 fix(knowledge-pipeline): gate reconcile on partial walks + unfreeze 08->09 migration cohort (09-impl final review)
+
+## Files changed
+ .../2026-08-10-planning-sync/final-fix-report.md   | 180 +++++++++++++++++++++
+ .../__tests__/walk-and-ingest.test.ts              |  88 ++++++++++
+ .../src/handlers/planning-backfill.ts              |  24 +--
+ bun-apps/pi-agent-ext-hermes-memory/src/index.ts   |   5 +-
+ .../src/store/planning-sync-state.test.ts          |  45 ++++++
+ .../src/store/planning-sync-state.ts               |  12 +-
+ .../src/walk-and-ingest.ts                         |  40 ++++-
+ 7 files changed, 373 insertions(+), 21 deletions(-)
+
+## Diff
+diff --git a/.planning/2026-08-08-knowledge-pipeline/sdd/2026-08-10-planning-sync/final-fix-report.md b/.planning/2026-08-08-knowledge-pipeline/sdd/2026-08-10-planning-sync/final-fix-report.md
+new file mode 100644
+index 00000000..62171b68
+--- /dev/null
++++ b/.planning/2026-08-08-knowledge-pipeline/sdd/2026-08-10-planning-sync/final-fix-report.md
+@@ -0,0 +1,180 @@
++# 09-impl FINAL-FIX-WAVE Report
++
++Owner: SDD FINAL-FIX-WAVE IMPLEMENTER (ticket 09-impl)
++Branch: `knowledge-pipeline/09-impl-planning-sync`
++Scope: 2 system-level bugs found by the whole-branch review (invisible to per-task
++tests, which all start from a fresh DB) + 1 minor ride-along.
++
++Method: strict TDD — regression tests written FIRST and confirmed RED before the
++fix, then GREEN after.
++
++---
++
++## FINDING A — 🔴 CRITICAL: silent mass-deletion of planning cards
++
++### Production bug
++`reconcilePlanningDeletions` (T4) needs the COMPLETE present-set to safely
++hard-delete vanished cards. T6's background backfill feeds it a BOUNDED subset
++(`≤ PLANNING_BACKFILL_MAX_FILES = 50` of this repo's 948 `.planning` md), and
++reconcile ran UNCONDITIONALLY → it hard-deleted every DB planning card whose id
++was not in the bounded subset (i.e. the ~898 cards outside the first 50).
++
++### Fix — dedicated `partialWalk` opt (NOT overloading `planningOnly`)
++`planningOnly` means "skip the zk path"; the new `partialWalk` means "the
++present-set is partial/bounded; do NOT run delete-reconciliation".
++
++**`src/walk-and-ingest.ts`** — new opt + gated reconcile call:
++```ts
++// in WalkAndIngestOptions:
++/** PARTIAL WALK (09-impl final review A): the present-set of planning md is
++ *  PARTIAL/BOUNDED ... When true, delete reconciliation (step 8c) is SUPPRESSED ...
++ *  Reconcile runs ONLY on a COMPLETE present-set ... Mirror (T3) + conflict-marker
++ *  scan (T5) stay enabled in either mode. Default false. */
++partialWalk?: boolean;
++
++// step 8c (was unconditional):
++if (!opts.partialWalk) {
++  await reconcilePlanningDeletions(walk.files.planning, opts.memoryDir);
++}
++```
++The `planningOnly` doc comment was rewritten so it no longer claims reconcile runs
++in planningOnly mode — it clarifies reconcile is gated on `!partialWalk` (needs a
++complete present-set). Mirror (T3) + conflict-marker scan (T5) STAY enabled in
++planningOnly/partialWalk.
++
++**`src/handlers/planning-backfill.ts`** — the bounded backfill call:
++```ts
++await walkAndIngest(files, { memoryDir, planningOnly: true, partialWalk: true });
++```
++The backfill now mirrors + flags conflicts but NEVER reconciles. Its top-level and
++inline comments were updated to reflect the suppression.
++
++### Regression test (A)
++`__tests__/walk-and-ingest.test.ts` →
++`walkAndIngest — partial walk must NOT reconcile (09-impl final review A)`.
++
++**Scenario:** mirror 3 planning tickets via a COMPLETE walk over the repo root
++(hashes written); then run a PARTIAL/bounded walk (`partialWalk:true`,
++`planningOnly:true`) over a proper SUBSET (only ticket 01). Assert ALL THREE
++tickets still exist in the DB afterwards.
++
++**Why it catches the production bug:** the production condition is "reconcile
++fed a bounded subset". Every per-task T4 test passes a COMPLETE present-set (it
++walks the full root and only unlinks the truly-deleted file) → it can never
++exercise a partial present-set. This test is the only one that passes a subset.
++
++**TDD evidence:**
++- RED before fix → `AssertionError ... actual: [ "planning-ticket:partial-eff:01" ]`
++  expected all three (tickets 02 + 03 were mass-deleted).
++- GREEN after fix → all three survive.
++
++---
++
++## FINDING B — 🟠 IMPORTANT: 08→09 migration cohort frozen + drift masked
++
++### Production bug
++For a PRE-09 card (`existing ≠ null`, `stored === null` — true for EVERY existing
++planning card on first 09 touch, since `card_md_hash` is brand-new empty), the
++branch `existing === null || stored === null` routed to `upsertCard`, which
++consults `PlanningTicket/EffortDedupStrategy` and returns `{action:"skip"}` for an
++existing id → NO content write; yet `upsertHash` seeded the hash to the CURRENT md.
++Result: the DB row stayed at 08-era content, the hash falsely claimed "current",
++and every future run saw `stored.hash === incoming` → "unchanged" → drift never
++corrected. Violated the DoD ("re-mirror changed cards") for the entire migration
++cohort.
++
++### Fix — split the branch in BOTH callers so existing-but-unhashed → UPDATE
++**`src/walk-and-ingest.ts` → `mirrorPlanningToStore`:**
++```ts
++if (existing === null) {                       // truly new → INSERT
++  await store.upsertCard(card);
++  await upsertHash(store, card.id, incomingHash);
++  planningMirrored++;
++} else if (stored === null || stored.hash !== incomingHash) {  // 08→09 backfill OR drift → UPDATE
++  await store.updateCard(card);
++  await upsertHash(store, card.id, incomingHash);
++  planningMirrored++;
++}
++// else: hash match → skip (unchanged)
++```
++**`src/store/planning-sync-state.ts` → `refreshPlanningCard`** — same split, mapped
++to the action union: `existing===null` → `{action:"inserted"}`; `stored===null ||
++mismatch` → `{action:"updated"}`; else `{action:"unchanged"}`; source gone →
++`{action:"absent"}`.
++
++`updateCard` BYPASSES dedup (pure id-upsert dedup would no-op an existing id) —
++correct and intended; the sync layer decides WHEN to call it.
++
++### Regression test (B) — two arms
++1. **`__tests__/walk-and-ingest.test.ts`** →
++   `walkAndIngest — 08→09 migration cohort unfreeze (09-impl final review B)`.
++   **Scenario:** pre-seed a `memories` planning row (existing≠null) with OLD
++   content and NO `card_md_hash` row (stored===null); write md with DRIFTED (new)
++   content; run the mirror. Assert the DB row content is the NEW md (not skipped)
++   AND the hash is seeded.
++2. **`src/store/planning-sync-state.test.ts`** →
++   `refreshPlanningCard — 08→09 migration cohort (09-impl final review B)`.
++   Same pre-seed; run `refreshPlanningCard`; assert `action === "updated"`, content
++   updated, hash seeded.
++
++**Why it catches the production bug:** the existing T3 "UPDATEs an edited ticket"
++test only reaches UPDATE via `stored≠null + mismatch` (it INSERTs first, which
++writes the hash, THEN edits). It can never exercise the `existing≠null &&
++stored===null` arm. The migration cohort (existing row, no hash) is exactly that
++arm.
++
++**TDD evidence:**
++- RED before fix (walk) → `AssertionError ... actual: "OLD 08-era body."`
++  expected `/NEW 09-era body\./` (the row was frozen; upsertCard no-op'd).
++- RED before fix (refresh) → `AssertionError ... actual: "inserted"`
++  expected `"updated"` (routed to the insert arm instead of update).
++- GREEN after fix → both arms UPDATE the row + seed the hash.
++
++---
++
++## T6(a) — 🟡 MINOR ride-along: `waitForPlanningBackfill` in the shutdown drain
++
++`src/index.ts` session_shutdown handler (≈line 617) already drains
++`waitForSessionBackfill` + `waitForLiveSessionIndex` before `indexSession`.
++Added `waitForPlanningBackfill(...)` to the same `Promise.all` for graceful
++in-flight drain (consistency with session backfill + prevents orphaned timers):
++```ts
++await Promise.all([
++  waitForSessionBackfill(SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS),
++  waitForLiveSessionIndex(SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS),
++  // T6(a): drain in-flight planning backfill too (graceful shutdown,
++  //  consistency with session backfill, prevents orphaned timers).
++  waitForPlanningBackfill(SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS),
++]);
++```
++The import was extended to `import { schedulePlanningBackfill, waitForPlanningBackfill }`.
++(The bundle-swap quiesce at ≈line 256 was intentionally NOT touched — planning
++backfill is session-scoped, not bundle-scoped.)
++
++---
++
++## DO NOT: Finding C (factor a shared drift-decision helper)
++Deferred per the brief — optional DRY refactor, not load-bearing. The fix stays
++minimal and focused on A + B + T6(a). The two split branches are intentionally
++independent so each call-site's action union stays explicit.
++
++---
++
++## Full-suite gate (run ONCE)
++
++Command: `( cd bun-apps/pi-agent-ext-hermes-memory && bun run check && bun test )`
++
++- `bun run check` (`tsc --noEmit`): **CLEAN** (zero errors).
++- `bun test`: **1440 pass / 1 skip / 1 fail** across 124 files (1048 expect calls).
++
++Baseline before fix = 1437 pass / 1 skip / 1 fail. This wave adds exactly 3 new
++regression tests (A + B-walk + B-refresh) → 1437 + 3 = **1440 pass**.
++
++The single failure is the **known pre-existing** ticket-04 time-bomb, UNRELATED
++to this work:
++`numeric isolation — assembled prompt never leaks memworth ... >
++ formatForSystemPrompt never emits memworth ...`
++(`tests/store/memory-store.test.ts:2630`). Not touched.
++
++**Zero new failures.** All prior T1–T7 tests still pass. A + B regression tests
++GREEN.
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts b/bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts
+index d475f109..2904db79 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts
+@@ -348,20 +348,108 @@ describe("walkAndIngest — planning delete reconciliation (09-impl T4)", () =>
+       const ids = tickets.map((c) => c.id).sort();
+       assert.deepEqual(ids, [`planning-ticket:${effort}:01`]);
+       assert.ok(!ids.includes(`planning-ticket:${effort}:02`), "vanished ticket row must be hard-deleted");
+     } finally {
+       rmSync(root, { recursive: true, force: true });
+       rmSync(mem, { recursive: true, force: true });
+     }
+   });
+ });
+ 
++describe("walkAndIngest — partial walk must NOT reconcile (09-impl final review A)", () => {
++  it("a bounded/partial walk keeps out-of-window planning cards (no mass-delete)", async () => {
++    const root = mkdtempSync(join(tmpdir(), "pwalk-A-"));
++    const mem = mkdtempSync(join(tmpdir(), "pwalk-A-mem-"));
++    try {
++      const effort = "partial-eff";
++      const t01 = join(root, ".planning", effort, "tickets", "01-a.md");
++      const t02 = join(root, ".planning", effort, "tickets", "02-b.md");
++      const t03 = join(root, ".planning", effort, "tickets", "03-c.md");
++      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
++      for (const [p, n] of [[t01, "01 — a"], [t02, "02 — b"], [t03, "03 — c"]] as const) {
++        writeFileSync(p, `---\ntype: task\nstatus: closed\n---\n# ${n}\n\n## Resolution\nbody.\n`);
++      }
++      // COMPLETE walk over the repo root → all three mirrored (hashes written).
++      await walkAndIngest(root, { memoryDir: mem });
++
++      // PARTIAL/bounded walk over a proper SUBSET (only t01) — exactly what the
++      // T6 background backfill feeds reconcile (a bounded ≤MAX_FILES subset of
++      // this repo's 948 .planning md). partialWalk:true MUST suppress delete-
++      // reconciliation so the out-of-window cards (02, 03 — whose md still
++      // exists on disk but is outside the subset) are NOT hard-deleted.
++      await walkAndIngest([t01], { memoryDir: mem, planningOnly: true, partialWalk: true });
++
++      const store = await createCardStore({ memoryDir: mem });
++      const tickets = await store.getCardsByKind("planning-ticket");
++      await store.close();
++      const ids = tickets.map((c) => c.id).sort();
++      assert.deepEqual(
++        ids,
++        [
++          `planning-ticket:${effort}:01`,
++          `planning-ticket:${effort}:02`,
++          `planning-ticket:${effort}:03`,
++        ],
++        "partial walk must NOT hard-delete out-of-window planning cards",
++      );
++    } finally {
++      rmSync(root, { recursive: true, force: true });
++      rmSync(mem, { recursive: true, force: true });
++    }
++  });
++});
++
++describe("walkAndIngest — 08→09 migration cohort unfreeze (09-impl final review B)", () => {
++  it("UPDATEs an existing-but-unhashed planning card (drift), not insert-no-op", async () => {
++    const root = mkdtempSync(join(tmpdir(), "pmig-B-"));
++    const mem = mkdtempSync(join(tmpdir(), "pmig-B-mem-"));
++    try {
++      const effort = "mig-eff";
++      const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
++      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
++      const id = `planning-ticket:${effort}:01`;
++      // Pre-seed an 08-era row directly: OLD content, NO card_md_hash row
++      // (stored===null — true for EVERY existing planning card on first 09
++      // touch, since card_md_hash is brand-new empty). This is the migration
++      // cohort the per-task T3 test cannot reach (it only hits UPDATE via
++      // stored≠null+mismatch).
++      const store0 = await createCardStore({ memoryDir: mem });
++      await store0.upsertCard({
++        id,
++        kind: "planning-ticket",
++        content: "OLD 08-era body.",
++        frontmatter: { id: "01", slug: "x", status: "closed" },
++      });
++      await store0.close();
++
++      // Source md has DRIFTED to new (current) content relative to the DB row.
++      writeFileSync(
++        ticketPath,
++        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nNEW 09-era body.\n",
++      );
++      const r = await walkAndIngest(root, { memoryDir: mem });
++      assert.ok(r.planningMirrored >= 1, "migration-cohort card must be re-mirrored (UPDATE), not skipped");
++
++      const store = await createCardStore({ memoryDir: mem });
++      const c = await store.getCard(id);
++      const hash = await store.getCardMdHash(id);
++      await store.close();
++      assert.match(c?.content ?? "", /NEW 09-era body\./, "DB row updated to current md");
++      assert.doesNotMatch(c?.content ?? "", /OLD 08-era body\./, "08-era content must be overwritten");
++      assert.ok(hash, "hash seeded on first 09 touch");
++    } finally {
++      rmSync(root, { recursive: true, force: true });
++      rmSync(mem, { recursive: true, force: true });
++    }
++  });
++});
++
+ describe("walkAndIngest — conflict-marker flag (09-impl T5)", () => {
+   it("surfaces an effort with unresolved merge markers in its ticket md; clean md not flagged; mirror still runs (non-blocking)", async () => {
+     const root = mkdtempSync(join(tmpdir(), "pconf-"));
+     const mem = mkdtempSync(join(tmpdir(), "pconf-mem-"));
+     try {
+       const effort = "conflict-effort";
+       const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
+       mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+       writeFileSync(ticketPath,
+         "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> b\n");
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/handlers/planning-backfill.ts b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/planning-backfill.ts
+index eca3b8cf..537fd51c 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/handlers/planning-backfill.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/planning-backfill.ts
+@@ -1,20 +1,21 @@
+ // src/handlers/planning-backfill.ts — background backfill of the .planning card
+ // mirror (Phase-2 / 09-impl T6). Mirrors session-backfill.ts house-style: deferred
+ // via setTimeout(0) so session_start resolves first; run-state guard so two
+ // backfills never overlap in-process; MAX_FILES bound so a huge corpus can't
+ // stall startup. Idempotency = the mirror's hash-skip (re-mirroring unchanged
+ // files is a cheap hash-compare no-op — there is NO separate run-state file; a
+ // re-run resumes because unchanged cards hash-match-skip).
+ //
+ // The actual mirror reuses walkAndIngest's planning path (hash-compare
+-// INSERT/UPDATE/skip + delete reconciliation + conflict-marker flag). It is
++// INSERT/UPDATE/skip + conflict-marker flag — delete reconciliation is
++// SUPPRESSED here via partialWalk, see below). It is
+ // invoked PLANNING-ONLY (opts.planningOnly) so the zk knowledge path is skipped
+ // entirely — planning is hermes-internal and has no zk dependency, and passing
+ // the bounded file list scopes the walk to exactly the .planning corpus (no
+ // full-repo re-walk on every startup).
+ import { readdirSync, statSync } from "node:fs";
+ import { join } from "node:path";
+ import { walkAndIngest } from "../walk-and-ingest.js";
+ 
+ export const PLANNING_BACKFILL_MAX_FILES = 50;
+ 
+@@ -77,46 +78,51 @@ function notifyBestEffort(notify: NotifyFn | undefined, message: string, level:
+   try {
+     notify?.(message, level);
+   } catch {
+     /* Notification failures must never affect backfill. */
+   }
+ }
+ 
+ /** Schedule a best-effort, bounded background re-mirror of .planning/. Mirrors
+  *  scheduleSessionBackfill: deferred setTimeout(0); run-state guard; MAX_FILES
+  *  bound; best-effort notify. The actual mirror reuses walkAndIngest's planning
+- *  path in PLANNING-ONLY mode (hash-compare INSERT/UPDATE/skip + delete
+- *  reconciliation; the hash-skip makes unchanged files cheap). Returns true
+- *  when a backfill was scheduled; false when skipped (already in progress). */
++ *  path in PLANNING-ONLY + PARTIAL-WALK mode (hash-compare INSERT/UPDATE/skip +
++ *  conflict-marker scan; the hash-skip makes unchanged files cheap). Reconcile
++ *  is SUPPRESSED (the bounded list is a subset, not a complete present-set —
++ *  09-impl final review A). Returns true when a backfill was scheduled; false
++ *  when skipped (already in progress). */
+ export function schedulePlanningBackfill(
+   repoRoot: string,
+   memoryDir: string,
+   options: SchedulePlanningBackfillOptions = {},
+ ): boolean {
+   const state = options.state ?? planningBackfillState;
+   const setTimeoutFn = options.setTimeoutFn ?? setTimeout;
+   const maxFiles = options.maxFiles ?? PLANNING_BACKFILL_MAX_FILES;
+ 
+   if (state.inProgress) return false;
+ 
+   state.inProgress = true;
+   state.promise = new Promise<void>((resolve) => {
+     setTimeoutFn(async () => {
+       try {
+         const files = collectPlanningMdFiles(repoRoot, maxFiles);
+         if (files.length === 0) return;
+-        // walkAndIngest runs the hash-compare mirror + delete reconciliation
+-        // against these files in PLANNING-ONLY mode (zk knowledge path skipped;
+-        // the hash-skip makes unchanged files cheap). The planning classifier
+-        // keys off the `.planning` segment in each abs path, which the collected
++        // walkAndIngest runs the hash-compare mirror + conflict-marker scan
++        // against these files in PLANNING-ONLY mode. partialWalk:true SUPPRESSES
++        // delete reconciliation — the bounded file list is a subset, not a
++        // complete present-set, so reconcile would mass-delete out-of-window
++        // cards whose md still exists (09-impl final review A). Reconcile runs
++        // only on the full knowledge-ingest walk. The planning classifier keys
++        // off the `.planning` segment in each abs path, which the collected
+         // paths retain — so the bounded file list scopes the mirror exactly.
+-        await walkAndIngest(files, { memoryDir, planningOnly: true });
++        await walkAndIngest(files, { memoryDir, planningOnly: true, partialWalk: true });
+         notifyBestEffort(options.notify, `🧠 Planning backfill complete: scanned ${files.length} .planning file(s).`, "info");
+       } catch (err) {
+         notifyBestEffort(
+           options.notify,
+           `⚠️ Planning backfill failed: ${err instanceof Error ? err.message : String(err)}`,
+           "warning",
+         );
+       } finally {
+         state.inProgress = false;
+         state.promise = null;
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/index.ts b/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
+index 1536ddb9..44ff96f4 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
+@@ -30,21 +30,21 @@ export { getKnowledgePipeline } from "./knowledge-pipeline-seam.js";
+ import * as path from "node:path";
+ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+ import { MemoryStore } from "./store/memory-store.js";
+ import { SkillStore } from "./store/skill-store.js";
+ import { createBackendBundle, createBackendBundleWithFallback } from "./store/backend-factory.js";
+ import { asSwappable } from "./store/swappable.js";
+ import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
+ import type { MemoryRepository, SessionRepository, BackendBundle } from "./store/repository.js";
+ import type { DbBackend } from "./types.js";
+ import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-backfill.js";
+-import { schedulePlanningBackfill } from "./handlers/planning-backfill.js";
++import { schedulePlanningBackfill, waitForPlanningBackfill } from "./handlers/planning-backfill.js";
+ import { scheduleLiveSessionIndex, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";
+ import { parseSessionFile } from "./store/session-parser.js";
+ import { registerMemoryTool } from "./tools/memory-tool.js";
+ import { registerGrillDecisionTool } from "./tools/grill-decision-tool.js";
+ import { registerSkillTool } from "./tools/skill-tool.js";
+ import { registerSessionSearchTool } from "./tools/session-search-tool.js";
+ import { createPerfRecorder } from "./perf.js";
+ import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
+ import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
+ import { registerKnowledgeSearchTool } from "./tools/knowledge-search-tool.js";
+@@ -609,20 +609,23 @@ export default async function (pi: ExtensionAPI) {
+     // indexSession. These background tasks share the DB's write lock with
+     // indexSession; running them concurrently made indexSession block under
+     // transient retry and its contended commit failed to persist. Draining
+     // first lets indexSession run uncontended and commit cleanly. Applies to
+     // the SQLite fallback path (single write lock) and is a harmless ordering
+     // guarantee on the active Surreal backend.
+     try {
+       await Promise.all([
+         waitForSessionBackfill(SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS),
+         waitForLiveSessionIndex(SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS),
++        // T6(a): drain in-flight planning backfill too (graceful shutdown,
++        //  consistency with session backfill, prevents orphaned timers).
++        waitForPlanningBackfill(SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS),
+       ]);
+     } catch { /* best-effort drain — never block shutdown */ }
+ 
+     try {
+       const sessionFile = ctx.sessionManager.getSessionFile();
+       if (sessionFile && require("node:fs").existsSync(sessionFile)) {
+         const sessionData = parseSessionFile(sessionFile);
+         if (sessionData) {
+           // The repository methods already wrap recovery + transient retry, so
+           // there is no need to wrap them in backend.withCorruptionRecovery here.
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.test.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.test.ts
+index fa9120c8..e0b251ed 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.test.ts
+@@ -84,20 +84,65 @@ describe("card_md_hash round-trip (via CardStore accessors)", () => {
+       await deleteHash(store, "planning-ticket:e:01");
+       assert.equal(await getStoredHash(store, "planning-ticket:e:01"), null);
+     } finally {
+       await store.close();
+     }
+   });
+   // Best-effort cleanup AFTER the round-trip suite shares one dir.
+   after(() => rmSync(dir, { recursive: true, force: true }));
+ });
+ 
++describe("refreshPlanningCard — 08→09 migration cohort (09-impl final review B)", () => {
++  it("UPDATEs an existing-but-unhashed card (drift), returning {action:'updated'}", async () => {
++    const root = mkdtempSync(join(tmpdir(), "pmig2-B-"));
++    const mem = mkdtempSync(join(tmpdir(), "pmig2-B-mem-"));
++    try {
++      const effort = "mig2-eff";
++      const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
++      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
++      const id = `planning-ticket:${effort}:01`;
++      // Pre-seed an 08-era row directly: OLD content, NO card_md_hash row
++      // (stored===null — true for every existing planning card on first 09
++      // touch). existing≠null + stored===null is the migration cohort the
++      // existing T7 tests cannot reach (they hit UPDATE only via stored≠null).
++      const store0 = await createCardStore({ memoryDir: mem });
++      await store0.upsertCard({
++        id,
++        kind: "planning-ticket",
++        content: "OLD 08-era body.",
++        frontmatter: { id: "01", slug: "x", status: "closed" },
++      });
++      await store0.close();
++      // Source md has DRIFTED to new (current) content relative to the DB row.
++      writeFileSync(
++        ticketPath,
++        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nNEW 09-era body.\n",
++      );
++      const store = await createCardStore({ memoryDir: mem });
++      try {
++        const r = await refreshPlanningCard(store, id, root);
++        assert.equal(r.action, "updated", "existing-but-unhashed card must UPDATE, not insert-no-op");
++        const c = await store.getCard(id);
++        assert.match(c?.content ?? "", /NEW 09-era body\./, "DB row updated to current md");
++        assert.doesNotMatch(c?.content ?? "", /OLD 08-era body\./, "08-era content must be overwritten");
++        const hash = await store.getCardMdHash(id);
++        assert.ok(hash, "hash seeded on first 09 touch");
++      } finally {
++        await store.close();
++      }
++    } finally {
++      rmSync(root, { recursive: true, force: true });
++      rmSync(mem, { recursive: true, force: true });
++    }
++  });
++});
++
+ describe("refreshPlanningCard (09-impl T7)", () => {
+   const root = mkdtempSync(join(tmpdir(), "prefresh-"));
+   const mem = mkdtempSync(join(tmpdir(), "prefresh-mem-"));
+   const effort = "refresh-eff";
+   const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
+   const id = `planning-ticket:${effort}:01`;
+ 
+   it("inserts when no stored card exists", async () => {
+     mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+     writeFileSync(ticketPath, "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nFirst.\n");
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.ts
+index a19e7ce9..d69dda40 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.ts
+@@ -137,30 +137,36 @@ export async function refreshPlanningCard(
+     : cardId.startsWith("planning-ticket:")
+       ? "planning-ticket"
+       : null;
+   if (!kind) return { action: "absent" };
+   const serializer = store.serializerFor(kind);
+   if (!serializer) return { action: "absent" };
+   const cards = serializer.deserialize(bytes, { filePath: src });
+   const card = cards.find((c) => c.id === cardId);
+   if (!card) return { action: "absent" };
+ 
+-  // Same hash-compare branch as the T3 mirror (walk-and-ingest.mirrorPlanningToStore):
++  // Same hash-compare branch as the T3 mirror (walk-and-ingest.mirrorPlanningToStore),
++  // split so an existing-but-unhashed card (08→09 migration cohort) routes to
++  // UPDATE, not an insert-no-op that freezes the row at 08-era content
++  // (09-impl final review B):
++  //   - no existing card (getCard null) → INSERT (upsertCard) + write hash;
++  //   - existing card BUT no stored hash, OR stored.hash !== incoming → UPDATE;
++  //   - hash match → UNCHANGED (no write).
+   const incomingHash = planningContentHash(card);
+   const existing = await store.getCard(cardId);
+   const stored = await getStoredHash(store, cardId);
+-  if (existing === null || stored === null) {
++  if (existing === null) {
+     await store.upsertCard(card);
+     await upsertHash(store, cardId, incomingHash);
+     return { action: "inserted" };
+   }
+-  if (stored.hash !== incomingHash) {
++  if (stored === null || stored.hash !== incomingHash) {
+     await store.updateCard(card);
+     await upsertHash(store, cardId, incomingHash);
+     return { action: "updated" };
+   }
+   return { action: "unchanged" };
+ }
+ 
+ /** True iff a refresh actually re-mirrored (drift detected → inserted|updated).
+  *  Thin wrapper over refreshPlanningCard. */
+ export async function refreshIfStale(
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts b/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts
+index 2d1289d8..1f38f515 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts
+@@ -38,24 +38,36 @@ export interface WalkAndIngestOptions extends WalkOptions {
+    *  rows land in the same `sessions.db` the memory-cards use. */
+   memoryDir?: string;
+   /** Previous run's Tier-1 md-hash set (`relPath → sha256`). When provided, the
+    *  receipt echoes it as `driftStub.previousHashes` for change-detection
+    *  (compare against `currentHashes`). Full drift logic is ticket 05; 06b
+    *  captures the hook point only (no re-index action). */
+   previousHashes?: Record<string, string>;
+   /** PLANNING-ONLY mode (Phase-2 / 09-impl T6 background backfill): skip the zk
+    *  knowledge path (vault resolution + ingest + heal + vault-md mirror) so the
+    *  call is truly seam-independent and bounded — planning is hermes-internal
+-   *  and has no zk dependency. Only the planning DB-mirror (step 8b) + delete
+-   *  reconciliation (step 8c) run. Default false (the knowledge-ingest tool and
+-   *  the normal orchestrator run the full path). */
++   *  and has no zk dependency. The planning DB-mirror (step 8b: hash-compare
++   *  INSERT/UPDATE/skip) + conflict-marker scan (T5) STILL run in this mode.
++   *  Delete reconciliation (step 8c) does NOT run here — it is gated on
++   *  `!partialWalk` (see below) because it needs the COMPLETE present-set.
++   *  Default false (the knowledge-ingest tool and the normal orchestrator run
++   *  the full path). */
+   planningOnly?: boolean;
++  /** PARTIAL WALK (09-impl final review A): the present-set of planning md is
++   *  PARTIAL/BOUNDED (e.g. the T6 background backfill feeds ≤ MAX_FILES of a
++   *  large corpus). When true, delete reconciliation (step 8c) is SUPPRESSED —
++   *  reconcile hard-deletes every DB planning card whose id ∉ the present-set,
++   *  so running it on a bounded subset would silently mass-delete out-of-window
++   *  cards whose md still exists. Reconcile runs ONLY on a COMPLETE present-set
++   *  (the full knowledge-ingest walk, where this opt is unset). Mirror (T3) +
++   *  conflict-marker scan (T5) stay enabled in either mode. Default false. */
++  partialWalk?: boolean;
+ }
+ 
+ /** Receipt for a walkAndIngest run. mirrored + driftStub are placeholders in
+  *  06b task 4 (the DB-mirror is task 5; the drift stub is task 7). */
+ export interface WalkAndIngestReceipt {
+   ok: boolean;
+   vaultPath: string;
+   folder: string;
+   ingest?: IngestSummary;
+   heal?: HealReceipt;
+@@ -161,21 +173,29 @@ export async function walkAndIngest(
+     mirrored = m.mirrored;
+     Object.assign(currentHashes, m.currentHashes);
+   }
+ 
+   // 8b. Planning DB-mirror (Phase-2 / 09-impl) — hash-compare INSERT/UPDATE/skip.
+   const planMirror = await mirrorPlanningToStore(walk.files.planning, opts.memoryDir);
+   const planningMirrored = planMirror.planningMirrored;
+   const conflictMarkerEfforts = planMirror.conflictMarkerEfforts; // populated in T5
+ 
+   // 8c. Planning delete reconciliation (Phase-2 / 09-impl) — md-wins sweep.
+-  await reconcilePlanningDeletions(walk.files.planning, opts.memoryDir);
++  // Gated on `!partialWalk`: reconcile hard-deletes every DB planning card whose
++  // id ∉ the present-set, so it MUST see a COMPLETE present-set. A bounded/
++  // partial walk (T6 background backfill) feeds only a subset → suppress here to
++  // avoid silently mass-deleting out-of-window cards whose md still exists
++  // (09-impl final review A). Mirror (T3) + conflict-marker scan (T5) ran above
++  // unconditionally and stay enabled in partial walks.
++  if (!opts.partialWalk) {
++    await reconcilePlanningDeletions(walk.files.planning, opts.memoryDir);
++  }
+ 
+   // 10. Receipt.
+   if (!kp && walk.files.planning.length === 0) {
+     return {
+       ok: false,
+       vaultPath,
+       folder,
+       mirrored: 0,
+       planningMirrored: 0,
+       driftStub: { filesHashed: 0, currentHashes: {} },
+@@ -299,27 +319,31 @@ async function mirrorPlanningToStore(
+         if (info && !conflictMarkerEfforts.includes(info.effort)) {
+           conflictMarkerEfforts.push(info.effort);
+         }
+       }
+       const serializer = store.serializerFor(kind);
+       const cards = serializer ? serializer.deserialize(bytes, { filePath: abs }) : [];
+       for (const card of cards) {
+         const incomingHash = planningContentHash(card);
+         const existing = await store.getCard(card.id);
+         const stored = await getStoredHash(store, card.id);
+-        if (existing === null || stored === null) {
+-          // New card (or first mirror after 08→09): INSERT through dedup, write hash.
++        if (existing === null) {
++          // Truly new card → INSERT through dedup, write hash.
+           await store.upsertCard(card);
+           await upsertHash(store, card.id, incomingHash);
+           planningMirrored++;
+-        } else if (stored.hash !== incomingHash) {
+-          // Drift (md edited): Tier-1 md-wins UPDATE + refresh hash.
++        } else if (stored === null || stored.hash !== incomingHash) {
++          // 08→09 backfill (existing card, no hash yet) OR drift (md edited):
++          // UPDATE content/frontmatter via updateCard (BYPASSES dedup — a pure
++          // id-upsert dedup strategy would no-op an existing id and freeze the
++          // row at 08-era content while the hash falsely claims "current"),
++          // then refresh the hash. (09-impl final review B.)
+           await store.updateCard(card);
+           await upsertHash(store, card.id, incomingHash);
+           planningMirrored++;
+         }
+         // else: hash match → skip (no write).
+       }
+     }
+   } finally {
+     await store.close();
+   }

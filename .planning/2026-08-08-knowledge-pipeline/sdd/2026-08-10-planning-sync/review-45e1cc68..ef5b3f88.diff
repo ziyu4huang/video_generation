@@ -1,0 +1,234 @@
+# Review package: 45e1cc68..ef5b3f88
+
+## Commits
+ef5b3f88 feat(knowledge-pipeline): planning delete reconciliation + store.deleteCard (09-impl T4)
+
+## Files changed
+ .../__tests__/walk-and-ingest.test.ts              | 30 ++++++++++++-
+ .../src/store/card-store.ts                        | 11 +++++
+ .../src/walk-and-ingest.ts                         | 50 +++++++++++++++++++++-
+ 3 files changed, 88 insertions(+), 3 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts b/bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts
+index 0d6f733c..00d19a21 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts
+@@ -1,13 +1,13 @@
+ import { describe, it, beforeEach, afterEach } from "node:test";
+ import * as assert from "node:assert/strict";
+-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
++import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ import { publishSeam, type KnowledgePipeline } from "@repo/pi-agent-ext-core-interface";
+ import { walkAndIngest } from "../src/walk-and-ingest.js";
+ import { createCardStore } from "../src/store/card-store.js";
+ 
+ const KEY = "__piKnowledgePipeline";
+ const FOLDER = "Zettelkasten/knowledge-graph";
+ 
+ /** A zk-shaped stub that writes vault-md (mimicking zk's ingestRecords) and
+@@ -319,10 +319,38 @@ describe("walkAndIngest — planning mirror drift (09-impl T3)", () => {
+       writeFileSync(ticketPath, body);
+       await walkAndIngest(root, { memoryDir: mem });             // mirror once
+       const r2 = await walkAndIngest(root, { memoryDir: mem });  // re-mirror unchanged
+       assert.equal(r2.planningMirrored, 0, "unchanged ticket must be skipped (hash match)");
+     } finally {
+       rmSync(root, { recursive: true, force: true });
+       rmSync(mem, { recursive: true, force: true });
+     }
+   });
+ });
++
++describe("walkAndIngest — planning delete reconciliation (09-impl T4)", () => {
++  it("hard-deletes planning rows whose source md vanished (md-wins)", async () => {
++    const root = mkdtempSync(join(tmpdir(), "precon-"));
++    const mem = mkdtempSync(join(tmpdir(), "precon-mem-"));
++    try {
++      const effort = "recon-del";
++      const t01 = join(root, ".planning", effort, "tickets", "01-keep.md");
++      const t02 = join(root, ".planning", effort, "tickets", "02-gone.md");
++      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
++      writeFileSync(t01, "---\ntype: task\nstatus: closed\n---\n# 01 — keep\n\n## Resolution\nKeep.\n");
++      writeFileSync(t02, "---\ntype: task\nstatus: closed\n---\n# 02 — gone\n\n## Resolution\nGone.\n");
++      await walkAndIngest(root, { memoryDir: mem });             // mirror both tickets
++      // Source md for ticket 02 is removed (git rm / file deleted).
++      unlinkSync(t02);
++      await walkAndIngest(root, { memoryDir: mem });             // re-walk → sweep deletes 02
++      const store = await createCardStore({ memoryDir: mem });
++      const tickets = await store.getCardsByKind("planning-ticket");
++      await store.close();
++      const ids = tickets.map((c) => c.id).sort();
++      assert.deepEqual(ids, [`planning-ticket:${effort}:01`]);
++      assert.ok(!ids.includes(`planning-ticket:${effort}:02`), "vanished ticket row must be hard-deleted");
++    } finally {
++      rmSync(root, { recursive: true, force: true });
++      rmSync(mem, { recursive: true, force: true });
++    }
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/card-store.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/card-store.ts
+index 009f1978..cc56a98e 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/card-store.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/card-store.ts
+@@ -35,20 +35,23 @@ import { today } from "./memory-format.js";
+ export interface CardStore {
+   /** Idempotent upsert of one Card through the per-kind dedup strategy.
+    *  `keep` → INSERT; `skip`/`merge` → no-op in 06a (memory `merge` is already
+    *  handled by the existing MemoryStore consolidation path; knowledge `merge`
+    *  is a 06b concern). */
+   upsertCard(card: Card): Promise<void>;
+   /** 09-impl: Tier-1 md-wins refresh — UPDATE an EXISTING card's content +
+    *  frontmatter (NOT a new row). Bypasses dedup (pure identity cannot express
+    *  "update"; the sync-layer hash-compare decides WHEN to call this). */
+   updateCard(card: Card): Promise<void>;
++  /** 09-impl: hard-delete a card row by Card.id (md-wins reconciliation — the
++   *  source md vanished). Also paired with deleteCardMdHash by the sweep. */
++  deleteCard(id: string): Promise<void>;
+   /** Fetch the Card whose canonical id (`memories.md_id`) equals `id`, or null. */
+   getCard(id: string): Promise<Card | null>;
+   /** All Cards of one kind (`memories.target` = kind). */
+   getCardsByKind(kind: CardKind): Promise<Card[]>;
+   /** The registered serializer for a kind (spec §7 registry). The 06a SQLite
+    *  path stores `Card.frontmatter` as JSON directly and does not invoke it;
+    *  exposed for the 06b orchestrator's disk-read path. */
+   serializerFor(kind: CardKind): CardSerializer | undefined;
+   /** 09-impl: read the stored content-hash row for a card (by Card.id), or null. */
+   getCardMdHash(cardId: string): Promise<{ hash: string; mirroredAt: string; kind: string } | null>;
+@@ -211,20 +214,28 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
+             .prepare(
+               `UPDATE memories
+                  SET content = ?, frontmatter = ?, last_referenced = ?
+                WHERE md_id = ?`,
+             )
+             .run(card.content, JSON.stringify(card.frontmatter), today(), card.id);
+         }),
+       );
+     },
+ 
++    async deleteCard(id: string): Promise<void> {
++      await runWithTransientRetry(() =>
++        backend.withCorruptionRecovery(() => {
++          getDb().prepare("DELETE FROM memories WHERE md_id = ?").run(id);
++        }),
++      );
++    },
++
+     getCard(id: string): Promise<Card | null> {
+       return runWithTransientRetry(() =>
+         backend.withCorruptionRecovery(() => {
+           const row = getDb()
+             .prepare(`SELECT ${CARD_SELECT_COLUMNS} FROM memories WHERE md_id = ? LIMIT 1`)
+             .get(id) as CardRow | undefined;
+           return row && row.md_id !== null ? rowToCard(row) : null;
+         }),
+       );
+     },
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts b/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts
+index 228e4e58..79e19b72 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts
+@@ -1,22 +1,27 @@
+ import { readFileSync, readdirSync } from "node:fs";
+ import { join } from "node:path";
+ import { createHash } from "node:crypto";
+ import type { IngestSummary, HealReceipt, LinkWeighting } from "@repo/pi-agent-ext-core-interface";
+ import { getKnowledgePipeline } from "./knowledge-pipeline-seam.js";
+ import { resolveKnowledgeVaultPath, KNOWLEDGE_FOLDER_DEFAULT, KNOWLEDGE_MOC_DEFAULT } from "./knowledge-vault-path.js";
+ import { walkKnowledgeSources, type WalkOptions } from "./knowledge-walk.js";
+ import { parseKnowledgeJsonl } from "./knowledge-jsonl.js";
+ import { AGENT_ROOT } from "./paths.js";
+ import { createCardStore } from "./store/card-store.js";
+-import { planningCardKindFromPath } from "./store/planning-id.js";
+-import { planningContentHash, getStoredHash, upsertHash } from "./store/planning-sync-state.js";
++import {
++  planningCardKindFromPath,
++  parsePlanningPath,
++  planningEffortId,
++  planningTicketId,
++} from "./store/planning-id.js";
++import { planningContentHash, getStoredHash, upsertHash, deleteHash } from "./store/planning-sync-state.js";
+ 
+ /** Options for walkAndIngest. Extends the walk policy opts with ingest/heal scope. */
+ export interface WalkAndIngestOptions extends WalkOptions {
+   /** Convergence folder (default Zettelkasten/knowledge-graph). */
+   folder?: string;
+   /** MOC note path, vault-relative (default Tags/Knowledge Graph.md). */
+   mocPath?: string;
+   /** Source label recorded in the IngestSummary. */
+   sourceLabel?: string;
+   /** Max canonical links per card. */
+@@ -144,20 +149,23 @@ export async function walkAndIngest(
+     const m = await mirrorVaultMdToStore(vaultPath, folder, opts.memoryDir);
+     mirrored = m.mirrored;
+     Object.assign(currentHashes, m.currentHashes);
+   }
+ 
+   // 8b. Planning DB-mirror (Phase-2 / 09-impl) — hash-compare INSERT/UPDATE/skip.
+   const planMirror = await mirrorPlanningToStore(walk.files.planning, opts.memoryDir);
+   const planningMirrored = planMirror.planningMirrored;
+   const conflictMarkerEfforts = planMirror.conflictMarkerEfforts; // populated in T5
+ 
++  // 8c. Planning delete reconciliation (Phase-2 / 09-impl) — md-wins sweep.
++  await reconcilePlanningDeletions(walk.files.planning, opts.memoryDir);
++
+   // 10. Receipt.
+   if (!kp && walk.files.planning.length === 0) {
+     return {
+       ok: false,
+       vaultPath,
+       folder,
+       mirrored: 0,
+       planningMirrored: 0,
+       driftStub: { filesHashed: 0, currentHashes: {} },
+       skipped: walk.skipped,
+@@ -290,10 +298,48 @@ async function mirrorPlanningToStore(
+           planningMirrored++;
+         }
+         // else: hash match → skip (no write).
+       }
+     }
+   } finally {
+     await store.close();
+   }
+   return { planningMirrored, conflictMarkerEfforts };
+ }
++
++/** Mirror step 8c (Phase-2 / 09-impl): md-wins delete reconciliation. Given the
++ *  set of planning md files PRESENT on disk, find DB planning-cards whose source
++ *  md is absent → hard-delete the memories row + its card_md_hash row (Tier-1 md
++ *  wins; the DB mirror must not keep rows for deleted md). Tombstoning is
++ *  out-of-scope (09 hard-deletes). Returns the # of rows deleted. No-op when no
++ *  planning-cards are stored. */
++async function reconcilePlanningDeletions(
++  presentPlanningFiles: string[],
++  memoryDir?: string,
++): Promise<{ planningDeleted: number }> {
++  const presentIds = new Set<string>();
++  for (const abs of presentPlanningFiles) {
++    const info = parsePlanningPath(abs);
++    if (!info) continue;
++    presentIds.add(
++      info.kind === "planning-effort" ? planningEffortId(info.effort) : planningTicketId(info.effort, info.ticketNo!),
++    );
++  }
++  const dir = memoryDir ?? join(AGENT_ROOT, "pi-hermes-memory");
++  const store = await createCardStore({ memoryDir: dir });
++  let planningDeleted = 0;
++  try {
++    for (const kind of ["planning-effort", "planning-ticket"] as const) {
++      const rows = await store.getCardsByKind(kind);
++      for (const card of rows) {
++        if (!presentIds.has(card.id)) {
++          await store.deleteCard(card.id);
++          await deleteHash(store, card.id);
++          planningDeleted++;
++        }
++      }
++    }
++  } finally {
++    await store.close();
++  }
++  return { planningDeleted };
++}

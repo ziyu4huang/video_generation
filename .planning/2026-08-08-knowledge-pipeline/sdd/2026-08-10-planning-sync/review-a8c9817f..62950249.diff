@@ -1,0 +1,256 @@
+# Review package: a8c9817f..62950249
+
+## Commits
+62950249 feat(knowledge-pipeline): planning content-hash + sync-state accessors (09-impl T2)
+
+## Files changed
+ .../src/store/card-store.ts                        | 42 +++++++++++
+ .../src/store/planning-sync-state.test.ts          | 85 ++++++++++++++++++++++
+ .../src/store/planning-sync-state.ts               | 62 ++++++++++++++++
+ 3 files changed, 189 insertions(+)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/card-store.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/card-store.ts
+index 7fa6c732..10edc896 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/card-store.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/card-store.ts
+@@ -39,20 +39,26 @@ export interface CardStore {
+    *  is a 06b concern). */
+   upsertCard(card: Card): Promise<void>;
+   /** Fetch the Card whose canonical id (`memories.md_id`) equals `id`, or null. */
+   getCard(id: string): Promise<Card | null>;
+   /** All Cards of one kind (`memories.target` = kind). */
+   getCardsByKind(kind: CardKind): Promise<Card[]>;
+   /** The registered serializer for a kind (spec §7 registry). The 06a SQLite
+    *  path stores `Card.frontmatter` as JSON directly and does not invoke it;
+    *  exposed for the 06b orchestrator's disk-read path. */
+   serializerFor(kind: CardKind): CardSerializer | undefined;
++  /** 09-impl: read the stored content-hash row for a card (by Card.id), or null. */
++  getCardMdHash(cardId: string): Promise<{ hash: string; mirroredAt: string; kind: string } | null>;
++  /** 09-impl: UPSERT a content-hash row (SQLite ON CONFLICT DO UPDATE). */
++  upsertCardMdHash(cardId: string, hash: string, kind?: string): Promise<void>;
++  /** 09-impl: delete the content-hash row for a card. */
++  deleteCardMdHash(cardId: string): Promise<void>;
+   /** Close the backing backend (release the SQLite handle). */
+   close(): Promise<void>;
+ }
+ 
+ export interface CreateCardStoreOptions {
+   memoryDir: string;
+   /** Backend selector. 06a exercises "sqlite"; "surrealdb" is rejected
+    *  (knowledge persistence on Surreal is a 03/04/06b placeholder). */
+   dbBackend?: "sqlite";
+ }
+@@ -206,17 +212,53 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
+     },
+ 
+     getCardsByKind(kind: CardKind): Promise<Card[]> {
+       return fetchCardsByTarget(kind);
+     },
+ 
+     serializerFor(kind: CardKind): CardSerializer | undefined {
+       return serializers.get(kind);
+     },
+ 
++    getCardMdHash(cardId: string): Promise<{ hash: string; mirroredAt: string; kind: string } | null> {
++      return runWithTransientRetry(() =>
++        backend.withCorruptionRecovery(() => {
++          const row = getDb()
++            .prepare("SELECT content_hash, mirrored_at, kind FROM card_md_hash WHERE card_id = ?")
++            .get(cardId) as { content_hash: string; mirrored_at: string; kind: string } | undefined;
++          return row ? { hash: row.content_hash, mirroredAt: row.mirrored_at, kind: row.kind } : null;
++        }),
++      );
++    },
++
++    upsertCardMdHash(cardId: string, hash: string, kind = "mirror"): Promise<void> {
++      return runWithTransientRetry(() =>
++        backend.withCorruptionRecovery(() => {
++          getDb()
++            .prepare(
++              `INSERT INTO card_md_hash (card_id, content_hash, mirrored_at, kind)
++               VALUES (?, ?, ?, ?)
++               ON CONFLICT(card_id) DO UPDATE SET
++                 content_hash = excluded.content_hash,
++                 mirrored_at = excluded.mirrored_at,
++                 kind = excluded.kind`,
++            )
++            .run(cardId, hash, today(), kind);
++        }),
++      );
++    },
++
++    deleteCardMdHash(cardId: string): Promise<void> {
++      return runWithTransientRetry(() =>
++        backend.withCorruptionRecovery(() => {
++          getDb().prepare("DELETE FROM card_md_hash WHERE card_id = ?").run(cardId);
++        }),
++      );
++    },
++
+     async close(): Promise<void> {
+       await backend.close();
+     },
+   };
+ 
+   return store;
+ }
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.test.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.test.ts
+new file mode 100644
+index 00000000..df6c48eb
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.test.ts
+@@ -0,0 +1,85 @@
++import { after, describe, it } from "node:test";
++import * as assert from "node:assert/strict";
++import { mkdtempSync, rmSync } from "node:fs";
++import { join } from "node:path";
++import { tmpdir } from "node:os";
++import { planningContentHash, getStoredHash, upsertHash, deleteHash } from "./planning-sync-state.js";
++import { createCardStore } from "./card-store.js";
++import type { Card } from "./card.js";
++
++const card = (overrides: Partial<Card> = {}): Card => ({
++  id: "planning-ticket:e:01",
++  kind: "planning-ticket",
++  content: "body",
++  frontmatter: { id: "01", slug: "x", status: "closed" },
++  ...overrides,
++});
++
++describe("planningContentHash", () => {
++  it("is deterministic for identical content + frontmatter", () => {
++    assert.equal(planningContentHash(card()), planningContentHash(card()));
++  });
++  it("is 16 hex chars (hashEntry width)", () => {
++    assert.match(planningContentHash(card()), /^[0-9a-f]{16}$/);
++  });
++  it("changes when content changes", () => {
++    assert.notEqual(planningContentHash(card()), planningContentHash(card({ content: "edited" })));
++  });
++  it("is invariant to frontmatter key ORDER (stable stringify)", () => {
++    const a = card({ frontmatter: { id: "01", slug: "x", status: "closed" } });
++    const b = card({ frontmatter: { status: "closed", slug: "x", id: "01" } });
++    assert.equal(planningContentHash(a), planningContentHash(b));
++  });
++  it("changes when a frontmatter VALUE changes", () => {
++    assert.notEqual(
++      planningContentHash(card()),
++      planningContentHash(card({ frontmatter: { id: "01", slug: "x", status: "open" } })),
++    );
++  });
++});
++
++describe("card_md_hash round-trip (via CardStore accessors)", () => {
++  const dir = mkdtempSync(join(tmpdir(), "planning-hash-rt-"));
++  it("getStoredHash returns null when absent", async () => {
++    const store = await createCardStore({ memoryDir: dir });
++    try {
++      assert.equal(await getStoredHash(store, "planning-ticket:e:01"), null);
++    } finally {
++      await store.close();
++    }
++  });
++  it("upsertHash then getStoredHash round-trips (default kind='mirror')", async () => {
++    const store = await createCardStore({ memoryDir: dir });
++    try {
++      await upsertHash(store, "planning-ticket:e:01", "abc123def456abcd");
++      const got = await getStoredHash(store, "planning-ticket:e:01");
++      assert.equal(got?.hash, "abc123def456abcd");
++      assert.equal(got?.kind, "mirror");
++      assert.ok(got?.mirroredAt);
++    } finally {
++      await store.close();
++    }
++  });
++  it("upsertHash is idempotent UPSERT (re-write overwrites hash + mirrored_at)", async () => {
++    const store = await createCardStore({ memoryDir: dir });
++    try {
++      await upsertHash(store, "planning-ticket:e:01", "firsthash0000000");
++      await upsertHash(store, "planning-ticket:e:01", "secondhash0000000", "mirror");
++      const got = await getStoredHash(store, "planning-ticket:e:01");
++      assert.equal(got?.hash, "secondhash0000000");
++    } finally {
++      await store.close();
++    }
++  });
++  it("deleteHash removes the row", async () => {
++    const store = await createCardStore({ memoryDir: dir });
++    try {
++      await deleteHash(store, "planning-ticket:e:01");
++      assert.equal(await getStoredHash(store, "planning-ticket:e:01"), null);
++    } finally {
++      await store.close();
++    }
++  });
++  // Best-effort cleanup AFTER the round-trip suite shares one dir.
++  after(() => rmSync(dir, { recursive: true, force: true }));
++});
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.ts
+new file mode 100644
+index 00000000..d4293354
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/planning-sync-state.ts
+@@ -0,0 +1,62 @@
++// src/store/planning-sync-state.ts — pure content-hash + thin sync-state accessors
++// for the .planning card mirror (Phase-2 / ticket 09, Tier-1 md-wins drift).
++//
++// The DB SQL lives on CardStore (getCardMdHash/upsertCardMdHash/deleteCardMdHash,
++// implemented in card-store.ts alongside all other memories/card SQL — the single
++// SQL home). This module owns the PURE hash function (planningContentHash, reusing
++// merge-plan.hashEntry) + the sync-layer wrappers the mirror/sweep/refresh code
++// imports. Hash = 16-hex-char sha256 of canonicalCardBytes(card), keyed by Card.id.
++import type { Card } from "./card.js";
++import type { CardStore } from "./card-store.js";
++import { hashEntry } from "./merge-plan.js";
++
++/** See "Canonical byte form" in the plan: stable JSON of {kind, content, frontmatter}
++ *  with recursively-sorted keys. Identical cards hash identically; any content or
++ *  frontmatter change changes the hash. */
++function sortKeysDeep<T>(value: T): T {
++  if (Array.isArray(value)) return value.map(sortKeysDeep) as unknown as T;
++  if (value && typeof value === "object") {
++    const out: Record<string, unknown> = {};
++    for (const k of Object.keys(value as Record<string, unknown>).sort()) {
++      out[k] = sortKeysDeep((value as Record<string, unknown>)[k]);
++    }
++    return out as unknown as T;
++  }
++  return value;
++}
++
++function canonicalCardBytes(card: Card): string {
++  return JSON.stringify({
++    kind: card.kind,
++    content: card.content,
++    frontmatter: sortKeysDeep(card.frontmatter),
++  });
++}
++
++/** Content-hash of a planning card (reuses merge-plan.hashEntry: sha256 → 16 hex). */
++export function planningContentHash(card: Card): string {
++  return hashEntry(canonicalCardBytes(card));
++}
++
++/** Read the stored mirror hash for a card, or null when none has been written. */
++export async function getStoredHash(
++  store: CardStore,
++  cardId: string,
++): Promise<{ hash: string; mirroredAt: string; kind: string } | null> {
++  return store.getCardMdHash(cardId);
++}
++
++/** UPSERT the mirror hash for a card (default kind='mirror'; 10 uses 'validated'). */
++export async function upsertHash(
++  store: CardStore,
++  cardId: string,
++  hash: string,
++  kind = "mirror",
++): Promise<void> {
++  await store.upsertCardMdHash(cardId, hash, kind);
++}
++
++/** Delete the hash row for a card (paired with hard-delete of the memories row). */
++export async function deleteHash(store: CardStore, cardId: string): Promise<void> {
++  await store.deleteCardMdHash(cardId);
++}
