@@ -158,17 +158,15 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		},
 	},
 	{
-		// ticket 10 — `subagent` (the 1 subagent name in the combined
-		// workflow/subagent gate). This extension ALSO owns `subagent_runs` +
-		// `subagents` (plural), which were UNGATED (always-active via fail-open)
-		// BEFORE this migration and stay ungated to preserve behavior (gating
-		// them would newly dorman them = a behavior change out of scope; the
-		// combined GATES entry only ever covered `subagent`). They are listed
-		// ungatedByDesign so the net validates `subagent` (the gated one) without
-		// false-flagging the intentionally-always-on companions — and the typo
-		// guard above fails loudly if either companion is ever renamed/removed.
+		// ticket 10 — `subagent`, plus `subagents` (plural), which has SINCE been
+		// given the workflow family's gating (subagents-tool.ts) and is therefore
+		// validated by the net like any other gated tool. It was exempted here
+		// while it was still always-on; that exemption was stale and was removed
+		// 2026-08-10 (it was suppressing validation of a tool that IS gated).
+		// `subagent_runs` genuinely declares no gating and stays exempt — the typo
+		// guard in runDriftGuardNet fails loudly if it is ever renamed or removed.
 		name: "subagent",
-		ungatedByDesign: ["subagent_runs", "subagents"],
+		ungatedByDesign: ["subagent_runs"],
 		register: (pi) => {
 			subagentExtension(pi);
 		},
