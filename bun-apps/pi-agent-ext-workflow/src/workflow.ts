@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import vm from "node:vm";
 import type { AgentHistoryEntry, SddReport } from "@repo/pi-agent-ext-subagent";
 import {
@@ -8,13 +7,11 @@ import {
   providerFromModelSpec,
   WorkflowAgent,
   type WorkflowAgentOptions,
-  WorkflowError,
-  WorkflowErrorCode,
+  type WorkflowErrorCode,
 } from "@repo/pi-agent-ext-subagent";
 import type { TSchema } from "typebox";
-import { buildCallGlobal } from "./call-global.js";
 import { DEFAULT_AGENT_TIMEOUT_MS, MAX_AGENTS_PER_RUN, MAX_CONCURRENCY } from "./config.js";
-import type { HostFnAskOptions, HostFnRegistry } from "./host-fn-registry.js";
+import type { HostFnRegistry } from "./host-fn-registry.js";
 import { createWorkflowLogger } from "./logger.js";
 import { parseModelRoutingFromMeta } from "./model-routing.js";
 import { createRuntime } from "./workflow-runtime.js";
@@ -365,125 +362,24 @@ export async function runWorkflow<T = unknown>(
     agentRegistry,
     routingConfig,
     dispatch,
+    runWorkflow,
   });
-
-  // Nested workflow(): run a saved workflow (or a raw script) inline, sharing this
-  // run's limiter/counters/budget so the global caps hold. One level deep only.
-  const workflowFn = async (nameOrScript: string, childArgs?: unknown) => {
-    rt.throwIfAborted();
-    if (shared.depth >= 1) {
-      throw new WorkflowError("workflow() can nest only one level deep", WorkflowErrorCode.SCRIPT_VALIDATION_ERROR, {
-        recoverable: false,
-      });
-    }
-    const resolved = options.loadSavedWorkflow?.(String(nameOrScript));
-    const childScript = resolved ?? String(nameOrScript);
-    shared.depth++;
-    try {
-      const child = await runWorkflow(childScript, {
-        ...options,
-        args: childArgs,
-        sharedRuntime: shared,
-        // A nested run is its own script; never reuse the parent's resume journal.
-        resumeJournal: undefined,
-        resumeFromRunId: undefined,
-        runId: `${runId}-nested${shared.depth}`,
-        persistLogs: false,
-      });
-      return child.result;
-    } finally {
-      shared.depth--;
-    }
-  };
 
   const stdlib = createStdlib({ agent: rt.agent, parallel: rt.parallel });
-
-  // Deterministic, journaled, replayable human checkpoint. Spends no tokens, so it
-  // is gated on the agent counter + abort (not budget). On resume the human's reply
-  // replays by callIndex exactly like a cached agent() — the genuine edge over CC,
-  // whose steering is in-session only. Headless (no UI threaded in): takes the
-  // declared default and journals THAT, so a detached/background run never hangs.
-  const checkpoint = async (promptText: string, checkpointOptions: CheckpointOptions = {}) => {
-    rt.throwIfAborted();
-    if (typeof promptText !== "string") throw new TypeError("checkpoint(promptText, options?) needs a prompt string");
-    if (shared.agentCount >= maxAgents) {
-      throw new WorkflowError(
-        `Agent limit exceeded (${maxAgents}). Use maxAgents option to increase the limit.`,
-        WorkflowErrorCode.AGENT_LIMIT_EXCEEDED,
-        { recoverable: false },
-      );
-    }
-    const callIndex = state.callSeq++;
-    const callHash = hashCheckpoint(promptText, checkpointOptions);
-    const cached = options.resumeJournal?.get(callIndex);
-    if (cached != null && cached.hash === callHash && callIndex < state.firstMiss) {
-      shared.agentCount++;
-      return cached.result; // replay the journaled human reply
-    }
-    if (cached == null || cached.hash !== callHash) state.firstMiss = Math.min(state.firstMiss, callIndex);
-    shared.agentCount++;
-
-    let reply: unknown;
-    if (options.confirm) {
-      const confirmCtx: CheckpointOptions & { signal?: AbortSignal } = { ...checkpointOptions };
-      if (options.signal) confirmCtx.signal = options.signal;
-      reply = await options.confirm(promptText, confirmCtx);
-    } else if (checkpointOptions.headless === "abort") {
-      throw new WorkflowError(
-        `checkpoint "${promptText}" needs human input but none is available (headless run)`,
-        WorkflowErrorCode.WORKFLOW_ABORTED,
-        { recoverable: false },
-      );
-    } else {
-      reply = checkpointOptions.default ?? true;
-    }
-    rt.throwIfAborted();
-    options.onAgentJournal?.({ index: callIndex, hash: callHash, result: reply, phase: state.currentPhase });
-    return reply;
-  };
-
-  // Deterministic, journaled, zero-token host-fn call (sub-project ②). Mirrors
-  // checkpoint()'s journaling + maxAgents accounting; bypasses the concurrency
-  // limiter (local compute). Value comes from a registered host fn, not an LLM.
-  // Capture confirm in a const so the ctx.ask closure keeps the non-undefined
-  // narrowing (avoids a non-null assertion). Undefined when headless.
-  const confirm = options.confirm;
-  const call = buildCallGlobal({
-    hostFns: options.hostFns,
-    state,
-    shared,
-    maxAgents,
-    options: {
-      resumeJournal: options.resumeJournal,
-      onAgentJournal: options.onAgentJournal,
-      onAgentStart: options.onAgentStart as Parameters<typeof buildCallGlobal>[0]["options"]["onAgentStart"],
-      onAgentEnd: options.onAgentEnd as Parameters<typeof buildCallGlobal>[0]["options"]["onAgentEnd"],
-      cwd: options.cwd ?? process.cwd(),
-      signal: options.signal,
-      // Thread the UI-bearing confirm() (the same callback checkpoint() uses)
-      // into host-fns as ctx.ask. Wrapped because confirm() requires a
-      // CheckpointOptions arg while ctx.ask takes an optional HostFnAskOptions;
-      // `{ ...o }` is a valid all-optional CheckpointOptions. Undefined when
-      // headless (no confirm threaded) → ctx.ask undefined → host-fn falls back.
-      ask: confirm ? (promptText: string, o?: HostFnAskOptions) => confirm(promptText, { ...o }) : undefined,
-    },
-    runId,
-    throwIfAborted: rt.throwIfAborted,
-  });
 
   const context = vm.createContext({
     agent: rt.agent,
     parallel: rt.parallel,
     pipeline: rt.pipeline,
-    workflow: workflowFn,
+    workflow: rt.workflowFn,
     verify: stdlib.verify,
     judgePanel: stdlib.judgePanel,
     loopUntilDry: stdlib.loopUntilDry,
     completenessCheck: stdlib.completenessCheck,
     retry: stdlib.retry,
     gate: stdlib.gate,
-    checkpoint,
-    call,
+    checkpoint: rt.checkpoint,
+    call: rt.call,
     log: rt.log,
     phase: rt.phase,
     args: options.args,
@@ -530,16 +426,6 @@ export async function runWorkflow<T = unknown>(
     runId,
     tokenUsage: shared.tokenUsage,
   };
-}
-
-/** Stable identity hash for an agent() call — a cache miss on resume when anything changes. */
-function hashCheckpoint(promptText: string, options: CheckpointOptions): string {
-  const identity = JSON.stringify({
-    promptText,
-    kind: options.kind ?? "confirm",
-    choices: options.choices ?? null,
-  });
-  return createHash("sha256").update(identity).digest("hex");
 }
 
 function normalizeConcurrency(value: unknown): number {
