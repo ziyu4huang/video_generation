@@ -95,7 +95,7 @@ describe("AgentMutex watchdog", () => {
     const m = new AgentMutex({
       clock,
       watchdog: { staleMs: 1000, intervalMs: 100 },
-      callbacks: { onForceRelease: (i) => (released = i) },
+      callbacks: { onForceRelease: (i: { driver: Frontend }) => { released = i; } },
     });
     m.gate("interactive");
     expect(m.driver).toBe("tui");
