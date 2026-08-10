@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { publishSeam, type KnowledgePipeline } from "@repo/pi-agent-ext-core-interface";
@@ -254,6 +254,220 @@ describe("walkAndIngest — planning family (seam-independent)", () => {
       await store.close();
       assert.ok(tickets.some((c) => c.id === `planning-ticket:${effort}:01`));
       assert.ok(efforts.some((c) => c.id === `planning-effort:${effort}`));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("walkAndIngest — planning mirror drift (09-impl T3)", () => {
+  it("INSERTs a new ticket (no stored hash)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pmir-ins-"));
+    const mem = mkdtempSync(join(tmpdir(), "pmir-ins-mem-"));
+    try {
+      const effort = "drift-ins";
+      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+      writeFileSync(join(root, ".planning", effort, "tickets", "01-x.md"),
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nFirst.\n");
+      const r = await walkAndIngest(root, { memoryDir: mem });
+      assert.ok(r.planningMirrored >= 1);
+      const store = await createCardStore({ memoryDir: mem });
+      const c = await store.getCard(`planning-ticket:${effort}:01`);
+      await store.close();
+      assert.match(c?.content ?? "", /First\./);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+
+  it("UPDATEs an edited ticket (hash mismatch) instead of skipping", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pmir-upd-"));
+    const mem = mkdtempSync(join(tmpdir(), "pmir-upd-mem-"));
+    try {
+      const effort = "drift-upd";
+      const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
+      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+      writeFileSync(ticketPath,
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nOriginal.\n");
+      await walkAndIngest(root, { memoryDir: mem });            // mirror once (INSERT + hash)
+      // Edit the ticket content (git-canonical md changed).
+      writeFileSync(ticketPath,
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nEDITED body.\n");
+      const r2 = await walkAndIngest(root, { memoryDir: mem });  // re-mirror → UPDATE
+      assert.ok(r2.planningMirrored >= 1, "edited ticket must be re-mirrored (UPDATE), not skipped");
+      const store = await createCardStore({ memoryDir: mem });
+      const c = await store.getCard(`planning-ticket:${effort}:01`);
+      await store.close();
+      assert.match(c?.content ?? "", /EDITED body\./);
+      assert.doesNotMatch(c?.content ?? "", /Original\./);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+
+  it("skips an UNCHANGED ticket (hash match — no write)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pmir-skip-"));
+    const mem = mkdtempSync(join(tmpdir(), "pmir-skip-mem-"));
+    try {
+      const effort = "drift-skip";
+      const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
+      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+      const body = "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nStable.\n";
+      writeFileSync(ticketPath, body);
+      await walkAndIngest(root, { memoryDir: mem });             // mirror once
+      const r2 = await walkAndIngest(root, { memoryDir: mem });  // re-mirror unchanged
+      assert.equal(r2.planningMirrored, 0, "unchanged ticket must be skipped (hash match)");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("walkAndIngest — planning delete reconciliation (09-impl T4)", () => {
+  it("hard-deletes planning rows whose source md vanished (md-wins)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "precon-"));
+    const mem = mkdtempSync(join(tmpdir(), "precon-mem-"));
+    try {
+      const effort = "recon-del";
+      const t01 = join(root, ".planning", effort, "tickets", "01-keep.md");
+      const t02 = join(root, ".planning", effort, "tickets", "02-gone.md");
+      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+      writeFileSync(t01, "---\ntype: task\nstatus: closed\n---\n# 01 — keep\n\n## Resolution\nKeep.\n");
+      writeFileSync(t02, "---\ntype: task\nstatus: closed\n---\n# 02 — gone\n\n## Resolution\nGone.\n");
+      await walkAndIngest(root, { memoryDir: mem });             // mirror both tickets
+      // Source md for ticket 02 is removed (git rm / file deleted).
+      unlinkSync(t02);
+      await walkAndIngest(root, { memoryDir: mem });             // re-walk → sweep deletes 02
+      const store = await createCardStore({ memoryDir: mem });
+      const tickets = await store.getCardsByKind("planning-ticket");
+      await store.close();
+      const ids = tickets.map((c) => c.id).sort();
+      assert.deepEqual(ids, [`planning-ticket:${effort}:01`]);
+      assert.ok(!ids.includes(`planning-ticket:${effort}:02`), "vanished ticket row must be hard-deleted");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("walkAndIngest — partial walk must NOT reconcile (09-impl final review A)", () => {
+  it("a bounded/partial walk keeps out-of-window planning cards (no mass-delete)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pwalk-A-"));
+    const mem = mkdtempSync(join(tmpdir(), "pwalk-A-mem-"));
+    try {
+      const effort = "partial-eff";
+      const t01 = join(root, ".planning", effort, "tickets", "01-a.md");
+      const t02 = join(root, ".planning", effort, "tickets", "02-b.md");
+      const t03 = join(root, ".planning", effort, "tickets", "03-c.md");
+      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+      for (const [p, n] of [[t01, "01 — a"], [t02, "02 — b"], [t03, "03 — c"]] as const) {
+        writeFileSync(p, `---\ntype: task\nstatus: closed\n---\n# ${n}\n\n## Resolution\nbody.\n`);
+      }
+      // COMPLETE walk over the repo root → all three mirrored (hashes written).
+      await walkAndIngest(root, { memoryDir: mem });
+
+      // PARTIAL/bounded walk over a proper SUBSET (only t01) — exactly what the
+      // T6 background backfill feeds reconcile (a bounded ≤MAX_FILES subset of
+      // this repo's 948 .planning md). partialWalk:true MUST suppress delete-
+      // reconciliation so the out-of-window cards (02, 03 — whose md still
+      // exists on disk but is outside the subset) are NOT hard-deleted.
+      await walkAndIngest([t01], { memoryDir: mem, planningOnly: true, partialWalk: true });
+
+      const store = await createCardStore({ memoryDir: mem });
+      const tickets = await store.getCardsByKind("planning-ticket");
+      await store.close();
+      const ids = tickets.map((c) => c.id).sort();
+      assert.deepEqual(
+        ids,
+        [
+          `planning-ticket:${effort}:01`,
+          `planning-ticket:${effort}:02`,
+          `planning-ticket:${effort}:03`,
+        ],
+        "partial walk must NOT hard-delete out-of-window planning cards",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("walkAndIngest — 08→09 migration cohort unfreeze (09-impl final review B)", () => {
+  it("UPDATEs an existing-but-unhashed planning card (drift), not insert-no-op", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pmig-B-"));
+    const mem = mkdtempSync(join(tmpdir(), "pmig-B-mem-"));
+    try {
+      const effort = "mig-eff";
+      const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
+      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+      const id = `planning-ticket:${effort}:01`;
+      // Pre-seed an 08-era row directly: OLD content, NO card_md_hash row
+      // (stored===null — true for EVERY existing planning card on first 09
+      // touch, since card_md_hash is brand-new empty). This is the migration
+      // cohort the per-task T3 test cannot reach (it only hits UPDATE via
+      // stored≠null+mismatch).
+      const store0 = await createCardStore({ memoryDir: mem });
+      await store0.upsertCard({
+        id,
+        kind: "planning-ticket",
+        content: "OLD 08-era body.",
+        frontmatter: { id: "01", slug: "x", status: "closed" },
+      });
+      await store0.close();
+
+      // Source md has DRIFTED to new (current) content relative to the DB row.
+      writeFileSync(
+        ticketPath,
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nNEW 09-era body.\n",
+      );
+      const r = await walkAndIngest(root, { memoryDir: mem });
+      assert.ok(r.planningMirrored >= 1, "migration-cohort card must be re-mirrored (UPDATE), not skipped");
+
+      const store = await createCardStore({ memoryDir: mem });
+      const c = await store.getCard(id);
+      const hash = await store.getCardMdHash(id);
+      await store.close();
+      assert.match(c?.content ?? "", /NEW 09-era body\./, "DB row updated to current md");
+      assert.doesNotMatch(c?.content ?? "", /OLD 08-era body\./, "08-era content must be overwritten");
+      assert.ok(hash, "hash seeded on first 09 touch");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("walkAndIngest — conflict-marker flag (09-impl T5)", () => {
+  it("surfaces an effort with unresolved merge markers in its ticket md; clean md not flagged; mirror still runs (non-blocking)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pconf-"));
+    const mem = mkdtempSync(join(tmpdir(), "pconf-mem-"));
+    try {
+      const effort = "conflict-effort";
+      const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
+      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+      writeFileSync(ticketPath,
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> b\n");
+      const r = await walkAndIngest(root, { memoryDir: mem });
+      assert.ok(r.conflictMarkerEfforts.includes(effort), "effort must be flagged for human review");
+      // The mirror STILL runs — conflict markers do NOT block the mirror (advisory flag).
+      assert.ok(r.planningMirrored >= 1, "mirror must still run on a conflicted file (non-blocking)");
+      // And the conflicted ticket DID land in the DB (non-blocking proof).
+      const store = await createCardStore({ memoryDir: mem });
+      const mirrored = await store.getCard(`planning-ticket:${effort}:01`);
+      await store.close();
+      assert.match(mirrored?.content ?? "", /ours/, "conflicted ticket body mirrored around the markers");
+
+      // Clean the markers and re-mirror → the effort is NOT re-flagged.
+      writeFileSync(ticketPath,
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nClean now.\n");
+      const r2 = await walkAndIngest(root, { memoryDir: mem });
+      assert.ok(!r2.conflictMarkerEfforts.includes(effort), "clean md must not be flagged");
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(mem, { recursive: true, force: true });

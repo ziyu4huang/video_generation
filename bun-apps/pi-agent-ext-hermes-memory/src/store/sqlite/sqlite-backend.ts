@@ -334,6 +334,10 @@ export class SqliteBackend implements Backend {
     // (skips when 'planning-ticket' already present). Mirrors the knowledge
     // migration's table-rebuild idiom.
     this.migrateMemoriesTargetCheckAddPlanning(db);
+    // Phase-2 (knowledge-pipeline / ticket 09): ensure the card_md_hash table
+    // for the planning-card content-hash mirror. Idempotent (CREATE TABLE IF
+    // NOT EXISTS). Additive — does NOT touch `memories` (no C3 column-drift).
+    this.ensureCardMdHashTable(db);
     this.rebuildMemoryFts(db);
   }
 
@@ -767,6 +771,23 @@ export class SqliteBackend implements Backend {
     if (!names.has('frontmatter')) {
       db.exec('ALTER TABLE memories ADD COLUMN frontmatter TEXT');
     }
+  }
+
+  /** 09-impl (ticket 09): ensure the `card_md_hash` table exists. Idempotent
+   *  (CREATE TABLE IF NOT EXISTS). Simpler than the T5 target-CHECK migrations
+   *  (which rebuild `memories`): this is a brand-new table with no legacy rows,
+   *  so there is nothing to carry through a rewrite. Fresh installs already get
+   *  it from SCHEMA_SQL; this only fires for pre-09 DBs that predate the table. */
+  private ensureCardMdHashTable(db: DatabaseLike): void {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS card_md_hash (
+        card_id TEXT PRIMARY KEY,
+        content_hash TEXT NOT NULL,
+        mirrored_at DATE NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'mirror'
+      );
+      CREATE INDEX IF NOT EXISTS idx_card_md_hash_kind ON card_md_hash(kind);
+    `);
   }
 
   /** UPSP §9 (#06): add `used_at` to a pre-existing `session_assembly` table

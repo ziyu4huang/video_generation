@@ -6,9 +6,16 @@ import { getKnowledgePipeline } from "./knowledge-pipeline-seam.js";
 import { resolveKnowledgeVaultPath, KNOWLEDGE_FOLDER_DEFAULT, KNOWLEDGE_MOC_DEFAULT } from "./knowledge-vault-path.js";
 import { walkKnowledgeSources, type WalkOptions } from "./knowledge-walk.js";
 import { parseKnowledgeJsonl } from "./knowledge-jsonl.js";
+import { hasMergeConflictMarkers } from "./git-ops.js";
 import { AGENT_ROOT } from "./paths.js";
 import { createCardStore } from "./store/card-store.js";
-import { planningCardKindFromPath } from "./store/planning-id.js";
+import {
+  planningCardKindFromPath,
+  parsePlanningPath,
+  planningEffortId,
+  planningTicketId,
+} from "./store/planning-id.js";
+import { planningContentHash, getStoredHash, upsertHash, deleteHash } from "./store/planning-sync-state.js";
 
 /** Options for walkAndIngest. Extends the walk policy opts with ingest/heal scope. */
 export interface WalkAndIngestOptions extends WalkOptions {
@@ -35,6 +42,25 @@ export interface WalkAndIngestOptions extends WalkOptions {
    *  (compare against `currentHashes`). Full drift logic is ticket 05; 06b
    *  captures the hook point only (no re-index action). */
   previousHashes?: Record<string, string>;
+  /** PLANNING-ONLY mode (Phase-2 / 09-impl T6 background backfill): skip the zk
+   *  knowledge path (vault resolution + ingest + heal + vault-md mirror) so the
+   *  call is truly seam-independent and bounded — planning is hermes-internal
+   *  and has no zk dependency. The planning DB-mirror (step 8b: hash-compare
+   *  INSERT/UPDATE/skip) + conflict-marker scan (T5) STILL run in this mode.
+   *  Delete reconciliation (step 8c) does NOT run here — it is gated on
+   *  `!partialWalk` (see below) because it needs the COMPLETE present-set.
+   *  Default false (the knowledge-ingest tool and the normal orchestrator run
+   *  the full path). */
+  planningOnly?: boolean;
+  /** PARTIAL WALK (09-impl final review A): the present-set of planning md is
+   *  PARTIAL/BOUNDED (e.g. the T6 background backfill feeds ≤ MAX_FILES of a
+   *  large corpus). When true, delete reconciliation (step 8c) is SUPPRESSED —
+   *  reconcile hard-deletes every DB planning card whose id ∉ the present-set,
+   *  so running it on a bounded subset would silently mass-delete out-of-window
+   *  cards whose md still exists. Reconcile runs ONLY on a COMPLETE present-set
+   *  (the full knowledge-ingest walk, where this opt is unset). Mirror (T3) +
+   *  conflict-marker scan (T5) stay enabled in either mode. Default false. */
+  partialWalk?: boolean;
 }
 
 /** Receipt for a walkAndIngest run. mirrored + driftStub are placeholders in
@@ -50,6 +76,9 @@ export interface WalkAndIngestReceipt {
   /** # of planning-cards mirrored into the card-store (Phase-2 / 08; 0 when
    *  no .planning/ source is walked). Independent of the zk seam. */
   planningMirrored: number;
+  /** Effort ids whose md carries a conflict marker (scanned in T5). Empty in
+   *  T3 — the field is reserved NOW so T5 is a pure populate-change. */
+  conflictMarkerEfforts: string[];
   /** Tier-1 md-hash drift hook stub (task 7). `currentHashes` is the sha256 of
    *  each mirrored vault-md file (relPath → hash); `previousHashes` echoes the
    *  opts for change-detection. No re-index action (full drift = ticket 05). */
@@ -88,7 +117,10 @@ export async function walkAndIngest(
   const walk = walkKnowledgeSources(input, opts);
 
   // 2. Read the seam (graceful). Planning mirror is seam-INDEPENDENT (08).
-  const kp = getKnowledgePipeline();
+  // T6 background backfill opts out of the knowledge path entirely via
+  // opts.planningOnly so a seam-present-but-vault-unset env can never throw and
+  // abort the planning mirror — planning is hermes-internal (no zk dependency).
+  const kp = opts.planningOnly ? undefined : getKnowledgePipeline();
   let vaultPath = "";
   let ingest: IngestSummary | undefined;
   let heal: HealReceipt | undefined;
@@ -142,8 +174,21 @@ export async function walkAndIngest(
     Object.assign(currentHashes, m.currentHashes);
   }
 
-  // 8b. Planning DB-mirror (Phase-2 / 08) — independent of the zk seam.
-  const { planningMirrored } = await mirrorPlanningToStore(walk.files.planning, opts.memoryDir);
+  // 8b. Planning DB-mirror (Phase-2 / 09-impl) — hash-compare INSERT/UPDATE/skip.
+  const planMirror = await mirrorPlanningToStore(walk.files.planning, opts.memoryDir);
+  const planningMirrored = planMirror.planningMirrored;
+  const conflictMarkerEfforts = planMirror.conflictMarkerEfforts; // populated in T5
+
+  // 8c. Planning delete reconciliation (Phase-2 / 09-impl) — md-wins sweep.
+  // Gated on `!partialWalk`: reconcile hard-deletes every DB planning card whose
+  // id ∉ the present-set, so it MUST see a COMPLETE present-set. A bounded/
+  // partial walk (T6 background backfill) feeds only a subset → suppress here to
+  // avoid silently mass-deleting out-of-window cards whose md still exists
+  // (09-impl final review A). Mirror (T3) + conflict-marker scan (T5) ran above
+  // unconditionally and stay enabled in partial walks.
+  if (!opts.partialWalk) {
+    await reconcilePlanningDeletions(walk.files.planning, opts.memoryDir);
+  }
 
   // 10. Receipt.
   if (!kp && walk.files.planning.length === 0) {
@@ -157,6 +202,7 @@ export async function walkAndIngest(
       skipped: walk.skipped,
       seamPresent: false,
       reason: "zk KnowledgePipeline seam not present and no planning source",
+      conflictMarkerEfforts: [],
     };
   }
   return {
@@ -167,6 +213,7 @@ export async function walkAndIngest(
     heal,
     mirrored,
     planningMirrored,
+    conflictMarkerEfforts,
     driftStub: {
       filesHashed: Object.keys(currentHashes).length,
       previousHashes: opts.previousHashes,
@@ -231,19 +278,26 @@ async function mirrorVaultMdToStore(
   return { mirrored, currentHashes };
 }
 
-/** Mirror step 8b (Phase-2 / 08): read each `.planning/<effort>/{map.md,
- *  tickets/NN.md}` planning source -> deserialize via the store's planning
- *  serializers -> upsertCard. Independent of the zk seam (planning is
- *  hermes-internal). Idempotent via the planning dedup strategies (append-once;
- *  content updates are ticket 09). Returns the # of planning cards mirrored.
- *  The store reuses the SAME SQLite DB the memory/knowledge cards use
- *  (`<memoryDir>/sessions.db`); `memoryDir` defaults to the existing hermes
- *  memory DB dir, NEVER inside the vault. No-op when `planningFiles` is empty. */
+/** Mirror step 8b (Phase-2 / 09-impl): self-correcting hash-compare mirror.
+ *  For each planning source: deserialize → compute incoming content-hash
+ *  (planningContentHash, reusing merge-plan.hashEntry) → read the stored hash →
+ *  branch:
+ *    - no existing card (getCard null) → upsertCard (INSERT; dedup keep) + write hash;
+ *    - stored hash ≠ incoming → updateCard (UPDATE content/frontmatter) + refresh hash;
+ *    - hash match → skip (no write; cheap).
+ *  Dedup is consulted ONLY for the new-card identity check (INSERT branch); the
+ *  UPDATE branch bypasses dedup (pure identity cannot express update — the
+ *  DedupDecision union is keep/merge/skip, by design). Returns the # of cards
+ *  mirrored (INSERT+UPDATE; skips not counted) + conflict-marker efforts (T5).
+ *  Independent of the zk seam (planning is hermes-internal). The store reuses the
+ *  SAME SQLite DB the memory/knowledge cards use; memoryDir defaults to the
+ *  existing hermes memory DB dir. No-op when planningFiles is empty. */
 async function mirrorPlanningToStore(
   planningFiles: string[],
   memoryDir?: string,
-): Promise<{ planningMirrored: number }> {
-  if (planningFiles.length === 0) return { planningMirrored: 0 };
+): Promise<{ planningMirrored: number; conflictMarkerEfforts: string[] }> {
+  const conflictMarkerEfforts: string[] = []; // populated in T5
+  if (planningFiles.length === 0) return { planningMirrored: 0, conflictMarkerEfforts };
   const dir = memoryDir ?? join(AGENT_ROOT, "pi-hermes-memory");
   const store = await createCardStore({ memoryDir: dir });
   let planningMirrored = 0;
@@ -257,15 +311,79 @@ async function mirrorPlanningToStore(
       } catch {
         continue;
       }
+      // 09-impl T5: flag efforts whose md has unresolved merge markers (human
+      // review). Advisory only — the mirror STILL runs on the bytes (the markers
+      // are just body text the serializer parses around). Dedup by effort slug.
+      if (hasMergeConflictMarkers(bytes)) {
+        const info = parsePlanningPath(abs);
+        if (info && !conflictMarkerEfforts.includes(info.effort)) {
+          conflictMarkerEfforts.push(info.effort);
+        }
+      }
       const serializer = store.serializerFor(kind);
       const cards = serializer ? serializer.deserialize(bytes, { filePath: abs }) : [];
       for (const card of cards) {
-        await store.upsertCard(card);
-        planningMirrored++;
+        const incomingHash = planningContentHash(card);
+        const existing = await store.getCard(card.id);
+        const stored = await getStoredHash(store, card.id);
+        if (existing === null) {
+          // Truly new card → INSERT through dedup, write hash.
+          await store.upsertCard(card);
+          await upsertHash(store, card.id, incomingHash);
+          planningMirrored++;
+        } else if (stored === null || stored.hash !== incomingHash) {
+          // 08→09 backfill (existing card, no hash yet) OR drift (md edited):
+          // UPDATE content/frontmatter via updateCard (BYPASSES dedup — a pure
+          // id-upsert dedup strategy would no-op an existing id and freeze the
+          // row at 08-era content while the hash falsely claims "current"),
+          // then refresh the hash. (09-impl final review B.)
+          await store.updateCard(card);
+          await upsertHash(store, card.id, incomingHash);
+          planningMirrored++;
+        }
+        // else: hash match → skip (no write).
       }
     }
   } finally {
     await store.close();
   }
-  return { planningMirrored };
+  return { planningMirrored, conflictMarkerEfforts };
+}
+
+/** Mirror step 8c (Phase-2 / 09-impl): md-wins delete reconciliation. Given the
+ *  set of planning md files PRESENT on disk, find DB planning-cards whose source
+ *  md is absent → hard-delete the memories row + its card_md_hash row (Tier-1 md
+ *  wins; the DB mirror must not keep rows for deleted md). Tombstoning is
+ *  out-of-scope (09 hard-deletes). Returns the # of rows deleted. No-op when no
+ *  planning-cards are stored. */
+async function reconcilePlanningDeletions(
+  presentPlanningFiles: string[],
+  memoryDir?: string,
+): Promise<{ planningDeleted: number }> {
+  const presentIds = new Set<string>();
+  for (const abs of presentPlanningFiles) {
+    const info = parsePlanningPath(abs);
+    if (!info) continue;
+    presentIds.add(
+      info.kind === "planning-effort" ? planningEffortId(info.effort) : planningTicketId(info.effort, info.ticketNo!),
+    );
+  }
+  const dir = memoryDir ?? join(AGENT_ROOT, "pi-hermes-memory");
+  const store = await createCardStore({ memoryDir: dir });
+  let planningDeleted = 0;
+  try {
+    for (const kind of ["planning-effort", "planning-ticket"] as const) {
+      const rows = await store.getCardsByKind(kind);
+      for (const card of rows) {
+        if (!presentIds.has(card.id)) {
+          await store.deleteCard(card.id);
+          await deleteHash(store, card.id);
+          planningDeleted++;
+        }
+      }
+    }
+  } finally {
+    await store.close();
+  }
+  return { planningDeleted };
 }

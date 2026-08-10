@@ -1,0 +1,178 @@
+# Review package: 94adcb60..a8c9817f
+
+## Commits
+a8c9817f feat(knowledge-pipeline): card_md_hash table + idempotent migration (09-impl T1)
+
+## Files changed
+ .../__tests__/card-store.test.ts                   | 47 ++++++++++++++++++++++
+ .../src/store/sqlite/schema.ts                     | 11 +++++
+ .../src/store/sqlite/sqlite-backend.ts             | 21 ++++++++++
+ 3 files changed, 79 insertions(+)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/__tests__/card-store.test.ts b/bun-apps/pi-agent-ext-hermes-memory/__tests__/card-store.test.ts
+index 2a5ed54d..c2d4e283 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/__tests__/card-store.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/__tests__/card-store.test.ts
+@@ -110,11 +110,58 @@ describe("card-agnostic store (SQLite round-trip)", () => {
+         frontmatter: { id: "01" },
+       });
+       const back = await migrated.getCard("planning-ticket:e:01");
+       assert.ok(back);
+       assert.equal(back!.kind, "planning-ticket");
+       await migrated.close();
+     } finally {
+       rmSync(legacyDir, { recursive: true, force: true });
+     }
+   });
++
++  it("creates card_md_hash on a fresh store open (09-impl T1)", async () => {
++    // A fresh createCardStore runs initializeSchema -> SCHEMA_SQL carries the
++    // card_md_hash CREATE TABLE. SELECT against it must succeed (table exists).
++    const cols = store
++      ? await (async () => {
++          // Re-open a raw handle to the SAME db file to inspect sqlite_master.
++          const { RawDatabase } = await import("../src/store/sqlite/sqlite-backend.js");
++          const raw = new RawDatabase(join(dir, "sessions.db"));
++          const row = raw
++            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='card_md_hash'")
++            .get() as { name?: string } | undefined;
++          raw.close();
++          return row?.name;
++        })()
++      : undefined;
++    assert.equal(cols, "card_md_hash");
++  });
++
++  it("ensures card_md_hash on a legacy (pre-09) DB via ensureCardMdHashTable", async () => {
++    const legacyDir = mkdtempSync(join(tmpdir(), "cardmdhash-migrate-"));
++    try {
++      // Seed a post-08 DB that has memories but NO card_md_hash (a pre-09 DB).
++      const { RawDatabase } = await import("../src/store/sqlite/sqlite-backend.js");
++      const raw = new RawDatabase(join(legacyDir, "sessions.db"));
++      raw.exec(
++        `CREATE TABLE memories (
++           id INTEGER PRIMARY KEY AUTOINCREMENT,
++           target TEXT NOT NULL CHECK (target IN ('memory','user','failure','knowledge','planning-effort','planning-ticket')),
++           content TEXT NOT NULL, created DATE NOT NULL, last_referenced DATE NOT NULL
++         )`,
++      );
++      raw.close();
++      // Opening the store runs initializeSchema -> ensureCardMdHashTable fires
++      // (CREATE TABLE IF NOT EXISTS) on the legacy DB that lacks it.
++      const migrated = await createCardStore({ memoryDir: legacyDir, dbBackend: "sqlite" });
++      await migrated.close();
++      const after = new RawDatabase(join(legacyDir, "sessions.db"));
++      const row = after
++        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='card_md_hash'")
++        .get() as { name?: string } | undefined;
++      after.close();
++      assert.equal(row?.name, "card_md_hash");
++    } finally {
++      rmSync(legacyDir, { recursive: true, force: true });
++    }
++  });
+ });
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts
+index a138d249..194e6d1d 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/schema.ts
+@@ -125,20 +125,31 @@ export const SCHEMA_SQL = `
+   CREATE INDEX IF NOT EXISTS idx_memories_target ON memories(target);
+   CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
+   CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project);
+   CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at);
+   CREATE INDEX IF NOT EXISTS idx_session_files_session_id ON session_files(session_id);
+ 
+   -- Stable secondary join key (.md ↔ DB). Nullable during backfill: SQLite
+   -- UNIQUE treats NULLs as distinct, so un-backfilled rows coexist.
+   CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_md_id ON memories(md_id);
+ 
++  -- 09-impl (knowledge-pipeline / ticket 09): content-hash state for the
++  -- planning-card mirror (Tier-1, md-wins drift). 'kind' discriminator so 10-impl
++  -- can add dep-validation hashes (kind='validated') WITHOUT a migration.
++  CREATE TABLE IF NOT EXISTS card_md_hash (
++    card_id TEXT PRIMARY KEY,
++    content_hash TEXT NOT NULL,
++    mirrored_at DATE NOT NULL,
++    kind TEXT NOT NULL DEFAULT 'mirror'
++  );
++  CREATE INDEX IF NOT EXISTS idx_card_md_hash_kind ON card_md_hash(kind);
++
+   -- Per-session prompt-provenance (UPSP §5): one row per md_id assembled into a session's
+   -- memory block. FK-FREE by design — the sessions row is created later by deferred backfill,
+   -- so session_id is a plain join key, not an enforced FK. Composite PK dedupes; md_id index
+   -- backs "which sessions saw memory M?".
+   CREATE TABLE IF NOT EXISTS session_assembly (
+     session_id TEXT NOT NULL,
+     md_id TEXT NOT NULL,
+     -- UPSP §9 "used vs dropped" (ticket #06): null at capture (surfaced),
+     -- set to an ISO timestamp when the agent's output first references the
+     -- entry (used). Surfaced-but-never-used = used_at IS NULL.
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-backend.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-backend.ts
+index b3116670..ec1e5863 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-backend.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/sqlite/sqlite-backend.ts
+@@ -327,20 +327,24 @@ export class SqliteBackend implements Backend {
+     // (memory/user/failure) to include 'knowledge' for knowledge-cards. Runs
+     // AFTER the legacy 2-value migration so a legacy DB is normalized to
+     // 3-value first, then widened to 4-value here. Idempotent (skips when the
+     // CHECK already mentions 'knowledge').
+     this.migrateMemoriesTargetCheckAddKnowledge(db);
+     // Phase-2 (knowledge-pipeline / ticket 08): widen the 4-value target CHECK
+     // (memory/user/failure/knowledge) to also allow planning kinds. Idempotent
+     // (skips when 'planning-ticket' already present). Mirrors the knowledge
+     // migration's table-rebuild idiom.
+     this.migrateMemoriesTargetCheckAddPlanning(db);
++    // Phase-2 (knowledge-pipeline / ticket 09): ensure the card_md_hash table
++    // for the planning-card content-hash mirror. Idempotent (CREATE TABLE IF
++    // NOT EXISTS). Additive — does NOT touch `memories` (no C3 column-drift).
++    this.ensureCardMdHashTable(db);
+     this.rebuildMemoryFts(db);
+   }
+ 
+   private hasExistingMainDatabaseFile(): boolean {
+     try {
+       return fs.existsSync(this.dbPath) && fs.statSync(this.dbPath).size > 0;
+     } catch {
+       return false;
+     }
+   }
+@@ -762,20 +766,37 @@ export class SqliteBackend implements Backend {
+     }
+     // 06a (knowledge-pipeline): step (a) of the 2-step migration — the cheap
+     // nullable `frontmatter` column add (no table rewrite). Step (b), the
+     // `memories_new` rewrite, fires separately in
+     // `migrateMemoriesTargetCheckAddKnowledge` ONLY to widen the `target` CHECK.
+     if (!names.has('frontmatter')) {
+       db.exec('ALTER TABLE memories ADD COLUMN frontmatter TEXT');
+     }
+   }
+ 
++  /** 09-impl (ticket 09): ensure the `card_md_hash` table exists. Idempotent
++   *  (CREATE TABLE IF NOT EXISTS). Simpler than the T5 target-CHECK migrations
++   *  (which rebuild `memories`): this is a brand-new table with no legacy rows,
++   *  so there is nothing to carry through a rewrite. Fresh installs already get
++   *  it from SCHEMA_SQL; this only fires for pre-09 DBs that predate the table. */
++  private ensureCardMdHashTable(db: DatabaseLike): void {
++    db.exec(`
++      CREATE TABLE IF NOT EXISTS card_md_hash (
++        card_id TEXT PRIMARY KEY,
++        content_hash TEXT NOT NULL,
++        mirrored_at DATE NOT NULL,
++        kind TEXT NOT NULL DEFAULT 'mirror'
++      );
++      CREATE INDEX IF NOT EXISTS idx_card_md_hash_kind ON card_md_hash(kind);
++    `);
++  }
++
+   /** UPSP §9 (#06): add `used_at` to a pre-existing `session_assembly` table
+    *  (created by #05 without the column). Fresh installs already get it via
+    *  SCHEMA_SQL; this ALTER only fires for DBs that predate this task.
+    *  Idempotent by the column-presence guard — NOT try/catch (mirrors
+    *  `ensureMemoriesColumns`). */
+   private ensureSessionAssemblyColumns(db: DatabaseLike): void {
+     if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_assembly'").get()) return;
+     const names = this.getColumnNames(db, 'session_assembly');
+     if (!names.has('used_at')) {
+       db.exec('ALTER TABLE session_assembly ADD COLUMN used_at TEXT');

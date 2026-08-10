@@ -117,4 +117,51 @@ describe("card-agnostic store (SQLite round-trip)", () => {
       rmSync(legacyDir, { recursive: true, force: true });
     }
   });
+
+  it("creates card_md_hash on a fresh store open (09-impl T1)", async () => {
+    // A fresh createCardStore runs initializeSchema -> SCHEMA_SQL carries the
+    // card_md_hash CREATE TABLE. SELECT against it must succeed (table exists).
+    const cols = store
+      ? await (async () => {
+          // Re-open a raw handle to the SAME db file to inspect sqlite_master.
+          const { RawDatabase } = await import("../src/store/sqlite/sqlite-backend.js");
+          const raw = new RawDatabase(join(dir, "sessions.db"));
+          const row = raw
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='card_md_hash'")
+            .get() as { name?: string } | undefined;
+          raw.close();
+          return row?.name;
+        })()
+      : undefined;
+    assert.equal(cols, "card_md_hash");
+  });
+
+  it("ensures card_md_hash on a legacy (pre-09) DB via ensureCardMdHashTable", async () => {
+    const legacyDir = mkdtempSync(join(tmpdir(), "cardmdhash-migrate-"));
+    try {
+      // Seed a post-08 DB that has memories but NO card_md_hash (a pre-09 DB).
+      const { RawDatabase } = await import("../src/store/sqlite/sqlite-backend.js");
+      const raw = new RawDatabase(join(legacyDir, "sessions.db"));
+      raw.exec(
+        `CREATE TABLE memories (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           target TEXT NOT NULL CHECK (target IN ('memory','user','failure','knowledge','planning-effort','planning-ticket')),
+           content TEXT NOT NULL, created DATE NOT NULL, last_referenced DATE NOT NULL
+         )`,
+      );
+      raw.close();
+      // Opening the store runs initializeSchema -> ensureCardMdHashTable fires
+      // (CREATE TABLE IF NOT EXISTS) on the legacy DB that lacks it.
+      const migrated = await createCardStore({ memoryDir: legacyDir, dbBackend: "sqlite" });
+      await migrated.close();
+      const after = new RawDatabase(join(legacyDir, "sessions.db"));
+      const row = after
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='card_md_hash'")
+        .get() as { name?: string } | undefined;
+      after.close();
+      assert.equal(row?.name, "card_md_hash");
+    } finally {
+      rmSync(legacyDir, { recursive: true, force: true });
+    }
+  });
 });

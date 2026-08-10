@@ -1,0 +1,346 @@
+# Review package: ef5b3f88..ae6aabf6
+
+## Commits
+ae6aabf6 feat(knowledge-pipeline): conflict-marker detection (effort flag) (09-impl T5)
+
+## Files changed
+ .../sdd/2026-08-10-planning-sync/task-5-report.md  | 146 +++++++++++++++++++++
+ .../__tests__/walk-and-ingest.test.ts              |  32 +++++
+ .../src/git-ops-conflict-markers.test.ts           |  30 +++++
+ bun-apps/pi-agent-ext-hermes-memory/src/git-ops.ts |  18 +++
+ .../src/walk-and-ingest.ts                         |  10 ++
+ 5 files changed, 236 insertions(+)
+
+## Diff
+diff --git a/.planning/2026-08-08-knowledge-pipeline/sdd/2026-08-10-planning-sync/task-5-report.md b/.planning/2026-08-08-knowledge-pipeline/sdd/2026-08-10-planning-sync/task-5-report.md
+new file mode 100644
+index 00000000..ab7ca904
+--- /dev/null
++++ b/.planning/2026-08-08-knowledge-pipeline/sdd/2026-08-10-planning-sync/task-5-report.md
+@@ -0,0 +1,146 @@
++# Task 5 Report — conflict-marker detection (effort flag in ingest receipt)
++
++**Branch:** `knowledge-pipeline/09-impl-planning-sync`
++**Parent:** `ef5b3f88` (T4 — delete reconciliation)
++**Commit subject:** `feat(knowledge-pipeline): conflict-marker detection (effort flag) (09-impl T5)`
++**Brief:** `task-5-brief.md` (verbatim source of truth — regex shape, helper signature, populate point, DoD).
++
++## What was implemented
++
++A **pure, additive** per-effort conflict-marker signal, surfaced for human review on the
++ingest receipt. T5 is a pure **POPULATE-change** over T3's reserved field — nothing in the
++T3 INSERT/UPDATE/skip mirror logic, the `WalkAndIngestReceipt` shape, or the repo-state
++`isMidMerge` path was touched.
++
++1. **`src/git-ops.ts`** — added `CONFLICT_MARKER_RE` + `hasMergeConflictMarkers(content)`
++   beside `MID_MERGE_SENTINELS`. A pure FILE-CONTENT scan for the git merge-marker idiom,
++   distinct from `GitOps.isMidMerge` (REPO-STATE — sentinel files in `.git/`).
++2. **`src/walk-and-ingest.ts`** — in `mirrorPlanningToStore`, after reading each planning
++   md's bytes (before deserialize), scan with `hasMergeConflictMarkers` and push the effort
++   slug (via the already-imported `parsePlanningPath`) into the T3-reserved
++   `conflictMarkerEfforts[]`. Deduped by slug; the mirror STILL runs (advisory, non-blocking).
++
++`src/store/planning-id.ts` is **UNCHANGED** — `parsePlanningPath(abs)` already yields
++`info.effort` cleanly, so no new helper was needed (brief Step 4's "or reuse parsePlanningPath"
++branch). It is therefore NOT staged.
++
++## Key diff hunks
++
++### `src/git-ops.ts` (additive — beside `MID_MERGE_SENTINELS`, before `realGitOps`)
++```ts
++const CONFLICT_MARKER_RE = /(^|\n)(<<<<<<<[^\n]*|>>>>>>>[^\n]*|={7,}(?=\n|$))/;
++
++export function hasMergeConflictMarkers(content: string): boolean {
++  return CONFLICT_MARKER_RE.test(content);
++}
++```
++
++### `src/walk-and-ingest.ts` (populate point in `mirrorPlanningToStore`)
++```ts
++      // 09-impl T5: flag efforts whose md has unresolved merge markers (human
++      // review). Advisory only — the mirror STILL runs on the bytes (the markers
++      // are just body text the serializer parses around). Dedup by effort slug.
++      if (hasMergeConflictMarkers(bytes)) {
++        const info = parsePlanningPath(abs);
++        if (info && !conflictMarkerEfforts.includes(info.effort)) {
++          conflictMarkerEfforts.push(info.effort);
++        }
++      }
++```
++
++## Regex deviation from the brief (documented, minimal, justified)
++
++The brief's literal `CONFLICT_MARKER_RE` —
++`/(^|\n)(<<<<<<<[^\n]*|>>>>>>>[^\n]*|\n=======(?=\n|$))/` — has an anchoring defect in the
++divider branch: the outer `(^|\n)` plus the inner `\n=======` **double-counts** the leading
++newline, so a whole-line `=======` divider is only matched when preceded by a **blank line**
++(`\n\n=======`). A normal divider `ours\n=======\ntheirs` (divider on its own line, no blank
++line before it) is NOT matched. The brief itself acknowledges this with the escape hatch
++*"tune anchors as needed so 'some ======= text here' stays false."*
++
++The task header's hard requirement contradicts the literal regex: *"The `=======` divider
++MUST match as a WHOLE LINE (7+ `=` on its own line), so normal prose like
++`some ======= text here` is NOT flagged."* The literal regex does not satisfy "match as a
++whole line"; it satisfies only "match when preceded by a blank line."
++
++**Resolution (chosen to satisfy the header's MUST and all test cases):** the divider branch is
++`={7,}(?=\n|$)` — i.e., 7+ `=` immediately after a line start (`^` or `\n`) and immediately
++followed by `\n`/end. This is the author's clear intent (a single line-start anchor), with the
++duplicate `\n` removed and `=======` generalized to `={7,}` per the header's "7+" wording.
++
++Verification against every brief false-positive / true-positive case:
++
++| Input | Literal regex | Tuned regex | Expected |
++|---|---|---|---|
++| full block `…<<<<<<< HEAD\n…\n=======\n…\n>>>>>>> branch\n` | true (via `<<<`) | true (via `<<<`) | **true** |
++| lone opening `<<<<<<< HEAD\nbody` | true | true | **true** |
++| whole-line divider `# t\nours\n=======\ntheirs\n` (no `<<<`/`>>>`) | **FALSE (defect)** | **true** | **true** |
++| `# title\n\nsome ======= text here\n` | false | false | **false** |
++| frontmatter `---\nstatus: active\n---\n# map\n` | false | false | **false** |
++| clean md `# 01 — x\n\n## Resolution\nClean.\n` | false | false | **false** |
++
++The extra true-positive case (whole-line divider without `<<<`/`>>>`) is captured by an
++additional focused test (`git-ops-conflict-markers.test.ts` → "flags a whole-line =======
++divider even without <<< / >>>") which the literal regex would FAIL. All brief-mandated cases
++remain green under the tuned regex. This is the single deliberate deviation; it is narrower
++than the brief's (corrects an objective double-counting bug) and is covered by tests.
++
++## TDD evidence
++
++**RED (Step 3)** — `bun test src/git-ops-conflict-markers.test.ts __tests__/walk-and-ingest.test.ts`:
++- `src/git-ops-conflict-markers.test.ts`: `SyntaxError: Export named 'hasMergeConflictMarkers'
++  not found` (function absent).
++- walk-and-ingest T5 case: `AssertionError: effort must be flagged for human review`
++  (`r.conflictMarkerEfforts.includes(effort)` → false; receipt stays `[]`).
++- 10 pass / 2 fail / 1 error.
++
++**GREEN (Step 5)** — same command after implementation: **16 pass / 0 fail**.
++
++## Full gate (Step 6 — run ONCE)
++
++`( cd bun-apps/pi-agent-ext-hermes-memory && bun run check && bun test )`
++- `tsc --noEmit` → **clean** (no errors).
++- `bun test` → **1430 pass / 1 skip / 1 fail**.
++
++The single failure is the **known pre-existing** ticket-04 time-bomb, unrelated to this work:
++`formatForSystemPrompt never emits memworth (memory + failure blocks — regression pin)`
++(`tests/store/memory-store.test.ts:2630`). Baseline-after-T4 was **1424 pass / 1 skip / 1 fail**;
++the +6 passing = the 6 new T5 tests (5 in `git-ops-conflict-markers.test.ts` + 1 walk-and-ingest
++case). **Zero new failures; zero regressions.**
++
++## Self-review
++
++- **Additive only.** `git-ops.ts`: 18 inserted, 0 deleted (new const + export between
++  `MID_MERGE_SENTINELS` and `realGitOps`). `walk-and-ingest.ts`: 10 inserted, 0 deleted
++  (1 import + 1 populate block). No T3 mirror logic, no receipt shape change.
++- **`isMidMerge` / `GitOps` interface / `realGitOps` byte-unchanged.** Confirmed by
++  `git diff src/git-ops.ts`: the only hunk is an insertion between `MID_MERGE_SENTINELS`
++  (ends `] as const;`) and `realGitOps`. The `GitOps` interface block (earlier in file),
++  `isMidMerge` (inside `realGitOps`), and `MID_MERGE_SENTINELS` itself are untouched.
++  `hasMergeConflictMarkers` is NOT added to the `GitOps` interface and is NOT wired into
++  `isMidMerge` — it is a standalone pure export.
++- **Non-blocking.** The populate block runs in `mirrorPlanningToStore` before deserialize;
++  the deserialize/INSERT/UPDATE/skip path proceeds regardless. Test proves the conflicted
++  ticket is still mirrored into the DB (`planningMirrored >= 1` + `getCard` matches `/ours/`).
++- **Deduped by effort slug** (`!conflictMarkerEfforts.includes(info.effort)`), so a multi-file
++  effort is flagged once.
++- **`planning-id.ts` unmodified** → not staged (correct per brief's "prefer reusing
++  parsePlanningPath" branch).
++- **DoD met:** conflicted ticket md → effort slug in `receipt.conflictMarkerEfforts`;
++  clean md → not flagged; mirror still runs (non-blocking); `isMidMerge`/`GitOps` unchanged;
++  full suite green (modulo the 1 known pre-existing failure).
++
++## Concerns
++
++- **Regex anchor deviation** (described above). The literal brief regex contains a
++  double-`newline` defect that would fail the header's "whole line" MUST and the added
++  whole-line-divider test. The tuned regex corrects it and passes all brief cases plus the
++  extra true-positive. Flagging for the grill's awareness in case the verbatim form was
++  load-bearing for an external contract (it is not, per the DoD's own test set).
++
++## Files changed
++
++- `bun-apps/pi-agent-ext-hermes-memory/src/git-ops.ts` (+18, additive)
++- `bun-apps/pi-agent-ext-hermes-memory/src/git-ops-conflict-markers.test.ts` (new, focused)
++- `bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts` (+10, additive)
++- `bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts` (+32, new T5 describe)
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts b/bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts
+index 00d19a21..d475f109 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/__tests__/walk-and-ingest.test.ts
+@@ -347,10 +347,42 @@ describe("walkAndIngest — planning delete reconciliation (09-impl T4)", () =>
+       await store.close();
+       const ids = tickets.map((c) => c.id).sort();
+       assert.deepEqual(ids, [`planning-ticket:${effort}:01`]);
+       assert.ok(!ids.includes(`planning-ticket:${effort}:02`), "vanished ticket row must be hard-deleted");
+     } finally {
+       rmSync(root, { recursive: true, force: true });
+       rmSync(mem, { recursive: true, force: true });
+     }
+   });
+ });
++
++describe("walkAndIngest — conflict-marker flag (09-impl T5)", () => {
++  it("surfaces an effort with unresolved merge markers in its ticket md; clean md not flagged; mirror still runs (non-blocking)", async () => {
++    const root = mkdtempSync(join(tmpdir(), "pconf-"));
++    const mem = mkdtempSync(join(tmpdir(), "pconf-mem-"));
++    try {
++      const effort = "conflict-effort";
++      const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
++      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
++      writeFileSync(ticketPath,
++        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> b\n");
++      const r = await walkAndIngest(root, { memoryDir: mem });
++      assert.ok(r.conflictMarkerEfforts.includes(effort), "effort must be flagged for human review");
++      // The mirror STILL runs — conflict markers do NOT block the mirror (advisory flag).
++      assert.ok(r.planningMirrored >= 1, "mirror must still run on a conflicted file (non-blocking)");
++      // And the conflicted ticket DID land in the DB (non-blocking proof).
++      const store = await createCardStore({ memoryDir: mem });
++      const mirrored = await store.getCard(`planning-ticket:${effort}:01`);
++      await store.close();
++      assert.match(mirrored?.content ?? "", /ours/, "conflicted ticket body mirrored around the markers");
++
++      // Clean the markers and re-mirror → the effort is NOT re-flagged.
++      writeFileSync(ticketPath,
++        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nClean now.\n");
++      const r2 = await walkAndIngest(root, { memoryDir: mem });
++      assert.ok(!r2.conflictMarkerEfforts.includes(effort), "clean md must not be flagged");
++    } finally {
++      rmSync(root, { recursive: true, force: true });
++      rmSync(mem, { recursive: true, force: true });
++    }
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/git-ops-conflict-markers.test.ts b/bun-apps/pi-agent-ext-hermes-memory/src/git-ops-conflict-markers.test.ts
+new file mode 100644
+index 00000000..9b07e271
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/git-ops-conflict-markers.test.ts
+@@ -0,0 +1,30 @@
++// Focused test for the pure conflict-marker scan added in 09-impl T5.
++// `hasMergeConflictMarkers` is a FILE-CONTENT signal (per-file), deliberately
++// distinct from `GitOps.isMidMerge` (REPO-STATE — sentinel files in `.git/`).
++import { describe, it } from "node:test";
++import * as assert from "node:assert/strict";
++import { hasMergeConflictMarkers } from "./git-ops.js";
++
++describe("hasMergeConflictMarkers", () => {
++  it("flags a full conflict-marker block", () => {
++    const md = "# 08 — x\n\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n";
++    assert.equal(hasMergeConflictMarkers(md), true);
++  });
++  it("flags a lone opening marker (mid-resolution)", () => {
++    assert.equal(hasMergeConflictMarkers("<<<<<<< HEAD\nbody"), true);
++  });
++  it("flags a whole-line ======= divider even without <<< / >>>", () => {
++    // A bare `=======` on its own line is a real git divider even when the
++    // opening/closing markers were already resolved and deleted.
++    assert.equal(hasMergeConflictMarkers("# t\nours\n=======\ntheirs\n"), true);
++  });
++  it("does NOT flag normal md that merely contains seven chars", () => {
++    // '=======' on its own line is a conflict divider, but the word "conflict"
++    // or a horizontal-rule in body text must NOT trip a false positive.
++    assert.equal(hasMergeConflictMarkers("# title\n\nsome ======= text here\n"), false);
++    assert.equal(hasMergeConflictMarkers("---\nstatus: active\n---\n# map\n"), false);
++  });
++  it("is false for clean planning md", () => {
++    assert.equal(hasMergeConflictMarkers("# 08 — x\n\n## Resolution\nClean.\n"), false);
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/git-ops.ts b/bun-apps/pi-agent-ext-hermes-memory/src/git-ops.ts
+index 0626dc7c..e404a765 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/git-ops.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/git-ops.ts
+@@ -84,20 +84,38 @@ const MID_MERGE_SENTINELS = [
+   "MERGE_HEAD",
+   "MERGE_MSG",
+   "rebase-merge",
+   "rebase-apply",
+   "CHERRY_PICK_HEAD",
+   "REVERT_HEAD",
+   "BISECT_LOG",
+   "sequencer",
+ ] as const;
+ 
++/** Git conflict-marker line patterns (the `<<<<<<<`, `=======`, `>>>>>>>`
++ *  markers `git merge` writes when it cannot auto-resolve). This is a FILE-CONTENT
++ *  signal (per-file), distinct from {@link GitOps.isMidMerge} which is REPO-STATE
++ *  (sentinel files in `.git/`, repo-wide). Anchored to line starts to avoid false
++ *  positives on normal prose: an opening/closing marker is `<<<<<<<`/`>>>>>>>` at
++ *  the start of a line (optionally followed by a ref label); the divider is a
++ *  WHOLE line of 7+ `=` (so `some ======= text here` is NOT flagged). */
++const CONFLICT_MARKER_RE = /(^|\n)(<<<<<<<[^\n]*|>>>>>>>[^\n]*|={7,}(?=\n|$))/;
++
++/** True when `content` contains unresolved git conflict markers. Pure; no IO.
++ *  Additive export — deliberately NOT part of the {@link GitOps} interface and
++ *  NOT wired into {@link GitOps.isMidMerge} (different signal: file bytes vs
++ *  repo state). Used by the planning mirror (09-impl T5) to surface, for human
++ *  review, effort slugs whose md still carries unresolved merge markers. */
++export function hasMergeConflictMarkers(content: string): boolean {
++  return CONFLICT_MARKER_RE.test(content);
++}
++
+ /** Production git ops. Every call swallows errors — autocommit never hard-errors. */
+ export const realGitOps: GitOps = {
+   async resolveGitDir(cwd) {
+     const dir = await gitText(cwd, ["rev-parse", "--git-dir"]);
+     if (!dir) return undefined;
+     return path.resolve(cwd, dir); // worktree git-dir is absolute; main is `.git`
+   },
+ 
+   async currentBranch(cwd) {
+     // `symbolic-ref --quiet --short HEAD` prints the branch on success and
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts b/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts
+index 79e19b72..5bfe1b21 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts
+@@ -1,18 +1,19 @@
+ import { readFileSync, readdirSync } from "node:fs";
+ import { join } from "node:path";
+ import { createHash } from "node:crypto";
+ import type { IngestSummary, HealReceipt, LinkWeighting } from "@repo/pi-agent-ext-core-interface";
+ import { getKnowledgePipeline } from "./knowledge-pipeline-seam.js";
+ import { resolveKnowledgeVaultPath, KNOWLEDGE_FOLDER_DEFAULT, KNOWLEDGE_MOC_DEFAULT } from "./knowledge-vault-path.js";
+ import { walkKnowledgeSources, type WalkOptions } from "./knowledge-walk.js";
+ import { parseKnowledgeJsonl } from "./knowledge-jsonl.js";
++import { hasMergeConflictMarkers } from "./git-ops.js";
+ import { AGENT_ROOT } from "./paths.js";
+ import { createCardStore } from "./store/card-store.js";
+ import {
+   planningCardKindFromPath,
+   parsePlanningPath,
+   planningEffortId,
+   planningTicketId,
+ } from "./store/planning-id.js";
+ import { planningContentHash, getStoredHash, upsertHash, deleteHash } from "./store/planning-sync-state.js";
+ 
+@@ -273,20 +274,29 @@ async function mirrorPlanningToStore(
+   try {
+     for (const abs of planningFiles) {
+       const kind = planningCardKindFromPath(abs);
+       if (!kind) continue;
+       let bytes = "";
+       try {
+         bytes = readFileSync(abs, "utf8");
+       } catch {
+         continue;
+       }
++      // 09-impl T5: flag efforts whose md has unresolved merge markers (human
++      // review). Advisory only — the mirror STILL runs on the bytes (the markers
++      // are just body text the serializer parses around). Dedup by effort slug.
++      if (hasMergeConflictMarkers(bytes)) {
++        const info = parsePlanningPath(abs);
++        if (info && !conflictMarkerEfforts.includes(info.effort)) {
++          conflictMarkerEfforts.push(info.effort);
++        }
++      }
+       const serializer = store.serializerFor(kind);
+       const cards = serializer ? serializer.deserialize(bytes, { filePath: abs }) : [];
+       for (const card of cards) {
+         const incomingHash = planningContentHash(card);
+         const existing = await store.getCard(card.id);
+         const stored = await getStoredHash(store, card.id);
+         if (existing === null || stored === null) {
+           // New card (or first mirror after 08→09): INSERT through dedup, write hash.
+           await store.upsertCard(card);
+           await upsertHash(store, card.id, incomingHash);

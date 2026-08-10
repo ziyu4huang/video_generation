@@ -91,6 +91,24 @@ const MID_MERGE_SENTINELS = [
   "sequencer",
 ] as const;
 
+/** Git conflict-marker line patterns (the `<<<<<<<`, `=======`, `>>>>>>>`
+ *  markers `git merge` writes when it cannot auto-resolve). This is a FILE-CONTENT
+ *  signal (per-file), distinct from {@link GitOps.isMidMerge} which is REPO-STATE
+ *  (sentinel files in `.git/`, repo-wide). Anchored to line starts to avoid false
+ *  positives on normal prose: an opening/closing marker is `<<<<<<<`/`>>>>>>>` at
+ *  the start of a line (optionally followed by a ref label); the divider is a
+ *  WHOLE line of 7+ `=` (so `some ======= text here` is NOT flagged). */
+const CONFLICT_MARKER_RE = /(^|\n)(<<<<<<<[^\n]*|>>>>>>>[^\n]*|={7,}(?=\n|$))/;
+
+/** True when `content` contains unresolved git conflict markers. Pure; no IO.
+ *  Additive export — deliberately NOT part of the {@link GitOps} interface and
+ *  NOT wired into {@link GitOps.isMidMerge} (different signal: file bytes vs
+ *  repo state). Used by the planning mirror (09-impl T5) to surface, for human
+ *  review, effort slugs whose md still carries unresolved merge markers. */
+export function hasMergeConflictMarkers(content: string): boolean {
+  return CONFLICT_MARKER_RE.test(content);
+}
+
 /** Production git ops. Every call swallows errors — autocommit never hard-errors. */
 export const realGitOps: GitOps = {
   async resolveGitDir(cwd) {

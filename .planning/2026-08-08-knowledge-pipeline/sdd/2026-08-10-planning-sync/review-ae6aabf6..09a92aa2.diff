@@ -1,0 +1,406 @@
+# Review package: ae6aabf6..09a92aa2
+
+## Commits
+09a92aa2 feat(knowledge-pipeline): planning background backfill (09-impl T6)
+
+## Files changed
+ .../src/handlers/planning-backfill.test.ts         |  60 +++++++++
+ .../src/handlers/planning-backfill.ts              | 149 +++++++++++++++++++++
+ bun-apps/pi-agent-ext-hermes-memory/src/index.ts   |  19 +++
+ .../src/knowledge-walk.ts                          |  10 +-
+ .../src/walk-and-ingest.ts                         |  12 +-
+ 5 files changed, 247 insertions(+), 3 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/handlers/planning-backfill.test.ts b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/planning-backfill.test.ts
+new file mode 100644
+index 00000000..bb7e78dc
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/planning-backfill.test.ts
+@@ -0,0 +1,60 @@
++// src/handlers/planning-backfill.test.ts — T6 background backfill tests.
++// Mirrors the session-backfill test discipline: an injected inline `setTimeout`
++// drives the deferred task synchronously so the test can await the (already
++// resolved) state.promise without real timers.
++import { describe, it } from "node:test";
++import * as assert from "node:assert/strict";
++import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
++import { join } from "node:path";
++import { tmpdir } from "node:os";
++import { schedulePlanningBackfill, planningBackfillState, PLANNING_BACKFILL_MAX_FILES } from "./planning-backfill.js";
++// NOTE: brief authored the import as "../src/store/card-store.js" but this file
++// lives at src/handlers/, so the correct relative path is ../store/...
++import { createCardStore } from "../store/card-store.js";
++
++function flushedState() {
++  return { inProgress: false, promise: null as Promise<void> | null };
++}
++
++describe("schedulePlanningBackfill", () => {
++  it("re-mirrors a changed planning md within bounds (fake timers via injected setTimeout)", async () => {
++    const root = mkdtempSync(join(tmpdir(), "pbf-"));
++    const mem = mkdtempSync(join(tmpdir(), "pbf-mem-"));
++    const state = flushedState();
++    let fired = false;
++    const flush = (cb: () => void) => { fired = true; cb(); }; // run inline
++    try {
++      const effort = "backfill-eff";
++      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
++      writeFileSync(join(root, ".planning", effort, "tickets", "01-x.md"),
++        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nBackfilled.\n");
++      schedulePlanningBackfill(root, mem, { state, setTimeoutFn: flush as never });
++      // The injected setTimeout ran inline; await the (already-resolved) promise.
++      await state.promise;
++      assert.ok(fired);
++      const store = await createCardStore({ memoryDir: mem });
++      const c = await store.getCard(`planning-ticket:${effort}:01`);
++      await store.close();
++      assert.match(c?.content ?? "", /Backfilled\./);
++    } finally {
++      rmSync(root, { recursive: true, force: true });
++      rmSync(mem, { recursive: true, force: true });
++    }
++  });
++
++  it("skips when a backfill is already in progress (run-state guard)", () => {
++    const state = { inProgress: true, promise: Promise.resolve() };
++    let called = false;
++    const scheduled = schedulePlanningBackfill("/nonexistent", "/nonexistent", {
++      state,
++      setTimeoutFn: (() => { called = true; }) as never,
++    });
++    assert.equal(scheduled, false);
++    assert.equal(called, false);
++  });
++
++  it("exports a MAX_FILES bound (parity with session backfill)", () => {
++    assert.ok(PLANNING_BACKFILL_MAX_FILES > 0);
++    assert.ok(planningBackfillState !== undefined);
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/handlers/planning-backfill.ts b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/planning-backfill.ts
+new file mode 100644
+index 00000000..eca3b8cf
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/handlers/planning-backfill.ts
+@@ -0,0 +1,149 @@
++// src/handlers/planning-backfill.ts — background backfill of the .planning card
++// mirror (Phase-2 / 09-impl T6). Mirrors session-backfill.ts house-style: deferred
++// via setTimeout(0) so session_start resolves first; run-state guard so two
++// backfills never overlap in-process; MAX_FILES bound so a huge corpus can't
++// stall startup. Idempotency = the mirror's hash-skip (re-mirroring unchanged
++// files is a cheap hash-compare no-op — there is NO separate run-state file; a
++// re-run resumes because unchanged cards hash-match-skip).
++//
++// The actual mirror reuses walkAndIngest's planning path (hash-compare
++// INSERT/UPDATE/skip + delete reconciliation + conflict-marker flag). It is
++// invoked PLANNING-ONLY (opts.planningOnly) so the zk knowledge path is skipped
++// entirely — planning is hermes-internal and has no zk dependency, and passing
++// the bounded file list scopes the walk to exactly the .planning corpus (no
++// full-repo re-walk on every startup).
++import { readdirSync, statSync } from "node:fs";
++import { join } from "node:path";
++import { walkAndIngest } from "../walk-and-ingest.js";
++
++export const PLANNING_BACKFILL_MAX_FILES = 50;
++
++type NotifyLevel = "info" | "warning" | "error";
++type NotifyFn = (message: string, level: NotifyLevel) => void;
++type SetTimeoutFn = (callback: () => void, ms: number) => unknown;
++
++export interface PlanningBackfillState {
++  inProgress: boolean;
++  promise: Promise<void> | null;
++}
++
++export const planningBackfillState: PlanningBackfillState = {
++  inProgress: false,
++  promise: null,
++};
++
++export interface SchedulePlanningBackfillOptions {
++  notify?: NotifyFn;
++  state?: PlanningBackfillState;
++  setTimeoutFn?: SetTimeoutFn;
++  maxFiles?: number;
++}
++
++/** Collect up to `maxFiles` planning-card md files under <repoRoot>/.planning.
++ *  A cheap .planning-scoped recursive scan (NOT the full-repo walk) so startup
++ *  cost stays bounded. Non-card .planning md (specs/plans/flat/sdd) is collected
++ *  too but later classified out by walkKnowledgeSources (only map.md and
++ *  tickets/NN-slug.md are real planning-cards) — collecting them is harmless
++ *  (a few extra lstats) and keeps this scan a pure directory walk. */
++function collectPlanningMdFiles(repoRoot: string, maxFiles: number): string[] {
++  const out: string[] = [];
++  const planningDir = join(repoRoot, ".planning");
++  const recurse = (dir: string): void => {
++    if (out.length >= maxFiles) return;
++    let entries: string[];
++    try {
++      entries = readdirSync(dir);
++    } catch {
++      return;
++    }
++    for (const name of entries) {
++      if (out.length >= maxFiles) return;
++      const abs = join(dir, name);
++      let st;
++      try {
++        st = statSync(abs);
++      } catch {
++        continue;
++      }
++      if (st.isDirectory()) recurse(abs);
++      else if (name.endsWith(".md")) out.push(abs);
++    }
++  };
++  recurse(planningDir);
++  return out;
++}
++
++function notifyBestEffort(notify: NotifyFn | undefined, message: string, level: NotifyLevel): void {
++  try {
++    notify?.(message, level);
++  } catch {
++    /* Notification failures must never affect backfill. */
++  }
++}
++
++/** Schedule a best-effort, bounded background re-mirror of .planning/. Mirrors
++ *  scheduleSessionBackfill: deferred setTimeout(0); run-state guard; MAX_FILES
++ *  bound; best-effort notify. The actual mirror reuses walkAndIngest's planning
++ *  path in PLANNING-ONLY mode (hash-compare INSERT/UPDATE/skip + delete
++ *  reconciliation; the hash-skip makes unchanged files cheap). Returns true
++ *  when a backfill was scheduled; false when skipped (already in progress). */
++export function schedulePlanningBackfill(
++  repoRoot: string,
++  memoryDir: string,
++  options: SchedulePlanningBackfillOptions = {},
++): boolean {
++  const state = options.state ?? planningBackfillState;
++  const setTimeoutFn = options.setTimeoutFn ?? setTimeout;
++  const maxFiles = options.maxFiles ?? PLANNING_BACKFILL_MAX_FILES;
++
++  if (state.inProgress) return false;
++
++  state.inProgress = true;
++  state.promise = new Promise<void>((resolve) => {
++    setTimeoutFn(async () => {
++      try {
++        const files = collectPlanningMdFiles(repoRoot, maxFiles);
++        if (files.length === 0) return;
++        // walkAndIngest runs the hash-compare mirror + delete reconciliation
++        // against these files in PLANNING-ONLY mode (zk knowledge path skipped;
++        // the hash-skip makes unchanged files cheap). The planning classifier
++        // keys off the `.planning` segment in each abs path, which the collected
++        // paths retain — so the bounded file list scopes the mirror exactly.
++        await walkAndIngest(files, { memoryDir, planningOnly: true });
++        notifyBestEffort(options.notify, `🧠 Planning backfill complete: scanned ${files.length} .planning file(s).`, "info");
++      } catch (err) {
++        notifyBestEffort(
++          options.notify,
++          `⚠️ Planning backfill failed: ${err instanceof Error ? err.message : String(err)}`,
++          "warning",
++        );
++      } finally {
++        state.inProgress = false;
++        state.promise = null;
++        resolve();
++      }
++    }, 0);
++  });
++  return true;
++}
++
++/** Wait briefly for an in-progress planning backfill before shutdown (mirrors
++ *  waitForSessionBackfill). */
++export async function waitForPlanningBackfill(
++  timeoutMs = 5000,
++  state: PlanningBackfillState = planningBackfillState,
++): Promise<boolean> {
++  const promise = state.promise;
++  if (!state.inProgress || !promise) return true;
++  let timeout: ReturnType<typeof setTimeout> | undefined;
++  try {
++    return await Promise.race([
++      promise.then(() => true),
++      new Promise<boolean>((resolve) => {
++        timeout = setTimeout(() => resolve(false), timeoutMs);
++      }),
++    ]);
++  } finally {
++    if (timeout) clearTimeout(timeout);
++  }
++}
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/index.ts b/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
+index 8a9cd63e..1536ddb9 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/index.ts
+@@ -30,20 +30,21 @@ export { getKnowledgePipeline } from "./knowledge-pipeline-seam.js";
+ import * as path from "node:path";
+ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+ import { MemoryStore } from "./store/memory-store.js";
+ import { SkillStore } from "./store/skill-store.js";
+ import { createBackendBundle, createBackendBundleWithFallback } from "./store/backend-factory.js";
+ import { asSwappable } from "./store/swappable.js";
+ import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
+ import type { MemoryRepository, SessionRepository, BackendBundle } from "./store/repository.js";
+ import type { DbBackend } from "./types.js";
+ import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-backfill.js";
++import { schedulePlanningBackfill } from "./handlers/planning-backfill.js";
+ import { scheduleLiveSessionIndex, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";
+ import { parseSessionFile } from "./store/session-parser.js";
+ import { registerMemoryTool } from "./tools/memory-tool.js";
+ import { registerGrillDecisionTool } from "./tools/grill-decision-tool.js";
+ import { registerSkillTool } from "./tools/skill-tool.js";
+ import { registerSessionSearchTool } from "./tools/session-search-tool.js";
+ import { createPerfRecorder } from "./perf.js";
+ import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
+ import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
+ import { registerKnowledgeSearchTool } from "./tools/knowledge-search-tool.js";
+@@ -339,20 +340,38 @@ export default async function (pi: ExtensionAPI) {
+         if (ui?.notify) {
+           ui.notify(message, level);
+         } else if (level === "error" || level === "warning") {
+           console.warn(message);
+         } else {
+           console.info(message);
+         }
+       },
+     });
+ 
++    // Phase-2 (knowledge-pipeline / ticket 09 T6): background re-mirror of
++    // .planning/. Best-effort, bounded, run-state-guarded — mirrors
++    // scheduleSessionBackfill. Deferred via setTimeout(0) so session_start
++    // resolves first; heals .planning drift without blocking startup. A failure
++    // must NEVER abort agent startup.
++    try {
++      schedulePlanningBackfill(ctx.cwd, globalDir, {
++        notify: (message, level) => {
++          const ui = (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
++          if (ui?.notify) ui.notify(message, level);
++          else if (level === "error" || level === "warning") console.warn(message);
++          else console.info(message);
++        },
++      });
++    } catch {
++      /* never block startup */
++    }
++
+     // Per-session prompt-provenance (UPSP §5): capture the assembled md_id set
+     // + block hash ONCE per session. Best-effort — never abort startup. Mirrors
+     // the backfillStableIds guard: a missing sid / null assembly (policy-only or
+     // empty store) skips the record; a throwing recordAssembly is swallowed.
+     //
+     // UPSP §9 / Task 6: bind the active session id (read by setupUsedDetection's
+     // turn_end closure) and hand captureAssembly an `onReceipt` callback that
+     // populates `surfacedSignatures` from the SAME receipt #05 just recorded —
+     // the §5↔§9 join invariant (one build feeds both record + the matcher). The
+     // populate is gated on `usedDetection !== false` (default on, INDEPENDENT of
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/knowledge-walk.ts b/bun-apps/pi-agent-ext-hermes-memory/src/knowledge-walk.ts
+index e6c46260..4e664c5a 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/knowledge-walk.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/knowledge-walk.ts
+@@ -1,13 +1,13 @@
+ import { readdirSync, lstatSync } from "node:fs";
+ import { extname, join, relative, resolve } from "node:path";
+-import { planningCardKindFromSegs } from "./store/planning-id.js";
++import { planningCardKindFromPath } from "./store/planning-id.js";
+ 
+ /** Knowledge source families the walk classifies (Option A ingests workflow-jsonl;
+  *  generic is detected-but-deferred). Memory-card sources (.agents/memory) are
+  *  out of scope and reported in skipped.deferredFamily. The `planning` family
+  *  (Phase-2 / 08) routes `.planning/<effort>/{map.md,tickets/NN.md}` for the
+  *  seam-independent planning mirror — classified BEFORE the generic `.md`
+  *  fallback so non-card `.planning` md (specs/plans/flat) stays generic/deferred. */
+ export interface WalkFiles {
+   "workflow-jsonl": string[];
+   generic: string[];
+@@ -95,21 +95,27 @@ function classify(abs: string, root: string, result: WalkResult, opts: WalkOptio
+     // When opted in, no knowledge family ingests images yet (ticket 07) — pass through silently.
+     return;
+   }
+ 
+   // Family: .knowledge.jsonl → workflow-jsonl; .md → generic.
+   if (abs.endsWith(".knowledge.jsonl")) {
+     result.files["workflow-jsonl"].push(abs);
+     return;
+   }
+   if (ext === ".md") {
+-    if (planningCardKindFromSegs(segs)) {
++    // Classify planning from the ABSOLUTE path (the canonical classifier used
++    // by mirrorPlanningToStore / parsePlanningPath everywhere else). The rel
++    // segments are relative to the walk `root`, so a bare-file input (root ===
++    // file) or a `.planning/`-rooted walk would strip the `.planning` segment
++    // and misclassify a planning card as generic. The abs path always retains
++    // it, so classification is correct for any input form (dir, file, or list).
++    if (planningCardKindFromPath(abs)) {
+       result.files.planning.push(abs);
+       return;
+     }
+     result.files.generic.push(abs);
+     return;
+   }
+   // No knowledge family + not an explicit skip → ignore (unknown text).
+ }
+ 
+ function walkDir(abs: string, root: string, opts: WalkOptions, result: WalkResult): void {
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts b/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts
+index 5bfe1b21..2d1289d8 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/walk-and-ingest.ts
+@@ -35,20 +35,27 @@ export interface WalkAndIngestOptions extends WalkOptions {
+    *  memory-cards use). Defaults to the existing hermes memory DB dir
+    *  (`<AGENT_ROOT>/pi-hermes-memory`) — NEVER inside the obsidian vault. The
+    *  mirror opens createCardStore({memoryDir}) against this dir so knowledge
+    *  rows land in the same `sessions.db` the memory-cards use. */
+   memoryDir?: string;
+   /** Previous run's Tier-1 md-hash set (`relPath → sha256`). When provided, the
+    *  receipt echoes it as `driftStub.previousHashes` for change-detection
+    *  (compare against `currentHashes`). Full drift logic is ticket 05; 06b
+    *  captures the hook point only (no re-index action). */
+   previousHashes?: Record<string, string>;
++  /** PLANNING-ONLY mode (Phase-2 / 09-impl T6 background backfill): skip the zk
++   *  knowledge path (vault resolution + ingest + heal + vault-md mirror) so the
++   *  call is truly seam-independent and bounded — planning is hermes-internal
++   *  and has no zk dependency. Only the planning DB-mirror (step 8b) + delete
++   *  reconciliation (step 8c) run. Default false (the knowledge-ingest tool and
++   *  the normal orchestrator run the full path). */
++  planningOnly?: boolean;
+ }
+ 
+ /** Receipt for a walkAndIngest run. mirrored + driftStub are placeholders in
+  *  06b task 4 (the DB-mirror is task 5; the drift stub is task 7). */
+ export interface WalkAndIngestReceipt {
+   ok: boolean;
+   vaultPath: string;
+   folder: string;
+   ingest?: IngestSummary;
+   heal?: HealReceipt;
+@@ -91,21 +98,24 @@ export async function walkAndIngest(
+   opts: WalkAndIngestOptions = {},
+ ): Promise<WalkAndIngestReceipt> {
+   const folder = opts.folder ?? KNOWLEDGE_FOLDER_DEFAULT;
+   const mocPath = opts.mocPath ?? KNOWLEDGE_MOC_DEFAULT;
+ 
+   // 3-4. Policy walk + source-family detection (hermes owns the walk). Walked
+   //  BEFORE the seam check so the planning family mirrors independent of zk.
+   const walk = walkKnowledgeSources(input, opts);
+ 
+   // 2. Read the seam (graceful). Planning mirror is seam-INDEPENDENT (08).
+-  const kp = getKnowledgePipeline();
++  // T6 background backfill opts out of the knowledge path entirely via
++  // opts.planningOnly so a seam-present-but-vault-unset env can never throw and
++  // abort the planning mirror — planning is hermes-internal (no zk dependency).
++  const kp = opts.planningOnly ? undefined : getKnowledgePipeline();
+   let vaultPath = "";
+   let ingest: IngestSummary | undefined;
+   let heal: HealReceipt | undefined;
+   let mirrored = 0;
+   const currentHashes: Record<string, string> = {};
+ 
+   if (kp) {
+     // 1. Resolve vault (env-only) — only needed for the knowledge path. Done
+     //  inside `if (kp)` so a seam-absent + planning-only run never throws on a
+     //  missing KNOWLEDGE_VAULT_PATH.

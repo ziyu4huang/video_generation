@@ -1,6 +1,6 @@
 import { readdirSync, lstatSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
-import { planningCardKindFromSegs } from "./store/planning-id.js";
+import { planningCardKindFromPath } from "./store/planning-id.js";
 
 /** Knowledge source families the walk classifies (Option A ingests workflow-jsonl;
  *  generic is detected-but-deferred). Memory-card sources (.agents/memory) are
@@ -102,7 +102,13 @@ function classify(abs: string, root: string, result: WalkResult, opts: WalkOptio
     return;
   }
   if (ext === ".md") {
-    if (planningCardKindFromSegs(segs)) {
+    // Classify planning from the ABSOLUTE path (the canonical classifier used
+    // by mirrorPlanningToStore / parsePlanningPath everywhere else). The rel
+    // segments are relative to the walk `root`, so a bare-file input (root ===
+    // file) or a `.planning/`-rooted walk would strip the `.planning` segment
+    // and misclassify a planning card as generic. The abs path always retains
+    // it, so classification is correct for any input form (dir, file, or list).
+    if (planningCardKindFromPath(abs)) {
       result.files.planning.push(abs);
       return;
     }
