@@ -27,11 +27,20 @@ const BOOTSTRAP_MARKER = "superpowers:using-superpowers bootstrap for pi";
  *  See {@link parseSkillExclude} / {@link resolveAdvertisedSkillPaths}. */
 export const SKILL_EXCLUDE_ENV = "PI_SUPERPOWERS_SKILL_EXCLUDE";
 
-/** Skills UNREGISTERED by default (Phase-3 clean-pass — the model resists
- *  confidence-escalation even without this skill, so dropping it costs ~zero
- *  behavior for ~139 tok/req saved). Override via the env list, or disable
- *  entirely via {@link DEFAULTS_DISABLE_ENV}. */
-export const DEFAULT_SKILL_EXCLUDE = ["verification-before-completion"] as const;
+/**
+ * Skills UNREGISTERED by default (never advertised via `resources_discover`),
+ * each for a distinct reason — see ADR-0008 for the full policy:
+ *   - `verification-before-completion` (~900 tok) — Phase-3 clean-pass: the
+ *     model resists confidence-escalation even without this skill, so dropping
+ *     it costs ~zero behavior.
+ *   - `using-superpowers` (~763 tok) — bootstrap dedup: its full body is
+ *     already injected as the bootstrap by {@link getBootstrapContent}, which
+ *     also instructs the agent not to load it again, so advertising it
+ *     duplicates the content for ~zero behavioral gain.
+ * Override via the env list ({@link SKILL_EXCLUDE_ENV}), or disable the
+ * defaults entirely via {@link DEFAULTS_DISABLE_ENV}.
+ */
+export const DEFAULT_SKILL_EXCLUDE = ["verification-before-completion", "using-superpowers"] as const;
 
 /** Set to `0`/`false`/`no`/`off` to suppress {@link DEFAULT_SKILL_EXCLUDE} —
  *  e.g. for a probe fat-run that must load every skill, or to restore the
