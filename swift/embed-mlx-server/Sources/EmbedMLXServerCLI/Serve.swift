@@ -1,6 +1,5 @@
 import ArgumentParser
 import EmbedMLXServer
-import Foundation
 
 extension EmbedMLXServerCLI {
     struct Serve: AsyncParsableCommand {
@@ -42,14 +41,10 @@ extension EmbedMLXServerCLI {
         }
 
         func run() async throws {
-            setbuf(stdout, nil)
             let config = ServerConfig(
                 port: port, modelRepo: model, microBatchSize: microBatchSize, maxLength: maxLength)
 
-            print("[embed-mlx-server serve] loading \(config.modelRepo)...")
-            let backend = try await MLXEmbeddingBackend.load(
-                repo: config.modelRepo, maxLength: config.maxLength)
-            let engine = EmbeddingEngine(backend: backend, microBatchSize: config.microBatchSize)
+            let engine = try await EngineLoader.load(config: config, commandName: "serve")
             let server = HTTPServer(engine: engine, modelName: config.modelRepo)
 
             try await server.run(port: config.port) {

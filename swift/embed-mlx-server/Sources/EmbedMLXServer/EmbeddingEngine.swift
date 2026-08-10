@@ -17,12 +17,10 @@ public final class EmbeddingEngine: Sendable {
         var results: [[Float]] = []
         results.reserveCapacity(texts.count)
 
-        var start = 0
-        while start < texts.count {
+        for start in stride(from: 0, to: texts.count, by: microBatchSize) {
             let end = min(start + microBatchSize, texts.count)
             let vectors = try await backend.embedMicroBatch(Array(texts[start..<end]))
             results.append(contentsOf: vectors)
-            start = end
         }
 
         return results

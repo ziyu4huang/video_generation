@@ -2,15 +2,22 @@
 // briefly ResponseCodable so route handlers could return them directly,
 // but HTTPServer encodes explicitly via JSONEncoder (it needs to set the
 // status code per branch), so the conformance was never exercised.
-public struct EmbeddingsRequest: Codable, Sendable {
-    public let model: String
-    public let input: Input
+//
+// Internal rather than public: nothing outside this module references these
+// types — they are the /v1/embeddings route's wire format, not library API,
+// and HTTPServer only touches them from `private static` methods. Internal
+// also means Swift synthesizes the memberwise initializers, so there are no
+// hand-written inits to drift out of sync with the stored properties. Tests
+// reach them through `@testable import`.
+struct EmbeddingsRequest: Codable, Sendable {
+    let model: String
+    let input: Input
 
-    public enum Input: Codable, Sendable {
+    enum Input: Codable, Sendable {
         case single(String)
         case multiple([String])
 
-        public init(from decoder: Decoder) throws {
+        init(from decoder: Decoder) throws {
             let container = try decoder.singleValueContainer()
             if let string = try? container.decode(String.self) {
                 self = .single(string)
@@ -19,7 +26,7 @@ public struct EmbeddingsRequest: Codable, Sendable {
             }
         }
 
-        public func encode(to encoder: Encoder) throws {
+        func encode(to encoder: Encoder) throws {
             var container = encoder.singleValueContainer()
             switch self {
             case .single(let value):
@@ -29,7 +36,7 @@ public struct EmbeddingsRequest: Codable, Sendable {
             }
         }
 
-        public var texts: [String] {
+        var texts: [String] {
             switch self {
             case .single(let value):
                 return [value]
@@ -40,61 +47,34 @@ public struct EmbeddingsRequest: Codable, Sendable {
     }
 }
 
-public struct EmbeddingObject: Codable, Sendable {
-    public let object: String
-    public let embedding: [Float]
-    public let index: Int
-
-    public init(object: String, embedding: [Float], index: Int) {
-        self.object = object
-        self.embedding = embedding
-        self.index = index
-    }
+struct EmbeddingObject: Codable, Sendable {
+    let object: String
+    let embedding: [Float]
+    let index: Int
 }
 
-public struct EmbeddingsUsage: Codable, Sendable {
-    public let promptTokens: Int
-    public let totalTokens: Int
+struct EmbeddingsUsage: Codable, Sendable {
+    let promptTokens: Int
+    let totalTokens: Int
 
     private enum CodingKeys: String, CodingKey {
         case promptTokens = "prompt_tokens"
         case totalTokens = "total_tokens"
     }
-
-    public init(promptTokens: Int, totalTokens: Int) {
-        self.promptTokens = promptTokens
-        self.totalTokens = totalTokens
-    }
 }
 
-public struct EmbeddingsResponse: Codable, Sendable {
-    public let object: String
-    public let data: [EmbeddingObject]
-    public let model: String
-    public let usage: EmbeddingsUsage
-
-    public init(object: String, data: [EmbeddingObject], model: String, usage: EmbeddingsUsage) {
-        self.object = object
-        self.data = data
-        self.model = model
-        self.usage = usage
-    }
+struct EmbeddingsResponse: Codable, Sendable {
+    let object: String
+    let data: [EmbeddingObject]
+    let model: String
+    let usage: EmbeddingsUsage
 }
 
-public struct ErrorResponse: Codable, Sendable {
-    public struct ErrorDetail: Codable, Sendable {
-        public let message: String
-        public let type: String
-
-        public init(message: String, type: String) {
-            self.message = message
-            self.type = type
-        }
+struct ErrorResponse: Codable, Sendable {
+    struct ErrorDetail: Codable, Sendable {
+        let message: String
+        let type: String
     }
 
-    public let error: ErrorDetail
-
-    public init(error: ErrorDetail) {
-        self.error = error
-    }
+    let error: ErrorDetail
 }
