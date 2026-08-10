@@ -18,7 +18,7 @@ import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent
 import { spawnSubagent } from "./spawn-subagent.js";
 import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
-import { deriveSubagentStatus, taskPreview, workIntentPreview } from "./subagent-tool.js";
+import { deriveSubagentStatus, taskPreview, workIntentPreview } from "./subagent-tool-render.js";
 import { DEFAULT_TIMEOUT_MS } from "./subagent-tool-schema.js";
 
 /** Tree-mutating tools a read-only child may NEVER carry (non-overridable). */

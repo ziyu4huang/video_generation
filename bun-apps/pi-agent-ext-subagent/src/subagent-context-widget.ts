@@ -34,7 +34,7 @@ import {
   latestMessageLine,
   renderSubagentCall,
   STREAMING_EXPANDED_TAIL,
-} from "./subagent-tool.js";
+} from "./subagent-tool-render.js";
 
 export interface SubagentContextWidgetOpts {
   /** Live source of in-flight runs (defaults to `registry.list()` at the wiring site). */
