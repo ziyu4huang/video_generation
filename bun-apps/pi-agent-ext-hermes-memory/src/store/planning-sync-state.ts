@@ -263,3 +263,39 @@ export async function writeValidatedBaseline(
   await store.upsertCardDepHash(card.id, hash);
   return { hash, missing };
 }
+
+/** Explicit RE-VALIDATE of ONE card (the agent re-grill flow — T6's `planning_stale`
+ *  tool `revalidate` action): recompute the dep aggregate, report whether it HAD
+ *  drifted relative to the OLD baseline, AND re-baseline to the CURRENT bytes
+ *  (clearing the stale flag). This is the SOLE re-baseline op — distinct from
+ *  {@link computeStaleness} (planning-staleness.ts), which is compare-only after
+ *  the first-touch seed and NEVER clears a stale flag.
+ *
+ *  Path B (decision η): deps come from {@link readSourceCard} (a re-parse of the
+ *  git-canonical source .md → graph.relations), NOT `store.getCard` (whose row
+ *  drops `graph`, so `depAggregateHash` would hash the empty aggregate and never
+ *  detect drift). An unresolvable source → `false` + NO write (cannot validate
+ *  what we cannot read). Mirrors {@link refreshIfStale}'s boolean envelope.
+ *
+ *  The `session_start` sweep (planning-backfill.ts) does NOT call this — it flags
+ *  via `computeStaleness` so stale state PERSISTS across sessions (decision ζ); a
+ *  re-baselining sweep would wipe stale state every session start. Returns `true`
+ *  iff re-validation cleared a stale state: the card HAD a stored baseline whose
+ *  dep hash differs from the current aggregate, OR a dep is currently missing
+ *  (a vanishing dep is itself a stale signal that survives re-baselining). */
+export async function refreshStaleness(
+  store: CardStore,
+  cardId: string,
+  fsRoot: string,
+): Promise<boolean> {
+  const card = await readSourceCard(store, cardId, fsRoot);
+  if (!card) return false;
+  const { hash: current, missing } = await depAggregateHash(card, fsRoot);
+  const stored = await store.getCardDepHash(cardId);
+  const wasStale = stored !== null && (current !== stored.depHash || missing.length > 0);
+  // Re-baseline NOW to the CURRENT bytes: the NEXT change after this point is
+  // what re-flags stale. writeValidatedBaseline recomputes the aggregate once
+  // more (deterministic, idempotent — matches computeStaleness's first-touch path).
+  await writeValidatedBaseline(store, card, fsRoot);
+  return wasStale;
+}
