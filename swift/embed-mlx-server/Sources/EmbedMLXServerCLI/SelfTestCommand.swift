@@ -1,6 +1,5 @@
 import ArgumentParser
 import EmbedMLXServer
-import Foundation
 
 extension EmbedMLXServerCLI {
     struct SelfTestCommand: AsyncParsableCommand {
@@ -22,15 +21,11 @@ extension EmbedMLXServerCLI {
         }
 
         func run() async throws {
-            setbuf(stdout, nil)
             let config = ServerConfig(
                 port: ServerConfig.defaultPort, modelRepo: model,
                 microBatchSize: ServerConfig.defaultMicroBatchSize, maxLength: maxLength)
 
-            print("[embed-mlx-server self-test] loading \(config.modelRepo)...")
-            let backend = try await MLXEmbeddingBackend.load(
-                repo: config.modelRepo, maxLength: config.maxLength)
-            let engine = EmbeddingEngine(backend: backend, microBatchSize: config.microBatchSize)
+            let engine = try await EngineLoader.load(config: config, commandName: "self-test")
 
             let results = try await SelfTest.run(engine: engine)
 
