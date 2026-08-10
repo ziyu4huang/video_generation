@@ -132,6 +132,17 @@ export const SCHEMA_SQL = `
   -- UNIQUE treats NULLs as distinct, so un-backfilled rows coexist.
   CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_md_id ON memories(md_id);
 
+  -- 09-impl (knowledge-pipeline / ticket 09): content-hash state for the
+  -- planning-card mirror (Tier-1, md-wins drift). 'kind' discriminator so 10-impl
+  -- can add dep-validation hashes (kind='validated') WITHOUT a migration.
+  CREATE TABLE IF NOT EXISTS card_md_hash (
+    card_id TEXT PRIMARY KEY,
+    content_hash TEXT NOT NULL,
+    mirrored_at DATE NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'mirror'
+  );
+  CREATE INDEX IF NOT EXISTS idx_card_md_hash_kind ON card_md_hash(kind);
+
   -- Per-session prompt-provenance (UPSP §5): one row per md_id assembled into a session's
   -- memory block. FK-FREE by design — the sessions row is created later by deferred backfill,
   -- so session_id is a plain join key, not an enforced FK. Composite PK dedupes; md_id index
