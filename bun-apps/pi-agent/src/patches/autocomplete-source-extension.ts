@@ -18,10 +18,14 @@
  * ---
  * Wrap InteractiveMode.prototype.prefixAutocompleteDescription so that AFTER the
  * SDK renders the base `[tag] desc`, we derive the owning `pi-agent-ext-<name>`
- * from sourceInfo.path and inject it inside the leading `[...]`:
- *   `[t] desc` → `[t · wayfind] desc`.
- * npm / git / http / git@ sources are left UNCHANGED (they already render their
- * package in the marker — see getAutocompleteSourceTag in the SDK dist).
+ * from sourceInfo.path OR source and REPLACE the leading scope marker with a
+ * dedicated extension marker:
+ *   `[t] desc` → `[e:wayfind] desc`;
+ *   `[u:npm:@x/pi-agent-ext-hyperframes] desc` → `[e:hyperframes] desc`.
+ * Extension-provided skills are misclassified by the framework as `[t]`
+ * (temporary); rather than appending the ext to a WRONG scope letter we REPLACE
+ * the tag outright. Entries whose path/source/baseDir contains no
+ * `pi-agent-ext-<name>` keep their original marker (user/project/temporary).
  *
  * CHOKEPOINT (PATH A): prefixAutocompleteDescription is the single prefixer used
  * by ALL autocomplete suggestion builders — prompt templates, extension slash
@@ -34,10 +38,10 @@
 import { InteractiveMode } from "@earendil-works/pi-coding-agent";
 
 /**
- * Derive the owning `pi-agent-ext-<name>` from a suggestion's sourceInfo path.
- *
- * Returns undefined when the resource is NOT from a local pi-agent-ext package
- * (user/project skills, or npm/git/http sources that already self-attribute).
+ * Derive the owning `pi-agent-ext-<name>` from a suggestion's sourceInfo —
+ * matched against path OR source OR baseDir. Returns undefined when the resource
+ * is NOT from a pi-agent-ext package (user/project skills, etc.), in which case
+ * the caller keeps the original marker.
  *
  * Pure — given the sourceInfo object only.
  */
@@ -45,37 +49,18 @@ export function owningExtension(
   sourceInfo: { path?: string; baseDir?: string; source?: string } | undefined,
 ): string | undefined {
   if (!sourceInfo) return undefined;
-  const src = sourceInfo.source ?? "";
-  // npm:/git/http sources already render their package in the marker — don't duplicate.
-  if (
-    src.startsWith("npm:") ||
-    /^https?:\/\//.test(src) ||
-    src.startsWith("git@") ||
-    src.startsWith("git:")
-  ) {
-    return undefined;
-  }
-  const path = sourceInfo.path ?? sourceInfo.baseDir ?? "";
-  // Match `pi-agent-ext-<name>` as a path SEGMENT: a separator (or start of
-  // string) before it, and a separator OR end-of-string after it (baseDir may
-  // be the package root with no trailing slash).
-  const m = path.match(/(?:^|[\\/])pi-agent-ext-([^\\/]+?)(?:[\\/]|$)/);
+  const hay = `${sourceInfo.path ?? ""} ${sourceInfo.source ?? ""} ${sourceInfo.baseDir ?? ""}`;
+  const m = hay.match(/pi-agent-ext-([a-z0-9-]+)/i);
   return m ? m[1] : undefined;
 }
 
-/**
- * Inject ` · <ext>` inside the leading [tag] of an already-rendered description.
- *
- *   "[u] desc"            → "[u · wayfind] desc"
- *   "[u:npm:x] desc"      → "[u:npm:x · wayfind] desc"
- *   "desc only" (no tag)  → "[· wayfind] desc only"
- *
- * Pure — given two strings.
- */
-export function injectExtension(rendered: string, ext: string): string {
-  const close = rendered.indexOf("]");
-  if (close >= 0) return `${rendered.slice(0, close)} · ${ext}${rendered.slice(close)}`;
-  return `[· ${ext}] ${rendered}`;
+/** Replace the leading [tag] marker with a dedicated [e:<ext>] marker.
+ *  "[t] desc" → "[e:wayfind] desc"; "[u:npm:@x/pi-agent-ext-hyperframes] desc"
+ *  → "[e:hyperframes] desc"; "[t]" → "[e:wayfind]"; no marker → "[e:wayfind] desc". */
+export function replaceMarker(rendered: string, ext: string): string {
+  const end = rendered.indexOf("]");
+  if (end >= 0) return `[e:${ext}]${rendered.slice(end + 1)}`;
+  return `[e:${ext}] ${rendered}`;
 }
 
 // ── Module-scoped flag: apply once ──────────────────────────────────────────
@@ -83,7 +68,7 @@ let applied = false;
 
 /**
  * Patch InteractiveMode.prototype.prefixAutocompleteDescription so the owning
- * extension (when derivable) is injected into the leading scope marker.
+ * extension (when derivable) REPLACES the leading scope marker with [e:<ext>].
  *
  * Returns true if applied, false if already applied or the target method is
  * missing (e.g. an SDK upgrade changed the shape).
@@ -103,7 +88,7 @@ export function applyAutocompleteSourceExtensionPatch(): boolean {
   ): string {
     const base = original.call(this, description, sourceInfo);
     const ext = owningExtension(sourceInfo as Parameters<typeof owningExtension>[0]);
-    return ext ? injectExtension(base, ext) : base;
+    return ext ? replaceMarker(base, ext) : base;
   };
   applied = true;
   return true;
