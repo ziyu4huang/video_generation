@@ -101,21 +101,21 @@ No commit — these are scratch artifacts.
 Append to `bun-apps/tests/dep-guard.test.ts`, after the existing top-level `describe(...)` block:
 
 ```ts
-describe("repoTypesEntries (tsconfig `types` dependency edges)", () => {
+describe("parseTypesRepos (tsconfig `types` dependency edges)", () => {
 	it("extracts @repo entries from compilerOptions.types", () => {
 		const t = { compilerOptions: { types: ["bun", "@repo/pi-agent-ext-core-interface"] } };
-		assert.deepEqual([...repoTypesEntries(t)], ["pi-agent-ext-core-interface"]);
+		assert.deepEqual([...parseTypesRepos(t)], ["pi-agent-ext-core-interface"]);
 	});
 
 	it("ignores non-@repo entries", () => {
-		assert.deepEqual([...repoTypesEntries({ compilerOptions: { types: ["bun", "node"] } })], []);
+		assert.deepEqual([...parseTypesRepos({ compilerOptions: { types: ["bun", "node"] } })], []);
 	});
 
 	it("returns empty when types is absent, empty, or not an array", () => {
-		assert.deepEqual([...repoTypesEntries({ compilerOptions: {} })], []);
-		assert.deepEqual([...repoTypesEntries({})], []);
-		assert.deepEqual([...repoTypesEntries({ compilerOptions: { types: [] } })], []);
-		assert.deepEqual([...repoTypesEntries({ compilerOptions: { types: "bun" } })], []);
+		assert.deepEqual([...parseTypesRepos({ compilerOptions: {} })], []);
+		assert.deepEqual([...parseTypesRepos({})], []);
+		assert.deepEqual([...parseTypesRepos({ compilerOptions: { types: [] } })], []);
+		assert.deepEqual([...parseTypesRepos({ compilerOptions: { types: "bun" } })], []);
 	});
 });
 ```
@@ -126,7 +126,7 @@ describe("repoTypesEntries (tsconfig `types` dependency edges)", () => {
 bun run --cwd /Users/huangziyu/proj/video_generation__embed/bun-apps test:deps
 ```
 
-Expected: FAIL with `ReferenceError: Can't find variable: repoTypesEntries` (or `repoTypesEntries is not defined`).
+Expected: FAIL with `ReferenceError: Can't find variable: parseTypesRepos` (or `parseTypesRepos is not defined`).
 
 - [ ] **Step 3: Implement the helpers**
 
@@ -144,7 +144,7 @@ Add both functions next to the existing `declaredRepos` helper in `bun-apps/test
  *   - runtime consumers (publishSeam / readSeam / SEAM_KEYS)
  *                                   → dependencies / peerDependencies
  */
-function repoTypesEntries(tsconfig: unknown): Set<string> {
+function parseTypesRepos(tsconfig: unknown): Set<string> {
 	const types = (tsconfig as { compilerOptions?: { types?: unknown } })?.compilerOptions?.types;
 	const out = new Set<string>();
 	if (!Array.isArray(types)) return out;
@@ -159,7 +159,7 @@ function repoTypesEntries(tsconfig: unknown): Set<string> {
 function typesRepos(pkg: string): Set<string> {
 	const f = join(ROOT, pkg, "tsconfig.json");
 	if (!existsSync(f)) return new Set();
-	return repoTypesEntries(JSON.parse(readFileSync(f, "utf8")));
+	return parseTypesRepos(JSON.parse(readFileSync(f, "utf8")));
 }
 ```
 
@@ -230,7 +230,7 @@ importedRepos() only sees `from "@repo/X"` / `import("@repo/X")`. A
 tsconfig compilerOptions.types entry is a real dependency edge with no
 import statement, so it was invisible to invariant 1 — removing the
 package.json entry would break the typecheck while dep-guard stayed
-green. Adds repoTypesEntries()/typesRepos() plus the invariant, and
+green. Adds parseTypesRepos()/typesRepos() plus the invariant, and
 records the field convention (types-only -> devDependencies) next to
 the check that enforces it.
 
@@ -238,6 +238,19 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
+
+### As executed (review outcome — landed in `0923234b`)
+
+Code review of the first attempt produced four changes beyond the steps above. Recorded here so a replay matches the shipped code:
+
+1. `repoTypesEntries` was **renamed `parseTypesRepos`** so the file's `*Repos` helper convention holds (it returns stripped names, not raw entries). The step text above uses the final name; the Step 2 red-phase error will therefore read `parseTypesRepos is not defined`.
+2. The JSDoc claim "(enforced by the invariant below)" was **false** — the invariant calls `declaredRepos`, which unions all four dependency fields, so field placement is not machine-checked. Corrected to "(documented, NOT enforced — the invariant below accepts any dependency field)".
+3. An `edges(pkg)` helper (`importedRepos(pkg) ∪ typesRepos(pkg)`) was added and wired into the **self-import, ADR-0001 TIER-0, and no-host-import** invariants. Without it, this commit's own premise — that a `types` entry is an edge `importedRepos` cannot see — would have been closed in one invariant and left open in three. Invariant 1 deliberately stays on `importedRepos` alone, so its diagnostic names the right mechanism.
+4. **Pre-existing bug fixed:** the acyclicity invariant had never executed. `color` starts empty, so `color.get(n)` is `undefined` and `undefined === WHITE (0)` is `false` — `visit()` was never called. Both comparison sites became `(color.get(x) ?? WHITE) === WHITE`. Brought into scope because Task 3 adds 10 new edges to this graph, and landing them while the cycle check is confirmed-dead is the wrong order.
+
+Verified by injecting a synthetic reverse edge (`@repo/pi-agent-ext-tool-gate` into `core-interface`'s devDependencies): the guard reported `dependency cycle: pi-agent-ext-core-interface → pi-agent-ext-tool-gate → pi-agent-ext-power-tool → pi-agent-ext-core-interface`, then the edit was reverted. The graph is acyclic today.
+
+Known minor, deliberately not fixed: three invariant titles and the self-import remediation hint still say "imports" though they now cover imports ∪ `types` edges; `JSON.parse` in `typesRepos` is unguarded (`tsconfig.json` is officially JSONC, though every ext tsconfig parses as strict JSON today and none use `extends`).
 
 ---
 
