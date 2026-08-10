@@ -1,5 +1,7 @@
 # Planning-card model — Implementation Plan (Phase-2 / 08-impl)
 
+> **STATUS: SHIPPED** via PR #1208 (squash 02976974) on 2026-08-10. All 6 tasks (T1–T6) complete; tests green (1 pre-existing date-flake, unrelated).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `.planning/<effort>/` a first-class tenant of the hermes card-store: a planning-card serializer turns `map.md` → `planning-effort` cards and `tickets/NN.md` → `planning-ticket` cards (with resolution-gist + dependency edges), the card-store persists them in a namespaced target, and `walkAndIngest` mirrors `.planning/` into the store independent of the zk seam.
