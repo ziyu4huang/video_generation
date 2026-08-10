@@ -3,12 +3,17 @@
  *
  * Lets a tool's `ToolDefinition` carry an owner-declared `gating` field.
  * Formerly duplicated (byte-identical) across ~14 packages so no cross-package
- * type dependency was introduced; a drift-guard test asserted structural
- * agreement. That duplication is now collapsed into `@repo/pi-agent-ext-core-interface`.
- * Consumers surface the augmentation in their isolated typecheck by adding
+ * type dependency was introduced. That duplication is now collapsed here.
+ *
+ * Consumers surface the augmentation in their isolated typecheck EITHER by
+ * listing this package in their tsconfig `compilerOptions.types`:
+ *     "types": ["bun", "@repo/pi-agent-ext-core-interface"]
+ * (preferred — program-wide, no arbitrary host file; used by the 10 packages
+ * migrated in .planning/specs/2026-08-10-tool-gating-contract-collapse-design.md),
+ * OR with a triple-slash directive on their primary entry:
  *     /// <reference types="@repo/pi-agent-ext-core-interface" />
- * as the first line of their primary entry (or by adding this file to their
- * tsconfig `include`).
+ * (used by tool-gate / core-task / power-tool). Either way the package must be
+ * declared in package.json — bun-apps/tests/dep-guard.test.ts enforces both edges.
  *
  * `getAllToolDefinitions()` is added at runtime by the repo's
  * `ext-api-get-all-tool-definitions` monkey-patch (bun-apps/pi-agent/src/patches/);
@@ -24,7 +29,7 @@
  * To get an AUGMENTATION (declaration merging) instead, the file must be a MODULE
  * — hence the top-level `import`. Module augmentations in a module file are
  * picked up once the file is part of the program (via the `/// <reference
- * types="@repo/pi-tool-gating-contract" />` directive, or a tsconfig `include`
+ * types="@repo/pi-agent-ext-core-interface" />` directive, or a tsconfig `include`
  * entry); no explicit runtime import is needed. `Gating` is surfaced globally
  * via `declare global` so call sites (e.g. `buildEffectiveGates`'s
  * `gating?: Gating` param) reference it without an import — matching the brief's
