@@ -1,34 +1,28 @@
 import { createHash } from "node:crypto";
 import vm from "node:vm";
-import type { AgentHistoryEntry, AgentUsage, SddReport } from "@repo/pi-agent-ext-subagent";
+import type { AgentHistoryEntry, SddReport } from "@repo/pi-agent-ext-subagent";
 import {
-  type AgentDefinition,
   type AgentRegistry,
-  agentDefinitionKey,
-  createWorktree,
   getGlobalRateLimiter,
   loadAgentRegistry,
   providerFromModelSpec,
-  removeWorktree,
-  resolveAgentType,
   WorkflowAgent,
   type WorkflowAgentOptions,
   WorkflowError,
   WorkflowErrorCode,
-  type Worktree,
-  wrapError,
 } from "@repo/pi-agent-ext-subagent";
 import type { TSchema } from "typebox";
 import { buildCallGlobal } from "./call-global.js";
-import { DEFAULT_AGENT_TIMEOUT_MS, MAX_AGENT_RETRIES, MAX_AGENTS_PER_RUN, MAX_CONCURRENCY } from "./config.js";
+import { DEFAULT_AGENT_TIMEOUT_MS, MAX_AGENTS_PER_RUN, MAX_CONCURRENCY } from "./config.js";
 import type { HostFnAskOptions, HostFnRegistry } from "./host-fn-registry.js";
 import { createWorkflowLogger } from "./logger.js";
-import { parseModelRoutingFromMeta, resolveModelForPhase } from "./model-routing.js";
+import { parseModelRoutingFromMeta } from "./model-routing.js";
 import { createRuntime } from "./workflow-runtime.js";
 import { parseWorkflowScript } from "./workflow-script-parser.js";
 import { createStdlib } from "./workflow-stdlib.js";
-import { createLimiter, runAgentWithTimeout } from "./workflow-timeout.js";
+import { createLimiter } from "./workflow-timeout.js";
 
+export { hashAgentCall } from "./workflow-runtime.js";
 export { parseWorkflowScript } from "./workflow-script-parser.js";
 export { createLimiter, runAgentWithTimeout } from "./workflow-timeout.js";
 
@@ -358,257 +352,20 @@ export async function runWorkflow<T = unknown>(
   // task blocked on the cross-tool budget does not occupy a per-run slot.
   const dispatch = <T>(fn: () => Promise<T>): Promise<T> => rateLimitGate(() => limiter(fn));
 
-  const rt = createRuntime({ options, shared, state, logger });
-
-  const agent = async (prompt: string, agentOptions: AgentOptions = {}) => {
-    rt.throwIfAborted();
-
-    // Check agent limit
-    if (shared.agentCount >= maxAgents) {
-      throw new WorkflowError(
-        `Agent limit exceeded (${maxAgents}). Use maxAgents option to increase the limit.`,
-        WorkflowErrorCode.AGENT_LIMIT_EXCEEDED,
-        { recoverable: false },
-      );
-    }
-
-    if (rt.budget.total !== null && rt.budget.remaining() <= 0) {
-      throw new WorkflowError("workflow token budget exhausted", WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED, {
-        recoverable: false,
-      });
-    }
-
-    const assignedPhase = agentOptions.phase ?? state.parallelPhaseOverride ?? state.currentPhase;
-
-    // Per-phase soft sub-budget gate: a noisy phase can exhaust its own ceiling
-    // without touching the run's overall budget. Soft (spent accrues post-agent),
-    // warns once at ~80%, throws at 100%. Scripts can try/catch around a phase's
-    // work so later phases still proceed.
-    if (assignedPhase) {
-      const pb = state.phaseBudgets.get(assignedPhase);
-      if (pb) {
-        const phaseSpent = shared.spent - pb.startSpent;
-        if (phaseSpent >= pb.budget) {
-          throw new WorkflowError(
-            `phase "${assignedPhase}" token sub-budget exhausted (${pb.budget})`,
-            WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED,
-            { recoverable: false },
-          );
-        }
-        if (!pb.warned && phaseSpent >= pb.budget * 0.8) {
-          pb.warned = true;
-          rt.log(`phase "${assignedPhase}" at ${Math.round((phaseSpent / pb.budget) * 100)}% of its token sub-budget`);
-        }
-      }
-    }
-
-    const requestedLabel = agentOptions.label?.trim();
-
-    // Resolve a named agentType to its bound definition (tools/model/prompt).
-    const agentDef = resolveAgentType(agentOptions.agentType, agentRegistry);
-    if (agentOptions.agentType && !agentDef) {
-      rt.log(`unknown agentType "${agentOptions.agentType}"; using default tools/model`);
-    }
-
-    // Model precedence: explicit agentOptions.model > agentType.model > tier > phase model.
-    // The "explicit-level" model is opts.model, else the definition's model — either
-    // beats tier/phase. When only a tier is set, pass undefined here so the tier (not
-    // the phase model) decides inside WorkflowAgent.run().
-    const explicitModel = agentOptions.model ?? agentDef?.model;
-    const modelSpec =
-      explicitModel ?? (agentOptions.tier ? undefined : resolveModelForPhase(assignedPhase, routingConfig));
-    // For display in /workflows: the model this agent runs on — its explicit/phase
-    // spec, else the session's main model. The real resolved id overrides this via
-    // onModelResolved once the subagent session is created.
-    let displayModel = modelSpec ?? options.mainModel;
-
-    // Deterministic resume key: assigned at lexical call time, before the limiter,
-    // so parallel()/pipeline() fan-out is reproducible for a fixed script.
-    const callIndex = state.callSeq++;
-    const callHash = hashAgentCall(prompt, modelSpec, assignedPhase, agentOptions, agentDefinitionKey(agentDef));
-
-    // Reserve the agent slot synchronously — atomic with the limit/budget gate
-    // above (no await in between) — so a parallel() fan-out can't all observe the
-    // same agentCount and overshoot maxAgents. (Token budget stays a soft gate:
-    // spent accrues after each agent, matching Claude Code; in-flight agents may
-    // push slightly past total, then further agent() calls throw.)
-    shared.agentCount++;
-    const label = requestedLabel || defaultAgentLabel(assignedPhase, shared.agentCount);
-
-    // Longest-unchanged-prefix resume: replay a cached result only while the
-    // prefix is still intact — this call's index is before the first changed/new
-    // call. Once any call misses, it AND everything after it run live (matching
-    // Claude Code's contract), so an edited upstream call never leaves stale
-    // downstream results served from the journal.
-    const cached = options.resumeJournal?.get(callIndex);
-    const hashMatches = cached != null && cached.hash === callHash;
-    const cachedEmptyOutput = hashMatches && isEmptyTextAgentResult(cached.result, agentOptions.schema);
-    if (hashMatches && !cachedEmptyOutput && callIndex < state.firstMiss) {
-      options.onAgentStart?.({ callIndex, label, phase: assignedPhase, prompt, model: displayModel });
-      options.onAgentEnd?.({
-        callIndex,
-        label,
-        phase: assignedPhase,
-        result: cached.result,
-        tokens: 0,
-        model: displayModel,
-      });
-      return cached.result;
-    }
-    // A genuine miss (no journal entry, or the hash changed) marks where the
-    // unchanged prefix ends; this call and every later one then run live.
-    if (!hashMatches || cachedEmptyOutput) state.firstMiss = Math.min(state.firstMiss, callIndex);
-
-    return dispatch(async () => {
-      const timeout = agentOptions.timeoutMs !== undefined ? agentOptions.timeoutMs : agentTimeoutMs;
-      const retryAttempts = normalizeAgentRetries(agentOptions.retries ?? options.agentRetries ?? 0);
-      const maxAttempts = retryAttempts + 1;
-
-      options.onAgentStart?.({ callIndex, label, phase: assignedPhase, prompt, model: displayModel });
-
-      // Optional per-agent worktree isolation (deterministic name -> stable resume keys).
-      // Precedence: explicit call-site isolation > agentDef isolation.
-      // Note: passing { isolation: undefined } falls through ?? to the def's value — there
-      // is no sentinel to suppress a def's isolation at the call site. Remove the agentType
-      // or override with a def that has no isolation field if opt-out is needed.
-      let worktree: Worktree | undefined;
-      const resolvedIsolation = agentOptions.isolation ?? agentDef?.isolation;
-      if (resolvedIsolation === "worktree") {
-        worktree = await createWorktree(baseCwd, `${runId}-${callIndex}-${label}`);
-        if (!worktree.isolated) rt.log(`isolation ignored for "${label}" (${worktree.reason})`);
-      }
-      const runCwd = worktree?.isolated ? worktree.cwd : undefined;
-
-      // Captured from the subagent's real session usage; falls back to an
-      // estimate when the provider reports no usage (total === 0). Usage is reset
-      // per retry attempt so a failed attempt does not double-count the next one.
-      let usage: AgentUsage | undefined;
-      let sddReport: SddReport | undefined;
-      const recordTokens = (result: unknown): number => {
-        const tokens = usage && usage.total > 0 ? usage.total : estimateTokens(result) + estimateTokens(prompt);
-        if (usage) {
-          shared.tokenUsage.input += usage.input;
-          shared.tokenUsage.output += usage.output;
-          shared.tokenUsage.cost += usage.cost;
-          shared.tokenUsage.cacheRead += usage.cacheRead;
-          shared.tokenUsage.cacheWrite += usage.cacheWrite;
-        }
-        shared.tokenUsage.total += tokens;
-        shared.spent += tokens;
-        return tokens;
-      };
-
-      try {
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-          usage = undefined;
-          sddReport = undefined;
-          try {
-            rt.throwIfAborted();
-
-            // Run agent with timeout. The timeout aborts the agent's OWN child
-            // signal (derived from options.signal), so a timed-out session is
-            // cancelled and its partial usage counted — not left as an orphan
-            // burning uncounted tokens (RCA#10).
-            const result = await runAgentWithTimeout(
-              (signal) =>
-                agentRunner.run(prompt, {
-                  label,
-                  schema: agentOptions.schema,
-                  signal,
-                  instructions: buildAgentInstructions(assignedPhase, agentOptions, agentDef, resolvedIsolation),
-                  model: modelSpec,
-                  tier: agentOptions.tier,
-                  toolNames: agentDef?.tools,
-                  disallowedToolNames: agentDef?.disallowedTools,
-                  tokenBudget: agentOptions.tokenBudget,
-                  spendBudget: agentOptions.spendBudget,
-                  cwd: runCwd,
-                  onModelResolved: (id: string) => {
-                    displayModel = id;
-                  },
-                  onModelFallback: (spec: string) => {
-                    // Make the silent degrade visible in /workflows, not just console.
-                    rt.log(`${label}: model "${spec}" unavailable — using the session default`);
-                  },
-                  onUsage: (u: AgentUsage) => {
-                    usage = u;
-                  },
-                  onHistory: (history: AgentHistoryEntry[]) => {
-                    options.onAgentHistory?.({ callIndex, label, phase: assignedPhase, history });
-                  },
-                  onSddReport: (report: SddReport | undefined) => {
-                    sddReport = report;
-                  },
-                } as any),
-              timeout,
-              options.signal,
-              label,
-            );
-
-            rt.throwIfAborted();
-            if (isEmptyTextAgentResult(result, agentOptions.schema)) {
-              throw new WorkflowError("Subagent produced no assistant output", WorkflowErrorCode.AGENT_EMPTY_OUTPUT, {
-                recoverable: true,
-                agentLabel: label,
-              });
-            }
-
-            const tokens = recordTokens(result);
-            options.onAgentJournal?.({ index: callIndex, hash: callHash, result, phase: assignedPhase });
-            options.onAgentEnd?.({
-              callIndex,
-              label,
-              phase: assignedPhase,
-              result,
-              tokens,
-              worktree: runCwd,
-              model: displayModel,
-              sddReport,
-            });
-            return result;
-          } catch (error) {
-            if (options.signal?.aborted) throw error;
-
-            const workflowError = wrapError(error, { agentLabel: label });
-            logger.error(`agent ${label} attempt ${attempt}/${maxAttempts} failed: ${workflowError.message}`);
-            const tokens = recordTokens(null);
-
-            if (workflowError.recoverable && attempt < maxAttempts) {
-              rt.log(
-                `agent "${label}" attempt ${attempt}/${maxAttempts} failed: ${workflowError.code} ${workflowError.message}; retrying`,
-              );
-              continue;
-            }
-
-            options.onAgentEnd?.({
-              callIndex,
-              label,
-              phase: assignedPhase,
-              result: null,
-              tokens,
-              worktree: runCwd,
-              model: displayModel,
-              error: workflowError.message,
-              errorCode: workflowError.code,
-              recoverable: workflowError.recoverable,
-            });
-
-            if (workflowError.recoverable) {
-              rt.log(
-                `agent "${label}" exhausted ${maxAttempts} attempt${maxAttempts === 1 ? "" : "s"}: ${workflowError.code} ${workflowError.message}`,
-              );
-              return null;
-            }
-            throw workflowError;
-          }
-        }
-        return null;
-      } finally {
-        // Always tear down the worktree, even on timeout/abort.
-        if (worktree?.isolated) await removeWorktree(worktree);
-      }
-    });
-  };
+  const rt = createRuntime({
+    options,
+    shared,
+    state,
+    logger,
+    agentRunner,
+    maxAgents,
+    agentTimeoutMs,
+    runId,
+    baseCwd,
+    agentRegistry,
+    routingConfig,
+    dispatch,
+  });
 
   // Nested workflow(): run a saved workflow (or a raw script) inline, sharing this
   // run's limiter/counters/budget so the global caps hold. One level deep only.
@@ -639,7 +396,7 @@ export async function runWorkflow<T = unknown>(
     }
   };
 
-  const stdlib = createStdlib({ agent, parallel: rt.parallel });
+  const stdlib = createStdlib({ agent: rt.agent, parallel: rt.parallel });
 
   // Deterministic, journaled, replayable human checkpoint. Spends no tokens, so it
   // is gated on the agent counter + abort (not budget). On resume the human's reply
@@ -715,7 +472,7 @@ export async function runWorkflow<T = unknown>(
   });
 
   const context = vm.createContext({
-    agent,
+    agent: rt.agent,
     parallel: rt.parallel,
     pipeline: rt.pipeline,
     workflow: workflowFn,
@@ -775,10 +532,6 @@ export async function runWorkflow<T = unknown>(
   };
 }
 
-function defaultAgentLabel(phase: string | undefined, index: number): string {
-  return phase ? `${phase} agent ${index}` : `agent ${index}`;
-}
-
 /** Stable identity hash for an agent() call — a cache miss on resume when anything changes. */
 function hashCheckpoint(promptText: string, options: CheckpointOptions): string {
   const identity = JSON.stringify({
@@ -789,68 +542,7 @@ function hashCheckpoint(promptText: string, options: CheckpointOptions): string 
   return createHash("sha256").update(identity).digest("hex");
 }
 
-export function hashAgentCall(
-  prompt: string,
-  model: string | undefined,
-  phase: string | undefined,
-  options: AgentOptions,
-  agentDefKey: string | null,
-): string {
-  const identity = JSON.stringify({
-    prompt,
-    model: model ?? null,
-    tier: options.tier ?? null,
-    phase: phase ?? null,
-    agentType: options.agentType ?? null,
-    // Resolved definition (tools/model/prompt) so editing an agent .md invalidates
-    // this call's cached result on a later resume.
-    agentDef: agentDefKey,
-    schema: options.schema ?? null,
-    // isolation changes which filesystem the agent runs in (worktree vs main) — a
-    // cached result from the non-isolated run MUST NOT be replayed when isolation
-    // is toggled, so it is part of the identity (RCA regression guard).
-    isolation: options.isolation ?? null,
-    // Budget is part of an agent's identity — a different cap is a different run
-    // (changing it MUST invalidate the cached result on resume).
-    tokenBudget: options.tokenBudget ?? null,
-    spendBudget: options.spendBudget ?? null,
-  });
-  return createHash("sha256").update(identity).digest("hex");
-}
-
-function buildAgentInstructions(
-  phase: string | undefined,
-  options: AgentOptions,
-  def: AgentDefinition | undefined,
-  resolvedIsolation?: "worktree",
-): string | undefined {
-  const lines: string[] = [];
-  // A resolved agentType binds a real role prompt (the definition body). Only
-  // fall back to the prose hint when the agentType named no known definition.
-  if (def?.prompt) lines.push(def.prompt);
-  else if (options.agentType) lines.push(`Act as workflow subagent type: ${options.agentType}`);
-  if (phase) lines.push(`Workflow phase: ${phase}`);
-  // Use resolvedIsolation so the annotation fires whether isolation came from
-  // the call site or from the agentDef's isolation field.
-  if (resolvedIsolation) lines.push(`Requested isolation: ${resolvedIsolation}`);
-  // Note: options.model is applied for real via the session, not injected as prose.
-  return lines.length ? lines.join("\n\n") : undefined;
-}
-
-function isEmptyTextAgentResult(result: unknown, schema: TSchema | undefined): boolean {
-  return schema === undefined && typeof result === "string" && result.trim().length === 0;
-}
-
-function estimateTokens(value: unknown): number {
-  return Math.ceil(JSON.stringify(value ?? "").length / 4);
-}
-
 function normalizeConcurrency(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 1) return 1;
   return Math.min(MAX_CONCURRENCY, Math.floor(value));
-}
-
-function normalizeAgentRetries(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0;
-  return Math.min(MAX_AGENT_RETRIES, Math.floor(value));
 }
