@@ -239,51 +239,34 @@ export function parseMarkdownMemoryEntry(
   target: MemoryTarget,
   project: string | null = null,
 ): ParsedMarkdownMemoryEntry {
-  // Frontmatter shape (ticket 05 stable-id format): delegate to the YAML
-  // parser. The body is canonical `content`; `parseMetadataFrontmatter` also
-  // surfaces it as `text` and carries the stable `id`. For the failure target
-  // the `[category]` prefix + ` — ` segments live in the body text, so
-  // re-derive them via the same helper the comment path uses.
-  if (detectEntryShape(rawEntry) === "frontmatter") {
-    const fm = parseMetadataFrontmatter(rawEntry);
-    // Surface the frontmatter `id` as `mdId` so the startup mirror path
-    // (`syncMarkdownMemories` → `MemorySyncInput.mdId` → INSERT `md_id`) stamps
-    // the row. Without this, an externally-edited frontmatter entry re-synced
-    // via the mirror lands `md_id = NULL` (Task 7 re-review must-fix 2).
-    const base = { ...fm, mdId: fm.id, target, project: normalizeNullable(project) };
-    if (target !== "failure") return base;
-    return { ...deriveFailureFields(fm.content), ...base };
-  }
-
-  const { text, created, lastReferenced, provenance, sources, mwSuccess, mwFail } = parseMetadataComment(rawEntry);
+  // Unified decode (architecture-deepening C1 v2): both the frontmatter and
+  // comment shapes flow through the single lenient `decodeMemoryEntry` (a
+  // malformed frontmatter no longer throws — baked-in fix (a); it degrades to a
+  // comment-shape minimal entry). The body is canonical `content`; the stable
+  // frontmatter `id` surfaces as `mdId` (typeof-string read — an id-less
+  // frontmatter yields `undefined`, never the literal "undefined" the legacy
+  // String() coerce produced — baked-in fix (b)). For the failure target the
+  // `[category]` prefix + ` — ` segments live in the body text, so re-derive
+  // them via `deriveFailureFields`.
+  const d = decodeMemoryEntry(rawEntry);
   const parsedProject = normalizeNullable(project);
-
-  if (target !== "failure") {
-    return {
-      content: text,
-      target,
-      project: parsedProject,
-      created,
-      lastReferenced,
-      ...(provenance ? { provenance } : {}),
-      ...(sources ? { sources } : {}),
-      ...(typeof mwSuccess === "number" ? { mwSuccess } : {}),
-      ...(typeof mwFail === "number" ? { mwFail } : {}),
-    };
-  }
-
-  return {
-    content: text,
-    target: "failure",
+  const base: ParsedMarkdownMemoryEntry = {
+    content: d.text,
+    target,
     project: parsedProject,
-    ...deriveFailureFields(text),
-    created,
-    lastReferenced,
-    ...(provenance ? { provenance } : {}),
-    ...(sources ? { sources } : {}),
-    ...(typeof mwSuccess === "number" ? { mwSuccess } : {}),
-    ...(typeof mwFail === "number" ? { mwFail } : {}),
+    created: d.created,
+    lastReferenced: d.lastReferenced,
+    ...(d.id ? { mdId: d.id } : {}),
+    ...(d.provenance ? { provenance: d.provenance } : {}),
+    ...(Array.isArray(d.sources) ? { sources: d.sources } : {}),
+    ...(typeof d.mwSuccess === "number" ? { mwSuccess: d.mwSuccess } : {}),
+    ...(typeof d.mwFail === "number" ? { mwFail: d.mwFail } : {}),
+    ...(d.state ? { state: d.state } : {}),
+    ...(typeof d.severity === "number" ? { severity: d.severity } : {}),
+    ...(d.pin ? { pin: d.pin } : {}),
   };
+  if (target !== "failure") return base;
+  return { ...deriveFailureFields(d.text), ...base };
 }
 
 /**

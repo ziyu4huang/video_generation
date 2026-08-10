@@ -16,12 +16,11 @@ import * as path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import * as lockfile from "proper-lockfile";
 import {
-  parseMetadataComment,
   serializeMetadataFrontmatter,
   detectEntryShape,
   upgradeEntryToFrontmatter,
-  parseMetadataFrontmatter,
   defaultStateForCategory,
+  decodeMemoryEntry,
 } from "./memory-format.js";
 import { scanContent } from "./content-scanner.js";
 import { normalizeMemoryLookupText } from "./memory-lookup.js";
@@ -1742,55 +1741,51 @@ export class MemoryStore {
     severity?: number | null;
     pin?: boolean;
   } {
-    if (detectEntryShape(raw) === "frontmatter") {
-      const fm = parseMetadataFrontmatter(raw);
-      return {
-        text: fm.text,
-        created: fm.created,
-        lastReferenced: fm.lastReferenced,
-        id: fm.id,
-        ...(fm.provenance ? { provenance: fm.provenance } : {}),
-        ...(Array.isArray(fm.sources) ? { sources: fm.sources } : {}),
-        ...(typeof fm.mwSuccess === "number" ? { mwSuccess: fm.mwSuccess } : {}),
-        ...(typeof fm.mwFail === "number" ? { mwFail: fm.mwFail } : {}),
-        // Failure lifecycle (state/severity) — present only on frontmatter
-        // entries; a legacy comment-shape entry has no state and reads as
-        // `active` (the safe default) at every call-site.
-        ...(fm.state ? { state: fm.state } : {}),
-        ...(typeof fm.severity === "number" ? { severity: fm.severity } : {}),
-        // Pin (ticket 02) — target-agnostic lock; comment-shape entries are
-        // never pinned.
-        ...(fm.pin === true ? { pin: true } : {}),
-      };
-    }
-    return parseMetadataComment(raw);
+    // Unified decode (architecture-deepening C1 v2): shape-aware + lenient
+    // (never throws). Both the frontmatter and comment shapes flow through the
+    // single `decodeMemoryEntry`; the decoded union is projected onto this
+    // store-private shape. Frontmatter-only fields (id/state/severity/pin) are
+    // absent for a comment-shape entry OR a malformed-frontmatter lenient
+    // fallback (baked-in fix (a)) — reading as `active`/unpinned at every call
+    // site, exactly the prior contract. The `id` is read via typeof-string
+    // (baked-in fix (b)) so an id-less frontmatter yields `undefined`, not the
+    // literal "undefined" the legacy String() coerce produced.
+    const decoded = decodeMemoryEntry(raw);
+    return {
+      text: decoded.text,
+      created: decoded.created,
+      lastReferenced: decoded.lastReferenced,
+      ...(decoded.id ? { id: decoded.id } : {}),
+      ...(decoded.provenance ? { provenance: decoded.provenance } : {}),
+      ...(Array.isArray(decoded.sources) ? { sources: decoded.sources } : {}),
+      ...(typeof decoded.mwSuccess === "number" ? { mwSuccess: decoded.mwSuccess } : {}),
+      ...(typeof decoded.mwFail === "number" ? { mwFail: decoded.mwFail } : {}),
+      ...(decoded.state ? { state: decoded.state } : {}),
+      ...(typeof decoded.severity === "number" ? { severity: decoded.severity } : {}),
+      ...(decoded.pin ? { pin: decoded.pin } : {}),
+    };
   }
 
   /** Read an entry's stable frontmatter id, or `null` when it is comment-shape
-   *  (no id) / malformed. The single source of truth for md_id extraction used
-   *  by purge + eviction/transfer md_id population (ticket 04). */
+   *  (no id) / id-less / malformed. The single source of truth for md_id
+   *  extraction used by purge + eviction/transfer md_id population (ticket
+   *  04). Delegates to the unified `decodeMemoryEntry` (architecture-deepening
+   *  C1 v2): a 1-liner over the decoded value — no more re-parse-the-whole-
+   *  frontmatter-for-one-field. Because the decode reads `id` via typeof-string
+   *  (baked-in fix (b)), an id-less frontmatter returns `null` here (NOT the
+   *  literal "undefined"). */
   private mdIdOf(raw: string): string | null {
-    if (detectEntryShape(raw) !== "frontmatter") return null;
-    try {
-      return parseMetadataFrontmatter(raw).id;
-    } catch {
-      return null;
-    }
+    return decodeMemoryEntry(raw).id ?? null;
   }
 
   /** Pin lock check (ticket 02): true iff the entry is a FRONTMATTER entry
    *  whose `pin` frontmatter is the literal boolean `true`. Comment-shape
-   *  entries are never pinned. The single source of truth used by every
-   *  overflow-driven eviction site (purge + vault-offload FIFO) so a pinned
-   *  entry is never selected as a victim. Mirrors `mdIdOf`'s shape-parse
-   *  pattern (try/catch so a malformed frontmatter can never break eviction). */
+   *  entries are never pinned. Delegates to the unified `decodeMemoryEntry`
+   *  (architecture-deepening C1 v2): a 1-liner over the decoded value, so a
+   *  malformed frontmatter (lenient fallback to comment-shape) can never break
+   *  overflow-driven eviction. */
   private isPinned(rawEntry: string): boolean {
-    if (detectEntryShape(rawEntry) !== "frontmatter") return false;
-    try {
-      return parseMetadataFrontmatter(rawEntry).pin === true;
-    } catch {
-      return false;
-    }
+    return decodeMemoryEntry(rawEntry).pin ?? false;
   }
 
   /** Strip metadata comment from entry text for display. */

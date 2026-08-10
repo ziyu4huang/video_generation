@@ -21,12 +21,10 @@ import type { Card } from "./card.js";
 import type { CardSerializer } from "./card-serializer.js";
 import type { MemorySource, Provenance } from "../types.js";
 import {
-  detectEntryShape,
   normalizeFailureState,
-  parseMetadataComment,
-  parseMetadataFrontmatter,
   serializeMetadataFrontmatter,
   today,
+  decodeMemoryEntry,
 } from "./memory-format.js";
 import { ENTRY_DELIMITER } from "../constants.js";
 
@@ -92,35 +90,29 @@ export class MemorySerializer implements CardSerializer<MemoryKind> {
     for (const fragment of fileBytes.split(ENTRY_DELIMITER)) {
       const trimmed = fragment.trim();
       if (trimmed.length === 0) continue;
-      if (detectEntryShape(fragment) === "frontmatter") {
-        const d = parseMetadataFrontmatter(fragment);
-        const envelope: Record<string, unknown> = {
-          id: d.id,
-          created: d.created,
-          last: d.lastReferenced,
-        };
-        if (d.state) envelope.state = d.state;
-        if (typeof d.severity === "number") envelope.severity = d.severity;
-        if (d.pin === true) envelope.pin = true;
-        if (d.provenance) envelope.provenance = d.provenance;
-        if (Array.isArray(d.sources)) envelope.sources = d.sources;
-        if (typeof d.mwSuccess === "number") envelope.mwSuccess = d.mwSuccess;
-        if (typeof d.mwFail === "number") envelope.mwFail = d.mwFail;
-        cards.push({ id: d.id, kind: this.kind, content: d.text, frontmatter: envelope });
-      } else {
-        const d = parseMetadataComment(fragment);
-        const id = randomUUID();
-        const envelope: Record<string, unknown> = {
-          id,
-          created: d.created,
-          last: d.lastReferenced,
-        };
-        if (d.provenance) envelope.provenance = d.provenance;
-        if (Array.isArray(d.sources)) envelope.sources = d.sources;
-        if (typeof d.mwSuccess === "number") envelope.mwSuccess = d.mwSuccess;
-        if (typeof d.mwFail === "number") envelope.mwFail = d.mwFail;
-        cards.push({ id, kind: this.kind, content: d.text, frontmatter: envelope });
-      }
+      // Unified decode (architecture-deepening C1 v2): shape-aware + lenient
+      // per fragment — a malformed-frontmatter fragment no longer THROWS
+      // (baked-in fix (a)); it degrades to a comment-shape minimal entry.
+      // Comment-shape entries (incl. that lenient fallback) carry no id → mint
+      // a fresh UUID, mirroring store backfill (preserved behavior). A
+      // frontmatter entry whose `id` is missing / non-string (baked-in fix
+      // (b)) likewise mints one — the Card.id join key must be a real string,
+      // never the literal "undefined" the legacy String() coerce produced.
+      const d = decodeMemoryEntry(fragment);
+      const id = d.id || randomUUID();
+      const envelope: Record<string, unknown> = {
+        id,
+        created: d.created,
+        last: d.lastReferenced,
+      };
+      if (d.state) envelope.state = d.state;
+      if (typeof d.severity === "number") envelope.severity = d.severity;
+      if (d.pin === true) envelope.pin = true;
+      if (d.provenance) envelope.provenance = d.provenance;
+      if (Array.isArray(d.sources)) envelope.sources = d.sources;
+      if (typeof d.mwSuccess === "number") envelope.mwSuccess = d.mwSuccess;
+      if (typeof d.mwFail === "number") envelope.mwFail = d.mwFail;
+      cards.push({ id, kind: this.kind, content: d.text, frontmatter: envelope });
     }
     return cards;
   }

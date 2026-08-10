@@ -4,9 +4,11 @@ import {
   decodeMemoryEntry,
   mdIdOf,
   isPinned,
+  parseMarkdownMemoryEntry,
   serializeMetadataFrontmatter,
   serializeMetadataComment,
 } from "../../src/store/memory-format.js";
+import { parseEntry } from "../../src/store/merge-plan.js";
 
 // decodeMemoryEntry is the unified shape-aware decoder (architecture-deepening
 // C1 v2 part 1). These tests cover its field projection (frontmatter + comment
@@ -290,5 +292,50 @@ describe("isPinned — 1-liner over decodeMemoryEntry", () => {
   it("returns false for malformed frontmatter (lenient fallback)", () => {
     const malformed = "---\npin: true\nbody with no close";
     assert.strictEqual(isPinned(malformed), false);
+  });
+});
+
+// ─── Part 2 observability: the baked-in fixes now flow through the WIRED ───
+// public decode call sites (parseMarkdownMemoryEntry, parseEntry) — they
+// delegate to decodeMemoryEntry, so a malformed frontmatter no longer throws
+// (baked-in fix (a)) and an id-less frontmatter surfaces no mdId (baked-in fix
+// (b), NOT the literal "undefined"). Before Part 2 each site re-parsed the
+// frontmatter itself and threw on a missing closing fence.
+describe("Part 2 wiring — leniency + id read flow through the wired sites", () => {
+  const malformedFm = "---\nid: gone\ncreated: 2026-08-02\nlast: 2026-08-02\nbody with no closing fence";
+  const idlessFm = "---\ncreated: 2026-08-02\nlast: 2026-08-02\n---\nreal body";
+
+  it("parseMarkdownMemoryEntry does NOT throw on malformed frontmatter (lenient)", () => {
+    let e: ReturnType<typeof parseMarkdownMemoryEntry> | undefined;
+    assert.doesNotThrow(() => {
+      e = parseMarkdownMemoryEntry(malformedFm, "memory", null);
+    });
+    assert.ok(e);
+    assert.strictEqual(e!.target, "memory");
+    assert.strictEqual(e!.mdId, undefined); // lenient fallback carries no id
+  });
+
+  it("parseMarkdownMemoryEntry surfaces NO mdId for an id-less frontmatter (typeof-id read)", () => {
+    const e = parseMarkdownMemoryEntry(idlessFm, "memory", null);
+    assert.strictEqual(e.content, "real body");
+    assert.strictEqual(e.mdId, undefined); // NOT the literal "undefined"
+    assert.notStrictEqual(e.mdId, "undefined" as unknown as undefined);
+  });
+
+  it("parseEntry does NOT throw on malformed frontmatter (lenient)", () => {
+    let e: ReturnType<typeof parseEntry> | undefined;
+    assert.doesNotThrow(() => {
+      e = parseEntry(malformedFm);
+    });
+    assert.ok(e);
+    assert.match(e!.content, /no closing fence/);
+    assert.strictEqual(e!.mdId, undefined); // lenient fallback carries no id
+  });
+
+  it("parseEntry surfaces NO mdId for an id-less frontmatter (typeof-id read)", () => {
+    const e = parseEntry(idlessFm);
+    assert.strictEqual(e.content, "real body");
+    assert.strictEqual(e.mdId, undefined); // NOT the literal "undefined"
+    assert.notStrictEqual(e.mdId, "undefined" as unknown as undefined);
   });
 });

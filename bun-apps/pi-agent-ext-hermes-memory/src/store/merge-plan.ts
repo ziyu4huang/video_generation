@@ -11,7 +11,7 @@
 import { createHash } from "node:crypto";
 
 import { ENTRY_DELIMITER } from "../constants.js";
-import { parseMetadataComment, parseMetadataFrontmatter, detectEntryShape, serializeMetadataComment, today } from "./memory-format.js";
+import { serializeMetadataComment, today, decodeMemoryEntry } from "./memory-format.js";
 
 /** 16-hex-char sha256 digest of an encoded entry. */
 export type EntryHash = string;
@@ -186,12 +186,23 @@ export const NEUTRAL_HEAT = 0.5;
  * SAME logic as `MemoryStore.mdIdOf` so keys align across the DB boundary.
  */
 export function parseEntry(encoded: string): SnapshotEntry {
-  if (detectEntryShape(encoded) === "frontmatter") {
-    const fm = parseMetadataFrontmatter(encoded);
-    return { key: hashEntry(encoded), content: fm.text, created: fm.created, last: fm.lastReferenced, mdId: fm.id };
-  }
-  const { text, created, lastReferenced } = parseMetadataComment(encoded);
-  return { key: hashEntry(encoded), content: text, created, last: lastReferenced };
+  // Unified decode (architecture-deepening C1 v2): shape-aware + lenient (a
+  // malformed-frontmatter fragment no longer throws — baked-in fix (a); it
+  // degrades to a comment-shape minimal entry). `content` is the decoded body;
+  // `mdId` is the frontmatter `id` read via typeof-string (baked-in fix (b) —
+  // an id-less / comment-shape entry yields `undefined`, NOT the literal
+  // "undefined" the legacy String() coerce produced), extracted with the SAME
+  // logic as `MemoryStore.mdIdOf` so heat-sort keys align across the DB
+  // boundary. `key` stays the hash of the *raw* encoded string (shape-agnostic)
+  // so drop ops still match across a mixed-shape live set.
+  const d = decodeMemoryEntry(encoded);
+  return {
+    key: hashEntry(encoded),
+    content: d.text,
+    created: d.created,
+    last: d.lastReferenced,
+    ...(d.id ? { mdId: d.id } : {}),
+  };
 }
 
 /**
