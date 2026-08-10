@@ -407,3 +407,146 @@ export function parseMetadataFrontmatter(raw: string): ParsedMarkdownMemoryEntry
     ...(typeof mw.fail === "number" ? { mwFail: mw.fail } : {}),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Unified entry decode (architecture-deepening C1 v2).
+//
+// `decodeMemoryEntry` is the SINGLE shape-aware decoder that consolidates the
+// five drifting decode sites (memory-store.decodeEntry/mdIdOf/isPinned,
+// memory-format.parseMarkdownMemoryEntry, merge-plan.parseEntry,
+// memory-serializer.deserialize). It dispatches on `detectEntryShape`:
+// frontmatter → splitFencedYaml + field projection; comment → parseMetadata-
+// Comment. Two latent fixes are BAKED INTO this decode (they take effect once
+// Part 2 rewires callers; Part 1 ships this additive with no caller change):
+//
+//   (a) LENIENT — never throws on malformed frontmatter. `splitFencedYaml`
+//       returns null (missing closing fence / unparseable YAML) → degrade to a
+//       minimal comment-shape entry (body = trimmed raw, dates defaulted, no
+//       id/pin/state/severity). The legacy `parseMetadataFrontmatter` THREW on
+//       a missing fence, forcing every caller to wrap a try/catch; the unified
+//       decode removes that footgun so a single corrupt entry can never break
+//       purge / eviction / snapshot / deserialize.
+//
+//   (b) PROPER id READ — `typeof fm.id === "string" ? fm.id : undefined`, NOT
+//       `String(fm.id)`. The legacy codec coerced a missing id to the literal
+//       string `"undefined"`, which then flowed into md_id columns and dedup
+//       keys. Reading via `typeof` makes an id-less frontmatter entry read as
+//       `undefined` (→ `mdIdOf` returns `null`), the intended sentinel.
+//
+// PURE: no fs, no side effects, deterministic. `mdIdOf` / `isPinned` collapse
+// to 1-liners over the decoded value — the single source of truth for the
+// store's private helpers of the same name (Part 2 rewires those to delegate).
+// ---------------------------------------------------------------------------
+
+/** The shape-aware, backend-neutral result of decoding one raw memory entry.
+ *  The UNION of fields the five legacy decode sites read. Frontmatter-only
+ *  fields (`id`/`state`/`severity`/`pin`) are absent on comment-shape entries
+ *  (comment entries carry no failure lifecycle and are never pinned). */
+export interface DecodedMemoryEntry {
+  /** Envelope shape: `frontmatter` (YAML `---` envelope) vs `comment` (legacy
+   *  `<!-- created=…, last=… -->` trailer). Also `comment` for a MALFORMED
+   *  frontmatter entry that fell back via the LENIENT path (a). */
+  shape: "frontmatter" | "comment";
+  /** Canonical body text — the entry content with its metadata envelope
+   *  stripped. For frontmatter this is the post-fence body; for comment it is
+   *  the text before the `<!-- … -->` trailer. */
+  text: string;
+  created: string;
+  lastReferenced: string;
+  /** Stable frontmatter `id` — frontmatter shape only. Read strictly via
+   *  `typeof fm.id === "string"`; an id-less or non-string id yields
+   *  `undefined` (baked-in fix (b)), NEVER the literal "undefined". */
+  id?: string;
+  provenance?: Provenance;
+  sources?: MemorySource[];
+  mwSuccess?: number;
+  mwFail?: number;
+  /** Failure lifecycle — frontmatter shape only (normalized via
+   *  `normalizeFailureState`). A comment-shape entry has no state (reads as
+   *  `active` — the safe default — at its call sites). */
+  state?: FailureState;
+  /** Failure severity (1–3) — frontmatter shape only. */
+  severity?: number;
+  /** Pin lock (ticket 02) — frontmatter shape only; `true` iff the front-
+   *  matter `pin` is the literal boolean `true`. Comment-shape entries are
+   *  never pinned. Target-agnostic (survives overflow-driven eviction). */
+  pin?: boolean;
+}
+
+/** Decode a single raw memory entry (frontmatter OR comment shape) into a
+ *  `DecodedMemoryEntry`. Shape-aware, pure, lenient (never throws). The ONE
+ *  decode path the store / serializer / merge-plan / format layer delegate to.
+ *
+ *  Frontmatter branch: `splitFencedYaml` → null means malformed (LENIENT
+ *  fallback to a comment-shape minimal entry, baked-in fix (a)); otherwise
+ *  project every field, reading `id` via `typeof` (baked-in fix (b)). Comment
+ *  branch: `parseMetadataComment` and map onto the same shape. */
+export function decodeMemoryEntry(raw: string): DecodedMemoryEntry {
+  if (detectEntryShape(raw) === "frontmatter") {
+    const split = splitFencedYaml(raw);
+    // LENIENT (baked-in fix (a)): malformed frontmatter (missing closing fence
+    // / unparseable YAML) — NEVER throws. Degrade to a minimal comment-shape
+    // entry whose body is the trimmed raw, dates defaulted, and id / pin /
+    // state / severity / provenance / sources / memworth all absent (the safe
+    // defaults every call site already tolerates for comment-shape entries).
+    if (!split) {
+      const fallback = today();
+      return {
+        shape: "comment",
+        text: raw.trim(),
+        created: fallback,
+        lastReferenced: fallback,
+      };
+    }
+    const fm = split.data;
+    const mw = (fm.memworth ?? {}) as { success?: number; fail?: number };
+    return {
+      shape: "frontmatter",
+      text: split.body,
+      created: String(fm.created),
+      lastReferenced: String(fm.last),
+      // PROPER id READ (baked-in fix (b)): typeof-string only. Never coerce
+      //  via String() — a missing id must stay `undefined`, not "undefined".
+      ...(typeof fm.id === "string" ? { id: fm.id } : {}),
+      ...(fm.state ? { state: normalizeFailureState(fm.state) } : {}),
+      ...(typeof fm.severity === "number" && fm.severity >= 1 && fm.severity <= 3 ? { severity: fm.severity } : {}),
+      ...(fm.pin === true ? { pin: true } : {}),
+      ...(fm.provenance ? { provenance: fm.provenance as Provenance } : {}),
+      ...(Array.isArray(fm.sources) ? { sources: fm.sources as MemorySource[] } : {}),
+      ...(typeof mw.success === "number" ? { mwSuccess: mw.success } : {}),
+      ...(typeof mw.fail === "number" ? { mwFail: mw.fail } : {}),
+    };
+  }
+
+  // Comment shape (legacy `<!-- created=…, last=… -->` trailer, optional meta
+  // provenance/sources/memworth block). No id / state / severity / pin.
+  const { text, created, lastReferenced, provenance, sources, mwSuccess, mwFail } = parseMetadataComment(raw);
+  return {
+    shape: "comment",
+    text,
+    created,
+    lastReferenced,
+    ...(provenance ? { provenance } : {}),
+    ...(sources ? { sources } : {}),
+    ...(typeof mwSuccess === "number" ? { mwSuccess } : {}),
+    ...(typeof mwFail === "number" ? { mwFail } : {}),
+  };
+}
+
+/** Read an entry's stable frontmatter id, or `null` when it is comment-shape /
+ *  id-less / malformed. The 1-liner over `decodeMemoryEntry` — the single
+ *  source of truth the store's private `mdIdOf` delegates to (Part 2). Because
+ *  the decode reads `id` via `typeof` (baked-in fix (b)), an id-less front-
+ *  matter entry returns `null` here (NOT the literal "undefined"). */
+export function mdIdOf(raw: string): string | null {
+  return decodeMemoryEntry(raw).id ?? null;
+}
+
+/** Pin lock check (ticket 02): `true` iff the entry is a FRONTMATTER entry
+ *  whose `pin` is the literal boolean `true`. Comment-shape entries are never
+ *  pinned; malformed frontmatter falls back to comment-shape (→ `false`). The
+ *  1-liner over `decodeMemoryEntry` — the single source of truth the store's
+ *  private `isPinned` delegates to (Part 2). */
+export function isPinned(raw: string): boolean {
+  return decodeMemoryEntry(raw).pin ?? false;
+}
