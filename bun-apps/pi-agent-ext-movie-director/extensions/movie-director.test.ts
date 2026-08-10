@@ -418,4 +418,13 @@ describe("pi-movie-director extension", () => {
       scopeViolationForToolCall({ toolName: "edit", input: { path: "swift/x.swift", edits: [] } }),
     );
   });
+
+  test("movie and movie_help share ONE gating object (cannot drift apart)", () => {
+    const movie = captureTool("movie");
+    const help = captureTool("movie_help");
+    // Same reference, not merely deep-equal: co-firing is decided by fingerprint
+    // equality in tool-gate (gatesWithSameGating), and two separate literals can
+    // be edited apart with no signal. One object makes that impossible.
+    expect(movie.gating).toBe(help.gating);
+  });
 });

@@ -11,8 +11,8 @@ import ltxExtension from "@repo/pi-agent-ext-ltx/extensions/ltx.ts";
 import movieExtension from "@repo/pi-agent-ext-movie-director/extensions/movie-director.ts";
 import researchExtension from "@repo/pi-agent-ext-research-tool/extensions/research-tool.ts";
 // tickets 10 + 11 (rolled out TOGETHER over their single shared combined
-// workflow/subagent gate). Captured in workflow-FIRST order so the collapsed
-// gate's names[0] === "workflow" (the gate id qa + matchIntent key off of).
+// workflow/subagent gating). Captured in workflow-FIRST order so "workflow"
+// leads the family's gate order (the gate id qa + matchIntent key off of).
 import workflowExtension from "@repo/pi-agent-ext-workflow/extensions/workflow.ts";
 import subagentExtension from "@repo/pi-agent-ext-subagent/extensions/subagent.ts";
 
@@ -47,15 +47,21 @@ captureOwner(krea2Extension);
 captureOwner(ltxExtension);
 captureOwner(movieExtension);
 captureOwner(researchExtension);
-// workflow BEFORE subagent (see import comment): reconstruct collapses the 4
-// identically-gated tools into one gate whose names[0] === "workflow". NOTE:
+// workflow BEFORE subagent (see import comment): the 5 tools share identical
+// keywords-only gating, and buildEffectiveGates emits ONE SINGLE-NAME GATE PER
+// DEF — so they become 5 single-name gates that co-fire, NOT one collapsed
+// multi-name gate. Capture order therefore fixes EFF.gates order (and so
+// matchIntent's result order), keeping "workflow" the family's canonical
+// first-listed id. NOTE:
 // the capture stub below (on/registerTool/registerCommand) tolerates BOTH
 // registrars — workflow guards `if (pi.events)` (absent → skipped) and calls
 // pi.on/registerTool; subagent's top-level pi.getActiveTools() is try/caught,
 // registerModelsPresetCommand → pi.registerCommand (no-op'd), pi.registerTool
-// (captured). subagent's ungated companions subagent_runs/subagents carry NO
-// gating → buildEffectiveGates skips them (not fail-open in EFF; they're simply
-// absent from EFF.tracked, matching their ungated-by-design status).
+// (captured). subagent's companion subagent_runs carries NO gating →
+// buildEffectiveGates skips it (not fail-open in EFF; it's simply absent from
+// EFF.tracked, matching its ungated-by-design status). subagents (plural) now
+// carries the workflow family's gating too, so it IS tracked — see the 5-name
+// matchIntent assertion below.
 captureOwner(workflowExtension);
 captureOwner(subagentExtension);
 // zai-mcp (ticket 12) is the odd one out: it registers tools DYNAMICALLY at
