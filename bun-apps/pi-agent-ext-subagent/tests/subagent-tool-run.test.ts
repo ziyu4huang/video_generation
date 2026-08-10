@@ -74,3 +74,72 @@ test("augmentOutputWithScopeViolation: passthrough when none; appends block when
   assert.ok(out.startsWith("done\n\n--- ⚠ commit-scope violation (1) ---"));
   assert.ok(out.includes("- evil.txt"));
 });
+
+import { buildDetails, buildRunRecord, buildSpawnOptions, type RunProgress } from "../src/subagent-tool-run.js";
+import type { SubagentRunPersistence } from "../src/subagent-run-persistence.js";
+
+type RunRecord = Parameters<SubagentRunPersistence["save"]>[0];
+
+test("buildRunRecord: aborted path JSON-matches the original literal", () => {
+  const rec = buildRunRecord(
+    { toolCallId: "call-1", agent: "impl", task: "do thing", model: "tier:big", requestedModel: undefined, fellBack: false, tier: "big", runCwd: "/r", t0: 1_700_000_000_000, elapsedMs: 5000 },
+    { status: "aborted", exitCode: 0, timedOut: false, output: "Subagent aborted by user.", usage: { input: 1, output: 2 } as never },
+  );
+  // The original aborted literal had exactly these keys (no stderr/budget/history/report/scopeCheck/watchdog).
+  assert.equal(rec.status, "aborted");
+  assert.equal(rec.output, "Subagent aborted by user.");
+  assert.equal(rec.requestedModel, undefined);
+  assert.equal(rec.fellBack, undefined);
+  // JSON-equivalent to the original aborted literal (16 keys; no stderr/budget/history/report/scopeCheck/watchdog).
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(rec)),
+    JSON.parse(JSON.stringify({ id: rec.id, toolCallId: "call-1", agent: "impl", task: "do thing", model: "tier:big", requestedModel: undefined, fellBack: undefined, tier: "big", cwd: "/r", status: "aborted", exitCode: 0, timedOut: false, startedAt: new Date(1_700_000_000_000).toISOString(), elapsedMs: 5000, usage: { input: 1, output: 2 }, output: "Subagent aborted by user." })),
+  );
+});
+
+test("buildRunRecord: normal path includes the extra fields", () => {
+  const rec = buildRunRecord(
+    { toolCallId: "call-1", agent: "impl", task: "do thing", model: "m1", requestedModel: "req", fellBack: true, tier: "big", runCwd: "/r", t0: 1_700_000_000_000, elapsedMs: 9000 },
+    { status: "done", exitCode: 0, timedOut: false, usage: { input: 3 } as never, output: "ok", stderr: undefined, budget: undefined, history: [], report: undefined, scopeCheck: undefined, watchdog: { ran: true } as never },
+  );
+  assert.equal(rec.requestedModel, "req");      // fellBack ⇒ requestedModel surfaces
+  assert.equal(rec.fellBack, true);
+  assert.equal(rec.status, "done");
+  assert.equal(rec.output, "ok");
+});
+
+test("buildDetails: matches the original normal details shape", () => {
+  const result = { exitCode: 0, timedOut: false, usage: { input: 1 }, budget: undefined, output: "**Status:** DONE", stderr: "" } as never;
+  const d = buildDetails(
+    result,
+    { model: "m1", requestedModel: "req", fellBack: true },
+    { task: "do thing", agent: "impl", elapsedMs: 5000, startedAt: 1_700_000_000_000, scopeCheck: undefined, watchdog: { ran: true } as never },
+  );
+  assert.equal(d.exitCode, 0);
+  assert.equal(d.status, "done");
+  assert.equal(d.model, "m1");
+  assert.equal(d.requestedModel, "req");
+  assert.equal(d.fellBack, true);
+  assert.equal(d.report?.status, "DONE"); // parseSddReport parsed the **Status:** block
+});
+
+test("buildSpawnOptions: forwards params + wires callbacks that mutate progress", async () => {
+  const progress: RunProgress = { resolvedModel: undefined, fellBack: false, lastHistory: undefined, maxToolCallsSeen: 0 };
+  const updatedModel: string[] = [];
+  const inFlight = { updateModel: (id: string, m: string) => updatedModel.push(m), markFallback: () => {}, update: () => {} } as never;
+  const opts = buildSpawnOptions(
+    { toolCallId: "call-1", t0: 1_700_000_000_000, params: { task: "t", timeoutMs: 1000 }, agentDef: { tools: ["read"] }, modelCtx: { requestedModel: "req", tier: undefined, capability: undefined, mainModel: undefined, displayModelBeforeResolve: "req" }, spawnCwd: "/r", childSignal: new AbortController().signal },
+    progress,
+    { getActiveTools: () => undefined, getExtensionTools: () => undefined, inFlight, persistence: undefined, onUpdate: undefined },
+  );
+  assert.equal(opts.task, "t");
+  assert.equal(opts.timeoutMs, 1000);
+  assert.deepEqual(opts.tools, ["read"]);
+  assert.equal(opts.model, "req");
+  // callbacks mutate the shared progress box
+  opts.onModelResolved?.("real-model");
+  assert.equal(progress.resolvedModel, "real-model");
+  assert.deepEqual(updatedModel, ["real-model"]);
+  opts.onModelFallback?.("req");
+  assert.equal(progress.fellBack, true);
+});

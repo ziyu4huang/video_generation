@@ -5,9 +5,16 @@
  * Behavior-preserving: every helper mirrors the exact swallow/gate semantics
  * of the inline code it replaces.
  */
+
+import type { TSchema } from "typebox";
 import type { AgentHistoryEntry } from "./agent-history.js";
-import { computeScopeCheck, type GitScopeOps, type SubagentScopeCheck } from "./git-scope.js";
-import { computeBaseline, type RepoBaseline } from "./watchdog/repo-diff.js";
+import type { computeScopeCheck, GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
+import { parseSddReport } from "./sdd-report.js";
+import type { SpawnSubagentOptions } from "./spawn-subagent.js";
+import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
+import { deriveSubagentStatus, formatSubagentLive, taskPreview } from "./subagent-tool-render.js";
+import { DEFAULT_TIMEOUT_MS, type SubagentToolDetails } from "./subagent-tool-schema.js";
+import type { computeBaseline, RepoBaseline } from "./watchdog/repo-diff.js";
 import { normalizeWatchdogParam, type WatchdogResult } from "./watchdog/types.js";
 import type { runWatchdog } from "./watchdog/watchdog.js";
 
@@ -127,4 +134,200 @@ export function augmentOutputWithScopeViolation(output: string, scopeCheck: Suba
     return `${output}\n\n--- ⚠ commit-scope violation (${scopeCheck.outOfScope.length}) ---\nThe subagent committed path(s) OUTSIDE the declared commitScope:\n${paths}\nInspect before merging — this is the recurring \`git add -A\` sweep signal.`;
   }
   return output;
+}
+
+type SubagentRunRecord = Parameters<SubagentRunPersistence["save"]>[0];
+
+/** Shared fields for the durable record (aborted + normal paths). */
+export interface RunRecordCtx {
+  toolCallId: string;
+  agent: string | undefined;
+  task: string;
+  model: string;
+  requestedModel: string | undefined;
+  fellBack: boolean;
+  tier: string | undefined;
+  runCwd: string;
+  t0: number;
+  elapsedMs: number;
+}
+
+/** Per-path delta. Optional fields are omitted from the record when absent
+ *  (matching the original literals' key sets; JSON-equivalent on serialize). */
+export interface RunRecordDelta {
+  status: SubagentToolDetails["status"];
+  exitCode: number;
+  timedOut: boolean;
+  output: string;
+  usage?: SubagentToolDetails["usage"];
+  stderr?: string;
+  budget?: SubagentToolDetails["budget"];
+  history?: AgentHistoryEntry[];
+  report?: SubagentToolDetails["report"];
+  scopeCheck?: SubagentScopeCheck;
+  watchdog?: WatchdogResult;
+}
+
+/** Unifies the two persistence.save literals (aborted L897–914 + normal L994–1017). */
+export function buildRunRecord(ctx: RunRecordCtx, delta: RunRecordDelta): SubagentRunRecord {
+  const rec: SubagentRunRecord = {
+    id: generateSubagentRunId(),
+    toolCallId: ctx.toolCallId,
+    agent: ctx.agent,
+    task: ctx.task,
+    model: ctx.model,
+    requestedModel: ctx.fellBack ? (ctx.requestedModel ?? undefined) : undefined,
+    fellBack: ctx.fellBack || undefined,
+    tier: ctx.tier,
+    cwd: ctx.runCwd,
+    status: delta.status,
+    exitCode: delta.exitCode,
+    timedOut: delta.timedOut,
+    startedAt: new Date(ctx.t0).toISOString(),
+    elapsedMs: ctx.elapsedMs,
+    usage: delta.usage,
+    output: delta.output,
+  };
+  if (delta.stderr !== undefined) rec.stderr = delta.stderr;
+  if (delta.budget !== undefined) rec.budget = delta.budget;
+  if (delta.history !== undefined) rec.history = delta.history;
+  if (delta.report !== undefined) rec.report = delta.report;
+  if (delta.scopeCheck !== undefined) rec.scopeCheck = delta.scopeCheck;
+  if (delta.watchdog !== undefined) rec.watchdog = delta.watchdog;
+  return rec;
+}
+
+/** Phase N: the normal-completion details literal (L970–988). */
+export function buildDetails(
+  result: {
+    exitCode: number;
+    timedOut: boolean;
+    usage?: SubagentToolDetails["usage"];
+    budget?: SubagentToolDetails["budget"];
+    output: string;
+  },
+  model: { model: string; requestedModel: string | undefined; fellBack: boolean },
+  extra: {
+    task: string;
+    agent?: string;
+    elapsedMs: number;
+    startedAt: number;
+    scopeCheck?: SubagentScopeCheck;
+    watchdog?: WatchdogResult;
+  },
+): SubagentToolDetails {
+  return {
+    exitCode: result.exitCode,
+    timedOut: result.timedOut,
+    agent: extra.agent,
+    model: model.model,
+    requestedModel: model.fellBack ? (model.requestedModel ?? undefined) : undefined,
+    fellBack: model.fellBack || undefined,
+    taskPreview: taskPreview(extra.task),
+    elapsedMs: extra.elapsedMs,
+    startedAt: extra.startedAt,
+    status: deriveSubagentStatus(result as never),
+    usage: result.usage,
+    budget: result.budget,
+    report: parseSddReport(result.output),
+    scopeCheck: extra.scopeCheck,
+    watchdog: extra.watchdog,
+  };
+}
+
+/** Phase I: the 48-line spawn config + its 3 progress-mutating callbacks (L838–886). */
+export interface SpawnCtx {
+  toolCallId: string;
+  t0: number;
+  params: Record<string, unknown> & {
+    task: string;
+    tools?: string[];
+    excludeTools?: string[];
+    timeoutMs?: number;
+    tokenBudget?: number;
+    spendBudget?: number;
+    retryOnTransient?: boolean;
+    schema?: unknown;
+    schemaRepairAttempts?: number;
+  };
+  agentDef?: { tools?: string[]; disallowedTools?: string[]; prompt?: string };
+  modelCtx: {
+    requestedModel: string | undefined;
+    tier: string | undefined;
+    capability: string | undefined;
+    mainModel: string | undefined;
+  };
+  spawnCwd: string;
+  childSignal: AbortSignal;
+}
+export interface SpawnDeps {
+  getActiveTools?: () => string[] | undefined;
+  getExtensionTools?: () => unknown[] | undefined;
+  inFlight?:
+    | {
+        updateModel?: (id: string, m: string) => void;
+        markFallback?: (id: string, spec: string) => void;
+        update?: (id: string, h: AgentHistoryEntry[]) => void;
+      }
+    | undefined;
+  persistence?: unknown;
+  onUpdate?: ((u: unknown) => void) | undefined;
+}
+
+export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: SpawnDeps): SpawnSubagentOptions {
+  const { params, agentDef, modelCtx, spawnCwd, childSignal, t0, toolCallId } = ctx;
+  const instructions =
+    [ctx.params.agent ? `You are the ${ctx.params.agent} for this task.` : undefined, agentDef?.prompt]
+      .filter((s): s is string => Boolean(s))
+      .join("\n\n") || undefined;
+  const defaultActiveTools = deps.getActiveTools?.();
+  return {
+    task: params.task,
+    tools: params.tools ?? agentDef?.tools ?? defaultActiveTools,
+    excludeTools: params.excludeTools ?? agentDef?.disallowedTools,
+    model: modelCtx.requestedModel,
+    tier: modelCtx.tier,
+    capability: modelCtx.capability,
+    mainModel: modelCtx.mainModel,
+    cwd: spawnCwd,
+    instructions,
+    extensionTools: deps.getExtensionTools?.(),
+    externalSignal: childSignal,
+    timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    tokenBudget: params.tokenBudget,
+    spendBudget: params.spendBudget,
+    retryOnTransient: params.retryOnTransient,
+    schema: params.schema as TSchema | undefined,
+    schemaRepairAttempts: params.schemaRepairAttempts,
+    onModelResolved: (id: string) => {
+      progress.resolvedModel = id;
+      deps.inFlight?.updateModel?.(toolCallId, id);
+    },
+    onModelFallback: (requestedSpec: string) => {
+      progress.fellBack = true;
+      deps.inFlight?.markFallback?.(toolCallId, requestedSpec);
+    },
+    onHistory:
+      deps.onUpdate || deps.inFlight || deps.persistence
+        ? (history: AgentHistoryEntry[]) => {
+            progress.lastHistory = history;
+            try {
+              const toolCallsNow = history.filter((h) => h.kind === "toolCall").length;
+              progress.maxToolCallsSeen = Math.max(progress.maxToolCallsSeen, toolCallsNow);
+              deps.inFlight?.update?.(toolCallId, history);
+              deps.onUpdate?.({
+                content: [
+                  {
+                    type: "text" as const,
+                    text: formatSubagentLive(history, Date.now() - t0, progress.maxToolCallsSeen),
+                  },
+                ],
+                details: undefined as unknown as SubagentToolDetails,
+              });
+            } catch {
+              // swallowed — progress streaming is diagnostic only
+            }
+          }
+        : undefined,
+  } as SpawnSubagentOptions;
 }
