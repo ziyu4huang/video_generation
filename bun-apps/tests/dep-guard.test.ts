@@ -4,16 +4,19 @@
  * Encodes the architectural invariants of the pi-agent-ext-* layer so the
  * hermes-class inversion (a TIER-0 foundation importing the TIER-1 hub) can
  * never silently return. Scans ACTUAL import statements (excludes comments /
- * string literals), not a naive grep.
+ * string literals), not a naive grep — plus tsconfig `types` edges, which are
+ * real dependencies with no import statement to scan.
  *
  * Invariants:
  *  1. Every @repo import is declared in the importing package's package.json
  *     (no hidden / undeclared coupling).
- *  2. No package imports itself via @repo/ (use relative imports).
- *  3. ADR-0001: knowledge-layer TIER-0 (obsidian, hermes-memory) imports
+ *  2. Every @repo tsconfig `compilerOptions.types` entry is likewise declared
+ *     — a type-only edge with no import statement is still a real dependency.
+ *  3. No package imports itself via @repo/ (use relative imports).
+ *  4. ADR-0001: knowledge-layer TIER-0 (obsidian, hermes-memory) imports
  *     NOTHING from the TIER-1 hub (knowledge-card) — edges point down only.
- *  4. No extension imports the host (pi-agent-cli) — the host is above all exts.
- *  5. The declared @repo dependency graph is acyclic.
+ *  5. No extension imports the host (pi-agent-cli) — the host is above all exts.
+ *  6. The declared @repo dependency graph is acyclic.
  *
  * Run: bun run test:deps   (from bun-apps/)
  */
@@ -67,6 +70,41 @@ function declaredRepos(pkg: string): Set<string> {
 	return out;
 }
 
+/**
+ * Pure: bare `@repo/*` names listed in a parsed tsconfig's
+ * `compilerOptions.types`. Such an entry is a REAL dependency edge that
+ * `importedRepos` cannot see — there is no import statement, only a type
+ * reference resolved through the target's `exports["."].types`.
+ *
+ * Field convention for these edges (documented, NOT enforced — the invariant
+ * below accepts any dependency field):
+ *   - types-only consumers          → devDependencies
+ *   - runtime consumers (publishSeam / readSeam / SEAM_KEYS)
+ *                                   → dependencies / peerDependencies
+ */
+function parseTypesRepos(tsconfig: unknown): Set<string> {
+	const types = (tsconfig as { compilerOptions?: { types?: unknown } })?.compilerOptions?.types;
+	const out = new Set<string>();
+	if (!Array.isArray(types)) return out;
+	for (const t of types) {
+		if (typeof t === "string" && t.startsWith("@repo/")) out.add(t.replace("@repo/", ""));
+	}
+	return out;
+}
+
+/** `@repo/*` tsconfig `types` edges for a package. Missing tsconfig → empty
+ *  (a few ext packages have none). */
+function typesRepos(pkg: string): Set<string> {
+	const f = join(ROOT, pkg, "tsconfig.json");
+	if (!existsSync(f)) return new Set();
+	return parseTypesRepos(JSON.parse(readFileSync(f, "utf8")));
+}
+
+/** All @repo edges a package has: import statements ∪ tsconfig `types`. */
+function edges(pkg: string): Set<string> {
+	return new Set([...importedRepos(pkg), ...typesRepos(pkg)]);
+}
+
 describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 	it("every @repo import is declared in its package.json (no hidden coupling)", () => {
 		const violations: string[] = [];
@@ -77,8 +115,21 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 		assert.deepEqual(violations, [], violations.length ? "hidden couplings:\n" + violations.join("\n") : "");
 	});
 
+	it("every @repo tsconfig `types` entry is declared in its package.json", () => {
+		const violations: string[] = [];
+		for (const pkg of EXTS) {
+			const dec = declaredRepos(pkg);
+			for (const t of typesRepos(pkg)) {
+				if (!dec.has(t)) {
+					violations.push(`  ${pkg} lists @repo/${t} in tsconfig compilerOptions.types — NOT declared in package.json`);
+				}
+			}
+		}
+		assert.deepEqual(violations, [], violations.length ? "undeclared tsconfig type deps:\n" + violations.join("\n") : "");
+	});
+
 	it("no package imports itself via @repo/ (use relative imports)", () => {
-		const violations = EXTS.filter((pkg) => importedRepos(pkg).has(pkg));
+		const violations = EXTS.filter((pkg) => edges(pkg).has(pkg));
 		assert.deepEqual(violations, [], `self-imports: ${violations.join(", ")} (use relative imports instead)`);
 	});
 
@@ -86,14 +137,14 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 		const TIER0 = ["pi-agent-ext-obsidian", "pi-agent-ext-hermes-memory"];
 		const violations: string[] = [];
 		for (const pkg of TIER0) {
-			const upward = [...importedRepos(pkg)].filter((t) => t === "pi-agent-ext-knowledge-card");
+			const upward = [...edges(pkg)].filter((t) => t === "pi-agent-ext-knowledge-card");
 			if (upward.length) violations.push(`  ${pkg} → ${upward.join(", ")} (upward edge; forbidden by ADR-0001)`);
 		}
 		assert.deepEqual(violations, [], violations.length ? "upward edges:\n" + violations.join("\n") : "");
 	});
 
 	it("no extension imports the host (pi-agent-cli) — the host sits above all extensions", () => {
-		const violations = EXTS.filter((pkg) => importedRepos(pkg).has("pi-agent-cli"));
+		const violations = EXTS.filter((pkg) => edges(pkg).has("pi-agent-cli"));
 		assert.deepEqual(violations, [], `extensions importing the host: ${violations.join(", ")}`);
 	});
 
@@ -109,12 +160,30 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 			for (const m of adj.get(n) ?? []) {
 				if (!adj.has(m)) continue; // target outside ext set (e.g. pi-agent core) — skip
 				if (color.get(m) === GRAY) { cycle = [...path, n, m]; return true; }
-				if (color.get(m) === WHITE && visit(m, [...path, n])) return true;
+				if ((color.get(m) ?? WHITE) === WHITE && visit(m, [...path, n])) return true;
 			}
 			color.set(n, BLACK);
 			return false;
 		};
-		for (const n of EXTS) if (color.get(n) === WHITE && visit(n, [])) break;
+		for (const n of EXTS) if ((color.get(n) ?? WHITE) === WHITE && visit(n, [])) break;
 		assert.equal(cycle, null, cycle ? `dependency cycle: ${cycle.join(" → ")}` : "");
+	});
+});
+
+describe("parseTypesRepos (tsconfig `types` dependency edges)", () => {
+	it("extracts @repo entries from compilerOptions.types", () => {
+		const t = { compilerOptions: { types: ["bun", "@repo/pi-agent-ext-core-interface"] } };
+		assert.deepEqual([...parseTypesRepos(t)], ["pi-agent-ext-core-interface"]);
+	});
+
+	it("ignores non-@repo entries", () => {
+		assert.deepEqual([...parseTypesRepos({ compilerOptions: { types: ["bun", "node"] } })], []);
+	});
+
+	it("returns empty when types is absent, empty, or not an array", () => {
+		assert.deepEqual([...parseTypesRepos({ compilerOptions: {} })], []);
+		assert.deepEqual([...parseTypesRepos({})], []);
+		assert.deepEqual([...parseTypesRepos({ compilerOptions: { types: [] } })], []);
+		assert.deepEqual([...parseTypesRepos({ compilerOptions: { types: "bun" } })], []);
 	});
 });

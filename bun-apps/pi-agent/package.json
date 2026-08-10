@@ -40,6 +40,7 @@
     "@repo/pi-agent-ext-web-access": "workspace:*"
   },
   "devDependencies": {
+    "@repo/pi-agent-ext-core-interface": "workspace:*",
     "@types/bun": "latest"
   }
 }
