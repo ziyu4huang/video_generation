@@ -1,6 +1,6 @@
-import { WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-subagent";
+import { WorkflowError, WorkflowErrorCode, wrapError } from "@repo/pi-agent-ext-subagent";
 import type { createWorkflowLogger } from "./logger.js";
-import type { RuntimeState, SharedRuntime, WorkflowRunOptions } from "./workflow.js";
+import type { PipelineFn, RuntimeState, SharedRuntime, WorkflowRunOptions } from "./workflow.js";
 
 /**
  * Deps bag passed into createRuntime. Grows as more closures move in (5.1 = leaf
@@ -22,6 +22,7 @@ export interface Runtime {
   phase: (title: string, phaseOptions?: { budget?: number }) => void;
   budget: Readonly<{ total: number | null; spent: () => number; remaining: () => number }>;
   throwIfAborted: () => void;
+  pipeline: PipelineFn;
 }
 
 /**
@@ -64,5 +65,38 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     }
   };
 
-  return { log, phase, budget, throwIfAborted };
+  // pipeline relocated UNCHANGED from workflow.ts; it closes over throwIfAborted
+  // (local above), options (deps field), log (local), and wrapError (import).
+  const pipeline: PipelineFn = async (
+    items: unknown[],
+    ...stages: Array<(prev: unknown, original: unknown, index: number) => unknown>
+  ) => {
+    throwIfAborted();
+    if (!Array.isArray(items)) throw new TypeError("pipeline() expects an array as the first argument");
+    if (stages.some((stage) => typeof stage !== "function")) {
+      throw new TypeError("pipeline() stages must be functions: pipeline(items, item => ..., result => ...)");
+    }
+    return Promise.all(
+      items.map(async (item, index) => {
+        let value: unknown = item;
+        for (const stage of stages) {
+          try {
+            throwIfAborted();
+            value = await stage(value, item, index);
+            throwIfAborted();
+          } catch (error) {
+            if (options.signal?.aborted) throw error;
+            const workflowError = wrapError(error);
+            // Non-recoverable failures halt the whole run (see parallel()).
+            if (!workflowError.recoverable) throw workflowError;
+            log(`pipeline[${index}] failed: ${workflowError.message}`);
+            return null;
+          }
+        }
+        return value;
+      }),
+    );
+  };
+
+  return { log, phase, budget, throwIfAborted, pipeline };
 }

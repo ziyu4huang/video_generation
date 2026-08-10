@@ -641,37 +641,6 @@ export async function runWorkflow<T = unknown>(
     }
   };
 
-  const pipeline = async (
-    items: unknown[],
-    ...stages: Array<(prev: unknown, original: unknown, index: number) => unknown>
-  ) => {
-    rt.throwIfAborted();
-    if (!Array.isArray(items)) throw new TypeError("pipeline() expects an array as the first argument");
-    if (stages.some((stage) => typeof stage !== "function")) {
-      throw new TypeError("pipeline() stages must be functions: pipeline(items, item => ..., result => ...)");
-    }
-    return Promise.all(
-      items.map(async (item, index) => {
-        let value: unknown = item;
-        for (const stage of stages) {
-          try {
-            rt.throwIfAborted();
-            value = await stage(value, item, index);
-            rt.throwIfAborted();
-          } catch (error) {
-            if (options.signal?.aborted) throw error;
-            const workflowError = wrapError(error);
-            // Non-recoverable failures halt the whole run (see parallel()).
-            if (!workflowError.recoverable) throw workflowError;
-            rt.log(`pipeline[${index}] failed: ${workflowError.message}`);
-            return null;
-          }
-        }
-        return value;
-      }),
-    );
-  };
-
   // Nested workflow(): run a saved workflow (or a raw script) inline, sharing this
   // run's limiter/counters/budget so the global caps hold. One level deep only.
   const workflowFn = async (nameOrScript: string, childArgs?: unknown) => {
@@ -779,7 +748,7 @@ export async function runWorkflow<T = unknown>(
   const context = vm.createContext({
     agent,
     parallel,
-    pipeline,
+    pipeline: rt.pipeline,
     workflow: workflowFn,
     verify: stdlib.verify,
     judgePanel: stdlib.judgePanel,
