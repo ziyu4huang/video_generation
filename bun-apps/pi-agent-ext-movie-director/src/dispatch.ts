@@ -317,9 +317,16 @@ export const COMMAND_REFERENCE = [
  * Slim routing description for the `movie` tool. The heavy per-command reference
  * (option keys, defaults, worked examples) lives in `movie_help` and is fetched
  * on demand — the same dispatcher/help-tool split flux2/ltx/krea2/workflow use.
- * Kept deliberately short: movie is consistently the #1 schema-cost tool, and a
- * routing-only description (vs. the full inline reference) is what clears the
- * ≥30% top-3 schema-cost reduction (verified via `tools-metrics --schema-cost`).
+ *
+ * Keep it short because the dispatcher/help split is what keeps the full command
+ * reference OUT of the always-loaded schema — NOT because `movie` is expensive.
+ * An earlier version of this comment claimed movie "is consistently the #1
+ * schema-cost tool"; that was true only before the routing-description
+ * reduction. Measured 2026-08-10: `movie` = 371 tok (rank ~25), `movie_help` =
+ * 83 tok, together 2.1% of the 21,124-tok total — and BOTH are gated, so their
+ * cost at rest is zero. Do not spend effort shrinking them further; the standing
+ * schema-cost tax is the always-active core set (10,113 tok/req), none of which
+ * is movie-director's.
  */
 export const ROUTING_DESCRIPTION =
   "Video orchestrator (OpenMontage rewrite). Consumes the native krea2/flux2/ltx " +
