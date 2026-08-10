@@ -738,7 +738,7 @@ describe("renderPanelDetailed", () => {
     running.history = [{ role: "assistant", kind: "toolCall", toolName: "grep", text: "{}" }];
     const lines = renderPanelDetailed(manager as never, theme as never, undefined, 8, 1000);
     assert.ok(
-      lines.some((l) => l.includes("[2] ● audit_auth") && l.includes("▸ grep")),
+      lines.some((l) => l.includes("[2] ● audit_auth") && l.includes("Using grep")),
       `expected the running agent's latest tool call, got:\n${lines.join("\n")}`,
     );
   });
