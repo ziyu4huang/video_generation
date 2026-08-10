@@ -45,10 +45,22 @@ export interface WalkAndIngestOptions extends WalkOptions {
   /** PLANNING-ONLY mode (Phase-2 / 09-impl T6 background backfill): skip the zk
    *  knowledge path (vault resolution + ingest + heal + vault-md mirror) so the
    *  call is truly seam-independent and bounded — planning is hermes-internal
-   *  and has no zk dependency. Only the planning DB-mirror (step 8b) + delete
-   *  reconciliation (step 8c) run. Default false (the knowledge-ingest tool and
-   *  the normal orchestrator run the full path). */
+   *  and has no zk dependency. The planning DB-mirror (step 8b: hash-compare
+   *  INSERT/UPDATE/skip) + conflict-marker scan (T5) STILL run in this mode.
+   *  Delete reconciliation (step 8c) does NOT run here — it is gated on
+   *  `!partialWalk` (see below) because it needs the COMPLETE present-set.
+   *  Default false (the knowledge-ingest tool and the normal orchestrator run
+   *  the full path). */
   planningOnly?: boolean;
+  /** PARTIAL WALK (09-impl final review A): the present-set of planning md is
+   *  PARTIAL/BOUNDED (e.g. the T6 background backfill feeds ≤ MAX_FILES of a
+   *  large corpus). When true, delete reconciliation (step 8c) is SUPPRESSED —
+   *  reconcile hard-deletes every DB planning card whose id ∉ the present-set,
+   *  so running it on a bounded subset would silently mass-delete out-of-window
+   *  cards whose md still exists. Reconcile runs ONLY on a COMPLETE present-set
+   *  (the full knowledge-ingest walk, where this opt is unset). Mirror (T3) +
+   *  conflict-marker scan (T5) stay enabled in either mode. Default false. */
+  partialWalk?: boolean;
 }
 
 /** Receipt for a walkAndIngest run. mirrored + driftStub are placeholders in
@@ -168,7 +180,15 @@ export async function walkAndIngest(
   const conflictMarkerEfforts = planMirror.conflictMarkerEfforts; // populated in T5
 
   // 8c. Planning delete reconciliation (Phase-2 / 09-impl) — md-wins sweep.
-  await reconcilePlanningDeletions(walk.files.planning, opts.memoryDir);
+  // Gated on `!partialWalk`: reconcile hard-deletes every DB planning card whose
+  // id ∉ the present-set, so it MUST see a COMPLETE present-set. A bounded/
+  // partial walk (T6 background backfill) feeds only a subset → suppress here to
+  // avoid silently mass-deleting out-of-window cards whose md still exists
+  // (09-impl final review A). Mirror (T3) + conflict-marker scan (T5) ran above
+  // unconditionally and stay enabled in partial walks.
+  if (!opts.partialWalk) {
+    await reconcilePlanningDeletions(walk.files.planning, opts.memoryDir);
+  }
 
   // 10. Receipt.
   if (!kp && walk.files.planning.length === 0) {
@@ -306,13 +326,17 @@ async function mirrorPlanningToStore(
         const incomingHash = planningContentHash(card);
         const existing = await store.getCard(card.id);
         const stored = await getStoredHash(store, card.id);
-        if (existing === null || stored === null) {
-          // New card (or first mirror after 08→09): INSERT through dedup, write hash.
+        if (existing === null) {
+          // Truly new card → INSERT through dedup, write hash.
           await store.upsertCard(card);
           await upsertHash(store, card.id, incomingHash);
           planningMirrored++;
-        } else if (stored.hash !== incomingHash) {
-          // Drift (md edited): Tier-1 md-wins UPDATE + refresh hash.
+        } else if (stored === null || stored.hash !== incomingHash) {
+          // 08→09 backfill (existing card, no hash yet) OR drift (md edited):
+          // UPDATE content/frontmatter via updateCard (BYPASSES dedup — a pure
+          // id-upsert dedup strategy would no-op an existing id and freeze the
+          // row at 08-era content while the hash falsely claims "current"),
+          // then refresh the hash. (09-impl final review B.)
           await store.updateCard(card);
           await upsertHash(store, card.id, incomingHash);
           planningMirrored++;

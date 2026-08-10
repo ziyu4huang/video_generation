@@ -91,6 +91,51 @@ describe("card_md_hash round-trip (via CardStore accessors)", () => {
   after(() => rmSync(dir, { recursive: true, force: true }));
 });
 
+describe("refreshPlanningCard — 08→09 migration cohort (09-impl final review B)", () => {
+  it("UPDATEs an existing-but-unhashed card (drift), returning {action:'updated'}", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pmig2-B-"));
+    const mem = mkdtempSync(join(tmpdir(), "pmig2-B-mem-"));
+    try {
+      const effort = "mig2-eff";
+      const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
+      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+      const id = `planning-ticket:${effort}:01`;
+      // Pre-seed an 08-era row directly: OLD content, NO card_md_hash row
+      // (stored===null — true for every existing planning card on first 09
+      // touch). existing≠null + stored===null is the migration cohort the
+      // existing T7 tests cannot reach (they hit UPDATE only via stored≠null).
+      const store0 = await createCardStore({ memoryDir: mem });
+      await store0.upsertCard({
+        id,
+        kind: "planning-ticket",
+        content: "OLD 08-era body.",
+        frontmatter: { id: "01", slug: "x", status: "closed" },
+      });
+      await store0.close();
+      // Source md has DRIFTED to new (current) content relative to the DB row.
+      writeFileSync(
+        ticketPath,
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nNEW 09-era body.\n",
+      );
+      const store = await createCardStore({ memoryDir: mem });
+      try {
+        const r = await refreshPlanningCard(store, id, root);
+        assert.equal(r.action, "updated", "existing-but-unhashed card must UPDATE, not insert-no-op");
+        const c = await store.getCard(id);
+        assert.match(c?.content ?? "", /NEW 09-era body\./, "DB row updated to current md");
+        assert.doesNotMatch(c?.content ?? "", /OLD 08-era body\./, "08-era content must be overwritten");
+        const hash = await store.getCardMdHash(id);
+        assert.ok(hash, "hash seeded on first 09 touch");
+      } finally {
+        await store.close();
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("refreshPlanningCard (09-impl T7)", () => {
   const root = mkdtempSync(join(tmpdir(), "prefresh-"));
   const mem = mkdtempSync(join(tmpdir(), "prefresh-mem-"));

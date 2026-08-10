@@ -144,16 +144,22 @@ export async function refreshPlanningCard(
   const card = cards.find((c) => c.id === cardId);
   if (!card) return { action: "absent" };
 
-  // Same hash-compare branch as the T3 mirror (walk-and-ingest.mirrorPlanningToStore):
+  // Same hash-compare branch as the T3 mirror (walk-and-ingest.mirrorPlanningToStore),
+  // split so an existing-but-unhashed card (08→09 migration cohort) routes to
+  // UPDATE, not an insert-no-op that freezes the row at 08-era content
+  // (09-impl final review B):
+  //   - no existing card (getCard null) → INSERT (upsertCard) + write hash;
+  //   - existing card BUT no stored hash, OR stored.hash !== incoming → UPDATE;
+  //   - hash match → UNCHANGED (no write).
   const incomingHash = planningContentHash(card);
   const existing = await store.getCard(cardId);
   const stored = await getStoredHash(store, cardId);
-  if (existing === null || stored === null) {
+  if (existing === null) {
     await store.upsertCard(card);
     await upsertHash(store, cardId, incomingHash);
     return { action: "inserted" };
   }
-  if (stored.hash !== incomingHash) {
+  if (stored === null || stored.hash !== incomingHash) {
     await store.updateCard(card);
     await upsertHash(store, cardId, incomingHash);
     return { action: "updated" };

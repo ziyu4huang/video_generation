@@ -355,6 +355,94 @@ describe("walkAndIngest — planning delete reconciliation (09-impl T4)", () => 
   });
 });
 
+describe("walkAndIngest — partial walk must NOT reconcile (09-impl final review A)", () => {
+  it("a bounded/partial walk keeps out-of-window planning cards (no mass-delete)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pwalk-A-"));
+    const mem = mkdtempSync(join(tmpdir(), "pwalk-A-mem-"));
+    try {
+      const effort = "partial-eff";
+      const t01 = join(root, ".planning", effort, "tickets", "01-a.md");
+      const t02 = join(root, ".planning", effort, "tickets", "02-b.md");
+      const t03 = join(root, ".planning", effort, "tickets", "03-c.md");
+      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+      for (const [p, n] of [[t01, "01 — a"], [t02, "02 — b"], [t03, "03 — c"]] as const) {
+        writeFileSync(p, `---\ntype: task\nstatus: closed\n---\n# ${n}\n\n## Resolution\nbody.\n`);
+      }
+      // COMPLETE walk over the repo root → all three mirrored (hashes written).
+      await walkAndIngest(root, { memoryDir: mem });
+
+      // PARTIAL/bounded walk over a proper SUBSET (only t01) — exactly what the
+      // T6 background backfill feeds reconcile (a bounded ≤MAX_FILES subset of
+      // this repo's 948 .planning md). partialWalk:true MUST suppress delete-
+      // reconciliation so the out-of-window cards (02, 03 — whose md still
+      // exists on disk but is outside the subset) are NOT hard-deleted.
+      await walkAndIngest([t01], { memoryDir: mem, planningOnly: true, partialWalk: true });
+
+      const store = await createCardStore({ memoryDir: mem });
+      const tickets = await store.getCardsByKind("planning-ticket");
+      await store.close();
+      const ids = tickets.map((c) => c.id).sort();
+      assert.deepEqual(
+        ids,
+        [
+          `planning-ticket:${effort}:01`,
+          `planning-ticket:${effort}:02`,
+          `planning-ticket:${effort}:03`,
+        ],
+        "partial walk must NOT hard-delete out-of-window planning cards",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("walkAndIngest — 08→09 migration cohort unfreeze (09-impl final review B)", () => {
+  it("UPDATEs an existing-but-unhashed planning card (drift), not insert-no-op", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pmig-B-"));
+    const mem = mkdtempSync(join(tmpdir(), "pmig-B-mem-"));
+    try {
+      const effort = "mig-eff";
+      const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
+      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+      const id = `planning-ticket:${effort}:01`;
+      // Pre-seed an 08-era row directly: OLD content, NO card_md_hash row
+      // (stored===null — true for EVERY existing planning card on first 09
+      // touch, since card_md_hash is brand-new empty). This is the migration
+      // cohort the per-task T3 test cannot reach (it only hits UPDATE via
+      // stored≠null+mismatch).
+      const store0 = await createCardStore({ memoryDir: mem });
+      await store0.upsertCard({
+        id,
+        kind: "planning-ticket",
+        content: "OLD 08-era body.",
+        frontmatter: { id: "01", slug: "x", status: "closed" },
+      });
+      await store0.close();
+
+      // Source md has DRIFTED to new (current) content relative to the DB row.
+      writeFileSync(
+        ticketPath,
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nNEW 09-era body.\n",
+      );
+      const r = await walkAndIngest(root, { memoryDir: mem });
+      assert.ok(r.planningMirrored >= 1, "migration-cohort card must be re-mirrored (UPDATE), not skipped");
+
+      const store = await createCardStore({ memoryDir: mem });
+      const c = await store.getCard(id);
+      const hash = await store.getCardMdHash(id);
+      await store.close();
+      assert.match(c?.content ?? "", /NEW 09-era body\./, "DB row updated to current md");
+      assert.doesNotMatch(c?.content ?? "", /OLD 08-era body\./, "08-era content must be overwritten");
+      assert.ok(hash, "hash seeded on first 09 touch");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("walkAndIngest — conflict-marker flag (09-impl T5)", () => {
   it("surfaces an effort with unresolved merge markers in its ticket md; clean md not flagged; mirror still runs (non-blocking)", async () => {
     const root = mkdtempSync(join(tmpdir(), "pconf-"));

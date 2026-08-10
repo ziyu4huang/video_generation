@@ -37,7 +37,7 @@ import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surrea
 import type { MemoryRepository, SessionRepository, BackendBundle } from "./store/repository.js";
 import type { DbBackend } from "./types.js";
 import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-backfill.js";
-import { schedulePlanningBackfill } from "./handlers/planning-backfill.js";
+import { schedulePlanningBackfill, waitForPlanningBackfill } from "./handlers/planning-backfill.js";
 import { scheduleLiveSessionIndex, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";
 import { parseSessionFile } from "./store/session-parser.js";
 import { registerMemoryTool } from "./tools/memory-tool.js";
@@ -616,6 +616,9 @@ export default async function (pi: ExtensionAPI) {
       await Promise.all([
         waitForSessionBackfill(SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS),
         waitForLiveSessionIndex(SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS),
+        // T6(a): drain in-flight planning backfill too (graceful shutdown,
+        //  consistency with session backfill, prevents orphaned timers).
+        waitForPlanningBackfill(SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS),
       ]);
     } catch { /* best-effort drain — never block shutdown */ }
 

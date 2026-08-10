@@ -7,7 +7,8 @@
 // re-run resumes because unchanged cards hash-match-skip).
 //
 // The actual mirror reuses walkAndIngest's planning path (hash-compare
-// INSERT/UPDATE/skip + delete reconciliation + conflict-marker flag). It is
+// INSERT/UPDATE/skip + conflict-marker flag — delete reconciliation is
+// SUPPRESSED here via partialWalk, see below). It is
 // invoked PLANNING-ONLY (opts.planningOnly) so the zk knowledge path is skipped
 // entirely — planning is hermes-internal and has no zk dependency, and passing
 // the bounded file list scopes the walk to exactly the .planning corpus (no
@@ -84,9 +85,11 @@ function notifyBestEffort(notify: NotifyFn | undefined, message: string, level: 
 /** Schedule a best-effort, bounded background re-mirror of .planning/. Mirrors
  *  scheduleSessionBackfill: deferred setTimeout(0); run-state guard; MAX_FILES
  *  bound; best-effort notify. The actual mirror reuses walkAndIngest's planning
- *  path in PLANNING-ONLY mode (hash-compare INSERT/UPDATE/skip + delete
- *  reconciliation; the hash-skip makes unchanged files cheap). Returns true
- *  when a backfill was scheduled; false when skipped (already in progress). */
+ *  path in PLANNING-ONLY + PARTIAL-WALK mode (hash-compare INSERT/UPDATE/skip +
+ *  conflict-marker scan; the hash-skip makes unchanged files cheap). Reconcile
+ *  is SUPPRESSED (the bounded list is a subset, not a complete present-set —
+ *  09-impl final review A). Returns true when a backfill was scheduled; false
+ *  when skipped (already in progress). */
 export function schedulePlanningBackfill(
   repoRoot: string,
   memoryDir: string,
@@ -104,12 +107,15 @@ export function schedulePlanningBackfill(
       try {
         const files = collectPlanningMdFiles(repoRoot, maxFiles);
         if (files.length === 0) return;
-        // walkAndIngest runs the hash-compare mirror + delete reconciliation
-        // against these files in PLANNING-ONLY mode (zk knowledge path skipped;
-        // the hash-skip makes unchanged files cheap). The planning classifier
-        // keys off the `.planning` segment in each abs path, which the collected
+        // walkAndIngest runs the hash-compare mirror + conflict-marker scan
+        // against these files in PLANNING-ONLY mode. partialWalk:true SUPPRESSES
+        // delete reconciliation — the bounded file list is a subset, not a
+        // complete present-set, so reconcile would mass-delete out-of-window
+        // cards whose md still exists (09-impl final review A). Reconcile runs
+        // only on the full knowledge-ingest walk. The planning classifier keys
+        // off the `.planning` segment in each abs path, which the collected
         // paths retain — so the bounded file list scopes the mirror exactly.
-        await walkAndIngest(files, { memoryDir, planningOnly: true });
+        await walkAndIngest(files, { memoryDir, planningOnly: true, partialWalk: true });
         notifyBestEffort(options.notify, `🧠 Planning backfill complete: scanned ${files.length} .planning file(s).`, "info");
       } catch (err) {
         notifyBestEffort(
