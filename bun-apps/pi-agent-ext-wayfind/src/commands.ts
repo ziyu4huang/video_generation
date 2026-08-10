@@ -28,8 +28,10 @@ import { publishWayfindGrill, unpublishWayfindGrill } from "./coordination.js";
 import { renderValidate, validateEffort } from "./effort-tool.js";
 import { buildFreshnessWarning, checkFactFreshness } from "./freshness.js";
 import { buildGrillPriming } from "./grill.js";
+import { readEffortMeta } from "./lifecycle.js";
 import type { WayfindOverlay } from "./overlay.js";
 import { procedurePath } from "./procedures.js";
+import { writeWayfindStatusBar } from "./settings.js";
 import { getSessionId, isGrillActive, type RuntimeState } from "./state.js";
 import { tidyNextGoals } from "./tidy-next-goals.js";
 import {
@@ -41,7 +43,7 @@ import {
   statusReport,
 } from "./wayfinder.js";
 
-const WAYFIND_KEYWORDS = new Set(["status", "spec", "tickets", "seed", "sync", "done", "validate"]);
+const WAYFIND_KEYWORDS = new Set(["status", "spec", "tickets", "seed", "sync", "done", "validate", "statusbar"]);
 
 /** Resolve the effort id in play for a `/wayfind <args>` invocation, so the
  *  dispatcher can banner it on EVERY run. Mirrors the dispatcher's own parsing
@@ -203,6 +205,12 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     } catch {
       // tidy is best-effort; ignore if output/ is unavailable.
     }
+    // The closing ceremony succeeded — clear the overlay's active effort so the
+    // opt-in idle line stops rendering this completed effort (auto-hide). The
+    // toggle itself stays on, so the NEXT effort surfaces automatically once
+    // it's set active. The transient `done` line below takes precedence this
+    // turn; once turn_end clears it, the (now empty) idle branch renders [].
+    overlay.setActiveEffort(undefined, undefined);
     overlay.setLine("done", `done: ${effort}`);
     const filedNote = r.filedTo ? ` · filed to ${r.filedTo}` : r.fileError ? ` · filing failed: ${r.fileError}` : "";
     ctx.ui.notify(
@@ -287,6 +295,37 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       return;
     }
     ctx.ui.notify(renderStatus(r), "info");
+  }
+
+  /** `/wayfind statusbar [on|off]` — toggle the opt-in persistent effort status
+   *  bar. No arg → toggles. Persisted in ~/.pi/agent/settings.json under
+   *  `wayfindStatusBar` (default off). When enabling and an effort is active,
+   *  push it onto the overlay so the line renders immediately this turn. */
+  async function handleWayfindStatusbar(args: string, ctx: ExtensionCommandContext): Promise<void> {
+    const sessionId = getSessionId(ctx);
+    const trimmed = args.trim();
+    let next: boolean;
+    if (trimmed === "on") next = true;
+    else if (trimmed === "off") next = false;
+    else next = !overlay.isStatusBarEnabled();
+
+    const activeEffort = state.activeEffortBySession.get(sessionId);
+    // If enabling and an effort is already active, push it so the idle line
+    // renders this very turn (not just on the next refresh).
+    if (next && activeEffort) overlay.setActiveEffort(activeEffort, ctx.cwd);
+    overlay.setStatusBarEnabled(next);
+    writeWayfindStatusBar(next);
+
+    if (next) {
+      if (activeEffort) {
+        const status = readEffortMeta(ctx.cwd, activeEffort)?.status ?? "(no manifest)";
+        ctx.ui.notify(`🧭 status bar on — showing ${activeEffort} · ${status}`, "info");
+      } else {
+        ctx.ui.notify("🧭 status bar on — start an effort with /wayfind <destination> to see it here", "info");
+      }
+    } else {
+      ctx.ui.notify("🧭 status bar off", "info");
+    }
   }
 
   async function handleWayfinderChart(destination: string, ctx: ExtensionCommandContext): Promise<void> {
@@ -397,7 +436,9 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
         return handleWayfinderStatus("", ctx);
       }
       const bannerEffort = resolveWayfindEffortId(trimmed, () => state.activeEffortBySession.get(sessionId));
-      if (bannerEffort) ctx.ui.notify(`🧭 ${bannerEffort}`, "info");
+      // The `statusbar` subcommand's args ("on"/"off") are not an effort id —
+      // never banner it. Every other keyword banners the resolved effort id.
+      if (bannerEffort && firstToken !== "statusbar") ctx.ui.notify(`🧭 ${bannerEffort}`, "info");
       // "/wayfind -- <destination>" forces charting, escaping reserved keywords
       // (e.g. an effort named "sync the database"). Bare keywords still win.
       if (trimmed.startsWith("--")) {
@@ -429,6 +470,8 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
             return handleWayfindDone(remainder, ctx);
           case "validate":
             return handleWayfindValidate(remainder, ctx);
+          case "statusbar":
+            return handleWayfindStatusbar(remainder, ctx);
         }
       }
       return handleWayfinderChart(trimmed, ctx);

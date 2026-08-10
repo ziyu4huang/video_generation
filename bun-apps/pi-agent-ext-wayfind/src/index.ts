@@ -19,6 +19,7 @@ import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi
 import { endGrillForSession, registerCommands } from "./commands.js";
 import { makeWayfindEffortTool } from "./effort-tool.js";
 import { WayfindOverlay } from "./overlay.js";
+import { readWayfindStatusBar } from "./settings.js";
 import { createRuntimeState, getSessionId } from "./state.js";
 
 /**
@@ -54,6 +55,10 @@ export default function wayfindExtension(pi: ExtensionAPI): void {
   if (process.env.BUN_PI_WAYFIND === "0") return;
   const state = createRuntimeState();
   const overlay = new WayfindOverlay();
+  // Apply the persisted opt-in default ONCE at startup (the only settings.json
+  // read for the status bar). The class itself stays IO-free (test-safe);
+  // subsequent toggles go through setStatusBarEnabled in the statusbar command.
+  overlay.setStatusBarEnabled(readWayfindStatusBar());
   const widget = readSharedStatusWidget();
   if (widget) {
     overlay.setRefresh(() => widget.update());

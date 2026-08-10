@@ -46,10 +46,28 @@ export class WayfindOverlay {
   private activeEffort: string | undefined;
   private activeCwd: string | undefined;
   private refresh: (() => void) | undefined;
+  /** Opt-in persistent status bar: when true + idle + active (non-complete)
+   *  effort, render() paints `🧭 wayfind │ 🗺️ <effort> · <status>`. Default
+   *  false — the shared status bar stays clean unless the user opts in via
+   *  `/wayfind statusbar on`. No file IO lives in the class (kept test-safe):
+   *  index.ts applies the persisted default once at startup. */
+  private statusBarOn = false;
 
   /** Register the composite widget's update() as the refresh callback. */
   setRefresh(fn: () => void): void {
     this.refresh = fn;
+  }
+
+  /** Flip the opt-in persistent status bar. Refreshes so the line appears /
+   *  disappears immediately. */
+  setStatusBarEnabled(on: boolean): void {
+    this.statusBarOn = on;
+    this.refresh?.();
+  }
+
+  /** Read whether the opt-in persistent status bar is on. */
+  isStatusBarEnabled(): boolean {
+    return this.statusBarOn;
   }
 
   /** Set the current status (state picks the emoji) + descriptive text, and re-render. */
@@ -124,8 +142,16 @@ export class WayfindOverlay {
       }
       return [base];
     }
-    // Idle (no transient action) → no wayfind line: the status bar stays clean.
-    // The active effort is still tracked for augmentation + /wayfind status.
+    // Idle (no transient action). Two modes:
+    //  • Default (statusBarOn=false) → no wayfind line: the shared status bar
+    //    stays clean between wayfind actions (the gating fix for the prior
+    //    b1ce5722/e8430ecf failure where the idle line monopolized the bar).
+    //  • Opt-in (statusBarOn=true) → paint an idle effort line, but ONLY when an
+    //    effort is active AND not yet complete (auto-hides on completion/clear).
+    //    The active effort is still tracked for augmentation + /wayfind status.
+    if (this.statusBarOn && this.activeEffort && this.activeCwd && this.activeStatus() !== "complete") {
+      return [`${BRAND_PREFIX}🗺️ ${this.activeEffort} · ${this.activeStatus()}`];
+    }
     return [];
   }
 }
