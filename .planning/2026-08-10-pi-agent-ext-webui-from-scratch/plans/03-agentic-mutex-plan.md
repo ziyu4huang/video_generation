@@ -463,7 +463,7 @@ export class AgentMutex {
     this._driver = null;
   }
 
-  /** Reset the watchdog inactivity timer. Call on every message_*/tool_* event. */
+  // Reset the watchdog inactivity timer. Call on every message_*/tool_* event.
   bumpActivity(): void {
     if (this._driver !== null) this.lastActivity = this.clock.now();
   }

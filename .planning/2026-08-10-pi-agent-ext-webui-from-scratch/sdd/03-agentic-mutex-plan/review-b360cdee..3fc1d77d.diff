@@ -1,0 +1,37 @@
+# Review package: b360cdee..3fc1d77d
+
+## Commits
+3fc1d77d fix(webui): type the onForceRelease test callback (strict-tsc hardening, ticket 03 review)
+
+## Files changed
+ bun-apps/pi-agent-ext-webui/tests/mutex.test.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-webui/tests/mutex.test.ts b/bun-apps/pi-agent-ext-webui/tests/mutex.test.ts
+index 17e1688e..36fb3165 100644
+--- a/bun-apps/pi-agent-ext-webui/tests/mutex.test.ts
++++ b/bun-apps/pi-agent-ext-webui/tests/mutex.test.ts
+@@ -88,21 +88,21 @@ describe("AgentMutex.release", () => {
+   });
+ });
+ 
+ describe("AgentMutex watchdog", () => {
+   it("force-releases after staleMs with no bumpActivity", () => {
+     const clock = new FakeClock();
+     let released: { driver: Frontend } | null = null;
+     const m = new AgentMutex({
+       clock,
+       watchdog: { staleMs: 1000, intervalMs: 100 },
+-      callbacks: { onForceRelease: (i) => (released = i) },
++      callbacks: { onForceRelease: (i: { driver: Frontend }) => { released = i; } },
+     });
+     m.gate("interactive");
+     expect(m.driver).toBe("tui");
+     clock.advance(1000);
+     expect(m.driver).toBeNull();
+     expect(released).toEqual({ driver: "tui" });
+   });
+ 
+   it("does NOT force-release before staleMs", () => {
+     const clock = new FakeClock();
