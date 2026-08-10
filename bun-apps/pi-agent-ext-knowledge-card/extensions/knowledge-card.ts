@@ -117,13 +117,16 @@ export function __setZkSpawnForTest(fn: ZkSpawnFn | null): void {
 // separate exports (rather than one shared constant) so each command's
 // allowlist is independently auditable/overridable, matching
 // OBSIDIAN_DISTILL_TOOLS / GARDEN_*_TOOLS in obsidian.ts.
-export const DISTILL_TOOLS = ["read", "obsidian", "obsidian_help"];
-export const ADD_TOOLS = ["obsidian", "obsidian_help"];
-export const FIND_TOOLS = ["obsidian", "obsidian_help"];
-export const UPDATE_TOOLS = ["obsidian", "obsidian_help"];
-export const REMOVE_TOOLS = ["obsidian", "obsidian_help"];
-export const CHECK_TOOLS = ["obsidian", "obsidian_help"];
-export const RAG_TOOLS = ["obsidian", "obsidian_help"];
+/** Shared Obsidian-backed allowlist; each tool spreads a fresh copy so they stay independently mutable. */
+const BASE_OBSIDIAN_TOOLS = ["obsidian", "obsidian_help"];
+
+export const DISTILL_TOOLS = ["read", ...BASE_OBSIDIAN_TOOLS];
+export const ADD_TOOLS = [...BASE_OBSIDIAN_TOOLS];
+export const FIND_TOOLS = [...BASE_OBSIDIAN_TOOLS];
+export const UPDATE_TOOLS = [...BASE_OBSIDIAN_TOOLS];
+export const REMOVE_TOOLS = [...BASE_OBSIDIAN_TOOLS];
+export const CHECK_TOOLS = [...BASE_OBSIDIAN_TOOLS];
+export const RAG_TOOLS = [...BASE_OBSIDIAN_TOOLS];
 
 /** Three-way blend adds the vault-mind semantic (vector) seed via
  *  `obsidian` action:"semantic_search" — already covered by RAG_TOOLS since
