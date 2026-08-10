@@ -19,9 +19,9 @@ import { parseKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-
 import type { AgentHistoryEntry } from "@repo/pi-agent-ext-subagent";
 import { summarizeLatestAction } from "@repo/pi-agent-ext-subagent";
 import {
+  type ActivityRow,
   fmtDuration,
   renderActivityRow,
-  type ActivityRow,
   type WorkflowAgentSnapshot,
   type WorkflowSnapshot,
 } from "./display.js";

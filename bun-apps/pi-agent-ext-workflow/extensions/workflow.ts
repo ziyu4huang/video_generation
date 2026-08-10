@@ -40,10 +40,10 @@ import {
  * its own keywords, not paraphrased intent.
  */
 export const __GATE_PROBES__ = {
-	gate: "workflow",
-	recallFloor: 0,
-	adversarial: [],
-	controls: ["orchestrate a fan-out of tasks", "run a multi-step pipeline", "用 workflow 編排"],
+  gate: "workflow",
+  recallFloor: 0,
+  adversarial: [],
+  controls: ["orchestrate a fan-out of tasks", "run a multi-step pipeline", "用 workflow 編排"],
 };
 
 export default function extension(pi: ExtensionAPI) {

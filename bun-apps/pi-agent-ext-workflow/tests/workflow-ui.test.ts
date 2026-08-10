@@ -593,7 +593,7 @@ test("renderNavigator agents view shows a running agent's latest tool call", () 
   state.drill(model); // runs -> phases
   state.drill(model); // phases -> agents
   const text = renderNavigator(state, model, 80).join("\n");
-  assert.ok(text.includes("▸ grep"), `expected the live tool call in the agents list, got:\n${text}`);
+  assert.ok(text.includes("Using grep"), `expected the live tool call in the agents list, got:\n${text}`);
 });
 
 test("renderNavigator shows correct footer hint per view", () => {
