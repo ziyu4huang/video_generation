@@ -4,14 +4,15 @@ import {
   buildSkillRows,
   buildUnifiedSkillRows,
   collectLoadedSkillsFromCommands,
+  filterSkillRows,
+} from "../../src/handlers/skill-rows.js";
+import {
   confirmDeleteSelectedSkills,
   deleteSelectedSkills,
-  filterSkillRows,
   moveSelectedSkills,
-  registerSkillsCommand,
-  SkillsManagerModal,
   type SkillBatchActionResult,
-} from "../../src/handlers/skills-command.js";
+} from "../../src/handlers/skill-batch-ops.js";
+import { registerSkillsCommand, SkillsManagerModal } from "../../src/handlers/skills-command.js";
 import type { SkillIndex, SkillResult } from "../../src/types.js";
 
 const SAMPLE_SKILLS: SkillIndex[] = [
