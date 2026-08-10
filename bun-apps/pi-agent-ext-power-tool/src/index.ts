@@ -38,6 +38,7 @@ import * as yaml from "js-yaml";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve, sep } from "path";
 import { ensureGetSystemPromptOptions } from "./sdk-patch.js";
+import { makeExtensionsCommand } from "./extensions-command.js";
 import { makeInspectHooksTool } from "./tools/inspect-hooks.js";
 import { DEFAULT_CHARS_PER_TOKEN } from "./schema-cost";
 import {
@@ -1250,6 +1251,12 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   pi.registerTool(makeInspectHooksTool());
   pi.registerTool(makeInspectPathologyTool());
   pi.registerTool(makeInspectTuiTool());
+
+  // /extensions slash command: browse loaded pi-agent extensions and the
+  // tools/commands/skills each provides. getAllTools closure is reused above;
+  // getCommands is deferred the same way. The framework auto-attaches sourceInfo.
+  const getCommands = () => pi.getCommands();
+  pi.registerCommand("extensions", makeExtensionsCommand(getAllTools, getCommands));
 
   // Feed the pathology accumulator: observe every tool call's args + outcome so
   // inspect_pathology can detect retry loops / error storms this session.
