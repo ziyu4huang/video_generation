@@ -114,6 +114,16 @@ export type DispatchAction =
       text?: string;
       source: "extension";
     }
+  /**
+   * `appexec` BYPASSES the mutex entirely (no concrete v1 ops defined). v1
+   * intentionally IGNORES the inbound `extra` bag: {@link AppExecCommandSchema}
+   * accepts `extra` so the wire shape is forward-compatible, but
+   * `WebTransport.parseCommand` resolves only `{ kind:"appexec", op:"appexec" }`
+   * and DROPS `extra` — this is a forward seam a later ticket fills (no
+   * execution logic yet). The variant is kept self-consistent with that: `op`
+   * is always the frame `type` ("appexec"); `extra` is deliberately not
+   * surfaced on the descriptor.
+   */
   | { kind: "appexec"; op: string; [k: string]: unknown }
   | { kind: "control"; op: "subscribe" | "unsubscribe" };
 

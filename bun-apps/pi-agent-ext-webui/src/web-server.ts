@@ -46,7 +46,11 @@ const LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "[::1]"];
 function originAllowed(origin: string | null, host: string | null): boolean {
   if (!origin) return true; // absent Origin (curl/scripts) allowed
   if (!host) return false;
-  // Extract port from the Host header (IPv6 addresses are bracketed).
+  // Extract port from the Host header (IPv6 addresses are bracketed). A
+  // present-but-portless Host yields port="" (webui binds EPHEMERAL — no fixed
+  // default like gui-movie-director's DEFAULT_PORT="3099"), so it can never
+  // match a real loopback Origin `http://<host>:<port>`; deny-by-default here
+  // TIGHTENS (not loosens) the guard.
   const portMatch = host.match(/:(\d+)$/);
   const port = portMatch ? portMatch[1] : "";
   return LOOPBACK_HOSTS.some((h) => origin === `http://${h}:${port}`);
@@ -131,6 +135,9 @@ export class WebServer implements Broadcaster {
   start(): void {
     if (this.server) return;
     this.server = this.serveWithFallback(this.requestedPort, this.hostname);
+    // webui is EMBEDDED in the agent process → the server MUST NOT keep the
+    // process alive on its own (unref required). gui-movie-director does NOT
+    // unref because it is a FOREGROUND dev server; the inverse is intentional.
     this.server.unref();
     this.unrefed = true;
   }

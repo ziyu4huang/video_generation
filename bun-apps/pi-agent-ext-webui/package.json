@@ -15,6 +15,7 @@
   },
   "scripts": {
     "build": "bunx tsc",
+    "typecheck": "tsc --noEmit",
     "test:unit": "bun test",
     "test": "bun run build && bun run test:unit"
   },

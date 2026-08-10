@@ -62,6 +62,11 @@ export class WebTransport {
       case "abort":
         return { kind: "agentic", op: "abort", source: "extension" };
       case "appexec":
+        // v1 forward seam: resolve `op` from the frame type and intentionally
+        // DROP `extra` (no concrete ops/executor yet — see the appexec
+        // DispatchAction variant in protocol.ts). A later ticket fills
+        // execution; this seam MUST bypass the mutex gate (the wiring branches
+        // on `kind === "agentic"` before gating).
         return { kind: "appexec", op: frame.type };
       case "subscribe":
       case "unsubscribe":

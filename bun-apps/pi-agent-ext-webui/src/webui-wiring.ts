@@ -82,17 +82,20 @@ export interface WebuiWiring {
 
 /**
  * Outbound host events forwarded verbatim to web clients via
- * `WebTransport.mapEvent` (specs/04 §3). `agent_settled` and `message_update`
- * are DUAL-purpose: they ALSO carry a gate handler (release / activity), so each
- * is registered twice (the pi bus supports multiple handlers per event).
- * Note: `tool_execution_update` is gate-only (activity) — intentionally absent
- * from the outbound set per the task-3b contract.
+ * `WebTransport.mapEvent` (specs/04 §3). `agent_settled`, `message_update`, and
+ * `tool_execution_update` are DUAL-purpose: they ALSO carry a gate handler
+ * (release / activity / activity), so each is registered twice below — once in
+ * the explicit gate section (handleSettled / handleActivity / handleActivity)
+ * and again here for broadcast. The pi bus fires ALL handlers for an event, so
+ * a `tool_execution_update` BOTH ticks activity (its gate handler) AND emits an
+ * outbound frame (specs/04 §4 lists tool_execution_{start,update,end}).
  */
 const OUTBOUND_EVENTS = [
   "message_start",
   "message_update",
   "message_end",
   "tool_execution_start",
+  "tool_execution_update",
   "tool_execution_end",
   "tool_result",
   "turn_start",

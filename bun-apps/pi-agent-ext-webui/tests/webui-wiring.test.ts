@@ -24,12 +24,12 @@
  *    broadcast; NO per-command ack frame.
  *  - dispose() neutralizes every handler + stops the server.
  */
-import { describe, expect, test } from "bun:test";
+import { beforeEach, afterEach, describe, expect, test } from "bun:test";
 import { MockPi } from "./helpers/mock-pi.js";
 import { FakeClock } from "./helpers/fake-clock.js";
 import { MemoryBroadcaster } from "../src/broadcaster.js";
-import { wireWebui, type WebuiServer } from "../src/webui-wiring.js";
-import type { CommandHandler } from "../src/web-server.js";
+import { wireWebui, type WebuiServer, type WebuiWiring } from "../src/webui-wiring.js";
+import { WebServer, type CommandHandler } from "../src/web-server.js";
 import type { WebFrame } from "../src/protocol.js";
 
 /** Minimal WebuiServer fake: records lifecycle + holds the command handler. */
@@ -111,6 +111,8 @@ describe("wireWebui — construction", () => {
     const { pi } = setup();
     expect(pi.handlersFor("agent_settled")).toHaveLength(2);
     expect(pi.handlersFor("message_update")).toHaveLength(2);
+    // tool_execution_update is dual-purpose too (activity gate + outbound frame).
+    expect(pi.handlersFor("tool_execution_update")).toHaveLength(2);
   });
 
   test("installs the inbound command handler on the server", () => {
@@ -156,6 +158,73 @@ describe("wireWebui — outbound broadcast", () => {
     };
     pi.emit("tool_execution_end", evt);
     expect(broadcaster.frames).toContainEqual({ ...evt });
+  });
+});
+
+/**
+ * Behavioral coverage for the DUAL-purpose events (specs/04 §3/§4). Registration
+ * alone (2 handlers) is not enough — assert each event has BOTH effects:
+ *  - message_update / tool_execution_update: tick controller activity
+ *    (handleActivity → bumpActivity) AND broadcast a mapEvent frame.
+ *  - agent_settled: release the mutex (handleSettled) AND broadcast a frame.
+ *
+ * Activity is observed via the watchdog: bumpActivity resets `lastActivity`, so
+ * advancing past the ORIGINAL stale point must NOT force-release. Were the gate
+ * handler unwired, lastActivity would stay frozen and the watchdog would fire.
+ */
+describe("wireWebui — dual-purpose behavior (gate effect + broadcast)", () => {
+  test("message_update BOTH ticks activity AND broadcasts a frame", () => {
+    const { pi, broadcaster, clock } = setup();
+    // Acquire the lock as web (starts the watchdog, lastActivity = 0).
+    const gate = pi.handlersFor("input")[0];
+    gate({ type: "input", source: "extension", text: "x" }, pi.ctx);
+    broadcaster.frames.length = 0;
+    // Advance to just-shy of stale (staleMs = 600_000; interval 1000).
+    clock.advance(599_000);
+    // Emit message_update → handleActivity bumps + broadcast handler forwards.
+    pi.emit("message_update", { type: "message_update", text: "partial" });
+    expect(broadcaster.frames).toContainEqual({ type: "message_update", text: "partial" });
+    // Activity effect: past the original stale point (0 + 600_000) with no release.
+    clock.advance(1_000);
+    const forceReleases = broadcaster.frames.filter((f) => f.type === "mutex_force_release");
+    expect(forceReleases).toHaveLength(0); // lastActivity was reset → no stale
+  });
+
+  test("tool_execution_update BOTH ticks activity AND broadcasts a frame", () => {
+    const { pi, broadcaster, clock } = setup();
+    const gate = pi.handlersFor("input")[0];
+    gate({ type: "input", source: "extension", text: "x" }, pi.ctx);
+    broadcaster.frames.length = 0;
+    clock.advance(599_000);
+    // tool_execution_update is now dual-purpose: gate (activity) + outbound frame.
+    pi.emit("tool_execution_update", {
+      type: "tool_execution_update",
+      toolName: "bash",
+      details: { n: 1 },
+    });
+    expect(broadcaster.frames).toContainEqual({
+      type: "tool_execution_update",
+      toolName: "bash",
+      details: { n: 1 },
+    });
+    clock.advance(1_000);
+    const forceReleases = broadcaster.frames.filter((f) => f.type === "mutex_force_release");
+    expect(forceReleases).toHaveLength(0);
+  });
+
+  test("agent_settled BOTH releases the mutex AND broadcasts a frame", () => {
+    const { pi, broadcaster } = setup();
+    const gate = pi.handlersFor("input")[0];
+    // web acquires the lock.
+    gate({ type: "input", source: "extension", text: "x" }, pi.ctx);
+    broadcaster.frames.length = 0;
+    // Emit agent_settled → handleSettled releases + broadcast handler forwards.
+    pi.emit("agent_settled", { type: "agent_settled" });
+    expect(broadcaster.frames).toContainEqual({ type: "agent_settled" });
+    // Release effect: after settle, a TUI input can now acquire (web no longer
+    // driving). Were handleSettled unwired, this would be {action:"handled"}.
+    const tui = gate({ type: "input", source: "interactive", text: "tui" }, pi.ctx);
+    expect(tui).toEqual({ action: "continue" });
   });
 });
 
@@ -280,5 +349,65 @@ describe("wireWebui — dispose()", () => {
     // And idempotent: a second dispose does not re-stop the server.
     wiring.dispose();
     expect(server.stopCalls).toBe(1);
+  });
+});
+
+/**
+ * The ONE test that legitimately uses the REAL WebServer (ephemeral port 0) —
+ * the Path-A keystone invariant: the module-level WebServer singleton
+ * (webui-wiring.ts `singletonServer`) is module-cached, so it survives the
+ * per-session factory re-run. Two `wireWebui()` calls with NO injected server
+ * MUST reuse the SAME live transport (not spin up a second Bun.serve).
+ *
+ * The singleton is module-private, so a `start()` prototype spy captures the
+ * live instance for identity + idempotent-reuse assertions. Proper teardown
+ * (dispose → stop) in afterEach so no bound port leaks across the run.
+ */
+describe("wireWebui — persistent-co-frontend singleton (Path-A keystone)", () => {
+  let wirings: WebuiWiring[] = [];
+  let instances: WebServer[] = [];
+  let originalStart: typeof WebServer.prototype.start | undefined;
+
+  beforeEach(() => {
+    instances = [];
+    wirings = [];
+    originalStart = WebServer.prototype.start;
+    WebServer.prototype.start = function (this: WebServer) {
+      instances.push(this);
+      return originalStart!.call(this);
+    };
+  });
+  afterEach(() => {
+    if (originalStart) WebServer.prototype.start = originalStart;
+    for (const w of wirings) {
+      try {
+        w.dispose();
+      } catch {
+        /* idempotent teardown */
+      }
+    }
+    wirings = [];
+  });
+
+  test("two wireWebui() calls with NO injected server reuse the SAME WebServer singleton", () => {
+    const pi1 = new MockPi();
+    const w1 = wireWebui(pi1); // no `server` injected → module singleton
+    wirings.push(w1);
+    pi1.emit("session_start", { type: "session_start", reason: "startup" });
+    expect(instances).toHaveLength(1); // first session_start served exactly once
+    const port1 = instances[0].port;
+    expect(port1).toBeGreaterThan(0); // OS-assigned ephemeral, not the literal 0
+
+    const pi2 = new MockPi();
+    const w2 = wireWebui(pi2); // MUST reuse the cached singleton, not a new server
+    wirings.push(w2);
+    pi2.emit("session_start", { type: "session_start", reason: "startup" });
+
+    // Keystone: the SAME WebServer instance backs both factory runs
+    // (module-cached → survives the per-session factory re-run).
+    expect(instances.every((s) => s === instances[0])).toBe(true);
+    // start() is idempotent on a live server → the bound port is unchanged
+    // (no second Bun.serve bound a different port).
+    expect(instances[0].port).toBe(port1);
   });
 });
