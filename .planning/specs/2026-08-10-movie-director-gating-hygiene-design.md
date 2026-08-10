@@ -117,7 +117,7 @@ two distinct groups share more than half of the smaller group's keywords**
 
 **Prerequisite refactor (empirically required).** `MIGRATED_EXTENSIONS` and
 `captureRegisteredTools` currently live inside `drift-guard.test.ts`.
-Importing that file from another test file was measured to **re-execute its 27
+Importing that file from another test file was measured to **re-execute its 26
 tests** inside the importer. So the new guard cannot import it.
 
 Extract both into a non-test module `extensions/migrated-extensions.ts`
@@ -159,6 +159,20 @@ the pre-change baseline to confirm unchanged; not fixed here.
 ## Out of scope
 
 Full cross-package de-duplication of the workflow + subagent gating literal
-into a shared constant. That needs a new inter-package dependency edge (or a
-new shared package) and touches other owners' packages; the Unit 3 guard makes
-the drift detectable without it.
+into a shared constant.
+
+**Not** because a dependency edge is missing — that edge already exists.
+`bun-apps/pi-agent-ext-workflow/package.json:76` declares
+`"@repo/pi-agent-ext-subagent": "workspace:*"`, and workflow already imports
+RUNTIME values across it (`homeDir` in `src/workflow-paths.ts:11`;
+`isWorkflowError` / `WorkflowError` / `WorkflowErrorCode` in
+`src/host-fn-helpers.ts:10`; `activityGlyph` / `NO_THEME` / `shorten` in
+`src/display.ts:8`). A shared gating constant could be imported the same way
+today. (Recorded explicitly so a future reader does not re-derive this as a
+blocker — an earlier draft of this section stated it as one, and it was wrong.)
+
+The real reasons it is out of scope: the repo owner explicitly chose the
+narrower option — the movie-local fix plus a repo-wide guard — over full
+cross-package de-duplication when this scope was decided; doing it would edit
+two other packages' tool declarations; and the Unit 3 guard makes the drift
+detectable without it.

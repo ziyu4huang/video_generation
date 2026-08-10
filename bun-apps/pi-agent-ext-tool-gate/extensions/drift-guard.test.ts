@@ -3,8 +3,9 @@
  *
  * Every tool OWNED by a MIGRATED extension must declare valid (non-dead)
  * owner-`gating`. The set of migrated extensions is the single source of truth
- * below (MIGRATED_EXTENSIONS); the net iterates it, so APPENDING an entry is
- * all a rollout ticket does to put that extension's tools behind this gate.
+ * in ./migrated-extensions.ts (MIGRATED_EXTENSIONS, imported below); the net
+ * iterates it, so APPENDING an entry there is all a rollout ticket does to put
+ * that extension's tools behind this gate.
  *
  * WHY: the `Gating.keywords` field was relaxed to OPTIONAL in Task 2 (so a
  * `gating:{core:true}` declaration typechecks — a core tool legitimately has no

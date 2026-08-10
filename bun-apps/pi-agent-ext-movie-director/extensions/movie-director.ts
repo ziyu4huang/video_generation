@@ -37,11 +37,12 @@ import { registerMovieWorkflows } from "./movie-workflows.ts";
  * `movie` and `movie_help`.
  *
  * Migrated from tool-gate's hardcoded GATES (the {names:["movie","movie_help"]}
- * gate). tool-gate groups co-firing tools by FINGERPRINT EQUALITY over this
- * object (gatesWithSameGating), so the two names must declare an identical
- * gating for reconstructOwnerDeclaredGates to collapse them back into one
- * multi-name gate (names[0] === "movie"). Sharing one object — rather than two
- * copies — is what makes an edit to one side impossible.
+ * gate). tool-gate's buildEffectiveGates emits one SINGLE-NAME gate per tool and
+ * groups co-firing tools by FINGERPRINT EQUALITY over this object (gateGatingKey
+ * → gatesWithSameGating), so the two names must declare an identical gating to
+ * produce an identical fingerprint and be treated as ONE co-firing family
+ * (`movie` + `movie_help` fire together on the same prompt). Sharing one object
+ * — rather than two copies — is what makes an edit to one side impossible.
  *
  * Keywords cover the unambiguous montage/storyboard/分鏡/導演/film phrases; the
  * noun∧verb `requires` path mirrors flux2/ltx so keyword-free paraphrases

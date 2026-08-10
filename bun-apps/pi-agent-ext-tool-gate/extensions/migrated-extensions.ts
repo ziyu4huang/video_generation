@@ -9,8 +9,8 @@
  * (measured: drift-guard's 26 tests ran twice), so any second guard that needs
  * this enumeration must import it from here.
  *
- * Consumers: drift-guard.test.ts (per-tool valid-gating net), and
- * gating-siblings.test.ts (sibling-group drift guard — planned, Task 5).
+ * Consumers: drift-guard.test.ts (per-tool valid-gating net) and
+ * gating-siblings.test.ts (sibling-group fingerprint drift guard).
  *
  * NOTE: this is test SUPPORT, not a runtime export — it is NOT a registered pi
  * extension (this package's one registered extension is extensions/tool-gate.ts).
@@ -83,10 +83,10 @@ export interface MigratedExtension {
 	 *  forgotten gating; this is the documented, audited escape hatch for a
 	 *  companion tool that is always-on by design and is OUT of its extension's
 	 *  migration scope (gating it would newly dorman it = a behavior change).
-	 *  Example: pi-agent-ext-subagent owns `subagent` (gated by the combined
-	 *  workflow/subagent gate, ticket 10) PLUS `subagent_runs` + `subagents`
-	 *  (plural), which were ungated BEFORE this migration and stay ungated to
-	 *  preserve behavior (tracked as known always-on leaks). */
+	 *  Example: pi-agent-ext-subagent owns `subagent` (gated by the shared
+	 *  workflow-family gating, ticket 10) PLUS `subagent_runs`, which declares no
+	 *  gating at all — it was ungated BEFORE this migration and stays ungated to
+	 *  preserve behavior (tracked as a known always-on leak). */
 	ungatedByDesign?: string[];
 }
 
