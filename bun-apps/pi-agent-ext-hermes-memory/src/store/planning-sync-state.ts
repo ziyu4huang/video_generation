@@ -177,3 +177,69 @@ export async function refreshIfStale(
   const r = await refreshPlanningCard(store, cardId, fsRoot);
   return r.action === "inserted" || r.action === "updated";
 }
+
+// ─── 10-impl staleness: dep aggregate hash + validated baseline ─────────────
+//
+// The staleness baseline is ONE aggregate row per card in card_dep_hash =
+// hashEntry(sorted(cited+depends_on source-file bytes)). Distinct from 09's
+// card_md_hash (which hashes the CARD's own bytes); this hashes the bytes of
+// the files the card's decision DEPENDS ON, so a change to a cited/declared
+// source file flips the card stale even when the card's own md is unchanged.
+
+/** Distinct repo-relative dep paths carried by a card's graph.relations
+ *  (rel ∈ {"cites","depends_on"}). First-occurrence dedupe → stable order. */
+export function citedDeps(card: Card): string[] {
+  const rels = card.graph?.relations ?? [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const r of rels) {
+    if ((r.rel === "cites" || r.rel === "depends_on") && !seen.has(r.o)) {
+      seen.add(r.o);
+      out.push(r.o);
+    }
+  }
+  return out;
+}
+
+/** Aggregate content-hash of a card's deps under fsRoot. For each dep path,
+ *  read join(fsRoot, path): present → hashEntry(bytes); absent → recorded in
+ *  `missing` AND contributes the token "<missing>" (so a file reappearing or
+ *  vanishing changes the aggregate). Aggregate = hashEntry of the sorted
+ *  `${path}:${hashOrToken}` entries joined by "\n" — deterministic over the
+ *  dep SET regardless of relation order. A card with NO deps hashes the empty
+ *  string (stable → never stale by dep-change, which is correct: nothing to
+ *  depend on). */
+export async function depAggregateHash(
+  card: Card,
+  fsRoot: string,
+): Promise<{ hash: string; missing: string[] }> {
+  const deps = citedDeps(card);
+  const missing: string[] = [];
+  const entries = deps.map((path) => {
+    let fileHash: string;
+    try {
+      fileHash = hashEntry(readFileSync(join(fsRoot, path), "utf8"));
+    } catch {
+      missing.push(path);
+      fileHash = "<missing>";
+    }
+    return `${path}:${fileHash}`;
+  });
+  entries.sort();
+  return { hash: hashEntry(entries.join("\n")), missing };
+}
+
+/** Compute the dep aggregate + UPSERT it as the card's validated baseline
+ *  (the staleness reference). This is the RE-VALIDATE write — call it when an
+ *  agent re-grills + re-validates a decision (clears stale). The on-access
+ *  computeStaleness (T4) uses depAggregateHash WITHOUT writing except the
+ *  first-touch seed. */
+export async function writeValidatedBaseline(
+  store: CardStore,
+  card: Card,
+  fsRoot: string,
+): Promise<{ hash: string; missing: string[] }> {
+  const { hash, missing } = await depAggregateHash(card, fsRoot);
+  await store.upsertCardDepHash(card.id, hash);
+  return { hash, missing };
+}

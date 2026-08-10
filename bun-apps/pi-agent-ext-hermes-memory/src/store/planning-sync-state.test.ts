@@ -10,6 +10,9 @@ import {
   deleteHash,
   refreshPlanningCard,
   refreshIfStale,
+  citedDeps, // 10-impl T3
+  depAggregateHash, // 10-impl T3
+  writeValidatedBaseline, // 10-impl T3
 } from "./planning-sync-state.js";
 import { createCardStore } from "./card-store.js";
 import type { Card } from "./card.js";
@@ -193,5 +196,82 @@ describe("refreshPlanningCard (09-impl T7)", () => {
   after(() => {
     rmSync(root, { recursive: true, force: true });
     rmSync(mem, { recursive: true, force: true });
+  });
+});
+
+describe("dep aggregate hash (10-impl T3)", () => {
+  const root = mkdtempSync(join(tmpdir(), "dephash-"));
+  const mem = mkdtempSync(join(tmpdir(), "dephash-mem-"));
+  after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(mem, { recursive: true, force: true });
+  });
+
+  // A card with two cited deps (one under src/, one under docs/) + a depends_on.
+  const mkCard = (extraCites: string[] = []): Card => ({
+    id: "planning-ticket:dep-eff:01",
+    kind: "planning-ticket",
+    content: "body",
+    frontmatter: { id: "01", slug: "x", status: "closed" },
+    graph: {
+      relations: [
+        { s: "planning-ticket:dep-eff:01", rel: "cites", o: "src/a.ts" },
+        { s: "planning-ticket:dep-eff:01", rel: "cites", o: "docs/b.md" },
+        { s: "planning-ticket:dep-eff:01", rel: "depends_on", o: "src/c.ts" },
+        ...extraCites.map((o) => ({ s: "planning-ticket:dep-eff:01", rel: "cites" as const, o })),
+      ],
+    },
+  });
+
+  it("citedDeps returns distinct cites+depends_on paths (first-occurrence order)", () => {
+    assert.deepEqual(citedDeps(mkCard()), ["src/a.ts", "docs/b.md", "src/c.ts"]);
+    // duplicate path under cites + depends_on collapses to one.
+    assert.deepEqual(citedDeps(mkCard(["src/a.ts"])), ["src/a.ts", "docs/b.md", "src/c.ts"]);
+  });
+
+  it("depAggregateHash is deterministic over sorted deps", async () => {
+    mkdirSync(join(root, "src"), { recursive: true });
+    mkdirSync(join(root, "docs"), { recursive: true });
+    writeFileSync(join(root, "src", "a.ts"), "AAA");
+    writeFileSync(join(root, "docs", "b.md"), "BBB");
+    writeFileSync(join(root, "src", "c.ts"), "CCC");
+    const h1 = await depAggregateHash(mkCard(), root);
+    const h2 = await depAggregateHash(mkCard(), root);
+    assert.equal(h1.hash, h2.hash);
+    assert.match(h1.hash, /^[0-9a-f]{16}$/);
+    assert.deepEqual(h1.missing, []);
+  });
+
+  it("a changed dep file -> different aggregate", async () => {
+    const before = await depAggregateHash(mkCard(), root);
+    writeFileSync(join(root, "src", "a.ts"), "AAA-EDITED");
+    const after = await depAggregateHash(mkCard(), root);
+    assert.notEqual(before.hash, after.hash);
+  });
+
+  it("a missing dep -> missing[] non-empty + aggregate reflects <missing>", async () => {
+    const r = await depAggregateHash(mkCard(), root); // src/c.ts still exists
+    assert.deepEqual(r.missing, []);
+    writeFileSync(join(root, "src", "gone.ts"), "G");
+    const card = { ...mkCard(), graph: { relations: [{ s: "x", rel: "depends_on", o: "src/gone.ts" }] } };
+    const presentHash = (await depAggregateHash(card, root)).hash;
+    rmSync(join(root, "src", "gone.ts"));
+    const r2 = await depAggregateHash(card, root);
+    assert.deepEqual(r2.missing, ["src/gone.ts"]);
+    assert.notEqual(presentHash, r2.hash); // <missing> token changes the aggregate
+  });
+
+  it("writeValidatedBaseline writes via upsertCardDepHash (card_dep_hash, kind-less)", async () => {
+    const store = await createCardStore({ memoryDir: mem });
+    try {
+      const card = mkCard();
+      const { hash, missing } = await writeValidatedBaseline(store, card, root);
+      assert.deepEqual(missing, []);
+      const row = await store.getCardDepHash(card.id);
+      assert.equal(row?.depHash, hash);
+      assert.ok(row?.validatedAt);
+    } finally {
+      await store.close();
+    }
   });
 });
