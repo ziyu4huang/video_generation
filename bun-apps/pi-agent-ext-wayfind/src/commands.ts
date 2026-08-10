@@ -378,6 +378,24 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       // of subcommand. No banner when no effort is in play yet (bare /wayfind
       // with no active effort → a usage warning follows instead).
       const sessionId = getSessionId(ctx);
+      // Bugfix — ambiguous-phrase guard. A bare non-keyword phrase while an effort
+      // is already active is almost certainly a QUESTION about the current effort
+      // (e.g. "show current effort id status"), not a new destination. Previously
+      // this fell through to handleWayfinderChart, silently charting a brand-new
+      // effort (writing .planning/<slug>/) AND clobbering the session's active
+      // effort with no guard. Now: show the active effort's status and steer to the
+      // explicit `/wayfind -- <destination>` escape to start a new effort.
+      // First-chart (no active effort) and explicit `-- ` chart are unchanged.
+      const firstToken = trimmed.split(/\s+/)[0] ?? "";
+      const isExplicitChart = trimmed.startsWith("--") || WAYFIND_KEYWORDS.has(firstToken);
+      const activeEffort = state.activeEffortBySession.get(sessionId);
+      if (trimmed && activeEffort && !isExplicitChart) {
+        ctx.ui.notify(
+          `🧭 ${activeEffort} (active) — showing its status. Use \`/wayfind -- <destination>\` to start a NEW effort.`,
+          "info",
+        );
+        return handleWayfinderStatus("", ctx);
+      }
       const bannerEffort = resolveWayfindEffortId(trimmed, () => state.activeEffortBySession.get(sessionId));
       if (bannerEffort) ctx.ui.notify(`🧭 ${bannerEffort}`, "info");
       // "/wayfind -- <destination>" forces charting, escaping reserved keywords
