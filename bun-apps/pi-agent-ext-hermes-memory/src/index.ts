@@ -49,6 +49,7 @@ import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
 import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
 import { registerKnowledgeSearchTool } from "./tools/knowledge-search-tool.js";
 import { registerKnowledgeIngestTool } from "./tools/knowledge-ingest-tool.js";
+import { registerPlanningStaleTool } from "./tools/planning-stale-tool.js";
 import { resolveKnowledgeVaultPath } from "./knowledge-vault-path.js";
 import { captureAssembly } from "./handlers/session-assembly.js";
 import { setupBackgroundReview } from "./handlers/background-review.js";
@@ -418,6 +419,11 @@ export default async function (pi: ExtensionAPI) {
   // reuses the SAME SQLite DB the memory-cards use (the global memory dir). ──
   registerKnowledgeSearchTool(pi, resolveKnowledgeVaultPath);
   registerKnowledgeIngestTool(pi, { memoryDir: globalDir });
+  // Phase-2 (knowledge-pipeline / 10-impl T6): the stale: query + revalidate
+  // tool. Uses the SAME globalDir memory DB the planning mirror + knowledge
+  // ingest use; fsRoot comes from ctx.cwd at call time. Additive — mirrors the
+  // knowledge_* registration pattern.
+  registerPlanningStaleTool(pi, { memoryDir: globalDir });
 
   // ── 4. Register the skill tool ──
   registerSkillTool(pi, skillStore);
