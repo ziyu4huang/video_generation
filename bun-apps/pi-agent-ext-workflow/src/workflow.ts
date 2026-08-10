@@ -25,6 +25,7 @@ import type { HostFnAskOptions, HostFnRegistry } from "./host-fn-registry.js";
 import { createWorkflowLogger } from "./logger.js";
 import { parseModelRoutingFromMeta, resolveModelForPhase } from "./model-routing.js";
 import { parseWorkflowScript } from "./workflow-script-parser.js";
+import { createStdlib } from "./workflow-stdlib.js";
 import { createLimiter, runAgentWithTimeout } from "./workflow-timeout.js";
 
 export { parseWorkflowScript } from "./workflow-script-parser.js";
@@ -727,196 +728,7 @@ export async function runWorkflow<T = unknown>(
     }
   };
 
-  // ── Quality-pattern stdlib: reusable, deterministic helpers built purely on
-  // agent()/parallel() (so callSeq ordering stays stable and resume keeps working).
-  // Injected as globals so workflow scripts compose them directly. ──
-
-  const VERIFY_SCHEMA = {
-    type: "object",
-    properties: { real: { type: "boolean" }, reason: { type: "string" } },
-    required: ["real"],
-  };
-  const verify = async (
-    item: unknown,
-    opts: { reviewers?: number; threshold?: number; lens?: string | string[] } = {},
-  ) => {
-    const reviewers = Math.max(1, opts.reviewers ?? 2);
-    const threshold = opts.threshold ?? 0.5;
-    const lenses = opts.lens ? (Array.isArray(opts.lens) ? opts.lens : [opts.lens]) : [];
-    const claim = typeof item === "string" ? item : JSON.stringify(item);
-    const votes = (
-      await parallel(
-        Array.from(
-          { length: reviewers },
-          (_v, i) => () =>
-            agent(
-              `Adversarially review whether the following is REAL/correct. Try to refute it; default to real=false if unsure.${lenses.length ? ` Focus lens: ${lenses[i % lenses.length]}.` : ""}\n\n${claim}`,
-              { label: `verify ${i + 1}`, schema: VERIFY_SCHEMA },
-            ),
-        ),
-      )
-    ).filter(Boolean) as Array<{ real?: boolean; reason?: string }>;
-    const realCount = votes.filter((v) => v?.real).length;
-    // Surface reviewer failures so a caller can distinguish "verified false"
-    // from "could not verify" (all reviewers failed → null → filtered out, which
-    // previously masqueraded as a definitive real:false verdict). `requested` is
-    // the asked-for reviewer count; `failed` is how many returned no verdict.
-    return {
-      real: votes.length > 0 && realCount / votes.length >= threshold,
-      realCount,
-      total: votes.length,
-      requested: reviewers,
-      failed: reviewers - votes.length,
-      votes,
-    };
-  };
-
-  const JUDGE_SCHEMA = {
-    type: "object",
-    properties: { score: { type: "number" }, reason: { type: "string" } },
-    required: ["score"],
-  };
-  const judgePanel = async (attempts: unknown[], opts: { judges?: number; rubric?: string } = {}) => {
-    const judges = Math.max(1, opts.judges ?? 3);
-    const rubric = opts.rubric ?? "overall quality and correctness";
-    const scored = (
-      await parallel(
-        (Array.isArray(attempts) ? attempts : []).map((att, idx) => async () => {
-          const text = typeof att === "string" ? att : JSON.stringify(att);
-          const js = (
-            await parallel(
-              Array.from(
-                { length: judges },
-                (_v, j) => () =>
-                  agent(
-                    `Score this candidate from 0 to 1 on: ${rubric}. Reply with the score.\n\nCandidate:\n${text}`,
-                    {
-                      label: `judge ${idx + 1}.${j + 1}`,
-                      schema: JUDGE_SCHEMA,
-                    },
-                  ),
-              ),
-            )
-          ).filter(Boolean) as Array<{ score?: number }>;
-          const score = js.length ? js.reduce((s, v) => s + (Number(v?.score) || 0), 0) / js.length : undefined;
-          return { index: idx, attempt: att, score, judgments: js };
-        }),
-      )
-    ).filter(Boolean) as Array<{ index: number; attempt: unknown; score: number | undefined; judgments: unknown[] }>;
-    // Highest mean score; stable tie-break by input index.
-    // A candidate whose judges ALL failed has score === undefined (unscored),
-    // distinguishable from a genuine zero — do not rank it above any scored
-    // candidate (RCA#7). When every candidate is unscored, return the first.
-    let best: (typeof scored)[0] | undefined;
-    let bestScore: number | undefined;
-    let bestIndex: number | undefined;
-    for (const s of scored) {
-      if (s.score === undefined) continue;
-      if (
-        bestScore === undefined ||
-        s.score > bestScore ||
-        (s.score === bestScore && s.index < (bestIndex ?? Infinity))
-      ) {
-        best = s;
-        bestScore = s.score;
-        bestIndex = s.index;
-      }
-    }
-    best ??= scored[0];
-    return best;
-  };
-
-  const loopUntilDry = async (opts: {
-    round: (roundIndex: number) => Promise<unknown[]> | unknown[];
-    key?: (item: unknown) => string;
-    consecutiveEmpty?: number;
-    maxRounds?: number;
-  }) => {
-    if (!opts || typeof opts.round !== "function")
-      throw new TypeError("loopUntilDry requires { round: (i) => items[] }");
-    const key = opts.key ?? ((x: unknown) => JSON.stringify(x));
-    const consecutiveEmpty = Math.max(1, opts.consecutiveEmpty ?? 2);
-    const maxRounds = opts.maxRounds ?? 50;
-    const seen = new Set<string>();
-    const all: unknown[] = [];
-    let truncated = false;
-    let dry = 0;
-    for (let r = 0; r < maxRounds && dry < consecutiveEmpty; r++) {
-      let items: unknown[];
-      try {
-        items = (await opts.round(r)) ?? [];
-      } catch (error) {
-        // Budget / agent-limit exhaustion: return the partial result as
-        // truncated, not as a completed dry run (RCA#8).
-        const code = (error as { code?: string })?.code;
-        if (code === WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED || code === WorkflowErrorCode.AGENT_LIMIT_EXCEEDED) {
-          truncated = true;
-          break;
-        }
-        throw error;
-      }
-      const fresh = (Array.isArray(items) ? items : []).filter((x) => x != null && !seen.has(key(x)));
-      if (!fresh.length) {
-        dry++;
-        continue;
-      }
-      dry = 0;
-      for (const x of fresh) {
-        seen.add(key(x));
-        all.push(x);
-      }
-    }
-    // Attach a truncated flag to the result array so callers can distinguish
-    // "completed all rounds dry" from "truncated by budget/limit" (RCA#8).
-    const result = all.slice();
-    if (truncated) (result as any).truncated = true;
-    return result;
-  };
-
-  const COMPLETENESS_SCHEMA = {
-    type: "object",
-    properties: { complete: { type: "boolean" }, missing: { type: "array", items: { type: "string" } } },
-    required: ["complete"],
-  };
-  const completenessCheck = (taskArgs: unknown, results: unknown) =>
-    agent(
-      `Given the task and the results gathered so far, list what is still MISSING (modalities not covered, claims unverified, gaps). Be specific and concise.\n\nTask:\n${JSON.stringify(taskArgs)}\n\nResults so far:\n${JSON.stringify(results).slice(0, 4000)}`,
-      { label: "completeness critic", schema: COMPLETENESS_SCHEMA },
-    );
-
-  // Thin bounded-retry / validation-gate combinators. Sugar over the for-loop +
-  // agent() pattern, but each attempt is a real agent() call so it auto-journals
-  // under a stable callSeq (resume-safe). No backoff: there is no timer in the vm
-  // and a delay has no resume value. NOTE: attempt N+1's call hash depends on N's
-  // live result, so a retry/gate chain cache-miss-cascades on resume (correct).
-  const retry = async (
-    thunk: (attempt: number) => Promise<unknown> | unknown,
-    opts: { attempts?: number; until?: (r: unknown) => boolean } = {},
-  ) => {
-    const attempts = Math.max(1, opts.attempts ?? 3);
-    let last: unknown;
-    for (let i = 0; i < attempts; i++) {
-      last = await thunk(i);
-      if (!opts.until || opts.until(last)) return last;
-    }
-    return last; // attempts exhausted — return the last result (caller inspects it)
-  };
-  const gate = async (
-    thunk: (feedback: string | undefined, attempt: number) => Promise<unknown> | unknown,
-    validator: (r: unknown) => Promise<{ ok: boolean; feedback?: string }> | { ok: boolean; feedback?: string },
-    opts: { attempts?: number } = {},
-  ) => {
-    const attempts = Math.max(1, opts.attempts ?? 3);
-    let feedback: string | undefined;
-    let last: unknown;
-    for (let i = 0; i < attempts; i++) {
-      last = await thunk(feedback, i);
-      const verdict = await validator(last);
-      if (verdict?.ok) return { ok: true, value: last, attempts: i + 1 };
-      feedback = verdict?.feedback; // fed into the next attempt
-    }
-    return { ok: false, value: last, attempts };
-  };
+  const stdlib = createStdlib({ agent, parallel });
 
   // Deterministic, journaled, replayable human checkpoint. Spends no tokens, so it
   // is gated on the agent counter + abort (not budget). On resume the human's reply
@@ -996,12 +808,12 @@ export async function runWorkflow<T = unknown>(
     parallel,
     pipeline,
     workflow: workflowFn,
-    verify,
-    judgePanel,
-    loopUntilDry,
-    completenessCheck,
-    retry,
-    gate,
+    verify: stdlib.verify,
+    judgePanel: stdlib.judgePanel,
+    loopUntilDry: stdlib.loopUntilDry,
+    completenessCheck: stdlib.completenessCheck,
+    retry: stdlib.retry,
+    gate: stdlib.gate,
     checkpoint,
     call,
     log,
