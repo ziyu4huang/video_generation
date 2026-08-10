@@ -37,6 +37,7 @@ import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surrea
 import type { MemoryRepository, SessionRepository, BackendBundle } from "./store/repository.js";
 import type { DbBackend } from "./types.js";
 import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-backfill.js";
+import { schedulePlanningBackfill } from "./handlers/planning-backfill.js";
 import { scheduleLiveSessionIndex, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";
 import { parseSessionFile } from "./store/session-parser.js";
 import { registerMemoryTool } from "./tools/memory-tool.js";
@@ -345,6 +346,24 @@ export default async function (pi: ExtensionAPI) {
         }
       },
     });
+
+    // Phase-2 (knowledge-pipeline / ticket 09 T6): background re-mirror of
+    // .planning/. Best-effort, bounded, run-state-guarded — mirrors
+    // scheduleSessionBackfill. Deferred via setTimeout(0) so session_start
+    // resolves first; heals .planning drift without blocking startup. A failure
+    // must NEVER abort agent startup.
+    try {
+      schedulePlanningBackfill(ctx.cwd, globalDir, {
+        notify: (message, level) => {
+          const ui = (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
+          if (ui?.notify) ui.notify(message, level);
+          else if (level === "error" || level === "warning") console.warn(message);
+          else console.info(message);
+        },
+      });
+    } catch {
+      /* never block startup */
+    }
 
     // Per-session prompt-provenance (UPSP §5): capture the assembled md_id set
     // + block hash ONCE per session. Best-effort — never abort startup. Mirrors

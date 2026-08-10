@@ -1,0 +1,149 @@
+// src/handlers/planning-backfill.ts — background backfill of the .planning card
+// mirror (Phase-2 / 09-impl T6). Mirrors session-backfill.ts house-style: deferred
+// via setTimeout(0) so session_start resolves first; run-state guard so two
+// backfills never overlap in-process; MAX_FILES bound so a huge corpus can't
+// stall startup. Idempotency = the mirror's hash-skip (re-mirroring unchanged
+// files is a cheap hash-compare no-op — there is NO separate run-state file; a
+// re-run resumes because unchanged cards hash-match-skip).
+//
+// The actual mirror reuses walkAndIngest's planning path (hash-compare
+// INSERT/UPDATE/skip + delete reconciliation + conflict-marker flag). It is
+// invoked PLANNING-ONLY (opts.planningOnly) so the zk knowledge path is skipped
+// entirely — planning is hermes-internal and has no zk dependency, and passing
+// the bounded file list scopes the walk to exactly the .planning corpus (no
+// full-repo re-walk on every startup).
+import { readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { walkAndIngest } from "../walk-and-ingest.js";
+
+export const PLANNING_BACKFILL_MAX_FILES = 50;
+
+type NotifyLevel = "info" | "warning" | "error";
+type NotifyFn = (message: string, level: NotifyLevel) => void;
+type SetTimeoutFn = (callback: () => void, ms: number) => unknown;
+
+export interface PlanningBackfillState {
+  inProgress: boolean;
+  promise: Promise<void> | null;
+}
+
+export const planningBackfillState: PlanningBackfillState = {
+  inProgress: false,
+  promise: null,
+};
+
+export interface SchedulePlanningBackfillOptions {
+  notify?: NotifyFn;
+  state?: PlanningBackfillState;
+  setTimeoutFn?: SetTimeoutFn;
+  maxFiles?: number;
+}
+
+/** Collect up to `maxFiles` planning-card md files under <repoRoot>/.planning.
+ *  A cheap .planning-scoped recursive scan (NOT the full-repo walk) so startup
+ *  cost stays bounded. Non-card .planning md (specs/plans/flat/sdd) is collected
+ *  too but later classified out by walkKnowledgeSources (only map.md and
+ *  tickets/NN-slug.md are real planning-cards) — collecting them is harmless
+ *  (a few extra lstats) and keeps this scan a pure directory walk. */
+function collectPlanningMdFiles(repoRoot: string, maxFiles: number): string[] {
+  const out: string[] = [];
+  const planningDir = join(repoRoot, ".planning");
+  const recurse = (dir: string): void => {
+    if (out.length >= maxFiles) return;
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const name of entries) {
+      if (out.length >= maxFiles) return;
+      const abs = join(dir, name);
+      let st;
+      try {
+        st = statSync(abs);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) recurse(abs);
+      else if (name.endsWith(".md")) out.push(abs);
+    }
+  };
+  recurse(planningDir);
+  return out;
+}
+
+function notifyBestEffort(notify: NotifyFn | undefined, message: string, level: NotifyLevel): void {
+  try {
+    notify?.(message, level);
+  } catch {
+    /* Notification failures must never affect backfill. */
+  }
+}
+
+/** Schedule a best-effort, bounded background re-mirror of .planning/. Mirrors
+ *  scheduleSessionBackfill: deferred setTimeout(0); run-state guard; MAX_FILES
+ *  bound; best-effort notify. The actual mirror reuses walkAndIngest's planning
+ *  path in PLANNING-ONLY mode (hash-compare INSERT/UPDATE/skip + delete
+ *  reconciliation; the hash-skip makes unchanged files cheap). Returns true
+ *  when a backfill was scheduled; false when skipped (already in progress). */
+export function schedulePlanningBackfill(
+  repoRoot: string,
+  memoryDir: string,
+  options: SchedulePlanningBackfillOptions = {},
+): boolean {
+  const state = options.state ?? planningBackfillState;
+  const setTimeoutFn = options.setTimeoutFn ?? setTimeout;
+  const maxFiles = options.maxFiles ?? PLANNING_BACKFILL_MAX_FILES;
+
+  if (state.inProgress) return false;
+
+  state.inProgress = true;
+  state.promise = new Promise<void>((resolve) => {
+    setTimeoutFn(async () => {
+      try {
+        const files = collectPlanningMdFiles(repoRoot, maxFiles);
+        if (files.length === 0) return;
+        // walkAndIngest runs the hash-compare mirror + delete reconciliation
+        // against these files in PLANNING-ONLY mode (zk knowledge path skipped;
+        // the hash-skip makes unchanged files cheap). The planning classifier
+        // keys off the `.planning` segment in each abs path, which the collected
+        // paths retain — so the bounded file list scopes the mirror exactly.
+        await walkAndIngest(files, { memoryDir, planningOnly: true });
+        notifyBestEffort(options.notify, `🧠 Planning backfill complete: scanned ${files.length} .planning file(s).`, "info");
+      } catch (err) {
+        notifyBestEffort(
+          options.notify,
+          `⚠️ Planning backfill failed: ${err instanceof Error ? err.message : String(err)}`,
+          "warning",
+        );
+      } finally {
+        state.inProgress = false;
+        state.promise = null;
+        resolve();
+      }
+    }, 0);
+  });
+  return true;
+}
+
+/** Wait briefly for an in-progress planning backfill before shutdown (mirrors
+ *  waitForSessionBackfill). */
+export async function waitForPlanningBackfill(
+  timeoutMs = 5000,
+  state: PlanningBackfillState = planningBackfillState,
+): Promise<boolean> {
+  const promise = state.promise;
+  if (!state.inProgress || !promise) return true;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise.then(() => true),
+      new Promise<boolean>((resolve) => {
+        timeout = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}

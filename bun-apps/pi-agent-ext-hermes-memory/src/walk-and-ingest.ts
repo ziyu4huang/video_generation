@@ -42,6 +42,13 @@ export interface WalkAndIngestOptions extends WalkOptions {
    *  (compare against `currentHashes`). Full drift logic is ticket 05; 06b
    *  captures the hook point only (no re-index action). */
   previousHashes?: Record<string, string>;
+  /** PLANNING-ONLY mode (Phase-2 / 09-impl T6 background backfill): skip the zk
+   *  knowledge path (vault resolution + ingest + heal + vault-md mirror) so the
+   *  call is truly seam-independent and bounded — planning is hermes-internal
+   *  and has no zk dependency. Only the planning DB-mirror (step 8b) + delete
+   *  reconciliation (step 8c) run. Default false (the knowledge-ingest tool and
+   *  the normal orchestrator run the full path). */
+  planningOnly?: boolean;
 }
 
 /** Receipt for a walkAndIngest run. mirrored + driftStub are placeholders in
@@ -98,7 +105,10 @@ export async function walkAndIngest(
   const walk = walkKnowledgeSources(input, opts);
 
   // 2. Read the seam (graceful). Planning mirror is seam-INDEPENDENT (08).
-  const kp = getKnowledgePipeline();
+  // T6 background backfill opts out of the knowledge path entirely via
+  // opts.planningOnly so a seam-present-but-vault-unset env can never throw and
+  // abort the planning mirror — planning is hermes-internal (no zk dependency).
+  const kp = opts.planningOnly ? undefined : getKnowledgePipeline();
   let vaultPath = "";
   let ingest: IngestSummary | undefined;
   let heal: HealReceipt | undefined;
