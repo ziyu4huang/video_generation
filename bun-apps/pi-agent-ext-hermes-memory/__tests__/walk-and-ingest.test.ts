@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { publishSeam, type KnowledgePipeline } from "@repo/pi-agent-ext-core-interface";
@@ -320,6 +320,34 @@ describe("walkAndIngest — planning mirror drift (09-impl T3)", () => {
       await walkAndIngest(root, { memoryDir: mem });             // mirror once
       const r2 = await walkAndIngest(root, { memoryDir: mem });  // re-mirror unchanged
       assert.equal(r2.planningMirrored, 0, "unchanged ticket must be skipped (hash match)");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("walkAndIngest — planning delete reconciliation (09-impl T4)", () => {
+  it("hard-deletes planning rows whose source md vanished (md-wins)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "precon-"));
+    const mem = mkdtempSync(join(tmpdir(), "precon-mem-"));
+    try {
+      const effort = "recon-del";
+      const t01 = join(root, ".planning", effort, "tickets", "01-keep.md");
+      const t02 = join(root, ".planning", effort, "tickets", "02-gone.md");
+      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+      writeFileSync(t01, "---\ntype: task\nstatus: closed\n---\n# 01 — keep\n\n## Resolution\nKeep.\n");
+      writeFileSync(t02, "---\ntype: task\nstatus: closed\n---\n# 02 — gone\n\n## Resolution\nGone.\n");
+      await walkAndIngest(root, { memoryDir: mem });             // mirror both tickets
+      // Source md for ticket 02 is removed (git rm / file deleted).
+      unlinkSync(t02);
+      await walkAndIngest(root, { memoryDir: mem });             // re-walk → sweep deletes 02
+      const store = await createCardStore({ memoryDir: mem });
+      const tickets = await store.getCardsByKind("planning-ticket");
+      await store.close();
+      const ids = tickets.map((c) => c.id).sort();
+      assert.deepEqual(ids, [`planning-ticket:${effort}:01`]);
+      assert.ok(!ids.includes(`planning-ticket:${effort}:02`), "vanished ticket row must be hard-deleted");
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(mem, { recursive: true, force: true });

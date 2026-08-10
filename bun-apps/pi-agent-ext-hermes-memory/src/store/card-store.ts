@@ -42,6 +42,9 @@ export interface CardStore {
    *  frontmatter (NOT a new row). Bypasses dedup (pure identity cannot express
    *  "update"; the sync-layer hash-compare decides WHEN to call this). */
   updateCard(card: Card): Promise<void>;
+  /** 09-impl: hard-delete a card row by Card.id (md-wins reconciliation — the
+   *  source md vanished). Also paired with deleteCardMdHash by the sweep. */
+  deleteCard(id: string): Promise<void>;
   /** Fetch the Card whose canonical id (`memories.md_id`) equals `id`, or null. */
   getCard(id: string): Promise<Card | null>;
   /** All Cards of one kind (`memories.target` = kind). */
@@ -214,6 +217,14 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
                WHERE md_id = ?`,
             )
             .run(card.content, JSON.stringify(card.frontmatter), today(), card.id);
+        }),
+      );
+    },
+
+    async deleteCard(id: string): Promise<void> {
+      await runWithTransientRetry(() =>
+        backend.withCorruptionRecovery(() => {
+          getDb().prepare("DELETE FROM memories WHERE md_id = ?").run(id);
         }),
       );
     },

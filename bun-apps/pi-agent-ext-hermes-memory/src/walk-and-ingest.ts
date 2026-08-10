@@ -8,8 +8,13 @@ import { walkKnowledgeSources, type WalkOptions } from "./knowledge-walk.js";
 import { parseKnowledgeJsonl } from "./knowledge-jsonl.js";
 import { AGENT_ROOT } from "./paths.js";
 import { createCardStore } from "./store/card-store.js";
-import { planningCardKindFromPath } from "./store/planning-id.js";
-import { planningContentHash, getStoredHash, upsertHash } from "./store/planning-sync-state.js";
+import {
+  planningCardKindFromPath,
+  parsePlanningPath,
+  planningEffortId,
+  planningTicketId,
+} from "./store/planning-id.js";
+import { planningContentHash, getStoredHash, upsertHash, deleteHash } from "./store/planning-sync-state.js";
 
 /** Options for walkAndIngest. Extends the walk policy opts with ingest/heal scope. */
 export interface WalkAndIngestOptions extends WalkOptions {
@@ -150,6 +155,9 @@ export async function walkAndIngest(
   const planMirror = await mirrorPlanningToStore(walk.files.planning, opts.memoryDir);
   const planningMirrored = planMirror.planningMirrored;
   const conflictMarkerEfforts = planMirror.conflictMarkerEfforts; // populated in T5
+
+  // 8c. Planning delete reconciliation (Phase-2 / 09-impl) — md-wins sweep.
+  await reconcilePlanningDeletions(walk.files.planning, opts.memoryDir);
 
   // 10. Receipt.
   if (!kp && walk.files.planning.length === 0) {
@@ -296,4 +304,42 @@ async function mirrorPlanningToStore(
     await store.close();
   }
   return { planningMirrored, conflictMarkerEfforts };
+}
+
+/** Mirror step 8c (Phase-2 / 09-impl): md-wins delete reconciliation. Given the
+ *  set of planning md files PRESENT on disk, find DB planning-cards whose source
+ *  md is absent → hard-delete the memories row + its card_md_hash row (Tier-1 md
+ *  wins; the DB mirror must not keep rows for deleted md). Tombstoning is
+ *  out-of-scope (09 hard-deletes). Returns the # of rows deleted. No-op when no
+ *  planning-cards are stored. */
+async function reconcilePlanningDeletions(
+  presentPlanningFiles: string[],
+  memoryDir?: string,
+): Promise<{ planningDeleted: number }> {
+  const presentIds = new Set<string>();
+  for (const abs of presentPlanningFiles) {
+    const info = parsePlanningPath(abs);
+    if (!info) continue;
+    presentIds.add(
+      info.kind === "planning-effort" ? planningEffortId(info.effort) : planningTicketId(info.effort, info.ticketNo!),
+    );
+  }
+  const dir = memoryDir ?? join(AGENT_ROOT, "pi-hermes-memory");
+  const store = await createCardStore({ memoryDir: dir });
+  let planningDeleted = 0;
+  try {
+    for (const kind of ["planning-effort", "planning-ticket"] as const) {
+      const rows = await store.getCardsByKind(kind);
+      for (const card of rows) {
+        if (!presentIds.has(card.id)) {
+          await store.deleteCard(card.id);
+          await deleteHash(store, card.id);
+          planningDeleted++;
+        }
+      }
+    }
+  } finally {
+    await store.close();
+  }
+  return { planningDeleted };
 }
