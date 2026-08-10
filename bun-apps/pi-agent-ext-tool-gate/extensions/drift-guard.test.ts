@@ -371,7 +371,7 @@ export function runDriftGuardNet(extensions: MigratedExtension[]): void {
 							`(typo, or the tool was removed — drop it from ungatedByDesign)`,
 				);
 			}
-			defs = defs.filter((d) => !exempt.has(d.name));
+			defs = defs.filter((d) => d.name == null || !exempt.has(d.name));
 		}
 		assertAllValid(defs);
 	}

@@ -881,8 +881,6 @@ describe("measureToolTokens (S3)", () => {
   });
 });
 
-import { buildEffectiveGates } from "./tool-gate.ts";
-
 describe("buildEffectiveGates", () => {
   test("owner-declared core:true → core set, removed from fallback need", () => {
     const defs = [{ name: "enable_tool", gating: { core: true } }] as Array<{
