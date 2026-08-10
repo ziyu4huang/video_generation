@@ -130,9 +130,9 @@ export {
 // subagent-runs-tool
 export type { SubagentRunsToolOptions } from "./subagent-runs-tool.js";
 export { createSubagentRunsTool } from "./subagent-runs-tool.js";
-// subagent-tool
-export type { SubagentToolDetails, SubagentToolOptions } from "./subagent-tool.js";
 export { createSubagentTool, formatHistoryLine } from "./subagent-tool.js";
+// subagent-tool
+export type { SubagentToolDetails, SubagentToolOptions } from "./subagent-tool-schema.js";
 // subagents batch tool (plural — wraps spawnSubagent for fan-out batches)
 export type {
   BatchResultSlot,
