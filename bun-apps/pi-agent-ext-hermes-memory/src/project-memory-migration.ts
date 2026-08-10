@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ENTRY_DELIMITER, MEMORY_FILE } from "./constants.js";
+import { splitMemoryEntries } from "./merge-union.js";
 
 export interface ProjectMemoryMigrationResult {
   scanned: number;
@@ -14,7 +15,7 @@ function readEntries(filePath: string): string[] {
   if (!fs.existsSync(filePath)) return [];
   const raw = fs.readFileSync(filePath, "utf-8").trim();
   if (!raw) return [];
-  return raw.split(ENTRY_DELIMITER).map((entry) => entry.trim()).filter(Boolean);
+  return splitMemoryEntries(raw);
 }
 
 function writeEntries(filePath: string, entries: string[]): void {

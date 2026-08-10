@@ -17,6 +17,7 @@
  */
 import * as fs from "node:fs";
 import { ENTRY_DELIMITER } from "./constants.js";
+import { splitMemoryEntries } from "./merge-union.js";
 import { parseMarkdownMemoryEntry, serializeMetadataComment, today } from "./store/memory-format.js";
 import { findNearDuplicate, DEFAULT_NEAR_DUP_THRESHOLD } from "./store/near-dup.js";
 import { topicKey } from "./store/topic-key.js";
@@ -39,7 +40,7 @@ function readEntries(filePath: string): string[] {
   if (!fs.existsSync(filePath)) return [];
   const raw = fs.readFileSync(filePath, "utf-8").trim();
   if (!raw) return [];
-  return raw.split(ENTRY_DELIMITER).map((e) => e.trim()).filter(Boolean);
+  return splitMemoryEntries(raw);
 }
 
 function compressToFact(raw: string): string {

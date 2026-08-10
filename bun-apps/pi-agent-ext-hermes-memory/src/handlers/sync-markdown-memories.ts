@@ -21,6 +21,7 @@ import {
   defaultStateForCategory,
 } from '../store/memory-format.js';
 import { ENTRY_DELIMITER, MEMORY_FILE, USER_FILE } from '../constants.js';
+import { splitMemoryEntries } from '../merge-union.js';
 import { AGENT_ROOT } from '../paths.js';
 import { findDanglingLineageReferences, formatDanglingWarning } from './integrity-sweep.js';
 
@@ -48,7 +49,7 @@ function readEntries(filePath: string): string[] {
   if (!fs.existsSync(filePath)) return [];
   const raw = fs.readFileSync(filePath, 'utf-8').trim();
   if (!raw) return [];
-  return raw.split(ENTRY_DELIMITER).map((entry) => entry.trim()).filter(Boolean);
+  return splitMemoryEntries(raw);
 }
 
 type ParsedEntry = ReturnType<typeof parseMarkdownMemoryEntry>;
