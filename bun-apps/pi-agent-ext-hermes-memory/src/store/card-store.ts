@@ -46,6 +46,12 @@ export interface CardStore {
    *  path stores `Card.frontmatter` as JSON directly and does not invoke it;
    *  exposed for the 06b orchestrator's disk-read path. */
   serializerFor(kind: CardKind): CardSerializer | undefined;
+  /** 09-impl: read the stored content-hash row for a card (by Card.id), or null. */
+  getCardMdHash(cardId: string): Promise<{ hash: string; mirroredAt: string; kind: string } | null>;
+  /** 09-impl: UPSERT a content-hash row (SQLite ON CONFLICT DO UPDATE). */
+  upsertCardMdHash(cardId: string, hash: string, kind?: string): Promise<void>;
+  /** 09-impl: delete the content-hash row for a card. */
+  deleteCardMdHash(cardId: string): Promise<void>;
   /** Close the backing backend (release the SQLite handle). */
   close(): Promise<void>;
 }
@@ -211,6 +217,42 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
 
     serializerFor(kind: CardKind): CardSerializer | undefined {
       return serializers.get(kind);
+    },
+
+    getCardMdHash(cardId: string): Promise<{ hash: string; mirroredAt: string; kind: string } | null> {
+      return runWithTransientRetry(() =>
+        backend.withCorruptionRecovery(() => {
+          const row = getDb()
+            .prepare("SELECT content_hash, mirrored_at, kind FROM card_md_hash WHERE card_id = ?")
+            .get(cardId) as { content_hash: string; mirrored_at: string; kind: string } | undefined;
+          return row ? { hash: row.content_hash, mirroredAt: row.mirrored_at, kind: row.kind } : null;
+        }),
+      );
+    },
+
+    upsertCardMdHash(cardId: string, hash: string, kind = "mirror"): Promise<void> {
+      return runWithTransientRetry(() =>
+        backend.withCorruptionRecovery(() => {
+          getDb()
+            .prepare(
+              `INSERT INTO card_md_hash (card_id, content_hash, mirrored_at, kind)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(card_id) DO UPDATE SET
+                 content_hash = excluded.content_hash,
+                 mirrored_at = excluded.mirrored_at,
+                 kind = excluded.kind`,
+            )
+            .run(cardId, hash, today(), kind);
+        }),
+      );
+    },
+
+    deleteCardMdHash(cardId: string): Promise<void> {
+      return runWithTransientRetry(() =>
+        backend.withCorruptionRecovery(() => {
+          getDb().prepare("DELETE FROM card_md_hash WHERE card_id = ?").run(cardId);
+        }),
+      );
     },
 
     async close(): Promise<void> {
