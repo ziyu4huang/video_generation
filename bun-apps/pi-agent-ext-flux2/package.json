@@ -31,6 +31,7 @@
     "typebox": "*"
   },
   "devDependencies": {
+    "@repo/pi-agent-ext-core-interface": "workspace:*",
     "@types/bun": "latest",
     "typescript": "^6.0.3"
   }

@@ -280,7 +280,9 @@ const PKGS = [
   { name: "krea2",          anchor: `    "@types/bun"`,                      dts: "src/tool-gating.d.ts" },
   { name: "file2md",        anchor: `    "@types/bun"`,                      dts: "src/tool-gating.d.ts" },
   { name: "research-tool",  anchor: `    "@repo/pi-agent-ext-obsidian"`,     dts: "extensions/tool-gating.d.ts" },
-  { name: "wayfind",        anchor: `    "@types/bun"`,                      dts: "src/tool-gating.d.ts" },
+  // wayfind has @tailwindcss/cli between @playwright and @types — "@repo"
+  // sorts BEFORE "@tailwindcss", so its anchor is not "@types/bun".
+  { name: "wayfind",        anchor: `    "@tailwindcss/cli"`,                dts: "src/tool-gating.d.ts" },
   { name: "obsidian",       anchor: `    "@types/bun"`,                      dts: "src/tool-gating.d.ts" },
   { name: "subagent",       anchor: `    "@types/bun"`,                      dts: "src/tool-gating.d.ts" },
   { name: "workflow",       anchor: `    "@types/bun"`,                      dts: "src/tool-gating.d.ts" },

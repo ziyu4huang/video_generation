@@ -158,6 +158,7 @@
       },
       "devDependencies": {
         "@biomejs/biome": "2.4.16",
+        "@repo/pi-agent-ext-core-interface": "workspace:*",
         "@types/bun": "^1.3.14",
         "javascript-obfuscator": "^5.4.3",
         "tsx": "^4.23.4",
@@ -179,6 +180,7 @@
         "@repo/pi-agent-ext-file2md": "workspace:*",
       },
       "devDependencies": {
+        "@repo/pi-agent-ext-core-interface": "workspace:*",
         "@types/bun": "latest",
         "typescript": "^6.0.3",
       },
@@ -228,6 +230,7 @@
       "name": "@repo/pi-agent-ext-krea2",
       "version": "0.1.0",
       "devDependencies": {
+        "@repo/pi-agent-ext-core-interface": "workspace:*",
         "@types/bun": "latest",
         "typescript": "^6.0.3",
       },
@@ -258,6 +261,7 @@
         "yaml": "latest",
       },
       "devDependencies": {
+        "@repo/pi-agent-ext-core-interface": "workspace:*",
         "@types/bun": "latest",
         "typescript": "^6.0.3",
       },
@@ -277,6 +281,7 @@
         "@repo/pi-agent-ext-subagent": "workspace:*",
       },
       "devDependencies": {
+        "@repo/pi-agent-ext-core-interface": "workspace:*",
         "@types/bun": "^1.3.14",
         "typescript": "^6.0.3",
       },
@@ -321,6 +326,7 @@
         "fast-xml-parser": "^5.2.0",
       },
       "devDependencies": {
+        "@repo/pi-agent-ext-core-interface": "workspace:*",
         "@repo/pi-agent-ext-obsidian": "workspace:*",
         "@types/bun": "latest",
         "typescript": "^6.0.3",
@@ -340,6 +346,7 @@
         "@earendil-works/pi-ai": "0.84.1",
         "@earendil-works/pi-coding-agent": "0.84.1",
         "@earendil-works/pi-tui": "0.84.1",
+        "@repo/pi-agent-ext-core-interface": "workspace:*",
         "@types/bun": "^1.3.14",
         "tsx": "^4.23.4",
         "typebox": "^1.3.7",
@@ -406,6 +413,7 @@
         "@biomejs/biome": "2.4.16",
         "@earendil-works/pi-coding-agent": "0.84.1",
         "@playwright/test": "^1",
+        "@repo/pi-agent-ext-core-interface": "workspace:*",
         "@tailwindcss/cli": "^4",
         "@types/bun": "^1.3.14",
         "tailwindcss": "^4",
@@ -449,6 +457,7 @@
         "@earendil-works/pi-ai": "0.84.1",
         "@earendil-works/pi-coding-agent": "0.84.1",
         "@earendil-works/pi-tui": "0.84.1",
+        "@repo/pi-agent-ext-core-interface": "workspace:*",
         "@types/bun": "^1.3.14",
         "tsx": "^4.23.4",
         "typebox": "^1.3.7",
