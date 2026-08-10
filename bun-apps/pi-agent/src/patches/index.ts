@@ -25,7 +25,8 @@ export type PatchName =
 	| "footer-extension-status-notify"
 	| "force-response-language"
 	| "editor-history-restore"
-	| "startup-history-hint";
+	| "startup-history-hint"
+	| "autocomplete-source-extension";
 
 export interface AppliedPatch {
   name: PatchName;
@@ -134,6 +135,14 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // contribute startup hints (setHeader is full-replace), so a patch is needed.
   // Disable with BUN_PI_STARTUP_HISTORY_HINT=0.
   { name: "startup-history-hint", env: "BUN_PI_STARTUP_HISTORY_HINT", defaultValue: true },
+  // autocomplete-source-extension: wraps InteractiveMode.prototype.prefixAutocompleteDescription
+  // so the /<cmd> and /skill: picker shows the OWNING extension inside each entry's
+  // scope marker — locally-loaded pi-agent-ext-<name> resources render a bare marker
+  // (e.g. [t]) with no package; this injects " · <name>" → "[t · wayfind] desc". npm/git
+  // sources are left unchanged (they already self-attribute). Must run after
+  // ensure-extension-deps (imports @earendil-works/pi-coding-agent). Disable with
+  // BUN_PI_AUTOCOMPLETE_SOURCE_EXTENSION=0.
+  { name: "autocomplete-source-extension", env: "BUN_PI_AUTOCOMPLETE_SOURCE_EXTENSION", defaultValue: true },
 ];
 
 /**
@@ -225,6 +234,9 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         break;
       case "startup-history-hint":
         await import("./startup-history-hint.ts");
+        break;
+      case "autocomplete-source-extension":
+        await import("./autocomplete-source-extension.ts");
         break;
       default: {
         // Exhaustiveness guard — a PATCH_TABLE entry with no matching case.
