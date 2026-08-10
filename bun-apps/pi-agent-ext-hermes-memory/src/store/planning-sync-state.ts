@@ -81,8 +81,10 @@ export async function deleteHash(store: CardStore, cardId: string): Promise<void
  *    planning-effort:<effort>      → <fsRoot>/.planning/<effort>/map.md
  *    planning-ticket:<effort>:<no> → glob <fsRoot>/.planning/<effort>/tickets/<no>-*.md
  *  (the id carries effort+no, NOT the slug — the slug is recovered by glob).
- *  Returns null for an unrecognised id / missing dir / no matching glob. */
-function sourcePathForId(cardId: string, fsRoot: string): string | null {
+ *  Returns null for an unrecognised id / missing dir / no matching glob.
+ *  Exported (10-impl T4 / decision η) so {@link readSourceCard} (and T4's
+ *  staleness compute) can re-derive a card from its source .md. */
+export function sourcePathForId(cardId: string, fsRoot: string): string | null {
   if (cardId.startsWith("planning-effort:")) {
     const effort = cardId.slice("planning-effort:".length);
     return join(fsRoot, ".planning", effort, "map.md");
@@ -106,6 +108,42 @@ function sourcePathForId(cardId: string, fsRoot: string): string | null {
   return null;
 }
 
+/** Re-parse the git-canonical source .md for a planning card id → the Card
+ *  (10-impl T4 / decision η — Path B). The 06a store does NOT persist card.graph
+ *  (it round-trips as `undefined`; `rowToCard` emits no `graph`), so callers that
+ *  need a card's `graph.relations` (deps for staleness) MUST re-derive the card
+ *  from its source .md rather than read the store row. Mirrors the resolve→read→
+ *  deserialize→find body that {@link refreshPlanningCard} inlined pre-T4; factored
+ *  out here so refreshPlanningCard + computeStaleness share one source-of-truth
+ *  reader. Returns null when the source is unresolvable / unreadable / the id is
+ *  not present in the file (no deletion — callers decide). Async to match the
+ *  CardStore async envelope + future async-fs evolution. */
+export async function readSourceCard(
+  store: CardStore,
+  cardId: string,
+  fsRoot: string,
+): Promise<Card | null> {
+  const src = sourcePathForId(cardId, fsRoot);
+  if (!src) return null;
+  let bytes: string;
+  try {
+    bytes = readFileSync(src, "utf8");
+  } catch {
+    return null;
+  }
+  // Derive the kind from the id prefix (the serializer registry is keyed by kind).
+  const kind = cardId.startsWith("planning-effort:")
+    ? "planning-effort"
+    : cardId.startsWith("planning-ticket:")
+      ? "planning-ticket"
+      : null;
+  if (!kind) return null;
+  const serializer = store.serializerFor(kind);
+  if (!serializer) return null;
+  const cards = serializer.deserialize(bytes, { filePath: src });
+  return cards.find((c) => c.id === cardId) ?? null;
+}
+
 /** On-demand refresh of ONE planning card (T7 — explicit, NOT every-read-rehash).
  *  Re-reads the source md for cardId, re-deserializes, re-hashes, and re-mirrors
  *  via the SAME hash-compare branch as the T3 mirror
@@ -123,25 +161,7 @@ export async function refreshPlanningCard(
   cardId: string,
   fsRoot: string,
 ): Promise<{ action: RefreshAction }> {
-  const src = sourcePathForId(cardId, fsRoot);
-  if (!src) return { action: "absent" };
-  let bytes: string;
-  try {
-    bytes = readFileSync(src, "utf8");
-  } catch {
-    return { action: "absent" };
-  }
-  // Derive the kind from the id prefix (the serializer registry is keyed by kind).
-  const kind = cardId.startsWith("planning-effort:")
-    ? "planning-effort"
-    : cardId.startsWith("planning-ticket:")
-      ? "planning-ticket"
-      : null;
-  if (!kind) return { action: "absent" };
-  const serializer = store.serializerFor(kind);
-  if (!serializer) return { action: "absent" };
-  const cards = serializer.deserialize(bytes, { filePath: src });
-  const card = cards.find((c) => c.id === cardId);
+  const card = await readSourceCard(store, cardId, fsRoot);
   if (!card) return { action: "absent" };
 
   // Same hash-compare branch as the T3 mirror (walk-and-ingest.mirrorPlanningToStore),
