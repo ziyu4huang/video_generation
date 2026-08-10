@@ -383,6 +383,23 @@ describe("/grill and /wayfind dispatchers — routing", () => {
     expect(pi.sent.some((s) => s.includes("Charting a wayfinder map"))).toBe(true);
   });
 
+  it("a bare non-keyword phrase while an effort is active shows status, does NOT chart or clobber", async () => {
+    const { pi, state } = setup();
+    const ctx = makeCtx(makeCwd());
+    // Simulate a prior chart having set an active effort for this session.
+    // (makeCtx's sessionManager.getSessionId() returns "test-session".)
+    state.activeEffortBySession.set("test-session", "2026-08-10-existing-effort");
+
+    await run(pi, "wayfind", "show current effort id status", ctx);
+
+    // Did NOT chart a new effort (no charting steer sent):
+    expect(pi.sent.some((s) => s.includes("Charting a wayfinder map"))).toBe(false);
+    // Did NOT create a .planning/ dir:
+    expect(existsSync(join(ctx.cwd, ".planning"))).toBe(false);
+    // Did NOT clobber the active effort:
+    expect(state.activeEffortBySession.get("test-session")).toBe("2026-08-10-existing-effort");
+  });
+
   it("'/wayfind -- <destination>' force-charts, escaping a reserved keyword prefix", async () => {
     const { pi } = setup();
     const ctx = makeCtx(makeCwd());
