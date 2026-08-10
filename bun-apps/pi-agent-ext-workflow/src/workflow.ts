@@ -610,37 +610,6 @@ export async function runWorkflow<T = unknown>(
     });
   };
 
-  const parallel = async (thunks: Array<() => Promise<unknown>>) => {
-    rt.throwIfAborted();
-    if (!Array.isArray(thunks)) throw new TypeError("parallel() expects an array of functions");
-    if (thunks.some((thunk) => typeof thunk !== "function")) {
-      throw new TypeError("parallel() expects an array of functions, not promises. Wrap each call: () => agent(...)");
-    }
-    // RCA#3: freeze the phase for the entire parallel scope so a thunk's
-    // phase() call can't pollute siblings. Restore after all thunks complete.
-    const savedOverride = state.parallelPhaseOverride;
-    const savedPhase = state.currentPhase;
-    state.parallelPhaseOverride = savedPhase;
-    try {
-      return await Promise.all(
-        thunks.map(async (thunk, index) => {
-          try {
-            return await thunk();
-          } catch (error) {
-            if (options.signal?.aborted) throw error;
-            const workflowError = wrapError(error);
-            if (!workflowError.recoverable) throw workflowError;
-            rt.log(`parallel[${index}] failed: ${workflowError.message}`);
-            return null;
-          }
-        }),
-      );
-    } finally {
-      state.parallelPhaseOverride = savedOverride;
-      state.currentPhase = savedPhase;
-    }
-  };
-
   // Nested workflow(): run a saved workflow (or a raw script) inline, sharing this
   // run's limiter/counters/budget so the global caps hold. One level deep only.
   const workflowFn = async (nameOrScript: string, childArgs?: unknown) => {
@@ -670,7 +639,7 @@ export async function runWorkflow<T = unknown>(
     }
   };
 
-  const stdlib = createStdlib({ agent, parallel });
+  const stdlib = createStdlib({ agent, parallel: rt.parallel });
 
   // Deterministic, journaled, replayable human checkpoint. Spends no tokens, so it
   // is gated on the agent counter + abort (not budget). On resume the human's reply
@@ -747,7 +716,7 @@ export async function runWorkflow<T = unknown>(
 
   const context = vm.createContext({
     agent,
-    parallel,
+    parallel: rt.parallel,
     pipeline: rt.pipeline,
     workflow: workflowFn,
     verify: stdlib.verify,

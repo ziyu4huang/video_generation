@@ -1,6 +1,6 @@
 import { WorkflowError, WorkflowErrorCode, wrapError } from "@repo/pi-agent-ext-subagent";
 import type { createWorkflowLogger } from "./logger.js";
-import type { PipelineFn, RuntimeState, SharedRuntime, WorkflowRunOptions } from "./workflow.js";
+import type { ParallelFn, PipelineFn, RuntimeState, SharedRuntime, WorkflowRunOptions } from "./workflow.js";
 
 /**
  * Deps bag passed into createRuntime. Grows as more closures move in (5.1 = leaf
@@ -22,6 +22,7 @@ export interface Runtime {
   phase: (title: string, phaseOptions?: { budget?: number }) => void;
   budget: Readonly<{ total: number | null; spent: () => number; remaining: () => number }>;
   throwIfAborted: () => void;
+  parallel: ParallelFn;
   pipeline: PipelineFn;
 }
 
@@ -67,6 +68,37 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
   // pipeline relocated UNCHANGED from workflow.ts; it closes over throwIfAborted
   // (local above), options (deps field), log (local), and wrapError (import).
+  const parallel: ParallelFn = async (thunks: Array<() => Promise<unknown>>) => {
+    throwIfAborted();
+    if (!Array.isArray(thunks)) throw new TypeError("parallel() expects an array of functions");
+    if (thunks.some((thunk) => typeof thunk !== "function")) {
+      throw new TypeError("parallel() expects an array of functions, not promises. Wrap each call: () => agent(...)");
+    }
+    // RCA#3: freeze the phase for the entire parallel scope so a thunk's
+    // phase() call can't pollute siblings. Restore after all thunks complete.
+    const savedOverride = state.parallelPhaseOverride;
+    const savedPhase = state.currentPhase;
+    state.parallelPhaseOverride = savedPhase;
+    try {
+      return await Promise.all(
+        thunks.map(async (thunk, index) => {
+          try {
+            return await thunk();
+          } catch (error) {
+            if (options.signal?.aborted) throw error;
+            const workflowError = wrapError(error);
+            if (!workflowError.recoverable) throw workflowError;
+            log(`parallel[${index}] failed: ${workflowError.message}`);
+            return null;
+          }
+        }),
+      );
+    } finally {
+      state.parallelPhaseOverride = savedOverride;
+      state.currentPhase = savedPhase;
+    }
+  };
+
   const pipeline: PipelineFn = async (
     items: unknown[],
     ...stages: Array<(prev: unknown, original: unknown, index: number) => unknown>
@@ -98,5 +130,5 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     );
   };
 
-  return { log, phase, budget, throwIfAborted, pipeline };
+  return { log, phase, budget, throwIfAborted, parallel, pipeline };
 }
