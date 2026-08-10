@@ -1,0 +1,701 @@
+# Review package: 5b6b51a3..b360cdee
+
+## Commits
+b360cdee feat(webui): MutexController adapter - events<->mutex + notifications (ticket 03)
+7169e9ec feat(webui): AgentMutex module - gate/release/watchdog (ticket 03)
+5f1cc3ee feat(webui): scaffold pi-agent-ext-webui package (ticket 03 host)
+
+## Files changed
+ bun-apps/bun.lock                                  |  12 ++
+ bun-apps/pi-agent-ext-webui/.gitignore             |   2 +
+ bun-apps/pi-agent-ext-webui/package.json           |  23 ++++
+ bun-apps/pi-agent-ext-webui/src/index.ts           |   7 +
+ .../pi-agent-ext-webui/src/mutex-controller.ts     |  77 +++++++++++
+ bun-apps/pi-agent-ext-webui/src/mutex.ts           | 133 ++++++++++++++++++
+ .../pi-agent-ext-webui/tests/helpers/fake-clock.ts |  37 +++++
+ .../tests/mutex-controller.test.ts                 | 101 ++++++++++++++
+ bun-apps/pi-agent-ext-webui/tests/mutex.test.ts    | 150 +++++++++++++++++++++
+ bun-apps/pi-agent-ext-webui/tsconfig.json          |  17 +++
+ 10 files changed, 559 insertions(+)
+
+## Diff
+diff --git a/bun-apps/bun.lock b/bun-apps/bun.lock
+index c0f9910f..5ee1f77d 100644
+--- a/bun-apps/bun.lock
++++ b/bun-apps/bun.lock
+@@ -431,20 +431,28 @@
+         "@types/bun": "latest",
+         "typescript": "^6.0.3",
+       },
+       "peerDependencies": {
+         "@earendil-works/pi-ai": "0.84.1",
+         "@earendil-works/pi-coding-agent": "0.84.1",
+         "@earendil-works/pi-tui": "0.84.1",
+         "typebox": "*",
+       },
+     },
++    "pi-agent-ext-webui": {
++      "name": "@repo/pi-agent-ext-webui",
++      "version": "0.1.0",
++      "devDependencies": {
++        "@types/bun": "^1.3.14",
++        "typescript": "^7.0.2",
++      },
++    },
+     "pi-agent-ext-workflow": {
+       "name": "@repo/pi-agent-ext-workflow",
+       "version": "2.9.0",
+       "dependencies": {
+         "acorn": "^8.16.0",
+       },
+       "devDependencies": {
+         "@biomejs/biome": "2.4.16",
+         "@earendil-works/pi-ai": "0.84.1",
+         "@earendil-works/pi-coding-agent": "0.84.1",
+@@ -868,20 +876,22 @@
+     "@repo/pi-agent-ext-subagent": ["@repo/pi-agent-ext-subagent@workspace:pi-agent-ext-subagent"],
+ 
+     "@repo/pi-agent-ext-superpowers": ["@repo/pi-agent-ext-superpowers@workspace:pi-agent-ext-superpowers"],
+ 
+     "@repo/pi-agent-ext-tool-gate": ["@repo/pi-agent-ext-tool-gate@workspace:pi-agent-ext-tool-gate"],
+ 
+     "@repo/pi-agent-ext-wayfind": ["@repo/pi-agent-ext-wayfind@workspace:pi-agent-ext-wayfind"],
+ 
+     "@repo/pi-agent-ext-web-access": ["@repo/pi-agent-ext-web-access@workspace:pi-agent-ext-web-access"],
+ 
++    "@repo/pi-agent-ext-webui": ["@repo/pi-agent-ext-webui@workspace:pi-agent-ext-webui"],
++
+     "@repo/pi-agent-ext-workflow": ["@repo/pi-agent-ext-workflow@workspace:pi-agent-ext-workflow"],
+ 
+     "@repo/pi-agent-ext-zai-mcp": ["@repo/pi-agent-ext-zai-mcp@workspace:pi-agent-ext-zai-mcp"],
+ 
+     "@silvia-odwyer/photon-node": ["@silvia-odwyer/photon-node@0.3.4", "", {}, "sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA=="],
+ 
+     "@smithy/core": ["@smithy/core@3.29.8", "", { "dependencies": { "@smithy/types": "^4.16.1", "tslib": "^2.6.2" } }, "sha512-rpCbCV+TimOBi3VLNBMmtTvgfOWcFIEAru3+TFlG87SL2F+te4jOnnNR+cf3uR4eJ5Qf4LnT80fqnBKgPRS6zA=="],
+ 
+     "@smithy/credential-provider-imds": ["@smithy/credential-provider-imds@4.4.13", "", { "dependencies": { "@smithy/core": "^3.29.8", "@smithy/types": "^4.16.1", "tslib": "^2.6.2" } }, "sha512-X+2HNZhWi5i3rJsCas0LPf6fTQUaKyJ40zd8aTO/bwpRfpU3biYaqLr7C1WMibL7PVKJalpi1PyybjGPNoHC8Q=="],
+ 
+@@ -2040,20 +2050,22 @@
+     "@repo/pi-agent-ext-research-tool/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+ 
+     "@repo/pi-agent-ext-subagent/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+ 
+     "@repo/pi-agent-ext-superpowers/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+ 
+     "@repo/pi-agent-ext-wayfind/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+ 
+     "@repo/pi-agent-ext-web-access/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+ 
++    "@repo/pi-agent-ext-webui/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
++
+     "@repo/pi-agent-ext-workflow/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+ 
+     "@tailwindcss/oxide-wasm32-wasi/@emnapi/core": ["@emnapi/core@1.11.3", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.3", "tslib": "^2.4.0" }, "bundled": true }, "sha512-zLpS5asjEb7lq8jYLq37N6XKaE41DIexlY1rF/z4/tIl3wo13Sqm28fRyfIsKZD+NZ8mM5RoKkpW/rBcuoSZSg=="],
+ 
+     "@tailwindcss/oxide-wasm32-wasi/@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" }, "bundled": true }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
+ 
+     "@tailwindcss/oxide-wasm32-wasi/@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.3", "", { "dependencies": { "tslib": "^2.4.0" }, "bundled": true }, "sha512-ELEBe8PsLvvJ6QMr0zLt8ffvOHW/dc1m3CEzNMg7aJUv3bMaoDtw2TXyDAwkYBuroxxuHEwhRTLJSe5sya547g=="],
+ 
+     "@tailwindcss/oxide-wasm32-wasi/@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@1.2.2", "", { "dependencies": { "@tybys/wasm-util": "^0.10.3" }, "peerDependencies": { "@emnapi/core": "^1.7.1 || ^2.0.0-alpha.3", "@emnapi/runtime": "^1.7.1 || ^2.0.0-alpha.3" }, "bundled": true }, "sha512-JfB4kuJQjaoHuCTseIINHtHWeJnvgEcxjwA5t/Y00ZgaOO1Crz3fjT/p8kT28zA/Caz7oiUMn3d6H2yOVCVwuw=="],
+ 
+diff --git a/bun-apps/pi-agent-ext-webui/.gitignore b/bun-apps/pi-agent-ext-webui/.gitignore
+new file mode 100644
+index 00000000..f06235c4
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-webui/.gitignore
+@@ -0,0 +1,2 @@
++node_modules
++dist
+diff --git a/bun-apps/pi-agent-ext-webui/package.json b/bun-apps/pi-agent-ext-webui/package.json
+new file mode 100644
+index 00000000..0274cacc
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-webui/package.json
+@@ -0,0 +1,23 @@
++{
++  "name": "@repo/pi-agent-ext-webui",
++  "private": true,
++  "version": "0.1.0",
++  "description": "Pi extension: a web frontend co-driving one AgentSession with the TUI behind an agentic mutex. Scaffold (mutex module); full Bun.serve extension lands in tickets 02/04.",
++  "type": "module",
++  "main": "./dist/index.js",
++  "types": "./dist/index.d.ts",
++  "exports": {
++    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
++    "./src/*": "./src/*"
++  },
++  "scripts": {
++    "build": "bunx tsc",
++    "test:unit": "bun test",
++    "test": "bun run build && bun run test:unit"
++  },
++  "license": "MIT",
++  "devDependencies": {
++    "@types/bun": "^1.3.14",
++    "typescript": "^7.0.2"
++  }
++}
+diff --git a/bun-apps/pi-agent-ext-webui/src/index.ts b/bun-apps/pi-agent-ext-webui/src/index.ts
+new file mode 100644
+index 00000000..8f98907e
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-webui/src/index.ts
+@@ -0,0 +1,7 @@
++/**
++ * pi-agent-ext-webui — a web frontend that co-drives one AgentSession with the
++ * TUI behind an agentic mutex (ticket 03). This scaffold hosts the mutex module
++ * and its tests only; the Bun.serve extension + pi registration land in tickets
++ * 02/04 and call into src/mutex-controller.ts.
++ */
++export {};
+diff --git a/bun-apps/pi-agent-ext-webui/src/mutex-controller.ts b/bun-apps/pi-agent-ext-webui/src/mutex-controller.ts
+new file mode 100644
+index 00000000..cffb0fa0
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-webui/src/mutex-controller.ts
+@@ -0,0 +1,77 @@
++/**
++ * MutexController — the adapter that wires a pure AgentMutex to an event-driven
++ * host (pi extension events in production; a fake emitter in tests). It owns no
++ * state beyond the mutex + a notifier; it translates gate verdicts into the
++ * InputEventResult `action` and fires the blocked / force-release notifications.
++ *
++ * The real pi wiring (ticket 04) calls these methods from its pi.on(...) handlers.
++ * Kept separate from mutex.ts so the pure module stays I/O-free and the
++ * translation is independently testable.
++ */
++
++import {
++  AgentMutex,
++  toFrontend,
++  type Frontend,
++  type InputSource,
++  type MutexClock,
++  type WatchdogConfig,
++} from "./mutex.js";
++
++/** How the controller tells each side about a block / force-release. */
++export interface MutexNotifier {
++  /** `blocked` tried to submit while `by` was driving. */
++  notifyBlocked(blocked: Frontend, by: Frontend): void;
++  /** A hung turn by `driver` was force-released by the watchdog. */
++  notifyForceRelease(driver: Frontend): void;
++}
++
++export interface MutexControllerOptions {
++  clock: MutexClock;
++  watchdog?: WatchdogConfig;
++  notifier: MutexNotifier;
++}
++
++export class MutexController {
++  private readonly mutex: AgentMutex;
++  private readonly notifier: MutexNotifier;
++
++  constructor(opts: MutexControllerOptions) {
++    this.notifier = opts.notifier;
++    this.mutex = new AgentMutex({
++      clock: opts.clock,
++      watchdog: opts.watchdog,
++      callbacks: { onForceRelease: (i) => this.notifier.notifyForceRelease(i.driver) },
++    });
++  }
++
++  get driver(): Frontend | null {
++    return this.mutex.driver;
++  }
++
++  /** Called from pi.on("input"). Returns the InputEventResult `action`. */
++  handleInput(source: InputSource): { action: "continue" | "handled" } {
++    const r = this.mutex.gate(source);
++    if (r.verdict === "handled" && r.blocked) {
++      const blocked = toFrontend(source);
++      if (blocked) this.notifier.notifyBlocked(blocked, r.blocked.by);
++      return { action: "handled" };
++    }
++    return { action: "continue" };
++  }
++
++  /** Called from pi.on("agent_settled"). */
++  handleSettled(): void {
++    this.mutex.release("settled");
++  }
++
++  /** Called from pi.on("message_update" | "tool_execution_update"). */
++  handleActivity(): void {
++    this.mutex.bumpActivity();
++  }
++
++  /** Called from pi.on("session_shutdown"). */
++  handleShutdown(): void {
++    this.mutex.release("shutdown");
++  }
++}
+diff --git a/bun-apps/pi-agent-ext-webui/src/mutex.ts b/bun-apps/pi-agent-ext-webui/src/mutex.ts
+new file mode 100644
+index 00000000..4995705d
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-webui/src/mutex.ts
+@@ -0,0 +1,133 @@
++/**
++ * AgentMutex — agentic mutual-exclusion lock for co-driving frontends (TUI + web)
++ * on one AgentSession. Deep module: state + transitions + a watchdog behind a tiny
++ * interface, testable through that interface (pure logic + injectable clock; no pi,
++ * no I/O).
++ *
++ * Design: specs/03-agentic-mutex-design.md (effort 2026-08-10-pi-agent-ext-webui-from-scratch).
++ * Gate = the `input` extension event; release = `agent_settled`; watchdog backstops
++ * hung turns. The extension wiring (mutex-controller.ts) feeds events and translates
++ * verdicts into pi calls.
++ */
++
++/** A co-driving frontend. rpc is NOT a frontend (passes through ungated). */
++export type Frontend = "tui" | "web";
++
++/** Why the lock was released. */
++export type ReleaseReason = "settled" | "watchdog" | "shutdown";
++
++/** pi's InputSource — mirrored locally so this module has no pi import. */
++export type InputSource = "interactive" | "rpc" | "extension";
++
++/** Result of gating a submission. `verdict` maps 1:1 onto InputEventResult.action. */
++export interface GateResult {
++  verdict: "continue" | "handled";
++  driver: Frontend | null;
++  /** Present iff verdict === "handled". */
++  blocked?: { by: Frontend };
++}
++
++/** Injectable wall clock + interval timer, so tests are deterministic. */
++export interface MutexClock {
++  now(): number;
++  setInterval(handler: () => void, ms: number): MutexTimer;
++}
++
++export interface MutexTimer {
++  clear(): void;
++}
++
++export interface WatchdogConfig {
++  /** Force-release after this many ms with zero bumpActivity while driving. */
++  staleMs: number;
++  /** Watchdog tick interval (ms). */
++  intervalMs: number;
++}
++
++/** Default: 10-min stale, 1s tick (pure app-logic turns do not take the lock). */
++export const DEFAULT_WATCHDOG: WatchdogConfig = { staleMs: 10 * 60_000, intervalMs: 1000 };
++
++/** Map a pi InputSource to a co-driving frontend (rpc -> null = passthrough). */
++export function toFrontend(source: InputSource): Frontend | null {
++  if (source === "interactive") return "tui";
++  if (source === "extension") return "web";
++  return null; // rpc
++}
++
++/** Watchdog callback — the controller wires this to notify both frontends. */
++export interface MutexCallbacks {
++  onForceRelease?(info: { driver: Frontend }): void;
++}
++
++export interface AgentMutexOptions {
++  clock: MutexClock;
++  watchdog?: WatchdogConfig;
++  callbacks?: MutexCallbacks;
++}
++
++export class AgentMutex {
++  private _driver: Frontend | null = null;
++  private lastActivity = 0;
++  private timer: MutexTimer | null = null;
++  private readonly clock: MutexClock;
++  private readonly watchdog: WatchdogConfig;
++  private readonly callbacks: MutexCallbacks;
++
++  constructor(opts: AgentMutexOptions) {
++    this.clock = opts.clock;
++    this.watchdog = opts.watchdog ?? DEFAULT_WATCHDOG;
++    this.callbacks = opts.callbacks ?? {};
++  }
++
++  get driver(): Frontend | null {
++    return this._driver;
++  }
++
++  /** Synchronous check-and-set. Call from the input handler BEFORE any await. */
++  gate(source: InputSource): GateResult {
++    const me = toFrontend(source);
++    if (me === null) return { verdict: "continue", driver: this._driver }; // rpc passthrough
++    if (this._driver === null) {
++      this._driver = me;
++      this.startWatchdog();
++      return { verdict: "continue", driver: me };
++    }
++    if (this._driver === me) {
++      this.bumpActivity();
++      return { verdict: "continue", driver: me };
++    }
++    return { verdict: "handled", driver: this._driver, blocked: { by: this._driver } };
++  }
++
++  /** Release the lock. Idempotent (no-op when already idle). */
++  release(_reason: ReleaseReason): void {
++    if (this._driver === null) return;
++    this.stopWatchdog();
++    this._driver = null;
++  }
++
++  // Reset the watchdog inactivity timer. Call on every message_*/tool_* event.
++  bumpActivity(): void {
++    if (this._driver !== null) this.lastActivity = this.clock.now();
++  }
++
++  private startWatchdog(): void {
++    this.lastActivity = this.clock.now();
++    this.timer?.clear();
++    this.timer = this.clock.setInterval(() => this.tick(), this.watchdog.intervalMs);
++  }
++
++  private stopWatchdog(): void {
++    this.timer?.clear();
++    this.timer = null;
++  }
++
++  private tick(): void {
++    if (this._driver === null) return;
++    if (this.clock.now() - this.lastActivity >= this.watchdog.staleMs) {
++      const driver = this._driver;
++      this.release("watchdog");
++      this.callbacks.onForceRelease?.({ driver });
++    }
++  }
++}
+diff --git a/bun-apps/pi-agent-ext-webui/tests/helpers/fake-clock.ts b/bun-apps/pi-agent-ext-webui/tests/helpers/fake-clock.ts
+new file mode 100644
+index 00000000..0eaa8a7c
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-webui/tests/helpers/fake-clock.ts
+@@ -0,0 +1,37 @@
++import type { MutexClock, MutexTimer } from "../../src/mutex.js";
++
++/**
++ * Deterministic MutexClock for watchdog tests. Models a single active
++ * setInterval (the AgentMutex watchdog) and lets a test advance virtual time,
++ * firing the tick handler every `period` until elapsed.
++ */
++export class FakeClock implements MutexClock {
++  private _now = 0;
++  private handler: (() => void) | null = null;
++  private period = 0;
++
++  now(): number {
++    return this._now;
++  }
++
++  setInterval(handler: () => void, ms: number): MutexTimer {
++    this.handler = handler;
++    this.period = ms;
++    return { clear: () => { if (this.handler === handler) this.handler = null; } };
++  }
++
++  /** Advance `ms` of virtual time, firing the tick handler every `period`. */
++  advance(ms: number): void {
++    if (ms <= 0 || this.handler === null) {
++      this._now += Math.max(0, ms);
++      return;
++    }
++    const end = this._now + ms;
++    while (this._now + this.period <= end) {
++      this._now += this.period;
++      this.handler();
++      if (this.handler === null) break; // watchdog cleared (force-released)
++    }
++    if (this._now < end) this._now = end;
++  }
++}
+diff --git a/bun-apps/pi-agent-ext-webui/tests/mutex-controller.test.ts b/bun-apps/pi-agent-ext-webui/tests/mutex-controller.test.ts
+new file mode 100644
+index 00000000..9f27cea3
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-webui/tests/mutex-controller.test.ts
+@@ -0,0 +1,101 @@
++import { describe, expect, it } from "bun:test";
++import { MutexController, type MutexNotifier } from "../src/mutex-controller.js";
++import type { Frontend } from "../src/mutex.js";
++import { FakeClock } from "./helpers/fake-clock.js";
++
++const realClock = {
++  now: () => Date.now(),
++  setInterval: (h: () => void, ms: number) => {
++    const id = globalThis.setInterval(h, ms);
++    return { clear: () => globalThis.clearInterval(id) };
++  },
++};
++
++/** Recording notifier — captures calls so tests can assert on them. */
++function recorder(): MutexNotifier & {
++  blocked: Array<{ blocked: Frontend; by: Frontend }>;
++  force: Frontend[];
++} {
++  const blocked: Array<{ blocked: Frontend; by: Frontend }> = [];
++  const force: Frontend[] = [];
++  return {
++    blocked,
++    force,
++    notifyBlocked(b, by) { blocked.push({ blocked: b, by }); },
++    notifyForceRelease(d) { force.push(d); },
++  };
++}
++
++describe("MutexController.handleInput", () => {
++  it("acquires from idle and returns continue (no notify)", () => {
++    const n = recorder();
++    const c = new MutexController({ clock: realClock, notifier: n });
++    expect(c.handleInput("interactive")).toEqual({ action: "continue" });
++    expect(c.driver).toBe("tui");
++    expect(n.blocked).toHaveLength(0);
++  });
++
++  it("blocks the other side: handled + notifyBlocked(web, tui)", () => {
++    const n = recorder();
++    const c = new MutexController({ clock: realClock, notifier: n });
++    c.handleInput("interactive");
++    expect(c.handleInput("extension")).toEqual({ action: "handled" });
++    expect(n.blocked).toEqual([{ blocked: "web", by: "tui" }]);
++    expect(c.driver).toBe("tui");
++  });
++
++  it("symmetric: blocks tui while web driving", () => {
++    const n = recorder();
++    const c = new MutexController({ clock: realClock, notifier: n });
++    c.handleInput("extension");
++    expect(c.handleInput("interactive")).toEqual({ action: "handled" });
++    expect(n.blocked).toEqual([{ blocked: "tui", by: "web" }]);
++  });
++
++  it("same-side resubmit: continue, no notify", () => {
++    const n = recorder();
++    const c = new MutexController({ clock: realClock, notifier: n });
++    c.handleInput("extension");
++    expect(c.handleInput("extension")).toEqual({ action: "continue" });
++    expect(n.blocked).toHaveLength(0);
++  });
++
++  it("rpc passes through: continue, no acquire", () => {
++    const n = recorder();
++    const c = new MutexController({ clock: realClock, notifier: n });
++    expect(c.handleInput("rpc")).toEqual({ action: "continue" });
++    expect(c.driver).toBeNull();
++  });
++});
++
++describe("MutexController lifecycle", () => {
++  it("handleSettled releases the lock", () => {
++    const n = recorder();
++    const c = new MutexController({ clock: realClock, notifier: n });
++    c.handleInput("interactive");
++    c.handleSettled();
++    expect(c.driver).toBeNull();
++  });
++
++  it("handleShutdown releases the lock", () => {
++    const n = recorder();
++    const c = new MutexController({ clock: realClock, notifier: n });
++    c.handleInput("extension");
++    c.handleShutdown();
++    expect(c.driver).toBeNull();
++  });
++
++  it("watchdog force-release routes through notifyForceRelease", () => {
++    const clock = new FakeClock();
++    const n = recorder();
++    const c = new MutexController({
++      clock,
++      watchdog: { staleMs: 1000, intervalMs: 100 },
++      notifier: n,
++    });
++    c.handleInput("interactive");
++    clock.advance(1000);
++    expect(c.driver).toBeNull();
++    expect(n.force).toEqual(["tui"]);
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-webui/tests/mutex.test.ts b/bun-apps/pi-agent-ext-webui/tests/mutex.test.ts
+new file mode 100644
+index 00000000..17e1688e
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-webui/tests/mutex.test.ts
+@@ -0,0 +1,150 @@
++import { describe, expect, it } from "bun:test";
++import {
++  AgentMutex,
++  DEFAULT_WATCHDOG,
++  toFrontend,
++  type Frontend,
++  type MutexClock,
++} from "../src/mutex.js";
++import { FakeClock } from "./helpers/fake-clock.js";
++
++/** Real wall-clock + native setInterval (for the non-watchdog tests). */
++const realClock: MutexClock = {
++  now: () => Date.now(),
++  setInterval: (h, ms) => {
++    const id = globalThis.setInterval(h, ms);
++    return { clear: () => globalThis.clearInterval(id) };
++  },
++};
++
++describe("AgentMutex.gate", () => {
++  it("acquires from idle for tui (interactive)", () => {
++    const m = new AgentMutex({ clock: realClock });
++    expect(m.driver).toBeNull();
++    expect(m.gate("interactive")).toEqual({ verdict: "continue", driver: "tui" });
++    expect(m.driver).toBe("tui");
++  });
++
++  it("acquires from idle for web (extension)", () => {
++    const m = new AgentMutex({ clock: realClock });
++    expect(m.gate("extension")).toEqual({ verdict: "continue", driver: "web" });
++    expect(m.driver).toBe("web");
++  });
++
++  it("same-side resubmit while driving -> continue (followUp queues internally)", () => {
++    const m = new AgentMutex({ clock: realClock });
++    m.gate("interactive");
++    expect(m.gate("interactive").verdict).toBe("continue");
++    expect(m.driver).toBe("tui");
++  });
++
++  it("other-side submit while tui driving -> handled + blocked.by tui", () => {
++    const m = new AgentMutex({ clock: realClock });
++    m.gate("interactive");
++    expect(m.gate("extension")).toEqual({ verdict: "handled", driver: "tui", blocked: { by: "tui" } });
++    expect(m.driver).toBe("tui");
++  });
++
++  it("symmetric: other-side submit while web driving -> handled + blocked.by web", () => {
++    const m = new AgentMutex({ clock: realClock });
++    m.gate("extension");
++    expect(m.gate("interactive")).toEqual({ verdict: "handled", driver: "web", blocked: { by: "web" } });
++  });
++
++  it("rpc passes through ungated from idle (no acquire)", () => {
++    const m = new AgentMutex({ clock: realClock });
++    expect(m.gate("rpc")).toEqual({ verdict: "continue", driver: null });
++    expect(m.driver).toBeNull();
++  });
++
++  it("rpc passes through even while a frontend is driving", () => {
++    const m = new AgentMutex({ clock: realClock });
++    m.gate("interactive");
++    expect(m.gate("rpc").verdict).toBe("continue");
++    expect(m.driver).toBe("tui");
++  });
++});
++
++describe("AgentMutex.release", () => {
++  it("clears the driver", () => {
++    const m = new AgentMutex({ clock: realClock });
++    m.gate("interactive");
++    m.release("settled");
++    expect(m.driver).toBeNull();
++  });
++
++  it("is idempotent (release-when-idle is a no-op)", () => {
++    const m = new AgentMutex({ clock: realClock });
++    expect(() => m.release("settled")).not.toThrow();
++    expect(m.driver).toBeNull();
++  });
++
++  it("allows re-acquire after release", () => {
++    const m = new AgentMutex({ clock: realClock });
++    m.gate("interactive");
++    m.release("settled");
++    expect(m.gate("extension")).toEqual({ verdict: "continue", driver: "web" });
++    expect(m.driver).toBe("web");
++  });
++});
++
++describe("AgentMutex watchdog", () => {
++  it("force-releases after staleMs with no bumpActivity", () => {
++    const clock = new FakeClock();
++    let released: { driver: Frontend } | null = null;
++    const m = new AgentMutex({
++      clock,
++      watchdog: { staleMs: 1000, intervalMs: 100 },
++      callbacks: { onForceRelease: (i) => (released = i) },
++    });
++    m.gate("interactive");
++    expect(m.driver).toBe("tui");
++    clock.advance(1000);
++    expect(m.driver).toBeNull();
++    expect(released).toEqual({ driver: "tui" });
++  });
++
++  it("does NOT force-release before staleMs", () => {
++    const clock = new FakeClock();
++    const m = new AgentMutex({ clock, watchdog: { staleMs: 1000, intervalMs: 100 } });
++    m.gate("interactive");
++    clock.advance(900);
++    expect(m.driver).toBe("tui");
++  });
++
++  it("bumpActivity resets the inactivity window", () => {
++    const clock = new FakeClock();
++    const m = new AgentMutex({ clock, watchdog: { staleMs: 1000, intervalMs: 100 } });
++    m.gate("interactive");
++    clock.advance(800);
++    m.bumpActivity();
++    clock.advance(800);
++    expect(m.driver).toBe("tui");
++  });
++
++  it("does not fire while idle (no acquire -> no watchdog)", () => {
++    const clock = new FakeClock();
++    let released = false;
++    const m = new AgentMutex({
++      clock,
++      watchdog: { staleMs: 1000, intervalMs: 100 },
++      callbacks: { onForceRelease: () => (released = true) },
++    });
++    clock.advance(5000);
++    expect(released).toBe(false);
++    expect(m.driver).toBeNull();
++  });
++});
++
++describe("toFrontend + DEFAULT_WATCHDOG", () => {
++  it("maps sources to frontends (rpc -> null)", () => {
++    expect(toFrontend("interactive")).toBe("tui");
++    expect(toFrontend("extension")).toBe("web");
++    expect(toFrontend("rpc")).toBeNull();
++  });
++
++  it("DEFAULT_WATCHDOG = 10 min stale / 1 s tick", () => {
++    expect(DEFAULT_WATCHDOG.staleMs).toBe(600_000);
++    expect(DEFAULT_WATCHDOG.intervalMs).toBe(1000);
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-webui/tsconfig.json b/bun-apps/pi-agent-ext-webui/tsconfig.json
+new file mode 100644
+index 00000000..0436c5b8
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-webui/tsconfig.json
+@@ -0,0 +1,17 @@
++{
++  "compilerOptions": {
++    "target": "ES2022",
++    "module": "NodeNext",
++    "moduleResolution": "NodeNext",
++    "lib": ["ESNext", "DOM"],
++    "types": ["bun"],
++    "strict": true,
++    "esModuleInterop": true,
++    "skipLibCheck": true,
++    "forceConsistentCasingInFileNames": true,
++    "rootDir": "src",
++    "outDir": "dist",
++    "declaration": true
++  },
++  "include": ["src/**/*.ts"]
++}
