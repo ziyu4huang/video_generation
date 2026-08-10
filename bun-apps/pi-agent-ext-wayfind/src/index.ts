@@ -45,6 +45,13 @@ function readSharedStatusWidget(): SharedStatusWidget | undefined {
 }
 
 export default function wayfindExtension(pi: ExtensionAPI): void {
+  // Self-gate: BUN_PI_WAYFIND=0 disables the entire extension — no slash
+  // commands, no effort tool, no event hooks, and no __piWayfindGrill publish.
+  // Mirrors prompt-history's BUN_PI_PROMPT_HISTORY=0 so the core trio
+  // (superpowers/wayfind/prompt-history) share one symmetric full-disable knob.
+  // Safe: every downstream consumer (hermes-memory's grill-seam, etc.) guards the
+  // seam with `typeof === "function"` → disabling degrades features, never crashes.
+  if (process.env.BUN_PI_WAYFIND === "0") return;
   const state = createRuntimeState();
   const overlay = new WayfindOverlay();
   const widget = readSharedStatusWidget();

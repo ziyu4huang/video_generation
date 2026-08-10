@@ -153,6 +153,13 @@ export function resolveAdvertisedSkillPaths(skillsDir: string, exclude: Set<stri
  * (and the thin `extensions/index.ts` wrapper) calls this.
  */
 export function superpowersExtension(pi: ExtensionAPI, fromUrl: string = import.meta.url): void {
+  // Self-gate: BUN_PI_SUPERPOWERS=0 disables the entire extension — no skill
+  // advertisement (resources_discover), no bootstrap injection, no event hooks.
+  // Mirrors prompt-history's BUN_PI_PROMPT_HISTORY=0 for a symmetric full-disable
+  // across the core trio. This sits ABOVE the granular
+  // PI_SUPERPOWERS_SKILL_EXCLUDE / PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS knobs,
+  // which continue to filter advertised skills when the extension is ENABLED.
+  if (process.env.BUN_PI_SUPERPOWERS === "0") return;
   const skillsDir = resolveSkillsDir(fromUrl);
   let injectBootstrap = true;
 
