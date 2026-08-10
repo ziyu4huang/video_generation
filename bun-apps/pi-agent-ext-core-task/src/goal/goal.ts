@@ -213,8 +213,7 @@ const goalCompleteTool = defineTool({
 				: undefined;
 		if (rejectionReason) {
 			updateGoalUsage(completedGoal, ctx);
-			persistGoal(goalState.extensionApi as ExtensionAPI, completedGoal);
-			updateStatus(ctx, completedGoal);
+			setAndPersistGoal(completedGoal, ctx);
 			const rejection = `Goal completion rejected: ${rejectionReason}.`;
 			ctx.ui.notify(rejection, "warning");
 			return {
@@ -231,8 +230,7 @@ const goalCompleteTool = defineTool({
 		const planningReason = planningGateBlocking(ctx.cwd);
 		if (planningReason) {
 			updateGoalUsage(completedGoal, ctx);
-			persistGoal(goalState.extensionApi as ExtensionAPI, completedGoal);
-			updateStatus(ctx, completedGoal);
+			setAndPersistGoal(completedGoal, ctx);
 			const rejection =
 				`Goal completion rejected: ${planningReason}. ` +
 				"Finish the remaining plan phases, or close the plan, then call goal_complete again.";
@@ -279,8 +277,7 @@ const goalCompleteTool = defineTool({
 					const quota = parseQuotaError(auditResult.error);
 					cancelContinuationPending();
 					goalState.activeGoal = transitionGoal(completedGoal, "paused");
-					persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
-					updateStatus(ctx, goalState.activeGoal);
+					setAndPersistGoal(goalState.activeGoal, ctx);
 					scheduleQuotaRetry(ctx, quota.retryAfterSec, auditResult.error, () => resumeGoal(piRef!, ctx));
 					return {
 						content: [{ type: "text", text: `Goal audit hit a quota/rate limit — paused, auto-retry in ${Math.max(1, Math.round(quota.retryAfterSec / 60))}m (${quota.fromUpstream ? "upstream hint" : "default"}). /goal resume retries now.` }],
@@ -309,8 +306,7 @@ const goalCompleteTool = defineTool({
 				if (attempts >= AUDIT_MAX_RETRIES) {
 					// Escalate: pause the goal so the user decides.
 					goalState.activeGoal = transitionGoal(completedGoal, "paused");
-					persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
-					updateStatus(ctx, goalState.activeGoal);
+					setAndPersistGoal(goalState.activeGoal, ctx);
 					ctx.ui.notify(`Goal audit disapproved ${attempts}× — paused for review. Address the audit findings or /goal resume.`, "warning");
 					return {
 						content: [{ type: "text", text: `Audit disapproved ${attempts}× and paused the goal. Findings: ${auditResult.output.slice(0, 500)}` }],
@@ -344,8 +340,7 @@ const goalCompleteTool = defineTool({
 			goalState.list = rest;
 			goalState.activeGoal = createGoal(item.text, item.tokenBudget, currentTokenTotal(ctx), item.audit, "list");
 			goalState.headAdvances += 1;
-			persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
-			updateStatus(ctx, goalState.activeGoal);
+			setAndPersistGoal(goalState.activeGoal, ctx);
 			ctx.ui.notify(`Goal complete. Advanced to: ${item.text}`, "success");
 			return {
 				content: [{ type: "text", text: `Goal complete: ${summary}. Advanced to next goal: ${item.text}` }],
@@ -445,8 +440,7 @@ const goalCompleteTool = defineTool({
 					currentTokenTotal(ctx),
 					undefined,
 				); // origin defaults "bare" — a Reviewer-proposed goal is not a list item
-				persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
-				updateStatus(ctx, goalState.activeGoal);
+				setAndPersistGoal(goalState.activeGoal, ctx);
 				ctx.ui.notify(`Goal complete. Reviewer follow-up now active: ${acceptedObjective}`, "info");
 				return {
 					content: [
@@ -586,8 +580,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 						await startGoal(cmd.texts[0], undefined, pi, ctx);
 					} else {
 						goalState.list = addListItems(goalState.list, cmd.texts);
-						persistGoal(api, active);
-						updateStatus(ctx, active);
+						setAndPersistGoal(active, ctx);
 						ctx.ui.notify(
 							`Added ${cmd.texts.length} goal(s) to the queue (${goalState.list.length} queued).`,
 							"info",
@@ -632,8 +625,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 						"list",
 					);
 					goalState.headAdvances += 1;
-					persistGoal(api, goalState.activeGoal);
-					updateStatus(ctx, goalState.activeGoal);
+					setAndPersistGoal(goalState.activeGoal, ctx);
 					ctx.ui.notify(`Advanced to: ${promoted.text}`, "info");
 					await sendGoalPrompt(pi, ctx, goalState.activeGoal);
 					return;
@@ -707,8 +699,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		if (!goalState.activeGoal || goalState.activeGoal.status !== "active") return;
 		updateGoalUsage(goalState.activeGoal, ctx);
 		cancelContinuationPending();
-		persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
-		updateStatus(ctx, goalState.activeGoal);
+		setAndPersistGoal(goalState.activeGoal, ctx);
 	});
 
 	pi.on("session_compact", async (event: unknown, ctx: StatusContext) => {
@@ -721,8 +712,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		if (restoredState.goal?.id === goalState.activeGoal.id) goalState.activeGoal = restoredState.goal;
 		goalState.list = restoredState.list ?? goalState.list;
 		updateGoalUsage(goalState.activeGoal, ctx);
-		persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
-		updateStatus(ctx, goalState.activeGoal);
+		setAndPersistGoal(goalState.activeGoal, ctx);
 
 		const wasPiRetry = isPiOwnedCompactionRetry(event, goalState.activeGoal.id);
 		clearGoalRecoveryForGoal(goalState.activeGoal.id);
@@ -832,8 +822,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 					kind: isGoalContextOverflow(finalAssistant) ? "compaction_retry" : "provider_retry",
 				};
 				cancelContinuationPending();
-				persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
-				updateStatus(ctx, goalState.activeGoal);
+				setAndPersistGoal(goalState.activeGoal, ctx);
 				return;
 			}
 			clearGoalRecoveryForGoal(goalId);
@@ -846,14 +835,12 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		if (goalState.activeGoal.tokenBudget !== undefined && goalState.activeGoal.tokensUsed >= goalState.activeGoal.tokenBudget) {
 			cancelContinuationPending();
 			goalState.activeGoal = transitionGoal(goalState.activeGoal, "budget_limited");
-			persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
-			updateStatus(ctx, goalState.activeGoal);
+			setAndPersistGoal(goalState.activeGoal, ctx);
 			ctx.ui.notify(`Goal token budget reached: ${formatBudget(goalState.activeGoal)}`, "warning");
 			return;
 		}
 
-		persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
-		updateStatus(ctx, goalState.activeGoal);
+		setAndPersistGoal(goalState.activeGoal, ctx);
 
 		if (hadPendingContinuation) {
 			if (hasPendingMessages(ctx)) return;
@@ -984,8 +971,7 @@ async function startGoal(
 	clearStaleGoalToolCallBlock();
 	resetHardeningCounters();
 	goalState.activeGoal = createGoal(objective, tokenBudget, currentTokenTotal(ctx), audit);
-	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
-	updateStatus(ctx, goalState.activeGoal);
+	setAndPersistGoal(goalState.activeGoal, ctx);
 	ctx.ui.notify(existingGoal ? `Goal replaced: ${objective}` : `Goal started: ${objective}`, "info");
 	await sendGoalPrompt(pi, ctx, goalState.activeGoal);
 }
@@ -1002,8 +988,7 @@ function toggleGoalAudit(ctx: StatusContext) {
 	}
 	const next = !goalState.activeGoal.auditEnabled;
 	goalState.activeGoal = { ...goalState.activeGoal, auditEnabled: next, updatedAt: Date.now() };
-	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
-	updateStatus(ctx, goalState.activeGoal);
+	setAndPersistGoal(goalState.activeGoal, ctx);
 	ctx.ui.notify(`Completion audit ${next ? "enabled" : "disabled"} for goal: ${goalState.activeGoal.text}`, "info");
 }
 
@@ -1020,8 +1005,7 @@ function pauseGoal(ctx: StatusContext) {
 	blockStaleGoalToolCalls();
 	abortCurrentTurn(ctx);
 	goalState.activeGoal = transitionGoal(goalState.activeGoal, "paused");
-	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
-	updateStatus(ctx, goalState.activeGoal);
+	setAndPersistGoal(goalState.activeGoal, ctx);
 	ctx.ui.notify(`Goal paused: ${goalState.activeGoal.text}`, "info");
 }
 
@@ -1038,8 +1022,7 @@ async function resumeGoal(pi: ExtensionAPI, ctx: StatusContext) {
 	clearGoalRecovery();
 	clearStaleGoalToolCallBlock();
 	goalState.activeGoal = transitionGoal(goalState.activeGoal, "active");
-	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
-	updateStatus(ctx, goalState.activeGoal);
+	setAndPersistGoal(goalState.activeGoal, ctx);
 	if (goalState.activeGoal.status !== "active") {
 		ctx.ui.notify(`Goal token budget is still reached: ${formatBudget(goalState.activeGoal)}`, "warning");
 		return;
@@ -1095,8 +1078,7 @@ async function editGoal(
 		tokenBudget: tokenBudget ?? goalState.activeGoal.tokenBudget,
 		updatedAt: Date.now(),
 	});
-	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
-	updateStatus(ctx, goalState.activeGoal);
+	setAndPersistGoal(goalState.activeGoal, ctx);
 	ctx.ui.notify(`Goal updated: ${objective}`, "info");
 	if (goalState.activeGoal.status === "active") {
 		clearStaleGoalToolCallBlock();
@@ -1111,8 +1093,7 @@ function showGoal(ctx: StatusContext) {
 		return;
 	}
 	updateGoalUsage(goalState.activeGoal, ctx);
-	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
-	updateStatus(ctx, goalState.activeGoal);
+	setAndPersistGoal(goalState.activeGoal, ctx);
 
 	// Read the last reviewer entry (if any) to surface what the Reviewer last did.
 	const reviewerEntries = loadReviewerEntries(ctx.sessionManager);
@@ -1139,8 +1120,7 @@ function pauseGoalAfterAgentEnd(
 	blockStaleGoalToolCalls();
 	abortCurrentTurn(ctx);
 	goalState.activeGoal = transitionGoal(goal, "paused");
-	persistGoal(goalState.extensionApi as ExtensionAPI, goalState.activeGoal);
-	updateStatus(ctx, goalState.activeGoal);
+	setAndPersistGoal(goalState.activeGoal, ctx);
 
 	// When a caller supplies a reason override (e.g. the stuck-repetition /
 	// backoff-cap paths in agent_end), it IS the full notify message — the
@@ -1326,6 +1306,14 @@ function updateStatus(ctx: StatusContext, _goal: ActiveGoal | undefined) {
 	goalOverlay?.update(goalState.activeGoal, goalState.list, goalState.headAdvances);
 	syncStatusRefreshTimer();
 	syncHeartbeatTimer();
+}
+
+/** Persist a goal to the ledger AND refresh the overlay/status timers in one
+ *  call. Collapses the 20 identical `persistGoal(...)` + `updateStatus(ctx, …)`
+ *  pairs scattered across the command handlers into a single readable call. */
+function setAndPersistGoal(goal: ActiveGoal, ctx: StatusContext): void {
+	persistGoal(goalState.extensionApi as ExtensionAPI, goal);
+	updateStatus(ctx, goal);
 }
 
 // ─── Context helpers ──────────────────────────────────────────────────────────

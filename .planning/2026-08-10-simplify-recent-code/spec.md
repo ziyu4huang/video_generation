@@ -78,3 +78,7 @@ Behavior preserved throughout; every package's tests stay green.
 ## Open questions
 
 None at design time. The implementation plan will sequence Phase 1 (per-package commits) and Phase 2 (2a then 2b), each behind green tests.
+
+## Phase 1 execution status (post-investigation)
+
+Phase 1 was re-scoped after a code re-investigation (Phase 2 had landed, moving/stale-locating several targets). Net: only `core-task` and `knowledge-card` have clean, zero-risk Phase-1 work; the `wayfind` and `workflow` items were already-satisfied, not-actually-dead, or unsafe-to-drop, and two `subagent` items were false premises (no duplication / import is used). See `plan-phase1.md` for the reduced plan and its "Dropped items" table documenting each deviation from this spec.

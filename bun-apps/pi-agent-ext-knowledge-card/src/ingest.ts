@@ -60,6 +60,20 @@ import {
 	type LinkWeighting,
 } from "./entities.ts";
 
+/**
+ * Replace Obsidian wiki-links (`[[target|alias]]`, `[[target#anchor]]`,
+ * `[[target]]`) with their display text: alias wins, else the target (anchor
+ * stripped), else the raw inner text. Shared by the three markdown adapters.
+ */
+export function stripWikiLinkBrackets(content: string): string {
+	return content.replace(/\[\[([^\]]+)\]\]/g, (_full, inner: string) => {
+		const parts = String(inner).split("|");
+		const target = parts[0]!.split("#")[0]!.trim();
+		const alias = parts[1]?.trim();
+		return alias || target || String(inner);
+	});
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -336,14 +350,7 @@ export function adaptAutoMemoryMarkdown(content: string): KnowledgeRecord | null
 	// real cross-source edges via `## 連結` (computed from shared tags against
 	// actual folder cards). Stripping keeps the prose readable and the graph
 	// dead-link-free. `[[X|alias]]` → `alias`; `[[X#anchor]]` → `X`.
-	const detailBody = body
-		? body.replace(/\[\[([^\]]+)\]\]/g, (_full, inner: string) => {
-				const parts = String(inner).split("|");
-				const target = parts[0]!.split("#")[0]!.trim();
-				const alias = parts[1]?.trim();
-				return alias || target || String(inner);
-			})
-		: body;
+	const detailBody = body ? stripWikiLinkBrackets(body) : body;
 
 	return {
 		id: `auto-memory:${name}`,
@@ -537,12 +544,7 @@ export function adaptHermesMarkdown(content: string): KnowledgeRecord[] {
 		//    Strip inline `[[wiki-link]]` brackets → plain link text (same rationale
 		//    as adaptAutoMemoryMarkdown: namespaced slugs diverge from raw targets,
 		//    so raw links would be dead; shared-TAG edges drive the real graph).
-		const detail = bodyNoTs.replace(/\[\[([^\]]+)\]\]/g, (_full, inner: string) => {
-			const parts = String(inner).split("|");
-			const target = parts[0]!.split("#")[0]!.trim();
-			const alias = parts[1]?.trim();
-			return alias || target || String(inner);
-		});
+		const detail = stripWikiLinkBrackets(bodyNoTs);
 
 		// 5. Tags: hermes + category + [[wikilink]] slugs + distinctive keywords
 		//    harvested from title AND detail (title alone is too sparse). Min
@@ -647,14 +649,7 @@ export function adaptGenericMarkdown(
 	// 3. Detail = body with [[wiki-link]] brackets normalized to plain text
 	//    (same rationale as the other adapters: namespaced slugs diverge from
 	//    raw targets, so raw links would be dead; shared-TAG edges drive the graph).
-	const detail = body
-		? body.replace(/\[\[([^\]]+)\]\]/g, (_full, inner: string) => {
-				const parts = String(inner).split("|");
-				const target = parts[0]!.split("#")[0]!.trim();
-				const alias = parts[1]?.trim();
-				return alias || target || String(inner);
-			})
-		: body;
+	const detail = body ? stripWikiLinkBrackets(body) : body;
 
 	// 4. Tags: frontmatter tags ∪ body #hashtags ∪ [[wikilinks]] ∪ distinctive
 	//    H1 tokens (mirrors the hermes/auto-memory harvest).
