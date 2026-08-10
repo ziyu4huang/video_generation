@@ -15,7 +15,10 @@ describe("dual-shape transition", () => {
     const reparsed = parseMarkdownMemoryEntry(out, "failure", null);
     expect(reparsed.category).toBe("failure");
     expect(reparsed.failureReason).toBe("timeout");
-    expect((reparsed as any).id).toBe(id);
+    // C1-v2: the stable id surfaces on the declared `mdId` field (the unified
+    // decode reads the frontmatter id via typeof-string), not the old leaked
+    // `.id` produced by spreading parseMetadataFrontmatter's full envelope.
+    expect(reparsed.mdId).toBe(id);
   });
 
   test("parseMarkdownMemoryEntry handles both shapes", () => {
@@ -24,6 +27,7 @@ describe("dual-shape transition", () => {
     const fm = "---\nid: x\ncreated: 2026-08-01\nlast: 2026-08-01\n---\nnote";
     const parsed = parseMarkdownMemoryEntry(fm, "memory", null);
     expect(parsed.content).toBe("note");
-    expect((parsed as any).id).toBe("x");
+    // C1-v2: the stable id surfaces on the declared `mdId` field.
+    expect(parsed.mdId).toBe("x");
   });
 });
