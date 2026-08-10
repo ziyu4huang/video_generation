@@ -43,6 +43,26 @@ import {
 
 const WAYFIND_KEYWORDS = new Set(["status", "spec", "tickets", "seed", "sync", "done", "validate"]);
 
+/** Resolve the effort id in play for a `/wayfind <args>` invocation, so the
+ *  dispatcher can banner it on EVERY run. Mirrors the dispatcher's own parsing
+ *  (force-chart `--`, reserved-keyword subcommand, bare chart, no-arg claim) so
+ *  the banner always matches the effort the subcommand operates on. Returns
+ *  undefined only when no effort is in play yet (bare `/wayfind` with no active
+ *  effort → a usage warning follows; no banner). Pure: takes the trimmed arg
+ *  plus an active-effort lookup so it is unit-testable without a live session. */
+export function resolveWayfindEffortId(trimmed: string, getActive: () => string | undefined): string | undefined {
+  if (trimmed.startsWith("--")) {
+    const destination = trimmed.slice(2).trim();
+    return destination ? effortSlug(destination) : getActive();
+  }
+  const [first, ...rest] = trimmed.split(/\s+/);
+  if (first && WAYFIND_KEYWORDS.has(first)) {
+    return rest.join(" ").trim() || getActive();
+  }
+  if (trimmed) return effortSlug(trimmed);
+  return getActive();
+}
+
 export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay: WayfindOverlay): void {
   /** Shared kickoff: set the active-grill state, publish the grill seam, and
    *  send the priming user-message so the agent enters grilling mode. */
@@ -353,6 +373,13 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       "Wayfinder family: '<destination>' (chart a map) or no args (work next ticket); 'status'/'spec'/'tickets'/'seed'/'sync'/'validate'/'done' [effort]; '-- <destination>' force-charts a name that starts with a reserved keyword",
     handler: async (args, ctx) => {
       const trimmed = args.trim();
+      // Always banner the wayfind id (effort slug) for this invocation — one
+      // notify at the dispatcher top so EVERY /wayfind surfaces it, regardless
+      // of subcommand. No banner when no effort is in play yet (bare /wayfind
+      // with no active effort → a usage warning follows instead).
+      const sessionId = getSessionId(ctx);
+      const bannerEffort = resolveWayfindEffortId(trimmed, () => state.activeEffortBySession.get(sessionId));
+      if (bannerEffort) ctx.ui.notify(`🧭 ${bannerEffort}`, "info");
       // "/wayfind -- <destination>" forces charting, escaping reserved keywords
       // (e.g. an effort named "sync the database"). Bare keywords still win.
       if (trimmed.startsWith("--")) {
