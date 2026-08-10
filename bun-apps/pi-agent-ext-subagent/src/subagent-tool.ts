@@ -16,26 +16,30 @@ import { type AgentDefinition, listAgentTypes, loadAgentRegistry, resolveAgentTy
 import { computeScopeCheck, realGitOps } from "./git-scope.js";
 import { spawnSubagent } from "./spawn-subagent.js";
 import {
-  augmentOutputWithScopeViolation,
-  buildDetails,
-  buildRunRecord,
-  buildSpawnOptions,
-  captureCommitBaseline,
-  captureWatchdogBaseline,
-  resolveDisplayModel,
-  runScopeCheck,
-  runWatchdogReview,
-  type RunProgress,
-} from "./subagent-tool-run.js";
-
-import {
   formatSubagentResult,
   renderSubagentCall,
   renderSubagentResult,
   taskPreview,
   workIntentPreview,
 } from "./subagent-tool-render.js";
-import { isSchemaShaped, type SubagentToolDetails, type SubagentToolOptions, subagentToolSchema } from "./subagent-tool-schema.js";
+import {
+  augmentOutputWithScopeViolation,
+  buildDetails,
+  buildRunRecord,
+  buildSpawnOptions,
+  captureCommitBaseline,
+  captureWatchdogBaseline,
+  type RunProgress,
+  resolveDisplayModel,
+  runScopeCheck,
+  runWatchdogReview,
+} from "./subagent-tool-run.js";
+import {
+  isSchemaShaped,
+  type SubagentToolDetails,
+  type SubagentToolOptions,
+  subagentToolSchema,
+} from "./subagent-tool-schema.js";
 import { computeBaseline } from "./watchdog/repo-diff.js";
 import type { WatchdogResult } from "./watchdog/types.js";
 import { runWatchdog } from "./watchdog/watchdog.js";
@@ -81,7 +85,12 @@ export function createSubagentTool(
     async execute(toolCallId, params, signal, onUpdate, _ctx) {
       const t0 = Date.now();
       // Mutable progress box — updated from spawn callbacks, read in teardown/save.
-      const progress: RunProgress = { resolvedModel: undefined, fellBack: false, lastHistory: undefined, maxToolCallsSeen: 0 };
+      const progress: RunProgress = {
+        resolvedModel: undefined,
+        fellBack: false,
+        lastHistory: undefined,
+        maxToolCallsSeen: 0,
+      };
       const runCwd = params.cwd ?? defaultCwd;
       const makeWorktree = options.createWorktree ?? createWorktree;
       const teardownWorktree = options.removeWorktree ?? removeWorktree;
@@ -179,9 +188,23 @@ export function createSubagentTool(
       try {
         const result = await spawn(
           buildSpawnOptions(
-            { toolCallId, t0, params, agentDef, modelCtx: { requestedModel, tier, capability, mainModel }, spawnCwd, childSignal: childAc.signal },
+            {
+              toolCallId,
+              t0,
+              params,
+              agentDef,
+              modelCtx: { requestedModel, tier, capability, mainModel },
+              spawnCwd,
+              childSignal: childAc.signal,
+            },
             progress,
-            { getActiveTools: options.getActiveTools, getExtensionTools: options.getExtensionTools, inFlight: options.inFlight, persistence: options.persistence, onUpdate },
+            {
+              getActiveTools: options.getActiveTools,
+              getExtensionTools: options.getExtensionTools,
+              inFlight: options.inFlight,
+              persistence: options.persistence,
+              onUpdate,
+            },
           ),
         );
         const elapsedMs = Date.now() - t0;
@@ -196,8 +219,25 @@ export function createSubagentTool(
           const model = progress.resolvedModel ?? displayModelBeforeResolve;
           options.persistence?.save(
             buildRunRecord(
-              { toolCallId, agent: params.agent, task: params.task, model, requestedModel, fellBack: progress.fellBack, tier, runCwd, t0, elapsedMs },
-              { status: "aborted", exitCode: result.exitCode, timedOut: false, output: "Subagent aborted by user.", usage: result.usage },
+              {
+                toolCallId,
+                agent: params.agent,
+                task: params.task,
+                model,
+                requestedModel,
+                fellBack: progress.fellBack,
+                tier,
+                runCwd,
+                t0,
+                elapsedMs,
+              },
+              {
+                status: "aborted",
+                exitCode: result.exitCode,
+                timedOut: false,
+                output: "Subagent aborted by user.",
+                usage: result.usage,
+              },
             ),
           );
           return {
@@ -217,7 +257,14 @@ export function createSubagentTool(
         }
         // Opt-in commit-scope check (commitScope param): detection only. A
         // throwing op is swallowed — the scope guard never fails the run.
-        const scopeCheck = await runScopeCheck(params.commitScope, spawnCwd, runCwd, baseCommit, gitOps, computeScopeCheck);
+        const scopeCheck = await runScopeCheck(
+          params.commitScope,
+          spawnCwd,
+          runCwd,
+          baseCommit,
+          gitOps,
+          computeScopeCheck,
+        );
         let output = augmentOutputWithScopeViolation(formatSubagentResult(result), scopeCheck);
         // Opt-in two-layer watchdog: run the review against the captured baseline.
         // Soft gate — appends a summary line only when runWatchdog actually ran OR
@@ -226,7 +273,13 @@ export function createSubagentTool(
         // is appended instead and watchdogResult stays undefined.
         let watchdogResult: WatchdogResult | undefined;
         if (watchdog?.baseline) {
-          const review = await runWatchdogReview(runWatchdog, watchdog.opts, watchdog.baseline, spawnCwd, taskPreview(params.task));
+          const review = await runWatchdogReview(
+            runWatchdog,
+            watchdog.opts,
+            watchdog.baseline,
+            spawnCwd,
+            taskPreview(params.task),
+          );
           if (review.result) watchdogResult = review.result;
           if (review.outputAppend) output += review.outputAppend;
         }
@@ -243,7 +296,18 @@ export function createSubagentTool(
         // paths above do not persist (they are not real runs).
         options.persistence?.save(
           buildRunRecord(
-            { toolCallId, agent: params.agent, task: params.task, model, requestedModel, fellBack: progress.fellBack, tier, runCwd, t0, elapsedMs },
+            {
+              toolCallId,
+              agent: params.agent,
+              task: params.task,
+              model,
+              requestedModel,
+              fellBack: progress.fellBack,
+              tier,
+              runCwd,
+              t0,
+              elapsedMs,
+            },
             {
               status: details.status,
               exitCode: details.exitCode,

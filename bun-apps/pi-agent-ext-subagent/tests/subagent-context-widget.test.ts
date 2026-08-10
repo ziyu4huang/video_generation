@@ -256,10 +256,7 @@ test("countNoun: a mixed set (1 subagent + 1 workflow) → 'runs'", () => {
 // precomputed `workIntent`, and renderRun feeds THAT (not taskPreview).
 
 test("ticket 04 / finding 1: docked header strips the `Working dir:` preamble and surfaces the work intent", () => {
-  const rawTask =
-    "Working dir: /Users/x/proj\n" +
-    "\n" +
-    "Audit the subagent display code for fallback consistency.";
+  const rawTask = "Working dir: /Users/x/proj\n" + "\n" + "Audit the subagent display code for fallback consistency.";
   // The tool precomputes workIntent once at start() (mirrors subagent-tool.execute).
   const entry = run({
     id: "strip-r1",
@@ -326,7 +323,10 @@ test("ticket 05 / finding 4: expanded context-box trace is tail-capped (does not
     lines.length <= 1 + 1 + 1 + STREAMING_EXPANDED_TAIL,
     `capped to ≤ count+header+ellipsis+tail (got ${lines.length})`,
   );
-  assert.ok(lines.some((l) => l.includes("…")), "an ellipsis marks the dropped middle");
+  assert.ok(
+    lines.some((l) => l.includes("…")),
+    "an ellipsis marks the dropped middle",
+  );
   // The oldest entries are dropped (cap keeps the TAIL) — f0 is not rendered.
   const joined = lines.join("\n");
   assert.ok(!joined.includes("f0.ts"), "oldest trace entries are dropped by the tail cap");

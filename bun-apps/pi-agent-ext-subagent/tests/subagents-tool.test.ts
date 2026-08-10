@@ -159,7 +159,13 @@ test("an explicit per-task `tools` override wins over the active-set default", a
     spawn: f.spawn,
     getActiveTools: () => ["read", "grep", "find", "ls", "subagent"],
   });
-  await tool.execute("call-override", { tasks: [{ task: "t", tools: ["read", "grep"] }] }, NO_SIGNAL, undefined, NO_CTX);
+  await tool.execute(
+    "call-override",
+    { tasks: [{ task: "t", tools: ["read", "grep"] }] },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
   assert.deepEqual(
     f.calls[0]?.tools,
     ["read", "grep"],
@@ -672,10 +678,35 @@ test("renderSubagentsCall omits concurrency when undefined and task when empty",
 test("renderSubagentsResult collapsed: header + per-child one-liners with badges, counts, task preview", () => {
   const details: SubagentsToolDetails = {
     results: [
-      { output: "hello", status: "done", id: "a", index: 0, task: "audit the security layer thoroughly", model: "x/flash", elapsedMs: 3500 },
-      { output: "", status: "aborted", id: "b", index: 1, task: "review the PR for style issues", model: "x/flash", elapsedMs: 1200 },
+      {
+        output: "hello",
+        status: "done",
+        id: "a",
+        index: 0,
+        task: "audit the security layer thoroughly",
+        model: "x/flash",
+        elapsedMs: 3500,
+      },
+      {
+        output: "",
+        status: "aborted",
+        id: "b",
+        index: 1,
+        task: "review the PR for style issues",
+        model: "x/flash",
+        elapsedMs: 1200,
+      },
       null as never,
-      { status: "budget", source: "batch" as const, exhaustion: { kind: "tokens" as const, limit: 50000, actual: 70000 }, id: "c", index: 3, task: "run the benchmarks on main", model: "x/flash", elapsedMs: 0 },
+      {
+        status: "budget",
+        source: "batch" as const,
+        exhaustion: { kind: "tokens" as const, limit: 50000, actual: 70000 },
+        id: "c",
+        index: 3,
+        task: "run the benchmarks on main",
+        model: "x/flash",
+        elapsedMs: 0,
+      },
       { output: "ok", status: "timedout", index: 4, task: "generate docs", model: "y/gemma", elapsedMs: 30100 },
     ],
     dispatched: 3,
@@ -701,7 +732,9 @@ test("renderSubagentsResult collapsed: header + per-child one-liners with badges
   assert.match(collapsed, /⛔ budget/);
   assert.match(collapsed, /⏱ timedout/);
   // Task previews (truncated)
-  assert.ok(collapsed.includes("audit the security layer thoroughly") || collapsed.includes("audit the security layer"));
+  assert.ok(
+    collapsed.includes("audit the security layer thoroughly") || collapsed.includes("audit the security layer"),
+  );
   assert.ok(collapsed.includes("review the PR for style issues") || collapsed.includes("review the PR for"));
   // Model info (ticket 04 finding 5: shortened via shortModel on the collapsed line)
   assert.match(collapsed, /flash/);
@@ -723,7 +756,15 @@ test("renderSubagentsResult collapsed: header + per-child one-liners with badges
 test("renderSubagentsResult expanded: header + per-child full themed output", () => {
   const details: SubagentsToolDetails = {
     results: [
-      { output: "Full audit report\nLine two\nLine three", status: "done", id: "a", index: 0, task: "audit", model: "x/flash", elapsedMs: 3500 },
+      {
+        output: "Full audit report\nLine two\nLine three",
+        status: "done",
+        id: "a",
+        index: 0,
+        task: "audit",
+        model: "x/flash",
+        elapsedMs: 3500,
+      },
     ],
     dispatched: 1,
     skipped: 0,
@@ -748,21 +789,13 @@ test("renderSubagentsResult collapsed: null slot renders as a terse failed line"
     skipped: 0,
     elapsedMs: 10,
   };
-  const out = renderSubagentsResult(
-    { content: [{ type: "text", text: "x" }], details },
-    { expanded: false },
-    THEME,
-  );
+  const out = renderSubagentsResult({ content: [{ type: "text", text: "x" }], details }, { expanded: false }, THEME);
   assert.match(out, /✗ failed/);
   assert.match(out, /child failed/);
 });
 
 test("renderSubagentsResult no details → dim raw text fallback", () => {
-  const out = renderSubagentsResult(
-    { content: [{ type: "text", text: "raw fallback" }] },
-    { expanded: false },
-    THEME,
-  );
+  const out = renderSubagentsResult({ content: [{ type: "text", text: "raw fallback" }] }, { expanded: false }, THEME);
   assert.equal(out, "raw fallback");
 });
 

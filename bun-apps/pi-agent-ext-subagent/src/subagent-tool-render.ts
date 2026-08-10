@@ -9,8 +9,8 @@ import type { AgentHistoryEntry } from "./agent-history.js";
 import { shortModel } from "./agent-row-display.js";
 import { isSddReportActionable } from "./sdd-report.js";
 import type { SpawnSubagentResult } from "./spawn-subagent.js";
-import { formatToolAction, matchedCallArgsFor } from "./tool-action-label.js";
 import type { SubagentToolDetails } from "./subagent-tool-schema.js";
+import { formatToolAction, matchedCallArgsFor } from "./tool-action-label.js";
 
 /** Collapse a task prompt to a single-line preview of at most `n` chars. */
 export function taskPreview(task: string, n = 80): string {
@@ -232,7 +232,11 @@ export function formatSubagentTrace(history: AgentHistoryEntry[], elapsedMs: num
         // above, or from i+1 after a defined-result check) → history[pairIdx] defined.
         consumedResults.add(pairIdx);
         lines.push(
-          `✓ ${formatToolAction(history[pairIdx]!, { matchedCallArgs: matchedCallArgsFor(history, pairIdx) })}`,
+          `✓ ${formatToolAction(
+            // biome-ignore lint/style/noNonNullAssertion: pairIdx proven in-range by the loop invariant above
+            history[pairIdx]!,
+            { matchedCallArgs: matchedCallArgsFor(history, pairIdx) },
+          )}`,
         );
       } else {
         // Trailing un-paired call → in-flight (present-tense + ellipsis).
@@ -277,6 +281,7 @@ export function renderSubagentCall(
   // shortModel() drops the provider prefix on a real model id (ticket 04, finding 5 —
   // a full `anthropic/claude-opus-4-1` overflows the one-line glance). `tier:`/`capability:`/
   // `default` carry no `/` so shortModel() leaves them untouched.
+  // biome-ignore lint/style/noNonNullAssertion: argument is always defined; shortModel returns defined for these inputs
   const slot = shortModel(
     args.model ?? (args.capability ? `capability:${args.capability}` : args.tier ? `tier:${args.tier}` : "default"),
   )!;
