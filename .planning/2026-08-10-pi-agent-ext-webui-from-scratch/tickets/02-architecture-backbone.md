@@ -2,24 +2,29 @@
 
 type: grilling
 blocked by: 01
-status: open
+status: closed
+resolved: 2026-08-10
 
 ## Question
 
-What is the **architecture backbone** for a web frontend co-driving one live session with the TUI: **(A)** in-process `Bun.serve` calling the live `AgentSession` directly + a **self-built agentic mutex**, or **(B)** the experimental **CBOR `server` + `pi-client` shared-lease** model? Decide after weighing control vs maturity vs the WebSocket-transport gap.
+What is the architecture backbone for a web frontend co-driving one live session with the TUI: (A) in-process `Bun.serve` + the live `AgentSession` + a self-built mutex, or (B) the experimental CBOR server + pi-client shared-lease model?
 
-## Context (research attached — ticket is near-resolved toward A)
+## Resolution
 
-- Requirement: web + TUI **share one live session**; agentic turns are **mutually exclusive**; app-logic runs free. `AgentSession` is single-driver by design → either path needs a coordination story.
-- **Path (A)** — in-process: the extension's `Bun.serve` calls `pi.sendUserMessage()`/`ctx.abort()` and observes via `pi.on(...)` (all clean per ticket 01). Both the TUI and the web live in ONE Bun process sharing ONE `AgentSession`; we add our own lock guarding turn-injection. Full control; we re-implement mutex/lease semantics ourselves. Browser WS is trivially ours.
-- **Path (B)** — CBOR: at the *protocol* level the server supports exactly this — multiple shared leases attach to one `sessionId`, **any attached client can drive** (no single-writer lock; `requireAttached` only checks attachment), and snapshots broadcast to all (`@earendil-works/pi-server` `LiveSessionManager`, `sessions.js`). BUT in v0.84.1 it is NOT production-ready:
-  - The `pi server` / `pi client` CLI is a **dead shell** — `runServer`/`runClient`/`runPi` are referenced but unimplemented; `experimentalCli` is never imported by the real `pi` binary (`dist/main.js`).
-  - The real server is the separate experimental lib `@earendil-works/pi-server` ("experimental … no compatibility guarantees", ~3 weeks old, **already breaking 0.84.0→0.84.1**: `SessionSummary`→`SessionMetadata`; `toProtocolToolResultMessage` now needs the original `ToolCall`).
-  - **No WebSocket/HTTP transport anywhere** — `pi-protocol`/`pi-client`/`pi-server` ship unix-only. A browser needs a WS `ByteTransportFactory` (client, ~40 LOC) + a WS `PiServerListener` (server, ~50–80 LOC + upgrade auth) — small + testable (`@earendil-works/pi-server/testing` ships a conformance suite) but you own it.
-  - The headline `RemoteSession` SDK controller is **single-driver** (exclusive acquisition) — co-driving needs raw `PiClient` + `attachSession()` shared leases.
-  - The real `pi-tui` does **not** use `pi-client` → the standalone TUI has no remote-attach path; making the TUI co-drive via CBOR means patching/forking it.
-- **No official or community pi web frontend exists** (npm + GitHub search empty).
+**DECISION: Path A — in-process `Bun.serve` + the live `AgentSession` + a self-built agentic mutex, with a thin dispatch seam shaped for future Path-B migration.** Confirmed by the human; the evidence was one-sided and the destination (in-process co-driving) rules out B for v1.
 
-## What resolving looks like
+**The seam (the resolution's deliverable):**
+- **Server**: one module-level `Bun.serve` (HTTP + native WS, loopback `127.0.0.1`, `.unref()`-able). Started lazily on the FIRST `session_start` (the runtime/ctx isn't ready before then; `assertActive()` throws); kept across session switches via a module-level singleton — the extension *factory* re-runs per session, but the *module* is cached, so singleton state persists. `session_shutdown` drops only the session ref; the server stays (clients aren't dropped on every `/new`/`/resume`/`/fork`). `before_agent_start` is wrong (per-turn).
+- **Session binding**: on each `session_start`, re-point the server's `pi`/`ctx` to the live session; WS commands call `pi.sendUserMessage({deliverAs})` / `ctx.abort()` against the current session.
+- **The mutex gate** (delegated to ticket 03): the `input` extension event is the single chokepoint — `pi.on("input", …)`, synchronous `driver` flag set before the first `await`, `{action:"handled"}` to block the losing side, `event.source` (`interactive`/`extension`/`rpc`) for attribution. Zero patch.
+- **Outbound**: `pi.on("message_*"|"tool_execution_*"|"tool_result"|"turn_*"|"agent_*"|"session_*compact", …)` → WS frames, `tool_result`/`tool_execution_end` `.details` preserved.
+- **Future-migration seam**: inbound-dispatch (commands → session actions) and outbound-mapping (events → frames) are a thin interface that could later be re-pointed at `PiServerService`/`PiSessionRuntime` (Path B) without rewriting the web client. Steal B's contract now: "authoritative snapshots; progress is transient."
 
-A grilling decision (A vs B vs hybrid) stating: the deployment shape (same-process extension server vs separate hosted process), the mutex/lease story, and — if A — an internal command/dispatch seam designed so a future migration to `PiServerService`/`PiSessionRuntime` is mechanical (steal B's snapshot/progress broadcast contract: "authoritative snapshots; progress is transient"). The evidence is strongly one-sided toward **A**; this ticket exists to get the human's explicit confirmation and to lock the seam design.
+**Evidence (citations in map.md Notes):**
+- `InteractiveMode.run()` is a cooperative `while/await` loop (interactive-mode.js:807); `Bun.serve` on a TCP socket coexists, never touches stdin/tty, `.unref()`-able, services HTTP+WS during awaits. (research A)
+- The `input` event (types.d.ts:619-643; agent-session.js:814-826) fires for all submissions before the `isStreaming` guard; `{action:"handled"}` blocks; `source` distinguishes origin. (research A)
+- `web-access` proves an extension CAN host a listening server in-process (`node:http` on `listen(0,"127.0.0.1")` + token + browser-open, inside the agent process) — the only pi extension that does. (research B/C)
+- `gui-movie-director` is the proven `Bun.serve` (HTTP+WS, loopback, port-fallback, origin guard, Bun.build) template in this repo. (research C)
+- Path B is not production-ready in v0.84.1: `pi server`/`pi client` CLI is a dead shell (`runServer`/`runClient` unimplemented, never wired); real server is separate experimental `@earendil-works/pi-server` (~3 weeks old, already breaking 0.84.0→0.84.1); no WS transport; `RemoteSession` SDK is single-driver; real `pi-tui` can't attach. (prior research 02)
+
+**Unblocks:** 03 (mutex state machine around the `input` gate), 04 (transport/protocol over Bun.serve WS). **Reuse:** gui-movie-director (04/06/07), web-access (07), btw (04 inbound pattern).
