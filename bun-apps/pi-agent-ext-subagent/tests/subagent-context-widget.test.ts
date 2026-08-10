@@ -2,7 +2,7 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { InFlightSubagent } from "../src/index.js";
 import { countNoun, isCtrlO, SubagentContextWidget } from "../src/subagent-context-widget.js";
-import { STREAMING_EXPANDED_TAIL, workIntentPreview } from "../src/subagent-tool.js";
+import { STREAMING_EXPANDED_TAIL, workIntentPreview } from "../src/subagent-tool-render.js";
 
 // Identity theme so render() returns plain text we can assert on (mirrors the
 // old subagent-progress-widget.test.ts).

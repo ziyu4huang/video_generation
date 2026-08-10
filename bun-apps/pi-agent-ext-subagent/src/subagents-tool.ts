@@ -11,14 +11,15 @@ import { Type } from "typebox";
 import type { AgentUsage, BudgetExhaustion } from "./agent.js";
 import { checkBudgetExhaustion } from "./agent.js";
 import { summarizeLatestAction } from "./agent-history.js";
+import { shortModel } from "./agent-row-display.js";
 import { DEFAULT_BATCH_CONCURRENCY, MAX_BATCH_TASKS, MAX_CONCURRENCY } from "./config.js";
 import { getGlobalRateLimiter, providerFromModelSpec } from "./rate-limiter.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
 import { spawnSubagent } from "./spawn-subagent.js";
 import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
-import { shortModel } from "./agent-row-display.js";
-import { DEFAULT_TIMEOUT_MS, deriveSubagentStatus, taskPreview, workIntentPreview } from "./subagent-tool.js";
+import { deriveSubagentStatus, taskPreview, workIntentPreview } from "./subagent-tool-render.js";
+import { DEFAULT_TIMEOUT_MS } from "./subagent-tool-schema.js";
 
 /** Tree-mutating tools a read-only child may NEVER carry (non-overridable). */
 export const READ_ONLY_EXCLUDED = ["edit", "write", "bash"] as const;
@@ -649,7 +650,7 @@ export function renderSubagentsResult(
       const modelLabel =
         slotObj.fellBack && slotObj.requestedModel
           ? `${shortModel(slotObj.requestedModel)} → ${shortModel(slotObj.model) ?? "default"}`
-          : shortModel(slotObj.model) ?? "default";
+          : (shortModel(slotObj.model) ?? "default");
       const model = theme.fg("muted", modelLabel);
       const elapsed = `${((slot as { elapsedMs: number }).elapsedMs / 1000).toFixed(1)}s`;
       const taskPreview60 = truncateToWidth((slot as { task: string }).task ?? "", 60);

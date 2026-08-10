@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { subagentToolSchema } from "../src/subagent-tool.ts";
+import { subagentToolSchema } from "../src/subagent-tool-schema.js";
 
 const PARAMS = (subagentToolSchema as any).properties as Record<string, { type: string; description: string }>;
 const EXPECTED = [

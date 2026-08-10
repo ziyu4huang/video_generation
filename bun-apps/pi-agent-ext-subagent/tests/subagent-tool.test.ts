@@ -6,10 +6,8 @@ import type { GitScopeOps } from "../src/git-scope.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
 import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
-import type { SubagentToolDetails } from "../src/subagent-tool.js";
+import { createSubagentTool } from "../src/subagent-tool.js";
 import {
-  createSubagentTool,
-  DEFAULT_TIMEOUT_MS,
   deriveSubagentStatus,
   formatHistoryLine,
   formatSubagentLive,
@@ -21,7 +19,9 @@ import {
   renderSubagentResult,
   taskPreview,
   workIntentPreview,
-} from "../src/subagent-tool.js";
+} from "../src/subagent-tool-render.js";
+import type { SubagentToolDetails } from "../src/subagent-tool-schema.js";
+import { DEFAULT_TIMEOUT_MS } from "../src/subagent-tool-schema.js";
 
 /** Injectable spawn that records the opts it was called with. */
 function fakeSpawn(impl: (opts: SpawnSubagentOptions) => SpawnSubagentResult | Promise<SpawnSubagentResult>) {
