@@ -81,6 +81,8 @@ This effort's planning lives under `.planning/2026-08-10-superpowers-tighten-and
 - `artifact-leak.test.ts`: git-tracked scope (D3); add a case that places a local *untracked* file under `.superpowers/` and asserts the suite no longer fails on it.
 - `bootstrap.test.ts`: verify it still asserts the `using-superpowers` content is loaded via the bootstrap (guard that D1 did not break the bootstrap path); extend coverage if thin.
 - `skills-fidelity.test.ts`: unchanged (14 fixtures still match — de-advertising touches no files).
+- `ADR-0008` deliverable check: the file exists at `docs/adr/0008-default-skill-exclusion-policy.md` and covers both excluded skills with distinct rationales, real token figures, the two override knobs (`PI_SUPERPOWERS_SKILL_EXCLUDE`, `PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS`), and the disable-defaults trade-off note.
+- Comment-fix check: `src/superpowers.ts` no longer contains the stale "~139 tok" string; accurate figures (~900 tok `verification-before-completion`, ~763 tok `using-superpowers`) and an ADR-0008 pointer are present.
 - Full package green: `( cd bun-apps/pi-agent-ext-superpowers && bun run typecheck && bun test )`.
 
 ## Risks & trade-offs
