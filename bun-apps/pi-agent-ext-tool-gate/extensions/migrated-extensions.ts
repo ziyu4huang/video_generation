@@ -180,9 +180,11 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		// is built, and where ZAI_GATING is attached) — with synthetic MCP tools
 		// for both Phase-1 servers. This proves every dynamically-registered zai
 		// tool carries valid owner-declared gating, and produces the exact former
-		// GATES names (zai_web_search_web_search_prime + zai_web_reader_webReader)
-		// so reconstructOwnerDeclaredGates collapses them back into the original
-		// 2-name gate. The synthetic `managed` (client/close/serverName) is only
+		// GATES names (zai_web_search_web_search_prime + zai_web_reader_webReader).
+		// Both declare the same gating, so they share a fingerprint and
+		// gatesWithSameGating treats them as ONE co-firing family — buildEffectiveGates
+		// itself emits one single-name gate per tool; nothing collapses them into a
+		// multi-name gate. The synthetic `managed` (client/close/serverName) is only
 		// consumed inside `execute`, which capture never invokes.
 		name: "zai-mcp",
 		register: (pi) => {

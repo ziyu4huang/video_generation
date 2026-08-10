@@ -94,6 +94,16 @@ Expected: FAIL — the two literals are deep-equal but are different objects.
 In `extensions/movie-director.ts`, insert this above `function makeMovieTool()`
 (i.e. before line 35):
 
+> **Correction (2026-08-10, post-implementation).** The doc comment prescribed
+> below cites `reconstructOwnerDeclaredGates` collapsing the pair into one
+> multi-name gate. That function does not exist anywhere in the repo, and
+> `buildEffectiveGates` emits one single-name gate per tool — nothing collapses.
+> The phantom was inherited from the comment this task replaced and was carried
+> forward here by mistake. The shipped comment states the real mechanism
+> (identical gating → identical `gateGatingKey` fingerprint → `gatesWithSameGating`
+> treats them as one co-firing family). Read the shipped file, not the block below,
+> for the accurate wording.
+
 ```ts
 /**
  * Owner-declared gating for the movie-director family — ONE object shared by
