@@ -8,6 +8,7 @@ import { walkKnowledgeSources, type WalkOptions } from "./knowledge-walk.js";
 import { parseKnowledgeJsonl } from "./knowledge-jsonl.js";
 import { AGENT_ROOT } from "./paths.js";
 import { createCardStore } from "./store/card-store.js";
+import { planningCardKindFromPath } from "./store/planning-id.js";
 
 /** Options for walkAndIngest. Extends the walk policy opts with ingest/heal scope. */
 export interface WalkAndIngestOptions extends WalkOptions {
@@ -46,6 +47,9 @@ export interface WalkAndIngestReceipt {
   heal?: HealReceipt;
   /** # of vault-md cards mirrored into the card-store (task 5; 0 here). */
   mirrored: number;
+  /** # of planning-cards mirrored into the card-store (Phase-2 / 08; 0 when
+   *  no .planning/ source is walked). Independent of the zk seam. */
+  planningMirrored: number;
   /** Tier-1 md-hash drift hook stub (task 7). `currentHashes` is the sha256 of
    *  each mirrored vault-md file (relPath → hash); `previousHashes` echoes the
    *  opts for change-detection. No re-index action (full drift = ticket 05). */
@@ -64,75 +68,97 @@ export interface WalkAndIngestReceipt {
  *  walk → family detect → adapt workflow-jsonl → kp.ingestRecords (zk writes
  *  vault-md) → kp.healGraph once → receipt. The DB-mirror (step 8) + drift stub
  *  (step 9) land in tasks 5/7. generic family is detected-but-deferred (Option A).
- *  Hermes NEVER calls runConvergenceLoop (Decision 1) and NEVER imports zk. */
+ *  Hermes NEVER calls runConvergenceLoop (Decision 1) and NEVER imports zk.
+ *
+ *  Phase-2 / 08: the knowledge block runs ONLY when the zk seam is present
+ *  (`if (kp)`), but the planning DB-mirror (step 8b) runs INDEPENDENTLY —
+ *  planning is hermes-internal and has no zk dependency. The walk therefore
+ *  precedes the seam check so `.planning/` is classified and mirrored even
+ *  with no seam (and no KNOWLEDGE_VAULT_PATH). ok:false only when there is no
+ *  seam AND no planning source. */
 export async function walkAndIngest(
   input: string | string[],
   opts: WalkAndIngestOptions = {},
 ): Promise<WalkAndIngestReceipt> {
-  // 1. Resolve vault (env-only; throws a clear error if unset/missing).
-  const vaultPath = resolveKnowledgeVaultPath();
   const folder = opts.folder ?? KNOWLEDGE_FOLDER_DEFAULT;
   const mocPath = opts.mocPath ?? KNOWLEDGE_MOC_DEFAULT;
 
-  const emptySkipped = { dirs: [], binaries: [], symlinks: [], deferredFamily: [] };
+  // 3-4. Policy walk + source-family detection (hermes owns the walk). Walked
+  //  BEFORE the seam check so the planning family mirrors independent of zk.
+  const walk = walkKnowledgeSources(input, opts);
 
-  // 2. Read the seam (graceful — no throw when zk is absent).
+  // 2. Read the seam (graceful). Planning mirror is seam-INDEPENDENT (08).
   const kp = getKnowledgePipeline();
-  if (!kp) {
+  let vaultPath = "";
+  let ingest: IngestSummary | undefined;
+  let heal: HealReceipt | undefined;
+  let mirrored = 0;
+  const currentHashes: Record<string, string> = {};
+
+  if (kp) {
+    // 1. Resolve vault (env-only) — only needed for the knowledge path. Done
+    //  inside `if (kp)` so a seam-absent + planning-only run never throws on a
+    //  missing KNOWLEDGE_VAULT_PATH.
+    vaultPath = resolveKnowledgeVaultPath();
+
+    // 5. Adapt workflow-jsonl → KnowledgeRecord[] (Option A; generic deferred).
+    const records = [];
+    for (const file of walk.files["workflow-jsonl"]) {
+      let content = "";
+      try {
+        content = readFileSync(file, "utf8");
+      } catch {
+        continue;
+      }
+      records.push(...parseKnowledgeJsonl(content).records);
+    }
+
+    // 6. Ingest (leaf). zk writes vault-md; hermes does NOT drive vault-md writes.
+    ingest = await kp.ingestRecords(records, {
+      vaultPath,
+      source: "workflow-jsonl",
+      sourceLabel: opts.sourceLabel ?? "walkAndIngest",
+      folder,
+      mocPath,
+      maxLinks: opts.maxLinks,
+      wikiAware: opts.wikiAware,
+      linkWeighting: opts.linkWeighting,
+    });
+
+    // 7. Heal (leaf, once). hermes decides WHEN; zk provides the primitive.
+    heal = await kp.healGraph({ vaultPath, folder, mocPath });
+
+    // 8. DB-mirror (single dedup site, Decision 4) + 9. Tier-1 drift stub.
+    // Read <vaultPath>/<folder>/*.md → KnowledgeSerializer.deserialize →
+    // card-store.upsertCard (knowledge kind), capturing the sha256 of each file
+    // (Tier-1 md-hash hook point; no re-index action — full drift is ticket 05).
+    // The store IS the 06a unified card-store — the SAME SQLite DB the memory-cards
+    // use (kind-dispatched; a separate knowledge store would defeat 06a). The DB
+    // dir is the existing hermes memory DB dir (`<AGENT_ROOT>/pi-hermes-memory`),
+    // NEVER inside the obsidian vault. Re-mirror is idempotent via
+    // KnowledgeDedupStrategy (id-upsert). Hermes READS vault-md; it does NOT write it.
+    const m = await mirrorVaultMdToStore(vaultPath, folder, opts.memoryDir);
+    mirrored = m.mirrored;
+    Object.assign(currentHashes, m.currentHashes);
+  }
+
+  // 8b. Planning DB-mirror (Phase-2 / 08) — independent of the zk seam.
+  const { planningMirrored } = await mirrorPlanningToStore(walk.files.planning, opts.memoryDir);
+
+  // 10. Receipt.
+  if (!kp && walk.files.planning.length === 0) {
     return {
       ok: false,
       vaultPath,
       folder,
       mirrored: 0,
+      planningMirrored: 0,
       driftStub: { filesHashed: 0, currentHashes: {} },
-      skipped: emptySkipped,
+      skipped: walk.skipped,
       seamPresent: false,
-      reason: "zk KnowledgePipeline seam not present",
+      reason: "zk KnowledgePipeline seam not present and no planning source",
     };
   }
-
-  // 3-4. Policy walk + source-family detection (hermes owns the walk).
-  const walk = walkKnowledgeSources(input, opts);
-
-  // 5. Adapt workflow-jsonl → KnowledgeRecord[] (Option A; generic deferred).
-  const records = [];
-  for (const file of walk.files["workflow-jsonl"]) {
-    let content = "";
-    try {
-      content = readFileSync(file, "utf8");
-    } catch {
-      continue;
-    }
-    records.push(...parseKnowledgeJsonl(content).records);
-  }
-
-  // 6. Ingest (leaf). zk writes vault-md; hermes does NOT drive vault-md writes.
-  const ingest = await kp.ingestRecords(records, {
-    vaultPath,
-    source: "workflow-jsonl",
-    sourceLabel: opts.sourceLabel ?? "walkAndIngest",
-    folder,
-    mocPath,
-    maxLinks: opts.maxLinks,
-    wikiAware: opts.wikiAware,
-    linkWeighting: opts.linkWeighting,
-  });
-
-  // 7. Heal (leaf, once). hermes decides WHEN; zk provides the primitive.
-  const heal = await kp.healGraph({ vaultPath, folder, mocPath });
-
-  // 8. DB-mirror (single dedup site, Decision 4) + 9. Tier-1 drift stub.
-  // Read <vaultPath>/<folder>/*.md → KnowledgeSerializer.deserialize →
-  // card-store.upsertCard (knowledge kind), capturing the sha256 of each file
-  // (Tier-1 md-hash hook point; no re-index action — full drift is ticket 05).
-  // The store IS the 06a unified card-store — the SAME SQLite DB the memory-cards
-  // use (kind-dispatched; a separate knowledge store would defeat 06a). The DB
-  // dir is the existing hermes memory DB dir (`<AGENT_ROOT>/pi-hermes-memory`),
-  // NEVER inside the obsidian vault. Re-mirror is idempotent via
-  // KnowledgeDedupStrategy (id-upsert). Hermes READS vault-md; it does NOT write it.
-  const { mirrored, currentHashes } = await mirrorVaultMdToStore(vaultPath, folder, opts.memoryDir);
-
-  // 10. Receipt.
   return {
     ok: true,
     vaultPath,
@@ -140,13 +166,14 @@ export async function walkAndIngest(
     ingest,
     heal,
     mirrored,
+    planningMirrored,
     driftStub: {
       filesHashed: Object.keys(currentHashes).length,
       previousHashes: opts.previousHashes,
       currentHashes,
     },
     skipped: walk.skipped,
-    seamPresent: true,
+    seamPresent: !!kp,
   };
 }
 
@@ -202,4 +229,43 @@ async function mirrorVaultMdToStore(
     await store.close();
   }
   return { mirrored, currentHashes };
+}
+
+/** Mirror step 8b (Phase-2 / 08): read each `.planning/<effort>/{map.md,
+ *  tickets/NN.md}` planning source -> deserialize via the store's planning
+ *  serializers -> upsertCard. Independent of the zk seam (planning is
+ *  hermes-internal). Idempotent via the planning dedup strategies (append-once;
+ *  content updates are ticket 09). Returns the # of planning cards mirrored.
+ *  The store reuses the SAME SQLite DB the memory/knowledge cards use
+ *  (`<memoryDir>/sessions.db`); `memoryDir` defaults to the existing hermes
+ *  memory DB dir, NEVER inside the vault. No-op when `planningFiles` is empty. */
+async function mirrorPlanningToStore(
+  planningFiles: string[],
+  memoryDir?: string,
+): Promise<{ planningMirrored: number }> {
+  if (planningFiles.length === 0) return { planningMirrored: 0 };
+  const dir = memoryDir ?? join(AGENT_ROOT, "pi-hermes-memory");
+  const store = await createCardStore({ memoryDir: dir });
+  let planningMirrored = 0;
+  try {
+    for (const abs of planningFiles) {
+      const kind = planningCardKindFromPath(abs);
+      if (!kind) continue;
+      let bytes = "";
+      try {
+        bytes = readFileSync(abs, "utf8");
+      } catch {
+        continue;
+      }
+      const serializer = store.serializerFor(kind);
+      const cards = serializer ? serializer.deserialize(bytes, { filePath: abs }) : [];
+      for (const card of cards) {
+        await store.upsertCard(card);
+        planningMirrored++;
+      }
+    }
+  } finally {
+    await store.close();
+  }
+  return { planningMirrored };
 }
