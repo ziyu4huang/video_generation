@@ -35,6 +35,7 @@ A new pi extension `bun-apps/pi-agent-ext-webui` that opens a web service port f
 
 - [01 — Live session handle & drive API](tickets/01-live-session-handle.md) — RESOLVED: driving/observing/aborting the live in-process session from an extension is a clean, zero-patch path via `sendUserMessage` + `pi.on(...)` + `ctx.abort()`; only `messages` snapshot / `isStreaming` / `queue_update` would need patches.
 - [02 — Architecture backbone](tickets/02-architecture-backbone.md) — RESOLVED: **Path A** — in-process `Bun.serve` + live `AgentSession` + self-built mutex gated by the `input` event; thin dispatch seam for future Path-B migration. Reuse gui-movie-director (serve/WS/origin/port) + web-access (token/browser-open/watchdog/lifecycle).
+- [03 — Agentic mutex](tickets/03-agentic-mutex-design.md) — RESOLVED (PR #1223, merged `0d45e93c`): the self-built mutex landed as a deep module — `AgentMutex` (synchronous check-and-set driver + injectable-clock watchdog) + `MutexController` adapter (verdict → `input`-event `InputEventResult` action + notifications); zero pi deps in v1 (real `pi.on("input")` + `Bun.serve` wiring is ticket 04).
 
 ## Not yet specified
 
