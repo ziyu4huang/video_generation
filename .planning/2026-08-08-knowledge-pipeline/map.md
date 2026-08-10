@@ -11,8 +11,8 @@ The hermes spine is built end-to-end. Typed seam + card-agnostic store + orchest
 - **Ticket 06a** — card-agnostic store: `Card{kind}` + pluggable `CardSerializer` (memory/knowledge) + pluggable `DedupStrategy`; memory-cards coexist byte-identical, knowledge-cards round-trip vault-md. **PR #1141** (squash `61e6019a`).
 - **Ticket 06b** — spine orchestrator: `walkAndIngest` (policy walk + family-detect + ingest + heal + DB-mirror into the unified store) + `healGraph` published as a 5th `KnowledgePipeline` seam leaf + `knowledge_search`/`knowledge_ingest` tools + Tier-1 drift stub. **PR #1146** (squash `3bd0d694`).
 
-**Now unblocked:** 07 (image cards), 08/09/10 (planning cards + sync + staleness), 13 (memory-card graduation).
-**Effort-query phasing:** 08/09/10 (full planning-card pipeline) = PHASE 2; PHASE 1 = ticket 15 (lightweight list + search over .planning, read-only, standalone — UNBLOCKED).
+**Now unblocked:** 07 (image cards), 09/10 (planning sync + staleness), 13 (memory-card graduation). 08 shipped.
+**Effort-query phasing:** 08 shipped; 09/10 (full planning-card pipeline) = PHASE 2; PHASE 1 = ticket 15 (lightweight list + search over .planning, read-only, standalone — UNBLOCKED).
 **Still-open build tracks:** 03 (typed entity-relation graph layer), 14 (embed/vector index build — SurrealDB HNSW + lazy backfill; UNBLOCKED, 04 closed), 05 (full 3-tier drift — 06b stubbed Tier-1 only), 15 (effort-query Phase 1 — lightweight list + search over .planning, read-only; UNBLOCKED, standalone — Phase 2 = 08/09/10).
 **Known issue:** #1130 — `__piRateLimitState` orphan (pi-agent-ext-subagent) unregistered → `test:seam` red.
 
@@ -52,10 +52,10 @@ A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pd
 - Staleness: source-dependency graph (deps declared; re-validate on change). -> ticket 10
 - Carry-over (feeds 04): embed = SurrealDB-only (+ lm-studio); SQLite non-embed CRUD only.
   (SUPERSEDED by 04 — see Decisions: embed rides backend-ab; SurrealDB primary, sqlite-vec fallback.)
-- 08: [Planning-card model](tickets/08-planning-card-model.md) — Hermes owns ingest+store (planning-card serializer plugs in); wayfind is the CRUD/query client. map.md→effort index card, each ticket→planning-ticket card (decisions inline); same SurrealDB/SQLite as knowledge-cards, namespaced; conflicts = closed tickets sharing scope with divergent resolution-gist.
+- 08: [Planning-card model](tickets/08-planning-card-model.md) — Hermes owns ingest+store (planning-card serializer plugs in); wayfind is the CRUD/query client. map.md→effort index card, each ticket→planning-ticket card (decisions inline); same SurrealDB/SQLite as knowledge-cards, namespaced; conflicts = closed tickets sharing scope with divergent resolution-gist. **SHIPPED via PR #1208 (squash 02976974), 2026-08-10**.
 - 09: [Planning sync policy](tickets/09-planning-sync-policy.md) — .planning is git-canonical; DB mirrors it on-demand (content-hash staleness) + background backfill; git resolves multi-worktree merges (DB re-mirrors, conflict markers flagged); .planning is a Tier-1 instance of ticket 05's 3-tier drift (md wins).
 - [10: Staleness dependency graph](tickets/10-staleness-dependency-graph.md) — v1 auto-infers blocked-by + cited-source-path deps (optional explicit depends_on); re-validate on-access via content-hash + background sweep; stale decisions get a `stale:` flag, block effort graduation, agent re-grills to resolve.
-- Next grill order: **04-BUILD** (DB-native embed index — current session decision; SurrealDB primary + sqlite-vec fallback, per Decision 04). Spine [12 + 06a + 06b] shipped; 07/08/09/10/13 remain unblocked but not picked. One per session. (05 closed — migrate-at-graduation + 3-tier drift policy → task 13; spine milestone done — see top of map.)
+- Next grill order: **04-BUILD** (DB-native embed index — current session decision; SurrealDB primary + sqlite-vec fallback, per Decision 04). Spine [12 + 06a + 06b] shipped; **08 shipped**; 07/09/10/13 remain unblocked but not picked. **Next build ticket is 09-impl (.planning DB↔md sync) — needs a plan first (DECIDE/PLAN stage); then 10-impl**. One per session. (05 closed — migrate-at-graduation + 3-tier drift policy → task 13; spine milestone done — see top of map.)
 
 ## Not yet specified
 - Image embed strategy (text-embed of merged content vs +CLIP image-vector). -> ticket 07
