@@ -36,6 +36,26 @@ const builtin = (name: string): Sourced => ({
   sourceInfo: { path: "/core/x.ts", source: "builtin" },
 });
 
+/** A REAL command entry (no top-level `source` → treated as a real command). */
+const realCmd = (name: string): Sourced => ({
+  name,
+  sourceInfo: { path: "/r/bun-apps/pi-agent-ext-wayfind/src/index.ts", source: "extension" },
+});
+
+/** A skill-wrapped command — pi auto-generates `/skill:<name>` per loaded skill
+ *  (top-level source: "skill"); attributes to `pi-agent-ext-<ext>`. */
+const skillCmd = (ext: string, name: string): Sourced => ({
+  name: `skill:${name}`,
+  source: "skill",
+  sourceInfo: { path: `/r/bun-apps/pi-agent-ext-${ext}/skills/${name}/SKILL.md`, source: "extension" },
+});
+
+/** A skill entry as it appears in ctx.getSystemPromptOptions().skills. */
+const skillEntry = (ext: string, name: string): Sourced => ({
+  name,
+  sourceInfo: { path: `/r/bun-apps/pi-agent-ext-${ext}/skills/${name}/SKILL.md`, source: "extension" },
+});
+
 // ─── Mock command context ────────────────────────────────────────────────────
 
 interface NotifyCall {
@@ -87,9 +107,10 @@ describe("groupByExtension", () => {
       skills: [superSkill("skillX")],
     });
     expect([...groups.keys()]).toEqual(["superpowers", "wayfind", OTHER]);
-    // wayfind: 2 tools + 1 command
+    // wayfind: 2 tools + 1 real command (no top-level source), 0 skill-aliases
     expect(groups.get("wayfind")?.tools).toEqual(["t1", "t2"]);
     expect(groups.get("wayfind")?.commands).toEqual(["c1"]);
+    expect(groups.get("wayfind")?.skillCommands).toEqual([]);
     expect(groups.get("wayfind")?.skills).toEqual([]);
     // superpowers: 1 skill
     expect(groups.get("superpowers")?.skills).toEqual(["skillX"]);
@@ -119,7 +140,12 @@ describe("renderSummary", () => {
 
 describe("renderDetail", () => {
   test("header + sections; (none) for empties", () => {
-    const out = renderDetail("wayfind", { tools: ["t1", "t2"], commands: [], skills: [] });
+    const out = renderDetail("wayfind", {
+      tools: ["t1", "t2"],
+      commands: [],
+      skills: [],
+      skillCommands: [],
+    });
     expect(out.startsWith("pi-agent-ext-wayfind")).toBe(true);
     expect(out).toContain("tools:");
     expect(out).toContain("commands:");
@@ -128,6 +154,122 @@ describe("renderDetail", () => {
     expect(out).toContain("(none)");
     expect(out).toContain("t1");
     expect(out).toContain("t2");
+  });
+});
+
+// ─── skill-command dedup (source: "skill") ───────────────────────────────────
+
+describe("skill-command dedup", () => {
+  test("groupByExtension routes skill-source commands to skillCommands, not commands", () => {
+    const groups = groupByExtension({
+      tools: [],
+      commands: [realCmd("do-stuff"), skillCmd("superpowers", "alpha"), skillCmd("superpowers", "beta")],
+      skills: [skillEntry("superpowers", "alpha"), skillEntry("superpowers", "beta")],
+    });
+    // superpowers: 0 real commands, 2 skill-aliases, 2 skills
+    const sp = groups.get("superpowers")!;
+    expect(sp.commands).toEqual([]);
+    expect(sp.skillCommands).toEqual(["skill:alpha", "skill:beta"]);
+    expect(sp.skills).toEqual(["alpha", "beta"]);
+    // wayfind: 1 real command, no skill-aliases
+    const wfG = groups.get("wayfind")!;
+    expect(wfG.commands).toEqual(["do-stuff"]);
+    expect(wfG.skillCommands).toEqual([]);
+  });
+
+  test("renderSummary: skill-only extension → `0 cmd (+N /skill:) · N skill`", () => {
+    const groups = groupByExtension({
+      tools: [],
+      commands: [skillCmd("superpowers", "alpha"), skillCmd("superpowers", "beta")],
+      skills: [skillEntry("superpowers", "alpha"), skillEntry("superpowers", "beta")],
+    });
+    const out = renderSummary(groups);
+    expect(out).toContain("pi-agent-ext-superpowers");
+    expect(out).toContain("0 tool · 0 cmd (+2 /skill:) · 2 skill");
+    // the skill-aliases must NOT inflate the real command count
+    expect(out).not.toMatch(/\b2 cmd\b/);
+  });
+
+  test("renderSummary: mixed extension → real cmd count + (+M /skill:)", () => {
+    const groups = groupByExtension({
+      tools: [],
+      commands: [realCmd("wf-one"), skillCmd("wayfind", "gamma")],
+      skills: [skillEntry("wayfind", "gamma")],
+    });
+    const out = renderSummary(groups);
+    expect(out).toContain("pi-agent-ext-wayfind");
+    expect(out).toContain("0 tool · 1 cmd (+1 /skill:) · 1 skill");
+  });
+
+  test("renderSummary: only-real extension → plain `N cmd`, no (+...)", () => {
+    const groups = groupByExtension({
+      tools: [],
+      commands: [realCmd("c1"), realCmd("c2")],
+      skills: [],
+    });
+    const out = renderSummary(groups);
+    expect(out).toContain("pi-agent-ext-wayfind");
+    expect(out).toContain("0 tool · 2 cmd · 0 skill");
+    expect(out).not.toContain("/skill:");
+  });
+
+  test("renderDetail: skill-only lists NO commands but shows the invocable-as-skill note", () => {
+    const groups = groupByExtension({
+      tools: [],
+      commands: [skillCmd("superpowers", "alpha"), skillCmd("superpowers", "beta")],
+      skills: [skillEntry("superpowers", "alpha"), skillEntry("superpowers", "beta")],
+    });
+    const out = renderDetail("superpowers", groups.get("superpowers")!);
+    expect(out).toContain("commands:");
+    expect(out).toContain("(none)");
+    // skill-alias wrappers must NOT appear listed under commands
+    expect(out).not.toContain("skill:alpha");
+    expect(out).not.toContain("skill:beta");
+    // info preserved as a one-line note
+    expect(out).toContain("(+2 skills also invocable as /skill:<name>)");
+    // skills section stays intact
+    expect(out).toContain("skills:");
+    expect(out).toContain("alpha");
+    expect(out).toContain("beta");
+  });
+
+  test("renderDetail: mixed lists real commands + note, hides skill-aliases", () => {
+    const groups = groupByExtension({
+      tools: [],
+      commands: [realCmd("wf-one"), skillCmd("wayfind", "gamma")],
+      skills: [skillEntry("wayfind", "gamma")],
+    });
+    const out = renderDetail("wayfind", groups.get("wayfind")!);
+    expect(out).toContain("wf-one");
+    expect(out).not.toContain("skill:gamma");
+    expect(out).toContain("(+1 skills also invocable as /skill:<name>)");
+  });
+
+  test("renderDetail: only-real lists all commands, no note", () => {
+    const groups = groupByExtension({
+      tools: [],
+      commands: [realCmd("c1"), realCmd("c2")],
+      skills: [],
+    });
+    const out = renderDetail("wayfind", groups.get("wayfind")!);
+    expect(out).toContain("c1");
+    expect(out).toContain("c2");
+    expect(out).not.toContain("invocable as /skill");
+  });
+
+  test("handler summary reflects skill-command dedup end-to-end", async () => {
+    const cmd = makeExtensionsCommand(
+      () => [],
+      () => [skillCmd("superpowers", "alpha"), skillCmd("superpowers", "beta")],
+    );
+    const { ctx, notifyCalls } = mockCtx({
+      selectReturns: undefined,
+      skills: [skillEntry("superpowers", "alpha"), skillEntry("superpowers", "beta")],
+    });
+    await cmd.handler("", ctx as never);
+    expect(notifyCalls).toHaveLength(1);
+    expect(notifyCalls[0].msg).toContain("0 cmd (+2 /skill:) · 2 skill");
+    expect(notifyCalls[0].msg).not.toMatch(/\b2 cmd\b/);
   });
 });
 

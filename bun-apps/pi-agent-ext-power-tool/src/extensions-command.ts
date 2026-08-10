@@ -16,7 +16,13 @@ import type { ExtensionCommandContext, RegisteredCommand } from "@earendil-works
 const EXT_RE = /pi-agent-ext-([a-z0-9-]+)/i;
 export const OTHER = "(core & other)";
 
-export type Sourced = { name: string; sourceInfo?: { path?: string; source?: string; baseDir?: string } };
+export type Sourced = {
+  name: string;
+  /** pi's SlashCommandInfo.source: "extension" | "prompt" | "skill".
+   *  Missing/undefined is treated as a REAL command (not a skill alias). */
+  source?: string;
+  sourceInfo?: { path?: string; source?: string; baseDir?: string };
+};
 
 /** Derive the pi-agent-ext-<name> segment from a sourceInfo, else undefined. */
 export function extName(si: Sourced["sourceInfo"]): string | undefined {
@@ -28,8 +34,13 @@ export function extName(si: Sourced["sourceInfo"]): string | undefined {
 
 export interface ExtGroup {
   tools: string[];
+  /** Real commands only (source !== "skill"); skill-wrapped `/skill:<name>` wrappers are excluded. */
   commands: string[];
   skills: string[];
+  /** pi auto-generates a `/skill:<name>` command per loaded skill (source: "skill").
+   *  These are skill-aliases, not real commands — kept separate so a skill-only
+   *  extension doesn't appear to duplicate its skills as commands. */
+  skillCommands: string[];
 }
 
 /** Bucket tools/commands/skills by owning extension (pi-agent-ext-<name>),
@@ -40,17 +51,31 @@ export function groupByExtension(input: {
   skills: Sourced[];
 }): Map<string, ExtGroup> {
   const groups = new Map<string, ExtGroup>();
-  const bucket = (name: string, si: Sourced["sourceInfo"], key: keyof ExtGroup) => {
+  const newGroup = (): ExtGroup => ({ tools: [], commands: [], skills: [], skillCommands: [] });
+  const bucket = (name: string, si: Sourced["sourceInfo"], key: "tools" | "skills") => {
     const ext = extName(si) ?? OTHER;
     let g = groups.get(ext);
     if (!g) {
-      g = { tools: [], commands: [], skills: [] };
+      g = newGroup();
       groups.set(ext, g);
     }
     g[key].push(name);
   };
   for (const t of input.tools) bucket(t.name, t.sourceInfo, "tools");
-  for (const c of input.commands) bucket(c.name, c.sourceInfo, "commands");
+  // Commands need source-aware routing: pi wraps every loaded skill as a
+  // `skill:<name>` command with source: "skill". Route those to `skillCommands`
+  // (skill-aliases) so they aren't double-counted as real commands. A missing
+  // source is treated as a real command.
+  for (const c of input.commands) {
+    const ext = extName(c.sourceInfo) ?? OTHER;
+    let g = groups.get(ext);
+    if (!g) {
+      g = newGroup();
+      groups.set(ext, g);
+    }
+    if (c.source === "skill") g.skillCommands.push(c.name);
+    else g.commands.push(c.name);
+  }
   for (const s of input.skills) bucket(s.name, s.sourceInfo, "skills");
   return new Map(
     [...groups.entries()].sort(([a], [b]) => {
@@ -65,9 +90,13 @@ export function renderSummary(groups: Map<string, ExtGroup>): string {
   const lines = ["Loaded extensions:", ""];
   for (const [ext, g] of groups) {
     const tag = ext === OTHER ? ext : `pi-agent-ext-${ext}`;
-    lines.push(
-      `${tag.padEnd(34)} ${g.tools.length} tool · ${g.commands.length} cmd · ${g.skills.length} skill`,
-    );
+    // skill-wrapped `/skill:<name>` commands are not real commands; surface them
+    // as a (+N /skill:) annotation so skill-only extensions stop showing their
+    // skills twice (once as commands, once as skills).
+    const cmdPart = g.skillCommands.length
+      ? `${g.commands.length} cmd (+${g.skillCommands.length} /skill:)`
+      : `${g.commands.length} cmd`;
+    lines.push(`${tag.padEnd(34)} ${g.tools.length} tool · ${cmdPart} · ${g.skills.length} skill`);
   }
   lines.push("", "Drill in: /extensions <name>   (or /extensions then pick)");
   return lines.join("\n");
@@ -82,7 +111,12 @@ export function renderDetail(ext: string, g: ExtGroup): string {
     else lines.push("  (none)");
   };
   section("tools", g.tools);
+  // commands: list ONLY real commands; collapse the skill-aliases into a single
+  // note so the same skills aren't shown twice (/skill:<name> vs skills).
   section("commands", g.commands);
+  if (g.skillCommands.length) {
+    lines.push(`  (+${g.skillCommands.length} skills also invocable as /skill:<name>)`);
+  }
   section("skills", g.skills);
   return lines.join("\n");
 }
