@@ -26,37 +26,15 @@
  * frontmatter key).
  */
 
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { stringify as stringifyYaml } from "yaml";
 import type { Card, CardGraph } from "./card.js";
 import type { CardSerializer } from "./card-serializer.js";
+import { splitFencedYaml } from "./frontmatter-codec.js";
 
 const FENCE = "---";
 const CORE_IDEA_HEADER = "## 核心想法";
 const LINKS_HEADER = "## 連結";
 const WIKI_LINK_RE = /\[\[([^\]]+)\]\]/g;
-
-/** Split the leading `---` YAML frontmatter block from the body. Returns null
- *  when there is no (well-formed) fence; never throws (malformed YAML → null). */
-function splitFrontmatter(content: string): { data: Record<string, unknown>; body: string } | null {
-  const lines = content.split("\n");
-  if (lines.length === 0 || lines[0]!.trim() !== FENCE) return null;
-  let end = -1;
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i]!.trim() === FENCE) {
-      end = i;
-      break;
-    }
-  }
-  if (end === -1) return null;
-  let data: Record<string, unknown>;
-  try {
-    const parsed = parseYaml(lines.slice(1, end).join("\n"));
-    data = parsed !== null && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return null;
-  }
-  return { data, body: lines.slice(end + 1).join("\n") };
-}
 
 /** Mirror `validateZettelNote`: require id/created + a non-empty `tags` whose
  *  first entry is the literal "zettel". Defensive (never throws). */
@@ -138,7 +116,7 @@ export class KnowledgeSerializer implements CardSerializer<"knowledge"> {
   readonly kind = "knowledge" as const;
 
   deserialize(fileBytes: string, _opts?: { filePath?: string }): Card[] {
-    const split = splitFrontmatter(fileBytes);
+    const split = splitFencedYaml(fileBytes);
     if (!split) return [];
     const { data, body } = split;
     if (!isValidZettel(data)) return [];

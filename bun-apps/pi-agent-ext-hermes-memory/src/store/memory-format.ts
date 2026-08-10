@@ -12,9 +12,10 @@
  * file and were moved out to keep the seam clean (DRY: single source of truth).
  */
 
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { stringify as stringifyYaml } from "yaml";
 import type { FailureState, MemoryCategory, Provenance, MemorySource } from "../types.js";
 import type { MemoryTarget } from "./repository.js";
+import { splitFencedYaml } from "./frontmatter-codec.js";
 
 // ---------------------------------------------------------------------------
 // Pure helpers (copied verbatim from the former sqlite-memory-store.ts).
@@ -380,18 +381,14 @@ export function parseMetadataFrontmatter(raw: string): ParsedMarkdownMemoryEntry
   created: string;
   lastReferenced: string;
 } {
-  const lines = raw.split("\n");
-  // first line is the opening fence; find the closing fence.
-  let close = -1;
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i] === FRONTMATTER_FENCE) {
-      close = i;
-      break;
-    }
-  }
-  if (close === -1) throw new Error("malformed frontmatter: no closing fence");
-  const fm = parseYaml(lines.slice(1, close).join("\n")) as Record<string, unknown>;
-  const text = lines.slice(close + 1).join("\n");
+  // Fence-scan + YAML parse live in the one shared leaf (architecture-
+  // deepening C1). The leaf returns null on a missing/malformed fence; this
+  // codec keeps its historical strict contract (throw, not null) so every
+  // caller's try/catch shape is preserved.
+  const split = splitFencedYaml(raw);
+  if (!split) throw new Error("malformed frontmatter: no closing fence");
+  const fm = split.data;
+  const text = split.body;
   const mw = (fm.memworth ?? {}) as { success?: number; fail?: number };
   return {
     content: text,

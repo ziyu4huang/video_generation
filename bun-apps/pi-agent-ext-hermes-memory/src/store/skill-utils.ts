@@ -1,39 +1,39 @@
 import * as fs from "node:fs/promises";
 import type { SkillDocument, SkillScope } from "../types.js";
+import { splitFencedYaml } from "./frontmatter-codec.js";
+// `today` has ONE home (memory-format.ts); re-exported here so skill-store's
+// existing `import { today } from "./skill-utils.js"` keeps working without a
+// caller change (architecture-deepening C1 dedupe).
+export { today } from "./memory-format.js";
 
 export interface ParsedSkillFile {
   meta: Record<string, string>;
   body: string;
 }
 
-function parseScalar(value: string): string {
-  const trimmed = value.trim();
-  if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (typeof parsed === "string") return parsed;
-    } catch {
-      // fall through to raw trimmed
-    }
-  }
-  return trimmed;
+/** Coerce a parsed YAML scalar/aggregate into the historical `Record<string,
+ *  string>` shape of `ParsedSkillFile.meta`. Strings pass through unchanged;
+ *  numbers/booleans stringify; arrays/objects round-trip as JSON so their
+ *  fields SURVIVE (the old regex parser silently dropped multi-line arrays /
+ *  nested maps). The behavior change vs. the regex parser is intentional and
+ *  documented — the YAML lib is the source of truth now. */
+function coerceMetaValue(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (v === null || v === undefined) return "";
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return JSON.stringify(v);
 }
 
 export function parseFrontmatter(raw: string): ParsedSkillFile {
-  const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  if (!match) return { meta: {}, body: raw.trim() };
+  const split = splitFencedYaml(raw);
+  if (!split) return { meta: {}, body: raw.trim() };
 
   const meta: Record<string, string> = {};
-  for (const line of match[1].split("\n")) {
-    const idx = line.indexOf(":");
-    if (idx > 0) {
-      const key = line.slice(0, idx).trim();
-      const value = parseScalar(line.slice(idx + 1));
-      meta[key] = value;
-    }
+  for (const [key, value] of Object.entries(split.data)) {
+    meta[key] = coerceMetaValue(value);
   }
 
-  return { meta, body: match[2].trim() };
+  return { meta, body: split.body.trim() };
 }
 
 function yamlDoubleQuoted(value: string): string {
@@ -65,10 +65,6 @@ export function slugify(name: string): string {
     .replace(/^-|-$/g, "")
     .replace(/--+/g, "-")
     .slice(0, 64);
-}
-
-export function today(): string {
-  return new Date().toISOString().split("T")[0];
 }
 
 const SKILL_SIMILARITY_STOP_WORDS = new Set([
