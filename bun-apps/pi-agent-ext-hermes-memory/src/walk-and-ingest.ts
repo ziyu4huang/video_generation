@@ -6,6 +6,7 @@ import { getKnowledgePipeline } from "./knowledge-pipeline-seam.js";
 import { resolveKnowledgeVaultPath, KNOWLEDGE_FOLDER_DEFAULT, KNOWLEDGE_MOC_DEFAULT } from "./knowledge-vault-path.js";
 import { walkKnowledgeSources, type WalkOptions } from "./knowledge-walk.js";
 import { parseKnowledgeJsonl } from "./knowledge-jsonl.js";
+import { hasMergeConflictMarkers } from "./git-ops.js";
 import { AGENT_ROOT } from "./paths.js";
 import { createCardStore } from "./store/card-store.js";
 import {
@@ -279,6 +280,15 @@ async function mirrorPlanningToStore(
         bytes = readFileSync(abs, "utf8");
       } catch {
         continue;
+      }
+      // 09-impl T5: flag efforts whose md has unresolved merge markers (human
+      // review). Advisory only — the mirror STILL runs on the bytes (the markers
+      // are just body text the serializer parses around). Dedup by effort slug.
+      if (hasMergeConflictMarkers(bytes)) {
+        const info = parsePlanningPath(abs);
+        if (info && !conflictMarkerEfforts.includes(info.effort)) {
+          conflictMarkerEfforts.push(info.effort);
+        }
       }
       const serializer = store.serializerFor(kind);
       const cards = serializer ? serializer.deserialize(bytes, { filePath: abs }) : [];

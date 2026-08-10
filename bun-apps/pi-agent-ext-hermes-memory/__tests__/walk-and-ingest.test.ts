@@ -354,3 +354,35 @@ describe("walkAndIngest — planning delete reconciliation (09-impl T4)", () => 
     }
   });
 });
+
+describe("walkAndIngest — conflict-marker flag (09-impl T5)", () => {
+  it("surfaces an effort with unresolved merge markers in its ticket md; clean md not flagged; mirror still runs (non-blocking)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pconf-"));
+    const mem = mkdtempSync(join(tmpdir(), "pconf-mem-"));
+    try {
+      const effort = "conflict-effort";
+      const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
+      mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
+      writeFileSync(ticketPath,
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> b\n");
+      const r = await walkAndIngest(root, { memoryDir: mem });
+      assert.ok(r.conflictMarkerEfforts.includes(effort), "effort must be flagged for human review");
+      // The mirror STILL runs — conflict markers do NOT block the mirror (advisory flag).
+      assert.ok(r.planningMirrored >= 1, "mirror must still run on a conflicted file (non-blocking)");
+      // And the conflicted ticket DID land in the DB (non-blocking proof).
+      const store = await createCardStore({ memoryDir: mem });
+      const mirrored = await store.getCard(`planning-ticket:${effort}:01`);
+      await store.close();
+      assert.match(mirrored?.content ?? "", /ours/, "conflicted ticket body mirrored around the markers");
+
+      // Clean the markers and re-mirror → the effort is NOT re-flagged.
+      writeFileSync(ticketPath,
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nClean now.\n");
+      const r2 = await walkAndIngest(root, { memoryDir: mem });
+      assert.ok(!r2.conflictMarkerEfforts.includes(effort), "clean md must not be flagged");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+});
