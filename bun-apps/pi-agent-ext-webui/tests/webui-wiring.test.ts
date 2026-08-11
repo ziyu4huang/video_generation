@@ -29,7 +29,7 @@ import { MockPi } from "./helpers/mock-pi.js";
 import { FakeClock } from "./helpers/fake-clock.js";
 import { MemoryBroadcaster } from "../src/broadcaster.js";
 import { wireWebui, type WebuiServer, type WebuiWiring } from "../src/webui-wiring.js";
-import { WebServer, type CommandHandler } from "../src/web-server.js";
+import { WebServer, type CommandHandler, type HttpRouteHandler } from "../src/web-server.js";
 import type { WebFrame } from "../src/protocol.js";
 
 /** Minimal WebuiServer fake: records lifecycle + holds the command handler. */
@@ -40,6 +40,9 @@ class FakeWebServer implements WebuiServer {
   dropCalls = 0;
   private bound = false;
   commandHandler: CommandHandler | null = null;
+  httpRoutes: HttpRouteHandler | null = null;
+  /** Stub URL (urlFor is only read for the real WebServer; never hit here). */
+  readonly url = "http://fake.local/";
   /** Unused in tests (a MemoryBroadcaster is injected as the broadcaster). */
   broadcast(_frame: WebFrame): void {}
   start(): void {
@@ -58,6 +61,9 @@ class FakeWebServer implements WebuiServer {
   }
   setCommandHandler(cb: CommandHandler | null): void {
     this.commandHandler = cb;
+  }
+  setHttpRoutes(handler: HttpRouteHandler | null): void {
+    this.httpRoutes = handler;
   }
   stop(): void {
     this.stopCalls++;

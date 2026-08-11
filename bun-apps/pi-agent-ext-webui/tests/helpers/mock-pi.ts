@@ -14,6 +14,8 @@
  * The mock ctx mirrors the slice of ExtensionContext the wiring touches:
  * `abort()`.
  */
+import type { RenderHostEvents } from "../../src/webui-wiring.js";
+
 export type AnyHandler = (event: any, ctx: any) => any;
 
 export class MockPi {
@@ -21,6 +23,10 @@ export class MockPi {
   readonly handlers = new Map<string, AnyHandler[]>();
   /** DELIVERED (non-suppressed) sendUserMessage calls. */
   readonly sent: Array<{ content: unknown; opts?: { deliverAs?: "steer" | "followUp" } }> = [];
+  /** Tools registered via registerTool (ticket 06 render framework). */
+  readonly registeredTools: unknown[] = [];
+  /** Shared event bus (ticket 06 render channel "webui:render"). */
+  readonly events: RenderHostEvents;
   /** Mock session context (the second arg passed to handlers). */
   readonly ctx = {
     abortCalls: 0,
@@ -29,10 +35,35 @@ export class MockPi {
     },
   };
 
+  constructor() {
+    const channels = new Map<string, Set<(data: unknown) => void>>();
+    this.events = {
+      on(channel, handler) {
+        let set = channels.get(channel);
+        if (!set) {
+          set = new Set();
+          channels.set(channel, set);
+        }
+        set.add(handler);
+        return () => {
+          set!.delete(handler);
+        };
+      },
+      emit(channel, data) {
+        channels.get(channel)?.forEach((h) => h(data));
+      },
+    };
+  }
+
   on(event: string, handler: AnyHandler): void {
     const list = this.handlers.get(event);
     if (list) list.push(handler);
     else this.handlers.set(event, [handler]);
+  }
+
+  /** Register a tool (ticket 06 render framework registers "webui_render"). */
+  registerTool(tool: unknown): void {
+    this.registeredTools.push(tool);
   }
 
   sendUserMessage(
