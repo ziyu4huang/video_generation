@@ -54,7 +54,7 @@ export const zkIngestCommand = {
 	summary:
 		"converge structured .knowledge.jsonl records into the shared knowledge-graph vault",
 	details: `Usage:
-  bun-pi-agent-cli zk-ingest <jsonl-files...> [options]
+  pi-agent cli zk-ingest <jsonl-files...> [options]
 
 Inputs:
   One or more .knowledge.jsonl files. Each non-blank line is one record
@@ -73,9 +73,9 @@ Options:
                            Also extracts typed entities as additive frontmatter.
 
 Examples:
-  bun-pi-agent-cli zk-ingest .claude/workflows/pi-infra-self-improve.knowledge.jsonl
-  bun-pi-agent-cli zk-ingest .claude/workflows/*.knowledge.jsonl --dry-run
-  bun-pi-agent-cli zk-ingest flux2.jsonl krea2.jsonl --source-label cross-ext`,
+  pi-agent cli zk-ingest .claude/workflows/pi-infra-self-improve.knowledge.jsonl
+  pi-agent cli zk-ingest .claude/workflows/*.knowledge.jsonl --dry-run
+  pi-agent cli zk-ingest flux2.jsonl krea2.jsonl --source-label cross-ext`,
 	async run(parsed: ParsedArgs): Promise<void> {
 		const cwd = process.cwd();
 		const files = parsed.positionals;

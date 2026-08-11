@@ -94,7 +94,7 @@ export const zkExtractCommand = {
 	name: "zk-extract",
 	summary: "decompose markdown/text files into Zettelkasten atomic notes",
 	details: `Usage:
-  bun-pi-agent-cli zk-extract <files.../folders...> [options]
+  pi-agent cli zk-extract <files.../folders...> [options]
 
 Inputs:
   One or more files or folders. Folders are scanned recursively for
@@ -112,10 +112,10 @@ Options (pi-aligned globals also apply):
   -p, --print            non-interactive one-shot
 
 Examples:
-  bun-pi-agent-cli zk-extract notes.md
-  bun-pi-agent-cli zk-extract ./inbox/ --folder Zettelkasten --max-notes 20
-  bun-pi-agent-cli zk-extract a.md b.md --model anthropic/claude-sonnet-4:high
-  bun-pi-agent-cli zk-extract ./docs --vault /path/to/my-vault`,
+  pi-agent cli zk-extract notes.md
+  pi-agent cli zk-extract ./inbox/ --folder Zettelkasten --max-notes 20
+  pi-agent cli zk-extract a.md b.md --model anthropic/claude-sonnet-4:high
+  pi-agent cli zk-extract ./docs --vault /path/to/my-vault`,
 	async run(parsed: ParsedArgs): Promise<void> {
 		const cwd = process.cwd();
 		const inputs = parsed.positionals;

@@ -8,11 +8,11 @@
  * in, tool streaming, model selection).
  *
  * Usage:
- *   bun-pi-agent-cli chat                          # start REPL (persistent session)
- *   bun-pi-agent-cli chat --model gemma-4-26b      # pick a model
- *   bun-pi-agent-cli --no-session chat             # ephemeral (in-memory) session
- *   bun-pi-agent-cli chat --tools read,bash,write  # curated toolset
- *   echo "hello" | bun-pi-agent-cli chat           # pipe one prompt, then exit
+ *   pi-agent cli chat                          # start REPL (persistent session)
+ *   pi-agent cli chat --model gemma-4-26b      # pick a model
+ *   pi-agent cli --no-session chat             # ephemeral (in-memory) session
+ *   pi-agent cli chat --tools read,bash,write  # curated toolset
+ *   echo "hello" | pi-agent cli chat           # pipe one prompt, then exit
  *
  * In-session commands:
  *   /help        show in-session commands
@@ -100,7 +100,7 @@ export const chatCommand = {
 	name: "chat",
 	summary: "interactive multi-turn REPL (persistent session; the normal-CLI experience)",
 	details: `Usage:
-  bun-pi-agent-cli chat [options]
+  pi-agent cli chat [options]
 
 Interactive multi-turn agent REPL. Unlike every other command (single-turn),
 \`chat\` maintains a persistent session across turns — type a message, get a
@@ -127,16 +127,16 @@ In-session commands:
   /tools       list active tools
 
 Examples:
-  bun-pi-agent-cli chat
-  bun-pi-agent-cli chat --model gemma-4-26b
-  bun-pi-agent-cli --tools read,bash,edit chat
-  echo "what files are here?" | bun-pi-agent-cli chat`,
+  pi-agent cli chat
+  pi-agent cli chat --model gemma-4-26b
+  pi-agent cli --tools read,bash,edit chat
+  echo "what files are here?" | pi-agent cli chat`,
 	async run(parsed: ParsedArgs): Promise<void> {
 		const verbose = parsed.verbose;
 		const { session, llm } = await makeSession(parsed);
 		const label = modelLabel(session as any, llm);
 
-		process.stderr.write(`${CYAN}bun-pi-agent-cli chat${RESET} — model: ${label}  [${llm.provider}/${llm.modelId}]  thinking: ${llm.thinkingLevel}\n`);
+		process.stderr.write(`${CYAN}pi-agent cli chat${RESET} — model: ${label}  [${llm.provider}/${llm.modelId}]  thinking: ${llm.thinkingLevel}\n`);
 		if (parsed.dryRun) {
 			process.stderr.write(`${DIM}[dry-run] vault writes suppressed${RESET}\n`);
 		}
@@ -197,7 +197,7 @@ Examples:
 						if (!arg) {
 							process.stderr.write(`${DIM}Usage: /model <pattern> (e.g. /model sonnet)${RESET}\n`);
 						} else {
-							process.stderr.write(`${DIM}[model switch requires a restart — use: bun-pi-agent-cli chat --model ${arg}]${RESET}\n`);
+							process.stderr.write(`${DIM}[model switch requires a restart — use: pi-agent cli chat --model ${arg}]${RESET}\n`);
 						}
 						break;
 					case "tools":

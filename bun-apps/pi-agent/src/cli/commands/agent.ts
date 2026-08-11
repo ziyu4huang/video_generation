@@ -8,9 +8,9 @@
  * toolset for its specific workflow.
  *
  * Usage:
- *   bun-pi-agent-cli agent "read the files in this dir and summarize"
- *   bun-pi-agent-cli agent --tools read,bash "list and explain the test files"
- *   bun-pi-agent-cli --model sonnet agent "refactor the doctor command"
+ *   pi-agent cli agent "read the files in this dir and summarize"
+ *   pi-agent cli agent --tools read,bash "list and explain the test files"
+ *   pi-agent cli --model sonnet agent "refactor the doctor command"
  *
  * Default toolset (when --tools is not given) is the full READ + WRITE +
  * vault + web set. Pass --tools to narrow it. Pass --dry-run for read-only.
@@ -53,7 +53,7 @@ export const agentCommand = {
 	name: "agent",
 	summary: "free-form agentic task with a broad toolset (read/write/bash/vault/web/knowledge)",
 	details: `Usage:
-  bun-pi-agent-cli agent <task...> [options]
+  pi-agent cli agent <task...> [options]
 
 Free-form single-turn agent run with a BROAD curated toolset. This is the
 "agentic" entry point — give a natural-language task and the agent has full
@@ -77,16 +77,16 @@ Options (pi-aligned globals):
   --dry-run              suppress vault writes (read-only)
 
 Examples:
-  bun-pi-agent-cli agent "read package.json and explain the scripts"
-  bun-pi-agent-cli agent "list all test files and summarize coverage"
-  bun-pi-agent-cli --model sonnet agent "review the doctor command for bugs"
-  bun-pi-agent-cli agent --tools read,bash,web_search "research bun workspaces"
-  bun-pi-agent-cli agent --dry-run "plan a refactor of shared.ts"`,
+  pi-agent cli agent "read package.json and explain the scripts"
+  pi-agent cli agent "list all test files and summarize coverage"
+  pi-agent cli --model sonnet agent "review the doctor command for bugs"
+  pi-agent cli agent --tools read,bash,web_search "research bun workspaces"
+  pi-agent cli agent --dry-run "plan a refactor of shared.ts"`,
 	async run(parsed: ParsedArgs): Promise<void> {
 		const task = parsed.positionals.join(" ").trim();
 		if (!task) {
 			console.error("No task given. Pass a natural-language task as positionals.");
-			console.error("Example: bun-pi-agent-cli agent \"read the files in this dir\"");
+			console.error("Example: pi-agent cli agent \"read the files in this dir\"");
 			process.exit(1);
 		}
 		const factories: unknown[] = [

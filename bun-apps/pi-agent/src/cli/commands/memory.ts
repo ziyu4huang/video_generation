@@ -112,7 +112,7 @@ export const memoryCommand = {
 	name: "memory",
 	summary: "search pi-hermes-memory entries (MEMORY.md, failures.md, USER.md)",
 	details: `Usage:
-  bun-pi-agent-cli memory <query> [options]
+  pi-agent cli memory <query> [options]
 
 Searches the persistent memory files in ~/.pi/agent/pi-hermes-memory/ for a
 case-insensitive substring and prints matching entries with context.
@@ -128,9 +128,9 @@ Options:
   --limit <n>           max matches (default 20)
 
 Examples:
-  bun-pi-agent-cli memory "bun workspace"
-  bun-pi-agent-cli memory "argparse loop"
-  bun-pi-agent-cli memory "verbose flag" --limit 5`,
+  pi-agent cli memory "bun workspace"
+  pi-agent cli memory "argparse loop"
+  pi-agent cli memory "verbose flag" --limit 5`,
 
 	async run(parsed: ParsedArgs): Promise<void> {
 		const query = parsed.positionals.join(" ").trim();

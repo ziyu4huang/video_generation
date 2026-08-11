@@ -18,8 +18,8 @@ import { buildRagTask, ragToolsFor, type BlendMode } from "@repo/pi-agent-ext-kn
 const DETAILS = `Ask a natural language question; returns a synthesized answer grounded in vault notes.
 
 Usage:
-  bun-pi-agent-cli zk-ask <question>
-  bun-pi-agent-cli zk-ask <question> --retrieve-only
+  pi-agent cli zk-ask <question>
+  pi-agent cli zk-ask <question> --retrieve-only
 
 When to use:
   zk-ask      — you need a synthesized prose answer to a question ("How does X work?",
@@ -73,11 +73,11 @@ Options:
   -p, --print            Non-interactive one-shot
 
 Examples:
-  bun-pi-agent-cli zk-ask "How does Bun handle workspaces?"
-  bun-pi-agent-cli zk-ask "What is the relationship between Zettelkasten and atomic notes?" --depth 3
-  bun-pi-agent-cli zk-ask "PDF processing pipeline" --summarize
-  bun-pi-agent-cli zk-ask "LLM tool use patterns" --retrieve-only
-  bun-pi-agent-cli zk-ask "atomic notes" --depth 1 --max-neighbors 3 --top-k 5`;
+  pi-agent cli zk-ask "How does Bun handle workspaces?"
+  pi-agent cli zk-ask "What is the relationship between Zettelkasten and atomic notes?" --depth 3
+  pi-agent cli zk-ask "PDF processing pipeline" --summarize
+  pi-agent cli zk-ask "LLM tool use patterns" --retrieve-only
+  pi-agent cli zk-ask "atomic notes" --depth 1 --max-neighbors 3 --top-k 5`;
 
 export const zkAskCommand = {
   name: "zk-ask",

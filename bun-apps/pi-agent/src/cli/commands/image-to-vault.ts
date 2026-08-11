@@ -23,7 +23,7 @@ export const imageToVaultCommand = {
 	name: "image-to-vault",
 	summary: "image → markdown → Zettelkasten vault (VLM describe + distill)",
 	details: `Usage:
-  bun-pi-agent-cli pipeline image-to-vault <image> [options]
+  pi-agent cli pipeline image-to-vault <image> [options]
 
 Runs two stages in sequence (same engine as pdf-to-vault, specialised for images):
   1. file2md  — VLM explains the image → Obsidian markdown page
@@ -49,9 +49,9 @@ Options:
   --force-distill        re-run stage 2 even if already done
 
 Examples:
-  bun-pi-agent-cli pipeline image-to-vault scan.jpg
-  bun-pi-agent-cli pipeline image-to-vault diagram.png --delete-png
-  bun-pi-agent-cli pipeline image-to-vault photo.webp --vlm-model lm-studio/gemma-4-26b`,
+  pi-agent cli pipeline image-to-vault scan.jpg
+  pi-agent cli pipeline image-to-vault diagram.png --delete-png
+  pi-agent cli pipeline image-to-vault photo.webp --vlm-model lm-studio/gemma-4-26b`,
 
 	async run(parsed: ParsedArgs): Promise<void> {
 		// Delegate to the shared pdf-to-vault orchestrator. file2md's

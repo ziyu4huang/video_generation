@@ -12,7 +12,7 @@ describe("misc — oneshot backward-compat alias", () => {
 	test("oneshot version → strips alias, prints version, exit 0", () => {
 		const r = runCli(["oneshot", "version"]);
 		expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
-		expect(r.stdout.trim()).toBe("bun-pi-agent-cli 0.1.0");
+		expect(r.stdout.trim()).toBe("pi-agent cli 0.1.0");
 	});
 });
 
@@ -23,13 +23,13 @@ describe("misc — global flags before the sub-command", () => {
 	test("--model x version → dispatches version (not prompt), exit 0", () => {
 		const r = runCli(["--model", "x", "version"]);
 		expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
-		expect(r.stdout.trim()).toBe("bun-pi-agent-cli 0.1.0");
+		expect(r.stdout.trim()).toBe("pi-agent cli 0.1.0");
 	});
 
 	test("--model x help → root help (passthrough help guard), exit 0", () => {
 		const r = runCli(["--model", "x", "help"]);
 		expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
-		expect(r.stdout).toContain("self-contained pi-agent");
+		expect(r.stdout).toContain("non-interactive command namespace");
 	});
 });
 

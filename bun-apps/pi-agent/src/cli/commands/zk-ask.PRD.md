@@ -1,7 +1,7 @@
 # PRD: `zk-ask` command — Vault Question Answering
 
 **File**: `src/cli/commands/zk-ask.ts`
-**Command**: `bun-pi-agent-cli zk-ask <question>`
+**Command**: `pi-agent cli zk-ask <question>`
 **Status**: All 4 enhancements implemented; task builder + tool allowlist moved to `packages/pi-knowledge-card` (single source of truth).
 
 ---

@@ -67,7 +67,7 @@ export function buildMainSpec(parsed: ParsedArgs): string | undefined {
 export const workflowRunCommand: Command = {
 	name: "run",
 	summary: "Run a pi-agent-ext-workflow script headlessly (deterministic engine).",
-	details: `Usage: bun-pi-agent-cli workflow run <name> [options]
+	details: `Usage: pi-agent cli workflow run <name> [options]
 
 Runs a workflow script through the deterministic engine (runWorkflow from
 @repo/pi-agent-ext-workflow) — the SAME engine the VSCode workflow editor and
@@ -97,10 +97,10 @@ Output: a one-line receipt (run id, agents, duration, result kind) + the final
 result as JSON when --json is set.
 
 Examples:
-  bun-pi-agent-cli workflow run echo
-  bun-pi-agent-cli workflow run echo --args '{"msg":"hi"}'
-  bun-pi-agent-cli workflow run ./my-workflow.js --model lm-studio/google/gemma-4-26b-a4b-qat
-  bun-pi-agent-cli workflow run echo --dry-run`,
+  pi-agent cli workflow run echo
+  pi-agent cli workflow run echo --args '{"msg":"hi"}'
+  pi-agent cli workflow run ./my-workflow.js --model lm-studio/google/gemma-4-26b-a4b-qat
+  pi-agent cli workflow run echo --dry-run`,
 	run: async (parsed: ParsedArgs): Promise<void> => {
 		const name = parsed.positionals[0];
 		if (!name) {
@@ -184,7 +184,7 @@ Examples:
 export const workflowListCommand: Command = {
 	name: "list",
 	summary: "List resolvable workflow scripts (with name + description).",
-	details: `Usage: bun-pi-agent-cli workflow list
+	details: `Usage: pi-agent cli workflow list
 
 Enumerates <cwd>/workflows/*, <binDir>/workflows/*, .pi/workflows/*, and
 bun-apps/<pkg>/workflows/* — both workflow packs (folders with manifest.json)

@@ -56,8 +56,8 @@ export const zkQueryCommand = {
 	summary:
 		"cross-workflow knowledge retrieval + graph health (READ side of the knowledge graph)",
 	details: `Usage:
-  bun-pi-agent-cli zk-query --tags <csv> [options]          cross-workflow retrieval
-  bun-pi-agent-cli zk-query --health [--fix] [options]      graph health audit / heal
+  pi-agent cli zk-query --tags <csv> [options]          cross-workflow retrieval
+  pi-agent cli zk-query --health [--fix] [options]      graph health audit / heal
 
 Retrieve mode (default):
   Scan the convergence folder for cards matching ANY of --tags, rank by
@@ -93,17 +93,17 @@ Options:
 
 Examples:
   # Cross-workflow retrieval for flux2's tag space
-  bun-pi-agent-cli zk-query --tags argv,argparse,path-validation \\
+  pi-agent cli zk-query --tags argv,argparse,path-validation \\
     --exclude-from-kb .claude/workflows/pi-agent-ext-flux2-self-improve.knowledge.jsonl
 
   # Graph health audit
-  bun-pi-agent-cli zk-query --health
+  pi-agent cli zk-query --health
 
   # Auto-heal drift
-  bun-pi-agent-cli zk-query --health --fix
+  pi-agent cli zk-query --health --fix
 
   # Detect + merge duplicate cards
-  bun-pi-agent-cli zk-query --merge-duplicates --fix`,
+  pi-agent cli zk-query --merge-duplicates --fix`,
 	async run(parsed: ParsedArgs): Promise<void> {
 		const cwd = process.cwd();
 		const vaultPath = resolveVaultPath(parsed, cwd);

@@ -151,10 +151,10 @@ export const knowledgePipelineCommand = {
 	name: "pipeline",
 	summary: "knowledge pipeline: converge + merge + heal (status / run / dry-run / lint)",
 	details: `Usage:
-  bun-pi-agent-cli pipeline status [options]        snapshot: captures, pending, health
-  bun-pi-agent-cli pipeline run [options]           converge + merge + heal (writes a receipt)
-  bun-pi-agent-cli pipeline dry-run [options]       preview converge + merge (no writes)
-  bun-pi-agent-cli pipeline lint [--fix] [options]  merge-duplicates + heal only
+  pi-agent cli pipeline status [options]        snapshot: captures, pending, health
+  pi-agent cli pipeline run [options]           converge + merge + heal (writes a receipt)
+  pi-agent cli pipeline dry-run [options]       preview converge + merge (no writes)
+  pi-agent cli pipeline lint [--fix] [options]  merge-duplicates + heal only
 
 The knowledge pipeline operational surface — one command for the
 memory → knowledge-card → obsidian flow. Convergence is wiki-aware (reuses ONE
@@ -175,11 +175,11 @@ Options:
   --json                machine-readable output
 
 Examples:
-  bun-pi-agent-cli pipeline status
-  bun-pi-agent-cli pipeline run
-  bun-pi-agent-cli pipeline dry-run
-  bun-pi-agent-cli pipeline lint --fix
-  bun-pi-agent-cli pipeline run --json`,
+  pi-agent cli pipeline status
+  pi-agent cli pipeline run
+  pi-agent cli pipeline dry-run
+  pi-agent cli pipeline lint --fix
+  pi-agent cli pipeline run --json`,
 	async run(parsed: ParsedArgs): Promise<void> {
 		const cwd = process.cwd();
 		const sub = parsed.positionals[0] ?? "status";

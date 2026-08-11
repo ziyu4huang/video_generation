@@ -393,7 +393,7 @@ export function validateToolNames(
 	throw new Error(
 		`Unknown tool name(s) in --tools / PI_TOOLS:\n` +
 			unknown.map((u) => `  ${u}`).join("\n") +
-			`\nRun \`bun-pi-agent-cli --list-tools\` to see all valid tool names.`,
+			`\nRun \`pi-agent cli --list-tools\` to see all valid tool names.`,
 	);
 }
 

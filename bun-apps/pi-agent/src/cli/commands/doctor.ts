@@ -331,7 +331,7 @@ export const doctorCommand = {
 	name: "doctor",
 	summary: "meta: cross-machine portability self-check (env, paths, deps)",
 	details: `Usage:
-  bun-pi-agent-cli doctor [--json] [--fix]
+  pi-agent cli doctor [--json] [--fix]
 
 Checks the boundary conditions the pi-* stack needs on a fresh machine:
 runtime, repo layout, run-dir manifest, MLX output/models dirs, flux2 binary,

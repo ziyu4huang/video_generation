@@ -81,7 +81,7 @@ export const urlToVaultCommand = {
 	name: "url-to-vault",
 	summary: "web URL → markdown → Zettelkasten vault (fetch + distill, agent-driven)",
 	details: `Usage:
-  bun-pi-agent-cli pipeline url-to-vault <url> [options]
+  pi-agent cli pipeline url-to-vault <url> [options]
 
 Runs an agent-driven two-step flow:
   1. fetch_content  — extract readable markdown from the URL
@@ -99,9 +99,9 @@ Options (pi-aligned globals):
   -V, --verbose          tool verbosity (repeat for debug)
 
 Examples:
-  bun-pi-agent-cli pipeline url-to-vault https://example.com/article
-  bun-pi-agent-cli pipeline url-to-vault https://arxiv.org/abs/2401.00001 --max-notes 15
-  bun-pi-agent-cli --model gemma-4-26b pipeline url-to-vault https://blog.example.com/post`,
+  pi-agent cli pipeline url-to-vault https://example.com/article
+  pi-agent cli pipeline url-to-vault https://arxiv.org/abs/2401.00001 --max-notes 15
+  pi-agent cli --model gemma-4-26b pipeline url-to-vault https://blog.example.com/post`,
 
 	async run(parsed: ParsedArgs): Promise<void> {
 		await runUrlToVault(parsed, { label: "url-to-vault", isYouTube: false });
@@ -112,7 +112,7 @@ export const youtubeToVaultCommand = {
 	name: "youtube-to-vault",
 	summary: "YouTube video → transcript markdown → Zettelkasten vault (agent-driven)",
 	details: `Usage:
-  bun-pi-agent-cli pipeline youtube-to-vault <url> [question] [options]
+  pi-agent cli pipeline youtube-to-vault <url> [question] [options]
 
 Runs an agent-driven two-step flow:
   1. fetch_content  — extract the YouTube transcript + metadata as markdown.
@@ -129,9 +129,9 @@ Options (pi-aligned globals):
   -V, --verbose          tool verbosity (repeat for debug)
 
 Examples:
-  bun-pi-agent-cli pipeline youtube-to-vault https://youtube.com/watch?v=XXXX
-  bun-pi-agent-cli pipeline youtube-to-vault https://youtu.be/XXXX "what frameworks are compared?"
-  bun-pi-agent-cli pipeline youtube-to-vault https://youtube.com/watch?v=XXXX --max-notes 10`,
+  pi-agent cli pipeline youtube-to-vault https://youtube.com/watch?v=XXXX
+  pi-agent cli pipeline youtube-to-vault https://youtu.be/XXXX "what frameworks are compared?"
+  pi-agent cli pipeline youtube-to-vault https://youtube.com/watch?v=XXXX --max-notes 10`,
 
 	async run(parsed: ParsedArgs): Promise<void> {
 		await runUrlToVault(parsed, { label: "youtube-to-vault", isYouTube: true });

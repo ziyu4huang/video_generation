@@ -152,7 +152,7 @@ export const sessionsCommand = {
 	name: "sessions",
 	summary: "search past pi-agent session transcripts (offline, no LLM)",
 	details: `Usage:
-  bun-pi-agent-cli sessions <query> [options]
+  pi-agent cli sessions <query> [options]
 
 Searches the TEXT of user + assistant messages across all past pi-agent
 session transcripts (~/.pi/agent/sessions/) and prints matching snippets
@@ -166,9 +166,9 @@ Options:
   --cwd <path>          restrict to sessions from this project path
 
 Examples:
-  bun-pi-agent-cli sessions "flux2 self-improve"
-  bun-pi-agent-cli sessions "bun workspace" --limit 5
-  bun-pi-agent-cli sessions "RAG" --cwd /Users/me/proj/myrepo`,
+  pi-agent cli sessions "flux2 self-improve"
+  pi-agent cli sessions "bun workspace" --limit 5
+  pi-agent cli sessions "RAG" --cwd /Users/me/proj/myrepo`,
 
 	async run(parsed: ParsedArgs): Promise<void> {
 		const query = parsed.positionals.join(" ").trim();

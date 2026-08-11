@@ -25,7 +25,7 @@ import { resolve } from "node:path";
  * Dynamically import extension factories from file paths. Only works in source
  * mode (Bun natively imports .ts). In compiled binary mode these imports fail
  * gracefully — the user sees a warning and should use the extension's registered
- * CLI subcommand instead (e.g. `bun-pi-agent-cli power-tool`).
+ * CLI subcommand instead (e.g. `pi-agent cli power-tool`).
  *
  * Paths are resolved against cwd (not the CLI's own location), matching how the
  * original pi-agent's `-e` flag works.
@@ -123,7 +123,7 @@ export async function runPassthrough(
 	const task = prompt ?? parsed.positionals.join(" ").trim();
 	if (!task) {
 		console.error("No prompt given. Pass a task string, or use a sub-command.");
-		console.error("See: bun-pi-agent-cli --help");
+		console.error("See: pi-agent cli --help");
 		process.exit(1);
 	}
 

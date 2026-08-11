@@ -149,7 +149,7 @@ export const memoryToVaultCommand = {
 	name: "memory-to-vault",
 	summary: "global + project memory → Zettelkasten (workflow-fanned LLM distill, rate-limit-safe)",
 	details: `Usage:
-  bun-pi-agent-cli pipeline memory-to-vault [options]
+  pi-agent cli pipeline memory-to-vault [options]
 
 Distills pi memory (global hermes + real project MEMORY.md) into the shared
 Zettelkasten as atomic, cross-linked cards. Fans out one obsidian-distill agent
@@ -176,9 +176,9 @@ Options:
   --json                 machine-readable output
 
 Examples:
-  bun-pi-agent-cli pipeline memory-to-vault --dry-run
-  bun-pi-agent-cli pipeline memory-to-vault --concurrency 2 --retries 4
-  bun-pi-agent-cli pipeline memory-to-vault --only video_generation__* --verify`,
+  pi-agent cli pipeline memory-to-vault --dry-run
+  pi-agent cli pipeline memory-to-vault --concurrency 2 --retries 4
+  pi-agent cli pipeline memory-to-vault --only video_generation__* --verify`,
 	async run(parsed: ParsedArgs): Promise<void> {
 		const cwd = process.cwd();
 		const memoryDir = parsed.memoryDir ?? DEFAULT_MEMORY_DIR;

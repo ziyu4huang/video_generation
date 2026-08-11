@@ -18,7 +18,7 @@ describe("meta — version", () => {
 		test(`${argv.join(" ")} → exact version string, exit 0`, () => {
 			const r = runCli([...argv]);
 			expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
-			expect(r.stdout.trim()).toBe("bun-pi-agent-cli 0.1.0");
+			expect(r.stdout.trim()).toBe("pi-agent cli 0.1.0");
 			expect(r.stderr).not.toMatch(NO_STACK);
 		});
 	}
@@ -29,7 +29,7 @@ describe("meta — root help", () => {
 		test(`${argv.length ? argv.join(" ") : "(no args)"} → root help banner, exit 0`, () => {
 			const r = runCli([...argv]);
 			expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
-			expect(r.stdout).toContain("self-contained pi-agent");
+			expect(r.stdout).toContain("non-interactive command namespace");
 			expect(r.stdout).toContain("Usage:");
 			expect(r.stdout).toContain("Commands (agents):");
 		});
@@ -71,8 +71,28 @@ describe("meta — completions", () => {
 			const r = runCli(["completions", shell]);
 			expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
 			expect(r.stdout.trim().length, `empty ${shell} completion`).toBeGreaterThan(0);
-			// bash emits a function named after the CLI
-			if (shell === "bash") expect(r.stdout).toContain("_bun_pi_agent_cli");
+			// The completed binary is `pi-agent` — there is no standalone CLI
+			// binary any more — and the CLI's own commands sit one level deeper,
+			// behind the `cli` namespace token. Assert the exact registration
+			// line each shell needs: a wrong binary name here means silently
+			// dead tab-completion for everyone who installs the script.
+			if (shell === "bash") {
+				expect(r.stdout).toContain("complete -F _pi_agent pi-agent\n");
+				expect(r.stdout).toContain('local roots="cli doctor ext"');
+			}
+			if (shell === "zsh") {
+				expect(r.stdout).toContain("compdef _pi-agent pi-agent\n");
+				expect(r.stdout).toContain("_values 'root command' 'cli' 'doctor' 'ext'");
+			}
+			if (shell === "fish") {
+				expect(r.stdout).toContain(`complete -c pi-agent -n "__fish_use_subcommand" -a 'cli'`);
+				expect(r.stdout).toContain(
+					`complete -c pi-agent -n "__fish_seen_subcommand_from cli" -a 'zk-ask'`,
+				);
+			}
+			// The retired standalone binary name must not survive anywhere.
+			expect(r.stdout).not.toContain("bun-pi-agent-cli");
+			expect(r.stdout).not.toContain("bun_pi_agent_cli");
 		});
 	}
 

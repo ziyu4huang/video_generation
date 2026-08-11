@@ -20,9 +20,9 @@ describe("help <target> — never executes the target", () => {
 	test("help version does NOT execute the version command", () => {
 		const r = runCli(["help", "version"]);
 		expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
-		// the `version` command prints EXACTLY "bun-pi-agent-cli 0.1.0"; help must
+		// the `version` command prints EXACTLY "pi-agent cli 0.1.0"; help must
 		// instead surface root help (banner "v0.1.0" + a Usage: block).
-		expect(r.stdout.trim()).not.toBe("bun-pi-agent-cli 0.1.0");
+		expect(r.stdout.trim()).not.toBe("pi-agent cli 0.1.0");
 		expect(r.stdout).toContain("Usage:");
 	});
 
@@ -67,7 +67,7 @@ describe("help <target> — never executes the target", () => {
 	test("bare help → root help banner", () => {
 		const r = runCli(["help"]);
 		expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
-		expect(r.stdout).toContain("self-contained pi-agent");
+		expect(r.stdout).toContain("non-interactive command namespace");
 		expect(r.stdout).toContain("Usage:");
 	});
 
@@ -75,7 +75,7 @@ describe("help <target> — never executes the target", () => {
 		for (const flag of ["-h", "--help"] as const) {
 			const r = runCli([flag]);
 			expect(r.exitCode, `[${flag}] stderr:\n${r.stderr}`).toBe(0);
-			expect(r.stdout).toContain("self-contained pi-agent");
+			expect(r.stdout).toContain("non-interactive command namespace");
 		}
 	});
 });

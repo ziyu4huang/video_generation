@@ -79,12 +79,12 @@ async function runKnowledgeTask(
 }
 
 const DETAILS = `Usage:
-  bun-pi-agent-cli zk-card add <text>            Add a new Zettelkasten note (with duplicate check)
-  bun-pi-agent-cli zk-card add --file <path>     Add from file content
-  bun-pi-agent-cli zk-card find <query>          Search notes (multi-strategy)
-  bun-pi-agent-cli zk-card update <note> <text>  Smart-merge content into an existing note
-  bun-pi-agent-cli zk-card remove <note>         Safely delete a note (backlink check)
-  bun-pi-agent-cli zk-card check                 Audit vault health
+  pi-agent cli zk-card add <text>            Add a new Zettelkasten note (with duplicate check)
+  pi-agent cli zk-card add --file <path>     Add from file content
+  pi-agent cli zk-card find <query>          Search notes (multi-strategy)
+  pi-agent cli zk-card update <note> <text>  Smart-merge content into an existing note
+  pi-agent cli zk-card remove <note>         Safely delete a note (backlink check)
+  pi-agent cli zk-card check                 Audit vault health
 
 Subcommands:
   add       Create a new atomic note. Runs 4-layer duplicate check before writing.
@@ -110,15 +110,15 @@ Options (pi-aligned globals also apply):
   -p, --print             Non-interactive one-shot
 
 Examples:
-  bun-pi-agent-cli zk-card add "Zettelkasten is a note-taking method"
-  bun-pi-agent-cli zk-card add --file concept.txt
-  bun-pi-agent-cli zk-card add "concept" --force
-  bun-pi-agent-cli zk-card find "bun workspace"
-  bun-pi-agent-cli zk-card find "LLM" --limit 5 --no-context
-  bun-pi-agent-cli zk-card update Zettelkasten/Note.md "additional info"
-  bun-pi-agent-cli zk-card remove Zettelkasten/Note.md
-  bun-pi-agent-cli zk-card remove Zettelkasten/Note.md --force
-  bun-pi-agent-cli zk-card check`;
+  pi-agent cli zk-card add "Zettelkasten is a note-taking method"
+  pi-agent cli zk-card add --file concept.txt
+  pi-agent cli zk-card add "concept" --force
+  pi-agent cli zk-card find "bun workspace"
+  pi-agent cli zk-card find "LLM" --limit 5 --no-context
+  pi-agent cli zk-card update Zettelkasten/Note.md "additional info"
+  pi-agent cli zk-card remove Zettelkasten/Note.md
+  pi-agent cli zk-card remove Zettelkasten/Note.md --force
+  pi-agent cli zk-card check`;
 
 export const zkCardCommand = {
   name: "zk-card",

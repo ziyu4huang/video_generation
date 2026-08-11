@@ -208,7 +208,7 @@ export const pdfToVaultCommand = {
 	summary:
 		"PDF → markdown → Zettelkasten vault (resumable end-to-end pipeline)",
 	details: `Usage:
-  bun-pi-agent-cli pipeline pdf-to-vault <pdf> [options]
+  pi-agent cli pipeline pdf-to-vault <pdf> [options]
 
 Runs two stages in sequence:
   1. file2md  — rasterize PDF, VLM explains each page → Obsidian markdown
@@ -237,9 +237,9 @@ Options:
   --force-distill        re-run stage 2 even if already done
 
 Examples:
-  bun-pi-agent-cli pipeline pdf-to-vault paper.pdf
-  bun-pi-agent-cli pipeline pdf-to-vault paper.pdf --pages 1-3   # smoke test
-  bun-pi-agent-cli pipeline pdf-to-vault paper.pdf --delete-png --retries 5`,
+  pi-agent cli pipeline pdf-to-vault paper.pdf
+  pi-agent cli pipeline pdf-to-vault paper.pdf --pages 1-3   # smoke test
+  pi-agent cli pipeline pdf-to-vault paper.pdf --delete-png --retries 5`,
 
 	async run(parsed: ParsedArgs): Promise<void> {
 		const cwd = process.cwd();

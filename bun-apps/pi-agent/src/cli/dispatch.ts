@@ -144,13 +144,13 @@ function printRootHelp(): void {
     (c) => `  ${c.name.padEnd(14)} ${c.summary}`,
   ).join("\n");
 
-  console.log(`bun-pi-agent-cli v${VERSION} — self-contained pi-agent (pi-obsidian baked in)
+  console.log(`pi-agent cli v${VERSION} — pi-agent's non-interactive command namespace (pi-obsidian baked in)
 
 Usage:
-  bun-pi-agent-cli <command> [options]
-  bun-pi-agent-cli pipeline <name> [options]   (multi-stage orchestrators)
-  bun-pi-agent-cli workflow <sub> [options]    (headless engine runner)
-  bun-pi-agent-cli [pi-compatible flags] [prompt]   (passthrough agent mode)
+  pi-agent cli <command> [options]
+  pi-agent cli pipeline <name> [options]   (multi-stage orchestrators)
+  pi-agent cli workflow <sub> [options]    (headless engine runner)
+  pi-agent cli [pi-compatible flags] [prompt]   (passthrough agent mode)
 
 Commands (agents):
 ${agentLines}
@@ -190,30 +190,30 @@ Pi-compatible flags (passthrough + global):
   --dry-run                   suppress vault writes (exclude write tools / skip fs)
 
 Examples:
-  bun-pi-agent-cli chat                                    # interactive REPL (normal-CLI mode)
-  bun-pi-agent-cli chat --model gemma-4-26b                # pick a model for chat
-  bun-pi-agent-cli agent "read package.json and explain"   # free-form agentic task
-  bun-pi-agent-cli agent --tools read,bash "summarize"     # curated toolset
-  bun-pi-agent-cli file2md paper.pdf
-  bun-pi-agent-cli file2md scan.jpg --type image --dpi 200
-  bun-pi-agent-cli zk-extract notes.md --folder Zettelkasten
-  bun-pi-agent-cli zk-extract ./inbox/ --max-notes 20
-  bun-pi-agent-cli pipeline pdf-to-vault paper.pdf
-  bun-pi-agent-cli pipeline pdf-to-vault paper.pdf --pages 1-3 --delete-png
-  bun-pi-agent-cli workflow run closed-loop-proof
-  bun-pi-agent-cli workflow run closed-loop-proof --args '{"kbFile":"mlx-movie-director-self-improve"}' --dry-run
-  bun-pi-agent-cli workflow list
-  bun-pi-agent-cli zk-card add "concept text"
-  bun-pi-agent-cli zk-card find "bun workspace"
-  bun-pi-agent-cli zk-card update Zettelkasten/Note.md "new info"
-  bun-pi-agent-cli zk-card remove Zettelkasten/Note.md
-  bun-pi-agent-cli zk-card check
-  bun-pi-agent-cli zk-ask "How does Bun handle workspaces?"
-  bun-pi-agent-cli zk-ask "Zettelkasten atomic notes" --depth 3 --summarize
-  bun-pi-agent-cli zk-ask "PDF pipeline" --retrieve-only
-  bun-pi-agent-cli -p "List files in the current directory"
-  bun-pi-agent-cli --mode json -p --no-session --tools read,bash "summarize"
-  bun-pi-agent-cli list
+  pi-agent cli chat                                    # interactive REPL (normal-CLI mode)
+  pi-agent cli chat --model gemma-4-26b                # pick a model for chat
+  pi-agent cli agent "read package.json and explain"   # free-form agentic task
+  pi-agent cli agent --tools read,bash "summarize"     # curated toolset
+  pi-agent cli file2md paper.pdf
+  pi-agent cli file2md scan.jpg --type image --dpi 200
+  pi-agent cli zk-extract notes.md --folder Zettelkasten
+  pi-agent cli zk-extract ./inbox/ --max-notes 20
+  pi-agent cli pipeline pdf-to-vault paper.pdf
+  pi-agent cli pipeline pdf-to-vault paper.pdf --pages 1-3 --delete-png
+  pi-agent cli workflow run closed-loop-proof
+  pi-agent cli workflow run closed-loop-proof --args '{"kbFile":"mlx-movie-director-self-improve"}' --dry-run
+  pi-agent cli workflow list
+  pi-agent cli zk-card add "concept text"
+  pi-agent cli zk-card find "bun workspace"
+  pi-agent cli zk-card update Zettelkasten/Note.md "new info"
+  pi-agent cli zk-card remove Zettelkasten/Note.md
+  pi-agent cli zk-card check
+  pi-agent cli zk-ask "How does Bun handle workspaces?"
+  pi-agent cli zk-ask "Zettelkasten atomic notes" --depth 3 --summarize
+  pi-agent cli zk-ask "PDF pipeline" --retrieve-only
+  pi-agent cli -p "List files in the current directory"
+  pi-agent cli --mode json -p --no-session --tools read,bash "summarize"
+  pi-agent cli list
 
 Environment:
   PI_PROVIDER / PI_MODEL / PI_THINKING   LLM overrides
@@ -370,7 +370,7 @@ async function runAgentCommand(cmd: Command, rest: string[]): Promise<void> {
 async function dispatch(argv: string[]): Promise<void> {
   // --version / -v anywhere at root short-circuits.
   if (argv.length === 1 && (argv[0] === "-v" || argv[0] === "--version")) {
-    console.log(`bun-pi-agent-cli ${VERSION}`);
+    console.log(`pi-agent cli ${VERSION}`);
     return;
   }
 
@@ -445,7 +445,7 @@ async function dispatch(argv: string[]): Promise<void> {
     const probe = parsePiArgs(stripped);
 
     if (first === "version") {
-      console.log(`bun-pi-agent-cli ${VERSION}`);
+      console.log(`pi-agent cli ${VERSION}`);
       return;
     }
 
@@ -542,7 +542,7 @@ async function dispatch(argv: string[]): Promise<void> {
   // Otherwise: pi-compatible passthrough.
   const parsed = parsePiArgs(argv);
   if (parsed.version) {
-    console.log(`bun-pi-agent-cli ${VERSION}`);
+    console.log(`pi-agent cli ${VERSION}`);
     return;
   }
   if (parsed.help) {

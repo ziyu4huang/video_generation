@@ -515,7 +515,7 @@ export const toolsMetricsCommand = {
 	name: "tools-metrics",
 	summary: "meta: per-tool usage metrics from pi-agent session logs (calls, errors, latency)",
 	details: `Usage:
-  bun-pi-agent-cli tools-metrics [options]
+  pi-agent cli tools-metrics [options]
 
 Scans ~/.pi/agent/sessions/**/*.jsonl (the transcripts pi-agent writes each
 run) and reports per-tool metrics: call count, matched results, errors +
@@ -542,12 +542,12 @@ Schema-cost mode (estimates per-request API schema token cost, NO session scan):
   --ext <paths>      Override the extension entry points (csv of .ts paths)
 
 Examples:
-  bun-pi-agent-cli tools-metrics
-  bun-pi-agent-cli tools-metrics --since 2026-07-01 --details
-  bun-pi-agent-cli tools-metrics --cwd video_generation__pi --tool bash,edit
-  bun-pi-agent-cli tools-metrics --json --top 20 > metrics.json
-  bun-pi-agent-cli tools-metrics --schema-cost
-  bun-pi-agent-cli tools-metrics --schema-cost --json > schema-cost-baseline.json`,
+  pi-agent cli tools-metrics
+  pi-agent cli tools-metrics --since 2026-07-01 --details
+  pi-agent cli tools-metrics --cwd video_generation__pi --tool bash,edit
+  pi-agent cli tools-metrics --json --top 20 > metrics.json
+  pi-agent cli tools-metrics --schema-cost
+  pi-agent cli tools-metrics --schema-cost --json > schema-cost-baseline.json`,
 	async run(parsed: ParsedArgs): Promise<void> {
 		const rest = parsed.rest;
 

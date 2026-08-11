@@ -200,8 +200,8 @@ export const kcardLoopCommand = {
 	name: "kcard-loop",
 	summary: "converge sources into the knowledge graph: ingest → heal-until-dry → (optional) recall probe",
 	details: `Usage:
-  bun-pi-agent-cli kcard-loop <sources...> [options]
-  bun-pi-agent-cli kcard-loop --heal-only [options]
+  pi-agent cli kcard-loop <sources...> [options]
+  pi-agent cli kcard-loop --heal-only [options]
 
 Sources:
   Each positional is either "<family>:<path>" (mix families in one run) or a
@@ -230,9 +230,9 @@ Exit code:
   0 if the graph converged (healthy), 1 otherwise.
 
 Examples:
-  bun-pi-agent-cli kcard-loop workflow-jsonl:a.knowledge.jsonl generic:./md --json
-  bun-pi-agent-cli kcard-loop *.knowledge.jsonl --probe-eval scripts/real-retrieval-eval.json
-  bun-pi-agent-cli kcard-loop --heal-only --vault ./vault --probe-eval scripts/real-retrieval-eval.json`,
+  pi-agent cli kcard-loop workflow-jsonl:a.knowledge.jsonl generic:./md --json
+  pi-agent cli kcard-loop *.knowledge.jsonl --probe-eval scripts/real-retrieval-eval.json
+  pi-agent cli kcard-loop --heal-only --vault ./vault --probe-eval scripts/real-retrieval-eval.json`,
 	async run(parsed: ParsedArgs): Promise<void> {
 		const receipt = await runConvergenceFromArgs(parsed);
 		if (parsed.json) {

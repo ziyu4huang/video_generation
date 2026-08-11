@@ -15,7 +15,7 @@ export const file2mdCommand = {
 	name: "file2md",
 	summary: "explain images / PDF pages into Obsidian markdown via a local VLM",
 	details: `Usage:
-  bun-pi-agent-cli file2md <files...> [options]
+  pi-agent cli file2md <files...> [options]
 
 Inputs:
   One or more PDF or image files (png/jpg/webp/gif/bmp). Each input maps to
@@ -47,10 +47,10 @@ Options:
   --vault-dir <name>   vault folder name under cwd (default: vault)
 
 Examples:
-  bun-pi-agent-cli file2md paper.pdf
-  bun-pi-agent-cli file2md paper.pdf --dpi 200 --pages 1-4
-  bun-pi-agent-cli file2md scan.jpg --type image
-  bun-pi-agent-cli file2md *.pdf --out ./notes`,
+  pi-agent cli file2md paper.pdf
+  pi-agent cli file2md paper.pdf --dpi 200 --pages 1-4
+  pi-agent cli file2md scan.jpg --type image
+  pi-agent cli file2md *.pdf --out ./notes`,
 
 	async run(parsed: ParsedArgs): Promise<void> {
 		const cwd = process.cwd();
