@@ -5,7 +5,7 @@ blocked by: —
 status: closed
 resolved: 2026-08-11
 
-> **Spec'd + planned (session decision).** Resolved as: loopback-only + randomUUID token (?session=/body.token/WS, flat !==) + 3-tier port (avoid 8090) + announce via ctx.ui notify+setStatus (no auto-open). See ../specs/07-port-binding-auth-url.md + ../plans/07-port-binding-auth-url-plan.md.
+> **Spec'd + planned (final scope).** Resolved as: loopback-only (origin-guard boundary) + simple optional token auth (`setTokenAuth(token: string | null)`; `null` ⇒ no check; loopback passes `null`) + 3-tier port (`WEBUI_PORT` > `PORT` > `0`, avoid 8090) + announce via `ctx.ui` notify+setStatus (no auto-open). See ../specs/07-port-binding-auth-url.md + ../plans/07-port-binding-auth-url-plan.md.
 
 ## Question
 
