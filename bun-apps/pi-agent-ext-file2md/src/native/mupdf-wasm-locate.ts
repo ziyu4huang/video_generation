@@ -49,7 +49,7 @@
  */
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-// @ts-ignore — `type: "file"` asset import; resolved by Bun, not by tsc.
+// @ts-expect-error — `type: "file"` asset import; resolved by Bun, not by tsc.
 import wasmAssetPath from "../../node_modules/mupdf/dist/mupdf-wasm.wasm" with { type: "file" };
 
 /** Absolute, readable path to mupdf-wasm.wasm in the current build mode. */

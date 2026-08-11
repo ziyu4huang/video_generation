@@ -15,7 +15,9 @@
  *   bun scripts/deploy.ts [out-dir] --exe           # compiled binary
  *   bun scripts/deploy.ts [out-dir] --no-freeze     # skip chmod a-w
  *   bun scripts/deploy.ts [out-dir] --obfuscate     # + javascript-obfuscator on the bundle
- *                                                   #   (with --exe: bundle → obfuscate → compile)
+ *                                                   #   (rejected with --exe: obfuscate forces a
+ *                                                   #    bundle-then-compile order that strips
+ *                                                   #    embedded assets — see the check below)
  *                                                   #   (rejected with --snapshot)
  *
  * Default out-dir: ../../dist/pi-agent
@@ -88,6 +90,17 @@ const IS_OBFUSCATE = argv.includes("--obfuscate");
 if (IS_OBFUSCATE && IS_SNAPSHOT) {
 	// `die()` is a hoisted function declaration below — safe to call here.
 	die("✗ --obfuscate is incompatible with --snapshot (a snapshot is a raw source copy — there is no bundle to obfuscate)");
+}
+if (IS_OBFUSCATE && IS_EXE) {
+	// `die()` is a hoisted function declaration below — safe to call here.
+	die(
+		"✗ --obfuscate is incompatible with --exe: --obfuscate forces a bundle-then-compile order, and " +
+			'bundling resolves `with { type: "file" }` asset imports down to bundle-relative paths — by the ' +
+			"time `bun build --compile` runs on that bundle, there are no file imports left for it to embed, " +
+			"so the resulting binary looks fine but fails at runtime when it looks for its assets " +
+			"(e.g. src/generated/embedded-assets.ts, the mupdf wasm). Use plain --exe (its source-level " +
+			"compile embeds assets correctly), or --obfuscate without --exe.",
+	);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -372,23 +385,9 @@ async function main() {
 
 	if (IS_EXE) {
 		// --exe: compile directly from source, skip bundle/ext-bundles/skills/run.sh
-		//
-		// With --obfuscate we must bundle first, obfuscate that bundle, then
-		// compile IT — mirrors the deleted build.ts's `--all` stage order
-		// (`input = DO_OBFUSCATE ? OUTFILE : ENTRY`).
-		if (IS_OBFUSCATE) {
-			await stageBundle(piPkgDir);
-			const bundled = join(target, `${APP_NAME}.js`);
-			await stageObfuscate(bundled);
-			await stageExe(bundled);
-			// Drop stageBundle's leftovers: the compiled binary embeds everything,
-			// so an intermediate bundle + a node_modules symlink next to it would
-			// falsely suggest the binary still resolves deps from disk.
-			rmSync(bundled);
-			clean(join(target, "node_modules"));
-		} else {
-			await stageExe("src/cli.ts");
-		}
+		// (--obfuscate is rejected above when combined with --exe, so this is
+		// always a plain source-level compile that embeds assets correctly.)
+		await stageExe("src/cli.ts");
 	} else if (IS_SNAPSHOT) {
 		// --snapshot: copy source + node_modules, no bundling
 		await stageSnapshot(bunAppsDir);
