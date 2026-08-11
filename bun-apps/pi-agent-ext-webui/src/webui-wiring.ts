@@ -34,15 +34,29 @@ import { MutexController, type MutexNotifier } from "./mutex-controller.js";
 import { DEFAULT_WATCHDOG, type InputSource, type MutexClock, type MutexTimer } from "./mutex.js";
 import { BroadcastingNotifier } from "./notifier.js";
 import { WebTransport } from "./web-transport.js";
-import { WebServer, type CommandHandler } from "./web-server.js";
+import { WebServer, type CommandHandler, type HttpRouteHandler } from "./web-server.js";
 import type { Broadcaster } from "./broadcaster.js";
 import type { ClientFrame, DispatchAction, WebFrame } from "./protocol.js";
+import { RenderService } from "./render-service.js";
+import { createRenderRoutes } from "./render-routes.js";
+import { createRenderTool } from "./render-tool.js";
+import { createRenderEventHandler } from "./render-event-handler.js";
 
 /**
- * The minimal pi host surface wireWebui touches: a many-event `on` registrar
- * and `sendUserMessage`. Narrow on purpose so a MockPi in tests is tiny; the
- * real {@link ExtensionAPI} is a structural superset (assigned at the
- * extensions/webui.ts entry via a cast).
+ * The event-bus surface the render framework needs (ticket 06 D2). The real
+ * SDK `EventBus` is `{ emit(channel,data): void; on(channel,handler): () => void }`
+ * — this mirrors exactly that so a MockPi stub is tiny.
+ */
+export interface RenderHostEvents {
+  on(channel: string, handler: (data: unknown) => void): () => void;
+  emit(channel: string, data: unknown): void;
+}
+
+/**
+ * The minimal pi host surface wireWebui touches: a many-event `on` registrar,
+ * `sendUserMessage`, plus the ticket-06 render seams (`events` + `registerTool`).
+ * Narrow on purpose so a MockPi in tests is tiny; the real {@link ExtensionAPI}
+ * is a structural superset (assigned at the extensions/webui.ts entry via a cast).
  */
 export interface WebuiHost {
   on(event: string, handler: (event: any, ctx: any) => any): void;
@@ -50,6 +64,10 @@ export interface WebuiHost {
     content: string | unknown[],
     opts?: { deliverAs?: "steer" | "followUp" }
   ): void;
+  /** Shared event bus (ticket 06 render channel "webui:render"). */
+  events: RenderHostEvents;
+  /** Tool registrar (ticket 06 registers "webui_render"). */
+  registerTool(tool: unknown): void;
 }
 
 /**
@@ -63,6 +81,13 @@ export interface WebuiServer extends Broadcaster {
   dropSession(): void;
   hasSession(): boolean;
   setCommandHandler(cb: CommandHandler | null): void;
+  setHttpRoutes(handler: HttpRouteHandler | null): void;
+  /**
+   * The loopback URL the server is reachable on (throws "WebServer not started"
+   * before start / after stop). Read lazily by the render framework's `urlFor`
+   * (ticket 06 D7) to compose a view URL from the live port.
+   */
+  readonly url: string;
   stop(): void;
 }
 
@@ -188,6 +213,26 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
 
   server.setCommandHandler(onCommand);
 
+  // --- render framework (ticket 06 D2/D3) ---------------------------------
+  // The registry is constructed here (not via deps) so it owns a urlFor bound
+  // to THIS server. urlFor reads server.url lazily at render() time — the server
+  // starts on the first session_start, which fires AFTER wireWebui returns, so
+  // server.url is unavailable during wiring (the closure defers the read). After
+  // dispose() (server.stop()) server.url throws "WebServer not started"; we catch
+  // and fall back to the anchor form so a late render() never crashes the host.
+  const registry = new RenderService({
+    urlFor: (id) => {
+      try {
+        return `${server.url}/#${id}`;
+      } catch {
+        return `#${id}`;
+      }
+    },
+  });
+  server.setHttpRoutes(createRenderRoutes(registry));
+  pi.registerTool(createRenderTool(registry));
+  pi.events.on("webui:render", createRenderEventHandler(registry));
+
   // --- pi.on registration (each handler guarded by `disposed`) ---------------
   const reg = (event: string, handler: (event: any, ctx: any) => unknown): void => {
     pi.on(event, (event, ctx) => {
@@ -226,6 +271,7 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      server.setHttpRoutes(null);
       server.setCommandHandler(null);
       controller.handleShutdown();
       server.dropSession();

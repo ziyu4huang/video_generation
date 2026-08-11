@@ -38,7 +38,7 @@
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { WebServer } from "../src/web-server.js";
-import { wireWebui, type WebuiHost, type WebuiWiring } from "../src/webui-wiring.js";
+import { wireWebui, type WebuiHost, type WebuiWiring, type RenderHostEvents } from "../src/webui-wiring.js";
 
 // --- test harness (copied shape from web-server.test.ts) --------------------
 
@@ -125,7 +125,24 @@ function openWs(url: string, headers?: Record<string, string>): Promise<WebSocke
 class MockPi implements WebuiHost {
   readonly handlers = new Map<string, (event: any, ctx: any) => any>();
   readonly sent: Array<{ content: string | unknown[]; opts?: { deliverAs?: "steer" | "followUp" } }> = [];
+  readonly registeredTools: unknown[] = [];
+  readonly events: RenderHostEvents;
   aborts = 0;
+
+  constructor() {
+    const channels = new Map<string, Set<(data: unknown) => void>>();
+    this.events = {
+      on(channel, handler) {
+        let set = channels.get(channel);
+        if (!set) { set = new Set(); channels.set(channel, set); }
+        set.add(handler);
+        return () => { set!.delete(handler); };
+      },
+      emit(channel, data) {
+        channels.get(channel)?.forEach((h) => h(data));
+      },
+    };
+  }
 
   on(event: string, handler: (event: any, ctx: any) => any): void {
     this.handlers.set(event, handler);
@@ -136,6 +153,10 @@ class MockPi implements WebuiHost {
     opts?: { deliverAs?: "steer" | "followUp" }
   ): void {
     this.sent.push({ content, opts });
+  }
+
+  registerTool(tool: unknown): void {
+    this.registeredTools.push(tool);
   }
 
   /** Replay a pi host event into the wiring's real registered handler. */
@@ -170,18 +191,15 @@ function setup(): { pi: MockPi; server: WebServer; wiring: WebuiWiring } {
 // ===========================================================================
 
 describe("wireWebui live smoke — Tier A", () => {
-  it("A) after session_start, GET / serves the stub HTML page (webui connect-test)", async () => {
+  it("A) after session_start, GET / serves the render shell (ticket 06)", async () => {
     const { pi, server, wiring } = setup();
-    // session_start: wiring lazily starts the server + binds the session.
     pi.emit("session_start", {}, pi.ctx());
     wiring; // referenced for clarity
     const res = await fetch(`${server.url}/`);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
     const body = await res.text();
-    expect(body).toContain("webui connect-test");
-    // And the page wires up /ws (the real frontend is ticket 06).
-    expect(body).toContain("/ws");
+    expect(body).toContain("webui-render-shell");
   });
 
   it("B) client connects to ws://127.0.0.1:<port>/ws + sends {type:subscribe} -> server.clientCount === 1", async () => {
