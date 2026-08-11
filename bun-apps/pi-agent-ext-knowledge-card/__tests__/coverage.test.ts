@@ -49,7 +49,6 @@ describe("coverageReport — faithful per-family id-diff", () => {
       vaultPath: vault,
       source: "workflow-jsonl",
       sourceLabel: "workflow-jsonl:test",
-      cwd: vault,
     });
     const cov = await coverageReport({
       vaultPath: vault,
@@ -69,7 +68,6 @@ describe("coverageReport — faithful per-family id-diff", () => {
       vaultPath: vault,
       source: "workflow-jsonl",
       sourceLabel: "workflow-jsonl:test",
-      cwd: vault,
     });
     // ...but the source now only has wf:a (wf:b's source record disappeared).
     const cov = await coverageReport({
@@ -97,7 +95,6 @@ describe("coverageReport — faithful per-family id-diff", () => {
       vaultPath: vault,
       source: "hermes",
       sourceLabel: "hermes:test",
-      cwd: vault,
     });
     // ...but we only check the workflow-jsonl family. The hermes card must NOT
     // be a cross-family false-positive (the pi-memory:↔hermes: namespace split
@@ -116,7 +113,6 @@ describe("coverageReport — faithful per-family id-diff", () => {
       vaultPath: vault,
       source: "workflow-jsonl",
       sourceLabel: "workflow-jsonl:test",
-      cwd: vault,
     });
     const cov = await coverageReport({
       vaultPath: vault,
