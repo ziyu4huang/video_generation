@@ -41,6 +41,7 @@ import { RenderService } from "./render-service.js";
 import { createRenderRoutes } from "./render-routes.js";
 import { createRenderTool } from "./render-tool.js";
 import { createRenderEventHandler } from "./render-event-handler.js";
+import { resolvePort } from "./port-resolver.js";
 
 /**
  * The event-bus surface the render framework needs (ticket 06 D2). The real
@@ -135,7 +136,7 @@ const OUTBOUND_EVENTS = [
 // --- module-level WebServer singleton (persistent co-frontend transport) ----
 let singletonServer: WebServer | null = null;
 function getServer(): WebServer {
-  if (!singletonServer) singletonServer = new WebServer({ port: 0 });
+  if (!singletonServer) singletonServer = new WebServer({ port: resolvePort() });
   return singletonServer;
 }
 
