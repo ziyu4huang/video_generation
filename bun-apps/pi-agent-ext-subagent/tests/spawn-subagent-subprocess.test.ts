@@ -437,4 +437,34 @@ describe("resolvePiInvocation entry prefix", () => {
     expect(command).toBe("/opt/pi-agent/pi-agent");
     expect(args).toEqual(["cli", "-p", "hi"]);
   });
+
+  // The empty-string contract is guarded at TWO layers, so both are pinned:
+  //   1. getPiInvocation's `process.env.X || undefined` (not `??`), and
+  //   2. resolvePiInvocation's own `entryPrefix ? [...] : []` truthiness check.
+  // An unset var and an empty var must produce a byte-identical child argv —
+  // splicing a literal "" would make the child parse an empty command token.
+  test("getPiInvocation: an EMPTY env prefix is 'no prefix', never a \"\" token", () => {
+    const saved = process.env.PI_SELF_ENTRY_PREFIX;
+    try {
+      process.env.PI_SELF_ENTRY_PREFIX = "";
+      const empty = getPiInvocation(["-p", "hi"]);
+      expect(empty.args).not.toContain("");
+      expect(empty.args.slice(-2)).toEqual(["-p", "hi"]);
+
+      process.env.PI_SELF_ENTRY_PREFIX = "cli";
+      const set = getPiInvocation(["-p", "hi"]);
+      expect(set.args).toContain("cli");
+      expect(set.args.slice(-3)).toEqual(["cli", "-p", "hi"]);
+    } finally {
+      // Assigning `undefined` does NOT clear the key — it coerces to the
+      // literal string "undefined". Delete it instead.
+      if (saved === undefined) delete process.env.PI_SELF_ENTRY_PREFIX;
+      else process.env.PI_SELF_ENTRY_PREFIX = saved;
+    }
+  });
+
+  test("resolvePiInvocation: an empty entryPrefix splices nothing (layer-2 guard)", () => {
+    const { args } = resolvePiInvocation(import.meta.path, "/usr/bin/bun", ["-p", "hi"], "");
+    expect(args).toEqual([import.meta.path, "-p", "hi"]);
+  });
 });

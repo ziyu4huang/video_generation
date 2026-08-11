@@ -140,6 +140,11 @@ floor path skips the weak-tier check — do **not** route it through `--model`
 | `BUN_PI_SUBAGENT_MODEL_FLOOR` | `1` | Publish `obsidian.subagentModel` from settings.json as `OB_SUBAGENT_MODEL` (distill/garden floor) |
 | `BUN_PI_DEBUG_PATCHES` | `0` | Print which patches were applied on startup |
 | `BUN_PI_DEBUG_RUN_DIR` | `0` | Print the resolved run-dir argv fragment |
+| `PI_SELF_ENTRY_PREFIX` | unset | Entry namespace a spawned subagent child re-enters. Set to `cli` by `runCli()` (i.e. any `pi-agent cli …` invocation), read by `pi-agent-ext-subagent`'s `getPiInvocation()`, which splices it in front of the child's pi flags. Without it a CLI-parented child falls through to the TUI root and inherits the full static-extension set the `cli` entry deliberately does not load. |
+
+`PI_SELF_ENTRY_PREFIX` is **parent→child signalling, not a user setting** — do not
+`export` it persistently in a shell profile. An ambient `PI_SELF_ENTRY_PREFIX=cli`
+would make a *TUI*-parented subagent wrongly re-enter the `cli` namespace.
 
 A commented subset of the portability-relevant vars also lives at the repo root as
 [`.env.example`](../.env.example).
