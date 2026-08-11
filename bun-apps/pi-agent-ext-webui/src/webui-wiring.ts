@@ -41,6 +41,7 @@ import { RenderService } from "./render-service.js";
 import { createRenderRoutes } from "./render-routes.js";
 import { createRenderTool } from "./render-tool.js";
 import { createRenderEventHandler } from "./render-event-handler.js";
+import { resolvePort } from "./port-resolver.js";
 
 /**
  * The event-bus surface the render framework needs (ticket 06 D2). The real
@@ -50,6 +51,30 @@ import { createRenderEventHandler } from "./render-event-handler.js";
 export interface RenderHostEvents {
   on(channel: string, handler: (data: unknown) => void): () => void;
   emit(channel: string, data: unknown): void;
+}
+
+/**
+ * The TUI UI surface the announce uses (ticket 07 D3/D4). Mirrors exactly the
+ * two ExtensionUIContext members the announce calls (verified against the SDK
+ * dist .d.ts): notify(message, type) + setStatus(key, text). `ui` lives on the
+ * SESSION CONTEXT (the 2nd arg to session_start), NOT on the host — the SDK
+ * ExtensionAPI has no `ui` member; ExtensionContext does. Narrow on purpose so
+ * a MockPi ctx stub is tiny; the real ExtensionContext is a structural superset.
+ */
+export interface WebuiUi {
+  notify(message: string, type?: "info" | "warning" | "error"): void;
+  setStatus(key: string, text: string | undefined): void;
+}
+
+/**
+ * The session-context slice the wiring touches: abort() (unchanged — the
+ * dispatch closure + bindSession still use it) + ui (new — the announce
+ * channel). Widening this UNDOES the prior `ctx as { abort(): void }` downcast
+ * so session_start can reach ctx.ui (specs/07 D3).
+ */
+export interface WebuiSessionCtx {
+  abort(): void;
+  ui: WebuiUi;
 }
 
 /**
@@ -82,6 +107,8 @@ export interface WebuiServer extends Broadcaster {
   hasSession(): boolean;
   setCommandHandler(cb: CommandHandler | null): void;
   setHttpRoutes(handler: HttpRouteHandler | null): void;
+  /** OPTIONAL token auth (ticket 07 D1); null => no check (v1 loopback). */
+  setTokenAuth(token: string | null): void;
   /**
    * The loopback URL the server is reachable on (throws "WebServer not started"
    * before start / after stop). Read lazily by the render framework's `urlFor`
@@ -133,7 +160,7 @@ const OUTBOUND_EVENTS = [
 // --- module-level WebServer singleton (persistent co-frontend transport) ----
 let singletonServer: WebServer | null = null;
 function getServer(): WebServer {
-  if (!singletonServer) singletonServer = new WebServer({ port: 0 });
+  if (!singletonServer) singletonServer = new WebServer({ port: resolvePort() });
   return singletonServer;
 }
 
@@ -152,6 +179,12 @@ const REAL_CLOCK: MutexClock = {
  */
 export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   const server = deps.server ?? getServer();
+  // ticket 07 D1: loopback wiring — token OFF (null => no check). Loopback
+  // binding + the DNS-rebinding-safe originAllowed guard is the v1 boundary;
+  // the token mechanism stays AVAILABLE but OFF (a future non-loopback deployer
+  // sets a non-null token). No shell-token injection: RENDER_SHELL_HTML is a
+  // const and no request carries ?session=.
+  server.setTokenAuth(null);
   const broadcaster: Broadcaster = deps.broadcaster ?? server;
   const clock = deps.clock ?? REAL_CLOCK;
   const notifier: MutexNotifier = new BroadcastingNotifier(broadcaster);
@@ -252,9 +285,19 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // lifecycle — lazy server start on first session_start; re-point on subsequent.
   reg("session_start", (_event, ctx) => {
     server.start();
-    const sessionCtx = ctx as { abort(): void };
+    const sessionCtx = ctx as WebuiSessionCtx;
     server.bindSession(pi, sessionCtx);
     bound = { pi, ctx: sessionCtx };
+    // ticket 07 announce (specs/07 D3): surface the RESOLVED URL to the TUI user
+    // via the SDK ui surface (notify + setStatus). NO console.log (it does not
+    // reach the TUI user — debugging only); NO auto-open (the host exposes no
+    // exec). server.url is read AFTER start(), so it reflects the bound port
+    // (ephemeral or pinned — resolved via resolvePort in T2). start() is
+    // idempotent + the singleton persists, so re-announces on
+    // reload/new/resume/fork show the same stable URL.
+    const url = server.url;
+    sessionCtx.ui.notify(`webui: ${url}`, "info");
+    sessionCtx.ui.setStatus("webui", url);
   });
   reg("session_shutdown", () => {
     controller.handleShutdown();

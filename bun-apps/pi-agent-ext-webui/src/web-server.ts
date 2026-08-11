@@ -56,6 +56,24 @@ function originAllowed(origin: string | null, host: string | null): boolean {
   return LOOPBACK_HOSTS.some((h) => origin === `http://${h}:${port}`);
 }
 
+/**
+ * Read the presented auth token for the OPTIONAL token check (ticket 07 D1).
+ * GET + WS-URL: the ?session= query param; POST: body.token (JSON, read via
+ * clone() so a downstream additive route can still read the body). Returns null
+ * when absent / unparseable. Only called when this.token !== null.
+ */
+async function readPresentedToken(req: Request, url: URL): Promise<string | null> {
+  if (req.method === "POST") {
+    try {
+      const body = await req.clone().json();
+      return typeof body?.token === "string" ? body.token : null;
+    } catch {
+      return null;
+    }
+  }
+  return url.searchParams.get("session");
+}
+
 /** Minimal session-ref shape held by WebServer (re-pointed per session_start). */
 export interface SessionRef {
   pi: {
@@ -129,6 +147,8 @@ export class WebServer implements Broadcaster {
   private session: SessionRef | null = null;
   private onCommand: CommandHandler | null = null;
   private httpRoutes: HttpRouteHandler | null = null;
+  /** Optional token-auth token (ticket 07 D1); null => NO check (v1 loopback). */
+  private token: string | null = null;
   private readonly requestedPort: number;
   private readonly hostname: string;
 
@@ -183,6 +203,16 @@ export class WebServer implements Broadcaster {
     this.httpRoutes = handler;
   }
 
+  /**
+   * Set the OPTIONAL token-auth token (ticket 07 D1). `null` (the default / the
+   * v1 loopback wiring) => NO token check — requests pass with only the origin
+   * guard. A non-null token requires every request to present it via `?session=`
+   * (GET + WS-URL) / `body.token` (POST). Mirrors setHttpRoutes/setCommandHandler.
+   */
+  setTokenAuth(token: string | null): void {
+    this.token = token;
+  }
+
   /** The actual bound port (throws if not started). */
   get port(): number {
     if (!this.server) throw new Error("WebServer not started");
@@ -217,13 +247,21 @@ export class WebServer implements Broadcaster {
     }
   }
 
-  private fetch(req: Request, srv: Server<undefined>): Response {
+  private async fetch(req: Request, srv: Server<undefined>): Promise<Response> {
     const url = new URL(req.url);
     // Shared origin guard (spec §2): the same check gates HTTP fetch AND the WS
-    // upgrade (the /ws branch below). Absent Origin is allowed.
+    // upgrade (the /ws branch below). Absent Origin is allowed. This is the
+    // FIRST chokepoint and stays first.
     const origin = req.headers.get("origin");
     if (origin && !originAllowed(origin, req.headers.get("host"))) {
       return new Response("forbidden", { status: 403 });
+    }
+    // Optional token auth (ticket 07 D1): null => NO check. Runs AFTER the
+    // origin guard and BEFORE this.httpRoutes. ?session= for GET + the WS-URL;
+    // body.token (JSON, via clone()) for POST. Flat !==, 403 on mismatch.
+    if (this.token !== null) {
+      const presented = await readPresentedToken(req, url);
+      if (presented !== this.token) return new Response("Forbidden", { status: 403 });
     }
     if (this.httpRoutes) {
       const res = this.httpRoutes(req, srv);

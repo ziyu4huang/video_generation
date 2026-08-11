@@ -1,393 +1,261 @@
-# webui Port, Binding, Auth & URL Discovery (Ticket 07) Implementation Plan
+# webui Port, Binding & URL Discovery (Ticket 07) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Give the merged webui transport (ticket 04) + render framework (ticket 06) a per-session auth token, a 3-tier port choice, and a TUI-visible URL announcement — without coupling render to chat/mutex and without auto-opening a browser.
+**Goal:** Give the merged webui transport (ticket 04) + render framework (ticket 06) a 3-tier port choice and a TUI-visible URL announcement — without coupling render to chat/mutex and without auto-opening a browser. **Auth = a simple, OPTIONAL token-based mechanism** on `WebServer` (`setTokenAuth(token: string | null)`; `null` ⇒ no check), **wired OFF for v1 loopback** (`null`) — loopback binding + the DNS-rebinding-safe `originAllowed` guard is the v1 boundary; the token is a cheap layer kept available for future non-loopback use.
 
-**Architecture:** A pure `createTokenAuth()` mints a `randomUUID()` session token and validates inbound requests (`?session=` for GET/WS, `body.token` for POST, flat `!==`, 403). `WebServer` gains a `setTokenAuth(auth | null)` DI setter (mirrors the existing `setHttpRoutes`/`setCommandHandler`); `fetch()` consults it **after** the loopback origin guard and **before** the additive `httpRoutes`, exempting only the `GET /` shell bootstrap (the document that delivers the token). The render shell is generated with the token baked in (`renderShellHtml(token)`) so the client appends `?session=` to every data/WS call. A pure `resolvePort()` picks `WEBUI_PORT` > `PORT` > `0`. At `session_start`, after `server.start()`, the wiring announces the resolved URL via the SDK `ctx.ui` surface (`notify` + `setStatus`) — widening the session-context type to reach `ctx.ui`, **no** `console.log`, **no** auto-open.
+**Architecture:** `WebServer` gains `setTokenAuth(token: string | null)` (a DI setter mirroring `setHttpRoutes`/`setCommandHandler`) + a central null-safe token check in `fetch` (after the origin guard, before `httpRoutes`; `?session=` for GET + WS-URL, `body.token` for POST, flat `!==`, 403; `null` ⇒ skip). A pure `resolvePort()` picks `WEBUI_PORT` > `PORT` > `0`; the lazy `WebServer` singleton binds it via `getServer()`. `wireWebui` wires `server.setTokenAuth(null)` (loopback ⇒ no check). At `session_start`, after `server.start()`, the wiring announces the resolved URL via the SDK `ctx.ui` surface (`notify` + `setStatus`) — widening the session-context type to reach `ctx.ui`, **no** `console.log`, **no** auto-open. **No shell-token injection, no `?session=` threading** in the render shell/routes; `RENDER_SHELL_HTML` stays a plain const (token is `null` for loopback, so no request needs `?session=`). The token channels exist only in the mechanism and are exercised by **unit tests**.
 
-**Tech Stack:** `node:crypto` `randomUUID`, `Bun.serve` (existing `WebServer`, now with an async `fetch`), the SDK `ExtensionUIContext` (`ctx.ui.notify`/`setStatus`), TypeBox (unchanged), the existing vanilla render shell (now token-templated). No new runtime deps.
+**Tech Stack:** `Bun.serve` (existing `WebServer`, `fetch` made `async` to read POST bodies), the SDK `ExtensionUIContext` (`ctx.ui.notify`/`setStatus`), TypeBox (unchanged), the existing vanilla render shell (unchanged). No new runtime deps.
 
 ## Global Constraints
 
 Copied verbatim from the spec decisions (every task's requirements implicitly include these):
 
 - **Loopback-only.** Binding stays `127.0.0.1` (ticket 04, unchanged). No remote/multi-user binding.
-- **Token channels (flat `!==`, 403 on mismatch — no Bearer scheme):** `?session=<token>` in the URL for GET and the WS upgrade; `body.token` in the JSON body for POST (read via `req.clone()` so a downstream POST route can still read the body). Missing/wrong/malformed → `false` → the caller returns **403**. Mirrors `pi-agent-ext-web-access`'s `validateToken`.
-- **Token = `randomUUID()`** from `node:crypto` (repo norm — same as web-access). One token per wiring.
-- **Central validation placement:** the token check runs in `WebServer.fetch` **after** the origin guard and **before** `this.httpRoutes` (covers `/api/*`, `/api/events`, `/ws`, `/health`). The ONE exempt route is `GET /` (the shell bootstrap that delivers the token). `null` auth = pass-through (bare server unchanged).
-- **Server-injected shell token:** the shell HTML carries `const TOKEN="…"`; the client appends `?session=${TOKEN}` to `/api/*` + the `/ws` URL. The announced URL is the base URL (no token).
+- **Auth = simple token-based, OPTIONAL via `setTokenAuth(token: string | null)`; `null` ⇒ no check.** `WebServer.fetch` runs the token check **after the origin guard and before `this.httpRoutes`**: if `this.token !== null`, extract the presented token (`?session=` URL param for GET + WS-URL; `body.token` JSON for POST, via `req.clone()` so a downstream route can still read the body) and compare flat `!==` (403 on mismatch); **if `this.token === null`, skip — no check**. **v1 loopback wires `null`** (`server.setTokenAuth(null)` in `wireWebui`) — loopback binding + the DNS-rebinding-safe `originAllowed` guard (checks `Origin` against `Host`, rejects non-loopback origins, allows absent-Origin for curl/scripts; runs in `WebServer.fetch` AND on the `/ws` upgrade) is the boundary. Channels `?session=` (GET + WS URL) / `body.token` (POST), flat `!==`, 403. **`RENDER_SHELL_HTML` stays a plain const** — NO shell-token injection, NO `?session=` threading in the render shell/routes (token is `null` for loopback, so no production request carries a token; the channels exist in the mechanism + are exercised by unit tests only).
 - **Port 3-tier:** `WEBUI_PORT` env > `PORT` env > `0` (OS-assigned ephemeral). `serveWithFallback` already skips held ports (so `8090` / embed-mlx-server is avoided) — **no default to 8090**.
 - **Announce via `ctx.ui` only:** at `session_start`, after `server.start()`, call `ctx.ui.notify("webui: <url>", "info")` + `ctx.ui.setStatus("webui", "<url>")`. **`console.log` is NOT acceptable** (it does not reach the TUI user — debugging only).
 - **No auto-open:** the wiring never calls `pi.exec("open"/"xdg-open"/"cmd /c start")`. The host interface exposes **no `exec`** — announce-only is the v1 posture.
-- **⚠️ tsconfig-tests gotcha (memory 3be99b98):** the package `tsconfig.json` `include` is `src/**/*.ts` only — `bun run typecheck` does NOT typecheck `tests/`. Every task that widens an interface a test implements MUST update the test fixtures (the shared `MockPi` helper AND every inline `MockPi`/ctx fake) in the SAME task, and the conformance gate is the FULL `bun run typecheck && bun test` (never typecheck alone).
+- **⚠️ tsconfig-tests gotcha (memory 3be99b98):** the package `tsconfig.json` `include` is `src/**/*.ts` only — `bun run typecheck` does NOT typecheck `tests/`. Every task that widens an interface a test implements MUST update the test fixtures (the shared `MockPi` helper AND every inline `MockPi`/ctx fake AND `FakeWebServer`) in the SAME task, and the conformance gate is the FULL `bun run typecheck && bun test` (never typecheck alone).
 
-**Decomposition note (refinement of the ticket's suggested T-sets).** The ticket's "T2 — wire token into WebServer.fetch" suggested constructing `TokenAuth` inside `wireWebui` in T2. That is **refined here**: T2 adds the `WebServer.setTokenAuth` mechanism + bare-server unit tests but does **not** yet enable it in `wireWebui`, because enabling the token gate before the shell-token injection (T5) would 403 every live integration test (`render-integration`, `wiring-live-smoke`) that cannot yet present the token (it is a per-session `randomUUID` the tests can only read out of the served shell). T5 is where `wireWebui` constructs `TokenAuth`, calls `server.setTokenAuth`, threads the token into the shell, and updates those integration tests. Each task stays independently green.
+**Revision note (final scope).** The merged PR #1245 plan carried five tasks including a mandatory `TokenAuth` + `setTokenAuth` + server-injected shell token. An earlier revision of this plan **dropped** token auth entirely. The **final** design is a middle path: a **simple, optional token-based auth** IS implemented on `WebServer` (`setTokenAuth(token: string | null)`, `null` ⇒ no check), but **wired OFF for v1 loopback** (`null`). The server-injected shell token (`renderShellHtml(token)`, `?session=` threading in the shell/routes) stays **dropped**. The revised plan is **four TDD tasks**: token-auth mechanism · port resolution (3-tier) · announce via `ctx.ui` · integration. It touches `web-server.ts` (the `setTokenAuth` mechanism + null-safe `fetch` block), `webui-wiring.ts` (`WebuiServer` gains `setTokenAuth`; `getServer()` uses `resolvePort()`; `wireWebui` wires `setTokenAuth(null)` + the announce), and `tests/`. It does NOT touch `src/render-shell.ts` or `src/render-routes.ts` (the shell + routes stay as ticket 06 left them; `RENDER_SHELL_HTML` is a const). This supersedes the earlier "drop auth entirely" revision.
 
 ## File Structure
 
 **Create (all under `bun-apps/pi-agent-ext-webui/`):**
-- `src/token-auth.ts` — pure `createTokenAuth()` → `{ token, validateRequest(req): Promise<boolean> }`. Single responsibility: mint + validate the session token.
 - `src/port-resolver.ts` — pure `resolvePort(env?)` 3-tier resolver. Single responsibility: pick the requested port.
-- `tests/token-auth.test.ts`, `tests/port-resolver.test.ts` — one test file per pure module.
+- `tests/port-resolver.test.ts` — one test file for the pure module.
+- `tests/web-server-token-auth.test.ts` — token mechanism unit tests (the `setTokenAuth` null-safe check).
 
 **Modify:**
-- `src/web-server.ts` (T2) — add the `TokenAuth` import, `tokenAuth` field, `setTokenAuth` setter, and consult it inside `fetch` (making `fetch` async, with the `GET /` exemption).
-- `src/render-shell.ts` (T5) — `RENDER_SHELL_HTML` const → `renderShellHtml(token)` function; shell JS gains `const TOKEN="…"` + `?session=` on every data/WS call.
-- `src/render-routes.ts` (T5) — `createRenderRoutes(registry)` → `createRenderRoutes(registry, token)`; `GET /` serves `renderShellHtml(token)`.
-- `src/webui-wiring.ts` (T3, T4, T5) — T3: `getServer()` uses `resolvePort()`; T4: add `WebuiUi`/`WebuiSessionCtx`, widen the `session_start` handler to announce; T5: add `setTokenAuth` to `WebuiServer`, construct `TokenAuth`, call `server.setTokenAuth(auth)`, pass `auth.token` to `createRenderRoutes`, clear on `dispose`.
-- `extensions/webui.ts` — **no change** (the cast `pi as unknown as WebuiHost` still holds; `ui` is on ctx, not the host).
-- `tests/web-server.test.ts` (T2) — append a `WebServer setTokenAuth` describe block.
-- `tests/helpers/mock-pi.ts` (T4) — `MockPi.ctx` gains a `ui` stub recording `notify`/`setStatus`.
-- `tests/wiring-live-smoke.test.ts` (T4 + T5) — T4: inline `MockPi.ctx()` + `exec` recorder + announce test G; T5: WS opens append `?session=<token>` (extracted from the served shell).
-- `tests/render-integration.test.ts` (T4 + T5) — T4: inline `MockPi.ctx()` ui stub; T5: `/api/*` + `/ws` calls append `?session=<token>`, `GET /` assertion checks the token is injected.
-- `tests/render-routes.test.ts` (T5) — `setup()` passes a token to `createRenderRoutes`.
-- `tests/render-shell.test.ts` (T5) — assert on `renderShellHtml(token)` (was `RENDER_SHELL_HTML`), incl. the injected `const TOKEN`.
-- `tests/webui-wiring.test.ts` (T5) — `FakeWebServer` gains `setTokenAuth`; add an announce unit test.
+- `src/web-server.ts` (T1) — `token` field + `setTokenAuth` setter + null-safe token block in `fetch` (after origin guard, before `httpRoutes`); `fetch` becomes `async`.
+- `src/webui-wiring.ts` (T1, T2, T3) — T1: `WebuiServer` interface gains `setTokenAuth`; T2: `getServer()` uses `resolvePort()` instead of the hardcoded `port: 0`; T3: add `WebuiUi`/`WebuiSessionCtx`, widen the `session_start` handler to announce.
+- `tests/webui-wiring.test.ts` (T1, T3) — T1: `FakeWebServer` gains a `setTokenAuth` stub (records the call; default `null`); T3: add an announce unit test.
+- `tests/helpers/mock-pi.ts` (T3) — `MockPi.ctx` gains a `ui` stub recording `notify`/`setStatus`.
+- `tests/wiring-live-smoke.test.ts` (T3, T4) — T3: inline `MockPi.ctx()` `ui` + `exec` recorder + announce test G; T4: resolved-URL integration + null-token pass-through assertions.
+- `tests/render-integration.test.ts` (T3) — inline `MockPi.ctx()` `ui` stub (needed because its tests call `session_start`).
+- `tests/webui-wiring.test.ts` (T3) — add an announce unit test (already listed above; touched in both T1 and T3 — non-overlapping regions).
+
+**No change** to:
+- `src/render-shell.ts` — `RENDER_SHELL_HTML` stays a plain const (no token injection).
+- `src/render-routes.ts` — `createRenderRoutes(registry)` signature is unchanged (no token arg); all routes are GET.
+- `extensions/webui.ts` — the cast `pi as unknown as WebuiHost` still holds; `ui` is on ctx, not the host.
 
 ---
 
-### Task 1: TokenAuth (pure `createTokenAuth`)
+### Task 1: WebServer token-auth mechanism (optional, `null` ⇒ no check)
 
 **Files:**
-- Create: `bun-apps/pi-agent-ext-webui/src/token-auth.ts`
-- Test: `bun-apps/pi-agent-ext-webui/tests/token-auth.test.ts`
+- Modify: `bun-apps/pi-agent-ext-webui/src/web-server.ts` (add `token` field + `setTokenAuth` setter + a module-level `readPresentedToken` helper + null-safe token block in `fetch`; `fetch` becomes `async`)
+- Modify: `bun-apps/pi-agent-ext-webui/src/webui-wiring.ts` (`WebuiServer` interface gains `setTokenAuth(token: string | null): void`)
+- Modify: `bun-apps/pi-agent-ext-webui/tests/webui-wiring.test.ts` (`FakeWebServer` gains a `setTokenAuth` stub so it satisfies the widened `WebuiServer`)
+- Test: `bun-apps/pi-agent-ext-webui/tests/web-server-token-auth.test.ts`
 
 **Interfaces:**
-- Consumes: `node:crypto` `randomUUID` (repo norm — `pi-agent-ext-web-access/index.ts:34,987`). The Fetch `Request` type (global, in `lib: ["DOM"]`).
-- Produces (the type every later task imports from `./token-auth.js`):
-  - `export interface TokenAuth { readonly token: string; validateRequest(req: Request): Promise<boolean> }`
-  - `export function createTokenAuth(): TokenAuth`
-  - **Behavior contract (spec D1):** `token` is a `randomUUID()`. `validateRequest` is **async** (POST body read is inherently async, which makes `WebServer.fetch` async in T2). Channels: `?session=<token>` in the URL (GET + WS upgrade — the WS upgrade is a GET, so the same channel covers it); `body.token` in the POST JSON body (read via `req.clone().json()` so the original body stays readable). Flat `!==`; no substring/prefix match. POST may also send `?session=` in the URL (superset). Missing/wrong/malformed → `false`.
+- Consumes: the existing `WebServer.fetch` origin guard (first chokepoint, **unchanged**) + the `this.httpRoutes` seam (additive routes); standard `Request`/`URL` (`?session=` URL param) + `req.clone().json()` for POST `body.token`.
+- Produces:
+  - `WebServer.setTokenAuth(token: string | null): void` — DI setter mirroring `setHttpRoutes`/`setCommandHandler`.
+  - `private token: string | null = null` field.
+  - **Behavior contract (spec D1):** in `fetch`, **after the origin guard and before `this.httpRoutes`**, if `this.token !== null`, the presented token is extracted (`?session=` URL param for GET + the WS upgrade; `body.token` JSON for POST, read via `req.clone()` so a downstream additive route can still read the body) and compared flat `!==` (403 `"Forbidden"` on mismatch). **If `this.token === null`, the block is skipped** — requests pass with only the origin guard. The origin guard stays the first chokepoint. `fetch` becomes `async` (POST body read is awaited); Bun.serve accepts a `Promise<Response>` from `fetch`.
+  - `WebuiServer.setTokenAuth(token: string | null): void` added to the wiring's server interface.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `bun-apps/pi-agent-ext-webui/tests/token-auth.test.ts`:
-
-```ts
-import { describe, expect, it } from "bun:test";
-import { createTokenAuth } from "../src/token-auth.js";
-
-describe("createTokenAuth", () => {
-  it("mints a UUID-shaped token", () => {
-    const auth = createTokenAuth();
-    expect(auth.token).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-    );
-  });
-
-  it("mints a fresh token each call", () => {
-    expect(createTokenAuth().token).not.toBe(createTokenAuth().token);
-  });
-
-  it("GET with ?session=<token> -> true", async () => {
-    const auth = createTokenAuth();
-    const req = new Request(`http://127.0.0.1:1/api/views?session=${auth.token}`);
-    expect(await auth.validateRequest(req)).toBe(true);
-  });
-
-  it("GET with ?session=<wrong> -> false", async () => {
-    const auth = createTokenAuth();
-    const req = new Request("http://127.0.0.1:1/api/views?session=wrong");
-    expect(await auth.validateRequest(req)).toBe(false);
-  });
-
-  it("GET with no ?session= -> false", async () => {
-    const auth = createTokenAuth();
-    const req = new Request("http://127.0.0.1:1/api/views");
-    expect(await auth.validateRequest(req)).toBe(false);
-  });
-
-  it("WS-upgrade URL with ?session=<token> -> true (GET channel)", async () => {
-    const auth = createTokenAuth();
-    const req = new Request(`ws://127.0.0.1:1/ws?session=${auth.token}`);
-    expect(await auth.validateRequest(req)).toBe(true);
-  });
-
-  it("WS-upgrade URL with ?session=<wrong> -> false", async () => {
-    const auth = createTokenAuth();
-    const req = new Request("ws://127.0.0.1:1/ws?session=wrong");
-    expect(await auth.validateRequest(req)).toBe(false);
-  });
-
-  it("POST with body.token=<token> -> true", async () => {
-    const auth = createTokenAuth();
-    const req = new Request("http://127.0.0.1:1/api/x", {
-      method: "POST",
-      body: JSON.stringify({ token: auth.token, payload: 1 }),
-    });
-    expect(await auth.validateRequest(req)).toBe(true);
-  });
-
-  it("POST with body.token=<wrong> -> false", async () => {
-    const auth = createTokenAuth();
-    const req = new Request("http://127.0.0.1:1/api/x", {
-      method: "POST",
-      body: JSON.stringify({ token: "wrong" }),
-    });
-    expect(await auth.validateRequest(req)).toBe(false);
-  });
-
-  it("POST with non-JSON body -> false", async () => {
-    const auth = createTokenAuth();
-    const req = new Request("http://127.0.0.1:1/api/x", {
-      method: "POST",
-      body: "not-json",
-    });
-    expect(await auth.validateRequest(req)).toBe(false);
-  });
-
-  it("flat !== compare (no substring/prefix match)", async () => {
-    const auth = createTokenAuth();
-    const req = new Request(
-      `http://127.0.0.1:1/api/views?session=${auth.token.slice(0, 4)}`
-    );
-    expect(await auth.validateRequest(req)).toBe(false);
-  });
-
-  it("validateRequest does NOT consume a POST body (clone preserves it)", async () => {
-    const auth = createTokenAuth();
-    const req = new Request("http://127.0.0.1:1/api/x", {
-      method: "POST",
-      body: JSON.stringify({ token: auth.token, payload: { a: 1 } }),
-    });
-    expect(await auth.validateRequest(req)).toBe(true);
-    // the original body is still readable for a downstream route handler.
-    const body = (await req.json()) as { token: string; payload: { a: number } };
-    expect(body).toEqual({ token: auth.token, payload: { a: 1 } });
-  });
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/token-auth.test.ts )`
-Expected: FAIL — `Cannot find module "../src/token-auth.js"`.
-
-- [ ] **Step 3: Write minimal implementation**
-
-Create `bun-apps/pi-agent-ext-webui/src/token-auth.ts`:
+Create `bun-apps/pi-agent-ext-webui/tests/web-server-token-auth.test.ts`:
 
 ```ts
 /**
- * token-auth.ts — the per-session token auth (specs/07 D1).
+ * web-server-token-auth.test.ts — ticket 07 D1: the OPTIONAL token-auth
+ * mechanism on WebServer. null => no check (v1 loopback); non-null => every
+ * request must present the token (?session= for GET + WS-URL; body.token for
+ * POST), flat !==, 403 on mismatch. The origin guard runs FIRST regardless.
  *
- * Pure: uses node:crypto randomUUID + URL parsing; no `bun`, no `pi`. Mirrors
- * pi-agent-ext-web-access's validateToken (?session= / body.token / 403), lifted
- * into a reusable, testable unit. The compare is a flat !== (loopback-only,
- * per-session random UUID — timing attacks are out of scope; no Bearer scheme).
- *
- * Channels:
- *   GET / WS upgrade: ?session=<token> in the request URL (the WS upgrade is a
- *                     GET, so this channel covers it too).
- *   POST:             body.token in the JSON body — read via req.clone() so the
- *                     original body stays readable for a downstream POST route.
- *   else:             false -> the caller returns 403.
- *
- * validateRequest is async because reading the POST body is async; this makes
- * WebServer.fetch async in T2 (Bun.serve accepts an async fetch).
+ * All servers bind port 0 (ephemeral); every started server is stopped in
+ * afterEach. Real HTTP via the global fetch() (same pattern as the origin-guard
+ * tests in web-server.test.ts). The origin-guard 403 body is "forbidden"
+ * (lowercase); the token-block 403 body is "Forbidden" (capital F) — tests
+ * assert the body to confirm WHICH check fired (proves ordering).
  */
-import { randomUUID } from "node:crypto";
+import { afterEach, describe, expect, it } from "bun:test";
+import { WebServer } from "../src/web-server.js";
 
-export interface TokenAuth {
-  /** The session token (UUID-shaped). Bake into the render shell (D4). */
-  readonly token: string;
-  /** True iff the request carries the token on one of its channels. */
-  validateRequest(req: Request): Promise<boolean>;
+const started: WebServer[] = [];
+function makeServer(): WebServer {
+  const s = new WebServer({ port: 0 });
+  started.push(s);
+  return s;
 }
+afterEach(() => {
+  while (started.length) {
+    const s = started.pop()!;
+    try {
+      s.stop();
+    } catch {
+      /* ignore */
+    }
+  }
+});
 
-export function createTokenAuth(): TokenAuth {
-  const token = randomUUID();
-  return {
-    token,
-    async validateRequest(req: Request): Promise<boolean> {
-      const url = new URL(req.url);
-      // GET / WS-upgrade channel: ?session= in the URL.
-      if (url.searchParams.get("session") === token) return true;
-      // POST channel: body.token in the JSON body (clone preserves the original
-      // so a downstream POST route can still read it).
-      if (req.method === "POST") {
-        try {
-          const body = (await req.clone().json()) as { token?: unknown };
-          if (body?.token === token) return true;
-        } catch {
-          // not JSON / no body -> not a valid POST-token channel
-        }
-      }
-      return false;
-    },
-  };
-}
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/token-auth.test.ts )`
-Expected: PASS — all 12 cases green.
-
-- [ ] **Step 5: Typecheck**
-
-Run: `( cd bun-apps/pi-agent-ext-webui && bun run typecheck )`
-Expected: PASS (no output, exit 0).
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add bun-apps/pi-agent-ext-webui/src/token-auth.ts bun-apps/pi-agent-ext-webui/tests/token-auth.test.ts
-git commit -m "feat(webui): add pure createTokenAuth session-token validator (ticket 07 D1)"
-```
-
----
-
-### Task 2: `setTokenAuth` mechanism on `WebServer` (DI; not yet wired)
-
-**Files:**
-- Modify: `bun-apps/pi-agent-ext-webui/src/web-server.ts` (import `TokenAuth`; add `tokenAuth` field + `setTokenAuth` setter; consult it inside `fetch`, making `fetch` async, with the `GET /` exemption)
-- Test: `bun-apps/pi-agent-ext-webui/tests/web-server.test.ts` (append a `WebServer setTokenAuth` describe block + import `createTokenAuth`)
-
-**Interfaces:**
-- Consumes: `TokenAuth` from `./token-auth.js` (T1); the existing `WebServer.fetch(req, srv: Server<undefined>)` and the inline `originAllowed` guard.
-- Produces:
-  - `WebServer.setTokenAuth(auth: TokenAuth | null): void` — DI setter (mirrors `setHttpRoutes`/`setCommandHandler`). `null` (default) = pass-through; a bare `WebServer` validates nothing.
-  - **Behavior contract (spec D2/D3):** `fetch` consults the auth **after** the origin guard and **before** `this.httpRoutes`. `GET /` (the shell bootstrap) is **exempt** — it is the document that delivers the token, so it must load from the token-less base URL. Every other path requires the token; failure → `new Response("forbidden", { status: 403 })` (same shape as the origin-guard 403). `fetch` is now `async` (returns `Promise<Response>`); `Bun.serve` accepts an async `fetch`, and the WS upgrade still works (Bun keeps the request alive across the `await`).
-- **Does NOT touch `wireWebui`** — enabling the gate is T5 (see the decomposition note). Every existing test uses a bare server (no `setTokenAuth`) → pass-through → green.
-
-- [ ] **Step 1: Write the failing test**
-
-Append to `bun-apps/pi-agent-ext-webui/tests/web-server.test.ts`. First add the import at the top (with the other `../src/...` imports):
-
-```ts
-import { createTokenAuth } from "../src/token-auth.js";
-```
-
-Then append this describe block at the end of the file (it reuses the file's existing `makeServer`, `withTimeout`, `waitFor`, `openWs` helpers):
-
-```ts
-// --- WebServer setTokenAuth (ticket 07 central auth) -----------------------
-
-describe("WebServer setTokenAuth", () => {
-  it("without a token -> 403 on a gated route (/health)", async () => {
-    const s = makeServer({ port: 0 });
+describe("WebServer token auth (setTokenAuth, ticket 07 D1)", () => {
+  it("default (never set) => token null => GET passes WITHOUT ?session=", async () => {
+    const s = makeServer();
     s.start();
-    s.setTokenAuth(createTokenAuth());
     const res = await fetch(`${s.url}/health`);
-    expect(res.status).toBe(403);
-  });
-
-  it("wrong token -> 403", async () => {
-    const s = makeServer({ port: 0 });
-    s.start();
-    s.setTokenAuth(createTokenAuth());
-    const res = await fetch(`${s.url}/health?session=wrong`);
-    expect(res.status).toBe(403);
-  });
-
-  it("valid token -> through to /health", async () => {
-    const auth = createTokenAuth();
-    const s = makeServer({ port: 0 });
-    s.start();
-    s.setTokenAuth(auth);
-    const res = await fetch(`${s.url}/health?session=${auth.token}`);
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("ok");
   });
 
-  it("GET / (the shell bootstrap) is EXEMPT -> 200 even without a token", async () => {
-    const s = makeServer({ port: 0 });
-    s.start();
-    s.setTokenAuth(createTokenAuth());
-    const res = await fetch(`${s.url}/`);
-    expect(res.status).toBe(200); // serves the stub page (no routes installed)
-    expect(await res.text()).toContain("webui connect-test");
-  });
-
-  it("WS upgrade without ?session= -> refused (client never opens)", async () => {
-    const s = makeServer({ port: 0 });
-    s.start();
-    s.setTokenAuth(createTokenAuth());
-    let opened = false;
-    let settled = false;
-    const ws = new WebSocket(`${s.url.replace("http", "ws")}/ws`);
-    ws.onopen = () => { opened = true; settled = true; };
-    ws.onerror = () => { settled = true; };
-    ws.onclose = () => { settled = true; };
-    await withTimeout(
-      (async () => { while (!settled) await Bun.sleep(5); })(),
-      2000,
-      "ws denial never settled"
-    );
-    expect(opened).toBe(false);
-  });
-
-  it("WS upgrade with ?session=<token> -> upgraded (client opens)", async () => {
-    const auth = createTokenAuth();
-    const s = makeServer({ port: 0 });
-    s.start();
-    s.setTokenAuth(auth);
-    const ws = await withTimeout(
-      openWs(`${s.url.replace("http", "ws")}/ws?session=${auth.token}`),
-      2000,
-      "ws open timed out"
-    );
-    await waitFor("client registered", () => s.clientCount === 1);
-    expect(s.clientCount).toBe(1);
-  });
-
-  it("setTokenAuth(null) removes the gate (pass-through)", async () => {
-    const s = makeServer({ port: 0 });
-    s.start();
-    s.setTokenAuth(createTokenAuth());
+  it("explicit setTokenAuth(null) => GET passes WITHOUT ?session=", async () => {
+    const s = makeServer();
     s.setTokenAuth(null);
-    const res = await fetch(`${s.url}/health`);
-    expect(res.status).toBe(200);
-    expect(await res.text()).toBe("ok");
-  });
-
-  it("with no auth set, existing routes are unchanged (pass-through)", async () => {
-    const s = makeServer({ port: 0 });
     s.start();
     const res = await fetch(`${s.url}/health`);
     expect(res.status).toBe(200);
-    expect(await res.text()).toBe("ok");
+  });
+
+  it("non-null token + valid ?session= => passes", async () => {
+    const s = makeServer();
+    s.setTokenAuth("secret");
+    s.start();
+    const res = await fetch(`${s.url}/health?session=secret`);
+    expect(res.status).toBe(200);
+  });
+
+  it("non-null token + MISSING ?session= => 403", async () => {
+    const s = makeServer();
+    s.setTokenAuth("secret");
+    s.start();
+    const res = await fetch(`${s.url}/health`);
+    expect(res.status).toBe(403);
+  });
+
+  it("non-null token + WRONG ?session= => 403", async () => {
+    const s = makeServer();
+    s.setTokenAuth("secret");
+    s.start();
+    const res = await fetch(`${s.url}/health?session=nope`);
+    expect(res.status).toBe(403);
+  });
+
+  it("non-null token + valid body.token (POST) => passes", async () => {
+    const s = makeServer();
+    s.setTokenAuth("secret");
+    s.start();
+    const res = await fetch(`${s.url}/health`, {
+      method: "POST",
+      body: JSON.stringify({ token: "secret" }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("non-null token + POST WITHOUT body.token => 403", async () => {
+    const s = makeServer();
+    s.setTokenAuth("secret");
+    s.start();
+    const res = await fetch(`${s.url}/health`, {
+      method: "POST",
+      body: JSON.stringify({ other: "x" }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("origin guard runs FIRST: hostile Origin + valid ?session= => still 403 (origin)", async () => {
+    // A valid token does NOT rescue a hostile origin => proves the origin guard
+    // is checked before the token block. Body "forbidden" (lowercase) = origin.
+    const s = makeServer();
+    s.setTokenAuth("secret");
+    s.start();
+    const res = await fetch(`${s.url}/health?session=secret`, {
+      headers: { Origin: "http://evil.com" },
+    });
+    expect(res.status).toBe(403);
+    expect(await res.text()).toBe("forbidden");
+  });
+
+  it("token-block 403 body is 'Forbidden' (distinct from the origin 'forbidden')", async () => {
+    const s = makeServer();
+    s.setTokenAuth("secret");
+    s.start();
+    const res = await fetch(`${s.url}/health`);
+    expect(res.status).toBe(403);
+    expect(await res.text()).toBe("Forbidden");
   });
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run the test to verify it fails**
 
-Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/web-server.test.ts )`
-Expected: FAIL — `TypeError: s.setTokenAuth is not a function`.
+Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/web-server-token-auth.test.ts )`
+Expected: FAIL — `WebServer` has no `setTokenAuth` method (`s.setTokenAuth is not a function`); the default-null cases pass incidentally (no check yet), but every non-null case fails (no enforcement).
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `bun-apps/pi-agent-ext-webui/src/web-server.ts`:
-
-3a. Add the import near the existing `./protocol.js` import:
+3a. In `bun-apps/pi-agent-ext-webui/src/web-server.ts`, add a module-level helper immediately AFTER the `originAllowed(...)` function (before `export interface SessionRef`):
 
 ```ts
-import type { TokenAuth } from "./token-auth.js";
+/**
+ * Read the presented auth token for the OPTIONAL token check (ticket 07 D1).
+ * GET + WS-URL: the ?session= query param; POST: body.token (JSON, read via
+ * clone() so a downstream additive route can still read the body). Returns null
+ * when absent / unparseable. Only called when this.token !== null.
+ */
+async function readPresentedToken(req: Request, url: URL): Promise<string | null> {
+  if (req.method === "POST") {
+    try {
+      const body = await req.clone().json();
+      return typeof body?.token === "string" ? body.token : null;
+    } catch {
+      return null;
+    }
+  }
+  return url.searchParams.get("session");
+}
 ```
 
-3b. Add the field. In the `WebServer` class, next to `private httpRoutes: HttpRouteHandler | null = null;` add:
+3b. Add the `token` field. Find the field declarations near the top of the `WebServer` class:
 
 ```ts
-  private tokenAuth: TokenAuth | null = null;
+  private onCommand: CommandHandler | null = null;
+  private httpRoutes: HttpRouteHandler | null = null;
 ```
 
-3c. Add the setter. Next to the existing `setHttpRoutes(handler)` method add:
+and replace with:
 
 ```ts
-  /**
-   * Inject the per-session token auth (ticket 07 D2). `fetch()` consults it
-   * after the origin guard and before the additive routes; `null` removes it
-   * (default = pass-through, so a bare WebServer validates nothing).
-   */
-  setTokenAuth(auth: TokenAuth | null): void {
-    this.tokenAuth = auth;
+  private onCommand: CommandHandler | null = null;
+  private httpRoutes: HttpRouteHandler | null = null;
+  /** Optional token-auth token (ticket 07 D1); null => NO check (v1 loopback). */
+  private token: string | null = null;
+```
+
+3c. Add the `setTokenAuth` setter. Find the existing `setHttpRoutes` method:
+
+```ts
+  setHttpRoutes(handler: HttpRouteHandler | null): void {
+    this.httpRoutes = handler;
   }
 ```
 
-3d. Make `fetch` async + insert the token check. Replace the existing `private fetch(req: Request, srv: Server<undefined>): Response {` method header and the origin-guard + httpRoutes preamble with the async version. The exact replacement — find:
+and replace with:
+
+```ts
+  setHttpRoutes(handler: HttpRouteHandler | null): void {
+    this.httpRoutes = handler;
+  }
+
+  /**
+   * Set the OPTIONAL token-auth token (ticket 07 D1). `null` (the default / the
+   * v1 loopback wiring) => NO token check — requests pass with only the origin
+   * guard. A non-null token requires every request to present it via `?session=`
+   * (GET + WS-URL) / `body.token` (POST). Mirrors setHttpRoutes/setCommandHandler.
+   */
+  setTokenAuth(token: string | null): void {
+    this.token = token;
+  }
+```
+
+3d. Insert the null-safe token block in `fetch` AND make `fetch` async. Find the `fetch` method header + origin guard:
 
 ```ts
   private fetch(req: Request, srv: Server<undefined>): Response {
@@ -407,48 +275,95 @@ and replace with:
   private async fetch(req: Request, srv: Server<undefined>): Promise<Response> {
     const url = new URL(req.url);
     // Shared origin guard (spec §2): the same check gates HTTP fetch AND the WS
-    // upgrade (the /ws branch below). Absent Origin is allowed.
+    // upgrade (the /ws branch below). Absent Origin is allowed. This is the
+    // FIRST chokepoint and stays first.
     const origin = req.headers.get("origin");
     if (origin && !originAllowed(origin, req.headers.get("host"))) {
       return new Response("forbidden", { status: 403 });
     }
-    // Token auth (ticket 07 D2/D3): central check, AFTER the origin guard and
-    // BEFORE the additive httpRoutes — covers /api/*, /api/events, /ws, /health.
-    // GET / (the render shell bootstrap) is EXEMPT: it delivers the server-
-    // injected token to the browser, so it must load from the token-less base
-    // URL (the announced URL carries no token). async because validateRequest
-    // may read a POST body; Bun.serve keeps the request (and the WS upgrade)
-    // alive across the await.
-    if (this.tokenAuth && !(req.method === "GET" && url.pathname === "/")) {
-      if (!(await this.tokenAuth.validateRequest(req))) {
-        return new Response("forbidden", { status: 403 });
-      }
+    // Optional token auth (ticket 07 D1): null => NO check. Runs AFTER the
+    // origin guard and BEFORE this.httpRoutes. ?session= for GET + the WS-URL;
+    // body.token (JSON, via clone()) for POST. Flat !==, 403 on mismatch.
+    if (this.token !== null) {
+      const presented = await readPresentedToken(req, url);
+      if (presented !== this.token) return new Response("Forbidden", { status: 403 });
     }
     if (this.httpRoutes) {
 ```
 
-(Leave the rest of `fetch` — the `/health`, `/`, `/ws`, not-found branches — unchanged. The `if (this.httpRoutes) { const res = this.httpRoutes(req, srv); if (res) return res; }` block stays valid inside the now-async function: `httpRoutes` is still a sync `Response | null`.)
+(The rest of `fetch` — the `/health`, `/`, `/ws`, 404 branches — is unchanged. The `fetch: (req, srv) => this.fetch(req, srv)` arrow inside `serveWithFallback` already returns whatever `fetch` returns; Bun.serve accepts `Response | Promise<Response>`, so making `fetch` async needs no change there.)
 
-- [ ] **Step 4: Run test to verify it passes**
+3e. Widen the `WebuiServer` interface in `bun-apps/pi-agent-ext-webui/src/webui-wiring.ts`. Find:
 
-Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/web-server.test.ts )`
-Expected: PASS — all existing origin-guard / stub-page / WS / broadcast cases plus the 8 new `setTokenAuth` cases green. (Existing cases use a bare server with no `setTokenAuth` → pass-through → unchanged behavior; the async `fetch` is transparent because the hot path has no `await` when `tokenAuth` is null.)
+```ts
+  setCommandHandler(cb: CommandHandler | null): void;
+  setHttpRoutes(handler: HttpRouteHandler | null): void;
+```
 
-- [ ] **Step 5: Typecheck**
+and replace with:
 
-Run: `( cd bun-apps/pi-agent-ext-webui && bun run typecheck )`
-Expected: PASS (no output, exit 0).
+```ts
+  setCommandHandler(cb: CommandHandler | null): void;
+  setHttpRoutes(handler: HttpRouteHandler | null): void;
+  /** OPTIONAL token auth (ticket 07 D1); null => no check (v1 loopback). */
+  setTokenAuth(token: string | null): void;
+```
+
+3f. Update `FakeWebServer` in `bun-apps/pi-agent-ext-webui/tests/webui-wiring.test.ts`. Find the field declarations:
+
+```ts
+  commandHandler: CommandHandler | null = null;
+  httpRoutes: HttpRouteHandler | null = null;
+```
+
+and replace with:
+
+```ts
+  commandHandler: CommandHandler | null = null;
+  httpRoutes: HttpRouteHandler | null = null;
+  /** Recorded token-auth call (ticket 07 D1); default null (loopback off). */
+  tokenAuth: string | null = null;
+```
+
+Then find the `setHttpRoutes` method on `FakeWebServer`:
+
+```ts
+  setHttpRoutes(handler: HttpRouteHandler | null): void {
+    this.httpRoutes = handler;
+  }
+```
+
+and replace with:
+
+```ts
+  setHttpRoutes(handler: HttpRouteHandler | null): void {
+    this.httpRoutes = handler;
+  }
+  setTokenAuth(token: string | null): void {
+    this.tokenAuth = token;
+  }
+```
+
+- [ ] **Step 4: Run the token-auth test to verify it passes**
+
+Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/web-server-token-auth.test.ts )`
+Expected: PASS — all 9 cases green (null ⇒ no check; non-null ⇒ `?session=`/`body.token` enforced; origin guard first).
+
+- [ ] **Step 5: Run the FULL suite (the real conformance gate — tsconfig-tests gotcha)**
+
+Run: `( cd bun-apps/pi-agent-ext-webui && bun run typecheck && bun test )`
+Expected: typecheck PASS; every test file green. `WebuiServer` widened ⇒ `FakeWebServer` (updated in 3f) satisfies it; the live `WebServer` (updated in 3b/3c) satisfies it. `web-server.test.ts` still green — `fetch` is now async but every call already `await`s the response.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add bun-apps/pi-agent-ext-webui/src/web-server.ts bun-apps/pi-agent-ext-webui/tests/web-server.test.ts
-git commit -m "feat(webui): add setTokenAuth DI setter + central token check to WebServer.fetch (ticket 07 D2/D3)"
+git add bun-apps/pi-agent-ext-webui/src/web-server.ts bun-apps/pi-agent-ext-webui/src/webui-wiring.ts bun-apps/pi-agent-ext-webui/tests/webui-wiring.test.ts bun-apps/pi-agent-ext-webui/tests/web-server-token-auth.test.ts
+git commit -m "feat(webui): WebServer optional token-auth mechanism (setTokenAuth null => no check) (ticket 07 D1)"
 ```
 
 ---
 
-### Task 3: Port resolution (3-tier `resolvePort`)
+### Task 2: Port resolution (3-tier `resolvePort`)
 
 **Files:**
 - Create: `bun-apps/pi-agent-ext-webui/src/port-resolver.ts`
@@ -459,7 +374,7 @@ git commit -m "feat(webui): add setTokenAuth DI setter + central token check to 
 - Consumes: nothing (pure; takes an injectable env so tests are deterministic — no `process.env` mutation).
 - Produces:
   - `export function resolvePort(env?: Record<string, string | undefined>): number` — `WEBUI_PORT` > `PORT` > `0`. Invalid (non-integer / out of `[1,65535]` / empty) falls through to the next tier, ultimately `0`. Default env source: `process.env`.
-  - **Behavior contract (spec D5):** `serveWithFallback` (web-server.ts) already walks `port..port+50` on `EADDRINUSE`, so held ports — notably `8090` (embed-mlx-server LaunchAgent) — are inherently avoided. There is **no default to 8090**. The singleton constructor is changed from `port: 0` to `port: resolvePort()`; `resolvePort()` is called lazily (first `getServer()`), so test runs with neither env var set still get an ephemeral port.
+  - **Behavior contract (spec D2):** `serveWithFallback` (web-server.ts) already walks `port..port+50` on `EADDRINUSE`, so held ports — notably `8090` (embed-mlx-server LaunchAgent) — are inherently avoided. There is **no default to 8090**. The singleton constructor is changed from `port: 0` to `port: resolvePort()`; `resolvePort()` is called lazily (first `getServer()`), so test runs with neither env var set still get an ephemeral port. The announce (T3) reads `server.url` after `start()`, which reflects this resolved port.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -529,7 +444,7 @@ Create `bun-apps/pi-agent-ext-webui/src/port-resolver.ts`:
 
 ```ts
 /**
- * port-resolver.ts — 3-tier port selection (specs/07 D5).
+ * port-resolver.ts — 3-tier port selection (specs/07 D2).
  *
  * Pure: takes an injectable env (default process.env) so tests are deterministic
  * (no process.env mutation). WEBUI_PORT > PORT > 0 (OS-assigned ephemeral).
@@ -580,6 +495,8 @@ function getServer(): WebServer {
 }
 ```
 
+(T4 separately wires `server.setTokenAuth(null)` in `wireWebui`; T2 touches only `getServer()`.)
+
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/port-resolver.test.ts )`
@@ -588,7 +505,7 @@ Expected: PASS — all 11 cases green.
 - [ ] **Step 6: Run the wiring suite to confirm no regression**
 
 Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/webui-wiring.test.ts )`
-Expected: PASS. The singleton-identity test calls `wireWebui(pi)` with no injected server → `getServer()` → `resolvePort()` (no env in the runner) → `0` → ephemeral → `instances[0].port > 0` still holds.
+Expected: PASS. The singleton-identity test calls `wireWebui(pi)` with no injected server → `getServer()` → `resolvePort()` (no env in the runner) → `0` → ephemeral. (`FakeWebServer` is injected elsewhere; the singleton path still resolves to ephemeral.)
 
 - [ ] **Step 7: Typecheck**
 
@@ -599,18 +516,18 @@ Expected: PASS (no output, exit 0).
 
 ```bash
 git add bun-apps/pi-agent-ext-webui/src/port-resolver.ts bun-apps/pi-agent-ext-webui/src/webui-wiring.ts bun-apps/pi-agent-ext-webui/tests/port-resolver.test.ts
-git commit -m "feat(webui): add resolvePort 3-tier port resolver + wire into singleton (ticket 07 D5)"
+git commit -m "feat(webui): add resolvePort 3-tier port resolver + wire into singleton (ticket 07 D2)"
 ```
 
 ---
 
-### Task 4: Announce via `ctx.ui` at `session_start` (no auto-open)
+### Task 3: Announce via `ctx.ui` at `session_start` (no auto-open)
 
 **Files:**
 - Modify: `bun-apps/pi-agent-ext-webui/src/webui-wiring.ts` (add `WebuiUi`/`WebuiSessionCtx`; widen the `session_start` handler to announce)
 - Modify: `bun-apps/pi-agent-ext-webui/tests/helpers/mock-pi.ts` (`MockPi.ctx` gains a `ui` stub recording `notify`/`setStatus`)
-- Modify: `bun-apps/pi-agent-ext-webui/tests/wiring-live-smoke.test.ts` (inline `MockPi.ctx()` ui + `exec` recorder; add announce test G)
-- Modify: `bun-apps/pi-agent-ext-webui/tests/render-integration.test.ts` (inline `MockPi.ctx()` ui stub — needed because its tests call `session_start`)
+- Modify: `bun-apps/pi-agent-ext-webui/tests/wiring-live-smoke.test.ts` (inline `MockPi.ctx()` `ui` + `exec` recorder; add announce test G)
+- Modify: `bun-apps/pi-agent-ext-webui/tests/render-integration.test.ts` (inline `MockPi.ctx()` `ui` stub — needed because its tests call `session_start`)
 - Test: `bun-apps/pi-agent-ext-webui/tests/webui-wiring.test.ts` (add an announce unit test)
 
 **Interfaces:**
@@ -618,7 +535,7 @@ git commit -m "feat(webui): add resolvePort 3-tier port resolver + wire into sin
 - Produces:
   - `export interface WebuiUi { notify(message: string, type?: "info" | "warning" | "error"): void; setStatus(key: string, text: string | undefined): void }` — the mockable announce surface (in `webui-wiring.ts`).
   - `export interface WebuiSessionCtx { abort(): void; ui: WebuiUi }` — the widened session-context type. This **undoes** the prior `ctx as { abort(): void }` downcast so the handler can reach `ctx.ui`. (`ui` lives on the **session context**, the 2nd arg to `session_start` — NOT on the host; `ExtensionAPI` has no `ui`. The host interface `WebuiHost` is unchanged — it gains no `exec`, which is what makes "no auto-open" structurally enforced.)
-  - **Behavior contract (spec D6/D7):** at `session_start`, after `server.start()` + `bindSession`, the handler reads `server.url` (resolved) and calls `sessionCtx.ui.notify(\`webui: ${url}\`, "info")` + `sessionCtx.ui.setStatus("webui", url)`. No `console.log`; no `pi.exec` (no auto-open).
+  - **Behavior contract (spec D3/D4):** at `session_start`, after `server.start()` + `bindSession`, the handler reads `server.url` (resolved — see T2) and calls `sessionCtx.ui.notify(\`webui: ${url}\`, "info")` + `sessionCtx.ui.setStatus("webui", url)`. No `console.log`; no `pi.exec` (no auto-open).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -659,7 +576,7 @@ git commit -m "feat(webui): add resolvePort 3-tier port resolver + wire into sin
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/webui-wiring.test.ts tests/wiring-live-smoke.test.ts )`
-Expected: FAIL — `webui-wiring.test.ts`: `pi.ctx.notifications` is undefined (MockPi.ctx has no ui yet) → the session_start handler throws reaching `ctx.ui`. `wiring-live-smoke.test.ts`: `pi.uiNotifications` is undefined / handler throws on `ctx.ui`.
+Expected: FAIL — `webui-wiring.test.ts`: `pi.ctx.notifications` is undefined (MockPi.ctx has no `ui` yet) → the session_start handler throws reaching `ctx.ui`. `wiring-live-smoke.test.ts`: `pi.uiNotifications` is undefined / handler throws on `ctx.ui`.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -667,7 +584,7 @@ Expected: FAIL — `webui-wiring.test.ts`: `pi.ctx.notifications` is undefined (
 
 ```ts
 /**
- * The TUI UI surface the announce uses (ticket 07 D6/D7). Mirrors exactly the
+ * The TUI UI surface the announce uses (ticket 07 D3/D4). Mirrors exactly the
  * two ExtensionUIContext members the announce calls (verified against the SDK
  * dist .d.ts): notify(message, type) + setStatus(key, text). `ui` lives on the
  * SESSION CONTEXT (the 2nd arg to session_start), NOT on the host — the SDK
@@ -683,7 +600,7 @@ export interface WebuiUi {
  * The session-context slice the wiring touches: abort() (unchanged — the
  * dispatch closure + bindSession still use it) + ui (new — the announce
  * channel). Widening this UNDOES the prior `ctx as { abort(): void }` downcast
- * so session_start can reach ctx.ui (specs/07 D6).
+ * so session_start can reach ctx.ui (specs/07 D3).
  */
 export interface WebuiSessionCtx {
   abort(): void;
@@ -710,12 +627,13 @@ and replace with:
     const sessionCtx = ctx as WebuiSessionCtx;
     server.bindSession(pi, sessionCtx);
     bound = { pi, ctx: sessionCtx };
-    // ticket 07 announce (specs/07 D6): surface the RESOLVED URL to the TUI user
+    // ticket 07 announce (specs/07 D3): surface the RESOLVED URL to the TUI user
     // via the SDK ui surface (notify + setStatus). NO console.log (it does not
     // reach the TUI user — debugging only); NO auto-open (the host exposes no
     // exec). server.url is read AFTER start(), so it reflects the bound port
-    // (ephemeral or pinned). start() is idempotent + the singleton persists, so
-    // re-announces on reload/new/resume/fork show the same stable URL.
+    // (ephemeral or pinned — resolved via resolvePort in T2). start() is
+    // idempotent + the singleton persists, so re-announces on
+    // reload/new/resume/fork show the same stable URL.
     const url = server.url;
     sessionCtx.ui.notify(`webui: ${url}`, "info");
     sessionCtx.ui.setStatus("webui", url);
@@ -885,464 +803,130 @@ Expected: PASS — every test file green.
 
 ```bash
 git add bun-apps/pi-agent-ext-webui/src/webui-wiring.ts bun-apps/pi-agent-ext-webui/tests/helpers/mock-pi.ts bun-apps/pi-agent-ext-webui/tests/wiring-live-smoke.test.ts bun-apps/pi-agent-ext-webui/tests/render-integration.test.ts bun-apps/pi-agent-ext-webui/tests/webui-wiring.test.ts
-git commit -m "feat(webui): announce resolved URL via ctx.ui at session_start (no auto-open) (ticket 07 D6/D7)"
+git commit -m "feat(webui): announce resolved URL via ctx.ui at session_start (no auto-open) (ticket 07 D3/D4)"
 ```
 
 ---
 
-### Task 5: Enable auth in `wireWebui` + server-injected shell token + integration tests green
+### Task 4: Integration + suite-green (wire `setTokenAuth(null)` + port + announce)
 
 **Files:**
-- Modify: `bun-apps/pi-agent-ext-webui/src/render-shell.ts` (`RENDER_SHELL_HTML` const → `renderShellHtml(token)`; shell JS gains `const TOKEN="…"` + `?session=` on data/WS calls)
-- Modify: `bun-apps/pi-agent-ext-webui/src/render-routes.ts` (`createRenderRoutes(registry)` → `createRenderRoutes(registry, token)`; `GET /` serves `renderShellHtml(token)`)
-- Modify: `bun-apps/pi-agent-ext-webui/src/webui-wiring.ts` (add `setTokenAuth` to `WebuiServer`; construct `TokenAuth`; call `server.setTokenAuth(auth)`; pass `auth.token` to `createRenderRoutes`; clear on `dispose`)
-- Modify: `bun-apps/pi-agent-ext-webui/tests/render-shell.test.ts` (assert on `renderShellHtml(token)`, incl. the injected `const TOKEN`)
-- Modify: `bun-apps/pi-agent-ext-webui/tests/render-routes.test.ts` (`setup()` passes a token to `createRenderRoutes`)
-- Modify: `bun-apps/pi-agent-ext-webui/tests/render-integration.test.ts` (`/api/*` + `/ws` calls append `?session=<token>` extracted from the served shell; `GET /` assertion checks the token is injected)
-- Modify: `bun-apps/pi-agent-ext-webui/tests/wiring-live-smoke.test.ts` (WS opens append `?session=<token>` extracted from the served shell)
-- Modify: `bun-apps/pi-agent-ext-webui/tests/webui-wiring.test.ts` (`FakeWebServer` gains `setTokenAuth`)
+- Modify: `bun-apps/pi-agent-ext-webui/src/webui-wiring.ts` (`wireWebui` wires `server.setTokenAuth(null)` — loopback, no check — right after resolving the server handle)
+- Modify: `bun-apps/pi-agent-ext-webui/tests/wiring-live-smoke.test.ts` (add a resolved-URL integration assertion + a null-token pass-through assertion that tie T1's token mechanism + T2's port resolution + T3's announce through a live `wireWebui`; add a static import of `resolvePort`)
+- No other `src/` changes — T1 added the mechanism; T2 wired `resolvePort()` into `getServer()`; T3 added the announce. T4 wires the token OFF + verifies the three compose end-to-end and the whole package is green.
 
 **Interfaces:**
-- Consumes: `createTokenAuth` from `./token-auth.js` (T1); `WebServer.setTokenAuth` (T2); `RenderService` + the existing `createRenderRoutes` (ticket 06).
-- Produces:
-  - `export function renderShellHtml(token: string): string` (replaces the `RENDER_SHELL_HTML` const). The shell JS contains `const TOKEN = "<token>";` and a `SESSION_QS = "?session=" + encodeURIComponent(TOKEN)` appended to `/api/views`, `/api/view/:id`, `/api/events` (EventSource), and the `/ws` URL.
-  - `export function createRenderRoutes(registry: RenderService, token: string): RenderRouteHandler` — the `GET /` branch returns `renderShellHtml(token)`.
-  - Widened `WebuiServer`: adds `setTokenAuth(auth: TokenAuth | null): void`.
-  - Wired `wireWebui`: constructs `const auth = createTokenAuth();`, calls `server.setTokenAuth(auth)`, passes `auth.token` to `createRenderRoutes(registry, auth.token)`; `dispose()` calls `server.setTokenAuth(null)`.
+- Consumes: `WebuiServer.setTokenAuth` (T1); `resolvePort` from `./port-resolver.js` (T2, pure — for a deterministic 3-tier assertion in the integration suite); the live `WebuiServer.url` (resolved post-`start()`); the `ctx.ui` announce surface from T3.
+- Produces: nothing exported. The deliverable is the loopback wiring call + an integration test + a green full-suite gate.
+- **Behavior contract (spec D1+D2+D3 composed):** `wireWebui` calls `server.setTokenAuth(null)` (loopback ⇒ token OFF — no request needs `?session=`). The announce and the port resolution compose — after `session_start`, the announced URL (from `ctx.ui.notify`/`setStatus`) is the **live resolved** `http://127.0.0.1:<port>` (port > 0, host `127.0.0.1` — not the literal `0`), exactly equal to `server.url`. With the token `null`, `GET /`, `/api/*`, `/api/events`, and the `/ws` upgrade all pass **WITHOUT `?session=`**. The pure `resolvePort` 3-tier ordering (`WEBUI_PORT` > `PORT` > `0`) is proven deterministically by T2's unit tests, which are part of the full-suite gate below. **No shell-token injection** anywhere: `RENDER_SHELL_HTML` is a const, no `?session=` threading in the shell/routes.
 
-- [ ] **Step 1: Write/extend the failing tests**
-
-1a. Rewrite `bun-apps/pi-agent-ext-webui/tests/render-shell.test.ts` to assert on `renderShellHtml(token)`:
+- [ ] **Step 1: Wire the token OFF for loopback.** In `bun-apps/pi-agent-ext-webui/src/webui-wiring.ts`, find the top of `wireWebui`:
 
 ```ts
-import { afterEach, describe, expect, it } from "bun:test";
-import { WebServer } from "../src/web-server.js";
-import { createRenderRoutes } from "../src/render-routes.js";
-import { renderShellHtml } from "../src/render-shell.js";
-import { RenderService } from "../src/render-service.js";
-
-const started: WebServer[] = [];
-function makeServer(): WebServer {
-  const s = new WebServer({ port: 0 });
-  started.push(s);
-  return s;
-}
-afterEach(() => {
-  while (started.length) {
-    try {
-      started.pop()!.stop();
-    } catch {
-      /* ignore */
-    }
-  }
-});
-
-describe("renderShellHtml(token)", () => {
-  it("is a complete HTML document with the marker, tabs pane, content pane, and SSE client", () => {
-    const html = renderShellHtml("tok-123");
-    expect(html).toContain("<!-- webui-render-shell -->");
-    expect(html).toContain("<!doctype html>");
-    expect(html).toContain('id="tabs"');
-    expect(html).toContain('id="content"');
-    expect(html).toContain("EventSource(");
-    expect(html).toContain("/api/view/");
-  });
-
-  it("sandboxes html-mode content (iframe sandbox attribute, no allow-scripts)", () => {
-    const html = renderShellHtml("tok-123");
-    expect(html).toContain("setAttribute('sandbox', '')");
-    expect(html).not.toContain("allow-scripts");
-  });
-
-  it("injects the token as a JS const the client appends as ?session=", () => {
-    const html = renderShellHtml("abc-123-token");
-    expect(html).toContain('const TOKEN = "abc-123-token";');
-    expect(html).toContain("?session=' + encodeURIComponent(TOKEN)");
-  });
-});
-
-describe("createRenderRoutes — GET / serves the shell", () => {
-  it("GET / returns 200 text/html with the token injected", async () => {
-    const registry = new RenderService();
-    const server = makeServer();
-    server.setHttpRoutes(createRenderRoutes(registry, "tok-123"));
-    server.start();
-    const res = await fetch(`${server.url}/`);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/html");
-    const body = await res.text();
-    expect(body).toContain("webui-render-shell");
-    expect(body).toContain('const TOKEN = "tok-123";');
-  });
-
-  it("GET / is served BEFORE /api/* (does not shadow api routes)", async () => {
-    const registry = new RenderService();
-    registry.render({ content: "# x", view: "main" });
-    const server = makeServer();
-    server.setHttpRoutes(createRenderRoutes(registry, "tok"));
-    server.start();
-    const shell = await (await fetch(`${server.url}/`)).text();
-    const views = await (await fetch(`${server.url}/api/views`)).json();
-    expect(shell).toContain("webui-render-shell");
-    expect(views.length).toBe(1);
-  });
-});
-```
-
-1b. In `bun-apps/pi-agent-ext-webui/tests/render-routes.test.ts`, thread a token through `setup()`:
-
-```ts
-function setup(now = () => 1000): { registry: RenderService; server: WebServer } {
-  const registry = new RenderService({ urlFor: (id) => `http://t/#${id}`, now });
-  const server = makeServer({ port: 0 });
-  server.setHttpRoutes(createRenderRoutes(registry, "route-test-token"));
-  server.start();
-  return { registry, server };
-}
-```
-
-(No other change to `render-routes.test.ts` — it uses a bare server with no `setTokenAuth`, so `/api/*` stays pass-through; the token is only threaded into the served shell, which no case here inspects.)
-
-1c. In `bun-apps/pi-agent-ext-webui/tests/render-integration.test.ts`, add a `shellToken` helper and thread `?session=` through every gated fetch/WS. Add the helper near the other harness helpers:
-
-```ts
-/** Extract the server-injected token from the served shell (GET / is the
- *  token-exempt bootstrap). The wiring mints a fresh randomUUID per session. */
-async function shellToken(server: WebServer): Promise<string> {
-  const html = await (await fetch(`${server.url}/`)).text();
-  const m = html.match(/const TOKEN = "([^"]+)";/);
-  if (!m) throw new Error("TOKEN not found in served shell");
-  return m[1];
-}
-```
-
-Then update the existing cases:
-
-- "registers the webui_render tool + webui:render subscription" — change the `/api/view/preview` fetch to carry the token:
-
-```ts
-    pi.events.emit("webui:render", { content: "# hello", view: "preview", title: "P" });
-    const token = await shellToken(server);
-    const res = await fetch(`${server.url}/api/view/preview?session=${token}`);
-```
-
-- "the tool execute() path lands in the same registry and is served" — change the `/api/view/toolview` fetch:
-
-```ts
-    const out = await tool.execute("c1", { content: "**bold**", view: "toolviews" }, undefined, undefined, {});
-    expect(out.details.url).toContain("/#toolviews");
-    const token = await shellToken(server);
-    const v = await (await fetch(`${server.url}/api/view/toolviews?session=${token}`)).json();
-    expect(v.html).toContain("<strong>bold</strong>");
-```
-
-- "GET / serves the render shell after wiring" — extend the assertion to check the token is injected:
-
-```ts
-    const body = await (await fetch(`${server.url}/`)).text();
-    expect(body).toContain("webui-render-shell");
-    expect(body).toContain('const TOKEN = "');
-```
-
-- "render() returns the loopback URL composed from server.url" — **unchanged** (the tool result URL is `${server.url}/#z`, which carries no token; the user opens the base URL and the shell bootstraps itself).
-
-- "GET /api/events SSE delivers a view_update on webui:render" — carry the token on the EventSource fetch:
-
-```ts
-    const token = await shellToken(server);
-    const ctrl = new AbortController();
-    const res = await fetch(`${server.url}/api/events?session=${token}`, { signal: ctrl.signal });
-```
-
-- the decoupling test ("the render path does NOT call sendUserMessage …") — the WS open must carry the token; the render producer calls (events.emit / tool.execute) need no token (they go through the registry directly). Change the `openWs(...)` call:
-
-```ts
-    const token = await shellToken(server);
-    const ws = await withTimeout(openWs(`${server.url.replace("http", "ws")}/ws?session=${token}`), 2000, "ws open");
-```
-
-1d. In `bun-apps/pi-agent-ext-webui/tests/wiring-live-smoke.test.ts`, add the same `shellToken` helper:
-
-```ts
-async function shellToken(server: WebServer): Promise<string> {
-  const html = await (await fetch(`${server.url}/`)).text();
-  const m = html.match(/const TOKEN = "([^"]+)";/);
-  if (!m) throw new Error("TOKEN not found in served shell");
-  return m[1];
-}
-```
-
-and thread `?session=<token>` through every WS open in cases **B, C, D, F, F2** (cases E / E2 / A are unchanged: E/E2 test the origin guard which runs BEFORE the token check, so a non-loopback Origin is rejected regardless of token; A fetches `GET /` which is the token-exempt bootstrap). For each of B/C/D/F/F2, insert `const token = await shellToken(server);` right after `pi.emit("session_start", {}, pi.ctx());` and change the WS URL from `${server.url.replace("http", "ws")}/ws` to `${server.url.replace("http", "ws")}/ws?session=${token}`. Concretely, in each such test the two lines become, e.g. for case B:
-
-```ts
-    pi.emit("session_start", {}, pi.ctx());
-    const token = await shellToken(server);
-    const ws = await withTimeout(
-      openWs(`${server.url.replace("http", "ws")}/ws?session=${token}`),
-      2000,
-      "ws open timed out"
-    );
-```
-
-(Apply the identical `token` extraction + URL change to C, D, F, and F2. The announce test G from T4 does not open a WS — leave it.)
-
-1e. In `bun-apps/pi-agent-ext-webui/tests/webui-wiring.test.ts`, give `FakeWebServer` a `setTokenAuth`. First extend the import to bring the type:
-
-```ts
-import { WebServer, type CommandHandler, type HttpRouteHandler } from "../src/web-server.js";
-import type { TokenAuth } from "../src/token-auth.js";
-```
-
-then in `class FakeWebServer implements WebuiServer { … }` add a field + setter (next to `httpRoutes`):
-
-```ts
-  tokenAuth: TokenAuth | null = null;
-```
-
-```ts
-  setTokenAuth(auth: TokenAuth | null): void {
-    this.tokenAuth = auth;
-  }
-```
-
-- [ ] **Step 2: Run the affected suites to verify they fail**
-
-Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/render-shell.test.ts tests/render-routes.test.ts tests/render-integration.test.ts tests/wiring-live-smoke.test.ts tests/webui-wiring.test.ts )`
-Expected: FAIL initially — `render-shell.test.ts`: `renderShellHtml`/`createRenderRoutes(registry, token)` do not exist yet; `render-integration`/`wiring-live-smoke`: `/api/*` + `/ws` now 403 (the wiring will set the gate once Step 3 lands) — but Step 3 lands the impl in the same task, so re-run after Step 3 to see green.
-
-- [ ] **Step 3: Write minimal implementation**
-
-3a. Rewrite `bun-apps/pi-agent-ext-webui/src/render-shell.ts` so it exports `renderShellHtml(token)` (the structure is identical to the prior `RENDER_SHELL_HTML`; only the wrapping function + the token/`?session=` additions differ):
-
-```ts
-/**
- * render-shell.ts — the vanilla browser shell (specs/06 D4/D5, specs/07 D4).
- *
- * A single inline HTML document (string, like web-access's generateCuratorPage):
- * no React, no Bun.build, no committed dist/. Served at GET / by
- * createRenderRoutes. RETIRES the ticket-04 connect-test stub (ticket 06 D8.3).
- *
- * Ticket 07 D4: the shell is generated with the per-session token baked in
- * (`const TOKEN="…"`) so the client authenticates every subsequent /api/* fetch
- * and the /ws upgrade with ?session=<token>. GET / itself is the token-exempt
- * bootstrap (the announced URL carries no token).
- *
- * Client behavior (D4):
- *   - on load: GET /api/views?session=TOKEN -> render tabs; select location.hash
- *     (or "main").
- *   - GET /api/view/:id?session=TOKEN -> md injects server-rendered html; html
- *     sets an <iframe sandbox=""> (no allow-scripts / allow-same-origin) srcdoc.
- *   - EventSource('/api/events?session=TOKEN') + WS …/ws?session=TOKEN -> on a
- *     view_update refresh tabs + re-render the affected view.
- */
-export function renderShellHtml(token: string): string {
-  return `<!-- webui-render-shell -->
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>webui render</title>
-<style>
-  :root { color-scheme: light dark; }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.5 -apple-system, system-ui, sans-serif; }
-  header { display: flex; gap: .5rem; padding: .5rem; border-bottom: 1px solid #8884; flex-wrap: wrap; }
-  .tab { padding: .35rem .7rem; border-radius: 6px; cursor: pointer; border: 1px solid transparent; background: #8882; }
-  .tab.active { border-color: #6cf; background: #6cf3; }
-  main { padding: 1rem; max-width: 1100px; margin: 0 auto; }
-  .meta { color: #888; font-size: .8rem; margin-bottom: .5rem; }
-  #content iframe { width: 100%; min-height: 70vh; border: 1px solid #8884; border-radius: 6px; background: #fff; }
-  #content :is(pre,table) { background: #8881; padding: .5rem; border-radius: 4px; overflow:auto; }
-  #content code { font-family: ui-monospace, monospace; }
-</style>
-</head>
-<body>
-<header id="tabs"></header>
-<main>
-  <div class="meta" id="meta"></div>
-  <div id="content"></div>
-</main>
-<script>
-const TOKEN = ${JSON.stringify(token)};
-const SESSION_QS = "?session=" + encodeURIComponent(TOKEN);
-const tabsEl = document.getElementById('tabs');
-const metaEl = document.getElementById('meta');
-const contentEl = document.getElementById('content');
-let activeId = location.hash.slice(1) || 'main';
-
-function fmtTime(ms) { try { return new Date(ms).toLocaleString(); } catch { return ''; } }
-
-async function loadViews() {
-  const res = await fetch('/api/views' + SESSION_QS);
-  const views = res.ok ? await res.json() : [];
-  tabsEl.innerHTML = '';
-  for (const v of views) {
-    const el = document.createElement('div');
-    el.className = 'tab' + (v.id === activeId ? ' active' : '');
-    el.dataset.viewId = v.id;
-    el.textContent = v.title || v.id;
-    el.title = v.id + ' · updated ' + fmtTime(v.updatedAt);
-    el.onclick = () => { activeId = v.id; location.hash = v.id; renderView(v.id); };
-    tabsEl.appendChild(el);
-  }
-  if (!views.some(v => v.id === activeId)) activeId = (views[0] && views[0].id) || 'main';
-  return views;
-}
-
-async function renderView(id) {
-  const res = await fetch('/api/view/' + encodeURIComponent(id) + SESSION_QS);
-  if (!res.ok) { contentEl.innerHTML = '<p>no view</p>'; return; }
-  const v = await res.json();
-  document.querySelectorAll('.tab').forEach(function (t) {
-    t.classList.toggle('active', t.dataset.viewId === id);
-  });
-  metaEl.textContent = (v.title ? (v.title + ' · ') : '') + 'mode ' + v.mode + ' · updated ' + fmtTime(v.updatedAt);
-  if (v.mode === 'html') {
-    contentEl.innerHTML = '';
-    const f = document.createElement('iframe');
-    f.setAttribute('sandbox', ''); // D5: most restrictive — no scripts, no same-origin
-    f.srcdoc = v.content;
-    contentEl.appendChild(f);
-  } else {
-    contentEl.innerHTML = v.html || '';
-  }
-}
-
-async function refresh() { await loadViews(); await renderView(activeId); }
-
-function subscribe() {
-  const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws' + SESSION_QS;
-  const es = new EventSource('/api/events' + SESSION_QS);
-  es.onmessage = async function (e) {
-    let data; try { data = JSON.parse(e.data); } catch { return; }
-    if (data && data.viewId) { await loadViews(); if (data.viewId === activeId) await renderView(data.viewId); }
-  };
-  es.onerror = function () { es.close(); setTimeout(subscribe, 2000); };
-}
-
-(async function () { await refresh(); subscribe(); })();
-</script>
-</body>
-</html>`;
-}
-```
-
-3b. In `bun-apps/pi-agent-ext-webui/src/render-routes.ts`, change the import and the `GET /` branch. Replace the import:
-
-```ts
-import { RENDER_SHELL_HTML } from "./render-shell.js";
-```
-
-with:
-
-```ts
-import { renderShellHtml } from "./render-shell.js";
-```
-
-Change the factory signature and the `GET /` branch. Find:
-
-```ts
-export function createRenderRoutes(registry: RenderService): RenderRouteHandler {
-  return (req) => {
-    const url = new URL(req.url);
-    const { pathname } = url;
-
-    if (req.method === "GET" && pathname === "/") {
-      return new Response(RENDER_SHELL_HTML, {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
-    }
+  const server = deps.server ?? getServer();
+  const broadcaster: Broadcaster = deps.broadcaster ?? server;
 ```
 
 and replace with:
 
 ```ts
-export function createRenderRoutes(registry: RenderService, token: string): RenderRouteHandler {
-  return (req) => {
-    const url = new URL(req.url);
-    const { pathname } = url;
-
-    // GET / is the token-exempt bootstrap (WebServer.fetch skips the token check
-    // for it); serve the shell with the token server-injected (specs/07 D4) so
-    // the client can authenticate its subsequent /api/* + /ws calls.
-    if (req.method === "GET" && pathname === "/") {
-      return new Response(renderShellHtml(token), {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
-    }
+  const server = deps.server ?? getServer();
+  // ticket 07 D1: loopback wiring — token OFF (null => no check). Loopback
+  // binding + the DNS-rebinding-safe originAllowed guard is the v1 boundary;
+  // the token mechanism stays AVAILABLE but OFF (a future non-loopback deployer
+  // sets a non-null token). No shell-token injection: RENDER_SHELL_HTML is a
+  // const and no request carries ?session=.
+  server.setTokenAuth(null);
+  const broadcaster: Broadcaster = deps.broadcaster ?? server;
 ```
 
-(Leave the `/api/views`, `/api/view/:id`, `/api/events`, fall-through branches unchanged.)
+- [ ] **Step 2: Write the integration test**
 
-3c. In `bun-apps/pi-agent-ext-webui/src/webui-wiring.ts`, add `setTokenAuth` to the `WebuiServer` interface. Add the import near the top:
+In `bun-apps/pi-agent-ext-webui/tests/wiring-live-smoke.test.ts`, first add a static import of `resolvePort` next to the existing `../src/...` imports (ESM, matching the file's style — no `require`):
 
 ```ts
-import type { TokenAuth } from "./token-auth.js";
-import { createTokenAuth } from "./token-auth.js";
+import { resolvePort } from "../src/port-resolver.js";
 ```
 
-(Merge into one import line if preferred: `import { createTokenAuth, type TokenAuth } from "./token-auth.js";`.) Then in `export interface WebuiServer extends Broadcaster { … }`, add `setTokenAuth` next to `setHttpRoutes`:
+Then add three Tier-A integration cases after test G (inside `describe("wireWebui live smoke — Tier A", ...)`):
 
 ```ts
-  setHttpRoutes(handler: HttpRouteHandler | null): void;
-  /** Inject the per-session token auth (ticket 07 D2). null = pass-through. */
-  setTokenAuth(auth: TokenAuth | null): void;
-  readonly url: string;
-```
-
-3d. Construct + enable the auth in `wireWebui`. Find the render-framework block (the `const registry = new RenderService({ … });` … `pi.events.on("webui:render", …);` lines) and insert the auth between the registry construction and `server.setHttpRoutes(...)`. The block becomes:
-
-```ts
-  const registry = new RenderService({
-    urlFor: (id) => {
-      try {
-        return `${server.url}/#${id}`;
-      } catch {
-        return `#${id}`;
-      }
-    },
+  it("H) announce + port resolution compose: the announced URL is the live resolved loopback URL", async () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", {}, pi.ctx());
+    // The announced URL EQUALS server.url (T3 reads server.url after start()).
+    expect(pi.uiNotifications[0]?.message).toBe(`webui: ${server.url}`);
+    expect(pi.uiStatuses[0]?.text).toBe(server.url);
+    // server.url is the LIVE resolved URL — a real loopback address with a real
+    // (non-zero) port produced by resolvePort via getServer() (T2). Not literal 0.
+    expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/?$/);
+    expect(new URL(server.url).port).not.toBe("0");
   });
-  // --- ticket 07 auth (D1/D2/D4): one per-session token, enabled centrally on
-  // the server AND baked into the served shell so the client self-authenticates.
-  const auth = createTokenAuth();
-  server.setTokenAuth(auth);
-  server.setHttpRoutes(createRenderRoutes(registry, auth.token));
-  pi.registerTool(createRenderTool(registry));
-  pi.events.on("webui:render", createRenderEventHandler(registry));
+
+  it("I) v1 wires null token => /, /api/views, /api/events all pass WITHOUT ?session=", async () => {
+    // wireWebui calls server.setTokenAuth(null) (T4). With the token null the
+    // fetch token block is skipped, so NO request needs ?session=. Proves the
+    // loopback wiring is "off" end-to-end against a live server.
+    const { pi, server } = setup();
+    pi.emit("session_start", {}, pi.ctx());
+    const root = await fetch(`${server.url}/`);
+    expect(root.status).toBe(200);
+    const views = await fetch(`${server.url}/api/views`);
+    expect(views.status).toBe(200);
+    const events = await fetch(`${server.url}/api/events`);
+    // /api/events is an SSE stream — the origin guard + null-token skip let it
+    // through (200); we only assert it is reachable (not 403/404).
+    expect(events.status).toBe(200);
+  });
+
+  it("J) v1 wires null token => /ws upgrade succeeds WITHOUT ?session=", async () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", {}, pi.ctx());
+    const ws = await withTimeout(
+      openWs(`${server.url.replace("http", "ws")}/ws`),
+      2000,
+      "ws open timed out"
+    );
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it("K) resolvePort 3-tier is honored (WEBUI_PORT > PORT > 0) — pure, integration-recorded", () => {
+    // The pure resolver is unit-tested in port-resolver.test.ts (T2); this case
+    // records the ordering in the live integration suite. resolvePort is the
+    // function getServer() calls (T2 wiring).
+    expect(resolvePort({ WEBUI_PORT: "8080", PORT: "9000" })).toBe(8080);
+    expect(resolvePort({ PORT: "9000" })).toBe(9000);
+    expect(resolvePort({})).toBe(0);
+  });
 ```
 
-3e. Clear the auth on dispose. In the `dispose()` method, immediately after the existing `server.setHttpRoutes(null);` add:
+(Note: test K is a thin re-statement of T2's pure ordering inside the live suite; the authoritative 3-tier proof is `tests/port-resolver.test.ts`. It is included so the integration task's gate explicitly covers "port 3-tier resolves `WEBUI_PORT` > `PORT` > `0`" without depending on `process.env` mutation against the lazy singleton.)
 
-```ts
-      server.setTokenAuth(null);
-```
+- [ ] **Step 3: Run the test to verify it passes**
 
-- [ ] **Step 4: Run the affected suites to verify they pass**
+Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/wiring-live-smoke.test.ts )`
+Expected: PASS — T1+T2+T3 already landed the mechanism + port resolution + announce, and T4 wired `setTokenAuth(null)`. H asserts the announce URL equals the live `server.url` (resolved, port > 0); I+J assert the null-token pass-through (`/`, `/api/views`, `/api/events`, `/ws` all reachable WITHOUT `?session=`); K re-asserts the pure 3-tier ordering.
 
-Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/render-shell.test.ts tests/render-routes.test.ts tests/render-integration.test.ts tests/wiring-live-smoke.test.ts tests/webui-wiring.test.ts )`
-Expected: PASS — all cases green, including: `GET /` serves the shell with an injected `const TOKEN`; `/api/*` + `/ws` require `?session=<token>` (extracted from the shell) and 403 without; the announce still fires; `render()` returns the token-less base URL; the decoupling negative control still holds (no `sendUserMessage`, no chat frame on the render path).
-
-- [ ] **Step 5: Run the FULL suite (the real conformance gate — tsconfig-tests gotcha)**
+- [ ] **Step 4: Run the FULL suite (the real conformance gate — tsconfig-tests gotcha)**
 
 Run: `( cd bun-apps/pi-agent-ext-webui && bun run typecheck && bun test )`
-Expected: typecheck PASS (no output, exit 0); every test file green. Sanity spot-checks: `GET /` with no token → 200 (bootstrap exempt); `/api/views` with no token → 403; `/api/views?session=<token>` → 200; `/ws?session=<token>` → upgraded; announce `notify`/`setStatus` fire once at `session_start` with the resolved URL; `pi.execCalls === 0` (no auto-open); render/chat/mutex behavior unchanged (ticket 06 D8 still holds).
+Expected: typecheck PASS (no output, exit 0); every test file green. Sanity spot-checks: `session_start` announces once via `ctx.ui.notify` + `setStatus` with the resolved `server.url`; `server.url` is `http://127.0.0.1:<port>` (port > 0); `pi.execCalls === 0` (no auto-open); `resolvePort` 3-tier (`WEBUI_PORT` > `PORT` > `0`) green; token mechanism (`setTokenAuth`) green (null ⇒ no check; non-null ⇒ enforced); with `null` wired, `/api/*` + `/ws` + `/` pass WITHOUT `?session=`; render/chat/mutex behavior unchanged (ticket 06 D8 still holds).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add bun-apps/pi-agent-ext-webui/src/render-shell.ts bun-apps/pi-agent-ext-webui/src/render-routes.ts bun-apps/pi-agent-ext-webui/src/webui-wiring.ts bun-apps/pi-agent-ext-webui/tests/render-shell.test.ts bun-apps/pi-agent-ext-webui/tests/render-routes.test.ts bun-apps/pi-agent-ext-webui/tests/render-integration.test.ts bun-apps/pi-agent-ext-webui/tests/wiring-live-smoke.test.ts bun-apps/pi-agent-ext-webui/tests/webui-wiring.test.ts
-git commit -m "feat(webui): enable session-token auth + server-injected shell token (ticket 07 D2/D4; suite green)"
+git add bun-apps/pi-agent-ext-webui/src/webui-wiring.ts bun-apps/pi-agent-ext-webui/tests/wiring-live-smoke.test.ts
+git commit -m "feat(webui): wire setTokenAuth(null) loopback + integration (announce/port/token compose, suite green) (ticket 07 D1+D2+D3)"
 ```
 
 ---
 
 ## Notes for the implementer
 
-- **T2 does NOT wire the gate; T5 does.** This is the one refinement of the ticket's suggested decomposition (see "Decomposition note"). Enabling the token gate before the shell-token injection (T5) would 403 every live integration test that cannot yet present the per-session `randomUUID`. Keep T2 to the `WebServer` mechanism + bare-server unit tests; enable in T5.
-- **Async `fetch` is Bun-safe, including the WS upgrade.** T2 makes `WebServer.fetch` async so it can `await validateRequest`. Bun.serve keeps the request (and the `server.upgrade()` handshake) alive across the `await`; the T2 WS-upgrade cases (`?session=` → upgraded, no token → refused) and the T5 live WS tests prove the upgrade path still works. The hot path on a bare server (no `tokenAuth`) has no `await`, so existing origin-guard/stub-page tests are byte-for-byte unchanged in behavior.
-- **`GET /` is the ONE token-exempt route (D3).** It is the bootstrap that delivers the server-injected token; every other route (`/api/*`, `/api/events`, `/ws`, `/health`) requires the token. The exemption is the one-liner `!(req.method === "GET" && url.pathname === "/")` in `WebServer.fetch` — reconcile "covers render routes + /health + /ws" (the DATA routes) with "announced URL is just the base URL" (which is only true if `GET /` loads without a token).
-- **`ui` is on the session context, not the host.** `ExtensionAPI` has no `ui`; `ExtensionContext` does. T4 widens the wiring's **session-context** type (`WebuiSessionCtx`), leaving `WebuiHost` unchanged — and crucially adds **no `exec`** to the host, which is what makes "no auto-open" structurally enforced (the wiring cannot call `pi.exec` through the typed host).
-- **The full `bun run typecheck && bun test` is the gate, every task.** `bun run typecheck` alone does NOT cover `tests/` (tsconfig `include` is `src/**/*.ts`). Every interface-widening task (T4, T5) updates the test fixtures (shared `MockPi` + every inline `MockPi`/ctx fake + `FakeWebServer`) **in the same task** and gates on the full suite.
-- **Render decoupling (ticket 06 D8) still holds.** The auth/port/announce additions are strictly additive to the transport/wiring surface; they do not cause `sendUserMessage`, a `mutex_blocked`/chat frame, or any render→chat coupling. The T5 decoupling negative control (mirrors ticket 06's) guards this permanently.
-- **`server.url` is read post-`start()`.** The announce and the registry `urlFor` both read `server.url` only after `server.start()` (at `session_start`); it reflects the resolved port (ephemeral or pinned). Neither reads it during `wireWebui` (the server starts on the first `session_start`, after `wireWebui` returns).
+- **Auth = optional token, OFF for loopback.** `WebServer.setTokenAuth(token: string | null)` is a DI setter (mirrors `setHttpRoutes`/`setCommandHandler`); the null-safe check runs in `fetch` AFTER the origin guard and BEFORE `httpRoutes` (`?session=` GET+WS / `body.token` POST, flat `!==`, 403; `null` ⇒ skip). **v1 loopback wires `null`** (`wireWebui` → `server.setTokenAuth(null)`) — loopback binding + the DNS-rebinding-safe `originAllowed` guard is the boundary. The token channels exist in the mechanism + are exercised by UNIT TESTS only. **No shell-token injection**: `RENDER_SHELL_HTML` stays a const, `render-routes.ts` is unchanged (all GET), no `?session=` threading anywhere in the shell/routes.
+- **`fetch` becomes async.** Only the POST `body.token` path awaits (`req.clone().json()`). Bun.serve accepts `Promise<Response>`; the existing tests already `await` responses, so no behavior change. `clone()` tees the body so a future POST route (none today — render-routes is all GET) could still read it.
+- **`ui` is on the session context, not the host.** `ExtensionAPI` has no `ui`; `ExtensionContext` does. T3 widens the wiring's **session-context** type (`WebuiSessionCtx`), leaving `WebuiHost` unchanged — and crucially adds **no `exec`** to the host, which is what makes "no auto-open" structurally enforced (the wiring cannot call `pi.exec` through the typed host).
+- **The full `bun run typecheck && bun test` is the gate, every task.** `bun run typecheck` alone does NOT cover `tests/` (tsconfig `include` is `src/**/*.ts`). T1 widens `WebuiServer` → updates `FakeWebServer` in-task. T3 widens `WebuiSessionCtx` → updates the shared `MockPi` + every inline `MockPi`/ctx fake in-task. T2 and T4 do not widen a test-implemented interface, but still run the full gate.
+- **Render decoupling (ticket 06 D8) still holds.** The token/port/announce additions are strictly additive to the transport/wiring surface; they do not cause `sendUserMessage`, a `mutex_blocked`/chat frame, or any render→chat coupling. The shell + routes are untouched (`RENDER_SHELL_HTML` is a const).
+- **`server.url` is read post-`start()`.** The announce (T3) and the registry `urlFor` both read `server.url` only after `server.start()` (at `session_start`); it reflects the resolved port (ephemeral or pinned, via `resolvePort` in T2). Neither reads it during `wireWebui` (the server starts on the first `session_start`, after `wireWebui` returns).
+- **T4 is wire + test + gate.** T1 adds the mechanism; T2 wires `resolvePort()` into `getServer()`; T3 wires the announce into `session_start`. T4 adds the single `server.setTokenAuth(null)` wiring call + the cross-cutting integration assertions (token OFF ⇒ `/`+`/api/*`+`/ws` pass without `?session=`; announce URL == live resolved `server.url`; port > 0) and runs the whole-package gate. If T1/T2/T3 landed green, T4's tests pass immediately and the suite is green.

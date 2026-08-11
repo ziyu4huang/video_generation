@@ -41,6 +41,8 @@ class FakeWebServer implements WebuiServer {
   private bound = false;
   commandHandler: CommandHandler | null = null;
   httpRoutes: HttpRouteHandler | null = null;
+  /** Recorded token-auth call (ticket 07 D1); default null (loopback off). */
+  tokenAuth: string | null = null;
   /** Stub URL (urlFor is only read for the real WebServer; never hit here). */
   readonly url = "http://fake.local/";
   /** Unused in tests (a MemoryBroadcaster is injected as the broadcaster). */
@@ -64,6 +66,9 @@ class FakeWebServer implements WebuiServer {
   }
   setHttpRoutes(handler: HttpRouteHandler | null): void {
     this.httpRoutes = handler;
+  }
+  setTokenAuth(token: string | null): void {
+    this.tokenAuth = token;
   }
   stop(): void {
     this.stopCalls++;
@@ -251,6 +256,18 @@ describe("wireWebui — lifecycle", () => {
     expect(server.dropCalls).toBe(1);
     expect(server.hasSession()).toBe(false);
     expect(server.stopCalls).toBe(0); // server survives (persistent co-frontend)
+  });
+
+  test("session_start announces the resolved URL via ctx.ui (notify + setStatus)", () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", { type: "session_start", reason: "startup" });
+    // FakeWebServer.url is "http://fake.local/".
+    expect(pi.ctx.notifications).toEqual([
+      { message: "webui: http://fake.local/", type: "info" },
+    ]);
+    expect(pi.ctx.statuses).toEqual([
+      { key: "webui", text: "http://fake.local/" },
+    ]);
   });
 });
 
