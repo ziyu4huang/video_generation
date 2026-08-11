@@ -234,13 +234,14 @@ Nine files outside the deleted package:
 
 | File | Change |
 |---|---|
-| `scripts/verify-deploy.sh:63-87` | drop the separate cli test/build/bundle steps; add a `pi-agent cli version` smoke |
+| `scripts/verify-deploy.sh:63-87` | drop the separate cli test/build/bundle steps; add a `pi-agent cli version` smoke. **Also fixes a pre-existing bug**: step 3a runs `bun-apps/pi-agent/scripts/build.ts`, which does not exist (pi-agent has only `deploy.ts`) — the script is already broken at that line today |
 | `scripts/iter4-measure.mjs:90` | `--cwd` + `cli` prefix |
 | `scripts/live-zk-ask-measure.mjs:44` | `CLI_DIR` |
 | `bun-apps/pi-agent/run-dir/workflows/verify-bun-pi-agent-cli.js:29` | `cliPkg` default |
 | `bun-apps/pi-agent/run-test.sh:227` | pkg list |
 | `bun-apps/pi-agent-ext-devops/src/schema-cost-check.ts:80,134` | CLI path + `cli` token |
-| `bun-apps/pi-agent-ext-workflow/tests/workflow-pack.test.ts:641` | `row.source` assertion → `bun-apps/pi-agent/workflows` |
+| `bun-apps/pi-agent-ext-workflow/tests/workflow-pack.test.ts:529` | `CLI_WORKFLOWS` — a **real** path to the `echo` / `args-demo` / `sample` example packs; breaks hard |
+| `bun-apps/pi-agent-ext-workflow/tests/workflow-pack.test.ts:635,641` | a tmpdir-synthesized `bun-apps/pi-agent-cli/workflows` + its `row.source` assertion; cosmetic, rename both together |
 | `bun-apps/tests/dep-guard.test.ts:146` | rule 5's host name → `pi-agent` |
 | `docs/benchmarks/verify-bun-pi-agent-cli/compare.ts` | invocation path |
 
@@ -273,10 +274,15 @@ Changes required inside the moved tests:
 
 - e2e helpers (`__tests__/e2e/_helpers.ts`) spawn `pi-agent/src/cli.ts` with a
   `cli` prefix.
-- `boot-smoke.baseline.json` must be **regenerated**: the boot path now includes
-  root `cli.ts`, so the module-count baseline legitimately shifts. The PR must
-  state this as an expected change, not treat it as a regression.
-- `schema-cost.test.ts`'s `__dirname`-relative repo-root walk gains one level.
+- `boot-smoke.baseline.json` does **not** change. It records tool-graph facts
+  (`toolCountFloor: 50`, `sourceMinimum`, `expectedErrorSources`,
+  `expectedContractFailures`), and those come from
+  `discoverExtensionEntries()`, which derives its list from
+  `bun-apps/pi-agent/run-dir/manifest.json` located via a `resolveRepoRoot()`
+  walk-up. Neither the manifest nor the walk-up is affected by moving the
+  source file deeper. Only the test's spawn cwd + the `cli` argv prefix change.
+- `schema-cost.test.ts`'s `resolveRepoRoot(import.meta.dir)` assertion is
+  depth-independent (it walks up until it finds `bun-apps/`) and needs no edit.
 
 New test:
 
