@@ -2,7 +2,10 @@
 
 type: task
 blocked by: —
-status: open
+status: closed
+resolved: 2026-08-11
+
+> **Spec'd + planned (session decision).** Resolved as: loopback-only + randomUUID token (?session=/body.token/WS, flat !==) + 3-tier port (avoid 8090) + announce via ctx.ui notify+setStatus (no auto-open). See ../specs/07-port-binding-auth-url.md + ../plans/07-port-binding-auth-url-plan.md.
 
 ## Question
 
