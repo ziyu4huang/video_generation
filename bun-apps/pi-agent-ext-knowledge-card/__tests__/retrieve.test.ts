@@ -577,7 +577,7 @@ describe("GraphHealthResult.coverage (additive dimension — drift guard)", () =
 				[
 					{ id: "wf:a", type: "gotcha", title: "T", detail: "d", tags: ["x"], dimension: "correctness", confidence: 0.8, status: "active", superseded_by: null },
 				],
-				{ vaultPath: v, source: "workflow-jsonl", sourceLabel: "workflow-jsonl:test", cwd: v },
+				{ vaultPath: v, source: "workflow-jsonl", sourceLabel: "workflow-jsonl:test" },
 			);
 			const h = await graphHealth({ vaultPath: v });
 			// The field EXISTS on the type (additive) but is NOT populated by graphHealth —
