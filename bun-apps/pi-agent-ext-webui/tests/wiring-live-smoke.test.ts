@@ -45,6 +45,7 @@ import {
   type RenderHostEvents,
   type WebuiUi,
 } from "../src/webui-wiring.js";
+import { resolvePort } from "../src/port-resolver.js";
 
 // --- test harness (copied shape from web-server.test.ts) --------------------
 
@@ -331,6 +332,54 @@ describe("wireWebui live smoke — Tier A", () => {
     // No auto-open: the wiring never calls pi.exec (the host interface exposes
     // no exec). The exec recorder is a belt-and-suspenders negative control.
     expect(pi.execCalls).toBe(0);
+  });
+
+  it("H) announce + port resolution compose: the announced URL is the live resolved loopback URL", async () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", {}, pi.ctx());
+    // The announced URL EQUALS server.url (T3 reads server.url after start()).
+    expect(pi.uiNotifications[0]?.message).toBe(`webui: ${server.url}`);
+    expect(pi.uiStatuses[0]?.text).toBe(server.url);
+    // server.url is the LIVE resolved URL — a real loopback address with a real
+    // (non-zero) port produced by resolvePort via getServer() (T2). Not literal 0.
+    expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/?$/);
+    expect(new URL(server.url).port).not.toBe("0");
+  });
+
+  it("I) v1 wires null token => /, /api/views, /api/events all pass WITHOUT ?session=", async () => {
+    // wireWebui calls server.setTokenAuth(null) (T4). With the token null the
+    // fetch token block is skipped, so NO request needs ?session=. Proves the
+    // loopback wiring is "off" end-to-end against a live server.
+    const { pi, server } = setup();
+    pi.emit("session_start", {}, pi.ctx());
+    const root = await fetch(`${server.url}/`);
+    expect(root.status).toBe(200);
+    const views = await fetch(`${server.url}/api/views`);
+    expect(views.status).toBe(200);
+    const events = await fetch(`${server.url}/api/events`);
+    // /api/events is an SSE stream — the origin guard + null-token skip let it
+    // through (200); we only assert it is reachable (not 403/404).
+    expect(events.status).toBe(200);
+  });
+
+  it("J) v1 wires null token => /ws upgrade succeeds WITHOUT ?session=", async () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", {}, pi.ctx());
+    const ws = await withTimeout(
+      openWs(`${server.url.replace("http", "ws")}/ws`),
+      2000,
+      "ws open timed out"
+    );
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it("K) resolvePort 3-tier is honored (WEBUI_PORT > PORT > 0) — pure, integration-recorded", () => {
+    // The pure resolver is unit-tested in port-resolver.test.ts (T2); this case
+    // records the ordering in the live integration suite. resolvePort is the
+    // function getServer() calls (T2 wiring).
+    expect(resolvePort({ WEBUI_PORT: "8080", PORT: "9000" })).toBe(8080);
+    expect(resolvePort({ PORT: "9000" })).toBe(9000);
+    expect(resolvePort({})).toBe(0);
   });
 });
 

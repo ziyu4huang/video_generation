@@ -179,6 +179,12 @@ const REAL_CLOCK: MutexClock = {
  */
 export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   const server = deps.server ?? getServer();
+  // ticket 07 D1: loopback wiring — token OFF (null => no check). Loopback
+  // binding + the DNS-rebinding-safe originAllowed guard is the v1 boundary;
+  // the token mechanism stays AVAILABLE but OFF (a future non-loopback deployer
+  // sets a non-null token). No shell-token injection: RENDER_SHELL_HTML is a
+  // const and no request carries ?session=.
+  server.setTokenAuth(null);
   const broadcaster: Broadcaster = deps.broadcaster ?? server;
   const clock = deps.clock ?? REAL_CLOCK;
   const notifier: MutexNotifier = new BroadcastingNotifier(broadcaster);
