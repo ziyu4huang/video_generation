@@ -41,6 +41,8 @@ class FakeWebServer implements WebuiServer {
   private bound = false;
   commandHandler: CommandHandler | null = null;
   httpRoutes: HttpRouteHandler | null = null;
+  /** Recorded token-auth call (ticket 07 D1); default null (loopback off). */
+  tokenAuth: string | null = null;
   /** Stub URL (urlFor is only read for the real WebServer; never hit here). */
   readonly url = "http://fake.local/";
   /** Unused in tests (a MemoryBroadcaster is injected as the broadcaster). */
@@ -64,6 +66,9 @@ class FakeWebServer implements WebuiServer {
   }
   setHttpRoutes(handler: HttpRouteHandler | null): void {
     this.httpRoutes = handler;
+  }
+  setTokenAuth(token: string | null): void {
+    this.tokenAuth = token;
   }
   stop(): void {
     this.stopCalls++;

@@ -82,6 +82,8 @@ export interface WebuiServer extends Broadcaster {
   hasSession(): boolean;
   setCommandHandler(cb: CommandHandler | null): void;
   setHttpRoutes(handler: HttpRouteHandler | null): void;
+  /** OPTIONAL token auth (ticket 07 D1); null => no check (v1 loopback). */
+  setTokenAuth(token: string | null): void;
   /**
    * The loopback URL the server is reachable on (throws "WebServer not started"
    * before start / after stop). Read lazily by the render framework's `urlFor`
