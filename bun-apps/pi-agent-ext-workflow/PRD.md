@@ -23,7 +23,7 @@ Claude Code–style dynamic workflows for Pi. The agent writes a small JavaScrip
 ## Key Dependencies
 
 - Self-contained npm package: `npm:@quintinshaw/pi-dynamic-workflows`
-- Loaded via pi-agent's run-dir manifest, or headlessly via `pi-agent-cli workflow run`
+- Loaded via pi-agent's run-dir manifest, or headlessly via `pi-agent cli workflow run`
 
 ## Architecture — thin adapter, not a parallel LLM stack
 
@@ -59,7 +59,7 @@ A **workflow pack** (a `manifest.json` + entry script folder) is the reusable,
 named form of a workflow. It is reachable through **two** entry paths that
 share a single pack resolver (`workflow-pack.ts` in this package):
 
-- **Path A — CLI**: `pi-agent-cli workflow run <name>` (headless meta-command;
+- **Path A — CLI**: `pi-agent cli workflow run <name>` (headless meta-command;
   the CLI layer is a thin wrapper — flag parsing + receipt).
 - **Path B — interactive tool**: the `workflow` tool's optional `name` parameter
   (mutually exclusive with `script`). The workflow extension is built-in in the
@@ -89,5 +89,5 @@ pi install npm:@quintinshaw/pi-dynamic-workflows
 
 Headless mode:
 ```bash
-bun bun-apps/pi-agent-cli/src/cli.ts workflow run <name> [--model <spec>]
+bun bun-apps/pi-agent/src/cli.ts cli workflow run <name> [--model <spec>]
 ```

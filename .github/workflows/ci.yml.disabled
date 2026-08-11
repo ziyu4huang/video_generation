@@ -80,7 +80,6 @@ jobs:
           # postmortem). tsc --noEmit keeps SDK-internal patches type-honest.
           - { package: pi-agent, test-cmd: "bun test && bun run typecheck" }
           # ── uniform `bun test` runner ──
-          - { package: pi-agent-cli, test-cmd: "bun test" }
           - { package: pi-agent-ext-flux2, test-cmd: "bun test" }
           - { package: pi-agent-ext-krea2, test-cmd: "bun test" }
           - { package: pi-agent-ext-ltx, test-cmd: "bun test" }

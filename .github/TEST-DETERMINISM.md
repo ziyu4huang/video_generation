@@ -71,7 +71,7 @@ are deterministic by construction and dispositioned `controlled (benign seed)`.
 | `pi-obsidian/extensions/__tests__/expectedMtime.test.mjs`, `indexCoherence.test.mjs` | `new Date(floor(now/1000)*1000 + 60_000)` → a **future** mtime SET via `utimes`, then compared to the value read back | **controlled** — deterministic relative computation (set + read the same derived future value) |
 | `pi-obsidian/extensions/__tests__/{createGuard,errorCodes}.test.mjs` | `expectedMtime: st.mtimeMs` (the file's own just-set mtime) | **controlled** — read from the fixture file, not the wall-clock |
 | `pi-obsidian/extensions/__tests__/subagentRobustness.test.mjs` | `Date.now() - t0` elapsed measurement | **controlled (benign seed)** — `dt` is computed but the assertions are on result *shape* (`output`/`stderr`/`timedOut`), not elapsed time |
-| `pi-agent-cli/src/__tests__/schema-cost.test.ts` | `join(tmpdir(), …-${Date.now()}.ts)` | **controlled (benign seed)** — uniqueness seed for a tmpdir filename |
+| `pi-agent/src/cli/__tests__/schema-cost.test.ts` | `join(tmpdir(), …-${Date.now()}.ts)` | **controlled (benign seed)** — uniqueness seed for a tmpdir filename |
 | `gui-movie-director/{scripts/gui-port,lib/gallery-index}.test.ts` | `startedAt: Date.now()` / `createdAt: new Date().toISOString()` fixture fields | **controlled (benign seed)** — record-shape fixtures, not wall-clock assertions |
 | `pi-agent/src/__tests__/e2e-image-agent.test.ts` | `statSync(p).mtimeMs >= sinceMs` (file-freshness) + `Date.now()-2000` | **controlled** — opt-in e2e (`PI_AGENT_E2E_IMAGE`); skips on CI |
 

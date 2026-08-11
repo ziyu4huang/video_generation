@@ -256,7 +256,7 @@ the zk_* subagent model, set `KC_SUBAGENT_MODEL` (or pass the tool's `model` arg
 - `@repo/pi-agent-ext-workflow` (hard peer) — the **single spawn path** since ①
   (`createAgentSession` / `spawnSubagent`) and the host-fn registry for ②'s
   deterministic `call('zk.*')`.
-- `pi-agent-cli` (reverse consumer) — hosts the `zk-extract` / `zk-card` /
+- `pi-agent` (reverse consumer) — hosts the `zk-extract` / `zk-card` /
   `zk-ask` / `zk-ingest` / `zk-query` commands and `knowledge-pipeline`.
 
 > Note: `pi-agent-ext-power-tool` is **no longer a dependency** —
@@ -279,10 +279,10 @@ Four sub-projects converging the kcard onto the `workflow` extension's runtime
 
 ```bash
 # CLI
-bun bun-apps/pi-agent-cli/src/cli.ts zk-ask "question"
-bun bun-apps/pi-agent-cli/src/cli.ts zk-ingest <file.knowledge.jsonl>
-bun bun-apps/pi-agent-cli/src/cli.ts zk-query --tags flux2,vae        # retrieve digest
-bun bun-apps/pi-agent-cli/src/cli.ts zk-query --json                  # deterministic JSON
+bun bun-apps/pi-agent/src/cli.ts cli zk-ask "question"
+bun bun-apps/pi-agent/src/cli.ts cli zk-ingest <file.knowledge.jsonl>
+bun bun-apps/pi-agent/src/cli.ts cli zk-query --tags flux2,vae        # retrieve digest
+bun bun-apps/pi-agent/src/cli.ts cli zk-query --json                  # deterministic JSON
 # Or via the extension (registers the 4 agent tools)
 pi -e bun-apps/pi-agent-ext-knowledge-card
 ```

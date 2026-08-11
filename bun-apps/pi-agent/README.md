@@ -55,7 +55,7 @@ See [docs/HISTORY.md](docs/HISTORY.md) for the full development history of all p
 | `BUN_PI_SET_PACKAGE_DIR` | `1` (on) | Pin `PI_PACKAGE_DIR` for asset/theme resolution in bundle mode |
 | `BUN_PI_SKIP_UPDATE_CHECK` | `1` (on) | Silence pi's "Update Available" banner for bundle/binary (source mode keeps it) |
 | `BUN_PI_LOAD_RUN_DIR` | `1` (on) | Splice `run-dir/`'s extensions/skills into argv as absolute `-e`/`--skill` paths |
-| `BUN_PI_DEFAULT_MODEL_ENV` | `1` (on) | Bridge `PI_MODEL` / `PI_PROVIDER` / `PI_THINKING` env into argv as `--model` / `--provider` / `--thinking` when not already passed — the real pi TUI ignores these env vars (only pi-agent-cli reads them); this makes a shell `PI_MODEL=…` default apply to the interactive TUI too |
+| `BUN_PI_DEFAULT_MODEL_ENV` | `1` (on) | Bridge `PI_MODEL` / `PI_PROVIDER` / `PI_THINKING` env into argv as `--model` / `--provider` / `--thinking` when not already passed — the real pi TUI ignores these env vars (only the `cli` subcommands read them); this makes a shell `PI_MODEL=…` default apply to the interactive TUI too |
 | `BUN_PI_EXT_CTX_GET_SYSTEM_PROMPT_OPTIONS` | `1` (on) | Monkey-patch `ExtensionRunner.createContext()` to expose `getSystemPromptOptions()` on base `ExtensionContext` |
 | `BUN_PI_EXT_API_GET_ALL_TOOL_DEFS` | `1` (on) | Monkey-patch `ExtensionRunner.bindCore()` to expose `getAllToolDefinitions(): ToolDefinition[]` on the ExtensionAPI (`pi`) object |
 | `BUN_PI_EXTRACT_EMBEDDED_ASSETS` | `1` (on) | Extract embedded assets from the `--exe` binary to cache dir (no-op in non-binary modes) |
@@ -158,9 +158,9 @@ The run-dir mechanism makes extension loading cwd-independent, but a fresh machi
 needs its env-var contract in place (`MLX_MODELS_DIR`, `MLX_OUTPUT_DIR`, `OB_VAULT_PATH`,
 …). The canonical reference + setup steps live in
 [`docs/pi-cross-machine-setup.md`](docs/pi-cross-machine-setup.md), and
-`pi-agent-cli` ships a `doctor` self-check that verifies everything is wired:
+The `cli` subcommand tree ships a `doctor` self-check that verifies everything is wired:
 ```bash
-bun bun-apps/pi-agent-cli/src/cli.ts doctor [--json] [--fix]
+bun bun-apps/pi-agent/src/cli.ts cli doctor [--json] [--fix]
 ```
 ## Build / Deploy modes
 pi-agent ships via four deploy modes, all driven by `scripts/deploy.ts`.
@@ -312,7 +312,7 @@ bun src/cli.ts doctor --fix      # source mode: "nothing to fix" (host-deps is i
 ```
 `--fix` derives a fix plan from the current report, applies it (mutating), then
 re-runs the checks — the same create-then-recheck shape as
-`pi-agent-cli doctor --fix`. The decisive pi-agent fix: when a `--snapshot`
+`pi-agent cli doctor --fix`. The decisive pi-agent fix: when a `--snapshot`
 deploy lands on a host whose `node_modules` subset didn't get installed,
 `checkHostDeps` FAILs (typebox/`@earendil-works/*` are essential there) —
 `--fix` runs `bun install` in the deploy dir to self-heal it, then re-checks (snapshot/standalone only):
@@ -401,7 +401,7 @@ pi-agent/
   "Flag semantics: `-ne` / `-ns`" above). Provider injection
   (`pre-load-providers`) works in the binary regardless.
 ## Related
-- **[pi-agent-cli](../pi-agent-cli/README.md)** — single-turn scripted workflows
+- **[`pi-agent cli`](docs/_cli-README.md)** — single-turn scripted workflows
   (`file2md`, `zk-extract`, `zk-ask`, `pipeline pdf-to-vault`) with extensions
   baked in as workspace deps. Use this when you want one-shot automation or to call
   a specific agent workflow from a script — not an interactive session.

@@ -1,7 +1,7 @@
 /**
- * CLI sub-command spec for pi-agent-cli.
+ * CLI sub-command spec for pi-agent.
  *
- * Lets `pi-agent-cli` expose the ltx extension as a top-level sub-command:
+ * Lets `pi-agent` expose the ltx extension as a top-level sub-command:
  *
  *   bun-pi-agent-cli ltx <natural-language request...>
  *   bun-pi-agent-cli --model sonnet ltx generate a 5s video of ocean waves, native-i2v
@@ -11,15 +11,15 @@
  * natural-language task and lets the agent map it onto the `ltx` tool. This
  * mirrors how `krea2` / `flux2` turn positionals into a generation request.
  *
- * This file is dependency-free of pi-agent-cli on purpose: the workspace dep
- * direction is pi-agent-cli → pi-agent-ext-ltx, so the spec is typed with a
+ * This file is dependency-free of pi-agent on purpose: the workspace dep
+ * direction is pi-agent → pi-agent-ext-ltx, so the spec is typed with a
  * local structurally-compatible interface (TS structural typing makes it
- * assignable to pi-agent-cli's `ExtensionSubcommandSpec`). See
- * `bun-apps/pi-agent-cli/src/extensions/types.ts` for the canonical shape.
+ * assignable to pi-agent's `ExtensionSubcommandSpec`). See
+ * `bun-apps/pi-agent/src/cli/extensions/types.ts` for the canonical shape.
  */
 import extension from "./ltx.ts";
 
-/** Local shape of pi-agent-cli's ExtensionSubcommandSpec (structural match). */
+/** Local shape of pi-agent's ExtensionSubcommandSpec (structural match). */
 interface ExtensionSubcommandSpec {
   name: string;
   summary: string;

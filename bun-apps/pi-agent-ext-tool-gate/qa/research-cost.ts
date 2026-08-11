@@ -6,7 +6,7 @@
 import {
 	buildSchemaCostReport,
 	resolveRepoRoot,
-} from "../../pi-agent-cli/src/commands/schema-cost.ts";
+} from "../../pi-agent/src/cli/commands/schema-cost.ts";
 import { CORPUS_EFF } from "./evaluate.ts";
 
 // TRACKED = the EFFECTIVE tracked set (core ∪ every owner-declared gate name).

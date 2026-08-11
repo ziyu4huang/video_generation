@@ -61,7 +61,7 @@ tool** (see roadmap T1).
 `classifyProfileViaVlm`, `explainPage`, `askImage`, `resolveLLM`,
 `slugify` / `layoutFor` / `loadManifest`, `withRetry`, `rasterizePdf`.
 
-Consumers today: `pi-agent-cli` (`file2md` + `pdf-to-vault` commands),
+Consumers today: `pi-agent` (`file2md` + `pdf-to-vault` commands),
 `pi-agent-ext-flux2` (`askImage` for gate verification).
 
 ## Key Dependencies
@@ -69,7 +69,7 @@ Consumers today: `pi-agent-cli` (`file2md` + `pdf-to-vault` commands),
 - LM Studio (serving a vision model at `http://localhost:1234/v1`)
 - `mupdf` (npm, Artifex — AGPL-3.0 licensed. Accepted for this internal tool; distribution gate applies if file2md is ever redistributed externally)
 - `pi-agent-ext-obsidian` (vault output)
-- `pi-agent-cli` (hosts file2md command)
+- `pi-agent` (hosts file2md command)
 
 ## Use
 
@@ -77,7 +77,7 @@ Consumers today: `pi-agent-cli` (`file2md` + `pdf-to-vault` commands),
 pi -e bun-apps/pi-agent-ext-file2md
 # Then: file2md({input: "paper.pdf"})
 # Or CLI:
-bun bun-apps/pi-agent-cli/src/cli.ts file2md paper.pdf
+bun bun-apps/pi-agent/src/cli.ts cli file2md paper.pdf
 ```
 
 ---

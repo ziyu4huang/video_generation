@@ -1,7 +1,7 @@
 /**
- * CLI sub-command spec for pi-agent-cli.
+ * CLI sub-command spec for pi-agent.
  *
- * Lets `pi-agent-cli` expose the movie-director extension as a top-level
+ * Lets `pi-agent` expose the movie-director extension as a top-level
  * sub-command:
  *
  *   bun-pi-agent-cli movie <natural-language request...>
@@ -13,15 +13,15 @@
  * under the hood, so the CLI passes the user's request as a natural-language
  * task and lets the agent drive the orchestration via the `movie` tool.
  *
- * This file is dependency-free of pi-agent-cli on purpose: the workspace dep
- * direction is pi-agent-cli → pi-agent-ext-movie-director, so the spec is typed
+ * This file is dependency-free of pi-agent on purpose: the workspace dep
+ * direction is pi-agent → pi-agent-ext-movie-director, so the spec is typed
  * with a local structurally-compatible interface (TS structural typing makes it
- * assignable to pi-agent-cli's `ExtensionSubcommandSpec`). See
- * `bun-apps/pi-agent-cli/src/extensions/types.ts` for the canonical shape.
+ * assignable to pi-agent's `ExtensionSubcommandSpec`). See
+ * `bun-apps/pi-agent/src/cli/extensions/types.ts` for the canonical shape.
  */
 import extension from "./movie-director.ts";
 
-/** Local shape of pi-agent-cli's ExtensionSubcommandSpec (structural match). */
+/** Local shape of pi-agent's ExtensionSubcommandSpec (structural match). */
 interface ExtensionSubcommandSpec {
   name: string;
   summary: string;

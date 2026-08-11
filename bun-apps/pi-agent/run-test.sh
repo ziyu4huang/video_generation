@@ -224,7 +224,7 @@ case "$EFFORT" in
 		echo "$(Y "▶ live local-LLM smoke (skips when LM Studio is down)")"
 		smoke_step
 		echo "$(Y "▶ sibling stack-health baseline")"
-		for pkg in pi-obsidian pi-knowledge-card pi-agent-cli pi-agent-ext-file2md; do
+		for pkg in pi-obsidian pi-knowledge-card pi-agent-ext-file2md; do
 			step "$pkg unit" run_pkg_unit "$pkg"
 		done
 		;;

@@ -42,7 +42,7 @@ Full Obsidian vault integration as a Pi package. 17 tools for vault CRUD, search
 - Obsidian app (optional — vault can be used without the app)
 - vault-mind service (optional — for semantic search)
 - Consumed by `pi-agent-ext-knowledge-card` (zk_* tools depend on vault access)
-- Consumed by `pi-agent-cli` (zk-* commands import the obsidian factory)
+- Consumed by `pi-agent` (zk-* commands import the obsidian factory)
 
 ## Use
 

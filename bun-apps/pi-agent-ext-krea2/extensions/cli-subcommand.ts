@@ -1,7 +1,7 @@
 /**
- * CLI sub-command spec for pi-agent-cli.
+ * CLI sub-command spec for pi-agent.
  *
- * Lets `pi-agent-cli` expose the krea2 extension as a top-level sub-command:
+ * Lets `pi-agent` expose the krea2 extension as a top-level sub-command:
  *
  *   bun-pi-agent-cli krea2 <natural-language request...>
  *   bun-pi-agent-cli --model sonnet krea2 generate a red cube on a table, t2i
@@ -10,14 +10,14 @@
  * options), so the CLI passes the user's request as a natural-language task
  * and lets the agent map it onto the `krea2` tool.
  *
- * This file is dependency-free of pi-agent-cli on purpose: the workspace dep
- * direction is pi-agent-cli → pi-agent-ext-krea2, so the spec is typed with a
+ * This file is dependency-free of pi-agent on purpose: the workspace dep
+ * direction is pi-agent → pi-agent-ext-krea2, so the spec is typed with a
  * local structurally-compatible interface (TS structural typing makes it
- * assignable to pi-agent-cli's `ExtensionSubcommandSpec`).
+ * assignable to pi-agent's `ExtensionSubcommandSpec`).
  */
 import extension from "./krea2.ts";
 
-/** Local shape of pi-agent-cli's ExtensionSubcommandSpec (structural match). */
+/** Local shape of pi-agent's ExtensionSubcommandSpec (structural match). */
 interface ExtensionSubcommandSpec {
   name: string;
   summary: string;

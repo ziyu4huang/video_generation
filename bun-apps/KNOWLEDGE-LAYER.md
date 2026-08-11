@@ -89,7 +89,7 @@ anything hermes touched.
 | `obsidian distill` (action) | Raw LLM decomposition of free-form markdown → atomic notes |
 | `zk_ingest` (tool) | Deterministic structured-records → graph sink (no LLM) |
 | `zk_ingest` `action=gate`/`converge`/`status` | distill pipeline (was the `distill` extension): gate → enrich → converge |
-| `buildDistillTask` (knowledge-card export) | **Live** builder — backs the CLI `zk-extract` subcommand (`pi-agent-cli/.../zk-extract.ts:30,139`). The `zk_extract` *tool* registration was removed in #450; the *builder* remains. Not vestigial. |
+| `buildDistillTask` (knowledge-card export) | **Live** builder — backs the CLI `zk-extract` subcommand (`pi-agent/src/cli/commands/zk-extract.ts:30,139`). The `zk_extract` *tool* registration was removed in #450; the *builder* remains. Not vestigial. |
 
 ## Known issues tracked in the review
 

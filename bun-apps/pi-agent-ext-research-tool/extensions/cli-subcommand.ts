@@ -1,7 +1,7 @@
 /**
- * CLI sub-command specs for pi-agent-cli.
+ * CLI sub-command specs for pi-agent.
  *
- * Lets `pi-agent-cli` expose the research-tool extension tools as top-level
+ * Lets `pi-agent` expose the research-tool extension tools as top-level
  * sub-commands:
  *
  *   bun-pi-agent-cli collect-videos <platform> <preset> [keywords...] [options]
@@ -16,15 +16,15 @@
  * --output-path, --hermes-dir, --vault-root, --dry-run) are parsed from the
  * CLI and translated into tool parameters by the task builder.
  *
- * This file is dependency-free of pi-agent-cli on purpose: the workspace dep
- * direction is pi-agent-cli → pi-agent-ext-research-tool, so the spec is typed
+ * This file is dependency-free of pi-agent on purpose: the workspace dep
+ * direction is pi-agent → pi-agent-ext-research-tool, so the spec is typed
  * with a local structurally-compatible interface (TS structural typing makes it
- * assignable to pi-agent-cli's `ExtensionSubcommandSpec`). See
- * `bun-apps/pi-agent-cli/src/extensions/types.ts` for the canonical shape.
+ * assignable to pi-agent's `ExtensionSubcommandSpec`). See
+ * `bun-apps/pi-agent/src/cli/extensions/types.ts` for the canonical shape.
  */
 import extension from "./research-tool.ts";
 
-/** Local shape of pi-agent-cli's ExtensionSubcommandSpec (structural match). */
+/** Local shape of pi-agent's ExtensionSubcommandSpec (structural match). */
 interface ExtensionSubcommandSpec {
   name: string;
   summary: string;

@@ -9,7 +9,7 @@ import { withFakeHome } from "./helpers/fake-home.js";
 
 /**
  * logger — run-log persistence + the `runsDir` override that lets a headless
- * caller (pi-agent-cli) redirect output to PWD/.pi or any folder.
+ * caller (the pi-agent CLI) redirect output to PWD/.pi or any folder.
  */
 describe("workflow logger", () => {
   it("writes the run log into the overridden runsDir (absolute)", () => {

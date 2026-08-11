@@ -18,14 +18,14 @@
  * (merged into pi-agent-ext-core-task 2026-07-18 — no shared code, relocated
  * as the first step of the core-task pi-ext consolidation).
  *
- * This file is dependency-free of pi-agent-cli on purpose: the workspace dep
- * direction is pi-agent-cli → pi-agent-ext-power-tool, so the spec is typed
+ * This file is dependency-free of pi-agent on purpose: the workspace dep
+ * direction is pi-agent → pi-agent-ext-power-tool, so the spec is typed
  * with a local structurally-compatible interface. See
- * `bun-apps/pi-agent-cli/src/extensions/types.ts` for the canonical shape.
+ * `bun-apps/pi-agent/src/cli/extensions/types.ts` for the canonical shape.
  */
 import extension from "../src/index.ts";
 
-/** Local shape of pi-agent-cli's ExtensionSubcommandSpec (structural match). */
+/** Local shape of pi-agent's ExtensionSubcommandSpec (structural match). */
 interface ExtensionSubcommandSpec {
   name: string;
   summary: string;

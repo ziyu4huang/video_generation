@@ -1,7 +1,7 @@
 /**
- * CLI sub-command spec for pi-agent-cli.
+ * CLI sub-command spec for pi-agent.
  *
- * Lets `pi-agent-cli` expose the web-access extension as a top-level
+ * Lets `pi-agent` expose the web-access extension as a top-level
  * sub-command:
  *
  *   bun-pi-agent-cli research <natural-language query...>
@@ -13,15 +13,15 @@
  * save a synthesized digest into the vault via obsidian_create — turning a web
  * search into durable knowledge.
  *
- * This file is dependency-free of pi-agent-cli on purpose: the workspace dep
- * direction is pi-agent-cli → pi-agent-ext-web-access, so the spec is typed
+ * This file is dependency-free of pi-agent on purpose: the workspace dep
+ * direction is pi-agent → pi-agent-ext-web-access, so the spec is typed
  * with a local structurally-compatible interface (TS structural typing makes it
- * assignable to pi-agent-cli's `ExtensionSubcommandSpec`). See
- * `bun-apps/pi-agent-cli/src/extensions/types.ts` for the canonical shape.
+ * assignable to pi-agent's `ExtensionSubcommandSpec`). See
+ * `bun-apps/pi-agent/src/cli/extensions/types.ts` for the canonical shape.
  */
 import extension from "../index.ts";
 
-/** Local shape of pi-agent-cli's ExtensionSubcommandSpec (structural match). */
+/** Local shape of pi-agent's ExtensionSubcommandSpec (structural match). */
 interface ExtensionSubcommandSpec {
   name: string;
   summary: string;
@@ -39,7 +39,7 @@ interface ExtensionSubcommandSpec {
  * (obsidian_create, obsidian_search, …) into one tool with an `action` param.
  * Listing the old names here made `--tools`'s fail-fast validator reject this
  * subcommand's own default allowlist on every invocation (see
- * validateToolNames in pi-agent-cli/src/sessions/shared.ts).
+ * validateToolNames in pi-agent/src/cli/sessions/shared.ts).
  */
 const RESEARCH_TOOLS = ["web_search", "fetch_content", "get_search_content", "obsidian"];
 

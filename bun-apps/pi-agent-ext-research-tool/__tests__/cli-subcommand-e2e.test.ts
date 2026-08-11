@@ -10,7 +10,7 @@
  *      all flag permutations) are handled without error.
  *
  * These are NOT agent-session e2e tests (the CLI session pipeline requires an
- * LLM provider and is covered by pi-agent-cli's own integration tests). They
+ * LLM provider and is covered by pi-agent's own integration tests). They
  * validate the task-builder logic that CLI flags → agent prompt translation.
  */
 import { test, expect, describe } from "bun:test";

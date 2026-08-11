@@ -43,7 +43,7 @@ edit/compose not).
 
 ## Standalone CLI
 
-A self-contained CLI mirrors `pi-agent-cli`'s shape, exposing the 18
+A self-contained CLI mirrors `pi-agent`'s shape, exposing the 18
 orchestration commands as **deterministic, no-LLM** top-level commands (each a
 direct call to the same `dispatch()` the `movie` agent tool calls), plus an
 `agent` command for natural-language runs. This makes orchestration workflows

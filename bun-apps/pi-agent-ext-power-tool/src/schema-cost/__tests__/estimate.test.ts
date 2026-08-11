@@ -10,10 +10,10 @@ import {
 } from "../index.ts";
 import type { ToolDefinitionLike } from "../index.ts";
 
-// ─── Golden fixture: the same tool set the pi-agent-cli schema-cost command ranks
+// ─── Golden fixture: the same tool set the pi-agent schema-cost command ranks
 // These mirror real tool shapes (a builtin + two extensions). The parity
 // contract: estimateToolCost + analyzeTools produce IDENTICAL numbers to the
-// pi-agent-cli heuristic, byte-for-byte, on this fixture.
+// pi-agent heuristic, byte-for-byte, on this fixture.
 const GOLDEN: { def: ToolDefinitionLike; source: string }[] = [
 	{
 		def: { name: "read", description: "Read the contents of a file.", parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } },
@@ -138,7 +138,7 @@ describe("formatReport / formatJson — output parity", () => {
 	});
 });
 
-describe("PARITY CONTRACT — submodule matches pi-agent-cli schema-cost logic", () => {
+describe("PARITY CONTRACT — submodule matches pi-agent schema-cost logic", () => {
 	// The decisive test: the submodule's estimateToolCost MUST produce the same
 	// approxTokens as the CLI heuristic `Math.round((desc.length + paramsLen) / 4)`
 	// on the golden fixture. This is what makes CLI delegation safe.

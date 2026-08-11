@@ -1,5 +1,5 @@
 /**
- * Report formatting — pure, no deps. Mirrors the pi-agent-cli `schema-cost`
+ * Report formatting — pure, no deps. Mirrors the pi-agent `schema-cost`
  * command output so delegation is byte-for-byte.
  */
 import type { SchemaCostReport } from "./types.ts";

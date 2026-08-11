@@ -26,7 +26,7 @@ if (typeof _args === 'string') {
 const A = _args ?? {}
 const CFG = {
   repoRoot: A.repoRoot ?? '',            // '' => resolve agent detects via `git rev-parse --show-toplevel`
-  cliPkg: A.cliPkg ?? 'bun-apps/pi-agent-cli',
+  cliPkg: A.cliPkg ?? 'bun-apps/pi-agent',
   fixtureName: A.fixtureName ?? '2025.emnlp-main.893.pdf',
   runRoot: A.runRoot ?? '',              // '' => <repoRoot>/tmp (gitignored; resolved in Resolve)
   distillModel: A.distillModel ?? 'zai/glm-5.2',
@@ -128,7 +128,7 @@ Inputs:
 
 Do this via Bash (absolute paths only; do NOT rely on cwd):
 1. repoRoot = canonical absolute repo root (realpath of the candidate, or \`git rev-parse --show-toplevel\`). Confirm \`${CFG.cliPkg}/src/cli.ts\` exists under it.
-2. Derive: cliDir=<repoRoot>/${CFG.cliPkg}; bundleDir=<repoRoot>/dist/$(basename "${CFG.cliPkg}"); bundlePath=<bundleDir>/cli.js; sourcemapPath=<bundlePath>.map; fixtureDir=<repoRoot>/fixture; fixturePdfPath=<fixtureDir>/${CFG.fixtureName}.
+2. Derive: cliDir=<repoRoot>/${CFG.cliPkg}; bundleDir=<repoRoot>/dist/$(basename "${CFG.cliPkg}"); bundlePath=<bundleDir>/pi-agent.js; sourcemapPath=<bundlePath>.map; fixtureDir=<repoRoot>/fixture; fixturePdfPath=<fixtureDir>/${CFG.fixtureName}.
 3. fixtureReady = test -f <fixturePdfPath>.
 4. Create a FRESH runDir keyed by the distill slug + timestamp. First: \`ts=$(date +%Y%m%d-%H%M%S); date=$(date -u +%F)\`. runParent = ${CFG.runRoot ? `the given runRoot "${CFG.runRoot}" (absolute)` : '<repoRoot>/tmp (mkdir -p it first)'}. Then: \`runDir="$runParent/${DISTILL_SLUG}-$ts"; mkdir -p "$runDir"; realpath "$runDir"\`. runDir = that realpath. Capture ts and date for the return.
 5. lmStudioUp: \`curl -s -m 4 http://localhost:1234/v1/models\`; parse model ids into lmStudioModels; lmStudioUp = request succeeded and includes >=1 model.
@@ -154,11 +154,11 @@ phase('Build')
 const buildPrompt = `You are the BUILD phase. Build the single self-contained bundle WITH an external source map (debug-friendly), then verify artifacts.
 
 Do:
-- \`cd "${RESOLVED.cliDir}" && bun scripts/build.ts\`  (default tier = bundle + minify + external sourcemap)
+- \`cd "${RESOLVED.cliDir}" && bun scripts/deploy.ts --no-freeze\`  (default tier = bundle + minify + external sourcemap)
 - Confirm both exist: \`test -f "${RESOLVED.bundlePath}"\` and \`test -f "${RESOLVED.sourcemapPath}"\`.
-- bundleSizeKB = size of cli.js in KB (rounded). sourcemapPresent = the .map exists.
+- bundleSizeKB = size of pi-agent.js in KB (rounded). sourcemapPresent = the .map exists.
 
-Return StructuredOutput EXACTLY: ok (build succeeded AND cli.js exists AND sourcemap present), bundlePath, sourcemapPath, bundleSizeKB, sourcemapPresent, logTail (last ~8 non-empty lines of build output). If build fails, ok=false and put the error in logTail.`
+Return StructuredOutput EXACTLY: ok (build succeeded AND pi-agent.js exists AND sourcemap present), bundlePath, sourcemapPath, bundleSizeKB, sourcemapPresent, logTail (last ~8 non-empty lines of build output). If build fails, ok=false and put the error in logTail.`
 const BUILD = await agent(buildPrompt, { schema: BUILD_SCHEMA, phase: 'Build', label: 'build-bundle' })
 if (!BUILD) return { aborted: 'build agent returned nothing', RESOLVED }
 log(`Build: ok=${BUILD.ok} sourcemap=${BUILD.sourcemapPresent} size=${BUILD.bundleSizeKB}KB`)
@@ -171,11 +171,11 @@ const smokeTasks = []
 smokeTasks.push(() => agent(`You are a SMOKE check ("offline-meta"). Run the BUILT bundle (NOT src) and verify meta commands. All paths absolute; do not depend on cwd.
 
 Run and verify each prints sensible content:
-1. \`bun "${B}" version\` -> prints "bun-pi-agent-cli 0.1.0"
-2. \`bun "${B}" help\` -> lists file2md, zk-extract, pipeline pdf-to-vault
-3. \`bun "${B}" help file2md\` -> shows usage + flags (--dpi, --type, --pages, --model)
-4. \`bun "${B}" help pipeline pdf-to-vault\` -> shows --vlm-model, --model, --retries, --force-distill
-5. \`bun "${B}" list\` -> lists models (Total: N)
+1. \`bun "${B}" cli version\` -> prints "bun-pi-agent-cli 0.1.0"
+2. \`bun "${B}" cli help\` -> lists file2md, zk-extract, pipeline pdf-to-vault
+3. \`bun "${B}" cli help file2md\` -> shows usage + flags (--dpi, --type, --pages, --model)
+4. \`bun "${B}" cli help pipeline pdf-to-vault\` -> shows --vlm-model, --model, --retries, --force-distill
+5. \`bun "${B}" cli list\` -> lists models (Total: N)
 
 Return StructuredOutput EXACTLY: name="offline-meta", ok (all 5 pass), summary (1 line), evidence (concise: the version line + Total count + any failure).`, { schema: SMOKE_SCHEMA, phase: 'Smoke', label: 'smoke:offline-meta' }))
 if (RESOLVED.credsPresent) {
@@ -192,7 +192,7 @@ if (RESOLVED.credsPresent) {
 
 Setup + run (all absolute paths; create the input file yourself):
 - Write a short markdown file to: ${RESOLVED.runDir}/smoke/input.md  (a few paragraphs on one topic, e.g. "Spaced repetition").
-- Run: \`bun "${B}" zk-extract ${RESOLVED.runDir}/smoke/input.md --vault ${RESOLVED.runDir}/smoke/vault --folder Zettelkasten --max-notes 3 --model "${RESOLVED.distillModel}"\`
+- Run: \`bun "${B}" cli zk-extract ${RESOLVED.runDir}/smoke/input.md --vault ${RESOLVED.runDir}/smoke/vault --folder Zettelkasten --max-notes 3 --model "${RESOLVED.distillModel}"\`
 - Verify: >=1 .md note under ${RESOLVED.runDir}/smoke/vault/Zettelkasten/ has frontmatter (--- ... ---) AND >=1 [[wiki-link]] somewhere in the vault.
 
 ok = notes written with frontmatter AND the model line in stdout reports the CONFIGURED distill model ("${RESOLVED.distillModel}"), NOT the CLI default. Allow ~90s.
@@ -217,15 +217,15 @@ if (!RESOLVED.credsPresent) {
 // Fast error-path attacks run regardless (they reject before any LLM call).
 const knowErrTasks = [
   () => agent(`You are a KNOWLEDGE robustness check ("knowledge-unknown-sub"). Verify an UNKNOWN subcommand is rejected gracefully BEFORE any LLM call.
-Run: \`bun "${B}" zk-card boguscmd --vault "${RESOLVED.runDir}/k-err" 2>&1; echo "EXIT=$?"\`
+Run: \`bun "${B}" cli zk-card boguscmd --vault "${RESOLVED.runDir}/k-err" 2>&1; echo "EXIT=$?"\`
 ok = EXIT != 0 AND output mentions "Unknown zk-card subcommand" AND NO stack-trace line (no line matching /^\\s+at /).
 Return StructuredOutput EXACTLY: name="knowledge-unknown-sub", ok, summary, evidence (the error line + exit code).`, { schema: KNOW_SCHEMA, phase: 'Knowledge', label: 'knowledge:unknown-sub' }),
   () => agent(`You are a KNOWLEDGE robustness check ("knowledge-add-nocontent"). Verify \`zk-card add\` with NO content (and no --file) fails gracefully BEFORE any LLM call.
-Run: \`bun "${B}" zk-card add --vault "${RESOLVED.runDir}/k-err" --folder Zettelkasten 2>&1; echo "EXIT=$?"\`
+Run: \`bun "${B}" cli zk-card add --vault "${RESOLVED.runDir}/k-err" --folder Zettelkasten 2>&1; echo "EXIT=$?"\`
 ok = EXIT != 0 AND output mentions "Usage: zk-card add" AND no stack trace.
 Return StructuredOutput EXACTLY: name="knowledge-add-nocontent", ok, summary, evidence.`, { schema: KNOW_SCHEMA, phase: 'Knowledge', label: 'knowledge:add-nocontent' }),
   () => agent(`You are a KNOWLEDGE robustness check ("knowledge-find-noquery"). Verify \`zk-card find\` with NO query fails gracefully BEFORE any LLM call.
-Run: \`bun "${B}" zk-card find --vault "${RESOLVED.runDir}/k-err" 2>&1; echo "EXIT=$?"\`
+Run: \`bun "${B}" cli zk-card find --vault "${RESOLVED.runDir}/k-err" 2>&1; echo "EXIT=$?"\`
 ok = EXIT != 0 AND output mentions "Usage: zk-card find" AND no stack trace.
 Return StructuredOutput EXACTLY: name="knowledge-find-noquery", ok, summary, evidence.`, { schema: KNOW_SCHEMA, phase: 'Knowledge', label: 'knowledge:find-noquery' }),
 ]
@@ -242,29 +242,29 @@ if (RESOLVED.credsPresent) {
   const lifecycle = []
   lifecycle.push(await kn(`You are a KNOWLEDGE-CRUD check ("knowledge:add"). Verify \`zk-card add\` creates an atomic Zettelkasten note via a live agent.
 1. Setup: \`mkdir -p "${KV}" "${KV}/Zettelkasten"\`.
-2. Run (allow ~90s): \`bun "${B}" zk-card add "The ZK-CRUD-0001 principle: atomic notes should be linked bidirectionally to form a knowledge graph." --vault "${KV}" --folder Zettelkasten --model "${MD}" 2>&1; echo "EXIT=$?"\`
+2. Run (allow ~90s): \`bun "${B}" cli zk-card add "The ZK-CRUD-0001 principle: atomic notes should be linked bidirectionally to form a knowledge graph." --vault "${KV}" --folder Zettelkasten --model "${MD}" 2>&1; echo "EXIT=$?"\`
 3. Verify the vault: glob \`${KV}/Zettelkasten/*.md\` — a new note must exist, AND its body must contain "ZK-CRUD-0001".
 ok = a note was created under ${KV}/Zettelkasten/ AND its body contains "ZK-CRUD-0001".
 Return StructuredOutput EXACTLY: name="knowledge:add", ok, summary, evidence (the created note path + grep result for ZK-CRUD-0001).`, 'knowledge:add'))
   lifecycle.push(await kn(`You are a KNOWLEDGE-CRUD check ("knowledge:find"). Verify \`zk-card find\` locates the note added in the prior step.
 A note about "ZK-CRUD-0001 / atomic notes / knowledge graph" now exists under ${KV}/Zettelkasten/.
-Run (allow ~90s): \`bun "${B}" zk-card find "knowledge graph" --vault "${KV}" --no-context --limit 5 --model "${MD}" 2>&1; echo "EXIT=$?"\`
+Run (allow ~90s): \`bun "${B}" cli zk-card find "knowledge graph" --vault "${KV}" --no-context --limit 5 --model "${MD}" 2>&1; echo "EXIT=$?"\`
 ok = EXIT == 0 AND the assistant output mentions the created note (by its title or a Zettelkasten/...md path).
 Return StructuredOutput EXACTLY: name="knowledge:find", ok, summary, evidence (the matching line from the find output).`, 'knowledge:find'))
   lifecycle.push(await kn(`You are a KNOWLEDGE-CRUD check ("knowledge:update"). Verify \`zk-card update\` smart-merges new content (no overwrite).
 1. Discover the note: \`NOTE=$(ls "${KV}"/Zettelkasten/*.md | head -1)\`.
-2. Run (allow ~90s): \`bun "${B}" zk-card update "Zettelkasten/$(basename "$NOTE")" "Per ZK-CRUD-0002, emergent structure arises from link density." --vault "${KV}" --model "${MD}" 2>&1; echo "EXIT=$?"\`
+2. Run (allow ~90s): \`bun "${B}" cli zk-card update "Zettelkasten/$(basename "$NOTE")" "Per ZK-CRUD-0002, emergent structure arises from link density." --vault "${KV}" --model "${MD}" 2>&1; echo "EXIT=$?"\`
 3. Verify: \`grep -c "ZK-CRUD-0002" "$NOTE"\` must be >=1 (new content merged) AND \`grep -c "ZK-CRUD-0001" "$NOTE"\` must be >=1 (original NOT overwritten).
 ok = the note now contains BOTH "ZK-CRUD-0002" (merged) AND "ZK-CRUD-0001" (preserved).
 Return StructuredOutput EXACTLY: name="knowledge:update", ok, summary, evidence (grep counts for both tokens).`, 'knowledge:update'))
   lifecycle.push(await kn(`You are a KNOWLEDGE-CRUD check ("knowledge:check"). Verify \`zk-card check\` produces a vault-health audit without crashing.
 The vault at ${KV} currently has 1 note under Zettelkasten/.
-Run (allow ~120s): \`bun "${B}" zk-card check --vault "${KV}" --model "${MD}" 2>&1; echo "EXIT=$?"\`
+Run (allow ~120s): \`bun "${B}" cli zk-card check --vault "${KV}" --model "${MD}" 2>&1; echo "EXIT=$?"\`
 ok = EXIT == 0 AND the assistant output is a non-empty audit (mentions at least one of: 健全/健康/重複/孤立/連結/duplicate/orphan/dead link/health) AND no stack trace. An "all healthy / no issues" verdict also counts.
 Return StructuredOutput EXACTLY: name="knowledge:check", ok, summary, evidence (one line from the audit report).`, 'knowledge:check'))
   lifecycle.push(await kn(`You are a KNOWLEDGE-CRUD check ("knowledge:remove"). Verify \`zk-card remove\` safely deletes the note (backlink check + delete).
 1. Discover the note: \`NOTE=$(ls "${KV}"/Zettelkasten/*.md | head -1)\`.
-2. Run (allow ~90s): \`bun "${B}" zk-card remove "Zettelkasten/$(basename "$NOTE")" --vault "${KV}" --model "${MD}" 2>&1; echo "EXIT=$?"\`
+2. Run (allow ~90s): \`bun "${B}" cli zk-card remove "Zettelkasten/$(basename "$NOTE")" --vault "${KV}" --model "${MD}" 2>&1; echo "EXIT=$?"\`
 3. Verify: \`test -f "$NOTE" && echo EXISTS || echo GONE\`.
 ok = the note file is GONE AND EXIT == 0 AND no stack trace (the note has no inbound links, so the safe-delete protocol should proceed).
 Return StructuredOutput EXACTLY: name="knowledge:remove", ok, summary, evidence (the GONE/EXISTS result + the backlink-check line from the output).`, 'knowledge:remove'))
@@ -279,32 +279,32 @@ const robustTasks = [
   () => agent(`You are a ROBUSTNESS ("attack") check ("bad-input-missing"). Verify the CLI FAILS GRACEFULLY on a missing input — non-zero exit, a clean human message, and NO uncaught-exception stack trace (no lines starting with "    at ").
 
 Run via the BUILT bundle:
-\`bun "${B}" file2md "${RESOLVED.runDir}/does-not-exist.pdf" --out "${RESOLVED.runDir}/robust/missing" 2>&1; echo "EXIT=$?"\`
+\`bun "${B}" cli file2md "${RESOLVED.runDir}/does-not-exist.pdf" --out "${RESOLVED.runDir}/robust/missing" 2>&1; echo "EXIT=$?"\`
 graceful = exit != 0 AND output mentions "not found"/"Input not found" AND output has NO stack-trace line (no line matching /^\\s+at /).
 Return StructuredOutput EXACTLY: name="bad-input-missing", graceful (bool), summary, evidence (the error line + exit code + stack-trace? yes/no).`, { schema: ROBUST_SCHEMA, phase: 'Robust', label: 'robust:bad-input-missing' }),
   () => agent(`You are a ROBUSTNESS check ("bad-input-wrongtype"). Verify graceful failure on an unsupported file type.
 Create a plain text file: \`printf 'hello' > "${RESOLVED.runDir}/robust/notpdf.txt"\`
-Run: \`bun "${B}" file2md "${RESOLVED.runDir}/robust/notpdf.txt" --out "${RESOLVED.runDir}/robust/wt" 2>&1; echo "EXIT=$?"\`
+Run: \`bun "${B}" cli file2md "${RESOLVED.runDir}/robust/notpdf.txt" --out "${RESOLVED.runDir}/robust/wt" 2>&1; echo "EXIT=$?"\`
 graceful = exit != 0 AND mentions "Unsupported input" AND no stack trace.
 Return StructuredOutput EXACTLY: name="bad-input-wrongtype", graceful, summary, evidence.`, { schema: ROBUST_SCHEMA, phase: 'Robust', label: 'robust:bad-input-wrongtype' }),
   () => agent(`You are a ROBUSTNESS check ("page-spec-invalid"). Verify an invalid --pages spec is REJECTED (not silently skipped, which would produce zero pages).
 Make a tiny 1-page PNG via Bun (base64-encoded 1x1 white PNG): \`bun -e "Bun.write('${RESOLVED.runDir}/robust/tiny.png',Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==','base64'))"\`
-Run with a FORCED profile (skips the classifier VLM call): \`bun "${B}" file2md "${RESOLVED.runDir}/robust/tiny.png" --type image --out "${RESOLVED.runDir}/robust/pagespec" --pages abc 2>&1; echo "EXIT=$?"\`
+Run with a FORCED profile (skips the classifier VLM call): \`bun "${B}" cli file2md "${RESOLVED.runDir}/robust/tiny.png" --type image --out "${RESOLVED.runDir}/robust/pagespec" --pages abc 2>&1; echo "EXIT=$?"\`
 Then repeat with \`--pages 5-2\` (reversed range).
 graceful = BOTH exit != 0 AND mention "matched no pages" AND no stack trace.
 Return StructuredOutput EXACTLY: name="page-spec-invalid", graceful, summary, evidence (both specs).`, { schema: ROBUST_SCHEMA, phase: 'Robust', label: 'robust:page-spec-invalid' }),
   () => agent(`You are a ROBUSTNESS check ("bad-type-flag"). Verify an invalid --type profile is rejected FAST (before rasterizing).
-Run: \`bun "${B}" file2md "${RESOLVED.fixturePdfPath}" --type notaprofile --out "${RESOLVED.runDir}/robust/badtype" 2>&1; echo "EXIT=$?"\`
+Run: \`bun "${B}" cli file2md "${RESOLVED.fixturePdfPath}" --type notaprofile --out "${RESOLVED.runDir}/robust/badtype" 2>&1; echo "EXIT=$?"\`
 graceful = exit != 0 AND mentions "Invalid --type" AND no stack trace.
 Return StructuredOutput EXACTLY: name="bad-type-flag", graceful, summary, evidence.`, { schema: ROBUST_SCHEMA, phase: 'Robust', label: 'robust:bad-type-flag' }),
   () => agent(`You are a ROBUSTNESS check ("unknown-pipeline"). Verify unknown/missing pipeline names are rejected.
 Run both:
-\`bun "${B}" pipeline bogus-name 2>&1; echo "EXIT=$?"\`  (expect "Unknown pipeline" + "Available:" + exit 1)
-\`bun "${B}" pipeline 2>&1; echo "EXIT=$?"\`  (no name; expect a usage error + exit 1)
+\`bun "${B}" cli pipeline bogus-name 2>&1; echo "EXIT=$?"\`  (expect "Unknown pipeline" + "Available:" + exit 1)
+\`bun "${B}" cli pipeline 2>&1; echo "EXIT=$?"\`  (no name; expect a usage error + exit 1)
 graceful = both exit != 0 AND print a clear unknown/usage message AND no stack trace.
 Return StructuredOutput EXACTLY: name="unknown-pipeline", graceful, summary, evidence (both).`, { schema: ROBUST_SCHEMA, phase: 'Robust', label: 'robust:unknown-pipeline' }),
   () => agent(`You are a ROBUSTNESS check ("distill-missing"). Verify graceful failure on a missing distill input.
-Run: \`bun "${B}" zk-extract "${RESOLVED.runDir}/no-such.md" --vault "${RESOLVED.runDir}/robust/dv" 2>&1; echo "EXIT=$?"\`
+Run: \`bun "${B}" cli zk-extract "${RESOLVED.runDir}/no-such.md" --vault "${RESOLVED.runDir}/robust/dv" 2>&1; echo "EXIT=$?"\`
 graceful = exit != 0 AND mentions "not found"/"Input not found"/"No input" AND no stack trace.
 Return StructuredOutput EXACTLY: name="distill-missing", graceful, summary, evidence.`, { schema: ROBUST_SCHEMA, phase: 'Robust', label: 'robust:distill-missing' }),
   () => agent(`You are a ROBUSTNESS check ("slug-traversal-safety"). Verify the output slug can NEVER escape the output dir via path traversal in a filename.
@@ -320,21 +320,21 @@ Return StructuredOutput EXACTLY: name="slug-traversal-safety", graceful, summary
   () => agent(`You are a ROBUSTNESS check ("dpi-invalid"). Verify an invalid --dpi value is REJECTED up front (a bad DPI used to silently fall back to 150 or produce a broken render with an opaque per-page error and a misleading exit 0).
 
 Run each via the BUILT bundle and capture exit + first error line:
-1. \`bun "${B}" file2md "${RESOLVED.fixturePdfPath}" --dpi abc --pages 1 --out "${RESOLVED.runDir}/robust/dpi-abc" 2>&1; echo "EXIT=$?"\`
-2. \`bun "${B}" file2md "${RESOLVED.fixturePdfPath}" --dpi -1 --pages 1 --out "${RESOLVED.runDir}/robust/dpi-neg" 2>&1; echo "EXIT=$?"\`
-3. \`bun "${B}" file2md "${RESOLVED.fixturePdfPath}" --dpi 0 --pages 1 --out "${RESOLVED.runDir}/robust/dpi-zero" 2>&1; echo "EXIT=$?"\`
-4. \`bun "${B}" file2md "${RESOLVED.fixturePdfPath}" --dpi 99999 --pages 1 --out "${RESOLVED.runDir}/robust/dpi-huge" 2>&1; echo "EXIT=$?"\`
+1. \`bun "${B}" cli file2md "${RESOLVED.fixturePdfPath}" --dpi abc --pages 1 --out "${RESOLVED.runDir}/robust/dpi-abc" 2>&1; echo "EXIT=$?"\`
+2. \`bun "${B}" cli file2md "${RESOLVED.fixturePdfPath}" --dpi -1 --pages 1 --out "${RESOLVED.runDir}/robust/dpi-neg" 2>&1; echo "EXIT=$?"\`
+3. \`bun "${B}" cli file2md "${RESOLVED.fixturePdfPath}" --dpi 0 --pages 1 --out "${RESOLVED.runDir}/robust/dpi-zero" 2>&1; echo "EXIT=$?"\`
+4. \`bun "${B}" cli file2md "${RESOLVED.fixturePdfPath}" --dpi 99999 --pages 1 --out "${RESOLVED.runDir}/robust/dpi-huge" 2>&1; echo "EXIT=$?"\`
 graceful = ALL FOUR exit != 0 AND each prints "Invalid --dpi" AND NONE prints a stack-trace line (no line matching /^\\s+at /). Also confirm rejection happens BEFORE any rasterization/VLM work (no "explaining…" or "[N/M] done" lines).
 Return StructuredOutput EXACTLY: name="dpi-invalid", graceful, summary, evidence (the 4 error lines + exit codes).`, { schema: ROBUST_SCHEMA, phase: 'Robust', label: 'robust:dpi-invalid' }),
   () => agent(`You are a ROBUSTNESS check ("directory-input"). Verify file2md FAILS GRACEFULLY when given a DIRECTORY (not a file).
-\`mkdir -p "${RESOLVED.runDir}/robust/adir"; bun "${B}" file2md "${RESOLVED.runDir}/robust/adir" --out "${RESOLVED.runDir}/robust/dirout" 2>&1; echo "EXIT=$?"\`
+\`mkdir -p "${RESOLVED.runDir}/robust/adir"; bun "${B}" cli file2md "${RESOLVED.runDir}/robust/adir" --out "${RESOLVED.runDir}/robust/dirout" 2>&1; echo "EXIT=$?"\`
 graceful = exit != 0 AND mentions "not a regular file"/"not a file"/"Is a directory" AND no stack trace.
 Return StructuredOutput EXACTLY: name="directory-input", graceful, summary, evidence (error line + exit code).`, { schema: ROBUST_SCHEMA, phase: 'Robust', label: 'robust:directory-input' }),
   () => agent(`You are a ROBUSTNESS check ("corrupt-pdf"). Verify file2md FAILS GRACEFULLY on a corrupt/empty PDF (the rasterizer rejects it, not an uncaught exception).
 Create two fakes:
 - empty: \`> "${RESOLVED.runDir}/robust/empty.pdf"\`  (0 bytes)
 - bogus magic: \`printf 'PK\\x03\\x04 not a real pdf' > "${RESOLVED.runDir}/robust/bogus.pdf"\`
-Run each: \`bun "${B}" file2md "<path>" --out "${RESOLVED.runDir}/robust/cpdf" 2>&1; echo "EXIT=$?"\`
+Run each: \`bun "${B}" cli file2md "<path>" --out "${RESOLVED.runDir}/robust/cpdf" 2>&1; echo "EXIT=$?"\`
 graceful = BOTH exit != 0 AND each prints a clean error mentioning "pdf2png failed"/"cannot open"/"PDF" AND NEITHER prints a stack-trace line (no line matching /^\\s+at /).
 Return StructuredOutput EXACTLY: name="corrupt-pdf", graceful, summary, evidence (both error lines + exit codes).`, { schema: ROBUST_SCHEMA, phase: 'Robust', label: 'robust:corrupt-pdf' }),
 ]
@@ -388,7 +388,7 @@ Return StructuredOutput EXACTLY: seedDir (absolute), slug, manifestPagesDone, ma
     REG_RUN = await agent(`You are the REGRESSION run. Execute the pdf-to-vault pipeline on the academic-paper fixture via the BUILT bundle. ${reuseNote} Long-running (several minutes when stage1 runs from scratch; far less when reused) — run it and WAIT.
 
 Run:
-\`bun "${B}" pipeline pdf-to-vault "${RESOLVED.fixturePdfPath}" --out "${regrOut}" --pages ${RESOLVED.regPages} --vlm-model "${RESOLVED.vlmModel}" --model "${RESOLVED.distillModel}"\`
+\`bun "${B}" cli pipeline pdf-to-vault "${RESOLVED.fixturePdfPath}" --out "${regrOut}" --pages ${RESOLVED.regPages} --vlm-model "${RESOLVED.vlmModel}" --model "${RESOLVED.distillModel}"\`
 
 stage1 (vlm) uses ${RESOLVED.vlmModel}; stage2 (distill) uses ${RESOLVED.distillModel} (via the global --model). Allow up to ~6 minutes.
 After it finishes:
@@ -426,7 +426,7 @@ Return StructuredOutput EXACTLY: aspect="stage2-distill", ok (score>=3 AND >=1 n
 
 1. Read ${R}/pipeline.json. Confirm: status "done"; stages.file2md.status "done"; stages.distill.status "done"; options captured (vlmModel, retries, pages). Report any inconsistency.
 2. RESUME test: re-run the exact same command to confirm idempotent resume:
-   \`bun "${B}" pipeline pdf-to-vault "${RESOLVED.fixturePdfPath}" --out "${RESOLVED.runDir}/regression" --pages ${RESOLVED.regPages} --vlm-model "${RESOLVED.vlmModel}" --model "${RESOLVED.distillModel}"\`
+   \`bun "${B}" cli pipeline pdf-to-vault "${RESOLVED.fixturePdfPath}" --out "${RESOLVED.runDir}/regression" --pages ${RESOLVED.regPages} --vlm-model "${RESOLVED.vlmModel}" --model "${RESOLVED.distillModel}"\`
    Expect: "(resuming existing run)", stage 1 skips already-done pages, stage 2 "skipped - already done". It should reuse the SAME run dir ${R} (no new dir created).
 Return StructuredOutput EXACTLY: aspect="coord-resume", ok (pipeline.json consistent AND resume reused run dir AND stage2 skipped), score (1-5), findings (2-4 bullets).`, { schema: REGQUAL_SCHEMA, phase: 'Regression', label: 'regression:coord-resume' }),
     ]

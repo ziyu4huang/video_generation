@@ -1,7 +1,7 @@
 /**
- * CLI sub-command spec for pi-agent-cli.
+ * CLI sub-command spec for pi-agent.
  *
- * Lets `pi-agent-cli` expose the flux2 extension as a top-level sub-command:
+ * Lets `pi-agent` expose the flux2 extension as a top-level sub-command:
  *
  *   bun-pi-agent-cli flux2 <natural-language request...>
  *   bun-pi-agent-cli --model sonnet flux2 generate a red cube on a table, t2i
@@ -11,15 +11,15 @@
  * natural-language task and lets the agent map it onto the `flux2` tool. This
  * mirrors how `zk-ask` turns positionals into a question.
  *
- * This file is dependency-free of pi-agent-cli on purpose: the workspace dep
- * direction is pi-agent-cli → pi-agent-ext-flux2, so the spec is typed with a
+ * This file is dependency-free of pi-agent on purpose: the workspace dep
+ * direction is pi-agent → pi-agent-ext-flux2, so the spec is typed with a
  * local structurally-compatible interface (TS structural typing makes it
- * assignable to pi-agent-cli's `ExtensionSubcommandSpec`). See
- * `bun-apps/pi-agent-cli/src/extensions/types.ts` for the canonical shape.
+ * assignable to pi-agent's `ExtensionSubcommandSpec`). See
+ * `bun-apps/pi-agent/src/cli/extensions/types.ts` for the canonical shape.
  */
 import extension from "./flux2.ts";
 
-/** Local shape of pi-agent-cli's ExtensionSubcommandSpec (structural match). */
+/** Local shape of pi-agent's ExtensionSubcommandSpec (structural match). */
 interface ExtensionSubcommandSpec {
   name: string;
   summary: string;
