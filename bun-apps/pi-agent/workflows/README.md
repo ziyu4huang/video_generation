@@ -1,6 +1,6 @@
 # pi-agent CLI engine workflows
 
-Deterministic workflows runnable via `pi-agent workflow run <name>` — these live
+Deterministic workflows runnable via `pi-agent cli workflow run <name>` — these live
 in the **engine dir** (`bun-apps/<pkg>/workflows/`) on purpose: the
 gate / retry / loopUntilDry / journaling / resume primitives only exist in the
 pi-agent-ext-workflow engine vm, NOT in Claude Code's `Workflow` tool. See
@@ -22,7 +22,7 @@ and precedence. These three prove the shape end-to-end:
   (`kind`/`engine`/`args`/`model`/`thinking`/`howToRun`) and exercises the
   `pipeline()`/`phase()`/`log()` primitives `echo` + `args-demo` leave uncovered.
   Hermetic (no bash/writes/network); covered by real-pack tests in
-  `src/__tests__/workflow.test.ts`.
+  `src/cli/__tests__/workflow.test.ts`.
 
 ```bash
 bun --cwd bun-apps/pi-agent src/cli.ts cli workflow run echo --dry-run
