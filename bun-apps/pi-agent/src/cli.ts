@@ -86,8 +86,16 @@ if (isExtDoctorCommand(argv)) {
 // subtree statically pulls flux2/krea2/ltx/movie-director through each
 // extension's cli-subcommand.ts, which would otherwise land in every TUI boot.
 if (isCliCommand(argv)) {
-	const { runCli } = await import("./cli/dispatch.ts");
-	process.exit(await runCli(argv.slice(1)));
+	try {
+		const { runCli } = await import("./cli/dispatch.ts");
+		process.exit(await runCli(argv.slice(1)));
+	} catch (e: any) {
+		// A throw at module-eval time in the CLI subtree lands here rather than
+		// as a raw uncaught rejection, so the CLI's error presentation stays
+		// uniform whether a command fails or its module fails to load.
+		console.error(`error: ${e?.message ?? String(e)}`);
+		process.exit(1);
+	}
 }
 
 // Patches MUST be applied before main() constructs ModelRegistry. Among other

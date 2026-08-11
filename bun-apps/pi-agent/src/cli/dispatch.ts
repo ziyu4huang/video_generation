@@ -562,7 +562,11 @@ async function dispatch(argv: string[]): Promise<void> {
 export async function runCli(argv: string[]): Promise<number> {
   try {
     await dispatch(argv);
-    return 0;
+    // Honour the `process.exitCode = 1` convention used by doctor / zk-query /
+    // kcard-loop, which report failure WITHOUT throwing. Returning a hardcoded
+    // 0 here would be clobbered onto the caller's `process.exit(0)` and silently
+    // turn those documented failures into successes.
+    return typeof process.exitCode === "number" ? process.exitCode : 0;
   } catch (e: any) {
     // Graceful failure for any thrown command error (bad input, invalid flags,
     // etc.): print a clean one-liner instead of dumping a stack trace.
