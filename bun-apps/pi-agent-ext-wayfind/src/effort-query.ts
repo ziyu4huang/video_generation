@@ -38,6 +38,11 @@ export interface EffortListItem {
   fog: number;
   /** Manifest `last:` date, when present. */
   lastModified?: string;
+  /** 10-impl: # of stale decisions on this effort (deps changed since last
+   *  validation). null = explicitly unavailable; UNSET (undefined) = not
+   *  enriched / hermes absent (render emits no token); 0 = clean; N = count.
+   *  Enriched at the TOOL layer (async) — the SYNC listEfforts leaves it unset. */
+  stale?: number | null;
 }
 
 export interface EffortListResult {

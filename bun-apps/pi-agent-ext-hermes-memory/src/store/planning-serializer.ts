@@ -20,6 +20,7 @@ import {
   extractResolutionGist,
   parseBlockedBy,
   extractCitedPaths,
+  parseDependsOn,
 } from "./planning-parse.js";
 
 function effortCard(mapBytes: string, filePath: string): Card | null {
@@ -61,6 +62,7 @@ function ticketCard(ticketBytes: string, filePath: string): Card | null {
   const { data, body } = split;
   const title = extractTitle(body);
   const blockedBy = parseBlockedBy(data["blocked by"]);
+  const dependsOn = parseDependsOn(data["depends_on"]);
   const resolutionGist = extractResolutionGist(body);
   const citedPaths = extractCitedPaths(body);
   const selfId = planningTicketId(info.effort, info.ticketNo);
@@ -71,6 +73,9 @@ function ticketCard(ticketBytes: string, filePath: string): Card | null {
   for (const path of citedPaths) {
     relations.push({ s: selfId, rel: "cites", o: path });
   }
+  for (const path of dependsOn) {
+    relations.push({ s: selfId, rel: "depends_on", o: path });
+  }
   const graph: CardGraph | undefined = relations.length > 0 ? { relations } : undefined;
   const frontmatter: Record<string, unknown> = {
     id: info.ticketNo,
@@ -79,6 +84,7 @@ function ticketCard(ticketBytes: string, filePath: string): Card | null {
     ...(typeof data.status === "string" ? { status: data.status } : {}),
     ...(typeof data.claimed === "string" && data.claimed.length > 0 ? { claimed: data.claimed } : {}),
     ...(blockedBy.length > 0 ? { blockedBy } : {}),
+    ...(dependsOn.length > 0 ? { dependsOn } : {}),
     ...(resolutionGist ? { resolutionGist } : {}),
     ...(title ? { title } : {}),
   };

@@ -81,8 +81,10 @@ export async function deleteHash(store: CardStore, cardId: string): Promise<void
  *    planning-effort:<effort>      → <fsRoot>/.planning/<effort>/map.md
  *    planning-ticket:<effort>:<no> → glob <fsRoot>/.planning/<effort>/tickets/<no>-*.md
  *  (the id carries effort+no, NOT the slug — the slug is recovered by glob).
- *  Returns null for an unrecognised id / missing dir / no matching glob. */
-function sourcePathForId(cardId: string, fsRoot: string): string | null {
+ *  Returns null for an unrecognised id / missing dir / no matching glob.
+ *  Exported (10-impl T4 / decision η) so {@link readSourceCard} (and T4's
+ *  staleness compute) can re-derive a card from its source .md. */
+export function sourcePathForId(cardId: string, fsRoot: string): string | null {
   if (cardId.startsWith("planning-effort:")) {
     const effort = cardId.slice("planning-effort:".length);
     return join(fsRoot, ".planning", effort, "map.md");
@@ -106,6 +108,42 @@ function sourcePathForId(cardId: string, fsRoot: string): string | null {
   return null;
 }
 
+/** Re-parse the git-canonical source .md for a planning card id → the Card
+ *  (10-impl T4 / decision η — Path B). The 06a store does NOT persist card.graph
+ *  (it round-trips as `undefined`; `rowToCard` emits no `graph`), so callers that
+ *  need a card's `graph.relations` (deps for staleness) MUST re-derive the card
+ *  from its source .md rather than read the store row. Mirrors the resolve→read→
+ *  deserialize→find body that {@link refreshPlanningCard} inlined pre-T4; factored
+ *  out here so refreshPlanningCard + computeStaleness share one source-of-truth
+ *  reader. Returns null when the source is unresolvable / unreadable / the id is
+ *  not present in the file (no deletion — callers decide). Async to match the
+ *  CardStore async envelope + future async-fs evolution. */
+export async function readSourceCard(
+  store: CardStore,
+  cardId: string,
+  fsRoot: string,
+): Promise<Card | null> {
+  const src = sourcePathForId(cardId, fsRoot);
+  if (!src) return null;
+  let bytes: string;
+  try {
+    bytes = readFileSync(src, "utf8");
+  } catch {
+    return null;
+  }
+  // Derive the kind from the id prefix (the serializer registry is keyed by kind).
+  const kind = cardId.startsWith("planning-effort:")
+    ? "planning-effort"
+    : cardId.startsWith("planning-ticket:")
+      ? "planning-ticket"
+      : null;
+  if (!kind) return null;
+  const serializer = store.serializerFor(kind);
+  if (!serializer) return null;
+  const cards = serializer.deserialize(bytes, { filePath: src });
+  return cards.find((c) => c.id === cardId) ?? null;
+}
+
 /** On-demand refresh of ONE planning card (T7 — explicit, NOT every-read-rehash).
  *  Re-reads the source md for cardId, re-deserializes, re-hashes, and re-mirrors
  *  via the SAME hash-compare branch as the T3 mirror
@@ -123,25 +161,7 @@ export async function refreshPlanningCard(
   cardId: string,
   fsRoot: string,
 ): Promise<{ action: RefreshAction }> {
-  const src = sourcePathForId(cardId, fsRoot);
-  if (!src) return { action: "absent" };
-  let bytes: string;
-  try {
-    bytes = readFileSync(src, "utf8");
-  } catch {
-    return { action: "absent" };
-  }
-  // Derive the kind from the id prefix (the serializer registry is keyed by kind).
-  const kind = cardId.startsWith("planning-effort:")
-    ? "planning-effort"
-    : cardId.startsWith("planning-ticket:")
-      ? "planning-ticket"
-      : null;
-  if (!kind) return { action: "absent" };
-  const serializer = store.serializerFor(kind);
-  if (!serializer) return { action: "absent" };
-  const cards = serializer.deserialize(bytes, { filePath: src });
-  const card = cards.find((c) => c.id === cardId);
+  const card = await readSourceCard(store, cardId, fsRoot);
   if (!card) return { action: "absent" };
 
   // Same hash-compare branch as the T3 mirror (walk-and-ingest.mirrorPlanningToStore),
@@ -176,4 +196,106 @@ export async function refreshIfStale(
 ): Promise<boolean> {
   const r = await refreshPlanningCard(store, cardId, fsRoot);
   return r.action === "inserted" || r.action === "updated";
+}
+
+// ─── 10-impl staleness: dep aggregate hash + validated baseline ─────────────
+//
+// The staleness baseline is ONE aggregate row per card in card_dep_hash =
+// hashEntry(sorted(cited+depends_on source-file bytes)). Distinct from 09's
+// card_md_hash (which hashes the CARD's own bytes); this hashes the bytes of
+// the files the card's decision DEPENDS ON, so a change to a cited/declared
+// source file flips the card stale even when the card's own md is unchanged.
+
+/** Distinct repo-relative dep paths carried by a card's graph.relations
+ *  (rel ∈ {"cites","depends_on"}). First-occurrence dedupe → stable order. */
+export function citedDeps(card: Card): string[] {
+  const rels = card.graph?.relations ?? [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const r of rels) {
+    if ((r.rel === "cites" || r.rel === "depends_on") && !seen.has(r.o)) {
+      seen.add(r.o);
+      out.push(r.o);
+    }
+  }
+  return out;
+}
+
+/** Aggregate content-hash of a card's deps under fsRoot. For each dep path,
+ *  read join(fsRoot, path): present → hashEntry(bytes); absent → recorded in
+ *  `missing` AND contributes the token "<missing>" (so a file reappearing or
+ *  vanishing changes the aggregate). Aggregate = hashEntry of the sorted
+ *  `${path}:${hashOrToken}` entries joined by "\n" — deterministic over the
+ *  dep SET regardless of relation order. A card with NO deps hashes the empty
+ *  string (stable → never stale by dep-change, which is correct: nothing to
+ *  depend on). */
+export async function depAggregateHash(
+  card: Card,
+  fsRoot: string,
+): Promise<{ hash: string; missing: string[] }> {
+  const deps = citedDeps(card);
+  const missing: string[] = [];
+  const entries = deps.map((path) => {
+    let fileHash: string;
+    try {
+      fileHash = hashEntry(readFileSync(join(fsRoot, path), "utf8"));
+    } catch {
+      missing.push(path);
+      fileHash = "<missing>";
+    }
+    return `${path}:${fileHash}`;
+  });
+  entries.sort();
+  return { hash: hashEntry(entries.join("\n")), missing };
+}
+
+/** Compute the dep aggregate + UPSERT it as the card's validated baseline
+ *  (the staleness reference). This is the RE-VALIDATE write — call it when an
+ *  agent re-grills + re-validates a decision (clears stale). The on-access
+ *  computeStaleness (T4) uses depAggregateHash WITHOUT writing except the
+ *  first-touch seed. */
+export async function writeValidatedBaseline(
+  store: CardStore,
+  card: Card,
+  fsRoot: string,
+): Promise<{ hash: string; missing: string[] }> {
+  const { hash, missing } = await depAggregateHash(card, fsRoot);
+  await store.upsertCardDepHash(card.id, hash);
+  return { hash, missing };
+}
+
+/** Explicit RE-VALIDATE of ONE card (the agent re-grill flow — T6's `planning_stale`
+ *  tool `revalidate` action): recompute the dep aggregate, report whether it HAD
+ *  drifted relative to the OLD baseline, AND re-baseline to the CURRENT bytes
+ *  (clearing the stale flag). This is the SOLE re-baseline op — distinct from
+ *  {@link computeStaleness} (planning-staleness.ts), which is compare-only after
+ *  the first-touch seed and NEVER clears a stale flag.
+ *
+ *  Path B (decision η): deps come from {@link readSourceCard} (a re-parse of the
+ *  git-canonical source .md → graph.relations), NOT `store.getCard` (whose row
+ *  drops `graph`, so `depAggregateHash` would hash the empty aggregate and never
+ *  detect drift). An unresolvable source → `false` + NO write (cannot validate
+ *  what we cannot read). Mirrors {@link refreshIfStale}'s boolean envelope.
+ *
+ *  The `session_start` sweep (planning-backfill.ts) does NOT call this — it flags
+ *  via `computeStaleness` so stale state PERSISTS across sessions (decision ζ); a
+ *  re-baselining sweep would wipe stale state every session start. Returns `true`
+ *  iff re-validation cleared a stale state: the card HAD a stored baseline whose
+ *  dep hash differs from the current aggregate, OR a dep is currently missing
+ *  (a vanishing dep is itself a stale signal that survives re-baselining). */
+export async function refreshStaleness(
+  store: CardStore,
+  cardId: string,
+  fsRoot: string,
+): Promise<boolean> {
+  const card = await readSourceCard(store, cardId, fsRoot);
+  if (!card) return false;
+  const { hash: current, missing } = await depAggregateHash(card, fsRoot);
+  const stored = await store.getCardDepHash(cardId);
+  const wasStale = stored !== null && (current !== stored.depHash || missing.length > 0);
+  // Re-baseline NOW to the CURRENT bytes: the NEXT change after this point is
+  // what re-flags stale. writeValidatedBaseline recomputes the aggregate once
+  // more (deterministic, idempotent — matches computeStaleness's first-touch path).
+  await writeValidatedBaseline(store, card, fsRoot);
+  return wasStale;
 }

@@ -12,11 +12,20 @@
  * driven through execute() with a minimal { cwd } ctx stub, the same seam a real
  * pi session uses.
  */
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createEffort, effortStatus, makeWayfindEffortTool, validateEffort } from "../src/effort-tool.js";
+import type { EffortListResult } from "../src/effort-query.js";
+import type { EffortStatusResult, EffortStatusTicket } from "../src/effort-tool.js";
+import {
+  createEffort,
+  effortStatus,
+  makeWayfindEffortTool,
+  renderList,
+  renderStatus,
+  validateEffort,
+} from "../src/effort-tool.js";
 import { readMap, writeTicket } from "../src/map.js";
 import type { EffortMeta } from "../src/model.js";
 import { addTicket, resolveTicket } from "../src/wayfinder.js";
@@ -591,6 +600,215 @@ describe("makeWayfindEffortTool — list + search (ticket 15 T3)", () => {
     const r = await tool.execute("v2", { action: "validate" }, undefined, undefined, ctx(cwd));
     expect(r.details.ok).toBe(false);
     expect((r.content[0]?.text ?? "").toLowerCase()).toContain("effort");
+    rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
+// ─── 10-impl T9: stale read-side surfacing (effort status/list) ──────────────
+//
+// T9 enriches the read surfaces so staleness is VISIBLE early (the agent can
+// re-grill proactively), complementing T8's graduation gate (which only BLOCKS
+// at /wayfind done). Two layers are tested:
+//   (a) the RENDER contract — renderStatus/renderList with a pre-populated
+//       `stale` field (SYNC, no seam): undefined (hermes-absent / not enriched)
+//       vs null vs 0 vs N, plus the per-ticket `⚠ stale` marker.
+//   (b) the SEAM integration — the tool's async execute calls readStaleDecisions
+//       (the T7 seam) via globalThis.__piHermesStaleCheck (the real seam path,
+//       mirrors tests/stale-seam.test.ts + tests/wayfinder.test.ts): hermes
+//       present → count + marker; hermes ABSENT → NO stale info, output
+//       byte-identical to pre-T9 (null-safe, never crashes).
+//
+// Design (pinned in the plan): the SYNC pure fns (effortStatus/listEfforts)
+// leave `stale` UNSET; the TOOL layer enriches it (async). When hermes is
+// absent the tool leaves `stale` UNSET (undefined) — NOT null — so the renderer
+// emits nothing and the output is byte-identical to pre-T9. The `null` render
+// branch is preserved for explicit-null callers (defensive).
+
+describe("renderStatus / renderList — stale render contract (10-impl T9)", () => {
+  const baseStatus = (stale?: number | null): EffortStatusResult => ({
+    ok: true,
+    exists: true,
+    effort: "e",
+    destination: "d",
+    meta: null,
+    open: 0,
+    closed: 1,
+    claimed: 0,
+    fog: 0,
+    frontier: [],
+    tickets: [],
+    ...(stale === undefined ? {} : { stale }),
+  });
+
+  it("renderStatus: stale undefined (hermes absent / not enriched) -> NO stale line (byte-identical to pre-T9)", () => {
+    const out = renderStatus(baseStatus(undefined));
+    expect(out).not.toContain("stale:");
+    expect(out).not.toContain("staleness:");
+  });
+
+  it("renderStatus: stale null -> 'staleness: unavailable'", () => {
+    expect(renderStatus(baseStatus(null))).toContain("staleness: unavailable");
+  });
+
+  it("renderStatus: stale 0 -> 'stale: 0 (clean)'", () => {
+    expect(renderStatus(baseStatus(0))).toContain("stale: 0 (clean)");
+  });
+
+  it("renderStatus: stale N>0 -> 'stale: N' + per-ticket '⚠ stale' marker", () => {
+    const t: EffortStatusTicket = { id: "01", title: "decide", status: "closed", blocking: [], stale: true };
+    const r: EffortStatusResult = { ...baseStatus(1), tickets: [t] };
+    const out = renderStatus(r);
+    expect(out).toContain("stale: 1");
+    expect(out).toContain("⚠ stale"); // per-ticket marker
+  });
+
+  it("renderStatus: a non-stale ticket carries NO marker", () => {
+    const r: EffortStatusResult = {
+      ...baseStatus(1),
+      tickets: [
+        { id: "01", title: "stale one", status: "closed", blocking: [], stale: true },
+        { id: "02", title: "fresh one", status: "open", blocking: ["01"] },
+      ],
+    };
+    const out = renderStatus(r);
+    const lines = out.split("\n");
+    const line01 = lines.find((l) => l.trim().startsWith("01 "));
+    const line02 = lines.find((l) => l.trim().startsWith("02 "));
+    expect(line01).toContain("⚠ stale");
+    expect(line02).not.toContain("⚠ stale");
+  });
+
+  it("renderList: stale undefined -> NO stale token (byte-identical to pre-T9)", () => {
+    const r: EffortListResult = {
+      ok: true,
+      efforts: [
+        {
+          slug: "e",
+          status: "active",
+          destination: "d",
+          ticketCounts: { open: 0, closed: 1, claimed: 0 },
+          frontierSize: 0,
+          fog: 0,
+        },
+      ],
+    };
+    expect(renderList(r)).not.toContain("stale=");
+  });
+
+  it("renderList: stale null vs 0 vs N rendered distinctly", () => {
+    const base = (stale: number | null): EffortListResult => ({
+      ok: true,
+      efforts: [
+        {
+          slug: "e",
+          status: "active",
+          destination: "d",
+          ticketCounts: { open: 0, closed: 1, claimed: 0 },
+          frontierSize: 0,
+          fog: 0,
+          stale,
+        },
+      ],
+    });
+    expect(renderList(base(null))).toContain("stale=?");
+    expect(renderList(base(0))).toContain("stale=0");
+    expect(renderList(base(2))).toContain("stale=2");
+  });
+});
+
+describe("wayfind_effort tool — stale seam integration (10-impl T9)", () => {
+  const STALE_KEY = "__piHermesStaleCheck";
+  const ctx = (cwd: string) => ({ cwd }) as any;
+
+  /** Seed an effort "stale-eff" with two tickets: 01 (closed) + 02 (open, blocked-by 01). */
+  const seedStaleEffort = (cwd: string): void => {
+    createEffort(cwd, { effort: "stale-eff", destination: "d" });
+    addTicket(cwd, "stale-eff", "Decision A", "which?", "task", []);
+    addTicket(cwd, "stale-eff", "Decision B", "next?", "task", ["01"]);
+    resolveTicket(cwd, "stale-eff", "01", "decided A"); // closes #1
+  };
+
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>)[STALE_KEY];
+  });
+
+  it("status: hermes present + 1 stale -> 'stale: 1' count + marker on ticket 01 (NOT 02)", async () => {
+    const cwd = fresh();
+    seedStaleEffort(cwd);
+    (globalThis as Record<string, unknown>)[STALE_KEY] = async () => ({
+      stale: [{ cardId: "planning-ticket:stale-eff:01", effort: "stale-eff" }],
+    });
+    const tool = makeWayfindEffortTool();
+    const out = await tool.execute("s1", { action: "status", effort: "stale-eff" }, undefined, undefined, ctx(cwd));
+    const text = out.content[0]?.text ?? "";
+    expect(text).toContain("stale: 1");
+    const lines = text.split("\n");
+    const line01 = lines.find((l) => l.trim().startsWith("01 "));
+    const line02 = lines.find((l) => l.trim().startsWith("02 "));
+    expect(line01).toContain("⚠ stale");
+    expect(line02).not.toContain("⚠ stale");
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("status: hermes present + empty -> 'stale: 0 (clean)' + NO marker", async () => {
+    const cwd = fresh();
+    seedStaleEffort(cwd);
+    (globalThis as Record<string, unknown>)[STALE_KEY] = async () => ({ stale: [] });
+    const tool = makeWayfindEffortTool();
+    const out = await tool.execute("s2", { action: "status", effort: "stale-eff" }, undefined, undefined, ctx(cwd));
+    const text = out.content[0]?.text ?? "";
+    expect(text).toContain("stale: 0 (clean)");
+    expect(text).not.toContain("⚠ stale");
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("status: hermes ABSENT -> NO stale info, output byte-identical to pre-T9 (null-safe)", async () => {
+    const cwd = fresh();
+    seedStaleEffort(cwd);
+    // NO seam published — readStaleDecisions returns null → tool leaves `stale`
+    // UNSET → renderStatus emits NO stale line/marker → byte-identical to pre-T9.
+    const tool = makeWayfindEffortTool();
+    const out = await tool.execute("s3", { action: "status", effort: "stale-eff" }, undefined, undefined, ctx(cwd));
+    const text = out.content[0]?.text ?? "";
+    expect(text).not.toContain("stale:");
+    expect(text).not.toContain("staleness:");
+    expect(text).not.toContain("⚠ stale");
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("status: non-stale ticket -> exactly ONE marker (the join marks only the matched cardId)", async () => {
+    const cwd = fresh();
+    seedStaleEffort(cwd);
+    (globalThis as Record<string, unknown>)[STALE_KEY] = async () => ({
+      stale: [{ cardId: "planning-ticket:stale-eff:01", effort: "stale-eff" }],
+    });
+    const tool = makeWayfindEffortTool();
+    const out = await tool.execute("s4", { action: "status", effort: "stale-eff" }, undefined, undefined, ctx(cwd));
+    const text = out.content[0]?.text ?? "";
+    expect(text.split("\n").filter((l) => l.includes("⚠ stale")).length).toBe(1);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("list: hermes present -> per-effort 'stale=1' token", async () => {
+    const cwd = fresh();
+    seedStaleEffort(cwd);
+    (globalThis as Record<string, unknown>)[STALE_KEY] = async () => ({
+      stale: [{ cardId: "planning-ticket:stale-eff:01", effort: "stale-eff" }],
+    });
+    const tool = makeWayfindEffortTool();
+    const out = await tool.execute("l1", { action: "list" }, undefined, undefined, ctx(cwd));
+    const text = out.content[0]?.text ?? "";
+    expect(text).toContain("stale=1");
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("list: hermes ABSENT -> NO stale token (byte-identical to pre-T9)", async () => {
+    const cwd = fresh();
+    seedStaleEffort(cwd);
+    const tool = makeWayfindEffortTool();
+    const out = await tool.execute("l2", { action: "list" }, undefined, undefined, ctx(cwd));
+    const text = out.content[0]?.text ?? "";
+    expect(text).not.toContain("stale=");
     rmSync(cwd, { recursive: true, force: true });
   });
 });
