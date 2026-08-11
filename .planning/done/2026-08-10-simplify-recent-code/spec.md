@@ -1,7 +1,7 @@
 # Simplify recent code — behavior-preserving cleanup (design spec)
 
 **Date:** 2026-08-10
-**Status:** Approved (brainstorming) → ready for implementation plan
+**Status:** Complete — Phase 1 (PR #1205) + Phase 2 (workflow.ts extraction, PR #1193); remaining items dropped with rationale (plan-phase1.md). Archived.
 **Effort:** `.planning/2026-08-10-simplify-recent-code/`
 **Scope:** behavior-preserving cleanup across `pi-agent-ext-{knowledge-card,core-task,wayfind,subagent,workflow}`. Phase 1 = dedup + dead-code; Phase 2 = `workflow.ts` extraction. No behavior change.
 
