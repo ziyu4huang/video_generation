@@ -12,6 +12,11 @@
  * (undefined) or `page.toText` (undefined).
  */
 import { readFileSync } from "node:fs";
+// MUST stay above the `mupdf` import: it sets globalThis.$libmupdf_wasm_Module,
+// which mupdf's emscripten glue reads during its own top-level await. ESM
+// evaluates imports in source order, so this is what makes a bundled/compiled
+// build find mupdf-wasm.wasm at all. See mupdf-wasm-locate.ts.
+import "./mupdf-wasm-locate.ts";
 import * as mupdf from "mupdf";
 
 export interface ExtractedPageText {
