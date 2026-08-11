@@ -66,6 +66,12 @@ bun run --cwd bun-apps/gui-movie-director check:schema                  # valida
 python/venv/bin/python -m pytest python/mlx-movie-director/app/tests [--run-gpu]
 ```
 
+**Per-package gates differ.** `pi-agent-ext-hermes-memory` `bun run check` = `tsc`. `pi-agent-ext-wayfind` `bun run check` = **biome** (tsc runs under `build`, not `check`). For wayfind run **both** `bun run check && bunx tsc --noEmit && bun test`. Always run a package's canonical `bun run test` script (it may include `build`), not a hand-assembled `bun run check && bun test` subset.
+
+## Subagent dispatch conventions
+
+**Watchdog off for write-heavy implementer dispatches.** The `subagent` tool's `watchdog` (L1 commit-scope + L2 model-review) is a false-positive machine on multi-session worktrees (L1 flags ancestor `origin/main` files as out-of-scope; reports "no changes" when commits did land), and across the 10-impl SDD cycle the L2 review returned zero actionable findings. The independent reviewer subagent is the real quality gate. **Default: omit `watchdog` (or set off) for write-heavy implementer dispatches**; reserve it for read-only verification.
+
 ## Planning artifacts (standing rule)
 
 Wayfind `.planning/` artifacts are **durable, shared planning** — they MUST be committed and pushed to `origin/main`, never left local-only. This covers effort folders (`.planning/<effort>/` incl. `map.md`, `spec.md`, `tickets/`, `plans/`, `brainstorm/`, `sdd/`), plus `.planning/specs/` and `.planning/plans/`.
