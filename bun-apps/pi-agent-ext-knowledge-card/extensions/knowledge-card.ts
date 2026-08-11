@@ -24,7 +24,7 @@
  *
  * This module is the SINGLE SOURCE OF TRUTH for the task builders
  * (buildDistillTask / buildAddTask / … / buildRagTask) and tool allowlists
- * (DISTILL_TOOLS / ADD_TOOLS / … / RAG_TOOLS). The bun-pi-agent-cli
+ * (DISTILL_TOOLS / ADD_TOOLS / … / RAG_TOOLS). The `pi-agent cli`
  * zk-extract / zk-card / zk-ask commands import these same builders so the CLI
  * and the extension never drift apart.
  *
@@ -265,7 +265,7 @@ async function resolveKnowledgeVault(cwd: string): Promise<string> {
 
 // ---------------------------------------------------------------------------
 // Task builders — pure string templates, no I/O. Single source of truth:
-// both this extension and bun-pi-agent-cli's zk-* commands import these.
+// both this extension and `pi-agent cli`'s zk-* commands import these.
 // ---------------------------------------------------------------------------
 
 const DISTILL_TASK_PREFIX =

@@ -3,7 +3,7 @@
  *
  * resolveLLM is the pure parser that turns opts/env into a {provider, modelId,
  * thinkingLevel}. It is the piece of src/sessions.ts that had drifted from
- * bun-pi-agent-cli (it used to ignore PI_PROVIDER). These tests pin the grammar
+ * `pi-agent cli` (it used to ignore PI_PROVIDER). These tests pin the grammar
  * so the drift cannot silently return.
  *
  * No model session / network is created — resolveLLM is pure.

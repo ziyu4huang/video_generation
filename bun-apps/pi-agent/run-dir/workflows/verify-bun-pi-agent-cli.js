@@ -1,7 +1,7 @@
 export const meta = {
   name: 'verify-bun-pi-agent-cli',
-  description: 'Dynamic end-to-end verification of bun-pi-agent-cli (resolve paths -> build bundle+sourcemap -> smoke -> regression on academic-paper fixture)',
-  whenToUse: 'Verifies the bun-pi-agent-cli bundle end-to-end and writes <runDir>/result.jsonl for compare.ts. TWO MODES selected by `stage1From`: (1) FULL baseline re-check — OMIT stage1From to re-run VLM stage1 + distill stage2 (validates both stage code paths; ~6 min; needs LM Studio + distill creds + fixture). (2) DISTILL-MODEL comparison — pass stage1From=docs/benchmarks/verify-bun-pi-agent-cli/stage1-seed-emnlp-893 to reuse the committed stage1 and SKIP the VLM (vary only the distill model; regression ~2 min / full ~5 min; needs distill creds, NOT LM Studio). ARGS: distillModel (default zai/glm-5.2), vlmModel (default lm-studio/google/gemma-4-26b-a4b-qat), regPages (1-3), fixtureName, repoRoot (default git toplevel), runRoot (default <repoRoot>/tmp, gitignored). Phases degrade gracefully (skipped + logged) when a prerequisite is absent — see the file-top comment for the full phase list, prerequisites & graceful-degradation rules.',
+  description: 'Dynamic end-to-end verification of the pi-agent CLI (resolve paths -> build bundle+sourcemap -> smoke -> regression on academic-paper fixture)',
+  whenToUse: 'Verifies the pi-agent CLI bundle end-to-end and writes <runDir>/result.jsonl for compare.ts. TWO MODES selected by `stage1From`: (1) FULL baseline re-check — OMIT stage1From to re-run VLM stage1 + distill stage2 (validates both stage code paths; ~6 min; needs LM Studio + distill creds + fixture). (2) DISTILL-MODEL comparison — pass stage1From=docs/benchmarks/verify-bun-pi-agent-cli/stage1-seed-emnlp-893 to reuse the committed stage1 and SKIP the VLM (vary only the distill model; regression ~2 min / full ~5 min; needs distill creds, NOT LM Studio). ARGS: distillModel (default zai/glm-5.2), vlmModel (default lm-studio/google/gemma-4-26b-a4b-qat), regPages (1-3), fixtureName, repoRoot (default git toplevel), runRoot (default <repoRoot>/tmp, gitignored). Phases degrade gracefully (skipped + logged) when a prerequisite is absent — see the file-top comment for the full phase list, prerequisites & graceful-degradation rules.',
   phases: [
     { title: 'Resolve', detail: 'resolve absolute paths + health-check + fresh runDir (no cwd/worktree drift)' },
     { title: 'Build', detail: 'bundle + external sourcemap; gate on success' },
@@ -171,7 +171,7 @@ const smokeTasks = []
 smokeTasks.push(() => agent(`You are a SMOKE check ("offline-meta"). Run the BUILT bundle (NOT src) and verify meta commands. All paths absolute; do not depend on cwd.
 
 Run and verify each prints sensible content:
-1. \`bun "${B}" cli version\` -> prints "bun-pi-agent-cli 0.1.0"
+1. \`bun "${B}" cli version\` -> prints "pi-agent cli 0.1.0"
 2. \`bun "${B}" cli help\` -> lists file2md, zk-extract, pipeline pdf-to-vault
 3. \`bun "${B}" cli help file2md\` -> shows usage + flags (--dpi, --type, --pages, --model)
 4. \`bun "${B}" cli help pipeline pdf-to-vault\` -> shows --vlm-model, --model, --retries, --force-distill
@@ -513,7 +513,7 @@ return {
 
 /**
  * verify-bun-pi-agent-cli — dynamic end-to-end verification of the
- * self-contained bun-pi-agent-cli bundle.
+ * pi-agent CLI bundle (`pi-agent cli …`).
  *
  * pi-native port of .claude/workflows/verify-bun-pi-agent-cli.js, kept under
  * bun-apps/pi-agent/run-dir/workflows/ so it is discoverable by the pi-agent-ext-workflow tooling
@@ -547,7 +547,7 @@ return {
  *
  * ── WHEN to run it — TWO MODES, selected by `stage1From` ──
  *   1) FULL baseline re-check  →  omit stage1From
- *      Re-runs VLM stage1 + distill stage2. Use after touching bun-pi-agent-cli
+ *      Re-runs VLM stage1 + distill stage2. Use after touching pi-agent CLI
  *      code to validate BOTH stage code paths end-to-end. ~6 min.
  *      Needs: LM Studio serving the VLM model + distill-model API key + fixture.
  *
@@ -560,7 +560,7 @@ return {
  *      Needs: distill-model API key + fixture. LM Studio is NOT required.
  *
  * ── Prerequisites & graceful degradation ──
- *   Always: Bun runtime; a repo containing bun-pi-agent-cli/; the fixture PDF.
+ *   Always: Bun runtime; a repo containing bun-apps/pi-agent/; the fixture PDF.
  *   Live phases need the distill model's provider env (ZAI_API_KEY by default;
  *   deepseek→DEEPSEEK_API_KEY, …). FULL regression also needs LM Studio (VLM).
  *   A missing prerequisite does NOT abort the run: the affected phase is SKIPPED

@@ -5,7 +5,7 @@
  * Markdown that a pure-text agent can read, using a local vision-LLM subagent
  * served by LM Studio.
  *
- * Pipeline (same as the bun-pi-agent-cli file2md command):
+ * Pipeline (same as the `pi-agent cli file2md` command):
  *   1. Classify kind (pdf | image)           [local, magic bytes]
  *   2. PDF → page PNGs via macOS PDFKit      [--dpi]
  *   3. Classify profile (paper|slides|...)   [VLM on page 1]

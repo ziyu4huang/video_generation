@@ -4,8 +4,8 @@
  * Lets `pi-agent` expose the web-access extension as a top-level
  * sub-command:
  *
- *   bun-pi-agent-cli research <natural-language query...>
- *   bun-pi-agent-cli --model sonnet research "RAG vs graph RAG benchmarks 2026"
+ *   pi-agent cli research <natural-language query...>
+ *   pi-agent cli --model sonnet research "RAG vs graph RAG benchmarks 2026"
  *
  * The web-access tools (web_search, fetch_content, get_search_content) are
  * agent-driven, so the CLI passes the user's query as a natural-language task.
@@ -47,8 +47,8 @@ export const researchSubcommand: ExtensionSubcommandSpec = {
   name: "research",
   summary: "web research: search → fetch → synthesize, optionally save a digest to the vault",
   details: `Usage:
-  bun-pi-agent-cli research <natural-language query...> [options]
-  bun-pi-agent-cli research <query...> --save [options]
+  pi-agent cli research <natural-language query...> [options]
+  pi-agent cli research <query...> --save [options]
 
 Drives a web-research flow with the web-access tools:
   1. web_search   — multi-provider search (Z.ai / OpenAI / Brave / Exa / Tavily …)
@@ -75,9 +75,9 @@ Options (pi-aligned globals):
   --save                 write the synthesized digest to the vault (default: print only)
 
 Examples:
-  bun-pi-agent-cli research "RAG vs graph RAG benchmarks 2026"
-  bun-pi-agent-cli --model sonnet research "Apple MLX vs PyTorch MPS performance" --save
-  bun-pi-agent-cli research "explain the paper at https://arxiv.org/abs/2401.00001"`,
+  pi-agent cli research "RAG vs graph RAG benchmarks 2026"
+  pi-agent cli --model sonnet research "Apple MLX vs PyTorch MPS performance" --save
+  pi-agent cli research "explain the paper at https://arxiv.org/abs/2401.00001"`,
   factory: extension,
   tools: RESEARCH_TOOLS,
   task: (parsed) => {

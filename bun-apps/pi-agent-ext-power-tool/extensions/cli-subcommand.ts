@@ -1,11 +1,11 @@
 /**
- * CLI sub-command spec for bun-pi-agent-cli.
+ * CLI sub-command spec for pi-agent's `cli` namespace.
  *
- * Lets `bun-pi-agent-cli` expose the power-tool extension as a top-level
+ * Lets `pi-agent cli` expose the power-tool extension as a top-level
  * sub-command:
  *
- *   bun-pi-agent-cli power-tool <diagnostic request...>
- *   bun-pi-agent-cli --model sonnet power-tool "call inspect_context"
+ *   pi-agent cli power-tool <diagnostic request...>
+ *   pi-agent cli --model sonnet power-tool "call inspect_context"
  *
  * The power-tool suite provides 4 diagnostic tools (inspect_context,
  * inspect_agent, inspect_extensions, inspect_pathology). The CLI passes
@@ -47,7 +47,7 @@ export const powerToolSubcommand: ExtensionSubcommandSpec = {
   name: "power-tool",
   summary: "runtime diagnostics: context analysis, agent inventory, extension linting, pathology detection",
   details: `Usage:
-  bun-pi-agent-cli power-tool <diagnostic request...> [options]
+  pi-agent cli power-tool <diagnostic request...> [options]
 
 The power-tool suite provides 4 diagnostic tools for analyzing pi-agent's own
 runtime state. Give a natural-language request as positionals; the agent maps
@@ -68,9 +68,9 @@ Options (pi-aligned globals):
   -V, --verbose          tool verbosity (repeat for debug)
 
 Examples:
-  bun-pi-agent-cli power-tool "call inspect_context"
-  bun-pi-agent-cli --model gemma-4-26b power-tool "analyze the context window"
-  bun-pi-agent-cli power-tool "check if any extensions have duplicate tools"`,
+  pi-agent cli power-tool "call inspect_context"
+  pi-agent cli --model gemma-4-26b power-tool "analyze the context window"
+  pi-agent cli power-tool "check if any extensions have duplicate tools"`,
   factory: extension,
   tools: POWER_TOOLS,
   task: (parsed) => {

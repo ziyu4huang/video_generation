@@ -3,8 +3,8 @@
  *
  * Lets `pi-agent` expose the flux2 extension as a top-level sub-command:
  *
- *   bun-pi-agent-cli flux2 <natural-language request...>
- *   bun-pi-agent-cli --model sonnet flux2 generate a red cube on a table, t2i
+ *   pi-agent cli flux2 <natural-language request...>
+ *   pi-agent cli --model sonnet flux2 generate a red cube on a table, t2i
  *
  * The flux2 tool is an agent-driven dispatcher (it picks one of 18 flux2
  * sub-commands + typed options), so the CLI passes the user's request as a
@@ -33,7 +33,7 @@ export const flux2Subcommand: ExtensionSubcommandSpec = {
   name: "flux2",
   summary: "generate/edit/gate images with Flux2 Klein (Swift/MLX)",
   details: `Usage:
-  bun-pi-agent-cli flux2 <natural-language request...> [options]
+  pi-agent cli flux2 <natural-language request...> [options]
 
 The flux2 tool is an agent-optimized dispatcher over the \`flux2\` Swift/MLX CLI
 (18 sub-commands: t2i, scene, gate, upscale, …). Give a natural-language request
@@ -44,7 +44,7 @@ are NOT parsed by the CLI. Two ways to pass them:
   1. Fold them into the request text: \`flux2 generate a red cube, t2i, width 1024\`
      — the agent maps natural language onto flux2 options.
   2. Use the \`--\` end-of-options separator to pass raw flags through verbatim:
-       bun-pi-agent-cli flux2 -- t2i --prompt "a red cube" --width 1024
+       pi-agent cli flux2 -- t2i --prompt "a red cube" --width 1024
      Everything after \`--\` is appended to the request as-is, so the agent sees
      the exact flags and can forward them via the tool's \`options\`/\`extraArgs\`.
 
@@ -61,9 +61,9 @@ Options (pi-aligned globals):
   -V, --verbose          tool verbosity (repeat for debug)
 
 Examples:
-  bun-pi-agent-cli flux2 generate a red cube on a table using t2i
-  bun-pi-agent-cli --model sonnet flux2 scene: two people talking, left/right
-  bun-pi-agent-cli flux2 t2i then gate then upscale the result`,
+  pi-agent cli flux2 generate a red cube on a table using t2i
+  pi-agent cli --model sonnet flux2 scene: two people talking, left/right
+  pi-agent cli flux2 t2i then gate then upscale the result`,
   factory: extension,
   tools: ["flux2"],
   task: (parsed) => {
@@ -88,14 +88,14 @@ Examples:
  * workflow tool) — robust whether or not the workflow tool is registered in the
  * current mode, because bash is always available to the agent.
  *
- *   bun-pi-agent-cli flux2-self-improve a dancer's pose, 3 attempts
- *   bun-pi-agent-cli flux2-self-improve --pose-id L3-01 --attempts 5
+ *   pi-agent cli flux2-self-improve a dancer's pose, 3 attempts
+ *   pi-agent cli flux2-self-improve --pose-id L3-01 --attempts 5
  */
 export const selfImproveSubcommand: ExtensionSubcommandSpec = {
   name: "flux2-self-improve",
   summary: "closed self-improve loop for Flux2 (generate→judge→reflect→retry via pose_dsg)",
   details: `Usage:
-  bun-pi-agent-cli flux2-self-improve <request...> [options]
+  pi-agent cli flux2-self-improve <request...> [options]
 
 Runs the closed, bounded self-improve loop for flux2: generate → judge (pose_dsg
 for complex poses, holistic score otherwise) → on below-threshold, reflect
@@ -114,9 +114,9 @@ request verbatim; the agent maps them onto the runner's --pose-id / --prompt /
 --attempts / --seed / --steps flags.
 
 Examples:
-  bun-pi-agent-cli flux2-self-improve a dancer's pose (nataraja), 3 attempts
-  bun-pi-agent-cli flux2-self-improve --pose-id L3-01 --attempts 5 --seed 42
-  bun-pi-agent-cli flux2-self-improve a red apple on a table (non-pose loop)`,
+  pi-agent cli flux2-self-improve a dancer's pose (nataraja), 3 attempts
+  pi-agent cli flux2-self-improve --pose-id L3-01 --attempts 5 --seed 42
+  pi-agent cli flux2-self-improve a red apple on a table (non-pose loop)`,
   factory: extension,
   tools: ["flux2"],
   task: (parsed) => {

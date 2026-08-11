@@ -8,7 +8,7 @@ This package is the **single source of truth** for the task builders
 (`buildDistillTask` / `buildAddTask` / `buildFindTask` / `buildUpdateTask` /
 `buildRemoveTask` / `buildRagTask`) and the per-action tool allowlists
 (`DISTILL_TOOLS` / `ADD_TOOLS` / `FIND_TOOLS` / `UPDATE_TOOLS` / `REMOVE_TOOLS` /
-`CHECK_TOOLS` / `RAG_TOOLS`). The `bun-pi-agent-cli` commands `zk-extract`,
+`CHECK_TOOLS` / `RAG_TOOLS`). The `pi-agent cli` commands `zk-extract`,
 `zk-card`, `zk-ask`, and `zk-ingest` import these same builders (and the
 deterministic ingest library) so the CLI and the extension never drift apart.
 

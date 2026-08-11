@@ -172,8 +172,8 @@ majority-vote, and/or surface classifier confidence. Lower priority because
 
 ### Engineering / hygiene (background, not blocking)
 
-- **De-fork `sessions.ts`** — it duplicates `bun-pi-agent-cli`'s
-  `sessions/shared.ts` (`resolveLLM`/`resolveModel`/session wiring). Extract
+- **De-fork `sessions.ts`** — it duplicates `pi-agent`'s
+  `src/cli/sessions/shared.ts` (`resolveLLM`/`resolveModel`/session wiring). Extract
   the model-resolution + session-factory primitives into a neutral shared
   module both consume, then delete the fork. Until then, any model-id grammar
   fix must be applied in two places (pinned by `sessions.test.ts`).

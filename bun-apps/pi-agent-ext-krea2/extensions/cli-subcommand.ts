@@ -3,8 +3,8 @@
  *
  * Lets `pi-agent` expose the krea2 extension as a top-level sub-command:
  *
- *   bun-pi-agent-cli krea2 <natural-language request...>
- *   bun-pi-agent-cli --model sonnet krea2 generate a red cube on a table, t2i
+ *   pi-agent cli krea2 <natural-language request...>
+ *   pi-agent cli --model sonnet krea2 generate a red cube on a table, t2i
  *
  * The krea2 tool is an agent-driven dispatcher (it picks t2i vs i2i + typed
  * options), so the CLI passes the user's request as a natural-language task
@@ -31,7 +31,7 @@ export const krea2Subcommand: ExtensionSubcommandSpec = {
   name: "krea2",
   summary: "generate/edit images with Krea 2 Turbo (Swift/MLX, zero Python)",
   details: `Usage:
-  bun-pi-agent-cli krea2 <natural-language request...> [options]
+  pi-agent cli krea2 <natural-language request...> [options]
 
 The krea2 tool is an agent-optimized dispatcher over the \`krea2\` Swift/MLX CLI
 (2 sub-commands: t2i, i2i). Give a natural-language request as positionals; the
@@ -42,7 +42,7 @@ are NOT parsed by the CLI. Two ways to pass them:
   1. Fold them into the request text: \`krea2 generate a red cube, t2i, width 1024\`
      — the agent maps natural language onto krea2 options.
   2. Use the \`--\` end-of-options separator to pass raw flags through verbatim:
-       bun-pi-agent-cli krea2 -- t2i --prompt "a red cube" --width 1024
+       pi-agent cli krea2 -- t2i --prompt "a red cube" --width 1024
      Everything after \`--\` is appended to the request as-is.
 
 Model/output/models roots can also be set via environment (MLX_OUTPUT_DIR,
@@ -58,9 +58,9 @@ Options (pi-aligned globals):
   -V, --verbose          tool verbosity (repeat for debug)
 
 Examples:
-  bun-pi-agent-cli krea2 generate a red apple on a wooden table using t2i
-  bun-pi-agent-cli krea2 edit <png> into a green apple on marble, strength 0.9
-  bun-pi-agent-cli krea2 -- t2i --prompt "a red cube" --width 1024`,
+  pi-agent cli krea2 generate a red apple on a wooden table using t2i
+  pi-agent cli krea2 edit <png> into a green apple on marble, strength 0.9
+  pi-agent cli krea2 -- t2i --prompt "a red cube" --width 1024`,
   factory: extension,
   tools: ["krea2"],
   task: (parsed) => {
