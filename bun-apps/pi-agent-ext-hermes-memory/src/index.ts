@@ -50,6 +50,7 @@ import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
 import { registerKnowledgeSearchTool } from "./tools/knowledge-search-tool.js";
 import { registerKnowledgeIngestTool } from "./tools/knowledge-ingest-tool.js";
 import { registerPlanningStaleTool } from "./tools/planning-stale-tool.js";
+import { publishStaleCheck, unpublishStaleCheck } from "./stale-seam.js";
 import { resolveKnowledgeVaultPath } from "./knowledge-vault-path.js";
 import { captureAssembly } from "./handlers/session-assembly.js";
 import { setupBackgroundReview } from "./handlers/background-review.js";
@@ -424,6 +425,12 @@ export default async function (pi: ExtensionAPI) {
   // ingest use; fsRoot comes from ctx.cwd at call time. Additive — mirrors the
   // knowledge_* registration pattern.
   registerPlanningStaleTool(pi, { memoryDir: globalDir });
+  // Phase-2 (knowledge-pipeline / 10-impl T7): publish the staleness reverse
+  // seam for wayfind's graduation gate (T8) + read-side surfacing (T9). The
+  // closure lazily opens an ephemeral CardStore per call; null-safe (degrades
+  // to {stale:[]} on any failure so a wayfind graduation never false-blocks).
+  // Mirrors the grill seam, reversed (hermes publishes, wayfind reads).
+  publishStaleCheck(globalDir);
 
   // ── 4. Register the skill tool ──
   registerSkillTool(pi, skillStore);
@@ -611,6 +618,14 @@ export default async function (pi: ExtensionAPI) {
   // DB-writing session_shutdown handler after this block — it would run after
   // close() and silently no-op.
   pi.on("session_shutdown", async (_event, ctx) => {
+    // 10-impl T7: clear the staleness reverse seam first (best-effort) so the
+    // globalThis reader is gone even if the DB drain below throws. Mirrors
+    // unpublishWayfindGrill's lifecycle.
+    try {
+      unpublishStaleCheck();
+    } catch {
+      /* best effort */
+    }
     // DRAIN in-flight background writers (live-index + backfill) BEFORE
     // indexSession. These background tasks share the DB's write lock with
     // indexSession; running them concurrently made indexSession block under
