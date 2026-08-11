@@ -38,7 +38,13 @@
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { WebServer } from "../src/web-server.js";
-import { wireWebui, type WebuiHost, type WebuiWiring, type RenderHostEvents } from "../src/webui-wiring.js";
+import {
+  wireWebui,
+  type WebuiHost,
+  type WebuiWiring,
+  type RenderHostEvents,
+  type WebuiUi,
+} from "../src/webui-wiring.js";
 
 // --- test harness (copied shape from web-server.test.ts) --------------------
 
@@ -128,6 +134,12 @@ class MockPi implements WebuiHost {
   readonly registeredTools: unknown[] = [];
   readonly events: RenderHostEvents;
   aborts = 0;
+  // ticket 07 announce recording (populated by ctx(); fresh per session_start):
+  uiNotifications: Array<{ message: string; type?: string }> = [];
+  uiStatuses: Array<{ key: string; text: string | undefined }> = [];
+  // ticket 07 no-auto-open negative control (the host interface exposes no
+  // exec; this recorder asserts the wiring never reaches for one):
+  execCalls = 0;
 
   constructor() {
     const channels = new Map<string, Set<(data: unknown) => void>>();
@@ -166,13 +178,32 @@ class MockPi implements WebuiHost {
   }
 
   /** A fake session ctx whose abort() is observable. */
-  ctx(): { abort(): void } {
+  ctx(): { abort(): void; ui: WebuiUi } {
     const self = this;
+    // fresh recording arrays per ctx() (each session_start gets a clean slate);
+    // exposed on the instance for assertions.
+    self.uiNotifications = [];
+    self.uiStatuses = [];
     return {
       abort() {
         self.aborts++;
       },
+      ui: {
+        notify: (message: string, type?: "info" | "warning" | "error") => {
+          self.uiNotifications.push({ message, type });
+        },
+        setStatus: (key: string, text: string | undefined) => {
+          self.uiStatuses.push({ key, text });
+        },
+      },
     };
+  }
+
+  /** Records exec calls (ticket 07 no-auto-open negative control). NOT on
+   *  WebuiHost — the wiring cannot call it through the typed host. */
+  async exec(_command: string, _args: string[]): Promise<{ code: number; stderr: string }> {
+    this.execCalls++;
+    return { code: 0, stderr: "" };
   }
 }
 
@@ -286,6 +317,20 @@ describe("wireWebui live smoke — Tier A", () => {
       "ws denial never settled"
     );
     expect(opened).toBe(false);
+  });
+
+  it("G) session_start announces the resolved URL via ctx.ui, and does NOT auto-open", async () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", {}, pi.ctx());
+    // The announce uses the REAL resolved URL (live ephemeral port, not the
+    // literal 0). ctx.ui.notify + setStatus each fire once.
+    expect(pi.uiNotifications).toEqual([
+      { message: `webui: ${server.url}`, type: "info" },
+    ]);
+    expect(pi.uiStatuses).toEqual([{ key: "webui", text: server.url }]);
+    // No auto-open: the wiring never calls pi.exec (the host interface exposes
+    // no exec). The exec recorder is a belt-and-suspenders negative control.
+    expect(pi.execCalls).toBe(0);
   });
 });
 

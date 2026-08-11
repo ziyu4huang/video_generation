@@ -257,6 +257,18 @@ describe("wireWebui — lifecycle", () => {
     expect(server.hasSession()).toBe(false);
     expect(server.stopCalls).toBe(0); // server survives (persistent co-frontend)
   });
+
+  test("session_start announces the resolved URL via ctx.ui (notify + setStatus)", () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", { type: "session_start", reason: "startup" });
+    // FakeWebServer.url is "http://fake.local/".
+    expect(pi.ctx.notifications).toEqual([
+      { message: "webui: http://fake.local/", type: "info" },
+    ]);
+    expect(pi.ctx.statuses).toEqual([
+      { key: "webui", text: "http://fake.local/" },
+    ]);
+  });
 });
 
 describe("wireWebui — inbound dispatch", () => {

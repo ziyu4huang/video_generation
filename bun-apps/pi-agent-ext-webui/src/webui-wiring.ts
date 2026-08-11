@@ -54,6 +54,30 @@ export interface RenderHostEvents {
 }
 
 /**
+ * The TUI UI surface the announce uses (ticket 07 D3/D4). Mirrors exactly the
+ * two ExtensionUIContext members the announce calls (verified against the SDK
+ * dist .d.ts): notify(message, type) + setStatus(key, text). `ui` lives on the
+ * SESSION CONTEXT (the 2nd arg to session_start), NOT on the host — the SDK
+ * ExtensionAPI has no `ui` member; ExtensionContext does. Narrow on purpose so
+ * a MockPi ctx stub is tiny; the real ExtensionContext is a structural superset.
+ */
+export interface WebuiUi {
+  notify(message: string, type?: "info" | "warning" | "error"): void;
+  setStatus(key: string, text: string | undefined): void;
+}
+
+/**
+ * The session-context slice the wiring touches: abort() (unchanged — the
+ * dispatch closure + bindSession still use it) + ui (new — the announce
+ * channel). Widening this UNDOES the prior `ctx as { abort(): void }` downcast
+ * so session_start can reach ctx.ui (specs/07 D3).
+ */
+export interface WebuiSessionCtx {
+  abort(): void;
+  ui: WebuiUi;
+}
+
+/**
  * The minimal pi host surface wireWebui touches: a many-event `on` registrar,
  * `sendUserMessage`, plus the ticket-06 render seams (`events` + `registerTool`).
  * Narrow on purpose so a MockPi in tests is tiny; the real {@link ExtensionAPI}
@@ -255,9 +279,19 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // lifecycle — lazy server start on first session_start; re-point on subsequent.
   reg("session_start", (_event, ctx) => {
     server.start();
-    const sessionCtx = ctx as { abort(): void };
+    const sessionCtx = ctx as WebuiSessionCtx;
     server.bindSession(pi, sessionCtx);
     bound = { pi, ctx: sessionCtx };
+    // ticket 07 announce (specs/07 D3): surface the RESOLVED URL to the TUI user
+    // via the SDK ui surface (notify + setStatus). NO console.log (it does not
+    // reach the TUI user — debugging only); NO auto-open (the host exposes no
+    // exec). server.url is read AFTER start(), so it reflects the bound port
+    // (ephemeral or pinned — resolved via resolvePort in T2). start() is
+    // idempotent + the singleton persists, so re-announces on
+    // reload/new/resume/fork show the same stable URL.
+    const url = server.url;
+    sessionCtx.ui.notify(`webui: ${url}`, "info");
+    sessionCtx.ui.setStatus("webui", url);
   });
   reg("session_shutdown", () => {
     controller.handleShutdown();

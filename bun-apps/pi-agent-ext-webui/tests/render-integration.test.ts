@@ -12,6 +12,7 @@ import {
   type WebuiHost,
   type WebuiWiring,
   type RenderHostEvents,
+  type WebuiUi,
 } from "../src/webui-wiring.js";
 
 // --- harness (copied + extended from wiring-live-smoke.test.ts) ------------
@@ -96,9 +97,22 @@ class MockPi implements WebuiHost {
     const h = this.handlers.get(event);
     return h ? h(payload, ctx) : undefined;
   }
-  ctx(): { abort(): void } {
+  ctx(): { abort(): void; ui: WebuiUi } {
     const self = this;
-    return { abort() { self.aborts++; } };
+    return {
+      abort() {
+        self.aborts++;
+      },
+      ui: {
+        notify: (_message: string, _type?: "info" | "warning" | "error") => {
+          /* announce recording not asserted in this suite; stub satisfies the
+           * widened WebuiSessionCtx so session_start can reach ctx.ui. */
+        },
+        setStatus: (_key: string, _text: string | undefined) => {
+          /* same */
+        },
+      },
+    };
   }
 }
 

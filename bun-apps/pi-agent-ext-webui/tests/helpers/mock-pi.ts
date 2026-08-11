@@ -14,7 +14,7 @@
  * The mock ctx mirrors the slice of ExtensionContext the wiring touches:
  * `abort()`.
  */
-import type { RenderHostEvents } from "../../src/webui-wiring.js";
+import type { RenderHostEvents, WebuiUi } from "../../src/webui-wiring.js";
 
 export type AnyHandler = (event: any, ctx: any) => any;
 
@@ -27,12 +27,14 @@ export class MockPi {
   readonly registeredTools: unknown[] = [];
   /** Shared event bus (ticket 06 render channel "webui:render"). */
   readonly events: RenderHostEvents;
-  /** Mock session context (the second arg passed to handlers). */
-  readonly ctx = {
-    abortCalls: 0,
-    abort(): void {
-      this.abortCalls++;
-    },
+  /** Mock session context (the second arg passed to handlers). Adds a `ui`
+   *  stub (ticket 07) recording notify/setStatus for announce assertions. */
+  readonly ctx: {
+    abortCalls: number;
+    abort(): void;
+    notifications: Array<{ message: string; type?: string }>;
+    statuses: Array<{ key: string; text: string | undefined }>;
+    ui: WebuiUi;
   };
 
   constructor() {
@@ -51,6 +53,27 @@ export class MockPi {
       },
       emit(channel, data) {
         channels.get(channel)?.forEach((h) => h(data));
+      },
+    };
+    // ticket 07: ctx gains a ui stub that records announce calls. The arrays
+    // are captured by the ui closures AND exposed on ctx (same references), so
+    // pi.ctx.notifications / pi.ctx.statuses reflect every announce in tests.
+    const notifications: Array<{ message: string; type?: string }> = [];
+    const statuses: Array<{ key: string; text: string | undefined }> = [];
+    this.ctx = {
+      abortCalls: 0,
+      notifications,
+      statuses,
+      abort(): void {
+        this.abortCalls++;
+      },
+      ui: {
+        notify: (message, type) => {
+          notifications.push({ message, type });
+        },
+        setStatus: (key, text) => {
+          statuses.push({ key, text });
+        },
       },
     };
   }
