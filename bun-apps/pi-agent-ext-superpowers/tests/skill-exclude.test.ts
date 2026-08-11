@@ -10,10 +10,10 @@ import { superpowersExtension } from "../src/index.js";
  * Phase-3 A/B-tests whether the LLM still behaves well when a Superpowers
  * skill is UNREGISTERED. `verification-before-completion` passed clean (the
  * model resists confidence-escalation without it), so it is excluded by DEFAULT
- * — `verification-before-completion` (~900 tok, Phase-3 clean-pass) and
- * `using-superpowers` (~763 tok, bootstrap dedup — its body is already injected
- * by the bootstrap). See ADR-0008. Other skills are unloaded only when listed
- * in `PI_SUPERPOWERS_SKILL_EXCLUDE`.
+ * — `verification-before-completion` (~121 tok advertisement, Phase-3
+ * clean-pass) and `using-superpowers` (~96 tok advertisement, bootstrap dedup —
+ * its body is already injected by the bootstrap). See ADR-0008. Other skills
+ * are unloaded only when listed in `PI_SUPERPOWERS_SKILL_EXCLUDE`.
  * `PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS=0` suppresses the default (e.g. a
  * probe fat-run that must load every skill).
  *

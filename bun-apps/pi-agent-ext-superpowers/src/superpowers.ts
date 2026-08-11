@@ -29,14 +29,17 @@ export const SKILL_EXCLUDE_ENV = "PI_SUPERPOWERS_SKILL_EXCLUDE";
 
 /**
  * Skills UNREGISTERED by default (never advertised via `resources_discover`),
- * each for a distinct reason — see ADR-0008 for the full policy:
- *   - `verification-before-completion` (~900 tok) — Phase-3 clean-pass: the
- *     model resists confidence-escalation even without this skill, so dropping
- *     it costs ~zero behavior.
- *   - `using-superpowers` (~763 tok) — bootstrap dedup: its full body is
- *     already injected as the bootstrap by {@link getBootstrapContent}, which
- *     also instructs the agent not to load it again, so advertising it
- *     duplicates the content for ~zero behavioral gain.
+ * each for a distinct reason — see ADR-0008 for the full policy. (Advertisement
+ * cost = `<name>`+`<description>`+`<location>` injected per skill by pi core's
+ * `formatSkillsForPrompt`; bodies are read on-demand, never injected by
+ * advertisement.)
+ *   - `verification-before-completion` (~121 tok advertisement) — Phase-3
+ *     clean-pass: the model resists confidence-escalation even without this
+ *     skill, so dropping it costs ~zero behavior.
+ *   - `using-superpowers` (~96 tok advertisement) — bootstrap dedup: its full
+ *     body is already injected as the bootstrap by {@link getBootstrapContent},
+ *     which also instructs the agent not to load it again, so advertising it
+ *     is a redundant pointer for ~zero behavioral gain.
  * Override via the env list ({@link SKILL_EXCLUDE_ENV}), or disable the
  * defaults entirely via {@link DEFAULTS_DISABLE_ENV}.
  */
