@@ -34,38 +34,48 @@ import { runCli } from "../dispatch.ts";
  * nothing has touched process.exitCode and assert exit 0 on success paths.
  */
 describe("runCli — process.exitCode propagation", () => {
-	const restore = (saved: typeof process.exitCode) => {
+	// runCli() also exports PI_SELF_ENTRY_PREFIX=cli for pi-agent-ext-subagent's
+	// getPiInvocation() and never restores it — correct for the real entry, which
+	// process.exit()s immediately, but these tests call runCli() IN-PROCESS. Bun
+	// shares one process across a suite, so without this the var would leak into
+	// every later test file. Same class of leak as the process.exitCode one above.
+	const restore = (saved: typeof process.exitCode, savedPrefix: string | undefined) => {
 		process.exitCode = typeof saved === "number" ? saved : 0;
+		if (savedPrefix === undefined) delete process.env.PI_SELF_ENTRY_PREFIX;
+		else process.env.PI_SELF_ENTRY_PREFIX = savedPrefix;
 	};
 
 	test("a command that set process.exitCode = 1 without throwing returns 1", async () => {
 		const saved = process.exitCode;
+		const savedPrefix = process.env.PI_SELF_ENTRY_PREFIX;
 		try {
 			// Simulate doctor/zk-query/kcard-loop's non-throwing failure report.
 			process.exitCode = 1;
 			expect(await runCli(["version"])).toBe(1);
 		} finally {
-			restore(saved);
+			restore(saved, savedPrefix);
 		}
 	});
 
 	test("an explicit process.exitCode = 0 returns 0", async () => {
 		const saved = process.exitCode;
+		const savedPrefix = process.env.PI_SELF_ENTRY_PREFIX;
 		try {
 			process.exitCode = 0;
 			expect(await runCli(["version"])).toBe(0);
 		} finally {
-			restore(saved);
+			restore(saved, savedPrefix);
 		}
 	});
 
 	test("a non-zero code other than 1 is propagated verbatim", async () => {
 		const saved = process.exitCode;
+		const savedPrefix = process.env.PI_SELF_ENTRY_PREFIX;
 		try {
 			process.exitCode = 3;
 			expect(await runCli(["version"])).toBe(3);
 		} finally {
-			restore(saved);
+			restore(saved, savedPrefix);
 		}
 	});
 });
