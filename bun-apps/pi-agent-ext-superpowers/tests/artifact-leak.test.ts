@@ -4,6 +4,16 @@
  * git-tracked (`git ls-files`), so local gitignored scratch (e.g. `.superpowers/sdd/`
  * from an SDD run) never false-reds the suite on otherwise-clean main. Runs in the
  * ext's `bun run test` matrix (ci.yml:111) so a committed leak fails CI.
+ *
+ * PORTABILITY-GUARDED: this suite spawns `git` (`ls-files`) and coreutils
+ * (`mkdir`/`touch`/`rm`/`rmdir`). `git` + coreutils are present on every CI runner
+ * and dev machine, and `git ls-files` is a read-only query against the repo index,
+ * so these spawns are CI-safe and NOT machine-coupled host-binary probes (unlike
+ * spawning ffmpeg / a built swift binary / run.py, which may be absent). The
+ * mkdir/touch/rm/rmdir pair writes only to the gitignored `.superpowers/sdd/plan/`
+ * scratch space and is reverted in a `finally`. The marker attests this so the
+ * portability audit (`scripts/test-portability-audit.sh --strict`) classifies the
+ * file GUARDED, not UNGATED P2.
  */
 import { expect, test } from "bun:test";
 import { lstatSync } from "node:fs";
