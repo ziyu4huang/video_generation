@@ -560,6 +560,11 @@ async function dispatch(argv: string[]): Promise<void> {
  * exclusively through pi-agent's single binary.
  */
 export async function runCli(argv: string[]): Promise<number> {
+  // Tell pi-agent-ext-subagent's getPiInvocation() to re-enter the `cli`
+  // namespace when it spawns a child from process.argv[1]. Without this the
+  // child lands on the TUI root and inherits the full static-extension set
+  // this entry deliberately does not load (docs/adr/0002).
+  process.env.PI_SELF_ENTRY_PREFIX = "cli";
   try {
     await dispatch(argv);
     // Honour the `process.exitCode = 1` convention used by doctor / zk-query /

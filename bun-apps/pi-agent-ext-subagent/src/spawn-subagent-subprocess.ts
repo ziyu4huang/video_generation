@@ -63,20 +63,29 @@ export type SpawnFn = (
  *   3. otherwise → THROW. Self-resolution is impossible and we refuse to fall
  *      back to a PATH lookup, surfacing the problem loudly instead of silently.
  *
+ * `entryPrefix` (optional) is a namespace token spliced in front of the pi
+ * flags in BOTH success branches — see the comment in the body.
+ *
  * Generalized from pi-obsidian's `getPiInvocation`.
  */
 export function resolvePiInvocation(
   currentScript: string | undefined,
   execPath: string,
   extra: string[],
+  entryPrefix?: string,
 ): { command: string; args: string[] } {
+  // A host whose entry namespaces its non-interactive mode behind a token (e.g.
+  // pi-agent's `cli`) sets PI_SELF_ENTRY_PREFIX so the child re-enters the SAME
+  // mode as the parent. Without it a CLI-parented child would land on the host's
+  // default (TUI/print) entry and inherit an extension set the parent curated away.
+  const prefix = entryPrefix ? [entryPrefix] : [];
   const isBunVirtual = currentScript?.startsWith("/$bunfs/root/");
   if (currentScript && !isBunVirtual && existsSync(currentScript)) {
-    return { command: execPath, args: [currentScript, ...extra] };
+    return { command: execPath, args: [currentScript, ...prefix, ...extra] };
   }
   const execName = (execPath.split(sep).pop() ?? "").toLowerCase();
   if (!/^(node|bun)(\.exe)?$/.test(execName)) {
-    return { command: execPath, args: extra };
+    return { command: execPath, args: [...prefix, ...extra] };
   }
   throw new Error(
     `cannot self-resolve a pi entry for the subprocess subagent — refusing to fall back to a bare "pi" on PATH. ` +
@@ -91,7 +100,14 @@ export function resolvePiInvocation(
  * resolver stays unit-testable without touching `process.*`.
  */
 export function getPiInvocation(extra: string[]): { command: string; args: string[] } {
-  return resolvePiInvocation(process.argv[1], process.execPath, extra);
+  return resolvePiInvocation(
+    process.argv[1],
+    process.execPath,
+    extra,
+    // `|| undefined`, not `?? undefined`: an EMPTY env var must mean "no prefix",
+    // not a literal "" token spliced into the child argv.
+    process.env.PI_SELF_ENTRY_PREFIX || undefined,
+  );
 }
 
 /** Options for the child pi argv. All optional — caller controls everything. */

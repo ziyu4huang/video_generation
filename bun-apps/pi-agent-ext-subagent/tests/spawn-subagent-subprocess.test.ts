@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import {
   buildSubagentArgs,
@@ -412,4 +412,29 @@ test("telemetry: no registration when inFlight/persistence unset (opt-in default
     }),
   });
   expect(result.exitCode).toBe(0);
+});
+
+// ---- entry prefix (host namespaces its non-interactive mode) --------------
+
+describe("resolvePiInvocation entry prefix", () => {
+  test("no prefix by default — child argv is unchanged", () => {
+    const { args } = resolvePiInvocation(import.meta.path, "/usr/bin/bun", ["-p", "hi"]);
+    expect(args).toEqual([import.meta.path, "-p", "hi"]);
+  });
+
+  test("an entry prefix is spliced between the script and the pi flags", () => {
+    const { args } = resolvePiInvocation(import.meta.path, "/usr/bin/bun", ["-p", "hi"], "cli");
+    expect(args).toEqual([import.meta.path, "cli", "-p", "hi"]);
+  });
+
+  test("a compiled binary (argv[1] is the $bunfs virtual path) still gets the prefix", () => {
+    const { command, args } = resolvePiInvocation(
+      "/$bunfs/root/pi-agent",
+      "/opt/pi-agent/pi-agent",
+      ["-p", "hi"],
+      "cli",
+    );
+    expect(command).toBe("/opt/pi-agent/pi-agent");
+    expect(args).toEqual(["cli", "-p", "hi"]);
+  });
 });
