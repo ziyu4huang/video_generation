@@ -34,7 +34,7 @@ import { MutexController, type MutexNotifier } from "./mutex-controller.js";
 import { DEFAULT_WATCHDOG, type InputSource, type MutexClock, type MutexTimer } from "./mutex.js";
 import { BroadcastingNotifier } from "./notifier.js";
 import { WebTransport } from "./web-transport.js";
-import { WebServer, type CommandHandler } from "./web-server.js";
+import { WebServer, type CommandHandler, type HttpRouteHandler } from "./web-server.js";
 import type { Broadcaster } from "./broadcaster.js";
 import type { ClientFrame, DispatchAction, WebFrame } from "./protocol.js";
 
@@ -63,6 +63,7 @@ export interface WebuiServer extends Broadcaster {
   dropSession(): void;
   hasSession(): boolean;
   setCommandHandler(cb: CommandHandler | null): void;
+  setHttpRoutes(handler: HttpRouteHandler | null): void;
   stop(): void;
 }
 

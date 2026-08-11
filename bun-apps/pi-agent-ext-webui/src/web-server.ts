@@ -77,6 +77,18 @@ export type CommandHandler = (
   reply: (frame: WebFrame) => void
 ) => void;
 
+/**
+ * Additive HTTP route handler seam — set by extensions/webui.ts via
+ * {@link WebServer.setHttpRoutes} (ticket 06 D3). Consulted inside `fetch()`
+ * AFTER the origin guard and BEFORE the hardcoded /health,/,/ws branches. The
+ * handler returns `null` to fall through. Returns loopback-guarded responses
+ * (the origin guard already ran).
+ */
+export type HttpRouteHandler = (
+  req: Request,
+  srv: Server<undefined>
+) => Response | null;
+
 export interface WebServerOptions {
   /** Requested port; 0 (default) = OS-assigned ephemeral. */
   port?: number;
@@ -116,6 +128,7 @@ export class WebServer implements Broadcaster {
   private readonly clients = new Set<ServerWebSocket<unknown>>();
   private session: SessionRef | null = null;
   private onCommand: CommandHandler | null = null;
+  private httpRoutes: HttpRouteHandler | null = null;
   private readonly requestedPort: number;
   private readonly hostname: string;
 
@@ -162,6 +175,14 @@ export class WebServer implements Broadcaster {
     this.onCommand = cb;
   }
 
+  /**
+   * Inject additive HTTP routes (ticket 06 D3). `fetch()` consults this handler
+   * after the origin guard and before the hardcoded branches; `null` removes it.
+   */
+  setHttpRoutes(handler: HttpRouteHandler | null): void {
+    this.httpRoutes = handler;
+  }
+
   /** The actual bound port (throws if not started). */
   get port(): number {
     if (!this.server) throw new Error("WebServer not started");
@@ -203,6 +224,10 @@ export class WebServer implements Broadcaster {
     const origin = req.headers.get("origin");
     if (origin && !originAllowed(origin, req.headers.get("host"))) {
       return new Response("forbidden", { status: 403 });
+    }
+    if (this.httpRoutes) {
+      const res = this.httpRoutes(req, srv);
+      if (res) return res;
     }
     if (url.pathname === "/health") {
       return new Response("ok", {

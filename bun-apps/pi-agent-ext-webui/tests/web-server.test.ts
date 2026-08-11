@@ -466,3 +466,52 @@ describe("WebServer inbound seam", () => {
     ws.close();
   });
 });
+
+// --- WebServer setHttpRoutes (ticket 06 additive route seam) ---------------
+
+describe("WebServer setHttpRoutes", () => {
+  it("a registered handler answers its path", async () => {
+    const s = makeServer({ port: 0 });
+    s.start();
+    s.setHttpRoutes((req) => {
+      if (new URL(req.url).pathname === "/x") return new Response("from-route");
+      return null;
+    });
+    const res = await fetch(`${s.url}/x`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("from-route");
+  });
+
+  it("a null return falls through to the existing /health route", async () => {
+    const s = makeServer({ port: 0 });
+    s.start();
+    s.setHttpRoutes(() => null);
+    const res = await fetch(`${s.url}/health`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("ok");
+  });
+
+  it("with no handler set, existing routes are unchanged", async () => {
+    const s = makeServer({ port: 0 });
+    s.start();
+    const res = await fetch(`${s.url}/health`);
+    expect(res.status).toBe(200);
+  });
+
+  it("routes are still origin-guarded (non-loopback Origin -> 403)", async () => {
+    const s = makeServer({ port: 0 });
+    s.start();
+    s.setHttpRoutes(() => new Response("x"));
+    const res = await fetch(`${s.url}/anything`, { headers: { Origin: "http://evil.com" } });
+    expect(res.status).toBe(403);
+  });
+
+  it("setHttpRoutes(null) removes a previously-registered handler", async () => {
+    const s = makeServer({ port: 0 });
+    s.start();
+    s.setHttpRoutes(() => new Response("custom", { status: 418 }));
+    s.setHttpRoutes(null);
+    const res = await fetch(`${s.url}/anything`);
+    expect(res.status).toBe(404); // falls back to the default not-found branch
+  });
+});
