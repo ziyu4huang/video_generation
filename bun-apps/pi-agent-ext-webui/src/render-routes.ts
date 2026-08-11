@@ -25,6 +25,7 @@
 import type { Server } from "bun";
 import type { RenderService, RenderView } from "./render-service.js";
 import { renderMarkdown } from "./render-markdown.js";
+import { RENDER_SHELL_HTML } from "./render-shell.js";
 
 export type RenderRouteHandler = (
   req: Request,
@@ -48,6 +49,12 @@ export function createRenderRoutes(registry: RenderService): RenderRouteHandler 
   return (req) => {
     const url = new URL(req.url);
     const { pathname } = url;
+
+    if (req.method === "GET" && pathname === "/") {
+      return new Response(RENDER_SHELL_HTML, {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
 
     if (req.method === "GET" && pathname === "/api/views") {
       return json(registry.listViews().map(viewSummary));
