@@ -6,7 +6,15 @@ manual-`bun test` trust model into an enforced gate.
 
 ## Branch protection — the 22 required checks on `main`
 
-`main` is under branch protection: the **22 checks** below are **required**
+> **STATUS (2026-08-12): NOT CURRENTLY APPLIED — this section is the recipe, not
+> the live state.** GitHub Actions is disabled here (`.github/workflows/` holds
+> only `ci.yml.disabled`, so no check ever reports), and `main` carries no
+> protection rule at all — `gh api repos/ziyu4huang/video_generation/branches/main/protection`
+> returns 404. Everything below describes what to re-apply if CI is turned back
+> on. Until then the gates are a **soft** constraint: run the suites locally.
+> Verify before assuming, rather than inferring the live state from this file.
+
+When applied, `main` is under branch protection: the **22 checks** below are **required**
 (strict — no stale checks; branches must be up-to-date) before any merge,
 including the admin's (`enforce_admins`). A PR with a failing check is BLOCKED
 (merge button disabled); a green PR is mergeable. Applied via `gh api` (a repo
