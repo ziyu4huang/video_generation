@@ -43,6 +43,22 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# ── sibling stack-health baseline (the `full` tier) ───────────────────────
+# Sibling bun-apps/<pkg> packages whose suites run as part of `full`. These are
+# NAMES, not paths, so nothing typechecks them — this list previously read
+# `pi-obsidian pi-knowledge-card`, directories that have never existed, and a
+# skip-if-absent branch swallowed the miss for months while reporting green.
+#
+# `--list-siblings` exists so the list has an EXECUTOR:
+# bun-apps/tests/ci-workflow-references.test.ts shells out to it and asserts
+# every name resolves to a real bun-apps/<pkg>/package.json. Keep that flag
+# working — it is the only thing standing between this list and silent rot.
+SIBLING_PKGS=(
+	pi-agent-ext-obsidian
+	pi-agent-ext-knowledge-card
+	pi-agent-ext-file2md
+)
+
 # ── colors ────────────────────────────────────────────────────────────────
 G() { printf '\033[32m%s\033[0m' "$1"; }
 R() { printf '\033[31m%s\033[0m' "$1"; }
@@ -58,6 +74,9 @@ while [ $# -gt 0 ]; do
 		--effort=*) EFFORT="${1#*=}"; shift ;;
 		--effort) EFFORT="${2:-}"; shift 2 ;;
 		-l|--list) LIST=1; shift ;;
+		# Machine-readable: one sibling package name per line. Consumed by the
+		# CI-reference guard test; keep the output one-bare-name-per-line.
+		--list-siblings) printf '%s\n' "${SIBLING_PKGS[@]}"; exit 0 ;;
 		quick|medium|high|readonly|smoke|full|0|1|2|3) EFFORT="$1"; shift ;;
 		*) EXTRA+=("$1"); shift ;;
 	esac
@@ -161,17 +180,28 @@ smoke_step() {
 	[ "$SMOKE_SKIPPED" -eq 1 ] && echo "$(Y '· smoke skipped') — LM Studio not running on localhost:1234 (start it for the live check)"
 }
 
-# Sibling pi-* suites for the "full" stack-health check. pi-agent-ext-file2md's script wraps
-# --isolate (bare `bun test` shows 12 mock-leak false failures); others run plain.
+# Sibling extension suites for the "full" stack-health check.
+#
+# Always the package's CANONICAL `bun run test` script, never a bare `bun test`:
+# each of these encodes a flag the bare form gets wrong (file2md needs --isolate
+# or 12 mock-leak false failures appear; obsidian scopes to extensions/__tests__/).
+# See CLAUDE.md — "Always run a package's canonical `bun run test` script".
+#
+# An absent directory is a HARD FAILURE, not a skip. This loop previously named
+# `pi-obsidian` / `pi-knowledge-card` — directories that have never existed (the
+# real ones are `pi-agent-ext-*`) — and a `return 0` skip swallowed both, so the
+# "sibling stack-health baseline" silently tested one package instead of three
+# while reporting green. bun-apps/tests/ci-workflow-references.test.ts now pins
+# these names; if one moves again, that guard fails before this loop runs.
 run_pkg_unit() {
 	local pkg="$1"
 	local d="$SCRIPT_DIR/../$pkg"
-	[ -d "$d" ] || { echo "$(Y "· skip $pkg") (dir absent)" >&2; return 0; }
-	if [ "$pkg" = "pi-agent-ext-file2md" ]; then
-		( cd "$d" && bun run test ${EXTRA[@]+"${EXTRA[@]}"} )
-	else
-		( cd "$d" && bun test ${EXTRA[@]+"${EXTRA[@]}"} )
+	if [ ! -d "$d" ]; then
+		echo "$(R "✗ $pkg: bun-apps/$pkg/ does not exist")" >&2
+		echo "  the sibling list in this script names a package that is gone or renamed." >&2
+		return 1
 	fi
+	( cd "$d" && bun run test ${EXTRA[@]+"${EXTRA[@]}"} )
 }
 
 # Run a named step, capture rc + elapsed, color the summary line, fold OVERALL.
@@ -224,7 +254,7 @@ case "$EFFORT" in
 		echo "$(Y "▶ live local-LLM smoke (skips when LM Studio is down)")"
 		smoke_step
 		echo "$(Y "▶ sibling stack-health baseline")"
-		for pkg in pi-obsidian pi-knowledge-card pi-agent-ext-file2md; do
+		for pkg in "${SIBLING_PKGS[@]}"; do
 			step "$pkg unit" run_pkg_unit "$pkg"
 		done
 		;;

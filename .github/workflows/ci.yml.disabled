@@ -620,7 +620,8 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────
   # Thrust C — determinism spot-check (cross-RUN flake detector). Runs the
-  # flake-prone subset (pi-agent-ext-hermes-memory, pi-agent-ext-workflow, pi-agent-ext-obsidian)
+  # flake-prone subset (see the `package` matrix below — the same list lives in
+  # scripts/test-determinism-spotcheck.sh, and a guard test pins them equal)
   # 3× in sequence and flags any differing pass/fail outcome as a flake. v1 is
   # INFORMATIONAL (continue-on-error) until the false-positive rate is ≈ 0; flip
   # to blocking once trusted — same rollout discipline as the portability audit.
@@ -654,6 +655,14 @@ jobs:
           - pi-agent-ext-hermes-memory
           - pi-agent-ext-workflow
           - pi-agent-ext-obsidian
+          # Added after a full local-matrix run failed once ("examples re-renders
+          # every bundled example IR to HTML" expected >=5, got 0) and then went
+          # green 6+ times on identical code. The test asserts a DELTA in the real
+          # vendored/examples/ dir, so it is cross-RUN coupled by construction.
+          # Observe it here rather than diagnose it by guesswork. The package list
+          # in scripts/test-determinism-spotcheck.sh must match this one — a guard
+          # test asserts that.
+          - pi-agent-ext-archify
     steps:
       # "should this instance's steps actually run" — same gate as the `tests`
       # matrix above (see that job's steps comment for why this can't move to

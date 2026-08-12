@@ -19,6 +19,24 @@
  *      LOCAL `uses:` action has an action.yml).
  *   3. Every `bun-apps/*` workspace package has a matrix row — a NEW package
  *      cannot be invisible to CI.
+ *   4. The `determinism-spotcheck` matrix and the package list inside
+ *      scripts/test-determinism-spotcheck.sh name the same real packages.
+ *   5. run-test.sh's `full`-tier sibling list names real packages.
+ *   6. Every `--flag` a shell script passes to deploy.ts is one deploy.ts knows.
+ *
+ * WHY 4-6 EXIST (shell scripts, not the workflow)
+ *   The same rot lives in shell. Three confirmed instances, none of which the
+ *   workflow scanner above can see, because the reference is a bare NAME rather
+ *   than a path:
+ *     - run-test.sh's `full` tier looped over `pi-obsidian` / `pi-knowledge-card`
+ *       — directories that have never existed — and a skip-if-absent branch
+ *       swallowed both, so a 3-package baseline tested 1 and reported green.
+ *     - verify-deploy.sh step 5 called `deploy.ts --verify --writable`; deploy.ts
+ *       rejects unknown flags, so the documented full run exited 1 on step 5's
+ *       first command every time it has ever been run.
+ *     - the spot-check package list is duplicated between ci.yml.disabled and
+ *       test-determinism-spotcheck.sh; a name in one and not the other either
+ *       never runs (matrix-only) or exits 2 (script-only).
  *
  * ONE PARSER, NOT TWO
  *   The matrix is read by shelling out to `scripts/ci-local.sh --tsv` — the local
@@ -44,6 +62,9 @@ const BUN_APPS = resolve(import.meta.dir, "..");
 const REPO_ROOT = resolve(BUN_APPS, "..");
 const WORKFLOW = join(REPO_ROOT, ".github", "workflows", "ci.yml.disabled");
 const CI_LOCAL = join(REPO_ROOT, "scripts", "ci-local.sh");
+const SPOTCHECK = join(REPO_ROOT, "scripts", "test-determinism-spotcheck.sh");
+const RUN_TEST = join(BUN_APPS, "pi-agent", "run-test.sh");
+const DEPLOY_TS = join(BUN_APPS, "pi-agent", "scripts", "deploy.ts");
 
 interface MatrixRow {
 	pkg: string;
@@ -244,6 +265,171 @@ describe("ci.yml.disabled — every referenced path resolves", () => {
 		);
 		const detail = missing.map((r) => `${r.raw} (job "${r.job}")`);
 		expect(detail, `BROKEN LOCAL ACTION REFERENCE(S): ${detail.join("; ")}`).toEqual([]);
+	});
+});
+
+// ── shell-script references (assertions 4-6) ────────────────────────────────
+
+/**
+ * The spot-check script's OWN package list, obtained by executing it — same
+ * "one parser, not two" rule as readMatrix(). Passing an unknown package makes
+ * it exit 2 after printing `unknown package 'x'. Known: a b c`; that error path
+ * runs no tests, so this is cheap. A name chosen to never be a real package.
+ */
+function spotcheckScriptPackages(): string[] {
+	const r = spawnSync("bash", [SPOTCHECK, "__guard_probe_not_a_package__"], { encoding: "utf8" });
+	if (r.status !== 2) {
+		throw new Error(
+			`test-determinism-spotcheck.sh should exit 2 on an unknown package, got ${r.status}. ` +
+				"Its unknown-package error path is how this guard reads the list — keep it, " +
+				`including the \`Known: <names>\` line. stderr: ${(r.stderr ?? "").trim()}`,
+		);
+	}
+	const line = (r.stderr ?? "").split("\n").find((l) => l.includes("Known:"));
+	if (line === undefined) throw new Error(`no "Known:" line in spot-check stderr: ${(r.stderr ?? "").trim()}`);
+	return line.slice(line.indexOf("Known:") + "Known:".length).trim().split(/\s+/).filter((s) => s !== "");
+}
+
+/** The `determinism-spotcheck` job's matrix package list, from the workflow. */
+function spotcheckMatrixPackages(): string[] {
+	const pkgs = WORKFLOW_DOC.jobs?.["determinism-spotcheck"]?.strategy?.matrix?.package;
+	if (!Array.isArray(pkgs)) throw new Error("determinism-spotcheck job has no strategy.matrix.package list");
+	return pkgs as string[];
+}
+
+/** run-test.sh's `full`-tier sibling list, obtained by executing it. */
+function runTestSiblings(): string[] {
+	const r = spawnSync("bash", [RUN_TEST, "--list-siblings"], { encoding: "utf8" });
+	if (r.status !== 0) {
+		throw new Error(`run-test.sh --list-siblings exited ${r.status}: ${(r.stderr ?? "").trim()}`);
+	}
+	return (r.stdout ?? "").split("\n").map((l) => l.trim()).filter((l) => l !== "");
+}
+
+/** Every committed shell script that could reference a package or a script flag. */
+function shellScripts(): string[] {
+	const out: string[] = [];
+	const scriptsDir = join(REPO_ROOT, "scripts");
+	for (const e of readdirSync(scriptsDir)) if (e.endsWith(".sh")) out.push(join(scriptsDir, e));
+	const hooks = join(REPO_ROOT, ".githooks");
+	if (existsSync(hooks)) for (const e of readdirSync(hooks)) out.push(join(hooks, e));
+	for (const pkg of workspacePackages()) {
+		for (const e of readdirSync(join(BUN_APPS, pkg))) {
+			if (e.endsWith(".sh")) out.push(join(BUN_APPS, pkg, e));
+		}
+	}
+	return out.sort();
+}
+
+/** deploy.ts's KNOWN_FLAGS, read from its definition site (not a copy). */
+function deployKnownFlags(): string[] {
+	const src = readFileSync(DEPLOY_TS, "utf8");
+	const block = src.match(/const KNOWN_FLAGS = new Set\(\[([\s\S]*?)\]\)/);
+	if (block === null) {
+		throw new Error(
+			"could not find `const KNOWN_FLAGS = new Set([...])` in deploy.ts. If the flag " +
+				"declaration was restructured, update this reader — do NOT hand-copy the flag list here.",
+		);
+	}
+	return [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+}
+
+interface DeployCall {
+	file: string;
+	line: number;
+	flags: string[];
+}
+
+/** Every `deploy.ts` invocation in a shell script, with the flags it passes. */
+function deployCalls(): DeployCall[] {
+	const calls: DeployCall[] = [];
+	for (const file of shellScripts()) {
+		const lines = readFileSync(file, "utf8").split("\n");
+		lines.forEach((raw, i) => {
+			// Strip `#` comments: prose ABOUT a flag is not a call passing it.
+			const line = raw.replace(/#.*$/, "");
+			if (!line.includes("deploy.ts")) return;
+			const after = line.slice(line.indexOf("deploy.ts") + "deploy.ts".length);
+			const flags = [...after.matchAll(/(^|\s)(--[A-Za-z][A-Za-z0-9-]*)/g)].map((m) => m[2]);
+			calls.push({ file: file.slice(REPO_ROOT.length + 1), line: i + 1, flags });
+		});
+	}
+	return calls;
+}
+
+describe("determinism-spotcheck — the workflow matrix and the script agree", () => {
+	test("both lists name the same packages (neither can drift alone)", () => {
+		const matrix = [...spotcheckMatrixPackages()].sort();
+		const script = [...spotcheckScriptPackages()].sort();
+		expect(
+			script,
+			"DETERMINISM SPOT-CHECK LIST DRIFT — the `package` matrix in " +
+				".github/workflows/ci.yml.disabled and the ENTRIES list in " +
+				`scripts/test-determinism-spotcheck.sh disagree. matrix=[${matrix.join(", ")}] ` +
+				`script=[${script.join(", ")}]. CI passes one matrix name per job as the script's ` +
+				"only argument: a matrix-only name exits 2 (\"unknown package\") and a script-only " +
+				"name never runs in CI at all. Add the package to BOTH.",
+		).toEqual(matrix);
+	});
+
+	test("every spot-checked package is a real workspace package", () => {
+		const dead = spotcheckMatrixPackages().filter((p) => !existsSync(join(BUN_APPS, p, "package.json")));
+		expect(dead, `DEAD determinism-spotcheck package(s): ${dead.join(", ")}`).toEqual([]);
+	});
+
+	// Vacuity guard: an empty-vs-empty comparison would pass forever.
+	test("the lists are non-empty and include the known flake-prone packages", () => {
+		const matrix = spotcheckMatrixPackages();
+		expect(matrix.length).toBeGreaterThanOrEqual(3);
+		expect(matrix).toContain("pi-agent-ext-workflow");
+	});
+});
+
+describe("run-test.sh — the `full`-tier sibling list names real packages", () => {
+	test("every sibling resolves to bun-apps/<pkg>/package.json (the pi-obsidian class)", () => {
+		const siblings = runTestSiblings();
+		const dead = siblings.filter((p) => !existsSync(join(BUN_APPS, p, "package.json")));
+		expect(
+			dead,
+			`DEAD SIBLING PACKAGE(S) in bun-apps/pi-agent/run-test.sh SIBLING_PKGS: ${dead.join(", ")} — ` +
+				"the `full` tier loops over bare package NAMES, so nothing typechecks them. This list " +
+				"read `pi-obsidian` / `pi-knowledge-card` (the real dirs are `pi-agent-ext-*`) and a " +
+				"skip-if-absent branch swallowed both, so a 3-package baseline silently tested 1 while " +
+				"reporting green. Fix the name, or drop the package from SIBLING_PKGS.",
+		).toEqual([]);
+	});
+
+	// Vacuity guard: `--list-siblings` printing nothing would pass the above.
+	test("the sibling list is non-empty", () => {
+		expect(runTestSiblings().length).toBeGreaterThanOrEqual(3);
+	});
+});
+
+describe("deploy.ts — every flag a shell script passes is a flag it accepts", () => {
+	test("no UNKNOWN deploy.ts flag (the --verify --writable class)", () => {
+		const known = new Set(deployKnownFlags());
+		const bad = deployCalls().flatMap((c) =>
+			c.flags.filter((f) => !known.has(f)).map((f) => `${f} (${c.file}:${c.line})`),
+		);
+		expect(
+			bad,
+			`UNKNOWN deploy.ts FLAG(S) passed from a shell script: ${bad.join(", ")} — ` +
+				`deploy.ts exits 1 on any unrecognised flag (known: ${[...known].join(", ")}), so the ` +
+				"call fails on its FIRST command. verify-deploy.sh step 5 passed `--verify --writable`, " +
+				"flags that have never existed, which means the documented full run has never once " +
+				"reached step 5's assertions. Use a real flag, or add it to KNOWN_FLAGS in deploy.ts.",
+		).toEqual([]);
+	});
+
+	// Vacuity guard: a scanner finding no calls, or a reader finding no flags,
+	// would pass the assertion above forever.
+	test("the scanner finds deploy.ts calls and the reader finds its flags", () => {
+		const calls = deployCalls();
+		expect(calls.length).toBeGreaterThanOrEqual(3);
+		expect(calls.filter((c) => c.flags.length > 0).length).toBeGreaterThanOrEqual(2);
+		expect(calls.map((c) => c.file)).toContain("scripts/verify-deploy.sh");
+		expect(deployKnownFlags()).toContain("--no-freeze");
+		expect(deployKnownFlags().length).toBeGreaterThanOrEqual(5);
 	});
 });
 

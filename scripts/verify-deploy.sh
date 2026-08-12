@@ -6,14 +6,14 @@
 #   2. unit tests               (pure-logic gate, no GPU/model)
 #   3. bundle                   (proves imports resolve → asserts workspace deps)
 #   4. smoke (both entry modes) (proves the built artifact actually boots)
-#   5. deploy --verify          (builds a deploy + boots it from a foreign cwd
-#                                + probes getAllTools / canary tools / 0 conflicts)
+#   5. foreign-cwd deploy       (deploys to a temp dir + boots it from `/`:
+#                                --list-models, cli version, ext doctor)
 #
 # Exits 0 only if every step passes. Fails LOUDLY on the first break so a bad
 # deploy can never slip through silently.
 #
 # Usage:
-#   bash scripts/verify-deploy.sh              # full chain incl. deploy --verify
+#   bash scripts/verify-deploy.sh              # full chain incl. the foreign-cwd deploy
 #   bash scripts/verify-deploy.sh --no-deploy  # skip step 5 (faster; no deploy build)
 #   bash scripts/verify-deploy.sh --no-install # skip step 1 (reuse current node_modules)
 #
@@ -86,18 +86,47 @@ bun dist/pi-agent/pi-agent.js cli version >/dev/null 2>&1 \
   || fail "pi-agent cli version" "step 4b"
 ok "pi-agent cli version"
 
-# ── 5. deploy --verify (boot from a foreign cwd + probe tools) ───────────────
+# ── 5. foreign-cwd deploy (build to a temp dir + boot it from elsewhere) ─────
+#
+# This step used to call `deploy.ts --verify --writable` and then grep the log
+# for "deployed artifact booted". None of those three things has ever existed:
+# deploy.ts rejects unknown flags, so step 5 exited 1 on its FIRST command every
+# single time it ran, and the probe string has no producer anywhere in the repo.
+# The full `bash scripts/verify-deploy.sh` form therefore never passed. Rewritten
+# below against the real surface — `--no-freeze` is the writable-output flag, and
+# the boot probes are the artifact's own commands.
+#
+# What it proves that step 4 does not: step 4 boots dist/ from the repo root,
+# where a stray relative path still resolves. This deploys to a temp dir and
+# boots it from `/` so any cwd-coupled path resolution breaks loudly.
 if [ "$NO_DEPLOY" -eq 1 ]; then
-  echo "${Y}·${X} deploy --verify skipped (--no-deploy)"
+  echo "${Y}·${X} foreign-cwd deploy skipped (--no-deploy)"
 else
-  step "deploy --verify" "(build deploy + boot from /tmp + probe getAllTools)"
+  step "foreign-cwd deploy" "(deploy to a temp dir + boot it from /)"
   DEPLOY_OUT="$(mktemp -d)/pi-agent-verify-deploy"
-  ( cd bun-apps/pi-agent && bun scripts/deploy.ts "$DEPLOY_OUT" --verify --writable \
+  ( cd bun-apps/pi-agent && bun scripts/deploy.ts "$DEPLOY_OUT" --no-freeze \
       >/tmp/vd-deploy.log 2>&1 ) \
-    || { tail -15 /tmp/vd-deploy.log; fail "deploy --verify" "step 5"; }
-  grep -q "deployed artifact booted" /tmp/vd-deploy.log \
-    || { tail -15 /tmp/vd-deploy.log; fail "deploy verify probe" "step 5 (no probe line)"; }
-  ok "deploy --verify green (tools + canaries + 0 conflicts)"
+    || { tail -15 /tmp/vd-deploy.log; fail "deploy to temp dir" "step 5"; }
+  [ -f "$DEPLOY_OUT/pi-agent.js" ] \
+    || fail "$DEPLOY_OUT/pi-agent.js missing after deploy" "step 5"
+  ok "deployed to a temp dir ($(du -h "$DEPLOY_OUT/pi-agent.js" | cut -f1))"
+
+  # Boot from `/` — a foreign cwd with no repo, no node_modules, no .pi/.
+  ( cd / && bun "$DEPLOY_OUT/pi-agent.js" --list-models >/tmp/vd-foreign.log 2>&1 ) \
+    || { tail -15 /tmp/vd-foreign.log; fail "foreign-cwd --list-models" "step 5a"; }
+  ok "foreign-cwd --list-models ($(grep -c '^' /tmp/vd-foreign.log) rows)"
+
+  # The `cli` namespace resolves its own subtree from the deployed artifact.
+  ( cd / && bun "$DEPLOY_OUT/pi-agent.js" cli version >/dev/null 2>&1 ) \
+    || fail "foreign-cwd cli version" "step 5b"
+  ok "foreign-cwd cli version"
+
+  # ext doctor loads every manifest extension and reports cross-extension
+  # tool/command conflicts — the real form of the "0 conflicts" probe the old
+  # phantom `--verify` claimed to run.
+  ( cd / && bun "$DEPLOY_OUT/pi-agent.js" ext doctor >/tmp/vd-extdoctor.log 2>&1 ) \
+    || { tail -20 /tmp/vd-extdoctor.log; fail "foreign-cwd ext doctor" "step 5c"; }
+  ok "foreign-cwd ext doctor (extensions load, 0 conflicts)"
   rm -rf "$DEPLOY_OUT"
 fi
 

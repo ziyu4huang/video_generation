@@ -8,9 +8,9 @@
 # (scripts/test-determinism-audit.sh + .github/TEST-DETERMINISM.md) is the proof.
 #
 # Scoped to the packages with known determinism smells (the audit's D1/D3
-# surface): pi-agent-ext-hermes-memory (former node:test hang), pi-agent-ext-workflow
-# (time/runtime fixtures), pi-agent-ext-obsidian (mtime/time tests). Keeps CI cost bounded
-# — a full-17-package N× run is a follow-up once the subset is clean.
+# surface) — see the ENTRIES list below for the current set and why each is in
+# it. Keeps CI cost bounded; a full-matrix N× run is a follow-up once the subset
+# is clean.
 #
 # Usage (from repo root):
 #   bash scripts/test-determinism-spotcheck.sh            # 3× the flake-prone subset
@@ -36,10 +36,24 @@ emit() { printf '%s\n' "$*"; }
 #   was removed)
 # - pi-agent-ext-workflow: build-first; time/runtime fixtures
 # - pi-agent-ext-obsidian: mtime/time tests (scoped to the portable extensions suite)
+# - pi-agent-ext-archify: one observed non-reproducible failure — the `examples`
+#   subcommand rendered 0 of the expected >=5 HTML files in a full-matrix run,
+#   then went green 6+ consecutive times on identical code. The test reads the
+#   real vendored/examples/ directory before and after the run and asserts a
+#   DELTA, so leftover .html from a prior run makes the delta 0 — a cross-RUN
+#   coupling exactly of the D3 class this job exists to detect. Under observation
+#   rather than diagnosed by guesswork.
+#
+# This list MUST stay in sync with the `determinism-spotcheck` matrix in
+# .github/workflows/ci.yml.disabled — CI passes one package name per matrix job.
+# A name here with no matrix row never runs in CI; a matrix row with no entry
+# here exits 2 ("unknown package"). bun-apps/tests/ci-workflow-references.test.ts
+# asserts the two lists are identical, so the drift cannot go unnoticed.
 ENTRIES=(
 	"pi-agent-ext-hermes-memory	( cd bun-apps/pi-agent-ext-hermes-memory && bun test )"
 	"pi-agent-ext-workflow	( cd bun-apps/pi-agent-ext-workflow && bun run build && bun test )"
 	"pi-agent-ext-obsidian	( cd bun-apps/pi-agent-ext-obsidian && bun test extensions/__tests__/ )"
+	"pi-agent-ext-archify	( cd bun-apps/pi-agent-ext-archify && bun test --isolate )"
 )
 
 FLAKE_DETECTED=0
