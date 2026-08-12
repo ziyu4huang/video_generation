@@ -1,8 +1,9 @@
 ---
 type: grilling
-status: open
+status: closed
 blocked by:
 findings: H1, M9
+resolved: 2026-08-07 — option (b) DELETE: shipped in #1051 (ADR-0006); double-drive risk accepted as user-initiated
 ---
 
 # 01 — Decide & implement the wayfind↔goal/loop mutual-yield (the coordination-fiction epic)

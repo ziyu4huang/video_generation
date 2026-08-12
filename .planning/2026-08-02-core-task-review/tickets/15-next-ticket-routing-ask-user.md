@@ -1,7 +1,7 @@
 ---
 type: task
 status: open
-blocked by: (none)
+blocked by:
 findings: P1
 ---
 

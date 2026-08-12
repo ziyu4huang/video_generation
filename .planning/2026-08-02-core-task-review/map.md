@@ -37,11 +37,11 @@ A prioritized **findings doc → tickets** for `bun-apps/pi-agent-ext-core-task`
 
 ## Decisions so far
 
-<!-- none yet — no tickets closed -->
+- [01 — Decide & implement the wayfind↔goal/loop mutual-yield](tickets/01-fix-coordination-fiction-yield.md) — **option (b) DELETE**: the `__piWayfindActive` coordination seam was removed (publish path + `SEAM_KEYS` entry dropped) and the ~6 stale doc sites corrected to "wayfind does not yield; mutual-exclusion is user-initiated." Shipped in #1051 (`0eee0ba9`), recorded as [ADR-0006 (Accepted)](../../bun-apps/pi-agent-ext-wayfind/docs/adr/0006-delete-wayfind-active-coordination-seam.md). Double-drive risk accepted as user-initiated.
+- [02 — Harden the seam-contract "NO DEAD KEYS" test](tickets/02-harden-seam-contract-test.md) — **shipped**: the `findSelfOnlySeams` predicate now requires ≥2 distinct packages to reference a function-valued `__pi*Active` seam, closing the self-reference loophole. Shipped in #1053 (`56471a0c`).
 
 ## Not yet specified
 
-- **01 — implement or delete?** Wire the wayfind↔goal/loop mutual-yield (gate on `__piWayfindActive`), or delete the seam + correct the ~6 stale doc sites? (Read the `2026-07-19-a` effort's ticket-04 conclusion first — the double-drive risk is the new fact.)
 - **06 — activate or mark?** Ship a `/goal --verify` contract flag (make auditor floor #5 live), or just comment it as inert-by-design?
 - **08 — pi's process model?** Does pi guarantee one process per session? Determines whether the todo store needs session-keying.
 
