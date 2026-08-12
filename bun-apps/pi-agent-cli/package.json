@@ -32,6 +32,7 @@
     "@repo/pi-agent-ext-movie-director": "workspace:*",
     "@repo/pi-agent-ext-power-tool": "workspace:*",
     "@repo/pi-agent-ext-research-tool": "workspace:*",
+    "@repo/pi-agent-ext-subagent": "workspace:*",
     "@repo/pi-agent-ext-web-access": "workspace:*",
     "@repo/pi-agent": "workspace:*",
     "@repo/pi-agent-ext-knowledge-card": "workspace:*",

@@ -75,6 +75,7 @@
         "@repo/pi-agent-ext-obsidian": "workspace:*",
         "@repo/pi-agent-ext-power-tool": "workspace:*",
         "@repo/pi-agent-ext-research-tool": "workspace:*",
+        "@repo/pi-agent-ext-subagent": "workspace:*",
         "@repo/pi-agent-ext-web-access": "workspace:*",
         "@repo/pi-agent-ext-workflow": "workspace:*",
         "typebox": "^1.3.7",

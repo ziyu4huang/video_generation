@@ -18,7 +18,8 @@ import { emptyParsed } from "../args.ts";
 import type { MemoryFile } from "./memory-to-vault-discover.ts";
 import { discoverMemoryFiles } from "./memory-to-vault-discover.ts";
 import { generateWorkflowScript } from "./memory-to-vault-script.ts";
-import { runWorkflow, WorkflowAgent } from "@repo/pi-agent-ext-workflow";
+import { runWorkflow } from "@repo/pi-agent-ext-workflow";
+import { WorkflowAgent } from "@repo/pi-agent-ext-subagent";
 import { mergeDuplicates } from "@repo/pi-agent-ext-knowledge-card/src/merge.ts";
 import { healGraph, graphHealth } from "@repo/pi-agent-ext-knowledge-card/src/retrieve.ts";
 // Subpath import requires pi-agent-ext-obsidian's package.json `exports` map.
