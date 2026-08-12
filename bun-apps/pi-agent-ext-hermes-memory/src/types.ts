@@ -181,6 +181,24 @@ export interface MemoryConfig {
   lockOpRetries?: number;
   /** Backoff (ms) between op-level lock retries. Default: 2000 */
   lockOpBackoffMs?: number;
+
+  // ─── Vector / semantic search (ticket 14 phase A / HNSW embed index) ──
+  // The card_vectors HNSW side-table is INDEPENDENT of the CRUD backend
+  // (sqlite-vec is not loadable under Bun — Decision 04 Fork C). These knobs
+  // configure the embedding model + KNN query. Registered in DEFAULT_CONFIG +
+  // the parse allowlist from day one (#06 config-gap lesson).
+  /** LM Studio embedding model id (the card_vectors index is keyed by
+   *  embedModelVersion so a swap re-embeds). Default: nomic-embed-text-v1.5. */
+  embedModel?: string;
+  /** Stable model-lineage tag in the card_vectors delta-key (distinct from
+   *  embedModel which is the endpoint id). Default: "nomic-embed-text-v1.5". */
+  embedModelVersion?: string;
+  /** LM Studio base URL serving the embedding model. Default: http://127.0.0.1:1234. */
+  lmStudioBaseUrl?: string;
+  /** K for the HNSW KNN query (top-K nearest neighbors). Default: 10. */
+  vectorTopK?: number;
+  /** HNSW exploration factor (ef) for the KNN query. Default: 100. */
+  vectorEf?: number;
 }
 
 /** Trust/auditability marker for a memory entry. Markdown-resident only. */
