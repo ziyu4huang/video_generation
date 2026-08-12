@@ -24,3 +24,5 @@ Source-dependency staleness design pinned. Closed decisions declare dependencies
 - **Surfacing & action (Q3):** A `stale:` flag on the card + a `stale:` query; block an effort's graduation while it has stale decisions; the agent re-grills to resolve (re-open ticket, re-validate, update resolution). Human/agent gates the re-grill. (Rejected: auto-reopen — removes the gate; advisory-only — staleness silently ignored.)
 
 **Build track:** Phase 2 now fully scoped — 08 (card model) → 09 (sync) → 10 (staleness). Implementation = build tickets for the planning-card serializer + card-store tenant (08-impl), the on-demand+backfill sync layer (09-impl), and the dependency-graph + staleness check (10-impl), all riding the hermes spine + consolidated SurrealDB from prior decisions.
+
+**SHIPPED — 10-impl via #1242 (squash `1fcb4504`).** The staleness dependency-graph implementation landed; Phase-2 (08/09/10) is now fully shipped.
