@@ -10,7 +10,7 @@
 import { describe, it, beforeEach } from "bun:test";
 import assert from "node:assert/strict";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-ext-subagent/src/index.ts";
+import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-ext-subagent";
 import { setupSessionFlush } from "../../src/handlers/session-flush.js";
 import { FLUSH_PROMPT } from "../../src/constants.js";
 import type { MemoryConfig } from "../../src/types.js";
@@ -44,7 +44,7 @@ function createFakeSpawn(overrides: FakeSpawnOverrides = {}) {
     if (overrides.throwErr) throw new Error(overrides.throwErr);
     return result;
   };
-  return { spawn: spawn as typeof import("@repo/pi-agent-ext-subagent/src/index.ts").spawnSubagent, calls };
+  return { spawn: spawn as typeof import("@repo/pi-agent-ext-subagent").spawnSubagent, calls };
 }
 
 /** Event-name → handler[] registry built by mock pi.on() */

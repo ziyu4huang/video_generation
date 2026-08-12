@@ -1,7 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { saveModelTierConfig } from "@repo/pi-agent-ext-subagent/src/model-role-config.ts";
+import { saveModelTierConfig } from "@repo/pi-agent-ext-subagent";
 import { expect, test } from "bun:test";
 import { resolveVisionLLM } from "../src/sessions.ts";
 

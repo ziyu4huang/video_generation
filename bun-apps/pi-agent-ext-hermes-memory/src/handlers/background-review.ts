@@ -12,7 +12,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { spawnSubagent } from "@repo/pi-agent-ext-subagent/src/index.ts";
+import { spawnSubagent } from "@repo/pi-agent-ext-subagent";
 import { COMBINED_REVIEW_PROMPT } from "../constants.js";
 import { MemoryStore } from "../store/memory-store.js";
 import type { MemoryRepository } from "../store/repository.js";

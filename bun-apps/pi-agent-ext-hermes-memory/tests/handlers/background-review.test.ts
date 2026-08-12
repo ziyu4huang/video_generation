@@ -1,7 +1,7 @@
 import { describe, it, beforeEach } from "bun:test";
 import assert from "node:assert";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-ext-subagent/src/index.ts";
+import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-ext-subagent";
 import {
   buildDirectReviewUserPrompt,
   setupBackgroundReview,
@@ -43,7 +43,7 @@ function createFakeSpawn(overrides: FakeSpawnOverrides = {}) {
     if (overrides.throwErr) throw new Error(overrides.throwErr);
     return result;
   };
-  return spawn as typeof import("@repo/pi-agent-ext-subagent/src/index.ts").spawnSubagent;
+  return spawn as typeof import("@repo/pi-agent-ext-subagent").spawnSubagent;
 }
 
 function createMockPi() {
