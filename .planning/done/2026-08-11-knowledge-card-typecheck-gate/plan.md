@@ -12,8 +12,8 @@ must exit 0.
 ## Task 1 — Wire the gate (RED)
 - [x] `tsconfig.json` created (mirrors `pi-agent-ext-core-task`; `include` trimmed
       to `src/`, `extensions/`, `__tests__/`).
-- [ ] Add `"typecheck": "bunx tsc --noEmit"` to `package.json` scripts.
-- [ ] Confirm RED: `bun run typecheck` -> 17 errors (baseline).
+- [x] Add `"typecheck": "bunx tsc --noEmit"` to `package.json` scripts.
+- [x] Confirm RED: `bun run typecheck` -> 17 errors (baseline).
 
 ## Task 2 — Make it green (GREEN) — all edits in `__tests__/`
 | File:line(s) | Fix |
@@ -26,9 +26,13 @@ must exit 0.
 | sink.test.ts 51,65 | delete the stale `// @ts-expect-error:...` comment line; keep the guarded `knowledgeCard(...)` call |
 
 ## Task 3 — Verify
-- [ ] `bun run typecheck` exits 0.
-- [ ] `bun test` all pass.
-- [ ] No cwd-coverage regression (collectInputFiles tests still green).
+- [x] `bun run typecheck` exits 0.
+- [x] `bun test` all pass.
+- [x] No cwd-coverage regression (collectInputFiles tests still green).
+
+## Resolution — gate GREEN, 2026-08-12
+
+`bun run typecheck` exit 0; `"typecheck":"bunx tsc --noEmit"` + `tsconfig.json` present; checkboxes were stale tracking. Archived by KP-cluster reconciliation.
 
 ## Risk
 Low. All fixes are test-only and mechanical. cwd deletion is provably safe (dead

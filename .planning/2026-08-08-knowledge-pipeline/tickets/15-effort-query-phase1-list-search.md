@@ -1,6 +1,6 @@
 ---
 type: build
-status: open
+status: closed
 claimed:
 blocked by: none (Phase 1 is standalone — reads .planning directly, no card-store/embed dependency)
 unblocks: effort-query Phase 2 (full planning-card pipeline = tickets 08/09/10)
@@ -37,3 +37,7 @@ Deliver a lightweight, dependency-free effort-query capability: cross-effort `li
 - semantic search via embed (rides the Round-2 SurrealDB/lazy-backfill track).
 - DB<->md sync (09), staleness/dependency graph (10), dedup/conflict detection.
 - Mutation/CRUD (create/update/close via pipeline).
+
+## Resolution
+
+Shipped — 15-Phase1 via #1168 (squash 48df0b1a).

@@ -1,3 +1,7 @@
+---
+status: closed
+---
+
 # 02 — Fix the stale canonical map (2026-08-08-knowledge-pipeline/map.md)
 
 ## type
@@ -20,3 +24,7 @@ The canonical map `2026-08-08-knowledge-pipeline/map.md` is internally stale: it
 ## claimed
 
 —
+
+## Resolution (closed 2026-08-12)
+
+Done — canonical map de-staled (10-impl #1242 + 15-Phase1 #1168 marked shipped; "next build ticket is 10-impl" line removed; open build set = {03,07,13,14}; next-pick = HITL).
