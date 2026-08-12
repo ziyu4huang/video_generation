@@ -1,8 +1,9 @@
 ---
 type: task
-status: open
+status: closed
 blocked by:
 findings: M2
+resolved: 2026-08-12 — shipped in #1071 — reviewer false-positive anti-pattern regexes tightened (`\bno issues\b`, "improvements" wording)
 ---
 
 # 05 — Reviewer false-positive anti-patterns (`\bissue\b`, `improvement|enhancement`)

@@ -1,4 +1,14 @@
+---
+effort: 2026-08-02-core-task-review
+status: complete
+last: 2026-08-12
+---
+
 # Wayfinder map: 2026-08-02-core-task-review
+
+## Effort complete
+
+> **Status: COMPLETE ✅ (2026-08-12)** — all 14 code tickets (01–14 + 16) shipped across PRs #1051, #1053, #1058–#1075, #1133, #1135 and are now closed in tracking. Ticket 15 (next-ticket routing / ask-user gap) stays open as a process note, orthogonal to the code backlog. **One residual:** ticket 16's `goalState` stage-4 session isolation is deferred to the sibling effort `2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task` (ticket 03, stage 4) — the todo store + loopState are already keyed by sessionId (#1133, #1135). This is an **additive closeout** — the `## Decisions so far` entries are extended with 03–14/16, the prior 01/02 entries are preserved, and `## Not yet specified` is emptied (06 and 08 are now decided: 06 inert-by-design, 08 process-per-session).
 
 ## Destination
 
@@ -39,11 +49,23 @@ A prioritized **findings doc → tickets** for `bun-apps/pi-agent-ext-core-task`
 
 - [01 — Decide & implement the wayfind↔goal/loop mutual-yield](tickets/01-fix-coordination-fiction-yield.md) — **option (b) DELETE**: the `__piWayfindActive` coordination seam was removed (publish path + `SEAM_KEYS` entry dropped) and the ~6 stale doc sites corrected to "wayfind does not yield; mutual-exclusion is user-initiated." Shipped in #1051 (`0eee0ba9`), recorded as [ADR-0006 (Accepted)](../../bun-apps/pi-agent-ext-wayfind/docs/adr/0006-delete-wayfind-active-coordination-seam.md). Double-drive risk accepted as user-initiated.
 - [02 — Harden the seam-contract "NO DEAD KEYS" test](tickets/02-harden-seam-contract-test.md) — **shipped**: the `findSelfOnlySeams` predicate now requires ≥2 distinct packages to reference a function-valued `__pi*Active` seam, closing the self-reference loophole. Shipped in #1053 (`56471a0c`).
+- [03 — Reviewer config surface](tickets/03-reviewer-config-surface.md) — **shipped**: `/goal review on|off|auto|aggressive` parse surfaced; `/glla` strings removed; reviewer mode settable. Shipped in #1063.
+- [04 — Reviewer data-loss on confirm-throw-after-enqueue](tickets/04-reviewer-data-loss-confirm-throw.md) — **shipped**: `reviewerEnqueued` hoisted pre-try; the catch preserves the queue (`preserveList`), so a confirm-throw no longer drops the reviewer list. Shipped in #1059.
+- [05 — Reviewer false-positive anti-patterns](tickets/05-reviewer-false-positive-antipatterns.md) — **shipped**: anti-pattern regexes tightened (`\bno issues\b`, "improvements" wording) to cut false positives. Shipped in #1071.
+- [06 — `regression_shield` activation](tickets/06-regression-shield-activation.md) — **shipped (option b, inert-by-design)**: auditor floor #5 (`regression_shield`) marked inert; no `--verify` flag added. Shipped in #1072.
+- [07 — Auditor `modelRuntime` defensive guard + CI contract test](tickets/07-auditor-modelruntime-hardening.md) — **shipped**: `extractModelRuntime` defensive guard + contract test. Shipped in #1058.
+- [08 — Confirm pi process-per-session](tickets/08-confirm-pi-process-per-session.md) — **shipped**: confirmed pi runs one process per session (documented); todo store re-keyed per sessionId. Shipped in #1075 + #1133.
+- [09 — Todo render correctness + overlay/envelope test suite](tickets/09-todo-render-correctness-tests.md) — **shipped**: error glyph ✗; all-done panel; overlay + response-envelope TDD suites. Shipped in #1061.
+- [10 — Todo delete referential integrity](tickets/10-todo-delete-referential-integrity.md) — **shipped**: delete prunes `blockedBy` + referential-integrity check. Shipped in #1064.
+- [11 — Todo schema/reducer drift](tickets/11-todo-schema-reducer-drift.md) — **shipped**: action-conditional schema + explicit reducer errors. Shipped in #1065.
+- [12 — Doc accuracy sweep](tickets/12-doc-accuracy-sweep.md) — **shipped**: doc sweep (`above-editor`→`belowEditor`; CONTEXT `/loop`,`/list` coverage). Shipped in #1067.
+- [13 — Dead-code + provenance cleanup](tickets/13-deadcode-provenance-cleanup.md) — **shipped**: `replay.ts` + test deleted; provenance fixed; typo fixed. Shipped in #1068.
+- [14 — LOW cleanup backlog (batch)](tickets/14-low-backlog.md) — **shipped**: LOW batch (EMPTY_STATE freeze; heartbeat cleanup; +6). Shipped in #1074.
+- [16 — Key session-scoped core-task state by sessionId](tickets/16-key-session-state-by-sessionid.md) — **shipped (partial)**: todo store + loopState keyed by sessionId (#1133, #1135). **Residual:** `goalState` stage-4 isolation deferred → sibling effort `2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task` ticket 03 stage 4.
 
 ## Not yet specified
 
-- **06 — activate or mark?** Ship a `/goal --verify` contract flag (make auditor floor #5 live), or just comment it as inert-by-design?
-- **08 — pi's process model?** Does pi guarantee one process per session? Determines whether the todo store needs session-keying.
+_(None open — 06 and 08 are now decided: 06 = inert-by-design, 08 = process-per-session.)_
 
 ## Out of scope
 

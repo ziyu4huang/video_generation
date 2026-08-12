@@ -1,8 +1,9 @@
 ---
 type: task
-status: open
+status: closed
 blocked by: 08
 findings: H5
+resolved: 2026-08-12 — shipped in #1133 + #1135 — todo store + loopState keyed by sessionId. Residual: goalState stage-4 isolation deferred → sibling effort `2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task` ticket 03 stage 4
 ---
 
 # 16 — Key session-scoped core-task state by sessionId (in-process subagent cross-contamination)
