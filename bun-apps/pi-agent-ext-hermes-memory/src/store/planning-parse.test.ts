@@ -6,6 +6,7 @@ import {
   extractResolutionGist,
   parseBlockedBy,
   extractCitedPaths,
+  parseDependsOn,
 } from "./planning-parse.js";
 
 const TICKET = `---
@@ -56,5 +57,32 @@ describe("planning-parse", () => {
     assert.ok(paths.includes("bun-apps/pi-agent-ext-hermes-memory/src/store/card.ts"));
     assert.ok(paths.includes(".planning/specs/2026-08-09-knowledge-pipeline-phase2-design.md"));
     assert.ok(paths.includes("src/store/card-store.ts"));
+  });
+});
+
+describe("parseDependsOn", () => {
+  it("accepts an explicit array of repo-relative paths", () => {
+    assert.deepEqual(
+      parseDependsOn(["bun-apps/x/src/a.ts", "docs/spec.md"]),
+      ["bun-apps/x/src/a.ts", "docs/spec.md"],
+    );
+  });
+  it("accepts a single string path", () => {
+    assert.deepEqual(parseDependsOn("python/mlx-movie-director/run.py"), ["python/mlx-movie-director/run.py"]);
+  });
+  it("accepts a comma/newline list and trims + drops empties", () => {
+    assert.deepEqual(
+      parseDependsOn("src/a.ts, src/b.ts\n , docs/c.md"),
+      ["src/a.ts", "src/b.ts", "docs/c.md"],
+    );
+  });
+  it("does NOT zero-pad (paths are not ticket numbers)", () => {
+    // A path-like value is kept verbatim — no String(...).padStart(2,"0").
+    assert.deepEqual(parseDependsOn("src/v0/thing.ts"), ["src/v0/thing.ts"]);
+  });
+  it("returns [] when absent / wrong type", () => {
+    assert.deepEqual(parseDependsOn(undefined), []);
+    assert.deepEqual(parseDependsOn(null), []);
+    assert.deepEqual(parseDependsOn(42), []);
   });
 });

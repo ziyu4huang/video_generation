@@ -1,6 +1,6 @@
-import { getSubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent/src/subagent-in-flight.ts";
-import { getSubagentRunPersistence } from "@repo/pi-agent-ext-subagent/src/subagent-run-persistence.ts";
-import { spawnSubagentSubprocess } from "@repo/pi-agent-ext-subagent/src/spawn-subagent-subprocess.ts";
+import { getSubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent";
+import { getSubagentRunPersistence } from "@repo/pi-agent-ext-subagent";
+import { spawnSubagentSubprocess } from "@repo/pi-agent-ext-subagent";
 
 /** Resolve a tool-name allowlist from an env var (comma-separated), falling
  *  back to `defaults` when unset/empty. Used by distill/garden so a custom

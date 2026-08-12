@@ -32,31 +32,46 @@ import { markMovieActive } from "../src/session-state.ts";
 import { registerMovieHostFns } from "./movie-host-fns.ts";
 import { registerMovieWorkflows } from "./movie-workflows.ts";
 
+/**
+ * Owner-declared gating for the movie-director family — ONE object shared by
+ * `movie` and `movie_help`.
+ *
+ * Migrated from tool-gate's hardcoded GATES (the {names:["movie","movie_help"]}
+ * gate). tool-gate's buildEffectiveGates emits one SINGLE-NAME gate per tool and
+ * groups co-firing tools by FINGERPRINT EQUALITY over this object (gateGatingKey
+ * → gatesWithSameGating), so the two names must declare an identical gating to
+ * produce an identical fingerprint and be treated as ONE co-firing family
+ * (`movie` + `movie_help` fire together on the same prompt). Sharing one object
+ * — rather than two copies — is what makes an edit to one side impossible.
+ *
+ * Keywords cover the unambiguous montage/storyboard/分鏡/導演/film phrases; the
+ * noun∧verb `requires` path mirrors flux2/ltx so keyword-free paraphrases
+ * (assemble clips / cut footage / 剪片段) also reach the gate (gate-recall
+ * adversarial floor 0.9 — see __GATE_PROBES__ below).
+ *
+ * Safe to share by reference: no consumer mutates `gating` in place
+ * (tool-gate's injectBuiltinCore spreads into a NEW object, and only for
+ * BUILTIN_CORE names, which excludes movie/movie_help).
+ */
+const MOVIE_GATING = {
+  keywords: [
+    "montage", "preflight", "storyboard", "分鏡", "剪輯",
+    "影片製作", "導演", "make a movie", "make a film", "movie director",
+    "compose video", "compose scene", "電影製作",
+    "short film", "into a film", "scenes into",
+  ],
+  requires: {
+    nouns: ["clip", "clips", "footage", "scene", "scenes", "sequence", "片段", "畫面", "作品", "影片"],
+    verbs: ["assemble", "compose", "direct", "cut", "orchestrate", "edit", "stitch", "剪", "編排", "組裝", "製作"],
+  },
+};
+
 function makeMovieTool() {
   return defineTool({
     name: "movie",
     label: "Movie Director Orchestrator",
     description: ROUTING_DESCRIPTION,
-    // Owner-declared gating — migrated from tool-gate's hardcoded GATES (was the
-    // {names:["movie","movie_help"]} gate). Per ticket 08's semantics-preserving
-    // rule, the SAME gating is mirrored on movie_help so both activate together
-    // and reconstructOwnerDeclaredGates collapses them back into one multi-name
-    // gate (names[0] === "movie"). Keywords cover the unambiguous montage/
-    // storyboard/分鏡/導演/film phrases; the noun∧verb `requires` path mirrors
-    // flux2/ltx so keyword-free paraphrases (assemble clips / cut footage /
-    // 剪片段) also reach the gate (gate-recall adversarial floor 0.9).
-    gating: {
-      keywords: [
-        "montage", "preflight", "storyboard", "分鏡", "剪輯",
-        "影片製作", "導演", "make a movie", "make a film", "movie director",
-        "compose video", "compose scene", "電影製作",
-        "short film", "into a film", "scenes into",
-      ],
-      requires: {
-        nouns: ["clip", "clips", "footage", "scene", "scenes", "sequence", "片段", "畫面", "作品", "影片"],
-        verbs: ["assemble", "compose", "direct", "cut", "orchestrate", "edit", "stitch", "剪", "編排", "組裝", "製作"],
-      },
-    },
+    gating: MOVIE_GATING,
     promptSnippet:
       "Instruction-driven video production orchestrator (OpenMontage rewrite). Drives idea→script→scene_plan→assets→edit→compose→publish " +
       "with gate-enforced checkpoints; consumes native krea2/flux2/ltx directors. Call movie_help for the command reference.",
@@ -83,22 +98,7 @@ function makeMovieHelpTool() {
   return defineTool({
     name: "movie_help",
     label: "Movie Director Command Reference",
-    // Owner-declared gating — mirrored IDENTICALLY from movie (same signature)
-    // so reconstructOwnerDeclaredGates collapses the two into one multi-name
-    // gate {names:["movie","movie_help"]} (ticket 08). Co-fire preserved: when
-    // the gate fires, both names activate together. See movie's gating comment.
-    gating: {
-      keywords: [
-        "montage", "preflight", "storyboard", "分鏡", "剪輯",
-        "影片製作", "導演", "make a movie", "make a film", "movie director",
-        "compose video", "compose scene", "電影製作",
-        "short film", "into a film", "scenes into",
-      ],
-      requires: {
-        nouns: ["clip", "clips", "footage", "scene", "scenes", "sequence", "片段", "畫面", "作品", "影片"],
-        verbs: ["assemble", "compose", "direct", "cut", "orchestrate", "edit", "stitch", "剪", "編排", "組裝", "製作"],
-      },
-    },
+    gating: MOVIE_GATING,
     description:
       "On-demand reference for the `movie` tool. Pass {command} for option keys + example; omit to list all commands.",
     parameters: Type.Object({

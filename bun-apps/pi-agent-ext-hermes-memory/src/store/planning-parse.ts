@@ -85,6 +85,28 @@ export function parseBlockedBy(raw: unknown): string[] {
   return [];
 }
 
+/** Normalise a frontmatter `depends_on` value (string | string[]) → string[] of
+ *  repo-relative PATHS (10-impl staleness dependency graph). Mirrors
+ *  {@link parseBlockedBy} in SHAPE but NOT in semantics: these are file paths,
+ *  NOT ticket numbers, so there is NO number-coercion and NO zero-pad. A string
+ *  is split on commas/newlines (a single path stays whole); entries are trimmed
+ *  and empties dropped. Wrong types → []. */
+export function parseDependsOn(raw: unknown): string[] {
+  if (typeof raw === "string") {
+    return raw
+      .split(/[,\n]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }
+  if (Array.isArray(raw)) {
+    return raw
+      .filter((s): s is string => typeof s === "string")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }
+  return [];
+}
+
 /** Repo-relative source paths cited in a body (Resolution/Notes), for the
  *  staleness dependency graph (ticket 10). Matches rooted paths under
  *  bun-apps/, src/, python/, scripts/, docs/, tests/, .planning/. Deduped.

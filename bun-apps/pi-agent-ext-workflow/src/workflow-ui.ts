@@ -16,8 +16,8 @@
 import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
 import { parseKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import type { AgentHistoryEntry } from "@repo/pi-agent-ext-subagent";
-import { summarizeLatestAction } from "@repo/pi-agent-ext-subagent";
+import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
+import { summarizeLatestAction } from "@repo/pi-agent-ext-core-runtime";
 import {
   type ActivityRow,
   fmtDuration,

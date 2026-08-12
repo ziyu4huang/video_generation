@@ -2,6 +2,7 @@
 
 Date: 2026-07-25 (audit)
 Status: accepted
+Amendment (2026-08-10): `movie-director-cost.ts` was deleted, so the Decision's "unless it is wired to actually load at runtime" condition no longer has a subject.
 See: inline NOTE in `extensions/tool-gate.ts` (the `cost` gate block)
 
 ## Context

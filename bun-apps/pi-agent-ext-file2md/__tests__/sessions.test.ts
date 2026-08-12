@@ -10,7 +10,7 @@
  *
  *   bun test __tests__/sessions.test.ts
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { resolveLLM } from "../src/sessions.ts";
 
 // resolveLLM reads PI_MODEL / PI_PROVIDER / PI_THINKING at call time. Snapshot

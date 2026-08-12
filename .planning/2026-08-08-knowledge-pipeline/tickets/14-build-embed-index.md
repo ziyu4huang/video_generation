@@ -2,12 +2,13 @@
 type: build
 status: open
 claimed:
-blocked by: 04 (closed — embed backend / build policy / model all decided in Round 2)
+blocked by: 04 (closed — embed backend / build policy / model all decided in Round 2), 16 (scale-validation gate — see ticket 16; NOT a Decision-04 re-litigation)
 unblocks: obsidian vault-mind/ChromaDB deprecation (future ticket); A/B vector-bench extension (refinement)
 ---
 # 14 — Build embed/vector index (SurrealDB HNSW + lazy backfill)
 
 > **UNBLOCKED** — ticket 04 (embed backend) is `closed`; Round-2 grill pinned backend + build policy + model. Spine [12 + 06a + 06b] shipped, so the card-store this rides is live. Ready to start.
+> **Sequencing (2026-08-12):** the full build (T1+) now waits on ticket 16's scale validation. Decision 04's backend pin STANDS; 16 only stress-tests its ~13ms p95 @1k assumption at scale given the newer SurrealDB-RTT data from the 2026-08-07 dedup effort.
 
 ## Goal
 Build the knowledge-pipeline embed/vector index end-to-end on the hermes spine, per the Round-2 grill resolutions (recorded as 3 refinements in ticket 04 + the hermes-memory PRD.md). Delivers an embed-powered semantic query + (optional) vector-dedup layer.

@@ -74,7 +74,8 @@
     "pi-agent-ext-subagent",
     "pi-agent-ext-workflow",
     "pi-agent-ext-knowledge-card",
-    "pi-agent-ext-power-tool"
+    "pi-agent-ext-power-tool",
+    "pi-agent-ext-webui"
   ],
   "npmExtensions": [],
   "lazyExtensions": {}

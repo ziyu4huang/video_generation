@@ -120,7 +120,7 @@ export interface SavingsReport {
 	 *  the gate set but NOT loaded at runtime (a phantom, like the former `cost` gate)
 	 *  is invisible here, because it IS in the captured set. The captured==runtime
 	 *  invariant is enforced at the source (EXTRA_ENTRIES must be runtime-loaded;
-	 *  the manifest is the load truth) + locked by the movie-director-cost test.
+	 *  the manifest is the load truth).
 	 *  A full captured<->runtime cross-check needs live session data (L2, deferred). */
 	gateMissing: string[];
 	/** Collection errors from the schema-cost pass. */

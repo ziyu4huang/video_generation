@@ -194,7 +194,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     const sessionId = getSessionId(ctx);
     const effort = resolveEffortOrWarn("done", args, ctx, sessionId);
     if (!effort) return;
-    const r = closeEffortReflection(ctx.cwd, effort);
+    const r = await closeEffortReflection(ctx.cwd, effort);
     if ("refused" in r) {
       ctx.ui.notify(`[${PKG_NAME}] done: ${r.refused}`, "warning");
       return;

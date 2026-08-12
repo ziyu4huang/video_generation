@@ -11,7 +11,7 @@
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import { type ActivityRow, fmtCost, renderActivityRow, shortModel } from "./agent-row-display.js";
+import { type ActivityRow, fmtCost, renderActivityRow, shortModel } from "@repo/pi-agent-ext-core-runtime";
 import type {
   AgentHistoryEntry,
   AgentUsage,

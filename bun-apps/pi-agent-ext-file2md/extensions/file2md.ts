@@ -18,11 +18,11 @@
  *   PI_VLM_RETRY_WAIT_MS  Wait between retries in ms (default 10000)
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 
 // Capture extension dir at module init. import.meta.dir is Bun-specific and may
 // be undefined when loaded via non-standard mechanisms; fall back to import.meta.url.
@@ -123,10 +123,10 @@ export function emitFile2mdKnowledge(pi: ExtensionAPI, payload: File2mdKnowledge
 //     via the noun∧verb `requires` co-occurrence path.
 // ---------------------------------------------------------------------------
 export const __GATE_PROBES__ = {
-	gate: "file2md",
-	recallFloor: 0.9,
-	adversarial: ["extract the text from this PDF", "parse the scanned document", "把這份文件讀成文字"],
-	controls: ["ocr this image", "convert the pdf to markdown", "用 file2md 分析圖片"],
+  gate: "file2md",
+  recallFloor: 0.9,
+  adversarial: ["extract the text from this PDF", "parse the scanned document", "把這份文件讀成文字"],
+  controls: ["ocr this image", "convert the pdf to markdown", "用 file2md 分析圖片"],
 };
 
 // ---------------------------------------------------------------------------
@@ -138,10 +138,7 @@ export default function (pi: ExtensionAPI): void {
     const missing = missingDeps(["@earendil-works/pi-coding-agent"], _EXT_DIR);
     if (missing.length > 0) {
       const root = findMonorepoRoot(_EXT_DIR);
-      ctx.ui.notify(
-        `pi-file2md: missing npm packages: ${missing.join(", ")}.\nRun: bun install (in ${root})`,
-        "error",
-      );
+      ctx.ui.notify(`pi-file2md: missing npm packages: ${missing.join(", ")}.\nRun: bun install (in ${root})`, "error");
       return;
     }
   });
@@ -155,8 +152,18 @@ export default function (pi: ExtensionAPI): void {
     // gate (names[0] === "file2md") — preserving the original co-fire behavior.
     gating: {
       keywords: [
-        "file2md", "vlm", "ocr", "caption", "to markdown", "轉 markdown",
-        "read this image", "分析圖片", "分析圖像", "識別", "讀圖", "看圖",
+        "file2md",
+        "vlm",
+        "ocr",
+        "caption",
+        "to markdown",
+        "轉 markdown",
+        "read this image",
+        "分析圖片",
+        "分析圖像",
+        "識別",
+        "讀圖",
+        "看圖",
       ],
       requires: {
         nouns: ["pdf", "document", "文件", "scan", "image", "picture", "photo", "圖片", "圖像", "照片", "相片"],
@@ -170,9 +177,7 @@ export default function (pi: ExtensionAPI): void {
       "rasterize PDF pages → classify profile → per-page VLM extraction → write manifest + index note.",
     parameters: Type.Object({
       input: Type.String({ description: "Absolute or relative path to a PDF or image file" }),
-      out: Type.Optional(
-        Type.String({ description: "Output root directory (default: ./vlm-out)" }),
-      ),
+      out: Type.Optional(Type.String({ description: "Output root directory (default: ./vlm-out)" })),
       model: Type.Optional(
         Type.String({
           description:
@@ -187,8 +192,7 @@ export default function (pi: ExtensionAPI): void {
       ),
       thinking: Type.Optional(
         Type.String({
-          description:
-            "Thinking level: off|minimal|low|medium|high|xhigh. Mirrors the CLI --thinking flag.",
+          description: "Thinking level: off|minimal|low|medium|high|xhigh. Mirrors the CLI --thinking flag.",
         }),
       ),
       type: Type.Optional(
@@ -197,13 +201,10 @@ export default function (pi: ExtensionAPI): void {
         }),
       ),
       extract: Type.Optional(
-        Type.Union(
-          [Type.Literal("vlm"), Type.Literal("text"), Type.Literal("hybrid")],
-          {
-            description:
-              "Extraction strategy: vlm (default, rasterize→VLM) | text (mupdf text-layer, no VLM, figures lost) | hybrid (mupdf text + VLM for figure-bearing pages).",
-          },
-        ),
+        Type.Union([Type.Literal("vlm"), Type.Literal("text"), Type.Literal("hybrid")], {
+          description:
+            "Extraction strategy: vlm (default, rasterize→VLM) | text (mupdf text-layer, no VLM, figures lost) | hybrid (mupdf text + VLM for figure-bearing pages).",
+        }),
       ),
       pages: Type.Optional(
         Type.String({
@@ -211,13 +212,10 @@ export default function (pi: ExtensionAPI): void {
             'Pages to extract (1-indexed). Ranges: "1-3". Individual: "3,5". Mixed: "1,3-5,8". Omit for all pages.',
         }),
       ),
-      dpi: Type.Optional(
-        Type.Number({ description: "Rasterization DPI for PDFs (default 150)" }),
-      ),
+      dpi: Type.Optional(Type.Number({ description: "Rasterization DPI for PDFs (default 150)" })),
       relpath: Type.Optional(
         Type.Boolean({
-          description:
-            "When true, display output paths as relative to cwd. Default false (absolute paths).",
+          description: "When true, display output paths as relative to cwd. Default false (absolute paths).",
         }),
       ),
       concurrency: Type.Optional(
@@ -226,9 +224,7 @@ export default function (pi: ExtensionAPI): void {
             "Max concurrent page extractions (default 1; env PI_VLM_CONCURRENCY). >1 runs pages in parallel but disables cross-page context.",
         }),
       ),
-      lang: Type.Optional(
-        Type.String({ description: "Output language for the notes (default zh-TW)." }),
-      ),
+      lang: Type.Optional(Type.String({ description: "Output language for the notes (default zh-TW)." })),
       mode: Type.Optional(
         Type.String({
           description: "Processing mode: summary | verbatim | hybrid (default hybrid).",
@@ -248,7 +244,10 @@ export default function (pi: ExtensionAPI): void {
       const { runVlmDescribePipeline } = await import("../src/pipeline.ts");
       const rawOut = params.out ?? "./vlm-out";
       const outRootAbs = isAbsolute(rawOut) ? rawOut : resolve(process.cwd(), rawOut);
-      const slug = basename(params.input).replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9._-]+/g, "-").toLowerCase();
+      const slug = basename(params.input)
+        .replace(/\.[^.]+$/, "")
+        .replace(/[^a-zA-Z0-9._-]+/g, "-")
+        .toLowerCase();
       const relpath = params.relpath ?? false;
 
       await runVlmDescribePipeline({
@@ -298,8 +297,18 @@ export default function (pi: ExtensionAPI): void {
     // former hardcoded gate) so the two co-fire as one group.
     gating: {
       keywords: [
-        "file2md", "vlm", "ocr", "caption", "to markdown", "轉 markdown",
-        "read this image", "分析圖片", "分析圖像", "識別", "讀圖", "看圖",
+        "file2md",
+        "vlm",
+        "ocr",
+        "caption",
+        "to markdown",
+        "轉 markdown",
+        "read this image",
+        "分析圖片",
+        "分析圖像",
+        "識別",
+        "讀圖",
+        "看圖",
       ],
       requires: {
         nouns: ["pdf", "document", "文件", "scan", "image", "picture", "photo", "圖片", "圖像", "照片", "相片"],
@@ -316,13 +325,10 @@ export default function (pi: ExtensionAPI): void {
       question: Type.String({
         description: "The question or instruction for the VLM about the image",
       }),
-      systemPrompt: Type.Optional(
-        Type.String({ description: 'Optional system prompt (e.g. "answer in one line")' }),
-      ),
+      systemPrompt: Type.Optional(Type.String({ description: 'Optional system prompt (e.g. "answer in one line")' })),
       model: Type.Optional(
         Type.String({
-          description:
-            "VLM model in provider/id format. Honors the PI_MODEL env var when omitted.",
+          description: "VLM model in provider/id format. Honors the PI_MODEL env var when omitted.",
         }),
       ),
       provider: Type.Optional(
@@ -356,9 +362,7 @@ export default function (pi: ExtensionAPI): void {
       if (!r.ok) {
         return {
           isError: true as const,
-          content: [
-            { type: "text" as const, text: `vision_ask failed: ${r.error}` },
-          ],
+          content: [{ type: "text" as const, text: `vision_ask failed: ${r.error}` }],
           details: { image: imageAbs, error: r.error },
         };
       }

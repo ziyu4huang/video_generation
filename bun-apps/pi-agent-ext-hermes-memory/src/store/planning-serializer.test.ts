@@ -76,3 +76,33 @@ describe("PlanningTicketSerializer", () => {
     );
   });
 });
+
+describe("PlanningTicketSerializer — depends_on edge (10-impl T1)", () => {
+  const ser = new PlanningTicketSerializer();
+  const EFF = "dep-edge-eff";
+  const md = `---\ntype: task\nstatus: closed\nblocked by: 01\ndepends_on:\n  - bun-apps/hermes/src/store/card.ts\n  - docs/spec.md\n---\n# 02 — x\n\n## Resolution\nCites src/real/file.ts in body.\n`;
+  it("emits depends_on paths as graph.relations (rel='depends_on')", () => {
+    const [c] = ser.deserialize(md, { filePath: `.planning/${EFF}/tickets/02-x.md` });
+    const rels = c!.graph?.relations ?? [];
+    assert.ok(rels.some((r) => r.rel === "depends_on" && r.o === "bun-apps/hermes/src/store/card.ts"));
+    assert.ok(rels.some((r) => r.rel === "depends_on" && r.o === "docs/spec.md"));
+  });
+  it("emits frontmatter.dependsOn (the parsed list)", () => {
+    const [c] = ser.deserialize(md, { filePath: `.planning/${EFF}/tickets/02-x.md` });
+    assert.deepEqual(c!.frontmatter.dependsOn, ["bun-apps/hermes/src/store/card.ts", "docs/spec.md"]);
+  });
+  it("blocked-by + cites are UNCHANGED alongside depends_on", () => {
+    const [c] = ser.deserialize(md, { filePath: `.planning/${EFF}/tickets/02-x.md` });
+    const rels = c!.graph?.relations ?? [];
+    assert.ok(rels.some((r) => r.rel === "blocked-by" && r.o === `planning-ticket:${EFF}:01`));
+    assert.ok(rels.some((r) => r.rel === "cites" && r.o === "src/real/file.ts"));
+    assert.deepEqual(c!.frontmatter.blockedBy, ["01"]);
+  });
+  it("absent depends_on -> no depends_on relation + no frontmatter.dependsOn", () => {
+    const noDeps = `---\ntype: task\nstatus: closed\n---\n# 03 — y\n\n## Resolution\nPlain.\n`;
+    const [c] = ser.deserialize(noDeps, { filePath: `.planning/${EFF}/tickets/03-y.md` });
+    const rels = c!.graph?.relations ?? [];
+    assert.equal(rels.some((r) => r.rel === "depends_on"), false);
+    assert.equal(c!.frontmatter.dependsOn, undefined);
+  });
+});

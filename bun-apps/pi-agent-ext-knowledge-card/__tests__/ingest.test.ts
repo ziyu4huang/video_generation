@@ -795,7 +795,7 @@ describe("in-batch canonical-id dedup", () => {
 		// readCardMeta. The second same-id record finds no on-disk card yet (both
 		// are in the same fresh batch) → disambiguates to `<slug>-2`, emitting TWO
 		// cards with the same source_id — violating "dedup by canonical record id".
-		const opts = { vaultPath: vault, source: "workflow-jsonl", sourceLabel: "t" };
+		const opts = { vaultPath: vault, source: "workflow-jsonl" as const, sourceLabel: "t" };
 		await ingestRecords(
 			[
 				rec({ id: "test:dup", title: "First occurrence", detail: "first body content" }),

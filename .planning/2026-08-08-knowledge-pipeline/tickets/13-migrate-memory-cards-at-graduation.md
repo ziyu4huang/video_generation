@@ -1,11 +1,12 @@
 ---
 type: task
 status: open
-blocked by: 06
+blocked by: 06 (shipped: 06a #1141 + 06b #1146 — gate met)
 ---
 # 13 — Migrate memory-cards into the unified store (graduation milestone)
 
 > **Blocked by 06** (hermes-spine orchestration must be decided AND the unified store built + proven stable on knowledge-cards first). Spawned by ticket 05 fork 1 (migrate-at-graduation). Do not start until the card-agnostic store is live and green on knowledge-cards.
+> **Cross-effort sequencing (2026-08-12):** do AFTER the hermes-architecture-deepening convergence moves (`.planning/2026-08-10-hermes-architecture-deepening`): C1 codec unification, C5 Card-abstraction finish, C6 dedup-into-contract. These are the convergence moves this migration needs; sequencing them first keeps 13 mechanical + low-risk (per ticket 05).
 
 ## Question / scope
 

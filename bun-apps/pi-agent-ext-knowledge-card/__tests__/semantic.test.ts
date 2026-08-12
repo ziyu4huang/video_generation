@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { ingestRecords, type KnowledgeRecord } from "../src/ingest.ts";
 import { retrieveRecords } from "../src/retrieve.ts";
 import {
+	type Embedder,
 	cosine,
 	minMaxNorm,
 	blendScore,
@@ -92,7 +93,7 @@ describe("getCardEmbeddings", () => {
 				rec({ id: "test:alpha", title: "Alpha card", tags: ["argv"] }),
 				rec({ id: "test:beta", title: "Beta card", tags: ["bun"] }),
 			],
-			{ vaultPath: vault, folder: FOLDER, sourceLabel: "t" },
+			{ vaultPath: vault, folder: FOLDER, source: "workflow-jsonl", sourceLabel: "t" },
 		);
 		const mock: Embedder = async (texts) => texts.map(() => [1, 0, 0]);
 		const emb = await getCardEmbeddings(vault, FOLDER, SEMANTIC_MODEL_DEFAULT, mock);
@@ -104,14 +105,14 @@ describe("getCardEmbeddings", () => {
 	});
 
 	test("reuses cache when card set is unchanged, rebuilds when it changes", async () => {
-		await ingestRecords([rec({ id: "test:alpha", title: "Alpha" })], { vaultPath: vault, folder: FOLDER, sourceLabel: "t" });
+		await ingestRecords([rec({ id: "test:alpha", title: "Alpha" })], { vaultPath: vault, folder: FOLDER, source: "workflow-jsonl", sourceLabel: "t" });
 		let calls = 0;
 		const mock: Embedder = async (texts) => { calls++; return texts.map(() => [1, 0]); };
 		await getCardEmbeddings(vault, FOLDER, SEMANTIC_MODEL_DEFAULT, mock);
 		await getCardEmbeddings(vault, FOLDER, SEMANTIC_MODEL_DEFAULT, mock); // cached
 		expect(calls).toBe(1); // embedder not called again (cache hit)
 		// add a card → fingerprint changes → rebuild
-		await ingestRecords([rec({ id: "test:beta", title: "Beta" })], { vaultPath: vault, folder: FOLDER, sourceLabel: "t" });
+		await ingestRecords([rec({ id: "test:beta", title: "Beta" })], { vaultPath: vault, folder: FOLDER, source: "workflow-jsonl", sourceLabel: "t" });
 		await getCardEmbeddings(vault, FOLDER, SEMANTIC_MODEL_DEFAULT, mock);
 		expect(calls).toBe(2);
 	});
@@ -128,7 +129,7 @@ describe("retrieveRecords semantic option", () => {
 	test("semantic:false is byte-identical to omitting the option (drift-guard)", async () => {
 		await ingestRecords(
 			[rec({ id: "test:a", title: "A", tags: ["argv"] }), rec({ id: "test:b", title: "B", tags: ["argv", "extra"] })],
-			{ vaultPath: vault, folder: FOLDER, sourceLabel: "t" },
+			{ vaultPath: vault, folder: FOLDER, source: "workflow-jsonl", sourceLabel: "t" },
 		);
 		const without = await retrieveRecords({ vaultPath: vault, folder: FOLDER, tags: ["argv"], topK: 4, bodyMatch: true, slugDom: true });
 		const falseExplicit = await retrieveRecords({ vaultPath: vault, folder: FOLDER, tags: ["argv"], topK: 4, bodyMatch: true, slugDom: true, semantic: false });

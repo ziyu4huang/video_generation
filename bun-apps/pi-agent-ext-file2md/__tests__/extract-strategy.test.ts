@@ -1,5 +1,5 @@
-import { describe, it, expect } from "bun:test";
-import { parseExtractStrategy, DEFAULT_EXTRACT, type ExtractStrategy } from "../src/vlm/extract-strategy.ts";
+import { describe, expect, it } from "bun:test";
+import { DEFAULT_EXTRACT, type ExtractStrategy, parseExtractStrategy } from "../src/vlm/extract-strategy.ts";
 
 describe("parseExtractStrategy", () => {
   it("defaults to vlm", () => {

@@ -10,16 +10,16 @@
  *
  *   bun test __tests__/agents.test.ts
  */
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
-  systemPromptFor,
   normalizeEmbeds,
   normalizeFrontmatter,
   pageUserMessage,
   readImageContent,
+  systemPromptFor,
 } from "../src/vlm/agents.ts";
 
 let dir: string;
@@ -209,8 +209,6 @@ describe("readImageContent", () => {
 
   test("base64 decodes back to the original bytes", () => {
     const block = readImageContent(join(dir, "page.png"), "image/png");
-    expect(Buffer.from(block.data, "base64")).toEqual(
-      Buffer.from([0x89, 0x50, 0x4e, 0x47]),
-    );
+    expect(Buffer.from(block.data, "base64")).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
   });
 });

@@ -2,7 +2,10 @@
 
 type: grilling
 blocked by: —
-status: open
+status: closed
+resolved: 2026-08-11
+
+> **Reframed & spec'd (session decision).** Resolved as a **generic render framework** (not a gui-movie-director clone); stack = vanilla, no-build. See ../specs/06-frontend-render-framework.md + ../plans/06-frontend-render-framework-plan.md.
 
 ## Question
 

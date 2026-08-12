@@ -3,7 +3,7 @@
  *
  *   bun test src/vlm/validate.test.ts
  */
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { validatePageMarkdown } from "./validate.ts";
 
 /** A minimal valid page note (passes every check). */
@@ -38,10 +38,7 @@ describe("validatePageMarkdown — pass", () => {
   });
 
   test("custom minBodyChars=0 accepts a one-word body", () => {
-    const md = GOOD.replace(
-      "This page describes the proposed method in enough detail to clear the floor.",
-      "word",
-    );
+    const md = GOOD.replace("This page describes the proposed method in enough detail to clear the floor.", "word");
     expect(validatePageMarkdown(md, { page: 1, kind: "paper", minBodyChars: 0 }).ok).toBe(true);
   });
 });

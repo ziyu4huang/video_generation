@@ -10,8 +10,10 @@ import { superpowersExtension } from "../src/index.js";
  * Phase-3 A/B-tests whether the LLM still behaves well when a Superpowers
  * skill is UNREGISTERED. `verification-before-completion` passed clean (the
  * model resists confidence-escalation without it), so it is excluded by DEFAULT
- * — saves ~139 tok/req for ~zero behavioral cost. Other skills are unloaded
- * only when listed in `PI_SUPERPOWERS_SKILL_EXCLUDE`.
+ * — `verification-before-completion` (~121 tok advertisement, Phase-3
+ * clean-pass) and `using-superpowers` (~96 tok advertisement, bootstrap dedup —
+ * its body is already injected by the bootstrap). See ADR-0008. Other skills
+ * are unloaded only when listed in `PI_SUPERPOWERS_SKILL_EXCLUDE`.
  * `PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS=0` suppresses the default (e.g. a
  * probe fat-run that must load every skill).
  *
@@ -52,7 +54,7 @@ function allSkillDirNames(): string[] {
 
 const ENV_KEY = "PI_SUPERPOWERS_SKILL_EXCLUDE";
 const DEFAULTS_KEY = "PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS";
-const DEFAULT_SKILL = "verification-before-completion";
+const DEFAULT_SKILLS = ["verification-before-completion", "using-superpowers"];
 const savedExclude = process.env[ENV_KEY];
 const savedDefaults = process.env[DEFAULTS_KEY];
 
@@ -65,7 +67,7 @@ afterEach(() => {
 });
 
 describe("default exclude (Phase-3 clean-pass)", () => {
-  it("excludes verification-before-completion by default (no env set); advertises every other skill as an individual dir", async () => {
+  it("excludes both default skills by default (v-b-c + using-superpowers); advertises every other skill as an individual dir", async () => {
     delete process.env[ENV_KEY];
     delete process.env[DEFAULTS_KEY];
     const pi = createMockPi();
@@ -76,9 +78,9 @@ describe("default exclude (Phase-3 clean-pass)", () => {
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
 
     // Every OTHER skill is advertised; the default-excluded one is gone.
-    const expected = allSkillDirNames().filter((n) => n !== DEFAULT_SKILL);
+    const expected = allSkillDirNames().filter((n) => !DEFAULT_SKILLS.includes(n));
     expect(advertised).toEqual(expected);
-    expect(advertised).not.toContain(DEFAULT_SKILL);
+    for (const d of DEFAULT_SKILLS) expect(advertised).not.toContain(d);
 
     // Each advertised path is a real skill root (dir + SKILL.md), so pi loads
     // exactly that skill from it (dir-with-SKILL.md ⇒ skill root, no recurse).
@@ -116,14 +118,14 @@ describe("default exclude (Phase-3 clean-pass)", () => {
     superpowersExtension(pi);
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
-    expect(advertised).not.toContain(DEFAULT_SKILL);
+    for (const d of DEFAULT_SKILLS) expect(advertised).not.toContain(d);
   });
 
-  it("the default-excluded skill's pinned SKILL.md stays on disk byte-identical (ADR-0004 — unregister ≠ edit)", () => {
+  it("the default-excluded skills' pinned SKILL.md stay on disk byte-identical (ADR-0004 — unregister ≠ edit)", () => {
     // The knob must NOT touch files. This is a presence check here; the full
     // byte-equality pin lives in skills-fidelity.test.ts (which stays green).
     delete process.env[DEFAULTS_KEY];
-    expect(existsSync(join(skillsDir, DEFAULT_SKILL, "SKILL.md"))).toBe(true);
+    for (const d of DEFAULT_SKILLS) expect(existsSync(join(skillsDir, d, "SKILL.md"))).toBe(true);
   });
 });
 
@@ -135,7 +137,7 @@ describe("explicit PI_SUPERPOWERS_SKILL_EXCLUDE knob", () => {
     superpowersExtension(pi);
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
-    const expected = allSkillDirNames().filter((n) => n !== "test-driven-development" && n !== DEFAULT_SKILL);
+    const expected = allSkillDirNames().filter((n) => n !== "test-driven-development" && !DEFAULT_SKILLS.includes(n));
     expect(advertised).toEqual(expected);
   });
 
@@ -147,7 +149,7 @@ describe("explicit PI_SUPERPOWERS_SKILL_EXCLUDE knob", () => {
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
     const expected = allSkillDirNames().filter(
-      (n) => n !== "test-driven-development" && n !== "systematic-debugging" && n !== DEFAULT_SKILL,
+      (n) => n !== "test-driven-development" && n !== "systematic-debugging" && !DEFAULT_SKILLS.includes(n),
     );
     expect(advertised).toEqual(expected);
   });
@@ -173,7 +175,7 @@ describe("explicit PI_SUPERPOWERS_SKILL_EXCLUDE knob", () => {
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
     const expected = allSkillDirNames().filter((n) => n !== "test-driven-development");
     expect(advertised).toEqual(expected);
-    // default suppressed → verification-before-completion IS loaded here
-    expect(advertised).toContain(DEFAULT_SKILL);
+    // defaults suppressed → BOTH default skills are loaded here
+    for (const d of DEFAULT_SKILLS) expect(advertised).toContain(d);
   });
 });

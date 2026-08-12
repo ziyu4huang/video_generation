@@ -13,8 +13,8 @@
  */
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { spawnSubagent } from "@repo/pi-agent-ext-subagent/src/index.ts";
-import type { SpawnSubagentResult } from "@repo/pi-agent-ext-subagent/src/index.ts";
+import { spawnSubagent } from "@repo/pi-agent-ext-subagent";
+import type { SpawnSubagentResult } from "@repo/pi-agent-ext-subagent";
 import type { TSchema } from "typebox";
 import { MemoryStore } from "../store/memory-store.js";
 import { mergePlanSchema, mergePlanValidate } from "../store/merge-plan.js";

@@ -216,12 +216,6 @@ describe("discoverExtensionEntries (manifest-derived)", () => {
 		for (const s of ["core-task", "hermes-memory", "superpowers", "wayfind", "web-access", "obsidian", "btw", "file2md", "workflow", "knowledge-card"]) {
 			expect(sources.has(s)).toBe(true);
 		}
-		// movie-director-cost is NOT captured: it's a non-runtime PROTOTYPE
-		// (absent from manifest + static-extensions + movie-director.ts imports).
-		// Capturing it via EXTRA_ENTRIES inflated savings by ~536 tok (audit
-		// P0①, 2026-07-25). Do NOT re-add until movie-director-cost.ts is wired
-		// to load at runtime.
-		expect(sources.has("movie-director-cost")).toBe(false);
 	});
 
 	test("every derived path exists on disk and is absolute", () => {

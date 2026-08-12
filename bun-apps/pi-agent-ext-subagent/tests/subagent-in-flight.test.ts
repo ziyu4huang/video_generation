@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
+import { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 
 test("registry start/list/end lifecycle", () => {
   const reg = new SubagentInFlightRegistry();

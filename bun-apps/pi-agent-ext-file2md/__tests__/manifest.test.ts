@@ -3,13 +3,8 @@
  *
  *   bun test __tests__/manifest.test.ts
  */
-import { describe, test, expect } from "bun:test";
-import {
-  slugify,
-  pageLabel,
-  layoutFor,
-  createManifest,
-} from "../src/vlm/manifest.ts";
+import { describe, expect, test } from "bun:test";
+import { createManifest, layoutFor, pageLabel, slugify } from "../src/vlm/manifest.ts";
 
 describe("slugify", () => {
   test("strips the extension, replaces spaces, lowercases", () => {

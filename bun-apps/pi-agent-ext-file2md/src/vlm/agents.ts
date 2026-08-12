@@ -27,9 +27,9 @@
  *   <markdown transcription / summary of the page content>
  */
 import { readFileSync } from "node:fs";
+import type { ResolvedLLM } from "../sessions.ts";
 import type { DocProfile } from "./classify.ts";
 import { imageMimeType } from "./classify.ts";
-import type { ResolvedLLM } from "../sessions.ts";
 import { runVisionInference } from "./vision-inference.js";
 
 /** Output processing mode: how literally to transcribe vs summarize (T3). */
@@ -167,9 +167,7 @@ export function normalizeEmbeds(md: string): string {
  */
 export function normalizeFrontmatter(md: string, known: { page: number; kind: string }): string {
   const override = (body: string): string =>
-    body
-      .replace(/^(\s*page\s*:\s*).*/m, `$1${known.page}`)
-      .replace(/^(\s*kind\s*:\s*).*/m, `$1${known.kind}`);
+    body.replace(/^(\s*page\s*:\s*).*/m, `$1${known.page}`).replace(/^(\s*kind\s*:\s*).*/m, `$1${known.kind}`);
 
   // Must open with `---` on its own first line.
   const open = /^---\r?\n/.exec(md);

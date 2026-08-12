@@ -12,7 +12,7 @@
  */
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { type AgentDefinition, listAgentTypes, loadAgentRegistry, resolveAgentType } from "./agent-registry.js";
+import { type AgentDefinition, listAgentTypes, loadAgentRegistry, resolveAgentType } from "@repo/pi-agent-ext-core-runtime";
 import { computeScopeCheck, realGitOps } from "./git-scope.js";
 import { spawnSubagent } from "./spawn-subagent.js";
 import {
@@ -43,7 +43,7 @@ import {
 import { computeBaseline } from "./watchdog/repo-diff.js";
 import type { WatchdogResult } from "./watchdog/types.js";
 import { runWatchdog } from "./watchdog/watchdog.js";
-import { createWorktree, removeWorktree, type Worktree } from "./worktree.js";
+import { createWorktree, removeWorktree, type Worktree } from "@repo/pi-agent-ext-core-runtime";
 export function createSubagentTool(
   options: SubagentToolOptions = {},
 ): ToolDefinition<typeof subagentToolSchema, SubagentToolDetails> {

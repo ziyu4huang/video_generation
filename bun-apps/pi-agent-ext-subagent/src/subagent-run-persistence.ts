@@ -17,11 +17,11 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentUsage, BudgetExhaustion } from "./agent.js";
-import type { AgentHistoryEntry } from "./agent-history.js";
+import type { AgentUsage, BudgetExhaustion } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
 import type { SubagentScopeCheck } from "./git-scope.js";
-import { homeDir } from "./home.js";
-import type { SddReport } from "./sdd-report.js";
+import { homeDir } from "@repo/pi-agent-ext-core-runtime";
+import type { SddReport } from "@repo/pi-agent-ext-core-runtime";
 import type { WatchdogResult } from "./watchdog/types.js";
 
 export const SUBAGENT_HOME_RELATIVE_DIR = ".pi/subagents";

@@ -166,6 +166,8 @@ describe("bootstrap payload assembly", () => {
     expect(payload).toContain("references/pi-tools.md");
     // concurrent fan-out goes through the workflow tool's parallel(), not ad-hoc multi-dispatch
     expect(payload).toContain("parallel()");
+    // watchdog:{l2:true} advisory adversarial-review guardrail (D2 MED-risk mitigation pin)
+    expect(payload).toContain("watchdog");
   });
 
   it("carries the Pipeline routing (2-rule boundary convergence, ADR-0004-safe)", () => {

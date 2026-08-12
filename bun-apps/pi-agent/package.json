@@ -47,6 +47,7 @@
     "@repo/pi-agent-ext-power-tool": "workspace:*",
     "@repo/pi-agent-ext-prompt-history": "workspace:*",
     "@repo/pi-agent-ext-research-tool": "workspace:*",
+    "@repo/pi-agent-ext-subagent": "workspace:*",
     "@repo/pi-agent-ext-superpowers": "workspace:*",
     "@repo/pi-agent-ext-wayfind": "workspace:*",
     "@repo/pi-agent-ext-web-access": "workspace:*",

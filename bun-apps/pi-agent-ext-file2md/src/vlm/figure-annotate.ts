@@ -1,5 +1,5 @@
-import { askImage } from "./ask.ts";
 import type { ResolvedLLM } from "../sessions.ts";
+import { askImage } from "./ask.ts";
 
 const SYSTEM = [
   "You are a figure-and-equation annotator for a text-only agent.",
@@ -44,7 +44,5 @@ export async function describeFigureWithPrior(
     llm,
     mimeType: args.mimeType,
   });
-  return r.ok
-    ? { ok: true, markdown: r.reply }
-    : { ok: false, markdown: "", error: r.error };
+  return r.ok ? { ok: true, markdown: r.reply } : { ok: false, markdown: "", error: r.error };
 }

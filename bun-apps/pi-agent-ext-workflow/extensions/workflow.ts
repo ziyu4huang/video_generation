@@ -1,11 +1,11 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { setRateLimitCapResolver } from "@repo/pi-agent-ext-subagent";
+import { setRateLimitCapResolver } from "@repo/pi-agent-ext-core-runtime";
 // The in-flight registry singleton MUST resolve to the SAME module instance the
-// subagent extension + obsidian extension use. The src subpath (with .ts) is the
-// documented, proven cross-ext singleton path (see the singleton docstring in
-// subagent-in-flight.ts + pi-agent-ext-obsidian/src/lib/subagent.ts); verified to
-// share one instance with the package-root re-export under the isolated linker.
-import { getSubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent/src/subagent-in-flight.ts";
+// subagent extension + obsidian extension use. Imported via the package barrel
+// (`@repo/pi-agent-ext-core-runtime`) — verified to share one instance with the
+// subagent extension + obsidian extension under the isolated linker (see the
+// singleton docstring in src/subagent-in-flight.ts).
+import { getSubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
 import {
   buildWorkflowGuidelinesForTurn,

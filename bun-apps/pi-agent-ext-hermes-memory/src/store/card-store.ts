@@ -59,6 +59,12 @@ export interface CardStore {
   upsertCardMdHash(cardId: string, hash: string, kind?: string): Promise<void>;
   /** 09-impl: delete the content-hash row for a card. */
   deleteCardMdHash(cardId: string): Promise<void>;
+  /** 10-impl: read the stored dep-aggregate baseline hash for a card, or null. */
+  getCardDepHash(cardId: string): Promise<{ depHash: string; validatedAt: string } | null>;
+  /** 10-impl: UPSERT a dep-aggregate baseline hash (SQLite ON CONFLICT DO UPDATE). */
+  upsertCardDepHash(cardId: string, depHash: string): Promise<void>;
+  /** 10-impl: delete the dep-aggregate baseline hash for a card. */
+  deleteCardDepHash(cardId: string): Promise<void>;
   /** Close the backing backend (release the SQLite handle). */
   close(): Promise<void>;
 }
@@ -280,6 +286,41 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
       return runWithTransientRetry(() =>
         backend.withCorruptionRecovery(() => {
           getDb().prepare("DELETE FROM card_md_hash WHERE card_id = ?").run(cardId);
+        }),
+      );
+    },
+
+    getCardDepHash(cardId: string): Promise<{ depHash: string; validatedAt: string } | null> {
+      return runWithTransientRetry(() =>
+        backend.withCorruptionRecovery(() => {
+          const row = getDb()
+            .prepare("SELECT dep_hash, validated_at FROM card_dep_hash WHERE card_id = ?")
+            .get(cardId) as { dep_hash: string; validated_at: string } | undefined;
+          return row ? { depHash: row.dep_hash, validatedAt: row.validated_at } : null;
+        }),
+      );
+    },
+
+    upsertCardDepHash(cardId: string, depHash: string): Promise<void> {
+      return runWithTransientRetry(() =>
+        backend.withCorruptionRecovery(() => {
+          getDb()
+            .prepare(
+              `INSERT INTO card_dep_hash (card_id, dep_hash, validated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(card_id) DO UPDATE SET
+                 dep_hash = excluded.dep_hash,
+                 validated_at = excluded.validated_at`,
+            )
+            .run(cardId, depHash, today());
+        }),
+      );
+    },
+
+    deleteCardDepHash(cardId: string): Promise<void> {
+      return runWithTransientRetry(() =>
+        backend.withCorruptionRecovery(() => {
+          getDb().prepare("DELETE FROM card_dep_hash WHERE card_id = ?").run(cardId);
         }),
       );
     },

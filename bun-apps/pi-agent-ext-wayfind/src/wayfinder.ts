@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { completeEffort } from "./lifecycle.js";
 import { appendDecision, readMap, writeMap, writeTicket } from "./map.js";
 import { computeFrontier, type Ticket, today, type WayfindMap } from "./model.js";
+import { readStaleDecisions } from "./stale-seam.js";
 
 /** Slugify a free-text destination/effort name: lowercase, hyphenate, trim,
  *  then truncate to ≤48 chars at a WORD BOUNDARY.
@@ -243,12 +244,20 @@ export interface CloseEffortRefused {
 
 /** Closing ceremony for a completed effort: harvest its map into an
  *  `output/next-goal-<ts>.md` self-reflect note. Returns `{ refused }` unless
- *  the frontier is clear (no open unblocked tickets) — close them first. */
-export function closeEffortReflection(
+ *  the frontier is clear (no open unblocked tickets) — close them first.
+ *
+ *  10-impl (staleness dependency graph): the ceremony is now a GRADUATION GATE.
+ *  After the frontier-check refused arm + before the graduation tail, a stale
+ *  arm refuses while any closed decision whose cited/declared source-file deps
+ *  changed since last validation remains. The fn is async because staleness is
+ *  computed from the DB + source files at call time (the T7 seam reader). Null-
+ *  safe: `readStaleDecisions` returns null when hermes is absent OR the seam
+ *  throws → the gate degrades to a no-op (graduates, never crashes). */
+export async function closeEffortReflection(
   cwd: string,
   effort: string,
   now: Date = new Date(),
-): CloseEffortReflection | CloseEffortRefused {
+): Promise<CloseEffortReflection | CloseEffortRefused> {
   const map = readMap(cwd, effort);
   if (!map) return { refused: `no map found for effort "${effort}" under .planning/` };
   const frontier = computeFrontier(map.tickets);
@@ -256,6 +265,18 @@ export function closeEffortReflection(
     const ids = frontier.map((t) => `${t.id} ${t.title}`).join("; ");
     return {
       refused: `${frontier.length} open ticket(s) remain on "${effort}" (${ids}); resolve them (or /wayfind sync) before /wayfind done`,
+    };
+  }
+  // 10-impl (staleness dependency graph): BLOCK graduation while closed decisions
+  // whose cited/declared source-file deps changed since last validation remain.
+  // readStaleDecisions returns null when hermes-memory is absent → the gate is a
+  // no-op (degrades, never crashes). Async because staleness is computed from
+  // the DB + source files at call time (on-access, per ticket-10 Resolution γ).
+  const stale = await readStaleDecisions(effort, cwd);
+  if (stale && stale.length > 0) {
+    const which = stale.map((s) => s.cardId).join(", ");
+    return {
+      refused: `${stale.length} stale decision(s) remain on "${effort}" — dependencies changed since last validation (${which}). Re-grill to resolve (re-open ticket, re-validate, update resolution) before /wayfind done`,
     };
   }
   const deferredPrizes = map.fog.filter((p) => !p.startsWith("<!--"));

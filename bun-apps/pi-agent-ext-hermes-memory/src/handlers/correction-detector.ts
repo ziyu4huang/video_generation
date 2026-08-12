@@ -9,7 +9,7 @@
  */
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { spawnSubagent } from "@repo/pi-agent-ext-subagent/src/index.ts";
+import { spawnSubagent } from "@repo/pi-agent-ext-subagent";
 import { MemoryStore } from "../store/memory-store.js";
 import { readGrillActive } from "../grill-seam.js";
 import { formatFailureMemoryContent } from "../store/memory-format.js";

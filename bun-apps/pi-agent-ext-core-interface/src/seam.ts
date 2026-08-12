@@ -5,7 +5,7 @@ import type { KnowledgePipeline } from "./interfaces/knowledge-pipeline.js";
  *  __pi* seams typed `unknown` (incremental migration — ticket 11 fork 3).
  *  __piRateLimitState is also `unknown` here — it is NEVER published/read via
  *  publishSeam/readSeam (its globalThis slot is owned directly by
- *  pi-agent-ext-subagent's rate-limiter via its own GLOBAL_KEY); it is registered
+ *  pi-agent-ext-core-runtime's rate-limiter via its own GLOBAL_KEY); it is registered
  *  in SEAM_KEYS purely to satisfy the seam-contract NO-ORPHANS invariant. */
 export interface SeamImplMap {
   __piKnowledgePipeline: KnowledgePipeline;

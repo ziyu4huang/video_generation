@@ -48,7 +48,6 @@ describe("pi:knowledge sink subscriber", () => {
 	test("a file2md-shaped dir emission converges into the shared folder", async () => {
 		writeFileSync(join(src, "page-1.md"), "# Page One\n\nbody.\n");
 		const capture: { handler?: (d: unknown) => void } = {};
-		// @ts-expect-error: fake pi is a Proxy stand-in for ExtensionAPI
 		knowledgeCard(fakePi(capture));
 		expect(capture.handler).toBeDefined();
 
@@ -62,7 +61,6 @@ describe("pi:knowledge sink subscriber", () => {
 
 	test("best-effort: a bad dir never throws from the handler", async () => {
 		const capture: { handler?: (d: unknown) => void } = {};
-		// @ts-expect-error: fake pi is a Proxy stand-in for ExtensionAPI
 		knowledgeCard(fakePi(capture));
 		await expect(
 			capture.handler!({ source: "generic", sourceLabel: "file2md:x", dir: "/no/such/dir" }),

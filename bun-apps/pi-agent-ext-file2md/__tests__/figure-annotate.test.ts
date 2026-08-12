@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import { buildPriorPrompt, describeFigureWithPrior } from "../src/vlm/figure-annotate.ts";
 
 describe("buildPriorPrompt", () => {
@@ -55,9 +55,7 @@ describe("describeFigureWithPrior", () => {
   });
 
   it("returns error when askImage fails", async () => {
-    const askMock = mock(() =>
-      Promise.resolve({ ok: false, reply: "", error: "VLM error" }),
-    );
+    const askMock = mock(() => Promise.resolve({ ok: false, reply: "", error: "VLM error" }));
     mock.module("../src/vlm/ask.ts", () => ({ askImage: askMock }));
 
     const r = await describeFigureWithPrior({} as any, {

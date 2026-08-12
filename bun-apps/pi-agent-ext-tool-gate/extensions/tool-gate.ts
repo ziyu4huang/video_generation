@@ -327,7 +327,7 @@ export function matchIntent(
  * mode to co-activate siblings, so the escape hatch behaves consistently whether
  * a tool is requested by name or by intent.
  */
-function gateGatingKey(gate: ToolGate): string {
+export function gateGatingKey(gate: ToolGate): string {
   return JSON.stringify({
     keywords: [...gate.keywords].sort(),
     requires: gate.requires
