@@ -1,6 +1,10 @@
 // `prime?` on SpawnSubagentOptions is a forward-reference to sub-project ③
 // (auto-primer) — accepted but currently a NO-OP. Exported for type completeness;
 // treat as experimental until ③ lands.
+// Core-runtime-owned types: agent/registry/history/errors/model-tier/sdd/
+// structured-output/worktree surface, now sourced directly from core-runtime
+// (Task 5 removed the lateral workflow→subagent edge for all internal runtime
+// imports). Symbol names unchanged.
 export type {
   AgentDefinition,
   AgentHistoryEntry,
@@ -10,22 +14,29 @@ export type {
   AgentRunOptions,
   AgentRunResult,
   AgentUsage,
-  CreateSubagentRunPersistenceOptions,
   ModelTierConfig,
   SddReport,
   SddReportStatus,
+  StructuredOutputCapture,
+  StructuredOutputToolOptions,
+  WorkflowAgentOptions,
+  Worktree,
+} from "@repo/pi-agent-ext-core-runtime";
+// Subagent-owned public-API type companions (spawn-subagent + subagent-run-
+// persistence). These pair 1:1 with the RUNTIME re-export block below
+// (spawnSubagent / createSubagentRunPersistence / createSubagentRunsTool), which
+// Task 6 deletes; these type lines are removed alongside it in Task 6. They are
+// NOT in core-runtime (subagent's own tool API, not shared runtime machinery).
+export type {
+  CreateSubagentRunPersistenceOptions,
   SpawnSubagentOptions,
   SpawnSubagentPrime,
   SpawnSubagentResult,
-  StructuredOutputCapture,
-  StructuredOutputToolOptions,
   SubagentFsLayer,
   SubagentRunPersistence,
   SubagentRunRecord,
   SubagentRunStatus,
   SubagentRunsToolOptions,
-  WorkflowAgentOptions,
-  Worktree,
 } from "@repo/pi-agent-ext-subagent";
 // ── Public SDD report parsing (stable) ────────────────────────────────
 // Machine-readable view of a subagent-driven-development implementer's report

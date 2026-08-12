@@ -1,14 +1,14 @@
 import { existsSync } from "node:fs";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent";
+import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 import {
   listAgentTypes,
   listAvailableModelSpecs,
   loadAgentRegistry,
   WorkflowError,
   WorkflowErrorCode,
-} from "@repo/pi-agent-ext-subagent";
+} from "@repo/pi-agent-ext-core-runtime";
 import { Type } from "typebox";
 import {
   createToolUpdateWorkflowDisplay,

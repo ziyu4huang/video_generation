@@ -8,7 +8,7 @@
 
 import { createHash } from "node:crypto";
 import { basename, join, resolve } from "node:path";
-import { homeDir } from "@repo/pi-agent-ext-subagent";
+import { homeDir } from "@repo/pi-agent-ext-core-runtime";
 import { WORKFLOW_RUNS_DIR, WORKFLOW_SAVED_DIR } from "./config.js";
 
 export const WORKFLOW_HOME_RELATIVE_DIR = ".pi/workflows";

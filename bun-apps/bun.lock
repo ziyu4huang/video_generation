@@ -479,6 +479,7 @@
       "name": "@repo/pi-agent-ext-workflow",
       "version": "2.9.0",
       "dependencies": {
+        "@repo/pi-agent-ext-core-runtime": "workspace:*",
         "acorn": "^8.16.0",
       },
       "devDependencies": {
@@ -495,7 +496,6 @@
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": "0.84.1",
         "@earendil-works/pi-tui": "0.84.1",
-        "@repo/pi-agent-ext-subagent": "workspace:*",
         "typebox": "*",
       },
     },

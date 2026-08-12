@@ -12,7 +12,7 @@
  * `vm.createContext` sandbox.
  */
 
-import { isWorkflowError, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-subagent";
+import { isWorkflowError, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
 import { hashHostCall, runHostFnWithTimeout } from "./host-fn-helpers.js";
 import type { HostFnAskOptions, HostFnRegistry } from "./host-fn-registry.js";
 

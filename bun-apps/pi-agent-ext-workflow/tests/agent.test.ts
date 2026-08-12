@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { AgentRunOptions, AgentUsage, ModelTierConfig, SddReport } from "@repo/pi-agent-ext-subagent";
+import type { AgentRunOptions, AgentUsage, ModelTierConfig, SddReport } from "@repo/pi-agent-ext-core-runtime";
 import {
   checkBudgetExhaustion,
   listAvailableModelSpecs,
@@ -8,7 +8,7 @@ import {
   WorkflowAgent,
   WorkflowError,
   WorkflowErrorCode,
-} from "@repo/pi-agent-ext-subagent";
+} from "@repo/pi-agent-ext-core-runtime";
 import { runWorkflow } from "../src/workflow.js";
 
 // Private methods used for testing - cast to this type to access them without `any`
