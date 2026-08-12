@@ -131,13 +131,10 @@ jobs:
           # wayfind's own `test` script chains check(biome) → build(tsc) →
           # test:unit(bun test); `bun run test` (not plain `bun test`) so that
           # full chain runs, matching gui-movie-director's convention below.
-          # KNOWN RED (2026-08-12, PRE-EXISTING — verified identical at
-          # 32c529d2^): `biome check .` reports 1 error (useTemplate drift in
-          # src/__tests__/settings.test.ts, from #1228), so the chain exits 1
-          # before the tests run. The 536 unit tests themselves are green
-          # (`bun run build && bun run test:unit` exits 0). Left as-is: the row
-          # is correct, the LINT is what needs fixing — do that in its own PR
-          # rather than weakening this command to hide it.
+          # Was KNOWN RED through 2026-08-12 (useTemplate drift in
+          # src/__tests__/settings.test.ts from #1228). Fixed — the lint was
+          # fixed rather than the row weakened, as that note demanded. Green as
+          # of the ci-local.sh matrix run.
           - { package: pi-agent-ext-wayfind, test-cmd: "bun run test" }
           - { package: pi-agent-ext-superpowers, test-cmd: "bun run test" }
           - { package: pi-agent-ext-web-access, test-cmd: "bun test" }
@@ -199,14 +196,11 @@ jobs:
           # WorkflowAgent runner + subagent/subagent_runs tools). Uses the
           # package's canonical `bun run test` chain (biome check → tsc build →
           # bun test), mirroring wayfind's `bun run test` convention.
-          # KNOWN RED (2026-08-12, PRE-EXISTING — verified identical at
-          # 32c529d2^, 17 errors both sides): the "its biome check is green"
-          # claim this comment used to make has since drifted false —
-          # noUnusedVariables in src/subagents-command.ts (#1013) +
+          # Was KNOWN RED through 2026-08-12 with 17 biome errors
+          # (noUnusedVariables in src/subagents-command.ts from #1013,
           # noNonNullAssertion in tests/install-subagent-context-widget.test.ts
-          # (#1078). The 481 unit tests are green (`bun run build && bun run
-          # test:unit` exits 0). Same disposition as wayfind above: fix the
-          # lint, don't weaken the row.
+          # from #1078). Fixed — the lint was fixed rather than the row
+          # weakened. Green as of the ci-local.sh matrix run.
           - { package: pi-agent-ext-subagent, test-cmd: "bun run test" }
           # pi-agent-ext-hermes-memory: pure `bun test` (Bun-only package —
           # uses bun:sqlite via the BunCompatDatabase shim in src/store/db.ts;
