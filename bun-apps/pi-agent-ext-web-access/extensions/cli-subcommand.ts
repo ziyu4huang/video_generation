@@ -1,11 +1,11 @@
 /**
- * CLI sub-command spec for pi-agent-cli.
+ * CLI sub-command spec for pi-agent.
  *
- * Lets `pi-agent-cli` expose the web-access extension as a top-level
+ * Lets `pi-agent` expose the web-access extension as a top-level
  * sub-command:
  *
- *   bun-pi-agent-cli research <natural-language query...>
- *   bun-pi-agent-cli --model sonnet research "RAG vs graph RAG benchmarks 2026"
+ *   pi-agent cli research <natural-language query...>
+ *   pi-agent cli --model sonnet research "RAG vs graph RAG benchmarks 2026"
  *
  * The web-access tools (web_search, fetch_content, get_search_content) are
  * agent-driven, so the CLI passes the user's query as a natural-language task.
@@ -13,15 +13,15 @@
  * save a synthesized digest into the vault via obsidian_create — turning a web
  * search into durable knowledge.
  *
- * This file is dependency-free of pi-agent-cli on purpose: the workspace dep
- * direction is pi-agent-cli → pi-agent-ext-web-access, so the spec is typed
+ * This file is dependency-free of pi-agent on purpose: the workspace dep
+ * direction is pi-agent → pi-agent-ext-web-access, so the spec is typed
  * with a local structurally-compatible interface (TS structural typing makes it
- * assignable to pi-agent-cli's `ExtensionSubcommandSpec`). See
- * `bun-apps/pi-agent-cli/src/extensions/types.ts` for the canonical shape.
+ * assignable to pi-agent's `ExtensionSubcommandSpec`). See
+ * `bun-apps/pi-agent/src/cli/extensions/types.ts` for the canonical shape.
  */
 import extension from "../index.ts";
 
-/** Local shape of pi-agent-cli's ExtensionSubcommandSpec (structural match). */
+/** Local shape of pi-agent's ExtensionSubcommandSpec (structural match). */
 interface ExtensionSubcommandSpec {
   name: string;
   summary: string;
@@ -39,7 +39,7 @@ interface ExtensionSubcommandSpec {
  * (obsidian_create, obsidian_search, …) into one tool with an `action` param.
  * Listing the old names here made `--tools`'s fail-fast validator reject this
  * subcommand's own default allowlist on every invocation (see
- * validateToolNames in pi-agent-cli/src/sessions/shared.ts).
+ * validateToolNames in pi-agent/src/cli/sessions/shared.ts).
  */
 const RESEARCH_TOOLS = ["web_search", "fetch_content", "get_search_content", "obsidian"];
 
@@ -47,8 +47,8 @@ export const researchSubcommand: ExtensionSubcommandSpec = {
   name: "research",
   summary: "web research: search → fetch → synthesize, optionally save a digest to the vault",
   details: `Usage:
-  bun-pi-agent-cli research <natural-language query...> [options]
-  bun-pi-agent-cli research <query...> --save [options]
+  pi-agent cli research <natural-language query...> [options]
+  pi-agent cli research <query...> --save [options]
 
 Drives a web-research flow with the web-access tools:
   1. web_search   — multi-provider search (Z.ai / OpenAI / Brave / Exa / Tavily …)
@@ -75,9 +75,9 @@ Options (pi-aligned globals):
   --save                 write the synthesized digest to the vault (default: print only)
 
 Examples:
-  bun-pi-agent-cli research "RAG vs graph RAG benchmarks 2026"
-  bun-pi-agent-cli --model sonnet research "Apple MLX vs PyTorch MPS performance" --save
-  bun-pi-agent-cli research "explain the paper at https://arxiv.org/abs/2401.00001"`,
+  pi-agent cli research "RAG vs graph RAG benchmarks 2026"
+  pi-agent cli --model sonnet research "Apple MLX vs PyTorch MPS performance" --save
+  pi-agent cli research "explain the paper at https://arxiv.org/abs/2401.00001"`,
   factory: extension,
   tools: RESEARCH_TOOLS,
   task: (parsed) => {

@@ -1,12 +1,12 @@
 /**
- * CLI sub-command specs for pi-agent-cli.
+ * CLI sub-command specs for pi-agent.
  *
- * Lets `pi-agent-cli` expose the research-tool extension tools as top-level
+ * Lets `pi-agent` expose the research-tool extension tools as top-level
  * sub-commands:
  *
- *   bun-pi-agent-cli collect-videos <platform> <preset> [keywords...] [options]
- *   bun-pi-agent-cli organize-vault [options]
- *   bun-pi-agent-cli import-memory [options]
+ *   pi-agent cli collect-videos <platform> <preset> [keywords...] [options]
+ *   pi-agent cli organize-vault [options]
+ *   pi-agent cli import-memory [options]
  *
  * Each sub-command creates an agent session with the research-tool extension
  * factory loaded (so the corresponding tool is registered) and passes a
@@ -16,15 +16,15 @@
  * --output-path, --hermes-dir, --vault-root, --dry-run) are parsed from the
  * CLI and translated into tool parameters by the task builder.
  *
- * This file is dependency-free of pi-agent-cli on purpose: the workspace dep
- * direction is pi-agent-cli → pi-agent-ext-research-tool, so the spec is typed
+ * This file is dependency-free of pi-agent on purpose: the workspace dep
+ * direction is pi-agent → pi-agent-ext-research-tool, so the spec is typed
  * with a local structurally-compatible interface (TS structural typing makes it
- * assignable to pi-agent-cli's `ExtensionSubcommandSpec`). See
- * `bun-apps/pi-agent-cli/src/extensions/types.ts` for the canonical shape.
+ * assignable to pi-agent's `ExtensionSubcommandSpec`). See
+ * `bun-apps/pi-agent/src/cli/extensions/types.ts` for the canonical shape.
  */
 import extension from "./research-tool.ts";
 
-/** Local shape of pi-agent-cli's ExtensionSubcommandSpec (structural match). */
+/** Local shape of pi-agent's ExtensionSubcommandSpec (structural match). */
 interface ExtensionSubcommandSpec {
   name: string;
   summary: string;
@@ -41,7 +41,7 @@ export const collectVideosSubcommand: ExtensionSubcommandSpec = {
   summary:
     "collect LLM/AI videos from Bilibili/YouTube and write a Markdown summary to the vault",
   details: `Usage:
-  bun-pi-agent-cli collect-videos <platform> <preset> [keywords...] [options]
+  pi-agent cli collect-videos <platform> <preset> [keywords...] [options]
 
 Collect AI/LLM videos from Bilibili or YouTube and write a structured Markdown
 summary to the vault's weekly-news/ folder.
@@ -64,10 +64,10 @@ Options (pi-aligned globals + research-specific):
   --tools <csv>       override the curated tool allowlist
 
 Examples:
-  bun-pi-agent-cli collect-videos bilibili llm
-  bun-pi-agent-cli collect-videos youtube llm
-  bun-pi-agent-cli collect-videos bilibili media --popular --pages 2
-  bun-pi-agent-cli collect-videos bilibili custom RLHF PPO --pages 3
+  pi-agent cli collect-videos bilibili llm
+  pi-agent cli collect-videos youtube llm
+  pi-agent cli collect-videos bilibili media --popular --pages 2
+  pi-agent cli collect-videos bilibili custom RLHF PPO --pages 3
 
 Requires YOUTUBE_API_KEY for YouTube collection.`,
   factory: extension,
@@ -140,7 +140,7 @@ export const organizeVaultSubcommand: ExtensionSubcommandSpec = {
   summary:
     "auto-tag frontmatter on vault notes and list unclassified orphans",
   details: `Usage:
-  bun-pi-agent-cli organize-vault [options]
+  pi-agent cli organize-vault [options]
 
 Scan the Obsidian vault, auto-tag notes that lack frontmatter (tags/aliases/
 created inferred from filename + path patterns), and list orphan notes that
@@ -153,8 +153,8 @@ Options:
   --tools <csv>           override the curated tool allowlist
 
 Examples:
-  bun-pi-agent-cli organize-vault
-  bun-pi-agent-cli organize-vault --dry-run`,
+  pi-agent cli organize-vault
+  pi-agent cli organize-vault --dry-run`,
   factory: extension,
   tools: ["organize_vault_notes"],
   task: (parsed) => {
@@ -186,7 +186,7 @@ export const importMemorySubcommand: ExtensionSubcommandSpec = {
   summary:
     "parse pi-hermes-memory entries and append to a vault-mind JSONL collection",
   details: `Usage:
-  bun-pi-agent-cli import-memory [options]
+  pi-agent cli import-memory [options]
 
 Parse pi-hermes-memory entries from MEMORY.md / USER.md / failures.md and
 append them (dedup by id) to a vault-mind JSONL collection. Output defaults
@@ -200,8 +200,8 @@ Options:
   --tools <csv>           override the curated tool allowlist
 
 Examples:
-  bun-pi-agent-cli import-memory
-  bun-pi-agent-cli import-memory --output-path ./my-collection.jsonl`,
+  pi-agent cli import-memory
+  pi-agent cli import-memory --output-path ./my-collection.jsonl`,
   factory: extension,
   tools: ["import_memory_to_vault"],
   task: (parsed) => {

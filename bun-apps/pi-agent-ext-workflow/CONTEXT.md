@@ -29,7 +29,7 @@ _Avoid_: "extension" (a pack is NOT a pi extension); "template"
 **Pack resolver** (`resolveWorkflowScript` / `resolveWorkflowPack`):
 The SINGLE source of truth that maps a `<name>` (or path) to runnable script
 text, owned by this package (`workflow-pack.ts`). Shared by BOTH entry paths —
-the CLI (`pi-agent-cli workflow run`) and the `workflow` tool's `name`
+the CLI (`pi-agent cli workflow run`) and the `workflow` tool's `name`
 parameter — so resolution never drifts between them. Pure + injectable fs.
 _Avoid_: "CLI resolver" / "tool resolver" (there is one, in the engine)
 

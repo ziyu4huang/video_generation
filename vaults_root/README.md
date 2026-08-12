@@ -32,7 +32,7 @@ vaults_root/
 `path`，**不會動到 pin 或子 repo 內容**——所以原本的 wiki-link 相對路徑、
 Obsidian 設定全部保留。
 
-## 讓 `pi-obsidian` / `pi-agent-cli` 指向這裡
+## 讓 `pi-obsidian` / `pi-agent cli` 指向這裡
 
 `bun-apps/pi-obsidian` 的 obsidian 工具預設讀 `<cwd>/vault/`（給任意專案用的
 通用預設，**不應**改成 repo 專屬路徑）。本 repo 改用環境變數 / flag 指向：

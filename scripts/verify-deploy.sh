@@ -3,9 +3,9 @@
 #
 # Runs the full chain a deploy depends on, in order:
 #   1. bun install              (fresh node_modules — the #1 silent-break cause)
-#   2. unit tests (both pkgs)   (pure-logic gate, no GPU/model)
-#   3. bundles (both pkgs)      (proves imports resolve → asserts workspace deps)
-#   4. smoke (version + models) (proves the built artifacts actually boot)
+#   2. unit tests               (pure-logic gate, no GPU/model)
+#   3. bundle                   (proves imports resolve → asserts workspace deps)
+#   4. smoke (both entry modes) (proves the built artifact actually boots)
 #   5. deploy --verify          (builds a deploy + boots it from a foreign cwd
 #                                + probes getAllTools / canary tools / 0 conflicts)
 #
@@ -60,36 +60,31 @@ else
 fi
 
 # ── 2. unit tests ────────────────────────────────────────────────────────────
-step "unit tests" "(pi-agent + pi-agent-cli, no GPU/model)"
+# (pi-agent-cli was merged into pi-agent; its suites now run under pi-agent.)
+step "unit tests" "(pi-agent, no GPU/model)"
 ( cd bun-apps/pi-agent && bun test >/tmp/vd-pi-agent.log 2>&1 ) \
-  || { tail -8 /tmp/vd-pi-agent.log; fail "pi-agent tests" "step 2a"; }
+  || { tail -8 /tmp/vd-pi-agent.log; fail "pi-agent tests" "step 2"; }
 ok "pi-agent: $(grep -E '^\s+[0-9]+ pass' /tmp/vd-pi-agent.log | tail -1 | xargs)"
 
-( cd bun-apps/pi-agent-cli && bun test >/tmp/vd-pi-cli.log 2>&1 ) \
-  || { tail -8 /tmp/vd-pi-cli.log; fail "pi-agent-cli tests" "step 2b"; }
-ok "pi-agent-cli: $(grep -E '^\s+[0-9]+ pass' /tmp/vd-pi-cli.log | tail -1 | xargs)"
-
-# ── 3. bundles ───────────────────────────────────────────────────────────────
-step "bundles" "(proves all workspace imports resolve)"
-( cd bun-apps/pi-agent && bun scripts/build.ts >/tmp/vd-build-agent.log 2>&1 ) \
-  || { tail -10 /tmp/vd-build-agent.log; fail "pi-agent build" "step 3a"; }
+# ── 3. bundle ────────────────────────────────────────────────────────────────
+# (was two builds; pi-agent-cli is merged in. Step 3a used to call a
+#  scripts/build.ts that never existed in pi-agent.)
+step "bundle" "(proves all workspace imports resolve)"
+( cd bun-apps/pi-agent && bun scripts/deploy.ts --no-freeze >/tmp/vd-build-agent.log 2>&1 ) \
+  || { tail -10 /tmp/vd-build-agent.log; fail "pi-agent deploy --bundle" "step 3"; }
 ok "pi-agent bundle ($(du -h dist/pi-agent/pi-agent.js | cut -f1))"
 
-( cd bun-apps/pi-agent-cli && bun scripts/build.ts >/tmp/vd-build-cli.log 2>&1 ) \
-  || { tail -10 /tmp/vd-build-cli.log; fail "pi-agent-cli build" "step 3b"; }
-ok "pi-agent-cli bundle ($(du -h dist/pi-agent-cli/cli.js | cut -f1))"
-
-# ── 4. smoke (boot the built artifacts) ──────────────────────────────────────
-step "smoke" "(built artifacts boot + respond)"
-[ -f dist/pi-agent-cli/cli.js ] || fail "cli.js missing" "step 4"
-bun dist/pi-agent-cli/cli.js version >/dev/null 2>&1 \
-  || fail "pi-agent-cli version" "step 4a"
-ok "pi-agent-cli version"
-
+# ── 4. smoke (boot the built artifact, both entry modes) ─────────────────────
+step "smoke" "(built artifact boots + responds)"
+[ -f dist/pi-agent/pi-agent.js ] || fail "pi-agent.js missing" "step 4"
 bun dist/pi-agent/pi-agent.js --list-models >/dev/null 2>&1 \
-  || fail "pi-agent --list-models" "step 4b"
+  || fail "pi-agent --list-models" "step 4a"
 MODELS="$(bun dist/pi-agent/pi-agent.js --list-models 2>/dev/null | grep -c '^' || true)"
 ok "pi-agent --list-models ($MODELS rows)"
+
+bun dist/pi-agent/pi-agent.js cli version >/dev/null 2>&1 \
+  || fail "pi-agent cli version" "step 4b"
+ok "pi-agent cli version"
 
 # ── 5. deploy --verify (boot from a foreign cwd + probe tools) ───────────────
 if [ "$NO_DEPLOY" -eq 1 ]; then

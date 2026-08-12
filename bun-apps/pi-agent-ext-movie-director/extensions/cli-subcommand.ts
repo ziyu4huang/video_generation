@@ -1,11 +1,11 @@
 /**
- * CLI sub-command spec for pi-agent-cli.
+ * CLI sub-command spec for pi-agent.
  *
- * Lets `pi-agent-cli` expose the movie-director extension as a top-level
+ * Lets `pi-agent` expose the movie-director extension as a top-level
  * sub-command:
  *
- *   bun-pi-agent-cli movie <natural-language request...>
- *   bun-pi-agent-cli --model sonnet movie "produce a 30s ad: red sports car on coastal road"
+ *   pi-agent cli movie <natural-language request...>
+ *   pi-agent cli --model sonnet movie "produce a 30s ad: red sports car on coastal road"
  *
  * The movie tool is an instruction-driven video-production orchestrator
  * (idea → script → scene_plan → assets → edit → compose → publish, with
@@ -13,15 +13,15 @@
  * under the hood, so the CLI passes the user's request as a natural-language
  * task and lets the agent drive the orchestration via the `movie` tool.
  *
- * This file is dependency-free of pi-agent-cli on purpose: the workspace dep
- * direction is pi-agent-cli → pi-agent-ext-movie-director, so the spec is typed
+ * This file is dependency-free of pi-agent on purpose: the workspace dep
+ * direction is pi-agent → pi-agent-ext-movie-director, so the spec is typed
  * with a local structurally-compatible interface (TS structural typing makes it
- * assignable to pi-agent-cli's `ExtensionSubcommandSpec`). See
- * `bun-apps/pi-agent-cli/src/extensions/types.ts` for the canonical shape.
+ * assignable to pi-agent's `ExtensionSubcommandSpec`). See
+ * `bun-apps/pi-agent/src/cli/extensions/types.ts` for the canonical shape.
  */
 import extension from "./movie-director.ts";
 
-/** Local shape of pi-agent-cli's ExtensionSubcommandSpec (structural match). */
+/** Local shape of pi-agent's ExtensionSubcommandSpec (structural match). */
 interface ExtensionSubcommandSpec {
   name: string;
   summary: string;
@@ -35,7 +35,7 @@ export const movieSubcommand: ExtensionSubcommandSpec = {
   name: "movie",
   summary: "headless video-production orchestrator (idea→script→assets→edit→compose via run.py)",
   details: `Usage:
-  bun-pi-agent-cli movie <natural-language request...> [options]
+  pi-agent cli movie <natural-language request...> [options]
 
 The movie tool is an instruction-driven video-production orchestrator. It drives
 the full pipeline — idea → script → scene_plan → assets → edit → compose →
@@ -48,7 +48,7 @@ the CLI. Two ways to pass them:
   1. Fold them into the request text: \`movie produce a 30s ad, red sports car,
      coastal road, golden hour, 3 scenes\`
   2. Use the \`--\` end-of-options separator to pass raw flags through verbatim:
-       bun-pi-agent-cli movie -- produce --idea "..." --scenes 3
+       pi-agent cli movie -- produce --idea "..." --scenes 3
      Everything after \`--\` is appended to the request as-is.
 
 This spends real GPU tokens (MLX image + video generation). Call \`movie_help\`
@@ -63,9 +63,9 @@ Options (pi-aligned globals):
   -V, --verbose          tool verbosity (repeat for debug)
 
 Examples:
-  bun-pi-agent-cli movie produce a 30s ad: red sports car on a coastal road at golden hour
-  bun-pi-agent-cli --model sonnet movie "3-scene product demo for a smartwatch"
-  bun-pi-agent-cli movie -- compose --plan scene_plan.json`,
+  pi-agent cli movie produce a 30s ad: red sports car on a coastal road at golden hour
+  pi-agent cli --model sonnet movie "3-scene product demo for a smartwatch"
+  pi-agent cli movie -- compose --plan scene_plan.json`,
   factory: extension,
   tools: ["movie", "movie_help"],
   task: (parsed) => {

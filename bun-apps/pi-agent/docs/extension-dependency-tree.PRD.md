@@ -19,9 +19,17 @@ a package, or cutting a dependency — consult this tree to see the blast
 radius: which other extensions (or the two aggregators) transitively pull a
 package in, and via which registration layer (static import vs dynamic `-e`).
 
-**Scope:** the 21 `pi-agent-ext-*` workspace members + the 2 aggregators
-(`pi-agent`, `pi-agent-cli`). The `gui-movie-director` and `perf-harness`
-packages have no workspace edges into the extension graph and are out of scope.
+**Scope:** the 21 `pi-agent-ext-*` workspace members + the aggregators. The
+`gui-movie-director` and `perf-harness` packages have no workspace edges into
+the extension graph and are out of scope.
+
+> **Amended 2026-08-12 (pi-agent-cli merge).** This tree was surveyed while
+> there were **two** aggregators. `pi-agent-cli` was merged into `pi-agent`
+> (its source is now `pi-agent/src/cli/**`) and deleted, so there is exactly
+> **one** aggregator today and the two dependency sets below have been unioned
+> into `pi-agent`'s `package.json`. The two-aggregator diagram and the
+> `pi-agent-cli` subsection are retained as the 2026-07-25 baseline they
+> document; read them as history, not as current layout.
 
 ## 2. The host layer (provided, never bundled per-extension)
 
@@ -50,8 +58,8 @@ aggregator, not a hard install edge).
                           (aggregators)
             ┌──────────────────┴───────────────────┐
          pi-agent                            pi-agent-cli
-   (TUI wrapper,                            (CLI build target)
-    static+manifest)                  deps 12 ext pkgs + pi-agent
+   (TUI wrapper,                       (merged INTO pi-agent 2026-08-12;
+    static+manifest)                    was: deps 12 ext pkgs + pi-agent)
         │  │  │  │  │                         │
    (see §5 for the full static             (pulls a broad set for
     + manifest registration union)          the standalone CLI bundle)
@@ -206,7 +214,10 @@ static-extensions.ts (12) + manifest.extensions[] (9) = 21**. The 5 declared
 deps exist so `bun install` symlinks them and so the deploy/bundler resolves
 the workspace; they are a subset, not the source of truth.
 
-### `pi-agent-cli` (standalone CLI build target)
+### `pi-agent-cli` (standalone CLI build target) — *merged away 2026-08-12*
+
+> Historical. These 12 edges were folded into `pi-agent`'s own `dependencies`
+> when the package was merged; there is no separate standalone CLI bundle.
 
 `dependencies` declares **12** workspace members — `pi-agent`, `workflow`,
 `flux2`, `krea2`, `ltx`, `movie-director`, `power-tool`, `research-tool`,

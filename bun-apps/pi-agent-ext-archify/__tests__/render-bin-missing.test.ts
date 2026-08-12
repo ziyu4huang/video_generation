@@ -7,7 +7,7 @@ import { archifyRender } from "../lib/render.ts";
 // archify_validate, the golden render, archify_delta, …), breaking the whole
 // suite in a single-process `bun test` run. Passing a nonexistent bin through
 // RenderCtx triggers runArchify's REAL pre-flight guard with zero cross-file
-// contamination. See pi-agent-cli/tests/workflow-command.test.ts and
+// contamination. See pi-agent/src/cli/__tests__/workflow-command.test.ts and
 // pi-agent-ext-subagent/.../models-preset-command.test.ts for the same
 // "DI over mock.module" convention.
 describe("archifyRender — missing vendored bin", () => {

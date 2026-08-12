@@ -1,14 +1,14 @@
 /**
  * runSchemaCostCheck — schema-cost regression gate (Thrust C, criterion 6).
  *
- * Runs the live schema-cost instrument (`pi-agent-cli tools-metrics --schema-cost
+ * Runs the live schema-cost instrument (`pi-agent cli tools-metrics --schema-cost
  * --json`), compares the aggregate `totalTokens` against a checked-in baseline
  * (`scripts/schema-cost-baseline.json`), and flags inflation > 5%.
  *
  * Per the CI design this is a WARNING, not a block — schema growth is sometimes
  * intentional (a new tool, a richer description). The baseline is the source of
  * truth: a deliberate increase should update the baseline in the same PR via
- *   bun bun-apps/pi-agent-cli/src/cli.ts tools-metrics --schema-cost --json \
+ *   bun bun-apps/pi-agent/src/cli.ts cli tools-metrics --schema-cost --json \
  *     > scripts/schema-cost-baseline.json
  *
  * Exit semantics (returned as `exitCode`):
@@ -25,7 +25,7 @@
  * invocation (`.github/CI.md`) and manual runs keep working unchanged.
  *
  * Testability: the internal instrument spawn is routed through the injectable
- * `SpawnFn` seam (src/spawn.ts), so this check runs with NO real pi-agent-cli in
+ * `SpawnFn` seam (src/spawn.ts), so this check runs with NO real pi-agent CLI in
  * tests (a recording fake answers the `tools-metrics` call). The default spawn is
  * the live `createLiveSpawn` adapter. A collection failure is reported to stderr
  * and surfaced as `exitCode: 1` — this fn does NOT throw on the realistic
@@ -77,11 +77,11 @@ export async function runSchemaCostCheck(opts: SchemaCostCheckOptions): Promise<
 	const livePath = opts.live;
 	const threshold = opts.threshold ?? 5;
 	const spawn = opts.spawn ?? createLiveSpawn(root);
-	const CLI = `${root}/bun-apps/pi-agent-cli/src/cli.ts`;
+	const CLI = `${root}/bun-apps/pi-agent/src/cli.ts`;
 
 	/** Spawn the instrument, surface its stderr, parse stdout. Throws on failure. */
 	async function collectLive(): Promise<any> {
-		const r = await spawn("bun", [CLI, "tools-metrics", "--schema-cost", "--json"], { cwd: root });
+		const r = await spawn("bun", [CLI, "cli", "tools-metrics", "--schema-cost", "--json"], { cwd: root });
 		// Surface the CLI's own stderr — the original script used `stderr: "inherit"`;
 		// the SpawnFn captures it, so replay it to keep the diagnostics visible.
 		if (r.stderr) process.stderr.write(r.stderr);
@@ -131,7 +131,7 @@ export async function runSchemaCostCheck(opts: SchemaCostCheckOptions): Promise<
 	if (over) {
 		console.warn(`⚠ WARNING: aggregate schema cost grew ${pct.toFixed(2)}% (> ${threshold}% threshold).`);
 		console.warn("  If intentional, refresh the baseline in this PR:");
-		console.warn("    bun bun-apps/pi-agent-cli/src/cli.ts tools-metrics --schema-cost --json \\");
+		console.warn("    bun bun-apps/pi-agent/src/cli.ts cli tools-metrics --schema-cost --json \\");
 		console.warn("      > scripts/schema-cost-baseline.json");
 	} else if (delta < 0) {
 		console.log(`✓ schema cost decreased by ${Math.abs(delta)} tokens (baseline still valid).`);

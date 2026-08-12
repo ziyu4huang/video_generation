@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	isDoctorCommand,
 	isExtDoctorCommand,
+	isCliCommand,
 	userSuppressFlags,
 	userExtensionPaths,
 	overriddenStaticExtensions,
@@ -31,6 +32,27 @@ describe("isExtDoctorCommand", () => {
 		expect(isExtDoctorCommand(["doctor"])).toBe(false);
 		expect(isExtDoctorCommand(["ext"])).toBe(false);
 		expect(isExtDoctorCommand(["ext", "something-else"])).toBe(false);
+	});
+});
+
+describe("isCliCommand", () => {
+	test("true for the `cli` namespace token", () => {
+		expect(isCliCommand(["cli"])).toBe(true);
+		expect(isCliCommand(["cli", "zk-ask", "what?"])).toBe(true);
+	});
+
+	test("false when argv[0] is not `cli`", () => {
+		expect(isCliCommand([])).toBe(false);
+		expect(isCliCommand(["doctor"])).toBe(false);
+		expect(isCliCommand(["-p", "hello"])).toBe(false);
+	});
+
+	// The whole point of matching only argv[0]: a literal "cli" travelling as a
+	// PROMPT or a flag VALUE must reach pi untouched, exactly like isDoctorCommand.
+	test("a literal 'cli' passed as a prompt or flag value is NOT hijacked", () => {
+		expect(isCliCommand(["-p", "cli"])).toBe(false);
+		expect(isCliCommand(["--append-system-prompt", "cli"])).toBe(false);
+		expect(isCliCommand(["--model", "sonnet", "-p", "cli"])).toBe(false);
 	});
 });
 

@@ -28,7 +28,7 @@ import { join } from "node:path";
 import { COMMANDS, COMMAND_REFERENCE, commandReferenceBlock, dispatch, type Command as DispatchCommand } from "./dispatch.ts";
 import type { ParsedArgs } from "./args.ts";
 
-/** A top-level CLI command (mirrors pi-agent-cli's Command shape). */
+/** A top-level CLI command (mirrors pi-agent's Command shape). */
 export interface Command {
 	name: string;
 	summary: string;

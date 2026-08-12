@@ -3,7 +3,7 @@
  *
  * This is the SINGLE source of truth for resolving a workflow `<name>` (or path)
  * to runnable script text, shared by BOTH entry paths:
- *   - Path A: `pi-agent-cli workflow run <name>` (headless CLI meta-command)
+ *   - Path A: `pi-agent cli workflow run <name>` (headless CLI meta-command)
  *   - Path B: the `workflow` tool's `name` parameter (interactive TUI session)
  *
  * Resolution order (first hit wins):

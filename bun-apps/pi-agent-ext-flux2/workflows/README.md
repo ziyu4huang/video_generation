@@ -106,7 +106,7 @@ The runner parses flags + selects a pose via jq, then calls
 `pi-agent -e workflow -p "read … and execute"`, but the in-the-middle agent
 backgrounded the workflow and exited before the result; the direct driver returns
 the structured result synchronously. (The agentic `./pi-agent.sh -p "generate +
-improve …"` shape and the `bun-pi-agent-cli flux2-self-improve` subcommand still
+improve …"` shape and the `pi-agent cli flux2-self-improve` subcommand still
 exist as best-effort entries that route to this runner.)
 
 **Cross-run learning (two mechanisms, both deterministic, both off the model):**

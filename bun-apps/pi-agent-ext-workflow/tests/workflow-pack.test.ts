@@ -20,8 +20,8 @@ import {
  * These tests exercise the pure pieces (script + pack resolution, args/model
  * precedence, enumeration) and one headless smoke run with a stub agent (no LLM,
  * no network) so the engine vm + phase() + agent() globals are proven headlessly.
- * The "real pack" destination-proof tests point at the example packs that live
- * in the sibling CLI package (bun-apps/pi-agent-cli/workflows/).
+ * The "real pack" destination-proof tests point at the example packs that now
+ * live in pi-agent (bun-apps/pi-agent/workflows/).
  */
 
 // ── resolveWorkflowScript ──────────────────────────────────────────────────
@@ -213,8 +213,8 @@ describe("resolveWorkflowScript — workflow packs", () => {
 
   test("resolves a pack by NAME under bun-apps/<pkg>/workflows/<name>/", () => {
     const root = mkdtempSync(join(tmpdir(), "wf-"));
-    mkdirSync(join(root, "bun-apps", "pi-agent-cli", "workflows"), { recursive: true });
-    makePack(join(root, "bun-apps", "pi-agent-cli", "workflows"), "args-demo", {
+    mkdirSync(join(root, "bun-apps", "pi-agent", "workflows"), { recursive: true });
+    makePack(join(root, "bun-apps", "pi-agent", "workflows"), "args-demo", {
       name: "args-demo",
       description: "d",
       entry: "main.js",
@@ -405,7 +405,7 @@ describe("runWorkflowScript", () => {
     // args-demo is a real pack that declares
     //   "model": "lm-studio/google/gemma-4-26b-a4b-qat"
     // in its manifest. Even with a pi default supplied, the manifest must win.
-    const argsDemoPack = resolve(import.meta.dirname, "../../pi-agent-cli/workflows/args-demo");
+    const argsDemoPack = resolve(import.meta.dirname, "../../pi-agent/workflows/args-demo");
     const manifest = require(`${argsDemoPack}/manifest.json`);
     const receipt = await runWorkflowScript({
       name: argsDemoPack,
@@ -523,10 +523,10 @@ describe("runWorkflowScript — workflow packs", () => {
     expect(receipt.agentCount).toBe(0);
   });
 
-  // The "real pack" destination-proof tests point at the example packs that live
-  // in the sibling CLI package (bun-apps/pi-agent-cli/workflows/). From this
-  // test dir that is ../../pi-agent-cli/workflows/<pack>.
-  const CLI_WORKFLOWS = resolve(import.meta.dirname, "../../pi-agent-cli/workflows");
+  // The "real pack" destination-proof tests point at the example packs that now
+  // live in pi-agent (bun-apps/pi-agent/workflows/). From this test dir that is
+  // ../../pi-agent/workflows/<pack>.
+  const CLI_WORKFLOWS = resolve(import.meta.dirname, "../../pi-agent/workflows");
 
   test("the real `echo` example pack resolves + dry-runs (destination proof)", async () => {
     const echoPackDir = join(CLI_WORKFLOWS, "echo");
@@ -632,13 +632,13 @@ describe("listWorkflows", () => {
 
   test("pack rows render name/description from the manifest", () => {
     const root = mkdtempSync(join(tmpdir(), "wf-"));
-    const wfDir = join(root, "bun-apps", "pi-agent-cli", "workflows");
+    const wfDir = join(root, "bun-apps", "pi-agent", "workflows");
     mkdirSync(wfDir, { recursive: true });
     makePack(wfDir, "args-demo", { name: "args-demo", description: "demo desc", entry: "main.js" });
     const { rows } = listWorkflows(root);
     const row = rows.find((r) => r.name === "args-demo")!;
     expect(row.description).toBe("demo desc");
-    expect(row.source).toBe("bun-apps/pi-agent-cli/workflows");
+    expect(row.source).toBe("bun-apps/pi-agent/workflows");
     expect(row.kind).toBe("pack");
   });
 
@@ -683,7 +683,7 @@ describe("listWorkflows", () => {
     mkdirSync(piDir, { recursive: true });
     makePack(piDir, "pi-first", { name: "pi-first", description: "from .pi", entry: "index.js" });
     // Place a DIFFERENT pack under bun-apps/<pkg>/workflows (a shipped pack).
-    const pkgDir = join(root, "bun-apps", "pi-agent-cli", "workflows");
+    const pkgDir = join(root, "bun-apps", "pi-agent", "workflows");
     mkdirSync(pkgDir, { recursive: true });
     makePack(pkgDir, "pkg-second", { name: "pkg-second", description: "from pkg", entry: "main.js" });
 

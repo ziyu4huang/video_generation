@@ -29,7 +29,7 @@
  *                                  touches human-authored cards outside it.
  *
  * Library only — no ExtensionAPI, no LLM, no network. The zk-query CLI
- * (pi-agent-cli) is a thin shell over these functions.
+ * (pi-agent) is a thin shell over these functions.
  *
  * Env (passed through from pi-obsidian): OB_VAULT_PATH / OB_VAULT_DIR.
  */

@@ -1,25 +1,25 @@
 /**
- * CLI sub-command spec for pi-agent-cli.
+ * CLI sub-command spec for pi-agent.
  *
- * Lets `pi-agent-cli` expose the ltx extension as a top-level sub-command:
+ * Lets `pi-agent` expose the ltx extension as a top-level sub-command:
  *
- *   bun-pi-agent-cli ltx <natural-language request...>
- *   bun-pi-agent-cli --model sonnet ltx generate a 5s video of ocean waves, native-i2v
+ *   pi-agent cli ltx <natural-language request...>
+ *   pi-agent cli --model sonnet ltx generate a 5s video of ocean waves, native-i2v
  *
  * The ltx tool is an agent-driven dispatcher (it picks one of 16 ltx-video
  * sub-commands + typed options), so the CLI passes the user's request as a
  * natural-language task and lets the agent map it onto the `ltx` tool. This
  * mirrors how `krea2` / `flux2` turn positionals into a generation request.
  *
- * This file is dependency-free of pi-agent-cli on purpose: the workspace dep
- * direction is pi-agent-cli → pi-agent-ext-ltx, so the spec is typed with a
+ * This file is dependency-free of pi-agent on purpose: the workspace dep
+ * direction is pi-agent → pi-agent-ext-ltx, so the spec is typed with a
  * local structurally-compatible interface (TS structural typing makes it
- * assignable to pi-agent-cli's `ExtensionSubcommandSpec`). See
- * `bun-apps/pi-agent-cli/src/extensions/types.ts` for the canonical shape.
+ * assignable to pi-agent's `ExtensionSubcommandSpec`). See
+ * `bun-apps/pi-agent/src/cli/extensions/types.ts` for the canonical shape.
  */
 import extension from "./ltx.ts";
 
-/** Local shape of pi-agent-cli's ExtensionSubcommandSpec (structural match). */
+/** Local shape of pi-agent's ExtensionSubcommandSpec (structural match). */
 interface ExtensionSubcommandSpec {
   name: string;
   summary: string;
@@ -33,7 +33,7 @@ export const ltxSubcommand: ExtensionSubcommandSpec = {
   name: "ltx",
   summary: "generate/upscale/verify video with LTX-2.3 (Swift/MLX, zero Python)",
   details: `Usage:
-  bun-pi-agent-cli ltx <natural-language request...> [options]
+  pi-agent cli ltx <natural-language request...> [options]
 
 The ltx tool is an agent-optimized dispatcher over the \`ltx-video\` Swift/MLX CLI
 (16 sub-commands: t2i, native-i2v, native-upscale, native-t2a, native-relay,
@@ -45,7 +45,7 @@ Positionals are the request verbatim. ltx-specific flags (--prompt, --width,
   1. Fold them into the request text: \`ltx 5s video of ocean waves, native-i2v, 24fps\`
      — the agent maps natural language onto ltx options.
   2. Use the \`--\` end-of-options separator to pass raw flags through verbatim:
-       bun-pi-agent-cli ltx -- native-i2v --prompt "waves" --duration 5
+       pi-agent cli ltx -- native-i2v --prompt "waves" --duration 5
      Everything after \`--\` is appended to the request as-is, so the agent sees
      the exact flags and can forward them via the tool's \`options\`/\`extraArgs\`.
 
@@ -62,9 +62,9 @@ Options (pi-aligned globals):
   -V, --verbose          tool verbosity (repeat for debug)
 
 Examples:
-  bun-pi-agent-cli ltx generate a 5s video of ocean waves at sunset, native-i2v
-  bun-pi-agent-cli --model sonnet ltx upscale the last video to 2x, native-upscale
-  bun-pi-agent-cli ltx -- native-i2v --image photo.png --prompt "subtle zoom in" --duration 4`,
+  pi-agent cli ltx generate a 5s video of ocean waves at sunset, native-i2v
+  pi-agent cli --model sonnet ltx upscale the last video to 2x, native-upscale
+  pi-agent cli ltx -- native-i2v --image photo.png --prompt "subtle zoom in" --duration 4`,
   factory: extension,
   tools: ["ltx", "ltx_help"],
   task: (parsed) => {

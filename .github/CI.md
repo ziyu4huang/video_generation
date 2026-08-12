@@ -4,9 +4,17 @@ The PR gate. Every pull request to `main` (and every push to `main`) runs
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), which turns the
 manual-`bun test` trust model into an enforced gate.
 
-## Branch protection — the 23 required checks on `main`
+## Branch protection — the 22 required checks on `main`
 
-`main` is under branch protection: the **23 checks** below are **required**
+> **STATUS (2026-08-12): NOT CURRENTLY APPLIED — this section is the recipe, not
+> the live state.** GitHub Actions is disabled here (`.github/workflows/` holds
+> only `ci.yml.disabled`, so no check ever reports), and `main` carries no
+> protection rule at all — `gh api repos/ziyu4huang/video_generation/branches/main/protection`
+> returns 404. Everything below describes what to re-apply if CI is turned back
+> on. Until then the gates are a **soft** constraint: run the suites locally.
+> Verify before assuming, rather than inferring the live state from this file.
+
+When applied, `main` is under branch protection: the **22 checks** below are **required**
 (strict — no stale checks; branches must be up-to-date) before any merge,
 including the admin's (`enforce_admins`). A PR with a failing check is BLOCKED
 (merge button disabled); a green PR is mergeable. Applied via `gh api` (a repo
@@ -14,11 +22,11 @@ setting, not a committed file) — **if a check is renamed in `ci.yml`, update t
 protection rule too** so it stays required:
 
 ```bash
-# re-assert the 23 required checks on main (run after any check-rename)
+# re-assert the 22 required checks on main (run after any check-rename)
 gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   --input - <<'JSON'
 { "required_status_checks": { "strict": true, "contexts": [
-  "test · pi-agent", "test · pi-agent-cli", "test · pi-agent-ext-flux2",
+  "test · pi-agent", "test · pi-agent-ext-flux2",
   "test · pi-agent-ext-krea2", "test · pi-agent-ext-ltx",
   "test · pi-agent-ext-movie-director", "test · pi-agent-ext-power-tool",
   "test · pi-agent-ext-web-access", "test · gui-movie-director",
@@ -47,7 +55,7 @@ JSON
 > skipping — see "Smart test routing" above), so the safety net lives in the
 > required `test · <package>` checks themselves, not in a separate gate.
 >
-> The `determinism spot-check` job is intentionally NOT in the required 23 — it
+> The `determinism spot-check` job is intentionally NOT in the required 22 — it
 > is v1 informational (`continue-on-error`): it runs the flake-prone subset 3×
 > and surfaces flakes without blocking. Promote it to required once the
 > false-positive rate is ≈ 0 (the same rollout the portability audit just
@@ -114,7 +122,7 @@ mocking of the script's own logic).
 Two setup quirks the workflow handles, documented so they aren't "lost":
 
 - **Build `pi-agent-ext-workflow` before tests.** Its `main`/`exports` point at
-  compiled `dist/index.js` — a gitignored artifact. Importers (`pi-agent-cli` →
+  compiled `dist/index.js` — a gitignored artifact. Importers (`pi-agent` →
   `workflow.ts`, and anything loading the CLI, incl. the schema-cost command)
   resolve that `dist/`. A fresh checkout lacks it (locally it lingers from prior
   builds), so every job runs `bun run --cwd bun-apps/pi-agent-ext-workflow build`
@@ -126,12 +134,12 @@ Two setup quirks the workflow handles, documented so they aren't "lost":
 
 ## What is tested
 
-21 `bun-apps/*` packages, each via its documented command (see the `tests`
+20 `bun-apps/*` packages, each via its documented command (see the `tests`
 matrix in the workflow; whether it actually RUNS on a given PR depends on
 `changed_packages` — see "Smart test routing" above):
 
 ```
-pi-agent, pi-agent-cli, pi-agent-ext-flux2, pi-agent-ext-krea2,
+pi-agent, pi-agent-ext-flux2, pi-agent-ext-krea2,
 pi-agent-ext-ltx, pi-agent-ext-movie-director, pi-agent-ext-power-tool,
 pi-agent-ext-btw, pi-agent-ext-core-task, pi-agent-ext-archify,
 pi-agent-ext-web-access, pi-agent-ext-file2md, gui-movie-director,
@@ -280,7 +288,7 @@ run exactly:
 ( cd bun-apps/<package> && CI=true bun test )
 
 # the full suite, mirroring the matrix:
-for pkg in pi-agent pi-agent-cli pi-agent-ext-flux2 pi-agent-ext-krea2 \
+for pkg in pi-agent pi-agent-ext-flux2 pi-agent-ext-krea2 \
            pi-agent-ext-ltx pi-agent-ext-movie-director pi-agent-ext-power-tool \
            pi-agent-ext-web-access pi-agent-ext-file2md gui-movie-director \
            pi-agent-ext-knowledge-card pi-agent-ext-obsidian pi-agent-ext-workflow \
@@ -313,7 +321,7 @@ intentional — a new tool, a richer description). A deliberate increase should
 refresh the baseline in the same PR:
 
 ```bash
-bun bun-apps/pi-agent-cli/src/cli.ts tools-metrics --schema-cost --json \
+bun bun-apps/pi-agent/src/cli.ts cli tools-metrics --schema-cost --json \
   > scripts/schema-cost-baseline.json
 ```
 

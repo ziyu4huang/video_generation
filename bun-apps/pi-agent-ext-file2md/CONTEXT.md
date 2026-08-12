@@ -35,7 +35,7 @@ _Avoid_: cache, checkpoint (it is a cached + retrying pipeline, not a store)
 ### The vision model
 
 **Vision-LLM subagent** (VLM):
-The local LM Studio vision model that describes each page. Its resolution (`resolveLLM` / `resolveModel`) is forked from pi-agent-cli's shared helpers.
+The local LM Studio vision model that describes each page. Its resolution (`resolveLLM` / `resolveModel`) is forked from pi-agent's shared helpers.
 _Avoid_: vision API, OCR engine (it is a local vision-LLM subagent, not a service or extractor)
 
 **Shared VLM subagent**:

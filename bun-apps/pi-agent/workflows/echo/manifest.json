@@ -1,0 +1,8 @@
+{
+  "name": "echo",
+  "description": "Trivial workflow-pack smoke test — one agent() that echoes its args. Proves folder → manifest.json → engine end-to-end.",
+  "entry": "index.js",
+  "kind": "workflow-pack",
+  "engine": "pi-agent-ext-workflow",
+  "howToRun": "bun --cwd bun-apps/pi-agent src/cli.ts cli workflow run echo --dry-run   # then drop --dry-run with a --model"
+}

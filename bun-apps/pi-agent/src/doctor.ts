@@ -9,7 +9,7 @@
  * deep in a run; doctor checks the boundary conditions up front and prints an
  * actionable checklist.
  *
- * Design (mirrors bun-apps/pi-agent-cli/src/commands/doctor.ts): each check is
+ * Design (mirrors bun-apps/pi-agent/src/cli/commands/doctor.ts): each check is
  * a PURE function over an injectable `DoctorContext`, so the classification is
  * unit-testable without spawning or touching the real fs. `run()` wires real
  * process state. Invoke via `bun src/cli.ts doctor [--json]` or `./run.sh doctor`.
@@ -242,7 +242,7 @@ export function runChecks(ctx: DoctorContext): DoctorReport {
 // The pure checks above surface a broken/incomplete deploy but leave the user to
 // fix it by hand. `--fix` closes the diagnose→fix loop: it derives a fix plan
 // from the current report, applies it (mutating), and re-checks — the same
-// create-then-recheck shape as bun-apps/pi-agent-cli's `doctor --fix`.
+// create-then-recheck shape as bun-apps/pi-agent's `cli doctor --fix`.
 //
 // The decisive pi-agent-specific fix: in a `--portable` (repo-independent,
 // same-machine) deploy that lands on a host without its `node_modules` subset,

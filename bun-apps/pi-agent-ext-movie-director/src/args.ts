@@ -1,8 +1,8 @@
 /**
  * args.ts — self-contained argument parser for the movie-director CLI.
  *
- * Deliberately dependency-free of pi-agent-cli (the workspace dep direction is
- * pi-agent-cli → movie-director, never the reverse). It splits argv into:
+ * Deliberately dependency-free of pi-agent (the workspace dep direction is
+ * pi-agent → movie-director, never the reverse). It splits argv into:
  *
  *   • the first positional (the command — `preflight`, `generate`, `agent`, …),
  *     left for `cli.ts` to route against the known command table.

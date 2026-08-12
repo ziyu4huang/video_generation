@@ -15,7 +15,7 @@
                  └──────────────────────────────────────────────────────┘
                  ┌──────────────────────────────────────────────────────┐
                  │                    REVERSE (needed by)                │
-  pi-agent-cli ──┤                                                      │
+  pi-agent     ──┤                                                      │
                  ├─► pi-knowledge-card                                  │
   pi-hermes-     ├─►   (workspace:* — hard, build-time)                  │
   memory ────────┤    (optional peer + workspace devDep — soft, runtime)│
@@ -67,7 +67,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 Three consumers, two coupling strengths:
 
-### 1. `pi-agent-cli` — hard, build-time (`workspace:*`)
+### 1. `pi-agent` (the `cli` subcommand tree) — hard, build-time (`workspace:*`)
 
 The CLI shells. Each `zk-*` command imports the task builders / library directly:
 
@@ -81,8 +81,8 @@ The CLI shells. Each `zk-*` command imports the task builders / library directly
 
 **Contract:** the CLI is a thin shell — all logic lives in pi-knowledge-card.
 Renaming an exported builder breaks the CLI at build time (caught by
-`bun test` in pi-agent-cli, 248 tests). See
-[`../../pi-agent-cli/docs/KNOWLEDGE-LAYER.md`](../../pi-agent-cli/docs/KNOWLEDGE-LAYER.md).
+`bun test` in pi-agent, 248 tests). See
+[`../../pi-agent/docs/KNOWLEDGE-LAYER.md`](../../pi-agent/docs/KNOWLEDGE-LAYER.md).
 
 ### 2. `pi-hermes-memory` — SOFT, runtime (`optional peer`)
 
@@ -118,7 +118,7 @@ for the full optional-peer + dynamic-import story.
 
 | Consumer | Link | Breakage mode | Caught by |
 | -------- | ---- | ------------- | --------- |
-| pi-agent-cli | `workspace:*` (static import) | build-time type/resolution error | `bun test` (248) |
+| pi-agent | `workspace:*` (static import) | build-time type/resolution error | `bun test` (248) |
 | pi-hermes-memory | optional peer (dynamic `import()`) | runtime graceful degradation (no break) | converge returns `unavailable` |
 | **(this) → pi-obsidian** | `workspace:*` peer (static import) | build-time / parser-contract drift | ingest/retrieve tests + `allowlists.test.mjs` |
 
@@ -132,7 +132,7 @@ Every package in the knowledge layer carries a `docs/KNOWLEDGE-LAYER.md`
 describing **its own** role + coupling, all linking back here:
 
 - [`../../pi-obsidian/docs/KNOWLEDGE-LAYER.md`](../../pi-obsidian/docs/KNOWLEDGE-LAYER.md) — the HARD forward dep (parser + subagent contracts)
-- [`../../pi-agent-cli/docs/KNOWLEDGE-LAYER.md`](../../pi-agent-cli/docs/KNOWLEDGE-LAYER.md) — the 5 `zk-*` thin shells
+- [`../../pi-agent/docs/KNOWLEDGE-LAYER.md`](../../pi-agent/docs/KNOWLEDGE-LAYER.md) — the 5 `zk-*` thin shells
 - [`../../pi-hermes-memory/docs/KNOWLEDGE-LAYER.md`](../../pi-hermes-memory/docs/KNOWLEDGE-LAYER.md) — the SOFT optional-peer edge
 
 When you change a coupling, update the affected `KNOWLEDGE-LAYER.md` AND this
@@ -140,7 +140,7 @@ file in the same PR — the symmetry is the contract.
 
 ## What this means for changes
 
-- **Renaming an export** → breaks pi-agent-cli at build time (good: loud,
+- **Renaming an export** → breaks the pi-agent CLI at build time (good: loud,
   caught in `bun test`). Update all consumers in the same PR.
 - **Adding an additive field** (e.g. P1's `hasCallouts` on `RetrievedCard`) →
   safe; consumers reading specific fields are unaffected.

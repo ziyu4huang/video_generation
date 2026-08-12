@@ -227,7 +227,7 @@ import {
 
 export default function (pi: ExtensionAPI) {
 	// Phase 5 / WS-C8: light ExtensionAPI contract guard. The ExtensionAPI type
-	// is a type-only import (no runtime symbol), and pi-agent-cli vendors an
+	// is a type-only import (no runtime symbol), and pi-agent vendors an
 	// inline copy — so a stale host could pass a `pi` that lacks methods this
 	// extension calls. Fail fast on a missing CORE method (registerTool); warn
 	// (don't throw) on the secondary ones so a forward-compatible host isn't
