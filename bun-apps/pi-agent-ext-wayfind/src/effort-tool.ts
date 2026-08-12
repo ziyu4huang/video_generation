@@ -18,7 +18,7 @@
  * The cwd-based ops are exported so they're unit-testable with mkdtemp; the tool's
  * execute() is a thin dispatch that reads `ctx.cwd` and forwards.
  */
-import { defineTool } from "@earendil-works/pi-coding-agent";
+import { defineTool, type EventBus } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { type EffortListResult, type EffortSearchResult, listEfforts, searchEfforts } from "./effort-query.js";
 import { readMap, writeMap } from "./map.js";
@@ -309,7 +309,7 @@ function renderSearch(r: EffortSearchResult): string {
 
 // ─── the tool ────────────────────────────────────────────────────────────────
 
-export function makeWayfindEffortTool() {
+export function makeWayfindEffortTool(events?: EventBus) {
   return defineTool({
     name: "wayfind_effort",
     label: "Wayfind Effort",
@@ -438,6 +438,13 @@ export function makeWayfindEffortTool() {
           } catch {
             // seam threw (defensive — readStaleDecisions already catches) → leave unset
           }
+          // zk-spawn: mirror the rendered status into the webui's dedicated
+          // "Wayfind" tab (mode md). Only on a real effort (r.ok) so an error
+          // state never spawns a noisy tab. events?. is defensive — a
+          // registered tool always has the bus, but no-arg callers stay safe.
+          if (r.ok) {
+            events?.emit("webui:render", { content: renderStatus(r), mode: "md", view: "wayfind", title: "Wayfind" });
+          }
           return { content: [{ type: "text" as const, text: renderStatus(r) }], details: r };
         }
         case "list": {
@@ -453,6 +460,14 @@ export function makeWayfindEffortTool() {
             } catch {
               // seam threw → leave unset
             }
+          }
+          // zk-spawn: mirror the rendered list into the webui's dedicated
+          // "Wayfind" tab (mode md). Only on a successful read (r.ok) so a
+          // catastrophic fs error never spawns a noisy tab. events?. is
+          // defensive — a registered tool always has the bus, but no-arg
+          // callers stay safe.
+          if (r.ok) {
+            events?.emit("webui:render", { content: renderList(r), mode: "md", view: "wayfind", title: "Wayfind" });
           }
           return { content: [{ type: "text" as const, text: renderList(r) }], details: r };
         }
