@@ -9,7 +9,7 @@ import {
   type SpawnFn,
   spawnSubagentSubprocess,
 } from "../src/spawn-subagent-subprocess.js";
-import type { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
+import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 import type { SubagentRunPersistence } from "../src/subagent-run-persistence.js";
 
 // ---- Mock child process (lets tests drive stdout/stderr/close/kill) ------

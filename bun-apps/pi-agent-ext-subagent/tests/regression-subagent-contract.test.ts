@@ -15,7 +15,7 @@
  */
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { AgentDefinition, AgentRegistry } from "../src/agent-registry.js";
+import type { AgentDefinition, AgentRegistry } from "@repo/pi-agent-ext-core-runtime";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 import { createSubagentTool } from "../src/subagent-tool.js";
 

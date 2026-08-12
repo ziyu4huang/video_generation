@@ -1,8 +1,8 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { AgentHistoryEntry } from "./agent-history.js";
-import type { ToolActionContext } from "./tool-action-label.js";
-import { formatToolAction, matchedCallArgsFor } from "./tool-action-label.js";
+import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
+import type { ToolActionContext } from "@repo/pi-agent-ext-core-runtime";
+import { formatToolAction, matchedCallArgsFor } from "@repo/pi-agent-ext-core-runtime";
 
 function call(toolName: string, text: string, toolCallId?: string): AgentHistoryEntry {
   return { role: "assistant", kind: "toolCall", toolName, text, toolCallId };

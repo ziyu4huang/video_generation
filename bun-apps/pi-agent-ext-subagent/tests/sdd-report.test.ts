@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { isSddReportActionable, parseSddReport, SDD_REPORT_STATUSES } from "../src/sdd-report.js";
+import { isSddReportActionable, parseSddReport, SDD_REPORT_STATUSES } from "@repo/pi-agent-ext-core-runtime";
 
 const FULL_DONE = `
 - **Status:** DONE

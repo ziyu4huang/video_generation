@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { compactAgentHistory, summarizeLatestAction } from "../src/agent-history.js";
+import { compactAgentHistory, summarizeLatestAction } from "@repo/pi-agent-ext-core-runtime";
 
 test("compactAgentHistory captures user, assistant, tool call, and tool result entries", () => {
   const history = compactAgentHistory([

@@ -5,12 +5,12 @@
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import type { AgentHistoryEntry } from "./agent-history.js";
-import { shortModel } from "./agent-row-display.js";
-import { isSddReportActionable } from "./sdd-report.js";
+import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
+import { shortModel } from "@repo/pi-agent-ext-core-runtime";
+import { isSddReportActionable } from "@repo/pi-agent-ext-core-runtime";
 import type { SpawnSubagentResult } from "./spawn-subagent.js";
 import type { SubagentToolDetails } from "./subagent-tool-schema.js";
-import { formatToolAction, matchedCallArgsFor } from "./tool-action-label.js";
+import { formatToolAction, matchedCallArgsFor } from "@repo/pi-agent-ext-core-runtime";
 
 /** Collapse a task prompt to a single-line preview of at most `n` chars. */
 export function taskPreview(task: string, n = 80): string {

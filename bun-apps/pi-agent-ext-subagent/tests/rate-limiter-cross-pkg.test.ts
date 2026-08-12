@@ -13,8 +13,8 @@ import {
  * dispatch). This test exercises the TWO distinct import paths the two packages
  * use in production:
  *
- *   - pi-agent-ext-subagent imports the leaf module directly:
- *         import { ... } from "../src/rate-limiter.js"
+ *   - pi-agent-ext-subagent imports the shared runtime directly:
+ *         import { ... } from "@repo/pi-agent-ext-core-runtime"
  *   - pi-agent-ext-workflow imports the package root:
  *         import { ... } from "@repo/pi-agent-ext-subagent"
  *
@@ -29,12 +29,13 @@ import {
  * they still share. This test asserts the observable behavior - blocking -
  * which holds under either module-resolution outcome.)
  */
-// SRC path - the subagent package's own import (subagents-tool.ts uses this).
+// CORE-RUNTIME path - the subagent package's own import (subagents-tool.ts
+// now sources the limiter from core-runtime; this mirrors that path).
 import {
   __resetRateLimitStateForTests,
   getGlobalRateLimiter as getViaSrc,
   setRateLimitCapResolver as setResolverViaSrc,
-} from "../src/rate-limiter.js";
+} from "@repo/pi-agent-ext-core-runtime";
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 

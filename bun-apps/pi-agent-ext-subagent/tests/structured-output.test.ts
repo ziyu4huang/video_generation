@@ -1,7 +1,7 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { Type } from "typebox";
-import { createStructuredOutputTool } from "../src/structured-output.js";
+import { createStructuredOutputTool } from "@repo/pi-agent-ext-core-runtime";
 
 test("createStructuredOutputTool creates a tool with the given name", () => {
   const capture = { called: false, value: undefined };

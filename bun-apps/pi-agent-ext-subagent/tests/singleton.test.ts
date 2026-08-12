@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { getSubagentInFlightRegistry, SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
+import { getSubagentInFlightRegistry, SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 import { createSubagentRunPersistence, getSubagentRunPersistence } from "../src/subagent-run-persistence.js";
 
 describe("subagent singletons", () => {

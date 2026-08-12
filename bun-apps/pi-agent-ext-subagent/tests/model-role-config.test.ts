@@ -8,7 +8,7 @@ import {
   resolveModelRole,
   resolveTierModel,
   saveModelTierConfig,
-} from "../src/model-role-config.js";
+} from "@repo/pi-agent-ext-core-runtime";
 
 function tmpConfig(obj: unknown): string {
   const dir = mkdtempSync(join(tmpdir(), "model-role-"));

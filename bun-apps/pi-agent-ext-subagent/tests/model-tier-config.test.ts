@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 async function loadModule() {
-  return await import("../src/model-tier-config.js");
+  return await import("@repo/pi-agent-ext-core-runtime");
 }
 
 describe("model-tier-config", () => {

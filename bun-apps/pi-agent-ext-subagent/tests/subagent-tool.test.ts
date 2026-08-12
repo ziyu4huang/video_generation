@@ -1,10 +1,10 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { Text } from "@earendil-works/pi-tui";
-import type { AgentHistoryEntry } from "../src/agent-history.js";
+import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
 import type { GitScopeOps } from "../src/git-scope.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
-import { SubagentInFlightRegistry } from "../src/subagent-in-flight.js";
+import { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
 import { createSubagentTool } from "../src/subagent-tool.js";
 import {
@@ -37,7 +37,7 @@ function fakeSpawn(impl: (opts: SpawnSubagentOptions) => SpawnSubagentResult | P
 const NO_SIGNAL = undefined as never;
 const NO_CTX = { cwd: "/repo" } as never;
 
-import type { AgentDefinition, AgentRegistry } from "../src/agent-registry.js";
+import type { AgentDefinition, AgentRegistry } from "@repo/pi-agent-ext-core-runtime";
 
 function mkRegistry(defs: AgentDefinition[]): AgentRegistry {
   const registry: AgentRegistry = new Map();
