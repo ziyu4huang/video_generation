@@ -41,6 +41,7 @@ import { RenderService } from "./render-service.js";
 import { createRenderRoutes } from "./render-routes.js";
 import { createRenderTool } from "./render-tool.js";
 import { createRenderEventHandler } from "./render-event-handler.js";
+import { createToolMirror } from "./tool-mirror.js";
 import { resolvePort } from "./port-resolver.js";
 
 /**
@@ -279,6 +280,13 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       return handler(event, ctx);
     });
   };
+
+  // --- tool-mirror (ticket 05) — third producer of RenderService ----------
+  // Subscribes tool_result on the AGENT bus (pi.on) via the SAME reg() guard as
+  // the outbound broadcast. tool_result is already in OUTBOUND_EVENTS (a second
+  // handler that broadcasts verbatim); the pi bus fires ALL handlers, so this is
+  // additive. NOT pi.events (that is the separate "webui:render" channel).
+  reg("tool_result", createToolMirror(registry));
 
   // mutex gate — the input event handler returns the InputEventResult action.
   reg("input", (event) => controller.handleInput(event.source as InputSource));
