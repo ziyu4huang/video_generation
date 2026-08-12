@@ -1,4 +1,8 @@
 /**
+ * @upstream(LeanRAG) concept ④ — HNSW index definition (ticket 14).
+ * `DEFINE INDEX ... HNSW DIMENSION 768 DIST COSINE TYPE F32` is the vector-ANN
+ * entry point that supersedes LeanRAG's Milvus IVF_FLAT/IP. See ADR-0001.
+ *
  * Idempotent SurrealQL bootstrap for the hermes-memory backend.
  * Run by SurrealBackend.init(). The `${ns}` / `${db}` template-literal
  * parameters are the caller's namespace/database (DEFINEd first, since v3

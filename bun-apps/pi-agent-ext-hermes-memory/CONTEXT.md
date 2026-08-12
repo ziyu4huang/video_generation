@@ -8,6 +8,12 @@ Consolidation, background-review fallback, correction-detector, and session-flus
 
 ## Language
 
+### Retrieval-quality terms (LeanRAG-informed)
+
+- **Redundancy-aware retrieval** — retrieval that collapses duplicates and de-emphasizes repeated evidence before assembly, so the context budget carries distinct information rather than repeats. (Selective port; ADR-0001, ticket 19.)
+- **Frequency-voted recall** — ranking retrieved cards by how many independent signals (semantic, lexical, entity-tag) reference them, not by a single signal alone.
+- **Exact-contentHash dedup** — collapsing cards that share an identical content hash within one result set. (Near-dup cosine collapse is a separate concern — ticket 17.)
+
 ### The five stores
 
 **Memory** (`memory` target, `MEMORY.md`):
