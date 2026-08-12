@@ -22,7 +22,9 @@
 Renaming an exported builder/function breaks the CLI at build time — caught by
 `( cd bun-apps/pi-agent && bun test )`. The retrieval-quality self-improve
 workflow (`bun-apps/pi-agent/workflows/retrieval-quality-self-improve.js`)
-drives `zk-ask --retrieve-only` to measure blend modes.
+drives `zk-ask --retrieve-only` to measure blend modes; the measurement scripts
+live at the repo root in [`../../../scripts/`](../../../scripts/)
+(`iter4-measure.mjs`, `controlled-corpus.mjs`, `p1-feature-measure.mjs`).
 
 ## The two read paths (important)
 
