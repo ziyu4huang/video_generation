@@ -8,10 +8,10 @@
  *
  *   bun test __tests__/vlm-ask-tool.test.ts
  */
-import { describe, test, expect, beforeAll, afterAll, mock } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // --- mocked vision-inference (the model I/O boundary) -----------------------
 let nextOutput = "ok";
@@ -141,26 +141,14 @@ describe("vision_ask tool", () => {
 
   test("default model resolves via resolveVisionLLM (lm-studio, thinking off)", async () => {
     reset();
-    await tools.vision_ask.execute(
-      "t5",
-      { image: pngAbs, question: "q" },
-      undefined,
-      undefined,
-      undefined,
-    );
+    await tools.vision_ask.execute("t5", { image: pngAbs, question: "q" }, undefined, undefined, undefined);
     expect(inferenceCalls[0]!.llm.provider).toBe("lm-studio");
     expect(inferenceCalls[0]!.llm.thinkingLevel).toBe("off");
   });
 
   test("error path: inference failure → isError:true with the message", async () => {
     reset({ error: "boom" });
-    const res = await tools.vision_ask.execute(
-      "t6",
-      { image: pngAbs, question: "q" },
-      undefined,
-      undefined,
-      undefined,
-    );
+    const res = await tools.vision_ask.execute("t6", { image: pngAbs, question: "q" }, undefined, undefined, undefined);
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toMatch(/vision_ask failed: boom/);
     expect(res.details.error).toBe("boom");

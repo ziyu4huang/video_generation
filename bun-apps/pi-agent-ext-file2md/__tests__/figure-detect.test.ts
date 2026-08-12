@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { detectFigurePages } from "../src/vlm/figure-detect.ts";
 
 const page = (n: number, text: string) => ({ pageNo: n, text });

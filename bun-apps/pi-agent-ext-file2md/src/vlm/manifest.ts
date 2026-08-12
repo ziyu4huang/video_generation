@@ -10,8 +10,8 @@
  * The manifest is the source of truth for resumability: the orchestrator
  * re-runs only pages whose status != "done".
  */
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
-import { join, basename, extname } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, extname, join } from "node:path";
 
 export type PageStatus = "pending" | "in_progress" | "done" | "error";
 
@@ -52,11 +52,13 @@ export interface Manifest {
 /** Turn a filename into a filesystem-safe slug. */
 export function slugify(name: string): string {
   const base = basename(name, extname(name));
-  return base
-    .replace(/[^a-zA-Z0-9._-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .toLowerCase() || "doc";
+  return (
+    base
+      .replace(/[^a-zA-Z0-9._-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .toLowerCase() || "doc"
+  );
 }
 
 /** Pad a page number to the given total-page width (1-indexed). */

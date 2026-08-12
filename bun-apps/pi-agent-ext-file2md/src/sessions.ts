@@ -9,16 +9,13 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { loadModelTierConfig, resolveModelRole } from "@repo/pi-agent-ext-subagent";
 
-export type { ThinkingLevel };
-
 // createSharedSession + resolveModel live in ./session-factory.ts so tests can
 // mock the factory without clobbering resolveLLM below. Re-exported here for
 // import-path stability (callers import createSharedSession from "./sessions").
 export { createSharedSession } from "./session-factory.js";
+export type { ThinkingLevel };
 
-const THINKING_LEVELS: readonly string[] = [
-  "off", "minimal", "low", "medium", "high", "xhigh", "max",
-];
+const THINKING_LEVELS: readonly string[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 export interface ResolvedLLM {
   provider: string;
@@ -31,11 +28,7 @@ export interface ResolvedLLM {
  * Throws when no model is supplied (no opt, no PI_MODEL env, no config) — the
  * caller is expected to provide one via config (capabilities.vision) or env.
  */
-export function resolveLLM(opts: {
-  provider?: string;
-  model?: string;
-  thinking?: string;
-}): ResolvedLLM {
+export function resolveLLM(opts: { provider?: string; model?: string; thinking?: string }): ResolvedLLM {
   const fromEnv = process.env.PI_MODEL;
   let model = opts.model ?? fromEnv;
   if (!model) {
@@ -86,5 +79,3 @@ export function resolveVisionLLM(opts: { model?: string; provider?: string; thin
   // env escape hatch (deprecated, warns) or throws an actionable error (ticket 01).
   return resolveLLM(opts);
 }
-
-

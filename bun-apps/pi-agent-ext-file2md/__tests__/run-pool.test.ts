@@ -4,7 +4,7 @@
  *
  *   bun test __tests__/run-pool.test.ts
  */
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { runPool } from "../src/pipeline.ts";
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));

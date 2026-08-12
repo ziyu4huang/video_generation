@@ -14,8 +14,8 @@
  *
  *      Implemented in `vlm/classify-vlm.ts` (it needs a model session).
  */
-import { existsSync, statSync, readFileSync } from "node:fs";
-import { extname, basename } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename, extname } from "node:path";
 
 export type DocKind = "pdf" | "image" | "unknown";
 
@@ -56,8 +56,14 @@ function sniffKind(path: string): DocKind {
     }
     // WebP: "RIFF"...."WEBP"
     if (
-      head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46 &&
-      head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50
+      head[0] === 0x52 &&
+      head[1] === 0x49 &&
+      head[2] === 0x46 &&
+      head[3] === 0x46 &&
+      head[8] === 0x57 &&
+      head[9] === 0x45 &&
+      head[10] === 0x42 &&
+      head[11] === 0x50
     ) {
       return "image";
     }
@@ -88,9 +94,7 @@ export function classifyKind(path: string): ClassifiedKind {
     else if (IMG_EXT.has(ext)) kind = "image";
   }
   if (kind === "unknown") {
-    throw new Error(
-      `Unsupported input "${path}". Supported: PDF, PNG, JPG, WebP, GIF, BMP.`,
-    );
+    throw new Error(`Unsupported input "${path}". Supported: PDF, PNG, JPG, WebP, GIF, BMP.`);
   }
   return { kind, path, name: basename(path) };
 }
@@ -100,14 +104,21 @@ export function imageMimeType(doc: { kind: DocKind; path: string }): string {
   if (doc.kind === "pdf") return "image/png"; // we always rasterize to png
   const ext = extname(doc.path).toLowerCase();
   switch (ext) {
-    case ".png": return "image/png";
+    case ".png":
+      return "image/png";
     case ".jpg":
-    case ".jpeg": return "image/jpeg";
-    case ".webp": return "image/webp";
-    case ".gif": return "image/gif";
-    case ".bmp": return "image/bmp";
+    case ".jpeg":
+      return "image/jpeg";
+    case ".webp":
+      return "image/webp";
+    case ".gif":
+      return "image/gif";
+    case ".bmp":
+      return "image/bmp";
     case ".tif":
-    case ".tiff": return "image/tiff";
-    default: return "image/png";
+    case ".tiff":
+      return "image/tiff";
+    default:
+      return "image/png";
   }
 }

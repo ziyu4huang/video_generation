@@ -19,17 +19,18 @@
  *
  *   bun test __tests__/pipeline.test.ts
  */
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // --- control knobs ----------------------------------------------------------
 // What the fake model emits for the classifier turn and the per-page turn.
 let classifyReply = "paper";
 let classifyReplies: string[] = []; // S4: per-call queue for multi-page voting
-let pageMarkdown = "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[page-001.png]]\n\nPAGE BODY with realistic content to clear the quality gate";
+let pageMarkdown =
+  "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[page-001.png]]\n\nPAGE BODY with realistic content to clear the quality gate";
 let rasterizePageCount = 1;
 const rasterizeCalls: { input: string; pagesDir: string; dpi: number }[] = [];
 const inferenceCalls: { task: string; images: any[]; llm: any; systemPrompt?: string }[] = [];
@@ -60,11 +61,7 @@ mock.module(`${ROOT}/src/vlm/vision-inference.ts`, () => ({
   runVisionInference: async (opts: { task: string }) => {
     inferenceCalls.push(opts);
     const isClassify = opts.task.includes("分類") || opts.task.includes("profile 代碼");
-    const payload = isClassify
-      ? classifyReplies.length
-        ? classifyReplies.shift()!
-        : classifyReply
-      : pageMarkdown;
+    const payload = isClassify ? (classifyReplies.length ? classifyReplies.shift()! : classifyReply) : pageMarkdown;
     return { output: payload, ok: true };
   },
 }));
@@ -93,7 +90,7 @@ const { runVlmDescribePipeline } = await import("../src/pipeline.ts");
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x35];
 
-let dirs: string[] = [];
+const dirs: string[] = [];
 async function setup(name: string, bytes: number[]) {
   const t = await mkdtemp(join(tmpdir(), "pivlm-pipe-"));
   dirs.push(t);
@@ -107,7 +104,8 @@ beforeEach(() => {
   inferenceCalls.length = 0;
   classifyReply = "paper";
   classifyReplies = [];
-  pageMarkdown = "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[page-001.png]]\n\nPAGE BODY with realistic content to clear the quality gate";
+  pageMarkdown =
+    "---\ntitle: T\npage: 1\nkind: paper\n---\n\n![[page-001.png]]\n\nPAGE BODY with realistic content to clear the quality gate";
 });
 afterEach(async () => {
   await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
@@ -126,16 +124,14 @@ async function readJsonFile(p: string) {
 describe("runVlmDescribePipeline — validation", () => {
   test("empty inputs throws", async () => {
     const { outRoot } = await setup("x.png", PNG_MAGIC);
-    await expect(runVlmDescribePipeline({ inputs: [], outRoot })).rejects.toThrow(
-      "No input files",
-    );
+    await expect(runVlmDescribePipeline({ inputs: [], outRoot })).rejects.toThrow("No input files");
   });
 
   test("invalid forcedType throws and lists valid profiles", async () => {
     const { inputAbs, outRoot } = await setup("doc.png", PNG_MAGIC);
-    await expect(
-      runVlmDescribePipeline({ inputs: [inputAbs], outRoot, forcedType: "bogus" as any }),
-    ).rejects.toThrow(/Invalid type "bogus"/);
+    await expect(runVlmDescribePipeline({ inputs: [inputAbs], outRoot, forcedType: "bogus" as any })).rejects.toThrow(
+      /Invalid type "bogus"/,
+    );
   });
 });
 
@@ -264,11 +260,7 @@ describe("runVlmDescribePipeline — page spec", () => {
     });
 
     const manifest = await readJsonFile(join(outRoot, "doc", "manifest.json"));
-    expect(manifest.pages.map((p: any) => p.status)).toEqual([
-      "done",
-      "pending",
-      "done",
-    ]);
+    expect(manifest.pages.map((p: any) => p.status)).toEqual(["done", "pending", "done"]);
     // Only pages 1 and 3 got md; page 2 did not.
     expect(existsSync(join(outRoot, "doc", "pages", "page-001.md"))).toBe(true);
     expect(existsSync(join(outRoot, "doc", "pages", "page-002.md"))).toBe(false);

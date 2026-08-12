@@ -22,8 +22,8 @@
  *
  *   bun test --isolate __tests__/pipeline-extract.test.ts
  */
-import { describe, it, expect, mock, beforeEach } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, existsSync } from "node:fs";
+import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 

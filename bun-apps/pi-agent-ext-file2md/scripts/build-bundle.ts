@@ -101,8 +101,23 @@ const THIN_EXTERNALS = [
 // node: builtins (bun minify strips the `node:` prefix, so we also list the
 // bare forms) — these must NOT be rewritten to absolute paths.
 const BUILTINS = new Set([
-  "fs","os","path","url","child_process","http","https","crypto","stream",
-  "util","buffer","events","net","tls","zlib","querystring","string_decoder",
+  "fs",
+  "os",
+  "path",
+  "url",
+  "child_process",
+  "http",
+  "https",
+  "crypto",
+  "stream",
+  "util",
+  "buffer",
+  "events",
+  "net",
+  "tls",
+  "zlib",
+  "querystring",
+  "string_decoder",
 ]);
 
 // Where the pi-agent bundle lives, for the live load test. Resolved from the
@@ -121,11 +136,7 @@ const DO_OBFUSCATE = FORCE_NO_OBFUSCATE ? false : DO_THIN || FORCE_OBFUSCATE;
 const DO_SOURCEMAP = argv.includes("--sourcemap");
 const DO_VERIFY = !argv.includes("--no-verify");
 const outFlagIdx = argv.indexOf("--out");
-const OUTFILE = outFlagIdx >= 0
-  ? argv[outFlagIdx + 1]
-  : DO_THIN
-    ? `${OUTDIR}/${APP_NAME}.thin.js`
-    : DEFAULT_OUTFILE;
+const OUTFILE = outFlagIdx >= 0 ? argv[outFlagIdx + 1] : DO_THIN ? `${OUTDIR}/${APP_NAME}.thin.js` : DEFAULT_OUTFILE;
 
 function formatSize(bytes: number): string {
   if (bytes > 1_000_000) return `${(bytes / 1_000_000).toFixed(2)} MB`;
@@ -197,7 +208,9 @@ async function stageBundle() {
 // node_modules to the bun store), so it is consistent with the existing model.
 function resolveBareToAbs(spec: string): string | null {
   if (spec.startsWith("node:") || BUILTINS.has(spec)) return null; // leave builtins
-  try { return require.resolve(spec); } catch {} // works for typebox + subpaths
+  try {
+    return require.resolve(spec);
+  } catch {} // works for typebox + subpaths
   // @earendil-works/* main export: bare resolve hits the exports map; go via
   // package.json + main/exports entry (mirrors getAliases' packageIndex logic).
   try {
@@ -223,11 +236,11 @@ function stageResolveExternals() {
   for (const spec of [...bare]) {
     const abs = resolveBareToAbs(spec);
     if (abs === null) continue; // builtin — leave as-is
-    if (!abs) { unresolved.push(spec); continue; }
-    code = code.replace(
-      new RegExp(`(["'])${spec.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\1`, "g"),
-      `"${abs}"`,
-    );
+    if (!abs) {
+      unresolved.push(spec);
+      continue;
+    }
+    code = code.replace(new RegExp(`(["'])${spec.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\1`, "g"), `"${abs}"`);
     console.log(`  ${spec} → ${abs}`);
     resolved++;
   }
@@ -285,13 +298,9 @@ async function stageObfuscate() {
 // This is option-independent (it observes behavior, not encoded strings), so it
 // is the PRIMARY correctness gate and runs in every mode (thin/full × minify/
 // obfuscated). A failure here is always a real defect.
-const EXPECTED_VLM_PARAMS = [
-  "input", "out", "model", "provider", "thinking", "type", "pages", "dpi", "relpath",
-];
+const EXPECTED_VLM_PARAMS = ["input", "out", "model", "provider", "thinking", "type", "pages", "dpi", "relpath"];
 
-async function liveFactoryTest(): Promise<
-  { ok: true; detail: string } | { ok: false; detail: string }
-> {
+async function liveFactoryTest(): Promise<{ ok: true; detail: string } | { ok: false; detail: string }> {
   // import() the built file via a file:// URL. For THIN this also proves every
   // baked absolute dep path resolves at module top-level (a wrong path throws
   // here, before the factory is ever called).
@@ -399,7 +408,9 @@ async function stageVerify() {
   const maxBytes = DO_THIN ? 500_000 : 15_000_000;
   const minBytes = DO_THIN ? 5_000 : 1_000_000;
   if (bytes < minBytes) {
-    failures.push(`output ${formatSize(bytes)} below expected minimum ${formatSize(minBytes)} — likely a stub/empty build`);
+    failures.push(
+      `output ${formatSize(bytes)} below expected minimum ${formatSize(minBytes)} — likely a stub/empty build`,
+    );
   }
   if (bytes > maxBytes) {
     warnings.push(`output ${formatSize(bytes)} above expected ceiling ${formatSize(maxBytes)} — dep graph grew?`);
@@ -433,8 +444,7 @@ async function stageVerify() {
     const mangled = /\bvar\s+[A-Za-z0-9$_]{1,3}\s*=\s*Object\.(create|defineProperty)/.test(code);
     if (!mangled) {
       warnings.push(
-        "no short-mangled identifiers detected — minify may not have applied " +
-          "(re-check --minify / target)",
+        "no short-mangled identifiers detected — minify may not have applied " + "(re-check --minify / target)",
       );
     }
 
@@ -456,7 +466,9 @@ async function stageVerify() {
         .map((m) => m[1])
         .filter((s) => !s.startsWith("node:") && !BUILTINS.has(s) && !s.startsWith("/"));
       if (bareLeft.length) {
-        failures.push(`thin: bare specifier(s) not resolved to abs path: ${[...new Set(bareLeft)].slice(0, 5).join(", ")}`);
+        failures.push(
+          `thin: bare specifier(s) not resolved to abs path: ${[...new Set(bareLeft)].slice(0, 5).join(", ")}`,
+        );
       }
       if (!/from\s*["']\/[^"']+typebox[^"']*["']/.test(code) && !/import\(\s*["']\/[^"']*typebox/.test(code)) {
         warnings.push("thin: no absolute-path typebox import found — did stageResolveExternals run?");
@@ -471,7 +483,9 @@ async function stageVerify() {
       }
     }
   } else {
-    console.log(`  · obfuscated output — static string checks skipped (obfuscator output is non-deterministic; factory test is authoritative)`);
+    console.log(
+      `  · obfuscated output — static string checks skipped (obfuscator output is non-deterministic; factory test is authoritative)`,
+    );
   }
 
   // (B) DETERMINISTIC FACTORY INVOCATION — primary correctness gate.
@@ -491,8 +505,13 @@ async function stageVerify() {
     try {
       const proc = Bun.spawn(
         [
-          "bun", PI_AGENT_BUNDLE, "-ne", "-e", OUTFILE,
-          "-p", "reply with only the literal token FILE2MDDONE if you have a tool named file2md, else NOTOOL",
+          "bun",
+          PI_AGENT_BUNDLE,
+          "-ne",
+          "-e",
+          OUTFILE,
+          "-p",
+          "reply with only the literal token FILE2MDDONE if you have a tool named file2md, else NOTOOL",
         ],
         { stdout: "pipe", stderr: "pipe" },
       );
@@ -516,7 +535,9 @@ async function stageVerify() {
       } else if (exitCode !== 0) {
         warnings.push(`live load exited ${exitCode} (no crash signature) — stderr: ${stderr.slice(0, 160)}`);
       } else if (!stdout.toLowerCase().includes("file2mdone")) {
-        warnings.push(`live load: agent booted but FILE2MDDONE not in reply (LLM/provider issue?) — output: ${stdout.slice(0, 160)}`);
+        warnings.push(
+          `live load: agent booted but FILE2MDDONE not in reply (LLM/provider issue?) — output: ${stdout.slice(0, 160)}`,
+        );
       } else {
         console.log(`  ✓ live load: pi-agent booted, file2md registered`);
       }
@@ -547,6 +568,4 @@ stageResolveExternals(); // thin: rewrite bare specifiers → abs paths (no-op f
 await stageObfuscate();
 await stageVerify();
 console.log("▶ done");
-console.log(
-  `  load with:  bun ../../dist/pi-agent/pi-agent.js -ne -e ${OUTFILE} -p "list your tools"`,
-);
+console.log(`  load with:  bun ../../dist/pi-agent/pi-agent.js -ne -e ${OUTFILE} -p "list your tools"`);
