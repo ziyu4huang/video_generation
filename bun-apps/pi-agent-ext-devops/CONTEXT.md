@@ -19,7 +19,16 @@ recipes live in tested code (`src/`).
   auto-deletable; uncertain cases go to a `review` bucket.
 - **local_ci** — OFFLINE local CI: typecheck + tests scoped to changed packages
   vs `origin/main`, plus repo gates. Structured pass/fail; self-verify before
-  `gh ship` (await_pr_merge gates on this).
+  `gh ship` (await_pr_merge gates on this). A package's test command comes from
+  its row in `.github/workflows/ci.yml.disabled` (`src/ci-matrix.ts`), run via
+  `bash -c` — so `--isolate`, `&& bun run qa`, and build-first rows are honored
+  exactly as remote CI would; only packages with NO matrix row fall back to the
+  generic `bun run test`. `scripts/ci-local.sh` parses the same block, so the two
+  local runners cannot disagree.
+- **changed-packages CLI** (`src/changed-packages-cli.ts`) — the bash-callable
+  wrapper the workflow's `changed_packages` job shells out to (`--all`, or
+  `<baseRef> <headRef>` → one line of JSON). Deliberately a plain script entry,
+  not an `extensions/cli-subcommand.ts`: that job runs before any `bun install`.
 - **sync_repo** — sync this worktree/repo to the latest default branch
   (full/rebase/pull; worktree-aware; aborts on divergent unless `force`).
   **Preserves auto-managed hot files**: the default advance aborts `dirty_tree`

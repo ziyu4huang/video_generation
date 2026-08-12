@@ -94,19 +94,30 @@ one fails.
 ### Smart test routing (changed_packages)
 
 A PR that only touches `bun-apps/pi-agent-ext-power-tool/` shouldn't pay for all
-28 matrix entries. `scripts/ci-changed-packages.sh` computes, per PR, which
-packages are actually affected:
+28 matrix entries. The `changed_packages` job computes, per PR, which packages
+are actually affected.
 
-> **The script is GONE (2026-08-12).** It was ported to
-> `bun-apps/pi-agent-ext-devops/src/changed-packages.ts` ("extension-native TS
-> port of the former `scripts/ci-changed-packages.sh`", used by the devops
-> `local_ci` tool) and the bash was deleted, but the `changed_packages` job in
-> `ci.yml.disabled` still shells out to the old path. devops exports the port as
-> a **library only** (no `bin`), so there is no drop-in substitute — re-pointing
-> the job needs a thin CLI entry added to devops (or the script restored). Latent
-> while Actions is off; on re-enable the job fails and the `tests` matrix fails
-> OPEN (runs every package), so it degrades safely but loses the routing saving.
-> The description below is of the ported algorithm, which is unchanged:
+**Where the code lives (the former `scripts/ci-changed-packages.sh`).** The bash
+script was ported to
+`bun-apps/pi-agent-ext-devops/src/changed-packages.ts` (`computeChangedPackages`)
+so the devops `local_ci` tool and remote CI share ONE implementation, and the
+bash was deleted. `src/changed-packages-cli.ts` is the thin bash-callable wrapper
+the workflow invokes — same argv contract the script had, same single-line JSON
+on stdout:
+
+```bash
+bun bun-apps/pi-agent-ext-devops/src/changed-packages-cli.ts --all
+bun bun-apps/pi-agent-ext-devops/src/changed-packages-cli.ts <baseSha> <headSha>
+```
+
+It is a plain script entry, **not** an `extensions/cli-subcommand.ts` (that
+convention is for agent-driven `pi-agent cli <x>` sub-commands, which need the
+host + an installed workspace). The wrapper imports only node builtins plus the
+package's own spawn seam, so the `changed_packages` job runs on a bare checkout
+with `oven-sh/setup-bun` alone — no `setup-env`, no `bun install` — and stays a
+seconds-long pre-flight for the 28-row matrix behind it.
+
+The algorithm, unchanged from the retired script:
 
 1. Reads every `bun-apps/*/package.json`'s `@repo/*` dependencies **live**
    (grep, not a hand-maintained table) to build the workspace dependency graph.
@@ -141,8 +152,11 @@ behavior of silently *skipping* every dependent job (which would read as
 green/passing on the PR while never running a single test), every step still
 runs.
 
-Tests: `bun test scripts/ci-changed-packages.test.ts` (synthetic git repos, no
-mocking of the script's own logic).
+Tests: `( cd bun-apps/pi-agent-ext-devops && bun test tests/changed-packages.test.ts
+tests/changed-packages-cli.test.ts )` — direct unit tests of
+`computeChangedPackages` and of the CLI wrapper's argv/stdout contract, with the
+`spawn` / `discoverPackages` / `readDeps` seams injected (no real git repo). The
+old `scripts/ci-changed-packages.test.ts` went with the bash script.
 
 ### CI-specific setup steps (non-obvious)
 
@@ -262,10 +276,10 @@ These never run in CI; they're gated on explicit env vars:
   `--run-gpu`). No Apple Silicon on Actions runners; the MLX stack also needs the
   sibling-fork deps (`mflux`, `ltx-2-mlx`) not on PyPI. **Local-only.**
 - **`scripts/`** — not a `bun-apps/*` workspace package (no `package.json`), so
-  it's outside this matrix by construction. Its own `*.test.ts` files (e.g.
-  `pr-finish.test.ts`, `sync-repo.test.ts`, `ci-changed-packages.test.ts`) run
+  it's outside this matrix by construction. Its own `*.test.ts` files
+  (`pr-finish.test.ts`, `drawthings-bench.test.ts`, `multi-hop-eval.test.ts`) run
   directly via `bun test scripts/<file>.test.ts` in the jobs that need them
-  (`regression gates`), not through the package matrix.
+  (`regression gates` runs `pr-finish.test.ts`), not through the package matrix.
   (`pi-agent-ext-zai-mcp` was previously miscategorized here too — it has no
   `package.json` `test` script, but `bun test` doesn't require one to discover
   `*.test.ts` files; it's now correctly in the matrix.)

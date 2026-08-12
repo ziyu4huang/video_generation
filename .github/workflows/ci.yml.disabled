@@ -41,14 +41,14 @@ jobs:
   # live @repo/* graph, reverse-BFS propagation, fails OPEN to "run everything"
   # on any change outside a known bun-apps/<pkg>/ path.)
   #
-  # BROKEN REFERENCE (2026-08-12): scripts/ci-changed-packages.sh no longer
-  # exists — it was ported into bun-apps/pi-agent-ext-devops/src/changed-packages.ts
-  # ("extension-native TS port of the former scripts/ci-changed-packages.sh")
-  # and the bash was deleted, but this job was never re-pointed. devops exposes
-  # the port as a library only (no `bin`), so there is no drop-in invocation to
-  # substitute; fixing it means adding a thin CLI entry to devops (or restoring
-  # the script). Latent because Actions is disabled — if CI is re-enabled this
-  # job fails, and the `tests` matrix then fails OPEN and runs every package.
+  # The implementation lives in the devops extension package
+  # (bun-apps/pi-agent-ext-devops/src/changed-packages.ts — the TS port of the
+  # retired scripts/ci-changed-packages.sh), invoked through the thin CLI wrapper
+  # src/changed-packages-cli.ts. Same argv contract the bash had (`--all`, or
+  # `<baseRef> <headRef>`) and the same single-line JSON on stdout, so this step
+  # is unchanged apart from the command. The wrapper imports only node builtins +
+  # its own spawn seam, which is why this job sets up Bun ALONE (no setup-env /
+  # bun install): it must stay a seconds-long pre-flight for the 28-row matrix.
   # Gating lives on the `tests` job's STEPS, not the job itself —
   # `matrix` context isn't available in a job-level `if:` (only github/needs/
   # vars/inputs are; actionlint catches this, plain YAML parsing does not).
@@ -65,12 +65,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # Bun only — deliberately NOT ./.github/actions/setup-env. The CLI wrapper
+      # needs no installed workspace (node:fs / node:path + a `git` spawn), and
+      # every downstream job waits on this one.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      # The path is spelled out in full on BOTH branches rather than hoisted into
+      # a shell variable: bun-apps/tests/ci-workflow-references.test.ts resolves
+      # every literal script path this workflow names, and an indirection through
+      # `$CLI` would hide it from that guard — which is precisely how the
+      # reference this step replaced rotted unnoticed.
       - id: filter
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            json=$(bash scripts/ci-changed-packages.sh --all)
+            json=$(bun bun-apps/pi-agent-ext-devops/src/changed-packages-cli.ts --all)
           else
-            json=$(bash scripts/ci-changed-packages.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+            json=$(bun bun-apps/pi-agent-ext-devops/src/changed-packages-cli.ts "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
           fi
           echo "packages=$json" >> "$GITHUB_OUTPUT"
 
@@ -144,10 +155,10 @@ jobs:
           - { package: pi-agent-ext-core-runtime, test-cmd: "bun test" }
           # pi-agent-ext-devops: 17 test files (local-CI recipe, changed-packages
           # port, deploy/gh/branch/sync recipes) that had never been in the
-          # matrix. Notably it owns src/changed-packages.ts — the TS port of the
-          # retired scripts/ci-changed-packages.sh the `changed_packages` job
-          # above still shells out to — so CI's own routing logic was untested
-          # by CI. Plain `bun test` (its `check` script is tsc --noEmit only).
+          # matrix. Notably it owns src/changed-packages.ts + its CLI wrapper —
+          # the code the `changed_packages` job above shells out to — so CI's own
+          # routing logic was untested by CI. Plain `bun test` (its `check`
+          # script is tsc --noEmit only).
           - { package: pi-agent-ext-devops, test-cmd: "bun test" }
           # pi-agent-ext-prompt-history: 2 test files, never in the matrix. It is
           # one of the statically-bundled extensions compile-verify asserts on

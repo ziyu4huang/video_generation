@@ -16,6 +16,14 @@
  * SAME committed scripts remote CI uses (scripts/ci-file-size-guard.sh, …), so a
  * green run here is the local proxy for a green remote run — the rationale for
  * the repo-wide "never wait for remote CI; self-verify then `gh ship`" rule.
+ *
+ * That proxy only holds if the per-package COMMAND matches too, so the test step
+ * is sourced from the CI matrix (src/ci-matrix.ts) rather than derived generically
+ * — otherwise `bun run test` would stand in for `bun test --isolate`, `bun test &&
+ * bun run qa`, or a build-first row, and local_ci could report green on a package
+ * whose real CI command fails. Packages with no matrix row keep the generic
+ * derivation. scripts/ci-local.sh parses the same matrix block, so the two local
+ * runners cannot disagree about what a package's command is.
  */
 import type { SpawnFn } from "./spawn.js";
 import { runSchemaCostCheck } from "./schema-cost-check.js";
@@ -24,11 +32,24 @@ import {
 	type ChangedPackagesMap,
 	type ComputeChangedPackagesOptions,
 } from "./changed-packages.js";
+import { readCiMatrix, type CiMatrix } from "./ci-matrix.js";
 
 export interface CiPackageResult {
 	name: string;
 	typecheck?: { exitCode: number; skipped?: boolean; note?: string };
-	test: { exitCode: number; note?: string };
+	test: {
+		exitCode: number;
+		note?: string;
+		/**
+		 * Where the test command came from. `"matrix"` = the package's row in
+		 * .github/workflows/ci.yml.disabled (what remote CI would actually run);
+		 * `"package-script"` = the generic `bun run test` fallback for a package
+		 * with no matrix row. Absent when nothing ran.
+		 */
+		source?: "matrix" | "package-script";
+		/** The command as executed, for matrix rows (the row's `test-cmd`). */
+		command?: string;
+	};
 }
 
 export interface CiGateResult {
@@ -82,6 +103,13 @@ export interface CiOptions {
 	 * Tests inject a fake so the recipe stays filesystem/git-free.
 	 */
 	detectChangedPackages?: (opts: ComputeChangedPackagesOptions) => Promise<ChangedPackagesMap>;
+	/**
+	 * Injectable CI-matrix reader (`package` → `test-cmd`). Default: parse
+	 * .github/workflows/ci.yml.disabled. A package WITH a row runs that exact
+	 * command; a package without one falls back to the generic `bun run test`
+	 * derivation. Tests inject a fixed map so the recipe stays filesystem-free.
+	 */
+	readMatrix?: (repoRoot: string) => Promise<CiMatrix>;
 }
 
 /** A gate's invocation: how to spawn it + whether its failure fails `overall`. */
@@ -177,6 +205,15 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	}
 	const pkgNames = resolved.packages;
 
+	// 2b. The CI matrix is the SOURCE OF TRUTH for a package's test command.
+	//     Deriving it generically (`bun run test`) silently disagrees with CI for
+	//     every package whose row is special: --isolate (archify, file2md),
+	//     `bun test && bun run qa` (tool-gate), knowledge-card's 3-phase ordering,
+	//     build-first (workflow, webui). Without this, local_ci can report green on
+	//     a package whose real CI command would fail. A package with NO row keeps
+	//     the generic derivation; an unreadable workflow yields {} → all generic.
+	const matrix = await (opts.readMatrix ?? readCiMatrix)(opts.repoRoot);
+
 	// 3. Per package: typecheck (by precedence) + test.
 	const packages: CiPackageResult[] = [];
 	for (const name of pkgNames) {
@@ -196,10 +233,20 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 			result.typecheck = { exitCode: -1, skipped: true, note: "no tsc key" };
 		}
 
-		// Test. A package with no `test` script → -1 (counts as pass — nothing to run).
-		if (typeof scripts.test === "string") {
+		// Test. Precedence: the package's CI matrix row > its `test` script > nothing
+		// (-1, counts as pass). A matrix row is run through `bash -c` because the
+		// rows are shell COMMANDS, not single argv vectors (`bun test && bun run qa`,
+		// knowledge-card's 3-phase chain, `bun run build && bun test`) — the same way
+		// scripts/ci-local.sh executes them. NB: ci-local.sh additionally exports
+		// CI=true; local_ci deliberately does not, preserving its own pre-existing
+		// behavior — locally the machine-coupled tests SHOULD run, that's the point.
+		const matrixCmd = matrix[name];
+		if (typeof matrixCmd === "string") {
+			const r = await spawn("bash", ["-c", matrixCmd], { cwd: pkgDir });
+			result.test = { exitCode: r.exitCode, source: "matrix", command: matrixCmd };
+		} else if (typeof scripts.test === "string") {
 			const r = await spawn("bun", ["run", "test"], { cwd: pkgDir });
-			result.test = { exitCode: r.exitCode };
+			result.test = { exitCode: r.exitCode, source: "package-script" };
 		} else {
 			result.test = { exitCode: -1, note: "no test script" };
 		}

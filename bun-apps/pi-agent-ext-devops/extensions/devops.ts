@@ -75,7 +75,13 @@ function formatCiOutcome(o: CiOutcome): string {
 	if (o.packages.length === 0) {
 		L.push("  No packages affected.");
 	} else {
-		for (const p of o.packages) L.push(`  ${p.name}: test ${fmtTest(p.test)} (typecheck ${fmtTypecheck(p.typecheck)})`);
+		for (const p of o.packages) {
+			// On a FAILURE, name the exact command that failed — for a matrix-sourced
+			// package that is the CI row (e.g. `bun test --isolate`), not the generic
+			// `bun run test`, and the difference is usually the whole diagnosis.
+			const cmd = p.test.exitCode > 0 && p.test.command ? ` [${p.test.command}]` : "";
+			L.push(`  ${p.name}: test ${fmtTest(p.test)}${cmd} (typecheck ${fmtTypecheck(p.typecheck)})`);
+		}
 	}
 	if (o.gates.length) {
 		const pass = o.gates.filter((g) => g.exitCode === 0).length;
