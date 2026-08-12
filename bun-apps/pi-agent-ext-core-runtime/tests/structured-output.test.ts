@@ -103,3 +103,14 @@ test("createStructuredOutputTool uses parameters from schema", () => {
   // TypeBox-defined parameters are available
   assert.ok(tool.parameters, "parameters should be truthy");
 });
+
+test("createStructuredOutputTool requests JSON-schema constrained sampling (prefer)", () => {
+  // upstream #05: nudge providers to enforce the schema via strict tools when
+  // supported (degrades gracefully otherwise). See pi-ai ConstrainedSamplingConfig.
+  const capture = { called: false, value: undefined };
+  const tool = createStructuredOutputTool({
+    schema: Type.Object({ result: Type.String() }),
+    capture,
+  });
+  assert.deepEqual(tool.constrainedSampling, { type: "json_schema", strict: "prefer" });
+});
