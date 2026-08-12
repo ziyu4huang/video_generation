@@ -152,25 +152,53 @@ export function formatToolResult(event: ToolResultEvent): string {
   return `${header}\n\n${body}`;
 }
 
+/** Markdown horizontal-rule separator between accumulated entries. */
+const SEP = "\n\n---\n\n";
+
 /**
  * Build a mirror handler bound to a registry. The wiring subscribes the
  * returned handler via `reg("tool_result", createToolMirror(registry))` so it
  * inherits the `disposed` guard used by the outbound broadcast.
+ *
+ * The mirror owns its own entry array (RenderService is replace-only) and
+ * enforces a rolling cap on every event (ticket 05 D3): entry count ≤
+ * `maxEntries` AND joined-log length ≤ `maxChars`. The char cap drops OLDEST
+ * entries until under budget; a single over-budget entry is itself truncated
+ * in place so the view never exceeds `maxChars`. Defaults: 50 entries / 20000
+ * chars. NEVER throws (a flood of tool_results must never grow the log
+ * unbounded, nor crash the host event bus).
  */
 export function createToolMirror(
   registry: RenderService,
-  _opts: ToolMirrorOptions = {}
+  opts: ToolMirrorOptions = {}
 ): ToolMirrorHandler {
-  let log = "";
+  const maxEntries = opts.maxEntries ?? 50;
+  const maxChars = opts.maxChars ?? 20000;
+  let entries: string[] = [];
+
+  const flush = (): void => {
+    registry.render({ content: entries.join(SEP), mode: "md", view: "tools", title: "Tools" });
+  };
+
   return (event) => {
     try {
-      const entry = formatToolResult(event);
-      log = log ? `${log}\n\n---\n\n${entry}` : entry;
-      // T3 enforces the rolling cap here (maxEntries / maxChars). T1 renders the
-      // raw accumulating log so the mechanism is testable in isolation.
-      registry.render({ content: log, mode: "md", view: "tools", title: "Tools" });
+      let entry = formatToolResult(event);
+      // single entry larger than the whole budget: truncate it in place
+      if (entry.length > maxChars) entry = entry.slice(0, maxChars);
+      entries.push(entry);
+
+      // entry cap
+      if (entries.length > maxEntries) entries = entries.slice(entries.length - maxEntries);
+
+      // char cap: drop oldest until under budget
+      let joined = entries.join(SEP);
+      while (joined.length > maxChars && entries.length > 1) {
+        entries.shift();
+        joined = entries.join(SEP);
+      }
+      flush();
     } catch {
-      // A mirror handler must NEVER crash the host event bus.
+      // a mirror handler must NEVER crash the host event bus
     }
   };
 }
