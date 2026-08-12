@@ -574,6 +574,19 @@ jobs:
         working-directory: bun-apps
         run: bun run test:portability-audit
 
+      # CI-workflow reference guard (blocks). The executor for a class that has
+      # none: a reference inside a DISABLED workflow is never run, so it rots
+      # silently (scripts/ci-changed-packages.sh was deleted while this file kept
+      # calling it; the matrix carried a row for the deleted pi-agent-ext-picker;
+      # pi-agent-ext-core-runtime was created by #1251 and never got a row).
+      # Asserts: every matrix row names a real package, every path this workflow
+      # shells out to resolves, and every bun-apps/* package has a matrix row.
+      # Reads the matrix through scripts/ci-local.sh --tsv — the ONE parser — so
+      # no second copy of the matrix can drift.
+      - name: CI-workflow reference guard (matrix ↔ tree, blocks)
+        working-directory: bun-apps
+        run: bun run test:ci-workflow
+
       # Test-portability prevention check — now BLOCKING (--strict). Scans the
       # test surface for the four "works on my machine" signal patterns and
       # exits non-zero on any UNGATED P1/P2 hit (existsSync of a machine-coupled

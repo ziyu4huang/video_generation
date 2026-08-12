@@ -36,9 +36,15 @@
 #
 # USAGE
 #   bash scripts/ci-local.sh --list             # print the parsed matrix, run nothing
+#   bash scripts/ci-local.sh --tsv              # machine-readable "<pkg>\t<cmd>" lines
 #   bash scripts/ci-local.sh                    # run every entry, sequentially
 #   bash scripts/ci-local.sh --only pi-agent    # run a subset (comma-separated)
 #   bash scripts/ci-local.sh --only a,b --list  # preview just that subset
+#
+#   --tsv exists so OTHER tools can consume the ONE parser rather than growing a
+#   second copy of the matrix — bun-apps/tests/ci-workflow-references.test.ts (the
+#   guard that every matrix row points at a real package, and every package has a
+#   row) reads it. Keep it decoration-free: no colors, no headers, no totals.
 #
 # BEHAVIOR
 #   - Sequential (parallel runs race pi-agent-ext-workflow's shared dist/).
@@ -59,10 +65,12 @@ cd "$REPO_ROOT"
 WORKFLOW=".github/workflows/ci.yml.disabled"
 
 LIST_ONLY=0
+TSV_ONLY=0
 ONLY=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --list) LIST_ONLY=1; shift ;;
+    --tsv) TSV_ONLY=1; shift ;;
     --only) ONLY="${2-}"; [ -n "$ONLY" ] || { echo "--only needs a value"; exit 2; }; shift 2 ;;
     --only=*) ONLY="${1#--only=}"; shift ;;
     -h|--help) sed -n '2,60p' "$0"; exit 0 ;;
@@ -180,6 +188,14 @@ if [ -n "$ONLY" ]; then
 fi
 
 TOTAL="$(printf '%s\n' "$MATRIX" | wc -l | tr -d ' ')"
+
+# ── --tsv ────────────────────────────────────────────────────────────────────
+# The machine-readable face of the SAME parse --list renders for humans. Emitted
+# before --list so `--tsv --list` still yields clean TSV.
+if [ "$TSV_ONLY" -eq 1 ]; then
+  printf '%s\n' "$MATRIX"
+  exit 0
+fi
 
 # ── --list ───────────────────────────────────────────────────────────────────
 # The eyeball check that the parse is correct: every row, its directory status,
