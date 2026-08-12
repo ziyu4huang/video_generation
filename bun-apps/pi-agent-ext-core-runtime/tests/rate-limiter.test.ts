@@ -6,7 +6,7 @@ import {
   getRateLimitCapResolver,
   providerFromModelSpec,
   setRateLimitCapResolver,
-} from "../src/rate-limiter.js";
+} from "@repo/pi-agent-ext-core-runtime";
 
 /** Tick so queued microtasks/promises can settle. */
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));

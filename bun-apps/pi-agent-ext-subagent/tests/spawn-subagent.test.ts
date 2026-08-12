@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { WorkflowError, WorkflowErrorCode } from "../src/errors.js";
-import { saveModelTierConfig } from "../src/model-role-config.js";
+import { WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
+import { saveModelTierConfig } from "@repo/pi-agent-ext-core-runtime";
 import { resolveSessionOverride, spawnSubagent } from "../src/spawn-subagent.js";
 
 /** Minimal injectable runner (Pick<WorkflowAgent, "run">) that records calls. */

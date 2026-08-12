@@ -156,7 +156,7 @@ let _registrySingleton: SubagentInFlightRegistry | undefined;
 /**
  * Process-wide singleton so the `subagent` tool (subagent extension) and the
  * `/subagents` viewer/command (workflow extension) share ONE registry across
- * extensions. Importers MUST use the src subpath (`@repo/pi-agent-ext-subagent/src/...`)
+ * extensions. Importers MUST use the package barrel (`@repo/pi-agent-ext-subagent`)
  * so both extensions resolve the same module instance.
  */
 export function getSubagentInFlightRegistry(): SubagentInFlightRegistry {

@@ -17,8 +17,8 @@
  */
 import { existsSync, renameSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { ModelTierConfig } from "../src/model-role-config.js";
-import { getModelTierConfigPath, loadModelTierConfig, saveModelTierConfig } from "../src/model-role-config.js";
+import type { ModelTierConfig } from "@repo/pi-agent-ext-core-runtime";
+import { getModelTierConfigPath, loadModelTierConfig, saveModelTierConfig } from "@repo/pi-agent-ext-core-runtime";
 import { findPreset, MODEL_PRESETS } from "../src/presets.js";
 
 /** Injectable config I/O (defaults hit the real ~/.pi/workflows/model-tiers.json). */

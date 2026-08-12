@@ -1,4 +1,4 @@
-import { WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-subagent";
+import { WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
 import type { Node } from "acorn";
 import { parse } from "acorn";
 import type { WorkflowMeta, WorkflowMetaPhase } from "./workflow.js";

@@ -8,7 +8,7 @@
 
 import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { summarizeLatestAction } from "@repo/pi-agent-ext-subagent";
+import { summarizeLatestAction } from "@repo/pi-agent-ext-core-runtime";
 import {
   type ActivityRow,
   fmtTokensShort,

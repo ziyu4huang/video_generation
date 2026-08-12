@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { resolveFallbackModel } from "../src/agent.js";
-import type { ModelTierConfig } from "../src/model-role-config.js";
+import { resolveFallbackModel } from "@repo/pi-agent-ext-core-runtime";
+import type { ModelTierConfig } from "@repo/pi-agent-ext-core-runtime";
 
 /**
  * Fake async model resolver over a fixed available set. Mirrors

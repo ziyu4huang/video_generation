@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-ext-subagent/src/index.ts";
+import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-ext-subagent";
 
 import { buildSnapshot } from "../store/merge-plan.js";
 import { produceMergePlan } from "./auto-consolidate.js";

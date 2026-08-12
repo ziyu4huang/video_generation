@@ -3,7 +3,7 @@
  *
  * Split from model-tier-config.ts so lightweight consumers (file2md) can resolve
  * a model role WITHOUT pulling in agent.js (WorkflowAgent machinery). Import via
- * the src subpath: @repo/pi-agent-ext-subagent/src/model-role-config.ts
+ * the package barrel: `@repo/pi-agent-ext-subagent`.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";

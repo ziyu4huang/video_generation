@@ -18,10 +18,10 @@
 
 import type { CreateAgentSessionOptions, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
-import { type AgentUsage, type BudgetExhaustion, WorkflowAgent } from "./agent.js";
-import type { AgentHistoryEntry } from "./agent-history.js";
-import { isWorkflowError, WorkflowErrorCode } from "./errors.js";
-import { loadModelTierConfig, resolveModelRole } from "./model-role-config.js";
+import { type AgentUsage, type BudgetExhaustion, WorkflowAgent } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
+import { isWorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
+import { loadModelTierConfig, resolveModelRole } from "@repo/pi-agent-ext-core-runtime";
 
 export interface SpawnSubagentPrime {
   query: string;

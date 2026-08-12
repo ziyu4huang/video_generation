@@ -6,7 +6,7 @@ import {
   WorkflowError,
   WorkflowErrorCode,
   wrapError,
-} from "../src/errors.js";
+} from "@repo/pi-agent-ext-core-runtime";
 
 describe("classifyProviderLimit", () => {
   it("matches the documented provider usage/quota/rate-limit wordings", () => {

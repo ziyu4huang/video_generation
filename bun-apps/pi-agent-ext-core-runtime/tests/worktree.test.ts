@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createWorktree as createWorktreeLive, removeWorktree } from "../src/worktree.js";
+import { createWorktree as createWorktreeLive, removeWorktree } from "@repo/pi-agent-ext-core-runtime";
 
 // ── Existing tests (unchanged) ──
 

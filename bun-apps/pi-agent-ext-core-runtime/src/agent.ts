@@ -283,7 +283,7 @@ export interface WorkflowAgentOptions {
   mainModel?: string;
   /**
    * Loads the model-tier config (model-tiers.json). Defaults to a disk read via
-   * loadModelTierConfig; the result is cached per WorkflowAgent instance so a
+   * loadModelTierConfig; the result is cached per CoreAgent instance so a
    * run with many default/untagged agents does not re-read disk every call.
    * Injectable for tests (e.g. a counting loader to assert the cache).
    */
@@ -334,7 +334,7 @@ export interface BudgetExhaustion {
  * Returns the first exceeded budget (tokens checked before spend), or
  * `undefined` when neither is set or neither is exceeded. Uses `>` (strictly
  * greater), so reaching the limit exactly is allowed. Extracted from
- * `WorkflowAgent.run` so the threshold logic is unit-testable independent of
+ * `CoreAgent.run` so the threshold logic is unit-testable independent of
  * the session/subscribe wiring (which mirrors the existing onHistory/timeout
  * seams and is exercised via the spawnSubagent classification tests).
  */
@@ -431,7 +431,7 @@ export type AgentRunResult<TSchemaDef extends TSchema | undefined> = TSchemaDef 
   ? Static<TSchemaDef>
   : string;
 
-export class WorkflowAgent {
+export class CoreAgent {
   private readonly cwd: string;
   private readonly baseTools: ToolDefinition[];
   private readonly extensionTools: ToolDefinition[];

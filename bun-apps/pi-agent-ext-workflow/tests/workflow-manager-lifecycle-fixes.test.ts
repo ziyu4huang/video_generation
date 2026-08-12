@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-subagent";
+import { WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
 import { WorkflowManager } from "../src/workflow-manager.js";
 import { withFakeHomeAsync } from "./helpers/fake-home.js";
 

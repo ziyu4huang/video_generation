@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { WorkflowErrorCode } from "@repo/pi-agent-ext-subagent";
+import { WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
 import type { WorkflowSnapshot } from "../src/display.js";
 import type { PersistedRunState } from "../src/run-persistence.js";
 import type { ManagedRun, WorkflowManager } from "../src/workflow-manager.js";
