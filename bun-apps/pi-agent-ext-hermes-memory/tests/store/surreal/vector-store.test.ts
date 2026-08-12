@@ -196,6 +196,27 @@ describe("SurrealVectorStore (mock client)", () => {
     const missing = await store.missingMdIds(["a", "b", "c", "d"], "mv1");
     expect(missing).toEqual(["c", "d"]);
   });
+
+  it("getStoredHashes returns Map<mdId,contentHash> for the modelVersion (body-safe: hashes not vectors)", async () => {
+    const fakeClient = {
+      async query<T>(sql: string, params?: Record<string, unknown>): Promise<T> {
+        if (sql.includes("DEFINE")) return [] as unknown as T; // init
+        expect(sql).toContain("SELECT mdId, contentHash FROM card_vectors WHERE modelVersion = $mv");
+        expect(params).toEqual({ mv: "mv1" });
+        return [
+          { mdId: "a", contentHash: "ha" },
+          { mdId: "b", contentHash: "hb" },
+        ] as unknown as T;
+      },
+    } as unknown as SurrealClient;
+    const store = new SurrealVectorStore(fakeClient, "ns", "db");
+    await store.init();
+    const hashes = await store.getStoredHashes("mv1");
+    expect(hashes).toBeInstanceOf(Map);
+    expect(hashes.get("a")).toBe("ha");
+    expect(hashes.get("b")).toBe("hb");
+    expect(hashes.size).toBe(2);
+  });
 });
 
 describe("NoopVectorStore", () => {
@@ -205,5 +226,8 @@ describe("NoopVectorStore", () => {
     await expect(noop.upsertVectors([])).resolves.toBeUndefined();
     await expect(noop.knn([1, 2, 3], 5, 100)).resolves.toEqual([]);
     await expect(noop.missingMdIds(["a"], "mv1")).resolves.toEqual([]);
+    const hashes = await noop.getStoredHashes("mv1");
+    expect(hashes).toBeInstanceOf(Map);
+    expect(hashes.size).toBe(0);
   });
 });

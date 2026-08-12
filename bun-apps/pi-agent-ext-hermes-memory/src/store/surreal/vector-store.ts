@@ -63,6 +63,11 @@ export interface VectorStore {
   /** The cold set: mdIds present in `allMdIds` but absent from card_vectors at
    *  `modelVersion` (the lazy-backfill candidate list). */
   missingMdIds(allMdIds: string[], modelVersion: string): Promise<string[]>;
+  /** The stored (mdId → contentHash) map for one modelVersion — the staleness
+   *  delta source for the T3 background backfill. One body-safe query (returns
+   *  hashes, NOT vectors). A card whose stored hash ≠ its current contentHash
+   *  (or is absent) is the delta the backfill re-embeds. */
+  getStoredHashes(modelVersion: string): Promise<Map<string, string>>;
 }
 
 /**
@@ -149,6 +154,20 @@ export class SurrealVectorStore implements VectorStore {
     }
     return missing;
   }
+
+  async getStoredHashes(modelVersion: string): Promise<Map<string, string>> {
+    await this.init();
+    // One body-cap-safe query (hashes, not vectors). Returns Map<mdId,
+    // contentHash> so the T3 backfill computes the staleness delta client-side:
+    // a card is stale iff stored hash ≠ current contentHash (or absent).
+    const sql = `SELECT mdId, contentHash FROM card_vectors WHERE modelVersion = $mv;`;
+    const rows = await this.client.query<Array<{ mdId: string; contentHash: string }>>(sql, { mv: modelVersion });
+    const out = new Map<string, string>();
+    for (const r of Array.isArray(rows) ? rows : []) {
+      if (r && typeof r.mdId === "string") out.set(r.mdId, r.contentHash ?? "");
+    }
+    return out;
+  }
 }
 
 /**
@@ -166,6 +185,7 @@ export class NoopVectorStore implements VectorStore {
   async upsertVectors(_entries: VectorUpsertEntry[]): Promise<void> { /* no-op */ }
   async knn(_queryVec: number[], _k: number, _ef: number): Promise<VectorKnnHit[]> { return []; }
   async missingMdIds(_allMdIds: string[], _modelVersion: string): Promise<string[]> { return []; }
+  async getStoredHashes(_modelVersion: string): Promise<Map<string, string>> { return new Map(); }
 }
 
 /** Factory: build a SurrealVectorStore over an existing client, or `undefined`

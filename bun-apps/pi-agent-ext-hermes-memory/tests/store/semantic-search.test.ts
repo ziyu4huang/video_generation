@@ -180,3 +180,41 @@ describe("searchSemantic — T5(a) graceful degrade", () => {
     expect(hits).toEqual([]);
   });
 });
+
+describe("searchSemantic — Phase B cold-index backfill trigger", () => {
+  it("fires scheduleVectorBackfill fire-and-forget when the warm path returns EMPTY", async () => {
+    // Warm store answers with NO hits (cold-index signal) → trigger fires once,
+    // the (empty) result is returned unchanged, and the trigger is NOT awaited.
+    const vs = fakeVectorStore([]);
+    const trigger = mock(() => {});
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      scheduleVectorBackfill: trigger,
+    });
+    expect(hits).toEqual([]); // warm path answered [] (no fallthrough)
+    expect(trigger).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT fire the trigger when the warm path returns hits", async () => {
+    const vs = fakeVectorStore([{ mdId: "m1", kind: "memory" }]);
+    const trigger = mock(() => {});
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      scheduleVectorBackfill: trigger,
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m1"]);
+    expect(trigger).not.toHaveBeenCalled();
+  });
+
+  it("never lets a throwing trigger affect the result (best-effort)", async () => {
+    const vs = fakeVectorStore([]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      scheduleVectorBackfill: mock(() => { throw new Error("trigger boom"); }),
+    });
+    expect(hits).toEqual([]);
+  });
+});

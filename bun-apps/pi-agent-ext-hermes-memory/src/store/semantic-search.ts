@@ -63,6 +63,13 @@ export interface SearchSemanticOptions {
   folder?: string;
   /** Exclude these mdIds/card ids from the result set (mirrors zk excludeIds). */
   excludeIds?: string[];
+  /** Phase B / T3: best-effort cold-index vector backfill trigger. The caller
+   *  closes over the live cardStore/vectorStore/embedder/config and passes a
+   *  zero-arg trigger (typically `() => scheduleVectorBackfill(...)`). Fired
+   *  fire-and-forget when the warm path returns EMPTY (the cold-index signal);
+   *  the backfill's own inProgress guard coalesces cold-query bursts so at most
+   *  one backfill runs at a time. Never awaited — never blocks the query. */
+  scheduleVectorBackfill?: () => void;
 }
 
 /** Internal: normalize a VectorKnnHit to a SemanticSearchHit (warm path). */
@@ -92,6 +99,7 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
   const {
     queryText, kind, topK = 10, ef = 100, model, embedder,
     vectorStore, memoryRepo, kp, vaultPath, folder, excludeIds,
+    scheduleVectorBackfill,
   } = opts;
   const exclude = new Set(excludeIds ?? []);
   const modelId = model ?? "text-embedding-nomic-embed-text-v1.5";
@@ -119,6 +127,20 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
           // Return the (possibly empty) ranked list — the caller decides. We do
           // NOT fall through on empty, because the warm path answering [] is a
           // legitimate "no semantic match" (falling through would double-search).
+          //
+          // Phase B / T3 cold-index trigger: an empty warm result is the cold
+          // signal — fire the deferred vector backfill best-effort (never
+          // awaited, never blocks). The backfill's inProgress guard coalesces
+          // cold-query bursts so at most one backfill runs at a time; its
+          // deferred task re-checks the staleness delta and embeds only
+          // changed/new cards (cheap no-op when the index is already warm).
+          if (ranked.length === 0 && scheduleVectorBackfill) {
+            try {
+              scheduleVectorBackfill();
+            } catch {
+              // best-effort — never affect the query result
+            }
+          }
           return ranked;
         } catch {
           // knn threw (SurrealDB down / index error) → fall through to T5(a).
