@@ -1,90 +1,107 @@
 // agent
-export type {
-  AgentRunOptions,
-  AgentRunResult,
-  AgentUsage,
-  FallbackDecision,
-  StructuredSession,
-  WorkflowAgentOptions,
-} from "@repo/pi-agent-ext-core-runtime";
-export {
-  checkBudgetExhaustion,
-  extractValidated,
-  lastAssistantError,
-  listAvailableModelSpecs,
-  resolveAgentModelSpec,
-  resolveFallbackModel,
-  resolveStructuredOutput,
-  throwIfProviderLimit,
-  WorkflowAgent,
-} from "@repo/pi-agent-ext-core-runtime";
-// Canonical class name (WorkflowAgent above is the back-compat alias).
-export { CoreAgent } from "@repo/pi-agent-ext-core-runtime";
 // agent-history
-export type { AgentHistoryEntry, AgentHistoryKind, AgentHistoryRole } from "@repo/pi-agent-ext-core-runtime";
-export { compactAgentHistory, summarizeLatestAction } from "@repo/pi-agent-ext-core-runtime";
 // agent-registry
-export type { AgentDefinition, AgentRegistry } from "@repo/pi-agent-ext-core-runtime";
-export {
-  agentDefinitionKey,
-  applyToolPolicy,
-  listAgentTypes,
-  loadAgentRegistry,
-  parseAgentDefinition,
-  resolveAgentType,
-} from "@repo/pi-agent-ext-core-runtime";
 // agent-row-display (shared TUI row rendering — consumed by the /subagents viewer,
 // the below-editor progress widget, and re-imported by pi-agent-ext-workflow)
-export type { ActivityRow, ActivityStatus, ThemeLike } from "@repo/pi-agent-ext-core-runtime";
-export {
-  activityGlyph,
-  fmtCost,
-  fmtTokensShort,
-  NO_THEME,
-  preview,
-  renderActivityRow,
-  shorten,
-  shortModel,
-} from "@repo/pi-agent-ext-core-runtime";
-// config (split) + home
-export { AGENTS_DIR, MODEL_TIERS_FILE } from "@repo/pi-agent-ext-core-runtime";
-// errors
-export {
-  isAbortError,
-  isTimeoutError,
-  isWorkflowError,
-  WorkflowError,
-  WorkflowErrorCode,
-  wrapError,
-} from "@repo/pi-agent-ext-core-runtime";
-export { homeDir } from "@repo/pi-agent-ext-core-runtime";
-// resolveModelRole + the tier fns now live in core-runtime (sourced from the
-// model-role-config leaf there). Back-compat: the symbol names are unchanged.
-export { resolveModelRole } from "@repo/pi-agent-ext-core-runtime";
 // model-tier-config
-export type { ModelTierConfig } from "@repo/pi-agent-ext-core-runtime";
-export {
-  buildDefaultTierConfig,
-  getModelTierConfigPath,
-  loadModelTierConfig,
-  resolveTierModel,
-  saveModelTierConfig,
-  sortedTierNames,
-} from "@repo/pi-agent-ext-core-runtime";
 // rate-limiter (shared per-provider concurrency cap — wayfinder tickets 02+03).
 // Process-global via globalThis so BOTH this package (subagents/subagent) and
 // pi-agent-ext-workflow resolve ONE limiter instance per provider and bound
 // their COMBINED provider dispatch. Pass-through until rateLimits is configured.
-export type { RateLimitCapResolver, RateLimiter } from "@repo/pi-agent-ext-core-runtime";
-export {
-  getGlobalRateLimiter,
-  getRateLimitCapResolver,
-  providerFromModelSpec,
-  setRateLimitCapResolver,
-} from "@repo/pi-agent-ext-core-runtime";
 // sdd-report
-export type { SddReport, SddReportStatus } from "@repo/pi-agent-ext-core-runtime";
-export { isSddReportActionable, parseSddReport, SDD_REPORT_STATUSES } from "@repo/pi-agent-ext-core-runtime";
+// structured-output
+// subagent-in-flight
+// tool-action-label (shared verb-led phrase helper — see ticket 02)
+// worktree
+export type {
+  ActivityRow,
+  ActivityStatus,
+  AgentDefinition,
+  AgentHistoryEntry,
+  AgentHistoryKind,
+  AgentHistoryRole,
+  AgentRegistry,
+  AgentRunOptions,
+  AgentRunResult,
+  AgentUsage,
+  FallbackDecision,
+  InFlightSubagent,
+  ModelTierConfig,
+  RateLimitCapResolver,
+  RateLimiter,
+  SddReport,
+  SddReportStatus,
+  StructuredOutputCapture,
+  StructuredOutputToolOptions,
+  StructuredSession,
+  ThemeLike,
+  ToolActionContext,
+  WorkflowAgentOptions,
+  Worktree,
+} from "@repo/pi-agent-ext-core-runtime";
+// Canonical class name (WorkflowAgent above is the back-compat alias).
+// config (split) + home
+// errors
+// resolveModelRole + the tier fns now live in core-runtime (sourced from the
+// model-role-config leaf there). Back-compat: the symbol names are unchanged.
+export {
+  AGENTS_DIR,
+  activityGlyph,
+  agentDefinitionKey,
+  applyToolPolicy,
+  buildDefaultTierConfig,
+  CoreAgent,
+  checkBudgetExhaustion,
+  compactAgentHistory,
+  createStructuredOutputTool,
+  createWorktree,
+  extractValidated,
+  fmtCost,
+  fmtTokensShort,
+  formatToolAction,
+  getGlobalRateLimiter,
+  getModelTierConfigPath,
+  getRateLimitCapResolver,
+  getSubagentInFlightRegistry,
+  homeDir,
+  isAbortError,
+  isSddReportActionable,
+  isTimeoutError,
+  isWorkflowError,
+  lastAssistantError,
+  listAgentTypes,
+  listAvailableModelSpecs,
+  loadAgentRegistry,
+  loadModelTierConfig,
+  MODEL_TIERS_FILE,
+  matchedCallArgsFor,
+  NO_THEME,
+  parseAgentDefinition,
+  parseSddReport,
+  preview,
+  providerFromModelSpec,
+  removeWorktree,
+  renderActivityRow,
+  resolveAgentModelSpec,
+  resolveAgentType,
+  resolveFallbackModel,
+  resolveModelRole,
+  resolveStructuredOutput,
+  resolveTierModel,
+  SDD_REPORT_STATUSES,
+  SubagentInFlightRegistry,
+  saveModelTierConfig,
+  setRateLimitCapResolver,
+  shorten,
+  shortModel,
+  sortedTierNames,
+  summarizeLatestAction,
+  throwIfProviderLimit,
+  WorkflowAgent,
+  WorkflowError,
+  WorkflowErrorCode,
+  wrapError,
+} from "@repo/pi-agent-ext-core-runtime";
 // spawn-subagent
 export type { SpawnSubagentOptions, SpawnSubagentPrime, SpawnSubagentResult } from "./spawn-subagent.js";
 export { spawnSubagent } from "./spawn-subagent.js";
@@ -103,12 +120,6 @@ export {
   isTransientError,
   spawnSubagentSubprocess,
 } from "./spawn-subagent-subprocess.js";
-// structured-output
-export type { StructuredOutputCapture, StructuredOutputToolOptions } from "@repo/pi-agent-ext-core-runtime";
-export { createStructuredOutputTool } from "@repo/pi-agent-ext-core-runtime";
-// subagent-in-flight
-export type { InFlightSubagent } from "@repo/pi-agent-ext-core-runtime";
-export { getSubagentInFlightRegistry, SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 // subagent-run-persistence
 export type {
   CreateSubagentRunPersistenceOptions,
@@ -147,9 +158,6 @@ export {
   renderSubagentsResult,
   subagentsToolSchema,
 } from "./subagents-tool.js";
-// tool-action-label (shared verb-led phrase helper — see ticket 02)
-export type { ToolActionContext } from "@repo/pi-agent-ext-core-runtime";
-export { formatToolAction, matchedCallArgsFor } from "@repo/pi-agent-ext-core-runtime";
 export type {
   WatchdogFinding,
   WatchdogL1Result,
@@ -161,6 +169,3 @@ export { normalizeWatchdogParam } from "./watchdog/types.js";
 export type { RunWatchdogInput } from "./watchdog/watchdog.js";
 // watchdog (ticket 02 — two-layer edit-gated reviewer)
 export { runWatchdog } from "./watchdog/watchdog.js";
-// worktree
-export type { Worktree } from "@repo/pi-agent-ext-core-runtime";
-export { createWorktree, removeWorktree } from "@repo/pi-agent-ext-core-runtime";

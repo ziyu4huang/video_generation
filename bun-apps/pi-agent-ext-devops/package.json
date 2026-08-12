@@ -10,6 +10,9 @@
 	"pi": {
 		"extensions": ["./extensions"]
 	},
+	"bin": {
+		"ci-changed-packages": "./src/changed-packages-cli.ts"
+	},
 	"scripts": {
 		"test": "bun test",
 		"check": "tsc --noEmit"

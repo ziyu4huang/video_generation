@@ -21,6 +21,7 @@ import { test, expect, describe } from "bun:test";
 import { runLocalCi, type CiOutcome } from "../src/ci-recipe.js";
 import type { SpawnFn, SpawnResult } from "../src/spawn.js";
 import type { ComputeChangedPackagesOptions, ChangedPackagesMap } from "../src/changed-packages.js";
+import { resolve } from "node:path";
 
 const REPO = "/repo";
 const pkgDir = (name: string) => `${REPO}/bun-apps/${name}`;
@@ -356,5 +357,120 @@ describe("runLocalCi — detection failure fails LOUD (no false-green) [review M
 		expect(out.packages).toEqual([]);
 		// no package ran.
 		expect(calls.some((c) => c.cmd === "bun" && c.args[1] === "test")).toBe(false);
+	});
+});
+
+/**
+ * The CI matrix as the source of truth for a package's test command.
+ *
+ * Before this, runLocalCi derived every package's command generically
+ * (`bun run test`), which disagrees with CI for a third of the matrix — so
+ * local_ci could report green on a package whose real CI command would fail.
+ * These cases pin the precedence (matrix > package script > nothing), the
+ * `bash -c` execution shape the compound rows need, and — against the REAL
+ * workflow — that `pi-agent-ext-file2md` gets its `--isolate`.
+ */
+describe("runLocalCi — the CI matrix is the source of truth for test commands", () => {
+	test("a package WITH a matrix row runs that exact command via bash -c, not `bun run test`", async () => {
+		const { fn, calls } = mkSpawn([verifyOk()]);
+		await runLocalCi({
+			repoRoot: REPO,
+			packages: ["pi-agent-ext-file2md"],
+			spawn: fn,
+			readPkg: mkReadPkg({ "pi-agent-ext-file2md": { test: "bun test" } }),
+			readMatrix: async () => ({ "pi-agent-ext-file2md": "bun test --isolate" }),
+			includeGates: false,
+		});
+		const inPkg = calls.filter((c) => pkgOf(c.cwd) === "pi-agent-ext-file2md");
+		expect(inPkg).toContainEqual({
+			cmd: "bash",
+			args: ["-c", "bun test --isolate"],
+			cwd: pkgDir("pi-agent-ext-file2md"),
+		});
+		// the generic derivation was NOT used.
+		expect(inPkg.some((c) => c.cmd === "bun" && c.args[0] === "run" && c.args[1] === "test")).toBe(false);
+	});
+
+	test("the outcome records where the command came from", async () => {
+		const { fn } = mkSpawn([verifyOk()]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			packages: ["with-row", "without-row"],
+			spawn: fn,
+			readPkg: mkReadPkg({ "with-row": { test: "bun test" }, "without-row": { test: "bun test" } }),
+			readMatrix: async () => ({ "with-row": "bun test && bun run qa" }),
+			includeGates: false,
+		});
+		const byName = Object.fromEntries(out.packages.map((p) => [p.name, p.test]));
+		expect(byName["with-row"]).toMatchObject({ source: "matrix", command: "bun test && bun run qa" });
+		expect(byName["without-row"]).toMatchObject({ source: "package-script" });
+		expect(byName["without-row"].command).toBeUndefined();
+	});
+
+	test("a package with NO matrix row keeps the generic `bun run test` derivation", async () => {
+		const { fn, calls } = mkSpawn([verifyOk()]);
+		await runLocalCi({
+			repoRoot: REPO,
+			packages: ["pkg-unlisted"],
+			spawn: fn,
+			readPkg: mkReadPkg({ "pkg-unlisted": { test: "bun test" } }),
+			readMatrix: async () => ({ "some-other-pkg": "bun test --isolate" }),
+			includeGates: false,
+		});
+		const inPkg = calls.filter((c) => pkgOf(c.cwd) === "pkg-unlisted");
+		expect(inPkg).toContainEqual({ cmd: "bun", args: ["run", "test"], cwd: pkgDir("pkg-unlisted") });
+		expect(inPkg.some((c) => c.cmd === "bash")).toBe(false);
+	});
+
+	test("a matrix row runs even when the package has NO `test` script", async () => {
+		const { fn, calls } = mkSpawn([verifyOk()]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			packages: ["pi-agent-ext-zai-mcp"],
+			spawn: fn,
+			// no `test` key — `bun test` discovers *.test.ts without one.
+			readPkg: mkReadPkg({ "pi-agent-ext-zai-mcp": { check: "tsc --noEmit" } }),
+			readMatrix: async () => ({ "pi-agent-ext-zai-mcp": "bun test" }),
+			includeGates: false,
+		});
+		expect(out.packages[0].test).toMatchObject({ source: "matrix", exitCode: 0 });
+		expect(calls).toContainEqual({ cmd: "bash", args: ["-c", "bun test"], cwd: pkgDir("pi-agent-ext-zai-mcp") });
+	});
+
+	test("a failing matrix command fails `overall` (it is not a no-op passthrough)", async () => {
+		const { fn } = mkSpawn([
+			verifyOk(),
+			{ match: (c, a) => c === "bash" && a[0] === "-c", result: { stdout: "", stderr: "boom", exitCode: 1 } },
+		]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			packages: ["pkg-a"],
+			spawn: fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+			readMatrix: async () => ({ "pkg-a": "bun test --isolate" }),
+			includeGates: false,
+		});
+		expect(out.overall).toBe("fail");
+		expect(out.packages[0].test.exitCode).toBe(1);
+	});
+
+	test("DEFAULT reader: against the real workflow, file2md gets `bun test --isolate`", async () => {
+		// No readMatrix injected → the production path parses this repo's real
+		// .github/workflows/ci.yml.disabled. This is the end-to-end proof that a
+		// live `local_ci` run honors the matrix, not just the injected fake.
+		const realRoot = resolve(import.meta.dir, "..", "..", "..");
+		const { fn, calls } = mkSpawn([verifyOk()]);
+		const out = await runLocalCi({
+			repoRoot: realRoot,
+			packages: ["pi-agent-ext-file2md"],
+			spawn: fn,
+			readPkg: mkReadPkg({ "pi-agent-ext-file2md": { test: "bun test" } }),
+			includeGates: false,
+		});
+		expect(out.packages[0].test).toMatchObject({ source: "matrix", command: "bun test --isolate" });
+		expect(
+			calls.some((c) => c.cmd === "bash" && c.args[0] === "-c" && c.args[1] === "bun test --isolate"),
+		).toBe(true);
+		expect(calls.some((c) => c.cmd === "bun" && c.args[0] === "run" && c.args[1] === "test")).toBe(false);
 	});
 });

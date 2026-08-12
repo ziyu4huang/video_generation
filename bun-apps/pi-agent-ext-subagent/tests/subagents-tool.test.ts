@@ -1,9 +1,13 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { DEFAULT_BATCH_CONCURRENCY, MAX_BATCH_TASKS, MAX_CONCURRENCY } from "@repo/pi-agent-ext-core-runtime";
+import {
+  DEFAULT_BATCH_CONCURRENCY,
+  MAX_BATCH_TASKS,
+  MAX_CONCURRENCY,
+  SubagentInFlightRegistry,
+} from "@repo/pi-agent-ext-core-runtime";
 import { createSubagentsTool as fromIndex } from "../src/index.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
-import { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
 import type { SubagentsToolDetails } from "../src/subagents-tool.js";
 import {

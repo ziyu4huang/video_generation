@@ -247,13 +247,13 @@ describe("parseTicketFile: blocking format validation (failure memory #471)", ()
     expect(t.status).toBe("open");
   });
 
-  it("accepts the bracketed+quoted bare-number form (blocking: [\"01\", \"02\"])", () => {
+  it('accepts the bracketed+quoted bare-number form (blocking: ["01", "02"])', () => {
     const t = parseTicketFile(ticket('blocking: ["01", "02"]'), "03", "t");
     expect(t.blocking).toEqual(["01", "02"]);
     // quotes must be stripped, or the edge silently never matches a closed id
   });
 
-  it("rejects a bracketed slug entry (blocking: [\"01-foo\"]) — surfaced, not silent", () => {
+  it('rejects a bracketed slug entry (blocking: ["01-foo"]) — surfaced, not silent', () => {
     expect(() => parseTicketFile(ticket('blocking: ["01-foo"]'), "03", "t")).toThrow(/blocking/i);
   });
 

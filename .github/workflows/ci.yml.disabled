@@ -1,6 +1,7 @@
 # CI — the PR gate. Turns the manual-test trust model into an enforced gate.
 #
-# Every PR to main runs the Bun test suite (22 packages, smart-routed by
+# Every PR to main runs the Bun test suite (28 packages — one matrix row per
+# bun-apps/* workspace package, i.e. complete coverage; smart-routed by
 # changed_packages — see that job's comment), the extension contract test, the
 # deploy-mode e2e + read-only contract + compiled-binary smoke (deploy-verify /
 # compile-verify), and the regression baselines (schema-cost + 2 MB file-size
@@ -30,12 +31,25 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────────
   # Smart test routing — computes which bun-apps/* packages actually need to
   # re-run given the changed files, so a PR touching one package's tests
-  # doesn't pay for all 22 matrix entries below. push-to-main always runs
+  # doesn't pay for all 28 matrix entries below. push-to-main always runs
   # everything (same "can't skip on the branch that ships" precedent as
-  # check-deploy-paths further down). See scripts/ci-changed-packages.sh for
-  # the algorithm (live @repo/* dependency graph, reverse-BFS propagation,
-  # fails OPEN to "run everything" on any change outside a known bun-apps/<pkg>/
-  # path). Gating lives on the `tests` job's STEPS, not the job itself —
+  # check-deploy-paths further down).
+  #
+  # The filter needs NO per-package maintenance: it DISCOVERS the package set by
+  # listing bun-apps/*/package.json and reads the @repo/* dependency graph live,
+  # so adding/removing a matrix row above requires no edit here. (Algorithm:
+  # live @repo/* graph, reverse-BFS propagation, fails OPEN to "run everything"
+  # on any change outside a known bun-apps/<pkg>/ path.)
+  #
+  # The implementation lives in the devops extension package
+  # (bun-apps/pi-agent-ext-devops/src/changed-packages.ts — the TS port of the
+  # retired scripts/ci-changed-packages.sh), invoked through the thin CLI wrapper
+  # src/changed-packages-cli.ts. Same argv contract the bash had (`--all`, or
+  # `<baseRef> <headRef>`) and the same single-line JSON on stdout, so this step
+  # is unchanged apart from the command. The wrapper imports only node builtins +
+  # its own spawn seam, which is why this job sets up Bun ALONE (no setup-env /
+  # bun install): it must stay a seconds-long pre-flight for the 28-row matrix.
+  # Gating lives on the `tests` job's STEPS, not the job itself —
   # `matrix` context isn't available in a job-level `if:` (only github/needs/
   # vars/inputs are; actionlint catches this, plain YAML parsing does not).
   # Every "test · <package>" job/check still always exists and reports for
@@ -51,12 +65,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # Bun only — deliberately NOT ./.github/actions/setup-env. The CLI wrapper
+      # needs no installed workspace (node:fs / node:path + a `git` spawn), and
+      # every downstream job waits on this one.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      # The path is spelled out in full on BOTH branches rather than hoisted into
+      # a shell variable: bun-apps/tests/ci-workflow-references.test.ts resolves
+      # every literal script path this workflow names, and an indirection through
+      # `$CLI` would hide it from that guard — which is precisely how the
+      # reference this step replaced rotted unnoticed.
       - id: filter
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            json=$(bash scripts/ci-changed-packages.sh --all)
+            json=$(bun bun-apps/pi-agent-ext-devops/src/changed-packages-cli.ts --all)
           else
-            json=$(bash scripts/ci-changed-packages.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+            json=$(bun bun-apps/pi-agent-ext-devops/src/changed-packages-cli.ts "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
           fi
           echo "packages=$json" >> "$GITHUB_OUTPUT"
 
@@ -106,10 +131,37 @@ jobs:
           # wayfind's own `test` script chains check(biome) → build(tsc) →
           # test:unit(bun test); `bun run test` (not plain `bun test`) so that
           # full chain runs, matching gui-movie-director's convention below.
+          # Was KNOWN RED through 2026-08-12 (useTemplate drift in
+          # src/__tests__/settings.test.ts from #1228). Fixed — the lint was
+          # fixed rather than the row weakened, as that note demanded. Green as
+          # of the ci-local.sh matrix run.
           - { package: pi-agent-ext-wayfind, test-cmd: "bun run test" }
           - { package: pi-agent-ext-superpowers, test-cmd: "bun run test" }
           - { package: pi-agent-ext-web-access, test-cmd: "bun test" }
-          - { package: pi-agent-ext-picker, test-cmd: "bun test" }
+          # pi-agent-ext-core-interface: the cross-extension seam contract
+          # (__piCoreTaskStatusWidget key + shape). 2 test files that had never
+          # been in the matrix — the static seam guard in `regression gates`
+          # covers the publisher/consumer drift, but nothing ran this package's
+          # OWN tests.
+          - { package: pi-agent-ext-core-interface, test-cmd: "bun test" }
+          # pi-agent-ext-core-runtime: extracted from pi-agent-ext-subagent in
+          # #1251 (decouples workflow -> subagent). The extraction moved 10 test
+          # files into a NEW package, and a new package is invisible to a matrix
+          # that lists packages by hand — so those 10 files silently left CI the
+          # moment they moved. Uses the package's plain `bun test`.
+          - { package: pi-agent-ext-core-runtime, test-cmd: "bun test" }
+          # pi-agent-ext-devops: 17 test files (local-CI recipe, changed-packages
+          # port, deploy/gh/branch/sync recipes) that had never been in the
+          # matrix. Notably it owns src/changed-packages.ts + its CLI wrapper —
+          # the code the `changed_packages` job above shells out to — so CI's own
+          # routing logic was untested by CI. Plain `bun test` (its `check`
+          # script is tsc --noEmit only).
+          - { package: pi-agent-ext-devops, test-cmd: "bun test" }
+          # pi-agent-ext-prompt-history: 2 test files, never in the matrix. It is
+          # one of the statically-bundled extensions compile-verify asserts on
+          # (see that job's 13-extension list), so a break here ships straight
+          # into the compiled binary. Plain `bun test`.
+          - { package: pi-agent-ext-prompt-history, test-cmd: "bun test" }
           # --isolate: classify-vlm/ask-io/vlm-ask-tool/pipeline mock.module()
           # sessions.ts + vision-inference.ts; without per-file process isolation
           # the stub leaks into sessions.test.ts / resolve-vision-llm.test.ts
@@ -131,11 +183,24 @@ jobs:
           # `npm run check` chain (biome has pre-existing formatting drift — out
           # of scope for the CI cycle; the unit tests + build are the gate).
           - { package: pi-agent-ext-workflow, test-cmd: "bun run build && bun test" }
+          # pi-agent-ext-webui: 21 test files, never in the matrix — the largest
+          # single uncovered suite in the repo. Second package (after workflow)
+          # whose `main` points at a gitignored compiled dist/ (./dist/index.js),
+          # so a fresh checkout has NO dist and a plain `bun test` would fail on
+          # import. Spelled out as `build && test:unit` rather than the package's
+          # `bun run test` alias so the build dependency stays visible in the
+          # matrix itself (the alias is byte-identical today; the explicit form
+          # can't be quietly hollowed out by an edit to package.json).
+          - { package: pi-agent-ext-webui, test-cmd: "bun run build && bun run test:unit" }
           # pi-agent-ext-subagent: extracted from workflow (spawnSubagent +
           # WorkflowAgent runner + subagent/subagent_runs tools). Uses the
           # package's canonical `bun run test` chain (biome check → tsc build →
-          # bun test) — unlike workflow, its biome check is green, so the full
-          # chain is the gate (mirrors wayfind's `bun run test` convention).
+          # bun test), mirroring wayfind's `bun run test` convention.
+          # Was KNOWN RED through 2026-08-12 with 17 biome errors
+          # (noUnusedVariables in src/subagents-command.ts from #1013,
+          # noNonNullAssertion in tests/install-subagent-context-widget.test.ts
+          # from #1078). Fixed — the lint was fixed rather than the row
+          # weakened. Green as of the ci-local.sh matrix run.
           - { package: pi-agent-ext-subagent, test-cmd: "bun run test" }
           # pi-agent-ext-hermes-memory: pure `bun test` (Bun-only package —
           # uses bun:sqlite via the BunCompatDatabase shim in src/store/db.ts;
@@ -503,6 +568,19 @@ jobs:
         working-directory: bun-apps
         run: bun run test:portability-audit
 
+      # CI-workflow reference guard (blocks). The executor for a class that has
+      # none: a reference inside a DISABLED workflow is never run, so it rots
+      # silently (scripts/ci-changed-packages.sh was deleted while this file kept
+      # calling it; the matrix carried a row for the deleted pi-agent-ext-picker;
+      # pi-agent-ext-core-runtime was created by #1251 and never got a row).
+      # Asserts: every matrix row names a real package, every path this workflow
+      # shells out to resolves, and every bun-apps/* package has a matrix row.
+      # Reads the matrix through scripts/ci-local.sh --tsv — the ONE parser — so
+      # no second copy of the matrix can drift.
+      - name: CI-workflow reference guard (matrix ↔ tree, blocks)
+        working-directory: bun-apps
+        run: bun run test:ci-workflow
+
       # Test-portability prevention check — now BLOCKING (--strict). Scans the
       # test surface for the four "works on my machine" signal patterns and
       # exits non-zero on any UNGATED P1/P2 hit (existsSync of a machine-coupled
@@ -536,7 +614,8 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────
   # Thrust C — determinism spot-check (cross-RUN flake detector). Runs the
-  # flake-prone subset (pi-agent-ext-hermes-memory, pi-agent-ext-workflow, pi-agent-ext-obsidian)
+  # flake-prone subset (see the `package` matrix below — the same list lives in
+  # scripts/test-determinism-spotcheck.sh, and a guard test pins them equal)
   # 3× in sequence and flags any differing pass/fail outcome as a flake. v1 is
   # INFORMATIONAL (continue-on-error) until the false-positive rate is ≈ 0; flip
   # to blocking once trusted — same rollout discipline as the portability audit.
@@ -570,6 +649,14 @@ jobs:
           - pi-agent-ext-hermes-memory
           - pi-agent-ext-workflow
           - pi-agent-ext-obsidian
+          # Added after a full local-matrix run failed once ("examples re-renders
+          # every bundled example IR to HTML" expected >=5, got 0) and then went
+          # green 6+ times on identical code. The test asserts a DELTA in the real
+          # vendored/examples/ dir, so it is cross-RUN coupled by construction.
+          # Observe it here rather than diagnose it by guesswork. The package list
+          # in scripts/test-determinism-spotcheck.sh must match this one — a guard
+          # test asserts that.
+          - pi-agent-ext-archify
     steps:
       # "should this instance's steps actually run" — same gate as the `tests`
       # matrix above (see that job's steps comment for why this can't move to

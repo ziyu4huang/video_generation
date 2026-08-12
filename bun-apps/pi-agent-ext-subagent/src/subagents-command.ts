@@ -18,13 +18,15 @@ export interface SubagentsCommandCtx {
   mode: string;
   ui: {
     notify: (message: string, kind: string) => void;
-    custom: <T>(factory: SubagentsViewerFactory<T>) => Promise<T>;
+    custom: <T>(factory: SubagentsViewerFactory) => Promise<T>;
   };
   sessionManager?: { getBranch: () => unknown[] };
 }
 
-/** The factory pi's `ui.custom` invokes with TUI primitives. */
-export type SubagentsViewerFactory<T> = (
+/** The factory pi's `ui.custom` invokes with TUI primitives. The host's `custom`
+ *  is generic over its own resolve value; the factory itself does not depend on
+ *  that type parameter, so it takes none. */
+export type SubagentsViewerFactory = (
   tui: { requestRender: () => void },
   theme: unknown,
   kb: unknown,

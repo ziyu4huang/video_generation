@@ -1,10 +1,5 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
-// PACKAGE-ROOT path - exactly how pi-agent-ext-workflow imports the symbol.
-import {
-  getGlobalRateLimiter as getViaPkgRoot,
-  setRateLimitCapResolver as setResolverViaPkg,
-} from "@repo/pi-agent-ext-subagent";
 /**
  * CROSS-PACKAGE SHARING PROOF (wayfinder tickets 02+03 — make-or-break).
  *
@@ -36,6 +31,11 @@ import {
   getGlobalRateLimiter as getViaSrc,
   setRateLimitCapResolver as setResolverViaSrc,
 } from "@repo/pi-agent-ext-core-runtime";
+// PACKAGE-ROOT path - exactly how pi-agent-ext-workflow imports the symbol.
+import {
+  getGlobalRateLimiter as getViaPkgRoot,
+  setRateLimitCapResolver as setResolverViaPkg,
+} from "@repo/pi-agent-ext-subagent";
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 

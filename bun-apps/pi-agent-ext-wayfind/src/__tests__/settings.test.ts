@@ -75,7 +75,7 @@ describe("readWayfindStatusBar / writeWayfindStatusBar (IO round-trip via PI_COD
   });
 
   test("preserves other keys when merging", () => {
-    writeFileSync(join(tmp, "settings.json"), JSON.stringify({ theme: "dark", responseLanguage: "en" }) + "\n");
+    writeFileSync(join(tmp, "settings.json"), `${JSON.stringify({ theme: "dark", responseLanguage: "en" })}\n`);
     writeWayfindStatusBar(true);
     expect(readWayfindStatusBar()).toBe(true);
     const parsed = JSON.parse(readFileSync(join(tmp, "settings.json"), "utf8")) as Record<string, unknown>;
@@ -83,17 +83,17 @@ describe("readWayfindStatusBar / writeWayfindStatusBar (IO round-trip via PI_COD
   });
 
   test("absent key → false (default off)", () => {
-    writeFileSync(join(tmp, "settings.json"), JSON.stringify({ theme: "dark" }) + "\n");
+    writeFileSync(join(tmp, "settings.json"), `${JSON.stringify({ theme: "dark" })}\n`);
     expect(readWayfindStatusBar()).toBe(false);
   });
 
   test("non-boolean value → false (string 'true' is NOT truthy)", () => {
-    writeFileSync(join(tmp, "settings.json"), JSON.stringify({ wayfindStatusBar: "true" }) + "\n");
+    writeFileSync(join(tmp, "settings.json"), `${JSON.stringify({ wayfindStatusBar: "true" })}\n`);
     expect(readWayfindStatusBar()).toBe(false);
   });
 
   test("non-boolean value → false (number)", () => {
-    writeFileSync(join(tmp, "settings.json"), JSON.stringify({ wayfindStatusBar: 1 }) + "\n");
+    writeFileSync(join(tmp, "settings.json"), `${JSON.stringify({ wayfindStatusBar: 1 })}\n`);
     expect(readWayfindStatusBar()).toBe(false);
   });
 

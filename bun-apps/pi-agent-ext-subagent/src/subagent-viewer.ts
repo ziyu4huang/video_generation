@@ -73,7 +73,7 @@ export function reconstructSubagentRuns(branch: Iterable<BranchEntry>): Subagent
   for (const entry of branch) {
     if (entry.type !== "message") continue;
     const msg = entry.message;
-    if (!msg || msg.role !== "toolResult") continue;
+    if (msg?.role !== "toolResult") continue;
 
     if (msg.toolName === "subagents") {
       // Expand the batch's positional result array into N child runs (Option B').

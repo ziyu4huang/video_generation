@@ -3,17 +3,21 @@
  * Extracted from subagent-tool.ts (behavior-preserving split — no logic change).
  */
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type {
+  AgentRegistry,
+  AgentUsage,
+  BudgetExhaustion,
+  createWorktree,
+  removeWorktree,
+  SddReport,
+  SubagentInFlightRegistry,
+} from "@repo/pi-agent-ext-core-runtime";
 import type { TSchema } from "typebox";
 import { Type } from "typebox";
-import type { AgentUsage, BudgetExhaustion } from "@repo/pi-agent-ext-core-runtime";
-import type { AgentRegistry } from "@repo/pi-agent-ext-core-runtime";
 import type { GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
-import type { SddReport } from "@repo/pi-agent-ext-core-runtime";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
-import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 import type { SubagentRunPersistence } from "./subagent-run-persistence.js";
 import type { WatchdogResult } from "./watchdog/types.js";
-import type { createWorktree, removeWorktree } from "@repo/pi-agent-ext-core-runtime";
 
 export interface SubagentToolDetails {
   exitCode: number;

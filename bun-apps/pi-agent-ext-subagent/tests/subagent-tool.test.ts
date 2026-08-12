@@ -2,9 +2,9 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { Text } from "@earendil-works/pi-tui";
 import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
+import { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 import type { GitScopeOps } from "../src/git-scope.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
-import { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
 import { createSubagentTool } from "../src/subagent-tool.js";
 import {

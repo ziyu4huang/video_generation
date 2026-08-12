@@ -14,6 +14,7 @@
     "test:routing": "bun test tests/routing-contract.test.ts",
     "test:config-parity": "bun test tests/config-parity.test.ts",
     "test:portability": "bash ../scripts/test-portability-audit.sh --strict",
-    "test:portability-audit": "bun test tests/test-portability-audit.test.ts"
+    "test:portability-audit": "bun test tests/test-portability-audit.test.ts",
+    "test:ci-workflow": "bun test tests/ci-workflow-references.test.ts"
   }
 }

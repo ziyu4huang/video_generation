@@ -66,5 +66,5 @@ export function writeWayfindStatusBar(enabled: boolean): void {
   const next = withWayfindStatusBar(current, enabled);
   const dir = getAgentDir();
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "settings.json"), JSON.stringify(next, null, 2) + "\n");
+  writeFileSync(join(dir, "settings.json"), `${JSON.stringify(next, null, 2)}\n`);
 }
