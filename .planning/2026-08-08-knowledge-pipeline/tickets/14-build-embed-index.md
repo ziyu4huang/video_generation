@@ -2,13 +2,13 @@
 type: build
 status: open
 claimed:
-blocked by: 04 (closed — embed backend / build policy / model all decided in Round 2), 16 (scale-validation gate — see ticket 16; NOT a Decision-04 re-litigation)
+blocked by: 04 (closed — embed backend / build policy / model all decided in Round 2), 16 (closed 2026-08-12 — HNSW validated at scale: warm p95 flat ~11→18ms @1k→100k; build full HNSW, retain cosine warm/cold fallback)
 unblocks: obsidian vault-mind/ChromaDB deprecation (future ticket); A/B vector-bench extension (refinement)
 ---
 # 14 — Build embed/vector index (SurrealDB HNSW + lazy backfill)
 
 > **UNBLOCKED** — ticket 04 (embed backend) is `closed`; Round-2 grill pinned backend + build policy + model. Spine [12 + 06a + 06b] shipped, so the card-store this rides is live. Ready to start.
-> **Sequencing (2026-08-12):** the full build (T1+) now waits on ticket 16's scale validation. Decision 04's backend pin STANDS; 16 only stress-tests its ~13ms p95 @1k assumption at scale given the newer SurrealDB-RTT data from the 2026-08-07 dedup effort.
+> **Scale gate PASSED (2026-08-12, ticket 16):** HNSW holds at scale (warm p95 flat ~11→18ms @1k→100k; HNSW 21× faster than cosine under c16@100k; build ~1.5k vec/s). BUILD the full HNSW per Decision 04; RETAIN the cosine JSON-cache fallback (T5) for the small-N regime + cold-start window. Confirm the expected corpus scale/concurrency before committing the build cost (if <~10k + low concurrency, cosine-alone is currently faster).
 
 ## Goal
 Build the knowledge-pipeline embed/vector index end-to-end on the hermes spine, per the Round-2 grill resolutions (recorded as 3 refinements in ticket 04 + the hermes-memory PRD.md). Delivers an embed-powered semantic query + (optional) vector-dedup layer.
