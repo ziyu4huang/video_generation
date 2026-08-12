@@ -1,7 +1,7 @@
 # Spec — core-task length-continue (faithful verbatim baseline)
 
 - **Date:** 2026-07-31
-- **Status:** Design approved; ready for implementation plan
+- **Status:** Done (shipped #966)
 - **Effort dir:** `.planning/2026-07-31-core-task-length-continue/`
 - **Origin:** wayfinder "go next" (no map needed — single small gap); strategy decided in brainstorming
 - **Precedent:** mirrors the Reviewer faithful-baseline decision (PR #962)

@@ -47,16 +47,14 @@ Eight efforts in `.planning/` carry status stamps that lag their shipped reality
 5. `2026-08-09-subagent-tui-toolcall-pairing/spec.md` — shipped #1161, status still `proposed`.
 6. `2026-07-31-core-task-quota-retry/spec.md` — shipped #969, status still `Design approved; ready for implementation plan`.
 7. `2026-07-31-core-task-length-continue/spec.md` — shipped #966, status still `Design approved; ready for implementation plan`.
-8. `2026-08-02-core-task-review/` — shipped whole (#1262 closed the effort), but its own status + 5 ticket frontmatters (#12, #10, #08, #14, #16) still read `open`.
-
-The `2026-08-02-core-task-review` effort (#1262) additionally has **5 ticket frontmatters** still `status: open` (tickets #12, #10, #08, #14, #16) that are actually shipped.
+8. `2026-08-02-core-task-review/` — shipped whole (#1262 closed the effort). **NOTE:** this item was stale relative to the worktree's snapshot base (`0156022f`), where the effort's own status + 5 ticket frontmatters (#12, #10, #08, #14, #16) still read `open`. During the pre-merge rebase onto current `origin/main`, it was discovered that **#1262 had already landed on main** (between `0156022f` and `2abb0e28`) and **already closed the entire effort**: map frontmatter is `status: complete`, and tickets #08/#10/#12/#14/#16 are already `status: closed` with `resolved:` evidence lines. So #8 required **no edit this pass** — verified already-done; only items 1–7 were flipped.
 
 ## Dispositions executed in this pass
 
 - [x] Archive 3 done efforts → `.planning/done/` (tool-split, wayfind-port-new-skills, spawn-seam). See [ticket 01](tickets/01-archive-done-efforts.md).
 - [x] Close the spawn-seam effort + record the stage-4 goalState deferral (no home yet → tracked next-step #1). See [ticket 02](tickets/02-close-spawn-seam-defer-stage4.md).
-- [x] Flip 8 stale `.planning` statuses to Done/Closed with cited shipping PRs. See [ticket 03](tickets/03-fix-stale-planning-statuses.md).
-- [x] Flip 5 `2026-08-02-core-task-review` ticket frontmatters (`status: open` → `status: closed`). See [ticket 03](tickets/03-fix-stale-planning-statuses.md).
+- [x] Flip 7 stale `.planning` statuses (items 1–7) to Done with cited shipping PRs. See [ticket 03](tickets/03-fix-stale-planning-statuses.md).
+- [x] Verify `2026-08-02-core-task-review` (item 8) — already closed on `origin/main` by #1262 (map `status: complete`; tickets #08/#10/#12/#14/#16 already `status: closed`); **no edit needed this pass** (found during pre-merge rebase). See [ticket 03](tickets/03-fix-stale-planning-statuses.md).
 
 ## Tracked next steps (out of this pass's scope)
 
