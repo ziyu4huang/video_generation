@@ -41,7 +41,7 @@ import { readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 const REPO = process.cwd();
-const CLI_DIR = join(REPO, "bun-apps/pi-agent-cli");
+const CLI_DIR = join(REPO, "bun-apps/pi-agent");
 const EVAL_FILE = join(REPO, "scripts/real-retrieval-eval.json");
 const OUT_DIR = join(REPO, "output/live-zk-ask-measurements");
 
@@ -82,7 +82,7 @@ function cardMatches(path, expect) {
 
 function runOne(query) {
 	const args = [
-		"run", "src/cli.ts", "zk-ask", "--retrieve-only",
+		"run", "src/cli.ts", "cli", "zk-ask", "--retrieve-only",
 		"--blend", BLEND,
 		"--top-k", TOP_K,
 		"--model", MODEL,

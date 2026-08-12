@@ -12,7 +12,7 @@ CLI subcommand).
 | Diagnostics | `inspect_agent`, `inspect_context`, `inspect_extensions`, `inspect_hooks` | Static state diagnostics — documented ↓ |
 | Failure pathology | `inspect_pathology` | Dynamic — detects retry loops / error storms / context saturation this session (F v1) |
 | Schema-cost accounting | `./schema-cost` export | Static tool-token estimator (also a publishable package, `pi-schema-cost`) |
-| CLI subcommand | `./extensions/cli-subcommand.ts` | Wired into `pi-agent-cli` |
+| CLI subcommand | `./extensions/cli-subcommand.ts` | Wired into `pi-agent` |
 
 > **Extracted (2026-07, monolith split A1–A3):** `todo`+`/todos`+`/goal`+`goal_complete`
 > → `pi-agent-ext-core-task` (#504); `ask_user_question` → `pi-agent-ext-ask-user`
@@ -322,7 +322,7 @@ bun bun-apps/pi-agent/src/cli.ts \
 pi-agent-ext-power-tool/
 ├── package.json          # @repo/pi-agent-ext-power-tool
 ├── extensions/
-│   └── cli-subcommand.ts  # pi-agent-cli subcommand wiring
+│   └── cli-subcommand.ts  # pi-agent subcommand wiring
 ├── docs/                  # extension-analyzer / schema-cost / ui-conventions
 └── src/
     ├── index.ts           # ExtensionFactory — registers ALL features below

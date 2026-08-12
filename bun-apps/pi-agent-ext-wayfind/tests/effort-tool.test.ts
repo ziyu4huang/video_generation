@@ -812,3 +812,116 @@ describe("wayfind_effort tool — stale seam integration (10-impl T9)", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 });
+
+// ─── zk-spawn: webui:render bridge (wayfind -> dedicated Wayfind tab) ─────────
+//
+// The tool now accepts an optional EventBus and, on the list/status SUCCESS
+// returns, emits `webui:render` { content, mode:"md", view:"wayfind", title } so
+// its output appears as a dedicated "Wayfind" tab in the webui. It reuses the
+// already-exported renderList/renderStatus (zero duplication) so the tab shows
+// the SAME markdown the tool returns as content.
+//
+// Defensive contract pinned here:
+//   • list on a populated .planning -> exactly ONE webui:render with the right
+//     payload, content === renderList(details).
+//   • status on a REAL effort -> exactly ONE webui:render, content ===
+//     renderStatus(details).
+//   • status on a NONEXISTENT effort (ok:false) -> NO emit (no noisy tab for an
+//     error state). Also missing-effort-param early-return -> NO emit.
+
+describe("makeWayfindEffortTool — webui:render bridge (zk-spawn)", () => {
+  const ctx = (cwd: string) => ({ cwd }) as any;
+
+  /** Minimal fake EventBus that captures every emit (the SDK shape is
+   *  { emit(channel,data), on(channel,handler) }). */
+  const captureEvents = () => {
+    const emitted: { channel: string; data: unknown }[] = [];
+    const events = {
+      emit: (channel: string, data: unknown) => {
+        emitted.push({ channel, data });
+      },
+    } as any;
+    return { events, emitted };
+  };
+
+  it("list emits webui:render {content, mode:'md', view:'wayfind', title:'Wayfind'} (content === renderList)", async () => {
+    const cwd = fresh();
+    seedKgEffort(cwd); // one real effort so list is ok + non-empty
+    const { events, emitted } = captureEvents();
+    const tool = makeWayfindEffortTool(events);
+
+    const out = await tool.execute("wl1", { action: "list" }, undefined, undefined, ctx(cwd));
+    expect(out.details.ok).toBe(true);
+
+    expect(emitted.length).toBe(1);
+    expect(emitted[0]?.channel).toBe("webui:render");
+    expect(emitted[0]?.data).toEqual({
+      content: renderList(out.details),
+      mode: "md",
+      view: "wayfind",
+      title: "Wayfind",
+    });
+    // content is a non-empty string (the tab has real body)
+    expect(typeof (emitted[0]?.data as { content: unknown }).content).toBe("string");
+    expect((emitted[0]?.data as { content: string }).content.length).toBeGreaterThan(0);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("status on a REAL effort emits webui:render (content === renderStatus)", async () => {
+    const cwd = fresh();
+    createEffort(cwd, { effort: "st", destination: "d" });
+    const { events, emitted } = captureEvents();
+    const tool = makeWayfindEffortTool(events);
+
+    const out = await tool.execute("ws1", { action: "status", effort: "st" }, undefined, undefined, ctx(cwd));
+    expect(out.details.ok).toBe(true);
+
+    expect(emitted.length).toBe(1);
+    expect(emitted[0]?.channel).toBe("webui:render");
+    expect(emitted[0]?.data).toEqual({
+      content: renderStatus(out.details),
+      mode: "md",
+      view: "wayfind",
+      title: "Wayfind",
+    });
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("status on a NONEXISTENT effort emits NOTHING (no noisy tab for an error state)", async () => {
+    const cwd = fresh();
+    const { events, emitted } = captureEvents();
+    const tool = makeWayfindEffortTool(events);
+
+    const out = await tool.execute(
+      "we1",
+      { action: "status", effort: "ghost-nonexistent" },
+      undefined,
+      undefined,
+      ctx(cwd),
+    );
+    expect(out.details.ok).toBe(false);
+    expect(emitted.length).toBe(0);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("status WITHOUT effort param emits NOTHING (missing-effort early-return)", async () => {
+    const cwd = fresh();
+    const { events, emitted } = captureEvents();
+    const tool = makeWayfindEffortTool(events);
+
+    const out = await tool.execute("we2", { action: "status" }, undefined, undefined, ctx(cwd));
+    expect(out.details.ok).toBe(false);
+    expect(emitted.length).toBe(0);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("no EventBus passed -> tool still works, emits nothing (defensive optional)", async () => {
+    const cwd = fresh();
+    seedKgEffort(cwd);
+    const tool = makeWayfindEffortTool(); // events optional — existing callers unaffected
+    const out = await tool.execute("wl2", { action: "list" }, undefined, undefined, ctx(cwd));
+    expect(out.details.ok).toBe(true);
+    expect((out.content[0]?.text ?? "").length).toBeGreaterThan(0);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+});

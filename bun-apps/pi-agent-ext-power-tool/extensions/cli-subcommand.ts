@@ -1,11 +1,11 @@
 /**
- * CLI sub-command spec for bun-pi-agent-cli.
+ * CLI sub-command spec for pi-agent's `cli` namespace.
  *
- * Lets `bun-pi-agent-cli` expose the power-tool extension as a top-level
+ * Lets `pi-agent cli` expose the power-tool extension as a top-level
  * sub-command:
  *
- *   bun-pi-agent-cli power-tool <diagnostic request...>
- *   bun-pi-agent-cli --model sonnet power-tool "call inspect_context"
+ *   pi-agent cli power-tool <diagnostic request...>
+ *   pi-agent cli --model sonnet power-tool "call inspect_context"
  *
  * The power-tool suite provides 4 diagnostic tools (inspect_context,
  * inspect_agent, inspect_extensions, inspect_pathology). The CLI passes
@@ -18,14 +18,14 @@
  * (merged into pi-agent-ext-core-task 2026-07-18 — no shared code, relocated
  * as the first step of the core-task pi-ext consolidation).
  *
- * This file is dependency-free of pi-agent-cli on purpose: the workspace dep
- * direction is pi-agent-cli → pi-agent-ext-power-tool, so the spec is typed
+ * This file is dependency-free of pi-agent on purpose: the workspace dep
+ * direction is pi-agent → pi-agent-ext-power-tool, so the spec is typed
  * with a local structurally-compatible interface. See
- * `bun-apps/pi-agent-cli/src/extensions/types.ts` for the canonical shape.
+ * `bun-apps/pi-agent/src/cli/extensions/types.ts` for the canonical shape.
  */
 import extension from "../src/index.ts";
 
-/** Local shape of pi-agent-cli's ExtensionSubcommandSpec (structural match). */
+/** Local shape of pi-agent's ExtensionSubcommandSpec (structural match). */
 interface ExtensionSubcommandSpec {
   name: string;
   summary: string;
@@ -47,7 +47,7 @@ export const powerToolSubcommand: ExtensionSubcommandSpec = {
   name: "power-tool",
   summary: "runtime diagnostics: context analysis, agent inventory, extension linting, pathology detection",
   details: `Usage:
-  bun-pi-agent-cli power-tool <diagnostic request...> [options]
+  pi-agent cli power-tool <diagnostic request...> [options]
 
 The power-tool suite provides 4 diagnostic tools for analyzing pi-agent's own
 runtime state. Give a natural-language request as positionals; the agent maps
@@ -68,9 +68,9 @@ Options (pi-aligned globals):
   -V, --verbose          tool verbosity (repeat for debug)
 
 Examples:
-  bun-pi-agent-cli power-tool "call inspect_context"
-  bun-pi-agent-cli --model gemma-4-26b power-tool "analyze the context window"
-  bun-pi-agent-cli power-tool "check if any extensions have duplicate tools"`,
+  pi-agent cli power-tool "call inspect_context"
+  pi-agent cli --model gemma-4-26b power-tool "analyze the context window"
+  pi-agent cli power-tool "check if any extensions have duplicate tools"`,
   factory: extension,
   tools: POWER_TOOLS,
   task: (parsed) => {

@@ -13,7 +13,7 @@ vault. The point: give a text-only agent eyes — it never has to "see" the file
 - A resumable pipeline (`src/pipeline.ts`) that caches per-page VLM output and
   retries transient (429 / network) errors.
 - `DEFAULT_VLM_MODEL` and friends exported for reuse by downstream packages
-  (e.g. `bun-pi-agent-cli`'s `pdf-to-vault` stage 1).
+  (e.g. `pi-agent cli`'s `pdf-to-vault` stage 1).
 
 ## Internal docs
 
@@ -125,7 +125,7 @@ bun ../../dist/pi-agent/pi-agent.js -ne \
 
 ## Known limitations & TODO
 
-- **`src/sessions.ts` forks `bun-pi-agent-cli`'s `sessions/shared.ts`.**
+- **`src/sessions.ts` forks `pi-agent`'s `src/cli/sessions/shared.ts`.**
   `resolveLLM`, `resolveModel`, and the session-construction wiring are
   near-duplicates of the CLI's shared helpers. `resolveLLM` reads the same env
   knobs as the CLI (`PI_MODEL`, `PI_PROVIDER`, `PI_THINKING`) and `resolveModel`

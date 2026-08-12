@@ -55,7 +55,7 @@ See [docs/HISTORY.md](docs/HISTORY.md) for the full development history of all p
 | `BUN_PI_SET_PACKAGE_DIR` | `1` (on) | Pin `PI_PACKAGE_DIR` for asset/theme resolution in bundle mode |
 | `BUN_PI_SKIP_UPDATE_CHECK` | `1` (on) | Silence pi's "Update Available" banner for bundle/binary (source mode keeps it) |
 | `BUN_PI_LOAD_RUN_DIR` | `1` (on) | Splice `run-dir/`'s extensions/skills into argv as absolute `-e`/`--skill` paths |
-| `BUN_PI_DEFAULT_MODEL_ENV` | `1` (on) | Bridge `PI_MODEL` / `PI_PROVIDER` / `PI_THINKING` env into argv as `--model` / `--provider` / `--thinking` when not already passed — the real pi TUI ignores these env vars (only pi-agent-cli reads them); this makes a shell `PI_MODEL=…` default apply to the interactive TUI too |
+| `BUN_PI_DEFAULT_MODEL_ENV` | `1` (on) | Bridge `PI_MODEL` / `PI_PROVIDER` / `PI_THINKING` env into argv as `--model` / `--provider` / `--thinking` when not already passed — the real pi TUI ignores these env vars (only the `cli` subcommands read them); this makes a shell `PI_MODEL=…` default apply to the interactive TUI too |
 | `BUN_PI_EXT_CTX_GET_SYSTEM_PROMPT_OPTIONS` | `1` (on) | Monkey-patch `ExtensionRunner.createContext()` to expose `getSystemPromptOptions()` on base `ExtensionContext` |
 | `BUN_PI_EXT_API_GET_ALL_TOOL_DEFS` | `1` (on) | Monkey-patch `ExtensionRunner.bindCore()` to expose `getAllToolDefinitions(): ToolDefinition[]` on the ExtensionAPI (`pi`) object |
 | `BUN_PI_EXTRACT_EMBEDDED_ASSETS` | `1` (on) | Extract embedded assets from the `--exe` binary to cache dir (no-op in non-binary modes) |
@@ -158,9 +158,9 @@ The run-dir mechanism makes extension loading cwd-independent, but a fresh machi
 needs its env-var contract in place (`MLX_MODELS_DIR`, `MLX_OUTPUT_DIR`, `OB_VAULT_PATH`,
 …). The canonical reference + setup steps live in
 [`docs/pi-cross-machine-setup.md`](docs/pi-cross-machine-setup.md), and
-`pi-agent-cli` ships a `doctor` self-check that verifies everything is wired:
+The `cli` subcommand tree ships a `doctor` self-check that verifies everything is wired:
 ```bash
-bun bun-apps/pi-agent-cli/src/cli.ts doctor [--json] [--fix]
+bun bun-apps/pi-agent/src/cli.ts cli doctor [--json] [--fix]
 ```
 ## Build / Deploy modes
 pi-agent ships via four deploy modes, all driven by `scripts/deploy.ts`.
@@ -312,7 +312,7 @@ bun src/cli.ts doctor --fix      # source mode: "nothing to fix" (host-deps is i
 ```
 `--fix` derives a fix plan from the current report, applies it (mutating), then
 re-runs the checks — the same create-then-recheck shape as
-`pi-agent-cli doctor --fix`. The decisive pi-agent fix: when a `--snapshot`
+`pi-agent cli doctor --fix`. The decisive pi-agent fix: when a `--snapshot`
 deploy lands on a host whose `node_modules` subset didn't get installed,
 `checkHostDeps` FAILs (typebox/`@earendil-works/*` are essential there) —
 `--fix` runs `bun install` in the deploy dir to self-heal it, then re-checks (snapshot/standalone only):
@@ -372,9 +372,15 @@ pi-agent/
 │       ├── codegen.ts               # pi-pkg-dir.ts / run-dir-base.ts / embedded-assets.ts generators
 │       └── build-extensions.ts      # THIN ext-bundles/*.thin.js builder (bundle/standalone modes)
 └── src/
-    ├── cli.ts                    # applyPatches() → main(argv)
+    ├── cli.ts                    # entry — `cli` argv intercept, then applyPatches() → main(argv)
     ├── pre-load-providers.ts     # PROVIDERS config, pure, no side effects (edit this)
     ├── generated/                # build-time-baked constants (gitignored)
+    ├── cli/                      # the non-interactive `pi-agent cli` namespace
+    │   ├── dispatch.ts               # command table + meta/passthrough routing (runCli)
+    │   ├── args.ts / flag-spec.ts    # pi-CLI-aligned argument parser
+    │   ├── commands/                 # one file per agent command / pipeline / workflow sub-command
+    │   ├── extensions/               # registry.ts + runner.ts for the NL→tool sub-commands
+    │   └── sessions/                 # shared.ts (baked-in factories + registry) + passthrough.ts
     ├── patches/
     │   ├── index.ts                    # registry (env-gated) + debug
     │   ├── pre-load-providers.ts       # the actual ModelRegistry.loadModels monkey-patch
@@ -400,8 +406,152 @@ pi-agent/
   binary with `-ne` for a clean start with zero injected extensions (see
   "Flag semantics: `-ne` / `-ns`" above). Provider injection
   (`pre-load-providers`) works in the binary regardless.
-## Related
-- **[pi-agent-cli](../pi-agent-cli/README.md)** — single-turn scripted workflows
-  (`file2md`, `zk-extract`, `zk-ask`, `pipeline pdf-to-vault`) with extensions
-  baked in as workspace deps. Use this when you want one-shot automation or to call
-  a specific agent workflow from a script — not an interactive session.
+## Non-interactive CLI (`pi-agent cli`)
+Everything above is the **interactive TUI** entry. The same package also ships a
+second entry namespace, `cli` — non-interactive, scriptable, single-turn. Use it
+for one-shot automation, or to call a specific agent workflow from a script.
+```bash
+./pi-agent.sh cli <command> [options]                    # from the repo root
+bun bun-apps/pi-agent/src/cli.ts cli <command> [options]  # same, no wrapper
+bun dist/pi-agent/pi-agent.js cli <command>               # deployed bundle
+dist/pi-agent/pi-agent cli <command>                      # deployed --exe
+```
+> The `cli` token is intercepted in `src/cli.ts` **before** `applyPatches()`, so
+> a CLI invocation gets none of the TUI's run-dir splice, provider patch, or
+> static extension factories. Note `bun run --cwd bun-apps/pi-agent cli` is this
+> package's own npm script (`bun src/cli.ts`) and does **not** prepend the token
+> — pass it yourself, or use one of the four forms above.
+Every invocation is a **non-interactive run** (one process, no TUI, no persistent
+session loop). Of these, the agent commands and the passthrough are **single-turn
+agent runs**; the meta commands (`list`, `version`, `completions`, `help`) and
+`workflow run` are non-interactive but **not** agent runs. Vocabulary:
+[CONTEXT.md § Non-interactive CLI](CONTEXT.md#non-interactive-cli).
+### Baked-in extensions (not run-dir)
+The `cli` namespace imports extension factories **directly** (`src/cli/sessions/shared.ts`),
+rather than loading `run-dir/manifest.json`. `pi-obsidian` is **always-on** (every
+session gets the `obsidian` tools); everything else is **per-command**, injected
+only by the command that needs it. The TUI eagerly loads the whole manifest
+because a user may want any tool mid-session; a single-turn CLI run **curates
+tools per command** (e.g. `zk-extract` passes only the distill allowlist), and
+loading the full manifest would bloat every run with extensions it never uses.
+Both paths resolve to the same underlying factories — only the load mechanism
+differs. Rationale: [ADR 0001](docs/adr/0001-extensions-baked-in-not-manifest.md).
+### Agent commands (each is a single-turn agent run)
+```bash
+./pi-agent.sh cli chat                        # interactive multi-turn REPL
+./pi-agent.sh cli agent <task...>             # free-form agentic task, broad toolset
+./pi-agent.sh cli file2md <files...>          # PDF/image → Obsidian markdown (local VLM)
+./pi-agent.sh cli zk-extract <files/folders>  # markdown → Zettelkasten atomic notes
+./pi-agent.sh cli zk-card <add|find|update|remove|check>
+./pi-agent.sh cli zk-ask <question>           # graph-enhanced RAG answer
+./pi-agent.sh cli zk-ingest --source <src>    # converge .knowledge.jsonl → cards
+./pi-agent.sh cli zk-query <query>            # deterministic tag-ranked digest
+./pi-agent.sh cli sessions <query>            # search past session transcripts
+./pi-agent.sh cli memory <query>              # search pi-hermes-memory
+./pi-agent.sh cli doctor [--json] [--fix]     # cross-machine portability self-check
+./pi-agent.sh cli list | list-tools | version | completions <bash|zsh|fish>
+./pi-agent.sh cli help [command]
+```
+`./pi-agent.sh cli help` prints the authoritative list; `help <command>` prints
+one command's flags.
+#### `file2md` — PDF/image → Obsidian markdown
+Rasterizes each PDF page (macOS PDFKit) / accepts images, classifies a profile
+via a local VLM, then explains each page into per-page Obsidian markdown +
+`manifest.json` + a doc-level MOC. Default model:
+`lm-studio/google/gemma-4-26b-a4b-qat` (local VLM via LM Studio).
+```bash
+./pi-agent.sh cli file2md paper.pdf --pages 1-3 --out ./vlm-out
+./pi-agent.sh cli file2md scan.jpg --type image --dpi 200
+```
+#### `zk-extract` — markdown → Zettelkasten
+Distills input markdown/text into atomic notes in an Obsidian vault. Folders are
+scanned recursively for `*.md` / `*.txt`.
+```bash
+./pi-agent.sh cli zk-extract ./inbox/ --folder Zettelkasten --max-notes 20
+```
+### Extension-backed sub-commands (NL → tool)
+These wrap a per-command extension's tool behind a natural-language prompt.
+```bash
+./pi-agent.sh cli flux2 <request...>       # images (Flux2 Klein, Swift/MLX)
+./pi-agent.sh cli krea2 <request...>       # images (Krea 2 Turbo, Swift/MLX)
+./pi-agent.sh cli ltx <request...>         # video (LTX-2.3, Swift/MLX)
+./pi-agent.sh cli movie <request...>       # video-production orchestrator
+./pi-agent.sh cli research <query...> [--save]   # web research → digest
+./pi-agent.sh cli power-tool <request...>  # runtime diagnostics
+```
+The registry lives at `src/cli/extensions/registry.ts`.
+### Pipelines (multi-stage, resumable)
+A pipeline orchestrates several agent commands in-process, under a `pipeline.json`
+coordination layer in a timestamped run dir. Re-run with the same `--out` + input
+to resume — completed stages/pages are skipped.
+```bash
+./pi-agent.sh cli pipeline pdf-to-vault <pdf> [--pages 1-3] [--delete-png]
+./pi-agent.sh cli pipeline image-to-vault <image>
+./pi-agent.sh cli pipeline url-to-vault <url>
+./pi-agent.sh cli pipeline youtube-to-vault <url> [question]
+./pi-agent.sh cli pipeline memory-to-vault
+./pi-agent.sh cli pipeline status|run|dry-run|lint   # knowledge pipeline
+```
+### Workflow sub-command (headless engine, no agent session)
+```bash
+./pi-agent.sh cli workflow list                       # [pack] vs [file]
+./pi-agent.sh cli workflow run <name|path> [--dry-run] [--json]
+```
+This is the structural exception to "every command is an agent run": it calls
+`runWorkflow()` directly and creates no session of its own. Reference:
+[`docs/workflow-cli.md`](docs/workflow-cli.md). Pack name-resolution precedence:
+[ADR 0008](docs/adr/0008-portable-workflow-pack-discovery.md).
+### Passthrough
+Anything that isn't a known command token after `cli` is treated as a pi agent
+invocation (mirrors `pi -p` / `pi --mode json`):
+```bash
+./pi-agent.sh cli -p "What files are in the current directory?"
+./pi-agent.sh cli --model deepseek-v4-flash -p "Summarize this"
+./pi-agent.sh cli --mode json --no-session --tools read,bash "summarize"
+```
+This is exactly what the `obsidian_distill` / `obsidian_garden` subagent tools
+invoke internally (`process.argv[1]` + pi flags), which is why it exists: pi-agent
+is its own sub-agent target. `runCli()` exports `PI_SELF_ENTRY_PREFIX=cli` so a
+child spawned from a `cli` parent re-enters the `cli` namespace, not the TUI root.
+Rationale: [ADR 0002](docs/adr/0002-passthrough-is-self-subagent-target.md).
+### CLI flags (pi-aligned)
+| Flag | Description |
+|------|-------------|
+| `--model <pattern>` | `id`, `provider/id`, or `provider/id:thinking` (fuzzy) |
+| `--provider <name>` | provider name |
+| `--thinking <level>` | `off\|minimal\|low\|medium\|high\|xhigh` |
+| `--api-key <key>` | API key |
+| `--mode <text\|json>` | output mode (default: `text`) |
+| `-p`, `--print` | non-interactive one-shot |
+| `-V`, `--verbose` | tool verbosity: show args (repeat: `-VV` = debug) |
+| `--debug` | alias for `-VV` |
+| `--no-session` | ephemeral (in-memory) session |
+| `--tools`, `-t <csv>` | tool allowlist |
+| `--exclude-tools`, `-xt <csv>` | tool denylist |
+| `--append-system-prompt <x>` | text or file path (repeatable) |
+| `--dry-run` | suppress vault writes (excludes the write tools — see [ADR 0006](docs/adr/0006-dry-run-excludes-write-tools.md)) |
+| `-e`, `--extension <path>` | accepted, ignored (extensions baked in) |
+| `-a`, `--approve` | accepted, ignored (self-trusted) |
+| `--` | end-of-options — the rest passes through verbatim (`flux2 -- t2i --prompt "…"`) |
+### CLI runtime environment
+Distinct from the `BUN_PI_*` patch toggles above — those gate the TUI's
+monkey-patches, which a `cli` invocation never applies.
+| Var | Purpose |
+|-----|---------|
+| `PI_PROVIDER` / `PI_MODEL` / `PI_THINKING` | LLM overrides (the `cli` commands read these directly) |
+| `PI_SKIP_MODELS_JSON` | `1` → hermetic in-memory registry, baked providers only |
+| `PI_SELF_ENTRY_PREFIX` | set to `cli` by `runCli()` so child sub-agents re-enter the same namespace |
+| `OB_VAULT_PATH` | absolute vault path |
+| `OB_VAULT_DIR` | vault folder name under cwd (default: `vault`) |
+| `OB_SUBAGENT_TIMEOUT_MS` | distill subagent timeout (default: `300000`) |
+| `OB_PARENT_MODEL` / `OB_SUBAGENT_MODEL` | publish the parent's model to children / floor children onto a fast model |
+| `PI_WORKFLOWS_OUT_DIR` | workflow run-log dir (default `PWD/.pi/workflows/runs/`) |
+Model/credentials otherwise come from your existing pi config
+(`~/.pi/agent/settings.json`, `auth.json`, `models.json`); the baked provider
+catalog is layered on top — see [ADR 0005](docs/adr/0005-provider-catalog-from-pi-agent.md).
+### CLI docs
+- [`docs/cli-PRD.md`](docs/cli-PRD.md) — product requirements + the agent knowledge stack
+- [`docs/KNOWLEDGE-LAYER.md`](docs/KNOWLEDGE-LAYER.md) — what the 5 `zk-*` commands import
+- [`docs/workflow-cli.md`](docs/workflow-cli.md) — headless workflow-engine runner
+- [`docs/cli-VERIFICATION.md`](docs/cli-VERIFICATION.md) — historical e2e verification report
+- [`docs/adr/`](docs/adr/) — 8 ADRs covering the CLI's design decisions

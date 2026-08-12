@@ -15,7 +15,7 @@
  *  3. No package imports itself via @repo/ (use relative imports).
  *  4. ADR-0001: knowledge-layer TIER-0 (obsidian, hermes-memory) imports
  *     NOTHING from the TIER-1 hub (knowledge-card) — edges point down only.
- *  5. No extension imports the host (pi-agent-cli) — the host is above all exts.
+ *  5. No extension imports the host (pi-agent) — the host is above all exts.
  *  6. The declared @repo dependency graph is acyclic.
  *
  * Run: bun run test:deps   (from bun-apps/)
@@ -143,8 +143,8 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 		assert.deepEqual(violations, [], violations.length ? "upward edges:\n" + violations.join("\n") : "");
 	});
 
-	it("no extension imports the host (pi-agent-cli) — the host sits above all extensions", () => {
-		const violations = EXTS.filter((pkg) => edges(pkg).has("pi-agent-cli"));
+	it("no extension imports the host (pi-agent) — the host sits above all extensions", () => {
+		const violations = EXTS.filter((pkg) => edges(pkg).has("pi-agent"));
 		assert.deepEqual(violations, [], `extensions importing the host: ${violations.join(", ")}`);
 	});
 

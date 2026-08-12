@@ -13,7 +13,7 @@ import {
 	DEFAULT_COVERAGE_THRESHOLD,
 } from "./coverage.ts";
 // Types are sourced from power-tool's canonical schema-cost submodule directly
-// (pi-agent-cli's schema-cost command re-exported them as a @deprecated delegate;
+// (pi-agent's schema-cost command re-exported them as a @deprecated delegate;
 // that alias was removed in the gating-field migration Task 5).
 import type { SchemaCostReport, ToolCost } from "@repo/pi-agent-ext-power-tool/schema-cost";
 

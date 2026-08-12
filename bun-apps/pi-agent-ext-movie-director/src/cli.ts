@@ -3,7 +3,7 @@
  *
  *   bun bun-apps/pi-agent-ext-movie-director/src/cli.ts <command> [options]
  *
- * A self-contained CLI mirroring `pi-agent-cli`'s shape, but for the
+ * A self-contained CLI mirroring `pi-agent`'s shape, but for the
  * movie-director orchestration layer. Each of the 19 orchestration commands is
  * a deterministic, no-LLM top-level command (a direct call to the shared
  * `dispatch()`), plus an `agent` command for natural-language runs. Designed so

@@ -38,7 +38,7 @@
  *   ---
  *
  * Library only — no ExtensionAPI, no LLM, no network. The extension tool
- * (zk_ingest) and the bun-pi-agent-cli subcommand (zk-ingest) are thin shells
+ * (zk_ingest) and the `pi-agent cli` subcommand (zk-ingest) are thin shells
  * over `ingestRecords`.
  *
  * Env (passed through from pi-obsidian): OB_VAULT_PATH / OB_VAULT_DIR.

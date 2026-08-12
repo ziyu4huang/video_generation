@@ -71,9 +71,9 @@ BRIDGES = [
 **Why the patch exists:** pi's native TUI resolves its default model ONLY from
 `~/.pi/agent/settings.json` (`defaultModel` / `defaultProvider`); it does NOT
 read `PI_MODEL` / `PI_PROVIDER` / `PI_THINKING` (zero hits in the
-pi-coding-agent dist). pi-agent-cli honors those env vars; pi-agent wraps the
-real pi, so without this bridge the same `PI_MODEL=...` that worked for
-pi-agent-cli was silently ignored. The patch splices the env value into argv
+pi-coding-agent dist). The `pi-agent cli` namespace honors those env vars
+directly; the TUI path wraps the real pi, so without this bridge the same
+`PI_MODEL=...` that worked for `pi-agent cli` was silently ignored. The patch splices the env value into argv
 (`--model <val>`) when the user hasn't passed the flag explicitly. The values
 still pass through pi's own parser, so pi validates them.
 

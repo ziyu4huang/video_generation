@@ -56,7 +56,7 @@ export function estimateToolCost(
  * Analyze a list of pre-collected tool definitions into a ranked report.
  *
  * This is the pure half: it does NOT discover or load tools (that's the
- * pi-agent-coupled collection half that stays in pi-agent-cli). Feed it whatever tool
+ * pi-agent-coupled collection half that stays in pi-agent). Feed it whatever tool
  * definitions you have — from a pi extension mock-capture, from an OpenAI
  * client, from a static fixture — and it ranks them by schema-token cost.
  *

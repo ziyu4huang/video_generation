@@ -16,7 +16,7 @@ _Avoid_: command tool, router
 
 **Command**:
 One of the 18 subcommands (`t2i · scene · edit · style · angle · swap · expand · upscale · gate · segment · story · models · verify-*`). The first selector into the dispatcher.
-_Avoid_: subcommand (ambiguous — see pi-agent-cli), action
+_Avoid_: subcommand (ambiguous — see pi-agent), action
 
 ### Results & chaining
 

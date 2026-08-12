@@ -82,7 +82,7 @@ flowchart TB
   %% ── REVERSE DEPS: who NEEDS this package ──────────────────────
   subgraph rev["⬇️ REVERSE dependencies (needed by)"]
     direction LR
-    CLI["pi-agent-cli<br/><small>zk-extract · zk-card · zk-ask<br/>zk-ingest · zk-query · knowledge-pipeline<br/><b>hard workspace:*</b></small>"]:::consumer
+    CLI["pi-agent cli<br/><small>zk-extract · zk-card · zk-ask<br/>zk-ingest · zk-query · knowledge-pipeline<br/><b>hard workspace:*</b></small>"]:::consumer
     HERMES["pi-hermes-memory<br/><small>vault-converge.ts<br/><b>soft optional peer</b> (dynamic import)</small>"]:::soft
   end
 
@@ -214,7 +214,7 @@ extensions/…      → runSubagentWithRetry, resolveVault
 </details>
 
 <details>
-<summary><b>Reverse dep — pi-agent-cli static imports (verified <code>rg</code>)</b></summary>
+<summary><b>Reverse dep — pi-agent static imports (verified <code>rg</code>)</b></summary>
 
 ```
 zk-ask.ts      ← buildRagTask, ragToolsFor, BlendMode          (extensions/…)
@@ -242,9 +242,9 @@ package.json: peerDependencies.pi-knowledge-card: "*"
 
 - **Renaming a tool** → only the `__setVaultResolverForTest` seam + allowlists
   tests + toolWiring break loudly (good).
-- **Renaming an exported builder** (`buildRagTask` etc.) → pi-agent-cli breaks at
+- **Renaming an exported builder** (`buildRagTask` etc.) → pi-agent breaks at
   build time (caught by its 248-test suite).
-- **Renaming a `src/` export** → pi-agent-cli + pi-hermes-memory break; hermes
+- **Renaming a `src/` export** → pi-agent + pi-hermes-memory break; hermes
   degrades gracefully (try/catch), CLI fails loudly.
 - **Changing pi-obsidian's parser contract** → ripples silently here UNLESS the
   ingest/retrieve tests catch it (they do — real temp vaults).

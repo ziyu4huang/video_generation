@@ -20,6 +20,16 @@ export function isExtDoctorCommand(argv: string[]): boolean {
 }
 
 /**
+ * True iff argv should route into the non-interactive CLI namespace
+ * (`pi-agent cli <command> …`). Only `argv[0]` triggers it — same contract as
+ * isDoctorCommand: matching a `cli` token ANYWHERE would also match a literal
+ * prompt (`-p "cli"`) or a flag value, silently hijacking it.
+ */
+export function isCliCommand(argv: string[]): boolean {
+	return argv[0] === "cli";
+}
+
+/**
  * User-passed suppression flags, read from the PRE-PATCH argv (the slice
  * cli.ts captures before applyPatches() splices run-dir `-e`/`--skill` paths
  * in). This is what distinguishes a USER's `-ne` from the `-ne` that deploy

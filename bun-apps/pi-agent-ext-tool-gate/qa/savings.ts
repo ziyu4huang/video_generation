@@ -22,7 +22,7 @@
 import {
 	buildSchemaCostReport,
 	resolveRepoRoot,
-} from "../../pi-agent-cli/src/commands/schema-cost.ts";
+} from "../../pi-agent/src/cli/commands/schema-cost.ts";
 import type { SchemaCostReport } from "@repo/pi-agent-ext-power-tool/schema-cost";
 import { CORPUS_GATES, CORPUS_EFF } from "./evaluate.ts";
 

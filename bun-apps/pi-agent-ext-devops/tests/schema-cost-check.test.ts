@@ -3,7 +3,7 @@
  * the former `scripts/check-schema-cost.ts`. The comparison/output/exit semantics
  * must be IDENTICAL to the old script; these tests pin them.
  *
- * No real pi-agent-cli is ever spawned: the `--live` path skips collection
+ * No real pi-agent CLI is ever spawned: the `--live` path skips collection
  * entirely, and the collection paths inject a recording `SpawnFn`. Baseline /
  * live JSON are real temp files (the fn reads them via readFileSync, like the
  * script did).

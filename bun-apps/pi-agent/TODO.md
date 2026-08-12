@@ -45,7 +45,7 @@ and `index` do). Lower ROI — these are thin and exercised indirectly by the
 patch e2e + `doctor --smoke` — but a focused unit per patch would pin each
 patch's env gate + effect.
 
-## Not pi-agent (next-arc candidates, when this arc is resumed or closed)
+## Next-arc candidates (when this arc is resumed or closed)
 
-- `pi-agent-cli` deep audit (sessions/shared.ts, args.ts beyond numeric)
+- `cli` namespace deep audit (`src/cli/sessions/shared.ts`, `src/cli/args.ts` beyond numeric) — was filed as "not pi-agent" when the CLI was its own package; it is in-package as of the 2026-08-12 merge
 - mlx pipeline hardening / the standing self-improve arc

@@ -108,8 +108,8 @@ opt-in. None runs ungated on a bare runner.
 | `pi-knowledge-card/__tests__/pi-knowledge-card.test.ts` | `__setVaultResolverForTest(() => Promise.resolve(vault))` — deterministic injection seam; also save/restore `OB_VAULT_PATH` | **fixed** — the #381 stale-read fix (injection seam) |
 | `pi-obsidian/extensions/__tests__/{expectedMtime,deleteTool,readTool,createGuard,errorCodes,toolSmoke}.test.mjs` | `beforeAll`/`beforeEach` sets `OB_VAULT_PATH` to a fixture **once**; `getVault` caches the resolved vault in a closure (no mid-async re-read); `afterAll`/`afterEach` restores | **fixed** — set-once + closure cache (avoids the mid-async re-read by construction) |
 | `pi-hermes-memory/tests/{integration/passive-converge,integration/knowledge-pipeline,store/vault-converge}.test.ts` | `beforeEach` sets `OB_VAULT_PATH` to a tmp vault; `afterEach` restores — no sibling "unset" assertion | **fixed** — save/restore (portable; tmp vault fixture) |
-| `pi-agent-cli/src/__tests__/zk-extract.test.ts` | sets `OB_VAULT_PATH`/`OB_VAULT_DIR` in-body to fixtures; tests `resolveVault` directly with parsed args | **fixed** — in-body set to fixture (pure resolution test) |
-| `pi-agent-cli/src/__tests__/passthrough.test.ts` | asserts env flags pass through to the parsed config; save/restore around the "preexisting" case | **fixed** — pure parsing assertions (no vault resolution mid-async) |
+| `pi-agent/src/cli/__tests__/zk-extract.test.ts` | sets `OB_VAULT_PATH`/`OB_VAULT_DIR` in-body to fixtures; tests `resolveVault` directly with parsed args | **fixed** — in-body set to fixture (pure resolution test) |
+| `pi-agent/src/cli/__tests__/passthrough.test.ts` | asserts env flags pass through to the parsed config; save/restore around the "preexisting" case | **fixed** — pure parsing assertions (no vault resolution mid-async) |
 
 ## Thrust B — the four classes, retired
 
@@ -117,10 +117,10 @@ opt-in. None runs ungated on a bare runner.
    package whose `main`/`exports` point at compiled `dist/` (verified: every
    other `bun-apps/*` package's `main`/`exports` resolve TypeScript `src/`
    directly via Bun). Its sole importers at test time are
-   `pi-agent-cli/src/commands/workflow.ts` and
+   `pi-agent/src/cli/commands/workflow.ts` and
    `pi-agent/run-dir/workflows/verify-bun-pi-agent-cli.js`. The **fresh-clone
    probe** confirms the class is contained: `rm -rf bun-apps/*/dist` → the 4
-   `pi-agent-cli` workflow tests fail with `Cannot find module
+   `pi-agent` CLI workflow tests fail with `Cannot find module
    '@quintinshaw/pi-dynamic-workflows'`; re-running the CI build step
    (`bun run --cwd bun-apps/pi-agent-ext-workflow build`) → all 248 pass. CI
    builds it in **every** job (see `ci.yml`). **No other unbuilt-dep surprises.**

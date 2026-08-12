@@ -8,7 +8,7 @@ This package is the **single source of truth** for the task builders
 (`buildDistillTask` / `buildAddTask` / `buildFindTask` / `buildUpdateTask` /
 `buildRemoveTask` / `buildRagTask`) and the per-action tool allowlists
 (`DISTILL_TOOLS` / `ADD_TOOLS` / `FIND_TOOLS` / `UPDATE_TOOLS` / `REMOVE_TOOLS` /
-`CHECK_TOOLS` / `RAG_TOOLS`). The `bun-pi-agent-cli` commands `zk-extract`,
+`CHECK_TOOLS` / `RAG_TOOLS`). The `pi-agent cli` commands `zk-extract`,
 `zk-card`, `zk-ask`, and `zk-ingest` import these same builders (and the
 deterministic ingest library) so the CLI and the extension never drift apart.
 
@@ -19,7 +19,7 @@ deterministic ingest library) so the CLI and the extension never drift apart.
 > - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — two ingestion modes,
 >   4 tools, 4 src modules, data flow, load-bearing invariants.
 > - [`docs/DEPENDENCIES.md`](./docs/DEPENDENCIES.md) — the cross-package graph
->   (pi-obsidian hard peer; pi-agent-cli + power-tool hard workspace;
+>   (pi-obsidian hard peer; pi-agent + power-tool hard workspace;
 >   pi-hermes-memory optional peer) + the **two read paths** (retrieveRecords
 >   vs zk_ask) and why the P1 callout boost is retrieveRecords-only.
 > - [`docs/DATA-MODEL.md`](./docs/DATA-MODEL.md) — the 12-key record → zettel

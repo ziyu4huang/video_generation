@@ -14,6 +14,11 @@
  *   bun scripts/deploy.ts [out-dir] --standalone    # bundle + bundled bun
  *   bun scripts/deploy.ts [out-dir] --exe           # compiled binary
  *   bun scripts/deploy.ts [out-dir] --no-freeze     # skip chmod a-w
+ *   bun scripts/deploy.ts [out-dir] --obfuscate     # + javascript-obfuscator on the bundle
+ *                                                   #   (rejected with --exe: obfuscate forces a
+ *                                                   #    bundle-then-compile order that strips
+ *                                                   #    embedded assets — see the check below)
+ *                                                   #   (rejected with --snapshot)
  *
  * Default out-dir: ../../dist/pi-agent
  */
@@ -61,7 +66,14 @@ const OPTIONAL_EXTERNALS: string[] = [];
 
 // ── Flag parsing ─────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
-const KNOWN_FLAGS = new Set(["--bundle", "--snapshot", "--standalone", "--exe", "--no-freeze"]);
+const KNOWN_FLAGS = new Set([
+	"--bundle",
+	"--snapshot",
+	"--standalone",
+	"--exe",
+	"--no-freeze",
+	"--obfuscate",
+]);
 {
 	const unknown = argv.filter((a) => a.startsWith("--") && !KNOWN_FLAGS.has(a));
 	if (unknown.length > 0) {
@@ -74,6 +86,22 @@ const IS_SNAPSHOT = argv.includes("--snapshot");
 const IS_STANDALONE = argv.includes("--standalone");
 const IS_EXE = argv.includes("--exe");
 const NO_FREEZE = argv.includes("--no-freeze");
+const IS_OBFUSCATE = argv.includes("--obfuscate");
+if (IS_OBFUSCATE && IS_SNAPSHOT) {
+	// `die()` is a hoisted function declaration below — safe to call here.
+	die("✗ --obfuscate is incompatible with --snapshot (a snapshot is a raw source copy — there is no bundle to obfuscate)");
+}
+if (IS_OBFUSCATE && IS_EXE) {
+	// `die()` is a hoisted function declaration below — safe to call here.
+	die(
+		"✗ --obfuscate is incompatible with --exe: --obfuscate forces a bundle-then-compile order, and " +
+			'bundling resolves `with { type: "file" }` asset imports down to bundle-relative paths — by the ' +
+			"time `bun build --compile` runs on that bundle, there are no file imports left for it to embed, " +
+			"so the resulting binary looks fine but fails at runtime when it looks for its assets " +
+			"(e.g. src/generated/embedded-assets.ts, the mupdf wasm). Use plain --exe (its source-level " +
+			"compile embeds assets correctly), or --obfuscate without --exe.",
+	);
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -195,15 +223,43 @@ function linkNodeModules(piPkgDir: string) {
 	console.log(`  ✓ node_modules → ${storeNodeModules}`);
 }
 
-// ── Stage: --exe (compile directly from source, single-pass embed binary) ────
-async function stageExe() {
+// ── Stage: obfuscate (moved from the deleted pi-agent-cli/scripts/build.ts) ──
+async function stageObfuscate(file: string) {
+	console.log(`▶ obfuscate → ${file}`);
+	const { default: JavaScriptObfuscator } = await import("javascript-obfuscator");
+	const code = readFileSync(file, "utf8");
+	const out = JavaScriptObfuscator.obfuscate(code, {
+		compact: true,
+		controlFlowFlattening: true,
+		controlFlowFlatteningThreshold: 0.75,
+		deadCodeInjection: true,
+		deadCodeInjectionThreshold: 0.4,
+		stringArray: true,
+		stringArrayEncoding: ["base64"],
+		stringArrayThreshold: 0.75,
+		identifierNamesGenerator: "hexadecimal",
+		renameGlobals: false, // keep ESM safe
+		selfDefending: true,
+		disableConsoleOutput: false,
+		sourceMap: false,
+		// javascript-obfuscator's regex transformer is brittle on non-trivial
+		// patterns (obsidian carries complex wiki-link/frontmatter regexes) and
+		// has crashed on them in the past, so leave regex literals intact.
+		regexObfuscation: false,
+	});
+	writeFileSync(file, out.getObfuscatedCode());
+	console.log(`  ✓ obfuscated ${file}  (${formatSize(file)})`);
+}
+
+// ── Stage: --exe (compile single-pass embed binary from `input`) ─────────────
+async function stageExe(input: string) {
 	const outfile = join(target, APP_NAME);
 	console.log(`▶ compile (single-pass embed) → ${outfile}`);
 	clean(outfile);
 
 	const externalFlags = OPTIONAL_EXTERNALS.flatMap((p) => ["--external", p]);
 	const proc = Bun.spawn(
-		["bun", "build", "--compile", "src/cli.ts", `--outfile=${outfile}`, "--minify", ...externalFlags],
+		["bun", "build", "--compile", input, `--outfile=${outfile}`, "--minify", ...externalFlags],
 		{ stdout: "inherit", stderr: "inherit" },
 	);
 	const code = await proc.exited;
@@ -329,13 +385,16 @@ async function main() {
 
 	if (IS_EXE) {
 		// --exe: compile directly from source, skip bundle/ext-bundles/skills/run.sh
-		await stageExe();
+		// (--obfuscate is rejected above when combined with --exe, so this is
+		// always a plain source-level compile that embeds assets correctly.)
+		await stageExe("src/cli.ts");
 	} else if (IS_SNAPSHOT) {
 		// --snapshot: copy source + node_modules, no bundling
 		await stageSnapshot(bunAppsDir);
 	} else {
 		// --bundle (default) or --standalone: bundle pi-agent.js + ext bundles + skills
 		await stageBundle(piPkgDir);
+		if (IS_OBFUSCATE) await stageObfuscate(join(target, `${APP_NAME}.js`));
 
 		// Build thin extension bundles
 		const extBundlesDir = join(target, "ext-bundles");

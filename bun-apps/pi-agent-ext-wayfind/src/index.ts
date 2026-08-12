@@ -74,7 +74,7 @@ export default function wayfindExtension(pi: ExtensionAPI): void {
   // The bare effort tool (Layer 2): create / validate / status an effort dir's
   // manifest — the mechanical surface the agent calls directly, separate from
   // the reflective /wayfind command flows above.
-  pi.registerTool(makeWayfindEffortTool());
+  pi.registerTool(makeWayfindEffortTool(pi.events));
 
   pi.on("session_start", async (_event, ctx) => {
     if (ctx.hasUI && widget) {

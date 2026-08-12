@@ -74,7 +74,7 @@ test("extension factory registers web_search, fetch_content, get_search_content"
 // registrations. It once listed stale per-verb obsidian tool names
 // (obsidian_create, obsidian_search) from before pi-agent-ext-obsidian
 // consolidated into one unified `obsidian` tool (action: "create" | "search" |
-// ...) — pi-agent-cli's --tools fail-fast validator (sessions/shared.ts) then
+// ...) — pi-agent's --tools fail-fast validator (sessions/shared.ts) then
 // rejected the subcommand's own default on every single invocation. Guard
 // against that regression class recurring: every name this extension itself
 // registers must appear in RESEARCH_TOOLS's web-access portion, and no

@@ -23,7 +23,7 @@
  * — applied the patch as an ES-module evaluation side effect, double-registering
  * every provider for pi-agent-cli's programmatic session builder (which
  * explicitly imports PROVIDERS to AVOID that patch; see
- * bun-apps/pi-agent-cli/src/sessions/shared.ts). Keep it that way.
+ * bun-apps/pi-agent/src/cli/sessions/shared.ts). Keep it that way.
  */
 
 // ─── Provider config ──────────────────────────────────────────────────────────
@@ -141,7 +141,7 @@ export function resolveApiKey(key: ApiKey, env: Record<string, string | undefine
  * registerProvider(name, config). Pure aside from the registry mutation the
  * caller passes in — shared by the pre-load-providers monkey-patch
  * (./patches/pre-load-providers.ts) AND pi-agent-cli's programmatic
- * session builder (bun-apps/pi-agent-cli/src/sessions/shared.ts), so the
+ * session builder (bun-apps/pi-agent/src/cli/sessions/shared.ts), so the
  * "baked provider catalog → registerProvider calls" logic exists in exactly
  * one place.
  */

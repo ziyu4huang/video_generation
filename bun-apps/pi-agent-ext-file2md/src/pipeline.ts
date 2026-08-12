@@ -1,7 +1,7 @@
 /**
  * Core file2md pipeline: classify → rasterize → VLM extract → manifest.
  *
- * Extracted from bun-pi-agent-cli so both the CLI (thin wrapper) and the
+ * Extracted from pi-agent's `cli` namespace so both the CLI (thin wrapper) and the
  * pi extension (file2md tool) share the same implementation.
  */
 import { copyFileSync, existsSync, writeFileSync } from "node:fs";

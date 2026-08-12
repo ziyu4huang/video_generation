@@ -1,7 +1,7 @@
 /**
  * Simplified session factory for VLM calls.
  *
- * Provides the same surface as bun-pi-agent-cli/src/sessions/shared.ts but:
+ * Provides the same surface as bun-apps/pi-agent/src/cli/sessions/shared.ts but:
  *  - No pi-obsidian extension baked in (VLM calls are pure inference, no vault tools needed)
  *  - No custom buildModelRegistry() — uses the standard ~/.pi/ registry which already has
  *    lm-studio configured per the project CLAUDE.md

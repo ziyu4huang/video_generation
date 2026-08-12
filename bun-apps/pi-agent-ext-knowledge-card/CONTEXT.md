@@ -75,7 +75,7 @@ _Avoid_: lite tools, helpers (they are first-class deterministic tools, not util
 ### Architecture
 
 **Task builder** (`buildDistillTask` / `buildAddTask` / …):
-The single source of truth for each tool's subagent task — shared with `pi-agent-cli`'s `zk-*` commands so the CLI and extension never drift.
+The single source of truth for each tool's subagent task — shared with `pi-agent`'s `zk-*` commands so the CLI and extension never drift.
 _Avoid_: prompt builder, task factory (it is the shared contract between CLI + extension)
 
 **Allowlist** (`DISTILL_TOOLS` / `ADD_TOOLS` / …):

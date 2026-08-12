@@ -25,7 +25,13 @@
 import { main } from "@earendil-works/pi-coding-agent";
 import { applyPatches } from "./patches/index.ts";
 import { runDoctor } from "./doctor.ts";
-import { isDoctorCommand, isExtDoctorCommand, userSuppressFlags, overriddenStaticExtensions } from "./cli-argv.ts";
+import {
+	isDoctorCommand,
+	isExtDoctorCommand,
+	isCliCommand,
+	userSuppressFlags,
+	overriddenStaticExtensions,
+} from "./cli-argv.ts";
 import { STATIC_EXTENSION_FACTORIES } from "./static-extensions.ts";
 
 // Extension loading: handled by the `ensure-extension-deps` patch (see
@@ -69,6 +75,27 @@ if (isExtDoctorCommand(argv)) {
 	const { runExtDoctor } = await import("./ext-doctor.ts");
 	const report = await runExtDoctor({ json: argv.includes("--json") });
 	process.exit(report.ok ? 0 : 1);
+}
+
+// `cli <command>`: the non-interactive CLI namespace (agent commands, pipelines,
+// `workflow run`, meta). Intercepted HERE, before applyPatches(), on purpose:
+// the CLI curates its extension set per command (docs/adr/0001) and must NOT
+// inherit the TUI's run-dir argv splice, provider patch, or static factories.
+//
+// The import is DYNAMIC so the TUI path never evaluates the CLI subtree — that
+// subtree statically pulls flux2/krea2/ltx/movie-director through each
+// extension's cli-subcommand.ts, which would otherwise land in every TUI boot.
+if (isCliCommand(argv)) {
+	try {
+		const { runCli } = await import("./cli/dispatch.ts");
+		process.exit(await runCli(argv.slice(1)));
+	} catch (e: any) {
+		// A throw at module-eval time in the CLI subtree lands here rather than
+		// as a raw uncaught rejection, so the CLI's error presentation stays
+		// uniform whether a command fails or its module fails to load.
+		console.error(`error: ${e?.message ?? String(e)}`);
+		process.exit(1);
+	}
 }
 
 // Patches MUST be applied before main() constructs ModelRegistry. Among other

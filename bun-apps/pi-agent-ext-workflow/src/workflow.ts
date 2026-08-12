@@ -88,7 +88,7 @@ export interface WorkflowRunOptions extends WorkflowAgentOptions {
   runId?: string;
   /**
    * Directory for the persisted run log. Overrides the default cwd-hashed runs
-   * dir; absolute or relative to `cwd`. Lets headless callers (pi-agent-cli)
+   * dir; absolute or relative to `cwd`. Lets headless callers (pi-agent)
    * redirect output to `PWD/.pi/` or any folder. Absent → existing behavior.
    */
   runsDir?: string;

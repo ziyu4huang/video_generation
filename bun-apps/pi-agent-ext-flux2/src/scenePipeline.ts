@@ -12,7 +12,7 @@
  *
  * VLM verification reuses pi-file2md's shared subagent primitive (`askImage` +
  * `resolveLLM`, defaulting to lm-studio/google/gemma-4-12b-qat) — the same
- * subagent plumbing pi-file2md itself and bun-pi-agent-cli already use, so this is
+ * subagent plumbing pi-file2md itself and `pi-agent cli` already use, so this is
  * not a new LM Studio client, just a new caller of the existing one.
  *
  * Both the per-seed runner and the VLM asker are injectable so the
