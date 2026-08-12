@@ -1,8 +1,9 @@
 ---
 type: task
-status: open
+status: closed
 blocked by:
 findings: H3, L2
+resolved: 2026-08-12 — shipped in #1063 — `/goal review on|off|auto|aggressive` parse; `/glla` removed; reviewer mode settable
 ---
 
 # 03 — Reviewer config surface: rewrite `/glla` strings + expose `mode` + test auto/aggressive

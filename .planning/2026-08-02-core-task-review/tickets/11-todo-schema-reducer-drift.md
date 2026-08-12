@@ -1,8 +1,9 @@
 ---
 type: task
-status: open
+status: closed
 blocked by:
 findings: M7, L11
+resolved: 2026-08-12 — shipped in #1065 — action-conditional schema + explicit reducer errors
 ---
 
 # 11 — Todo schema/reducer drift (`blockedBy`/`status` on the wrong action silently no-op)

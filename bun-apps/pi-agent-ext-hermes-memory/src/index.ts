@@ -52,6 +52,10 @@ import { registerKnowledgeIngestTool } from "./tools/knowledge-ingest-tool.js";
 import { registerPlanningStaleTool } from "./tools/planning-stale-tool.js";
 import { publishStaleCheck, unpublishStaleCheck } from "./stale-seam.js";
 import { resolveKnowledgeVaultPath } from "./knowledge-vault-path.js";
+// Ticket 14 phase A — HNSW vector side-table + lazy semantic query.
+import { SurrealClient } from "./store/surreal/surreal-client.js";
+import { createVectorStore } from "./store/surreal/vector-store.js";
+import { defaultEmbedder, SEMANTIC_MODEL_DEFAULT } from "./store/surreal/embedder.js";
 import { captureAssembly } from "./handlers/session-assembly.js";
 import { setupBackgroundReview } from "./handlers/background-review.js";
 import { setupSessionFlush } from "./handlers/session-flush.js";
@@ -91,6 +95,54 @@ export function resolveProjectSkillDiscovery(
   if (detected.skillsDir) skillPaths.push(detected.skillsDir);
 
   return { skillPaths };
+}
+
+/** Dedicated database for the card_vectors HNSW side-table. Lives in the
+ *  per-user namespace (same as the CRUD store when dbBackend=surrealdb) but in
+ *  its OWN database so the vector index is independent of the CRUD backend
+ *  (sqlite-vec is not loadable under Bun — Decision 04 Fork C). */
+const DEFAULT_VECTOR_DATABASE = "vectors";
+
+/** Build the (optional) semantic-search wiring for knowledge_search (ticket 14
+ *  phase A). Conservative: returns undefined providers unless `surreal.endpoint`
+ *  is explicitly configured, so the DEFAULT (sqlite, no endpoint) path is
+ *  byte-identical to the pre-semantic baseline (#default-behavior-unchanged).
+ *  The providers are LAZY — they only construct a client/embedder when
+ *  knowledge_search is called with `semantic:true`, so session init never
+ *  touches SurrealDB / LM Studio. */
+function buildKnowledgeSemanticOpts(
+  config: import("./types.js").MemoryConfig,
+): import("./tools/knowledge-search-tool.js").KnowledgeSemanticOpts | undefined {
+  const endpoint = config.surreal?.endpoint;
+  if (!endpoint) return undefined; // default config has no endpoint → unchanged behavior
+  const ns = config.surreal?.namespace ?? derivePerUserNamespace();
+  const db = DEFAULT_VECTOR_DATABASE;
+  const username = config.surreal?.username ?? "root";
+  const password = config.surreal?.password ?? "root";
+  const model = config.embedModel ?? SEMANTIC_MODEL_DEFAULT;
+  const ef = config.vectorEf ?? 100;
+  // One client per wiring (cheap — HTTP/stateless). Constructed lazily on first
+  // provider call, reused across calls via the closure-cached singleton.
+  let client: SurrealClient | undefined;
+  let store: import("./store/surreal/vector-store.js").VectorStore | undefined;
+  return {
+    model,
+    ef,
+    vectorStore: () => {
+      if (!client) client = new SurrealClient({ endpoint, namespace: ns, database: db, username, password });
+      if (!store) store = createVectorStore(client, ns, db);
+      return store;
+    },
+    embedder: () => {
+      const base = config.lmStudioBaseUrl ?? "http://127.0.0.1:1234";
+      // The embedder is constructed unconditionally (cheap); if LM Studio is
+      // down, embedQuery swallows the error and searchSemantic falls through to
+      // the T5(a) lexical fallback — so we don't gate on lmStudioAvailable here
+      // (avoids a probe round-trip on every call; the embed call itself fails
+      // fast). Tests inject their own embedder.
+      return defaultEmbedder({ baseUrl: base });
+    },
+  };
 }
 
 export function registerProjectSkillDiscoveryHandler(
@@ -418,7 +470,7 @@ export default async function (pi: ExtensionAPI) {
   // resolver, so a missing vault env does NOT crash session init (the resolver
   // throws at call time and the tool surfaces a clear message). The mirror
   // reuses the SAME SQLite DB the memory-cards use (the global memory dir). ──
-  registerKnowledgeSearchTool(pi, resolveKnowledgeVaultPath);
+  registerKnowledgeSearchTool(pi, resolveKnowledgeVaultPath, buildKnowledgeSemanticOpts(config));
   registerKnowledgeIngestTool(pi, { memoryDir: globalDir });
   // Phase-2 (knowledge-pipeline / 10-impl T6): the stale: query + revalidate
   // tool. Uses the SAME globalDir memory DB the planning mirror + knowledge

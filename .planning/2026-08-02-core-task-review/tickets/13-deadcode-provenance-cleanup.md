@@ -1,8 +1,9 @@
 ---
 type: task
-status: open
+status: closed
 blocked by:
 findings: L3, L14, L15
+resolved: 2026-08-12 — shipped in #1068 — `replay.ts` + test deleted; provenance fixed; typo fixed
 ---
 
 # 13 — Dead-code + provenance cleanup (`replay.ts`, provenance line, test typo)

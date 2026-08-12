@@ -1,8 +1,9 @@
 ---
 type: research
-status: open
+status: closed
 blocked by:
 findings: H5
+resolved: 2026-08-12 — shipped in #1075 + #1133 — pi runs one process per session (documented); todo store re-keyed per sessionId
 ---
 
 # 08 — Confirm pi's process-per-session guarantee (todo store concurrency safety)

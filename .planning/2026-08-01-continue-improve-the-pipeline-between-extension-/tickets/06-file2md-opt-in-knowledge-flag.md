@@ -1,3 +1,7 @@
+---
+status: closed
+---
+
 # 06 — file2md: opt-in `knowledge` flag + direct emit
 
 ## Question
@@ -38,3 +42,7 @@ round-trip test.
 ## claimed
 
 —
+
+## Resolution (closed 2026-08-12 — superseded)
+
+Delivered — `file2md.ts:92` `KNOWLEDGE_CHANNEL="pi:knowledge"`, `:237-242` `knowledge` opt-in flag, `:272-273` emit, payload `{source:"generic", sourceLabel:"file2md:<slug>", dir}`; test `pi-agent-ext-file2md/__tests__/knowledge-emit.test.ts:18-24`; superseded by canonical walkAndIngest path.

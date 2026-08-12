@@ -1,8 +1,9 @@
 ---
 type: grilling
-status: open
+status: closed
 blocked by:
 findings: M3
+resolved: 2026-08-12 — option (b) inert-by-design, shipped in #1072 — auditor floor #5 (`regression_shield`) marked inert; no `--verify` flag added
 ---
 
 # 06 — `regression_shield` (auditor safety floor #5) is inert — activate or mark

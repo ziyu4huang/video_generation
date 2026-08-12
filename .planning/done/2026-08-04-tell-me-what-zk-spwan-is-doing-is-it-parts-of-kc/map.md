@@ -1,3 +1,8 @@
+---
+effort: 2026-08-04-tell-me-what-zk-spwan-is-doing-is-it-parts-of-kc
+status: complete
+---
+
 # Wayfinder map: 2026-08-04-tell-me-what-zk-spwan-is-doing-is-it-parts-of-kc
 
 ## Destination
@@ -10,7 +15,7 @@ _(none)_
 
 ## Decisions so far
 
-<!-- none yet -->
+zk_spawn = knowledge-card's in-process subagent-spawn wrapper, not a separate CLI (resolved per 2026-08-12-unified-merge audit ticket 01).
 
 ## Not yet specified
 

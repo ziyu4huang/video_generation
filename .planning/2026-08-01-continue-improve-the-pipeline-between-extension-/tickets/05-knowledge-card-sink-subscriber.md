@@ -1,3 +1,7 @@
+---
+status: closed
+---
+
 # 05 — knowledge-card: `pi:knowledge` sink subscriber (+ `dir` contract)
 
 ## Question
@@ -39,3 +43,7 @@ Implement the **sink** side of the wired bus. Contract settled by
 ## claimed
 
 —
+
+## Resolution (closed 2026-08-12 — superseded)
+
+Delivered in code — sink subscriber at `knowledge-card.ts:1495` (`onKnowledge(...) → convergeKnowledgeEmission → ingestRecords`, `converge.ts:61`); superseded by canonical `2026-08-08-knowledge-pipeline` 06b (`walkAndIngest`).

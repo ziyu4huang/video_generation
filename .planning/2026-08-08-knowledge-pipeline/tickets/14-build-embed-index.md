@@ -1,14 +1,14 @@
 ---
 type: build
-status: open
-claimed:
-blocked by: 04 (closed — embed backend / build policy / model all decided in Round 2), 16 (scale-validation gate — see ticket 16; NOT a Decision-04 re-litigation)
+status: closed
+claimed: pi/main-session (2026-08-12, ticket 14 build)
+blocked by: 04 (closed — embed backend / build policy / model all decided in Round 2), 16 (closed 2026-08-12 — HNSW validated at scale: warm p95 flat ~11→18ms @1k→100k; build full HNSW, retain cosine warm/cold fallback)
 unblocks: obsidian vault-mind/ChromaDB deprecation (future ticket); A/B vector-bench extension (refinement)
 ---
 # 14 — Build embed/vector index (SurrealDB HNSW + lazy backfill)
 
 > **UNBLOCKED** — ticket 04 (embed backend) is `closed`; Round-2 grill pinned backend + build policy + model. Spine [12 + 06a + 06b] shipped, so the card-store this rides is live. Ready to start.
-> **Sequencing (2026-08-12):** the full build (T1+) now waits on ticket 16's scale validation. Decision 04's backend pin STANDS; 16 only stress-tests its ~13ms p95 @1k assumption at scale given the newer SurrealDB-RTT data from the 2026-08-07 dedup effort.
+> **Scale gate PASSED (2026-08-12, ticket 16):** HNSW holds at scale (warm p95 flat ~11→18ms @1k→100k; HNSW 21× faster than cosine under c16@100k; build ~1.5k vec/s). BUILD the full HNSW per Decision 04; RETAIN the cosine JSON-cache fallback (T5) for the small-N regime + cold-start window. Confirm the expected corpus scale/concurrency before committing the build cost (if <~10k + low concurrency, cosine-alone is currently faster).
 
 ## Goal
 Build the knowledge-pipeline embed/vector index end-to-end on the hermes spine, per the Round-2 grill resolutions (recorded as 3 refinements in ticket 04 + the hermes-memory PRD.md). Delivers an embed-powered semantic query + (optional) vector-dedup layer.
@@ -39,3 +39,19 @@ Build the knowledge-pipeline embed/vector index end-to-end on the hermes spine, 
 - obsidian vault-mind/ChromaDB deprecation (separate build ticket).
 - A/B vector-bench extension (refinement).
 - Image-card embed strategy (ticket 07).
+
+## Resolution (closed 2026-08-12 — SHIPPED, T1/T2/T3/T5a/T6)
+
+**Built** the SurrealDB HNSW embed/vector index on the hermes spine, de-risked by ticket 16 (HNSW holds at scale). Commits `118c8aff` (Phase A) + `ef3cebf0` (Phase B).
+
+- **T1 — `card_vectors` HNSW store** (`src/store/surreal/vector-store.ts`): side-table `card_vectors {mdId, kind, vec, contentHash, modelVersion}` + `DEFINE INDEX card_vec_hnsw … HNSW DIMENSION 768 DIST COSINE TYPE F32`. `upsertVectors` (chunk ≤120, 1MiB /sql cap, idempotent UPSERT keyed mdId+modelVersion), `knn` (`vec <|k,ef|> $q`), `missingMdIds`, `getStoredHashes`. **Architecture decision:** side-table independent of the CRUD backend — forced because the card-store is SQLite-only and sqlite-vec is NOT loadable in Bun (per Decision 04 Fork C, the embed index diverges from the CRUD store). Embedder (`src/store/surreal/embedder.ts`) mirrors zk's (nomic via LM Studio `:1234`, injectable).
+- **T6 — config** (`src/config.ts`/`types.ts`): `embedModel` + `embedModelVersion` (delta-key) + `lmStudioBaseUrl` + `vectorTopK` + `vectorEf`, all registered in `DEFAULT_CONFIG` + parse allowlist (lesson #06).
+- **T2 — lazy query** (`src/store/semantic-search.ts`): `searchSemantic` — embed query → HNSW KNN warm path.
+- **T5(a) — graceful-degrade fallback**: SurrealDB-down / VectorStore unavailable → knowledge cards fall back to zk JSON-cache cosine (via the `KnowledgePipeline` seam); memory cards fall back to lexical `searchMemories` (FTS). No throw, results returned. (Resolved the Round-2 "unavailable vs degrade-to-cosine" inconsistency as T5(a); the literal cosine-for-memory is deferred → ticket 18.)
+- **T3 — background backfill** (`src/handlers/vector-backfill.ts`): delta-keyed (contentHash + modelVersion) lazy warming mirroring `session-backfill.ts` (inProgress guard + `setTimeout(0)` + in-task re-check + error isolation + `waitForVectorBackfill` shutdown drain). Fires best-effort after `walkAndIngest` and on first cold query; unchanged cards are NOT re-embedded (fixes zk's whole-cache rebuild).
+
+**Tests:** `bun run check` green (tsc); full suite **1513 pass / 0 fail / 1 pre-existing skip**. Live-SurrealDB vector-store integration test (upsert + KNN recall) passes; unit tests use injectable embedders/stores (no LM Studio dependency).
+
+**Deferred → follow-up tickets:**
+- **T4 (dedup vector depth-pass)** → ticket `17-optional-dedup-vector-depth-pass.md` (purely additive; ingest dedup stays FTS/hash).
+- **T5(b) (hermes-side JSON-cache cosine fallback for memory cards)** → ticket `18-hermes-cosine-fallback-all-kinds.md` (ship only if memory-card semantic recall during SurrealDB downtime is a felt requirement; FTS is arguably a better memory fallback today).

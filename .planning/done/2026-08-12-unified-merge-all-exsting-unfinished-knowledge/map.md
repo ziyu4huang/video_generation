@@ -2,7 +2,7 @@
 effort: 2026-08-12-unified-merge-all-exsting-unfinished-knowledge
 created: 2026-08-12
 last: 2026-08-12
-status: active
+status: complete
 ---
 
 # Wayfinder map: 2026-08-12-unified-merge-all-exsting-unfinished-knowledge
@@ -29,6 +29,10 @@ Reconcile the knowledge-pipeline **build-cluster** sprawl (7 efforts) into ONE c
 ## Decisions so far
 
 - [01 — Audit the KP build-cluster efforts](tickets/01-audit-kp-cluster-real-state.md) — code/git-verified true state of all 7 efforts. Key findings: (a) `2026-08-01` tickets 05 & 06 ARE delivered in code (file2md emit + knowledge-card sink + `ingestRecords` wired) → ticket 03 leans close-as-superseded, nothing to migrate; (b) canonical map is stale on TWO shipped tickets (10-impl #1242 + 15-Phase1 #1168), not one; (c) only 03/07/13/14 remain genuinely unimplemented; (d) zk_spawn = knowledge-card's in-process subagent-spawn wrapper, not a separate CLI. Per-effort disposition table in the ticket.
+- 02 — canonical map de-staled (10-impl #1242 + 15-Phase1 #1168 marked shipped); open build set = {03,07,13,14}.
+- 03 — 2026-08-01 tickets 05 & 06 closed as superseded (verified delivered in code; nothing migrated).
+- 04 — 5 efforts archived to .planning/done/ (08-11-typecheck-gate, 07-28-surrealdb-graph, 08-08-obsidian-surealdb, 07-30-file2md-pdf, 08-04-zk-spwan).
+- 05 — handoff confirmed; 2026-08-08-knowledge-pipeline is the single surviving live effort; next-build pick = HITL (open set {03,07,13,14}).
 
 ## Not yet specified
 
