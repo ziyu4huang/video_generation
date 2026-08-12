@@ -1,8 +1,9 @@
 ---
 type: task
-status: open
+status: closed
 blocked by: 01
 findings: H2
+resolved: 2026-08-07 — shipped in #1053 (seam-contract self-only-seam guard via findSelfOnlySeams)
 ---
 
 # 02 — Harden the seam-contract "NO DEAD KEYS" test (self-reference loophole)
