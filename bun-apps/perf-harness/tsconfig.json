@@ -10,8 +10,20 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "declaration": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "types": ["bun"],
+    "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  // src only, deliberately. tests/grand-total.regression.test.ts deep-imports
+  // sibling packages by relative path (../../../bun-apps/pi-agent-ext-*/…), and
+  // tsc follows imports regardless of `include` — so listing tests/ here pulls
+  // the whole transitive sibling graph in and typechecks it under THIS
+  // package's compiler options rather than each package's own. That produced
+  // 193 errors, none of them defects in this package: `moduleResolution:
+  // Node16` flagging extensionless relative imports in obsidian, missing DOM
+  // lib in others, and so on. Every one of those packages has its own
+  // `typecheck` script with the right options. The tests themselves are gated
+  // by `bun test` (this package's CI matrix row).
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

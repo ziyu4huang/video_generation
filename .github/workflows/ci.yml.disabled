@@ -581,6 +581,20 @@ jobs:
         working-directory: bun-apps
         run: bun run test:ci-workflow
 
+      # Package-script runnability guard (blocks). The same rot class as the
+      # step above, hosted in package.json instead of this file: a script that
+      # names a binary its package does not declare. Under the isolated linker
+      # that script exits 127, and since only 3 of the 10 `check` scripts are
+      # chained into a CI command, nothing ever ran them — perf-harness's
+      # `tsc --noEmit` (no devDependencies at all) and pi-agent-ext-core-runtime's
+      # `biome check .` (no @biomejs/biome) both sat broken. Also asserts every
+      # biome user HAS a biome.json — core-runtime's was left behind when #1251
+      # extracted it from subagent, so biome silently graded against its own
+      # defaults and reported 27 phantom format errors.
+      - name: Package-script runnability guard (bare binaries, blocks)
+        working-directory: bun-apps
+        run: bun run test:scripts
+
       # Test-portability prevention check — now BLOCKING (--strict). Scans the
       # test surface for the four "works on my machine" signal patterns and
       # exits non-zero on any UNGATED P1/P2 hit (existsSync of a machine-coupled
