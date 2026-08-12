@@ -6,10 +6,10 @@
  * of the inline code it replaces.
  */
 
-import type { TSchema } from "typebox";
 import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
-import type { computeScopeCheck, GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
 import { parseSddReport } from "@repo/pi-agent-ext-core-runtime";
+import type { TSchema } from "typebox";
+import type { computeScopeCheck, GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
 import type { SpawnSubagentOptions } from "./spawn-subagent.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
 import { deriveSubagentStatus, formatSubagentLive, taskPreview } from "./subagent-tool-render.js";

@@ -1,5 +1,5 @@
-import { Type } from "typebox";
 import { loadModelTierConfig, type ModelTierConfig, resolveModelRole } from "@repo/pi-agent-ext-core-runtime";
+import { Type } from "typebox";
 import { type SpawnSubagentOptions, spawnSubagent } from "../spawn-subagent.js";
 import type { WatchdogFinding, WatchdogL2Result } from "./types.js";
 

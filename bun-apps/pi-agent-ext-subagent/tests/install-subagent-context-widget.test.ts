@@ -9,6 +9,17 @@ function fakeRegistry(list: () => unknown[]) {
   return { list } as never;
 }
 
+/**
+ * Narrow a value captured by a callback (the widget factory, a timer callback)
+ * to non-undefined. Throws loudly when the code under test never handed it over,
+ * which is itself the failure these tests are checking for — unlike `?.`, which
+ * would silently skip the call and let the assertions below pass vacuously.
+ */
+function captured<T>(value: T | undefined, what: string): T {
+  if (value === undefined) throw new Error(`expected ${what} to have been captured`);
+  return value;
+}
+
 test("(d) install mounts the widget once, ABOVE the editor, keyed 'subagents'", () => {
   const calls: Array<{ key: string; opts: { placement?: string } }> = [];
   const ui = { setWidget: (key: string, _f: unknown, opts: { placement?: string }) => calls.push({ key, opts }) };
@@ -52,7 +63,7 @@ test("factory render reads the registry live and is empty when idle (invisible)"
     setInterval: (() => "id") as never,
     clearInterval: () => {},
   });
-  const comp = factory!({ requestRender: () => {} }, T);
+  const comp = captured(factory, "the widget factory")({ requestRender: () => {} }, T);
   assert.deepEqual(comp.render(), []);
 });
 
@@ -88,7 +99,7 @@ test("factory render shows a BACKGROUND run and EXCLUDES a foreground run", () =
     setInterval: (() => "id") as never,
     clearInterval: () => {},
   });
-  const comp = factory!({ requestRender: () => {} }, T);
+  const comp = captured(factory, "the widget factory")({ requestRender: () => {} }, T);
   const out = comp.render().join("\n");
   assert.match(out, /1 background subagent running/, "only the background run is counted");
   assert.ok(out.includes("doing X"), "background run's task appears");
@@ -108,7 +119,7 @@ test("factory render reflects registry changes live (a run appearing mid-flight)
     setInterval: (() => "id") as never,
     clearInterval: () => {},
   });
-  const comp = factory!({ requestRender: () => {} }, T);
+  const comp = captured(factory, "the widget factory")({ requestRender: () => {} }, T);
   assert.deepEqual(comp.render(), []);
   list.push({
     id: "bg",
@@ -142,7 +153,7 @@ test("the timer callback calls tui.requestRender (elapsed ticks between events)"
       clearInterval: () => {},
     } as never,
   );
-  factory!(
+  captured(factory, "the widget factory")(
     {
       requestRender: () => {
         rendered += 1;
@@ -151,7 +162,7 @@ test("the timer callback calls tui.requestRender (elapsed ticks between events)"
     T,
   );
   assert.ok(scheduled, "a timer callback was registered");
-  scheduled!();
+  captured(scheduled, "the timer callback")();
   assert.equal(rendered, 1, "the timer tick calls requestRender");
 });
 
@@ -175,8 +186,9 @@ test("timer starts exactly once even if the app invokes the factory twice", () =
     } as never,
   );
   const tui = { requestRender: () => {} };
-  factory!(tui, T);
-  factory!(tui, T); // second invocation (e.g. theme change) must NOT start a second interval
+  const invoke = captured(factory, "the widget factory");
+  invoke(tui, T);
+  invoke(tui, T); // second invocation (e.g. theme change) must NOT start a second interval
   assert.equal(starts, 1);
 });
 
@@ -201,7 +213,7 @@ test("dispose clears the refresh interval returned by setInterval", () => {
   // The timer starts when the app invokes the factory (NOT at install time) —
   // mirror that lifecycle before asserting dispose clears it. dispose() before
   // any factory invocation is a no-op (timerId never set).
-  factory!({ requestRender: () => {} }, T);
+  captured(factory, "the widget factory")({ requestRender: () => {} }, T);
   dispose();
   assert.equal(cleared, "id-42", "dispose clears the interval id once the factory has started it");
 });
@@ -248,7 +260,7 @@ test("handle.toggle() flips the box to expanded and requests a re-render", () =>
   // to request a render. Before that, toggle() still flips state but cannot
   // requestRender (no TUI yet) — it must not throw.
   assert.doesNotThrow(() => handle.toggle());
-  factory!(
+  captured(factory, "the widget factory")(
     {
       requestRender: () => {
         rendered += 1;
@@ -287,7 +299,7 @@ test("Ctrl-O input toggles the box via the onTerminalInput handler shape", () =>
     }
     return { consume: false };
   };
-  factory!({ requestRender: () => {} }, T);
+  captured(factory, "the widget factory")({ requestRender: () => {} }, T);
   fire("hello");
   fire("\x1b[A");
   assert.equal(toggles, 0, "non-Ctrl-O input does not toggle");

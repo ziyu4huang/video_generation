@@ -11,8 +11,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createModelsPresetCommand } from "../extensions/models-preset.js";
 import type { ModelTierConfig } from "@repo/pi-agent-ext-core-runtime";
+import { createModelsPresetCommand } from "../extensions/models-preset.js";
 
 let tmpDir: string;
 let configPath: string;
