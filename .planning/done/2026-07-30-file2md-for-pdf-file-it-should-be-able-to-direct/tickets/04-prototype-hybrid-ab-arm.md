@@ -1,7 +1,7 @@
 type: prototype
 blocked by: 03 (prototype-binary-ab-test)
 claimed: work-session
-status: re-opened (D4 no-Python) — hybrid now REQUIRED
+status: closed
 
 ## ⚠️ REVISION (D4 — no Python): UN-SKIPPED. Hybrid is now REQUIRED.
 
@@ -56,3 +56,7 @@ turns into the final recommendation.
 ## Related (cross-effort, 2026-08-08 review)
 
 - `2026-08-08-pi-agent-ext-knowledge-card-obsidian-surealdb-or`/02 CLOSED chose **pdf = mupdf via file2md** as the extractor for the knowledge pipeline. If this ticket's "hybrid AB arm" is now subsumed by that decision, close as superseded-by-08-08/02; otherwise note the relationship and proceed.
+
+## Resolution (closed 2026-08-12 — settled)
+
+Hybrid (mupdf text + selective VLM) shipped via file2md (`file2md.ts:204` `extract: vlm|text|hybrid`); ABSORBED-BY `2026-08-08-knowledge-pipeline/02`.

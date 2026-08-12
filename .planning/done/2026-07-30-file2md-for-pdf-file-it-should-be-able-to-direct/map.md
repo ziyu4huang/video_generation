@@ -1,3 +1,7 @@
+---
+status: complete
+---
+
 # Wayfinder map: file2md — direct PDF text read vs rasterize→VLM
 
 ## Destination
