@@ -10,6 +10,14 @@ export const SEAM_KEYS = {
   __piPlanSummary:          { crossPackage: true },
   __piWayfindGrill:         { crossPackage: true },
   __piKnowledgePipeline:    { crossPackage: true },
+  // __piHermesStaleCheck: the staleness REVERSE seam added by #1242 — hermes
+  // publishes the async reader (hermes-memory/src/stale-seam.ts), wayfind reads
+  // it (wayfind/src/stale-seam.ts, the T8 graduation gate). The literal is
+  // duplicated verbatim across the two packages (ADR-0004: no cross-package
+  // import), which is exactly the drift surface this registry exists to pin →
+  // crossPackage:true. It shipped unregistered, so bun-apps/tests/
+  // seam-contract.test.ts was RED on main until this line.
+  __piHermesStaleCheck:     { crossPackage: true },
   // __piRateLimitState: the key LITERAL is owned solely in
   // pi-agent-ext-core-runtime (rate-limiter.ts GLOBAL_KEY); subagent +
   // pi-agent-ext-workflow share the budget through the exported
