@@ -173,9 +173,19 @@ function genFish(commands: string[], pipelines: string[]): string {
 		);
 	}
 	for (const f of GLOBAL_FLAGS) {
-		// `-s` for single-dash short flags, `-l` for `--long` ones; emitting a
-		// short flag as `-l p` would advertise a `--p` that does not exist.
-		const spec = f.startsWith("--") ? `-l '${f.slice(2)}'` : `-s '${f.slice(1)}'`;
+		// Three fish forms, and picking the wrong one is not cosmetic:
+		//   --long        → `-l long`
+		//   -p            → `-s p`   (fish's -s takes exactly ONE character)
+		//   -xt, -nt, -lm → `-o xt`  (--old-option: single dash, multi-char)
+		// Emitting `-l p` would advertise a `--p` that does not exist, and
+		// `-s xt` is rejected by fish ("expected a single character"), which
+		// breaks the line — and pi really does have multi-char short flags
+		// (-xt/--exclude-tools, -nt, -nbt, -lm, -lt; see cli/flag-spec.ts).
+		const spec = f.startsWith("--")
+			? `-l '${f.slice(2)}'`
+			: f.length === 2
+				? `-s '${f.slice(1)}'`
+				: `-o '${f.slice(1)}'`;
 		lines.push(
 			`complete -c ${BIN} -n "__fish_seen_subcommand_from cli" ${spec} -d 'global flag'`,
 		);

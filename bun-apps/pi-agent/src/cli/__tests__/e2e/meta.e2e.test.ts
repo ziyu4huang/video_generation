@@ -89,6 +89,16 @@ describe("meta — completions", () => {
 				expect(r.stdout).toContain(
 					`complete -c pi-agent -n "__fish_seen_subcommand_from cli" -a 'zk-ask'`,
 				);
+				// fish's `-s` takes exactly ONE character; it rejects `-s xt` with
+				// "expected a single character", killing that completion line. pi has
+				// multi-char single-dash flags (-xt/-nt/-nbt/-lm/-lt) which MUST be
+				// emitted as `-o` (--old-option). Nothing in CI runs fish, so this
+				// string check is the only guard.
+				const badShorts = [...r.stdout.matchAll(/-s '([^']+)'/g)]
+					.map((m) => m[1]!)
+					.filter((s) => s.length > 1);
+				expect(badShorts, `multi-char fish -s flags (must be -o): ${badShorts.join(", ")}`).toEqual([]);
+				expect(r.stdout).toContain(`-o 'xt'`);
 			}
 			// The retired standalone binary name must not survive anywhere.
 			expect(r.stdout).not.toContain("bun-pi-agent-cli");
