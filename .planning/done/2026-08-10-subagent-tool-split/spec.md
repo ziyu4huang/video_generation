@@ -2,7 +2,7 @@
 
 - **Effort**: `2026-08-10-subagent-tool-split`
 - **Date**: 2026-08-10
-- **Status**: proposed
+- **Status**: Done (shipped #1207)
 - **Package**: `bun-apps/pi-agent-ext-subagent`
 - **Related**: `2026-08-10-simplify-recent-code` (sibling; Phase 2 targets `pi-agent-ext-workflow` — different package, zero collision)
 - **Precedent**: [ADR-0002](../../bun-apps/pi-agent-ext-subagent/docs/adr/0002-relocate-viewer-command-to-subagent.md) (extract a pure helper to a sibling module to break a cycle)

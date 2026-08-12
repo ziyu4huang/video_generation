@@ -1,6 +1,6 @@
 # fix-subagent-spawn-seam — tool-gate × core-task × subagent cooperation
 
-**Status:** IN PROGRESS (umbrella) — discovery complete (2026-08-08). Optimization #1 (active-set threading) CLOSED (shipped #1127); #2 (tool-gate seeding) CLOSED + live (shipped #1129); #5 (slim core-task always-on footprint) ATTEMPTED then REVERTED (#1142 merged → reverted via #1145; miss-rate A/B showed 81% adversarial miss-rate). #3 (state isolation = core-task ticket #16): stages 1-3 MERGED (#1132 accumulator / #1133 todo / #1135 loopState); stage 4 (goalState session isolation) DEFERRED to a dedicated effort. #4, #6 deferred.
+**Status:** Done — resolved with deferrals (stage-4 goalState deferred; see reconciliation umbrella)
 
 **Supersedes / relates:** Shares-decision-with `2026-07-26-explorer-other-pi-agent-ext-` (fire-and-forget vs supervised runner ruling) and `2026-08-02-improve-extension-co-operation-` (owner-declared gating; no cross-extension deps). Relates-to core-task ticket #16 (state isolation) and the `2026-08-02-core-task-review` backlog.
 

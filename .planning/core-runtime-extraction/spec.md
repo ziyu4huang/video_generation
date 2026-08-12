@@ -2,7 +2,7 @@
 
 - **Effort:** `core-runtime-extraction`
 - **Date:** 2026-08-12
-- **Status:** Approved (design — pending implementation plan)
+- **Status:** Done (shipped #1251)
 
 ## 1. Goal
 

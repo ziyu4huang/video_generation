@@ -1,6 +1,6 @@
 ---
 effort: 2026-08-11-superpowers-bootstrap-trim
-status: active
+status: Done (shipped #1241)
 ---
 
 # Plan — Superpowers bootstrap payload trim (scope A+B+C)

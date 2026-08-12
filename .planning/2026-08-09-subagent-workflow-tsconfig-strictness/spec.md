@@ -1,6 +1,6 @@
 # Spec: subagent + workflow tsconfig strictness (`noUncheckedIndexedAccess`) + knowledge-card `LinkWeighting` export
 
-**Status:** Approved design — pending implementation.
+**Status:** Done (shipped #1165)
 **Effort folder:** `.planning/2026-08-09-subagent-workflow-tsconfig-strictness/`.
 **Date:** 2026-08-09.
 **Origin:** Deferred follow-up named in `.planning/2026-08-09-subagent-tui-toolcall-pairing/spec.md` ("the pre-existing TS18048 narrowing cluster (separate follow-up)").

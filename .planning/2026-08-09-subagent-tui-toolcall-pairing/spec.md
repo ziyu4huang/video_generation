@@ -1,6 +1,6 @@
 # Effort: subagent TUI tool-call/result pairing (trace fidelity)
 
-- Status: proposed
+- Status: Done (shipped #1161)
 - Date: 2026-08-09
 - Scope: bun-apps/pi-agent-ext-subagent
 

@@ -1,7 +1,7 @@
 # Spec — core-task quota-retry (faithful verbatim baseline)
 
 - **Date:** 2026-07-31
-- **Status:** Design approved; ready for implementation plan
+- **Status:** Done (shipped #969)
 - **Effort dir:** `.planning/2026-07-31-core-task-quota-retry/`
 - **Origin:** wayfinder "go next" → 3rd GLA→core-task port (after Reviewer #962, length-continue #966)
 - **Precedent:** mirrors the faithful-verbatim-baseline decision + pure-module invariant (reviewer.ts, length-continue.ts)
