@@ -1,4 +1,11 @@
 /**
+ * @upstream(LeanRAG) concept ④ (warm vector-ANN retrieval) + concept ③
+ * (redundancy-aware context — PORTING via ticket 19).
+ * The lazy embed → HNSW warm path (+ zk-cosine / lexical-FTS cold fallback,
+ * ticket 14 T5a) is LeanRAG's retrieval entry point. Ticket 19 ports LeanRAG
+ * concept ③ here: frequency-voted card recall + exact-contentHash dedup on both
+ * warm and cold paths. See ADR-0001, ticket 19, docs/LEANRAG-PROVENANCE.md.
+ *
  * src/store/semantic-search.ts — T2 semantic search spine + T5(a) graceful
  * fallback (ticket 14 phase A).
  *
