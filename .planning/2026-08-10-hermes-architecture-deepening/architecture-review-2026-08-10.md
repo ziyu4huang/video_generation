@@ -20,7 +20,7 @@ This is the **same drift** the skill's own prior dogfood found in `pi-agent-ext-
 
 **Friction + principle.** Pure functions extracted without locality; one concern (how a fenced card splits / how an entry decodes) smeared across five modules. Principles: **locality** (one codec) + **depth** (one implementation behind one small interface). **Deletion test:** routing every caller through one fence-split leaf + one entry codec CONCENTRATES the knowledge; `mdIdOf` deletes entirely once decode returns a value carrying `.id`. -> genuine.
 
-**kp leverage:** the in-flight 08-impl plan adds a **fourth** `splitPlanningFrontmatter` (`planning-parse.ts`, Task 2). Landing this candidate first lets 08-impl reuse the shared leaf instead of deepening the drift.
+**kp leverage:** 08 shipped on the old splitter; landing C1 now (before kp ticket 13's memory-card migration) prevents a 4th splitter and stops the §-entry codec drift from deepening — 13's round-trip acceptance depends on ONE codec.
 
 **Solution** One fs-free leaf that splits a fenced YAML block (the lenient tolerance decided once), consumed by the memory / knowledge / skill codecs and the new planning codec. One entry-decode path that returns a value object carrying `.id`, replacing the five sites + `mdIdOf`. One `splitEntries(md)` helper. No interface proposed here.
 
@@ -171,7 +171,7 @@ flowchart TD
 
 ---
 
-## Candidate 5: the store trio — CardStore's own backend + half-applied Card abstraction — Speculative  IN-FLIGHT (defer)
+## Candidate 5: the store trio — CardStore's own backend + half-applied Card abstraction — Strong (kp-13 prerequisite; promoted from defer 2026-08-12)
 
 **Files** `store/card-store.ts` (`createCardStore`, `upsertCard`), `store/skill-store.ts` (828), `store/repository.ts` (`MemoryTarget`).
 
@@ -179,7 +179,7 @@ flowchart TD
 
 **Friction + principle.** An abstraction that claims generality it doesn't deliver; a concrete impl behind an interface claim; a type that drifts from storage. Principles: **seam** (one backend bundle) + **depth** (the interface describes what the DB holds). **Deletion test:** injecting one shared `BackendBundle` into all stores CONCENTRATES (deletes the second connection); widening `MemoryTarget` to match storage CONCENTRATES. -> genuine, but the Card abstraction is **mid-evolution under kp Phase-2** — deepening now collides with active work.
 
-**Solution** Defer until kp Phase-2 (08/09/10) lands and the Card model settles; then inject one `BackendBundle` into `CardStore` (delete its private `SqliteBackend`), widen `MemoryTarget` to match storage, and decide whether `SkillStore` joins the Card family or stays a documented exception. No interface proposed.
+**Solution** **Promoted (2026-08-12):** 08/09 shipped; 10 pending. Do BEFORE kp ticket 13 — the memory-card migration needs the Card abstraction FINISHED (upsertCard no longer throws for non-knowledge kinds; one shared BackendBundle instead of CardStore's private SqliteBackend; MemoryTarget widened to match storage). No interface proposed.
 
 **Wins**
 - seam: one BackendBundle, one connection
@@ -209,6 +209,20 @@ flowchart LR
 
 ---
 
+## Candidate 6: addMemory is a blind INSERT — dedup not in the MemoryRepository contract — Strong (kp-13 prerequisite)
+
+**Files:** `store/sqlite/sqlite-memory-repo.ts`, `store/surreal/surreal-memory-repo.ts`, `store/repository.ts`, `tests/store/repository-contract.test.ts`.
+
+**Problem:** `addMemory` computes no content-hash and performs no exact-duplicate check on either backend — identical content can double-persist via the DB write path. Dedup today covers only `syncMemoryEntry` (identity-dedup in `repository-contract.test.ts`); near-dup, topic-dup, and `addMemory` exact-dup are uncovered.
+
+**Solution:** Promote an exact-dup check into the shared `MemoryRepository` contract (compute a content-hash at write time; skip/replace on match), and widen `repository-contract.test.ts` to cover near-dup, topic-dup, and `addMemory` exact-dup. Keeps the single-dedup-site goal (kp Decision 4) honest across BOTH the sync and add paths.
+
+**Wins:** one dedup site, provable parity for kp ticket 13's acceptance ("dedup works against the unified store"); closes a real silent-double-persist bug.
+
+**kp leverage:** kp ticket 13's acceptance criterion requires dedup parity against the unified store — without this, 13 inherits the blind-INSERT gap.
+
+---
+
 ## Also surfaced (not candidates)
 
 - **sqlite/ vs surreal/ parallel duplication** (`mapRow`, `buildScope`, the lexical -> graph search pipeline, the FTS ladder) — the deletion test CONCENTRATES (shared codec + query-adapter), but SurrealDB is **default-off** (`CONTEXT.md`); weighting where work actually happens, this is YAGNI unless Surreal activation is planned.
@@ -218,6 +232,16 @@ flowchart LR
 
 ## Top recommendation
 
-**Candidate 1 — unify the fenced-YAML + entry codecs.** It is the only candidate that is simultaneously Strong, low-coordination-cost (an additive fs-free leaf, not touching in-flight files except as a *beneficiary*), and **directly leverages the in-flight kp work** — 08-impl's `planning-parse.ts` is about to add a fourth splitter; landing the shared leaf first lets it reuse instead. It also has a proven precedent: the same drift was found and shipped in wayfind (PR #1152). Candidate 2 (split `skills-command.ts`) is the other Strong pick — the #2 hot-spot, high churn, not in-flight — and is the natural second step. Candidates 3 and 5 are real but cross the in-flight kp area; Candidate 4 is a clutch of modest, high-leverage ceremony wins at the wiring hub.
+**Re-sequenced 2026-08-12** against the knowledge-pipeline self-reflection (supersedes the earlier C1→C2 / defer-C5 ordering):
 
-**Which of these would you like to explore?**
+**Do BEFORE kp ticket 13 (memory-card migration) — the convergence prerequisites:**
+- **C1 (codec unification)** — top pick. 08 shipped on the old splitter; landing C1 now removes the 4th splitter before 13's migration deepens the §-entry codec drift.
+- **C5 (Card-abstraction finish)** — PROMOTED from defer. 13 needs the Card abstraction finished (no per-kind throws; shared backend; widened MemoryTarget).
+- **C6 (NEW — dedup into the MemoryRepository contract)** — closes the blind-INSERT gap; 13's dedup-parity acceptance depends on it.
+
+**Rolling / independent of 13:**
+- **C2 (skills-command split)** — Strong, hot-spot, not in-flight; natural whenever capacity allows.
+- **C3 (sqlite-backend split)** — IN-FLIGHT; coordinate with kp Phase-2's planning migration (column-declaration list at 3 sites, kp adds a 4th).
+- **C4 (index.ts composition root)** — modest, high-leverage ceremony wins at the wiring hub.
+
+Rationale: sequencing C1/C5/C6 before 13 keeps the memory-card migration mechanical + low-risk (as kp ticket 05 intends); deferring them makes 13 the integration flashpoint.

@@ -25,6 +25,7 @@ A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pd
 - Reuse: knowledge-card (zk_*), obsidian (vault), hermes-memory (section-md + backend-ab), file2md (extractPdfText via mupdf). SurrealDB v3.2.3 @127.0.0.1:8000. lm-studio hosts embed + vision (google/gemma-4-12b-qat, user-evaluated; confirm id at impl time).
 - Platform: Apple Silicon MPS, bfloat16 native, MLX stack (per CLAUDE.md).
 - Test corpus: image path TBD; .planning path = this repo's own .planning/.
+- **Cross-effort sequencing & flagged risks (2026-08-12 self-reflection):** (1) ticket 13 (memory-card migration) should FOLLOW the hermes-arch convergence moves — codec unification (C1) + Card-abstraction finish (C5) + dedup-into-contract (C6) in `.planning/2026-08-10-hermes-architecture-deepening`; sequencing them first keeps 13 mechanical. (2) New ticket 16 validates SurrealDB HNSW p95 at scale before the full ticket-14 build (newer 2026-08-07 RTT data; respects Decision 04). (3) The 3-tier md↔DB drift policy behind closed 05 is still UNIMPLEMENTED — the Tier-1 re-index hook at `walk-and-ingest.ts:82` is inert; do NOT reuse `merge-plan.ts` as the resolver (it is an LLM consolidation merge — only its hash primitives carry over).
 
 ### Absorbed efforts (folded in 2026-08-08)
 - 2026-08-08-pi-agent-ext-knowledge-card-obsidian-surealdb-or — foundation; tickets 01-05 migrated here as 01-05. SUPERSEDED.
