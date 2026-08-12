@@ -1,4 +1,11 @@
 /**
+ * @upstream(LeanRAG) concept ④ — dual vector+graph store.
+ * The `card_vectors` HNSW side-table (DIM 768 COSINE F32, ticket 14) is this
+ * pipeline's vector-ANN store; it supersedes LeanRAG's Milvus-lite IVF_FLAT/IP
+ * collection. The graph side lives in SurrealDB `RELATE` (supersedes LeanRAG's
+ * MySQL flat-tables + recursive-CTE emulation). See ADR-0001 +
+ * docs/LEANRAG-PROVENANCE.md.
+ *
  * src/store/surreal/vector-store.ts — HNSW vector side-table for the
  * card_vectors index (ticket 14 phase A / T1).
  *
