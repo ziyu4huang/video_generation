@@ -2611,13 +2611,20 @@ describe("numeric isolation — assembled prompt never leaks memworth (UPSP §7 
     // Both the memory block (snapshot, stripped) and the failure block
     // (getActiveFailureEntries, stripped) must stay isolated. Pins the existing
     // behavior so a future change can't start surfacing raw counters.
+    //
+    // Failure entries are age-gated by DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS
+    // (7). A fixed past created-date ages out of the injection window and the
+    // fixture stops being injected, red-ing this regression pin over time. Use
+    // a created-date relative to NOW (now - 1d) so the fixture is permanently
+    // in-window at test time — never ages out again.
+    const recentIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const mem = serializeMetadataFrontmatter({
       id: "iso-mem-1", text: "numeric-iso global memory body",
-      created: "2026-08-02", last: "2026-08-02", mwFail: 7,
+      created: recentIso, last: recentIso, mwFail: 7,
     });
     const fail = serializeMetadataFrontmatter({
       id: "iso-fail-1", text: "[failure] numeric-iso lesson — Failed: x",
-      created: "2026-08-02", last: "2026-08-02", state: "active", mwSuccess: 2,
+      created: recentIso, last: recentIso, state: "active", mwSuccess: 2,
     });
     await writeRaw(mp, mem);
     await writeRaw(fp, fail);

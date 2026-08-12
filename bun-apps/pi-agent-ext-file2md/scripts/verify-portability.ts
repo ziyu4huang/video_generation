@@ -10,14 +10,14 @@
 
 /** A leaked-home-path pattern plus a human label. */
 interface LeakPattern {
-	re: RegExp;
-	label: string;
+  re: RegExp;
+  label: string;
 }
 
 const HOME_PATH_PATTERNS: LeakPattern[] = [
-	{ re: /\/Users\/[a-z]/i, label: "/Users/..." }, // macOS
-	{ re: /\/home\/[a-z]/i, label: "/home/..." }, // Linux
-	{ re: /C:\\Users\\/i, label: "C:\\Users\\..." }, // Windows
+  { re: /\/Users\/[a-z]/i, label: "/Users/..." }, // macOS
+  { re: /\/home\/[a-z]/i, label: "/home/..." }, // Linux
+  { re: /C:\\Users\\/i, label: "C:\\Users\\..." }, // Windows
 ];
 
 /**
@@ -29,12 +29,12 @@ const HOME_PATH_PATTERNS: LeakPattern[] = [
  * regex matches the code, ALL home-path warnings are suppressed.
  */
 export function findLeakedHomePaths(code: string, exclude: RegExp[] = []): string[] {
-	if (exclude.some((x) => x.test(code))) return [];
-	const warnings: string[] = [];
-	for (const { re, label } of HOME_PATH_PATTERNS) {
-		if (re.test(code)) {
-			warnings.push(`absolute ${label} path found in output — leaks local layout`);
-		}
-	}
-	return warnings;
+  if (exclude.some((x) => x.test(code))) return [];
+  const warnings: string[] = [];
+  for (const { re, label } of HOME_PATH_PATTERNS) {
+    if (re.test(code)) {
+      warnings.push(`absolute ${label} path found in output — leaks local layout`);
+    }
+  }
+  return warnings;
 }

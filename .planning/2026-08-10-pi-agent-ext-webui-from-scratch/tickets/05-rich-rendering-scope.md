@@ -2,7 +2,10 @@
 
 type: grilling
 blocked by: 04
-status: open
+status: closed
+resolved: 2026-08-12
+
+> **Spec'd (session decision).** Resolved as **generic tool-mirror only** — subscribe `tool_result`, format each result's typed `details` into markdown, render a single accumulating "tools" view; **ALL dedicated renderers (image/video inline preview, manifest/table, diff viewer, file-tree) AND binary-artifact serving deferred** to v1-out-of-scope. See ../specs/05-rich-rendering.md + ../plans/05-rich-rendering-plan.md.
 
 ## Question
 

@@ -20,6 +20,9 @@
     "test": "bun run build && bun run test:unit"
   },
   "license": "MIT",
+  "dependencies": {
+    "marked": "^15"
+  },
   "devDependencies": {
     "@types/bun": "^1.3.14",
     "typebox": "^1.3.7",

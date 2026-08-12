@@ -38,7 +38,14 @@
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { WebServer } from "../src/web-server.js";
-import { wireWebui, type WebuiHost, type WebuiWiring } from "../src/webui-wiring.js";
+import {
+  wireWebui,
+  type WebuiHost,
+  type WebuiWiring,
+  type RenderHostEvents,
+  type WebuiUi,
+} from "../src/webui-wiring.js";
+import { resolvePort } from "../src/port-resolver.js";
 
 // --- test harness (copied shape from web-server.test.ts) --------------------
 
@@ -125,7 +132,30 @@ function openWs(url: string, headers?: Record<string, string>): Promise<WebSocke
 class MockPi implements WebuiHost {
   readonly handlers = new Map<string, (event: any, ctx: any) => any>();
   readonly sent: Array<{ content: string | unknown[]; opts?: { deliverAs?: "steer" | "followUp" } }> = [];
+  readonly registeredTools: unknown[] = [];
+  readonly events: RenderHostEvents;
   aborts = 0;
+  // ticket 07 announce recording (populated by ctx(); fresh per session_start):
+  uiNotifications: Array<{ message: string; type?: string }> = [];
+  uiStatuses: Array<{ key: string; text: string | undefined }> = [];
+  // ticket 07 no-auto-open negative control (the host interface exposes no
+  // exec; this recorder asserts the wiring never reaches for one):
+  execCalls = 0;
+
+  constructor() {
+    const channels = new Map<string, Set<(data: unknown) => void>>();
+    this.events = {
+      on(channel, handler) {
+        let set = channels.get(channel);
+        if (!set) { set = new Set(); channels.set(channel, set); }
+        set.add(handler);
+        return () => { set!.delete(handler); };
+      },
+      emit(channel, data) {
+        channels.get(channel)?.forEach((h) => h(data));
+      },
+    };
+  }
 
   on(event: string, handler: (event: any, ctx: any) => any): void {
     this.handlers.set(event, handler);
@@ -138,6 +168,10 @@ class MockPi implements WebuiHost {
     this.sent.push({ content, opts });
   }
 
+  registerTool(tool: unknown): void {
+    this.registeredTools.push(tool);
+  }
+
   /** Replay a pi host event into the wiring's real registered handler. */
   emit(event: string, payload: any = {}, ctx: any = undefined): any {
     const h = this.handlers.get(event);
@@ -145,13 +179,32 @@ class MockPi implements WebuiHost {
   }
 
   /** A fake session ctx whose abort() is observable. */
-  ctx(): { abort(): void } {
+  ctx(): { abort(): void; ui: WebuiUi } {
     const self = this;
+    // fresh recording arrays per ctx() (each session_start gets a clean slate);
+    // exposed on the instance for assertions.
+    self.uiNotifications = [];
+    self.uiStatuses = [];
     return {
       abort() {
         self.aborts++;
       },
+      ui: {
+        notify: (message: string, type?: "info" | "warning" | "error") => {
+          self.uiNotifications.push({ message, type });
+        },
+        setStatus: (key: string, text: string | undefined) => {
+          self.uiStatuses.push({ key, text });
+        },
+      },
     };
+  }
+
+  /** Records exec calls (ticket 07 no-auto-open negative control). NOT on
+   *  WebuiHost — the wiring cannot call it through the typed host. */
+  async exec(_command: string, _args: string[]): Promise<{ code: number; stderr: string }> {
+    this.execCalls++;
+    return { code: 0, stderr: "" };
   }
 }
 
@@ -170,18 +223,15 @@ function setup(): { pi: MockPi; server: WebServer; wiring: WebuiWiring } {
 // ===========================================================================
 
 describe("wireWebui live smoke — Tier A", () => {
-  it("A) after session_start, GET / serves the stub HTML page (webui connect-test)", async () => {
+  it("A) after session_start, GET / serves the render shell (ticket 06)", async () => {
     const { pi, server, wiring } = setup();
-    // session_start: wiring lazily starts the server + binds the session.
     pi.emit("session_start", {}, pi.ctx());
     wiring; // referenced for clarity
     const res = await fetch(`${server.url}/`);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
     const body = await res.text();
-    expect(body).toContain("webui connect-test");
-    // And the page wires up /ws (the real frontend is ticket 06).
-    expect(body).toContain("/ws");
+    expect(body).toContain("webui-render-shell");
   });
 
   it("B) client connects to ws://127.0.0.1:<port>/ws + sends {type:subscribe} -> server.clientCount === 1", async () => {
@@ -268,6 +318,68 @@ describe("wireWebui live smoke — Tier A", () => {
       "ws denial never settled"
     );
     expect(opened).toBe(false);
+  });
+
+  it("G) session_start announces the resolved URL via ctx.ui, and does NOT auto-open", async () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", {}, pi.ctx());
+    // The announce uses the REAL resolved URL (live ephemeral port, not the
+    // literal 0). ctx.ui.notify + setStatus each fire once.
+    expect(pi.uiNotifications).toEqual([
+      { message: `webui: ${server.url}`, type: "info" },
+    ]);
+    expect(pi.uiStatuses).toEqual([{ key: "webui", text: server.url }]);
+    // No auto-open: the wiring never calls pi.exec (the host interface exposes
+    // no exec). The exec recorder is a belt-and-suspenders negative control.
+    expect(pi.execCalls).toBe(0);
+  });
+
+  it("H) announce + port resolution compose: the announced URL is the live resolved loopback URL", async () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", {}, pi.ctx());
+    // The announced URL EQUALS server.url (T3 reads server.url after start()).
+    expect(pi.uiNotifications[0]?.message).toBe(`webui: ${server.url}`);
+    expect(pi.uiStatuses[0]?.text).toBe(server.url);
+    // server.url is the LIVE resolved URL — a real loopback address with a real
+    // (non-zero) port produced by resolvePort via getServer() (T2). Not literal 0.
+    expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/?$/);
+    expect(new URL(server.url).port).not.toBe("0");
+  });
+
+  it("I) v1 wires null token => /, /api/views, /api/events all pass WITHOUT ?session=", async () => {
+    // wireWebui calls server.setTokenAuth(null) (T4). With the token null the
+    // fetch token block is skipped, so NO request needs ?session=. Proves the
+    // loopback wiring is "off" end-to-end against a live server.
+    const { pi, server } = setup();
+    pi.emit("session_start", {}, pi.ctx());
+    const root = await fetch(`${server.url}/`);
+    expect(root.status).toBe(200);
+    const views = await fetch(`${server.url}/api/views`);
+    expect(views.status).toBe(200);
+    const events = await fetch(`${server.url}/api/events`);
+    // /api/events is an SSE stream — the origin guard + null-token skip let it
+    // through (200); we only assert it is reachable (not 403/404).
+    expect(events.status).toBe(200);
+  });
+
+  it("J) v1 wires null token => /ws upgrade succeeds WITHOUT ?session=", async () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", {}, pi.ctx());
+    const ws = await withTimeout(
+      openWs(`${server.url.replace("http", "ws")}/ws`),
+      2000,
+      "ws open timed out"
+    );
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it("K) resolvePort 3-tier is honored (WEBUI_PORT > PORT > 0) — pure, integration-recorded", () => {
+    // The pure resolver is unit-tested in port-resolver.test.ts (T2); this case
+    // records the ordering in the live integration suite. resolvePort is the
+    // function getServer() calls (T2 wiring).
+    expect(resolvePort({ WEBUI_PORT: "8080", PORT: "9000" })).toBe(8080);
+    expect(resolvePort({ PORT: "9000" })).toBe(9000);
+    expect(resolvePort({})).toBe(0);
   });
 });
 

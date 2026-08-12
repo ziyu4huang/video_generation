@@ -30,6 +30,7 @@ import {
   validateEffortMap,
   type WayfindMap,
 } from "./model.js";
+import { readStaleDecisions } from "./stale-seam.js";
 
 // ─── create ──────────────────────────────────────────────────────────────────
 
@@ -128,6 +129,10 @@ export interface EffortStatusTicket {
   status: TicketStatus;
   /** Bare ticket-number ids that must close before this one can start. */
   blocking: string[];
+  /** 10-impl: true when this closed decision is stale (its cited/declared deps
+   *  drifted since last validation). Set at the TOOL layer from the seam's stale
+   *  card-id set; left unset when hermes is absent. */
+  stale?: boolean;
 }
 
 export interface EffortStatusResult {
@@ -145,6 +150,11 @@ export interface EffortStatusResult {
   /** Low-res per-ticket inventory (titles + statuses + blocking edges, NO bodies).
    *  Empty array on a missing effort or an effort with no tickets. */
   tickets: EffortStatusTicket[];
+  /** 10-impl: # of stale decisions on this effort (deps changed since last
+   *  validation). null = staleness unavailable (explicit); UNSET (undefined) =
+   *  not enriched / hermes absent (render emits nothing); 0 = clean; N = count.
+   *  Enriched at the TOOL layer (async) — the SYNC effortStatus leaves it unset. */
+  stale?: number | null;
   /** Set only by the tool's missing-`effort` guard (throw-free ok:false). */
   error?: string;
 }
@@ -213,7 +223,7 @@ export function renderValidate(r: EffortValidateResult): string {
   return `Effort '${r.effort}' is INVALID:\n  - ${r.problems.join("\n  - ")}`;
 }
 
-function renderStatus(r: EffortStatusResult): string {
+export function renderStatus(r: EffortStatusResult): string {
   if (r.error) return r.error;
   if (!r.ok) return `No map at .planning/${r.effort}/map.md.`;
   const status = r.meta?.status ?? "(no manifest)";
@@ -221,6 +231,18 @@ function renderStatus(r: EffortStatusResult): string {
     `[${r.effort}] open ${r.open} · closed ${r.closed} · claimed ${r.claimed} · fog ${r.fog} · status ${status}`,
     `destination: ${r.destination || "(unset)"}`,
   ];
+  // 10-impl T9: staleness line (after destination). undefined = not enriched /
+  // hermes absent → emit nothing (byte-identical to pre-T9); null = explicitly
+  // unavailable; 0 = clean; N = stale count.
+  const staleStr =
+    r.stale === undefined
+      ? ""
+      : r.stale === null
+        ? "staleness: unavailable"
+        : r.stale === 0
+          ? "stale: 0 (clean)"
+          : `stale: ${r.stale}`;
+  if (staleStr) lines.push(staleStr);
   if (r.frontier.length > 0) {
     lines.push("frontier:");
     for (const t of r.frontier) lines.push(`  ${t.id} ${t.title} [${t.type}]`);
@@ -232,7 +254,8 @@ function renderStatus(r: EffortStatusResult): string {
     lines.push("tickets:");
     for (const t of r.tickets) {
       const blk = t.blocking.length > 0 ? ` blocked-by ${t.blocking.join(",")}` : "";
-      lines.push(`  ${t.id} ${t.title} [${t.status}]${blk}`);
+      const stl = t.stale ? " ⚠ stale" : ""; // 10-impl T9: per-ticket stale marker
+      lines.push(`  ${t.id} ${t.title} [${t.status}]${blk}${stl}`);
     }
   } else {
     lines.push("tickets: (none)");
@@ -240,15 +263,18 @@ function renderStatus(r: EffortStatusResult): string {
   return lines.join("\n");
 }
 
-function renderList(r: EffortListResult): string {
+export function renderList(r: EffortListResult): string {
   if (!r.ok) return r.error ? `Failed to list efforts: ${r.error}` : "Failed to list efforts under .planning/.";
   if (r.efforts.length === 0) return "No efforts found under .planning/.";
   const lines = [`${r.efforts.length} effort${r.efforts.length === 1 ? "" : "s"} under .planning/:`, ""];
   for (const e of r.efforts) {
     const c = e.ticketCounts;
     const last = e.lastModified ? `  last=${e.lastModified}` : "";
+    // 10-impl T9: per-effort stale token. undefined = not enriched / hermes
+    // absent → no token (byte-identical to pre-T9); null = unavailable; N = count.
+    const staleToken = e.stale === undefined ? "" : e.stale === null ? "  stale=?" : `  stale=${e.stale}`;
     lines.push(
-      `${e.slug}  [${e.status}]  open=${c.open} closed=${c.closed} claimed=${c.claimed}  frontier=${e.frontierSize}  fog=${e.fog}${last}`,
+      `${e.slug}  [${e.status}]  open=${c.open} closed=${c.closed} claimed=${c.claimed}  frontier=${e.frontierSize}  fog=${e.fog}${last}${staleToken}`,
     );
     if (e.destination) lines.push(`    ${e.destination}`);
   }
@@ -396,10 +422,38 @@ export function makeWayfindEffortTool() {
             return { content: [{ type: "text" as const, text: renderStatus(r) }], details: r };
           }
           const r = effortStatus(cwd, params.effort);
+          // 10-impl T9: enrich the stale count + per-ticket markers from the
+          // hermes seam (async). readStaleDecisions returns null when hermes is
+          // absent → leave `stale` UNSET so renderStatus emits nothing (output
+          // byte-identical to pre-T9). A non-null array → stale.length (0 =
+          // clean) + a ⚠ marker on each ticket whose cardId is stale. The SYNC
+          // effortStatus leaves `stale` unset; staleness is a tool-layer concern.
+          try {
+            const stale = await readStaleDecisions(params.effort, cwd);
+            if (stale !== null) {
+              r.stale = stale.length;
+              const staleNos = new Set(stale.map((s) => s.cardId.split(":").pop() ?? ""));
+              for (const t of r.tickets) if (staleNos.has(t.id)) t.stale = true;
+            }
+          } catch {
+            // seam threw (defensive — readStaleDecisions already catches) → leave unset
+          }
           return { content: [{ type: "text" as const, text: renderStatus(r) }], details: r };
         }
         case "list": {
           const r = listEfforts(cwd);
+          // 10-impl T9: per-effort stale count from the hermes seam. Each call
+          // opens an ephemeral store in hermes; N efforts = N calls (acceptable
+          // for a manual list, not a hot path). null = hermes absent → leave
+          // `stale` UNSET so renderList emits no token (byte-identical to pre-T9).
+          for (const e of r.efforts) {
+            try {
+              const stale = await readStaleDecisions(e.slug, cwd);
+              if (stale !== null) e.stale = stale.length;
+            } catch {
+              // seam threw → leave unset
+            }
+          }
           return { content: [{ type: "text" as const, text: renderList(r) }], details: r };
         }
         case "search": {

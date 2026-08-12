@@ -4,37 +4,31 @@
  * Extracted from bun-pi-agent-cli so both the CLI (thin wrapper) and the
  * pi extension (file2md tool) share the same implementation.
  */
-import { copyFileSync, writeFileSync, existsSync } from "node:fs";
-import { resolve, relative, isAbsolute, basename } from "node:path";
+import { copyFileSync, existsSync, writeFileSync } from "node:fs";
+import { basename, isAbsolute, relative, resolve } from "node:path";
 import { rasterizePdf } from "./native/pdf2png.ts";
 import { extractPdfText } from "./native/pdftext.ts";
-import {
-  classifyKind,
-  imageMimeType,
-  ALL_PROFILES,
-  type DocKind,
-  type DocProfile,
-} from "./vlm/classify.ts";
-import { parseExtractStrategy, type ExtractStrategy } from "./vlm/extract-strategy.ts";
+import { type ResolvedLLM, resolveVisionLLM } from "./sessions.ts";
+import { type ExplainMode, type ExplainResult, explainPage } from "./vlm/agents.ts";
+import { ALL_PROFILES, classifyKind, type DocKind, type DocProfile, imageMimeType } from "./vlm/classify.ts";
 import { classifyProfileFromPages } from "./vlm/classify-vlm.ts";
-import { explainPage, type ExplainMode } from "./vlm/agents.ts";
-import { detectFigurePages } from "./vlm/figure-detect.ts";
+import { type ExtractStrategy, parseExtractStrategy } from "./vlm/extract-strategy.ts";
 import { describeFigureWithPrior } from "./vlm/figure-annotate.ts";
-import { withRetry, retryableError } from "./vlm/retry.ts";
-import { validatePageMarkdown } from "./vlm/validate.ts";
-import { PageContext, formatContext } from "./vlm/page-context.ts";
+import { detectFigurePages } from "./vlm/figure-detect.ts";
 import {
-  slugify,
-  layoutFor,
-  ensureLayout,
   createManifest,
-  writeManifest,
-  loadManifest,
   type DocLayout,
+  ensureLayout,
+  layoutFor,
+  loadManifest,
   type Manifest,
   type PageStatus,
+  slugify,
+  writeManifest,
 } from "./vlm/manifest.ts";
-import { resolveVisionLLM, type ResolvedLLM } from "./sessions.ts";
+import { formatContext, PageContext } from "./vlm/page-context.ts";
+import { retryableError, withRetry } from "./vlm/retry.ts";
+import { validatePageMarkdown } from "./vlm/validate.ts";
 
 // Read lazily at call time (not module load) so tests / callers can set the env
 // vars any time before the pipeline runs — evaluating at load froze the values
@@ -115,11 +109,7 @@ interface PreparedDoc {
 }
 
 /** Step 1–2: classify kind + rasterize/copy into the output layout. */
-async function prepareDoc(
-  inputAbs: string,
-  outRoot: string,
-  dpi: number,
-): Promise<PreparedDoc> {
+async function prepareDoc(inputAbs: string, outRoot: string, dpi: number): Promise<PreparedDoc> {
   const classified = classifyKind(inputAbs);
   const inputName = basename(inputAbs);
   const slug = slugify(inputName);
@@ -156,15 +146,8 @@ async function prepareDoc(
 }
 
 /** Write the doc-level MOC note linking all page notes. */
-function writeIndexNote(
-  layout: DocLayout,
-  manifest: Manifest,
-  profile: DocProfile,
-  cwd: string,
-): void {
-  const relInput = isAbsolute(manifest.input)
-    ? relative(cwd, manifest.input)
-    : manifest.input;
+function writeIndexNote(layout: DocLayout, manifest: Manifest, profile: DocProfile, cwd: string): void {
+  const relInput = isAbsolute(manifest.input) ? relative(cwd, manifest.input) : manifest.input;
   const lines: string[] = [
     "---",
     `title: ${manifest.inputName}`,
@@ -272,15 +255,7 @@ async function runTextExtractBranch(opts: {
     }
 
     const body = page.text ?? "";
-    const md = [
-      "---",
-      `title: ${inputName}`,
-      `page: ${pageNo}`,
-      "kind: text",
-      "---",
-      "",
-      body,
-    ].join("\n");
+    const md = ["---", `title: ${inputName}`, `page: ${pageNo}`, "kind: text", "---", "", body].join("\n");
     writeFileSync(layout.mdAbs(pageNo), md + "\n", "utf8");
 
     mp.status = "done" as PageStatus;
@@ -415,9 +390,7 @@ async function runHybridExtractBranch(opts: {
       const dt = ((Date.now() - t0) / 1000).toFixed(1);
       if (r.ok && r.markdown) {
         body += `\n\n### Figures & equations (via VLM)\n${r.markdown}`;
-        console.error(
-          `  [${pageNo}/${pageCount}] figure annotated (${dt}s, +${r.markdown.length} chars)`,
-        );
+        console.error(`  [${pageNo}/${pageCount}] figure annotated (${dt}s, +${r.markdown.length} chars)`);
       } else {
         // VLM failure is non-fatal — the text body is still written so the
         // page isn't lost. The page is marked done (text succeeded); the
@@ -428,15 +401,7 @@ async function runHybridExtractBranch(opts: {
       }
     }
 
-    const md = [
-      "---",
-      `title: ${inputName}`,
-      `page: ${pageNo}`,
-      `kind: ${kind}`,
-      "---",
-      "",
-      body,
-    ].join("\n");
+    const md = ["---", `title: ${inputName}`, `page: ${pageNo}`, `kind: ${kind}`, "---", "", body].join("\n");
     writeFileSync(layout.mdAbs(pageNo), md + "\n", "utf8");
 
     mp.status = "done" as PageStatus;
@@ -459,13 +424,7 @@ async function runHybridExtractBranch(opts: {
  * the pi extension tool.
  */
 export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Promise<void> {
-  const {
-    inputs,
-    forcedType,
-    pages,
-    emit,
-    relpath = false,
-  } = opts;
+  const { inputs, forcedType, pages, emit, relpath = false } = opts;
 
   // T5 — extraction strategy. `vlm` (default) runs the existing rasterize +
   // VLM path byte-for-byte; `text` short-circuits PDFs through mupdf's text
@@ -483,12 +442,10 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
 
   // Always resolve outRoot to absolute for file operations; display format is controlled by relpath.
   const outRoot = isAbsolute(opts.outRoot) ? opts.outRoot : resolve(cwd, opts.outRoot);
-  const displayPath = (abs: string) => relpath ? (relative(cwd, abs) || abs) : abs;
+  const displayPath = (abs: string) => (relpath ? relative(cwd, abs) || abs : abs);
 
   if (forcedType && !ALL_PROFILES.includes(forcedType)) {
-    throw new Error(
-      `Invalid type "${forcedType}". Valid: ${ALL_PROFILES.join(", ")}`,
-    );
+    throw new Error(`Invalid type "${forcedType}". Valid: ${ALL_PROFILES.join(", ")}`);
   }
 
   // T5-fix — resolve the vision LLM eagerly for vlm/hybrid (byte-for-byte:
@@ -607,9 +564,7 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
       // S4 — sample up to 3 representative pages (first / middle / last) and
       // majority-vote, so a atypical cover page can't misclassify the whole doc.
       const sampleIdx =
-        doc.pageCount <= 1 ? [0]
-        : doc.pageCount === 2 ? [0, 1]
-        : [0, Math.floor(doc.pageCount / 2), doc.pageCount - 1];
+        doc.pageCount <= 1 ? [0] : doc.pageCount === 2 ? [0, 1] : [0, Math.floor(doc.pageCount / 2), doc.pageCount - 1];
       const samplePngs = sampleIdx.map((i) => doc.pagePngs[i]!);
       console.error(
         `  classifying profile via VLM (${samplePngs.length} sampled page${samplePngs.length > 1 ? "s" : ""})…`,
@@ -664,7 +619,7 @@ export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Pro
 
       console.error(`  [${pageNo}/${doc.pageCount}] explaining…`);
       const t0 = Date.now();
-      let res;
+      let res: ExplainResult;
       try {
         res = await withRetry(
           async () => {

@@ -7,10 +7,11 @@
  * its own LM Studio client or session plumbing. Defaults to the same shared
  * VLM target as the rest of pi-file2md (lm-studio/google/gemma-4-12b-qat).
  */
-import { extname } from "node:path";
+
 import { readFileSync } from "node:fs";
+import { extname } from "node:path";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { resolveVisionLLM, type ResolvedLLM } from "../sessions.ts";
+import { type ResolvedLLM, resolveVisionLLM } from "../sessions.ts";
 import { runVisionInference } from "./vision-inference.js";
 
 export interface AskImageResult {
@@ -57,7 +58,13 @@ function readImage(abs: string, mimeType: string) {
 export async function askImage(
   imagePath: string,
   question: string,
-  opts: { mimeType?: string; systemPrompt?: string; llm?: ResolvedLLM; agentDir?: string; modelRuntime?: ModelRuntime } = {},
+  opts: {
+    mimeType?: string;
+    systemPrompt?: string;
+    llm?: ResolvedLLM;
+    agentDir?: string;
+    modelRuntime?: ModelRuntime;
+  } = {},
 ): Promise<AskImageResult> {
   const llm = opts.llm ?? resolveVisionLLM();
   const mimeType = opts.mimeType ?? guessImageMimeType(imagePath);

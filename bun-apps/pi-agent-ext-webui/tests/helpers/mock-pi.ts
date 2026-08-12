@@ -14,6 +14,8 @@
  * The mock ctx mirrors the slice of ExtensionContext the wiring touches:
  * `abort()`.
  */
+import type { RenderHostEvents, WebuiUi } from "../../src/webui-wiring.js";
+
 export type AnyHandler = (event: any, ctx: any) => any;
 
 export class MockPi {
@@ -21,18 +23,70 @@ export class MockPi {
   readonly handlers = new Map<string, AnyHandler[]>();
   /** DELIVERED (non-suppressed) sendUserMessage calls. */
   readonly sent: Array<{ content: unknown; opts?: { deliverAs?: "steer" | "followUp" } }> = [];
-  /** Mock session context (the second arg passed to handlers). */
-  readonly ctx = {
-    abortCalls: 0,
-    abort(): void {
-      this.abortCalls++;
-    },
+  /** Tools registered via registerTool (ticket 06 render framework). */
+  readonly registeredTools: unknown[] = [];
+  /** Shared event bus (ticket 06 render channel "webui:render"). */
+  readonly events: RenderHostEvents;
+  /** Mock session context (the second arg passed to handlers). Adds a `ui`
+   *  stub (ticket 07) recording notify/setStatus for announce assertions. */
+  readonly ctx: {
+    abortCalls: number;
+    abort(): void;
+    notifications: Array<{ message: string; type?: string }>;
+    statuses: Array<{ key: string; text: string | undefined }>;
+    ui: WebuiUi;
   };
+
+  constructor() {
+    const channels = new Map<string, Set<(data: unknown) => void>>();
+    this.events = {
+      on(channel, handler) {
+        let set = channels.get(channel);
+        if (!set) {
+          set = new Set();
+          channels.set(channel, set);
+        }
+        set.add(handler);
+        return () => {
+          set!.delete(handler);
+        };
+      },
+      emit(channel, data) {
+        channels.get(channel)?.forEach((h) => h(data));
+      },
+    };
+    // ticket 07: ctx gains a ui stub that records announce calls. The arrays
+    // are captured by the ui closures AND exposed on ctx (same references), so
+    // pi.ctx.notifications / pi.ctx.statuses reflect every announce in tests.
+    const notifications: Array<{ message: string; type?: string }> = [];
+    const statuses: Array<{ key: string; text: string | undefined }> = [];
+    this.ctx = {
+      abortCalls: 0,
+      notifications,
+      statuses,
+      abort(): void {
+        this.abortCalls++;
+      },
+      ui: {
+        notify: (message, type) => {
+          notifications.push({ message, type });
+        },
+        setStatus: (key, text) => {
+          statuses.push({ key, text });
+        },
+      },
+    };
+  }
 
   on(event: string, handler: AnyHandler): void {
     const list = this.handlers.get(event);
     if (list) list.push(handler);
     else this.handlers.set(event, [handler]);
+  }
+
+  /** Register a tool (ticket 06 render framework registers "webui_render"). */
+  registerTool(tool: unknown): void {
+    this.registeredTools.push(tool);
   }
 
   sendUserMessage(

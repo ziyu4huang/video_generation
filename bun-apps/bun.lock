@@ -470,6 +470,9 @@
     "pi-agent-ext-webui": {
       "name": "@repo/pi-agent-ext-webui",
       "version": "0.1.0",
+      "dependencies": {
+        "marked": "^15",
+      },
       "devDependencies": {
         "@types/bun": "^1.3.14",
         "typebox": "^1.3.7",

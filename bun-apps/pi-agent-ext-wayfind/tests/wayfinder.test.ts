@@ -163,22 +163,22 @@ describe("renderStatus", () => {
 });
 
 describe("closeEffortReflection (/wayfind done)", () => {
-  it("refuses when open tickets remain on the frontier", () => {
+  it("refuses when open tickets remain on the frontier", async () => {
     const cwd = makeCwd();
     chartMap(cwd, "done-demo", "dest");
     addTicket(cwd, "done-demo", "Open decision", "which?", "grilling", []);
-    const r = closeEffortReflection(cwd, "done-demo");
+    const r = await closeEffortReflection(cwd, "done-demo");
     expect("refused" in r).toBe(true);
     if ("refused" in r) expect(r.refused).toContain("open ticket");
   });
 
-  it("refuses when the effort has no map", () => {
+  it("refuses when the effort has no map", async () => {
     const cwd = makeCwd();
-    const r = closeEffortReflection(cwd, "nonexistent");
+    const r = await closeEffortReflection(cwd, "nonexistent");
     expect("refused" in r).toBe(true);
   });
 
-  it("harvests fog into a next-goal note when the frontier is clear", () => {
+  it("harvests fog into a next-goal note when the frontier is clear", async () => {
     const cwd = makeCwd();
     chartMap(cwd, "done-demo", "ship the closing ceremony");
     const map = readMap(cwd, "done-demo");
@@ -190,7 +190,7 @@ describe("closeEffortReflection (/wayfind done)", () => {
     ];
     writeMap(cwd, map);
     // fixed timestamp → deterministic filename (local components, TZ-stable)
-    const r = closeEffortReflection(cwd, "done-demo", new Date(2026, 6, 23, 3, 30, 0));
+    const r = await closeEffortReflection(cwd, "done-demo", new Date(2026, 6, 23, 3, 30, 0));
     expect("refused" in r).toBe(false);
     if ("refused" in r) throw new Error("expected a reflection, got a refusal");
     expect(r.path).toBe("output/next-goal-20260723_033000.md");
@@ -210,6 +210,71 @@ describe("closeEffortReflection (/wayfind done)", () => {
     expect(existsSync(join(cwd, ".planning", "done-demo"))).toBe(false); // moved out of root
     const moved = parseMapFrontmatter(readFileSync(join(cwd, ".planning", "done", "done-demo", "map.md"), "utf-8"));
     expect(moved.meta?.status).toBe("complete");
+  });
+});
+
+// 10-impl (staleness dependency graph): the T8 graduation gate. closeEffortReflection
+// (above) became async + gained a stale-check arm that refuses graduation while any
+// closed decision whose cited/declared deps drifted since last validation remains.
+// The arm is AFTER the frontier-check refused arm + BEFORE fileCompletedEffort, and
+// is null-safe (hermes absent → seam returns null → no-op → graduation proceeds).
+// The seam is faked via globalThis.__piHermesStaleCheck — the real seam path, mirrors
+// tests/stale-seam.test.ts (NOT a direct import of computeStaleness).
+describe("closeEffortReflection — staleness graduation gate (10-impl T8)", () => {
+  const STALE_KEY = "__piHermesStaleCheck";
+
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>)[STALE_KEY];
+  });
+
+  it("refuses when stale decisions remain (seam returns a non-empty list)", async () => {
+    const cwd = makeCwd();
+    chartMap(cwd, "gate-eff", "dest");
+    // frontier clear (no open tickets) so the ONLY gate is staleness
+    (globalThis as Record<string, unknown>)[STALE_KEY] = async () => ({
+      stale: [{ cardId: "planning-ticket:gate-eff:01", effort: "gate-eff" }],
+    });
+    const r = await closeEffortReflection(cwd, "gate-eff");
+    expect("refused" in r).toBe(true);
+    if ("refused" in r) {
+      expect(r.refused).toContain("1 stale decision(s)");
+      expect(r.refused).toContain("gate-eff");
+      expect(r.refused).toContain("planning-ticket:gate-eff:01"); // the stale cardId is named
+    }
+  });
+
+  it("proceeds when hermes is absent (seam undefined → null → no gate)", async () => {
+    const cwd = makeCwd();
+    chartMap(cwd, "gate-eff", "dest");
+    // NO seam published — readStaleDecisions returns null → gate is a no-op.
+    const r = await closeEffortReflection(cwd, "gate-eff");
+    expect("refused" in r).toBe(false);
+  });
+
+  it("proceeds when the seam reports zero stale", async () => {
+    const cwd = makeCwd();
+    chartMap(cwd, "gate-eff", "dest");
+    (globalThis as Record<string, unknown>)[STALE_KEY] = async () => ({ stale: [] });
+    const r = await closeEffortReflection(cwd, "gate-eff");
+    expect("refused" in r).toBe(false);
+  });
+
+  it("fires the frontier-check arm FIRST (a frontier violation wins over stale)", async () => {
+    const cwd = makeCwd();
+    chartMap(cwd, "gate-eff", "dest");
+    // an OPEN ticket → frontier non-empty → the frontier-check arm refuses first;
+    // the stale arm (which is AFTER it) is never reached, even though the seam is
+    // published with a stale card. The refused message must be the frontier one.
+    addTicket(cwd, "gate-eff", "Open decision", "which?", "grilling", []);
+    (globalThis as Record<string, unknown>)[STALE_KEY] = async () => ({
+      stale: [{ cardId: "planning-ticket:gate-eff:01", effort: "gate-eff" }],
+    });
+    const r = await closeEffortReflection(cwd, "gate-eff");
+    expect("refused" in r).toBe(true);
+    if ("refused" in r) {
+      expect(r.refused).toContain("open ticket"); // frontier message
+      expect(r.refused).not.toContain("stale decision"); // stale arm never reached
+    }
   });
 });
 

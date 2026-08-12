@@ -3,14 +3,8 @@
  *
  *   bun test src/vlm/page-context.test.ts
  */
-import { describe, test, expect } from "bun:test";
-import {
-  PageContext,
-  extractContext,
-  extractTerms,
-  formatContext,
-  type PageContextSnapshot,
-} from "./page-context.ts";
+import { describe, expect, test } from "bun:test";
+import { extractContext, extractTerms, formatContext, PageContext, type PageContextSnapshot } from "./page-context.ts";
 
 const PAGE1 = [
   "---",

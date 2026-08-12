@@ -16,6 +16,8 @@
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { walkAndIngest } from "../walk-and-ingest.js";
+import { createCardStore } from "../store/card-store.js"; // 10-impl T5 — sweep's short-lived store
+import { computeStaleness } from "../store/planning-staleness.js"; // 10-impl T5 — compare-only sweep
 
 export const PLANNING_BACKFILL_MAX_FILES = 50;
 
@@ -116,6 +118,32 @@ export function schedulePlanningBackfill(
         // off the `.planning` segment in each abs path, which the collected
         // paths retain — so the bounded file list scopes the mirror exactly.
         await walkAndIngest(files, { memoryDir, planningOnly: true, partialWalk: true });
+        // 10-impl T5: staleness sweep — seed dep baselines for newly-mirrored
+        // planning-ticket cards + FLAG stale (compare-only after the first-touch
+        // seed). MUST NOT re-baseline drifted cards: that would wipe stale state
+        // on every session_start, contradicting γ (staleness survives until an
+        // explicit re-validate via refreshStaleness — the sole re-baseline op).
+        // The sweep's observable WRITE is seeding baselines so a dep change DURING
+        // a session is detectable at graduation. Best-effort: a staleness failure
+        // must NEVER break the mirror/backfill (outer + per-card try/catch).
+        // Runs AFTER walkAndIngest so the ticket rows exist to enumerate.
+        try {
+          const stStore = await createCardStore({ memoryDir });
+          try {
+            const tickets = await stStore.getCardsByKind("planning-ticket");
+            for (const t of tickets) {
+              try {
+                await computeStaleness(stStore, t.id, repoRoot);
+              } catch {
+                /* one bad card must not abort the sweep */
+              }
+            }
+          } finally {
+            await stStore.close();
+          }
+        } catch {
+          /* staleness sweep is best-effort */
+        }
         notifyBestEffort(options.notify, `🧠 Planning backfill complete: scanned ${files.length} .planning file(s).`, "info");
       } catch (err) {
         notifyBestEffort(

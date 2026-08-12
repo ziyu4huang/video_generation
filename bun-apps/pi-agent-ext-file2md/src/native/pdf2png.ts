@@ -16,17 +16,11 @@
  * Output: <outDir>/page-001.png, page-002.png, … (1-indexed, zero-padded to
  * the page count width). Prints the page count to stdout on success.
  */
-import {
-  mkdtempSync,
-  writeFileSync,
-  rmSync,
-  existsSync,
-  readdirSync,
-  renameSync,
-} from "node:fs";
+
+import { spawn } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
 
 /** Embedded Swift helper. Kept self-contained (Foundation + Quartz + AppKit). */
 const SWIFT_SOURCE = `import Foundation
@@ -101,10 +95,7 @@ export interface RasterizeResult {
 }
 
 /** Run a command and collect stdout/stderr. Works in both Bun and Node runtimes. */
-function spawnCollect(
-  cmd: string,
-  args: string[],
-): Promise<{ code: number; stdout: string; stderr: string }> {
+function spawnCollect(cmd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const p = spawn(cmd, args, { stdio: "pipe" });
     const out: Buffer[] = [];
@@ -128,11 +119,7 @@ function spawnCollect(
  * @param pdfPath  absolute path to the source PDF
  * @param outDir   directory to write page PNGs into (created if missing)
  */
-async function rasterizeViaPdfKit(
-  pdfPath: string,
-  outDir: string,
-  opts: RasterizeOptions,
-): Promise<RasterizeResult> {
+async function rasterizeViaPdfKit(pdfPath: string, outDir: string, opts: RasterizeOptions): Promise<RasterizeResult> {
   const swift = await findSwift();
 
   // Write the embedded Swift source to a temp .swift file.
@@ -174,7 +161,9 @@ async function findSwift(): Promise<string> {
       const path = stdout.trim();
       if (path && existsSync(path)) return path;
     }
-  } catch { /* fall through */ }
+  } catch {
+    /* fall through */
+  }
   // Fallback: ask the shell where swift lives.
   try {
     const { code, stdout } = await spawnCollect("which", ["swift"]);
@@ -182,10 +171,10 @@ async function findSwift(): Promise<string> {
       const path = stdout.trim();
       if (path && existsSync(path)) return path;
     }
-  } catch { /* fall through */ }
-  throw new Error(
-    "swift toolchain not found. Install Xcode Command Line Tools: `xcode-select --install`.",
-  );
+  } catch {
+    /* fall through */
+  }
+  throw new Error("swift toolchain not found. Install Xcode Command Line Tools: `xcode-select --install`.");
 }
 
 /** Locate the `pdf2image` CLI on PATH. Returns its path or null if absent. */
@@ -196,7 +185,9 @@ async function findPdf2Image(): Promise<string | null> {
       const path = stdout.trim();
       if (path && existsSync(path)) return path;
     }
-  } catch { /* not installed */ }
+  } catch {
+    /* not installed */
+  }
   return null;
 }
 

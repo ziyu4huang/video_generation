@@ -34,15 +34,55 @@ import { MutexController, type MutexNotifier } from "./mutex-controller.js";
 import { DEFAULT_WATCHDOG, type InputSource, type MutexClock, type MutexTimer } from "./mutex.js";
 import { BroadcastingNotifier } from "./notifier.js";
 import { WebTransport } from "./web-transport.js";
-import { WebServer, type CommandHandler } from "./web-server.js";
+import { WebServer, type CommandHandler, type HttpRouteHandler } from "./web-server.js";
 import type { Broadcaster } from "./broadcaster.js";
 import type { ClientFrame, DispatchAction, WebFrame } from "./protocol.js";
+import { RenderService } from "./render-service.js";
+import { createRenderRoutes } from "./render-routes.js";
+import { createRenderTool } from "./render-tool.js";
+import { createRenderEventHandler } from "./render-event-handler.js";
+import { createToolMirror } from "./tool-mirror.js";
+import { resolvePort } from "./port-resolver.js";
 
 /**
- * The minimal pi host surface wireWebui touches: a many-event `on` registrar
- * and `sendUserMessage`. Narrow on purpose so a MockPi in tests is tiny; the
- * real {@link ExtensionAPI} is a structural superset (assigned at the
- * extensions/webui.ts entry via a cast).
+ * The event-bus surface the render framework needs (ticket 06 D2). The real
+ * SDK `EventBus` is `{ emit(channel,data): void; on(channel,handler): () => void }`
+ * — this mirrors exactly that so a MockPi stub is tiny.
+ */
+export interface RenderHostEvents {
+  on(channel: string, handler: (data: unknown) => void): () => void;
+  emit(channel: string, data: unknown): void;
+}
+
+/**
+ * The TUI UI surface the announce uses (ticket 07 D3/D4). Mirrors exactly the
+ * two ExtensionUIContext members the announce calls (verified against the SDK
+ * dist .d.ts): notify(message, type) + setStatus(key, text). `ui` lives on the
+ * SESSION CONTEXT (the 2nd arg to session_start), NOT on the host — the SDK
+ * ExtensionAPI has no `ui` member; ExtensionContext does. Narrow on purpose so
+ * a MockPi ctx stub is tiny; the real ExtensionContext is a structural superset.
+ */
+export interface WebuiUi {
+  notify(message: string, type?: "info" | "warning" | "error"): void;
+  setStatus(key: string, text: string | undefined): void;
+}
+
+/**
+ * The session-context slice the wiring touches: abort() (unchanged — the
+ * dispatch closure + bindSession still use it) + ui (new — the announce
+ * channel). Widening this UNDOES the prior `ctx as { abort(): void }` downcast
+ * so session_start can reach ctx.ui (specs/07 D3).
+ */
+export interface WebuiSessionCtx {
+  abort(): void;
+  ui: WebuiUi;
+}
+
+/**
+ * The minimal pi host surface wireWebui touches: a many-event `on` registrar,
+ * `sendUserMessage`, plus the ticket-06 render seams (`events` + `registerTool`).
+ * Narrow on purpose so a MockPi in tests is tiny; the real {@link ExtensionAPI}
+ * is a structural superset (assigned at the extensions/webui.ts entry via a cast).
  */
 export interface WebuiHost {
   on(event: string, handler: (event: any, ctx: any) => any): void;
@@ -50,6 +90,13 @@ export interface WebuiHost {
     content: string | unknown[],
     opts?: { deliverAs?: "steer" | "followUp" }
   ): void;
+  /** Shared event bus (ticket 06 render channel "webui:render"). Optional —
+   *  the render seam may be absent on host SDK builds that predate ticket 06;
+   *  wiring no-ops the render registration then instead of throwing at boot. */
+  events?: RenderHostEvents;
+  /** Tool registrar (ticket 06 registers "webui_render"). Optional — see
+   *  {@link events}; guarded so a host without the seam boots cleanly. */
+  registerTool?(tool: unknown): void;
 }
 
 /**
@@ -63,6 +110,15 @@ export interface WebuiServer extends Broadcaster {
   dropSession(): void;
   hasSession(): boolean;
   setCommandHandler(cb: CommandHandler | null): void;
+  setHttpRoutes(handler: HttpRouteHandler | null): void;
+  /** OPTIONAL token auth (ticket 07 D1); null => no check (v1 loopback). */
+  setTokenAuth(token: string | null): void;
+  /**
+   * The loopback URL the server is reachable on (throws "WebServer not started"
+   * before start / after stop). Read lazily by the render framework's `urlFor`
+   * (ticket 06 D7) to compose a view URL from the live port.
+   */
+  readonly url: string;
   stop(): void;
 }
 
@@ -108,7 +164,7 @@ const OUTBOUND_EVENTS = [
 // --- module-level WebServer singleton (persistent co-frontend transport) ----
 let singletonServer: WebServer | null = null;
 function getServer(): WebServer {
-  if (!singletonServer) singletonServer = new WebServer({ port: 0 });
+  if (!singletonServer) singletonServer = new WebServer({ port: resolvePort() });
   return singletonServer;
 }
 
@@ -127,6 +183,12 @@ const REAL_CLOCK: MutexClock = {
  */
 export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   const server = deps.server ?? getServer();
+  // ticket 07 D1: loopback wiring — token OFF (null => no check). Loopback
+  // binding + the DNS-rebinding-safe originAllowed guard is the v1 boundary;
+  // the token mechanism stays AVAILABLE but OFF (a future non-loopback deployer
+  // sets a non-null token). No shell-token injection: RENDER_SHELL_HTML is a
+  // const and no request carries ?session=.
+  server.setTokenAuth(null);
   const broadcaster: Broadcaster = deps.broadcaster ?? server;
   const clock = deps.clock ?? REAL_CLOCK;
   const notifier: MutexNotifier = new BroadcastingNotifier(broadcaster);
@@ -188,6 +250,29 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
 
   server.setCommandHandler(onCommand);
 
+  // --- render framework (ticket 06 D2/D3) ---------------------------------
+  // The registry is constructed here (not via deps) so it owns a urlFor bound
+  // to THIS server. urlFor reads server.url lazily at render() time — the server
+  // starts on the first session_start, which fires AFTER wireWebui returns, so
+  // server.url is unavailable during wiring (the closure defers the read). After
+  // dispose() (server.stop()) server.url throws "WebServer not started"; we catch
+  // and fall back to the anchor form so a late render() never crashes the host.
+  const registry = new RenderService({
+    urlFor: (id) => {
+      try {
+        return `${server.url}/#${id}`;
+      } catch {
+        return `#${id}`;
+      }
+    },
+  });
+  server.setHttpRoutes(createRenderRoutes(registry));
+  // Render-seam registration is guarded: a host whose ExtensionAPI predates
+  // ticket 06 has no `events` bus / `registerTool` — wiring must not throw at
+  // boot when those capabilities are absent (no-ops instead). See WebuiHost.
+  pi.registerTool?.(createRenderTool(registry));
+  pi.events?.on("webui:render", createRenderEventHandler(registry));
+
   // --- pi.on registration (each handler guarded by `disposed`) ---------------
   const reg = (event: string, handler: (event: any, ctx: any) => unknown): void => {
     pi.on(event, (event, ctx) => {
@@ -195,6 +280,13 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       return handler(event, ctx);
     });
   };
+
+  // --- tool-mirror (ticket 05) — third producer of RenderService ----------
+  // Subscribes tool_result on the AGENT bus (pi.on) via the SAME reg() guard as
+  // the outbound broadcast. tool_result is already in OUTBOUND_EVENTS (a second
+  // handler that broadcasts verbatim); the pi bus fires ALL handlers, so this is
+  // additive. NOT pi.events (that is the separate "webui:render" channel).
+  reg("tool_result", createToolMirror(registry));
 
   // mutex gate — the input event handler returns the InputEventResult action.
   reg("input", (event) => controller.handleInput(event.source as InputSource));
@@ -207,9 +299,19 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // lifecycle — lazy server start on first session_start; re-point on subsequent.
   reg("session_start", (_event, ctx) => {
     server.start();
-    const sessionCtx = ctx as { abort(): void };
+    const sessionCtx = ctx as WebuiSessionCtx;
     server.bindSession(pi, sessionCtx);
     bound = { pi, ctx: sessionCtx };
+    // ticket 07 announce (specs/07 D3): surface the RESOLVED URL to the TUI user
+    // via the SDK ui surface (notify + setStatus). NO console.log (it does not
+    // reach the TUI user — debugging only); NO auto-open (the host exposes no
+    // exec). server.url is read AFTER start(), so it reflects the bound port
+    // (ephemeral or pinned — resolved via resolvePort in T2). start() is
+    // idempotent + the singleton persists, so re-announces on
+    // reload/new/resume/fork show the same stable URL.
+    const url = server.url;
+    sessionCtx.ui.notify(`webui: ${url}`, "info");
+    sessionCtx.ui.setStatus("webui", url);
   });
   reg("session_shutdown", () => {
     controller.handleShutdown();
@@ -226,6 +328,7 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      server.setHttpRoutes(null);
       server.setCommandHandler(null);
       controller.handleShutdown();
       server.dropSession();

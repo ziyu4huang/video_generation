@@ -143,6 +143,18 @@ export const SCHEMA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_card_md_hash_kind ON card_md_hash(kind);
 
+  -- 10-impl (knowledge-pipeline / ticket 10): per-card aggregate hash of a
+  -- planning-card's cited+declared source-file deps (the staleness baseline).
+  -- SEPARATE from card_md_hash because that table's card_id is the SOLE PK
+  -- (taken by the mirror hash) — a kind='validated' row there would collide.
+  -- ONE aggregate row per card (no kind discriminator).
+  CREATE TABLE IF NOT EXISTS card_dep_hash (
+    card_id TEXT PRIMARY KEY,
+    dep_hash TEXT NOT NULL,
+    validated_at DATE NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_card_dep_hash ON card_dep_hash(card_id);
+
   -- Per-session prompt-provenance (UPSP §5): one row per md_id assembled into a session's
   -- memory block. FK-FREE by design — the sessions row is created later by deferred backfill,
   -- so session_id is a plain join key, not an enforced FK. Composite PK dedupes; md_id index
