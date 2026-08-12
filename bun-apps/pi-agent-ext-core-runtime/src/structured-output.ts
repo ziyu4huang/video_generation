@@ -34,6 +34,11 @@ export function createStructuredOutputTool<TSchemaDef extends TSchema>({
       `Do not write a prose final answer after calling ${name}.`,
     ],
     parameters: schema,
+    // upstream #05: request provider-side JSON-schema constrained sampling so the
+    // final tool call is schema-conformant on capable models (Sonnet/Opus/GPT-5+/
+    // Gemini). "prefer" degrades gracefully where strict tools are unsupported,
+    // leaving the schema-validation + repair-loop fallback (agent.ts) intact.
+    constrainedSampling: { type: "json_schema", strict: "prefer" },
     async execute(_toolCallId, params) {
       capture.value = params;
       capture.called = true;
