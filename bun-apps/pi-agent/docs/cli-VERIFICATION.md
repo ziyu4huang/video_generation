@@ -1,18 +1,38 @@
-# bun-pi-agent-cli — verification report
+# `pi-agent cli` — verification report
 
-End-to-end verification that the self-contained pi-agent CLI works on the
-current `main`. Re-run the commands below to reproduce.
+End-to-end verification that the non-interactive CLI works on the current
+`main`. Re-run the commands in [Reproduce (smoke)](#reproduce-smoke) below.
 
 > Verified: 2026-06-27 (typecheck + live e2e refreshed 2026-07-16) · branch
 > `main@0809dc4`
+
+> **Amended 2026-08-12 (pi-agent-cli merge).** This report was written while the
+> CLI was its own package (`bun-apps/pi-agent-cli`, program name
+> `bun-pi-agent-cli`). It now lives inside `pi-agent` at `src/cli/**` and is
+> reached as `pi-agent cli <command>`. Two consequences for what follows:
+>
+> 1. **Paths.** `src/commands/` → `src/cli/commands/`, `src/sessions/` →
+>    `src/cli/sessions/`, `src/__tests__/` → `src/cli/__tests__/`. The invocation
+>    `bun src/cli.ts <command>` → `bun bun-apps/pi-agent/src/cli.ts cli <command>`
+>    (or `./pi-agent.sh cli <command>` from the repo root). Every command in the
+>    Reproduce section has been rewritten to a form that runs today; the
+>    historical *findings* are left as written.
+> 2. **The standalone-bundle assertions no longer describe a real property.**
+>    The CLI had its own `scripts/build.ts` producing a self-contained
+>    `dist/bun-pi-agent-cli/cli.js`. That script and that artifact are both gone:
+>    the CLI ships inside pi-agent's four deploy modes (`scripts/deploy.ts`
+>    `--bundle` / `--snapshot` / `--standalone` / `--exe`), so "the CLI bundle is
+>    self-contained" is no longer a separable claim to verify — pi-agent's own
+>    deploy tests own it. Rows and sections asserting it are annotated in place
+>    rather than deleted, so the verification history stays readable.
 
 ## 2026-07-16 update — typecheck drift fix + a real live-blocking bug
 
 Re-ran `bunx tsc --noEmit` and `bun test`, then re-verified live e2e end to
 end. Findings:
 
-- **Own-package tsc errors: 23 → 0.** All fixed in `src/__tests__/`,
-  `src/commands/` (doctor.ts, knowledge-pipeline.ts, tools-metrics.ts), and
+- **Own-package tsc errors: 23 → 0.** All fixed in `src/cli/__tests__/`,
+  `src/cli/commands/` (doctor.ts, knowledge-pipeline.ts, tools-metrics.ts), and
   `workflows/lib/`. 448 transitive errors in sibling packages
   (`pi-agent-ext-web-access`, `pi-agent-ext-obsidian`, …) are unchanged and
   **out of scope** — tracked as known/deferred, not this package's debt. Added
@@ -63,8 +83,8 @@ end. Findings:
 
 | # | Path | Model | Result |
 |---|------|-------|--------|
-| 1 | `scripts/build.ts` (bundle + minify) | — | ✓ `dist/bun-pi-agent-cli/cli.js` + sourcemap |
-| 2 | bundle `version` / `help` | — | ✓ runs from `dist/` |
+| 1 | ~~`scripts/build.ts` (bundle + minify)~~ | — | ~~✓ `dist/bun-pi-agent-cli/cli.js` + sourcemap~~ — **obsolete 2026-08-12**: no per-CLI build script or artifact; see `bun scripts/deploy.ts` |
+| 2 | ~~bundle `version` / `help`~~ | — | ~~✓ runs from `dist/`~~ — **superseded**: now `bun dist/pi-agent/pi-agent.js cli version` against pi-agent's deploy |
 | 3 | meta: `version` / `-v` / `help` / `help <cmd>` / `list` | — | ✓ |
 | 4 | passthrough (core agent loop) | zai/glm-5.2 | ✓ `PI-CLI-OK` |
 | 5 | `distill` (markdown → Zettelkasten) | zai/glm-5.2 | ✓ 5 notes + MOC, 14 wiki-links |
@@ -76,7 +96,7 @@ end. Findings:
 
 | # | Path | Model | Result |
 |---|------|-------|--------|
-| 1 | `scripts/build.ts` (bundle + minify) | — | ✓ `dist/pi-agent-cli/cli.js` |
+| 1 | ~~`scripts/build.ts` (bundle + minify)~~ | — | ~~✓ `dist/pi-agent-cli/cli.js`~~ — **obsolete 2026-08-12** (see banner) |
 | 2 | meta: `version` / `list` | — | ✓ (`list` now resolves 1068 models — registry growth since 06-27, unrelated to this pass) |
 | 3 | passthrough (core agent loop) | zai/glm-5.2 | ✓ `PI-CLI-OK` |
 | 4 | `vlm-describe` (image → Obsidian md) | lm-studio/gemma-4-26b | ✓ 709 chars (synthetic test image; the 06-27 fixture PDF is not checked into the repo) |
@@ -88,11 +108,13 @@ end. Findings:
 
 ## Key behaviors confirmed
 
-- **Self-contained architecture** — the parent agent invokes `obsidian_distill`,
-  which spawns an isolated subagent that **re-invokes this binary** in
+- **Self-subagent recursion** — the parent agent invokes `obsidian_distill`,
+  which spawns an isolated subagent that **re-invokes this same entry point** in
   pi-compatible JSON mode and writes notes via `obsidian_create`. Observed in
   both `distill` and pipeline stage 2 (`[tool] obsidian_distill` →
-  `[tool done] (ok)`).
+  `[tool done] (ok)`). *(Still true post-merge; the child now re-enters via
+  `PI_SELF_ENTRY_PREFIX=cli` so it lands in the `cli` namespace rather than the
+  TUI root — see ADR 0002.)*
 - **VLM path** — magic-number sniff (`kind: image|pdf`), profile classifier
   (VLM on page 1), per-page explain wrapped in `withRetry` (429/transient
   aware). gemma-4-26b correctly read a hand-rendered "Photosynthesis" image.
@@ -103,39 +125,55 @@ end. Findings:
 
 ## Reproduce (smoke)
 
+All paths below are relative to the **repo root**. `./pi-agent.sh cli …` and
+`bun bun-apps/pi-agent/src/cli.ts cli …` are interchangeable.
+
 ```bash
-cd bun-pi-agent-cli && bun install            # at root
+( cd bun-apps && bun install )                 # workspace root — never inside pi-agent/
 
 # offline
-bun scripts/build.ts                           # bundle
-bun ../dist/bun-pi-agent-cli/cli.js version
-bun src/cli.ts list
+./pi-agent.sh cli version
+./pi-agent.sh cli help
+./pi-agent.sh cli list
+( cd bun-apps/pi-agent && bun test )           # unit + offline e2e
 
 # live — passthrough (needs ZAI_API_KEY)
-bun src/cli.ts -p --no-session "Reply with: PI-CLI-OK"
+./pi-agent.sh cli -p --no-session "Reply with: PI-CLI-OK"
 
-# live — distill (needs ZAI_API_KEY)
-bun src/cli.ts distill input.md --vault /tmp/v --folder Zettelkasten --max-notes 6
+# live — zk-extract (needs ZAI_API_KEY)
+./pi-agent.sh cli zk-extract input.md --vault /tmp/v --folder Zettelkasten --max-notes 6
 
 # live — file2md + pipeline (needs LM Studio on :1234)
-bun src/cli.ts file2md page.png --out /tmp/vlm-out
-bun src/cli.ts pipeline pdf-to-vault page.pdf --out /tmp/pipe-out --pages 1
-bun src/cli.ts pipeline pdf-to-vault page.pdf --out /tmp/pipe-out --pages 1   # resume
+./pi-agent.sh cli file2md page.png --out /tmp/vlm-out
+./pi-agent.sh cli pipeline pdf-to-vault page.pdf --out /tmp/pipe-out --pages 1
+./pi-agent.sh cli pipeline pdf-to-vault page.pdf --out /tmp/pipe-out --pages 1   # resume
+
+# deployed artifact (after `bun run --cwd bun-apps/pi-agent deploy`)
+bun dist/pi-agent/pi-agent.js cli version
 ```
 
-## Dynamic workflow regression (2026-06-27)
+> The `distill` command referenced in the historical matrix above was renamed
+> `zk-extract`; the substituted line is the current equivalent.
 
-A reusable, cwd-independent workflow drives the full verify:
+## Dynamic workflow regression (2026-06-27) — historical, not re-runnable
+
+> **Not runnable today.** The driving script
+> `.claude/workflows/verify-bun-pi-agent-cli.js` no longer exists, and neither
+> does the dist bundle it targeted. The findings and the robustness matrix below
+> are retained as the record of what was exercised and fixed; the *procedure* is
+> history. The equivalent live surface today is the offline e2e suite
+> (`bun test bun-apps/pi-agent/src/cli/__tests__/e2e/`) plus the manual live
+> commands in [Reproduce (smoke)](#reproduce-smoke).
+
+A reusable, cwd-independent workflow drove the full verify:
 `.claude/workflows/verify-bun-pi-agent-cli.js` — phases **Resolve → Build →
-Smoke → Robust → Regression**. Resolve canonicalizes every path to absolute
-form and mints a fresh `runDir`, so no agent depends on cwd or a hardcoded
-worktree (mirrors the `pi-extension-obsidian-tool.js` resolve pattern). Build
-produces the **dist bundle + external sourcemap**; all checks run the **dist
-bundle** (`dist/bun-pi-agent-cli/cli.js`), not `src/cli.ts`. Regression runs
+Smoke → Robust → Regression**. Resolve canonicalized every path to absolute
+form and minted a fresh `runDir`, so no agent depended on cwd or a hardcoded
+worktree (mirroring the `pi-extension-obsidian-tool.js` resolve pattern). Build
+produced the **dist bundle + external sourcemap**; all checks ran the **dist
+bundle** (`dist/bun-pi-agent-cli/cli.js`), not `src/cli.ts`. Regression ran
 against the `fixture/2025.emnlp-main.893.pdf` baseline (16-page EMNLP paper;
 `--pages 1-3`).
-
-Run: `Workflow({ scriptPath: '.claude/workflows/verify-bun-pi-agent-cli.js', args: { regPages: '1-3' } })`.
 
 ### Iteration history (4 workflow runs → 7 fixes)
 
@@ -211,13 +249,14 @@ clean exit, correct manifest); they are tracked as model/prompt follow-ups:
 
 ## Notes / gaps
 
-- **CLI-level unit + offline e2e tests.** `src/__tests__/` has 22 files, 332
-  tests, all passing under plain `bun test`. Of those, `src/__tests__/e2e/` is a
+- **CLI-level unit + offline e2e tests.** `src/cli/__tests__/` had 22 files, 332
+  tests at the time of writing, all passing under plain `bun test`. Of those,
+  `src/cli/__tests__/e2e/` is a
   self-contained OFFLINE subprocess suite (see below) — no API keys or LM Studio
-  needed. Live end-to-end verification (env keys, LM Studio) remains the
-  responsibility of the dynamic workflow below.
-- **Offline e2e suite (`src/__tests__/e2e/`, 44 tests).** Spawns the CLI in
-  source mode (`bun src/cli.ts …`, hermetic env, `PI_SKIP_MODELS_JSON=1`) and
+  needed. Live end-to-end verification (env keys, LM Studio) is manual, per
+  [Reproduce (smoke)](#reproduce-smoke).
+- **Offline e2e suite (`src/cli/__tests__/e2e/`, 44 tests).** Spawns the CLI in
+  source mode (`bun src/cli.ts cli …`, hermetic env, `PI_SKIP_MODELS_JSON=1`) and
   asserts exit code + stdout/stderr at the process boundary. Covers the surface
   that short-circuits BEFORE any model call, so it needs no keys / LM Studio:
   version / help / list / list-tools / completions (meta), pipeline / workflow
@@ -227,13 +266,14 @@ clean exit, correct manifest); they are tracked as model/prompt follow-ups:
   two fixes it surfaced: `help <meta-command>` no longer executes the target,
   and `--dpi` rejects fractional values. Model-dependent paths (chat / agent /
   passthrough / zk-* happy paths) are deliberately NOT covered — they belong to
-  the live workflow. Run: `bun test src/__tests__/e2e/`.
+  the live smoke run. Run:
+  `( cd bun-apps/pi-agent && bun test src/cli/__tests__/e2e/ )`.
 - **`bun test` does not typecheck.** Run `bun run typecheck` (= `bunx tsc
   --noEmit`, added as a package script 2026-07-16) to catch type regressions.
   NOTE: this package's `tsconfig.json` has no `include`/`paths`, and Bun
   workspace symlinks resolve `@repo/*` deps to SOURCE (not built dist), so
   `tsc --noEmit` follows into sibling packages. As of 2026-07-16: **0 errors in
-  this package's own `src/` + `workflows/lib/`** (was ~23, all fixed) — 448
+  the CLI's own `src/` (now `src/cli/`) + `workflows/lib/`** (was ~23, all fixed) — 448
   errors remain in sibling packages (`pi-agent-ext-obsidian` / `-web-access` /
   `-ltx` / `-movie-director` / …), unchanged and out of scope for this package.
   The real CI gate is `bun test` (green); `tsc` is a stricter, monorepo-wide

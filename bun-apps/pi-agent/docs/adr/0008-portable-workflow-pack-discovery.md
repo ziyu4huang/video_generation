@@ -5,8 +5,9 @@
 
 ## Context
 
-A portable single-exec `pi-agent-cli` binary (built via `bun scripts/build.ts
---compile`) must run a user-supplied workflow-pack by NAME on a machine without
+A portable single-exec binary (in 2026-07 that was `pi-agent-cli` built via its
+own `bun scripts/build.ts --compile`; today it is `pi-agent` built via
+`bun scripts/deploy.ts --exe`, invoked as `pi-agent cli workflow run …`) must run a user-supplied workflow-pack by NAME on a machine without
 this repo. The resolver's existing name-resolution walks UP from cwd for a repo
 root (`.pi/workflows/` or `bun-apps/`); on a repo-less machine `findRepoRoot`
 returns undefined, so only an absolute path works — name-resolution fails.

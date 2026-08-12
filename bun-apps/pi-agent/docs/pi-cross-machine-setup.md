@@ -7,9 +7,9 @@ each package's README; this is the canonical reference.
 > **If something fails, run `doctor` first** — it checks every condition below and prints
 > an actionable checklist:
 > ```bash
-> bun bun-apps/pi-agent-cli/src/cli.ts doctor          # human checklist
-> bun bun-apps/pi-agent-cli/src/cli.ts doctor --json   # machine-readable
-> bun bun-apps/pi-agent-cli/src/cli.ts doctor --fix    # create missing dirs
+> ./pi-agent.sh cli doctor          # human checklist
+> ./pi-agent.sh cli doctor --json   # machine-readable
+> ./pi-agent.sh cli doctor --fix    # create missing dirs
 > ```
 
 ---
@@ -38,7 +38,7 @@ export MLX_MODELS_DIR=/path/to/mlx-models
 export MLX_OUTPUT_DIR=/path/to/video_generation__output
 
 # 4. self-check
-bun bun-apps/pi-agent-cli/src/cli.ts doctor
+./pi-agent.sh cli doctor
 ```
 
 The MLX model tree and output store live **outside** the repo by default
@@ -147,7 +147,7 @@ floor path skips the weak-tier check — do **not** route it through `--model`
 would make a *TUI*-parented subagent wrongly re-enter the `cli` namespace.
 
 A commented subset of the portability-relevant vars also lives at the repo root as
-[`.env.example`](../.env.example).
+[`.env.example`](../../../.env.example).
 
 ---
 

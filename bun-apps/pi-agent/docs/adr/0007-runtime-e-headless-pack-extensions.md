@@ -2,7 +2,7 @@
 
 # Runtime `-e` loading permitted for headless pack-extensions (amends ADR 0001)
 
-ADR 0001 made every extension in pi-agent-cli **baked-in** — statically imported
+ADR 0001 made every extension in the `cli` namespace **baked-in** — statically imported
 and injected through `extensionFactories` / `extraExtensionFactories`, never
 loaded at runtime via `-e` — so that each single-turn run curates a small
 agent-session tool surface instead of bloating every invocation with the full
@@ -27,6 +27,6 @@ extension that registers no agent-session tools and dispatches headless qualifie
 (workflow-packs today; other headless sub-command extensions in future).
 Rejected alternative: broadly allowing runtime `-e` for *all* extensions and
 superseding 0001 — rejected because it re-introduces exactly the per-run
-tool-surface bloat 0001 exists to prevent. (pi-agent-cli wires no extension
+tool-surface bloat 0001 exists to prevent. (the `cli` namespace wires no extension
 auto-discovery, so this concerns the explicit `-e` surface only; the `-e <pack>`
 resolution convention and the headless factory mechanism are settled separately.)

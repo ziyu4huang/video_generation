@@ -1,7 +1,7 @@
 # --dry-run excludes write tools (deterministic guard, not an LLM instruction)
 
-pi-agent-cli's `--dry-run` is implemented in `dryRunExclude()`
-(`sessions/shared.ts`): when set, it adds the `WRITE_TOOLS` set — the Obsidian
+`pi-agent cli`'s `--dry-run` is implemented in `dryRunExclude()`
+(`src/cli/sessions/shared.ts`): when set, it adds the `WRITE_TOOLS` set — the Obsidian
 mutating tools (`obsidian_create`, `obsidian_append`, `obsidian_append_section`,
 `obsidian_update_frontmatter`, `obsidian_move`, `obsidian_rename`,
 `obsidian_delete`, `obsidian_invalidate`, `obsidian_distill`, `obsidian_garden`)

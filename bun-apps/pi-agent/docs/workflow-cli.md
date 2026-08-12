@@ -20,7 +20,7 @@ pack resolver (in the engine's `workflow-pack.ts`):
 
 | Path | Entry | How |
 |------|-------|-----|
-| **A — CLI (this command)** | `pi-agent-cli workflow run <name>` | headless meta-command; this layer is a thin wrapper (flag parsing + receipt). |
+| **A — CLI (this command)** | `pi-agent cli workflow run <name>` | headless meta-command; this layer is a thin wrapper (flag parsing + receipt). |
 | **B — interactive `workflow` tool** | `./pi-agent.sh` → TUI → the `workflow` tool with `name: "<pack>"` | the workflow extension is built-in in the TUI; the tool's `name` param resolves the pack through the same resolver. |
 
 Both call the same `resolveWorkflowScript` → `runWorkflow`, so name resolution,
@@ -35,8 +35,8 @@ pack-over-file precedence, and args/model merging are identical across paths.
 ## Usage
 
 ```bash
-bun bun-apps/pi-agent-cli/src/cli.ts workflow run <name> [options]
-bun bun-apps/pi-agent-cli/src/cli.ts workflow list
+./pi-agent.sh cli workflow run <name> [options]
+./pi-agent.sh cli workflow list
 ```
 
 ### `workflow run <name>`
@@ -76,15 +76,15 @@ location, a pack directory wins over a same-name `.js` file.
 
 ```bash
 # dry-run: validates the script parses + meta is well-formed (no LLM)
-bun bun-apps/pi-agent-cli/src/cli.ts workflow run closed-loop-proof --dry-run
+./pi-agent.sh cli workflow run closed-loop-proof --dry-run
 
 # run with args + an explicit model
-bun bun-apps/pi-agent-cli/src/cli.ts workflow run my-workflow \
+./pi-agent.sh cli workflow run my-workflow \
   --args '{"source":"commit-abc123"}' \
   --model lm-studio/google/gemma-4-26b-a4b-qat
 
 # run a script by path
-bun bun-apps/pi-agent-cli/src/cli.ts workflow run ./my-workflow.js --json
+./pi-agent.sh cli workflow run ./my-workflow.js --json
 ```
 
 **Output:** a one-line receipt (`✓ <name> — agents=N Tms (source: …) run=<id> → <kind>`)
@@ -159,13 +159,13 @@ CLI flags override manifest values; manifest fields are defaults.
 
 | pack | location | purpose |
 |---|---|---|
-| `echo` | `bun-apps/pi-agent-cli/workflows/echo/` | smoke test — one `agent()` echoing args; proves folder → manifest → engine |
-| `args-demo` | `bun-apps/pi-agent-cli/workflows/args-demo/` | optional manifest `args` + the `parallel()` primitive; proves packs carry real behaviour |
+| `echo` | `bun-apps/pi-agent/workflows/echo/` | smoke test — one `agent()` echoing args; proves folder → manifest → engine |
+| `args-demo` | `bun-apps/pi-agent/workflows/args-demo/` | optional manifest `args` + the `parallel()` primitive; proves packs carry real behaviour |
 
 ```bash
-bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow run echo --dry-run
-bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow run args-demo --dry-run
-bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow list   # shows [pack] vs [file]
+./pi-agent.sh cli workflow run echo --dry-run
+./pi-agent.sh cli workflow run args-demo --dry-run
+./pi-agent.sh cli workflow list   # shows [pack] vs [file]
 ```
 
 ## Two runtimes — pick deliberately
@@ -203,8 +203,8 @@ run through the engine.
 | Workflow | Location | Purpose |
 |----------|----------|---------|
 | `closed-loop-proof` | `.claude/workflows/` *(path-only)* | End-to-end proof of the knowledge-graph closed loop (READ + gate + WRITE) — a live receipt is the proof. |
-| `knowledge-distill` | `bun-apps/pi-agent-cli/workflows/` | WRITE-side distill: PR/markdown → atomic vault cards under gate/retry + garden gate. |
-| `retrieval-quality-self-improve` | `bun-apps/pi-agent-cli/workflows/` | READ-side retrieval loop: adversarial query-gen → zk-ask in two blend modes → blind judge → receipt + `.knowledge.jsonl`. |
+| `knowledge-distill` | `bun-apps/pi-agent/workflows/` | WRITE-side distill: PR/markdown → atomic vault cards under gate/retry + garden gate. |
+| `retrieval-quality-self-improve` | `bun-apps/pi-agent/workflows/` | READ-side retrieval loop: adversarial query-gen → zk-ask in two blend modes → blind judge → receipt + `.knowledge.jsonl`. |
 
 `knowledge-distill` and `retrieval-quality-self-improve` are name-runnable
 (`workflow run <name>`). `closed-loop-proof` lives in `.claude/workflows/`, which

@@ -1,3 +1,9 @@
+> **Amended 2026-08-12 (pi-agent-cli merge).** The CLI now lives inside `pi-agent`
+> (`src/cli/`), so the catalog is reached by a relative import
+> (`src/cli/sessions/shared.ts` → `../../pre-load-providers.ts`) instead of the
+> `@repo/pi-agent` workspace dependency. The invariant is unchanged and now
+> structurally enforced: there is exactly one `PROVIDERS` catalog, in one package.
+
 # Provider catalog sourced from @repo/pi-agent, not duplicated or models.json-only
 
 pi-agent-cli does not define its own provider/model catalog, nor does it rely

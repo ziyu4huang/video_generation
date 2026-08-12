@@ -1,4 +1,8 @@
-# PRD — pi-agent-cli
+# PRD — `pi-agent cli`
+
+> The non-interactive command namespace of `bun-apps/pi-agent` (`src/cli/**`),
+> reached as `pi-agent cli <command>`. Written while it was a separate
+> `pi-agent-cli` package; merged into pi-agent 2026-08-12.
 
 ## Problem
 
@@ -6,7 +10,7 @@ Agent workflows like `file2md`, `zk-extract`, `zk-ask`, and `pipeline pdf-to-vau
 
 ## Solution
 
-A self-contained CLI with extensions baked in as workspace deps. Drives pi-agent via the SDK from TypeScript on Bun. Ships agent workflows (file2md, zk-extract, zk-ask, pipeline pdf-to-vault) plus a pi-compatible passthrough so the binary can serve as its own sub-agent target. Extensions are imported directly into the process (`pi-obsidian`, `pi-file2md`, `pi-knowledge-card` as `workspace:*` deps) without `.pi/settings.json` entries.
+A self-contained CLI with extensions baked in as workspace deps. Drives pi-agent via the SDK from TypeScript on Bun. Ships agent workflows (file2md, zk-extract, zk-ask, pipeline pdf-to-vault) plus a pi-compatible passthrough so the binary can serve as its own sub-agent target. Extensions are imported directly into the process (`pi-obsidian`, `pi-file2md`, `pi-agent-ext-knowledge-card` as `workspace:*` deps) without `.pi/settings.json` entries.
 
 ## Architecture
 
@@ -96,7 +100,7 @@ accumulate, are filtered and enriched, then converge into a linked graph.
 The combined agent tool surface is **11 tools / ~4160 schema tokens** (distill folded into zk_ingest).
 
 ```
-pi-agent-cli
+pi-agent cli
   ├─ hermes-memory    (5 tools, ~1551 tok)  ← raw memory accumulation
   │     memory · memory_search · session_search · skill_manage · skill_manage_help
   │
@@ -147,10 +151,11 @@ promptSnippet, verbose description, new tool) fails CI.
 ## Use
 
 ```bash
-bun bun-apps/pi-agent-cli/src/cli.ts <command> [options]
+./pi-agent.sh cli <command> [options]                     # from the repo root
+bun bun-apps/pi-agent/src/cli.ts cli <command> [options]  # same, no wrapper
 ```
 
 ## Cross-reference
 
-- [`docs/workflow-cli.md`](docs/workflow-cli.md) — headless engine runner reference
-- [`../pi-agent/docs/pi-cross-machine-setup.md`](../pi-agent/docs/pi-cross-machine-setup.md) — fresh-machine steps
+- [`workflow-cli.md`](workflow-cli.md) — headless engine runner reference
+- [`pi-cross-machine-setup.md`](pi-cross-machine-setup.md) — fresh-machine steps

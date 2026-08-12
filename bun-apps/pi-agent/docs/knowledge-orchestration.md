@@ -124,7 +124,7 @@ They are complementary. Re-running `zk_ingest` never deletes the source.
 
 ```bash
 # converge hermes working memory into the vault (idempotent — safe after any edit):
-( cd bun-apps/pi-agent-cli && bun run src/cli.ts zk-ingest --source hermes \
+./pi-agent.sh cli zk-ingest --source hermes \
   --vault "$(pwd)/vaults_root/pi-agent-vault" \
   ~/.pi/agent/pi-hermes-memory/{MEMORY,failures,USER}.md )
 
