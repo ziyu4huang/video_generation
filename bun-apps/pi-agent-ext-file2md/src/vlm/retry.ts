@@ -14,11 +14,9 @@ export function isRetryableError(err: unknown): boolean {
   // Explicit opt-in: callers can mark an error retryable (e.g. a VLM output
   // that failed a quality gate — a stochastic model deserves another attempt).
   if ((err as { retryable?: boolean })?.retryable === true) return true;
-  const msg =
-    (err as { message?: string })?.message ??
-    (typeof err === "string" ? err : String(err));
-  const status = (err as { status?: number; statusCode?: number })?.status ??
-    (err as { statusCode?: number })?.statusCode;
+  const msg = (err as { message?: string })?.message ?? (typeof err === "string" ? err : String(err));
+  const status =
+    (err as { status?: number; statusCode?: number })?.status ?? (err as { statusCode?: number })?.statusCode;
   // 429 rate limit
   if (status === 429) return true;
   // 5xx server errors
@@ -56,10 +54,7 @@ export interface RetryOptions {
  * @returns the result of `fn`
  * @throws  the last error if all attempts fail, or immediately on non-retryable error
  */
-export async function withRetry<T>(
-  fn: () => Promise<T>,
-  opts: RetryOptions = {},
-): Promise<T> {
+export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions = {}): Promise<T> {
   const maxRetries = opts.maxRetries ?? 3;
   const retryWaitMs = opts.retryWaitMs ?? 10_000;
 

@@ -69,7 +69,7 @@ export function extractTerms(body: string, cap: number = TERM_CAP): string[] {
   const seen = new Set<string>();
   const terms: string[] = [];
   for (const cand of candidates) {
-    for (const raw of cand.split(/[\/,;:|()\[\]{}—–]+/)) {
+    for (const raw of cand.split(/[/,;:|()[\]{}—–]+/)) {
       const t = raw.trim().replace(/[*_`]/g, "");
       if (t.length < MIN_TERM_LEN) continue;
       if (/^\d+(\.\d+)?$/.test(t)) continue; // pure numbers

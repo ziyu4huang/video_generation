@@ -9,10 +9,10 @@
  *
  *   bun test __tests__/ask-io.test.ts
  */
-import { describe, test, expect, beforeAll, afterAll, mock } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // --- control knobs ----------------------------------------------------------
 let nextOutput = "";

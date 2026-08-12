@@ -4,7 +4,15 @@
   "private": true,
   "description": "File→Markdown bridge for text-only agents: convert any PDF/image/doc to structured Markdown a pure-text agent can read, via a local vision-LLM subagent (LM Studio).",
   "license": "MIT",
-  "keywords": ["pi-package", "file-to-markdown", "vision-llm", "vlm", "pdf", "obsidian", "lm-studio"],
+  "keywords": [
+    "pi-package",
+    "file-to-markdown",
+    "vision-llm",
+    "vlm",
+    "pdf",
+    "obsidian",
+    "lm-studio"
+  ],
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
@@ -18,10 +26,13 @@
     "README.md"
   ],
   "pi": {
-    "extensions": ["./extensions"]
+    "extensions": [
+      "./extensions"
+    ]
   },
   "scripts": {
     "check": "biome check .",
+    "typecheck": "tsc --noEmit",
     "build": "bun tsc",
     "build:bundle": "bun scripts/build-bundle.ts --thin",
     "build:bundle:full": "bun scripts/build-bundle.ts",

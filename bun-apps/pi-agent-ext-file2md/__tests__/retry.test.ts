@@ -3,8 +3,8 @@
  *
  *   bun test __tests__/retry.test.ts
  */
-import { describe, test, expect } from "bun:test";
-import { isRetryableError, withRetry, retryableError } from "../src/vlm/retry.ts";
+import { describe, expect, test } from "bun:test";
+import { isRetryableError, retryableError, withRetry } from "../src/vlm/retry.ts";
 
 describe("isRetryableError", () => {
   test("429 status is retryable", () => {
@@ -58,10 +58,13 @@ describe("isRetryableError", () => {
 describe("withRetry", () => {
   test("returns the result on first success (no retry)", async () => {
     let calls = 0;
-    const r = await withRetry(async () => {
-      calls++;
-      return 42;
-    }, { retryWaitMs: 0 });
+    const r = await withRetry(
+      async () => {
+        calls++;
+        return 42;
+      },
+      { retryWaitMs: 0 },
+    );
     expect(r).toBe(42);
     expect(calls).toBe(1);
   });

@@ -18,10 +18,7 @@ const FIG_TOKEN = /\b(Figure|Fig\.?)\s+\d/i;
  * a page far shorter than the median, or one that names a Figure, is routed to
  * the VLM in `hybrid` mode.
  */
-export function detectFigurePages(
-  pages: { pageNo: number; text: string }[],
-  opts: FigureDetectOpts = {},
-): Set<number> {
+export function detectFigurePages(pages: { pageNo: number; text: string }[], opts: FigureDetectOpts = {}): Set<number> {
   const frac = opts.densityFraction ?? 0.5;
   const lens = pages.map((p) => p.text.trim().length);
   const med = median(lens);

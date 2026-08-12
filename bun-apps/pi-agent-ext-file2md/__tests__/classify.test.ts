@@ -6,11 +6,11 @@
  *
  *   bun test __tests__/classify.test.ts
  */
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { imageMimeType, classifyKind } from "../src/vlm/classify.ts";
+import { join } from "node:path";
+import { classifyKind, imageMimeType } from "../src/vlm/classify.ts";
 
 let dir: string;
 beforeAll(async () => {

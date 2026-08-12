@@ -9,16 +9,17 @@
  * (forcing `bun test --isolate`). Mocking this module instead leaves resolveLLM
  * intact, so the suite runs under plain `bun test`.
  */
+
+import type { Model } from "@earendil-works/pi-ai";
 import {
+  type AgentSessionServices,
   createAgentSessionFromServices,
   createAgentSessionServices,
   getAgentDir,
   ModelRegistry,
+  type ModelRuntime,
   SessionManager,
-  ModelRuntime,
-  type AgentSessionServices,
 } from "@earendil-works/pi-coding-agent";
-import type { Model } from "@earendil-works/pi-ai";
 import type { ResolvedLLM } from "./sessions.js";
 
 /** Find model in registry — exact match first, then substring fallback. */
@@ -37,10 +38,7 @@ function resolveModel(services: AgentSessionServices, provider: string, modelId:
       (m) =>
         m.provider.toLowerCase() === provider.toLowerCase() &&
         (m.id.toLowerCase().includes(needle) || (m.name ?? "").toLowerCase().includes(needle)),
-    ) ??
-    all.find(
-      (m) => m.id.toLowerCase().includes(needle) || (m.name ?? "").toLowerCase().includes(needle),
-    );
+    ) ?? all.find((m) => m.id.toLowerCase().includes(needle) || (m.name ?? "").toLowerCase().includes(needle));
 
   if (!hit) {
     const available = reg.getAvailable();
@@ -82,9 +80,7 @@ export async function createSharedSession(
     agentDir: opts.agentDir ?? getAgentDir(),
     modelRuntime: opts.modelRuntime,
     resourceLoaderOptions: {
-      ...(opts.appendSystemPrompt?.length
-        ? { appendSystemPrompt: opts.appendSystemPrompt }
-        : {}),
+      ...(opts.appendSystemPrompt?.length ? { appendSystemPrompt: opts.appendSystemPrompt } : {}),
     },
   });
 

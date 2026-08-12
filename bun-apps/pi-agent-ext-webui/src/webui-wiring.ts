@@ -89,10 +89,13 @@ export interface WebuiHost {
     content: string | unknown[],
     opts?: { deliverAs?: "steer" | "followUp" }
   ): void;
-  /** Shared event bus (ticket 06 render channel "webui:render"). */
-  events: RenderHostEvents;
-  /** Tool registrar (ticket 06 registers "webui_render"). */
-  registerTool(tool: unknown): void;
+  /** Shared event bus (ticket 06 render channel "webui:render"). Optional —
+   *  the render seam may be absent on host SDK builds that predate ticket 06;
+   *  wiring no-ops the render registration then instead of throwing at boot. */
+  events?: RenderHostEvents;
+  /** Tool registrar (ticket 06 registers "webui_render"). Optional — see
+   *  {@link events}; guarded so a host without the seam boots cleanly. */
+  registerTool?(tool: unknown): void;
 }
 
 /**
@@ -263,8 +266,11 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     },
   });
   server.setHttpRoutes(createRenderRoutes(registry));
-  pi.registerTool(createRenderTool(registry));
-  pi.events.on("webui:render", createRenderEventHandler(registry));
+  // Render-seam registration is guarded: a host whose ExtensionAPI predates
+  // ticket 06 has no `events` bus / `registerTool` — wiring must not throw at
+  // boot when those capabilities are absent (no-ops instead). See WebuiHost.
+  pi.registerTool?.(createRenderTool(registry));
+  pi.events?.on("webui:render", createRenderEventHandler(registry));
 
   // --- pi.on registration (each handler guarded by `disposed`) ---------------
   const reg = (event: string, handler: (event: any, ctx: any) => unknown): void => {

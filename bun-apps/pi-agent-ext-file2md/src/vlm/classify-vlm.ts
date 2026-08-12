@@ -8,8 +8,8 @@
  * one of the known profile tokens.
  */
 import { readFileSync } from "node:fs";
+import { type ResolvedLLM, resolveVisionLLM } from "../sessions.ts";
 import { ALL_PROFILES, type DocProfile } from "./classify.ts";
-import { resolveVisionLLM, type ResolvedLLM } from "../sessions.ts";
 import { runVisionInference } from "./vision-inference.js";
 
 const CLASSIFY_SYSTEM = `你是一個文件類型分類器。你會收到一張文件的第一頁圖片。
