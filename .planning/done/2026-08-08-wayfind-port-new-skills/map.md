@@ -2,7 +2,7 @@
 effort: 2026-08-08-wayfind-port-new-skills
 created: 2026-08-08
 last: 2026-08-09
-status: active
+status: Done (Batch 1 #1138, Batch 2 #1176)
 ---
 
 # Wayfinder map: 2026-08-08-wayfind-port-new-skills

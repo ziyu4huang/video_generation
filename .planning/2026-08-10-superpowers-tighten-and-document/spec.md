@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-10-superpowers-tighten-and-document
 title: "Superpowers — Tighten & Document"
-status: Draft (pending review)
+status: Done (shipped #1235)
 date: 2026-08-10
 approach: "A — Tighten & Document (brainstormed; B/C deferred)"
 ---
