@@ -45,35 +45,109 @@ function cap(s: string, n: number = FIELD_CAP): string {
   return s.length <= n ? s : `${s.slice(0, n)} …[truncated ${s.length - n} chars]`;
 }
 
+/** Pull the concatenated text content (bash stdout / generic text). */
+function textContent(event: ToolResultEvent): string {
+  return (event.content ?? [])
+    .filter((c): c is { type: "text"; text: string } => c && (c as { type?: string }).type === "text")
+    .map((c) => (c as { text?: string }).text ?? "")
+    .join("\n");
+}
+
+/** One-line truncation/limit note for read/grep/find/ls. */
+function limitNote(d: { truncation?: { truncated?: boolean } } & Record<string, unknown>): string {
+  const bits: string[] = [];
+  if (d.truncation?.truncated) bits.push("output truncated");
+  for (const k of ["matchLimitReached", "resultLimitReached", "entryLimitReached"]) {
+    if (typeof d[k] === "number") bits.push(`${k}=${d[k]}`);
+  }
+  if (d.linesTruncated) bits.push("lines truncated");
+  return bits.length ? `_${bits.join("; ")}_` : "";
+}
+
 /**
- * Pure formatter. T1 ships the MINIMAL body (header + truncated-JSON fallback);
- * T2 expands the body with the built-in type guards + custom key-value. The
- * header is the stable scaffold both build on. NEVER throws.
+ * Generic key-value markdown of a custom tool's details (paths as inline code).
+ * Stable string/number/boolean fields get a dedicated `- **k**: ...` line;
+ * unknown object keys are ALSO rendered generically (per the 04-spec §8 custom
+ * intent) so e.g. `{ weird: [...] }` still surfaces as a truncated JSON block
+ * (this is what the T1 unknown-shape regression asserts). Non-object details
+ * fall back to truncated JSON. NEVER throws.
+ */
+function formatCustomDetails(details: unknown): string {
+  if (details === null || typeof details !== "object") {
+    // non-object fallback -> truncated JSON
+    try {
+      return "```json\n" + cap(JSON.stringify(details)) + "\n```";
+    } catch {
+      return "_(unserializable details)_";
+    }
+  }
+  const known = ["ok", "command", "exitCode", "output", "outputs", "manifestPath", "manifest", "model", "elapsedSeconds", "gate", "stdout"] as const;
+  const lines: string[] = [];
+  const o = details as Record<string, unknown>;
+  const seen = new Set<string>();
+  for (const k of known) {
+    if (!(k in o)) continue;
+    seen.add(k);
+    const v = o[k];
+    if (typeof v === "string") {
+      // paths/commands as inline code; long stdout/command capped
+      lines.push(`- **${k}**: \`${cap(v)}\``);
+    } else if (typeof v === "number" || typeof v === "boolean") {
+      lines.push(`- **${k}**: ${String(v)}`);
+    } else if (Array.isArray(v)) {
+      const items = v.map((x) => (typeof x === "string" ? `\`${cap(x)}\`` : String(x)));
+      lines.push(`- **${k}**: ${items.join(", ")}`);
+    }
+  }
+  // Unknown object keys -> rendered generically (04-spec §8 intent). Without
+  // this, a custom details object carrying only unknown keys (no stable field)
+  // would render as `_(no stable fields)_` and silently hide its content.
+  const unknownKeys = Object.keys(o).filter((k) => !seen.has(k));
+  if (unknownKeys.length) {
+    const rest: Record<string, unknown> = {};
+    for (const k of unknownKeys) rest[k] = o[k];
+    try {
+      lines.push("```json\n" + cap(JSON.stringify(rest, null, 2)) + "\n```");
+    } catch {
+      // ignore an unserializable unknown field — stable fields still render
+    }
+  }
+  return lines.length ? lines.join("\n") : "_(no stable fields)_";
+}
+
+/**
+ * Pure formatter. T2 expands the body with the built-in type guards (edit/bash/
+ * read/grep/find/ls/write) + a generic key-value path for custom tools (incl.
+ * image/video-gen). The header is the stable T1 scaffold. NEVER throws.
  */
 export function formatToolResult(event: ToolResultEvent): string {
   const status = event.isError ? "❌" : "✅";
   const id = (event.toolCallId ?? "").slice(0, 8);
   const header = `### 🔧 ${event.toolName} ${status} \`${id}\``;
 
-  // T1 minimal body: truncated JSON of details. (T2 narrows built-ins via the
-  // guards above and custom tools by toolName; the fallback below stays as the
-  // unknown-shape path.) Guard references keep the imports live for T2.
-  void isBashToolResult;
-  void isReadToolResult;
-  void isEditToolResult;
-  void isWriteToolResult;
-  void isGrepToolResult;
-  void isFindToolResult;
-  void isLsToolResult;
-
   let body: string;
   try {
-    body =
-      event.details === undefined
-        ? "_(no details)_"
-        : "```json\n" + cap(JSON.stringify(event.details, null, 2)) + "\n```";
+    if (isEditToolResult(event) && event.details) {
+      const d = event.details;
+      body = "```diff\n" + cap(d.diff) + "\n```" + (d.firstChangedLine ? `\n\n_first changed line: ${d.firstChangedLine}_` : "");
+    } else if (isBashToolResult(event)) {
+      const out = cap(textContent(event));
+      const note = event.details?.truncation?.truncated ? "\n\n_output truncated_" : "";
+      const full = event.details?.fullOutputPath ? `\n\nfull output: \`${event.details.fullOutputPath}\`` : "";
+      body = out ? "```\n" + out + "\n```" + note + full : "_(no stdout)_" + note + full;
+    } else if (isWriteToolResult(event)) {
+      body = "_(no details)_";
+    } else if (isReadToolResult(event) || isGrepToolResult(event) || isFindToolResult(event) || isLsToolResult(event)) {
+      const note = event.details
+        ? limitNote(event.details as Record<string, unknown> & { truncation?: { truncated?: boolean } })
+        : "";
+      body = note || "_(no metadata)_";
+    } else {
+      // custom tool (incl. image/video-gen) — generic key-value, paths as TEXT
+      body = formatCustomDetails(event.details);
+    }
   } catch {
-    body = "_(unserializable details)_";
+    body = "_(formatting failed)_";
   }
   return `${header}\n\n${body}`;
 }
