@@ -24,6 +24,11 @@ import {
   DEFAULT_PROACTIVE_PRESSURE_THRESHOLD,
   DEFAULT_PROACTIVE_COOLDOWN_MINUTES,
   DEFAULT_FAILURE_MODEL,
+  DEFAULT_EMBED_MODEL,
+  DEFAULT_EMBED_MODEL_VERSION,
+  DEFAULT_LMSTUDIO_BASE_URL,
+  DEFAULT_VECTOR_TOP_K,
+  DEFAULT_VECTOR_EF,
 } from "./constants.js";
 import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
 import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
@@ -100,6 +105,14 @@ const DEFAULT_CONFIG: MemoryConfig = {
   sessionSearch: { variant: "legacy" },
   dbBackend: "sqlite",
   failureModel: DEFAULT_FAILURE_MODEL,
+  // Vector / semantic search (ticket 14 phase A). The card_vectors HNSW side-
+  // table is independent of the CRUD backend (#06 lesson: registered here AND
+  // in the parse allowlist below from day one).
+  embedModel: DEFAULT_EMBED_MODEL,
+  embedModelVersion: DEFAULT_EMBED_MODEL_VERSION,
+  lmStudioBaseUrl: DEFAULT_LMSTUDIO_BASE_URL,
+  vectorTopK: DEFAULT_VECTOR_TOP_K,
+  vectorEf: DEFAULT_VECTOR_EF,
 };
 
 export const DEFAULT_CONFIG_PATH = path.join(
@@ -346,6 +359,14 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
         if (trimmed.length > 0) config.llmModelOverride = trimmed;
       }
       if (isThinkingLevel(parsed.llmThinkingOverride)) config.llmThinkingOverride = parsed.llmThinkingOverride;
+      // Vector / semantic search (ticket 14 phase A): the #06 config-gap lesson —
+      // every knob is allowlisted here so a config-file value reaches the
+      // consumer. String knobs get a trim guard; numeric knobs via finite checks.
+      if (typeof parsed.embedModel === "string" && parsed.embedModel.trim()) config.embedModel = parsed.embedModel.trim();
+      if (typeof parsed.embedModelVersion === "string" && parsed.embedModelVersion.trim()) config.embedModelVersion = parsed.embedModelVersion.trim();
+      if (typeof parsed.lmStudioBaseUrl === "string" && parsed.lmStudioBaseUrl.trim()) config.lmStudioBaseUrl = parsed.lmStudioBaseUrl.trim();
+      if (typeof parsed.vectorTopK === "number" && Number.isFinite(parsed.vectorTopK) && parsed.vectorTopK > 0) config.vectorTopK = Math.floor(parsed.vectorTopK);
+      if (typeof parsed.vectorEf === "number" && Number.isFinite(parsed.vectorEf) && parsed.vectorEf > 0) config.vectorEf = Math.floor(parsed.vectorEf);
       if (hasMemoryOverflowStrategy) {
         config.autoConsolidate = config.memoryOverflowStrategy === "auto-consolidate";
       } else if (hasLegacyAutoConsolidate) {

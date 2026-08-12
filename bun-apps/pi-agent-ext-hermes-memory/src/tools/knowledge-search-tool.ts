@@ -17,12 +17,34 @@ import { Type } from "typebox";
 import type { RetrieveResult } from "@repo/pi-agent-ext-core-interface";
 import { getKnowledgePipeline } from "../knowledge-pipeline-seam.js";
 import { KNOWLEDGE_FOLDER_DEFAULT } from "../knowledge-vault-path.js";
+import type { VectorStore } from "../store/surreal/vector-store.js";
+import type { Embedder } from "../store/surreal/embedder.js";
+import { searchSemantic } from "../store/semantic-search.js";
 
 /** Narrow the pi surface to exactly what this tool uses (registerTool). The
  *  full ExtensionAPI is structurally assignable, so index.ts passes its pi
  *  unchanged — no cast needed at the wiring site or in tests. */
 export interface ToolRegistrar {
   registerTool(def: ToolDefinition): void;
+}
+
+/** Optional semantic-search wiring (ticket 14 phase A). When `semantic` is
+ *  opted-in AND a VectorStore is available, the tool probes the warm HNSW index
+ *  and re-ranks the zk RetrieveResult cards by HNSW proximity (cards the warm
+ *  path surfaced float to the top). Default (no wiring) → byte-identical to the
+ *  pre-semantic baseline (#default-behavior-unchanged invariant).
+ *
+ *  Providers are LAZY (zero-cost unless semantic is opted-in at call time), so
+ *  wiring them in index.ts never touches SurrealDB during normal operation. */
+export interface KnowledgeSemanticOpts {
+  /** Lazy VectorStore (returns undefined when no Surreal index is configured). */
+  vectorStore?: () => VectorStore | undefined;
+  /** Lazy embedder (returns undefined when LM Studio is unavailable). */
+  embedder?: () => Embedder | undefined;
+  /** Embedding model id (default nomic-embed-text-v1.5). */
+  model?: string;
+  /** HNSW exploration factor (default from config / 100). */
+  ef?: number;
 }
 
 const KNOWLEDGE_SEARCH_DESCRIPTION = `Search the knowledge graph (vault-md cards written by zk's ingest pipeline) for lessons, gotchas, and patterns relevant to the current task.
@@ -72,7 +94,11 @@ interface KnowledgeSearchToolResult {
 /** Register the `knowledge_search` tool. `vaultResolver` resolves the vault
  *  path (env-only); it MAY throw (e.g. env unset) — the tool surfaces a clear
  *  message at call time and never crashes session init. */
-export function registerKnowledgeSearchTool(pi: ToolRegistrar, vaultResolver: () => string): ToolDefinition {
+export function registerKnowledgeSearchTool(
+  pi: ToolRegistrar,
+  vaultResolver: () => string,
+  semanticOpts?: KnowledgeSemanticOpts,
+): ToolDefinition {
   const definition = defineTool({
     name: "knowledge_search",
     label: "Knowledge search",
@@ -126,7 +152,7 @@ export function registerKnowledgeSearchTool(pi: ToolRegistrar, vaultResolver: ()
       }
 
       const folder = KNOWLEDGE_FOLDER_DEFAULT;
-      const result = await kp.retrieveRecords({
+      let result = await kp.retrieveRecords({
         vaultPath,
         folder,
         tags: tags ?? tokenize(query),
@@ -137,6 +163,44 @@ export function registerKnowledgeSearchTool(pi: ToolRegistrar, vaultResolver: ()
         slugDom: true,
         excludeIds,
       });
+
+      // Ticket 14 phase A: warm HNSW re-rank. When semantic is opted-in AND a
+      // VectorStore + embedder are wired, probe the warm index and re-rank the
+      // zk cards by HNSW proximity (warm hits float to the top). searchSemantic
+      // is called WITHOUT kp/vaultPath so a warm MISS returns [] (no double
+      // kp.retrieveRecords call) — on a miss the zk result stands unchanged.
+      // Best-effort: a throw is swallowed (#default-behavior-unchanged).
+      // Default (no semanticOpts / no store) → this block is skipped entirely.
+      if (semantic && semanticOpts?.vectorStore && semanticOpts?.embedder) {
+        const vs = semanticOpts.vectorStore();
+        const embedder = semanticOpts.embedder();
+        if (vs && embedder) {
+          try {
+            const warm = await searchSemantic({
+              queryText: query,
+              kind: "knowledge",
+              topK: topK ?? 10,
+              ef: semanticOpts.ef ?? 100,
+              model: semanticOpts.model,
+              embedder,
+              vectorStore: vs,
+              // Deliberately omit kp/vaultPath: a warm miss must return []
+              // (NOT re-run zk cosine) so the zk result above stands.
+              excludeIds,
+            });
+            const hnsw = warm.filter((h) => h.source === "hnsw");
+            if (hnsw.length > 0) {
+              const order = new Map(hnsw.map((h, i) => [h.mdId, i]));
+              const ranked = [...result.cards].sort(
+                (a, b) => (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+              );
+              result = { ...result, cards: ranked };
+            }
+          } catch {
+            // Warm-probe failure (SurrealDB down / embed error) → zk result stands.
+          }
+        }
+      }
 
       const text = formatKnowledgeSearchText(query, result);
       return { content: [{ type: "text" as const, text }], details: result };
