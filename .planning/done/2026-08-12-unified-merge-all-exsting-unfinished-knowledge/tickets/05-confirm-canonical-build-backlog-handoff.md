@@ -1,3 +1,7 @@
+---
+status: closed
+---
+
 # 05 — Confirm the canonical open build backlog + next-pick, as the handoff (destination)
 
 ## type
@@ -21,3 +25,7 @@ Reaching this state IS this effort's destination: `2026-08-08-knowledge-pipeline
 ## claimed
 
 —
+
+## Resolution (closed 2026-08-12)
+
+Done — handoff confirmed; 2026-08-08-knowledge-pipeline is the single surviving live effort; next-build pick = HITL (open set {03,07,13,14}).

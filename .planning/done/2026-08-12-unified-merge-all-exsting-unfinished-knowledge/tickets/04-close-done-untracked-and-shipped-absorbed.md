@@ -1,3 +1,7 @@
+---
+status: closed
+---
+
 # 04 — Close the done-but-untracked + shipped/absorbed efforts
 
 ## type
@@ -23,3 +27,7 @@ Per-effort checklist (do each, in order):
 ## claimed
 
 —
+
+## Resolution (closed 2026-08-12)
+
+Done — 5 efforts archived to .planning/done/ (08-11-typecheck-gate, 07-28-surrealdb-graph, 08-08-obsidian-surealdb, 07-30-file2md-pdf, 08-04-zk-spwan).

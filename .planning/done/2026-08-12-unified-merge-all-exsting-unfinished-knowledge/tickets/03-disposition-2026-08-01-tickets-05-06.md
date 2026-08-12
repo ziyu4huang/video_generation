@@ -1,3 +1,7 @@
+---
+status: closed
+---
+
 # 03 — Disposition: 2026-08-01-continue-pipeline tickets 05 & 06 — live (migrate) or superseded (close)?
 
 ## type
@@ -23,3 +27,7 @@ If migrated, specify the mapping (which canonical ticket number / net-new). This
 ## claimed
 
 —
+
+## Resolution (closed 2026-08-12)
+
+Done — 2026-08-01 tickets 05 & 06 closed as superseded (verified delivered in code; nothing migrated).
