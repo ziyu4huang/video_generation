@@ -40,6 +40,7 @@ mechanism (de-orphaning a contract that existed but wired to nothing).
 - [02 Scope — opt-in vs auto](tickets/02-scope-opt-in-vs-auto.md) — opt-in per conversion (a `knowledge` flag, default off); protects the curated graph.
 - [03 Trigger + orphaned-bus fate](tickets/03-trigger-and-bus-fate.md) — wire the `pi:knowledge` bus; file2md emits on-conversion; knowledge-card adds a sink → `ingestRecords`.
 - [04 Design the file2md→hub emit contract](tickets/04-emit-contract-file2md-to-hub.md) — direct `pi.events.emit` (no upward edge) + extend `KnowledgeEmission` with `dir` (reuse existing dir-ingest; full fidelity; file2md stays dumb).
+- **2026-08-12 reconciliation:** [05 sink subscriber](tickets/05-knowledge-card-sink-subscriber.md) & [06 file2md emit](tickets/06-file2md-opt-in-knowledge-flag.md) closed as superseded (verified delivered in code 2026-08-12; canonical spine uses `walkAndIngest`).
 
 ## Not yet specified
 
