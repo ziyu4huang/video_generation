@@ -1,8 +1,9 @@
 ---
 type: task
-status: open
+status: closed
 blocked by:
 findings: M4, M6, M8
+resolved: 2026-08-12 — shipped in #1061 — error glyph ✗; all-done panel; overlay + response-envelope TDD suites
 ---
 
 # 09 — Todo render correctness + overlay/envelope test suite (TDD)

@@ -1,8 +1,9 @@
 ---
 type: task
-status: open
+status: closed
 blocked by:
 findings: M5, L9
+resolved: 2026-08-12 — shipped in #1064 — delete prunes `blockedBy` + referential-integrity check
 ---
 
 # 10 — Todo delete referential integrity (prune `blockedBy` + scope `invariants.ts`)

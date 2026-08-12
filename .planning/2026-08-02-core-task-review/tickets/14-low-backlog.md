@@ -1,8 +1,9 @@
 ---
 type: task
-status: open
+status: closed
 blocked by:
 findings: L1, L4, L5, L6, L7, L8, L10, L12
+resolved: 2026-08-12 — shipped in #1074 — LOW batch (EMPTY_STATE freeze; heartbeat cleanup; +6)
 ---
 
 # 14 — LOW cleanup backlog (batch the minor items)

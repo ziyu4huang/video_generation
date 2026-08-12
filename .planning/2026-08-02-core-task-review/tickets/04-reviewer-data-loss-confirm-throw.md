@@ -1,8 +1,9 @@
 ---
 type: task
-status: open
+status: closed
 blocked by:
 findings: M1
+resolved: 2026-08-12 — shipped in #1059 — `reviewerEnqueued` hoisted pre-try; catch preserves the queue (`preserveList`), no data loss on confirm-throw
 ---
 
 # 04 — Reviewer data-loss: `ui.confirm` throwing after enqueue drops enqueued `/list` items

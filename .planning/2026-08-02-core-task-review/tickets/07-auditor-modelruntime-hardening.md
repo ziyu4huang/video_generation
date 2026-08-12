@@ -1,8 +1,9 @@
 ---
 type: task
-status: open
+status: closed
 blocked by:
 findings: H4
+resolved: 2026-08-12 — shipped in #1058 — `extractModelRuntime` defensive guard + contract test
 ---
 
 # 07 — Auditor `modelRuntime` access: defensive guard + CI contract test

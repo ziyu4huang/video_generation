@@ -1,8 +1,9 @@
 ---
 type: task
-status: open
+status: closed
 blocked by:
 findings: H6, M12, L13
+resolved: 2026-08-12 — shipped in #1067 — doc sweep (`above-editor`→`belowEditor`; CONTEXT `/loop`,`/list` coverage)
 ---
 
 # 12 — Doc accuracy sweep (above→below ×10 + CONTEXT `/loop`,`/list`,widget inventory)
