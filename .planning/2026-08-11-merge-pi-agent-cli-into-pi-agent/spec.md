@@ -1,7 +1,7 @@
 # Spec — Merge `pi-agent-cli` into `pi-agent`
 
 **Date:** 2026-08-11
-**Status:** approved (design), ready for implementation planning
+**Status:** SHIPPED 2026-08-12 — see "Outcome" at the end for what the plan got wrong.
 **Scope:** collapse the `@repo/pi-agent-cli` workspace package into `@repo/pi-agent`
 as a `cli` sub-command namespace. Packaging merge only — no feature is removed.
 
@@ -321,3 +321,71 @@ references it.
 - Adopting the CLI's stricter tsconfig flags in `pi-agent`.
 - Any change to `run.sh` / `pi-agent.sh`, `update-pi.sh`, the patch set,
   `run-dir/resolve.ts`, or the deploy mode-detection logic.
+
+---
+
+## Outcome (2026-08-12)
+
+Shipped in 21 commits. Acceptance run: all gates green except the known
+pre-existing `verify-deploy.sh` step 5. `--list-models` verified **byte-identical**
+against merge base `90fab9db` from a real worktree of that base.
+
+### What this spec got wrong, and what review caught
+
+**1. `runCli` returning a hardcoded `0` silently swallowed failures.** The spec's
+own Task-2 wording told the implementer to `return 0` on the success path. Four
+commands (`doctor`, `zk-query` ×2, `kcard-loop`) report failure by setting
+`process.exitCode = 1` WITHOUT throwing, and `process.exit(n)` with an explicit
+argument beats a previously-set `process.exitCode` — so `pi-agent cli doctor`
+would have exited 0 on every failing check. Fixed in `93c9e210`; the contract is
+now pinned by `src/cli/__tests__/run-cli-exit-code.test.ts` and proven end-to-end
+with `MLX_MODELS_DIR=/nonexistent`.
+
+**2. The user-facing program name was not in the plan at all.** `bun-pi-agent-cli`
+appeared in ~184 strings including the generated shell completions, which
+registered against a binary that no longer exists. Became task T8b
+(`2feb1d50`, `da279c36`). A follow-up (`dc69b99b`) fixed a latent fish bug the
+rename exposed: multi-char single-dash flags (`-xt`, `-nt`, `-nbt`, `-lm`, `-lt`)
+must be emitted as fish `-o`, not `-s` (which takes exactly one character).
+Nothing in CI runs fish, so an e2e string assertion is the only guard.
+
+**3. The deploy artifacts could not run the CLI at all** — `ENOENT
+mupdf-wasm.wasm`. Inherited, not caused by the merge: the deleted `build.ts`
+copied no assets either, so `verify-deploy.sh` step 4a could not have passed
+since `ac5e03f4` (#951). Fixed in `38d24ee2` with a `with { type: "file" }` asset
+import + `locateFile`, which works in source, bundle and `--compile` modes with
+zero `deploy.ts` change. Verified by extracting text from a real PDF through both
+the deployed bundle and the compiled binary.
+
+**4. `--exe --obfuscate` is unsound and is now rejected** (`7606a0ee`).
+`--obfuscate` forces bundle-then-compile, and bundling resolves every
+`with { type: "file" }` import to a bundle-relative path, so `--compile` embeds
+no assets. The combination produced a binary that looked fine and failed at
+runtime. This is a real (small) feature loss versus the deleted `build.ts`'s
+`--all`, which worked only because that package's graph had no file assets.
+
+**5. `boot-smoke.baseline.json` did NOT need regenerating.** The spec claimed it
+would; it records tool-graph facts derived from `run-dir/manifest.json` via a
+depth-independent `resolveRepoRoot()` walk-up. Corrected before implementation.
+
+**6. Two verification methods in the plan were wrong.** The `git stash` recipe for
+before/after comparison was unsafe (16 pre-existing stash entries) and was
+replaced with `git show HEAD:…` / a throwaway worktree. And the dep-guard rule is
+driven by `importedRepos ∪ typesRepos`, not declared deps — adding a
+`package.json` edge does not trip it; only a real `import { x } from "@repo/pi-agent"`
+does. The rule was a silent no-op before this branch and now has teeth, but
+remains blind to a declared-but-unimported dep.
+
+### Follow-ups filed by this work, not done here
+
+- `verify-deploy.sh` step 5 calls `deploy.ts --verify --writable`, flags that have
+  never existed; dead since `3b5bc341` (#707).
+- `run-test.sh`'s `full`-tier "sibling stack-health baseline" loops over
+  `pi-obsidian` / `pi-knowledge-card`, directories that do not exist, and a
+  `[ -d ] || skip` swallows both — it has been exercising one package, not four.
+- dep-guard cannot see a declared-but-unimported `@repo/pi-agent` edge.
+- mupdf still loads eagerly on every `cli` command; the cheap seam is moving
+  `src/cli/commands/file2md.ts`'s `runVlmDescribePipeline` import into `run()`.
+- The CLI's stricter tsconfig flags (`noUncheckedIndexedAccess`,
+  `verbatimModuleSyntax`, `noImplicitOverride`, `noFallthroughCasesInSwitch`)
+  were deliberately not adopted by `pi-agent`.
