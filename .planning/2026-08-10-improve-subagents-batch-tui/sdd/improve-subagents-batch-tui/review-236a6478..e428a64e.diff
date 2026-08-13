@@ -1,0 +1,218 @@
+# Review package: 236a6478..e428a64e438e61ba9c93a66e779df046463cb930
+
+## Commits
+e428a64e feat(subagent): batch-tui buildLiveTable pure live-row builder (T5)
+
+## Files changed
+ .../pi-agent-ext-subagent/src/subagents-tool.ts    | 43 +++++++++++-
+ .../tests/subagents-tool.test.ts                   | 80 +++++++++++++++++++++-
+ 2 files changed, 121 insertions(+), 2 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+index 4798d507..7559fe2b 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+@@ -1,20 +1,25 @@
+ /**
+  * `subagents` tool — agent-callable PARALLEL read-only fan-out. Dispatches N
+  * isolated subagents (via spawnSubagent) with bounded concurrency, returning a
+  * positional array of results. Read-only is ENFORCED: edit/write/bash are
+  * always excluded (non-overridable) so children sharing the parent's working
+  * tree can never race on writes. See .planning/done/2026-08-01-what-s-next-for-subagent-develop-map/.
+  */
+ import { defineTool, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+ import { Text, truncateToWidth } from "@earendil-works/pi-tui";
+-import type { AgentUsage, BudgetExhaustion, SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
++import type {
++  AgentUsage,
++  BudgetExhaustion,
++  InFlightSubagent,
++  SubagentInFlightRegistry,
++} from "@repo/pi-agent-ext-core-runtime";
+ import {
+   checkBudgetExhaustion,
+   DEFAULT_BATCH_CONCURRENCY,
+   getGlobalRateLimiter,
+   MAX_BATCH_TASKS,
+   MAX_CONCURRENCY,
+   providerFromModelSpec,
+   shortModel,
+   summarizeLatestAction,
+ } from "@repo/pi-agent-ext-core-runtime";
+@@ -683,20 +688,56 @@ export function formatSlotMeta(
+   theme: Theme,
+ ): string {
+   return theme.fg(
+     "muted",
+     `${formatModelSeg(slot.model, slot.requestedModel, slot.fellBack)} · ${(slot.elapsedMs / 1000).toFixed(
+       1,
+     )}s${formatUsage(slot.usage)}`,
+   );
+ }
+ 
++/** Extract the trailing `:N` dispatch index from a batch child runId
++ *  (`${batchId}:${index}`). NaN for ids without a numeric suffix (sorts last). */
++export function childDispatchIndex(id: string): number {
++  const idx = Number(id.slice(id.lastIndexOf(":") + 1));
++  return Number.isFinite(idx) ? idx : NaN;
++}
++
++/** Pure live-table builder for the running (isPartial) batch view. One row per
++ *  in-flight child, sorted ascending by dispatch index:
++ *    `[i] slot ⏱/✓ liveElapsed · currentAction`
++ *  - `slot` via {@link formatModelSeg} (fallback-aware; resolved model once known).
++ *  - glyph ⏱ while `status !== "completed"`, ✓ once completed (kept in the
++ *    registry until endBatch so a finished child still shows its final elapsed).
++ *  - `liveElapsed` = `(now - startedAt)/1000` with 1-decimal.
++ *  - `currentAction` from {@link summarizeLatestAction}(history), falling back to
++ *    the task preview (truncated to 40) when there is no history yet.
++ *  PLAIN text (no theme — `execute()` has no Theme; rendered dim by the isPartial
++ *  branch of `renderSubagentsResult`). Empty input → "" (header-only). */
++export function buildLiveTable(entries: InFlightSubagent[], now: number = Date.now()): string {
++  const sorted = [...entries].sort((a, b) => {
++    const ia = childDispatchIndex(a.id);
++    const ib = childDispatchIndex(b.id);
++    return (Number.isNaN(ia) ? Infinity : ia) - (Number.isNaN(ib) ? Infinity : ib);
++  });
++  const rows = sorted.map((e) => {
++    const idx = childDispatchIndex(e.id);
++    const idxLabel = Number.isNaN(idx) ? "?" : String(idx);
++    const slot = formatModelSeg(e.resolvedModel ?? e.model ?? "default", e.requestedModel, e.fellBack);
++    const glyph = e.status === "completed" ? "✓" : "⏱";
++    const elapsed = `${((now - e.startedAt) / 1000).toFixed(1)}s`;
++    const action = summarizeLatestAction(e.history) ?? truncateToWidth(e.taskPreview ?? e.workIntent ?? "", 40);
++    return `[${idxLabel}] ${slot} ${glyph} ${elapsed} · ${action}`;
++  });
++  return rows.join("\n");
++}
++
+ /** Sum total + cost across any iterable of AgentUsage (slots' usage for the done
+  *  header; the runningUsage map's values for the live header). Empty → zeros. */
+ export function sumUsage(values: Iterable<AgentUsage>): { total: number; cost: number } {
+   let total = 0;
+   let cost = 0;
+   for (const v of values) {
+     total += v.total;
+     cost += v.cost;
+   }
+   return { total, cost };
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+index ae74969f..d4ff37ef 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+@@ -1,24 +1,26 @@
+ import { test } from "bun:test";
+ import assert from "node:assert/strict";
+-import type { AgentUsage } from "@repo/pi-agent-ext-core-runtime";
++import type { AgentUsage, InFlightSubagent } from "@repo/pi-agent-ext-core-runtime";
+ import {
+   DEFAULT_BATCH_CONCURRENCY,
+   MAX_BATCH_TASKS,
+   MAX_CONCURRENCY,
+   SubagentInFlightRegistry,
+ } from "@repo/pi-agent-ext-core-runtime";
+ import { createSubagentsTool as fromIndex } from "../src/index.js";
+ import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
+ import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
+ import type { SubagentsToolDetails } from "../src/subagents-tool.js";
+ import {
++  buildLiveTable,
++  childDispatchIndex,
+   clampConcurrency,
+   createSubagentsTool,
+   formatModelSeg,
+   formatSlotMeta,
+   formatUsage,
+   mergeReadOnlyExclusion,
+   READ_ONLY_EXCLUDED,
+   renderBatchResult,
+   renderSubagentsCall,
+   renderSubagentsResult,
+@@ -1299,10 +1301,86 @@ test("done expanded: null (failed) slot has NO meta line (unchanged failed body)
+   };
+   const expanded = renderSubagentsResult(
+     { content: [{ type: "text", text: "x" }], details },
+     { expanded: true },
+     THEME,
+   );
+   const failedBlock = expanded.split("### [1]")[0];
+   assert.match(failedBlock, /### \[0\] failed/);
+   assert.doesNotMatch(failedBlock, /· .*s ·/);
+ });
++
++const NOW = 10_000;
++
++function live(over: Partial<InFlightSubagent> & { id: string }): InFlightSubagent {
++  return { taskPreview: "pt", startedAt: 0, ...over } as InFlightSubagent;
++}
++
++test("childDispatchIndex: trailing :N from a batch child runId; NaN-resistant", () => {
++  assert.equal(childDispatchIndex("batch-call:3"), 3);
++  assert.equal(childDispatchIndex("wf:abc:0"), 0);
++  assert.equal(childDispatchIndex("no-colon"), NaN);
++});
++
++test("buildLiveTable: empty entries → empty string (header-only)", () => {
++  assert.equal(buildLiveTable([], NOW), "");
++});
++
++test("buildLiveTable: one running child → `[i] slot ⏱ liveElapsed · currentAction`", () => {
++  const rows = buildLiveTable(
++    [live({ id: "batch-call:0", model: "zai/glm-5.2", startedAt: 6550, status: "running" })],
++    NOW,
++  );
++  assert.equal(rows, "[0] glm-5.2 ⏱ 3.5s · pt");
++});
++
++test("buildLiveTable: completed child shows ✓ glyph + the same meta", () => {
++  const rows = buildLiveTable(
++    [live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 9000, status: "completed" })],
++    NOW,
++  );
++  assert.equal(rows, "[1] glm-5.2 ✓ 1.0s · pt");
++});
++
++test("buildLiveTable: fallback child shows `requested → actual` slot", () => {
++  const rows = buildLiveTable(
++    [
++      live({
++        id: "batch-call:0",
++        model: "anthropic/claude-opus-4-1",
++        resolvedModel: "zai/glm-5.2",
++        requestedModel: "anthropic/claude-opus-4-1",
++        fellBack: true,
++        startedAt: 9500,
++        status: "running",
++      }),
++    ],
++    NOW,
++  );
++  assert.equal(rows, "[0] claude-opus-4-1 → glm-5.2 ⏱ 0.5s · pt");
++});
++
++test("buildLiveTable: currentAction comes from summarizeLatestAction(history); falls back to task preview", () => {
++  const withHist = buildLiveTable(
++    [
++      live({
++        id: "batch-call:0",
++        model: "zai/glm-5.2",
++        startedAt: 9000,
++        history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"src/a.ts"}' }],
++      }),
++    ],
++    NOW,
++  );
++  assert.match(withHist, /\[0\] glm-5\.2 ⏱ 1\.0s · .+/);
++  assert.notEqual(withHist, "[0] glm-5.2 ⏱ 1.0s · pt", "history-derived action replaces the task-preview fallback");
++});
++
++test("buildLiveTable: sorted ascending by dispatch index; defaults to Date.now()", () => {
++  const rows = buildLiveTable([
++    live({ id: "batch-call:2", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
++    live({ id: "batch-call:0", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
++    live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
++  ]);
++  const idxs = rows.split("\n").map((l) => l.slice(1, 2));
++  assert.deepEqual(idxs, ["0", "1", "2"]);
++});
