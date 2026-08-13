@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { saveModelTierConfig, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
+import {
+  type AgentUsage,
+  saveModelTierConfig,
+  WorkflowError,
+  WorkflowErrorCode,
+} from "@repo/pi-agent-ext-core-runtime";
 import { resolveSessionOverride, spawnSubagent } from "../src/spawn-subagent.js";
 
 /** Minimal injectable runner (Pick<WorkflowAgent, "run">) that records calls. */
@@ -118,6 +123,29 @@ describe("spawnSubagent", () => {
     assert.equal(resolved, "deepseek/deepseek-v4-flash", "onModelResolved forwarded + fires");
     assert.equal(typeof runner.calls[0]?.opts.onModelFallback, "function", "onModelFallback forwarded");
     assert.equal(fallback, "", "runner did not trigger fallback here");
+  });
+
+  it("forwards onUsage to the caller (fires once at run end) alongside the internal result.usage capture", async () => {
+    const usage = { input: 10, output: 20, cacheRead: 0, cacheWrite: 0, total: 30, cost: 0.012 };
+    const runner = mkRunner(async ({ opts }) => {
+      opts.onUsage?.(usage);
+      return "ok";
+    });
+    const seen: AgentUsage[] = [];
+    const res = await spawnSubagent({ task: "t", agent: runner, onUsage: (u) => seen.push(u) });
+    assert.equal(seen.length, 1, "opts.onUsage fires exactly once");
+    assert.deepEqual(seen[0], usage, "the caller receives the usage payload verbatim");
+    assert.deepEqual(res.usage, usage, "the internal result.usage capture still works (not removed)");
+  });
+
+  it("onUsage is optional — omitting it changes nothing (result.usage still captured)", async () => {
+    const usage = { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, total: 5, cost: 0.001 };
+    const runner = mkRunner(async ({ opts }) => {
+      opts.onUsage?.(usage);
+      return "ok";
+    });
+    const res = await spawnSubagent({ task: "t", agent: runner });
+    assert.deepEqual(res.usage, usage, "result.usage captured even with no caller onUsage");
   });
 
   it("timeout (AGENT_TIMEOUT) → timedOut:true, retried once when retryOnTransient:true", async () => {
