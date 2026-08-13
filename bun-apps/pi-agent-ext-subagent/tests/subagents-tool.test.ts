@@ -59,6 +59,29 @@ test("mergeReadOnlyExclusion defaults timeoutMs and carries per-child budgets", 
   assert.equal(opts.spendBudget, 0.5);
 });
 
+test("#01 plural mirror: per-child tier default applied when tokenBudget omitted", async () => {
+  const calls: SpawnSubagentOptions[] = [];
+  const spawn = async (opts: SpawnSubagentOptions) => {
+    calls.push(opts);
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ spawn: spawn as never });
+  await tool.execute(
+    "batch-bud",
+    {
+      tasks: [
+        { task: "research", tier: "small" },
+        { task: "big synth", tier: "big", tokenBudget: 999 },
+      ],
+    } as never,
+    undefined as never,
+    undefined,
+    { cwd: "/r" } as never,
+  );
+  assert.equal(calls[0]?.tokenBudget, 500_000, "tier:small child → 500k default");
+  assert.equal(calls[1]?.tokenBudget, 999, "explicit per-child tokenBudget wins");
+});
+
 // ── optimization #1: default to the parent's gated active tool set ──
 // (see .planning/2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task/ ticket 01)
 // A read-only batch child must NOT re-inherit the full ~55-tool definition universe;

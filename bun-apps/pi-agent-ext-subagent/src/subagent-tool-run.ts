@@ -9,6 +9,7 @@
 import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
 import { parseSddReport } from "@repo/pi-agent-ext-core-runtime";
 import type { TSchema } from "typebox";
+import { tierDefaultToken } from "./budget-defaults.js";
 import type { computeScopeCheck, GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
 import type { SpawnSubagentOptions } from "./spawn-subagent.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
@@ -302,7 +303,11 @@ export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: Sp
     extensionTools: deps.getExtensionTools?.(),
     externalSignal: childSignal,
     timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-    tokenBudget: params.tokenBudget,
+    // #01 tier-calibrated hard-abort default. An explicit tokenBudget always
+    // wins; otherwise the ceiling is derived from the tier (or the model's tier
+    // via reverse-map). spendBudget is intentionally NOT defaulted (cost≡0 on
+    // this MLX stack — a spend ceiling can never fire).
+    tokenBudget: params.tokenBudget ?? tierDefaultToken(modelCtx.tier, modelCtx.requestedModel ?? modelCtx.mainModel),
     spendBudget: params.spendBudget,
     retryOnTransient: params.retryOnTransient,
     schema: params.schema as TSchema | undefined,
