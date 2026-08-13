@@ -1,5 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
+import type { AgentUsage } from "@repo/pi-agent-ext-core-runtime";
 import {
   DEFAULT_BATCH_CONCURRENCY,
   MAX_BATCH_TASKS,
@@ -13,11 +14,15 @@ import type { SubagentsToolDetails } from "../src/subagents-tool.js";
 import {
   clampConcurrency,
   createSubagentsTool,
+  formatModelSeg,
+  formatSlotMeta,
+  formatUsage,
   mergeReadOnlyExclusion,
   READ_ONLY_EXCLUDED,
   renderBatchResult,
   renderSubagentsCall,
   renderSubagentsResult,
+  sumUsage,
 } from "../src/subagents-tool.js";
 
 test("createSubagentsTool has name 'subagents' + executionMode 'sequential'", () => {
@@ -1025,4 +1030,60 @@ test("#03 plural mirror: a child missing a required tool is skipped (null), spaw
   assert.equal(calls.length, 1, "only the satisfiable child is dispatched");
   assert.equal(res.details.results[0], null, "missing-tool child → null slot");
   assert.notEqual(res.details.results[1], null);
+});
+
+// ── Task 2: pure render helpers (formatUsage / formatModelSeg / formatSlotMeta / sumUsage) ──
+// Shared by the done + live render rewrites (Tasks 3-6). formatSlotMeta +
+// formatModelSeg mirror the single subagent card's meta (fallback-aware).
+// sumUsage feeds both the done-header and live-header usage aggregates.
+
+const U = (total: number, cost: number): AgentUsage => ({
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  total,
+  cost,
+});
+
+test("formatUsage: empty when no usage or zero total; else ` · $cost · Ntok` (3-decimal cost)", () => {
+  assert.equal(formatUsage(undefined), "");
+  assert.equal(formatUsage(U(0, 0)), "");
+  assert.equal(formatUsage(U(15715, 0.0004)), " · $0.000 · 15715 tok");
+  assert.equal(formatUsage(U(1000, 0.5)), " · $0.500 · 1000 tok");
+});
+
+test("formatModelSeg: shortens provider prefix; `requested → actual` on fallback; default fallback", () => {
+  assert.equal(formatModelSeg("zai/glm-5.2"), "glm-5.2");
+  assert.equal(formatModelSeg("tier:small"), "tier:small");
+  assert.equal(
+    formatModelSeg("anthropic/claude-opus-4-1", "anthropic/claude-opus-4-1", true),
+    "claude-opus-4-1 → claude-opus-4-1",
+  );
+  assert.equal(formatModelSeg("zai/glm-5.2", "anthropic/claude-opus-4-1", true), "claude-opus-4-1 → glm-5.2");
+  assert.equal(formatModelSeg(""), "default");
+});
+
+test("formatSlotMeta: themed `model · elapsed · usage`; defensive on missing usage", () => {
+  const meta = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500, usage: U(15715, 0.0004) }, THEME);
+  assert.equal(meta, "glm-5.2 · 34.5s · $0.000 · 15715 tok");
+  const noUsage = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500 }, THEME);
+  assert.equal(noUsage, "glm-5.2 · 34.5s");
+  const fb = formatSlotMeta(
+    {
+      model: "zai/glm-5.2",
+      requestedModel: "anthropic/claude-opus-4-1",
+      fellBack: true,
+      elapsedMs: 1000,
+      usage: U(10, 0.001),
+    },
+    THEME,
+  );
+  assert.equal(fb, "claude-opus-4-1 → glm-5.2 · 1.0s · $0.001 · 10 tok");
+});
+
+test("sumUsage: sums total+cost across an iterable; empty → zeros", () => {
+  assert.deepEqual(sumUsage([]), { total: 0, cost: 0 });
+  assert.deepEqual(sumUsage([U(100, 0.1), U(200, 0.2)]), { total: 300, cost: 0.30000000000000004 });
+  assert.deepEqual(sumUsage(new Map([["a", U(50, 0.05)]]).values()), { total: 50, cost: 0.05 });
 });

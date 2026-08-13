@@ -656,6 +656,52 @@ function batchStatusBadge(status: string, theme: Theme): string {
   return theme.fg(b.tone, b.text.padEnd(BATCH_BADGE_WIDTH));
 }
 
+/** Usage segment mirroring the single `subagent` card's meta: ` · $X.XXX · Ntok`
+ *  when usage is present and non-zero, else `""` (defensive — degrades to empty).
+ *  Load-bearing: render fixtures omit `usage`, so `""` keeps rendered lines
+ *  byte-compatible (no phantom spaces/tokens). */
+export function formatUsage(u: AgentUsage | undefined): string {
+  return u && u.total > 0 ? ` · $${u.cost.toFixed(3)} · ${u.total} tok` : "";
+}
+
+/** Fallback-aware model label (theme-free so the live table and the themed meta
+ *  share it). On fallback shows `requested → actual` (both shortModel-ed); else
+ *  the resolved model shortModel-ed; `"default"` when empty. Mirrors the single
+ *  card's `modelSeg`. */
+export function formatModelSeg(model: string, requestedModel?: string, fellBack?: boolean): string {
+  if (fellBack && requestedModel) {
+    return `${shortModel(requestedModel) ?? "default"} → ${shortModel(model) ?? "default"}`;
+  }
+  return shortModel(model) ?? "default";
+}
+
+/** Themed `model · elapsed · usage` line for a done/timedout/aborted/budget slot.
+ *  Shared by the done-collapsed per-slot line and the done-expanded meta line
+ *  (DRY). `usage` optional → degrades to `model · elapsed`. */
+export function formatSlotMeta(
+  slot: { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
+  theme: Theme,
+): string {
+  return theme.fg(
+    "muted",
+    `${formatModelSeg(slot.model, slot.requestedModel, slot.fellBack)} · ${(slot.elapsedMs / 1000).toFixed(
+      1,
+    )}s${formatUsage(slot.usage)}`,
+  );
+}
+
+/** Sum total + cost across any iterable of AgentUsage (slots' usage for the done
+ *  header; the runningUsage map's values for the live header). Empty → zeros. */
+export function sumUsage(values: Iterable<AgentUsage>): { total: number; cost: number } {
+  let total = 0;
+  let cost = 0;
+  for (const v of values) {
+    total += v.total;
+    cost += v.cost;
+  }
+  return { total, cost };
+}
+
 /** Theme the batch result: collapsed = header + per-child one-liners; expanded = full themed output. */
 export function renderSubagentsResult(
   result: { content: Array<{ type: string; text?: string }>; details?: SubagentsToolDetails },
