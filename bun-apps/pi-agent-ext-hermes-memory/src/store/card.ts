@@ -25,21 +25,25 @@ export type CardKind =
  *  - `frontmatter` is the kind-specific metadata envelope (memory: id/created/
  *    last/state/severity/pin/provenance/...; knowledge: id/created/tags/
  *    record_type/status/superseded_by/confidence/dimension/entities/...).
- *  - `embed?` / `graph?` are part of the TYPE but NOT persisted/indexed in 06a
- *    (embed → ticket 04 / 06b; graph → ticket 03 / 06b). They round-trip as
- *    `undefined` through the 06a SQLite path. */
+ *  - `embed?` is part of the TYPE but NOT persisted/indexed in 06a (embed →
+ *    ticket 04 / 06b); it round-trips as `undefined` through the SQLite path.
+ *    `graph?` IS persisted (03): a nullable `graph` JSON column next to
+ *    `frontmatter` round-trips it; it is not graph-indexed (the persistent
+ *    relation index is a deferred scale-trigger ticket). */
 export interface Card {
   id: string;
   kind: CardKind;
   content: string;
   frontmatter: Record<string, unknown>;
   embed?: unknown;          // 04/06b — left opaquely typed in 06a (not indexed)
-  graph?: CardGraph;        // 03/06b — stored on the Card object, not indexed
+  graph?: CardGraph;        // 03 — persisted (nullable `graph` JSON col); not indexed
 }
 
 /** Graph fields a card MAY carry. Populated by KnowledgeSerializer from vault-md
- *  (`## 連結` wiki-links + `entities`/`relations` frontmatter). NOT persisted to
- *  SurrealDB graph edges in 06a (placeholder) — flagged for ticket 03 / 06b. */
+ *  (`## 連結` wiki-links + `entities`/`relations` frontmatter). Persisted as a
+ *  nullable `graph` JSON column next to `frontmatter` (03, SQLite round-trip);
+ *  NOT mirrored to SurrealDB graph edges (the persistent relation index is a
+ *  deferred scale-trigger ticket). */
 export interface CardGraph {
   /** Wiki-link neighbours (slug basenames), parsed from `## 連結` lines. */
   links?: string[];

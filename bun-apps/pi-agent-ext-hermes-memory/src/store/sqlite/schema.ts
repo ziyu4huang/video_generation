@@ -93,7 +93,12 @@ export const SCHEMA_SQL = `
     -- 06a (knowledge-pipeline): nullable JSON envelope for kinds whose metadata
     -- has no dedicated column (knowledge-cards). NULL for memory/user/failure
     -- rows (their metadata stays in the dedicated columns above, unchanged).
-    frontmatter TEXT
+    frontmatter TEXT,
+    -- 03 (two-layer knowledge graph): nullable JSON column for Card.graph
+    -- (links/entities/relations). Mirrors frontmatter: kind-agnostic column;
+    -- NULL when a card carries no graph. NOT indexed here (the persistent
+    -- relation index is a deferred scale-trigger ticket).
+    graph TEXT
   );
 
   -- FTS5 index for memory search

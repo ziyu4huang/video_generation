@@ -775,6 +775,11 @@ export class SqliteBackend implements Backend {
     if (!names.has('frontmatter')) {
       db.exec('ALTER TABLE memories ADD COLUMN frontmatter TEXT');
     }
+    // 03 (two-layer knowledge graph): idempotent nullable `graph` column add
+    // for Card.graph (links/entities/relations). Mirrors frontmatter exactly.
+    if (!names.has('graph')) {
+      db.exec('ALTER TABLE memories ADD COLUMN graph TEXT');
+    }
   }
 
   /** 09-impl (ticket 09): ensure the `card_md_hash` table exists. Idempotent
@@ -990,7 +995,7 @@ export class SqliteBackend implements Backend {
       'failure_reason', 'tool_state', 'corrected_to',
       'created', 'last_referenced', 'mw_success', 'mw_fail', 'status',
       'supersedes', 'superseded_by', 'parent_ids',
-      'md_id', 'state', 'severity', 'pin', 'frontmatter',
+      'md_id', 'state', 'severity', 'pin', 'frontmatter', 'graph',
     ];
     const colList = fullColumns.join(', ');
 
@@ -1027,7 +1032,8 @@ export class SqliteBackend implements Backend {
           state TEXT NOT NULL DEFAULT 'active',
           severity INTEGER,
           pin INTEGER NOT NULL DEFAULT 0,
-          frontmatter TEXT
+          frontmatter TEXT,
+          graph TEXT
         );
       `);
 
@@ -1099,8 +1105,8 @@ export class SqliteBackend implements Backend {
    *  current column set — id, project, target, category, content,
    *  failure_reason, tool_state, corrected_to, created, last_referenced,
    *  mw_success, mw_fail, status, supersedes, superseded_by, parent_ids, md_id,
-   *  state, severity, pin, frontmatter (the same 21-col list as the knowledge
-   *  migration). After the rename the memories FTS triggers + indexes are
+   *  state, severity, pin, frontmatter, graph (the same 22-col list as the
+   *  knowledge migration). After the rename the memories FTS triggers + indexes are
    *  recreated (DROP TABLE drops them); `rebuildMemoryFts` (called next)
    *  repopulates the index. Memory/knowledge rows are carried through
    *  verbatim — byte-for-byte unchanged. */
@@ -1118,7 +1124,7 @@ export class SqliteBackend implements Backend {
     if (!isFourValueCheck) return;
 
     // The FULL current column set. Declared once and reused for CREATE +
-    // INSERT…SELECT so the two can never drift (identical 21-col list to the
+    // INSERT…SELECT so the two can never drift (identical 22-col list to the
     // knowledge migration — a drift here is exactly the silent-column-drop the
     // guard exists to prevent).
     const fullColumns = [
@@ -1126,13 +1132,13 @@ export class SqliteBackend implements Backend {
       'failure_reason', 'tool_state', 'corrected_to',
       'created', 'last_referenced', 'mw_success', 'mw_fail', 'status',
       'supersedes', 'superseded_by', 'parent_ids',
-      'md_id', 'state', 'severity', 'pin', 'frontmatter',
+      'md_id', 'state', 'severity', 'pin', 'frontmatter', 'graph',
     ];
     const colList = fullColumns.join(', ');
 
     const doRewrite = (): void => {
       // ensureMemoriesColumns is idempotent: for a 4-value DB it is a no-op
-      // (all 21 columns already present), so the INSERT…SELECT below carries
+      // (all 22 columns already present), so the INSERT…SELECT below carries
       // the full set through verbatim. Re-invoked for safety/parity with the
       // knowledge migration.
       this.ensureMemoriesColumns(db);
@@ -1159,7 +1165,8 @@ export class SqliteBackend implements Backend {
           state TEXT NOT NULL DEFAULT 'active',
           severity INTEGER,
           pin INTEGER NOT NULL DEFAULT 0,
-          frontmatter TEXT
+          frontmatter TEXT,
+          graph TEXT
         );
       `);
 
