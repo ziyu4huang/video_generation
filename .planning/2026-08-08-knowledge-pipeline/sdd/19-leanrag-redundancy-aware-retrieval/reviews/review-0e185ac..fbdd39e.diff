@@ -1,0 +1,268 @@
+# Review package: 0e185ac5..fbdd39e1
+
+## Commits
+fbdd39e1 feat(hermes-memory): add contentHash dedup seam to semantic search (kp-19 T2)
+
+## Files changed
+ .../src/store/semantic-search.ts                   | 47 ++++++++++-
+ .../tests/store/semantic-search.test.ts            | 97 ++++++++++++++++++++++
+ 2 files changed, 140 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
+index 2a0e6538..5b828f9d 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
+@@ -88,20 +88,46 @@ function toHit(h: VectorKnnHit, kind: SemanticKind | undefined): SemanticSearchH
+   // The store carries `kind` per row; honor it when present and valid, else
+   // fall back to the caller's requested kind.
+   const k: SemanticKind = h.kind === "knowledge" ? "knowledge" : h.kind === "memory" ? "memory" : (kind ?? "memory");
+   // Surface contentHash only when the knn row provided it, so hashless warm
+   // hits stay shape-compatible (ticket 19 warm-path dedup key).
+   const hit: SemanticSearchHit = { mdId: h.mdId, kind: k, source: "hnsw", score: h.score };
+   if (h.contentHash !== undefined) hit.contentHash = h.contentHash;
+   return hit;
+ }
+ 
++/**
++ * Redundancy-aware dedup pass (ticket 19 T2). Keeps the FIRST occurrence per
++ * DEFINED contentHash; hits whose contentHash is undefined are ALWAYS kept (a
++ * missing contentHash is never a shared key — Global Constraint). Applied on
++ * every return path of `searchSemantic` so the warm (HNSW) and cold
++ * (zk-semantic / memory-lexical) hits both pass through ONE seam. On the cold
++ * paths every hit is hashless (RetrievedCard / MemoryEntry carry no hash), so
++ * the pass is a correct no-op there — the meaningful collapse lives on the
++ * warm path. Single pure pass: no survivingK, no boostWeight (Task 3 / ticket
++ * 20 — YAGNI here). Never throws.
++ */
++function dedupByContentHash(hits: SemanticSearchHit[]): SemanticSearchHit[] {
++  const seen = new Set<string>();
++  const out: SemanticSearchHit[] = [];
++  for (const h of hits) {
++    if (h.contentHash === undefined) {
++      out.push(h); // hashless → always kept (never a dedup key)
++      continue;
++    }
++    if (seen.has(h.contentHash)) continue; // duplicate hash → drop later twin
++    seen.add(h.contentHash);
++    out.push(h);
++  }
++  return out;
++}
++
+ /**
+  * T2 + T5(a): semantic search with graceful degradation. NEVER throws.
+  *
+  * Order of operations:
+  *   1. If a vectorStore is wired, embed the query (embedQuery swallows errors
+  *      → null). On a non-null vector, run knn (warm path). On success, return
+  *      the ranked hits (filtered by excludeIds + topK).
+  *   2. On ANY failure in step 1 (no vectorStore, embed returned null, knn
+  *      threw), fall through to T5(a):
+  *        - knowledge kind → kp.retrieveRecords({semantic:true, queryText,
+@@ -142,28 +168,36 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
+           // Return the (possibly empty) ranked list — the caller decides. We do
+           // NOT fall through on empty, because the warm path answering [] is a
+           // legitimate "no semantic match" (falling through would double-search).
+           //
+           // Phase B / T3 cold-index trigger: an empty warm result is the cold
+           // signal — fire the deferred vector backfill best-effort (never
+           // awaited, never blocks). The backfill's inProgress guard coalesces
+           // cold-query bursts so at most one backfill runs at a time; its
+           // deferred task re-checks the staleness delta and embeds only
+           // changed/new cards (cheap no-op when the index is already warm).
+-          if (ranked.length === 0 && scheduleVectorBackfill) {
++          // Ticket 19 T2: redundancy-aware contentHash dedup seam. Applied to
++          // the warm (HNSW) ranked list before the early return — the SAME
++          // private pass the cold fallbacks use below. hashless hits are kept,
++          // duplicate contentHashes collapse to the first occurrence. dedup can
++          // only shrink a non-empty list (it keeps the first per key), so
++          // `deduped.length === 0` ⟺ `ranked.length === 0` — the cold-index
++          // trigger signal is preserved.
++          const deduped = dedupByContentHash(ranked);
++          if (deduped.length === 0 && scheduleVectorBackfill) {
+             try {
+               scheduleVectorBackfill();
+             } catch {
+               // best-effort — never affect the query result
+             }
+           }
+-          return ranked;
++          return deduped;
+         } catch {
+           // knn threw (SurrealDB down / index error) → fall through to T5(a).
+         }
+       }
+       // qvec null (LM Studio down / model missing) → fall through to T5(a).
+     } catch {
+       // embedder itself threw unexpectedly → fall through to T5(a).
+     }
+   }
+ 
+@@ -199,21 +233,24 @@ async function knowledgeFallback(
+     });
+     const hits: SemanticSearchHit[] = [];
+     const seen = new Set<string>();
+     for (const card of result.cards) {
+       if (exclude.has(card.id)) continue;
+       if (seen.has(card.id)) continue;
+       seen.add(card.id);
+       hits.push({ mdId: card.id, kind: "knowledge", source: "zk-semantic" });
+       if (hits.length >= topK) break;
+     }
+-    return hits;
++    // Ticket 19 T2: same dedup seam as the warm path. Cold-path hits carry no
++    // contentHash → this is a correct no-op (all kept), but the seam is wired
++    // so a future hash-bearing cold source needs no caller change.
++    return dedupByContentHash(hits);
+   } catch {
+     return []; // zk seam absent / threw → empty (never propagates)
+   }
+ }
+ 
+ /** T5(a) memory fallback: the existing lexical `searchMemories` (FTS). Never
+  *  throws. The memory repo's mdId (frontmatter id mirrored onto the row) is the
+  *  SemanticSearchHit.mdId; entries without one are skipped (no stable id to
+  *  return). */
+ async function memoryFallback(
+@@ -226,15 +263,17 @@ async function memoryFallback(
+   try {
+     const entries = await memoryRepo.searchMemories(queryText, { limit: topK });
+     const hits: SemanticSearchHit[] = [];
+     for (const e of entries) {
+       const mdId = e.mdId ?? null;
+       if (!mdId) continue;
+       if (exclude.has(mdId)) continue;
+       hits.push({ mdId, kind: "memory", source: "memory-lexical" });
+       if (hits.length >= topK) break;
+     }
+-    return hits;
++    // Ticket 19 T2: same dedup seam as the warm path (no-op while MemoryEntry
++    // carries no contentHash; wired for forward-compat).
++    return dedupByContentHash(hits);
+   } catch {
+     return []; // lexical search threw → empty (never propagates)
+   }
+ }
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
+index 990c3074..e9c8ceeb 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
+@@ -189,20 +189,117 @@ describe("searchSemantic — T5(a) graceful degrade", () => {
+   it("knowledge fallback with no kp → [] (graceful, no throw)", async () => {
+     const vs = throwingVectorStore();
+     const hits = await searchSemantic({
+       queryText: "probe", kind: "knowledge", topK: 5,
+       embedder: fakeEmbedder(), vectorStore: vs, // no kp, no vaultPath
+     });
+     expect(hits).toEqual([]);
+   });
+ });
+ 
++describe("searchSemantic — contentHash dedup seam (ticket 19 T2)", () => {
++  it("WARM: two knn hits sharing a contentHash collapse to one (keeps first)", async () => {
++    // Two cards with the SAME contentHash but different mdIds both survive
++    // mdId-dedup → the contentHash-dedup pass must collapse the pair to the
++    // first occurrence (m1); a third card with a distinct hash is kept.
++    const vs = fakeVectorStore([
++      { mdId: "m1", kind: "memory", contentHash: "dup" },
++      { mdId: "m2", kind: "memory", contentHash: "dup" },
++      { mdId: "m3", kind: "memory", contentHash: "unique" },
++    ]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 5,
++      embedder: fakeEmbedder(), vectorStore: vs,
++    });
++    expect(hits).toEqual<SemanticSearchHit[]>([
++      { mdId: "m1", kind: "memory", source: "hnsw", contentHash: "dup" },
++      { mdId: "m3", kind: "memory", source: "hnsw", contentHash: "unique" },
++    ]);
++  });
++
++  it("WARM: hashless hits are all kept (no contentHash is never a dedup key)", async () => {
++    const vs = fakeVectorStore([
++      { mdId: "m1", kind: "memory" },
++      { mdId: "m2", kind: "memory" },
++      { mdId: "m3", kind: "memory" },
++    ]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 5,
++      embedder: fakeEmbedder(), vectorStore: vs,
++    });
++    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2", "m3"]);
++  });
++
++  it("WARM: a hashed hit dedups against a later same-hash hit, hashless ones untouched", async () => {
++    const vs = fakeVectorStore([
++      { mdId: "m1", kind: "memory", contentHash: "x" },
++      { mdId: "m2", kind: "memory" }, // hashless → always kept
++      { mdId: "m3", kind: "memory", contentHash: "x" }, // dup of m1 → dropped
++    ]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 5,
++      embedder: fakeEmbedder(), vectorStore: vs,
++    });
++    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]);
++  });
++
++  it("COLD knowledge: hashless hits survive the dedup seam (correct no-op), no throw", async () => {
++    // Cold-path hits carry NO contentHash → the dedup seam runs but is a
++    // correct NO-OP: every hashless hit is kept (nothing collapses). The
++    // meaningful collapse case lives on the WARM path (test above).
++    const vs = throwingVectorStore();
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "knowledge", topK: 5,
++      embedder: fakeEmbedder(), vectorStore: vs, kp: fakeKp(), vaultPath: "/v", folder: "kg",
++    });
++    expect(hits).toEqual<SemanticSearchHit[]>([
++      { mdId: "card-a", kind: "knowledge", source: "zk-semantic" },
++      { mdId: "card-b", kind: "knowledge", source: "zk-semantic" },
++    ]);
++  });
++
++  it("COLD memory: hashless hits survive the dedup seam (correct no-op), no throw", async () => {
++    const vs = throwingVectorStore();
++    const repo = fakeMemoryRepo([
++      { id: 1, mdId: "mem-1", content: "c" } as MemoryEntry,
++      { id: 2, mdId: "mem-2", content: "c" } as MemoryEntry,
++    ]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 5,
++      embedder: fakeEmbedder(), vectorStore: vs, memoryRepo: repo,
++    });
++    expect(hits).toEqual<SemanticSearchHit[]>([
++      { mdId: "mem-1", kind: "memory", source: "memory-lexical" },
++      { mdId: "mem-2", kind: "memory", source: "memory-lexical" },
++    ]);
++  });
++
++  it("NEVER THROWS: empty warm result → dedup seam runs on [] → [] (no throw)", async () => {
++    const vs = fakeVectorStore([]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 5,
++      embedder: fakeEmbedder(), vectorStore: vs,
++    });
++    expect(hits).toEqual([]);
++  });
++
++  it("NEVER THROWS: cold path with no dependencies → [] through the dedup seam", async () => {
++    // knowledge fallback with no kp → [] ; the dedup seam still runs on [].
++    const vs = throwingVectorStore();
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "knowledge", topK: 5,
++      embedder: fakeEmbedder(), vectorStore: vs, // no kp, no vaultPath
++    });
++    expect(hits).toEqual([]);
++  });
++});
++
+ describe("searchSemantic — Phase B cold-index backfill trigger", () => {
+   it("fires scheduleVectorBackfill fire-and-forget when the warm path returns EMPTY", async () => {
+     // Warm store answers with NO hits (cold-index signal) → trigger fires once,
+     // the (empty) result is returned unchanged, and the trigger is NOT awaited.
+     const vs = fakeVectorStore([]);
+     const trigger = mock(() => {});
+     const hits = await searchSemantic({
+       queryText: "probe", kind: "memory", topK: 5,
+       embedder: fakeEmbedder(), vectorStore: vs,
+       scheduleVectorBackfill: trigger,
