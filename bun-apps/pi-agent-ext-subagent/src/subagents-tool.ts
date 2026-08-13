@@ -728,11 +728,19 @@ export function renderSubagentsResult(
   ).length;
   const aborted = d.results.filter((s) => s && (s as { status: string }).status === "aborted").length;
   const failed = d.results.filter((s) => s === null).length;
+  // Aggregate usage across non-null slots that carry usage → header Σtok/$Σ
+  // (mirrors the single card's `$cost · Ntok`, appended after elapsed).
+  const slotUsages: AgentUsage[] = [];
+  for (const s of d.results) {
+    if (s && (s as { usage?: AgentUsage }).usage) slotUsages.push((s as { usage: AgentUsage }).usage);
+  }
+  const agg = sumUsage(slotUsages);
+  const aggStr = agg.total > 0 ? ` · $${agg.cost.toFixed(3)} · ${agg.total} tok` : "";
   const header =
     `subagents batch (${done} ok` +
     (aborted ? ` · ${aborted} aborted` : "") +
     ` · ${failed} failed` +
-    ` · ${d.skipped} skipped) — ${(d.elapsedMs / 1000).toFixed(1)}s`;
+    ` · ${d.skipped} skipped) — ${(d.elapsedMs / 1000).toFixed(1)}s${aggStr}`;
 
   if (!options.expanded) {
     // Collapsed: header + one line per slot with status badge.
@@ -753,18 +761,13 @@ export function renderSubagentsResult(
       // via shortModel so the collapsed line stays within terminal width —
       // ticket 04, findings 2 + 5). The audit field stays the full spec; only
       // the DISPLAY is shortened.
-      const slotObj = slot as { model: string; requestedModel?: string; fellBack?: boolean };
-      const modelLabel =
-        slotObj.fellBack && slotObj.requestedModel
-          ? `${shortModel(slotObj.requestedModel)} → ${shortModel(slotObj.model) ?? "default"}`
-          : (shortModel(slotObj.model) ?? "default");
-      const model = theme.fg("muted", modelLabel);
-      const elapsed = `${((slot as { elapsedMs: number }).elapsedMs / 1000).toFixed(1)}s`;
+      const meta = formatSlotMeta(
+        slot as { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
+        theme,
+      );
       const taskPreview60 = truncateToWidth((slot as { task: string }).task ?? "", 60);
       const idTag = slot.id ? `${theme.fg("dim", `(${slot.id})`)} ` : "";
-      lines.push(
-        `  ${theme.fg("dim", `[${i}]`)} ${idTag}${badge}  ${model}  ·  ${elapsed}  ·  ${theme.fg("dim", taskPreview60)}`,
-      );
+      lines.push(`  ${theme.fg("dim", `[${i}]`)} ${idTag}${badge}  ${meta} · ${theme.fg("dim", `"${taskPreview60}"`)}`);
     }
     lines.push(theme.fg("dim", "Ctrl-O to expand · /subagents for detail"));
     return lines.join("\n");

@@ -1087,3 +1087,135 @@ test("sumUsage: sums total+cost across an iterable; empty → zeros", () => {
   assert.deepEqual(sumUsage([U(100, 0.1), U(200, 0.2)]), { total: 300, cost: 0.30000000000000004 });
   assert.deepEqual(sumUsage(new Map([["a", U(50, 0.05)]]).values()), { total: 50, cost: 0.05 });
 });
+
+// ── Task 3: done header Σ + done-collapsed per-slot meta ──
+// The done-state collapsed card now (a) appends ` · $Σ · Σtok` to the header
+// when aggregate slot usage > 0, and (b) renders each per-slot line as
+// `[i] (id) badge · <formatSlotMeta> · "task"` (formatSlotMeta = model · elapsed
+// · usage; quoted task preview). Mirrors the single subagent card's meta.
+
+test("done header appends aggregate ` · $Σ · Σtok` when slots carry usage", () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      { output: "a", status: "done", index: 0, task: "t0", model: "zai/glm-5.2", elapsedMs: 1000, usage: U(1000, 0.1) },
+      { output: "b", status: "done", index: 1, task: "t1", model: "zai/glm-5.2", elapsedMs: 2000, usage: U(2000, 0.2) },
+      null,
+    ],
+    dispatched: 2,
+    skipped: 0,
+    elapsedMs: 3000,
+  };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: false },
+    THEME,
+  );
+  assert.match(collapsed, /— 3\.0s · \$0\.300 · 3000 tok/);
+});
+
+test("done header omits the aggregate suffix when no slot carries usage (byte-stable)", () => {
+  const details: SubagentsToolDetails = {
+    results: [{ output: "a", status: "done", index: 0, task: "t0", model: "zai/glm-5.2", elapsedMs: 1000 }],
+    dispatched: 1,
+    skipped: 0,
+    elapsedMs: 1000,
+  };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: false },
+    THEME,
+  );
+  assert.match(collapsed, /— 1\.0s$/m); // no trailing ` · $… · … tok`
+  assert.doesNotMatch(collapsed, /tok/);
+});
+
+test('done collapsed: per-slot line shows `badge · model · elapsed · $cost · Ntok · "task"` (with usage)', () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      {
+        output: "ok",
+        status: "done",
+        index: 0,
+        id: "alpha",
+        task: "audit the parser",
+        model: "zai/glm-5.2",
+        elapsedMs: 34500,
+        usage: U(15715, 0.0004),
+      },
+    ],
+    dispatched: 1,
+    skipped: 0,
+    elapsedMs: 34500,
+  };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: false },
+    THEME,
+  );
+  const slot0 = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
+  assert.match(slot0, /\(alpha\)/);
+  assert.match(slot0, /✓ done/); // fixed-width badge kept
+  assert.match(slot0, /glm-5\.2 · 34\.5s · \$0\.000 · 15715 tok/);
+  assert.match(slot0, /"audit the parser"/); // quoted task preview
+  assert.ok(!slot0.includes("zai/glm-5.2"), "provider prefix dropped on the collapsed line");
+});
+
+test("done collapsed: fallback slot shows `requested → actual` in the meta segment", () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      {
+        output: "ok",
+        status: "done",
+        index: 0,
+        task: "t",
+        model: "zai/glm-5.2",
+        requestedModel: "anthropic/claude-opus-4-1",
+        fellBack: true,
+        elapsedMs: 1000,
+        usage: U(10, 0.001),
+      },
+    ],
+    dispatched: 1,
+    skipped: 0,
+    elapsedMs: 1000,
+  };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: false },
+    THEME,
+  );
+  assert.match(collapsed, /claude-opus-4-1 → glm-5\.2 · 1\.0s · \$0\.001 · 10 tok/);
+});
+
+test('done collapsed: per-slot meta degrades (no usage → `model · elapsed · "task"`)', () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      { output: "", status: "aborted", index: 0, id: "x", task: "t-aborted", model: "zai/glm-5.2", elapsedMs: 500 },
+    ],
+    dispatched: 1,
+    skipped: 0,
+    elapsedMs: 500,
+  };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: false },
+    THEME,
+  );
+  const slot0 = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
+  assert.match(slot0, /⊘ aborted/);
+  assert.match(slot0, /glm-5\.2 · 0\.5s · "t-aborted"/);
+  assert.doesNotMatch(slot0, /tok/);
+});
+
+test("done collapsed: null (failed) slot still renders the terse failed line (no meta)", () => {
+  const details: SubagentsToolDetails = { results: [null], dispatched: 0, skipped: 0, elapsedMs: 10 };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: false },
+    THEME,
+  );
+  const line = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
+  assert.match(line, /✗ failed/);
+  assert.match(line, /child failed/);
+  assert.doesNotMatch(line, /· .*s ·/);
+});
