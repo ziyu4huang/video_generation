@@ -176,6 +176,12 @@ export const subagentToolSchema = Type.Object({
         "Commit-path allowlist (prefix-matched). After the run, flags any committed path outside this scope as a ⚠ violation (detection only, never auto-reverts; best-effort). Use [] to flag any commit. Ignored for worktree-isolated runs.",
     }),
   ),
+  retryCircuitBreak: Type.Optional(
+    Type.Integer({
+      description:
+        "Circuit-break this dispatch BEFORE spawn when the same task has already failed this many consecutive times with the same error (within 10 min). Default 2. Counts completed dispatch outcomes (not the in-dispatch retryOnTransient retry). Set 0 to disable.",
+    }),
+  ),
   schema: Type.Optional(
     Type.Unknown({
       description:

@@ -23,6 +23,14 @@ import {
 } from "@repo/pi-agent-ext-core-runtime";
 import { computeScopeCheck, realGitOps } from "./git-scope.js";
 import { missingRequiredTools } from "./impossible-tools.js";
+import {
+  consecutiveIdenticalFailures,
+  DEFAULT_RETRY_CIRCUIT_BREAK,
+  failureClass,
+  RETRY_LOOP_WINDOW_MS,
+  shouldCircuitBreak,
+  taskSignature,
+} from "./retry-loop-detector.js";
 import { spawnSubagent } from "./spawn-subagent.js";
 import {
   formatSubagentResult,
@@ -137,6 +145,30 @@ export function createSubagentTool(
 
       if (params.schema !== undefined && !isSchemaShaped(params.schema)) {
         return failEarly(`Invalid schema: expected a JSON-Schema-shaped object with a "type" field.`);
+      }
+
+      // #04 retry-loop / runaway detector (circuit-break BEFORE spawn + BEFORE
+      // worktree allocation). Counts completed dispatch OUTCOMES (persisted
+      // records), NOT retryOnTransient's single in-dispatch tryOnce() retry.
+      // Placed before worktree/inFlight so a broken dispatch leaks nothing.
+      const circuitThreshold = params.retryCircuitBreak ?? DEFAULT_RETRY_CIRCUIT_BREAK;
+      if (circuitThreshold > 0 && options.persistence) {
+        const prior = options.persistence.list();
+        const sig = taskSignature(params.task);
+        // Derive the prospective failure class from the MOST RECENT matching
+        // record (the repeat we'd be about to re-create). No match → no class → 0.
+        const mostRecentMatch = prior.find((r) => taskSignature(r.task) === sig);
+        const fclass = mostRecentMatch ? failureClass(mostRecentMatch) : "";
+        if (fclass) {
+          const count = consecutiveIdenticalFailures(prior, sig, fclass, RETRY_LOOP_WINDOW_MS);
+          if (shouldCircuitBreak(count, circuitThreshold)) {
+            return failEarly(
+              `circuit-break: this task has already failed ${count} consecutive times ` +
+                `(same error class, within ${Math.round(RETRY_LOOP_WINDOW_MS / 60_000)} min). ` +
+                `Change the task, fix the root cause, or raise retryCircuitBreak (currently ${circuitThreshold}).`,
+            );
+          }
+        }
       }
 
       let worktree: Worktree | undefined;
