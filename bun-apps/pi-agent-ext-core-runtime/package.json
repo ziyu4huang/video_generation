@@ -6,14 +6,26 @@
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "exports": { ".": { "types": "./src/index.ts", "default": "./src/index.ts" } },
-  "files": ["src/", "README.md"],
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src/",
+    "README.md"
+  ],
   "scripts": {
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit",
     "check": "biome check ."
   },
-  "keywords": ["pi-package", "agent-runtime", "core"],
+  "keywords": [
+    "pi-package",
+    "agent-runtime",
+    "core"
+  ],
   "license": "MIT",
   "dependencies": {},
   "peerDependencies": {
@@ -21,6 +33,7 @@
     "typebox": "*"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.16",
     "@earendil-works/pi-ai": "0.84.1",
     "@earendil-works/pi-coding-agent": "0.84.1",
     "@repo/pi-agent-ext-core-interface": "workspace:*",

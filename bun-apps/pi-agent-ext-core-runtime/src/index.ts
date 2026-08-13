@@ -3,46 +3,94 @@
 // plus internal-consumer symbols. WorkflowAgent is the back-compat alias for CoreAgent.
 
 export type {
-  AgentRunOptions, AgentRunResult, AgentUsage, BudgetExhaustion,
-  FallbackDecision, StructuredSession, WorkflowAgentOptions,
+  AgentRunOptions,
+  AgentRunResult,
+  AgentUsage,
+  BudgetExhaustion,
+  FallbackDecision,
+  StructuredSession,
+  WorkflowAgentOptions,
 } from "./agent.js";
 export {
-  CoreAgent, checkBudgetExhaustion, extractValidated, lastAssistantError,
-  listAvailableModelSpecs, resolveAgentModelSpec, resolveFallbackModel,
-  resolveStructuredOutput, throwIfProviderLimit,
+  CoreAgent,
+  CoreAgent as WorkflowAgent,
+  checkBudgetExhaustion,
+  extractValidated,
+  lastAssistantError,
+  listAvailableModelSpecs,
+  resolveAgentModelSpec,
+  resolveFallbackModel,
+  resolveStructuredOutput,
+  throwIfProviderLimit,
 } from "./agent.js";
-export { CoreAgent as WorkflowAgent } from "./agent.js";
 
 export type { AgentHistoryEntry, AgentHistoryKind, AgentHistoryOptions, AgentHistoryRole } from "./agent-history.js";
 export { compactAgentHistory, summarizeLatestAction } from "./agent-history.js";
 
 export type { AgentDefinition, AgentRegistry } from "./agent-registry.js";
-export { agentDefinitionKey, applyToolPolicy, listAgentTypes, loadAgentRegistry, parseAgentDefinition, resolveAgentType } from "./agent-registry.js";
+export {
+  agentDefinitionKey,
+  applyToolPolicy,
+  listAgentTypes,
+  loadAgentRegistry,
+  parseAgentDefinition,
+  resolveAgentType,
+} from "./agent-registry.js";
 
 export type { ActivityRow, ActivityStatus, ThemeLike } from "./agent-row-display.js";
-export { NO_THEME, activityGlyph, fmtCost, fmtTokensShort, preview, renderActivityRow, shorten, shortModel } from "./agent-row-display.js";
+export {
+  activityGlyph,
+  fmtCost,
+  fmtTokensShort,
+  NO_THEME,
+  preview,
+  renderActivityRow,
+  shorten,
+  shortModel,
+} from "./agent-row-display.js";
 
 export { AGENTS_DIR, DEFAULT_BATCH_CONCURRENCY, MAX_BATCH_TASKS, MAX_CONCURRENCY, MODEL_TIERS_FILE } from "./config.js";
 
-export { WorkflowError, WorkflowErrorCode, classifyProviderLimit, isAbortError, isProviderUsageLimit, isTimeoutError, isWorkflowError, wrapError } from "./errors.js";
+export {
+  classifyProviderLimit,
+  isAbortError,
+  isProviderUsageLimit,
+  isTimeoutError,
+  isWorkflowError,
+  WorkflowError,
+  WorkflowErrorCode,
+  wrapError,
+} from "./errors.js";
 
 export { homeDir } from "./home.js";
-
-export type { ModelTierConfig } from "./model-tier-config.js";
-export { buildDefaultTierConfig, getModelTierConfigPath, loadModelTierConfig, resolveTierModel, saveModelTierConfig, sortedTierNames } from "./model-tier-config.js";
 export { resolveModelRole } from "./model-role-config.js";
+export type { ModelTierConfig } from "./model-tier-config.js";
+export {
+  buildDefaultTierConfig,
+  getModelTierConfigPath,
+  loadModelTierConfig,
+  resolveTierModel,
+  saveModelTierConfig,
+  sortedTierNames,
+} from "./model-tier-config.js";
 
 export type { RateLimitCapResolver, RateLimiter } from "./rate-limiter.js";
-export { __resetRateLimitStateForTests, getGlobalRateLimiter, getRateLimitCapResolver, providerFromModelSpec, setRateLimitCapResolver } from "./rate-limiter.js";
+export {
+  __resetRateLimitStateForTests,
+  getGlobalRateLimiter,
+  getRateLimitCapResolver,
+  providerFromModelSpec,
+  setRateLimitCapResolver,
+} from "./rate-limiter.js";
 
 export type { SddReport, SddReportStatus } from "./sdd-report.js";
-export { SDD_REPORT_STATUSES, isSddReportActionable, parseSddReport } from "./sdd-report.js";
+export { isSddReportActionable, parseSddReport, SDD_REPORT_STATUSES } from "./sdd-report.js";
 
 export type { StructuredOutputCapture, StructuredOutputToolOptions } from "./structured-output.js";
 export { createStructuredOutputTool } from "./structured-output.js";
 
 export type { InFlightSubagent } from "./subagent-in-flight.js";
-export { SubagentInFlightRegistry, getSubagentInFlightRegistry } from "./subagent-in-flight.js";
+export { getSubagentInFlightRegistry, SubagentInFlightRegistry } from "./subagent-in-flight.js";
 
 export type { ToolActionContext } from "./tool-action-label.js";
 export { formatToolAction, matchedCallArgsFor } from "./tool-action-label.js";

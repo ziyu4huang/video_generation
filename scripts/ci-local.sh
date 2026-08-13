@@ -16,19 +16,25 @@
 #   matrix row, this script picks it up with no edit here — verify with --list.
 #
 # WHAT IT COVERS
-#   The `tests` job's matrix ONLY — every `- { package: X, test-cmd: Y }` row,
-#   run as `Y` inside bun-apps/X with CI=true (the same env var GitHub Actions
-#   sets, which is what the machine-coupled tests skip on).
+#   Two jobs, each parsed live, selected by flag:
+#     (default)  the `tests` matrix — every `- { package: X, test-cmd: Y }` row,
+#                run as `Y` inside bun-apps/X with CI=true (the same env var
+#                GitHub Actions sets, which the machine-coupled tests skip on).
+#     --gates    the `regression-gates` job — every `run:` step, in its own
+#                working-directory. That job is where EVERY structural guard
+#                lives (dep-direction, seam, routing, config-parity, CI-workflow
+#                references, package-script runnability, the portability and
+#                determinism audits). Before --gates existed, the guards were
+#                themselves a class with no local executor — precisely the
+#                failure they exist to prevent. The whole job runs in ~6s.
 #
 # WHAT IT DOES **NOT** COVER — a green run here is NOT a green CI:
 #   - extension-contract      (bun test src/__tests__/extension-contract.test.ts)
 #   - deploy-verify           (bun-apps/pi-agent/run-test.sh high + readonly)
 #   - compile-verify          (bun run deploy:exe + binary smokes)
 #   - clean-launch-self-heal  (clean-checkout check-deps.ts self-heal)
-#   - regression-gates        (file-size / lockfile-dup / dep-direction / seam /
-#                              routing / config-parity / portability /
-#                              determinism / pr-finish / schema-cost)
-#   - determinism-spotcheck   (3x the flake-prone subset)
+#   - determinism-spotcheck   (3x the flake-prone subset; run it directly via
+#                              scripts/test-determinism-spotcheck.sh)
 #   - the changed_packages smart-routing filter (this script runs EVERYTHING,
 #     like push-to-main does, not the affected subset)
 #   Nor does it install deps: run `( cd bun-apps && bun install )` first if the
@@ -37,14 +43,18 @@
 # USAGE
 #   bash scripts/ci-local.sh --list             # print the parsed matrix, run nothing
 #   bash scripts/ci-local.sh --tsv              # machine-readable "<pkg>\t<cmd>" lines
-#   bash scripts/ci-local.sh                    # run every entry, sequentially
+#   bash scripts/ci-local.sh                    # run every matrix entry, sequentially
 #   bash scripts/ci-local.sh --only pi-agent    # run a subset (comma-separated)
 #   bash scripts/ci-local.sh --only a,b --list  # preview just that subset
+#   bash scripts/ci-local.sh --gates            # run the regression-gates job instead
+#   bash scripts/ci-local.sh --gates --list     # preview it
 #
 #   --tsv exists so OTHER tools can consume the ONE parser rather than growing a
 #   second copy of the matrix — bun-apps/tests/ci-workflow-references.test.ts (the
 #   guard that every matrix row points at a real package, and every package has a
-#   row) reads it. Keep it decoration-free: no colors, no headers, no totals.
+#   row) reads it. Keep it decoration-free: no colors, no headers, no totals, and
+#   keep the plain form at exactly two fields: that IS the contract that guard
+#   depends on. `--gates --tsv` is the separate three-field form.
 #
 # BEHAVIOR
 #   - Sequential (parallel runs race pi-agent-ext-workflow's shared dist/).
@@ -66,17 +76,20 @@ WORKFLOW=".github/workflows/ci.yml.disabled"
 
 LIST_ONLY=0
 TSV_ONLY=0
+GATES=0
 ONLY=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --list) LIST_ONLY=1; shift ;;
     --tsv) TSV_ONLY=1; shift ;;
+    --gates) GATES=1; shift ;;
     --only) ONLY="${2-}"; [ -n "$ONLY" ] || { echo "--only needs a value"; exit 2; }; shift 2 ;;
     --only=*) ONLY="${1#--only=}"; shift ;;
     -h|--help) sed -n '2,60p' "$0"; exit 0 ;;
     *) echo "unknown flag: $1 (see --help)"; exit 2 ;;
   esac
 done
+[ "$GATES" -eq 1 ] && [ -n "$ONLY" ] && { echo "--only filters matrix packages; it does not apply to --gates"; exit 2; }
 
 # Color helpers (disabled when stdout isn't a TTY, for clean logs).
 if [ -t 1 ]; then
@@ -170,6 +183,66 @@ emit(rows)
 PY
 }
 
+# ── parse the regression-gates job (--gates) ─────────────────────────────────
+# Emits one "<step-name>\t<working-directory>\t<run-command>" line per `run:`
+# step of the `regression-gates` job.
+#
+# WHY THIS MODE EXISTS
+#   Every structural guard in the repo (dep-direction, seam, routing,
+#   config-parity, CI-workflow references, package-script runnability, the
+#   portability + determinism audits) lives in that job, NOT in the tests
+#   matrix — so before this mode, the guards were themselves a class with no
+#   local executor, which is precisely the failure they exist to prevent.
+#
+#   The job is uniform (no `if:`, no per-step env, only `working-directory`
+#   varying), so running it locally is a faithful reproduction rather than an
+#   approximation. `uses:` steps (checkout, setup-env) are skipped: they set up
+#   a runner, and a dev machine already is one.
+#
+#   PyYAML only. Unlike the matrix, there is no line-parser fallback here — a
+#   step body can be a multi-line block scalar, and half-parsing shell is worse
+#   than refusing. A python3 without PyYAML gets a clear error, not a silent
+#   subset.
+parse_gates() {
+  python3 - "$WORKFLOW" <<'PY'
+import io, sys
+
+path = sys.argv[1]
+try:
+    import yaml
+except ImportError:
+    sys.stderr.write("ci-local --gates: PyYAML required (pip install pyyaml)\n")
+    sys.exit(4)
+
+doc = yaml.safe_load(io.open(path, encoding="utf-8").read())
+job = (doc.get("jobs") or {}).get("regression-gates")
+if job is None:
+    sys.stderr.write("ci-local --gates: no `regression-gates` job in %s\n" % path)
+    sys.exit(3)
+
+rows = []
+for step in job.get("steps") or []:
+    run = step.get("run")
+    if not run:
+        continue  # `uses:` steps set up a runner; a dev machine already is one.
+    if step.get("if"):
+        # The job has none today. If one appears, refuse rather than guess at
+        # a GitHub expression's truth value and silently run/skip the wrong set.
+        sys.stderr.write("ci-local --gates: step %r has an `if:` this mode cannot evaluate\n"
+                         % step.get("name", "<unnamed>"))
+        sys.exit(3)
+    name = step.get("name") or "<unnamed>"
+    wd = step.get("working-directory") or "."
+    rows.append((name, wd, " ".join(run.strip().split("\n"))))
+
+if not rows:
+    sys.stderr.write("ci-local --gates: parsed ZERO steps from regression-gates\n")
+    sys.exit(3)
+for name, wd, cmd in rows:
+    sys.stdout.write("%s\t%s\t%s\n" % (name, wd, cmd))
+PY
+}
+
 MATRIX="$(parse_matrix)" || die "could not parse the tests matrix out of $WORKFLOW"
 [ -n "$MATRIX" ] || die "parsed an EMPTY matrix from $WORKFLOW"
 
@@ -187,13 +260,32 @@ if [ -n "$ONLY" ]; then
   MATRIX="$(printf '%s' "$FILTERED" | sed '/^$/d')"
 fi
 
-TOTAL="$(printf '%s\n' "$MATRIX" | wc -l | tr -d ' ')"
+# ── normalize to "<label>\t<dir>\t<cmd>" ─────────────────────────────────────
+# Both modes run the same loop below. A matrix row's directory is derived
+# (bun-apps/<package>); a gate step carries its own working-directory.
+if [ "$GATES" -eq 1 ]; then
+  ROWS="$(parse_gates)" || die "could not parse the regression-gates job out of $WORKFLOW"
+  [ -n "$ROWS" ] || die "parsed an EMPTY regression-gates job from $WORKFLOW"
+  UNIT="gate"
+  SOURCE_DESC="regression-gates job"
+else
+  ROWS="$(printf '%s\n' "$MATRIX" | awk -F'\t' 'NF{print $1 "\t" "bun-apps/" $1 "\t" $2}')"
+  UNIT="package"
+  SOURCE_DESC="tests matrix"
+fi
+
+TOTAL="$(printf '%s\n' "$ROWS" | sed '/^$/d' | wc -l | tr -d ' ')"
 
 # ── --tsv ────────────────────────────────────────────────────────────────────
 # The machine-readable face of the SAME parse --list renders for humans. Emitted
 # before --list so `--tsv --list` still yields clean TSV.
+#
+# WITHOUT --gates the shape stays exactly "<package>\t<test-cmd>": that two-field
+# contract is consumed by bun-apps/tests/ci-workflow-references.test.ts, which
+# reads the matrix through this parser rather than growing a second one. Do not
+# widen it. `--gates --tsv` is the three-field form.
 if [ "$TSV_ONLY" -eq 1 ]; then
-  printf '%s\n' "$MATRIX"
+  if [ "$GATES" -eq 1 ]; then printf '%s\n' "$ROWS"; else printf '%s\n' "$MATRIX"; fi
   exit 0
 fi
 
@@ -202,21 +294,25 @@ fi
 # and the exact command that will run. Compare against the workflow by hand once
 # after any parser change.
 if [ "$LIST_ONLY" -eq 1 ]; then
-  echo "${B}ci-local --list${X} ${D}(parsed from $WORKFLOW)${X}"
-  echo "${D}$TOTAL matrix entr$( [ "$TOTAL" = "1" ] && echo y || echo ies ); each runs in bun-apps/<package> with CI=true${X}"
+  echo "${B}ci-local --list${X} ${D}(parsed from $WORKFLOW · $SOURCE_DESC)${X}"
+  echo "${D}$TOTAL entr$( [ "$TOTAL" = "1" ] && echo y || echo ies ); each runs in its directory with CI=true${X}"
   echo ""
-  printf '%-3s %-4s %-32s %s\n' "#" "DIR" "PACKAGE" "TEST-CMD"
+  printf '%-3s %-4s %-32s %s\n' "#" "DIR" "$(printf '%s' "$UNIT" | tr '[:lower:]' '[:upper:]')" "COMMAND"
   printf '%-3s %-4s %-32s %s\n' "---" "----" "--------------------------------" "--------"
   n=0
-  while IFS=$'\t' read -r pkg cmd; do
-    [ -n "$pkg" ] || continue
+  while IFS=$'\t' read -r label dir cmd; do
+    [ -n "$label" ] || continue
     n=$((n+1))
-    if [ -d "bun-apps/$pkg" ]; then mark="${G}ok${X}  "; else mark="${R}MISS${X}"; fi
-    printf '%-3s %b %-32s %s\n' "$n" "$mark" "$pkg" "$cmd"
-  done <<< "$MATRIX"
+    if [ -d "$dir" ]; then mark="${G}ok${X}  "; else mark="${R}MISS${X}"; fi
+    printf '%-3s %b %-32s %s\n' "$n" "$mark" "${label:0:32}" "$cmd"
+  done <<< "$ROWS"
   echo ""
-  echo "${D}Not covered by this script: extension-contract, deploy-verify, compile-verify,${X}"
-  echo "${D}clean-launch-self-heal, regression-gates, determinism-spotcheck.${X}"
+  if [ "$GATES" -eq 1 ]; then
+    echo "${D}This is the regression-gates job. Run the tests matrix with no --gates flag.${X}"
+  else
+    echo "${D}Not covered by this script: extension-contract, deploy-verify, compile-verify,${X}"
+    echo "${D}clean-launch-self-heal, determinism-spotcheck. Run regression-gates with --gates.${X}"
+  fi
   exit 0
 fi
 
@@ -226,60 +322,68 @@ PASSED=(); FAILED=(); SKIPPED=()
 declare -a TIMINGS=()
 RUN_START=$SECONDS
 
-echo "${B}ci-local${X} — CI tests matrix, run locally ${D}($TOTAL entries, sequential, CI=true)${X}"
+echo "${B}ci-local${X} — CI $SOURCE_DESC, run locally ${D}($TOTAL entries, sequential, CI=true)${X}"
 echo "${D}source: $WORKFLOW · logs: $LOG_DIR${X}"
-echo "${Y}NOTE${X} matrix tests only — extension-contract / deploy-verify / compile-verify /"
-echo "     regression-gates / determinism-spotcheck are NOT run. Green here != green CI."
+if [ "$GATES" -eq 1 ]; then
+  echo "${Y}NOTE${X} regression-gates only — the tests matrix is NOT run (drop --gates for that)."
+else
+  echo "${Y}NOTE${X} matrix tests only — extension-contract / deploy-verify / compile-verify /"
+  echo "     determinism-spotcheck are NOT run, and regression-gates needs --gates."
+fi
+echo "     Green here != green CI."
 
 IDX=0
-while IFS=$'\t' read -r pkg cmd; do
-  [ -n "$pkg" ] || continue
+while IFS=$'\t' read -r label dir cmd; do
+  [ -n "$label" ] || continue
   IDX=$((IDX+1))
+  # A log filename must survive a step name containing spaces or slashes.
+  slug="$(printf '%s' "$label" | tr -cs '[:alnum:]._-' '-' | cut -c1-60)"
 
-  if [ ! -d "bun-apps/$pkg" ]; then
-    step "[$IDX/$TOTAL] $pkg" "SKIPPED"
-    warn "${Y}DEAD MATRIX ROW${X}: bun-apps/$pkg/ does not exist — the workflow lists a"
-    echo "  package that isn't in the tree. Not a pass: remove the row from $WORKFLOW"
-    echo "  (and from the required-checks list in .github/CI.md)."
-    SKIPPED+=("$pkg")
+  if [ ! -d "$dir" ]; then
+    step "[$IDX/$TOTAL] $label" "SKIPPED"
+    warn "${Y}DEAD ROW${X}: $dir/ does not exist — the workflow names a"
+    echo "  directory that isn't in the tree. Not a pass: fix the row in $WORKFLOW"
+    echo "  (and, for a matrix package, the required-checks list in .github/CI.md)."
+    SKIPPED+=("$label")
     continue
   fi
 
-  step "[$IDX/$TOTAL] $pkg" "$cmd"
+  step "[$IDX/$TOTAL] $label" "$cmd"
   t0=$SECONDS
-  log="$LOG_DIR/$pkg.log"
-  ( cd "bun-apps/$pkg" && CI=true bash -c "$cmd" ) >"$log" 2>&1
+  log="$LOG_DIR/$slug.log"
+  ( cd "$dir" && CI=true bash -c "$cmd" ) >"$log" 2>&1
   rc=$?
   dt=$((SECONDS - t0))
-  TIMINGS+=("$pkg	$dt	$rc")
+  TIMINGS+=("$label	$dt	$rc")
 
   if [ "$rc" -eq 0 ]; then
     summary="$(grep -aE '^[[:space:]]*[0-9]+ (pass|tests)' "$log" | tail -1 | xargs || true)"
-    ok "$pkg ${D}(${dt}s)${X} ${summary:+— $summary}"
-    PASSED+=("$pkg")
+    ok "$label ${D}(${dt}s)${X} ${summary:+— $summary}"
+    PASSED+=("$label")
   else
-    fail "$pkg ${D}(${dt}s, exit $rc)${X}"
+    fail "$label ${D}(${dt}s, exit $rc)${X}"
     echo "${D}--- last 25 lines of $log ---${X}"
     tail -25 "$log" | sed 's/^/  /'
     echo "${D}--- end ---${X}"
-    FAILED+=("$pkg")
+    FAILED+=("$label")
   fi
-done <<< "$MATRIX"
+done <<< "$ROWS"
 
 TOTAL_TIME=$((SECONDS - RUN_START))
 
 # ── summary ──────────────────────────────────────────────────────────────────
 echo ""
 echo "${B}══ summary ══${X} ${D}(${TOTAL_TIME}s total)${X}"
-printf '%-32s %8s  %s\n' "PACKAGE" "TIME" "RESULT"
+W=48
+printf "%-${W}s %8s  %s\n" "$(printf '%s' "$UNIT" | tr '[:lower:]' '[:upper:]')" "TIME" "RESULT"
 for row in "${TIMINGS[@]}"; do
   IFS=$'\t' read -r p t r <<< "$row"
   if [ "$r" -eq 0 ]; then res="${G}PASS${X}"; else res="${R}FAIL${X} (exit $r)"; fi
-  printf '%-32s %7ss  %b\n' "$p" "$t" "$res"
+  printf "%-${W}s %7ss  %b\n" "${p:0:$W}" "$t" "$res"
 done
 for p in "${SKIPPED[@]:-}"; do
   [ -n "$p" ] || continue
-  printf '%-32s %8s  %b\n' "$p" "-" "${Y}SKIP${X} (directory missing — dead matrix row)"
+  printf "%-${W}s %8s  %b\n" "${p:0:$W}" "-" "${Y}SKIP${X} (directory missing — dead row)"
 done
 
 echo ""
@@ -287,19 +391,25 @@ echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}   skipped: ${#SKIPPED[@]}   
 
 if [ "${#SKIPPED[@]}" -gt 0 ]; then
   echo ""
-  echo "${Y}Dead matrix rows (package listed in CI but absent from the tree):${X}"
+  echo "${Y}Dead rows (named in CI but absent from the tree):${X}"
   for p in "${SKIPPED[@]}"; do echo "  - $p"; done
 fi
 
 if [ "${#FAILED[@]}" -gt 0 ]; then
   echo ""
   echo "${R}FAILURES (${#FAILED[@]}):${X}"
-  for p in "${FAILED[@]}"; do echo "  - $p   ${D}(log: $LOG_DIR/$p.log)${X}"; done
+  for p in "${FAILED[@]}"; do
+    echo "  - $p   ${D}(log: $LOG_DIR/$(printf '%s' "$p" | tr -cs '[:alnum:]._-' '-' | cut -c1-60).log)${X}"
+  done
   echo ""
   echo "${R}ci-local: FAIL${X}"
   exit 1
 fi
 
 echo ""
-echo "${G}ci-local: PASS${X} ${D}— matrix only; the non-matrix jobs listed above were NOT run.${X}"
+if [ "$GATES" -eq 1 ]; then
+  echo "${G}ci-local: PASS${X} ${D}— regression-gates only; the tests matrix was NOT run.${X}"
+else
+  echo "${G}ci-local: PASS${X} ${D}— matrix only; the non-matrix jobs listed above were NOT run.${X}"
+fi
 exit 0

@@ -15,6 +15,7 @@
     "test:config-parity": "bun test tests/config-parity.test.ts",
     "test:portability": "bash ../scripts/test-portability-audit.sh --strict",
     "test:portability-audit": "bun test tests/test-portability-audit.test.ts",
-    "test:ci-workflow": "bun test tests/ci-workflow-references.test.ts"
+    "test:ci-workflow": "bun test tests/ci-workflow-references.test.ts",
+    "test:scripts": "bun test tests/package-scripts-runnable.test.ts"
   }
 }
