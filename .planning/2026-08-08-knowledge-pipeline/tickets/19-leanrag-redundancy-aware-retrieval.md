@@ -8,51 +8,58 @@ blocked by: 14
 Selective port of LeanRAG's redundancy-aware retrieval (concept ③) into the
 knowledge-search path. Decision record: `bun-apps/pi-agent-ext-hermes-memory/docs/adr/0001-leanrag-selective-port.md`. Full analysis: `.planning/2026-08-08-knowledge-pipeline/brainstorm/leanrag-knowledge-pipeline-adoption.md`.
 
-LeanRAG's frequency-voted chunk recall + dedup, adapted to our card model: when
-multiple retrieval signals (HNSW semantic + FTS lexical + deterministic entity
-tags) surface the same card, boost it; collapse exact-duplicate cards. A
-retrieval-quality refinement that compounds on the just-shipped HNSW index
-(ticket 14) with zero LLM-cost surface, and stays deterministic.
+## Re-scope (2026-08-13, SDD pre-flight)
 
-## What to build (pinned by grilling, rounds 2–3)
+Reconnaissance showed only **1 of the 3** assumed signals (HNSW) is wired into
+`searchSemantic` as a recall path today; FTS is cold-fallback-only/memory-only;
+entity-tag recall does not exist (deferred to ticket 03). So the multi-signal
+**frequency-vote** is unachievable as originally scoped — see ticket 20.
 
-- **Retrieval unit = card-level.** A knowledge-card is the chunk. The
-  frequency-vote counts how many independent signals reference each card id.
-- **Seam = inside `searchSemantic`.** Extend the existing top-K return
-  (`src/store/semantic-search.ts`) to dedup + frequency-vote before returning.
-  Single seam; every caller (the `knowledge_search` tool) benefits.
-- **Dedup = exact contentHash only.** Cards sharing an identical contentHash
-  (tracked per ticket 14's backfill) collapse to one. No cosine / near-dup pass
-  — that is ticket 17.
-- **Frequency-vote across signals.** Combine the HNSW semantic top-K, the FTS
-  lexical hits, and the deterministic entity-tag matches; count references per
-  card; re-rank so cards surfaced by multiple signals rank higher. Default
-  formula: union of candidates, ordered by descending signal-count, then by
-  per-signal score; exact formula + surviving K are impl details.
-- **Both warm + cold paths.** Apply vote+dedup on the HNSW warm path AND on the
-  graceful-degrade cold fallback (knowledge→zk cosine, memory→lexical FTS,
-  ticket 14 T5a), so context stays lean whether or not SurrealDB is up.
-- **Config knobs** — register per lesson #06 (like ticket 14's `vectorTopK` /
-  `vectorEf`): a multi-signal boost weight and a surviving-K cap. Exact names
-  TBD at impl; not hard-coded.
+This ticket now ships the **dedup-first** slice: exact-contentHash dedup + a
+re-rank seam + the surviving-K cap, all inside `searchSemantic` on both warm +
+cold paths. The frequency-vote + boost-weight knob move to **ticket 20** (gated
+on ticket 03 + a knowledge-lexical seam).
+
+## What to build
+
+- **Surface contentHash on the warm path.** Augment `vector-store.ts` `knn`
+  SELECT to `SELECT mdId, kind, contentHash`; extend `VectorKnnHit` +
+  `SemanticSearchHit` with an optional `contentHash`.
+- **Exact-contentHash dedup + re-rank seam inside `searchSemantic`.** A shared
+  helper applied to the warm path's ranked list AND both cold-path returns
+  (`knowledgeFallback`, `memoryFallback`): collapse hits sharing an identical
+  contentHash to one. Single seam; every caller benefits.
+- **Both warm + cold paths.** Dedup runs on the HNSW warm path AND the
+  graceful-degrade cold fallback (ticket 14 T5a). The never-throws invariant is
+  preserved.
+- **survivingK config knob** — register per lesson #06 (the 4-point pattern:
+  constants.ts default → types.ts field → config.ts DEFAULT_CONFIG → config.ts
+  loadConfig allowlist); thread through `SearchSemanticOptions`; caps the
+  returned list. (The multi-signal `boostWeight` knob defers to ticket 20 — it
+  has no effect with a single signal.)
 
 ## Acceptance
 
-- `searchSemantic` returns cards ordered by multi-signal frequency
-  (exact-contentHash-deduped) on BOTH the HNSW warm path and the cold fallback.
-- A card referenced by ≥2 independent signals ranks above a card referenced by
-  1, holding per-signal score roughly equal.
+- `searchSemantic` returns exact-contentHash-deduped cards on BOTH the HNSW warm
+  path and the cold fallback.
 - Exact contentHash duplicates never appear twice in a single result set.
-- Graceful-degrade still never throws (ticket 14 T5a invariant preserved); the
-  vote+dedup runs on the fallback's top-K.
-- New config knobs are registered, not hard-coded.
+- Graceful-degrade still never throws (ticket 14 T5a invariant preserved); dedup
+  runs on the fallback's top-K.
+- `survivingK` is a registered config knob (4-point pattern), not hard-coded,
+  and caps the returned list.
 - Tests (red-green slice in `tests/store/semantic-search.test.ts`): (a)
-  multi-signal boost, (b) exact-hash dedup, (c) fallback-path vote+dedup.
+  exact-hash dedup on the warm path, (b) exact-hash dedup on the cold path,
+  (c) survivingK caps the result, (d) never-throws invariant holds under dedup.
 
-## Out of scope
+## Out of scope (deferred)
 
-- Concept ⑥ (entity-description summarization) + ③'s relation-dedup → ticket 03
-  (need typed relations / enriched entity descriptions).
+- **Multi-signal frequency-vote + `boostWeight` knob → ticket 20** (needs ≥2
+  recall signals: a knowledge-lexical seam + ticket 03's entity recall).
+- Concept ⑥ (entity-description summarization) + ③'s relation-dedup → ticket 03.
 - Near-dup / cosine-threshold collapse → ticket 17.
 - LeanRAG ① semantic-aggregation hierarchy + ② LCA retrieval → fog/future
   (deferred per ADR-0001).
+
+## Plan
+
+Execution plan: `plans/19-leanrag-redundancy-aware-retrieval.md` (SDD).

@@ -22,6 +22,7 @@ import {
   type Worktree,
 } from "@repo/pi-agent-ext-core-runtime";
 import { computeScopeCheck, realGitOps } from "./git-scope.js";
+import { missingRequiredTools } from "./impossible-tools.js";
 import { spawnSubagent } from "./spawn-subagent.js";
 import {
   formatSubagentResult,
@@ -193,27 +194,35 @@ export function createSubagentTool(
         foreground: true,
       });
       try {
-        const result = await spawn(
-          buildSpawnOptions(
-            {
-              toolCallId,
-              t0,
-              params,
-              agentDef,
-              modelCtx: { requestedModel, tier, capability, mainModel },
-              spawnCwd,
-              childSignal: childAc.signal,
-            },
-            progress,
-            {
-              getActiveTools: options.getActiveTools,
-              getExtensionTools: options.getExtensionTools,
-              inFlight: options.inFlight,
-              persistence: options.persistence,
-              onUpdate,
-            },
-          ),
+        const opts = buildSpawnOptions(
+          {
+            toolCallId,
+            t0,
+            params,
+            agentDef,
+            modelCtx: { requestedModel, tier, capability, mainModel },
+            spawnCwd,
+            childSignal: childAc.signal,
+          },
+          progress,
+          {
+            getActiveTools: options.getActiveTools,
+            getExtensionTools: options.getExtensionTools,
+            inFlight: options.inFlight,
+            persistence: options.persistence,
+            onUpdate,
+          },
         );
+        // #03 impossible-tool preflight (ABORT, pre-spawn). Sits inside this try
+        // so the finally still tears down the worktree + ends inFlight on abort.
+        const missing = missingRequiredTools(params.requiredTools, opts.tools, opts.excludeTools);
+        if (missing) {
+          return failEarly(
+            `preflight: task requires tools not in the child allowlist: ${missing.join(", ")}. ` +
+              `Add them to \`tools\` (or drop them from \`excludeTools\` / \`requiredTools\`).`,
+          );
+        }
+        const result = await spawn(opts);
         const elapsedMs = Date.now() - t0;
         // Per-child abort detection (Frontier A): a USER abort fires childAc
         // only (parent signal intact); a whole-turn Esc fans the parent signal

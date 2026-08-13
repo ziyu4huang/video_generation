@@ -21,10 +21,11 @@ A pinned decision (→ spec, then build) for **interactive webui v2**: generated
 ## Decisions so far
 
 - [Prior-art survey: HITL SDKs / interactive-result UIs / self-hostable chat UIs](tickets/01-prior-art-research.md) — pi's 2-seam (appexec + sendUserMessage) is the most principled; static-dir+URL serving wins; shell-hosted-controls+sandboxed-media fits; image-approve/regenerate UX has no proven standard.
+- [Image-renderer + artifact-serving contract](tickets/02-image-renderer-artifact-contract.md) — port the GUI's `/output/` handler via `setHttpRoutes` (reuse MLX_OUTPUT_DIR, not a new dir); extend tool-mirror to recognize `details.output`/`outputs[].path` → md `![image](/output/0/{basename})` inline in "Tools" (fixes the `[object Object]` bug); md view; loopback-guarded.
 
 ## Not yet specified
 
-- **Video renderers** — `<video>` player + larger serving. Graduate after image renderer.
+- **Video renderers** — `<video>` player view (NOTE: serving is covered — the ported `/output/` handler's MIME allowlist includes mp4; only the player view is new). Graduate after image renderer.
 - **Annotation/markup** — region-overlay → reprompt (spatial context); research flagged as inference (no proven standard). Graduate if image approve/regenerate insufficient.
 - **Structured feedback via `appexec`** — greenfield win: structured events bypass mutex, land mid-run. Graduate when mid-run feedback needed (v1 uses steer-text).
 - **Pause-and-resume HITL gate (Tier C)** — agent blocks for approval (LangGraph `interrupt` / AI SDK `needsApproval`); loopback makes state trivial. Graduate when agent-initiated approval needed.

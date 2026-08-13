@@ -19,6 +19,7 @@ import {
   summarizeLatestAction,
 } from "@repo/pi-agent-ext-core-runtime";
 import { Type } from "typebox";
+import { missingRequiredTools } from "./impossible-tools.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
 import { spawnSubagent } from "./spawn-subagent.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
@@ -38,6 +39,7 @@ export interface BatchTask {
   cwd?: string;
   tools?: string[];
   excludeTools?: string[];
+  requiredTools?: string[];
   timeoutMs?: number;
   tokenBudget?: number;
   spendBudget?: number;
@@ -131,6 +133,12 @@ export const subagentsToolSchema = Type.Object({
       excludeTools: Type.Optional(
         Type.Array(Type.String(), {
           description: "Denied after the allowlist. edit/write/bash are ALWAYS also excluded (non-overridable).",
+        }),
+      ),
+      requiredTools: Type.Optional(
+        Type.Array(Type.String(), {
+          description:
+            "Tools this task NEEDS. Before spawn, the child is skipped (null slot) if any is absent from its allowlist or denied by excludeTools.",
         }),
       ),
       timeoutMs: Type.Optional(Type.Integer({ description: "Per-child wall-clock cap (ms). Defaults to 15 min." })),
@@ -301,6 +309,16 @@ export function createSubagentsTool(
           return;
         }
         const childOpts = mergeReadOnlyExclusion(task, { defaultCwd, mainModel, extensionTools, activeTools });
+        // #03 plural mirror: impossible-tool preflight. A child missing a
+        // required tool is skipped (null slot) and warned — never dispatched.
+        const missingChild = missingRequiredTools(task.requiredTools, childOpts.tools, childOpts.excludeTools);
+        if (missingChild) {
+          console.warn(
+            `[subagents] task[${index}] requires tools not in the child allowlist: ${missingChild.join(", ")} — skipped.`,
+          );
+          slots[index] = null;
+          return;
+        }
         // Register in-flight so `/subagents` shows this child while it runs.
         const childRunId = `${toolCallId}:${index}`;
         const childT0 = Date.now();

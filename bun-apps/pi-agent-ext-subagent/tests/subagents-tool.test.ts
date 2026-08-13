@@ -977,3 +977,29 @@ test("ticket 05 / finding 6: collapsed batch per-slot badges are padded to a fix
     assert.ok(collapsed.includes(badge), `collapsed renders the ${badge} badge`);
   }
 });
+
+// ── #03 impossible-tool preflight (ABORT, pre-spawn) — plural mirror ──
+
+test("#03 plural mirror: a child missing a required tool is skipped (null), spawn not called for it", async () => {
+  const calls: unknown[] = [];
+  const spawn = async (opts: SpawnSubagentOptions) => {
+    calls.push(opts);
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ spawn: spawn as never });
+  const res = await tool.execute(
+    "batch-pf",
+    {
+      tasks: [
+        { task: "needs memory", tools: ["read"], requiredTools: ["memory"] }, // skipped
+        { task: "fine", tools: ["read"], requiredTools: ["read"] }, // dispatched
+      ],
+    } as never,
+    undefined as never,
+    undefined,
+    { cwd: "/r" } as never,
+  );
+  assert.equal(calls.length, 1, "only the satisfiable child is dispatched");
+  assert.equal(res.details.results[0], null, "missing-tool child → null slot");
+  assert.notEqual(res.details.results[1], null);
+});
