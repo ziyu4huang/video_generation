@@ -19,6 +19,7 @@ import {
   summarizeLatestAction,
 } from "@repo/pi-agent-ext-core-runtime";
 import { Type } from "typebox";
+import { tierDefaultToken } from "./budget-defaults.js";
 import { computeScopeCheck, realGitOps } from "./git-scope.js";
 import { missingRequiredTools } from "./impossible-tools.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
@@ -191,7 +192,7 @@ export function mergeReadOnlyExclusion(
     tools: task.tools ?? ctx.activeTools,
     excludeTools,
     timeoutMs: task.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-    tokenBudget: task.tokenBudget,
+    tokenBudget: task.tokenBudget ?? tierDefaultToken(task.tier, task.model ?? ctx.mainModel),
     spendBudget: task.spendBudget,
   };
   if (task.model) opts.model = task.model;

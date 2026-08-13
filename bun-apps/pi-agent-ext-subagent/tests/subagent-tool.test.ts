@@ -1396,6 +1396,29 @@ test("execute forwards tokenBudget/spendBudget to spawn", async () => {
   assert.equal(f.calls[0]?.spendBudget, 0.25);
 });
 
+// ── #01 tiered token-budget defaults (hard-abort; p90-calibrated) ──
+
+test("#01 default budget: no tokenBudget + tier:small → spawn receives 500000", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id-bud", { task: "t", tier: "small" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.tokenBudget, 500_000, "tier:small with no explicit budget → 500k default");
+});
+
+test("#01 default budget: explicit tokenBudget still wins", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id-bud2", { task: "t", tier: "small", tokenBudget: 999 }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.tokenBudget, 999, "explicit tokenBudget overrides the tier default");
+});
+
+test("#01 default budget: no tier + no model → medium ceiling (1.2M)", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn }); // no getMainModel → mainModel undefined
+  await tool.execute("id-bud3", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.tokenBudget, 1_200_000, "no tier, no model → safe medium fallback");
+});
+
 test("spawn result with budget → status 'budget', details.budget, distinct output", async () => {
   const f = fakeSpawn(() => ({
     output: "",
