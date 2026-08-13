@@ -1,6 +1,10 @@
 ---
 type: build
-blocked by: 14
+status: closed
+claimed: pi/main-session (2026-08-13, ticket 19 build)
+blocked by: 14 (closed — HNSW index shipped T1/T2/T3/T5a/T6)
+unblocks: 20 (LeanRAG multi-signal frequency-vote — now blocked by 03 only)
+shipped: #1282 (squash b7f1e78c, 2026-08-13) — LeanRAG selective port, dedup-first slice: contentHash dedup seam in searchSemantic (3 paths) + survivingK cap
 ---
 
 ## Context
