@@ -22,6 +22,7 @@ A pinned decision (→ spec, then build) for **interactive webui v2**: generated
 
 - [Prior-art survey: HITL SDKs / interactive-result UIs / self-hostable chat UIs](tickets/01-prior-art-research.md) — pi's 2-seam (appexec + sendUserMessage) is the most principled; static-dir+URL serving wins; shell-hosted-controls+sandboxed-media fits; image-approve/regenerate UX has no proven standard.
 - [Image-renderer + artifact-serving contract](tickets/02-image-renderer-artifact-contract.md) — port the GUI's `/output/` handler via `setHttpRoutes` (reuse MLX_OUTPUT_DIR, not a new dir); extend tool-mirror to recognize `details.output`/`outputs[].path` → md `![image](/output/0/{basename})` inline in "Tools" (fixes the `[object Object]` bug); md view; loopback-guarded.
+- [Startup status announce enhancement](tickets/04-status-announce-enhancement.md) — enrich the bare-URL announce into an informative persistent footer (`🌐 webui · <url> · open in browser to view results`) + a one-time `notify` banner; both existing `ctx.ui` surfaces, no new API. Orthogonal to #02/#03.
 
 ## Not yet specified
 

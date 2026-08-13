@@ -309,9 +309,11 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     // (ephemeral or pinned — resolved via resolvePort in T2). start() is
     // idempotent + the singleton persists, so re-announces on
     // reload/new/resume/fork show the same stable URL.
+    // (v2: announce strings enriched — a one-time notify banner + a persistent
+    // status footer hinting the user to open the URL in a browser.)
     const url = server.url;
-    sessionCtx.ui.notify(`webui: ${url}`, "info");
-    sessionCtx.ui.setStatus("webui", url);
+    sessionCtx.ui.notify(`webui ready — open ${url} in a browser to view rendered results and send feedback. (loopback · no auth)`, "info");
+    sessionCtx.ui.setStatus("webui", `🌐 webui · ${url} · open in browser to view results`);
   });
   reg("session_shutdown", () => {
     controller.handleShutdown();
