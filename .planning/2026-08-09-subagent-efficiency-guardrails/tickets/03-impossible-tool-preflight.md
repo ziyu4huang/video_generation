@@ -1,5 +1,5 @@
 # Ticket 03 — impossible-tool pre-flight
-**status:** draft  **risk:** med  **size:** medium
+**status:** done  **risk:** med  **size:** medium
 
 ## Goal
 Fail fast when a task requires a tool absent from the subagent's allowlist.
@@ -21,3 +21,6 @@ failing).
 
 ## Files
 subagent-tool.ts (dispatch path)
+
+## Shipped
+Shipped via #1277

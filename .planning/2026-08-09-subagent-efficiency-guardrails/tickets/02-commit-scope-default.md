@@ -1,5 +1,5 @@
 # Ticket 02 — commitScope by default
-**status:** draft  **risk:** low-med  **size:** small
+**status:** done  **risk:** low-med  **size:** small
 
 ## Goal
 Auto-apply commitScope so `git add -A` sweeps are caught even when the
@@ -22,3 +22,6 @@ Recommend B (matches existing detection-only philosophy).
 
 ## Files
 subagent-tool.ts:182,910 ; git-scope.ts
+
+## Shipped
+Shipped via #1278

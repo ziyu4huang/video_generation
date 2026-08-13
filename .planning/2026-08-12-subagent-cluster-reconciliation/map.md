@@ -59,7 +59,7 @@ Eight efforts in `.planning/` carry status stamps that lag their shipped reality
 ## Tracked next steps (out of this pass's scope)
 
 1. **Carve spawn-seam stage-4 (goalState session-isolation) into a dedicated effort.** The goalState slice of ticket #3 was deferred when spawn-seam archived; it needs its own home + design.
-2. **Fold guardrails #01–04 onto a canonical `subagent-runtime` map with blocking edges.** Dependency chain: stage-4 isolation → safe `session_start` in children → unlocks guardrails correctness (efficiency-guardrails #01–04 depend on correct child seeding/isolation).
+2. **COMPLETE — Fold guardrails #01–04 onto a canonical `subagent-runtime` map with blocking edges.** Shipped via #1277–#1280. Dependency chain: stage-4 isolation → safe `session_start` in children → unlocks guardrails correctness (efficiency-guardrails #01–04 depend on correct child seeding/isolation).
 3. **Write the implementation plan for `improve-subagents-batch-tui`.** READY-TO-PLAN (spec approved #1178); independent of the isolation work.
 4. **Superseded — `fix/core-task-gate-ask-user-todo` is the source branch of REVERTED #1142 (reverted #1145, 81% miss-rate); abandoned, not shippable.** Slimming core-task's always-on footprint would need a new mechanism + new effort.
 5. **Delete ~59 stale-pointer branches (local + origin) + the dead `wip/preserve-subagent-workflow-files-pre-orphan` branch.** Branch deletion is a separate, deliberately-isolated pass (not a docs PR).

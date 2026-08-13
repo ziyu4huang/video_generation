@@ -1,5 +1,5 @@
 ---
-status: active
+status: done
 ---
 
 # Subagent efficiency guardrails
@@ -30,11 +30,11 @@ unbounded runs blow past sane limits.
 - Active-tool-set threading + tool-gate seeding → effort 2026-08-08-fix-subagent-spawn-seam (#1127/#1129).
 
 ## Tickets
-- 01 default-budget-guardrails — ACTIVE (flagship)
-- 02 commit-scope-default — draft
-- 03 impossible-tool-preflight — draft
-- 04 retry-loop-detector — draft
-- 05 dispatch-discipline-skill — draft (recommended quick win)
+- 01 default-budget-guardrails — done (#1280)
+- 02 commit-scope-default — done (#1278)
+- 03 impossible-tool-preflight — done (#1277)
+- 04 retry-loop-detector — done (#1279)
+- 05 dispatch-discipline-skill — done (#1158)
 
 ## Knob locations (for implementers)
 - tokenBudget/spendBudget params: bun-apps/pi-agent-ext-subagent/src/subagent-tool.ts:181 ; consumed agent.ts:373-375,609

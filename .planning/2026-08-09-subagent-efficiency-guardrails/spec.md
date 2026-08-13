@@ -1,6 +1,6 @@
 # Subagent efficiency guardrails — spec
 
-**Status:** Draft (pending review)
+**Status:** Done — all tickets shipped (#1158, #1277, #1278, #1279, #1280)
 
 ## Problem
 pi subagent runs waste enormous tokens and fail late. Analysis of the run
