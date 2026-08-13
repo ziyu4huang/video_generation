@@ -1,0 +1,214 @@
+# Fix-wave review package: 8c4a1ccc..56dfe7c1
+
+## Commits
+56dfe7c1 fix wave (final review): harden contentHash falsy-guard + clamp survivingK cap
+
+## Files changed
+ .../src/store/semantic-search.ts                   |  13 ++-
+ .../tests/store/semantic-search.test.ts            | 109 +++++++++++++++++++++
+ 2 files changed, 118 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
+index 17ce49b9..39e65b07 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
+@@ -87,43 +87,47 @@ export interface SearchSemanticOptions {
+   scheduleVectorBackfill?: () => void;
+ }
+ 
+ /** Internal: normalize a VectorKnnHit to a SemanticSearchHit (warm path). */
+ function toHit(h: VectorKnnHit, kind: SemanticKind | undefined): SemanticSearchHit {
+   // The store carries `kind` per row; honor it when present and valid, else
+   // fall back to the caller's requested kind.
+   const k: SemanticKind = h.kind === "knowledge" ? "knowledge" : h.kind === "memory" ? "memory" : (kind ?? "memory");
+   // Surface contentHash only when the knn row provided it, so hashless warm
+   // hits stay shape-compatible (ticket 19 warm-path dedup key).
++  // Fix 1 (final review): only set when truthy (null/"" treated as "no key").
+   const hit: SemanticSearchHit = { mdId: h.mdId, kind: k, source: "hnsw", score: h.score };
+-  if (h.contentHash !== undefined) hit.contentHash = h.contentHash;
++  if (h.contentHash) hit.contentHash = h.contentHash;
+   return hit;
+ }
+ 
+ /**
+  * Redundancy-aware dedup pass (ticket 19 T2). Keeps the FIRST occurrence per
+  * DEFINED contentHash; hits whose contentHash is undefined are ALWAYS kept (a
+  * missing contentHash is never a shared key — Global Constraint). Applied on
+  * every return path of `searchSemantic` so the warm (HNSW) and cold
+  * (zk-semantic / memory-lexical) hits both pass through ONE seam. On the cold
+  * paths every hit is hashless (RetrievedCard / MemoryEntry carry no hash), so
+  * the pass is a correct no-op there — the meaningful collapse lives on the
+  * warm path. Single pure pass: this function only deduplicates (no cap, no
+  * boostWeight). The survivingK cap is applied by the CALLER after this pass
+  * (Task 3); boostWeight remains deferred (ticket 20 — YAGNI). Never throws.
+  */
+ function dedupByContentHash(hits: SemanticSearchHit[]): SemanticSearchHit[] {
+   const seen = new Set<string>();
+   const out: SemanticSearchHit[] = [];
+   for (const h of hits) {
+-    if (h.contentHash === undefined) {
+-      out.push(h); // hashless → always kept (never a dedup key)
++    // Fix 1 (final review): treat falsy contentHash (undefined/null/"") as "no key".
++    // Prevents over-collapse when corrupt rows or ?? "" normalization create
++    // shared falsy keys. Only non-empty strings are real dedup keys.
++    if (!h.contentHash) {
++      out.push(h); // falsy hash → always kept (never a dedup key)
+       continue;
+     }
+     if (seen.has(h.contentHash)) continue; // duplicate hash → drop later twin
+     seen.add(h.contentHash);
+     out.push(h);
+   }
+   return out;
+ }
+ 
+ /**
+@@ -144,21 +148,22 @@ function dedupByContentHash(hits: SemanticSearchHit[]): SemanticSearchHit[] {
+ export async function searchSemantic(opts: SearchSemanticOptions): Promise<SemanticSearchHit[]> {
+   const {
+     queryText, kind, topK = 10, ef = 100, model, embedder,
+     vectorStore, memoryRepo, kp, vaultPath, folder, excludeIds,
+     scheduleVectorBackfill, survivingK,
+   } = opts;
+   const exclude = new Set(excludeIds ?? []);
+   const modelId = model ?? "text-embedding-nomic-embed-text-v1.5";
+   // Ticket 19 T3: survivingK caps the post-dedup returned list. Defaults to
+   // topK when unset so existing behavior is UNCHANGED (a CAP not a refill).
+-  const cap = survivingK ?? topK;
++  // Fix 2 (final review): clamp to avoid JS slice footgun (negative drops last).
++  const cap = Math.max(0, survivingK ?? topK);
+ 
+   // ── Warm path (T2): embed → knn ──────────────────────────────────────────
+   if (vectorStore && embedder) {
+     try {
+       const qvec = await embedQuery(queryText, { model: modelId, embedder });
+       if (qvec) {
+         try {
+           const rows = await vectorStore.knn(qvec, topK, ef);
+           const hits = rows.map((r) => toHit(r, kind));
+           const seen = new Set<string>();
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
+index 229a28c3..ccec8a28 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
+@@ -420,10 +420,119 @@ describe("searchSemantic — survivingK cap (ticket 19 T3)", () => {
+       { id: 3, mdId: "mem-3", content: "c" } as MemoryEntry,
+     ]);
+     const hits = await searchSemantic({
+       queryText: "probe", kind: "memory", topK: 10,
+       embedder: fakeEmbedder(), vectorStore: vs, memoryRepo: repo,
+       survivingK: 2,
+     });
+     expect(hits.map((h) => h.mdId)).toEqual(["mem-1", "mem-2"]); // 3 → cap 2
+   });
+ });
++
++describe("searchSemantic — fix wave (final review)", () => {
++  describe("Fix 1: falsy contentHash treated as 'no key' (no over-collapse)", () => {
++    it("WARM: two rows with contentHash=\"\" are BOTH returned (not collapsed)", async () => {
++      // RED: today collapses to one (empty string treated as shared key)
++      // GREEN: both returned (falsy hash = no key, always kept)
++      const vs = fakeVectorStore([
++        { mdId: "m1", kind: "memory", contentHash: "" },
++        { mdId: "m2", kind: "memory", contentHash: "" },
++      ]);
++      const hits = await searchSemantic({
++        queryText: "probe", kind: "memory", topK: 5,
++        embedder: fakeEmbedder(), vectorStore: vs,
++      });
++      expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]);
++    });
++
++    it("WARM: two rows with contentHash=null are BOTH returned (not collapsed)", async () => {
++      // RED: today collapses to one (null treated as shared key)
++      // GREEN: both returned (falsy hash = no key, always kept)
++      const vs = fakeVectorStore([
++        { mdId: "m1", kind: "memory", contentHash: null },
++        { mdId: "m2", kind: "memory", contentHash: null },
++      ]);
++      const hits = await searchSemantic({
++        queryText: "probe", kind: "memory", topK: 5,
++        embedder: fakeEmbedder(), vectorStore: vs,
++      });
++      expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]);
++    });
++
++    it("WARM: truthy contentHash still dedups (real hash collapse still works)", async () => {
++      // Verify the fix doesn't break real hash deduplication
++      const vs = fakeVectorStore([
++        { mdId: "m1", kind: "memory", contentHash: "real-hash" },
++        { mdId: "m2", kind: "memory", contentHash: "real-hash" },
++      ]);
++      const hits = await searchSemantic({
++        queryText: "probe", kind: "memory", topK: 5,
++        embedder: fakeEmbedder(), vectorStore: vs,
++      });
++      expect(hits.map((h) => h.mdId)).toEqual(["m1"]); // collapsed to first
++    });
++
++    it("WARM: toHit only sets contentHash when truthy (shape-compatible with hashless hits)", async () => {
++      // Verify toHit truthy-set: null/"" knn rows yield hits with NO contentHash key
++      const vs = fakeVectorStore([
++        { mdId: "m1", kind: "memory", contentHash: "" },
++        { mdId: "m2", kind: "memory", contentHash: null },
++        { mdId: "m3", kind: "memory", contentHash: "real-hash" },
++      ]);
++      const hits = await searchSemantic({
++        queryText: "probe", kind: "memory", topK: 5,
++        embedder: fakeEmbedder(), vectorStore: vs,
++      });
++      expect(hits).toEqual<SemanticSearchHit[]>([
++        { mdId: "m1", kind: "memory", source: "hnsw" }, // no contentHash key
++        { mdId: "m2", kind: "memory", source: "hnsw" }, // no contentHash key
++        { mdId: "m3", kind: "memory", source: "hnsw", contentHash: "real-hash" },
++      ]);
++    });
++  });
++
++  describe("Fix 2: clamp survivingK cap (JS slice footgun)", () => {
++    it("survivingK: 0 returns [] (not drop-last behavior)", async () => {
++      // RED: today `slice(0, 0)` = [], correct, but test documents the guard
++      const vs = fakeVectorStore([
++        { mdId: "m1", kind: "memory", contentHash: "h1" },
++        { mdId: "m2", kind: "memory", contentHash: "h2" },
++      ]);
++      const hits = await searchSemantic({
++        queryText: "probe", kind: "memory", topK: 5,
++        embedder: fakeEmbedder(), vectorStore: vs,
++        survivingK: 0,
++      });
++      expect(hits).toEqual([]);
++    });
++
++    it("survivingK: -1 returns [] (clamped, not drop-last)", async () => {
++      // RED: today `slice(0, -1)` drops last element (JS semantics)
++      // GREEN: clamped to 0, returns []
++      const vs = fakeVectorStore([
++        { mdId: "m1", kind: "memory", contentHash: "h1" },
++        { mdId: "m2", kind: "memory", contentHash: "h2" },
++        { mdId: "m3", kind: "memory", contentHash: "h3" },
++      ]);
++      const hits = await searchSemantic({
++        queryText: "probe", kind: "memory", topK: 5,
++        embedder: fakeEmbedder(), vectorStore: vs,
++        survivingK: -1,
++      });
++      expect(hits).toEqual([]); // clamped to 0, not [m1,m2]
++    });
++
++    it("survivingK: -5 returns [] (clamped, not drop-last-5)", async () => {
++      // Verify clamp works for larger negative values
++      const vs = fakeVectorStore([
++        { mdId: "m1", kind: "memory", contentHash: "h1" },
++        { mdId: "m2", kind: "memory", contentHash: "h2" },
++      ]);
++      const hits = await searchSemantic({
++        queryText: "probe", kind: "memory", topK: 5,
++        embedder: fakeEmbedder(), vectorStore: vs,
++        survivingK: -5,
++      });
++      expect(hits).toEqual([]); // clamped to 0
++    });
++  });
++});
