@@ -330,3 +330,100 @@ describe("searchSemantic — Phase B cold-index backfill trigger", () => {
     expect(hits).toEqual([]);
   });
 });
+
+describe("searchSemantic — survivingK cap (ticket 19 T3)", () => {
+  it("WARM: caps the post-dedup ranked list to survivingK", async () => {
+    // 5 distinct-contentHash knn hits (no dedup collapse) exceed survivingK 3.
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "memory", contentHash: "h1" },
+      { mdId: "m2", kind: "memory", contentHash: "h2" },
+      { mdId: "m3", kind: "memory", contentHash: "h3" },
+      { mdId: "m4", kind: "memory", contentHash: "h4" },
+      { mdId: "m5", kind: "memory", contentHash: "h5" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 10,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      survivingK: 3,
+    });
+    expect(hits).toEqual<SemanticSearchHit[]>([
+      { mdId: "m1", kind: "memory", source: "hnsw", contentHash: "h1" },
+      { mdId: "m2", kind: "memory", source: "hnsw", contentHash: "h2" },
+      { mdId: "m3", kind: "memory", source: "hnsw", contentHash: "h3" },
+    ]);
+  });
+
+  it("WARM: defaults survivingK to topK when unset (no extra cap beyond topK)", async () => {
+    // topK 4 with 5 distinct-hash hits → ranked stops at 4; survivingK unset → no cap.
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "memory", contentHash: "h1" },
+      { mdId: "m2", kind: "memory", contentHash: "h2" },
+      { mdId: "m3", kind: "memory", contentHash: "h3" },
+      { mdId: "m4", kind: "memory", contentHash: "h4" },
+      { mdId: "m5", kind: "memory", contentHash: "h5" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 4,
+      embedder: fakeEmbedder(), vectorStore: vs,
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2", "m3", "m4"]);
+  });
+
+  it("WARM: survivingK caps AFTER dedup (dup hashes collapse first, then cap)", async () => {
+    // 5 knn rows, only 3 distinct contentHashes → dedup leaves [m1,m3,m5] → cap 2.
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "memory", contentHash: "h1" },
+      { mdId: "m2", kind: "memory", contentHash: "h1" }, // dup of m1
+      { mdId: "m3", kind: "memory", contentHash: "h2" },
+      { mdId: "m4", kind: "memory", contentHash: "h2" }, // dup of m3
+      { mdId: "m5", kind: "memory", contentHash: "h3" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 10,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      survivingK: 2,
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m3"]); // dedup→[m1,m3,m5], cap→[m1,m3]
+  });
+
+  it("survivingK is a CAP not a refill: post-dedup shortfall is returned as-is", async () => {
+    // Only 2 distinct-hash hits survive dedup; survivingK 5 → returns 2 (no over-fetch).
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "memory", contentHash: "h1" },
+      { mdId: "m2", kind: "memory", contentHash: "h1" }, // dup
+      { mdId: "m3", kind: "memory", contentHash: "h2" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 10,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      survivingK: 5,
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m3"]); // 2 < 5, no refill
+  });
+
+  it("COLD knowledge: survivingK caps the zk-semantic fallback", async () => {
+    kpRetrieve.mockClear();
+    const vs = throwingVectorStore();
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 10,
+      embedder: fakeEmbedder(), vectorStore: vs, kp: fakeKp(), vaultPath: "/v", folder: "kg",
+      survivingK: 1,
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["card-a"]); // 2 cards → cap 1
+  });
+
+  it("COLD memory: survivingK caps the memory-lexical fallback", async () => {
+    const vs = throwingVectorStore();
+    const repo = fakeMemoryRepo([
+      { id: 1, mdId: "mem-1", content: "c" } as MemoryEntry,
+      { id: 2, mdId: "mem-2", content: "c" } as MemoryEntry,
+      { id: 3, mdId: "mem-3", content: "c" } as MemoryEntry,
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 10,
+      embedder: fakeEmbedder(), vectorStore: vs, memoryRepo: repo,
+      survivingK: 2,
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["mem-1", "mem-2"]); // 3 → cap 2
+  });
+});

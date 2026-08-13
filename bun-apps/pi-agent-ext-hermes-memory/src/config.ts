@@ -29,6 +29,7 @@ import {
   DEFAULT_LMSTUDIO_BASE_URL,
   DEFAULT_VECTOR_TOP_K,
   DEFAULT_VECTOR_EF,
+  DEFAULT_SURVIVING_K,
 } from "./constants.js";
 import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
 import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
@@ -113,6 +114,9 @@ const DEFAULT_CONFIG: MemoryConfig = {
   lmStudioBaseUrl: DEFAULT_LMSTUDIO_BASE_URL,
   vectorTopK: DEFAULT_VECTOR_TOP_K,
   vectorEf: DEFAULT_VECTOR_EF,
+  // survivingK (ticket 19 T3): caps the post-dedup returned list. Registered
+  // in DEFAULT_CONFIG AND the parse allowlist below (#06 config-gap lesson).
+  survivingK: DEFAULT_SURVIVING_K,
 };
 
 export const DEFAULT_CONFIG_PATH = path.join(
@@ -367,6 +371,9 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
       if (typeof parsed.lmStudioBaseUrl === "string" && parsed.lmStudioBaseUrl.trim()) config.lmStudioBaseUrl = parsed.lmStudioBaseUrl.trim();
       if (typeof parsed.vectorTopK === "number" && Number.isFinite(parsed.vectorTopK) && parsed.vectorTopK > 0) config.vectorTopK = Math.floor(parsed.vectorTopK);
       if (typeof parsed.vectorEf === "number" && Number.isFinite(parsed.vectorEf) && parsed.vectorEf > 0) config.vectorEf = Math.floor(parsed.vectorEf);
+      // survivingK (ticket 19 T3): same >0 floor guard as vectorTopK. Invalid
+      // values (≤0 / non-number / null) silently keep the default.
+      if (typeof parsed.survivingK === "number" && Number.isFinite(parsed.survivingK) && parsed.survivingK > 0) config.survivingK = Math.floor(parsed.survivingK);
       if (hasMemoryOverflowStrategy) {
         config.autoConsolidate = config.memoryOverflowStrategy === "auto-consolidate";
       } else if (hasLegacyAutoConsolidate) {
