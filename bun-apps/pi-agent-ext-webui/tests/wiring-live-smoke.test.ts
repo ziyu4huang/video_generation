@@ -326,9 +326,9 @@ describe("wireWebui live smoke — Tier A", () => {
     // The announce uses the REAL resolved URL (live ephemeral port, not the
     // literal 0). ctx.ui.notify + setStatus each fire once.
     expect(pi.uiNotifications).toEqual([
-      { message: `webui: ${server.url}`, type: "info" },
+      { message: `webui ready — open ${server.url} in a browser to view rendered results and send feedback. (loopback · no auth)`, type: "info" },
     ]);
-    expect(pi.uiStatuses).toEqual([{ key: "webui", text: server.url }]);
+    expect(pi.uiStatuses).toEqual([{ key: "webui", text: `🌐 webui · ${server.url} · open in browser to view results` }]);
     // No auto-open: the wiring never calls pi.exec (the host interface exposes
     // no exec). The exec recorder is a belt-and-suspenders negative control.
     expect(pi.execCalls).toBe(0);
@@ -338,8 +338,10 @@ describe("wireWebui live smoke — Tier A", () => {
     const { pi, server } = setup();
     pi.emit("session_start", {}, pi.ctx());
     // The announced URL EQUALS server.url (T3 reads server.url after start()).
-    expect(pi.uiNotifications[0]?.message).toBe(`webui: ${server.url}`);
-    expect(pi.uiStatuses[0]?.text).toBe(server.url);
+    // The announced URL is embedded in the v2-enriched banner/footer; assert
+    // the live resolved loopback URL is present (T3 reads server.url after start).
+    expect(pi.uiNotifications[0]?.message).toContain(server.url);
+    expect(pi.uiStatuses[0]?.text).toContain(server.url);
     // server.url is the LIVE resolved URL — a real loopback address with a real
     // (non-zero) port produced by resolvePort via getServer() (T2). Not literal 0.
     expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/?$/);

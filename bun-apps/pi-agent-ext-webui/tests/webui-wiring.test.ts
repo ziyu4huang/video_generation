@@ -263,10 +263,10 @@ describe("wireWebui — lifecycle", () => {
     pi.emit("session_start", { type: "session_start", reason: "startup" });
     // FakeWebServer.url is "http://fake.local/".
     expect(pi.ctx.notifications).toEqual([
-      { message: "webui: http://fake.local/", type: "info" },
+      { message: "webui ready — open http://fake.local/ in a browser to view rendered results and send feedback. (loopback · no auth)", type: "info" },
     ]);
     expect(pi.ctx.statuses).toEqual([
-      { key: "webui", text: "http://fake.local/" },
+      { key: "webui", text: "🌐 webui · http://fake.local/ · open in browser to view results" },
     ]);
   });
 });
