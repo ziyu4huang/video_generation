@@ -7,7 +7,12 @@
  */
 import { defineTool, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
-import type { AgentUsage, BudgetExhaustion, SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
+import type {
+  AgentUsage,
+  BudgetExhaustion,
+  InFlightSubagent,
+  SubagentInFlightRegistry,
+} from "@repo/pi-agent-ext-core-runtime";
 import {
   checkBudgetExhaustion,
   DEFAULT_BATCH_CONCURRENCY,
@@ -688,6 +693,42 @@ export function formatSlotMeta(
       1,
     )}s${formatUsage(slot.usage)}`,
   );
+}
+
+/** Extract the trailing `:N` dispatch index from a batch child runId
+ *  (`${batchId}:${index}`). NaN for ids without a numeric suffix (sorts last). */
+export function childDispatchIndex(id: string): number {
+  const idx = Number(id.slice(id.lastIndexOf(":") + 1));
+  return Number.isFinite(idx) ? idx : NaN;
+}
+
+/** Pure live-table builder for the running (isPartial) batch view. One row per
+ *  in-flight child, sorted ascending by dispatch index:
+ *    `[i] slot ⏱/✓ liveElapsed · currentAction`
+ *  - `slot` via {@link formatModelSeg} (fallback-aware; resolved model once known).
+ *  - glyph ⏱ while `status !== "completed"`, ✓ once completed (kept in the
+ *    registry until endBatch so a finished child still shows its final elapsed).
+ *  - `liveElapsed` = `(now - startedAt)/1000` with 1-decimal.
+ *  - `currentAction` from {@link summarizeLatestAction}(history), falling back to
+ *    the task preview (truncated to 40) when there is no history yet.
+ *  PLAIN text (no theme — `execute()` has no Theme; rendered dim by the isPartial
+ *  branch of `renderSubagentsResult`). Empty input → "" (header-only). */
+export function buildLiveTable(entries: InFlightSubagent[], now: number = Date.now()): string {
+  const sorted = [...entries].sort((a, b) => {
+    const ia = childDispatchIndex(a.id);
+    const ib = childDispatchIndex(b.id);
+    return (Number.isNaN(ia) ? Infinity : ia) - (Number.isNaN(ib) ? Infinity : ib);
+  });
+  const rows = sorted.map((e) => {
+    const idx = childDispatchIndex(e.id);
+    const idxLabel = Number.isNaN(idx) ? "?" : String(idx);
+    const slot = formatModelSeg(e.resolvedModel ?? e.model ?? "default", e.requestedModel, e.fellBack);
+    const glyph = e.status === "completed" ? "✓" : "⏱";
+    const elapsed = `${((now - e.startedAt) / 1000).toFixed(1)}s`;
+    const action = summarizeLatestAction(e.history) ?? truncateToWidth(e.taskPreview ?? e.workIntent ?? "", 40);
+    return `[${idxLabel}] ${slot} ${glyph} ${elapsed} · ${action}`;
+  });
+  return rows.join("\n");
 }
 
 /** Sum total + cost across any iterable of AgentUsage (slots' usage for the done

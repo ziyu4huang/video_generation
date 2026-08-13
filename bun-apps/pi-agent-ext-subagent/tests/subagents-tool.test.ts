@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { AgentUsage } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentUsage, InFlightSubagent } from "@repo/pi-agent-ext-core-runtime";
 import {
   DEFAULT_BATCH_CONCURRENCY,
   MAX_BATCH_TASKS,
@@ -12,6 +12,8 @@ import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-sub
 import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
 import type { SubagentsToolDetails } from "../src/subagents-tool.js";
 import {
+  buildLiveTable,
+  childDispatchIndex,
   clampConcurrency,
   createSubagentsTool,
   formatModelSeg,
@@ -1305,4 +1307,80 @@ test("done expanded: null (failed) slot has NO meta line (unchanged failed body)
   const failedBlock = expanded.split("### [1]")[0];
   assert.match(failedBlock, /### \[0\] failed/);
   assert.doesNotMatch(failedBlock, /· .*s ·/);
+});
+
+const NOW = 10_000;
+
+function live(over: Partial<InFlightSubagent> & { id: string }): InFlightSubagent {
+  return { taskPreview: "pt", startedAt: 0, ...over } as InFlightSubagent;
+}
+
+test("childDispatchIndex: trailing :N from a batch child runId; NaN-resistant", () => {
+  assert.equal(childDispatchIndex("batch-call:3"), 3);
+  assert.equal(childDispatchIndex("wf:abc:0"), 0);
+  assert.equal(childDispatchIndex("no-colon"), NaN);
+});
+
+test("buildLiveTable: empty entries → empty string (header-only)", () => {
+  assert.equal(buildLiveTable([], NOW), "");
+});
+
+test("buildLiveTable: one running child → `[i] slot ⏱ liveElapsed · currentAction`", () => {
+  const rows = buildLiveTable(
+    [live({ id: "batch-call:0", model: "zai/glm-5.2", startedAt: 6550, status: "running" })],
+    NOW,
+  );
+  assert.equal(rows, "[0] glm-5.2 ⏱ 3.5s · pt");
+});
+
+test("buildLiveTable: completed child shows ✓ glyph + the same meta", () => {
+  const rows = buildLiveTable(
+    [live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 9000, status: "completed" })],
+    NOW,
+  );
+  assert.equal(rows, "[1] glm-5.2 ✓ 1.0s · pt");
+});
+
+test("buildLiveTable: fallback child shows `requested → actual` slot", () => {
+  const rows = buildLiveTable(
+    [
+      live({
+        id: "batch-call:0",
+        model: "anthropic/claude-opus-4-1",
+        resolvedModel: "zai/glm-5.2",
+        requestedModel: "anthropic/claude-opus-4-1",
+        fellBack: true,
+        startedAt: 9500,
+        status: "running",
+      }),
+    ],
+    NOW,
+  );
+  assert.equal(rows, "[0] claude-opus-4-1 → glm-5.2 ⏱ 0.5s · pt");
+});
+
+test("buildLiveTable: currentAction comes from summarizeLatestAction(history); falls back to task preview", () => {
+  const withHist = buildLiveTable(
+    [
+      live({
+        id: "batch-call:0",
+        model: "zai/glm-5.2",
+        startedAt: 9000,
+        history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"src/a.ts"}' }],
+      }),
+    ],
+    NOW,
+  );
+  assert.match(withHist, /\[0\] glm-5\.2 ⏱ 1\.0s · .+/);
+  assert.notEqual(withHist, "[0] glm-5.2 ⏱ 1.0s · pt", "history-derived action replaces the task-preview fallback");
+});
+
+test("buildLiveTable: sorted ascending by dispatch index; defaults to Date.now()", () => {
+  const rows = buildLiveTable([
+    live({ id: "batch-call:2", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
+    live({ id: "batch-call:0", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
+    live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
+  ]);
+  const idxs = rows.split("\n").map((l) => l.slice(1, 2));
+  assert.deepEqual(idxs, ["0", "1", "2"]);
 });
