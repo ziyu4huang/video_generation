@@ -1,0 +1,234 @@
+# Review package: bc20c87f..c411f5d928858e24e2bd962e5f53e7583f350e1a
+
+## Commits
+c411f5d9 feat(subagent): batch-tui done-header Σ + done-collapsed per-slot meta (T3)
+
+## Files changed
+ .../pi-agent-ext-subagent/src/subagents-tool.ts    |  25 ++--
+ .../tests/subagents-tool.test.ts                   | 132 +++++++++++++++++++++
+ 2 files changed, 146 insertions(+), 11 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+index 3ff18063..ad9ab42a 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+@@ -721,57 +721,60 @@ export function renderSubagentsResult(
+     if (options.expanded) return theme.fg("dim", text);
+     return theme.fg("dim", text.split("\n")[0] ?? text);
+   }
+ 
+   // Build the batch header.
+   const done = d.results.filter(
+     (s) => s && (s as { status: string }).status !== "budget" && (s as { status: string }).status !== "aborted",
+   ).length;
+   const aborted = d.results.filter((s) => s && (s as { status: string }).status === "aborted").length;
+   const failed = d.results.filter((s) => s === null).length;
++  // Aggregate usage across non-null slots that carry usage → header Σtok/$Σ
++  // (mirrors the single card's `$cost · Ntok`, appended after elapsed).
++  const slotUsages: AgentUsage[] = [];
++  for (const s of d.results) {
++    if (s && (s as { usage?: AgentUsage }).usage) slotUsages.push((s as { usage: AgentUsage }).usage);
++  }
++  const agg = sumUsage(slotUsages);
++  const aggStr = agg.total > 0 ? ` · $${agg.cost.toFixed(3)} · ${agg.total} tok` : "";
+   const header =
+     `subagents batch (${done} ok` +
+     (aborted ? ` · ${aborted} aborted` : "") +
+     ` · ${failed} failed` +
+-    ` · ${d.skipped} skipped) — ${(d.elapsedMs / 1000).toFixed(1)}s`;
++    ` · ${d.skipped} skipped) — ${(d.elapsedMs / 1000).toFixed(1)}s${aggStr}`;
+ 
+   if (!options.expanded) {
+     // Collapsed: header + one line per slot with status badge.
+     const lines: string[] = [theme.bold(header)];
+     for (let i = 0; i < d.results.length; i++) {
+       const slot = d.results[i];
+       if (slot === null) {
+         lines.push(theme.fg("dim", `  [${i}] ${batchStatusBadge("failed", theme)}  ·  (child failed)`));
+         continue;
+       }
+       if (!slot) continue; // invariant: i < d.results.length (loop bound)
+       const slotStatus = (slot as { status: string }).status;
+       // Fixed-width badge (ticket 05, finding 6): pad to the widest badge text so
+       // the `model · elapsed · task` columns line up across rows regardless of
+       // status (`✓ done`=6 vs `⏱ timedout`=10, etc.).
+       const badge = batchStatusBadge(slotStatus, theme);
+       // Model segment: on a fallback show `requested → actual` (both shortened
+       // via shortModel so the collapsed line stays within terminal width —
+       // ticket 04, findings 2 + 5). The audit field stays the full spec; only
+       // the DISPLAY is shortened.
+-      const slotObj = slot as { model: string; requestedModel?: string; fellBack?: boolean };
+-      const modelLabel =
+-        slotObj.fellBack && slotObj.requestedModel
+-          ? `${shortModel(slotObj.requestedModel)} → ${shortModel(slotObj.model) ?? "default"}`
+-          : (shortModel(slotObj.model) ?? "default");
+-      const model = theme.fg("muted", modelLabel);
+-      const elapsed = `${((slot as { elapsedMs: number }).elapsedMs / 1000).toFixed(1)}s`;
++      const meta = formatSlotMeta(
++        slot as { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
++        theme,
++      );
+       const taskPreview60 = truncateToWidth((slot as { task: string }).task ?? "", 60);
+       const idTag = slot.id ? `${theme.fg("dim", `(${slot.id})`)} ` : "";
+-      lines.push(
+-        `  ${theme.fg("dim", `[${i}]`)} ${idTag}${badge}  ${model}  ·  ${elapsed}  ·  ${theme.fg("dim", taskPreview60)}`,
+-      );
++      lines.push(`  ${theme.fg("dim", `[${i}]`)} ${idTag}${badge}  ${meta} · ${theme.fg("dim", `"${taskPreview60}"`)}`);
+     }
+     lines.push(theme.fg("dim", "Ctrl-O to expand · /subagents for detail"));
+     return lines.join("\n");
+   }
+ 
+   // Expanded: header + per-child full themed output (mirrors renderBatchResult structure).
+   const body = d.results
+     .map((slot, i) => {
+       if (slot === null)
+         return `${theme.bold(`### [${i}] failed`)}
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+index b1d53585..f8930197 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+@@ -1080,10 +1080,142 @@ test("formatSlotMeta: themed `model · elapsed · usage`; defensive on missing u
+     THEME,
+   );
+   assert.equal(fb, "claude-opus-4-1 → glm-5.2 · 1.0s · $0.001 · 10 tok");
+ });
+ 
+ test("sumUsage: sums total+cost across an iterable; empty → zeros", () => {
+   assert.deepEqual(sumUsage([]), { total: 0, cost: 0 });
+   assert.deepEqual(sumUsage([U(100, 0.1), U(200, 0.2)]), { total: 300, cost: 0.30000000000000004 });
+   assert.deepEqual(sumUsage(new Map([["a", U(50, 0.05)]]).values()), { total: 50, cost: 0.05 });
+ });
++
++// ── Task 3: done header Σ + done-collapsed per-slot meta ──
++// The done-state collapsed card now (a) appends ` · $Σ · Σtok` to the header
++// when aggregate slot usage > 0, and (b) renders each per-slot line as
++// `[i] (id) badge · <formatSlotMeta> · "task"` (formatSlotMeta = model · elapsed
++// · usage; quoted task preview). Mirrors the single subagent card's meta.
++
++test("done header appends aggregate ` · $Σ · Σtok` when slots carry usage", () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      { output: "a", status: "done", index: 0, task: "t0", model: "zai/glm-5.2", elapsedMs: 1000, usage: U(1000, 0.1) },
++      { output: "b", status: "done", index: 1, task: "t1", model: "zai/glm-5.2", elapsedMs: 2000, usage: U(2000, 0.2) },
++      null,
++    ],
++    dispatched: 2,
++    skipped: 0,
++    elapsedMs: 3000,
++  };
++  const collapsed = renderSubagentsResult(
++    { content: [{ type: "text", text: "x" }], details },
++    { expanded: false },
++    THEME,
++  );
++  assert.match(collapsed, /— 3\.0s · \$0\.300 · 3000 tok/);
++});
++
++test("done header omits the aggregate suffix when no slot carries usage (byte-stable)", () => {
++  const details: SubagentsToolDetails = {
++    results: [{ output: "a", status: "done", index: 0, task: "t0", model: "zai/glm-5.2", elapsedMs: 1000 }],
++    dispatched: 1,
++    skipped: 0,
++    elapsedMs: 1000,
++  };
++  const collapsed = renderSubagentsResult(
++    { content: [{ type: "text", text: "x" }], details },
++    { expanded: false },
++    THEME,
++  );
++  assert.match(collapsed, /— 1\.0s$/m); // no trailing ` · $… · … tok`
++  assert.doesNotMatch(collapsed, /tok/);
++});
++
++test('done collapsed: per-slot line shows `badge · model · elapsed · $cost · Ntok · "task"` (with usage)', () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      {
++        output: "ok",
++        status: "done",
++        index: 0,
++        id: "alpha",
++        task: "audit the parser",
++        model: "zai/glm-5.2",
++        elapsedMs: 34500,
++        usage: U(15715, 0.0004),
++      },
++    ],
++    dispatched: 1,
++    skipped: 0,
++    elapsedMs: 34500,
++  };
++  const collapsed = renderSubagentsResult(
++    { content: [{ type: "text", text: "x" }], details },
++    { expanded: false },
++    THEME,
++  );
++  const slot0 = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
++  assert.match(slot0, /\(alpha\)/);
++  assert.match(slot0, /✓ done/); // fixed-width badge kept
++  assert.match(slot0, /glm-5\.2 · 34\.5s · \$0\.000 · 15715 tok/);
++  assert.match(slot0, /"audit the parser"/); // quoted task preview
++  assert.ok(!slot0.includes("zai/glm-5.2"), "provider prefix dropped on the collapsed line");
++});
++
++test("done collapsed: fallback slot shows `requested → actual` in the meta segment", () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      {
++        output: "ok",
++        status: "done",
++        index: 0,
++        task: "t",
++        model: "zai/glm-5.2",
++        requestedModel: "anthropic/claude-opus-4-1",
++        fellBack: true,
++        elapsedMs: 1000,
++        usage: U(10, 0.001),
++      },
++    ],
++    dispatched: 1,
++    skipped: 0,
++    elapsedMs: 1000,
++  };
++  const collapsed = renderSubagentsResult(
++    { content: [{ type: "text", text: "x" }], details },
++    { expanded: false },
++    THEME,
++  );
++  assert.match(collapsed, /claude-opus-4-1 → glm-5\.2 · 1\.0s · \$0\.001 · 10 tok/);
++});
++
++test('done collapsed: per-slot meta degrades (no usage → `model · elapsed · "task"`)', () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      { output: "", status: "aborted", index: 0, id: "x", task: "t-aborted", model: "zai/glm-5.2", elapsedMs: 500 },
++    ],
++    dispatched: 1,
++    skipped: 0,
++    elapsedMs: 500,
++  };
++  const collapsed = renderSubagentsResult(
++    { content: [{ type: "text", text: "x" }], details },
++    { expanded: false },
++    THEME,
++  );
++  const slot0 = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
++  assert.match(slot0, /⊘ aborted/);
++  assert.match(slot0, /glm-5\.2 · 0\.5s · "t-aborted"/);
++  assert.doesNotMatch(slot0, /tok/);
++});
++
++test("done collapsed: null (failed) slot still renders the terse failed line (no meta)", () => {
++  const details: SubagentsToolDetails = { results: [null], dispatched: 0, skipped: 0, elapsedMs: 10 };
++  const collapsed = renderSubagentsResult(
++    { content: [{ type: "text", text: "x" }], details },
++    { expanded: false },
++    THEME,
++  );
++  const line = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
++  assert.match(line, /✗ failed/);
++  assert.match(line, /child failed/);
++  assert.doesNotMatch(line, /· .*s ·/);
++});
