@@ -264,7 +264,15 @@ fi
 # Both modes run the same loop below. A matrix row's directory is derived
 # (bun-apps/<package>); a gate step carries its own working-directory.
 if [ "$GATES" -eq 1 ]; then
-  ROWS="$(parse_gates)" || die "could not parse the regression-gates job out of $WORKFLOW"
+  # Exit 4 ("PyYAML missing") is propagated VERBATIM rather than collapsed into
+  # die()'s 2. A caller has to tell "this machine cannot parse the workflow"
+  # apart from "a gate failed": .githooks/pre-push degrades to a warning on 4
+  # and blocks the push on anything else. Collapsing them would either block
+  # every push on a machine without PyYAML, or — far worse — teach the hook to
+  # treat a real gate failure as an environment problem and wave it through.
+  ROWS="$(parse_gates)"; rc=$?
+  [ "$rc" -eq 4 ] && exit 4
+  [ "$rc" -eq 0 ] || die "could not parse the regression-gates job out of $WORKFLOW"
   [ -n "$ROWS" ] || die "parsed an EMPTY regression-gates job from $WORKFLOW"
   UNIT="gate"
   SOURCE_DESC="regression-gates job"

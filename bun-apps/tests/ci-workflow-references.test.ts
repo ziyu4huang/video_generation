@@ -357,6 +357,61 @@ function deployCalls(): DeployCall[] {
 	return calls;
 }
 
+interface HookRef {
+	hook: string;
+	line: number;
+	raw: string;
+	abs: string;
+}
+
+/**
+ * Every repo script a git hook shells out to. Hooks are the one place where a
+ * dead path is BOTH invisible and load-bearing: nothing imports them, nothing
+ * tests them, and the failure surfaces as "your push mysteriously did nothing"
+ * or "your push is mysteriously blocked". pre-push now delegates the whole
+ * regression-gates job to scripts/ci-local.sh, so that path has to stay real.
+ */
+function hookReferences(): HookRef[] {
+	const dir = join(REPO_ROOT, ".githooks");
+	if (!existsSync(dir)) return [];
+	const refs: HookRef[] = [];
+	for (const name of readdirSync(dir)) {
+		const file = join(dir, name);
+		readFileSync(file, "utf8")
+			.split("\n")
+			.forEach((raw, i) => {
+				const line = raw.replace(/#.*$/, "");
+				for (const p of invokedPaths(line)) {
+					refs.push({ hook: name, line: i + 1, raw: p, abs: resolve(REPO_ROOT, p) });
+				}
+			});
+	}
+	return refs;
+}
+
+describe(".githooks — every script a hook shells out to exists", () => {
+	test("no hook calls a path that has moved", () => {
+		const missing = hookReferences().filter((r) => !existsSync(r.abs));
+		const detail = missing.map((r) => `${r.raw} (.githooks/${r.hook}:${r.line})`);
+		expect(
+			detail,
+			`BROKEN HOOK REFERENCE(S): ${detail.join("; ")} — a git hook shells out to a path that ` +
+				"does not exist. Nothing imports or tests a hook, so this rots invisibly and then " +
+				"surfaces as a push that mysteriously does nothing (or is mysteriously blocked). " +
+				"pre-push delegates the whole regression-gates job to scripts/ci-local.sh; if that " +
+				"script moves, repoint the hook.",
+		).toEqual([]);
+	});
+
+	// Vacuity guard: a hook directory that stopped being scanned, or a scanner
+	// that matched nothing, would pass the assertion above forever.
+	test("the scanner finds the hooks' real references", () => {
+		const found = hookReferences().map((r) => r.raw);
+		expect(found).toContain("scripts/ci-local.sh");
+		expect(found).toContain("scripts/test-portability-audit.sh");
+	});
+});
+
 describe("determinism-spotcheck — the workflow matrix and the script agree", () => {
 	test("both lists name the same packages (neither can drift alone)", () => {
 		const matrix = [...spotcheckMatrixPackages()].sort();
