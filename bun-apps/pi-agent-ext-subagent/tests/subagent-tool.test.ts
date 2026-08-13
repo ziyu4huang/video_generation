@@ -1834,3 +1834,50 @@ test("execute with normal resolution → persistence omits audit fields", async 
   assert.equal(saved[0].requestedModel, undefined, "requestedModel absent when no fallback");
   assert.equal(saved[0].fellBack, undefined, "fellBack absent when no fallback");
 });
+
+// ── #03 impossible-tool preflight (ABORT, pre-spawn) ──
+
+test("#03 preflight: required tool absent from allowlist → failEarly, spawn NOT called", async () => {
+  const f = fakeSpawn(() => ({ output: "should not reach", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const res = await tool.execute(
+    "id-pf",
+    { task: "write a memory entry", tools: ["read", "bash"], requiredTools: ["memory"] },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(f.calls.length, 0, "spawn must NOT be called when a required tool is missing");
+  assert.equal(res.details.status, "failed");
+  assert.match(
+    (res.content[0] as { text: string }).text,
+    /preflight: task requires tools not in the child allowlist: memory/,
+  );
+});
+
+test("#03 preflight: required tool satisfied → spawn IS called normally", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute(
+    "id-ok",
+    { task: "read a file", tools: ["read", "bash"], requiredTools: ["read"] },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(f.calls.length, 1, "spawn IS called when the requirement is satisfied");
+});
+
+test("#03 preflight: required tool denied by excludeTools → failEarly", async () => {
+  const f = fakeSpawn(() => ({ output: "x", exitCode: 0, stderr: "", timedOut: false }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const res = await tool.execute(
+    "id-ex",
+    { task: "edit a file", tools: ["read", "edit"], excludeTools: ["edit"], requiredTools: ["edit"] },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(f.calls.length, 0);
+  assert.match((res.content[0] as { text: string }).text, /edit/);
+});

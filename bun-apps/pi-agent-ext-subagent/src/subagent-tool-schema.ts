@@ -143,6 +143,12 @@ export const subagentToolSchema = Type.Object({
   excludeTools: Type.Optional(
     Type.Array(Type.String(), { description: "Tools to deny after the allowlist, e.g. ['edit','write']." }),
   ),
+  requiredTools: Type.Optional(
+    Type.Array(Type.String(), {
+      description:
+        "Tools this task NEEDS (e.g. ['memory']). Before spawn, aborts if any is absent from the child's allowlist (tools) or denied by excludeTools — prevents impossible-task over-engineering that burns runaway tokens.",
+    }),
+  ),
   timeoutMs: Type.Optional(
     Type.Number({
       description: "Abort after this many ms (wall-clock). Omit for a 15-minute default (DEFAULT_TIMEOUT_MS).",
