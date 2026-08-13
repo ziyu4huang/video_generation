@@ -199,7 +199,10 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   });
   const transport = new WebTransport();
 
-  let bound: { pi: WebuiHost; ctx: { abort(): void } } | null = null;
+  // ctx widened to WebuiSessionCtx (vs the prior { abort(): void } downcast) so
+  // the fire-once announce listener can reach ctx.ui. Dispatch only needs abort(),
+  // which WebuiSessionCtx still provides (structural superset).
+  let bound: { pi: WebuiHost; ctx: WebuiSessionCtx } | null = null;
   let disposed = false;
 
   // --- inbound dispatch seam (handed to WebServer.setCommandHandler) ---------
@@ -305,20 +308,33 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     // ticket 07 announce (specs/07 D3): surface the RESOLVED URL to the TUI user
     // via the SDK ui surface (notify + setStatus). NO console.log (it does not
     // reach the TUI user — debugging only); NO auto-open (the host exposes no
-    // exec). server.url is read AFTER start(), so it reflects the bound port
-    // (ephemeral or pinned — resolved via resolvePort in T2). start() is
-    // idempotent + the singleton persists, so re-announces on
-    // reload/new/resume/fork show the same stable URL.
-    // (v2: announce strings enriched — a one-time notify banner + a persistent
-    // status footer hinting the user to open the URL in a browser.)
-    const url = server.url;
-    sessionCtx.ui.notify(`webui ready — open ${url} in a browser to view rendered results and send feedback. (loopback · no auth)`, "info");
-    sessionCtx.ui.setStatus("webui", `🌐 webui · ${url} · open in browser to view results`);
+    // exec). The announce is DEFERRED to the FIRST render — see the fire-once
+    // registry listener below — because the webui is a render surface and
+    // announcing at session_start (before any content exists) is noise.
+    // server.url is read inside that listener, which fires only AFTER start()
+    // has run here. start() is idempotent + the singleton persists, so rebinds
+    // on reload/new/resume/fork keep the same stable URL.
   });
   reg("session_shutdown", () => {
     controller.handleShutdown();
     server.dropSession();
     bound = null;
+  });
+
+  // ticket 04 (refined): announce the resolved URL ONLY when the first content is
+  // rendered — not at session_start. The webui is a render surface; announcing
+  // before any content exists is noise. Fire once (first render ever) via a
+  // registry listener. server.start() runs at session_start before any render
+  // can fire, so server.url is safe to read here. Uses the bound session's ctx.ui.
+  let announced = false;
+  registry.subscribe(() => {
+    if (announced) return;
+    announced = true;
+    const ui = bound?.ctx?.ui;
+    if (!ui) return;
+    const url = server.url;
+    ui.notify(`webui ready — open ${url} in a browser to view rendered results and send feedback. (loopback · no auth)`, "info");
+    ui.setStatus("webui", `🌐 webui · ${url} · open in browser to view results`);
   });
 
   // outbound broadcast — mapEvent forwards .details/.toolName verbatim.

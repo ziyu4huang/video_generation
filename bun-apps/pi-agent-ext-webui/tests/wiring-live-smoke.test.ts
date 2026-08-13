@@ -320,26 +320,39 @@ describe("wireWebui live smoke — Tier A", () => {
     expect(opened).toBe(false);
   });
 
-  it("G) session_start announces the resolved URL via ctx.ui, and does NOT auto-open", async () => {
+  it("G) first render announces the resolved URL via ctx.ui (not at session_start), no auto-open", async () => {
     const { pi, server } = setup();
+    // NOTE: the inline MockPi resets uiNotifications/uiStatuses FRESH per
+    // pi.ctx() call, so call ctx() exactly ONCE (at session_start) — the
+    // fire-once listener reads bound.ctx.ui, which is that same ctx.
     pi.emit("session_start", {}, pi.ctx());
-    // The announce uses the REAL resolved URL (live ephemeral port, not the
-    // literal 0). ctx.ui.notify + setStatus each fire once.
+    // session_start alone: NO announce (deferred to first render).
+    expect(pi.uiNotifications).toEqual([]);
+    expect(pi.uiStatuses).toEqual([]);
+    // first render triggers the announce. pi.events.emit flows through the
+    // wiring's registered webui:render handler into registry.render(), which
+    // fires the fire-once announce listener.
+    pi.events.emit("webui:render", { content: "# first" });
     expect(pi.uiNotifications).toEqual([
       { message: `webui ready — open ${server.url} in a browser to view rendered results and send feedback. (loopback · no auth)`, type: "info" },
     ]);
     expect(pi.uiStatuses).toEqual([{ key: "webui", text: `🌐 webui · ${server.url} · open in browser to view results` }]);
+    // one-shot: a second render must NOT re-announce.
+    pi.events.emit("webui:render", { content: "# second" });
+    expect(pi.uiNotifications).toHaveLength(1);
     // No auto-open: the wiring never calls pi.exec (the host interface exposes
     // no exec). The exec recorder is a belt-and-suspenders negative control.
     expect(pi.execCalls).toBe(0);
   });
 
-  it("H) announce + port resolution compose: the announced URL is the live resolved loopback URL", async () => {
+  it("H) announce-on-first-render + port resolution compose: announced URL is the live loopback URL", async () => {
     const { pi, server } = setup();
     pi.emit("session_start", {}, pi.ctx());
-    // The announced URL EQUALS server.url (T3 reads server.url after start()).
+    // not at session_start — deferred to first render.
+    expect(pi.uiNotifications).toEqual([]);
+    pi.events.emit("webui:render", { content: "# x" });
     // The announced URL is embedded in the v2-enriched banner/footer; assert
-    // the live resolved loopback URL is present (T3 reads server.url after start).
+    // the live resolved loopback URL is present (listener reads server.url).
     expect(pi.uiNotifications[0]?.message).toContain(server.url);
     expect(pi.uiStatuses[0]?.text).toContain(server.url);
     // server.url is the LIVE resolved URL — a real loopback address with a real
