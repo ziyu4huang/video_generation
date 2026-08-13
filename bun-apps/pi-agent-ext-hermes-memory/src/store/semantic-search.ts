@@ -96,6 +96,32 @@ function toHit(h: VectorKnnHit, kind: SemanticKind | undefined): SemanticSearchH
 }
 
 /**
+ * Redundancy-aware dedup pass (ticket 19 T2). Keeps the FIRST occurrence per
+ * DEFINED contentHash; hits whose contentHash is undefined are ALWAYS kept (a
+ * missing contentHash is never a shared key — Global Constraint). Applied on
+ * every return path of `searchSemantic` so the warm (HNSW) and cold
+ * (zk-semantic / memory-lexical) hits both pass through ONE seam. On the cold
+ * paths every hit is hashless (RetrievedCard / MemoryEntry carry no hash), so
+ * the pass is a correct no-op there — the meaningful collapse lives on the
+ * warm path. Single pure pass: no survivingK, no boostWeight (Task 3 / ticket
+ * 20 — YAGNI here). Never throws.
+ */
+function dedupByContentHash(hits: SemanticSearchHit[]): SemanticSearchHit[] {
+  const seen = new Set<string>();
+  const out: SemanticSearchHit[] = [];
+  for (const h of hits) {
+    if (h.contentHash === undefined) {
+      out.push(h); // hashless → always kept (never a dedup key)
+      continue;
+    }
+    if (seen.has(h.contentHash)) continue; // duplicate hash → drop later twin
+    seen.add(h.contentHash);
+    out.push(h);
+  }
+  return out;
+}
+
+/**
  * T2 + T5(a): semantic search with graceful degradation. NEVER throws.
  *
  * Order of operations:
@@ -149,14 +175,22 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
           // cold-query bursts so at most one backfill runs at a time; its
           // deferred task re-checks the staleness delta and embeds only
           // changed/new cards (cheap no-op when the index is already warm).
-          if (ranked.length === 0 && scheduleVectorBackfill) {
+          // Ticket 19 T2: redundancy-aware contentHash dedup seam. Applied to
+          // the warm (HNSW) ranked list before the early return — the SAME
+          // private pass the cold fallbacks use below. hashless hits are kept,
+          // duplicate contentHashes collapse to the first occurrence. dedup can
+          // only shrink a non-empty list (it keeps the first per key), so
+          // `deduped.length === 0` ⟺ `ranked.length === 0` — the cold-index
+          // trigger signal is preserved.
+          const deduped = dedupByContentHash(ranked);
+          if (deduped.length === 0 && scheduleVectorBackfill) {
             try {
               scheduleVectorBackfill();
             } catch {
               // best-effort — never affect the query result
             }
           }
-          return ranked;
+          return deduped;
         } catch {
           // knn threw (SurrealDB down / index error) → fall through to T5(a).
         }
@@ -206,7 +240,10 @@ async function knowledgeFallback(
       hits.push({ mdId: card.id, kind: "knowledge", source: "zk-semantic" });
       if (hits.length >= topK) break;
     }
-    return hits;
+    // Ticket 19 T2: same dedup seam as the warm path. Cold-path hits carry no
+    // contentHash → this is a correct no-op (all kept), but the seam is wired
+    // so a future hash-bearing cold source needs no caller change.
+    return dedupByContentHash(hits);
   } catch {
     return []; // zk seam absent / threw → empty (never propagates)
   }
@@ -233,7 +270,9 @@ async function memoryFallback(
       hits.push({ mdId, kind: "memory", source: "memory-lexical" });
       if (hits.length >= topK) break;
     }
-    return hits;
+    // Ticket 19 T2: same dedup seam as the warm path (no-op while MemoryEntry
+    // carries no contentHash; wired for forward-compat).
+    return dedupByContentHash(hits);
   } catch {
     return []; // lexical search threw → empty (never propagates)
   }
