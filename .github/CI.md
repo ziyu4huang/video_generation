@@ -85,7 +85,7 @@ JSON
 | **test · `<package>`** (matrix of 28) | Each `bun-apps/*` package's test suite — one row per workspace package, i.e. complete coverage. Only the packages `changed packages` marks affected actually execute on a PR; push-to-main always runs all 28 | **blocks** |
 | **extension-contract** | The 5 extension-protocol tests (factory loads, wires up, no conflicts, valid schema, handler present) — a named, visible check, not buried in the pi-agent run | **blocks** |
 | **deploy --verify** | Builds pi-agent, bundles the 9 extensions, boots the deployed artifact from a foreign cwd, probes `getAllTools` for 0 conflicts | **blocks** |
-| **regression gates** | 2 MB file-size guard (twin of `.githooks/pre-commit`) **+** lockfile duplicate-version guard (the `@earendil-works/*` family must resolve to one version workspace-wide) **+** schema-cost regression (warns >5%) **+** test-portability audit (warn-only v1 — surfaces new ungated machine-coupled tests; see [TEST-PORTABILITY.md](TEST-PORTABILITY.md)) | file-size + lockfile-duplicate-version **block**; schema-cost + portability **warn only** |
+| **regression gates** | 13 steps. Blocking: 2 MB file-size guard (twin of `.githooks/pre-commit`), lockfile duplicate-version guard (the `@earendil-works/*` family must resolve to one version workspace-wide), dep-direction (ADR-0001), cross-extension seam contract, cross-extension routing contract, config-field parity, package-script runnability, CI-workflow references, the portability-audit regression test, pr-finish decision tests, and the test-portability audit — now `--strict`, see [TEST-PORTABILITY.md](TEST-PORTABILITY.md). Warn-only: schema-cost (>5%) and the test-determinism audit. Enumerate the live list with `bash scripts/ci-local.sh --gates --list`; `.githooks/pre-push` runs the whole job. | all **block** except schema-cost + determinism-audit (**warn only**) |
 
 The test matrix gives a **native per-package check row** in the PR UI — a broken
 package goes red by name. `fail-fast: false` so every package reports even when
@@ -378,14 +378,26 @@ list), so it cannot drift from the workflow:
 bash scripts/ci-local.sh --list                       # print the parsed matrix, run nothing
 bash scripts/ci-local.sh                              # run every matrix entry, CI=true
 bash scripts/ci-local.sh --only pi-agent-ext-webui    # one (or a comma-separated subset)
+bash scripts/ci-local.sh --gates                      # the regression-gates job instead (~6s)
 ```
 
 It mirrors `fail-fast: false` (continues past failures, exits non-zero if any
 failed) and **loudly skips** a matrix package whose directory is missing, so a
 future dead row like `pi-agent-ext-picker` is visible rather than silently
-passing. It covers the `tests` matrix ONLY — not `extension-contract`,
-`deploy-verify`, `compile-verify`, `clean-launch-self-heal`, `regression-gates`,
-or `determinism-spotcheck`. A green run is not a green CI.
+passing.
+
+`--gates` runs the `regression-gates` job — every structural guard in the repo
+(dep-direction, seam, routing, config-parity, CI-workflow references,
+package-script runnability, the portability and determinism audits, pr-finish
+decision tests, schema-cost). It is parsed live from the same workflow, so it
+carries no copy of the step list either. **`.githooks/pre-push` runs it on every
+push**, which is what makes those guards blocking rather than advisory; a
+machine whose python3 lacks PyYAML gets a warning and the portability audit
+alone rather than a blocked push.
+
+Neither mode covers `extension-contract`, `deploy-verify`, `compile-verify`,
+`clean-launch-self-heal`, or `determinism-spotcheck` (run that one via
+`bash scripts/test-determinism-spotcheck.sh`). A green run is not a green CI.
 
 By hand, if you need to:
 
@@ -420,8 +432,24 @@ bun bun-apps/pi-agent/src/cli.ts cli tools-metrics --schema-cost --json \
   > scripts/schema-cost-baseline.json
 ```
 
-## Bypassing the local hook
+## The local hooks, and bypassing them
 
-The pre-commit hook (`.githooks/pre-commit`) rejects files > 2 MB but is bypassable
-with `git commit --no-verify`. The CI file-size guard is the remote twin — it
-catches a bypassed local hook so a large blob can't land via PR.
+Both live in `.githooks/` and are wired by `core.hooksPath`. Run
+`bash scripts/setup.sh` once per clone **and once per new worktree** — it sets
+the path to the RELATIVE `.githooks`, which is what makes each worktree run its
+own hooks. An absolute value there sits in the shared config and silently points
+every worktree at one checkout's copy.
+
+| Hook | Runs | Bypass |
+|---|---|---|
+| `pre-commit` | 2 MB file-size guard | `git commit --no-verify` |
+| `pre-push` | the whole `regression-gates` job via `ci-local.sh --gates` (~6s) | `git push --no-verify` |
+
+The CI file-size guard is the remote twin of `pre-commit` — it catches a
+bypassed local hook so a large blob can't land via PR.
+
+`pre-push` exists because Actions is disabled: without it the thirteen
+structural guards have no executor at all, and a guard nobody runs quietly stops
+being true. If `python3` has no PyYAML the workflow cannot be parsed, so the
+hook warns and falls back to the test-portability audit alone rather than
+blocking the push — install PyYAML for full local coverage.
