@@ -19,11 +19,13 @@ import {
   summarizeLatestAction,
 } from "@repo/pi-agent-ext-core-runtime";
 import { Type } from "typebox";
+import { computeScopeCheck, realGitOps } from "./git-scope.js";
 import { missingRequiredTools } from "./impossible-tools.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
 import { spawnSubagent } from "./spawn-subagent.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
 import { deriveSubagentStatus, taskPreview, workIntentPreview } from "./subagent-tool-render.js";
+import { augmentOutputWithScopeViolation, captureCommitBaseline, runScopeCheck } from "./subagent-tool-run.js";
 import { DEFAULT_TIMEOUT_MS } from "./subagent-tool-schema.js";
 
 /** Tree-mutating tools a read-only child may NEVER carry (non-overridable). */
@@ -40,6 +42,7 @@ export interface BatchTask {
   tools?: string[];
   excludeTools?: string[];
   requiredTools?: string[];
+  commitScope?: string[];
   timeoutMs?: number;
   tokenBudget?: number;
   spendBudget?: number;
@@ -139,6 +142,12 @@ export const subagentsToolSchema = Type.Object({
         Type.Array(Type.String(), {
           description:
             "Tools this task NEEDS. Before spawn, the child is skipped (null slot) if any is absent from its allowlist or denied by excludeTools.",
+        }),
+      ),
+      commitScope: Type.Optional(
+        Type.Array(Type.String(), {
+          description:
+            "Opt-in commit-path allowlist for this child. When set, flags any committed path outside it as a ⚠ (detection only). Default-off on the plural tool (read-only children + concurrent shared-tree access).",
         }),
       ),
       timeoutMs: Type.Optional(Type.Integer({ description: "Per-child wall-clock cap (ms). Defaults to 15 min." })),
@@ -319,6 +328,13 @@ export function createSubagentsTool(
           slots[index] = null;
           return;
         }
+        // #02 plural mirror: opt-in per-child commitScope. Captured before spawn,
+        // checked after; augments the slot output with a ⚠ on violation. The
+        // plural tool is read-only so this rarely fires — it is a safety net for
+        // a child that somehow commits despite edit/write/bash being excluded.
+        const childBase = task.commitScope
+          ? await captureCommitBaseline(task.commitScope, childOpts.cwd ?? defaultCwd, defaultCwd, realGitOps)
+          : undefined;
         // Register in-flight so `/subagents` shows this child while it runs.
         const childRunId = `${toolCallId}:${index}`;
         const childT0 = Date.now();
@@ -493,6 +509,28 @@ export function createSubagentsTool(
             budget: result.budget,
             output: userAborted ? "Subagent aborted by user." : result.output,
           });
+        }
+        // #02 plural mirror: opt-in commitScope post-run augment. Only slots with
+        // an `output` (done/timedout/aborted) can be augmented; failed (null) and
+        // budget (no output) slots are skipped. Detection only — never reverts.
+        if (
+          task.commitScope &&
+          slots[index] &&
+          slots[index] !== null &&
+          (slots[index] as { output?: string }).output !== undefined
+        ) {
+          const check = await runScopeCheck(
+            task.commitScope,
+            childOpts.cwd ?? defaultCwd,
+            defaultCwd,
+            childBase,
+            realGitOps,
+            computeScopeCheck,
+          );
+          if (check && check.outOfScope.length > 0) {
+            const slot = slots[index] as { output: string };
+            slot.output = augmentOutputWithScopeViolation(slot.output, check);
+          }
         }
         // Check the batch budget BETWEEN dispatches (never aborts the child that just finished).
         if (hasBatchBudget && !gateTripped) {

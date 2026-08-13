@@ -208,10 +208,20 @@ function spawnOnAbort() {
 test("user per-child abort (registry.abort) → status 'aborted' + 'Subagent aborted by user.' text; parent turn unaffected", async () => {
   const reg = new SubagentInFlightRegistry();
   const f = spawnOnAbort();
-  const tool = createSubagentTool({ spawn: f.spawn, inFlight: reg });
+  // #02 default-on: captureCommitBaseline now runs even with an UNSET scope, so
+  // hand in a fast fake gitOps (no real subprocess) — the single
+  // `await Promise.resolve()` below must still reach the registered window.
+  const tool = createSubagentTool({
+    spawn: f.spawn,
+    inFlight: reg,
+    gitOps: fakeGitOps({ baseHead: "b1" }).ops,
+  });
   const parent = new AbortController(); // NOT aborted — represents the live turn
   const p = tool.execute("id-u", { task: "research" }, parent.signal, undefined, NO_CTX);
-  await Promise.resolve(); // reach the registered + pending window
+  // #02 default-on: captureCommitBaseline now ALWAYS awaits gitOps.headCommit,
+  // so the registered window is one microtask deeper than before the change.
+  await Promise.resolve();
+  await Promise.resolve();
   assert.ok(typeof reg.get("id-u")?.abort === "function", "abort lever wired on the in-flight entry");
   reg.abort("id-u"); // user aborts this one child
   const res = await p;
@@ -1122,7 +1132,15 @@ test("execute registers on inFlight at start, streams history, deregisters on co
         resolveSpawn = res;
       }),
   );
-  const tool = createSubagentTool({ spawn: f.spawn, inFlight: reg });
+  // #02 default-on: captureCommitBaseline now runs even with an UNSET scope, so
+  // hand in a fast fake gitOps (no real subprocess) — the single
+  // `await Promise.resolve()` below must still reach the registered window.
+  // base===postHead keeps the post-run scope check empty (no commit → no ⚠).
+  const tool = createSubagentTool({
+    spawn: f.spawn,
+    inFlight: reg,
+    gitOps: fakeGitOps({ baseHead: "b1", postHead: "b1" }).ops,
+  });
   const p = tool.execute(
     "id-7",
     { task: "do work", agent: "implementer", model: "x/flash" },
@@ -1130,7 +1148,10 @@ test("execute registers on inFlight at start, streams history, deregisters on co
     undefined,
     NO_CTX,
   );
-  await Promise.resolve(); // reach the registered-but-pending window
+  // #02 default-on: captureCommitBaseline now ALWAYS awaits gitOps.headCommit,
+  // so the registered window is one microtask deeper than before the change.
+  await Promise.resolve();
+  await Promise.resolve();
   assert.equal(reg.list().length, 1, "registered while in flight");
   assert.equal(reg.list()[0].id, "id-7");
   assert.equal(reg.list()[0].agent, "implementer");
@@ -1235,13 +1256,17 @@ function fakeGitOps(opts: { baseHead?: string; postHead?: string; paths?: string
   return { calls, ops };
 }
 
-test("commitScope unset → no git ops called, details.scopeCheck undefined", async () => {
+test("commitScope unset → #02 default-on: git scope check STILL runs (capture + post-run), empty when no commit", async () => {
   const { calls, ops } = fakeGitOps({ baseHead: "b1", postHead: "b1" });
   const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
   const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
   const res = await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
-  assert.equal(res.details.scopeCheck, undefined);
-  assert.equal(calls.headCwds.length, 0, "headCommit never invoked without commitScope");
+  // #02: unset scope is treated as [] (flag any commit). The check RUNS even
+  // without an explicit commitScope — headCommit is called for baseline + post-run.
+  assert.ok(res.details.scopeCheck, "scopeCheck present (default-on)");
+  assert.deepEqual(res.details.scopeCheck?.outOfScope, [], "no commit → empty outOfScope");
+  assert.equal(calls.headCwds.length, 2, "headCommit invoked twice (baseline + post-run check)");
+  assert.ok(!(res.content[0] as { text: string }).text.includes("commit-scope violation"), "no warning when no commit");
 });
 
 test("commitScope set, all touched in scope → scopeCheck present, outOfScope empty, output clean", async () => {
@@ -1880,4 +1905,32 @@ test("#03 preflight: required tool denied by excludeTools → failEarly", async 
   );
   assert.equal(f.calls.length, 0);
   assert.match((res.content[0] as { text: string }).text, /edit/);
+});
+
+// ── #02 commitScope warn-default (default-on: unset scope ⇒ warn on any commit) ──
+
+test("#02 default-on: UNSET commitScope + a commit → ⚠ block in output (never auto-reverts)", async () => {
+  const f = fakeSpawn(() => ({ output: "done", exitCode: 0, stderr: "", timedOut: false }));
+  // Fake git ops: HEAD was 'base' before, 'head' after → one touched path 'scratch.md'.
+  // headCommit is called twice per checked run (call 1 pre-dispatch = base, call 2
+  // post-run = head) — see fakeGitOps. The plan's literal `() => "head"` would make
+  // base === head (no diff); the stateful helper matches the asserted violation.
+  const { ops } = fakeGitOps({ baseHead: "base", postHead: "head", paths: ["scratch.md"] });
+  const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops });
+  // NOTE: commitScope intentionally OMITTED — the default-on gate must still run.
+  const res = await tool.execute("id-scope", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  const text = (res.content[0] as { text: string }).text;
+  assert.match(text, /⚠ commit-scope violation/, "unset scope that commits still warns");
+  assert.match(text, /scratch\.md/);
+  // Detection only — never auto-reverts (no destructive action available here anyway).
+  assert.equal(res.details.scopeCheck?.outOfScope?.length, 1);
+});
+
+test("#02 default-on: UNSET commitScope + NO commit → no ⚠ (clean run)", async () => {
+  const f = fakeSpawn(() => ({ output: "done", exitCode: 0, stderr: "", timedOut: false }));
+  const gitOps = { headCommit: async () => "same", changedPaths: async () => [] } as never;
+  const tool = createSubagentTool({ spawn: f.spawn, gitOps });
+  const res = await tool.execute("id-clean", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  const text = (res.content[0] as { text: string }).text;
+  assert.doesNotMatch(text, /commit-scope violation/);
 });

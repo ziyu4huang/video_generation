@@ -66,7 +66,12 @@ export async function captureCommitBaseline(
   runCwd: string,
   gitOps: GitScopeOps,
 ): Promise<string | undefined> {
-  if (scope === undefined || spawnCwd !== runCwd) return undefined;
+  // #02 B1: default-on. An UNSET scope is now treated as scope=[] (flag ANY
+  // commit) instead of disabling the check — so we capture the baseline on the
+  // real tree regardless of whether a scope was declared. The worktree-isolation
+  // guard stays (a worktree run is discarded at teardown → can't pollute main).
+  void scope;
+  if (spawnCwd !== runCwd) return undefined;
   try {
     return await gitOps.headCommit(runCwd);
   } catch {
@@ -83,9 +88,12 @@ export async function runScopeCheck(
   gitOps: GitScopeOps,
   compute: typeof computeScopeCheck,
 ): Promise<SubagentScopeCheck | undefined> {
-  if (scope === undefined || spawnCwd !== runCwd || baseCommit === undefined) return undefined;
+  // #02 B1: default-on. Unset scope → [] (flag every committed path via
+  // outOfScopePaths' empty-scope semantics). Worktree-isolation + missing
+  // baseline guards stay. Never auto-reverts (git-scope.ts invariant).
+  if (spawnCwd !== runCwd || baseCommit === undefined) return undefined;
   try {
-    return await compute(gitOps, runCwd, baseCommit, scope);
+    return await compute(gitOps, runCwd, baseCommit, scope ?? []);
   } catch {
     return undefined;
   }
