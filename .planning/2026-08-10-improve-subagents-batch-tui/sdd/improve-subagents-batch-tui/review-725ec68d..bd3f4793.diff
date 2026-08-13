@@ -1,0 +1,189 @@
+# Review package: 725ec68d..bd3f479341f5ebdee874eb12ae59ae70d786b342
+
+## Commits
+bd3f4793 feat(subagent): batch-tui pure render helpers — formatUsage/formatModelSeg/formatSlotMeta/sumUsage (T2)
+
+## Files changed
+ .../pi-agent-ext-subagent/src/subagents-tool.ts    | 46 ++++++++++++++++
+ .../tests/subagents-tool.test.ts                   | 61 ++++++++++++++++++++++
+ 2 files changed, 107 insertions(+)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+index 50853682..3ff18063 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+@@ -649,20 +649,66 @@ const BATCH_BADGE_WIDTH = Math.max(...Object.values(BATCH_STATUS_BADGES).map((b)
+  *  short `✓ done` (6) matches a wide `⏱ timedout` (10) before the columns
+  *  follow. Unknown statuses fall back to the `failed` badge. */
+ function batchStatusBadge(status: string, theme: Theme): string {
+   const b =
+     status in BATCH_STATUS_BADGES
+       ? BATCH_STATUS_BADGES[status as keyof typeof BATCH_STATUS_BADGES]
+       : BATCH_STATUS_BADGES.failed;
+   return theme.fg(b.tone, b.text.padEnd(BATCH_BADGE_WIDTH));
+ }
+ 
++/** Usage segment mirroring the single `subagent` card's meta: ` · $X.XXX · Ntok`
++ *  when usage is present and non-zero, else `""` (defensive — degrades to empty).
++ *  Load-bearing: render fixtures omit `usage`, so `""` keeps rendered lines
++ *  byte-compatible (no phantom spaces/tokens). */
++export function formatUsage(u: AgentUsage | undefined): string {
++  return u && u.total > 0 ? ` · $${u.cost.toFixed(3)} · ${u.total} tok` : "";
++}
++
++/** Fallback-aware model label (theme-free so the live table and the themed meta
++ *  share it). On fallback shows `requested → actual` (both shortModel-ed); else
++ *  the resolved model shortModel-ed; `"default"` when empty. Mirrors the single
++ *  card's `modelSeg`. */
++export function formatModelSeg(model: string, requestedModel?: string, fellBack?: boolean): string {
++  if (fellBack && requestedModel) {
++    return `${shortModel(requestedModel) ?? "default"} → ${shortModel(model) ?? "default"}`;
++  }
++  return shortModel(model) ?? "default";
++}
++
++/** Themed `model · elapsed · usage` line for a done/timedout/aborted/budget slot.
++ *  Shared by the done-collapsed per-slot line and the done-expanded meta line
++ *  (DRY). `usage` optional → degrades to `model · elapsed`. */
++export function formatSlotMeta(
++  slot: { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
++  theme: Theme,
++): string {
++  return theme.fg(
++    "muted",
++    `${formatModelSeg(slot.model, slot.requestedModel, slot.fellBack)} · ${(slot.elapsedMs / 1000).toFixed(
++      1,
++    )}s${formatUsage(slot.usage)}`,
++  );
++}
++
++/** Sum total + cost across any iterable of AgentUsage (slots' usage for the done
++ *  header; the runningUsage map's values for the live header). Empty → zeros. */
++export function sumUsage(values: Iterable<AgentUsage>): { total: number; cost: number } {
++  let total = 0;
++  let cost = 0;
++  for (const v of values) {
++    total += v.total;
++    cost += v.cost;
++  }
++  return { total, cost };
++}
++
+ /** Theme the batch result: collapsed = header + per-child one-liners; expanded = full themed output. */
+ export function renderSubagentsResult(
+   result: { content: Array<{ type: string; text?: string }>; details?: SubagentsToolDetails },
+   options: { expanded?: boolean; isPartial?: boolean },
+   theme: Theme,
+ ): string {
+   const d = result.details;
+   if (!d) {
+     const text = result.content.find((c) => c.type === "text")?.text ?? "";
+     return theme.fg("dim", text);
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+index f408b8da..b1d53585 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+@@ -1,30 +1,35 @@
+ import { test } from "bun:test";
+ import assert from "node:assert/strict";
++import type { AgentUsage } from "@repo/pi-agent-ext-core-runtime";
+ import {
+   DEFAULT_BATCH_CONCURRENCY,
+   MAX_BATCH_TASKS,
+   MAX_CONCURRENCY,
+   SubagentInFlightRegistry,
+ } from "@repo/pi-agent-ext-core-runtime";
+ import { createSubagentsTool as fromIndex } from "../src/index.js";
+ import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
+ import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
+ import type { SubagentsToolDetails } from "../src/subagents-tool.js";
+ import {
+   clampConcurrency,
+   createSubagentsTool,
++  formatModelSeg,
++  formatSlotMeta,
++  formatUsage,
+   mergeReadOnlyExclusion,
+   READ_ONLY_EXCLUDED,
+   renderBatchResult,
+   renderSubagentsCall,
+   renderSubagentsResult,
++  sumUsage,
+ } from "../src/subagents-tool.js";
+ 
+ test("createSubagentsTool has name 'subagents' + executionMode 'sequential'", () => {
+   const tool = createSubagentsTool();
+   assert.equal(tool.name, "subagents");
+   assert.equal(tool.executionMode, "sequential");
+   assert.equal(typeof tool.execute, "function");
+   assert.ok(tool.parameters, "parameters schema defined");
+ });
+ 
+@@ -1019,10 +1024,66 @@ test("#03 plural mirror: a child missing a required tool is skipped (null), spaw
+       ],
+     } as never,
+     undefined as never,
+     undefined,
+     { cwd: "/r" } as never,
+   );
+   assert.equal(calls.length, 1, "only the satisfiable child is dispatched");
+   assert.equal(res.details.results[0], null, "missing-tool child → null slot");
+   assert.notEqual(res.details.results[1], null);
+ });
++
++// ── Task 2: pure render helpers (formatUsage / formatModelSeg / formatSlotMeta / sumUsage) ──
++// Shared by the done + live render rewrites (Tasks 3-6). formatSlotMeta +
++// formatModelSeg mirror the single subagent card's meta (fallback-aware).
++// sumUsage feeds both the done-header and live-header usage aggregates.
++
++const U = (total: number, cost: number): AgentUsage => ({
++  input: 0,
++  output: 0,
++  cacheRead: 0,
++  cacheWrite: 0,
++  total,
++  cost,
++});
++
++test("formatUsage: empty when no usage or zero total; else ` · $cost · Ntok` (3-decimal cost)", () => {
++  assert.equal(formatUsage(undefined), "");
++  assert.equal(formatUsage(U(0, 0)), "");
++  assert.equal(formatUsage(U(15715, 0.0004)), " · $0.000 · 15715 tok");
++  assert.equal(formatUsage(U(1000, 0.5)), " · $0.500 · 1000 tok");
++});
++
++test("formatModelSeg: shortens provider prefix; `requested → actual` on fallback; default fallback", () => {
++  assert.equal(formatModelSeg("zai/glm-5.2"), "glm-5.2");
++  assert.equal(formatModelSeg("tier:small"), "tier:small");
++  assert.equal(
++    formatModelSeg("anthropic/claude-opus-4-1", "anthropic/claude-opus-4-1", true),
++    "claude-opus-4-1 → claude-opus-4-1",
++  );
++  assert.equal(formatModelSeg("zai/glm-5.2", "anthropic/claude-opus-4-1", true), "claude-opus-4-1 → glm-5.2");
++  assert.equal(formatModelSeg(""), "default");
++});
++
++test("formatSlotMeta: themed `model · elapsed · usage`; defensive on missing usage", () => {
++  const meta = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500, usage: U(15715, 0.0004) }, THEME);
++  assert.equal(meta, "glm-5.2 · 34.5s · $0.000 · 15715 tok");
++  const noUsage = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500 }, THEME);
++  assert.equal(noUsage, "glm-5.2 · 34.5s");
++  const fb = formatSlotMeta(
++    {
++      model: "zai/glm-5.2",
++      requestedModel: "anthropic/claude-opus-4-1",
++      fellBack: true,
++      elapsedMs: 1000,
++      usage: U(10, 0.001),
++    },
++    THEME,
++  );
++  assert.equal(fb, "claude-opus-4-1 → glm-5.2 · 1.0s · $0.001 · 10 tok");
++});
++
++test("sumUsage: sums total+cost across an iterable; empty → zeros", () => {
++  assert.deepEqual(sumUsage([]), { total: 0, cost: 0 });
++  assert.deepEqual(sumUsage([U(100, 0.1), U(200, 0.2)]), { total: 300, cost: 0.30000000000000004 });
++  assert.deepEqual(sumUsage(new Map([["a", U(50, 0.05)]]).values()), { total: 50, cost: 0.05 });
++});
