@@ -23,8 +23,11 @@ test("resolveDisplayModel: requestedModel wins; then capability > tier > mainMod
   assert.equal(resolveDisplayModel(undefined, undefined, undefined, undefined), "default");
 });
 
-test("captureCommitBaseline: undefined when scope unset or worktree-isolated", async () => {
-  assert.equal(await captureCommitBaseline(undefined, "/r", "/r", fakeGitOps()), undefined);
+test("captureCommitBaseline: #02 default-on — captures baseline even when scope UNSET (real tree)", async () => {
+  // #02 B1: scope unset is now treated as scope=[] (flag any commit). The
+  // baseline MUST be captured so the post-run check can diff base..HEAD.
+  assert.equal(await captureCommitBaseline(undefined, "/r", "/r", fakeGitOps("deadbeef")), "deadbeef");
+  // worktree-isolated runs are STILL skipped (the worktree is discarded at teardown).
   assert.equal(await captureCommitBaseline(["src/"], "/wt", "/r", fakeGitOps()), undefined);
 });
 
@@ -36,16 +39,22 @@ test("captureCommitBaseline: swallows headCommit throw → undefined", async () 
   const ops = fakeGitOps(async () => {
     throw new Error("no git");
   });
-  assert.equal(await captureCommitBaseline(["src/"], "/r", "/r", ops), undefined);
+  assert.equal(await captureCommitBaseline(undefined, "/r", "/r", ops), undefined);
 });
 
-test("runScopeCheck: undefined unless scope set + real tree + baseCommit present", async () => {
-  const compute = async () => ({ outOfScope: [], inScope: [] }) as unknown as SubagentScopeCheck;
-  assert.equal(await runScopeCheck(undefined, "/r", "/r", "abc", fakeGitOps(), compute), undefined);
-  assert.equal(await runScopeCheck(["src/"], "/wt", "/r", "abc", fakeGitOps(), compute), undefined);
-  assert.equal(await runScopeCheck(["src/"], "/r", "/r", undefined, fakeGitOps(), compute), undefined);
-  const out = await runScopeCheck(["src/"], "/r", "/r", "abc", fakeGitOps(), compute);
-  assert.deepEqual(out, { outOfScope: [], inScope: [] } as unknown as SubagentScopeCheck);
+test("runScopeCheck: #02 default-on — unset scope still runs the check (scope=[] flags every touched path)", async () => {
+  // compute receives scope=[] for an unset scope → outOfScopePaths flags every path.
+  let receivedScope: readonly string[] | undefined;
+  const compute = async (_ops: never, _cwd: string, _base: string, scope: readonly string[]) => {
+    receivedScope = scope;
+    return { baseCommit: "abc", touchedPaths: ["x.ts"], outOfScope: ["x.ts"] } as unknown as SubagentScopeCheck;
+  };
+  const out = await runScopeCheck(undefined, "/r", "/r", "abc", fakeGitOps(), compute as never);
+  assert.deepEqual(receivedScope, [], "unset scope is passed to compute as []");
+  assert.deepEqual(out?.outOfScope, ["x.ts"], "a touched path is flagged even with no explicit scope");
+  // worktree-isolated + missing baseCommit are STILL skipped.
+  assert.equal(await runScopeCheck(undefined, "/wt", "/r", "abc", fakeGitOps(), compute as never), undefined);
+  assert.equal(await runScopeCheck(undefined, "/r", "/r", undefined, fakeGitOps(), compute as never), undefined);
 });
 
 test("captureWatchdogBaseline: undefined when normalizeWatchdogParam rejects; {opts,baseline} otherwise", () => {
