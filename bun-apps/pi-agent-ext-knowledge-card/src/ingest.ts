@@ -53,12 +53,12 @@ import {
 } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import { tokeniseText, bestMatch } from "./similarity.ts";
 import {
-	extractEntities,
 	computeIdf,
 	scoreOverlap,
 	type ExtractedEntity,
 	type LinkWeighting,
 } from "./entities.ts";
+import { resolveExtractor } from "./extractor.ts";
 
 /**
  * Replace Obsidian wiki-links (`[[target|alias]]`, `[[target#anchor]]`,
@@ -1541,7 +1541,7 @@ export async function ingestRecords(
 		if (linkWeighting === "idf") {
 			entities = (rec.entities as ExtractedEntity[] | undefined)?.length
 				? (rec.entities as ExtractedEntity[])
-				: extractEntities(`${rec.title} ${rec.detail}`);
+				: resolveExtractor().extract(`${rec.title} ${rec.detail}`).entities;
 		}
 		const content = renderCard(rec, created, tags, links, opts.sourceLabel, maxDetailChars, entities);
 
