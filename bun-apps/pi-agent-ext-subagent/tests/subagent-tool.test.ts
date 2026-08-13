@@ -1934,3 +1934,82 @@ test("#02 default-on: UNSET commitScope + NO commit → no ⚠ (clean run)", asy
   const text = (res.content[0] as { text: string }).text;
   assert.doesNotMatch(text, /commit-scope violation/);
 });
+
+// ── #04 retry-loop detector (circuit-break at N=2 consecutive identical) ──
+// (named fakeHistoryPersistence to avoid colliding with the no-arg fakePersistence()
+//  above; this one returns the persistence object directly, seeded with records.)
+
+/** Minimal in-memory persistence for detector wiring tests. Returns the
+ *  persistence object directly (list() yields the seeded records, newest-first). */
+function fakeHistoryPersistence(records: SubagentRunRecord[]) {
+  return {
+    list: () => records,
+    save: () => {},
+    load: () => null,
+    delete: () => false,
+    getRunsDir: () => "/r",
+  } as unknown as SubagentRunPersistence;
+}
+
+function mkRec(task: string, status: SubagentRunRecord["status"], stderr: string): SubagentRunRecord {
+  return {
+    id: "r",
+    toolCallId: "c",
+    task,
+    model: "m",
+    cwd: "/r",
+    status,
+    exitCode: 1,
+    timedOut: false,
+    startedAt: new Date(Date.now() - 1000).toISOString(),
+    elapsedMs: 1,
+    output: "",
+    stderr,
+  } as SubagentRunRecord;
+}
+
+test("#04 circuit-break: 2 prior identical failures → failEarly, spawn NOT called", async () => {
+  const f = fakeSpawn(() => ({ output: "should not reach", exitCode: 0, stderr: "", timedOut: false }));
+  const task = "Fix the memory store bootstrap";
+  const persistence = fakeHistoryPersistence([
+    mkRec(task, "failed", "tool 'memory' not found"),
+    mkRec(task, "failed", "tool 'memory' not found"),
+  ]);
+  const tool = createSubagentTool({ spawn: f.spawn, persistence });
+  const res = await tool.execute("id-cb", { task }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls.length, 0, "spawn NOT called — circuit broken before spawn");
+  assert.equal(res.details.status, "failed");
+  assert.match((res.content[0] as { text: string }).text, /circuit-break.*already failed 2 consecutive times/i);
+});
+
+test("#04 circuit-break: 1 prior failure → NOT broken, spawn IS called (this is the 2nd attempt)", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const task = "Fix the memory store bootstrap";
+  const persistence = fakeHistoryPersistence([mkRec(task, "failed", "tool 'memory' not found")]);
+  const tool = createSubagentTool({ spawn: f.spawn, persistence });
+  await tool.execute("id-cb2", { task }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls.length, 1, "1 prior failure is below the default threshold of 2 → dispatch runs");
+});
+
+test("#04 boundary: retryOnTransient's single in-dispatch retry is UNCHANGED (detector counts dispatch outcomes, not tryOnce calls)", async () => {
+  // No prior records → no circuit-break. A transient failure still retries once
+  // INSIDE spawn (tryOnce). The detector never interferes with that inner retry.
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const persistence = fakeHistoryPersistence([]); // clean history → never circuit-breaks
+  const tool = createSubagentTool({ spawn: f.spawn, persistence });
+  await tool.execute("id-bdy", { task: "unique task", retryOnTransient: true }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(
+    f.calls.length,
+    1,
+    "spawn called once (the injected fake); retryOnTransient retry lives inside spawnSubagent, not the tool",
+  );
+});
+
+test("#04 opt-out: retryCircuitBreak:0 disables the detector", async () => {
+  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const task = "Fix the memory store bootstrap";
+  const persistence = fakeHistoryPersistence([mkRec(task, "failed", "x"), mkRec(task, "failed", "x")]);
+  const tool = createSubagentTool({ spawn: f.spawn, persistence });
+  await tool.execute("id-optout", { task, retryCircuitBreak: 0 }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls.length, 1, "retryCircuitBreak:0 disables the preflight");
+});
