@@ -427,3 +427,112 @@ describe("searchSemantic — survivingK cap (ticket 19 T3)", () => {
     expect(hits.map((h) => h.mdId)).toEqual(["mem-1", "mem-2"]); // 3 → cap 2
   });
 });
+
+describe("searchSemantic — fix wave (final review)", () => {
+  describe("Fix 1: falsy contentHash treated as 'no key' (no over-collapse)", () => {
+    it("WARM: two rows with contentHash=\"\" are BOTH returned (not collapsed)", async () => {
+      // RED: today collapses to one (empty string treated as shared key)
+      // GREEN: both returned (falsy hash = no key, always kept)
+      const vs = fakeVectorStore([
+        { mdId: "m1", kind: "memory", contentHash: "" },
+        { mdId: "m2", kind: "memory", contentHash: "" },
+      ]);
+      const hits = await searchSemantic({
+        queryText: "probe", kind: "memory", topK: 5,
+        embedder: fakeEmbedder(), vectorStore: vs,
+      });
+      expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]);
+    });
+
+    it("WARM: two rows with contentHash=null are BOTH returned (not collapsed)", async () => {
+      // RED: today collapses to one (null treated as shared key)
+      // GREEN: both returned (falsy hash = no key, always kept)
+      const vs = fakeVectorStore([
+        { mdId: "m1", kind: "memory", contentHash: null },
+        { mdId: "m2", kind: "memory", contentHash: null },
+      ]);
+      const hits = await searchSemantic({
+        queryText: "probe", kind: "memory", topK: 5,
+        embedder: fakeEmbedder(), vectorStore: vs,
+      });
+      expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]);
+    });
+
+    it("WARM: truthy contentHash still dedups (real hash collapse still works)", async () => {
+      // Verify the fix doesn't break real hash deduplication
+      const vs = fakeVectorStore([
+        { mdId: "m1", kind: "memory", contentHash: "real-hash" },
+        { mdId: "m2", kind: "memory", contentHash: "real-hash" },
+      ]);
+      const hits = await searchSemantic({
+        queryText: "probe", kind: "memory", topK: 5,
+        embedder: fakeEmbedder(), vectorStore: vs,
+      });
+      expect(hits.map((h) => h.mdId)).toEqual(["m1"]); // collapsed to first
+    });
+
+    it("WARM: toHit only sets contentHash when truthy (shape-compatible with hashless hits)", async () => {
+      // Verify toHit truthy-set: null/"" knn rows yield hits with NO contentHash key
+      const vs = fakeVectorStore([
+        { mdId: "m1", kind: "memory", contentHash: "" },
+        { mdId: "m2", kind: "memory", contentHash: null },
+        { mdId: "m3", kind: "memory", contentHash: "real-hash" },
+      ]);
+      const hits = await searchSemantic({
+        queryText: "probe", kind: "memory", topK: 5,
+        embedder: fakeEmbedder(), vectorStore: vs,
+      });
+      expect(hits).toEqual<SemanticSearchHit[]>([
+        { mdId: "m1", kind: "memory", source: "hnsw" }, // no contentHash key
+        { mdId: "m2", kind: "memory", source: "hnsw" }, // no contentHash key
+        { mdId: "m3", kind: "memory", source: "hnsw", contentHash: "real-hash" },
+      ]);
+    });
+  });
+
+  describe("Fix 2: clamp survivingK cap (JS slice footgun)", () => {
+    it("survivingK: 0 returns [] (not drop-last behavior)", async () => {
+      // RED: today `slice(0, 0)` = [], correct, but test documents the guard
+      const vs = fakeVectorStore([
+        { mdId: "m1", kind: "memory", contentHash: "h1" },
+        { mdId: "m2", kind: "memory", contentHash: "h2" },
+      ]);
+      const hits = await searchSemantic({
+        queryText: "probe", kind: "memory", topK: 5,
+        embedder: fakeEmbedder(), vectorStore: vs,
+        survivingK: 0,
+      });
+      expect(hits).toEqual([]);
+    });
+
+    it("survivingK: -1 returns [] (clamped, not drop-last)", async () => {
+      // RED: today `slice(0, -1)` drops last element (JS semantics)
+      // GREEN: clamped to 0, returns []
+      const vs = fakeVectorStore([
+        { mdId: "m1", kind: "memory", contentHash: "h1" },
+        { mdId: "m2", kind: "memory", contentHash: "h2" },
+        { mdId: "m3", kind: "memory", contentHash: "h3" },
+      ]);
+      const hits = await searchSemantic({
+        queryText: "probe", kind: "memory", topK: 5,
+        embedder: fakeEmbedder(), vectorStore: vs,
+        survivingK: -1,
+      });
+      expect(hits).toEqual([]); // clamped to 0, not [m1,m2]
+    });
+
+    it("survivingK: -5 returns [] (clamped, not drop-last-5)", async () => {
+      // Verify clamp works for larger negative values
+      const vs = fakeVectorStore([
+        { mdId: "m1", kind: "memory", contentHash: "h1" },
+        { mdId: "m2", kind: "memory", contentHash: "h2" },
+      ]);
+      const hits = await searchSemantic({
+        queryText: "probe", kind: "memory", topK: 5,
+        embedder: fakeEmbedder(), vectorStore: vs,
+        survivingK: -5,
+      });
+      expect(hits).toEqual([]); // clamped to 0
+    });
+  });
+});

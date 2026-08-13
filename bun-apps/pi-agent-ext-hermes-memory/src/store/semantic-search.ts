@@ -94,8 +94,9 @@ function toHit(h: VectorKnnHit, kind: SemanticKind | undefined): SemanticSearchH
   const k: SemanticKind = h.kind === "knowledge" ? "knowledge" : h.kind === "memory" ? "memory" : (kind ?? "memory");
   // Surface contentHash only when the knn row provided it, so hashless warm
   // hits stay shape-compatible (ticket 19 warm-path dedup key).
+  // Fix 1 (final review): only set when truthy (null/"" treated as "no key").
   const hit: SemanticSearchHit = { mdId: h.mdId, kind: k, source: "hnsw", score: h.score };
-  if (h.contentHash !== undefined) hit.contentHash = h.contentHash;
+  if (h.contentHash) hit.contentHash = h.contentHash;
   return hit;
 }
 
@@ -115,8 +116,11 @@ function dedupByContentHash(hits: SemanticSearchHit[]): SemanticSearchHit[] {
   const seen = new Set<string>();
   const out: SemanticSearchHit[] = [];
   for (const h of hits) {
-    if (h.contentHash === undefined) {
-      out.push(h); // hashless → always kept (never a dedup key)
+    // Fix 1 (final review): treat falsy contentHash (undefined/null/"") as "no key".
+    // Prevents over-collapse when corrupt rows or ?? "" normalization create
+    // shared falsy keys. Only non-empty strings are real dedup keys.
+    if (!h.contentHash) {
+      out.push(h); // falsy hash → always kept (never a dedup key)
       continue;
     }
     if (seen.has(h.contentHash)) continue; // duplicate hash → drop later twin
@@ -151,7 +155,8 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
   const modelId = model ?? "text-embedding-nomic-embed-text-v1.5";
   // Ticket 19 T3: survivingK caps the post-dedup returned list. Defaults to
   // topK when unset so existing behavior is UNCHANGED (a CAP not a refill).
-  const cap = survivingK ?? topK;
+  // Fix 2 (final review): clamp to avoid JS slice footgun (negative drops last).
+  const cap = Math.max(0, survivingK ?? topK);
 
   // ── Warm path (T2): embed → knn ──────────────────────────────────────────
   if (vectorStore && embedder) {
