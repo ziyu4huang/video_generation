@@ -204,6 +204,13 @@ export interface MemoryConfig {
    *  `searchSemantic`. A CAP not a refill — the post-dedup shortfall below
    *  topK is acceptable. Default: 10 (DEFAULT_SURVIVING_K). */
   survivingK: number;
+  /** Opt-in: typed-relation extraction via LLM (LeanRAG ⑤ Phase-2 / D4).
+   *  Default OFF (false) — the ingest path is deterministic-by-design
+   *  (ADR-0001), zero LLM cost. When ON, zk's ingest gate selects the LLM
+   *  extractor (Phase-2) instead of the dictionary default; until Phase-2 the
+   *  flag is real + wired but turning it ON is a graceful no-op (dictionary
+   *  fallback). Carried across the seam via `IngestOptions.kgLlm`. */
+  kgLlm: boolean;
 }
 
 /** Trust/auditability marker for a memory entry. Markdown-resident only. */

@@ -12,6 +12,12 @@ export interface CollectInputFilesResult { files: string[]; skipped: { path: str
 export interface IngestOptions {
   vaultPath: string; source: SourceFamily; sourceLabel: string; folder?: string;
   mocPath?: string; dryRun?: boolean; maxLinks?: number; wikiAware?: boolean; linkWeighting?: LinkWeighting;
+  /** Opt-in LLM typed-relation extraction (LeanRAG ⑤ Phase-2 / D4). Default OFF
+   *  (deterministic-by-design, ADR-0001). When true, zk's ingest gate selects
+   *  the LLM extractor (Phase-2) instead of the dictionary default; until then
+   *  it's a graceful no-op (dictionary fallback). Carried from hermes's
+   *  `MemoryConfig.kgLlm` (env fallback `PI_KG_LLM=1`). */
+  kgLlm?: boolean;
 }
 // Mirrors zk's actual IngestCardReport ({id,path,status,links}); the plan's
 // draft wrongly declared `title` (zk has none) — return-type covariance requires

@@ -147,6 +147,12 @@ export interface IngestOptions {
 	 *  below the 0.9 duplicate-merge bar, so a bad reuse never collapses two
 	 *  merely-related ideas). */
 	wikiThreshold?: number;
+	/** Opt-in LLM typed-relation extraction (LeanRAG ⑤ Phase-2 / D4). Default
+	 *  OFF (deterministic-by-design, ADR-0001). When true, the ingest gate
+	 *  selects the LLM extractor (Phase-2) instead of the dictionary default;
+	 *  until Phase-2 the flag is real + wired but turning it ON is a graceful
+	 *  no-op (dictionary fallback). Env fallback `PI_KG_LLM=1`. */
+	kgLlm?: boolean;
 }
 
 export type CardOutcome = "created" | "updated" | "unchanged";
@@ -1349,6 +1355,14 @@ export async function ingestRecords(
 	const wikiAware = opts.wikiAware === true;
 	const wikiThreshold = opts.wikiThreshold ?? 0.85;
 	const linkWeighting = opts.linkWeighting ?? "count";
+	// kg.llm gate (D4, ticket 03 T3): the effective flag is IngestOptions.kgLlm
+	// with a `PI_KG_LLM=1` env fallback (env mirrors the LMSTUDIO_BASE_URL read
+	// style in semantic.ts). Threaded to the extractor-selection point
+	// (resolveExtractor). Default OFF → dictionary path. When ON this is still a
+	// GRACEFUL NO-OP: Phase-2's LLM extractor doesn't exist yet, so the flag is
+	// real + wired but turning it on yields dictionary entities (no throw, no
+	// LLM). Phase-2 plugs LlmRelationExtractor inside resolveExtractor.
+	const kgLlm = opts.kgLlm ?? process.env.PI_KG_LLM === "1";
 	const folderAbs = join(opts.vaultPath, folder);
 
 	if (!existsSync(opts.vaultPath)) {
@@ -1541,7 +1555,7 @@ export async function ingestRecords(
 		if (linkWeighting === "idf") {
 			entities = (rec.entities as ExtractedEntity[] | undefined)?.length
 				? (rec.entities as ExtractedEntity[])
-				: resolveExtractor().extract(`${rec.title} ${rec.detail}`).entities;
+				: (await resolveExtractor(kgLlm).extract(`${rec.title} ${rec.detail}`)).entities;
 		}
 		const content = renderCard(rec, created, tags, links, opts.sourceLabel, maxDetailChars, entities);
 
