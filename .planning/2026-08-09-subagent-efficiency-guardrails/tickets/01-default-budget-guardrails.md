@@ -1,5 +1,5 @@
 # Ticket 01 — default token + spend budget guardrails
-**status:** active  **risk:** med  **size:** medium
+**status:** done  **risk:** med  **size:** medium
 
 ## Goal
 When a dispatch omits tokenBudget/spendBudget, inject a TIER-CALIBRATED default
@@ -34,3 +34,6 @@ cutoffs.
 
 ## Files
 subagent-tool.ts:181 ; agent.ts:373-375,609
+
+## Shipped
+Shipped via #1280

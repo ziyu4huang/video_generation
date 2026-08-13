@@ -1,5 +1,5 @@
 # Ticket 04 — retry-loop / runaway detector
-**status:** draft  **risk:** med  **size:** medium
+**status:** done  **risk:** med  **size:** medium
 
 ## Goal
 Circuit-break repeated identical-failure retries and no-progress turns. (6x
@@ -17,3 +17,6 @@ Circuit-break repeated identical-failure retries and no-progress turns. (6x
 
 ## Files
 subagent-tool.ts / spawn-subagent.ts
+
+## Shipped
+Shipped via #1279
