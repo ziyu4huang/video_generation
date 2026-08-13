@@ -54,6 +54,10 @@ export interface VectorKnnHit {
   mdId: string;
   kind: string;
   score?: number;
+  /** Content hash from card_vectors (warm path) — surfaced as the redundancy-aware
+   *  dedup key (ticket 19). Optional: the cold path (memory/knowledge fallback)
+   *  does not carry it, so callers must not assume it is present. */
+  contentHash?: string;
 }
 
 /** Backend-neutral vector store seam. The non-Surreal case (SQLite CRUD with
@@ -136,10 +140,16 @@ export class SurrealVectorStore implements VectorStore {
     // 2-arg KNN: `vec <|k,ef|> $q`. $q bound by SurrealClient (LET $q = <json>).
     // SurrealDB returns rows in nearest-first order; no distance column, so
     // score is left undefined (rank order is the signal).
-    const sql = `SELECT mdId, kind FROM card_vectors WHERE vec <|${k},${ef}|> $q;`;
-    const rows = await this.client.query<Array<{ mdId: string; kind: string }>>(sql, { q: queryVec });
+    const sql = `SELECT mdId, kind, contentHash FROM card_vectors WHERE vec <|${k},${ef}|> $q;`;
+    const rows = await this.client.query<Array<{ mdId: string; kind: string; contentHash?: string }>>(sql, { q: queryVec });
     if (!Array.isArray(rows)) return [];
-    return rows.map((r) => ({ mdId: r.mdId, kind: r.kind }));
+    // Surface contentHash when the row carries it (ticket 19 warm-path dedup
+    // key). A hashless row (older rows / mocks) stays shape-compatible.
+    return rows.map((r) => {
+      const hit: VectorKnnHit = { mdId: r.mdId, kind: r.kind };
+      if (r.contentHash !== undefined) hit.contentHash = r.contentHash;
+      return hit;
+    });
   }
 
   async missingMdIds(allMdIds: string[], modelVersion: string): Promise<string[]> {

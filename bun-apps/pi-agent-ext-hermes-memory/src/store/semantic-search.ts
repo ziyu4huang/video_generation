@@ -42,6 +42,10 @@ export interface SemanticSearchHit {
   score?: number;
   /** Which path produced this hit — useful for tracing the fallback decision. */
   source: "hnsw" | "zk-semantic" | "memory-lexical";
+  /** Content hash surfaced from card_vectors on the warm (HNSW) path — the
+   *  redundancy-aware dedup key (ticket 19). Optional: the cold fallback paths
+   *  (memory-lexical / zk-semantic) do not carry it, so do not assume present. */
+  contentHash?: string;
 }
 
 export interface SearchSemanticOptions {
@@ -84,7 +88,11 @@ function toHit(h: VectorKnnHit, kind: SemanticKind | undefined): SemanticSearchH
   // The store carries `kind` per row; honor it when present and valid, else
   // fall back to the caller's requested kind.
   const k: SemanticKind = h.kind === "knowledge" ? "knowledge" : h.kind === "memory" ? "memory" : (kind ?? "memory");
-  return { mdId: h.mdId, kind: k, source: "hnsw", score: h.score };
+  // Surface contentHash only when the knn row provided it, so hashless warm
+  // hits stay shape-compatible (ticket 19 warm-path dedup key).
+  const hit: SemanticSearchHit = { mdId: h.mdId, kind: k, source: "hnsw", score: h.score };
+  if (h.contentHash !== undefined) hit.contentHash = h.contentHash;
+  return hit;
 }
 
 /**

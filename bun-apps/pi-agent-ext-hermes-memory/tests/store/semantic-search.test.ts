@@ -96,6 +96,21 @@ describe("searchSemantic — warm path (T2)", () => {
     expect(hits.map((h) => h.mdId)).toEqual(["m2"]);
   });
 
+  it("surfaces contentHash on the warm path when knn provides it (Task 1)", async () => {
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "memory", contentHash: "hash-1" },
+      { mdId: "m2", kind: "memory" }, // hashless knn row → hit stays shape-compatible
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 5, ef: 100,
+      embedder: fakeEmbedder(), vectorStore: vs,
+    });
+    expect(hits).toEqual<SemanticSearchHit[]>([
+      { mdId: "m1", kind: "memory", source: "hnsw", contentHash: "hash-1" },
+      { mdId: "m2", kind: "memory", source: "hnsw" }, // no contentHash key
+    ]);
+  });
+
   it("does NOT invoke the fallback when the warm path answers []", async () => {
     const vs = fakeVectorStore([]); // warm path answers empty (legit no-match)
     const kp = fakeKp();
