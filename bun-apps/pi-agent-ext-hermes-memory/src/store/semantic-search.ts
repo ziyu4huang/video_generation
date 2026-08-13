@@ -42,6 +42,10 @@ export interface SemanticSearchHit {
   score?: number;
   /** Which path produced this hit — useful for tracing the fallback decision. */
   source: "hnsw" | "zk-semantic" | "memory-lexical";
+  /** Content hash surfaced from card_vectors on the warm (HNSW) path — the
+   *  redundancy-aware dedup key (ticket 19). Optional: the cold fallback paths
+   *  (memory-lexical / zk-semantic) do not carry it, so do not assume present. */
+  contentHash?: string;
 }
 
 export interface SearchSemanticOptions {
@@ -52,6 +56,10 @@ export interface SearchSemanticOptions {
   kind?: SemanticKind;
   /** K for the KNN query (default from config / 10). */
   topK?: number;
+  /** Cap on the post-dedup returned list (ticket 19 T3). When unset, defaults
+   *  to `topK` so existing behavior is unchanged. A CAP not a refill — applied
+   *  AFTER contentHash dedup on every return path. */
+  survivingK?: number;
   /** HNSW ef (default from config / 100). */
   ef?: number;
   /** Embedding model id (default nomic-embed-text-v1.5). */
@@ -84,7 +92,42 @@ function toHit(h: VectorKnnHit, kind: SemanticKind | undefined): SemanticSearchH
   // The store carries `kind` per row; honor it when present and valid, else
   // fall back to the caller's requested kind.
   const k: SemanticKind = h.kind === "knowledge" ? "knowledge" : h.kind === "memory" ? "memory" : (kind ?? "memory");
-  return { mdId: h.mdId, kind: k, source: "hnsw", score: h.score };
+  // Surface contentHash only when the knn row provided it, so hashless warm
+  // hits stay shape-compatible (ticket 19 warm-path dedup key).
+  // Fix 1 (final review): only set when truthy (null/"" treated as "no key").
+  const hit: SemanticSearchHit = { mdId: h.mdId, kind: k, source: "hnsw", score: h.score };
+  if (h.contentHash) hit.contentHash = h.contentHash;
+  return hit;
+}
+
+/**
+ * Redundancy-aware dedup pass (ticket 19 T2). Keeps the FIRST occurrence per
+ * DEFINED contentHash; hits whose contentHash is undefined are ALWAYS kept (a
+ * missing contentHash is never a shared key — Global Constraint). Applied on
+ * every return path of `searchSemantic` so the warm (HNSW) and cold
+ * (zk-semantic / memory-lexical) hits both pass through ONE seam. On the cold
+ * paths every hit is hashless (RetrievedCard / MemoryEntry carry no hash), so
+ * the pass is a correct no-op there — the meaningful collapse lives on the
+ * warm path. Single pure pass: this function only deduplicates (no cap, no
+ * boostWeight). The survivingK cap is applied by the CALLER after this pass
+ * (Task 3); boostWeight remains deferred (ticket 20 — YAGNI). Never throws.
+ */
+function dedupByContentHash(hits: SemanticSearchHit[]): SemanticSearchHit[] {
+  const seen = new Set<string>();
+  const out: SemanticSearchHit[] = [];
+  for (const h of hits) {
+    // Fix 1 (final review): treat falsy contentHash (undefined/null/"") as "no key".
+    // Prevents over-collapse when corrupt rows or ?? "" normalization create
+    // shared falsy keys. Only non-empty strings are real dedup keys.
+    if (!h.contentHash) {
+      out.push(h); // falsy hash → always kept (never a dedup key)
+      continue;
+    }
+    if (seen.has(h.contentHash)) continue; // duplicate hash → drop later twin
+    seen.add(h.contentHash);
+    out.push(h);
+  }
+  return out;
 }
 
 /**
@@ -106,10 +149,14 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
   const {
     queryText, kind, topK = 10, ef = 100, model, embedder,
     vectorStore, memoryRepo, kp, vaultPath, folder, excludeIds,
-    scheduleVectorBackfill,
+    scheduleVectorBackfill, survivingK,
   } = opts;
   const exclude = new Set(excludeIds ?? []);
   const modelId = model ?? "text-embedding-nomic-embed-text-v1.5";
+  // Ticket 19 T3: survivingK caps the post-dedup returned list. Defaults to
+  // topK when unset so existing behavior is UNCHANGED (a CAP not a refill).
+  // Fix 2 (final review): clamp to avoid JS slice footgun (negative drops last).
+  const cap = Math.max(0, survivingK ?? topK);
 
   // ── Warm path (T2): embed → knn ──────────────────────────────────────────
   if (vectorStore && embedder) {
@@ -141,14 +188,25 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
           // cold-query bursts so at most one backfill runs at a time; its
           // deferred task re-checks the staleness delta and embeds only
           // changed/new cards (cheap no-op when the index is already warm).
-          if (ranked.length === 0 && scheduleVectorBackfill) {
+          // Ticket 19 T2: redundancy-aware contentHash dedup seam. Applied to
+          // the warm (HNSW) ranked list before the early return — the SAME
+          // private pass the cold fallbacks use below. hashless hits are kept,
+          // duplicate contentHashes collapse to the first occurrence. dedup can
+          // only shrink a non-empty list (it keeps the first per key), so
+          // `deduped.length === 0` ⟺ `ranked.length === 0` — the cold-index
+          // trigger signal is preserved.
+          const deduped = dedupByContentHash(ranked);
+          if (deduped.length === 0 && scheduleVectorBackfill) {
             try {
               scheduleVectorBackfill();
             } catch {
               // best-effort — never affect the query result
             }
           }
-          return ranked;
+          // Ticket 19 T3: cap the post-dedup list to survivingK (default topK).
+          // Applied AFTER dedup so the cold-index trigger signal (deduped===[])
+          // is preserved; a non-empty deduped list is sliced down to the cap.
+          return deduped.slice(0, cap);
         } catch {
           // knn threw (SurrealDB down / index error) → fall through to T5(a).
         }
@@ -162,8 +220,8 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
   // ── T5(a) graceful degrade ───────────────────────────────────────────────
   const resolvedKind: SemanticKind = kind ?? "memory";
   return resolvedKind === "knowledge"
-    ? await knowledgeFallback(queryText, modelId, kp, vaultPath, folder, exclude, topK)
-    : await memoryFallback(queryText, memoryRepo, exclude, topK);
+    ? await knowledgeFallback(queryText, modelId, kp, vaultPath, folder, exclude, topK, cap)
+    : await memoryFallback(queryText, memoryRepo, exclude, topK, cap);
 }
 
 /** T5(a) knowledge fallback: zk cosine cache via the KnowledgePipeline seam.
@@ -177,6 +235,7 @@ async function knowledgeFallback(
   folder: string | undefined,
   exclude: Set<string>,
   topK: number,
+  cap: number,
 ): Promise<SemanticSearchHit[]> {
   if (!kp || !vaultPath) return [];
   try {
@@ -198,7 +257,11 @@ async function knowledgeFallback(
       hits.push({ mdId: card.id, kind: "knowledge", source: "zk-semantic" });
       if (hits.length >= topK) break;
     }
-    return hits;
+    // Ticket 19 T2: same dedup seam as the warm path. Cold-path hits carry no
+    // contentHash → this is a correct no-op (all kept), but the seam is wired
+    // so a future hash-bearing cold source needs no caller change.
+    // Ticket 19 T3: cap the post-dedup list to survivingK (default topK).
+    return dedupByContentHash(hits).slice(0, cap);
   } catch {
     return []; // zk seam absent / threw → empty (never propagates)
   }
@@ -213,6 +276,7 @@ async function memoryFallback(
   memoryRepo: Pick<MemoryRepository, "searchMemories"> | undefined,
   exclude: Set<string>,
   topK: number,
+  cap: number,
 ): Promise<SemanticSearchHit[]> {
   if (!memoryRepo) return [];
   try {
@@ -225,7 +289,10 @@ async function memoryFallback(
       hits.push({ mdId, kind: "memory", source: "memory-lexical" });
       if (hits.length >= topK) break;
     }
-    return hits;
+    // Ticket 19 T2: same dedup seam as the warm path (no-op while MemoryEntry
+    // carries no contentHash; wired for forward-compat).
+    // Ticket 19 T3: cap the post-dedup list to survivingK (default topK).
+    return dedupByContentHash(hits).slice(0, cap);
   } catch {
     return []; // lexical search threw → empty (never propagates)
   }

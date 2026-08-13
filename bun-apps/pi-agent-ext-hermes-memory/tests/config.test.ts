@@ -588,6 +588,35 @@ describe("loadConfig", () => {
     assert.strictEqual(config.proactivePressureThreshold, 10);
     assert.strictEqual(config.proactiveCooldownMinutes, 30);
   });
+
+  // ─── survivingK (ticket 19 T3) — caps the post-dedup returned list. Mirrors
+  // vectorTopK's `typeof === "number" && Number.isFinite && > 0 → Math.floor`
+  // parse-allowlist guard. The #06 config-gap lesson: registered in
+  // DEFAULT_CONFIG AND the parse allowlist from day one. Default 10.
+  it("defaults survivingK to DEFAULT_SURVIVING_K (10) when unset", () => {
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.survivingK, 10);
+  });
+
+  it("carries survivingK through from the config file (allowlisted, floors to int)", () => {
+    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ survivingK: 3.9 }));
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.survivingK, 3); // >0 floor + Math.floor
+  });
+
+  it("ignores invalid survivingK values (≤0 / non-number / null) → default kept", () => {
+    // NaN/Infinity are structurally unrepresentable in JSON (JSON.parse yields
+    // null / throws), so the representative invalid set here is the JSON-
+    // representable one; the same `typeof===number && isFinite && >0` guard
+    // defends the in-memory path against NaN/Infinity too.
+    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
+    for (const invalid of [-1, 0, "x", true, null]) {
+      fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ survivingK: invalid }));
+      const config = loadConfig(TEST_CONFIG_PATH);
+      assert.strictEqual(config.survivingK, 10, `invalid ${JSON.stringify(invalid)} keeps default`);
+    }
+  });
 });
 
 describe("config dbBackend", () => {

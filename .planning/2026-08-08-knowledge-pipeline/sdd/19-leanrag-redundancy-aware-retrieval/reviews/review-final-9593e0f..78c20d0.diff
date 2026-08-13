@@ -1,0 +1,2490 @@
+# Final review package: 9593e0fe..78c20d0b (merge-base..HEAD)
+
+## Commits
+78c20d0b chore(sdd): kp-19 T3 review package
+cc4fe99e chore(sdd): kp-19 T3 report
+fbe6d08d feat(hermes-memory): add survivingK cap knob to semantic search (kp-19 T3)
+4a73e87f chore(sdd): kp-19 T2 report
+b125a54b chore(sdd): kp-19 T2 review package
+fbdd39e1 feat(hermes-memory): add contentHash dedup seam to semantic search (kp-19 T2)
+0e185ac5 chore(sdd): kp-19 T1 review package
+e746cc6e feat(hermes-memory): surface contentHash on the semantic-search warm path (kp-19 T1)
+06166935 chore(sdd): kp-19 workspace + task briefs (1-3)
+
+## Files changed
+ .../briefs/task-1-brief.md                         |   8 +
+ .../briefs/task-2-brief.md                         |   8 +
+ .../briefs/task-3-brief.md                         |  15 +
+ .../reports/task-1-report.md                       | 121 ++++
+ .../reports/task-2-report.md                       | 133 +++++
+ .../reports/task-3-report.md                       | 134 +++++
+ .../reviews/review-0616693..e746cc6.diff           | 299 ++++++++++
+ .../reviews/review-0e185ac..fbdd39e.diff           | 268 +++++++++
+ .../reviews/review-4a73e8..cc4fe99.diff            | 648 +++++++++++++++++++++
+ bun-apps/pi-agent-ext-hermes-memory/src/config.ts  |   7 +
+ .../pi-agent-ext-hermes-memory/src/constants.ts    |   5 +
+ .../src/store/semantic-search.ts                   |  78 ++-
+ .../src/store/surreal/vector-store.ts              |  16 +-
+ bun-apps/pi-agent-ext-hermes-memory/src/types.ts   |   5 +
+ .../tests/config.test.ts                           |  29 +
+ .../tests/store/semantic-search.test.ts            | 209 +++++++
+ 16 files changed, 1972 insertions(+), 11 deletions(-)
+
+## Diff
+diff --git a/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/briefs/task-1-brief.md b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/briefs/task-1-brief.md
+new file mode 100644
+index 00000000..707feb81
+--- /dev/null
++++ b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/briefs/task-1-brief.md
+@@ -0,0 +1,8 @@
++## Task 1 — Surface contentHash on the warm path
++
++Augment the HNSW knn path to return `contentHash` and thread it into `SemanticSearchHit`.
++
++- `src/store/surreal/vector-store.ts`: change the `knn` SELECT to `SELECT mdId, kind, contentHash FROM card_vectors WHERE vec <|${k},${ef}|> $q`; extend `VectorKnnHit` with `contentHash?: string`; map it through.
++- `src/store/semantic-search.ts`: add `contentHash?: string` to `SemanticSearchHit`; populate it in `toHit`.
++- TDD (red-green) in `tests/store/semantic-search.test.ts`: a warm-path test asserting the returned `SemanticSearchHit` carries the `contentHash` from the fake vector store's knn result. (The fake `VectorKnnHit` must include `contentHash`.)
++
+diff --git a/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/briefs/task-2-brief.md b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/briefs/task-2-brief.md
+new file mode 100644
+index 00000000..5b78b710
+--- /dev/null
++++ b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/briefs/task-2-brief.md
+@@ -0,0 +1,8 @@
++## Task 2 — Exact-contentHash dedup + re-rank seam (warm + cold)
++
++Add a shared dedup helper and apply it on every return path.
++
++- `src/store/semantic-search.ts`: add a private `dedupByContentHash(hits: SemanticSearchHit[]): SemanticSearchHit[]` — keeps the first occurrence per `contentHash`; hits with no `contentHash` are always kept (per Global Constraint). Apply it to the warm path's `ranked` list (before the early return) AND to the output of `knowledgeFallback` and `memoryFallback`.
++- Preserve the existing `mdId`-dedup + exclude + kind-filter + topK logic; contentHash-dedup is an additional pass.
++- TDD: (a) warm path — two knn hits with the same `contentHash` collapse to one; (b) cold path — duplicate-hash knowledge (or memory) hits collapse; (c) never-throws — dedup over a malformed/empty input returns `[]`/the input unchanged without throwing.
++
+diff --git a/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/briefs/task-3-brief.md b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/briefs/task-3-brief.md
+new file mode 100644
+index 00000000..4e8a5dc9
+--- /dev/null
++++ b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/briefs/task-3-brief.md
+@@ -0,0 +1,15 @@
++## Task 3 — survivingK config knob
++
++Register `survivingK` (caps the returned list) across the 4 config points + thread it through.
++
++- `src/constants.ts`: `export const DEFAULT_SURVIVING_K = 10;` (mirror `DEFAULT_VECTOR_TOP_K`).
++- `src/types.ts`: add `survivingK: number;` to `MemoryConfig`.
++- `src/config.ts`: add `survivingK: DEFAULT_SURVIVING_K,` to `DEFAULT_CONFIG`; add a `loadConfig` allowlist line mirroring `vectorTopK`'s `>0 floor` guard.
++- `src/store/semantic-search.ts`: add `survivingK?: number` to `SearchSemanticOptions`; cap the final returned list to `survivingK` (default `topK`) on every path.
++- TDD: (a) config parses a valid `survivingK`; (b) invalid values (≤0, NaN, non-number) are rejected (default kept); (c) `searchSemantic` caps the result to `survivingK`.
++
++## Out of scope
++
++- Multi-signal frequency-vote + `boostWeight` → ticket 20.
++- Deduping `knowledge-search-tool.ts`'s own `kp.retrieveRecords` results → future (the tool's separate retrieve).
++- Entity recall, relation-dedup, ⑥ → ticket 03. Near-dup cosine → ticket 17.
+diff --git a/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-1-report.md b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-1-report.md
+new file mode 100644
+index 00000000..a7b15670
+--- /dev/null
++++ b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-1-report.md
+@@ -0,0 +1,121 @@
++# Task 1 Report — Surface contentHash on the warm path
++
++Ticket 19 (LeanRAG redundancy-aware retrieval, dedup-first slice), Task 1 of 3.
++Package: `bun-apps/pi-agent-ext-hermes-memory`. Branch: `feat/kp-19-leanrag-redundancy-aware-retrieval`.
++
++## What I implemented
++
++Surfaced `contentHash` from the `card_vectors` HNSW side-table through the warm
++semantic-search path, so Task 2 can dedup hits by exact content hash.
++
++1. **`src/store/surreal/vector-store.ts`**
++   - `VectorKnnHit` gained `contentHash?: string` (optional — cold path doesn't carry it).
++   - The `knn` SELECT changed from `SELECT mdId, kind FROM card_vectors WHERE vec <|k,ef|> $q`
++     to `SELECT mdId, kind, contentHash FROM card_vectors WHERE vec <|k,ef|> $q`.
++   - The row→hit `map` sets `contentHash` **only when the row provides it**
++     (`if (r.contentHash !== undefined) hit.contentHash = r.contentHash`), so a
++     hashless row (older rows / mocks) stays shape-compatible.
++
++2. **`src/store/semantic-search.ts`**
++   - `SemanticSearchHit` gained `contentHash?: string` (optional).
++   - `toHit` populates `contentHash` **only when the knn hit provides it**
++     (`if (h.contentHash !== undefined) hit.contentHash = h.contentHash`),
++     keeping hashless warm hits shape-compatible with the existing `toEqual` asserts.
++
++3. **`tests/store/semantic-search.test.ts`** — new warm-path test asserting the
++   returned `SemanticSearchHit` carries `contentHash` from the fake vector store's
++   knn result, and that a hashless knn row produces a hit with NO `contentHash` key.
++
++No new throw paths. No dedup logic, no config knobs (those are Tasks 2/3 — YAGNI).
++
++## TDD evidence
++
++### RED (test first, then watch it fail for the right reason)
++
++Command:
++```
++( cd bun-apps/pi-agent-ext-hermes-memory && bun test tests/store/semantic-search.test.ts )
++```
++
++Relevant failing output:
++```
++expect(received).toEqual(expected)
++
++  [
++    {
++-     "contentHash": "hash-1",
++      "kind": "memory",
++      "mdId": "m1",
+++     "score": undefined,
++      "source": "hnsw",
++    },
++    ...
++  ]
++(fail) searchSemantic — warm path (T2) > surfaces contentHash on the warm path when knn provides it (Task 1)
++ 12 pass
++ 1 fail
++```
++
++Why the failure was expected: `contentHash` was NOT surfaced on the warm hit —
++`toHit` did not map it through, so the expected `contentHash: "hash-1"` was absent
++on `m1`. (The `+ score: undefined` lines are bun's diff-display artifact —
++`toEqual` ignores `undefined`-valued properties, as the existing "returns HNSW
++hits ranked" test passing in the same run confirms.)
++
++### GREEN (minimal implementation)
++
++Command:
++```
++( cd bun-apps/pi-agent-ext-hermes-memory && bun test tests/store/semantic-search.test.ts )
++```
++
++Relevant passing output:
++```
++(pass) searchSemantic — warm path (T2) > surfaces contentHash on the warm path when knn provides it (Task 1) [0.22ms]
++ 13 pass
++ 0 fail
++```
++
++## Files changed
++
++```
++ bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts                      | 10 +++++++++-
++ bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/vector-store.ts                 | 16 +++++++++++++---
++ bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts              | 15 +++++++++++++++
++```
++
++## Self-review
++
++- **Completeness vs brief:** all four brief items done — knn SELECT augmented,
++  `VectorKnnHit.contentHash?` added + mapped, `SemanticSearchHit.contentHash?`
++  added, `toHit` populates it. ✅
++- **contentHash is OPTIONAL:** declared `?` on both interfaces; populated only
++  when the knn row provides it. The cold fallback paths (memory-lexical /
++  zk-semantic) never set it — never required, never synthesized. ✅
++- **Never throws:** the change adds zero throw paths. `knn` still returns `[]`
++  on a non-array response; `toHit` is pure. ✅
++- **Shape-compatibility (brief heads-up):** the conditional assignment meant NO
++  existing `toEqual` assertion needed updating — hashless warm hits keep their
++  exact pre-change shape. Confirmed by the full suite (no assertion breaks). ✅
++- **YAGNI:** no dedup, no config knobs — only what Task 1 needs. Dedup is Task 2,
++  knobs are Task 3. ✅
++- **Test verifies real behavior:** the new test exercises both the with-hash and
++  hashless knn rows through the real `searchSemantic` warm path, asserting the
++  real `toHit` mapping (not a mock). ✅
++- **Naming/docs:** comments reference ticket 19; field doc-comments explain
++  optionality and the cold-path carve-out. ✅
++
++## Full-suite result
++
++```
++( cd bun-apps/pi-agent-ext-hermes-memory && bun run check )   # tsc --noEmit → clean
++( cd bun-apps/pi-agent-ext-hermes-memory && bun test )
++ 1514 pass
++ 1 skip
++ 0 fail
++ 1151 expect() calls
++ Ran 1515 tests across 131 files. [14.49s]
++```
++
++Baseline was **1513 pass / 1 skip / 0 fail**; this change lands at **1514 pass /
++1 skip / 0 fail** (+1 = the new warm-path contentHash test). Output pristine.
+diff --git a/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-2-report.md b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-2-report.md
+new file mode 100644
+index 00000000..eacfdcaa
+--- /dev/null
++++ b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-2-report.md
+@@ -0,0 +1,133 @@
++# Task 2 Report — Exact-contentHash dedup + re-rank seam (warm + cold)
++
++Ticket 19 (LeanRAG redundancy-aware retrieval, dedup-first slice), Task 2 of 3.
++Package: `bun-apps/pi-agent-ext-hermes-memory`. Branch: `feat/kp-19-leanrag-redundancy-aware-retrieval`.
++
++## What I implemented
++
++A **single private dedup seam** in `src/store/semantic-search.ts`, wired across
++all three return paths of `searchSemantic`:
++
++1. **New private helper `dedupByContentHash(hits: SemanticSearchHit[]): SemanticSearchHit[]`**
++   - Keeps the **first** occurrence per **DEFINED** `contentHash`.
++   - Hits with `contentHash === undefined` are **always kept** (a missing hash is
++     never a shared key — Global Constraint).
++   - Pure array iteration → **never throws**.
++   - No `survivingK`, no `boostWeight` (Task 3 / ticket 20 — YAGNI here).
++
++2. **Warm path** (the `if (vectorStore && embedder)` block): applied to `ranked`
++   **before the early return**. The existing mdId-dedup + `excludeIds` + kind-filter
++   + topK loop is **untouched**; contentHash-dedup is an additional pass placed
++   immediately after it (per brief: "place it sensibly, e.g. after mdId-dedup").
++   The Phase-B cold-index trigger is now keyed on the deduped list's length; since
++   dedup can only shrink a non-empty list (it keeps the first per key),
++   `deduped.length === 0 ⟺ ranked.length === 0`, so the cold-index signal is
++   preserved bit-for-bit.
++
++3. **`knowledgeFallback`** and **`memoryFallback`**: applied to their output
++   arrays before each `return`. Cold-path hits carry no `contentHash`
++   (`RetrievedCard` / `MemoryEntry` lack it), so the pass is a **correct no-op**
++   there — every hashless hit survives — but the seam is wired so a future
++   hash-bearing cold source needs no caller change.
++
++The helper is **module-private** (per the "single private seam" constraint).
++Collapse semantics are proved through the warm path (the task's preferred
++alternative to exporting the helper for direct unit testing); the cold path is
++proved to be a correct no-op.
++
++## TDD evidence
++
++### RED — `( cd bun-apps/pi-agent-ext-hermes-memory && bun test tests/store/semantic-search.test.ts )`
++
++Wrote 7 new tests before any production change. The two **warm-collapse** tests
++drove the implementation and failed as expected (the no-op/guard tests passed —
++correct characterization of pre-change behavior):
++
++```
++(fail) searchSemantic — contentHash dedup seam (ticket 19 T2) > WARM: two knn hits sharing a contentHash collapse to one (keeps first)
++  expected [m1, m3]; received [m1, m2, m3]  (m2 not yet deduped)
++(fail) searchSemantic — contentHash dedup seam (ticket 19 T2) > WARM: a hashed hit dedups against a later same-hash hit, hashless ones untouched
++  expected ["m1","m2"]; received ["m1","m2","m3"]  (m3 dup-of-m1 not yet dropped)
++(pass) ...5 no-op / guard tests...
++18 pass
++2 fail
++```
++
++The two failures are exactly the collapse semantics the helper must add — RED
++confirmed and meaningful (not a typo / harness failure).
++
++### GREEN — same command after adding the helper + wiring
++
++```
++20 pass
++0 fail
++27 expect() calls
++Ran 20 tests across 1 file.
++```
++
++All 7 new tests green; all 13 pre-existing tests in the file still green.
++
++### Typecheck
++
++`( cd bun-apps/pi-agent-ext-hermes-memory && bun run check )` → `tsc --noEmit`,
++**clean** (the package's canonical `check` = tsc).
++
++### Full suite — `( cd bun-apps/pi-agent-ext-hermes-memory && bun test )`
++
++```
++1521 pass
++1 skip
++0 fail
++1158 expect() calls
++Ran 1522 tests across 131 files. [14.67s]
++```
++
++Baseline was **1514 pass**; now **1521 pass** (delta = +7 new tests). Output
++pristine. No regressions.
++
++## Files changed
++
++- `bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts`
++  - + private `dedupByContentHash()` helper (with full doc comment).
++  - warm path: `ranked` → `dedupByContentHash(ranked)` before early return;
++    trigger keyed on deduped length.
++  - `knowledgeFallback` / `memoryFallback`: `dedupByContentHash(hits)` before
++    each `return`.
++- `bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts`
++  - + new `describe("searchSemantic — contentHash dedup seam (ticket 19 T2)")`
++    block: 7 tests (warm collapse ×2, hashless-kept ×1, cold no-op ×2,
++    never-throws ×2).
++
++Commit: `fbdd39e1` (staged ONLY these two files; progress.md left gitignored).
++
++## Self-review findings
++
++| Requirement | Status |
++|---|---|
++| Private `dedupByContentHash(hits): SemanticSearchHit[]` | ✅ |
++| Keeps first per DEFINED contentHash | ✅ |
++| Hashless hits always kept (never a dedup key) | ✅ tested |
++| Applied to warm `ranked` before early return | ✅ |
++| Applied to `knowledgeFallback` output | ✅ |
++| Applied to `memoryFallback` output | ✅ |
++| Single seam (one function, applied in 3 places) | ✅ |
++| Preserve mdId-dedup + exclude + kind-filter + topK | ✅ untouched |
++| Never-throws (absolute; ticket 14 T5a) | ✅ pure iteration; full try/catch intact |
++| contentHash optional / hashless-kept / shape-compatible | ✅ |
++| No survivingK, no boostWeight (Task 3 / ticket 20) | ✅ YAGNI honored |
++| Tests verify real behavior (not mocks-only) | ✅ warm collapse + cold no-op + never-throws |
++| Did not touch callers (knowledge-search-tool out of scope) | ✅ |
++
++**Cold-path ambiguity (resolved per task):** test (b) is a **correct no-op**
++test, not a collapse test — cold hits have no contentHash, so the seam runs but
++nothing collapses (both knowledge and memory hits survive, no throw). The
++meaningful collapse proof is the **warm-path** test (a). This matches the
++task's explicit resolution; the cold-path seam exists for forward-compat only.
++
++**Placement note:** contentHash-dedup runs after topK truncation, so a warm
++path may return fewer than `topK` hits when dedup collapses a pair. This is
++intended for this slice — re-fill / re-rank is Task 3 (survivingK / boostWeight,
++ticket 20), correctly deferred per YAGNI. The brief's "place it sensibly, e.g.
++after mdId-dedup" guidance is followed exactly.
++
++No concerns. Ready for review.
+diff --git a/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-3-report.md b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-3-report.md
+new file mode 100644
+index 00000000..b44f0c94
+--- /dev/null
++++ b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-3-report.md
+@@ -0,0 +1,134 @@
++# Task 3 Report — `survivingK` config knob (ticket 19 T3, LeanRAG ③)
++
++**Ticket:** 19 — LeanRAG redundancy-aware retrieval, dedup-first slice (final task)
++**Package:** `bun-apps/pi-agent-ext-hermes-memory`
++**Branch:** `feat/kp-19-leanrag-redundancy-aware-retrieval`
++**BASE (Task 3):** `4a73e87f` (chore: kp-19 T2 report — Task 3 sits on top of this)
++**Impl commit:** `fbe6d08d` — `feat(hermes-memory): add survivingK cap knob to semantic search (kp-19 T3)`
++**Status:** DONE
++
++---
++
++## What was implemented
++
++A `survivingK` config knob that **caps** the post-dedup returned semantic-search
++list. Per the Global Constraints, `survivingK` is a **CAP, not a refill**: the
++post-dedup count-below-`topK` shortfall is acceptable behavior; `survivingK`
++only ever reduces (caps) the list. It is applied **AFTER** the contentHash dedup
++pass (Task 2) on **all three** return paths of `searchSemantic`.
++
++### 4-point config registration (mirrors ticket 14's `vectorTopK`)
++
++| Point | File | Change |
++|---|---|---|
++| 1. Constant | `src/constants.ts` | `export const DEFAULT_SURVIVING_K = 10;` (right after `DEFAULT_VECTOR_EF`) |
++| 2. Type | `src/types.ts` | `survivingK: number;` on `MemoryConfig` (after `vectorEf?`) — required, per brief + Global Constraints |
++| 3. Default | `src/config.ts` | `survivingK: DEFAULT_SURVIVING_K,` in `DEFAULT_CONFIG` + `DEFAULT_SURVIVING_K` imported |
++| 4. Parse allowlist | `src/config.ts` `loadConfig` | `if (typeof parsed.survivingK === "number" && Number.isFinite(parsed.survivingK) && parsed.survivingK > 0) config.survivingK = Math.floor(parsed.survivingK);` — byte-for-byte the same guard shape as `vectorTopK` |
++
++### Threading through `searchSemantic`
++
++- `src/store/semantic-search.ts`: added `survivingK?: number` to `SearchSemanticOptions`.
++- In `searchSemantic`: `const cap = survivingK ?? topK;` — **defaults to `topK` when unset, so existing behavior is UNCHANGED** when the option isn't passed.
++- **Cap AFTER dedup on all 3 paths:**
++  - Warm (HNSW): `return deduped.slice(0, cap);` — preserves the cold-index trigger signal (the `deduped.length === 0` check runs on the un-sliced list).
++  - `knowledgeFallback`: added a `cap: number` param; `return dedupByContentHash(hits).slice(0, cap);`.
++  - `memoryFallback`: added a `cap: number` param; `return dedupByContentHash(hits).slice(0, cap);`.
++- The cold fallbacks still use `topK` for retrieval + their internal loop limit (unchanged param); only the final post-dedup slice uses `cap`. This keeps the cold-path retrieval breadth unchanged and applies the cap strictly after dedup.
++
++### Out of scope (deliberately NOT done)
++- **No `boostWeight`** (ticket 20 — multi-signal frequency-vote — YAGNI here). The `dedupByContentHash` doc comment now states the survivingK cap is applied by the CALLER and boostWeight remains deferred.
++- **No caller/tool adoption.** `src/tools/knowledge-search-tool.ts` is untouched. The knob is exposed only via `SearchSemanticOptions.survivingK?`; wiring the tool to pass `config.survivingK` is a deliberate follow-up.
++
++---
++
++## TDD evidence
++
++### RED — wrote failing tests first, watched them fail
++
++**Command:**
++```
++( cd bun-apps/pi-agent-ext-hermes-memory && bun test tests/config.test.ts tests/store/semantic-search.test.ts )
++```
++
++**Result:** `7 fail` (the 3 config tests + 4 of the 6 new searchSemantic cap tests).
++The other 2 new searchSemantic tests (`defaults survivingK to topK when unset`, `CAP not a refill: post-dedup shortfall returned as-is`) pass trivially under the un-implemented code because they assert the *existing* behavior the default must preserve — they are regression guards, not RED drivers.
++
++**Why they failed:**
++- Config tests: `config.survivingK` was `undefined` (no field registered yet) → `assert.strictEqual(config.survivingK, 10)` failed.
++- searchSemantic warm cap: no cap applied → 5 hits returned where 3 expected.
++- searchSemantic "cap AFTER dedup": no cap → 3 hits where 2 expected.
++- COLD knowledge/memory caps: no cap → full lists where capped lists expected.
++
++Representative failure output:
++```
++(pass) searchSemantic — survivingK cap (ticket 19 T3) > WARM: caps the post-dedup ranked list to survivingK
++  [
++    "m1","m2","m3",
+++   "m4",
+++   "m5",
++  ]
++7 tests failed
++```
++
++### GREEN — implemented, watched them pass
++
++**Command:**
++```
++( cd bun-apps/pi-agent-ext-hermes-memory && bun test tests/config.test.ts tests/store/semantic-search.test.ts )
++```
++
++**Result:** `89 pass, 0 fail` — all 9 new tests green; all 80 pre-existing tests in the two files still green.
++
++### Typecheck (this package: `bun run check` = `tsc --noEmit`)
++```
++$ tsc --noEmit
++EXIT=0
++```
++Clean. (`MemoryConfig.survivingK: number` required-field is safe: the only full `MemoryConfig` object literal in the package is `DEFAULT_CONFIG`, which sets it; all other usages are spreads of `DEFAULT_CONFIG` or `Pick<...>` subsets.)
++
++### FULL suite
++```
++( cd bun-apps/pi-agent-ext-hermes-memory && bun test )
++1530 pass
++1 skip
++0 fail
++1164 expect() calls
++Ran 1531 tests across 131 files.
++```
++Baseline was **1521 pass**; added **9 new tests** → 1530. Output pristine (no console noise, no warnings).
++
++---
++
++## Files changed (6 — staged explicitly, no `git add -A`)
++
++| File | Change |
++|---|---|
++| `src/constants.ts` | `+DEFAULT_SURVIVING_K = 10` |
++| `src/types.ts` | `+survivingK: number` on `MemoryConfig` |
++| `src/config.ts` | import + `DEFAULT_CONFIG.survivingK` + parse-allowlist guard |
++| `src/store/semantic-search.ts` | `SearchSemanticOptions.survivingK?` + `cap = survivingK ?? topK` + `.slice(0, cap)` on all 3 return paths + stale comment refresh |
++| `tests/config.test.ts` | 3 config tests (default / valid+floor / invalid→default) |
++| `tests/store/semantic-search.test.ts` | 6 cap tests (warm cap / default→topK / cap-after-dedup / cap-not-refill / cold knowledge cap / cold memory cap) |
++
++Diff stat: `6 files changed, 166 insertions(+), 8 deletions(-)`.
++
++---
++
++## Self-review (Global Constraints checklist)
++
++- [x] **4-point config registration complete** — constants → types → DEFAULT_CONFIG → loadConfig allowlist, all present.
++- [x] **Default preserves current behavior** — `cap = survivingK ?? topK`; `searchSemantic` results unchanged when the option isn't passed (regression tests confirm; full suite had zero pre-existing-test deltas beyond the +9 added).
++- [x] **Cap AFTER dedup, on ALL 3 paths** — warm `deduped.slice(0, cap)`; `knowledgeFallback` + `memoryFallback` slice their `dedupByContentHash(...)` result. The cold-index backfill trigger still keys off the un-sliced `deduped` (signal preserved).
++- [x] **survivingK is a CAP, not a refill** — no over-fetch, no compensation; a post-dedup shortfall below `survivingK` is returned as-is (dedicated test).
++- [x] **No boostWeight** — ticket 20 deferred; doc comment updated to say so.
++- [x] **No caller changes** — `knowledge-search-tool.ts` untouched (verified via `git diff --stat`); knob exposed only via `SearchSemanticOptions.survivingK?`.
++- [x] **YAGNI** — minimal, single-purpose change; no speculative surface.
++
++---
++
++## Notes for the reviewer
++
++- The brief says `survivingK: number` (required) on `MemoryConfig` while `vectorTopK?: number` is optional. Both the brief AND the Global Constraints specify the required form; "mirror vectorTopK" refers to the **4-point registration pattern + the `>0 floor` guard**, not the optional modifier. Required is safe here (only `DEFAULT_CONFIG` constructs the literal; tsc is green).
++- The existing config test file has **no** `vectorTopK`/`vectorEf` tests (the brief's "mirroring how vectorTopK is tested" assumption). The new `survivingK` config tests instead mirror the **decay / proactive** config-test style already in `tests/config.test.ts` (same `loadConfig(temp-file)` fixture, same default/valid/invalid triple).
++- NaN/Infinity cannot be represented in JSON, so the "NaN rejected" case is exercised by the same `typeof === "number" && Number.isFinite && > 0` guard via the JSON-representable invalid set (−1, 0, `"x"`, `true`, `null`); the `Number.isFinite` clause defends the in-memory path against NaN/Infinity.
+diff --git a/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reviews/review-0616693..e746cc6.diff b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reviews/review-0616693..e746cc6.diff
+new file mode 100644
+index 00000000..fc86c9ab
+--- /dev/null
++++ b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reviews/review-0616693..e746cc6.diff
+@@ -0,0 +1,299 @@
++# Review package: 06166935..e746cc6e
++
++## Commits
++e746cc6e feat(hermes-memory): surface contentHash on the semantic-search warm path (kp-19 T1)
++
++## Files changed
++ .../reports/task-1-report.md                       | 121 +++++++++++++++++++++
++ .../src/store/semantic-search.ts                   |  10 +-
++ .../src/store/surreal/vector-store.ts              |  16 ++-
++ .../tests/store/semantic-search.test.ts            |  15 +++
++ 4 files changed, 158 insertions(+), 4 deletions(-)
++
++## Diff
++diff --git a/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-1-report.md b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-1-report.md
++new file mode 100644
++index 00000000..a7b15670
++--- /dev/null
+++++ b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-1-report.md
++@@ -0,0 +1,121 @@
+++# Task 1 Report — Surface contentHash on the warm path
+++
+++Ticket 19 (LeanRAG redundancy-aware retrieval, dedup-first slice), Task 1 of 3.
+++Package: `bun-apps/pi-agent-ext-hermes-memory`. Branch: `feat/kp-19-leanrag-redundancy-aware-retrieval`.
+++
+++## What I implemented
+++
+++Surfaced `contentHash` from the `card_vectors` HNSW side-table through the warm
+++semantic-search path, so Task 2 can dedup hits by exact content hash.
+++
+++1. **`src/store/surreal/vector-store.ts`**
+++   - `VectorKnnHit` gained `contentHash?: string` (optional — cold path doesn't carry it).
+++   - The `knn` SELECT changed from `SELECT mdId, kind FROM card_vectors WHERE vec <|k,ef|> $q`
+++     to `SELECT mdId, kind, contentHash FROM card_vectors WHERE vec <|k,ef|> $q`.
+++   - The row→hit `map` sets `contentHash` **only when the row provides it**
+++     (`if (r.contentHash !== undefined) hit.contentHash = r.contentHash`), so a
+++     hashless row (older rows / mocks) stays shape-compatible.
+++
+++2. **`src/store/semantic-search.ts`**
+++   - `SemanticSearchHit` gained `contentHash?: string` (optional).
+++   - `toHit` populates `contentHash` **only when the knn hit provides it**
+++     (`if (h.contentHash !== undefined) hit.contentHash = h.contentHash`),
+++     keeping hashless warm hits shape-compatible with the existing `toEqual` asserts.
+++
+++3. **`tests/store/semantic-search.test.ts`** — new warm-path test asserting the
+++   returned `SemanticSearchHit` carries `contentHash` from the fake vector store's
+++   knn result, and that a hashless knn row produces a hit with NO `contentHash` key.
+++
+++No new throw paths. No dedup logic, no config knobs (those are Tasks 2/3 — YAGNI).
+++
+++## TDD evidence
+++
+++### RED (test first, then watch it fail for the right reason)
+++
+++Command:
+++```
+++( cd bun-apps/pi-agent-ext-hermes-memory && bun test tests/store/semantic-search.test.ts )
+++```
+++
+++Relevant failing output:
+++```
+++expect(received).toEqual(expected)
+++
+++  [
+++    {
+++-     "contentHash": "hash-1",
+++      "kind": "memory",
+++      "mdId": "m1",
++++     "score": undefined,
+++      "source": "hnsw",
+++    },
+++    ...
+++  ]
+++(fail) searchSemantic — warm path (T2) > surfaces contentHash on the warm path when knn provides it (Task 1)
+++ 12 pass
+++ 1 fail
+++```
+++
+++Why the failure was expected: `contentHash` was NOT surfaced on the warm hit —
+++`toHit` did not map it through, so the expected `contentHash: "hash-1"` was absent
+++on `m1`. (The `+ score: undefined` lines are bun's diff-display artifact —
+++`toEqual` ignores `undefined`-valued properties, as the existing "returns HNSW
+++hits ranked" test passing in the same run confirms.)
+++
+++### GREEN (minimal implementation)
+++
+++Command:
+++```
+++( cd bun-apps/pi-agent-ext-hermes-memory && bun test tests/store/semantic-search.test.ts )
+++```
+++
+++Relevant passing output:
+++```
+++(pass) searchSemantic — warm path (T2) > surfaces contentHash on the warm path when knn provides it (Task 1) [0.22ms]
+++ 13 pass
+++ 0 fail
+++```
+++
+++## Files changed
+++
+++```
+++ bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts                      | 10 +++++++++-
+++ bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/vector-store.ts                 | 16 +++++++++++++---
+++ bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts              | 15 +++++++++++++++
+++```
+++
+++## Self-review
+++
+++- **Completeness vs brief:** all four brief items done — knn SELECT augmented,
+++  `VectorKnnHit.contentHash?` added + mapped, `SemanticSearchHit.contentHash?`
+++  added, `toHit` populates it. ✅
+++- **contentHash is OPTIONAL:** declared `?` on both interfaces; populated only
+++  when the knn row provides it. The cold fallback paths (memory-lexical /
+++  zk-semantic) never set it — never required, never synthesized. ✅
+++- **Never throws:** the change adds zero throw paths. `knn` still returns `[]`
+++  on a non-array response; `toHit` is pure. ✅
+++- **Shape-compatibility (brief heads-up):** the conditional assignment meant NO
+++  existing `toEqual` assertion needed updating — hashless warm hits keep their
+++  exact pre-change shape. Confirmed by the full suite (no assertion breaks). ✅
+++- **YAGNI:** no dedup, no config knobs — only what Task 1 needs. Dedup is Task 2,
+++  knobs are Task 3. ✅
+++- **Test verifies real behavior:** the new test exercises both the with-hash and
+++  hashless knn rows through the real `searchSemantic` warm path, asserting the
+++  real `toHit` mapping (not a mock). ✅
+++- **Naming/docs:** comments reference ticket 19; field doc-comments explain
+++  optionality and the cold-path carve-out. ✅
+++
+++## Full-suite result
+++
+++```
+++( cd bun-apps/pi-agent-ext-hermes-memory && bun run check )   # tsc --noEmit → clean
+++( cd bun-apps/pi-agent-ext-hermes-memory && bun test )
+++ 1514 pass
+++ 1 skip
+++ 0 fail
+++ 1151 expect() calls
+++ Ran 1515 tests across 131 files. [14.49s]
+++```
+++
+++Baseline was **1513 pass / 1 skip / 0 fail**; this change lands at **1514 pass /
+++1 skip / 0 fail** (+1 = the new warm-path contentHash test). Output pristine.
++diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
++index 951da01d..2a0e6538 100644
++--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
+++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
++@@ -35,20 +35,24 @@ import { embedQuery, type Embedder } from "./surreal/embedder.js";
++ /** The card "kind" namespace. Mirrors zk's knowledge folder vs hermes memory. */
++ export type SemanticKind = "memory" | "knowledge";
++ 
++ export interface SemanticSearchHit {
++   mdId: string;
++   kind: SemanticKind;
++   /** Optional relevance score (HNSW returns none; lexical/cosine fallbacks may). */
++   score?: number;
++   /** Which path produced this hit — useful for tracing the fallback decision. */
++   source: "hnsw" | "zk-semantic" | "memory-lexical";
+++  /** Content hash surfaced from card_vectors on the warm (HNSW) path — the
+++   *  redundancy-aware dedup key (ticket 19). Optional: the cold fallback paths
+++   *  (memory-lexical / zk-semantic) do not carry it, so do not assume present. */
+++  contentHash?: string;
++ }
++ 
++ export interface SearchSemanticOptions {
++   queryText: string;
++   /** Restrict to one kind. When omitted, the warm HNSW path returns whatever
++    *  kinds are indexed (mixed); the fallback paths pick by `kind` (default
++    *  "memory"). */
++   kind?: SemanticKind;
++   /** K for the KNN query (default from config / 10). */
++   topK?: number;
++@@ -77,21 +81,25 @@ export interface SearchSemanticOptions {
++    *  the backfill's own inProgress guard coalesces cold-query bursts so at most
++    *  one backfill runs at a time. Never awaited — never blocks the query. */
++   scheduleVectorBackfill?: () => void;
++ }
++ 
++ /** Internal: normalize a VectorKnnHit to a SemanticSearchHit (warm path). */
++ function toHit(h: VectorKnnHit, kind: SemanticKind | undefined): SemanticSearchHit {
++   // The store carries `kind` per row; honor it when present and valid, else
++   // fall back to the caller's requested kind.
++   const k: SemanticKind = h.kind === "knowledge" ? "knowledge" : h.kind === "memory" ? "memory" : (kind ?? "memory");
++-  return { mdId: h.mdId, kind: k, source: "hnsw", score: h.score };
+++  // Surface contentHash only when the knn row provided it, so hashless warm
+++  // hits stay shape-compatible (ticket 19 warm-path dedup key).
+++  const hit: SemanticSearchHit = { mdId: h.mdId, kind: k, source: "hnsw", score: h.score };
+++  if (h.contentHash !== undefined) hit.contentHash = h.contentHash;
+++  return hit;
++ }
++ 
++ /**
++  * T2 + T5(a): semantic search with graceful degradation. NEVER throws.
++  *
++  * Order of operations:
++  *   1. If a vectorStore is wired, embed the query (embedQuery swallows errors
++  *      → null). On a non-null vector, run knn (warm path). On success, return
++  *      the ranked hits (filtered by excludeIds + topK).
++  *   2. On ANY failure in step 1 (no vectorStore, embed returned null, knn
++diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/vector-store.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/vector-store.ts
++index 8644ac4e..11e67856 100644
++--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/vector-store.ts
+++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/vector-store.ts
++@@ -47,20 +47,24 @@ export interface VectorUpsertEntry {
++ }
++ 
++ /** A KNN hit. `score` is optional: SurrealDB's 2-arg KNN returns rows in
++  *  nearest-first order but does not return a distance column, so the warm path
++  *  leaves score undefined (rank order is the signal); the T5(a) fallback paths
++  *  may attach a cosine/lexical score. */
++ export interface VectorKnnHit {
++   mdId: string;
++   kind: string;
++   score?: number;
+++  /** Content hash from card_vectors (warm path) — surfaced as the redundancy-aware
+++   *  dedup key (ticket 19). Optional: the cold path (memory/knowledge fallback)
+++   *  does not carry it, so callers must not assume it is present. */
+++  contentHash?: string;
++ }
++ 
++ /** Backend-neutral vector store seam. The non-Surreal case (SQLite CRUD with
++  *  no vector index) is a no-op stub — see `createVectorStore`. */
++ export interface VectorStore {
++   /** Create the ns/db + card_vectors table + HNSW index. Idempotent. */
++   init(): Promise<void>;
++   /** Idempotently upsert embeddings, batched (VEC_BATCH) to respect the /sql
++    *  1MiB body cap. Same (mdId, modelVersion) re-upserted must not duplicate. */
++   upsertVectors(entries: VectorUpsertEntry[]): Promise<void>;
++@@ -129,24 +133,30 @@ export class SurrealVectorStore implements VectorStore {
++       }
++       await this.client.query(stmts.join("\n"));
++     }
++   }
++ 
++   async knn(queryVec: number[], k: number, ef: number): Promise<VectorKnnHit[]> {
++     await this.init();
++     // 2-arg KNN: `vec <|k,ef|> $q`. $q bound by SurrealClient (LET $q = <json>).
++     // SurrealDB returns rows in nearest-first order; no distance column, so
++     // score is left undefined (rank order is the signal).
++-    const sql = `SELECT mdId, kind FROM card_vectors WHERE vec <|${k},${ef}|> $q;`;
++-    const rows = await this.client.query<Array<{ mdId: string; kind: string }>>(sql, { q: queryVec });
+++    const sql = `SELECT mdId, kind, contentHash FROM card_vectors WHERE vec <|${k},${ef}|> $q;`;
+++    const rows = await this.client.query<Array<{ mdId: string; kind: string; contentHash?: string }>>(sql, { q: queryVec });
++     if (!Array.isArray(rows)) return [];
++-    return rows.map((r) => ({ mdId: r.mdId, kind: r.kind }));
+++    // Surface contentHash when the row carries it (ticket 19 warm-path dedup
+++    // key). A hashless row (older rows / mocks) stays shape-compatible.
+++    return rows.map((r) => {
+++      const hit: VectorKnnHit = { mdId: r.mdId, kind: r.kind };
+++      if (r.contentHash !== undefined) hit.contentHash = r.contentHash;
+++      return hit;
+++    });
++   }
++ 
++   async missingMdIds(allMdIds: string[], modelVersion: string): Promise<string[]> {
++     await this.init();
++     if (allMdIds.length === 0) return [];
++     // Client-side set diff (one round-trip): SELECT every stored mdId for the
++     // modelVersion, then return the allMdIds NOT in that set. This is
++     // DELIBERATELY not `... WHERE mdId NOT IN $ids`: passing allMdIds as a
++     // SurrealQL param would put the whole array in the /sql request body, which
++     // at scale (~100k mdIds ≈ 1MB) hits the 1MiB body cap. Querying stored
++diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
++index 7c5712e8..990c3074 100644
++--- a/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
+++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
++@@ -89,20 +89,35 @@ describe("searchSemantic — warm path (T2)", () => {
++ 
++   it("respects excludeIds on the warm path", async () => {
++     const vs = fakeVectorStore([{ mdId: "m1", kind: "memory" }, { mdId: "m2", kind: "memory" }]);
++     const hits = await searchSemantic({
++       queryText: "probe", topK: 5, embedder: fakeEmbedder(), vectorStore: vs,
++       excludeIds: ["m1"],
++     });
++     expect(hits.map((h) => h.mdId)).toEqual(["m2"]);
++   });
++ 
+++  it("surfaces contentHash on the warm path when knn provides it (Task 1)", async () => {
+++    const vs = fakeVectorStore([
+++      { mdId: "m1", kind: "memory", contentHash: "hash-1" },
+++      { mdId: "m2", kind: "memory" }, // hashless knn row → hit stays shape-compatible
+++    ]);
+++    const hits = await searchSemantic({
+++      queryText: "probe", kind: "memory", topK: 5, ef: 100,
+++      embedder: fakeEmbedder(), vectorStore: vs,
+++    });
+++    expect(hits).toEqual<SemanticSearchHit[]>([
+++      { mdId: "m1", kind: "memory", source: "hnsw", contentHash: "hash-1" },
+++      { mdId: "m2", kind: "memory", source: "hnsw" }, // no contentHash key
+++    ]);
+++  });
+++
++   it("does NOT invoke the fallback when the warm path answers []", async () => {
++     const vs = fakeVectorStore([]); // warm path answers empty (legit no-match)
++     const kp = fakeKp();
++     const hits = await searchSemantic({
++       queryText: "probe", kind: "knowledge", topK: 5,
++       embedder: fakeEmbedder(), vectorStore: vs, kp, vaultPath: "/v",
++     });
++     expect(hits).toEqual([]); // warm [] is returned, NOT fallen through
++     expect(kpRetrieve).not.toHaveBeenCalled();
++   });
+diff --git a/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reviews/review-0e185ac..fbdd39e.diff b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reviews/review-0e185ac..fbdd39e.diff
+new file mode 100644
+index 00000000..3b8000f9
+--- /dev/null
++++ b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reviews/review-0e185ac..fbdd39e.diff
+@@ -0,0 +1,268 @@
++# Review package: 0e185ac5..fbdd39e1
++
++## Commits
++fbdd39e1 feat(hermes-memory): add contentHash dedup seam to semantic search (kp-19 T2)
++
++## Files changed
++ .../src/store/semantic-search.ts                   | 47 ++++++++++-
++ .../tests/store/semantic-search.test.ts            | 97 ++++++++++++++++++++++
++ 2 files changed, 140 insertions(+), 4 deletions(-)
++
++## Diff
++diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
++index 2a0e6538..5b828f9d 100644
++--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
+++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
++@@ -88,20 +88,46 @@ function toHit(h: VectorKnnHit, kind: SemanticKind | undefined): SemanticSearchH
++   // The store carries `kind` per row; honor it when present and valid, else
++   // fall back to the caller's requested kind.
++   const k: SemanticKind = h.kind === "knowledge" ? "knowledge" : h.kind === "memory" ? "memory" : (kind ?? "memory");
++   // Surface contentHash only when the knn row provided it, so hashless warm
++   // hits stay shape-compatible (ticket 19 warm-path dedup key).
++   const hit: SemanticSearchHit = { mdId: h.mdId, kind: k, source: "hnsw", score: h.score };
++   if (h.contentHash !== undefined) hit.contentHash = h.contentHash;
++   return hit;
++ }
++ 
+++/**
+++ * Redundancy-aware dedup pass (ticket 19 T2). Keeps the FIRST occurrence per
+++ * DEFINED contentHash; hits whose contentHash is undefined are ALWAYS kept (a
+++ * missing contentHash is never a shared key — Global Constraint). Applied on
+++ * every return path of `searchSemantic` so the warm (HNSW) and cold
+++ * (zk-semantic / memory-lexical) hits both pass through ONE seam. On the cold
+++ * paths every hit is hashless (RetrievedCard / MemoryEntry carry no hash), so
+++ * the pass is a correct no-op there — the meaningful collapse lives on the
+++ * warm path. Single pure pass: no survivingK, no boostWeight (Task 3 / ticket
+++ * 20 — YAGNI here). Never throws.
+++ */
+++function dedupByContentHash(hits: SemanticSearchHit[]): SemanticSearchHit[] {
+++  const seen = new Set<string>();
+++  const out: SemanticSearchHit[] = [];
+++  for (const h of hits) {
+++    if (h.contentHash === undefined) {
+++      out.push(h); // hashless → always kept (never a dedup key)
+++      continue;
+++    }
+++    if (seen.has(h.contentHash)) continue; // duplicate hash → drop later twin
+++    seen.add(h.contentHash);
+++    out.push(h);
+++  }
+++  return out;
+++}
+++
++ /**
++  * T2 + T5(a): semantic search with graceful degradation. NEVER throws.
++  *
++  * Order of operations:
++  *   1. If a vectorStore is wired, embed the query (embedQuery swallows errors
++  *      → null). On a non-null vector, run knn (warm path). On success, return
++  *      the ranked hits (filtered by excludeIds + topK).
++  *   2. On ANY failure in step 1 (no vectorStore, embed returned null, knn
++  *      threw), fall through to T5(a):
++  *        - knowledge kind → kp.retrieveRecords({semantic:true, queryText,
++@@ -142,28 +168,36 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
++           // Return the (possibly empty) ranked list — the caller decides. We do
++           // NOT fall through on empty, because the warm path answering [] is a
++           // legitimate "no semantic match" (falling through would double-search).
++           //
++           // Phase B / T3 cold-index trigger: an empty warm result is the cold
++           // signal — fire the deferred vector backfill best-effort (never
++           // awaited, never blocks). The backfill's inProgress guard coalesces
++           // cold-query bursts so at most one backfill runs at a time; its
++           // deferred task re-checks the staleness delta and embeds only
++           // changed/new cards (cheap no-op when the index is already warm).
++-          if (ranked.length === 0 && scheduleVectorBackfill) {
+++          // Ticket 19 T2: redundancy-aware contentHash dedup seam. Applied to
+++          // the warm (HNSW) ranked list before the early return — the SAME
+++          // private pass the cold fallbacks use below. hashless hits are kept,
+++          // duplicate contentHashes collapse to the first occurrence. dedup can
+++          // only shrink a non-empty list (it keeps the first per key), so
+++          // `deduped.length === 0` ⟺ `ranked.length === 0` — the cold-index
+++          // trigger signal is preserved.
+++          const deduped = dedupByContentHash(ranked);
+++          if (deduped.length === 0 && scheduleVectorBackfill) {
++             try {
++               scheduleVectorBackfill();
++             } catch {
++               // best-effort — never affect the query result
++             }
++           }
++-          return ranked;
+++          return deduped;
++         } catch {
++           // knn threw (SurrealDB down / index error) → fall through to T5(a).
++         }
++       }
++       // qvec null (LM Studio down / model missing) → fall through to T5(a).
++     } catch {
++       // embedder itself threw unexpectedly → fall through to T5(a).
++     }
++   }
++ 
++@@ -199,21 +233,24 @@ async function knowledgeFallback(
++     });
++     const hits: SemanticSearchHit[] = [];
++     const seen = new Set<string>();
++     for (const card of result.cards) {
++       if (exclude.has(card.id)) continue;
++       if (seen.has(card.id)) continue;
++       seen.add(card.id);
++       hits.push({ mdId: card.id, kind: "knowledge", source: "zk-semantic" });
++       if (hits.length >= topK) break;
++     }
++-    return hits;
+++    // Ticket 19 T2: same dedup seam as the warm path. Cold-path hits carry no
+++    // contentHash → this is a correct no-op (all kept), but the seam is wired
+++    // so a future hash-bearing cold source needs no caller change.
+++    return dedupByContentHash(hits);
++   } catch {
++     return []; // zk seam absent / threw → empty (never propagates)
++   }
++ }
++ 
++ /** T5(a) memory fallback: the existing lexical `searchMemories` (FTS). Never
++  *  throws. The memory repo's mdId (frontmatter id mirrored onto the row) is the
++  *  SemanticSearchHit.mdId; entries without one are skipped (no stable id to
++  *  return). */
++ async function memoryFallback(
++@@ -226,15 +263,17 @@ async function memoryFallback(
++   try {
++     const entries = await memoryRepo.searchMemories(queryText, { limit: topK });
++     const hits: SemanticSearchHit[] = [];
++     for (const e of entries) {
++       const mdId = e.mdId ?? null;
++       if (!mdId) continue;
++       if (exclude.has(mdId)) continue;
++       hits.push({ mdId, kind: "memory", source: "memory-lexical" });
++       if (hits.length >= topK) break;
++     }
++-    return hits;
+++    // Ticket 19 T2: same dedup seam as the warm path (no-op while MemoryEntry
+++    // carries no contentHash; wired for forward-compat).
+++    return dedupByContentHash(hits);
++   } catch {
++     return []; // lexical search threw → empty (never propagates)
++   }
++ }
++diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
++index 990c3074..e9c8ceeb 100644
++--- a/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
+++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
++@@ -189,20 +189,117 @@ describe("searchSemantic — T5(a) graceful degrade", () => {
++   it("knowledge fallback with no kp → [] (graceful, no throw)", async () => {
++     const vs = throwingVectorStore();
++     const hits = await searchSemantic({
++       queryText: "probe", kind: "knowledge", topK: 5,
++       embedder: fakeEmbedder(), vectorStore: vs, // no kp, no vaultPath
++     });
++     expect(hits).toEqual([]);
++   });
++ });
++ 
+++describe("searchSemantic — contentHash dedup seam (ticket 19 T2)", () => {
+++  it("WARM: two knn hits sharing a contentHash collapse to one (keeps first)", async () => {
+++    // Two cards with the SAME contentHash but different mdIds both survive
+++    // mdId-dedup → the contentHash-dedup pass must collapse the pair to the
+++    // first occurrence (m1); a third card with a distinct hash is kept.
+++    const vs = fakeVectorStore([
+++      { mdId: "m1", kind: "memory", contentHash: "dup" },
+++      { mdId: "m2", kind: "memory", contentHash: "dup" },
+++      { mdId: "m3", kind: "memory", contentHash: "unique" },
+++    ]);
+++    const hits = await searchSemantic({
+++      queryText: "probe", kind: "memory", topK: 5,
+++      embedder: fakeEmbedder(), vectorStore: vs,
+++    });
+++    expect(hits).toEqual<SemanticSearchHit[]>([
+++      { mdId: "m1", kind: "memory", source: "hnsw", contentHash: "dup" },
+++      { mdId: "m3", kind: "memory", source: "hnsw", contentHash: "unique" },
+++    ]);
+++  });
+++
+++  it("WARM: hashless hits are all kept (no contentHash is never a dedup key)", async () => {
+++    const vs = fakeVectorStore([
+++      { mdId: "m1", kind: "memory" },
+++      { mdId: "m2", kind: "memory" },
+++      { mdId: "m3", kind: "memory" },
+++    ]);
+++    const hits = await searchSemantic({
+++      queryText: "probe", kind: "memory", topK: 5,
+++      embedder: fakeEmbedder(), vectorStore: vs,
+++    });
+++    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2", "m3"]);
+++  });
+++
+++  it("WARM: a hashed hit dedups against a later same-hash hit, hashless ones untouched", async () => {
+++    const vs = fakeVectorStore([
+++      { mdId: "m1", kind: "memory", contentHash: "x" },
+++      { mdId: "m2", kind: "memory" }, // hashless → always kept
+++      { mdId: "m3", kind: "memory", contentHash: "x" }, // dup of m1 → dropped
+++    ]);
+++    const hits = await searchSemantic({
+++      queryText: "probe", kind: "memory", topK: 5,
+++      embedder: fakeEmbedder(), vectorStore: vs,
+++    });
+++    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]);
+++  });
+++
+++  it("COLD knowledge: hashless hits survive the dedup seam (correct no-op), no throw", async () => {
+++    // Cold-path hits carry NO contentHash → the dedup seam runs but is a
+++    // correct NO-OP: every hashless hit is kept (nothing collapses). The
+++    // meaningful collapse case lives on the WARM path (test above).
+++    const vs = throwingVectorStore();
+++    const hits = await searchSemantic({
+++      queryText: "probe", kind: "knowledge", topK: 5,
+++      embedder: fakeEmbedder(), vectorStore: vs, kp: fakeKp(), vaultPath: "/v", folder: "kg",
+++    });
+++    expect(hits).toEqual<SemanticSearchHit[]>([
+++      { mdId: "card-a", kind: "knowledge", source: "zk-semantic" },
+++      { mdId: "card-b", kind: "knowledge", source: "zk-semantic" },
+++    ]);
+++  });
+++
+++  it("COLD memory: hashless hits survive the dedup seam (correct no-op), no throw", async () => {
+++    const vs = throwingVectorStore();
+++    const repo = fakeMemoryRepo([
+++      { id: 1, mdId: "mem-1", content: "c" } as MemoryEntry,
+++      { id: 2, mdId: "mem-2", content: "c" } as MemoryEntry,
+++    ]);
+++    const hits = await searchSemantic({
+++      queryText: "probe", kind: "memory", topK: 5,
+++      embedder: fakeEmbedder(), vectorStore: vs, memoryRepo: repo,
+++    });
+++    expect(hits).toEqual<SemanticSearchHit[]>([
+++      { mdId: "mem-1", kind: "memory", source: "memory-lexical" },
+++      { mdId: "mem-2", kind: "memory", source: "memory-lexical" },
+++    ]);
+++  });
+++
+++  it("NEVER THROWS: empty warm result → dedup seam runs on [] → [] (no throw)", async () => {
+++    const vs = fakeVectorStore([]);
+++    const hits = await searchSemantic({
+++      queryText: "probe", kind: "memory", topK: 5,
+++      embedder: fakeEmbedder(), vectorStore: vs,
+++    });
+++    expect(hits).toEqual([]);
+++  });
+++
+++  it("NEVER THROWS: cold path with no dependencies → [] through the dedup seam", async () => {
+++    // knowledge fallback with no kp → [] ; the dedup seam still runs on [].
+++    const vs = throwingVectorStore();
+++    const hits = await searchSemantic({
+++      queryText: "probe", kind: "knowledge", topK: 5,
+++      embedder: fakeEmbedder(), vectorStore: vs, // no kp, no vaultPath
+++    });
+++    expect(hits).toEqual([]);
+++  });
+++});
+++
++ describe("searchSemantic — Phase B cold-index backfill trigger", () => {
++   it("fires scheduleVectorBackfill fire-and-forget when the warm path returns EMPTY", async () => {
++     // Warm store answers with NO hits (cold-index signal) → trigger fires once,
++     // the (empty) result is returned unchanged, and the trigger is NOT awaited.
++     const vs = fakeVectorStore([]);
++     const trigger = mock(() => {});
++     const hits = await searchSemantic({
++       queryText: "probe", kind: "memory", topK: 5,
++       embedder: fakeEmbedder(), vectorStore: vs,
++       scheduleVectorBackfill: trigger,
+diff --git a/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reviews/review-4a73e8..cc4fe99.diff b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reviews/review-4a73e8..cc4fe99.diff
+new file mode 100644
+index 00000000..14bf4e55
+--- /dev/null
++++ b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reviews/review-4a73e8..cc4fe99.diff
+@@ -0,0 +1,648 @@
++# Review package: 4a73e87f..cc4fe99e
++
++## Commits
++cc4fe99e chore(sdd): kp-19 T3 report
++fbe6d08d feat(hermes-memory): add survivingK cap knob to semantic search (kp-19 T3)
++
++## Files changed
++ .../reports/task-3-report.md                       | 134 +++++++++++++++++++++
++ bun-apps/pi-agent-ext-hermes-memory/src/config.ts  |   7 ++
++ .../pi-agent-ext-hermes-memory/src/constants.ts    |   5 +
++ .../src/store/semantic-search.ts                   |  31 +++--
++ bun-apps/pi-agent-ext-hermes-memory/src/types.ts   |   5 +
++ .../tests/config.test.ts                           |  29 +++++
++ .../tests/store/semantic-search.test.ts            |  97 +++++++++++++++
++ 7 files changed, 300 insertions(+), 8 deletions(-)
++
++## Diff
++diff --git a/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-3-report.md b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-3-report.md
++new file mode 100644
++index 00000000..b44f0c94
++--- /dev/null
+++++ b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-3-report.md
++@@ -0,0 +1,134 @@
+++# Task 3 Report — `survivingK` config knob (ticket 19 T3, LeanRAG ③)
+++
+++**Ticket:** 19 — LeanRAG redundancy-aware retrieval, dedup-first slice (final task)
+++**Package:** `bun-apps/pi-agent-ext-hermes-memory`
+++**Branch:** `feat/kp-19-leanrag-redundancy-aware-retrieval`
+++**BASE (Task 3):** `4a73e87f` (chore: kp-19 T2 report — Task 3 sits on top of this)
+++**Impl commit:** `fbe6d08d` — `feat(hermes-memory): add survivingK cap knob to semantic search (kp-19 T3)`
+++**Status:** DONE
+++
+++---
+++
+++## What was implemented
+++
+++A `survivingK` config knob that **caps** the post-dedup returned semantic-search
+++list. Per the Global Constraints, `survivingK` is a **CAP, not a refill**: the
+++post-dedup count-below-`topK` shortfall is acceptable behavior; `survivingK`
+++only ever reduces (caps) the list. It is applied **AFTER** the contentHash dedup
+++pass (Task 2) on **all three** return paths of `searchSemantic`.
+++
+++### 4-point config registration (mirrors ticket 14's `vectorTopK`)
+++
+++| Point | File | Change |
+++|---|---|---|
+++| 1. Constant | `src/constants.ts` | `export const DEFAULT_SURVIVING_K = 10;` (right after `DEFAULT_VECTOR_EF`) |
+++| 2. Type | `src/types.ts` | `survivingK: number;` on `MemoryConfig` (after `vectorEf?`) — required, per brief + Global Constraints |
+++| 3. Default | `src/config.ts` | `survivingK: DEFAULT_SURVIVING_K,` in `DEFAULT_CONFIG` + `DEFAULT_SURVIVING_K` imported |
+++| 4. Parse allowlist | `src/config.ts` `loadConfig` | `if (typeof parsed.survivingK === "number" && Number.isFinite(parsed.survivingK) && parsed.survivingK > 0) config.survivingK = Math.floor(parsed.survivingK);` — byte-for-byte the same guard shape as `vectorTopK` |
+++
+++### Threading through `searchSemantic`
+++
+++- `src/store/semantic-search.ts`: added `survivingK?: number` to `SearchSemanticOptions`.
+++- In `searchSemantic`: `const cap = survivingK ?? topK;` — **defaults to `topK` when unset, so existing behavior is UNCHANGED** when the option isn't passed.
+++- **Cap AFTER dedup on all 3 paths:**
+++  - Warm (HNSW): `return deduped.slice(0, cap);` — preserves the cold-index trigger signal (the `deduped.length === 0` check runs on the un-sliced list).
+++  - `knowledgeFallback`: added a `cap: number` param; `return dedupByContentHash(hits).slice(0, cap);`.
+++  - `memoryFallback`: added a `cap: number` param; `return dedupByContentHash(hits).slice(0, cap);`.
+++- The cold fallbacks still use `topK` for retrieval + their internal loop limit (unchanged param); only the final post-dedup slice uses `cap`. This keeps the cold-path retrieval breadth unchanged and applies the cap strictly after dedup.
+++
+++### Out of scope (deliberately NOT done)
+++- **No `boostWeight`** (ticket 20 — multi-signal frequency-vote — YAGNI here). The `dedupByContentHash` doc comment now states the survivingK cap is applied by the CALLER and boostWeight remains deferred.
+++- **No caller/tool adoption.** `src/tools/knowledge-search-tool.ts` is untouched. The knob is exposed only via `SearchSemanticOptions.survivingK?`; wiring the tool to pass `config.survivingK` is a deliberate follow-up.
+++
+++---
+++
+++## TDD evidence
+++
+++### RED — wrote failing tests first, watched them fail
+++
+++**Command:**
+++```
+++( cd bun-apps/pi-agent-ext-hermes-memory && bun test tests/config.test.ts tests/store/semantic-search.test.ts )
+++```
+++
+++**Result:** `7 fail` (the 3 config tests + 4 of the 6 new searchSemantic cap tests).
+++The other 2 new searchSemantic tests (`defaults survivingK to topK when unset`, `CAP not a refill: post-dedup shortfall returned as-is`) pass trivially under the un-implemented code because they assert the *existing* behavior the default must preserve — they are regression guards, not RED drivers.
+++
+++**Why they failed:**
+++- Config tests: `config.survivingK` was `undefined` (no field registered yet) → `assert.strictEqual(config.survivingK, 10)` failed.
+++- searchSemantic warm cap: no cap applied → 5 hits returned where 3 expected.
+++- searchSemantic "cap AFTER dedup": no cap → 3 hits where 2 expected.
+++- COLD knowledge/memory caps: no cap → full lists where capped lists expected.
+++
+++Representative failure output:
+++```
+++(pass) searchSemantic — survivingK cap (ticket 19 T3) > WARM: caps the post-dedup ranked list to survivingK
+++  [
+++    "m1","m2","m3",
++++   "m4",
++++   "m5",
+++  ]
+++7 tests failed
+++```
+++
+++### GREEN — implemented, watched them pass
+++
+++**Command:**
+++```
+++( cd bun-apps/pi-agent-ext-hermes-memory && bun test tests/config.test.ts tests/store/semantic-search.test.ts )
+++```
+++
+++**Result:** `89 pass, 0 fail` — all 9 new tests green; all 80 pre-existing tests in the two files still green.
+++
+++### Typecheck (this package: `bun run check` = `tsc --noEmit`)
+++```
+++$ tsc --noEmit
+++EXIT=0
+++```
+++Clean. (`MemoryConfig.survivingK: number` required-field is safe: the only full `MemoryConfig` object literal in the package is `DEFAULT_CONFIG`, which sets it; all other usages are spreads of `DEFAULT_CONFIG` or `Pick<...>` subsets.)
+++
+++### FULL suite
+++```
+++( cd bun-apps/pi-agent-ext-hermes-memory && bun test )
+++1530 pass
+++1 skip
+++0 fail
+++1164 expect() calls
+++Ran 1531 tests across 131 files.
+++```
+++Baseline was **1521 pass**; added **9 new tests** → 1530. Output pristine (no console noise, no warnings).
+++
+++---
+++
+++## Files changed (6 — staged explicitly, no `git add -A`)
+++
+++| File | Change |
+++|---|---|
+++| `src/constants.ts` | `+DEFAULT_SURVIVING_K = 10` |
+++| `src/types.ts` | `+survivingK: number` on `MemoryConfig` |
+++| `src/config.ts` | import + `DEFAULT_CONFIG.survivingK` + parse-allowlist guard |
+++| `src/store/semantic-search.ts` | `SearchSemanticOptions.survivingK?` + `cap = survivingK ?? topK` + `.slice(0, cap)` on all 3 return paths + stale comment refresh |
+++| `tests/config.test.ts` | 3 config tests (default / valid+floor / invalid→default) |
+++| `tests/store/semantic-search.test.ts` | 6 cap tests (warm cap / default→topK / cap-after-dedup / cap-not-refill / cold knowledge cap / cold memory cap) |
+++
+++Diff stat: `6 files changed, 166 insertions(+), 8 deletions(-)`.
+++
+++---
+++
+++## Self-review (Global Constraints checklist)
+++
+++- [x] **4-point config registration complete** — constants → types → DEFAULT_CONFIG → loadConfig allowlist, all present.
+++- [x] **Default preserves current behavior** — `cap = survivingK ?? topK`; `searchSemantic` results unchanged when the option isn't passed (regression tests confirm; full suite had zero pre-existing-test deltas beyond the +9 added).
+++- [x] **Cap AFTER dedup, on ALL 3 paths** — warm `deduped.slice(0, cap)`; `knowledgeFallback` + `memoryFallback` slice their `dedupByContentHash(...)` result. The cold-index backfill trigger still keys off the un-sliced `deduped` (signal preserved).
+++- [x] **survivingK is a CAP, not a refill** — no over-fetch, no compensation; a post-dedup shortfall below `survivingK` is returned as-is (dedicated test).
+++- [x] **No boostWeight** — ticket 20 deferred; doc comment updated to say so.
+++- [x] **No caller changes** — `knowledge-search-tool.ts` untouched (verified via `git diff --stat`); knob exposed only via `SearchSemanticOptions.survivingK?`.
+++- [x] **YAGNI** — minimal, single-purpose change; no speculative surface.
+++
+++---
+++
+++## Notes for the reviewer
+++
+++- The brief says `survivingK: number` (required) on `MemoryConfig` while `vectorTopK?: number` is optional. Both the brief AND the Global Constraints specify the required form; "mirror vectorTopK" refers to the **4-point registration pattern + the `>0 floor` guard**, not the optional modifier. Required is safe here (only `DEFAULT_CONFIG` constructs the literal; tsc is green).
+++- The existing config test file has **no** `vectorTopK`/`vectorEf` tests (the brief's "mirroring how vectorTopK is tested" assumption). The new `survivingK` config tests instead mirror the **decay / proactive** config-test style already in `tests/config.test.ts` (same `loadConfig(temp-file)` fixture, same default/valid/invalid triple).
+++- NaN/Infinity cannot be represented in JSON, so the "NaN rejected" case is exercised by the same `typeof === "number" && Number.isFinite && > 0` guard via the JSON-representable invalid set (−1, 0, `"x"`, `true`, `null`); the `Number.isFinite` clause defends the in-memory path against NaN/Infinity.
++diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/config.ts b/bun-apps/pi-agent-ext-hermes-memory/src/config.ts
++index cb0a8bc4..8aa0ba76 100644
++--- a/bun-apps/pi-agent-ext-hermes-memory/src/config.ts
+++++ b/bun-apps/pi-agent-ext-hermes-memory/src/config.ts
++@@ -22,20 +22,21 @@ import {
++   DEFAULT_PROACTIVE_HEAT_FLOOR,
++   DEFAULT_PROACTIVE_MAX_CANDIDATES,
++   DEFAULT_PROACTIVE_PRESSURE_THRESHOLD,
++   DEFAULT_PROACTIVE_COOLDOWN_MINUTES,
++   DEFAULT_FAILURE_MODEL,
++   DEFAULT_EMBED_MODEL,
++   DEFAULT_EMBED_MODEL_VERSION,
++   DEFAULT_LMSTUDIO_BASE_URL,
++   DEFAULT_VECTOR_TOP_K,
++   DEFAULT_VECTOR_EF,
+++  DEFAULT_SURVIVING_K,
++ } from "./constants.js";
++ import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
++ import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
++ import { detectProject, resolveProjectStoreDir } from "./project.js";
++ 
++ const MEMORY_OVERFLOW_STRATEGIES: readonly MemoryOverflowStrategy[] = ["auto-consolidate", "reject", "fifo-evict", "vault-offload"];
++ const SESSION_SEARCH_VARIANTS: readonly SessionSearchVariant[] = ["legacy", "anchors"];
++ // "subprocess" removed in the spawnSubagent migration — the fallback is now spawnSubagent, not a pi -p subprocess.
++ const REVIEW_TRANSPORTS: readonly ReviewTransport[] = ["direct"];
++ const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
++@@ -106,20 +107,23 @@ const DEFAULT_CONFIG: MemoryConfig = {
++   dbBackend: "sqlite",
++   failureModel: DEFAULT_FAILURE_MODEL,
++   // Vector / semantic search (ticket 14 phase A). The card_vectors HNSW side-
++   // table is independent of the CRUD backend (#06 lesson: registered here AND
++   // in the parse allowlist below from day one).
++   embedModel: DEFAULT_EMBED_MODEL,
++   embedModelVersion: DEFAULT_EMBED_MODEL_VERSION,
++   lmStudioBaseUrl: DEFAULT_LMSTUDIO_BASE_URL,
++   vectorTopK: DEFAULT_VECTOR_TOP_K,
++   vectorEf: DEFAULT_VECTOR_EF,
+++  // survivingK (ticket 19 T3): caps the post-dedup returned list. Registered
+++  // in DEFAULT_CONFIG AND the parse allowlist below (#06 config-gap lesson).
+++  survivingK: DEFAULT_SURVIVING_K,
++ };
++ 
++ export const DEFAULT_CONFIG_PATH = path.join(
++   AGENT_ROOT,
++   "hermes-memory-config.json",
++ );
++ 
++ /**
++  * Populate the per-user default SurrealDB `namespace` and `database` when the
++  * config file didn't set them, so the resolved config carries both for the
++@@ -360,20 +364,23 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
++       }
++       if (isThinkingLevel(parsed.llmThinkingOverride)) config.llmThinkingOverride = parsed.llmThinkingOverride;
++       // Vector / semantic search (ticket 14 phase A): the #06 config-gap lesson —
++       // every knob is allowlisted here so a config-file value reaches the
++       // consumer. String knobs get a trim guard; numeric knobs via finite checks.
++       if (typeof parsed.embedModel === "string" && parsed.embedModel.trim()) config.embedModel = parsed.embedModel.trim();
++       if (typeof parsed.embedModelVersion === "string" && parsed.embedModelVersion.trim()) config.embedModelVersion = parsed.embedModelVersion.trim();
++       if (typeof parsed.lmStudioBaseUrl === "string" && parsed.lmStudioBaseUrl.trim()) config.lmStudioBaseUrl = parsed.lmStudioBaseUrl.trim();
++       if (typeof parsed.vectorTopK === "number" && Number.isFinite(parsed.vectorTopK) && parsed.vectorTopK > 0) config.vectorTopK = Math.floor(parsed.vectorTopK);
++       if (typeof parsed.vectorEf === "number" && Number.isFinite(parsed.vectorEf) && parsed.vectorEf > 0) config.vectorEf = Math.floor(parsed.vectorEf);
+++      // survivingK (ticket 19 T3): same >0 floor guard as vectorTopK. Invalid
+++      // values (≤0 / non-number / null) silently keep the default.
+++      if (typeof parsed.survivingK === "number" && Number.isFinite(parsed.survivingK) && parsed.survivingK > 0) config.survivingK = Math.floor(parsed.survivingK);
++       if (hasMemoryOverflowStrategy) {
++         config.autoConsolidate = config.memoryOverflowStrategy === "auto-consolidate";
++       } else if (hasLegacyAutoConsolidate) {
++         config.memoryOverflowStrategy = config.autoConsolidate ? "auto-consolidate" : "reject";
++       }
++     }
++   } catch {
++     // Fall back to defaults on parse error or access issues
++   }
++   // Apply the repo-local project-memory overlay (ticket 01) — narrow allowlist,
++diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts b/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts
++index d995a7d7..1244668e 100644
++--- a/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts
+++++ b/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts
++@@ -93,20 +93,25 @@ export const DEFAULT_EMBED_MODEL = "text-embedding-nomic-embed-text-v1.5";
++  *  the cold set for the new tag). Distinct from embedModel (which is the LM
++  *  Studio endpoint id) — this is the human-readable lineage tag. */
++ export const DEFAULT_EMBED_MODEL_VERSION = "nomic-embed-text-v1.5";
++ /** Default LM Studio base URL (serves the embedding model + bge-m3 + qwen3). */
++ export const DEFAULT_LMSTUDIO_BASE_URL = "http://127.0.0.1:1234";
++ /** Default K for the HNSW KNN query (top-K nearest neighbors). */
++ export const DEFAULT_VECTOR_TOP_K = 10;
++ /** Default HNSW exploration factor (ef) for the KNN query. Higher = more
++  *  recall, slower; 100 is a sane warm default at our corpus scale. */
++ export const DEFAULT_VECTOR_EF = 100;
+++/** Default cap on the post-dedup returned semantic-search list (ticket 19 T3 /
+++ *  LeanRAG ③ redundancy-aware retrieval). Caps how many hits survive AFTER the
+++ *  contentHash dedup pass on every return path. A CAP not a refill — the
+++ *  post-dedup count-below-topK shortfall is acceptable behavior. Default 10. */
+++export const DEFAULT_SURVIVING_K = 10;
++ 
++ // ─── Staleness audit ───
++ // Entries whose "last edited" date is older than this are flagged as stale
++ // candidates for review/removal (mirrors the 30-day rule in CONSOLIDATION_PROMPT).
++ export const DEFAULT_STALENESS_THRESHOLD_DAYS = 30;
++ 
++ // ─── File names ───
++ export const MEMORY_FILE = "MEMORY.md";
++ export const USER_FILE = "USER.md";
++ 
++diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
++index 5b828f9d..17ce49b9 100644
++--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
+++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
++@@ -49,20 +49,24 @@ export interface SemanticSearchHit {
++ }
++ 
++ export interface SearchSemanticOptions {
++   queryText: string;
++   /** Restrict to one kind. When omitted, the warm HNSW path returns whatever
++    *  kinds are indexed (mixed); the fallback paths pick by `kind` (default
++    *  "memory"). */
++   kind?: SemanticKind;
++   /** K for the KNN query (default from config / 10). */
++   topK?: number;
+++  /** Cap on the post-dedup returned list (ticket 19 T3). When unset, defaults
+++   *  to `topK` so existing behavior is unchanged. A CAP not a refill — applied
+++   *  AFTER contentHash dedup on every return path. */
+++  survivingK?: number;
++   /** HNSW ef (default from config / 100). */
++   ef?: number;
++   /** Embedding model id (default nomic-embed-text-v1.5). */
++   model?: string;
++   /** Injectable embedder (default: constructed by the caller from config). */
++   embedder?: Embedder;
++   /** The HNSW vector store (warm path). Undefined → skip straight to T5(a). */
++   vectorStore?: VectorStore;
++   /** Memory repo for the lexical fallback (memory kind). */
++   memoryRepo?: Pick<MemoryRepository, "searchMemories">;
++@@ -96,22 +100,23 @@ function toHit(h: VectorKnnHit, kind: SemanticKind | undefined): SemanticSearchH
++ }
++ 
++ /**
++  * Redundancy-aware dedup pass (ticket 19 T2). Keeps the FIRST occurrence per
++  * DEFINED contentHash; hits whose contentHash is undefined are ALWAYS kept (a
++  * missing contentHash is never a shared key — Global Constraint). Applied on
++  * every return path of `searchSemantic` so the warm (HNSW) and cold
++  * (zk-semantic / memory-lexical) hits both pass through ONE seam. On the cold
++  * paths every hit is hashless (RetrievedCard / MemoryEntry carry no hash), so
++  * the pass is a correct no-op there — the meaningful collapse lives on the
++- * warm path. Single pure pass: no survivingK, no boostWeight (Task 3 / ticket
++- * 20 — YAGNI here). Never throws.
+++ * warm path. Single pure pass: this function only deduplicates (no cap, no
+++ * boostWeight). The survivingK cap is applied by the CALLER after this pass
+++ * (Task 3); boostWeight remains deferred (ticket 20 — YAGNI). Never throws.
++  */
++ function dedupByContentHash(hits: SemanticSearchHit[]): SemanticSearchHit[] {
++   const seen = new Set<string>();
++   const out: SemanticSearchHit[] = [];
++   for (const h of hits) {
++     if (h.contentHash === undefined) {
++       out.push(h); // hashless → always kept (never a dedup key)
++       continue;
++     }
++     if (seen.has(h.contentHash)) continue; // duplicate hash → drop later twin
++@@ -133,24 +138,27 @@ function dedupByContentHash(hits: SemanticSearchHit[]): SemanticSearchHit[] {
++  *        - knowledge kind → kp.retrieveRecords({semantic:true, queryText,
++  *          semanticModel}) (zk cosine cache via the seam);
++  *        - memory kind (default) → memoryRepo.searchMemories (lexical FTS).
++  *      Both are best-effort; a throw is swallowed → [].
++  *   3. The result is always a normalized ranked list (deduped by mdId).
++  */
++ export async function searchSemantic(opts: SearchSemanticOptions): Promise<SemanticSearchHit[]> {
++   const {
++     queryText, kind, topK = 10, ef = 100, model, embedder,
++     vectorStore, memoryRepo, kp, vaultPath, folder, excludeIds,
++-    scheduleVectorBackfill,
+++    scheduleVectorBackfill, survivingK,
++   } = opts;
++   const exclude = new Set(excludeIds ?? []);
++   const modelId = model ?? "text-embedding-nomic-embed-text-v1.5";
+++  // Ticket 19 T3: survivingK caps the post-dedup returned list. Defaults to
+++  // topK when unset so existing behavior is UNCHANGED (a CAP not a refill).
+++  const cap = survivingK ?? topK;
++ 
++   // ── Warm path (T2): embed → knn ──────────────────────────────────────────
++   if (vectorStore && embedder) {
++     try {
++       const qvec = await embedQuery(queryText, { model: modelId, embedder });
++       if (qvec) {
++         try {
++           const rows = await vectorStore.knn(qvec, topK, ef);
++           const hits = rows.map((r) => toHit(r, kind));
++           const seen = new Set<string>();
++@@ -183,49 +191,53 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
++           // `deduped.length === 0` ⟺ `ranked.length === 0` — the cold-index
++           // trigger signal is preserved.
++           const deduped = dedupByContentHash(ranked);
++           if (deduped.length === 0 && scheduleVectorBackfill) {
++             try {
++               scheduleVectorBackfill();
++             } catch {
++               // best-effort — never affect the query result
++             }
++           }
++-          return deduped;
+++          // Ticket 19 T3: cap the post-dedup list to survivingK (default topK).
+++          // Applied AFTER dedup so the cold-index trigger signal (deduped===[])
+++          // is preserved; a non-empty deduped list is sliced down to the cap.
+++          return deduped.slice(0, cap);
++         } catch {
++           // knn threw (SurrealDB down / index error) → fall through to T5(a).
++         }
++       }
++       // qvec null (LM Studio down / model missing) → fall through to T5(a).
++     } catch {
++       // embedder itself threw unexpectedly → fall through to T5(a).
++     }
++   }
++ 
++   // ── T5(a) graceful degrade ───────────────────────────────────────────────
++   const resolvedKind: SemanticKind = kind ?? "memory";
++   return resolvedKind === "knowledge"
++-    ? await knowledgeFallback(queryText, modelId, kp, vaultPath, folder, exclude, topK)
++-    : await memoryFallback(queryText, memoryRepo, exclude, topK);
+++    ? await knowledgeFallback(queryText, modelId, kp, vaultPath, folder, exclude, topK, cap)
+++    : await memoryFallback(queryText, memoryRepo, exclude, topK, cap);
++ }
++ 
++ /** T5(a) knowledge fallback: zk cosine cache via the KnowledgePipeline seam.
++  *  Mirrors the existing knowledge-search-tool retrieve path, but with
++  *  `semantic:true` so zk uses its JSON-cache cosine arc. Never throws. */
++ async function knowledgeFallback(
++   queryText: string,
++   modelId: string,
++   kp: KnowledgePipeline | undefined,
++   vaultPath: string | undefined,
++   folder: string | undefined,
++   exclude: Set<string>,
++   topK: number,
+++  cap: number,
++ ): Promise<SemanticSearchHit[]> {
++   if (!kp || !vaultPath) return [];
++   try {
++     const result: RetrieveResult = await kp.retrieveRecords({
++       vaultPath,
++       folder,
++       tags: [],
++       queryText,
++       semantic: true,
++       semanticModel: modelId,
++@@ -236,44 +248,47 @@ async function knowledgeFallback(
++     for (const card of result.cards) {
++       if (exclude.has(card.id)) continue;
++       if (seen.has(card.id)) continue;
++       seen.add(card.id);
++       hits.push({ mdId: card.id, kind: "knowledge", source: "zk-semantic" });
++       if (hits.length >= topK) break;
++     }
++     // Ticket 19 T2: same dedup seam as the warm path. Cold-path hits carry no
++     // contentHash → this is a correct no-op (all kept), but the seam is wired
++     // so a future hash-bearing cold source needs no caller change.
++-    return dedupByContentHash(hits);
+++    // Ticket 19 T3: cap the post-dedup list to survivingK (default topK).
+++    return dedupByContentHash(hits).slice(0, cap);
++   } catch {
++     return []; // zk seam absent / threw → empty (never propagates)
++   }
++ }
++ 
++ /** T5(a) memory fallback: the existing lexical `searchMemories` (FTS). Never
++  *  throws. The memory repo's mdId (frontmatter id mirrored onto the row) is the
++  *  SemanticSearchHit.mdId; entries without one are skipped (no stable id to
++  *  return). */
++ async function memoryFallback(
++   queryText: string,
++   memoryRepo: Pick<MemoryRepository, "searchMemories"> | undefined,
++   exclude: Set<string>,
++   topK: number,
+++  cap: number,
++ ): Promise<SemanticSearchHit[]> {
++   if (!memoryRepo) return [];
++   try {
++     const entries = await memoryRepo.searchMemories(queryText, { limit: topK });
++     const hits: SemanticSearchHit[] = [];
++     for (const e of entries) {
++       const mdId = e.mdId ?? null;
++       if (!mdId) continue;
++       if (exclude.has(mdId)) continue;
++       hits.push({ mdId, kind: "memory", source: "memory-lexical" });
++       if (hits.length >= topK) break;
++     }
++     // Ticket 19 T2: same dedup seam as the warm path (no-op while MemoryEntry
++     // carries no contentHash; wired for forward-compat).
++-    return dedupByContentHash(hits);
+++    // Ticket 19 T3: cap the post-dedup list to survivingK (default topK).
+++    return dedupByContentHash(hits).slice(0, cap);
++   } catch {
++     return []; // lexical search threw → empty (never propagates)
++   }
++ }
++diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/types.ts b/bun-apps/pi-agent-ext-hermes-memory/src/types.ts
++index 9ef9be9c..92a8224d 100644
++--- a/bun-apps/pi-agent-ext-hermes-memory/src/types.ts
+++++ b/bun-apps/pi-agent-ext-hermes-memory/src/types.ts
++@@ -192,20 +192,25 @@ export interface MemoryConfig {
++   embedModel?: string;
++   /** Stable model-lineage tag in the card_vectors delta-key (distinct from
++    *  embedModel which is the endpoint id). Default: "nomic-embed-text-v1.5". */
++   embedModelVersion?: string;
++   /** LM Studio base URL serving the embedding model. Default: http://127.0.0.1:1234. */
++   lmStudioBaseUrl?: string;
++   /** K for the HNSW KNN query (top-K nearest neighbors). Default: 10. */
++   vectorTopK?: number;
++   /** HNSW exploration factor (ef) for the KNN query. Default: 100. */
++   vectorEf?: number;
+++  /** Cap on the post-dedup returned semantic-search list (ticket 19 T3 /
+++   *  LeanRAG ③). Applied AFTER contentHash dedup on every return path of
+++   *  `searchSemantic`. A CAP not a refill — the post-dedup shortfall below
+++   *  topK is acceptable. Default: 10 (DEFAULT_SURVIVING_K). */
+++  survivingK: number;
++ }
++ 
++ /** Trust/auditability marker for a memory entry. Markdown-resident only. */
++ export type Provenance = "verified" | "unverified" | "none";
++ 
++ /** A grounding source attached to a memory entry (quote, doc ref, etc.). */
++ export interface MemorySource {
++   kind: string;     // e.g. "quote", "doc", "url"
++   locator: string;  // stable ref into the source (session id, url, line)
++   capture: string;  // the verbatim text/anchor
++diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/config.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/config.test.ts
++index 7b718902..48589ac7 100644
++--- a/bun-apps/pi-agent-ext-hermes-memory/tests/config.test.ts
+++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/config.test.ts
++@@ -581,20 +581,49 @@ describe("loadConfig", () => {
++       proactivePressureThreshold: "x",
++       proactiveCooldownMinutes: null,
++     }));
++     const config = loadConfig(TEST_CONFIG_PATH);
++     assert.strictEqual(config.proactiveConsolidateEnabled, false);
++     assert.strictEqual(config.proactiveHeatFloor, 0.25);
++     assert.strictEqual(config.proactiveMaxCandidates, 20);
++     assert.strictEqual(config.proactivePressureThreshold, 10);
++     assert.strictEqual(config.proactiveCooldownMinutes, 30);
++   });
+++
+++  // ─── survivingK (ticket 19 T3) — caps the post-dedup returned list. Mirrors
+++  // vectorTopK's `typeof === "number" && Number.isFinite && > 0 → Math.floor`
+++  // parse-allowlist guard. The #06 config-gap lesson: registered in
+++  // DEFAULT_CONFIG AND the parse allowlist from day one. Default 10.
+++  it("defaults survivingK to DEFAULT_SURVIVING_K (10) when unset", () => {
+++    const config = loadConfig(TEST_CONFIG_PATH);
+++    assert.strictEqual(config.survivingK, 10);
+++  });
+++
+++  it("carries survivingK through from the config file (allowlisted, floors to int)", () => {
+++    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
+++    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ survivingK: 3.9 }));
+++    const config = loadConfig(TEST_CONFIG_PATH);
+++    assert.strictEqual(config.survivingK, 3); // >0 floor + Math.floor
+++  });
+++
+++  it("ignores invalid survivingK values (≤0 / non-number / null) → default kept", () => {
+++    // NaN/Infinity are structurally unrepresentable in JSON (JSON.parse yields
+++    // null / throws), so the representative invalid set here is the JSON-
+++    // representable one; the same `typeof===number && isFinite && >0` guard
+++    // defends the in-memory path against NaN/Infinity too.
+++    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
+++    for (const invalid of [-1, 0, "x", true, null]) {
+++      fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ survivingK: invalid }));
+++      const config = loadConfig(TEST_CONFIG_PATH);
+++      assert.strictEqual(config.survivingK, 10, `invalid ${JSON.stringify(invalid)} keeps default`);
+++    }
+++  });
++ });
++ 
++ describe("config dbBackend", () => {
++   it("defaults to sqlite when unset", () => {
++     const cfg = loadConfig(path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`));
++     assert.strictEqual(cfg.dbBackend, "sqlite");
++   });
++   it("parses dbBackend: surrealdb and surreal connection overrides", () => {
++     const p = path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`);
++     fs.writeFileSync(p, JSON.stringify({
++diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
++index e9c8ceeb..229a28c3 100644
++--- a/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
+++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
++@@ -323,10 +323,107 @@ describe("searchSemantic — Phase B cold-index backfill trigger", () => {
++   it("never lets a throwing trigger affect the result (best-effort)", async () => {
++     const vs = fakeVectorStore([]);
++     const hits = await searchSemantic({
++       queryText: "probe", kind: "memory", topK: 5,
++       embedder: fakeEmbedder(), vectorStore: vs,
++       scheduleVectorBackfill: mock(() => { throw new Error("trigger boom"); }),
++     });
++     expect(hits).toEqual([]);
++   });
++ });
+++
+++describe("searchSemantic — survivingK cap (ticket 19 T3)", () => {
+++  it("WARM: caps the post-dedup ranked list to survivingK", async () => {
+++    // 5 distinct-contentHash knn hits (no dedup collapse) exceed survivingK 3.
+++    const vs = fakeVectorStore([
+++      { mdId: "m1", kind: "memory", contentHash: "h1" },
+++      { mdId: "m2", kind: "memory", contentHash: "h2" },
+++      { mdId: "m3", kind: "memory", contentHash: "h3" },
+++      { mdId: "m4", kind: "memory", contentHash: "h4" },
+++      { mdId: "m5", kind: "memory", contentHash: "h5" },
+++    ]);
+++    const hits = await searchSemantic({
+++      queryText: "probe", kind: "memory", topK: 10,
+++      embedder: fakeEmbedder(), vectorStore: vs,
+++      survivingK: 3,
+++    });
+++    expect(hits).toEqual<SemanticSearchHit[]>([
+++      { mdId: "m1", kind: "memory", source: "hnsw", contentHash: "h1" },
+++      { mdId: "m2", kind: "memory", source: "hnsw", contentHash: "h2" },
+++      { mdId: "m3", kind: "memory", source: "hnsw", contentHash: "h3" },
+++    ]);
+++  });
+++
+++  it("WARM: defaults survivingK to topK when unset (no extra cap beyond topK)", async () => {
+++    // topK 4 with 5 distinct-hash hits → ranked stops at 4; survivingK unset → no cap.
+++    const vs = fakeVectorStore([
+++      { mdId: "m1", kind: "memory", contentHash: "h1" },
+++      { mdId: "m2", kind: "memory", contentHash: "h2" },
+++      { mdId: "m3", kind: "memory", contentHash: "h3" },
+++      { mdId: "m4", kind: "memory", contentHash: "h4" },
+++      { mdId: "m5", kind: "memory", contentHash: "h5" },
+++    ]);
+++    const hits = await searchSemantic({
+++      queryText: "probe", kind: "memory", topK: 4,
+++      embedder: fakeEmbedder(), vectorStore: vs,
+++    });
+++    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2", "m3", "m4"]);
+++  });
+++
+++  it("WARM: survivingK caps AFTER dedup (dup hashes collapse first, then cap)", async () => {
+++    // 5 knn rows, only 3 distinct contentHashes → dedup leaves [m1,m3,m5] → cap 2.
+++    const vs = fakeVectorStore([
+++      { mdId: "m1", kind: "memory", contentHash: "h1" },
+++      { mdId: "m2", kind: "memory", contentHash: "h1" }, // dup of m1
+++      { mdId: "m3", kind: "memory", contentHash: "h2" },
+++      { mdId: "m4", kind: "memory", contentHash: "h2" }, // dup of m3
+++      { mdId: "m5", kind: "memory", contentHash: "h3" },
+++    ]);
+++    const hits = await searchSemantic({
+++      queryText: "probe", kind: "memory", topK: 10,
+++      embedder: fakeEmbedder(), vectorStore: vs,
+++      survivingK: 2,
+++    });
+++    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m3"]); // dedup→[m1,m3,m5], cap→[m1,m3]
+++  });
+++
+++  it("survivingK is a CAP not a refill: post-dedup shortfall is returned as-is", async () => {
+++    // Only 2 distinct-hash hits survive dedup; survivingK 5 → returns 2 (no over-fetch).
+++    const vs = fakeVectorStore([
+++      { mdId: "m1", kind: "memory", contentHash: "h1" },
+++      { mdId: "m2", kind: "memory", contentHash: "h1" }, // dup
+++      { mdId: "m3", kind: "memory", contentHash: "h2" },
+++    ]);
+++    const hits = await searchSemantic({
+++      queryText: "probe", kind: "memory", topK: 10,
+++      embedder: fakeEmbedder(), vectorStore: vs,
+++      survivingK: 5,
+++    });
+++    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m3"]); // 2 < 5, no refill
+++  });
+++
+++  it("COLD knowledge: survivingK caps the zk-semantic fallback", async () => {
+++    kpRetrieve.mockClear();
+++    const vs = throwingVectorStore();
+++    const hits = await searchSemantic({
+++      queryText: "probe", kind: "knowledge", topK: 10,
+++      embedder: fakeEmbedder(), vectorStore: vs, kp: fakeKp(), vaultPath: "/v", folder: "kg",
+++      survivingK: 1,
+++    });
+++    expect(hits.map((h) => h.mdId)).toEqual(["card-a"]); // 2 cards → cap 1
+++  });
+++
+++  it("COLD memory: survivingK caps the memory-lexical fallback", async () => {
+++    const vs = throwingVectorStore();
+++    const repo = fakeMemoryRepo([
+++      { id: 1, mdId: "mem-1", content: "c" } as MemoryEntry,
+++      { id: 2, mdId: "mem-2", content: "c" } as MemoryEntry,
+++      { id: 3, mdId: "mem-3", content: "c" } as MemoryEntry,
+++    ]);
+++    const hits = await searchSemantic({
+++      queryText: "probe", kind: "memory", topK: 10,
+++      embedder: fakeEmbedder(), vectorStore: vs, memoryRepo: repo,
+++      survivingK: 2,
+++    });
+++    expect(hits.map((h) => h.mdId)).toEqual(["mem-1", "mem-2"]); // 3 → cap 2
+++  });
+++});
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/config.ts b/bun-apps/pi-agent-ext-hermes-memory/src/config.ts
+index cb0a8bc4..8aa0ba76 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/config.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/config.ts
+@@ -22,20 +22,21 @@ import {
+   DEFAULT_PROACTIVE_HEAT_FLOOR,
+   DEFAULT_PROACTIVE_MAX_CANDIDATES,
+   DEFAULT_PROACTIVE_PRESSURE_THRESHOLD,
+   DEFAULT_PROACTIVE_COOLDOWN_MINUTES,
+   DEFAULT_FAILURE_MODEL,
+   DEFAULT_EMBED_MODEL,
+   DEFAULT_EMBED_MODEL_VERSION,
+   DEFAULT_LMSTUDIO_BASE_URL,
+   DEFAULT_VECTOR_TOP_K,
+   DEFAULT_VECTOR_EF,
++  DEFAULT_SURVIVING_K,
+ } from "./constants.js";
+ import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
+ import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
+ import { detectProject, resolveProjectStoreDir } from "./project.js";
+ 
+ const MEMORY_OVERFLOW_STRATEGIES: readonly MemoryOverflowStrategy[] = ["auto-consolidate", "reject", "fifo-evict", "vault-offload"];
+ const SESSION_SEARCH_VARIANTS: readonly SessionSearchVariant[] = ["legacy", "anchors"];
+ // "subprocess" removed in the spawnSubagent migration — the fallback is now spawnSubagent, not a pi -p subprocess.
+ const REVIEW_TRANSPORTS: readonly ReviewTransport[] = ["direct"];
+ const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+@@ -106,20 +107,23 @@ const DEFAULT_CONFIG: MemoryConfig = {
+   dbBackend: "sqlite",
+   failureModel: DEFAULT_FAILURE_MODEL,
+   // Vector / semantic search (ticket 14 phase A). The card_vectors HNSW side-
+   // table is independent of the CRUD backend (#06 lesson: registered here AND
+   // in the parse allowlist below from day one).
+   embedModel: DEFAULT_EMBED_MODEL,
+   embedModelVersion: DEFAULT_EMBED_MODEL_VERSION,
+   lmStudioBaseUrl: DEFAULT_LMSTUDIO_BASE_URL,
+   vectorTopK: DEFAULT_VECTOR_TOP_K,
+   vectorEf: DEFAULT_VECTOR_EF,
++  // survivingK (ticket 19 T3): caps the post-dedup returned list. Registered
++  // in DEFAULT_CONFIG AND the parse allowlist below (#06 config-gap lesson).
++  survivingK: DEFAULT_SURVIVING_K,
+ };
+ 
+ export const DEFAULT_CONFIG_PATH = path.join(
+   AGENT_ROOT,
+   "hermes-memory-config.json",
+ );
+ 
+ /**
+  * Populate the per-user default SurrealDB `namespace` and `database` when the
+  * config file didn't set them, so the resolved config carries both for the
+@@ -360,20 +364,23 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
+       }
+       if (isThinkingLevel(parsed.llmThinkingOverride)) config.llmThinkingOverride = parsed.llmThinkingOverride;
+       // Vector / semantic search (ticket 14 phase A): the #06 config-gap lesson —
+       // every knob is allowlisted here so a config-file value reaches the
+       // consumer. String knobs get a trim guard; numeric knobs via finite checks.
+       if (typeof parsed.embedModel === "string" && parsed.embedModel.trim()) config.embedModel = parsed.embedModel.trim();
+       if (typeof parsed.embedModelVersion === "string" && parsed.embedModelVersion.trim()) config.embedModelVersion = parsed.embedModelVersion.trim();
+       if (typeof parsed.lmStudioBaseUrl === "string" && parsed.lmStudioBaseUrl.trim()) config.lmStudioBaseUrl = parsed.lmStudioBaseUrl.trim();
+       if (typeof parsed.vectorTopK === "number" && Number.isFinite(parsed.vectorTopK) && parsed.vectorTopK > 0) config.vectorTopK = Math.floor(parsed.vectorTopK);
+       if (typeof parsed.vectorEf === "number" && Number.isFinite(parsed.vectorEf) && parsed.vectorEf > 0) config.vectorEf = Math.floor(parsed.vectorEf);
++      // survivingK (ticket 19 T3): same >0 floor guard as vectorTopK. Invalid
++      // values (≤0 / non-number / null) silently keep the default.
++      if (typeof parsed.survivingK === "number" && Number.isFinite(parsed.survivingK) && parsed.survivingK > 0) config.survivingK = Math.floor(parsed.survivingK);
+       if (hasMemoryOverflowStrategy) {
+         config.autoConsolidate = config.memoryOverflowStrategy === "auto-consolidate";
+       } else if (hasLegacyAutoConsolidate) {
+         config.memoryOverflowStrategy = config.autoConsolidate ? "auto-consolidate" : "reject";
+       }
+     }
+   } catch {
+     // Fall back to defaults on parse error or access issues
+   }
+   // Apply the repo-local project-memory overlay (ticket 01) — narrow allowlist,
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts b/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts
+index d995a7d7..1244668e 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/constants.ts
+@@ -93,20 +93,25 @@ export const DEFAULT_EMBED_MODEL = "text-embedding-nomic-embed-text-v1.5";
+  *  the cold set for the new tag). Distinct from embedModel (which is the LM
+  *  Studio endpoint id) — this is the human-readable lineage tag. */
+ export const DEFAULT_EMBED_MODEL_VERSION = "nomic-embed-text-v1.5";
+ /** Default LM Studio base URL (serves the embedding model + bge-m3 + qwen3). */
+ export const DEFAULT_LMSTUDIO_BASE_URL = "http://127.0.0.1:1234";
+ /** Default K for the HNSW KNN query (top-K nearest neighbors). */
+ export const DEFAULT_VECTOR_TOP_K = 10;
+ /** Default HNSW exploration factor (ef) for the KNN query. Higher = more
+  *  recall, slower; 100 is a sane warm default at our corpus scale. */
+ export const DEFAULT_VECTOR_EF = 100;
++/** Default cap on the post-dedup returned semantic-search list (ticket 19 T3 /
++ *  LeanRAG ③ redundancy-aware retrieval). Caps how many hits survive AFTER the
++ *  contentHash dedup pass on every return path. A CAP not a refill — the
++ *  post-dedup count-below-topK shortfall is acceptable behavior. Default 10. */
++export const DEFAULT_SURVIVING_K = 10;
+ 
+ // ─── Staleness audit ───
+ // Entries whose "last edited" date is older than this are flagged as stale
+ // candidates for review/removal (mirrors the 30-day rule in CONSOLIDATION_PROMPT).
+ export const DEFAULT_STALENESS_THRESHOLD_DAYS = 30;
+ 
+ // ─── File names ───
+ export const MEMORY_FILE = "MEMORY.md";
+ export const USER_FILE = "USER.md";
+ 
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
+index 951da01d..17ce49b9 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
+@@ -35,30 +35,38 @@ import { embedQuery, type Embedder } from "./surreal/embedder.js";
+ /** The card "kind" namespace. Mirrors zk's knowledge folder vs hermes memory. */
+ export type SemanticKind = "memory" | "knowledge";
+ 
+ export interface SemanticSearchHit {
+   mdId: string;
+   kind: SemanticKind;
+   /** Optional relevance score (HNSW returns none; lexical/cosine fallbacks may). */
+   score?: number;
+   /** Which path produced this hit — useful for tracing the fallback decision. */
+   source: "hnsw" | "zk-semantic" | "memory-lexical";
++  /** Content hash surfaced from card_vectors on the warm (HNSW) path — the
++   *  redundancy-aware dedup key (ticket 19). Optional: the cold fallback paths
++   *  (memory-lexical / zk-semantic) do not carry it, so do not assume present. */
++  contentHash?: string;
+ }
+ 
+ export interface SearchSemanticOptions {
+   queryText: string;
+   /** Restrict to one kind. When omitted, the warm HNSW path returns whatever
+    *  kinds are indexed (mixed); the fallback paths pick by `kind` (default
+    *  "memory"). */
+   kind?: SemanticKind;
+   /** K for the KNN query (default from config / 10). */
+   topK?: number;
++  /** Cap on the post-dedup returned list (ticket 19 T3). When unset, defaults
++   *  to `topK` so existing behavior is unchanged. A CAP not a refill — applied
++   *  AFTER contentHash dedup on every return path. */
++  survivingK?: number;
+   /** HNSW ef (default from config / 100). */
+   ef?: number;
+   /** Embedding model id (default nomic-embed-text-v1.5). */
+   model?: string;
+   /** Injectable embedder (default: constructed by the caller from config). */
+   embedder?: Embedder;
+   /** The HNSW vector store (warm path). Undefined → skip straight to T5(a). */
+   vectorStore?: VectorStore;
+   /** Memory repo for the lexical fallback (memory kind). */
+   memoryRepo?: Pick<MemoryRepository, "searchMemories">;
+@@ -77,21 +85,52 @@ export interface SearchSemanticOptions {
+    *  the backfill's own inProgress guard coalesces cold-query bursts so at most
+    *  one backfill runs at a time. Never awaited — never blocks the query. */
+   scheduleVectorBackfill?: () => void;
+ }
+ 
+ /** Internal: normalize a VectorKnnHit to a SemanticSearchHit (warm path). */
+ function toHit(h: VectorKnnHit, kind: SemanticKind | undefined): SemanticSearchHit {
+   // The store carries `kind` per row; honor it when present and valid, else
+   // fall back to the caller's requested kind.
+   const k: SemanticKind = h.kind === "knowledge" ? "knowledge" : h.kind === "memory" ? "memory" : (kind ?? "memory");
+-  return { mdId: h.mdId, kind: k, source: "hnsw", score: h.score };
++  // Surface contentHash only when the knn row provided it, so hashless warm
++  // hits stay shape-compatible (ticket 19 warm-path dedup key).
++  const hit: SemanticSearchHit = { mdId: h.mdId, kind: k, source: "hnsw", score: h.score };
++  if (h.contentHash !== undefined) hit.contentHash = h.contentHash;
++  return hit;
++}
++
++/**
++ * Redundancy-aware dedup pass (ticket 19 T2). Keeps the FIRST occurrence per
++ * DEFINED contentHash; hits whose contentHash is undefined are ALWAYS kept (a
++ * missing contentHash is never a shared key — Global Constraint). Applied on
++ * every return path of `searchSemantic` so the warm (HNSW) and cold
++ * (zk-semantic / memory-lexical) hits both pass through ONE seam. On the cold
++ * paths every hit is hashless (RetrievedCard / MemoryEntry carry no hash), so
++ * the pass is a correct no-op there — the meaningful collapse lives on the
++ * warm path. Single pure pass: this function only deduplicates (no cap, no
++ * boostWeight). The survivingK cap is applied by the CALLER after this pass
++ * (Task 3); boostWeight remains deferred (ticket 20 — YAGNI). Never throws.
++ */
++function dedupByContentHash(hits: SemanticSearchHit[]): SemanticSearchHit[] {
++  const seen = new Set<string>();
++  const out: SemanticSearchHit[] = [];
++  for (const h of hits) {
++    if (h.contentHash === undefined) {
++      out.push(h); // hashless → always kept (never a dedup key)
++      continue;
++    }
++    if (seen.has(h.contentHash)) continue; // duplicate hash → drop later twin
++    seen.add(h.contentHash);
++    out.push(h);
++  }
++  return out;
+ }
+ 
+ /**
+  * T2 + T5(a): semantic search with graceful degradation. NEVER throws.
+  *
+  * Order of operations:
+  *   1. If a vectorStore is wired, embed the query (embedQuery swallows errors
+  *      → null). On a non-null vector, run knn (warm path). On success, return
+  *      the ranked hits (filtered by excludeIds + topK).
+  *   2. On ANY failure in step 1 (no vectorStore, embed returned null, knn
+@@ -99,24 +138,27 @@ function toHit(h: VectorKnnHit, kind: SemanticKind | undefined): SemanticSearchH
+  *        - knowledge kind → kp.retrieveRecords({semantic:true, queryText,
+  *          semanticModel}) (zk cosine cache via the seam);
+  *        - memory kind (default) → memoryRepo.searchMemories (lexical FTS).
+  *      Both are best-effort; a throw is swallowed → [].
+  *   3. The result is always a normalized ranked list (deduped by mdId).
+  */
+ export async function searchSemantic(opts: SearchSemanticOptions): Promise<SemanticSearchHit[]> {
+   const {
+     queryText, kind, topK = 10, ef = 100, model, embedder,
+     vectorStore, memoryRepo, kp, vaultPath, folder, excludeIds,
+-    scheduleVectorBackfill,
++    scheduleVectorBackfill, survivingK,
+   } = opts;
+   const exclude = new Set(excludeIds ?? []);
+   const modelId = model ?? "text-embedding-nomic-embed-text-v1.5";
++  // Ticket 19 T3: survivingK caps the post-dedup returned list. Defaults to
++  // topK when unset so existing behavior is UNCHANGED (a CAP not a refill).
++  const cap = survivingK ?? topK;
+ 
+   // ── Warm path (T2): embed → knn ──────────────────────────────────────────
+   if (vectorStore && embedder) {
+     try {
+       const qvec = await embedQuery(queryText, { model: modelId, embedder });
+       if (qvec) {
+         try {
+           const rows = await vectorStore.knn(qvec, topK, ef);
+           const hits = rows.map((r) => toHit(r, kind));
+           const seen = new Set<string>();
+@@ -134,56 +176,68 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
+           // Return the (possibly empty) ranked list — the caller decides. We do
+           // NOT fall through on empty, because the warm path answering [] is a
+           // legitimate "no semantic match" (falling through would double-search).
+           //
+           // Phase B / T3 cold-index trigger: an empty warm result is the cold
+           // signal — fire the deferred vector backfill best-effort (never
+           // awaited, never blocks). The backfill's inProgress guard coalesces
+           // cold-query bursts so at most one backfill runs at a time; its
+           // deferred task re-checks the staleness delta and embeds only
+           // changed/new cards (cheap no-op when the index is already warm).
+-          if (ranked.length === 0 && scheduleVectorBackfill) {
++          // Ticket 19 T2: redundancy-aware contentHash dedup seam. Applied to
++          // the warm (HNSW) ranked list before the early return — the SAME
++          // private pass the cold fallbacks use below. hashless hits are kept,
++          // duplicate contentHashes collapse to the first occurrence. dedup can
++          // only shrink a non-empty list (it keeps the first per key), so
++          // `deduped.length === 0` ⟺ `ranked.length === 0` — the cold-index
++          // trigger signal is preserved.
++          const deduped = dedupByContentHash(ranked);
++          if (deduped.length === 0 && scheduleVectorBackfill) {
+             try {
+               scheduleVectorBackfill();
+             } catch {
+               // best-effort — never affect the query result
+             }
+           }
+-          return ranked;
++          // Ticket 19 T3: cap the post-dedup list to survivingK (default topK).
++          // Applied AFTER dedup so the cold-index trigger signal (deduped===[])
++          // is preserved; a non-empty deduped list is sliced down to the cap.
++          return deduped.slice(0, cap);
+         } catch {
+           // knn threw (SurrealDB down / index error) → fall through to T5(a).
+         }
+       }
+       // qvec null (LM Studio down / model missing) → fall through to T5(a).
+     } catch {
+       // embedder itself threw unexpectedly → fall through to T5(a).
+     }
+   }
+ 
+   // ── T5(a) graceful degrade ───────────────────────────────────────────────
+   const resolvedKind: SemanticKind = kind ?? "memory";
+   return resolvedKind === "knowledge"
+-    ? await knowledgeFallback(queryText, modelId, kp, vaultPath, folder, exclude, topK)
+-    : await memoryFallback(queryText, memoryRepo, exclude, topK);
++    ? await knowledgeFallback(queryText, modelId, kp, vaultPath, folder, exclude, topK, cap)
++    : await memoryFallback(queryText, memoryRepo, exclude, topK, cap);
+ }
+ 
+ /** T5(a) knowledge fallback: zk cosine cache via the KnowledgePipeline seam.
+  *  Mirrors the existing knowledge-search-tool retrieve path, but with
+  *  `semantic:true` so zk uses its JSON-cache cosine arc. Never throws. */
+ async function knowledgeFallback(
+   queryText: string,
+   modelId: string,
+   kp: KnowledgePipeline | undefined,
+   vaultPath: string | undefined,
+   folder: string | undefined,
+   exclude: Set<string>,
+   topK: number,
++  cap: number,
+ ): Promise<SemanticSearchHit[]> {
+   if (!kp || !vaultPath) return [];
+   try {
+     const result: RetrieveResult = await kp.retrieveRecords({
+       vaultPath,
+       folder,
+       tags: [],
+       queryText,
+       semantic: true,
+       semanticModel: modelId,
+@@ -191,42 +245,50 @@ async function knowledgeFallback(
+     });
+     const hits: SemanticSearchHit[] = [];
+     const seen = new Set<string>();
+     for (const card of result.cards) {
+       if (exclude.has(card.id)) continue;
+       if (seen.has(card.id)) continue;
+       seen.add(card.id);
+       hits.push({ mdId: card.id, kind: "knowledge", source: "zk-semantic" });
+       if (hits.length >= topK) break;
+     }
+-    return hits;
++    // Ticket 19 T2: same dedup seam as the warm path. Cold-path hits carry no
++    // contentHash → this is a correct no-op (all kept), but the seam is wired
++    // so a future hash-bearing cold source needs no caller change.
++    // Ticket 19 T3: cap the post-dedup list to survivingK (default topK).
++    return dedupByContentHash(hits).slice(0, cap);
+   } catch {
+     return []; // zk seam absent / threw → empty (never propagates)
+   }
+ }
+ 
+ /** T5(a) memory fallback: the existing lexical `searchMemories` (FTS). Never
+  *  throws. The memory repo's mdId (frontmatter id mirrored onto the row) is the
+  *  SemanticSearchHit.mdId; entries without one are skipped (no stable id to
+  *  return). */
+ async function memoryFallback(
+   queryText: string,
+   memoryRepo: Pick<MemoryRepository, "searchMemories"> | undefined,
+   exclude: Set<string>,
+   topK: number,
++  cap: number,
+ ): Promise<SemanticSearchHit[]> {
+   if (!memoryRepo) return [];
+   try {
+     const entries = await memoryRepo.searchMemories(queryText, { limit: topK });
+     const hits: SemanticSearchHit[] = [];
+     for (const e of entries) {
+       const mdId = e.mdId ?? null;
+       if (!mdId) continue;
+       if (exclude.has(mdId)) continue;
+       hits.push({ mdId, kind: "memory", source: "memory-lexical" });
+       if (hits.length >= topK) break;
+     }
+-    return hits;
++    // Ticket 19 T2: same dedup seam as the warm path (no-op while MemoryEntry
++    // carries no contentHash; wired for forward-compat).
++    // Ticket 19 T3: cap the post-dedup list to survivingK (default topK).
++    return dedupByContentHash(hits).slice(0, cap);
+   } catch {
+     return []; // lexical search threw → empty (never propagates)
+   }
+ }
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/vector-store.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/vector-store.ts
+index 8644ac4e..11e67856 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/vector-store.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/vector-store.ts
+@@ -47,20 +47,24 @@ export interface VectorUpsertEntry {
+ }
+ 
+ /** A KNN hit. `score` is optional: SurrealDB's 2-arg KNN returns rows in
+  *  nearest-first order but does not return a distance column, so the warm path
+  *  leaves score undefined (rank order is the signal); the T5(a) fallback paths
+  *  may attach a cosine/lexical score. */
+ export interface VectorKnnHit {
+   mdId: string;
+   kind: string;
+   score?: number;
++  /** Content hash from card_vectors (warm path) — surfaced as the redundancy-aware
++   *  dedup key (ticket 19). Optional: the cold path (memory/knowledge fallback)
++   *  does not carry it, so callers must not assume it is present. */
++  contentHash?: string;
+ }
+ 
+ /** Backend-neutral vector store seam. The non-Surreal case (SQLite CRUD with
+  *  no vector index) is a no-op stub — see `createVectorStore`. */
+ export interface VectorStore {
+   /** Create the ns/db + card_vectors table + HNSW index. Idempotent. */
+   init(): Promise<void>;
+   /** Idempotently upsert embeddings, batched (VEC_BATCH) to respect the /sql
+    *  1MiB body cap. Same (mdId, modelVersion) re-upserted must not duplicate. */
+   upsertVectors(entries: VectorUpsertEntry[]): Promise<void>;
+@@ -129,24 +133,30 @@ export class SurrealVectorStore implements VectorStore {
+       }
+       await this.client.query(stmts.join("\n"));
+     }
+   }
+ 
+   async knn(queryVec: number[], k: number, ef: number): Promise<VectorKnnHit[]> {
+     await this.init();
+     // 2-arg KNN: `vec <|k,ef|> $q`. $q bound by SurrealClient (LET $q = <json>).
+     // SurrealDB returns rows in nearest-first order; no distance column, so
+     // score is left undefined (rank order is the signal).
+-    const sql = `SELECT mdId, kind FROM card_vectors WHERE vec <|${k},${ef}|> $q;`;
+-    const rows = await this.client.query<Array<{ mdId: string; kind: string }>>(sql, { q: queryVec });
++    const sql = `SELECT mdId, kind, contentHash FROM card_vectors WHERE vec <|${k},${ef}|> $q;`;
++    const rows = await this.client.query<Array<{ mdId: string; kind: string; contentHash?: string }>>(sql, { q: queryVec });
+     if (!Array.isArray(rows)) return [];
+-    return rows.map((r) => ({ mdId: r.mdId, kind: r.kind }));
++    // Surface contentHash when the row carries it (ticket 19 warm-path dedup
++    // key). A hashless row (older rows / mocks) stays shape-compatible.
++    return rows.map((r) => {
++      const hit: VectorKnnHit = { mdId: r.mdId, kind: r.kind };
++      if (r.contentHash !== undefined) hit.contentHash = r.contentHash;
++      return hit;
++    });
+   }
+ 
+   async missingMdIds(allMdIds: string[], modelVersion: string): Promise<string[]> {
+     await this.init();
+     if (allMdIds.length === 0) return [];
+     // Client-side set diff (one round-trip): SELECT every stored mdId for the
+     // modelVersion, then return the allMdIds NOT in that set. This is
+     // DELIBERATELY not `... WHERE mdId NOT IN $ids`: passing allMdIds as a
+     // SurrealQL param would put the whole array in the /sql request body, which
+     // at scale (~100k mdIds ≈ 1MB) hits the 1MiB body cap. Querying stored
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/types.ts b/bun-apps/pi-agent-ext-hermes-memory/src/types.ts
+index 9ef9be9c..92a8224d 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/types.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/types.ts
+@@ -192,20 +192,25 @@ export interface MemoryConfig {
+   embedModel?: string;
+   /** Stable model-lineage tag in the card_vectors delta-key (distinct from
+    *  embedModel which is the endpoint id). Default: "nomic-embed-text-v1.5". */
+   embedModelVersion?: string;
+   /** LM Studio base URL serving the embedding model. Default: http://127.0.0.1:1234. */
+   lmStudioBaseUrl?: string;
+   /** K for the HNSW KNN query (top-K nearest neighbors). Default: 10. */
+   vectorTopK?: number;
+   /** HNSW exploration factor (ef) for the KNN query. Default: 100. */
+   vectorEf?: number;
++  /** Cap on the post-dedup returned semantic-search list (ticket 19 T3 /
++   *  LeanRAG ③). Applied AFTER contentHash dedup on every return path of
++   *  `searchSemantic`. A CAP not a refill — the post-dedup shortfall below
++   *  topK is acceptable. Default: 10 (DEFAULT_SURVIVING_K). */
++  survivingK: number;
+ }
+ 
+ /** Trust/auditability marker for a memory entry. Markdown-resident only. */
+ export type Provenance = "verified" | "unverified" | "none";
+ 
+ /** A grounding source attached to a memory entry (quote, doc ref, etc.). */
+ export interface MemorySource {
+   kind: string;     // e.g. "quote", "doc", "url"
+   locator: string;  // stable ref into the source (session id, url, line)
+   capture: string;  // the verbatim text/anchor
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/config.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/config.test.ts
+index 7b718902..48589ac7 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/config.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/config.test.ts
+@@ -581,20 +581,49 @@ describe("loadConfig", () => {
+       proactivePressureThreshold: "x",
+       proactiveCooldownMinutes: null,
+     }));
+     const config = loadConfig(TEST_CONFIG_PATH);
+     assert.strictEqual(config.proactiveConsolidateEnabled, false);
+     assert.strictEqual(config.proactiveHeatFloor, 0.25);
+     assert.strictEqual(config.proactiveMaxCandidates, 20);
+     assert.strictEqual(config.proactivePressureThreshold, 10);
+     assert.strictEqual(config.proactiveCooldownMinutes, 30);
+   });
++
++  // ─── survivingK (ticket 19 T3) — caps the post-dedup returned list. Mirrors
++  // vectorTopK's `typeof === "number" && Number.isFinite && > 0 → Math.floor`
++  // parse-allowlist guard. The #06 config-gap lesson: registered in
++  // DEFAULT_CONFIG AND the parse allowlist from day one. Default 10.
++  it("defaults survivingK to DEFAULT_SURVIVING_K (10) when unset", () => {
++    const config = loadConfig(TEST_CONFIG_PATH);
++    assert.strictEqual(config.survivingK, 10);
++  });
++
++  it("carries survivingK through from the config file (allowlisted, floors to int)", () => {
++    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
++    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ survivingK: 3.9 }));
++    const config = loadConfig(TEST_CONFIG_PATH);
++    assert.strictEqual(config.survivingK, 3); // >0 floor + Math.floor
++  });
++
++  it("ignores invalid survivingK values (≤0 / non-number / null) → default kept", () => {
++    // NaN/Infinity are structurally unrepresentable in JSON (JSON.parse yields
++    // null / throws), so the representative invalid set here is the JSON-
++    // representable one; the same `typeof===number && isFinite && >0` guard
++    // defends the in-memory path against NaN/Infinity too.
++    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
++    for (const invalid of [-1, 0, "x", true, null]) {
++      fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ survivingK: invalid }));
++      const config = loadConfig(TEST_CONFIG_PATH);
++      assert.strictEqual(config.survivingK, 10, `invalid ${JSON.stringify(invalid)} keeps default`);
++    }
++  });
+ });
+ 
+ describe("config dbBackend", () => {
+   it("defaults to sqlite when unset", () => {
+     const cfg = loadConfig(path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`));
+     assert.strictEqual(cfg.dbBackend, "sqlite");
+   });
+   it("parses dbBackend: surrealdb and surreal connection overrides", () => {
+     const p = path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`);
+     fs.writeFileSync(p, JSON.stringify({
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
+index 7c5712e8..229a28c3 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
+@@ -89,20 +89,35 @@ describe("searchSemantic — warm path (T2)", () => {
+ 
+   it("respects excludeIds on the warm path", async () => {
+     const vs = fakeVectorStore([{ mdId: "m1", kind: "memory" }, { mdId: "m2", kind: "memory" }]);
+     const hits = await searchSemantic({
+       queryText: "probe", topK: 5, embedder: fakeEmbedder(), vectorStore: vs,
+       excludeIds: ["m1"],
+     });
+     expect(hits.map((h) => h.mdId)).toEqual(["m2"]);
+   });
+ 
++  it("surfaces contentHash on the warm path when knn provides it (Task 1)", async () => {
++    const vs = fakeVectorStore([
++      { mdId: "m1", kind: "memory", contentHash: "hash-1" },
++      { mdId: "m2", kind: "memory" }, // hashless knn row → hit stays shape-compatible
++    ]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 5, ef: 100,
++      embedder: fakeEmbedder(), vectorStore: vs,
++    });
++    expect(hits).toEqual<SemanticSearchHit[]>([
++      { mdId: "m1", kind: "memory", source: "hnsw", contentHash: "hash-1" },
++      { mdId: "m2", kind: "memory", source: "hnsw" }, // no contentHash key
++    ]);
++  });
++
+   it("does NOT invoke the fallback when the warm path answers []", async () => {
+     const vs = fakeVectorStore([]); // warm path answers empty (legit no-match)
+     const kp = fakeKp();
+     const hits = await searchSemantic({
+       queryText: "probe", kind: "knowledge", topK: 5,
+       embedder: fakeEmbedder(), vectorStore: vs, kp, vaultPath: "/v",
+     });
+     expect(hits).toEqual([]); // warm [] is returned, NOT fallen through
+     expect(kpRetrieve).not.toHaveBeenCalled();
+   });
+@@ -174,20 +189,117 @@ describe("searchSemantic — T5(a) graceful degrade", () => {
+   it("knowledge fallback with no kp → [] (graceful, no throw)", async () => {
+     const vs = throwingVectorStore();
+     const hits = await searchSemantic({
+       queryText: "probe", kind: "knowledge", topK: 5,
+       embedder: fakeEmbedder(), vectorStore: vs, // no kp, no vaultPath
+     });
+     expect(hits).toEqual([]);
+   });
+ });
+ 
++describe("searchSemantic — contentHash dedup seam (ticket 19 T2)", () => {
++  it("WARM: two knn hits sharing a contentHash collapse to one (keeps first)", async () => {
++    // Two cards with the SAME contentHash but different mdIds both survive
++    // mdId-dedup → the contentHash-dedup pass must collapse the pair to the
++    // first occurrence (m1); a third card with a distinct hash is kept.
++    const vs = fakeVectorStore([
++      { mdId: "m1", kind: "memory", contentHash: "dup" },
++      { mdId: "m2", kind: "memory", contentHash: "dup" },
++      { mdId: "m3", kind: "memory", contentHash: "unique" },
++    ]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 5,
++      embedder: fakeEmbedder(), vectorStore: vs,
++    });
++    expect(hits).toEqual<SemanticSearchHit[]>([
++      { mdId: "m1", kind: "memory", source: "hnsw", contentHash: "dup" },
++      { mdId: "m3", kind: "memory", source: "hnsw", contentHash: "unique" },
++    ]);
++  });
++
++  it("WARM: hashless hits are all kept (no contentHash is never a dedup key)", async () => {
++    const vs = fakeVectorStore([
++      { mdId: "m1", kind: "memory" },
++      { mdId: "m2", kind: "memory" },
++      { mdId: "m3", kind: "memory" },
++    ]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 5,
++      embedder: fakeEmbedder(), vectorStore: vs,
++    });
++    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2", "m3"]);
++  });
++
++  it("WARM: a hashed hit dedups against a later same-hash hit, hashless ones untouched", async () => {
++    const vs = fakeVectorStore([
++      { mdId: "m1", kind: "memory", contentHash: "x" },
++      { mdId: "m2", kind: "memory" }, // hashless → always kept
++      { mdId: "m3", kind: "memory", contentHash: "x" }, // dup of m1 → dropped
++    ]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 5,
++      embedder: fakeEmbedder(), vectorStore: vs,
++    });
++    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]);
++  });
++
++  it("COLD knowledge: hashless hits survive the dedup seam (correct no-op), no throw", async () => {
++    // Cold-path hits carry NO contentHash → the dedup seam runs but is a
++    // correct NO-OP: every hashless hit is kept (nothing collapses). The
++    // meaningful collapse case lives on the WARM path (test above).
++    const vs = throwingVectorStore();
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "knowledge", topK: 5,
++      embedder: fakeEmbedder(), vectorStore: vs, kp: fakeKp(), vaultPath: "/v", folder: "kg",
++    });
++    expect(hits).toEqual<SemanticSearchHit[]>([
++      { mdId: "card-a", kind: "knowledge", source: "zk-semantic" },
++      { mdId: "card-b", kind: "knowledge", source: "zk-semantic" },
++    ]);
++  });
++
++  it("COLD memory: hashless hits survive the dedup seam (correct no-op), no throw", async () => {
++    const vs = throwingVectorStore();
++    const repo = fakeMemoryRepo([
++      { id: 1, mdId: "mem-1", content: "c" } as MemoryEntry,
++      { id: 2, mdId: "mem-2", content: "c" } as MemoryEntry,
++    ]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 5,
++      embedder: fakeEmbedder(), vectorStore: vs, memoryRepo: repo,
++    });
++    expect(hits).toEqual<SemanticSearchHit[]>([
++      { mdId: "mem-1", kind: "memory", source: "memory-lexical" },
++      { mdId: "mem-2", kind: "memory", source: "memory-lexical" },
++    ]);
++  });
++
++  it("NEVER THROWS: empty warm result → dedup seam runs on [] → [] (no throw)", async () => {
++    const vs = fakeVectorStore([]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 5,
++      embedder: fakeEmbedder(), vectorStore: vs,
++    });
++    expect(hits).toEqual([]);
++  });
++
++  it("NEVER THROWS: cold path with no dependencies → [] through the dedup seam", async () => {
++    // knowledge fallback with no kp → [] ; the dedup seam still runs on [].
++    const vs = throwingVectorStore();
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "knowledge", topK: 5,
++      embedder: fakeEmbedder(), vectorStore: vs, // no kp, no vaultPath
++    });
++    expect(hits).toEqual([]);
++  });
++});
++
+ describe("searchSemantic — Phase B cold-index backfill trigger", () => {
+   it("fires scheduleVectorBackfill fire-and-forget when the warm path returns EMPTY", async () => {
+     // Warm store answers with NO hits (cold-index signal) → trigger fires once,
+     // the (empty) result is returned unchanged, and the trigger is NOT awaited.
+     const vs = fakeVectorStore([]);
+     const trigger = mock(() => {});
+     const hits = await searchSemantic({
+       queryText: "probe", kind: "memory", topK: 5,
+       embedder: fakeEmbedder(), vectorStore: vs,
+       scheduleVectorBackfill: trigger,
+@@ -211,10 +323,107 @@ describe("searchSemantic — Phase B cold-index backfill trigger", () => {
+   it("never lets a throwing trigger affect the result (best-effort)", async () => {
+     const vs = fakeVectorStore([]);
+     const hits = await searchSemantic({
+       queryText: "probe", kind: "memory", topK: 5,
+       embedder: fakeEmbedder(), vectorStore: vs,
+       scheduleVectorBackfill: mock(() => { throw new Error("trigger boom"); }),
+     });
+     expect(hits).toEqual([]);
+   });
+ });
++
++describe("searchSemantic — survivingK cap (ticket 19 T3)", () => {
++  it("WARM: caps the post-dedup ranked list to survivingK", async () => {
++    // 5 distinct-contentHash knn hits (no dedup collapse) exceed survivingK 3.
++    const vs = fakeVectorStore([
++      { mdId: "m1", kind: "memory", contentHash: "h1" },
++      { mdId: "m2", kind: "memory", contentHash: "h2" },
++      { mdId: "m3", kind: "memory", contentHash: "h3" },
++      { mdId: "m4", kind: "memory", contentHash: "h4" },
++      { mdId: "m5", kind: "memory", contentHash: "h5" },
++    ]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 10,
++      embedder: fakeEmbedder(), vectorStore: vs,
++      survivingK: 3,
++    });
++    expect(hits).toEqual<SemanticSearchHit[]>([
++      { mdId: "m1", kind: "memory", source: "hnsw", contentHash: "h1" },
++      { mdId: "m2", kind: "memory", source: "hnsw", contentHash: "h2" },
++      { mdId: "m3", kind: "memory", source: "hnsw", contentHash: "h3" },
++    ]);
++  });
++
++  it("WARM: defaults survivingK to topK when unset (no extra cap beyond topK)", async () => {
++    // topK 4 with 5 distinct-hash hits → ranked stops at 4; survivingK unset → no cap.
++    const vs = fakeVectorStore([
++      { mdId: "m1", kind: "memory", contentHash: "h1" },
++      { mdId: "m2", kind: "memory", contentHash: "h2" },
++      { mdId: "m3", kind: "memory", contentHash: "h3" },
++      { mdId: "m4", kind: "memory", contentHash: "h4" },
++      { mdId: "m5", kind: "memory", contentHash: "h5" },
++    ]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 4,
++      embedder: fakeEmbedder(), vectorStore: vs,
++    });
++    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2", "m3", "m4"]);
++  });
++
++  it("WARM: survivingK caps AFTER dedup (dup hashes collapse first, then cap)", async () => {
++    // 5 knn rows, only 3 distinct contentHashes → dedup leaves [m1,m3,m5] → cap 2.
++    const vs = fakeVectorStore([
++      { mdId: "m1", kind: "memory", contentHash: "h1" },
++      { mdId: "m2", kind: "memory", contentHash: "h1" }, // dup of m1
++      { mdId: "m3", kind: "memory", contentHash: "h2" },
++      { mdId: "m4", kind: "memory", contentHash: "h2" }, // dup of m3
++      { mdId: "m5", kind: "memory", contentHash: "h3" },
++    ]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 10,
++      embedder: fakeEmbedder(), vectorStore: vs,
++      survivingK: 2,
++    });
++    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m3"]); // dedup→[m1,m3,m5], cap→[m1,m3]
++  });
++
++  it("survivingK is a CAP not a refill: post-dedup shortfall is returned as-is", async () => {
++    // Only 2 distinct-hash hits survive dedup; survivingK 5 → returns 2 (no over-fetch).
++    const vs = fakeVectorStore([
++      { mdId: "m1", kind: "memory", contentHash: "h1" },
++      { mdId: "m2", kind: "memory", contentHash: "h1" }, // dup
++      { mdId: "m3", kind: "memory", contentHash: "h2" },
++    ]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 10,
++      embedder: fakeEmbedder(), vectorStore: vs,
++      survivingK: 5,
++    });
++    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m3"]); // 2 < 5, no refill
++  });
++
++  it("COLD knowledge: survivingK caps the zk-semantic fallback", async () => {
++    kpRetrieve.mockClear();
++    const vs = throwingVectorStore();
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "knowledge", topK: 10,
++      embedder: fakeEmbedder(), vectorStore: vs, kp: fakeKp(), vaultPath: "/v", folder: "kg",
++      survivingK: 1,
++    });
++    expect(hits.map((h) => h.mdId)).toEqual(["card-a"]); // 2 cards → cap 1
++  });
++
++  it("COLD memory: survivingK caps the memory-lexical fallback", async () => {
++    const vs = throwingVectorStore();
++    const repo = fakeMemoryRepo([
++      { id: 1, mdId: "mem-1", content: "c" } as MemoryEntry,
++      { id: 2, mdId: "mem-2", content: "c" } as MemoryEntry,
++      { id: 3, mdId: "mem-3", content: "c" } as MemoryEntry,
++    ]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 10,
++      embedder: fakeEmbedder(), vectorStore: vs, memoryRepo: repo,
++      survivingK: 2,
++    });
++    expect(hits.map((h) => h.mdId)).toEqual(["mem-1", "mem-2"]); // 3 → cap 2
++  });
++});

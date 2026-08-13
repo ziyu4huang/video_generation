@@ -1,0 +1,299 @@
+# Review package: 06166935..e746cc6e
+
+## Commits
+e746cc6e feat(hermes-memory): surface contentHash on the semantic-search warm path (kp-19 T1)
+
+## Files changed
+ .../reports/task-1-report.md                       | 121 +++++++++++++++++++++
+ .../src/store/semantic-search.ts                   |  10 +-
+ .../src/store/surreal/vector-store.ts              |  16 ++-
+ .../tests/store/semantic-search.test.ts            |  15 +++
+ 4 files changed, 158 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-1-report.md b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-1-report.md
+new file mode 100644
+index 00000000..a7b15670
+--- /dev/null
++++ b/.planning/2026-08-08-knowledge-pipeline/sdd/19-leanrag-redundancy-aware-retrieval/reports/task-1-report.md
+@@ -0,0 +1,121 @@
++# Task 1 Report — Surface contentHash on the warm path
++
++Ticket 19 (LeanRAG redundancy-aware retrieval, dedup-first slice), Task 1 of 3.
++Package: `bun-apps/pi-agent-ext-hermes-memory`. Branch: `feat/kp-19-leanrag-redundancy-aware-retrieval`.
++
++## What I implemented
++
++Surfaced `contentHash` from the `card_vectors` HNSW side-table through the warm
++semantic-search path, so Task 2 can dedup hits by exact content hash.
++
++1. **`src/store/surreal/vector-store.ts`**
++   - `VectorKnnHit` gained `contentHash?: string` (optional — cold path doesn't carry it).
++   - The `knn` SELECT changed from `SELECT mdId, kind FROM card_vectors WHERE vec <|k,ef|> $q`
++     to `SELECT mdId, kind, contentHash FROM card_vectors WHERE vec <|k,ef|> $q`.
++   - The row→hit `map` sets `contentHash` **only when the row provides it**
++     (`if (r.contentHash !== undefined) hit.contentHash = r.contentHash`), so a
++     hashless row (older rows / mocks) stays shape-compatible.
++
++2. **`src/store/semantic-search.ts`**
++   - `SemanticSearchHit` gained `contentHash?: string` (optional).
++   - `toHit` populates `contentHash` **only when the knn hit provides it**
++     (`if (h.contentHash !== undefined) hit.contentHash = h.contentHash`),
++     keeping hashless warm hits shape-compatible with the existing `toEqual` asserts.
++
++3. **`tests/store/semantic-search.test.ts`** — new warm-path test asserting the
++   returned `SemanticSearchHit` carries `contentHash` from the fake vector store's
++   knn result, and that a hashless knn row produces a hit with NO `contentHash` key.
++
++No new throw paths. No dedup logic, no config knobs (those are Tasks 2/3 — YAGNI).
++
++## TDD evidence
++
++### RED (test first, then watch it fail for the right reason)
++
++Command:
++```
++( cd bun-apps/pi-agent-ext-hermes-memory && bun test tests/store/semantic-search.test.ts )
++```
++
++Relevant failing output:
++```
++expect(received).toEqual(expected)
++
++  [
++    {
++-     "contentHash": "hash-1",
++      "kind": "memory",
++      "mdId": "m1",
+++     "score": undefined,
++      "source": "hnsw",
++    },
++    ...
++  ]
++(fail) searchSemantic — warm path (T2) > surfaces contentHash on the warm path when knn provides it (Task 1)
++ 12 pass
++ 1 fail
++```
++
++Why the failure was expected: `contentHash` was NOT surfaced on the warm hit —
++`toHit` did not map it through, so the expected `contentHash: "hash-1"` was absent
++on `m1`. (The `+ score: undefined` lines are bun's diff-display artifact —
++`toEqual` ignores `undefined`-valued properties, as the existing "returns HNSW
++hits ranked" test passing in the same run confirms.)
++
++### GREEN (minimal implementation)
++
++Command:
++```
++( cd bun-apps/pi-agent-ext-hermes-memory && bun test tests/store/semantic-search.test.ts )
++```
++
++Relevant passing output:
++```
++(pass) searchSemantic — warm path (T2) > surfaces contentHash on the warm path when knn provides it (Task 1) [0.22ms]
++ 13 pass
++ 0 fail
++```
++
++## Files changed
++
++```
++ bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts                      | 10 +++++++++-
++ bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/vector-store.ts                 | 16 +++++++++++++---
++ bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts              | 15 +++++++++++++++
++```
++
++## Self-review
++
++- **Completeness vs brief:** all four brief items done — knn SELECT augmented,
++  `VectorKnnHit.contentHash?` added + mapped, `SemanticSearchHit.contentHash?`
++  added, `toHit` populates it. ✅
++- **contentHash is OPTIONAL:** declared `?` on both interfaces; populated only
++  when the knn row provides it. The cold fallback paths (memory-lexical /
++  zk-semantic) never set it — never required, never synthesized. ✅
++- **Never throws:** the change adds zero throw paths. `knn` still returns `[]`
++  on a non-array response; `toHit` is pure. ✅
++- **Shape-compatibility (brief heads-up):** the conditional assignment meant NO
++  existing `toEqual` assertion needed updating — hashless warm hits keep their
++  exact pre-change shape. Confirmed by the full suite (no assertion breaks). ✅
++- **YAGNI:** no dedup, no config knobs — only what Task 1 needs. Dedup is Task 2,
++  knobs are Task 3. ✅
++- **Test verifies real behavior:** the new test exercises both the with-hash and
++  hashless knn rows through the real `searchSemantic` warm path, asserting the
++  real `toHit` mapping (not a mock). ✅
++- **Naming/docs:** comments reference ticket 19; field doc-comments explain
++  optionality and the cold-path carve-out. ✅
++
++## Full-suite result
++
++```
++( cd bun-apps/pi-agent-ext-hermes-memory && bun run check )   # tsc --noEmit → clean
++( cd bun-apps/pi-agent-ext-hermes-memory && bun test )
++ 1514 pass
++ 1 skip
++ 0 fail
++ 1151 expect() calls
++ Ran 1515 tests across 131 files. [14.49s]
++```
++
++Baseline was **1513 pass / 1 skip / 0 fail**; this change lands at **1514 pass /
++1 skip / 0 fail** (+1 = the new warm-path contentHash test). Output pristine.
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
+index 951da01d..2a0e6538 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/semantic-search.ts
+@@ -35,20 +35,24 @@ import { embedQuery, type Embedder } from "./surreal/embedder.js";
+ /** The card "kind" namespace. Mirrors zk's knowledge folder vs hermes memory. */
+ export type SemanticKind = "memory" | "knowledge";
+ 
+ export interface SemanticSearchHit {
+   mdId: string;
+   kind: SemanticKind;
+   /** Optional relevance score (HNSW returns none; lexical/cosine fallbacks may). */
+   score?: number;
+   /** Which path produced this hit — useful for tracing the fallback decision. */
+   source: "hnsw" | "zk-semantic" | "memory-lexical";
++  /** Content hash surfaced from card_vectors on the warm (HNSW) path — the
++   *  redundancy-aware dedup key (ticket 19). Optional: the cold fallback paths
++   *  (memory-lexical / zk-semantic) do not carry it, so do not assume present. */
++  contentHash?: string;
+ }
+ 
+ export interface SearchSemanticOptions {
+   queryText: string;
+   /** Restrict to one kind. When omitted, the warm HNSW path returns whatever
+    *  kinds are indexed (mixed); the fallback paths pick by `kind` (default
+    *  "memory"). */
+   kind?: SemanticKind;
+   /** K for the KNN query (default from config / 10). */
+   topK?: number;
+@@ -77,21 +81,25 @@ export interface SearchSemanticOptions {
+    *  the backfill's own inProgress guard coalesces cold-query bursts so at most
+    *  one backfill runs at a time. Never awaited — never blocks the query. */
+   scheduleVectorBackfill?: () => void;
+ }
+ 
+ /** Internal: normalize a VectorKnnHit to a SemanticSearchHit (warm path). */
+ function toHit(h: VectorKnnHit, kind: SemanticKind | undefined): SemanticSearchHit {
+   // The store carries `kind` per row; honor it when present and valid, else
+   // fall back to the caller's requested kind.
+   const k: SemanticKind = h.kind === "knowledge" ? "knowledge" : h.kind === "memory" ? "memory" : (kind ?? "memory");
+-  return { mdId: h.mdId, kind: k, source: "hnsw", score: h.score };
++  // Surface contentHash only when the knn row provided it, so hashless warm
++  // hits stay shape-compatible (ticket 19 warm-path dedup key).
++  const hit: SemanticSearchHit = { mdId: h.mdId, kind: k, source: "hnsw", score: h.score };
++  if (h.contentHash !== undefined) hit.contentHash = h.contentHash;
++  return hit;
+ }
+ 
+ /**
+  * T2 + T5(a): semantic search with graceful degradation. NEVER throws.
+  *
+  * Order of operations:
+  *   1. If a vectorStore is wired, embed the query (embedQuery swallows errors
+  *      → null). On a non-null vector, run knn (warm path). On success, return
+  *      the ranked hits (filtered by excludeIds + topK).
+  *   2. On ANY failure in step 1 (no vectorStore, embed returned null, knn
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/vector-store.ts b/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/vector-store.ts
+index 8644ac4e..11e67856 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/vector-store.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/src/store/surreal/vector-store.ts
+@@ -47,20 +47,24 @@ export interface VectorUpsertEntry {
+ }
+ 
+ /** A KNN hit. `score` is optional: SurrealDB's 2-arg KNN returns rows in
+  *  nearest-first order but does not return a distance column, so the warm path
+  *  leaves score undefined (rank order is the signal); the T5(a) fallback paths
+  *  may attach a cosine/lexical score. */
+ export interface VectorKnnHit {
+   mdId: string;
+   kind: string;
+   score?: number;
++  /** Content hash from card_vectors (warm path) — surfaced as the redundancy-aware
++   *  dedup key (ticket 19). Optional: the cold path (memory/knowledge fallback)
++   *  does not carry it, so callers must not assume it is present. */
++  contentHash?: string;
+ }
+ 
+ /** Backend-neutral vector store seam. The non-Surreal case (SQLite CRUD with
+  *  no vector index) is a no-op stub — see `createVectorStore`. */
+ export interface VectorStore {
+   /** Create the ns/db + card_vectors table + HNSW index. Idempotent. */
+   init(): Promise<void>;
+   /** Idempotently upsert embeddings, batched (VEC_BATCH) to respect the /sql
+    *  1MiB body cap. Same (mdId, modelVersion) re-upserted must not duplicate. */
+   upsertVectors(entries: VectorUpsertEntry[]): Promise<void>;
+@@ -129,24 +133,30 @@ export class SurrealVectorStore implements VectorStore {
+       }
+       await this.client.query(stmts.join("\n"));
+     }
+   }
+ 
+   async knn(queryVec: number[], k: number, ef: number): Promise<VectorKnnHit[]> {
+     await this.init();
+     // 2-arg KNN: `vec <|k,ef|> $q`. $q bound by SurrealClient (LET $q = <json>).
+     // SurrealDB returns rows in nearest-first order; no distance column, so
+     // score is left undefined (rank order is the signal).
+-    const sql = `SELECT mdId, kind FROM card_vectors WHERE vec <|${k},${ef}|> $q;`;
+-    const rows = await this.client.query<Array<{ mdId: string; kind: string }>>(sql, { q: queryVec });
++    const sql = `SELECT mdId, kind, contentHash FROM card_vectors WHERE vec <|${k},${ef}|> $q;`;
++    const rows = await this.client.query<Array<{ mdId: string; kind: string; contentHash?: string }>>(sql, { q: queryVec });
+     if (!Array.isArray(rows)) return [];
+-    return rows.map((r) => ({ mdId: r.mdId, kind: r.kind }));
++    // Surface contentHash when the row carries it (ticket 19 warm-path dedup
++    // key). A hashless row (older rows / mocks) stays shape-compatible.
++    return rows.map((r) => {
++      const hit: VectorKnnHit = { mdId: r.mdId, kind: r.kind };
++      if (r.contentHash !== undefined) hit.contentHash = r.contentHash;
++      return hit;
++    });
+   }
+ 
+   async missingMdIds(allMdIds: string[], modelVersion: string): Promise<string[]> {
+     await this.init();
+     if (allMdIds.length === 0) return [];
+     // Client-side set diff (one round-trip): SELECT every stored mdId for the
+     // modelVersion, then return the allMdIds NOT in that set. This is
+     // DELIBERATELY not `... WHERE mdId NOT IN $ids`: passing allMdIds as a
+     // SurrealQL param would put the whole array in the /sql request body, which
+     // at scale (~100k mdIds ≈ 1MB) hits the 1MiB body cap. Querying stored
+diff --git a/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts b/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
+index 7c5712e8..990c3074 100644
+--- a/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
++++ b/bun-apps/pi-agent-ext-hermes-memory/tests/store/semantic-search.test.ts
+@@ -89,20 +89,35 @@ describe("searchSemantic — warm path (T2)", () => {
+ 
+   it("respects excludeIds on the warm path", async () => {
+     const vs = fakeVectorStore([{ mdId: "m1", kind: "memory" }, { mdId: "m2", kind: "memory" }]);
+     const hits = await searchSemantic({
+       queryText: "probe", topK: 5, embedder: fakeEmbedder(), vectorStore: vs,
+       excludeIds: ["m1"],
+     });
+     expect(hits.map((h) => h.mdId)).toEqual(["m2"]);
+   });
+ 
++  it("surfaces contentHash on the warm path when knn provides it (Task 1)", async () => {
++    const vs = fakeVectorStore([
++      { mdId: "m1", kind: "memory", contentHash: "hash-1" },
++      { mdId: "m2", kind: "memory" }, // hashless knn row → hit stays shape-compatible
++    ]);
++    const hits = await searchSemantic({
++      queryText: "probe", kind: "memory", topK: 5, ef: 100,
++      embedder: fakeEmbedder(), vectorStore: vs,
++    });
++    expect(hits).toEqual<SemanticSearchHit[]>([
++      { mdId: "m1", kind: "memory", source: "hnsw", contentHash: "hash-1" },
++      { mdId: "m2", kind: "memory", source: "hnsw" }, // no contentHash key
++    ]);
++  });
++
+   it("does NOT invoke the fallback when the warm path answers []", async () => {
+     const vs = fakeVectorStore([]); // warm path answers empty (legit no-match)
+     const kp = fakeKp();
+     const hits = await searchSemantic({
+       queryText: "probe", kind: "knowledge", topK: 5,
+       embedder: fakeEmbedder(), vectorStore: vs, kp, vaultPath: "/v",
+     });
+     expect(hits).toEqual([]); // warm [] is returned, NOT fallen through
+     expect(kpRetrieve).not.toHaveBeenCalled();
+   });

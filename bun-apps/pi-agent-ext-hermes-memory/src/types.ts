@@ -199,6 +199,11 @@ export interface MemoryConfig {
   vectorTopK?: number;
   /** HNSW exploration factor (ef) for the KNN query. Default: 100. */
   vectorEf?: number;
+  /** Cap on the post-dedup returned semantic-search list (ticket 19 T3 /
+   *  LeanRAG ③). Applied AFTER contentHash dedup on every return path of
+   *  `searchSemantic`. A CAP not a refill — the post-dedup shortfall below
+   *  topK is acceptable. Default: 10 (DEFAULT_SURVIVING_K). */
+  survivingK: number;
 }
 
 /** Trust/auditability marker for a memory entry. Markdown-resident only. */

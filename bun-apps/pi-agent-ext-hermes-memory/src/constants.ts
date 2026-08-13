@@ -100,6 +100,11 @@ export const DEFAULT_VECTOR_TOP_K = 10;
 /** Default HNSW exploration factor (ef) for the KNN query. Higher = more
  *  recall, slower; 100 is a sane warm default at our corpus scale. */
 export const DEFAULT_VECTOR_EF = 100;
+/** Default cap on the post-dedup returned semantic-search list (ticket 19 T3 /
+ *  LeanRAG ③ redundancy-aware retrieval). Caps how many hits survive AFTER the
+ *  contentHash dedup pass on every return path. A CAP not a refill — the
+ *  post-dedup count-below-topK shortfall is acceptable behavior. Default 10. */
+export const DEFAULT_SURVIVING_K = 10;
 
 // ─── Staleness audit ───
 // Entries whose "last edited" date is older than this are flagged as stale

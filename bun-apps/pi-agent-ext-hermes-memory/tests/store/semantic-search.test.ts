@@ -96,6 +96,21 @@ describe("searchSemantic — warm path (T2)", () => {
     expect(hits.map((h) => h.mdId)).toEqual(["m2"]);
   });
 
+  it("surfaces contentHash on the warm path when knn provides it (Task 1)", async () => {
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "memory", contentHash: "hash-1" },
+      { mdId: "m2", kind: "memory" }, // hashless knn row → hit stays shape-compatible
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 5, ef: 100,
+      embedder: fakeEmbedder(), vectorStore: vs,
+    });
+    expect(hits).toEqual<SemanticSearchHit[]>([
+      { mdId: "m1", kind: "memory", source: "hnsw", contentHash: "hash-1" },
+      { mdId: "m2", kind: "memory", source: "hnsw" }, // no contentHash key
+    ]);
+  });
+
   it("does NOT invoke the fallback when the warm path answers []", async () => {
     const vs = fakeVectorStore([]); // warm path answers empty (legit no-match)
     const kp = fakeKp();
@@ -181,6 +196,103 @@ describe("searchSemantic — T5(a) graceful degrade", () => {
   });
 });
 
+describe("searchSemantic — contentHash dedup seam (ticket 19 T2)", () => {
+  it("WARM: two knn hits sharing a contentHash collapse to one (keeps first)", async () => {
+    // Two cards with the SAME contentHash but different mdIds both survive
+    // mdId-dedup → the contentHash-dedup pass must collapse the pair to the
+    // first occurrence (m1); a third card with a distinct hash is kept.
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "memory", contentHash: "dup" },
+      { mdId: "m2", kind: "memory", contentHash: "dup" },
+      { mdId: "m3", kind: "memory", contentHash: "unique" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+    });
+    expect(hits).toEqual<SemanticSearchHit[]>([
+      { mdId: "m1", kind: "memory", source: "hnsw", contentHash: "dup" },
+      { mdId: "m3", kind: "memory", source: "hnsw", contentHash: "unique" },
+    ]);
+  });
+
+  it("WARM: hashless hits are all kept (no contentHash is never a dedup key)", async () => {
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "memory" },
+      { mdId: "m2", kind: "memory" },
+      { mdId: "m3", kind: "memory" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2", "m3"]);
+  });
+
+  it("WARM: a hashed hit dedups against a later same-hash hit, hashless ones untouched", async () => {
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "memory", contentHash: "x" },
+      { mdId: "m2", kind: "memory" }, // hashless → always kept
+      { mdId: "m3", kind: "memory", contentHash: "x" }, // dup of m1 → dropped
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]);
+  });
+
+  it("COLD knowledge: hashless hits survive the dedup seam (correct no-op), no throw", async () => {
+    // Cold-path hits carry NO contentHash → the dedup seam runs but is a
+    // correct NO-OP: every hashless hit is kept (nothing collapses). The
+    // meaningful collapse case lives on the WARM path (test above).
+    const vs = throwingVectorStore();
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs, kp: fakeKp(), vaultPath: "/v", folder: "kg",
+    });
+    expect(hits).toEqual<SemanticSearchHit[]>([
+      { mdId: "card-a", kind: "knowledge", source: "zk-semantic" },
+      { mdId: "card-b", kind: "knowledge", source: "zk-semantic" },
+    ]);
+  });
+
+  it("COLD memory: hashless hits survive the dedup seam (correct no-op), no throw", async () => {
+    const vs = throwingVectorStore();
+    const repo = fakeMemoryRepo([
+      { id: 1, mdId: "mem-1", content: "c" } as MemoryEntry,
+      { id: 2, mdId: "mem-2", content: "c" } as MemoryEntry,
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs, memoryRepo: repo,
+    });
+    expect(hits).toEqual<SemanticSearchHit[]>([
+      { mdId: "mem-1", kind: "memory", source: "memory-lexical" },
+      { mdId: "mem-2", kind: "memory", source: "memory-lexical" },
+    ]);
+  });
+
+  it("NEVER THROWS: empty warm result → dedup seam runs on [] → [] (no throw)", async () => {
+    const vs = fakeVectorStore([]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+    });
+    expect(hits).toEqual([]);
+  });
+
+  it("NEVER THROWS: cold path with no dependencies → [] through the dedup seam", async () => {
+    // knowledge fallback with no kp → [] ; the dedup seam still runs on [].
+    const vs = throwingVectorStore();
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs, // no kp, no vaultPath
+    });
+    expect(hits).toEqual([]);
+  });
+});
+
 describe("searchSemantic — Phase B cold-index backfill trigger", () => {
   it("fires scheduleVectorBackfill fire-and-forget when the warm path returns EMPTY", async () => {
     // Warm store answers with NO hits (cold-index signal) → trigger fires once,
@@ -216,5 +328,211 @@ describe("searchSemantic — Phase B cold-index backfill trigger", () => {
       scheduleVectorBackfill: mock(() => { throw new Error("trigger boom"); }),
     });
     expect(hits).toEqual([]);
+  });
+});
+
+describe("searchSemantic — survivingK cap (ticket 19 T3)", () => {
+  it("WARM: caps the post-dedup ranked list to survivingK", async () => {
+    // 5 distinct-contentHash knn hits (no dedup collapse) exceed survivingK 3.
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "memory", contentHash: "h1" },
+      { mdId: "m2", kind: "memory", contentHash: "h2" },
+      { mdId: "m3", kind: "memory", contentHash: "h3" },
+      { mdId: "m4", kind: "memory", contentHash: "h4" },
+      { mdId: "m5", kind: "memory", contentHash: "h5" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 10,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      survivingK: 3,
+    });
+    expect(hits).toEqual<SemanticSearchHit[]>([
+      { mdId: "m1", kind: "memory", source: "hnsw", contentHash: "h1" },
+      { mdId: "m2", kind: "memory", source: "hnsw", contentHash: "h2" },
+      { mdId: "m3", kind: "memory", source: "hnsw", contentHash: "h3" },
+    ]);
+  });
+
+  it("WARM: defaults survivingK to topK when unset (no extra cap beyond topK)", async () => {
+    // topK 4 with 5 distinct-hash hits → ranked stops at 4; survivingK unset → no cap.
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "memory", contentHash: "h1" },
+      { mdId: "m2", kind: "memory", contentHash: "h2" },
+      { mdId: "m3", kind: "memory", contentHash: "h3" },
+      { mdId: "m4", kind: "memory", contentHash: "h4" },
+      { mdId: "m5", kind: "memory", contentHash: "h5" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 4,
+      embedder: fakeEmbedder(), vectorStore: vs,
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2", "m3", "m4"]);
+  });
+
+  it("WARM: survivingK caps AFTER dedup (dup hashes collapse first, then cap)", async () => {
+    // 5 knn rows, only 3 distinct contentHashes → dedup leaves [m1,m3,m5] → cap 2.
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "memory", contentHash: "h1" },
+      { mdId: "m2", kind: "memory", contentHash: "h1" }, // dup of m1
+      { mdId: "m3", kind: "memory", contentHash: "h2" },
+      { mdId: "m4", kind: "memory", contentHash: "h2" }, // dup of m3
+      { mdId: "m5", kind: "memory", contentHash: "h3" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 10,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      survivingK: 2,
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m3"]); // dedup→[m1,m3,m5], cap→[m1,m3]
+  });
+
+  it("survivingK is a CAP not a refill: post-dedup shortfall is returned as-is", async () => {
+    // Only 2 distinct-hash hits survive dedup; survivingK 5 → returns 2 (no over-fetch).
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "memory", contentHash: "h1" },
+      { mdId: "m2", kind: "memory", contentHash: "h1" }, // dup
+      { mdId: "m3", kind: "memory", contentHash: "h2" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 10,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      survivingK: 5,
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m3"]); // 2 < 5, no refill
+  });
+
+  it("COLD knowledge: survivingK caps the zk-semantic fallback", async () => {
+    kpRetrieve.mockClear();
+    const vs = throwingVectorStore();
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 10,
+      embedder: fakeEmbedder(), vectorStore: vs, kp: fakeKp(), vaultPath: "/v", folder: "kg",
+      survivingK: 1,
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["card-a"]); // 2 cards → cap 1
+  });
+
+  it("COLD memory: survivingK caps the memory-lexical fallback", async () => {
+    const vs = throwingVectorStore();
+    const repo = fakeMemoryRepo([
+      { id: 1, mdId: "mem-1", content: "c" } as MemoryEntry,
+      { id: 2, mdId: "mem-2", content: "c" } as MemoryEntry,
+      { id: 3, mdId: "mem-3", content: "c" } as MemoryEntry,
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 10,
+      embedder: fakeEmbedder(), vectorStore: vs, memoryRepo: repo,
+      survivingK: 2,
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["mem-1", "mem-2"]); // 3 → cap 2
+  });
+});
+
+describe("searchSemantic — fix wave (final review)", () => {
+  describe("Fix 1: falsy contentHash treated as 'no key' (no over-collapse)", () => {
+    it("WARM: two rows with contentHash=\"\" are BOTH returned (not collapsed)", async () => {
+      // RED: today collapses to one (empty string treated as shared key)
+      // GREEN: both returned (falsy hash = no key, always kept)
+      const vs = fakeVectorStore([
+        { mdId: "m1", kind: "memory", contentHash: "" },
+        { mdId: "m2", kind: "memory", contentHash: "" },
+      ]);
+      const hits = await searchSemantic({
+        queryText: "probe", kind: "memory", topK: 5,
+        embedder: fakeEmbedder(), vectorStore: vs,
+      });
+      expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]);
+    });
+
+    it("WARM: two rows with contentHash=null are BOTH returned (not collapsed)", async () => {
+      // RED: today collapses to one (null treated as shared key)
+      // GREEN: both returned (falsy hash = no key, always kept)
+      const vs = fakeVectorStore([
+        { mdId: "m1", kind: "memory", contentHash: null },
+        { mdId: "m2", kind: "memory", contentHash: null },
+      ]);
+      const hits = await searchSemantic({
+        queryText: "probe", kind: "memory", topK: 5,
+        embedder: fakeEmbedder(), vectorStore: vs,
+      });
+      expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]);
+    });
+
+    it("WARM: truthy contentHash still dedups (real hash collapse still works)", async () => {
+      // Verify the fix doesn't break real hash deduplication
+      const vs = fakeVectorStore([
+        { mdId: "m1", kind: "memory", contentHash: "real-hash" },
+        { mdId: "m2", kind: "memory", contentHash: "real-hash" },
+      ]);
+      const hits = await searchSemantic({
+        queryText: "probe", kind: "memory", topK: 5,
+        embedder: fakeEmbedder(), vectorStore: vs,
+      });
+      expect(hits.map((h) => h.mdId)).toEqual(["m1"]); // collapsed to first
+    });
+
+    it("WARM: toHit only sets contentHash when truthy (shape-compatible with hashless hits)", async () => {
+      // Verify toHit truthy-set: null/"" knn rows yield hits with NO contentHash key
+      const vs = fakeVectorStore([
+        { mdId: "m1", kind: "memory", contentHash: "" },
+        { mdId: "m2", kind: "memory", contentHash: null },
+        { mdId: "m3", kind: "memory", contentHash: "real-hash" },
+      ]);
+      const hits = await searchSemantic({
+        queryText: "probe", kind: "memory", topK: 5,
+        embedder: fakeEmbedder(), vectorStore: vs,
+      });
+      expect(hits).toEqual<SemanticSearchHit[]>([
+        { mdId: "m1", kind: "memory", source: "hnsw" }, // no contentHash key
+        { mdId: "m2", kind: "memory", source: "hnsw" }, // no contentHash key
+        { mdId: "m3", kind: "memory", source: "hnsw", contentHash: "real-hash" },
+      ]);
+    });
+  });
+
+  describe("Fix 2: clamp survivingK cap (JS slice footgun)", () => {
+    it("survivingK: 0 returns [] (not drop-last behavior)", async () => {
+      // RED: today `slice(0, 0)` = [], correct, but test documents the guard
+      const vs = fakeVectorStore([
+        { mdId: "m1", kind: "memory", contentHash: "h1" },
+        { mdId: "m2", kind: "memory", contentHash: "h2" },
+      ]);
+      const hits = await searchSemantic({
+        queryText: "probe", kind: "memory", topK: 5,
+        embedder: fakeEmbedder(), vectorStore: vs,
+        survivingK: 0,
+      });
+      expect(hits).toEqual([]);
+    });
+
+    it("survivingK: -1 returns [] (clamped, not drop-last)", async () => {
+      // RED: today `slice(0, -1)` drops last element (JS semantics)
+      // GREEN: clamped to 0, returns []
+      const vs = fakeVectorStore([
+        { mdId: "m1", kind: "memory", contentHash: "h1" },
+        { mdId: "m2", kind: "memory", contentHash: "h2" },
+        { mdId: "m3", kind: "memory", contentHash: "h3" },
+      ]);
+      const hits = await searchSemantic({
+        queryText: "probe", kind: "memory", topK: 5,
+        embedder: fakeEmbedder(), vectorStore: vs,
+        survivingK: -1,
+      });
+      expect(hits).toEqual([]); // clamped to 0, not [m1,m2]
+    });
+
+    it("survivingK: -5 returns [] (clamped, not drop-last-5)", async () => {
+      // Verify clamp works for larger negative values
+      const vs = fakeVectorStore([
+        { mdId: "m1", kind: "memory", contentHash: "h1" },
+        { mdId: "m2", kind: "memory", contentHash: "h2" },
+      ]);
+      const hits = await searchSemantic({
+        queryText: "probe", kind: "memory", topK: 5,
+        embedder: fakeEmbedder(), vectorStore: vs,
+        survivingK: -5,
+      });
+      expect(hits).toEqual([]); // clamped to 0
+    });
   });
 });
