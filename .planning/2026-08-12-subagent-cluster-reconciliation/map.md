@@ -32,7 +32,7 @@ The `pi-agent-ext-*` cluster accumulated shipped-but-untracked efforts (tool-spl
 ## Audit — Branches (~60 keyword-matched)
 
 - ~59 are **pre-squash relic pointers** — their content already lives on `main` (verified via `git cherry` / `git log`), so they carry no unmerged work.
-- Exactly **1 carries real unmerged work:** `fix/core-task-gate-ask-user-todo` (tracked next-step #4 — rebase onto main → typecheck+test on `pi-agent-ext-tool-gate` → PR).
+- ~59 stale pointers; the previously-flagged `fix/core-task-gate-ask-user-todo` is actually reverted #1142 (a relic) — so the cluster has **ZERO pending code branches**.
 - **1 is dead WIP:** `wip/preserve-subagent-workflow-files-pre-orphan`.
 - **Branch deletion is DEFERRED** (out of this pass — no branch deletion in a docs-only reconciliation PR; see tracked next-step #5).
 
@@ -61,7 +61,7 @@ Eight efforts in `.planning/` carry status stamps that lag their shipped reality
 1. **Carve spawn-seam stage-4 (goalState session-isolation) into a dedicated effort.** The goalState slice of ticket #3 was deferred when spawn-seam archived; it needs its own home + design.
 2. **Fold guardrails #01–04 onto a canonical `subagent-runtime` map with blocking edges.** Dependency chain: stage-4 isolation → safe `session_start` in children → unlocks guardrails correctness (efficiency-guardrails #01–04 depend on correct child seeding/isolation).
 3. **Write the implementation plan for `improve-subagents-batch-tui`.** READY-TO-PLAN (spec approved #1178); independent of the isolation work.
-4. **Ship `fix/core-task-gate-ask-user-todo`.** Rebase onto `main` → `pi-agent-ext-tool-gate` typecheck+test → PR. The one branch carrying real unmerged work.
+4. **Superseded — `fix/core-task-gate-ask-user-todo` is the source branch of REVERTED #1142 (reverted #1145, 81% miss-rate); abandoned, not shippable.** Slimming core-task's always-on footprint would need a new mechanism + new effort.
 5. **Delete ~59 stale-pointer branches (local + origin) + the dead `wip/preserve-subagent-workflow-files-pre-orphan` branch.** Branch deletion is a separate, deliberately-isolated pass (not a docs PR).
 6. **(Optional) archive the 8 status-flipped efforts into `.planning/done/`** for consistency with the 3 archived this pass (the status flips already record them as done/closed in place).
 
