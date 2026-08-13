@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# One-time repo setup — run after a fresh clone.
-#  1. Enables the shared pre-commit hook (2 MB size guard) at .githooks/.
+# One-time repo setup — run after a fresh clone, and again in each new worktree.
+#  1. Points core.hooksPath at .githooks/ (pre-commit + pre-push).
 #  2. Normalizes submodule config + initializes submodules (private repos —
 #     needs SSH auth to github.com).
 set -euo pipefail
@@ -9,9 +9,24 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 if [ -d .githooks ]; then
+  # RELATIVE on purpose. git resolves a relative core.hooksPath against the
+  # top-level of the working tree the hook is running in, so every linked
+  # worktree gets its OWN .githooks/. An ABSOLUTE value silently points every
+  # worktree at one checkout's copy: edit a hook on a branch in worktree B and
+  # the hook that actually runs is still worktree A's. core.hooksPath lives in
+  # the SHARED config, so one bad `git config` breaks it for all of them.
+  # Re-running this script repairs that — which is why it is worth re-running
+  # in a new worktree even though "one-time setup" suggests otherwise.
+  prev="$(git config --get core.hooksPath || true)"
+  if [ -n "$prev" ] && [ "$prev" != ".githooks" ]; then
+    echo "· core.hooksPath was '$prev' — repointing to the relative '.githooks'"
+    echo "  (an absolute or foreign path makes every worktree run one checkout's hooks)"
+  fi
   git config core.hooksPath .githooks
   echo "✓ hooks enabled (core.hooksPath = .githooks)"
-  echo "  pre-commit guard: rejects files > 2 MB (bypass: git commit --no-verify)"
+  echo "  pre-commit: rejects files > 2 MB          (bypass: git commit --no-verify)"
+  echo "  pre-push:   runs the CI regression-gates  (bypass: git push --no-verify)"
+  echo "              — 13 structural guards, ~6s; see .githooks/pre-push"
 else
   echo "✗ .githooks/ not found at $REPO_ROOT — aborting" >&2
   exit 1
