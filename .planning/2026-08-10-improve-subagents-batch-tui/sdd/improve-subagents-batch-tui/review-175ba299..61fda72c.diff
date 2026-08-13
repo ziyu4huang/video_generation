@@ -1,0 +1,209 @@
+# Review package: 175ba299..61fda72c07bcdb98b76b43d72ef592647b65f6d5
+
+## Commits
+61fda72c feat(subagent): batch-tui running-header aggregate + runningUsage + onUpdate rewrite (T6)
+
+## Files changed
+ .../pi-agent-ext-subagent/src/subagents-tool.ts    | 18 ++++--
+ .../tests/subagents-tool.test.ts                   | 74 ++++++++++++++++++++--
+ 2 files changed, 82 insertions(+), 10 deletions(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+index 7559fe2b..abfc824f 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+@@ -284,20 +284,25 @@ export function createSubagentsTool(
+         undefined,
+       );
+       let dispatched = 0;
+       // Batch-wide budget SOFT GATE state. `gateTripped` stops NEW children from
+       // starting; in-flight children always finish. `acc` accumulates usage across
+       // every child that reported usage; `budgetExhaustion` (if set) is surfaced on
+       // `details` and used to label the skipped slots.
+       let gateTripped = false;
+       let budgetExhaustion: BudgetExhaustion | undefined;
+       const acc = { tokens: { total: 0 }, cost: 0 };
++      // Per-child final usage, captured via the additive onUsage callback
++      // (fires once at each child's completion). Feeds the running (live)
++      // header's Σtok/$Σ. NOTE: onUsage is completion-triggered, so the Σ is
++      // "sum over children completed so far" — not a per-token live ticker.
++      const runningUsage = new Map<string, AgentUsage>();
+       const batchBudget = {
+         ...(params.tokenBudget !== undefined ? { tokenBudget: params.tokenBudget } : {}),
+         ...(params.spendBudget !== undefined ? { spendBudget: params.spendBudget } : {}),
+       };
+       const hasBatchBudget = params.tokenBudget !== undefined || params.spendBudget !== undefined;
+ 
+       const dispatchChild = async (task: BatchTask, index: number): Promise<void> => {
+         // Effective model string + task preview — computed up front so BOTH the
+         // soft-gate skip branch and the normal dispatch branch can enrich the
+         // result slot (deficit 4b: Completed-section display needs task/model).
+@@ -384,35 +389,40 @@ export function createSubagentsTool(
+           externalSignal: childAc.signal,
+           onModelResolved: (modelId) => {
+             childResolvedModel = modelId;
+             options.inFlight?.updateModel(childRunId, modelId);
+           },
+           onModelFallback: (requestedSpec) => {
+             childFellBack = true;
+             childRequestedSpec = requestedSpec;
+             options.inFlight?.markFallback(childRunId, requestedSpec);
+           },
++          onUsage: (u) => {
++            runningUsage.set(childRunId, u);
++          },
+           onHistory: (history) => {
+             options.inFlight?.update(childRunId, history);
+             // Single-line batch progress feed — kills the blind spinner on the
+             // batch's own call line. Diagnostic only: a throwing onUpdate must
+             // never change the batch result or fail a child (mirrors the singular
+             // tool's try/catch discipline at subagent-tool.ts).
+             try {
+               const group = (options.inFlight?.list() ?? []).filter((e) => e.batchId === toolCallId);
+               const running = group.filter((e) => e.status !== "completed").length;
+               const total = params.tasks.length;
+-              const latest = summarizeLatestAction(history) ?? truncateToWidth(taskPreview(task.task), 40);
++              const agg = sumUsage(runningUsage.values());
++              const aggStr = agg.total > 0 ? ` · ${agg.total} tok · $${agg.cost.toFixed(3)}` : "";
++              const header = `subagents · ${running}/${total} running${aggStr}`;
++              const table = buildLiveTable(group);
++              const text = table ? `${header}\n${table}` : header;
+               onUpdate?.({
+-                content: [
+-                  { type: "text" as const, text: `subagents · ${running}/${total} running · latest: ${latest}` },
+-                ],
++                content: [{ type: "text" as const, text }],
+                 details: undefined as never,
+               });
+             } catch {
+               // swallowed — onUpdate is diagnostic only (mirrors the singular tool)
+             }
+           },
+         };
+         let result: SpawnSubagentResult;
+         try {
+           // Gate the actual provider dispatch under the shared per-provider cap
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+index d4ff37ef..09582c90 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+@@ -529,50 +529,112 @@ test("batch keeps a completed child (status=completed) mid-run; evicts the whole
+     NO_SIGNAL,
+     undefined,
+     NO_CTX,
+   );
+   assert.equal(seen.length, 1, "child #1 observed #0");
+   assert.equal(seen[0].present, true, "#0 still in registry when #1 runs (kept, not evicted)");
+   assert.equal(seen[0].status, "completed", "#0 marked completed (not running, not gone)");
+   assert.equal(inFlight.list().length, 0, "registry empty after the batch returns (whole-batch eviction)");
+ });
+ 
+-test("onUpdate emits a single-line 'k/N running · latest' as children progress", async () => {
++test("onUpdate emits a multi-line header + live table: `subagents · k/N running · Σtok · $Σ` then one row per child", async () => {
+   const inFlight = new SubagentInFlightRegistry();
+   const updates: string[] = [];
+   const onUpdate = (u: { content: Array<{ type: string; text: string }> }) => {
+     updates.push(u.content.map((c) => c.text).join(""));
+   };
+   const spawn = async (opts: {
+     task: string;
++    onUsage?: (u: AgentUsage) => void;
+     onHistory?: (h: { kind: string; toolName?: string; text?: string }[]) => void;
+   }): Promise<SpawnSubagentResult> => {
++    opts.onUsage?.(U(500, 0.05));
+     opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "r" }]);
+     const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
+-    // mark each child completed to mirror the real finally-block
+     inFlight.markCompleted(`batch-call:${idx}`);
+     return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+   };
+   const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
+   await tool.execute(
+     "batch-call",
+     { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 },
+     NO_SIGNAL,
+     onUpdate as never,
+     NO_CTX,
+   );
+   assert.ok(updates.length >= 2, "at least one update per child history tick");
+   const first = updates[0];
+-  assert.match(first, /subagents/, "single-line batch summary");
+-  assert.match(first, /\/2/, "shows /N total");
+-  assert.match(first, /latest/, "includes the latest action");
+-  assert.match(updates[1], /1\/2/, "running stays 1 as sibling #0 completes (not 2)");
++  const firstHeader = first.split("\n")[0] ?? "";
++  assert.match(firstHeader, /^subagents · \d+\/2 running/, "header shows `subagents · k/N running`");
++  // child #0 already reported usage (500 tok) before this tick → aggregate present
++  assert.match(firstHeader, /500 tok · \$0\.050/, "header carries the Σtok · $Σ aggregate (tokens first)");
++  assert.ok(!firstHeader.includes("latest:"), "the old `latest:` label is gone from the header");
++  assert.ok(first.includes("[0]"), "the live table row for child #0 is present (multi-line)");
++});
++
++test("runningUsage map is fed by onUsage and drives the live-header Σ across children", async () => {
++  const inFlight = new SubagentInFlightRegistry();
++  const headers: string[] = [];
++  const onUpdate = (u: { content: Array<{ type: string; text: string }> }) => {
++    headers.push(
++      u.content
++        .map((c) => c.text)
++        .join("")
++        .split("\n")[0] ?? "",
++    );
++  };
++  let i = 0;
++  const usages = [U(1000, 0.1), U(2000, 0.2)];
++  const spawn = async (opts: {
++    task: string;
++    onUsage?: (u: AgentUsage) => void;
++    onHistory?: (h: { kind: string }[]) => void;
++  }): Promise<SpawnSubagentResult> => {
++    const idx = i++;
++    opts.onUsage?.(usages[idx] ?? U(0, 0));
++    // Fire onHistory so the live-header onUpdate actually emits — the live
++    // header only renders via the onHistory→onUpdate path, so without a tick
++    // `headers` stays empty and the Σ assertion has nothing to match.
++    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
++    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
++  };
++  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
++  await tool.execute(
++    "batch-sig",
++    { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 },
++    NO_SIGNAL,
++    onUpdate as never,
++    NO_CTX,
++  );
++  const lastHeader = headers[headers.length - 1] ?? "";
++  assert.match(lastHeader, /3000 tok · \$0\.300/, "Σ accumulates across both children's onUsage");
++});
++
++test("onUpdate is try/caught: a throwing buildLiveTable path never fails the child", async () => {
++  const inFlight = new SubagentInFlightRegistry();
++  // Sabotage list() to throw mid-onUpdate; the child must still complete.
++  const badList = () => {
++    throw new Error("boom");
++  };
++  inFlight.list = badList as never;
++  let completed = false;
++  const spawn = async (opts: {
++    task: string;
++    onHistory?: (h: { kind: string }[]) => void;
++  }): Promise<SpawnSubagentResult> => {
++    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
++    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
++  };
++  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
++  const res = await tool.execute("batch-throw", { tasks: [{ task: "#0" }] }, NO_SIGNAL, undefined, NO_CTX);
++  completed = (res.details.results[0] as { status: string }).status === "done";
++  assert.equal(completed, true, "child completed despite a throwing inFlight.list() during onUpdate");
+ });
+ 
+ // ── per-child mid-flight abort (Frontier A, Task 2) ──
+ 
+ /** Flush the event loop until `fn()` returns a truthy value (or throw after tries). */
+ async function waitFor<T>(fn: () => T | undefined | null, tries = 200): Promise<NonNullable<T>> {
+   for (let i = 0; i < tries; i++) {
+     const v = fn();
+     if (v) return v as NonNullable<T>;
+     await new Promise((r) => setTimeout(r, 0));
