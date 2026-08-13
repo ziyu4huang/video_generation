@@ -1,0 +1,137 @@
+# Review package: 018ffb9a..e29bbe58321ebcf074020f65dacb6301d8577e2e
+
+## Commits
+e29bbe58 feat(subagent): expose onUsage on SpawnSubagentOptions + forward to runner (batch-tui T1)
+
+## Files changed
+ .../pi-agent-ext-subagent/src/spawn-subagent.ts    |  9 +++++++
+ .../tests/spawn-subagent.test.ts                   | 30 +++++++++++++++++++++-
+ 2 files changed, 38 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts b/bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts
+index 85ca8911..ee30ad49 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts
+@@ -105,20 +105,28 @@ export interface SpawnSubagentOptions {
+   /** Injectable runner (tests pass a mock; production omits → new WorkflowAgent). */
+   agent?: Pick<WorkflowAgent, "run">;
+   /** Host signal (e.g. tool-call Ctrl+C) that should cancel this call when fired. */
+   externalSignal?: AbortSignal;
+   /**
+    * Compact live snapshot of the child's message/tool history, forwarded
+    * verbatim from `WorkflowAgent.run()`'s own `onHistory` (already throttled
+    * to ≥250ms there — no additional throttling needed here).
+    */
+   onHistory?: (history: AgentHistoryEntry[]) => void;
++  /**
++   * Fires with the child's real token/cost usage once known. Emitted exactly
++   * once, at run completion (the runner reads session stats in its `finally`).
++   * Mirrors {@link onHistory} / {@link onModelResolved} / {@link onModelFallback}
++   * — additive + optional. The internal `result.usage` capture is unchanged, so
++   * both this live callback and the final result carry usage.
++   */
++  onUsage?: (u: AgentUsage) => void;
+ }
+ 
+ export interface SpawnSubagentResult {
+   output: string;
+   exitCode: number;
+   stderr: string;
+   timedOut: boolean;
+   /** Real token/cost usage read from the child session, when the runner reports it. */
+   usage?: AgentUsage;
+   /** Set when the run was aborted for exceeding tokenBudget/spendBudget (distinct from timedOut/failed). */
+@@ -243,20 +251,21 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
+         tier: opts.tier,
+         images: opts.images,
+         toolNames: opts.tools,
+         disallowedToolNames: opts.excludeTools,
+         cwd: opts.cwd,
+         signal: ac.signal,
+         onModelResolved: opts.onModelResolved,
+         onModelFallback: opts.onModelFallback,
+         onUsage: (u) => {
+           usage = u;
++          opts.onUsage?.(u);
+         },
+         onHistory: opts.onHistory,
+         tokenBudget: opts.tokenBudget,
+         spendBudget: opts.spendBudget,
+         maxSchemaRetries: opts.schemaRepairAttempts,
+       } as Parameters<WorkflowAgent["run"]>[1]);
+       // When `opts.schema` is set, `run()` returns a validated OBJECT (not a
+       // string). `String(obj)` would yield "[object Object]" and silently
+       // destroy the schema payload — JSON-serialize it instead so callers
+       // that parse `output` keep working. Null/undefined → empty string.
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/spawn-subagent.test.ts b/bun-apps/pi-agent-ext-subagent/tests/spawn-subagent.test.ts
+index 643067b9..adde471b 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/spawn-subagent.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/spawn-subagent.test.ts
+@@ -1,16 +1,21 @@
+ import { describe, it } from "bun:test";
+ import assert from "node:assert/strict";
+ import { mkdtempSync } from "node:fs";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+-import { saveModelTierConfig, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
++import {
++  type AgentUsage,
++  saveModelTierConfig,
++  WorkflowError,
++  WorkflowErrorCode,
++} from "@repo/pi-agent-ext-core-runtime";
+ import { resolveSessionOverride, spawnSubagent } from "../src/spawn-subagent.js";
+ 
+ /** Minimal injectable runner (Pick<WorkflowAgent, "run">) that records calls. */
+ function mkRunner(impl: (p: { prompt: string; opts: Record<string, unknown> }) => Promise<unknown>) {
+   const calls: Array<{ prompt: string; opts: Record<string, unknown> }> = [];
+   return {
+     calls,
+     run: async (prompt: string, opts: Record<string, unknown>) => {
+       calls.push({ prompt, opts });
+       return impl({ prompt, opts });
+@@ -113,20 +118,43 @@ describe("spawnSubagent", () => {
+         fallback = spec;
+       },
+       agent: runner,
+     });
+     assert.equal(runner.calls[0]?.opts.tier, "big");
+     assert.equal(resolved, "deepseek/deepseek-v4-flash", "onModelResolved forwarded + fires");
+     assert.equal(typeof runner.calls[0]?.opts.onModelFallback, "function", "onModelFallback forwarded");
+     assert.equal(fallback, "", "runner did not trigger fallback here");
+   });
+ 
++  it("forwards onUsage to the caller (fires once at run end) alongside the internal result.usage capture", async () => {
++    const usage = { input: 10, output: 20, cacheRead: 0, cacheWrite: 0, total: 30, cost: 0.012 };
++    const runner = mkRunner(async ({ opts }) => {
++      opts.onUsage?.(usage);
++      return "ok";
++    });
++    const seen: AgentUsage[] = [];
++    const res = await spawnSubagent({ task: "t", agent: runner, onUsage: (u) => seen.push(u) });
++    assert.equal(seen.length, 1, "opts.onUsage fires exactly once");
++    assert.deepEqual(seen[0], usage, "the caller receives the usage payload verbatim");
++    assert.deepEqual(res.usage, usage, "the internal result.usage capture still works (not removed)");
++  });
++
++  it("onUsage is optional — omitting it changes nothing (result.usage still captured)", async () => {
++    const usage = { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, total: 5, cost: 0.001 };
++    const runner = mkRunner(async ({ opts }) => {
++      opts.onUsage?.(usage);
++      return "ok";
++    });
++    const res = await spawnSubagent({ task: "t", agent: runner });
++    assert.deepEqual(res.usage, usage, "result.usage captured even with no caller onUsage");
++  });
++
+   it("timeout (AGENT_TIMEOUT) → timedOut:true, retried once when retryOnTransient:true", async () => {
+     let n = 0;
+     const runner = mkRunner(async () => {
+       n++;
+       throw new WorkflowError("agent timed out", WorkflowErrorCode.AGENT_TIMEOUT, { recoverable: true });
+     });
+     const out = await spawnSubagent({ task: "t", retryOnTransient: true, agent: runner });
+     assert.equal(n, 2, "retried once after a transient timeout");
+     assert.equal(out.timedOut, true);
+     assert.notEqual(out.exitCode, 0);
