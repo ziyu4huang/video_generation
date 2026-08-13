@@ -536,7 +536,7 @@ test("batch keeps a completed child (status=completed) mid-run; evicts the whole
   assert.equal(inFlight.list().length, 0, "registry empty after the batch returns (whole-batch eviction)");
 });
 
-test("onUpdate emits a single-line 'k/N running · latest' as children progress", async () => {
+test("onUpdate emits a multi-line header + live table: `subagents · k/N running · Σtok · $Σ` then one row per child", async () => {
   const inFlight = new SubagentInFlightRegistry();
   const updates: string[] = [];
   const onUpdate = (u: { content: Array<{ type: string; text: string }> }) => {
@@ -544,11 +544,12 @@ test("onUpdate emits a single-line 'k/N running · latest' as children progress"
   };
   const spawn = async (opts: {
     task: string;
+    onUsage?: (u: AgentUsage) => void;
     onHistory?: (h: { kind: string; toolName?: string; text?: string }[]) => void;
   }): Promise<SpawnSubagentResult> => {
+    opts.onUsage?.(U(500, 0.05));
     opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "r" }]);
     const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
-    // mark each child completed to mirror the real finally-block
     inFlight.markCompleted(`batch-call:${idx}`);
     return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
   };
@@ -562,10 +563,71 @@ test("onUpdate emits a single-line 'k/N running · latest' as children progress"
   );
   assert.ok(updates.length >= 2, "at least one update per child history tick");
   const first = updates[0];
-  assert.match(first, /subagents/, "single-line batch summary");
-  assert.match(first, /\/2/, "shows /N total");
-  assert.match(first, /latest/, "includes the latest action");
-  assert.match(updates[1], /1\/2/, "running stays 1 as sibling #0 completes (not 2)");
+  const firstHeader = first.split("\n")[0] ?? "";
+  assert.match(firstHeader, /^subagents · \d+\/2 running/, "header shows `subagents · k/N running`");
+  // child #0 already reported usage (500 tok) before this tick → aggregate present
+  assert.match(firstHeader, /500 tok · \$0\.050/, "header carries the Σtok · $Σ aggregate (tokens first)");
+  assert.ok(!firstHeader.includes("latest:"), "the old `latest:` label is gone from the header");
+  assert.ok(first.includes("[0]"), "the live table row for child #0 is present (multi-line)");
+});
+
+test("runningUsage map is fed by onUsage and drives the live-header Σ across children", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  const headers: string[] = [];
+  const onUpdate = (u: { content: Array<{ type: string; text: string }> }) => {
+    headers.push(
+      u.content
+        .map((c) => c.text)
+        .join("")
+        .split("\n")[0] ?? "",
+    );
+  };
+  let i = 0;
+  const usages = [U(1000, 0.1), U(2000, 0.2)];
+  const spawn = async (opts: {
+    task: string;
+    onUsage?: (u: AgentUsage) => void;
+    onHistory?: (h: { kind: string }[]) => void;
+  }): Promise<SpawnSubagentResult> => {
+    const idx = i++;
+    opts.onUsage?.(usages[idx] ?? U(0, 0));
+    // Fire onHistory so the live-header onUpdate actually emits — the live
+    // header only renders via the onHistory→onUpdate path, so without a tick
+    // `headers` stays empty and the Σ assertion has nothing to match.
+    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
+  await tool.execute(
+    "batch-sig",
+    { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 },
+    NO_SIGNAL,
+    onUpdate as never,
+    NO_CTX,
+  );
+  const lastHeader = headers[headers.length - 1] ?? "";
+  assert.match(lastHeader, /3000 tok · \$0\.300/, "Σ accumulates across both children's onUsage");
+});
+
+test("onUpdate is try/caught: a throwing buildLiveTable path never fails the child", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  // Sabotage list() to throw mid-onUpdate; the child must still complete.
+  const badList = () => {
+    throw new Error("boom");
+  };
+  inFlight.list = badList as never;
+  let completed = false;
+  const spawn = async (opts: {
+    task: string;
+    onHistory?: (h: { kind: string }[]) => void;
+  }): Promise<SpawnSubagentResult> => {
+    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
+  const res = await tool.execute("batch-throw", { tasks: [{ task: "#0" }] }, NO_SIGNAL, undefined, NO_CTX);
+  completed = (res.details.results[0] as { status: string }).status === "done";
+  assert.equal(completed, true, "child completed despite a throwing inFlight.list() during onUpdate");
 });
 
 // ── per-child mid-flight abort (Frontier A, Task 2) ──

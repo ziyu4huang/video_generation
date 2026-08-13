@@ -291,6 +291,11 @@ export function createSubagentsTool(
       let gateTripped = false;
       let budgetExhaustion: BudgetExhaustion | undefined;
       const acc = { tokens: { total: 0 }, cost: 0 };
+      // Per-child final usage, captured via the additive onUsage callback
+      // (fires once at each child's completion). Feeds the running (live)
+      // header's Σtok/$Σ. NOTE: onUsage is completion-triggered, so the Σ is
+      // "sum over children completed so far" — not a per-token live ticker.
+      const runningUsage = new Map<string, AgentUsage>();
       const batchBudget = {
         ...(params.tokenBudget !== undefined ? { tokenBudget: params.tokenBudget } : {}),
         ...(params.spendBudget !== undefined ? { spendBudget: params.spendBudget } : {}),
@@ -391,6 +396,9 @@ export function createSubagentsTool(
             childRequestedSpec = requestedSpec;
             options.inFlight?.markFallback(childRunId, requestedSpec);
           },
+          onUsage: (u) => {
+            runningUsage.set(childRunId, u);
+          },
           onHistory: (history) => {
             options.inFlight?.update(childRunId, history);
             // Single-line batch progress feed — kills the blind spinner on the
@@ -401,11 +409,13 @@ export function createSubagentsTool(
               const group = (options.inFlight?.list() ?? []).filter((e) => e.batchId === toolCallId);
               const running = group.filter((e) => e.status !== "completed").length;
               const total = params.tasks.length;
-              const latest = summarizeLatestAction(history) ?? truncateToWidth(taskPreview(task.task), 40);
+              const agg = sumUsage(runningUsage.values());
+              const aggStr = agg.total > 0 ? ` · ${agg.total} tok · $${agg.cost.toFixed(3)}` : "";
+              const header = `subagents · ${running}/${total} running${aggStr}`;
+              const table = buildLiveTable(group);
+              const text = table ? `${header}\n${table}` : header;
               onUpdate?.({
-                content: [
-                  { type: "text" as const, text: `subagents · ${running}/${total} running · latest: ${latest}` },
-                ],
+                content: [{ type: "text" as const, text }],
                 details: undefined as never,
               });
             } catch {
