@@ -258,9 +258,16 @@ describe("wireWebui — lifecycle", () => {
     expect(server.stopCalls).toBe(0); // server survives (persistent co-frontend)
   });
 
-  test("session_start announces the resolved URL via ctx.ui (notify + setStatus)", () => {
-    const { pi, server } = setup();
+  test("announce fires on the first render (not at session_start) — fire-once", () => {
+    const { pi } = setup();
+    // session_start alone must NOT announce (deferred to first content).
     pi.emit("session_start", { type: "session_start", reason: "startup" });
+    expect(pi.ctx.notifications).toEqual([]);
+    expect(pi.ctx.statuses).toEqual([]);
+    // first render triggers the announce. The webui:render event is the
+    // producer the wiring registers (pi.events.on) — it flows through the
+    // render-event-handler into registry.render(), which fires subscribers.
+    pi.events.emit("webui:render", { content: "# first" });
     // FakeWebServer.url is "http://fake.local/".
     expect(pi.ctx.notifications).toEqual([
       { message: "webui ready — open http://fake.local/ in a browser to view rendered results and send feedback. (loopback · no auth)", type: "info" },
@@ -268,6 +275,10 @@ describe("wireWebui — lifecycle", () => {
     expect(pi.ctx.statuses).toEqual([
       { key: "webui", text: "🌐 webui · http://fake.local/ · open in browser to view results" },
     ]);
+    // one-shot: a second render must NOT re-announce.
+    pi.events.emit("webui:render", { content: "# second" });
+    expect(pi.ctx.notifications).toHaveLength(1);
+    expect(pi.ctx.statuses).toHaveLength(1);
   });
 });
 
