@@ -779,16 +779,25 @@ export function renderSubagentsResult(
       if (slot === null)
         return `${theme.bold(`### [${i}] failed`)}
 ${theme.fg("dim", "_(null — child failed; re-run via the singular `subagent` tool to see the error)_")}`;
+      // Meta line shared by every variant that carries model + elapsedMs
+      // (done/timedout/aborted/budget). usage optional → formatSlotMeta degrades.
+      const metaLine = formatSlotMeta(
+        slot as { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
+        theme,
+      );
       if (slot.status === "budget") {
         const label = slot.source === "child" ? "child budget" : "batch budget";
-        return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped`)} — ${theme.fg("warning", `${label}: ${slot.exhaustion.kind} ${slot.exhaustion.actual} > ${slot.exhaustion.limit}`)}`;
+        return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped`)} — ${theme.fg("warning", `${label}: ${slot.exhaustion.kind} ${slot.exhaustion.actual} > ${slot.exhaustion.limit}`)}
+${metaLine}`;
       }
       if (slot.status === "aborted") {
         return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} aborted`)}
+${metaLine}
 ${theme.fg("dim", "_(user-aborted mid-flight)_")}`;
       }
       const output = slot.output || "_(empty output)_";
       return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} ${slot.status}`)}
+${metaLine}
 ${theme.fg("toolOutput", output)}`;
     })
     .join("\n\n");

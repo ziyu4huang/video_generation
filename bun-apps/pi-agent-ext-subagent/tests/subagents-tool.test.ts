@@ -1219,3 +1219,90 @@ test("done collapsed: null (failed) slot still renders the terse failed line (no
   assert.match(line, /child failed/);
   assert.doesNotMatch(line, /· .*s ·/);
 });
+
+// ── Task 4: done-expanded per-child meta line ──
+// The expanded branch prepends a `model · elapsed · $cost · Ntok` meta line
+// above each child's output (done/timedout/aborted/budget). Null (failed)
+// slots are unchanged. Mirrors the single subagent card's meta placement.
+
+test("done expanded: prepends a `model · elapsed · $cost · Ntok` meta line above each child output", () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      {
+        output: "Full audit report\nLine two",
+        status: "done",
+        id: "a",
+        index: 0,
+        task: "audit",
+        model: "zai/glm-5.2",
+        elapsedMs: 34500,
+        usage: U(15715, 0.0004),
+      },
+    ],
+    dispatched: 1,
+    skipped: 0,
+    elapsedMs: 34500,
+  };
+  const expanded = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: true },
+    THEME,
+  );
+  const lines = expanded.split("\n");
+  // NOTE (T4 brief fix): meta sits at lines[3], not lines[1]. Expanded layout is
+  // `header\n\n### [i] (id) status\n<meta>\n<output>` — the brief's verbatim
+  // `lines[1]` pointed at the blank line between the batch header and the body.
+  assert.match(
+    lines[3] ?? "",
+    /glm-5\.2 · 34\.5s · \$0\.000 · 15715 tok/,
+    "meta line sits directly under the ### header",
+  );
+  assert.ok(expanded.includes("Full audit report"), "output preserved under the meta line");
+});
+
+test("done expanded: budget + aborted slots get a meta line too (no usage → model · elapsed only)", () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      {
+        status: "budget",
+        source: "child" as const,
+        exhaustion: { kind: "tokens" as const, limit: 1000, actual: 2000 },
+        index: 0,
+        task: "t-budget",
+        model: "zai/glm-5.2",
+        elapsedMs: 800,
+      },
+      { output: "", status: "aborted", index: 1, task: "t-aborted", model: "zai/glm-5.2", elapsedMs: 300 },
+    ],
+    dispatched: 2,
+    skipped: 1,
+    elapsedMs: 1100,
+  };
+  const expanded = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: true },
+    THEME,
+  );
+  // NOTE (T4 brief fix): order reversed. Layout is `### [i] skipped — ...\n<meta>`
+  // (status word in the ### header precedes the meta), so the brief's verbatim
+  // `meta THEN status` regexes never matched. `status THEN meta` is the spec'd order.
+  assert.match(expanded, /skipped[\s\S]*glm-5\.2 · 0\.8s/);
+  assert.match(expanded, /aborted[\s\S]*glm-5\.2 · 0\.3s/);
+});
+
+test("done expanded: null (failed) slot has NO meta line (unchanged failed body)", () => {
+  const details: SubagentsToolDetails = {
+    results: [null, { output: "ok", status: "done", index: 1, task: "t", model: "zai/glm-5.2", elapsedMs: 100 }],
+    dispatched: 1,
+    skipped: 0,
+    elapsedMs: 100,
+  };
+  const expanded = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: true },
+    THEME,
+  );
+  const failedBlock = expanded.split("### [1]")[0];
+  assert.match(failedBlock, /### \[0\] failed/);
+  assert.doesNotMatch(failedBlock, /· .*s ·/);
+});
