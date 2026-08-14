@@ -7,6 +7,9 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { publishSeam, type KnowledgePipeline, type RetrieveResult } from "@repo/pi-agent-ext-core-interface";
 import { registerKnowledgeSearchTool, buildLexicalRecall, buildEntityRecall } from "../src/tools/knowledge-search-tool.js";
 import { SqliteBackend } from "../src/store/sqlite/sqlite-backend.js";
+import { searchSemantic } from "../src/store/semantic-search.js";
+import type { VectorKnnHit, VectorStore } from "../src/store/surreal/vector-store.js";
+import type { Embedder } from "../src/store/surreal/embedder.js";
 import { existsSync, writeFileSync } from "node:fs";
 
 const KEY = "__piKnowledgePipeline";
@@ -186,6 +189,158 @@ describe("buildLexicalRecall (FTS membership over target='knowledge')", () => {
       const hits = await recall("anything", 10);
       assert.deepEqual(hits, []);
     } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/** ── Ticket 20 T4: end-to-end voted warm path ───────────────────────────
+ *
+ * CHARACTERIZATION TESTS (no forced red): T1–T3 landed the vote core, the
+ * boostWeight knob, and the production builders independently; these tests
+ * compose them for the first time — real `buildLexicalRecall` +
+ * `buildEntityRecall` over a seeded tmp SQLite card-store DB × a mocked
+ * embedder/vectorStore HNSW path. They are expected to pass immediately
+ * against the T1–T3 implementation; they pin the integration contract
+ * (voted order + signalCount observability + tool card ordering).
+ *
+ * Fixture pair (query "quokka survey protocol for `MLX`"):
+ *   - card A (`md/knowledge/a`): content matches EVERY FTS query token AND
+ *     its graph.entities carry `MLX` (extracted from the backtick span) →
+ *     present in BOTH extra signals → signalCount 3 (warm + lexical + entity).
+ *   - card B (`md/knowledge/b`): NO FTS token overlap, graph entities
+ *     (Docker) disjoint from the query set → warm-only, signalCount 1 — but
+ *     B sits at HNSW rank 0 (better cosine) in the mocked knn result. */
+const T4_QUERY = "quokka survey protocol for `MLX`";
+
+async function seedVotedPair(): Promise<string> {
+  return seedMemoryDir([
+    {
+      target: "knowledge",
+      content: "quokka survey protocol for MLX",
+      mdId: "md/knowledge/a",
+      graph: JSON.stringify({ entities: [{ type: "lib", name: "MLX" }] }),
+    },
+    {
+      target: "knowledge",
+      content: "hedgehog nocturnal rotation schedule",
+      mdId: "md/knowledge/b",
+      graph: JSON.stringify({ entities: [{ type: "tool", name: "Docker" }] }),
+    },
+  ]);
+}
+
+function t4Embedder(): Embedder {
+  return async () => [[1, 0, 0]]; // deterministic canned query vector
+}
+
+function t4VectorStore(knnResult: VectorKnnHit[]): VectorStore {
+  return {
+    init: async () => {},
+    upsertVectors: async () => {},
+    knn: async () => knnResult,
+    missingMdIds: async () => [],
+  } as unknown as VectorStore;
+}
+
+describe("ticket 20 T4 — end-to-end voted warm path (REAL builders × mocked vector path)", () => {
+  it("3-signal card A outranks better-cosine warm-only card B (signalCount 3 vs 1)", async () => {
+    const dir = await seedVotedPair();
+    try {
+      const vs = t4VectorStore([
+        { mdId: "md/knowledge/b", kind: "knowledge" }, // HNSW rank 0 — better cosine
+        { mdId: "md/knowledge/a", kind: "knowledge" }, // HNSW rank 1
+      ]);
+      const hits = await searchSemantic({
+        queryText: T4_QUERY, kind: "knowledge", topK: 10,
+        embedder: t4Embedder(), vectorStore: vs,
+        lexicalRecall: buildLexicalRecall(dir),
+        entityRecall: buildEntityRecall(dir),
+        boostWeight: 1.0,
+      });
+      // A: (3-1)*1.0 + max(1-0/11, 1-0/11) = 2.909… ; B: 0*1.0 + 0 = 0
+      assert.deepEqual(hits.map((h) => h.mdId), ["md/knowledge/a", "md/knowledge/b"]);
+      assert.equal(hits[0]!.signalCount, 3); // warm + FTS + entity
+      assert.equal(hits[1]!.signalCount, 1); // warm only
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("boostWeight 0.1: A STILL wins — a flip fixture is impossible under the pinned formula", async () => {
+    // PINNED formula: final = (signalCount - 1) * boostWeight + bestRankScore,
+    // where bestRankScore = max over CONTAINING signals of (1 - rank/(topK+1)).
+    // A warm-only hit appears in NO signal → bestRankScore is ALWAYS 0 → its
+    // final is 0 no matter how good its cosine rank is. Any signal-boosted
+    // card scores (n-1)*w + >0, which is > 0 for every w > 0. So B can never
+    // outrank A at any positive boostWeight — the invariant we assert (A wins
+    // at both 1.0 and 0.1), with ties among warm-only hits broken by the
+    // stable warm (cosine) order.
+    const dir = await seedVotedPair();
+    try {
+      const vs = t4VectorStore([
+        { mdId: "md/knowledge/b", kind: "knowledge" },
+        { mdId: "md/knowledge/a", kind: "knowledge" },
+      ]);
+      const hits = await searchSemantic({
+        queryText: T4_QUERY, kind: "knowledge", topK: 10,
+        embedder: t4Embedder(), vectorStore: vs,
+        lexicalRecall: buildLexicalRecall(dir),
+        entityRecall: buildEntityRecall(dir),
+        boostWeight: 0.1,
+      });
+      // A: 2*0.1 + 0.909 = 1.109 ; B: 0 → A still first even at the low knob.
+      assert.deepEqual(hits.map((h) => h.mdId), ["md/knowledge/a", "md/knowledge/b"]);
+      assert.equal(hits[0]!.signalCount, 3);
+      assert.equal(hits[1]!.signalCount, 1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("ticket 20 T4 — knowledge_search tool card order follows the vote", () => {
+  it("content.text card list (and details.cards) follows the voted order, not the warm-cosine order", async () => {
+    const dir = await seedVotedPair();
+    // zk stub answers in ITS order: B first, A second (mirrors a zk retrieve
+    // that ranks B ahead of A). The tool's warm block maps the VOTED mdId
+    // order (A first) onto these cards — observable in both content.text and
+    // details.cards.
+    const fixed: RetrieveResult = {
+      count: 2,
+      cards: [
+        { id: "md/knowledge/b", title: "Card B Hedgehog Rotation", detail: "warm-cosine best", tags: [] },
+        { id: "md/knowledge/a", title: "Card A Quokka MLX Survey", detail: "voted 3-signal", tags: [] },
+      ],
+      digest: "", folder: "Zettelkasten/knowledge-graph", scanned: 2, excluded: 0,
+    };
+    publishSeam(KEY, makeStubPipeline(fixed));
+    try {
+      const pi = captureRegistrar();
+      registerKnowledgeSearchTool(pi, () => dir, {
+        vectorStore: () =>
+          t4VectorStore([
+            { mdId: "md/knowledge/b", kind: "knowledge" }, // HNSW rank 0
+            { mdId: "md/knowledge/a", kind: "knowledge" }, // HNSW rank 1
+          ]),
+        embedder: () => t4Embedder(),
+        lexicalRecall: buildLexicalRecall(dir),
+        entityRecall: buildEntityRecall(dir),
+        boostWeight: 1.0,
+      });
+      const def = pi.def();
+      assert.ok(def, "knowledge_search tool registered");
+      const out = await def!.execute("call-t4", { query: T4_QUERY, semantic: true }, undefined, undefined, {});
+      const text = textOf(out);
+      const idxA = text.indexOf("Card A Quokka MLX Survey");
+      const idxB = text.indexOf("Card B Hedgehog Rotation");
+      assert.ok(idxA >= 0, "card A present in text");
+      assert.ok(idxB >= 0, "card B present in text");
+      assert.ok(idxA < idxB, "voted card A must be listed BEFORE warm-only card B");
+      const cards = (out.details as RetrieveResult).cards;
+      assert.deepEqual(cards.map((c) => c.id), ["md/knowledge/a", "md/knowledge/b"]);
+    } finally {
+      delete (globalThis as Record<string, unknown>)[KEY];
       rmSync(dir, { recursive: true, force: true });
     }
   });
