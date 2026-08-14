@@ -1,6 +1,7 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import {
+  BUDGET_WRAP_UP_MESSAGE,
   type BudgetSessionSurface,
   checkBudgetExhaustion,
   checkBudgetWarning,
@@ -48,20 +49,30 @@ test("checkBudgetExhaustion: no budgets set → undefined regardless of usage", 
 // ---------------------------------------------------------------------------
 // Wiring: createBudgetGuard over a minimal fake session — the usage-observation
 // seam (assistant message_end carrying usage = one API response, cumulative
-// stats from getSessionStats()) aborts MID-TURN; the turn-boundary backstop
-// fires when the usage seam never does.
+// stats from getSessionStats()) detects the crossing MID-TURN; the turn-boundary
+// backstop fires when the usage seam never does. tokenBudget crossings are
+// TWO-STAGE: the first crossing injects the wrap-up followUp (no abort); the
+// abort lands only after the followUp is delivered (user-role message event)
+// and the grace turn's turn_end re-arms the check.
 // ---------------------------------------------------------------------------
 
-/** Minimal session double: records aborts, serves scripted cumulative stats. */
+/**
+ * Minimal session double: records aborts + queued wrap-up followUps, serves
+ * scripted cumulative stats.
+ */
 function fakeSession(stats: () => { tokens: { total: number }; cost: number }) {
   const aborts: number[] = [];
+  const sent: Array<{ content: string; options?: { deliverAs?: string } }> = [];
   const session: BudgetSessionSurface = {
     abort: () => {
       aborts.push(1);
     },
     getSessionStats: stats,
+    sendUserMessage: async (content, options) => {
+      sent.push({ content, options });
+    },
   };
-  return { session, aborts };
+  return { session, aborts, sent };
 }
 
 /** A usage observation: one assistant API response finished, carrying usage. */
@@ -73,9 +84,9 @@ const usageObservation = (total: number) => ({
 /** A bare state change (turn boundary) with no usage on the message. */
 const turnBoundary = () => ({ type: "turn_end", message: { role: "assistant" } });
 
-test("usage observation above tokenBudget aborts mid-turn (no turn boundary needed)", () => {
+test("usage observation above tokenBudget: first crossing issues the wrap-up followUp (no abort); post-grace turn_end aborts", () => {
   let total = 100; // cumulative usage still below budget
-  const { session, aborts } = fakeSession(() => ({ tokens: { total }, cost: 0 }));
+  const { session, aborts, sent } = fakeSession(() => ({ tokens: { total }, cost: 0 }));
   const guard = createBudgetGuard(session, { tokenBudget: 1000 });
 
   guard.onSessionEvent(turnBoundary());
@@ -83,19 +94,41 @@ test("usage observation above tokenBudget aborts mid-turn (no turn boundary need
   assert.equal(aborts.length, 0);
   assert.equal(guard.exhaustion, undefined);
 
-  // Next API response pushes cumulative stats above budget, still mid-turn.
+  // Next API response pushes cumulative stats above budget, still mid-turn:
+  // TWO-STAGE — the wrap-up notice is queued as a followUp, NO abort yet.
   total = 1500;
   guard.onSessionEvent(usageObservation(1500));
+  assert.equal(guard.wrapUpIssued, true);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]?.content, BUDGET_WRAP_UP_MESSAGE);
+  assert.equal(sent[0]?.options?.deliverAs, "followUp");
+  assert.equal(guard.exhaustion, undefined);
+  assert.equal(aborts.length, 0);
+
+  // Grace turn: the followUp is delivered (user-role message event)...
+  guard.onSessionEvent({ type: "message_start", message: { role: "user" } });
+  // ...and completes (turn_end AFTER delivery) — re-armed, tokens still over
+  // budget → the real abort with the BudgetExhausted payload (status "budget").
+  guard.onSessionEvent(turnBoundary());
   assert.deepEqual(guard.exhaustion, { kind: "tokens", limit: 1000, actual: 1500 });
-  assert.equal(guard.firedVia, "usage");
+  assert.equal(guard.firedVia, "turn"); // the aborting check is the grace turn_end
   assert.equal(aborts.length, 1);
 });
 
-test("turn-boundary backstop still aborts when the usage seam never fires", () => {
-  const { session, aborts } = fakeSession(() => ({ tokens: { total: 5000 }, cost: 0 }));
+test("turn-boundary backstop crossing also earns the wrap-up turn when the usage seam never fires", () => {
+  const { session, aborts, sent } = fakeSession(() => ({ tokens: { total: 5000 }, cost: 0 }));
   const guard = createBudgetGuard(session, { tokenBudget: 1000 });
 
-  // No usage-bearing message_end — only bare state changes (turn boundaries).
+  // No usage-bearing message_end — only bare state changes (turn boundaries):
+  // the backstop crossing issues the wrap-up (no abort)...
+  guard.onSessionEvent(turnBoundary());
+  assert.equal(guard.wrapUpIssued, true);
+  assert.equal(sent.length, 1);
+  assert.equal(guard.exhaustion, undefined);
+  assert.equal(aborts.length, 0);
+
+  // ...delivery + grace turn_end re-arm the check → abort fired via "turn".
+  guard.onSessionEvent({ type: "message_end", message: { role: "user" } });
   guard.onSessionEvent(turnBoundary());
   assert.deepEqual(guard.exhaustion, { kind: "tokens", limit: 1000, actual: 5000 });
   assert.equal(guard.firedVia, "turn");
@@ -116,9 +149,13 @@ test("idempotent: first seam wins; later events never double-abort", () => {
   const { session, aborts } = fakeSession(() => ({ tokens: { total: 9999 }, cost: 0 }));
   const guard = createBudgetGuard(session, { tokenBudget: 100 });
 
-  guard.onSessionEvent(usageObservation(9999));
+  // Drive the full two-stage stop through the usage seam.
+  guard.onSessionEvent(usageObservation(9999)); // wrap-up issued, no abort
+  guard.onSessionEvent({ type: "message_start", message: { role: "user" } }); // delivered
+  guard.onSessionEvent(turnBoundary()); // grace turn ended → abort
   const first = guard.exhaustion;
   assert.ok(first);
+  assert.equal(guard.firedVia, "turn"); // the aborting check is the grace turn_end
 
   guard.onSessionEvent(turnBoundary());
   guard.onSessionEvent(usageObservation(9999));
@@ -148,7 +185,7 @@ test("no budgets configured → never aborts", () => {
 
 test("stats not yet available (getSessionStats throws) is skipped, not fatal", () => {
   let total: number | undefined;
-  const { session, aborts } = fakeSession(() => {
+  const { session, aborts, sent } = fakeSession(() => {
     if (total === undefined) throw new Error("no entries yet");
     return { tokens: { total }, cost: 0 };
   });
@@ -160,6 +197,14 @@ test("stats not yet available (getSessionStats throws) is skipped, not fatal", (
 
   total = 2000;
   guard.onSessionEvent(usageObservation(2000));
+  // First crossing → wrap-up followUp queued, abort deferred to post-grace.
+  assert.equal(guard.wrapUpIssued, true);
+  assert.equal(sent.length, 1);
+  assert.equal(aborts.length, 0);
+  assert.equal(guard.exhaustion, undefined);
+
+  guard.onSessionEvent({ type: "message_start", message: { role: "user" } });
+  guard.onSessionEvent(turnBoundary());
   assert.deepEqual(guard.exhaustion, { kind: "tokens", limit: 1000, actual: 2000 });
   assert.equal(aborts.length, 1);
 });

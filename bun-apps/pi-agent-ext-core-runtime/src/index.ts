@@ -7,6 +7,9 @@ export type {
   AgentRunResult,
   AgentUsage,
   BudgetExhaustion,
+  BudgetGuard,
+  BudgetSeam,
+  BudgetSessionSurface,
   BudgetWarning,
   FallbackDecision,
   StructuredSession,
@@ -17,10 +20,12 @@ export type {
 } from "./agent.js";
 export {
   BUDGET_WARNING_RATIO,
+  BUDGET_WRAP_UP_MESSAGE,
   CoreAgent,
   CoreAgent as WorkflowAgent,
   checkBudgetExhaustion,
   checkBudgetWarning,
+  createBudgetGuard,
   createTurnGuard,
   extractValidated,
   isTurnEndObservation,

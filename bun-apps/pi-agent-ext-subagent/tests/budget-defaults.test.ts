@@ -1,7 +1,30 @@
-import { test } from "bun:test";
+import { afterEach, beforeEach, test } from "bun:test";
 import assert from "node:assert/strict";
 import type { ModelTierConfig } from "@repo/pi-agent-ext-core-runtime";
 import { TIERED_TOKEN_BUDGET_DEFAULTS, tierDefaultToken } from "../src/budget-defaults.js";
+
+const ENV_KNOBS = [
+  "SUBAGENT_TOKEN_BUDGET_DISABLE",
+  "SUBAGENT_TOKEN_BUDGET_SMALL",
+  "SUBAGENT_TOKEN_BUDGET_MEDIUM",
+  "SUBAGENT_TOKEN_BUDGET_BIG",
+  "SUBAGENT_TOKEN_BUDGET_MULTIPLIER",
+] as const;
+
+// Save/restore every knob so tests are hermetic against the ambient env.
+const savedEnv: Record<string, string | undefined> = {};
+beforeEach(() => {
+  for (const k of ENV_KNOBS) {
+    savedEnv[k] = process.env[k];
+    delete process.env[k];
+  }
+});
+afterEach(() => {
+  for (const k of ENV_KNOBS) {
+    if (savedEnv[k] === undefined) delete process.env[k];
+    else process.env[k] = savedEnv[k];
+  }
+});
 
 const CFG: ModelTierConfig = {
   tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.2", big: "zai/glm-5.2-thinking" },
@@ -40,4 +63,68 @@ test("tierDefaultToken: no config at all → medium ceiling (safe fallback)", ()
 
 test("tierDefaultToken: unknown tier name → medium ceiling", () => {
   assert.equal(tierDefaultToken("humongous", undefined, CFG), 1_200_000);
+});
+
+test("env knobs: per-tier absolute override replaces the resolved tier's ceiling", () => {
+  process.env.SUBAGENT_TOKEN_BUDGET_SMALL = "700000";
+  assert.equal(tierDefaultToken("small", undefined, CFG), 700_000);
+  // override applies to the RESOLVED tier — here medium via model mapping
+  process.env.SUBAGENT_TOKEN_BUDGET_MEDIUM = "999999";
+  assert.equal(tierDefaultToken(undefined, "zai/glm-5.2", CFG), 999_999);
+  // other tiers unaffected
+  assert.equal(tierDefaultToken("big", undefined, CFG), 1_500_000);
+});
+
+test("env knobs: multiplier scales the table default", () => {
+  process.env.SUBAGENT_TOKEN_BUDGET_MULTIPLIER = "2";
+  assert.equal(tierDefaultToken("small", undefined, CFG), 1_000_000);
+  assert.equal(tierDefaultToken("medium", undefined, CFG), 2_400_000);
+});
+
+test("env knobs: multiplier applies AFTER the absolute override", () => {
+  process.env.SUBAGENT_TOKEN_BUDGET_SMALL = "300000";
+  process.env.SUBAGENT_TOKEN_BUDGET_MULTIPLIER = "1.5";
+  assert.equal(tierDefaultToken("small", undefined, CFG), 450_000);
+});
+
+test("env knobs: multiplier floors fractional results (clamp)", () => {
+  process.env.SUBAGENT_TOKEN_BUDGET_MULTIPLIER = "1.000001";
+  // 500_000 * 1.000001 = 500_000.5 → floor → 500_000
+  assert.equal(tierDefaultToken("small", undefined, CFG), 500_000);
+});
+
+test(`env knobs: DISABLE="1" or "true" (case-insensitive) → undefined (no budget)`, () => {
+  process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = "1";
+  assert.equal(tierDefaultToken("small", undefined, CFG), undefined);
+  process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = "true";
+  assert.equal(tierDefaultToken(undefined, "zai/glm-5.2", CFG), undefined);
+  process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = "TRUE";
+  assert.equal(tierDefaultToken("big", undefined, CFG), undefined);
+  // disable wins over overrides/multiplier too
+  process.env.SUBAGENT_TOKEN_BUDGET_SMALL = "700000";
+  process.env.SUBAGENT_TOKEN_BUDGET_MULTIPLIER = "2";
+  assert.equal(tierDefaultToken("small", undefined, CFG), undefined);
+});
+
+test("env knobs: invalid per-tier values are silently ignored", () => {
+  process.env.SUBAGENT_TOKEN_BUDGET_SMALL = "abc";
+  assert.equal(tierDefaultToken("small", undefined, CFG), 500_000);
+  process.env.SUBAGENT_TOKEN_BUDGET_SMALL = "0"; // not positive
+  assert.equal(tierDefaultToken("small", undefined, CFG), 500_000);
+  process.env.SUBAGENT_TOKEN_BUDGET_SMALL = "-2";
+  assert.equal(tierDefaultToken("small", undefined, CFG), 500_000);
+  process.env.SUBAGENT_TOKEN_BUDGET_SMALL = "1.5"; // not an integer
+  assert.equal(tierDefaultToken("small", undefined, CFG), 500_000);
+});
+
+test("env knobs: invalid multiplier values are silently ignored", () => {
+  for (const bad of ["abc", "0", "-2", ""]) {
+    process.env.SUBAGENT_TOKEN_BUDGET_MULTIPLIER = bad;
+    assert.equal(tierDefaultToken("small", undefined, CFG), 500_000);
+  }
+});
+
+test("env knobs: disable flag with an invalid value is ignored (still budgeted)", () => {
+  process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = "yes";
+  assert.equal(tierDefaultToken("small", undefined, CFG), 500_000);
 });

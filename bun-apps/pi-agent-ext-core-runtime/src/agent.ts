@@ -393,11 +393,15 @@ export function checkBudgetWarning(
 /**
  * Minimal session surface the budget guard needs (real AgentSession or a test
  * double): cumulative stats + mid-run abort. `getSessionStats()` is the SAME
- * stat source the onUsage path reads just before disposal.
+ * stat source the onUsage path reads just before disposal. `sendUserMessage`
+ * (optional) queues a user-role message; the two-stage token stop needs it to
+ * inject the wrap-up notice — when absent (or when the queue call rejects) the
+ * guard falls back to the immediate hard abort, so the budget is still enforced.
  */
 export interface BudgetSessionSurface {
   abort(): unknown;
   getSessionStats(): { tokens: { total: number }; cost: number };
+  sendUserMessage?(content: string, options?: { deliverAs?: "steer" | "followUp" }): Promise<void>;
 }
 
 /**
@@ -423,13 +427,31 @@ export function isUsageObservation(event: unknown): boolean {
 export type BudgetSeam = "usage" | "turn";
 
 /**
- * Per-run budget guard: aborts the session mid-run once cumulative usage
- * exceeds the ceiling. Both firing seams share ONE pure check
+ * The single wrap-up notice injected on the FIRST tokenBudget crossing. The
+ * model sees it as a user message on its next (final) turn: flush state to
+ * disk, then reply with a pointer — instead of being killed mid-flight and
+ * losing everything it had learned.
+ */
+export const BUDGET_WRAP_UP_MESSAGE =
+  "Token budget exhausted — this is your FINAL turn. Do not start new exploratory work or long tool calls. Write your current findings/state/artifacts to disk now (files, not prose), then reply with a one-line pointer to what you saved.";
+
+/**
+ * Per-run budget guard: stops the session once cumulative usage exceeds the
+ * ceiling. Both firing seams share ONE pure check
  * (checkBudgetExhaustion over session.getSessionStats()):
  *   - "usage" — evaluated on every usage observation (each assistant API
  *     response), i.e. MID-TURN; overshoot is bounded by one API response.
- *   - "turn" — backstop evaluated on every other session state change (turn
+ *   - "turn" — backstop evaluated on every other session event (turn
  *     boundaries), in case the usage seam never fires.
+ * spendBudget is a money valve: it ALWAYS hard-aborts immediately, even
+ * mid-grace. tokenBudget gets a TWO-STAGE stop: the first crossing (on either
+ * seam) injects BUDGET_WRAP_UP_MESSAGE as a followUp user message and does NOT
+ * abort — token-kind aborts are then suppressed at BOTH check sites until the
+ * wrap-up has been DELIVERED (a user-role message_start/message_end event after
+ * issuance; pi-agent-core drains followUps only at a natural stop, so the
+ * issuing turn's own turn_end fires first and must be ignored) AND the next
+ * `turn_end` lands (the grace turn completed). That turn-end check then re-arms
+ * the abort with the old hard-stop semantics (no third turn).
  * Idempotent: the first seam to fire wins — one abort, no double-throw of the
  * caller's TOKEN_BUDGET_EXHAUSTED error (run() reads `exhaustion` once after
  * prompt() returns).
@@ -439,15 +461,28 @@ export interface BudgetGuard {
   readonly exhaustion: BudgetExhaustion | undefined;
   /** Which seam fired first ("usage" mid-turn or "turn" backstop). */
   readonly firedVia: BudgetSeam | undefined;
+  /** Whether the one-shot wrap-up message was already issued. */
+  readonly wrapUpIssued: boolean;
   /** Route a session event to its seam: usage observation vs state-change backstop. */
   onSessionEvent(event: unknown): void;
 }
 
+/** A user-role message event — the delivery signal for the queued wrap-up followUp. */
+function isUserMessageEvent(event: unknown): boolean {
+  const evt = event as { type?: unknown; message?: { role?: unknown } } | null;
+  return (
+    typeof evt === "object" &&
+    evt !== null &&
+    (evt.type === "message_start" || evt.type === "message_end") &&
+    evt.message?.role === "user"
+  );
+}
+
 /**
  * Build a BudgetGuard over a session. Module-level and session-injected so the
- * seam wiring (usage observation → mid-turn abort; state change → backstop;
- * idempotence) is unit-testable with a minimal fake session, independent of
- * CoreAgent.run / createAgentSession.
+ * seam wiring (usage observation → mid-turn check; state change → backstop;
+ * two-stage token grace; idempotence) is unit-testable with a minimal fake
+ * session, independent of CoreAgent.run / createAgentSession.
  */
 export function createBudgetGuard(
   session: BudgetSessionSurface,
@@ -455,23 +490,98 @@ export function createBudgetGuard(
 ): BudgetGuard {
   let exhaustion: BudgetExhaustion | undefined;
   let firedVia: BudgetSeam | undefined;
+  let wrapUpIssued = false;
+  // "none": no grace turn outstanding. "grace-in-flight": the wrap-up
+  // followUp is queued and its turn has NOT yet emitted a post-delivery
+  // "turn_end" — token-kind exhaustion checks are suppressed (spend still
+  // hard-aborts). graceDelivered flips true once the injected wrap-up user
+  // message is actually observed in the event stream; until then turn_end
+  // events belong to the issuing/continuation turns and are ignored.
+  let graceState: "none" | "grace-in-flight" = "none";
+  let graceDelivered = false;
   const hasBudget = budget.tokenBudget !== undefined || budget.spendBudget !== undefined;
-  const check = (seam: BudgetSeam) => {
+  const check = (seam: BudgetSeam, event: unknown) => {
     if (exhaustion || !hasBudget) return;
+    let detected: BudgetExhaustion | undefined;
+    let cost: number;
     try {
-      const { tokens, cost } = session.getSessionStats();
-      exhaustion = checkBudgetExhaustion(
-        { tokens: { total: tokens.total }, cost },
+      const stats = session.getSessionStats();
+      cost = stats.cost;
+      detected = checkBudgetExhaustion(
+        { tokens: { total: stats.tokens.total }, cost },
         { tokenBudget: budget.tokenBudget, spendBudget: budget.spendBudget },
       );
-      if (exhaustion) {
-        firedVia = seam;
-        void session.abort();
-      }
     } catch {
       // getSessionStats not available yet (e.g. before the first turn) — skip;
       // a later observation re-checks.
+      return;
     }
+    if (graceState === "grace-in-flight") {
+      if (isUserMessageEvent(event)) {
+        // The wrap-up followUp was drained into the transcript — the grace
+        // turn (the one the model is about to run on it) may now complete.
+        graceDelivered = true;
+      }
+      const evt = event as { type?: unknown } | null;
+      if (evt?.type !== "turn_end" || !graceDelivered) {
+        // Mid-grace token-only overshoot is expected (cumulative tokens are
+        // monotonic) — the grace turn must be allowed to finish streaming.
+        // This also covers the issuing turn's turn_end while the followUp is
+        // still queued. spendBudget stays an immediate hard abort.
+        if (
+          detected &&
+          (detected.kind === "spend" || (budget.spendBudget !== undefined && cost > budget.spendBudget))
+        ) {
+          exhaustion = detected;
+          firedVia = seam;
+          void session.abort();
+        }
+        return;
+      }
+      // A turn_end observed AFTER the wrap-up message was delivered — the
+      // grace turn completed. Re-arm; this very check (and any later one)
+      // resumes the old hard-abort semantics. No third turn.
+      graceState = "none";
+    }
+    if (!detected) return;
+    // Hard-abort unless this is the FIRST tokenBudget crossing with no spend
+    // crossing — only tokenBudget earns a wrap-up turn.
+    if (
+      detected.kind === "tokens" &&
+      !wrapUpIssued &&
+      !(budget.spendBudget !== undefined && cost > budget.spendBudget)
+    ) {
+      wrapUpIssued = true;
+      graceState = "grace-in-flight";
+      graceDelivered = false;
+      // followUp queues the message for the model's NEXT turn (we are inside
+      // the streaming loop). Token-kind aborts are suppressed until that
+      // message is delivered (a user-role message event) AND its turn's
+      // "turn_end" lands; the turn-end check after it (or any later check)
+      // hits the already-issued path and aborts for real.
+      const queued = session.sendUserMessage?.(BUDGET_WRAP_UP_MESSAGE, { deliverAs: "followUp" });
+      if (queued) {
+        void queued.catch(() => {
+          // Could not queue the wrap-up turn — fall back to the hard abort
+          // so the budget is still enforced.
+          if (!exhaustion) {
+            exhaustion = detected;
+            firedVia = seam;
+            void session.abort();
+          }
+        });
+      } else {
+        // Session surface cannot queue user messages — no grace possible;
+        // keep the immediate hard abort (#1329 semantics).
+        exhaustion = detected;
+        firedVia = seam;
+        void session.abort();
+      }
+      return;
+    }
+    exhaustion = detected;
+    firedVia = seam;
+    void session.abort();
   };
   return {
     get exhaustion() {
@@ -480,9 +590,12 @@ export function createBudgetGuard(
     get firedVia() {
       return firedVia;
     },
+    get wrapUpIssued() {
+      return wrapUpIssued;
+    },
     onSessionEvent(event: unknown) {
       if (exhaustion) return; // idempotent: first seam wins, no double-abort
-      check(isUsageObservation(event) ? "usage" : "turn");
+      check(isUsageObservation(event) ? "usage" : "turn", event);
     },
   };
 }
@@ -843,15 +956,18 @@ export class CoreAgent {
       lastHistoryEmit = now;
       emitHistory();
     };
-    // Per-run token/spend budget (tokenBudget/spendBudget): abort the session
-    // mid-run once cumulative usage exceeds the ceiling. Two seams share one
-    // pure check (checkBudgetExhaustion over session.getSessionStats() — the
-    // same stat source onUsage reads before disposal):
+    // Per-run token/spend budget (tokenBudget/spendBudget): stop the session
+    // once cumulative usage exceeds the ceiling. Two seams share one pure check
+    // (checkBudgetExhaustion over session.getSessionStats() — the same stat
+    // source onUsage reads before disposal):
     //   1. usage observations — every assistant API response (message_end
-    //      carrying usage) aborts MID-TURN, so overshoot is bounded by one API
+    //      carrying usage) checks MID-TURN, so overshoot is bounded by one API
     //      response (sub-turn);
     //   2. turn-boundary backstop — every session state change (the same
     //      subscribe seam as onHistory), in case the usage seam never fires.
+    // spendBudget hard-aborts immediately (money valve); tokenBudget gets a
+    // two-stage stop via createBudgetGuard — one wrap-up turn (flush-to-disk
+    // notice injected as a followUp user message) before the real abort.
     // createBudgetGuard is idempotent — first seam wins, one abort, no
     // double-throw. Distinct from workflow's run-wide soft gate — this bounds
     // a single runaway subagent. session.abort() makes session.prompt() return
