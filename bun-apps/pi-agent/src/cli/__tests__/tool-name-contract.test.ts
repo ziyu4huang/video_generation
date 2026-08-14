@@ -24,6 +24,8 @@
  * network — this runs in the default `bun test` tier.
  */
 import { describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import obsidianExtension from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import webAccessExtension from "@repo/pi-agent-ext-web-access";
@@ -183,6 +185,40 @@ describe("tool-name contract — extension sub-commands", () => {
 				tools: spec.tools,
 				factories: [spec.factory],
 			});
+		});
+	}
+});
+
+/**
+ * Allowlists are not the only place a dead tool name does damage: a PROMPT that
+ * names a tool the session does not have makes the model hallucinate a call
+ * that can never succeed.
+ *
+ * `pdf-to-vault`'s "0 notes" recovery prompt — written specifically to fix
+ * hallucinated tool calls — instructed the model to call `obsidian_distill`,
+ * which the facade collapse had already un-registered. The recovery path failed
+ * by construction, and the allowlist check above could not see it.
+ */
+describe("no command source names a tool the facade no longer registers", () => {
+	const COMMANDS_DIR = join(import.meta.dir, "..", "commands");
+	// The only surviving `obsidian_`-prefixed registered tool.
+	const LIVE = new Set(["obsidian_help"]);
+	// A comment naming an old tool is stale documentation, not a live defect.
+	// Blocking on those would make this test unfixable without a doc sweep, and
+	// the failure mode it guards is string literals reaching the model.
+	const isComment = (line: string) => /^\s*(\/\/|\/\*|\*)/.test(line);
+
+	for (const file of readdirSync(COMMANDS_DIR).filter((f) => f.endsWith(".ts"))) {
+		test(`${file} has no dead obsidian_* in executable code`, () => {
+			const src = readFileSync(join(COMMANDS_DIR, file), "utf8");
+			const offenders: string[] = [];
+			src.split("\n").forEach((line, i) => {
+				if (isComment(line)) return;
+				for (const m of line.matchAll(/\bobsidian_[a-z_]+/g)) {
+					if (!LIVE.has(m[0])) offenders.push(`${file}:${i + 1}  ${m[0]}`);
+				}
+			});
+			expect(offenders).toEqual([]);
 		});
 	}
 });

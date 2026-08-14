@@ -50,4 +50,45 @@ describe("cli.ts intercept ordering", () => {
 		expect(extDoctor, "`ext doctor` intercept must precede the `cli` intercept").toBeLessThan(cli);
 		expect(cli, "the `cli` intercept must precede applyPatches()").toBeLessThan(patches);
 	});
+
+	/**
+	 * Source ORDER is not sufficient on its own: a top-level `import` is hoisted
+	 * and evaluated before any statement, so a heavy module pulled in at the top
+	 * of the file is paid for by every intercept regardless of where the
+	 * intercept sits. Both of the file's expensive subtrees must therefore be
+	 * reached by `await import()`, and this pair of assertions is what makes the
+	 * ordering guard above mean what it claims.
+	 */
+	describe("the expensive subtrees are dynamically imported, not hoisted", () => {
+		const dynamic = [
+			// The TUI must never evaluate the CLI subtree: it statically pulls
+			// flux2/krea2/ltx/movie-director through each cli-subcommand.ts.
+			"./cli/dispatch.ts",
+			// The CLI must never evaluate the TUI's 14 static extension entry
+			// graphs. This was a STATIC import: the protection was one-way, and an
+			// undeclared import inside pi-agent-ext-webui's graph was evaluated
+			// before the patch that makes it resolvable — breaking snapshot boot.
+			"./static-extensions.ts",
+		] as const;
+
+		for (const mod of dynamic) {
+			test(`${mod} is reached via await import()`, () => {
+				expect(cliSource).toContain(`await import("${mod}")`);
+			});
+
+			test(`${mod} is NOT imported at the top level`, () => {
+				// Matches a real ESM import statement at the start of a line —
+				// `import … from "<mod>"` or a bare `import "<mod>"`.
+				const hoisted = new RegExp(
+					`^import\\s[^\\n]*["']${mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`,
+					"m",
+				);
+				expect(
+					hoisted.test(cliSource),
+					`${mod} is imported at the top level — hoisting makes every entry ` +
+						`path pay for it, which defeats the intercepts above`,
+				).toBe(false);
+			});
+		}
+	});
 });

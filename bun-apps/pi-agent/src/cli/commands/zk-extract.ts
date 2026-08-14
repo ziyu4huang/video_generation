@@ -7,9 +7,9 @@
  *   2. Resolve the target vault (OB_VAULT_PATH / --vault / --vault-dir / cwd/vault)
  *      and ensure it exists.
  *   3. Drive a parent agent session (pi-obsidian baked in) whose task instructs
- *      it to call the `obsidian_distill` tool with the resolved inputs.
+ *      it to call `obsidian` with action:"distill" and the resolved inputs.
  *
- * The actual decomposition into atomic notes is performed by `obsidian_distill`,
+ * The actual decomposition into atomic notes is performed by that action,
  * which spawns an isolated subagent — that subagent re-invokes THIS binary with
  * pi-compatible flags (handled by the passthrough runner).
  *
@@ -138,7 +138,8 @@ Examples:
 
 		const task = buildDistillTask(files, cwd, folder, parsed.maxNotes);
 
-		// Parent agent needs the obsidian_distill tool (+ supporting read tools).
+		// Parent agent needs the `obsidian` facade (for action:"distill") plus the
+		// supporting read tools.
 		// DISTILL_TOOLS is the single source of truth shared with the zk_extract
 		// extension tool (see bun-apps/pi-knowledge-card).
 		await runAgentSession(parsed, {
