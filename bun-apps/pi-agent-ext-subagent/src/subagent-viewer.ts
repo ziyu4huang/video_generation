@@ -84,6 +84,12 @@ export function reconstructSubagentRuns(branch: Iterable<BranchEntry>): Subagent
         runs.push({
           index: i,
           batchToolCallId: msg.toolCallId,
+          // Dispatch id of this child (`${batchToolCallId}:${slot.index}`) — the
+          // SAME id the in-flight registry uses for a batch child, so the follow
+          // view's resolveCompletion() (matched by toolCallId) resolves a batch
+          // child's final status exactly like the singular path (P2: without it,
+          // follow could never match and always fell to `ended`).
+          toolCallId: `${msg.toolCallId ?? "batch"}:${slot.index}`,
           model: slot.model ?? "default",
           taskPreview: slot.task ?? "",
           status: slot.status,
@@ -413,11 +419,15 @@ export class SubagentViewer {
         const indented = Boolean(r.batchId);
         const completed = r.status === "completed";
         const toolCalls = r.history?.filter((h) => h.kind === "toolCall").length ?? 0;
+        // Elapsed freeze: a completed-status batch child lingers in the registry
+        // (k/N progress) until endBatch — its elapsed must FREEZE at `endedAt`,
+        // not keep ticking (same family as buildLiveTable / the follow header).
+        const rowEnd = completed ? (r.endedAt ?? Date.now()) : Date.now();
         const row: ActivityRow = {
           status: "running",
           actor: r.agent ?? "general-purpose",
           model: r.resolvedModel ?? r.model,
-          elapsedMs: Date.now() - r.startedAt,
+          elapsedMs: rowEnd - r.startedAt,
           toolCalls,
           latestAction: summarizeLatestAction(r.history) ?? truncateToWidth(r.taskPreview, 40),
         };
@@ -486,7 +496,9 @@ export class SubagentViewer {
       }
     }
     const totalCompleted = this.runs.length;
-    const showing = completed.length;
+    // "showing X of Y" counts actual completed RUNS — a batch header line is
+    // not a run (P4: it was previously counted, inflating X beyond the cap).
+    const showing = completed.filter((e) => e.kind === "completed").length;
     if (!this.filter && !this.showAll && totalCompleted > COMPLETED_CAP) {
       lines.push(
         truncateToWidth(`  ${th.fg("dim", `showing ${showing} of ${totalCompleted} • press 'a' to show all`)}`, width),
@@ -555,9 +567,14 @@ export class SubagentViewer {
         startedAt: r.startedAt,
       };
       this.finalizingTicks = 0;
-      status = "running";
+      // Respect the registry status: a batch child marked "completed" still
+      // lingers in the registry (kept for k/N until endBatch) — the follow
+      // header must show its terminal status and FREEZE elapsed at `endedAt`
+      // instead of ticking "running" forever.
+      const liveCompleted = r.status === "completed";
+      status = liveCompleted ? "completed" : "running";
       model = this.followedSnapshot.model;
-      elapsedMs = Date.now() - r.startedAt;
+      elapsedMs = (liveCompleted ? (r.endedAt ?? Date.now()) : Date.now()) - r.startedAt;
       agent = r.agent;
     } else {
       // ABSENT — resolve completion. Task 4 fills the real freeze via getRuns;
@@ -644,6 +661,10 @@ function followGlyph(status: string, th: Theme): string {
   switch (status) {
     case "running":
       return th.fg("warning", "●");
+    case "completed":
+      // Registry-level terminal stamp (a batch child kept for k/N before
+      // endBatch) — same success glyph as the branch-level "done".
+      return th.fg("success", "✓");
     case "done":
       return th.fg("success", "✓");
     case "failed":

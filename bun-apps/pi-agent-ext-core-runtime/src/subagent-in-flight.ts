@@ -38,6 +38,12 @@ export interface InFlightSubagent {
    *  `subagent` dispatches, workflow agents, and obsidian — they `end()` per-child
    *  as before and never appear "completed". */
   status?: "running" | "completed";
+  /** Wall-clock end time (epoch ms), stamped on the terminal transition
+   *  (`markCompleted`). While a run is live, elapsed is computed as
+   *  `now - startedAt`; once terminal it must freeze at
+   *  `endedAt - startedAt` so a completed child's displayed elapsed never
+   *  keeps growing while it lingers in the registry (k/N progress). */
+  endedAt?: number;
   /** Render-surface axis (wayfinder: unified subagent-context box).
    *  `true` = this run is rendered INLINE in the current turn by the registering
    *  tool's own call/result line (Surface A): the singular `subagent` tool and the
@@ -125,10 +131,19 @@ export class SubagentInFlightRegistry {
   }
 
   /** Mark a batch child finished without removing it (so the header can show k/N
-   *  and the frozen trace stays followable). Per-child eviction happens via endBatch. */
+   *  and the frozen trace stays followable). Stamps `endedAt` so every
+   *  elapsed-time renderer freezes the run at its real end instead of ticking
+   *  forever while the entry lingers pre-eviction. `markCompleted` is the only
+   *  terminal transition (failed children never enter the registry's terminal
+   *  state — the batch tool nulls their slot directly and `endBatch` evicts),
+   *  so this is the one place `endedAt` needs recording. Per-child eviction
+   *  happens via endBatch. */
   markCompleted(id: string): void {
     const r = this.runs.get(id);
-    if (r) r.status = "completed";
+    if (r) {
+      r.status = "completed";
+      r.endedAt = Date.now();
+    }
   }
 
   /** Evict every child of one batch (called when the batch tool's execute() returns). */

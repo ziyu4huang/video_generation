@@ -142,10 +142,12 @@ test("the timer callback calls tui.requestRender (elapsed ticks between events)"
       factory = f as typeof factory;
     },
   };
+  // mutable registry list so the tick can flip between idle and live states
+  const list: unknown[] = [];
   installSubagentContextWidget(
     ui as never,
     {
-      registry: fakeRegistry(() => []),
+      registry: fakeRegistry(() => list),
       setInterval: (fn: () => void) => {
         scheduled = fn;
         return "id";
@@ -163,7 +165,18 @@ test("the timer callback calls tui.requestRender (elapsed ticks between events)"
   );
   assert.ok(scheduled, "a timer callback was registered");
   captured(scheduled, "the timer callback")();
-  assert.equal(rendered, 1, "the timer tick calls requestRender");
+  assert.equal(rendered, 0, "idle tick (no background runs) skips the render (P4 guard)");
+  list.push({
+    id: "bg",
+    agent: "implementer",
+    model: "x/flash",
+    taskPreview: "doing X",
+    startedAt: Date.now() - 1500,
+    foreground: false,
+    history: [],
+  });
+  captured(scheduled, "the timer callback")();
+  assert.equal(rendered, 1, "the timer tick calls requestRender while a background run is live");
 });
 
 test("timer starts exactly once even if the app invokes the factory twice", () => {
