@@ -41,3 +41,55 @@ describe("KnowledgeSerializer (read vault-md)", () => {
     assert.match(out, /cfg-scale 7 is the LTX sweet spot/);
   });
 });
+
+describe("KnowledgeSerializer relations (ticket 03 T4 — hybrid schema + write-back)", () => {
+  const ser = new KnowledgeSerializer();
+  /** A zettel whose frontmatter `relations:` carries a single edge with the
+   *  given raw predicate. */
+  const relCard = (rel: string): string => `---
+id: t:rel
+tags: [zettel, lever]
+created: 2026-08-08
+relations:
+  - s: a
+    rel: ${rel}
+    o: b
+---
+# rel card
+
+## 核心想法
+body
+`;
+
+  it("canonicalizes a core-relation alias on read (ref → references)", () => {
+    const [c] = ser.deserialize(relCard("ref"));
+    assert.equal(c!.graph?.relations?.[0]?.rel, "references");
+  });
+
+  it("canonicalizes an underscore/space alias on read (depends_on → depends-on)", () => {
+    const [c] = ser.deserialize(relCard("depends_on"));
+    assert.equal(c!.graph?.relations?.[0]?.rel, "depends-on");
+  });
+
+  it("preserves a free-form relation unchanged on read (uses)", () => {
+    const [c] = ser.deserialize(relCard("uses"));
+    assert.equal(c!.graph?.relations?.[0]?.rel, "uses");
+  });
+
+  it("serialize() write-back emits the CANONICAL predicate, not the raw alias, and round-trips", () => {
+    const [c] = ser.deserialize(relCard("ref"));
+    const out = ser.serialize(c!);
+    // write-back must emit the already-canonicalized-in-memory relations;
+    // the raw alias "ref" must NOT be what lands in the persisted md.
+    assert.match(out, /rel: references/);
+    // ...and the round-trip survives re-deserialization with the canonical rel.
+    const [c2] = ser.deserialize(out);
+    assert.equal(c2!.graph?.relations?.[0]?.rel, "references");
+  });
+
+  it("serialize() adds no empty relations block when the card has none", () => {
+    const [c] = ser.deserialize(fixture);
+    const out = ser.serialize(c!);
+    assert.doesNotMatch(out, /^relations:/m);
+  });
+});
