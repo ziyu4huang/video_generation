@@ -57,7 +57,7 @@ import {
 	scoreOverlap,
 	type ExtractedEntity,
 	type LinkWeighting,
-} from "./entities.ts";
+} from "@repo/pi-agent-ext-core-interface";
 import { resolveExtractor, type Extractor, type Relation } from "./extractor.ts";
 
 /**

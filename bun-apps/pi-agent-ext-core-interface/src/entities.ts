@@ -37,9 +37,28 @@
  * dictionary path never sets it — adding fabricated descriptions would be
  * lossy).
  *
- * Library only — no ExtensionAPI, no LLM, no network. Used by ingest.ts
- * (IDF-weighted cross-link computation + additive frontmatter) and retrieve.ts
- * (IDF-weighted ranking, opt-in).
+ * Library only — no ExtensionAPI, no LLM, no network, and zero imports.
+ *
+ * ── Why this lives in core-interface, not in knowledge-card ─────
+ * It used to live at `pi-agent-ext-knowledge-card/src/entities.ts`. Two
+ * packages need it, on opposite sides of the ADR-0001 tier boundary:
+ *   - knowledge-card (TIER-1 hub) — ingest.ts (IDF-weighted cross-link
+ *     computation + additive frontmatter) and retrieve.ts (IDF ranking, opt-in)
+ *   - hermes-memory (TIER-0 foundation) — the query-side `entityRecall` signal
+ *     in tools/knowledge-search-tool.ts
+ * and the two sides are only correct if they normalize with the SAME function:
+ * `normEntity` is what makes "MLX" in prose match "mlx" in a card's graph.
+ *
+ * A TIER-0 package may not import the hub, so hermes reaching into
+ * knowledge-card for it was an upward edge (forbidden — see
+ * `bun-apps/docs/adr/0001-strict-downward-edges-knowledge-layer.md`). Routing
+ * it through the `__piKnowledgePipeline` runtime seam instead would have made
+ * the agreement a runtime coincidence and killed the signal whenever zk is not
+ * loaded. Owning it HERE, below both, makes both edges point down and the
+ * agreement structural.
+ *
+ * This is the reason core-interface is not a types-only package: it also owns
+ * the deterministic primitives two tiers must share by value.
  */
 
 // ---------------------------------------------------------------------------

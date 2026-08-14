@@ -1,7 +1,13 @@
 /** Contract types for the KnowledgePipeline seam (zk publishes, hermes consumes).
  *  Mirrors pi-agent-ext-knowledge-card's public function signatures. */
 export type SourceFamily = "workflow-jsonl" | "hermes" | "auto-memory" | "generic";
-export type LinkWeighting = "count" | "idf";
+// Imported and re-exported, not redeclared: the same union used to be spelled
+// out both here and in knowledge-card's entities.ts. Now that entities.ts lives
+// in this package (ADR-0001 — see ../entities.ts), there is one definition.
+// The import (not just a re-export) is required — the options types below
+// reference the name in their own declarations.
+import type { LinkWeighting } from "../entities.js";
+export type { LinkWeighting };
 
 export interface KnowledgeRecord {
   id: string; type: string; title: string; detail: string; tags: string[];

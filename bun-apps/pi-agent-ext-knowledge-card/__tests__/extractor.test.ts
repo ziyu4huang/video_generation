@@ -9,7 +9,7 @@
  * without a signature-change ripple — every `.extract()` here is `await`ed.
  */
 import { test, expect, describe } from "bun:test";
-import { extractEntities } from "../src/entities.ts";
+import { extractEntities } from "@repo/pi-agent-ext-core-interface";
 import {
 	DictionaryExtractor,
 	LlmRelationExtractor,

@@ -41,7 +41,7 @@ import {
 	retrieveRecords,
 	type GraphHealthResult,
 } from "./retrieve.ts";
-import { type LinkWeighting } from "./entities.ts";
+import { type LinkWeighting } from "@repo/pi-agent-ext-core-interface";
 
 // ---------------------------------------------------------------------------
 // Public types

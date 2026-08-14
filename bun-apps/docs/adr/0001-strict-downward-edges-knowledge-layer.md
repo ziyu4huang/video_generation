@@ -55,3 +55,43 @@ foundation *pushing* through an import — no static dependency points upward.
   to a new `using-knowledge-cards` skill in the hub, which may reference
   `obsidian` (its down dependency). Doc edges now point down, mirroring the code.
 - `KNOWLEDGE-LAYER.md` tier diagram corrected below: hermes-memory is TIER-0.
+
+## Recurrence (2026-08-14) — and the third sanctioned mechanism
+
+The inversion came back. #1311 (ticket 20, `entityRecall`) added
+`hermes-memory/src/tools/knowledge-search-tool.ts:24`:
+
+```ts
+import { extractEntities, normEntity } from "@repo/pi-agent-ext-knowledge-card/src/entities.ts";
+```
+
+with the in-code justification *"hermes→zk is the sanctioned spine direction"*.
+That sentence is true about the **runtime call direction** — `retrieve.ts`
+states the same, and it is why the `__piKnowledgePipeline` seam exists — but
+this ADR governs the **static import edge**. Conflating the two is the failure
+mode to watch for: "hermes may call zk" does not imply "hermes may import zk".
+The `tests/dep-guard.test.ts` gate caught it at pre-push.
+
+Neither existing mechanism fit. Option B (hub pulls on a lifecycle hook) does
+not apply — the query side needs the extractor *during its own* tool call. The
+seam would have worked, but `extractEntities`/`normEntity` are **pure
+deterministic functions**, and the correctness requirement is that both sides
+normalize *identically* (`normEntity` is what makes "MLX" in prose match "mlx"
+in a card graph). Behind a runtime seam that agreement is a coincidence, and the
+signal dies whenever zk is not loaded.
+
+- **D — Shared primitive, owned below both (CHOSEN).** The module was
+  self-contained (291 lines, zero imports), so it moved to
+  `pi-agent-ext-core-interface/src/entities.ts` — a package both tiers already
+  depend on. Both edges now point down and the shared-normalization guarantee is
+  structural. `LinkWeighting`, previously declared in both `entities.ts` and
+  `interfaces/knowledge-pipeline.ts`, collapsed to one definition.
+- **Consequence**: core-interface is deliberately no longer types-only. It owns
+  contracts *and* the deterministic primitives two tiers must share by value.
+  Anything placed there must stay dependency-free — it sits below everything.
+- **Rejected — duplicate into hermes**: breaks the one property the feature
+  needs. The package already carries two such copies
+  (`store/surreal/embedder.ts` "Mirrors …/semantic.ts", `bench/hnsw-vs-cosine.ts`
+  copying `cosine()` verbatim); a third would deepen the drift, not contain it.
+- **Rejected — revise the tiering**: the guard exists so this class of inversion
+  "can never silently return". It worked. The code was wrong, not the rule.

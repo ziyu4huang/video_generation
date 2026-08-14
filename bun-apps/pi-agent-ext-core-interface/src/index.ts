@@ -7,3 +7,10 @@ export type {
   RetrieveOptions, RetrieveResult, CollectInputFilesResult,
   HealOptions, HealReceipt,
 } from "./interfaces/knowledge-pipeline.js";
+// Deterministic entity primitives, shared BY VALUE across the ADR-0001 tier
+// boundary (knowledge-card ranking ↔ hermes-memory entityRecall). See
+// ./entities.ts for why they live below both rather than in the hub.
+export {
+  extractEntities, normEntity, computeIdf, scoreOverlap,
+  type EntityType, type ExtractedEntity, type Relation,
+} from "./entities.js";

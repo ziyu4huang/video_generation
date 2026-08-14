@@ -2,7 +2,7 @@
   "name": "@repo/pi-agent-ext-core-interface",
   "private": true,
   "version": "0.1.0",
-  "description": "Typed cross-extension seam contracts: SEAM_KEYS registry + publishSeam/readSeam accessors + KnowledgePipeline interface.",
+  "description": "Cross-extension contracts below every extension: SEAM_KEYS registry + publishSeam/readSeam accessors + KnowledgePipeline interface, plus the deterministic entity primitives two ADR-0001 tiers must share by value.",
   "license": "MIT",
   "keywords": ["pi-package", "seam", "contracts", "types"],
   "type": "module",

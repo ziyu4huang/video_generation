@@ -45,7 +45,7 @@ import {
 	type KnowledgeRecord,
 	type CoverageReport,
 } from "./ingest.ts";
-import { computeIdf, scoreOverlap, type LinkWeighting } from "./entities.ts";
+import { computeIdf, scoreOverlap, type LinkWeighting } from "@repo/pi-agent-ext-core-interface";
 import {
 	cosine,
 	blendScore,
