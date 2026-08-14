@@ -30,7 +30,10 @@ export function imageMd(absPath: string, outputDir: string): string | null {
   if (rel === "" || rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
     return null;
   }
-  return `![image](/output/0/${rel.split(path.sep).join("/")})`;
+  // Percent-encode AFTER separator normalization: marked rejects raw spaces in
+  // link destinations (ledger [P4-final]); encodeURI keeps "/" and balanced
+  // parens intact, and the /output route decodeURIComponent round-trips it.
+  return `![image](/output/0/${encodeURI(rel.split(path.sep).join("/"))})`;
 }
 
 /** Narrow shape an outputs[] entry may take (the flux2/ltx `{path}` form). */
