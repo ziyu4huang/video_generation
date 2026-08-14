@@ -282,3 +282,36 @@ test("buildSpawnOptions: forwards params + wires callbacks that mutate progress"
   opts.onModelFallback?.("req");
   assert.equal(progress.fellBack, true);
 });
+
+test("buildSpawnOptions: forwards params.maxTurns; omitted → undefined (no default injected)", async () => {
+  const mk = (params: Record<string, unknown>) =>
+    buildSpawnOptions(
+      {
+        toolCallId: "call-1",
+        t0: 1_700_000_000_000,
+        params: { task: "t", ...params },
+        agentDef: { tools: ["read"] },
+        modelCtx: {
+          requestedModel: undefined,
+          tier: undefined,
+          capability: undefined,
+          mainModel: undefined,
+          displayModelBeforeResolve: "m",
+        },
+        spawnCwd: "/r",
+        childSignal: new AbortController().signal,
+      } as never,
+      { resolvedModel: undefined, fellBack: false, lastHistory: undefined, maxToolCallsSeen: 0 },
+      {
+        getActiveTools: () => undefined,
+        getExtensionTools: () => undefined,
+        inFlight: undefined,
+        persistence: undefined,
+        onUpdate: undefined,
+      },
+    );
+  // explicit value forwarded verbatim
+  assert.equal(mk({ maxTurns: 7 }).maxTurns, 7);
+  // omitted → undefined (unlike tokenBudget, NO tier-calibrated default — omit = unlimited turns)
+  assert.equal(mk({}).maxTurns, undefined);
+});

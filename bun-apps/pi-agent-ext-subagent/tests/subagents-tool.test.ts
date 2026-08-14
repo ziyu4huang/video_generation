@@ -89,6 +89,63 @@ test("#01 plural mirror: per-child tier default applied when tokenBudget omitted
   assert.equal(calls[1]?.tokenBudget, 999, "explicit per-child tokenBudget wins");
 });
 
+test("#1336 plural mirror: per-child task.maxTurns forwarded; omitted → undefined (no default)", async () => {
+  const calls: SpawnSubagentOptions[] = [];
+  const spawn = async (opts: SpawnSubagentOptions) => {
+    calls.push(opts);
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ spawn: spawn as never });
+  await tool.execute(
+    "batch-maxturns",
+    {
+      tasks: [{ task: "capped", maxTurns: 4 }, { task: "uncapped" }],
+    } as never,
+    undefined as never,
+    undefined,
+    { cwd: "/r" } as never,
+  );
+  assert.equal(calls[0]?.maxTurns, 4, "explicit per-child maxTurns forwarded");
+  assert.equal(calls[1]?.maxTurns, undefined, "omitted maxTurns stays undefined (omit = unlimited turns)");
+});
+
+test("#1336: per-child turn-cap abort maps to a 'turns' slot (counted as skipped, no batch gate)", async () => {
+  // Mirrors the per-child hard-budget test: child 1 returns its OWN turns
+  // exhaustion, which must map to a status:"turns" slot, count in `skipped`,
+  // NOT set batchExhaustion, and render with the max-turns-exceeded label.
+  let i = 0;
+  const spawn = async (): Promise<SpawnSubagentResult> => {
+    const idx = i++;
+    if (idx === 1) {
+      return {
+        output: "",
+        exitCode: 124,
+        stderr: "max turns exceeded (5)",
+        timedOut: false,
+        turns: { maxTurns: 5, turnsUsed: 5 },
+      };
+    }
+    return { output: `out${idx}`, exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ cwd: "/repo", spawn });
+  const res = await tool.execute(
+    "call-childturns",
+    { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  const d = res.details;
+  assert.equal(d.dispatched, 2, "both children ran");
+  assert.equal(d.skipped, 1, "the turn-cap abort counts as a skipped turns slot");
+  assert.equal(d.budgetExhaustion, undefined, "a turn cap does NOT set the batch-level budget exhaustion");
+  assert.equal((d.results[0] as { status: string }).status, "done");
+  const slot1 = d.results[1] as { status: string; turns?: { maxTurns: number; turnsUsed: number } };
+  assert.equal(slot1.status, "turns");
+  assert.deepEqual(slot1.turns, { maxTurns: 5, turnsUsed: 5 });
+  assert.match(renderBatchResult(d), /max turns exceeded: 5\/5 turns/, "rendering labels the turn-cap abort");
+});
+
 // ── optimization #1: default to the parent's gated active tool set ──
 // (see .planning/2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task/ ticket 01)
 // A read-only batch child must NOT re-inherit the full ~55-tool definition universe;

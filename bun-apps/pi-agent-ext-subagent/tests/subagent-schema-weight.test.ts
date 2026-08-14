@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { subagentToolSchema } from "../src/subagent-tool-schema.js";
+import { subagentsToolSchema } from "../src/subagents-tool.js";
 
 const PARAMS = (subagentToolSchema as any).properties as Record<string, { type: string; description: string }>;
 const EXPECTED = [
@@ -35,6 +36,22 @@ describe("subagent tool schema — slimmed weight", () => {
       const len = PARAMS[name].description.length;
       expect(len, `${name} desc ${len} chars`).toBeLessThan(240);
     }
+  });
+
+  // #1336: maxTurns must be present on BOTH tool schemas. Deliberately NOT
+  // added to EXPECTED above — the terse-description gate (<240 chars) does not
+  // hold for maxTurns (its description is 461 chars; see the review note in PR
+  // fix/subagent-maxturns-tests). Presence, optionality, and type are asserted here.
+  it("maxTurns is an optional integer param on BOTH the singular and plural tool schemas", () => {
+    const singular = subagentToolSchema as any;
+    expect(singular.properties.maxTurns).toBeDefined();
+    expect(singular.properties.maxTurns.type).toBe("integer");
+    expect(singular.required).not.toContain("maxTurns");
+
+    const pluralTask = (subagentsToolSchema as any).properties.tasks.items;
+    expect(pluralTask.properties.maxTurns).toBeDefined();
+    expect(pluralTask.properties.maxTurns.type).toBe("integer");
+    expect(pluralTask.required ?? []).not.toContain("maxTurns");
   });
 
   it("preserves load-bearing semantic warnings (not just truncated)", () => {
