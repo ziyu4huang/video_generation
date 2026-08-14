@@ -16,3 +16,7 @@ Task 3: minor (deferred): disposeBtwSession emits nothing when no active session
 Task 3: minor (deferred): subscribeWebuiBridge with a different runtime leaves old subscription attached (unreachable via current call sites)
 Task 3: PLAN DEVIATION (human-approved 2026-08-15): bridge disposer lives in engine field webuiBridgeUnsub, NOT sr.subscriptions — plan Task 3 verbatim code superseded; later tasks/tests must not regress the overlay-attach guard
 Task 4: implemented (commit pending review)
+Task 4: complete (commits 909428a..69270a5, review clean; implementer was mechanical tester/committer — reviewer was sole compliance gate, approved)
+Task 4: minor (deferred): BTW_COMMAND_CHANNEL subscription never torn down (no unsubscribe on shutdown) — harmless single-pi-per-process; note for hardening
+Task 4: minor (deferred): handleWebuiCommand unserialized (rapid commands interleave) — brief defines single-command contract
+Task 5: implemented (commit pending review)
