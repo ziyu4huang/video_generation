@@ -13,7 +13,8 @@
 	"bin": {
 		"ci-changed-packages": "./src/changed-packages-cli.ts",
 		"devops-sync": "./src/sync-cli.ts",
-		"devops-pr-finish": "./src/pr-finish-cli.ts"
+		"devops-pr-finish": "./src/pr-finish-cli.ts",
+		"devops-verify-deploy": "./src/verify-deploy-cli.ts"
 	},
 	"scripts": {
 		"test": "bun test",

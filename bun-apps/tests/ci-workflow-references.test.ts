@@ -33,7 +33,11 @@
  *       swallowed both, so a 3-package baseline tested 1 and reported green.
  *     - verify-deploy.sh step 5 called `deploy.ts --verify --writable`; deploy.ts
  *       rejects unknown flags, so the documented full run exited 1 on step 5's
- *       first command every time it has ever been run.
+ *       first command every time it has ever been run. (verify-deploy.sh has
+ *       since been unified into the `devops-verify-deploy` bin —
+ *       bun-apps/pi-agent-ext-devops/src/verify-deploy-cli.ts — which is a .ts
+ *       bin, outside this file's shell-script scanner, so it is pinned directly
+ *       by the dedicated test below.)
  *     - the spot-check package list is duplicated between ci.yml.disabled and
  *       test-determinism-spotcheck.sh; a name in one and not the other either
  *       never runs (matrix-only) or exits 2 (script-only).
@@ -470,7 +474,8 @@ describe("deploy.ts — every flag a shell script passes is a flag it accepts", 
 			bad,
 			`UNKNOWN deploy.ts FLAG(S) passed from a shell script: ${bad.join(", ")} — ` +
 				`deploy.ts exits 1 on any unrecognised flag (known: ${[...known].join(", ")}), so the ` +
-				"call fails on its FIRST command. verify-deploy.sh step 5 passed `--verify --writable`, " +
+				"call fails on its FIRST command. verify-deploy.sh step 5 (since unified " +
+				"into the devops-verify-deploy bin) passed `--verify --writable`, " +
 				"flags that have never existed, which means the documented full run has never once " +
 				"reached step 5's assertions. Use a real flag, or add it to KNOWN_FLAGS in deploy.ts.",
 		).toEqual([]);
@@ -480,11 +485,25 @@ describe("deploy.ts — every flag a shell script passes is a flag it accepts", 
 	// would pass the assertion above forever.
 	test("the scanner finds deploy.ts calls and the reader finds its flags", () => {
 		const calls = deployCalls();
-		expect(calls.length).toBeGreaterThanOrEqual(3);
-		expect(calls.filter((c) => c.flags.length > 0).length).toBeGreaterThanOrEqual(2);
-		expect(calls.map((c) => c.file)).toContain("scripts/verify-deploy.sh");
+		// scripts/verify-deploy.sh (2 flagged calls) was unified into the
+		// devops-verify-deploy bin in PR-3 of the devops-scripts unification, so
+		// update-pi.sh's bare `bun scripts/deploy.ts` is the one remaining shell
+		// caller — still enough to prove the scanner itself runs.
+		expect(calls.length).toBeGreaterThanOrEqual(1);
 		expect(deployKnownFlags()).toContain("--no-freeze");
 		expect(deployKnownFlags().length).toBeGreaterThanOrEqual(5);
+	});
+
+	// The verify-deploy gate moved from scripts/verify-deploy.sh (shell-script
+	// scannable) to the .ts bin bun-apps/pi-agent-ext-devops/src/verify-deploy-cli.ts
+	// (bin `devops-verify-deploy`) — outside the shell scanner above, so pin its
+	// existence and its documented flags directly instead.
+	test("the devops-verify-deploy bin exists and keeps its documented flags", () => {
+		const bin = join(BUN_APPS, "pi-agent-ext-devops", "src", "verify-deploy-cli.ts");
+		expect(existsSync(bin)).toBe(true);
+		const src = readFileSync(bin, "utf8");
+		expect(src).toContain("--skip-install");
+		expect(src).toContain("--keep-deploy");
 	});
 });
 
