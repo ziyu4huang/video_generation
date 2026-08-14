@@ -52,3 +52,5 @@ Task 12: sweep — zero @repo imports in webui src/, zero package.json dep; only
 Task 12: no real-model calls — only comment-only mention tests/helpers/mock-pi.ts:10; all tests use fake sessions/mocks/pure helpers
 Final review: FINDINGS (1 Important F1 contract-pin self-referential, 3 Minor F2-F4) — one fix wave; all deferred minors triaged ACCEPT (see final review)
 Final fix wave: complete (F1-F4 fixed, both gates green)
+Final review: fix wave re-review clean (F1-F4 ADDRESSED, no new breakage) — branch ready to merge
+SDD complete: 12/12 tasks, 1 task fix round (T3, human-approved deviation webuiBridgeUnsup), final fix wave cf9c6ec6; gates btw 36/0 webui 319/0
