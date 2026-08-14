@@ -12,61 +12,87 @@ import {
   spawnSubagent,
   type SpawnSubagentOptions,
   type SpawnSubagentResult,
-  // The LLM-caller engine (thin adapter over Pi's createAgentSession)
-  WorkflowAgent,
-  type WorkflowAgentOptions,
-  type AgentRunOptions,
-  type AgentRunResult,
-  type AgentUsage,
-  // The two LLM-facing tools (peer extensions rarely construct these directly)
+  // The isolated-PROCESS analog, for callers that need a clean child pi process
+  spawnSubagentSubprocess,
+  // The LLM-facing tool factories (peer extensions rarely construct these)
   createSubagentTool,
+  createSubagentsTool,
   createSubagentRunsTool,
   type SubagentToolOptions,
   type SubagentToolDetails,
-  type SubagentRunsToolOptions,
-  // Shared singletons (SEE THE MODULE-IDENTITY RULE BELOW)
-  getSubagentInFlightRegistry,
+  // Durable run records
   getSubagentRunPersistence,
-  type InFlightSubagent,
   type SubagentRunRecord,
   type SubagentRunStatus,
-  // Agent registry / model tiers / worktrees / errors / history
-  loadAgentRegistry,
-  listAgentTypes,
-  resolveAgentType,
-  loadModelTierConfig,
-  resolveTierModel,
-  createWorktree,
-  removeWorktree,
-  WorkflowError,
-  WorkflowErrorCode,
-  compactAgentHistory,
-  summarizeLatestAction,
+  // Watchdog (opt-in two-layer review of an implementer's diff)
+  runWatchdog,
+  type WatchdogResult,
 } from "@repo/pi-agent-ext-subagent";
 ```
+
+Everything above is **owned by this package**. A handful of
+`@repo/pi-agent-ext-core-runtime` symbols (`WorkflowAgent`,
+`getSubagentInFlightRegistry`, the model-tier config accessors, the rate-limiter
+accessors) are ALSO re-exported here, but only as a deliberate facade for the
+peers that cannot import core-runtime directly — see [the facade rule](#the-core-runtime-facade).
+If your package already depends on `@repo/pi-agent-ext-core-runtime`, import
+those from there instead.
 
 | Surface | What it is | Use when |
 | --- | --- | --- |
 | `spawnSubagent(opts)` | Public wrapper over `WorkflowAgent.run` for one isolated child run | You are peer-extension **code** that needs a subagent (e.g. `zk_card`/`zk_ask`). Returns `{ output, exitCode, stderr, timedOut, usage? }`. |
 | `WorkflowAgent` | The LLM caller — a thin adapter over `createAgentSession()`. Owns no HTTP/provider path. | You need lower-level control than `spawnSubagent` (streaming history, budget hooks). |
-| `createSubagentTool` / `createSubagentRunsTool` | The `subagent` + `subagent_runs` tool factories | You are an extension re-hosting these tools. The package's own extension already registers them; you normally do NOT call these. |
-| `getSubagentInFlightRegistry()` / `getSubagentRunPersistence()` | Process-wide singletons | You are a viewer/command that must observe the SAME live + persisted runs the `subagent` tool writes. **Obey the module-identity rule.** |
-| `createWorktree` / `removeWorktree` | Git-worktree isolation helpers | An agent definition requests worktree isolation. |
-| `WorkflowError` / `WorkflowErrorCode` | Typed error envelope | Classifying a dispatch failure. |
+| `spawnSubagentSubprocess(opts)` | The isolated-**process** analog of `spawnSubagent` | You need a clean child `pi` process rather than an in-process session (obsidian distill/garden, tool-gate L2 A/B). |
+| `createSubagentTool` / `createSubagentsTool` / `createSubagentRunsTool` | The `subagent`, `subagents` + `subagent_runs` tool factories | You are an extension re-hosting these tools. The package's own extension already registers them; you normally do NOT call these. |
+| `getSubagentInFlightRegistry()` / `getSubagentRunPersistence()` | Process-wide singletons | You are a viewer/command that must observe the SAME live + persisted runs the `subagent` tool writes. Any import path resolves to one instance — see [module identity](#module-identity--the-singletons). |
+| `runWatchdog(input)` | Opt-in two-layer (LSP + model) review of an implementer's final diff | You are gating a write-heavy dispatch. Soft gate — never auto-fails a run. |
+| `createWorktree` / `removeWorktree`, `WorkflowError` / `WorkflowErrorCode` | Worktree isolation + the typed error envelope | Import these from `@repo/pi-agent-ext-core-runtime`; they are no longer re-exported here (nothing reached them through this barrel). |
 
-## Module-identity rule for peer extensions (forward-compat)
+## The core-runtime facade
 
-`getSubagentInFlightRegistry()` and `getSubagentRunPersistence()` are **module-local lazy singletons**. For two extensions to share ONE registry instance — so the `subagent` tool's writes are visible to the `/subagents` viewer — they MUST resolve the singleton from the **same module instance**.
+This barrel re-exports a small, fixed set of `@repo/pi-agent-ext-core-runtime`
+symbols. That is not laziness — `pi-agent`, `pi-agent-ext-obsidian`,
+`pi-agent-ext-file2md` and `pi-agent-ext-knowledge-card` do **not** declare
+core-runtime in their `package.json`, and `bun-apps/tests/dep-guard.test.ts`
+(invariant 1) rejects an undeclared `@repo` edge. For those peers this package is
+the only legal path to `WorkflowAgent`, `getSubagentInFlightRegistry`, and the
+model-tier accessors.
 
-- ✅ **DO** import the singletons via the **`src/` subpath**:
-  ```ts
-  // from another extension's extensions/<x>.ts:
-  import { getSubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent/src/index.ts";
-  ```
-  This package's own extension does the equivalent relative import (`../src/index.js`), which resolves to the same `src/index.ts` module. Both land on the identical module instance → one singleton.
-- ❌ **DO NOT** import the singletons via the dist root (`@repo/pi-agent-ext-subagent`) and expect the live instance. The package root resolves to `dist/index.js`; a `dist/` module and a `src/` module are NOT guaranteed to be the same JS module identity, so the two callers would each get their own lazily-initialized singleton and the viewer would see an empty registry.
+The rule, enforced by [`tests/barrel-surface.test.ts`](tests/barrel-surface.test.ts)
+in both directions:
 
-The values/types in the table above (`spawnSubagent`, `WorkflowAgent`, errors, the tool factories, …) are safe to import from the package **root** — only the two singletons demand the `src/` subpath. (Since PR #821 the viewer + command live in this package, so they import the singletons via the in-package relative path. The `src/` subpath rule above is retained as forward-compat advice for any future peer extension that wants to observe runs directly — none do today.)
+1. every core-runtime symbol re-exported from `src/index.ts` must have a named
+   peer consumer recorded in that test's `FACADE_SYMBOLS`, and
+2. every `FACADE_SYMBOLS` row must still be re-exported **and** still be imported
+   through this barrel by the file it names.
+
+Direction 2 is what keeps the facade from rotting: when a peer moves off the
+barrel, its re-export becomes dead interface, and the guard says so instead of
+letting it sit. This barrel previously carried 114 exported names of which 21
+were ever imported.
+
+## Module identity — the singletons
+
+`getSubagentInFlightRegistry()` and `getSubagentRunPersistence()` are
+module-local lazy singletons, so all observers must land on one module instance.
+They do, and **no special import path is needed**: this package's
+`exports["."]` maps to `./src/index.ts` (not to `dist/`), so the package root and
+the `src/` subpath are the same module. `getSubagentInFlightRegistry` moreover
+lives in core-runtime now, whose root likewise maps to its own `src/index.ts` —
+so importing it from core-runtime, from this package's root, or from the `src/`
+subpath all resolve to one registry.
+
+[`tests/rate-limiter-cross-pkg.test.ts`](tests/rate-limiter-cross-pkg.test.ts)
+pins the observable half of this: it holds the only slot of a cap-1 limiter
+acquired via the core-runtime path and asserts the package-root path **blocks**
+on the same budget. Behavioral, so it holds regardless of how the linker dedupes
+module records.
+
+> An earlier revision of this file instructed peers to import the singletons via
+> `@repo/pi-agent-ext-subagent/src/index.ts` because "the package root resolves
+> to `dist/index.js`". It does not, and never has under this `exports` map —
+> `pi-agent-ext-obsidian` imports both singletons from the plain package root and
+> is correct to.
 
 See `docs/adr/0001-why-extracted.md` for the full rationale and `CONTEXT.md` for the ubiquitous language.
 

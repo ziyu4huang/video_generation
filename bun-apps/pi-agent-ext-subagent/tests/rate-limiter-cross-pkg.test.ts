@@ -31,7 +31,11 @@ import {
   getGlobalRateLimiter as getViaSrc,
   setRateLimitCapResolver as setResolverViaSrc,
 } from "@repo/pi-agent-ext-core-runtime";
-// PACKAGE-ROOT path - exactly how pi-agent-ext-workflow imports the symbol.
+// PACKAGE-ROOT path - the core-runtime facade this barrel re-exports for peers
+// that do not declare core-runtime (see tests/barrel-surface.test.ts). Both
+// spellings must gate on ONE budget, or a facade consumer would silently get an
+// unbounded second limiter. (pi-agent-ext-workflow itself imports the symbol
+// from core-runtime directly; this path covers the facade consumers.)
 import {
   getGlobalRateLimiter as getViaPkgRoot,
   setRateLimitCapResolver as setResolverViaPkg,

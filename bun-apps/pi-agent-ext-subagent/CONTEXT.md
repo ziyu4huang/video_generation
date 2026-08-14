@@ -42,10 +42,14 @@ Durable, inspection-only records of COMPLETED `subagent`-tool runs, for post-ses
 _Avoid_: persisting subagent runs through the workflow journal (use this separate store); treating the record as mutable (it is write-once).
 
 **Singleton-sharing contract** (module identity):
-`getSubagentInFlightRegistry()` and `getSubagentRunPersistence()` are **module-local lazy singletons**. The `subagent` tool and the `/subagents` viewer/command are now BOTH in this package (the viewer relocated here in PR #821 / [ADR-0002](docs/adr/0002-relocate-viewer-command-to-subagent.md)), so they share ONE instance via the in-package relative import — **no peer-extension sharing is currently needed** (no external package imports these singletons today).
+`getSubagentInFlightRegistry()` and `getSubagentRunPersistence()` are **module-local lazy singletons**, so every observer must land on ONE module instance. They do, and **no special import path is required**: this package's `exports["."]` maps to `./src/index.ts` (there is no `dist/` entry), so the package root and the `src/` subpath are the same module. `getSubagentInFlightRegistry` itself now lives in `@repo/pi-agent-ext-core-runtime`, whose root likewise maps to its own `src/index.ts` — so all three spellings resolve to one registry. `pi-agent-ext-obsidian` imports both singletons from the plain package root and is correct to do so.
 
-The **`src/` subpath rule is retained as forward-compat advice**: if a future peer extension ever needs to observe runs directly, it MUST import via `@repo/pi-agent-ext-subagent/src/index.ts` (NOT the dist root) to land on the identical module instance. Importing via the dist root would yield a separate lazily-initialized singleton → the observer sees an empty registry.
-_Avoid_: importing the singletons from the dist root and expecting the live instance (use the `src/` subpath); copying the registry/persistence into a peer extension (share the singleton instead).
+`tests/rate-limiter-cross-pkg.test.ts` pins the observable half behaviorally (hold the only slot of a cap-1 limiter via the core-runtime path; the package-root path must BLOCK on the same budget), so the guarantee survives any change in how the linker dedupes module records.
+_Avoid_: the retired "import via the `src/` subpath, NOT the dist root" rule (it described a `dist/` entry point this package does not have); copying the registry/persistence into a peer extension (share the singleton instead).
+
+**Barrel facade rule** (`src/index.ts`):
+The barrel exports everything this package owns, plus exactly those `@repo/pi-agent-ext-core-runtime` symbols that a peer imports THROUGH it. The facade is load-bearing, not stylistic: `pi-agent`, `pi-agent-ext-obsidian`, `pi-agent-ext-file2md` and `pi-agent-ext-knowledge-card` do not declare core-runtime, and the dep-guard rejects an undeclared `@repo` edge. `tests/barrel-surface.test.ts` checks BOTH directions — an unsanctioned re-export fails, and so does a facade entry whose named peer has moved off the barrel.
+_Avoid_: re-exporting a core-runtime symbol "for convenience" (the barrel reached 114 names of which 21 were ever imported); importing through this package's own barrel from inside `src/`.
 
 ### Supporting concepts
 

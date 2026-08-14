@@ -9,8 +9,7 @@
  * explicit and testable.
  */
 
-// Type-only import of the registry this extension owns (local — same package).
-import type { SubagentInFlightRegistry } from "./index.js";
+import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 import { reconstructSubagentRuns, SubagentViewer } from "./subagent-viewer.js";
 
 /** Minimal slice of the pi host command context this command depends on. */
