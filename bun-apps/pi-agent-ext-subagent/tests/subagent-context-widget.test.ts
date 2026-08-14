@@ -1,4 +1,4 @@
-import { test } from "bun:test";
+import { mock, test } from "bun:test";
 import assert from "node:assert/strict";
 import type { InFlightSubagent } from "../src/index.js";
 import { countNoun, isCtrlO, SubagentContextWidget } from "../src/subagent-context-widget.js";
@@ -171,6 +171,39 @@ test("isCtrlO is false for ordinary input (letters, arrows, other control bytes)
   assert.equal(isCtrlO("\x0e"), false);
   // A common escape sequence (arrow key) must not trigger.
   assert.equal(isCtrlO("\x1b[A"), false);
+});
+
+// --- elapsed freeze for completed runs (regression) ---
+// A completed-status run lingers in the registry (k/N progress) until its
+// batch reaps it; while it lingers, the expanded trace's elapsed segment must
+// FREEZE at `endedAt`, not keep ticking with Date.now() on every render tick.
+
+test("(regression) a completed run's elapsed does NOT grow across render ticks", () => {
+  const t0 = 1_000_000;
+  const entry = run({
+    id: "done-r1",
+    foreground: false,
+    status: "completed",
+    startedAt: t0,
+    endedAt: t0 + 5_000,
+    history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"a.ts"}' }],
+  });
+  const w = new SubagentContextWidget({ getRunning: () => [entry] });
+  w.toggle(); // expanded — the trace renders the elapsed segment
+  const origNow = Date.now;
+  const now = mock(() => t0 + 5_000);
+  Date.now = now as unknown as typeof Date.now;
+  try {
+    const first = w.render(T).join("\n");
+    assert.match(first, /5\.0s/, "first render shows endedAt-startedAt");
+    // A much later tick — the elapsed must stay frozen, not grow to 120.0s.
+    now.mockImplementation(() => t0 + 120_000);
+    const second = w.render(T).join("\n");
+    assert.match(second, /5\.0s/, "elapsed stays frozen at endedAt for a completed run");
+    assert.ok(!second.includes("120.0s"), "a lingering completed run never ticks");
+  } finally {
+    Date.now = origNow;
+  }
 });
 
 test("the count header documents BOTH the Ctrl-O expand hint and the /subagents drill-down", () => {

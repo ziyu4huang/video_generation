@@ -169,7 +169,11 @@ export class SubagentContextWidget {
     // trailing line). minToolCalls floors the count so a snapshot never visibly
     // regresses (the box polls, so the floor is the current count itself).
     const minToolCalls = history.filter((h) => h.kind === "toolCall").length;
-    const trace = formatSubagentTrace(history, Date.now() - r.startedAt, minToolCalls);
+    // Elapsed freeze: a completed-status run still lingers in the registry until
+    // its batch/parent reaps it — its elapsed must FREEZE at `endedAt`, not keep
+    // ticking (same pattern as subagent-viewer.ts buildLiveTable).
+    const elapsedMs = r.status === "completed" && r.endedAt ? r.endedAt - r.startedAt : Date.now() - r.startedAt;
+    const trace = formatSubagentTrace(history, elapsedMs, minToolCalls);
     // Cap the trace tail to the SAME policy as the inline streaming-expanded
     // view (STREAMING_EXPANDED_TAIL). Ctrl-O expands BOTH surfaces together
     // via { consume: false } (extensions/subagent.ts), so the cap must hold on
