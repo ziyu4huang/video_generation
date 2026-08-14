@@ -125,6 +125,22 @@ describe("createOutputRoutes — failure paths (uniform 404)", () => {
     const res = call(routes, "http://t/output/0/sub")!;
     expect(res.status).toBe(404);
   });
+
+  test("malformed %-sequence /output/%FF -> 404 (never a 500 from decodeURIComponent)", () => {
+    // "\uFF" is not valid percent-encoding — decodeURIComponent throws
+    // URIError; the route must answer 404 like every other failure path.
+    const res = call(routes, "http://t/output/%FF")!;
+    expect(res).not.toBeNull();
+    expect(res.status).toBe(404);
+  });
+
+  test("null byte /output/%00.png -> 404 (never a 500 from statSync)", () => {
+    // "%00" decodes to "\0"; statSync on an embedded NUL throws — the
+    // route must reject it as 404 before touching the filesystem.
+    const res = call(routes, "http://t/output/%00.png")!;
+    expect(res).not.toBeNull();
+    expect(res.status).toBe(404);
+  });
 });
 
 describe("createOutputRoutes — fall-through", () => {

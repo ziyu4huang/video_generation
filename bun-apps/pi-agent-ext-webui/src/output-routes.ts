@@ -92,8 +92,17 @@ export function createOutputRoutes(opts: OutputRouteOptions = {}): OutputRouteHa
     if (req.method !== "GET" || !url.pathname.startsWith("/output/")) return null;
 
     // Decode AFTER the prefix strip — %2F/%2e encodings reach our decoder even
-    // though the URL parser pre-normalizes literal ".." segments.
-    let rest = decodeURIComponent(url.pathname.slice("/output/".length));
+    // though the URL parser pre-normalizes literal ".." segments. Malformed
+    // %-sequences (e.g. /output/%FF) throw URIError -> uniform 404, never 500.
+    let rest: string;
+    try {
+      rest = decodeURIComponent(url.pathname.slice("/output/".length));
+    } catch {
+      return notFound();
+    }
+    // Embedded NUL bytes (e.g. /output/%00.png) make statSync throw — reject
+    // before touching the filesystem, same uniform 404.
+    if (rest.includes("\0")) return notFound();
     // Drop an optional leading integer dir-index segment ("0/") — single output
     // dir in v1; the segment is parsed and ignored (mapped to that one dir).
     const slash = rest.indexOf("/");
