@@ -32,3 +32,5 @@ Resolve via `grilling` + `domain-modeling` + code-read of MLX image tools + tool
 **Note**: the ported handler's MIME allowlist includes `.mp4`, so **video SERVING is covered** when video-rendering graduates from fog (only the `<video>` player view would be new).
 
 **Fact-find evidence**: `pi-agent-ext-flux2/src/result.ts:33-58,108-200`; `pi-agent-ext-ltx/src/result.ts:29-47`; `tool-mirror.ts:67-105,157-159` (bug at 84-87); `config.py:161-191`; `gui-movie-director/api/gallery.ts` (handleGalleryImage, GALLERY_MIME); webui seam `web-server.ts:199-204,258-261`.
+
+**⚠️ SUPERSEDED (2026-08-13 HITL reframe):** the *mirror* approach (extend tool-mirror to render images inline in the "tools" view) is DROPPED — the webui is now an agent-driven blocking HITL surface, not a passive mirror. The `/output/` **serving contract SURVIVES** (port handleGalleryImage via setHttpRoutes, MIME allowlist, loopback-guard) — it serves media presented in the HITL channel. See the re-charted map + ticket #05.
