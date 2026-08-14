@@ -10,13 +10,14 @@ import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import type {
   AgentUsage,
   BudgetExhaustion,
-  InFlightSubagent,
+  RunView,
   SubagentInFlightRegistry,
   TurnExhaustion,
 } from "@repo/pi-agent-ext-core-runtime";
 import {
   checkBudgetExhaustion,
   DEFAULT_BATCH_CONCURRENCY,
+  fmtElapsed,
   getGlobalRateLimiter,
   isTerminalStatus,
   MAX_BATCH_TASKS,
@@ -33,7 +34,7 @@ import { missingRequiredTools } from "./impossible-tools.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
 import { spawnSubagent } from "./spawn-subagent.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
-import { deriveSubagentStatus, taskPreview, workIntentPreview } from "./subagent-tool-render.js";
+import { taskPreview, workIntentPreview } from "./subagent-tool-render.js";
 import { augmentOutputWithScopeViolation } from "./subagent-tool-run.js";
 import { DEFAULT_TIMEOUT_MS } from "./subagent-tool-schema.js";
 
@@ -447,8 +448,8 @@ export function createSubagentsTool(
                 // Single-line batch progress feed — kills the blind spinner on
                 // the batch's own call line. dispatchChild already swallows a
                 // throw here, so a broken feed can never fail a child.
-                const group = (options.inFlight?.list() ?? []).filter((e) => e.batchId === toolCallId);
-                const running = group.filter((e) => !isTerminalStatus(e.status)).length;
+                const group = (options.inFlight?.views() ?? []).filter((v) => v.batchId === toolCallId);
+                const running = group.filter((v) => !isTerminalStatus(v.status)).length;
                 const total = params.tasks.length;
                 const agg = sumUsage(runningUsage.values());
                 const aggStr = agg.total > 0 ? ` · ${agg.total} tok · $${agg.cost.toFixed(3)}` : "";
@@ -670,9 +671,7 @@ export function renderBatchResult(details: SubagentsToolDetails): string {
   const skipped = details.skipped;
   // The aborted segment is only rendered when present, so a batch with no
   // user-aborts stays byte-identical to the pre-abort header.
-  const header = `## subagents batch (${done} ok${aborted ? ` · ${aborted} aborted` : ""} · ${failed} failed · ${skipped} skipped) — ${(
-    details.elapsedMs / 1000
-  ).toFixed(1)}s`;
+  const header = `## subagents batch (${done} ok${aborted ? ` · ${aborted} aborted` : ""} · ${failed} failed · ${skipped} skipped) — ${fmtElapsed(details.elapsedMs)}`;
   const body = details.results
     .map((slot, i) => {
       if (slot === null)
@@ -749,30 +748,18 @@ export function formatUsage(u: AgentUsage | undefined): string {
   return u && u.total > 0 ? ` · $${u.cost.toFixed(3)} · ${u.total} tok` : "";
 }
 
-/** Fallback-aware model label (theme-free so the live table and the themed meta
- *  share it). On fallback shows `requested → actual` (both shortModel-ed); else
- *  the resolved model shortModel-ed; `"default"` when empty. Mirrors the single
- *  card's `modelSeg`. */
-export function formatModelSeg(model: string, requestedModel?: string, fellBack?: boolean): string {
-  if (fellBack && requestedModel) {
-    return `${shortModel(requestedModel) ?? "default"} → ${shortModel(model) ?? "default"}`;
-  }
-  return shortModel(model) ?? "default";
-}
-
 /** Themed `model · elapsed · usage` line for a done/timedout/aborted/budget slot.
  *  Shared by the done-collapsed per-slot line and the done-expanded meta line
- *  (DRY). `usage` optional → degrades to `model · elapsed`. */
+ *  (DRY). The model segment is RunView-sourced (`modelSeg`) when the caller
+ *  holds a view; settled slots that have no view degrade to
+ *  `shortModel(slot.model) ?? "default"`. `usage` optional → degrades to
+ *  `model · elapsed`. */
 export function formatSlotMeta(
-  slot: { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
+  slot: { modelSeg?: string; model?: string; elapsedMs: number; usage?: AgentUsage },
   theme: Theme,
 ): string {
-  return theme.fg(
-    "muted",
-    `${formatModelSeg(slot.model, slot.requestedModel, slot.fellBack)} · ${(slot.elapsedMs / 1000).toFixed(
-      1,
-    )}s${formatUsage(slot.usage)}`,
-  );
+  const seg = slot.modelSeg ?? shortModel(slot.model ?? "") ?? "default";
+  return theme.fg("muted", `${seg} · ${fmtElapsed(slot.elapsedMs)}${formatUsage(slot.usage)}`);
 }
 
 /** Extract the trailing `:N` dispatch index from a batch child runId
@@ -784,37 +771,33 @@ export function childDispatchIndex(id: string): number {
 
 /** Pure live-table builder for the running (isPartial) batch view. One row per
  *  in-flight child, sorted ascending by dispatch index:
- *    `[i] slot ⏱/✓ liveElapsed · currentAction`
- *  - `slot` via {@link formatModelSeg} (fallback-aware; resolved model once known).
- *  - glyph ⏱ while non-terminal (running/queued), ✓ once terminal (kept in the
- *    registry until endBatch so a finished child still shows its final elapsed).
- *  - `liveElapsed` = `(now - startedAt)/1000` with 1-decimal while RUNNING;
- *    FROZEN at `(endedAt - startedAt)/1000` for terminal rows (terminal status) so a finished child's elapsed stops growing while it
- *    lingers in the registry pre-endBatch (falls back to `now` only when the
- *    terminal stamp is missing).
+ *    `[i] slot ⏱/✓ elapsed · currentAction`
+ *  - `slot` via RunView.modelSeg (fallback-aware; built once in core-runtime).
+ *  - glyph ⏱ while live, ✓ once terminal (kept in the registry until endBatch
+ *    so a finished child still shows its final elapsed).
+ *  - `elapsed` via fmtElapsed(RunView.elapsedMs) — buildRunView already FREEZES
+ *    elapsed at endedAt for terminal rows, so a finished child's elapsed stops
+ *    growing while it lingers in the registry pre-endBatch (the freeze policy
+ *    has exactly one home: core-runtime).
  *  - `currentAction` from {@link summarizeLatestAction}(history), falling back to
- *    the task preview (truncated to 40) when there is no history yet.
+ *    latestAction (truncated to 40) when there is no history yet.
  *  PLAIN text (no theme — `execute()` has no Theme; rendered dim by the isPartial
  *  branch of `renderSubagentsResult`). Empty input → "" (header-only). */
-export function buildLiveTable(entries: InFlightSubagent[], now: number = Date.now()): string {
-  const sorted = [...entries].sort((a, b) => {
+export function buildLiveTable(views: RunView[]): string {
+  const sorted = [...views].sort((a, b) => {
     const ia = childDispatchIndex(a.id);
     const ib = childDispatchIndex(b.id);
     return (Number.isNaN(ia) ? Infinity : ia) - (Number.isNaN(ib) ? Infinity : ib);
   });
-  const rows = sorted.map((e) => {
-    const idx = childDispatchIndex(e.id);
-    const idxLabel = Number.isNaN(idx) ? "?" : String(idx);
-    const slot = formatModelSeg(e.resolvedModel ?? e.model ?? "default", e.requestedModel, e.fellBack);
-    const glyph = isTerminalStatus(e.status) ? "✓" : "⏱";
-    // Terminal rows freeze at endedAt (falling back to `now` defensively); only
-    // running rows tick.
-    const end = isTerminalStatus(e.status) ? (e.endedAt ?? now) : now;
-    const elapsed = `${((end - e.startedAt) / 1000).toFixed(1)}s`;
-    const action = summarizeLatestAction(e.history) ?? truncateToWidth(e.taskPreview ?? e.workIntent ?? "", 40);
-    return `[${idxLabel}] ${slot} ${glyph} ${elapsed} · ${action}`;
-  });
-  return rows.join("\n");
+  return sorted
+    .map((v) => {
+      const idx = childDispatchIndex(v.id);
+      const idxLabel = Number.isNaN(idx) ? "?" : String(idx);
+      const glyph = v.elapsedFrozen ? "✓" : "⏱";
+      const action = summarizeLatestAction(v.history) ?? truncateToWidth(v.latestAction ?? "", 40);
+      return `[${idxLabel}] ${v.modelSeg} ${glyph} ${fmtElapsed(v.elapsedMs)} · ${action}`;
+    })
+    .join("\n");
 }
 
 /** Sum total + cost across any iterable of AgentUsage (slots' usage for the done
@@ -871,7 +854,7 @@ export function renderSubagentsResult(
     `subagents batch (${done} ok` +
     (aborted ? ` · ${aborted} aborted` : "") +
     ` · ${failed} failed` +
-    ` · ${d.skipped} skipped) — ${(d.elapsedMs / 1000).toFixed(1)}s${aggStr}`;
+    ` · ${d.skipped} skipped) — ${fmtElapsed(d.elapsedMs)}${aggStr}`;
 
   if (!options.expanded) {
     // Collapsed: header + one line per slot with status badge.
@@ -892,10 +875,7 @@ export function renderSubagentsResult(
       // via shortModel so the collapsed line stays within terminal width —
       // ticket 04, findings 2 + 5). The audit field stays the full spec; only
       // the DISPLAY is shortened.
-      const meta = formatSlotMeta(
-        slot as { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
-        theme,
-      );
+      const meta = formatSlotMeta(slot as { model?: string; elapsedMs: number; usage?: AgentUsage }, theme);
       const taskPreview60 = truncateToWidth((slot as { task: string }).task ?? "", 60);
       const idTag = slot.id ? `${theme.fg("dim", `(${slot.id})`)} ` : "";
       lines.push(`  ${theme.fg("dim", `[${i}]`)} ${idTag}${badge}  ${meta} · ${theme.fg("dim", `"${taskPreview60}"`)}`);
@@ -912,10 +892,7 @@ export function renderSubagentsResult(
 ${theme.fg("dim", "_(null — child failed; re-run via the singular `subagent` tool to see the error)_")}`;
       // Meta line shared by every variant that carries model + elapsedMs
       // (done/timedout/aborted/budget). usage optional → formatSlotMeta degrades.
-      const metaLine = formatSlotMeta(
-        slot as { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
-        theme,
-      );
+      const metaLine = formatSlotMeta(slot as { model?: string; elapsedMs: number; usage?: AgentUsage }, theme);
       if (slot.status === "budget") {
         const label = slot.source === "child" ? "child budget" : "batch budget";
         return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped`)} — ${theme.fg("warning", `${label}: ${slot.exhaustion.kind} ${slot.exhaustion.actual} > ${slot.exhaustion.limit}`)}

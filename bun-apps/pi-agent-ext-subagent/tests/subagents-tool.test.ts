@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { AgentUsage, InFlightSubagent } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentUsage, RunView } from "@repo/pi-agent-ext-core-runtime";
 import {
   DEFAULT_BATCH_CONCURRENCY,
   MAX_BATCH_TASKS,
@@ -16,7 +16,6 @@ import {
   childDispatchIndex,
   clampConcurrency,
   createSubagentsTool,
-  formatModelSeg,
   formatSlotMeta,
   formatUsage,
   mergeReadOnlyExclusion,
@@ -448,11 +447,11 @@ test("each dispatched child registers in-flight while running and persists once 
   let seenDuringRun = 0;
   const f = fakeSpawnByIndex([
     () => {
-      seenDuringRun = inFlight.list().length;
+      seenDuringRun = inFlight.views().length;
       return { output: "A", exitCode: 0, stderr: "", timedOut: false };
     },
     () => {
-      seenDuringRun = Math.max(seenDuringRun, inFlight.list().length);
+      seenDuringRun = Math.max(seenDuringRun, inFlight.views().length);
       return { output: "B", exitCode: 0, stderr: "", timedOut: false };
     },
   ]);
@@ -466,7 +465,7 @@ test("each dispatched child registers in-flight while running and persists once 
     NO_CTX,
   );
   // registry is empty after the batch completes (all children ended)
-  assert.equal(inFlight.list().length, 0);
+  assert.equal(inFlight.views().length, 0);
   // while running, both children were registered
   assert.ok(seenDuringRun >= 1, "at least one child was in-flight during the run");
   // one persistence record per dispatched child
@@ -559,7 +558,7 @@ test("batch children get batchId + forwarded onModelResolved/onHistory update th
     assert.equal(c.resolved, "google/gemma-4-12b-qat", "onModelResolved forwarded → resolvedModel set");
     assert.equal(c.historyLen, 1, "onHistory forwarded → history stored");
   }
-  assert.equal(inFlight.list().length, 0, "registry empty after the batch completes");
+  assert.equal(inFlight.views().length, 0, "registry empty after the batch completes");
 });
 
 test("a child hitting its own per-child budget renders as 'child budget' (source: child)", async () => {
@@ -602,7 +601,7 @@ test("batch keeps a completed child (status=completed) mid-run; evicts the whole
   assert.equal(seen.length, 1, "child #1 observed #0");
   assert.equal(seen[0].present, true, "#0 still in registry when #1 runs (kept, not evicted)");
   assert.equal(seen[0].status, "done", "#0 marked terminal-done (not running, not gone)");
-  assert.equal(inFlight.list().length, 0, "registry empty after the batch returns (whole-batch eviction)");
+  assert.equal(inFlight.views().length, 0, "registry empty after the batch returns (whole-batch eviction)");
 });
 
 test("mid-batch throw: siblings drained, registry cleaned, no zombie children, execute fails loudly (P1)", async () => {
@@ -630,7 +629,7 @@ test("mid-batch throw: siblings drained, registry cleaned, no zombie children, e
   // orphan resolved → zombie child + leak).
   assert.deepEqual(dispatched, [0, 1], "children after the throwing child are not dispatched");
   // endBatch ran in the finally despite the throw — the registry is clean.
-  assert.equal(inFlight.list().length, 0, "registry cleaned despite the mid-batch throw");
+  assert.equal(inFlight.views().length, 0, "registry cleaned despite the mid-batch throw");
 });
 
 test("mid-batch throw at higher concurrency: in-flight sibling still settles; workers never orphan it (P1)", async () => {
@@ -664,7 +663,7 @@ test("mid-batch throw at higher concurrency: in-flight sibling still settles; wo
   await new Promise((r) => setTimeout(r, 10));
   spawn0Release?.();
   await assert.rejects(executing, /boom-1/);
-  assert.equal(inFlight.list().length, 0, "both children evicted (in-flight sibling drained, not orphaned)");
+  assert.equal(inFlight.views().length, 0, "both children evicted (in-flight sibling drained, not orphaned)");
 });
 
 test("onUpdate emits a multi-line header + live table: `subagents · k/N running · Σtok · $Σ` then one row per child", async () => {
@@ -742,11 +741,11 @@ test("runningUsage map is fed by onUsage and drives the live-header Σ across ch
 
 test("onUpdate is try/caught: a throwing buildLiveTable path never fails the child", async () => {
   const inFlight = new SubagentInFlightRegistry();
-  // Sabotage list() to throw mid-onUpdate; the child must still complete.
-  const badList = () => {
+  // Sabotage views() to throw mid-onUpdate; the child must still complete.
+  const badViews = () => {
     throw new Error("boom");
   };
-  inFlight.list = badList as never;
+  inFlight.views = badViews as never;
   let completed = false;
   const spawn = async (opts: {
     task: string;
@@ -758,7 +757,7 @@ test("onUpdate is try/caught: a throwing buildLiveTable path never fails the chi
   const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
   const res = await tool.execute("batch-throw", { tasks: [{ task: "#0" }] }, NO_SIGNAL, undefined, NO_CTX);
   completed = (res.details.results[0] as { status: string }).status === "done";
-  assert.equal(completed, true, "child completed despite a throwing inFlight.list() during onUpdate");
+  assert.equal(completed, true, "child completed despite a throwing inFlight.views() during onUpdate");
 });
 
 // ── per-child mid-flight abort (Frontier A, Task 2) ──
@@ -841,7 +840,7 @@ test("fan-in: aborting the parent signal aborts all in-flight batch children (ne
     undefined,
     NO_CTX,
   );
-  await waitFor(() => inFlight.list().length >= 1);
+  await waitFor(() => inFlight.views().length >= 1);
   parent.abort(); // whole-turn Esc
   const res = await p; // resolves — does NOT hang (children now see the signal)
   for (const slot of res.details.results) {
@@ -1129,8 +1128,11 @@ test("ticket 04 / finding 2 + 5: collapsed batch renderer shows `requested → a
   // The actual model is shown under a ✓ done badge (NOT the stale requested opus).
   assert.match(collapsed, /✓ done/);
   assert.ok(collapsed.includes("glm-5.2"), "the ACTUAL model is shown");
-  // The requested → actual fallback indicator is rendered, both shortened.
-  assert.match(collapsed, /claude-opus-4-1 → glm-5\.2/);
+  // Settled slots have no RunView (endBatch evicted the registry), so the meta
+  // segment degrades to shortModel(slot.model) — the fallback indicator itself
+  // now lives only in RunView.modelSeg (live table) + the slot audit fields.
+  assert.match(collapsed, /glm-5\.2 · 1\.0s/);
+  assert.ok(!collapsed.includes("→"), "no fallback arrow on the settled collapsed line (degrade path)");
   // The full provider-prefixed ids do NOT appear (Finding 5 shortening).
   assert.ok(!collapsed.includes("anthropic/claude-opus-4-1"), "requested id is shortened on the collapsed line");
   assert.ok(!collapsed.includes("zai/glm-5.2"), "actual id is shortened on the collapsed line");
@@ -1227,9 +1229,10 @@ test("#03 plural mirror: a child missing a required tool is skipped (null), spaw
   assert.notEqual(res.details.results[1], null);
 });
 
-// ── Task 2: pure render helpers (formatUsage / formatModelSeg / formatSlotMeta / sumUsage) ──
-// Shared by the done + live render rewrites (Tasks 3-6). formatSlotMeta +
-// formatModelSeg mirror the single subagent card's meta (fallback-aware).
+// ── Task 2: pure render helpers (formatUsage / formatSlotMeta / sumUsage) ──
+// Shared by the done + live render rewrites (Tasks 3-6). formatSlotMeta takes a
+// RunView-sourced `modelSeg` (or degrades to shortModel(model)); the
+// fallback-aware segment itself now lives once in core-runtime's RunView.
 // sumUsage feeds both the done-header and live-header usage aggregates.
 
 const U = (total: number, cost: number): AgentUsage => ({
@@ -1248,33 +1251,26 @@ test("formatUsage: empty when no usage or zero total; else ` · $cost · Ntok` (
   assert.equal(formatUsage(U(1000, 0.5)), " · $0.500 · 1000 tok");
 });
 
-test("formatModelSeg: shortens provider prefix; `requested → actual` on fallback; default fallback", () => {
-  assert.equal(formatModelSeg("zai/glm-5.2"), "glm-5.2");
-  assert.equal(formatModelSeg("tier:small"), "tier:small");
-  assert.equal(
-    formatModelSeg("anthropic/claude-opus-4-1", "anthropic/claude-opus-4-1", true),
-    "claude-opus-4-1 → claude-opus-4-1",
-  );
-  assert.equal(formatModelSeg("zai/glm-5.2", "anthropic/claude-opus-4-1", true), "claude-opus-4-1 → glm-5.2");
-  assert.equal(formatModelSeg(""), "default");
-});
-
-test("formatSlotMeta: themed `model · elapsed · usage`; defensive on missing usage", () => {
-  const meta = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500, usage: U(15715, 0.0004) }, THEME);
+test("formatSlotMeta: themed `modelSeg · elapsed · usage`; RunView-sourced segment, shortModel degrade, default fallback", () => {
+  const meta = formatSlotMeta({ modelSeg: "glm-5.2", elapsedMs: 34500, usage: U(15715, 0.0004) }, THEME);
   assert.equal(meta, "glm-5.2 · 34.5s · $0.000 · 15715 tok");
-  const noUsage = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500 }, THEME);
+  const noUsage = formatSlotMeta({ modelSeg: "glm-5.2", elapsedMs: 34500 }, THEME);
   assert.equal(noUsage, "glm-5.2 · 34.5s");
+  // Settled slots that have no view degrade to shortModel(slot.model).
+  const degraded = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500 }, THEME);
+  assert.equal(degraded, "glm-5.2 · 34.5s");
   const fb = formatSlotMeta(
     {
-      model: "zai/glm-5.2",
-      requestedModel: "anthropic/claude-opus-4-1",
-      fellBack: true,
+      // RunView.modelSeg on fallback: `resolved→requested` (built by buildRunView).
+      modelSeg: "glm-5.2→claude-opus-4-1",
       elapsedMs: 1000,
       usage: U(10, 0.001),
     },
     THEME,
   );
-  assert.equal(fb, "claude-opus-4-1 → glm-5.2 · 1.0s · $0.001 · 10 tok");
+  assert.equal(fb, "glm-5.2→claude-opus-4-1 · 1.0s · $0.001 · 10 tok");
+  // No model anywhere → "default".
+  assert.equal(formatSlotMeta({ elapsedMs: 100 }, THEME), "default · 0.1s");
 });
 
 test("sumUsage: sums total+cost across an iterable; empty → zeros", () => {
@@ -1355,7 +1351,7 @@ test('done collapsed: per-slot line shows `badge · model · elapsed · $cost ·
   assert.ok(!slot0.includes("zai/glm-5.2"), "provider prefix dropped on the collapsed line");
 });
 
-test("done collapsed: fallback slot shows `requested → actual` in the meta segment", () => {
+test("done collapsed: fallback slot meta degrades to shortModel(actual) — the arrow lives in RunView.modelSeg only", () => {
   const details: SubagentsToolDetails = {
     results: [
       {
@@ -1379,7 +1375,8 @@ test("done collapsed: fallback slot shows `requested → actual` in the meta seg
     { expanded: false },
     THEME,
   );
-  assert.match(collapsed, /claude-opus-4-1 → glm-5\.2 · 1\.0s · \$0\.001 · 10 tok/);
+  assert.match(collapsed, /glm-5\.2 · 1\.0s · \$0\.001 · 10 tok/);
+  assert.ok(!collapsed.includes("→"), "no fallback arrow on the settled line (degrade path)");
 });
 
 test('done collapsed: per-slot meta degrades (no usage → `model · elapsed · "task"`)', () => {
@@ -1502,10 +1499,22 @@ test("done expanded: null (failed) slot has NO meta line (unchanged failed body)
   assert.doesNotMatch(failedBlock, /· .*s ·/);
 });
 
-const NOW = 10_000;
-
-function live(over: Partial<InFlightSubagent> & { id: string }): InFlightSubagent {
-  return { taskPreview: "pt", startedAt: 0, ...over } as InFlightSubagent;
+/** RunView fixture for buildLiveTable — elapsed/modelSeg/action are baked in
+ *  (buildRunView owns the freeze policy; buildLiveTable only renders). */
+function view(over: Partial<RunView> & { id: string }): RunView {
+  return {
+    foreground: false,
+    status: "running",
+    actor: "general-purpose",
+    modelSeg: "glm-5.2",
+    elapsedMs: 0,
+    elapsedFrozen: false,
+    toolCallCount: 0,
+    latestAction: "pt",
+    history: [],
+    startedAt: 0,
+    ...over,
+  };
 }
 
 test("childDispatchIndex: trailing :N from a batch child runId; NaN-resistant", () => {
@@ -1514,40 +1523,32 @@ test("childDispatchIndex: trailing :N from a batch child runId; NaN-resistant", 
   assert.equal(childDispatchIndex("no-colon"), NaN);
 });
 
-test("buildLiveTable: empty entries → empty string (header-only)", () => {
-  assert.equal(buildLiveTable([], NOW), "");
+test("buildLiveTable: empty views → empty string (header-only)", () => {
+  assert.equal(buildLiveTable([]), "");
 });
 
-test("buildLiveTable: one running child → `[i] slot ⏱ liveElapsed · currentAction`", () => {
-  const rows = buildLiveTable(
-    [live({ id: "batch-call:0", model: "zai/glm-5.2", startedAt: 6550, status: "running" })],
-    NOW,
-  );
+test("buildLiveTable: one running child → `[i] slot ⏱ elapsed · currentAction`", () => {
+  const rows = buildLiveTable([view({ id: "batch-call:0", elapsedMs: 3500 })]);
   assert.equal(rows, "[0] glm-5.2 ⏱ 3.5s · pt");
 });
 
-test("buildLiveTable: completed child shows ✓ glyph + FROZEN elapsed (endedAt stamp)", () => {
-  // startedAt 9000, endedAt 9500 → frozen 0.5s even though `now` is 10_000
-  // (the pre-fix code ticked to 1.0s and kept growing — this codifies the fix).
-  const rows = buildLiveTable(
-    [live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 9000, endedAt: 9500, status: "completed" })],
-    NOW,
-  );
+test("buildLiveTable: terminal child shows ✓ glyph + the FROZEN elapsed baked into the view", () => {
+  // buildRunView froze elapsedMs at endedAt - startedAt = 500ms; the frozen
+  // value renders verbatim regardless of wall-clock (the freeze has exactly
+  // one home: core-runtime's buildRunView).
+  const rows = buildLiveTable([view({ id: "batch-call:1", elapsedMs: 500, elapsedFrozen: true, status: "done" })]);
   assert.equal(rows, "[1] glm-5.2 ✓ 0.5s · pt");
 });
 
-test("buildLiveTable: a completed child's elapsed no longer grows as now advances; running rows still tick", () => {
-  const child = live({ id: "batch-call:0", model: "zai/glm-5.2", startedAt: 9000, endedAt: 9500, status: "completed" });
-  const at10k = buildLiveTable([child], 10_000);
-  const at60k = buildLiveTable([child], 60_000);
-  const at120k = buildLiveTable([child], 120_000);
-  assert.equal(at10k, "[0] glm-5.2 ✓ 0.5s · pt");
-  assert.equal(at60k, at10k, "frozen — advancing now does not grow a terminal row's elapsed");
-  assert.equal(at120k, at10k, "still frozen much later");
-  // Running rows keep ticking with now (regression guard).
-  const runner = live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 9000, status: "running" });
-  assert.equal(buildLiveTable([runner], 10_000), "[1] glm-5.2 ⏱ 1.0s · pt");
-  assert.equal(buildLiveTable([runner], 60_000), "[1] glm-5.2 ⏱ 51.0s · pt");
+test("buildLiveTable: terminal rows are idempotent across renders; a live view's elapsed ticks via views()", () => {
+  const child = view({ id: "batch-call:0", elapsedMs: 500, elapsedFrozen: true, status: "done" });
+  const a = buildLiveTable([child]);
+  const b = buildLiveTable([child]);
+  assert.equal(a, "[0] glm-5.2 ✓ 0.5s · pt");
+  assert.equal(b, a, "frozen — repeated renders of the same terminal view are identical");
+  // Running rows tick because views() recomputes elapsedMs from Date.now().
+  assert.equal(buildLiveTable([view({ id: "batch-call:1", elapsedMs: 1000 })]), "[1] glm-5.2 ⏱ 1.0s · pt");
+  assert.equal(buildLiveTable([view({ id: "batch-call:1", elapsedMs: 51_000 })]), "[1] glm-5.2 ⏱ 51.0s · pt");
 });
 
 test("execute: a completed child's elapsed freezes across two onUpdate renders (no more ticking)", async () => {
@@ -1598,45 +1599,28 @@ test("execute: a completed child's elapsed freezes across two onUpdate renders (
   assert.equal(b, a, "elapsed frozen — identical row across renders 60s apart");
 });
 
-test("buildLiveTable: fallback child shows `requested → actual` slot", () => {
-  const rows = buildLiveTable(
-    [
-      live({
-        id: "batch-call:0",
-        model: "anthropic/claude-opus-4-1",
-        resolvedModel: "zai/glm-5.2",
-        requestedModel: "anthropic/claude-opus-4-1",
-        fellBack: true,
-        startedAt: 9500,
-        status: "running",
-      }),
-    ],
-    NOW,
-  );
-  assert.equal(rows, "[0] claude-opus-4-1 → glm-5.2 ⏱ 0.5s · pt");
+test("buildLiveTable: fallback child shows the RunView modelSeg slot (`resolved→requested`)", () => {
+  const rows = buildLiveTable([view({ id: "batch-call:0", modelSeg: "glm-5.2→claude-opus-4-1", elapsedMs: 500 })]);
+  assert.equal(rows, "[0] glm-5.2→claude-opus-4-1 ⏱ 0.5s · pt");
 });
 
-test("buildLiveTable: currentAction comes from summarizeLatestAction(history); falls back to task preview", () => {
-  const withHist = buildLiveTable(
-    [
-      live({
-        id: "batch-call:0",
-        model: "zai/glm-5.2",
-        startedAt: 9000,
-        history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"src/a.ts"}' }],
-      }),
-    ],
-    NOW,
-  );
+test("buildLiveTable: currentAction comes from summarizeLatestAction(history); falls back to latestAction", () => {
+  const withHist = buildLiveTable([
+    view({
+      id: "batch-call:0",
+      elapsedMs: 1000,
+      history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"src/a.ts"}' }],
+    }),
+  ]);
   assert.match(withHist, /\[0\] glm-5\.2 ⏱ 1\.0s · .+/);
-  assert.notEqual(withHist, "[0] glm-5.2 ⏱ 1.0s · pt", "history-derived action replaces the task-preview fallback");
+  assert.notEqual(withHist, "[0] glm-5.2 ⏱ 1.0s · pt", "history-derived action replaces the latestAction fallback");
 });
 
-test("buildLiveTable: sorted ascending by dispatch index; defaults to Date.now()", () => {
+test("buildLiveTable: sorted ascending by dispatch index", () => {
   const rows = buildLiveTable([
-    live({ id: "batch-call:2", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
-    live({ id: "batch-call:0", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
-    live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
+    view({ id: "batch-call:2" }),
+    view({ id: "batch-call:0" }),
+    view({ id: "batch-call:1" }),
   ]);
   const idxs = rows.split("\n").map((l) => l.slice(1, 2));
   assert.deepEqual(idxs, ["0", "1", "2"]);
