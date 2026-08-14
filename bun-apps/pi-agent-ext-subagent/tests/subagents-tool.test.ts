@@ -66,6 +66,18 @@ test("mergeReadOnlyExclusion defaults timeoutMs and carries per-child budgets", 
   assert.equal(opts.spendBudget, 0.5);
 });
 
+test("mergeReadOnlyExclusion forwards retryOnTransient so a batch caller can turn retry OFF", () => {
+  // Batch children always retried once (spawnSubagent defaults it on) while the
+  // batch surface offered no way to say otherwise — the singular tool did. The
+  // knob now exists on both, and omitting it still means "retry" (undefined →
+  // spawnSubagent's `!== false` default).
+  assert.equal(
+    mergeReadOnlyExclusion({ task: "t", retryOnTransient: false }, { defaultCwd: "/repo" }).retryOnTransient,
+    false,
+  );
+  assert.equal(mergeReadOnlyExclusion({ task: "t" }, { defaultCwd: "/repo" }).retryOnTransient, undefined);
+});
+
 test("#01 plural mirror: per-child tier default applied when tokenBudget omitted", async () => {
   const calls: SpawnSubagentOptions[] = [];
   const spawn = async (opts: SpawnSubagentOptions) => {

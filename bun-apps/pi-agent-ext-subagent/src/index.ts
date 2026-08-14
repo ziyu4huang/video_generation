@@ -1,113 +1,48 @@
-// agent
-// agent-history
-// agent-registry
-// agent-row-display (shared TUI row rendering — consumed by the /subagents viewer,
-// the below-editor progress widget, and re-imported by pi-agent-ext-workflow)
-// model-tier-config
-// rate-limiter (shared per-provider concurrency cap — wayfinder tickets 02+03).
-// Process-global via globalThis so BOTH this package (subagents/subagent) and
-// pi-agent-ext-workflow resolve ONE limiter instance per provider and bound
-// their COMBINED provider dispatch. Pass-through until rateLimits is configured.
-// sdd-report
-// structured-output
-// subagent-in-flight
-// tool-action-label (shared verb-led phrase helper — see ticket 02)
-// worktree
-export type {
-  ActivityRow,
-  ActivityStatus,
-  AgentDefinition,
-  AgentHistoryEntry,
-  AgentHistoryKind,
-  AgentHistoryRole,
-  AgentRegistry,
-  AgentRunOptions,
-  AgentRunResult,
-  AgentUsage,
-  FallbackDecision,
-  InFlightSubagent,
-  ModelTierConfig,
-  RateLimitCapResolver,
-  RateLimiter,
-  SddReport,
-  SddReportStatus,
-  StructuredOutputCapture,
-  StructuredOutputToolOptions,
-  StructuredSession,
-  ThemeLike,
-  ToolActionContext,
-  WorkflowAgentOptions,
-  Worktree,
-} from "@repo/pi-agent-ext-core-runtime";
-// Canonical class name (WorkflowAgent above is the back-compat alias).
-// config (split) + home
-// errors
-// resolveModelRole + the tier fns now live in core-runtime (sourced from the
-// model-role-config leaf there). Back-compat: the symbol names are unchanged.
+/**
+ * Peer-facing barrel for `@repo/pi-agent-ext-subagent`.
+ *
+ * The rule this file follows — enforced by `tests/barrel-surface.test.ts`:
+ *
+ *   1. Everything this package OWNS is exported here (the tools, spawn, the
+ *      persistence store, the watchdog types).
+ *   2. A symbol that belongs to `@repo/pi-agent-ext-core-runtime` is re-exported
+ *      here ONLY when a peer package actually imports it through this barrel.
+ *
+ * Rule 2 is not politeness — it is load-bearing. `pi-agent`, `pi-agent-ext-obsidian`,
+ * `pi-agent-ext-file2md` and `pi-agent-ext-knowledge-card` do NOT declare
+ * `@repo/pi-agent-ext-core-runtime` in their package.json, so this barrel is their
+ * only legal path to those symbols (the dep-guard's invariant 1 rejects an
+ * undeclared @repo edge). Re-exporting MORE than that is what let this file grow
+ * to 114 names of which 21 were ever imported: a wide interface with no leverage
+ * behind it, and one that hides which peers depend on what.
+ *
+ * Adding a core-runtime re-export here therefore means one of two things, and you
+ * should be explicit about which: either a peer genuinely needs the facade (add it
+ * to FACADE_SYMBOLS in the guard test with the consuming package named), or the
+ * peer should declare core-runtime and import it directly.
+ */
+
+// ── core-runtime facade (rule 2) ─────────────────────────────────────────────
+// Which peer consumes which symbol is recorded in FACADE_SYMBOLS in
+// tests/barrel-surface.test.ts, not in comments here — biome sorts export names,
+// so per-line attribution would drift out of alignment on the next `--write`.
+export type { AgentHistoryEntry, AgentUsage, InFlightSubagent } from "@repo/pi-agent-ext-core-runtime";
 export {
-  AGENTS_DIR,
-  activityGlyph,
-  agentDefinitionKey,
-  applyToolPolicy,
-  buildDefaultTierConfig,
-  CoreAgent,
-  checkBudgetExhaustion,
-  compactAgentHistory,
-  createStructuredOutputTool,
-  createWorktree,
-  extractValidated,
-  fmtCost,
-  fmtTokensShort,
-  formatToolAction,
   getGlobalRateLimiter,
-  getModelTierConfigPath,
-  getRateLimitCapResolver,
   getSubagentInFlightRegistry,
-  homeDir,
-  isAbortError,
-  isSddReportActionable,
-  isTimeoutError,
-  isWorkflowError,
-  lastAssistantError,
-  listAgentTypes,
-  listAvailableModelSpecs,
-  loadAgentRegistry,
   loadModelTierConfig,
-  MODEL_TIERS_FILE,
-  matchedCallArgsFor,
-  NO_THEME,
-  parseAgentDefinition,
-  parseSddReport,
-  preview,
-  providerFromModelSpec,
-  removeWorktree,
-  renderActivityRow,
-  resolveAgentModelSpec,
-  resolveAgentType,
-  resolveFallbackModel,
   resolveModelRole,
-  resolveStructuredOutput,
-  resolveTierModel,
-  SDD_REPORT_STATUSES,
-  SubagentInFlightRegistry,
   saveModelTierConfig,
   setRateLimitCapResolver,
-  shorten,
-  shortModel,
-  sortedTierNames,
-  summarizeLatestAction,
-  throwIfProviderLimit,
   WorkflowAgent,
-  WorkflowError,
-  WorkflowErrorCode,
-  wrapError,
 } from "@repo/pi-agent-ext-core-runtime";
-// spawn-subagent
-export type { SpawnSubagentOptions, SpawnSubagentPrime, SpawnSubagentResult } from "./spawn-subagent.js";
+
+// ── owned: programmatic dispatch ─────────────────────────────────────────────
+export type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
 export { spawnSubagent } from "./spawn-subagent.js";
-// spawn-subagent-subprocess (the isolated-process analog; wayfind ticket 04).
-// Consumers that need a clean child pi process (obsidian distill/garden,
-// tool-gate L2 A/B) use this instead of the in-process spawnSubagent.
+// The isolated-PROCESS analog (wayfind ticket 04). Consumers that need a clean
+// child pi process (obsidian distill/garden, tool-gate L2 A/B) use this instead
+// of the in-process spawnSubagent.
 export type {
   ChildProcessLike,
   SpawnFn,
@@ -120,7 +55,8 @@ export {
   isTransientError,
   spawnSubagentSubprocess,
 } from "./spawn-subagent-subprocess.js";
-// subagent-run-persistence
+
+// ── owned: durable run records ───────────────────────────────────────────────
 export type {
   CreateSubagentRunPersistenceOptions,
   SubagentFsLayer,
@@ -137,14 +73,13 @@ export {
   subagentHomeDir,
   subagentRunsDir,
 } from "./subagent-run-persistence.js";
-// subagent-runs-tool
+
+// ── owned: the LLM-facing tools ──────────────────────────────────────────────
 export type { SubagentRunsToolOptions } from "./subagent-runs-tool.js";
 export { createSubagentRunsTool } from "./subagent-runs-tool.js";
 export { createSubagentTool } from "./subagent-tool.js";
 export { formatHistoryLine } from "./subagent-tool-render.js";
-// subagent-tool
 export type { SubagentToolDetails, SubagentToolOptions } from "./subagent-tool-schema.js";
-// subagents batch tool (plural — wraps spawnSubagent for fan-out batches)
 export type {
   BatchResultSlot,
   BatchTask,
@@ -158,6 +93,8 @@ export {
   renderSubagentsResult,
   subagentsToolSchema,
 } from "./subagents-tool.js";
+
+// ── owned: two-layer edit-gated reviewer (ticket 02) ─────────────────────────
 export type {
   WatchdogFinding,
   WatchdogL1Result,
@@ -167,5 +104,4 @@ export type {
 } from "./watchdog/types.js";
 export { normalizeWatchdogParam } from "./watchdog/types.js";
 export type { RunWatchdogInput } from "./watchdog/watchdog.js";
-// watchdog (ticket 02 — two-layer edit-gated reviewer)
 export { runWatchdog } from "./watchdog/watchdog.js";

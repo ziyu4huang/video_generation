@@ -199,13 +199,6 @@ describe("spawnSubagent", () => {
     assert.equal(out.exitCode, 0);
   });
 
-  it("prime is accepted but a no-op (no extra call; output unaffected)", async () => {
-    const runner = mkRunner(async () => "out");
-    const out = await spawnSubagent({ task: "t", prime: { query: "loRA", topK: 5 }, agent: runner });
-    assert.equal(out.output, "out");
-    assert.equal(runner.calls.length, 1, "prime did not add a retrieve call (③ owns it)");
-  });
-
   // D8-1: when opts.schema is set, WorkflowAgent.run returns a validated OBJECT.
   // The adapter MUST preserve it as JSON — `String(obj)` would yield "[object Object]"
   // and silently destroy the schema payload (returned as a success-shaped result).

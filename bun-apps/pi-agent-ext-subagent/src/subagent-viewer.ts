@@ -11,21 +11,19 @@
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import type { AgentHistoryEntry, AgentUsage, InFlightSubagent } from "@repo/pi-agent-ext-core-runtime";
 import {
   type ActivityRow,
   fmtCost,
   isTerminalStatus,
+  matchedCallArgsFor,
   renderActivityRow,
   shortModel,
+  summarizeLatestAction,
 } from "@repo/pi-agent-ext-core-runtime";
-import type {
-  AgentHistoryEntry,
-  AgentUsage,
-  InFlightSubagent,
-  SubagentsToolDetails,
-  SubagentToolDetails,
-} from "./index.js";
-import { formatHistoryLine, matchedCallArgsFor, summarizeLatestAction } from "./index.js";
+import { formatHistoryLine } from "./subagent-tool-render.js";
+import type { SubagentToolDetails } from "./subagent-tool-schema.js";
+import type { SubagentsToolDetails } from "./subagents-tool.js";
 import { formatAbsoluteTime, formatRelativeTime } from "./time-format.js";
 
 /** Tail-f window: how many recent trace lines the follow view shows. */
