@@ -211,6 +211,11 @@ export interface MemoryConfig {
    *  flag is real + wired but turning it ON is a graceful no-op (dictionary
    *  fallback). Carried across the seam via `IngestOptions.kgLlm`. */
   kgLlm: boolean;
+  /** Model override for the LLM relation extractor when `kgLlm` is ON.
+   *  Parsed from the config file (allowlisted string); when unset, zk's
+   *  `PI_KG_LLM_MODEL` env fallback stays authoritative. Carried across the
+   *  seam via `IngestOptions.kgLlmModel`. */
+  kgLlmModel?: string;
 }
 
 /** Trust/auditability marker for a memory entry. Markdown-resident only. */

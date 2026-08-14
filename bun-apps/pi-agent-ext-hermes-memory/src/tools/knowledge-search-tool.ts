@@ -19,7 +19,8 @@ import { getKnowledgePipeline } from "../knowledge-pipeline-seam.js";
 import { KNOWLEDGE_FOLDER_DEFAULT } from "../knowledge-vault-path.js";
 import type { VectorStore } from "../store/surreal/vector-store.js";
 import type { Embedder } from "../store/surreal/embedder.js";
-import { searchSemantic } from "../store/semantic-search.js";
+import { SqliteBackend } from "../store/sqlite/sqlite-backend.js";
+import { searchSemantic, type SemanticRelation } from "../store/semantic-search.js";
 
 /** Narrow the pi surface to exactly what this tool uses (registerTool). The
  *  full ExtensionAPI is structurally assignable, so index.ts passes its pi
@@ -45,6 +46,68 @@ export interface KnowledgeSemanticOpts {
   model?: string;
   /** HNSW exploration factor (default from config / 100). */
   ef?: number;
+  /** Ticket 03 P2-T5 (LeanRAG ③): batched card-graph relations lookup wired
+   *  into the warm path. Built by `buildGraphRelationsFetcher(memoryDir)` at
+   *  registration time (index.ts) — one batched `SELECT graph BY md_id` over
+   *  the SAME SQLite card-store DB the knowledge mirror writes. Consulted only
+   *  on the warm HNSW path, so it rides the same semanticOpts gating as the
+   *  vector store (unwired default → dedupByRelation stays dormant, unchanged
+   *  behavior). */
+  fetchRelations?: (mdIds: string[]) => Promise<Map<string, SemanticRelation[]>>;
+}
+
+/** Ticket 03 P2-T5 (LeanRAG ③): build the PRODUCTION `fetchRelations` provider
+ *  — a batched `memories.graph` lookup keyed by md_id against the SAME SQLite
+ *  card-store DB the knowledge mirror writes (`createCardStore`'s DB; opened
+ *  ephemerally per call, mirroring the planning-stale-tool pattern). One
+ *  batched SELECT over the ranked ids (chunked to stay well under any
+ *  SQLITE_MAX_VARIABLE_NUMBER bound) — never N+1. Decodes `Card.graph.relations`
+ *  triples; missing rows / NULL graph / corrupt JSON / any backend failure are
+ *  silently skipped (the seam's contract: relations absent, search unaffected). */
+export function buildGraphRelationsFetcher(
+  memoryDir: string,
+): (mdIds: string[]) => Promise<Map<string, SemanticRelation[]>> {
+  return async (mdIds: string[]): Promise<Map<string, SemanticRelation[]>> => {
+    const out = new Map<string, SemanticRelation[]>();
+    if (mdIds.length === 0) return out;
+    const backend = new SqliteBackend(memoryDir);
+    try {
+      await backend.init();
+      for (let i = 0; i < mdIds.length; i += 100) {
+        const chunk = mdIds.slice(i, i + 100);
+        const rows = backend
+          .getDb()
+          .prepare(
+            `SELECT md_id, graph FROM memories WHERE md_id IN (${chunk.map(() => "?").join(",")})`,
+          )
+          .all(...chunk) as Array<{ md_id: string; graph: string | null }>;
+        for (const row of rows) {
+          if (!row.graph) continue; // NULL graph → card has none → silent skip
+          try {
+            const parsed = JSON.parse(row.graph) as { relations?: unknown };
+            if (Array.isArray(parsed.relations)) {
+              const rels = parsed.relations.filter(
+                (r): r is SemanticRelation =>
+                  typeof r === "object" &&
+                  r !== null &&
+                  typeof (r as SemanticRelation).s === "string" &&
+                  typeof (r as SemanticRelation).rel === "string" &&
+                  typeof (r as SemanticRelation).o === "string",
+              );
+              if (rels.length > 0) out.set(row.md_id, rels);
+            }
+          } catch {
+            // corrupt graph JSON → silent skip, never blocks search
+          }
+        }
+      }
+    } catch {
+      // backend open/query failure → empty map (search unaffected)
+    } finally {
+      await backend.close().catch(() => {});
+    }
+    return out;
+  };
 }
 
 const KNOWLEDGE_SEARCH_DESCRIPTION = `Search the knowledge graph (vault-md cards written by zk's ingest pipeline) for lessons, gotchas, and patterns relevant to the current task.
@@ -184,6 +247,9 @@ export function registerKnowledgeSearchTool(
               model: semanticOpts.model,
               embedder,
               vectorStore: vs,
+              // ③ dedup substrate: attach card-graph relations for the ranked
+              // hits (batched SQLite lookup; silent-skip inside the seam).
+              fetchRelations: semanticOpts.fetchRelations,
               // Deliberately omit kp/vaultPath: a warm miss must return []
               // (NOT re-run zk cosine) so the zk result above stands.
               excludeIds,

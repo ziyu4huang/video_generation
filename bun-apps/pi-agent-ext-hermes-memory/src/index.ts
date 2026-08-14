@@ -47,7 +47,7 @@ import { registerSessionSearchTool } from "./tools/session-search-tool.js";
 import { createPerfRecorder } from "./perf.js";
 import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
 import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
-import { registerKnowledgeSearchTool } from "./tools/knowledge-search-tool.js";
+import { registerKnowledgeSearchTool, buildGraphRelationsFetcher } from "./tools/knowledge-search-tool.js";
 import { registerKnowledgeIngestTool } from "./tools/knowledge-ingest-tool.js";
 import { registerPlanningStaleTool } from "./tools/planning-stale-tool.js";
 import { publishStaleCheck, unpublishStaleCheck } from "./stale-seam.js";
@@ -112,6 +112,7 @@ const DEFAULT_VECTOR_DATABASE = "vectors";
  *  touches SurrealDB / LM Studio. */
 function buildKnowledgeSemanticOpts(
   config: import("./types.js").MemoryConfig,
+  memoryDir: string,
 ): import("./tools/knowledge-search-tool.js").KnowledgeSemanticOpts | undefined {
   const endpoint = config.surreal?.endpoint;
   if (!endpoint) return undefined; // default config has no endpoint → unchanged behavior
@@ -128,6 +129,11 @@ function buildKnowledgeSemanticOpts(
   return {
     model,
     ef,
+    // ③ (fix-wave 2): wire the production batched graph-relations lookup so
+    // dedupByRelation is live on the warm path. Rides the same gating as the
+    // vector store above — the default (no surreal endpoint) path stays
+    // byte-identical with the seam unwired.
+    fetchRelations: buildGraphRelationsFetcher(memoryDir),
     vectorStore: () => {
       if (!client) client = new SurrealClient({ endpoint, namespace: ns, database: db, username, password });
       if (!store) store = createVectorStore(client, ns, db);
@@ -470,7 +476,11 @@ export default async function (pi: ExtensionAPI) {
   // resolver, so a missing vault env does NOT crash session init (the resolver
   // throws at call time and the tool surfaces a clear message). The mirror
   // reuses the SAME SQLite DB the memory-cards use (the global memory dir). ──
-  registerKnowledgeSearchTool(pi, resolveKnowledgeVaultPath, buildKnowledgeSemanticOpts(config));
+  registerKnowledgeSearchTool(
+    pi,
+    resolveKnowledgeVaultPath,
+    buildKnowledgeSemanticOpts(config, globalDir),
+  );
   // kgLlm (FIX 1): thread MemoryConfig.kgLlm into the ingest tool's options so
   // the config-file flag reaches zk's ingest gate (env fallback PI_KG_LLM=1
   // stays available when the flag is unset/default).
