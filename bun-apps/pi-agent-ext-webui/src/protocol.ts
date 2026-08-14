@@ -35,9 +35,12 @@ const AgenticWithTextSchema = Type.Union([
 const AbortCommandSchema = Type.Object({ type: Type.Literal("abort") });
 
 /**
- * `appexec` is a forward seam (spec §3): it BYPASSES the mutex entirely. v1
- * defines no concrete ops/executor — the optional `extra` bag is the seam a
- * later ticket fills. The `{ type: "appexec" }` shape alone must validate.
+ * `appexec` is the HITL return transport (spec Component 1): it BYPASSES the
+ * mutex entirely. The optional `extra` bag carries a concrete op; Phase 1
+ * recognizes `{ kind: "respond", id, action, tweak? }`. The SCHEMA stays loose
+ * (an unknown-op frame must still VALIDATE here so it can be IGNORED at parse
+ * time — never rejected by the schema, spec §6 forward-compat). The
+ * `{ type: "appexec" }` shape alone must validate.
  */
 const AppExecCommandSchema = Type.Object({
   type: Type.Literal("appexec"),
@@ -115,16 +118,23 @@ export type DispatchAction =
       source: "extension";
     }
   /**
-   * `appexec` BYPASSES the mutex entirely (no concrete v1 ops defined). v1
-   * intentionally IGNORES the inbound `extra` bag: {@link AppExecCommandSchema}
-   * accepts `extra` so the wire shape is forward-compatible, but
-   * `WebTransport.parseCommand` resolves only `{ kind:"appexec", op:"appexec" }`
-   * and DROPS `extra` — this is a forward seam a later ticket fills (no
-   * execution logic yet). The variant is kept self-consistent with that: `op`
-   * is always the frame `type` ("appexec"); `extra` is deliberately not
-   * surfaced on the descriptor.
+   * `appexec` BYPASSES the mutex entirely. Phase 1 surfaces exactly one op —
+   * `respond` — the HITL response a browser posts back for a pending
+   * presentation (`{ kind:"respond", id, action, tweak? }` carried in `extra`).
+   * {@link WebTransport.parseCommand} validates the respond sub-shape and
+   * resolves THIS descriptor; an unknown op or a malformed respond resolves to
+   * `null` (ignored at parse time, NOT rejected by the schema — spec §6). The
+   * `op:"respond"` literal lets the wiring narrow `action.id` / `action.action`
+   * / `action.tweak` without an `as`. Future ops (e.g. an explicit cancel) add
+   * union members here.
    */
-  | { kind: "appexec"; op: string; [k: string]: unknown }
+  | {
+      kind: "appexec";
+      op: "respond";
+      id: string;
+      action: string;
+      tweak?: string;
+    }
   | { kind: "control"; op: "subscribe" | "unsubscribe" };
 
 // --- Pure helpers ---

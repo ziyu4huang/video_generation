@@ -61,13 +61,31 @@ export class WebTransport {
         return { kind: "agentic", op: frame.type, text: frame.text, source: "extension" };
       case "abort":
         return { kind: "agentic", op: "abort", source: "extension" };
-      case "appexec":
-        // v1 forward seam: resolve `op` from the frame type and intentionally
-        // DROP `extra` (no concrete ops/executor yet — see the appexec
-        // DispatchAction variant in protocol.ts). A later ticket fills
-        // execution; this seam MUST bypass the mutex gate (the wiring branches
-        // on `kind === "agentic"` before gating).
-        return { kind: "appexec", op: frame.type };
+      case "appexec": {
+        // HITL return transport (spec Component 1): validate the respond
+        // sub-shape in `extra` and surface a typed descriptor. Unknown op or
+        // malformed respond -> null (IGNORED at parse time; the schema stays
+        // loose so such frames still VALIDATE, spec §6). This seam MUST bypass
+        // the mutex gate (the wiring branches on `kind === "agentic"` first).
+        const extra = frame.extra;
+        if (
+          extra?.kind === "respond" &&
+          typeof extra.id === "string" &&
+          typeof extra.action === "string" &&
+          (extra.tweak === undefined || typeof extra.tweak === "string")
+        ) {
+          const out: {
+            kind: "appexec";
+            op: "respond";
+            id: string;
+            action: string;
+            tweak?: string;
+          } = { kind: "appexec", op: "respond", id: extra.id, action: extra.action };
+          if (typeof extra.tweak === "string") out.tweak = extra.tweak;
+          return out;
+        }
+        return null;
+      }
       case "subscribe":
       case "unsubscribe":
         return { kind: "control", op: frame.type };

@@ -22,7 +22,10 @@
  *    SUPPRESSES the message (agent-session.js short-circuits on "handled"), while
  *    the notifier broadcasts `mutex_blocked`. So block feedback is BROADCAST
  *    only — there is no per-command ack.
- *  - `appexec` BYPASSES the mutex entirely (no concrete v1 ops; forward seam).
+ *  - `appexec` BYPASSES the mutex entirely — it is the HITL return transport
+ *    (spec Component 1): a typed `respond` descriptor resolves the pending
+ *    Promise registered under its `id` (unknown ids are ignored), while
+ *    session_shutdown / WS close abort every pending as {cancelled:true}.
  *  - The no-session guard runs BEFORE any pi/ctx deref: a command with no bound
  *    session replies `{type:"error",reason:"no_session"}` and returns.
  *
@@ -113,6 +116,10 @@ export interface WebuiServer extends Broadcaster {
   setHttpRoutes(handler: HttpRouteHandler | null): void;
   /** OPTIONAL token auth (ticket 07 D1); null => no check (v1 loopback). */
   setTokenAuth(token: string | null): void;
+  /** WS-close abort seam (spec Component 1): invoked on each WS close so the
+   *  wiring can resolve all pending HITL presentations as {cancelled:true}.
+   *  Mirrors setCommandHandler/setHttpRoutes. */
+  setWsCloseHandler(cb: (() => void) | null): void;
   /**
    * The loopback URL the server is reachable on (throws "WebServer not started"
    * before start / after stop). Read lazily by the render framework's `urlFor`
@@ -134,6 +141,14 @@ export interface WebuiDeps {
 export interface WebuiWiring {
   /** Neutralize every handler + tear the server down (tests / session end). */
   dispose(): void;
+  /**
+   * Create + await a pending HITL presentation keyed by `id` (spec Component 1).
+   * Phase 2's `webui_present` tool calls this, then awaits the returned Promise.
+   * Resolves with `{action, tweak?}` when an appexec `respond` arrives for the
+   * id; resolves with `{cancelled:true}` on abort (session_shutdown / WS close —
+   * `action` is ABSENT on a cancelled response).
+   */
+  registerPending(id: string): Promise<{ action?: string; tweak?: string; cancelled?: boolean }>;
 }
 
 /**
@@ -205,6 +220,29 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   let bound: { pi: WebuiHost; ctx: WebuiSessionCtx } | null = null;
   let disposed = false;
 
+  // --- HITL pending-Promise registry (return transport; spec Component 1) ----
+  // Keyed by the respond `id`. registerPending creates + awaits a pending; the
+  // dispatch appexec case resolves it; abort (session_shutdown / WS close)
+  // resolves all pending as {cancelled:true}. Phase 2's webui_present tool is
+  // the producer; Phase 1 tests registerPending directly. In-memory only (spec
+  // Decision C); cleared on resolve/abort. NOTE: `action` is optional — an abort
+  // resolves as `{cancelled:true}` with NO action (tsc-enforced; see
+  // WebuiWiring.registerPending).
+  type HitlResponse = { action?: string; tweak?: string; cancelled?: boolean };
+  const pending = new Map<string, { resolve: (r: HitlResponse) => void }>();
+
+  function registerPending(id: string): Promise<HitlResponse> {
+    return new Promise<HitlResponse>((resolve) => {
+      pending.set(id, { resolve });
+    });
+  }
+
+  /** Resolve every pending as {cancelled:true} (session_shutdown / WS close). */
+  function cancelAllPending(): void {
+    for (const entry of pending.values()) entry.resolve({ cancelled: true });
+    pending.clear();
+  }
+
   // --- inbound dispatch seam (handed to WebServer.setCommandHandler) ---------
   // web-server.ts ALREADY validated the frame (validateInbound) before invoking
   // this seam, so `frame` is a typed ClientFrame; parseCommand classifies it.
@@ -241,9 +279,22 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
             break;
         }
         break;
-      case "appexec":
-        // v1 NO-OP — forward seam; MUST bypass the mutex (specs/04 §3/§6).
+      case "appexec": {
+        // Phase 1 return transport (spec Component 1): `action` is the typed
+        // respond descriptor (Task 1). Resolve the pending Promise keyed by id;
+        // an unknown id is ignored (no pending was registered for it). MUST
+        // bypass the mutex (the wiring already branched on `kind === "agentic"`).
+        const entry = pending.get(action.id);
+        if (entry) {
+          pending.delete(action.id);
+          entry.resolve(
+            action.tweak !== undefined
+              ? { action: action.action, tweak: action.tweak }
+              : { action: action.action }
+          );
+        }
         break;
+      }
       case "control":
         // subscribe/unsubscribe: WS connect/close already auto-tracks clients
         // in WebServer; the explicit command is a v1 no-op.
@@ -252,6 +303,10 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   }
 
   server.setCommandHandler(onCommand);
+
+  // WS-close abort seam (spec Component 1): a disconnect mid-HITL resolves all
+  // pending as {cancelled:true} so a blocked execute() returns cleanly.
+  server.setWsCloseHandler(() => cancelAllPending());
 
   // --- render framework (ticket 06 D2/D3) ---------------------------------
   // The registry is constructed here (not via deps) so it owns a urlFor bound
@@ -317,6 +372,7 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   });
   reg("session_shutdown", () => {
     controller.handleShutdown();
+    cancelAllPending();
     server.dropSession();
     bound = null;
   });
@@ -348,11 +404,14 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       disposed = true;
       server.setHttpRoutes(null);
       server.setCommandHandler(null);
+      server.setWsCloseHandler(null);
+      cancelAllPending();
       controller.handleShutdown();
       server.dropSession();
       bound = null;
       server.stop();
     },
+    registerPending,
   };
 }
 

@@ -55,13 +55,49 @@ describe("WebTransport.parseCommand — dispatch matrix", () => {
     });
   });
 
-  it("appexec -> bypass descriptor (NOT agentic; NO source field)", () => {
-    // The contract Task 3 branches on: appexec has kind "appexec" and NO `source`
-    // field, so the wiring gates `kind === "agentic"` BEFORE touching the mutex
-    // controller (spec §6: appexec must NOT be routed through handleInput).
-    const d = t.parseCommand({ type: "appexec" }) as DispatchAction;
+  it("appexec respond (id+action) -> typed bypass descriptor", () => {
+    const d = t.parseCommand({ type: "appexec", extra: { kind: "respond", id: "p1", action: "approve" } });
+    expect(d).toEqual({ kind: "appexec", op: "respond", id: "p1", action: "approve" });
+  });
+
+  it("appexec respond with tweak surfaces tweak", () => {
+    const d = t.parseCommand({
+      type: "appexec",
+      extra: { kind: "respond", id: "p2", action: "regenerate", tweak: "more red" },
+    });
+    expect(d).toEqual({
+      kind: "appexec", op: "respond", id: "p2", action: "regenerate", tweak: "more red",
+    });
+  });
+
+  it("appexec respond is NOT agentic (NO source field) — bypasses the mutex", () => {
+    // Task 2's wiring branches on `kind === "agentic"` BEFORE touching the mutex;
+    // a respond has kind "appexec" and no `source`, so it is never routed through
+    // handleInput (spec §6).
+    const d = t.parseCommand({
+      type: "appexec", extra: { kind: "respond", id: "p3", action: "approve" },
+    }) as DispatchAction;
     expect(d.kind).toBe("appexec");
     expect((d as { source?: unknown }).source).toBeUndefined();
+  });
+
+  it("appexec with no extra (unknown op) -> null (ignored at parse time, spec §6)", () => {
+    expect(t.parseCommand({ type: "appexec" })).toBeNull();
+  });
+
+  it("appexec with an unknown op in extra -> null (ignored, NOT rejected by schema)", () => {
+    expect(t.parseCommand({ type: "appexec", extra: { kind: "nope", id: "x" } })).toBeNull();
+  });
+
+  it("appexec respond missing id or action (malformed) -> null (ignored)", () => {
+    expect(t.parseCommand({ type: "appexec", extra: { kind: "respond", id: "x" } })).toBeNull();
+    expect(t.parseCommand({ type: "appexec", extra: { kind: "respond", action: "a" } })).toBeNull();
+  });
+
+  it("appexec respond with a non-string tweak -> null (ignored)", () => {
+    expect(
+      t.parseCommand({ type: "appexec", extra: { kind: "respond", id: "x", action: "a", tweak: 5 } })
+    ).toBeNull();
   });
 
   it("subscribe -> control descriptor", () => {

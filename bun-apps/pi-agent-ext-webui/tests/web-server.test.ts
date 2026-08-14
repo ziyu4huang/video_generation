@@ -395,6 +395,19 @@ describe("WebServer broadcast over a real WS", () => {
     await waitFor("client pruned", () => s.clientCount === 0);
   });
 
+  it("fires the setWsCloseHandler callback when a client disconnects", async () => {
+    const s = makeServer({ port: 0 });
+    let closeCount = 0;
+    s.setWsCloseHandler(() => { closeCount++; });
+    s.start();
+    const ws = await withTimeout(openWs(`${s.url.replace("http", "ws")}/ws`), 2000, "ws open");
+    await waitFor("client registered", () => s.clientCount === 1);
+    expect(closeCount).toBe(0); // not fired on connect
+    ws.close();
+    await waitFor("ws-close handler fired", () => closeCount >= 1);
+    expect(closeCount).toBe(1); // fired exactly once on disconnect
+  });
+
   it("broadcast is fire-and-forget: never throws on a dead socket", () => {
     const s = makeServer({ port: 0 });
     s.start();

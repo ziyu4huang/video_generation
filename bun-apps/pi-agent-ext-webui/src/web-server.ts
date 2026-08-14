@@ -149,6 +149,8 @@ export class WebServer implements Broadcaster {
   private httpRoutes: HttpRouteHandler | null = null;
   /** Optional token-auth token (ticket 07 D1); null => NO check (v1 loopback). */
   private token: string | null = null;
+  /** Optional WS-close handler (spec Component 1); null => none (the default). */
+  private onWsClose: (() => void) | null = null;
   private readonly requestedPort: number;
   private readonly hostname: string;
 
@@ -211,6 +213,16 @@ export class WebServer implements Broadcaster {
    */
   setTokenAuth(token: string | null): void {
     this.token = token;
+  }
+
+  /**
+   * Inject the WS-close abort handler (spec Component 1). Invoked on EVERY ws
+   * close so the wiring can resolve all pending HITL presentations as
+   * `{cancelled:true}`. `null` removes it. Mirrors setCommandHandler/
+   * setHttpRoutes/setTokenAuth.
+   */
+  setWsCloseHandler(cb: (() => void) | null): void {
+    this.onWsClose = cb;
   }
 
   /** The actual bound port (throws if not started). */
@@ -335,6 +347,7 @@ export class WebServer implements Broadcaster {
             message: (ws, msg) => this.onMessage(ws, msg),
             close: (ws) => {
               this.clients.delete(ws);
+              if (this.onWsClose) this.onWsClose();
             },
           },
         });
