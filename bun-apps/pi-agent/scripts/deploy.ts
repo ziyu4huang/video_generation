@@ -27,6 +27,7 @@ import {
 	cpSync,
 	existsSync,
 	lstatSync,
+	readdirSync,
 	mkdirSync,
 	readFileSync,
 	rmSync,
@@ -35,6 +36,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import {
 	stageGeneratePkgDir,
 	stageGenerateRunDirBase,
@@ -276,19 +278,130 @@ async function stageExe(input: string) {
 // bundle-mode-only). That means every one of these dirs must actually exist as
 // a sibling of the copied `pi-agent/` under target/, or module resolution
 // throws immediately (relative imports resolve against real on-disk paths).
-function collectRequiredPkgDirs(): Set<string> {
-	const dirs = new Set<string>();
+//
+// The manifest names the packages pi-agent loads DIRECTLY. It says nothing
+// about what those packages themselves depend on, and a workspace dep is a
+// RELATIVE symlink (node_modules/@repo/x -> ../../../x) that cpSync copies
+// verbatim. Copy a package without its `@repo/*` deps and the snapshot gets a
+// symlink pointing at a directory that was never copied.
+//
+// That is not hypothetical: pi-agent-ext-workflow (a staticExtension) and
+// pi-agent-ext-subagent both depend on @repo/pi-agent-ext-core-runtime, which
+// appears in no manifest list. Every --snapshot deploy since PR #1251 shipped
+// a tree that died at first launch with
+//   ENOENT ... /pi-agent-ext-workflow/node_modules/@repo/pi-agent-ext-core-runtime
+// while the deploy itself printed "✓ N sibling extension package dir(s)" and
+// exited 0. So the set has to be closed transitively.
+function collectRequiredPkgDirs(bunAppsDir: string): Set<string> {
+	const seeds = new Set<string>();
 	const addFromEntry = (e: string | { entry?: string } | undefined) => {
 		const rel = typeof e === "string" ? e : e?.entry;
-		if (rel) dirs.add(rel.split("/")[0]!);
+		if (rel) seeds.add(rel.split("/")[0]!);
 	};
 	for (const e of manifest.extensions ?? []) addFromEntry(e as any);
-	for (const rel of manifest.skills ?? []) dirs.add(rel.split("/")[0]!);
-	for (const rel of manifest.binarySkills ?? []) dirs.add(rel.split("/")[0]!);
-	for (const pkg of manifest.staticExtensions ?? []) dirs.add(pkg);
+	for (const rel of manifest.skills ?? []) seeds.add(rel.split("/")[0]!);
+	for (const rel of manifest.binarySkills ?? []) seeds.add(rel.split("/")[0]!);
+	for (const pkg of manifest.staticExtensions ?? []) seeds.add(pkg);
 	for (const e of Object.values(manifest.lazyExtensions ?? {})) addFromEntry(e as any);
+
+	// pi-agent itself IS a seed for dependency purposes (its package.json names
+	// the workspace deps), even though the tree is copied separately below.
+	seeds.add("pi-agent");
+
+	const dirs = closeOverWorkspaceDeps(seeds, bunAppsDir);
 	dirs.delete("pi-agent"); // copied separately, unconditionally
 	return dirs;
+}
+
+/** Map `@repo/<name>` → the `bun-apps/<dir>` that declares it. */
+function buildWorkspaceIndex(bunAppsDir: string): Map<string, string> {
+	const index = new Map<string, string>();
+	for (const dir of readdirSync(bunAppsDir)) {
+		const pkgJson = join(bunAppsDir, dir, "package.json");
+		if (!existsSync(pkgJson)) continue;
+		try {
+			const name = JSON.parse(readFileSync(pkgJson, "utf8")).name;
+			if (typeof name === "string") index.set(name, dir);
+		} catch {
+			// A malformed sibling package.json is not this deploy's problem; it
+			// only matters if something actually depends on it, and then the
+			// unresolved-dep die() below names it.
+		}
+	}
+	return index;
+}
+
+/** BFS over `@repo/*` dependency edges until the set stops growing. */
+function closeOverWorkspaceDeps(seeds: Set<string>, bunAppsDir: string): Set<string> {
+	const index = buildWorkspaceIndex(bunAppsDir);
+	const out = new Set(seeds);
+	const queue = [...seeds];
+	while (queue.length > 0) {
+		const dir = queue.shift()!;
+		const pkgJson = join(bunAppsDir, dir, "package.json");
+		if (!existsSync(pkgJson)) continue;
+		let pkg: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+		try {
+			pkg = JSON.parse(readFileSync(pkgJson, "utf8"));
+		} catch {
+			continue;
+		}
+		// devDependencies are deliberately included: workspace packages run
+		// unbundled from source in snapshot mode, and a type-only or test-only
+		// @repo edge still materializes as a node_modules symlink that cpSync
+		// copies. A dangling one breaks resolution just as hard as a runtime one.
+		for (const name of Object.keys({ ...pkg.dependencies, ...pkg.devDependencies })) {
+			if (!name.startsWith("@repo/")) continue;
+			const depDir = index.get(name);
+			if (!depDir) {
+				die(`  ✗ ${dir} depends on ${name}, which no bun-apps/*/package.json declares`);
+			}
+			if (!out.has(depDir!)) {
+				out.add(depDir!);
+				queue.push(depDir!);
+			}
+		}
+	}
+	return out;
+}
+
+/**
+ * Post-copy integrity check: walk the produced tree's `@repo` symlinks and fail
+ * if any points outside it. The transitive closure above is the fix; this is the
+ * check that a future gap surfaces as a failed deploy instead of as someone
+ * else's ENOENT at first launch.
+ */
+function assertNoDanglingRepoLinks(root: string): void {
+	const broken: string[] = [];
+	const visit = (dir: string) => {
+		let entries: import("node:fs").Dirent[];
+		try {
+			entries = readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const e of entries) {
+			const p = join(dir, e.name);
+			if (e.isSymbolicLink()) {
+				if (!existsSync(p)) broken.push(p.slice(root.length + 1));
+				continue;
+			}
+			// Only descend into node_modules/@repo — walking the whole global
+			// store would take minutes and none of it is this check's concern.
+			if (!e.isDirectory()) continue;
+			if (e.name === "node_modules" || e.name === "@repo" || dir === root) visit(p);
+		}
+	};
+	visit(root);
+	if (broken.length > 0) {
+		die(
+			`  ✗ snapshot has ${broken.length} dangling @repo symlink(s) — the artifact cannot boot:\n` +
+				broken.slice(0, 10).map((b) => `      ${b}`).join("\n") +
+				(broken.length > 10 ? `\n      … and ${broken.length - 10} more` : "") +
+				`\n    A required workspace package was not copied. collectRequiredPkgDirs()` +
+				` closes over @repo deps transitively — check that edge.`,
+		);
+	}
 }
 
 // ── Stage: --snapshot (copy source + node_modules, no bundling) ──────────────
@@ -309,13 +422,15 @@ async function stageSnapshot(bunAppsDir: string) {
 	// (dereference defaults to false) — the symlink TARGETS are absolute paths
 	// into the global store, so this only works on the SAME machine (same
 	// caveat bundle mode's node_modules symlink already documents).
-	const pkgDirs = collectRequiredPkgDirs();
+	const pkgDirs = collectRequiredPkgDirs(bunAppsDir);
 	for (const dir of pkgDirs) {
 		const src = join(bunAppsDir, dir);
-		if (!existsSync(src)) {
-			console.log(`  · skipping missing package dir: ${dir}`);
-			continue;
-		}
+		// The comment above states the invariant plainly: every one of these dirs
+		// MUST exist under target/ or module resolution throws immediately. A
+		// warn-and-continue here reported "✓ deployed" for a tree that cannot
+		// boot. These dirs are derived from the manifest + workspace deps, so an
+		// absent one is a real defect, not an environment quirk.
+		if (!existsSync(src)) die(`  ✗ required package dir missing: bun-apps/${dir}`);
 		cpSync(src, join(target, dir), { recursive: true, force: true });
 	}
 	console.log(`  ✓ ${pkgDirs.size} sibling extension package dir(s)`);
@@ -327,8 +442,92 @@ async function stageSnapshot(bunAppsDir: string) {
 	cpSync(nmSrc, join(target, "node_modules"), { recursive: true, force: true });
 	console.log(`  ✓ node_modules/`);
 
+	stageSnapshotHostDeps();
+
 	// Write run.sh pointing at pi-agent/src/cli.ts (uses system bun)
 	writeRunSh(target, "bun", "pi-agent/src/cli.ts");
+
+	// Prove the tree can actually resolve before calling the deploy a success.
+	assertNoDanglingRepoLinks(target);
+	console.log(`  ✓ no dangling @repo symlinks`);
+	await assertSnapshotBoots();
+}
+
+/**
+ * Put the host packages on the snapshot's node_modules walk-up path.
+ *
+ * Sibling extensions import `@earendil-works/*` and `typebox` as bare
+ * specifiers without declaring them (pi-agent-ext-webui's src/tool-mirror.ts is
+ * one), and under the isolated linker those are not in `bun-apps/node_modules`
+ * — in the repo they resolve only because the `ensure-extension-deps` patch
+ * maintains repo-root symlinks. The snapshot's own root is `target/`, so it
+ * needs the same links or the first sibling import throws "Cannot find module".
+ *
+ * Resolved here rather than copied from the repo root so a deploy does not
+ * silently depend on that patch having run. Same global-store targets the host
+ * uses, so there is exactly one instance of each — and the same same-machine
+ * caveat the node_modules copy above already documents.
+ */
+function stageSnapshotHostDeps(): void {
+	const nmDir = join(target, "node_modules");
+	const scopeDir = join(nmDir, "@earendil-works");
+	mkdirSync(scopeDir, { recursive: true });
+
+	const piPkgDir = resolvePiPkgDir();
+	const fromPca = createRequire(join(piPkgDir, "package.json"));
+	const rootOf = (spec: string): string | null => {
+		try {
+			return dirname(fromPca.resolve(`${spec}/package.json`));
+		} catch {
+			return null;
+		}
+	};
+
+	const links: Array<[string, string | null]> = [
+		[join(scopeDir, "pi-coding-agent"), piPkgDir],
+		[join(scopeDir, "pi-agent-core"), rootOf("@earendil-works/pi-agent-core")],
+		[join(scopeDir, "pi-ai"), rootOf("@earendil-works/pi-ai")],
+		[join(nmDir, "typebox"), rootOf("typebox")],
+	];
+
+	let made = 0;
+	for (const [linkPath, targetPath] of links) {
+		if (!targetPath) continue;
+		if (existsSync(linkPath) || lstatSyncSafe(linkPath)) continue; // already provided by the copy
+		symlinkSync(targetPath, linkPath);
+		made++;
+	}
+	console.log(`  ✓ ${made} host package link(s) on the walk-up path`);
+}
+
+/**
+ * Boot the artifact and require exit 0.
+ *
+ * deploy.ts's old `--verify` boot probe was dropped on the premise that the
+ * e2e suite covers it — but that suite sits behind two env gates, so for weeks
+ * `--snapshot` exited 0 while emitting a tree that died on its first import.
+ * A three-second probe on the thing just built is the difference between a
+ * failed deploy and a failed launch on someone else's machine.
+ */
+async function assertSnapshotBoots(): Promise<void> {
+	const proc = Bun.spawn(["bash", join(target, "run.sh"), "cli", "version"], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [out, err, code] = await Promise.all([
+		new Response(proc.stdout).text(),
+		new Response(proc.stderr).text(),
+		proc.exited,
+	]);
+	// `cli version` prints and returns 0. Any module-resolution failure shows up
+	// as a non-zero exit or an `error:` line on stderr.
+	if (code !== 0 || /^error:/m.test(err)) {
+		die(
+			`  ✗ the deployed snapshot does not boot (exit ${code}):\n` +
+				(err || out).split("\n").slice(0, 8).map((l) => `      ${l}`).join("\n"),
+		);
+	}
+	console.log(`  ✓ boots (${out.trim() || "cli version"})`);
 }
 
 // ── Stage: copy bun binary alongside (--standalone) ──────────────────────────
