@@ -2,6 +2,7 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import {
   type BudgetSessionSurface,
+  CoreAgent,
   createBudgetGuard,
   createTurnGuard,
   type TurnSessionSurface,
@@ -199,4 +200,126 @@ test("budget fires while the turn count stays under its cap", () => {
   assert.deepEqual(budget.exhaustion, { kind: "tokens", limit: 1000, actual: 5000 });
   assert.equal(turns.exhaustion, undefined); // turn cap never fired
   assert.equal(aborts.length, 1); // one abort (from the budget guard)
+});
+
+// ---------------------------------------------------------------------------
+// CoreAgent.run maxTurns validation: a bad cap is rejected BEFORE any session
+// or model resolution — the SCRIPT_VALIDATION_ERROR WorkflowError is thrown at
+// the top of run(), so no session is created. Immediacy is observable through
+// the injectable loadTierConfig seam and the onModelResolved/onModelFallback
+// callbacks: a bogus model spec would exercise both if resolution were reached.
+// ---------------------------------------------------------------------------
+
+/**
+ * CoreAgent primed for validation-path runs: no coding tools (constructor
+ * stays side-effect-free), a counting tier-config loader, and recorders for
+ * every model-resolution callback.
+ */
+function agentForValidationRuns() {
+  let tierConfigReads = 0;
+  const modelEvents: string[] = [];
+  const agent = new CoreAgent({
+    tools: [],
+    loadTierConfig: () => {
+      tierConfigReads++;
+      return null;
+    },
+  });
+  return {
+    agent,
+    tierConfigReads: () => tierConfigReads,
+    modelEvents,
+    /** Run options carrying the bad cap plus a model spec that MUST never resolve. */
+    runOptions: (maxTurns: number) => ({
+      maxTurns,
+      model: "bogus-provider/bogus-model",
+      onModelResolved: (id: string) => modelEvents.push(`resolved:${id}`),
+      onModelFallback: (spec: string) => modelEvents.push(`fallback:${spec}`),
+    }),
+  };
+}
+
+test('CoreAgent.run({ maxTurns: 0 }) rejects immediately with SCRIPT_VALIDATION_ERROR', async () => {
+  const { agent, runOptions, tierConfigReads, modelEvents } = agentForValidationRuns();
+
+  await assert.rejects(agent.run("hi", runOptions(0)), (err) => {
+    assert.ok(err instanceof WorkflowError);
+    assert.equal(err.code, WorkflowErrorCode.SCRIPT_VALIDATION_ERROR);
+    assert.equal(err.message, "maxTurns must be an integer >= 1");
+    assert.equal(err.recoverable, false);
+    assert.deepEqual(err.details, { maxTurns: 0 });
+    return true;
+  });
+  // Thrown before any model resolution / fallback and before any tier-config read.
+  assert.deepEqual(modelEvents, []);
+  assert.equal(tierConfigReads(), 0);
+});
+
+test('CoreAgent.run({ maxTurns: 1.5 }) rejects immediately (non-integer)', async () => {
+  const { agent, runOptions, tierConfigReads, modelEvents } = agentForValidationRuns();
+
+  await assert.rejects(agent.run("hi", runOptions(1.5)), (err) => {
+    assert.ok(err instanceof WorkflowError);
+    assert.equal(err.code, WorkflowErrorCode.SCRIPT_VALIDATION_ERROR);
+    assert.deepEqual(err.details, { maxTurns: 1.5 });
+    return true;
+  });
+  assert.deepEqual(modelEvents, []);
+  assert.equal(tierConfigReads(), 0);
+});
+
+test('CoreAgent.run({ maxTurns: -1 }) rejects immediately (below 1)', async () => {
+  const { agent, runOptions, tierConfigReads, modelEvents } = agentForValidationRuns();
+
+  await assert.rejects(agent.run("hi", runOptions(-1)), (err) => {
+    assert.ok(err instanceof WorkflowError);
+    assert.equal(err.code, WorkflowErrorCode.SCRIPT_VALIDATION_ERROR);
+    assert.deepEqual(err.details, { maxTurns: -1 });
+    return true;
+  });
+  assert.deepEqual(modelEvents, []);
+  assert.equal(tierConfigReads(), 0);
+});
+
+// ---------------------------------------------------------------------------
+// Post-prompt decision wiring: when ONLY the turn cap trips in a run, the
+// error surfaced after session.prompt() returns is TURNS_EXHAUSTED — never
+// TOKEN_BUDGET_EXHAUSTED. run() has no fake-session injection seam in this
+// package's harness (createAgentSession is a direct module-level import), so
+// this mirrors run()'s post-prompt decision order — budget exhaustion checked
+// first, then turnGuard.exhaustion → turnExhaustionError — over the real
+// guards driven on a shared fake session.
+// ---------------------------------------------------------------------------
+
+test("post-prompt decision: turn cap alone trips → TURNS_EXHAUSTED, never TOKEN_BUDGET_EXHAUSTED", () => {
+  let total = 10;
+  const { session } = fakeCombinedSession(() => ({ tokens: { total }, cost: 0 }));
+  const budget = createBudgetGuard(session, { tokenBudget: 1000 });
+  const turns = createTurnGuard(session, { maxTurns: 2 });
+
+  const feed = (event: unknown) => {
+    budget.onSessionEvent(event);
+    turns.onSessionEvent(event);
+  };
+
+  // Two full turns well under the budget, then turn 3 starts — only the turn
+  // cap fires; the budget guard stays inert.
+  runTurn({ onSessionEvent: feed });
+  runTurn({ onSessionEvent: feed });
+  feed(turnStart());
+  assert.equal(budget.exhaustion, undefined);
+  assert.deepEqual(turns.exhaustion, { maxTurns: 2, turnsUsed: 2 });
+
+  // run()'s post-prompt precedence, mirrored: the budget check runs first but
+  // finds nothing, so the turn-cap check classifies the abort.
+  const budgetExhausted = budget.exhaustion;
+  if (budgetExhausted) {
+    throw new Error("budget must not be exhausted in this run");
+  }
+  assert.ok(turns.exhaustion);
+  const thrown = turnExhaustionError(turns.exhaustion, "impl");
+  assert.ok(thrown instanceof WorkflowError);
+  assert.equal(thrown.code, WorkflowErrorCode.TURNS_EXHAUSTED);
+  assert.notEqual(thrown.code, WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED);
+  assert.deepEqual(thrown.details, { maxTurns: 2, turnsUsed: 2 });
 });
