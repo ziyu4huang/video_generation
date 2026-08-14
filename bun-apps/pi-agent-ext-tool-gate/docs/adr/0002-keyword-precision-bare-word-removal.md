@@ -1,3 +1,5 @@
+**ID:** `ADR-tool-gate-0002` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # ADR-0002: Keyword precision — bare-word removal + word-boundary matching
 
 Date: 2026-07-20 (S2 audit)

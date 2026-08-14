@@ -1,15 +1,18 @@
+**ID:** `ADR-monorepo-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # Strict downward dependency edges in the knowledge/memory layer
 
 **Status:** accepted · 2026-07-18 · supersedes the tier diagram in `bun-apps/KNOWLEDGE-LAYER.md` (hermes was misclassified TIER-2)
 
-> **Naming collision — read this before citing "ADR-0001".** There are two.
-> THIS one (`bun-apps/docs/adr/0001-strict-downward-edges-knowledge-layer.md`)
-> is monorepo-level and is what `bun-apps/tests/dep-guard.test.ts` enforces.
-> The other, `pi-agent-ext-hermes-memory/docs/adr/0001-leanrag-selective-port.md`,
-> is package-local and is the one the `.planning/2026-08-08-knowledge-pipeline/`
-> docs mean when they write "ADR-0001". Conflating them is not hypothetical:
-> #1323 labelled a dep-guard failure an "ADR-0001 false positive" while the ADR
-> it named had nothing to say about dependency direction. Cite by path.
+> **Cite this document as `ADR-monorepo-0001`.** It is the monorepo-level ADR
+> that `bun-apps/tests/dep-guard.test.ts` enforces. Six other ADRs are also
+> numbered 0001 — notably `ADR-hermes-memory-0001`, which is what the
+> `.planning/2026-08-08-knowledge-pipeline/` docs mean when they write
+> "ADR-0001", and which has nothing to say about dependency direction. #1323
+> conflated the two and allowlisted a real violation as a "false positive".
+> The collision is now systematically closed: every ADR declares a
+> path-derived unique ID, [`INDEX.md`](INDEX.md) lists them all, and
+> `bun run test:adr` fails any citation that does not resolve to exactly one.
 
 The knowledge/memory layer is two tiers: **TIER-0 foundations**
 (`pi-agent-ext-obsidian` = vault I/O, `pi-agent-ext-hermes-memory` = memory I/O)
@@ -122,7 +125,18 @@ Worth recording, because the same reasoning will look correct again:
    — *"hermes ... NEVER imports `obsidian` or `knowledge-card`"* — with an
    explicit grep-to-confirm step at `:146`. Ticket 06 and ticket 20 contradict
    each other; ticket 20 is the one that drifted.
-3. **Two ADR-0001s.** See the note at the top of this file.
+3. **Ambiguous citation.** The docs said "ADR-0001", and seven ADRs answer to
+   that number. A census afterwards found the problem was systemic, not a
+   two-file coincidence: every ADR number in the repo collides at least twice,
+   five wayfind files and one superpowers file cited an ADR number their context
+   has never had, and the `.github` CI comments describing this very gate cited
+   it ambiguously too. Closed by the identity scheme above — see
+   [`INDEX.md`](INDEX.md) and `bun-apps/tests/adr-citation.test.ts`.
 
 **Rule going forward:** an upward edge is permitted only by amending THIS file
 first. A guard allowlist that outruns its ADR is a rubber stamp.
+
+**Corollary, learned the hard way:** a guard is only as strong as the citation
+that leads a reader to its rule. Enforcing the invariant is not enough if the
+document naming it cannot be located unambiguously — that is what `test:adr`
+now protects.

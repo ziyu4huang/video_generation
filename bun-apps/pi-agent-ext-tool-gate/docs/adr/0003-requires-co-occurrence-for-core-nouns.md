@@ -1,3 +1,5 @@
+**ID:** `ADR-tool-gate-0003` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # ADR-0003: Noun∧verb co-occurrence (`requires`) for core nouns
 
 Date: 2026-07-20 (S2)

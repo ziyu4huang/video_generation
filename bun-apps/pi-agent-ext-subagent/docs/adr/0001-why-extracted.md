@@ -1,3 +1,5 @@
+**ID:** `ADR-subagent-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # 0001 — Why the subagent subsystem was extracted into its own package
 
 > ⚠️ **PARTIALLY SUPERSEDED by [ADR-0002](./0002-relocate-viewer-command-to-subagent.md)

@@ -13,7 +13,7 @@ export const SEAM_KEYS = {
   // __piHermesStaleCheck: the staleness REVERSE seam added by #1242 — hermes
   // publishes the async reader (hermes-memory/src/stale-seam.ts), wayfind reads
   // it (wayfind/src/stale-seam.ts, the T8 graduation gate). The literal is
-  // duplicated verbatim across the two packages (ADR-0004: no cross-package
+  // duplicated verbatim across the two packages (ADR-wayfind-0004: no cross-package
   // import), which is exactly the drift surface this registry exists to pin →
   // crossPackage:true. It shipped unregistered, so bun-apps/tests/
   // seam-contract.test.ts was RED on main until this line.

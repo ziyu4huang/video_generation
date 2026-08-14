@@ -1,3 +1,5 @@
+**ID:** `ADR-subagent-0002` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # 0002 — Relocate the `/subagents` viewer + command into this package
 
 **Status:** accepted (2026-07-25; PR #821 — subagent TUI relocation)

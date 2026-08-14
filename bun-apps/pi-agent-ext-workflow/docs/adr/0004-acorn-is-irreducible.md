@@ -1,3 +1,5 @@
+**ID:** `ADR-workflow-0004` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # acorn is an irreducible runtime dependency (not replaceable by Bun/node:vm)
 
 **Status:** accepted (locked 2026-07-26)

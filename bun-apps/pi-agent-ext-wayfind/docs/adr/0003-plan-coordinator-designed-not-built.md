@@ -1,3 +1,5 @@
+**ID:** `ADR-wayfind-0003` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # ADR-0003: Plan coordinator — designed, not built (goal/todo driven manually for now)
 
 Date: 2026-07-19

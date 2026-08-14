@@ -1,3 +1,5 @@
+**ID:** `ADR-core-runtime-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # ADR 0001 — RunView: destructive convergence of the run read surface
 
 ## Status
