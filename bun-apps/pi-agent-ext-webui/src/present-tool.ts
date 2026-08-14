@@ -120,9 +120,13 @@ export function createPresentTool(
       "browser TOGETHER with declarative response controls, and BLOCK until the user picks one. " +
       "Each control is a button ({id, label}); controls with takesInput reveal a free-text tweak " +
       "field. Returns {action: <controlId>, tweak?} when the user responds, or {cancelled: true} " +
-      "if the user cancels / the connection drops. One presentation at a time.",
+      "if the user cancels / the connection drops. One presentation at a time. To present " +
+      "generated images, reference them as ![image](/output/0/<name>) markdown — images live " +
+      "under the MLX output dir and are served at /output/ (subpaths preserved, e.g. " +
+      "![image](/output/0/profile_TS/front.png)).",
     promptSnippet:
-      "Use to show the user content and WAIT for their decision via declarative controls (blocking HITL gate).",
+      "Use to show the user content and WAIT for their decision via declarative controls (blocking HITL gate). " +
+      "Present generated images as ![image](/output/0/<name>) markdown.",
     parameters: PresentParameters,
     async execute(_callId, params, signal, _onUpdate, _ctx) {
       // One-pending-at-a-time guard (spec: v1) — an error RESULT, not a crash.

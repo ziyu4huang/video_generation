@@ -25,6 +25,9 @@
  *  - dispose() neutralizes every handler + stops the server.
  */
 import { beforeEach, afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
 import { MockPi } from "./helpers/mock-pi.js";
 import { FakeClock } from "./helpers/fake-clock.js";
 import { MemoryBroadcaster } from "../src/broadcaster.js";
@@ -98,6 +101,36 @@ function dispatch(pi: MockPi, server: FakeWebServer, frame: unknown): WebFrame[]
   server.commandHandler!(frame as any, (f) => replies.push(f));
   return replies;
 }
+
+// --- Phase 4: chained httpRoutes seam (render ?? output) ---------------------
+describe("wireWebui — chained render+output http routes", () => {
+  test("seam serves /output/0/... via deps.outputDir; render routes still first", () => {
+    const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "webui-wiring-out-"));
+    const outDir = path.join(tmpRoot, "out");
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(path.join(outDir, "shot.png"), "PNG");
+    try {
+      const pi = new MockPi();
+      const server = new FakeWebServer();
+      wireWebui(pi, { broadcaster: new MemoryBroadcaster(), clock: new FakeClock(), server, outputDir: outDir });
+      const handler = server.httpRoutes!;
+      expect(handler).not.toBeNull();
+      // Render route still consulted first: /api/views answers through the chain.
+      const views = handler(new Request("http://t/api/views"), undefined as never);
+      expect(views).not.toBeNull();
+      expect(views!.status).toBe(200);
+      // Output route serves behind it via the injected dir.
+      const res = handler(new Request("http://t/output/0/shot.png"), undefined as never);
+      expect(res).not.toBeNull();
+      expect(res!.status).toBe(200);
+      expect(res!.headers.get("content-type")).toBe("image/png");
+      // Fall-through preserved for unknown paths.
+      expect(handler(new Request("http://t/definitely/not/a/route"), undefined as never)).toBeNull();
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("wireWebui — construction", () => {
   test("registers the expected pi.on event SET", () => {
