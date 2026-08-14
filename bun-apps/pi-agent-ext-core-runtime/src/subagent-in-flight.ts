@@ -8,7 +8,17 @@
  * "Running" section with live elapsed while a child is mid-flight — closing
  * the gap that running subagents were invisible until they finished.
  */
+
 import type { AgentHistoryEntry } from "./agent-history.js";
+import type { ActivityStatus } from "./agent-row-display.js";
+import type { RunView } from "./run-view.js";
+import { buildRunView } from "./run-view.js";
+
+/** The terminal subset of {@link ActivityStatus} — the only values markCompleted/markFailed accept. */
+export type TerminalStatus = Extract<
+  ActivityStatus,
+  "done" | "error" | "failed" | "skipped" | "timedout" | "budget" | "aborted"
+>;
 
 export interface InFlightSubagent {
   /** The toolCallId (unique per dispatch). For a workflow run, the prefixed
@@ -32,12 +42,11 @@ export interface InFlightSubagent {
    *  the /subagents viewer can group them under one header. Undefined for singular
    *  `subagent` dispatches (flat, ungrouped) and workflow agents. */
   batchId?: string;
-  /** Lifecycle status for batch-tool children. The batch tool sets "completed" on
-   *  finish (kept in the registry for k/N progress + frozen-trace follow) and
-   *  evicts the whole batch on its return. Undefined (= "running") for singular
-   *  `subagent` dispatches, workflow agents, and obsidian — they `end()` per-child
-   *  as before and never appear "completed". */
-  status?: "running" | "completed";
+  /** Lifecycle status (single vocabulary: ActivityStatus). Live runs are
+   *  "running"/"queued"; terminal transitions (markCompleted/markFailed) stamp
+   *  a TerminalStatus. Legacy callers passing the pre-unification literal
+   *  "completed" are coerced to "done" by start(). */
+  status: ActivityStatus;
   /** Wall-clock end time (epoch ms), stamped on the terminal transition
    *  (`markCompleted`). While a run is live, elapsed is computed as
    *  `now - startedAt`; once terminal it must freeze at
@@ -82,12 +91,19 @@ export interface InFlightSubagent {
 export class SubagentInFlightRegistry {
   private runs = new Map<string, InFlightSubagent>();
 
-  start(run: InFlightSubagent): void {
+  start(run: Omit<InFlightSubagent, "status"> & { status?: ActivityStatus | "completed" }): void {
     // foreground defaults to `false` (background/detached) when the caller omits
     // it, so the above-editor context box picks the run up. Foreground tools
     // (`subagent`/`subagents`) set it explicitly to `true` to opt OUT of the box
     // (they render inline via Surface A). See subagent-context-widget.ts.
-    this.runs.set(run.id, { ...run, foreground: run.foreground ?? false });
+    // Legacy "completed" (pre-unification literal) coerces to "done".
+    const status: ActivityStatus =
+      run.status === undefined || run.status === "running"
+        ? "running"
+        : run.status === "completed"
+          ? "done"
+          : run.status;
+    this.runs.set(run.id, { ...run, status, foreground: run.foreground ?? false });
   }
 
   update(id: string, history: AgentHistoryEntry[]): void {
@@ -95,8 +111,29 @@ export class SubagentInFlightRegistry {
     if (r) r.history = history;
   }
 
+  /** @internal — Dispatch B removes; use view(). */
   get(id: string): InFlightSubagent | undefined {
     return this.runs.get(id);
+  }
+
+  /** Fresh per-tick projection of one run (never cache across render ticks). */
+  view(id: string): RunView | undefined {
+    const r = this.runs.get(id);
+    return r ? buildRunView(r, Date.now()) : undefined;
+  }
+
+  /** Fresh per-tick projections of all runs; filters by foreground when present. */
+  views(opts?: { foreground?: boolean }): RunView[] {
+    const now = Date.now();
+    return [...this.runs.values()]
+      .filter((r) => opts?.foreground === undefined || r.foreground === opts.foreground)
+      .map((r) => buildRunView(r, now));
+  }
+
+  /** Overwrite the task preview shown for a run (e.g. as the real task resolves). */
+  updateTaskPreview(id: string, text: string): void {
+    const r = this.runs.get(id);
+    if (r) r.taskPreview = text;
   }
 
   /** Bind the harness invalidate for this run (called from the tool's renderCall). */
@@ -130,18 +167,25 @@ export class SubagentInFlightRegistry {
     this.runs.delete(id);
   }
 
-  /** Mark a batch child finished without removing it (so the header can show k/N
-   *  and the frozen trace stays followable). Stamps `endedAt` so every
-   *  elapsed-time renderer freezes the run at its real end instead of ticking
-   *  forever while the entry lingers pre-eviction. `markCompleted` is the only
-   *  terminal transition (failed children never enter the registry's terminal
-   *  state — the batch tool nulls their slot directly and `endBatch` evicts),
-   *  so this is the one place `endedAt` needs recording. Per-child eviction
+  /** Mark a run terminal WITHOUT removing it (so the header can show k/N
+   *  and the frozen trace stays followable). Stamps `status` + `endedAt` so
+   *  every elapsed-time renderer freezes the run at its real end instead of
+   *  ticking forever while the entry lingers pre-eviction. Per-child eviction
    *  happens via endBatch. */
-  markCompleted(id: string): void {
+  markCompleted(id: string, status: TerminalStatus = "done"): void {
     const r = this.runs.get(id);
     if (r) {
-      r.status = "completed";
+      r.status = status;
+      r.endedAt = Date.now();
+    }
+  }
+
+  /** Terminal transition for a failed run — identical stamping to markCompleted
+   *  (status + endedAt), defaulting to "failed". */
+  markFailed(id: string, status: TerminalStatus = "failed"): void {
+    const r = this.runs.get(id);
+    if (r) {
+      r.status = status;
       r.endedAt = Date.now();
     }
   }
@@ -162,6 +206,7 @@ export class SubagentInFlightRegistry {
     this.runs.get(id)?.abort?.();
   }
 
+  /** @deprecated use views(). */
   list(): InFlightSubagent[] {
     return [...this.runs.values()];
   }
