@@ -11,7 +11,8 @@
 		"extensions": ["./extensions"]
 	},
 	"bin": {
-		"ci-changed-packages": "./src/changed-packages-cli.ts"
+		"ci-changed-packages": "./src/changed-packages-cli.ts",
+		"devops-sync": "./src/sync-cli.ts"
 	},
 	"scripts": {
 		"test": "bun test",

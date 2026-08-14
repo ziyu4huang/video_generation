@@ -107,6 +107,30 @@ restored after (never lost). All OTHER uncommitted tracked work STILL aborts
 `dirty_tree` (stash or commit it first). Override the list via `preserve:`;
 pass `preserve: []` to disable preserve entirely (strict dirty-tree gate).
 
+## Plain `pi` sessions (tools absent)
+
+The devops tools load only via the **pi-agent wrapper's** run-dir argv splice —
+a session launched as plain `pi` gets no repo extensions, so none of the tools
+above are in its toolset. Diagnose this by the tools being absent, not by
+guessing at launch flags. When they are absent:
+
+- **Do NOT hand-roll raw git.** The old bash fallback (`scripts/sync-repo.sh`)
+  was deleted after the TS port; inventing a replacement git sequence is
+  exactly the raw-bash failure mode this skill forbids.
+- **For sync**, use the CLI fallback — the same `runSync` orchestration as
+  `sync_repo`, callable with `bun`:
+  ```bash
+  bun bun-apps/pi-agent-ext-devops/src/sync-cli.ts [--dry-run]
+  ```
+  It supports `--mode full|rebase|pull`, `--dry-run` (plan only, zero
+  mutations — preview before running), `--force`, `--preserve <path>`, and
+  `--preserve-strict`; it prints the structured JSON outcome and exits non-zero
+  on abort (dirty tree, divergent default branch, …).
+- **For other owned phases** (branch prep, local CI, PR merge, verify, sweep,
+  retrospective), there is no CLI fallback — relaunch via the pi-agent wrapper
+  (`bun bun-apps/pi-agent/src/cli.ts`), which auto-loads all run-dir extensions
+  and skills, or ask the user to.
+
 ## Discipline
 
 - **No raw-bash git for owned phases.** If a devops tool exists for the

@@ -80,6 +80,12 @@ Whenever you create or update anything under `.planning/`, `git add .planning/..
 
 **Carve-outs that stay ignored/local** (do NOT commit): per-filename transient scratch (`task_plan.md`, `progress.md`, `findings.md`) and the flat no-effort `.planning/sdd/` fallback dir.
 
+## DevOps operations (standing rule)
+
+Any git sync / branch prep / rebase / PR merge / local CI / branch sweep / post-run review in this repo goes through the **devops tool chain** (`sync_repo`, `prepare_branch`, `local_ci`, `await_pr_merge`, `verify_merge`, `sweep_branches`, `devops_retrospect`) per `bun-apps/pi-agent-ext-devops/skills/devops-workflow/SKILL.md`. Never dispatch hand-rolled raw-bash git/gh subagents for phases a devops tool owns.
+
+**Plain `pi` sessions** (no repo extensions loaded — diagnose by absence of the devops tools): use the CLI fallback `bun bun-apps/pi-agent-ext-devops/src/sync-cli.ts [--dry-run]` for sync; do not invent git command sequences. Prefer launching sessions via the pi-agent wrapper `bun bun-apps/pi-agent/src/cli.ts`, which auto-loads all run-dir extensions and skills.
+
 ## Key Directories
 
 ```
