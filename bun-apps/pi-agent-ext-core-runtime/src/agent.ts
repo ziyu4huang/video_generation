@@ -351,6 +351,91 @@ export function checkBudgetExhaustion(
   return undefined;
 }
 
+export interface BudgetGuardSession {
+  /** Cumulative usage for this session; may throw before the first turn. */
+  getSessionStats(): { tokens: { total: number }; cost: number };
+  /** Hard-stop the in-flight session (existing abort semantics). */
+  abort(): void;
+  /** Queue/deliver a user-role message (followUp = next turn). */
+  sendUserMessage(content: string, options?: { deliverAs?: "steer" | "followUp" }): Promise<void>;
+}
+
+export interface BudgetGuard {
+  /** Subscribe-seam callback; call on each session state change. */
+  check(): void;
+  /** The exhaustion that caused the hard abort, if any. */
+  readonly exhausted: BudgetExhaustion | undefined;
+  /** Whether the one-shot wrap-up message was already issued. */
+  readonly wrapUpIssued: boolean;
+}
+
+/**
+ * The single wrap-up notice injected on the FIRST tokenBudget crossing. The
+ * model sees it as a user message on its next (final) turn: flush state to
+ * disk, then reply with a pointer — instead of being killed mid-flight and
+ * losing everything it had learned.
+ */
+export const BUDGET_WRAP_UP_MESSAGE =
+  "Token budget exhausted — this is your FINAL turn. Do not start new exploratory work or long tool calls. Write your current findings/state/artifacts to disk now (files, not prose), then reply with a one-line pointer to what you saved.";
+
+/**
+ * Two-stage budget stop wired into the session's subscribe seam.
+ *
+ * - spendBudget is a money valve: it ALWAYS hard-aborts (no wrap-up turn).
+ * - tokenBudget gets ONE grace turn: the first crossing injects
+ *   BUDGET_WRAP_UP_MESSAGE as a followUp user message (the model flushes its
+ *   state to disk); the SECOND crossing aborts for real, bit-for-bit the
+ *   pre-wrap-up behavior (abort + BudgetExhausted → status "budget").
+ * - If BOTH budgets cross at once, the hard abort wins.
+ *
+ * Extracted from CoreAgent.run so the two-stage decision is unit-testable
+ * against a fake session (same pattern as checkBudgetExhaustion).
+ */
+export function createBudgetGuard(
+  session: BudgetGuardSession,
+  budget: { tokenBudget?: number; spendBudget?: number },
+): BudgetGuard {
+  let budgetExhausted: BudgetExhaustion | undefined;
+  let budgetWrapUpIssued = false;
+  const check = () => {
+    if (budgetExhausted) return;
+    try {
+      const { tokens, cost } = session.getSessionStats();
+      const exhaustion = checkBudgetExhaustion({ tokens: { total: tokens.total }, cost }, budget);
+      if (!exhaustion) return;
+      // Hard-abort unless this is the FIRST tokenBudget crossing with no spend
+      // crossing — only tokenBudget earns a wrap-up turn.
+      const spendAlsoExceeded = budget.spendBudget !== undefined && cost > budget.spendBudget;
+      if (exhaustion.kind === "tokens" && !budgetWrapUpIssued && !spendAlsoExceeded) {
+        budgetWrapUpIssued = true;
+        // followUp queues the message for the model's NEXT turn (we are inside
+        // the streaming loop); that turn runs, and the turn-end check after it
+        // hits the flag-set path and aborts for real.
+        void session.sendUserMessage(BUDGET_WRAP_UP_MESSAGE, { deliverAs: "followUp" }).catch(() => {
+          // Could not queue the wrap-up turn — fall back to the hard abort
+          // so the budget is still enforced.
+          budgetExhausted = exhaustion;
+          session.abort();
+        });
+        return;
+      }
+      budgetExhausted = exhaustion;
+      session.abort();
+    } catch {
+      // getSessionStats not available yet (e.g. before the first turn) — skip.
+    }
+  };
+  return {
+    check,
+    get exhausted() {
+      return budgetExhausted;
+    },
+    get wrapUpIssued() {
+      return budgetWrapUpIssued;
+    },
+  };
+}
+
 export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefined> {
   label?: string;
   schema?: TSchemaDef;
@@ -366,12 +451,19 @@ export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefi
   /**
    * Abort the session mid-run once cumulative token usage (`tokens.total`)
    * exceeds this. Checked on each session state change (per-turn granularity),
-   * so an in-flight turn may overshoot by up to one turn. Bounds a SINGLE
-   * runaway subagent — distinct from workflow's run-wide `tokenBudget` (a
-   * between-agent soft gate that never aborts an in-flight agent).
+   * so an in-flight turn may overshoot by up to one turn. Two-stage stop: the
+   * FIRST crossing injects a final-turn wrap-up notice (flush state to disk)
+   * and lets exactly one more turn run; the SECOND crossing aborts for real.
+   * Bounds a SINGLE runaway subagent — distinct from workflow's run-wide
+   * `tokenBudget` (a between-agent soft gate that never aborts an in-flight
+   * agent).
    */
   tokenBudget?: number;
-  /** Abort the session mid-run once cumulative cost ($) exceeds this. */
+  /**
+   * Abort the session mid-run once cumulative cost ($) exceeds this. A money
+   * valve: ALWAYS hard-aborts immediately — no wrap-up turn (unlike
+   * tokenBudget). If both budgets cross at once, this hard stop wins.
+   */
   spendBudget?: number;
   /**
    * Called once with this subagent's real usage, read from the session right
@@ -598,28 +690,20 @@ export class CoreAgent {
       lastHistoryEmit = now;
       emitHistory();
     };
-    // Per-run token/spend budget (tokenBudget/spendBudget): abort the session
-    // mid-run once cumulative usage exceeds the ceiling. Checked on each session
-    // state change (the same subscribe seam as onHistory), so overshoot is
-    // bounded to ~one turn. Distinct from workflow's run-wide soft gate — this
-    // bounds a single runaway subagent. The pure threshold logic lives in
-    // checkBudgetExhaustion; session.abort() makes session.prompt() return
+    // Per-run token/spend budget (tokenBudget/spendBudget): stop the session
+    // once cumulative usage exceeds the ceiling. Checked on each session state
+    // change (the same subscribe seam as onHistory), so overshoot is bounded to
+    // ~one turn. Distinct from workflow's run-wide soft gate — this bounds a
+    // single runaway subagent. spendBudget hard-aborts immediately (money
+    // valve); tokenBudget gets a two-stage stop via createBudgetGuard — one
+    // wrap-up turn (flush-to-disk notice injected as a followUp user message)
+    // before the real abort. session.abort() makes session.prompt() return
     // (same contract as the signal/timeout abort below).
-    let budgetExhausted: BudgetExhaustion | undefined;
     const hasBudget = options.tokenBudget !== undefined || options.spendBudget !== undefined;
-    const checkBudget = () => {
-      if (budgetExhausted || !hasBudget) return;
-      try {
-        const { tokens, cost } = session.getSessionStats();
-        budgetExhausted = checkBudgetExhaustion(
-          { tokens: { total: tokens.total }, cost },
-          { tokenBudget: options.tokenBudget, spendBudget: options.spendBudget },
-        );
-        if (budgetExhausted) session.abort();
-      } catch {
-        // getSessionStats not available yet (e.g. before the first turn) — skip.
-      }
-    };
+    const budgetGuard = createBudgetGuard(session, {
+      tokenBudget: options.tokenBudget,
+      spendBudget: options.spendBudget,
+    });
     try {
       if (options.signal?.aborted) throw new Error("Subagent was aborted");
       if (options.signal) {
@@ -630,7 +714,7 @@ export class CoreAgent {
       if (options.onHistory || hasBudget) {
         removeHistoryListener = session.subscribe(() => {
           maybeEmitHistory();
-          checkBudget();
+          budgetGuard.check();
         });
       }
 
@@ -642,7 +726,8 @@ export class CoreAgent {
       // signal), so detect it via the flag BEFORE the signal-abort check and
       // surface it as a non-recoverable TOKEN_BUDGET_EXHAUSTED — retrying would
       // just re-exhaust the same budget. Distinct from a user/timeout abort.
-      if (budgetExhausted) {
+      if (budgetGuard.exhausted) {
+        const budgetExhausted = budgetGuard.exhausted;
         const unit =
           budgetExhausted.kind === "tokens"
             ? `${budgetExhausted.actual} tokens`

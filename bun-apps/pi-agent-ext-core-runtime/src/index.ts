@@ -7,14 +7,18 @@ export type {
   AgentRunResult,
   AgentUsage,
   BudgetExhaustion,
+  BudgetGuard,
+  BudgetGuardSession,
   FallbackDecision,
   StructuredSession,
   WorkflowAgentOptions,
 } from "./agent.js";
 export {
+  BUDGET_WRAP_UP_MESSAGE,
   CoreAgent,
   CoreAgent as WorkflowAgent,
   checkBudgetExhaustion,
+  createBudgetGuard,
   extractValidated,
   lastAssistantError,
   listAvailableModelSpecs,

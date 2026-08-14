@@ -15,12 +15,16 @@ Scope: `bun-apps/pi-agent-ext-subagent`.
 - Docs: "Token budgets" section in the package README (tier defaults 500k/1.2M/1.5M p90-calibrated fuses; per-dispatch `tokenBudget`; the three env knobs + disable; explicit budgets normally reserved for deliberate spend caps — ref `.planning/knowledge/subagent-dispatch-budget-protocol.md`).
 - Gate: `( cd bun-apps/pi-agent-ext-subagent && bun run test )` (biome + tsc build + bun test) must pass.
 
-## Task 2 — core-task loop wrap-up turn on budget crossing (part 2, deferred)
+## Task 2 — budget wrap-up turn on crossing (part 2) ✅ implemented
 
-On crossing `loop.tokenBudget` (`pi-agent-ext-core-task/src/loop/loop-state.ts`), instead of an immediate hard abort:
+**Seam correction**: the budget is enforced in `bun-apps/pi-agent-ext-core-runtime/src/agent.ts` (`checkBudgetExhaustion` + the session-subscribe seam in `CoreAgent.run`) — NOT in `pi-agent-ext-core-task`'s loop. The loop package's budget check (`src/loop/loop-state.ts`) is the `/loop` slash-command path, not the subagent-dispatch path, so implementing there would not have affected subagents at all.
 
-- inject a final-turn user/system message: "token budget exhausted — write current state/artifacts to disk now, then stop";
-- allow exactly one more turn for the child to flush its report/artifacts;
-- then stop the run (existing `status:"budget"` classification retained).
-
-Detail (message plumbing, turn accounting, tests in `pi-agent-ext-core-task`) is deferred to the part-2 implementer.
+Implemented (core-runtime `agent.ts`):
+- `createBudgetGuard(session, {tokenBudget, spendBudget})` — extracted, unit-testable two-stage stop wired into the existing subscribe seam:
+  - first `tokenBudget` crossing → per-run `budgetWrapUpIssued` flag set + ONE `BUDGET_WRAP_UP_MESSAGE` user message queued via `session.sendUserMessage(..., {deliverAs:"followUp"})` so it lands on the model's next (final) turn; no abort;
+  - second crossing → existing behavior bit-for-bit (`session.abort()` → `BudgetExhausted` → `status:"budget"`);
+  - `spendBudget` stays a hard abort (money valve, no wrap-up); both crossing at once → hard abort wins; `sendUserMessage` failure → fallback hard abort.
+- Tests: `tests/budget-guard.test.ts` (fake-session harness: first crossing injects + no abort; second crossing aborts; no budget → nothing; spend-only → immediate abort; both → hard abort; rejection fallback).
+- Docs: `pi-agent-ext-subagent/README.md` "Token budgets" — wrap-up paragraph + spendBudget hard-stop note.
+- Gate: `( cd bun-apps/pi-agent-ext-core-runtime && bun run test && bunx tsc --noEmit )` — 143 pass. Downstream `( cd bun-apps/pi-agent-ext-subagent && bun run test )` — 518 pass.
+- Implemented in commit: <this-commit>

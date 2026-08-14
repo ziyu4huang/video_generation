@@ -83,7 +83,7 @@ The defaults are adjustable at runtime via environment variables (read at call t
 | `SUBAGENT_TOKEN_BUDGET_SMALL` / `_MEDIUM` / `_BIG` | Replace that tier's ceiling (positive integer; applies to whichever tier the dispatch resolved to). |
 | `SUBAGENT_TOKEN_BUDGET_MULTIPLIER` | Multiply the result after any absolute override (positive finite float). |
 
-The final value is clamped to `Math.max(1, Math.floor(result))`. When budget death hits, the child is hard-aborted with `status:"budget"` — a graceful wrap-up turn (final-turn message) is planned as part 2.
+The final value is clamped to `Math.max(1, Math.floor(result))`. When the token budget is crossed the child gets a **graceful wrap-up turn** (part 2): a final-turn user message tells it to flush findings/state/artifacts to disk, exactly one more turn runs, and the next crossing aborts for real with `status:"budget"`. `spendBudget` stays a hard stop (no wrap-up) — it is a money valve; if both budgets cross at once, the hard abort wins.
 
 ## Upstream sync
 
