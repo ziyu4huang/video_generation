@@ -39,3 +39,8 @@ Task 9: complete (commits a28dc86..cb38a61, review clean)
 Task 9: minor (deferred): btw-panel-collapsed string only in CSS contract comment (plan-mandated toContain test) — Task 10 must wire the literal key
 Task 9: minor (deferred): BTW_MESSAGE_HTML interpolates m.id/m.role unescaped (plan-mandated verbatim) — harden alongside Task 10/11
 Task 10: implemented (commit pending review)
+Task 10: complete (commits cb38a61..821f6b3, review clean; implementer fixed brief's reconnect-loss bug by placing ws.onmessage inside connectWs)
+Task 10: minor (deferred): pull/subscribe race — thread event during initial /api/btw fetch can be overwritten by stale snapshot (plan-inherited, self-heals)
+Task 10: minor (deferred): snapshot load doesn't sync mode label or model/thinking dropdowns (display-only staleness, plan-verbatim)
+Task 10: minor (deferred): btwMessageHtml/btwRenderMessages unescaped m.id/m.role interpolation + notice rows never pruned (plan-mandated; harden with Task 9's copy together)
+Task 11: implemented (commit pending review)
