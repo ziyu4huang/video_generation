@@ -536,3 +536,161 @@ describe("searchSemantic — fix wave (final review)", () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ticket 03 P2-T5 — LeanRAG ③: relation-signature dedup (dedupByRelation).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("searchSemantic — relation dedup (ticket 03 P2-T5 / LeanRAG ③)", () => {
+  /** Stub for the warm-path batched graph-attach seam: mdIds → mdId→relations. */
+  function fakeFetchRelations(
+    entries: Record<string, Array<{ s: string; rel: string; o: string }>>,
+  ): (mdIds: string[]) => Promise<Map<string, Array<{ s: string; rel: string; o: string }>>> {
+    return async (mdIds: string[]) =>
+      new Map(mdIds.flatMap((id) => (entries[id] !== undefined ? [[id, entries[id]] as const] : [])));
+  }
+
+  it("WARM: identical canonical signatures collapse to first (alias ref vs references)", async () => {
+    // m1 and m2 carry the SAME canonical edge A→references→B, emitted with
+    // different surface predicates ("ref" vs "references"). normalizeRelation
+    // maps both onto "references" → identical signature → m2 collapses.
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "knowledge" },
+      { mdId: "m2", kind: "knowledge" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      fetchRelations: fakeFetchRelations({
+        m1: [{ s: "A", rel: "ref", o: "B" }],
+        m2: [{ s: "a", rel: "references", o: "b" }], // case+alias variant
+      }),
+    });
+    expect(hits.length).toBe(1);
+    expect(hits[0].mdId).toBe("m1");
+    expect(hits[0].relations).toEqual([{ s: "A", rel: "ref", o: "B" }]);
+  });
+
+  it("WARM: differing signatures are both kept (with relations attached)", async () => {
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "knowledge" },
+      { mdId: "m2", kind: "knowledge" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      fetchRelations: fakeFetchRelations({
+        m1: [{ s: "A", rel: "references", o: "B" }],
+        m2: [{ s: "A", rel: "extends", o: "B" }],
+      }),
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]);
+    expect(hits[0].relations).toEqual([{ s: "A", rel: "references", o: "B" }]);
+  });
+
+  it("WARM: empty or absent relations NEVER collapse by this rule", async () => {
+    // m1 has an empty relations array; m2 is absent from the fetch map
+    // (card/graph missing → silent skip). Neither carries a signature → both kept.
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "knowledge" },
+      { mdId: "m2", kind: "knowledge" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      fetchRelations: fakeFetchRelations({ m1: [] }),
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]);
+    expect(hits[0].relations).toBeUndefined(); // empty array → not attached
+  });
+
+  it("WARM: malformed relation entries → null signature → kept, no throw", async () => {
+    // Entries missing fields / non-objects are malformed: the whole signature
+    // is null → the hit is kept and NOTHING throws.
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "knowledge" },
+      { mdId: "m2", kind: "knowledge" },
+    ]);
+    const malformed = [
+      { s: "A", rel: "ref" }, // missing o
+      null,
+      42,
+    ] as unknown as Array<{ s: string; rel: string; o: string }>;
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      fetchRelations: fakeFetchRelations({ m1: malformed, m2: malformed }),
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]); // no collapse, no throw
+  });
+
+  it("WARM: survivingK cap applied AFTER relation dedup", async () => {
+    // 3 hits: m1+m2 share a signature (collapse), m3 differs. Dedup leaves
+    // [m1, m3]; survivingK=1 caps to [m1] — cap AFTER dedup, not before.
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "knowledge" },
+      { mdId: "m2", kind: "knowledge" },
+      { mdId: "m3", kind: "knowledge" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5, survivingK: 1,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      fetchRelations: fakeFetchRelations({
+        m1: [{ s: "A", rel: "references", o: "B" }],
+        m2: [{ s: "A", rel: "references", o: "B" }],
+        m3: [{ s: "C", rel: "extends", o: "D" }],
+      }),
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m1"]);
+  });
+
+  it("WARM: relation dedup composes AFTER contentHash dedup (contentHash wins first)", async () => {
+    // m1 drops via contentHash (dup with m0); among survivors, m2+m3 share a
+    // relation signature → m3 also drops. Result: [m0, m2].
+    const vs = fakeVectorStore([
+      { mdId: "m0", kind: "knowledge", contentHash: "h" },
+      { mdId: "m1", kind: "knowledge", contentHash: "h" },
+      { mdId: "m2", kind: "knowledge" },
+      { mdId: "m3", kind: "knowledge" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      fetchRelations: fakeFetchRelations({
+        m2: [{ s: "A", rel: "references", o: "B" }],
+        m3: [{ s: "A", rel: "ref", o: "B" }],
+      }),
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m0", "m2"]);
+  });
+
+  it("NEVER THROWS: fetchRelations throwing → search succeeds, relations silently absent", async () => {
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "knowledge" },
+      { mdId: "m2", kind: "knowledge" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      fetchRelations: async () => { throw new Error("sqlite read failed"); },
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]); // kept, no dedup key
+    expect(hits[0].relations).toBeUndefined();
+  });
+
+  it("COLD: memory-lexical hits (no relations) survive the relation seam (no-op)", async () => {
+    // Cold fallback hits carry no relations → null signature → all kept.
+    // No new fetch machinery on the fallback path: fetchRelations is ignored.
+    const vs = throwingVectorStore();
+    const repo = fakeMemoryRepo([
+      { id: 1, mdId: "mem-1", content: "c" } as MemoryEntry,
+      { id: 2, mdId: "mem-2", content: "c" } as MemoryEntry,
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs, memoryRepo: repo,
+      fetchRelations: async () => { throw new Error("must not be called on cold path"); },
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["mem-1", "mem-2"]);
+  });
+});
