@@ -35,7 +35,10 @@
     "@earendil-works/pi-agent-core": "0.84.1",
     "@earendil-works/pi-ai": "0.84.1",
     "@earendil-works/pi-coding-agent": "0.84.1",
+    "@repo/pi-agent-ext-archify": "workspace:*",
+    "@repo/pi-agent-ext-btw": "workspace:*",
     "@repo/pi-agent-ext-core-task": "workspace:*",
+    "@repo/pi-agent-ext-devops": "workspace:*",
     "@repo/pi-agent-ext-file2md": "workspace:*",
     "@repo/pi-agent-ext-flux2": "workspace:*",
     "@repo/pi-agent-ext-hermes-memory": "workspace:*",
@@ -49,9 +52,12 @@
     "@repo/pi-agent-ext-research-tool": "workspace:*",
     "@repo/pi-agent-ext-subagent": "workspace:*",
     "@repo/pi-agent-ext-superpowers": "workspace:*",
+    "@repo/pi-agent-ext-tool-gate": "workspace:*",
     "@repo/pi-agent-ext-wayfind": "workspace:*",
     "@repo/pi-agent-ext-web-access": "workspace:*",
+    "@repo/pi-agent-ext-webui": "workspace:*",
     "@repo/pi-agent-ext-workflow": "workspace:*",
+    "@repo/pi-agent-ext-zai-mcp": "workspace:*",
     "typebox": "^1.3.7"
   },
   "devDependencies": {

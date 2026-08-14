@@ -190,7 +190,7 @@ a `data:text/javascript;base64,…` URL, and Bun's compiled resolver rejects it
 with `NameTooLong` (`ENAMETOOLONG`). That's a bun-compile + jiti limitation,
 not a pi-agent bug, and it can't be worked around for extensions loaded that
 way — `run-dir/resolve.ts` detects binary mode and never emits `-e` at all.
-To still ship *some* extensions in the binary, 10 of them — two groups of 5 —
+To still ship *some* extensions in the binary, the static extension set (`run-dir/manifest.json` → `staticExtensions`, mirrored by `src/static-extensions.ts`) —
 are **statically imported** instead, in `src/static-extensions.ts`:
 ```
 Group A (original "general productivity" set):
@@ -219,12 +219,12 @@ extensions (see "Flag semantics: `-ne` / `-ns`" below).
 bun run deploy:exe                          # build dist/pi-agent/pi-agent
 dist/pi-agent/pi-agent --version
 dist/pi-agent/pi-agent doctor --json       # mode:"binary", ok:true
-bun src/cli.ts ext doctor --json           # verify all 10 static factories register (source-mode check;
+bun src/cli.ts ext doctor --json           # verify every static factory registers (source-mode check;
                                             # the binary's own `ext doctor` isn't binary-mode-aware)
 ```
 CI's `compile-verify` job (`.github/workflows/ci.yml`) builds the binary on
 every `pi-agent`-touching PR and asserts: `doctor --json` is healthy, all 10
-static extensions (5 original productivity + 5 tool-providing) register with
+static extensions (Group A productivity + Group B tool-providing) register with
 0 conflicts, all 4 `binarySkills` paths resolve, and obsidian's module body
 IS inlined into the compiled binary (`strings … | grep -c obsidian_list`
 must be `>0`) — proving Group B's static imports actually got bundled, not
@@ -241,7 +241,7 @@ or remove an extension from this static set.
 | **Snapshot** | `bun scripts/deploy.ts --snapshot` | Full source tree + sibling ext pkgs + `run.sh` | copied symlinks → global store | same-machine only |
 | **Standalone** | `bun scripts/deploy.ts --standalone` | Bundle + `bun` binary + `run.sh` | symlink → global store | same-machine only (no system `bun` needed) |
 | **Exe** | `bun scripts/deploy.ts --exe` | Single executable (~75 MB) | none (all embedded) | **yes — fully self-contained** |
-See [`docs/deploy-cwd-trust.md`](docs/deploy-cwd-trust.md) for the packaging/mode-detection details and [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md) for the `--exe` rationale — why extensions can't load in binary mode, how the 10 static extensions work, the `@ts-nocheck` pattern, and how `--exe` packs all assets into one file.
+See [`docs/deploy-cwd-trust.md`](docs/deploy-cwd-trust.md) for the packaging/mode-detection details and [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md) for the `--exe` rationale — why extensions can't load in binary mode, how the static extension set works, the `@ts-nocheck` pattern, and how `--exe` packs all assets into one file.
 ### Read-only deploy (the default)
 A deploy is an **immutable artifact**: code + bundled extensions, with ALL
 per-user state routed to `~/.pi/agent`. Both pi itself (`getAgentDir()` →
@@ -397,8 +397,8 @@ pi-agent/
   extension as a `data:text/javascript;base64,…` URL; Bun's compiled
   resolver treats it as a path and fails with `NameTooLong` (`ENAMETOOLONG`).
   This is a bun-compile + jiti limitation, not a pi-agent regression, and it
-  can't be fixed for extensions loaded that way. **10 extensions sidestep
-  this** by being statically imported instead (see
+  can't be fixed for extensions loaded that way. **The static extension set
+  sidesteps this** by being statically imported instead (see
   [Standalone binary](#standalone-binary---exe) above /
   [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md)) — the
   binary is not extension-less, just limited to that fixed set. Everything

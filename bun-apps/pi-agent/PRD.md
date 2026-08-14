@@ -22,8 +22,11 @@ A thin wrapper around the official `@earendil-works/pi-coding-agent` TUI. It cal
 ## Key Dependencies
 
 - `@earendil-works/pi-coding-agent` (official pi runtime)
-- All 21 `pi-agent-ext-*` workspace members — registered across two layers:
-  12 static (`src/static-extensions.ts`) + 9 dynamic (`run-dir/manifest.json`)
+- The `pi-agent-ext-*` workspace members — registered across two layers:
+  static (`src/static-extensions.ts`, mirrored by `run-dir/manifest.json` →
+  `staticExtensions`) + dynamic (`run-dir/manifest.json` → `extensions`).
+  Counts are deliberately not restated: `run-dir/manifest-consistency.test.ts`
+  asserts the two layers against the manifest, which is the source of truth.
 
 > 📐 **Full extension dependency tree** (inter-package workspace DAG, per-package
 > deps/peers, registration layer, observed debt) →

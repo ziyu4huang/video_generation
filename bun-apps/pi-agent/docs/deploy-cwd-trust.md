@@ -28,7 +28,7 @@ anywhere (same machine), no checkout required.
 | **Bundle** (default) | *(none)* | pre-bundled `ext-bundles/*.thin.js` + symlinked node_modules | `.deploy-bundle` + `ext-bundles/` → **deploy-bundle** | no (symlink) |
 | **Standalone** | `--standalone` | same as Bundle **+** a copied `bun` binary (no system bun needed) | same as Bundle → **deploy-bundle** | no (symlink) |
 | **Snapshot** | `--snapshot` | raw `pi-agent/` + every sibling extension package dir, verbatim source, no bundling | no markers → **source** (see caveat below) | no (node_modules copied — symlinks into global store preserved, same-machine only) |
-| **Exe** | `--exe` | single compiled executable, 10 static extensions + theme/skills/assets embedded | binary (`$bunfs` scheme, not a run-dir layout) | n/a |
+| **Exe** | `--exe` | single compiled executable, static extension set + theme/skills/assets embedded | binary (`$bunfs` scheme, not a run-dir layout) | n/a |
 
 ### resolve.ts layout detection (marker-based)
 
