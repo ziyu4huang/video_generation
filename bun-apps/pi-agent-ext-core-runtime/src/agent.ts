@@ -351,6 +351,103 @@ export function checkBudgetExhaustion(
   return undefined;
 }
 
+/**
+ * Minimal session surface the budget guard needs (real AgentSession or a test
+ * double): cumulative stats + mid-run abort. `getSessionStats()` is the SAME
+ * stat source the onUsage path reads just before disposal.
+ */
+export interface BudgetSessionSurface {
+  abort(): unknown;
+  getSessionStats(): { tokens: { total: number }; cost: number };
+}
+
+/**
+ * Detect a usage observation: one assistant API response has finished and
+ * carries usage (assistant message_end with `usage`). This is the finest
+ * granularity at which cumulative usage becomes observable — finer than a
+ * turn boundary, so checking here bounds budget overshoot to one API response.
+ */
+export function isUsageObservation(event: unknown): boolean {
+  const evt = event as { type?: unknown; message?: { role?: unknown; usage?: unknown } } | null;
+  return (
+    typeof evt === "object" &&
+    evt !== null &&
+    evt.type === "message_end" &&
+    typeof evt.message === "object" &&
+    evt.message !== null &&
+    evt.message.role === "assistant" &&
+    evt.message.usage != null
+  );
+}
+
+/** Which seam first reported budget exhaustion. */
+export type BudgetSeam = "usage" | "turn";
+
+/**
+ * Per-run budget guard: aborts the session mid-run once cumulative usage
+ * exceeds the ceiling. Both firing seams share ONE pure check
+ * (checkBudgetExhaustion over session.getSessionStats()):
+ *   - "usage" — evaluated on every usage observation (each assistant API
+ *     response), i.e. MID-TURN; overshoot is bounded by one API response.
+ *   - "turn" — backstop evaluated on every other session state change (turn
+ *     boundaries), in case the usage seam never fires.
+ * Idempotent: the first seam to fire wins — one abort, no double-throw of the
+ * caller's TOKEN_BUDGET_EXHAUSTED error (run() reads `exhaustion` once after
+ * prompt() returns).
+ */
+export interface BudgetGuard {
+  /** The winning exhaustion record once a seam has fired; undefined before. */
+  readonly exhaustion: BudgetExhaustion | undefined;
+  /** Which seam fired first ("usage" mid-turn or "turn" backstop). */
+  readonly firedVia: BudgetSeam | undefined;
+  /** Route a session event to its seam: usage observation vs state-change backstop. */
+  onSessionEvent(event: unknown): void;
+}
+
+/**
+ * Build a BudgetGuard over a session. Module-level and session-injected so the
+ * seam wiring (usage observation → mid-turn abort; state change → backstop;
+ * idempotence) is unit-testable with a minimal fake session, independent of
+ * CoreAgent.run / createAgentSession.
+ */
+export function createBudgetGuard(
+  session: BudgetSessionSurface,
+  budget: { tokenBudget?: number; spendBudget?: number },
+): BudgetGuard {
+  let exhaustion: BudgetExhaustion | undefined;
+  let firedVia: BudgetSeam | undefined;
+  const hasBudget = budget.tokenBudget !== undefined || budget.spendBudget !== undefined;
+  const check = (seam: BudgetSeam) => {
+    if (exhaustion || !hasBudget) return;
+    try {
+      const { tokens, cost } = session.getSessionStats();
+      exhaustion = checkBudgetExhaustion(
+        { tokens: { total: tokens.total }, cost },
+        { tokenBudget: budget.tokenBudget, spendBudget: budget.spendBudget },
+      );
+      if (exhaustion) {
+        firedVia = seam;
+        void session.abort();
+      }
+    } catch {
+      // getSessionStats not available yet (e.g. before the first turn) — skip;
+      // a later observation re-checks.
+    }
+  };
+  return {
+    get exhaustion() {
+      return exhaustion;
+    },
+    get firedVia() {
+      return firedVia;
+    },
+    onSessionEvent(event: unknown) {
+      if (exhaustion) return; // idempotent: first seam wins, no double-abort
+      check(isUsageObservation(event) ? "usage" : "turn");
+    },
+  };
+}
+
 export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefined> {
   label?: string;
   schema?: TSchemaDef;
@@ -365,13 +462,16 @@ export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefi
   signal?: AbortSignal;
   /**
    * Abort the session mid-run once cumulative token usage (`tokens.total`)
-   * exceeds this. Checked on each session state change (per-turn granularity),
-   * so an in-flight turn may overshoot by up to one turn. Bounds a SINGLE
-   * runaway subagent — distinct from workflow's run-wide `tokenBudget` (a
-   * between-agent soft gate that never aborts an in-flight agent).
+   * exceeds this. Checked on every usage observation (per API response, the
+   * same getSessionStats() source the onUsage callback reads) and — as a
+   * turn-boundary backstop — on each session state change, so an in-flight
+   * turn overshoots by at most one API response (sub-turn), not a full turn.
+   * Bounds a SINGLE runaway subagent — distinct from workflow's run-wide
+   * `tokenBudget` (a between-agent soft gate that never aborts an in-flight
+   * agent).
    */
   tokenBudget?: number;
-  /** Abort the session mid-run once cumulative cost ($) exceeds this. */
+  /** Abort the session mid-run once cumulative cost ($) exceeds this (same seams as tokenBudget). */
   spendBudget?: number;
   /**
    * Called once with this subagent's real usage, read from the session right
@@ -599,27 +699,23 @@ export class CoreAgent {
       emitHistory();
     };
     // Per-run token/spend budget (tokenBudget/spendBudget): abort the session
-    // mid-run once cumulative usage exceeds the ceiling. Checked on each session
-    // state change (the same subscribe seam as onHistory), so overshoot is
-    // bounded to ~one turn. Distinct from workflow's run-wide soft gate — this
-    // bounds a single runaway subagent. The pure threshold logic lives in
-    // checkBudgetExhaustion; session.abort() makes session.prompt() return
+    // mid-run once cumulative usage exceeds the ceiling. Two seams share one
+    // pure check (checkBudgetExhaustion over session.getSessionStats() — the
+    // same stat source onUsage reads before disposal):
+    //   1. usage observations — every assistant API response (message_end
+    //      carrying usage) aborts MID-TURN, so overshoot is bounded by one API
+    //      response (sub-turn);
+    //   2. turn-boundary backstop — every session state change (the same
+    //      subscribe seam as onHistory), in case the usage seam never fires.
+    // createBudgetGuard is idempotent — first seam wins, one abort, no
+    // double-throw. Distinct from workflow's run-wide soft gate — this bounds
+    // a single runaway subagent. session.abort() makes session.prompt() return
     // (same contract as the signal/timeout abort below).
-    let budgetExhausted: BudgetExhaustion | undefined;
     const hasBudget = options.tokenBudget !== undefined || options.spendBudget !== undefined;
-    const checkBudget = () => {
-      if (budgetExhausted || !hasBudget) return;
-      try {
-        const { tokens, cost } = session.getSessionStats();
-        budgetExhausted = checkBudgetExhaustion(
-          { tokens: { total: tokens.total }, cost },
-          { tokenBudget: options.tokenBudget, spendBudget: options.spendBudget },
-        );
-        if (budgetExhausted) session.abort();
-      } catch {
-        // getSessionStats not available yet (e.g. before the first turn) — skip.
-      }
-    };
+    const budgetGuard = createBudgetGuard(session, {
+      tokenBudget: options.tokenBudget,
+      spendBudget: options.spendBudget,
+    });
     try {
       if (options.signal?.aborted) throw new Error("Subagent was aborted");
       if (options.signal) {
@@ -628,9 +724,9 @@ export class CoreAgent {
         removeAbortListener = () => options.signal?.removeEventListener("abort", onAbort);
       }
       if (options.onHistory || hasBudget) {
-        removeHistoryListener = session.subscribe(() => {
+        removeHistoryListener = session.subscribe((event) => {
+          budgetGuard.onSessionEvent(event);
           maybeEmitHistory();
-          checkBudget();
         });
       }
 
@@ -639,9 +735,12 @@ export class CoreAgent {
         options.images ? ({ images: options.images } as any) : undefined,
       );
       // Budget exhaustion aborts the session directly (not via the caller's
-      // signal), so detect it via the flag BEFORE the signal-abort check and
-      // surface it as a non-recoverable TOKEN_BUDGET_EXHAUSTED — retrying would
-      // just re-exhaust the same budget. Distinct from a user/timeout abort.
+      // signal), so detect it via the guard's exhaustion record BEFORE the
+      // signal-abort check and surface it as a non-recoverable
+      // TOKEN_BUDGET_EXHAUSTED — retrying would just re-exhaust the same budget.
+      // Distinct from a user/timeout abort. Whichever seam fired (usage mid-turn
+      // or the turn backstop) lands here exactly once.
+      const budgetExhausted = budgetGuard.exhaustion;
       if (budgetExhausted) {
         const unit =
           budgetExhausted.kind === "tokens"
