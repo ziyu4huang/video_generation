@@ -1,3 +1,5 @@
+**ID:** `ADR-workflow-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # Pack runtime state is pack-local, never in ~/.pi
 
 **Status:** accepted (locked 2026-07-19; wayfinder ticket [03-state-model](../../../.planning/2026-07-19-review-the-workflow-pack-feature-via-pi-agent-ex/tickets/03-state-model.md))

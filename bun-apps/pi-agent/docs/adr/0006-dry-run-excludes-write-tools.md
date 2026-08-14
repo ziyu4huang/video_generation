@@ -1,3 +1,5 @@
+**ID:** `ADR-pi-agent-0006` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # --dry-run excludes write tools (deterministic guard, not an LLM instruction)
 
 `pi-agent cli`'s `--dry-run` is implemented in `dryRunExclude()`

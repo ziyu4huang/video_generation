@@ -24,8 +24,8 @@ describe("readPlanIncomplete / readPlanSummary (plan-coordinator seam)", () => {
   });
 });
 
-// ─── syncChainState (ADR-0001 feedback half: close tickets whose phase completed) ──
-describe("syncChainState (ADR-0001: close tickets whose phase completed)", () => {
+// ─── syncChainState (ADR-wayfind-0003 feedback half: close tickets whose phase completed) ──
+describe("syncChainState (ADR-wayfind-0003: close tickets whose phase completed)", () => {
   const PHASES_KEY = "__piPlanPhases";
   const tempRoots: string[] = [];
 

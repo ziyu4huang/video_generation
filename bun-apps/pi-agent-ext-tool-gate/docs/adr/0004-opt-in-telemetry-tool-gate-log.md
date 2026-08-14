@@ -1,3 +1,5 @@
+**ID:** `ADR-tool-gate-0004` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # ADR-0004: Opt-in telemetry (`TOOL_GATE_LOG`)
 
 Date: 2026-07-20 (S3, F4 flip)

@@ -3,7 +3,7 @@
 // Mirrors wayfind's publishWayfindGrill (coordination.ts) but REVERSED: hermes
 // owns staleness computation + publishes the reader; wayfind reads it (the
 // graduation gate, T8). The key literal is the contract — duplicated verbatim in
-// wayfind's src/stale-seam.ts (ADR-0004: no cross-package import; globalThis is
+// wayfind's src/stale-seam.ts (ADR-wayfind-0004: no cross-package import; globalThis is
 // process-singleton, reliable across jiti-loaded extensions).
 //
 // The reader is ASYNC because staleness is computed from the DB + source files

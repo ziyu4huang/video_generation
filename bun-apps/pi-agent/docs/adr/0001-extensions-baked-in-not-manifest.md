@@ -1,3 +1,5 @@
+**ID:** `ADR-pi-agent-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 > **Amended 2026-08-12 (pi-agent-cli merge).** The CLI now lives inside `pi-agent`
 > (`src/cli/`), so "pi-agent-cli" and "pi-agent" below name the two *entry
 > namespaces* of one package, not two packages. The decision is unchanged and is

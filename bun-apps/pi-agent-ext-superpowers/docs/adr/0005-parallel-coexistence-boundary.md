@@ -1,3 +1,5 @@
+**ID:** `ADR-superpowers-0005` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # The superpowers ↔ wayfind boundary is parallel coexistence, expressed at the injection layer
 
 Superpowers and Wayfind are two **parallel, non-connecting pipelines** that share

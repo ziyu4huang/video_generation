@@ -170,7 +170,7 @@ describe("domain-modeling — direct kickoff", () => {
   });
 });
 
-// ─── /wayfind sync + touchpoint auto-sync (ADR-0001 feedback handle) ────────
+// ─── /wayfind sync + touchpoint auto-sync (ADR-wayfind-0003 feedback handle) ────────
 describe("chain-sync — close tickets whose phase completed", () => {
   const PHASES_KEY = "__piPlanPhases";
   afterEach(() => {

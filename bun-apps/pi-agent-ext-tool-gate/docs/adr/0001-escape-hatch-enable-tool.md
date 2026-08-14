@@ -1,3 +1,5 @@
+**ID:** `ADR-tool-gate-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # ADR-0001: Escape hatch (`enable_tool`) for dormant gated tools
 
 Date: 2026-07-20 (S1)

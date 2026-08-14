@@ -1,3 +1,5 @@
+**ID:** `ADR-wayfind-0002` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # ADR-0002: Shared status widget + command consolidation across wayfind and planning-with-files
 
 Date: 2026-07-17

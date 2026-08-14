@@ -1,3 +1,5 @@
+**ID:** `ADR-wayfind-0006` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # ADR-0006: Delete the `__piWayfindActive` coordination seam (option b)
 
 Date: 2026-08-07

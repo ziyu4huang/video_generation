@@ -1,3 +1,5 @@
+**ID:** `ADR-pi-agent-0007` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 > **⚠ Deprecated — 2026-07-17 (ticket 03).** This carve-out is **not exercised**: 03 dropped the `-e <pack>` surface — packs run via `workflow run <name|path>`, never via `-e`. Packs are not extensions (ticket 04: dispatch branch), so ADR 0001's extension-loading rule was never in their path. Retained as history of the decision path (02 → 03).
 
 # Runtime `-e` loading permitted for headless pack-extensions (amends ADR 0001)

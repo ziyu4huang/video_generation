@@ -1,3 +1,5 @@
+**ID:** `ADR-pi-agent-0003` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # Distill keeps the LLM to one in-context stage (Enrich); Gate and Converge are deterministic
 
 The distill pipeline has three stages, but only Enrich — the middle rewrite step —

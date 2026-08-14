@@ -1,3 +1,5 @@
+**ID:** `ADR-wayfind-0004` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # ADR-0004: Decouple the status widget via the `globalThis` singleton (reverse ADR-0002 Decision 1)
 
 Date: 2026-07-26
@@ -78,7 +80,7 @@ ADR-0002 **Decision 2** (command consolidation: `/grill [me|docs|done|domain]`,
   grill→plan-seed handoff (a separate, older contract) via a relative-path import
   that does not go through the package dependency. All 177 tests pass.
 - **The `__piWayfindActive` seam has since been removed.** That seam was the
-  documented plan-coordinator handoff (ADR-0001/0003 territory), whose "yield"
+  documented plan-coordinator handoff (ADR-wayfind-0003 territory), whose "yield"
   was never implemented — it was dead output (0 consumers) and was deleted
   (see ADR-0006). At the time of this decision it was untouched; reversing
   ADR-0002 did not affect it.

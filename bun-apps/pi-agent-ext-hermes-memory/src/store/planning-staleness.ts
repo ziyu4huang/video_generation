@@ -21,7 +21,7 @@ import type { CardStore } from "./card-store.js";
 import { depAggregateHash, readSourceCard, writeValidatedBaseline } from "./planning-sync-state.js";
 
 /** Minimal cross-seam stale-decision descriptor. Duplicated (no shared import)
- *  in wayfind's stale-seam.ts — ADR-0004. `missingDeps` is present only when one
+ *  in wayfind's stale-seam.ts — ADR-wayfind-0004. `missingDeps` is present only when one
  *  or more deps are absent on disk (a vanishing dep is itself a staleness signal). */
 export interface StaleCard {
   cardId: string;

@@ -1,3 +1,5 @@
+**ID:** `ADR-superpowers-0006` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # 0006 — The superpowers ↔ subagent cooperation contract
 
 **Status:** accepted (2026-07-25; part of the `2026-07-25-align-superpowers-with-subagent-ext` effort)

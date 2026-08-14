@@ -51,7 +51,7 @@ For each candidate, render a card in the report with these fields:
 - **Strength badge** — one of `Strong`, `Worth exploring`, `Speculative`
 - **Before / After diagram** — use a Mermaid `flowchart` or `sequence` diagram where the relationships are graph-shaped (dependencies, call flows, sequences); use an ASCII `<pre>` block where editorial (mass diagrams, cross-sections, layered shallowness)
 
-**ADR conflicts**: only surface a candidate that contradicts an existing ADR when the friction is real enough to warrant reopening it. Mark it clearly: *"contradicts ADR-0007 — but worth reopening because…"*. Don't list every theoretical refactor an ADR forbids.
+**ADR conflicts**: only surface a candidate that contradicts an existing ADR when the friction is real enough to warrant reopening it. Mark it clearly, citing the ADR by its full ID: *"contradicts `ADR-orders-0007` — but worth reopening because…"*. Don't list every theoretical refactor an ADR forbids.
 
 End the report with a **Top recommendation** section — which candidate you'd tackle first and why.
 
