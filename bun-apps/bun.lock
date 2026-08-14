@@ -218,7 +218,6 @@
       "dependencies": {
         "@earendil-works/pi-tui": "0.84.1",
         "@repo/pi-agent-ext-core-interface": "workspace:*",
-        "@repo/pi-agent-ext-knowledge-card": "workspace:*",
         "proper-lockfile": "^4.1.2",
         "yaml": "^2.9.0",
       },

@@ -1,21 +1,25 @@
 /**
- * Tests for src/entities.ts — deterministic typed-entity extraction + IDF-weighted
- * cross-link ranking (SAG-inspired, kg-improvement-plan P8).
+ * Tests for src/entities.ts — deterministic typed-entity extraction +
+ * IDF-weighted cross-link ranking (SAG-inspired, kg-improvement-plan P8).
+ *
+ * The module lives here, not in knowledge-card, because BOTH knowledge-card
+ * (ingest/retrieve ranking) and hermes-memory (query-side entityRecall) must
+ * normalize entity names with the SAME function for "MLX" in prose to match
+ * "mlx" in a card graph — and hermes is TIER-0, so it may not import the hub
+ * (ADR-0001). A shared downward module makes that agreement structural rather
+ * than a runtime coincidence.
  *
  * Coverage:
  *   - Entity extraction: backtick code, title-case, hyphenated slugs, quoted
  *     concepts, CJK suffixes — and correct typing via suffix/keyword heuristics.
  *   - IDF: rare tags get higher IDF than ubiquitous tags; log(N/df) formula.
  *   - scoreOverlap: "count" mode (the pinned baseline) vs "idf" mode (weighted).
- *   - Integration: ingestRecords with linkWeighting:"idf" writes additive entity
- *     frontmatter + produces IDF-ranked cross-links where rare bridges beat
- *     ubiquitous type-tags (the documented "generic-tag noise" fix).
- *   - Backward-compat: default "count" mode is byte-identical to pre-P8 ingest.
+ *
+ * The ingestRecords integration half stayed behind in knowledge-card
+ * (__tests__/entities-ingest.test.ts): core-interface must not depend on the
+ * hub, and importing ingest.ts here would be the very cycle ADR-0001 forbids.
  */
-import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, readFileSync, readdirSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { test, expect, describe } from "bun:test";
 import {
 	extractEntities,
 	computeIdf,
@@ -23,14 +27,6 @@ import {
 	type ExtractedEntity,
 	type EntityType,
 } from "../src/entities.ts";
-import {
-	ingestRecords,
-	type KnowledgeRecord,
-} from "../src/ingest.ts";
-
-// ---------------------------------------------------------------------------
-// Entity extraction
-// ---------------------------------------------------------------------------
 
 describe("extractEntities", () => {
 	test("backtick code spans are extracted and typed", () => {
@@ -199,145 +195,6 @@ describe("scoreOverlap", () => {
 		// But in IDF mode, rare dominates:
 		expect(scoreOverlap(query, cardB, idf, "idf")).toBeGreaterThan(
 			scoreOverlap(query, cardA, idf, "idf"),
-		);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// Integration: ingestRecords with linkWeighting:"idf"
-// ---------------------------------------------------------------------------
-
-describe("ingestRecords — IDF-weighted cross-linking (P8)", () => {
-	let vault: string;
-
-	beforeEach(() => {
-		vault = mkdtempSync(join(tmpdir(), "kc-entity-test-"));
-	});
-
-	afterEach(() => {
-		rmSync(vault, { recursive: true, force: true });
-	});
-
-	test("default count mode produces NO entity frontmatter (backward-compat)", async () => {
-		const rec: KnowledgeRecord = {
-			id: "test:no-entity",
-			type: "gotcha",
-			title: "MPS crash on Flux2",
-			detail: "Flux2 crashes with `--cfg-scale` set too high.",
-			tags: ["flux2"],
-			dimension: "stability",
-			confidence: 0.9,
-			status: "active",
-			superseded_by: null,
-		};
-		await ingestRecords([rec], {
-			vaultPath: vault,
-			source: "workflow-jsonl",
-			sourceLabel: "test",
-		});
-		const card = readFileSync(
-			join(vault, "Zettelkasten/knowledge-graph/test-no-entity.md"),
-			"utf8",
-		);
-		// No entities key in frontmatter under default mode
-		expect(card).not.toContain("entities:");
-	});
-
-	test("idf mode writes additive entity frontmatter", async () => {
-		const rec: KnowledgeRecord = {
-			id: "test:with-entity",
-			type: "gotcha",
-			title: "MPS crash on Flux2",
-			detail: "Flux2 crashes with `--cfg-scale` set too high.",
-			tags: ["flux2"],
-			dimension: "stability",
-			confidence: 0.9,
-			status: "active",
-			superseded_by: null,
-		};
-		await ingestRecords([rec], {
-			vaultPath: vault,
-			source: "workflow-jsonl",
-			sourceLabel: "test",
-			linkWeighting: "idf",
-		});
-		const card = readFileSync(
-			join(vault, "Zettelkasten/knowledge-graph/test-with-entity.md"),
-			"utf8",
-		);
-		// Entity frontmatter present with typed entities extracted from the body
-		expect(card).toContain("entities:");
-		expect(card.toLowerCase()).toContain("flux2");
-		expect(card.toLowerCase()).toContain("cfg-scale");
-	});
-
-	test("IDF weighting lets rare bridges outrank ubiquitous type-tags", async () => {
-		// Build a folder where:
-		//  - 5 cards share the ubiquitous tag "pattern" with a target card
-		//  - 1 card shares the rare tag "pi-obsidian" with the same target card
-		// Under "count", the 5 pattern-cards tie or beat the 1 rare-bridge card
-		// (all shared=1). Under "idf", the pi-obsidian bridge should rank FIRST
-		// because pi-obsidian's IDF >> pattern's IDF.
-		const base: KnowledgeRecord = {
-			id: "target:card",
-			type: "gotcha",
-			title: "Target card",
-			detail: "References pi-obsidian and pattern.",
-			tags: ["pi-obsidian", "pattern"],
-			dimension: "test",
-			confidence: 0.9,
-			status: "active",
-			superseded_by: null,
-		};
-		const rareBridge: KnowledgeRecord = {
-			id: "bridge:pi-obs",
-			type: "gotcha",
-			title: "Pi-obsidian bridge",
-			detail: "About pi-obsidian internals.",
-			tags: ["pi-obsidian"],
-			dimension: "test",
-			confidence: 0.9,
-			status: "active",
-			superseded_by: null,
-		};
-		const noiseCards: KnowledgeRecord[] = Array.from({ length: 5 }, (_, i) => ({
-			id: `noise:${i}`,
-			type: "pattern",
-			title: `Noise card ${i}`,
-			detail: `Generic pattern ${i}.`,
-			tags: ["pattern"],
-			dimension: "test",
-			confidence: 0.5,
-			status: "active" as const,
-			superseded_by: null,
-		}));
-
-		// First ingest noise + bridge (so the folder has the tag distribution)
-		await ingestRecords([...noiseCards, rareBridge], {
-			vaultPath: vault,
-			source: "workflow-jsonl",
-			sourceLabel: "test",
-		});
-		// Then ingest the target with IDF weighting and inspect its links
-		const result = await ingestRecords([base], {
-			vaultPath: vault,
-			source: "workflow-jsonl",
-			sourceLabel: "test",
-			linkWeighting: "idf",
-			maxLinks: 8,
-		});
-
-		// The target card's first link should be the pi-obsidian bridge, not a noise card
-		const card = readFileSync(
-			join(vault, "Zettelkasten/knowledge-graph/target-card.md"),
-			"utf8",
-		);
-		const linkSection = card.split("## 連結")[1] ?? "";
-		const firstLink = linkSection.match(/\[\[([^\]]+)\]\]/);
-		expect(firstLink?.[1]).toBe("bridge-pi-obs");
-		// The noise cards should appear AFTER the bridge
-		expect(linkSection.indexOf("bridge-pi-obs")).toBeLessThan(
-			linkSection.indexOf("noise-0"),
 		);
 	});
 });

@@ -21,7 +21,10 @@ import type { VectorStore } from "../store/surreal/vector-store.js";
 import type { Embedder } from "../store/surreal/embedder.js";
 import { SqliteBackend } from "../store/sqlite/sqlite-backend.js";
 import { normalizeFts5Query, buildFallbackFts5Query, isFts5QueryError } from "../store/sqlite/fts-query.js";
-import { extractEntities, normEntity } from "@repo/pi-agent-ext-knowledge-card/src/entities.ts";
+// From core-interface (BELOW both tiers), not from knowledge-card. hermes is
+// TIER-0 and may not import the hub — ADR-0001. Same module either way, so the
+// query side and the card side still normalize identically.
+import { extractEntities, normEntity } from "@repo/pi-agent-ext-core-interface";
 import { searchSemantic, type SemanticRelation } from "../store/semantic-search.js";
 
 /** Narrow the pi surface to exactly what this tool uses (registerTool). The
@@ -178,14 +181,23 @@ export function buildLexicalRecall(
 }
 
 /** Ticket 20 T3: build the PRODUCTION `entityRecall` signal — query-side
- *  deterministic entity extraction (zk `extractEntities`, pure) × a rowid-paged
+ *  deterministic entity extraction (`extractEntities`, pure) × a rowid-paged
  *  scan of the knowledge cards' `graph.entities` (batches of 100, mirroring the
- *  fetcher's chunk discipline). Both sides are normalized via zk `normEntity`
- *  (exported for exactly this), so "MLX" in prose matches "mlx" in a graph.
+ *  fetcher's chunk discipline). Both sides are normalized via `normEntity`, so
+ *  "MLX" in prose matches "mlx" in a graph.
  *  Cards with ≥1 overlap are kept, ranked by matchCount desc then id asc.
  *  CHEAP SHORT-CIRCUIT: a query yielding no entities returns [] WITHOUT opening
  *  the DB. Never throws: any failure (extraction, backend, corrupt graph JSON)
- *  → [] / row silently skipped. hermes→zk is the sanctioned spine direction.
+ *  → [] / row silently skipped.
+ *
+ *  Both functions come from core-interface, which sits BELOW both tiers — not
+ *  from zk. hermes calling zk at RUNTIME is the sanctioned spine direction; a
+ *  static hermes→zk IMPORT is not, and conflating the two is what put this file
+ *  in breach of ADR-0001 (the `__piKnowledgePipeline` seam exists precisely so
+ *  the runtime call needs no upward edge). Sharing the module downward, rather
+ *  than through the seam, keeps the two sides' normalization agreement
+ *  structural and keeps the signal alive when zk is not loaded.
+ *
  *  Full paged scan per warm query — revisit at the >2k-cards scale trigger
  *  (plan 03's persistent-index deferral). */
 export function buildEntityRecall(
