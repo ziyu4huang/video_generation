@@ -448,7 +448,10 @@ describe("resolvePackOverrides — model + args precedence", () => {
     expect(resolvePackOverrides(pack, {}).model).toBe("manifest-model");
   });
   test("no pack → caller args/model pass through", () => {
-    expect(resolvePackOverrides(undefined, { args: { y: 2 }, callerModel: "cli" })).toEqual({ args: { y: 2 }, model: "cli" });
+    expect(resolvePackOverrides(undefined, { args: { y: 2 }, callerModel: "cli" })).toEqual({
+      args: { y: 2 },
+      model: "cli",
+    });
   });
   test("args merge applied", () => {
     expect(resolvePackOverrides(pack, { args: { x: 9, z: 2 } }).args).toEqual({ x: 9, z: 2 });
@@ -736,15 +739,15 @@ describe("findRepoRoot — walk-up cap", () => {
     // Build a synthetic exists() that reports a marker exactly at depth 11.
     // Each dirname step peels one segment; count segments from `start`.
     const segments = ["d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9", "d10", "rootMarker"];
-    const start = "/" + segments.join("/") + "/leaf";
+    const start = `/${segments.join("/")}/leaf`;
     // exists() returns true only for the path ending in rootMarker/.pi/workflows
     const exists = (p: string) => p.endsWith("/rootMarker/.pi/workflows");
-    const expectedRoot = "/" + segments.join("/");
+    const expectedRoot = `/${segments.join("/")}`;
     expect(findRepoRoot(start, exists)).toBe(expectedRoot);
   });
   test("returns undefined when no marker is found within 12 levels (cap prevents infinite walk)", () => {
     // A path deeper than 12 segments with no marker anywhere → undefined, fast.
-    const deep = "/" + Array.from({ length: 30 }, (_, i) => `d${i}`).join("/") + "/leaf";
+    const deep = `/${Array.from({ length: 30 }, (_, i) => `d${i}`).join("/")}/leaf`;
     const exists = (_p: string) => false;
     expect(findRepoRoot(deep, exists)).toBeUndefined();
   });

@@ -201,11 +201,11 @@ export function resolveWorkflowScript(
   throw new Error(
     `workflow: script "${name}" not found.\n` +
       `Looked for: ${asPath}\n` +
-      `  ${join(cwd, "workflows", names[0]!)}\n` +
-      `  ${join(binDir, "workflows", names[0]!)}\n` +
+      `  ${join(cwd, "workflows", names[0] ?? "<name>")}\n` +
+      `  ${join(binDir, "workflows", names[0] ?? "<name>")}\n` +
       (root
-        ? `  ${join(root, PI_WORKFLOWS_DIR, names[0]!)}\n` +
-          `  ${join(root, PKG_WORKFLOWS_GLOB, "<pkg>", "workflows", names[0]!)}\n`
+        ? `  ${join(root, PI_WORKFLOWS_DIR, names[0] ?? "<name>")}\n` +
+          `  ${join(root, PKG_WORKFLOWS_GLOB, "<pkg>", "workflows", names[0] ?? "<name>")}\n`
         : "") +
       `Pass an absolute path or a name under <cwd>/workflows/, <binDir>/workflows/, .pi/workflows/, or bun-apps/<pkg>/workflows/.`,
   );
@@ -365,7 +365,7 @@ export function listWorkflows(
           const manifest = readManifest(p, { read: fs.read, exists: fs.exists });
           rows.push({ source: label, name: manifest.name, description: manifest.description, kind: "pack" });
         } catch (e) {
-          errors.push({ path: p, message: (e as Error).message.split("\n")[0]! });
+          errors.push({ path: p, message: (e as Error).message.split("\n")[0] ?? "" });
         }
         continue;
       }
@@ -374,7 +374,7 @@ export function listWorkflows(
         const { meta } = parseWorkflowScript(fs.read(p));
         rows.push({ source: label, name: meta.name, description: meta.description, kind: "file" });
       } catch (e) {
-        errors.push({ path: p, message: (e as Error).message.split("\n")[0]! });
+        errors.push({ path: p, message: (e as Error).message.split("\n")[0] ?? "" });
       }
     }
   }

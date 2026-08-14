@@ -2012,7 +2012,7 @@ return out`;
     await manager.runSync(script, undefined, { concurrency: 3 });
 
     const runs = manager.listRuns();
-    const agents = manager.getRun(runs[0]!.runId)!.snapshot.agents;
+    const agents = manager.getRun(runs[0]?.runId)?.snapshot.agents;
 
     // Sanity: three agents ran, all under the shared label.
     assert.equal(agents.length, 3);

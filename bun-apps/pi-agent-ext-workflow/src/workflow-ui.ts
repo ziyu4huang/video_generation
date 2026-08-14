@@ -223,6 +223,7 @@ export class NavigatorState {
   private top(): StackFrame {
     // invariant: stack is never empty — initialized with a root frame, and pop()
     // refuses to go below length 1, so the last element is always defined.
+    // biome-ignore lint/style/noNonNullAssertion: invariant: stack.length >= 1
     return this.stack[this.stack.length - 1]!;
   }
   get kind(): ViewKind {

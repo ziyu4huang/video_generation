@@ -1,6 +1,6 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorkflowLogger } from "../src/logger.js";
@@ -27,7 +27,7 @@ describe("workflow logger", () => {
         logger.log("hello");
         const logFile = logger.persist();
         assert.equal(logFile, join(customRuns, "run-override-test.log"));
-        assert.ok(existsSync(logFile!), "log file must exist in the overridden dir");
+        assert.ok(existsSync(logFile), "log file must exist in the overridden dir");
         // And NOT in the default cwd-hashed runs dir.
         const defaultDir = workflowProjectPaths(cwd).runsDir;
         assert.ok(!existsSync(join(defaultDir, "run-override-test.log")));
@@ -53,7 +53,7 @@ describe("workflow logger", () => {
         const logFile = logger.persist();
         const defaultDir = workflowProjectPaths(cwd).runsDir;
         assert.equal(logFile, join(defaultDir, "run-default-test.log"));
-        assert.ok(existsSync(logFile!));
+        assert.ok(existsSync(logFile));
       });
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -75,7 +75,7 @@ describe("workflow logger", () => {
         logger.log("x");
         const logFile = logger.persist();
         assert.equal(logFile, join(cwd, "custom", "rel", "runs", "run-rel-test.log"));
-        assert.ok(existsSync(logFile!));
+        assert.ok(existsSync(logFile));
       });
     } finally {
       rmSync(home, { recursive: true, force: true });

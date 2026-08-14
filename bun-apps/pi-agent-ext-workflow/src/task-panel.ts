@@ -272,7 +272,7 @@ export function sampleTokens(runId: string, total: number, now: number): void {
   samples.push({ ts: now, total });
   // Drop samples beyond the rolling window, always keeping ≥2 so a rate is computable.
   // invariant: samples.length > 2 (short-circuit) → samples[0] is defined each check.
-  while (samples.length > 2 && now - samples[0]!.ts > RATE_WINDOW_MS) samples.shift();
+  while (samples.length > 2 && samples[0] && now - samples[0].ts > RATE_WINDOW_MS) samples.shift();
   tokenSamples.set(runId, samples);
 }
 
