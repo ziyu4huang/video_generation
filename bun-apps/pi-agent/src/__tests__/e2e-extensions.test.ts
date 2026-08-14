@@ -24,6 +24,7 @@ import {
 	PI_AGENT_DIR,
 	REPO_ROOT,
 	SRC_CLI,
+	DEPLOY_SCRIPT,
 } from "./e2e-harness.ts";
 
 // DIAGNOSTIC (temporary): CI has repeatedly failed several tests in this file
@@ -372,7 +373,7 @@ async function deployPkg(extraFlags: string[]): Promise<{
 	// its old boot+probe step was dropped in the bundle/snapshot/standalone/exe
 	// unification; the runScenario()/doctor probes below are the replacement,
 	// and they're strictly more thorough — per-cwd + per-mode, not just once.)
-	const deploy = Bun.spawn(["bun", "scripts/deploy.ts", pkgDir, "--no-freeze", ...extraFlags], {
+	const deploy = Bun.spawn(["bun", DEPLOY_SCRIPT, pkgDir, "--no-freeze", ...extraFlags], {
 		cwd: PI_AGENT_DIR,
 		stdout: "inherit",
 		stderr: "inherit",
