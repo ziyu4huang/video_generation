@@ -13,10 +13,9 @@ re-investigation.
 - #184 doctor e2e coverage + **critical fix**: cli.ts re-slice argv after patches (#182 had moved `process.argv.slice(2)` above `applyPatches()`, silently dropping every run-dir extension across all modes — see memory `pi-agent-cli-slice-before-patch-drops-splice`)
 - #185 `doctor --smoke` — runtime probe that catches the silent-no-op class
 - #186 `doctor --smoke` e2e across all 4 deploy modes
-- `doctor --fix` — auto-remediate: runs `bun install` in a `--portable`/`--release`
-  deploy when `checkHostDeps` FAILs, then re-checks (self-healing independent
-  deploy). Same pure-plan + imperative-apply + spawn-seam shape as `--smoke`;
-  `runChecks` stays pure. Bundle (THIN) stays hint-only; source/binary n/a.
+- `doctor --fix` — REMOVED (gated on deploy modes nothing produces; `bun install`
+  cannot repair a snapshot). Re-adding needs an action that works on a build
+  artifact, not a package manager pointed at one.
 
 ## Open
 

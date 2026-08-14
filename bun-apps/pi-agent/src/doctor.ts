@@ -48,19 +48,34 @@ export function isFailing(r: CheckResult): boolean {
 	return r.status === "fail";
 }
 
-/** The deploy mode doctor detects (finer than detectMode: splits bundle/release/portable). */
-export type DeployMode = "source" | "bundle" | "portable" | "release" | "binary";
+/**
+ * The deploy mode doctor detects.
+ *
+ * `portable` and `release` used to be here. Nothing could ever return them:
+ * deploy.ts accepts only --bundle/--snapshot/--standalone/--exe and writes only
+ * `.deploy-bundle`; no code path writes `.deploy-portable` or a `packages/` dir.
+ * They were left behind by a rename the docs and deploy.ts completed and
+ * doctor.ts did not, and they took real behaviour down with them — see
+ * checkHostDeps.
+ */
+export type DeployMode = "source" | "bundle" | "binary";
 
-/** Classify the deploy mode from coarse mode + the layout markers. Pure. */
+/**
+ * Classify the deploy mode from coarse mode + the layout markers. Pure.
+ *
+ * `.deploy-bundle` is currently the only marker any deploy writes, so the
+ * marker argument exists for the next sub-classification rather than for a
+ * live branch. A `--snapshot` deploy ships raw source and correctly reports
+ * `source`; a `--standalone` deploy is a bundle plus a bun binary and reports
+ * `bundle`.
+ */
 export function classifyMode(
 	coarse: "source" | "bundle" | "binary",
-	markers: { dotDeployBundle: boolean; dotDeployPortable: boolean; packages: boolean },
+	markers: { dotDeployBundle: boolean },
 ): DeployMode {
 	if (coarse === "binary") return "binary";
 	if (coarse === "source") return "source";
-	// bundle coarse mode = a shipped pi-agent.js; sub-classify by markers
-	if (markers.dotDeployPortable) return "portable";
-	if (markers.packages) return "release";
+	// bundle coarse mode = a shipped pi-agent.js
 	if (markers.dotDeployBundle) return "bundle";
 	return "bundle"; // a pi-agent.js with no marker — treat as plain bundle
 }
@@ -86,10 +101,8 @@ export interface DoctorReport {
 	ok: boolean;
 }
 
-const expectedExtCount = (mode: DeployMode): number =>
-	mode === "portable"
-		? (manifest.extensions?.length ?? 0) + (manifest.npmExtensions?.length ?? 0)
-		: manifest.extensions?.length ?? 0;
+const expectedExtCount = (_mode: DeployMode): number =>
+	manifest.extensions?.length ?? 0;
 
 /** runtime — bun version. Always info. */
 export function checkRuntime(ctx: DoctorContext): CheckResult {
@@ -116,10 +129,12 @@ export function checkEntry(ctx: DoctorContext): CheckResult {
 }
 
 /**
- * ext-bundles / packages — the extension set is complete for the mode.
- *  - bundle/portable: ext-bundles/*.js count ≥ expected
- *  - release: packages/* non-empty
- *  - source: ext-bundles not expected (loads from bun-apps/); info only
+ * ext-bundles — the extension set is complete for the mode.
+ *  - bundle: ext-bundles/*.js count ≥ expected
+ *  - source / binary: ext-bundles not expected (loads from bun-apps/ or baked); info
+ *
+ * The `release` branch that read `packages/` is gone with the mode — no deploy
+ * has ever produced that layout.
  */
 export function checkExtensions(ctx: DoctorContext): CheckResult {
 	const id = "extensions";
@@ -127,14 +142,6 @@ export function checkExtensions(ctx: DoctorContext): CheckResult {
 	if (ctx.mode === "source" || ctx.mode === "binary") {
 		return { id, label, status: "info", detail: `${ctx.mode} mode loads extensions from source/baked paths` };
 	}
-	if (ctx.mode === "release") {
-		const pkgs = ctx.listDir(join(ctx.selfDir, "packages")).filter((d) => !d.startsWith("."));
-		if (pkgs.length === 0) {
-			return { id, label, status: "fail", detail: "packages/ empty", hint: "redeploy: `bun scripts/deploy.ts --release`" };
-		}
-		return { id, label, status: "pass", detail: `packages/${pkgs.length} (${pkgs.join(", ")})` };
-	}
-	// bundle / portable: ext-bundles/*.js
 	const bundles = ctx.listDir(join(ctx.selfDir, "ext-bundles")).filter((f) => f.endsWith(".js"));
 	const want = expectedExtCount(ctx.mode);
 	if (bundles.length < want) {
@@ -143,9 +150,7 @@ export function checkExtensions(ctx: DoctorContext): CheckResult {
 			label,
 			status: "fail",
 			detail: `ext-bundles/ has ${bundles.length} .js, expected ≥ ${want}`,
-			hint: ctx.mode === "portable"
-				? "redeploy: `bun scripts/deploy.ts --portable`"
-				: "redeploy: `bun scripts/deploy.ts` (default bundle)",
+			hint: "redeploy: `bun scripts/deploy.ts` (default bundle)",
 		};
 	}
 	return { id, label, status: "pass", detail: `ext-bundles/${bundles.length} .js (expected ≥ ${want})` };
@@ -153,14 +158,16 @@ export function checkExtensions(ctx: DoctorContext): CheckResult {
 
 /**
  * host-deps — can pi's loader resolve typebox/@earendil-works/* from the entry?
- * Severity is mode-aware because the failure modes differ:
- *  - source: pi resolves its OWN deps from the pi-coding-agent loader in
- *    node_modules, NOT from cli.ts — so this check is informational only.
- *  - portable: the host node_modules subset is ESSENTIAL (getAliases + FULL
- *    residual bare specifiers). Unresolvable → FAIL.
+ *  - source / binary: pi resolves its OWN deps from the pi-coding-agent loader
+ *    in node_modules, not from cli.ts — informational only.
  *  - bundle (THIN default): works WITHOUT a node_modules (ext bundles bake abs
- *    paths; pi-agent.js's own deps are inlined) — so unresolvable is just a WARN.
- *  - release: `bun install` should have provided them — WARN if not.
+ *    paths; pi-agent.js's own deps are inlined) — unresolvable is a WARN.
+ *
+ * There is deliberately no `fail` path left. The only one there ever was keyed
+ * on `portable`, a mode nothing can produce, so this check has been
+ * warn-or-info in practice since that rename. Stating it plainly beats an
+ * unreachable branch that makes the check look stricter than it is: for every
+ * mode that EXISTS, missing host deps are recoverable or irrelevant.
  */
 export function checkHostDeps(ctx: DoctorContext): CheckResult {
 	if (ctx.mode === "source" || ctx.mode === "binary") {
@@ -173,16 +180,13 @@ export function checkHostDeps(ctx: DoctorContext): CheckResult {
 		"@earendil-works/pi-ai",
 	];
 	const missing = need.filter((s) => !ctx.depInstalled(s));
-	const failMode = ctx.mode === "portable";
 	if (missing.length) {
 		return {
 			id: "host-deps",
 			label: "host deps (typebox/@earendil-works/*)",
-			status: failMode ? "fail" : "warn",
+			status: "warn",
 			detail: `unresolved from entry: ${missing.join(", ")}`,
-			hint: failMode
-				? "`bun install` in the deploy dir (portable needs its node_modules subset)"
-				: "optional — THIN bundle works via abs paths; `--with-nm-copy` or `bun install` if extensions fail to load",
+			hint: "optional — THIN bundle works via abs paths; re-deploy if extensions fail to load",
 		};
 	}
 	return { id: "host-deps", label: "host deps (typebox/@earendil-works/*)", status: "pass", detail: "resolve from entry" };
@@ -237,122 +241,25 @@ export function runChecks(ctx: DoctorContext): DoctorReport {
 	return { mode: ctx.mode, checks, ok: !checks.some(isFailing) };
 }
 
-// ── auto-fix (opt-in: `doctor --fix`) ────────────────────────────────────────
+// ── auto-fix: REMOVED ────────────────────────────────────────────────
 //
-// The pure checks above surface a broken/incomplete deploy but leave the user to
-// fix it by hand. `--fix` closes the diagnose→fix loop: it derives a fix plan
-// from the current report, applies it (mutating), and re-checks — the same
-// create-then-recheck shape as bun-apps/pi-agent's `cli doctor --fix`.
+// `doctor --fix` used to derive a fix plan and run `bun install` in the deploy
+// dir. It never ran: planFixes gated on `portable`/`release`, modes nothing can
+// produce, so --fix always printed "nothing to fix" — which reads as "your
+// deploy is healthy". ~95 LOC of planner/applier/spawn-seam plus ~15 tests
+// exercised only unreachable branches.
 //
-// The decisive pi-agent-specific fix: in a `--portable` (repo-independent,
-// same-machine) deploy that lands on a host without its `node_modules` subset,
-// `checkHostDeps` FAILs (typebox/@earendil-works/* are essential there). `--fix`
-// runs `bun install` in the deploy dir to self-heal it. Applies to `release`
-// too (same — ships a deps/workspaces package.json). The default THIN `bundle`
-// is skipped: its package.json is minimal {name,private,type} with no deps, so
-// `bun install` is a no-op there (it stays hint-only WARN). source/binary are
-// skipped (host-deps is INFO — pi resolves its own).
+// Re-homing it onto a mode that DOES exist was tried and rejected on evidence.
+// The README documented the target as `--snapshot`; a snapshot is not a
+// workspace, so running `bun install` from inside its deploy dir fails on every
+// `workspace:*` dependency — measured, 20 of them:
 //
-// Shape mirrors `--smoke`: a PURE planner (planFixes) separable from an
-// imperative applier (applyFixes) behind an injectable spawn seam (FixSpawn),
-// so the decision + outcome-mapping are unit-testable without spawning bun.
-
-/** One auto-fix that WOULD apply (or just applied) for the current report. */
-export interface FixAction {
-	id: string;
-	label: string;
-	reason: string;
-}
-
-/**
- * PURE. Which fixes WOULD apply for this report + context, without executing
- * any. Currently the only fix is `bun install` for an unresolved `host-deps`
- * check in a mode that ships an installable package.json (portable/release).
- * Returns [] when there is nothing to fix.
- */
-export function planFixes(report: DoctorReport, ctx: DoctorContext): FixAction[] {
-	const plan: FixAction[] = [];
-	const hostDeps = report.checks.find((c) => c.id === "host-deps");
-	if (
-		hostDeps &&
-		(hostDeps.status === "fail" || hostDeps.status === "warn") &&
-		(ctx.mode === "portable" || ctx.mode === "release")
-	) {
-		plan.push({
-			id: "host-deps",
-			label: "bun install (host deps)",
-			reason: `${ctx.mode} mode: ${hostDeps.detail ?? "host deps unresolvable"}`,
-		});
-	}
-	return plan;
-}
-
-/** Injectable spawn seam so applyFixes' outcome-mapping is unit-testable. */
-export interface FixSpawn {
-	(args: { cwd: string; env: Record<string, string | undefined> }): Promise<{
-		code: number | null;
-		stderr: string;
-	}>;
-}
-
-/** Real spawn helper — `bun install` in a dir. Exported for tests. */
-export async function defaultFixSpawn(args: {
-	cwd: string;
-	env: Record<string, string | undefined>;
-}): Promise<{ code: number | null; stderr: string }> {
-	const proc = Bun.spawn(["bun", "install"], {
-		cwd: args.cwd,
-		env: args.env,
-		stdout: "inherit",
-		stderr: "pipe",
-	});
-	let stderr = "";
-	try {
-		const reader = proc.stderr.getReader();
-		const dec = new TextDecoder();
-		while (true) {
-			const { value, done } = await reader.read();
-			if (done) break;
-			stderr += dec.decode(value, { stream: true });
-		}
-	} catch {
-		/* stderr is best-effort */
-	}
-	const code = await proc.exited;
-	return { code, stderr };
-}
-
-/**
- * Apply a fix plan (imperative: spawns). Returns one CheckResult per applied
- * fix so the caller can print/aggregate them. No-op (returns []) for an empty
- * plan. Maps each action's spawn outcome → pass/fail CheckResult.
- */
-export async function applyFixes(
-	plan: FixAction[],
-	ctx: DoctorContext,
-	opts: { spawn?: FixSpawn } = {},
-): Promise<CheckResult[]> {
-	const spawn = opts.spawn ?? defaultFixSpawn;
-	const results: CheckResult[] = [];
-	for (const action of plan) {
-		if (action.id === "host-deps") {
-			const r = await spawn({ cwd: ctx.selfDir, env: ctx.env });
-			const clean = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "").trim();
-			results.push(
-				r.code === 0
-					? { id: "fix:host-deps", label: action.label, status: "pass", detail: "`bun install` ok — re-checking" }
-					: {
-							id: "fix:host-deps",
-							label: action.label,
-							status: "fail",
-							detail: `\`bun install\` exited ${r.code}`,
-							hint: clean(r.stderr).slice(-300) || undefined,
-						},
-			);
-		}
-	}
-	return results;
-}
+//   error: @repo/pi-agent-ext-webui@workspace:* failed to resolve
+//
+// A deploy artifact is not repairable in place — the repair is to re-deploy.
+// Every check that can detect a broken deploy now says exactly that in its
+// hint. If an auto-fix is wanted later, it needs an action that works on a
+// build artifact, not a package manager pointed at one.
 
 // ── runtime smoke (opt-in: `doctor --smoke`) ─────────────────────────────────
 //
@@ -369,8 +276,7 @@ export async function applyFixes(
  * The marker the smoke probe greps tool sourceInfo.path for, per mode.
  * Pure (no fs).
  *  - source:  the bun-apps dir (selfDir is .../pi-agent/src → ../.. = bun-apps)
- *  - bundle / portable: <selfDir>/ext-bundles
- *  - release: <selfDir>/packages
+ *  - bundle:  <selfDir>/ext-bundles
  *  - binary:  "<inline:" — static-factory tools report sourceInfo.path
  *             "<inline:<pkg-name>>"; the probe itself loading via -e also
  *             proves the upstream jiti binary path works (0.80.10+).
@@ -378,8 +284,7 @@ export async function applyFixes(
 export function smokeMarker(mode: DeployMode, selfDir: string): string {
 	if (mode === "binary") return "<inline:";
 	if (mode === "source") return resolve(selfDir, "..", "..");
-	if (mode === "release") return join(selfDir, "packages");
-	return join(selfDir, "ext-bundles"); // bundle + portable
+	return join(selfDir, "ext-bundles"); // bundle
 }
 
 const SMOKE_PROBE = [
@@ -532,8 +437,6 @@ export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {})
 // ── real wiring ──────────────────────────────────────────────────────────────
 export interface RunOptions {
 	json?: boolean;
-	fix?: boolean;
-	fixSpawn?: FixSpawn;
 	smoke?: boolean;
 	smokeTimeoutMs?: number;
 }
@@ -573,23 +476,6 @@ export async function runDoctor(opts: RunOptions = {}, out: (s: string) => void 
 	const ctx = realContext(import.meta.url, process.env);
 	let report = runChecks(ctx);
 
-	// `--fix`: derive a fix plan from the report, apply it (mutating — runs `bun
-	// install` etc.), then re-check. Same create-then-recheck shape as
-	// pi-agent-cli's doctor --fix. The default doctor stays pure/offline/fast;
-	// --fix is opt-in. Applied fixes are printed before the re-checked report.
-	let appliedFixes: CheckResult[] = [];
-	if (opts.fix) {
-		const plan = planFixes(report, ctx);
-		if (plan.length === 0) {
-			out("\x1b[2m--fix: nothing to fix (no auto-remediable check failed)\x1b[0m");
-		} else {
-			appliedFixes = await applyFixes(plan, ctx, { spawn: opts.fixSpawn });
-			// re-check after the fix mutated the deploy dir. depInstalled reads the
-			// fs live, so the same ctx sees the new node_modules.
-			report = runChecks(ctx);
-		}
-	}
-
 	// The smoke check is opt-in (it spawns a subprocess, so the default doctor
 	// stays pure/offline/fast). A smoke FAIL is a hard failure (like other fails).
 	if (opts.smoke) {
@@ -604,13 +490,6 @@ export async function runDoctor(opts: RunOptions = {}, out: (s: string) => void 
 			return `${c}${s.toUpperCase().padEnd(4)}\x1b[0m`;
 		};
 		out(`\x1b[1mpi-agent doctor\x1b[0m  (mode: ${report.mode})`);
-		if (appliedFixes.length) {
-			out("  \x1b[2m--fix applied:\x1b[0m");
-			for (const f of appliedFixes) {
-				out(`  ${color(f.status)}  ${f.label}${f.detail ? ` — ${f.detail}` : ""}`);
-				if (f.hint) out(`         \x1b[2m↳ ${f.hint}\x1b[0m`);
-			}
-		}
 		for (const c of report.checks) {
 			out(`  ${color(c.status)}  ${c.label}${c.detail ? ` — ${c.detail}` : ""}`);
 			if (c.hint) out(`         \x1b[2m↳ ${c.hint}\x1b[0m`);

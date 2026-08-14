@@ -160,7 +160,7 @@ needs its env-var contract in place (`MLX_MODELS_DIR`, `MLX_OUTPUT_DIR`, `OB_VAU
 [`docs/pi-cross-machine-setup.md`](docs/pi-cross-machine-setup.md), and
 The `cli` subcommand tree ships a `doctor` self-check that verifies everything is wired:
 ```bash
-bun bun-apps/pi-agent/src/cli.ts cli doctor [--json] [--fix]
+bun bun-apps/pi-agent/src/cli.ts cli doctor [--json]
 ```
 ## Build / Deploy modes
 pi-agent ships via four deploy modes, all driven by `../pi-agent-ext-devops/scripts/deploy.ts`.
@@ -305,128 +305,20 @@ while every static check stayed green (`total=8 matched=0` instead of `~38
 matched=25`). A smoke `matched=0` is a hard FAIL with an actionable hint.
 Default doctor stays pure/offline/fast — `--smoke` is opt-in (it spawns a
 subprocess). Skipped (INFO) for the compiled binary, which can't load `.ts`.
-### `doctor --fix` — auto-remediate, then re-check
-```bash
-bun src/cli.ts doctor --fix      # source mode: "nothing to fix" (host-deps is info)
-./run.sh doctor --fix            # any deployed layout
-```
-`--fix` derives a fix plan from the current report, applies it (mutating), then
-re-runs the checks — the same create-then-recheck shape as
-`pi-agent cli doctor --fix`. The decisive pi-agent fix: when a `--snapshot`
-deploy lands on a host whose `node_modules` subset didn't get installed,
-`checkHostDeps` FAILs (typebox/`@earendil-works/*` are essential there) —
-`--fix` runs `bun install` in the deploy dir to self-heal it, then re-checks (snapshot/standalone only):
-```bash
-bun ../pi-agent-ext-devops/scripts/deploy.ts /tmp/pi-snapshot --snapshot
-rm -rf /tmp/pi-snapshot/node_modules
-/tmp/pi-snapshot/run.sh doctor
-/tmp/pi-snapshot/run.sh doctor --fix
-```
-Applies to `--snapshot` too. The default THIN **bundle** is skipped: its `package.json` is
-minimal `{name,private,type}` with no deps, so `bun install` is a no-op there —
-it stays hint-only WARN (copy a `node_modules` in by hand if extensions fail to
-load). `source`/`binary` print "nothing to fix" (host-deps
-is INFO — pi resolves its own deps).
-## Add your own patch
-1. Create `src/patches/<name>.ts` that patches a prototype/module.
-2. Register it (env-gated) in `src/patches/index.ts`.
-`cli.ts` never needs to change.
-## Testing
-`run-test.sh` (now living at `../pi-agent-ext-devops/scripts/run-test.sh`)
-is a multi-effort-level launcher — each level is a superset of the
-one below (cost is driven by the build + deploy, not the tests):
-```bash
-../pi-agent-ext-devops/scripts/run-test.sh                  # = medium  (~11s)  unit + build + patch e2e   [default]
-../pi-agent-ext-devops/scripts/run-test.sh quick            # (~0.2s)   unit only, no build — pre-commit safe
-../pi-agent-ext-devops/scripts/run-test.sh high             # (~46s)    + deploy + 4-cwd extension-loading e2e (bundle/snapshot/standalone)
-../pi-agent-ext-devops/scripts/run-test.sh readonly         # (~6s)     read-only deploy e2e ONLY (freeze + zero-write contract)
-../pi-agent-ext-devops/scripts/run-test.sh full             # (~70s)    + readonly + sibling pi-* unit baseline (whole stack)
-../pi-agent-ext-devops/scripts/run-test.sh --list           # print the tier table
-```
-| Level | Adds | Catches |
-|---|---|---|
-| **quick** | unit (pure fn + import-time smoke) | decision-logic regressions |
-| **medium** | build bundle + patch e2e (`--help`/`--list-models` spawns) | patch module dropped from bundle, env→argv splice, **providers not injected** |
-| **high** | deploy + 4-cwd extension-loading e2e (was `scripts/verify.ts`) | cwd-coupled extension loader, cross-deploy-mode conflicts |
-| **readonly** | frozen-deploy e2e (chmod a-w + foreign-cwd `doctor`/`--smoke` + zero-write assertion) | a patch/extension that writes into the deploy tree; run.sh losing the `JITI_FS_CACHE=0`/`PI_CODING_AGENT_DIR` hardening |
-| **full** | sibling pi-* unit baseline (obs/kc/cli/vlm) | the whole stack pi-agent loads as extensions |
-Plain `bun test` is the `quick` tier (the e2e files skip themselves without
-`PI_AGENT_E2E=1`). medium+ force a fresh build so a stale `dist/` can't mask a
-bundle regression. Extra flags are forwarded to `bun test`
-(`../pi-agent-ext-devops/scripts/run-test.sh high --bail`). Numeric aliases `0-3` work too.
-The bundle e2e lives in `src/__tests__/e2e-*.test.ts`; the two env gates it reads
-are `PI_AGENT_E2E=1` (patches) and `PI_AGENT_E2E_DEPLOY=1` (extensions).
-`bun run verify` runs just the extension-loading e2e (high-tier subset).
-## Layout
-```
-pi-agent/
-├── package.json            # bin: pi-agent → src/cli.ts; also holds the migrated npm extension deps
-├── README.md
-├── run-dir/
-│   ├── manifest.json          # this repo's fixed extension/skill list (eager; edit this)
-│   ├── settings.json          # lazy/opt-in extension aliases (loaded only via -e <alias>)
-│   └── resolve.ts             # resolves manifest.json + lazy aliases to absolute argv
-├── scripts/
-│   ├── deploy.ts               # unified build+deploy: --bundle/--snapshot/--standalone/--exe
-│   ├── generate-embedded-assets.ts  # codegen for --exe's embedded theme/skills/assets
-│   └── lib/
-│       ├── codegen.ts               # pi-pkg-dir.ts / run-dir-base.ts / embedded-assets.ts generators
-│       └── build-extensions.ts      # THIN ext-bundles/*.thin.js builder (bundle/standalone modes)
-└── src/
-    ├── cli.ts                    # entry — `cli` argv intercept, then applyPatches() → main(argv)
-    ├── pre-load-providers.ts     # PROVIDERS config, pure, no side effects (edit this)
-    ├── generated/                # build-time-baked constants (gitignored)
-    ├── cli/                      # the non-interactive `pi-agent cli` namespace
-    │   ├── dispatch.ts               # command table + meta/passthrough routing (runCli)
-    │   ├── args.ts / flag-spec.ts    # pi-CLI-aligned argument parser
-    │   ├── commands/                 # one file per agent command / pipeline / workflow sub-command
-    │   ├── extensions/               # registry.ts + runner.ts for the NL→tool sub-commands
-    │   └── sessions/                 # shared.ts (baked-in factories + registry) + passthrough.ts
-    ├── patches/
-    │   ├── index.ts                    # registry (env-gated) + debug
-    │   ├── pre-load-providers.ts       # the actual ModelRegistry.loadModels monkey-patch
-    │   ├── default-model-env.ts        # bridges PI_MODEL/PI_PROVIDER/PI_THINKING into argv
-    │   └── load-run-dir-resources.ts   # splices run-dir/ into argv
-    └── __tests__/
-        ├── e2e-harness.ts              # shared build + spawn helpers (PI_AGENT_E2E gate)
-        ├── e2e-patches.test.ts         # bundle e2e: every patch fires + env→argv splice
-        └── e2e-extensions.test.ts      # bundle e2e: extension loading across cwd/mode (was verify.ts)
-```
-## Known issues
-- **Standalone binary can't dynamically `-e`-load `.ts` extensions**
-  (`./dist/pi-agent/pi-agent`). In `isBunBinary` mode, jiti feeds each
-  extension as a `data:text/javascript;base64,…` URL; Bun's compiled
-  resolver treats it as a path and fails with `NameTooLong` (`ENAMETOOLONG`).
-  This is a bun-compile + jiti limitation, not a pi-agent regression, and it
-  can't be fixed for extensions loaded that way. **The static extension set
-  sidesteps this** by being statically imported instead (see
-  [Standalone binary](#standalone-binary---exe) above /
-  [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md)) — the
-  binary is not extension-less, just limited to that fixed set. Everything
-  else in `manifest.json` needs **source** / **bundle** mode, or run the
-  binary with `-ne` for a clean start with zero injected extensions (see
-  "Flag semantics: `-ne` / `-ns`" above). Provider injection
-  (`pre-load-providers`) works in the binary regardless.
-## Non-interactive CLI (`pi-agent cli`)
-Everything above is the **interactive TUI** entry. The same package also ships a
-second entry namespace, `cli` — non-interactive, scriptable, single-turn. Use it
-for one-shot automation, or to call a specific agent workflow from a script.
-```bash
-./pi-agent.sh cli <command> [options]                    # from the repo root
-bun bun-apps/pi-agent/src/cli.ts cli <command> [options]  # same, no wrapper
-bun dist/pi-agent/pi-agent.js cli <command>               # deployed bundle
-dist/pi-agent/pi-agent cli <command>                      # deployed --exe
-```
-> The `cli` token is intercepted in `src/cli.ts` **before** `applyPatches()`, so
-> a CLI invocation gets none of the TUI's run-dir splice, provider patch, or
-> static extension factories. Note `bun run --cwd bun-apps/pi-agent cli` is this
-> package's own npm script (`bun src/cli.ts`) and does **not** prepend the token
-> — pass it yourself, or use one of the four forms above.
-Every invocation is a **non-interactive run** (one process, no TUI, no persistent
-session loop). Of these, the agent commands and the passthrough are **single-turn
-agent runs**; the meta commands (`list`, `version`, `completions`, `help`) and
-`workflow run` are non-interactive but **not** agent runs. Vocabulary:
-[CONTEXT.md § Non-interactive CLI](CONTEXT.md#non-interactive-cli).
+### `doctor --fix` — REMOVED
+
+`--fix` used to derive a fix plan and run `bun install` in the deploy dir. It
+never ran: its planner gated on `portable` / `release`, deploy modes nothing can
+produce, so it always printed *nothing to fix* — which reads as "your deploy is
+healthy".
+
+Re-homing it onto `--snapshot` (what this section used to document) was tried
+and rejected on evidence: a snapshot is not a workspace, so `bun install` inside
+its deploy dir fails on every `workspace:*` dependency.
+
+**A deploy artifact is not repairable in place — re-deploy it.** Every check
+that can detect a broken deploy says so in its hint.
+
 ### Baked-in extensions (not run-dir)
 The `cli` namespace imports extension factories **directly** (`src/cli/sessions/shared.ts`),
 rather than loading `run-dir/manifest.json`. `pi-obsidian` is **always-on** (every

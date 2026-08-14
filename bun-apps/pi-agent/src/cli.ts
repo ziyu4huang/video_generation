@@ -61,11 +61,11 @@ if (isDoctorCommand(argv)) {
 	// `--smoke`: opt-in runtime check that actually spawns a probe and verifies
 	// run-dir extensions load (catches the silent-no-op class the static checks
 	// miss). Default doctor stays pure/offline/fast.
-	// `--fix`: opt-in auto-remediate (runs `bun install` for unresolvable host
-	// deps in a portable/release deploy), then re-checks.
+	// (`--fix` was removed — see the "auto-fix: REMOVED" block in doctor.ts.
+	// It gated on deploy modes nothing can produce, and its one action cannot
+	// repair any mode that exists.)
 	const report = await runDoctor({
 		json: argv.includes("--json"),
-		fix: argv.includes("--fix"),
 		smoke: argv.includes("--smoke"),
 	});
 	process.exit(report.ok ? 0 : 1);

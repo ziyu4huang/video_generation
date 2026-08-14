@@ -13,8 +13,6 @@ import {
 	checkProviders,
 	smokeMarker,
 	runSmokeCheck,
-	planFixes,
-	applyFixes,
 	type DoctorContext,
 } from "./doctor.ts";
 
@@ -33,23 +31,30 @@ function ctx(over: Partial<DoctorContext> & { mode: DoctorContext["mode"] }): Do
 }
 
 describe("classifyMode", () => {
+	// `portable` and `release` were removed: nothing writes .deploy-portable or a
+	// packages/ dir, so those branches — and the ~15 tests that were the only
+	// thing exercising them — could never fire in production.
 	test("binary stays binary regardless of markers", () => {
-		expect(classifyMode("binary", { dotDeployBundle: true, dotDeployPortable: true, packages: true })).toBe("binary");
+		expect(classifyMode("binary", { dotDeployBundle: true })).toBe("binary");
 	});
 	test("source stays source regardless of markers", () => {
-		expect(classifyMode("source", { dotDeployBundle: true, dotDeployPortable: true, packages: true })).toBe("source");
+		expect(classifyMode("source", { dotDeployBundle: true })).toBe("source");
 	});
-	test("bundle coarse → portable when .deploy-portable marker", () => {
-		expect(classifyMode("bundle", { dotDeployBundle: true, dotDeployPortable: true, packages: false })).toBe("portable");
+	test("bundle coarse → bundle when .deploy-bundle present", () => {
+		expect(classifyMode("bundle", { dotDeployBundle: true })).toBe("bundle");
 	});
-	test("bundle coarse → release when packages/ present", () => {
-		expect(classifyMode("bundle", { dotDeployBundle: true, dotDeployPortable: false, packages: true })).toBe("release");
+	test("bundle coarse with no marker → bundle (plain pi-agent.js)", () => {
+		expect(classifyMode("bundle", { dotDeployBundle: false })).toBe("bundle");
 	});
-	test("bundle coarse → bundle when only .deploy-bundle", () => {
-		expect(classifyMode("bundle", { dotDeployBundle: true, dotDeployPortable: false, packages: false })).toBe("bundle");
-	});
-	test("bundle coarse with no markers → bundle (plain pi-agent.js)", () => {
-		expect(classifyMode("bundle", { dotDeployBundle: false, dotDeployPortable: false, packages: false })).toBe("bundle");
+	test("every mode it can return is one deploy.ts can actually produce", () => {
+		// The guard that would have caught the original drift: doctor's mode set
+		// must not outgrow the deploy script's.
+		const produced = new Set(["source", "bundle", "binary"]);
+		for (const coarse of ["source", "bundle", "binary"] as const) {
+			for (const dotDeployBundle of [true, false]) {
+				expect(produced.has(classifyMode(coarse, { dotDeployBundle }))).toBe(true);
+			}
+		}
 	});
 });
 
@@ -58,23 +63,27 @@ describe("checkHostDeps (mode-aware severity)", () => {
 	test("source → INFO regardless of resolution (pi resolves its own deps)", () => {
 		expect(checkHostDeps(ctx({ mode: "source", ...noDeps })).status).toBe("info");
 	});
-	test("portable → FAIL when deps unresolvable (node_modules essential)", () => {
-		const r = checkHostDeps(ctx({ mode: "portable", ...noDeps }));
-		expect(r.status).toBe("fail");
-		expect(r.detail).toContain("typebox");
+	test("bundle → PASS when deps installed", () => {
+		expect(checkHostDeps(ctx({ mode: "bundle" })).status).toBe("pass");
 	});
-	test("portable → PASS when deps installed", () => {
-		expect(checkHostDeps(ctx({ mode: "portable" })).status).toBe("pass");
+	test("no mode can hard-fail — the only fail path keyed on `portable`", () => {
+		// Recorded deliberately rather than left implicit: for every mode that
+		// EXISTS, missing host deps are recoverable (bundle works via baked abs
+		// paths) or irrelevant (source/binary resolve their own). A future fail
+		// path needs a mode where they are genuinely essential.
+		for (const mode of ["source", "bundle", "binary"] as const) {
+			expect(checkHostDeps(ctx({ mode, ...noDeps })).status).not.toBe("fail");
+		}
 	});
 	test("bundle (THIN default) → WARN (not fail) when deps unresolvable — works via abs paths", () => {
 		const r = checkHostDeps(ctx({ mode: "bundle", ...noDeps }));
 		expect(r.status).toBe("warn");
 	});
 
-	test("fails (portable) when @earendil-works/pi-agent-core is missing, even though typebox + pi-coding-agent resolve", () => {
+	test("names the specific missing dep (bundle) when only pi-agent-core is absent", () => {
 		const depInstalled = (spec: string) => spec !== "@earendil-works/pi-agent-core";
-		const r = checkHostDeps(ctx({ mode: "portable", depInstalled }));
-		expect(r.status).toBe("fail");
+		const r = checkHostDeps(ctx({ mode: "bundle", depInstalled }));
+		expect(r.status).toBe("warn");
 		expect(r.detail).toContain("@earendil-works/pi-agent-core");
 	});
 
@@ -91,28 +100,11 @@ describe("checkExtensions (mode-aware)", () => {
 		expect(checkExtensions(ctx({ mode: "source" })).status).toBe("info");
 		expect(checkExtensions(ctx({ mode: "binary" })).status).toBe("info");
 	});
-	test("portable → FAIL when ext-bundles short of extensions+npmExtensions", () => {
-		const want = (manifest.extensions?.length ?? 0) + (manifest.npmExtensions?.length ?? 0);
-		const r = checkExtensions(ctx({ mode: "portable", listDir: () => ["a.js", "b.js"] }));
-		expect(r.status).toBe("fail");
-		expect(r.detail).toContain(`≥ ${want}`);
-	});
-	test("portable → PASS when ext-bundles ≥ extensions+npmExtensions", () => {
-		const want = (manifest.extensions?.length ?? 0) + (manifest.npmExtensions?.length ?? 0);
-		const files = Array.from({ length: want }, (_, i) => `e${i}.js`);
-		expect(checkExtensions(ctx({ mode: "portable", listDir: () => files })).status).toBe("pass");
-	});
 	test("bundle → compares against extensions only (npm exts via baked abs paths)", () => {
 		const want = manifest.extensions?.length ?? 0;
 		const files = Array.from({ length: want }, (_, i) => `e${i}.js`);
 		expect(checkExtensions(ctx({ mode: "bundle", listDir: () => files })).status).toBe("pass");
 		expect(checkExtensions(ctx({ mode: "bundle", listDir: () => ["one.js"] })).status).toBe("fail");
-	});
-	test("release → FAIL when packages/ empty", () => {
-		expect(checkExtensions(ctx({ mode: "release", listDir: () => [] })).status).toBe("fail");
-	});
-	test("release → PASS when packages/ non-empty", () => {
-		expect(checkExtensions(ctx({ mode: "release", listDir: () => ["pi-file2md", "zai-mcp"] })).status).toBe("pass");
 	});
 	test("only counts .js (ignores stray non-js files in ext-bundles)", () => {
 		const want = manifest.extensions?.length ?? 0;
@@ -134,17 +126,15 @@ describe("checkProviders", () => {
 
 describe("runChecks (aggregate)", () => {
 	test("ok=true when no FAIL", () => {
-		// expectedExtCount(portable) = manifest.extensions + npmExtensions; keep the
-		// fake bundle count in lockstep with the manifest so this test doesn't rot
-		// every time an extension is added (the other checkExtensions tests already
-		// derive `want` from the manifest the same way).
-		const want = (manifest.extensions?.length ?? 0) + (manifest.npmExtensions?.length ?? 0);
-		const r = runChecks(ctx({ mode: "portable", listDir: () => Array.from({ length: want }, (_, i) => `e${i}.js`) }));
+		// Derive the fake bundle count from the manifest so this doesn't rot every
+		// time an extension is added.
+		const want = manifest.extensions?.length ?? 0;
+		const r = runChecks(ctx({ mode: "bundle", listDir: () => Array.from({ length: want }, (_, i) => `e${i}.js`) }));
 		expect(r.ok).toBe(true);
-		expect(r.mode).toBe("portable");
+		expect(r.mode).toBe("bundle");
 	});
-	test("ok=false when any FAIL", () => {
-		const r = runChecks(ctx({ mode: "portable", depInstalled: () => false, listDir: () => [] }));
+	test("ok=false when any FAIL (bundle with an empty ext-bundles/)", () => {
+		const r = runChecks(ctx({ mode: "bundle", depInstalled: () => false, listDir: () => [] }));
 		expect(r.ok).toBe(false);
 	});
 	test("source mode never hard-fails (host-deps is info)", () => {
@@ -160,12 +150,6 @@ describe("smokeMarker (pure)", () => {
 	});
 	test("bundle → <selfDir>/ext-bundles", () => {
 		expect(smokeMarker("bundle", "/out")).toBe("/out/ext-bundles");
-	});
-	test("portable → <selfDir>/ext-bundles (same as bundle)", () => {
-		expect(smokeMarker("portable", "/out")).toBe("/out/ext-bundles");
-	});
-	test("release → <selfDir>/packages", () => {
-		expect(smokeMarker("release", "/out")).toBe("/out/packages");
 	});
 	test("binary → the static-factory source prefix (tools report path '<inline:<pkg>>')", () => {
 		expect(smokeMarker("binary", "/out")).toBe("<inline:");
@@ -205,83 +189,3 @@ describe("runSmokeCheck (via injected spawn seam)", () => {
 	});
 });
 
-describe("planFixes (pure)", () => {
-	// Build a real report via runChecks so planFixes sees the actual host-deps
-	// CheckResult (status + detail) produced by checkHostDeps for that mode.
-	const reportFor = (c: DoctorContext) => runChecks(c);
-
-	test("portable + host-deps FAIL → plans one bun-install fix", () => {
-		const c = ctx({ mode: "portable", depInstalled: () => false });
-		const plan = planFixes(reportFor(c), c);
-		expect(plan).toHaveLength(1);
-		expect(plan[0]!.id).toBe("host-deps");
-		expect(plan[0]!.label).toContain("bun install");
-		expect(plan[0]!.reason).toContain("portable");
-	});
-
-	test("release + host-deps WARN → plans the fix", () => {
-		// release host-deps is WARN (not fail) when unresolvable — still fixable.
-		const c = ctx({ mode: "release", depInstalled: () => false, listDir: () => ["pi-file2md", "zai-mcp"] });
-		const plan = planFixes(reportFor(c), c);
-		expect(plan).toHaveLength(1);
-		expect(plan[0]!.reason).toContain("release");
-	});
-
-	test("bundle (THIN default) + host-deps WARN → NO fix (no deps to install)", () => {
-		const c = ctx({ mode: "bundle", depInstalled: () => false, listDir: () => ["e0.js"] });
-		expect(planFixes(reportFor(c), c)).toEqual([]);
-	});
-
-	test("source/binary → NO fix (host-deps is info — pi resolves its own)", () => {
-		expect(planFixes(reportFor(ctx({ mode: "source", depInstalled: () => false })), ctx({ mode: "source" }))).toEqual([]);
-		expect(planFixes(reportFor(ctx({ mode: "binary", depInstalled: () => false })), ctx({ mode: "binary" }))).toEqual([]);
-	});
-
-	test("portable + host-deps PASS → NO fix (nothing broken)", () => {
-		const c = ctx({ mode: "portable", depInstalled: () => true });
-		expect(planFixes(reportFor(c), c)).toEqual([]);
-	});
-});
-
-describe("applyFixes (via injected FixSpawn seam)", () => {
-	const planFrom = (c: DoctorContext) => planFixes(runChecks(c), c);
-
-	test("spawns `bun install` at ctx.selfDir; code 0 → PASS CheckResult", async () => {
-		const c = ctx({ mode: "portable", depInstalled: () => false, selfDir: "/out" });
-		let seenCwd: string | null = null;
-		const spawn = async (args: { cwd: string }) => {
-			seenCwd = args.cwd;
-			return { code: 0, stderr: "" };
-		};
-		const results = await applyFixes(planFrom(c), c, { spawn });
-		// `seenCwd` is assigned inside an async callback the type checker can't
-		// see run, so CFA narrows it back to its initial `null`. The runtime
-		// assertion still holds (applyFixes was awaited → spawn ran).
-		expect(seenCwd as unknown as string).toBe("/out");
-		expect(results).toHaveLength(1);
-		expect(results[0]!.status).toBe("pass");
-		expect(results[0]!.id).toBe("fix:host-deps");
-	});
-
-	test("non-zero exit → FAIL CheckResult carrying the stderr tail", async () => {
-		const c = ctx({ mode: "portable", depInstalled: () => false });
-		const spawn = async () => ({ code: 1, stderr: "error: no package.json found" });
-		const results = await applyFixes(planFrom(c), c, { spawn });
-		expect(results).toHaveLength(1);
-		expect(results[0]!.status).toBe("fail");
-		expect(results[0]!.detail).toContain("exited 1");
-		expect(results[0]!.hint).toContain("no package.json");
-	});
-
-	test("empty plan → no spawn, returns []", async () => {
-		let spawned = false;
-		const results = await applyFixes([], ctx({ mode: "portable" }), {
-			spawn: async () => {
-				spawned = true;
-				return { code: 0, stderr: "" };
-			},
-		});
-		expect(spawned).toBe(false);
-		expect(results).toEqual([]);
-	});
-});
