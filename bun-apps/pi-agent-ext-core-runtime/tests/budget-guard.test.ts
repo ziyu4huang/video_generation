@@ -55,7 +55,7 @@ describe("createBudgetGuard — tokenBudget two-stage wrap-up", () => {
     expect(guard.exhausted).toBeUndefined();
   });
 
-  test("second crossing → session aborted for real with kind 'tokens'", () => {
+  test("second crossing after delivered grace turn → session aborted for real with kind 'tokens'", () => {
     const { session, sent, calls } = fakeSession(0, 0);
     const guard = createBudgetGuard(session, { tokenBudget: 1000 });
 
@@ -64,8 +64,12 @@ describe("createBudgetGuard — tokenBudget two-stage wrap-up", () => {
     expect(guard.wrapUpIssued).toBe(true);
     expect(calls.abortCount).toBe(0);
 
-    // The grace (wrap-up) turn ends — turn_end re-arms the abort — and with
-    // tokens still over budget the abort fires with the exact
+    // The wrap-up followUp is delivered (user-role message event)...
+    guard.check({ type: "message_start", message: { role: "user" } });
+    expect(calls.abortCount).toBe(0);
+
+    // ...then the grace (wrap-up) turn ends — turn_end re-arms the abort — and
+    // with tokens still over budget the abort fires with the exact
     // BudgetExhaustion payload the run() error path surfaces as status "budget".
     calls.setTokens(1800);
     guard.check({ type: "turn_end" });
@@ -75,7 +79,64 @@ describe("createBudgetGuard — tokenBudget two-stage wrap-up", () => {
     expect(sent).toHaveLength(1);
   });
 
-  test("event storm after wrap-up issuance — non-turn_end checks never abort; turn_end re-arms so the next check aborts with kind 'tokens'", () => {
+  test("real sequence: issuing turn_end does NOT abort/re-arm; abort only after followUp delivery + grace turn_end", () => {
+    const { session, sent, calls } = fakeSession(0, 0);
+    const guard = createBudgetGuard(session, { tokenBudget: 1000 });
+
+    // First crossing issues the wrap-up on a tool-carrying turn — pi-agent-core
+    // drains followUps ONLY at a natural stop, so the ISSUING turn's own
+    // turn_end fires while the wrap-up followUp is still queued. That turn_end
+    // must neither abort nor re-arm (the old guard re-armed here and killed
+    // the run before the grace turn ever ran).
+    calls.setTokens(1200);
+    guard.check({ type: "tool_execution_start" });
+    expect(guard.wrapUpIssued).toBe(true);
+    expect(calls.abortCount).toBe(0);
+
+    guard.check({ type: "tool_execution_end" });
+    expect(calls.abortCount).toBe(0);
+
+    // Issuing turn ends — grace still in-flight (followUp not delivered yet).
+    guard.check({ type: "turn_end" });
+    expect(calls.abortCount).toBe(0);
+    expect(guard.exhausted).toBeUndefined();
+    // A second turn_end before delivery is equally inert (continuation turns).
+    guard.check({ type: "turn_end" });
+    expect(calls.abortCount).toBe(0);
+
+    // Grace turn begins: turn_start, then the queued wrap-up followUp is
+    // drained and emitted as a USER-role message pair — the delivery signal.
+    guard.check({ type: "turn_start" });
+    expect(calls.abortCount).toBe(0);
+    guard.check({ type: "message_start", message: { role: "user" } });
+    expect(calls.abortCount).toBe(0);
+    guard.check({ type: "message_end", message: { role: "user" } });
+    expect(calls.abortCount).toBe(0);
+
+    // The grace (final) turn streams its flush-to-disk reply — assistant
+    // message events with tokens still (monotonically) over budget must not
+    // abort mid-stream.
+    calls.setTokens(1500);
+    guard.check({ type: "message_start", message: { role: "assistant" } });
+    guard.check({ type: "message_update", message: { role: "assistant" } });
+    guard.check({ type: "message_end", message: { role: "assistant" } });
+    expect(calls.abortCount).toBe(0);
+
+    // Grace turn ends — re-arm, and with tokens still over budget (monotonic)
+    // this very check hard-aborts with the exact BudgetExhaustion payload
+    // run() surfaces as status "budget".
+    guard.check({ type: "turn_end" });
+    expect(calls.abortCount).toBe(1);
+    expect(guard.exhausted).toEqual({ kind: "tokens", limit: 1000, actual: 1500 });
+    // Exactly one wrap-up message, ever.
+    expect(sent).toHaveLength(1);
+
+    // No third turn: further checks are inert (guard already exhausted).
+    guard.check({ type: "turn_end" });
+    expect(calls.abortCount).toBe(1);
+  });
+
+  test("no-delivery event storm after wrap-up issuance — non-turn_end checks never abort", () => {
     const { session, sent, calls } = fakeSession(0, 0);
     const guard = createBudgetGuard(session, { tokenBudget: 1000 });
 
@@ -110,8 +171,23 @@ describe("createBudgetGuard — tokenBudget two-stage wrap-up", () => {
     guard.check({ type: "tool_execution_end" });
     expect(calls.abortCount).toBe(0);
 
-    // The grace turn completes (turn_end) — abort re-arms with old
-    // semantics, so the next token-exhaustion check aborts for real.
+    // turn_end events BEFORE delivery belong to the issuing/continuation
+    // turns — no abort, no re-arm (the grace turn has not run yet).
+    guard.check({ type: "turn_end" });
+    expect(calls.abortCount).toBe(0);
+    expect(guard.exhausted).toBeUndefined();
+
+    // Even a turn_start without the user-role delivery does not re-arm.
+    guard.check({ type: "turn_start" });
+    expect(calls.abortCount).toBe(0);
+
+    // Delivery: the wrap-up followUp lands as a user-role message pair.
+    guard.check({ type: "message_start", message: { role: "user" } });
+    guard.check({ type: "message_end", message: { role: "user" } });
+    expect(calls.abortCount).toBe(0);
+
+    // The grace turn completes (turn_end AFTER delivery) — abort re-arms and,
+    // with tokens still over budget, this very check aborts for real.
     guard.check({ type: "turn_end" });
     expect(calls.abortCount).toBe(1);
     expect(guard.exhausted).toEqual({ kind: "tokens", limit: 1000, actual: 1500 });
@@ -152,6 +228,23 @@ describe("createBudgetGuard — tokenBudget two-stage wrap-up", () => {
     expect(guard.exhausted?.kind).toBe("tokens");
     expect(sent).toHaveLength(0);
     expect(guard.wrapUpIssued).toBe(false);
+  });
+
+  test("spend hard-abort fires mid-grace even before followUp delivery", () => {
+    const { session, sent, calls } = fakeSession(0, 0);
+    const guard = createBudgetGuard(session, { tokenBudget: 1000, spendBudget: 5 });
+
+    calls.setTokens(1200);
+    guard.check({ type: "tool_execution_start" }); // wrap-up issued, grace in-flight
+    expect(calls.abortCount).toBe(0);
+
+    // Spend crosses while the wrap-up is still queued (issuing turn's turn_end,
+    // not yet delivered) — money valve: immediate hard abort regardless.
+    calls.setCost(6);
+    guard.check({ type: "turn_end" });
+    expect(calls.abortCount).toBe(1);
+    expect(guard.exhausted?.kind).toBe("tokens");
+    expect(sent).toHaveLength(1);
   });
 
   test("wrap-up already issued, then spend crosses → hard abort", () => {
