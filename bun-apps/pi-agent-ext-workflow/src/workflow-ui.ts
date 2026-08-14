@@ -17,14 +17,8 @@ import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi
 import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
 import { parseKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
-import { summarizeLatestAction } from "@repo/pi-agent-ext-core-runtime";
-import {
-  type ActivityRow,
-  fmtDuration,
-  renderActivityRow,
-  type WorkflowAgentSnapshot,
-  type WorkflowSnapshot,
-} from "./display.js";
+import { type ActivityRow, renderActivityRow, summarizeLatestAction } from "@repo/pi-agent-ext-core-runtime";
+import { fmtDuration, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
 import type { PersistedRunState } from "./run-persistence.js";
 import { registerSavedWorkflow } from "./saved-commands.js";
 import type { WorkflowManager } from "./workflow-manager.js";

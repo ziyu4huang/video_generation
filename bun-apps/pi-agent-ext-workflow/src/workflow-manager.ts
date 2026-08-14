@@ -8,8 +8,8 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SubagentInFlightRegistry, WorkflowAgent } from "@repo/pi-agent-ext-core-runtime";
-import { WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
-import { preview, type WorkflowSnapshot } from "./display.js";
+import { preview, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
+import type { WorkflowSnapshot } from "./display.js";
 import type { HostFnRegistry } from "./host-fn-registry.js";
 import { mirrorIntermediate } from "./pack-run-context.js";
 import {

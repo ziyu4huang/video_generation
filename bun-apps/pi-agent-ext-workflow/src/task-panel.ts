@@ -8,15 +8,14 @@
 
 import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { summarizeLatestAction } from "@repo/pi-agent-ext-core-runtime";
 import {
   type ActivityRow,
   fmtTokensShort,
   renderActivityRow,
   shorten,
-  type WorkflowAgentSnapshot,
-  type WorkflowSnapshot,
-} from "./display.js";
+  summarizeLatestAction,
+} from "@repo/pi-agent-ext-core-runtime";
+import type { WorkflowAgentSnapshot, WorkflowSnapshot } from "./display.js";
 import type { PersistedRunState } from "./run-persistence.js";
 import type { ManagedRun, WorkflowManager } from "./workflow-manager.js";
 import type { WorkflowStorage } from "./workflow-saved.js";

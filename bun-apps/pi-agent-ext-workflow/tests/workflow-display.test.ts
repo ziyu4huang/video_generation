@@ -51,6 +51,10 @@ async function loadDisplay() {
   return import("../src/display.js");
 }
 
+async function loadCore() {
+  return import("@repo/pi-agent-ext-core-runtime");
+}
+
 async function loadTaskPanel() {
   return import("../src/task-panel.js");
 }
@@ -495,36 +499,36 @@ describe("workflow tool result formatting", () => {
 
 describe("display pure helpers", () => {
   it("preview returns string for number 0", async () => {
-    const { preview } = await loadDisplay();
+    const { preview } = await loadCore();
     assert.equal(preview(0), "0");
   });
 
   it("preview returns 'true' for boolean true", async () => {
-    const { preview } = await loadDisplay();
+    const { preview } = await loadCore();
     assert.equal(preview(true), "true");
     assert.equal(preview(false), "false");
   });
 
   it("preview returns empty for undefined", async () => {
-    const { preview } = await loadDisplay();
+    const { preview } = await loadCore();
     assert.equal(preview(undefined), "");
   });
 
   it("preview truncates long JSON strings", async () => {
-    const { preview } = await loadDisplay();
+    const { preview } = await loadCore();
     const result = preview("x".repeat(200));
     assert.ok(result.length <= 85, "should truncate with max 80 + …");
     assert.ok(result.endsWith("…"), "should end with …");
   });
 
   it("preview accepts custom max length", async () => {
-    const { preview } = await loadDisplay();
+    const { preview } = await loadCore();
     const result = preview("x".repeat(50), 10);
     assert.ok(result.length <= 14, "should respect custom max");
   });
 
   it("preview handles arrays", async () => {
-    const { preview } = await loadDisplay();
+    const { preview } = await loadCore();
     const arr = [1, 2, 3, 4, 5];
     const result = preview(arr, 50);
     assert.ok(result.length > 0, "result should not be empty");
@@ -549,7 +553,7 @@ describe("display pure helpers", () => {
 
 describe("activityGlyph", () => {
   it("returns the expected icon for every agent-level status", async () => {
-    const { activityGlyph } = await loadDisplay();
+    const { activityGlyph } = await loadCore();
     assert.equal(activityGlyph("queued").icon, "○");
     assert.equal(activityGlyph("running").icon, "●");
     assert.equal(activityGlyph("done").icon, "✓");
@@ -564,7 +568,7 @@ describe("renderActivityRow", () => {
   const theme = { fg: (_c: string, t: string) => t, bold: (t: string) => t };
 
   it("renders icon, actor, model, and tokens", async () => {
-    const { renderActivityRow } = await loadDisplay();
+    const { renderActivityRow } = await loadCore();
     const line = renderActivityRow(
       { status: "done", actor: "audit_routes", model: "anthropic/claude-haiku-4-5", tokens: 2100 },
       theme,
@@ -575,13 +579,13 @@ describe("renderActivityRow", () => {
   });
 
   it("shows the badge before the icon when present", async () => {
-    const { renderActivityRow } = await loadDisplay();
+    const { renderActivityRow } = await loadCore();
     const line = renderActivityRow({ status: "running", actor: "audit_auth", badge: "[2]" }, theme);
     assert.ok(line.startsWith("[2] ● audit_auth"), `expected badge prefix, got: ${line}`);
   });
 
   it("shows latestAction when present, taking priority over detail", async () => {
-    const { renderActivityRow } = await loadDisplay();
+    const { renderActivityRow } = await loadCore();
     const line = renderActivityRow(
       { status: "running", actor: "worker", latestAction: "▸ grep", detail: "static task text" },
       theme,
@@ -591,32 +595,32 @@ describe("renderActivityRow", () => {
   });
 
   it("falls back to detail (truncated) when latestAction is absent", async () => {
-    const { renderActivityRow } = await loadDisplay();
+    const { renderActivityRow } = await loadCore();
     const line = renderActivityRow({ status: "done", actor: "worker", detail: "a finished task" }, theme);
     assert.ok(line.includes("a finished task"), `expected detail text, got: ${line}`);
   });
 
   it("omits every optional segment cleanly when absent", async () => {
-    const { renderActivityRow } = await loadDisplay();
+    const { renderActivityRow } = await loadCore();
     const line = renderActivityRow({ status: "queued", actor: "worker" }, theme);
     assert.equal(line.trim(), "○ worker");
   });
 
   it("shows elapsed time and tool-call count when present", async () => {
-    const { renderActivityRow } = await loadDisplay();
+    const { renderActivityRow } = await loadCore();
     const line = renderActivityRow({ status: "running", actor: "worker", elapsedMs: 1500, toolCalls: 1 }, theme);
     assert.match(line, /1\.5s/);
     assert.match(line, /1 call\b/);
   });
 
   it("shows the full provider/id model (does not strip the prefix)", async () => {
-    const { renderActivityRow } = await loadDisplay();
+    const { renderActivityRow } = await loadCore();
     const line = renderActivityRow({ status: "running", actor: "worker", model: "zai/glm-5.2" }, theme);
     assert.ok(line.includes("zai/glm-5.2"), `should keep the provider prefix, got: ${line}`);
   });
 
   it("pluralizes tool-call count", async () => {
-    const { renderActivityRow } = await loadDisplay();
+    const { renderActivityRow } = await loadCore();
     const line = renderActivityRow({ status: "running", actor: "worker", toolCalls: 3 }, theme);
     assert.match(line, /3 calls/);
   });
