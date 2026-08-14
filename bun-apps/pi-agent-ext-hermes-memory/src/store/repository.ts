@@ -78,6 +78,14 @@ export interface MemoryListOptions { project?: string | null; target?: MemoryTar
 export interface MemoryStats { total: number; byProject: { project: string | null; count: number }[]; byTarget: { target: string; count: number }[]; }
 
 export interface MemoryRepository {
+  /** C6: exact-dup dedup is part of THIS contract. Dedup identity mirrors
+   *  syncMemoryEntry's: target + project + category + content (exact
+   *  equality, NULL-aware). When a row with the identical identity already
+   *  exists, NO duplicate row is inserted and the EXISTING entry is returned
+   *  (identical calls return the same id). Contrast syncMemoryEntry, which
+   *  additionally merges into the existing row and reports its action.
+   *  Near-dup / topic-level dedup (similarity, semantic keys) stays a
+   *  MemoryStore-layer concern — NOT part of this repository contract. */
   addMemory(input: {
     content: string; target?: MemoryTarget; project?: string | null;
     category?: import("../types.js").MemoryCategory | null;

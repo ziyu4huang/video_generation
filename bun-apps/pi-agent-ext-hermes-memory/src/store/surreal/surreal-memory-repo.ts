@@ -351,6 +351,21 @@ export class SurrealMemoryRepository implements MemoryRepository {
     state?: FailureState; severity?: number | null;
     pin?: boolean;
   }): Promise<MemoryEntry> {
+    // C6: exact-dup dedup is part of the MemoryRepository contract — mirror
+    // the sync path's identity (target + project + category + content, exact
+    // equality, NULL-aware) before CREATE. Hit → return the EXISTING row; no
+    // duplicate is written (the existing row's graph edges stay untouched).
+    const dedupScope = buildScope(
+      input.target ?? "memory",
+      input.project ?? null,
+      input.category ?? null,
+    );
+    const dup = (await this.c.query<Row[]>(
+      `SELECT ${FIELDS} FROM memories ${dedupScope.where}${dedupScope.where ? " AND" : " WHERE"} content = $content ORDER BY seq ASC LIMIT 1;`,
+      { ...dedupScope.params, content: input.content },
+    ))[0];
+    if (dup) return mapRow(dup);
+
     const created = input.created ?? today();
     const lastReferenced = input.lastReferenced ?? created;
     // Task 7 / F1: stamp the stable id at birth (NONE when the caller omitted it).
