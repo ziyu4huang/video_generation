@@ -528,3 +528,105 @@ describe("WebServer setHttpRoutes", () => {
     expect(res.status).toBe(404); // falls back to the default not-found branch
   });
 });
+
+// --- WebServer buildServeOptions (idle-timeout fix) ------------------------
+
+describe("WebServer buildServeOptions", () => {
+  it("disables the Bun.serve idle timeout (idleTimeout === 0)", () => {
+    const s = makeServer();
+    const opts = s.buildServeOptions("127.0.0.1", 8099);
+    // Bun's default 10s idle timeout kills idle SSE (/api/events) connections
+    // and floods the agent TUI with stderr "[Bun.serve]: request timed out".
+    expect(opts.idleTimeout).toBe(0);
+  });
+
+  it("disables the websocket idle timeout too (silent HITL gates must survive)", () => {
+    const s = makeServer();
+    const opts = s.buildServeOptions("127.0.0.1", 8099);
+    // Bun's WS default (120s idle) would close the WS -> onWsClose ->
+    // cancelAllPending while a user is still thinking about a HITL prompt.
+    expect(opts.websocket?.idleTimeout).toBe(0);
+  });
+
+  it("keeps hostname/port/fetch and wires the websocket open/message/close handlers", () => {
+    const s = makeServer();
+    const opts = s.buildServeOptions("127.0.0.1", 8123);
+    expect(opts.hostname).toBe("127.0.0.1");
+    expect(opts.port).toBe(8123);
+    expect(typeof opts.fetch).toBe("function");
+    expect(typeof opts.websocket?.open).toBe("function");
+    expect(typeof opts.websocket?.message).toBe("function");
+    expect(typeof opts.websocket?.close).toBe("function");
+  });
+
+  it("the websocket close handler still invokes onWsClose (behavior unchanged)", () => {
+    const s = makeServer();
+    let closed = 0;
+    s.setWsCloseHandler(() => {
+      closed++;
+    });
+    const opts = s.buildServeOptions("127.0.0.1", 8123);
+    // Simulate open+close with a minimal fake socket routed through the
+    // handlers exactly as Bun would invoke them.
+    const ws = { send() {} } as never;
+    opts.websocket!.open!(ws as never);
+    expect(s.clientCount).toBe(1);
+    opts.websocket!.close!(ws as never);
+    expect(s.clientCount).toBe(0);
+    expect(closed).toBe(1);
+  });
+});
+
+// --- WebServer /api/logs ring buffer ----------------------------------------
+
+describe("WebServer /api/logs", () => {
+  it("records server start, ws open and ws close (newest-last JSON array)", async () => {
+    const s = makeServer({ port: 0 });
+    s.start();
+    const ws = await withTimeout(openWs(`${s.url.replace("http", "ws")}/ws`), 2000, "ws open");
+    await waitFor("client registered", () => s.clientCount === 1);
+    ws.close();
+    await waitFor("client pruned", () => s.clientCount === 0);
+    const res = await fetch(`${s.url}/api/logs`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const logs = (await res.json()) as Array<{ ts: number; level: string; msg: string }>;
+    expect(Array.isArray(logs)).toBe(true);
+    const msgs = logs.map((l) => l.msg);
+    const iStart = msgs.findIndex((m) => m.includes("listening"));
+    const iOpen = msgs.findIndex((m) => m.includes("ws open"));
+    const iClose = msgs.findIndex((m) => m.includes("ws close"));
+    expect(iStart).toBeGreaterThanOrEqual(0);
+    expect(iOpen).toBeGreaterThan(iStart);
+    expect(iClose).toBeGreaterThan(iOpen);
+    // every entry carries the {ts, level, msg} shape
+    for (const l of logs) {
+      expect(typeof l.ts).toBe("number");
+      expect(typeof l.level).toBe("string");
+      expect(typeof l.msg).toBe("string");
+    }
+  });
+
+  it("serves /api/logs BEFORE the installed httpRoutes (unshadowable) and with none installed", async () => {
+    // A greedy httpRoutes handler that would otherwise claim every path.
+    const s = makeServer({ port: 0 });
+    s.setHttpRoutes(() => new Response("shadowed", { status: 418 }));
+    s.start();
+    const res = await fetch(`${s.url}/api/logs`);
+    expect(res.status).toBe(200);
+    const logs = (await res.json()) as Array<{ msg: string }>;
+    expect(logs.some((l) => l.msg.includes("listening"))).toBe(true);
+  });
+
+  it("records server stop (and the log buffer persists across stop/start)", async () => {
+    const s = makeServer({ port: 0 });
+    s.start();
+    s.stop();
+    s.start(); // same instance — the ring buffer survives the restart
+    const res = await fetch(`${s.url}/api/logs`);
+    const msgs = ((await res.json()) as Array<{ msg: string }>).map((l) => l.msg);
+    expect(msgs.some((m) => m.includes("stopped"))).toBe(true);
+    expect(msgs.filter((m) => m.includes("listening"))).toHaveLength(2);
+  });
+});

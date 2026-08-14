@@ -159,3 +159,32 @@ describe("createRenderRoutes — GET /api/events (SSE)", () => {
     await waitFor("subscriber removed", () => registry.subscriberCount === 0, 2000);
   });
 });
+
+// --- GET /api/events heartbeat ----------------------------------------------
+
+describe("createRenderRoutes — GET /api/events heartbeat", () => {
+  it("emits ': ping' comment frames at the injected heartbeatMs interval", async () => {
+    const registry = new RenderService({ urlFor: (id) => `http://t/#${id}`, now: () => 1000 });
+    const server = makeServer({ port: 0 });
+    server.setHttpRoutes(createRenderRoutes(registry, { heartbeatMs: 20 }));
+    server.start();
+
+    const ctrl = new AbortController();
+    const res = await fetch(`${server.url}/api/events`, { signal: ctrl.signal });
+    expect(res.status).toBe(200);
+    const reader = res.body!.getReader();
+    const dec = new TextDecoder();
+
+    // initial comment frame
+    const first = await withTimeout(reader.read(), 2000, "no initial chunk");
+    expect(dec.decode(first.value ?? new Uint8Array(), { stream: true })).toContain(": connected");
+
+    // the next chunk (well within 2s for a 20ms heartbeat) is the heartbeat
+    const second = await withTimeout(reader.read(), 2000, "no heartbeat chunk");
+    expect(dec.decode(second.value ?? new Uint8Array(), { stream: true })).toBe(": ping\n\n");
+
+    // abort is clean (no throw) and unsubscribes
+    expect(() => ctrl.abort()).not.toThrow();
+    await waitFor("subscriber removed", () => registry.subscriberCount === 0, 2000);
+  });
+});

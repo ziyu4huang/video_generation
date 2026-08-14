@@ -371,10 +371,14 @@ describe("wireWebui live smoke — Tier A", () => {
     expect(root.status).toBe(200);
     const views = await fetch(`${server.url}/api/views`);
     expect(views.status).toBe(200);
-    const events = await fetch(`${server.url}/api/events`);
+    const ctrl = new AbortController();
+    const events = await fetch(`${server.url}/api/events`, { signal: ctrl.signal });
     // /api/events is an SSE stream — the origin guard + null-token skip let it
     // through (200); we only assert it is reachable (not 403/404).
     expect(events.status).toBe(200);
+    // The stream is long-lived — abort it so it cannot dangle (matches the
+    // other SSE tests, e.g. render-routes.test.ts view_update/heartbeat).
+    ctrl.abort();
   });
 
   it("J) v1 wires null token => /ws upgrade succeeds WITHOUT ?session=", async () => {

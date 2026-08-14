@@ -32,6 +32,20 @@ export type RenderRouteHandler = (
   srv: Server<undefined>
 ) => Response | null;
 
+/** Options for {@link createRenderRoutes} (mirrors the file's DI style). */
+export interface RenderRouteOptions {
+  /**
+   * SSE heartbeat interval in ms for /api/events (Fix 3): Bun.serve's idle
+   * timeout (and any intermediate proxy) closes silent streams; a periodic
+   * `: ping` comment frame keeps the connection observably alive without
+   * emitting a view_update. Default 30s; injectable so tests can use ~20ms.
+   */
+  heartbeatMs?: number;
+}
+
+/** Default SSE heartbeat interval (see {@link RenderRouteOptions.heartbeatMs}). */
+const DEFAULT_HEARTBEAT_MS = 30_000;
+
 const encoder = new TextEncoder();
 
 function json(body: unknown, status = 200): Response {
@@ -45,7 +59,11 @@ function viewSummary(v: RenderView): { id: string; title: string | null; mode: s
   return { id: v.id, title: v.title ?? null, mode: v.mode, updatedAt: v.updatedAt };
 }
 
-export function createRenderRoutes(registry: RenderService): RenderRouteHandler {
+export function createRenderRoutes(
+  registry: RenderService,
+  opts: RenderRouteOptions = {}
+): RenderRouteHandler {
+  const heartbeatMs = opts.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
   return (req) => {
     const url = new URL(req.url);
     const { pathname } = url;
@@ -88,9 +106,24 @@ export function createRenderRoutes(registry: RenderService): RenderRouteHandler 
       // SSE clients cannot clobber each other's unsubscribe closure.
       let unsubscribe: (() => void) | null = null;
       let closed = false;
+      // Per-request heartbeat timer (Fix 3), started in start() and cleared in
+      // cancel() alongside unsubscribe — same per-request scope rationale as
+      // above (a module-scoped timer would leak / cross streams).
+      let beat: ReturnType<typeof setInterval> | null = null;
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
           controller.enqueue(encoder.encode(": connected\n\n"));
+          beat = setInterval(() => {
+            if (closed) return;
+            try {
+              // SSE comment frame — keeps the connection alive, ignored by
+              // EventSource parsers (never surfaces as a view_update).
+              controller.enqueue(encoder.encode(": ping\n\n"));
+            } catch {
+              closed = true;
+              if (beat) clearInterval(beat);
+            }
+          }, heartbeatMs);
           unsubscribe = registry.subscribe((viewId, updatedAt) => {
             if (closed) return;
             try {
@@ -99,11 +132,16 @@ export function createRenderRoutes(registry: RenderService): RenderRouteHandler 
               );
             } catch {
               closed = true;
+              if (beat) clearInterval(beat);
             }
           });
         },
         cancel() {
           closed = true;
+          if (beat) {
+            clearInterval(beat);
+            beat = null;
+          }
           if (unsubscribe) {
             unsubscribe();
             unsubscribe = null;
