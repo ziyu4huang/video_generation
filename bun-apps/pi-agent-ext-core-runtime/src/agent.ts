@@ -361,8 +361,13 @@ export interface BudgetGuardSession {
 }
 
 export interface BudgetGuard {
-  /** Subscribe-seam callback; call on each session state change. */
-  check(): void;
+  /**
+   * Subscribe-seam callback; call on each session event with the event's
+   * `type` (the session subscribe seam delivers every AgentSessionEvent, not
+   * just turn boundaries). A `"turn_end"` event observed while the wrap-up
+   * grace turn is in flight re-arms the token abort (the grace turn is over).
+   */
+  check(event?: { type: string }): void;
   /** The exhaustion that caused the hard abort, if any. */
   readonly exhausted: BudgetExhaustion | undefined;
   /** Whether the one-shot wrap-up message was already issued. */
@@ -381,11 +386,17 @@ export const BUDGET_WRAP_UP_MESSAGE =
 /**
  * Two-stage budget stop wired into the session's subscribe seam.
  *
- * - spendBudget is a money valve: it ALWAYS hard-aborts (no wrap-up turn).
+ * - spendBudget is a money valve: it ALWAYS hard-aborts (no wrap-up turn),
+ *   even mid-grace.
  * - tokenBudget gets ONE grace turn: the first crossing injects
  *   BUDGET_WRAP_UP_MESSAGE as a followUp user message (the model flushes its
- *   state to disk); the SECOND crossing aborts for real, bit-for-bit the
- *   pre-wrap-up behavior (abort + BudgetExhausted → status "budget").
+ *   state to disk). The guard then ignores token-kind exhaustion on every
+ *   non-turn-completion event (the subscribe seam fires on message_start /
+ *   tool_execution_* / etc., and cumulative tokens are monotonic, so without
+ *   this the very next event would revoke the grace before it streams) until
+ *   a `turn_end` event lands AFTER issuance — that is the grace turn's
+ *   completion. At that point the abort re-arms with old semantics: any
+ *   further token-exhaustion check aborts for real (no third turn).
  * - If BOTH budgets cross at once, the hard abort wins.
  *
  * Extracted from CoreAgent.run so the two-stage decision is unit-testable
@@ -397,20 +408,43 @@ export function createBudgetGuard(
 ): BudgetGuard {
   let budgetExhausted: BudgetExhaustion | undefined;
   let budgetWrapUpIssued = false;
-  const check = () => {
+  // "none": no grace turn outstanding. "grace-in-flight": the wrap-up
+  // followUp is queued and its turn has NOT yet emitted "turn_end" —
+  // token-kind exhaustion checks are suppressed (spend still hard-aborts).
+  let graceState: "none" | "grace-in-flight" = "none";
+  const check = (event?: { type: string }) => {
     if (budgetExhausted) return;
     try {
       const { tokens, cost } = session.getSessionStats();
       const exhaustion = checkBudgetExhaustion({ tokens: { total: tokens.total }, cost }, budget);
+      if (graceState === "grace-in-flight") {
+        if (event?.type !== "turn_end") {
+          // Mid-grace token-only overshoot is expected (cumulative tokens are
+          // monotonic) — the grace turn must be allowed to finish streaming.
+          // spendBudget stays an immediate hard abort even mid-grace.
+          if (!exhaustion) return;
+          const spendAlsoExceeded = budget.spendBudget !== undefined && cost > budget.spendBudget;
+          if (exhaustion.kind === "spend" || spendAlsoExceeded) {
+            budgetExhausted = exhaustion;
+            session.abort();
+          }
+          return;
+        }
+        // The grace turn completed — re-arm; this very check (and any later
+        // one) resumes the old hard-abort semantics. No third turn.
+        graceState = "none";
+      }
       if (!exhaustion) return;
+      const spendAlsoExceeded = budget.spendBudget !== undefined && cost > budget.spendBudget;
       // Hard-abort unless this is the FIRST tokenBudget crossing with no spend
       // crossing — only tokenBudget earns a wrap-up turn.
-      const spendAlsoExceeded = budget.spendBudget !== undefined && cost > budget.spendBudget;
       if (exhaustion.kind === "tokens" && !budgetWrapUpIssued && !spendAlsoExceeded) {
         budgetWrapUpIssued = true;
+        graceState = "grace-in-flight";
         // followUp queues the message for the model's NEXT turn (we are inside
-        // the streaming loop); that turn runs, and the turn-end check after it
-        // hits the flag-set path and aborts for real.
+        // the streaming loop). Token-kind aborts are suppressed until that
+        // turn's "turn_end" lands; the turn-end check after it (or any later
+        // check) hits the flag-set path and aborts for real.
         void session.sendUserMessage(BUDGET_WRAP_UP_MESSAGE, { deliverAs: "followUp" }).catch(() => {
           // Could not queue the wrap-up turn — fall back to the hard abort
           // so the budget is still enforced.
@@ -712,9 +746,9 @@ export class CoreAgent {
         removeAbortListener = () => options.signal?.removeEventListener("abort", onAbort);
       }
       if (options.onHistory || hasBudget) {
-        removeHistoryListener = session.subscribe(() => {
+        removeHistoryListener = session.subscribe((event) => {
           maybeEmitHistory();
-          budgetGuard.check();
+          budgetGuard.check(event);
         });
       }
 

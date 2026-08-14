@@ -64,14 +64,63 @@ describe("createBudgetGuard — tokenBudget two-stage wrap-up", () => {
     expect(guard.wrapUpIssued).toBe(true);
     expect(calls.abortCount).toBe(0);
 
-    // The wrap-up turn ends, still over budget → abort with the exact
+    // The grace (wrap-up) turn ends — turn_end re-arms the abort — and with
+    // tokens still over budget the abort fires with the exact
     // BudgetExhaustion payload the run() error path surfaces as status "budget".
     calls.setTokens(1800);
-    guard.check();
+    guard.check({ type: "turn_end" });
     expect(calls.abortCount).toBe(1);
     expect(guard.exhausted).toEqual({ kind: "tokens", limit: 1000, actual: 1800 });
     // No second wrap-up message — the flag is one-shot.
     expect(sent).toHaveLength(1);
+  });
+
+  test("event storm after wrap-up issuance — non-turn_end checks never abort; turn_end re-arms so the next check aborts with kind 'tokens'", () => {
+    const { session, sent, calls } = fakeSession(0, 0);
+    const guard = createBudgetGuard(session, { tokenBudget: 1000 });
+
+    // First crossing issues the wrap-up (grace turn queued).
+    calls.setTokens(1200);
+    guard.check();
+    expect(guard.wrapUpIssued).toBe(true);
+    expect(calls.abortCount).toBe(0);
+
+    // The real event storm: the subscribe seam fires on EVERY session event,
+    // and cumulative tokens are monotonic, so every subsequent check still
+    // sees over-budget stats. None of these are turn completions (the grace
+    // turn is streaming / running tools) → the grace must NOT be revoked.
+    const storm = [
+      "message_start",
+      "message_update",
+      "message_end",
+      "tool_execution_start",
+      "tool_execution_update",
+      "tool_execution_end",
+      "agent_start",
+      "queue_update",
+      "message_start",
+    ];
+    for (const type of storm) {
+      guard.check({ type });
+      expect(calls.abortCount).toBe(0);
+      expect(guard.exhausted).toBeUndefined();
+    }
+    // Stats can even keep creeping up mid-grace — still no abort.
+    calls.setTokens(1500);
+    guard.check({ type: "tool_execution_end" });
+    expect(calls.abortCount).toBe(0);
+
+    // The grace turn completes (turn_end) — abort re-arms with old
+    // semantics, so the next token-exhaustion check aborts for real.
+    guard.check({ type: "turn_end" });
+    expect(calls.abortCount).toBe(1);
+    expect(guard.exhausted).toEqual({ kind: "tokens", limit: 1000, actual: 1500 });
+    // Exactly one wrap-up message, ever.
+    expect(sent).toHaveLength(1);
+
+    // No third turn: further checks are inert (guard already exhausted).
+    guard.check({ type: "turn_end" });
+    expect(calls.abortCount).toBe(1);
   });
 
   test("no budget set → no injection, no abort, never exhausted", () => {

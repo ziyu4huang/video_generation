@@ -27,4 +27,4 @@ Implemented (core-runtime `agent.ts`):
 - Tests: `tests/budget-guard.test.ts` (fake-session harness: first crossing injects + no abort; second crossing aborts; no budget → nothing; spend-only → immediate abort; both → hard abort; rejection fallback).
 - Docs: `pi-agent-ext-subagent/README.md` "Token budgets" — wrap-up paragraph + spendBudget hard-stop note.
 - Gate: `( cd bun-apps/pi-agent-ext-core-runtime && bun run test && bunx tsc --noEmit )` — 143 pass. Downstream `( cd bun-apps/pi-agent-ext-subagent && bun run test )` — 518 pass.
-- Implemented in commit: <this-commit>
+- Implemented in commit: d79a0416
