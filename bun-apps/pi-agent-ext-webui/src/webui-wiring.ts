@@ -45,6 +45,7 @@ import { createRenderRoutes } from "./render-routes.js";
 import { createRenderTool } from "./render-tool.js";
 import { createRenderEventHandler } from "./render-event-handler.js";
 import { createPresentEventHandler } from "./present-event-handler.js";
+import { createPresentTool, type PresentInput } from "./present-tool.js";
 import { createToolMirror } from "./tool-mirror.js";
 import { resolvePort } from "./port-resolver.js";
 
@@ -260,6 +261,15 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     pending.clear();
   }
 
+  /** Cancel ONE pending as {cancelled:true} (the webui_present tool's signal-abort path). */
+  function cancelPending(id: string): void {
+    const entry = pending.get(id);
+    if (entry) {
+      pending.delete(id);
+      entry.resolve({ cancelled: true });
+    }
+  }
+
   // --- inbound dispatch seam (handed to WebServer.setCommandHandler) ---------
   // web-server.ts ALREADY validated the frame (validateInbound) before invoking
   // this seam, so `frame` is a typed ClientFrame; parseCommand classifies it.
@@ -356,6 +366,33 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   pi.events?.on("webui:render", createRenderEventHandler(registry));
   const presentHandler = createPresentEventHandler(registry);
   pi.events?.on("webui:present", presentHandler);
+
+  // webui_present (the blocking HITL gate, spec Component 2): the `present` dep
+  // emits the webui:present event (the registered handler mints the view). If
+  // the host has NO shared event bus (guarded seam), fall back to invoking the
+  // handler directly so the view is still minted. Returns the presentId that
+  // keys the pending registry.
+  const present = (input: PresentInput): string => {
+    const payload = {
+      content: input.content,
+      controls: input.controls,
+      id: input.id,
+      ...(input.mode !== undefined ? { mode: input.mode } : {}),
+      ...(input.view !== undefined ? { view: input.view } : {}),
+      ...(input.title !== undefined ? { title: input.title } : {}),
+    };
+    if (pi.events) pi.events.emit("webui:present", payload);
+    else presentHandler(payload);
+    return input.id;
+  };
+  pi.registerTool?.(
+    createPresentTool({
+      present,
+      registerPending,
+      hasPending: () => pending.size > 0,
+      cancelPending,
+    })
+  );
 
   // --- pi.on registration (each handler guarded by `disposed`) ---------------
   const reg = (event: string, handler: (event: any, ctx: any) => unknown): void => {
