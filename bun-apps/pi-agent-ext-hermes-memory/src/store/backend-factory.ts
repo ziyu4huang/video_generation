@@ -8,6 +8,22 @@ import { SurrealMemoryRepository } from "./surreal/surreal-memory-repo.js";
 import { SurrealSessionRepository } from "./surreal/surreal-session-repo.js";
 
 /**
+ * C5-lite backend seam: construct an initialized CONCRETE `SqliteBackend` —
+ * the ONLY sanctioned `new SqliteBackend(` site in non-test src (enforced by
+ * `backend-sole-source.test.ts`). This is the variant the card-store rationale
+ * asked for: callers that need the concrete handle (`getDb` /
+ * `withCorruptionRecovery` — both on the class, not the `Backend` interface)
+ * but have no `MemoryConfig` construct through the factory instead of opening
+ * their own backend, so backend construction stays one code path.
+ * `createBackendBundle`'s sqlite case delegates here (no duplicated init).
+ */
+export async function createSqliteBackend(memoryDir: string): Promise<SqliteBackend> {
+  const backend = new SqliteBackend(memoryDir);
+  await backend.init();
+  return backend;
+}
+
+/**
  * Build the backend bundle (Backend + MemoryRepository + SessionRepository)
  * selected by `config.dbBackend` (default `'sqlite'`). The SurrealDB backend
  * targets a local SurrealDB v3 server and is opt-in via `'surrealdb'`.
@@ -18,8 +34,7 @@ export async function createBackendBundle(
 ): Promise<BackendBundle> {
   switch (config.dbBackend ?? "sqlite") {
     case "sqlite": {
-      const backend = new SqliteBackend(memoryDir);
-      await backend.init();
+      const backend = await createSqliteBackend(memoryDir);
       return {
         backend,
         memoryRepo: new SqliteMemoryRepository(backend),

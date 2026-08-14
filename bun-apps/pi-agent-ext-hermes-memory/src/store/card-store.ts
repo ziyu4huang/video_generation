@@ -6,8 +6,11 @@
  * concrete `SqliteBackend` handle) and dispatches dedup per-kind through the
  * registered `DedupStrategy`. It does NOT replace `MemoryStore`'s memory path
  * — memory/user/failure cards keep their proven section-md + MemoryStore path
- * byte-for-byte unchanged. `sqlite-memory-repo.ts` is intentionally left
- * untouched (the knowledge SQL lives here) to guarantee zero memory-path drift.
+ * byte-for-byte unchanged. C5-lite ENABLES memory-kind persistence here
+ * (persistableKinds) so kp ticket 13 is a pure write-path switch; MemoryStore
+ * stays the memory write path until 13 flips it. `sqlite-memory-repo.ts` is
+ * intentionally left untouched (the knowledge SQL lives here) to guarantee
+ * zero memory-path drift.
  *
  * 06a scope:
  *  - `upsertCard`/`getCard`/`getCardsByKind` are exercised on kind "knowledge".
@@ -19,7 +22,8 @@
  *    nullable `graph` JSON column next to `frontmatter`.
  */
 
-import { SqliteBackend, runWithTransientRetry } from "./sqlite/sqlite-backend.js";
+import { runWithTransientRetry } from "./sqlite/sqlite-backend.js";
+import { createSqliteBackend } from "./backend-factory.js";
 import type { Card, CardKind, CardGraph } from "./card.js";
 import type { CardSerializer } from "./card-serializer.js";
 import type { DedupStrategy } from "./dedup-strategy.js";
@@ -140,18 +144,24 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
     );
   }
 
-  // Construct the SQLite backend directly (this IS the existing init path —
-  // `createBackendBundle` for sqlite does exactly `new SqliteBackend(memoryDir)`
-  // + init(), running the same migrations/WAL setup). Constructing directly
-  // gives the concrete handle the knowledge SQL below needs (getDb /
-  // withCorruptionRecovery) without a MemoryConfig or interface narrowing.
-  const backend = new SqliteBackend(options.memoryDir);
-  await backend.init();
+  // Construct the backend through the C5-lite factory seam — the sole
+  // sanctioned construction path (see `createSqliteBackend` in
+  // backend-factory.ts; the sole-source gate bans the raw SqliteBackend
+  // constructor outside the factory). The factory returns the CONCRETE handle this façade's SQL
+  // needs (getDb / withCorruptionRecovery — on the class, not the `Backend`
+  // interface) without requiring a MemoryConfig, which is exactly the
+  // documented rationale for constructing directly; the seam satisfies it
+  // instead of overriding it.
+  const backend = await createSqliteBackend(options.memoryDir);
 
   // Per-kind registries (spec §7). One serializer per kind; the memory dedup
   // strategy is kind-agnostic in logic, so one instance covers memory/user/
   // failure. The dedup registry IS used by upsertCard; the serializer registry
   // is exposed via serializerFor (06b's disk-read path consumes it).
+  // C5-lite note: memory/user/failure persistence reuses the ALREADY-
+  // registered `MemoryDedupStrategy` verbatim (exact stripped-equality →
+  // near-dup containment → topic-recurrence merge; identity-based, mirroring
+  // the MemorySerializer/MemoryStore semantics) — no new dedup semantics.
   const serializers = new Map<CardKind, CardSerializer>([
     ["memory", new MemorySerializer("memory")],
     ["user", new MemorySerializer("user")],
@@ -201,17 +211,27 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
       // MemoryStore consolidation path; knowledge merge is 06b).
       if (decision.action !== "keep") return;
 
-      const persistableKinds = new Set<CardKind>(["knowledge", "planning-effort", "planning-ticket", "image"]);
+      // C5-lite: ALL CardKinds are persistable. knowledge/planning-*/image are
+      // card-store-managed; memory/user/failure persistence is ENABLED here so
+      // kp ticket 13 becomes a pure write-path switch — MemoryStore REMAINS the
+      // memory write path until 13 flips it (nothing writes memory kinds through
+      // this façade today). The belt below guards against a future CardKind
+      // landing here without a serializer/dedup decision.
+      const persistableKinds = new Set<CardKind>([
+        "memory",
+        "user",
+        "failure",
+        "knowledge",
+        "planning-effort",
+        "planning-ticket",
+        "image",
+      ]);
       await runWithTransientRetry(() =>
         backend.withCorruptionRecovery(() => {
           if (!persistableKinds.has(card.kind)) {
-            // Non-persistable kinds are not exercised by the 06a/08 acceptance
-            // (memory cards keep their MemoryStore path). Surface a clear error
-            // rather than inventing a memory INSERT that could diverge from the
-            // proven section-md codec.
             throw new Error(
-              `createCardStore.upsertCard persists card-store-managed kinds only (knowledge/planning-*); kind "${card.kind}" ` +
-                "uses the existing MemoryStore path.",
+              `createCardStore.upsertCard: kind "${card.kind}" has no persistence decision registered ` +
+                "(add a serializer + dedup strategy first).",
             );
           }
           // Card row mapping (spec §7): target=card.kind (knowledge OR planning-*),
