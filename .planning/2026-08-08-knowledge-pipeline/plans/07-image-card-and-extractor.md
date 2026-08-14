@@ -35,6 +35,7 @@
 - `<WT>` = the repo worktree root. All `git -C <WT>` calls use it.
 - file2md has NO `yaml` dependency — the image-card builder hand-emits YAML (scalar-only values, safe without a serializer).
 - CLIP / image-vector embedding is explicitly out of scope (Resolution #2: fog).
+- Impl-start pin: confirm `bun-apps/pi-agent-ext-file2md/package.json` `name` field matches the workspace alias used in imports before Task 3 Step 1.
 
 ## File Structure (all changes)
 
@@ -211,7 +212,7 @@ function isImageCard(data: Record<string, unknown>): boolean {
   const d = data.dimensions as Partial<ImageDimensions> | undefined;
   if (typeof d !== "object" || d === null) return false;
   if (typeof d.width !== "number" || typeof d.height !== "number") return false;
-  if (typeof d.locator !== "string" || data.locator === "") return false;
+  if (typeof data.locator !== "string" || data.locator === "") return false;
   return true;
 }
 
@@ -588,6 +589,8 @@ export async function runVisionOcr(imagePath: string, opts: OcrOpts = {}): Promi
   - `extractImageCard(imagePath: string, opts?: ExtractImageOpts): Promise<ExtractImageResult>` with `ExtractImageOpts = { ocr?: (p: string) => Promise<OcrResult | undefined>; describe?: (p: string) => Promise<DescribeResult>; now?: () => string }` and `ExtractImageResult = { markdown: string; degraded: boolean; warnings: string[] }`.
 
 - [ ] **Step 0: lm-studio availability check (impl-time fact item).** `curl -s http://localhost:1234/v1/models | grep -c gemma-4-12b-qat` — Expected: `1` (model present). If `0`/connection refused: continue (all tests below use injected fakes; the live path degrades per the warning design) and record the miss in the PR description.
+
+- [ ] **Impl-start pin:** `ls bun-apps/pi-agent-ext-file2md/src/vlm/` — confirm the ask/lm-studio helper module name and default model before wiring; adjust imports to the real filename.
 
 - [ ] **Step 1: Write the failing test** `src/image/extract-image.test.ts`:
 ```ts
@@ -1015,7 +1018,7 @@ describe("image card ingest (file2md → hermes, ticket 07 T4)", () => {
     const [card] = new ImageSerializer().deserialize(markdown);
     // Mirror the exact upsert/get call shape used by the existing knowledge
     // round-trip test (grep -n "upsertCard" src/store/card-store.test.ts);
-    // drop/keep `await` to match whether the store API is async.
+    // Pin the actual signature first: `grep -n "export.*createCardStore\|upsertCard" bun-apps/pi-agent-ext-hermes-memory/src/store/card.ts` — use the exact async-ness it shows; the code block below assumes async.
     const store = await createCardStore({ memoryDir: join(vault, "store") });
     await store.upsertCard(card!);
     const got = await store.getCard(card!.id);
