@@ -27,3 +27,7 @@ Task 6: implemented (commit pending review)
 Task 6: complete (commits 046813f..618ee8bc, review clean; implementer was mechanical tester/committer — reviewer sole compliance gate, approved)
 Task 6: minor (deferred): BtwWebFrame interface declared after its WebFrame union reference (cosmetic, plan-mandated)
 Task 7: implemented (commit pending review)
+Task 7: complete (commits 618ee8bc..a5f0b1b, review clean)
+Task 7: minor (deferred): store returns shared EMPTY_STATE by reference pre-first-thread-event (plan-mandated) — Task 8 consumers must NOT mutate state()
+Task 7: minor (deferred): no test for second-thread-event replacement — Task 8 tests may cover
+Task 8: implemented (commit pending review)
