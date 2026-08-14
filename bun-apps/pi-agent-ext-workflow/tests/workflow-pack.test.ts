@@ -442,13 +442,13 @@ describe("mergeArgs — manifest default vs caller override", () => {
 describe("resolvePackOverrides — model + args precedence", () => {
   const pack = { manifest: { name: "p", description: "d", entry: "i.js", args: { x: 1 }, model: "manifest-model" } };
   test("caller model wins over manifest model", () => {
-    expect(resolvePackOverrides(pack, { model: "cli-model" }).model).toBe("cli-model");
+    expect(resolvePackOverrides(pack, { callerModel: "cli-model" }).model).toBe("cli-model");
   });
   test("manifest model used when no caller model", () => {
     expect(resolvePackOverrides(pack, {}).model).toBe("manifest-model");
   });
   test("no pack → caller args/model pass through", () => {
-    expect(resolvePackOverrides(undefined, { args: { y: 2 }, model: "cli" })).toEqual({ args: { y: 2 }, model: "cli" });
+    expect(resolvePackOverrides(undefined, { args: { y: 2 }, callerModel: "cli" })).toEqual({ args: { y: 2 }, model: "cli" });
   });
   test("args merge applied", () => {
     expect(resolvePackOverrides(pack, { args: { x: 9, z: 2 } }).args).toEqual({ x: 9, z: 2 });

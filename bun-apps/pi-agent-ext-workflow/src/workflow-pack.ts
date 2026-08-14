@@ -275,11 +275,11 @@ export function mergeArgs(manifestArgs: unknown, callerArgs: unknown): unknown {
  *  caller (CLI flags / tool args) overrides (Decision 5). Pure. */
 export function resolvePackOverrides(
   pack: { manifest: Manifest } | undefined,
-  caller: { args?: unknown; model?: string },
+  caller: { args?: unknown; callerModel?: string },
 ): { args: unknown; model?: string } {
   return {
     args: mergeArgs(pack?.manifest.args, caller.args),
-    model: caller.model ?? pack?.manifest.model,
+    model: caller.callerModel ?? pack?.manifest.model,
   };
 }
 
@@ -390,12 +390,6 @@ export interface RunWorkflowScriptOptions {
    * default) is resolved by `resolveModel` before the run is dispatched.
    */
   callerModel?: string;
-  /**
-   * @deprecated use `callerModel`. Kept as a backward-compat alias so existing
-   * callers/tests that pass `{ model }` keep working — `runWorkflowScript`
-   * treats `opts.callerModel ?? opts.model` as the caller value.
-   */
-  model?: string;
   /** PI_MODEL env value (provider/id), if the CLI reads it. */
   envModel?: string;
   /** Resolved pi default (provider/id), computed by the CLI from settings. */
@@ -449,10 +443,8 @@ export async function runWorkflowScript(opts: RunWorkflowScriptOptions): Promise
   const { meta } = parseWorkflowScript(resolved.script);
   // Model resolution: 4-tier precedence (--model > PI_MODEL env > manifest.model
   // > pi default). `resolveModel` is pure (every tier is an explicit input);
-  // args still merge via mergeArgs (manifest.args under caller args). The legacy
-  // `opts.model` field is kept as an alias for `callerModel` so existing callers
-  // and tests that pass `{ model }` keep working unchanged.
-  const callerModel = opts.callerModel ?? opts.model;
+  // args still merge via mergeArgs (manifest.args under caller args).
+  const callerModel = opts.callerModel;
   const { model, source: modelSource } = resolveModel(
     callerModel,
     opts.envModel,
