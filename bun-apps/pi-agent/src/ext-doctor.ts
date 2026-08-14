@@ -14,7 +14,11 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseManifestEntries } from "../run-dir/manifest-types.ts";
-import { STATIC_EXTENSION_FACTORIES } from "./static-extensions.ts";
+// NOTE: static-extensions.ts is imported DYNAMICALLY inside runExtDoctor(),
+// below the ensure-extension-deps await — see the comment there. A top-level
+// import is hoisted, and `ext doctor` is one of cli.ts's PRE-patch intercepts,
+// so a static import here would evaluate all 14 extension entry graphs before
+// the symlinks they resolve through exist.
 
 /** Resolve pi-agent's package root from this module's URL. Uses fileURLToPath
  *  (not a naive `.replace("file://", "")`) so percent-encoded characters —
@@ -74,6 +78,16 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 	// Ensure repo-root node_modules symlinks exist. (No-op in compiled-binary mode —
 	// the patch's import resolves but there's no node_modules to symlink; harmless.)
 	await import("./patches/ensure-extension-deps.ts");
+
+	// Static extension factories, loaded HERE rather than at the top of the file,
+	// for the same reason cli.ts loads them below applyPatches(): a top-level
+	// import is hoisted, and `ext doctor` is intercepted BEFORE applyPatches().
+	// static-extensions.ts pulls each extension's entry module, and
+	// pi-agent-ext-webui's graph imports `@earendil-works/pi-coding-agent`
+	// without declaring it — resolvable only through the repo-root symlinks the
+	// await above creates. Hoisting evaluated that graph first and broke the
+	// snapshot deploy. Keep this import below the ensure-extension-deps await.
+	const { STATIC_EXTENSION_FACTORIES } = await import("./static-extensions.ts");
 
 	// Compiled-binary mode (`bun build --compile`): manifest.json is NOT embedded
 	// in the $bunfs virtual FS, so readFileSync(MANIFEST_PATH) throws ENOENT. The

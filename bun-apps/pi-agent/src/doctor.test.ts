@@ -4,6 +4,8 @@
  * smoke across source + deploy modes; here we pin the classification logic.)
  */
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import manifest from "../run-dir/manifest.json";
 import {
 	classifyMode,
@@ -13,6 +15,8 @@ import {
 	checkProviders,
 	smokeMarker,
 	runSmokeCheck,
+	removedFlagNotice,
+	type DeployMode,
 	type DoctorContext,
 } from "./doctor.ts";
 
@@ -46,15 +50,78 @@ describe("classifyMode", () => {
 	test("bundle coarse with no marker → bundle (plain pi-agent.js)", () => {
 		expect(classifyMode("bundle", { dotDeployBundle: false })).toBe("bundle");
 	});
-	test("every mode it can return is one deploy.ts can actually produce", () => {
-		// The guard that would have caught the original drift: doctor's mode set
-		// must not outgrow the deploy script's.
-		const produced = new Set(["source", "bundle", "binary"]);
-		for (const coarse of ["source", "bundle", "binary"] as const) {
-			for (const dotDeployBundle of [true, false]) {
-				expect(produced.has(classifyMode(coarse, { dotDeployBundle }))).toBe(true);
+	/**
+	 * The guard for the original drift. A hardcoded `produced` set cannot be it:
+	 * the drift ran the direction such a set is blind to — deploy.ts SHED two
+	 * mode flags while doctor.ts kept the modes, and a set written by hand at
+	 * that moment would have listed all five and stayed green forever.
+	 *
+	 * So derive it from deploy.ts, and assert BOTH directions. If deploy.ts drops
+	 * a mode flag, (b) fails and forces MODE_BY_FLAG to be updated; updating it
+	 * shrinks `produced`, which makes (a) fail on whatever doctor.ts still
+	 * returns. That chain is what would have fired the first time.
+	 */
+	describe("doctor's mode set is pinned to what deploy.ts can produce", () => {
+		// deploy.ts lives in the sibling devops package since #1305. Read, not
+		// imported: it is a script with top-level side effects. An ENOENT here
+		// means it moved again — loud, which is what a drift guard wants.
+		const DEPLOY_TS = join(import.meta.dir, "..", "..", "pi-agent-ext-devops", "scripts", "deploy.ts");
+		const deploySource = readFileSync(DEPLOY_TS, "utf8");
+		const knownFlags = new Set(
+			[...deploySource.matchAll(/^\s*"(--[a-z-]+)",$/gm)].map((m) => m[1]),
+		);
+
+		/** Which DeployMode each deploy.ts MODE flag lands on. `--snapshot` ships
+		 *  raw .ts so coarseFromUrl calls it `source`; `--standalone` is a bundle
+		 *  plus a bun binary. Non-mode flags (--no-freeze/--obfuscate/--force)
+		 *  are deliberately absent. */
+		const MODE_BY_FLAG: Record<string, DeployMode> = {
+			"--bundle": "bundle",
+			"--snapshot": "source",
+			"--standalone": "bundle",
+			"--exe": "binary",
+		};
+
+		test("the scan found deploy.ts's flag list", () => {
+			// A regex that matched nothing would make (b) vacuously pass.
+			expect(knownFlags.size).toBeGreaterThanOrEqual(Object.keys(MODE_BY_FLAG).length);
+		});
+
+		test("(b) every flag this table claims is still accepted by deploy.ts", () => {
+			const stale = Object.keys(MODE_BY_FLAG).filter((f) => !knownFlags.has(f));
+			expect(
+				stale,
+				`deploy.ts no longer accepts ${stale.join(", ")} — drop the entry here, ` +
+					`then check whether doctor.ts still returns the mode it mapped to`,
+			).toEqual([]);
+		});
+
+		test("(a) every mode classifyMode can return is one deploy.ts produces", () => {
+			const produced = new Set(
+				Object.entries(MODE_BY_FLAG)
+					.filter(([flag]) => knownFlags.has(flag))
+					.map(([, mode]) => mode),
+			);
+			for (const coarse of ["source", "bundle", "binary"] as const) {
+				for (const dotDeployBundle of [true, false]) {
+					const got = classifyMode(coarse, { dotDeployBundle });
+					expect(produced.has(got), `classifyMode returned "${got}", which no deploy mode produces`).toBe(true);
+				}
 			}
-		}
+		});
+	});
+});
+
+describe("removedFlagNotice", () => {
+	test("--fix is announced, not silently dropped", () => {
+		// doctor takes no flag-spec, so an unknown token falls through and the
+		// report prints as if nothing was asked for — a stale doc plus a clean
+		// report reads as "--fix ran and found nothing".
+		expect(removedFlagNotice(["doctor", "--fix"])).toContain("`doctor --fix` was removed");
+	});
+
+	test("no notice without the flag", () => {
+		expect(removedFlagNotice(["doctor", "--json", "--smoke"])).toBeNull();
 	});
 });
 

@@ -106,9 +106,19 @@ fi
 
 ENTRY=""
 MODE=""
-# Deployed layouts all ship pi-agent.js at the root: --release (packages/),
-# default bundle (ext-bundles/), --portable (ext-bundles/ + node_modules/).
-# Source mode ships src/cli.ts instead.
+# Deployed layouts all ship pi-agent.js at the root. Source mode ships
+# src/cli.ts instead.
+#
+# STALE BRANCHES: the `packages/` and `.deploy-portable` arms below are dead.
+# deploy.ts accepts only --bundle/--snapshot/--standalone/--exe and writes only
+# `.deploy-bundle`/`.deploy-readonly`; no code path produces either marker (the
+# unified-deploy design doc says so explicitly:
+# docs/superpowers/specs/2026-07-18-unified-deploy-design.md). They survive a
+# rename that deploy.ts and the docs completed and the launcher did not — the
+# same drift removed from doctor.ts. Left in place only because ripping them out
+# also touches run-dir/resolve.ts's `deploy-package` layout mode (a documented
+# exported type with its own suite) and 4 tests; that is its own change.
+# Do NOT read these arms as evidence that the modes exist.
 if [ -f "$SCRIPT_DIR/pi-agent.js" ]; then
   ENTRY="$SCRIPT_DIR/pi-agent.js"
   if [ -f "$SCRIPT_DIR/.deploy-portable" ]; then MODE="deployed (portable)"
@@ -135,8 +145,10 @@ fi
 # pin MUST land on the package root (which holds dist/), not the deploy dir.
 # `bun install --production` materializes this package into <deploy>/node_modules,
 # so the path is stable and repo-independent on the same machine. Respects a
-# caller-set value (set-package-dir.ts uses ??=). The .deploy-portable marker is
-# written by `scripts/deploy.ts --portable`.
+# caller-set value (set-package-dir.ts uses ??=).
+#
+# DEAD: nothing writes `.deploy-portable` — `deploy.ts --portable` is not a
+# flag, it hard-errors with "unknown flag(s)". See the STALE BRANCHES note above.
 if [ -f "$SCRIPT_DIR/.deploy-portable" ]; then
   export PI_PACKAGE_DIR="${PI_PACKAGE_DIR:-$SCRIPT_DIR/node_modules/@earendil-works/pi-coding-agent}"
 fi
@@ -147,8 +159,8 @@ fi
 # pi-hermes-memory's sqlite DB both honor PI_CODING_AGENT_DIR), so the deploy
 # tree is never written — but two tweaks are still needed:
 #   1. JITI_FS_CACHE=0 — jiti caches compiled .ts to node_modules/.cache/jiti by
-#      default; in --release mode the extensions ARE .ts source, so that cache
-#      write would hit the frozen tree and EACCES. (bundle/portable ship
+#      default; a --snapshot deploy ships the extensions as .ts SOURCE, so that
+#      cache write would hit the frozen tree and EACCES. (bundle/standalone ship
 #      pre-compiled .js, so this is a no-op there, but it's free insurance.)
 #   2. PI_CODING_AGENT_DIR defaults to ~/.pi/agent — pi falls back there anyway,
 #      but pinning it explicitly guarantees per-user state never points at the

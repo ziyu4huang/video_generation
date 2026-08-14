@@ -69,10 +69,11 @@ export type DeployMode = "source" | "bundle" | "binary";
  * `source`; a `--standalone` deploy is a bundle plus a bun binary and reports
  * `bundle`.
  */
-export function classifyMode(
-	coarse: "source" | "bundle" | "binary",
-	markers: { dotDeployBundle: boolean },
-): DeployMode {
+export interface LayoutMarkers {
+	dotDeployBundle: boolean;
+}
+
+export function classifyMode(coarse: "source" | "bundle" | "binary", markers: LayoutMarkers): DeployMode {
 	if (coarse === "binary") return "binary";
 	if (coarse === "source") return "source";
 	// bundle coarse mode = a shipped pi-agent.js
@@ -101,8 +102,9 @@ export interface DoctorReport {
 	ok: boolean;
 }
 
-const expectedExtCount = (_mode: DeployMode): number =>
-	manifest.extensions?.length ?? 0;
+/** Every mode ships the same manifest, so this is mode-independent — it took a
+ *  `mode` argument only while `release` counted `packages/` instead. */
+const expectedExtCount = (): number => manifest.extensions?.length ?? 0;
 
 /** runtime — bun version. Always info. */
 export function checkRuntime(ctx: DoctorContext): CheckResult {
@@ -122,7 +124,7 @@ export function checkEntry(ctx: DoctorContext): CheckResult {
 			label: "pi-agent entry",
 			status: "fail",
 			detail: `not found: ${ctx.entryPath}`,
-			hint: "rebuild: `bun scripts/deploy.ts` (source) or re-deploy",
+			hint: "rebuild: `bun ../pi-agent-ext-devops/scripts/deploy.ts` (source) or re-deploy",
 		};
 	}
 	return { id: "entry", label: "pi-agent entry", status: "pass", detail: ctx.entryPath };
@@ -143,14 +145,14 @@ export function checkExtensions(ctx: DoctorContext): CheckResult {
 		return { id, label, status: "info", detail: `${ctx.mode} mode loads extensions from source/baked paths` };
 	}
 	const bundles = ctx.listDir(join(ctx.selfDir, "ext-bundles")).filter((f) => f.endsWith(".js"));
-	const want = expectedExtCount(ctx.mode);
+	const want = expectedExtCount();
 	if (bundles.length < want) {
 		return {
 			id,
 			label,
 			status: "fail",
 			detail: `ext-bundles/ has ${bundles.length} .js, expected ≥ ${want}`,
-			hint: "redeploy: `bun scripts/deploy.ts` (default bundle)",
+			hint: "redeploy: `bun ../pi-agent-ext-devops/scripts/deploy.ts` (default bundle)",
 		};
 	}
 	return { id, label, status: "pass", detail: `ext-bundles/${bundles.length} .js (expected ≥ ${want})` };
@@ -164,10 +166,20 @@ export function checkExtensions(ctx: DoctorContext): CheckResult {
  *    paths; pi-agent.js's own deps are inlined) — unresolvable is a WARN.
  *
  * There is deliberately no `fail` path left. The only one there ever was keyed
- * on `portable`, a mode nothing can produce, so this check has been
- * warn-or-info in practice since that rename. Stating it plainly beats an
- * unreachable branch that makes the check look stricter than it is: for every
- * mode that EXISTS, missing host deps are recoverable or irrelevant.
+ * on `portable`, a mode nothing can produce, so this check has been warn-or-info
+ * in practice since that rename. Stating it plainly beats an unreachable branch
+ * that makes the check look stricter than it is: for every mode this function
+ * can DISTINGUISH, missing host deps are recoverable (bundle) or irrelevant
+ * (source/binary resolve their own).
+ *
+ * KNOWN GAP — not "every deploy mode", only every mode doctor can tell apart.
+ * A `--snapshot` deploy ships raw `.ts`, so coarseFromUrl calls it `source` and
+ * it takes the INFO branch — yet host deps are genuinely essential there
+ * (deploy.ts's stageSnapshotHostDeps exists for exactly that reason: the
+ * snapshot's own root is `target/`, so without those links the first sibling
+ * import throws). Closing this needs a marker that distinguishes a snapshot
+ * deploy from a repo checkout; `depInstalled` would have to move off
+ * `<selfDir>/node_modules` too, which in source mode points at `src/`.
  */
 export function checkHostDeps(ctx: DoctorContext): CheckResult {
 	if (ctx.mode === "source" || ctx.mode === "binary") {
@@ -260,6 +272,24 @@ export function runChecks(ctx: DoctorContext): DoctorReport {
 // Every check that can detect a broken deploy now says exactly that in its
 // hint. If an auto-fix is wanted later, it needs an action that works on a
 // build artifact, not a package manager pointed at one.
+
+/**
+ * Notice for a flag this command used to accept, or null.
+ *
+ * `--fix` was silently ignored the moment the planner went: doctor takes no
+ * flag-spec, so an unrecognised token just falls through and the report prints
+ * as if nothing was asked for. A user following a stale doc — and one shipped
+ * for a while, `docs/deploy-readonly.md` — would read a clean report as
+ * confirmation that `--fix` ran. Say so instead.
+ *
+ * Deliberately a notice rather than a hard error: `doctor` is the command you
+ * reach for when a deploy is already broken, so a `--fix` left in someone's
+ * script should still produce a diagnosis, not an exit 1.
+ */
+export function removedFlagNotice(argv: readonly string[]): string | null {
+	if (!argv.includes("--fix")) return null;
+	return "note: `doctor --fix` was removed — a deploy artifact is not repairable in place; re-deploy it. Running the checks only.";
+}
 
 // ── runtime smoke (opt-in: `doctor --smoke`) ─────────────────────────────────
 //
@@ -453,10 +483,12 @@ export function realContext(moduleUrl: string, env: Record<string, string | unde
 	// before the compiled binary shipped real extensions worth doctoring).
 	const entryPath =
 		coarse === "source" ? join(selfDir, "cli.ts") : coarse === "binary" ? process.execPath : join(selfDir, "pi-agent.js");
-	const markers = {
+	// Annotated (not inferred) so an unused marker is a tsc error rather than an
+	// excess property TypeScript silently tolerates on a variable. `.deploy-portable`
+	// and `packages/` were still probed here after their modes were removed
+	// precisely because an inferred object type made the leftovers invisible.
+	const markers: LayoutMarkers = {
 		dotDeployBundle: existsSync(join(selfDir, ".deploy-bundle")),
-		dotDeployPortable: existsSync(join(selfDir, ".deploy-portable")),
-		packages: existsSync(join(selfDir, "packages")),
 	};
 	const mode = classifyMode(coarse, markers);
 	return {

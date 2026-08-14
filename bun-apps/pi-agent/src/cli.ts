@@ -24,7 +24,7 @@
  */
 import { main } from "@earendil-works/pi-coding-agent";
 import { applyPatches } from "./patches/index.ts";
-import { runDoctor } from "./doctor.ts";
+import { runDoctor, removedFlagNotice } from "./doctor.ts";
 import {
 	isDoctorCommand,
 	isExtDoctorCommand,
@@ -63,7 +63,11 @@ if (isDoctorCommand(argv)) {
 	// miss). Default doctor stays pure/offline/fast.
 	// (`--fix` was removed — see the "auto-fix: REMOVED" block in doctor.ts.
 	// It gated on deploy modes nothing can produce, and its one action cannot
-	// repair any mode that exists.)
+	// repair any mode that exists. It is announced rather than silently dropped:
+	// doctor has no flag-spec, so an unknown token otherwise leaves a clean
+	// report that reads as "--fix ran and found nothing".)
+	const notice = removedFlagNotice(argv);
+	if (notice) console.error(notice);
 	const report = await runDoctor({
 		json: argv.includes("--json"),
 		smoke: argv.includes("--smoke"),

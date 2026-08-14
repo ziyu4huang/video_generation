@@ -199,23 +199,82 @@ describe("tool-name contract — extension sub-commands", () => {
  * which the facade collapse had already un-registered. The recovery path failed
  * by construction, and the allowlist check above could not see it.
  */
-describe("no command source names a tool the facade no longer registers", () => {
-	const COMMANDS_DIR = join(import.meta.dir, "..", "commands");
+describe("no CLI source names a tool the facade no longer registers", () => {
+	const CLI_DIR = join(import.meta.dir, "..");
 	// The only surviving `obsidian_`-prefixed registered tool.
 	const LIVE = new Set(["obsidian_help"]);
-	// A comment naming an old tool is stale documentation, not a live defect.
-	// Blocking on those would make this test unfixable without a doc sweep, and
-	// the failure mode it guards is string literals reaching the model.
-	const isComment = (line: string) => /^\s*(\/\/|\/\*|\*)/.test(line);
 
-	for (const file of readdirSync(COMMANDS_DIR).filter((f) => f.endsWith(".ts"))) {
-		test(`${file} has no dead obsidian_* in executable code`, () => {
-			const src = readFileSync(join(COMMANDS_DIR, file), "utf8");
+	/**
+	 * Blank out comments while preserving offsets, so line numbers in a failure
+	 * still point at the source. String literals are deliberately KEPT — a prompt
+	 * is a string, and a dead tool name inside one is the defect this hunts.
+	 *
+	 * A comment naming an old tool is stale documentation, not a live defect;
+	 * blocking on those would make this unfixable without a doc sweep.
+	 *
+	 * Character-scanned rather than line-matched: the previous line-anchored
+	 * `/^\s*(\/\/|\/\*|\*)/` treated any code line with a trailing `// …` as
+	 * fully commented (a false negative), and any block-comment continuation
+	 * line not starting with `*` as code (a false positive).
+	 *
+	 * Known limit: a `//` inside a regex literal, or inside a `${…}` expression
+	 * nested in a template literal, is not modelled. Neither appears here, and
+	 * the failure mode of both is a false positive — loud, not silent.
+	 */
+	function blankComments(src: string): string {
+		let out = "";
+		let state: "code" | "line" | "block" | "'" | '"' | "`" = "code";
+		for (let i = 0; i < src.length; i++) {
+			const c = src[i];
+			const d = src[i + 1];
+			if (state === "code") {
+				if (c === "/" && d === "/") { state = "line"; out += "  "; i++; continue; }
+				if (c === "/" && d === "*") { state = "block"; out += "  "; i++; continue; }
+				if (c === "'" || c === '"' || c === "`") state = c;
+				out += c;
+				continue;
+			}
+			if (state === "line" || state === "block") {
+				if (state === "line" && c === "\n") state = "code";
+				else if (state === "block" && c === "*" && d === "/") { state = "code"; out += "  "; i++; continue; }
+				out += c === "\n" ? "\n" : " ";
+				continue;
+			}
+			// inside a string literal — passed through verbatim
+			if (c === "\\") { out += c + (d ?? ""); i++; continue; }
+			if (c === state) state = "code";
+			out += c;
+		}
+		return out;
+	}
+
+	/** Every .ts under src/cli/ except this test tree. Scoped to the whole
+	 *  namespace, not just commands/: prompts also live in extensions/ runners
+	 *  and sessions/ factories. */
+	function walk(dir: string): string[] {
+		return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+			const p = join(dir, e.name);
+			if (e.isDirectory()) return e.name === "__tests__" ? [] : walk(p);
+			return e.name.endsWith(".ts") ? [p] : [];
+		});
+	}
+
+	const files = walk(CLI_DIR);
+
+	test("the walk actually found the CLI sources", () => {
+		// An empty file list would make every assertion below vacuously pass.
+		expect(files.length).toBeGreaterThan(20);
+		expect(files.some((f) => f.endsWith("pdf-to-vault.ts"))).toBe(true);
+	});
+
+	for (const file of files) {
+		const rel = file.slice(CLI_DIR.length + 1);
+		test(`${rel} has no dead obsidian_* in executable code`, () => {
+			const src = blankComments(readFileSync(file, "utf8"));
 			const offenders: string[] = [];
 			src.split("\n").forEach((line, i) => {
-				if (isComment(line)) return;
 				for (const m of line.matchAll(/\bobsidian_[a-z_]+/g)) {
-					if (!LIVE.has(m[0])) offenders.push(`${file}:${i + 1}  ${m[0]}`);
+					if (!LIVE.has(m[0])) offenders.push(`${rel}:${i + 1}  ${m[0]}`);
 				}
 			});
 			expect(offenders).toEqual([]);
