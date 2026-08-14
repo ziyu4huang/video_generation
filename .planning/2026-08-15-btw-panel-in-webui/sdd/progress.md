@@ -31,3 +31,7 @@ Task 7: complete (commits 618ee8bc..a5f0b1b, review clean)
 Task 7: minor (deferred): store returns shared EMPTY_STATE by reference pre-first-thread-event (plan-mandated) — Task 8 consumers must NOT mutate state()
 Task 7: minor (deferred): no test for second-thread-event replacement — Task 8 tests may cover
 Task 8: implemented (commit pending review)
+Task 8: complete (commits a5f0b1b..a28dc86, review clean; implementer died post-staging — mechanical completion, reviewer sole compliance gate, approved)
+Task 8: minor (deferred): createBtwRoutes deps closure re-instantiated per request (plan-mandated verbatim) — hoist candidate for hardening
+Task 8: minor (deferred): no store second-thread-event-replacement or getModels null-bound test — deferred to Task 11 contract test per brief
+Task 9: implemented (commit pending review)

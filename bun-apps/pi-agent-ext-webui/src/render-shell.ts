@@ -45,14 +45,54 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   #webui-feedback-log .webui-log-head { display: flex; justify-content: space-between; align-items: center; opacity: .85; margin-bottom: .2rem; }
   #webui-feedback-log .webui-log-head a { color: #9cf; cursor: pointer; text-decoration: none; }
   #webui-feedback-log-body > div { border-bottom: 1px solid #fff2; padding: .12rem 0; word-break: break-word; }
+  /* btw side panel (Task 9): shell-row flex layout + collapsed hide rule. */
+  #shell-row { display: flex; flex: 1 1 auto; min-height: 0; }
+  #shell-row > main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+  #btw-panel { flex: 0 0 340px; display: flex; flex-direction: column; border-left: 1px solid #8884; padding: .5rem; gap: .4rem; min-height: 0; }
+  /* Collapse state persists under localStorage key "btw-panel-collapsed" (Task 10 wires the toggle). */
+  body.btw-collapsed #btw-panel { display: none; }
+  #btw-messages { flex: 1 1 auto; overflow-y: auto; font-size: 13px; }
+  .btw-msg { margin: 4px 0; padding: 6px 8px; border-radius: 6px; background: #8881; }
+  .btw-msg.btw-user { background: #16324f; }
+  .btw-status { display: block; margin-top: 4px; color: #e0a030; font-size: 11px; }
+  .btw-notice { margin: 4px 0; padding: 6px 8px; border-radius: 6px; color: #7ec87e; background: #14290f; font-size: 12px; }
+  #btw-bar { display: flex; flex-wrap: wrap; gap: 4px; }
+  #btw-bar button, #btw-bar select { font-size: 12px; padding: 3px 8px; }
+  #btw-compose { display: flex; gap: 4px; }
+  #btw-input { flex: 1 1 auto; }
 </style>
 </head>
 <body>
 <header id="tabs"></header>
+<div id="shell-row">
 <main>
   <div class="meta" id="meta"></div>
   <div id="content"></div>
 </main>
+<aside id="btw-panel">
+  <div id="btw-bar">
+    <button id="btw-collapse" title="Collapse/expand the btw panel">«</button>
+    <button id="btw-new">New</button>
+    <button id="btw-clear">Clear</button>
+    <button id="btw-inject">Inject</button>
+    <button id="btw-summarize">Summarize</button>
+    <button id="btw-mode">Mode: contextual</button>
+    <select id="btw-model"><option value="">Main session model</option></select>
+    <select id="btw-thinking">
+      <option value="">Thinking: main default</option>
+      <option value="off">off</option>
+      <option value="low">low</option>
+      <option value="medium">medium</option>
+      <option value="high">high</option>
+    </select>
+  </div>
+  <div id="btw-messages"></div>
+  <div id="btw-compose">
+    <input id="btw-input" type="text" placeholder="Ask a tangent question..." />
+    <button id="btw-ask">Ask</button>
+  </div>
+</aside>
+</div>
 <div id="webui-feedback-log">
   <div class="webui-log-head"><span>response log</span><a id="webui-log-clear" href="#">clear</a></div>
   <div id="webui-feedback-log-body"></div>
@@ -269,3 +309,34 @@ export const APPEXEC_FRAME = (
   if (tweak !== undefined && tweak !== "") extra.tweak = tweak;
   return { type: "appexec", extra };
 };
+
+/** Outbound btw command frame for the /ws send path (panel -> engine). */
+export function BTW_FRAME(
+  kind: string,
+  extra?: Record<string, unknown>,
+): { type: "btw"; kind: string; [key: string]: unknown } {
+  return extra ? { type: "btw", kind, ...extra } : { type: "btw", kind };
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** One pre-reduced message snapshot -> panel row HTML (append/patch keyed by data-id). */
+export function BTW_MESSAGE_HTML(m: {
+  id: string;
+  role: string;
+  text: string;
+  status: string;
+  statusText?: string;
+}): string {
+  const status =
+    m.status === "done"
+      ? ""
+      : `<span class="btw-status">${escapeHtml(m.statusText ?? m.status)}</span>`;
+  return `<div class="btw-msg btw-${m.role}" data-id="${m.id}"><div class="btw-text">${escapeHtml(m.text)}</div>${status}</div>`;
+}
