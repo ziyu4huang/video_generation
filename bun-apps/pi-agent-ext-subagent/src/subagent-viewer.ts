@@ -11,13 +11,19 @@
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import type { AgentHistoryEntry, AgentUsage, InFlightSubagent } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry, AgentUsage } from "@repo/pi-agent-ext-core-runtime";
 import {
   type ActivityRow,
+  type ActivityStatus,
+  activityGlyph,
   fmtCost,
+  fmtElapsed,
   isTerminalStatus,
   matchedCallArgsFor,
+  type RunView,
   renderActivityRow,
+  renderBadge,
+  runHeader,
   shortModel,
   summarizeLatestAction,
 } from "@repo/pi-agent-ext-core-runtime";
@@ -127,8 +133,8 @@ export function reconstructSubagentRuns(branch: Iterable<BranchEntry>): Subagent
 
 interface ViewerOpts {
   runs: SubagentRun[];
-  /** Live in-flight runs (read each render so elapsed stays fresh). */
-  getRunning?: () => InFlightSubagent[];
+  /** Live in-flight runs as RunViews (fed by registry.views(); read each render so elapsed stays fresh). */
+  getRunning?: () => RunView[];
   /** Live re-scan of the branch, used to resolve a followed run's completion (Task 4). */
   getRuns?: () => SubagentRun[];
   onClose: () => void;
@@ -140,7 +146,7 @@ interface ViewerOpts {
 /** Stateful list↔output↔follow viewer. `view` flips on enter/esc; no second UI mount. */
 export class SubagentViewer {
   private runs: SubagentRun[];
-  private getRunning?: () => InFlightSubagent[];
+  private getRunning?: () => RunView[];
   private getRuns?: () => SubagentRun[];
   private view: "list" | "output" | "follow" = "list";
   private filter = "";
@@ -162,10 +168,11 @@ export class SubagentViewer {
   // follow state
   private followedId?: string;
   private followedSnapshot?: {
-    history: AgentHistoryEntry[];
+    history: readonly AgentHistoryEntry[];
     model: string;
     agent?: string;
-    startedAt: number;
+    /** Last live elapsed (RunView.elapsedMs) — frozen once the run leaves the registry. */
+    elapsedMs: number;
   };
   private followedFinal?: SubagentRun; // set by Task 4 on completion
   private followEnded = false;
@@ -191,17 +198,17 @@ export class SubagentViewer {
    *  OR `taskPreview` matches (case-insensitive substring). A batch with no
    *  matching children is dropped entirely (no header). */
   private entries(): Array<
-    | { kind: "running"; ref: InFlightSubagent }
+    | { kind: "running"; ref: RunView }
     | { kind: "batchHeader"; section: "running" | "completed"; batchId: string; running: number; done: number }
     | { kind: "completed"; ref: SubagentRun }
   > {
     const q = this.filter.trim().toLowerCase();
     const matches = (agent: string | undefined, preview: string): boolean =>
       !q || (agent ?? "").toLowerCase().includes(q) || preview.toLowerCase().includes(q);
-    const allRunning = (this.getRunning?.() ?? []).filter((r) => matches(r.agent, r.taskPreview));
+    const allRunning = (this.getRunning?.() ?? []).filter((r) => matches(r.actor, r.latestAction ?? ""));
 
     const runningEntries: Array<
-      | { kind: "running"; ref: InFlightSubagent }
+      | { kind: "running"; ref: RunView }
       | { kind: "batchHeader"; section: "running" | "completed"; batchId: string; running: number; done: number }
     > = [];
     const seenBatches = new Set<string>();
@@ -214,7 +221,7 @@ export class SubagentViewer {
         if (seenBatches.has(bid)) continue;
         seenBatches.add(bid);
         const children = allRunning.filter((x) => x.batchId === bid);
-        const done = children.filter((x) => isTerminalStatus(x.status ?? "running")).length;
+        const done = children.filter((x) => isTerminalStatus(x.status)).length;
         runningEntries.push({
           kind: "batchHeader",
           section: "running",
@@ -403,7 +410,7 @@ export class SubagentViewer {
     const runningEntries = entries.filter(
       (e) => e.kind === "running" || (e.kind === "batchHeader" && e.section === "running"),
     ) as Array<
-      | { kind: "running"; ref: InFlightSubagent }
+      | { kind: "running"; ref: RunView }
       | { kind: "batchHeader"; section: "running" | "completed"; batchId: string; running: number; done: number }
     >;
     if (runningEntries.length > 0) {
@@ -419,30 +426,35 @@ export class SubagentViewer {
           lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${header}`) : `  ${header}`}`, width));
           continue;
         }
-        const r = e.ref;
-        const indented = Boolean(r.batchId);
-        const terminal = isTerminalStatus(r.status ?? "running");
-        const toolCalls = r.history?.filter((h) => h.kind === "toolCall").length ?? 0;
-        // Elapsed freeze: a terminal batch child lingers in the registry
-        // (k/N progress) until endBatch — its elapsed must FREEZE at `endedAt`,
-        // not keep ticking (same family as buildLiveTable / the follow header).
-        const rowEnd = terminal ? (r.endedAt ?? Date.now()) : Date.now();
+        const v = e.ref;
+        const indented = Boolean(v.batchId);
+        const terminal = isTerminalStatus(v.status);
+        // Terminal batch child lingering in the registry (k/N until endBatch):
+        // plain theme-free header via runHeader (first production adoption);
+        // its elapsed is already frozen at endedAt by buildRunView.
+        if (indented && terminal) {
+          const body = cur ? th.bg("selectedBg", `▶ ${runHeader(v)}`) : th.fg("dim", `✓ ${runHeader(v)}`);
+          lines.push(truncateToWidth(`    ${body}`, width));
+          continue;
+        }
         const row: ActivityRow = {
-          status: r.status,
-          actor: r.agent ?? "general-purpose",
-          model: r.resolvedModel ?? r.model,
-          elapsedMs: rowEnd - r.startedAt,
-          toolCalls,
-          latestAction: summarizeLatestAction(r.history) ?? truncateToWidth(r.taskPreview, 40),
+          status: v.status,
+          actor: v.actor,
+          model: v.modelSeg,
+          elapsedMs: v.elapsedMs,
+          toolCalls: v.toolCallCount,
+          latestAction: summarizeLatestAction(v.history) ?? truncateToWidth(v.latestAction ?? "", 40),
         };
-        const head = renderActivityRow(row, th);
+        // Badge column via renderBadge (empty string when no badgeText) — first
+        // production adoption; kept out of ActivityRow.badge to avoid double render.
+        const head = `${renderBadge(v, th)}${renderActivityRow(row, th)}`;
         // Indented child (under a batch header) or flat ungrouped row — prefixes
         // kept byte-identical to pre-Task-3 so existing visuals are unchanged.
         // A completed-status batch child renders greyed with a ✓ checkmark but
         // stays selectable (follow shows its frozen trace); the ungrouped
         // branch is untouched (singular subagent runs never carry "completed").
         if (indented) {
-          const body = cur ? th.bg("selectedBg", `▶ ${head}`) : terminal ? th.fg("dim", `✓ ${head}`) : `  ${head}`;
+          const body = cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`;
           lines.push(truncateToWidth(`    ${body}`, width));
         } else {
           lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
@@ -536,7 +548,7 @@ export class SubagentViewer {
     const absTime = r.startedAt ? ` • ${formatAbsoluteTime(r.startedAt)}` : "";
     lines.push(
       truncateToWidth(
-        `  ${th.fg("accent", `#${r.index}`)} ${th.fg("muted", r.agent ?? "general-purpose")} ▸ ${r.model} • ${r.status} • ${(r.elapsedMs / 1000).toFixed(1)}s${absTime}${usageStr}`,
+        `  ${th.fg("accent", `#${r.index}`)} ${th.fg("muted", r.agent ?? "general-purpose")} ▸ ${r.model} • ${r.status} • ${fmtElapsed(r.elapsedMs)}${absTime}${usageStr}`,
         width,
       ),
     );
@@ -561,25 +573,22 @@ export class SubagentViewer {
     let agent: string | undefined;
 
     if (r) {
-      // LIVE — refresh the snapshot from the registry entry each tick.
+      // LIVE — refresh the snapshot from the RunView each tick. elapsedMs is
+      // now - startedAt live, frozen at endedAt once terminal (buildRunView) —
+      // no local clock math. A terminal batch child still lingering in the
+      // registry (kept for k/N until endBatch) shows its terminal status with
+      // a frozen elapsed instead of ticking "running" forever.
       this.followedSnapshot = {
         history: r.history ?? [],
-        // model is optional on the registry entry (a workflow run has no single
-        // model); coalesce so the follow header still renders a slot.
-        model: r.resolvedModel ?? r.model ?? "default",
-        agent: r.agent,
-        startedAt: r.startedAt,
+        model: r.modelSeg,
+        agent: r.actor,
+        elapsedMs: r.elapsedMs,
       };
       this.finalizingTicks = 0;
-      // Respect the registry status: a terminal batch child still
-      // lingers in the registry (kept for k/N until endBatch) — the follow
-      // header must show its terminal status and FREEZE elapsed at `endedAt`
-      // instead of ticking "running" forever.
-      const liveTerminal = isTerminalStatus(r.status ?? "running");
-      status = liveTerminal ? r.status : "running";
-      model = this.followedSnapshot.model;
-      elapsedMs = (liveTerminal ? (r.endedAt ?? Date.now()) : Date.now()) - r.startedAt;
-      agent = r.agent;
+      status = r.status;
+      model = r.modelSeg;
+      elapsedMs = r.elapsedMs;
+      agent = r.actor;
     } else {
       // ABSENT — resolve completion. Task 4 fills the real freeze via getRuns;
       // until then (or past grace) show finalizing → ended.
@@ -595,13 +604,22 @@ export class SubagentViewer {
       } else {
         status = this.followEnded ? "ended" : "finalizing";
         model = this.followedSnapshot?.model ?? "default";
-        elapsedMs = this.followedSnapshot ? Date.now() - this.followedSnapshot.startedAt : 0;
+        // Elapsed freezes at the last live RunView.elapsedMs — no local clock math.
+        elapsedMs = this.followedSnapshot?.elapsedMs ?? 0;
         agent = this.followedSnapshot?.agent;
       }
     }
 
     const agentLabel = agent ?? "general-purpose";
-    const head = `${followGlyph(status, th)} ${th.fg("accent", agentLabel)} ▸ ${th.fg("muted", model)} • ${th.fg("muted", status)} • ${(elapsedMs / 1000).toFixed(1)}s${usageStr}`;
+    // Glyph via the canonical activityGlyph table (activityGlyph's adoption
+    // deletes followGlyph); only follow's two synthetic statuses (finalizing /
+    // ended — not ActivityStatus vocabulary) keep their local dim glyphs.
+    const { icon, color } =
+      status === "finalizing" || status === "ended"
+        ? { icon: status === "finalizing" ? "…" : "–", color: "dim" }
+        : activityGlyph(status as ActivityStatus);
+    const glyph = th.fg(color as Parameters<Theme["fg"]>[0], icon);
+    const head = `${glyph} ${th.fg("accent", agentLabel)} ▸ ${th.fg("muted", model)} • ${th.fg("muted", status)} • ${fmtElapsed(elapsedMs)}${usageStr}`;
     lines.push(truncateToWidth(`  ${head}`, width));
     lines.push(truncateToWidth(th.fg("borderMuted", "─".repeat(Math.max(0, width))), width));
 
@@ -657,31 +675,5 @@ export class SubagentViewer {
   invalidate(): void {
     this.cachedWidth = undefined;
     this.cachedLines = undefined;
-  }
-}
-
-/** Header glyph+color for a follow-view status (covers the statuses follow can show). */
-function followGlyph(status: string, th: Theme): string {
-  switch (status) {
-    case "running":
-      return th.fg("warning", "●");
-    case "completed":
-      // Registry-level terminal stamp (a batch child kept for k/N before
-      // endBatch) — same success glyph as the branch-level "done".
-      return th.fg("success", "✓");
-    case "done":
-      return th.fg("success", "✓");
-    case "failed":
-      return th.fg("error", "✗");
-    case "timedout":
-      return th.fg("warning", "⏱");
-    case "budget":
-      return th.fg("warning", "⛔");
-    case "turns":
-      return th.fg("warning", "⏹");
-    case "ended":
-      return th.fg("dim", "–");
-    default:
-      return th.fg("dim", "…"); // finalizing
   }
 }

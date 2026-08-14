@@ -66,7 +66,7 @@ export function createSubagentsCommand(opts: { subagentInFlight: SubagentInFligh
         const viewer = new SubagentViewer(
           {
             runs,
-            getRunning: () => subagentInFlight.list(),
+            getRunning: () => subagentInFlight.views(),
             getRuns: () => reconstructSubagentRuns(branch),
             onClose: () => {
               if (timer) clearInterval(timer);
