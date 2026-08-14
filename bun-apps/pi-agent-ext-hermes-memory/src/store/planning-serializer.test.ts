@@ -106,3 +106,50 @@ describe("PlanningTicketSerializer — depends_on edge (10-impl T1)", () => {
     assert.equal(c!.frontmatter.dependsOn, undefined);
   });
 });
+
+describe("golden round-trip: serialize → deserialize → serialize byte-identity (C1 close-out)", () => {
+  // The planning fence split now delegates to splitFencedYaml (C1 #1196 leaf);
+  // these goldens pin that the rewired path keeps serialize a fixed point on
+  // representative planning fixtures: s1 = serialize(deserialize(md)),
+  // s2 = serialize(deserialize(s1)) ⇒ s1 === s2, byte-for-byte.
+  const effortSer = new PlanningEffortSerializer();
+  const ticketSer = new PlanningTicketSerializer();
+
+  function roundTrip(
+    ser: PlanningEffortSerializer | PlanningTicketSerializer,
+    md: string,
+    filePath: string,
+  ): string {
+    const s1 = ser.serialize(ser.deserialize(md, { filePath })[0]!);
+    const s2 = ser.serialize(ser.deserialize(s1, { filePath })[0]!);
+    assert.equal(s2, s1);
+    return s1;
+  }
+
+  it("planning-effort (map.md fixture) round-trips byte-identically", () => {
+    const s1 = roundTrip(effortSer, mapBytes, `.planning/${EFFORT}/map.md`);
+    // Sanity: the fixed point still carries status + H1 + body sections.
+    assert.match(s1, /^---\nstatus: active\n---\n\n# Fixture effort/);
+    assert.match(s1, /## Notes/);
+  });
+
+  it("planning-ticket (fixture 08, blocked-by + gist) round-trips byte-identically", () => {
+    const s1 = roundTrip(
+      ticketSer,
+      t08Bytes,
+      `.planning/${EFFORT}/tickets/08-planning-card-model.md`,
+    );
+    assert.match(s1, /^---\ntype: grilling\nstatus: closed\nclaimed: pi\/test\nblocked by: 01\n---\n/);
+    assert.match(s1, /## Resolution \(2026-08-09, grilled\)/);
+  });
+
+  it("planning-ticket (depends_on + cites edge) round-trips byte-identically", () => {
+    const md = `---\ntype: task\nstatus: closed\nblocked by: 01\ndepends_on:\n  - bun-apps/hermes/src/store/card.ts\n  - docs/spec.md\n---\n# 02 — x\n\n## Resolution\nCites src/real/file.ts in body.\n`;
+    const s1 = roundTrip(ticketSer, md, `.planning/rt-eff/tickets/02-x.md`);
+    // depends_on is deserialize-only (graph relations); the fixed point drops
+    // it — pinned here so any change to that asymmetry is a conscious edit.
+    assert.doesNotMatch(s1, /depends_on/);
+    assert.match(s1, /blocked by: 01/);
+    assert.match(s1, /## Resolution/);
+  });
+});

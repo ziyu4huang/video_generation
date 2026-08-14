@@ -2,34 +2,9 @@
 // planning-card fields. Self-contained (no wayfind import): the .planning md
 // format is the contract, mirroring KnowledgeSerializer's self-contained
 // vault-md parsing. Parity with wayfind parseTicketFile/readMap is by format.
-import { parse as parseYaml } from "yaml";
-
-const FENCE = "---";
-
-/** Split a leading `---` YAML frontmatter block from the body. null on a
- *  missing/malformed fence (never throws). */
-export function splitPlanningFrontmatter(
-  raw: string,
-): { data: Record<string, unknown>; body: string } | null {
-  const lines = raw.split("\n");
-  if (lines.length === 0 || lines[0]!.trim() !== FENCE) return null;
-  let end = -1;
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i]!.trim() === FENCE) {
-      end = i;
-      break;
-    }
-  }
-  if (end === -1) return null;
-  let data: Record<string, unknown>;
-  try {
-    const parsed = parseYaml(lines.slice(1, end).join("\n"));
-    data = parsed !== null && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return null;
-  }
-  return { data, body: lines.slice(end + 1).join("\n") };
-}
+// The fence split delegates to the one leaf (frontmatter-codec.ts, C1 #1196);
+// the alias export keeps the historical name for callers/tests.
+export { splitFencedYaml as splitPlanningFrontmatter } from "./frontmatter-codec.js";
 
 /** First H1 line (`# title`), or undefined. */
 export function extractTitle(body: string): string | undefined {
