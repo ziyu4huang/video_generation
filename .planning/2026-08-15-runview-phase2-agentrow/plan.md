@@ -561,6 +561,8 @@ git commit -m "refactor(subagent): renderCall consumes RunView via registry.view
 - Consumes: `registry.views(opts?: { foreground?: boolean }): RunView[]` — verified semantics: `opts.foreground === undefined` returns all runs; otherwise filters `r.foreground === opts.foreground`.
 - Produces: no production file in `pi-agent-ext-subagent/src` calls `registry.list()`; the `getRunning` closures feed `RunView[]` to `SubagentViewer` / `SubagentContextWidget` (whose render paths consume RunView fields per the field map).
 
+> EXECUTION NOTE (2026-08-15): render-feeding call sites (context-widget getRunning, subagents-tool batch filter, subagents-command getRunning) move to Wave 2 — RunView lacks history/resolvedModel/workIntent the live renderers read; execute them inside tasks 10-12, keep task 6 as the final read-surface sweep together with task 8.
+
 - [ ] **Step 1: Verify views() filter semantics (proof step, do not skip)**
 
 Run:
