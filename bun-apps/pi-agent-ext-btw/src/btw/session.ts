@@ -38,6 +38,18 @@ import {
   BTW_THINKING_OVERRIDE_TYPE,
 } from "./constants";
 import {
+  BTW_EVENT_CHANNEL,
+  type BtwCommand,
+  type BtwEvent,
+  type BtwThreadState,
+} from "./webui-events";
+import {
+  snapshotsFromDetails,
+  snapshotsFromMessages,
+  statusFromEvent,
+  type BtwStatusUpdate,
+} from "./snapshot";
+import {
   applyTranscriptEvent,
   appendPersistedTranscriptTurn,
   createEmptyTranscriptState,
@@ -253,6 +265,19 @@ export class BtwEngine {
   overlayRuntime: OverlayRuntime | null = null;
   lastUiContext: ExtensionContext | ExtensionCommandContext | null = null;
   activeBtwSession: BtwSessionRuntime | null = null;
+  /** Latest ExtensionCommandContext seen at session_start/session_tree; the webui command channel carries no ctx. */
+  private latestCtx: ExtensionCommandContext | null = null;
+  /** Status override for the last live message, derived from sub-session events. */
+  private webuiStatus: BtwStatusUpdate | null = null;
+  /** The BtwSessionRuntime currently bridged to the webui event channel. */
+  private webuiBridgedFor: BtwSessionRuntime | null = null;
+  /**
+   * Disposer for the active webui bridge subscription. Deliberately NOT stored in
+   * sr.subscriptions: the overlay attach guard in subscribeOverlayToActiveBtwSession
+   * treats a non-empty set as "overlay already attached", which would silently kill
+   * TUI live updates for every sub-session created after the bridge (Task 3 fix).
+   */
+  private webuiBridgeUnsub: (() => void) | null = null;
 
   constructor(private readonly pi: ExtensionAPI) {}
 
@@ -328,13 +353,148 @@ export class BtwEngine {
     sr.subscriptions.add(unsub);
   }
 
+  // ── Webui bridge (event-bus seam; independent of the TUI overlay path) ───
+
+  /** Record the ctx the webui command handler should use (set from session_start/session_tree). */
+  setLatestCtx(ctx: ExtensionCommandContext): void {
+    this.latestCtx = ctx;
+  }
+
+  /**
+   * Webui bridge: an ADDITIONAL session subscription (separate from the overlay's)
+   * that pre-reduces each sub-session event into a thread snapshot and emits it on
+   * BTW_EVENT_CHANNEL. Never touches applyTranscriptEvent / setOverlayStatus / syncUi.
+   */
+  subscribeWebuiBridge(sr: BtwSessionRuntime): void {
+    if (this.webuiBridgedFor === sr) return;
+    this.webuiBridgeUnsub?.();
+    this.webuiBridgedFor = sr;
+    this.webuiStatus = null;
+    const dispose = sr.session.subscribe((event: AgentSessionEvent) => {
+      // A new turn invalidates the previous turn's terminal status ("done");
+      // reset so the ?? streaming default re-engages for the new live message.
+      if ((event as { type?: unknown }).type === "turn_start") this.webuiStatus = null;
+      const update = statusFromEvent(event);
+      if (update) this.webuiStatus = update;
+      this.emitThreadEvent();
+    });
+    // Tracked in a dedicated field (not sr.subscriptions) so the overlay attach
+    // guard in subscribeOverlayToActiveBtwSession still sees an empty set.
+    this.webuiBridgeUnsub = () => {
+      if (this.webuiBridgedFor === sr) this.webuiBridgedFor = null;
+      dispose();
+    };
+  }
+
+  /** Current thread state, pre-reduced for the webui panel (D5). */
+  buildThreadState(): BtwThreadState {
+    const messages = this.activeBtwSession
+      ? snapshotsFromMessages(
+          this.activeBtwSession.session.agent.state.messages.slice(
+            this.activeBtwSession.sideThreadStartIndex,
+          ),
+          this.webuiStatus,
+        )
+      : snapshotsFromDetails(this.pendingThread);
+    return {
+      messages,
+      mode: this.pendingMode,
+      model: this.btwModelOverride
+        ? {
+            provider: this.btwModelOverride.provider,
+            id: this.btwModelOverride.id,
+            api: this.btwModelOverride.api,
+          }
+        : null,
+      thinking: this.btwThinkingOverride,
+    };
+  }
+
+  /** Emit the current thread snapshot on the webui event channel. */
+  emitThreadEvent(): void {
+    const event: BtwEvent = { type: "thread", state: this.buildThreadState() };
+    this.pi.events?.emit(BTW_EVENT_CHANNEL, event);
+  }
+
+  /** Emit a one-line notice (inject confirmation, summarize output, errors). */
+  emitNotice(text: string): void {
+    const event: BtwEvent = { type: "notice", text };
+    this.pi.events?.emit(BTW_EVENT_CHANNEL, event);
+  }
+
+  /**
+   * Handle a webui panel command. ask/new/clear/inject/summarize reuse the exact
+   * TUI code paths (runBtw / dispatchBtwCommand); model/thinking/mode use the
+   * engine setters directly. Always ends with a thread event (or a notice on error).
+   */
+  async handleWebuiCommand(command: BtwCommand): Promise<void> {
+    const ctx = this.latestCtx;
+    if (!ctx) {
+      this.emitNotice("btw: no active session context yet");
+      return;
+    }
+    try {
+      switch (command.kind) {
+        case "ask":
+          await this.runBtw(ctx, command.text, false);
+          break;
+        case "new":
+          await this.dispatchBtwCommand("btw:new", "", ctx);
+          break;
+        case "clear":
+          await this.dispatchBtwCommand("btw:clear", "", ctx);
+          break;
+        case "inject":
+          await this.dispatchBtwCommand("btw:inject", "", ctx);
+          this.emitNotice("Injected into the main session");
+          break;
+        case "summarize": {
+          const { thread } = await this.getBtwHandoffThread(ctx);
+          const summary = await this.summarizeThread(ctx, thread);
+          this.emitNotice(summary);
+          break;
+        }
+        case "model": {
+          let model: SessionModel | null = null;
+          if (command.model) {
+            model = ctx.modelRegistry.find(command.model.provider, command.model.id) ?? null;
+            if (!model) {
+              this.emitNotice(
+                `btw: model not found: ${command.model.provider}/${command.model.id} — override cleared`,
+              );
+            }
+          }
+          await this.setBtwModelOverride(ctx, model);
+          break;
+        }
+        case "thinking":
+          await this.setBtwThinkingOverride(ctx, command.level);
+          break;
+        case "mode":
+          // Mirror the engine's dispose-on-mode-change semantics: next ensureBtwSession
+          // rebuilds in the new mode; dispose now so the panel reflects the reset.
+          this.pendingMode = command.mode;
+          await this.disposeBtwSession();
+          break;
+      }
+    } catch (error) {
+      this.emitNotice(`btw: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    this.emitThreadEvent();
+  }
+
   async disposeBtwSession(): Promise<void> {
     const current = this.activeBtwSession;
     this.activeBtwSession = null;
+    this.webuiStatus = null;
+    this.webuiBridgeUnsub?.();
+    this.webuiBridgeUnsub = null;
     if (!current) return;
     this.clearBtwSessionSubscriptions(current);
     try { await current.session.abort(); } catch { /* ignore */ }
     current.session.dispose();
+    this.emitThreadEvent();
   }
 
   async dismissOverlaySession(): Promise<void> {
@@ -465,7 +625,9 @@ export class BtwEngine {
       session.agent.state.messages = seedMessages as typeof session.state.messages;
     }
 
-    return { session, mode: this.pendingMode, subscriptions: new Set(), sideThreadStartIndex };
+    const sr: BtwSessionRuntime = { session, mode: this.pendingMode, subscriptions: new Set(), sideThreadStartIndex };
+    this.subscribeWebuiBridge(sr);
+    return sr;
   }
 
   async ensureBtwSession(ctx: ExtensionCommandContext): Promise<BtwSessionRuntime | null> {

@@ -28,8 +28,8 @@
  */
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { InFlightSubagent, SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 import { isTerminalStatus } from "@repo/pi-agent-ext-core-runtime";
-import type { InFlightSubagent, SubagentInFlightRegistry } from "./index.js";
 import {
   capTraceTail,
   formatSubagentTrace,

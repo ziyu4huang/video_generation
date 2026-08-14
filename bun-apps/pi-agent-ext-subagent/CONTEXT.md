@@ -24,6 +24,16 @@ _Avoid_: mini-workflow, single-agent script (it is a standalone tool call, not a
 The LLM-facing inspection tool — lists completed `subagent`-tool runs (newest-first, filterable by status, with a get-by-id subcommand) backed by the run-persistence store. Owned by this package's extension.
 _Avoid_: conflating with the `/subagents` interactive viewer (a TUI slash-command living in this package's `src/subagent-viewer.ts`, reading the same persistence singleton).
 
+**Child dispatch** (`dispatchChild`, `src/child-dispatch.ts`):
+The single place one isolated child run is DRIVEN. Owns the per-child abort controller and the parent-turn-signal fan-in, the in-flight registry lifecycle, capture of the ACTUAL resolved model (and any fallback), history streaming, the commit-scope audit, the user-abort-vs-whole-turn-Esc distinction, and status derivation. Both LLM-facing tools call it: the `subagent` tool once, the `subagents` tool once per batch child.
+
+The callers keep what genuinely differs — building the spawn REQUEST (agentType resolution, worktree isolation, the batch's non-overridable read-only exclusion), the watchdog, the circuit breaker, rendering, and persistence. **This module owns the run, not the request.**
+
+It exists because the two tools previously each held a hand-maintained copy of that policy, kept aligned by ten "mirrors the singular tool" comments — and the copies drifted twice in ways the code itself records: the actual-model capture reached only the singular tool (a batch child that fell back rendered the REQUESTED model under a ✓ done badge), and the default-on commit-scope audit likewise.
+
+Where the two tools still differ, the difference is stated at the call site instead of left to drift: the singular tool audits commits even with no declared scope (its child holds raw `bash`), the batch tool only when a scope is declared (its children have edit/write/bash excluded and cannot reach git).
+_Avoid_: adding per-child dispatch policy to either tool's `execute` (it belongs here, or the two will diverge again); passing `externalSignal`/`onModelResolved`/`onModelFallback`/`onHistory`/`onUsage` in the request (this module owns those five fields and overwrites them).
+
 ### Runner
 
 **`WorkflowAgent`**:
@@ -42,10 +52,14 @@ Durable, inspection-only records of COMPLETED `subagent`-tool runs, for post-ses
 _Avoid_: persisting subagent runs through the workflow journal (use this separate store); treating the record as mutable (it is write-once).
 
 **Singleton-sharing contract** (module identity):
-`getSubagentInFlightRegistry()` and `getSubagentRunPersistence()` are **module-local lazy singletons**. The `subagent` tool and the `/subagents` viewer/command are now BOTH in this package (the viewer relocated here in PR #821 / [ADR-0002](docs/adr/0002-relocate-viewer-command-to-subagent.md)), so they share ONE instance via the in-package relative import — **no peer-extension sharing is currently needed** (no external package imports these singletons today).
+`getSubagentInFlightRegistry()` and `getSubagentRunPersistence()` are **module-local lazy singletons**, so every observer must land on ONE module instance. They do, and **no special import path is required**: this package's `exports["."]` maps to `./src/index.ts` (there is no `dist/` entry), so the package root and the `src/` subpath are the same module. `getSubagentInFlightRegistry` itself now lives in `@repo/pi-agent-ext-core-runtime`, whose root likewise maps to its own `src/index.ts` — so all three spellings resolve to one registry. `pi-agent-ext-obsidian` imports both singletons from the plain package root and is correct to do so.
 
-The **`src/` subpath rule is retained as forward-compat advice**: if a future peer extension ever needs to observe runs directly, it MUST import via `@repo/pi-agent-ext-subagent/src/index.ts` (NOT the dist root) to land on the identical module instance. Importing via the dist root would yield a separate lazily-initialized singleton → the observer sees an empty registry.
-_Avoid_: importing the singletons from the dist root and expecting the live instance (use the `src/` subpath); copying the registry/persistence into a peer extension (share the singleton instead).
+`tests/rate-limiter-cross-pkg.test.ts` pins the observable half behaviorally (hold the only slot of a cap-1 limiter via the core-runtime path; the package-root path must BLOCK on the same budget), so the guarantee survives any change in how the linker dedupes module records.
+_Avoid_: the retired "import via the `src/` subpath, NOT the dist root" rule (it described a `dist/` entry point this package does not have); copying the registry/persistence into a peer extension (share the singleton instead).
+
+**Barrel facade rule** (`src/index.ts`):
+The barrel exports everything this package owns, plus exactly those `@repo/pi-agent-ext-core-runtime` symbols that a peer imports THROUGH it. The facade is load-bearing, not stylistic: `pi-agent`, `pi-agent-ext-obsidian`, `pi-agent-ext-file2md` and `pi-agent-ext-knowledge-card` do not declare core-runtime, and the dep-guard rejects an undeclared `@repo` edge. `tests/barrel-surface.test.ts` checks BOTH directions — an unsanctioned re-export fails, and so does a facade entry whose named peer has moved off the barrel.
+_Avoid_: re-exporting a core-runtime symbol "for convenience" (the barrel reached 114 names of which 21 were ever imported); importing through this package's own barrel from inside `src/`.
 
 ### Supporting concepts
 

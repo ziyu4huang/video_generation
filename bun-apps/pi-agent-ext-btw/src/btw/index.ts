@@ -16,6 +16,7 @@ import { BTW_MESSAGE_TYPE } from "./constants";
 import { BtwEngine } from "./session";
 import { Box, Markdown, Text } from "@earendil-works/pi-tui";
 import { BTW_FOCUS_SHORTCUTS } from "./overlay";
+import { BTW_COMMAND_CHANNEL, isBtwCommand } from "./webui-events";
 
 export function registerBtwFeature(pi: ExtensionAPI): BtwEngine {
   const engine = new BtwEngine(pi);
@@ -54,15 +55,25 @@ export function registerBtwFeature(pi: ExtensionAPI): BtwEngine {
 
   // ── Session lifecycle ───────────────────────────────────────────────────
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
+    engine.setLatestCtx(ctx);
     await engine.restoreThread(ctx);
+    engine.emitThreadEvent();
   });
 
   pi.on("session_tree", async (_event: unknown, ctx: ExtensionContext) => {
+    engine.setLatestCtx(ctx);
     await engine.restoreThread(ctx);
+    engine.emitThreadEvent();
   });
 
   pi.on("session_shutdown", async () => {
     await engine.shutdown();
+  });
+
+  // webui panel commands (user-only surface; D2 — no new tools registered)
+  pi.events?.on(BTW_COMMAND_CHANNEL, (data: unknown) => {
+    if (!isBtwCommand(data)) return;
+    void engine.handleWebuiCommand(data);
   });
 
   // ── Keyboard shortcuts ─────────────────────────────────────────────────

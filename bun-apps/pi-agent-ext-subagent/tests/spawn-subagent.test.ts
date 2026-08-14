@@ -199,13 +199,6 @@ describe("spawnSubagent", () => {
     assert.equal(out.exitCode, 0);
   });
 
-  it("prime is accepted but a no-op (no extra call; output unaffected)", async () => {
-    const runner = mkRunner(async () => "out");
-    const out = await spawnSubagent({ task: "t", prime: { query: "loRA", topK: 5 }, agent: runner });
-    assert.equal(out.output, "out");
-    assert.equal(runner.calls.length, 1, "prime did not add a retrieve call (③ owns it)");
-  });
-
   // D8-1: when opts.schema is set, WorkflowAgent.run returns a validated OBJECT.
   // The adapter MUST preserve it as JSON — `String(obj)` would yield "[object Object]"
   // and silently destroy the schema payload (returned as a success-shaped result).
@@ -499,6 +492,44 @@ describe("spawnSubagent schema repair", () => {
     const out = await spawnSubagent({ task: "t", retryOnTransient: false, agent: runner });
     assert.equal(out.exitCode, 1);
     assert.equal(runner.calls.length, 1, "retryOnTransient:false → no retry");
+  });
+});
+
+describe("spawnSubagent turns cap (maxTurns)", () => {
+  const mkTurnsError = () =>
+    new WorkflowError("max turns exceeded (5)", WorkflowErrorCode.TURNS_EXHAUSTED, {
+      recoverable: false,
+      details: { maxTurns: 5, turnsUsed: 5 },
+    });
+
+  it("TURNS_EXHAUSTED → transient, timedOut:false, result.turns {maxTurns, turnsUsed}, exitCode 124, retried once", async () => {
+    const runner = mkRunner(async () => {
+      throw mkTurnsError();
+    });
+    const out = await spawnSubagent({ task: "t", maxTurns: 5, retryOnTransient: true, agent: runner });
+    assert.equal(runner.calls.length, 2, "turns exhaustion is transient (timeout-like) → retried once");
+    assert.equal(out.timedOut, false, "a turn cap is NOT a wall-clock timeout");
+    assert.equal(out.exitCode, 124, "shares the timeout exit convention while staying distinguishable via turns");
+    assert.deepEqual(out.turns, { maxTurns: 5, turnsUsed: 5 });
+    assert.equal(out.output, "");
+    assert.match(out.stderr, /max turns exceeded/);
+  });
+
+  it("TURNS_EXHAUSTED NOT retried when retryOnTransient:false", async () => {
+    const runner = mkRunner(async () => {
+      throw mkTurnsError();
+    });
+    const out = await spawnSubagent({ task: "t", maxTurns: 5, retryOnTransient: false, agent: runner });
+    assert.equal(runner.calls.length, 1);
+    assert.deepEqual(out.turns, { maxTurns: 5, turnsUsed: 5 });
+  });
+
+  it("forwards maxTurns to runner.run; omitted → undefined (no default)", async () => {
+    const runner = mkRunner(async () => "ok");
+    await spawnSubagent({ task: "t", maxTurns: 3, agent: runner });
+    assert.equal(runner.calls[0]?.opts.maxTurns, 3);
+    await spawnSubagent({ task: "t", agent: runner });
+    assert.equal(runner.calls[1]?.opts.maxTurns, undefined, "omit = unlimited turns (no default injected)");
   });
 });
 

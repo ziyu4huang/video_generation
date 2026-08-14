@@ -1460,6 +1460,84 @@ test("renderSubagentResult renders a budget badge + budgetTag", () => {
   assert.match(out, /tokens:1234\/1000/);
 });
 
+// ── maxTurns (turns cap) — #1336 ──
+
+test("deriveSubagentStatus: result.turns → 'turns' (distinct from budget/timedout/failed)", () => {
+  assert.equal(
+    deriveSubagentStatus({
+      output: "",
+      exitCode: 124,
+      stderr: "",
+      timedOut: false,
+      turns: { maxTurns: 5, turnsUsed: 5 },
+    }),
+    "turns",
+  );
+  // without turns, the same 124/non-timeout shape still classifies as failed
+  assert.equal(deriveSubagentStatus({ output: "", exitCode: 124, stderr: "", timedOut: false }), "failed");
+});
+
+test("renderSubagentResult renders a '⏹ turns' badge + turns:n/n tag (distinct from ⛔ budget / ⏱ timedout)", () => {
+  const details: SubagentToolDetails = {
+    exitCode: 124,
+    timedOut: false,
+    taskPreview: "p",
+    elapsedMs: 9000,
+    status: "turns",
+    turns: { maxTurns: 5, turnsUsed: 5 },
+  };
+  const out = renderSubagentResult({ content: [{ type: "text", text: "aborted" }], details }, { expanded: false }, T);
+  assert.match(out, /⏹ turns/);
+  assert.match(out, /turns:5\/5/);
+  assert.ok(!out.includes("timedout"), "a turn cap is not mislabeled as a wall-clock timeout");
+  assert.ok(!out.includes("⛔"), "a turn cap is not mislabeled as a budget abort");
+});
+
+test("formatSubagentResult emits 'max turns exceeded (N)' on a turns abort", () => {
+  assert.equal(
+    formatSubagentResult({
+      output: "",
+      exitCode: 124,
+      stderr: "max turns exceeded (5)",
+      timedOut: false,
+      turns: { maxTurns: 5, turnsUsed: 5 },
+    }),
+    "Subagent aborted: max turns exceeded (5).",
+  );
+});
+
+test("execute: spawn result with turns → status 'turns', details.turns, 'max turns exceeded' in the model text", async () => {
+  const f = fakeSpawn(() => ({
+    output: "",
+    exitCode: 124,
+    stderr: "max turns exceeded (5)",
+    timedOut: false,
+    turns: { maxTurns: 5, turnsUsed: 5 },
+  }));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const res = await tool.execute("id", { task: "t", maxTurns: 5 }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(res.details.status, "turns");
+  assert.deepEqual(res.details.turns, { maxTurns: 5, turnsUsed: 5 });
+  const text = (res.content[0] as { text: string }).text;
+  assert.match(text, /max turns exceeded \(5\)/);
+});
+
+test("execute persists turns on the durable run record (status 'turns')", async () => {
+  const { saved, persistence } = fakePersistence();
+  const f = fakeSpawn(() => ({
+    output: "",
+    exitCode: 124,
+    stderr: "max turns exceeded (5)",
+    timedOut: false,
+    turns: { maxTurns: 5, turnsUsed: 5 },
+  }));
+  const tool = createSubagentTool({ spawn: f.spawn, persistence });
+  await tool.execute("id", { task: "t", maxTurns: 5 }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].status, "turns");
+  assert.deepEqual(saved[0].turns, { maxTurns: 5, turnsUsed: 5 });
+});
+
 test("execute persists budget on the durable run record (status 'budget')", async () => {
   const { saved, persistence } = fakePersistence();
   const f = fakeSpawn(() => ({

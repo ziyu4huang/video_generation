@@ -45,14 +45,54 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   #webui-feedback-log .webui-log-head { display: flex; justify-content: space-between; align-items: center; opacity: .85; margin-bottom: .2rem; }
   #webui-feedback-log .webui-log-head a { color: #9cf; cursor: pointer; text-decoration: none; }
   #webui-feedback-log-body > div { border-bottom: 1px solid #fff2; padding: .12rem 0; word-break: break-word; }
+  /* btw side panel (Task 9): shell-row flex layout + collapsed hide rule. */
+  #shell-row { display: flex; flex: 1 1 auto; min-height: 0; }
+  #shell-row > main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+  #btw-panel { flex: 0 0 340px; display: flex; flex-direction: column; border-left: 1px solid #8884; padding: .5rem; gap: .4rem; min-height: 0; }
+  /* Collapse state persists under localStorage key "btw-panel-collapsed" (Task 10 wires the toggle). */
+  body.btw-collapsed #btw-panel { display: none; }
+  #btw-messages { flex: 1 1 auto; overflow-y: auto; font-size: 13px; }
+  .btw-msg { margin: 4px 0; padding: 6px 8px; border-radius: 6px; background: #8881; }
+  .btw-msg.btw-user { background: #16324f; }
+  .btw-status { display: block; margin-top: 4px; color: #e0a030; font-size: 11px; }
+  .btw-notice { margin: 4px 0; padding: 6px 8px; border-radius: 6px; color: #7ec87e; background: #14290f; font-size: 12px; }
+  #btw-bar { display: flex; flex-wrap: wrap; gap: 4px; }
+  #btw-bar button, #btw-bar select { font-size: 12px; padding: 3px 8px; }
+  #btw-compose { display: flex; gap: 4px; }
+  #btw-input { flex: 1 1 auto; }
 </style>
 </head>
 <body>
 <header id="tabs"></header>
+<div id="shell-row">
 <main>
   <div class="meta" id="meta"></div>
   <div id="content"></div>
 </main>
+<aside id="btw-panel">
+  <div id="btw-bar">
+    <button id="btw-collapse" title="Collapse/expand the btw panel">«</button>
+    <button id="btw-new">New</button>
+    <button id="btw-clear">Clear</button>
+    <button id="btw-inject">Inject</button>
+    <button id="btw-summarize">Summarize</button>
+    <button id="btw-mode">Mode: contextual</button>
+    <select id="btw-model"><option value="">Main session model</option></select>
+    <select id="btw-thinking">
+      <option value="">Thinking: main default</option>
+      <option value="off">off</option>
+      <option value="low">low</option>
+      <option value="medium">medium</option>
+      <option value="high">high</option>
+    </select>
+  </div>
+  <div id="btw-messages"></div>
+  <div id="btw-compose">
+    <input id="btw-input" type="text" placeholder="Ask a tangent question..." />
+    <button id="btw-ask">Ask</button>
+  </div>
+</aside>
+</div>
 <div id="webui-feedback-log">
   <div class="webui-log-head"><span>response log</span><a id="webui-log-clear" href="#">clear</a></div>
   <div id="webui-feedback-log-body"></div>
@@ -145,6 +185,11 @@ function connectWs() {
     scheduleWsRetry();
   };
   ws.onerror = function () { console.warn('[webui] response ws error'); scheduleWsRetry(); };
+  // FIRST inbound consumer of the /ws socket (it was send-only before btw).
+  ws.onmessage = function (message) {
+    let frame; try { frame = JSON.parse(message.data); } catch { return; }
+    if (frame && frame.type === "btw" && frame.event) btwApplyEvent(frame.event);
+  };
 }
 
 function scheduleWsRetry() {
@@ -163,17 +208,141 @@ function logResponse(text) {
   body.appendChild(line);
 }
 
+function sendRaw(payload) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(payload);
+    return true;
+  }
+  console.warn('[webui] ws not open; would send:', payload);
+  return false;
+}
+
 function sendAppexecResponse(id, action, tweak) {
   const extra = { kind: 'respond', id: id, action: action };
   if (tweak) extra.tweak = tweak; // omit the key when absent (present-tool details semantics)
   const frame = { type: 'appexec', extra: extra };
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(frame));
+  if (sendRaw(JSON.stringify(frame))) {
     console.log('[webui] appexec response sent:', JSON.stringify(frame));
-  } else {
-    console.warn('[webui] ws not open; would send:', frame);
   }
   logResponse(action + (tweak ? ' (tweak: ' + tweak + ')' : ''));
+}
+
+// --- btw side panel client logic (Task 10) ---
+// Pull-then-subscribe: GET /api/btw + /api/btw/models on load, then inbound
+// { type: 'btw', event } frames over the SAME /ws socket keep the panel live.
+let btwState = { messages: [], mode: 'contextual', model: null, thinking: null };
+let btwModels = [];
+
+function btwApplyCollapsed() {
+  document.body.classList.toggle('btw-collapsed', localStorage.getItem('btw-panel-collapsed') === '1');
+}
+
+function btwRenderMessages(messages) {
+  const list = document.getElementById('btw-messages');
+  if (!list) return;
+  const seen = {};
+  messages.forEach(function (m) {
+    seen[m.id] = true;
+    const existing = list.querySelector('[data-id="' + m.id + '"]');
+    const html = btwMessageHtml(m);
+    if (existing) existing.outerHTML = html;
+    else list.insertAdjacentHTML('beforeend', html);
+  });
+  list.querySelectorAll('[data-id]').forEach(function (el) {
+    if (!seen[el.getAttribute('data-id')]) el.remove();
+  });
+  list.scrollTop = list.scrollHeight;
+}
+
+// Inlined duplicate of the BTW_MESSAGE_HTML helper (the served HTML string has
+// no module / build step — same intentional duplication as APPEXEC_FRAME).
+function btwMessageHtml(m) {
+  const esc = function (s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  };
+  const status = m.status === 'done'
+    ? ''
+    : '<span class="btw-status">' + esc(m.statusText || m.status) + '</span>';
+  return '<div class="btw-msg btw-' + m.role + '" data-id="' + m.id + '"><div class="btw-text">' + esc(m.text) + '</div>' + status + '</div>';
+}
+
+function btwApplyEvent(event) {
+  if (event.type === 'thread') {
+    btwState = event.state;
+    btwRenderMessages(event.state.messages);
+    const modeBtn = document.getElementById('btw-mode');
+    if (modeBtn) modeBtn.textContent = 'Mode: ' + event.state.mode;
+  } else if (event.type === 'notice') {
+    const list = document.getElementById('btw-messages');
+    if (list) {
+      list.insertAdjacentHTML('beforeend', '<div class="btw-notice">' + String(event.text).replace(/</g, '&lt;') + '</div>');
+      list.scrollTop = list.scrollHeight;
+    }
+  }
+}
+
+// Flat btw command frame (BtwCommandFrameSchema shape — NO extra wrapper),
+// sent over the single /ws socket via sendRaw.
+function sendBtw(kind, extra) {
+  const frame = { type: 'btw', kind: kind };
+  if (extra) Object.keys(extra).forEach(function (k) { if (extra[k] !== undefined) frame[k] = extra[k]; });
+  sendRaw(JSON.stringify(frame));
+}
+
+function btwInit() {
+  btwApplyCollapsed();
+  const collapse = document.getElementById('btw-collapse');
+  if (collapse) collapse.addEventListener('click', function () {
+    const collapsed = document.body.classList.toggle('btw-collapsed');
+    localStorage.setItem('btw-panel-collapsed', collapsed ? '1' : '0');
+  });
+
+  fetch('/api/btw').then(function (r) { return r.ok ? r.json() : null; }).then(function (state) {
+    if (state && state.messages) { btwState = state; btwRenderMessages(state.messages); }
+  });
+
+  fetch('/api/btw/models').then(function (r) { return r.ok ? r.json() : []; }).then(function (models) {
+    btwModels = models || [];
+    const sel = document.getElementById('btw-model');
+    if (!sel) return;
+    sel.innerHTML = '';
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = 'Main session model';
+    sel.appendChild(none);
+    btwModels.forEach(function (m, i) {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = m.provider + '/' + m.id;
+      sel.appendChild(opt);
+    });
+  });
+
+  const ask = document.getElementById('btw-ask');
+  if (ask) ask.addEventListener('click', function () {
+    const input = document.getElementById('btw-input');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    sendBtw('ask', { text: text });
+  });
+  ['new', 'clear', 'inject', 'summarize'].forEach(function (kind) {
+    const btn = document.getElementById('btw-' + kind);
+    if (btn) btn.addEventListener('click', function () { sendBtw(kind); });
+  });
+  const modeBtn = document.getElementById('btw-mode');
+  if (modeBtn) modeBtn.addEventListener('click', function () {
+    sendBtw('mode', { mode: btwState.mode === 'contextual' ? 'tangent' : 'contextual' });
+  });
+  const modelSel = document.getElementById('btw-model');
+  if (modelSel) modelSel.addEventListener('change', function () {
+    const m = btwModels[Number(this.value)];
+    sendBtw('model', { model: m ? { provider: m.provider, id: m.id, api: m.api } : null });
+  });
+  const thinkingSel = document.getElementById('btw-thinking');
+  if (thinkingSel) thinkingSel.addEventListener('change', function () {
+    sendBtw('thinking', { level: this.value === '' ? null : this.value });
+  });
 }
 
 // One response per presentation: remembered across SSE re-renders so the
@@ -242,6 +411,7 @@ function renderControls(v) {
   };
   await refresh();
   subscribe();
+  btwInit(); // after the tab/view wiring so all getElementById targets exist
 })();
 </script>
 </body>
@@ -269,3 +439,34 @@ export const APPEXEC_FRAME = (
   if (tweak !== undefined && tweak !== "") extra.tweak = tweak;
   return { type: "appexec", extra };
 };
+
+/** Outbound btw command frame for the /ws send path (panel -> engine). */
+export function BTW_FRAME(
+  kind: string,
+  extra?: Record<string, unknown>,
+): { type: "btw"; kind: string; [key: string]: unknown } {
+  return extra ? { type: "btw", kind, ...extra } : { type: "btw", kind };
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** One pre-reduced message snapshot -> panel row HTML (append/patch keyed by data-id). */
+export function BTW_MESSAGE_HTML(m: {
+  id: string;
+  role: string;
+  text: string;
+  status: string;
+  statusText?: string;
+}): string {
+  const status =
+    m.status === "done"
+      ? ""
+      : `<span class="btw-status">${escapeHtml(m.statusText ?? m.status)}</span>`;
+  return `<div class="btw-msg btw-${m.role}" data-id="${m.id}"><div class="btw-text">${escapeHtml(m.text)}</div>${status}</div>`;
+}

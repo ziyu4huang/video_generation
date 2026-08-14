@@ -399,9 +399,7 @@ export function renderSubagentResult(
     d.budget?.kind !== undefined ? theme.fg("warning", ` · ${d.budget.kind}:${d.budget.actual}/${d.budget.limit}`) : "";
   // Turn-cap death tag (abort path): the ⏹-badged run's exceeded turn count
   // (turnsUsed == maxTurns when the abort fired). Mirrors the budget death tag.
-  const turnsExhaustionTag = d.turns
-    ? theme.fg("warning", ` · turns:${d.turns.turnsUsed}/${d.turns.maxTurns}`)
-    : "";
+  const turnsExhaustionTag = d.turns ? theme.fg("warning", ` · turns:${d.turns.turnsUsed}/${d.turns.maxTurns}`) : "";
   // Warn tag (completed path): informational 80% notice — ⚠ glyph + explicit
   // "budget 80%" wording, visually distinct from the death tag above.
   const budgetWarnTag = d.budget?.warning

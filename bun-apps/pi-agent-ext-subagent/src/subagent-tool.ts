@@ -21,7 +21,8 @@ import {
   resolveAgentType,
   type Worktree,
 } from "@repo/pi-agent-ext-core-runtime";
-import { computeScopeCheck, realGitOps } from "./git-scope.js";
+import { dispatchChild } from "./child-dispatch.js";
+import { realGitOps } from "./git-scope.js";
 import { missingRequiredTools } from "./impossible-tools.js";
 import {
   consecutiveIdenticalFailures,
@@ -33,6 +34,7 @@ import {
 } from "./retry-loop-detector.js";
 import { spawnSubagent } from "./spawn-subagent.js";
 import {
+  formatSubagentLive,
   formatSubagentResult,
   renderSubagentCall,
   renderSubagentResult,
@@ -44,11 +46,9 @@ import {
   buildDetails,
   buildRunRecord,
   buildSpawnOptions,
-  captureCommitBaseline,
   captureWatchdogBaseline,
   type RunProgress,
   resolveDisplayModel,
-  runScopeCheck,
   runWatchdogReview,
 } from "./subagent-tool-run.js";
 import {
@@ -181,12 +181,6 @@ export function createSubagentTool(
         if (worktree.isolated) spawnCwd = worktree.cwd;
       }
 
-      // Opt-in commit-scope guardrail (commitScope param): record the repo HEAD
-      // before dispatch so the post-run check can diff base..HEAD for out-of-scope
-      // committed paths. Only the real-tree case is checked — a worktree-isolated
-      // run is discarded after teardown, so it can never pollute the parent tree.
-      const baseCommit = await captureCommitBaseline(params.commitScope, spawnCwd, runCwd, gitOps);
-
       // Opt-in two-layer watchdog (watchdog param): snapshot the repo state NOW so the
       // post-spawn compute can tell whether the child edited anything. Captured on
       // spawnCwd (the real tree or the worktree the child ran in). A throw / non-repo
@@ -200,32 +194,6 @@ export function createSubagentTool(
       // Shown WHILE the subagent runs, before the resolved model is known.
       const displayModelBeforeResolve = resolveDisplayModel(requestedModel, capability, tier, mainModel);
 
-      // Per-child AbortController (Frontier A): the user can abort ONE running
-      // child via registry.abort(toolCallId) → this controller fires. We FAN IN
-      // the parent tool-call `signal` so a whole-turn Esc still aborts the child.
-      // spawn's own timeoutMs gate stays independent — it aborts spawn's internal
-      // controller (not this one), so a timeout is detectable separately.
-      const childAc = new AbortController();
-      const onAbort = () => childAc.abort();
-      if (signal?.aborted) childAc.abort();
-      else signal?.addEventListener("abort", onAbort, { once: true });
-      options.inFlight?.start({
-        id: toolCallId,
-        agent: params.agent,
-        model: displayModelBeforeResolve,
-        taskPreview: taskPreview(params.task),
-        // Precompute the work-intent strip from the RAW task so the docked
-        // context box can surface it (ticket 04, finding 1 — taskPreview is
-        // already single-lined, so workIntentPreview can't strip its preamble).
-        workIntent: workIntentPreview(params.task),
-        startedAt: t0,
-        abort: () => childAc.abort(),
-        // Rendered inline in the CURRENT turn by this tool's own call/result line
-        // (Surface A) — mark foreground so the above-editor context box EXCLUDES
-        // it (no duplication). Background runs (foreground:false) are the box's
-        // domain. See subagent-context-widget.ts.
-        foreground: true,
-      });
       try {
         const opts = buildSpawnOptions(
           {
@@ -235,7 +203,9 @@ export function createSubagentTool(
             agentDef,
             modelCtx: { requestedModel, tier, capability, mainModel },
             spawnCwd,
-            childSignal: childAc.signal,
+            // dispatchChild owns the child controller and overwrites this field;
+            // buildSpawnOptions still needs a signal-shaped value for its type.
+            childSignal: new AbortController().signal,
           },
           progress,
           {
@@ -247,7 +217,7 @@ export function createSubagentTool(
           },
         );
         // #03 impossible-tool preflight (ABORT, pre-spawn). Sits inside this try
-        // so the finally still tears down the worktree + ends inFlight on abort.
+        // so the finally still tears down the worktree on abort.
         const missing = missingRequiredTools(params.requiredTools, opts.tools, opts.excludeTools);
         if (missing) {
           return failEarly(
@@ -255,14 +225,59 @@ export function createSubagentTool(
               `Add them to \`tools\` (or drop them from \`excludeTools\` / \`requiredTools\`).`,
           );
         }
-        const result = await spawn(opts);
-        const elapsedMs = Date.now() - t0;
-        // Per-child abort detection (Frontier A): a USER abort fires childAc
-        // only (parent signal intact); a whole-turn Esc fans the parent signal
-        // INTO childAc (so signal.aborted distinguishes); a timeout aborts
-        // spawn's internal controller, not childAc (so childAc.signal stays
-        // un-aborted → falls through to the timedout path unchanged).
-        if (childAc.signal.aborted && !signal?.aborted) {
+        // The per-child pipeline — abort fan-in, in-flight lifecycle,
+        // resolved-model capture, the commit-scope audit and status derivation —
+        // is shared with the `subagents` batch tool (see child-dispatch.ts).
+        const outcome = await dispatchChild(
+          {
+            id: toolCallId,
+            startedAt: t0,
+            spawn: opts,
+            entry: {
+              agent: params.agent,
+              model: displayModelBeforeResolve,
+              taskPreview: taskPreview(params.task),
+              // Work-intent strip from the RAW task so the docked context box can
+              // surface it (ticket 04, finding 1 — taskPreview is already
+              // single-lined, so workIntentPreview can't strip its preamble).
+              workIntent: workIntentPreview(params.task),
+            },
+            // Audited even with no declared scope: this child holds raw `bash`,
+            // so an unset scope means "flag ANY commit" (#02 B1 default-on) —
+            // the recurring `git add -A` sweep signal.
+            scope: { declared: params.commitScope, runCwd, spawnCwd },
+            parentSignal: signal,
+          },
+          {
+            spawn,
+            inFlight: options.inFlight,
+            gitOps,
+            // The transcript is only needed when it will be persisted.
+            captureHistory: Boolean(options.persistence),
+            // Live progress line — only when the host actually gave us a sink.
+            onHistory: onUpdate
+              ? (history) => {
+                  progress.lastHistory = history;
+                  const toolCallsNow = history.filter((h) => h.kind === "toolCall").length;
+                  progress.maxToolCallsSeen = Math.max(progress.maxToolCallsSeen, toolCallsNow);
+                  onUpdate({
+                    content: [
+                      {
+                        type: "text" as const,
+                        text: formatSubagentLive(history, Date.now() - t0, progress.maxToolCallsSeen),
+                      },
+                    ],
+                    details: undefined as unknown as SubagentToolDetails,
+                  });
+                }
+              : undefined,
+          },
+        );
+        const result = outcome.result;
+        const elapsedMs = outcome.elapsedMs;
+        progress.resolvedModel = outcome.model;
+        progress.fellBack = outcome.fellBack;
+        if (outcome.userAborted) {
           // Partial work is discarded (worktree) or left in-tree (real-tree);
           // scope/watchdog review of a half-finished diff would be noise.
           const model = progress.resolvedModel ?? displayModelBeforeResolve;
@@ -304,16 +319,9 @@ export function createSubagentTool(
             },
           };
         }
-        // Opt-in commit-scope check (commitScope param): detection only. A
-        // throwing op is swallowed — the scope guard never fails the run.
-        const scopeCheck = await runScopeCheck(
-          params.commitScope,
-          spawnCwd,
-          runCwd,
-          baseCommit,
-          gitOps,
-          computeScopeCheck,
-        );
+        // Commit-scope audit (detection only) — computed by dispatchChild, which
+        // swallows any git failure so the guard never fails a run.
+        const scopeCheck = outcome.scopeCheck;
         let output = augmentOutputWithScopeViolation(formatSubagentResult(result), scopeCheck);
         // Opt-in two-layer watchdog: run the review against the captured baseline.
         // Soft gate — appends a summary line only when runWatchdog actually ran OR
@@ -366,7 +374,7 @@ export function createSubagentTool(
               stderr: result.stderr || undefined,
               budget: details.budget,
               turns: details.turns,
-              history: progress.lastHistory,
+              history: outcome.history,
               report: details.report,
               scopeCheck: details.scopeCheck,
               watchdog: watchdogResult,
@@ -375,11 +383,9 @@ export function createSubagentTool(
         );
         return { content: [{ type: "text" as const, text: output }], details };
       } finally {
-        // The fan-in listener is no longer needed once the run settles — remove
-        // it so repeated dispatches don't accumulate listeners (and retained
-        // childAc closures) on the parent turn signal (P3).
-        signal?.removeEventListener("abort", onAbort);
-        options.inFlight?.end(toolCallId);
+        // dispatchChild owns the abort-listener cleanup and the in-flight
+        // release (both in its own finally, so they run on a throw too). The
+        // worktree is this tool's alone — the batch tool never allocates one.
         if (worktree) await teardownWorktree(worktree);
       }
     },
