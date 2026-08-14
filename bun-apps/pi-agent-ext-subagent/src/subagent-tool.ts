@@ -399,11 +399,9 @@ export function createSubagentTool(
       // (end()), so after completion this reads undefined and the segment
       // reverts — the model then lives on the result line (d.model). While
       // running, onModelResolved → updateModel keeps this fresh + re-renders.
-      const entry = options.inFlight?.get(context.toolCallId);
-      const resolvedModel = entry?.resolvedModel;
-      const fellBack = entry?.fellBack;
+      const v = options.inFlight?.view(context.toolCallId);
       options.inFlight?.bindInvalidate(context.toolCallId, context.invalidate);
-      text.setText(renderSubagentCall({ ...args, resolvedModel, fellBack }, theme));
+      text.setText(renderSubagentCall({ ...args, modelSeg: v?.modelSeg }, theme));
       return text;
     },
     renderResult(result, options, theme, _context) {

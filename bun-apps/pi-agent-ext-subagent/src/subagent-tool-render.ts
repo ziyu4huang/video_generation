@@ -272,9 +272,8 @@ export function renderSubagentCall(
     capability?: string;
     tier?: string;
     task: string;
-    resolvedModel?: string;
-    /** True when the model resolution fell back (actual model differs from requested). */
-    fellBack?: boolean;
+    /** Fallback-aware model segment from RunView.modelSeg (e.g. "claude-opus-4-1 → glm-5.2"). */
+    modelSeg?: string;
   },
   theme: Theme,
 ): string {
@@ -289,17 +288,14 @@ export function renderSubagentCall(
     args.model ?? (args.capability ? `capability:${args.capability}` : args.tier ? `tier:${args.tier}` : "default"),
   )!;
   parts.push(theme.fg("muted", slot));
-  // Concrete model resolved mid-run (onModelResolved). Separate segment so the
-  // requested tier/model stays visible. Skipped when it matches the slot (e.g.
-  // an explicit model that resolved to itself) to avoid duplication.
-  const resolvedShort = args.resolvedModel ? shortModel(args.resolvedModel) : undefined;
-  if (resolvedShort && resolvedShort !== slot) {
-    // When the resolution fell back, prefix with a fallback indicator (`→`)
-    // so the display reads e.g. "claude-opus-4-1 ▸ → glm-5.2". shortModel keeps
-    // the segment narrow so the collapsed line stays within terminal width
-    // (ticket 04, finding 5). Normal resolution (no fallback) is unchanged.
-    const label = args.fellBack ? `→ ${resolvedShort}` : resolvedShort;
-    parts.push(theme.fg("muted", label));
+  // Concrete model resolved mid-run (onModelResolved), as projected by RunView
+  // (registry.view). Separate segment so the requested tier/model stays visible.
+  // Skipped when it matches the slot (e.g. an explicit model that resolved to
+  // itself) to avoid duplication. modelSeg is already shortened + fallback-aware
+  // (it carries its own `→` marker when the resolution fell back), so it is
+  // rendered verbatim.
+  if (args.modelSeg && args.modelSeg !== slot) {
+    parts.push(theme.fg("muted", args.modelSeg));
   }
   parts.push(theme.fg("dim", `"${workIntentPreview(args.task, 60)}"`));
   return parts.join(" ▸ ");

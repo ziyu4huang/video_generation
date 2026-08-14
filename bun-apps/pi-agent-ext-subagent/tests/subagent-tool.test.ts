@@ -781,10 +781,7 @@ test("renderSubagentCall shows 'tier:small' in the model slot when model is omit
 });
 
 test("renderSubagentCall appends resolved model as a separate segment when tier is shown", () => {
-  const out = renderSubagentCall(
-    { agent: "auditor", tier: "medium", task: "x", resolvedModel: "google/gemma-4-12b-qat" },
-    T,
-  );
+  const out = renderSubagentCall({ agent: "auditor", tier: "medium", task: "x", modelSeg: "gemma-4-12b-qat" }, T);
   // ticket 04 finding 5: resolved segment is shortened (google/gemma-4-12b-qat → gemma-4-12b-qat)
   assert.match(out, /tier:medium ▸ gemma-4-12b-qat ▸/);
 });
@@ -796,16 +793,13 @@ test("renderSubagentCall omits resolved model before resolution (undefined)", ()
 });
 
 test("renderSubagentCall omits resolved model when it equals the explicit model slot (no dup)", () => {
-  const out = renderSubagentCall({ agent: "scout", model: "x/flash", task: "x", resolvedModel: "x/flash" }, T);
+  const out = renderSubagentCall({ agent: "scout", model: "x/flash", task: "x", modelSeg: "flash" }, T);
   // Both shorten to "flash"; since they match, the resolved segment is omitted.
   assert.equal((out.match(/flash/g) || []).length, 1);
 });
 
 test("renderSubagentCall shows both explicit model and a different resolved model", () => {
-  const out = renderSubagentCall(
-    { agent: "scout", model: "x/flash", task: "x", resolvedModel: "google/gemma-4-12b-qat" },
-    T,
-  );
+  const out = renderSubagentCall({ agent: "scout", model: "x/flash", task: "x", modelSeg: "gemma-4-12b-qat" }, T);
   // Both shortened on the call line (ticket 04 finding 5).
   assert.match(out, /flash/);
   assert.match(out, /gemma-4-12b-qat/);
@@ -1873,8 +1867,8 @@ test("renderSubagentCall with fellBack:true adds → fallback indicator", () => 
       agent: "implementer",
       model: "anthropic/claude-opus-4-1",
       task: "do the thing",
-      resolvedModel: "zai/glm-5.2",
-      fellBack: true,
+      // RunView.modelSeg on a fallback (requested → resolved, marker included)
+      modelSeg: "claude-opus-4-1 → glm-5.2",
     },
     T,
   );
@@ -1894,8 +1888,8 @@ test("renderSubagentCall with fellBack:false renders normally (no → prefix)", 
       agent: "scout",
       tier: "small",
       task: "x",
-      resolvedModel: "google/gemma-4-12b-qat",
-      fellBack: false,
+      // RunView.modelSeg without a fallback: the plain resolved model
+      modelSeg: "gemma-4-12b-qat",
     },
     T,
   );
@@ -1906,10 +1900,7 @@ test("renderSubagentCall with fellBack:false renders normally (no → prefix)", 
 });
 
 test("renderSubagentCall with fellBack omitted (backward-compat) renders normally", () => {
-  const out = renderSubagentCall(
-    { agent: "auditor", tier: "medium", task: "x", resolvedModel: "google/gemma-4-12b-qat" },
-    T,
-  );
+  const out = renderSubagentCall({ agent: "auditor", tier: "medium", task: "x", modelSeg: "gemma-4-12b-qat" }, T);
   assert.ok(String(out).includes("gemma-4-12b-qat"));
   assert.ok(!String(out).includes("google/gemma-4-12b-qat"), "provider prefix dropped on the resolved segment");
   assert.doesNotMatch(String(out), /→ gemma/);
