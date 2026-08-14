@@ -246,7 +246,14 @@ export function installSubagentContextWidget(
     tuiRef = tui as { requestRender: () => void };
     if (!started) {
       started = true;
-      timerId = si(() => tuiRef?.requestRender(), intervalMs);
+      // Idle churn guard (P5): with zero background runs the box renders `[]`
+      // (invisible) and nothing can change — a requestRender would still wake
+      // the whole TUI every tick. Skip the render when there is nothing live;
+      // the first event of a new background run re-renders on its own ticks.
+      timerId = si(() => {
+        if (!opts.registry.list().some((r) => !r.foreground)) return;
+        tuiRef?.requestRender();
+      }, intervalMs);
     }
     return {
       render: () => widget.render(theme),

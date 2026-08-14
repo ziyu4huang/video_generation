@@ -206,8 +206,9 @@ export function createSubagentTool(
       // spawn's own timeoutMs gate stays independent — it aborts spawn's internal
       // controller (not this one), so a timeout is detectable separately.
       const childAc = new AbortController();
+      const onAbort = () => childAc.abort();
       if (signal?.aborted) childAc.abort();
-      else signal?.addEventListener("abort", () => childAc.abort(), { once: true });
+      else signal?.addEventListener("abort", onAbort, { once: true });
       options.inFlight?.start({
         id: toolCallId,
         agent: params.agent,
@@ -373,6 +374,10 @@ export function createSubagentTool(
         );
         return { content: [{ type: "text" as const, text: output }], details };
       } finally {
+        // The fan-in listener is no longer needed once the run settles — remove
+        // it so repeated dispatches don't accumulate listeners (and retained
+        // childAc closures) on the parent turn signal (P3).
+        signal?.removeEventListener("abort", onAbort);
         options.inFlight?.end(toolCallId);
         if (worktree) await teardownWorktree(worktree);
       }

@@ -170,10 +170,19 @@ test("execute forwards getExtensionTools() === undefined when holder unset", asy
 });
 
 test("execute fans the runtime abort signal into a per-child externalSignal (not the same object)", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
-  const tool = createSubagentTool({ spawn: f.spawn });
+  // spawnOnAbort keeps the run in flight so the abort happens MID-run — the
+  // fan-in listener exists only until the run settles (P3 removes it in
+  // `finally`), so aborting after a resolved run no longer fans in.
+  const f = spawnOnAbort();
+  // fast fake gitOps so captureCommitBaseline settles on microtasks (no subprocess)
+  const tool = createSubagentTool({
+    spawn: f.spawn,
+    gitOps: fakeGitOps({ baseHead: "b1" }).ops,
+  });
   const controller = new AbortController();
-  await tool.execute("id", { task: "t" }, controller.signal, undefined, NO_CTX);
+  const runP = tool.execute("id", { task: "t" }, controller.signal, undefined, NO_CTX);
+  await Promise.resolve();
+  await Promise.resolve();
   const childSignal = f.calls[0]?.externalSignal;
   assert.ok(childSignal, "spawn receives an externalSignal");
   assert.notEqual(childSignal, controller.signal, "per-child controller, not the parent signal directly");
@@ -181,6 +190,7 @@ test("execute fans the runtime abort signal into a per-child externalSignal (not
   assert.equal(childSignal.aborted, false);
   controller.abort();
   assert.equal(childSignal.aborted, true, "parent signal fans into the per-child signal");
+  await runP;
 });
 
 // ── per-child mid-flight abort (Frontier A) ──

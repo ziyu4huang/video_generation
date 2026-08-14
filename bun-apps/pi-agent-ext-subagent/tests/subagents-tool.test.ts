@@ -536,6 +536,68 @@ test("batch keeps a completed child (status=completed) mid-run; evicts the whole
   assert.equal(inFlight.list().length, 0, "registry empty after the batch returns (whole-batch eviction)");
 });
 
+test("mid-batch throw: siblings drained, registry cleaned, no zombie children, execute fails loudly (P1)", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  const dispatched: number[] = [];
+  const spawn = async (opts: { task: string }): Promise<SpawnSubagentResult> => {
+    const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
+    dispatched.push(idx);
+    if (idx === 1) throw new Error("boom");
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
+  await assert.rejects(
+    tool.execute(
+      "batch-mid",
+      { tasks: [{ task: "#0" }, { task: "#1" }, { task: "#2" }], concurrency: 1 },
+      NO_SIGNAL,
+      undefined,
+      NO_CTX,
+    ),
+    /boom/,
+  );
+  // The child AFTER the throwing one is never dispatched (batch aborted) —
+  // pre-fix it spawned and its registry entry leaked (endBatch ran before the
+  // orphan resolved → zombie child + leak).
+  assert.deepEqual(dispatched, [0, 1], "children after the throwing child are not dispatched");
+  // endBatch ran in the finally despite the throw — the registry is clean.
+  assert.equal(inFlight.list().length, 0, "registry cleaned despite the mid-batch throw");
+});
+
+test("mid-batch throw at higher concurrency: in-flight sibling still settles; workers never orphan it (P1)", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  let spawn0Release: (() => void) | undefined;
+  let spawn0Done: Promise<void> | undefined;
+  const spawn = async (opts: { task: string }): Promise<SpawnSubagentResult> => {
+    const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
+    if (idx === 0) {
+      // long-running child #0 stays in flight across child #1's throw — it
+      // must still SETTLE (drained by allSettled) before execute() rejects.
+      let resolve!: () => void;
+      spawn0Done = new Promise<void>((r) => {
+        resolve = r;
+      });
+      spawn0Release = resolve;
+      await spawn0Done;
+      return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    }
+    throw new Error("boom-1");
+  };
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
+  const executing = tool.execute(
+    "batch-parallel",
+    { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 2 },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  // Give #1 a chance to throw while #0 is still in flight.
+  await new Promise((r) => setTimeout(r, 10));
+  spawn0Release?.();
+  await assert.rejects(executing, /boom-1/);
+  assert.equal(inFlight.list().length, 0, "both children evicted (in-flight sibling drained, not orphaned)");
+});
+
 test("onUpdate emits a multi-line header + live table: `subagents · k/N running · Σtok · $Σ` then one row per child", async () => {
   const inFlight = new SubagentInFlightRegistry();
   const updates: string[] = [];
@@ -1395,12 +1457,76 @@ test("buildLiveTable: one running child → `[i] slot ⏱ liveElapsed · current
   assert.equal(rows, "[0] glm-5.2 ⏱ 3.5s · pt");
 });
 
-test("buildLiveTable: completed child shows ✓ glyph + the same meta", () => {
+test("buildLiveTable: completed child shows ✓ glyph + FROZEN elapsed (endedAt stamp)", () => {
+  // startedAt 9000, endedAt 9500 → frozen 0.5s even though `now` is 10_000
+  // (the pre-fix code ticked to 1.0s and kept growing — this codifies the fix).
   const rows = buildLiveTable(
-    [live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 9000, status: "completed" })],
+    [live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 9000, endedAt: 9500, status: "completed" })],
     NOW,
   );
-  assert.equal(rows, "[1] glm-5.2 ✓ 1.0s · pt");
+  assert.equal(rows, "[1] glm-5.2 ✓ 0.5s · pt");
+});
+
+test("buildLiveTable: a completed child's elapsed no longer grows as now advances; running rows still tick", () => {
+  const child = live({ id: "batch-call:0", model: "zai/glm-5.2", startedAt: 9000, endedAt: 9500, status: "completed" });
+  const at10k = buildLiveTable([child], 10_000);
+  const at60k = buildLiveTable([child], 60_000);
+  const at120k = buildLiveTable([child], 120_000);
+  assert.equal(at10k, "[0] glm-5.2 ✓ 0.5s · pt");
+  assert.equal(at60k, at10k, "frozen — advancing now does not grow a terminal row's elapsed");
+  assert.equal(at120k, at10k, "still frozen much later");
+  // Running rows keep ticking with now (regression guard).
+  const runner = live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 9000, status: "running" });
+  assert.equal(buildLiveTable([runner], 10_000), "[1] glm-5.2 ⏱ 1.0s · pt");
+  assert.equal(buildLiveTable([runner], 60_000), "[1] glm-5.2 ⏱ 51.0s · pt");
+});
+
+test("execute: a completed child's elapsed freezes across two onUpdate renders (no more ticking)", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  const updates: string[] = [];
+  const onUpdate = (u: { content: Array<{ type: string; text: string }> }) => {
+    updates.push(u.content.map((c) => c.text).join(""));
+  };
+  // Freeze/advance wall-clock: each buildLiveTable inside onUpdate reads
+  // Date.now() at emit time, so bumping fakeNow between ticks proves the
+  // frozen value (the pre-fix code re-ticked per render).
+  const realNow = Date.now;
+  let fakeNow = 100_000;
+  Date.now = () => fakeNow;
+  const tick = (
+    opts: { onHistory?: (h: { kind: string; toolName?: string; text?: string }[]) => void },
+    lines: string[],
+  ) => {
+    opts.onHistory?.(lines);
+  };
+  const spawn = async (opts: {
+    task: string;
+    onHistory?: (h: { kind: string; toolName?: string; text?: string }[]) => void;
+  }): Promise<SpawnSubagentResult> => {
+    tick(opts, [{ role: "assistant", kind: "toolCall", toolName: "read", text: "r" }]); // running tick
+    inFlight.markCompleted("batch-frozen:0");
+    fakeNow += 60_000;
+    // Both post-completion ticks carry the SAME history so only the elapsed
+    // column can differ — proving the freeze (the action text stays identical).
+    tick(opts, [{ role: "assistant", kind: "toolCall", toolName: "grep", text: "g" }]); // completed tick #1
+    fakeNow += 60_000;
+    tick(opts, [{ role: "assistant", kind: "toolCall", toolName: "grep", text: "g" }]); // completed tick #2
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  };
+  try {
+    const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
+    await tool.execute("batch-frozen", { tasks: [{ task: "#0" }] }, NO_SIGNAL, onUpdate as never, NO_CTX);
+  } finally {
+    Date.now = realNow;
+  }
+  // The last two updates are both AFTER completion (with 60s of wall-clock
+  // between them) — their [0] rows must be byte-identical (frozen elapsed).
+  const completedRows = updates.filter((u) => u.includes("✓")).map((u) => u.split("\n").slice(1).join("\n"));
+  assert.ok(completedRows.length >= 2, "at least two post-completion onUpdate renders");
+  const a = completedRows[completedRows.length - 2] ?? "";
+  const b = completedRows[completedRows.length - 1] ?? "";
+  assert.ok(a && b, "both post-completion rows captured");
+  assert.equal(b, a, "elapsed frozen — identical row across renders 60s apart");
 });
 
 test("buildLiveTable: fallback child shows `requested → actual` slot", () => {

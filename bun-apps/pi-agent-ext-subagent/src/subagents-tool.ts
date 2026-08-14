@@ -208,7 +208,10 @@ export function mergeReadOnlyExclusion(
   return opts;
 }
 
-/** Run `fn` over `items` with at most `limit` in flight; results in input order. */
+/** Run `fn` over `items` with at most `limit` in flight; results in input order.
+ *  Workers are drained via `Promise.allSettled` so in-flight siblings always
+ *  settle (never orphaned) even if one `fn` rejects; the first rejection is
+ *  rethrown afterwards so callers still observe the error. */
 export async function runWithConcurrency<T, R>(
   items: T[],
   limit: number,
@@ -225,7 +228,11 @@ export async function runWithConcurrency<T, R>(
       results[index] = await fn(item, index);
     }
   });
-  await Promise.all(workers);
+  const settled = await Promise.allSettled(workers);
+  const firstRejection = settled.find((s) => s.status === "rejected");
+  if (firstRejection) {
+    throw (firstRejection as PromiseRejectedResult).reason;
+  }
   return results;
 }
 
@@ -347,6 +354,13 @@ export function createSubagentsTool(
           ? await captureCommitBaseline(task.commitScope, childOpts.cwd ?? defaultCwd, defaultCwd, realGitOps)
           : undefined;
         // Register in-flight so `/subagents` shows this child while it runs.
+        // Abort-flag bail (P1): if a sibling already failed the batch, do NOT
+        // register a new child (it would immediately become a zombie orphaned
+        // by endBatch); null the slot and stop.
+        if (batchAborted) {
+          slots[index] = null;
+          return;
+        }
         const childRunId = `${toolCallId}:${index}`;
         const childT0 = Date.now();
         // Per-child resolved-model + fallback capture (ticket 04, finding 2 —
@@ -364,8 +378,9 @@ export function createSubagentsTool(
         // turn `signal` so a whole-turn Esc still aborts batch children (new —
         // previously batch children ignored the turn signal entirely).
         const childAc = new AbortController();
+        const onAbort = () => childAc.abort();
         if (signal?.aborted) childAc.abort();
-        else signal?.addEventListener("abort", () => childAc.abort(), { once: true });
+        else signal?.addEventListener("abort", onAbort, { once: true });
         options.inFlight?.start({
           id: childRunId,
           model: childModel,
@@ -436,6 +451,11 @@ export function createSubagentsTool(
           // batch is evicted on return via endBatch(toolCallId). Runs on throw too, so
           // a failed child does not block its siblings — it just won't persist below.
           options.inFlight?.markCompleted(childRunId);
+          // The per-child `signal` fan-in listener is no longer needed once the
+          // child settles — remove it so long batches don't accumulate one
+          // listener (and one retained childAc closure) per child on the parent
+          // signal (P3: abort listeners were never removed).
+          signal?.removeEventListener("abort", onAbort);
         }
         dispatched++;
         // Accumulate usage for the batch-wide budget check (guard for undefined usage).
@@ -557,9 +577,42 @@ export function createSubagentsTool(
           }
         }
       };
+      // Mid-batch-throw containment (P1): a per-child error must never (a)
+      // reject a worker promise (it would short-circuit Promise.all and orphan
+      // in-flight siblings), (b) leak the child's registry entry, or (c) spawn
+      // zombie children after the failure. The wrapper nulls the slot, sets
+      // `batchAborted` (checked by every worker before dispatching the NEXT
+      // child and by dispatchChild just before inFlight.start), and records the
+      // first error; runWithConcurrency drains all workers via allSettled, then
+      // the recorded error is rethrown so execute() still fails loudly.
+      let batchAborted = false;
+      let firstError: Error | undefined;
+      const worker = async (task: BatchTask, index: number): Promise<void> => {
+        if (batchAborted) return; // stop dispatching new children after a failure
+        try {
+          await dispatchChild(task, index);
+        } catch (err) {
+          batchAborted = true;
+          slots[index] = null;
+          if (firstError === undefined) firstError = err instanceof Error ? err : new Error(String(err));
+        }
+      };
       try {
-        await runWithConcurrency(tasks, concurrency, dispatchChild);
+        await runWithConcurrency(tasks, concurrency, worker);
+        if (firstError !== undefined) throw firstError;
+      } catch (err) {
+        // Outer error path: abort remaining dispatches BEFORE the finally's
+        // endBatch runs, so no new child registers between failure and eviction.
+        batchAborted = true;
+        throw err;
       } finally {
+        // Launder the `slots` holes (P1): every index must end as either a
+        // result or an explicit `null` before the `as BatchResultSlot[]` cast —
+        // gate-skipped children without a budget record, aborted dispatches,
+        // and worker-wrap failures all leave `undefined` holes otherwise.
+        for (let i = 0; i < slots.length; i++) {
+          if (slots[i] === undefined) slots[i] = null;
+        }
         // Evict the whole batch on return (success OR a mid-batch throw) so the
         // registry is clean when execute() returns. Children stayed past their own
         // completion (markCompleted above) for k/N progress + frozen-trace follow.
@@ -718,7 +771,11 @@ export function childDispatchIndex(id: string): number {
  *  - `slot` via {@link formatModelSeg} (fallback-aware; resolved model once known).
  *  - glyph ⏱ while `status !== "completed"`, ✓ once completed (kept in the
  *    registry until endBatch so a finished child still shows its final elapsed).
- *  - `liveElapsed` = `(now - startedAt)/1000` with 1-decimal.
+ *  - `liveElapsed` = `(now - startedAt)/1000` with 1-decimal while RUNNING;
+ *    FROZEN at `(endedAt - startedAt)/1000` for terminal rows (status
+ *    "completed") so a finished child's elapsed stops growing while it
+ *    lingers in the registry pre-endBatch (falls back to `now` only when the
+ *    terminal stamp is missing).
  *  - `currentAction` from {@link summarizeLatestAction}(history), falling back to
  *    the task preview (truncated to 40) when there is no history yet.
  *  PLAIN text (no theme — `execute()` has no Theme; rendered dim by the isPartial
@@ -734,7 +791,10 @@ export function buildLiveTable(entries: InFlightSubagent[], now: number = Date.n
     const idxLabel = Number.isNaN(idx) ? "?" : String(idx);
     const slot = formatModelSeg(e.resolvedModel ?? e.model ?? "default", e.requestedModel, e.fellBack);
     const glyph = e.status === "completed" ? "✓" : "⏱";
-    const elapsed = `${((now - e.startedAt) / 1000).toFixed(1)}s`;
+    // Terminal rows freeze at endedAt (falling back to `now` defensively); only
+    // running rows tick.
+    const end = e.status === "completed" ? (e.endedAt ?? now) : now;
+    const elapsed = `${((end - e.startedAt) / 1000).toFixed(1)}s`;
     const action = summarizeLatestAction(e.history) ?? truncateToWidth(e.taskPreview ?? e.workIntent ?? "", 40);
     return `[${idxLabel}] ${slot} ${glyph} ${elapsed} · ${action}`;
   });
