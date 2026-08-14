@@ -124,6 +124,9 @@ export class KnowledgeSerializer implements CardSerializer<"knowledge"> {
     if (!split) return [];
     const { data, body } = split;
     if (!isValidZettel(data)) return [];
+    // ticket 07 — image cards carry record_type "image" and are owned by
+    // ImageSerializer; never also deserialize them as knowledge.
+    if (String(data.record_type ?? "") === "image") return [];
 
     const title = extractTitle(body);
     const content = extractSection(body, CORE_IDEA_HEADER) ?? body.trim();

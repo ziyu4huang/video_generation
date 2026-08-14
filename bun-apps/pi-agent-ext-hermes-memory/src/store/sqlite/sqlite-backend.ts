@@ -334,6 +334,11 @@ export class SqliteBackend implements Backend {
     // (skips when 'planning-ticket' already present). Mirrors the knowledge
     // migration's table-rebuild idiom.
     this.migrateMemoriesTargetCheckAddPlanning(db);
+    // Phase-2 (knowledge-pipeline / ticket 07): widen the 6-value target CHECK
+    // to also allow 'image' (kind=image cards). Idempotent (skips when
+    // 'image' already present). Mirrors the planning migration's
+    // table-rebuild idiom verbatim.
+    this.migrateMemoriesTargetCheckAddImage(db);
     // Phase-2 (knowledge-pipeline / ticket 09): ensure the card_md_hash table
     // for the planning-card content-hash mirror. Idempotent (CREATE TABLE IF
     // NOT EXISTS). Additive — does NOT touch `memories` (no C3 column-drift).
@@ -1175,6 +1180,131 @@ export class SqliteBackend implements Backend {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           project TEXT,
           target TEXT NOT NULL CHECK (target IN ('memory', 'user', 'failure', 'knowledge', 'planning-effort', 'planning-ticket')),
+          category TEXT CHECK (category IN ('failure', 'correction', 'insight', 'preference', 'convention', 'tool-quirk')),
+          content TEXT NOT NULL,
+          failure_reason TEXT,
+          tool_state TEXT,
+          corrected_to TEXT,
+          created DATE NOT NULL,
+          last_referenced DATE NOT NULL,
+          mw_success INTEGER NOT NULL DEFAULT 0,
+          mw_fail INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'active',
+          supersedes INTEGER,
+          superseded_by INTEGER,
+          parent_ids TEXT,
+          md_id TEXT,
+          state TEXT NOT NULL DEFAULT 'active',
+          severity INTEGER,
+          pin INTEGER NOT NULL DEFAULT 0,
+          frontmatter TEXT,
+          graph TEXT
+        );
+      `);
+
+      db.exec(`
+        INSERT INTO memories_new (${colList})
+        SELECT ${colList}
+        FROM memories;
+      `);
+
+      // DROP TABLE also drops the memories_ai/ad/au triggers + idx_memories_*
+      // indexes attached to it; recreate them after the rename so memory_fts
+      // keeps syncing (all IF NOT EXISTS).
+      db.exec('DROP TABLE memories');
+      db.exec('ALTER TABLE memories_new RENAME TO memories');
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+          INSERT INTO memory_fts(rowid, content) VALUES (new.id, new.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+          INSERT INTO memory_fts(memory_fts, rowid, content) VALUES ('delete', old.id, old.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
+          INSERT INTO memory_fts(memory_fts, rowid, content) VALUES ('delete', old.id, old.content);
+          INSERT INTO memory_fts(rowid, content) VALUES (new.id, new.content);
+        END;
+        CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
+        CREATE INDEX IF NOT EXISTS idx_memories_target ON memories(target);
+        CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_md_id ON memories(md_id);
+      `);
+    };
+
+    if (!db.transaction) {
+      db.exec('PRAGMA foreign_keys = OFF');
+      try {
+        db.exec('BEGIN IMMEDIATE');
+        doRewrite();
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        throw err;
+      } finally {
+        db.exec('PRAGMA foreign_keys = ON');
+      }
+      return;
+    }
+
+    const tx = db.transaction(() => doRewrite());
+    db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      tx();
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON');
+    }
+  }
+
+  /** Phase-2 (knowledge-pipeline / ticket 07): widen the `memories.target`
+   *  CHECK from the 6-value form (memory/user/failure/knowledge/
+   *  planning-effort/planning-ticket) to also include 'image'. Runs AFTER the
+   *  planning migration so a legacy DB is normalized to 6-value first, then
+   *  widened to 7-value here.
+   *
+   *  Gated on `sqlite_master` SQL-text inspection (same precedent as
+   *  `migrateMemoriesTargetCheckAddPlanning`): skips when the CREATE TABLE
+   *  already mentions 'image' (fresh install of the widened schema or already
+   *  migrated); only fires on the exact 6-value CHECK shape.
+   *
+   *  DATA-LOSS GUARD: the `memories_new` CREATE + INSERT…SELECT carry the FULL
+   *  current column set (the same 22-col list as the knowledge/planning
+   *  migrations). After the rename the memories FTS triggers + indexes are
+   *  recreated (DROP TABLE drops them); `rebuildMemoryFts` (called next)
+   *  repopulates the index. All rows are carried through verbatim. */
+  private migrateMemoriesTargetCheckAddImage(db: DatabaseLike): void {
+    const tableSqlRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'").get() as { sql?: string } | undefined;
+    const tableSql = tableSqlRow?.sql ?? '';
+    if (!tableSql) return;
+
+    // Fresh installs (widened SCHEMA_SQL) + already-migrated DBs mention 'image'.
+    if (/'image'/.test(tableSql)) return;
+
+    // Only rewrite the exact current 6-value CHECK. Older shapes are first
+    // widened by migrateMemoriesTargetCheckAddKnowledge / ...AddPlanning.
+    const isSixValueCheck = /target\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*target\s+IN\s*\(\s*'memory'\s*,\s*'user'\s*,\s*'failure'\s*,\s*'knowledge'\s*,\s*'planning-effort'\s*,\s*'planning-ticket'\s*\)\s*\)/i.test(tableSql);
+    if (!isSixValueCheck) return;
+
+    // The FULL current column set. Declared once and reused for CREATE +
+    // INSERT…SELECT so the two can never drift (identical 22-col list to the
+    // knowledge/planning migrations — a drift here is exactly the
+    // silent-column-drop the guard exists to prevent).
+    const fullColumns = [
+      'id', 'project', 'target', 'category', 'content',
+      'failure_reason', 'tool_state', 'corrected_to',
+      'created', 'last_referenced', 'mw_success', 'mw_fail', 'status',
+      'supersedes', 'superseded_by', 'parent_ids',
+      'md_id', 'state', 'severity', 'pin', 'frontmatter', 'graph',
+    ];
+    const colList = fullColumns.join(', ');
+
+    const doRewrite = (): void => {
+      this.ensureMemoriesColumns(db);
+
+      db.exec(`
+        CREATE TABLE memories_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project TEXT,
+          target TEXT NOT NULL CHECK (target IN ('memory', 'user', 'failure', 'knowledge', 'planning-effort', 'planning-ticket', 'image')),
           category TEXT CHECK (category IN ('failure', 'correction', 'insight', 'preference', 'convention', 'tool-quirk')),
           content TEXT NOT NULL,
           failure_reason TEXT,

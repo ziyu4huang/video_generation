@@ -9,7 +9,11 @@ export type CardKind =
   | "failure"
   | "knowledge"
   | "planning-effort"
-  | "planning-ticket";
+  | "planning-ticket"
+  // image cards (ticket 07): knowledge zettel envelope +
+  // format/dimensions/locator; content = merged OCR+vision text;
+  // atomic one-image-one-card.
+  | "image";
 
 /** A card-agnostic record the kind-agnostic store CRUD/queries/dedups over.
  *
