@@ -3,6 +3,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Text } from "@earendil-works/pi-tui";
 import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 import {
+  fmtCost,
   listAgentTypes,
   listAvailableModelSpecs,
   loadAgentRegistry,
@@ -579,7 +580,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       // Format token usage (include cost when the provider reports it)
       const tokenInfo = result.tokenUsage
         ? `\n\nToken usage: ${result.tokenUsage.total.toLocaleString()} tokens${
-            result.tokenUsage.cost ? ` ($${result.tokenUsage.cost.toFixed(4)})` : ""
+            result.tokenUsage.cost ? ` ($${fmtCost(result.tokenUsage.cost)})` : ""
           }`
         : "";
 

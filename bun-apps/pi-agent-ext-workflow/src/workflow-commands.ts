@@ -4,6 +4,7 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { activityGlyph, fmtElapsed } from "@repo/pi-agent-ext-core-runtime";
 import { recomputeWorkflowSnapshot, renderWorkflowText, type WorkflowSnapshot } from "./display.js";
 import { type EffortState, effortDirective } from "./effort-command.js";
 import type { PersistedRunState } from "./run-persistence.js";
@@ -93,12 +94,11 @@ export function renderPersistedStatus(run: PersistedRunState): string {
   const lines = [`${STATUS_ICON[run.status] ?? "?"} ${run.workflowName} (${run.runId}) — ${run.status}`];
   if (run.currentPhase) lines.push(`  phase: ${run.currentPhase}`);
   for (const agent of run.agents) {
-    const icon =
-      agent.status === "done" ? "✓" : agent.status === "error" ? "✗" : agent.status === "running" ? "◆" : "·";
+    const icon = activityGlyph(agent.status).icon;
     lines.push(`  ${icon} ${agent.label}`);
   }
   if (run.tokenUsage) lines.push(`  tokens: ${run.tokenUsage.total.toLocaleString()}`);
-  if (run.durationMs) lines.push(`  duration: ${(run.durationMs / 1000).toFixed(1)}s`);
+  if (run.durationMs) lines.push(`  duration: ${fmtElapsed(run.durationMs)}`);
   return lines.join("\n");
 }
 
@@ -115,7 +115,7 @@ function renderPersistedResult(run: PersistedRunState): string {
   const head = `${STATUS_ICON[run.status] ?? "?"} ${run.workflowName} (${run.runId}) — ${run.status}`;
   const meta: string[] = [];
   if (run.completedAt) meta.push(`  finished: ${run.completedAt.slice(0, 19).replace("T", " ")}`);
-  if (run.durationMs) meta.push(`  duration: ${(run.durationMs / 1000).toFixed(1)}s`);
+  if (run.durationMs) meta.push(`  duration: ${fmtElapsed(run.durationMs)}`);
   if (run.tokenUsage) meta.push(`  tokens: ${run.tokenUsage.total.toLocaleString()}`);
 
   if (run.result === undefined || run.result === null) {

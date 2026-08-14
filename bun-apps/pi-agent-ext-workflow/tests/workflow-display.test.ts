@@ -138,7 +138,7 @@ describe("renderWorkflowText", () => {
     const snap = createWorkflowSnapshot(fakeMeta());
     snap.tokenUsage = { input: 1000, output: 500, total: 1500, cost: 0.042 };
     const text = renderWorkflowLines(snap).join("\n");
-    assert.ok(text.includes("$0.0420"), "should show cost");
+    assert.ok(text.includes("$0.04"), "should show cost (fmtCost: 2 decimals ≥1¢)");
   });
 
   it("shows token info without cost when cost is absent", async () => {
