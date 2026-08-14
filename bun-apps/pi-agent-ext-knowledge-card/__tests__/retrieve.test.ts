@@ -620,6 +620,34 @@ describe("retrieveRecords — typed relations across the seam (ticket 03 T5, D2)
 		expect(r.count).toBe(1);
 		expect(r.cards[0]!.relations).toBeUndefined();
 	});
+
+	test("fix-wave 03 FIX5b: SEMANTIC path (buildRetrievedCard) populates relations for a semantic-only card", async () => {
+		// A card with ZERO tag overlap (tag 'zzz' vs query tags ['argv']) that
+		// surfaces ONLY through the semantic blend — i.e. it is built by
+		// buildRetrievedCard, not the lexical loop. The card carries a canonical
+		// `relations:` block; the carrier must be populated on the built card.
+		writeCard("t:sem-rel", "zzz", "relations:\n  - s: a\n    rel: references\n    o: b");
+		// Injected embedder: the semantic card's text matches the query vector.
+		const emb: Embedder = async (texts) =>
+			texts.map((t) => (/Detail about t:sem-rel/i.test(t) || /zzz/i.test(t) ? [1, 0] : [0, 1]));
+		const r = await retrieveRecords({
+			vaultPath: vault,
+			folder: FOLDER,
+			tags: ["argv"],
+			queryText: "zzz query",
+			topK: 4,
+			semantic: true,
+			_testEmbedder: emb,
+			includeTrace: true,
+		});
+		expect(r.trace!.semanticUsed).toBe(true); // sanity: the blend ran
+		const got = r.cards.find((c) => c.id === "t:sem-rel");
+		expect(got).toBeDefined();
+		expect(got!.relations).toEqual([{ s: "a", rel: "references", o: "b" }]);
+		// And the trace confirms it was classified semantic (built, not lexical).
+		const traced = r.trace!.cards.find((c) => c.id === "t:sem-rel");
+		expect(traced!.source).toBe("semantic");
+	});
 });
 
 describe("GraphHealthResult.coverage (additive dimension — drift guard)", () => {

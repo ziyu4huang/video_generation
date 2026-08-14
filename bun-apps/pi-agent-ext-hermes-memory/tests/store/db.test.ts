@@ -525,6 +525,27 @@ describe('SqliteBackend', () => {
         INSERT INTO memories (project, target, content, created, last_referenced)
         VALUES (?, ?, ?, ?, ?)
       `).run(null, 'memory', 'recoverable memory', '2026-05-03', '2026-05-03');
+      // FIX 2 (whole-branch review): a card-store row (06a/03 columns) must
+      // survive the corruption rebuild with md_id/state/severity/pin/
+      // frontmatter/graph intact — the recovery copy previously dropped all
+      // six columns (md_id/state/severity/pin pre-existing since 06a-era
+      // schema additions; frontmatter since 06a; graph since 03).
+      db.prepare(`
+        INSERT INTO memories (project, target, content, created, last_referenced, md_id, state, severity, pin, frontmatter, graph)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        null,
+        'knowledge',
+        'recoverable knowledge card',
+        '2026-05-03',
+        '2026-05-03',
+        'knowledge:recoverable',
+        'active',
+        3,
+        1,
+        JSON.stringify({ id: 'knowledge:recoverable', record_type: 'lever' }),
+        JSON.stringify({ links: ['other-card'], relations: [{ s: 'a', rel: 'references', o: 'b' }] }),
+      );
       dbManager.close();
 
       corruptRecoverableIndexPage(path.join(tmpDir, 'sessions.db'), 'idx_messages_timestamp');
@@ -541,11 +562,30 @@ describe('SqliteBackend', () => {
         sessions: 1,
         messages: 50,
         session_files: 0,
-        memories: 1,
+        memories: 2,
       });
-      assert.deepStrictEqual(dbManager.getStats(), { sessions: 1, messages: 50, memories: 1 });
+      assert.deepStrictEqual(dbManager.getStats(), { sessions: 1, messages: 50, memories: 2 });
       const memory = repairedDb.prepare('SELECT content FROM memories WHERE content = ?').get('recoverable memory') as { content: string } | undefined;
       assert.ok(memory);
+      // FIX 2: the card-store row rebuilt with ALL 06a/03 columns intact —
+      // md_id (card-store join key), state/severity/pin, frontmatter + graph
+      // (JSON envelopes) all survive the rebuild byte-for-byte.
+      const card = repairedDb
+        .prepare(
+          'SELECT md_id, state, severity, pin, frontmatter, graph FROM memories WHERE md_id = ?',
+        )
+        .get('knowledge:recoverable') as
+        | { md_id: string; state: string; severity: number; pin: number; frontmatter: string; graph: string }
+        | undefined;
+      assert.ok(card, 'recovered card-store row kept its md_id');
+      assert.strictEqual(card.state, 'active');
+      assert.strictEqual(card.severity, 3);
+      assert.strictEqual(card.pin, 1);
+      assert.deepStrictEqual(JSON.parse(card.frontmatter), { id: 'knowledge:recoverable', record_type: 'lever' });
+      assert.deepStrictEqual(JSON.parse(card.graph), {
+        links: ['other-card'],
+        relations: [{ s: 'a', rel: 'references', o: 'b' }],
+      });
       assertQuickCheckOk(repairedDb as InstanceType<typeof Database>);
       assert.ok(fs.readdirSync(tmpDir).some((name) => name.startsWith('sessions.db.corrupt-')), 'corrupt DB should be quarantined');
     });

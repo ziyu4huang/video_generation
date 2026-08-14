@@ -11,6 +11,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createCardStore } from "./card-store.js";
+import { SqliteBackend } from "./sqlite/sqlite-backend.js";
 import type { Card, CardGraph } from "./card.js";
 
 describe("CardStore graph round-trip (ticket 03 T1)", () => {
@@ -106,5 +107,66 @@ describe("CardStore graph round-trip (ticket 03 T1)", () => {
       assert.ok(got);
       assert.equal(got.graph, undefined);
     });
+  });
+
+  it("updateCard with graph omitted NULLs graph — documented current semantics", async () => {
+    // NOTE (fix-wave 03 FIX4): this documents the CURRENT md-wins/NULL behavior —
+    // updateCard writes the whole row as given, so an absent graph wipes it.
+    // Merge semantics (read-modify-write for graph) is deliberately deferred.
+    await withStore(async (store) => {
+      const card: Card = {
+        id: "knowledge:graph-wipe",
+        kind: "knowledge",
+        content: "v1",
+        frontmatter: { id: "knowledge:graph-wipe" },
+        graph,
+      };
+      await store.upsertCard(card);
+
+      const next: Card = {
+        id: card.id,
+        kind: "knowledge",
+        content: "v2",
+        frontmatter: card.frontmatter,
+        // graph intentionally omitted → UPDATE writes NULL
+      };
+      await store.updateCard(next);
+
+      const got = await store.getCard(card.id);
+      assert.ok(got, "row survives updateCard");
+      assert.equal(got.content, "v2");
+      assert.equal(got.graph, undefined, "omitted graph NULLs the column (current semantics)");
+    });
+  });
+
+  it("malformed graph JSON in the row reads back as undefined (no throw)", async () => {
+    // FIX5a (fix-wave 03): raw-SQL insert a knowledge row whose `graph` column
+    // holds invalid JSON, then read it through the façade — rowToCard's
+    // try/catch must map the parse failure to `undefined`, never throw.
+    const mem = mkdtempSync(join(tmpdir(), "card-store-badgraph-"));
+    try {
+      const backend = new SqliteBackend(mem);
+      await backend.init();
+      backend
+        .getDb()
+        .prepare(
+          `INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to,
+             created, last_referenced, mw_success, mw_fail, status, md_id, state, severity, pin, frontmatter, graph)
+           VALUES (NULL, 'knowledge', NULL, 'body', NULL, NULL, NULL, ?, ?, 0, 0, 'active', 'knowledge:bad-graph', 'active', NULL, 0, NULL, '{bad')`,
+        )
+        .run("2026-01-01", "2026-01-01");
+      await backend.close();
+
+      const store = await createCardStore({ memoryDir: mem });
+      try {
+        const got = await store.getCard("knowledge:bad-graph");
+        assert.ok(got, "row is readable");
+        assert.equal(got.graph, undefined, "malformed graph JSON → undefined, no throw");
+      } finally {
+        await store.close();
+      }
+    } finally {
+      rmSync(mem, { recursive: true, force: true });
+    }
   });
 });

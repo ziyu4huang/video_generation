@@ -532,9 +532,16 @@ export class SqliteBackend implements Backend {
   }
 
   private copyMemories(source: DatabaseLike, target: DatabaseLike): number {
+    // 06a/03 FIX 2: the corruption-recovery copy must carry EVERY memories
+    // column, or a post-rebuild DB silently drops card data. md_id/state/
+    // severity/pin (pre-existing drops) + frontmatter (06a) + graph (03) were
+    // previously lost — md_id loss is worst: the rebuilt rows no longer join
+    // to the card-store (getCard/md-wins sync all miss) AND unique-id upserts
+    // would re-INSERT duplicates. readTableRows filters to columns that exist
+    // on the SOURCE, so older DBs (pre-06a) still rebuild fine with defaults.
     const insert = target.prepare(`
-      INSERT OR IGNORE INTO memories (id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, status, supersedes, superseded_by, parent_ids)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR IGNORE INTO memories (id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, status, supersedes, superseded_by, parent_ids, md_id, state, severity, pin, frontmatter, graph)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     let copied = 0;
 
@@ -555,6 +562,12 @@ export class SqliteBackend implements Backend {
       'supersedes',
       'superseded_by',
       'parent_ids',
+      'md_id',
+      'state',
+      'severity',
+      'pin',
+      'frontmatter',
+      'graph',
     ])) {
       const id = this.integerOr(row.id, NaN);
       if (!Number.isFinite(id) || typeof row.content !== 'string') continue;
@@ -572,6 +585,14 @@ export class SqliteBackend implements Backend {
       const supersedes = this.nullableInteger(row.supersedes);
       const supersededBy = this.nullableInteger(row.superseded_by);
       const parentIds = this.nullableString(row.parent_ids);
+      // FIX 2: card-store columns (06a/03) carried verbatim — JSON columns are
+      // passed through as TEXT (same as parent_ids); the caller owns the shape.
+      const mdId = this.nullableString(row.md_id);
+      const state = typeof row.state === 'string' ? row.state : 'active';
+      const severity = this.nullableInteger(row.severity);
+      const pin = this.integerOr(row.pin, 0);
+      const frontmatter = this.nullableString(row.frontmatter);
+      const graph = this.nullableString(row.graph);
 
       insert.run(
         id,
@@ -590,6 +611,12 @@ export class SqliteBackend implements Backend {
         supersedes,
         supersededBy,
         parentIds,
+        mdId,
+        state,
+        severity,
+        pin,
+        frontmatter,
+        graph,
       );
       copied++;
     }

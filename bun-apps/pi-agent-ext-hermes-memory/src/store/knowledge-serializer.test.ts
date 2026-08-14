@@ -93,3 +93,30 @@ body
     assert.doesNotMatch(out, /^relations:/m);
   });
 });
+
+describe("KnowledgeSerializer envelope dedup (fix-wave 03 FIX3 — graph.relations is the single truth)", () => {
+  const ser = new KnowledgeSerializer();
+  const relCard = `---
+id: t:rel
+created: 2026-08-08
+tags: [zettel, lever]
+relations:
+  - s: a
+    rel: ref
+    o: b
+---
+# rel card
+
+## 核心想法
+body
+`;
+
+  it("deserialize drops the RAW relations from frontmatter (no envelope/graph duality)", () => {
+    const [c] = ser.deserialize(relCard);
+    // The raw envelope entry must be absent — persisting it alongside the
+    // canonical graph.relations would leave the DB holding two versions.
+    assert.ok(!("relations" in c!.frontmatter), "frontmatter.relations must be absent");
+    // The canonical, normalized form lives ONLY on card.graph.relations.
+    assert.equal(c!.graph?.relations?.[0]?.rel, "references");
+  });
+});

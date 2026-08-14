@@ -471,7 +471,10 @@ export default async function (pi: ExtensionAPI) {
   // throws at call time and the tool surfaces a clear message). The mirror
   // reuses the SAME SQLite DB the memory-cards use (the global memory dir). ──
   registerKnowledgeSearchTool(pi, resolveKnowledgeVaultPath, buildKnowledgeSemanticOpts(config));
-  registerKnowledgeIngestTool(pi, { memoryDir: globalDir });
+  // kgLlm (FIX 1): thread MemoryConfig.kgLlm into the ingest tool's options so
+  // the config-file flag reaches zk's ingest gate (env fallback PI_KG_LLM=1
+  // stays available when the flag is unset/default).
+  registerKnowledgeIngestTool(pi, { memoryDir: globalDir, kgLlm: config.kgLlm });
   // Phase-2 (knowledge-pipeline / 10-impl T6): the stale: query + revalidate
   // tool. Uses the SAME globalDir memory DB the planning mirror + knowledge
   // ingest use; fsRoot comes from ctx.cwd at call time. Additive — mirrors the

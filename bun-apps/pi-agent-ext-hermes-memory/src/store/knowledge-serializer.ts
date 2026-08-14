@@ -137,9 +137,15 @@ export class KnowledgeSerializer implements CardSerializer<"knowledge"> {
     if (entities) graph.entities = entities;
     if (relations) graph.relations = relations;
 
-    // The whole decoded envelope becomes `frontmatter`; `title` is added as a
+    // The decoded envelope becomes `frontmatter`; `title` is added as a
     // round-trip carrier for serialize (stripped from the YAML block there).
+    // FIX3 (fix-wave 03): DROP the raw `relations` entry — `card.graph.relations`
+    // is the single canonical truth (already normalized in parseRelations), and
+    // keeping the raw alias in the envelope would persist two divergent copies
+    // (envelope vs graph). serialize() re-emits the canonical block from
+    // `card.graph.relations`, so the round-trip is unaffected.
     const envelope: Record<string, unknown> = { ...data };
+    delete envelope.relations;
     if (title) envelope.title = title;
 
     const card: Card = {
