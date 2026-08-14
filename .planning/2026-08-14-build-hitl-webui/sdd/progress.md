@@ -31,3 +31,14 @@
 ## Ledger (minor findings → Phase 4+)
 - [P3-review] respondedPresent never clears across presentations — harmless (fresh presentIds; done-check id-keyed, intended one-response semantics). No action.
 - [P3-impl] Plan 3f block contained backticks in an inline comment (would break the template literal); fixed comment-only to single quotes — plan-defect, noted for plan-author hygiene.
+
+## Phase 4 — /output serving + image presentation
+- Task 1: complete (commit c71d2582, review APPROVED — containment adversarially probed sound; minors: malformed-%/null-byte 500s [FIXED in T2B], symlink-follow informational, no fixture cleanup, /output/.. fall-through)
+- Task 2 + hardening: complete (commits fea0ce4a + ed96f06c, review APPROVED byte-identical-to-plan; uniform-404 hardening landed)
+- Final whole-branch review: APPROVED, no fix dispatch (ef9a33f9..ed96f06c, 312/0 tests, build exit 0; end-to-end image flow verified hop-by-hop incl. marked emitting <img src> verbatim)
+
+## Ledger (minor findings → Phase 5+ / backlog)
+- [P4-final] imageMd does not percent-encode rel — filenames with spaces/parens render as literal text (marked rejects unescaped spaces). Latent (MLX names are space-free); fix = encodeURI on rel or a note in present-tool guidance.
+- [P4-final] rmSync imported-but-unused in tests/output-routes.test.ts (plan-verbatim; harmless).
+- [P4-final] Symlinks inside the output dir are followed (matches gallery.ts reference; outside loopback threat model).
+- [P4-impl] Plan defects found: beforeAll+describe-scoped consts incompatible with bun:test eager describe bodies (T1 D1); backtick-in-template-literal class defect NOT repeated here.
