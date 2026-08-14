@@ -11,3 +11,15 @@
 - [T2-review] WS-close cancels all pending — note reconnect/refresh tension for the present-handler phase (Decision A/C contemplate re-fetch of a pending presentation).
 - [final-review] Refresh stale parseCommand class-header JSDoc (web-transport.ts:47-49, old no-op seam wording) in Phase 2's first commit.
 - [task-2-impl] HitlResponse.action made optional (deviation from plan verbatim: TS2741 with {cancelled:true}); Phase 2 branches on `cancelled` before reading `action`.
+
+## Phase 2 — webui_present tool + webui:present event
+- Task 1: complete (commit 81f6ca3c, review APPROVED — 2 minors: unvalidated `view` in isPayload (tool path unaffected), weak microtask-drain liveness assert)
+- Task 2: complete (commit 5d974e25, review APPROVED — 2 minors: pre-aborted-signal hardening, describeHitlResponse tweak-before-approve precedence)
+- Final whole-branch review: APPROVED, no fix dispatch (e7ecf680..5d974e25, 271/0 tests, build exit 0)
+
+## Ledger (minor findings → Phase 3+ must carry)
+- [T1-review] isPayload doesn't type-guard `view` (non-string view would forward as a raw key) — harden when convenient; tool path always supplies schema-validated strings.
+- [T2-review] awaitPendingWithAbort: add `if (signal.aborted) onCancel()` early-exit hardening (unreachable via pi harness today).
+- [T2-review] describeHitlResponse: tweak branch precedes approve branch — {action:"approve",tweak} renders as "requested approve with tweak" (intentional; revisit when the browser toolbar lands).
+- [final-review] present-tool.ts `params.mode as RenderMode` cast mirrors render-tool.ts convention — simplify opportunistically.
+- [final-review] T1 file-count note: plan File Structure = 11 unique files for Phase 2 (6 src + 5 test).
