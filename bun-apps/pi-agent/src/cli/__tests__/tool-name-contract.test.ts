@@ -1,0 +1,206 @@
+/**
+ * Tool-name contract: every curated allowlist must name tools that the
+ * extension set that command actually injects really registers.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * `pipeline url-to-vault` and `pipeline youtube-to-vault` shipped completely
+ * broken: their allowlist named `obsidian_distill` / `obsidian_create` /
+ * `obsidian_search`, which stopped being registered tools when pi-obsidian
+ * collapsed its 18 `obsidian_*` tools into one action-dispatched facade
+ * (only `obsidian` and `obsidian_help` reach `pi.registerTool()`). They also
+ * asked for `fetch_content` without injecting the web-access factory that
+ * provides it. Every invocation died at session creation on
+ * `validateToolNames`, and nothing noticed because neither pipeline had a test.
+ *
+ * `validateToolNames` is a RUN-time guard. This is the BUILD-time one: a
+ * cross-package tool-registration change now fails here instead of in a user's
+ * terminal.
+ *
+ * HOW IT WORKS
+ * ------------
+ * Extension factories are invoked against a mock `pi` (same shape `ext-doctor`
+ * uses) purely to collect the names they register. No session, no model, no
+ * network — this runs in the default `bun test` tier.
+ */
+import { describe, expect, test } from "bun:test";
+
+import obsidianExtension from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import webAccessExtension from "@repo/pi-agent-ext-web-access";
+import knowledgeCardExtension from "@repo/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
+import {
+	ADD_TOOLS,
+	CHECK_TOOLS,
+	DISTILL_TOOLS,
+	FIND_TOOLS,
+	RAG_TOOLS,
+	REMOVE_TOOLS,
+	UPDATE_TOOLS,
+} from "@repo/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
+import { EXTENSION_SPECS } from "../extensions/registry.ts";
+import { AGENT_TOOLS } from "../commands/agent.ts";
+import {
+	URL_TO_VAULT_FACTORIES,
+	URL_TO_VAULT_TOOLS,
+} from "../commands/url-to-vault.ts";
+
+/**
+ * pi-core builtins. These are NOT registered by any extension — they come from
+ * the agent session itself — so an allowlist may name them freely.
+ *
+ * Kept explicit rather than derived: building a real session would need a model
+ * and drag this test out of the default tier. If pi-core renames one, the
+ * failure lands here with a clear message, which is the point.
+ */
+const CORE_BUILTINS = new Set([
+	"read",
+	"write",
+	"edit",
+	"multi_edit",
+	"bash",
+	"glob",
+	"grep",
+	"ls",
+	"todo_write",
+	"web_fetch",
+	"web_search",
+	"task",
+	"ask_user_question",
+]);
+
+type ToolLike = { name?: unknown };
+
+/** Mirror of ext-doctor's mock pi — enough surface for a factory to register. */
+function collectRegisteredToolNames(factories: unknown[]): Set<string> {
+	const names = new Set<string>();
+	const pi = {
+		registerTool: (t: ToolLike) => {
+			if (typeof t?.name === "string") names.add(t.name);
+			return t;
+		},
+		registerCommand: () => {},
+		registerMessageRenderer: () => {},
+		registerShortcut: () => {},
+		appendEntry: () => {},
+		sendMessage: () => {},
+		sendUserMessage: () => {},
+		getThinkingLevel: () => "medium",
+		on: () => {},
+		events: { on: () => () => {}, off: () => {}, emit: () => {}, once: () => () => {} },
+		getAllTools: () => [],
+		exec: async () => "",
+		z: { undefined: () => ({}) },
+	};
+	for (const f of factories) {
+		(f as (api: unknown) => void)(pi);
+	}
+	return names;
+}
+
+/**
+ * The factory every CLI session gets for free.
+ * Source of truth: `getSharedServices` in `sessions/shared.ts`, which seeds
+ * `extensionFactories` with obsidian and nothing else.
+ */
+const ALWAYS_ON: unknown[] = [obsidianExtension];
+
+interface Case {
+	/** How the failure should read. */
+	label: string;
+	/** The curated allowlist under test. */
+	tools: readonly string[];
+	/** Factories this command passes as `extraExtensionFactories`. */
+	factories: unknown[];
+}
+
+/**
+ * Hand-written commands. Extension-backed sub-commands are covered separately
+ * below, driven straight off `EXTENSION_SPECS` so a new one is covered the day
+ * it is registered — no edit to this file required.
+ */
+const HAND_WRITTEN: Case[] = [
+	// commands/url-to-vault.ts — the regression this file exists for.
+	// Imported, never restated: a test that keeps its own copy of the allowlist
+	// passes while the shipped one rots, which is how this broke in the first place.
+	{
+		label: "pipeline url-to-vault / youtube-to-vault",
+		tools: URL_TO_VAULT_TOOLS,
+		factories: URL_TO_VAULT_FACTORIES,
+	},
+	// commands/zk-extract.ts
+	{ label: "zk-extract", tools: DISTILL_TOOLS, factories: [] },
+	// commands/zk-card.ts — one allowlist per sub-action.
+	{ label: "zk-card add", tools: ADD_TOOLS, factories: [] },
+	{ label: "zk-card find", tools: FIND_TOOLS, factories: [] },
+	{ label: "zk-card update", tools: UPDATE_TOOLS, factories: [] },
+	{ label: "zk-card remove", tools: REMOVE_TOOLS, factories: [] },
+	{ label: "zk-card check", tools: CHECK_TOOLS, factories: [] },
+	// commands/zk-ask.ts
+	{ label: "zk-ask", tools: RAG_TOOLS, factories: [] },
+	// commands/agent.ts injects web-access + knowledge-card on top of obsidian.
+	{
+		label: "agent",
+		tools: AGENT_TOOLS,
+		factories: [webAccessExtension, knowledgeCardExtension],
+	},
+];
+
+function assertResolvable(c: Case): void {
+	const registered = collectRegisteredToolNames([...ALWAYS_ON, ...c.factories]);
+	const unresolved = c.tools.filter(
+		(t) => !registered.has(t) && !CORE_BUILTINS.has(t),
+	);
+	if (unresolved.length > 0) {
+		throw new Error(
+			`${c.label}: allowlist names ${unresolved.length} tool(s) that no injected ` +
+				`extension registers:\n` +
+				unresolved.map((u) => `  ${u}`).join("\n") +
+				`\n\nEither the tool was renamed/removed upstream (check the extension's ` +
+				`registerTool calls), or the factory that provides it is missing from this ` +
+				`command's \`factories\`. Registered here: ${[...registered].sort().join(", ")}`,
+		);
+	}
+	expect(unresolved).toEqual([]);
+}
+
+describe("tool-name contract — hand-written commands", () => {
+	for (const c of HAND_WRITTEN) {
+		test(`${c.label}: every allowlisted tool is registered`, () => {
+			assertResolvable(c);
+		});
+	}
+});
+
+describe("tool-name contract — extension sub-commands", () => {
+	test("registry is non-empty (a silently emptied registry must not pass)", () => {
+		expect(EXTENSION_SPECS.length).toBeGreaterThan(0);
+	});
+
+	for (const spec of EXTENSION_SPECS) {
+		test(`${spec.name}: every allowlisted tool is registered`, () => {
+			assertResolvable({
+				label: spec.name,
+				tools: spec.tools,
+				factories: [spec.factory],
+			});
+		});
+	}
+});
+
+describe("obsidian facade shape", () => {
+	test("the facade registers exactly the two tools every allowlist may name", () => {
+		const registered = collectRegisteredToolNames(ALWAYS_ON);
+		// Pins the collapse itself. If pi-obsidian ever unbundles back into
+		// individual obsidian_* tools, this fails and the allowlists above can be
+		// widened deliberately rather than by accident.
+		expect([...registered].sort()).toEqual(["obsidian", "obsidian_help"]);
+	});
+
+	test("no allowlist still names a pre-facade obsidian_* tool", () => {
+		const stale = [
+			...HAND_WRITTEN.flatMap((c) => c.tools),
+			...EXTENSION_SPECS.flatMap((s) => s.tools),
+		].filter((t) => t.startsWith("obsidian_") && t !== "obsidian_help");
+		expect(stale).toEqual([]);
+	});
+});

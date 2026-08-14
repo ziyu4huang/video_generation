@@ -5,7 +5,7 @@
  * Unlike pdf-to-vault (deterministic: file2md + distill called directly),
  * these are **agent-driven**: fetching web content is a pi tool (`fetch_content`),
  * not a standalone function. So we run ONE agent session with both
- * `fetch_content` (web-access) and `obsidian_distill` (pi-obsidian, baked in),
+ * `fetch_content` (web-access) and `obsidian` (pi-obsidian, baked in),
  * giving the agent a task that orchestrates: fetch the URL → save markdown →
  * distill into the vault.
  *
@@ -18,14 +18,28 @@
 import type { ParsedArgs } from "../args.ts";
 import { applyVaultEnv } from "../sessions/passthrough.ts";
 import { runAgentSession } from "../sessions/run-agent-session.ts";
+import webAccessExtension from "@repo/pi-agent-ext-web-access";
+import { ADD_TOOLS } from "@repo/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 
-/** Tools needed: fetch (web-access) + distill (pi-obsidian, baked in). */
-const URL_TO_VAULT_TOOLS = [
-	"fetch_content",
-	"obsidian_distill",
-	"obsidian_create",
-	"obsidian_search",
-];
+/**
+ * Tools needed: fetch (web-access) + the obsidian facade (pi-obsidian, baked in).
+ *
+ * `ADD_TOOLS` is knowledge-card's shared allowlist for vault-writing flows —
+ * reusing it is what keeps this command from drifting the next time obsidian's
+ * tool surface changes. It previously named `obsidian_distill` / `obsidian_create`
+ * / `obsidian_search`, which stopped being registered tools when pi-obsidian
+ * collapsed its 18 `obsidian_*` tools into one action-dispatched facade; only
+ * `obsidian` and `obsidian_help` reach `pi.registerTool()`. Every run then died
+ * at session creation on `validateToolNames`.
+ */
+export const URL_TO_VAULT_TOOLS = ["fetch_content", ...ADD_TOOLS];
+
+/**
+ * `fetch_content` lives in the web-access extension, which is NOT one of the
+ * always-on factories `createSharedSession` bakes in (only pi-obsidian is), so
+ * it has to be injected explicitly — same as `commands/agent.ts` does.
+ */
+export const URL_TO_VAULT_FACTORIES: unknown[] = [webAccessExtension as unknown];
 
 /** Shared runner for both url/youtube → vault. */
 async function runUrlToVault(
@@ -54,8 +68,8 @@ async function runUrlToVault(
 			`  url: ${url}\n` +
 			(userQuestion ? `  prompt: "${userQuestion}"\n` : "") +
 			`\nThis returns the video transcript + metadata as markdown. Then distill ` +
-			`that markdown into atomic Zettelkasten notes using the obsidian_distill ` +
-			`tool. Target folder: ${folder}.` +
+			`that markdown into atomic Zettelkasten notes using the obsidian tool with ` +
+			`action: "distill". Target folder: ${folder}.` +
 			(maxNotes ? ` Max ~${maxNotes} notes (quality over quantity).` : "") +
 			`\n\nAfter distill, report how many notes were created and list their titles.`;
 	} else {
@@ -63,17 +77,18 @@ async function runUrlToVault(
 			`Fetch the web page content using the fetch_content tool:\n` +
 			`  url: ${url}\n` +
 			`\nThis returns the page's readable content as markdown. Then distill ` +
-			`that markdown into atomic Zettelkasten notes using the obsidian_distill ` +
-			`tool. Target folder: ${folder}.` +
+			`that markdown into atomic Zettelkasten notes using the obsidian tool with ` +
+			`action: "distill". Target folder: ${folder}.` +
 			(maxNotes ? ` Max ~${maxNotes} notes (quality over quantity).` : "") +
 			`\n\nIf the page is very long, distill in logical sections. ` +
 			`After distill, report how many notes were created and list their titles.`;
 	}
 
 	await runAgentSession(parsed, {
-		tools: URL_TO_VAULT_TOOLS,
+		tools: parsed.tools ?? URL_TO_VAULT_TOOLS,
 		task,
 		labelName: opts.label,
+		factories: URL_TO_VAULT_FACTORIES,
 	});
 }
 
@@ -84,8 +99,8 @@ export const urlToVaultCommand = {
   pi-agent cli pipeline url-to-vault <url> [options]
 
 Runs an agent-driven two-step flow:
-  1. fetch_content  — extract readable markdown from the URL
-  2. obsidian_distill — decompose the markdown into atomic Zettelkasten notes
+  1. fetch_content            — extract readable markdown from the URL
+  2. obsidian action:"distill" — decompose the markdown into atomic Zettelkasten notes
 
 Works on articles, blog posts, documentation pages, GitHub repos, and PDFs.
 For YouTube videos, use \`pipeline youtube-to-vault\` instead (YouTube-optimized).
@@ -118,7 +133,7 @@ Runs an agent-driven two-step flow:
   1. fetch_content  — extract the YouTube transcript + metadata as markdown.
      Pass an optional [question] positional to direct the VLM to focus on
      specific aspects of the video (e.g. "what tools are recommended?").
-  2. obsidian_distill — decompose the transcript into atomic Zettelkasten notes.
+  2. obsidian action:"distill" — decompose the transcript into atomic Zettelkasten notes.
 
 Options (pi-aligned globals):
   --model <pattern>      provider/id[:thinking]  (distill model)

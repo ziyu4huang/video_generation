@@ -34,7 +34,9 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 // Inline import of the pi-obsidian extension factory. Bundled in (self-contained).
-import obsidianExtension from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import obsidianExtension, {
+	OBSIDIAN_WRITE_ACTIONS,
+} from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 // The baked provider CATALOG (lm-studio) lives one directory up, in the same
 // package — single source of truth for both the interactive TUI entry and this
 // CLI. We register it explicitly here (the programmatic-session path) via the
@@ -172,32 +174,29 @@ export function allModels(reg: any): any[] {
 }
 
 /**
- * Obsidian tools capable of MUTATING the vault. Excluded under `--dry-run` so an
- * agent-driven command (zk-card add, zk-extract, zk-ask, url-to-vault, …) can
- * read + plan but CANNOT write — a deterministic dry-run that doesn't rely on
- * the LLM obeying a "don't write" instruction. Read-only tools (obsidian_read,
- * obsidian_search, obsidian_list, obsidian_query, obsidian_status, obsidian_open,
- * obsidian_semantic_search) stay available so the agent can still gather context
- * and report what it WOULD do.
+ * Vault-mutating obsidian tool names, derived from the extension's own
+ * `OBSIDIAN_WRITE_ACTIONS` so the two cannot drift.
+ *
+ * NOTE these are the *captured sub-tool* names. pi-obsidian collapsed its 18
+ * `obsidian_*` tools into one action-dispatched facade, so none of them is a
+ * registered tool any more and excluding them accomplishes nothing on its own —
+ * that is why `--dry-run` used to print "vault writes suppressed" while
+ * suppressing nothing. The real gate is now `applyDryRunEnv` below. This list is
+ * kept because pi-core ignores unknown exclude names harmlessly, and it keeps
+ * working if the facade is ever unbundled back into individual tools.
  */
-export const WRITE_TOOLS: readonly string[] = [
-	"obsidian_create",
-	"obsidian_append",
-	"obsidian_append_section",
-	"obsidian_update_frontmatter",
-	"obsidian_move",
-	"obsidian_rename",
-	"obsidian_delete",
-	"obsidian_invalidate",
-	"obsidian_distill",
-	"obsidian_garden",
-];
+export const WRITE_TOOLS: readonly string[] = OBSIDIAN_WRITE_ACTIONS.map(
+	(a) => `obsidian_${a}`,
+);
 
 /**
  * Effective excludeTools: the user's excludes PLUS every write tool when
  * `--dry-run` is set. Returns `undefined` when neither applies so the session
  * keeps its default (no exclusion). Dedup'd so a user who already excluded a
  * write tool doesn't get a duplicate entry.
+ *
+ * Tool exclusion alone is NOT sufficient for a dry run — pair every call with
+ * `applyDryRunEnv(parsed)`.
  */
 export function dryRunExclude(parsed: {
 	dryRun?: boolean;
@@ -206,6 +205,36 @@ export function dryRunExclude(parsed: {
 	const base = parsed.excludeTools ?? [];
 	if (!parsed.dryRun) return parsed.excludeTools;
 	return [...new Set([...base, ...WRITE_TOOLS])];
+}
+
+/**
+ * Arm the deterministic dry run: `OB_DRY_RUN=1` makes the `obsidian` facade
+ * refuse every write action at dispatch (see `dryRunRefusal` in
+ * pi-agent-ext-obsidian). Read actions stay available so the agent can still
+ * gather context and report what it WOULD write.
+ *
+ * This is the half that actually enforces `--dry-run`; `dryRunExclude` only
+ * narrows the tool allowlist, which the single-facade design made a no-op.
+ */
+export function applyDryRunEnv(parsed: { dryRun?: boolean }): void {
+	if (parsed.dryRun) process.env.OB_DRY_RUN = "1";
+}
+
+/**
+ * The single entry point every session builder should use for `--dry-run`:
+ * arms the facade-level refusal AND returns the effective excludeTools.
+ *
+ * Deliberately one call rather than two. When these were separable, every new
+ * session site had to remember to do both, and the enforcement half was the
+ * easy one to forget — which is exactly how `--dry-run` came to print
+ * "vault writes suppressed" while suppressing nothing.
+ */
+export function applyDryRun(parsed: {
+	dryRun?: boolean;
+	excludeTools?: string[];
+}): string[] | undefined {
+	applyDryRunEnv(parsed);
+	return dryRunExclude(parsed);
 }
 
 /** PI_SKIP_MODELS_JSON=1 → hermetic binary: no ~/.pi/agent/models.json read. */

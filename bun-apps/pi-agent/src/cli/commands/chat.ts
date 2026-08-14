@@ -26,7 +26,7 @@
  */
 import type { ParsedArgs } from "../args.ts";
 import { resolveLLMFromArgs } from "../sessions/passthrough.ts";
-import { createSharedSession, dryRunExclude, modelLabel, type CreateSharedSessionOptions } from "../sessions/shared.ts";
+import { createSharedSession, applyDryRun, modelLabel, type CreateSharedSessionOptions } from "../sessions/shared.ts";
 
 /** Minimal session surface the REPL loop needs. */
 interface ChatSession {
@@ -87,7 +87,7 @@ async function makeSession(
 	const llm = await resolveLLMFromArgs(parsed);
 	const { session } = await createSharedSession(llm, {
 		tools: parsed.tools,
-		excludeTools: dryRunExclude(parsed),
+		excludeTools: applyDryRun(parsed),
 		appendSystemPrompt: parsed.appendSystemPrompt,
 		// --no-session → ephemeral; default → persistent (survives across runs)
 		sessionManager: opts.persist === false || parsed.noSession ? undefined : undefined,

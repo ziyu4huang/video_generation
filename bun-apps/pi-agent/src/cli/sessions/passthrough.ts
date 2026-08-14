@@ -16,7 +16,7 @@
  *   json  — emit one NDJSON event per line (pi schema subset), consumed by the
  *           obsidian subagent parser which reads `message_end` assistant text.
  */
-import { resolveLLM, createSharedSession, dryRunExclude, type ResolvedLLM } from "./shared.ts";
+import { resolveLLM, createSharedSession, applyDryRun, type ResolvedLLM } from "./shared.ts";
 import { runJsonTask, runPrettyTask } from "./task-runner.ts";
 import type { ParsedArgs } from "../args.ts";
 import { resolve } from "node:path";
@@ -137,7 +137,7 @@ export async function runPassthrough(
 
 	const { session } = await createSharedSession(llm, {
 		tools: parsed.tools,
-		excludeTools: dryRunExclude(parsed),
+		excludeTools: applyDryRun(parsed),
 		appendSystemPrompt: parsed.appendSystemPrompt,
 		extraExtensionFactories: extraFactories.length > 0 ? extraFactories : undefined,
 		// --no-session is accepted for pi-compat but is a no-op: every passthrough

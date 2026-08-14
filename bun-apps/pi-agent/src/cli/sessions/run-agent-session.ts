@@ -16,7 +16,7 @@
  */
 import type { ParsedArgs } from "../args.ts";
 import { resolveLLMFromArgs } from "./passthrough.ts";
-import { createSharedSession, dryRunExclude, modelLabel } from "./shared.ts";
+import { applyDryRun, createSharedSession, modelLabel } from "./shared.ts";
 import { runJsonTask, runPrettyTask } from "./task-runner.ts";
 
 export interface RunAgentSessionOptions {
@@ -45,7 +45,7 @@ export async function runAgentSession(
 	];
 	const { session } = await createSharedSession(llm, {
 		tools: opts.tools,
-		excludeTools: dryRunExclude(parsed),
+		excludeTools: applyDryRun(parsed),
 		appendSystemPrompt: parsed.appendSystemPrompt,
 		extraExtensionFactories: allFactories.length > 0 ? allFactories : undefined,
 	});
