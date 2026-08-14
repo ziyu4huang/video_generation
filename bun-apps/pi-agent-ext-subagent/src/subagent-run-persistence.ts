@@ -17,9 +17,10 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentHistoryEntry, AgentUsage, BudgetExhaustion, SddReport } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry, AgentUsage, SddReport } from "@repo/pi-agent-ext-core-runtime";
 import { homeDir } from "@repo/pi-agent-ext-core-runtime";
 import type { SubagentScopeCheck } from "./git-scope.js";
+import type { SubagentBudgetDetails } from "./subagent-tool-schema.js";
 import type { WatchdogResult } from "./watchdog/types.js";
 
 export const SUBAGENT_HOME_RELATIVE_DIR = ".pi/subagents";
@@ -70,8 +71,12 @@ export interface SubagentRunRecord {
   report?: SddReport;
   /** Opt-in commit-scope check (`commitScope` param), when the caller set one. */
   scopeCheck?: SubagentScopeCheck;
-  /** Set when the run was aborted for exceeding tokenBudget/spendBudget. */
-  budget?: BudgetExhaustion;
+  /**
+   * Budget block: exhaustion fields set when the run was aborted for exceeding
+   * tokenBudget/spendBudget; `warning` set when the run COMPLETED at ≥80% of
+   * a set budget (informational, fixed 0.8 ratio). See SubagentBudgetDetails.
+   */
+  budget?: SubagentBudgetDetails;
   /** Two-layer watchdog review (ticket 02), when `watchdog` was requested on the dispatch. */
   watchdog?: WatchdogResult;
 }
