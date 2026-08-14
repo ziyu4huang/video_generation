@@ -1,3 +1,5 @@
+**ID:** `ADR-workflow-0002` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # Pack identity is a path-resolved hash, version-INDEPENDENT
 
 **Status:** accepted (locked 2026-07-19; wayfinder ticket [08-pack-identity-versioning](../../../.planning/2026-07-19-review-the-workflow-pack-feature-via-pi-agent-ex/tickets/08-pack-identity-versioning.md))

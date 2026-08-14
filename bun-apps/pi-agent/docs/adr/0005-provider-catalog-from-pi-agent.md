@@ -1,3 +1,5 @@
+**ID:** `ADR-pi-agent-0005` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 > **Amended 2026-08-12 (pi-agent-cli merge).** The CLI now lives inside `pi-agent`
 > (`src/cli/`), so the catalog is reached by a relative import
 > (`src/cli/sessions/shared.ts` → `../../pre-load-providers.ts`) instead of the

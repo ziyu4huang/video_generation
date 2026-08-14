@@ -6,7 +6,7 @@
  * reports `"completed"`, and records the closure on the effort's map.md. Idempotent.
  *
  * Pure-ish: reads globalThis + fs; NEVER imports the plan coordinator — the only
- * contact surface is the globalThis keys (see ADR-0001). That keeps the two
+ * contact surface is the globalThis keys (see ADR-wayfind-0003). That keeps the two
  * extensions decoupled: wayfind closes tickets without knowing task_plan.md's
  * format, exactly as the plan coordinator publishes phase state without knowing
  * the ticket format.
@@ -52,7 +52,7 @@ function findTicketByRef(tickets: Ticket[], ref: string): Ticket | undefined {
 
 /**
  * Close wayfind tickets whose plan phase reports complete — the feedback half
- * of the continuous chain loop (ADR-0001).
+ * of the continuous chain loop (ADR-wayfind-0003).
  *
  * Reads phase state via `globalThis[PLAN_PHASES_KEY](cwd)`; for each complete phase's `ticketIds`,
  * closes the matching ticket (status → "closed", resolution set) and appends a
@@ -100,7 +100,7 @@ export function syncChainState(cwd: string, effort: string): ChainSyncResult {
   return { closed, skipped };
 }
 
-// ─── forward bridge: tickets/decisions → task_plan.md (ADR-0001 companion) ─────
+// ─── forward bridge: tickets/decisions → task_plan.md (ADR-wayfind-0003 companion) ─────
 
 /** Topo-sort tickets so each blocker precedes its dependents (DFS post-order).
  *  Missing blockers are tolerated; ascending id is the secondary key for
@@ -127,7 +127,7 @@ function topoSortTickets(tickets: Ticket[]): Ticket[] {
  *  in dependency order, carrying its `What to build` + acceptance criteria as
  *  `- [ ]` steps. Task headers embed the ticket stem (`[id-slug]`) so the plan
  *  coordinator's `parsePlan` + wayfind's `syncChainState` can close the
- *  originating ticket when the Task's steps complete (ADR-0001 round-trip). */
+ *  originating ticket when the Task's steps complete (ADR-wayfind-0003 round-trip). */
 export function flattenTicketsToPlan(tickets: Ticket[], glossary: GlossaryTerm[]): string {
   const ordered = topoSortTickets(tickets);
   const lines: string[] = [

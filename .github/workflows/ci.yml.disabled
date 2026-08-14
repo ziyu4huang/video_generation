@@ -520,26 +520,40 @@ jobs:
       - name: Lockfile duplicate-version guard (blocks)
         run: bash scripts/check-lockfile-duplicate-versions.sh
 
-      # Dependency-direction + import-hygiene guard (ADR-0001, blocks). The
+      # Dependency-direction + import-hygiene guard (ADR-monorepo-0001, blocks). The
       # remote twin of `bun run test:deps` — 5 invariants over every @repo/*
       # import in bun-apps/*: declared deps, no self-import, knowledge-layer
       # TIER-0 (obsidian/hermes-memory) imports NOTHING from TIER-1
       # (knowledge-card), no extension imports the host, acyclic graph. Without
-      # this step the upward hermes→hub edge ADR-0001 removed could be
+      # this step the upward hermes→hub edge ADR-monorepo-0001 removed could be
       # reintroduced and ship green — the test existed locally but nothing in
       # CI ran it (bun-apps/tests/ lives outside every per-package matrix entry).
-      - name: Dependency-direction guard (ADR-0001, blocks)
+      - name: Dependency-direction guard (ADR-monorepo-0001, blocks)
         working-directory: bun-apps
         run: bun run test:deps
 
-      # Cross-extension seam-contract guard (wayfind ADR-0004). The
+      # ADR identity + citation guard (blocks). Contexts number their ADRs
+      # independently from 0001, so the bare number 0001 names seven documents
+      # and every number in use collides at least twice. #1323 resolved such a
+      # bare citation to the wrong ADR, called a real dep-guard failure a false
+      # positive, and allowlisted the violation — the gate above was defeated by
+      # an ambiguous citation, not by a bad rule. This guard makes every ADR declare a
+      # path-derived unique ID, keeps bun-apps/docs/adr/INDEX.md in sync with
+      # disk BOTH ways, and fails any citation in live source/docs that does not
+      # resolve to exactly one ADR (including references to numbers a context
+      # has never had — five wayfind files and one superpowers file had those).
+      - name: ADR identity + citation guard (blocks)
+        working-directory: bun-apps
+        run: bun run test:adr
+
+      # Cross-extension seam-contract guard (ADR-wayfind-0004). The
       # status-widget seam (__piCoreTaskStatusWidget) is duplicated across
       # core-task (publisher) + wayfind/power-tool (consumers) with no
       # compile-time link — each side's tests mock its own literal, so a
       # rename/reshape in core-task stays green and breaks consumers only in
       # production. This static source-analysis guard turns that silent drift
       # loud (key agreement + consumer-declared methods ⊆ publisher class).
-      # No runtime import of any package — respects ADR-0004's decoupling.
+      # No runtime import of any package — respects ADR-wayfind-0004's decoupling.
       - name: Cross-extension seam-contract guard (status widget, blocks)
         working-directory: bun-apps
         run: bun run test:seam

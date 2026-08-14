@@ -19,7 +19,7 @@ export interface SeamImplMap {
   __piRateLimitState: unknown;
   /** Like __piRateLimitState, never published/read through publishSeam/readSeam
    *  — hermes-memory and wayfind own the globalThis slot directly via their own
-   *  duplicated literal (ADR-0004). Typed `unknown` and present here only so
+   *  duplicated literal (ADR-wayfind-0004). Typed `unknown` and present here only so
    *  SeamImplMap stays total over SeamKey. */
   __piHermesStaleCheck: unknown;
 }

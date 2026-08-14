@@ -5,7 +5,7 @@
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry, BudgetWarning } from "@repo/pi-agent-ext-core-runtime";
 import {
   formatToolAction,
   isSddReportActionable,
@@ -391,7 +391,18 @@ export function renderSubagentResult(
     d.scopeCheck && d.scopeCheck.outOfScope.length > 0
       ? theme.fg("warning", ` · ⚠ ${d.scopeCheck.outOfScope.length} out-of-scope`)
       : "";
-  const budgetTag = d.budget ? theme.fg("warning", ` · ${d.budget.kind}:${d.budget.actual}/${d.budget.limit}`) : "";
+  // Death tag (abort path): the ⛔-badged run's exceeded budget. Guarded on
+  // `kind` because `budget` may carry ONLY a warning (completed run).
+  const budgetExhaustionTag =
+    d.budget?.kind !== undefined ? theme.fg("warning", ` · ${d.budget.kind}:${d.budget.actual}/${d.budget.limit}`) : "";
+  // Warn tag (completed path): informational 80% notice — ⚠ glyph + explicit
+  // "budget 80%" wording, visually distinct from the death tag above.
+  const budgetWarnTag = d.budget?.warning
+    ? theme.fg(
+        "warning",
+        ` · ⚠ budget 80% ${d.budget.warning.kind}:${d.budget.warning.actual}/${d.budget.warning.limit}`,
+      )
+    : "";
   // Settled result meta (ticket 04, findings 3 + 5): the live call line shows
   // the fallback `→ actual` mid-run, but on settle that segment vanished and
   // the meta collapsed to the bare actual model — a surprising fallback became
@@ -404,7 +415,11 @@ export function renderSubagentResult(
       ? `${shortModel(d.requestedModel)} → ${shortModel(d.model) ?? "default"}`
       : (shortModel(d.model) ?? "default");
   const meta =
-    theme.fg("muted", `${modelSeg} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`) + sddTag + scopeTag + budgetTag;
+    theme.fg("muted", `${modelSeg} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`) +
+    sddTag +
+    scopeTag +
+    budgetExhaustionTag +
+    budgetWarnTag;
   if (!options.expanded) {
     const firstLine =
       text
@@ -423,6 +438,12 @@ export function deriveSubagentStatus(r: SpawnSubagentResult): SubagentToolDetail
   return r.timedOut ? "timedout" : "failed";
 }
 
+/** One-line informational notice for the parent agent's result text (never on the abort path). */
+function budgetWarningLine(w: BudgetWarning): string {
+  const unit = w.kind === "tokens" ? `${w.actual} tokens` : `$${w.actual.toFixed(4)}`;
+  return `[budget warning] ${w.kind} usage at ${unit} ≥ 80% of limit ${w.limit} (informational — run completed).`;
+}
+
 /** Format the subagent result into the text the parent agent reads. */
 export function formatSubagentResult(result: SpawnSubagentResult): string {
   if (result.budget) {
@@ -430,7 +451,11 @@ export function formatSubagentResult(result: SpawnSubagentResult): string {
       result.budget.kind === "tokens" ? `${result.budget.actual} tokens` : `$${result.budget.actual.toFixed(4)}`;
     return `Subagent aborted: ${result.budget.kind} budget exhausted (${unit} > limit ${result.budget.limit}).`;
   }
-  if (result.exitCode === 0) return result.output;
+  // Informational 80% warning on a COMPLETED run — appended as its own line so
+  // the parent agent (and the user reading the tool result) sees the near-miss
+  // without it reading as a failure (distinct from the abort message above).
+  const warningLine = result.budgetWarning ? `\n${budgetWarningLine(result.budgetWarning)}` : "";
+  if (result.exitCode === 0) return `${result.output}${warningLine}`;
   const fate = result.timedOut ? "timed out" : "failed";
   const head = `Subagent ${fate} (exit ${result.exitCode}).`;
   const err = result.stderr ? `\n${result.stderr}` : "";

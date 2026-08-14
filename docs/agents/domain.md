@@ -56,6 +56,31 @@ Multi-context repo (presence of `CONTEXT-MAP.md` at the root):
         └── docs/adr/
 ```
 
+## Cite ADRs by context-qualified ID, never by bare number
+
+Every context numbers its own ADRs from `0001`. In a multi-context repo that
+means the bare number identifies **nothing**: in this repo the number 0001 names
+seven different documents and every number in use collides at least twice.
+
+Cite `ADR-<context>-NNNN`, derived from the path:
+
+```
+src/ordering/docs/adr/0007-event-sourced-orders.md   →   ADR-ordering-0007
+docs/adr/0001-strict-downward-edges.md               →   ADR-monorepo-0001
+```
+
+Each ADR declares that ID on its first line, and
+[`bun-apps/docs/adr/INDEX.md`](../../bun-apps/docs/adr/INDEX.md) lists all of
+them. A bare number is acceptable only *inside its own context*, where it
+resolves locally.
+
+`bun run test:adr` (from `bun-apps/`) blocks on any citation that does not
+resolve to exactly one ADR — including a reference to a number the citing
+context has never had. This is enforced because getting it wrong is not
+theoretical: a bare, unqualified citation was once resolved to the wrong
+document, and a genuine architecture violation was allowlisted as a "false
+positive" on the strength of it.
+
 ## Use the glossary's vocabulary
 
 When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `CONTEXT.md`. Don't drift to synonyms the glossary explicitly avoids.
@@ -66,4 +91,4 @@ If the concept you need isn't in the glossary yet, that's a signal — either yo
 
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
-> _Contradicts ADR-0007 (event-sourced orders) — but worth reopening because…_
+> _Contradicts `ADR-orders-0007` (event-sourced orders) — but worth reopening because…_

@@ -351,158 +351,227 @@ export function checkBudgetExhaustion(
   return undefined;
 }
 
-export interface BudgetGuardSession {
-  /** Cumulative usage for this session; may throw before the first turn. */
+/**
+ * Informational 80%-of-budget warning — structurally mirrors
+ * {@link BudgetExhaustion} but is purely advisory: it NEVER aborts a run.
+ * Computed by callers from the FINAL usage the runner already reports via
+ * `AgentRunOptions.onUsage` (the existing usage-out channel — no new result
+ * channel is introduced for it).
+ */
+export interface BudgetWarning {
+  /** Which budget reached ≥80% of its ceiling. */
+  kind: "tokens" | "spend";
+  /** The caller-declared ceiling. */
+  limit: number;
+  /** The final cumulative usage. */
+  actual: number;
+}
+
+/** Fixed warning ratio: final usage at ≥ this fraction of a set budget trips the warning. No config knob by design. */
+export const BUDGET_WARNING_RATIO = 0.8;
+
+/**
+ * Pure: check cumulative usage against the informational 80% warning line.
+ * Mirrors {@link checkBudgetExhaustion}'s shape and tokens-before-spend
+ * precedence, but with `>=` at BUDGET_WARNING_RATIO × limit — reaching
+ * exactly 80% trips, 79.99% does not. Returns `undefined` when no budget is
+ * set or neither trips. Informational only: never aborts, never retries.
+ */
+export function checkBudgetWarning(
+  stats: { tokens: { total: number }; cost: number },
+  budget: { tokenBudget?: number; spendBudget?: number },
+): BudgetWarning | undefined {
+  if (budget.tokenBudget !== undefined && stats.tokens.total >= BUDGET_WARNING_RATIO * budget.tokenBudget) {
+    return { kind: "tokens", limit: budget.tokenBudget, actual: stats.tokens.total };
+  }
+  if (budget.spendBudget !== undefined && stats.cost >= BUDGET_WARNING_RATIO * budget.spendBudget) {
+    return { kind: "spend", limit: budget.spendBudget, actual: stats.cost };
+  }
+  return undefined;
+}
+
+/**
+ * Minimal session surface the budget guard needs (real AgentSession or a test
+ * double): cumulative stats + mid-run abort. `getSessionStats()` is the SAME
+ * stat source the onUsage path reads just before disposal.
+ */
+export interface BudgetSessionSurface {
+  abort(): unknown;
   getSessionStats(): { tokens: { total: number }; cost: number };
-  /** Hard-stop the in-flight session (existing abort semantics). */
-  abort(): void;
-  /** Queue/deliver a user-role message (followUp = next turn). */
-  sendUserMessage(content: string, options?: { deliverAs?: "steer" | "followUp" }): Promise<void>;
 }
 
+/**
+ * Detect a usage observation: one assistant API response has finished and
+ * carries usage (assistant message_end with `usage`). This is the finest
+ * granularity at which cumulative usage becomes observable — finer than a
+ * turn boundary, so checking here bounds budget overshoot to one API response.
+ */
+export function isUsageObservation(event: unknown): boolean {
+  const evt = event as { type?: unknown; message?: { role?: unknown; usage?: unknown } } | null;
+  return (
+    typeof evt === "object" &&
+    evt !== null &&
+    evt.type === "message_end" &&
+    typeof evt.message === "object" &&
+    evt.message !== null &&
+    evt.message.role === "assistant" &&
+    evt.message.usage != null
+  );
+}
+
+/** Which seam first reported budget exhaustion. */
+export type BudgetSeam = "usage" | "turn";
+
+/**
+ * Per-run budget guard: aborts the session mid-run once cumulative usage
+ * exceeds the ceiling. Both firing seams share ONE pure check
+ * (checkBudgetExhaustion over session.getSessionStats()):
+ *   - "usage" — evaluated on every usage observation (each assistant API
+ *     response), i.e. MID-TURN; overshoot is bounded by one API response.
+ *   - "turn" — backstop evaluated on every other session state change (turn
+ *     boundaries), in case the usage seam never fires.
+ * Idempotent: the first seam to fire wins — one abort, no double-throw of the
+ * caller's TOKEN_BUDGET_EXHAUSTED error (run() reads `exhaustion` once after
+ * prompt() returns).
+ */
 export interface BudgetGuard {
-  /**
-   * Subscribe-seam callback; call on each session event with the event's
-   * `type` and (for message events) its `message` (the session subscribe seam
-   * delivers every AgentSessionEvent, not just turn boundaries). While the
-   * wrap-up grace turn is in flight, `turn_end` events are ignored until the
-   * wrap-up followUp has actually been DELIVERED (a user-role message event
-   * after issuance) — the issuing turn's own turn_end fires while the
-   * followUp is still queued, and counting it would re-arm the abort before
-   * the grace turn ever runs. Only a `turn_end` observed AFTER delivery
-   * re-arms the token abort (the grace turn is over).
-   */
-  check(event?: BudgetGuardEvent): void;
-  /** The exhaustion that caused the hard abort, if any. */
-  readonly exhausted: BudgetExhaustion | undefined;
-  /** Whether the one-shot wrap-up message was already issued. */
-  readonly wrapUpIssued: boolean;
+  /** The winning exhaustion record once a seam has fired; undefined before. */
+  readonly exhaustion: BudgetExhaustion | undefined;
+  /** Which seam fired first ("usage" mid-turn or "turn" backstop). */
+  readonly firedVia: BudgetSeam | undefined;
+  /** Route a session event to its seam: usage observation vs state-change backstop. */
+  onSessionEvent(event: unknown): void;
 }
 
 /**
- * Minimal AgentSessionEvent shape the guard needs: every event's `type`, plus
- * the `message` payload present on `message_start` / `message_end` events.
- * pi-agent-core drains queued followUps at a natural stop and emits each
- * injected user message as a `message_start`/`message_end` pair whose message
- * has `role: "user"` — that is the guard's delivery signal.
- */
-export interface BudgetGuardEvent {
-  type: string;
-  message?: { role?: string };
-}
-
-/**
- * The single wrap-up notice injected on the FIRST tokenBudget crossing. The
- * model sees it as a user message on its next (final) turn: flush state to
- * disk, then reply with a pointer — instead of being killed mid-flight and
- * losing everything it had learned.
- */
-export const BUDGET_WRAP_UP_MESSAGE =
-  "Token budget exhausted — this is your FINAL turn. Do not start new exploratory work or long tool calls. Write your current findings/state/artifacts to disk now (files, not prose), then reply with a one-line pointer to what you saved.";
-
-/**
- * Two-stage budget stop wired into the session's subscribe seam.
- *
- * - spendBudget is a money valve: it ALWAYS hard-aborts (no wrap-up turn),
- *   even mid-grace.
- * - tokenBudget gets ONE grace turn: the first crossing injects
- *   BUDGET_WRAP_UP_MESSAGE as a followUp user message (the model flushes its
- *   state to disk). The guard then ignores token-kind exhaustion on every
- *   non-turn-completion event (the subscribe seam fires on message_start /
- *   tool_execution_* / etc., and cumulative tokens are monotonic, so without
- *   this the very next event would revoke the grace before it streams) until
- *   the wrap-up followUp is DELIVERED — a user-role `message_start`/
- *   `message_end` event after issuance (pi-agent-core drains followUps only
- *   at a natural stop, so the issuing turn's own turn_end lands first and
- *   must be ignored). A `turn_end` observed AFTER delivery is the grace
- *   turn's completion. At that point the abort re-arms with old semantics:
- *   any further token-exhaustion check aborts for real (no third turn).
- * - If BOTH budgets cross at once, the hard abort wins.
- *
- * Extracted from CoreAgent.run so the two-stage decision is unit-testable
- * against a fake session (same pattern as checkBudgetExhaustion).
+ * Build a BudgetGuard over a session. Module-level and session-injected so the
+ * seam wiring (usage observation → mid-turn abort; state change → backstop;
+ * idempotence) is unit-testable with a minimal fake session, independent of
+ * CoreAgent.run / createAgentSession.
  */
 export function createBudgetGuard(
-  session: BudgetGuardSession,
+  session: BudgetSessionSurface,
   budget: { tokenBudget?: number; spendBudget?: number },
 ): BudgetGuard {
-  let budgetExhausted: BudgetExhaustion | undefined;
-  let budgetWrapUpIssued = false;
-  // "none": no grace turn outstanding. "grace-in-flight": the wrap-up
-  // followUp is queued and its turn has NOT yet emitted a post-delivery
-  // "turn_end" — token-kind exhaustion checks are suppressed (spend still
-  // hard-aborts). graceDelivered flips true once the injected wrap-up user
-  // message is actually observed in the event stream; until then turn_end
-  // events belong to the issuing/continuation turns and are ignored.
-  let graceState: "none" | "grace-in-flight" = "none";
-  let graceDelivered = false;
-  const check = (event?: BudgetGuardEvent) => {
-    if (budgetExhausted) return;
+  let exhaustion: BudgetExhaustion | undefined;
+  let firedVia: BudgetSeam | undefined;
+  const hasBudget = budget.tokenBudget !== undefined || budget.spendBudget !== undefined;
+  const check = (seam: BudgetSeam) => {
+    if (exhaustion || !hasBudget) return;
     try {
       const { tokens, cost } = session.getSessionStats();
-      const exhaustion = checkBudgetExhaustion({ tokens: { total: tokens.total }, cost }, budget);
-      if (graceState === "grace-in-flight") {
-        if (
-          (event?.type === "message_start" || event?.type === "message_end") &&
-          event.message?.role === "user"
-        ) {
-          // The wrap-up followUp was drained into the transcript — the grace
-          // turn (the one the model is about to run on it) may now complete.
-          graceDelivered = true;
-        }
-        if (event?.type !== "turn_end" || !graceDelivered) {
-          // Mid-grace token-only overshoot is expected (cumulative tokens are
-          // monotonic) — the grace turn must be allowed to finish streaming.
-          // This also covers the issuing turn's turn_end while the followUp
-          // is still queued. spendBudget stays an immediate hard abort.
-          if (!exhaustion) return;
-          const spendAlsoExceeded = budget.spendBudget !== undefined && cost > budget.spendBudget;
-          if (exhaustion.kind === "spend" || spendAlsoExceeded) {
-            budgetExhausted = exhaustion;
-            session.abort();
-          }
-          return;
-        }
-        // A turn_end observed AFTER the wrap-up message was delivered — the
-        // grace turn completed. Re-arm; this very check (and any later one)
-        // resumes the old hard-abort semantics. No third turn.
-        graceState = "none";
+      exhaustion = checkBudgetExhaustion(
+        { tokens: { total: tokens.total }, cost },
+        { tokenBudget: budget.tokenBudget, spendBudget: budget.spendBudget },
+      );
+      if (exhaustion) {
+        firedVia = seam;
+        void session.abort();
       }
-      if (!exhaustion) return;
-      const spendAlsoExceeded = budget.spendBudget !== undefined && cost > budget.spendBudget;
-      // Hard-abort unless this is the FIRST tokenBudget crossing with no spend
-      // crossing — only tokenBudget earns a wrap-up turn.
-      if (exhaustion.kind === "tokens" && !budgetWrapUpIssued && !spendAlsoExceeded) {
-        budgetWrapUpIssued = true;
-        graceState = "grace-in-flight";
-        // followUp queues the message for the model's NEXT turn (we are inside
-        // the streaming loop). Token-kind aborts are suppressed until that
-        // message is delivered (a user-role message event) AND its turn's
-        // "turn_end" lands; the turn-end check after it (or any later check)
-        // hits the flag-set path and aborts for real.
-        void session.sendUserMessage(BUDGET_WRAP_UP_MESSAGE, { deliverAs: "followUp" }).catch(() => {
-          // Could not queue the wrap-up turn — fall back to the hard abort
-          // so the budget is still enforced.
-          budgetExhausted = exhaustion;
-          session.abort();
-        });
-        return;
-      }
-      budgetExhausted = exhaustion;
-      session.abort();
     } catch {
-      // getSessionStats not available yet (e.g. before the first turn) — skip.
+      // getSessionStats not available yet (e.g. before the first turn) — skip;
+      // a later observation re-checks.
     }
   };
   return {
-    check,
-    get exhausted() {
-      return budgetExhausted;
+    get exhaustion() {
+      return exhaustion;
     },
-    get wrapUpIssued() {
-      return budgetWrapUpIssued;
+    get firedVia() {
+      return firedVia;
+    },
+    onSessionEvent(event: unknown) {
+      if (exhaustion) return; // idempotent: first seam wins, no double-abort
+      check(isUsageObservation(event) ? "usage" : "turn");
     },
   };
+}
+
+/** Minimal session surface the turn guard needs (real AgentSession or a test double): mid-run abort. */
+export interface TurnSessionSurface {
+  abort(): unknown;
+}
+
+/** Why a turn-capped subagent run was aborted before its next turn. */
+export interface TurnExhaustion {
+  /** The caller-declared ceiling on prompt→response turns. */
+  maxTurns: number;
+  /** Turns completed when the abort fired (== maxTurns). */
+  turnsUsed: number;
+}
+
+/** Detect the session event that delimits the start of a turn (one assistant API response cycle). */
+export function isTurnStartObservation(event: unknown): boolean {
+  return typeof event === "object" && event !== null && (event as { type?: unknown }).type === "turn_start";
+}
+
+/** Detect the session event that delimits the end of a turn (assistant response + its tool results). */
+export function isTurnEndObservation(event: unknown): boolean {
+  return typeof event === "object" && event !== null && (event as { type?: unknown }).type === "turn_end";
+}
+
+/**
+ * Per-run turn cap: aborts the session BEFORE the model is asked for turn
+ * maxTurns+1. One turn = one prompt→assistant-response cycle in the run loop,
+ * delimited by the session's turn_start/turn_end events (the SDK emits
+ * turn_start before each assistant API response, turn_end after its tool
+ * results). A run that naturally finishes within maxTurns turns is never
+ * aborted — only a loop that would CONTINUE past the cap is stopped. Idempotent:
+ * after the abort fires once, later events are ignored. Distinct from the
+ * budget guard: independent state, no shared classification.
+ */
+export interface TurnGuard {
+  /** The exhaustion record once the cap fired; undefined before. */
+  readonly exhaustion: TurnExhaustion | undefined;
+  /** Turns completed so far (turn_end events observed). */
+  readonly turnsUsed: number;
+  /** Route a session event: turn_start → pre-turn cap check, turn_end → count. */
+  onSessionEvent(event: unknown): void;
+}
+
+/**
+ * Build a TurnGuard over a session. Module-level and session-injected so the
+ * cap semantics (exactly N allowed, abort before N+1, idempotence, natural-
+ * finish-within-cap) are unit-testable with a minimal fake session, independent
+ * of CoreAgent.run / createAgentSession.
+ */
+export function createTurnGuard(session: TurnSessionSurface, options: { maxTurns?: number }): TurnGuard {
+  let turnsUsed = 0;
+  let exhaustion: TurnExhaustion | undefined;
+  return {
+    get exhaustion() {
+      return exhaustion;
+    },
+    get turnsUsed() {
+      return turnsUsed;
+    },
+    onSessionEvent(event: unknown) {
+      if (exhaustion) return; // idempotent: one abort, no double-fire
+      if (isTurnStartObservation(event)) {
+        // Turn maxTurns+1 is about to start (an assistant API call): abort BEFORE
+        // it runs. turnsUsed < maxTurns here means the cap hasn't been reached.
+        if (options.maxTurns !== undefined && turnsUsed >= options.maxTurns) {
+          exhaustion = { maxTurns: options.maxTurns, turnsUsed };
+          void session.abort();
+        }
+      } else if (isTurnEndObservation(event)) {
+        turnsUsed++;
+      }
+    },
+  };
+}
+
+/**
+ * The distinct error surface for a turn-capped abort: non-recoverable (retrying
+ * would re-burn the same turns), carrying {maxTurns, turnsUsed} in details.
+ * Extracted from CoreAgent.run so the message/shape is unit-testable.
+ */
+export function turnExhaustionError(exhaustion: TurnExhaustion, label?: string): WorkflowError {
+  return new WorkflowError(`max turns exceeded (${exhaustion.maxTurns})`, WorkflowErrorCode.TURNS_EXHAUSTED, {
+    recoverable: false,
+    agentLabel: label,
+    details: exhaustion,
+  });
 }
 
 export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefined> {
@@ -519,21 +588,27 @@ export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefi
   signal?: AbortSignal;
   /**
    * Abort the session mid-run once cumulative token usage (`tokens.total`)
-   * exceeds this. Checked on each session state change (per-turn granularity),
-   * so an in-flight turn may overshoot by up to one turn. Two-stage stop: the
-   * FIRST crossing injects a final-turn wrap-up notice (flush state to disk)
-   * and lets exactly one more turn run; the SECOND crossing aborts for real.
+   * exceeds this. Checked on every usage observation (per API response, the
+   * same getSessionStats() source the onUsage callback reads) and — as a
+   * turn-boundary backstop — on each session state change, so an in-flight
+   * turn overshoots by at most one API response (sub-turn), not a full turn.
    * Bounds a SINGLE runaway subagent — distinct from workflow's run-wide
    * `tokenBudget` (a between-agent soft gate that never aborts an in-flight
    * agent).
    */
   tokenBudget?: number;
-  /**
-   * Abort the session mid-run once cumulative cost ($) exceeds this. A money
-   * valve: ALWAYS hard-aborts immediately — no wrap-up turn (unlike
-   * tokenBudget). If both budgets cross at once, this hard stop wins.
-   */
+  /** Abort the session mid-run once cumulative cost ($) exceeds this (same seams as tokenBudget). */
   spendBudget?: number;
+  /**
+   * Cap this subagent at maxTurns turns (integer ≥ 1). One turn = one
+   * prompt→assistant-response cycle in the run loop (the SDK's turn_start/
+   * turn_end events). The session is aborted BEFORE the model is asked for
+   * turn maxTurns+1 — a run that finishes naturally within the cap is never
+   * aborted — and the run surfaces a non-recoverable TURNS_EXHAUSTED
+   * WorkflowError with details {maxTurns, turnsUsed}. Distinct from the budget
+   * guard: independent state and error classification. Omit = unlimited turns.
+   */
+  maxTurns?: number;
   /**
    * Called once with this subagent's real usage, read from the session right
    * before disposal. Fires on both the success and error paths so partial
@@ -658,6 +733,15 @@ export class CoreAgent {
     prompt: string,
     options: AgentRunOptions<TSchemaDef> = {},
   ): Promise<AgentRunResult<TSchemaDef>> {
+    // Validate caller-supplied caps before any session is created, so a bad
+    // maxTurns never leaks an undisposed session.
+    if (options.maxTurns !== undefined && (!Number.isInteger(options.maxTurns) || options.maxTurns < 1)) {
+      throw new WorkflowError("maxTurns must be an integer >= 1", WorkflowErrorCode.SCRIPT_VALIDATION_ERROR, {
+        recoverable: false,
+        agentLabel: options.label,
+        details: { maxTurns: options.maxTurns },
+      });
+    }
     const capture: StructuredOutputCapture<any> = { called: false, value: undefined };
     // Per-call cwd (e.g. a worktree) needs coding tools bound to that directory,
     // since tools capture their cwd at construction and can't be relocated.
@@ -759,20 +843,32 @@ export class CoreAgent {
       lastHistoryEmit = now;
       emitHistory();
     };
-    // Per-run token/spend budget (tokenBudget/spendBudget): stop the session
-    // once cumulative usage exceeds the ceiling. Checked on each session state
-    // change (the same subscribe seam as onHistory), so overshoot is bounded to
-    // ~one turn. Distinct from workflow's run-wide soft gate — this bounds a
-    // single runaway subagent. spendBudget hard-aborts immediately (money
-    // valve); tokenBudget gets a two-stage stop via createBudgetGuard — one
-    // wrap-up turn (flush-to-disk notice injected as a followUp user message)
-    // before the real abort. session.abort() makes session.prompt() return
+    // Per-run token/spend budget (tokenBudget/spendBudget): abort the session
+    // mid-run once cumulative usage exceeds the ceiling. Two seams share one
+    // pure check (checkBudgetExhaustion over session.getSessionStats() — the
+    // same stat source onUsage reads before disposal):
+    //   1. usage observations — every assistant API response (message_end
+    //      carrying usage) aborts MID-TURN, so overshoot is bounded by one API
+    //      response (sub-turn);
+    //   2. turn-boundary backstop — every session state change (the same
+    //      subscribe seam as onHistory), in case the usage seam never fires.
+    // createBudgetGuard is idempotent — first seam wins, one abort, no
+    // double-throw. Distinct from workflow's run-wide soft gate — this bounds
+    // a single runaway subagent. session.abort() makes session.prompt() return
     // (same contract as the signal/timeout abort below).
     const hasBudget = options.tokenBudget !== undefined || options.spendBudget !== undefined;
     const budgetGuard = createBudgetGuard(session, {
       tokenBudget: options.tokenBudget,
       spendBudget: options.spendBudget,
     });
+    // Per-run turn cap (maxTurns): abort the session BEFORE the model is asked
+    // for turn maxTurns+1. Same abort mechanics as the budget guard (session.abort()
+    // → prompt() returns → post-prompt error surface), but a DISTINCT error
+    // (TURNS_EXHAUSTED, non-recoverable, details {maxTurns, turnsUsed}) and fully
+    // independent state — neither guard's firing affects the other. Omitting
+    // maxTurns leaves the guard inert (behavior identical to no guard).
+    const hasMaxTurns = options.maxTurns !== undefined;
+    const turnGuard = createTurnGuard(session, { maxTurns: options.maxTurns });
     try {
       if (options.signal?.aborted) throw new Error("Subagent was aborted");
       if (options.signal) {
@@ -780,10 +876,11 @@ export class CoreAgent {
         options.signal.addEventListener("abort", onAbort, { once: true });
         removeAbortListener = () => options.signal?.removeEventListener("abort", onAbort);
       }
-      if (options.onHistory || hasBudget) {
+      if (options.onHistory || hasBudget || hasMaxTurns) {
         removeHistoryListener = session.subscribe((event) => {
+          budgetGuard.onSessionEvent(event);
+          turnGuard.onSessionEvent(event);
           maybeEmitHistory();
-          budgetGuard.check(event);
         });
       }
 
@@ -792,11 +889,13 @@ export class CoreAgent {
         options.images ? ({ images: options.images } as any) : undefined,
       );
       // Budget exhaustion aborts the session directly (not via the caller's
-      // signal), so detect it via the flag BEFORE the signal-abort check and
-      // surface it as a non-recoverable TOKEN_BUDGET_EXHAUSTED — retrying would
-      // just re-exhaust the same budget. Distinct from a user/timeout abort.
-      if (budgetGuard.exhausted) {
-        const budgetExhausted = budgetGuard.exhausted;
+      // signal), so detect it via the guard's exhaustion record BEFORE the
+      // signal-abort check and surface it as a non-recoverable
+      // TOKEN_BUDGET_EXHAUSTED — retrying would just re-exhaust the same budget.
+      // Distinct from a user/timeout abort. Whichever seam fired (usage mid-turn
+      // or the turn backstop) lands here exactly once.
+      const budgetExhausted = budgetGuard.exhaustion;
+      if (budgetExhausted) {
         const unit =
           budgetExhausted.kind === "tokens"
             ? `${budgetExhausted.actual} tokens`
@@ -806,6 +905,12 @@ export class CoreAgent {
           WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED,
           { recoverable: false, agentLabel: options.label, details: budgetExhausted },
         );
+      }
+      // Turn-cap abort: checked after the budget check so the two surfaces stay
+      // independent (either can fire alone; budget wins when both fire in one run).
+      // Same abort mechanics as the budget guard, distinct error code + details.
+      if (turnGuard.exhaustion) {
+        throw turnExhaustionError(turnGuard.exhaustion, options.label);
       }
       if (options.signal?.aborted) throw new Error("Subagent was aborted");
 

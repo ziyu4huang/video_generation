@@ -397,6 +397,77 @@ describe("spawnSubagent budget", () => {
   });
 });
 
+describe("spawnSubagent budget warning (80%, informational)", () => {
+  const mkUsage = (total: number, cost: number) => ({
+    input: Math.round(total * 0.8),
+    output: Math.round(total * 0.2),
+    cacheRead: 0,
+    cacheWrite: 0,
+    total,
+    cost,
+  });
+
+  it("final usage at exactly 80% of tokenBudget → budgetWarning attached, run still succeeds", async () => {
+    const runner = mkRunner(async (p) => {
+      (p.opts.onUsage as ((u: ReturnType<typeof mkUsage>) => void) | undefined)?.(mkUsage(800, 0.01));
+      return "ok";
+    });
+    const out = await spawnSubagent({ task: "t", tokenBudget: 1000, agent: runner });
+    assert.deepEqual(out.budgetWarning, { kind: "tokens", limit: 1000, actual: 800 });
+    assert.equal(out.exitCode, 0, "warning alone never aborts — the run completes");
+    assert.equal(out.budget, undefined, "warning is NOT an exhaustion record");
+    assert.equal(runner.calls.length, 1, "warning alone never triggers a retry");
+  });
+
+  it("final usage above 80% but under the limit → budgetWarning attached", async () => {
+    const runner = mkRunner(async (p) => {
+      (p.opts.onUsage as ((u: ReturnType<typeof mkUsage>) => void) | undefined)?.(mkUsage(950, 0.01));
+      return "ok";
+    });
+    const out = await spawnSubagent({ task: "t", tokenBudget: 1000, agent: runner });
+    assert.deepEqual(out.budgetWarning, { kind: "tokens", limit: 1000, actual: 950 });
+  });
+
+  it("final usage below 80% → no budgetWarning", async () => {
+    const runner = mkRunner(async (p) => {
+      (p.opts.onUsage as ((u: ReturnType<typeof mkUsage>) => void) | undefined)?.(mkUsage(799, 0.01));
+      return "ok";
+    });
+    const out = await spawnSubagent({ task: "t", tokenBudget: 1000, agent: runner });
+    assert.equal(out.budgetWarning, undefined);
+  });
+
+  it("no budget set → no budgetWarning regardless of usage", async () => {
+    const runner = mkRunner(async (p) => {
+      (p.opts.onUsage as ((u: ReturnType<typeof mkUsage>) => void) | undefined)?.(mkUsage(1_000_000, 9));
+      return "ok";
+    });
+    const out = await spawnSubagent({ task: "t", agent: runner });
+    assert.equal(out.budgetWarning, undefined);
+  });
+
+  it("spend path: cost at 80% of spendBudget → spend warning", async () => {
+    const runner = mkRunner(async (p) => {
+      (p.opts.onUsage as ((u: ReturnType<typeof mkUsage>) => void) | undefined)?.(mkUsage(10, 0.4));
+      return "ok";
+    });
+    const out = await spawnSubagent({ task: "t", spendBudget: 0.5, agent: runner });
+    assert.deepEqual(out.budgetWarning, { kind: "spend", limit: 0.5, actual: 0.4 });
+  });
+
+  it("warning with retryOnTransient:true still does NOT retry (informational, not transient)", async () => {
+    let n = 0;
+    const runner = mkRunner(async (p) => {
+      n++;
+      (p.opts.onUsage as ((u: ReturnType<typeof mkUsage>) => void) | undefined)?.(mkUsage(900, 0.01));
+      return "ok";
+    });
+    const out = await spawnSubagent({ task: "t", tokenBudget: 1000, retryOnTransient: true, agent: runner });
+    assert.equal(n, 1, "a warned-but-successful run is never retried");
+    assert.equal(out.exitCode, 0);
+  });
+});
+
 describe("spawnSubagent schema repair", () => {
   it("SCHEMA_NONCOMPLIANCE is transient → retried once (fresh re-run fixes the intermittent zai/glm flake)", async () => {
     const runner = mkRunner(async () => {

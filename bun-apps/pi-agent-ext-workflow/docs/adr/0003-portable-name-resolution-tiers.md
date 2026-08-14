@@ -1,3 +1,5 @@
+**ID:** `ADR-workflow-0003` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # Portable name-resolution tiers: cwd/bin rank ABOVE the repo tiers
 
 **Status:** accepted (landed in PR #661, `feat(workflow-pack): portable name-resolution tiers (cwd/bin) for repo-less binary`; this ADR backfills the decision record the code comment already cited)

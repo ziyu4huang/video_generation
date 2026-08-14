@@ -1,3 +1,5 @@
+**ID:** `ADR-pi-agent-0008` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # ADR 0008 — Portable workflow-pack discovery (cwd/bin tiers above repo)
 
 - Status: proposed

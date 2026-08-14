@@ -1,5 +1,5 @@
 /**
- * Cross-extension seam-contract guard (wayfind ADR-0004; generalized ticket 03).
+ * Cross-extension seam-contract guard (ADR-wayfind-0004; generalized ticket 03).
  *
  * The `__pi*` family is a set of process-singleton keys on `globalThis` (jiti-
  * safe) that wire the coexistence between extensions: the status composite
@@ -32,7 +32,7 @@
  *     Intra-package keys (crossPackage:false) are exempt.
  *
  * Static source analysis only — NO runtime import of any package (respects
- * ADR-0004's decoupling + the jiti constraint). Reads source as text; skips
+ * ADR-wayfind-0004's decoupling + the jiti constraint). Reads source as text; skips
  * comment lines + `__tests__`/`fixtures` so prose mentions like `__piPlan*`
  * (which match neither a quoted literal nor a `.property` access) are excluded.
  *
@@ -190,7 +190,7 @@ const STATUS_WIDGET = {
 	],
 };
 
-describe("cross-extension __pi* seam contract (ADR-0004; generalized ticket 03)", () => {
+describe("cross-extension __pi* seam contract (ADR-wayfind-0004; generalized ticket 03)", () => {
 	const refs = scanSeamReferences();
 
 	it("NO ORPHANS — every __pi* token referenced in production source is a registered SEAM_KEY", () => {

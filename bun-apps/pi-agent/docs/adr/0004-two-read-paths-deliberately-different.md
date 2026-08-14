@@ -1,3 +1,5 @@
+**ID:** `ADR-pi-agent-0004` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+
 # The knowledge stack keeps two retrieval paths, deliberately not unified
 
 zk-query (and the `knowledge_query` tool) and zk-ask are two DIFFERENT retrieval

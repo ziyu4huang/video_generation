@@ -6,7 +6,7 @@
  * of the inline code it replaces.
  */
 
-import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry, BudgetWarning } from "@repo/pi-agent-ext-core-runtime";
 import { parseSddReport } from "@repo/pi-agent-ext-core-runtime";
 import type { TSchema } from "typebox";
 import { tierDefaultToken } from "./budget-defaults.js";
@@ -213,6 +213,8 @@ export function buildDetails(
     timedOut: boolean;
     usage?: SubagentToolDetails["usage"];
     budget?: SubagentToolDetails["budget"];
+    /** Informational 80% warning from the spawn result — surfaced as details.budget.warning. */
+    budgetWarning?: BudgetWarning;
     output: string;
   },
   model: { model: string; requestedModel: string | undefined; fellBack: boolean },
@@ -237,7 +239,10 @@ export function buildDetails(
     startedAt: extra.startedAt,
     status: deriveSubagentStatus(result as never),
     usage: result.usage,
-    budget: result.budget,
+    // Exhaustion on the abort path; otherwise nest the informational 80%
+    // warning as budget.warning (the two are mutually exclusive by
+    // construction — a warned run completed, an aborted run carries no warning).
+    budget: result.budget ?? (result.budgetWarning ? { warning: result.budgetWarning } : undefined),
     report: parseSddReport(result.output),
     scopeCheck: extra.scopeCheck,
     watchdog: extra.watchdog,

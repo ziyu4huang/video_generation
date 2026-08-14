@@ -118,3 +118,5 @@ Issues live in GitHub Issues (`ziyu4huang/video_generation`), via the `gh` CLI. 
 ### Domain docs
 
 Multi-context — each domain owns its own `CONTEXT.md` + `docs/adr/` (e.g. `bun-apps/pi-agent/`). A root `CONTEXT-MAP.md` lists contexts once a second one is captured. See `docs/agents/domain.md`.
+
+**Cite ADRs as `ADR-<context>-NNNN`, never by bare number.** Contexts number independently from 0001, so the bare number 0001 names seven different documents. Every ADR declares its ID on line 1; `bun-apps/docs/adr/INDEX.md` lists them all; `bun run test:adr` (from `bun-apps/`) blocks any citation that doesn't resolve to exactly one ADR.

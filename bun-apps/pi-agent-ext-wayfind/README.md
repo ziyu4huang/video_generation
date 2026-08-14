@@ -12,8 +12,8 @@ A **Pi-native** port of [Matt Pocock's decision-chain skill suite](https://githu
 |---|---|
 | 6 skills | grilling, grill-me, grill-me-with-docs (flagship), domain-modeling, to-spec, to-tickets |
 | 2 dispatcher slash commands | `/grill [me\|docs\|done\|domain]` (`docs` is flagship), `/wayfind [<destination>\|status\|spec\|tickets\|seed\|sync\|done\|validate]` |
-| reverse seam | reads the plan coordinator's `globalThis.__piPlanPhases` to close tickets whose Task reported `completed` (ADR-0001). **No forward coordination seam is published**: mutual-exclusion between a grill/wayfinder session and `/goal` or `/loop` is user-initiated — run one driver at a time |
-| continuous chain | `/grill docs → /wayfind spec → /wayfind tickets → /wayfind seed → execute the plan → /wayfind sync` — lossless handoffs + a closed feedback loop (ADR-0001) |
+| reverse seam | reads the plan coordinator's `globalThis.__piPlanPhases` to close tickets whose Task reported `completed` (ADR-wayfind-0003). **No forward coordination seam is published**: mutual-exclusion between a grill/wayfinder session and `/goal` or `/loop` is user-initiated — run one driver at a time |
+| continuous chain | `/grill docs → /wayfind spec → /wayfind tickets → /wayfind seed → execute the plan → /wayfind sync` — lossless handoffs + a closed feedback loop (ADR-wayfind-0003) |
 | wayfinder map store | local-markdown map + tickets under `.planning/<effort>/` (no issue-tracker dependency) |
 | domain artifacts | `CONTEXT.md` glossary + `docs/adr/` ADRs, written inline during a with-docs grill |
 
@@ -57,7 +57,7 @@ wayfind ──► grill docs ──► wayfind tickets ──► the plan coordi
 
 Both extensions can be loaded in the same pi process. wayfind has **no forward coordination seam** and there is no plan-coordinator yield: mutual-exclusion between a grill/wayfinder session and `/goal` or `/loop` is user-initiated — run one driver at a time. (wayfind does publish the grill-specific `globalThis.__piWayfindGrill`, consumed by hermes-memory; and it reads the plan coordinator's `globalThis.__piPlan*` keys below.)
 
-**Reverse seam (ADR-0001).** The coordination is bidirectional. `syncChainState` (auto-run at `/wayfind`, `/wayfind status`, `/wayfind seed`, and on demand via `/wayfind sync`) reads the plan coordinator's published `globalThis.__piPlanPhases(cwd) → [{id, status, ticketIds?}]` and **closes any ticket whose Task reports `completed`** — appending a decision line to the effort's `map.md`. A Task header references a ticket by id or stem (`### Task N — [03-foo]`); both resolve. Idempotent (already-closed → skipped) and graceful (no-op when the plan coordinator is absent). This is what makes the chain a *loop*, not a one-way handoff: ticket → Task → execute → close. The seam is 4 globalThis keys; neither package imports the other.
+**Reverse seam (ADR-wayfind-0003).** The coordination is bidirectional. `syncChainState` (auto-run at `/wayfind`, `/wayfind status`, `/wayfind seed`, and on demand via `/wayfind sync`) reads the plan coordinator's published `globalThis.__piPlanPhases(cwd) → [{id, status, ticketIds?}]` and **closes any ticket whose Task reports `completed`** — appending a decision line to the effort's `map.md`. A Task header references a ticket by id or stem (`### Task N — [03-foo]`); both resolve. Idempotent (already-closed → skipped) and graceful (no-op when the plan coordinator is absent). This is what makes the chain a *loop*, not a one-way handoff: ticket → Task → execute → close. The seam is 4 globalThis keys; neither package imports the other.
 
 ## Install (local)
 
