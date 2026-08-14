@@ -9,7 +9,7 @@
  * return transport) or an abort fires (session_shutdown / WS close resolve all
  * pending; the tool's own `signal` cancels just this one via `cancelPending`).
  *
- * Deliberately a FACTORY over explicit deps (mirroring createRenderTool) so the
+ * Deliberately a FACTORY over explicit deps so the
  * blocking/guard/abort logic is unit-testable with fakes — no live wiring, no
  * Bun.serve. The error path returns a tool RESULT (text + `details.error`),
  * mirroring ask-user's local envelope style — NEVER a thrown crash. No

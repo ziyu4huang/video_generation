@@ -42,3 +42,18 @@
 - [P4-final] rmSync imported-but-unused in tests/output-routes.test.ts (plan-verbatim; harmless).
 - [P4-final] Symlinks inside the output dir are followed (matches gallery.ts reference; outside loopback threat model).
 - [P4-impl] Plan defects found: beforeAll+describe-scoped consts incompatible with bun:test eager describe bodies (T1 D1); backtick-in-template-literal class defect NOT repeated here.
+
+## Phase 5 — drop the mirror + ledger hardening (FINAL)
+- Task 1: complete (commit 0c715949, review APPROVED — 7 files deleted, −794 lines, 286/0; negative tests pin the removal). Minors: one over-subtracted adjacent comment line (mutex-gate comment); plan's final-verification grep was self-inconsistent (review interpretation correct).
+- Tasks 2+3: complete (commits 9eff893e + 3fdec250, review APPROVED — encodeURI round-trip empirically verified through the real route; 290/0).
+- Final whole-branch review: APPROVED (3295745e..3fdec250, 290/0, build exit 0). Effort-level verdict: ALL spec Components 1-6 + Decisions A/B/C demonstrably true in code. Effort COMPLETE after this merge.
+
+## Ledger closures
+- [P4-final] imageMd percent-encode — CLOSED (9eff893e).
+- [P4-final] rmSync unused import — CLOSED (3fdec250).
+- [Phase-2 T1-review] isPayload view type-guard — CLOSED (3fdec250).
+- [P4-final] symlinks-followed in /output — stays backlog (matches reference behavior; outside loopback threat model).
+- [known stale] pi-agent-ext-devops/scripts/deploy.ts:572 cites deleted src/tool-mirror.ts in a comment — different package, intentionally untouched.
+
+## Residual backlog (post-effort)
+- isPayload fully-typed PresentEventPayload on the wire; awaitPendingWithAbort early-abort check; present-tool mode cast; /output ETag/Range; WS-close reconnect resume (present view survives, gate does not).

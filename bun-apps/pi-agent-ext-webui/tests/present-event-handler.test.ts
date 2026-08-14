@@ -38,6 +38,13 @@ describe("createPresentEventHandler", () => {
     expect(registry.getView("present")?.mode).toBe("md");
   });
 
+  it("ignores a non-string view (hardened type-guard; previously forwarded raw as a view id)", () => {
+    const registry = new RenderService({ urlFor: () => "#" });
+    const handler = createPresentEventHandler(registry);
+    handler({ content: "x", controls: CONTROLS, view: 42 });
+    expect(registry.listViews()).toEqual([]);
+  });
+
   it("ignores malformed payloads without throwing (missing/malformed controls, bad id)", () => {
     const registry = new RenderService({ urlFor: () => "#" });
     const handler = createPresentEventHandler(registry);

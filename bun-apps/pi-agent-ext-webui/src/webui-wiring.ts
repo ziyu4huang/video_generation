@@ -43,11 +43,9 @@ import type { ClientFrame, DispatchAction, WebFrame } from "./protocol.js";
 import { RenderService } from "./render-service.js";
 import { createRenderRoutes } from "./render-routes.js";
 import { createOutputRoutes } from "./output-routes.js";
-import { createRenderTool } from "./render-tool.js";
 import { createRenderEventHandler } from "./render-event-handler.js";
 import { createPresentEventHandler } from "./present-event-handler.js";
 import { createPresentTool, type PresentInput } from "./present-tool.js";
-import { createToolMirror } from "./tool-mirror.js";
 import { resolvePort } from "./port-resolver.js";
 
 /**
@@ -100,7 +98,7 @@ export interface WebuiHost {
    *  the render seam may be absent on host SDK builds that predate ticket 06;
    *  wiring no-ops the render registration then instead of throwing at boot. */
   events?: RenderHostEvents;
-  /** Tool registrar (ticket 06 registers "webui_render"). Optional — see
+  /** Tool registrar (the wiring registers "webui_present"). Optional — see
    *  {@link events}; guarded so a host without the seam boots cleanly. */
   registerTool?(tool: unknown): void;
 }
@@ -151,7 +149,7 @@ export interface WebuiDeps {
  * `{cancelled: true}` (session_shutdown / WS close / signal abort). Phase-2
  * ledger: tightened to a DISCRIMINATED UNION (was an all-optional bag) so a
  * consumer MUST branch on `cancelled` before reading `action`. Exported
- * alongside WebuiWiring (render-tool exports its types; same convention).
+ * alongside WebuiWiring (present-tool exports its types; same convention).
  */
 export type HitlResponse = { action: string; tweak?: string } | { cancelled: true };
 
@@ -372,7 +370,6 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // Render-seam registration is guarded: a host whose ExtensionAPI predates
   // ticket 06 has no `events` bus / `registerTool` — wiring must not throw at
   // boot when those capabilities are absent (no-ops instead). See WebuiHost.
-  pi.registerTool?.(createRenderTool(registry));
   pi.events?.on("webui:render", createRenderEventHandler(registry));
   const presentHandler = createPresentEventHandler(registry);
   pi.events?.on("webui:present", presentHandler);
@@ -412,14 +409,6 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     });
   };
 
-  // --- tool-mirror (ticket 05) — third producer of RenderService ----------
-  // Subscribes tool_result on the AGENT bus (pi.on) via the SAME reg() guard as
-  // the outbound broadcast. tool_result is already in OUTBOUND_EVENTS (a second
-  // handler that broadcasts verbatim); the pi bus fires ALL handlers, so this is
-  // additive. NOT pi.events (that is the separate "webui:render" channel).
-  reg("tool_result", createToolMirror(registry));
-
-  // mutex gate — the input event handler returns the InputEventResult action.
   reg("input", (event) => controller.handleInput(event.source as InputSource));
 
   // release / activity (gate side of the dual-purpose events).

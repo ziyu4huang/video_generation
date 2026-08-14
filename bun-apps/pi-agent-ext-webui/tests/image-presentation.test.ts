@@ -43,6 +43,18 @@ describe("imageMd", () => {
   test("a file literally named ..foo.png INSIDE the dir still serves (no false escape)", () => {
     expect(imageMd(path.join(OUT, "..foo.png"), OUT)).toBe("![image](/output/0/..foo.png)");
   });
+
+  test("space in the filename is percent-encoded (marked rejects raw spaces)", () => {
+    expect(imageMd(path.join(OUT, "a b.png"), OUT)).toBe("![image](/output/0/a%20b.png)");
+  });
+
+  test("parens: space encoded, balanced parens preserved (CommonMark-safe destination)", () => {
+    expect(imageMd(path.join(OUT, "shot (1).png"), OUT)).toBe("![image](/output/0/shot%20(1).png)");
+  });
+
+  test("a clean path is unchanged by percent-encoding (encodeURI no-op)", () => {
+    expect(imageMd(path.join(OUT, "plain_shot.png"), OUT)).toBe("![image](/output/0/plain_shot.png)");
+  });
 });
 
 describe("imageMdFromDetails", () => {
