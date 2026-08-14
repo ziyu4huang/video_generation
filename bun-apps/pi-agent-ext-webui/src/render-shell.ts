@@ -185,6 +185,11 @@ function connectWs() {
     scheduleWsRetry();
   };
   ws.onerror = function () { console.warn('[webui] response ws error'); scheduleWsRetry(); };
+  // FIRST inbound consumer of the /ws socket (it was send-only before btw).
+  ws.onmessage = function (message) {
+    let frame; try { frame = JSON.parse(message.data); } catch { return; }
+    if (frame && frame.type === "btw" && frame.event) btwApplyEvent(frame.event);
+  };
 }
 
 function scheduleWsRetry() {
@@ -203,17 +208,141 @@ function logResponse(text) {
   body.appendChild(line);
 }
 
+function sendRaw(payload) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(payload);
+    return true;
+  }
+  console.warn('[webui] ws not open; would send:', payload);
+  return false;
+}
+
 function sendAppexecResponse(id, action, tweak) {
   const extra = { kind: 'respond', id: id, action: action };
   if (tweak) extra.tweak = tweak; // omit the key when absent (present-tool details semantics)
   const frame = { type: 'appexec', extra: extra };
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(frame));
+  if (sendRaw(JSON.stringify(frame))) {
     console.log('[webui] appexec response sent:', JSON.stringify(frame));
-  } else {
-    console.warn('[webui] ws not open; would send:', frame);
   }
   logResponse(action + (tweak ? ' (tweak: ' + tweak + ')' : ''));
+}
+
+// --- btw side panel client logic (Task 10) ---
+// Pull-then-subscribe: GET /api/btw + /api/btw/models on load, then inbound
+// { type: 'btw', event } frames over the SAME /ws socket keep the panel live.
+let btwState = { messages: [], mode: 'contextual', model: null, thinking: null };
+let btwModels = [];
+
+function btwApplyCollapsed() {
+  document.body.classList.toggle('btw-collapsed', localStorage.getItem('btw-panel-collapsed') === '1');
+}
+
+function btwRenderMessages(messages) {
+  const list = document.getElementById('btw-messages');
+  if (!list) return;
+  const seen = {};
+  messages.forEach(function (m) {
+    seen[m.id] = true;
+    const existing = list.querySelector('[data-id="' + m.id + '"]');
+    const html = btwMessageHtml(m);
+    if (existing) existing.outerHTML = html;
+    else list.insertAdjacentHTML('beforeend', html);
+  });
+  list.querySelectorAll('[data-id]').forEach(function (el) {
+    if (!seen[el.getAttribute('data-id')]) el.remove();
+  });
+  list.scrollTop = list.scrollHeight;
+}
+
+// Inlined duplicate of the BTW_MESSAGE_HTML helper (the served HTML string has
+// no module / build step — same intentional duplication as APPEXEC_FRAME).
+function btwMessageHtml(m) {
+  const esc = function (s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  };
+  const status = m.status === 'done'
+    ? ''
+    : '<span class="btw-status">' + esc(m.statusText || m.status) + '</span>';
+  return '<div class="btw-msg btw-' + m.role + '" data-id="' + m.id + '"><div class="btw-text">' + esc(m.text) + '</div>' + status + '</div>';
+}
+
+function btwApplyEvent(event) {
+  if (event.type === 'thread') {
+    btwState = event.state;
+    btwRenderMessages(event.state.messages);
+    const modeBtn = document.getElementById('btw-mode');
+    if (modeBtn) modeBtn.textContent = 'Mode: ' + event.state.mode;
+  } else if (event.type === 'notice') {
+    const list = document.getElementById('btw-messages');
+    if (list) {
+      list.insertAdjacentHTML('beforeend', '<div class="btw-notice">' + String(event.text).replace(/</g, '&lt;') + '</div>');
+      list.scrollTop = list.scrollHeight;
+    }
+  }
+}
+
+// Flat btw command frame (BtwCommandFrameSchema shape — NO extra wrapper),
+// sent over the single /ws socket via sendRaw.
+function sendBtw(kind, extra) {
+  const frame = { type: 'btw', kind: kind };
+  if (extra) Object.keys(extra).forEach(function (k) { if (extra[k] !== undefined) frame[k] = extra[k]; });
+  sendRaw(JSON.stringify(frame));
+}
+
+function btwInit() {
+  btwApplyCollapsed();
+  const collapse = document.getElementById('btw-collapse');
+  if (collapse) collapse.addEventListener('click', function () {
+    const collapsed = document.body.classList.toggle('btw-collapsed');
+    localStorage.setItem('btw-panel-collapsed', collapsed ? '1' : '0');
+  });
+
+  fetch('/api/btw').then(function (r) { return r.ok ? r.json() : null; }).then(function (state) {
+    if (state && state.messages) { btwState = state; btwRenderMessages(state.messages); }
+  });
+
+  fetch('/api/btw/models').then(function (r) { return r.ok ? r.json() : []; }).then(function (models) {
+    btwModels = models || [];
+    const sel = document.getElementById('btw-model');
+    if (!sel) return;
+    sel.innerHTML = '';
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = 'Main session model';
+    sel.appendChild(none);
+    btwModels.forEach(function (m, i) {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = m.provider + '/' + m.id;
+      sel.appendChild(opt);
+    });
+  });
+
+  const ask = document.getElementById('btw-ask');
+  if (ask) ask.addEventListener('click', function () {
+    const input = document.getElementById('btw-input');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    sendBtw('ask', { text: text });
+  });
+  ['new', 'clear', 'inject', 'summarize'].forEach(function (kind) {
+    const btn = document.getElementById('btw-' + kind);
+    if (btn) btn.addEventListener('click', function () { sendBtw(kind); });
+  });
+  const modeBtn = document.getElementById('btw-mode');
+  if (modeBtn) modeBtn.addEventListener('click', function () {
+    sendBtw('mode', { mode: btwState.mode === 'contextual' ? 'tangent' : 'contextual' });
+  });
+  const modelSel = document.getElementById('btw-model');
+  if (modelSel) modelSel.addEventListener('change', function () {
+    const m = btwModels[Number(this.value)];
+    sendBtw('model', { model: m ? { provider: m.provider, id: m.id, api: m.api } : null });
+  });
+  const thinkingSel = document.getElementById('btw-thinking');
+  if (thinkingSel) thinkingSel.addEventListener('change', function () {
+    sendBtw('thinking', { level: this.value === '' ? null : this.value });
+  });
 }
 
 // One response per presentation: remembered across SSE re-renders so the
@@ -282,6 +411,7 @@ function renderControls(v) {
   };
   await refresh();
   subscribe();
+  btwInit(); // after the tab/view wiring so all getElementById targets exist
 })();
 </script>
 </body>

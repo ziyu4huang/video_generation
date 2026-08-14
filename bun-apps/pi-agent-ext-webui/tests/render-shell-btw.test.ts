@@ -29,6 +29,27 @@ describe("BTW_FRAME pure helper", () => {
   });
 });
 
+describe("RENDER_SHELL_HTML btw client logic", () => {
+  it("ships the first inbound ws handler for btw frames", () => {
+    expect(RENDER_SHELL_HTML).toContain("ws.onmessage");
+    expect(RENDER_SHELL_HTML).toContain('frame.type === "btw"');
+  });
+
+  it("pulls the thread snapshot and model list on load (pull-then-subscribe)", () => {
+    expect(RENDER_SHELL_HTML).toContain("fetch('/api/btw')");
+    expect(RENDER_SHELL_HTML).toContain("fetch('/api/btw/models')");
+  });
+
+  it("sends btw commands over the existing /ws socket", () => {
+    expect(RENDER_SHELL_HTML).toContain("sendBtw(");
+    expect(RENDER_SHELL_HTML.split("new WebSocket(").length - 1).toBe(1); // exactly one construction site
+  });
+
+  it("keeps the SSE refresh loop as-is", () => {
+    expect(RENDER_SHELL_HTML).toContain("new EventSource('/api/events')");
+  });
+});
+
 describe("BTW_MESSAGE_HTML pure helper", () => {
   it("renders a snapshot row keyed by id with escaped text", () => {
     const html = BTW_MESSAGE_HTML({ id: "btw-m-1", role: "assistant", text: "a < b", status: "done" });

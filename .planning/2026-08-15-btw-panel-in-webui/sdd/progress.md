@@ -35,3 +35,7 @@ Task 8: complete (commits a5f0b1b..a28dc86, review clean; implementer died post-
 Task 8: minor (deferred): createBtwRoutes deps closure re-instantiated per request (plan-mandated verbatim) — hoist candidate for hardening
 Task 8: minor (deferred): no store second-thread-event-replacement or getModels null-bound test — deferred to Task 11 contract test per brief
 Task 9: implemented (commit pending review)
+Task 9: complete (commits a28dc86..cb38a61, review clean)
+Task 9: minor (deferred): btw-panel-collapsed string only in CSS contract comment (plan-mandated toContain test) — Task 10 must wire the literal key
+Task 9: minor (deferred): BTW_MESSAGE_HTML interpolates m.id/m.role unescaped (plan-mandated verbatim) — harden alongside Task 10/11
+Task 10: implemented (commit pending review)
