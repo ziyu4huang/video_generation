@@ -74,6 +74,19 @@ async function readPresentedToken(req: Request, url: URL): Promise<string | null
   return url.searchParams.get("session");
 }
 
+/**
+ * One server-log ring-buffer entry (Fix 4): `ts` is epoch ms, `level` is a
+ * coarse severity ("info"/"warn"/"error"), `msg` is a single-line human string.
+ */
+export interface ServerLogEntry {
+  ts: number;
+  level: "info" | "warn" | "error";
+  msg: string;
+}
+
+/** Ring-buffer cap for the /api/logs backlog (oldest dropped first). */
+const LOG_CAP = 200;
+
 /** Minimal session-ref shape held by WebServer (re-pointed per session_start). */
 export interface SessionRef {
   pi: {
@@ -153,6 +166,8 @@ export class WebServer implements Broadcaster {
   private onWsClose: (() => void) | null = null;
   private readonly requestedPort: number;
   private readonly hostname: string;
+  /** Bounded in-memory server log (Fix 4) — served at GET /api/logs. */
+  private readonly logs: ServerLogEntry[] = [];
 
   /** True once `.unref()` has been called on the live server handle. */
   unrefed = false;
@@ -163,6 +178,23 @@ export class WebServer implements Broadcaster {
   }
 
   /**
+   * Append one entry to the bounded server log (newest-last, cap {@link LOG_CAP}).
+   * Pure bookkeeping — never throws, never touches the live server.
+   */
+  private log(level: ServerLogEntry["level"], msg: string): void {
+    this.logs.push({ ts: Date.now(), level, msg });
+    if (this.logs.length > LOG_CAP) this.logs.splice(0, this.logs.length - LOG_CAP);
+  }
+
+  /**
+   * Test/debug read access to the server log (newest-last). The HTTP surface
+   * is GET /api/logs; this getter keeps tests off private-field casts.
+   */
+  get serverLogs(): readonly ServerLogEntry[] {
+    return this.logs;
+  }
+
+  /**
    * Lazy, idempotent start. A second call is a no-op (the server survives). On
    * bind failure across the full port-walk, `serveWithFallback` throws and the
    * server stays stopped (a later `start()` retries).
@@ -170,6 +202,7 @@ export class WebServer implements Broadcaster {
   start(): void {
     if (this.server) return;
     this.server = this.serveWithFallback(this.requestedPort, this.hostname);
+    this.log("info", `webui listening on http://${this.hostname}:${this.server.port ?? 0}`);
     // webui is EMBEDDED in the agent process → the server MUST NOT keep the
     // process alive on its own (unref required). gui-movie-director does NOT
     // unref because it is a FOREGROUND dev server; the inverse is intentional.
@@ -275,6 +308,18 @@ export class WebServer implements Broadcaster {
       const presented = await readPresentedToken(req, url);
       if (presented !== this.token) return new Response("Forbidden", { status: 403 });
     }
+    // GET /api/logs is served DIRECTLY — BEFORE the installed httpRoutes seam —
+    // so the log buffer stays viewable even when no routes are installed (or a
+    // greedy handler would otherwise shadow it). Pure diagnostics; no-store so
+    // a stale log is never cached between debugging rounds.
+    if (req.method === "GET" && url.pathname === "/api/logs") {
+      return new Response(JSON.stringify(this.logs), {
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      });
+    }
     if (this.httpRoutes) {
       const res = this.httpRoutes(req, srv);
       if (res) return res;
@@ -324,11 +369,62 @@ export class WebServer implements Broadcaster {
   }
 
   /**
+   * Build the `Bun.serve` options literal for one bind attempt (Fix 1). Kept as
+   * its own method so the idle-timeout decision is directly testable without
+   * binding a socket. The fetch/websocket handlers are the live ones — this is
+   * the SAME literal `serveWithFallback` passes to `Bun.serve`.
+   *
+   * `idleTimeout: 0` is load-bearing: Bun's default 10s idle timeout kills
+   * idle long-lived connections (SSE /api/events, the /ws upgrade's HTTP leg)
+   * and logs "[Bun.serve]: request timed out after 10 seconds" to stderr — and
+   * the server runs IN-PROCESS with the pi agent TUI, so that stderr lands in
+   * the TUI as a flood (the shell reconnects every 2s → permanent spam). This
+   * is a loopback-only, `.unref()`'d embedded server: there is no upstream LB
+   * or keep-alive policy to respect, so disabling the idle timeout outright is
+   * safe — and HITL-blocking connections (a user staring at a presentation for
+   * minutes) must NEVER be idle-killed.
+   */
+  buildServeOptions(hostname: string, port: number) {
+    return {
+      hostname,
+      port,
+      // See the method doc: Bun default 10s = TUI stderr flood (SSE /api/events
+      // + WS idle). 0 disables the idle timeout entirely.
+      idleTimeout: 0,
+      fetch: (req: Request, srv: Server<undefined>) => this.fetch(req, srv),
+      websocket: {
+        // Same rationale at the WS layer: Bun's WS default (120s idle) would
+        // close an idle-but-healthy client → close handler → onWsClose →
+        // cancelAllPending for a HITL presentation the user is still deciding
+        // on. A silent HITL gate must survive a user thinking for minutes. 0
+        // disables it (per-socket setters do not exist on ServerWebSocket in
+        // @types/bun 1.3.14; the handler-level option is the available seam).
+        idleTimeout: 0,
+        open: (ws: ServerWebSocket<unknown>) => {
+          this.clients.add(ws);
+          this.log("info", `ws open (${this.clients.size} live)`);
+        },
+        message: (ws: ServerWebSocket<unknown>, msg: string | Buffer) => this.onMessage(ws, msg),
+        close: (ws: ServerWebSocket<unknown>) => {
+          this.clients.delete(ws);
+          this.log("info", `ws close (${this.clients.size} live)`);
+          if (this.onWsClose) this.onWsClose();
+        },
+      },
+      // Serve-level error callback (Serve.Options#error): an uncaught fetch
+      // error lands here instead of vanishing — recorded in the /api/logs ring.
+      error: (err: Error) => {
+        this.log("error", `serve error: ${err?.message ?? String(err)}`);
+      },
+    };
+  }
+
+  /**
    * COPIED inline from gui-movie-director/server.ts (NOT a lib export — spec §2).
    * Walks `port..port+50` on EADDRINUSE; throws once the range is exhausted. With
    * port 0 (ephemeral) the first attempt always binds and no walk occurs. The
-   * `Bun.serve` config is built as a concrete literal (mirroring the lift source)
-   * so its inferred type matches `Serve.Options` directly — no union plumbing.
+   * `Bun.serve` config comes from {@link buildServeOptions} (the idle-timeout
+   * fix lives there, testable without binding).
    */
   private serveWithFallback(
     port: number,
@@ -336,23 +432,10 @@ export class WebServer implements Broadcaster {
   ): ReturnType<typeof Bun.serve> {
     for (let p = port; p <= port + 50; p++) {
       try {
-        return Bun.serve({
-          hostname,
-          port: p,
-          fetch: (req, srv) => this.fetch(req, srv),
-          websocket: {
-            open: (ws) => {
-              this.clients.add(ws);
-            },
-            message: (ws, msg) => this.onMessage(ws, msg),
-            close: (ws) => {
-              this.clients.delete(ws);
-              if (this.onWsClose) this.onWsClose();
-            },
-          },
-        });
+        return Bun.serve(this.buildServeOptions(hostname, p));
       } catch (e) {
         const m = String((e as Error)?.message ?? e);
+        this.log("warn", `port ${p} busy (${m}); walking to next port`);
         if (!/address|port|EADDRINUSE/i.test(m) || p === port + 50) throw e;
       }
     }
@@ -365,6 +448,7 @@ export class WebServer implements Broadcaster {
    */
   stop(): void {
     if (this.server) {
+      this.log("info", `webui stopped (http://${this.hostname}:${this.server.port ?? 0})`);
       try {
         void this.server.stop(true);
       } catch {
