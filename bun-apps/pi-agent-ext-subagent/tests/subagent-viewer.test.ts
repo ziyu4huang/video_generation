@@ -835,7 +835,7 @@ test("filter narrows batch children: matching children keep a (recounted) header
 
 test("batch header shows k running / N done as children complete", () => {
   const running = [
-    runningEntry("bX:0", { batchId: "bX", status: "completed" }),
+    runningEntry("bX:0", { batchId: "bX", status: "done" }),
     runningEntry("bX:1", { batchId: "bX" }), // still running
   ];
   const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
@@ -848,7 +848,7 @@ test("a completed batch child renders (greyed) and is still selectable → follo
   const running = [
     runningEntry("bX:0", {
       batchId: "bX",
-      status: "completed",
+      status: "done",
       history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }],
     }),
     runningEntry("bX:1", { batchId: "bX" }),
@@ -879,7 +879,7 @@ test("counts update as more children complete (2 running → 1 running 1 done �
   // step 1: one child completed — header splits into running / done.
   {
     const running = [
-      runningEntry("bX:0", { batchId: "bX", status: "completed" }),
+      runningEntry("bX:0", { batchId: "bX", status: "done" }),
       runningEntry("bX:1", { batchId: "bX" }),
     ];
     const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
@@ -891,8 +891,8 @@ test("counts update as more children complete (2 running → 1 running 1 done �
   // the header persists while completed children remain in getRunning().
   {
     const running = [
-      runningEntry("bX:0", { batchId: "bX", status: "completed" }),
-      runningEntry("bX:1", { batchId: "bX", status: "completed" }),
+      runningEntry("bX:0", { batchId: "bX", status: "done" }),
+      runningEntry("bX:1", { batchId: "bX", status: "done" }),
     ];
     const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
     const out = viewer.render(80).join("\n");

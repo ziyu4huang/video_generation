@@ -71,11 +71,18 @@ function kindOf(entry: AgentHistoryEntry): unknown {
   return (entry as unknown as Record<string, unknown>).kind;
 }
 
+/** Single home of the terminal predicate for the unified ActivityStatus vocabulary. */
+export function isTerminalStatus(status: ActivityStatus | null | undefined): boolean {
+  // defensive: records constructed before the status field became required may omit it
+  const s = status ?? "running";
+  return s !== "running" && s !== "queued";
+}
+
 /** Pure projection — takes the raw record + now; never reads the clock itself. */
 export function buildRunView(r: RunRecord, now: number): RunView {
   const status: ActivityStatus = r.status;
   const endedAt = r.endedAt;
-  const terminal = status !== "running" && status !== "queued";
+  const terminal = isTerminalStatus(status);
   const elapsedFrozen = terminal && typeof endedAt === "number";
   const elapsedMs = typeof endedAt === "number" ? endedAt - r.startedAt : now - r.startedAt;
   const history = r.history ?? [];

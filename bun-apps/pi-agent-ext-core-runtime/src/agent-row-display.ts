@@ -52,9 +52,11 @@ export interface ActivityRow {
 /** Single icon+color mapping for an agent-level status.
  *  Themed output is byte-identical to activityGlyph (which delegates here);
  *  `plain: true` yields plain-text glyphs for theme-free live tables. */
-export function glyphFor(status: ActivityStatus, opts?: { plain?: boolean }): { icon: string; color: string } {
+export function glyphFor(status: ActivityStatus | null | undefined, opts?: { plain?: boolean }): { icon: string; color: string } {
+  // defensive: records constructed before the status field became required may omit it
+  const s = status ?? "running";
   if (opts?.plain) {
-    switch (status) {
+    switch (s) {
       case "queued":
         return { icon: ".", color: "dim" };
       case "running":
@@ -74,7 +76,7 @@ export function glyphFor(status: ActivityStatus, opts?: { plain?: boolean }): { 
         return { icon: "/", color: "dim" };
     }
   }
-  switch (status) {
+  switch (s) {
     case "queued":
       return { icon: "○", color: "dim" };
     case "running":

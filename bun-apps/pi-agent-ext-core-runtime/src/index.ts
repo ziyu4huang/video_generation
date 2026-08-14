@@ -84,6 +84,7 @@ export {
   setRateLimitCapResolver,
 } from "./rate-limiter.js";
 export type { RunView } from "./run-view.js";
+export { buildRunView, isTerminalStatus } from "./run-view.js";
 
 export type { SddReport, SddReportStatus } from "./sdd-report.js";
 export { isSddReportActionable, parseSddReport, SDD_REPORT_STATUSES } from "./sdd-report.js";
