@@ -298,7 +298,14 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
       // abort guard uses, but purely advisory.
       const budgetWarning = budgetWarningFor(usage, opts);
       return {
-        result: { output, exitCode: 0, stderr: "", timedOut: false, usage, ...(budgetWarning ? { budgetWarning } : {}) },
+        result: {
+          output,
+          exitCode: 0,
+          stderr: "",
+          timedOut: false,
+          usage,
+          ...(budgetWarning ? { budgetWarning } : {}),
+        },
         transient: false,
       };
     } catch (e) {
