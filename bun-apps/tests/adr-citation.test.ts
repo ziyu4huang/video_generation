@@ -51,7 +51,7 @@ const INDEX_PATH = join(BUN_APPS, "docs", "adr", "INDEX.md");
 /** Never descend into these. */
 const SKIP_DIRS = new Set([
 	"node_modules", ".git", "venv", "dist", "build", "mlx-models",
-	"__fixtures__", "coverage", ".planning",
+	"__fixtures__", "coverage", ".planning", "vaults_root", ".agents", "output",
 ]);
 
 // ─── ADR discovery ──────────────────────────────────────────────────────────
