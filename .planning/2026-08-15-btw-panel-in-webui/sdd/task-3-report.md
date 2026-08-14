@@ -50,3 +50,31 @@ out of budget:
 None blocking. Note for Task 4: `latestCtx` is recorded by `setLatestCtx` but no
 caller wires it yet — that call site (`session_start` / `session_tree` handlers) and
 `handleWebuiCommand` belong to Task 4.
+
+## Fix round 1/5 (review finding: TUI overlay live updates dead for new sub-sessions)
+
+**Ruling applied:** dedicated-field tracking (human-approved deviation from the brief's
+verbatim `sr.subscriptions.add(...)` in `subscribeWebuiBridge`).
+
+**What changed (`src/btw/session.ts`):**
+- New private field `webuiBridgeUnsub: (() => void) | null` next to `webuiBridgedFor`.
+- `subscribeWebuiBridge` no longer adds its disposer to `sr.subscriptions`; it stores it
+  in `this.webuiBridgeUnsub` (disposing any prior bridge unsub first). This keeps
+  `sr.subscriptions` empty after `createBtwSubSession`, so the guard
+  `if (!sr || sr.subscriptions.size > 0) return;` in `subscribeOverlayToActiveBtwSession`
+  no longer bails — the overlay's `handleBtwSessionEvent` subscription attaches again.
+- `disposeBtwSession` invokes and nulls `webuiBridgeUnsub` alongside the existing
+  `webuiStatus` clear / `clearBtwSessionSubscriptions`.
+- `subscribeOverlayToActiveBtwSession` and its guard untouched, per the ruling.
+
+**Regression test added (`__tests__/webui-bridge.test.ts`):**
+"keeps the TUI overlay path attachable while the webui bridge is active" — builds an sr,
+subscribes the bridge, asserts `sr.subscriptions.size === 0`; monkey-patches
+`handleBtwSessionEvent` as a spy, calls `subscribeOverlayToActiveBtwSession`, asserts
+size increments to 1, pushes an event through a multi-listener fake session and asserts
+both the overlay spy fired AND the bridge emitted on `btw:event`; after `disposeBtwSession`
+asserts subscriptions drain to 0.
+
+**Covering tests:**
+- Focused: `bun test __tests__/webui-bridge.test.ts` → 4 pass / 0 fail.
+- Full gate: `bun run test` → 26 pass / 0 fail across 6 files (was 25; +1 regression test).

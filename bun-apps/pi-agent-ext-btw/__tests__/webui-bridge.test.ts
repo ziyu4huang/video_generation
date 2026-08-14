@@ -110,6 +110,53 @@ describe("BtwEngine webui bridge", () => {
     });
   });
 
+  it("keeps the TUI overlay path attachable while the webui bridge is active", async () => {
+    const { pi, emitted } = makeFakeBusPi();
+    const engine = new BtwEngine(pi);
+    // Multi-listener fake: unlike makeFakeSession, every subscriber stays attached.
+    const listeners = new Set<(event: unknown) => void>();
+    const fake = {
+      agent: { state: { messages: [] as unknown[] } },
+      subscribe(cb: (event: unknown) => void) {
+        listeners.add(cb);
+        return () => listeners.delete(cb);
+      },
+      push(event: unknown) {
+        for (const cb of [...listeners]) cb(event);
+      },
+      abort() {},
+      async dispose() {},
+    };
+    const sr = {
+      session: fake as unknown as AgentSession,
+      mode: "contextual" as const,
+      subscriptions: new Set<() => void>(),
+      sideThreadStartIndex: 0,
+    };
+    engine.activeBtwSession = sr;
+    engine.subscribeWebuiBridge(sr);
+    // The bridge subscription must NOT occupy sr.subscriptions — otherwise the
+    // guard in subscribeOverlayToActiveBtwSession sees size>0 and returns early.
+    expect(sr.subscriptions.size).toBe(0);
+
+    let overlayEvents = 0;
+    engine.handleBtwSessionEvent = () => {
+      overlayEvents++;
+    };
+    engine.subscribeOverlayToActiveBtwSession();
+    expect(sr.subscriptions.size).toBe(1);
+
+    fake.push({ type: "message_update" });
+    // Both the overlay path and the webui bridge receive sub-session events.
+    expect(overlayEvents).toBe(1);
+    expect(emitted.filter((e) => e.channel === "btw:event").length).toBeGreaterThan(0);
+
+    // Dispose clears the dedicated bridge disposer alongside the overlay subscription.
+    await engine.disposeBtwSession();
+    expect(sr.subscriptions.size).toBe(0);
+    listeners.clear(); // fake has no weakrefs; engine-level clearing is asserted via size above
+  });
+
   it("emitNotice posts a notice event on the event channel", () => {
     const { pi, emitted } = makeFakeBusPi();
     const engine = new BtwEngine(pi);

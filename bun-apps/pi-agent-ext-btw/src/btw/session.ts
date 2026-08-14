@@ -270,6 +270,13 @@ export class BtwEngine {
   private webuiStatus: BtwStatusUpdate | null = null;
   /** The BtwSessionRuntime currently bridged to the webui event channel. */
   private webuiBridgedFor: BtwSessionRuntime | null = null;
+  /**
+   * Disposer for the active webui bridge subscription. Deliberately NOT stored in
+   * sr.subscriptions: the overlay attach guard in subscribeOverlayToActiveBtwSession
+   * treats a non-empty set as "overlay already attached", which would silently kill
+   * TUI live updates for every sub-session created after the bridge (Task 3 fix).
+   */
+  private webuiBridgeUnsub: (() => void) | null = null;
 
   constructor(private readonly pi: ExtensionAPI) {}
 
@@ -359,6 +366,7 @@ export class BtwEngine {
    */
   subscribeWebuiBridge(sr: BtwSessionRuntime): void {
     if (this.webuiBridgedFor === sr) return;
+    this.webuiBridgeUnsub?.();
     this.webuiBridgedFor = sr;
     this.webuiStatus = null;
     const dispose = sr.session.subscribe((event: AgentSessionEvent) => {
@@ -366,10 +374,12 @@ export class BtwEngine {
       if (update) this.webuiStatus = update;
       this.emitThreadEvent();
     });
-    sr.subscriptions.add(() => {
+    // Tracked in a dedicated field (not sr.subscriptions) so the overlay attach
+    // guard in subscribeOverlayToActiveBtwSession still sees an empty set.
+    this.webuiBridgeUnsub = () => {
       if (this.webuiBridgedFor === sr) this.webuiBridgedFor = null;
       dispose();
-    });
+    };
   }
 
   /** Current thread state, pre-reduced for the webui panel (D5). */
@@ -412,6 +422,8 @@ export class BtwEngine {
     const current = this.activeBtwSession;
     this.activeBtwSession = null;
     this.webuiStatus = null;
+    this.webuiBridgeUnsub?.();
+    this.webuiBridgeUnsub = null;
     if (!current) return;
     this.clearBtwSessionSubscriptions(current);
     try { await current.session.abort(); } catch { /* ignore */ }
