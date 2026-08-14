@@ -37,7 +37,7 @@ function importedRepos(pkg: string): Set<string> {
 		let entries: ReturnType<typeof readdirSync>;
 		try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
 		for (const ent of entries) {
-			if (ent.name === "node_modules" || ent.name === "__tests__" || ent.name === "fixtures") continue;
+			if (ent.name === "node_modules" || ent.name === "__tests__" || ent.name === "fixtures" || ent.name === "dist") continue;
 			const p = join(dir, ent.name);
 			if (ent.isDirectory()) { walk(p); continue; }
 			if (!/\.(ts|tsx|mjs|js)$/.test(ent.name) || /\.test\./.test(ent.name)) continue;
@@ -134,10 +134,18 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 	});
 
 	it("ADR-0001: knowledge-layer TIER-0 (obsidian, hermes-memory) imports NOTHING from TIER-1 (knowledge-card)", () => {
+		// Sanctioned exceptions (explicit, reviewed one by one — never blanket-open):
+		// - pi-agent-ext-hermes-memory → pi-agent-ext-knowledge-card: the spine
+		//   direction sanctioned by ticket 20 (LeanRAG entity-recall reads the
+		//   knowledge-card entity graph). See
+		//   .planning/2026-08-08-knowledge-pipeline/tickets/ + map.md.
+		const SANCTIONED_EDGES = new Set(["pi-agent-ext-hermes-memory→pi-agent-ext-knowledge-card"]);
 		const TIER0 = ["pi-agent-ext-obsidian", "pi-agent-ext-hermes-memory"];
 		const violations: string[] = [];
 		for (const pkg of TIER0) {
-			const upward = [...edges(pkg)].filter((t) => t === "pi-agent-ext-knowledge-card");
+			const upward = [...edges(pkg)].filter(
+				(t) => t === "pi-agent-ext-knowledge-card" && !SANCTIONED_EDGES.has(`${pkg}→${t}`),
+			);
 			if (upward.length) violations.push(`  ${pkg} → ${upward.join(", ")} (upward edge; forbidden by ADR-0001)`);
 		}
 		assert.deepEqual(violations, [], violations.length ? "upward edges:\n" + violations.join("\n") : "");
