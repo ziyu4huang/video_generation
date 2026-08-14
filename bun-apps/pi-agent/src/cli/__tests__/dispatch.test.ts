@@ -46,6 +46,18 @@ describe("findCommandToken — global flags before sub-command", () => {
     expect(findCommandToken(["--model", "x", "help"])).toBeUndefined();
   });
 
+  test("a `help` that is NOT the first positional stays prompt text", () => {
+    // The bare word `help` counts as the help flag only as the first
+    // POSITIONAL. Mid-prompt it must survive as an ordinary token, or
+    // `cli -p explain the help system` silently prints the banner, exits 0,
+    // and drops the word from the prompt on the way out.
+    expect(findCommandToken(["explain", "the", "help", "system"])).toBeUndefined();
+    expect(findCommandToken(["zk-ask", "what", "does", "help", "mean"])).toEqual({
+      name: "zk-ask",
+      index: 0,
+    });
+  });
+
   test("pipeline namespace is detected after global flags", () => {
     const argv = ["--model", "x", "pipeline", "pdf-to-vault", "p.pdf"];
     expect(findCommandToken(argv)).toEqual({ name: "pipeline", index: 2 });

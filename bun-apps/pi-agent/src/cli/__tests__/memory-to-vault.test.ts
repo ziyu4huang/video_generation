@@ -7,7 +7,9 @@ import {
 	writePipelineDoc,
 	shouldDistill,
 	findExistingRun,
+	resolveRunStatus,
 	type MemoryPipelineDoc,
+	type PerFileState,
 } from "../commands/memory-to-vault.ts";
 
 describe("memory-to-vault pipeline.json", () => {
@@ -86,5 +88,48 @@ describe("findExistingRun (resume run-dir reuse)", () => {
 		const a = join(dir, "memory-to-vault-20260101-000000-a");
 		mkdirSync(a, { recursive: true }); // no pipeline.json
 		expect(findExistingRun(dir)).toBeNull();
+	});
+});
+
+describe("resolveRunStatus — a partial fan-out must not report success", () => {
+	// The bug: stages["fan-out"].status was correctly computed as "partial" and
+	// then `doc.status = "done"` overwrote the run status unconditionally, so a
+	// run where every distill agent failed printed MEMORY-TO-VAULT DONE, wrote
+	// "done" into the receipt, and exited 0. MemoryPipelineDoc has modelled
+	// "partial" the whole time — the type was describing a state the code
+	// refused to emit.
+	const withFanOut = (statuses: PerFileState["status"][]): MemoryPipelineDoc => ({
+		schemaVersion: 1, createdAt: "t1", updatedAt: "t1", status: "running",
+		options: { concurrency: 4, retries: 2, folder: "Z", threshold: 0.9 },
+		scope: { files: [], fileCount: statuses.length, excluded: 0 },
+		stages: {
+			"fan-out": {
+				status: "done",
+				perFile: statuses.map((s, i) => ({ path: `/f${i}.md`, status: s })),
+			},
+		},
+	});
+
+	test("every file done → done", () => {
+		expect(resolveRunStatus(withFanOut(["done", "done"]))).toBe("done");
+	});
+
+	test("one file errored → partial", () => {
+		expect(resolveRunStatus(withFanOut(["done", "error"]))).toBe("partial");
+	});
+
+	test("every file errored → partial (the rate-limited run)", () => {
+		expect(resolveRunStatus(withFanOut(["error", "error"]))).toBe("partial");
+	});
+
+	test("a file left pending or running → partial (stage cut short)", () => {
+		expect(resolveRunStatus(withFanOut(["done", "pending"]))).toBe("partial");
+		expect(resolveRunStatus(withFanOut(["done", "running"]))).toBe("partial");
+	});
+
+	test("no fan-out stage at all → done (nothing was in scope)", () => {
+		const doc = withFanOut([]);
+		doc.stages = {};
+		expect(resolveRunStatus(doc)).toBe("done");
 	});
 });

@@ -528,7 +528,17 @@ export function parsePiArgs(
 			i++;
 			continue;
 		}
-		if (a === "-h" || a === "--help" || a === "help") {
+		// `-h` / `--help` are flags and work anywhere. The bare WORD `help` is a
+		// sub-command, so it counts only as the FIRST POSITIONAL — not the first
+		// argv token, which would break the documented `cli --model x help`.
+		//
+		// It used to count at any position, which made an ordinary unquoted prompt
+		// silently do nothing: `cli -p explain the help system` printed the banner
+		// and exited 0. Worse, the token was also dropped from positionals, so even
+		// a run that did dispatch would have sent a corrupted prompt. Exit 0 with
+		// no output is indistinguishable from success to a scripted caller — the
+		// exact silent-success class this namespace guards against elsewhere.
+		if (a === "-h" || a === "--help" || (a === "help" && out.positionals.length === 0)) {
 			out.help = true;
 			i++;
 			continue;
