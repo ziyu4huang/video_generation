@@ -25,8 +25,9 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import type { WorkflowAgent } from "@repo/pi-agent-ext-core-runtime";
-import { parseWorkflowScript, runWorkflow } from "./workflow.js";
+import { runWorkflow } from "./workflow.js";
 import { type Manifest, readManifest } from "./workflow-pack-manifest.js";
+import { parseWorkflowScript } from "./workflow-script-parser.js";
 
 /** Where engine workflow scripts live (project-local, under PWD/.pi). */
 export const PI_WORKFLOWS_DIR = ".pi/workflows";
@@ -200,11 +201,11 @@ export function resolveWorkflowScript(
   throw new Error(
     `workflow: script "${name}" not found.\n` +
       `Looked for: ${asPath}\n` +
-      `  ${join(cwd, "workflows", names[0]!)}\n` +
-      `  ${join(binDir, "workflows", names[0]!)}\n` +
+      `  ${join(cwd, "workflows", names[0] ?? "<name>")}\n` +
+      `  ${join(binDir, "workflows", names[0] ?? "<name>")}\n` +
       (root
-        ? `  ${join(root, PI_WORKFLOWS_DIR, names[0]!)}\n` +
-          `  ${join(root, PKG_WORKFLOWS_GLOB, "<pkg>", "workflows", names[0]!)}\n`
+        ? `  ${join(root, PI_WORKFLOWS_DIR, names[0] ?? "<name>")}\n` +
+          `  ${join(root, PKG_WORKFLOWS_GLOB, "<pkg>", "workflows", names[0] ?? "<name>")}\n`
         : "") +
       `Pass an absolute path or a name under <cwd>/workflows/, <binDir>/workflows/, .pi/workflows/, or bun-apps/<pkg>/workflows/.`,
   );
@@ -274,11 +275,11 @@ export function mergeArgs(manifestArgs: unknown, callerArgs: unknown): unknown {
  *  caller (CLI flags / tool args) overrides (Decision 5). Pure. */
 export function resolvePackOverrides(
   pack: { manifest: Manifest } | undefined,
-  caller: { args?: unknown; model?: string },
+  caller: { args?: unknown; callerModel?: string },
 ): { args: unknown; model?: string } {
   return {
     args: mergeArgs(pack?.manifest.args, caller.args),
-    model: caller.model ?? pack?.manifest.model,
+    model: caller.callerModel ?? pack?.manifest.model,
   };
 }
 
@@ -364,7 +365,7 @@ export function listWorkflows(
           const manifest = readManifest(p, { read: fs.read, exists: fs.exists });
           rows.push({ source: label, name: manifest.name, description: manifest.description, kind: "pack" });
         } catch (e) {
-          errors.push({ path: p, message: (e as Error).message.split("\n")[0]! });
+          errors.push({ path: p, message: (e as Error).message.split("\n")[0] ?? "" });
         }
         continue;
       }
@@ -373,7 +374,7 @@ export function listWorkflows(
         const { meta } = parseWorkflowScript(fs.read(p));
         rows.push({ source: label, name: meta.name, description: meta.description, kind: "file" });
       } catch (e) {
-        errors.push({ path: p, message: (e as Error).message.split("\n")[0]! });
+        errors.push({ path: p, message: (e as Error).message.split("\n")[0] ?? "" });
       }
     }
   }
@@ -389,12 +390,6 @@ export interface RunWorkflowScriptOptions {
    * default) is resolved by `resolveModel` before the run is dispatched.
    */
   callerModel?: string;
-  /**
-   * @deprecated use `callerModel`. Kept as a backward-compat alias so existing
-   * callers/tests that pass `{ model }` keep working — `runWorkflowScript`
-   * treats `opts.callerModel ?? opts.model` as the caller value.
-   */
-  model?: string;
   /** PI_MODEL env value (provider/id), if the CLI reads it. */
   envModel?: string;
   /** Resolved pi default (provider/id), computed by the CLI from settings. */
@@ -448,10 +443,8 @@ export async function runWorkflowScript(opts: RunWorkflowScriptOptions): Promise
   const { meta } = parseWorkflowScript(resolved.script);
   // Model resolution: 4-tier precedence (--model > PI_MODEL env > manifest.model
   // > pi default). `resolveModel` is pure (every tier is an explicit input);
-  // args still merge via mergeArgs (manifest.args under caller args). The legacy
-  // `opts.model` field is kept as an alias for `callerModel` so existing callers
-  // and tests that pass `{ model }` keep working unchanged.
-  const callerModel = opts.callerModel ?? opts.model;
+  // args still merge via mergeArgs (manifest.args under caller args).
+  const callerModel = opts.callerModel;
   const { model, source: modelSource } = resolveModel(
     callerModel,
     opts.envModel,

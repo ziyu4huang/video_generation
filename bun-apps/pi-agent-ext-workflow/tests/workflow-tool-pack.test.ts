@@ -75,8 +75,8 @@ describe("workflow tool — `name` (pack resolution)", () => {
     // resolved entry script + the SHALLOW-MERGED args (caller wins on conflict).
     expect((result as { details: { runId: string } }).details.runId).toBe("stub-run");
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.script).toContain("export const meta");
-    expect(calls[0]!.args).toEqual({ m: 1, c: 2, shared: "caller" });
+    expect(calls[0]?.script).toContain("export const meta");
+    expect(calls[0]?.args).toEqual({ m: 1, c: 2, shared: "caller" });
   });
 
   test("`name` with no caller args uses manifest args as-is", async () => {
@@ -98,7 +98,7 @@ describe("workflow tool — `name` (pack resolution)", () => {
       {} as any,
     );
 
-    expect(calls[0]!.args).toEqual({ only: "manifest" });
+    expect(calls[0]?.args).toEqual({ only: "manifest" });
   });
 
   test("a pack with no manifest args passes caller args through untouched", async () => {
@@ -115,7 +115,7 @@ describe("workflow tool — `name` (pack resolution)", () => {
       {} as any,
     );
 
-    expect(calls[0]!.args).toEqual({ x: 9 });
+    expect(calls[0]?.args).toEqual({ x: 9 });
   });
 
   test("`name` pointing at a non-existent pack throws (fail-fast, before the manager)", async () => {
@@ -179,10 +179,10 @@ describe("workflow tool — `name` (pack resolution)", () => {
 
     expect(calls).toHaveLength(1);
     // args ARE merged (sanity: the existing behavior still works).
-    expect(calls[0]!.args).toEqual({ fromManifest: true, fromCaller: true });
+    expect(calls[0]?.args).toEqual({ fromManifest: true, fromCaller: true });
     // The options object handed to the manager MUST NOT carry a model sourced
     // from the manifest. Assert no model-bearing key is present.
-    const opt = calls[0]!.options as Record<string, unknown>;
+    const opt = calls[0]?.options as Record<string, unknown>;
     expect(opt).not.toHaveProperty("model");
     expect(opt).not.toHaveProperty("mainModel");
   });
@@ -250,7 +250,7 @@ describe("workflow tool — `name` (pack resolution)", () => {
     // Task-2 guard (re-asserted): manifest.model is NOT applied — the options
     // object handed to startInBackground carries no model-bearing key.
     expect(calls).toHaveLength(1);
-    const opt = calls[0]!.options as Record<string, unknown>;
+    const opt = calls[0]?.options as Record<string, unknown>;
     expect(opt).not.toHaveProperty("model");
     expect(opt).not.toHaveProperty("mainModel");
   });
@@ -298,7 +298,7 @@ describe("workflow tool — `name` (pack resolution)", () => {
     expect(details.modelSource).toBe("session");
     expect(details.model).toBe("session-main/model");
     // Task-2 guard holds on the inline path too.
-    const opt = calls[0]!.options as Record<string, unknown>;
+    const opt = calls[0]?.options as Record<string, unknown>;
     expect(opt).not.toHaveProperty("model");
     expect(opt).not.toHaveProperty("mainModel");
   });
@@ -350,7 +350,7 @@ describe("workflow tool — `name` (pack resolution)", () => {
     // The options object handed to startInBackground must omit the Path-A-only
     // fields. A divergence here would mean the tool silently overrode the
     // engine's default log persistence or redirect a pack manifest declared.
-    const opt = calls[0]!.options as Record<string, unknown>;
+    const opt = calls[0]?.options as Record<string, unknown>;
     expect(opt).not.toHaveProperty("persistLogs");
     expect(opt).not.toHaveProperty("runsDir");
     expect(opt).not.toHaveProperty("outDir");
@@ -443,24 +443,24 @@ describe("workflow tool — no-agent script rejection (D9-8)", () => {
 describe("workflow tool — `script` XOR `name` contract", () => {
   test("prepareArguments rejects both `script` and `name`", () => {
     const tool = createWorkflowTool();
-    expect(() => tool.prepareArguments!({ script: "x", name: "y" } as any)).toThrow(/exactly one/);
+    expect(() => tool.prepareArguments?.({ script: "x", name: "y" } as any)).toThrow(/exactly one/);
   });
 
   test("prepareArguments rejects neither `script` nor `name`", () => {
     const tool = createWorkflowTool();
-    expect(() => tool.prepareArguments!({ args: { a: 1 } } as any)).toThrow(/exactly one/);
+    expect(() => tool.prepareArguments?.({ args: { a: 1 } } as any)).toThrow(/exactly one/);
   });
 
   test("prepareArguments passes a `name`-only call through (resolution happens in execute)", () => {
     const tool = createWorkflowTool();
-    const out = tool.prepareArguments!({ name: "echo", args: { a: 1 } } as any) as { name: string; args: unknown };
+    const out = tool.prepareArguments?.({ name: "echo", args: { a: 1 } } as any) as { name: string; args: unknown };
     expect(out.name).toBe("echo");
     expect(out.args).toEqual({ a: 1 });
   });
 
   test("prepareArguments normalizes a `script`-only call (unchanged behaviour)", () => {
     const tool = createWorkflowTool();
-    const out = tool.prepareArguments!({ script: "  export const meta = {}  " } as any) as { script: string };
+    const out = tool.prepareArguments?.({ script: "  export const meta = {}  " } as any) as { script: string };
     expect(out.script).toBe("export const meta = {}");
   });
 });

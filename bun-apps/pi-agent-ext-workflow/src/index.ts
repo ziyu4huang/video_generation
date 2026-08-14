@@ -1,3 +1,4 @@
+export { preview } from "@repo/pi-agent-ext-core-runtime";
 export type { AdversarialReviewConfig } from "./adversarial-review.js";
 export { generateAdversarialReviewWorkflow, generateMultiPerspectiveWorkflow } from "./adversarial-review.js";
 export { registerBuiltinWorkflows } from "./builtin-commands.js";
@@ -15,7 +16,6 @@ export {
   createToolUpdateWorkflowDisplay,
   createWidgetWorkflowDisplay,
   createWorkflowSnapshot,
-  preview,
   recomputeWorkflowSnapshot,
   renderWorkflowLines,
   renderWorkflowText,
@@ -56,7 +56,7 @@ export type {
   WorkflowRunOptions,
   WorkflowRunResult,
 } from "./workflow.js";
-export { parseWorkflowScript, runWorkflow } from "./workflow.js";
+export { runWorkflow } from "./workflow.js";
 export { registerWorkflowCommands } from "./workflow-commands.js";
 export type { WorkflowControlToolInput, WorkflowControlToolOptions } from "./workflow-control-tool.js";
 export { createWorkflowControlTool } from "./workflow-control-tool.js";
@@ -110,6 +110,7 @@ export {
 } from "./workflow-paths.js";
 export type { SavedWorkflow, WorkflowStorage } from "./workflow-saved.js";
 export { assertSafeSavedWorkflowName, createWorkflowStorage, isSafeSavedWorkflowName } from "./workflow-saved.js";
+export { parseWorkflowScript } from "./workflow-script-parser.js";
 export type { WorkflowSettings, WorkflowSettingsOptions, WorkflowSettingsStore } from "./workflow-settings.js";
 export {
   getRateLimit,

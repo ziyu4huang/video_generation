@@ -202,42 +202,42 @@ describe("logger", () => {
 
 describe("display", () => {
   it("preview truncates long values", async () => {
-    const { preview } = await load();
+    const { preview } = await loadCore();
     const long = "x".repeat(200);
     const result = preview(long, 10);
     assert.ok(result.length <= 13, "result should be at most 13"); // 10 + "…" (3 bytes)
   });
 
   it("preview returns full short values", async () => {
-    const { preview } = await load();
+    const { preview } = await loadCore();
     const result = preview("hello");
     assert.equal(result, "hello");
   });
 
   it("preview handles objects", async () => {
-    const { preview } = await load();
+    const { preview } = await loadCore();
     const result = preview({ a: 1, b: 2 }, 50);
     assert.ok(result.length > 0, "result should not be empty");
   });
 
   it("preview handles null/undefined", async () => {
-    const { preview } = await load();
+    const { preview } = await loadCore();
     assert.equal(preview("null"), "null");
     assert.equal(preview(undefined), "");
   });
 
   it("preview works with empty string", async () => {
-    const { preview } = await load();
+    const { preview } = await loadCore();
     assert.equal(preview(""), "");
   });
 
   it("preview works with zero", async () => {
-    const { preview } = await load();
+    const { preview } = await loadCore();
     assert.equal(preview(0), "0");
   });
 
   it("preview works with boolean", async () => {
-    const { preview } = await load();
+    const { preview } = await loadCore();
     assert.equal(preview(true), "true");
     assert.equal(preview(false), "false");
   });
@@ -352,4 +352,8 @@ describe("display", () => {
 
 async function load() {
   return import("../src/display.js");
+}
+
+async function loadCore() {
+  return import("@repo/pi-agent-ext-core-runtime");
 }

@@ -18,10 +18,11 @@ import {
   type WorkflowSnapshot,
 } from "./display.js";
 import { resolvePackRunContext } from "./pack-run-context.js";
-import { parseWorkflowScript, type WorkflowRunResult } from "./workflow.js";
+import type { WorkflowRunResult } from "./workflow.js";
 import { WorkflowManager } from "./workflow-manager.js";
 import { findRepoRoot, mergeArgs, resolveWorkflowPack } from "./workflow-pack.js";
 import { createWorkflowStorage, type WorkflowStorage } from "./workflow-saved.js";
+import { parseWorkflowScript } from "./workflow-script-parser.js";
 import { loadWorkflowSettings } from "./workflow-settings.js";
 
 /**

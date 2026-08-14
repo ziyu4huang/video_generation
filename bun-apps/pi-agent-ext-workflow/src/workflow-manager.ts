@@ -8,8 +8,8 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SubagentInFlightRegistry, WorkflowAgent } from "@repo/pi-agent-ext-core-runtime";
-import { WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
-import { preview, type WorkflowSnapshot } from "./display.js";
+import { preview, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
+import type { WorkflowSnapshot } from "./display.js";
 import type { HostFnRegistry } from "./host-fn-registry.js";
 import { mirrorIntermediate } from "./pack-run-context.js";
 import {
@@ -21,8 +21,9 @@ import {
   type RunPersistence,
   type RunStatus,
 } from "./run-persistence.js";
-import { type JournalEntry, parseWorkflowScript, runWorkflow, type WorkflowRunResult } from "./workflow.js";
+import { type JournalEntry, runWorkflow, type WorkflowRunResult } from "./workflow.js";
 import type { ManifestIo } from "./workflow-pack-manifest.js";
+import { parseWorkflowScript } from "./workflow-script-parser.js";
 
 /** Hash of run args for run-meta.json (decision 11). */
 function inputHash(args: unknown): string {

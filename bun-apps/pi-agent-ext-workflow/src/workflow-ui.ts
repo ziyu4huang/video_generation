@@ -17,14 +17,8 @@ import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi
 import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
 import { parseKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
-import { summarizeLatestAction } from "@repo/pi-agent-ext-core-runtime";
-import {
-  type ActivityRow,
-  fmtDuration,
-  renderActivityRow,
-  type WorkflowAgentSnapshot,
-  type WorkflowSnapshot,
-} from "./display.js";
+import { type ActivityRow, renderActivityRow, summarizeLatestAction } from "@repo/pi-agent-ext-core-runtime";
+import { fmtDuration, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
 import type { PersistedRunState } from "./run-persistence.js";
 import { registerSavedWorkflow } from "./saved-commands.js";
 import type { WorkflowManager } from "./workflow-manager.js";
@@ -229,6 +223,7 @@ export class NavigatorState {
   private top(): StackFrame {
     // invariant: stack is never empty — initialized with a root frame, and pop()
     // refuses to go below length 1, so the last element is always defined.
+    // biome-ignore lint/style/noNonNullAssertion: invariant: stack.length >= 1
     return this.stack[this.stack.length - 1]!;
   }
   get kind(): ViewKind {

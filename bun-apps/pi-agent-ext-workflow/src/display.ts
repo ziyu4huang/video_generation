@@ -1,22 +1,6 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { AgentHistoryEntry, ThemeLike, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
-// Generic agent-row display helpers were extracted to @repo/pi-agent-ext-core-runtime
-// (so the /subagents TUI is self-contained there). Re-imported for workflow's own
-// rendering and re-exported so existing consumers (task-panel, workflow-ui,
-// workflow-manager) keep resolving via ./display.js. Direction is unchanged:
-// workflow already depends on this package for AgentHistoryEntry/WorkflowErrorCode.
 import { activityGlyph, NO_THEME, shorten } from "@repo/pi-agent-ext-core-runtime";
-
-export type { ActivityRow } from "@repo/pi-agent-ext-core-runtime";
-export {
-  activityGlyph,
-  fmtCost,
-  fmtTokensShort,
-  preview,
-  renderActivityRow,
-  shorten,
-  shortModel,
-} from "@repo/pi-agent-ext-core-runtime";
 
 import type { WorkflowMeta } from "./workflow.js";
 

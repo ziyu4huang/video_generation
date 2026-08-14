@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { generateAdversarialReviewWorkflow, generateMultiPerspectiveWorkflow } from "../src/adversarial-review.js";
 import { generateCodebaseAuditWorkflow, generateDeepResearchWorkflow } from "../src/deep-research.js";
 import { createWebTools } from "../src/web-tools.js";
-import { parseWorkflowScript } from "../src/workflow.js";
+import { parseWorkflowScript } from "../src/workflow-script-parser.js";
 
 // ─── Deep Research ──────────────────────────────────────────────────────────────
 
