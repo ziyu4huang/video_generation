@@ -14,8 +14,8 @@
 import type { Card, CardGraph } from "./card.js";
 import type { CardSerializer } from "./card-serializer.js";
 import { parsePlanningPath, planningEffortId, planningTicketId } from "./planning-id.js";
+import { splitFencedYaml } from "./frontmatter-codec.js";
 import {
-  splitPlanningFrontmatter,
   extractTitle,
   extractResolutionGist,
   parseBlockedBy,
@@ -26,7 +26,7 @@ import {
 function effortCard(mapBytes: string, filePath: string): Card | null {
   const info = parsePlanningPath(filePath);
   if (!info || info.kind !== "planning-effort") return null;
-  const split = splitPlanningFrontmatter(mapBytes);
+  const split = splitFencedYaml(mapBytes);
   if (!split) return null;
   const { data, body } = split;
   const title = extractTitle(body);
@@ -57,7 +57,7 @@ function effortCard(mapBytes: string, filePath: string): Card | null {
 function ticketCard(ticketBytes: string, filePath: string): Card | null {
   const info = parsePlanningPath(filePath);
   if (!info || info.kind !== "planning-ticket" || !info.ticketNo) return null;
-  const split = splitPlanningFrontmatter(ticketBytes);
+  const split = splitFencedYaml(ticketBytes);
   if (!split) return null;
   const { data, body } = split;
   const title = extractTitle(body);
@@ -109,7 +109,9 @@ export class PlanningEffortSerializer implements CardSerializer<"planning-effort
     const lines: string[] = ["---"];
     if (typeof fm.status === "string") lines.push(`status: ${fm.status}`);
     lines.push("---", "");
-    if (typeof fm.title === "string") lines.push(`# ${fm.title}`, "");
+    // card.content is the canonical body INCLUDING its H1 (deserialize trims
+    // the post-fence body verbatim); emitting `# title` separately would
+    // duplicate the heading and break the round-trip fixed point (C1 golden).
     lines.push(card.content);
     return lines.join("\n");
   }
@@ -132,7 +134,8 @@ export class PlanningTicketSerializer implements CardSerializer<"planning-ticket
       lines.push(`blocked by: ${(fm.blockedBy as string[]).join(", ")}`);
     }
     lines.push("---", "");
-    if (typeof fm.title === "string") lines.push(`# ${fm.title}`, "");
+    // See PlanningEffortSerializer.serialize: content already carries the H1 —
+    // do not re-emit `# title` (round-trip fixed point, C1 golden).
     lines.push(card.content);
     return lines.join("\n");
   }
