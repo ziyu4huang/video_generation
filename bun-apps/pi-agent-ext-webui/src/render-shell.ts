@@ -9,7 +9,10 @@
  *   - GET /api/view/:id -> md injects the server-rendered html; html sets an
  *     <iframe sandbox=""> (no allow-scripts / allow-same-origin) srcdoc (D5).
  *   - EventSource('/api/events') -> on view_update refresh tabs + re-render the
- *     affected view.
+ *     affected view; a view carrying presentId auto-focuses (blocking HITL gate).
+ *   - When a view JSON carries presentId + controls, renderView appends a
+ *     declarative .webui-toolbar under #content; a control click sends an
+ *     appexec respond frame over /ws (one response per presentation).
  */
 export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
 <!doctype html>
@@ -30,13 +33,14 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   #content iframe { width: 100%; min-height: 70vh; border: 1px solid #8884; border-radius: 6px; background: #fff; }
   #content :is(pre,table) { background: #8881; padding: .5rem; border-radius: 4px; overflow:auto; }
   #content code { font-family: ui-monospace, monospace; }
-  /* zk-spawn prototype: per-image feedback toolbar + on-screen steer log */
-  .webui-result { margin: .5rem 0; padding: .5rem; border: 1px solid #8884; border-radius: 6px; background: #8881; }
-  .webui-result img { max-width: 100%; height: auto; border-radius: 4px; display: block; }
+  /* HITL response toolbar + on-screen response log */
   .webui-toolbar { display: flex; gap: .4rem; align-items: center; margin-top: .4rem; flex-wrap: wrap; }
   .webui-toolbar button { padding: .2rem .55rem; border: 1px solid #8886; border-radius: 4px; background: #8882; color: inherit; cursor: pointer; }
-  .webui-toolbar button:hover { background: #6cf3; }
+  .webui-toolbar button:hover:not(:disabled) { background: #6cf3; }
+  .webui-toolbar button:disabled { opacity: .45; cursor: default; }
+  .webui-toolbar button.webui-chosen { border-color: #6cf; background: #6cf3; font-weight: 600; }
   .webui-toolbar input { padding: .2rem .4rem; border: 1px solid #8886; border-radius: 4px; background: transparent; color: inherit; }
+  .webui-tweak { display: inline-flex; gap: .3rem; align-items: center; }
   #webui-feedback-log { position: fixed; right: .6rem; bottom: .6rem; width: 22rem; max-width: 70vw; max-height: 38vh; overflow: auto; background: #0009; color: #eee; padding: .45rem .55rem; border-radius: 6px; font: 12px/1.45 ui-monospace, monospace; box-shadow: 0 2px 10px #0006; z-index: 50; }
   #webui-feedback-log .webui-log-head { display: flex; justify-content: space-between; align-items: center; opacity: .85; margin-bottom: .2rem; }
   #webui-feedback-log .webui-log-head a { color: #9cf; cursor: pointer; text-decoration: none; }
@@ -50,7 +54,7 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   <div id="content"></div>
 </main>
 <div id="webui-feedback-log">
-  <div class="webui-log-head"><span>steer log</span><a id="webui-log-clear" href="#">clear</a></div>
+  <div class="webui-log-head"><span>response log</span><a id="webui-log-clear" href="#">clear</a></div>
   <div id="webui-feedback-log-body"></div>
 </div>
 <script>
@@ -94,8 +98,8 @@ async function renderView(id) {
     contentEl.appendChild(f);
   } else {
     contentEl.innerHTML = v.html || '';
-    attachFeedbackToolbars(contentEl);
   }
+  renderControls(v);
 }
 
 async function refresh() { await loadViews(); await renderView(activeId); }
@@ -104,78 +108,94 @@ function subscribe() {
   const es = new EventSource('/api/events');
   es.onmessage = async function (e) {
     let data; try { data = JSON.parse(e.data); } catch { return; }
-    if (data && data.viewId) { await loadViews(); if (data.viewId === activeId) await renderView(activeId); }
+    if (!data || !data.viewId) return;
+    await loadViews();
+    // Auto-focus on present (blocking gate): a presenting view the user is not
+    // looking at is a silent deadlock, so probe the updated view and switch to
+    // it when it carries a presentId. The SSE payload shape stays
+    // {viewId, updatedAt} — the probe uses the normal /api/view endpoint.
+    if (data.viewId !== activeId) {
+      try {
+        const res = await fetch('/api/view/' + encodeURIComponent(data.viewId));
+        if (res.ok) {
+          const v = await res.json();
+          if (v && v.presentId) { activeId = data.viewId; location.hash = data.viewId; }
+        }
+      } catch { /* probe failed — stay on the current view */ }
+    }
+    if (data.viewId === activeId) await renderView(activeId);
   };
   es.onerror = function () { es.close(); setTimeout(subscribe, 2000); };
 }
 
-// --- zk-spawn prototype: shell-hosted feedback toolbar over the /ws channel ---
-// Opens the EXISTING inbound WS (web-server.ts /ws upgrade) and sends 'steer'
-// frames (protocol.ts inbound schema). The PINNED formulations live in the pure
-// helpers at the bottom of this module (STEER_FRAME / APPROVE_TEXT /
-// REGENERATE_TEXT); the logic below inlines the same wording (prototype —
-// acceptable duplication, since the served HTML has no module/build step).
+// --- HITL response channel: the EXISTING inbound /ws (web-server.ts upgrade) ---
+// Mirrors the SSE reconnect pattern: on close/error, retry after 2s (guarded
+// against duplicate timers). sendAppexecResponse posts 'appexec' respond
+// frames (protocol.ts: AppExecCommandSchema keeps 'extra' loose; parseCommand
+// validates the respond sub-shape {kind:'respond', id, action, tweak?}).
 const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
-const ws = new WebSocket(wsUrl);
-ws.onopen  = function () { console.log('[webui] feedback ws open'); };
-ws.onclose = function () { console.log('[webui] feedback ws closed'); };
-ws.onerror = function () { console.warn('[webui] feedback ws error'); };
+let ws = null;
+let wsRetryTimer = null;
 
-function logSteer(text) {
+function connectWs() {
+  ws = new WebSocket(wsUrl);
+  ws.onopen = function () { console.log('[webui] response ws open'); };
+  ws.onclose = function () {
+    console.log('[webui] response ws closed; retry in 2s');
+    scheduleWsRetry();
+  };
+  ws.onerror = function () { console.warn('[webui] response ws error'); scheduleWsRetry(); };
+}
+
+function scheduleWsRetry() {
+  if (wsRetryTimer !== null) return; // one in-flight retry timer at most
+  wsRetryTimer = setTimeout(function () { wsRetryTimer = null; connectWs(); }, 2000);
+}
+
+connectWs();
+
+function logResponse(text) {
   const body = document.getElementById('webui-feedback-log-body');
   if (!body) return;
   const line = document.createElement('div');
   const shown = text.length > 120 ? text.slice(0, 117) + '...' : text;
-  line.textContent = '\u2192 steer: ' + shown;
+  line.textContent = '\u2192 ' + fmtTime(Date.now()) + ' \u00b7 ' + shown;
   body.appendChild(line);
 }
 
-function sendSteer(text) {
-  const frame = { type: 'steer', text: text };
+function sendAppexecResponse(id, action, tweak) {
+  const extra = { kind: 'respond', id: id, action: action };
+  if (tweak) extra.tweak = tweak; // omit the key when absent (present-tool details semantics)
+  const frame = { type: 'appexec', extra: extra };
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(frame));
+    console.log('[webui] appexec response sent:', JSON.stringify(frame));
   } else {
     console.warn('[webui] ws not open; would send:', frame);
   }
-  logSteer(text);
+  logResponse(action + (tweak ? ' (tweak: ' + tweak + ')' : ''));
 }
 
-function basenameOf(img) {
-  const src = img.getAttribute('src');
-  if (!src) return '(unknown)';
-  const parts = src.split('/');
-  return parts[parts.length - 1] || '(unknown)';
-}
+// One response per presentation: remembered across SSE re-renders so the
+// toolbar re-renders disabled with the chosen control marked.
+let respondedPresent = null; // { id, action }
 
-function attachFeedbackToolbars(root) {
-  const imgs = root.querySelectorAll('img');
-  imgs.forEach(function (img) {
-    if (img.dataset.webuiToolbar === '1') return; // idempotent across re-renders
-    img.dataset.webuiToolbar = '1';
-    if (!img.parentNode) return;
-    // Wrap the img so the toolbar rides with it as a sibling block.
-    const wrap = document.createElement('div');
-    wrap.className = 'webui-result';
-    img.parentNode.insertBefore(wrap, img);
-    wrap.appendChild(img);
+function renderControls(v) {
+  if (!v.presentId || !v.controls || !v.controls.length) return;
+  const done = respondedPresent && respondedPresent.id === v.presentId;
+  const bar = document.createElement('div');
+  bar.className = 'webui-toolbar';
+  v.controls.forEach(function (c) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = c.label || c.id;
+    if (done) btn.disabled = true;
+    if (done && respondedPresent.action === c.id) btn.classList.add('webui-chosen');
 
-    const bar = document.createElement('div');
-    bar.className = 'webui-toolbar';
-
-    const approve = document.createElement('button');
-    approve.type = 'button';
-    approve.textContent = 'Approve';
-    approve.onclick = function () {
-      sendSteer('Approved: image ' + basenameOf(img) + ' looks good, no changes needed.');
-    };
-    bar.appendChild(approve);
-
-    const regen = document.createElement('button');
-    regen.type = 'button';
-    regen.textContent = 'Regenerate\u2026';
-    const regenBox = document.createElement('span');
-    regenBox.className = 'webui-regen';
-    regenBox.style.display = 'none';
+    // takesInput controls reveal a tweak input + Enter-to-send (#03 pattern).
+    const box = document.createElement('span');
+    box.className = 'webui-tweak';
+    box.style.display = 'none';
     const tweakIn = document.createElement('input');
     tweakIn.type = 'text';
     tweakIn.placeholder = 'tweak (optional)';
@@ -183,27 +203,34 @@ function attachFeedbackToolbars(root) {
     const tweakSend = document.createElement('button');
     tweakSend.type = 'button';
     tweakSend.textContent = 'Send';
-    function submitRegen() {
+    function submit() {
       const t = (tweakIn.value || '').trim();
-      if (t) sendSteer('Regenerate image ' + basenameOf(img) + ' with: ' + t);
-      else sendSteer('Regenerate image ' + basenameOf(img) + '.');
-      tweakIn.value = '';
+      sendAppexecResponse(v.presentId, c.id, t || undefined);
+      respondedPresent = { id: v.presentId, action: c.id };
+      bar.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+      btn.classList.add('webui-chosen');
+      box.style.display = 'none';
     }
-    tweakSend.onclick = submitRegen;
+    tweakSend.onclick = submit;
     tweakIn.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); submitRegen(); }
+      if (e.key === 'Enter') { e.preventDefault(); submit(); }
     });
-    regenBox.appendChild(tweakIn);
-    regenBox.appendChild(tweakSend);
-    regen.onclick = function () {
-      regenBox.style.display = regenBox.style.display === 'none' ? '' : 'none';
-      if (regenBox.style.display !== 'none') tweakIn.focus();
-    };
-    bar.appendChild(regen);
-    bar.appendChild(regenBox);
+    box.appendChild(tweakIn);
+    box.appendChild(tweakSend);
 
-    wrap.appendChild(bar);
+    btn.onclick = function () {
+      if (btn.disabled) return;
+      if (c.takesInput && box.style.display === 'none') {
+        box.style.display = '';
+        tweakIn.focus();
+      } else {
+        submit();
+      }
+    };
+    bar.appendChild(btn);
+    bar.appendChild(box);
   });
+  contentEl.appendChild(bar);
 }
 
 (async function () {
@@ -221,19 +248,24 @@ function attachFeedbackToolbars(root) {
 </html>`;
 
 /**
- * Pure steer-message formulations (zk-spawn prototype, ticket #03). These are
- * the PINNED shapes the inline browser script above duplicates; tests assert
- * against these so the exact wording is gridded WITHOUT a DOM. The inline
- * script must inline the same logic (the served HTML string has no module /
- * build step), so they are intentionally duplicated here.
+ * Pure appexec respond frame (phase 3, spec Component 4). This is the PINNED
+ * wire shape the inline browser script above duplicates; tests assert against
+ * it so the exact frame is gridded WITHOUT a DOM. The inline script must
+ * inline the same logic (the served HTML string has no module / build step),
+ * so it is intentionally duplicated here. `tweak` is omitted when undefined —
+ * matching the present-tool details semantics (protocol.ts DispatchAction
+ * respond variant makes tweak optional).
  */
-export const STEER_FRAME = (text: string): { type: "steer"; text: string } => ({
-  type: "steer",
-  text,
-});
-
-export const APPROVE_TEXT = (basename: string): string =>
-  `Approved: image ${basename} looks good, no changes needed.`;
-
-export const REGENERATE_TEXT = (basename: string, tweak: string): string =>
-  tweak ? `Regenerate image ${basename} with: ${tweak}` : `Regenerate image ${basename}.`;
+export const APPEXEC_FRAME = (
+  id: string,
+  action: string,
+  tweak?: string,
+): { type: "appexec"; extra: { kind: "respond"; id: string; action: string; tweak?: string } } => {
+  const extra: { kind: "respond"; id: string; action: string; tweak?: string } = {
+    kind: "respond",
+    id,
+    action,
+  };
+  if (tweak !== undefined && tweak !== "") extra.tweak = tweak;
+  return { type: "appexec", extra };
+};
