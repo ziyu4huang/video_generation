@@ -32,9 +32,10 @@
  * SAG uses 11 types (person/organization/location/time/product/metric/action/
  * work/group/subject/tags). Our domain is developer-knowledge (tools, models,
  * configs, errors), so we re-target to 8 types that surface the *specific*
- * bridges our flat tags miss. Each entity carries only {type, name} (no role
- * description — we are deterministic; the card body IS the role context, and
- * adding fabricated descriptions would be lossy).
+ * bridges our flat tags miss. Each entity carries {type, name} (an optional
+ * `description` exists for the Phase-2 LLM extractor; the deterministic
+ * dictionary path never sets it — adding fabricated descriptions would be
+ * lossy).
  *
  * Library only — no ExtensionAPI, no LLM, no network. Used by ingest.ts
  * (IDF-weighted cross-link computation + additive frontmatter) and retrieve.ts
@@ -58,6 +59,10 @@ export type EntityType =
 export interface ExtractedEntity {
 	type: EntityType;
 	name: string;
+	/** Optional gloss (Phase-2 LLM extractor only). The dictionary path
+	 *  always leaves this undefined — it is deterministic and fabricating
+	 *  descriptions would be lossy; the card body is the role context. */
+	description?: string;
 }
 
 /** A typed graph edge emitted by an `Extractor` (LeanRAG ⑤). The dictionary

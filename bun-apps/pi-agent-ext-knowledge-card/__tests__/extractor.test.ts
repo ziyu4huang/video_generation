@@ -12,6 +12,7 @@ import { test, expect, describe } from "bun:test";
 import { extractEntities } from "../src/entities.ts";
 import {
 	DictionaryExtractor,
+	LlmRelationExtractor,
 	resolveExtractor,
 	type Extractor,
 	type ExtractionResult,
@@ -70,18 +71,14 @@ describe("DictionaryExtractor", () => {
 });
 
 describe("resolveExtractor — kg.llm gate (D4, default OFF)", () => {
-	// The kg.llm flag is real + wired (Task 3 / D4). Phase-1 is a GRACEFUL NO-OP:
-	// even with the flag ON, resolveExtractor MUST still return the deterministic
-	// DictionaryExtractor — the LLM impl doesn't exist yet (Phase-2), so turning
-	// it on never throws and never costs an LLM call. This test makes the gate
-	// observable: kgLlm=true yields dictionary entities, not a crash.
-	test("flag ON (kgLlm=true) is a graceful no-op → dictionary entities, no throw", async () => {
-		const extractor = resolveExtractor(true);
-		expect(extractor).toBeInstanceOf(DictionaryExtractor);
-		const result = await extractor.extract(FIXTURE);
-		// Same dictionary entities the default path emits; relations still [].
-		expect(result.entities).toEqual(extractEntities(FIXTURE));
-		expect(result.relations).toEqual([]);
+	// The kg.llm flag is real + wired (Task 3 / D4). Phase-2 SHIPPED (Task 2):
+	// with the flag ON, resolveExtractor returns the LlmRelationExtractor (which
+	// itself degrades to dictionary-equivalent output on any LLM failure — see
+	// llm-extractor.test.ts). This test only pins the SELECTION — it must not
+	// call extract() without an injected `_fetchImpl` (that would hit a real
+	// LM Studio endpoint from the suite).
+	test("flag ON (kgLlm=true) → LlmRelationExtractor (Phase-2 shipped)", () => {
+		expect(resolveExtractor(true)).toBeInstanceOf(LlmRelationExtractor);
 	});
 
 	test("flag OFF (kgLlm=false) → default DictionaryExtractor (dictionary path)", async () => {

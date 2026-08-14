@@ -153,6 +153,10 @@ export interface IngestOptions {
 	 *  until Phase-2 the flag is real + wired but turning it ON is a graceful
 	 *  no-op (dictionary fallback). Env fallback `PI_KG_LLM=1`. */
 	kgLlm?: boolean;
+	/** Chat model id for the kg.llm extractor (Phase-2 T2). Threaded to
+	 *  `resolveExtractor` as the `LlmRelationExtractor` model override; env
+	 *  fallback `PI_KG_LLM_MODEL` (zk default "google/gemma-4-12b-qat"). */
+	kgLlmModel?: string;
 }
 
 export type CardOutcome = "created" | "updated" | "unchanged";
@@ -1358,11 +1362,11 @@ export async function ingestRecords(
 	// kg.llm gate (D4, ticket 03 T3): the effective flag is IngestOptions.kgLlm
 	// with a `PI_KG_LLM=1` env fallback (env mirrors the LMSTUDIO_BASE_URL read
 	// style in semantic.ts). Threaded to the extractor-selection point
-	// (resolveExtractor). Default OFF → dictionary path. When ON this is still a
-	// GRACEFUL NO-OP: Phase-2's LLM extractor doesn't exist yet, so the flag is
-	// real + wired but turning it on yields dictionary entities (no throw, no
-	// LLM). Phase-2 plugs LlmRelationExtractor inside resolveExtractor.
+	// (resolveExtractor). Default OFF → dictionary path. Phase-2 SHIPPED: when
+	// ON, resolveExtractor returns LlmRelationExtractor, which itself degrades
+	// to dictionary-equivalent output on any LLM failure (never-throws).
 	const kgLlm = opts.kgLlm ?? process.env.PI_KG_LLM === "1";
+	const kgLlmModel = opts.kgLlmModel ?? process.env.PI_KG_LLM_MODEL;
 	const folderAbs = join(opts.vaultPath, folder);
 
 	if (!existsSync(opts.vaultPath)) {
@@ -1555,7 +1559,8 @@ export async function ingestRecords(
 		if (linkWeighting === "idf") {
 			entities = (rec.entities as ExtractedEntity[] | undefined)?.length
 				? (rec.entities as ExtractedEntity[])
-				: (await resolveExtractor(kgLlm).extract(`${rec.title} ${rec.detail}`)).entities;
+				: (await resolveExtractor(kgLlm, kgLlmModel ? { kgLlmModel } : undefined).extract(`${rec.title} ${rec.detail}`))
+					.entities;
 		}
 		const content = renderCard(rec, created, tags, links, opts.sourceLabel, maxDetailChars, entities);
 

@@ -18,6 +18,12 @@ export interface IngestOptions {
    *  it's a graceful no-op (dictionary fallback). Carried from hermes's
    *  `MemoryConfig.kgLlm` (env fallback `PI_KG_LLM=1`). */
   kgLlm?: boolean;
+  /** Chat model id for the kg.llm extractor (Phase-2 T2). Threaded to zk's
+   *  `resolveExtractor` as the `LlmRelationExtractor` model override; env
+   *  fallback `PI_KG_LLM_MODEL` (zk default "google/gemma-4-12b-qat").
+   *  Walk-and-ingest / hermes call-sites may rely on the env default — the
+   *  field is the explicit carrier. */
+  kgLlmModel?: string;
 }
 // Mirrors zk's actual IngestCardReport ({id,path,status,links}); the plan's
 // draft wrongly declared `title` (zk has none) — return-type covariance requires
