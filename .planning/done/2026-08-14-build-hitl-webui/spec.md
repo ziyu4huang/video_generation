@@ -1,5 +1,5 @@
 ---
-status: ready
+status: complete
 effort: 2026-08-14-build-hitl-webui
 phase: DESIGN (spec) — precedes SDD plan + EXECUTE
 ---
