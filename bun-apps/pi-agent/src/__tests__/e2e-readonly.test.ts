@@ -32,7 +32,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { E2E_ENABLED, DEPLOY_ENABLED, PI_AGENT_DIR } from "./e2e-harness.ts";
+import { E2E_ENABLED, DEPLOY_ENABLED, PI_AGENT_DIR, DEPLOY_SCRIPT } from "./e2e-harness.ts";
 
 const SKIPPED = !(E2E_ENABLED && DEPLOY_ENABLED);
 
@@ -61,7 +61,7 @@ for (const MODE of MODES) {
 			// longer has a --verify flag — its old boot+probe step was dropped in
 			// the bundle/snapshot/standalone/exe unification; the doctor/smoke
 			// probes below cover the same ground.)
-			const deploy = Bun.spawn(["bun", "scripts/deploy.ts", pkgDir, ...MODE.flag], {
+			const deploy = Bun.spawn(["bun", DEPLOY_SCRIPT, pkgDir, ...MODE.flag], {
 				cwd: PI_AGENT_DIR,
 				stdout: "inherit",
 				stderr: "inherit",

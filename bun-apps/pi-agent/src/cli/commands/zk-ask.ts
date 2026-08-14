@@ -3,9 +3,9 @@
  *
  * Pipeline (single agent session):
  *   1. Seed retrieval  — 3-strategy search (same tools as zk-card find)
- *   2. Graph expansion — obsidian_search graph:"neighbors" N-hop, with per-seed cap
+ *   2. Graph expansion — obsidian action:"search" graph:"neighbors" N-hop, per-seed cap
  *   3. Cluster & rank  — deterministic score (search_score + link_count), take top-K
- *   4. Context assembly — obsidian_read each note; optional per-cluster summary
+ *   4. Context assembly — obsidian action:"read" each note; optional per-cluster summary
  *   5. Generate        — LLM answers question with assembled context
  *                        (--retrieve-only skips generation, shows context only)
  */

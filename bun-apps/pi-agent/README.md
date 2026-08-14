@@ -160,7 +160,7 @@ needs its env-var contract in place (`MLX_MODELS_DIR`, `MLX_OUTPUT_DIR`, `OB_VAU
 [`docs/pi-cross-machine-setup.md`](docs/pi-cross-machine-setup.md), and
 The `cli` subcommand tree ships a `doctor` self-check that verifies everything is wired:
 ```bash
-bun bun-apps/pi-agent/src/cli.ts cli doctor [--json] [--fix]
+bun bun-apps/pi-agent/src/cli.ts cli doctor [--json]
 ```
 ## Build / Deploy modes
 pi-agent ships via four deploy modes, all driven by `../pi-agent-ext-devops/scripts/deploy.ts`.
@@ -305,28 +305,20 @@ while every static check stayed green (`total=8 matched=0` instead of `~38
 matched=25`). A smoke `matched=0` is a hard FAIL with an actionable hint.
 Default doctor stays pure/offline/fast — `--smoke` is opt-in (it spawns a
 subprocess). Skipped (INFO) for the compiled binary, which can't load `.ts`.
-### `doctor --fix` — auto-remediate, then re-check
-```bash
-bun src/cli.ts doctor --fix      # source mode: "nothing to fix" (host-deps is info)
-./run.sh doctor --fix            # any deployed layout
-```
-`--fix` derives a fix plan from the current report, applies it (mutating), then
-re-runs the checks — the same create-then-recheck shape as
-`pi-agent cli doctor --fix`. The decisive pi-agent fix: when a `--snapshot`
-deploy lands on a host whose `node_modules` subset didn't get installed,
-`checkHostDeps` FAILs (typebox/`@earendil-works/*` are essential there) —
-`--fix` runs `bun install` in the deploy dir to self-heal it, then re-checks (snapshot/standalone only):
-```bash
-bun ../pi-agent-ext-devops/scripts/deploy.ts /tmp/pi-snapshot --snapshot
-rm -rf /tmp/pi-snapshot/node_modules
-/tmp/pi-snapshot/run.sh doctor
-/tmp/pi-snapshot/run.sh doctor --fix
-```
-Applies to `--snapshot` too. The default THIN **bundle** is skipped: its `package.json` is
-minimal `{name,private,type}` with no deps, so `bun install` is a no-op there —
-it stays hint-only WARN (copy a `node_modules` in by hand if extensions fail to
-load). `source`/`binary` print "nothing to fix" (host-deps
-is INFO — pi resolves its own deps).
+### `doctor --fix` — REMOVED
+
+`--fix` used to derive a fix plan and run `bun install` in the deploy dir. It
+never ran: its planner gated on `portable` / `release`, deploy modes nothing can
+produce, so it always printed *nothing to fix* — which reads as "your deploy is
+healthy".
+
+Re-homing it onto `--snapshot` (what this section used to document) was tried
+and rejected on evidence: a snapshot is not a workspace, so `bun install` inside
+its deploy dir fails on every `workspace:*` dependency.
+
+**A deploy artifact is not repairable in place — re-deploy it.** Every check
+that can detect a broken deploy says so in its hint.
+
 ## Add your own patch
 1. Create `src/patches/<name>.ts` that patches a prototype/module.
 2. Register it (env-gated) in `src/patches/index.ts`.

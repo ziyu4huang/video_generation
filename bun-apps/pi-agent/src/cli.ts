@@ -24,7 +24,7 @@
  */
 import { main } from "@earendil-works/pi-coding-agent";
 import { applyPatches } from "./patches/index.ts";
-import { runDoctor } from "./doctor.ts";
+import { runDoctor, removedFlagNotice } from "./doctor.ts";
 import {
 	isDoctorCommand,
 	isExtDoctorCommand,
@@ -32,7 +32,9 @@ import {
 	userSuppressFlags,
 	overriddenStaticExtensions,
 } from "./cli-argv.ts";
-import { STATIC_EXTENSION_FACTORIES } from "./static-extensions.ts";
+// NOTE: static-extensions.ts is imported DYNAMICALLY, below the `cli` intercept
+// — see the comment there. A static import here would evaluate all 14 extension
+// entry graphs before the intercept ever runs.
 
 // Extension loading: handled by the `ensure-extension-deps` patch (see
 // src/patches/ensure-extension-deps.ts), which creates repo-root node_modules
@@ -59,11 +61,15 @@ if (isDoctorCommand(argv)) {
 	// `--smoke`: opt-in runtime check that actually spawns a probe and verifies
 	// run-dir extensions load (catches the silent-no-op class the static checks
 	// miss). Default doctor stays pure/offline/fast.
-	// `--fix`: opt-in auto-remediate (runs `bun install` for unresolvable host
-	// deps in a portable/release deploy), then re-checks.
+	// (`--fix` was removed — see the "auto-fix: REMOVED" block in doctor.ts.
+	// It gated on deploy modes nothing can produce, and its one action cannot
+	// repair any mode that exists. It is announced rather than silently dropped:
+	// doctor has no flag-spec, so an unknown token otherwise leaves a clean
+	// report that reads as "--fix ran and found nothing".)
+	const notice = removedFlagNotice(argv);
+	if (notice) console.error(notice);
 	const report = await runDoctor({
 		json: argv.includes("--json"),
-		fix: argv.includes("--fix"),
 		smoke: argv.includes("--smoke"),
 	});
 	process.exit(report.ok ? 0 : 1);
@@ -101,6 +107,27 @@ if (isCliCommand(argv)) {
 // Patches MUST be applied before main() constructs ModelRegistry. Among other
 // things, this splices run-dir/ extension + skill paths into process.argv.
 await applyPatches();
+
+// Static extension factories, loaded HERE rather than at the top of the file.
+//
+// A top-level `import` is hoisted and evaluated before ANY statement runs —
+// including the `cli` intercept above. That made the protection one-way: the
+// TUI never evaluated the CLI subtree (that import is dynamic), but every CLI
+// invocation evaluated all 14 static extension entry graphs. ADR 0001 and the
+// merge spec both claim the CLI pays for none of the TUI's setup; two of the
+// three held.
+//
+// It is not merely a cost: static-extensions.ts pulls each extension's entry
+// module, and any import-time side effect in one of them lands in every CLI
+// run. That is not hypothetical — pi-agent-ext-webui imports
+// `@earendil-works/pi-coding-agent` without declaring it, resolving only via
+// the repo-root symlinks `ensure-extension-deps` creates. Because this import
+// was hoisted above applyPatches(), webui's graph was evaluated BEFORE the
+// patch that makes it resolvable, and a --snapshot deploy died on it.
+//
+// Loading it after applyPatches() also means the symlinks exist by the time
+// these graphs are evaluated, which is the correct order regardless.
+const { STATIC_EXTENSION_FACTORIES } = await import("./static-extensions.ts");
 
 // Re-slice AFTER patches so the run-dir splice (and any other process.argv
 // mutation above) reaches main(). main(args) consumes the passed array

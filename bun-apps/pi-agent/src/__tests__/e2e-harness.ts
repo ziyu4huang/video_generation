@@ -26,6 +26,17 @@ export const SRC_CLI = join(PI_AGENT_DIR, "src", "cli.ts");
 /** Bundle entry, produced by `bun scripts/deploy.ts` default (--bundle) mode. */
 export const DIST_BUNDLE = join(REPO_ROOT, "dist", "pi-agent", "pi-agent.js");
 
+/**
+ * The deploy script, relative to PI_AGENT_DIR (every e2e spawn sets that cwd).
+ *
+ * Exported so the three deploy e2e call sites share ONE path. #1305 moved
+ * deploy.ts into the sibling devops package and updated package.json's scripts
+ * and every comment, but not the three `Bun.spawn(["bun", "scripts/deploy.ts"])`
+ * literals — so `Module not found` only surfaced at the high/readonly tiers,
+ * which the default `bun test` does not run. One constant, one place to fix.
+ */
+export const DEPLOY_SCRIPT = "../pi-agent-ext-devops/scripts/deploy.ts";
+
 const truthy = (v: string | undefined) =>
 	v === "1" || v === "true" || v === "yes";
 
@@ -53,13 +64,13 @@ export function ensureBundle(): Promise<string> {
 		if (existsSync(DIST_BUNDLE) && truthy(process.env.PI_AGENT_E2E_NO_BUILD)) {
 			return DIST_BUNDLE;
 		}
-		const build = Bun.spawn(["bun", "scripts/deploy.ts"], {
+		const build = Bun.spawn(["bun", DEPLOY_SCRIPT], {
 			cwd: PI_AGENT_DIR,
 			stdout: "inherit",
 			stderr: "inherit",
 		});
 		const code = await build.exited;
-		if (code !== 0) throw new Error(`bun scripts/deploy.ts exited ${code}`);
+		if (code !== 0) throw new Error(`bun ${DEPLOY_SCRIPT} exited ${code}`);
 		if (!existsSync(DIST_BUNDLE)) {
 			throw new Error(`build ok but ${DIST_BUNDLE} not found`);
 		}

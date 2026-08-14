@@ -458,6 +458,14 @@ async function resolveRunDirArgvUnfiltered(): Promise<string[]> {
     // EXCEPT in --portable: npm exts are FULL-bundled into ext-bundles (no
     // separate -e path), and the baked abs paths would re-introduce a repo
     // dependency, so emit none.
+    //
+    // DEAD BRANCH: nothing writes `.deploy-portable`. deploy.ts accepts only
+    // --bundle/--snapshot/--standalone/--exe (`--portable` hard-errors) and
+    // writes only `.deploy-bundle`/`.deploy-readonly`. This and the
+    // `deploy-package` mode below are leftovers from the rename that doctor.ts
+    // has now been cleaned of; removing them here also means retiring
+    // detectRunDirMode's exported "deploy-package" variant and its tests, so it
+    // is tracked as its own change. Not evidence that --portable exists.
     const portable = existsSync(join(selfDir, ".deploy-portable"));
     const npmPaths = portable ? [] : await resolveNpmExtensionPaths();
     return ["-ne", ...buildBundleArgv(selfDir, npmPaths)];

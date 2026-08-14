@@ -68,12 +68,22 @@ FAILED_NAMES=()
 for wf in "${WORKFLOWS[@]}"; do
   rel="${wf#$REPO_ROOT/}"
   echo "── running $rel ──"
-  if bun "$SCRIPT_DIR/../src/cli.ts" \
+  # Capture to a log, THEN grep the file — never `… | grep -q` under pipefail.
+  # `grep -q` exits on its first match and closes the pipe; `tee` (and often the
+  # producer) then dies on SIGPIPE with 141, and pipefail makes 141 the
+  # pipeline's status. So the SUCCESS case took the failure branch — and only
+  # sometimes, since it races the producer's own exit. A green run reported as
+  # ✗, intermittently, is worse than a crash.
+  log="/tmp/pi-agent-ext-e2e-$$-$PASS$FAIL.log"
+  bun "$SCRIPT_DIR/../src/cli.ts" \
       -p "read the file $rel, then call the workflow tool with its FULL source as the script parameter (no markdown fences), background:false, and report the structured result it returns." \
-      2>&1 | tee /dev/stderr | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true'; then
+      2>&1 | tee "$log" >&2 || true
+  if grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' "$log"; then
+    rm -f "$log"
     echo "✓ $rel"
     PASS=$((PASS+1))
   else
+    rm -f "$log"
     echo "✗ $rel (no \"ok\": true in result, or run errored)"
     FAIL=$((FAIL+1))
     FAILED_NAMES+=("$rel")

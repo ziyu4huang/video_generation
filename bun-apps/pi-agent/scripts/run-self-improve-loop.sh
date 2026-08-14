@@ -120,7 +120,13 @@ echo "   args:   $ARGS"
 # stdout line and exits 0 on completion (converged OR needsReview). A converged
 # loop has "converged":true in that line.
 LOG=/tmp/flux2-self-improve-loop-$$.log
-if bun "$DRIVER" --args "$ARGS" 2>&1 | tee "$LOG" | grep -Eq '"converged"[[:space:]]*:[[:space:]]*true'; then
+# Run first, grep the log after — never `… | grep -q` under pipefail. `grep -q`
+# exits on its first match and closes the pipe, `tee` dies on SIGPIPE with 141,
+# and pipefail makes that the pipeline's status: a CONVERGED loop was reported
+# as "did NOT converge". Racy, so it flipped only sometimes. The else-branch
+# below already greps $LOG — this just makes both branches do the same thing.
+bun "$DRIVER" --args "$ARGS" 2>&1 | tee "$LOG" || true
+if grep -Eq '"converged"[[:space:]]*:[[:space:]]*true' "$LOG"; then
   echo "✓ loop converged (see LOOP_RESULT above)"
   exit 0
 else

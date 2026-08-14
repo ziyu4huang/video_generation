@@ -68,9 +68,9 @@ _Avoid_: health check, preflight (it is a deploy/machine boundary-condition chec
 Spawns a throwaway probe that calls `pi.getAllTools()` at `session_start` and counts run-dir-sourced tools — catches the silent-no-op class (extensions that fail to load while every static check stays green).
 _Avoid_: runtime test, integration check (it is an offline tool-count probe at session_start)
 
-**`doctor --fix`**:
-Derives a fix plan from the report, applies it (e.g. `bun install` for a broken `--snapshot`/`--standalone` node_modules), then re-checks.
-_Avoid_: auto-repair, remediation
+**`doctor --fix`** — REMOVED:
+Derived a fix plan and ran `bun install` in the deploy dir. It gated on `portable`/`release`, modes deploy.ts cannot produce, so it never ran; and `bun install` cannot repair a snapshot anyway (not a workspace → every `workspace:*` dep fails to resolve). A deploy artifact is re-deployed, not repaired.
+_Avoid_: describing pi-agent as self-healing — it is not
 
 ## Non-interactive CLI
 

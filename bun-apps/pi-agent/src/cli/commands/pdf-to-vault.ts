@@ -481,12 +481,19 @@ Examples:
 					console.error(
 						`\n⚠ stage 2 produced 0 notes — retrying with explicit tool-call directive`,
 					);
+					// Name the tool the session ACTUALLY has. Stage 2 runs through
+					// zkExtractCommand, whose allowlist is DISTILL_TOOLS
+					// (read / obsidian / obsidian_help) — `obsidian_distill` stopped
+					// being a registered tool when pi-obsidian collapsed its 18
+					// `obsidian_*` tools into one action-dispatched facade. So this
+					// recovery prompt, written to fix hallucinated tool calls, was
+					// itself instructing a hallucinated tool call.
 					const s2retry: ParsedArgs = {
 						...s2,
 						appendSystemPrompt: [
-							"CRITICAL: Your ONLY valid action is to call the obsidian_distill tool NOW. " +
+							'CRITICAL: Your ONLY valid action is to call the `obsidian` tool with action: "distill" NOW. ' +
 								"Do NOT write any text before making the tool call. " +
-								"Invoke obsidian_distill immediately as your first action.",
+								"Invoke it immediately as your first action.",
 						],
 					};
 					await zkExtractCommand.run(s2retry);

@@ -2,7 +2,7 @@
 
 > **Tech note** — recorded 2026-07-03.
 
-Since 2026-07-03, `scripts/deploy.ts` **freezes every deploy by default**:
+Since 2026-07-03, `../pi-agent-ext-devops/scripts/deploy.ts` **freezes every deploy by default**:
 `chmod -R a-w` the out-dir and write a `.deploy-readonly` marker. `--no-freeze`
 opts out (the e2e harness uses it to clean up). A re-deploy auto-`chmod -R u+w`s
 the frozen tree before `rmSync`.
@@ -61,14 +61,21 @@ A frozen tmp deploy needs `chmod -R u+w` before `rmSync` or EPERMs (the test's
 ## Usage
 
 ```sh
-bun scripts/deploy.ts /opt/pi-agent        # frozen by default
+bun ../pi-agent-ext-devops/scripts/deploy.ts /opt/pi-agent        # frozen by default
 sudo chown -R root:wheel /opt/pi-agent     # truly read-only
 cd ~/project && /opt/pi-agent/run.sh       # runs; state → ~/.pi/agent
-bun scripts/deploy.ts /tmp/dev --no-freeze # opt out of freeze (iteration)
+bun ../pi-agent-ext-devops/scripts/deploy.ts /tmp/dev --no-freeze # opt out of freeze (iteration)
 ```
 
 ## Note on `doctor --fix`
 
-`doctor --fix` writes to the deploy dir (`bun install` for host deps) — opt-in,
-so skip it on a read-only deploy. On `/opt`, `--fix` would EACCES; that's the
-signal that the deploy is correctly frozen.
+**Removed.** `--fix` used to `bun install` into the deploy dir, which is exactly
+the write a frozen deploy is built to reject — but it never actually ran (its
+planner gated on deploy modes nothing produces), and its one action cannot
+repair any mode that does exist. See
+[README § `doctor --fix` — REMOVED](../README.md#doctor---fix--removed).
+
+Nothing about a read-only deploy needs an opt-out any more: `doctor` is pure and
+offline, and `doctor --smoke` spawns a probe that writes only to `~/.pi/agent`.
+A frozen deploy that fails its checks is repaired by re-deploying it, not by
+mutating it in place. Passing `--fix` prints a note and runs the checks anyway.
