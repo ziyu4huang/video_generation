@@ -3,7 +3,8 @@
 DevOps tools for the pi coding agent — a **tool-based** PR-merge / branch /
 local-CI lifecycle that replaces brittle agent-side bash polling loops. All
 `gh`/`git` output is parsed as structured JSON (no `grep -c` footguns); the full
-recipes live in tested code (`src/`).
+recipes live in tested code (`src/`). The package also owns the shared pipeline
+scripts — `scripts/deploy.ts`, `scripts/run-test.sh`, `scripts/ci-local.sh`.
 
 ## Tools
 

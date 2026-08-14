@@ -70,7 +70,7 @@ export async function runDeploy(
 			exitCode: -1,
 			logPath: "",
 			errorTail:
-				"Could not locate the source pi-agent dir (scripts/deploy.ts not found). " +
+				"Could not locate the source pi-agent dir (pi-agent-ext-devops/scripts/deploy.ts not found). " +
 				"Run pi-agent from the repo, or set PI_AGENT_DIR=<repo>/bun-apps/pi-agent.",
 		};
 	}
@@ -82,7 +82,9 @@ export async function runDeploy(
 	const argv = buildDeployArgv(params);
 	const res = await run({
 		cmd: "bun",
-		args: ["scripts/deploy.ts", ...argv],
+		// deploy.ts moved to pi-agent-ext-devops/scripts/, but still requires
+		// cwd == the pi-agent package dir (see assertCorrectCwd in deploy.ts).
+		args: ["../pi-agent-ext-devops/scripts/deploy.ts", ...argv],
 		cwd: piAgentDir,
 		timeoutMs: DEPLOY_TIMEOUT_MS,
 		logName: "pi-deploy",

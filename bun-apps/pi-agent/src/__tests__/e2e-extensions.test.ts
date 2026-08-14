@@ -2,7 +2,7 @@
  * e2e-extensions — pi-agent extension loading across source AND deployed-package
  * layouts, from multiple cwds. (Formerly scripts/verify.ts — folded into bun:test
  * so `bun test` is the single entry point, and so it gates behind PI_AGENT_E2E
- * like the other bundle e2e. Run via `./bun-apps/pi-agent/run-test.sh` or
+ * like the other bundle e2e. Run via `bun-apps/pi-agent-ext-devops/scripts/run-test.sh` or
  * `PI_AGENT_E2E=1 bun test`, or directly `bun run verify`.)
  *
  * WHY THIS EXISTS

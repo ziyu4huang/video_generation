@@ -18,7 +18,7 @@
  *   3. an explicit `--model` on the command line suppresses only PI_MODEL.
  *
  * Gated on PI_AGENT_E2E=1 (keeps `bun test` baseline fast). Run via
- * `./bun-apps/pi-agent/run-test.sh` or `PI_AGENT_E2E=1 bun test`.
+ * `bun-apps/pi-agent-ext-devops/scripts/run-test.sh` or `PI_AGENT_E2E=1 bun test`.
  */
 import { describe, test, expect, beforeAll } from "bun:test";
 import { E2E_ENABLED, ensureBundle, runBundle } from "./e2e-harness.ts";

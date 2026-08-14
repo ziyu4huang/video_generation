@@ -2,11 +2,13 @@
  * run.ts — locate the source pi-agent dir, path-guard outDir, and spawn a
  * script with captured + logged output and a timeout.
  *
- * deploy.ts and run-test.sh live ONLY in the source repo (bun-apps/pi-agent),
- * never in a deployed bundle. So the tools are dev-time: they resolve the
- * source dir (PI_AGENT_DIR env, else an upward walk for a sibling pi-agent/
- * containing scripts/deploy.ts + run-test.sh) and refuse to spawn if it can't
- * be found.
+ * deploy.ts and run-test.sh live ONLY in the source repo
+ * (bun-apps/pi-agent-ext-devops/scripts/), never in a deployed bundle. The
+ * resolver still returns the pi-agent package dir (deploy.ts requires that
+ * cwd); a candidate is valid only when its SIBLING pi-agent-ext-devops/
+ * contains scripts/deploy.ts + scripts/run-test.sh. So the tools are dev-time:
+ * they resolve the source dir (PI_AGENT_DIR env, else an upward walk for a
+ * sibling pi-agent/) and refuse to spawn if it can't be found.
  */
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync } from "node:fs";
@@ -18,26 +20,31 @@ export interface ResolveOpts {
 	PI_AGENT_DIR?: string;
 }
 
-/** Find the source bun-apps/pi-agent dir, or null if unreachable. */
+/** True when <bunApps>/pi-agent-ext-devops/scripts/ holds the devops scripts. */
+function hasDevopsScripts(bunAppsDir: string): boolean {
+	const scriptsDir = join(bunAppsDir, "pi-agent-ext-devops", "scripts");
+	return (
+		existsSync(join(scriptsDir, "deploy.ts")) && existsSync(join(scriptsDir, "run-test.sh"))
+	);
+}
+
+/** Find the source bun-apps/pi-agent dir, or null if unreachable.
+ *
+ *  The deploy/run-test SCRIPTS live in the sibling pi-agent-ext-devops package
+ *  (scripts/); the returned dir is still pi-agent's — deploy.ts must run with
+ *  that package as cwd, and tools derive the ext-devops scripts dir from it. */
 export function resolvePiAgentDir(
 	env: ResolveOpts = (process.env as unknown as ResolveOpts),
 	modUrl: string = import.meta.url,
 ): string | null {
 	const envDir = env.PI_AGENT_DIR;
-	if (
-		envDir &&
-		existsSync(join(envDir, "scripts", "deploy.ts")) &&
-		existsSync(join(envDir, "run-test.sh"))
-	) {
+	if (envDir && hasDevopsScripts(dirname(envDir))) {
 		return envDir;
 	}
 	let dir = dirname(fileURLToPath(modUrl));
 	for (let i = 0; i < 8; i++) {
 		const candidate = join(dir, "pi-agent");
-		if (
-			existsSync(join(candidate, "scripts", "deploy.ts")) &&
-			existsSync(join(candidate, "run-test.sh"))
-		) {
+		if (existsSync(candidate) && hasDevopsScripts(dir)) {
 			return candidate;
 		}
 		const parent = dirname(dir);

@@ -49,7 +49,7 @@ import {
 	type NpmExt,
 } from "./lib/codegen.ts";
 import { buildExtensions } from "./lib/build-extensions.ts";
-import manifest from "../run-dir/manifest.json";
+import manifest from "../../pi-agent/run-dir/manifest.json";
 
 const APP_NAME = "pi-agent";
 
@@ -134,7 +134,7 @@ function die(msg: string): never {
  * check, not a nicety.
  */
 function assertCorrectCwd(): void {
-	const expected = resolve(import.meta.dir, "..");
+	const expected = resolve(import.meta.dir, "..", "..", "pi-agent");
 	const actual = resolve(process.cwd());
 	if (actual !== expected) {
 		die(

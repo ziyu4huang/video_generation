@@ -22,13 +22,13 @@ import {
 	writeFileSync,
 	realpathSync,
 } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
-import { parseManifestEntries } from "../../run-dir/manifest-types.ts";
+import { parseManifestEntries } from "../../../pi-agent/run-dir/manifest-types.ts";
 import { hashExtInputs } from "./ext-hash.ts";
 
 // ── Path anchors ────────────────────────────────────────────────────────────
-const PI_AGENT_DIR = dirname(dirname(import.meta.dir)); // scripts/lib → scripts → bun-apps/pi-agent
+const PI_AGENT_DIR = resolve(dirname(import.meta.dir), "..", "..", "pi-agent"); // scripts/lib → pi-agent-ext-devops → bun-apps → sibling pi-agent
 const REPO_ROOT = dirname(dirname(PI_AGENT_DIR)); // bun-apps/pi-agent → bun-apps → repo root
 const BUN_APPS_DIR = dirname(PI_AGENT_DIR); // bun-apps/pi-agent → bun-apps
 const MANIFEST_PATH = join(PI_AGENT_DIR, "run-dir", "manifest.json");

@@ -1,7 +1,7 @@
 // scripts/lib/codegen.ts
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { generateEmbeddedAssets } from "../generate-embedded-assets.ts";
+import { generateEmbeddedAssets } from "../../../pi-agent/scripts/generate-embedded-assets.ts";
 
 export const GENERATED_DIR = "src/generated";
 const GENERATED_PKG_DIR = `${GENERATED_DIR}/pi-pkg-dir.ts`;

@@ -25,7 +25,7 @@
  * export — would silently break `drop on /opt` deploys, and no other e2e catches
  * it (e2e-extensions deploys --no-freeze precisely so it can clean up).
  *
- * Run via `./run-test.sh readonly` (or `full`). Gates: PI_AGENT_E2E +
+ * Run via `bun-apps/pi-agent-ext-devops/scripts/run-test.sh readonly` (or `full`). Gates: PI_AGENT_E2E +
  * PI_AGENT_E2E_DEPLOY (same as e2e-extensions).
  */
 import { existsSync, mkdtempSync, rmSync } from "node:fs";

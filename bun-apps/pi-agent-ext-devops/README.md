@@ -2,6 +2,8 @@
 
 DevOps tools for the pi coding agent — a **robust, tool-based PR-merge lifecycle** that replaces the brittle agent-side bash polling loops (the `gh pr checks | grep -c` footguns that silently mis-counted checks and wasted turns).
 
+> This package also owns the shared pipeline scripts: `scripts/deploy.ts`, `scripts/run-test.sh`, and `scripts/ci-local.sh` (the repo-root `scripts/ci-local.sh` is a thin wrapper into here). They moved here from `bun-apps/pi-agent/` / repo-root `scripts/`.
+
 ## Tools
 
 ### `await_pr_merge`

@@ -25,11 +25,11 @@
     "dist": "bun ../../dist/pi-agent/pi-agent.js",
     "exe": "../../dist/pi-agent/pi-agent",
     "//deploy": "4 modes — read docs BEFORE running: docs/deploy-cwd-trust.md (packaging + mode detection), docs/deploy-readonly.md (default chmod a-w freeze), docs/deploy-single-binary.md (--exe). Mode flags: --bundle (default), --snapshot, --standalone, --exe. Only --exe is fully self-contained/portable; the other three rely on a node_modules symlink into the machine-global bun store (same-machine only). Also see the mode table in scripts/deploy.ts header. Run via `bun run deploy[:mode]` from this dir.",
-    "deploy": "bun scripts/deploy.ts",
-    "deploy:bundle": "bun scripts/deploy.ts --bundle",
-    "deploy:snapshot": "bun scripts/deploy.ts --snapshot",
-    "deploy:standalone": "bun scripts/deploy.ts --standalone",
-    "deploy:exe": "bun scripts/deploy.ts --exe"
+    "deploy": "bun ../pi-agent-ext-devops/scripts/deploy.ts",
+    "deploy:bundle": "bun ../pi-agent-ext-devops/scripts/deploy.ts --bundle",
+    "deploy:snapshot": "bun ../pi-agent-ext-devops/scripts/deploy.ts --snapshot",
+    "deploy:standalone": "bun ../pi-agent-ext-devops/scripts/deploy.ts --standalone",
+    "deploy:exe": "bun ../pi-agent-ext-devops/scripts/deploy.ts --exe"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.84.1",

@@ -330,10 +330,10 @@ jobs:
       - uses: ./.github/actions/setup-env
       - name: Deploy-mode e2e (bundle/snapshot/standalone × doctor/smoke/skill-load)
         working-directory: bun-apps/pi-agent
-        run: ./run-test.sh high
+        run: ../pi-agent-ext-devops/scripts/run-test.sh high
       - name: Read-only deploy contract (frozen tree, zero writes)
         working-directory: bun-apps/pi-agent
-        run: ./run-test.sh readonly
+        run: ../pi-agent-ext-devops/scripts/run-test.sh readonly
 
   # ──────────────────────────────────────────────────────────────────────────
   # compile-verify — builds the standalone `bun build --compile` binary and
@@ -354,7 +354,7 @@ jobs:
   # the 5 newly-bundled tool extensions (obsidian et al.) ARE inlined into
   # the binary — `strings` finds obsidian's module body, proving the static
   # imports ship in the single-file exe (previously these were `external`'d
-  # out in scripts/deploy.ts to scope to 5; now deliberately bundled → 12, so
+  # out in bun-apps/pi-agent-ext-devops/scripts/deploy.ts to scope to 5; now deliberately bundled → 12, so
   # PRESENCE is the invariant, not absence);
   # (5) the exe is a genuine single file — copied ALONE to an empty,
   # unrelated directory (no dist/pi-agent/ siblings), it still boots and
