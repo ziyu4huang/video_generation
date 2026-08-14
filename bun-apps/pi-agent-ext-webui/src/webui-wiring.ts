@@ -42,6 +42,7 @@ import type { Broadcaster } from "./broadcaster.js";
 import type { ClientFrame, DispatchAction, WebFrame } from "./protocol.js";
 import { RenderService } from "./render-service.js";
 import { createRenderRoutes } from "./render-routes.js";
+import { createOutputRoutes } from "./output-routes.js";
 import { createRenderTool } from "./render-tool.js";
 import { createRenderEventHandler } from "./render-event-handler.js";
 import { createPresentEventHandler } from "./present-event-handler.js";
@@ -138,6 +139,10 @@ export interface WebuiDeps {
   clock?: MutexClock;
   /** Server lifecycle handle. Default: the module-level WebServer singleton. */
   server?: WebuiServer;
+  /** Output dir for the /output serving route (spec Component 5). Default:
+   *  env MLX_OUTPUT_DIR → ../video_generation__output vs cwd (see
+   *  output-routes.ts). Injectable so wiring tests use a temp fixture. */
+  outputDir?: string;
 }
 
 /**
@@ -358,7 +363,12 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       }
     },
   });
-  server.setHttpRoutes(createRenderRoutes(registry));
+  // Phase 4 (spec Component 5): chain the /output serving route BEHIND the
+  // render routes — render answers first (incl. GET / shell), output serves
+  // /output/{...}, everything else falls through to the WebServer defaults.
+  const renderRoutes = createRenderRoutes(registry);
+  const outputRoutes = createOutputRoutes(deps.outputDir !== undefined ? { dir: deps.outputDir } : undefined);
+  server.setHttpRoutes((req, srv) => renderRoutes(req, srv) ?? outputRoutes(req, srv));
   // Render-seam registration is guarded: a host whose ExtensionAPI predates
   // ticket 06 has no `events` bus / `registerTool` — wiring must not throw at
   // boot when those capabilities are absent (no-ops instead). See WebuiHost.
