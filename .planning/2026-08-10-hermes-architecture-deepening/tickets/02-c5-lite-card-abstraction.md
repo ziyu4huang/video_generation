@@ -1,6 +1,6 @@
 ---
 type: task
-status: open
+status: closed
 claimed: 2026-08-15 (this PR)
 ---
 # 02 — C5-lite: finish the Card abstraction for kp 13 (enables, does not switch)
