@@ -336,14 +336,23 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
               if (outcome.status !== "fulfilled") continue; // rejected signal → skipped
               const map = new Map<string, number>();
               for (const item of outcome.value ?? []) {
-                // guard against malformed provider rows — never throws
+                // guard against malformed provider rows — never throws.
+                // NaN/Infinity ranks pass the typeof check and still contribute
+                // signalCount, but their score never wins (NaN/−Inf > best is
+                // false) → effectively 0 score. By design.
                 if (item && typeof item.mdId === "string" && typeof item.rank === "number") {
                   map.set(item.mdId, item.rank);
                 }
               }
               signalMaps.push(map);
             }
-            ranked = voteAndRank(ranked, signalMaps, boostWeight ?? DEFAULT_BOOST_WEIGHT, topK);
+            // boostWeight seam guard (mirrors the config finite->0 floor):
+            // NaN/Infinity/<=0 falls back to the default.
+            ranked = voteAndRank(
+              ranked, signalMaps,
+              boostWeight !== undefined && Number.isFinite(boostWeight) && boostWeight > 0 ? boostWeight : DEFAULT_BOOST_WEIGHT,
+              topK,
+            );
           }
           // A warm path that returned NOTHING is not necessarily a failure,
           // but a cold index returning [] is indistinguishable from "no match".

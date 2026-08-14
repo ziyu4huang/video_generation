@@ -808,6 +808,18 @@ describe("searchSemantic — multi-signal frequency vote (ticket 20 T1)", () => 
     expect(hits.every((h) => h.signalCount === 1)).toBe(true);
   });
 
+  it("(i) lexicalRecall mdId NOT among warm hits → no phantom hit invented, existing hits unaffected", async () => {
+    const vs = fakeVectorStore([{ mdId: "m1", kind: "knowledge" }, { mdId: "m2", kind: "knowledge" }]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      lexicalRecall: async (_q: string, _k: number) => [{ mdId: "phantom", rank: 0 }],
+    });
+    expect(hits.length).toBe(2); // length unchanged — no phantom hit invented
+    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]); // existing hits unaffected (warm order)
+    expect(hits.every((h) => h.signalCount === 1)).toBe(true); // phantom vote counted for no one
+  });
+
   it("(h) FALLBACK paths untouched: seams never consulted when knn throws", async () => {
     const vs = throwingVectorStore();
     const repo = fakeMemoryRepo([{ id: 1, mdId: "mem-1", content: "c" } as MemoryEntry]);

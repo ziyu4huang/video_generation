@@ -58,7 +58,8 @@ export interface KnowledgeSemanticOpts {
   fetchRelations?: (mdIds: string[]) => Promise<Map<string, SemanticRelation[]>>;
   /** Ticket 20 T3: warm-path lexical recall signal — FTS membership over the
    *  knowledge-target rows of the same SQLite card-store DB (membership only;
-   * FTS returns no relevance, so rank = row order / membership-recency). Built
+   * FTS returns no relevance, so rank = ascending rowid (oldest-first) —
+   * membership is what votes, rank only tie-breaks. Built
    * by `buildLexicalRecall(memoryDir)`; silent-skip contract — [] on any
    * failure, never breaks search. */
   lexicalRecall?: (queryText: string, topK: number) => Promise<Array<{ mdId: string; rank: number }>>;
@@ -134,9 +135,9 @@ export function buildGraphRelationsFetcher(
  *  backend per call, mirroring buildGraphRelationsFetcher). `memory_fts` is
  *  external-content FTS over the whole memories table (kind-agnostic), so the
  *  knowledge filter is applied in the outer query (`target = 'knowledge'`, md_id
- *  NOT NULL). FTS returns NO relevance ordering — rank = row order
- *  (membership-recency; acceptable: membership is what votes, per the plan's
- *  rank/membership-only constraint). Query normalization goes through
+ *  NOT NULL). FTS returns NO relevance ordering — rank = ascending rowid
+ *  (oldest-first); membership is what votes, rank only tie-breaks, per the
+ *  plan's rank/membership-only constraint). Query normalization goes through
  *  `normalizeFts5Query`, with a `buildFallbackFts5Query` retry on FTS syntax
  *  errors. Never throws: ANY failure (backend open, FTS error even after the
  *  fallback, malformed rows) → [] (the seam contract: a failing signal never
@@ -184,7 +185,9 @@ export function buildLexicalRecall(
  *  Cards with ≥1 overlap are kept, ranked by matchCount desc then id asc.
  *  CHEAP SHORT-CIRCUIT: a query yielding no entities returns [] WITHOUT opening
  *  the DB. Never throws: any failure (extraction, backend, corrupt graph JSON)
- *  → [] / row silently skipped. hermes→zk is the sanctioned spine direction. */
+ *  → [] / row silently skipped. hermes→zk is the sanctioned spine direction.
+ *  Full paged scan per warm query — revisit at the >2k-cards scale trigger
+ *  (plan 03's persistent-index deferral). */
 export function buildEntityRecall(
   memoryDir: string,
 ): (queryText: string, topK: number) => Promise<Array<{ mdId: string; rank: number }>> {
