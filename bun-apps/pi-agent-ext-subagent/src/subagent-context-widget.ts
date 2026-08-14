@@ -26,8 +26,9 @@
  * That "make the box interactive" step is the deferred prize in the wayfinder
  * map (ticket 02), out of Stage A's scope.
  */
-import { isTerminalStatus } from "@repo/pi-agent-ext-core-runtime";
+
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { isTerminalStatus } from "@repo/pi-agent-ext-core-runtime";
 import type { InFlightSubagent, SubagentInFlightRegistry } from "./index.js";
 import {
   capTraceTail,

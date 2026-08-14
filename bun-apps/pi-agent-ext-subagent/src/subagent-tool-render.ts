@@ -394,14 +394,15 @@ export function renderSubagentResult(
   // Death tag (abort path): the ⛔-badged run's exceeded budget. Guarded on
   // `kind` because `budget` may carry ONLY a warning (completed run).
   const budgetExhaustionTag =
-    d.budget?.kind !== undefined
-      ? theme.fg("warning", ` · ${d.budget.kind}:${d.budget.actual}/${d.budget.limit}`)
-      : "";
+    d.budget?.kind !== undefined ? theme.fg("warning", ` · ${d.budget.kind}:${d.budget.actual}/${d.budget.limit}`) : "";
   // Warn tag (completed path): informational 80% notice — ⚠ glyph + explicit
   // "budget 80%" wording, visually distinct from the death tag above.
   const budgetWarnTag = d.budget?.warning
-    ? theme.fg("warning", ` · ⚠ budget 80% ${d.budget.warning.kind}:${d.budget.warning.actual}/${d.budget.warning.limit}`)
-      : "";
+    ? theme.fg(
+        "warning",
+        ` · ⚠ budget 80% ${d.budget.warning.kind}:${d.budget.warning.actual}/${d.budget.warning.limit}`,
+      )
+    : "";
   // Settled result meta (ticket 04, findings 3 + 5): the live call line shows
   // the fallback `→ actual` mid-run, but on settle that segment vanished and
   // the meta collapsed to the bare actual model — a surprising fallback became
