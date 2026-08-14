@@ -12,7 +12,7 @@
  * files gate on PI_AGENT_E2E=1 and call ensureBundle() in beforeAll; a plain
  * `bun test` (the pre-extension-dev baseline) skips them and stays fast.
  *
- * `bun-apps/pi-agent/run-test.sh` sets PI_AGENT_E2E=1 for the full run.
+ * `bun-apps/pi-agent-ext-devops/scripts/run-test.sh` sets PI_AGENT_E2E=1 for the full run.
  */
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";

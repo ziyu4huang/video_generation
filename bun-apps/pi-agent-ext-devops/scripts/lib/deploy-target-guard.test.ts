@@ -19,8 +19,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { homedir } from "node:os";
 
-const PKG_DIR = join(import.meta.dir, "..", "..");
-const DEPLOY = join(PKG_DIR, "scripts", "deploy.ts");
+const PKG_DIR = join(import.meta.dir, "..", "..", "..", "pi-agent");
+const DEPLOY = join(import.meta.dir, "..", "deploy.ts");
 
 const made: string[] = [];
 afterEach(() => {

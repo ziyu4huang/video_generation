@@ -63,8 +63,8 @@ const REPO_ROOT = resolve(BUN_APPS, "..");
 const WORKFLOW = join(REPO_ROOT, ".github", "workflows", "ci.yml.disabled");
 const CI_LOCAL = join(REPO_ROOT, "scripts", "ci-local.sh");
 const SPOTCHECK = join(REPO_ROOT, "scripts", "test-determinism-spotcheck.sh");
-const RUN_TEST = join(BUN_APPS, "pi-agent", "run-test.sh");
-const DEPLOY_TS = join(BUN_APPS, "pi-agent", "scripts", "deploy.ts");
+const RUN_TEST = join(BUN_APPS, "pi-agent-ext-devops", "scripts", "run-test.sh");
+const DEPLOY_TS = join(BUN_APPS, "pi-agent-ext-devops", "scripts", "deploy.ts");
 
 interface MatrixRow {
 	pkg: string;
@@ -235,7 +235,7 @@ describe("ci.yml.disabled — every referenced path resolves", () => {
 			"bun-apps/pi-agent-ext-devops/src/changed-packages-cli.ts",
 			"scripts/ci-file-size-guard.sh",
 			"scripts/check-schema-cost.ts",
-			"./run-test.sh",
+			"../pi-agent-ext-devops/scripts/run-test.sh",
 			"bun-apps/pi-agent/run-dir/check-deps.ts",
 		]) {
 			expect(found).toContain(expected);
@@ -446,7 +446,7 @@ describe("run-test.sh — the `full`-tier sibling list names real packages", () 
 		const dead = siblings.filter((p) => !existsSync(join(BUN_APPS, p, "package.json")));
 		expect(
 			dead,
-			`DEAD SIBLING PACKAGE(S) in bun-apps/pi-agent/run-test.sh SIBLING_PKGS: ${dead.join(", ")} — ` +
+			`DEAD SIBLING PACKAGE(S) in bun-apps/pi-agent-ext-devops/scripts/run-test.sh SIBLING_PKGS: ${dead.join(", ")} — ` +
 				"the `full` tier loops over bare package NAMES, so nothing typechecks them. This list " +
 				"read `pi-obsidian` / `pi-knowledge-card` (the real dirs are `pi-agent-ext-*`) and a " +
 				"skip-if-absent branch swallowed both, so a 3-package baseline silently tested 1 while " +

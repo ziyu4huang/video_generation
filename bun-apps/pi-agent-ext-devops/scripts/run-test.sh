@@ -42,6 +42,9 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# This script lives in bun-apps/pi-agent-ext-devops/scripts/, but the package it
+# drives is bun-apps/pi-agent — resolve it once here.
+PI_AGENT_DIR="$(cd "$SCRIPT_DIR/../../pi-agent" && pwd)"
 
 # ── sibling stack-health baseline (the `full` tier) ───────────────────────
 # Sibling bun-apps/<pkg> packages whose suites run as part of `full`. These are
@@ -122,21 +125,21 @@ OVERALL=0
 run_unit() {
 	# quick baseline: e2e auto-skips (no PI_AGENT_E2E).
 	unset PI_AGENT_E2E PI_AGENT_E2E_DEPLOY
-	( cd "$SCRIPT_DIR" && bun test ${EXTRA[@]+"${EXTRA[@]}"} )
+	( cd "$PI_AGENT_DIR" && bun test ${EXTRA[@]+"${EXTRA[@]}"} )
 }
 
 run_patches() {
 	unset PI_AGENT_E2E_NO_BUILD      # medium+ forces a fresh build
 	export PI_AGENT_E2E=1
 	unset PI_AGENT_E2E_DEPLOY        # patches only (no deploy tier)
-	( cd "$SCRIPT_DIR" && bun test ${EXTRA[@]+"${EXTRA[@]}"} )
+	( cd "$PI_AGENT_DIR" && bun test ${EXTRA[@]+"${EXTRA[@]}"} )
 }
 
 run_extensions() {
 	unset PI_AGENT_E2E_NO_BUILD
 	export PI_AGENT_E2E=1
 	export PI_AGENT_E2E_DEPLOY=1
-	( cd "$SCRIPT_DIR" && bun test ${EXTRA[@]+"${EXTRA[@]}"} )
+	( cd "$PI_AGENT_DIR" && bun test ${EXTRA[@]+"${EXTRA[@]}"} )
 }
 
 # Read-only deploy e2e ONLY (src/__tests__/e2e-readonly.test.ts). Proves a frozen
@@ -147,7 +150,7 @@ run_readonly() {
 	unset PI_AGENT_E2E_NO_BUILD
 	export PI_AGENT_E2E=1
 	export PI_AGENT_E2E_DEPLOY=1
-	( cd "$SCRIPT_DIR" && bun test src/__tests__/e2e-readonly.test.ts ${EXTRA[@]+"${EXTRA[@]}"} )
+	( cd "$PI_AGENT_DIR" && bun test src/__tests__/e2e-readonly.test.ts ${EXTRA[@]+"${EXTRA[@]}"} )
 }
 
 # LIVE local-LLM smoke test. Boots the REAL launcher (`run.sh`) in print mode
@@ -169,7 +172,7 @@ run_smoke() {
 		echo "$(R '✗ smoke FAILED') — $SMOKE_MODEL not loaded in LM Studio (load it in My Models first)" >&2
 		return 1
 	fi
-	"$SCRIPT_DIR/run.sh" --provider lm-studio --model "$SMOKE_MODEL" --no-session -p "hi" >/dev/null 2>&1
+	"$PI_AGENT_DIR/run.sh" --provider lm-studio --model "$SMOKE_MODEL" --no-session -p "hi" >/dev/null 2>&1
 }
 
 # step() wrapper: prints the ✓/✗ line via step, then the skip notice to the
@@ -195,7 +198,7 @@ smoke_step() {
 # these names; if one moves again, that guard fails before this loop runs.
 run_pkg_unit() {
 	local pkg="$1"
-	local d="$SCRIPT_DIR/../$pkg"
+	local d="$PI_AGENT_DIR/../$pkg"
 	if [ ! -d "$d" ]; then
 		echo "$(R "✗ $pkg: bun-apps/$pkg/ does not exist")" >&2
 		echo "  the sibling list in this script names a package that is gone or renamed." >&2

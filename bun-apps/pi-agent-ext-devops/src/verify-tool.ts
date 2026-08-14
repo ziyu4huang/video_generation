@@ -4,6 +4,7 @@
  */
 import { buildVerifyArgv, type VerifyParams, type VerifyTier } from "./deploy-argv.ts";
 import { resolvePiAgentDir, runScript, tailOutput } from "./deploy-run.ts";
+import { resolve } from "node:path";
 
 const TIER_TIMEOUT_MS: Record<VerifyTier, number> = {
 	quick: 60_000,
@@ -65,7 +66,7 @@ export async function runVerify(
 			exitCode: -1,
 			logPath: "",
 			errorTail:
-				"Could not locate the source pi-agent dir (run-test.sh not found). " +
+				"Could not locate the source pi-agent dir (pi-agent-ext-devops/scripts/run-test.sh not found). " +
 				"Run pi-agent from the repo, or set PI_AGENT_DIR=<repo>/bun-apps/pi-agent.",
 		};
 	}
@@ -74,7 +75,9 @@ export async function runVerify(
 	const res = await run({
 		cmd: "./run-test.sh",
 		args: argv,
-		cwd: piAgentDir,
+		// run-test.sh moved to pi-agent-ext-devops/scripts/ (it cds itself to
+		// the pi-agent package dir via PI_AGENT_DIR).
+		cwd: resolve(piAgentDir, "..", "pi-agent-ext-devops", "scripts"),
 		timeoutMs: TIER_TIMEOUT_MS[tier],
 		logName: `pi-verify-${tier}`,
 	});

@@ -7,11 +7,15 @@ import { resolvePiAgentDir, assertSafeOutDir } from "../src/deploy-run.ts";
 /** Build a fake repo tree so resolvePiAgentDir's walk can be tested in isolation. */
 function fakeRepo(): string {
 	const root = mkdtempSync(join(tmpdir(), "deploy-ext-repo-"));
-	// mirror layout: <root>/bun-apps/pi-agent/{scripts/deploy.ts,run-test.sh}
+	// mirror layout: scripts live in
+	// <root>/bun-apps/pi-agent-ext-devops/scripts/{deploy.ts,run-test.sh};
+	// the resolver returns the sibling <root>/bun-apps/pi-agent dir.
 	const piAgent = join(root, "bun-apps", "pi-agent");
-	mkdirSync(join(piAgent, "scripts"), { recursive: true });
-	writeFileSync(join(piAgent, "scripts", "deploy.ts"), "// fake");
-	writeFileSync(join(piAgent, "run-test.sh"), "# fake");
+	mkdirSync(piAgent, { recursive: true });
+	const devopsScripts = join(root, "bun-apps", "pi-agent-ext-devops", "scripts");
+	mkdirSync(devopsScripts, { recursive: true });
+	writeFileSync(join(devopsScripts, "deploy.ts"), "// fake");
+	writeFileSync(join(devopsScripts, "run-test.sh"), "# fake");
 	// the deploy-run module now lives at
 	// <root>/bun-apps/pi-agent-ext-devops/src/deploy-run.ts
 	const extDir = join(root, "bun-apps", "pi-agent-ext-devops", "src");
@@ -31,7 +35,7 @@ describe("resolvePiAgentDir", () => {
 		const got = resolvePiAgentDir({ PI_AGENT_DIR: envPiAgent } as NodeJS.ProcessEnv, `file://${modFile}`);
 		expect(got).toBe(envPiAgent);
 	});
-	test("walk-up finds the sibling pi-agent dir containing scripts/deploy.ts", () => {
+	test("walk-up finds the sibling pi-agent dir next to pi-agent-ext-devops/scripts", () => {
 		const modFile = fakeRepo();
 		const expected = join(modFile, "..", "..", "..", "pi-agent");
 		const got = resolvePiAgentDir({}, `file://${modFile}`);

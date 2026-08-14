@@ -9,7 +9,7 @@
  *
  * Gated on PI_AGENT_E2E=1 (keeps `bun test` baseline fast), same convention as
  * e2e-patches.test.ts / e2e-extensions.test.ts / e2e-readonly.test.ts. Run via
- * `./bun-apps/pi-agent/run-test.sh high` or `PI_AGENT_E2E=1 bun test`.
+ * `bun-apps/pi-agent-ext-devops/scripts/run-test.sh high` or `PI_AGENT_E2E=1 bun test`.
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, mkdirSync, readFileSync, realpathSync } from "node:fs";

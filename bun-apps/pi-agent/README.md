@@ -163,14 +163,14 @@ The `cli` subcommand tree ships a `doctor` self-check that verifies everything i
 bun bun-apps/pi-agent/src/cli.ts cli doctor [--json] [--fix]
 ```
 ## Build / Deploy modes
-pi-agent ships via four deploy modes, all driven by `scripts/deploy.ts`.
+pi-agent ships via four deploy modes, all driven by `../pi-agent-ext-devops/scripts/deploy.ts`.
 See the [Deploy](#deploy) section for full details.
 ```bash
-bun scripts/deploy.ts                    # --bundle (default): thin bundles + node_modules symlink (same-machine)
-bun scripts/deploy.ts --exe              # single self-contained executable (all assets embedded, ~75 MB)
-bun scripts/deploy.ts --snapshot         # full source copy + node_modules symlink tree (same-machine)
-bun scripts/deploy.ts --standalone       # bundle + local bun binary + run.sh (same-machine)
-bun scripts/deploy.ts --no-freeze        # skip read-only freeze
+bun ../pi-agent-ext-devops/scripts/deploy.ts                    # --bundle (default): thin bundles + node_modules symlink (same-machine)
+bun ../pi-agent-ext-devops/scripts/deploy.ts --exe              # single self-contained executable (all assets embedded, ~75 MB)
+bun ../pi-agent-ext-devops/scripts/deploy.ts --snapshot         # full source copy + node_modules symlink tree (same-machine)
+bun ../pi-agent-ext-devops/scripts/deploy.ts --standalone       # bundle + local bun binary + run.sh (same-machine)
+bun ../pi-agent-ext-devops/scripts/deploy.ts --no-freeze        # skip read-only freeze
 bun run deploy:exe                       # shorthand for --exe
 ```
 The sourcemap is **opt-in** — the `.map` is ~20 MB (embeds full source) and is
@@ -208,7 +208,7 @@ from `manifest.json`'s `extensions` array (keeping both would double-register
 them — a jiti-loaded module and a natively-imported module aren't guaranteed
 to be the same module identity) but Group A does keep a `binarySkills` entry
 there: their skill directories are plain markdown (no jiti/dynamic code
-involved), so `scripts/deploy.ts`'s `--exe` mode ships them as sibling dirs
+involved), so `../pi-agent-ext-devops/scripts/deploy.ts`'s `--exe` mode ships them as sibling dirs
 next to the exe (`dist/pi-agent/<ext>/skills/`), and `resolve.ts` still emits
 `--skill <path>` for them in binary mode.
 Everything else in `manifest.json` (movie-director, flux2, research-tool, …)
@@ -234,13 +234,13 @@ full rationale (why `require()` doesn't work, why some files carry
 `// @ts-nocheck`, the `manifest.json` field reference) and the steps to add
 or remove an extension from this static set.
 ## Deploy
-`scripts/deploy.ts` packages pi-agent + its extension set into a dir runnable from **any cwd on the build machine**. Only `--exe` is fully self-contained/portable; the other three modes rely on a `node_modules` symlink (Bundle/Standalone) or a copied symlink tree (Snapshot) into the machine-global bun store, so they are **same-machine only**.
+`../pi-agent-ext-devops/scripts/deploy.ts` packages pi-agent + its extension set into a dir runnable from **any cwd on the build machine**. Only `--exe` is fully self-contained/portable; the other three modes rely on a `node_modules` symlink (Bundle/Standalone) or a copied symlink tree (Snapshot) into the machine-global bun store, so they are **same-machine only**.
 | Mode | Command | Layout | node_modules | Portable? |
 |------|---------|--------|-------------|-----------|
-| **Bundle** (default) | `bun scripts/deploy.ts` | `pi-agent.js` + `ext-bundles/*.thin.js` + `skills/` | symlink → global store | same-machine only |
-| **Snapshot** | `bun scripts/deploy.ts --snapshot` | Full source tree + sibling ext pkgs + `run.sh` | copied symlinks → global store | same-machine only |
-| **Standalone** | `bun scripts/deploy.ts --standalone` | Bundle + `bun` binary + `run.sh` | symlink → global store | same-machine only (no system `bun` needed) |
-| **Exe** | `bun scripts/deploy.ts --exe` | Single executable (~75 MB) | none (all embedded) | **yes — fully self-contained** |
+| **Bundle** (default) | `bun ../pi-agent-ext-devops/scripts/deploy.ts` | `pi-agent.js` + `ext-bundles/*.thin.js` + `skills/` | symlink → global store | same-machine only |
+| **Snapshot** | `bun ../pi-agent-ext-devops/scripts/deploy.ts --snapshot` | Full source tree + sibling ext pkgs + `run.sh` | copied symlinks → global store | same-machine only |
+| **Standalone** | `bun ../pi-agent-ext-devops/scripts/deploy.ts --standalone` | Bundle + `bun` binary + `run.sh` | symlink → global store | same-machine only (no system `bun` needed) |
+| **Exe** | `bun ../pi-agent-ext-devops/scripts/deploy.ts --exe` | Single executable (~75 MB) | none (all embedded) | **yes — fully self-contained** |
 See [`docs/deploy-cwd-trust.md`](docs/deploy-cwd-trust.md) for the packaging/mode-detection details and [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md) for the `--exe` rationale — why extensions can't load in binary mode, how the static extension set works, the `@ts-nocheck` pattern, and how `--exe` packs all assets into one file.
 ### Read-only deploy (the default)
 A deploy is an **immutable artifact**: code + bundled extensions, with ALL
@@ -259,16 +259,16 @@ deploy actually run:
 | `PI_CODING_AGENT_DIR` | `$HOME/.pi/agent` (if unset) | pins per-user state to a writable dir, never the deploy tree |
 
 ```bash
-bun scripts/deploy.ts /opt/pi-agent           # frozen by default (chmod a-w + marker)
+bun ../pi-agent-ext-devops/scripts/deploy.ts /opt/pi-agent           # frozen by default (chmod a-w + marker)
 sudo chown -R root:wheel /opt/pi-agent        # now truly immutable to non-root
 cd ~/project && /opt/pi-agent/run.sh          # runs; state → ~/.pi/agent
 /opt/pi-agent/run.sh doctor --smoke           # proves extensions load despite the freeze
-bun scripts/deploy.ts /tmp/dev-deploy --no-freeze   # opt OUT of the freeze (iteration/cleanup)
+bun ../pi-agent-ext-devops/scripts/deploy.ts /tmp/dev-deploy --no-freeze   # opt OUT of the freeze (iteration/cleanup)
 ```
 Two contract rules for a read-only deploy: invoke `run.sh` from a **non-deploy
 cwd** (so `<cwd>/.pi` isn't the frozen tree), and keep `PI_CODING_AGENT_DIR` on a
 writable path (the default `~/.pi/agent` is fine). The read-only contract is
-guarded by `./run-test.sh readonly` — it freezes a deploy, runs `doctor` +
+guarded by `../pi-agent-ext-devops/scripts/run-test.sh readonly` — it freezes a deploy, runs `doctor` +
 `--smoke` from a foreign cwd, and asserts **zero files** are written into the
 frozen tree.
 ## Doctor (self-check)
@@ -317,7 +317,7 @@ deploy lands on a host whose `node_modules` subset didn't get installed,
 `checkHostDeps` FAILs (typebox/`@earendil-works/*` are essential there) —
 `--fix` runs `bun install` in the deploy dir to self-heal it, then re-checks (snapshot/standalone only):
 ```bash
-bun scripts/deploy.ts /tmp/pi-snapshot --snapshot
+bun ../pi-agent-ext-devops/scripts/deploy.ts /tmp/pi-snapshot --snapshot
 rm -rf /tmp/pi-snapshot/node_modules
 /tmp/pi-snapshot/run.sh doctor
 /tmp/pi-snapshot/run.sh doctor --fix
@@ -332,15 +332,16 @@ is INFO — pi resolves its own deps).
 2. Register it (env-gated) in `src/patches/index.ts`.
 `cli.ts` never needs to change.
 ## Testing
-`run-test.sh` is a multi-effort-level launcher — each level is a superset of the
+`run-test.sh` (now living at `../pi-agent-ext-devops/scripts/run-test.sh`)
+is a multi-effort-level launcher — each level is a superset of the
 one below (cost is driven by the build + deploy, not the tests):
 ```bash
-./run-test.sh                  # = medium  (~11s)  unit + build + patch e2e   [default]
-./run-test.sh quick            # (~0.2s)   unit only, no build — pre-commit safe
-./run-test.sh high             # (~46s)    + deploy + 4-cwd extension-loading e2e (bundle/snapshot/standalone)
-./run-test.sh readonly         # (~6s)     read-only deploy e2e ONLY (freeze + zero-write contract)
-./run-test.sh full             # (~70s)    + readonly + sibling pi-* unit baseline (whole stack)
-./run-test.sh --list           # print the tier table
+../pi-agent-ext-devops/scripts/run-test.sh                  # = medium  (~11s)  unit + build + patch e2e   [default]
+../pi-agent-ext-devops/scripts/run-test.sh quick            # (~0.2s)   unit only, no build — pre-commit safe
+../pi-agent-ext-devops/scripts/run-test.sh high             # (~46s)    + deploy + 4-cwd extension-loading e2e (bundle/snapshot/standalone)
+../pi-agent-ext-devops/scripts/run-test.sh readonly         # (~6s)     read-only deploy e2e ONLY (freeze + zero-write contract)
+../pi-agent-ext-devops/scripts/run-test.sh full             # (~70s)    + readonly + sibling pi-* unit baseline (whole stack)
+../pi-agent-ext-devops/scripts/run-test.sh --list           # print the tier table
 ```
 | Level | Adds | Catches |
 |---|---|---|
@@ -352,7 +353,7 @@ one below (cost is driven by the build + deploy, not the tests):
 Plain `bun test` is the `quick` tier (the e2e files skip themselves without
 `PI_AGENT_E2E=1`). medium+ force a fresh build so a stale `dist/` can't mask a
 bundle regression. Extra flags are forwarded to `bun test`
-(`./run-test.sh high --bail`). Numeric aliases `0-3` work too.
+(`../pi-agent-ext-devops/scripts/run-test.sh high --bail`). Numeric aliases `0-3` work too.
 The bundle e2e lives in `src/__tests__/e2e-*.test.ts`; the two env gates it reads
 are `PI_AGENT_E2E=1` (patches) and `PI_AGENT_E2E_DEPLOY=1` (extensions).
 `bun run verify` runs just the extension-loading e2e (high-tier subset).
