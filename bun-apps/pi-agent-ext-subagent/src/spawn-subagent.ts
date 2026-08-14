@@ -26,6 +26,7 @@ import {
   isWorkflowError,
   loadModelTierConfig,
   resolveModelRole,
+  type TurnExhaustion,
   WorkflowAgent,
   WorkflowErrorCode,
 } from "@repo/pi-agent-ext-core-runtime";
@@ -87,6 +88,8 @@ export interface SpawnSubagentOptions {
   tokenBudget?: number;
   /** Abort the child mid-run once cumulative cost ($) exceeds this (per-run cap). */
   spendBudget?: number;
+  /** Cap the child at this many turns (integer ≥ 1, per-run cap). No default — omit = unlimited turns. */
+  maxTurns?: number;
   /** Retry once on a transient (timeout/abort/network/schema-noncompliance) failure. Default true. */
   retryOnTransient?: boolean;
   /** Forward-ref to ③ — accepted but does NOT retrieve or alter output. */
@@ -134,6 +137,12 @@ export interface SpawnSubagentResult {
   /** Set when the run was aborted for exceeding tokenBudget/spendBudget (distinct from timedOut/failed). */
   budget?: BudgetExhaustion;
   /**
+   * Set when the run was aborted for exceeding maxTurns (distinct from
+   * timedOut/failed/budget). Timeout-like semantics — but wall-clock `timedOut`
+   * stays false so callers can tell a turn cap apart from a timeoutMs abort.
+   */
+  turns?: TurnExhaustion;
+  /**
    * Informational 80%-of-budget warning (fixed 0.8 ratio): set when the run
    * COMPLETED (not aborted) and final usage reached ≥80% of a set budget —
    * same {kind, limit, actual} shape as {@link budget}. Advisory only: it
@@ -150,6 +159,7 @@ interface ErrorClass {
   timedOut: boolean;
   message: string;
   budget?: BudgetExhaustion;
+  turns?: TurnExhaustion;
 }
 
 function classifyError(e: unknown, signalAborted = false): ErrorClass {
@@ -169,6 +179,13 @@ function classifyError(e: unknown, signalAborted = false): ErrorClass {
   }
   if (isWorkflowError(e) && e.code === WorkflowErrorCode.AGENT_TIMEOUT) {
     return { transient: true, timedOut: true, message };
+  }
+  // Turns exhaustion mirrors the TIMEOUT classification: timeout-like abort
+  // semantics (transient → retried once under retryOnTransient), NOT the
+  // budget path (a retry would re-exhaust the same ceiling — non-retryable).
+  // Surfaces the exhaustion as result.turns so callers can render/persist it.
+  if (isWorkflowError(e) && e.code === WorkflowErrorCode.TURNS_EXHAUSTED) {
+    return { transient: true, timedOut: false, message, turns: e.details as TurnExhaustion | undefined };
   }
   // Our own timeoutMs gate fires by aborting the call's controller — checking
   // the signal directly is authoritative, because the real WorkflowAgent runner
@@ -286,6 +303,7 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
         onHistory: opts.onHistory,
         tokenBudget: opts.tokenBudget,
         spendBudget: opts.spendBudget,
+        maxTurns: opts.maxTurns,
         maxSchemaRetries: opts.schemaRepairAttempts,
       } as Parameters<WorkflowAgent["run"]>[1]);
       // When `opts.schema` is set, `run()` returns a validated OBJECT (not a
@@ -313,11 +331,15 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
       return {
         result: {
           output: "",
-          exitCode: c.timedOut ? 124 : 1,
+          // 124 = the timeout exit convention; a turns abort shares it
+          // (timeout-like semantics) while staying distinguishable via
+          // timedOut:false + result.turns.
+          exitCode: c.timedOut || c.turns ? 124 : 1,
           stderr: c.message,
           timedOut: c.timedOut,
           usage,
           ...(c.budget ? { budget: c.budget } : {}),
+          ...(c.turns ? { turns: c.turns } : {}),
         },
         transient: c.transient,
       };

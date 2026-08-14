@@ -372,9 +372,11 @@ export function renderSubagentResult(
         ? theme.fg("warning", "⏱ timedout")
         : d.status === "budget"
           ? theme.fg("warning", "⛔ budget")
-          : d.status === "aborted"
-            ? theme.fg("dim", "⊘ aborted")
-            : theme.fg("error", "✗ failed");
+          : d.status === "turns"
+            ? theme.fg("warning", "⏹ turns")
+            : d.status === "aborted"
+              ? theme.fg("dim", "⊘ aborted")
+              : theme.fg("error", "✗ failed");
   const usageStr = d.usage && d.usage.total > 0 ? ` · $${d.usage.cost.toFixed(3)} · ${d.usage.total} tok` : "";
   // SDD self-report tag (ticket 04): separate axis from process status. A run
   // can be process-done yet self-report BLOCKED — tint the actionable ones so
@@ -395,6 +397,11 @@ export function renderSubagentResult(
   // `kind` because `budget` may carry ONLY a warning (completed run).
   const budgetExhaustionTag =
     d.budget?.kind !== undefined ? theme.fg("warning", ` · ${d.budget.kind}:${d.budget.actual}/${d.budget.limit}`) : "";
+  // Turn-cap death tag (abort path): the ⏹-badged run's exceeded turn count
+  // (turnsUsed == maxTurns when the abort fired). Mirrors the budget death tag.
+  const turnsExhaustionTag = d.turns
+    ? theme.fg("warning", ` · turns:${d.turns.turnsUsed}/${d.turns.maxTurns}`)
+    : "";
   // Warn tag (completed path): informational 80% notice — ⚠ glyph + explicit
   // "budget 80%" wording, visually distinct from the death tag above.
   const budgetWarnTag = d.budget?.warning
@@ -419,6 +426,7 @@ export function renderSubagentResult(
     sddTag +
     scopeTag +
     budgetExhaustionTag +
+    turnsExhaustionTag +
     budgetWarnTag;
   if (!options.expanded) {
     const firstLine =
@@ -434,6 +442,7 @@ export function renderSubagentResult(
 /** Derive a human status from the spawn result. */
 export function deriveSubagentStatus(r: SpawnSubagentResult): SubagentToolDetails["status"] {
   if (r.budget) return "budget";
+  if (r.turns) return "turns";
   if (r.exitCode === 0) return "done";
   return r.timedOut ? "timedout" : "failed";
 }
@@ -450,6 +459,13 @@ export function formatSubagentResult(result: SpawnSubagentResult): string {
     const unit =
       result.budget.kind === "tokens" ? `${result.budget.actual} tokens` : `$${result.budget.actual.toFixed(4)}`;
     return `Subagent aborted: ${result.budget.kind} budget exhausted (${unit} > limit ${result.budget.limit}).`;
+  }
+  // Turn-cap abort — same "Subagent aborted:" shape as the budget line, with
+  // the parenthesized count matching core-runtime's own message
+  // ("max turns exceeded (N)") so the parent sees the same number the child
+  // surfaced. Distinct from the timeout fate line below (timedOut stays false).
+  if (result.turns) {
+    return `Subagent aborted: max turns exceeded (${result.turns.maxTurns}).`;
   }
   // Informational 80% warning on a COMPLETED run — appended as its own line so
   // the parent agent (and the user reading the tool result) sees the near-miss

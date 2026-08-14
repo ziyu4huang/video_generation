@@ -12,6 +12,7 @@ import type {
   BudgetExhaustion,
   InFlightSubagent,
   SubagentInFlightRegistry,
+  TurnExhaustion,
 } from "@repo/pi-agent-ext-core-runtime";
 import {
   checkBudgetExhaustion,
@@ -53,6 +54,8 @@ export interface BatchTask {
   timeoutMs?: number;
   tokenBudget?: number;
   spendBudget?: number;
+  /** Per-child turn cap (integer ≥ 1, hard — timeout-like abort). No default. */
+  maxTurns?: number;
 }
 
 /** A positional result slot (input order). `null` = the child failed. */
@@ -93,6 +96,22 @@ export type BatchResultSlot =
       /** See the done/timedout/aborted variant (ticket 04, finding 2). */
       fellBack?: boolean;
       /** 0 for gate-skipped (never ran); real for per-child budget aborts. */
+      elapsedMs: number;
+    }
+  | {
+      status: "turns";
+      turns: TurnExhaustion;
+      id?: string;
+      index: number;
+      /** Task preview (Completed-section display). */
+      task: string;
+      /** Resolved child model (never a hardcoded id). */
+      model: string;
+      /** See the done/timedout/aborted variant (ticket 04, finding 2). */
+      requestedModel?: string;
+      /** See the done/timedout/aborted variant (ticket 04, finding 2). */
+      fellBack?: boolean;
+      /** Real per-child elapsed (the child ran before the cap fired). */
       elapsedMs: number;
     }
   | null;
@@ -160,6 +179,11 @@ export const subagentsToolSchema = Type.Object({
       timeoutMs: Type.Optional(Type.Integer({ description: "Per-child wall-clock cap (ms). Defaults to 15 min." })),
       tokenBudget: Type.Optional(Type.Integer({ description: "Per-child token cap (hard — aborts that one child)." })),
       spendBudget: Type.Optional(Type.Number({ description: "Per-child cost cap in $ (hard)." })),
+      maxTurns: Type.Optional(
+        Type.Integer({
+          description: "Per-child turn cap (integer >= 1, hard — timeout-like abort). No default.",
+        }),
+      ),
     }),
     { description: "Read-only fan-out: each task runs as an isolated subagent with edit/write/bash always excluded." },
   ),
@@ -200,6 +224,7 @@ export function mergeReadOnlyExclusion(
     timeoutMs: task.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     tokenBudget: task.tokenBudget ?? tierDefaultToken(task.tier, task.model ?? ctx.mainModel),
     spendBudget: task.spendBudget,
+    maxTurns: task.maxTurns,
   };
   if (task.model) opts.model = task.model;
   if (task.tier) opts.tier = task.tier;
@@ -505,6 +530,21 @@ export function createSubagentsTool(
             fellBack: slotFellBack,
             elapsedMs: Date.now() - childT0,
           };
+        } else if (result.turns) {
+          // Per-child turn-cap abort — mirrors the per-child budget slot (Task 3b):
+          // the child ran, hit its maxTurns ceiling, and was aborted with
+          // timeout-like semantics. No output → counted as skipped, never "done".
+          slots[index] = {
+            status: "turns",
+            turns: result.turns,
+            id: task.id,
+            index,
+            task: preview,
+            model: slotModel,
+            requestedModel: slotRequestedModel,
+            fellBack: slotFellBack,
+            elapsedMs: Date.now() - childT0,
+          };
         } else {
           slots[index] = {
             output: result.output,
@@ -544,6 +584,7 @@ export function createSubagentsTool(
             elapsedMs: Date.now() - childT0,
             usage: result.usage,
             budget: result.budget,
+            turns: result.turns,
             output: userAborted ? "Subagent aborted by user." : result.output,
           });
         }
@@ -625,7 +666,11 @@ export function createSubagentsTool(
       // (source "child": ran, then hit its own ceiling). The per-slot `source`
       // distinguishes them in results + rendering; the aggregate intentionally
       // lumps both as "not ok, not failed".
-      const skipped = slots.filter((s) => s != null && (s as { status: string }).status === "budget").length;
+      const skipped = slots.filter(
+        (s) =>
+          s != null &&
+          ((s as { status: string }).status === "budget" || (s as { status: string }).status === "turns"),
+      ).length;
       const details: SubagentsToolDetails = {
         results: slots as BatchResultSlot[],
         dispatched,
@@ -651,7 +696,11 @@ export function createSubagentsTool(
 /** Render the batch result as a readable summary for the model. */
 export function renderBatchResult(details: SubagentsToolDetails): string {
   const done = details.results.filter(
-    (s) => s && (s as { status: string }).status !== "budget" && (s as { status: string }).status !== "aborted",
+    (s) =>
+      s &&
+      (s as { status: string }).status !== "budget" &&
+      (s as { status: string }).status !== "turns" &&
+      (s as { status: string }).status !== "aborted",
   ).length;
   const aborted = details.results.filter((s) => s && (s as { status: string }).status === "aborted").length;
   const failed = details.results.filter((s) => s === null).length;
@@ -668,6 +717,9 @@ export function renderBatchResult(details: SubagentsToolDetails): string {
       if (slot.status === "budget") {
         const label = slot.source === "child" ? "child budget" : "batch budget";
         return `### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped — ${label}: ${slot.exhaustion.kind} ${slot.exhaustion.actual} > ${slot.exhaustion.limit}`;
+      }
+      if (slot.status === "turns") {
+        return `### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped — max turns exceeded: ${slot.turns.turnsUsed}/${slot.turns.maxTurns} turns (timeout-like abort; re-run with a higher maxTurns)`;
       }
       if (slot.status === "aborted") {
         return `### [${i}]${slot.id ? ` (${slot.id})` : ""} aborted\n_(user-aborted mid-flight)_`;
@@ -707,6 +759,7 @@ const BATCH_STATUS_BADGES = {
   done: { text: "✓ done", tone: "success" as const },
   timedout: { text: "⏱ timedout", tone: "warning" as const },
   budget: { text: "⛔ budget", tone: "warning" as const },
+  turns: { text: "⏹ turns", tone: "warning" as const },
   aborted: { text: "⊘ aborted", tone: "dim" as const },
   failed: { text: "✗ failed", tone: "error" as const },
 };
@@ -835,7 +888,11 @@ export function renderSubagentsResult(
 
   // Build the batch header.
   const done = d.results.filter(
-    (s) => s && (s as { status: string }).status !== "budget" && (s as { status: string }).status !== "aborted",
+    (s) =>
+      s &&
+      (s as { status: string }).status !== "budget" &&
+      (s as { status: string }).status !== "turns" &&
+      (s as { status: string }).status !== "aborted",
   ).length;
   const aborted = d.results.filter((s) => s && (s as { status: string }).status === "aborted").length;
   const failed = d.results.filter((s) => s === null).length;
@@ -899,6 +956,10 @@ ${theme.fg("dim", "_(null — child failed; re-run via the singular `subagent` t
       if (slot.status === "budget") {
         const label = slot.source === "child" ? "child budget" : "batch budget";
         return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped`)} — ${theme.fg("warning", `${label}: ${slot.exhaustion.kind} ${slot.exhaustion.actual} > ${slot.exhaustion.limit}`)}
+${metaLine}`;
+      }
+      if (slot.status === "turns") {
+        return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped`)} — ${theme.fg("warning", `max turns exceeded: ${slot.turns.turnsUsed}/${slot.turns.maxTurns} turns`)}
 ${metaLine}`;
       }
       if (slot.status === "aborted") {

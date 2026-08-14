@@ -17,7 +17,7 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentHistoryEntry, AgentUsage, SddReport } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry, AgentUsage, SddReport, TurnExhaustion } from "@repo/pi-agent-ext-core-runtime";
 import { homeDir } from "@repo/pi-agent-ext-core-runtime";
 import type { SubagentScopeCheck } from "./git-scope.js";
 import type { SubagentBudgetDetails } from "./subagent-tool-schema.js";
@@ -26,7 +26,7 @@ import type { WatchdogResult } from "./watchdog/types.js";
 export const SUBAGENT_HOME_RELATIVE_DIR = ".pi/subagents";
 export const SUBAGENT_RUNS_SUBDIR = "runs";
 
-export type SubagentRunStatus = "done" | "failed" | "timedout" | "budget" | "aborted";
+export type SubagentRunStatus = "done" | "failed" | "timedout" | "budget" | "turns" | "aborted";
 
 /**
  * A durable, serializable snapshot of one completed `subagent`-tool run.
@@ -77,6 +77,13 @@ export interface SubagentRunRecord {
    * a set budget (informational, fixed 0.8 ratio). See SubagentBudgetDetails.
    */
   budget?: SubagentBudgetDetails;
+  /**
+   * Turns-exhaustion block: set when the run was aborted for exceeding
+   * `maxTurns` (status "turns" — mirrors SpawnSubagentResult.turns /
+   * core-runtime TurnExhaustion). Absent on every other path; old records
+   * without it parse unchanged (optional field, no migration needed).
+   */
+  turns?: TurnExhaustion;
   /** Two-layer watchdog review (ticket 02), when `watchdog` was requested on the dispatch. */
   watchdog?: WatchdogResult;
 }

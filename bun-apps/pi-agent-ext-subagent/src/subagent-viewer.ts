@@ -46,7 +46,7 @@ export interface SubagentRun {
   agent?: string;
   model: string;
   taskPreview: string;
-  status: "done" | "failed" | "timedout" | "budget" | "aborted";
+  status: "done" | "failed" | "timedout" | "budget" | "turns" | "aborted";
   elapsedMs: number;
   /** Wall-clock dispatch start, epoch ms (for timestamp display); absent on legacy branch entries. */
   startedAt?: number;
@@ -679,6 +679,8 @@ function followGlyph(status: string, th: Theme): string {
       return th.fg("warning", "⏱");
     case "budget":
       return th.fg("warning", "⛔");
+    case "turns":
+      return th.fg("warning", "⏹");
     case "ended":
       return th.fg("dim", "–");
     default:
