@@ -47,7 +47,12 @@ import { registerSessionSearchTool } from "./tools/session-search-tool.js";
 import { createPerfRecorder } from "./perf.js";
 import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
 import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
-import { registerKnowledgeSearchTool, buildGraphRelationsFetcher } from "./tools/knowledge-search-tool.js";
+import {
+  registerKnowledgeSearchTool,
+  buildGraphRelationsFetcher,
+  buildLexicalRecall,
+  buildEntityRecall,
+} from "./tools/knowledge-search-tool.js";
 import { registerKnowledgeIngestTool } from "./tools/knowledge-ingest-tool.js";
 import { registerPlanningStaleTool } from "./tools/planning-stale-tool.js";
 import { publishStaleCheck, unpublishStaleCheck } from "./stale-seam.js";
@@ -134,6 +139,15 @@ function buildKnowledgeSemanticOpts(
     // vector store above — the default (no surreal endpoint) path stays
     // byte-identical with the seam unwired.
     fetchRelations: buildGraphRelationsFetcher(memoryDir),
+    // Ticket 20 T3: the two independent recall signals for the warm-path
+    // frequency vote — FTS membership (lexical) + query-entity × graph scan
+    // (entity). Same gating as fetchRelations above (only when a surreal
+    // endpoint is configured); silent-skip inside each builder.
+    lexicalRecall: buildLexicalRecall(memoryDir),
+    entityRecall: buildEntityRecall(memoryDir),
+    // Ticket 20 T2: frequency-vote dominance weight, threaded from config
+    // (4-point registration; see constants.ts / config.ts).
+    boostWeight: config.boostWeight,
     vectorStore: () => {
       if (!client) client = new SurrealClient({ endpoint, namespace: ns, database: db, username, password });
       if (!store) store = createVectorStore(client, ns, db);

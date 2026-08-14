@@ -32,6 +32,7 @@ import type { KnowledgePipeline, RetrieveResult } from "@repo/pi-agent-ext-core-
 import type { VectorStore, VectorKnnHit } from "./surreal/vector-store.js";
 import { embedQuery, type Embedder } from "./surreal/embedder.js";
 import { normalizeRelation } from "./relation-schema.js";
+import { DEFAULT_BOOST_WEIGHT } from "../constants.js";
 
 /** The card "kind" namespace. Mirrors zk's knowledge folder vs hermes memory. */
 export type SemanticKind = "memory" | "knowledge";
@@ -53,6 +54,12 @@ export interface SemanticSearchHit {
    *  card/graph is missing, or the lookup failed (silent skip — never blocks
    *  search). Cold fallback paths never carry it. */
   relations?: SemanticRelation[];
+  /** Ticket 20 T1: how many independent recall signals surfaced this card —
+ *  1 (warm HNSW) + number of extra signal seams (lexicalRecall /
+ *  entityRecall) whose lists contain the mdId. Observability only. Set ONLY
+ *  when at least one signal seam was invoked on the warm path; fallback-path
+ *  hits and seam-less searches leave it undefined. */
+  signalCount?: number;
 }
 
 /** A typed graph relation triple (mirrors CardGraph.relations, ticket 03). */
@@ -106,6 +113,23 @@ export interface SearchSemanticOptions {
    *  skip: no relations attached, hit kept. Never fails search. Ignored on the
    *  cold fallback paths (no new fetch machinery there). */
   fetchRelations?: (mdIds: string[]) => Promise<Map<string, SemanticRelation[]>>;
+  /** Ticket 20 T1: lexical recall signal (SQLite FTS membership over knowledge
+ *  cards). Injected seam, fetchRelations pattern: given the query text and
+ *  topK, resolves that signal's own ranked list (rank = 0-based position in
+ *  the SIGNAL's list, not the warm list). Silent-skip contract: absent /
+ *  throwing / empty → that signal simply does not vote. Warm path only.
+ *  Production builder lands in ticket 20 T3 (knowledge-search-tool). */
+  lexicalRecall?: (queryText: string, topK: number) => Promise<Array<{ mdId: string; rank: number }>>;
+  /** Ticket 20 T1: entity recall signal (query-side dictionary extraction ×
+ *  card graph.entities scan). Same injected-seam shape and silent-skip
+ *  contract as `lexicalRecall`. Warm path only. */
+  entityRecall?: (queryText: string, topK: number) => Promise<Array<{ mdId: string; rank: number }>>;
+  /** Ticket 20 T1: dominance weight of the multi-signal frequency vote
+ *  (PINNED formula: final = (signalCount - 1) * boostWeight + bestRankScore).
+ *  Default 1.0 (at default, any 2-signal card outranks any 1-signal card —
+ *  rank score ≤ 1). Threaded from `config.boostWeight` via the
+ *  knowledge-search wiring (T2); DEFAULT_BOOST_WEIGHT lives in constants.ts. */
+  boostWeight?: number;
 }
 
 /** Internal: normalize a VectorKnnHit to a SemanticSearchHit (warm path). */
@@ -177,6 +201,50 @@ function relationSignature(relations: SemanticSearchHit["relations"]): string | 
 }
 
 /**
+ * Ticket 20 T1: multi-signal frequency VOTE + re-rank (LeanRAG concept ③).
+ * Pure, never throws. Per-signal scores are mutually incomparable (HNSW
+ * cosine vs FTS membership-recency vs entity match-count), so the vote is
+ * rank/membership-based ONLY — never cross-signal score arithmetic.
+ *
+ * For each warm hit:
+ *   signalCount    = 1 (warm) + number of signal maps containing the mdId;
+ *   bestRankScore  = max over CONTAINING signals of (1 - rank/(topK+1)),
+ *                    0 when no signal contains the mdId;
+ *   final          = (signalCount - 1) * boostWeight + bestRankScore  [PINNED].
+ *
+ * Stable sort desc by final — ties keep the original warm (cosine) order.
+ * A signal mdId NOT present among the warm hits is ignored (only warm hits
+ * are re-ranked; a cold-only signal match cannot be scored against cosine).
+ * Mutates nothing structurally: sets `hit.signalCount` on every hit and
+ * returns them in voted order (same hit objects, same length).
+ */
+function voteAndRank(
+  hits: SemanticSearchHit[],
+  signals: Array<Map<string, number>>,
+  boostWeight: number,
+  topK: number,
+): SemanticSearchHit[] {
+  const scored = hits.map((hit, index) => {
+    let containing = 0;
+    let best = 0;
+    for (const signal of signals) {
+      const rank = signal.get(hit.mdId);
+      if (rank === undefined) continue;
+      containing++;
+      const score = 1 - rank / (topK + 1);
+      if (score > best) best = score;
+    }
+    const signalCount = 1 + containing;
+    return { hit, index, signalCount, final: containing * boostWeight + best };
+  });
+  scored.sort((a, b) => b.final - a.final || a.index - b.index); // stable via index tie-break
+  return scored.map((s) => {
+    s.hit.signalCount = s.signalCount; // observability (set whenever a seam was invoked)
+    return s.hit;
+  });
+}
+
+/**
  * Ticket 03 P2-T5 (LeanRAG ③): relation-signature dedup pass — sibling to
  * `dedupByContentHash` with identical keep-first semantics. Keeps the FIRST
  * occurrence per non-null canonical `relationSignature`; hits whose signature
@@ -222,6 +290,7 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
     queryText, kind, topK = 10, ef = 100, model, embedder,
     vectorStore, memoryRepo, kp, vaultPath, folder, excludeIds,
     scheduleVectorBackfill, survivingK, fetchRelations,
+    lexicalRecall, entityRecall, boostWeight,
   } = opts;
   const exclude = new Set(excludeIds ?? []);
   const modelId = model ?? "text-embedding-nomic-embed-text-v1.5";
@@ -238,8 +307,16 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
         try {
           const rows = await vectorStore.knn(qvec, topK, ef);
           const hits = rows.map((r) => toHit(r, kind));
+          // Ticket 20 T1: multi-signal frequency vote — WARM PATH ONLY, after
+          // the knn rank loop and BEFORE fetchRelations + dedup + cap (vote
+          // ordering determines which contentHash twin survives dedup and
+          // which hits survive the survivingK cap). Either seam present →
+          // consult BOTH concurrently via allSettled (a rejected signal is
+          // silently skipped — never breaks search); absent seams contribute
+          // an empty signal and never vote. Only warm hits are re-ranked;
+          // signal mdIds outside the warm set are ignored inside voteAndRank.
           const seen = new Set<string>();
-          const ranked: SemanticSearchHit[] = [];
+          let ranked: SemanticSearchHit[] = [];
           for (const h of hits) {
             if (exclude.has(h.mdId)) continue;
             if (kind && h.kind !== kind) continue;
@@ -247,6 +324,35 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
             seen.add(h.mdId);
             ranked.push(h);
             if (ranked.length >= topK) break;
+          }
+          // ── Ticket 20 T1: frequency vote seam (warm path only) ─────────────
+          if (lexicalRecall || entityRecall) {
+            const settled = await Promise.allSettled([
+              lexicalRecall?.(queryText, topK) ?? [],
+              entityRecall?.(queryText, topK) ?? [],
+            ]);
+            const signalMaps: Array<Map<string, number>> = [];
+            for (const outcome of settled) {
+              if (outcome.status !== "fulfilled") continue; // rejected signal → skipped
+              const map = new Map<string, number>();
+              for (const item of outcome.value ?? []) {
+                // guard against malformed provider rows — never throws.
+                // NaN/Infinity ranks pass the typeof check and still contribute
+                // signalCount, but their score never wins (NaN/−Inf > best is
+                // false) → effectively 0 score. By design.
+                if (item && typeof item.mdId === "string" && typeof item.rank === "number") {
+                  map.set(item.mdId, item.rank);
+                }
+              }
+              signalMaps.push(map);
+            }
+            // boostWeight seam guard (mirrors the config finite->0 floor):
+            // NaN/Infinity/<=0 falls back to the default.
+            ranked = voteAndRank(
+              ranked, signalMaps,
+              boostWeight !== undefined && Number.isFinite(boostWeight) && boostWeight > 0 ? boostWeight : DEFAULT_BOOST_WEIGHT,
+              topK,
+            );
           }
           // A warm path that returned NOTHING is not necessarily a failure,
           // but a cold index returning [] is indistinguishable from "no match".

@@ -20,6 +20,8 @@ import { KNOWLEDGE_FOLDER_DEFAULT } from "../knowledge-vault-path.js";
 import type { VectorStore } from "../store/surreal/vector-store.js";
 import type { Embedder } from "../store/surreal/embedder.js";
 import { SqliteBackend } from "../store/sqlite/sqlite-backend.js";
+import { normalizeFts5Query, buildFallbackFts5Query, isFts5QueryError } from "../store/sqlite/fts-query.js";
+import { extractEntities, normEntity } from "@repo/pi-agent-ext-knowledge-card/src/entities.ts";
 import { searchSemantic, type SemanticRelation } from "../store/semantic-search.js";
 
 /** Narrow the pi surface to exactly what this tool uses (registerTool). The
@@ -54,6 +56,24 @@ export interface KnowledgeSemanticOpts {
    *  vector store (unwired default → dedupByRelation stays dormant, unchanged
    *  behavior). */
   fetchRelations?: (mdIds: string[]) => Promise<Map<string, SemanticRelation[]>>;
+  /** Ticket 20 T3: warm-path lexical recall signal — FTS membership over the
+   *  knowledge-target rows of the same SQLite card-store DB (membership only;
+   * FTS returns no relevance, so rank = ascending rowid (oldest-first) —
+   * membership is what votes, rank only tie-breaks. Built
+   * by `buildLexicalRecall(memoryDir)`; silent-skip contract — [] on any
+   * failure, never breaks search. */
+  lexicalRecall?: (queryText: string, topK: number) => Promise<Array<{ mdId: string; rank: number }>>;
+  /** Ticket 20 T3: warm-path entity recall signal — query-side deterministic
+   *  entity extraction (zk extractEntities) × a paged scan of card graph
+   *  entities, ranked by match count. Built by `buildEntityRecall(memoryDir)`;
+   * same silent-skip contract. */
+  entityRecall?: (queryText: string, topK: number) => Promise<Array<{ mdId: string; rank: number }>>;
+  /** Ticket 20 T2: dominance weight of the multi-signal frequency vote
+   *  (PINNED: final = (signalCount - 1) * boostWeight + bestRankScore).
+   *  Threaded from `config.boostWeight` at registration time (index.ts) and
+   *  passed straight into `searchSemantic`; default 1.0 when unset
+   *  (DEFAULT_BOOST_WEIGHT, constants.ts). */
+  boostWeight?: number;
 }
 
 /** Ticket 03 P2-T5 (LeanRAG ③): build the PRODUCTION `fetchRelations` provider
@@ -107,6 +127,125 @@ export function buildGraphRelationsFetcher(
       await backend.close().catch(() => {});
     }
     return out;
+  };
+}
+
+/** Ticket 20 T3: build the PRODUCTION `lexicalRecall` signal — FTS membership
+ *  over the knowledge-target rows of the SAME SQLite card-store DB (ephemeral
+ *  backend per call, mirroring buildGraphRelationsFetcher). `memory_fts` is
+ *  external-content FTS over the whole memories table (kind-agnostic), so the
+ *  knowledge filter is applied in the outer query (`target = 'knowledge'`, md_id
+ *  NOT NULL). FTS returns NO relevance ordering — rank = ascending rowid
+ *  (oldest-first); membership is what votes, rank only tie-breaks, per the
+ *  plan's rank/membership-only constraint). Query normalization goes through
+ *  `normalizeFts5Query`, with a `buildFallbackFts5Query` retry on FTS syntax
+ *  errors. Never throws: ANY failure (backend open, FTS error even after the
+ *  fallback, malformed rows) → [] (the seam contract: a failing signal never
+ *  breaks search). */
+export function buildLexicalRecall(
+  memoryDir: string,
+): (queryText: string, topK: number) => Promise<Array<{ mdId: string; rank: number }>> {
+  return async (queryText: string, topK: number): Promise<Array<{ mdId: string; rank: number }>> => {
+    if (!queryText || !queryText.trim() || topK <= 0) return [];
+    const backend = new SqliteBackend(memoryDir);
+    try {
+      await backend.init();
+      const sql =
+        `SELECT m.md_id FROM memories m ` +
+        `WHERE m.id IN (SELECT rowid FROM memory_fts WHERE memory_fts MATCH ?) ` +
+        `AND m.target = 'knowledge' AND m.md_id IS NOT NULL LIMIT ?`;
+      let rows: Array<{ md_id: unknown }>;
+      try {
+        rows = backend.getDb().prepare(sql).all(normalizeFts5Query(queryText), topK) as Array<{
+          md_id: unknown;
+        }>;
+      } catch (err) {
+        if (!isFts5QueryError(err)) throw err; // non-FTS failure → outer catch → []
+        const fallback = buildFallbackFts5Query(queryText);
+        if (!fallback) throw err; // no broader form available → [] via outer catch
+        rows = backend.getDb().prepare(sql).all(fallback, topK) as Array<{ md_id: unknown }>;
+      }
+      // Guard against malformed rows (rank = 0-based row index).
+      return rows
+        .filter((r): r is { md_id: string } => !!r && typeof r.md_id === "string")
+        .map((r, i) => ({ mdId: r.md_id, rank: i }));
+    } catch {
+      return []; // backend open / FTS error even after fallback / anything → silent skip
+    } finally {
+      await backend.close().catch(() => {});
+    }
+  };
+}
+
+/** Ticket 20 T3: build the PRODUCTION `entityRecall` signal — query-side
+ *  deterministic entity extraction (zk `extractEntities`, pure) × a rowid-paged
+ *  scan of the knowledge cards' `graph.entities` (batches of 100, mirroring the
+ *  fetcher's chunk discipline). Both sides are normalized via zk `normEntity`
+ *  (exported for exactly this), so "MLX" in prose matches "mlx" in a graph.
+ *  Cards with ≥1 overlap are kept, ranked by matchCount desc then id asc.
+ *  CHEAP SHORT-CIRCUIT: a query yielding no entities returns [] WITHOUT opening
+ *  the DB. Never throws: any failure (extraction, backend, corrupt graph JSON)
+ *  → [] / row silently skipped. hermes→zk is the sanctioned spine direction.
+ *  Full paged scan per warm query — revisit at the >2k-cards scale trigger
+ *  (plan 03's persistent-index deferral). */
+export function buildEntityRecall(
+  memoryDir: string,
+): (queryText: string, topK: number) => Promise<Array<{ mdId: string; rank: number }>> {
+  return async (queryText: string, topK: number): Promise<Array<{ mdId: string; rank: number }>> => {
+    if (topK <= 0) return [];
+    let queryNames: Set<string>;
+    try {
+      queryNames = new Set(
+        extractEntities(queryText ?? "").map((e) => {
+          if (!e || typeof e.name !== "string") return "";
+          return normEntity(e.name);
+        }),
+      );
+    } catch {
+      return []; // extraction itself failed → silent skip
+    }
+    queryNames.delete("");
+    if (queryNames.size === 0) return []; // no query entities → no DB open at all
+    const backend = new SqliteBackend(memoryDir);
+    try {
+      await backend.init();
+      const stmt = backend.getDb().prepare(
+        `SELECT id, md_id, graph FROM memories ` +
+          `WHERE target = 'knowledge' AND graph IS NOT NULL AND id > ? ORDER BY id LIMIT 100`,
+      );
+      let cursor = 0;
+      const matched: Array<{ mdId: string; id: number; matchCount: number }> = [];
+      for (;;) {
+        const rows = stmt.all(cursor) as Array<{ id: unknown; md_id: unknown; graph: unknown }>;
+        for (const row of rows) {
+          if (!row || typeof row.id !== "number" || typeof row.md_id !== "string") continue;
+          if (typeof row.graph !== "string" || row.graph.length === 0) continue;
+          try {
+            const parsed = JSON.parse(row.graph) as { entities?: unknown };
+            if (!Array.isArray(parsed.entities)) continue;
+            let matchCount = 0;
+            for (const ent of parsed.entities) {
+              if (!ent || typeof ent !== "object") continue;
+              const name = (ent as { name?: unknown }).name;
+              if (typeof name === "string" && queryNames.has(normEntity(name))) matchCount += 1;
+            }
+            if (matchCount >= 1) matched.push({ mdId: row.md_id, id: row.id, matchCount });
+          } catch {
+            // corrupt graph JSON → silent skip, never blocks search
+          }
+        }
+        if (rows.length < 100) break;
+        const last = rows[rows.length - 1]!;
+        if (typeof last.id !== "number") break;
+        cursor = last.id;
+      }
+      matched.sort((a, b) => b.matchCount - a.matchCount || a.id - b.id);
+      return matched.slice(0, topK).map((m, i) => ({ mdId: m.mdId, rank: i }));
+    } catch {
+      return []; // backend open / query failure → silent skip
+    } finally {
+      await backend.close().catch(() => {});
+    }
   };
 }
 
@@ -250,6 +389,13 @@ export function registerKnowledgeSearchTool(
               // ③ dedup substrate: attach card-graph relations for the ranked
               // hits (batched SQLite lookup; silent-skip inside the seam).
               fetchRelations: semanticOpts.fetchRelations,
+              // Ticket 20 T3: production lexical (FTS membership) + entity
+              // (extractEntities × graph scan) vote signals.
+              lexicalRecall: semanticOpts.lexicalRecall,
+              entityRecall: semanticOpts.entityRecall,
+              // Ticket 20 T2: frequency-vote dominance weight from config
+              // (constants → types → config 4-point registration).
+              boostWeight: semanticOpts.boostWeight,
               // Deliberately omit kp/vaultPath: a warm miss must return []
               // (NOT re-run zk cosine) so the zk result above stands.
               excludeIds,

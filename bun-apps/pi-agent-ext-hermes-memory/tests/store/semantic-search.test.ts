@@ -694,3 +694,146 @@ describe("searchSemantic — relation dedup (ticket 03 P2-T5 / LeanRAG ③)", ()
     expect(hits.map((h) => h.mdId)).toEqual(["mem-1", "mem-2"]);
   });
 });
+
+// ── Ticket 20 T1: multi-signal frequency vote + injectable seams ──────────
+// Vote formula (PINNED): final = (signalCount - 1) * boostWeight + bestRankScore
+// where bestRankScore = max over signals containing the mdId of
+// (1 - rank/(topK+1)), 0 when no signal contains it. signalCount = 1 (warm)
+// + number of extra signals containing the mdId. Rank/membership only — no
+// cross-signal score arithmetic (Global Constraint). Vote runs BEFORE
+// fetchRelations + contentHash/relation dedup + survivingK cap.
+
+describe("searchSemantic — multi-signal frequency vote (ticket 20 T1)", () => {
+  it("(a) 2-signal card outranks a better-cosine 1-signal card (default boostWeight 1.0)", async () => {
+    const vs = fakeVectorStore([
+      { mdId: "strong", kind: "knowledge" }, // warm rank 0 (best cosine)
+      { mdId: "voted", kind: "knowledge" },  // warm rank 1
+    ]);
+    const lexical = mock(async (_q: string, _k: number) => [{ mdId: "voted", rank: 0 }]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      lexicalRecall: lexical,
+    });
+    // voted: (2-1)*1.0 + (1-0/6) = 2.0 ; strong: (1-1)*1.0 + 0 = 0
+    expect(hits.map((h) => h.mdId)).toEqual(["voted", "strong"]);
+    expect(hits[0].signalCount).toBe(2);
+    expect(hits[1].signalCount).toBe(1);
+    expect(lexical).toHaveBeenCalledTimes(1);
+    expect(lexical).toHaveBeenCalledWith("probe", 5);
+  });
+
+  it("(b) NO seams → warm order unchanged, signalCount stays undefined", async () => {
+    const vs = fakeVectorStore([{ mdId: "m1", kind: "memory" }, { mdId: "m2", kind: "memory" }]);
+    const hits = await searchSemantic({
+      queryText: "probe", topK: 5, embedder: fakeEmbedder(), vectorStore: vs,
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]);
+    expect(hits.every((h) => h.signalCount === undefined)).toBe(true);
+  });
+
+  it("(c) lexicalRecall REJECTS → allSettled skips it, entityRecall still votes", async () => {
+    const vs = fakeVectorStore([{ mdId: "m1", kind: "knowledge" }, { mdId: "m2", kind: "knowledge" }]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      lexicalRecall: async (_q: string, _k: number): Promise<Array<{ mdId: string; rank: number }>> => {
+        throw new Error("FTS down");
+      },
+      entityRecall: async (_q: string, _k: number) => [{ mdId: "m2", rank: 0 }],
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m2", "m1"]);
+    expect(hits[0].signalCount).toBe(2);
+    expect(hits[1].signalCount).toBe(1);
+  });
+
+  it("(d) boostWeight tunes dominance: 0.1 → strong 1-extra-signal wins; 10 → weak 2-extra-signal wins", async () => {
+    const vs = fakeVectorStore([
+      { mdId: "strong", kind: "knowledge" }, // warm rank 0
+      { mdId: "weak", kind: "knowledge" },   // warm rank 1
+    ]);
+    const make = (boostWeight: number) => searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5, boostWeight,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      lexicalRecall: async (_q: string, _k: number) => [{ mdId: "strong", rank: 0 }, { mdId: "weak", rank: 5 }],
+      entityRecall: async (_q: string, _k: number) => [{ mdId: "weak", rank: 5 }],
+    });
+    // strong: 1*w + (1-0/6)=1 → w+1 ; weak: 2*w + (1-5/6)=1/6
+    const low = await make(0.1);  // strong 1.1 vs weak 0.3667
+    expect(low.map((h) => h.mdId)).toEqual(["strong", "weak"]);
+    expect(low[0].signalCount).toBe(2);
+    const high = await make(10); // strong 11 vs weak ≈20.17
+    expect(high.map((h) => h.mdId)).toEqual(["weak", "strong"]);
+    expect(high[0].signalCount).toBe(3);
+  });
+
+  it("(e) contentHash dedup keeps the highest-VOTED twin (2-signal twin survives)", async () => {
+    const vs = fakeVectorStore([
+      { mdId: "plain", kind: "knowledge", contentHash: "dup" }, // warm rank 0
+      { mdId: "voted", kind: "knowledge", contentHash: "dup" }, // warm rank 1, hash twin
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      lexicalRecall: async (_q: string, _k: number) => [{ mdId: "voted", rank: 0 }],
+    });
+    // Vote re-orders voted first → keep-first dedup keeps the voted twin.
+    expect(hits.map((h) => h.mdId)).toEqual(["voted"]);
+    expect(hits[0].signalCount).toBe(2);
+  });
+
+  it("(f) survivingK cap applied AFTER the vote (voted-first hits survive the cap)", async () => {
+    const vs = fakeVectorStore([
+      { mdId: "m1", kind: "knowledge" },
+      { mdId: "m2", kind: "knowledge" },
+      { mdId: "m3", kind: "knowledge" },
+    ]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5, survivingK: 2,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      entityRecall: async (_q: string, _k: number) => [{ mdId: "m3", rank: 0 }],
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m3", "m1"]); // m3 voted first, cap keeps 2
+  });
+
+  it("(g) EMPTY signal arrays → signalCount 1 everywhere, warm order preserved", async () => {
+    const vs = fakeVectorStore([{ mdId: "m1", kind: "knowledge" }, { mdId: "m2", kind: "knowledge" }]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      lexicalRecall: async (_q: string, _k: number) => [],
+      entityRecall: async (_q: string, _k: number) => [],
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]);
+    expect(hits.every((h) => h.signalCount === 1)).toBe(true);
+  });
+
+  it("(i) lexicalRecall mdId NOT among warm hits → no phantom hit invented, existing hits unaffected", async () => {
+    const vs = fakeVectorStore([{ mdId: "m1", kind: "knowledge" }, { mdId: "m2", kind: "knowledge" }]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "knowledge", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs,
+      lexicalRecall: async (_q: string, _k: number) => [{ mdId: "phantom", rank: 0 }],
+    });
+    expect(hits.length).toBe(2); // length unchanged — no phantom hit invented
+    expect(hits.map((h) => h.mdId)).toEqual(["m1", "m2"]); // existing hits unaffected (warm order)
+    expect(hits.every((h) => h.signalCount === 1)).toBe(true); // phantom vote counted for no one
+  });
+
+  it("(h) FALLBACK paths untouched: seams never consulted when knn throws", async () => {
+    const vs = throwingVectorStore();
+    const repo = fakeMemoryRepo([{ id: 1, mdId: "mem-1", content: "c" } as MemoryEntry]);
+    const hits = await searchSemantic({
+      queryText: "probe", kind: "memory", topK: 5,
+      embedder: fakeEmbedder(), vectorStore: vs, memoryRepo: repo,
+      lexicalRecall: async (): Promise<Array<{ mdId: string; rank: number }>> => {
+        throw new Error("must not be called on the cold path");
+      },
+      entityRecall: async (): Promise<Array<{ mdId: string; rank: number }>> => {
+        throw new Error("must not be called on the cold path");
+      },
+    });
+    expect(hits.map((h) => h.mdId)).toEqual(["mem-1"]);
+    expect(hits[0].signalCount).toBeUndefined(); // fallback hits never get signalCount
+  });
+});
