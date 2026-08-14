@@ -43,6 +43,7 @@ function isPayload(d: unknown): d is PresentEventPayload {
   if (typeof o.content !== "string") return false;
   if (!Array.isArray(o.controls) || !o.controls.every(isControl)) return false;
   if (o.id !== undefined && typeof o.id !== "string") return false;
+  if (o.view !== undefined && typeof o.view !== "string") return false;
   return true;
 }
 

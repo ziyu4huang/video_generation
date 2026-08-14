@@ -8,7 +8,7 @@
  * live WebServer integration test proving the origin-guarded fetch() path.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createOutputRoutes, resolveOutputDir } from "../src/output-routes.js";
