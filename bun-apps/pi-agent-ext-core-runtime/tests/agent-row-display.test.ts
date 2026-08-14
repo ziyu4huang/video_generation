@@ -13,6 +13,7 @@ const ALL_STATUSES: ActivityStatus[] = [
   "skipped",
   "timedout",
   "budget",
+  "turns",
   "aborted",
 ];
 

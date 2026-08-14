@@ -11,6 +11,7 @@ import type {
   removeWorktree,
   SddReport,
   SubagentInFlightRegistry,
+  TurnExhaustion,
 } from "@repo/pi-agent-ext-core-runtime";
 import type { TSchema } from "typebox";
 import { Type } from "typebox";
@@ -59,11 +60,19 @@ export interface SubagentToolDetails {
   elapsedMs: number;
   /** Wall-clock dispatch start, epoch ms — for /subagents timestamp display. */
   startedAt?: number;
-  status: "done" | "failed" | "timedout" | "budget" | "aborted";
+  status: "done" | "failed" | "timedout" | "budget" | "turns" | "aborted";
   /** Real token/cost usage from the child session, when reported. */
   usage?: AgentUsage;
   /** Budget block — exhaustion fields on the abort path, `warning` on the completed ≥80% path (see {@link SubagentBudgetDetails}). */
   budget?: SubagentBudgetDetails;
+  /**
+   * Turns-exhaustion block: present only when the run was ABORTED for
+   * exceeding `maxTurns` (status "turns" — mirrors SpawnSubagentResult.turns /
+   * core-runtime TurnExhaustion). Timeout-like semantics: transient, so the
+   * dispatch is retried once under retryOnTransient. Absent on every other
+   * path; old records without it stay valid.
+   */
+  turns?: TurnExhaustion;
   /**
    * Parsed SDD report block (ticket 04), when the subagent's output carries the
    * `**Status:**` marker. Absent for plain (non-SDD) dispatches, schema results,
@@ -180,6 +189,13 @@ export const subagentToolSchema = Type.Object({
   spendBudget: Type.Optional(
     Type.Number({
       description: "Abort once cumulative cost ($) exceeds this (pairs with tokenBudget; same per-turn check).",
+    }),
+  ),
+  maxTurns: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      description:
+        "Turn-count governor complementing tokenBudget: cap the child at N turns (integer >= 1, no default). Each turn re-pays ~10k+ tokens of fixed overhead (system prompt + AGENTS.md + tool schemas), so turn count dominates cost for bounded tasks (2026-08-14 evidence: same task as 6 command groups = 60-69k tokens vs one single-block dispatch = 13.5k). Exceeding the cap hard-aborts with timeout-like semantics (transient, retried once when retryOnTransient is true).",
     }),
   ),
   retryOnTransient: Type.Optional(

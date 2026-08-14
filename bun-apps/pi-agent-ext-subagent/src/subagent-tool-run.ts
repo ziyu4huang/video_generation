@@ -6,7 +6,7 @@
  * of the inline code it replaces.
  */
 
-import type { AgentHistoryEntry, BudgetWarning } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry, BudgetWarning, TurnExhaustion } from "@repo/pi-agent-ext-core-runtime";
 import { parseSddReport } from "@repo/pi-agent-ext-core-runtime";
 import type { TSchema } from "typebox";
 import { tierDefaultToken } from "./budget-defaults.js";
@@ -171,6 +171,7 @@ export interface RunRecordDelta {
   usage?: SubagentToolDetails["usage"];
   stderr?: string;
   budget?: SubagentToolDetails["budget"];
+  turns?: SubagentToolDetails["turns"];
   history?: AgentHistoryEntry[];
   report?: SubagentToolDetails["report"];
   scopeCheck?: SubagentScopeCheck;
@@ -199,6 +200,7 @@ export function buildRunRecord(ctx: RunRecordCtx, delta: RunRecordDelta): Subage
   };
   if (delta.stderr !== undefined) rec.stderr = delta.stderr;
   if (delta.budget !== undefined) rec.budget = delta.budget;
+  if (delta.turns !== undefined) rec.turns = delta.turns;
   if (delta.history !== undefined) rec.history = delta.history;
   if (delta.report !== undefined) rec.report = delta.report;
   if (delta.scopeCheck !== undefined) rec.scopeCheck = delta.scopeCheck;
@@ -213,6 +215,8 @@ export function buildDetails(
     timedOut: boolean;
     usage?: SubagentToolDetails["usage"];
     budget?: SubagentToolDetails["budget"];
+    /** Turns-exhaustion record from the spawn result (maxTurns abort). */
+    turns?: TurnExhaustion;
     /** Informational 80% warning from the spawn result — surfaced as details.budget.warning. */
     budgetWarning?: BudgetWarning;
     output: string;
@@ -243,6 +247,7 @@ export function buildDetails(
     // warning as budget.warning (the two are mutually exclusive by
     // construction — a warned run completed, an aborted run carries no warning).
     budget: result.budget ?? (result.budgetWarning ? { warning: result.budgetWarning } : undefined),
+    turns: result.turns,
     report: parseSddReport(result.output),
     scopeCheck: extra.scopeCheck,
     watchdog: extra.watchdog,
@@ -260,6 +265,7 @@ export interface SpawnCtx {
     timeoutMs?: number;
     tokenBudget?: number;
     spendBudget?: number;
+    maxTurns?: number;
     retryOnTransient?: boolean;
     schema?: unknown;
     schemaRepairAttempts?: number;
@@ -314,6 +320,9 @@ export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: Sp
     // this MLX stack — a spend ceiling can never fire).
     tokenBudget: params.tokenBudget ?? tierDefaultToken(modelCtx.tier, modelCtx.requestedModel ?? modelCtx.mainModel),
     spendBudget: params.spendBudget,
+    // Turn cap: NO default (omit = unlimited turns) — unlike tokenBudget, which
+    // is tier-calibrated per #01. Mirrors SpawnSubagentOptions.maxTurns.
+    maxTurns: params.maxTurns,
     retryOnTransient: params.retryOnTransient,
     schema: params.schema as TSchema | undefined,
     schemaRepairAttempts: params.schemaRepairAttempts,

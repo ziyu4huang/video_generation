@@ -365,6 +365,7 @@ export function createSubagentTool(
               output,
               stderr: result.stderr || undefined,
               budget: details.budget,
+              turns: details.turns,
               history: progress.lastHistory,
               report: details.report,
               scopeCheck: details.scopeCheck,

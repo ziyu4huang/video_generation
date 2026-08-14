@@ -22,6 +22,7 @@ export type ActivityStatus =
   | "skipped"
   | "timedout"
   | "budget"
+  | "turns"
   | "aborted";
 
 /** Minimal theme surface so rendering works without a real Theme (tool output, tests). */
@@ -72,6 +73,8 @@ export function glyphFor(status: ActivityStatus | null | undefined, opts?: { pla
         return { icon: "t!", color: "warning" };
       case "budget":
         return { icon: "$", color: "warning" };
+      case "turns":
+        return { icon: "#", color: "warning" };
       case "aborted":
         return { icon: "/", color: "dim" };
     }
@@ -92,6 +95,8 @@ export function glyphFor(status: ActivityStatus | null | undefined, opts?: { pla
       return { icon: "⏱", color: "warning" };
     case "budget":
       return { icon: "⛔", color: "warning" };
+    case "turns":
+      return { icon: "⏹", color: "warning" };
     case "aborted":
       return { icon: "⊘", color: "dim" };
   }
