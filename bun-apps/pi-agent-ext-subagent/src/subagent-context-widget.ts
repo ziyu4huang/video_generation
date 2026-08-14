@@ -26,6 +26,7 @@
  * That "make the box interactive" step is the deferred prize in the wayfinder
  * map (ticket 02), out of Stage A's scope.
  */
+import { isTerminalStatus } from "@repo/pi-agent-ext-core-runtime";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { InFlightSubagent, SubagentInFlightRegistry } from "./index.js";
 import {
@@ -169,7 +170,11 @@ export class SubagentContextWidget {
     // trailing line). minToolCalls floors the count so a snapshot never visibly
     // regresses (the box polls, so the floor is the current count itself).
     const minToolCalls = history.filter((h) => h.kind === "toolCall").length;
-    const trace = formatSubagentTrace(history, Date.now() - r.startedAt, minToolCalls);
+    // Elapsed freeze: a terminal-status run still lingers in the registry until
+    // its batch/parent reaps it — its elapsed must FREEZE at `endedAt`, not keep
+    // ticking (same pattern as subagent-viewer.ts buildLiveTable).
+    const elapsedMs = isTerminalStatus(r.status) && r.endedAt ? r.endedAt - r.startedAt : Date.now() - r.startedAt;
+    const trace = formatSubagentTrace(history, elapsedMs, minToolCalls);
     // Cap the trace tail to the SAME policy as the inline streaming-expanded
     // view (STREAMING_EXPANDED_TAIL). Ctrl-O expands BOTH surfaces together
     // via { consume: false } (extensions/subagent.ts), so the cap must hold on

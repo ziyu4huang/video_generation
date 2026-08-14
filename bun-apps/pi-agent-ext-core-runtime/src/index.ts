@@ -41,16 +41,19 @@ export type { ActivityRow, ActivityStatus, ThemeLike } from "./agent-row-display
 export {
   activityGlyph,
   fmtCost,
+  fmtElapsed,
   fmtTokensShort,
+  glyphFor,
   NO_THEME,
   preview,
   renderActivityRow,
+  renderBadge,
+  renderRunRow,
+  runHeader,
   shorten,
   shortModel,
 } from "./agent-row-display.js";
-
 export { AGENTS_DIR, DEFAULT_BATCH_CONCURRENCY, MAX_BATCH_TASKS, MAX_CONCURRENCY, MODEL_TIERS_FILE } from "./config.js";
-
 export {
   classifyProviderLimit,
   isAbortError,
@@ -61,7 +64,6 @@ export {
   WorkflowErrorCode,
   wrapError,
 } from "./errors.js";
-
 export { homeDir } from "./home.js";
 export { resolveModelRole } from "./model-role-config.js";
 export type { ModelTierConfig } from "./model-tier-config.js";
@@ -73,7 +75,6 @@ export {
   saveModelTierConfig,
   sortedTierNames,
 } from "./model-tier-config.js";
-
 export type { RateLimitCapResolver, RateLimiter } from "./rate-limiter.js";
 export {
   __resetRateLimitStateForTests,
@@ -82,15 +83,20 @@ export {
   providerFromModelSpec,
   setRateLimitCapResolver,
 } from "./rate-limiter.js";
+export type { RunView } from "./run-view.js";
+export { buildRunView, isTerminalStatus } from "./run-view.js";
 
 export type { SddReport, SddReportStatus } from "./sdd-report.js";
 export { isSddReportActionable, parseSddReport, SDD_REPORT_STATUSES } from "./sdd-report.js";
 
 export type { StructuredOutputCapture, StructuredOutputToolOptions } from "./structured-output.js";
 export { createStructuredOutputTool } from "./structured-output.js";
-
-export type { InFlightSubagent } from "./subagent-in-flight.js";
-export { getSubagentInFlightRegistry, SubagentInFlightRegistry } from "./subagent-in-flight.js";
+/** @deprecated Dispatch B removes — use RunView via registry.view(s)(). */
+export type { InFlightSubagent, TerminalStatus } from "./subagent-in-flight.js";
+export {
+  getSubagentInFlightRegistry,
+  SubagentInFlightRegistry,
+} from "./subagent-in-flight.js";
 
 export type { ToolActionContext } from "./tool-action-label.js";
 export { formatToolAction, matchedCallArgsFor } from "./tool-action-label.js";

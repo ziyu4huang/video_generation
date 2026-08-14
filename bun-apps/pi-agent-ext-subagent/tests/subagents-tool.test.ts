@@ -532,7 +532,7 @@ test("batch keeps a completed child (status=completed) mid-run; evicts the whole
   );
   assert.equal(seen.length, 1, "child #1 observed #0");
   assert.equal(seen[0].present, true, "#0 still in registry when #1 runs (kept, not evicted)");
-  assert.equal(seen[0].status, "completed", "#0 marked completed (not running, not gone)");
+  assert.equal(seen[0].status, "done", "#0 marked terminal-done (not running, not gone)");
   assert.equal(inFlight.list().length, 0, "registry empty after the batch returns (whole-batch eviction)");
 });
 

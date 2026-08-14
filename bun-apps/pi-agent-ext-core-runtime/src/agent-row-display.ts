@@ -10,6 +10,8 @@
  * workflow agents, completed subagent runs, and in-flight subagents.
  */
 
+import type { RunView } from "./run-view.js";
+
 /** Statuses a live agent row can show (superset of workflow's WorkflowAgentStatus). */
 export type ActivityStatus =
   | "queued"
@@ -47,9 +49,34 @@ export interface ActivityRow {
   badge?: string;
 }
 
-/** Canonical icon+color for an agent-level status. Single source of truth for all agent rows. */
-export function activityGlyph(status: ActivityStatus): { icon: string; color: string } {
-  switch (status) {
+/** Single icon+color mapping for an agent-level status.
+ *  Themed output is byte-identical to activityGlyph (which delegates here);
+ *  `plain: true` yields plain-text glyphs for theme-free live tables. */
+export function glyphFor(status: ActivityStatus | null | undefined, opts?: { plain?: boolean }): { icon: string; color: string } {
+  // defensive: records constructed before the status field became required may omit it
+  const s = status ?? "running";
+  if (opts?.plain) {
+    switch (s) {
+      case "queued":
+        return { icon: ".", color: "dim" };
+      case "running":
+        return { icon: "~", color: "warning" };
+      case "done":
+        return { icon: "+", color: "success" };
+      case "error":
+      case "failed":
+        return { icon: "x", color: "error" };
+      case "skipped":
+        return { icon: "-", color: "dim" };
+      case "timedout":
+        return { icon: "t!", color: "warning" };
+      case "budget":
+        return { icon: "$", color: "warning" };
+      case "aborted":
+        return { icon: "/", color: "dim" };
+    }
+  }
+  switch (s) {
     case "queued":
       return { icon: "○", color: "dim" };
     case "running":
@@ -70,7 +97,12 @@ export function activityGlyph(status: ActivityStatus): { icon: string; color: st
   }
 }
 
-function fmtElapsed(ms: number): string {
+/** Canonical icon+color for an agent-level status. Delegates to glyphFor (themed). */
+export function activityGlyph(status: ActivityStatus): { icon: string; color: string } {
+  return glyphFor(status);
+}
+
+export function fmtElapsed(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
@@ -98,6 +130,33 @@ export function renderActivityRow(row: ActivityRow, theme: ThemeLike, maxDetailW
   const tail = row.latestAction ?? (row.detail ? shorten(row.detail, maxDetailWidth) : undefined);
   const tailStr = tail ? dim(` — ${tail}`) : "";
   return `${head}${metaStr}${tailStr}`;
+}
+
+/** Themed single-line row for a RunView — glyph icon (colored), actor, modelSeg,
+ *  elapsed, toolCalls, latestAction (shortened). */
+export function renderRunRow(v: RunView, theme: ThemeLike, maxDetailWidth = 50): string {
+  const { icon, color } = glyphFor(v.status);
+  const dim = (t: string) => theme.fg("dim", t);
+  const badge = v.badgeText ? `${theme.fg("accent", v.badgeText)} ` : "";
+  const head = `${badge}${theme.fg(color, icon)} ${theme.fg("muted", v.actor)}`;
+  const meta = [v.modelSeg, fmtElapsed(v.elapsedMs), `${v.toolCallCount} call${v.toolCallCount === 1 ? "" : "s"}`]
+    .filter(Boolean)
+    .join(" · ");
+  const tail = v.latestAction ? shorten(v.latestAction, maxDetailWidth) : undefined;
+  return `${head}${dim(` ${meta}`)}${tail ? dim(` — ${tail}`) : ""}`;
+}
+
+/** Plain, theme-free header for live tables: `[id] glyph elapsed · latestAction`. */
+export function runHeader(v: RunView): string {
+  const { icon } = glyphFor(v.status, { plain: true });
+  const tail = v.latestAction ? ` · ${shorten(v.latestAction, 60)}` : "";
+  return `[${v.id}] ${icon} ${fmtElapsed(v.elapsedMs)}${tail}`;
+}
+
+/** Fixed-width themed badge — empty string when the view has no badgeText. */
+export function renderBadge(v: RunView, theme: ThemeLike): string {
+  if (!v.badgeText) return "";
+  return theme.fg("accent", v.badgeText.padEnd(8));
 }
 
 /** Short, human-friendly model label: drop the provider prefix for display. */

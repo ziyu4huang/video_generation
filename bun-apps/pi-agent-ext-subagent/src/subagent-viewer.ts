@@ -11,7 +11,7 @@
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import { type ActivityRow, fmtCost, renderActivityRow, shortModel } from "@repo/pi-agent-ext-core-runtime";
+import { type ActivityRow, fmtCost, isTerminalStatus, renderActivityRow, shortModel } from "@repo/pi-agent-ext-core-runtime";
 import type {
   AgentHistoryEntry,
   AgentUsage,
@@ -210,7 +210,7 @@ export class SubagentViewer {
         if (seenBatches.has(bid)) continue;
         seenBatches.add(bid);
         const children = allRunning.filter((x) => x.batchId === bid);
-        const done = children.filter((x) => x.status === "completed").length;
+        const done = children.filter((x) => isTerminalStatus(x.status ?? "running")).length;
         runningEntries.push({
           kind: "batchHeader",
           section: "running",
@@ -417,14 +417,14 @@ export class SubagentViewer {
         }
         const r = e.ref;
         const indented = Boolean(r.batchId);
-        const completed = r.status === "completed";
+        const terminal = isTerminalStatus(r.status ?? "running");
         const toolCalls = r.history?.filter((h) => h.kind === "toolCall").length ?? 0;
-        // Elapsed freeze: a completed-status batch child lingers in the registry
+        // Elapsed freeze: a terminal batch child lingers in the registry
         // (k/N progress) until endBatch — its elapsed must FREEZE at `endedAt`,
         // not keep ticking (same family as buildLiveTable / the follow header).
-        const rowEnd = completed ? (r.endedAt ?? Date.now()) : Date.now();
+        const rowEnd = terminal ? (r.endedAt ?? Date.now()) : Date.now();
         const row: ActivityRow = {
-          status: "running",
+          status: r.status,
           actor: r.agent ?? "general-purpose",
           model: r.resolvedModel ?? r.model,
           elapsedMs: rowEnd - r.startedAt,
@@ -438,7 +438,7 @@ export class SubagentViewer {
         // stays selectable (follow shows its frozen trace); the ungrouped
         // branch is untouched (singular subagent runs never carry "completed").
         if (indented) {
-          const body = cur ? th.bg("selectedBg", `▶ ${head}`) : completed ? th.fg("dim", `✓ ${head}`) : `  ${head}`;
+          const body = cur ? th.bg("selectedBg", `▶ ${head}`) : terminal ? th.fg("dim", `✓ ${head}`) : `  ${head}`;
           lines.push(truncateToWidth(`    ${body}`, width));
         } else {
           lines.push(truncateToWidth(` ${cur ? th.bg("selectedBg", `▶ ${head}`) : `  ${head}`}`, width));
@@ -567,14 +567,14 @@ export class SubagentViewer {
         startedAt: r.startedAt,
       };
       this.finalizingTicks = 0;
-      // Respect the registry status: a batch child marked "completed" still
+      // Respect the registry status: a terminal batch child still
       // lingers in the registry (kept for k/N until endBatch) — the follow
       // header must show its terminal status and FREEZE elapsed at `endedAt`
       // instead of ticking "running" forever.
-      const liveCompleted = r.status === "completed";
-      status = liveCompleted ? "completed" : "running";
+      const liveTerminal = isTerminalStatus(r.status ?? "running");
+      status = liveTerminal ? r.status : "running";
       model = this.followedSnapshot.model;
-      elapsedMs = (liveCompleted ? (r.endedAt ?? Date.now()) : Date.now()) - r.startedAt;
+      elapsedMs = (liveTerminal ? (r.endedAt ?? Date.now()) : Date.now()) - r.startedAt;
       agent = r.agent;
     } else {
       // ABSENT — resolve completion. Task 4 fills the real freeze via getRuns;

@@ -78,11 +78,12 @@ test("start carries status; markCompleted flips it; endBatch evicts the whole ba
   const reg = new SubagentInFlightRegistry();
   reg.start({ id: "c0", model: "x", taskPreview: "t", startedAt: 0, batchId: "bX" });
   reg.start({ id: "c1", model: "y", taskPreview: "u", startedAt: 0, batchId: "bX" });
-  // default status is undefined (treated as running); singular-tool entries omit it
-  assert.equal(reg.get("c0")?.status, undefined);
+  // default status is "running" (the unified ActivityStatus vocabulary; start
+  // stamps live runs explicitly, so undefined never leaks through `get()`)
+  assert.equal(reg.get("c0")?.status, "running");
   reg.markCompleted("c0");
-  assert.equal(reg.get("c0")?.status, "completed");
-  assert.equal(reg.get("c1")?.status, undefined, "sibling still running");
+  assert.equal(reg.get("c0")?.status, "done");
+  assert.equal(reg.get("c1")?.status, "running", "sibling still running");
   // both still present (kept for k/N + frozen-trace follow)
   assert.equal(reg.list().length, 2);
   reg.endBatch("bX");

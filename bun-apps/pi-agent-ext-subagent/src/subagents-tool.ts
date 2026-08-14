@@ -17,6 +17,7 @@ import {
   checkBudgetExhaustion,
   DEFAULT_BATCH_CONCURRENCY,
   getGlobalRateLimiter,
+  isTerminalStatus,
   MAX_BATCH_TASKS,
   MAX_CONCURRENCY,
   providerFromModelSpec,
@@ -422,7 +423,7 @@ export function createSubagentsTool(
             // tool's try/catch discipline at subagent-tool.ts).
             try {
               const group = (options.inFlight?.list() ?? []).filter((e) => e.batchId === toolCallId);
-              const running = group.filter((e) => e.status !== "completed").length;
+              const running = group.filter((e) => !isTerminalStatus(e.status)).length;
               const total = params.tasks.length;
               const agg = sumUsage(runningUsage.values());
               const aggStr = agg.total > 0 ? ` · ${agg.total} tok · $${agg.cost.toFixed(3)}` : "";
@@ -769,11 +770,10 @@ export function childDispatchIndex(id: string): number {
  *  in-flight child, sorted ascending by dispatch index:
  *    `[i] slot ⏱/✓ liveElapsed · currentAction`
  *  - `slot` via {@link formatModelSeg} (fallback-aware; resolved model once known).
- *  - glyph ⏱ while `status !== "completed"`, ✓ once completed (kept in the
+ *  - glyph ⏱ while non-terminal (running/queued), ✓ once terminal (kept in the
  *    registry until endBatch so a finished child still shows its final elapsed).
  *  - `liveElapsed` = `(now - startedAt)/1000` with 1-decimal while RUNNING;
- *    FROZEN at `(endedAt - startedAt)/1000` for terminal rows (status
- *    "completed") so a finished child's elapsed stops growing while it
+ *    FROZEN at `(endedAt - startedAt)/1000` for terminal rows (terminal status) so a finished child's elapsed stops growing while it
  *    lingers in the registry pre-endBatch (falls back to `now` only when the
  *    terminal stamp is missing).
  *  - `currentAction` from {@link summarizeLatestAction}(history), falling back to
@@ -790,10 +790,10 @@ export function buildLiveTable(entries: InFlightSubagent[], now: number = Date.n
     const idx = childDispatchIndex(e.id);
     const idxLabel = Number.isNaN(idx) ? "?" : String(idx);
     const slot = formatModelSeg(e.resolvedModel ?? e.model ?? "default", e.requestedModel, e.fellBack);
-    const glyph = e.status === "completed" ? "✓" : "⏱";
+    const glyph = isTerminalStatus(e.status) ? "✓" : "⏱";
     // Terminal rows freeze at endedAt (falling back to `now` defensively); only
     // running rows tick.
-    const end = e.status === "completed" ? (e.endedAt ?? now) : now;
+    const end = isTerminalStatus(e.status) ? (e.endedAt ?? now) : now;
     const elapsed = `${((end - e.startedAt) / 1000).toFixed(1)}s`;
     const action = summarizeLatestAction(e.history) ?? truncateToWidth(e.taskPreview ?? e.workIntent ?? "", 40);
     return `[${idxLabel}] ${slot} ${glyph} ${elapsed} · ${action}`;
