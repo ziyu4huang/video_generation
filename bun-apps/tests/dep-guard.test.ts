@@ -134,18 +134,23 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 	});
 
 	it("ADR-0001: knowledge-layer TIER-0 (obsidian, hermes-memory) imports NOTHING from TIER-1 (knowledge-card)", () => {
-		// Sanctioned exceptions (explicit, reviewed one by one — never blanket-open):
-		// - pi-agent-ext-hermes-memory → pi-agent-ext-knowledge-card: the spine
-		//   direction sanctioned by ticket 20 (LeanRAG entity-recall reads the
-		//   knowledge-card entity graph). See
-		//   .planning/2026-08-08-knowledge-pipeline/tickets/ + map.md.
-		const SANCTIONED_EDGES = new Set(["pi-agent-ext-hermes-memory→pi-agent-ext-knowledge-card"]);
+		// NO allowlist, deliberately. #1323 added a SANCTIONED_EDGES set for
+		// hermes→knowledge-card, reading ticket 20's "hermes→zk is the sanctioned
+		// spine direction" as covering this check. That sentence is about the
+		// RUNTIME CALL direction — which is why the __piKnowledgePipeline seam
+		// exists — not about the static import edge this guard measures. The edge
+		// is gone as of the entities.ts move (see
+		// docs/adr/0001-strict-downward-edges-knowledge-layer.md § Recurrence),
+		// so the exception has nothing left to except.
+		//
+		// If a future upward edge really is warranted, amend the ADR FIRST and
+		// link the amendment here. An allowlist that outruns its ADR turns this
+		// guard into a rubber stamp — it silently permitted the very inversion it
+		// was written to make impossible.
 		const TIER0 = ["pi-agent-ext-obsidian", "pi-agent-ext-hermes-memory"];
 		const violations: string[] = [];
 		for (const pkg of TIER0) {
-			const upward = [...edges(pkg)].filter(
-				(t) => t === "pi-agent-ext-knowledge-card" && !SANCTIONED_EDGES.has(`${pkg}→${t}`),
-			);
+			const upward = [...edges(pkg)].filter((t) => t === "pi-agent-ext-knowledge-card");
 			if (upward.length) violations.push(`  ${pkg} → ${upward.join(", ")} (upward edge; forbidden by ADR-0001)`);
 		}
 		assert.deepEqual(violations, [], violations.length ? "upward edges:\n" + violations.join("\n") : "");
