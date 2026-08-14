@@ -137,20 +137,20 @@ test(
     // Mid-flight: the run is registered as a WORKFLOW entry with foreground=true
     // (a foreground runSync blocks the turn → rendered inline by the workflow
     // tool's own component → EXCLUDED from the context box, per decision 02).
-    const running = reg.list();
+    const running = reg.views();
     assert.equal(running.length, 1, "exactly one in-flight entry while the run executes");
-    const entry = running[0];
-    assert.equal(entry.agent, "workflow");
-    assert.equal(entry.foreground, true, "foreground runSync → foreground:true (excluded from the box)");
-    assert.equal(entry.id.startsWith("wf:"), true, "id is the prefixed workflow runId");
-    assert.equal(entry.model, undefined, "a workflow aggregates agents → no single model");
-    assert.match(entry.taskPreview, /tracked_demo/);
+    const v = running[0];
+    assert.equal(v.actor, "workflow");
+    assert.equal(v.foreground, true, "foreground runSync → foreground:true (excluded from the box)");
+    assert.equal(v.id.startsWith("wf:"), true, "id is the prefixed workflow runId");
+    assert.equal(v.modelSeg, "default", "a workflow aggregates agents → no single model");
+    assert.match(v.latestAction ?? "", /tracked_demo/);
 
     da.resolve("done");
     await runPromise;
 
     // Completion removes the entry — no leak.
-    assert.equal(reg.list().length, 0, "entry ended after foreground completion");
+    assert.equal(reg.views().length, 0, "entry ended after foreground completion");
   }),
 );
 
@@ -170,17 +170,17 @@ test(
     // returns (executeRun's synchronous head registers before the first await,
     // i.e. before runId is handed back). A background run is foreground:false →
     // it is the context box's domain (decision 02).
-    const entry = reg.get(workflowInFlightId(runId));
-    assert.ok(entry, "registered BEFORE startInBackground returned the runId");
-    assert.equal(entry.agent, "workflow");
-    assert.equal(entry.foreground, false, "background run → foreground:false (box shows it)");
-    assert.equal(entry.id, workflowInFlightId(runId));
+    const v = reg.view(workflowInFlightId(runId));
+    assert.ok(v, "registered BEFORE startInBackground returned the runId");
+    assert.equal(v.actor, "workflow");
+    assert.equal(v.foreground, false, "background run → foreground:false (box shows it)");
+    assert.equal(v.id, workflowInFlightId(runId));
 
     // Detached completion: the tool already returned; the run finishes on its
     // own. The entry MUST be removed when the detached promise settles.
     da.resolve("done");
     await promise;
-    assert.equal(reg.get(workflowInFlightId(runId)), undefined, "detached completion ends the entry");
+    assert.equal(reg.view(workflowInFlightId(runId)), undefined, "detached completion ends the entry");
   }),
 );
 
@@ -198,7 +198,7 @@ test(
     await tick(); // agent 1 (Scan) has started
 
     const id = workflowInFlightId(runId);
-    const afterScanStart = reg.get(id)?.taskPreview ?? "";
+    const afterScanStart = reg.view(id)?.latestAction ?? "";
     assert.match(afterScanStart, /Scan/, "preview reflects the Scan phase");
     assert.match(afterScanStart, /0\/1 agents|1 agents/, "preview shows agent counts");
 
@@ -208,13 +208,13 @@ test(
     da.resolve(0, "scan-done");
     await tick(30);
 
-    const midJudge = reg.get(id)?.taskPreview ?? "";
+    const midJudge = reg.view(id)?.latestAction ?? "";
     assert.match(midJudge, /Judge/, "preview advanced to the Judge phase");
     assert.match(midJudge, /1\/2 agents/, "preview reflects 1 of 2 agents finished");
 
     da.resolve(1, "judge-done");
     await promise;
-    assert.equal(reg.get(id), undefined, "entry ended after completion");
+    assert.equal(reg.view(id), undefined, "entry ended after completion");
   }),
 );
 
@@ -238,7 +238,7 @@ test(
     const { runId, promise } = manager.startInBackground(oneAgentScript);
     await promise.catch(() => {}); // run rejects — the finally still fires endInFlight
 
-    assert.equal(reg.get(workflowInFlightId(runId)), undefined, "entry ended on error");
+    assert.equal(reg.view(workflowInFlightId(runId)), undefined, "entry ended on error");
   }),
 );
 
@@ -252,13 +252,13 @@ test(
 
     const { runId, promise } = manager.startInBackground(oneAgentScript);
     await tick();
-    assert.ok(reg.get(workflowInFlightId(runId)), "entry live before stop");
+    assert.ok(reg.view(workflowInFlightId(runId)), "entry live before stop");
 
     manager.stop(runId);
     da.resolve("done");
     await promise.catch(() => {});
 
-    assert.equal(reg.get(workflowInFlightId(runId)), undefined, "entry ended on abort");
+    assert.equal(reg.view(workflowInFlightId(runId)), undefined, "entry ended on abort");
   }),
 );
 
@@ -295,7 +295,7 @@ return { a, b }`;
     await promise.catch(() => {});
 
     // Whatever terminal state (failed/paused), the live entry is gone — no leak.
-    assert.equal(reg.get(workflowInFlightId(runId)), undefined, "entry ended at run termination");
+    assert.equal(reg.view(workflowInFlightId(runId)), undefined, "entry ended at run termination");
   }),
 );
 
@@ -323,9 +323,20 @@ test(
     manager.on("error", () => {});
 
     const { runId, promise } = manager.startInBackground(oneAgentScript);
-    assert.ok(reg.get(workflowInFlightId(runId)), "late-bound registry receives the registration");
+    assert.ok(reg.view(workflowInFlightId(runId)), "late-bound registry receives the registration");
     da.resolve("done");
     await promise;
-    assert.equal(reg.get(workflowInFlightId(runId)), undefined);
+    assert.equal(reg.view(workflowInFlightId(runId)), undefined);
   }),
 );
+
+// ─── updateTaskPreview is the only preview mutation path ──────────────────────
+
+test("updateTaskPreview is the only preview mutation path", () => {
+  const reg = new SubagentInFlightRegistry();
+  reg.start({ id: "wf-1", agent: "workflow", taskPreview: "starting", startedAt: Date.now() });
+  reg.updateTaskPreview("wf-1", "phase 2/3 · agent b");
+  const v = reg.view("wf-1");
+  assert.ok(v);
+  assert.equal(v.latestAction, "phase 2/3 · agent b"); // no tool-call history → taskPreview wins
+});
