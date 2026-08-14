@@ -127,11 +127,11 @@ function setup(): { pi: MockPi; server: WebServer; wiring: WebuiWiring } {
 // ---------------------------------------------------------------------------
 
 describe("wireWebui render framework — end-to-end", () => {
-  it("registers the webui_render tool + webui:render subscription during wiring", async () => {
+  it("registers the webui_present tool + webui:render subscription during wiring", async () => {
     const { pi, server } = setup();
     pi.emit("session_start", {}, pi.ctx());
     const tools = pi.registeredTools as Array<{ name: string }>;
-    expect(tools.some((t) => t.name === "webui_render")).toBe(true);
+    expect(tools.some((t) => t.name === "webui_present")).toBe(true);
     // the event subscription routes into the registry: emit -> GET /api/view/:id
     pi.events.emit("webui:render", { content: "# hello", view: "preview", title: "P" });
     const res = await fetch(`${server.url}/api/view/preview`);
@@ -142,17 +142,6 @@ describe("wireWebui render framework — end-to-end", () => {
     expect(v.title).toBe("P");
   });
 
-  it("the tool execute() path lands in the same registry and is served", async () => {
-    const { pi, server } = setup();
-    pi.emit("session_start", {}, pi.ctx());
-    const tool = (pi.registeredTools as Array<{ name: string; execute: (...a: any[]) => Promise<any> }>)
-      .find((t) => t.name === "webui_render")!;
-    const out = await tool.execute("c1", { content: "**bold**", view: "toolview" }, undefined, undefined, {});
-    expect(out.details.url).toContain("/#toolview");
-    const v = await (await fetch(`${server.url}/api/view/toolview`)).json();
-    expect(v.html).toContain("<strong>bold</strong>");
-  });
-
   it("GET / serves the render shell after wiring", async () => {
     const { pi, server } = setup();
     pi.emit("session_start", {}, pi.ctx());
@@ -160,13 +149,16 @@ describe("wireWebui render framework — end-to-end", () => {
     expect(body).toContain("webui-render-shell");
   });
 
-  it("render() returns the loopback URL composed from server.url", async () => {
+  it("the loopback view URL (server.url/#id) is a live address (event-driven; webui_render is gone)", async () => {
     const { pi, server } = setup();
     pi.emit("session_start", {}, pi.ctx());
-    const tool = (pi.registeredTools as Array<{ name: string; execute: (...a: any[]) => Promise<any> }>)
-      .find((t) => t.name === "webui_render")!;
-    const out = await tool.execute("c", { content: "x", view: "z" }, undefined, undefined, {});
-    expect(out.details.url).toBe(`${server.url}/#z`);
+    pi.events.emit("webui:render", { content: "x", view: "z" });
+    const views = await (await fetch(`${server.url}/api/views`)).json();
+    expect(views).toMatchObject([{ id: "z" }]);
+    // The URL form the framework composes is `${server.url}/#z`; the fragment
+    // is client-side routing, so that address is a GET / -> the render shell.
+    const body = await (await fetch(`${server.url}/#z`)).text();
+    expect(body).toContain("webui-render-shell");
   });
 
   it("GET /api/events SSE delivers a view_update on webui:render", async () => {
@@ -208,15 +200,41 @@ describe("wireWebui render framework — decoupling (spec D8)", () => {
     let gotFrame = false;
     ws.onmessage = () => { gotFrame = true; };
 
-    // Drive BOTH producer paths.
-    pi.events.emit("webui:render", { content: "# via-event" });
-    const tool = (pi.registeredTools as Array<{ name: string; execute: (...a: any[]) => Promise<any> }>)
-      .find((t) => t.name === "webui_render")!;
-    await tool.execute("c", { content: "# via-tool", view: "t" }, undefined, undefined, {});
+    // Drive the event producer path (webui_render is dropped — spec Decision B).
+    pi.events.emit("webui:render", { content: "# via-event", view: "t" });
 
     await Bun.sleep(100); // give any (absent) broadcast time to never arrive
     expect(pi.sent).toEqual([]); // render never injects a user message
     expect(gotFrame).toBe(false); // no mutex_blocked / no chat frame on the render path
     ws.close();
+  });
+});
+
+describe("wireWebui render framework — mirror removal (spec Component 6, Decision B)", () => {
+  it("NEGATIVE: registeredTools has NO webui_render; webui_present IS registered", () => {
+    const { pi } = setup();
+    pi.emit("session_start", {}, pi.ctx());
+    const tools = pi.registeredTools as Array<{ name: string }>;
+    expect(tools.some((t) => t.name === "webui_render")).toBe(false);
+    expect(tools.some((t) => t.name === "webui_present")).toBe(true);
+  });
+
+  it("NEGATIVE: a tool_result event mints NO 'tools' view (only the outbound broadcast fires)", async () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", {}, pi.ctx());
+    // A realistic tool_result on the AGENT bus (pi.on path). Before Phase 5 the
+    // mirror rendered this into an accumulating "tools" view; after, the only
+    // tool_result handler is the OUTBOUND_EVENTS broadcast loop (this MockPi
+    // keeps ONE handler per event, and the broadcast registers LAST).
+    pi.emit("tool_result", {
+      type: "tool_result",
+      toolName: "bash",
+      toolCallId: "call-abcd1234efgh",
+      input: {},
+      content: [{ type: "text", text: "hello" }],
+      isError: false,
+    });
+    const views = await (await fetch(`${server.url}/api/views`)).json();
+    expect(views).toEqual([]);
   });
 });

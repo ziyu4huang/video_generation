@@ -84,7 +84,7 @@ export class MockPi {
     else this.handlers.set(event, [handler]);
   }
 
-  /** Register a tool (ticket 06 render framework registers "webui_render"). */
+  /** Register a tool (the wiring registers "webui_present"). */
   registerTool(tool: unknown): void {
     this.registeredTools.push(tool);
   }
