@@ -82,3 +82,4 @@ A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pd
 - Audio/video input (text + images only).
 - Real-time multi-user collaboration (single-user, multi-worktree git-merge model).
 - Re-deciding 01/02 (closed) — those stand.
+13's convergence prerequisites all landed 2026-08-15: C1 (#1196 + #1343), C5-lite (#1346), C6 (#1349) — ticket 13 (memory-card migration) UNBLOCKED, now a pure path-switch (persistableKinds enabled, no write-path switch yet).

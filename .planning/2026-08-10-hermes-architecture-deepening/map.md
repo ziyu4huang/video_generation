@@ -22,3 +22,4 @@ Rationale: sequencing C1/C5/C6 before 13 keeps the memory-card migration mechani
 
 - 2026-08-15: C1 CLOSED — v1 was #1196 (`splitFencedYaml` leaf); residual `planning-parse.ts` hand-rolled copy rewired to the leaf + sole-source regression gate + planning golden round-trip (ticket 01). Next convergence prerequisite for kp ticket 13: C5.
 - 2026-08-15: C5 re-scoped to C5-LITE — decisions in `tickets/02-c5-lite-card-abstraction.md`; closed (#1346 / 7a723437).
+- 2026-08-15: C6 CLOSED — addMemory exact-dup dedup in the MemoryRepository contract; closed (#1349 / 3038c50a).
