@@ -85,6 +85,13 @@ export interface RetrievedCard {
 	/** First callout headline ("[!warning] ...") — lifted into the digest so the
 	 *  highest-signal line is not buried in the truncated prose body. */
 	calloutText: string;
+	/** Typed graph edges (ticket 03 T5 / D2). OPTIONAL — undefined for cards
+	 *  with no `relations:` frontmatter (the default dictionary ingest path
+	 *  emits entities only, never relations). When present, the edges are the
+	 *  on-disk `relations:` block (already canonicalized by T4's serializer
+	 *  write-back); retrieve is a faithful pass-through, it does NOT
+	 *  re-normalize. Substrate for ticket 20 + LeanRAG ③. */
+	relations?: Array<{ s: string; rel: string; o: string }>;
 }
 
 export interface RetrieveOptions {
@@ -472,6 +479,7 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			source,
 			hasCallouts: meta.hasCallouts,
 			calloutText,
+			relations: parseRelationsBlock(content),
 			// Blend score: tag overlap ×2 (precision) + body-token overlap (recall) +
 			// callout boost. Tag×2 keeps precise tag matches dominant while body adds
 			// recall — measured zero-regression vs the tag-only baseline.
@@ -547,6 +555,79 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 	};
 }
 
+/** Parse the additive `relations: [{s,rel,o},…]` frontmatter block into typed
+ *  edges (ticket 03 T5 / D2). retrieve.ts can't reuse obsidian's
+ *  `parseFrontmatter` here: its block-list branch captures scalar items only
+ *  and breaks on the first non-`- ` line, so a nested `{s,rel,o}` map would
+ *  collapse to `["s: a"]`. This walker reads the nested entries directly.
+ *
+ *  CANONICALIZATION DECISION — Option C (raw pass-through, D3): retrieve does
+ *  NOT re-normalize `rel`, and zk must NOT import hermes's `normalizeRelation`
+ *  (hermes is the spine that CALLS zk — zk→hermes would be a backward edge; zk
+ *  has zero `@repo/pi-agent-ext-hermes-memory` deps/imports). The on-disk block
+ *  is already canonical regardless: T4's serializer write-back
+ *  (`KnowledgeSerializer.serialize`, the sole write site) emits the
+ *  already-normalized-in-memory `graph.relations`, and T4's deserialize
+ *  canonicalizes on read. A card therefore reaches the vault carrying
+ *  canonical predicates; retrieve returns them as-emitted (D3: normalize on
+ *  read at the serializer; retrieve is a vault-read path). Returns undefined
+ *  when the card has no `relations:` block (the dictionary ingest path emits
+ *  entities only, never relations) so plain cards carry no `relations: []`
+ *  noise. */
+function parseRelationsBlock(
+	content: string,
+): { s: string; rel: string; o: string }[] | undefined {
+	const lines = content.split("\n");
+	// Operate only inside the leading `---`-fenced frontmatter.
+	if (lines.length === 0 || lines[0]!.trim() !== "---") return undefined;
+	let end = -1;
+	for (let k = 1; k < lines.length; k++) {
+		if (lines[k]!.trim() === "---") { end = k; break; }
+	}
+	if (end === -1) return undefined;
+
+	// Locate the top-level `relations:` key (empty value ⇒ block form).
+	let relIdx = -1;
+	for (let k = 1; k < end; k++) {
+		if (/^relations\s*:\s*$/.test(lines[k]!)) { relIdx = k; break; }
+	}
+	if (relIdx === -1) return undefined;
+
+	// Walk the indented body until the next top-level key / fence, splitting
+	// into list-item entries on the ` - ` delimiter.
+	const entries: string[][] = [];
+	let cur: string[] | null = null;
+	for (let k = relIdx + 1; k < end; k++) {
+		const ln = lines[k]!;
+		if (/^\S/.test(ln)) break; // next top-level key → relations block ended
+		if (/^\s*-\s+/.test(ln)) { cur = []; entries.push(cur); }
+		if (!cur) continue;
+		cur.push(ln.replace(/^\s*-\s+/, "").trim());
+	}
+
+	const out: { s: string; rel: string; o: string }[] = [];
+	for (const entry of entries) {
+		let s: string | undefined;
+		let rel: string | undefined;
+		let o: string | undefined;
+		for (const seg of entry) {
+			const kv = seg.match(/^([A-Za-z_][\w-]*)\s*:\s*(.*)$/);
+			if (!kv) continue;
+			// s/rel/o are plain ids + a predicate key — strip a defensive
+			// surrounding quote pair (serializer emits unquoted; a hand-authored
+			// card may quote).
+			const val = kv[2]!.trim().replace(/^["']|["']$/g, "");
+			if (kv[1] === "s") s = val;
+			else if (kv[1] === "rel") rel = val;
+			else if (kv[1] === "o") o = val;
+		}
+		if (typeof s === "string" && typeof rel === "string" && typeof o === "string") {
+			out.push({ s, rel, o });
+		}
+	}
+	return out.length > 0 ? out : undefined;
+}
+
 /** Build a RetrievedCard from a card file (for semantic-only cards not in
  *  the lexical pool). Applies the same retired/superseded + exclusion guards
  *  as the main loop. Returns null if the card should be skipped. */
@@ -583,6 +664,7 @@ function buildRetrievedCard(
 		source: typeof data.source === "string" ? data.source : "unknown",
 		hasCallouts: meta.hasCallouts,
 		calloutText,
+		relations: parseRelationsBlock(content),
 		_score: 0,
 	};
 }
