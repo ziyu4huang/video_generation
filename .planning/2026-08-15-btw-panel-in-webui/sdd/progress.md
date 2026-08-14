@@ -20,3 +20,7 @@ Task 4: complete (commits 909428a..69270a5, review clean; implementer was mechan
 Task 4: minor (deferred): BTW_COMMAND_CHANNEL subscription never torn down (no unsubscribe on shutdown) — harmless single-pi-per-process; note for hardening
 Task 4: minor (deferred): handleWebuiCommand unserialized (rapid commands interleave) — brief defines single-command contract
 Task 5: implemented (commit pending review)
+Task 5: complete (commits 69270a5..046813f, review clean)
+Task 5: minor (deferred): btwCommandFromFrame validates mode string only; thinking/model values pass unvalidated (plan-mandated verbatim) — Task 11 contract test mitigates
+Task 5: minor (deferred): isBtwEvent thread-state validation shallow (plan-mandated verbatim) — consumers must not assume state.messages
+Task 6: implemented (commit pending review)
