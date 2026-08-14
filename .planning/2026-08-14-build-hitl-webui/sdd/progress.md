@@ -23,3 +23,11 @@
 - [T2-review] describeHitlResponse: tweak branch precedes approve branch — {action:"approve",tweak} renders as "requested approve with tweak" (intentional; revisit when the browser toolbar lands).
 - [final-review] present-tool.ts `params.mode as RenderMode` cast mirrors render-tool.ts convention — simplify opportunistically.
 - [final-review] T1 file-count note: plan File Structure = 11 unique files for Phase 2 (6 src + 5 test).
+
+## Phase 3 — browser declarative-controls toolbar
+- Task 1 (single-task phase): complete (commit 820a84b6, review APPROVED incl. P0 scope ground-truth — 273/0 tests, typecheck+build clean; task review covered the whole branch, single commit)
+- LEDGER L23 (describeHitlResponse tweak-before-approve precedence): CLOSED intentional — the toolbar only produces {action:"approve", tweak} if the agent declares takesInput on an approve control; "requested approve with tweak" is correct phrasing.
+
+## Ledger (minor findings → Phase 4+)
+- [P3-review] respondedPresent never clears across presentations — harmless (fresh presentIds; done-check id-keyed, intended one-response semantics). No action.
+- [P3-impl] Plan 3f block contained backticks in an inline comment (would break the template literal); fixed comment-only to single quotes — plan-defect, noted for plan-author hygiene.
