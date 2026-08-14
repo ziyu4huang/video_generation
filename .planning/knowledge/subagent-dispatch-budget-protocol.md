@@ -22,6 +22,13 @@ Subagent runs 2026-08-14 (mst0uvo9 13.5k 1-turn vs mst0wg3j 60k multi-turn vs 21
 
 Decision after 6 budget-exhaustion deaths in a single session (dispatches passed explicit tokenBudget 300k–900k, all below tier defaults): **controllers must NOT pass an explicit tokenBudget below the tier defaults** (small 500k / medium 1.2M / big 1.5M in `bun-apps/pi-agent-ext-subagent/src/budget-defaults.ts`). Tier defaults are p90-calibrated abort lines — let them apply. Explicit tokenBudget is reserved for deliberate spend caps requested by the user. When children burn budget, fix the dispatch shape (this protocol), not the number. Corollary observed live: even a 1-call memory-write dispatch died at 50k when handed a 50k budget — never hand out budgets that small.
 
+## Update (2026-08-15, session: PR #1334)
+
+Knobs + graceful wrap-up now SHIPPED (PR #1334, squash 66a275e3):
+- Env knobs in `bun-apps/pi-agent-ext-subagent/src/budget-defaults.ts` (call-time reads): `SUBAGENT_TOKEN_BUDGET_DISABLE=1|true` → no budget; `SUBAGENT_TOKEN_BUDGET_SMALL/_MEDIUM/_BIG` absolute per-tier overrides; `SUBAGENT_TOKEN_BUDGET_MULTIPLIER` positive float; invalid values silently ignored.
+- Graceful wrap-up in `pi-agent-ext-core-runtime/src/agent.ts` createBudgetGuard: first tokenBudget crossing (usage seam OR turn seam) queues `BUDGET_WRAP_UP_MESSAGE` as a followUp — ONE flush-to-disk final turn. Token aborts are suppressed until the followUp is DELIVERED (user-role message event) and the grace turn's `turn_end` re-arms the abort. `spendBudget` is a money valve: always hard-abort, no grace. Missing `sendUserMessage` falls back to hard abort. Composes with #1329 (mid-turn onUsage abort), #1332 (80% warning), #1335 (maxTurns).
+- Dispatch-shape evidence (4 more fuse deaths this session, incl. a 522k one from a mis-targeted prompt): bounded prompts ("do exactly this, reply immediately", tier small, tools allowlist) consistently finish far under budget. RECOVERY PATTERN (worked 3×): after a budget death, never re-dispatch from scratch — 1-turn state-check child (git status/diff/grep the sentinel), then a bounded finisher that only runs gates + commits. Artifacts on disk survive; only the report turn is lost.
+
 ## Addendum 2026-08-15 (budget-hardening SDD session)
 
 - Children reliably die AT THE REPORT EDGE when ceiling ≈ tier default (deaths at 1.21M/1.23M/1.50M/0.93M across explicit ceilings). Two mitigations proven: (a) order the dispatch "COMMIT + PUSH + PR BEFORE composing your report" — saved T3a intact; (b) when a child dies with a dirty tree, SALVAGE the uncommitted work in a small verify+commit dispatch instead of re-dispatching from scratch — three salvages, three successes (T2, T3b, maxTurns tests).

@@ -1,11 +1,4 @@
 ---
-id: 4a9259d6-c6c9-4550-99b5-0fb124265731
-created: 2026-08-08
-last: 2026-08-08
----
-Unification of knowledge-pipeline efforts (2026-08-08, commit caff462f on feat/hermes-memory-backend-ab): Five prior knowledge-pipeline .planning/ efforts merged into one canonical .planning/2026-08-08-knowledge-pipeline/. Old effort maps annotated with SUPERSEDED-BY cross-links. Tickets 01-05 preserved with git-mv (100% similarity, history kept), tickets 06-10 created during unification, ticket 11 spawned from 06's fork 3. Foundation map.md (the wayfinder effort itself) auto-merged cleanly during rebase — #1085 frontmatter and superseded annotation were in disjoint regions.
-§
----
 id: 6703200a-9d0a-4662-aeb4-8b550a248875
 created: 2026-08-09
 last: 2026-08-09
@@ -53,3 +46,17 @@ created: 2026-08-14
 last: 2026-08-14
 ---
 Pre-existing red main #3 — dependency-direction gate drift (2026-08-14/15): a hermes-memory → knowledge-card upward edge (violating the DURABLE 'zk must never import hermes-memory' rule) drifted onto origin/main and failed the dep-direction gate during the docs-only PR #1316 push; writer bypassed with --no-verify and justified in the PR description. PR #1326 push shortly after passed 13/13 cleanly (drift intermittent, or fixed by parallel-session PRs #1322–#1325). Rule: when a repo gate fails on a docs-only/unrelated PR, suspect pre-existing main drift FIRST — verify against clean origin/main before touching your own change; if a bypass is unavoidable, log it explicitly in the PR description and flag for a dedicated fix round.
+§
+---
+id: d5d307a0-d0e8-4013-acf7-e0bc0bcdb6fb
+created: 2026-08-14
+last: 2026-08-14
+---
+Subagent token-budget implementation facts (2026-08-15, PR #1334): resolution seam is `params.tokenBudget ?? tierDefaultToken(tier, model)` (subagent-tool-run.ts:310, subagents-tool.ts:201) — caller-provided tokenBudget wins over the tier default. Pre-PR state: TIERED_TOKEN_BUDGET_DEFAULTS (500k/1.2M/1.5M) hardcoded constant, no env/settings override, no clean disable (`undefined` falls through to tier default). PR #1334 adds env knobs in budget-defaults.ts read at call time (returns number|undefined, undefined = disabled) + graceful wrap-up final turn. GREP TRAP: subagent budget abort lives in core-runtime/src/agent.ts (session.abort()); core-task src/loop/loop-commands.ts has its OWN separate tokenBudget for the /loop command — a different code path that misleads searches. The loop machinery has no message-injection facility; wrap-up required new one-final-turn plumbing (design: inject 'flush state to disk, this is your final turn' message, run one more turn, then stop).
+§
+---
+id: 1882524e-cde4-4324-b2ad-cda57fa67066
+created: 2026-08-14
+last: 2026-08-14
+---
+RunView phase 2 + C1 AgentRow effort launched (2026-08-15): plan at .planning/2026-08-15-runview-phase2-agentrow/plan.md (12 tasks, 4 phases; spec.md is a 10-line stub pointing at ADR-0001 + arch review). Wave 0/C6 = remove display.ts pass-through re-exports, delete legacy workflow.ts re-exports, drop deprecated `model` alias from RunWorkflowScriptOptions; Wave 1 = workflow-manager updateInFlight → updateTaskPreview + test migration to view()/views(); subagent-tool renderCall reads view(id) not get(). Implementation NOT started — effort interrupted by subagent budget-knob PR #1334; resume from the plan, do not re-plan.
