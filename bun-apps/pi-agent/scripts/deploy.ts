@@ -14,6 +14,10 @@
  *   bun scripts/deploy.ts [out-dir] --standalone    # bundle + bundled bun
  *   bun scripts/deploy.ts [out-dir] --exe           # compiled binary
  *   bun scripts/deploy.ts [out-dir] --no-freeze     # skip chmod a-w
+ *   bun scripts/deploy.ts [out-dir] --force         # overwrite an out-dir that is
+ *                                                   #   non-empty and carries no
+ *                                                   #   prior-deploy marker (the
+ *                                                   #   stage deletes it recursively)
  *   bun scripts/deploy.ts [out-dir] --obfuscate     # + javascript-obfuscator on the bundle
  *                                                   #   (rejected with --exe: obfuscate forces a
  *                                                   #    bundle-then-compile order that strips
@@ -37,6 +41,7 @@ import {
 import { basename, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
 import {
 	stageGeneratePkgDir,
 	stageGenerateRunDirBase,
@@ -75,6 +80,7 @@ const KNOWN_FLAGS = new Set([
 	"--exe",
 	"--no-freeze",
 	"--obfuscate",
+	"--force",
 ]);
 {
 	const unknown = argv.filter((a) => a.startsWith("--") && !KNOWN_FLAGS.has(a));
@@ -83,8 +89,12 @@ const KNOWN_FLAGS = new Set([
 		process.exit(1);
 	}
 }
-const target = argv.find((a) => !a.startsWith("--")) || resolve(process.cwd(), "..", "..", "dist", APP_NAME);
+const target = resolve(
+	argv.find((a) => !a.startsWith("--")) ||
+		resolve(process.cwd(), "..", "..", "dist", APP_NAME),
+);
 const IS_SNAPSHOT = argv.includes("--snapshot");
+const IS_FORCE = argv.includes("--force");
 const IS_STANDALONE = argv.includes("--standalone");
 const IS_EXE = argv.includes("--exe");
 const NO_FREEZE = argv.includes("--no-freeze");
@@ -112,6 +122,30 @@ function die(msg: string): never {
 	process.exit(1);
 }
 
+/**
+ * deploy.ts assumes cwd == `bun-apps/pi-agent` in several places that never say
+ * so: `assertWorkspaceDeps()` reads "package.json" cwd-relative, `stageBundle`
+ * uses the relative entrypoint "src/cli.ts", codegen derives BUN_APPS_DIR from
+ * `process.cwd()`, and the DEFAULT TARGET is `cwd/../../dist/pi-agent`.
+ *
+ * Run from another package dir and none of that errors — you get a plausible-
+ * looking deploy with the wrong BUN_APPS_DIR baked in, aimed at the wrong
+ * `dist/`. Since that target is then deleted recursively, this is a safety
+ * check, not a nicety.
+ */
+function assertCorrectCwd(): void {
+	const expected = resolve(import.meta.dir, "..");
+	const actual = resolve(process.cwd());
+	if (actual !== expected) {
+		die(
+			`✗ deploy.ts must run from the pi-agent package directory\n` +
+				`  expected: ${expected}\n` +
+				`  actual:   ${actual}\n` +
+				`  Use: bun run --cwd ${expected} deploy [args]`,
+		);
+	}
+}
+
 function clean(...files: string[]) {
 	for (const f of files) if (existsSync(f)) rmSync(f, { recursive: true });
 }
@@ -125,6 +159,84 @@ function formatSize(p: string): string {
 	} catch {
 		return "?";
 	}
+}
+
+/**
+ * Markers that identify a directory as something a previous deploy produced.
+ * Any one of these is enough to treat the tree as ours to replace.
+ */
+const DEPLOY_MARKERS = [
+	".deploy-readonly",
+	".deploy-bundle",
+	"run.sh",
+	"pi-agent.js",
+	APP_NAME, // the pi-agent/ source tree a snapshot writes
+];
+
+/**
+ * Refuse to recursively delete a path that is not recognizably a deploy target.
+ *
+ * `target` is simply the first non-flag argv token, and the stage below
+ * `chmod -R u+w`s away the read-only freeze and then `rmSync`s it recursively.
+ * With no validation, `bun run deploy /opt` — a plausible slip for
+ * `/opt/pi-agent`, which the README trains operators to type by hand — deletes
+ * `/opt`. The one guard that existed (the freeze) was being stripped first.
+ *
+ * Allowed without `--force`: a path that does not exist, is an empty directory,
+ * or carries a deploy marker. Never allowed: a path that is an ancestor of (or
+ * equal to) the repo, the cwd, or $HOME — those stay refused even under
+ * `--force`, since no deploy has a reason to sit above the tree it is built
+ * from and a typo there is unrecoverable.
+ */
+function assertSafeDeployTarget(dir: string): void {
+	const home = resolve(homedir());
+	const cwd = resolve(process.cwd());
+	const repoRoot = resolve(import.meta.dir, "..", "..", "..");
+
+	const isAtOrAbove = (candidate: string, descendant: string): boolean => {
+		if (descendant === candidate) return true;
+		// Strip a trailing separator before appending one, or the filesystem root
+		// builds the prefix "//" and matches nothing — which let `/` through the
+		// ancestor check and fall to the marker check, where --force would have
+		// waved it past.
+		const base = candidate.endsWith("/") ? candidate : candidate + "/";
+		return descendant.startsWith(base);
+	};
+
+	for (const [label, p] of [
+		["$HOME", home],
+		["the current directory", cwd],
+		["the repo root", repoRoot],
+	] as const) {
+		if (isAtOrAbove(dir, p)) {
+			die(
+				`✗ refusing to deploy to ${dir}\n` +
+					`  It is ${dir === p ? "" : "an ancestor of "}${label} (${p}).\n` +
+					`  The deploy stage deletes its target recursively. Pick a dedicated directory.`,
+			);
+		}
+	}
+
+	if (!existsSync(dir)) return; // fresh path — nothing to destroy
+	if (IS_FORCE) return;
+
+	let entries: string[];
+	try {
+		entries = readdirSync(dir);
+	} catch (e: any) {
+		die(`✗ cannot inspect deploy target ${dir}: ${e?.message ?? e}`);
+	}
+	if (entries!.length === 0) return; // empty dir — safe to reuse
+	if (entries!.some((e) => DEPLOY_MARKERS.includes(e))) return; // a prior deploy
+
+	die(
+		`✗ refusing to overwrite ${dir}\n` +
+			`  It is not empty and carries none of the markers a previous deploy leaves\n` +
+			`  (${DEPLOY_MARKERS.join(", ")}).\n` +
+			`  Found: ${entries!.slice(0, 8).join(", ")}${entries!.length > 8 ? ", …" : ""}\n\n` +
+			`  This stage deletes its target recursively. If this really is the right\n` +
+			`  directory, re-run with --force.`,
+	);
 }
 
 function lstatSyncSafe(p: string): boolean {
@@ -557,6 +669,11 @@ async function stageFreeze() {
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
+	// First, before anything reads a cwd-relative path: assertWorkspaceDeps()
+	// opens "package.json" and resolvePiPkgDir() resolves from this module's
+	// context, and from the wrong directory both fail with errors that name
+	// neither the real problem nor the fix.
+	assertCorrectCwd();
 	assertWorkspaceDeps();
 
 	const piPkgDir = resolvePiPkgDir();
@@ -568,6 +685,7 @@ async function main() {
 	// and embedded-assets.ts). The embed mode flag for embedded-assets is
 	// IS_EXE: only --exe compiles with type:file imports.
 	console.log(`▶ target: ${target}`);
+	assertSafeDeployTarget(target);
 	if (existsSync(target)) {
 		// A previous freeze may have set a-w; unfreeze so rmSync works.
 		if (existsSync(join(target, ".deploy-readonly"))) {
