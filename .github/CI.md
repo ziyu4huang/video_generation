@@ -85,7 +85,7 @@ JSON
 | **test · `<package>`** (matrix of 28) | Each `bun-apps/*` package's test suite — one row per workspace package, i.e. complete coverage. Only the packages `changed packages` marks affected actually execute on a PR; push-to-main always runs all 28 | **blocks** |
 | **extension-contract** | The 5 extension-protocol tests (factory loads, wires up, no conflicts, valid schema, handler present) — a named, visible check, not buried in the pi-agent run | **blocks** |
 | **deploy --verify** | Builds pi-agent, bundles the 9 extensions, boots the deployed artifact from a foreign cwd, probes `getAllTools` for 0 conflicts | **blocks** |
-| **regression gates** | 13 steps. Blocking: 2 MB file-size guard (twin of `.githooks/pre-commit`), lockfile duplicate-version guard (the `@earendil-works/*` family must resolve to one version workspace-wide), dep-direction (ADR-0001), cross-extension seam contract, cross-extension routing contract, config-field parity, package-script runnability, CI-workflow references, the portability-audit regression test, pr-finish decision tests, and the test-portability audit — now `--strict`, see [TEST-PORTABILITY.md](TEST-PORTABILITY.md). Warn-only: schema-cost (>5%) and the test-determinism audit. Enumerate the live list with `bash scripts/ci-local.sh --gates --list`; `.githooks/pre-push` runs the whole job. | all **block** except schema-cost + determinism-audit (**warn only**) |
+| **regression gates** | 13 steps. Blocking: 2 MB file-size guard (twin of `.githooks/pre-commit`), lockfile duplicate-version guard (the `@earendil-works/*` family must resolve to one version workspace-wide), dep-direction (ADR-0001), cross-extension seam contract, cross-extension routing contract, config-field parity, package-script runnability, CI-workflow references, the portability-audit regression test, PR-finish decision tests (now `bun-apps/pi-agent-ext-devops/tests/pr-finish-cli.test.ts`, the `devops-pr-finish` bin), and the test-portability audit — now `--strict`, see [TEST-PORTABILITY.md](TEST-PORTABILITY.md). Warn-only: schema-cost (>5%) and the test-determinism audit. Enumerate the live list with `bash scripts/ci-local.sh --gates --list`; `.githooks/pre-push` runs the whole job. | all **block** except schema-cost + determinism-audit (**warn only**) |
 
 The test matrix gives a **native per-package check row** in the PR UI — a broken
 package goes red by name. `fail-fast: false` so every package reports even when
@@ -278,8 +278,10 @@ These never run in CI; they're gated on explicit env vars:
 - **`scripts/`** — not a `bun-apps/*` workspace package (no `package.json`), so
   it's outside this matrix by construction. Its own `*.test.ts` files
   (`pr-finish.test.ts`, `drawthings-bench.test.ts`, `multi-hop-eval.test.ts`) run
-  directly via `bun test scripts/<file>.test.ts` in the jobs that need them
-  (`regression gates` runs `pr-finish.test.ts`), not through the package matrix.
+  directly via `bun test scripts/<file>.test.ts` in the jobs that need them,
+  not through the package matrix. (`pr-finish.test.ts` has since moved into
+  `bun-apps/pi-agent-ext-devops/tests/pr-finish-cli.test.ts` — the script was
+  ported to the `devops-pr-finish` bin.)
   (`pi-agent-ext-zai-mcp` was previously miscategorized here too — it has no
   `package.json` `test` script, but `bun test` doesn't require one to discover
   `*.test.ts` files; it's now correctly in the matrix.)
@@ -388,8 +390,8 @@ passing.
 
 `--gates` runs the `regression-gates` job — every structural guard in the repo
 (dep-direction, seam, routing, config-parity, CI-workflow references,
-package-script runnability, the portability and determinism audits, pr-finish
-decision tests, schema-cost). It is parsed live from the same workflow, so it
+package-script runnability, the portability and determinism audits, PR-finish
+decision tests (pi-agent-ext-devops `tests/pr-finish-cli.test.ts`), schema-cost). It is parsed live from the same workflow, so it
 carries no copy of the step list either. **`.githooks/pre-push` runs it on every
 push**, which is what makes those guards blocking rather than advisory; a
 machine whose python3 lacks PyYAML gets a warning and the portability audit
