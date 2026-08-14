@@ -36,8 +36,20 @@ export function wrapInteractiveInitForHistoryRestore(
 	return true;
 }
 
-wrapInteractiveInitForHistoryRestore(InteractiveMode.prototype);
+// The boolean used to be discarded here and the debug line printed
+// "patch applied" unconditionally — so when the wrap failed (a renamed
+// InteractiveMode.init upstream), the diagnostic actively lied.
+const outcome = wrapInteractiveInitForHistoryRestore(InteractiveMode.prototype);
 if (process.env.BUN_PI_DEBUG_PATCHES === "1" || process.env.BUN_PI_DEBUG_PATCHES === "true") {
-	console.error("[bun-pi] editor-history-restore patch applied");
+	console.error(
+		`[bun-pi] editor-history-restore: ${outcome ? "applied" : "already applied or failed"}`,
+	);
 }
+
+/**
+ * Whether the wrap actually bound. `applyPatches()` reads this and reports a
+ * false as a patch failure instead of claiming success — see ./index.ts.
+ */
+export const patchApplied = outcome;
+/** @deprecated legacy alias — always `true`, kept only for import-site compat. */
 export const editorHistoryRestorePatchApplied = true;

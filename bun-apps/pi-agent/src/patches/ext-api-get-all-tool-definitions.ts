@@ -87,8 +87,10 @@ const debug =
   process.env.BUN_PI_DEBUG_PATCHES === "1" ||
   process.env.BUN_PI_DEBUG_PATCHES === "true";
 const enabled = process.env.BUN_PI_EXT_API_GET_ALL_TOOL_DEFS !== "0";
+let outcome = false;
 if (enabled) {
   const ok = applyGetAllToolDefinitionsPatch();
+  outcome = ok;
   if (debug) {
     console.error(
       `[bun-pi] ext-api-get-all-tool-definitions: ${ok ? "applied" : "already applied or failed"}`,
@@ -96,4 +98,12 @@ if (enabled) {
   }
 }
 
+/**
+ * Whether the wrap actually bound. `applyPatches()` reads this and reports a
+ * false as a patch failure instead of claiming success — see ./index.ts.
+ * `enabled === false` (env opt-out) is reported as applied: the patch did
+ * exactly what it was asked to do.
+ */
+export const patchApplied = enabled ? outcome : true;
+/** @deprecated legacy alias — always `true`, kept only for import-site compat. */
 export const extApiGetAllToolDefinitionsPatchApplied = true;

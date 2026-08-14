@@ -38,15 +38,32 @@ import { registerAllProviders } from "../pre-load-providers.ts";
 type CreateFn = typeof ModelRuntime.create;
 const _realCreate: CreateFn = ModelRuntime.create;
 
-ModelRuntime.create = (async (options = {}) => {
-  const runtime = await _realCreate(options);
-  // registerProvider recomposes + updates the snapshot synchronously, so the
-  // baked providers are visible before the caller ever reads
-  // getAvailable()/getModel(). A literal-string apiKey marks the provider
-  // configured (configuredRequestAuthStatus → "fallback"), so it shows up in
-  // snapshot.available / --list-models with no stored credential needed.
-  registerAllProviders(runtime);
-  return runtime;
-}) as CreateFn;
+// Verify the hook target EXISTS before wrapping it. This is the precise shape
+// of the historical failure documented above: `ModelRegistry.prototype.loadModels`
+// disappeared upstream, the assignment still succeeded, nothing threw, and the
+// patch installed a method nobody called. Assigning over an undefined
+// `ModelRuntime.create` would repeat it exactly — the wrapper would be
+// installed, `_realCreate(...)` would throw only on first use, and every static
+// check would stay green.
+const hookable = typeof _realCreate === "function";
 
+if (hookable) {
+  ModelRuntime.create = (async (options = {}) => {
+    const runtime = await _realCreate(options);
+    // registerProvider recomposes + updates the snapshot synchronously, so the
+    // baked providers are visible before the caller ever reads
+    // getAvailable()/getModel(). A literal-string apiKey marks the provider
+    // configured (configuredRequestAuthStatus → "fallback"), so it shows up in
+    // snapshot.available / --list-models with no stored credential needed.
+    registerAllProviders(runtime);
+    return runtime;
+  }) as CreateFn;
+}
+
+/**
+ * Whether the wrap actually bound. `applyPatches()` reads this and reports a
+ * false as a patch failure instead of claiming success — see ./index.ts.
+ */
+export const patchApplied = hookable;
+/** @deprecated legacy alias — always `true`, kept only for import-site compat. */
 export const preLoadProvidersPatchApplied = true;
