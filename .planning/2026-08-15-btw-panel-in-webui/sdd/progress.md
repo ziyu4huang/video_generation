@@ -44,3 +44,9 @@ Task 10: minor (deferred): pull/subscribe race — thread event during initial /
 Task 10: minor (deferred): snapshot load doesn't sync mode label or model/thinking dropdowns (display-only staleness, plan-verbatim)
 Task 10: minor (deferred): btwMessageHtml/btwRenderMessages unescaped m.id/m.role interpolation + notice rows never pruned (plan-mandated; harden with Task 9's copy together)
 Task 11: implemented (commit pending review)
+Task 11: complete (commits 821f6b3..1c73378, review clean)
+Task 11: minor (deferred): contract test asserts no package.json dependency but not source-import absence — grep/lint assertion candidate
+Task 12: complete (verification — both gates green, sweep clean)
+Task 12: btw gate 31 pass/0 fail (7 files, 86 expects); webui gate 319 pass/0 fail (27 files, 701 expects)
+Task 12: sweep — zero @repo imports in webui src/, zero package.json dep; only comment-only mention src/btw-channels.ts:5 ("Mirrors ... WITHOUT importing") — accepted, no coupling
+Task 12: no real-model calls — only comment-only mention tests/helpers/mock-pi.ts:10; all tests use fake sessions/mocks/pure helpers
