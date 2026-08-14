@@ -404,9 +404,14 @@ export function createSubagentTool(
       text.setText(renderSubagentCall({ ...args, modelSeg: v?.modelSeg }, theme));
       return text;
     },
-    renderResult(result, options, theme, _context) {
-      const text = (_context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-      text.setText(renderSubagentResult(result, options, theme));
+    renderResult(result, renderOptions, theme, context) {
+      const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+      // Fallback-aware model segment from the RunView (registry.view), when the
+      // registry still holds an entry for this run; renderSubagentResult
+      // degrades to the bare actual model otherwise. `options` here is the
+      // tool-level closure (same source renderCall reads), not renderOptions.
+      const v = options.inFlight?.view(context.toolCallId);
+      text.setText(renderSubagentResult(result, renderOptions, theme, { modelSeg: v?.modelSeg }));
       return text;
     },
   });

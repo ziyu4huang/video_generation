@@ -7,6 +7,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { AgentHistoryEntry, BudgetWarning } from "@repo/pi-agent-ext-core-runtime";
 import {
+  fmtElapsed,
   formatToolAction,
   isSddReportActionable,
   matchedCallArgsFor,
@@ -119,8 +120,8 @@ export function formatSubagentProgress(history: AgentHistoryEntry[], elapsedMs: 
   const last = history[history.length - 1];
   const toolCalls = Math.max(history.filter((h) => h.kind === "toolCall").length, minToolCalls);
   const activity = describeLastActivity(last, { matchedCallArgs: matchedCallArgsFor(history, history.length - 1) });
-  const elapsedS = (elapsedMs / 1000).toFixed(1);
-  return `↳ ${activity}\n  ↳ ${elapsedS}s elapsed · ${toolCalls} tool call${toolCalls === 1 ? "" : "s"}`;
+  // fmtElapsed already carries the trailing "s"
+  return `↳ ${activity}\n  ↳ ${fmtElapsed(elapsedMs)} elapsed · ${toolCalls} tool call${toolCalls === 1 ? "" : "s"}`;
 }
 
 /** Render one history entry as a single readable trace line (live-output buffer).
@@ -255,7 +256,7 @@ export function formatSubagentTrace(history: AgentHistoryEntry[], elapsedMs: num
     }
   }
   const toolCalls = Math.max(history.filter((h) => h.kind === "toolCall").length, minToolCalls);
-  const progress = `${(elapsedMs / 1000).toFixed(1)}s · ${toolCalls} call${toolCalls === 1 ? "" : "s"}`;
+  const progress = `${fmtElapsed(elapsedMs)} · ${toolCalls} call${toolCalls === 1 ? "" : "s"}`;
   if (inFlightIdx >= 0) {
     lines[inFlightIdx] = `${lines[inFlightIdx]}   ${progress}`;
   } else {
@@ -334,6 +335,7 @@ export function renderSubagentResult(
   result: { content: Array<{ type: string; text?: string }>; details?: SubagentToolDetails },
   options: { expanded?: boolean; isPartial?: boolean },
   theme: Theme,
+  opts?: { modelSeg?: string },
 ): string {
   const text = result.content.find((c) => c.type === "text")?.text ?? "";
   if (options.isPartial) {
@@ -407,16 +409,13 @@ export function renderSubagentResult(
   // Settled result meta (ticket 04, findings 3 + 5): the live call line shows
   // the fallback `→ actual` mid-run, but on settle that segment vanished and
   // the meta collapsed to the bare actual model — a surprising fallback became
-  // invisible. Persist a dim `requested → actual` segment when `d.fellBack` so
-  // the discrepancy survives settle. shortModel() keeps it narrow on the
-  // one-line collapsed result; `d.requestedModel` (the audit field) stays the
-  // FULL spec, only the DISPLAY is shortened.
-  const modelSeg =
-    d.fellBack && d.requestedModel
-      ? `${shortModel(d.requestedModel)} → ${shortModel(d.model) ?? "default"}`
-      : (shortModel(d.model) ?? "default");
+  // invisible. modelSeg comes in fallback-aware from the RunView-carrying caller
+  // ("requested → actual", shortModel-ed, single home in core-runtime); when no
+  // view is available (registry entry torn down after end()) degrade to the
+  // bare actual model.
+  const modelSeg = opts?.modelSeg ?? shortModel(d.model) ?? "default";
   const meta =
-    theme.fg("muted", `${modelSeg} · ${(d.elapsedMs / 1000).toFixed(1)}s${usageStr}`) +
+    theme.fg("muted", `${modelSeg} · ${fmtElapsed(d.elapsedMs)}${usageStr}`) +
     sddTag +
     scopeTag +
     budgetExhaustionTag +
