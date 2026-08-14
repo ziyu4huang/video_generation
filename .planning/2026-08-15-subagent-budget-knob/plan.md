@@ -17,6 +17,8 @@ Scope: `bun-apps/pi-agent-ext-subagent`.
 
 ## Task 2 — budget wrap-up turn on crossing (part 2) ✅ implemented
 
+> **Re-port note (post-merge)**: the merge of origin/main (e5e5f9ed) silently dropped this wrap-up — it was re-ported atop #1329's `createBudgetGuard` (onUsage-seam mid-turn `check` + turn-boundary backstop): the grace now gates BOTH abort paths, and if the session surface cannot queue a followUp (or the queue call rejects) the guard falls back to #1329's immediate hard abort.
+
 **Seam correction**: the budget is enforced in `bun-apps/pi-agent-ext-core-runtime/src/agent.ts` (`checkBudgetExhaustion` + the session-subscribe seam in `CoreAgent.run`) — NOT in `pi-agent-ext-core-task`'s loop. The loop package's budget check (`src/loop/loop-state.ts`) is the `/loop` slash-command path, not the subagent-dispatch path, so implementing there would not have affected subagents at all.
 
 Implemented (core-runtime `agent.ts`):
