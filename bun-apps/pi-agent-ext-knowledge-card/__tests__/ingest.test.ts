@@ -26,6 +26,8 @@ import {
 	type KnowledgeRecord,
 } from "../src/ingest.ts";
 import { validateZettelNote } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { LlmRelationExtractor, type Extractor } from "../src/extractor.ts";
+import { retrieveRecords } from "../src/retrieve.ts";
 
 let vault: string;
 
@@ -810,6 +812,223 @@ describe("in-batch canonical-id dedup", () => {
 		// last record wins (upsert-in-place semantics, matching on-disk re-ingest)
 		const body = readFileSync(join(dir, "test-dup.md"), "utf8");
 		expect(body).toContain("second body content");
+	});
+});
+
+describe("ingestRecords — LLM relations write path (Phase-2 T3)", () => {
+	/** Canned chat-completions payload: typed entities + two relations. The
+	 *  LlmRelationExtractor is injected via IngestOptions._extractor with a
+	 *  canned _fetchImpl (deterministic, no live LM Studio). */
+	const LLM_PAYLOAD = JSON.stringify({
+		entities: [
+			{ type: "tool", name: "run.py" },
+			{ type: "model", name: "Z-Image" },
+			{ type: "config", name: "--cfg-scale" },
+		],
+		relations: [
+			{ s: "run.py", rel: "uses", o: "Z-Image" },
+			{ s: "run.py", rel: "configures", o: "--cfg-scale" },
+		],
+	});
+
+	function chatContent(content: string): Response {
+		return new Response(
+			JSON.stringify({ choices: [{ message: { content } }] }),
+			{ status: 200, headers: { "content-type": "application/json" } },
+		);
+	}
+	function cannedFetch(content: string): typeof fetch {
+		return (async () => chatContent(content)) as unknown as typeof fetch;
+	}
+
+	const llmExtractor = () => new LlmRelationExtractor({ _fetchImpl: cannedFetch(LLM_PAYLOAD) });
+
+	/** The EXACT block the zk emitter must write — hardcoded as the shared
+	 *  cross-package artifact (the same string lives in hermes's
+	 *  knowledge-serializer.test.ts, so a drift on either reader/emitter side
+	 *  breaks one of the two suites). */
+	const EXPECTED_RELATIONS_BLOCK = [
+		"relations:",
+		"  - s: run.py",
+		"    rel: uses",
+		"    o: Z-Image",
+		"  - s: run.py",
+		"    rel: configures",
+		"    o: --cfg-scale",
+	].join("\n");
+
+	const EXPECTED_TRIPLES = [
+		{ s: "run.py", rel: "uses", o: "Z-Image" },
+		{ s: "run.py", rel: "configures", o: "--cfg-scale" },
+	];
+
+	test("kgLlm ON + idf: relations block written, entities present, round-trips via retrieveRecords", async () => {
+		await ingestRecords(
+			[rec({
+				id: "llm:rel",
+				title: "LLM rel card",
+				detail: "run.py generates images with Z-Image at --cfg-scale 3.5.",
+			})],
+			{
+				vaultPath: vault,
+				source: "workflow-jsonl",
+				sourceLabel: "llm",
+				linkWeighting: "idf",
+				kgLlm: true,
+				_extractor: llmExtractor(),
+			},
+		);
+		const card = readFileSync(join(vault, FOLDER, "llm-rel.md"), "utf8");
+		// the exact nested block (both readers' contract)
+		expect(card).toContain(EXPECTED_RELATIONS_BLOCK);
+		// still a valid zettel
+		expect(validateZettelNote(card).ok).toBe(true);
+		// dictionary-entity frontmatter flow intact under idf (LLM entities used)
+		expect(card).toMatch(/^entities: \[/m);
+		// round-trip: retrieveRecords' parseRelationsBlock recovers the triples
+		const rr = await retrieveRecords({
+				vaultPath: vault,
+				tags: ["path-safety"],
+				maxDetailChars: 500,
+				topK: 10,
+			});
+		const hit = rr.cards.find((c) => c.id === "llm:rel");
+		expect(hit?.relations).toEqual(EXPECTED_TRIPLES);
+	});
+
+	test("kgLlm ON + non-idf (count): relations block present, NO entity frontmatter", async () => {
+		await ingestRecords(
+			[rec({
+				id: "llm:count",
+				title: "Count-mode LLM card",
+				detail: "run.py generates images with Z-Image at --cfg-scale 3.5.",
+			})],
+			{
+				vaultPath: vault,
+				source: "workflow-jsonl",
+				sourceLabel: "llm",
+				kgLlm: true,
+				_extractor: llmExtractor(),
+			},
+		);
+		const card = readFileSync(join(vault, FOLDER, "llm-count.md"), "utf8");
+		expect(card).toContain(EXPECTED_RELATIONS_BLOCK);
+		// entity frontmatter stays idf-gated even with kgLlm ON
+		expect(card).not.toMatch(/^entities:/m);
+		expect(validateZettelNote(card).ok).toBe(true);
+	});
+
+	test("kgLlm OFF: NO relations block ever (write authority — dictionary path emits entities only)", async () => {
+		// idf mode (the widest dictionary surface) still never emits relations
+		await ingestRecords(
+			[rec({
+				id: "dict:rel",
+				title: "Dictionary card",
+				detail: "run.py generates images with Z-Image at --cfg-scale 3.5.",
+			})],
+			{
+				vaultPath: vault,
+				source: "workflow-jsonl",
+				sourceLabel: "dict",
+				linkWeighting: "idf",
+				kgLlm: false,
+			},
+		);
+		const card = readFileSync(join(vault, FOLDER, "dict-rel.md"), "utf8");
+		expect(card).not.toContain("relations:");
+		// the idf entity flow is unchanged
+		expect(card).toMatch(/^entities: \[/m);
+		expect(validateZettelNote(card).ok).toBe(true);
+	});
+
+	test("kgLlm OFF + LLM degradation (canned 500): extractor falls back to dictionary, no relations block", async () => {
+		// never-throws at the ingest boundary: even kgLlm ON with a dead chat
+			// endpoint degrades to the dictionary result (entities only)
+		const failing = new LlmRelationExtractor({
+			_fetchImpl: (async () =>
+				new Response("boom", { status: 500 })) as unknown as typeof fetch,
+		});
+		await ingestRecords(
+			[rec({
+				id: "llm:dead",
+				title: "Dead-endpoint card",
+				detail: "run.py generates images with Z-Image at --cfg-scale 3.5.",
+			})],
+			{
+				vaultPath: vault,
+				source: "workflow-jsonl",
+				sourceLabel: "llm",
+				linkWeighting: "idf",
+				kgLlm: true,
+				_extractor: failing,
+			},
+		);
+		const card = readFileSync(join(vault, FOLDER, "llm-dead.md"), "utf8");
+		expect(card).not.toContain("relations:");
+		expect(card).toMatch(/^entities: \[/m);
+		expect(validateZettelNote(card).ok).toBe(true);
+	});
+
+	/** P2 FIX C (card-truncation parity): the kgLlm extract prompt must see
+	 *  the SAME capped detail the rendered card writes — a pathological record
+	 *  can never ship a multi-MB prompt to the chat endpoint. The injected
+	 *  extractor CAPTURES the received text so the exact prompt is asserted. */
+	function capturingExtractor(captured: string[]): Extractor {
+		return {
+			extract: async (text: string) => {
+				captured.push(text);
+				return { entities: [], relations: [] };
+			},
+		};
+	}
+
+	test("kgLlm ON: extract prompt detail capped at maxDetailChars (card-truncation parity)", async () => {
+		const CAP = 64;
+		const TRUNC_MARK = "\n\n…(truncated)";
+		const title = "Cap probe card "; // includes the join space
+		const captured: string[] = [];
+		await ingestRecords(
+			[rec({ id: "llm:cap", title: "Cap probe card", detail: "x".repeat(100_000) })],
+			{
+				vaultPath: vault,
+				source: "workflow-jsonl",
+				sourceLabel: "llm",
+				linkWeighting: "idf",
+				kgLlm: true,
+				maxDetailChars: CAP,
+				_extractor: capturingExtractor(captured),
+			},
+		);
+		// the prompt is title + capped detail + truncation marker — NOT 100k chars
+		expect(captured.length).toBe(1);
+		const prompt = captured[0]!;
+		expect(prompt.startsWith(title)).toBe(true);
+		expect(prompt.length).toBeLessThanOrEqual(title.length + CAP + TRUNC_MARK.length);
+		expect(prompt).toContain("…(truncated)");
+		// the card md still applies its own (same-mechanism) truncation
+		const card = readFileSync(join(vault, FOLDER, "llm-cap.md"), "utf8");
+		expect(card).toContain("…(truncated)");
+		expect(card).not.toContain("x".repeat(CAP + 1));
+		expect(validateZettelNote(card).ok).toBe(true);
+	});
+
+	test("kgLlm ON: maxDetailChars undefined → prompt uses renderCard's 32_000 default", async () => {
+		const TRUNC_MARK = "\n\n…(truncated)";
+		const title = "Default cap card ";
+		const captured: string[] = [];
+		await ingestRecords(
+			[rec({ id: "llm:dcap", title: "Default cap card", detail: "y".repeat(100_000) })],
+			{
+				vaultPath: vault,
+				source: "workflow-jsonl",
+				sourceLabel: "llm",
+				kgLlm: true,
+				_extractor: capturingExtractor(captured),
+			},
+		);
+		const prompt = captured[0]!;
+		expect(prompt.length).toBeLessThanOrEqual(title.length + 32_000 + TRUNC_MARK.length);
+		expect(prompt).toContain("…(truncated)");
 	});
 });
 

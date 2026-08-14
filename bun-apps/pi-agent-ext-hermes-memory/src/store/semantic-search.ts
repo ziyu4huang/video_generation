@@ -31,6 +31,7 @@ import type { MemoryRepository } from "./repository.js";
 import type { KnowledgePipeline, RetrieveResult } from "@repo/pi-agent-ext-core-interface";
 import type { VectorStore, VectorKnnHit } from "./surreal/vector-store.js";
 import { embedQuery, type Embedder } from "./surreal/embedder.js";
+import { normalizeRelation } from "./relation-schema.js";
 
 /** The card "kind" namespace. Mirrors zk's knowledge folder vs hermes memory. */
 export type SemanticKind = "memory" | "knowledge";
@@ -46,6 +47,19 @@ export interface SemanticSearchHit {
    *  redundancy-aware dedup key (ticket 19). Optional: the cold fallback paths
    *  (memory-lexical / zk-semantic) do not carry it, so do not assume present. */
   contentHash?: string;
+  /** Graph relations attached on the warm path via the batched `fetchRelations`
+   *  seam (ticket 03 P2-T5, LeanRAG ③) — the second redundancy-aware dedup key.
+   *  Optional, mirroring `contentHash`: absent when the seam is unwired, the
+   *  card/graph is missing, or the lookup failed (silent skip — never blocks
+   *  search). Cold fallback paths never carry it. */
+  relations?: SemanticRelation[];
+}
+
+/** A typed graph relation triple (mirrors CardGraph.relations, ticket 03). */
+export interface SemanticRelation {
+  s: string;
+  rel: string;
+  o: string;
 }
 
 export interface SearchSemanticOptions {
@@ -85,6 +99,13 @@ export interface SearchSemanticOptions {
    *  the backfill's own inProgress guard coalesces cold-query bursts so at most
    *  one backfill runs at a time. Never awaited — never blocks the query. */
   scheduleVectorBackfill?: () => void;
+  /** Ticket 03 P2-T5 (LeanRAG ③): batched card-graph relations lookup for the
+   *  WARM path. Given the surviving hit mdIds, resolves mdId → graph.relations
+   *  (SQLite `memories.graph` JSON via the caller's card-store access — one
+   *  batched query, never N+1). Absent / throwing / missing-card → silent
+   *  skip: no relations attached, hit kept. Never fails search. Ignored on the
+   *  cold fallback paths (no new fetch machinery there). */
+  fetchRelations?: (mdIds: string[]) => Promise<Map<string, SemanticRelation[]>>;
 }
 
 /** Internal: normalize a VectorKnnHit to a SemanticSearchHit (warm path). */
@@ -131,6 +152,57 @@ function dedupByContentHash(hits: SemanticSearchHit[]): SemanticSearchHit[] {
 }
 
 /**
+ * Canonical relation-signature key (ticket 03 P2-T5, LeanRAG ③). For a
+ * non-empty, well-formed array: each triple is normalized (`s`/`o` trimmed +
+ * lowercased, `rel` through `normalizeRelation` so alias variants like `ref` /
+ * `references` and case differences collapse onto one key), the rendered
+ * triples are sorted (order-insensitive) and joined `";"` → signature string.
+ * Empty / undefined / malformed (non-array, non-object entries, missing
+ * fields) → `null` — a null signature is NEVER a dedup key. Never throws:
+ * every access is guarded.
+ */
+function relationSignature(relations: SemanticSearchHit["relations"]): string | null {
+  if (!Array.isArray(relations) || relations.length === 0) return null;
+  const parts: string[] = [];
+  for (const r of relations) {
+    if (!r || typeof r !== "object") return null; // malformed entry → no signature
+    const s = typeof r.s === "string" ? r.s.trim().toLowerCase() : "";
+    const rel = typeof r.rel === "string" ? normalizeRelation(r.rel) : "";
+    const o = typeof r.o === "string" ? r.o.trim().toLowerCase() : "";
+    if (!s || !rel || !o) return null; // missing/blank field → no signature
+    parts.push(`${s}->${rel}->${o}`);
+  }
+  parts.sort(); // order-insensitive: same edge set ⇒ same signature
+  return parts.join(";");
+}
+
+/**
+ * Ticket 03 P2-T5 (LeanRAG ③): relation-signature dedup pass — sibling to
+ * `dedupByContentHash` with identical keep-first semantics. Keeps the FIRST
+ * occurrence per non-null canonical `relationSignature`; hits whose signature
+ * is null (no relations / malformed) are ALWAYS kept (a missing signature is
+ * never a shared key, mirroring the falsy-hash rule). Applied AFTER the
+ * contentHash pass and BEFORE the survivingK cap on every return path; the
+ * cold fallback hits are relation-less → correct no-op there. Never throws
+ * (all access guarded inside `relationSignature`).
+ */
+function dedupByRelation(hits: SemanticSearchHit[]): SemanticSearchHit[] {
+  const seen = new Set<string>();
+  const out: SemanticSearchHit[] = [];
+  for (const h of hits) {
+    const sig = relationSignature(h.relations); // null ⇒ never a dedup key
+    if (sig === null) {
+      out.push(h);
+      continue;
+    }
+    if (seen.has(sig)) continue; // identical canonical edges → drop later twin
+    seen.add(sig);
+    out.push(h);
+  }
+  return out;
+}
+
+/**
  * T2 + T5(a): semantic search with graceful degradation. NEVER throws.
  *
  * Order of operations:
@@ -149,7 +221,7 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
   const {
     queryText, kind, topK = 10, ef = 100, model, embedder,
     vectorStore, memoryRepo, kp, vaultPath, folder, excludeIds,
-    scheduleVectorBackfill, survivingK,
+    scheduleVectorBackfill, survivingK, fetchRelations,
   } = opts;
   const exclude = new Set(excludeIds ?? []);
   const modelId = model ?? "text-embedding-nomic-embed-text-v1.5";
@@ -188,6 +260,24 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
           // cold-query bursts so at most one backfill runs at a time; its
           // deferred task re-checks the staleness delta and embeds only
           // changed/new cards (cheap no-op when the index is already warm).
+          // Ticket 03 P2-T5 (LeanRAG ③): attach each surviving hit's card
+          // graph relations via the BATCHED `fetchRelations` seam (one lookup
+          // for the whole ranked list — never N+1). Silent-skip contract: seam
+          // absent / lookup throwing / mdId missing from the map → no
+          // relations attached, hit kept. This must NEVER break search.
+          if (fetchRelations && ranked.length > 0) {
+            try {
+              const relMap = await fetchRelations(ranked.map((h) => h.mdId));
+              if (relMap) {
+                for (const h of ranked) {
+                  const rels = relMap.get(h.mdId);
+                  if (Array.isArray(rels) && rels.length > 0) h.relations = rels;
+                }
+              }
+            } catch {
+              // best-effort graph attach — relations stay absent, hits unchanged
+            }
+          }
           // Ticket 19 T2: redundancy-aware contentHash dedup seam. Applied to
           // the warm (HNSW) ranked list before the early return — the SAME
           // private pass the cold fallbacks use below. hashless hits are kept,
@@ -195,7 +285,7 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
           // only shrink a non-empty list (it keeps the first per key), so
           // `deduped.length === 0` ⟺ `ranked.length === 0` — the cold-index
           // trigger signal is preserved.
-          const deduped = dedupByContentHash(ranked);
+          const deduped = dedupByRelation(dedupByContentHash(ranked));
           if (deduped.length === 0 && scheduleVectorBackfill) {
             try {
               scheduleVectorBackfill();
@@ -261,7 +351,10 @@ async function knowledgeFallback(
     // contentHash → this is a correct no-op (all kept), but the seam is wired
     // so a future hash-bearing cold source needs no caller change.
     // Ticket 19 T3: cap the post-dedup list to survivingK (default topK).
-    return dedupByContentHash(hits).slice(0, cap);
+    // Ticket 03 P2-T5: relation pass after contentHash — zk cards CAN carry
+    // relations, so identical-signature twins collapse here too (the pass is
+    // relation-less-tolerant: null signature ⇒ kept, never throws).
+    return dedupByRelation(dedupByContentHash(hits)).slice(0, cap);
   } catch {
     return []; // zk seam absent / threw → empty (never propagates)
   }
@@ -292,7 +385,10 @@ async function memoryFallback(
     // Ticket 19 T2: same dedup seam as the warm path (no-op while MemoryEntry
     // carries no contentHash; wired for forward-compat).
     // Ticket 19 T3: cap the post-dedup list to survivingK (default topK).
-    return dedupByContentHash(hits).slice(0, cap);
+    // Ticket 03 P2-T5: relation pass after contentHash — memory hits are
+    // relation-less (null signature ⇒ kept) → correct no-op, no new fetch
+    // machinery on the fallback path.
+    return dedupByRelation(dedupByContentHash(hits)).slice(0, cap);
   } catch {
     return []; // lexical search threw → empty (never propagates)
   }
