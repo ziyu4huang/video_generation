@@ -29,7 +29,7 @@
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { InFlightSubagent, SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
-import { isTerminalStatus } from "@repo/pi-agent-ext-core-runtime";
+import { buildRunView, isTerminalStatus } from "@repo/pi-agent-ext-core-runtime";
 import {
   capTraceTail,
   formatSubagentTrace,
@@ -145,11 +145,10 @@ export class SubagentContextWidget {
         // (ticket 04, finding 1 — #1101's strip was dead here). Falls back to
         // taskPreview for entries that never populated workIntent.
         task: r.workIntent ?? r.taskPreview,
-        resolvedModel: r.resolvedModel,
-        // Persist the fallback indicator on the docked header — the registry
-        // already carries fellBack/requestedModel from markFallback (ticket 04,
-        // finding 3 — the box never passed it, so the `→` was missing here).
-        fellBack: r.fellBack,
+        // Fallback-aware model segment (RunView.modelSeg — encodes the `→`
+        // fallback marker), projected from the raw record until Task 6 swaps
+        // this widget's reads to views().
+        modelSeg: buildRunView(r, Date.now()).modelSeg,
       },
       theme,
     );

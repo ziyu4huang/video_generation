@@ -714,8 +714,7 @@ export class WorkflowManager extends EventEmitter {
    *  progress event. No-op when no registry / entry is gone (e.g. racing end). */
   private updateInFlight(managed: ManagedRun): void {
     if (!this.inFlight) return;
-    const entry = this.inFlight.get(workflowInFlightId(managed.runId));
-    if (entry) entry.taskPreview = workflowPreview(managed.snapshot);
+    this.inFlight.updateTaskPreview(workflowInFlightId(managed.runId), workflowPreview(managed.snapshot));
   }
 
   /** Remove the registry entry on run completion. Idempotent (registry.end is a
