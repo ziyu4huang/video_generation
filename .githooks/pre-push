@@ -6,7 +6,8 @@
 #   This hook used to run scripts/test-portability-audit.sh --strict and nothing
 #   else — one of the thirteen steps in that job. The other twelve (dep-direction,
 #   seam, routing, config-parity, CI-workflow references, package-script
-#   runnability, the determinism audit, pr-finish decision tests, schema-cost)
+#   runnability, the determinism audit, PR-finish decision tests (now in
+#   pi-agent-ext-devops), schema-cost)
 #   had NO executor at all: GitHub Actions is disabled in this repo, so the job
 #   they live in has not run in a long time, and `bun test` in a package never
 #   reaches bun-apps/tests/. Guards nobody runs are guards that quietly stop

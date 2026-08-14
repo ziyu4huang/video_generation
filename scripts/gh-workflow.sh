@@ -8,7 +8,7 @@
 #   ./scripts/gh-workflow.sh feat      # create a feature issue
 #   ./scripts/gh-workflow.sh pr        # create a PR (auto-detect issue from branch)
 #   ./scripts/gh-workflow.sh pr --web  # create a PR in browser (auto-fill issue)
-#   ./scripts/gh-workflow.sh finish <pr>  # squash-merge + cleanup (delegates to pr-finish.sh)
+#   ./scripts/gh-workflow.sh finish <pr>  # squash-merge + cleanup (delegates to devops-pr-finish)
 #   ./scripts/gh-workflow.sh list      # list open issues I can claim
 #
 # To set up gh aliases:
@@ -122,8 +122,8 @@ cmd_finish() {
     exit 1
   fi
   shift
-  echo "◆ Finishing PR #${pr_number} (delegating to pr-finish.sh)…"
-  exec "$(dirname "$0")/pr-finish.sh" "$pr_number" "$@"
+  echo "◆ Finishing PR #${pr_number} (delegating to devops-pr-finish)…"
+  exec bun "$(dirname "$0")/../bun-apps/pi-agent-ext-devops/src/pr-finish-cli.ts" "$pr_number" "$@"
 }
 
 cmd_list() {

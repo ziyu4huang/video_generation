@@ -29,6 +29,9 @@ recipes live in tested code (`src/`).
   wrapper the workflow's `changed_packages` job shells out to (`--all`, or
   `<baseRef> <headRef>` → one line of JSON). Deliberately a plain script entry,
   not an `extensions/cli-subcommand.ts`: that job runs before any `bun install`.
+- **devops-pr-finish bin** (`src/pr-finish-cli.ts`) — bash-callable PR finish
+  (preflight → local-CI gate → merge gates → squash-merge → verify_merge →
+  branch cleanup); the TS port of the deleted `scripts/pr-finish.sh`.
 - **sync_repo** — sync this worktree/repo to the latest default branch
   (full/rebase/pull; worktree-aware; aborts on divergent unless `force`).
   **Preserves auto-managed hot files**: the default advance aborts `dirty_tree`

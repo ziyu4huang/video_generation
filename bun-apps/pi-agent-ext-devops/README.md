@@ -45,6 +45,10 @@ sweep_branches({ confirm: ["feat/x"] })  // human-approved reviewed branch (must
 
 Replaces ad-hoc cleanup bash — critically, it never trusts `git branch --merged` (silently wrong for **squash** merges, the dominant strategy) nor `[gone]` alone (also left by closed-without-merge PRs). Only `gh` PR state is authoritative.
 
+## CLI bins
+
+- `devops-pr-finish` (`src/pr-finish-cli.ts`) — bash-callable PR finish: preflight → local-CI gate → merge gates → squash-merge → verify_merge → branch cleanup (the TS port of the deleted `scripts/pr-finish.sh`).
+
 ## Why
 
 The bash polling loops were (a) brittle — a `grep -c ... || echo 0` doubled the zero-count on no matches, so the loop's break condition never fired (320s timeout wasted); (b) duplicated ad-hoc across every merge. This extension encapsulates the recipe in **tested code** with **structured `gh ... --json`** parsing (no text grep).
