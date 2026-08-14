@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { publishSeam, type KnowledgePipeline, type RetrieveResult } from "@repo/pi-agent-ext-core-interface";
-import { registerKnowledgeSearchTool } from "../src/tools/knowledge-search-tool.js";
+import { registerKnowledgeSearchTool, buildLexicalRecall, buildEntityRecall } from "../src/tools/knowledge-search-tool.js";
+import { SqliteBackend } from "../src/store/sqlite/sqlite-backend.js";
+import { existsSync, writeFileSync } from "node:fs";
 
 const KEY = "__piKnowledgePipeline";
 
@@ -115,5 +117,158 @@ describe("knowledge_search tool", () => {
     assert.ok(def);
     const out = await def!.execute("call-1", { query: "x" }, undefined, undefined, { });
     assert.match(textOf(out), /vault not configured/i);
+  });
+});
+
+/** ── Ticket 20 T3: production signal builders ────────────────────────────
+ *
+ * Fixtures: a tmp memory dir seeded via a raw SqliteBackend (INSERT INTO
+ * memories — the FTS triggers keep memory_fts in sync automatically), then a
+ * FRESH ephemeral backend per builder call (mirroring production: the builders
+ * open the card-store DB ephemerally per call, never share a handle). */
+interface SeedRow {
+  target: "knowledge" | "memory";
+  content: string;
+  mdId: string;
+  graph?: string;
+}
+
+async function seedMemoryDir(rows: SeedRow[]): Promise<string> {
+  const dir = mkdtempSync(join(tmpdir(), "kst-signals-"));
+  const backend = new SqliteBackend(dir);
+  await backend.init();
+  const db = backend.getDb();
+  const insert = db.prepare(
+    `INSERT INTO memories (target, content, created, last_referenced, md_id, graph) VALUES (?, ?, '2026-01-01', '2026-01-01', ?, ?)`,
+  );
+  for (const row of rows) {
+    insert.run(row.target, row.content, row.mdId, row.graph ?? null);
+  }
+  await backend.close();
+  return dir;
+}
+
+describe("buildLexicalRecall (FTS membership over target='knowledge')", () => {
+  it("returns the knowledge card matching the query, excluding memory-target cards", async () => {
+    const dir = await seedMemoryDir([
+      { target: "knowledge", content: "quokka camera trap survey protocol", mdId: "md/knowledge/quokka" },
+      { target: "memory", content: "quokka remembered feeding schedule", mdId: "md/memory/quokka" },
+    ]);
+    try {
+      const recall = buildLexicalRecall(dir);
+      const hits = await recall("quokka", 10);
+      assert.deepEqual(hits, [{ mdId: "md/knowledge/quokka", rank: 0 }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns [] (never throws) on an FTS-hostile query", async () => {
+    const dir = await seedMemoryDir([
+      { target: "knowledge", content: "cfg scale tuning for finer detail", mdId: "md/knowledge/cfg" },
+    ]);
+    try {
+      const recall = buildLexicalRecall(dir);
+      const hits = await recall('"unterminated', 10);
+      assert.ok(Array.isArray(hits));
+      // Fallback may rescue quoted-term queries; hostile input must at worst [].
+      assert.ok(hits.every((h) => typeof h.mdId === "string" && typeof h.rank === "number"));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns [] (never throws) on a corrupt database file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kst-corrupt-"));
+    writeFileSync(join(dir, "sessions.db"), "not a sqlite database at all");
+    try {
+      const recall = buildLexicalRecall(dir);
+      const hits = await recall("anything", 10);
+      assert.deepEqual(hits, []);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("buildEntityRecall (query entities × paged graph scan)", () => {
+  it("recalls cards by normalized entity name, ranked by matchCount desc", async () => {
+    const dir = await seedMemoryDir([
+      {
+        target: "knowledge",
+        content: "card a",
+        mdId: "md/knowledge/a",
+        graph: JSON.stringify({ entities: [{ type: "tool", name: "run.py" }, { type: "lib", name: "MLX" }] }),
+      },
+      {
+        target: "knowledge",
+        content: "card b",
+        mdId: "md/knowledge/b",
+        graph: JSON.stringify({ entities: [{ type: "tool", name: "run.py" }] }),
+      },
+      {
+        target: "knowledge",
+        content: "card c",
+        mdId: "md/knowledge/c",
+        graph: JSON.stringify({ entities: [{ type: "tool", name: "Docker" }] }),
+      },
+    ]);
+    try {
+      const recall = buildEntityRecall(dir);
+      // extractEntities on this query yields (at least) `run.py` + `MLX`
+      // (backtick spans — the highest-precision pass; bare MLX is filtered as
+      // a vowel-less single capital, so the fixture quotes it).
+      const hits = await recall("how to run `run.py` with `MLX` on Apple Silicon", 10);
+      assert.deepEqual(hits, [
+        { mdId: "md/knowledge/a", rank: 0 }, // 2 matches → first
+        { mdId: "md/knowledge/b", rank: 1 }, // 1 match → second
+        // card c (Docker only) absent — no overlap with the query entity set
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("silently skips malformed graph JSON", async () => {
+    const dir = await seedMemoryDir([
+      { target: "knowledge", content: "broken", mdId: "md/knowledge/broken", graph: "{not json" },
+      {
+        target: "knowledge",
+        content: "good",
+        mdId: "md/knowledge/good",
+        graph: JSON.stringify({ entities: [{ type: "lib", name: "MLX" }] }),
+      },
+    ]);
+    try {
+      const recall = buildEntityRecall(dir);
+      const hits = await recall("tuning `MLX` pipelines", 10);
+      assert.deepEqual(hits, [{ mdId: "md/knowledge/good", rank: 0 }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("short-circuits to [] WITHOUT opening the DB when the query has no entities", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kst-noent-"));
+    try {
+      const recall = buildEntityRecall(dir);
+      const hits = await recall("x", 10); // single lowercase letter → no entities
+      assert.deepEqual(hits, []);
+      assert.equal(existsSync(join(dir, "sessions.db")), false, "must not open/create the DB");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns [] (never throws) on a corrupt database file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kst-corrupt-ent-"));
+    writeFileSync(join(dir, "sessions.db"), "garbage not a database");
+    try {
+      const recall = buildEntityRecall(dir);
+      const hits = await recall("running `run.py` under MLX", 10);
+      assert.deepEqual(hits, []);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

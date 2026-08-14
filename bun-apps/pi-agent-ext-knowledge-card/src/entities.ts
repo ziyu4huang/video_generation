@@ -178,7 +178,7 @@ export function extractEntities(text: string, maxEntities = 16): ExtractedEntity
 /** Normalise an entity name for dedup (lowercase, collapse internal whitespace).
  *  Keeps hyphens/slashes/dots — they are part of the identifier (pi-obsidian,
  *  run.py, --cfg-scale). */
-function normEntity(name: string): string {
+export function normEntity(name: string): string {
 	return name.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
