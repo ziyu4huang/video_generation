@@ -38,6 +38,17 @@ import {
   BTW_THINKING_OVERRIDE_TYPE,
 } from "./constants";
 import {
+  BTW_EVENT_CHANNEL,
+  type BtwEvent,
+  type BtwThreadState,
+} from "./webui-events";
+import {
+  snapshotsFromDetails,
+  snapshotsFromMessages,
+  statusFromEvent,
+  type BtwStatusUpdate,
+} from "./snapshot";
+import {
   applyTranscriptEvent,
   appendPersistedTranscriptTurn,
   createEmptyTranscriptState,
@@ -253,6 +264,12 @@ export class BtwEngine {
   overlayRuntime: OverlayRuntime | null = null;
   lastUiContext: ExtensionContext | ExtensionCommandContext | null = null;
   activeBtwSession: BtwSessionRuntime | null = null;
+  /** Latest ExtensionCommandContext seen at session_start/session_tree; the webui command channel carries no ctx. */
+  private latestCtx: ExtensionCommandContext | null = null;
+  /** Status override for the last live message, derived from sub-session events. */
+  private webuiStatus: BtwStatusUpdate | null = null;
+  /** The BtwSessionRuntime currently bridged to the webui event channel. */
+  private webuiBridgedFor: BtwSessionRuntime | null = null;
 
   constructor(private readonly pi: ExtensionAPI) {}
 
@@ -328,13 +345,78 @@ export class BtwEngine {
     sr.subscriptions.add(unsub);
   }
 
+  // ── Webui bridge (event-bus seam; independent of the TUI overlay path) ───
+
+  /** Record the ctx the webui command handler should use (set from session_start/session_tree). */
+  setLatestCtx(ctx: ExtensionCommandContext): void {
+    this.latestCtx = ctx;
+  }
+
+  /**
+   * Webui bridge: an ADDITIONAL session subscription (separate from the overlay's)
+   * that pre-reduces each sub-session event into a thread snapshot and emits it on
+   * BTW_EVENT_CHANNEL. Never touches applyTranscriptEvent / setOverlayStatus / syncUi.
+   */
+  subscribeWebuiBridge(sr: BtwSessionRuntime): void {
+    if (this.webuiBridgedFor === sr) return;
+    this.webuiBridgedFor = sr;
+    this.webuiStatus = null;
+    const dispose = sr.session.subscribe((event: AgentSessionEvent) => {
+      const update = statusFromEvent(event);
+      if (update) this.webuiStatus = update;
+      this.emitThreadEvent();
+    });
+    sr.subscriptions.add(() => {
+      if (this.webuiBridgedFor === sr) this.webuiBridgedFor = null;
+      dispose();
+    });
+  }
+
+  /** Current thread state, pre-reduced for the webui panel (D5). */
+  buildThreadState(): BtwThreadState {
+    const messages = this.activeBtwSession
+      ? snapshotsFromMessages(
+          this.activeBtwSession.session.agent.state.messages.slice(
+            this.activeBtwSession.sideThreadStartIndex,
+          ),
+          this.webuiStatus,
+        )
+      : snapshotsFromDetails(this.pendingThread);
+    return {
+      messages,
+      mode: this.pendingMode,
+      model: this.btwModelOverride
+        ? {
+            provider: this.btwModelOverride.provider,
+            id: this.btwModelOverride.id,
+            api: this.btwModelOverride.api,
+          }
+        : null,
+      thinking: this.btwThinkingOverride,
+    };
+  }
+
+  /** Emit the current thread snapshot on the webui event channel. */
+  emitThreadEvent(): void {
+    const event: BtwEvent = { type: "thread", state: this.buildThreadState() };
+    this.pi.events?.emit(BTW_EVENT_CHANNEL, event);
+  }
+
+  /** Emit a one-line notice (inject confirmation, summarize output, errors). */
+  emitNotice(text: string): void {
+    const event: BtwEvent = { type: "notice", text };
+    this.pi.events?.emit(BTW_EVENT_CHANNEL, event);
+  }
+
   async disposeBtwSession(): Promise<void> {
     const current = this.activeBtwSession;
     this.activeBtwSession = null;
+    this.webuiStatus = null;
     if (!current) return;
     this.clearBtwSessionSubscriptions(current);
     try { await current.session.abort(); } catch { /* ignore */ }
     current.session.dispose();
+    this.emitThreadEvent();
   }
 
   async dismissOverlaySession(): Promise<void> {
@@ -465,7 +547,9 @@ export class BtwEngine {
       session.agent.state.messages = seedMessages as typeof session.state.messages;
     }
 
-    return { session, mode: this.pendingMode, subscriptions: new Set(), sideThreadStartIndex };
+    const sr: BtwSessionRuntime = { session, mode: this.pendingMode, subscriptions: new Set(), sideThreadStartIndex };
+    this.subscribeWebuiBridge(sr);
+    return sr;
   }
 
   async ensureBtwSession(ctx: ExtensionCommandContext): Promise<BtwSessionRuntime | null> {
