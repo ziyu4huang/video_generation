@@ -1464,7 +1464,13 @@ test("renderSubagentResult renders a budget badge + budgetTag", () => {
 
 test("deriveSubagentStatus: result.turns → 'turns' (distinct from budget/timedout/failed)", () => {
   assert.equal(
-    deriveSubagentStatus({ output: "", exitCode: 124, stderr: "", timedOut: false, turns: { maxTurns: 5, turnsUsed: 5 } }),
+    deriveSubagentStatus({
+      output: "",
+      exitCode: 124,
+      stderr: "",
+      timedOut: false,
+      turns: { maxTurns: 5, turnsUsed: 5 },
+    }),
     "turns",
   );
   // without turns, the same 124/non-timeout shape still classifies as failed
