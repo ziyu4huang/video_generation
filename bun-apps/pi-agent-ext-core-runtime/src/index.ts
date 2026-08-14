@@ -10,6 +10,9 @@ export type {
   BudgetWarning,
   FallbackDecision,
   StructuredSession,
+  TurnExhaustion,
+  TurnGuard,
+  TurnSessionSurface,
   WorkflowAgentOptions,
 } from "./agent.js";
 export {
@@ -18,13 +21,17 @@ export {
   CoreAgent as WorkflowAgent,
   checkBudgetExhaustion,
   checkBudgetWarning,
+  createTurnGuard,
   extractValidated,
+  isTurnEndObservation,
+  isTurnStartObservation,
   lastAssistantError,
   listAvailableModelSpecs,
   resolveAgentModelSpec,
   resolveFallbackModel,
   resolveStructuredOutput,
   throwIfProviderLimit,
+  turnExhaustionError,
 } from "./agent.js";
 
 export type { AgentHistoryEntry, AgentHistoryKind, AgentHistoryOptions, AgentHistoryRole } from "./agent-history.js";

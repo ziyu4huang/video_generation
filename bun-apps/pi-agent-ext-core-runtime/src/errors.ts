@@ -11,6 +11,8 @@ export enum WorkflowErrorCode {
   AGENT_LIMIT_EXCEEDED = "AGENT_LIMIT_EXCEEDED",
   /** Token budget exhausted. */
   TOKEN_BUDGET_EXHAUSTED = "TOKEN_BUDGET_EXHAUSTED",
+  /** A turn-capped subagent was aborted before starting turn maxTurns+1. */
+  TURNS_EXHAUSTED = "TURNS_EXHAUSTED",
   /**
    * The provider's subscription/usage/quota/rate limit was hit. Distinct from the
    * user's self-imposed TOKEN_BUDGET_EXHAUSTED: a provider limit refills on its own,

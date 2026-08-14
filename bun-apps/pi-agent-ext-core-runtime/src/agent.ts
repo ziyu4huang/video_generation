@@ -487,6 +487,93 @@ export function createBudgetGuard(
   };
 }
 
+/** Minimal session surface the turn guard needs (real AgentSession or a test double): mid-run abort. */
+export interface TurnSessionSurface {
+  abort(): unknown;
+}
+
+/** Why a turn-capped subagent run was aborted before its next turn. */
+export interface TurnExhaustion {
+  /** The caller-declared ceiling on prompt→response turns. */
+  maxTurns: number;
+  /** Turns completed when the abort fired (== maxTurns). */
+  turnsUsed: number;
+}
+
+/** Detect the session event that delimits the start of a turn (one assistant API response cycle). */
+export function isTurnStartObservation(event: unknown): boolean {
+  return typeof event === "object" && event !== null && (event as { type?: unknown }).type === "turn_start";
+}
+
+/** Detect the session event that delimits the end of a turn (assistant response + its tool results). */
+export function isTurnEndObservation(event: unknown): boolean {
+  return typeof event === "object" && event !== null && (event as { type?: unknown }).type === "turn_end";
+}
+
+/**
+ * Per-run turn cap: aborts the session BEFORE the model is asked for turn
+ * maxTurns+1. One turn = one prompt→assistant-response cycle in the run loop,
+ * delimited by the session's turn_start/turn_end events (the SDK emits
+ * turn_start before each assistant API response, turn_end after its tool
+ * results). A run that naturally finishes within maxTurns turns is never
+ * aborted — only a loop that would CONTINUE past the cap is stopped. Idempotent:
+ * after the abort fires once, later events are ignored. Distinct from the
+ * budget guard: independent state, no shared classification.
+ */
+export interface TurnGuard {
+  /** The exhaustion record once the cap fired; undefined before. */
+  readonly exhaustion: TurnExhaustion | undefined;
+  /** Turns completed so far (turn_end events observed). */
+  readonly turnsUsed: number;
+  /** Route a session event: turn_start → pre-turn cap check, turn_end → count. */
+  onSessionEvent(event: unknown): void;
+}
+
+/**
+ * Build a TurnGuard over a session. Module-level and session-injected so the
+ * cap semantics (exactly N allowed, abort before N+1, idempotence, natural-
+ * finish-within-cap) are unit-testable with a minimal fake session, independent
+ * of CoreAgent.run / createAgentSession.
+ */
+export function createTurnGuard(session: TurnSessionSurface, options: { maxTurns?: number }): TurnGuard {
+  let turnsUsed = 0;
+  let exhaustion: TurnExhaustion | undefined;
+  return {
+    get exhaustion() {
+      return exhaustion;
+    },
+    get turnsUsed() {
+      return turnsUsed;
+    },
+    onSessionEvent(event: unknown) {
+      if (exhaustion) return; // idempotent: one abort, no double-fire
+      if (isTurnStartObservation(event)) {
+        // Turn maxTurns+1 is about to start (an assistant API call): abort BEFORE
+        // it runs. turnsUsed < maxTurns here means the cap hasn't been reached.
+        if (options.maxTurns !== undefined && turnsUsed >= options.maxTurns) {
+          exhaustion = { maxTurns: options.maxTurns, turnsUsed };
+          void session.abort();
+        }
+      } else if (isTurnEndObservation(event)) {
+        turnsUsed++;
+      }
+    },
+  };
+}
+
+/**
+ * The distinct error surface for a turn-capped abort: non-recoverable (retrying
+ * would re-burn the same turns), carrying {maxTurns, turnsUsed} in details.
+ * Extracted from CoreAgent.run so the message/shape is unit-testable.
+ */
+export function turnExhaustionError(exhaustion: TurnExhaustion, label?: string): WorkflowError {
+  return new WorkflowError(`max turns exceeded (${exhaustion.maxTurns})`, WorkflowErrorCode.TURNS_EXHAUSTED, {
+    recoverable: false,
+    agentLabel: label,
+    details: exhaustion,
+  });
+}
+
 export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefined> {
   label?: string;
   schema?: TSchemaDef;
@@ -512,6 +599,16 @@ export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefi
   tokenBudget?: number;
   /** Abort the session mid-run once cumulative cost ($) exceeds this (same seams as tokenBudget). */
   spendBudget?: number;
+  /**
+   * Cap this subagent at maxTurns turns (integer ≥ 1). One turn = one
+   * prompt→assistant-response cycle in the run loop (the SDK's turn_start/
+   * turn_end events). The session is aborted BEFORE the model is asked for
+   * turn maxTurns+1 — a run that finishes naturally within the cap is never
+   * aborted — and the run surfaces a non-recoverable TURNS_EXHAUSTED
+   * WorkflowError with details {maxTurns, turnsUsed}. Distinct from the budget
+   * guard: independent state and error classification. Omit = unlimited turns.
+   */
+  maxTurns?: number;
   /**
    * Called once with this subagent's real usage, read from the session right
    * before disposal. Fires on both the success and error paths so partial
@@ -636,6 +733,15 @@ export class CoreAgent {
     prompt: string,
     options: AgentRunOptions<TSchemaDef> = {},
   ): Promise<AgentRunResult<TSchemaDef>> {
+    // Validate caller-supplied caps before any session is created, so a bad
+    // maxTurns never leaks an undisposed session.
+    if (options.maxTurns !== undefined && (!Number.isInteger(options.maxTurns) || options.maxTurns < 1)) {
+      throw new WorkflowError("maxTurns must be an integer >= 1", WorkflowErrorCode.SCRIPT_VALIDATION_ERROR, {
+        recoverable: false,
+        agentLabel: options.label,
+        details: { maxTurns: options.maxTurns },
+      });
+    }
     const capture: StructuredOutputCapture<any> = { called: false, value: undefined };
     // Per-call cwd (e.g. a worktree) needs coding tools bound to that directory,
     // since tools capture their cwd at construction and can't be relocated.
@@ -755,6 +861,14 @@ export class CoreAgent {
       tokenBudget: options.tokenBudget,
       spendBudget: options.spendBudget,
     });
+    // Per-run turn cap (maxTurns): abort the session BEFORE the model is asked
+    // for turn maxTurns+1. Same abort mechanics as the budget guard (session.abort()
+    // → prompt() returns → post-prompt error surface), but a DISTINCT error
+    // (TURNS_EXHAUSTED, non-recoverable, details {maxTurns, turnsUsed}) and fully
+    // independent state — neither guard's firing affects the other. Omitting
+    // maxTurns leaves the guard inert (behavior identical to no guard).
+    const hasMaxTurns = options.maxTurns !== undefined;
+    const turnGuard = createTurnGuard(session, { maxTurns: options.maxTurns });
     try {
       if (options.signal?.aborted) throw new Error("Subagent was aborted");
       if (options.signal) {
@@ -762,9 +876,10 @@ export class CoreAgent {
         options.signal.addEventListener("abort", onAbort, { once: true });
         removeAbortListener = () => options.signal?.removeEventListener("abort", onAbort);
       }
-      if (options.onHistory || hasBudget) {
+      if (options.onHistory || hasBudget || hasMaxTurns) {
         removeHistoryListener = session.subscribe((event) => {
           budgetGuard.onSessionEvent(event);
+          turnGuard.onSessionEvent(event);
           maybeEmitHistory();
         });
       }
@@ -790,6 +905,12 @@ export class CoreAgent {
           WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED,
           { recoverable: false, agentLabel: options.label, details: budgetExhausted },
         );
+      }
+      // Turn-cap abort: checked after the budget check so the two surfaces stay
+      // independent (either can fire alone; budget wins when both fire in one run).
+      // Same abort mechanics as the budget guard, distinct error code + details.
+      if (turnGuard.exhaustion) {
+        throw turnExhaustionError(turnGuard.exhaustion, options.label);
       }
       if (options.signal?.aborted) throw new Error("Subagent was aborted");
 
