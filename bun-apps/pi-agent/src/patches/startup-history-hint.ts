@@ -35,8 +35,20 @@ export function wrapInteractiveInitForHistoryHint(proto: object, hint: string = 
 	return true;
 }
 
-wrapInteractiveInitForHistoryHint(InteractiveMode.prototype);
+// The boolean used to be discarded here and the debug line printed
+// "patch applied" unconditionally — so when the wrap failed (a renamed
+// InteractiveMode.init upstream), the diagnostic actively lied.
+const outcome = wrapInteractiveInitForHistoryHint(InteractiveMode.prototype);
 if (process.env.BUN_PI_DEBUG_PATCHES === "1" || process.env.BUN_PI_DEBUG_PATCHES === "true") {
-	console.error("[bun-pi] startup-history-hint patch applied");
+	console.error(
+		`[bun-pi] startup-history-hint: ${outcome ? "applied" : "already applied or failed"}`,
+	);
 }
+
+/**
+ * Whether the wrap actually bound. `applyPatches()` reads this and reports a
+ * false as a patch failure instead of claiming success — see ./index.ts.
+ */
+export const patchApplied = outcome;
+/** @deprecated legacy alias — always `true`, kept only for import-site compat. */
 export const startupHistoryHintPatchApplied = true;

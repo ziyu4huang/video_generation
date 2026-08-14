@@ -299,3 +299,40 @@ describe("parsePiArgs — `--` end-of-options separator", () => {
     expect(out.positionals).toEqual(["flux2"]);
   });
 });
+
+describe("parsePiArgs — the bare word `help` is positional-sensitive", () => {
+  // `-h`/`--help` are flags and work anywhere. `help` is a sub-command, so it
+  // counts only in first position. Treating it as the flag at ANY position made
+  // `cli -p explain the help system` print the banner and exit 0 having done
+  // nothing — and dropped the token from the prompt on the way.
+  test("`help` at argv[0] sets the help flag", () => {
+    const r = parsePiArgs(["help"]);
+    expect(r.help).toBe(true);
+  });
+
+  test("`help` still counts after leading global FLAGS", () => {
+    // The boundary is the first POSITIONAL, not the first argv token —
+    // `cli --model x help` is a documented way to ask for help.
+    expect(parsePiArgs(["--model", "x", "help"]).help).toBe(true);
+    expect(parsePiArgs(["--dry-run", "help"]).help).toBe(true);
+  });
+
+  test("`help <target>` keeps the target as a positional", () => {
+    const r = parsePiArgs(["help", "zk-ask"]);
+    expect(r.help).toBe(true);
+    expect(r.positionals).toEqual(["zk-ask"]);
+  });
+
+  test("`help` elsewhere is prompt text and is NOT consumed", () => {
+    const r = parsePiArgs(["explain", "the", "help", "system"]);
+    expect(r.help).toBe(false);
+    // The token must survive: a dropped word silently corrupts the prompt.
+    expect(r.positionals).toEqual(["explain", "the", "help", "system"]);
+  });
+
+  test("-h / --help stay position-independent", () => {
+    expect(parsePiArgs(["foo", "--help"]).help).toBe(true);
+    expect(parsePiArgs(["foo", "-h"]).help).toBe(true);
+    expect(parsePiArgs(["foo", "bar", "--help"]).positionals).toEqual(["foo", "bar"]);
+  });
+});

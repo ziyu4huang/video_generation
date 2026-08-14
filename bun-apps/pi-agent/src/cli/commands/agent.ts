@@ -32,7 +32,7 @@ import knowledgeCardExtension from "@repo/pi-agent-ext-knowledge-card/extensions
  * binaries, use the dedicated subcommands), and workflow (deterministic, use
  * `workflow run`). The user can always add them via --tools.
  */
-const AGENT_TOOLS = [
+export const AGENT_TOOLS = [
 	// filesystem
 	"read",
 	"write",

@@ -39,6 +39,53 @@ import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-age
 import { Type, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 
+/**
+ * The `obsidian` actions that MUTATE the vault.
+ *
+ * Single source of truth for anything that needs to distinguish read from write
+ * — notably pi-agent's `--dry-run` (see `dryRunExclude` / `applyDryRunEnv` in
+ * `bun-apps/pi-agent/src/cli/sessions/shared.ts`).
+ *
+ * Before the 18 `obsidian_*` tools collapsed into this one action-dispatched
+ * facade, a caller could suppress writes by leaving the write TOOLS out of the
+ * session allowlist. That lever is gone: there is exactly one registered tool
+ * and excluding it would remove reads too. So the refusal now has to happen
+ * here, at dispatch, keyed off `OB_DRY_RUN=1`.
+ */
+export const OBSIDIAN_WRITE_ACTIONS: readonly string[] = [
+	"create",
+	"append",
+	"append_section",
+	"update_frontmatter",
+	"move",
+	"rename",
+	"delete",
+	"invalidate",
+	"distill",
+	"garden",
+];
+
+const WRITE_ACTION_SET = new Set(OBSIDIAN_WRITE_ACTIONS);
+
+/** `OB_DRY_RUN=1` → the facade refuses every write action. */
+export function isObsidianDryRun(env: NodeJS.ProcessEnv = process.env): boolean {
+	return env.OB_DRY_RUN === "1" || env.OB_DRY_RUN === "true";
+}
+
+/**
+ * Deterministic dry-run gate: refuse a write action instead of performing it.
+ * Returns the refusal text, or `null` when the action may proceed.
+ */
+export function dryRunRefusal(action: string, env?: NodeJS.ProcessEnv): string | null {
+	if (!isObsidianDryRun(env)) return null;
+	if (!WRITE_ACTION_SET.has(action)) return null;
+	return (
+		'[dry-run] refused obsidian action "' + action + '" — it writes to the vault. ' +
+		"Read-only actions (list, read, search, semantic_search, query, open, status) " +
+		"are still available: gather context and report what you WOULD write."
+	);
+}
+
 /** Runtime-validated args for the obsidian fat tool. After the param schema
  *  collapses to {action, args}, schema-layer validation disappears; this
  *  recovers it server-side against the per-action captured schema — zero
@@ -2032,6 +2079,17 @@ ${output.slice(-2000)}`,
 			if (!validation.ok) {
 				return {
 					content: [{ type: "text" as const, text: validation.errorText }],
+					isError: true,
+					details: { code: "BAD_REQUEST" as const },
+				};
+			}
+			// Deterministic dry-run: refuse writes here rather than trusting the
+			// model to obey a "don't write" instruction. Tool-level exclusion can
+			// no longer express this — there is one tool for reads and writes both.
+			const refusal = dryRunRefusal(params.action);
+			if (refusal) {
+				return {
+					content: [{ type: "text" as const, text: refusal }],
 					isError: true,
 					details: { code: "BAD_REQUEST" as const },
 				};

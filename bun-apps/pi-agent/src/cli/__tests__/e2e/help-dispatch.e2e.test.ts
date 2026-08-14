@@ -79,3 +79,30 @@ describe("help <target> — never executes the target", () => {
 		}
 	});
 });
+
+/**
+ * The inverse bug: the bare WORD `help` counted as the help flag at ANY argv
+ * position, so an ordinary unquoted prompt containing it printed the banner and
+ * exited 0 having done nothing — and the token was stripped from the prompt too.
+ * `-h` / `--help` are flags and must stay position-independent.
+ */
+describe("a positional `help` is prompt text, not the help flag", () => {
+	// NOTE: the discriminating cases (`-p explain the help system` must reach the
+	// agent rather than the help path) are pinned in-process by
+	// `args.test.ts` → "the bare word `help` is positional-sensitive" and by
+	// `dispatch.test.ts` → findCommandToken. They are NOT repeated here: proving
+	// it at the process boundary means letting the run actually reach a model,
+	// which took this suite from 37s to 871s. What stays here is the cheap half
+	// — that the flag form is unaffected.
+	test("--help still wins from any position", () => {
+		const r = runCli(["zk-ask", "--help"]);
+		expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
+		expect(r.stdout).toContain("Ask a natural language question");
+	});
+
+	test("--model <x> help still reaches root help (flags before the token)", () => {
+		const r = runCli(["--model", "some-model", "help"]);
+		expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
+		expect(r.stdout).toContain("non-interactive command namespace");
+	});
+});

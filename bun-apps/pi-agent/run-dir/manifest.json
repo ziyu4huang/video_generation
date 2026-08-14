@@ -10,7 +10,7 @@
       "name": "pi-agent-ext-devops",
       "entry": "pi-agent-ext-devops/extensions/devops.ts",
       "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-devops && bun test",
+      "testGate": "bun test --cwd bun-apps/pi-agent-ext-devops",
       "version": "0.1.0"
     },
     "pi-agent-ext-flux2/extensions/flux2.ts",
@@ -20,28 +20,28 @@
       "name": "pi-agent-ext-research-tool",
       "entry": "pi-agent-ext-research-tool/extensions/research-tool.ts",
       "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-research-tool && bun test",
+      "testGate": "bun test --cwd bun-apps/pi-agent-ext-research-tool",
       "version": "0.1.0"
     },
     {
       "name": "pi-agent-ext-zai-mcp",
       "entry": "pi-agent-ext-zai-mcp/extensions/zai-mcp.ts",
       "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-zai-mcp && bun test",
+      "testGate": "bun test --cwd bun-apps/pi-agent-ext-zai-mcp",
       "version": "0.1.0"
     },
     {
       "name": "pi-agent-ext-movie-director",
       "entry": "pi-agent-ext-movie-director/extensions/movie-director.ts",
       "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-movie-director && bun test",
+      "testGate": "bun test --cwd bun-apps/pi-agent-ext-movie-director",
       "version": "0.1.0"
     },
     {
       "name": "pi-agent-ext-archify",
       "entry": "pi-agent-ext-archify/extensions/archify.ts",
       "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-agent-ext-archify && bun test --isolate",
+      "testGate": "bun test --cwd bun-apps/pi-agent-ext-archify --isolate",
       "version": "0.1.0"
     }
   ],

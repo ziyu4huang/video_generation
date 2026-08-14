@@ -20,7 +20,7 @@ bun-compile + jiti interaction, not fixable from pi-agent's side — so
 `resolve.ts` detects binary mode and never emits `-e` at all. Historically
 this meant the compiled binary shipped with **zero extensions**.
 
-## The fix: a static 10-extension subset (two groups)
+## The fix: a static extension subset (two groups)
 
 `src/static-extensions.ts` statically imports 10 extensions, in two groups
 added at different times:
@@ -147,7 +147,7 @@ strings dist/pi-agent/pi-agent | grep -c "obsidian_list"   # expect > 0 (was: ex
 
 ## Skills in binary mode
 
-6 of the 10 static extensions ship a `skills/` directory (markdown, no code):
+Some static extensions ship a `skills/` directory (markdown, no code):
 Group A's `hermes-memory`, `superpowers`, `wayfind`, and `web-access` (which
 has `skills/librarian/`, wired in alongside this work), plus Group B's
 `obsidian` (`skills/using-obsidian-vault/`) and `knowledge-card`
@@ -176,9 +176,9 @@ Keep these two in lockstep by construction (both read `manifest.binarySkills`)
 
 | Field | Read by | Purpose |
 |---|---|---|
-| `extensions` | `resolve.ts` (source/bundle), `build-extensions.ts` | Dynamic jiti-loaded set. The 10 static extensions are **absent** here. |
+| `extensions` | `resolve.ts` (source/bundle), `build-extensions.ts` | Dynamic jiti-loaded set. The static extensions are **absent** here. |
 | `binarySkills` | `deploy.ts`, `resolve.ts` | Skill dirs shipped + `--skill`'d in binary mode: a curated 4-of-6 subset (Group A's hermes-memory/superpowers/wayfind + web-access). Group B's obsidian and knowledge-card also ship `skills/` dirs but are intentionally NOT in this list, so their skills aren't `--skill`'d in binary mode even though their extension code is statically bundled. |
-| `staticExtensions` | `deploy.ts` (`--snapshot` mode) | Package **directory names** (not paths) of the 10 static extensions. Needed so `--snapshot`'s self-contained `packages/` tree includes them — even though their code is inlined into `pi-agent.js`, `pi-agent`'s own `package.json` now `workspace:*`-depends on them, and other copied packages (e.g. `pi-agent-ext-wayfind` importing `pi-agent-ext-core-task`'s shared status-widget module) reference them as real workspace siblings that `bun install` must resolve. |
+| `staticExtensions` | `deploy.ts` (`--snapshot` mode) | Package **directory names** (not paths) of the static extensions. Needed so `--snapshot`'s self-contained `packages/` tree includes them — even though their code is inlined into `pi-agent.js`, `pi-agent`'s own `package.json` now `workspace:*`-depends on them, and other copied packages (e.g. `pi-agent-ext-wayfind` importing `pi-agent-ext-core-task`'s shared status-widget module) reference them as real workspace siblings that `bun install` must resolve. |
 
 ## Adding / removing a statically-bundled extension
 
@@ -269,7 +269,7 @@ asset directories. The codegen walks the same source dirs as
 
 ## Known limitation
 
-The compiled binary only ever carries these 10 extensions. There is no
+The compiled binary only ever carries the static extension set (`run-dir/manifest.json` → `staticExtensions`, mirrored by `src/static-extensions.ts`). There is no
 config flag to select a different subset at build time — the set is
 hardcoded in `src/static-extensions.ts` by design (curated, not automatic),
 so growing it is a source change + rebuild, not a runtime option.

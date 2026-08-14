@@ -425,15 +425,6 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: SOURCE extension loading 
 		expect(r.mode).toBe("source");
 		expect(r.ok).toBe(true);
 	});
-	test("SOURCE doctor --smoke spawns the probe + verifies run-dir extensions load", async () => {
-		// The static doctor checks can't catch the #182 slice-bug class (every
-		// static check green while run-dir extensions silently fail to load).
-		// --smoke spawns a real probe; assert ok + matched>0 (it counted run-dir
-		// tools, not just builtins).
-		const r = await runDoctorSmoke(SRC_CLI, REPO_ROOT);
-		expect(r.ok).toBe(true);
-		expect(r.matched).toBeGreaterThan(0);
-	}, 60_000); // spawns a real session_start (offline, but needs headroom)
 	test.skipIf(FLAKY_UNDER_CI)("SOURCE skill-load: pi-agent-ext-superpowers SKILL.md is in systemPromptOptions.skills", async () => {
 		// Closes the gap the extension-conversion goal left open: it proved the
 		// EXTENSION injects, not that the declared SKILL loads. before_agent_start
@@ -446,6 +437,31 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: SOURCE extension loading 
 		});
 		assertSkillLoaded(r);
 	}, 60_000);
+});
+
+/**
+ * `doctor --smoke` in SOURCE mode — gated on E2E_ENABLED ALONE.
+ *
+ * This is the package's designated defense against the silent-no-op class (the
+ * #182 slice bug: every static check green while run-dir extensions fail to
+ * load). It used to sit inside the `E2E && DEPLOY` block above, so the ONLY
+ * tiers that ran it were high/readonly/full — never `quick`, and never
+ * `medium`, which run-test.sh documents as the DEFAULT. The one guard built for
+ * the bug class this package has actually been bitten by was off by default.
+ *
+ * It needs no deploy build: it spawns SRC_CLI directly. The deploy-mode smoke
+ * assertions stay where they are — they verify the per-mode smokeMarker
+ * (ext-bundles / packages / bun-apps) and genuinely require a built artifact.
+ */
+describe.skipIf(!E2E_ENABLED)("e2e: SOURCE doctor --smoke (anti-silent-no-op guard)", () => {
+	test("spawns the probe + verifies run-dir extensions actually loaded", async () => {
+		// matched>0 means it counted run-dir-sourced tools, not just builtins —
+		// which is the whole point: a run-dir splice that silently drops every
+		// extension still leaves the builtin count healthy.
+		const r = await runDoctorSmoke(SRC_CLI, REPO_ROOT);
+		expect(r.ok).toBe(true);
+		expect(r.matched).toBeGreaterThan(0);
+	}, 60_000); // spawns a real session_start (offline, but needs headroom)
 });
 
 // Regression for the extension-load size bug. Source-mode only — independent

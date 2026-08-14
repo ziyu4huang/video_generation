@@ -14,7 +14,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
 import { applyVaultEnv, resolveLLMFromArgs } from "../sessions/passthrough.ts";
-import { createSharedSession, dryRunExclude, modelLabel } from "../sessions/shared.ts";
+import { createSharedSession, applyDryRun, modelLabel } from "../sessions/shared.ts";
 import {
   ADD_TOOLS,
   CHECK_TASK,
@@ -54,7 +54,7 @@ async function runKnowledgeTask(
 
   const { session } = await createSharedSession(llm, {
     tools: effectiveTools,
-    excludeTools: dryRunExclude(parsed),
+    excludeTools: applyDryRun(parsed),
     appendSystemPrompt: parsed.appendSystemPrompt,
   });
 

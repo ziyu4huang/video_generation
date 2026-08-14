@@ -166,12 +166,40 @@ export function envFlag(
  * Returns the AppliedPatch[] (decision only). Separating decision from
  * execution makes the gating unit-testable without triggering real patch
  * side effects (monkey-patching, argv splicing, env mutation).
+ *
+ * NOTE this is INTENT, not outcome. `applyPatches()` downgrades `applied` to
+ * false for any patch that was enabled here but did not actually bind.
  */
 export function resolvePatchPlan(
   table: readonly PatchEntry[] = PATCH_TABLE,
   env: Record<string, string | undefined> = process.env,
 ): AppliedPatch[] {
   return table.map((e) => ({ ...e, applied: envFlag(e.env, e.defaultValue, env) }));
+}
+
+/**
+ * Read a patch module's self-reported outcome.
+ *
+ * Contract: a patch module MAY export `patchApplied: boolean` saying whether its
+ * wrap actually bound. `undefined` means the module makes no claim (an
+ * unconditional side effect like set-package-dir, where there is nothing to
+ * fail) and is treated as applied.
+ *
+ * WHY: `applied` used to be a pure function of the environment — it said the
+ * module was IMPORTED, never that the patch took hold. That is precisely the
+ * bug class this package has already been bitten by once: pre-0.80,
+ * `ModelRegistry.prototype.loadModels` vanished upstream, the patch installed a
+ * method nothing called, and every check stayed green because models.json
+ * happened to duplicate the catalog. Six modules also hardcoded
+ * `…PatchApplied = true` regardless of their own return value, and two printed
+ * "patch applied" under debug even when the wrap had failed. So the reporting
+ * chain built AFTER that incident could not have detected a recurrence — and
+ * neither could e2e-patches.test.ts, which asserts every entry reports
+ * `✓ applied`.
+ */
+export function readPatchOutcome(mod: unknown): boolean | undefined {
+  const v = (mod as { patchApplied?: unknown } | null)?.patchApplied;
+  return typeof v === "boolean" ? v : undefined;
 }
 
 /**
@@ -189,60 +217,74 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
 
   for (const p of applied) {
     if (!p.applied) continue;
+    let mod: unknown;
     switch (p.name) {
       case "set-package-dir":
-        await import("./set-package-dir.ts");
+        mod = await import("./set-package-dir.ts");
         break;
       case "skip-update-check":
-        await import("./skip-update-check.ts");
+        mod = await import("./skip-update-check.ts");
         break;
       case "extract-embedded-assets":
-        await import("./extract-embedded-assets.ts");
+        mod = await import("./extract-embedded-assets.ts");
         break;
       case "pre-load-providers":
-        await import("./pre-load-providers.ts");
+        mod = await import("./pre-load-providers.ts");
         break;
       case "load-run-dir-resources":
-        await import("./load-run-dir-resources.ts");
+        mod = await import("./load-run-dir-resources.ts");
         break;
       case "default-model-env":
-        await import("./default-model-env.ts");
+        mod = await import("./default-model-env.ts");
         break;
       case "subagent-model-floor":
-        await import("./subagent-model-floor.ts");
+        mod = await import("./subagent-model-floor.ts");
         break;
       case "ensure-model-tiers":
-        await import("./ensure-model-tiers.ts");
+        mod = await import("./ensure-model-tiers.ts");
         break;
       case "ensure-extension-deps":
-        await import("./ensure-extension-deps.ts");
+        mod = await import("./ensure-extension-deps.ts");
         break;
       case "ext-context-get-system-prompt-options":
-        await import("./ext-context-get-system-prompt-options.ts");
+        mod = await import("./ext-context-get-system-prompt-options.ts");
         break;
       case "ext-api-get-all-tool-definitions":
-        await import("./ext-api-get-all-tool-definitions.ts");
+        mod = await import("./ext-api-get-all-tool-definitions.ts");
         break;
       case "force-response-language":
-        await import("./force-response-language.ts");
+        mod = await import("./force-response-language.ts");
         break;
       case "footer-extension-status-notify":
-        await import("./footer-extension-status-notify.ts");
+        mod = await import("./footer-extension-status-notify.ts");
         break;
       case "editor-history-restore":
-        await import("./editor-history-restore.ts");
+        mod = await import("./editor-history-restore.ts");
         break;
       case "startup-history-hint":
-        await import("./startup-history-hint.ts");
+        mod = await import("./startup-history-hint.ts");
         break;
       case "autocomplete-source-extension":
-        await import("./autocomplete-source-extension.ts");
+        mod = await import("./autocomplete-source-extension.ts");
         break;
       default: {
         // Exhaustiveness guard — a PATCH_TABLE entry with no matching case.
         const _exhaustive: never = p.name;
         throw new Error(`unhandled patch: ${_exhaustive}`);
       }
+    }
+
+    // Intent -> outcome. A patch that was enabled but did not bind is reported
+    // as NOT applied, and says so on stderr rather than only under a debug flag:
+    // a silently no-op'd patch is the failure mode that has actually cost this
+    // package, and it is invisible by construction unless something shouts.
+    if (readPatchOutcome(mod) === false) {
+      p.applied = false;
+      console.error(
+        `[bun-pi] patch "${p.name}" was enabled but did NOT bind — its hook target ` +
+          `is missing or already wrapped. Expect the behaviour it provides to be absent. ` +
+          `(pinned pi core: check for an upstream rename; disable with ${p.env}=0 to silence)`,
+      );
     }
   }
 

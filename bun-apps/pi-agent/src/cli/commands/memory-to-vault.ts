@@ -61,6 +61,20 @@ export interface MemoryPipelineDoc {
 
 const iso = () => new Date().toISOString();
 
+/**
+ * The run's overall status, derived from what actually happened.
+ *
+ * "partial" whenever any file in the fan-out did not reach "done" — a distill
+ * agent that errored, or one still marked pending/running because the stage was
+ * cut short. Exported for test; the `run()` path is the only caller.
+ */
+export function resolveRunStatus(doc: MemoryPipelineDoc): "done" | "partial" {
+	const perFile = doc.stages["fan-out"]?.perFile;
+	// No fan-out stage at all (e.g. nothing in scope) is not a failure.
+	if (!perFile || perFile.length === 0) return "done";
+	return perFile.every((p) => p.status === "done") ? "done" : "partial";
+}
+
 export function writePipelineDoc(path: string, doc: MemoryPipelineDoc): void {
 	doc.updatedAt = iso();
 	writeFileSync(path, JSON.stringify(doc, null, 2) + "\n", "utf8");
@@ -313,7 +327,20 @@ Examples:
 			cardCount: health.cardCount, deadLinks: health.deadLinks.length,
 			mocOk: !health.mocMissing && !health.mocStale,
 		};
-		doc.status = "done";
+		// Derive the run status from the fan-out rather than asserting success.
+		//
+		// stages["fan-out"].status was already computed as "partial" when any
+		// distill agent failed — and then this line overwrote the run status with
+		// an unconditional "done", printed MEMORY-TO-VAULT DONE, wrote "done" into
+		// the receipt, and exited 0. A run where every agent hit a rate limit was
+		// indistinguishable from a clean one for any cron or script consuming it.
+		// MemoryPipelineDoc has modelled "partial" the whole time.
+		doc.status = resolveRunStatus(doc);
+		if (doc.status === "partial") {
+			// Same convention as doctor / zk-query / kcard-loop: report failure
+			// WITHOUT throwing, so the receipt and summary below still get written.
+			process.exitCode = 1;
+		}
 		writePipelineDoc(pipelinePath, doc);
 
 		// 6. RECEIPT (audit record; pipeline.json is the resume state in the run dir).

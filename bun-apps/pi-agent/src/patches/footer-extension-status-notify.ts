@@ -144,8 +144,10 @@ export function applyFooterExtensionStatusNotifyPatch(): boolean {
 const debug =
   process.env.BUN_PI_DEBUG_PATCHES === "1" || process.env.BUN_PI_DEBUG_PATCHES === "true";
 const enabled = process.env.BUN_PI_FOOTER_EXT_STATUS_NOTIFY !== "0";
+let outcome = false;
 if (enabled) {
   const ok = applyFooterExtensionStatusNotifyPatch();
+  outcome = ok;
   if (debug) {
     console.error(
       `[bun-pi] footer-extension-status-notify: ${ok ? "applied" : "already applied or failed"}`,
@@ -153,4 +155,12 @@ if (enabled) {
   }
 }
 
+/**
+ * Whether the wrap actually bound. `applyPatches()` reads this and reports a
+ * false as a patch failure instead of claiming success — see ./index.ts.
+ * `enabled === false` (env opt-out) is reported as applied: the patch did
+ * exactly what it was asked to do.
+ */
+export const patchApplied = enabled ? outcome : true;
+/** @deprecated legacy alias — always `true`, kept only for import-site compat. */
 export const footerExtensionStatusNotifyPatchApplied = true;

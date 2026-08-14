@@ -157,7 +157,9 @@ Native `import` of the factory, added to `MainOptions.extensionFactories` in
 single-exe because a literal `import` is inlined by Bun's bundler; dynamic
 `.ts` paths do not exist in the `$bunfs` virtual FS.
 
-12 extensions (load order matters):
+The static set, in load order (the list below is illustrative — the
+authoritative set is `run-dir/manifest.json` → `staticExtensions`, pinned
+against the code by `run-dir/manifest-consistency.test.ts`):
 
 ```
 Group A (original general-productivity set):
