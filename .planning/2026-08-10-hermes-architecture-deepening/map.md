@@ -19,3 +19,5 @@ Candidates live in `architecture-review-2026-08-10.md`. Re-sequenced 2026-08-12 
 - **Rolling / independent of 13:** C2 (skills-command split), C3 (sqlite-backend split — IN-FLIGHT, coordinate with kp Phase-2), C4 (index.ts composition root).
 
 Rationale: sequencing C1/C5/C6 before 13 keeps the memory-card migration mechanical + low-risk (as kp ticket 05 intends); deferring them makes 13 the integration flashpoint. Detail + refreshed candidate leverage in the review doc's `## Top recommendation`.
+
+- 2026-08-15: C1 CLOSED — v1 was #1196 (`splitFencedYaml` leaf); residual `planning-parse.ts` hand-rolled copy rewired to the leaf + sole-source regression gate + planning golden round-trip (ticket 01). Next convergence prerequisite for kp ticket 13: C5.
