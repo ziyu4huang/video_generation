@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -121,6 +121,39 @@ test("save is best-effort: a fs error never throws (the run result is sacred)", 
 test("getRunsDir resolves under the injected home", () => {
   const p = createSubagentRunPersistence({ home: "/tmp/fake-home-xyz" });
   assert.equal(p.getRunsDir(), join("/tmp/fake-home-xyz", ".pi/subagents/runs"));
+});
+
+test("turns exhaustion round-trips through save/load and list (status 'turns')", () => {
+  const home = tmpHome();
+  const p = createSubagentRunPersistence({ home });
+  const rec = makeRecord({
+    id: "turnsrec",
+    status: "turns",
+    exitCode: 124,
+    output: "",
+    turns: { maxTurns: 5, turnsUsed: 5 },
+  });
+  p.save(rec);
+  const loaded = p.load("turnsrec");
+  assert.deepEqual(loaded?.turns, { maxTurns: 5, turnsUsed: 5 });
+  assert.equal(loaded?.status, "turns");
+  assert.deepEqual(p.list().find((r) => r.id === "turnsrec")?.turns, { maxTurns: 5, turnsUsed: 5 });
+  rmSync(home, { recursive: true, force: true });
+});
+
+test("a legacy record without `turns` still parses (optional field, no migration)", () => {
+  const home = tmpHome();
+  const p = createSubagentRunPersistence({ home });
+  // Hand-write a pre-#1336 record (no `turns` key) directly into the runs dir.
+  mkdirSync(subagentRunsDir(home), { recursive: true });
+  const legacy = makeRecord();
+  delete (legacy as Partial<SubagentRunRecord>).turns; // makeRecord never sets it, but be explicit
+  writeFileSync(join(subagentRunsDir(home), "legacy.json"), JSON.stringify(legacy));
+  const loaded = p.load("legacy");
+  assert.ok(loaded, "legacy record parses");
+  assert.equal(loaded.turns, undefined, "no turns field fabricated for a pre-maxTurns record");
+  assert.equal(loaded.status, "done");
+  rmSync(home, { recursive: true, force: true });
 });
 
 test("round-trips a record carrying a watchdog result", () => {

@@ -502,6 +502,44 @@ describe("spawnSubagent schema repair", () => {
   });
 });
 
+describe("spawnSubagent turns cap (maxTurns)", () => {
+  const mkTurnsError = () =>
+    new WorkflowError("max turns exceeded (5)", WorkflowErrorCode.TURNS_EXHAUSTED, {
+      recoverable: false,
+      details: { maxTurns: 5, turnsUsed: 5 },
+    });
+
+  it("TURNS_EXHAUSTED → transient, timedOut:false, result.turns {maxTurns, turnsUsed}, exitCode 124, retried once", async () => {
+    const runner = mkRunner(async () => {
+      throw mkTurnsError();
+    });
+    const out = await spawnSubagent({ task: "t", maxTurns: 5, retryOnTransient: true, agent: runner });
+    assert.equal(runner.calls.length, 2, "turns exhaustion is transient (timeout-like) → retried once");
+    assert.equal(out.timedOut, false, "a turn cap is NOT a wall-clock timeout");
+    assert.equal(out.exitCode, 124, "shares the timeout exit convention while staying distinguishable via turns");
+    assert.deepEqual(out.turns, { maxTurns: 5, turnsUsed: 5 });
+    assert.equal(out.output, "");
+    assert.match(out.stderr, /max turns exceeded/);
+  });
+
+  it("TURNS_EXHAUSTED NOT retried when retryOnTransient:false", async () => {
+    const runner = mkRunner(async () => {
+      throw mkTurnsError();
+    });
+    const out = await spawnSubagent({ task: "t", maxTurns: 5, retryOnTransient: false, agent: runner });
+    assert.equal(runner.calls.length, 1);
+    assert.deepEqual(out.turns, { maxTurns: 5, turnsUsed: 5 });
+  });
+
+  it("forwards maxTurns to runner.run; omitted → undefined (no default)", async () => {
+    const runner = mkRunner(async () => "ok");
+    await spawnSubagent({ task: "t", maxTurns: 3, agent: runner });
+    assert.equal(runner.calls[0]?.opts.maxTurns, 3);
+    await spawnSubagent({ task: "t", agent: runner });
+    assert.equal(runner.calls[1]?.opts.maxTurns, undefined, "omit = unlimited turns (no default injected)");
+  });
+});
+
 describe("resolveSessionOverride (modelRuntime merge — ticket 07)", () => {
   const rt = { __fake: true } as any;
   it("no modelRuntime → session unchanged (passthrough)", () => {
