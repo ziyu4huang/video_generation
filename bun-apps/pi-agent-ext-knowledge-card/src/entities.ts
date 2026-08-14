@@ -60,6 +60,10 @@ export interface ExtractedEntity {
 	name: string;
 }
 
+/** A typed graph edge emitted by an `Extractor` (LeanRAG ⑤). The dictionary
+ *  path emits entities only; relations come from the Phase-2 LLM impl. */
+export type Relation = { s: string; rel: string; o: string };
+
 /** Display-order for deterministic frontmatter output (mirrors the type
  *  priority SAG assigns: specific types before the catch-all). */
 const ENTITY_TYPE_ORDER: EntityType[] = [

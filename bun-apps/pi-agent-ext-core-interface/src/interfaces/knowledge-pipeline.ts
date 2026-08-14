@@ -12,6 +12,12 @@ export interface CollectInputFilesResult { files: string[]; skipped: { path: str
 export interface IngestOptions {
   vaultPath: string; source: SourceFamily; sourceLabel: string; folder?: string;
   mocPath?: string; dryRun?: boolean; maxLinks?: number; wikiAware?: boolean; linkWeighting?: LinkWeighting;
+  /** Opt-in LLM typed-relation extraction (LeanRAG ⑤ Phase-2 / D4). Default OFF
+   *  (deterministic-by-design, ADR-0001). When true, zk's ingest gate selects
+   *  the LLM extractor (Phase-2) instead of the dictionary default; until then
+   *  it's a graceful no-op (dictionary fallback). Carried from hermes's
+   *  `MemoryConfig.kgLlm` (env fallback `PI_KG_LLM=1`). */
+  kgLlm?: boolean;
 }
 // Mirrors zk's actual IngestCardReport ({id,path,status,links}); the plan's
 // draft wrongly declared `title` (zk has none) — return-type covariance requires
@@ -34,7 +40,19 @@ export interface ConvergeReceipt {
   mocMissingAfter: boolean; rounds: number; converged: boolean; truncated: boolean;
   probeHitRate?: number; health: unknown;
 }
-export interface RetrievedCard { id: string; title: string; detail: string; tags: string[]; }
+export interface RetrievedCard {
+  id: string;
+  title: string;
+  detail: string;
+  tags: string[];
+  /** Typed graph edges (ticket 03 T5 / D2). OPTIONAL — undefined for cards
+   *  with no `relations:` frontmatter (the default dictionary ingest path
+   *  emits entities only, never relations). When present, the edges are the
+   *  on-disk `relations:` block (canonicalized by T4's serializer write-back);
+   *  retrieve is a faithful pass-through, it does NOT re-normalize. Substrate
+   *  for ticket 20 (multi-signal frequency-vote) + LeanRAG ③ (dedup). */
+  relations?: Array<{ s: string; rel: string; o: string }>;
+}
 export interface RetrieveOptions {
   vaultPath: string; folder?: string; tags: string[]; excludeIds?: string[]; topK?: number;
   maxDetailChars?: number; linkWeighting?: LinkWeighting; bodyMatch?: boolean; slugDom?: boolean;

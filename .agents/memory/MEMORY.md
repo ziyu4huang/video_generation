@@ -1,17 +1,4 @@
 ---
-id: e3cc134f-79f2-49ca-8188-3f474fb83870
-created: 2026-08-08
-last: 2026-08-08
----
-## PR & merge workflows (2026-08-02/2026-08-07)
-
-**Feature PRs (pi-agent-ext-devops):** Ship code-only; planning artifacts (MEMORY.md, .planning/) stay unstaged as churn. Workflow ends at PR delivery (commit → push → open PR → close ticket with PR ref) — do NOT run gh ship or merge. Verified across PRs #1005, #1007, #1009, #1010.
-
-**Merge workflow — local CI only:** Open PR → run local CI (`bun run check && bun test` in changed package(s)) → squash-merge immediately via `gh ship` (never wait for remote GitHub Actions CI). Remote CI is intentionally disabled (`.github/workflows/ci.yml` → `ci.yml.disabled`), branch protection removed (no required status checks). `gh ship` alias: `pr merge --squash` (user-global). This is a global standing rule documented in `~/.pi/agent/AGENTS.md`. One-off exception: #1048 was merged manually by user; going forward, agent runs full cycle including merge.
-
-**Finished feature worktree cleanup:** For merged branches, either (A) keep worktree, retarget to main's tip: `git checkout --detach <sha> && git branch -D <feature-branch>` (executed 2026-08-03 on video_generation__memory worktree after PR #1022 merged), or (B) remove the worktree: `git worktree remove <path>`. `git checkout main` in a non-primary worktree FAILS with "fatal: 'main' is already used by worktree at ..." — this is expected. To sync main: `git -C /Users/huangziyu/proj/video_generation pull --ff-only`. To delete the merged local branch in a non-primary worktree: `git switch --detach origin/main && git branch -D <branch>`. <!-- created=2026-08-08, last=2026-08-08 -->
-§
----
 id: bc077ee1-6429-4f14-a819-7e3f3a041dc7
 created: 2026-08-08
 last: 2026-08-08
@@ -19,11 +6,11 @@ last: 2026-08-08
 hermes-memory structural facts (2026-08-02): Numeric isolation — project block leak fix (PR #1009): Ticket #04's premise ("raw memworth counters leak into the prompt") was partially true. Verified gap: formatProjectBlock (memory-store.ts:1291) joined raw this.memoryEntries (frontmatter intact, leaking id/created/memworth/pin etc.), while sibling paths (memory/user snapshot, failure block) already used stripMetadata. Fix: made formatProjectBlock consistent by calling stripMetadata before rendering, and added a MEMORY_POLICY_PROMPT rule: "Never edit memory sources directly — always use the validated tool envelope." Session-row lifecycle vs capture point: the `sessions` DB row is created ONLY by DEFERRED backfill (`scheduleSessionBackfill` → `setTimeout(0)`, session-backfill.ts) and live-indexing on `message_end` (index.ts `scheduleLiveSessionIndex`) — NOT synchronously at `session_start`. So any per-session data captured at `session_start` CANNOT FK-reference `sessions(id)` (row absent) and cannot upsert columns onto `sessions` (NOT NULL project/cwd + absent row). PR #1012 (per-session assembly log / prompt-provenance) therefore uses FK-free `session_assembly(session_id, md_id)` + `session_assembly_meta(session_id, hash)` tables; session_id is a plain join key, joined to `sessions` via LEFT JOIN. General rule: future hermes features that capture at session_start should store in FK-free tables keyed by session_id, not on the sessions row.
 §
 ---
-id: ed3f7f08-a273-447b-ac64-5a73ccd08ada
+id: 30c70882-bdce-44fe-827d-6eacd4504b9d
 created: 2026-08-08
-last: 2026-08-08
+last: 2026-08-14
 ---
-Subagent reliability pattern in this environment: read/research-heavy subagents timeout or exhaust budget (mechanical write-only ops succeed). Avoid git add -A in subagents (sweeps unrelated changes). Use append-only edits to planning files (reliable). Background workflows handle 200k+ tokens; subagents cap lower.
+Subagent reliability limits (refined 2026-08-13, proven across ticket-03 SDD): Subagent token budget caps at ~1.2M tokens — multi-package TDD tasks (implement + runtime-verify + commit + report) exceed it; both T3 and T5 implementers aborted at ~1.21M with code essentially complete but uncommitted. Full-suite test runs across 3 packages inside ONE subagent cause wall-clock timeouts (exit 124) even at 25-min budget; single-package suites run fine. Proven mitigations: (1) split tasks so no dispatch touches more than 1–2 packages; (2) verify via targeted tests only (changed-file tests + tsc), never combined full suites; (3) split diff-review (read-only, via subagents batch without bash) from test execution; (4) on abort, investigate git state first (dirty tree? partial commit?), then SALVAGE complete+compiling code (targeted verify + commit) or finish remaining pieces in a small follow-up dispatch — do not re-dispatch from scratch. Lean read-only tasks timing out with EMPTY output after ~30 min = infra degradation (slow API/load), not task size — run a low-cost sanity dispatch before investing more. Watchdog commit-scope warnings fired as false positives on legitimate multi-file salvage commits — verify the file set against the task plan rather than auto-blocking. Avoid git add -A in subagents (sweeps unrelated changes); append-only edits to planning files are reliable. Background workflows handle 200k+ tokens; subagents cap at ~1.2M.
 §
 ---
 id: b5f28240-a07b-497e-9479-5a33d45b816f

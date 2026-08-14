@@ -106,6 +106,14 @@ export const DEFAULT_VECTOR_EF = 100;
  *  post-dedup count-below-topK shortfall is acceptable behavior. Default 10. */
 export const DEFAULT_SURVIVING_K = 10;
 
+/** Opt-in: LLM typed-relation extraction (LeanRAG ⑤ Phase-2 / D4). Default OFF
+ *  — the ingest path is deterministic-by-design (ADR-0001), zero LLM cost.
+ *  When ON, zk's ingest gate selects the LLM extractor (Phase-2) instead of
+ *  the dictionary default; until Phase-2 the flag is real + wired but turning
+ *  it ON is a graceful no-op (dictionary fallback). Carried across the
+ *  hermes→zk seam via `IngestOptions.kgLlm` (env fallback `PI_KG_LLM=1`). */
+export const DEFAULT_KG_LLM = false;
+
 // ─── Staleness audit ───
 // Entries whose "last edited" date is older than this are flagged as stale
 // candidates for review/removal (mirrors the 30-day rule in CONSOLIDATION_PROMPT).

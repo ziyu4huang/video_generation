@@ -81,6 +81,11 @@ export interface WalkAndIngestOptions extends WalkOptions {
    *  (the full knowledge-ingest walk, where this opt is unset). Mirror (T3) +
    *  conflict-marker scan (T5) stay enabled in either mode. Default false. */
   partialWalk?: boolean;
+  /** Opt-in LLM typed-relation extraction, threaded to zk's ingest gate as
+   *  `IngestOptions.kgLlm` (whole-branch review FIX 1: MemoryConfig.kgLlm is
+   *  parsed by hermes but was never carried across this seam — only the
+   *  `PI_KG_LLM=1` env fallback worked). Undefined → zk's env fallback decides. */
+  kgLlm?: boolean;
   /** Phase B / T3: best-effort background vector backfill fired after the mirror
    *  steps. When set, walkAndIngest schedules a delta-keyed backfill of the
    *  card_vectors HNSW index — never blocks ingest (fire-and-forget) and a throw
@@ -181,6 +186,7 @@ export async function walkAndIngest(
       maxLinks: opts.maxLinks,
       wikiAware: opts.wikiAware,
       linkWeighting: opts.linkWeighting,
+      kgLlm: opts.kgLlm,
     });
 
     // 7. Heal (leaf, once). hermes decides WHEN; zk provides the primitive.

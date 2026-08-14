@@ -532,9 +532,16 @@ export class SqliteBackend implements Backend {
   }
 
   private copyMemories(source: DatabaseLike, target: DatabaseLike): number {
+    // 06a/03 FIX 2: the corruption-recovery copy must carry EVERY memories
+    // column, or a post-rebuild DB silently drops card data. md_id/state/
+    // severity/pin (pre-existing drops) + frontmatter (06a) + graph (03) were
+    // previously lost — md_id loss is worst: the rebuilt rows no longer join
+    // to the card-store (getCard/md-wins sync all miss) AND unique-id upserts
+    // would re-INSERT duplicates. readTableRows filters to columns that exist
+    // on the SOURCE, so older DBs (pre-06a) still rebuild fine with defaults.
     const insert = target.prepare(`
-      INSERT OR IGNORE INTO memories (id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, status, supersedes, superseded_by, parent_ids)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR IGNORE INTO memories (id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, status, supersedes, superseded_by, parent_ids, md_id, state, severity, pin, frontmatter, graph)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     let copied = 0;
 
@@ -555,6 +562,12 @@ export class SqliteBackend implements Backend {
       'supersedes',
       'superseded_by',
       'parent_ids',
+      'md_id',
+      'state',
+      'severity',
+      'pin',
+      'frontmatter',
+      'graph',
     ])) {
       const id = this.integerOr(row.id, NaN);
       if (!Number.isFinite(id) || typeof row.content !== 'string') continue;
@@ -572,6 +585,14 @@ export class SqliteBackend implements Backend {
       const supersedes = this.nullableInteger(row.supersedes);
       const supersededBy = this.nullableInteger(row.superseded_by);
       const parentIds = this.nullableString(row.parent_ids);
+      // FIX 2: card-store columns (06a/03) carried verbatim — JSON columns are
+      // passed through as TEXT (same as parent_ids); the caller owns the shape.
+      const mdId = this.nullableString(row.md_id);
+      const state = typeof row.state === 'string' ? row.state : 'active';
+      const severity = this.nullableInteger(row.severity);
+      const pin = this.integerOr(row.pin, 0);
+      const frontmatter = this.nullableString(row.frontmatter);
+      const graph = this.nullableString(row.graph);
 
       insert.run(
         id,
@@ -590,6 +611,12 @@ export class SqliteBackend implements Backend {
         supersedes,
         supersededBy,
         parentIds,
+        mdId,
+        state,
+        severity,
+        pin,
+        frontmatter,
+        graph,
       );
       copied++;
     }
@@ -774,6 +801,11 @@ export class SqliteBackend implements Backend {
     // `migrateMemoriesTargetCheckAddKnowledge` ONLY to widen the `target` CHECK.
     if (!names.has('frontmatter')) {
       db.exec('ALTER TABLE memories ADD COLUMN frontmatter TEXT');
+    }
+    // 03 (two-layer knowledge graph): idempotent nullable `graph` column add
+    // for Card.graph (links/entities/relations). Mirrors frontmatter exactly.
+    if (!names.has('graph')) {
+      db.exec('ALTER TABLE memories ADD COLUMN graph TEXT');
     }
   }
 
@@ -990,7 +1022,7 @@ export class SqliteBackend implements Backend {
       'failure_reason', 'tool_state', 'corrected_to',
       'created', 'last_referenced', 'mw_success', 'mw_fail', 'status',
       'supersedes', 'superseded_by', 'parent_ids',
-      'md_id', 'state', 'severity', 'pin', 'frontmatter',
+      'md_id', 'state', 'severity', 'pin', 'frontmatter', 'graph',
     ];
     const colList = fullColumns.join(', ');
 
@@ -1027,7 +1059,8 @@ export class SqliteBackend implements Backend {
           state TEXT NOT NULL DEFAULT 'active',
           severity INTEGER,
           pin INTEGER NOT NULL DEFAULT 0,
-          frontmatter TEXT
+          frontmatter TEXT,
+          graph TEXT
         );
       `);
 
@@ -1099,8 +1132,8 @@ export class SqliteBackend implements Backend {
    *  current column set — id, project, target, category, content,
    *  failure_reason, tool_state, corrected_to, created, last_referenced,
    *  mw_success, mw_fail, status, supersedes, superseded_by, parent_ids, md_id,
-   *  state, severity, pin, frontmatter (the same 21-col list as the knowledge
-   *  migration). After the rename the memories FTS triggers + indexes are
+   *  state, severity, pin, frontmatter, graph (the same 22-col list as the
+   *  knowledge migration). After the rename the memories FTS triggers + indexes are
    *  recreated (DROP TABLE drops them); `rebuildMemoryFts` (called next)
    *  repopulates the index. Memory/knowledge rows are carried through
    *  verbatim — byte-for-byte unchanged. */
@@ -1118,7 +1151,7 @@ export class SqliteBackend implements Backend {
     if (!isFourValueCheck) return;
 
     // The FULL current column set. Declared once and reused for CREATE +
-    // INSERT…SELECT so the two can never drift (identical 21-col list to the
+    // INSERT…SELECT so the two can never drift (identical 22-col list to the
     // knowledge migration — a drift here is exactly the silent-column-drop the
     // guard exists to prevent).
     const fullColumns = [
@@ -1126,13 +1159,13 @@ export class SqliteBackend implements Backend {
       'failure_reason', 'tool_state', 'corrected_to',
       'created', 'last_referenced', 'mw_success', 'mw_fail', 'status',
       'supersedes', 'superseded_by', 'parent_ids',
-      'md_id', 'state', 'severity', 'pin', 'frontmatter',
+      'md_id', 'state', 'severity', 'pin', 'frontmatter', 'graph',
     ];
     const colList = fullColumns.join(', ');
 
     const doRewrite = (): void => {
       // ensureMemoriesColumns is idempotent: for a 4-value DB it is a no-op
-      // (all 21 columns already present), so the INSERT…SELECT below carries
+      // (all 22 columns already present), so the INSERT…SELECT below carries
       // the full set through verbatim. Re-invoked for safety/parity with the
       // knowledge migration.
       this.ensureMemoriesColumns(db);
@@ -1159,7 +1192,8 @@ export class SqliteBackend implements Backend {
           state TEXT NOT NULL DEFAULT 'active',
           severity INTEGER,
           pin INTEGER NOT NULL DEFAULT 0,
-          frontmatter TEXT
+          frontmatter TEXT,
+          graph TEXT
         );
       `);
 

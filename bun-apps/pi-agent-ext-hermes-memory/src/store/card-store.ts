@@ -14,12 +14,13 @@
  *  - SurrealDB knowledge persistence is a no-op placeholder (06a is SQLite-only
  *    for knowledge): `createCardStore` throws a clear error for non-sqlite
  *    backends rather than silently no-op'ing.
- *  - `Card.embed`/`Card.graph` are NOT persisted/indexed here (04/03/06b); they
- *    round-trip as `undefined` through the SQLite path.
+ *  - `Card.embed` is NOT persisted/indexed here (04/06b); it round-trips as
+ *    `undefined` through the SQLite path. `Card.graph` IS persisted (03): a
+ *    nullable `graph` JSON column next to `frontmatter`.
  */
 
 import { SqliteBackend, runWithTransientRetry } from "./sqlite/sqlite-backend.js";
-import type { Card, CardKind } from "./card.js";
+import type { Card, CardKind, CardGraph } from "./card.js";
 import type { CardSerializer } from "./card-serializer.js";
 import type { DedupStrategy } from "./dedup-strategy.js";
 import { MemorySerializer } from "./memory-serializer.js";
@@ -77,19 +78,22 @@ export interface CreateCardStoreOptions {
 }
 
 /** Columns the façade reads/maps for a Card. `frontmatter` is the 06a JSON
- *  envelope (knowledge only; NULL for memory kinds). */
-const CARD_SELECT_COLUMNS = "target, md_id, content, frontmatter";
+ *  envelope (knowledge only; NULL for memory kinds). `graph` is the 03
+ *  Card.graph JSON (links/entities/relations; NULL when a card has none). */
+const CARD_SELECT_COLUMNS = "target, md_id, content, frontmatter, graph";
 
 type CardRow = {
   target: string;
   md_id: string | null;
   content: string;
   frontmatter: string | null;
+  graph: string | null;
 };
 
 /** Map a `memories` row → Card. `frontmatter` JSON is decoded for knowledge
  *  rows; for memory kinds (NULL in 06a) a minimal envelope keeps the Card
- *  well-formed — the memory path is read by MemoryStore, not this façade. */
+ *  well-formed — the memory path is read by MemoryStore, not this façade.
+ *  `graph` JSON is decoded when present; NULL maps to `undefined` (nullable). */
 function rowToCard(row: CardRow): Card {
   let frontmatter: Record<string, unknown>;
   if (row.frontmatter) {
@@ -105,11 +109,24 @@ function rowToCard(row: CardRow): Card {
   } else {
     frontmatter = { id: row.md_id };
   }
+  let graph: CardGraph | undefined;
+  if (row.graph) {
+    try {
+      const parsed = JSON.parse(row.graph);
+      graph =
+        parsed !== null && typeof parsed === "object"
+          ? (parsed as CardGraph)
+          : undefined;
+    } catch {
+      graph = undefined;
+    }
+  }
   return {
     id: row.md_id!,
     kind: row.target as CardKind,
     content: row.content,
     frontmatter,
+    graph,
   };
 }
 
@@ -196,19 +213,28 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
           }
           // Card row mapping (spec §7): target=card.kind (knowledge OR planning-*),
           // md_id=Card.id (the join key), content=Card.content,
-          // frontmatter=JSON envelope. Memory-specific columns (category/
-          // failure_reason/tool_state/corrected_to/supersedes*/mw_*/parent_ids)
-          // are NULL; the NOT NULL columns get their defaults (state='active',
-          // pin=0, status='active', mw_success/mw_fail=0, created/last_referenced
-          // = today).
+          // frontmatter=JSON envelope, graph=JSON Card.graph (03; NULL when
+          // absent). Memory-specific columns (category/failure_reason/tool_state/
+          // corrected_to/supersedes*/mw_*/parent_ids) are NULL; the NOT NULL
+          // columns get their defaults (state='active', pin=0, status='active',
+          // mw_success/mw_fail=0, created/last_referenced = today).
           getDb()
             .prepare(
               `INSERT INTO memories
                  (project, target, category, content, failure_reason, tool_state, corrected_to,
-                  created, last_referenced, mw_success, mw_fail, status, md_id, state, severity, pin, frontmatter)
-               VALUES (?, ?, NULL, ?, NULL, NULL, NULL, ?, ?, 0, 0, 'active', ?, 'active', NULL, 0, ?)`,
+                  created, last_referenced, mw_success, mw_fail, status, md_id, state, severity, pin, frontmatter, graph)
+               VALUES (?, ?, NULL, ?, NULL, NULL, NULL, ?, ?, 0, 0, 'active', ?, 'active', NULL, 0, ?, ?)`,
             )
-            .run(null, card.kind, card.content, today(), today(), card.id, JSON.stringify(card.frontmatter));
+            .run(
+              null,
+              card.kind,
+              card.content,
+              today(),
+              today(),
+              card.id,
+              JSON.stringify(card.frontmatter),
+              card.graph ? JSON.stringify(card.graph) : null,
+            );
         }),
       );
     },
@@ -219,10 +245,16 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
           getDb()
             .prepare(
               `UPDATE memories
-                 SET content = ?, frontmatter = ?, last_referenced = ?
+                 SET content = ?, frontmatter = ?, graph = ?, last_referenced = ?
                WHERE md_id = ?`,
             )
-            .run(card.content, JSON.stringify(card.frontmatter), today(), card.id);
+            .run(
+              card.content,
+              JSON.stringify(card.frontmatter),
+              card.graph ? JSON.stringify(card.graph) : null,
+              today(),
+              card.id,
+            );
         }),
       );
     },

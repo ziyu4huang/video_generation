@@ -30,6 +30,7 @@ import { stringify as stringifyYaml } from "yaml";
 import type { Card, CardGraph } from "./card.js";
 import type { CardSerializer } from "./card-serializer.js";
 import { splitFencedYaml } from "./frontmatter-codec.js";
+import { normalizeRelation } from "./relation-schema.js";
 
 const FENCE = "---";
 const CORE_IDEA_HEADER = "## 核心想法";
@@ -106,7 +107,10 @@ function parseRelations(raw: unknown): { s: string; rel: string; o: string }[] |
     if (item === null || typeof item !== "object") continue;
     const rec = item as Record<string, unknown>;
     if (typeof rec.s === "string" && typeof rec.rel === "string" && typeof rec.o === "string") {
-      out.push({ s: rec.s, rel: rec.rel, o: rec.o });
+      // Canonicalize on READ (D3): alias-map the core 6 onto their canonical
+      // key; free-form predicates pass through unchanged. Stored as-emitted —
+      // the only write-site that canonicalizes is the serializer write-back.
+      out.push({ s: rec.s, rel: normalizeRelation(rec.rel), o: rec.o });
     }
   }
   return out.length > 0 ? out : undefined;
@@ -133,9 +137,15 @@ export class KnowledgeSerializer implements CardSerializer<"knowledge"> {
     if (entities) graph.entities = entities;
     if (relations) graph.relations = relations;
 
-    // The whole decoded envelope becomes `frontmatter`; `title` is added as a
+    // The decoded envelope becomes `frontmatter`; `title` is added as a
     // round-trip carrier for serialize (stripped from the YAML block there).
+    // FIX3 (fix-wave 03): DROP the raw `relations` entry — `card.graph.relations`
+    // is the single canonical truth (already normalized in parseRelations), and
+    // keeping the raw alias in the envelope would persist two divergent copies
+    // (envelope vs graph). serialize() re-emits the canonical block from
+    // `card.graph.relations`, so the round-trip is unaffected.
     const envelope: Record<string, unknown> = { ...data };
+    delete envelope.relations;
     if (title) envelope.title = title;
 
     const card: Card = {
@@ -156,6 +166,16 @@ export class KnowledgeSerializer implements CardSerializer<"knowledge"> {
     for (const [k, v] of Object.entries(fm)) {
       if (k === "title") continue;
       fmForYaml[k] = v;
+    }
+    // ticket 03 T4 — relations write-back: emit the CANONICAL relations from
+    // `card.graph.relations` (already normalized on read), overriding any raw
+    // envelope entry that still carries the un-normalized alias. Drop the key
+    // entirely when there are none so we emit no empty `relations:` block.
+    const rels = card.graph?.relations;
+    if (Array.isArray(rels) && rels.length > 0) {
+      fmForYaml.relations = rels.map((r) => ({ s: r.s, rel: r.rel, o: r.o }));
+    } else {
+      delete fmForYaml.relations;
     }
     const yaml = stringifyYaml(fmForYaml, { lineWidth: 0 }).trimEnd();
     const title = typeof fm.title === "string" ? fm.title : "";

@@ -569,6 +569,87 @@ describe("retrieveRecords trace (Phase C observability)", () => {
 	});
 });
 
+describe("retrieveRecords — typed relations across the seam (ticket 03 T5, D2)", () => {
+	// T5 plumbs the card's typed edges across the hermes↔zk retrieve seam as the
+	// OPTIONAL `RetrievedCard.relations` carrier (undefined for cards with no
+	// `relations:` frontmatter — the dictionary ingest path emits entities only,
+	// never relations). retrieve.ts is a faithful PASS-THROUGH: it reads the
+	// on-disk `relations:` block (the form T4's serializer write-back emits) and
+	// does NOT re-normalize — canonicalization is the serializer's job (D3, T4's
+	// parseRelations). The fixture below carries the CANONICAL predicate
+	// ("references") the serializer emits, proving the carrier works AND that
+	// T4's canonical form survives retrieval intact.
+
+	/** Write a card .md directly with the ingest schema, optionally carrying a
+	 *  `relations:` block (ingest itself writes entities only — relations are
+	 *  authored by an LLM extractor / serializer write-back, Phase-2+T4). */
+	function writeCard(id: string, tag: string, relationsBlock: string | null) {
+		const dir = join(vault, FOLDER);
+		mkdirSync(dir, { recursive: true });
+		const fm = [
+			"---",
+			`id: ${id}`,
+			"created: 2026-01-01",
+			`tags: [zettel, ${tag}]`,
+			"sources: [test]",
+			"source: test",
+			`source_id: ${id}`,
+			"record_type: gotcha",
+			"status: active",
+			'superseded_by: ""',
+			"confidence: 0.8",
+			...(relationsBlock ? [relationsBlock] : []),
+			"---",
+		].join("\n");
+		const body = `# ${id}\n\n## 核心想法\nDetail about ${id}.\n\n## 證據 / 脈絡\n- type: gotcha\n\n## 連結\n- (no shared-tag neighbours yet)\n`;
+		writeFileSync(join(dir, `${id}.md`), `${fm}\n${body}`);
+	}
+
+	test("a card with a `relations:` block surfaces typed edges on RetrievedCard", async () => {
+		writeCard("rel-card", "argv", "relations:\n  - s: a\n    rel: references\n    o: b");
+		const r = await retrieveRecords({ vaultPath: vault, folder: FOLDER, tags: ["argv"], topK: 5 });
+		expect(r.count).toBe(1);
+		expect(r.cards[0]!.relations).toEqual([{ s: "a", rel: "references", o: "b" }]);
+	});
+
+	test("a plain card (dictionary path, no relations) → RetrievedCard.relations is undefined", async () => {
+		// Ingest through the real dictionary path (emits entities only, never
+		// relations) to prove the default path leaves the carrier absent.
+		await ingest([rec({ id: "plain:a", title: "Plain", tags: ["argv"] })], "flux2");
+		const r = await retrieveRecords({ vaultPath: vault, folder: FOLDER, tags: ["argv"], topK: 5 });
+		expect(r.count).toBe(1);
+		expect(r.cards[0]!.relations).toBeUndefined();
+	});
+
+	test("fix-wave 03 FIX5b: SEMANTIC path (buildRetrievedCard) populates relations for a semantic-only card", async () => {
+		// A card with ZERO tag overlap (tag 'zzz' vs query tags ['argv']) that
+		// surfaces ONLY through the semantic blend — i.e. it is built by
+		// buildRetrievedCard, not the lexical loop. The card carries a canonical
+		// `relations:` block; the carrier must be populated on the built card.
+		writeCard("t:sem-rel", "zzz", "relations:\n  - s: a\n    rel: references\n    o: b");
+		// Injected embedder: the semantic card's text matches the query vector.
+		const emb: Embedder = async (texts) =>
+			texts.map((t) => (/Detail about t:sem-rel/i.test(t) || /zzz/i.test(t) ? [1, 0] : [0, 1]));
+		const r = await retrieveRecords({
+			vaultPath: vault,
+			folder: FOLDER,
+			tags: ["argv"],
+			queryText: "zzz query",
+			topK: 4,
+			semantic: true,
+			_testEmbedder: emb,
+			includeTrace: true,
+		});
+		expect(r.trace!.semanticUsed).toBe(true); // sanity: the blend ran
+		const got = r.cards.find((c) => c.id === "t:sem-rel");
+		expect(got).toBeDefined();
+		expect(got!.relations).toEqual([{ s: "a", rel: "references", o: "b" }]);
+		// And the trace confirms it was classified semantic (built, not lexical).
+		const traced = r.trace!.cards.find((c) => c.id === "t:sem-rel");
+		expect(traced!.source).toBe("semantic");
+	});
+});
+
 describe("GraphHealthResult.coverage (additive dimension — drift guard)", () => {
 	test("graphHealth leaves coverage undefined by default (structural-only; populated by the caller layer)", async () => {
 		const v = mkdtempSync(join(tmpdir(), "kc-cov-dg-"));
