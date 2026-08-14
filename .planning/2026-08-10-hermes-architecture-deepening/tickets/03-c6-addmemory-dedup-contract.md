@@ -1,6 +1,6 @@
 ---
 type: task
-status: open
+status: closed
 claimed: 2026-08-15 (this PR)
 ---
 # 03 — C6: addMemory exact-dup dedup into the MemoryRepository contract
