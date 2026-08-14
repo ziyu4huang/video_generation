@@ -119,16 +119,23 @@ describe("summarizeEntity", () => {
 		const res = await summarizeEntity(["alpha", "beta"], { cache });
 		expect(res).toBe("alpha | beta");
 		expect(cache["alpha | beta"]).toBe("alpha | beta");
-		// Cached hit short-circuits the chat call entirely.
+		// Cached hit short-circuits the chat call entirely. A `called` flag
+		// makes this a real assertion: with memoization deleted, chatJson
+		// swallows the throwing fetch and falls back to the merged text — the
+		// same string — so only the flag distinguishes short-circuit from
+		// silent chat failure.
+		let called = false;
 		const res2 = await summarizeEntity(["alpha", "beta"], {
 			chat: {
 				_fetchImpl: asFetch(() => {
+					called = true;
 					throw new Error("chat must not be called on cache hit");
 				}),
 			},
 			cache,
 		});
 		expect(res2).toBe("alpha | beta");
+		expect(called).toBe(false);
 	});
 
 	test("condense path over threshold + memoization with provided key", async () => {

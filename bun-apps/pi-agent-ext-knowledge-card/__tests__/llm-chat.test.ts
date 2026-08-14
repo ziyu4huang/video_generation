@@ -145,4 +145,58 @@ describe("chatJson", () => {
 		const result = await chatJson("prompt", throwingParse, optsWith(fetchImpl));
 		expect(result).toBeNull();
 	});
+
+	test("retry attempt returns HTTP 500 → null (exactly 2 calls)", async () => {
+		let call = 0;
+		const fetchImpl: FetchLike = async () => {
+			call++;
+			return call === 1 ? okResponse(chatBody("not json")) : http500();
+		};
+		const result = await chatJson("prompt", parseJson, optsWith(fetchImpl));
+		expect(result).toBeNull();
+		expect(call).toBe(2); // retry fired; its HTTP error → null, no third call
+	});
+
+	test("async parseFn rejection is contained → retry → null (never propagates)", async () => {
+		let call = 0;
+		const fetchImpl: FetchLike = async () => {
+			call++;
+			return okResponse(chatBody("body"));
+		};
+		// Mis-typed against the sync contract: returns a rejected promise.
+		const asyncThrowingParse = (): unknown =>
+			Promise.reject(new SyntaxError("async parse failure")) as unknown;
+		const result = await chatJson("prompt", asyncThrowingParse, optsWith(fetchImpl));
+		expect(result).toBeNull();
+		expect(call).toBe(2);
+	});
+
+	test("env defaults: LMSTUDIO_BASE_URL / PI_KG_LLM_MODEL flow into fetch URL and body", async () => {
+		// Env is read inside chatJson (never at import time), so per-test
+		// mutation is safe; restored in finally to not leak into other tests.
+		const prevBase = process.env.LMSTUDIO_BASE_URL;
+		const prevModel = process.env.PI_KG_LLM_MODEL;
+		process.env.LMSTUDIO_BASE_URL = "http://env-lmstudio.test:9999";
+		process.env.PI_KG_LLM_MODEL = "env-model";
+		try {
+			let seenUrl = "";
+			let seenModel = "";
+			const fetchImpl: FetchLike = async (input, init) => {
+				seenUrl = String(input);
+				seenModel = (JSON.parse(String(init?.body)) as { model: string }).model;
+				return okResponse(chatBody('{"ok":1}'));
+			};
+			const result = await chatJson<{ ok: number }>("prompt", parseJson, {
+				_fetchImpl: asFetch(fetchImpl),
+			});
+			expect(result).toEqual({ ok: 1 });
+			expect(seenUrl).toBe("http://env-lmstudio.test:9999/v1/chat/completions");
+			expect(seenModel).toBe("env-model");
+		} finally {
+			if (prevBase === undefined) delete process.env.LMSTUDIO_BASE_URL;
+			else process.env.LMSTUDIO_BASE_URL = prevBase;
+			if (prevModel === undefined) delete process.env.PI_KG_LLM_MODEL;
+			else process.env.PI_KG_LLM_MODEL = prevModel;
+		}
+	});
 });

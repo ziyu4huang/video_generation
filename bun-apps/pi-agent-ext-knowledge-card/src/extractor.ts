@@ -181,15 +181,25 @@ export class LlmRelationExtractor implements Extractor {
 		try {
 			const prompt = `${EXTRACTION_INSTRUCTION}\n${text}`;
 			const parsed = await chatJson(prompt, parseExtractionPayload, this.chatOpts);
-			if (parsed === null) return defaultExtractor.extract(text);
+			if (parsed === null) return await fallbackExtract(text);
 			return {
 				entities: normalizeEntities(parsed.entities),
 				relations: normalizeRelations(parsed.relations),
 			};
 		} catch {
 			// Any unexpected failure ⇒ dictionary-equivalent result, never throw.
-			return defaultExtractor.extract(text);
+			return await fallbackExtract(text);
 		}
+	}
+}
+
+/** Dictionary-fallback wrapper: even the fallback must never throw — a
+ * second failure degrades to the empty result instead of escaping. */
+async function fallbackExtract(text: string): Promise<ExtractionResult> {
+	try {
+		return await defaultExtractor.extract(text);
+	} catch {
+		return { entities: [], relations: [] };
 	}
 }
 

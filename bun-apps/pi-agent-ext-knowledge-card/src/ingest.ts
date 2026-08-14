@@ -1097,6 +1097,10 @@ function yamlScalar(v: unknown): string {
 function renderRelationsBlock(relations: Relation[]): string {
 	const lines: string[] = ["relations:"];
 	for (const r of relations) {
+		// Belt-and-braces: skip malformed entries whose s/rel/o are empty after
+		// trim (normalizers upstream usually prevent this, but a blank scalar
+		// here would corrupt the YAML block shape).
+		if (!r.s.trim() || !r.rel.trim() || !r.o.trim()) continue;
 		lines.push(`  - s: ${yamlScalar(r.s)}`);
 		lines.push(`    rel: ${yamlScalar(r.rel)}`);
 		lines.push(`    o: ${yamlScalar(r.o)}`);

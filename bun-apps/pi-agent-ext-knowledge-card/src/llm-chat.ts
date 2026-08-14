@@ -82,6 +82,22 @@ function defaultModel(): string {
 }
 
 /**
+ * Invoke the caller's (sync-contract) parseFn without letting ANY failure
+ * escape — including a mis-typed async parseFn whose promise rejects: the
+ * result is funneled through `Promise.resolve(...)` and both the sync throw
+ * and the async rejection land in the same catch. Sync throws are caught
+ * because the call itself sits inside the try block. null is the failure
+ * sentinel that drives chatJson's retry-then-null semantics.
+ */
+async function safeParse<T>(parseFn: (text: string) => T, text: string): Promise<T | null> {
+	try {
+		return await Promise.resolve(parseFn(text));
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Send `prompt` to the local LM Studio chat endpoint and parse the assistant
  * text with the caller's `parseFn`. Tolerant: leading/trailing prose and
  * fenced ```json blocks around the JSON body are the parseFn's business (it
@@ -95,16 +111,10 @@ export async function chatJson<T>(
 	const fetchImpl = opts._fetchImpl ?? fetch;
 	const first = await postChat(prompt, MAX_TOKENS_FIRST, opts, fetchImpl);
 	if (!first.ok) return null; // HTTP error / timeout / network: fail fast, no retry
-	try {
-		return parseFn(first.text);
-	} catch {
-		// Unparseable at the small budget: ONE retry at the larger budget.
-	}
+	const parsed = await safeParse(parseFn, first.text);
+	if (parsed !== null) return parsed;
+	// Unparseable at the small budget: ONE retry at the larger budget.
 	const retry = await postChat(prompt, MAX_TOKENS_RETRY, opts, fetchImpl);
 	if (!retry.ok) return null;
-	try {
-		return parseFn(retry.text);
-	} catch {
-		return null;
-	}
+	return await safeParse(parseFn, retry.text);
 }

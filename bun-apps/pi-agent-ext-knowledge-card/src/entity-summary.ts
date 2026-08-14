@@ -58,7 +58,9 @@ export async function condenseSummary(text: string, opts?: LmChatOptions): Promi
 	return condensed ?? text;
 }
 
-/** Derived side-cache: entityKey/merged-input → summary. */
+/** Derived side-cache: merged-input text → summary. The cache key is the
+ * merged-input text itself (not an entity id), so distinct entities whose
+ * descriptions merge to the same text share a cache entry. */
 export interface EntitySummaryCache {
 	[entityKey: string]: string;
 }
@@ -75,7 +77,7 @@ export function loadEntitySummaries(vaultPath: string, model: string): EntitySum
 		const p = summaryCachePath(vaultPath, model);
 		if (!existsSync(p)) return {};
 		const j = JSON.parse(readFileSync(p, "utf8")) as EntitySummaryCache;
-		return j && typeof j === "object" ? j : {};
+		return j && typeof j === "object" && !Array.isArray(j) ? j : {};
 	} catch {
 		return {};
 	}
