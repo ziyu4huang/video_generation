@@ -43,6 +43,8 @@ class FakeWebServer implements WebuiServer {
   httpRoutes: HttpRouteHandler | null = null;
   /** Recorded token-auth call (ticket 07 D1); default null (loopback off). */
   tokenAuth: string | null = null;
+  /** Recorded WS-close handler (spec Component 1; the test fires it to assert abort). */
+  wsCloseHandler: (() => void) | null = null;
   /** Stub URL (urlFor is only read for the real WebServer; never hit here). */
   readonly url = "http://fake.local/";
   /** Unused in tests (a MemoryBroadcaster is injected as the broadcaster). */
@@ -69,6 +71,9 @@ class FakeWebServer implements WebuiServer {
   }
   setTokenAuth(token: string | null): void {
     this.tokenAuth = token;
+  }
+  setWsCloseHandler(cb: (() => void) | null): void {
+    this.wsCloseHandler = cb;
   }
   stop(): void {
     this.stopCalls++;
@@ -312,12 +317,60 @@ describe("wireWebui — inbound dispatch", () => {
     expect(pi.sent).toHaveLength(0);
   });
 
-  test("appexec → NO sendUserMessage, NO lock acquired", () => {
-    const { pi, server } = setup();
-    pi.emit("session_start", { type: "session_start", reason: "startup" });
-    dispatch(pi, server, { type: "appexec" });
-    expect(pi.sent).toHaveLength(0);
-    // No input event fired (appexec bypasses the gate) → controller stays idle.
+  describe("HITL appexec return transport (respond resolve + registry + abort)", () => {
+    test("respond resolves the pending registered under id with {action}", async () => {
+      const { pi, server, wiring } = setup();
+      pi.emit("session_start", { type: "session_start", reason: "startup" });
+      const pending = wiring.registerPending("p1");
+      dispatch(pi, server, { type: "appexec", extra: { kind: "respond", id: "p1", action: "approve" } });
+      await expect(pending).resolves.toEqual({ action: "approve" });
+    });
+
+    test("respond with tweak surfaces tweak", async () => {
+      const { pi, server, wiring } = setup();
+      pi.emit("session_start", { type: "session_start", reason: "startup" });
+      const pending = wiring.registerPending("p2");
+      dispatch(pi, server, {
+        type: "appexec",
+        extra: { kind: "respond", id: "p2", action: "regenerate", tweak: "more red" },
+      });
+      await expect(pending).resolves.toEqual({ action: "regenerate", tweak: "more red" });
+    });
+
+    test("respond for an unknown id is ignored (the registered pending stays pending)", async () => {
+      const { pi, server, wiring } = setup();
+      pi.emit("session_start", { type: "session_start", reason: "startup" });
+      const p3 = wiring.registerPending("p3");
+      // A respond for a DIFFERENT id must NOT resolve p3.
+      dispatch(pi, server, { type: "appexec", extra: { kind: "respond", id: "nope", action: "approve" } });
+      let resolved = false;
+      p3.then(() => { resolved = true; });
+      await Promise.resolve(); // drain microtasks — resolve() is synchronous, so this is enough.
+      expect(resolved).toBe(false);
+      // Clean up the dangling pending via abort (also re-asserts session_shutdown cancels).
+      pi.emit("session_shutdown", { type: "session_shutdown", reason: "done" });
+      await expect(p3).resolves.toEqual({ cancelled: true });
+    });
+
+    test("session_shutdown resolves all pending as {cancelled:true}", async () => {
+      const { pi, wiring } = setup();
+      pi.emit("session_start", { type: "session_start", reason: "startup" });
+      const a = wiring.registerPending("a");
+      const b = wiring.registerPending("b");
+      pi.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+      await expect(a).resolves.toEqual({ cancelled: true });
+      await expect(b).resolves.toEqual({ cancelled: true });
+    });
+
+    test("WS close resolves all pending as {cancelled:true}", async () => {
+      const { pi, server, wiring } = setup();
+      pi.emit("session_start", { type: "session_start", reason: "startup" });
+      const pending = wiring.registerPending("ws1");
+      // wireWebui registered the close handler on the fake server.
+      expect(server.wsCloseHandler).not.toBeNull();
+      server.wsCloseHandler!();
+      await expect(pending).resolves.toEqual({ cancelled: true });
+    });
   });
 
   test("control subscribe/unsubscribe → no side effect (v1 no-op)", () => {
