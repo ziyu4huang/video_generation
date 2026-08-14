@@ -90,6 +90,21 @@ describe("extractImageCard", () => {
     assert.match(r.markdown, /Vision:\nA diagram of the pipeline\./);
   });
 
+  it("OCR *rejects* (spawn EACCES etc.) → treated as unavailable, never escapes", async (t) => {
+    const { dir, path } = tmpImage();
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const r = await extractImageCard(path, {
+      ocr: async () => {
+        throw new Error("EACCES: permission denied");
+      },
+      describe: async () => ({ ok: true, description: "A white image." }),
+      now: () => "2026-08-14",
+    });
+    assert.equal(r.degraded, true);
+    assert.match(r.warnings[0]!, /OCR unavailable/);
+    assert.match(r.markdown, /Vision:\nA white image\./);
+  });
+
   it("both stages fail → throws (never emit an empty card)", async (t) => {
     const { dir, path } = tmpImage();
     t.after(() => rmSync(dir, { recursive: true, force: true }));

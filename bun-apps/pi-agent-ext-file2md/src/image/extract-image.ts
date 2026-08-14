@@ -65,7 +65,7 @@ export async function extractImageCard(imagePath: string, opts: ExtractImageOpts
   // Provenance (decision #6): source_hash over the image bytes.
   const sourceHash = sha256Hex(readFileSync(abs));
 
-  const ocrRes = await ocr(abs);
+  const ocrRes = await ocr(abs).catch(() => undefined);
   if (ocrRes === undefined) {
     warnings.push(`[file2md] OCR unavailable for ${abs} (vision-ocr-cli missing or failed)`);
   }
