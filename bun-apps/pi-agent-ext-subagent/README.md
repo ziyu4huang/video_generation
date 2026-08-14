@@ -71,6 +71,20 @@ The values/types in the table above (`spawnSubagent`, `WorkflowAgent`, errors, t
 
 See `docs/adr/0001-why-extracted.md` for the full rationale and `CONTEXT.md` for the ubiquitous language.
 
+## Token budgets
+
+Every dispatch gets a **tier-calibrated default token ceiling** (a hard-abort fuse, measured p90 + headroom so only the runaway tail is aborted): **small = 500k**, **medium = 1.2M**, **big = 1.5M**. The tier comes from the explicit `tier` param, a reverse-map of the resolved model via `~/.pi/workflows/model-tiers.json`, or the safe `medium` fallback. An explicit per-dispatch `tokenBudget` always wins over the default; setting one explicitly is normally reserved for deliberate spend caps (see `.planning/knowledge/subagent-dispatch-budget-protocol.md`).
+
+The defaults are adjustable at runtime via environment variables (read at call time, no caching; invalid values are silently ignored):
+
+| Env var | Effect |
+| --- | --- |
+| `SUBAGENT_TOKEN_BUDGET_DISABLE=1|true` | No default budget at all (explicit `tokenBudget` still applies). |
+| `SUBAGENT_TOKEN_BUDGET_SMALL` / `_MEDIUM` / `_BIG` | Replace that tier's ceiling (positive integer; applies to whichever tier the dispatch resolved to). |
+| `SUBAGENT_TOKEN_BUDGET_MULTIPLIER` | Multiply the result after any absolute override (positive finite float). |
+
+The final value is clamped to `Math.max(1, Math.floor(result))`. When budget death hits, the child is hard-aborted with `status:"budget"` — a graceful wrap-up turn (final-turn message) is planned as part 2.
+
 ## Upstream sync
 
 This package has **dual provenance**: the package body (33 src files) was extracted from `pi-agent-ext-workflow` (#789), while the 2 watchdog files (`src/watchdog/lsp-diagnostics.ts`, `src/watchdog/repo-diff.ts`) are a selective port from `nicobailon/pi-subagents`. The watchdog ports are documented in [`docs/upstream/pi-subagents.pin.md`](docs/upstream/pi-subagents.pin.md) — consult it before any upstream sync so those ports aren't lost again.

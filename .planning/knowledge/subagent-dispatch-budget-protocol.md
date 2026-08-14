@@ -17,3 +17,7 @@ Write/research subagent children in this repo die with "tokens budget exhausted"
 
 ## Evidence
 Subagent runs 2026-08-14 (mst0uvo9 13.5k 1-turn vs mst0wg3j 60k multi-turn vs 212k/418k/538k budget-aborts).
+
+## Policy update (2026-08-15)
+
+Decision after 6 budget-exhaustion deaths in a single session (dispatches passed explicit tokenBudget 300k–900k, all below tier defaults): **controllers must NOT pass an explicit tokenBudget below the tier defaults** (small 500k / medium 1.2M / big 1.5M in `bun-apps/pi-agent-ext-subagent/src/budget-defaults.ts`). Tier defaults are p90-calibrated abort lines — let them apply. Explicit tokenBudget is reserved for deliberate spend caps requested by the user. When children burn budget, fix the dispatch shape (this protocol), not the number. Corollary observed live: even a 1-call memory-write dispatch died at 50k when handed a 50k budget — never hand out budgets that small.

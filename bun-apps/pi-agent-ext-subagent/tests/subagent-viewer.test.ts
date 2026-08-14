@@ -878,10 +878,7 @@ test("counts update as more children complete (2 running → 1 running 1 done �
   }
   // step 1: one child completed — header splits into running / done.
   {
-    const running = [
-      runningEntry("bX:0", { batchId: "bX", status: "done" }),
-      runningEntry("bX:1", { batchId: "bX" }),
-    ];
+    const running = [runningEntry("bX:0", { batchId: "bX", status: "done" }), runningEntry("bX:1", { batchId: "bX" })];
     const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
     const out = viewer.render(80).join("\n");
     assert.match(out, /1 running \/ 1 done/, "step 1: header shows 1 running / 1 done");
