@@ -58,7 +58,7 @@ import {
 	type ExtractedEntity,
 	type LinkWeighting,
 } from "./entities.ts";
-import { resolveExtractor } from "./extractor.ts";
+import { resolveExtractor, type Extractor, type Relation } from "./extractor.ts";
 
 /**
  * Replace Obsidian wiki-links (`[[target|alias]]`, `[[target#anchor]]`,
@@ -157,6 +157,11 @@ export interface IngestOptions {
 	 *  `resolveExtractor` as the `LlmRelationExtractor` model override; env
 	 *  fallback `PI_KG_LLM_MODEL` (zk default "google/gemma-4-12b-qat"). */
 	kgLlmModel?: string;
+	/** @internal Test seam: overrides the resolved extractor so tests can
+	 *  inject an `LlmRelationExtractor` with a canned `_fetchImpl` (no live
+	 *  LM Studio). Production callers leave this unset — the effective
+	 *  extractor is `resolveExtractor(kgLlm, …)` (Phase-2 T3). */
+	_extractor?: Extractor;
 }
 
 export type CardOutcome = "created" | "updated" | "unchanged";
@@ -955,6 +960,7 @@ function renderCard(
 	sourceLabel: string,
 	maxDetailChars: number,
 	entities?: ExtractedEntity[],
+	relations?: Relation[],
 ): string {
 	const detail = rec.detail.length > maxDetailChars
 		? rec.detail.slice(0, maxDetailChars) + "\n\n…(truncated)"
@@ -1002,7 +1008,17 @@ function renderCard(
 		fm.entities = entities.map((e) => `${e.type}:${e.name}`);
 	}
 
-	const fmText = renderFrontmatter(fm);
+	// Relations (Phase-2 T3): emitted ONLY when the kg.llm LLM extractor
+	// returned edges (write authority — the dictionary path passes undefined /,
+	// from the fallback, []). The nested block is spliced into the frontmatter
+	// AFTER `entities:` when present (sibling emission order), else at the end
+	// of the fence. The block format is the shared cross-package contract:
+	// zk `parseRelationsBlock` (retrieve.ts) and hermes
+	// `KnowledgeSerializer.deserialize` both parse this exact shape.
+	let fmText = renderFrontmatter(fm);
+	if (relations && relations.length > 0) {
+		fmText = spliceRelations(fmText, renderRelationsBlock(relations));
+	}
 
 	const evidenceLines = [
 		`- type: ${rec.type}`,
@@ -1060,6 +1076,55 @@ function yamlScalar(v: unknown): string {
 	// stripper (colon, bracket, leading quote, etc).
 	if (/[:\[\]#"']/.test(s) || s.includes(", ")) return JSON.stringify(s);
 	return s;
+}
+
+/** Render the nested `relations:` frontmatter block (Phase-2 T3 — the LLM
+ *  write-authority path). Focused emitter: a YAML block sequence of `{s, rel,
+ *  o}` mappings whose exact byte shape is the shared cross-package contract:
+ *
+ *   relations:
+ *     - s: a
+ *       rel: references
+ *       o: b
+ *
+ * Both readers parse this: zk's `parseRelationsBlock` (retrieve.ts — walks the
+ * indented `- ` entries + their kv continuation lines, stripping a defensive
+ * surrounding quote pair) and hermes's `KnowledgeSerializer.deserialize`
+ * (`splitFencedYaml` → real YAML parse, canonicalizing `rel` on read). Values
+ * reuse `yamlScalar` quoting so `:`-bearing / bracket-bearing ids stay
+ * YAML-safe for both readers. NOT routed through `renderFrontmatter` — that
+ * layer emits flat scalars/flow-lists only; relations need nesting. */
+function renderRelationsBlock(relations: Relation[]): string {
+	const lines: string[] = ["relations:"];
+	for (const r of relations) {
+		lines.push(`  - s: ${yamlScalar(r.s)}`);
+		lines.push(`    rel: ${yamlScalar(r.rel)}`);
+		lines.push(`    o: ${yamlScalar(r.o)}`);
+	}
+	return lines.join("\n");
+}
+
+/** Splice a rendered `relations:` block into an already-rendered frontmatter
+ *  fence (the `---\n…\n---\n` string `renderFrontmatter` returns), after the
+ *  top-level `entities:` line when present, else just before the closing
+ *  fence. Returns the input unchanged when no insertion point exists. */
+function spliceRelations(fmText: string, block: string): string {
+	const lines = fmText.split("\n");
+	// Last top-level `entities:` line inside the fence (entities is emitted
+	// last by renderCard's key order, so end-of-fence == after entities in
+	// practice; the explicit scan keeps the contract if key order ever shifts).
+	let insertAt = -1;
+	for (let k = lines.length - 1; k >= 0; k--) {
+		if (/^entities:/.test(lines[k]!)) { insertAt = k + 1; break; }
+	}
+	if (insertAt === -1) {
+		for (let k = lines.length - 1; k >= 0; k--) {
+			if (lines[k]!.trim() === "---") { insertAt = k; break; }
+		}
+	}
+	if (insertAt === -1) return fmText;
+	lines.splice(insertAt, 0, block);
+	return lines.join("\n");
 }
 
 /** Read a card file's frontmatter tags (normalised) + source_id + feature
@@ -1542,6 +1607,16 @@ export async function ingestRecords(
 		);
 	}
 
+	// kg.llm extractor (Phase-2 T3): resolved ONCE above the per-card loop
+	// (T2 review NIT-1) — no per-card construction, no per-card env re-read.
+	// With kgLlm ON this is the `LlmRelationExtractor` and runs for EVERY card
+	// regardless of linkWeighting (its relations are the write authority); with
+	// kgLlm OFF (default) it is the dictionary singleton and the flow below is
+	// byte-identical to Phase-1 (extractor consulted only under idf, entities
+	// only). `_extractor` is the test-injection seam (canned chat fixtures).
+	const extractor =
+		opts._extractor ?? resolveExtractor(kgLlm, kgLlmModel ? { kgLlmModel } : undefined);
+
 	// 4. Render + write each card (or report only, in dryRun).
 	for (const p of planned) {
 		const rec = p.rec;
@@ -1550,19 +1625,40 @@ export async function ingestRecords(
 			"1970-01-01";
 		const tags = cardTags(rec);
 		const links = allNeighbours.get(p.basename) ?? [];
-		// Typed entities (P8): when linkWeighting is "idf", extract typed entities
-		// from the detail body deterministically (SAG-style; no LLM) and carry them
-		// as additive frontmatter. Pre-supplied rec.entities (from JSONL) take
-		// precedence. Absent entirely under the default "count" mode — old cards
-		// stay byte-identical.
+		// Typed entities (P8) + LLM relations (Phase-2 T3):
+		// - Entities for frontmatter stay IDF-GATED (the dictionary/idf contract
+		//   is unchanged); pre-supplied rec.entities (from JSONL) always win.
+		// - When kgLlm is ON, the extractor runs REGARDLESS of linkWeighting —
+		//   under idf its (LLM or degraded-dictionary) entities feed the same
+		//   frontmatter slot; under non-idf the run is for RELATIONS only and
+		//   entity frontmatter is still skipped.
+		// - kgLlm OFF: EXACT Phase-1 flow — extractor only under idf, entities
+		//   only, no relations ever (dictionary write-authorivity guard).
 		let entities: ExtractedEntity[] | undefined;
-		if (linkWeighting === "idf") {
+		let relations: Relation[] | undefined;
+		if (kgLlm) {
+			const llmResult = await extractor.extract(`${rec.title} ${rec.detail}`);
+			if (linkWeighting === "idf") {
+				entities = (rec.entities as ExtractedEntity[] | undefined)?.length
+					? (rec.entities as ExtractedEntity[])
+					: llmResult.entities;
+			}
+			relations = llmResult.relations;
+		} else if (linkWeighting === "idf") {
 			entities = (rec.entities as ExtractedEntity[] | undefined)?.length
 				? (rec.entities as ExtractedEntity[])
-				: (await resolveExtractor(kgLlm, kgLlmModel ? { kgLlmModel } : undefined).extract(`${rec.title} ${rec.detail}`))
-					.entities;
+				: (await extractor.extract(`${rec.title} ${rec.detail}`)).entities;
 		}
-		const content = renderCard(rec, created, tags, links, opts.sourceLabel, maxDetailChars, entities);
+		const content = renderCard(
+			rec,
+			created,
+			tags,
+			links,
+			opts.sourceLabel,
+			maxDetailChars,
+			entities,
+			relations,
+		);
 
 		// Validate frontmatter-only (no idx → no dead-link false-positives mid-batch).
 		const v = validateZettelNote(content);

@@ -94,6 +94,52 @@ body
   });
 });
 
+describe("KnowledgeSerializer ⇄ zk relations-emitter cross-package round-trip (ticket 03 P2-T3)", () => {
+  const ser = new KnowledgeSerializer();
+  /** The EXACT block the zk ingest emitter writes (ingest.ts
+   *  renderRelationsBlock). Hardcoded here AND in zk's
+   *  __tests__/ingest.test.ts — one shared artifact, so a drift on either the
+   *  emitter or either reader breaks one of the two suites. */
+  const zkEmittedRelationsBlock = [
+    "relations:",
+    "  - s: run.py",
+    "    rel: uses",
+    "    o: Z-Image",
+    "  - s: run.py",
+    "    rel: configures",
+    "    o: --cfg-scale",
+  ].join("\n");
+  const zkCard = `---
+id: zk:llm-rel
+tags: [zettel, lever]
+created: 2026-08-08
+${zkEmittedRelationsBlock}
+---
+# zk card
+
+## 核心想法
+body
+`;
+
+  it("deserialize parses the zk-emitted block into canonical graph.relations", () => {
+    const [c] = ser.deserialize(zkCard);
+    assert.ok(c, "card must deserialize");
+    // "uses"/"configures" are free-form predicates — pass through unchanged
+    assert.deepEqual(c.graph?.relations, [
+      { s: "run.py", rel: "uses", o: "Z-Image" },
+      { s: "run.py", rel: "configures", o: "--cfg-scale" },
+    ]);
+  });
+
+  it("serialize() re-emits the edges and the md round-trip is stable", () => {
+    const [c] = ser.deserialize(zkCard);
+    const out = ser.serialize(c!);
+    assert.match(out, /- s: run\.py/);
+    const [c2] = ser.deserialize(out);
+    assert.deepEqual(c2!.graph?.relations, c!.graph?.relations);
+  });
+});
+
 describe("KnowledgeSerializer envelope dedup (fix-wave 03 FIX3 — graph.relations is the single truth)", () => {
   const ser = new KnowledgeSerializer();
   const relCard = `---
