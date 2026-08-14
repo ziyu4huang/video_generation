@@ -93,7 +93,7 @@ function truncateEnd(s: string, max: number): string {
  *
  * Pure render helper — no data-model / compaction change.
  */
-export function latestMessageLine(history: AgentHistoryEntry[]): string | null {
+export function latestMessageLine(history: readonly AgentHistoryEntry[]): string | null {
   if (history.length === 0) return null;
   const last = history[history.length - 1];
   if (!last) return null; // invariant: history is non-empty (length guarded above)
@@ -196,7 +196,11 @@ export function formatSubagentLive(
  *
  * Pure render layer — no data-model / compaction change.
  */
-export function formatSubagentTrace(history: AgentHistoryEntry[], elapsedMs: number, minToolCalls = 0): string {
+export function formatSubagentTrace(
+  history: readonly AgentHistoryEntry[],
+  elapsedMs: number,
+  minToolCalls = 0,
+): string {
   if (history.length === 0) return "";
   const lines: string[] = [];
   // Result indices already rendered inline with their paired call — skipped on

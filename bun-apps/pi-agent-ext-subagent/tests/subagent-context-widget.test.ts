@@ -1,5 +1,6 @@
 import { mock, test } from "bun:test";
 import assert from "node:assert/strict";
+import { buildRunView, type RunView } from "@repo/pi-agent-ext-core-runtime";
 import type { InFlightSubagent } from "../src/index.js";
 import { countNoun, isCtrlO, SubagentContextWidget } from "../src/subagent-context-widget.js";
 import { STREAMING_EXPANDED_TAIL, workIntentPreview } from "../src/subagent-tool-render.js";
@@ -20,13 +21,19 @@ function run(over: Partial<InFlightSubagent> = {}): InFlightSubagent {
   };
 }
 
+/** RunView fed to the widget — what registry.views() hands render() (the widget
+ *  no longer accepts raw InFlightSubagent records). */
+function vrun(over: Partial<InFlightSubagent> = {}): RunView {
+  return buildRunView(run(over), Date.now());
+}
+
 test("(a) box renders nothing when no subagent is running — zero screen footprint", () => {
   const w = new SubagentContextWidget({ getRunning: () => [] });
   assert.deepEqual(w.render(T), []);
 });
 
 test("(b) box renders a background run (foreground:false) with the rich header", () => {
-  const w = new SubagentContextWidget({ getRunning: () => [run({ foreground: false })] });
+  const w = new SubagentContextWidget({ getRunning: () => [vrun({ foreground: false })] });
   const out = w.render(T).join("\n");
   assert.match(out, /1 background subagent running/);
   // rich header reuses renderSubagentCall → subagent ▸ agent ▸ model ▸ "task"
@@ -38,7 +45,7 @@ test("(b) box renders a background run (foreground:false) with the rich header",
 
 test("(c) box EXCLUDES a foreground run (foreground:true) — no duplication with Surface A", () => {
   const w = new SubagentContextWidget({
-    getRunning: () => [run({ id: "inline", foreground: true })],
+    getRunning: () => [vrun({ id: "inline", foreground: true })],
   });
   assert.deepEqual(w.render(T), [], "a foreground (inline) run never appears in the box");
 });
@@ -46,8 +53,8 @@ test("(c) box EXCLUDES a foreground run (foreground:true) — no duplication wit
 test("box shows background runs and hides foreground ones when both are live", () => {
   const w = new SubagentContextWidget({
     getRunning: () => [
-      run({ id: "bg", foreground: false }),
-      run({ id: "inline", foreground: true, agent: "reviewer", taskPreview: "inline task" }),
+      vrun({ id: "bg", foreground: false }),
+      vrun({ id: "inline", foreground: true, agent: "reviewer", taskPreview: "inline task" }),
     ],
   });
   const out = w.render(T).join("\n");
@@ -67,7 +74,7 @@ test("box treats a run with omitted foreground as background (the registry defau
 
 test("box pluralizes the count header for multiple background runs", () => {
   const w = new SubagentContextWidget({
-    getRunning: () => [run({ id: "r1", foreground: false }), run({ id: "r2", foreground: false, agent: "reviewer" })],
+    getRunning: () => [vrun({ id: "r1", foreground: false }), vrun({ id: "r2", foreground: false, agent: "reviewer" })],
   });
   const out = w.render(T).join("\n");
   assert.match(out, /2 background subagents running/);
@@ -75,7 +82,7 @@ test("box pluralizes the count header for multiple background runs", () => {
 });
 
 test("(e) collapsed by default — shows the rich header + ONE latest activity line (not the full trace tree)", () => {
-  const w = new SubagentContextWidget({ getRunning: () => [run({ foreground: false })] });
+  const w = new SubagentContextWidget({ getRunning: () => [vrun({ foreground: false })] });
   assert.equal(w.isExpanded(), false);
   const collapsed = w.render(T).join("\n");
   // collapsed shows the latest single activity line (here a toolCall → `↳ Using read`).
@@ -87,7 +94,7 @@ test("(e) collapsed by default — shows the rich header + ONE latest activity l
 });
 
 test("toggle() expands a background run to show the grouped live trace (formatSubagentTrace)", () => {
-  const w = new SubagentContextWidget({ getRunning: () => [run({ foreground: false })] });
+  const w = new SubagentContextWidget({ getRunning: () => [vrun({ foreground: false })] });
   w.toggle();
   assert.equal(w.isExpanded(), true);
   const out = w.render(T).join("\n");
@@ -99,7 +106,7 @@ test("toggle() expands a background run to show the grouped live trace (formatSu
 });
 
 test("toggle() flips back to collapsed", () => {
-  const w = new SubagentContextWidget({ getRunning: () => [run({ foreground: false })] });
+  const w = new SubagentContextWidget({ getRunning: () => [vrun({ foreground: false })] });
   w.toggle();
   assert.equal(w.isExpanded(), true);
   w.toggle();
@@ -118,7 +125,7 @@ test("collapsed shows QUOTED assistant prose when the latest entry is text (vs a
   // this" from "the child is running this tool".
   const w = new SubagentContextWidget({
     getRunning: () => [
-      run({
+      vrun({
         foreground: false,
         history: [
           { role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"a.ts"}' },
@@ -136,7 +143,7 @@ test("collapsed shows QUOTED assistant prose when the latest entry is text (vs a
 test("collapsed shows verb-led past activity when the latest entry is a toolResult", () => {
   const w = new SubagentContextWidget({
     getRunning: () => [
-      run({
+      vrun({
         foreground: false,
         history: [
           { role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"a.ts"}' },
@@ -180,7 +187,7 @@ test("isCtrlO is false for ordinary input (letters, arrows, other control bytes)
 
 test("(regression) a completed run's elapsed does NOT grow across render ticks", () => {
   const t0 = 1_000_000;
-  const entry = run({
+  const entry = vrun({
     id: "done-r1",
     foreground: false,
     status: "completed",
@@ -207,7 +214,7 @@ test("(regression) a completed run's elapsed does NOT grow across render ticks",
 });
 
 test("the count header documents BOTH the Ctrl-O expand hint and the /subagents drill-down", () => {
-  const w = new SubagentContextWidget({ getRunning: () => [run({ foreground: false })] });
+  const w = new SubagentContextWidget({ getRunning: () => [vrun({ foreground: false })] });
   const out = w.render(T).join("\n");
   assert.match(out, /Ctrl-O to expand/, "header advertises the box-expand keystroke (ticket 03)");
   assert.match(out, /\/subagents for detail/);
@@ -215,7 +222,7 @@ test("the count header documents BOTH the Ctrl-O expand hint and the /subagents 
 
 test("a background run with NO history still renders its header (pre-first-tool-call)", () => {
   const w = new SubagentContextWidget({
-    getRunning: () => [run({ foreground: false, history: [] })],
+    getRunning: () => [vrun({ foreground: false, history: [] })],
   });
   const out = w.render(T).join("\n");
   assert.ok(out.includes("doing X"), "header still shows before any history");
@@ -232,7 +239,7 @@ test("(Stage B) a workflow run (agent='workflow') renders under a workflow-speci
   // leaves the per-agent trace to /subagents (collapsed, no fabricated trace).
   const w = new SubagentContextWidget({
     getRunning: () => [
-      run({
+      vrun({
         id: "wf:r1",
         agent: "workflow",
         model: undefined,
@@ -255,16 +262,16 @@ test("(Stage B) a workflow run (agent='workflow') renders under a workflow-speci
 
 // --- ticket 04: countNoun picks the header noun from the actual run mix ---
 
-function wf(over: Partial<InFlightSubagent> = {}): InFlightSubagent {
-  return run({ id: "wf:1", agent: "workflow", model: undefined, taskPreview: "wf preview", ...over });
+function wf(over: Partial<InFlightSubagent> = {}): RunView {
+  return vrun({ id: "wf:1", agent: "workflow", model: undefined, taskPreview: "wf preview", ...over });
 }
 
 test("countNoun: a single subagent → 'subagent'", () => {
-  assert.equal(countNoun([run({ foreground: false })]), "subagent");
+  assert.equal(countNoun([vrun({ foreground: false })]), "subagent");
 });
 
 test("countNoun: two subagents → 'subagents'", () => {
-  assert.equal(countNoun([run({ id: "r1", foreground: false }), run({ id: "r2", foreground: false })]), "subagents");
+  assert.equal(countNoun([vrun({ id: "r1", foreground: false }), vrun({ id: "r2", foreground: false })]), "subagents");
 });
 
 test("countNoun: a single workflow → 'workflow' (NOT 'subagent')", () => {
@@ -276,7 +283,7 @@ test("countNoun: two workflows → 'workflows'", () => {
 });
 
 test("countNoun: a mixed set (1 subagent + 1 workflow) → 'runs'", () => {
-  assert.equal(countNoun([run({ id: "r1", foreground: false }), wf({ id: "wf:1", foreground: false })]), "runs");
+  assert.equal(countNoun([vrun({ id: "r1", foreground: false }), wf({ id: "wf:1", foreground: false })]), "runs");
 });
 
 // --- ticket 04 finding 1: work-intent strip on the DOCKED context-box header ---
@@ -291,7 +298,7 @@ test("countNoun: a mixed set (1 subagent + 1 workflow) → 'runs'", () => {
 test("ticket 04 / finding 1: docked header strips the `Working dir:` preamble and surfaces the work intent", () => {
   const rawTask = "Working dir: /Users/x/proj\n" + "\n" + "Audit the subagent display code for fallback consistency.";
   // The tool precomputes workIntent once at start() (mirrors subagent-tool.execute).
-  const entry = run({
+  const entry = vrun({
     id: "strip-r1",
     foreground: false,
     taskPreview: "Working dir: /Users/x/proj Audit the subagent display code for fallback consistency.",
@@ -310,7 +317,7 @@ test("ticket 04 / finding 1: docked header strips the `Working dir:` preamble an
 test("ticket 04 / finding 1: docked header still shows the preamble when workIntent is absent (backward-compat)", () => {
   // An entry that never populated workIntent (old caller / synthetic test entry)
   // falls back to taskPreview — no crash, no fabricated strip.
-  const entry = run({
+  const entry = vrun({
     id: "nofallback-r1",
     foreground: false,
     taskPreview: "Working dir: /Users/x/proj do the thing",
@@ -345,7 +352,7 @@ function longHistory(): { role: "assistant"; kind: "toolCall"; toolName: string;
 
 test("ticket 05 / finding 4: expanded context-box trace is tail-capped (does not emit the full long history)", () => {
   const w = new SubagentContextWidget({
-    getRunning: () => [run({ id: "cap-r1", foreground: false, history: longHistory() as never })],
+    getRunning: () => [vrun({ id: "cap-r1", foreground: false, history: longHistory() as never })],
   });
   w.toggle(); // expanded
   const lines = w.render(T);

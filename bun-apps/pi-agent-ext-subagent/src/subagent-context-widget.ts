@@ -28,8 +28,7 @@
  */
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import type { InFlightSubagent, SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
-import { buildRunView, isTerminalStatus } from "@repo/pi-agent-ext-core-runtime";
+import type { RunView, SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 import {
   capTraceTail,
   formatSubagentTrace,
@@ -39,8 +38,8 @@ import {
 } from "./subagent-tool-render.js";
 
 export interface SubagentContextWidgetOpts {
-  /** Live source of in-flight runs (defaults to `registry.list()` at the wiring site). */
-  getRunning: () => InFlightSubagent[];
+  /** Live source of in-flight runs as RunViews (defaults to `registry.views()` at the wiring site). */
+  getRunning: () => RunView[];
 }
 
 /** Indent for each run's block under the count header. */
@@ -63,8 +62,8 @@ export function isCtrlO(data: string): boolean {
  * `workflows` = the rest. Singular for a lone run of one kind, plural for many
  * of one kind, and the neutral `"runs"` for a mixed set (always ≥2).
  */
-export function countNoun(running: InFlightSubagent[]): string {
-  const subagents = running.filter((r) => r.agent !== "workflow").length;
+export function countNoun(running: RunView[]): string {
+  const subagents = running.filter((v) => v.actor !== "workflow").length;
   const workflows = running.length - subagents;
   if (workflows === 0) return subagents === 1 ? "subagent" : "subagents";
   if (subagents === 0) return workflows === 1 ? "workflow" : "workflows";
@@ -122,38 +121,41 @@ export class SubagentContextWidget {
    *  (prose-else-activity); the expanded trace uses `formatSubagentTrace` (paired
    *  call/result → one `✓`, in-flight `→ …`). `formatSubagentLive` stays the
    *  INLINE tool surface's payload (its 2-line header contract is untouched). */
-  private renderRun(r: InFlightSubagent, theme: Theme): string[] {
+  private renderRun(v: RunView, theme: Theme): string[] {
     // Workflow runs (decision 03 = b2) register into the same registry so they
     // surface here and in /subagents. They don't fit the subagent-shaped
     // model/agent slots (a workflow aggregates agents across models), so render
-    // a workflow-specific header. The taskPreview already encodes
-    // "<name> · <phase> · k/N agents" (set by WorkflowManager). Collapsed only
+    // a workflow-specific header. Workflow entries never carry history, so
+    // `v.latestAction` IS the taskPreview encoding ("<name> · <phase> · k/N
+    // agents", set by WorkflowManager via updateTaskPreview). Collapsed only
     // — no live tool trace; /subagents stays the drill-down for the per-agent
     // trace. Full rendering polish is a follow-up (ticket 02 deferred prize).
-    if (r.agent === "workflow") {
-      const wfHeader = [theme.bold(theme.fg("toolTitle", "workflow")), theme.fg("dim", `"${r.taskPreview}"`)].join(
-        " ▸ ",
-      );
+    if (v.actor === "workflow") {
+      const wfHeader = [
+        theme.bold(theme.fg("toolTitle", "workflow")),
+        theme.fg("dim", `"${v.latestAction ?? ""}"`),
+      ].join(" ▸ ");
       return [`${INDENT}${wfHeader}`];
     }
+    // Header composed purely from the RunView: actor replaces the raw agent
+    // field, and modelSeg (fallback-aware, carries its own `→` marker) fills the
+    // model slot — renderSubagentCall skips the separate modelSeg segment when
+    // it matches the slot, so one model segment renders.
     const header = renderSubagentCall(
       {
-        agent: r.agent,
-        model: r.model,
+        agent: v.actor,
+        model: v.modelSeg,
         // Feed the precomputed work-intent strip (not the single-lined
         // taskPreview) so the preamble is stripped on the docked header too
         // (ticket 04, finding 1 — #1101's strip was dead here). Falls back to
         // taskPreview for entries that never populated workIntent.
-        task: r.workIntent ?? r.taskPreview,
-        // Fallback-aware model segment (RunView.modelSeg — encodes the `→`
-        // fallback marker), projected from the raw record until Task 6 swaps
-        // this widget's reads to views().
-        modelSeg: buildRunView(r, Date.now()).modelSeg,
+        task: v.workIntent ?? v.taskPreview,
+        modelSeg: v.modelSeg,
       },
       theme,
     );
-    const history = r.history;
-    if (!history || history.length === 0) {
+    const history = v.history;
+    if (history.length === 0) {
       return [`${INDENT}${header}`];
     }
     if (!this.expanded) {
@@ -167,14 +169,12 @@ export class SubagentContextWidget {
     }
     // Expanded: paired call/result → one past-tense `✓`; trailing un-paired
     // call → in-flight `→ …`; compact progress on the in-flight line (else a
-    // trailing line). minToolCalls floors the count so a snapshot never visibly
-    // regresses (the box polls, so the floor is the current count itself).
-    const minToolCalls = history.filter((h) => h.kind === "toolCall").length;
-    // Elapsed freeze: a terminal-status run still lingers in the registry until
-    // its batch/parent reaps it — its elapsed must FREEZE at `endedAt`, not keep
-    // ticking (same pattern as subagent-viewer.ts buildLiveTable).
-    const elapsedMs = isTerminalStatus(r.status) && r.endedAt ? r.endedAt - r.startedAt : Date.now() - r.startedAt;
-    const trace = formatSubagentTrace(history, elapsedMs, minToolCalls);
+    // trailing line). v.toolCallCount floors the count so a snapshot never
+    // visibly regresses (the box polls, so the floor is the current count
+    // itself). Elapsed comes from v.elapsedMs — frozen at endedAt by
+    // buildRunView once the run turns terminal, so a lingering completed run
+    // never keeps ticking (the LAST unfrozen elapsed site is gone).
+    const trace = formatSubagentTrace(history, v.elapsedMs, v.toolCallCount);
     // Cap the trace tail to the SAME policy as the inline streaming-expanded
     // view (STREAMING_EXPANDED_TAIL). Ctrl-O expands BOTH surfaces together
     // via { consume: false } (extensions/subagent.ts), so the cap must hold on
@@ -236,7 +236,7 @@ export function installSubagentContextWidget(
   const intervalMs = opts.intervalMs ?? CONTEXT_INTERVAL_MS;
   const si = opts.setInterval ?? setInterval;
   const ci = opts.clearInterval ?? clearInterval;
-  const widget = new SubagentContextWidget({ getRunning: () => opts.registry.list() });
+  const widget = new SubagentContextWidget({ getRunning: () => opts.registry.views({ foreground: false }) });
 
   // The host invokes the factory with the live TUI. Capture it so both the
   // refresh timer and the returned `toggle` handle can call requestRender().
@@ -256,7 +256,7 @@ export function installSubagentContextWidget(
       // the whole TUI every tick. Skip the render when there is nothing live;
       // the first event of a new background run re-renders on its own ticks.
       timerId = si(() => {
-        if (!opts.registry.list().some((r) => !r.foreground)) return;
+        if (opts.registry.views({ foreground: false }).length === 0) return;
         tuiRef?.requestRender();
       }, intervalMs);
     }
