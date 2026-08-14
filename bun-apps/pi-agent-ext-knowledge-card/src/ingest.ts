@@ -952,6 +952,17 @@ function cardTags(rec: KnowledgeRecord): string[] {
 /** Render a zettel card body for a record, with `## 連結` placeholder lines
  *  filled from `links`. The links arg is a list of display targets (already
  *  resolved note basenames or `Tags/...#anchor`). */
+/** Shared detail truncation — the rendered card body AND the kgLlm extract
+ *  prompt both pass through here (P2 FIX C: card-truncation parity, so a
+ *  pathological record can never ship a multi-MB prompt to the chat
+ *  endpoint). The default cap (when `maxDetailChars` is undefined) is the
+ *  caller's: ingestRecords resolves it to 32_000 before either consumer. */
+function truncateDetail(detail: string, maxDetailChars: number): string {
+	return detail.length > maxDetailChars
+		? detail.slice(0, maxDetailChars) + "\n\n…(truncated)"
+		: detail;
+}
+
 function renderCard(
 	rec: KnowledgeRecord,
 	created: string,
@@ -962,9 +973,7 @@ function renderCard(
 	entities?: ExtractedEntity[],
 	relations?: Relation[],
 ): string {
-	const detail = rec.detail.length > maxDetailChars
-		? rec.detail.slice(0, maxDetailChars) + "\n\n…(truncated)"
-		: rec.detail;
+	const detail = truncateDetail(rec.detail, maxDetailChars);
 	const ev = rec.evidence ?? {};
 	const fm: Record<string, unknown> = {
 		id: rec.id,
@@ -1641,7 +1650,10 @@ export async function ingestRecords(
 		let entities: ExtractedEntity[] | undefined;
 		let relations: Relation[] | undefined;
 		if (kgLlm) {
-			const llmResult = await extractor.extract(`${rec.title} ${rec.detail}`);
+			// P2 FIX C: the prompt sees the SAME capped detail the rendered card
+			// writes (truncateDetail + maxDetailChars) — never the raw record.
+			const llmText = `${rec.title} ${truncateDetail(rec.detail, maxDetailChars)}`;
+			const llmResult = await extractor.extract(llmText);
 			if (linkWeighting === "idf") {
 				entities = (rec.entities as ExtractedEntity[] | undefined)?.length
 					? (rec.entities as ExtractedEntity[])

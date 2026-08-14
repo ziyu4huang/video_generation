@@ -26,7 +26,7 @@ import {
 	type KnowledgeRecord,
 } from "../src/ingest.ts";
 import { validateZettelNote } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
-import { LlmRelationExtractor } from "../src/extractor.ts";
+import { LlmRelationExtractor, type Extractor } from "../src/extractor.ts";
 import { retrieveRecords } from "../src/retrieve.ts";
 
 let vault: string;
@@ -967,6 +967,68 @@ describe("ingestRecords — LLM relations write path (Phase-2 T3)", () => {
 		expect(card).not.toContain("relations:");
 		expect(card).toMatch(/^entities: \[/m);
 		expect(validateZettelNote(card).ok).toBe(true);
+	});
+
+	/** P2 FIX C (card-truncation parity): the kgLlm extract prompt must see
+	 *  the SAME capped detail the rendered card writes — a pathological record
+	 *  can never ship a multi-MB prompt to the chat endpoint. The injected
+	 *  extractor CAPTURES the received text so the exact prompt is asserted. */
+	function capturingExtractor(captured: string[]): Extractor {
+		return {
+			extract: async (text: string) => {
+				captured.push(text);
+				return { entities: [], relations: [] };
+			},
+		};
+	}
+
+	test("kgLlm ON: extract prompt detail capped at maxDetailChars (card-truncation parity)", async () => {
+		const CAP = 64;
+		const TRUNC_MARK = "\n\n…(truncated)";
+		const title = "Cap probe card "; // includes the join space
+		const captured: string[] = [];
+		await ingestRecords(
+			[rec({ id: "llm:cap", title: "Cap probe card", detail: "x".repeat(100_000) })],
+			{
+				vaultPath: vault,
+				source: "workflow-jsonl",
+				sourceLabel: "llm",
+				linkWeighting: "idf",
+				kgLlm: true,
+				maxDetailChars: CAP,
+				_extractor: capturingExtractor(captured),
+			},
+		);
+		// the prompt is title + capped detail + truncation marker — NOT 100k chars
+		expect(captured.length).toBe(1);
+		const prompt = captured[0]!;
+		expect(prompt.startsWith(title)).toBe(true);
+		expect(prompt.length).toBeLessThanOrEqual(title.length + CAP + TRUNC_MARK.length);
+		expect(prompt).toContain("…(truncated)");
+		// the card md still applies its own (same-mechanism) truncation
+		const card = readFileSync(join(vault, FOLDER, "llm-cap.md"), "utf8");
+		expect(card).toContain("…(truncated)");
+		expect(card).not.toContain("x".repeat(CAP + 1));
+		expect(validateZettelNote(card).ok).toBe(true);
+	});
+
+	test("kgLlm ON: maxDetailChars undefined → prompt uses renderCard's 32_000 default", async () => {
+		const TRUNC_MARK = "\n\n…(truncated)";
+		const title = "Default cap card ";
+		const captured: string[] = [];
+		await ingestRecords(
+			[rec({ id: "llm:dcap", title: "Default cap card", detail: "y".repeat(100_000) })],
+			{
+				vaultPath: vault,
+				source: "workflow-jsonl",
+				sourceLabel: "llm",
+				kgLlm: true,
+				_extractor: capturingExtractor(captured),
+			},
+		);
+		const prompt = captured[0]!;
+		expect(prompt.length).toBeLessThanOrEqual(title.length + 32_000 + TRUNC_MARK.length);
+		expect(prompt).toContain("…(truncated)");
 	});
 });
 

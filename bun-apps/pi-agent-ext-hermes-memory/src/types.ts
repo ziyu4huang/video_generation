@@ -212,9 +212,9 @@ export interface MemoryConfig {
    *  fallback). Carried across the seam via `IngestOptions.kgLlm`. */
   kgLlm: boolean;
   /** Model override for the LLM relation extractor when `kgLlm` is ON.
-   *  Parsed from the config file (allowlisted string); when unset, zk's
-   *  `PI_KG_LLM_MODEL` env fallback stays authoritative. Carried across the
-   *  seam via `IngestOptions.kgLlmModel`. */
+   *  Optional LLM chat model id for kg.llm extraction. Currently
+   *  opts/env-only (`PI_KG_LLM_MODEL`); config-file parsing intentionally
+   *  deferred. Carried across the seam via `IngestOptions.kgLlmModel`. */
   kgLlmModel?: string;
 }
 
