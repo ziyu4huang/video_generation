@@ -352,6 +352,45 @@ export function checkBudgetExhaustion(
 }
 
 /**
+ * Informational 80%-of-budget warning — structurally mirrors
+ * {@link BudgetExhaustion} but is purely advisory: it NEVER aborts a run.
+ * Computed by callers from the FINAL usage the runner already reports via
+ * `AgentRunOptions.onUsage` (the existing usage-out channel — no new result
+ * channel is introduced for it).
+ */
+export interface BudgetWarning {
+  /** Which budget reached ≥80% of its ceiling. */
+  kind: "tokens" | "spend";
+  /** The caller-declared ceiling. */
+  limit: number;
+  /** The final cumulative usage. */
+  actual: number;
+}
+
+/** Fixed warning ratio: final usage at ≥ this fraction of a set budget trips the warning. No config knob by design. */
+export const BUDGET_WARNING_RATIO = 0.8;
+
+/**
+ * Pure: check cumulative usage against the informational 80% warning line.
+ * Mirrors {@link checkBudgetExhaustion}'s shape and tokens-before-spend
+ * precedence, but with `>=` at BUDGET_WARNING_RATIO × limit — reaching
+ * exactly 80% trips, 79.99% does not. Returns `undefined` when no budget is
+ * set or neither trips. Informational only: never aborts, never retries.
+ */
+export function checkBudgetWarning(
+  stats: { tokens: { total: number }; cost: number },
+  budget: { tokenBudget?: number; spendBudget?: number },
+): BudgetWarning | undefined {
+  if (budget.tokenBudget !== undefined && stats.tokens.total >= BUDGET_WARNING_RATIO * budget.tokenBudget) {
+    return { kind: "tokens", limit: budget.tokenBudget, actual: stats.tokens.total };
+  }
+  if (budget.spendBudget !== undefined && stats.cost >= BUDGET_WARNING_RATIO * budget.spendBudget) {
+    return { kind: "spend", limit: budget.spendBudget, actual: stats.cost };
+  }
+  return undefined;
+}
+
+/**
  * Minimal session surface the budget guard needs (real AgentSession or a test
  * double): cumulative stats + mid-run abort. `getSessionStats()` is the SAME
  * stat source the onUsage path reads just before disposal.

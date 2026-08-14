@@ -6,7 +6,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type {
   AgentRegistry,
   AgentUsage,
-  BudgetExhaustion,
+  BudgetWarning,
   createWorktree,
   removeWorktree,
   SddReport,
@@ -18,6 +18,27 @@ import type { GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
 import type { SubagentRunPersistence } from "./subagent-run-persistence.js";
 import type { WatchdogResult } from "./watchdog/types.js";
+
+/**
+ * Budget block carried on the `subagent` tool-result details and the durable
+ * `subagent_runs` record. The exhaustion fields (`kind`/`limit`/`actual`) are
+ * present only when the run was ABORTED for exceeding `tokenBudget`/
+ * `spendBudget` (status "budget" — mirrors SpawnSubagentResult.budget /
+ * core-runtime BudgetExhaustion). `warning` is the informational
+ * 80%-of-budget notice (fixed 0.8 ratio): present when the run COMPLETED with
+ * final usage ≥80% of a set budget — advisory only, status stays "done",
+ * never aborts/retries. Old records without either stay valid.
+ */
+export interface SubagentBudgetDetails {
+  /** Which budget was exceeded (abort path only). */
+  kind?: "tokens" | "spend";
+  /** The caller-declared ceiling (abort path only). */
+  limit?: number;
+  /** The cumulative usage at the moment of abort (abort path only). */
+  actual?: number;
+  /** Informational 80% warning (completed-run path only). */
+  warning?: BudgetWarning;
+}
 
 export interface SubagentToolDetails {
   exitCode: number;
@@ -41,12 +62,8 @@ export interface SubagentToolDetails {
   status: "done" | "failed" | "timedout" | "budget" | "aborted";
   /** Real token/cost usage from the child session, when reported. */
   usage?: AgentUsage;
-  /**
-   * Set when the run was aborted for exceeding `tokenBudget`/`spendBudget`
-   * (status "budget"). Carries which budget, the limit, and the actual usage
-   * at abort — distinct from a timeout (wall-clock) or a generic failure.
-   */
-  budget?: BudgetExhaustion;
+  /** Budget block — exhaustion fields on the abort path, `warning` on the completed ≥80% path (see {@link SubagentBudgetDetails}). */
+  budget?: SubagentBudgetDetails;
   /**
    * Parsed SDD report block (ticket 04), when the subagent's output carries the
    * `**Status:**` marker. Absent for plain (non-SDD) dispatches, schema results,

@@ -1,6 +1,11 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { type BudgetSessionSurface, checkBudgetExhaustion, createBudgetGuard } from "../src/agent.js";
+import {
+  type BudgetSessionSurface,
+  checkBudgetExhaustion,
+  checkBudgetWarning,
+  createBudgetGuard,
+} from "../src/agent.js";
 
 // ---------------------------------------------------------------------------
 // Direct semantics of checkBudgetExhaustion (previously covered only indirectly
@@ -157,4 +162,41 @@ test("stats not yet available (getSessionStats throws) is skipped, not fatal", (
   guard.onSessionEvent(usageObservation(2000));
   assert.deepEqual(guard.exhaustion, { kind: "tokens", limit: 1000, actual: 2000 });
   assert.equal(aborts.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Direct semantics of checkBudgetWarning — the informational 80% line (fixed
+// BUDGET_WARNING_RATIO = 0.8, no config knob; never aborts, mirrors the
+// exhaustion precedence: tokens checked before spend).
+// ---------------------------------------------------------------------------
+
+test("checkBudgetWarning: exactly 80% trips (>= at the ratio)", () => {
+  assert.deepEqual(checkBudgetWarning({ tokens: { total: 800 }, cost: 0 }, { tokenBudget: 1000 }), {
+    kind: "tokens",
+    limit: 1000,
+    actual: 800,
+  });
+  assert.deepEqual(checkBudgetWarning({ tokens: { total: 1 }, cost: 0.4 }, { spendBudget: 0.5 }), {
+    kind: "spend",
+    limit: 0.5,
+    actual: 0.4,
+  });
+});
+
+test("checkBudgetWarning: 79.99% does not trip", () => {
+  assert.equal(checkBudgetWarning({ tokens: { total: 799.9 }, cost: 0 }, { tokenBudget: 1000 }), undefined);
+  assert.equal(checkBudgetWarning({ tokens: { total: 1 }, cost: 0.399 }, { spendBudget: 0.5 }), undefined);
+});
+
+test("checkBudgetWarning: tokens checked before spend when both trip", () => {
+  const result = checkBudgetWarning({ tokens: { total: 800 }, cost: 9 }, { tokenBudget: 1000, spendBudget: 0.5 });
+  assert.equal(result?.kind, "tokens");
+});
+
+test("checkBudgetWarning: no budgets set → undefined regardless of usage", () => {
+  assert.equal(checkBudgetWarning({ tokens: { total: 1_000_000 }, cost: 999 }, {}), undefined);
+});
+
+test("checkBudgetWarning: below the ratio on the set budget → undefined (other budget unset)", () => {
+  assert.equal(checkBudgetWarning({ tokens: { total: 100 }, cost: 0 }, { tokenBudget: 1000 }), undefined);
 });

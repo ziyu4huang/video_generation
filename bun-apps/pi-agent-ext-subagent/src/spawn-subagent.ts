@@ -21,6 +21,8 @@ import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
 import {
   type AgentUsage,
   type BudgetExhaustion,
+  type BudgetWarning,
+  checkBudgetWarning,
   isWorkflowError,
   loadModelTierConfig,
   resolveModelRole,
@@ -131,6 +133,13 @@ export interface SpawnSubagentResult {
   usage?: AgentUsage;
   /** Set when the run was aborted for exceeding tokenBudget/spendBudget (distinct from timedOut/failed). */
   budget?: BudgetExhaustion;
+  /**
+   * Informational 80%-of-budget warning (fixed 0.8 ratio): set when the run
+   * COMPLETED (not aborted) and final usage reached ≥80% of a set budget —
+   * same {kind, limit, actual} shape as {@link budget}. Advisory only: it
+   * never aborts, never retries, and does not change exitCode/status.
+   */
+  budgetWarning?: BudgetWarning;
 }
 
 const TRANSIENT_NETWORK_RE =
@@ -190,6 +199,20 @@ function mergeUsage(a: AgentUsage | undefined, b: AgentUsage | undefined): Agent
     total: a.total + b.total,
     cost: a.cost + b.cost,
   };
+}
+
+/** Informational 80% budget warning (never aborts): computed from the FINAL
+ *  usage the runner reported (the existing onUsage channel) against whichever
+ *  budgets are set. Only meaningful on a completed run. */
+function budgetWarningFor(
+  usage: AgentUsage | undefined,
+  budget: { tokenBudget?: number; spendBudget?: number },
+): BudgetWarning | undefined {
+  if (!usage) return undefined;
+  return checkBudgetWarning(
+    { tokens: { total: usage.total }, cost: usage.cost },
+    { tokenBudget: budget.tokenBudget, spendBudget: budget.spendBudget },
+  );
 }
 
 /** Merge a caller-provided `modelRuntime` into the session override. The runtime
@@ -270,7 +293,14 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
       // destroy the schema payload — JSON-serialize it instead so callers
       // that parse `output` keep working. Null/undefined → empty string.
       const output = typeof out === "string" ? out : out == null ? "" : JSON.stringify(out);
-      return { result: { output, exitCode: 0, stderr: "", timedOut: false, usage }, transient: false };
+      // Informational 80% warning on the COMPLETED run (never aborts/retries):
+      // computed from this attempt's final usage via the same pure check the
+      // abort guard uses, but purely advisory.
+      const budgetWarning = budgetWarningFor(usage, opts);
+      return {
+        result: { output, exitCode: 0, stderr: "", timedOut: false, usage, ...(budgetWarning ? { budgetWarning } : {}) },
+        transient: false,
+      };
     } catch (e) {
       const c = classifyError(e, ac.signal.aborted);
       return {
@@ -296,7 +326,14 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
   if (opts.externalSignal?.aborted) return first.result;
   // Single retry on a transient failure (mirrors runSubagentWithRetry). The
   // failed first attempt still burned real tokens (largest exactly when it
-  // timed out) — surface the SUM of both attempts, not just the second.
+  // timed out) — surface the SUM of both attempts, not just the second. The
+  // warning is recomputed over the merged usage (the run's real final spend).
   const second = await tryOnce();
-  return { ...second.result, usage: mergeUsage(first.result.usage, second.result.usage) };
+  const usage = mergeUsage(first.result.usage, second.result.usage);
+  const budgetWarning = budgetWarningFor(usage, opts);
+  return {
+    ...second.result,
+    usage,
+    ...(budgetWarning ? { budgetWarning } : { budgetWarning: undefined }),
+  };
 }
