@@ -218,6 +218,30 @@ export class SqliteMemoryRepository implements MemoryRepository {
     return row ? mapRow(row) : null;
   }
 
+  /** C6: the ONE identity-dedup SELECT — shared by addMemory and syncOneInTx
+   *  so both paths can never disagree on dedup identity. Identity = target +
+   *  project + category + content (exact equality, NULL-aware), mirroring the
+   *  sync path. Returns the EARLIEST row (ORDER BY id ASC LIMIT 1) so a
+   *  multi-match resolves to the same row from both call sites. */
+  private findEarliestByIdentity(
+    content: string,
+    target: MemoryTarget | undefined,
+    project: string | null,
+    category: MemoryCategory | null,
+  ): MemoryRow | undefined {
+    const params: unknown[] = [];
+    const conditions = buildScopeConditions(params, target, project, category);
+    conditions.push("content = ?");
+    params.push(content);
+    return this.db.prepare(`
+      SELECT ${MEMORY_SELECT_COLUMNS}
+      FROM memories
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY id ASC
+      LIMIT 1
+    `).get(...params) as MemoryRow | undefined;
+  }
+
   async addMemory(input: {
     content: string;
     target?: MemoryTarget;
@@ -233,49 +257,60 @@ export class SqliteMemoryRepository implements MemoryRepository {
     severity?: number | null;
     pin?: boolean;
   }): Promise<MemoryEntry> {
-    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
-      const content = input.content;
-      const target = input.target ?? "memory";
-      const project = input.project ?? null;
-      const category = input.category ?? null;
-      const failureReason = input.failureReason ?? null;
-      const toolState = input.toolState ?? null;
-      const correctedTo = input.correctedTo ?? null;
-      const created = input.created ?? today();
-      const lastReferenced = input.lastReferenced ?? created;
-      // Task 7 / F1: stamp the stable id at birth so the row is never id-less.
-      const mdId = input.mdId ?? null;
-      // Pin (ticket 02): 0/1 — only literal `true` writes 1.
-      const pin = input.pin === true ? 1 : 0;
+    // C6: exact-dup dedup is part of the MemoryRepository contract. The
+    // read-then-write dedup runs inside BEGIN IMMEDIATE (mirrors the sync
+    // batch) so a concurrent connection cannot pass the same identity SELECT
+    // and also INSERT. Hit → return the EXISTING entry (no duplicate row);
+    // the returned id is identical across identical calls.
+    return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() =>
+      runExclusive(this.db, () => {
+        const content = input.content;
+        const target = input.target ?? "memory";
+        const project = input.project ?? null;
+        const category = input.category ?? null;
 
-      const result = this.db.prepare(`
-        INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, md_id, state, severity, pin)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, 0, 0, mdId, input.state ?? "active", input.severity ?? null, pin);
+        const existing = this.findEarliestByIdentity(content, target, project, category);
+        if (existing) return mapRow(existing);
 
-      return {
-        id: Number(result.lastInsertRowid),
-        project,
-        target,
-        category,
-        content,
-        failureReason,
-        toolState,
-        correctedTo,
-        created,
-        lastReferenced,
-        mwSuccess: 0,
-        mwFail: 0,
-        status: "active",
-        supersedes: null,
-        supersededBy: null,
-        parentIds: [],
-        mdId,
-        state: input.state ?? "active",
-        severity: input.severity ?? null,
-        ...(pin ? { pin: true } : {}),
-      };
-    }));
+        const failureReason = input.failureReason ?? null;
+        const toolState = input.toolState ?? null;
+        const correctedTo = input.correctedTo ?? null;
+        const created = input.created ?? today();
+        const lastReferenced = input.lastReferenced ?? created;
+        // Task 7 / F1: stamp the stable id at birth so the row is never id-less.
+        const mdId = input.mdId ?? null;
+        // Pin (ticket 02): 0/1 — only literal `true` writes 1.
+        const pin = input.pin === true ? 1 : 0;
+
+        const result = this.db.prepare(`
+          INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced, mw_success, mw_fail, md_id, state, severity, pin)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, 0, 0, mdId, input.state ?? "active", input.severity ?? null, pin);
+
+        return {
+          id: Number(result.lastInsertRowid),
+          project,
+          target,
+          category,
+          content,
+          failureReason,
+          toolState,
+          correctedTo,
+          created,
+          lastReferenced,
+          mwSuccess: 0,
+          mwFail: 0,
+          status: "active",
+          supersedes: null,
+          supersededBy: null,
+          parentIds: [],
+          mdId,
+          state: input.state ?? "active",
+          severity: input.severity ?? null,
+          ...(pin ? { pin: true } : {}),
+        };
+      }),
+    ));
   }
 
   // Single delegates to the batch with one input — ONE sync implementation
@@ -317,18 +352,9 @@ export class SqliteMemoryRepository implements MemoryRepository {
     // merge UPDATE (mirrors state/severity's stamp-with-default semantics).
     const pin = input.pin === true ? 1 : 0;
 
-    const params: unknown[] = [];
-    const conditions = buildScopeConditions(params, input.target, project, category);
-    conditions.push("content = ?");
-    params.push(content);
-
-    const existing = this.db.prepare(`
-      SELECT ${MEMORY_SELECT_COLUMNS}
-      FROM memories
-      WHERE ${conditions.join(" AND ")}
-      ORDER BY id ASC
-      LIMIT 1
-    `).get(...params) as MemoryRow | undefined;
+    // C6: shared identity-SELECT (same helper addMemory uses — ONE dedup
+    // definition across add + sync).
+    const existing = this.findEarliestByIdentity(content, input.target, project, category);
 
     if (!existing) {
       // Task 7 / F1: stamp the birth id so a freshly-synced row is never id-less

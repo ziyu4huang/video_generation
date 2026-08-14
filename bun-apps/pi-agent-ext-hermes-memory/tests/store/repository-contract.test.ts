@@ -76,6 +76,49 @@ export function runMemoryRepositoryContract(
       }
     });
 
+    // C6: exact-dup dedup is part of the MemoryRepository CONTRACT itself —
+    // addMemory no longer blind-INSERTs. Identity is the sync path's:
+    // target + project + category + content (exact equality). Boundary: NEAR-dup
+    // / topic-level dedup (similarity, semantic keys) stays in the MemoryStore
+    // layer (dedup-strategy / near-dup) — only exact identity equality lives here.
+    it("addMemory dedups exact identity duplicates (C6): same id both calls, one row", async () => {
+      const { repo, close } = await make();
+      try {
+        const first = await repo.addMemory({
+          content: "c6 exact-dup nonce zxqwbu",
+          target: "memory",
+          project: "c6-dedup-proj",
+          category: "insight",
+        });
+        const second = await repo.addMemory({
+          content: "c6 exact-dup nonce zxqwbu",
+          target: "memory",
+          project: "c6-dedup-proj",
+          category: "insight",
+        });
+        expect(second.id).toBe(first.id);
+        expect(second.content).toBe(first.content);
+
+        // Exactly one row with that identity — no silent double-persist.
+        const rows = (await repo.getMemories({ project: "c6-dedup-proj", target: "memory" }))
+          .filter((m) => m.content === "c6 exact-dup nonce zxqwbu");
+        expect(rows.length).toBe(1);
+
+        // Dedup is exact, not scope-wide: a differing-content sibling in the
+        // same scope still inserts.
+        const third = await repo.addMemory({
+          content: "c6 distinct sibling nonce zxqwbu",
+          target: "memory",
+          project: "c6-dedup-proj",
+          category: "insight",
+        });
+        expect(third.id).toBeGreaterThan(0);
+        expect(third.id).not.toBe(first.id);
+      } finally {
+        await close();
+      }
+    });
+
     it("search recalls a distinctive term from an indexed entry", async () => {
       const { repo, close } = await make();
       try {
