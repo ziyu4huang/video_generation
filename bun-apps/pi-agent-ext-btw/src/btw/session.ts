@@ -39,6 +39,7 @@ import {
 } from "./constants";
 import {
   BTW_EVENT_CHANNEL,
+  type BtwCommand,
   type BtwEvent,
   type BtwThreadState,
 } from "./webui-events";
@@ -416,6 +417,62 @@ export class BtwEngine {
   emitNotice(text: string): void {
     const event: BtwEvent = { type: "notice", text };
     this.pi.events?.emit(BTW_EVENT_CHANNEL, event);
+  }
+
+  /**
+   * Handle a webui panel command. ask/new/clear/inject/summarize reuse the exact
+   * TUI code paths (runBtw / dispatchBtwCommand); model/thinking/mode use the
+   * engine setters directly. Always ends with a thread event (or a notice on error).
+   */
+  async handleWebuiCommand(command: BtwCommand): Promise<void> {
+    const ctx = this.latestCtx;
+    if (!ctx) {
+      this.emitNotice("btw: no active session context yet");
+      return;
+    }
+    try {
+      switch (command.kind) {
+        case "ask":
+          await this.runBtw(ctx, command.text, false);
+          break;
+        case "new":
+          await this.dispatchBtwCommand("btw:new", "", ctx);
+          break;
+        case "clear":
+          await this.dispatchBtwCommand("btw:clear", "", ctx);
+          break;
+        case "inject":
+          await this.dispatchBtwCommand("btw:inject", "", ctx);
+          this.emitNotice("Injected into the main session");
+          break;
+        case "summarize": {
+          const { thread } = await this.getBtwHandoffThread(ctx);
+          const summary = await this.summarizeThread(ctx, thread);
+          this.emitNotice(summary);
+          break;
+        }
+        case "model": {
+          const model = command.model
+            ? (ctx.modelRegistry.find(command.model.provider, command.model.id) ?? null)
+            : null;
+          await this.setBtwModelOverride(ctx, model);
+          break;
+        }
+        case "thinking":
+          await this.setBtwThinkingOverride(ctx, command.level);
+          break;
+        case "mode":
+          // Mirror the engine's dispose-on-mode-change semantics: next ensureBtwSession
+          // rebuilds in the new mode; dispose now so the panel reflects the reset.
+          this.pendingMode = command.mode;
+          await this.disposeBtwSession();
+          break;
+      }
+    } catch (error) {
+      this.emitNotice(`btw: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    this.emitThreadEvent();
   }
 
   async disposeBtwSession(): Promise<void> {

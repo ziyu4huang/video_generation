@@ -10,3 +10,9 @@ Task 2: minor (deferred): snapshotsFromDetails keeps empty-text assistant snapsh
 Task 2: minor (deferred): brief says "6 tests", file has 7 — brief-side count slip, no behavioral drift
 Task 3: implemented (commit pending review)
 Task 3: fix round 1/5 (ruling: dedicated webuiBridgeUnsub field, human-approved deviation from plan verbatim)
+Task 3: fix round 1/5 (ruling: dedicated webuiBridgeUnsub field, human-approved deviation from plan verbatim; commits 4e5948f..909428a)
+Task 3: complete (commits 6070604..909428a, re-review clean)
+Task 3: minor (deferred): disposeBtwSession emits nothing when no active session (emitThreadEvent after early-exit) — Task 4 handlers must not rely on dispose-always-emits
+Task 3: minor (deferred): subscribeWebuiBridge with a different runtime leaves old subscription attached (unreachable via current call sites)
+Task 3: PLAN DEVIATION (human-approved 2026-08-15): bridge disposer lives in engine field webuiBridgeUnsub, NOT sr.subscriptions — plan Task 3 verbatim code superseded; later tasks/tests must not regress the overlay-attach guard
+Task 4: implemented (commit pending review)
