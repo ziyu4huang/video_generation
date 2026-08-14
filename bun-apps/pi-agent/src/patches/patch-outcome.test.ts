@@ -83,7 +83,7 @@ describe("patch modules self-report a real outcome", () => {
 		test(`${name} exports a boolean patchApplied`, async () => {
 			const proc = Bun.spawn(
 				[
-					"bun",
+					process.execPath,
 					"-e",
 					`const m = await import(${JSON.stringify(`${import.meta.dir}/${name}.ts`)});` +
 						`console.log(JSON.stringify({ t: typeof m.patchApplied, v: m.patchApplied }));`,
@@ -120,7 +120,7 @@ describe("RED: a vanished hook target is reported, not swallowed", () => {
 	// Subprocess: this deliberately breaks the SDK module for the process it
 	// runs in, which must not leak into any other test file.
 	const runWithBrokenHook = async (script: string) => {
-		const proc = Bun.spawn(["bun", "-e", script], { stdout: "pipe", stderr: "pipe" });
+		const proc = Bun.spawn([process.execPath, "-e", script], { stdout: "pipe", stderr: "pipe" });
 		const [out, err, code] = await Promise.all([
 			new Response(proc.stdout).text(),
 			new Response(proc.stderr).text(),

@@ -34,7 +34,7 @@ function tempDir(): string {
 }
 
 async function runDeploy(args: string[]): Promise<{ code: number; err: string }> {
-	const proc = Bun.spawn(["bun", DEPLOY, ...args], {
+	const proc = Bun.spawn([process.execPath, DEPLOY, ...args], {
 		cwd: PKG_DIR,
 		stdout: "pipe",
 		stderr: "pipe",
@@ -139,7 +139,7 @@ describe("deploy cwd guard", () => {
 		// From another package dir, deploy.ts would read that package's
 		// package.json, bake the wrong BUN_APPS_DIR, and aim its recursive delete
 		// at the wrong dist/ — all without erroring.
-		const proc = Bun.spawn(["bun", DEPLOY, tempDir()], {
+		const proc = Bun.spawn([process.execPath, DEPLOY, tempDir()], {
 			cwd: join(PKG_DIR, ".."),
 			stdout: "pipe",
 			stderr: "pipe",
