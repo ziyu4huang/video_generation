@@ -25,8 +25,9 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import type { WorkflowAgent } from "@repo/pi-agent-ext-core-runtime";
-import { parseWorkflowScript, runWorkflow } from "./workflow.js";
+import { runWorkflow } from "./workflow.js";
 import { type Manifest, readManifest } from "./workflow-pack-manifest.js";
+import { parseWorkflowScript } from "./workflow-script-parser.js";
 
 /** Where engine workflow scripts live (project-local, under PWD/.pi). */
 export const PI_WORKFLOWS_DIR = ".pi/workflows";

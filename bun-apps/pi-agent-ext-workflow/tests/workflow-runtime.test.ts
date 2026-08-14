@@ -2,7 +2,8 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { AgentUsage } from "@repo/pi-agent-ext-core-runtime";
 import { WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
-import { type CheckpointOptions, hashAgentCall, type JournalEntry, runWorkflow } from "../src/workflow.js";
+import { type CheckpointOptions, type JournalEntry, runWorkflow } from "../src/workflow.js";
+import { hashAgentCall } from "../src/workflow-runtime.js";
 
 /** Agent runner that counts real invocations and echoes a per-call result. */
 function countingAgent() {

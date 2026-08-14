@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { parseWorkflowScript } from "../src/workflow.js";
+import { parseWorkflowScript } from "../src/workflow-script-parser.js";
 
 const validScript = `export const meta = {
   name: 'demo_workflow',

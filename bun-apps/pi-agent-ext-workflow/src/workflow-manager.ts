@@ -21,8 +21,9 @@ import {
   type RunPersistence,
   type RunStatus,
 } from "./run-persistence.js";
-import { type JournalEntry, parseWorkflowScript, runWorkflow, type WorkflowRunResult } from "./workflow.js";
+import { type JournalEntry, runWorkflow, type WorkflowRunResult } from "./workflow.js";
 import type { ManifestIo } from "./workflow-pack-manifest.js";
+import { parseWorkflowScript } from "./workflow-script-parser.js";
 
 /** Hash of run args for run-meta.json (decision 11). */
 function inputHash(args: unknown): string {
