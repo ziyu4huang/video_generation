@@ -33,7 +33,7 @@ export interface VectorBackfillDeps {
   modelVersion: string;
   /** Endpoint embedding model id passed to the embedder. */
   embedModel: string;
-  /** Card kinds to embed (default: ["knowledge"]). */
+  /** Card kinds to embed (default: ["knowledge", "image"]). */
   kinds?: CardKind[];
 }
 
@@ -282,7 +282,7 @@ export async function walkAndIngest(
  *  scheduleVectorBackfill is readable synchronously right after it returns. */
 function fireVectorBackfillBestEffort(memoryDir: string | undefined, deps: VectorBackfillDeps): void {
   const dir = memoryDir ?? join(AGENT_ROOT, "pi-hermes-memory");
-  const kinds = deps.kinds ?? (["knowledge"] as CardKind[]);
+  const kinds = deps.kinds ?? (["knowledge", "image"] as CardKind[]);
   void (async () => {
     let store: CardStore | null = null;
     try {

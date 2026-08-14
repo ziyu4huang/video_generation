@@ -57,6 +57,7 @@
   "devDependencies": {
     "@earendil-works/pi-ai": "0.84.1",
     "@earendil-works/pi-coding-agent": "0.84.1",
+    "@repo/pi-agent-ext-file2md": "workspace:*",
     "@types/proper-lockfile": "^4.1.4",
     "@types/retry": "^0.12.5",
     "typebox": "^1.1.33",
