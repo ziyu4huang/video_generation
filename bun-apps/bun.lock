@@ -162,6 +162,7 @@
         "ci-changed-packages": "./src/changed-packages-cli.ts",
         "devops-sync": "./src/sync-cli.ts",
         "devops-pr-finish": "./src/pr-finish-cli.ts",
+        "devops-verify-deploy": "./src/verify-deploy-cli.ts",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -224,6 +225,7 @@
       "devDependencies": {
         "@earendil-works/pi-ai": "0.84.1",
         "@earendil-works/pi-coding-agent": "0.84.1",
+        "@repo/pi-agent-ext-file2md": "workspace:*",
         "@types/proper-lockfile": "^4.1.4",
         "@types/retry": "^0.12.5",
         "typebox": "^1.1.33",

@@ -25,6 +25,7 @@ import type { CardSerializer } from "./card-serializer.js";
 import type { DedupStrategy } from "./dedup-strategy.js";
 import { MemorySerializer } from "./memory-serializer.js";
 import { KnowledgeSerializer } from "./knowledge-serializer.js";
+import { ImageSerializer } from "./image-serializer.js";
 import { PlanningEffortSerializer } from "./planning-serializer.js";
 import { PlanningTicketSerializer } from "./planning-serializer.js";
 import { MemoryDedupStrategy } from "./memory-dedup.js";
@@ -158,6 +159,7 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
     ["knowledge", new KnowledgeSerializer()],
     ["planning-effort", new PlanningEffortSerializer()],
     ["planning-ticket", new PlanningTicketSerializer()],
+    ["image", new ImageSerializer()],
   ]);
   const memoryDedup = new MemoryDedupStrategy();
   const dedupStrategies = new Map<CardKind, DedupStrategy>([
@@ -167,6 +169,7 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
     ["knowledge", new KnowledgeDedupStrategy()],
     ["planning-effort", new PlanningEffortDedupStrategy()],
     ["planning-ticket", new PlanningTicketDedupStrategy()],
+    ["image", new KnowledgeDedupStrategy()],
   ]);
 
   const getDb = () => backend.getDb();
@@ -198,7 +201,7 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
       // MemoryStore consolidation path; knowledge merge is 06b).
       if (decision.action !== "keep") return;
 
-      const persistableKinds = new Set<CardKind>(["knowledge", "planning-effort", "planning-ticket"]);
+      const persistableKinds = new Set<CardKind>(["knowledge", "planning-effort", "planning-ticket", "image"]);
       await runWithTransientRetry(() =>
         backend.withCorruptionRecovery(() => {
           if (!persistableKinds.has(card.kind)) {
