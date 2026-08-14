@@ -51,3 +51,6 @@ Files:
   follows the timeout pattern.
 - Tests: schema-weight (new param present); tool forwarding (singular + plural);
   classification + retry-once; core-runtime turn counting; render/persistence.
+
+## Status
+SHIPPED 2026-08-15 — T1 #1329, T2 #1332, T3a #1335, T3b #1336 + test fix-up #1337. All post-hoc reviews SHIP. Note: #1334 (sibling session, env knobs + two-stage wrap-up) merged mid-cycle, orthogonal to this design.
