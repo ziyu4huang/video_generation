@@ -103,7 +103,7 @@ export {
   wrapError,
 } from "@repo/pi-agent-ext-core-runtime";
 // spawn-subagent
-export type { SpawnSubagentOptions, SpawnSubagentPrime, SpawnSubagentResult } from "./spawn-subagent.js";
+export type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
 export { spawnSubagent } from "./spawn-subagent.js";
 // spawn-subagent-subprocess (the isolated-process analog; wayfind ticket 04).
 // Consumers that need a clean child pi process (obsidian distill/garden,

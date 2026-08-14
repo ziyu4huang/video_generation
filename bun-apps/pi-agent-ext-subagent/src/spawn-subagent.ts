@@ -11,9 +11,8 @@
  * abort / network) for the single retry, and accepts an injectable `agent` runner
  * for unit testing without a real session.
  *
- * `prime?` is a no-op forward-reference to sub-project ③ (auto-primer). `extensionTools?`
- * is the R2 bridge (Phase-1 finding): parent-session tools threaded into the child so
- * obsidian tools reach it in BOTH manifest-installed and `-e` dev mode.
+ * `extensionTools?` is the R2 bridge (Phase-1 finding): parent-session tools threaded
+ * into the child so obsidian tools reach it in BOTH manifest-installed and `-e` dev mode.
  */
 
 import type { CreateAgentSessionOptions, ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -31,12 +30,6 @@ import {
   WorkflowErrorCode,
 } from "@repo/pi-agent-ext-core-runtime";
 import type { TSchema } from "typebox";
-
-export interface SpawnSubagentPrime {
-  query: string;
-  topK?: number;
-  folder?: string;
-}
 
 export interface SpawnSubagentOptions {
   task: string;
@@ -92,8 +85,6 @@ export interface SpawnSubagentOptions {
   maxTurns?: number;
   /** Retry once on a transient (timeout/abort/network/schema-noncompliance) failure. Default true. */
   retryOnTransient?: boolean;
-  /** Forward-ref to ③ — accepted but does NOT retrieve or alter output. */
-  prime?: SpawnSubagentPrime;
   /** Parent-session tools to bridge into the child (R2). */
   extensionTools?: ToolDefinition[];
   /**
@@ -282,7 +273,6 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
     const timer = opts.timeoutMs ? setTimeout(() => ac.abort(), opts.timeoutMs) : undefined;
     let usage: AgentUsage | undefined;
     try {
-      // `prime` is intentionally NOT used here (③ owns the auto-primer).
       const out = await runner.run(opts.task, {
         label: "zk-spawn",
         schema: opts.schema,

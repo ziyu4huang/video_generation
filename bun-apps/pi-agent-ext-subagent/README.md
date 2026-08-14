@@ -12,7 +12,6 @@ import {
   spawnSubagent,
   type SpawnSubagentOptions,
   type SpawnSubagentResult,
-  type SpawnSubagentPrime,
   // The LLM-caller engine (thin adapter over Pi's createAgentSession)
   WorkflowAgent,
   type WorkflowAgentOptions,
