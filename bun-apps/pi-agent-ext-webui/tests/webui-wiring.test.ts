@@ -371,6 +371,23 @@ describe("wireWebui — inbound dispatch", () => {
       server.wsCloseHandler!();
       await expect(pending).resolves.toEqual({ cancelled: true });
     });
+
+    test("registerPending resolves a stale DUPLICATE id as {cancelled:true} (no silent overwrite)", async () => {
+      const { pi, wiring } = setup();
+      pi.emit("session_start", { type: "session_start", reason: "startup" });
+      const first = wiring.registerPending("dup");
+      const second = wiring.registerPending("dup");
+      // The FIRST registration must not hang forever — it resolves as cancelled.
+      await expect(first).resolves.toEqual({ cancelled: true });
+      // The second registration stays pending (it now owns the id).
+      let resolved = false;
+      second.then(() => { resolved = true; });
+      await Promise.resolve();
+      expect(resolved).toBe(false);
+      // Clean up + re-assert session_shutdown cancels the surviving registration.
+      pi.emit("session_shutdown", { type: "session_shutdown", reason: "done" });
+      await expect(second).resolves.toEqual({ cancelled: true });
+    });
   });
 
   test("control subscribe/unsubscribe → no side effect (v1 no-op)", () => {
@@ -450,6 +467,44 @@ describe("wireWebui — dispose()", () => {
  * live instance for identity + idempotent-reuse assertions. Proper teardown
  * (dispose → stop) in afterEach so no bound port leaks across the run.
  */
+describe("wireWebui — webui:present event (present-as-view, spec Decision A)", () => {
+  test("a webui:present payload mints the 'present' view carrying controls + presentId", async () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", { type: "session_start", reason: "startup" });
+    pi.events.emit("webui:present", {
+      content: "# pick one",
+      id: "p9",
+      controls: [
+        { id: "approve", label: "Approve" },
+        { id: "regenerate", label: "Regenerate…", takesInput: true },
+      ],
+    });
+    // Observe the minted view through the installed HTTP routes (the registry
+    // is wiring-internal; httpRoutes closes over it).
+    expect(server.httpRoutes).not.toBeNull();
+    const res = server.httpRoutes!(new Request("http://t/api/view/present"), {} as never);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      id: "present",
+      mode: "md",
+      presentId: "p9",
+      controls: [
+        { id: "approve", label: "Approve" },
+        { id: "regenerate", label: "Regenerate…", takesInput: true },
+      ],
+    });
+    expect(body.html).toContain("<h1");
+  });
+
+  test("an invalid webui:present payload mints nothing (no throw)", () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", { type: "session_start", reason: "startup" });
+    expect(() => pi.events.emit("webui:present", { content: "no controls" })).not.toThrow();
+    const res = server.httpRoutes!(new Request("http://t/api/view/present"), {} as never);
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("wireWebui — persistent-co-frontend singleton (Path-A keystone)", () => {
   let wirings: WebuiWiring[] = [];
   let instances: WebServer[] = [];

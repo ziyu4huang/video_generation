@@ -89,6 +89,8 @@ export function createRenderRoutes(
           content: view.content,
           title: view.title ?? null,
           updatedAt: view.updatedAt,
+          ...(view.controls !== undefined ? { controls: view.controls } : {}),
+          ...(view.presentId !== undefined ? { presentId: view.presentId } : {}),
         });
       }
       return json({
@@ -97,6 +99,8 @@ export function createRenderRoutes(
         html: renderMarkdown(view.content),
         title: view.title ?? null,
         updatedAt: view.updatedAt,
+        ...(view.controls !== undefined ? { controls: view.controls } : {}),
+        ...(view.presentId !== undefined ? { presentId: view.presentId } : {}),
       });
     }
 

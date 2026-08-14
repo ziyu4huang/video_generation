@@ -10,11 +10,27 @@
  */
 export type RenderMode = "md" | "html";
 
+/**
+ * A declarative HITL response control (spec #05 contract): the browser renders
+ * one button per control; `takesInput` reveals a free-text tweak field next to
+ * it. Lives HERE (not protocol.ts) because Control is a view-model concept that
+ * rides RenderView + /api/view/:id — it never appears in a WS frame.
+ */
+export interface Control {
+  id: string;
+  label: string;
+  takesInput?: boolean;
+}
+
 export interface RenderView {
   id: string;
   mode: RenderMode;
   content: string;
   title?: string;
+  /** Present-as-view (spec Decision A): declarative HITL controls, when this view is a presentation. */
+  controls?: Control[];
+  /** The pending-presentation id this view answers to (the appexec respond id). */
+  presentId?: string;
   updatedAt: number;
 }
 
@@ -23,6 +39,8 @@ export interface RenderInput {
   mode?: RenderMode;
   view?: string;
   title?: string;
+  controls?: Control[];
+  presentId?: string;
 }
 
 export interface RenderResult {
@@ -59,6 +77,8 @@ export class RenderService {
       mode,
       content: input.content,
       ...(input.title !== undefined ? { title: input.title } : {}),
+      ...(input.controls !== undefined ? { controls: input.controls } : {}),
+      ...(input.presentId !== undefined ? { presentId: input.presentId } : {}),
       updatedAt,
     };
     this.views.set(viewId, view);
