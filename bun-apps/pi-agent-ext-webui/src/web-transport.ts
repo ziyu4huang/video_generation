@@ -42,10 +42,13 @@ export class WebTransport {
    *   because ALL inbound web agentic commands gate as `"extension"` (spec §1, §6)
    *   — Task 3 passes it straight to the mutex controller's input gate
    *   (`"extension"`) without having to know the web's source identity.
-   * - `appexec` → `{ kind:"appexec", op }` with NO `source` field. This is the
-   *   contract Task 3 branches on (`kind === "agentic"`) to bypass the mutex
-   *   entirely (spec §6: appexec must NOT be routed through the input gate). v1
-   *   defines no concrete appexec ops — this is a forward seam (spec §3).
+   * - `appexec` → `{ kind:"appexec", op:"respond", id, action, tweak? }` with
+   *   NO `source` field. This is the contract the wiring branches on
+   *   (`kind === "agentic"`) to bypass the mutex entirely (spec §6: appexec
+   *   must NOT be routed through the input gate). `respond` is the HITL return
+   *   transport (spec Component 1, shipped in Phase 1): it resolves the pending
+   *   Promise registered under `id`. An unknown op or a malformed respond
+   *   resolves to `null` (ignored — spec §6 forward-compat).
    * - `subscribe` / `unsubscribe` → `{ kind:"control", op }`.
    * - unknown type → `null` (defensive). A ClientFrame is a closed, validated
    *   union so this is unreachable for well-typed input; but an unknown type must

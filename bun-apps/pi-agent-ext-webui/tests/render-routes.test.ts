@@ -104,6 +104,52 @@ describe("createRenderRoutes — GET /api/view/:id", () => {
     const res = await fetch(`${server.url}/api/view/nope`);
     expect(res.status).toBe(404);
   });
+
+  it("md present view includes controls + presentId (spec Decision A)", async () => {
+    const { registry, server } = setup(() => 5);
+    registry.render({
+      content: "# approve?",
+      view: "present",
+      controls: [
+        { id: "approve", label: "Approve" },
+        { id: "regenerate", label: "Regenerate…", takesInput: true },
+      ],
+      presentId: "present_9_1",
+    });
+    const res = await fetch(`${server.url}/api/view/present`);
+    expect(res.status).toBe(200);
+    const v = await res.json();
+    expect(v.id).toBe("present");
+    expect(v.html).toContain("<h1");
+    expect(v.controls).toEqual([
+      { id: "approve", label: "Approve" },
+      { id: "regenerate", label: "Regenerate…", takesInput: true },
+    ]);
+    expect(v.presentId).toBe("present_9_1");
+  });
+
+  it("html present view includes controls + presentId", async () => {
+    const { registry, server } = setup(() => 5);
+    registry.render({
+      content: "<p>pick</p>",
+      view: "p",
+      mode: "html",
+      controls: [{ id: "ok", label: "OK" }],
+      presentId: "present_9_2",
+    });
+    const v = await (await fetch(`${server.url}/api/view/p`)).json();
+    expect(v.mode).toBe("html");
+    expect(v.controls).toEqual([{ id: "ok", label: "OK" }]);
+    expect(v.presentId).toBe("present_9_2");
+  });
+
+  it("a non-present view omits controls/presentId keys (clean shape)", async () => {
+    const { registry, server } = setup(() => 5);
+    registry.render({ content: "a", view: "plain" });
+    const v = await (await fetch(`${server.url}/api/view/plain`)).json();
+    expect(v).not.toHaveProperty("controls");
+    expect(v).not.toHaveProperty("presentId");
+  });
 });
 
 describe("createRenderRoutes — fall-through", () => {

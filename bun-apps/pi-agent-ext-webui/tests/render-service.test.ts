@@ -80,3 +80,37 @@ describe("RenderService", () => {
     expect(typeof r.getView("z")?.updatedAt).toBe("number");
   });
 });
+
+describe("RenderService — present-as-view fields (spec Decision A)", () => {
+  it("render() round-trips controls + presentId onto the stored view", () => {
+    const r = new RenderService({ urlFor: () => "#", now: () => 100 });
+    r.render({
+      content: "# approve?",
+      view: "present",
+      controls: [
+        { id: "approve", label: "Approve" },
+        { id: "regenerate", label: "Regenerate…", takesInput: true },
+      ],
+      presentId: "present_123_1",
+    });
+    expect(r.getView("present")).toMatchObject({
+      id: "present",
+      mode: "md",
+      content: "# approve?",
+      controls: [
+        { id: "approve", label: "Approve" },
+        { id: "regenerate", label: "Regenerate…", takesInput: true },
+      ],
+      presentId: "present_123_1",
+      updatedAt: 100,
+    });
+  });
+
+  it("render() does NOT store controls/presentId keys when absent (clean shape)", () => {
+    const r = new RenderService({ urlFor: () => "#", now: () => 1 });
+    r.render({ content: "a", view: "v" });
+    const v = r.getView("v")!;
+    expect(v).not.toHaveProperty("controls");
+    expect(v).not.toHaveProperty("presentId");
+  });
+});

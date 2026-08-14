@@ -44,6 +44,8 @@ import { RenderService } from "./render-service.js";
 import { createRenderRoutes } from "./render-routes.js";
 import { createRenderTool } from "./render-tool.js";
 import { createRenderEventHandler } from "./render-event-handler.js";
+import { createPresentEventHandler } from "./present-event-handler.js";
+import { createPresentTool, type PresentInput } from "./present-tool.js";
 import { createToolMirror } from "./tool-mirror.js";
 import { resolvePort } from "./port-resolver.js";
 
@@ -138,17 +140,27 @@ export interface WebuiDeps {
   server?: WebuiServer;
 }
 
+/**
+ * The structured HITL answer a blocked webui_present execute() resolves with:
+ * a control response `{action: <controlId>, tweak?}` OR an abort
+ * `{cancelled: true}` (session_shutdown / WS close / signal abort). Phase-2
+ * ledger: tightened to a DISCRIMINATED UNION (was an all-optional bag) so a
+ * consumer MUST branch on `cancelled` before reading `action`. Exported
+ * alongside WebuiWiring (render-tool exports its types; same convention).
+ */
+export type HitlResponse = { action: string; tweak?: string } | { cancelled: true };
+
 export interface WebuiWiring {
   /** Neutralize every handler + tear the server down (tests / session end). */
   dispose(): void;
   /**
    * Create + await a pending HITL presentation keyed by `id` (spec Component 1).
-   * Phase 2's `webui_present` tool calls this, then awaits the returned Promise.
+   * The `webui_present` tool calls this, then awaits the returned Promise.
    * Resolves with `{action, tweak?}` when an appexec `respond` arrives for the
-   * id; resolves with `{cancelled:true}` on abort (session_shutdown / WS close —
-   * `action` is ABSENT on a cancelled response).
+   * id; resolves with `{cancelled:true}` on abort (session_shutdown / WS close /
+   * tool-signal abort — `action` is ABSENT on a cancelled response by type).
    */
-  registerPending(id: string): Promise<{ action?: string; tweak?: string; cancelled?: boolean }>;
+  registerPending(id: string): Promise<HitlResponse>;
 }
 
 /**
@@ -222,17 +234,23 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
 
   // --- HITL pending-Promise registry (return transport; spec Component 1) ----
   // Keyed by the respond `id`. registerPending creates + awaits a pending; the
-  // dispatch appexec case resolves it; abort (session_shutdown / WS close)
-  // resolves all pending as {cancelled:true}. Phase 2's webui_present tool is
-  // the producer; Phase 1 tests registerPending directly. In-memory only (spec
-  // Decision C); cleared on resolve/abort. NOTE: `action` is optional — an abort
-  // resolves as `{cancelled:true}` with NO action (tsc-enforced; see
-  // WebuiWiring.registerPending).
-  type HitlResponse = { action?: string; tweak?: string; cancelled?: boolean };
+  // dispatch appexec case resolves it; abort (session_shutdown / WS close /
+  // tool-signal abort) resolves all pending as {cancelled:true}. The
+  // webui_present tool is the producer (Phase 2, Task 2). In-memory only (spec
+  // Decision C); cleared on resolve/abort. HitlResponse is the module-level
+  // exported UNION — branch on "cancelled" in r before reading r.action.
   const pending = new Map<string, { resolve: (r: HitlResponse) => void }>();
 
   function registerPending(id: string): Promise<HitlResponse> {
     return new Promise<HitlResponse>((resolve) => {
+      // Duplicate-id safety (Phase-2 ledger): never silently overwrite — a
+      // stale entry under the same id is resolved as {cancelled:true} FIRST so
+      // its awaiter returns cleanly instead of hanging forever.
+      const stale = pending.get(id);
+      if (stale) {
+        pending.delete(id);
+        stale.resolve({ cancelled: true });
+      }
       pending.set(id, { resolve });
     });
   }
@@ -241,6 +259,15 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   function cancelAllPending(): void {
     for (const entry of pending.values()) entry.resolve({ cancelled: true });
     pending.clear();
+  }
+
+  /** Cancel ONE pending as {cancelled:true} (the webui_present tool's signal-abort path). */
+  function cancelPending(id: string): void {
+    const entry = pending.get(id);
+    if (entry) {
+      pending.delete(id);
+      entry.resolve({ cancelled: true });
+    }
   }
 
   // --- inbound dispatch seam (handed to WebServer.setCommandHandler) ---------
@@ -306,6 +333,13 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
 
   // WS-close abort seam (spec Component 1): a disconnect mid-HITL resolves all
   // pending as {cancelled:true} so a blocked execute() returns cleanly.
+  // KNOWN TENSION (Phase-2 ledger, DOCUMENTED not changed): a browser REFRESH
+  // mid-presentation also closes the WS, so the blocked execute() resolves
+  // {cancelled:true} and the agent must RE-PRESENT. The minted present view
+  // survives in the replace-only store (a reconnecting browser can re-fetch it
+  // via /api/view/:id for display), but the pending GATE does not survive.
+  // Re-attaching a pending presentation to a reconnect is deferred (spec
+  // Decision A/C future work).
   server.setWsCloseHandler(() => cancelAllPending());
 
   // --- render framework (ticket 06 D2/D3) ---------------------------------
@@ -330,6 +364,35 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // boot when those capabilities are absent (no-ops instead). See WebuiHost.
   pi.registerTool?.(createRenderTool(registry));
   pi.events?.on("webui:render", createRenderEventHandler(registry));
+  const presentHandler = createPresentEventHandler(registry);
+  pi.events?.on("webui:present", presentHandler);
+
+  // webui_present (the blocking HITL gate, spec Component 2): the `present` dep
+  // emits the webui:present event (the registered handler mints the view). If
+  // the host has NO shared event bus (guarded seam), fall back to invoking the
+  // handler directly so the view is still minted. Returns the presentId that
+  // keys the pending registry.
+  const present = (input: PresentInput): string => {
+    const payload = {
+      content: input.content,
+      controls: input.controls,
+      id: input.id,
+      ...(input.mode !== undefined ? { mode: input.mode } : {}),
+      ...(input.view !== undefined ? { view: input.view } : {}),
+      ...(input.title !== undefined ? { title: input.title } : {}),
+    };
+    if (pi.events) pi.events.emit("webui:present", payload);
+    else presentHandler(payload);
+    return input.id;
+  };
+  pi.registerTool?.(
+    createPresentTool({
+      present,
+      registerPending,
+      hasPending: () => pending.size > 0,
+      cancelPending,
+    })
+  );
 
   // --- pi.on registration (each handler guarded by `disposed`) ---------------
   const reg = (event: string, handler: (event: any, ctx: any) => unknown): void => {
