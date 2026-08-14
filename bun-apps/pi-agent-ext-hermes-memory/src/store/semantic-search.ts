@@ -32,6 +32,7 @@ import type { KnowledgePipeline, RetrieveResult } from "@repo/pi-agent-ext-core-
 import type { VectorStore, VectorKnnHit } from "./surreal/vector-store.js";
 import { embedQuery, type Embedder } from "./surreal/embedder.js";
 import { normalizeRelation } from "./relation-schema.js";
+import { DEFAULT_BOOST_WEIGHT } from "../constants.js";
 
 /** The card "kind" namespace. Mirrors zk's knowledge folder vs hermes memory. */
 export type SemanticKind = "memory" | "knowledge";
@@ -126,13 +127,10 @@ export interface SearchSemanticOptions {
   /** Ticket 20 T1: dominance weight of the multi-signal frequency vote
  *  (PINNED formula: final = (signalCount - 1) * boostWeight + bestRankScore).
  *  Default 1.0 (at default, any 2-signal card outranks any 1-signal card —
- *  rank score ≤ 1). Config threading is T2; this option exists now. */
+ *  rank score ≤ 1). Threaded from `config.boostWeight` via the
+ *  knowledge-search wiring (T2); DEFAULT_BOOST_WEIGHT lives in constants.ts. */
   boostWeight?: number;
 }
-
-/** Ticket 20 T1: default frequency-vote boost weight (local until T2 threads
- *  it through config — mirrors survivingK's option-first shape). */
-const DEFAULT_BOOST_WEIGHT = 1.0;
 
 /** Internal: normalize a VectorKnnHit to a SemanticSearchHit (warm path). */
 function toHit(h: VectorKnnHit, kind: SemanticKind | undefined): SemanticSearchHit {

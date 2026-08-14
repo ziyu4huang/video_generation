@@ -204,6 +204,13 @@ export interface MemoryConfig {
    *  `searchSemantic`. A CAP not a refill — the post-dedup shortfall below
    *  topK is acceptable. Default: 10 (DEFAULT_SURVIVING_K). */
   survivingK: number;
+  /** Dominance weight of the multi-signal frequency-vote re-rank (ticket 20 /
+   *  LeanRAG ③ vote half). PINNED formula: final = (signalCount - 1) *
+   *  boostWeight + bestRankScore — at the default 1.0 any 2-signal card
+   *  outranks any 1-signal card (rank score ≤ 1). Applied on the warm
+   * `searchSemantic` path only (fallbacks stay single-signal).
+   * Default: 1.0 (DEFAULT_BOOST_WEIGHT). */
+  boostWeight: number;
   /** Opt-in: typed-relation extraction via LLM (LeanRAG ⑤ Phase-2 / D4).
    *  Default OFF (false) — the ingest path is deterministic-by-design
    *  (ADR-0001), zero LLM cost. When ON, zk's ingest gate selects the LLM

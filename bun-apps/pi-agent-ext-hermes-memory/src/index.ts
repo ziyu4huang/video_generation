@@ -134,6 +134,9 @@ function buildKnowledgeSemanticOpts(
     // vector store above — the default (no surreal endpoint) path stays
     // byte-identical with the seam unwired.
     fetchRelations: buildGraphRelationsFetcher(memoryDir),
+    // Ticket 20 T2: frequency-vote dominance weight, threaded from config
+    // (4-point registration; see constants.ts / config.ts).
+    boostWeight: config.boostWeight,
     vectorStore: () => {
       if (!client) client = new SurrealClient({ endpoint, namespace: ns, database: db, username, password });
       if (!store) store = createVectorStore(client, ns, db);

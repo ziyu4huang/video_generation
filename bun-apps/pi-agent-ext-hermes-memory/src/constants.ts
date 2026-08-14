@@ -105,6 +105,12 @@ export const DEFAULT_VECTOR_EF = 100;
  *  contentHash dedup pass on every return path. A CAP not a refill — the
  *  post-dedup count-below-topK shortfall is acceptable behavior. Default 10. */
 export const DEFAULT_SURVIVING_K = 10;
+/** Default dominance weight of the multi-signal frequency-vote re-rank
+ *  (ticket 20 / LeanRAG ③ vote half). PINNED formula: final = (signalCount - 1)
+ *  * boostWeight + bestRankScore — an additive bonus per extra recall signal;
+ *  at the default 1.0 any 2-signal card outranks any 1-signal card (rank
+ *  score ≤ 1), and the knob tunes that dominance. Default 1.0. */
+export const DEFAULT_BOOST_WEIGHT = 1.0;
 
 /** Opt-in: LLM typed-relation extraction (LeanRAG ⑤ Phase-2 / D4). Default OFF
  *  — the ingest path is deterministic-by-design (ADR-0001), zero LLM cost.

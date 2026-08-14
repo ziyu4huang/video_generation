@@ -54,6 +54,12 @@ export interface KnowledgeSemanticOpts {
    *  vector store (unwired default → dedupByRelation stays dormant, unchanged
    *  behavior). */
   fetchRelations?: (mdIds: string[]) => Promise<Map<string, SemanticRelation[]>>;
+  /** Ticket 20 T2: dominance weight of the multi-signal frequency vote
+   *  (PINNED: final = (signalCount - 1) * boostWeight + bestRankScore).
+   *  Threaded from `config.boostWeight` at registration time (index.ts) and
+   *  passed straight into `searchSemantic`; default 1.0 when unset
+   *  (DEFAULT_BOOST_WEIGHT, constants.ts). */
+  boostWeight?: number;
 }
 
 /** Ticket 03 P2-T5 (LeanRAG ③): build the PRODUCTION `fetchRelations` provider
@@ -250,6 +256,9 @@ export function registerKnowledgeSearchTool(
               // ③ dedup substrate: attach card-graph relations for the ranked
               // hits (batched SQLite lookup; silent-skip inside the seam).
               fetchRelations: semanticOpts.fetchRelations,
+              // Ticket 20 T2: frequency-vote dominance weight from config
+              // (constants → types → config 4-point registration).
+              boostWeight: semanticOpts.boostWeight,
               // Deliberately omit kp/vaultPath: a warm miss must return []
               // (NOT re-run zk cosine) so the zk result above stands.
               excludeIds,

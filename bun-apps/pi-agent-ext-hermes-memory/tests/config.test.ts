@@ -618,6 +618,36 @@ describe("loadConfig", () => {
     }
   });
 
+  // ─── boostWeight (ticket 20 T2) — multi-signal frequency-vote dominance
+  // weight (PINNED formula: final = (signalCount - 1) * boostWeight +
+  // bestRankScore). Mirrors survivingK's 4-point pattern but WITHOUT the
+  // Math.floor — it is a continuous weight, not a count. The #06 config-gap
+  // lesson: registered in DEFAULT_CONFIG AND the parse allowlist from day
+  // one. Default 1.0 (DEFAULT_BOOST_WEIGHT).
+  it("defaults boostWeight to DEFAULT_BOOST_WEIGHT (1.0) when unset", () => {
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.boostWeight, 1.0);
+  });
+
+  it("carries boostWeight through from the config file (allowlisted, no floor)", () => {
+    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ boostWeight: 2.5 }));
+    const config = loadConfig(TEST_CONFIG_PATH);
+    assert.strictEqual(config.boostWeight, 2.5); // continuous weight, not floored
+  });
+
+  it("ignores invalid boostWeight values (≤0 / non-number / null) → default kept", () => {
+    // NaN/Infinity are structurally unrepresentable in JSON (see survivingK's
+    // note above); the `typeof===number && isFinite && >0` guard defends the
+    // in-memory path against them too.
+    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
+    for (const invalid of [-1, 0, "x", true, null]) {
+      fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ boostWeight: invalid }));
+      const config = loadConfig(TEST_CONFIG_PATH);
+      assert.strictEqual(config.boostWeight, 1.0, `invalid ${JSON.stringify(invalid)} keeps default`);
+    }
+  });
+
   // ─── kgLlm (ticket 03 T3 / D4) — opt-in LLM typed-relation extraction.
   // Mirrors survivingK's 4-point pattern but as a boolean: default OFF
   // (DEFAULT_KG_LLM = false), `typeof === "boolean"` parse-allowlist guard.
