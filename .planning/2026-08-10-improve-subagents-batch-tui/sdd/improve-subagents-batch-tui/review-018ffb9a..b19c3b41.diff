@@ -1,0 +1,4002 @@
+# Review package: 018ffb9a219075bf2230d83c7b613bac84f5d0ec..b19c3b4121b8398b165dc2f4ecc2231019271469
+
+## Commits
+b19c3b41 chore(sdd): batch-tui T6 audit trail (brief + report + review diff)
+61fda72c feat(subagent): batch-tui running-header aggregate + runningUsage + onUpdate rewrite (T6)
+175ba299 chore(sdd): batch-tui T5 audit trail (brief + report + review diff)
+e428a64e feat(subagent): batch-tui buildLiveTable pure live-row builder (T5)
+236a6478 chore(sdd): batch-tui T4 audit trail (brief + report + review diff)
+8c4800d3 feat(subagent): batch-tui done-expanded per-child meta line (T4)
+bd34ab1d chore(sdd): batch-tui T3 audit trail (brief + report + review diff)
+c411f5d9 feat(subagent): batch-tui done-header Σ + done-collapsed per-slot meta (T3)
+bc20c87f chore(sdd): batch-tui T2 audit trail (brief + report + review diff)
+bd3f4793 feat(subagent): batch-tui pure render helpers — formatUsage/formatModelSeg/formatSlotMeta/sumUsage (T2)
+725ec68d chore(sdd): batch-tui T1 audit trail (brief + report + review diff)
+e29bbe58 feat(subagent): expose onUsage on SpawnSubagentOptions + forward to runner (batch-tui T1)
+
+## Files changed
+ .../review-018ffb9a..e29bbe58.diff                 | 137 +++++++
+ .../review-175ba299..61fda72c.diff                 | 209 ++++++++++
+ .../review-236a6478..e428a64e.diff                 | 218 +++++++++++
+ .../review-725ec68d..bd3f4793.diff                 | 189 +++++++++
+ .../review-bc20c87f..c411f5d9.diff                 | 234 +++++++++++
+ .../review-bd34ab1d..8c4800d3.diff                 | 153 ++++++++
+ .../improve-subagents-batch-tui/task-1-brief.md    |  95 +++++
+ .../improve-subagents-batch-tui/task-1-report.md   |  72 ++++
+ .../improve-subagents-batch-tui/task-2-brief.md    | 144 +++++++
+ .../improve-subagents-batch-tui/task-2-report.md   | 216 +++++++++++
+ .../improve-subagents-batch-tui/task-3-brief.md    | 181 +++++++++
+ .../improve-subagents-batch-tui/task-3-report.md   | 134 +++++++
+ .../improve-subagents-batch-tui/task-4-brief.md    | 134 +++++++
+ .../improve-subagents-batch-tui/task-4-report.md   | 143 +++++++
+ .../improve-subagents-batch-tui/task-5-brief.md    | 176 +++++++++
+ .../improve-subagents-batch-tui/task-5-report.md   | 113 ++++++
+ .../improve-subagents-batch-tui/task-6-brief.md    | 212 ++++++++++
+ .../improve-subagents-batch-tui/task-6-report.md   | 140 +++++++
+ .../pi-agent-ext-subagent/src/spawn-subagent.ts    |   9 +
+ .../pi-agent-ext-subagent/src/subagents-tool.ts    | 143 ++++++-
+ .../tests/spawn-subagent.test.ts                   |  30 +-
+ .../tests/subagents-tool.test.ts                   | 432 ++++++++++++++++++++-
+ 22 files changed, 3490 insertions(+), 24 deletions(-)
+
+## Diff
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-018ffb9a..e29bbe58.diff b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-018ffb9a..e29bbe58.diff
+new file mode 100644
+index 00000000..c7d90c81
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-018ffb9a..e29bbe58.diff
+@@ -0,0 +1,137 @@
++# Review package: 018ffb9a..e29bbe58321ebcf074020f65dacb6301d8577e2e
++
++## Commits
++e29bbe58 feat(subagent): expose onUsage on SpawnSubagentOptions + forward to runner (batch-tui T1)
++
++## Files changed
++ .../pi-agent-ext-subagent/src/spawn-subagent.ts    |  9 +++++++
++ .../tests/spawn-subagent.test.ts                   | 30 +++++++++++++++++++++-
++ 2 files changed, 38 insertions(+), 1 deletion(-)
++
++## Diff
++diff --git a/bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts b/bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts
++index 85ca8911..ee30ad49 100644
++--- a/bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts
+++++ b/bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts
++@@ -105,20 +105,28 @@ export interface SpawnSubagentOptions {
++   /** Injectable runner (tests pass a mock; production omits → new WorkflowAgent). */
++   agent?: Pick<WorkflowAgent, "run">;
++   /** Host signal (e.g. tool-call Ctrl+C) that should cancel this call when fired. */
++   externalSignal?: AbortSignal;
++   /**
++    * Compact live snapshot of the child's message/tool history, forwarded
++    * verbatim from `WorkflowAgent.run()`'s own `onHistory` (already throttled
++    * to ≥250ms there — no additional throttling needed here).
++    */
++   onHistory?: (history: AgentHistoryEntry[]) => void;
+++  /**
+++   * Fires with the child's real token/cost usage once known. Emitted exactly
+++   * once, at run completion (the runner reads session stats in its `finally`).
+++   * Mirrors {@link onHistory} / {@link onModelResolved} / {@link onModelFallback}
+++   * — additive + optional. The internal `result.usage` capture is unchanged, so
+++   * both this live callback and the final result carry usage.
+++   */
+++  onUsage?: (u: AgentUsage) => void;
++ }
++ 
++ export interface SpawnSubagentResult {
++   output: string;
++   exitCode: number;
++   stderr: string;
++   timedOut: boolean;
++   /** Real token/cost usage read from the child session, when the runner reports it. */
++   usage?: AgentUsage;
++   /** Set when the run was aborted for exceeding tokenBudget/spendBudget (distinct from timedOut/failed). */
++@@ -243,20 +251,21 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
++         tier: opts.tier,
++         images: opts.images,
++         toolNames: opts.tools,
++         disallowedToolNames: opts.excludeTools,
++         cwd: opts.cwd,
++         signal: ac.signal,
++         onModelResolved: opts.onModelResolved,
++         onModelFallback: opts.onModelFallback,
++         onUsage: (u) => {
++           usage = u;
+++          opts.onUsage?.(u);
++         },
++         onHistory: opts.onHistory,
++         tokenBudget: opts.tokenBudget,
++         spendBudget: opts.spendBudget,
++         maxSchemaRetries: opts.schemaRepairAttempts,
++       } as Parameters<WorkflowAgent["run"]>[1]);
++       // When `opts.schema` is set, `run()` returns a validated OBJECT (not a
++       // string). `String(obj)` would yield "[object Object]" and silently
++       // destroy the schema payload — JSON-serialize it instead so callers
++       // that parse `output` keep working. Null/undefined → empty string.
++diff --git a/bun-apps/pi-agent-ext-subagent/tests/spawn-subagent.test.ts b/bun-apps/pi-agent-ext-subagent/tests/spawn-subagent.test.ts
++index 643067b9..adde471b 100644
++--- a/bun-apps/pi-agent-ext-subagent/tests/spawn-subagent.test.ts
+++++ b/bun-apps/pi-agent-ext-subagent/tests/spawn-subagent.test.ts
++@@ -1,16 +1,21 @@
++ import { describe, it } from "bun:test";
++ import assert from "node:assert/strict";
++ import { mkdtempSync } from "node:fs";
++ import { tmpdir } from "node:os";
++ import { join } from "node:path";
++-import { saveModelTierConfig, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
+++import {
+++  type AgentUsage,
+++  saveModelTierConfig,
+++  WorkflowError,
+++  WorkflowErrorCode,
+++} from "@repo/pi-agent-ext-core-runtime";
++ import { resolveSessionOverride, spawnSubagent } from "../src/spawn-subagent.js";
++ 
++ /** Minimal injectable runner (Pick<WorkflowAgent, "run">) that records calls. */
++ function mkRunner(impl: (p: { prompt: string; opts: Record<string, unknown> }) => Promise<unknown>) {
++   const calls: Array<{ prompt: string; opts: Record<string, unknown> }> = [];
++   return {
++     calls,
++     run: async (prompt: string, opts: Record<string, unknown>) => {
++       calls.push({ prompt, opts });
++       return impl({ prompt, opts });
++@@ -113,20 +118,43 @@ describe("spawnSubagent", () => {
++         fallback = spec;
++       },
++       agent: runner,
++     });
++     assert.equal(runner.calls[0]?.opts.tier, "big");
++     assert.equal(resolved, "deepseek/deepseek-v4-flash", "onModelResolved forwarded + fires");
++     assert.equal(typeof runner.calls[0]?.opts.onModelFallback, "function", "onModelFallback forwarded");
++     assert.equal(fallback, "", "runner did not trigger fallback here");
++   });
++ 
+++  it("forwards onUsage to the caller (fires once at run end) alongside the internal result.usage capture", async () => {
+++    const usage = { input: 10, output: 20, cacheRead: 0, cacheWrite: 0, total: 30, cost: 0.012 };
+++    const runner = mkRunner(async ({ opts }) => {
+++      opts.onUsage?.(usage);
+++      return "ok";
+++    });
+++    const seen: AgentUsage[] = [];
+++    const res = await spawnSubagent({ task: "t", agent: runner, onUsage: (u) => seen.push(u) });
+++    assert.equal(seen.length, 1, "opts.onUsage fires exactly once");
+++    assert.deepEqual(seen[0], usage, "the caller receives the usage payload verbatim");
+++    assert.deepEqual(res.usage, usage, "the internal result.usage capture still works (not removed)");
+++  });
+++
+++  it("onUsage is optional — omitting it changes nothing (result.usage still captured)", async () => {
+++    const usage = { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, total: 5, cost: 0.001 };
+++    const runner = mkRunner(async ({ opts }) => {
+++      opts.onUsage?.(usage);
+++      return "ok";
+++    });
+++    const res = await spawnSubagent({ task: "t", agent: runner });
+++    assert.deepEqual(res.usage, usage, "result.usage captured even with no caller onUsage");
+++  });
+++
++   it("timeout (AGENT_TIMEOUT) → timedOut:true, retried once when retryOnTransient:true", async () => {
++     let n = 0;
++     const runner = mkRunner(async () => {
++       n++;
++       throw new WorkflowError("agent timed out", WorkflowErrorCode.AGENT_TIMEOUT, { recoverable: true });
++     });
++     const out = await spawnSubagent({ task: "t", retryOnTransient: true, agent: runner });
++     assert.equal(n, 2, "retried once after a transient timeout");
++     assert.equal(out.timedOut, true);
++     assert.notEqual(out.exitCode, 0);
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-175ba299..61fda72c.diff b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-175ba299..61fda72c.diff
+new file mode 100644
+index 00000000..4d47e8f0
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-175ba299..61fda72c.diff
+@@ -0,0 +1,209 @@
++# Review package: 175ba299..61fda72c07bcdb98b76b43d72ef592647b65f6d5
++
++## Commits
++61fda72c feat(subagent): batch-tui running-header aggregate + runningUsage + onUpdate rewrite (T6)
++
++## Files changed
++ .../pi-agent-ext-subagent/src/subagents-tool.ts    | 18 ++++--
++ .../tests/subagents-tool.test.ts                   | 74 ++++++++++++++++++++--
++ 2 files changed, 82 insertions(+), 10 deletions(-)
++
++## Diff
++diff --git a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++index 7559fe2b..abfc824f 100644
++--- a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+++++ b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++@@ -284,20 +284,25 @@ export function createSubagentsTool(
++         undefined,
++       );
++       let dispatched = 0;
++       // Batch-wide budget SOFT GATE state. `gateTripped` stops NEW children from
++       // starting; in-flight children always finish. `acc` accumulates usage across
++       // every child that reported usage; `budgetExhaustion` (if set) is surfaced on
++       // `details` and used to label the skipped slots.
++       let gateTripped = false;
++       let budgetExhaustion: BudgetExhaustion | undefined;
++       const acc = { tokens: { total: 0 }, cost: 0 };
+++      // Per-child final usage, captured via the additive onUsage callback
+++      // (fires once at each child's completion). Feeds the running (live)
+++      // header's Σtok/$Σ. NOTE: onUsage is completion-triggered, so the Σ is
+++      // "sum over children completed so far" — not a per-token live ticker.
+++      const runningUsage = new Map<string, AgentUsage>();
++       const batchBudget = {
++         ...(params.tokenBudget !== undefined ? { tokenBudget: params.tokenBudget } : {}),
++         ...(params.spendBudget !== undefined ? { spendBudget: params.spendBudget } : {}),
++       };
++       const hasBatchBudget = params.tokenBudget !== undefined || params.spendBudget !== undefined;
++ 
++       const dispatchChild = async (task: BatchTask, index: number): Promise<void> => {
++         // Effective model string + task preview — computed up front so BOTH the
++         // soft-gate skip branch and the normal dispatch branch can enrich the
++         // result slot (deficit 4b: Completed-section display needs task/model).
++@@ -384,35 +389,40 @@ export function createSubagentsTool(
++           externalSignal: childAc.signal,
++           onModelResolved: (modelId) => {
++             childResolvedModel = modelId;
++             options.inFlight?.updateModel(childRunId, modelId);
++           },
++           onModelFallback: (requestedSpec) => {
++             childFellBack = true;
++             childRequestedSpec = requestedSpec;
++             options.inFlight?.markFallback(childRunId, requestedSpec);
++           },
+++          onUsage: (u) => {
+++            runningUsage.set(childRunId, u);
+++          },
++           onHistory: (history) => {
++             options.inFlight?.update(childRunId, history);
++             // Single-line batch progress feed — kills the blind spinner on the
++             // batch's own call line. Diagnostic only: a throwing onUpdate must
++             // never change the batch result or fail a child (mirrors the singular
++             // tool's try/catch discipline at subagent-tool.ts).
++             try {
++               const group = (options.inFlight?.list() ?? []).filter((e) => e.batchId === toolCallId);
++               const running = group.filter((e) => e.status !== "completed").length;
++               const total = params.tasks.length;
++-              const latest = summarizeLatestAction(history) ?? truncateToWidth(taskPreview(task.task), 40);
+++              const agg = sumUsage(runningUsage.values());
+++              const aggStr = agg.total > 0 ? ` · ${agg.total} tok · $${agg.cost.toFixed(3)}` : "";
+++              const header = `subagents · ${running}/${total} running${aggStr}`;
+++              const table = buildLiveTable(group);
+++              const text = table ? `${header}\n${table}` : header;
++               onUpdate?.({
++-                content: [
++-                  { type: "text" as const, text: `subagents · ${running}/${total} running · latest: ${latest}` },
++-                ],
+++                content: [{ type: "text" as const, text }],
++                 details: undefined as never,
++               });
++             } catch {
++               // swallowed — onUpdate is diagnostic only (mirrors the singular tool)
++             }
++           },
++         };
++         let result: SpawnSubagentResult;
++         try {
++           // Gate the actual provider dispatch under the shared per-provider cap
++diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++index d4ff37ef..09582c90 100644
++--- a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+++++ b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++@@ -529,50 +529,112 @@ test("batch keeps a completed child (status=completed) mid-run; evicts the whole
++     NO_SIGNAL,
++     undefined,
++     NO_CTX,
++   );
++   assert.equal(seen.length, 1, "child #1 observed #0");
++   assert.equal(seen[0].present, true, "#0 still in registry when #1 runs (kept, not evicted)");
++   assert.equal(seen[0].status, "completed", "#0 marked completed (not running, not gone)");
++   assert.equal(inFlight.list().length, 0, "registry empty after the batch returns (whole-batch eviction)");
++ });
++ 
++-test("onUpdate emits a single-line 'k/N running · latest' as children progress", async () => {
+++test("onUpdate emits a multi-line header + live table: `subagents · k/N running · Σtok · $Σ` then one row per child", async () => {
++   const inFlight = new SubagentInFlightRegistry();
++   const updates: string[] = [];
++   const onUpdate = (u: { content: Array<{ type: string; text: string }> }) => {
++     updates.push(u.content.map((c) => c.text).join(""));
++   };
++   const spawn = async (opts: {
++     task: string;
+++    onUsage?: (u: AgentUsage) => void;
++     onHistory?: (h: { kind: string; toolName?: string; text?: string }[]) => void;
++   }): Promise<SpawnSubagentResult> => {
+++    opts.onUsage?.(U(500, 0.05));
++     opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "r" }]);
++     const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
++-    // mark each child completed to mirror the real finally-block
++     inFlight.markCompleted(`batch-call:${idx}`);
++     return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
++   };
++   const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
++   await tool.execute(
++     "batch-call",
++     { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 },
++     NO_SIGNAL,
++     onUpdate as never,
++     NO_CTX,
++   );
++   assert.ok(updates.length >= 2, "at least one update per child history tick");
++   const first = updates[0];
++-  assert.match(first, /subagents/, "single-line batch summary");
++-  assert.match(first, /\/2/, "shows /N total");
++-  assert.match(first, /latest/, "includes the latest action");
++-  assert.match(updates[1], /1\/2/, "running stays 1 as sibling #0 completes (not 2)");
+++  const firstHeader = first.split("\n")[0] ?? "";
+++  assert.match(firstHeader, /^subagents · \d+\/2 running/, "header shows `subagents · k/N running`");
+++  // child #0 already reported usage (500 tok) before this tick → aggregate present
+++  assert.match(firstHeader, /500 tok · \$0\.050/, "header carries the Σtok · $Σ aggregate (tokens first)");
+++  assert.ok(!firstHeader.includes("latest:"), "the old `latest:` label is gone from the header");
+++  assert.ok(first.includes("[0]"), "the live table row for child #0 is present (multi-line)");
+++});
+++
+++test("runningUsage map is fed by onUsage and drives the live-header Σ across children", async () => {
+++  const inFlight = new SubagentInFlightRegistry();
+++  const headers: string[] = [];
+++  const onUpdate = (u: { content: Array<{ type: string; text: string }> }) => {
+++    headers.push(
+++      u.content
+++        .map((c) => c.text)
+++        .join("")
+++        .split("\n")[0] ?? "",
+++    );
+++  };
+++  let i = 0;
+++  const usages = [U(1000, 0.1), U(2000, 0.2)];
+++  const spawn = async (opts: {
+++    task: string;
+++    onUsage?: (u: AgentUsage) => void;
+++    onHistory?: (h: { kind: string }[]) => void;
+++  }): Promise<SpawnSubagentResult> => {
+++    const idx = i++;
+++    opts.onUsage?.(usages[idx] ?? U(0, 0));
+++    // Fire onHistory so the live-header onUpdate actually emits — the live
+++    // header only renders via the onHistory→onUpdate path, so without a tick
+++    // `headers` stays empty and the Σ assertion has nothing to match.
+++    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
+++    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+++  };
+++  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
+++  await tool.execute(
+++    "batch-sig",
+++    { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 },
+++    NO_SIGNAL,
+++    onUpdate as never,
+++    NO_CTX,
+++  );
+++  const lastHeader = headers[headers.length - 1] ?? "";
+++  assert.match(lastHeader, /3000 tok · \$0\.300/, "Σ accumulates across both children's onUsage");
+++});
+++
+++test("onUpdate is try/caught: a throwing buildLiveTable path never fails the child", async () => {
+++  const inFlight = new SubagentInFlightRegistry();
+++  // Sabotage list() to throw mid-onUpdate; the child must still complete.
+++  const badList = () => {
+++    throw new Error("boom");
+++  };
+++  inFlight.list = badList as never;
+++  let completed = false;
+++  const spawn = async (opts: {
+++    task: string;
+++    onHistory?: (h: { kind: string }[]) => void;
+++  }): Promise<SpawnSubagentResult> => {
+++    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
+++    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+++  };
+++  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
+++  const res = await tool.execute("batch-throw", { tasks: [{ task: "#0" }] }, NO_SIGNAL, undefined, NO_CTX);
+++  completed = (res.details.results[0] as { status: string }).status === "done";
+++  assert.equal(completed, true, "child completed despite a throwing inFlight.list() during onUpdate");
++ });
++ 
++ // ── per-child mid-flight abort (Frontier A, Task 2) ──
++ 
++ /** Flush the event loop until `fn()` returns a truthy value (or throw after tries). */
++ async function waitFor<T>(fn: () => T | undefined | null, tries = 200): Promise<NonNullable<T>> {
++   for (let i = 0; i < tries; i++) {
++     const v = fn();
++     if (v) return v as NonNullable<T>;
++     await new Promise((r) => setTimeout(r, 0));
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-236a6478..e428a64e.diff b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-236a6478..e428a64e.diff
+new file mode 100644
+index 00000000..1b54af48
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-236a6478..e428a64e.diff
+@@ -0,0 +1,218 @@
++# Review package: 236a6478..e428a64e438e61ba9c93a66e779df046463cb930
++
++## Commits
++e428a64e feat(subagent): batch-tui buildLiveTable pure live-row builder (T5)
++
++## Files changed
++ .../pi-agent-ext-subagent/src/subagents-tool.ts    | 43 +++++++++++-
++ .../tests/subagents-tool.test.ts                   | 80 +++++++++++++++++++++-
++ 2 files changed, 121 insertions(+), 2 deletions(-)
++
++## Diff
++diff --git a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++index 4798d507..7559fe2b 100644
++--- a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+++++ b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++@@ -1,20 +1,25 @@
++ /**
++  * `subagents` tool — agent-callable PARALLEL read-only fan-out. Dispatches N
++  * isolated subagents (via spawnSubagent) with bounded concurrency, returning a
++  * positional array of results. Read-only is ENFORCED: edit/write/bash are
++  * always excluded (non-overridable) so children sharing the parent's working
++  * tree can never race on writes. See .planning/done/2026-08-01-what-s-next-for-subagent-develop-map/.
++  */
++ import { defineTool, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
++ import { Text, truncateToWidth } from "@earendil-works/pi-tui";
++-import type { AgentUsage, BudgetExhaustion, SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
+++import type {
+++  AgentUsage,
+++  BudgetExhaustion,
+++  InFlightSubagent,
+++  SubagentInFlightRegistry,
+++} from "@repo/pi-agent-ext-core-runtime";
++ import {
++   checkBudgetExhaustion,
++   DEFAULT_BATCH_CONCURRENCY,
++   getGlobalRateLimiter,
++   MAX_BATCH_TASKS,
++   MAX_CONCURRENCY,
++   providerFromModelSpec,
++   shortModel,
++   summarizeLatestAction,
++ } from "@repo/pi-agent-ext-core-runtime";
++@@ -683,20 +688,56 @@ export function formatSlotMeta(
++   theme: Theme,
++ ): string {
++   return theme.fg(
++     "muted",
++     `${formatModelSeg(slot.model, slot.requestedModel, slot.fellBack)} · ${(slot.elapsedMs / 1000).toFixed(
++       1,
++     )}s${formatUsage(slot.usage)}`,
++   );
++ }
++ 
+++/** Extract the trailing `:N` dispatch index from a batch child runId
+++ *  (`${batchId}:${index}`). NaN for ids without a numeric suffix (sorts last). */
+++export function childDispatchIndex(id: string): number {
+++  const idx = Number(id.slice(id.lastIndexOf(":") + 1));
+++  return Number.isFinite(idx) ? idx : NaN;
+++}
+++
+++/** Pure live-table builder for the running (isPartial) batch view. One row per
+++ *  in-flight child, sorted ascending by dispatch index:
+++ *    `[i] slot ⏱/✓ liveElapsed · currentAction`
+++ *  - `slot` via {@link formatModelSeg} (fallback-aware; resolved model once known).
+++ *  - glyph ⏱ while `status !== "completed"`, ✓ once completed (kept in the
+++ *    registry until endBatch so a finished child still shows its final elapsed).
+++ *  - `liveElapsed` = `(now - startedAt)/1000` with 1-decimal.
+++ *  - `currentAction` from {@link summarizeLatestAction}(history), falling back to
+++ *    the task preview (truncated to 40) when there is no history yet.
+++ *  PLAIN text (no theme — `execute()` has no Theme; rendered dim by the isPartial
+++ *  branch of `renderSubagentsResult`). Empty input → "" (header-only). */
+++export function buildLiveTable(entries: InFlightSubagent[], now: number = Date.now()): string {
+++  const sorted = [...entries].sort((a, b) => {
+++    const ia = childDispatchIndex(a.id);
+++    const ib = childDispatchIndex(b.id);
+++    return (Number.isNaN(ia) ? Infinity : ia) - (Number.isNaN(ib) ? Infinity : ib);
+++  });
+++  const rows = sorted.map((e) => {
+++    const idx = childDispatchIndex(e.id);
+++    const idxLabel = Number.isNaN(idx) ? "?" : String(idx);
+++    const slot = formatModelSeg(e.resolvedModel ?? e.model ?? "default", e.requestedModel, e.fellBack);
+++    const glyph = e.status === "completed" ? "✓" : "⏱";
+++    const elapsed = `${((now - e.startedAt) / 1000).toFixed(1)}s`;
+++    const action = summarizeLatestAction(e.history) ?? truncateToWidth(e.taskPreview ?? e.workIntent ?? "", 40);
+++    return `[${idxLabel}] ${slot} ${glyph} ${elapsed} · ${action}`;
+++  });
+++  return rows.join("\n");
+++}
+++
++ /** Sum total + cost across any iterable of AgentUsage (slots' usage for the done
++  *  header; the runningUsage map's values for the live header). Empty → zeros. */
++ export function sumUsage(values: Iterable<AgentUsage>): { total: number; cost: number } {
++   let total = 0;
++   let cost = 0;
++   for (const v of values) {
++     total += v.total;
++     cost += v.cost;
++   }
++   return { total, cost };
++diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++index ae74969f..d4ff37ef 100644
++--- a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+++++ b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++@@ -1,24 +1,26 @@
++ import { test } from "bun:test";
++ import assert from "node:assert/strict";
++-import type { AgentUsage } from "@repo/pi-agent-ext-core-runtime";
+++import type { AgentUsage, InFlightSubagent } from "@repo/pi-agent-ext-core-runtime";
++ import {
++   DEFAULT_BATCH_CONCURRENCY,
++   MAX_BATCH_TASKS,
++   MAX_CONCURRENCY,
++   SubagentInFlightRegistry,
++ } from "@repo/pi-agent-ext-core-runtime";
++ import { createSubagentsTool as fromIndex } from "../src/index.js";
++ import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
++ import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
++ import type { SubagentsToolDetails } from "../src/subagents-tool.js";
++ import {
+++  buildLiveTable,
+++  childDispatchIndex,
++   clampConcurrency,
++   createSubagentsTool,
++   formatModelSeg,
++   formatSlotMeta,
++   formatUsage,
++   mergeReadOnlyExclusion,
++   READ_ONLY_EXCLUDED,
++   renderBatchResult,
++   renderSubagentsCall,
++   renderSubagentsResult,
++@@ -1299,10 +1301,86 @@ test("done expanded: null (failed) slot has NO meta line (unchanged failed body)
++   };
++   const expanded = renderSubagentsResult(
++     { content: [{ type: "text", text: "x" }], details },
++     { expanded: true },
++     THEME,
++   );
++   const failedBlock = expanded.split("### [1]")[0];
++   assert.match(failedBlock, /### \[0\] failed/);
++   assert.doesNotMatch(failedBlock, /· .*s ·/);
++ });
+++
+++const NOW = 10_000;
+++
+++function live(over: Partial<InFlightSubagent> & { id: string }): InFlightSubagent {
+++  return { taskPreview: "pt", startedAt: 0, ...over } as InFlightSubagent;
+++}
+++
+++test("childDispatchIndex: trailing :N from a batch child runId; NaN-resistant", () => {
+++  assert.equal(childDispatchIndex("batch-call:3"), 3);
+++  assert.equal(childDispatchIndex("wf:abc:0"), 0);
+++  assert.equal(childDispatchIndex("no-colon"), NaN);
+++});
+++
+++test("buildLiveTable: empty entries → empty string (header-only)", () => {
+++  assert.equal(buildLiveTable([], NOW), "");
+++});
+++
+++test("buildLiveTable: one running child → `[i] slot ⏱ liveElapsed · currentAction`", () => {
+++  const rows = buildLiveTable(
+++    [live({ id: "batch-call:0", model: "zai/glm-5.2", startedAt: 6550, status: "running" })],
+++    NOW,
+++  );
+++  assert.equal(rows, "[0] glm-5.2 ⏱ 3.5s · pt");
+++});
+++
+++test("buildLiveTable: completed child shows ✓ glyph + the same meta", () => {
+++  const rows = buildLiveTable(
+++    [live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 9000, status: "completed" })],
+++    NOW,
+++  );
+++  assert.equal(rows, "[1] glm-5.2 ✓ 1.0s · pt");
+++});
+++
+++test("buildLiveTable: fallback child shows `requested → actual` slot", () => {
+++  const rows = buildLiveTable(
+++    [
+++      live({
+++        id: "batch-call:0",
+++        model: "anthropic/claude-opus-4-1",
+++        resolvedModel: "zai/glm-5.2",
+++        requestedModel: "anthropic/claude-opus-4-1",
+++        fellBack: true,
+++        startedAt: 9500,
+++        status: "running",
+++      }),
+++    ],
+++    NOW,
+++  );
+++  assert.equal(rows, "[0] claude-opus-4-1 → glm-5.2 ⏱ 0.5s · pt");
+++});
+++
+++test("buildLiveTable: currentAction comes from summarizeLatestAction(history); falls back to task preview", () => {
+++  const withHist = buildLiveTable(
+++    [
+++      live({
+++        id: "batch-call:0",
+++        model: "zai/glm-5.2",
+++        startedAt: 9000,
+++        history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"src/a.ts"}' }],
+++      }),
+++    ],
+++    NOW,
+++  );
+++  assert.match(withHist, /\[0\] glm-5\.2 ⏱ 1\.0s · .+/);
+++  assert.notEqual(withHist, "[0] glm-5.2 ⏱ 1.0s · pt", "history-derived action replaces the task-preview fallback");
+++});
+++
+++test("buildLiveTable: sorted ascending by dispatch index; defaults to Date.now()", () => {
+++  const rows = buildLiveTable([
+++    live({ id: "batch-call:2", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
+++    live({ id: "batch-call:0", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
+++    live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
+++  ]);
+++  const idxs = rows.split("\n").map((l) => l.slice(1, 2));
+++  assert.deepEqual(idxs, ["0", "1", "2"]);
+++});
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-725ec68d..bd3f4793.diff b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-725ec68d..bd3f4793.diff
+new file mode 100644
+index 00000000..cdfad721
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-725ec68d..bd3f4793.diff
+@@ -0,0 +1,189 @@
++# Review package: 725ec68d..bd3f479341f5ebdee874eb12ae59ae70d786b342
++
++## Commits
++bd3f4793 feat(subagent): batch-tui pure render helpers — formatUsage/formatModelSeg/formatSlotMeta/sumUsage (T2)
++
++## Files changed
++ .../pi-agent-ext-subagent/src/subagents-tool.ts    | 46 ++++++++++++++++
++ .../tests/subagents-tool.test.ts                   | 61 ++++++++++++++++++++++
++ 2 files changed, 107 insertions(+)
++
++## Diff
++diff --git a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++index 50853682..3ff18063 100644
++--- a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+++++ b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++@@ -649,20 +649,66 @@ const BATCH_BADGE_WIDTH = Math.max(...Object.values(BATCH_STATUS_BADGES).map((b)
++  *  short `✓ done` (6) matches a wide `⏱ timedout` (10) before the columns
++  *  follow. Unknown statuses fall back to the `failed` badge. */
++ function batchStatusBadge(status: string, theme: Theme): string {
++   const b =
++     status in BATCH_STATUS_BADGES
++       ? BATCH_STATUS_BADGES[status as keyof typeof BATCH_STATUS_BADGES]
++       : BATCH_STATUS_BADGES.failed;
++   return theme.fg(b.tone, b.text.padEnd(BATCH_BADGE_WIDTH));
++ }
++ 
+++/** Usage segment mirroring the single `subagent` card's meta: ` · $X.XXX · Ntok`
+++ *  when usage is present and non-zero, else `""` (defensive — degrades to empty).
+++ *  Load-bearing: render fixtures omit `usage`, so `""` keeps rendered lines
+++ *  byte-compatible (no phantom spaces/tokens). */
+++export function formatUsage(u: AgentUsage | undefined): string {
+++  return u && u.total > 0 ? ` · $${u.cost.toFixed(3)} · ${u.total} tok` : "";
+++}
+++
+++/** Fallback-aware model label (theme-free so the live table and the themed meta
+++ *  share it). On fallback shows `requested → actual` (both shortModel-ed); else
+++ *  the resolved model shortModel-ed; `"default"` when empty. Mirrors the single
+++ *  card's `modelSeg`. */
+++export function formatModelSeg(model: string, requestedModel?: string, fellBack?: boolean): string {
+++  if (fellBack && requestedModel) {
+++    return `${shortModel(requestedModel) ?? "default"} → ${shortModel(model) ?? "default"}`;
+++  }
+++  return shortModel(model) ?? "default";
+++}
+++
+++/** Themed `model · elapsed · usage` line for a done/timedout/aborted/budget slot.
+++ *  Shared by the done-collapsed per-slot line and the done-expanded meta line
+++ *  (DRY). `usage` optional → degrades to `model · elapsed`. */
+++export function formatSlotMeta(
+++  slot: { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
+++  theme: Theme,
+++): string {
+++  return theme.fg(
+++    "muted",
+++    `${formatModelSeg(slot.model, slot.requestedModel, slot.fellBack)} · ${(slot.elapsedMs / 1000).toFixed(
+++      1,
+++    )}s${formatUsage(slot.usage)}`,
+++  );
+++}
+++
+++/** Sum total + cost across any iterable of AgentUsage (slots' usage for the done
+++ *  header; the runningUsage map's values for the live header). Empty → zeros. */
+++export function sumUsage(values: Iterable<AgentUsage>): { total: number; cost: number } {
+++  let total = 0;
+++  let cost = 0;
+++  for (const v of values) {
+++    total += v.total;
+++    cost += v.cost;
+++  }
+++  return { total, cost };
+++}
+++
++ /** Theme the batch result: collapsed = header + per-child one-liners; expanded = full themed output. */
++ export function renderSubagentsResult(
++   result: { content: Array<{ type: string; text?: string }>; details?: SubagentsToolDetails },
++   options: { expanded?: boolean; isPartial?: boolean },
++   theme: Theme,
++ ): string {
++   const d = result.details;
++   if (!d) {
++     const text = result.content.find((c) => c.type === "text")?.text ?? "";
++     return theme.fg("dim", text);
++diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++index f408b8da..b1d53585 100644
++--- a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+++++ b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++@@ -1,30 +1,35 @@
++ import { test } from "bun:test";
++ import assert from "node:assert/strict";
+++import type { AgentUsage } from "@repo/pi-agent-ext-core-runtime";
++ import {
++   DEFAULT_BATCH_CONCURRENCY,
++   MAX_BATCH_TASKS,
++   MAX_CONCURRENCY,
++   SubagentInFlightRegistry,
++ } from "@repo/pi-agent-ext-core-runtime";
++ import { createSubagentsTool as fromIndex } from "../src/index.js";
++ import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
++ import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
++ import type { SubagentsToolDetails } from "../src/subagents-tool.js";
++ import {
++   clampConcurrency,
++   createSubagentsTool,
+++  formatModelSeg,
+++  formatSlotMeta,
+++  formatUsage,
++   mergeReadOnlyExclusion,
++   READ_ONLY_EXCLUDED,
++   renderBatchResult,
++   renderSubagentsCall,
++   renderSubagentsResult,
+++  sumUsage,
++ } from "../src/subagents-tool.js";
++ 
++ test("createSubagentsTool has name 'subagents' + executionMode 'sequential'", () => {
++   const tool = createSubagentsTool();
++   assert.equal(tool.name, "subagents");
++   assert.equal(tool.executionMode, "sequential");
++   assert.equal(typeof tool.execute, "function");
++   assert.ok(tool.parameters, "parameters schema defined");
++ });
++ 
++@@ -1019,10 +1024,66 @@ test("#03 plural mirror: a child missing a required tool is skipped (null), spaw
++       ],
++     } as never,
++     undefined as never,
++     undefined,
++     { cwd: "/r" } as never,
++   );
++   assert.equal(calls.length, 1, "only the satisfiable child is dispatched");
++   assert.equal(res.details.results[0], null, "missing-tool child → null slot");
++   assert.notEqual(res.details.results[1], null);
++ });
+++
+++// ── Task 2: pure render helpers (formatUsage / formatModelSeg / formatSlotMeta / sumUsage) ──
+++// Shared by the done + live render rewrites (Tasks 3-6). formatSlotMeta +
+++// formatModelSeg mirror the single subagent card's meta (fallback-aware).
+++// sumUsage feeds both the done-header and live-header usage aggregates.
+++
+++const U = (total: number, cost: number): AgentUsage => ({
+++  input: 0,
+++  output: 0,
+++  cacheRead: 0,
+++  cacheWrite: 0,
+++  total,
+++  cost,
+++});
+++
+++test("formatUsage: empty when no usage or zero total; else ` · $cost · Ntok` (3-decimal cost)", () => {
+++  assert.equal(formatUsage(undefined), "");
+++  assert.equal(formatUsage(U(0, 0)), "");
+++  assert.equal(formatUsage(U(15715, 0.0004)), " · $0.000 · 15715 tok");
+++  assert.equal(formatUsage(U(1000, 0.5)), " · $0.500 · 1000 tok");
+++});
+++
+++test("formatModelSeg: shortens provider prefix; `requested → actual` on fallback; default fallback", () => {
+++  assert.equal(formatModelSeg("zai/glm-5.2"), "glm-5.2");
+++  assert.equal(formatModelSeg("tier:small"), "tier:small");
+++  assert.equal(
+++    formatModelSeg("anthropic/claude-opus-4-1", "anthropic/claude-opus-4-1", true),
+++    "claude-opus-4-1 → claude-opus-4-1",
+++  );
+++  assert.equal(formatModelSeg("zai/glm-5.2", "anthropic/claude-opus-4-1", true), "claude-opus-4-1 → glm-5.2");
+++  assert.equal(formatModelSeg(""), "default");
+++});
+++
+++test("formatSlotMeta: themed `model · elapsed · usage`; defensive on missing usage", () => {
+++  const meta = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500, usage: U(15715, 0.0004) }, THEME);
+++  assert.equal(meta, "glm-5.2 · 34.5s · $0.000 · 15715 tok");
+++  const noUsage = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500 }, THEME);
+++  assert.equal(noUsage, "glm-5.2 · 34.5s");
+++  const fb = formatSlotMeta(
+++    {
+++      model: "zai/glm-5.2",
+++      requestedModel: "anthropic/claude-opus-4-1",
+++      fellBack: true,
+++      elapsedMs: 1000,
+++      usage: U(10, 0.001),
+++    },
+++    THEME,
+++  );
+++  assert.equal(fb, "claude-opus-4-1 → glm-5.2 · 1.0s · $0.001 · 10 tok");
+++});
+++
+++test("sumUsage: sums total+cost across an iterable; empty → zeros", () => {
+++  assert.deepEqual(sumUsage([]), { total: 0, cost: 0 });
+++  assert.deepEqual(sumUsage([U(100, 0.1), U(200, 0.2)]), { total: 300, cost: 0.30000000000000004 });
+++  assert.deepEqual(sumUsage(new Map([["a", U(50, 0.05)]]).values()), { total: 50, cost: 0.05 });
+++});
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-bc20c87f..c411f5d9.diff b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-bc20c87f..c411f5d9.diff
+new file mode 100644
+index 00000000..aa421849
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-bc20c87f..c411f5d9.diff
+@@ -0,0 +1,234 @@
++# Review package: bc20c87f..c411f5d928858e24e2bd962e5f53e7583f350e1a
++
++## Commits
++c411f5d9 feat(subagent): batch-tui done-header Σ + done-collapsed per-slot meta (T3)
++
++## Files changed
++ .../pi-agent-ext-subagent/src/subagents-tool.ts    |  25 ++--
++ .../tests/subagents-tool.test.ts                   | 132 +++++++++++++++++++++
++ 2 files changed, 146 insertions(+), 11 deletions(-)
++
++## Diff
++diff --git a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++index 3ff18063..ad9ab42a 100644
++--- a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+++++ b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++@@ -721,57 +721,60 @@ export function renderSubagentsResult(
++     if (options.expanded) return theme.fg("dim", text);
++     return theme.fg("dim", text.split("\n")[0] ?? text);
++   }
++ 
++   // Build the batch header.
++   const done = d.results.filter(
++     (s) => s && (s as { status: string }).status !== "budget" && (s as { status: string }).status !== "aborted",
++   ).length;
++   const aborted = d.results.filter((s) => s && (s as { status: string }).status === "aborted").length;
++   const failed = d.results.filter((s) => s === null).length;
+++  // Aggregate usage across non-null slots that carry usage → header Σtok/$Σ
+++  // (mirrors the single card's `$cost · Ntok`, appended after elapsed).
+++  const slotUsages: AgentUsage[] = [];
+++  for (const s of d.results) {
+++    if (s && (s as { usage?: AgentUsage }).usage) slotUsages.push((s as { usage: AgentUsage }).usage);
+++  }
+++  const agg = sumUsage(slotUsages);
+++  const aggStr = agg.total > 0 ? ` · $${agg.cost.toFixed(3)} · ${agg.total} tok` : "";
++   const header =
++     `subagents batch (${done} ok` +
++     (aborted ? ` · ${aborted} aborted` : "") +
++     ` · ${failed} failed` +
++-    ` · ${d.skipped} skipped) — ${(d.elapsedMs / 1000).toFixed(1)}s`;
+++    ` · ${d.skipped} skipped) — ${(d.elapsedMs / 1000).toFixed(1)}s${aggStr}`;
++ 
++   if (!options.expanded) {
++     // Collapsed: header + one line per slot with status badge.
++     const lines: string[] = [theme.bold(header)];
++     for (let i = 0; i < d.results.length; i++) {
++       const slot = d.results[i];
++       if (slot === null) {
++         lines.push(theme.fg("dim", `  [${i}] ${batchStatusBadge("failed", theme)}  ·  (child failed)`));
++         continue;
++       }
++       if (!slot) continue; // invariant: i < d.results.length (loop bound)
++       const slotStatus = (slot as { status: string }).status;
++       // Fixed-width badge (ticket 05, finding 6): pad to the widest badge text so
++       // the `model · elapsed · task` columns line up across rows regardless of
++       // status (`✓ done`=6 vs `⏱ timedout`=10, etc.).
++       const badge = batchStatusBadge(slotStatus, theme);
++       // Model segment: on a fallback show `requested → actual` (both shortened
++       // via shortModel so the collapsed line stays within terminal width —
++       // ticket 04, findings 2 + 5). The audit field stays the full spec; only
++       // the DISPLAY is shortened.
++-      const slotObj = slot as { model: string; requestedModel?: string; fellBack?: boolean };
++-      const modelLabel =
++-        slotObj.fellBack && slotObj.requestedModel
++-          ? `${shortModel(slotObj.requestedModel)} → ${shortModel(slotObj.model) ?? "default"}`
++-          : (shortModel(slotObj.model) ?? "default");
++-      const model = theme.fg("muted", modelLabel);
++-      const elapsed = `${((slot as { elapsedMs: number }).elapsedMs / 1000).toFixed(1)}s`;
+++      const meta = formatSlotMeta(
+++        slot as { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
+++        theme,
+++      );
++       const taskPreview60 = truncateToWidth((slot as { task: string }).task ?? "", 60);
++       const idTag = slot.id ? `${theme.fg("dim", `(${slot.id})`)} ` : "";
++-      lines.push(
++-        `  ${theme.fg("dim", `[${i}]`)} ${idTag}${badge}  ${model}  ·  ${elapsed}  ·  ${theme.fg("dim", taskPreview60)}`,
++-      );
+++      lines.push(`  ${theme.fg("dim", `[${i}]`)} ${idTag}${badge}  ${meta} · ${theme.fg("dim", `"${taskPreview60}"`)}`);
++     }
++     lines.push(theme.fg("dim", "Ctrl-O to expand · /subagents for detail"));
++     return lines.join("\n");
++   }
++ 
++   // Expanded: header + per-child full themed output (mirrors renderBatchResult structure).
++   const body = d.results
++     .map((slot, i) => {
++       if (slot === null)
++         return `${theme.bold(`### [${i}] failed`)}
++diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++index b1d53585..f8930197 100644
++--- a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+++++ b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++@@ -1080,10 +1080,142 @@ test("formatSlotMeta: themed `model · elapsed · usage`; defensive on missing u
++     THEME,
++   );
++   assert.equal(fb, "claude-opus-4-1 → glm-5.2 · 1.0s · $0.001 · 10 tok");
++ });
++ 
++ test("sumUsage: sums total+cost across an iterable; empty → zeros", () => {
++   assert.deepEqual(sumUsage([]), { total: 0, cost: 0 });
++   assert.deepEqual(sumUsage([U(100, 0.1), U(200, 0.2)]), { total: 300, cost: 0.30000000000000004 });
++   assert.deepEqual(sumUsage(new Map([["a", U(50, 0.05)]]).values()), { total: 50, cost: 0.05 });
++ });
+++
+++// ── Task 3: done header Σ + done-collapsed per-slot meta ──
+++// The done-state collapsed card now (a) appends ` · $Σ · Σtok` to the header
+++// when aggregate slot usage > 0, and (b) renders each per-slot line as
+++// `[i] (id) badge · <formatSlotMeta> · "task"` (formatSlotMeta = model · elapsed
+++// · usage; quoted task preview). Mirrors the single subagent card's meta.
+++
+++test("done header appends aggregate ` · $Σ · Σtok` when slots carry usage", () => {
+++  const details: SubagentsToolDetails = {
+++    results: [
+++      { output: "a", status: "done", index: 0, task: "t0", model: "zai/glm-5.2", elapsedMs: 1000, usage: U(1000, 0.1) },
+++      { output: "b", status: "done", index: 1, task: "t1", model: "zai/glm-5.2", elapsedMs: 2000, usage: U(2000, 0.2) },
+++      null,
+++    ],
+++    dispatched: 2,
+++    skipped: 0,
+++    elapsedMs: 3000,
+++  };
+++  const collapsed = renderSubagentsResult(
+++    { content: [{ type: "text", text: "x" }], details },
+++    { expanded: false },
+++    THEME,
+++  );
+++  assert.match(collapsed, /— 3\.0s · \$0\.300 · 3000 tok/);
+++});
+++
+++test("done header omits the aggregate suffix when no slot carries usage (byte-stable)", () => {
+++  const details: SubagentsToolDetails = {
+++    results: [{ output: "a", status: "done", index: 0, task: "t0", model: "zai/glm-5.2", elapsedMs: 1000 }],
+++    dispatched: 1,
+++    skipped: 0,
+++    elapsedMs: 1000,
+++  };
+++  const collapsed = renderSubagentsResult(
+++    { content: [{ type: "text", text: "x" }], details },
+++    { expanded: false },
+++    THEME,
+++  );
+++  assert.match(collapsed, /— 1\.0s$/m); // no trailing ` · $… · … tok`
+++  assert.doesNotMatch(collapsed, /tok/);
+++});
+++
+++test('done collapsed: per-slot line shows `badge · model · elapsed · $cost · Ntok · "task"` (with usage)', () => {
+++  const details: SubagentsToolDetails = {
+++    results: [
+++      {
+++        output: "ok",
+++        status: "done",
+++        index: 0,
+++        id: "alpha",
+++        task: "audit the parser",
+++        model: "zai/glm-5.2",
+++        elapsedMs: 34500,
+++        usage: U(15715, 0.0004),
+++      },
+++    ],
+++    dispatched: 1,
+++    skipped: 0,
+++    elapsedMs: 34500,
+++  };
+++  const collapsed = renderSubagentsResult(
+++    { content: [{ type: "text", text: "x" }], details },
+++    { expanded: false },
+++    THEME,
+++  );
+++  const slot0 = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
+++  assert.match(slot0, /\(alpha\)/);
+++  assert.match(slot0, /✓ done/); // fixed-width badge kept
+++  assert.match(slot0, /glm-5\.2 · 34\.5s · \$0\.000 · 15715 tok/);
+++  assert.match(slot0, /"audit the parser"/); // quoted task preview
+++  assert.ok(!slot0.includes("zai/glm-5.2"), "provider prefix dropped on the collapsed line");
+++});
+++
+++test("done collapsed: fallback slot shows `requested → actual` in the meta segment", () => {
+++  const details: SubagentsToolDetails = {
+++    results: [
+++      {
+++        output: "ok",
+++        status: "done",
+++        index: 0,
+++        task: "t",
+++        model: "zai/glm-5.2",
+++        requestedModel: "anthropic/claude-opus-4-1",
+++        fellBack: true,
+++        elapsedMs: 1000,
+++        usage: U(10, 0.001),
+++      },
+++    ],
+++    dispatched: 1,
+++    skipped: 0,
+++    elapsedMs: 1000,
+++  };
+++  const collapsed = renderSubagentsResult(
+++    { content: [{ type: "text", text: "x" }], details },
+++    { expanded: false },
+++    THEME,
+++  );
+++  assert.match(collapsed, /claude-opus-4-1 → glm-5\.2 · 1\.0s · \$0\.001 · 10 tok/);
+++});
+++
+++test('done collapsed: per-slot meta degrades (no usage → `model · elapsed · "task"`)', () => {
+++  const details: SubagentsToolDetails = {
+++    results: [
+++      { output: "", status: "aborted", index: 0, id: "x", task: "t-aborted", model: "zai/glm-5.2", elapsedMs: 500 },
+++    ],
+++    dispatched: 1,
+++    skipped: 0,
+++    elapsedMs: 500,
+++  };
+++  const collapsed = renderSubagentsResult(
+++    { content: [{ type: "text", text: "x" }], details },
+++    { expanded: false },
+++    THEME,
+++  );
+++  const slot0 = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
+++  assert.match(slot0, /⊘ aborted/);
+++  assert.match(slot0, /glm-5\.2 · 0\.5s · "t-aborted"/);
+++  assert.doesNotMatch(slot0, /tok/);
+++});
+++
+++test("done collapsed: null (failed) slot still renders the terse failed line (no meta)", () => {
+++  const details: SubagentsToolDetails = { results: [null], dispatched: 0, skipped: 0, elapsedMs: 10 };
+++  const collapsed = renderSubagentsResult(
+++    { content: [{ type: "text", text: "x" }], details },
+++    { expanded: false },
+++    THEME,
+++  );
+++  const line = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
+++  assert.match(line, /✗ failed/);
+++  assert.match(line, /child failed/);
+++  assert.doesNotMatch(line, /· .*s ·/);
+++});
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-bd34ab1d..8c4800d3.diff b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-bd34ab1d..8c4800d3.diff
+new file mode 100644
+index 00000000..ed2fab62
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/review-bd34ab1d..8c4800d3.diff
+@@ -0,0 +1,153 @@
++# Review package: bd34ab1d..8c4800d33cb156fcd1e573948a33c6af07092865
++
++## Commits
++8c4800d3 feat(subagent): batch-tui done-expanded per-child meta line (T4)
++
++## Files changed
++ .../pi-agent-ext-subagent/src/subagents-tool.ts    | 11 ++-
++ .../tests/subagents-tool.test.ts                   | 87 ++++++++++++++++++++++
++ 2 files changed, 97 insertions(+), 1 deletion(-)
++
++## Diff
++diff --git a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++index ad9ab42a..4798d507 100644
++--- a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+++++ b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++@@ -772,25 +772,34 @@ export function renderSubagentsResult(
++     lines.push(theme.fg("dim", "Ctrl-O to expand · /subagents for detail"));
++     return lines.join("\n");
++   }
++ 
++   // Expanded: header + per-child full themed output (mirrors renderBatchResult structure).
++   const body = d.results
++     .map((slot, i) => {
++       if (slot === null)
++         return `${theme.bold(`### [${i}] failed`)}
++ ${theme.fg("dim", "_(null — child failed; re-run via the singular `subagent` tool to see the error)_")}`;
+++      // Meta line shared by every variant that carries model + elapsedMs
+++      // (done/timedout/aborted/budget). usage optional → formatSlotMeta degrades.
+++      const metaLine = formatSlotMeta(
+++        slot as { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
+++        theme,
+++      );
++       if (slot.status === "budget") {
++         const label = slot.source === "child" ? "child budget" : "batch budget";
++-        return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped`)} — ${theme.fg("warning", `${label}: ${slot.exhaustion.kind} ${slot.exhaustion.actual} > ${slot.exhaustion.limit}`)}`;
+++        return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped`)} — ${theme.fg("warning", `${label}: ${slot.exhaustion.kind} ${slot.exhaustion.actual} > ${slot.exhaustion.limit}`)}
+++${metaLine}`;
++       }
++       if (slot.status === "aborted") {
++         return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} aborted`)}
+++${metaLine}
++ ${theme.fg("dim", "_(user-aborted mid-flight)_")}`;
++       }
++       const output = slot.output || "_(empty output)_";
++       return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} ${slot.status}`)}
+++${metaLine}
++ ${theme.fg("toolOutput", output)}`;
++     })
++     .join("\n\n");
++   return `${theme.bold(header)}\n\n${body}`;
++ }
++diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++index f8930197..ae74969f 100644
++--- a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+++++ b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++@@ -1212,10 +1212,97 @@ test("done collapsed: null (failed) slot still renders the terse failed line (no
++   const collapsed = renderSubagentsResult(
++     { content: [{ type: "text", text: "x" }], details },
++     { expanded: false },
++     THEME,
++   );
++   const line = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
++   assert.match(line, /✗ failed/);
++   assert.match(line, /child failed/);
++   assert.doesNotMatch(line, /· .*s ·/);
++ });
+++
+++// ── Task 4: done-expanded per-child meta line ──
+++// The expanded branch prepends a `model · elapsed · $cost · Ntok` meta line
+++// above each child's output (done/timedout/aborted/budget). Null (failed)
+++// slots are unchanged. Mirrors the single subagent card's meta placement.
+++
+++test("done expanded: prepends a `model · elapsed · $cost · Ntok` meta line above each child output", () => {
+++  const details: SubagentsToolDetails = {
+++    results: [
+++      {
+++        output: "Full audit report\nLine two",
+++        status: "done",
+++        id: "a",
+++        index: 0,
+++        task: "audit",
+++        model: "zai/glm-5.2",
+++        elapsedMs: 34500,
+++        usage: U(15715, 0.0004),
+++      },
+++    ],
+++    dispatched: 1,
+++    skipped: 0,
+++    elapsedMs: 34500,
+++  };
+++  const expanded = renderSubagentsResult(
+++    { content: [{ type: "text", text: "x" }], details },
+++    { expanded: true },
+++    THEME,
+++  );
+++  const lines = expanded.split("\n");
+++  // NOTE (T4 brief fix): meta sits at lines[3], not lines[1]. Expanded layout is
+++  // `header\n\n### [i] (id) status\n<meta>\n<output>` — the brief's verbatim
+++  // `lines[1]` pointed at the blank line between the batch header and the body.
+++  assert.match(
+++    lines[3] ?? "",
+++    /glm-5\.2 · 34\.5s · \$0\.000 · 15715 tok/,
+++    "meta line sits directly under the ### header",
+++  );
+++  assert.ok(expanded.includes("Full audit report"), "output preserved under the meta line");
+++});
+++
+++test("done expanded: budget + aborted slots get a meta line too (no usage → model · elapsed only)", () => {
+++  const details: SubagentsToolDetails = {
+++    results: [
+++      {
+++        status: "budget",
+++        source: "child" as const,
+++        exhaustion: { kind: "tokens" as const, limit: 1000, actual: 2000 },
+++        index: 0,
+++        task: "t-budget",
+++        model: "zai/glm-5.2",
+++        elapsedMs: 800,
+++      },
+++      { output: "", status: "aborted", index: 1, task: "t-aborted", model: "zai/glm-5.2", elapsedMs: 300 },
+++    ],
+++    dispatched: 2,
+++    skipped: 1,
+++    elapsedMs: 1100,
+++  };
+++  const expanded = renderSubagentsResult(
+++    { content: [{ type: "text", text: "x" }], details },
+++    { expanded: true },
+++    THEME,
+++  );
+++  // NOTE (T4 brief fix): order reversed. Layout is `### [i] skipped — ...\n<meta>`
+++  // (status word in the ### header precedes the meta), so the brief's verbatim
+++  // `meta THEN status` regexes never matched. `status THEN meta` is the spec'd order.
+++  assert.match(expanded, /skipped[\s\S]*glm-5\.2 · 0\.8s/);
+++  assert.match(expanded, /aborted[\s\S]*glm-5\.2 · 0\.3s/);
+++});
+++
+++test("done expanded: null (failed) slot has NO meta line (unchanged failed body)", () => {
+++  const details: SubagentsToolDetails = {
+++    results: [null, { output: "ok", status: "done", index: 1, task: "t", model: "zai/glm-5.2", elapsedMs: 100 }],
+++    dispatched: 1,
+++    skipped: 0,
+++    elapsedMs: 100,
+++  };
+++  const expanded = renderSubagentsResult(
+++    { content: [{ type: "text", text: "x" }], details },
+++    { expanded: true },
+++    THEME,
+++  );
+++  const failedBlock = expanded.split("### [1]")[0];
+++  assert.match(failedBlock, /### \[0\] failed/);
+++  assert.doesNotMatch(failedBlock, /· .*s ·/);
+++});
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-1-brief.md b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-1-brief.md
+new file mode 100644
+index 00000000..8b204668
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-1-brief.md
+@@ -0,0 +1,95 @@
++### Task 1: Expose `onUsage` on `SpawnSubagentOptions` and forward it
++
++**Files:**
++- Modify: `bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts` (interface ~line 116 area; `tryOnce` `onUsage` closure ~line 251)
++- Test: `bun-apps/pi-agent-ext-subagent/tests/spawn-subagent.test.ts`
++
++**Interfaces:**
++- Consumes: `AgentUsage` (already imported in `spawn-subagent.ts`); the existing `mkRunner` injectable-runner pattern in `spawn-subagent.test.ts`.
++- Produces: `SpawnSubagentOptions.onUsage?: (u: AgentUsage) => void` — a new optional callback. Task 6 wires it on `childSpawnOpts` to populate the batch's `runningUsage` map.
++
++- [ ] **Step 1: Write the failing test**
++
++Append to `tests/spawn-subagent.test.ts` (inside the existing top-level `describe("spawnSubagent", …)` block, after the `"forwards tier/onModelResolved/onModelFallback to runner.run"` test):
++
++```ts
++it("forwards onUsage to the caller (fires once at run end) alongside the internal result.usage capture", async () => {
++  const usage = { input: 10, output: 20, cacheRead: 0, cacheWrite: 0, total: 30, cost: 0.012 };
++  const runner = mkRunner(async ({ opts }) => {
++    opts.onUsage?.(usage);
++    return "ok";
++  });
++  const seen: AgentUsage[] = [];
++  const res = await spawnSubagent({ task: "t", agent: runner, onUsage: (u) => seen.push(u) });
++  assert.equal(seen.length, 1, "opts.onUsage fires exactly once");
++  assert.deepEqual(seen[0], usage, "the caller receives the usage payload verbatim");
++  assert.deepEqual(res.usage, usage, "the internal result.usage capture still works (not removed)");
++});
++
++it("onUsage is optional — omitting it changes nothing (result.usage still captured)", async () => {
++  const usage = { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, total: 5, cost: 0.001 };
++  const runner = mkRunner(async ({ opts }) => {
++    opts.onUsage?.(usage);
++    return "ok";
++  });
++  const res = await spawnSubagent({ task: "t", agent: runner });
++  assert.deepEqual(res.usage, usage, "result.usage captured even with no caller onUsage");
++});
++```
++
++Add `AgentUsage` to the test file's imports from `@repo/pi-agent-ext-core-runtime`:
++
++```ts
++import { saveModelTierConfig, WorkflowError, WorkflowErrorCode, type AgentUsage } from "@repo/pi-agent-ext-core-runtime";
++```
++
++- [ ] **Step 2: Run test to verify it fails**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun test tests/spawn-subagent.test.ts )`
++Expected: FAIL — `onUsage` does not exist on `SpawnSubagentOptions` (TS type error / `undefined is not a function` at `opts.onUsage` passed by the test never reaches the caller).
++
++- [ ] **Step 3: Write minimal implementation**
++
++In `spawn-subagent.ts`, add the field to `SpawnSubagentOptions` (place it right after the existing `onHistory?` field, keeping the callback-field grouping):
++
++```ts
++  /**
++   * Fires with the child's real token/cost usage once known. Emitted exactly
++   * once, at run completion (the runner reads session stats in its `finally`).
++   * Mirrors {@link onHistory} / {@link onModelResolved} / {@link onModelFallback}
++   * — additive + optional. The internal `result.usage` capture is unchanged, so
++   * both this live callback and the final result carry usage.
++   */
++  onUsage?: (u: AgentUsage) => void;
++```
++
++Then, in `tryOnce`, update the existing internal `onUsage` closure (currently `onUsage: (u) => { usage = u; }`) to ALSO forward to the caller — keep the local capture:
++
++```ts
++        onUsage: (u) => {
++          usage = u;
++          opts.onUsage?.(u);
++        },
++```
++
++- [ ] **Step 4: Run test to verify it passes**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun test tests/spawn-subagent.test.ts )`
++Expected: PASS — both new tests green; `result.usage` capture intact.
++
++- [ ] **Step 5: Lint + typecheck, then commit**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun run check && bun run build )`
++Expected: biome clean, tsc clean.
++
++```bash
++git add bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts bun-apps/pi-agent-ext-subagent/tests/spawn-subagent.test.ts
++git commit -m "feat(subagent): expose additive onUsage callback on SpawnSubagentOptions
++
++Forwarded to runner.run() alongside the existing internal result.usage
++capture (both work). Additive + optional, mirrors onHistory/onModelResolved.
++Feeds the batch subagents tool's running-header usage aggregate."
++```
++
++---
++
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-1-report.md b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-1-report.md
+new file mode 100644
+index 00000000..453e0a60
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-1-report.md
+@@ -0,0 +1,72 @@
++# Task 1 Report — Expose `onUsage` on `SpawnSubagentOptions` + forward to runner
++
++**Effort:** improve-subagents-batch-tui · **Task:** 1 of 6 (label `zk-spawn`)
++**Branch:** `feat/improve-subagents-batch-tui`
++
++## What changed
++
++### `bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts`
++
++1. **Interface field (additive, optional, non-breaking).** Added `onUsage?: (u: AgentUsage) => void` to `SpawnSubagentOptions`, placed immediately after the existing `onHistory?` field (callback-field grouping preserved). `AgentUsage` was already imported from `@repo/pi-agent-ext-core-runtime` — no new import needed in the source. JSDoc notes it fires exactly once at run completion and that the internal `result.usage` capture is unchanged (both the live callback and the final result carry usage).
++
++2. **Composed `onUsage` closure in `tryOnce`.** The existing internal closure (`onUsage: (u) => { usage = u; }`) was extended — NOT replaced — so a single callback is forwarded to `runner.run()` that both updates the internal `usage` capture AND invokes the caller's `opts.onUsage?.(u)`:
++
++   ```ts
++   onUsage: (u) => {
++     usage = u;
++     opts.onUsage?.(u);
++   },
++   ```
++
++   This satisfies the two plan-time decisions: `onUsage` is exposed now, fires once at child completion (the runner reports usage in its completion/`finally` path), and the internal `result.usage` capture feeding the retry-merge logic is fully preserved.
++
++### `bun-apps/pi-agent-ext-subagent/tests/spawn-subagent.test.ts`
++
++1. **Import:** added `type AgentUsage` to the `@repo/pi-agent-ext-core-runtime` import (biome-sorted to the front, wrapped across lines).
++2. **Two new tests** appended inside the top-level `describe("spawnSubagent", …)` block, immediately after the `"forwards tier/onModelResolved/onModelFallback to runner.run"` test:
++   - `"forwards onUsage to the caller (fires once at run end) alongside the internal result.usage capture"` — asserts `opts.onUsage` fires exactly once, the caller receives the payload verbatim, AND `result.usage` capture still works.
++   - `"onUsage is optional — omitting it changes nothing (result.usage still captured)"` — asserts omitting `onUsage` leaves `result.usage` intact.
++
++## Test coverage
++
++Test file: `bun-apps/pi-agent-ext-subagent/tests/spawn-subagent.test.ts`
++
++| # | Test | New? |
++|---|------|------|
++| — | `"forwards onUsage to the caller …"` | ✅ new (T1) |
++| — | `"onUsage is optional — omitting it …"` | ✅ new (T1) |
++| (33 pre-existing) | full regression suite (model resolution, transient/budget retries, usage-sum-across-retry, abort paths, schema repair, resolveSessionOverride) | existing — all still green |
++
++The pre-existing `"onUsage fires → result.usage carries the reported AgentUsage"` and `"usage is summed across a transient failure + retry"` tests guard the internal capture that this task composes onto — both still pass, proving the capture was not removed.
++
++## Exact test command + output
++
++```
++( cd bun-apps/pi-agent-ext-subagent && bun test tests/spawn-subagent.test.ts )
++```
++
++- **Before impl (failing for the right reason):** 1 fail — `seen.length` 0 !== 1 at `opts.onUsage fires exactly once` (the caller's `onUsage` never fired because the internal closure did not forward it). The omitted-`onUsage` variant passed (internal capture worked).
++- **After impl:** `35 pass / 0 fail` (33 baseline + 2 new). `Ran 35 tests across 1 file. [266ms]`.
++
++## Pre-commit gate
++
++```
++( cd bun-apps/pi-agent-ext-subagent && bun run check && bun run build )
++```
++- `bun run check` (biome check .): **clean** — `Checked 60 files in 28ms. No fixes applied.` exit 0.
++  - Note: biome's safe auto-fix (import reorder: `type AgentUsage` first + multi-line wrap) was applied once via `bunx biome check --write tests/spawn-subagent.test.ts` before the final clean gate run.
++- `bun run build` (`bunx tsc`): **clean** — no diagnostics. exit 0.
++
++## Commits
++
++- **`018ffb9a..e29bbe58`** — single commit on `feat/improve-subagents-batch-tui`:
++  `feat(subagent): expose onUsage on SpawnSubagentOptions + forward to runner (batch-tui T1)`
++  - 2 files changed, 38 insertions(+), 1 deletion(-) — exactly `src/spawn-subagent.ts` + `tests/spawn-subagent.test.ts`. No `.planning/` files staged (explicit `git add <path>`; controller commits the audit trail separately).
++
++## Return-contract summary
++
++- **Status:** DONE
++- **Commits:** `018ffb9a..e29bbe58`
++- **Tests:** `spawn-subagent.test.ts`: 35 pass / 0 fail (33 baseline + 2 new T1)
++- **Gate:** `bun run check` + `bun run build`: clean (exit 0 / exit 0)
++- **Concerns:** none
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-2-brief.md b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-2-brief.md
+new file mode 100644
+index 00000000..1bb80cd0
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-2-brief.md
+@@ -0,0 +1,144 @@
++### Task 2: Pure render helpers — `formatUsage`, `formatModelSeg`, `formatSlotMeta`, `sumUsage`
++
++**Files:**
++- Modify: `bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts` (add four exported pure fns near `batchStatusBadge`)
++- Test: `bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts`
++
++**Interfaces:**
++- Consumes: `AgentUsage` (imported), `shortModel` (imported from `@repo/pi-agent-ext-core-runtime`), `Theme` (imported from `@earendil-works/pi-coding-agent`).
++- Produces:
++  - `formatUsage(u: AgentUsage | undefined): string` → ` · $X.XXX · Ntok` when `u && u.total > 0`, else `""`. Byte-identical to the single card's `usageStr`.
++  - `formatModelSeg(model: string, requestedModel?: string, fellBack?: boolean): string` → fallback-aware model label (`requested → actual`, both `shortModel`-ed), else `shortModel(model) ?? "default"`. Theme-free (shared by live table + themed meta).
++  - `formatSlotMeta(slot: { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage }, theme: Theme): string` → themed `model · elapsed · usage` line (used by done collapsed + expanded).
++  - `sumUsage(values: Iterable<AgentUsage>): { total: number; cost: number }` → `{total:0, cost:0}` for empty. Feeds both done-header and live-header Σ (Task 3 + Task 6).
++
++- [ ] **Step 1: Write the failing tests**
++
++Append to `tests/subagents-tool.test.ts`:
++
++```ts
++import {
++  // …existing imports from "../src/subagents-tool.js"…
++  formatUsage,
++  formatModelSeg,
++  formatSlotMeta,
++  sumUsage,
++} from "../src/subagents-tool.js";
++import type { AgentUsage } from "@repo/pi-agent-ext-core-runtime";
++
++const U = (total: number, cost: number): AgentUsage => ({
++  input: 0,
++  output: 0,
++  cacheRead: 0,
++  cacheWrite: 0,
++  total,
++  cost,
++});
++
++test("formatUsage: empty when no usage or zero total; else ` · $cost · Ntok` (3-decimal cost)", () => {
++  assert.equal(formatUsage(undefined), "");
++  assert.equal(formatUsage(U(0, 0)), "");
++  assert.equal(formatUsage(U(15715, 0.0004)), " · $0.000 · 15715 tok");
++  assert.equal(formatUsage(U(1000, 0.5)), " · $0.500 · 1000 tok");
++});
++
++test("formatModelSeg: shortens provider prefix; `requested → actual` on fallback; default fallback", () => {
++  assert.equal(formatModelSeg("zai/glm-5.2"), "glm-5.2");
++  assert.equal(formatModelSeg("tier:small"), "tier:small");
++  assert.equal(formatModelSeg("anthropic/claude-opus-4-1", "anthropic/claude-opus-4-1", true), "claude-opus-4-1 → claude-opus-4-1");
++  assert.equal(formatModelSeg("zai/glm-5.2", "anthropic/claude-opus-4-1", true), "claude-opus-4-1 → glm-5.2");
++  assert.equal(formatModelSeg(""), "default");
++});
++
++test("formatSlotMeta: themed `model · elapsed · usage`; defensive on missing usage", () => {
++  const meta = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500, usage: U(15715, 0.0004) }, THEME);
++  assert.equal(meta, "glm-5.2 · 34.5s · $0.000 · 15715 tok");
++  const noUsage = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500 }, THEME);
++  assert.equal(noUsage, "glm-5.2 · 34.5s");
++  const fb = formatSlotMeta(
++    { model: "zai/glm-5.2", requestedModel: "anthropic/claude-opus-4-1", fellBack: true, elapsedMs: 1000, usage: U(10, 0.001) },
++    THEME,
++  );
++  assert.equal(fb, "claude-opus-4-1 → glm-5.2 · 1.0s · $0.001 · 10 tok");
++});
++
++test("sumUsage: sums total+cost across an iterable; empty → zeros", () => {
++  assert.deepEqual(sumUsage([]), { total: 0, cost: 0 });
++  assert.deepEqual(sumUsage([U(100, 0.1), U(200, 0.2)]), { total: 300, cost: 0.30000000000000004 });
++  assert.deepEqual(sumUsage(new Map([["a", U(50, 0.05)]]).values()), { total: 50, cost: 0.05 });
++});
++```
++
++(`THEME` is the existing identity-theme const already defined at the top of the render-test section of `tests/subagents-tool.test.ts`.)
++
++- [ ] **Step 2: Run test to verify it fails**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun test tests/subagents-tool.test.ts )`
++Expected: FAIL — `formatUsage`/`formatModelSeg`/`formatSlotMeta`/`sumUsage` are not exported (import error).
++
++- [ ] **Step 3: Write minimal implementation**
++
++In `subagents-tool.ts`, add these four pure helpers immediately after the `batchStatusBadge` function (before `renderSubagentsResult`):
++
++```ts
++/** Usage segment mirroring the single `subagent` card's meta: ` · $X.XXX · Ntok`
++ *  when usage is present and non-zero, else `""` (defensive — degrades to empty). */
++export function formatUsage(u: AgentUsage | undefined): string {
++  return u && u.total > 0 ? ` · $${u.cost.toFixed(3)} · ${u.total} tok` : "";
++}
++
++/** Fallback-aware model label (theme-free so the live table and the themed meta
++ *  share it). On fallback shows `requested → actual` (both shortModel-ed); else
++ *  the resolved model shortModel-ed; `"default"` when empty. Mirrors the single
++ *  card's `modelSeg`. */
++export function formatModelSeg(model: string, requestedModel?: string, fellBack?: boolean): string {
++  if (fellBack && requestedModel) {
++    return `${shortModel(requestedModel) ?? "default"} → ${shortModel(model) ?? "default"}`;
++  }
++  return shortModel(model) ?? "default";
++}
++
++/** Themed `model · elapsed · usage` line for a done/timedout/aborted/budget slot.
++ *  Shared by the done-collapsed per-slot line and the done-expanded meta line
++ *  (DRY). `usage` optional → degrades to `model · elapsed`. */
++export function formatSlotMeta(
++  slot: { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
++  theme: Theme,
++): string {
++  return theme.fg("muted", `${formatModelSeg(slot.model, slot.requestedModel, slot.fellBack)} · ${(slot.elapsedMs / 1000).toFixed(1)}s${formatUsage(slot.usage)}`);
++}
++
++/** Sum total + cost across any iterable of AgentUsage (slots' usage for the done
++ *  header; the runningUsage map's values for the live header). Empty → zeros. */
++export function sumUsage(values: Iterable<AgentUsage>): { total: number; cost: number } {
++  let total = 0;
++  let cost = 0;
++  for (const v of values) {
++    total += v.total;
++    cost += v.cost;
++  }
++  return { total, cost };
++}
++```
++
++- [ ] **Step 4: Run test to verify it passes**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun test tests/subagents-tool.test.ts )`
++Expected: PASS — all four helper tests green; existing tests untouched.
++
++- [ ] **Step 5: Lint + typecheck, then commit**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun run check && bun run build )`
++Expected: biome clean, tsc clean.
++
++```bash
++git add bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++git commit -m "refactor(subagents): add pure render helpers formatUsage/formatModelSeg/formatSlotMeta/sumUsage
++
++Shared by the done + live render rewrites (Tasks 3-6). formatSlotMeta +
++formatModelSeg mirror the single subagent card's meta (fallback-aware).
++sumUsage feeds both the done-header and live-header usage aggregates."
++```
++
++---
++
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-2-report.md b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-2-report.md
+new file mode 100644
+index 00000000..75b38938
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-2-report.md
+@@ -0,0 +1,216 @@
++# Task 2 Report — Pure render helpers (`formatUsage`, `formatModelSeg`, `formatSlotMeta`, `sumUsage`)
++
++**Package:** `bun-apps/pi-agent-ext-subagent`
++**Branch:** `feat/improve-subagents-batch-tui`
++**Task:** 2 of 6 (render-parity improvement to the batch `subagents` TUI card)
++**Status:** DONE
++
++## Summary
++
++Added four exported pure render helpers to `src/subagents-tool.ts`, placed
++immediately after `batchStatusBadge` (before `renderSubagentsResult`), per the
++brief's verbatim implementation. These are DRY primitives shared by the
++done-collapsed / done-expanded rewrites (Task 3) and the live-header Σ rewrites
++(Task 6). They are PURE: no I/O, no side effects, deterministic, trivially
++unit-testable.
++
++`formatSlotMeta` + `formatModelSeg` mirror the single `subagent` card's meta
++format (fallback-aware) — render PARITY, so the format strings are contractual.
++
++## Functions (final signatures)
++
++```ts
++/** Usage segment: ` · $X.XXX · Ntok` when usage present + non-zero, else "".
++ *  Load-bearing: render fixtures omit `usage`, so "" keeps rendered lines
++ *  byte-compatible (no phantom spaces/tokens). */
++export function formatUsage(u: AgentUsage | undefined): string
++
++/** Fallback-aware model label (theme-free — shared by live table + themed meta).
++ *  On fallback: `requested → actual` (both shortModel-ed); else resolved model
++ *  shortModel-ed; "default" when empty. */
++export function formatModelSeg(model: string, requestedModel?: string, fellBack?: boolean): string
++
++/** Themed `model · elapsed · usage` line for a done/timedout/aborted/budget slot.
++ *  `usage` optional → degrades to `model · elapsed`. */
++export function formatSlotMeta(
++  slot: { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
++  theme: Theme,
++): string
++
++/** Sum total + cost across any iterable of AgentUsage. Empty → zeros. */
++export function sumUsage(values: Iterable<AgentUsage>): { total: number; cost: number }
++```
++
++## Implementation (transcribed verbatim, post-biome-format)
++
++```ts
++export function formatUsage(u: AgentUsage | undefined): string {
++  return u && u.total > 0 ? ` · $${u.cost.toFixed(3)} · ${u.total} tok` : "";
++}
++
++export function formatModelSeg(model: string, requestedModel?: string, fellBack?: boolean): string {
++  if (fellBack && requestedModel) {
++    return `${shortModel(requestedModel) ?? "default"} → ${shortModel(model) ?? "default"}`;
++  }
++  return shortModel(model) ?? "default";
++}
++
++export function formatSlotMeta(
++  slot: { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
++  theme: Theme,
++): string {
++  return theme.fg(
++    "muted",
++    `${formatModelSeg(slot.model, slot.requestedModel, slot.fellBack)} · ${(slot.elapsedMs / 1000).toFixed(
++      1,
++    )}s${formatUsage(slot.usage)}`,
++  );
++}
++
++export function sumUsage(values: Iterable<AgentUsage>): { total: number; cost: number } {
++  let total = 0;
++  let cost = 0;
++  for (const v of values) {
++    total += v.total;
++    cost += v.cost;
++  }
++  return { total, cost };
++}
++```
++
++`shortModel` (from `@repo/pi-agent-ext-core-runtime`) already returns
++`string | undefined` and treats `""` / falsy as `undefined`, so
++`formatModelSeg("")` correctly falls through to `"default"`. `Theme` is already
++imported from `@earendil-works/pi-coding-agent` at the top of the module; no new
++imports were required.
++
++## Test cases added (`tests/subagents-tool.test.ts`)
++
++A `U(total, cost)` AgentUsage factory plus four tests (identity-theme `THEME`
++const already defined at the top of the render-test section):
++
++### 1. `formatUsage` — empty/zero/3-decimal-cost
++```ts
++test("formatUsage: empty when no usage or zero total; else ` · $cost · Ntok` (3-decimal cost)", () => {
++  assert.equal(formatUsage(undefined), "");
++  assert.equal(formatUsage(U(0, 0)), "");
++  assert.equal(formatUsage(U(15715, 0.0004)), " · $0.000 · 15715 tok");
++  assert.equal(formatUsage(U(1000, 0.5)), " · $0.500 · 1000 tok");
++});
++```
++**Load-bearing case:** `formatUsage(undefined) === ""` and
++`formatUsage(U(0,0)) === ""` — the empty-string contract that keeps existing
++render fixtures byte-compatible (the Task-1 reviewer's flagged invariant). Cost
++formatted with `.toFixed(3)` (3-decimal) regardless of magnitude.
++
++### 2. `formatModelSeg` — prefix shortening, fallback, default
++```ts
++test("formatModelSeg: shortens provider prefix; `requested → actual` on fallback; default fallback", () => {
++  assert.equal(formatModelSeg("zai/glm-5.2"), "glm-5.2");
++  assert.equal(formatModelSeg("tier:small"), "tier:small");
++  assert.equal(
++    formatModelSeg("anthropic/claude-opus-4-1", "anthropic/claude-opus-4-1", true),
++    "claude-opus-4-1 → claude-opus-4-1",
++  );
++  assert.equal(formatModelSeg("zai/glm-5.2", "anthropic/claude-opus-4-1", true), "claude-opus-4-1 → glm-5.2");
++  assert.equal(formatModelSeg(""), "default");
++});
++```
++Covers: provider-prefix drop, no-slash passthrough, same-model fallback,
++different-model fallback, and the empty → `"default"` fallthrough.
++
++### 3. `formatSlotMeta` — themed composition + defensive on missing usage
++```ts
++test("formatSlotMeta: themed `model · elapsed · usage`; defensive on missing usage", () => {
++  const meta = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500, usage: U(15715, 0.0004) }, THEME);
++  assert.equal(meta, "glm-5.2 · 34.5s · $0.000 · 15715 tok");
++  const noUsage = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500 }, THEME);
++  assert.equal(noUsage, "glm-5.2 · 34.5s");
++  const fb = formatSlotMeta(
++    {
++      model: "zai/glm-5.2",
++      requestedModel: "anthropic/claude-opus-4-1",
++      fellBack: true,
++      elapsedMs: 1000,
++      usage: U(10, 0.001),
++    },
++    THEME,
++  );
++  assert.equal(fb, "claude-opus-4-1 → glm-5.2 · 1.0s · $0.001 · 10 tok");
++});
++```
++Three cases: full meta, usage-omitted (`model · elapsed` only — byte-compatible
++degradation), and fallback composition. Elapsed formatted with `.toFixed(1)`.
++
++### 4. `sumUsage` — aggregation + empty-zeros
++```ts
++test("sumUsage: sums total+cost across an iterable; empty → zeros", () => {
++  assert.deepEqual(sumUsage([]), { total: 0, cost: 0 });
++  assert.deepEqual(sumUsage([U(100, 0.1), U(200, 0.2)]), { total: 300, cost: 0.30000000000000004 });
++  assert.deepEqual(sumUsage(new Map([["a", U(50, 0.05)]]).values()), { total: 50, cost: 0.05 });
++});
++```
++Covers: empty → zeros (feeds both done-header and live-header when no usage
++reported), array aggregation with the IEEE-754 floating-point sum
++(`0.1 + 0.2 = 0.30000000000000004` — asserted verbatim, not rounded), and
++non-array iterable (a `Map.values()` iterator — exercises the `Iterable<AgentUsage>`
++contract the live-header Σ will rely on).
++
++## Test command + output
++
++```bash
++( cd bun-apps/pi-agent-ext-subagent && bun test tests/subagents-tool.test.ts )
++```
++```
++(pass) formatUsage: empty when no usage or zero total; else ` · $cost · Ntok` (3-decimal cost) [0.03ms]
++(pass) formatModelSeg: shortens provider prefix; `requested → actual` on fallback; default fallback [0.02ms]
++(pass) formatSlotMeta: themed `model · elapsed · usage`; defensive on missing usage [0.04ms]
++(pass) sumUsage: sums total+cost across an iterable; empty → zeros [0.03ms]
++
++ 43 pass
++ 0 fail
++Ran 43 tests across 1 file. [257.00ms]
++```
++All 43 tests pass (4 new + 39 pre-existing untouched). The RED phase was
++confirmed first: pre-implementation `bun test` failed with
++`SyntaxError: Export named 'sumUsage' not found in module …subagents-tool.ts`
++(the expected import-error failure mode).
++
++## Gate result
++
++```bash
++( cd bun-apps/pi-agent-ext-subagent && bun run check && bun run build )
++```
++- `bun run check` (= `biome check .`): **clean** — `Checked 60 files. No fixes applied.`
++- `bun run build` (= `bunx tsc`): **clean** — no diagnostics.
++
++Note: initial `bun run check` flagged formatting (line-length wrapping in the new
++`formatSlotMeta` template, the long `formatModelSeg` assertion line, and an
++import-order merge for the new `AgentUsage` type import). Resolved by running
++`bunx biome check --write src/subagents-tool.ts tests/subagents-tool.test.ts`
++(safe auto-fixes only — semantics unchanged; tests re-verified green after).
++
++## Commit SHA
++
++- **Base:** `725ec68d` (T1 audit-trail commit)
++- **Head:** `bd3f4793` — `feat(subagent): batch-tui pure render helpers — formatUsage/formatModelSeg/formatSlotMeta/sumUsage (T2)`
++
++Staged exactly the two required source files:
++`bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts` +
++`bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts` (2 files changed,
++107 insertions). No `.planning/` files committed (controller commits the audit
++trail separately).
++
++## Notes for downstream tasks
++
++- `formatUsage` returns `""` for absent/zero usage — **do not** strip it when
++  composing meta lines; the empty string is the byte-compat contract. Any new
++  render line that wants usage should compose as `…${formatUsage(usage)}` (same
++  pattern `formatSlotMeta` uses).
++- `formatModelSeg` is theme-free by design; the themed wrapping (`theme.fg("muted", …)`)
++  lives in `formatSlotMeta`. The live table (Task 6) should call `formatModelSeg`
++  directly to avoid double-wrapping.
++- `sumUsage` returns a plain `{ total, cost }` — compatible with the existing
++  `acc` accumulator shape (`{ tokens: { total }, cost }`) used by the batch soft
++  gate in `execute()`, modulo the nesting; downstream header code should read
++  `.total` / `.cost` off the returned object directly.
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-3-brief.md b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-3-brief.md
+new file mode 100644
+index 00000000..fbeba99e
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-3-brief.md
+@@ -0,0 +1,181 @@
++### Task 3: Done header Σ + done-collapsed per-slot meta
++
++**Files:**
++- Modify: `bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts` (`renderSubagentsResult` — header build + collapsed branch, ~line 660-720)
++- Test: `bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts`
++
++**Interfaces:**
++- Consumes: `formatSlotMeta`, `formatUsage`, `sumUsage` (Task 2); the existing `batchStatusBadge` + `BATCH_BADGE_WIDTH` (unchanged).
++- Produces: `renderSubagentsResult` now (a) appends ` · $Σ · Σtok` to the done header when aggregate usage > 0, and (b) renders each collapsed per-slot line as `[i] (id) badge · <formatSlotMeta> · "task"` (meta replaces the inlined model+elapsed; quoted task preview).
++
++**Render-target cell (done-collapsed):** `[i] (id) ✓ model · elapsed · $cost · Ntok · "task"` — `✓` = the fixed-width padded status badge (kept).
++
++- [ ] **Step 1: Write the failing tests**
++
++Append to `tests/subagents-tool.test.ts`:
++
++```ts
++test("done header appends aggregate ` · $Σ · Σtok` when slots carry usage", () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      { output: "a", status: "done", index: 0, task: "t0", model: "zai/glm-5.2", elapsedMs: 1000, usage: U(1000, 0.1) },
++      { output: "b", status: "done", index: 1, task: "t1", model: "zai/glm-5.2", elapsedMs: 2000, usage: U(2000, 0.2) },
++      null,
++    ],
++    dispatched: 2,
++    skipped: 0,
++    elapsedMs: 3000,
++  };
++  const collapsed = renderSubagentsResult({ content: [{ type: "text", text: "x" }], details }, { expanded: false }, THEME);
++  assert.match(collapsed, /— 3\.0s · \$0\.300 · 3000 tok/);
++});
++
++test("done header omits the aggregate suffix when no slot carries usage (byte-stable)", () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      { output: "a", status: "done", index: 0, task: "t0", model: "zai/glm-5.2", elapsedMs: 1000 },
++    ],
++    dispatched: 1,
++    skipped: 0,
++    elapsedMs: 1000,
++  };
++  const collapsed = renderSubagentsResult({ content: [{ type: "text", text: "x" }], details }, { expanded: false }, THEME);
++  assert.match(collapsed, /— 1\.0s$/m); // no trailing ` · $… · … tok`
++  assert.doesNotMatch(collapsed, /tok/);
++});
++
++test("done collapsed: per-slot line shows `badge · model · elapsed · $cost · Ntok · \"task\"` (with usage)", () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      {
++        output: "ok",
++        status: "done",
++        index: 0,
++        id: "alpha",
++        task: "audit the parser",
++        model: "zai/glm-5.2",
++        elapsedMs: 34500,
++        usage: U(15715, 0.0004),
++      },
++    ],
++    dispatched: 1,
++    skipped: 0,
++    elapsedMs: 34500,
++  };
++  const collapsed = renderSubagentsResult({ content: [{ type: "text", text: "x" }], details }, { expanded: false }, THEME);
++  const slot0 = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
++  assert.match(slot0, /\(alpha\)/);
++  assert.match(slot0, /✓ done/); // fixed-width badge kept
++  assert.match(slot0, /glm-5\.2 · 34\.5s · \$0\.000 · 15715 tok/);
++  assert.match(slot0, /"audit the parser"/); // quoted task preview
++  assert.ok(!slot0.includes("zai/glm-5.2"), "provider prefix dropped on the collapsed line");
++});
++
++test("done collapsed: fallback slot shows `requested → actual` in the meta segment", () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      {
++        output: "ok",
++        status: "done",
++        index: 0,
++        task: "t",
++        model: "zai/glm-5.2",
++        requestedModel: "anthropic/claude-opus-4-1",
++        fellBack: true,
++        elapsedMs: 1000,
++        usage: U(10, 0.001),
++      },
++    ],
++    dispatched: 1,
++    skipped: 0,
++    elapsedMs: 1000,
++  };
++  const collapsed = renderSubagentsResult({ content: [{ type: "text", text: "x" }], details }, { expanded: false }, THEME);
++  assert.match(collapsed, /claude-opus-4-1 → glm-5\.2 · 1\.0s · \$0\.001 · 10 tok/);
++});
++
++test("done collapsed: per-slot meta degrades (no usage → `model · elapsed · \"task\"`)", () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      { output: "", status: "aborted", index: 0, id: "x", task: "t-aborted", model: "zai/glm-5.2", elapsedMs: 500 },
++    ],
++    dispatched: 1,
++    skipped: 0,
++    elapsedMs: 500,
++  };
++  const collapsed = renderSubagentsResult({ content: [{ type: "text", text: "x" }], details }, { expanded: false }, THEME);
++  const slot0 = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
++  assert.match(slot0, /⊘ aborted/);
++  assert.match(slot0, /glm-5\.2 · 0\.5s · "t-aborted"/);
++  assert.doesNotMatch(slot0, /tok/);
++});
++
++test("done collapsed: null (failed) slot still renders the terse failed line (no meta)", () => {
++  const details: SubagentsToolDetails = { results: [null], dispatched: 0, skipped: 0, elapsedMs: 10 };
++  const collapsed = renderSubagentsResult({ content: [{ type: "text", text: "x" }], details }, { expanded: false }, THEME);
++  const line = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
++  assert.match(line, /✗ failed/);
++  assert.match(line, /child failed/);
++  assert.doesNotMatch(line, /· .*s ·/);
++});
++```
++
++- [ ] **Step 2: Run test to verify it fails**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun test tests/subagents-tool.test.ts )`
++Expected: FAIL — header has no aggregate suffix; collapsed per-slot line still uses the old inlined `model  ·  elapsed  ·  task` (no cost/tokens, no quotes).
++
++- [ ] **Step 3: Write minimal implementation**
++
++In `renderSubagentsResult`, replace the header build and the collapsed branch. First, the header — after computing `done`/`aborted`/`failed`, compute the aggregate and append it:
++
++```ts
++  // Aggregate usage across non-null slots that carry usage → header Σtok/$Σ
++  // (mirrors the single card's `$cost · Ntok`, appended after elapsed).
++  const slotUsages: AgentUsage[] = [];
++  for (const s of d.results) {
++    if (s && (s as { usage?: AgentUsage }).usage) slotUsages.push((s as { usage: AgentUsage }).usage);
++  }
++  const agg = sumUsage(slotUsages);
++  const aggStr = agg.total > 0 ? ` · $${agg.cost.toFixed(3)} · ${agg.total} tok` : "";
++  const header =
++    `subagents batch (${done} ok` +
++    (aborted ? ` · ${aborted} aborted` : "") +
++    ` · ${failed} failed` +
++    ` · ${d.skipped} skipped) — ${(d.elapsedMs / 1000).toFixed(1)}s${aggStr}`;
++```
++
++Then, in the `!options.expanded` (collapsed) branch, replace the inlined per-slot model+elapsed+task construction. The new per-slot line uses `formatSlotMeta` for the `model · elapsed · usage` segment and appends a quoted task preview. Replace the existing `lines.push(\`  ${…[i]} ${idTag}${badge}  ${model}  ·  ${elapsed}  ·  ${taskPreview60}\`);` with:
++
++```ts
++      const meta = formatSlotMeta(
++        slot as { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
++        theme,
++      );
++      const taskPreview60 = truncateToWidth((slot as { task: string }).task ?? "", 60);
++      const idTag = slot.id ? `${theme.fg("dim", `(${slot.id})`)} ` : "";
++      lines.push(`  ${theme.fg("dim", `[${i}]`)} ${idTag}${badge}  ${meta}  ·  ${theme.fg("dim", `"${taskPreview60}"`)}`);
++```
++
++Leave the null-slot branch (`[i] ✗ failed  ·  (child failed)`) and the `!slot` continue-guard unchanged.
++
++- [ ] **Step 4: Run test to verify it passes**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun test tests/subagents-tool.test.ts )`
++Expected: PASS — all six new collapsed tests green AND every pre-existing `renderSubagentsResult collapsed` test still green (their fixtures omit `usage` → `formatUsage` returns `""` → lines differ only by the quoted task preview + `formatSlotMeta` separator, which the loose-regex assertions still satisfy; the ticket-05 finding-6 badge-alignment test still passes because `formatSlotMeta`'s model segment still starts right after the padded badge at a consistent offset for the id-less fixture).
++
++- [ ] **Step 5: Lint + typecheck, then commit**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun run check && bun run build )`
++
++```bash
++git add bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++git commit -m "feat(subagents): done header Σtok/$Σ + collapsed per-slot meta (model · elapsed · cost · tokens)
++
++renderSubagentsResult collapsed now uses formatSlotMeta (fallback-aware),
++appends quoted task preview, and the header carries the aggregate usage.
++Mirrors the single subagent card's per-run meta. Null slot unchanged."
++```
++
++---
++
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-3-report.md b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-3-report.md
+new file mode 100644
+index 00000000..a1e3a881
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-3-report.md
+@@ -0,0 +1,134 @@
++# Task 3 Report — done header Σ + done-collapsed per-slot meta
++
++**Branch:** `feat/improve-subagents-batch-tui`
++**Base:** `bc20c87f` → **Head:** `c411f5d9`
++**Files changed:**
++- `bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts` (`renderSubagentsResult` — header build + collapsed branch)
++- `bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts` (6 new tests appended)
++
++---
++
++## 1. Header Σ change
++
++In `renderSubagentsResult`, after computing `done`/`aborted`/`failed`, the header now
++aggregates usage across non-null slots that carry a `usage` and appends a suffix:
++
++```ts
++const slotUsages: AgentUsage[] = [];
++for (const s of d.results) {
++  if (s && (s as { usage?: AgentUsage }).usage) slotUsages.push((s as { usage: AgentUsage }).usage);
++}
++const agg = sumUsage(slotUsages);
++const aggStr = agg.total > 0 ? ` · $${agg.cost.toFixed(3)} · ${agg.total} tok` : "";
++```
++
++The header line gains `${aggStr}` after the elapsed seconds:
++
++```
++subagents batch (N ok · … failed · M skipped) — X.Xs · $Σ · Σtok
++```
++
++- **Σ-order is contractual (decision 6):** `$Σ · Σtok` (dollars first), matching the
++  single subagent card.
++- When **no** slot carries usage, `aggStr === ""` and the header is byte-identical to
++  the pre-T3 form (`… — X.Xs`, no trailing suffix) — verified by the byte-stable test.
++
++## 2. Collapsed per-slot line format
++
++The `!options.expanded` branch now builds the per-slot meta via the T2 helper
++`formatSlotMeta` (fallback-aware `requested → actual`, single-space ` · ` separators
++internally) and appends a **quoted** task preview:
++
++```ts
++const meta = formatSlotMeta(slot, theme);
++const taskPreview60 = truncateToWidth(slot.task ?? "", 60);
++const idTag = slot.id ? `${theme.fg("dim", `(${slot.id})`)} ` : "";
++lines.push(`  ${theme.fg("dim", `[${i}]`)} ${idTag}${badge}  ${meta} · ${theme.fg("dim", `"${taskPreview60}"`)}`);
++```
++
++Render-target cell (done-collapsed):
++
++```
++[i] (id) ✓ model · elapsed · $cost · Ntok · "task"
++```
++
++- The fixed-width `batchStatusBadge` (`✓ done` / `⊘ aborted` / `✗ failed`, padded to
++  `BATCH_BADGE_WIDTH`) is unchanged.
++- `formatSlotMeta` degrades to `model · elapsed` (no `$cost · Ntok`) when `usage` is
++  absent — verified by the degrade test.
++- The null-slot branch (`[i] ✗ failed  ·  (child failed)`) is unchanged.
++
++## 3. Existing fixtures UPDATED — none needed updating
++
++The brief anticipated that pre-existing DONE-collapsed render fixtures would need
++their expected strings updated. **In practice, zero existing tests required changes.**
++All 43 pre-existing tests in `subagents-tool.test.ts` stayed green untouched because
++their assertions are loose (substring/regex `assert.match`), and:
++
++- the meta segment text (`model`, `elapsed`, fallback `requested → actual`) is
++  semantically identical (only the column separator inside the meta tightened from
++  double-space `  ·  ` to single-space ` · `, courtesy of `formatSlotMeta`);
++- the quoted task preview (`"task"`) is appended, not validated by existing assertions.
++
++**No assertion was deleted or weakened.** Net: +6 new tests, 0 existing modified.
++
++## 4. Transcription inconsistencies resolved (literal fixes only)
++
++### 4a. Meta→task separator (single vs double space)
++The brief's verbatim **impl** push line used a double-space separator:
++`${meta}  ·  ${…task…}`. But the brief's own **degrade-test** regex and the
++**render-target cell** both use single-space ` · ` across that boundary
++(`/glm-5\.2 · 0\.5s · "t-aborted"/`, cell `Ntok · "task"`). With double-space the
++degrade test cannot pass (regex whitespace is exact). Since the test + render-target
++agree and `formatSlotMeta` is already single-space internally, the impl separator was
++set to **single-space** `${meta} · ${…}`. This is a literal transcription fix to
++satisfy the authoritative test+spec; no behavior beyond what the tests assert.
++
++### 4b. Biome line-width wrap
++The 6 appended tests' `renderSubagentsResult(...)` call lines exceed the repo's
++biome `lineWidth: 120` (the `collapsed` var name is longer than the existing `out`
++fixture at the same line). Applied `bunx biome check --write` to wrap those calls
++across lines. **Formatting-only** — call args and all `assert.*` expressions are
++byte-identical to the brief; biome also normalized two test-title string literals
++containing `"` from double- to single-quote delimiters (cosmetic, no logic change).
++The source file needed no reformatting.
++
++## 5. Test command + result
++
++```
++( cd bun-apps/pi-agent-ext-subagent && bun test tests/subagents-tool.test.ts )
++```
++
++- **Run-to-fail (pre-impl):** 4 of the 6 new tests failed as expected (header Σ,
++  with-usage meta, fallback meta, degrade meta). The 2 byte-stable/no-usage cases
++  already passed against the unchanged header.
++- **Run-to-pass (post-impl):** **49 pass / 0 fail** (43 pre-existing + 6 new).
++
++## 6. Gate result
++
++```
++( cd bun-apps/pi-agent-ext-subagent && bun run check && bun run build )
++```
++
++- `bun run check` (`biome check .`): **Checked 60 files. No fixes applied.** ✓
++- `bun run build` (`bunx tsc`): clean, no errors. ✓
++
++## 7. Commit
++
++```
++c411f5d9 feat(subagent): batch-tui done-header Σ + done-collapsed per-slot meta (T3)
++```
++
++- Staged **only** the two source files (explicit `git add <src> <test>`); `.planning/`
++  left untracked and uncommitted per dispatch rules.
++- 2 files changed, 146 insertions(+), 11 deletions(-).
++
++## 8. Concerns
++
++- **Brief self-inconsistency (§4a):** the verbatim impl push line and the verbatim
++  degrade test disagreed on the meta→task separator spacing. Resolved toward the
++  test + render-target (single-space). Flagging for the plan author in case the
++  double-space was intentional (it was not testable as written).
++- **Brief over-anticipated fixture churn (§3):** predicted existing DONE-collapsed
++  fixtures would need updates; none did. No action needed — positive outcome, no
++  assertion weakened.
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-4-brief.md b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-4-brief.md
+new file mode 100644
+index 00000000..9d0539c1
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-4-brief.md
+@@ -0,0 +1,134 @@
++### Task 4: Done-expanded per-child meta line
++
++**Files:**
++- Modify: `bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts` (`renderSubagentsResult` expanded branch, ~line 720-745)
++- Test: `bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts`
++
++**Interfaces:**
++- Consumes: `formatSlotMeta` (Task 2); the slot variants' fields (`model`/`requestedModel`/`fellBack`/`elapsedMs`/`usage` on done/timedout/aborted/budget; absent on null).
++- Produces: the expanded branch prepends a `formatSlotMeta` line above each child's output, for every slot variant that carries `model` + `elapsedMs` (done/timedout/aborted/budget). Null (failed) slots are unchanged (no meta line).
++
++**Render-target cell (done-expanded):** `### [i] (id) status` + meta line `model · elapsed · $cost · Ntok` + output.
++
++- [ ] **Step 1: Write the failing tests**
++
++Append to `tests/subagents-tool.test.ts`:
++
++```ts
++test("done expanded: prepends a `model · elapsed · $cost · Ntok` meta line above each child output", () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      {
++        output: "Full audit report\nLine two",
++        status: "done",
++        id: "a",
++        index: 0,
++        task: "audit",
++        model: "zai/glm-5.2",
++        elapsedMs: 34500,
++        usage: U(15715, 0.0004),
++      },
++    ],
++    dispatched: 1,
++    skipped: 0,
++    elapsedMs: 34500,
++  };
++  const expanded = renderSubagentsResult({ content: [{ type: "text", text: "x" }], details }, { expanded: true }, THEME);
++  const lines = expanded.split("\n");
++  assert.match(lines[1] ?? "", /glm-5\.2 · 34\.5s · \$0\.000 · 15715 tok/, "meta line sits directly under the ### header");
++  assert.ok(expanded.includes("Full audit report"), "output preserved under the meta line");
++});
++
++test("done expanded: budget + aborted slots get a meta line too (no usage → model · elapsed only)", () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      {
++        status: "budget",
++        source: "child" as const,
++        exhaustion: { kind: "tokens" as const, limit: 1000, actual: 2000 },
++        index: 0,
++        task: "t-budget",
++        model: "zai/glm-5.2",
++        elapsedMs: 800,
++      },
++      { output: "", status: "aborted", index: 1, task: "t-aborted", model: "zai/glm-5.2", elapsedMs: 300 },
++    ],
++    dispatched: 2,
++    skipped: 1,
++    elapsedMs: 1100,
++  };
++  const expanded = renderSubagentsResult({ content: [{ type: "text", text: "x" }], details }, { expanded: true }, THEME);
++  assert.match(expanded, /glm-5\.2 · 0\.8s[\s\S]*skipped/);
++  assert.match(expanded, /glm-5\.2 · 0\.3s[\s\S]*aborted/);
++});
++
++test("done expanded: null (failed) slot has NO meta line (unchanged failed body)", () => {
++  const details: SubagentsToolDetails = {
++    results: [null, { output: "ok", status: "done", index: 1, task: "t", model: "zai/glm-5.2", elapsedMs: 100 }],
++    dispatched: 1,
++    skipped: 0,
++    elapsedMs: 100,
++  };
++  const expanded = renderSubagentsResult({ content: [{ type: "text", text: "x" }], details }, { expanded: true }, THEME);
++  const failedBlock = expanded.split("### [1]")[0];
++  assert.match(failedBlock, /### \[0\] failed/);
++  assert.doesNotMatch(failedBlock, /· .*s ·/);
++});
++```
++
++- [ ] **Step 2: Run test to verify it fails**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun test tests/subagents-tool.test.ts )`
++Expected: FAIL — the expanded branch emits no meta line above the output.
++
++- [ ] **Step 3: Write minimal implementation**
++
++In the expanded branch of `renderSubagentsResult`, the `.map((slot, i) => { … })` currently builds per-slot blocks. Add a meta line to the `done`/`timedout`/`aborted` case AND the `budget` case. Replace the existing `return` for the normal (done/timedout/aborted) case with one that prepends `formatSlotMeta`, and add a meta line to the budget case. Concretely, rewrite the map body:
++
++```ts
++    .map((slot, i) => {
++      if (slot === null)
++        return `${theme.bold(`### [${i}] failed`)}
++${theme.fg("dim", "_(null — child failed; re-run via the singular `subagent` tool to see the error)_")}`;
++      // Meta line shared by every variant that carries model + elapsedMs
++      // (done/timedout/aborted/budget). usage optional → formatSlotMeta degrades.
++      const metaLine = formatSlotMeta(
++        slot as { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
++        theme,
++      );
++      if (slot.status === "budget") {
++        const label = slot.source === "child" ? "child budget" : "batch budget";
++        return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped`)} — ${theme.fg("warning", `${label}: ${slot.exhaustion.kind} ${slot.exhaustion.actual} > ${slot.exhaustion.limit}`)}
++${metaLine}`;
++      }
++      if (slot.status === "aborted") {
++        return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} aborted`)}
++${metaLine}
++${theme.fg("dim", "_(user-aborted mid-flight)_")}`;
++      }
++      const output = slot.output || "_(empty output)_";
++      return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} ${slot.status}`)}
++${metaLine}
++${theme.fg("toolOutput", output)}`;
++    })
++```
++
++- [ ] **Step 4: Run test to verify it passes**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun test tests/subagents-tool.test.ts )`
++Expected: PASS — all three new expanded tests green AND the pre-existing `"renderSubagentsResult expanded"` test still green (its `### [0] (a) done` header + output remain; the new meta line is additive and its fixture has no usage → `flash · 3.5s`, which the existing loose assertions don't contradict).
++
++- [ ] **Step 5: Lint + typecheck, then commit**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun run check && bun run build )`
++
++```bash
++git add bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++git commit -m "feat(subagents): done-expanded prepends per-child meta line (model · elapsed · cost · tokens)
++
++Every slot variant carrying model+elapsedMs (done/timedout/aborted/budget)
++gets a formatSlotMeta line above its output. Null (failed) slots unchanged."
++```
++
++---
++
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-4-report.md b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-4-report.md
+new file mode 100644
+index 00000000..adda0770
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-4-report.md
+@@ -0,0 +1,143 @@
++# Task 4 Report — done-expanded per-child meta line
++
++**Branch:** `feat/improve-subagents-batch-tui`
++**Base:** `bd34ab1d` → **Head:** `8c4800d3`
++**Commit:** `feat(subagent): batch-tui done-expanded per-child meta line (T4)`
++
++## What changed (implementation)
++
++`renderSubagentsResult`'s expanded branch (`.map((slot, i) => { … })` in
++`bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts`, ~line 778) now prepends a
++`formatSlotMeta` line above each child's output.
++
++The shared meta line is computed once per non-null slot:
++
++```ts
++const metaLine = formatSlotMeta(
++  slot as { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
++  theme,
++);
++```
++
++…and inserted directly under the `### [i] (id) status` header, above the body, for
++the three carrying-`return`s.
++
++### States that get a meta line
++
++| Slot variant          | Meta line? | Rendered block (expanded) |
++|-----------------------|------------|---------------------------|
++| `done`                | ✅ yes      | `### [i] (id) done` / `metaLine` / `output` |
++| `timedout`            | ✅ yes      | `### [i] (id) timedout` / `metaLine` / `output` |
++| `aborted`             | ✅ yes      | `### [i] (id) aborted` / `metaLine` / `_(user-aborted mid-flight)_` |
++| `budget` (child/batch)| ✅ yes      | `### [i] (id) skipped — <label>: …` / `metaLine` |
++| `null` (failed)       | ❌ unchanged | `### [i] failed` / `_(null — child failed; re-run via …)_` |
++
++`formatSlotMeta` (T2) degrades to `model · elapsed` when `usage` is absent
++(e.g. budget/aborted slots with no usage) — matches the single-card parity contract.
++Single-space ` · ` separators throughout, consistent with T3 and the single-card reference.
++
++## Existing fixtures updated
++
++**None.** No pre-existing test assertions were edited. All 52 pre-existing tests in
++`tests/subagents-tool.test.ts` pass unchanged, including the pre-existing
++`"renderSubagentsResult expanded"` test (the new meta line is additive; its fixture
++has no usage → `flash · 3.5s`, which the existing loose assertions don't contradict).
++Three new tests were appended (T4 block).
++
++## Tests
++
++**Command:** `( cd bun-apps/pi-agent-ext-subagent && bun test )`
++**Result:** ✅ `496 pass · 0 fail` across 31 files (incl. the 3 new T4 tests).
++
++## Gate
++
++**Command:** `( cd bun-apps/pi-agent-ext-subagent && bun run check && bun run build )`
++(`check` = `biome check .`; `build` = `tsc` + emit)
++**Result:** ✅ green — biome "No fixes applied", `tsc` clean, build exit 0.
++
++## ⚠ Deviation from the verbatim brief (read this)
++
++The brief's verbatim **implementation** was transcribed exactly (the source diff is
++the brief's `.map` body verbatim; see commit). However, **two of the brief's three
++verbatim test assertions are mechanically wrong** and could not pass against the
++brief's *own* spec-correct implementation. They were corrected minimally. Details:
++
++### Background — expanded layout is `header\n\n` + body
++
++`renderSubagentsResult` returns `` `${theme.bold(header)}\n\n${body}` ``. With the
++identity test theme, the expanded output for the T4 fixture is (JSON-quoted, blanks
++made visible):
++
++```
++"subagents batch (1 ok · 0 failed · 0 skipped) — 34.5s · $0.000 · 15715 tok\n\n### [0] (a) done\nglm-5.2 · 34.5s · $0.000 · 15715 tok\nFull audit report\nLine two"
++```
++
++Line index map:
++
++```
++lines[0] = "subagents batch (1 ok · 0 failed · 0 skipped) — 34.5s · $0.000 · 15715 tok"  (batch header)
++lines[1] = ""                                                                            (blank, from \n\n)
++lines[2] = "### [0] (a) done"                                                            (slot header)
++lines[3] = "glm-5.2 · 34.5s · $0.000 · 15715 tok"                                       (META — correct, per spec)
++lines[4] = "Full audit report"                                                           (output)
++```
++
++The brief's render-target cell spec is `### [i] (id) status` **+ meta line** **+ output**
++— i.e. meta comes *after* the `###` header. The implementation matches this exactly.
++
++### Fix 1 — test "prepends a `model · elapsed · $cost · Ntok` meta line…"
++
++Brief verbatim:
++```ts
++assert.match(lines[1] ?? "", /glm-5\.2 · 34\.5s · \$0\.000 · 15715 tok/, "meta line sits directly under the ### header");
++```
++`lines[1]` is the blank line between the batch header and the body (`""`), so this
++assertion can never match. The meta is at **`lines[3]`**. This is an off-by-2: the
++planner reasoned about the *body* in isolation (body line 1 = meta, under body line 0
++= `### [0]`), forgetting the `header\n\n` prefix shifts everything by two lines.
++
++Applied (minimal): `lines[1]` → `lines[3]`. The regex content is unchanged. An inline
++`NOTE (T4 brief fix)` comment documents the rationale at the assertion.
++
++### Fix 2 — test "budget + aborted slots get a meta line too…"
++
++Brief verbatim:
++```ts
++assert.match(expanded, /glm-5\.2 · 0\.8s[\s\S]*skipped/);
++assert.match(expanded, /glm-5\.2 · 0\.3s[\s\S]*aborted/);
++```
++Both require **meta THEN status-word**. But the spec'd layout is
++`### [i] skipped — …` (status word in the `###` header) **then** `metaLine` on the
++next line — i.e. **status-word THEN meta**. The brief's order is reversed, so neither
++regex can match. Concrete (from the failure output):
++
++```
++### [0] skipped — child budget: tokens 2000 > 1000
++glm-5.2 · 0.8s              <- meta appears AFTER "skipped", not before
++…
++### [1] aborted
++glm-5.2 · 0.3s              <- meta appears AFTER "aborted", not before
++```
++
++Applied (minimal): reverse both sequences → `/skipped[\s\S]*glm-5\.2 · 0\.8s/` and
++`/aborted[\s\S]*glm-5\.2 · 0\.3s/`. Strength is equivalent to the original (both are
++loose whole-string `[\s\S]*` co-occurrence checks); neither weakens nor deletes the
++assertion. An inline `NOTE (T4 brief fix)` comment documents the rationale.
++
++### Why DONE_WITH_CONCERNS rather than verbatim-blocked
++
++The brief's render-target cell spec disambiguates which side is correct
++(implementation = right; tests = wrong), so this is **not genuine ambiguity** — it's a
++fixable brief typo-class error (wrong array index; reversed regex sequence). The
++implementation needed no judgment and is transcribed verbatim. The two test
++corrections are the minimum mechanical changes needed to make the assertions match
++their own stated intent (assertion message: "meta line sits directly under the ###
++header") and the spec. They are recorded inline + here for trivial review/revert.
++
++## Commits
++
++- `8c4800d3` — `feat(subagent): batch-tui done-expanded per-child meta line (T4)`
++  - `bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts` (verbatim brief impl)
++  - `bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts` (3 new tests; 2 minimal assertion fixes + biome wrap)
++
++`base..head = bd34ab1d..8c4800d3`.
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-5-brief.md b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-5-brief.md
+new file mode 100644
+index 00000000..3437c312
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-5-brief.md
+@@ -0,0 +1,176 @@
++### Task 5: `buildLiveTable` — pure live-row builder
++
++**Files:**
++- Modify: `bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts` (add exported `buildLiveTable` + `childDispatchIndex` helpers near `formatSlotMeta`)
++- Test: `bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts`
++
++**Interfaces:**
++- Consumes: `InFlightSubagent` (the registry entry type), `formatModelSeg` (Task 2), `summarizeLatestAction` + `truncateToWidth` (both already imported in `subagents-tool.ts`).
++- Produces:
++  - `childDispatchIndex(id: string): number` — extracts the trailing `:N` dispatch index from a batch child runId (`${batchId}:${index}`); `NaN` → sorts last.
++  - `buildLiveTable(entries: InFlightSubagent[], now: number = Date.now()): string` — one row per entry, sorted ascending by dispatch index, each `[i] slot ⏱/✓ liveElapsed · currentAction`. Empty input → `""` (header-only, per spec error-handling). PLAIN text (no theme — execute has no Theme; rendered dim by `renderSubagentsResult`'s isPartial branch).
++
++**Render-target cell (running-live per-child row):** `[i] slot ⏱/✓ liveElapsed · currentAction` — `(id)` caller tag omitted (Plan-time decision #3; `InFlightSubagent` has no caller-tag field).
++
++- [ ] **Step 1: Write the failing tests**
++
++Append to `tests/subagents-tool.test.ts`:
++
++```ts
++import { buildLiveTable, childDispatchIndex } from "../src/subagents-tool.js";
++import type { InFlightSubagent } from "@repo/pi-agent-ext-core-runtime";
++
++const NOW = 10_000;
++
++function live(over: Partial<InFlightSubagent> & { id: string }): InFlightSubagent {
++  return { taskPreview: "pt", startedAt: 0, ...over } as InFlightSubagent;
++}
++
++test("childDispatchIndex: trailing :N from a batch child runId; NaN-resistant", () => {
++  assert.equal(childDispatchIndex("batch-call:3"), 3);
++  assert.equal(childDispatchIndex("wf:abc:0"), 0);
++  assert.equal(childDispatchIndex("no-colon"), NaN);
++});
++
++test("buildLiveTable: empty entries → empty string (header-only)", () => {
++  assert.equal(buildLiveTable([], NOW), "");
++});
++
++test("buildLiveTable: one running child → `[i] slot ⏱ liveElapsed · currentAction`", () => {
++  const rows = buildLiveTable(
++    [live({ id: "batch-call:0", model: "zai/glm-5.2", startedAt: 6550, status: "running" })],
++    NOW,
++  );
++  assert.equal(rows, "[0] glm-5.2 ⏱ 3.5s · pt");
++});
++
++test("buildLiveTable: completed child shows ✓ glyph + the same meta", () => {
++  const rows = buildLiveTable(
++    [live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 9000, status: "completed" })],
++    NOW,
++  );
++  assert.equal(rows, "[1] glm-5.2 ✓ 1.0s · pt");
++});
++
++test("buildLiveTable: fallback child shows `requested → actual` slot", () => {
++  const rows = buildLiveTable(
++    [
++      live({
++        id: "batch-call:0",
++        model: "anthropic/claude-opus-4-1",
++        resolvedModel: "zai/glm-5.2",
++        requestedModel: "anthropic/claude-opus-4-1",
++        fellBack: true,
++        startedAt: 9500,
++        status: "running",
++      }),
++    ],
++    NOW,
++  );
++  assert.equal(rows, "[0] claude-opus-4-1 → glm-5.2 ⏱ 0.5s · pt");
++});
++
++test("buildLiveTable: currentAction comes from summarizeLatestAction(history); falls back to task preview", () => {
++  const withHist = buildLiveTable(
++    [
++      live({
++        id: "batch-call:0",
++        model: "zai/glm-5.2",
++        startedAt: 9000,
++        history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"src/a.ts"}' }],
++      }),
++    ],
++    NOW,
++  );
++  assert.match(withHist, /\[0\] glm-5\.2 ⏱ 1\.0s · .+/);
++  assert.notEqual(withHist, "[0] glm-5.2 ⏱ 1.0s · pt", "history-derived action replaces the task-preview fallback");
++});
++
++test("buildLiveTable: sorted ascending by dispatch index; defaults to Date.now()", () => {
++  const rows = buildLiveTable([
++    live({ id: "batch-call:2", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
++    live({ id: "batch-call:0", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
++    live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
++  ]);
++  const idxs = rows.split("\n").map((l) => l.slice(1, 2));
++  assert.deepEqual(idxs, ["0", "1", "2"]);
++});
++```
++
++- [ ] **Step 2: Run test to verify it fails**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun test tests/subagents-tool.test.ts )`
++Expected: FAIL — `buildLiveTable` / `childDispatchIndex` not exported.
++
++- [ ] **Step 3: Write minimal implementation**
++
++In `subagents-tool.ts`, add these two helpers (place them right after `formatSlotMeta`):
++
++```ts
++import type { InFlightSubagent } from "@repo/pi-agent-ext-core-runtime";
++```
++
++(Add `InFlightSubagent` to the existing `@repo/pi-agent-ext-core-runtime` import line at the top of the file — it is exported from the same module as `SubagentInFlightRegistry`.)
++
++```ts
++/** Extract the trailing `:N` dispatch index from a batch child runId
++ *  (`${batchId}:${index}`). NaN for ids without a numeric suffix (sorts last). */
++export function childDispatchIndex(id: string): number {
++  const idx = Number(id.slice(id.lastIndexOf(":") + 1));
++  return Number.isFinite(idx) ? idx : NaN;
++}
++
++/** Pure live-table builder for the running (isPartial) batch view. One row per
++ *  in-flight child, sorted ascending by dispatch index:
++ *    `[i] slot ⏱/✓ liveElapsed · currentAction`
++ *  - `slot` via {@link formatModelSeg} (fallback-aware; resolved model once known).
++ *  - glyph ⏱ while `status !== "completed"`, ✓ once completed (kept in the
++ *    registry until endBatch so a finished child still shows its final elapsed).
++ *  - `liveElapsed` = `(now - startedAt)/1000` with 1-decimal.
++ *  - `currentAction` from {@link summarizeLatestAction}(history), falling back to
++ *    the task preview (truncated to 40) when there is no history yet.
++ *  PLAIN text (no theme — `execute()` has no Theme; rendered dim by the isPartial
++ *  branch of `renderSubagentsResult`). Empty input → "" (header-only). */
++export function buildLiveTable(entries: InFlightSubagent[], now: number = Date.now()): string {
++  const sorted = [...entries].sort((a, b) => {
++    const ia = childDispatchIndex(a.id);
++    const ib = childDispatchIndex(b.id);
++    return (Number.isNaN(ia) ? Infinity : ia) - (Number.isNaN(ib) ? Infinity : ib);
++  });
++  const rows = sorted.map((e) => {
++    const idx = childDispatchIndex(e.id);
++    const idxLabel = Number.isNaN(idx) ? "?" : String(idx);
++    const slot = formatModelSeg(
++      e.resolvedModel ?? e.model ?? "default",
++      e.requestedModel,
++      e.fellBack,
++    );
++    const glyph = e.status === "completed" ? "✓" : "⏱";
++    const elapsed = `${((now - e.startedAt) / 1000).toFixed(1)}s`;
++    const action = summarizeLatestAction(e.history) ?? truncateToWidth(e.taskPreview ?? e.workIntent ?? "", 40);
++    return `[${idxLabel}] ${slot} ${glyph} ${elapsed} · ${action}`;
++  });
++  return rows.join("\n");
++}
++```
++
++- [ ] **Step 4: Run test to verify it passes**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun test tests/subagents-tool.test.ts )`
++Expected: PASS — all seven `buildLiveTable` tests green.
++
++- [ ] **Step 5: Lint + typecheck, then commit**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun run check && bun run build )`
++
++```bash
++git add bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++git commit -m "feat(subagents): add pure buildLiveTable for the running (isPartial) batch view
++
++One row per in-flight child: `[i] slot ⏱/✓ liveElapsed · currentAction`,
++sorted by dispatch index. Plain text (execute has no Theme). Empty → \"\".
++Fallback-aware slot via formatModelSeg; action via summarizeLatestAction."
++```
++
++---
++
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-5-report.md b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-5-report.md
+new file mode 100644
+index 00000000..fe84a7c4
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-5-report.md
+@@ -0,0 +1,113 @@
++# Task 5 Report — `buildLiveTable` pure live-row builder (T5)
++
++**Branch:** `feat/improve-subagents-batch-tui`
++**Base:** `236a6478` → **Head:** `e428a64e`
++**Commit:** `e428a64e feat(subagent): batch-tui buildLiveTable pure live-row builder (T5)`
++
++## Files changed (2, staged explicitly — `.planning/` NOT committed)
++- `bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts` (+43/-2)
++- `bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts` (+80/-2)
++
++## What was added
++
++Two PURE helpers placed immediately after `formatSlotMeta` (and before
++`sumUsage`), exactly where the brief placed them:
++
++### `childDispatchIndex(id: string): number`
++```ts
++export function childDispatchIndex(id: string): number {
++  const idx = Number(id.slice(id.lastIndexOf(":") + 1));
++  return Number.isFinite(idx) ? idx : NaN;
++}
++```
++Extracts the trailing `:N` dispatch index from a batch child runId
++(`${batchId}:${index}`). `NaN` for ids without a numeric suffix → sorts last.
++
++### `buildLiveTable(entries: InFlightSubagent[], now: number = Date.now()): string`
++```ts
++export function buildLiveTable(entries: InFlightSubagent[], now: number = Date.now()): string {
++  const sorted = [...entries].sort((a, b) => {
++    const ia = childDispatchIndex(a.id);
++    const ib = childDispatchIndex(b.id);
++    return (Number.isNaN(ia) ? Infinity : ia) - (Number.isNaN(ib) ? Infinity : ib);
++  });
++  const rows = sorted.map((e) => {
++    const idx = childDispatchIndex(e.id);
++    const idxLabel = Number.isNaN(idx) ? "?" : String(idx);
++    const slot = formatModelSeg(e.resolvedModel ?? e.model ?? "default", e.requestedModel, e.fellBack);
++    const glyph = e.status === "completed" ? "✓" : "⏱";
++    const elapsed = `${((now - e.startedAt) / 1000).toFixed(1)}s`;
++    const action = summarizeLatestAction(e.history) ?? truncateToWidth(e.taskPreview ?? e.workIntent ?? "", 40);
++    return `[${idxLabel}] ${slot} ${glyph} ${elapsed} · ${action}`;
++  });
++  return rows.join("\n");
++}
++```
++
++## Row format
++```
++[i] slot ⏱/✓ liveElapsed · currentAction
++```
++- `[i]` — dispatch index from `childDispatchIndex(id)`; `?` when `NaN`.
++- `slot` — `formatModelSeg(resolvedModel ?? model ?? "default", requestedModel, fellBack)` (fallback-aware; on fallback renders `requested → actual` shortModel-ed).
++- glyph `⏱` while `status !== "completed"`, `✓` once completed.
++- `liveElapsed` — `((now - startedAt)/1000).toFixed(1)s`.
++- `currentAction` — `summarizeLatestAction(history)`, falling back to `truncateToWidth(taskPreview ?? workIntent ?? "", 40)`.
++- Separator: single-space ` · ` (consistent with T3/T4 + spec + single-card ref).
++- Empty input → `""` (header-only, per spec error-handling).
++
++## Dispatch-index sorting
++Ascending by `childDispatchIndex(id)`; `NaN` indices map to `Infinity` in the
++comparator so non-numeric ids sort last (stable). The sort operates on a
++shallow copy (`[...entries]`) so the input array is not mutated.
++
++## Load-bearing decisions (as implemented)
++- **Decision #3 — no caller tag on live rows:** the live row OMITS the `(id)`
++  caller tag. `InFlightSubagent` has no caller-tag field and threading one is a
++  core-runtime change that is OUT OF SCOPE. Done rows keep `(id)` via
++  `slot.id`, but live rows do not. No caller-tag field was added.
++- **Decision #4 — `(now)` not `(theme)`:** `buildLiveTable(entries, now)`
++  takes a `now` timestamp for the live elapsed (default `Date.now()`), NOT a
++  `Theme`. The helper emits PLAIN text; `execute()` receives no Theme, and the
++  live text is themed-as-dim later by the existing `isPartial` render branch of
++  `renderSubagentsResult` (Task 6 wires that). The helper neither takes nor
++  applies a theme.
++
++These are PURE helpers — no I/O, no side effects, no render-path wiring.
++Task 6 wires `buildLiveTable` into the running (isPartial) state.
++
++## Import plumbing (source)
++`InFlightSubagent` added to the existing `@repo/pi-agent-ext-core-runtime`
++type-import line (now multi-line, 4 names) — it is exported from the same
++module as `SubagentInFlightRegistry` (verified: `index.ts` line 92).
++`formatModelSeg`, `summarizeLatestAction`, and `truncateToWidth` were already
++imported/defined in the file — reused as-is.
++
++## Tests (7 new, all green)
++1. `childDispatchIndex: trailing :N from a batch child runId; NaN-resistant`
++2. `buildLiveTable: empty entries → empty string (header-only)`
++3. `buildLiveTable: one running child → [i] slot ⏱ liveElapsed · currentAction`
++4. `buildLiveTable: completed child shows ✓ glyph + the same meta`
++5. `buildLiveTable: fallback child shows requested → actual slot`
++6. `buildLiveTable: currentAction from summarizeLatestAction(history); falls back to task preview`
++7. `buildLiveTable: sorted ascending by dispatch index; defaults to Date.now()`
++
++The brief's snippet placed the test imports as a mid-file block (relative
++path before external). To satisfy biome `organizeImports` without keeping an
++awkward mid-file duplicate, the two symbols were merged into the test file's
++existing top-of-file import blocks instead (`InFlightSubagent` into the
++existing `import type { AgentUsage }` line; `buildLiveTable, childDispatchIndex`
++into the existing `import { clampConcurrency, … } from "../src/subagents-tool.js"`
++block, alphabetically first). Test bodies are verbatim from the brief.
++
++## Gate / test commands + results
++| Command | Result |
++|---|---|
++| `( cd bun-apps/pi-agent-ext-subagent && bun test tests/subagents-tool.test.ts )` | **PASS** — 59 pass / 0 fail (7 new) |
++| `( cd bun-apps/pi-agent-ext-subagent && bun test )` | **PASS** — 503 pass / 0 fail (whole package) |
++| `( cd bun-apps/pi-agent-ext-subagent && bun run check )` | **PASS** — biome, 60 files, no fixes applied |
++| `( cd bun-apps/pi-agent-ext-subagent && bun run build )` | **PASS** — `bunx tsc`, no errors |
++
++## Commit SHAs
++- Base: `236a6478`
++- Head: `e428a64e`
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-6-brief.md b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-6-brief.md
+new file mode 100644
+index 00000000..5ffb47ea
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-6-brief.md
+@@ -0,0 +1,212 @@
++### Task 6: Running-header aggregate + `runningUsage` map + `onUpdate` rewrite
++
++**Files:**
++- Modify: `bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts` (`execute()` — declare `runningUsage`; `dispatchChild`'s `childSpawnOpts` — wire `onUsage`; the `onHistory` closure's `onUpdate` text)
++- Test: `bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts` (new tests + UPDATE the existing `"onUpdate emits a single-line 'k/N running · latest'…"` test to the new multi-line contract)
++
++**Interfaces:**
++- Consumes: `SpawnSubagentOptions.onUsage` (Task 1); `buildLiveTable` (Task 5); `sumUsage` (Task 2); `options.inFlight.list()` filtered by `batchId === toolCallId`.
++- Produces: a local `const runningUsage = new Map<string, AgentUsage>()` in `execute()` (keyed by `childRunId`); `onUsage: (u) => { runningUsage.set(childRunId, u); }` on `childSpawnOpts`; and a rewritten `onUpdate` text = header line `subagents · running/total running · Σtok · $Σ` (Σ from `runningUsage`) + `\n` + `buildLiveTable(batchEntries)`.
++
++**Render-target cell (running-live header):** `subagents · N/M running · Σtok · $Σ` (Σ omitted when zero). The collapsed view shows this header line only; ctrl-o (expanded) shows header + live table — both handled by `renderSubagentsResult`'s existing `isPartial` branch (`text.split("\n")[0]` vs full), which is unchanged.
++
++- [ ] **Step 1: Write the failing tests (and update the existing onUpdate test)**
++
++In `tests/subagents-tool.test.ts`, REPLACE the existing test body:
++
++```ts
++test("onUpdate emits a single-line 'k/N running · latest' as children progress", async () => { … });
++```
++
++with this updated-contract version (the live header is now multi-line: header + live table; `latest:` is gone from the header):
++
++```ts
++test("onUpdate emits a multi-line header + live table: `subagents · k/N running · Σtok · $Σ` then one row per child", async () => {
++  const inFlight = new SubagentInFlightRegistry();
++  const updates: string[] = [];
++  const onUpdate = (u: { content: Array<{ type: string; text: string }> }) => {
++    updates.push(u.content.map((c) => c.text).join(""));
++  };
++  const spawn = async (opts: {
++    task: string;
++    onUsage?: (u: AgentUsage) => void;
++    onHistory?: (h: { kind: string; toolName?: string; text?: string }[]) => void;
++  }): Promise<SpawnSubagentResult> => {
++    opts.onUsage?.(U(500, 0.05));
++    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "r" }]);
++    const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
++    inFlight.markCompleted(`batch-call:${idx}`);
++    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
++  };
++  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
++  await tool.execute(
++    "batch-call",
++    { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 },
++    NO_SIGNAL,
++    onUpdate as never,
++    NO_CTX,
++  );
++  assert.ok(updates.length >= 2, "at least one update per child history tick");
++  const first = updates[0];
++  const firstHeader = first.split("\n")[0] ?? "";
++  assert.match(firstHeader, /^subagents · \d+\/2 running/, "header shows `subagents · k/N running`");
++  // child #0 already reported usage (500 tok) before this tick → aggregate present
++  assert.match(firstHeader, /500 tok · \$0\.050/, "header carries the Σtok · $Σ aggregate (tokens first)");
++  assert.ok(!firstHeader.includes("latest:"), "the old `latest:` label is gone from the header");
++  assert.ok(first.includes("[0]"), "the live table row for child #0 is present (multi-line)");
++});
++```
++
++Then ADD these new tests:
++
++```ts
++test("runningUsage map is fed by onUsage and drives the live-header Σ across children", async () => {
++  const inFlight = new SubagentInFlightRegistry();
++  const headers: string[] = [];
++  const onUpdate = (u: { content: Array<{ type: string; text: string }> }) => {
++    headers.push((u.content.map((c) => c.text).join("").split("\n")[0] ?? ""));
++  };
++  let i = 0;
++  const usages = [U(1000, 0.1), U(2000, 0.2)];
++  const spawn = async (opts: { task: string; onUsage?: (u: AgentUsage) => void }): Promise<SpawnSubagentResult> => {
++    const idx = i++;
++    opts.onUsage?.(usages[idx] ?? U(0, 0));
++    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
++  };
++  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
++  await tool.execute("batch-sig", { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 }, NO_SIGNAL, onUpdate as never, NO_CTX);
++  const lastHeader = headers[headers.length - 1] ?? "";
++  assert.match(lastHeader, /3000 tok · \$0\.300/, "Σ accumulates across both children's onUsage");
++});
++
++test("onUpdate is try/caught: a throwing buildLiveTable path never fails the child", async () => {
++  const inFlight = new SubagentInFlightRegistry();
++  // Sabotage list() to throw mid-onUpdate; the child must still complete.
++  const badList = () => {
++    throw new Error("boom");
++  };
++  inFlight.list = badList as never;
++  let completed = false;
++  const spawn = async (opts: { task: string; onHistory?: (h: { kind: string }[]) => void }): Promise<SpawnSubagentResult> => {
++    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
++    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
++  };
++  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
++  const res = await tool.execute("batch-throw", { tasks: [{ task: "#0" }] }, NO_SIGNAL, undefined, NO_CTX);
++  completed = (res.details.results[0] as { status: string }).status === "done";
++  assert.equal(completed, true, "child completed despite a throwing inFlight.list() during onUpdate");
++});
++```
++
++(`U`, `NO_SIGNAL`, `NO_CTX`, `AgentUsage`, `SpawnSubagentResult` are already in scope in the test file — `U` is the helper added in Task 2; `AgentUsage` is imported in Task 2's test additions.)
++
++- [ ] **Step 2: Run test to verify it fails**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun test tests/subagents-tool.test.ts )`
++Expected: FAIL — the updated onUpdate test still expects the old single-line `latest:` format; the new Σ-header + live-table tests fail because `onUsage` is not wired on `childSpawnOpts` and the onUpdate text is unchanged.
++
++- [ ] **Step 3: Write minimal implementation**
++
++In `execute()`, declare the running-usage map near the other batch state (`acc`, `gateTripped`, etc.):
++
++```ts
++      // Per-child final usage, captured via the additive onUsage callback
++      // (fires once at each child's completion). Feeds the running (live)
++      // header's Σtok/$Σ. NOTE: onUsage is completion-triggered, so the Σ is
++      // "sum over children completed so far" — not a per-token live ticker.
++      const runningUsage = new Map<string, AgentUsage>();
++```
++
++In `dispatchChild`, inside the `childSpawnOpts` object literal, add an `onUsage` alongside the existing `onModelResolved` / `onModelFallback` / `onHistory`:
++
++```ts
++          onUsage: (u) => {
++            runningUsage.set(childRunId, u);
++          },
++```
++
++Then replace the body of the `onHistory` closure's `try { … onUpdate?.(…) }` block. The new text is a header line + a live table (multi-line). Replace the existing block:
++
++```ts
++            try {
++              const group = (options.inFlight?.list() ?? []).filter((e) => e.batchId === toolCallId);
++              const running = group.filter((e) => e.status !== "completed").length;
++              const total = params.tasks.length;
++              const agg = sumUsage(runningUsage.values());
++              const aggStr = agg.total > 0 ? ` · ${agg.total} tok · $${agg.cost.toFixed(3)}` : "";
++              const header = `subagents · ${running}/${total} running${aggStr}`;
++              const table = buildLiveTable(group);
++              const text = table ? `${header}\n${table}` : header;
++              onUpdate?.({
++                content: [{ type: "text" as const, text }],
++                details: undefined as never,
++              });
++            } catch {
++              // swallowed — onUpdate is diagnostic only (mirrors the singular tool)
++            }
++```
++
++- [ ] **Step 4: Run test to verify it passes**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun test tests/subagents-tool.test.ts )`
++Expected: PASS — the updated onUpdate test + both new tests green; all other tests green. (The existing `renderSubagentsResult isPartial+collapsed shows a compact single-line; expanded shows full` test stays green because it feeds a literal string and only asserts the renderer's line-splitting, which is unchanged.)
++
++- [ ] **Step 5: Full package gate, then commit**
++
++Run: `( cd bun-apps/pi-agent-ext-subagent && bun run check && bun run build && bun test )`
++Expected: biome clean, tsc clean, ALL unit tests green (including every pre-existing subagent/subagents test).
++
++```bash
++git add bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++git commit -m "feat(subagents): running header Σtok/$Σ + multi-line live table via onUsage
++
++execute() keeps a runningUsage Map<runId,AgentUsage> fed by the additive
++SpawnSubagentOptions.onUsage (Task 1). The onHistory→onUpdate text is now a
++header (`subagents · k/N running · Σtok · $Σ`) + buildLiveTable rows. Stays
++try/caught (diagnostic only). Mirrors the single card's per-run meta in the
++running state."
++```
++
++---
++
++## Self-Review
++
++**1. Spec coverage** — every spec section maps to a task:
++
++- **Render targets table (3 states):**
++  - Running-live header `subagents · N/M running · Σtok · $Σ` → Task 6 (`onUpdate` rewrite).
++  - Running-live per-child row `[i] slot ⏱/✓ liveElapsed · currentAction` → Task 5 (`buildLiveTable`) + Task 6 (wired into `onUpdate`). *(`(id)` caller tag intentionally omitted — Plan-time decision #3; `InFlightSubagent` has no caller-tag field.)*
++  - Done-collapsed header `batch (X ok · Y failed · Z skipped) — Ts · $Σ · Σtok` → Task 3 (header `aggStr`).
++  - Done-collapsed per-child `[i] (id) ✓ model · elapsed · $cost · Ntok · "task"` → Task 3 (`formatSlotMeta` + quoted task). *(`✓` = fixed-width padded badge, preserved — decision #5.)*
++  - Done-expanded header (same) → Task 3 (shared header build).
++  - Done-expanded per-child `### [i] (id) status` + meta `model · elapsed · $cost · Ntok` + output → Task 4.
++- **Components 1–6:** ① `formatUsage` → Task 2. ② `formatSlotMeta` (+ shared `formatModelSeg`) → Task 2. ③ `renderSubagentsResult` rewrite (header + collapsed + expanded) → Tasks 3 + 4. ④ `buildLiveTable` → Task 5. ⑤ `onUpdate` rewrite → Task 6. ⑥ `runningUsage` map + `onUsage` wiring → Task 6 (map/wiring) + Task 1 (the exposed callback). ✅ No gap.
++- **Data flow:** Done path (`BatchResultSlot` fields → `formatSlotMeta`, no new plumbing) → Tasks 2–4. Running path (`inFlight.list()` filtered by `batchId` → `buildLiveTable`; aggregate from `runningUsage`) → Tasks 5–6. ✅
++- **Error handling:** builders defensive (`formatUsage`/`formatSlotMeta`/`buildLiveTable` degrade; null/budget/aborted preserved — Tasks 3–4) ✅; `buildLiveTable` empty → header-only (Task 5) ✅; `onUpdate` stays try/caught (Task 6 has an explicit throwing-list test) ✅.
++- **Testing section:** unit tests for `formatUsage`/`formatSlotMeta`/`buildLiveTable` (Tasks 2, 5) ✅; `renderSubagentsResult` collapsed + expanded across slot variants done/failed(null)/budget/aborted × {with,without usage} × {with,without id} × {fallback,no fallback} (Tasks 3, 4) ✅; existing tests kept green except the one updated in-task (Task 6) ✅.
++- **Out of scope:** SDD/commit-scope/watchdog tags — not added (correct, N/A for read-only batch) ✅. Single `subagent` card — untouched ✅.
++
++**2. Placeholder scan** — searched for TBD / TODO / "add appropriate" / "similar to Task" / undefined-type references: **none found.** Every code step contains concrete code; every type referenced (`AgentUsage`, `InFlightSubagent`, `BatchResultSlot`, `SubagentsToolDetails`, `Theme`) is defined in the repo or in an earlier task. The float-sum `0.30000000000000004` in the `sumUsage` test is asserted verbatim (JS float arithmetic), not hand-waved.
++
++**3. Type consistency** — checked names/signatures across tasks:
++- `formatUsage(u: AgentUsage | undefined): string` — defined Task 2, used Tasks 2 (inside `formatSlotMeta`) only. ✅
++- `formatModelSeg(model, requestedModel?, fellBack?)` — defined Task 2, used by `formatSlotMeta` (Task 2) and `buildLiveTable` (Task 5) with identical arg order. ✅
++- `formatSlotMeta(slot, theme)` — defined Task 2, consumed Tasks 3 + 4 with the same slot-shape cast. ✅
++- `sumUsage(values): { total; cost }` — defined Task 2, consumed Task 3 (done header) + Task 6 (live header). ✅
++- `buildLiveTable(entries, now?)` + `childDispatchIndex(id)` — defined Task 5, consumed Task 6 (`buildLiveTable(group)`). ✅
++- `SpawnSubagentOptions.onUsage?: (u: AgentUsage) => void` — defined Task 1, wired Task 6. ✅
++- `runningUsage: Map<string, AgentUsage>` — declared Task 6, keyed by `childRunId` (same id used in `inFlight.start({ id: childRunId, … })`). ✅
++
++**Issues found & fixed inline during review:** none required — the plan-time decisions (#1–#6) were encoded up front precisely because they resolve spec/code tensions (one-shot `onUsage`, missing caller-tag field, no-Theme-in-execute, badge-width preservation, Σ order). The single existing test whose contract changes (`onUpdate` single-line) is explicitly updated in Task 6 rather than left to break.
++
++---
++
++## Execution Handoff
++
++Plan complete and saved to `.planning/2026-08-10-improve-subagents-batch-tui/plans/improve-subagents-batch-tui.md`. Two execution options:
++
++**1. Subagent-Driven Development (recommended)** — dispatch a fresh subagent per task (6 tasks), review between tasks. Best fit here: the tasks are tightly sequential (Task 6 depends on 1 + 5; Tasks 3–4 share a file and a function with 2), pure-render tasks 2–5 are fast isolated cycles, and a per-task review gate catches any drift in the exact meta string format before it compounds.
++
++**2. Inline Execution** — execute the tasks in this session via executing-plans, with checkpoints after Task 1 (the shared-options change) and Task 4 (done-view complete) before the running-view Task 6.
++
++Which approach?
+diff --git a/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-6-report.md b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-6-report.md
+new file mode 100644
+index 00000000..a071f966
+--- /dev/null
++++ b/.planning/2026-08-10-improve-subagents-batch-tui/sdd/improve-subagents-batch-tui/task-6-report.md
+@@ -0,0 +1,140 @@
++# Task 6 Report — Running-header aggregate + `runningUsage` map + `onUpdate` rewrite
++
++**Package:** `bun-apps/pi-agent-ext-subagent`
++**Branch:** `feat/improve-subagents-batch-tui`
++**Base:** `175ba299` → **Head:** `61fda72c`
++**Commit:** `61fda72c feat(subagent): batch-tui running-header aggregate + runningUsage + onUpdate rewrite (T6)`
++
++## What changed
++
++Three edits in `src/subagents-tool.ts` (inside `createSubagentsTool().execute()`), transcribed verbatim from the brief:
++
++### 1. `runningUsage` map declared in `execute()`
++Declared next to the other batch state (`acc`, `gateTripped`):
++
++```ts
++const acc = { tokens: { total: 0 }, cost: 0 };
++// Per-child final usage, captured via the additive onUsage callback
++// (fires once at each child's completion). Feeds the running (live)
++// header's Σtok/$Σ. NOTE: onUsage is completion-triggered, so the Σ is
++// "sum over children completed so far" — not a per-token live ticker.
++const runningUsage = new Map<string, AgentUsage>();
++```
++
++**🔴 T1 advisory — last-write-wins `set`, NOT accumulate (CONFIRMED CORRECT).**
++The wiring below uses `runningUsage.set(childRunId, u)` (overwrite), exactly as the
++Task-1 reviewer flagged. `onUsage` may fire MORE THAN ONCE per runId (once per retry
++attempt) and each fire delivers the CUMULATIVE `AgentUsage` for that run, so accumulating
++across fires (e.g. `get(runId) + add(u)`) would DOUBLE-COUNT on retry. `set` is correct
++because each payload is already cumulative. The code does NOT accumulate.
++
++### 2. `onUsage` wired in `dispatchChild`'s `childSpawnOpts`
++Added alongside `onModelResolved` / `onModelFallback` / `onHistory`:
++
++```ts
++onUsage: (u) => {
++  runningUsage.set(childRunId, u);
++},
++```
++
++Keyed by `childRunId` (`${toolCallId}:${index}`) — the same id used in
++`inFlight.start({ id: childRunId, … })`.
++
++### 3. `onHistory` closure's `onUpdate` text rewritten (multi-line)
++Replaced the old single-line `latest:` block. The new text is a **header line + live
++table (multi-line)**:
++
++```ts
++try {
++  const group = (options.inFlight?.list() ?? []).filter((e) => e.batchId === toolCallId);
++  const running = group.filter((e) => e.status !== "completed").length;
++  const total = params.tasks.length;
++  const agg = sumUsage(runningUsage.values());
++  const aggStr = agg.total > 0 ? ` · ${agg.total} tok · $${agg.cost.toFixed(3)}` : "";
++  const header = `subagents · ${running}/${total} running${aggStr}`;
++  const table = buildLiveTable(group);
++  const text = table ? `${header}\n${table}` : header;
++  onUpdate?.({
++    content: [{ type: "text" as const, text }],
++    details: undefined as never,
++  });
++} catch {
++  // swallowed — onUpdate is diagnostic only (mirrors the singular tool)
++}
++```
++
++**Running header confirmed:** `subagents · ${running}/${total} running${aggStr}` where
++`aggStr = " · Σtok · $Σ"` — tokens FIRST (`${agg.total} tok · $${agg.cost.toFixed(3)}`),
++omitted when zero. This is the **`Σtok · $Σ` order** for the RUNNING header (decision #6),
++which DIFFERS from the done header's `$Σ · Σtok`. The order was transcribed exactly from
++the brief and not swapped. Single-space ` · ` separators (consistent with T3/T4/T5).
++
++The body is `buildLiveTable(group)` (Task 5); when the table is empty the header is
++emitted alone. The whole block stays **try/caught** (diagnostic only) — verified by an
++explicit throwing-`list()` test. The existing `renderSubagentsResult` `isPartial` branch
++(`text.split("\n")[0]` collapsed vs full expanded) is unchanged and still handles both
++the header-only and header+table forms.
++
++No regressions: the done-collapsed (T3) and done-expanded (T4) render paths are
++untouched. `summarizeLatestAction`, `truncateToWidth`, `taskPreview` remain used
++elsewhere (buildLiveTable / dispatchChild / renderSubagentsCall) — no unused-import fallout.
++
++## Tests (`tests/subagents-tool.test.ts`)
++
++**Existing test UPDATED (not deleted/weakened).** The old
++`"onUpdate emits a single-line 'k/N running · latest' as children progress"` was
++replaced by `"onUpdate emits a multi-line header + live table: \`subagents · k/N
++running · Σtok · $Σ\` then one row per child"`. The new contract asserts:
++- header matches `/^subagents · \d+\/2 running/`,
++- header carries the Σ aggregate with tokens FIRST (`/500 tok · \$0\.050/`),
++- the old `latest:` label is GONE from the header,
++- the multi-line body includes the `[0]` live-table row.
++
++**Two new tests added:**
++1. `"runningUsage map is fed by onUsage and drives the live-header Σ across children"`
++   — asserts `/3000 tok · \$0\.300/` aggregates across both children's `onUsage`.
++2. `"onUpdate is try/caught: a throwing buildLiveTable path never fails the child"`
++   — sabotages `inFlight.list` to throw; asserts the child still completes `done`.
++
++### ⚠ Brief defect fixed (faithful, non-weakening) in test #1 above
++As transcribed verbatim, that test's `spawn` had type `{ task; onUsage? }` and **never
++fired `onHistory`**. Since `onUpdate` only emits from inside the `onHistory` closure,
++`headers` stayed empty → the assertion failed with `actual: ""` (verified: 60 pass / 1
++fail). The live header can only be observed via an `onHistory→onUpdate` tick. The
++minimal faithful fix was to add `onHistory?: (h: { kind: string }[]) => void` to that
++spawn's type and fire one tick (`read` toolCall) after `onUsage`, so the header
++actually emits. The test's real assertion (`/3000 tok · \$0\.300/` Σ across both
++children via the live header) is unchanged — this only wires the observation path the
++brief intended. Documented here per the "fix only transcription errors" rule; no
++implementation changed.
++
++## Verification
++
++| Step | Command | Result |
++| --- | --- | --- |
++| Run-to-fail (post-impl, pre test-fix) | `bun test tests/subagents-tool.test.ts` | 60 pass / **1 fail** (empty-header, brief test-harness gap — see above) |
++| Test pass | `( cd bun-apps/pi-agent-ext-subagent && bun test tests/subagents-tool.test.ts )` | **61 pass / 0 fail** |
++| Format | `bun run format` | Fixed 1 file (test file reflow) |
++| Gate — check | `bun run check` (biome check .) | **clean** |
++| Gate — build | `bun run build` (bunx tsc) | **clean** |
++| Gate — full tests | `bun test` | **505 pass / 0 fail** (31 files, 144 expect() calls) |
++
++## Commit discipline
++- Staged ONLY the two source files explicitly
++  (`git add bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts`);
++  no `git add -A`.
++- `.planning/` NOT committed (left untracked).
++
++## Commit SHAs
++- Base: `175ba299` (chore(sdd): batch-tui T5 audit trail)
++- Head: `61fda72c` (feat(subagent): batch-tui running-header aggregate + runningUsage + onUpdate rewrite (T6))
++
++## Self-review against the load-bearing invariants
++- ✅ `runningUsage` declared in `execute()`, keyed by `childRunId`.
++- ✅ `onUsage` uses **last-write-wins `set`** (not accumulate) — T1 retry-fanout advisory satisfied.
++- ✅ Running header order is **`Σtok · $Σ`** (tokens first), transcribed exactly, not swapped.
++- ✅ `onUpdate` rewrite is multi-line: header + `buildLiveTable` rows; empty table → header-only.
++- ✅ Existing single-line `onUpdate` test UPDATED to the multi-line contract (not deleted/weakened).
++- ✅ Σ aggregates over `runningUsage.values()` via `sumUsage`.
++- ✅ Single-space ` · ` separators; try/caught preserved (throwing-list test passes).
++- ✅ Done-collapsed (T3) + done-expanded (T4) paths untouched — all their tests green.
+diff --git a/bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts b/bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts
+index 85ca8911..ee30ad49 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts
+@@ -105,20 +105,28 @@ export interface SpawnSubagentOptions {
+   /** Injectable runner (tests pass a mock; production omits → new WorkflowAgent). */
+   agent?: Pick<WorkflowAgent, "run">;
+   /** Host signal (e.g. tool-call Ctrl+C) that should cancel this call when fired. */
+   externalSignal?: AbortSignal;
+   /**
+    * Compact live snapshot of the child's message/tool history, forwarded
+    * verbatim from `WorkflowAgent.run()`'s own `onHistory` (already throttled
+    * to ≥250ms there — no additional throttling needed here).
+    */
+   onHistory?: (history: AgentHistoryEntry[]) => void;
++  /**
++   * Fires with the child's real token/cost usage once known. Emitted exactly
++   * once, at run completion (the runner reads session stats in its `finally`).
++   * Mirrors {@link onHistory} / {@link onModelResolved} / {@link onModelFallback}
++   * — additive + optional. The internal `result.usage` capture is unchanged, so
++   * both this live callback and the final result carry usage.
++   */
++  onUsage?: (u: AgentUsage) => void;
+ }
+ 
+ export interface SpawnSubagentResult {
+   output: string;
+   exitCode: number;
+   stderr: string;
+   timedOut: boolean;
+   /** Real token/cost usage read from the child session, when the runner reports it. */
+   usage?: AgentUsage;
+   /** Set when the run was aborted for exceeding tokenBudget/spendBudget (distinct from timedOut/failed). */
+@@ -243,20 +251,21 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
+         tier: opts.tier,
+         images: opts.images,
+         toolNames: opts.tools,
+         disallowedToolNames: opts.excludeTools,
+         cwd: opts.cwd,
+         signal: ac.signal,
+         onModelResolved: opts.onModelResolved,
+         onModelFallback: opts.onModelFallback,
+         onUsage: (u) => {
+           usage = u;
++          opts.onUsage?.(u);
+         },
+         onHistory: opts.onHistory,
+         tokenBudget: opts.tokenBudget,
+         spendBudget: opts.spendBudget,
+         maxSchemaRetries: opts.schemaRepairAttempts,
+       } as Parameters<WorkflowAgent["run"]>[1]);
+       // When `opts.schema` is set, `run()` returns a validated OBJECT (not a
+       // string). `String(obj)` would yield "[object Object]" and silently
+       // destroy the schema payload — JSON-serialize it instead so callers
+       // that parse `output` keep working. Null/undefined → empty string.
+diff --git a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+index 50853682..abfc824f 100644
+--- a/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
++++ b/bun-apps/pi-agent-ext-subagent/src/subagents-tool.ts
+@@ -1,20 +1,25 @@
+ /**
+  * `subagents` tool — agent-callable PARALLEL read-only fan-out. Dispatches N
+  * isolated subagents (via spawnSubagent) with bounded concurrency, returning a
+  * positional array of results. Read-only is ENFORCED: edit/write/bash are
+  * always excluded (non-overridable) so children sharing the parent's working
+  * tree can never race on writes. See .planning/done/2026-08-01-what-s-next-for-subagent-develop-map/.
+  */
+ import { defineTool, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+ import { Text, truncateToWidth } from "@earendil-works/pi-tui";
+-import type { AgentUsage, BudgetExhaustion, SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
++import type {
++  AgentUsage,
++  BudgetExhaustion,
++  InFlightSubagent,
++  SubagentInFlightRegistry,
++} from "@repo/pi-agent-ext-core-runtime";
+ import {
+   checkBudgetExhaustion,
+   DEFAULT_BATCH_CONCURRENCY,
+   getGlobalRateLimiter,
+   MAX_BATCH_TASKS,
+   MAX_CONCURRENCY,
+   providerFromModelSpec,
+   shortModel,
+   summarizeLatestAction,
+ } from "@repo/pi-agent-ext-core-runtime";
+@@ -279,20 +284,25 @@ export function createSubagentsTool(
+         undefined,
+       );
+       let dispatched = 0;
+       // Batch-wide budget SOFT GATE state. `gateTripped` stops NEW children from
+       // starting; in-flight children always finish. `acc` accumulates usage across
+       // every child that reported usage; `budgetExhaustion` (if set) is surfaced on
+       // `details` and used to label the skipped slots.
+       let gateTripped = false;
+       let budgetExhaustion: BudgetExhaustion | undefined;
+       const acc = { tokens: { total: 0 }, cost: 0 };
++      // Per-child final usage, captured via the additive onUsage callback
++      // (fires once at each child's completion). Feeds the running (live)
++      // header's Σtok/$Σ. NOTE: onUsage is completion-triggered, so the Σ is
++      // "sum over children completed so far" — not a per-token live ticker.
++      const runningUsage = new Map<string, AgentUsage>();
+       const batchBudget = {
+         ...(params.tokenBudget !== undefined ? { tokenBudget: params.tokenBudget } : {}),
+         ...(params.spendBudget !== undefined ? { spendBudget: params.spendBudget } : {}),
+       };
+       const hasBatchBudget = params.tokenBudget !== undefined || params.spendBudget !== undefined;
+ 
+       const dispatchChild = async (task: BatchTask, index: number): Promise<void> => {
+         // Effective model string + task preview — computed up front so BOTH the
+         // soft-gate skip branch and the normal dispatch branch can enrich the
+         // result slot (deficit 4b: Completed-section display needs task/model).
+@@ -379,35 +389,40 @@ export function createSubagentsTool(
+           externalSignal: childAc.signal,
+           onModelResolved: (modelId) => {
+             childResolvedModel = modelId;
+             options.inFlight?.updateModel(childRunId, modelId);
+           },
+           onModelFallback: (requestedSpec) => {
+             childFellBack = true;
+             childRequestedSpec = requestedSpec;
+             options.inFlight?.markFallback(childRunId, requestedSpec);
+           },
++          onUsage: (u) => {
++            runningUsage.set(childRunId, u);
++          },
+           onHistory: (history) => {
+             options.inFlight?.update(childRunId, history);
+             // Single-line batch progress feed — kills the blind spinner on the
+             // batch's own call line. Diagnostic only: a throwing onUpdate must
+             // never change the batch result or fail a child (mirrors the singular
+             // tool's try/catch discipline at subagent-tool.ts).
+             try {
+               const group = (options.inFlight?.list() ?? []).filter((e) => e.batchId === toolCallId);
+               const running = group.filter((e) => e.status !== "completed").length;
+               const total = params.tasks.length;
+-              const latest = summarizeLatestAction(history) ?? truncateToWidth(taskPreview(task.task), 40);
++              const agg = sumUsage(runningUsage.values());
++              const aggStr = agg.total > 0 ? ` · ${agg.total} tok · $${agg.cost.toFixed(3)}` : "";
++              const header = `subagents · ${running}/${total} running${aggStr}`;
++              const table = buildLiveTable(group);
++              const text = table ? `${header}\n${table}` : header;
+               onUpdate?.({
+-                content: [
+-                  { type: "text" as const, text: `subagents · ${running}/${total} running · latest: ${latest}` },
+-                ],
++                content: [{ type: "text" as const, text }],
+                 details: undefined as never,
+               });
+             } catch {
+               // swallowed — onUpdate is diagnostic only (mirrors the singular tool)
+             }
+           },
+         };
+         let result: SpawnSubagentResult;
+         try {
+           // Gate the actual provider dispatch under the shared per-provider cap
+@@ -649,20 +664,102 @@ const BATCH_BADGE_WIDTH = Math.max(...Object.values(BATCH_STATUS_BADGES).map((b)
+  *  short `✓ done` (6) matches a wide `⏱ timedout` (10) before the columns
+  *  follow. Unknown statuses fall back to the `failed` badge. */
+ function batchStatusBadge(status: string, theme: Theme): string {
+   const b =
+     status in BATCH_STATUS_BADGES
+       ? BATCH_STATUS_BADGES[status as keyof typeof BATCH_STATUS_BADGES]
+       : BATCH_STATUS_BADGES.failed;
+   return theme.fg(b.tone, b.text.padEnd(BATCH_BADGE_WIDTH));
+ }
+ 
++/** Usage segment mirroring the single `subagent` card's meta: ` · $X.XXX · Ntok`
++ *  when usage is present and non-zero, else `""` (defensive — degrades to empty).
++ *  Load-bearing: render fixtures omit `usage`, so `""` keeps rendered lines
++ *  byte-compatible (no phantom spaces/tokens). */
++export function formatUsage(u: AgentUsage | undefined): string {
++  return u && u.total > 0 ? ` · $${u.cost.toFixed(3)} · ${u.total} tok` : "";
++}
++
++/** Fallback-aware model label (theme-free so the live table and the themed meta
++ *  share it). On fallback shows `requested → actual` (both shortModel-ed); else
++ *  the resolved model shortModel-ed; `"default"` when empty. Mirrors the single
++ *  card's `modelSeg`. */
++export function formatModelSeg(model: string, requestedModel?: string, fellBack?: boolean): string {
++  if (fellBack && requestedModel) {
++    return `${shortModel(requestedModel) ?? "default"} → ${shortModel(model) ?? "default"}`;
++  }
++  return shortModel(model) ?? "default";
++}
++
++/** Themed `model · elapsed · usage` line for a done/timedout/aborted/budget slot.
++ *  Shared by the done-collapsed per-slot line and the done-expanded meta line
++ *  (DRY). `usage` optional → degrades to `model · elapsed`. */
++export function formatSlotMeta(
++  slot: { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
++  theme: Theme,
++): string {
++  return theme.fg(
++    "muted",
++    `${formatModelSeg(slot.model, slot.requestedModel, slot.fellBack)} · ${(slot.elapsedMs / 1000).toFixed(
++      1,
++    )}s${formatUsage(slot.usage)}`,
++  );
++}
++
++/** Extract the trailing `:N` dispatch index from a batch child runId
++ *  (`${batchId}:${index}`). NaN for ids without a numeric suffix (sorts last). */
++export function childDispatchIndex(id: string): number {
++  const idx = Number(id.slice(id.lastIndexOf(":") + 1));
++  return Number.isFinite(idx) ? idx : NaN;
++}
++
++/** Pure live-table builder for the running (isPartial) batch view. One row per
++ *  in-flight child, sorted ascending by dispatch index:
++ *    `[i] slot ⏱/✓ liveElapsed · currentAction`
++ *  - `slot` via {@link formatModelSeg} (fallback-aware; resolved model once known).
++ *  - glyph ⏱ while `status !== "completed"`, ✓ once completed (kept in the
++ *    registry until endBatch so a finished child still shows its final elapsed).
++ *  - `liveElapsed` = `(now - startedAt)/1000` with 1-decimal.
++ *  - `currentAction` from {@link summarizeLatestAction}(history), falling back to
++ *    the task preview (truncated to 40) when there is no history yet.
++ *  PLAIN text (no theme — `execute()` has no Theme; rendered dim by the isPartial
++ *  branch of `renderSubagentsResult`). Empty input → "" (header-only). */
++export function buildLiveTable(entries: InFlightSubagent[], now: number = Date.now()): string {
++  const sorted = [...entries].sort((a, b) => {
++    const ia = childDispatchIndex(a.id);
++    const ib = childDispatchIndex(b.id);
++    return (Number.isNaN(ia) ? Infinity : ia) - (Number.isNaN(ib) ? Infinity : ib);
++  });
++  const rows = sorted.map((e) => {
++    const idx = childDispatchIndex(e.id);
++    const idxLabel = Number.isNaN(idx) ? "?" : String(idx);
++    const slot = formatModelSeg(e.resolvedModel ?? e.model ?? "default", e.requestedModel, e.fellBack);
++    const glyph = e.status === "completed" ? "✓" : "⏱";
++    const elapsed = `${((now - e.startedAt) / 1000).toFixed(1)}s`;
++    const action = summarizeLatestAction(e.history) ?? truncateToWidth(e.taskPreview ?? e.workIntent ?? "", 40);
++    return `[${idxLabel}] ${slot} ${glyph} ${elapsed} · ${action}`;
++  });
++  return rows.join("\n");
++}
++
++/** Sum total + cost across any iterable of AgentUsage (slots' usage for the done
++ *  header; the runningUsage map's values for the live header). Empty → zeros. */
++export function sumUsage(values: Iterable<AgentUsage>): { total: number; cost: number } {
++  let total = 0;
++  let cost = 0;
++  for (const v of values) {
++    total += v.total;
++    cost += v.cost;
++  }
++  return { total, cost };
++}
++
+ /** Theme the batch result: collapsed = header + per-child one-liners; expanded = full themed output. */
+ export function renderSubagentsResult(
+   result: { content: Array<{ type: string; text?: string }>; details?: SubagentsToolDetails },
+   options: { expanded?: boolean; isPartial?: boolean },
+   theme: Theme,
+ ): string {
+   const d = result.details;
+   if (!d) {
+     const text = result.content.find((c) => c.type === "text")?.text ?? "";
+     return theme.fg("dim", text);
+@@ -675,73 +772,85 @@ export function renderSubagentsResult(
+     if (options.expanded) return theme.fg("dim", text);
+     return theme.fg("dim", text.split("\n")[0] ?? text);
+   }
+ 
+   // Build the batch header.
+   const done = d.results.filter(
+     (s) => s && (s as { status: string }).status !== "budget" && (s as { status: string }).status !== "aborted",
+   ).length;
+   const aborted = d.results.filter((s) => s && (s as { status: string }).status === "aborted").length;
+   const failed = d.results.filter((s) => s === null).length;
++  // Aggregate usage across non-null slots that carry usage → header Σtok/$Σ
++  // (mirrors the single card's `$cost · Ntok`, appended after elapsed).
++  const slotUsages: AgentUsage[] = [];
++  for (const s of d.results) {
++    if (s && (s as { usage?: AgentUsage }).usage) slotUsages.push((s as { usage: AgentUsage }).usage);
++  }
++  const agg = sumUsage(slotUsages);
++  const aggStr = agg.total > 0 ? ` · $${agg.cost.toFixed(3)} · ${agg.total} tok` : "";
+   const header =
+     `subagents batch (${done} ok` +
+     (aborted ? ` · ${aborted} aborted` : "") +
+     ` · ${failed} failed` +
+-    ` · ${d.skipped} skipped) — ${(d.elapsedMs / 1000).toFixed(1)}s`;
++    ` · ${d.skipped} skipped) — ${(d.elapsedMs / 1000).toFixed(1)}s${aggStr}`;
+ 
+   if (!options.expanded) {
+     // Collapsed: header + one line per slot with status badge.
+     const lines: string[] = [theme.bold(header)];
+     for (let i = 0; i < d.results.length; i++) {
+       const slot = d.results[i];
+       if (slot === null) {
+         lines.push(theme.fg("dim", `  [${i}] ${batchStatusBadge("failed", theme)}  ·  (child failed)`));
+         continue;
+       }
+       if (!slot) continue; // invariant: i < d.results.length (loop bound)
+       const slotStatus = (slot as { status: string }).status;
+       // Fixed-width badge (ticket 05, finding 6): pad to the widest badge text so
+       // the `model · elapsed · task` columns line up across rows regardless of
+       // status (`✓ done`=6 vs `⏱ timedout`=10, etc.).
+       const badge = batchStatusBadge(slotStatus, theme);
+       // Model segment: on a fallback show `requested → actual` (both shortened
+       // via shortModel so the collapsed line stays within terminal width —
+       // ticket 04, findings 2 + 5). The audit field stays the full spec; only
+       // the DISPLAY is shortened.
+-      const slotObj = slot as { model: string; requestedModel?: string; fellBack?: boolean };
+-      const modelLabel =
+-        slotObj.fellBack && slotObj.requestedModel
+-          ? `${shortModel(slotObj.requestedModel)} → ${shortModel(slotObj.model) ?? "default"}`
+-          : (shortModel(slotObj.model) ?? "default");
+-      const model = theme.fg("muted", modelLabel);
+-      const elapsed = `${((slot as { elapsedMs: number }).elapsedMs / 1000).toFixed(1)}s`;
++      const meta = formatSlotMeta(
++        slot as { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
++        theme,
++      );
+       const taskPreview60 = truncateToWidth((slot as { task: string }).task ?? "", 60);
+       const idTag = slot.id ? `${theme.fg("dim", `(${slot.id})`)} ` : "";
+-      lines.push(
+-        `  ${theme.fg("dim", `[${i}]`)} ${idTag}${badge}  ${model}  ·  ${elapsed}  ·  ${theme.fg("dim", taskPreview60)}`,
+-      );
++      lines.push(`  ${theme.fg("dim", `[${i}]`)} ${idTag}${badge}  ${meta} · ${theme.fg("dim", `"${taskPreview60}"`)}`);
+     }
+     lines.push(theme.fg("dim", "Ctrl-O to expand · /subagents for detail"));
+     return lines.join("\n");
+   }
+ 
+   // Expanded: header + per-child full themed output (mirrors renderBatchResult structure).
+   const body = d.results
+     .map((slot, i) => {
+       if (slot === null)
+         return `${theme.bold(`### [${i}] failed`)}
+ ${theme.fg("dim", "_(null — child failed; re-run via the singular `subagent` tool to see the error)_")}`;
++      // Meta line shared by every variant that carries model + elapsedMs
++      // (done/timedout/aborted/budget). usage optional → formatSlotMeta degrades.
++      const metaLine = formatSlotMeta(
++        slot as { model: string; requestedModel?: string; fellBack?: boolean; elapsedMs: number; usage?: AgentUsage },
++        theme,
++      );
+       if (slot.status === "budget") {
+         const label = slot.source === "child" ? "child budget" : "batch budget";
+-        return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped`)} — ${theme.fg("warning", `${label}: ${slot.exhaustion.kind} ${slot.exhaustion.actual} > ${slot.exhaustion.limit}`)}`;
++        return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} skipped`)} — ${theme.fg("warning", `${label}: ${slot.exhaustion.kind} ${slot.exhaustion.actual} > ${slot.exhaustion.limit}`)}
++${metaLine}`;
+       }
+       if (slot.status === "aborted") {
+         return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} aborted`)}
++${metaLine}
+ ${theme.fg("dim", "_(user-aborted mid-flight)_")}`;
+       }
+       const output = slot.output || "_(empty output)_";
+       return `${theme.bold(`### [${i}]${slot.id ? ` (${slot.id})` : ""} ${slot.status}`)}
++${metaLine}
+ ${theme.fg("toolOutput", output)}`;
+     })
+     .join("\n\n");
+   return `${theme.bold(header)}\n\n${body}`;
+ }
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/spawn-subagent.test.ts b/bun-apps/pi-agent-ext-subagent/tests/spawn-subagent.test.ts
+index 643067b9..adde471b 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/spawn-subagent.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/spawn-subagent.test.ts
+@@ -1,16 +1,21 @@
+ import { describe, it } from "bun:test";
+ import assert from "node:assert/strict";
+ import { mkdtempSync } from "node:fs";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+-import { saveModelTierConfig, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
++import {
++  type AgentUsage,
++  saveModelTierConfig,
++  WorkflowError,
++  WorkflowErrorCode,
++} from "@repo/pi-agent-ext-core-runtime";
+ import { resolveSessionOverride, spawnSubagent } from "../src/spawn-subagent.js";
+ 
+ /** Minimal injectable runner (Pick<WorkflowAgent, "run">) that records calls. */
+ function mkRunner(impl: (p: { prompt: string; opts: Record<string, unknown> }) => Promise<unknown>) {
+   const calls: Array<{ prompt: string; opts: Record<string, unknown> }> = [];
+   return {
+     calls,
+     run: async (prompt: string, opts: Record<string, unknown>) => {
+       calls.push({ prompt, opts });
+       return impl({ prompt, opts });
+@@ -113,20 +118,43 @@ describe("spawnSubagent", () => {
+         fallback = spec;
+       },
+       agent: runner,
+     });
+     assert.equal(runner.calls[0]?.opts.tier, "big");
+     assert.equal(resolved, "deepseek/deepseek-v4-flash", "onModelResolved forwarded + fires");
+     assert.equal(typeof runner.calls[0]?.opts.onModelFallback, "function", "onModelFallback forwarded");
+     assert.equal(fallback, "", "runner did not trigger fallback here");
+   });
+ 
++  it("forwards onUsage to the caller (fires once at run end) alongside the internal result.usage capture", async () => {
++    const usage = { input: 10, output: 20, cacheRead: 0, cacheWrite: 0, total: 30, cost: 0.012 };
++    const runner = mkRunner(async ({ opts }) => {
++      opts.onUsage?.(usage);
++      return "ok";
++    });
++    const seen: AgentUsage[] = [];
++    const res = await spawnSubagent({ task: "t", agent: runner, onUsage: (u) => seen.push(u) });
++    assert.equal(seen.length, 1, "opts.onUsage fires exactly once");
++    assert.deepEqual(seen[0], usage, "the caller receives the usage payload verbatim");
++    assert.deepEqual(res.usage, usage, "the internal result.usage capture still works (not removed)");
++  });
++
++  it("onUsage is optional — omitting it changes nothing (result.usage still captured)", async () => {
++    const usage = { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, total: 5, cost: 0.001 };
++    const runner = mkRunner(async ({ opts }) => {
++      opts.onUsage?.(usage);
++      return "ok";
++    });
++    const res = await spawnSubagent({ task: "t", agent: runner });
++    assert.deepEqual(res.usage, usage, "result.usage captured even with no caller onUsage");
++  });
++
+   it("timeout (AGENT_TIMEOUT) → timedOut:true, retried once when retryOnTransient:true", async () => {
+     let n = 0;
+     const runner = mkRunner(async () => {
+       n++;
+       throw new WorkflowError("agent timed out", WorkflowErrorCode.AGENT_TIMEOUT, { recoverable: true });
+     });
+     const out = await spawnSubagent({ task: "t", retryOnTransient: true, agent: runner });
+     assert.equal(n, 2, "retried once after a transient timeout");
+     assert.equal(out.timedOut, true);
+     assert.notEqual(out.exitCode, 0);
+diff --git a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+index f408b8da..09582c90 100644
+--- a/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
++++ b/bun-apps/pi-agent-ext-subagent/tests/subagents-tool.test.ts
+@@ -1,30 +1,37 @@
+ import { test } from "bun:test";
+ import assert from "node:assert/strict";
++import type { AgentUsage, InFlightSubagent } from "@repo/pi-agent-ext-core-runtime";
+ import {
+   DEFAULT_BATCH_CONCURRENCY,
+   MAX_BATCH_TASKS,
+   MAX_CONCURRENCY,
+   SubagentInFlightRegistry,
+ } from "@repo/pi-agent-ext-core-runtime";
+ import { createSubagentsTool as fromIndex } from "../src/index.js";
+ import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
+ import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
+ import type { SubagentsToolDetails } from "../src/subagents-tool.js";
+ import {
++  buildLiveTable,
++  childDispatchIndex,
+   clampConcurrency,
+   createSubagentsTool,
++  formatModelSeg,
++  formatSlotMeta,
++  formatUsage,
+   mergeReadOnlyExclusion,
+   READ_ONLY_EXCLUDED,
+   renderBatchResult,
+   renderSubagentsCall,
+   renderSubagentsResult,
++  sumUsage,
+ } from "../src/subagents-tool.js";
+ 
+ test("createSubagentsTool has name 'subagents' + executionMode 'sequential'", () => {
+   const tool = createSubagentsTool();
+   assert.equal(tool.name, "subagents");
+   assert.equal(tool.executionMode, "sequential");
+   assert.equal(typeof tool.execute, "function");
+   assert.ok(tool.parameters, "parameters schema defined");
+ });
+ 
+@@ -522,50 +529,112 @@ test("batch keeps a completed child (status=completed) mid-run; evicts the whole
+     NO_SIGNAL,
+     undefined,
+     NO_CTX,
+   );
+   assert.equal(seen.length, 1, "child #1 observed #0");
+   assert.equal(seen[0].present, true, "#0 still in registry when #1 runs (kept, not evicted)");
+   assert.equal(seen[0].status, "completed", "#0 marked completed (not running, not gone)");
+   assert.equal(inFlight.list().length, 0, "registry empty after the batch returns (whole-batch eviction)");
+ });
+ 
+-test("onUpdate emits a single-line 'k/N running · latest' as children progress", async () => {
++test("onUpdate emits a multi-line header + live table: `subagents · k/N running · Σtok · $Σ` then one row per child", async () => {
+   const inFlight = new SubagentInFlightRegistry();
+   const updates: string[] = [];
+   const onUpdate = (u: { content: Array<{ type: string; text: string }> }) => {
+     updates.push(u.content.map((c) => c.text).join(""));
+   };
+   const spawn = async (opts: {
+     task: string;
++    onUsage?: (u: AgentUsage) => void;
+     onHistory?: (h: { kind: string; toolName?: string; text?: string }[]) => void;
+   }): Promise<SpawnSubagentResult> => {
++    opts.onUsage?.(U(500, 0.05));
+     opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "r" }]);
+     const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
+-    // mark each child completed to mirror the real finally-block
+     inFlight.markCompleted(`batch-call:${idx}`);
+     return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+   };
+   const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
+   await tool.execute(
+     "batch-call",
+     { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 },
+     NO_SIGNAL,
+     onUpdate as never,
+     NO_CTX,
+   );
+   assert.ok(updates.length >= 2, "at least one update per child history tick");
+   const first = updates[0];
+-  assert.match(first, /subagents/, "single-line batch summary");
+-  assert.match(first, /\/2/, "shows /N total");
+-  assert.match(first, /latest/, "includes the latest action");
+-  assert.match(updates[1], /1\/2/, "running stays 1 as sibling #0 completes (not 2)");
++  const firstHeader = first.split("\n")[0] ?? "";
++  assert.match(firstHeader, /^subagents · \d+\/2 running/, "header shows `subagents · k/N running`");
++  // child #0 already reported usage (500 tok) before this tick → aggregate present
++  assert.match(firstHeader, /500 tok · \$0\.050/, "header carries the Σtok · $Σ aggregate (tokens first)");
++  assert.ok(!firstHeader.includes("latest:"), "the old `latest:` label is gone from the header");
++  assert.ok(first.includes("[0]"), "the live table row for child #0 is present (multi-line)");
++});
++
++test("runningUsage map is fed by onUsage and drives the live-header Σ across children", async () => {
++  const inFlight = new SubagentInFlightRegistry();
++  const headers: string[] = [];
++  const onUpdate = (u: { content: Array<{ type: string; text: string }> }) => {
++    headers.push(
++      u.content
++        .map((c) => c.text)
++        .join("")
++        .split("\n")[0] ?? "",
++    );
++  };
++  let i = 0;
++  const usages = [U(1000, 0.1), U(2000, 0.2)];
++  const spawn = async (opts: {
++    task: string;
++    onUsage?: (u: AgentUsage) => void;
++    onHistory?: (h: { kind: string }[]) => void;
++  }): Promise<SpawnSubagentResult> => {
++    const idx = i++;
++    opts.onUsage?.(usages[idx] ?? U(0, 0));
++    // Fire onHistory so the live-header onUpdate actually emits — the live
++    // header only renders via the onHistory→onUpdate path, so without a tick
++    // `headers` stays empty and the Σ assertion has nothing to match.
++    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
++    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
++  };
++  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
++  await tool.execute(
++    "batch-sig",
++    { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 },
++    NO_SIGNAL,
++    onUpdate as never,
++    NO_CTX,
++  );
++  const lastHeader = headers[headers.length - 1] ?? "";
++  assert.match(lastHeader, /3000 tok · \$0\.300/, "Σ accumulates across both children's onUsage");
++});
++
++test("onUpdate is try/caught: a throwing buildLiveTable path never fails the child", async () => {
++  const inFlight = new SubagentInFlightRegistry();
++  // Sabotage list() to throw mid-onUpdate; the child must still complete.
++  const badList = () => {
++    throw new Error("boom");
++  };
++  inFlight.list = badList as never;
++  let completed = false;
++  const spawn = async (opts: {
++    task: string;
++    onHistory?: (h: { kind: string }[]) => void;
++  }): Promise<SpawnSubagentResult> => {
++    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
++    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
++  };
++  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
++  const res = await tool.execute("batch-throw", { tasks: [{ task: "#0" }] }, NO_SIGNAL, undefined, NO_CTX);
++  completed = (res.details.results[0] as { status: string }).status === "done";
++  assert.equal(completed, true, "child completed despite a throwing inFlight.list() during onUpdate");
+ });
+ 
+ // ── per-child mid-flight abort (Frontier A, Task 2) ──
+ 
+ /** Flush the event loop until `fn()` returns a truthy value (or throw after tries). */
+ async function waitFor<T>(fn: () => T | undefined | null, tries = 200): Promise<NonNullable<T>> {
+   for (let i = 0; i < tries; i++) {
+     const v = fn();
+     if (v) return v as NonNullable<T>;
+     await new Promise((r) => setTimeout(r, 0));
+@@ -1019,10 +1088,361 @@ test("#03 plural mirror: a child missing a required tool is skipped (null), spaw
+       ],
+     } as never,
+     undefined as never,
+     undefined,
+     { cwd: "/r" } as never,
+   );
+   assert.equal(calls.length, 1, "only the satisfiable child is dispatched");
+   assert.equal(res.details.results[0], null, "missing-tool child → null slot");
+   assert.notEqual(res.details.results[1], null);
+ });
++
++// ── Task 2: pure render helpers (formatUsage / formatModelSeg / formatSlotMeta / sumUsage) ──
++// Shared by the done + live render rewrites (Tasks 3-6). formatSlotMeta +
++// formatModelSeg mirror the single subagent card's meta (fallback-aware).
++// sumUsage feeds both the done-header and live-header usage aggregates.
++
++const U = (total: number, cost: number): AgentUsage => ({
++  input: 0,
++  output: 0,
++  cacheRead: 0,
++  cacheWrite: 0,
++  total,
++  cost,
++});
++
++test("formatUsage: empty when no usage or zero total; else ` · $cost · Ntok` (3-decimal cost)", () => {
++  assert.equal(formatUsage(undefined), "");
++  assert.equal(formatUsage(U(0, 0)), "");
++  assert.equal(formatUsage(U(15715, 0.0004)), " · $0.000 · 15715 tok");
++  assert.equal(formatUsage(U(1000, 0.5)), " · $0.500 · 1000 tok");
++});
++
++test("formatModelSeg: shortens provider prefix; `requested → actual` on fallback; default fallback", () => {
++  assert.equal(formatModelSeg("zai/glm-5.2"), "glm-5.2");
++  assert.equal(formatModelSeg("tier:small"), "tier:small");
++  assert.equal(
++    formatModelSeg("anthropic/claude-opus-4-1", "anthropic/claude-opus-4-1", true),
++    "claude-opus-4-1 → claude-opus-4-1",
++  );
++  assert.equal(formatModelSeg("zai/glm-5.2", "anthropic/claude-opus-4-1", true), "claude-opus-4-1 → glm-5.2");
++  assert.equal(formatModelSeg(""), "default");
++});
++
++test("formatSlotMeta: themed `model · elapsed · usage`; defensive on missing usage", () => {
++  const meta = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500, usage: U(15715, 0.0004) }, THEME);
++  assert.equal(meta, "glm-5.2 · 34.5s · $0.000 · 15715 tok");
++  const noUsage = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500 }, THEME);
++  assert.equal(noUsage, "glm-5.2 · 34.5s");
++  const fb = formatSlotMeta(
++    {
++      model: "zai/glm-5.2",
++      requestedModel: "anthropic/claude-opus-4-1",
++      fellBack: true,
++      elapsedMs: 1000,
++      usage: U(10, 0.001),
++    },
++    THEME,
++  );
++  assert.equal(fb, "claude-opus-4-1 → glm-5.2 · 1.0s · $0.001 · 10 tok");
++});
++
++test("sumUsage: sums total+cost across an iterable; empty → zeros", () => {
++  assert.deepEqual(sumUsage([]), { total: 0, cost: 0 });
++  assert.deepEqual(sumUsage([U(100, 0.1), U(200, 0.2)]), { total: 300, cost: 0.30000000000000004 });
++  assert.deepEqual(sumUsage(new Map([["a", U(50, 0.05)]]).values()), { total: 50, cost: 0.05 });
++});
++
++// ── Task 3: done header Σ + done-collapsed per-slot meta ──
++// The done-state collapsed card now (a) appends ` · $Σ · Σtok` to the header
++// when aggregate slot usage > 0, and (b) renders each per-slot line as
++// `[i] (id) badge · <formatSlotMeta> · "task"` (formatSlotMeta = model · elapsed
++// · usage; quoted task preview). Mirrors the single subagent card's meta.
++
++test("done header appends aggregate ` · $Σ · Σtok` when slots carry usage", () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      { output: "a", status: "done", index: 0, task: "t0", model: "zai/glm-5.2", elapsedMs: 1000, usage: U(1000, 0.1) },
++      { output: "b", status: "done", index: 1, task: "t1", model: "zai/glm-5.2", elapsedMs: 2000, usage: U(2000, 0.2) },
++      null,
++    ],
++    dispatched: 2,
++    skipped: 0,
++    elapsedMs: 3000,
++  };
++  const collapsed = renderSubagentsResult(
++    { content: [{ type: "text", text: "x" }], details },
++    { expanded: false },
++    THEME,
++  );
++  assert.match(collapsed, /— 3\.0s · \$0\.300 · 3000 tok/);
++});
++
++test("done header omits the aggregate suffix when no slot carries usage (byte-stable)", () => {
++  const details: SubagentsToolDetails = {
++    results: [{ output: "a", status: "done", index: 0, task: "t0", model: "zai/glm-5.2", elapsedMs: 1000 }],
++    dispatched: 1,
++    skipped: 0,
++    elapsedMs: 1000,
++  };
++  const collapsed = renderSubagentsResult(
++    { content: [{ type: "text", text: "x" }], details },
++    { expanded: false },
++    THEME,
++  );
++  assert.match(collapsed, /— 1\.0s$/m); // no trailing ` · $… · … tok`
++  assert.doesNotMatch(collapsed, /tok/);
++});
++
++test('done collapsed: per-slot line shows `badge · model · elapsed · $cost · Ntok · "task"` (with usage)', () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      {
++        output: "ok",
++        status: "done",
++        index: 0,
++        id: "alpha",
++        task: "audit the parser",
++        model: "zai/glm-5.2",
++        elapsedMs: 34500,
++        usage: U(15715, 0.0004),
++      },
++    ],
++    dispatched: 1,
++    skipped: 0,
++    elapsedMs: 34500,
++  };
++  const collapsed = renderSubagentsResult(
++    { content: [{ type: "text", text: "x" }], details },
++    { expanded: false },
++    THEME,
++  );
++  const slot0 = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
++  assert.match(slot0, /\(alpha\)/);
++  assert.match(slot0, /✓ done/); // fixed-width badge kept
++  assert.match(slot0, /glm-5\.2 · 34\.5s · \$0\.000 · 15715 tok/);
++  assert.match(slot0, /"audit the parser"/); // quoted task preview
++  assert.ok(!slot0.includes("zai/glm-5.2"), "provider prefix dropped on the collapsed line");
++});
++
++test("done collapsed: fallback slot shows `requested → actual` in the meta segment", () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      {
++        output: "ok",
++        status: "done",
++        index: 0,
++        task: "t",
++        model: "zai/glm-5.2",
++        requestedModel: "anthropic/claude-opus-4-1",
++        fellBack: true,
++        elapsedMs: 1000,
++        usage: U(10, 0.001),
++      },
++    ],
++    dispatched: 1,
++    skipped: 0,
++    elapsedMs: 1000,
++  };
++  const collapsed = renderSubagentsResult(
++    { content: [{ type: "text", text: "x" }], details },
++    { expanded: false },
++    THEME,
++  );
++  assert.match(collapsed, /claude-opus-4-1 → glm-5\.2 · 1\.0s · \$0\.001 · 10 tok/);
++});
++
++test('done collapsed: per-slot meta degrades (no usage → `model · elapsed · "task"`)', () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      { output: "", status: "aborted", index: 0, id: "x", task: "t-aborted", model: "zai/glm-5.2", elapsedMs: 500 },
++    ],
++    dispatched: 1,
++    skipped: 0,
++    elapsedMs: 500,
++  };
++  const collapsed = renderSubagentsResult(
++    { content: [{ type: "text", text: "x" }], details },
++    { expanded: false },
++    THEME,
++  );
++  const slot0 = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
++  assert.match(slot0, /⊘ aborted/);
++  assert.match(slot0, /glm-5\.2 · 0\.5s · "t-aborted"/);
++  assert.doesNotMatch(slot0, /tok/);
++});
++
++test("done collapsed: null (failed) slot still renders the terse failed line (no meta)", () => {
++  const details: SubagentsToolDetails = { results: [null], dispatched: 0, skipped: 0, elapsedMs: 10 };
++  const collapsed = renderSubagentsResult(
++    { content: [{ type: "text", text: "x" }], details },
++    { expanded: false },
++    THEME,
++  );
++  const line = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
++  assert.match(line, /✗ failed/);
++  assert.match(line, /child failed/);
++  assert.doesNotMatch(line, /· .*s ·/);
++});
++
++// ── Task 4: done-expanded per-child meta line ──
++// The expanded branch prepends a `model · elapsed · $cost · Ntok` meta line
++// above each child's output (done/timedout/aborted/budget). Null (failed)
++// slots are unchanged. Mirrors the single subagent card's meta placement.
++
++test("done expanded: prepends a `model · elapsed · $cost · Ntok` meta line above each child output", () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      {
++        output: "Full audit report\nLine two",
++        status: "done",
++        id: "a",
++        index: 0,
++        task: "audit",
++        model: "zai/glm-5.2",
++        elapsedMs: 34500,
++        usage: U(15715, 0.0004),
++      },
++    ],
++    dispatched: 1,
++    skipped: 0,
++    elapsedMs: 34500,
++  };
++  const expanded = renderSubagentsResult(
++    { content: [{ type: "text", text: "x" }], details },
++    { expanded: true },
++    THEME,
++  );
++  const lines = expanded.split("\n");
++  // NOTE (T4 brief fix): meta sits at lines[3], not lines[1]. Expanded layout is
++  // `header\n\n### [i] (id) status\n<meta>\n<output>` — the brief's verbatim
++  // `lines[1]` pointed at the blank line between the batch header and the body.
++  assert.match(
++    lines[3] ?? "",
++    /glm-5\.2 · 34\.5s · \$0\.000 · 15715 tok/,
++    "meta line sits directly under the ### header",
++  );
++  assert.ok(expanded.includes("Full audit report"), "output preserved under the meta line");
++});
++
++test("done expanded: budget + aborted slots get a meta line too (no usage → model · elapsed only)", () => {
++  const details: SubagentsToolDetails = {
++    results: [
++      {
++        status: "budget",
++        source: "child" as const,
++        exhaustion: { kind: "tokens" as const, limit: 1000, actual: 2000 },
++        index: 0,
++        task: "t-budget",
++        model: "zai/glm-5.2",
++        elapsedMs: 800,
++      },
++      { output: "", status: "aborted", index: 1, task: "t-aborted", model: "zai/glm-5.2", elapsedMs: 300 },
++    ],
++    dispatched: 2,
++    skipped: 1,
++    elapsedMs: 1100,
++  };
++  const expanded = renderSubagentsResult(
++    { content: [{ type: "text", text: "x" }], details },
++    { expanded: true },
++    THEME,
++  );
++  // NOTE (T4 brief fix): order reversed. Layout is `### [i] skipped — ...\n<meta>`
++  // (status word in the ### header precedes the meta), so the brief's verbatim
++  // `meta THEN status` regexes never matched. `status THEN meta` is the spec'd order.
++  assert.match(expanded, /skipped[\s\S]*glm-5\.2 · 0\.8s/);
++  assert.match(expanded, /aborted[\s\S]*glm-5\.2 · 0\.3s/);
++});
++
++test("done expanded: null (failed) slot has NO meta line (unchanged failed body)", () => {
++  const details: SubagentsToolDetails = {
++    results: [null, { output: "ok", status: "done", index: 1, task: "t", model: "zai/glm-5.2", elapsedMs: 100 }],
++    dispatched: 1,
++    skipped: 0,
++    elapsedMs: 100,
++  };
++  const expanded = renderSubagentsResult(
++    { content: [{ type: "text", text: "x" }], details },
++    { expanded: true },
++    THEME,
++  );
++  const failedBlock = expanded.split("### [1]")[0];
++  assert.match(failedBlock, /### \[0\] failed/);
++  assert.doesNotMatch(failedBlock, /· .*s ·/);
++});
++
++const NOW = 10_000;
++
++function live(over: Partial<InFlightSubagent> & { id: string }): InFlightSubagent {
++  return { taskPreview: "pt", startedAt: 0, ...over } as InFlightSubagent;
++}
++
++test("childDispatchIndex: trailing :N from a batch child runId; NaN-resistant", () => {
++  assert.equal(childDispatchIndex("batch-call:3"), 3);
++  assert.equal(childDispatchIndex("wf:abc:0"), 0);
++  assert.equal(childDispatchIndex("no-colon"), NaN);
++});
++
++test("buildLiveTable: empty entries → empty string (header-only)", () => {
++  assert.equal(buildLiveTable([], NOW), "");
++});
++
++test("buildLiveTable: one running child → `[i] slot ⏱ liveElapsed · currentAction`", () => {
++  const rows = buildLiveTable(
++    [live({ id: "batch-call:0", model: "zai/glm-5.2", startedAt: 6550, status: "running" })],
++    NOW,
++  );
++  assert.equal(rows, "[0] glm-5.2 ⏱ 3.5s · pt");
++});
++
++test("buildLiveTable: completed child shows ✓ glyph + the same meta", () => {
++  const rows = buildLiveTable(
++    [live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 9000, status: "completed" })],
++    NOW,
++  );
++  assert.equal(rows, "[1] glm-5.2 ✓ 1.0s · pt");
++});
++
++test("buildLiveTable: fallback child shows `requested → actual` slot", () => {
++  const rows = buildLiveTable(
++    [
++      live({
++        id: "batch-call:0",
++        model: "anthropic/claude-opus-4-1",
++        resolvedModel: "zai/glm-5.2",
++        requestedModel: "anthropic/claude-opus-4-1",
++        fellBack: true,
++        startedAt: 9500,
++        status: "running",
++      }),
++    ],
++    NOW,
++  );
++  assert.equal(rows, "[0] claude-opus-4-1 → glm-5.2 ⏱ 0.5s · pt");
++});
++
++test("buildLiveTable: currentAction comes from summarizeLatestAction(history); falls back to task preview", () => {
++  const withHist = buildLiveTable(
++    [
++      live({
++        id: "batch-call:0",
++        model: "zai/glm-5.2",
++        startedAt: 9000,
++        history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"src/a.ts"}' }],
++      }),
++    ],
++    NOW,
++  );
++  assert.match(withHist, /\[0\] glm-5\.2 ⏱ 1\.0s · .+/);
++  assert.notEqual(withHist, "[0] glm-5.2 ⏱ 1.0s · pt", "history-derived action replaces the task-preview fallback");
++});
++
++test("buildLiveTable: sorted ascending by dispatch index; defaults to Date.now()", () => {
++  const rows = buildLiveTable([
++    live({ id: "batch-call:2", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
++    live({ id: "batch-call:0", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
++    live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
++  ]);
++  const idxs = rows.split("\n").map((l) => l.slice(1, 2));
++  assert.deepEqual(idxs, ["0", "1", "2"]);
++});
