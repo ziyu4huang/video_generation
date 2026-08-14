@@ -19,7 +19,8 @@ import { getKnowledgePipeline } from "../knowledge-pipeline-seam.js";
 import { KNOWLEDGE_FOLDER_DEFAULT } from "../knowledge-vault-path.js";
 import type { VectorStore } from "../store/surreal/vector-store.js";
 import type { Embedder } from "../store/surreal/embedder.js";
-import { SqliteBackend } from "../store/sqlite/sqlite-backend.js";
+import type { SqliteBackend } from "../store/sqlite/sqlite-backend.js";
+import { createSqliteBackend } from "../store/backend-factory.js";
 import { normalizeFts5Query, buildFallbackFts5Query, isFts5QueryError } from "../store/sqlite/fts-query.js";
 // From core-interface (BELOW both tiers), not from knowledge-card. hermes is
 // TIER-0 and may not import the hub — ADR-0001. Same module either way, so the
@@ -93,9 +94,9 @@ export function buildGraphRelationsFetcher(
   return async (mdIds: string[]): Promise<Map<string, SemanticRelation[]>> => {
     const out = new Map<string, SemanticRelation[]>();
     if (mdIds.length === 0) return out;
-    const backend = new SqliteBackend(memoryDir);
+    let backend: SqliteBackend | undefined;
     try {
-      await backend.init();
+      backend = await createSqliteBackend(memoryDir);
       for (let i = 0; i < mdIds.length; i += 100) {
         const chunk = mdIds.slice(i, i + 100);
         const rows = backend
@@ -127,7 +128,7 @@ export function buildGraphRelationsFetcher(
     } catch {
       // backend open/query failure → empty map (search unaffected)
     } finally {
-      await backend.close().catch(() => {});
+      await backend?.close().catch(() => {});
     }
     return out;
   };
@@ -150,9 +151,9 @@ export function buildLexicalRecall(
 ): (queryText: string, topK: number) => Promise<Array<{ mdId: string; rank: number }>> {
   return async (queryText: string, topK: number): Promise<Array<{ mdId: string; rank: number }>> => {
     if (!queryText || !queryText.trim() || topK <= 0) return [];
-    const backend = new SqliteBackend(memoryDir);
+    let backend: SqliteBackend | undefined;
     try {
-      await backend.init();
+      backend = await createSqliteBackend(memoryDir);
       const sql =
         `SELECT m.md_id FROM memories m ` +
         `WHERE m.id IN (SELECT rowid FROM memory_fts WHERE memory_fts MATCH ?) ` +
@@ -175,7 +176,7 @@ export function buildLexicalRecall(
     } catch {
       return []; // backend open / FTS error even after fallback / anything → silent skip
     } finally {
-      await backend.close().catch(() => {});
+      await backend?.close().catch(() => {});
     }
   };
 }
@@ -218,9 +219,9 @@ export function buildEntityRecall(
     }
     queryNames.delete("");
     if (queryNames.size === 0) return []; // no query entities → no DB open at all
-    const backend = new SqliteBackend(memoryDir);
+    let backend: SqliteBackend | undefined;
     try {
-      await backend.init();
+      backend = await createSqliteBackend(memoryDir);
       const stmt = backend.getDb().prepare(
         `SELECT id, md_id, graph FROM memories ` +
           `WHERE target = 'knowledge' AND graph IS NOT NULL AND id > ? ORDER BY id LIMIT 100`,
@@ -256,7 +257,7 @@ export function buildEntityRecall(
     } catch {
       return []; // backend open / query failure → silent skip
     } finally {
-      await backend.close().catch(() => {});
+      await backend?.close().catch(() => {});
     }
   };
 }
