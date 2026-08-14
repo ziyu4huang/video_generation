@@ -1,5 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
+import type { AgentUsage, InFlightSubagent } from "@repo/pi-agent-ext-core-runtime";
 import {
   DEFAULT_BATCH_CONCURRENCY,
   MAX_BATCH_TASKS,
@@ -11,13 +12,19 @@ import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-sub
 import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
 import type { SubagentsToolDetails } from "../src/subagents-tool.js";
 import {
+  buildLiveTable,
+  childDispatchIndex,
   clampConcurrency,
   createSubagentsTool,
+  formatModelSeg,
+  formatSlotMeta,
+  formatUsage,
   mergeReadOnlyExclusion,
   READ_ONLY_EXCLUDED,
   renderBatchResult,
   renderSubagentsCall,
   renderSubagentsResult,
+  sumUsage,
 } from "../src/subagents-tool.js";
 
 test("createSubagentsTool has name 'subagents' + executionMode 'sequential'", () => {
@@ -529,7 +536,7 @@ test("batch keeps a completed child (status=completed) mid-run; evicts the whole
   assert.equal(inFlight.list().length, 0, "registry empty after the batch returns (whole-batch eviction)");
 });
 
-test("onUpdate emits a single-line 'k/N running · latest' as children progress", async () => {
+test("onUpdate emits a multi-line header + live table: `subagents · k/N running · Σtok · $Σ` then one row per child", async () => {
   const inFlight = new SubagentInFlightRegistry();
   const updates: string[] = [];
   const onUpdate = (u: { content: Array<{ type: string; text: string }> }) => {
@@ -537,11 +544,12 @@ test("onUpdate emits a single-line 'k/N running · latest' as children progress"
   };
   const spawn = async (opts: {
     task: string;
+    onUsage?: (u: AgentUsage) => void;
     onHistory?: (h: { kind: string; toolName?: string; text?: string }[]) => void;
   }): Promise<SpawnSubagentResult> => {
+    opts.onUsage?.(U(500, 0.05));
     opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "r" }]);
     const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
-    // mark each child completed to mirror the real finally-block
     inFlight.markCompleted(`batch-call:${idx}`);
     return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
   };
@@ -555,10 +563,71 @@ test("onUpdate emits a single-line 'k/N running · latest' as children progress"
   );
   assert.ok(updates.length >= 2, "at least one update per child history tick");
   const first = updates[0];
-  assert.match(first, /subagents/, "single-line batch summary");
-  assert.match(first, /\/2/, "shows /N total");
-  assert.match(first, /latest/, "includes the latest action");
-  assert.match(updates[1], /1\/2/, "running stays 1 as sibling #0 completes (not 2)");
+  const firstHeader = first.split("\n")[0] ?? "";
+  assert.match(firstHeader, /^subagents · \d+\/2 running/, "header shows `subagents · k/N running`");
+  // child #0 already reported usage (500 tok) before this tick → aggregate present
+  assert.match(firstHeader, /500 tok · \$0\.050/, "header carries the Σtok · $Σ aggregate (tokens first)");
+  assert.ok(!firstHeader.includes("latest:"), "the old `latest:` label is gone from the header");
+  assert.ok(first.includes("[0]"), "the live table row for child #0 is present (multi-line)");
+});
+
+test("runningUsage map is fed by onUsage and drives the live-header Σ across children", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  const headers: string[] = [];
+  const onUpdate = (u: { content: Array<{ type: string; text: string }> }) => {
+    headers.push(
+      u.content
+        .map((c) => c.text)
+        .join("")
+        .split("\n")[0] ?? "",
+    );
+  };
+  let i = 0;
+  const usages = [U(1000, 0.1), U(2000, 0.2)];
+  const spawn = async (opts: {
+    task: string;
+    onUsage?: (u: AgentUsage) => void;
+    onHistory?: (h: { kind: string }[]) => void;
+  }): Promise<SpawnSubagentResult> => {
+    const idx = i++;
+    opts.onUsage?.(usages[idx] ?? U(0, 0));
+    // Fire onHistory so the live-header onUpdate actually emits — the live
+    // header only renders via the onHistory→onUpdate path, so without a tick
+    // `headers` stays empty and the Σ assertion has nothing to match.
+    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
+  await tool.execute(
+    "batch-sig",
+    { tasks: [{ task: "#0" }, { task: "#1" }], concurrency: 1 },
+    NO_SIGNAL,
+    onUpdate as never,
+    NO_CTX,
+  );
+  const lastHeader = headers[headers.length - 1] ?? "";
+  assert.match(lastHeader, /3000 tok · \$0\.300/, "Σ accumulates across both children's onUsage");
+});
+
+test("onUpdate is try/caught: a throwing buildLiveTable path never fails the child", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  // Sabotage list() to throw mid-onUpdate; the child must still complete.
+  const badList = () => {
+    throw new Error("boom");
+  };
+  inFlight.list = badList as never;
+  let completed = false;
+  const spawn = async (opts: {
+    task: string;
+    onHistory?: (h: { kind: string }[]) => void;
+  }): Promise<SpawnSubagentResult> => {
+    opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
+    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+  };
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
+  const res = await tool.execute("batch-throw", { tasks: [{ task: "#0" }] }, NO_SIGNAL, undefined, NO_CTX);
+  completed = (res.details.results[0] as { status: string }).status === "done";
+  assert.equal(completed, true, "child completed despite a throwing inFlight.list() during onUpdate");
 });
 
 // ── per-child mid-flight abort (Frontier A, Task 2) ──
@@ -1025,4 +1094,355 @@ test("#03 plural mirror: a child missing a required tool is skipped (null), spaw
   assert.equal(calls.length, 1, "only the satisfiable child is dispatched");
   assert.equal(res.details.results[0], null, "missing-tool child → null slot");
   assert.notEqual(res.details.results[1], null);
+});
+
+// ── Task 2: pure render helpers (formatUsage / formatModelSeg / formatSlotMeta / sumUsage) ──
+// Shared by the done + live render rewrites (Tasks 3-6). formatSlotMeta +
+// formatModelSeg mirror the single subagent card's meta (fallback-aware).
+// sumUsage feeds both the done-header and live-header usage aggregates.
+
+const U = (total: number, cost: number): AgentUsage => ({
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  total,
+  cost,
+});
+
+test("formatUsage: empty when no usage or zero total; else ` · $cost · Ntok` (3-decimal cost)", () => {
+  assert.equal(formatUsage(undefined), "");
+  assert.equal(formatUsage(U(0, 0)), "");
+  assert.equal(formatUsage(U(15715, 0.0004)), " · $0.000 · 15715 tok");
+  assert.equal(formatUsage(U(1000, 0.5)), " · $0.500 · 1000 tok");
+});
+
+test("formatModelSeg: shortens provider prefix; `requested → actual` on fallback; default fallback", () => {
+  assert.equal(formatModelSeg("zai/glm-5.2"), "glm-5.2");
+  assert.equal(formatModelSeg("tier:small"), "tier:small");
+  assert.equal(
+    formatModelSeg("anthropic/claude-opus-4-1", "anthropic/claude-opus-4-1", true),
+    "claude-opus-4-1 → claude-opus-4-1",
+  );
+  assert.equal(formatModelSeg("zai/glm-5.2", "anthropic/claude-opus-4-1", true), "claude-opus-4-1 → glm-5.2");
+  assert.equal(formatModelSeg(""), "default");
+});
+
+test("formatSlotMeta: themed `model · elapsed · usage`; defensive on missing usage", () => {
+  const meta = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500, usage: U(15715, 0.0004) }, THEME);
+  assert.equal(meta, "glm-5.2 · 34.5s · $0.000 · 15715 tok");
+  const noUsage = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500 }, THEME);
+  assert.equal(noUsage, "glm-5.2 · 34.5s");
+  const fb = formatSlotMeta(
+    {
+      model: "zai/glm-5.2",
+      requestedModel: "anthropic/claude-opus-4-1",
+      fellBack: true,
+      elapsedMs: 1000,
+      usage: U(10, 0.001),
+    },
+    THEME,
+  );
+  assert.equal(fb, "claude-opus-4-1 → glm-5.2 · 1.0s · $0.001 · 10 tok");
+});
+
+test("sumUsage: sums total+cost across an iterable; empty → zeros", () => {
+  assert.deepEqual(sumUsage([]), { total: 0, cost: 0 });
+  assert.deepEqual(sumUsage([U(100, 0.1), U(200, 0.2)]), { total: 300, cost: 0.30000000000000004 });
+  assert.deepEqual(sumUsage(new Map([["a", U(50, 0.05)]]).values()), { total: 50, cost: 0.05 });
+});
+
+// ── Task 3: done header Σ + done-collapsed per-slot meta ──
+// The done-state collapsed card now (a) appends ` · $Σ · Σtok` to the header
+// when aggregate slot usage > 0, and (b) renders each per-slot line as
+// `[i] (id) badge · <formatSlotMeta> · "task"` (formatSlotMeta = model · elapsed
+// · usage; quoted task preview). Mirrors the single subagent card's meta.
+
+test("done header appends aggregate ` · $Σ · Σtok` when slots carry usage", () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      { output: "a", status: "done", index: 0, task: "t0", model: "zai/glm-5.2", elapsedMs: 1000, usage: U(1000, 0.1) },
+      { output: "b", status: "done", index: 1, task: "t1", model: "zai/glm-5.2", elapsedMs: 2000, usage: U(2000, 0.2) },
+      null,
+    ],
+    dispatched: 2,
+    skipped: 0,
+    elapsedMs: 3000,
+  };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: false },
+    THEME,
+  );
+  assert.match(collapsed, /— 3\.0s · \$0\.300 · 3000 tok/);
+});
+
+test("done header omits the aggregate suffix when no slot carries usage (byte-stable)", () => {
+  const details: SubagentsToolDetails = {
+    results: [{ output: "a", status: "done", index: 0, task: "t0", model: "zai/glm-5.2", elapsedMs: 1000 }],
+    dispatched: 1,
+    skipped: 0,
+    elapsedMs: 1000,
+  };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: false },
+    THEME,
+  );
+  assert.match(collapsed, /— 1\.0s$/m); // no trailing ` · $… · … tok`
+  assert.doesNotMatch(collapsed, /tok/);
+});
+
+test('done collapsed: per-slot line shows `badge · model · elapsed · $cost · Ntok · "task"` (with usage)', () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      {
+        output: "ok",
+        status: "done",
+        index: 0,
+        id: "alpha",
+        task: "audit the parser",
+        model: "zai/glm-5.2",
+        elapsedMs: 34500,
+        usage: U(15715, 0.0004),
+      },
+    ],
+    dispatched: 1,
+    skipped: 0,
+    elapsedMs: 34500,
+  };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: false },
+    THEME,
+  );
+  const slot0 = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
+  assert.match(slot0, /\(alpha\)/);
+  assert.match(slot0, /✓ done/); // fixed-width badge kept
+  assert.match(slot0, /glm-5\.2 · 34\.5s · \$0\.000 · 15715 tok/);
+  assert.match(slot0, /"audit the parser"/); // quoted task preview
+  assert.ok(!slot0.includes("zai/glm-5.2"), "provider prefix dropped on the collapsed line");
+});
+
+test("done collapsed: fallback slot shows `requested → actual` in the meta segment", () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      {
+        output: "ok",
+        status: "done",
+        index: 0,
+        task: "t",
+        model: "zai/glm-5.2",
+        requestedModel: "anthropic/claude-opus-4-1",
+        fellBack: true,
+        elapsedMs: 1000,
+        usage: U(10, 0.001),
+      },
+    ],
+    dispatched: 1,
+    skipped: 0,
+    elapsedMs: 1000,
+  };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: false },
+    THEME,
+  );
+  assert.match(collapsed, /claude-opus-4-1 → glm-5\.2 · 1\.0s · \$0\.001 · 10 tok/);
+});
+
+test('done collapsed: per-slot meta degrades (no usage → `model · elapsed · "task"`)', () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      { output: "", status: "aborted", index: 0, id: "x", task: "t-aborted", model: "zai/glm-5.2", elapsedMs: 500 },
+    ],
+    dispatched: 1,
+    skipped: 0,
+    elapsedMs: 500,
+  };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: false },
+    THEME,
+  );
+  const slot0 = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
+  assert.match(slot0, /⊘ aborted/);
+  assert.match(slot0, /glm-5\.2 · 0\.5s · "t-aborted"/);
+  assert.doesNotMatch(slot0, /tok/);
+});
+
+test("done collapsed: null (failed) slot still renders the terse failed line (no meta)", () => {
+  const details: SubagentsToolDetails = { results: [null], dispatched: 0, skipped: 0, elapsedMs: 10 };
+  const collapsed = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: false },
+    THEME,
+  );
+  const line = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
+  assert.match(line, /✗ failed/);
+  assert.match(line, /child failed/);
+  assert.doesNotMatch(line, /· .*s ·/);
+});
+
+// ── Task 4: done-expanded per-child meta line ──
+// The expanded branch prepends a `model · elapsed · $cost · Ntok` meta line
+// above each child's output (done/timedout/aborted/budget). Null (failed)
+// slots are unchanged. Mirrors the single subagent card's meta placement.
+
+test("done expanded: prepends a `model · elapsed · $cost · Ntok` meta line above each child output", () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      {
+        output: "Full audit report\nLine two",
+        status: "done",
+        id: "a",
+        index: 0,
+        task: "audit",
+        model: "zai/glm-5.2",
+        elapsedMs: 34500,
+        usage: U(15715, 0.0004),
+      },
+    ],
+    dispatched: 1,
+    skipped: 0,
+    elapsedMs: 34500,
+  };
+  const expanded = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: true },
+    THEME,
+  );
+  const lines = expanded.split("\n");
+  // NOTE (T4 brief fix): meta sits at lines[3], not lines[1]. Expanded layout is
+  // `header\n\n### [i] (id) status\n<meta>\n<output>` — the brief's verbatim
+  // `lines[1]` pointed at the blank line between the batch header and the body.
+  assert.match(
+    lines[3] ?? "",
+    /glm-5\.2 · 34\.5s · \$0\.000 · 15715 tok/,
+    "meta line sits directly under the ### header",
+  );
+  assert.ok(expanded.includes("Full audit report"), "output preserved under the meta line");
+});
+
+test("done expanded: budget + aborted slots get a meta line too (no usage → model · elapsed only)", () => {
+  const details: SubagentsToolDetails = {
+    results: [
+      {
+        status: "budget",
+        source: "child" as const,
+        exhaustion: { kind: "tokens" as const, limit: 1000, actual: 2000 },
+        index: 0,
+        task: "t-budget",
+        model: "zai/glm-5.2",
+        elapsedMs: 800,
+      },
+      { output: "", status: "aborted", index: 1, task: "t-aborted", model: "zai/glm-5.2", elapsedMs: 300 },
+    ],
+    dispatched: 2,
+    skipped: 1,
+    elapsedMs: 1100,
+  };
+  const expanded = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: true },
+    THEME,
+  );
+  // NOTE (T4 brief fix): order reversed. Layout is `### [i] skipped — ...\n<meta>`
+  // (status word in the ### header precedes the meta), so the brief's verbatim
+  // `meta THEN status` regexes never matched. `status THEN meta` is the spec'd order.
+  assert.match(expanded, /skipped[\s\S]*glm-5\.2 · 0\.8s/);
+  assert.match(expanded, /aborted[\s\S]*glm-5\.2 · 0\.3s/);
+});
+
+test("done expanded: null (failed) slot has NO meta line (unchanged failed body)", () => {
+  const details: SubagentsToolDetails = {
+    results: [null, { output: "ok", status: "done", index: 1, task: "t", model: "zai/glm-5.2", elapsedMs: 100 }],
+    dispatched: 1,
+    skipped: 0,
+    elapsedMs: 100,
+  };
+  const expanded = renderSubagentsResult(
+    { content: [{ type: "text", text: "x" }], details },
+    { expanded: true },
+    THEME,
+  );
+  const failedBlock = expanded.split("### [1]")[0];
+  assert.match(failedBlock, /### \[0\] failed/);
+  assert.doesNotMatch(failedBlock, /· .*s ·/);
+});
+
+const NOW = 10_000;
+
+function live(over: Partial<InFlightSubagent> & { id: string }): InFlightSubagent {
+  return { taskPreview: "pt", startedAt: 0, ...over } as InFlightSubagent;
+}
+
+test("childDispatchIndex: trailing :N from a batch child runId; NaN-resistant", () => {
+  assert.equal(childDispatchIndex("batch-call:3"), 3);
+  assert.equal(childDispatchIndex("wf:abc:0"), 0);
+  assert.equal(childDispatchIndex("no-colon"), NaN);
+});
+
+test("buildLiveTable: empty entries → empty string (header-only)", () => {
+  assert.equal(buildLiveTable([], NOW), "");
+});
+
+test("buildLiveTable: one running child → `[i] slot ⏱ liveElapsed · currentAction`", () => {
+  const rows = buildLiveTable(
+    [live({ id: "batch-call:0", model: "zai/glm-5.2", startedAt: 6550, status: "running" })],
+    NOW,
+  );
+  assert.equal(rows, "[0] glm-5.2 ⏱ 3.5s · pt");
+});
+
+test("buildLiveTable: completed child shows ✓ glyph + the same meta", () => {
+  const rows = buildLiveTable(
+    [live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 9000, status: "completed" })],
+    NOW,
+  );
+  assert.equal(rows, "[1] glm-5.2 ✓ 1.0s · pt");
+});
+
+test("buildLiveTable: fallback child shows `requested → actual` slot", () => {
+  const rows = buildLiveTable(
+    [
+      live({
+        id: "batch-call:0",
+        model: "anthropic/claude-opus-4-1",
+        resolvedModel: "zai/glm-5.2",
+        requestedModel: "anthropic/claude-opus-4-1",
+        fellBack: true,
+        startedAt: 9500,
+        status: "running",
+      }),
+    ],
+    NOW,
+  );
+  assert.equal(rows, "[0] claude-opus-4-1 → glm-5.2 ⏱ 0.5s · pt");
+});
+
+test("buildLiveTable: currentAction comes from summarizeLatestAction(history); falls back to task preview", () => {
+  const withHist = buildLiveTable(
+    [
+      live({
+        id: "batch-call:0",
+        model: "zai/glm-5.2",
+        startedAt: 9000,
+        history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"src/a.ts"}' }],
+      }),
+    ],
+    NOW,
+  );
+  assert.match(withHist, /\[0\] glm-5\.2 ⏱ 1\.0s · .+/);
+  assert.notEqual(withHist, "[0] glm-5.2 ⏱ 1.0s · pt", "history-derived action replaces the task-preview fallback");
+});
+
+test("buildLiveTable: sorted ascending by dispatch index; defaults to Date.now()", () => {
+  const rows = buildLiveTable([
+    live({ id: "batch-call:2", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
+    live({ id: "batch-call:0", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
+    live({ id: "batch-call:1", model: "zai/glm-5.2", startedAt: 0, status: "running" }),
+  ]);
+  const idxs = rows.split("\n").map((l) => l.slice(1, 2));
+  assert.deepEqual(idxs, ["0", "1", "2"]);
 });

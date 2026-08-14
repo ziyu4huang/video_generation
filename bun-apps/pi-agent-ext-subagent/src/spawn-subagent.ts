@@ -112,6 +112,14 @@ export interface SpawnSubagentOptions {
    * to ≥250ms there — no additional throttling needed here).
    */
   onHistory?: (history: AgentHistoryEntry[]) => void;
+  /**
+   * Fires with the child's real token/cost usage once known. Emitted exactly
+   * once, at run completion (the runner reads session stats in its `finally`).
+   * Mirrors {@link onHistory} / {@link onModelResolved} / {@link onModelFallback}
+   * — additive + optional. The internal `result.usage` capture is unchanged, so
+   * both this live callback and the final result carry usage.
+   */
+  onUsage?: (u: AgentUsage) => void;
 }
 
 export interface SpawnSubagentResult {
@@ -250,6 +258,7 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
         onModelFallback: opts.onModelFallback,
         onUsage: (u) => {
           usage = u;
+          opts.onUsage?.(u);
         },
         onHistory: opts.onHistory,
         tokenBudget: opts.tokenBudget,
