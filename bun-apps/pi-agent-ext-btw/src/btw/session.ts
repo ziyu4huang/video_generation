@@ -371,6 +371,9 @@ export class BtwEngine {
     this.webuiBridgedFor = sr;
     this.webuiStatus = null;
     const dispose = sr.session.subscribe((event: AgentSessionEvent) => {
+      // A new turn invalidates the previous turn's terminal status ("done");
+      // reset so the ?? streaming default re-engages for the new live message.
+      if ((event as { type?: unknown }).type === "turn_start") this.webuiStatus = null;
       const update = statusFromEvent(event);
       if (update) this.webuiStatus = update;
       this.emitThreadEvent();
@@ -452,9 +455,15 @@ export class BtwEngine {
           break;
         }
         case "model": {
-          const model = command.model
-            ? (ctx.modelRegistry.find(command.model.provider, command.model.id) ?? null)
-            : null;
+          let model: SessionModel | null = null;
+          if (command.model) {
+            model = ctx.modelRegistry.find(command.model.provider, command.model.id) ?? null;
+            if (!model) {
+              this.emitNotice(
+                `btw: model not found: ${command.model.provider}/${command.model.id} — override cleared`,
+              );
+            }
+          }
           await this.setBtwModelOverride(ctx, model);
           break;
         }

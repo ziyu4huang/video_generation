@@ -57,6 +57,27 @@ describe("webui command channel", () => {
     expect(() => fake.pi.events?.emit(BTW_COMMAND_CHANNEL, null)).not.toThrow();
   });
 
+  it("model command with an unresolvable model emits a notice and clears the override", async () => {
+    const fake = makeFakeBusPi();
+    // resolveBtwSettings (via setBtwModelOverride) reads the main thinking level.
+    (fake.pi as unknown as { getThinkingLevel: () => string }).getThinkingLevel = () => "off";
+    registerBtwFeature(fake.pi);
+    fake.trigger("session_start", {}, fakeCtx);
+    await flush();
+    fake.pi.events?.emit(BTW_COMMAND_CHANNEL, {
+      kind: "model",
+      model: { provider: "anthropic", id: "no-such-model", api: "anthropic" },
+    });
+    await flush();
+    const notices = fake.emitted.filter(
+      (e) => e.channel === "btw:event" && (e.data as { type?: string }).type === "notice",
+    );
+    expect(notices.length).toBeGreaterThan(0);
+    const text = String((notices.at(-1)?.data as { text?: string }).text);
+    expect(text).toContain("model not found");
+    expect(text).toContain("anthropic/no-such-model");
+  });
+
   it("emits an initial thread event at session_start (seeds the webui store)", async () => {
     const fake = makeFakeBusPi();
     registerBtwFeature(fake.pi);

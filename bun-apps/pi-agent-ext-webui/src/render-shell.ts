@@ -258,7 +258,7 @@ function btwRenderMessages(messages) {
 // no module / build step — same intentional duplication as APPEXEC_FRAME).
 function btwMessageHtml(m) {
   const esc = function (s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   };
   const status = m.status === 'done'
     ? ''

@@ -50,3 +50,5 @@ Task 12: complete (verification — both gates green, sweep clean)
 Task 12: btw gate 31 pass/0 fail (7 files, 86 expects); webui gate 319 pass/0 fail (27 files, 701 expects)
 Task 12: sweep — zero @repo imports in webui src/, zero package.json dep; only comment-only mention src/btw-channels.ts:5 ("Mirrors ... WITHOUT importing") — accepted, no coupling
 Task 12: no real-model calls — only comment-only mention tests/helpers/mock-pi.ts:10; all tests use fake sessions/mocks/pure helpers
+Final review: FINDINGS (1 Important F1 contract-pin self-referential, 3 Minor F2-F4) — one fix wave; all deferred minors triaged ACCEPT (see final review)
+Final fix wave: complete (F1-F4 fixed, both gates green)

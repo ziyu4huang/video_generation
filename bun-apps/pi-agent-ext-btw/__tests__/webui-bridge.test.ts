@@ -74,6 +74,38 @@ describe("BtwEngine webui bridge", () => {
     });
   });
 
+  it("resets webuiStatus per turn so a new turn's live message streams again", () => {
+    const { pi, emitted } = makeFakeBusPi();
+    const engine = new BtwEngine(pi);
+    const fake = makeFakeSession(MESSAGES);
+    engine.activeBtwSession = {
+      session: fake as unknown as AgentSession,
+      mode: "contextual",
+      subscriptions: new Set(),
+      sideThreadStartIndex: 0,
+    };
+    engine.subscribeWebuiBridge(engine.activeBtwSession);
+
+    // First turn ends: the assistant snapshot lands on status "done".
+    fake.push({ type: "turn_end" });
+    let last = emitted.filter((e) => e.channel === "btw:event").at(-1)?.data;
+    expect(last).toMatchObject({
+      type: "thread",
+      state: { messages: [{ id: "btw-m-0" }, { id: "btw-m-1", status: "done" }] },
+    });
+
+    // A new turn begins and streams: the previous turn's terminal "done"
+    // must not leak — turn_start resets it, so ?? streaming re-engages.
+    fake.push({ type: "turn_start" });
+    fake.push({ type: "message_start" });
+    fake.push({ type: "message_update" });
+    last = emitted.filter((e) => e.channel === "btw:event").at(-1)?.data;
+    expect(last).toMatchObject({
+      type: "thread",
+      state: { messages: [{ id: "btw-m-0" }, { id: "btw-m-1", status: "streaming" }] },
+    });
+  });
+
   it("falls back to pendingThread snapshots after the session is disposed", async () => {
     const { pi, emitted } = makeFakeBusPi();
     const engine = new BtwEngine(pi);
