@@ -1,6 +1,7 @@
 ---
 type: task
 status: open
+claimed: 2026-08-15 (grilled; spec+plan done, Wave A in flight)
 blocked by: 06 (shipped: 06a #1141 + 06b #1146 — gate met)
 ---
 # 13 — Migrate memory-cards into the unified store (graduation milestone)
@@ -31,3 +32,13 @@ Execute the graduation milestone decided in ticket 05: move hermes's existing se
 - Decided by ticket 05 fork 1 (migrate-at-graduation). Migration is mechanical + low-risk by design (01's pluggable serializer); the gate is the store being built + proven, not the migration itself.
 - Coexistence during build is intentional — do NOT pull memory-cards in eagerly; the working memory system must stay on its proven path until the new store is green.
 - Depends transitively on task 12 (core-interface scaffold) + the store-impl tasks spawned by ticket 06.
+
+## Grilled design (2026-08-15, 2 rounds — supersedes "pure path-switch" note)
+
+- **Backend**: card-store goes DUAL-BACKEND. SQLite keeps the existing SQL impl; Surreal is implemented ON TOP of SurrealMemoryRepository (addMemory — which now carries C6 exact-dup dedup — getCard-by-md_id, list-by-target). No new Surreal record type; Card stays a view over `memories`.
+- **Bundle**: card-store joins the shared BackendBundle (constructed in backend-factory, one connection, switch-backend hot-swap applies to cards). Completes C5's one-bundle vision.
+- **Write path**: FULL writer re-point — memory tool, memory_supersede, grill_decision, correction/error detectors, sync-markdown-memories all mirror via card-store (md stays canonical via MemoryStore).
+- **Migration**: LAZY re-mirror — no one-shot bulk migration; existing §-entries re-mirror through sync-markdown-memories' startup pass now targeting card-store. Existing sqlite rows carry md_id (5d) so graduation matches by id.
+- **Drift**: Tier-1 re-index for memory kinds ships IN 13 (walk-path hash-compare mirror, pattern = planning mirror); Tier-2/3 remain ticket 21. Acceptance bullet 3 scoped to Tier-1.
+- **Retirement**: legacy memory-mirror path for memory kinds is DELETED at the end (not flag-dormant). memoryRepo keeps serving sessions + non-memory uses.
+- **Waves**: 3 PRs — A: card-store dual-backend + bundle join; B: memory mirror via card-store + full writer re-point + lazy re-migration; C: Tier-1 walk mirror + legacy deletion + acceptance harness.
