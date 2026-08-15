@@ -815,3 +815,77 @@ describe("wireWebui — v2 mutex/present fixes (architecture v2 §3.5)", () => {
     expect(pi.ctx.statuses.some((s) => s.key === "webui")).toBe(true);
   });
 });
+
+describe("wireWebui — images → /output markdown wiring (render-review F3)", () => {
+  test("webui:render with images appends ![image](/output/0/...) via deps.outputDir", async () => {
+    const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "webui-f3-"));
+    const outDir = path.join(tmpRoot, "out");
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(path.join(outDir, "shot.png"), "PNG");
+    try {
+      const pi = new MockPi();
+      const server = new FakeWebServer();
+      wireWebui(pi, { broadcaster: new MemoryBroadcaster(), clock: new FakeClock(), server, outputDir: outDir });
+      pi.events.emit("webui:render", {
+        content: "# generated",
+        images: [path.join(outDir, "shot.png")],
+      });
+      // The view's md content must now carry the image markdown; served through
+      // the httpRoutes seam (render route) as rendered HTML.
+      const handler = server.httpRoutes!;
+      const res = handler(new Request("http://t/api/view/main"), undefined as never);
+      expect(res).not.toBeNull();
+      const body = await res!.json();
+      expect(body.html).toContain('src="/output/0/shot.png"');
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("webui:present with images appends the markdown to the present view", async () => {
+    const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "webui-f3b-"));
+    const outDir = path.join(tmpRoot, "out");
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(path.join(outDir, "face.png"), "PNG");
+    try {
+      const pi = new MockPi();
+      const server = new FakeWebServer();
+      wireWebui(pi, { broadcaster: new MemoryBroadcaster(), clock: new FakeClock(), server, outputDir: outDir });
+      pi.events.emit("webui:present", {
+        content: "# approve?",
+        controls: [{ id: "approve", label: "Approve" }],
+        id: "present_1",
+        images: [path.join(outDir, "face.png")],
+      });
+      const handler = server.httpRoutes!;
+      const res = handler(new Request("http://t/api/view/present"), undefined as never);
+      const body = await res!.json();
+      expect(body.html).toContain('src="/output/0/face.png"');
+      expect(body.presentId).toBe("present_1");
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("an image OUTSIDE the output dir is skipped (imageMd containment), not appended", async () => {
+    const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "webui-f3c-"));
+    const outDir = path.join(tmpRoot, "out");
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(path.join(tmpRoot, "secret.png"), "PNG"); // OUTSIDE outDir
+    try {
+      const pi = new MockPi();
+      const server = new FakeWebServer();
+      wireWebui(pi, { broadcaster: new MemoryBroadcaster(), clock: new FakeClock(), server, outputDir: outDir });
+      pi.events.emit("webui:render", {
+        content: "# x",
+        images: [path.join(tmpRoot, "secret.png")],
+      });
+      const handler = server.httpRoutes!;
+      const res = handler(new Request("http://t/api/view/main"), undefined as never);
+      const body = await res!.json();
+      expect(body.html).not.toContain("secret.png");
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+});

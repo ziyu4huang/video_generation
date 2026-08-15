@@ -47,6 +47,8 @@ import { createBtwForwarder, createBtwStore } from "./btw-store.js";
 import { emitBtwCommand, onBtwEvent } from "./btw-channels.js";
 import { createRenderEventHandler } from "./render-event-handler.js";
 import { createPresentEventHandler } from "./present-event-handler.js";
+import { imageMd } from "./image-presentation.js";
+import { resolveOutputDir } from "./output-routes.js";
 import { createPresentTool, type PresentInput } from "./present-tool.js";
 import { resolvePort } from "./port-resolver.js";
 import { resolveWebuiEnabled } from "./webui-config.js";
@@ -516,8 +518,20 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // Render-seam registration is guarded: a host whose ExtensionAPI predates
   // ticket 06 has no `events` bus / `registerTool` — wiring must not throw at
   // boot when those capabilities are absent (no-ops instead). See WebuiHost.
-  pi.events?.on("webui:render", createRenderEventHandler(registry));
-  const presentHandler = createPresentEventHandler(registry);
+  // v2 (render-review F3): the render/present handlers accept an `images`
+  // payload (output paths) and append ![image](/output/0/<rel>) markdown via
+  // imageMd — wiring the previously-dead image-presentation helpers into a
+  // producer. The converter is bound to the same resolved output dir the
+  // /output serving route uses (deps.outputDir or env/default).
+  const toImageMarkdown = (paths: string[]): string => {
+    const outputDir = resolveOutputDir(deps.outputDir);
+    return paths
+      .map((p) => imageMd(p, outputDir))
+      .filter((s): s is string => s !== null)
+      .join("\n\n");
+  };
+  pi.events?.on("webui:render", createRenderEventHandler(registry, { toImageMarkdown }));
+  const presentHandler = createPresentEventHandler(registry, { toImageMarkdown });
   pi.events?.on("webui:present", presentHandler);
 
   // webui_present (the blocking HITL gate, spec Component 2): the `present` dep
