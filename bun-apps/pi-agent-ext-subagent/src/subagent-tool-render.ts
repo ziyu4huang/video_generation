@@ -19,9 +19,12 @@ import type { SubagentToolDetails } from "./subagent-tool-schema.js";
 
 /** Collapse a task prompt to a single-line preview within `n` columns
  *  (width-aware, ticket 01): the cap is min(n, `width`) via the shared helper,
- *  so CJK counts double-width and a cut always ends in one `…` inside budget. */
-export function taskPreview(task: string, n = 80, width?: number): string {
-  const oneLine = task.replace(/\s+/g, " ").trim();
+ *  so CJK counts double-width and a cut always ends in one `…` inside budget.
+ *  Render-layer safe (2026-08-16 crash fix): tolerates a missing task —
+ *  composer render paths may see partial/unparsed tool-call args and must
+ *  never throw (an uncaught render exception kills the whole TUI). */
+export function taskPreview(task: string | undefined, n = 80, width?: number): string {
+  const oneLine = (task ?? "").replace(/\s+/g, " ").trim();
   return ellipsizeToWidth(oneLine, capWidth(n, width));
 }
 
@@ -31,9 +34,11 @@ export function taskPreview(task: string, n = 80, width?: number): string {
  *  `Working dir: /path/to/repo` — this surfaces the actual work intent instead.
  *  Falls back to the first non-empty line (same as {@link taskPreview}) when
  *  there is no preamble. Does NOT mutate the raw task string. Width-aware
- *  (ticket 01): effective cap min(n, `width`), CJK double-width counted. */
-export function workIntentPreview(task: string, n = 60, width?: number): string {
-  const lines = task.split("\n");
+ *  (ticket 01): effective cap min(n, `width`), CJK double-width counted.
+ *  Render-layer safe (2026-08-16 crash fix): `task.split` on a partial args
+ *  object crashed pi via uncaughtException — now tolerates undefined → "". */
+export function workIntentPreview(task: string | undefined, n = 60, width?: number): string {
+  const lines = (task ?? "").split("\n");
   // Strip a leading cwd/repo preamble line (case-insensitive).
   const startIdx = lines.length > 0 && /^(working dir|cwd|repo)\s*:\s*\S+/i.test(lines[0]?.trim() ?? "") ? 1 : 0;
   // Take the first non-empty line after the optional preamble.
@@ -301,13 +306,16 @@ export function renderSubagentCall(
     model?: string;
     capability?: string;
     tier?: string;
-    task: string;
+    task?: string;
     /** Fallback-aware model segment from RunView.modelSeg (e.g. "claude-opus-4-1 → glm-5.2"). */
     modelSeg?: string;
   },
   theme: Theme,
   width?: number,
 ): string {
+  // Render-layer safe (2026-08-16 crash fix #2): tolerate nullish/partial args —
+  // a composer must never throw per frame (uncaught render exception kills pi).
+  if (!args) return "";
   const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagent"))];
   if (args.agent) parts.push(theme.fg("accent", args.agent));
   // Requested-model slot: explicit model, else capability, else tier, else "default".
