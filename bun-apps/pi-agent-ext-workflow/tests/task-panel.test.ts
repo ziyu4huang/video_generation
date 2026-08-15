@@ -3,11 +3,14 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import type { PersistedRunState } from "../src/run-persistence.js";
 
 type TaskPanelModule = {
   installResultDelivery: (pi: ExtensionAPI, manager: unknown) => void;
   installTaskPanel: (pi: ExtensionAPI | null, manager: unknown, ui: unknown) => void;
   redeliverPendingResults: (pi: ExtensionAPI, manager: unknown) => void;
+  deliverText: (run: unknown) => string;
+  deliverTextFromSnapshot: (p: PersistedRunState) => string;
 };
 
 // Loaded once before all tests
@@ -832,5 +835,67 @@ describe("installTaskPanel mode selection", () => {
     );
     manager.emit("agentHistory", { runId: "r1" });
     assert.ok(renderCount > 0, "widget requests a re-render on agentHistory events");
+  });
+});
+
+describe("deliverText / deliverTextFromSnapshot share one builder", () => {
+  const persisted: PersistedRunState = {
+    runId: "r-dual",
+    workflowName: "test-workflow",
+    script: "export const meta = { name: 't' }",
+    status: "completed",
+    phases: [],
+    agents: [
+      { id: 1, label: "a", prompt: "p", status: "done" },
+      { id: 2, label: "b", prompt: "p", status: "done" },
+      { id: 3, label: "c", prompt: "p", status: "done" },
+    ],
+    logs: [],
+    result: "All tests passed",
+    startedAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:10.000Z",
+    durationMs: 1500,
+    tokenUsage: { input: 1, output: 2, total: 50000 },
+  };
+
+  it("persisted path renders via the adapter with the recovered lead", () => {
+    const text = mod.deliverTextFromSnapshot(persisted);
+    assert.ok(
+      text.startsWith('✓ Background workflow "test-workflow" finished while this session was closed (3 agents'),
+      text,
+    );
+    assert.ok(/50[\s,.]?000 tokens/.test(text), text);
+    assert.ok(text.includes("1.5s"), text);
+    assert.ok(text.endsWith("Recovered result:\n\nAll tests passed"), text);
+  });
+
+  it("live and persisted variants share the identical tail for the same facts", () => {
+    const live = mod.deliverText({
+      runId: "r-dual",
+      status: "completed",
+      snapshot: {
+        name: "test-workflow",
+        agents: [],
+        agentCount: 3,
+        runningCount: 0,
+        doneCount: 3,
+        errorCount: 0,
+        phases: [],
+        logs: [],
+      },
+      result: {
+        result: "All tests passed",
+        agentCount: 3,
+        durationMs: 1500,
+        tokenUsage: { input: 1, output: 2, total: 50000, cost: 0 },
+      },
+    } as unknown as Parameters<typeof mod.deliverText>[0]);
+    const viaSnapshot = mod.deliverTextFromSnapshot(persisted);
+    const tail = (s: string) =>
+      s
+        .split("\n")[0]!
+        .replace(/^✓ Background workflow "test-workflow" finished( while this session was closed)?/, "")
+        .replace(/ Recovered result:$/, "");
+    assert.equal(tail(viaSnapshot), tail(live));
   });
 });

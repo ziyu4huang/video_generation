@@ -18,7 +18,7 @@ import {
   summarizeLatestAction,
 } from "@repo/pi-agent-ext-core-runtime";
 import { agentCounts, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
-import type { PersistedRunState } from "./run-persistence.js";
+import { type PersistedRunState, persistedToSnapshot } from "./run-persistence.js";
 import type { ManagedRun, WorkflowManager } from "./workflow-manager.js";
 import type { WorkflowStorage } from "./workflow-saved.js";
 import type { WorkflowSettings } from "./workflow-settings.js";
@@ -79,16 +79,58 @@ function fitLine(line: string, width?: number): string {
   return truncateToWidth(line, maxWidth);
 }
 
+/** Fields both delivery paths share — the common subset of a live run's
+ * WorkflowRunResult and a persisted run projected through persistedToSnapshot. */
+export interface DeliveryFacts {
+  name: string;
+  result?: unknown;
+  agentCount: number;
+  tokenUsage?: { total: number } | undefined;
+  durationMs?: number | undefined;
+}
+
+/** Shared delivery body: lead sentence + "(N agents · tokens · duration)" tail
+ * + blank line + summarized result. `suffix` carries the persisted path's
+ * " Recovered result:" marker; everything else is byte-identical by construction. */
+function deliverTextBody(facts: DeliveryFacts, lead: string, suffix = ""): string {
+  const summary = summarizeResult(facts.result);
+  const tokens = facts.tokenUsage ? ` · ${facts.tokenUsage.total.toLocaleString()} tokens` : "";
+  const duration = facts.durationMs ? ` · ${fmtElapsed(facts.durationMs)}` : "";
+  return [`${lead} (${facts.agentCount} agents${tokens}${duration}).${suffix}`, "", summary].join("\n");
+}
+
 export function deliverText(run: ManagedRun): string {
-  const summary = summarizeResult(run.result?.result);
-  const tokens = run.result?.tokenUsage ? ` · ${run.result.tokenUsage.total.toLocaleString()} tokens` : "";
-  const agents = run.result?.agentCount ?? run.snapshot.agentCount;
-  const duration = run.result?.durationMs ? ` · ${fmtElapsed(run.result.durationMs)}` : "";
-  return [
-    `✓ Background workflow "${run.snapshot.name}" finished (${agents} agents${tokens}${duration}).`,
-    "",
-    summary,
-  ].join("\n");
+  return deliverTextBody(
+    {
+      name: run.snapshot.name,
+      result: run.result?.result,
+      agentCount: run.result?.agentCount ?? run.snapshot.agentCount,
+      tokenUsage: run.result?.tokenUsage,
+      durationMs: run.result?.durationMs,
+    },
+    `✓ Background workflow "${run.snapshot.name}" finished`,
+  );
+}
+
+/**
+ * Delivery text for a persisted-only run (session_start re-delivery path).
+ * Sources its fields THROUGH the persistedToSnapshot adapter (ticket 01) — not
+ * raw PersistedRunState fields — so a future unmapped field cannot fork the
+ * live and persisted texts apart again.
+ */
+export function deliverTextFromSnapshot(p: PersistedRunState): string {
+  const snap = persistedToSnapshot(p);
+  return deliverTextBody(
+    {
+      name: snap.name,
+      result: snap.result,
+      agentCount: snap.agentCount,
+      tokenUsage: snap.tokenUsage,
+      durationMs: snap.durationMs,
+    },
+    `✓ Background workflow "${snap.name}" finished while this session was closed`,
+    " Recovered result:",
+  );
 }
 
 /**
@@ -174,31 +216,6 @@ export function installResultDelivery(pi: ExtensionAPI, manager: WorkflowManager
 }
 
 /**
- * Build a delivery message for a run that is persisted-only (not in memory) —
- * the session_start re-delivery path. Mirrors {@link deliverText} but reads the
- * persisted fields directly (no ManagedRun / WorkflowRunResult available).
- */
-function deliverTextFromPersisted(run: {
-  runId: string;
-  workflowName: string;
-  result?: unknown;
-  agents?: unknown[];
-  tokenUsage?: { total: number } | undefined;
-  durationMs?: number | undefined;
-}): string {
-  const summary = summarizeResult(run.result);
-  const tokens = run.tokenUsage ? ` · ${run.tokenUsage.total.toLocaleString()} tokens` : "";
-  const agents = run.agents?.length ?? 0;
-  const duration = run.durationMs ? ` · ${fmtElapsed(run.durationMs)}` : "";
-  return [
-    `✓ Background workflow "${run.workflowName}" finished while this session was closed` +
-      ` (${agents} agents${tokens}${duration}). Recovered result:`,
-    "",
-    summary,
-  ].join("\n");
-}
-
-/**
  * Re-deliver results for background runs that finished while no session was open
  * to receive them (the originating session closed first — e.g. a `-p` batch
  * invocation, or a crash/restart mid-run). Called on `session_start` after
@@ -221,7 +238,7 @@ export function redeliverPendingResults(pi: ExtensionAPI, manager: WorkflowManag
   for (const run of pending.slice(0, MAX)) {
     try {
       pi.sendMessage(
-        { customType: "workflow-result", content: deliverTextFromPersisted(run), display: true },
+        { customType: "workflow-result", content: deliverTextFromSnapshot(run), display: true },
         { triggerTurn: false, deliverAs: "followUp" },
       );
     } catch {
