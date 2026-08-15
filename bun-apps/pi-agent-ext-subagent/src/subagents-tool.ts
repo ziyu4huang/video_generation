@@ -6,7 +6,7 @@
  * tree can never race on writes. See .planning/done/2026-08-01-what-s-next-for-subagent-develop-map/.
  */
 import { defineTool, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import type {
   AgentUsage,
   BudgetExhaustion,
@@ -29,6 +29,7 @@ import {
 import { Type } from "typebox";
 import { roleAwareDefaults, tierDefaultToken } from "./budget-defaults.js";
 import { dispatchChild } from "./child-dispatch.js";
+import { ComposerComponent } from "./composer-component.js";
 import { realGitOps } from "./git-scope.js";
 import { missingRequiredTools } from "./impossible-tools.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
@@ -701,14 +702,20 @@ export function createSubagentsTool(
       return { content: [{ type: "text" as const, text: renderBatchResult(details) }], details };
     },
     renderCall(args, theme, _context) {
-      const text = (_context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-      text.setText(renderSubagentsCall(args, theme));
-      return text;
+      // Compose-in-render (ticket 02): the batch header (incl. the first-task
+      // preview) is composed inside render(width) at the real terminal width.
+      const component =
+        _context.lastComponent instanceof ComposerComponent ? _context.lastComponent : new ComposerComponent(() => "");
+      component.setComposer((width) => renderSubagentsCall(args, theme, width));
+      return component;
     },
     renderResult(result, options, theme, _context) {
-      const text = (_context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-      text.setText(renderSubagentsResult(result, options, theme));
-      return text;
+      // Same deferred mounting; renderSubagentsResult's row shapes stay
+      // width-constant today (per-slot caps), Text's wrap is the backstop.
+      const component =
+        _context.lastComponent instanceof ComposerComponent ? _context.lastComponent : new ComposerComponent(() => "");
+      component.setComposer(() => renderSubagentsResult(result, options, theme));
+      return component;
     },
   });
 }
@@ -752,6 +759,7 @@ export function renderBatchResult(details: SubagentsToolDetails): string {
 export function renderSubagentsCall(
   args: { tasks?: Array<{ task: string }>; concurrency?: number },
   theme: Theme,
+  width?: number,
 ): string {
   const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagents"))];
   const taskCount = args.tasks?.length ?? 0;
@@ -760,7 +768,10 @@ export function renderSubagentsCall(
   if (args.tasks && args.tasks.length > 0) {
     const head = args.tasks[0];
     if (head) {
-      const first = taskPreview(head.task, 60);
+      // Width-aware first-task preview (ticket 02): the render-time width
+      // reaches taskPreview via the component mounting; 60 stays the upper
+      // bound so wide terminals render byte-identically to the old cap.
+      const first = taskPreview(head.task, 60, width);
       parts.push(theme.fg("dim", `"${first}"`));
     }
   }

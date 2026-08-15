@@ -306,6 +306,7 @@ export function renderSubagentCall(
     modelSeg?: string;
   },
   theme: Theme,
+  width?: number,
 ): string {
   const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagent"))];
   if (args.agent) parts.push(theme.fg("accent", args.agent));
@@ -327,7 +328,7 @@ export function renderSubagentCall(
   if (args.modelSeg && args.modelSeg !== slot) {
     parts.push(theme.fg("muted", args.modelSeg));
   }
-  parts.push(theme.fg("dim", `"${workIntentPreview(args.task, 60)}"`));
+  parts.push(theme.fg("dim", `"${workIntentPreview(args.task, 60, width)}"`));
   return parts.join(" ▸ ");
 }
 

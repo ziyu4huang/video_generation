@@ -1,5 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type { AgentUsage, RunView } from "@repo/pi-agent-ext-core-runtime";
 import {
   DEFAULT_BATCH_CONCURRENCY,
@@ -7,6 +8,7 @@ import {
   MAX_CONCURRENCY,
   SubagentInFlightRegistry,
 } from "@repo/pi-agent-ext-core-runtime";
+import { ComposerComponent } from "../src/composer-component.js";
 import { createSubagentsTool as fromIndex } from "../src/index.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
@@ -864,6 +866,23 @@ test("renderSubagentsCall omits concurrency when undefined and task when empty",
   assert.ok(!out.includes("concurrency"));
   // No task preview when empty
   assert.ok(!out.includes('"'));
+});
+
+test("subagents renderCall composes at render width", () => {
+  const tool = createSubagentsTool();
+  const long = "z".repeat(70); // long first task: preview truncation is observable
+  const comp = tool.renderCall?.(
+    { tasks: [{ task: `audit the batch width ladder ${long}` }, { task: "review PR" }], concurrency: 2 },
+    THEME,
+    { toolCallId: "tc-batch" } as never,
+  );
+  assert.ok(comp instanceof ComposerComponent);
+  for (const line of comp.render(40)) {
+    assert.ok(visibleWidth(line) <= 40, `width 40 overflow: ${visibleWidth(line)}`);
+  }
+  // The first-task preview keeps more of the long task at the wide render.
+  const zRun = (s: string) => [...s].filter((c) => c === "z").length;
+  assert.ok(zRun(comp.render(200).join("\n")) > zRun(comp.render(40).join("\n")));
 });
 
 test("renderSubagentsResult collapsed: header + per-child one-liners with badges, counts, task preview", () => {

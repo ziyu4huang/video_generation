@@ -11,7 +11,6 @@
  * No clarify-TUI / acceptance / turnBudget / toolBudget (deferred — see spec.md).
  */
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
 import {
   type AgentDefinition,
   createWorktree,
@@ -23,6 +22,7 @@ import {
 } from "@repo/pi-agent-ext-core-runtime";
 import { roleAwareDefaults, tierDefaultToken } from "./budget-defaults.js";
 import { dispatchChild } from "./child-dispatch.js";
+import { ComposerComponent } from "./composer-component.js";
 import { realGitOps } from "./git-scope.js";
 import { missingRequiredTools } from "./impossible-tools.js";
 import {
@@ -459,7 +459,8 @@ export function createSubagentTool(
       }
     },
     renderCall(args, theme, context) {
-      const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+      const component =
+        context.lastComponent instanceof ComposerComponent ? context.lastComponent : new ComposerComponent(() => "");
       // The concrete model is only known mid-run (onModelResolved). Read the
       // latest from the registry (keyed by toolCallId) so the call line updates
       // live, and bind invalidate so updateModel can force a redraw even before
@@ -470,18 +471,28 @@ export function createSubagentTool(
       // running, onModelResolved → updateModel keeps this fresh + re-renders.
       const v = options.inFlight?.view(context.toolCallId);
       options.inFlight?.bindInvalidate(context.toolCallId, context.invalidate);
-      text.setText(renderSubagentCall({ ...args, modelSeg: v?.modelSeg }, theme));
-      return text;
+      // Compose-in-render (ticket 02): the line is composed inside the
+      // component's render(width) at the REAL terminal width — ticket 01's
+      // width-aware helpers re-flow on resize for free. The closure swap on
+      // the reused lastComponent mirrors the old text.setText pattern.
+      component.setComposer((width) => renderSubagentCall({ ...args, modelSeg: v?.modelSeg }, theme, width));
+      return component;
     },
     renderResult(result, renderOptions, theme, context) {
-      const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+      const component =
+        context.lastComponent instanceof ComposerComponent ? context.lastComponent : new ComposerComponent(() => "");
       // Fallback-aware model segment from the RunView (registry.view), when the
       // registry still holds an entry for this run; renderSubagentResult
       // degrades to the bare actual model otherwise. `options` here is the
       // tool-level closure (same source renderCall reads), not renderOptions.
       const v = options.inFlight?.view(context.toolCallId);
-      text.setText(renderSubagentResult(result, renderOptions, theme, { modelSeg: v?.modelSeg }));
-      return text;
+      // Compose-in-render (ticket 02): renderSubagentResult receives the
+      // render-time width via opts (settled-collapsed cap becomes width-
+      // derived); resize re-flow is free from the render(width) contract.
+      component.setComposer((width) =>
+        renderSubagentResult(result, renderOptions, theme, { modelSeg: v?.modelSeg, width }),
+      );
+      return component;
     },
   });
 }
