@@ -1,6 +1,6 @@
 # CC-Style Subagent TUI in core-task
 
-> STATUS: COMPLETE — all 8 tickets shipped (#1410/#1412/#1414/#1416/#1425/#1432/#1437/#1441)
+> STATUS: COMPLETE — all 8 tickets shipped (waves 1-3), final gates core-task 794/0 + subagent 560/0 + core-runtime 198/0, ADR-core-task-0001 accepted (#1410/#1412/#1414/#1416/#1425/#1432/#1437/#1441)
 
 ## Goal
 
