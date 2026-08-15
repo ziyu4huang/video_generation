@@ -6,6 +6,7 @@ import { SqliteSessionRepository } from "./sqlite/sqlite-session-repo.js";
 import { SurrealBackend } from "./surreal/surreal-backend.js";
 import { SurrealMemoryRepository } from "./surreal/surreal-memory-repo.js";
 import { SurrealSessionRepository } from "./surreal/surreal-session-repo.js";
+import { createCardStore } from "./card-store.js";
 
 /**
  * C5-lite backend seam: construct an initialized CONCRETE `SqliteBackend` —
@@ -24,9 +25,12 @@ export async function createSqliteBackend(memoryDir: string): Promise<SqliteBack
 }
 
 /**
- * Build the backend bundle (Backend + MemoryRepository + SessionRepository)
- * selected by `config.dbBackend` (default `'sqlite'`). The SurrealDB backend
- * targets a local SurrealDB v3 server and is opt-in via `'surrealdb'`.
+ * Build the backend bundle (Backend + MemoryRepository + SessionRepository +
+ * CardStore) selected by `config.dbBackend` (default `'sqlite'`). The SurrealDB
+ * backend targets a local SurrealDB v3 server and is opt-in via `'surrealdb'`.
+ * kp13 Wave A: every bundle carries a cardStore on the SAME backend (sqlite:
+ * sharing this bundle's backend handle; surrealdb: over this bundle's
+ * SurrealMemoryRepository).
  */
 export async function createBackendBundle(
   config: MemoryConfig,
@@ -39,6 +43,13 @@ export async function createBackendBundle(
         backend,
         memoryRepo: new SqliteMemoryRepository(backend),
         sessionRepo: new SqliteSessionRepository(backend),
+        cardStore: await createCardStore({
+          memoryDir,
+          dbBackend: "sqlite",
+          // Reuse the bundle's handle (one lifecycle — bundle.close() covers it;
+          // the store's own close() no-ops on a provided backend).
+          sqliteBackend: backend,
+        }),
       };
     }
     case "surrealdb": {
@@ -58,6 +69,11 @@ export async function createBackendBundle(
         backend,
         memoryRepo,
         sessionRepo: new SurrealSessionRepository(backend),
+        cardStore: await createCardStore({
+          memoryDir,
+          dbBackend: "surrealdb",
+          surrealRepo: memoryRepo,
+        }),
       };
     }
   }
