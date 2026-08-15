@@ -321,7 +321,7 @@ export async function getSharedServices(
  * Resolve a model object from the registry.
  * Tries exact `find(provider, id)` first, then falls back to a
  * case-insensitive substring match across all models (so `sonnet`,
- * `gpt-4o-mini`, `gemma-4-26b` all work like the pi TUI).
+ * `gpt-4o-mini`, `gemma-4-12b` all work like the pi TUI).
  */
 export function resolveModel(
 	// `modelRegistry` is accepted directly for test injection (a fake registry

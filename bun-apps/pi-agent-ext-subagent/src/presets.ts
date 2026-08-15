@@ -40,7 +40,7 @@ export const MODEL_PRESETS: ModelPreset[] = [
     summary: "tiers: glm-4.7 / glm-5.2  ·  vision: lm-studio gemma-4-12b",
     config: {
       tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.2", big: "zai/glm-5.2" },
-      capabilities: { vision: "lm-studio/google/gemma-4-12b-qat" },
+      capabilities: { vision: "lm-studio/google/gemma-4-12b" },
     },
   },
   {
@@ -53,7 +53,7 @@ export const MODEL_PRESETS: ModelPreset[] = [
         medium: "deepseek/deepseek-v4-pro",
         big: "deepseek/deepseek-v4-pro",
       },
-      capabilities: { vision: "lm-studio/google/gemma-4-12b-qat" },
+      capabilities: { vision: "lm-studio/google/gemma-4-12b" },
     },
   },
 ];

@@ -70,14 +70,15 @@ export async function catalogModelKeys(apiUrl: string, fetchImpl: typeof fetch =
 
 /**
  * The gemma brain resolver (mirrors caption.py's `resolve_default_model` /
- * `_resolve_model` with no explicit `--model`): prefer an already-loaded Gemma-4
- * variant, then any already-loaded model, then the auto-load default if it's
- * downloaded, then the lightweight fallback. Never silently prefers the
- * over-praising Qwen3-VL fallback when Gemma is available.
+ * `_resolve_model` with no explicit `--model`): prefer an already-loaded
+ * google/gemma-4-12b, then any already-loaded model, then the auto-load
+ * default if it's downloaded. The local model convention across
+ * pi-agent-ext-* is a single model (google/gemma-4-12b), so there is no
+ * separate lightweight fallback anymore.
  */
-const PREFERRED_MODELS = ["google/gemma-4-12b-qat"];
-const DEFAULT_MODEL = "google/gemma-4-12b-qat";
-const FALLBACK_MODELS = ["qwen/qwen3-vl-4b"];
+const PREFERRED_MODELS = ["google/gemma-4-12b"];
+const DEFAULT_MODEL = "google/gemma-4-12b";
+const FALLBACK_MODELS: string[] = [];
 
 export async function resolveDefaultModel(apiUrl: string = DEFAULT_API_URL, fetchImpl: typeof fetch = fetch): Promise<string> {
   const loaded = (await loadedModelKeys(apiUrl, fetchImpl)) ?? new Set<string>();
@@ -113,7 +114,7 @@ export async function ensureModelLoaded(apiUrl: string, modelId: string, fetchIm
 /**
  * Send `prompt` to the local gemma brain, parse the reply with `parseFn`.
  * Fast path first (reasoning_effort:"none", small token budget — ~9s on
- * gemma-4-26b); a safety-net retry at a large budget without the knob if the
+ * gemma-4-12b); a safety-net retry at a large budget without the knob if the
  * fast path yields nothing `parseFn` can extract. Mirrors story.py's
  * `_gemma_json_call` exactly (including the reasoning_content retry).
  */

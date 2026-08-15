@@ -73,45 +73,17 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
     api: "openai-completions",
     apiKey: "lm-studio",
     compat: LM_STUDIO_COMPAT,
+    // The single local LM Studio model this repo targets. Previously the
+    // catalog listed several (gemma-4-26b/31b-qat, qwen3.6-27b-mtp,
+    // qwen3-vl-4b); they were consolidated to google/gemma-4-12b — see the
+    // "local model" convention across pi-agent-ext-*.
     models: [
       {
-        id: "google/gemma-4-12b-qat",
+        id: "google/gemma-4-12b",
         name: "Gemma 4 12B (LM Studio)",
         reasoning: true,
         input: ["text", "image"],
         contextWindow: 200_000,
-        maxTokens: 16_384,
-      },
-      {
-        id: "google/gemma-4-26b-a4b-qat",
-        name: "Gemma 4 26B A4B (LM Studio)",
-        reasoning: true,
-        input: ["text", "image"],
-        contextWindow: 128_000,
-        maxTokens: 16_384,
-      },
-      {
-        id: "google/gemma-4-31b-qat",
-        name: "Gemma 4 31B (LM Studio)",
-        reasoning: true,
-        input: ["text", "image"],
-        contextWindow: 128_000,
-        maxTokens: 16_384,
-      },
-      {
-        id: "qwen3.6-27b-mtp",
-        name: "Qwen3.6 27B MTP (LM Studio)",
-        reasoning: false,
-        input: ["text", "image"],
-        contextWindow: 200_000,
-        maxTokens: 16_384,
-      },
-      {
-        id: "qwen/qwen3-vl-4b",
-        name: "Qwen3 VL 4B (LM Studio)",
-        reasoning: true,
-        input: ["text", "image"],
-        contextWindow: 131_072,
         maxTokens: 16_384,
       },
     ],

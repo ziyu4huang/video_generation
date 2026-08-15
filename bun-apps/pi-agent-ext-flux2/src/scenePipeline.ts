@@ -11,7 +11,7 @@
  * instead of a bash script with hardcoded absolute paths.
  *
  * VLM verification reuses pi-file2md's shared subagent primitive (`askImage` +
- * `resolveLLM`, defaulting to lm-studio/google/gemma-4-12b-qat) — the same
+ * `resolveLLM`, defaulting to lm-studio/google/gemma-4-12b) — the same
  * subagent plumbing pi-file2md itself and `pi-agent cli` already use, so this is
  * not a new LM Studio client, just a new caller of the existing one.
  *
@@ -38,7 +38,7 @@ export interface ScenePipelineOptions {
    * non-FAIL candidate is the winner. Ignored if `verifyPrompt` is omitted.
    */
   verifyMatch?: string[];
-  /** "provider/modelId" override for the VLM subagent. Default: lm-studio/google/gemma-4-12b-qat. */
+  /** "provider/modelId" override for the VLM subagent. Default: lm-studio/google/gemma-4-12b. */
   vlmModel?: string;
   /** After picking a winner, re-render it once more with --hand-repair. */
   handRepairWinner?: boolean;

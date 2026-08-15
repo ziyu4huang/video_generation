@@ -155,7 +155,7 @@ export interface IngestOptions {
 	kgLlm?: boolean;
 	/** Chat model id for the kg.llm extractor (Phase-2 T2). Threaded to
 	 *  `resolveExtractor` as the `LlmRelationExtractor` model override; env
-	 *  fallback `PI_KG_LLM_MODEL` (zk default "google/gemma-4-12b-qat"). */
+	 *  fallback `PI_KG_LLM_MODEL` (zk default "google/gemma-4-12b"). */
 	kgLlmModel?: string;
 	/** @internal Test seam: overrides the resolved extractor so tests can
 	 *  inject an `LlmRelationExtractor` with a canned `_fetchImpl` (no live

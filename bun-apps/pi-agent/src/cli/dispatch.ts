@@ -191,7 +191,7 @@ Pi-compatible flags (passthrough + global):
 
 Examples:
   pi-agent cli chat                                    # interactive REPL (normal-CLI mode)
-  pi-agent cli chat --model gemma-4-26b                # pick a model for chat
+  pi-agent cli chat --model gemma-4-12b                # pick a model for chat
   pi-agent cli agent "read package.json and explain"   # free-form agentic task
   pi-agent cli agent --tools read,bash "summarize"     # curated toolset
   pi-agent cli file2md paper.pdf

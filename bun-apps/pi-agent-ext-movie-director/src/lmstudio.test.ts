@@ -8,8 +8,8 @@ function respond(body: unknown, status = 200): Response {
 describe("resolveDefaultModel", () => {
   it("prefers an already-loaded Gemma-4 variant", async () => {
     const fetchImpl = (async () =>
-      respond({ models: [{ key: "google/gemma-4-12b-qat", loaded_instances: [{}] }] })) as unknown as typeof fetch;
-    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl)).toBe("google/gemma-4-12b-qat");
+      respond({ models: [{ key: "google/gemma-4-12b", loaded_instances: [{}] }] })) as unknown as typeof fetch;
+    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl)).toBe("google/gemma-4-12b");
   });
 
   it("falls back to any already-loaded model when no preferred model is loaded", async () => {
@@ -21,7 +21,7 @@ describe("resolveDefaultModel", () => {
     const fetchImpl = (async () => {
       throw new Error("ECONNREFUSED");
     }) as unknown as typeof fetch;
-    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl)).toBe("google/gemma-4-12b-qat");
+    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl)).toBe("google/gemma-4-12b");
   });
 });
 

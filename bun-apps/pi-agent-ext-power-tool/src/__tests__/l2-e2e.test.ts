@@ -21,7 +21,7 @@
  *   the verification logic is 100% deterministic.
  *
  * REQUIREMENTS:
- *   - LM Studio running on localhost:1234 with google/gemma-4-26b-a4b-qat
+ *   - LM Studio running on localhost:1234 with google/gemma-4-12b
  *     loaded (or a different model configured via PI_L2_MODEL)
  *   - pi-agent dependencies installed (bun install at repo root)
  *   - Model inference per tool: ~5-15s (warming) + ~2-5s (steady)
@@ -65,7 +65,7 @@ const FILE_DIR = resolve(import.meta.dirname ?? process.cwd());
 const REPO_ROOT = findRepoRoot(FILE_DIR);
 const CLI = `${REPO_ROOT}/bun-apps/pi-agent/src/cli.ts`;
 const EXT = `${REPO_ROOT}/bun-apps/pi-agent-ext-power-tool/extensions/power-tool.ts`;
-const MODEL = process.env.PI_L2_MODEL || "google/gemma-4-26b-a4b-qat";
+const MODEL = process.env.PI_L2_MODEL || "google/gemma-4-12b";
 
 // Each tool: prompt to invoke it + expected-content markers (case-insensitive).
 // An empty markers array = content-agnostic (exit 0 is the gate).

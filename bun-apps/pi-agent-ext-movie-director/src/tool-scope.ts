@@ -1,7 +1,7 @@
 /**
  * tool-scope.ts — the movie-director agent's write-surface guard.
  *
- * The agent-first thesis puts an unsupervised LLM (gemma-4-26b) in the driver's
+ * The agent-first thesis puts an unsupervised LLM (gemma-4-12b) in the driver's
  * seat of the `movie` tool. That agent also retains pi-agent's built-in `edit`
  * and `write` tools. During a `movie` run the agent has NO business editing the
  * repo's infra roots — only producing media + checkpoints inside the project

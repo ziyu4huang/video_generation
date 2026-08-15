@@ -131,12 +131,12 @@ describe.skipIf(!E2E_ENABLED)("e2e: patches fire in the built bundle", () => {
 			const { stdout, stderr, code } = await runBundle(["--list-models"], {
 				env: { BUN_PI_PRE_LOAD_PROVIDERS: "1" },
 			});
-			if (code !== 0 || !stdout.includes("lm-studio") || !stdout.toLowerCase().includes("qwen3-vl-4b")) {
+			if (code !== 0 || !stdout.includes("lm-studio") || !stdout.toLowerCase().includes("gemma-4-12b")) {
 				console.error("[pre-load-providers] diagnostic:", JSON.stringify({ code, stdout, stderr }));
 			}
 			expect(code).toBe(0);
 			expect(stdout).toContain("lm-studio");
-			expect(stdout.toLowerCase()).toContain("qwen3-vl-4b");
+			expect(stdout.toLowerCase()).toContain("gemma-4-12b");
 		},
 	);
 });

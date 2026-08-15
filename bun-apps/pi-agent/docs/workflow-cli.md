@@ -81,7 +81,7 @@ location, a pack directory wins over a same-name `.js` file.
 # run with args + an explicit model
 ./pi-agent.sh cli workflow run my-workflow \
   --args '{"source":"commit-abc123"}' \
-  --model lm-studio/google/gemma-4-26b-a4b-qat
+  --model lm-studio/google/gemma-4-12b
 
 # run a script by path
 ./pi-agent.sh cli workflow run ./my-workflow.js --json

@@ -41,7 +41,7 @@ Resume: re-run with the same <out> and input image to reuse the run dir.
 
 Options:
   --out <dir>            pipeline root (default: ./tmp)
-  --vlm-model <id>       stage 1 model (default: lm-studio/google/gemma-4-12b-qat)
+  --vlm-model <id>       stage 1 model (default: lm-studio/google/gemma-4-12b)
   --model <id>           stage 2 (distill) model — global flag; defaults to CLI default
   --retries <n>          VLM retries on 429/transient errors (default 3)
   --retry-wait <sec>     seconds to wait between retries (default 10)
@@ -51,7 +51,7 @@ Options:
 Examples:
   pi-agent cli pipeline image-to-vault scan.jpg
   pi-agent cli pipeline image-to-vault diagram.png --delete-png
-  pi-agent cli pipeline image-to-vault photo.webp --vlm-model lm-studio/gemma-4-26b`,
+  pi-agent cli pipeline image-to-vault photo.webp --vlm-model lm-studio/gemma-4-12b`,
 
 	async run(parsed: ParsedArgs): Promise<void> {
 		// Delegate to the shared pdf-to-vault orchestrator. file2md's

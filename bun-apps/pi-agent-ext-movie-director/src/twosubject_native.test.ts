@@ -39,7 +39,7 @@ function fakeLmStudio(contentFor: (url: string, body: string) => string): typeof
   return (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     if (url.includes("/api/v1/models") && !url.includes("/load")) {
-      return new Response(JSON.stringify({ models: [{ key: "google/gemma-4-26b-a4b-qat", loaded_instances: [{}] }] }), { status: 200 });
+      return new Response(JSON.stringify({ models: [{ key: "google/gemma-4-12b", loaded_instances: [{}] }] }), { status: 200 });
     }
     if (url.includes("/models/load")) {
       return new Response(JSON.stringify({ status: "loaded" }), { status: 200 });

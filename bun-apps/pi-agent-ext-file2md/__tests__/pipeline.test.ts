@@ -70,10 +70,10 @@ mock.module(`${ROOT}/src/vlm/vision-inference.ts`, () => ({
 // This is a pipeline-orchestration test, not a model-resolution test — stub the
 // resolver to a stable target (realm-safe: this realm already mocks vision-inference).
 mock.module(`${ROOT}/src/sessions.ts`, () => ({
-  resolveVisionLLM: () => ({ provider: "lm-studio", modelId: "google/gemma-4-12b-qat", thinkingLevel: "off" }),
+  resolveVisionLLM: () => ({ provider: "lm-studio", modelId: "google/gemma-4-12b", thinkingLevel: "off" }),
   resolveLLM: (opts: { provider?: string; model?: string; thinking?: string } = {}) => ({
     provider: opts.provider ?? "lm-studio",
-    modelId: opts.model ?? "google/gemma-4-12b-qat",
+    modelId: opts.model ?? "google/gemma-4-12b",
     thinkingLevel: opts.thinking ?? "off",
   }),
 }));

@@ -452,7 +452,7 @@ one command's flags.
 Rasterizes each PDF page (macOS PDFKit) / accepts images, classifies a profile
 via a local VLM, then explains each page into per-page Obsidian markdown +
 `manifest.json` + a doc-level MOC. Default model:
-`lm-studio/google/gemma-4-26b-a4b-qat` (local VLM via LM Studio).
+`lm-studio/google/gemma-4-12b` (local VLM via LM Studio).
 ```bash
 ./pi-agent.sh cli file2md paper.pdf --pages 1-3 --out ./vlm-out
 ./pi-agent.sh cli file2md scan.jpg --type image --dpi 200

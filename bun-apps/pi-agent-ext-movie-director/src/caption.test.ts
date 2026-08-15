@@ -30,14 +30,14 @@ describe("buildCaptionArgs", () => {
         image: "/x/y.png",
         style: "score",
         lang: "en",
-        model: "google/gemma-4-26b-a4b-qat",
+        model: "google/gemma-4-12b",
         noAutoLoad: true,
       }),
     ).toEqual([
       "caption", "/x/y.png",
       "--style", "score",
       "--lang", "en",
-      "--model", "google/gemma-4-26b-a4b-qat",
+      "--model", "google/gemma-4-12b",
       "--no-auto-load",
     ]);
   });
@@ -68,12 +68,12 @@ describe("captionPathFor + readCaption", () => {
       JSON.stringify({
         image: img,
         style: "score",
-        model: "google/gemma-4-26b-a4b-qat",
+        model: "google/gemma-4-12b",
         caption: '{"overall": 7, "issues": ["oversmoothed skin"]}',
       }),
     );
     const r = readCaption(captionPathFor(img))!;
-    expect(r.model).toBe("google/gemma-4-26b-a4b-qat");
+    expect(r.model).toBe("google/gemma-4-12b");
     expect(r.styles).toEqual(["score"]);
     expect(r.text).toContain("overall");
   });
@@ -84,12 +84,12 @@ describe("captionPathFor + readCaption", () => {
       captionPathFor(img),
       JSON.stringify({
         image: img,
-        model: "google/gemma-4-26b-a4b-qat",
+        model: "google/gemma-4-12b",
         styles: { t2i: "a portrait", score: '{"overall": 8}' },
       }),
     );
     const r = readCaption(captionPathFor(img))!;
-    expect(r.model).toBe("google/gemma-4-26b-a4b-qat");
+    expect(r.model).toBe("google/gemma-4-12b");
     expect(r.styles).toEqual(["t2i", "score"]);
     expect(r.text).toContain("a portrait");
     expect(r.text).toContain("overall");
@@ -110,7 +110,7 @@ describe("runPyCaption — spawn injection (no venv / no LM Studio)", () => {
       JSON.stringify({
         image: img,
         style: "score",
-        model: "google/gemma-4-26b-a4b-qat",
+        model: "google/gemma-4-12b",
         caption: '{"overall": 7}',
       }),
     );
@@ -120,12 +120,12 @@ describe("runPyCaption — spawn injection (no venv / no LM Studio)", () => {
     });
     expect(out.details.ok).toBe(true);
     expect(out.details.exitCode).toBe(0);
-    expect(out.details.model).toBe("google/gemma-4-26b-a4b-qat");
+    expect(out.details.model).toBe("google/gemma-4-12b");
     expect(out.details.styles).toEqual(["score"]);
     expect(out.details.captionPath).toBe(captionPathFor(img));
     expect(out.details.text).toContain("overall");
     expect(out.summary).toContain("score");
-    expect(out.summary).toContain("gemma-4-26b");
+    expect(out.summary).toContain("gemma-4-12b");
   });
 
   it("ok=false when run.py exits 0 but wrote NO caption JSON (0-exit ≠ success)", async () => {

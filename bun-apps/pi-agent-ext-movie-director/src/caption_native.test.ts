@@ -45,7 +45,7 @@ function fakeFetch(chatContentFor: (bodyStyleHint: string) => string): typeof fe
       return new Response(JSON.stringify({ status: "loaded" }), { status: 200 });
     }
     if (url.includes("/api/v1/models")) {
-      return new Response(JSON.stringify({ models: [{ key: "google/gemma-4-26b-a4b-qat", loaded_instances: [{}] }] }), { status: 200 });
+      return new Response(JSON.stringify({ models: [{ key: "google/gemma-4-12b", loaded_instances: [{}] }] }), { status: 200 });
     }
     if (url.includes("/chat/completions")) {
       call++;
@@ -234,7 +234,7 @@ describe("runCaptionNative", () => {
 
     expect(out.details.ok).toBe(true);
     expect(out.details.captionPath).toBe(join(dir, "img.caption.json"));
-    expect(out.details.model).toBe("google/gemma-4-26b-a4b-qat");
+    expect(out.details.model).toBe("google/gemma-4-12b");
     expect(out.details.styles).toEqual(["t2i"]);
     expect(out.details.text).toContain("a cat sitting on a windowsill");
 

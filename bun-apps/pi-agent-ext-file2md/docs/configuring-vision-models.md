@@ -25,8 +25,8 @@ Each provider entry carries a `baseUrl`, an **`api`** (the adapter selector), an
       "api": "openai-completions",          // ← selects the pi-ai adapter
       "apiKey": "lm-studio",                 // dummy; LM Studio ignores it
       "models": [
-        { "id": "google/gemma-4-12b-qat" },  // ← the built-in DEFAULT_MODEL
-        { "id": "google/gemma-4-26b-a4b-qat" }
+        { "id": "google/gemma-4-12b" },  // ← the built-in DEFAULT_MODEL
+        { "id": "google/gemma-4-12b" }
       ]
     }
   }
@@ -34,7 +34,7 @@ Each provider entry carries a `baseUrl`, an **`api`** (the adapter selector), an
 ```
 
 That single entry is what makes `vision_ask` work out of the box: the built-in
-default target (`lm-studio/google/gemma-4-12b-qat`) resolves against this
+default target (`lm-studio/google/gemma-4-12b`) resolves against this
 provider, which is served by your local LM Studio on `:1234`.
 
 ## 2. The `api` field is the adapter selector
@@ -134,7 +134,7 @@ export PI_MODEL="anthropic/claude-sonnet-4-5"
 export PI_THINKING="low"          # optional
 
 # Or the bigger local Gemma:
-export PI_MODEL="lm-studio/google/gemma-4-26b-a4b-qat"
+export PI_MODEL="lm-studio/google/gemma-4-12b"
 ```
 
 `PI_PROVIDER` is only consulted when `PI_MODEL` has **no slash**; a slash in the
@@ -142,7 +142,7 @@ model string re-sets the provider (test-pinned in `__tests__/sessions.test.ts`).
 
 ### 4c. Built-in default (no override)
 
-Drops to `provider=lm-studio`, `modelId=google/gemma-4-12b-qat`, `thinking=off`.
+Drops to `provider=lm-studio`, `modelId=google/gemma-4-12b`, `thinking=off`.
 
 ## 5. Worked example — one image, three backends
 

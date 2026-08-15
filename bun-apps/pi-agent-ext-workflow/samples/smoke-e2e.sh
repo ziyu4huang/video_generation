@@ -18,7 +18,7 @@
 #
 # USAGE (from anywhere):
 #   ./bun-apps/pi-agent-ext-workflow/samples/smoke-e2e.sh [workflow.js]
-#   PI_MODEL=google/gemma-4-26b-a4b-qat ./.../smoke-e2e.sh
+#   PI_MODEL=google/gemma-4-12b ./.../smoke-e2e.sh
 ########################################
 set -euo pipefail
 
@@ -27,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 CLI="$REPO_ROOT/bun-apps/pi-agent/src/cli.ts"
 
-MODEL="${PI_MODEL:-google/gemma-4-26b-a4b-qat}"
+MODEL="${PI_MODEL:-google/gemma-4-12b}"
 WF="${1:-$SCRIPT_DIR/dynamic-workflow-smoke01.js}"
 
 if [ ! -f "$WF" ]; then

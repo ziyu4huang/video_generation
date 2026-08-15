@@ -116,7 +116,7 @@ Options (pi-aligned globals):
 Examples:
   pi-agent cli pipeline url-to-vault https://example.com/article
   pi-agent cli pipeline url-to-vault https://arxiv.org/abs/2401.00001 --max-notes 15
-  pi-agent cli --model gemma-4-26b pipeline url-to-vault https://blog.example.com/post`,
+  pi-agent cli --model gemma-4-12b pipeline url-to-vault https://blog.example.com/post`,
 
 	async run(parsed: ParsedArgs): Promise<void> {
 		await runUrlToVault(parsed, { label: "url-to-vault", isYouTube: false });

@@ -5,7 +5,7 @@
   "kind": "workflow-pack",
   "engine": "pi-agent-ext-workflow",
   "args": { "items": ["alpha", "beta", "gamma"] },
-  "model": "lm-studio/google/gemma-4-26b-a4b-qat",
+  "model": "lm-studio/google/gemma-4-12b",
   "thinking": "low",
   "howToRun": "bun --cwd bun-apps/pi-agent src/cli.ts cli workflow run sample --dry-run   # then drop --dry-run (model/thinking default from manifest; override with --model/--thinking)"
 }

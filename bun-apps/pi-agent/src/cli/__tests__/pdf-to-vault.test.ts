@@ -30,7 +30,7 @@ describe("readPipelineDoc — D5 stage-key migration (vlm-describe → file2md)"
 			slug: "x",
 			status: "running",
 			options: {
-				vlmModel: "lm-studio/google/gemma-4-12b-qat",
+				vlmModel: "lm-studio/google/gemma-4-12b",
 				retries: 3,
 				retryWaitSec: 10,
 				deletePng: false,

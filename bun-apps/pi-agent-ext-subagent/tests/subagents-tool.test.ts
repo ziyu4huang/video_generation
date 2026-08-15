@@ -499,7 +499,7 @@ test("batch children get batchId + forwarded onModelResolved/onHistory update th
     onModelResolved?: (id: string) => void;
     onHistory?: (h: { kind: string }[]) => void;
   }): Promise<SpawnSubagentResult> => {
-    opts.onModelResolved?.("google/gemma-4-12b-qat");
+    opts.onModelResolved?.("google/gemma-4-12b");
     opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
     const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
     const entry = inFlight.view(`batch-call:${idx}`);
@@ -522,7 +522,7 @@ test("batch children get batchId + forwarded onModelResolved/onHistory update th
   assert.equal(captured.length, 2, "both children ran");
   for (const c of captured) {
     assert.equal(c.batchId, "batch-call", "child registered with the batch toolCallId as batchId");
-    assert.equal(c.resolved, "gemma-4-12b-qat", "onModelResolved forwarded → modelSeg shows the resolved model");
+    assert.equal(c.resolved, "gemma-4-12b", "onModelResolved forwarded → modelSeg shows the resolved model");
     assert.equal(c.historyLen, 1, "onHistory forwarded → history stored");
   }
   assert.equal(inFlight.views().length, 0, "registry empty after the batch completes");
