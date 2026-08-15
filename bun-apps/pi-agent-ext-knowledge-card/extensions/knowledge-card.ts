@@ -46,6 +46,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { zkRetrieve, zkIngest, zkHealth, zkHeal } from "../src/host-fns.ts";
 import {
 	resolveVault,
@@ -693,16 +694,9 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			"check (vault health audit: duplicates, orphans, dead links).",
 		].join(" "),
 		parameters: Type.Object({
-			action: Type.Union(
-				[
-					Type.Literal("add"),
-					Type.Literal("find"),
-					Type.Literal("update"),
-					Type.Literal("remove"),
-					Type.Literal("check"),
-				],
-				{ description: "Operation to perform." },
-			),
+			action: StringEnum(["add", "find", "update", "remove", "check"] as const, {
+				description: "Operation to perform.",
+			}),
 			content: Type.Optional(
 				Type.String({
 					description:
@@ -955,8 +949,8 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				}),
 			),
 			blend: Type.Optional(
-				Type.Union(
-					[Type.Literal("default"), Type.Literal("three-way"), Type.Literal("semantic-lexical")],
+				StringEnum(
+					["default", "three-way", "semantic-lexical"] as const,
 					{
 						description:
 							"Retrieval blend mode. 'default' = lexical (title/tags/body) + graph — the vault-wide default, kept as default PERMANENTLY (a DECISION, not a pending measurement): across iter-3→iter-7 the semantic blends never won a regime on this corpus — iter-7 receipt 2026-07-07T01-00-52 (English queries) lexical mean rel 0.770 vs semantic-lexical 0.466 (lexical wins 4/5); iter-6 receipt 2026-07-05T22-57-51 (zh-TW queries) 0.332 vs 0.100. RETIRED from the default READ path — diagnostic/opt-in only; do NOT re-measure on the current corpus/regime (a genuinely NEW regime — a 10× vault, or a different vault-mind embedding model — would legitimately re-open it). The graph layer (wiki-link expansion) is the structure signal that bridges concepts across languages better than semantic vectors. 'three-way' adds a semantic (vector) seed via `obsidian` action:\"semantic_search\" and rebalances the rank score to 0.4 semantic / 0.3 lexical / 0.3 graph. 'semantic-lexical' drops graph expansion entirely (0.55 semantic / 0.45 lexical, no link term). Both remain as explicit opt-in (`--blend`) for paraphrase / cross-lingual probes; both require a running vault-mind service and fall back gracefully. Default: 'default'.",
@@ -1056,13 +1050,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 		].join(" "),
 		parameters: Type.Object({
 			action: Type.Optional(
-				Type.Union(
-					[
-						Type.Literal("gate"),
-						Type.Literal("converge"),
-						Type.Literal("status"),
-					],
-					{
+				StringEnum(["gate", "converge", "status"] as const, {
 						description:
 							"Distill pipeline action (absent = deterministic ingest, the default). " +
 							"'gate' filters raw hermes-memory entries (dedup/stale/malformed) and returns " +

@@ -36,6 +36,7 @@
  * Env overrides: LTX_VIDEO_BIN, LTX_VIDEO_REPO_ROOT, MLX_OUTPUT_DIR, MLX_MODELS_DIR.
  */
 import { defineTool, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { COMMANDS, COMMAND_LIST, runLtx, PathSafetyError, type CommandName } from "../src/index.ts";
 import {
@@ -154,14 +155,13 @@ function buildDescription(): string {
   );
 }
 
-const COMMAND_ENUM = Type.Union(COMMAND_LIST.map((c) => Type.Literal(c.name)), {
+const COMMAND_ENUM = StringEnum(COMMAND_LIST.map((c) => c.name), {
   description: "ltx-video subcommand to run.",
 });
 
-const HELP_TOPIC_ENUM = Type.Union(
-  [Type.Literal("native-vs-prod"), Type.Literal("shot-language")],
-  { description: "Reference topic to look up instead of a single command." },
-);
+const HELP_TOPIC_ENUM = StringEnum(["native-vs-prod", "shot-language"] as const, {
+  description: "Reference topic to look up instead of a single command.",
+});
 
 /** Optional camera/lighting vocabulary schema — see shotLanguage.ts.
  *  Enum values are intentionally NOT listed inline (saves ~500 tok/req);

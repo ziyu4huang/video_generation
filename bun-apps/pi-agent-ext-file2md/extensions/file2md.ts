@@ -22,6 +22,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 
 // Capture extension dir at module init. import.meta.dir is Bun-specific and may
@@ -201,7 +202,7 @@ export default function (pi: ExtensionAPI): void {
         }),
       ),
       extract: Type.Optional(
-        Type.Union([Type.Literal("vlm"), Type.Literal("text"), Type.Literal("hybrid")], {
+        StringEnum(["vlm", "text", "hybrid"] as const, {
           description:
             "Extraction strategy: vlm (default, rasterize→VLM) | text (mupdf text-layer, no VLM, figures lost) | hybrid (mupdf text + VLM for figure-bearing pages).",
         }),

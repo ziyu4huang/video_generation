@@ -219,7 +219,11 @@ describe("enumValues fields (restricted to a fixed set of values)", () => {
     // pi-agent-ext-ltx-self-improve's review lane, 2026-07-05).
     expect(COMMANDS.gate.fields.expectedScript?.enumValues).toEqual(["traditional", "simplified"]);
     const schema = buildParams(COMMANDS.gate) as { properties: Record<string, unknown> };
-    const expectedScriptSchema = schema.properties.expectedScript as { anyOf: Array<{ const: string }> };
-    expect(expectedScriptSchema.anyOf.map((s) => s.const)).toEqual(["traditional", "simplified"]);
+    const expectedScriptSchema = schema.properties.expectedScript as { type: string; enum: string[] };
+    // StringEnum (from @earendil-works/pi-ai) emits a JSON-Schema `enum` array;
+    // it replaced Type.Union([Type.Literal(...), ...]) whose anyOf/const shape this
+    // test previously asserted.
+    expect(expectedScriptSchema.type).toBe("string");
+    expect(expectedScriptSchema.enum).toEqual(["traditional", "simplified"]);
   });
 });

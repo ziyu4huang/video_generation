@@ -18,7 +18,7 @@
  * re-export this file without creating an import cycle.
  */
 import { join } from "node:path";
-import { Type } from "typebox";
+import { StringEnum } from "@earendil-works/pi-ai";
 
 import {
   listPipelines,
@@ -94,7 +94,7 @@ export const COMMANDS = [
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
-export const COMMAND_ENUM = Type.Union(COMMANDS.map((c) => Type.Literal(c)), {
+export const COMMAND_ENUM = StringEnum(COMMANDS, {
   description: "movie-director orchestration command.",
 });
 

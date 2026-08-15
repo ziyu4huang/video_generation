@@ -15,6 +15,7 @@
  * mirroring ask-user's local envelope style — NEVER a thrown crash. No
  * cross-package import: the webui package has zero today and gains none.
  */
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Control, RenderMode } from "./render-service.js";
@@ -23,7 +24,7 @@ import type { HitlResponse } from "./webui-wiring.js";
 export const PresentParameters = Type.Object({
   content: Type.String({ description: "Markdown or HTML to present to the user." }),
   mode: Type.Optional(
-    Type.Union([Type.Literal("md"), Type.Literal("html")], {
+    StringEnum(["md", "html"] as const, {
       description: "Render mode. Default 'md'.",
     })
   ),

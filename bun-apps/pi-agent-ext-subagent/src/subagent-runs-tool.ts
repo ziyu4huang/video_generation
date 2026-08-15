@@ -9,18 +9,19 @@
  * read, no side effects → parallel-safe (does NOT declare executionMode
  * "sequential", unlike the dispatch tool). Backed by SubagentRunPersistence.
  */
+
+import { StringEnum } from "@earendil-works/pi-ai";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { SubagentRunPersistence, SubagentRunRecord } from "./subagent-run-persistence.js";
 
-const subagentRunsActionEnum = Type.Union([Type.Literal("list"), Type.Literal("get")], {
+const subagentRunsActionEnum = StringEnum(["list", "get"] as const, {
   description: "Discriminator: 'list' recent runs or 'get' one run by id.",
 });
 
-const statusFilterEnum = Type.Union(
-  [Type.Literal("done"), Type.Literal("failed"), Type.Literal("timedout"), Type.Literal("budget")],
-  { description: "list: filter to a run status (done|failed|timedout|budget)." },
-);
+const statusFilterEnum = StringEnum(["done", "failed", "timedout", "budget"] as const, {
+  description: "list: filter to a run status (done|failed|timedout|budget).",
+});
 
 const subagentRunsSchema = Type.Object({
   action: subagentRunsActionEnum,

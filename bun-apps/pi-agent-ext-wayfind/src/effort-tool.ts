@@ -18,6 +18,8 @@
  * The cwd-based ops are exported so they're unit-testable with mkdtemp; the tool's
  * execute() is a thin dispatch that reads `ctx.cwd` and forwards.
  */
+
+import { StringEnum } from "@earendil-works/pi-ai";
 import { defineTool, type EventBus } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { type EffortListResult, type EffortSearchResult, listEfforts, searchEfforts } from "./effort-query.js";
@@ -323,19 +325,10 @@ export function makeWayfindEffortTool(events?: EventBus) {
       "Use this for the mechanical manifest/structure ops — the reflective charting/synthesis stays with the /wayfind commands.",
     gating: { core: true },
     parameters: Type.Object({
-      action: Type.Union(
-        [
-          Type.Literal("create"),
-          Type.Literal("validate"),
-          Type.Literal("status"),
-          Type.Literal("list"),
-          Type.Literal("search"),
-        ],
-        {
-          description:
-            "create = scaffold a new effort + manifest map.md; validate = conformance check; status = budget-bounded low-res inventory (titles + statuses + blocking edges, no verbatim bodies); list = enumerate every effort under .planning/ with a compact summary; search = cross-effort keyword search over tickets + decisions (ranked, filterable).",
-        },
-      ),
+      action: StringEnum(["create", "validate", "status", "list", "search"] as const, {
+        description:
+          "create = scaffold a new effort + manifest map.md; validate = conformance check; status = budget-bounded low-res inventory (titles + statuses + blocking edges, no verbatim bodies); list = enumerate every effort under .planning/ with a compact summary; search = cross-effort keyword search over tickets + decisions (ranked, filterable).",
+      }),
       effort: Type.Optional(
         Type.String({
           description:
@@ -351,15 +344,14 @@ export function makeWayfindEffortTool(events?: EventBus) {
         Type.String({ description: "search: keyword query (term-frequency, field-weighted ranking)." }),
       ),
       statusFilter: Type.Optional(
-        Type.Union([Type.Literal("open"), Type.Literal("closed")], {
+        StringEnum(["open", "closed"] as const, {
           description: "search: restrict to a ticket status (drops decision docs).",
         }),
       ),
       typeFilter: Type.Optional(
-        Type.Union(
-          [Type.Literal("research"), Type.Literal("prototype"), Type.Literal("grilling"), Type.Literal("task")],
-          { description: "search: restrict to a ticket type (drops decision docs)." },
-        ),
+        StringEnum(["research", "prototype", "grilling", "task"] as const, {
+          description: "search: restrict to a ticket type (drops decision docs).",
+        }),
       ),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
