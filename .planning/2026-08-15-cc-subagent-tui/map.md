@@ -1,6 +1,6 @@
 # CC-Style Subagent TUI in core-task
 
-> STATUS: plan approved 2026-08-15 · wave 1 COMPLETE (#1410/#1412/#1414/#1416) · wave 2 COMPLETE (05=#1425, 06=#1432)
+> STATUS: COMPLETE — all 8 tickets shipped (#1410/#1412/#1414/#1416/#1425/#1432/#1437/#1441)
 
 ## Goal
 
@@ -40,4 +40,4 @@ Wave 1 (§2): 01 subagents section (DONE #1410) · 02 completion notify (DONE #1
 Wave 2 (§3): 05 detach pipeline (DONE #1425) · 06 Ctrl-B shortcut (DONE #1432) — wave 2
 complete 2026-08-15 (06 also shipped accidentally as #1433, a content-identical duplicate;
 no net effect).
-Wave 3 (§4): 07 focus-claim ADR + protocol · 08 dock implementation.
+Wave 3 (§4): 07 focus-claim ADR + protocol (#1437) · 08 dock implementation (#1441).
