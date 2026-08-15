@@ -8,7 +8,11 @@
  * guard reaches its session only through the structural BudgetSessionSurface.
  * That makes both halves testable against a fake session with no runtime, and
  * it is a deliberate invariant, not an accident: keep it that way. It is why
- * the turn_end check below is duplicated rather than importing agent-turns.js.
+ * the turn_end check below is duplicated rather than importing agent-turns.js,
+ * and why this module's exhaustion error is constructed at the call site in
+ * agent.ts rather than by a factory here: a factory would need WorkflowError/
+ * WorkflowErrorCode from errors.js, which would cost this file its zero-import
+ * invariant.
  */
 
 /** Real token/cost usage for a single subagent run, read from the SDK session. */
@@ -37,8 +41,8 @@ export interface BudgetExhaustion {
  * `undefined` when neither is set or neither is exceeded. Uses `>` (strictly
  * greater), so reaching the limit exactly is allowed. Extracted from
  * `CoreAgent.run` so the threshold logic is unit-testable independent of
- * the session/subscribe wiring (which mirrors the existing onHistory/timeout
- * seams and is exercised via the spawnSubagent classification tests).
+ * the session/subscribe wiring — see budget-guard.test.ts and
+ * agent-budget.test.ts.
  */
 export function checkBudgetExhaustion(
   stats: { tokens: { total: number }; cost: number },

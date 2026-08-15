@@ -5,7 +5,7 @@
  *
  * Kept in its own module rather than folded into agent-budget.ts: the two
  * guards are independent by design (neither's exhaustion affects the
- * other, no shared helper) and agent-budget.ts's zero-local-import property
+ * other, no shared helper) and agent-budget.ts's zero-import property
  * is a deliberate structural invariant for that module — merging the guards
  * would tempt a shared helper and couple state that must stay independent.
  */
