@@ -1,6 +1,6 @@
 # Ticket 05 — Detach pipeline (foreground → background)
 
-> Wave 2 · spec §3 · status: **stub** (awaiting plan)
+> Wave 2 · spec §3 · status: **done** (PR #1425, 2026-08-15)
 
 ## Goal
 
