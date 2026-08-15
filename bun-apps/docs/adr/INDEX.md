@@ -46,6 +46,12 @@ Then add its row below. `bun run test:adr` fails until you do.
 
 ---
 
+### core-task
+
+| ID | Decision | File |
+| --- | --- | --- |
+| `ADR-core-task-0001` | Subagent dock focus via `onTerminalInput` prefix-claim (`Ctrl-G s`, zero upstream changes) | [`pi-agent-ext-core-task/…/0001`](../../pi-agent-ext-core-task/docs/adr/0001-subagent-dock-focus-claim.md) |
+
 ### core-runtime
 
 | ID | Decision | File |
