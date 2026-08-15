@@ -1,6 +1,6 @@
 # Ticket 02 — Completion notification line
 
-> Wave 1 · spec §2 · status: **stub** (awaiting plan)
+> Wave 1 · spec §2 · status: **done** (PR #1412)
 
 ## Goal
 
