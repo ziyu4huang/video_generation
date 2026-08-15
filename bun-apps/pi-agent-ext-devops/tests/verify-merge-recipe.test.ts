@@ -8,8 +8,8 @@
  *  (b) merged + a file outside expectedScope → CONTAMINATED + outOfScope lists it;
  *  (c) not merged (state OPEN) → NOT-MERGED;
  *  (d) merged + no expectedScope → CLEAN (files reported, no scope check);
- *  (e) parseShowStat unit cases (files + counts from sample stdout);
- *  (f) branch-spent true/false (+ revParse SHA-equality fallback);
+ *  (e) parseShowStat unit cases (numstat lines + summed counts);
+ *  (f) branch-spent, incl. the squash case gh's headRefOid is needed for;
  *  (g) gh.prStatus throws → warnings + aborted.
  */
 import { test, expect, describe } from "bun:test";
@@ -29,6 +29,7 @@ function fakeGh(
 		baseRefName?: string;
 		headRefName: string;
 		mergeSha?: string;
+		headRefOid?: string;
 	},
 	opts: { throws?: boolean } = {},
 ): GhClient {
@@ -41,6 +42,7 @@ function fakeGh(
 				baseRefName: status.baseRefName ?? "main",
 				headRefName: status.headRefName,
 				mergeSha: status.mergeSha,
+				headRefOid: status.headRefOid,
 				checks: { pass: 0, fail: 0, pending: 0 },
 			};
 		},
@@ -76,32 +78,34 @@ function fakeSpawn(canned?: Array<{ match: (args: string[]) => boolean; result: 
 /** Drop the leading `-C <dir>` so matchers read the real git subcommand. */
 const realArgs = (a: string[]) => a.filter((_, i) => !(i === 0 && _ === "-C") && !(i === 1 && a[0] === "-C"));
 
-/** Canned `git show --stat --format= <sha>` with two in-scope src/ files. */
+/** Canned `git show --numstat --format= <sha>` with two in-scope src/ files. */
 const SHOW_IN_SCOPE: SpawnResult = {
-	stdout: " src/a.ts | 10 ++++--\n src/b.ts |  3 ++\n 2 files changed, 13 insertions(+), 5 deletions(-)\n",
+	stdout: "8\t2\tsrc/a.ts\n5\t3\tsrc/b.ts\n",
 	stderr: "",
 	exitCode: 0,
 };
 
-/** Canned `git show --stat` with one in-scope (src/) + one out-of-scope (docs/) file. */
+/** Canned `git show --numstat` with one in-scope (src/) + one out-of-scope (docs/) file. */
 const SHOW_DRIFT: SpawnResult = {
-	stdout: " src/a.ts  | 10 ++++--\n docs/b.md |  3 ++\n 2 files changed, 13 insertions(+), 5 deletions(-)\n",
+	stdout: "8\t2\tsrc/a.ts\n5\t3\tdocs/b.md\n",
 	stderr: "",
 	exitCode: 0,
 };
 
-/** Canned `git show --stat` with an in-scope rename `{src/old.ts => src/new.ts}`
+/** Canned `git show --numstat` with an in-scope rename. git compacts against the
+ *  common prefix, so `src/old.ts -> src/new.ts` renders as `src/{old.ts => new.ts}`
  *  (the NEW path stays under `src/` → should be CLEAN, not CONTAMINATED). */
 const SHOW_RENAME_IN_SCOPE: SpawnResult = {
-	stdout: " {src/old.ts => src/new.ts} | 5 ++---\n 1 file changed, 3 insertions(+), 2 deletions(-)\n",
+	stdout: "3\t2\tsrc/{old.ts => new.ts}\n",
 	stderr: "",
 	exitCode: 0,
 };
 
-/** Canned `git show --stat` with a rename whose NEW path is OUT of scope
- *  `{src/a => other/b}` (verifies the rename fix doesn't over-correct). */
+/** Canned `git show --numstat` with a rename whose NEW path is OUT of scope.
+ *  No common prefix, so git uses the plain `old => new` form. Verifies the
+ *  rename fix doesn't over-correct. */
 const SHOW_RENAME_OUT_OF_SCOPE: SpawnResult = {
-	stdout: " {src/a => other/b} | 3 ++\n 1 file changed, 3 insertions(+)\n",
+	stdout: "3\t0\tsrc/a => other/b\n",
 	stderr: "",
 	exitCode: 0,
 };
@@ -120,7 +124,7 @@ describe("runVerifyMerge — verdicts", () => {
 		expect(out.insertions).toBe(13);
 		expect(out.deletions).toBe(5);
 		expect(out.files.map((f) => f.path)).toEqual(["src/a.ts", "src/b.ts"]);
-		expect(out.commands.some((c) => c.includes("show --stat"))).toBe(true);
+		expect(out.commands.some((c) => c.includes("show --numstat"))).toBe(true);
 	});
 
 	test("(b) merged + a file outside expectedScope → CONTAMINATED + outOfScope lists it", async () => {
@@ -160,8 +164,8 @@ describe("runVerifyMerge — verdicts", () => {
 	});
 });
 
-describe("parseShowStat — unit", () => {
-	test("(e) parses paths + the summary counts from sample --stat stdout", () => {
+describe("parseShowStat — unit (numstat)", () => {
+	test("(e) parses paths + sums the per-file columns", () => {
 		const parsed = parseShowStat(SHOW_IN_SCOPE.stdout);
 		expect(parsed.files.map((f) => f.path)).toEqual(["src/a.ts", "src/b.ts"]);
 		expect(parsed.files.every((f) => f.status === "M")).toBe(true); // best-effort default
@@ -170,22 +174,29 @@ describe("parseShowStat — unit", () => {
 		expect(parsed.deletions).toBe(5);
 	});
 
-	test("parses an additions-only summary (no deletions)", () => {
-		const parsed = parseShowStat(" new.txt | 5 +++++\n 1 file changed, 5 insertions(+)\n");
+	test("parses an additions-only change", () => {
+		const parsed = parseShowStat("5\t0\tnew.txt\n");
 		expect(parsed.files.map((f) => f.path)).toEqual(["new.txt"]);
 		expect(parsed.fileCount).toBe(1);
 		expect(parsed.insertions).toBe(5);
 		expect(parsed.deletions).toBe(0);
 	});
 
-	test("parses a binary file line", () => {
-		const parsed = parseShowStat(" logo.png | Bin 100 -> 120 bytes\n 1 file changed, 0 insertions(+), 0 deletions(-)\n");
+	test("parses a binary file line (`-` counts)", () => {
+		const parsed = parseShowStat("-\t-\tlogo.png\n");
 		expect(parsed.files.map((f) => f.path)).toEqual(["logo.png"]);
+		expect(parsed.fileCount).toBe(1);
+		expect(parsed.insertions).toBe(0);
 	});
 
-	test("falls back to file-line count when the summary is missing", () => {
-		const parsed = parseShowStat(" a.txt | 2 +-\n b.txt | 3 ++\n");
+	test("fileCount is the number of file lines — there is no summary line to scrape", () => {
+		const parsed = parseShowStat("2\t1\ta.txt\n3\t0\tb.txt\n");
 		expect(parsed.fileCount).toBe(2);
+	});
+
+	test("a path containing spaces survives (tab is the only separator)", () => {
+		const parsed = parseShowStat("1\t0\tdocs/my notes.md\n");
+		expect(parsed.files[0].path).toBe("docs/my notes.md");
 	});
 });
 
@@ -215,7 +226,7 @@ describe("runVerifyMerge — rename handling (M1)", () => {
 	});
 
 	test("parseShowStat resolves a binary rename brace too", () => {
-		const parsed = parseShowStat(" {img/old.png => img/new.png} | Bin 100 -> 120 bytes\n 1 file changed, 0 insertions(+), 0 deletions(-)\n");
+		const parsed = parseShowStat("-\t-\timg/{old.png => new.png}\n");
 		expect(parsed.files.map((f) => f.path)).toEqual(["img/new.png"]);
 	});
 });
@@ -230,27 +241,26 @@ describe("runVerifyMerge — branchSpent", () => {
 		expect(out.branchSpent).toBe(true);
 	});
 
-	test("contained excludes the head ref → branchSpent false", async () => {
+	test("not contained AND the tree still differs → branchSpent false", async () => {
 		const gh = fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA });
 		const client = fakeClient({ defaultBranch: "main", contained: ["main"] }); // feat/x NOT contained
-		const { fn } = fakeSpawn([{ match: (a) => realArgs(a)[0] === "show", result: SHOW_IN_SCOPE }]);
+		const { fn } = fakeSpawn([
+			{ match: (a) => realArgs(a)[0] === "show", result: SHOW_IN_SCOPE },
+			{ match: (a) => realArgs(a)[0] === "diff", result: { stdout: "", stderr: "", exitCode: 1 } },
+		]);
 		const out = await runVerifyMerge({ gh, client, spawn: fn, repoRoot: REPO, pr: 42, expectedScope: ["src/"] });
 
 		expect(out.branchSpent).toBe(false);
 	});
 
-	test("revParse SHA-equality fallback → head tip == default tip → spent", async () => {
-		const gh = fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA });
-		// contained empty (e.g. squash repo) but head + default resolve to the SAME sha.
-		const client = fakeClient({
-			defaultBranch: "main",
-			contained: [],
-			revs: { "feat/x": sha("c"), main: sha("c") },
-		});
-		const { fn } = fakeSpawn([{ match: (a) => realArgs(a)[0] === "show", result: SHOW_IN_SCOPE }]);
-		const out = await runVerifyMerge({ gh, client, spawn: fn, repoRoot: REPO, pr: 42, expectedScope: ["src/"] });
+	test("no mergeSha → no tree diff to run, so not spent (and no crash)", async () => {
+		const gh = fakeGh({ state: "MERGED", headRefName: "feat/x" }); // no mergeSha
+		const client = fakeClient({ defaultBranch: "main", contained: [] });
+		const { fn, calls } = fakeSpawn([]);
+		const out = await runVerifyMerge({ gh, client, spawn: fn, repoRoot: REPO, pr: 42 });
 
-		expect(out.branchSpent).toBe(true);
+		expect(out.branchSpent).toBe(false);
+		expect(calls.some((c) => realArgs(c.args)[0] === "diff")).toBe(false);
 	});
 });
 
@@ -281,5 +291,148 @@ describe("runVerifyMerge — failure modes", () => {
 		expect(out.warnings.some((w) => /no mergeSha/.test(w))).toBe(true);
 		// no mergeSha → no `git show` issued.
 		expect(calls.filter((c) => c.args.includes("show")).length).toBe(0);
+	});
+});
+
+describe("BUG: `git show --stat` TRUNCATES long paths → false CONTAMINATED", () => {
+	// Found by dogfooding verify-merge-cli on PR #1360. `--stat` pads to a terminal
+	// width and abbreviates anything longer as `.../tail`, so `startsWith(prefix)`
+	// fails for every deep path and a perfectly in-scope merge is reported
+	// CONTAMINATED. The CLI then exits 1, blocking a clean merge.
+	//
+	// This is the mirror image of the failure the SKILL cites as the REASON to use
+	// verify_merge instead of hand-rolled `git show --stat` parsing: same disease,
+	// opposite sign (false CONTAMINATED rather than false CLEAN).
+	//
+	// `--numstat` emits `<added>\t<deleted>\t<path>` with FULL paths and never
+	// abbreviates. Binary files come through as `-\t-\t<path>`.
+	const DEEP = "bun-apps/pi-agent-ext-devops/skills/devops-workflow/SKILL.md";
+	const NUMSTAT: SpawnResult = {
+		stdout: `30\t8\tbun-apps/pi-agent-ext-devops/CONTEXT.md\n51\t3\t${DEEP}\n`,
+		stderr: "",
+		exitCode: 0,
+	};
+
+	test("a deep in-scope path is CLEAN — it must not be abbreviated away", async () => {
+		const gh = fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA });
+		const client = fakeClient({ defaultBranch: "main", contained: ["feat/x"] });
+		const { fn } = fakeSpawn([{ match: (a) => realArgs(a)[0] === "show", result: NUMSTAT }]);
+		const out = await runVerifyMerge({
+			gh,
+			client,
+			spawn: fn,
+			repoRoot: REPO,
+			pr: 1360,
+			expectedScope: ["bun-apps/pi-agent-ext-devops/"],
+		});
+		expect(out.files.map((f) => f.path)).toContain(DEEP);
+		expect(out.outOfScope).toEqual([]);
+		expect(out.verdict).toBe("CLEAN");
+	});
+
+	test("the recipe asks git for --numstat, never --stat", async () => {
+		const gh = fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA });
+		const client = fakeClient({ defaultBranch: "main" });
+		const { fn, calls } = fakeSpawn([{ match: (a) => realArgs(a)[0] === "show", result: NUMSTAT }]);
+		await runVerifyMerge({ gh, client, spawn: fn, repoRoot: REPO, pr: 1360 });
+		const show = calls.find((c) => realArgs(c.args)[0] === "show");
+		expect(show?.args).toContain("--numstat");
+		expect(show?.args).not.toContain("--stat");
+	});
+
+	test("counts come from summing the per-file columns", async () => {
+		const parsed = parseShowStat(`30\t8\ta.ts\n51\t3\tb.ts\n`);
+		expect(parsed.fileCount).toBe(2);
+		expect(parsed.insertions).toBe(81);
+		expect(parsed.deletions).toBe(11);
+	});
+
+	test("a binary file (`-\\t-\\tpath`) counts as a file but adds no insertions", () => {
+		const parsed = parseShowStat(`-\t-\timg/logo.png\n5\t1\ta.ts\n`);
+		expect(parsed.files.map((f) => f.path)).toEqual(["img/logo.png", "a.ts"]);
+		expect(parsed.fileCount).toBe(2);
+		expect(parsed.insertions).toBe(5);
+		expect(parsed.deletions).toBe(1);
+	});
+
+	test("an EMBEDDED rename brace resolves to the new path", () => {
+		// numstat compacts a rename with a common prefix/suffix as
+		// `pre{old => new}post` — the old regex only matched a whole-string brace,
+		// so this deep form fell through unresolved and broke the scope check.
+		const parsed = parseShowStat(`22\t3\tbun-apps/{pkg-a => pkg-b}/src/entities.ts\n`);
+		expect(parsed.files[0].path).toBe("bun-apps/pkg-b/src/entities.ts");
+	});
+
+	test("a brace with an EMPTY side resolves (a move into/out of a directory)", () => {
+		expect(parseShowStat(`1\t0\tsrc/{ => nested}/a.ts\n`).files[0].path).toBe("src/nested/a.ts");
+		expect(parseShowStat(`1\t0\tsrc/{nested => }/a.ts\n`).files[0].path).toBe("src/a.ts");
+	});
+
+	test("a whole-path rename with no common prefix still resolves", () => {
+		expect(parseShowStat(`3\t0\tsrc/a.ts => other/b.ts\n`).files[0].path).toBe("other/b.ts");
+	});
+});
+
+describe("BUG: branchSpent is always false under the repo's squash convention", () => {
+	// A squash merge rewrites the branch's commits into one NEW commit, so the head
+	// ref is never an ancestor of the base and `git branch --merged` never lists
+	// it. Every squash-merged PR reported branchSpent:false — the field carried no
+	// information in the only merge strategy this repo uses.
+	//
+	// The fix keys off gh's `headRefOid`: the SHA that actually got merged. Still
+	// pointing there means everything on the branch landed.
+	//
+	// A tree comparison against the merge commit was tried FIRST and is wrong: the
+	// merge commit's tree is all of <default> at merge time, so it includes every
+	// unrelated PR that landed between this branch's last rebase and its merge.
+	// Verified empirically on PR #1360, where the difference was another PR's
+	// .planning/ files.
+	const NUMSTAT: SpawnResult = { stdout: "1\t0\tsrc/a.ts\n", stderr: "", exitCode: 0 };
+	const showOnly = () => fakeSpawn([{ match: (a) => realArgs(a)[0] === "show", result: NUMSTAT }]);
+
+	test("squash-merged (not contained) but the branch still points at what was merged → spent", async () => {
+		const gh = fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA, headRefOid: sha("a") });
+		const client = fakeClient({ defaultBranch: "main", contained: [], revs: { "feat/x": sha("a") } });
+		const out = await runVerifyMerge({ gh, client, spawn: showOnly().fn, repoRoot: REPO, pr: 42 });
+		expect(out.branchSpent).toBe(true);
+	});
+
+	test("commits pushed AFTER the merge (branch moved past headRefOid) → NOT spent", async () => {
+		const gh = fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA, headRefOid: sha("a") });
+		const client = fakeClient({ defaultBranch: "main", contained: [], revs: { "feat/x": sha("d") } });
+		const out = await runVerifyMerge({ gh, client, spawn: showOnly().fn, repoRoot: REPO, pr: 42 });
+		expect(out.branchSpent).toBe(false);
+	});
+
+	test("a head ref that no longer resolves → spent, with a warning saying why", async () => {
+		// Already deleted (or never fetched): there is nothing local left to lose,
+		// and reporting "not spent" would be a false alarm in the other direction.
+		const gh = fakeGh({ state: "MERGED", headRefName: "feat/gone", mergeSha: SHA, headRefOid: sha("a") });
+		const client = fakeClient({ defaultBranch: "main", contained: [], revs: {} });
+		const out = await runVerifyMerge({ gh, client, spawn: showOnly().fn, repoRoot: REPO, pr: 42 });
+		expect(out.branchSpent).toBe(true);
+		expect(out.warnings.join(" ")).toMatch(/does not resolve locally/);
+	});
+
+	test("NO tree diff is ever run — that approach was disproved", async () => {
+		const gh = fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA, headRefOid: sha("a") });
+		const client = fakeClient({ defaultBranch: "main", contained: [], revs: { "feat/x": sha("a") } });
+		const { fn, calls } = showOnly();
+		await runVerifyMerge({ gh, client, spawn: fn, repoRoot: REPO, pr: 42 });
+		expect(calls.some((c) => realArgs(c.args)[0] === "diff")).toBe(false);
+	});
+
+	test("an already-contained branch never needs headRefOid (a merge-commit merge)", async () => {
+		const gh = fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA });
+		const client = fakeClient({ defaultBranch: "main", contained: ["feat/x"] });
+		const out = await runVerifyMerge({ gh, client, spawn: showOnly().fn, repoRoot: REPO, pr: 42 });
+		expect(out.branchSpent).toBe(true);
+	});
+
+	test("no headRefOid from gh (older data) → falls back to containment alone", async () => {
+		const gh = fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA });
+		const client = fakeClient({ defaultBranch: "main", contained: [], revs: { "feat/x": sha("a") } });
+		const out = await runVerifyMerge({ gh, client, spawn: showOnly().fn, repoRoot: REPO, pr: 42 });
+		expect(out.branchSpent).toBe(false);
 	});
 });

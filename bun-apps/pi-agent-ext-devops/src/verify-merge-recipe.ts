@@ -122,65 +122,67 @@ async function safe<T>(label: string, fn: () => Promise<T>, fallback: T, warning
 }
 
 /**
- * If `path` is a git diffstat rename like `{src/old.ts => src/new.ts}`, return
- * the NEW path (group 2); otherwise return `path` unchanged. Scope-checking keys
- * off the post-rename path, so an in-scope rename is CLEAN (without this, the
- * whole brace string would be captured and fail the `startsWith(scope)` check,
- * wrongly flagging an in-scope rename as CONTAMINATED).
+ * Resolve git's compacted rename notation to the NEW path. Scope-checking keys
+ * off the post-rename path, so an in-scope rename must read as CLEAN.
+ *
+ * Git compacts a rename against the common prefix/suffix:
+ *   `bun-apps/{pkg-a => pkg-b}/src/x.ts`  → `bun-apps/pkg-b/src/x.ts`
+ *   `src/{ => nested}/a.ts`               → `src/nested/a.ts`  (empty old side)
+ *   `src/{nested => }/a.ts`               → `src/a.ts`         (empty new side)
+ * and falls back to a whole-path form when there is nothing in common:
+ *   `src/a.ts => other/b.ts`              → `other/b.ts`
+ *
+ * The braces are NOT anchored to the whole string — an earlier version required
+ * that, so every deep rename (the common case in this monorepo) fell through
+ * unresolved and failed its `startsWith(scope)` check.
+ *
+ * The empty-side forms leave a doubled slash (`src//a.ts`); collapse it so the
+ * result is a real path a prefix match can be trusted against.
  */
 function resolveRename(path: string): string {
-	const m = path.match(/^\{(.+) => (.+)\}$/);
-	return m ? m[2] : path;
+	const braced = path.match(/^(.*)\{(.*) => (.*)\}(.*)$/);
+	if (braced) return `${braced[1]}${braced[3]}${braced[4]}`.replace(/\/{2,}/g, "/");
+	const plain = path.match(/^(.+) => (.+)$/);
+	return plain ? plain[2] : path;
 }
 
 /**
- * Parse `git show --stat --format="" <sha>` output into {files, fileCount,
- * insertions, deletions}. Recognized line shapes:
- *   - ` <path> | <N> <symbols>`  → a touched file (path = text before `|`).
- *   - ` <path> | Bin …`          → a binary touched file.
- *   - ` <N> files changed[, <X> insertions(+)][, <Y> deletions(-)]` → the
- *     summary (drives fileCount/insertions/deletions; insertions/deletions are
- *     optional — a commit can change only additions or only deletions).
+ * Parse `git show --numstat --format="" <sha>` into {files, fileCount,
+ * insertions, deletions}. One line per file:
+ *   `<added>\t<deleted>\t<path>`   — a text file
+ *   `-\t-\t<path>`                 — a binary file (counts as a file, adds 0/0)
  *
- * `status` is best-effort "M": `--stat` exposes no M/A/D letter (that needs
- * `--name-status`, which drops the insertion/deletion summary). The verdict keys
- * off `path` only, so the default is harmless. If the summary line is missing,
- * `fileCount` falls back to the number of parsed file lines.
+ * WHY NOT `--stat`
+ *   `--stat` renders for a terminal: it pads to a width and ABBREVIATES any long
+ *   path as `.../tail`. Every `startsWith(expectedScope)` check then fails, so a
+ *   perfectly in-scope merge is reported CONTAMINATED and the CLI exits 1 on a
+ *   clean merge. Real case: verifying PR #1360 flagged 10 files that were all
+ *   inside the scope prefix. `--numstat` is the machine-readable form — full
+ *   paths, never abbreviated, and per-file counts we can sum instead of scraping
+ *   a prose summary line.
+ *
+ *   This is the mirror of the failure the devops SKILL cites as the reason to use
+ *   `verify_merge` over hand-rolled `git show --stat` parsing: the same disease,
+ *   opposite sign (false CONTAMINATED rather than false CLEAN).
+ *
+ * `status` stays best-effort "M" — numstat exposes no M/A/D letter (that needs
+ * `--name-status`, which drops the counts). The verdict keys off `path` alone.
  */
 export function parseShowStat(stdout: string): ShowStat {
 	const files: VerifyFile[] = [];
-	let fileCount = 0;
 	let insertions = 0;
 	let deletions = 0;
 	for (const raw of stdout.split("\n")) {
 		const line = raw.replace(/\r$/, "");
 		if (!line.trim()) continue;
-		// ` <path> | <N> <+- symbols>` (text file).
-		const pipe = line.match(/^\s*(.+?)\s+\|\s+(\d+)\s*([+-]*)\s*$/);
-		if (pipe) {
-			files.push({ path: resolveRename(pipe[1].trim()), status: "M" });
-			continue;
-		}
-		// ` <path> | Bin <a> -> <b> bytes` (binary file).
-		const bin = line.match(/^\s*(.+?)\s+\|\s+Bin\b/);
-		if (bin) {
-			files.push({ path: resolveRename(bin[1].trim()), status: "M" });
-			continue;
-		}
-		// Summary: ` <N> files changed[, <X> insertions(+)][, <Y> deletions(-)]`.
-		const sum = line.match(/(\d+)\s+files?\s+changed/);
-		if (sum) {
-			fileCount = Number.parseInt(sum[1], 10);
-			const ins = line.match(/(\d+)\s+insertions?\(\+\)/);
-			const del = line.match(/(\d+)\s+deletions?\(-\)/);
-			if (ins) insertions = Number.parseInt(ins[1], 10);
-			if (del) deletions = Number.parseInt(del[1], 10);
-			continue;
-		}
+		// `<added>\t<deleted>\t<path>`; a binary file uses "-" for both counts.
+		const m = line.match(/^\s*(\d+|-)\t(\d+|-)\t(.+)$/);
+		if (!m) continue;
+		if (m[1] !== "-") insertions += Number.parseInt(m[1], 10);
+		if (m[2] !== "-") deletions += Number.parseInt(m[2], 10);
+		files.push({ path: resolveRename(m[3].trim()), status: "M" });
 	}
-	// Fallback: no summary line → count the parsed file lines.
-	if (fileCount === 0 && files.length > 0) fileCount = files.length;
-	return { files, fileCount, insertions, deletions };
+	return { files, fileCount: files.length, insertions, deletions };
 }
 
 /**
@@ -268,8 +270,8 @@ export async function runVerifyMerge(opts: VerifyMergeOptions): Promise<VerifyMe
 	let deletions = 0;
 	if (mergeSha) {
 		const r = await safe(
-			"show-stat",
-			() => git(repoRoot, ["show", "--stat", "--format=", mergeSha]),
+			"show-numstat",
+			() => git(repoRoot, ["show", "--numstat", "--format=", mergeSha]),
 			{ stdout: "", stderr: "", exitCode: 1 },
 			warnings,
 		);
@@ -280,7 +282,7 @@ export async function runVerifyMerge(opts: VerifyMergeOptions): Promise<VerifyMe
 			insertions = parsed.insertions;
 			deletions = parsed.deletions;
 		} else {
-			warnings.push(`git show --stat ${mergeSha} failed: ${trim(r.stderr || r.stdout)}`);
+			warnings.push(`git show --numstat ${mergeSha} failed: ${trim(r.stderr || r.stdout)}`);
 		}
 	} else {
 		warnings.push("PR is MERGED but gh returned no mergeSha — cannot inspect touched files.");
@@ -300,10 +302,23 @@ export async function runVerifyMerge(opts: VerifyMergeOptions): Promise<VerifyMe
 		verdict = "CLEAN";
 	}
 
-	// --- 6. Branch-spent: head ref contained in the default branch. -----------
-	// Primary: `git branch --merged <default>` lists branch names fully in
-	// <default>; if the PR head ref is among them, it's spent. Fallback: a
-	// SHA-equality sanity check via revParse (head tip == default tip).
+	// --- 6. Branch-spent: is there anything on the head ref left to lose? -----
+	// Primary: `git branch --merged <default>` lists branch names fully contained
+	// in <default>. That is ANCESTRY — and a SQUASH merge rewrites the branch into
+	// one NEW commit, so the head ref is never an ancestor of the base. Under this
+	// repo's squash convention `branchSpent` was therefore permanently false: the
+	// field carried no information in the only strategy actually used.
+	//
+	// The strategy-independent signal is gh's `headRefOid` — the SHA that actually
+	// got merged. If the branch still points there, everything on it landed and
+	// deleting it loses nothing; if it moved, someone pushed after the merge and
+	// those commits are NOT in the base.
+	//
+	// NB: a tree comparison against the merge commit does NOT work here, however
+	// tempting. The merge commit's tree is all of <default> at merge time, which
+	// includes every unrelated PR that landed between this branch's last rebase
+	// and its merge — so the trees differ for reasons that have nothing to do with
+	// this branch. Verified empirically on PR #1360.
 	let branchSpent = false;
 	const defaultBranch =
 		(await safe("defaultBranch", () => client.defaultBranch(), undefined, warnings)) ?? "";
@@ -315,10 +330,16 @@ export async function runVerifyMerge(opts: VerifyMergeOptions): Promise<VerifyMe
 			warnings,
 		);
 		branchSpent = contained.has(status.headRefName);
-		if (!branchSpent) {
+		if (!branchSpent && status.headRefOid) {
 			const headSha = await safe("revParse(headRef)", () => client.revParse(status.headRefName), undefined, warnings);
-			const defSha = await safe("revParse(defaultBranch)", () => client.revParse(defaultBranch), undefined, warnings);
-			if (headSha && defSha && headSha === defSha) branchSpent = true;
+			if (!headSha) {
+				// The ref does not resolve here — already deleted, or never fetched.
+				// Either way there is nothing local left to lose.
+				warnings.push(`head ref '${status.headRefName}' does not resolve locally — treating as spent (nothing to delete).`);
+				branchSpent = true;
+			} else {
+				branchSpent = headSha === status.headRefOid;
+			}
 		}
 	}
 
