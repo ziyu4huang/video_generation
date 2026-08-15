@@ -111,8 +111,13 @@ export interface BuildPlanOpts {
 /**
  * Read-only: gather every signal via the client, classify each branch (pure
  * classifyBranch), and assemble the four-bucket plan. Deletes NOTHING.
- * Remote branches are never worktree-guarded (deleting origin/x is independent
- * of a local worktree checkout of x — matches await_pr_merge's auto-delete).
+ *
+ * The worktree guard covers BOTH kinds. Deleting `origin/x` does not touch a
+ * local checkout of `x` — that is why remotes used to be exempt — but the guard
+ * protects the PERSON in that worktree, not the checkout: their push target and
+ * upstream tracking disappear mid-session. A live sweep put
+ * `origin/refactor/c1-residual-planning-parse` in the auto-delete set while a
+ * sibling worktree was sitting on it, which is what closed this exemption.
  */
 export async function buildSweepPlan(client: BranchClient, opts: BuildPlanOpts): Promise<SweepPlan> {
 	const includeLocal = opts.includeLocal !== false;
@@ -142,7 +147,7 @@ export async function buildSweepPlan(client: BranchClient, opts: BuildPlanOpts):
 			gone: kind === "local" && signals.gone === true,
 			contained: contained.has(name),
 			openPr: open.has(name),
-			inWorktree: kind === "local" && wtSet.has(name),
+			inWorktree: wtSet.has(name),
 			isProtected: opts.protectedSet.has(name),
 			isCurrent: kind === "local" && name === current,
 		});
@@ -214,6 +219,9 @@ export async function executeSweep(plan: SweepPlan, client: BranchClient, opts: 
 		return undefined;
 	};
 	const remoteBlock = (name: string): string | undefined => {
+		// Same worktree guard as the local path (see buildSweepPlan): a sibling
+		// worktree sitting on this branch would lose its push target.
+		if (wtSet.has(name)) return "worktree-locked";
 		if (opts.protectedSet.has(name)) return "protected";
 		if (openSet.has(name)) return "open-PR-active";
 		return undefined;

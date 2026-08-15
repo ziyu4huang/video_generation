@@ -35,7 +35,7 @@ The command to view and manage the todo list.
 _Avoid_: task list
 
 **`/loop`**:
-The command that runs a goal queue in a loop — executes goals sequentially, advancing the queue head after each completion. Mutually exclusive with `/goal` (only one active at a time, enforced by the `__piGoalActive` coordination seam). Uses `LoopState` to track the queue, parked items, and head advances. Publishes `__piKickHeartbeat` for coordination.
+The command that runs a goal queue in a loop — executes goals sequentially, advancing the queue head after each completion. Mutually exclusive with `/goal` (only one active at a time, enforced by the `__piGoalActive` coordination seam). Uses `LoopState` to track the queue, parked items, and head advances. **Consumes** `__piKickHeartbeat` (published by `goal.ts`) to arm/disarm the heartbeat on its own start/stop transitions — `/loop` is the reader here, not the publisher.
 _Avoid_: repeat, batch (it is a goal queue runner with explicit pause/resume and parking controls)
 
 **`/list`**:
@@ -57,10 +57,10 @@ The goal subsystem self-consumes the plan coordinator directly via internal call
 _Avoid_: yield, handoff (it is a publish-consume pattern, not a state transfer)
 
 **Published coordination seams** (core-task → peers via `globalThis`):
-Core-task publishes four coordination seams for cross-extension communication:
-- **Goal-side:** `__piGoalActive` — `() => boolean` goal-activity reader; consumed by the in-package `/loop` subsystem (goal⇄loop mutual exclusion) and surfaced display-only by power-tool's `inspect_tui`.
+Core-task publishes five coordination seams. Both intra-package seams are published by `goal.ts` and read by `/loop` — the publisher is goal in BOTH cases, never loop:
+- **Goal-side (2):** `__piGoalActive` — `() => boolean` goal-activity reader; consumed by the in-package `/loop` subsystem (goal⇄loop mutual exclusion) and surfaced display-only by power-tool's `inspect_tui`. `__piKickHeartbeat` — `() => void` re-evaluate hook published at `goal.ts:935` and deleted on teardown at `goal.ts:695`; `/loop` calls it so a loop-only session can arm/disarm the heartbeat without a goal↔loop import cycle. Both are `crossPackage: false` in `core-interface/src/seam-keys.ts`.
 - **Plan-side (3):** `__piPlanPhases`, `__piPlanIncomplete`, `__piPlanSummary` — `(cwd) => …` readers of the active plan, all consumed by wayfind.
-All are one-way publishes from core-task; only wayfind (and `/loop` for `__piGoalActive`) reads them.
+All five are one-way publishes from core-task; only wayfind (plan-side) and `/loop` (goal-side) read them.
 _Avoid_: hook, signal (they are published globalThis readers, not event hooks)
 
 **Process-singleton state**:

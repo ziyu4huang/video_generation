@@ -17,15 +17,37 @@ scripts — `scripts/deploy.ts`, `scripts/run-test.sh`, `scripts/ci-local.sh`.
   ungated companion (always active).
 - **sweep_branches** — classify + (dry-run by default) delete merged
   local/remote branches. Conservative: only `gh`-confirmed MERGED PRs are
-  auto-deletable; uncertain cases go to a `review` bucket.
+  auto-deletable; uncertain cases go to a `review` bucket. A branch checked out
+  in any worktree is never deleted, LOCAL OR REMOTE — the guard protects the
+  person in that worktree (push target + upstream), not the checkout.
 - **local_ci** — OFFLINE local CI: typecheck + tests scoped to changed packages
-  vs `origin/main`, plus repo gates. Structured pass/fail; self-verify before
-  `gh ship` (await_pr_merge gates on this). A package's test command comes from
-  its row in `.github/workflows/ci.yml.disabled` (`src/ci-matrix.ts`), run via
-  `bash -c` — so `--isolate`, `&& bun run qa`, and build-first rows are honored
-  exactly as remote CI would; only packages with NO matrix row fall back to the
-  generic `bun run test`. `scripts/ci-local.sh` parses the same block, so the two
-  local runners cannot disagree.
+  vs `origin/main`, plus every step of the workflow's `regression-gates` job.
+  Structured pass/fail; self-verify before `gh ship` (await_pr_merge gates on
+  this). BOTH halves are derived from `.github/workflows/ci.yml.disabled` and
+  neither is hand-copied here: a package's test command from its `tests` matrix
+  row (`src/ci-matrix.ts`), the gate list from the `regression-gates` job
+  (`src/ci-gates.ts`). Matrix rows run via `bash -c` — so `--isolate`,
+  `&& bun run qa`, and build-first rows are honored exactly as remote CI would;
+  only packages with NO matrix row fall back to the generic `bun run test`.
+  `scripts/ci-local.sh` parses the same two blocks, so the runners cannot
+  disagree. An unparseable gate job FAILS the run (`gateError`) rather than
+  degrading to an empty, all-green gate set.
+- **main_health** — "is the default branch green right now?" Runs the FULL
+  matrix + the whole gate suite in the worktree that HOLDS the default branch
+  (a suite runs against a working tree, not a ref, so running it elsewhere would
+  report that tree's health under main's name). Read-only. ABORTS — reporting
+  unhealthy — when no worktree holds it; a dirty/behind tree still runs but the
+  outcome warns that the verdict is about that tree, not `origin/<default>`.
+  Exists because `local_ci` is change-scoped and remote CI is disabled, so a
+  branch avoiding a broken package merges green forever and nothing reports that
+  main itself is red. Thin over `runLocalCi({all:true})` — no second engine.
+- **CLI fallbacks** (`src/*-cli.ts`, all in `bin`) — every owned phase is
+  reachable from a non-pi session: `main-health-cli`, `sweep-cli`,
+  `local-ci-cli`, `prepare-cli`, `verify-merge-cli`, plus the pre-existing
+  `sync-cli` / `pr-finish-cli` / `verify-deploy-cli`. Shared contract in
+  `src/cli-common.ts`: JSON on stdout, diagnostics on stderr, exit 0/1/2. They
+  parse argv and serialize — nothing else — so a wrapper cannot drift from its
+  recipe's guards.
 - **changed-packages CLI** (`src/changed-packages-cli.ts`) — the bash-callable
   wrapper the workflow's `changed_packages` job shells out to (`--all`, or
   `<baseRef> <headRef>` → one line of JSON). Deliberately a plain script entry,

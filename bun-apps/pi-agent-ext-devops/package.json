@@ -14,7 +14,12 @@
 		"ci-changed-packages": "./src/changed-packages-cli.ts",
 		"devops-sync": "./src/sync-cli.ts",
 		"devops-pr-finish": "./src/pr-finish-cli.ts",
-		"devops-verify-deploy": "./src/verify-deploy-cli.ts"
+		"devops-verify-deploy": "./src/verify-deploy-cli.ts",
+		"devops-main-health": "./src/main-health-cli.ts",
+		"devops-sweep": "./src/sweep-cli.ts",
+		"devops-local-ci": "./src/local-ci-cli.ts",
+		"devops-prepare-branch": "./src/prepare-cli.ts",
+		"devops-verify-merge": "./src/verify-merge-cli.ts"
 	},
 	"scripts": {
 		"test": "bun test",

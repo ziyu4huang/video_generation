@@ -50,11 +50,65 @@ the merge.
 
 ### 2. `local_ci` — self-verify (the local proxy for remote CI)
 
-Run typecheck + tests scoped to the packages changed vs `origin/main`, plus the
-repo's quality gates (file-size guard, lockfile-duplicate guard; strict adds the
-audit gates). **Offline** — a green run is the local proxy for a green remote
-run (remote CI is intentionally disabled in this repo). This is what
-`await_pr_merge` gates on; run it standalone to self-verify before merge.
+Run typecheck + tests scoped to the packages changed vs `origin/main`, plus
+**every step of the workflow's `regression-gates` job** (~14 gates, ~5s).
+**Offline** — a green run is the local proxy for a green remote run (remote CI
+is intentionally disabled in this repo). This is what `await_pr_merge` gates on;
+run it standalone to self-verify before merge.
+
+**Nothing here is hand-copied.** Both halves are derived from
+`.github/workflows/ci.yml.disabled` at runtime: the per-package command from the
+`tests` matrix (`src/ci-matrix.ts`), the gate list from the `regression-gates`
+job (`src/ci-gates.ts`). A hand-written gate list previously ran 2 of the 14
+steps, so `test:deps` / `test:adr` / `test:seam` / `test:routing` /
+`test:config-parity` / `test:ci-workflow` / `test:scripts` and the `--strict`
+portability audit never ran under the gate `await_pr_merge` merges on. If you add
+a gate step to the workflow, `local_ci` picks it up with no edit here.
+
+Two consequences worth knowing:
+
+- **A gate list that cannot be parsed fails the run** (`gateError`, `overall:
+  "fail"`), it does not degrade to "0 gates, all passed". That degradation is
+  the false-green the derivation exists to prevent. This is the OPPOSITE of the
+  matrix reader, which safely degrades to `{}` because a package with no row
+  still runs its generic `bun run test`.
+- **`strict: true` no longer means "add the audit gates"** — those are in the
+  job now and always run. It means "also run the audits that have NO workflow
+  step" (`check-workflow-patterns.mjs`, `verify-skills.ts`).
+
+`local_ci` is **change-scoped**, so it says nothing about packages your branch
+does not touch. It is not a health check for `main` — that is `main_health`.
+
+### 2b. `main_health` — is the default branch itself green?
+
+Change-scoping plus disabled remote CI means a branch that avoids a broken
+package merges green forever and **nothing reports that `main` is red**. On
+2026-08-15 `main` had been failing `pi-agent` for days and had just started
+failing `pi-agent-ext-obsidian`; no step in this chain would have said so.
+
+`main_health` runs the FULL matrix + the whole gate suite **in the worktree that
+actually holds the default branch** — a suite runs against a working tree, not a
+ref, so running it anywhere else would report that tree's health under main's
+name. Read-only: it never checks out, syncs, or mutates.
+
+- **No worktree holds the default branch → it ABORTS** and reports unhealthy.
+  "We could not test it" must never read as "it is fine".
+- A dirty or behind tree still runs, but the outcome carries a `warnings` entry
+  saying the verdict is about that tree and not exactly `origin/<default>`.
+- **A package whose typecheck exits 127 goes to `toolchainMissing`, not
+  `failingPackages`.** 127 is "command not found" — that worktree has no deps
+  installed, which is an environment problem, not a broken branch. Its test is
+  discounted too (several matrix rows are `bun run build && …`, which fails for
+  the same reason). The branch still counts as unverified: an unrun check is not
+  evidence of health. Fix with `bun install` from that worktree's `bun-apps/`.
+
+It is STRICTER than `ci-local.sh`, which runs only each matrix row's `test-cmd`
+and no typechecks at all. Expect `main_health` to surface typecheck failures that
+`ci-local.sh` reports as green.
+
+Run it before starting work, and when a merge you did not expect to matter looks
+suspicious. Do NOT gate `await_pr_merge` on it: your PR is not responsible for a
+package it does not touch.
 
 ### 3. `await_pr_merge` — local-CI-gated squash-merge
 
@@ -92,9 +146,18 @@ tree, or an unexpected ahead+behind / far-behind divergence. Run it last for a
 | Post-run "anything risky?" anomaly readout | `devops_retrospect` |
 | One-shot PR state + check tally (inspect, don't merge) | `pr_status` |
 | Sync this repo/worktree to the latest default branch | `sync_repo` |
+| "Is `main` itself green?" (full matrix + gates, read-only) | `main_health` |
 | Classify + clean up merged local/remote branches | `sweep_branches` |
 | Build + deploy the pi-agent bundle + thin ext bundles (mirrors `scripts/deploy.ts`) | `pi_deploy` |
 | Run a pi-agent `run-test.sh` tier (quick/medium/high/readonly/full) to self-verify | `pi_verify` |
+
+### `sweep_branches` — the worktree guard covers remotes too
+
+A branch checked out in ANY worktree is never deleted, **local or remote**.
+Deleting `origin/x` does not touch a local checkout of `x`, which is why remotes
+used to be exempt — but the guard protects the person in that worktree, whose
+push target and upstream tracking would vanish mid-session. The guard runs twice:
+at plan time and again against fresh state immediately before each delete.
 
 ### `sync_repo` — auto-managed hot files are preserved, not aborted
 
@@ -126,10 +189,28 @@ guessing at launch flags. When they are absent:
   mutations — preview before running), `--force`, `--preserve <path>`, and
   `--preserve-strict`; it prints the structured JSON outcome and exits non-zero
   on abort (dirty tree, divergent default branch, …).
-- **For other owned phases** (branch prep, local CI, PR merge, verify, sweep,
-  retrospective), there is no CLI fallback — relaunch via the pi-agent wrapper
-  (`bun bun-apps/pi-agent/src/cli.ts`), which auto-loads all run-dir extensions
-  and skills, or ask the user to.
+- **Every other owned phase now has one too.** All take `--help`, print the
+  structured outcome as JSON on stdout (diagnostics stay on stderr), and exit
+  `0` success / `1` the run reports failure or abort / `2` usage error:
+
+  ```bash
+  bun bun-apps/pi-agent-ext-devops/src/main-health-cli.ts        # is main green?
+  bun bun-apps/pi-agent-ext-devops/src/sweep-cli.ts [--execute]  # dry-run by default
+  bun bun-apps/pi-agent-ext-devops/src/local-ci-cli.ts [--all]
+  bun bun-apps/pi-agent-ext-devops/src/prepare-cli.ts --rebase [--force-push]
+  bun bun-apps/pi-agent-ext-devops/src/verify-merge-cli.ts <pr> [--scope a,b]
+  ```
+
+  They are THIN wrappers: argv in, JSON out, all logic in the recipe, and the
+  same `createLiveSpawn` + `createBranchClient` surface `extensions/devops.ts`
+  wires. So the CLI and the tool cannot diverge in behavior, only in
+  presentation — and the guards (worktree-conflict, dry-run defaults,
+  `--force-push` never implied) are the recipe's, not re-implemented here.
+
+- **`await_pr_merge` has no standalone CLI** — use `devops-pr-finish`
+  (`src/pr-finish-cli.ts`), which wraps the whole finish sequence
+  (preflight → local-CI gate → merge gates → squash-merge → verify_merge →
+  branch cleanup).
 
 ## Discipline
 

@@ -131,7 +131,14 @@ describe("buildSweepPlan", () => {
 		expect(plan.keep.find((k) => k.name === "feat/wt")?.reason).toBe("worktree-locked");
 	});
 
-	test("remote of a worktree-checked-out merged branch still deletes (remote ≠ local worktree)", async () => {
+	test("the REMOTE of a worktree-checked-out branch is guarded too, not just the local", async () => {
+		// Reverses the earlier "remote ≠ local worktree, delete it anyway" rule.
+		// That rule reasons about git mechanics — deleting origin/x does not touch
+		// a local checkout of x — but the worktree guard is about the PERSON in
+		// that worktree, whose push target and upstream tracking vanish under them
+		// mid-session. A live sweep hit exactly this: origin/refactor/c1-residual-
+		// planning-parse was in the auto-delete set while a sibling worktree was
+		// checked out on it.
 		const { client } = fakeClient({
 			locals: [{ name: "feat/wt", goneRemote: false }],
 			remotes: ["feat/wt"],
@@ -141,8 +148,12 @@ describe("buildSweepPlan", () => {
 			worktrees: ["feat/wt"],
 		});
 		const plan = await buildSweepPlan(client, { protectedSet: PROT(), limit: 200, fetched: true });
-		expect(plan.deleteLocal).toEqual([]); // local guarded by worktree
-		expect(plan.deleteRemote.map((p) => p.name)).toEqual(["feat/wt"]); // remote not blocked
+		expect(plan.deleteLocal).toEqual([]);
+		expect(plan.deleteRemote).toEqual([]);
+		expect(plan.keep.filter((k) => k.name === "feat/wt").map((k) => k.reason)).toEqual([
+			"worktree-locked",
+			"worktree-locked",
+		]);
 	});
 });
 
@@ -171,6 +182,23 @@ describe("executeSweep", () => {
 		mutate.setWorktrees(["feat/x"]); // race: now locked
 		const out = await executeSweep(plan, client, { protectedSet: PROT() });
 		expect(out.deletedLocal).toEqual([]);
+		expect(out.skipped).toEqual([{ name: "feat/x", reason: "worktree-locked" }]);
+	});
+
+	test("INVARIANT: a REMOTE that becomes worktree-locked between plan & execute is NOT deleted", async () => {
+		const { client, mutate } = fakeClient({
+			locals: [],
+			remotes: ["feat/x"],
+			current: "main",
+			defaultBranch: "main",
+			merged: { "feat/x": 5 },
+			worktrees: [], // not locked at plan time → planned for delete
+		});
+		const plan = await buildSweepPlan(client, { protectedSet: PROT(), limit: 200, fetched: true });
+		expect(plan.deleteRemote.map((p) => p.name)).toEqual(["feat/x"]);
+		mutate.setWorktrees(["feat/x"]); // race: a sibling worktree checks it out
+		const out = await executeSweep(plan, client, { protectedSet: PROT() });
+		expect(out.deletedRemote).toEqual([]);
 		expect(out.skipped).toEqual([{ name: "feat/x", reason: "worktree-locked" }]);
 	});
 
