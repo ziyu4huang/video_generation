@@ -1,0 +1,6 @@
+# dsh-sv-analyzer bundle layer: activates the plugin's tools when the bundle
+# is installed into a profile. `dsh plugin --profile <name> add dsh-sv-analyzer`
+# appends this layer automatically (the package declares dsh.bundle).
+- insert:
+    - id: sv-analyzer
+      name: dsh-sv-analyzer

@@ -203,7 +203,7 @@ describe("computeChangedPackages — fail-open semantics", () => {
 });
 
 describe("computeChangedPackages — matrix-irrelevant paths (scoped, NOT fail-open)", () => {
-	// The ≤5-minute local_ci budget depends on scoping. Two path classes are
+	// The ≤5-minute local_ci budget depends on scoping. Three path classes are
 	// provably package-matrix-irrelevant and must NOT trip the rule-4 fail-open:
 	//   .planning/**     — docs-only artifacts the standing rule REQUIRES
 	//                      committing with every branch/PR; before this guard,
@@ -211,6 +211,8 @@ describe("computeChangedPackages — matrix-irrelevant paths (scoped, NOT fail-o
 	//   bun-apps/tests/**— workspace-root gate tests; they run in the
 	//                      regression-gates job (bun run test:dist), which
 	//                      local_ci executes regardless of package scoping.
+	//   dsh-sv-analyzer/**— standalone top-level Rust/DSH plugin project with
+	//                      its own cargo/node build; cannot affect bun-apps.
 	const PKGS = ["a", "b"];
 
 	test(".planning/ docs only → all false (docs need no package matrix)", async () => {
@@ -247,6 +249,30 @@ describe("computeChangedPackages — matrix-irrelevant paths (scoped, NOT fail-o
 			readDeps: readDepsFrom({ a: [], b: ["a"] }),
 		});
 		expect(map).toEqual({ a: false, b: false });
+	});
+
+	test("dsh-sv-analyzer/ only → all false (standalone project, needs no package matrix)", async () => {
+		const { fn } = mkSpawn({ diffStdout: "dsh-sv-analyzer/plugin/index.js\n" });
+		const map = await computeChangedPackages({
+			repoRoot: REPO,
+			baseRef: "main",
+			spawn: fn,
+			discoverPackages: discover(PKGS),
+			readDeps: readDepsFrom({ a: [], b: ["a"] }),
+		});
+		expect(map).toEqual({ a: false, b: false });
+	});
+
+	test("package file + dsh-sv-analyzer/ file → scoped, NOT all true", async () => {
+		const { fn } = mkSpawn({ diffStdout: "dsh-sv-analyzer/rust/src/lib.rs\nbun-apps/a/x.ts\n" });
+		const map = await computeChangedPackages({
+			repoRoot: REPO,
+			baseRef: "main",
+			spawn: fn,
+			discoverPackages: discover(PKGS),
+			readDeps: readDepsFrom({ a: [], b: ["a"] }),
+		});
+		expect(map).toEqual({ a: true, b: true }); // reverse-BFS, not fail-open
 	});
 
 	test("package file + bun-apps/tests/ file → scoped, NOT all true", async () => {

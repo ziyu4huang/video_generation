@@ -1,0 +1,16 @@
+# Target-scoped link flags for the WASM build only (native builds are
+# unaffected).
+#
+# The tree-sitter / grammar crates compile their C code (lib.c, parser.c)
+# into static archives via cc, but cargo does not forward their
+# `rustc-link-lib` directives on this wasm target, so rust-lld leaves the
+# C API undefined and --allow-undefined turns it into `env` imports.
+# Linking the archives explicitly by filename (resolved through the
+# `-L native=` search paths the crates emit) fixes that: the final module is
+# fully self-contained with zero imports beyond the WASI std surface.
+[target.wasm32-wasip1]
+rustflags = [
+  "-C", "link-arg=-l:libtree-sitter.a",
+  "-C", "link-arg=-l:libtree-sitter-verilog.a",
+  "-C", "link-arg=-l:libtree-sitter-systemverilog.a",
+]
