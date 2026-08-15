@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BUDGET_WRAP_UP_MESSAGE, type BudgetSessionSurface, createBudgetGuard } from "../src/agent.js";
+import { BUDGET_GRACE_CEILING_RATIO, BUDGET_WRAP_UP_MESSAGE, type BudgetSessionSurface, createBudgetGuard } from "../src/agent.js";
 
 /**
  * Fake session for the two-stage budget stop. Mirrors only the seams
@@ -131,8 +131,9 @@ describe("createBudgetGuard — tokenBudget two-stage wrap-up", () => {
 
     // The grace (final) turn streams its flush-to-disk reply — assistant
     // message events with tokens still (monotonically) over budget must not
-    // abort mid-stream (both the usage seam and the turn backstop stay gated).
-    calls.setTokens(1500);
+    // abort mid-stream (both the usage seam and the turn backstop stay gated;
+    // 1200 is over the 1000 limit but under the 1.25x grace ceiling).
+    calls.setTokens(1200);
     guard.onSessionEvent({ type: "message_start", message: { role: "assistant" } });
     guard.onSessionEvent({ type: "message_update", message: { role: "assistant" } });
     guard.onSessionEvent(usageObservation());
@@ -143,7 +144,7 @@ describe("createBudgetGuard — tokenBudget two-stage wrap-up", () => {
     // run() surfaces as status "budget".
     guard.onSessionEvent({ type: "turn_end" });
     expect(calls.abortCount).toBe(1);
-    expect(guard.exhaustion).toEqual({ kind: "tokens", limit: 1000, actual: 1500 });
+    expect(guard.exhaustion).toEqual({ kind: "tokens", limit: 1000, actual: 1200 });
     // Exactly one wrap-up message, ever.
     expect(sent).toHaveLength(1);
 
@@ -183,8 +184,9 @@ describe("createBudgetGuard — tokenBudget two-stage wrap-up", () => {
       expect(calls.abortCount).toBe(0);
       expect(guard.exhaustion).toBeUndefined();
     }
-    // Stats can even keep creeping up mid-grace — still no abort.
-    calls.setTokens(1500);
+    // Stats can even keep creeping up mid-grace — still no abort (under the
+    // 1.25x grace ceiling; the over-ceiling abort has its own tests below).
+    calls.setTokens(1200);
     guard.onSessionEvent({ type: "tool_execution_end" });
     expect(calls.abortCount).toBe(0);
 
@@ -207,7 +209,7 @@ describe("createBudgetGuard — tokenBudget two-stage wrap-up", () => {
     // with tokens still over budget, this very check aborts for real.
     guard.onSessionEvent({ type: "turn_end" });
     expect(calls.abortCount).toBe(1);
-    expect(guard.exhaustion).toEqual({ kind: "tokens", limit: 1000, actual: 1500 });
+    expect(guard.exhaustion).toEqual({ kind: "tokens", limit: 1000, actual: 1200 });
     // Exactly one wrap-up message, ever.
     expect(sent).toHaveLength(1);
 
@@ -317,5 +319,104 @@ describe("createBudgetGuard — tokenBudget two-stage wrap-up", () => {
     expect(BUDGET_WRAP_UP_MESSAGE).toContain("FINAL turn");
     expect(BUDGET_WRAP_UP_MESSAGE).toContain("disk");
     expect(BUDGET_WRAP_UP_MESSAGE).toContain("one-line pointer");
+  });
+});
+
+describe("createBudgetGuard — grace ceiling (hard cap on the #1334 grace window)", () => {
+  test("crossing during grace, total under ceiling → NO abort (wrap-up continues)", () => {
+    const { session, sent, calls } = fakeSession(0, 0);
+    const guard = createBudgetGuard(session, { tokenBudget: 1000 });
+
+    // First crossing issues the wrap-up; grace in-flight.
+    calls.setTokens(1100);
+    guard.onSessionEvent(usageObservation());
+    expect(guard.wrapUpIssued).toBe(true);
+    expect(calls.abortCount).toBe(0);
+
+    // Still over the limit but under tokenBudget * 1.25 (= 1250) — the grace
+    // turn must be allowed to keep streaming (no abort, no exhaustion).
+    calls.setTokens(1249);
+    guard.onSessionEvent(usageObservation());
+    guard.onSessionEvent({ type: "tool_execution_end" });
+    guard.onSessionEvent({ type: "turn_end" }); // issuing turn's end — inert
+    expect(calls.abortCount).toBe(0);
+    expect(guard.exhaustion).toBeUndefined();
+    expect(sent).toHaveLength(1);
+  });
+
+  test("crossing during grace, total over ceiling → abort fires immediately", () => {
+    const { session, calls } = fakeSession(0, 0);
+    const guard = createBudgetGuard(session, { tokenBudget: 1000 });
+
+    calls.setTokens(1100);
+    guard.onSessionEvent(usageObservation());
+    expect(calls.abortCount).toBe(0);
+
+    // Cumulative tokens blow past tokenBudget * 1.25 (= 1250) while the grace
+    // turn is still streaming — hard abort, same path/record as normal token
+    // exhaustion (BudgetExhaustion has no in-grace flag; none is invented).
+    calls.setTokens(1300);
+    guard.onSessionEvent(usageObservation());
+    expect(calls.abortCount).toBe(1);
+    expect(guard.exhaustion).toEqual({ kind: "tokens", limit: 1000, actual: 1300 });
+  });
+
+  test("ceiling also fires on the turn backstop seam mid-grace (before delivery)", () => {
+    const { session, calls } = fakeSession(0, 0);
+    const guard = createBudgetGuard(session, { tokenBudget: 1000 });
+
+    calls.setTokens(1100);
+    guard.onSessionEvent({ type: "tool_execution_start" });
+    expect(calls.abortCount).toBe(0);
+
+    // Issuing turn's turn_end with tokens already over the ceiling (a
+    // big-context child can cross 1.25x within 1-2 rounds of the first
+    // crossing) — abort now, do not wait for the grace turn.
+    calls.setTokens(1600);
+    guard.onSessionEvent({ type: "turn_end" });
+    expect(calls.abortCount).toBe(1);
+    expect(guard.exhaustion).toEqual({ kind: "tokens", limit: 1000, actual: 1600 });
+  });
+
+  test("spend budget exceeded mid-grace → immediate abort (regression)", () => {
+    const { session, sent, calls } = fakeSession(0, 0);
+    const guard = createBudgetGuard(session, { tokenBudget: 1000, spendBudget: 0.5 });
+
+    // Token crossing issues the wrap-up (spend still under at 0.1).
+    calls.setTokens(1100);
+    guard.onSessionEvent(usageObservation());
+    expect(guard.wrapUpIssued).toBe(true);
+    expect(calls.abortCount).toBe(0);
+
+    // Spend crosses while tokens are under the ceiling — money valve wins:
+    // immediate hard abort even mid-grace (both cross → kind "tokens",
+    // same as the pre-existing mid-grace spend test).
+    calls.setCost(0.6);
+    guard.onSessionEvent({ type: "tool_execution_end" });
+    expect(calls.abortCount).toBe(1);
+    expect(guard.exhaustion).toEqual({ kind: "tokens", limit: 1000, actual: 1100 });
+    expect(sent).toHaveLength(1);
+  });
+
+  test("grace re-arm after grace turn_end → subsequent crossing aborts normally (regression)", () => {
+    const { session, sent, calls } = fakeSession(0, 0);
+    const guard = createBudgetGuard(session, { tokenBudget: 1000 });
+
+    // Grace issued, delivered, and its turn completed under the ceiling.
+    calls.setTokens(1100);
+    guard.onSessionEvent(usageObservation());
+    guard.onSessionEvent({ type: "message_start", message: { role: "user" } });
+    calls.setTokens(1200);
+    guard.onSessionEvent({ type: "turn_end" }); // re-arm + over limit → abort
+    expect(calls.abortCount).toBe(1);
+    expect(guard.exhaustion).toEqual({ kind: "tokens", limit: 1000, actual: 1200 });
+    // Exactly one wrap-up message, ever; no third turn.
+    expect(sent).toHaveLength(1);
+    guard.onSessionEvent({ type: "turn_end" });
+    expect(calls.abortCount).toBe(1);
+  });
+
+  test("BUDGET_GRACE_CEILING_RATIO is 1.25", () => {
+    expect(BUDGET_GRACE_CEILING_RATIO).toBe(1.25);
   });
 });
