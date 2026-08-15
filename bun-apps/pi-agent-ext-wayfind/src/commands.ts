@@ -45,6 +45,20 @@ import {
 
 const WAYFIND_KEYWORDS = new Set(["status", "spec", "tickets", "seed", "sync", "done", "validate", "statusbar"]);
 
+// Guard: placeholder words passed as destinations almost always mean "work the next frontier", not a new effort named e.g. "next".
+const PLACEHOLDER_DESTINATIONS = new Set([
+  "next",
+  "continue",
+  "later",
+  "now",
+  "new",
+  "todo",
+  "today",
+  "current",
+  "frontier",
+  "latest",
+]);
+
 /** Resolve the effort id in play for a `/wayfind <args>` invocation, so the
  *  dispatcher can banner it on EVERY run. Mirrors the dispatcher's own parsing
  *  (force-chart `--`, reserved-keyword subcommand, bare chart, no-arg claim) so
@@ -363,6 +377,15 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
           ...(freshnessWarn ? [freshnessWarn] : []),
         ].join("\n"),
         { deliverAs: "steer" },
+      );
+      return;
+    }
+
+    const normalizedDestination = destination.trim().toLowerCase();
+    if (PLACEHOLDER_DESTINATIONS.has(normalizedDestination)) {
+      ctx.ui.notify(
+        `[${PKG_NAME}] "${destination.trim()}" looks like a placeholder, not an effort name. Run /wayfind with no arguments to work the next frontier ticket, or pass a concrete destination (e.g. /wayfind -- resume-zk-spawn).`,
+        "warning",
       );
       return;
     }

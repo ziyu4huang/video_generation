@@ -384,6 +384,27 @@ describe("/grill and /wayfind dispatchers — routing", () => {
     expect(pi.sent.some((s) => s.includes("Charting a wayfinder map"))).toBe(true);
   });
 
+  it("a placeholder destination like 'next' does NOT chart; it notifies guidance instead", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    const { ctx, notifications } = ctxCapturing(cwd);
+    await run(pi, "wayfind", "next", ctx);
+    // No charting steer sent (handler returned early):
+    expect(pi.sent.every((s) => !s.includes("Charting a wayfinder map"))).toBe(true);
+    // No effort dir created under the fake cwd's .planning/:
+    expect(existsSync(join(cwd, ".planning"))).toBe(false);
+    // Guidance notify fired:
+    expect(notifications.some((n) => n.includes("placeholder"))).toBe(true);
+  });
+
+  it("a concrete non-placeholder destination still charts (no over-blocking)", async () => {
+    const { pi } = setup();
+    const ctx = makeCtx(makeCwd());
+    await run(pi, "wayfind", "some-real-topic", ctx);
+    expect(pi.sent.some((s) => s.includes("Charting a wayfinder map for: some-real-topic"))).toBe(true);
+    expect(existsSync(join(ctx.cwd, ".planning"))).toBe(true);
+  });
+
   it("a bare non-keyword phrase while an effort is active shows status, does NOT chart or clobber", async () => {
     const { pi, state } = setup();
     const ctx = makeCtx(makeCwd());
