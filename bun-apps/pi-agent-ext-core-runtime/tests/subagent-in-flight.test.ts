@@ -17,25 +17,25 @@ describe("terminal transitions", () => {
     registry.markCompleted("a", "failed");
     const v = registry.view("a");
     expect(v?.status).toBe("failed");
-    expect(typeof v?.elapsedFrozen).toBe("boolean");
-    expect(registry.get("a")?.endedAt).toBeGreaterThan(0);
+    expect(v?.elapsedFrozen).toBe(true);
   });
 
   test("markCompleted defaults to done (legacy no-arg)", () => {
     start("a");
     registry.markCompleted("a");
-    expect(registry.get("a")?.status).toBe("done");
-    expect(registry.get("a")?.endedAt).toBeGreaterThan(0);
+    const v = registry.view("a");
+    expect(v?.status).toBe("done");
+    expect(v?.elapsedFrozen).toBe(true);
   });
 
   test("markFailed defaults to failed and stamps endedAt", () => {
     start("a");
     registry.markFailed("a");
-    expect(registry.get("a")?.status).toBe("failed");
-    expect(registry.get("a")?.endedAt).toBeGreaterThan(0);
+    expect(registry.view("a")?.status).toBe("failed");
+    expect(registry.view("a")?.elapsedFrozen).toBe(true);
 
     registry.markFailed("a", "timedout");
-    expect(registry.get("a")?.status).toBe("timedout");
+    expect(registry.view("a")?.status).toBe("timedout");
   });
 });
 
@@ -58,9 +58,9 @@ test("views({foreground:false}) filters to background runs; no opts returns all"
   ).toEqual(["bg1", "fg1"]);
 });
 
-test("legacy start({status:'completed'}) coerces to 'done'", () => {
-  start("legacy", { status: "completed" });
-  expect(registry.view("legacy")?.status).toBe("done");
+test("start accepts ActivityStatus only (no legacy 'completed' literal)", () => {
+  registry.start({ id: "s1", startedAt: Date.now(), taskPreview: "task", status: "done" });
+  expect(registry.view("s1")?.status).toBe("done");
 });
 
 test("start defaults omitted status to 'running'", () => {

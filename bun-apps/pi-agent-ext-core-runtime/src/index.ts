@@ -106,8 +106,7 @@ export { isSddReportActionable, parseSddReport, SDD_REPORT_STATUSES } from "./sd
 
 export type { StructuredOutputCapture, StructuredOutputToolOptions } from "./structured-output.js";
 export { createStructuredOutputTool } from "./structured-output.js";
-/** @deprecated Dispatch B removes — use RunView via registry.view(s)(). */
-export type { InFlightSubagent, TerminalStatus } from "./subagent-in-flight.js";
+export type { TerminalStatus } from "./subagent-in-flight.js";
 export {
   getSubagentInFlightRegistry,
   SubagentInFlightRegistry,

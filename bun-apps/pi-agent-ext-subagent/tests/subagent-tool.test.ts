@@ -232,7 +232,7 @@ test("user per-child abort (registry.abort) → status 'aborted' + 'Subagent abo
   // so the registered window is one microtask deeper than before the change.
   await Promise.resolve();
   await Promise.resolve();
-  assert.ok(typeof reg.get("id-u")?.abort === "function", "abort lever wired on the in-flight entry");
+  assert.equal(reg.view("id-u")?.abortable, true, "abort lever wired on the in-flight entry");
   reg.abort("id-u"); // user aborts this one child
   const res = await p;
   assert.equal(res.details.status, "aborted");
@@ -1158,19 +1158,19 @@ test("execute registers on inFlight at start, streams history, deregisters on co
   // so the registered window is one microtask deeper than before the change.
   await Promise.resolve();
   await Promise.resolve();
-  assert.equal(reg.list().length, 1, "registered while in flight");
-  assert.equal(reg.list()[0].id, "id-7");
-  assert.equal(reg.list()[0].agent, "implementer");
-  assert.equal(reg.list()[0].model, "x/flash");
+  assert.equal(reg.views().length, 1, "registered while in flight");
+  assert.equal(reg.views()[0]?.id, "id-7");
+  assert.equal(reg.views()[0]?.actor, "implementer");
+  assert.equal(reg.views()[0]?.modelSeg, "flash");
   // history streams through onHistory → registry.update
   (f.calls[0]?.onHistory as ((h: never[]) => void) | undefined)?.([
     { role: "assistant", kind: "toolCall", toolName: "read", text: "{}" },
   ] as never);
-  assert.equal(reg.list()[0].history?.[0]?.toolName, "read");
+  assert.equal(reg.views()[0]?.history[0]?.toolName, "read");
   // complete → deregistered
   resolveSpawn({ output: "ok", exitCode: 0, stderr: "", timedOut: false });
   await p;
-  assert.equal(reg.list().length, 0, "deregistered after completion");
+  assert.equal(reg.views().length, 0, "deregistered after completion");
 });
 
 test("execute deregisters from inFlight even on failure", async () => {
@@ -1178,7 +1178,7 @@ test("execute deregisters from inFlight even on failure", async () => {
   const f = fakeSpawn(() => ({ output: "", exitCode: 1, stderr: "boom", timedOut: false }));
   const tool = createSubagentTool({ spawn: f.spawn, inFlight: reg });
   await tool.execute("id-8", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
-  assert.equal(reg.list().length, 0, "deregistered even after a failed run");
+  assert.equal(reg.views().length, 0, "deregistered even after a failed run");
 });
 
 // ── persistence hook (ticket 08): durable record per completed run ──

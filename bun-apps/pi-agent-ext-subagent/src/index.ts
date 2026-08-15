@@ -26,7 +26,7 @@
 // Which peer consumes which symbol is recorded in FACADE_SYMBOLS in
 // tests/barrel-surface.test.ts, not in comments here — biome sorts export names,
 // so per-line attribution would drift out of alignment on the next `--write`.
-export type { AgentHistoryEntry, AgentUsage, InFlightSubagent } from "@repo/pi-agent-ext-core-runtime";
+export type { AgentHistoryEntry, AgentUsage } from "@repo/pi-agent-ext-core-runtime";
 export {
   getGlobalRateLimiter,
   getSubagentInFlightRegistry,

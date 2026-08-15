@@ -56,7 +56,7 @@ const FACADE_SYMBOLS: Record<string, string> = {
  * `SpawnSubagentResult.usage: AgentUsage`). Type-only, so they carry no runtime
  * identity concern, but they are still interface surface and still bounded.
  */
-const FACADE_TYPES = new Set(["AgentHistoryEntry", "AgentUsage", "InFlightSubagent"]);
+const FACADE_TYPES = new Set(["AgentHistoryEntry", "AgentUsage"]);
 
 /** Names this barrel re-exports from core-runtime, split by value vs type-only. */
 function coreReExports(source: string): { values: Set<string>; types: Set<string> } {
