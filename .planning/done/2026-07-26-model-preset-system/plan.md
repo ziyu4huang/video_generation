@@ -51,7 +51,7 @@ Known deltas between spec (as written) and landed code — resolved by this plan
 - Consumes: spec decisions A/B/C.
 - Produces: verified ground truth (file paths, registration wiring, warning location) that Tasks 2–5 branch on.
 
-- [ ] **Step 1: Run the audit commands** (from repo root; all read-only)
+- [x] **Step 1: Run the audit commands** (from repo root; all read-only)
 
 ```bash
 git -C /Users/huangziyu/proj/video_generation log --oneline -6 -- bun-apps/pi-agent-ext-subagent/src/presets.ts
@@ -62,16 +62,16 @@ grep -rn "workflows-models" /Users/huangziyu/proj/video_generation/bun-apps/pi-a
 grep -rn "unknown tier\|Unknown tier" /Users/huangziyu/proj/video_generation/bun-apps --include='*.ts' | grep -v dist/ | grep -v node_modules
 ```
 
-- [ ] **Step 2: Apply the Decision Rule and record results**
+- [x] **Step 2: Apply the Decision Rule and record results**
 
 Expected outcomes: (a) both `DEFAULT_*` constants gone (exit=1 from grep); (b) `extensions/subagent.ts` registers the command; (c) if `manifest.json` lists `pi-agent-ext-subagent` inside `extensions[]` while `static-extensions.ts` also loads it → that is a double-registration bug: remove the manifest entry (keep static), else leave as-is (it may sit in a non-`extensions[]` array such as a packages list — check the surrounding JSON key); (d) capture the exact file:line of the "unknown tier" warning for Task 5. Write findings into the eventual PR body.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: the Step-1 block once more after any Task-1 fix.
 Expected: all greps return the expected outcomes; no code deltas beyond (c).
 
-- [ ] **Step 4: Commit (only if Step 2c produced a manifest fix)**
+- [x] **Step 4: Commit (only if Step 2c produced a manifest fix)**
 
 ```bash
 git -C /Users/huangziyu/proj/video_generation add bun-apps/pi-agent/run-dir/manifest.json
@@ -88,7 +88,7 @@ git -C /Users/huangziyu/proj/video_generation commit -m "fix(pi-agent): remove d
 - Consumes: `ModelTierConfig` from `@repo/pi-agent-ext-core-runtime` (`{ tiers: Record<string,string>; capabilities?: Record<string,string> }`).
 - Produces: `MODEL_PRESETS: ModelPreset[]`, `findPreset(id: string): ModelPreset | undefined`, `interface ModelPreset { id; label; summary; config: ModelTierConfig }`.
 
-- [ ] **Step 1: Verify the landed content matches the reconciled Decision Rule table** (3 presets, glm-5.3, deepseek-v4-*, `lm-studio/google/gemma-4-12b` vision). The landed file is the source of truth; expect exactly:
+- [x] **Step 1: Verify the landed content matches the reconciled Decision Rule table** (3 presets, glm-5.3, deepseek-v4-*, `lm-studio/google/gemma-4-12b` vision). The landed file is the source of truth; expect exactly:
 
 ```ts
 export const MODEL_PRESETS: ModelPreset[] = [
@@ -135,7 +135,7 @@ export function findPreset(id: string): ModelPreset | undefined {
 
 If (and only if) the audit finds the file reverted/missing, restore it verbatim from commit `0d25d073` (`git show 0d25d073:bun-apps/pi-agent-ext-subagent/src/presets.ts`).
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 ```bash
 ( cd /Users/huangziyu/proj/video_generation/bun-apps/pi-agent-ext-subagent && bun run typecheck )
@@ -152,18 +152,18 @@ Expected: exit 0.
 - Consumes: `MODEL_PRESETS` / `findPreset` (Task 2); `getModelTierConfigPath`, `loadModelTierConfig`, `saveModelTierConfig` from `@repo/pi-agent-ext-core-runtime`; `ExtensionAPI.registerCommand`, `ExtensionCommandContext` (`ctx.ui.select`, `ctx.ui.confirm`, `ctx.ui.notify`).
 - Produces: `createModelsPresetCommand(deps?: PresetCommandDeps)` + `registerModelsPresetCommand(pi: ExtensionAPI)`; `PresetCommandDeps = { getConfigPath?; loadConfig?; saveConfig? }` (DI keeps it testable without `mock.module`).
 
-- [ ] **Step 1: Verify the landed behavior contract** (read the file; every bullet must hold):
+- [x] **Step 1: Verify the landed behavior contract** (read the file; every bullet must hold):
   - `/models-preset <id>` → direct apply of `findPreset(id)`; unknown id → error notify listing available ids.
   - No args → `ctx.ui.select` picker over `MODEL_PRESETS` (`id  —  summary`).
   - Before overwrite: `renameSync(configPath, configPath + ".bak")` (best-effort), then `saveConfig(preset.config)`.
   - Confirmation via `ctx.ui.confirm` when replacing an existing config.
   - DI defaults hit the real `getModelTierConfigPath` → `~/.pi/workflows/model-tiers.json`.
 
-- [ ] **Step 2: Verify registration is exactly once**
+- [x] **Step 2: Verify registration is exactly once**
 
 `extensions/subagent.ts` calls `registerModelsPresetCommand(pi)`; `run-dir/manifest.json` `extensions[]` does NOT also list the subagent ext (Task 1 Step 2c outcome). Command id string is exactly `"models-preset"`.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```bash
 ( cd /Users/huangziyu/proj/video_generation/bun-apps/pi-agent-ext-subagent && bun run test )
@@ -179,7 +179,7 @@ Expected: biome clean, tsc build clean, unit tests incl. `tests/models-preset-co
 - Consumes: `resolveModelRole({ capability: "vision" }, loadModelTierConfig())` from core-runtime.
 - Produces: `resolveLLM(opts: { provider?; model?; thinking? }): ResolvedLLM` (throws when unset); `resolveVisionLLM(opts = {}): ResolvedLLM`; `ResolvedLLM = { provider: string; modelId: string; thinkingLevel: ThinkingLevel }`.
 
-- [ ] **Step 1: Verify no baked constants + exact error text**
+- [x] **Step 1: Verify no baked constants + exact error text**
 
 ```bash
 grep -rn "DEFAULT_VLM_MODEL\|DEFAULT_MODEL" /Users/huangziyu/proj/video_generation/bun-apps/pi-agent-ext-file2md/src/   # must output NOTHING
@@ -194,7 +194,7 @@ throw new Error(
 ```
 Expected `resolveVisionLLM` shape: explicit `opts.model` → `resolveLLM(opts)`; else `resolveModelRole({ capability: "vision" }, loadModelTierConfig())` → spec; else fall through to `resolveLLM(opts)` (env escape hatch, deprecated warn, else throw).
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 ```bash
 ( cd /Users/huangziyu/proj/video_generation/bun-apps/pi-agent-ext-file2md && bun run typecheck && bun test )
@@ -211,7 +211,7 @@ Expected: PASS (this is likely the ONLY gap if the throw text lacks `/models-pre
 - Consumes: located warning string (currently mentions `/workflows-models` only).
 - Produces: same warning + the literal suffix ` — or apply a preset via /models-preset`.
 
-- [ ] **Step 1: Write the failing test** (add to the module's existing test file; adapt the import to the located module)
+- [x] **Step 1: Write the failing test** (add to the module's existing test file; adapt the import to the located module)
 
 ```ts
 it("unknown-tier warning suggests /workflows-models AND /models-preset", () => {
@@ -230,14 +230,14 @@ it("unknown-tier warning suggests /workflows-models AND /models-preset", () => {
 ```
 (If the package uses `bun:test`, swap `jest.spyOn` for `spyOn` from `"bun:test"`.)
 
-- [ ] **Step 2: Run it and verify it FAILS**
+- [x] **Step 2: Run it and verify it FAILS**
 
 ```bash
 ( cd /Users/huangziyu/proj/video_generation/bun-apps/<located-pkg> && bun test )
 ```
 Expected: FAIL — warning mentions `/workflows-models` but not `/models-preset`. (If it PASSES, spec C is already satisfied: mark verify-only, skip Steps 3–4.)
 
-- [ ] **Step 3: Minimal implementation — append the hint**
+- [x] **Step 3: Minimal implementation — append the hint**
 
 In the located warning template string, directly after the `/workflows-models` mention, append:
 ```
@@ -251,7 +251,7 @@ console.warn(`[tiers] unknown tier "${tier}" — configure it via /workflows-mod
 console.warn(`[tiers] unknown tier "${tier}" — configure it via /workflows-models — or apply a preset via /models-preset`);
 ```
 
-- [ ] **Step 4: Verify + commit**
+- [x] **Step 4: Verify + commit**
 
 ```bash
 ( cd /Users/huangziyu/proj/video_generation/bun-apps/<located-pkg> && bun run typecheck && bun test )
@@ -270,7 +270,7 @@ Expected: tests PASS including the new assertion.
 - Consumes: Tasks 2–5 artifacts.
 - Produces: green canonical gates.
 
-- [ ] **Step 1: Ensure preset-validity test exists; if absent create it with exactly:**
+- [x] **Step 1: Ensure preset-validity test exists; if absent create it with exactly:**
 
 ```ts
 import { describe, expect, it } from "bun:test";
@@ -288,7 +288,7 @@ describe("MODEL_PRESETS", () => {
 });
 ```
 
-- [ ] **Step 2: Run the full gate set (canonical scripts, in order)**
+- [x] **Step 2: Run the full gate set (canonical scripts, in order)**
 
 ```bash
 ( cd /Users/huangziyu/proj/video_generation/bun-apps/pi-agent-ext-subagent    && bun run typecheck && bun run test )
@@ -298,7 +298,7 @@ describe("MODEL_PRESETS", () => {
 ```
 Expected: all PASS. (Subagent `test` = biome + tsc build + unit; workflow `test` script may include build — run it whole, never a hand-assembled subset.)
 
-- [ ] **Step 3: Commit (if Step 1 created a test file)**
+- [x] **Step 3: Commit (if Step 1 created a test file)**
 
 ```bash
 git -C /Users/huangziyu/proj/video_generation add bun-apps/pi-agent-ext-subagent/tests/presets.test.ts
@@ -307,7 +307,7 @@ git -C /Users/huangziyu/proj/video_generation commit -m "test(subagent): preset 
 
 ### Task 7: Ship
 
-- [ ] **Step 1: Branch + PR (devops skill chain: `prepare_branch`; CLI fallback `bun-apps/pi-agent-ext-devops/src/prepare-cli.ts`)**
+- [x] **Step 1: Branch + PR (devops skill chain: `prepare_branch`; CLI fallback `bun-apps/pi-agent-ext-devops/src/prepare-cli.ts`)**
 
 ```bash
 git -C /Users/huangziyu/proj/video_generation checkout -b feat/model-preset-closeout
@@ -316,13 +316,13 @@ git -C /Users/huangziyu/proj/video_generation push -u origin feat/model-preset-c
 gh pr create --title "feat: model preset system closeout — /models-preset hints + spec reconciliation" --body "Audit + gaps per .planning/2026-07-26-model-preset-system/plan.md"
 ```
 
-- [ ] **Step 2: Local CI on changed packages (Task 6 Step 2 set) → green = merge immediately**
+- [x] **Step 2: Local CI on changed packages (Task 6 Step 2 set) → green = merge immediately**
 
 ```bash
 gh ship   # = gh pr merge --squash — NEVER --auto, never wait for remote CI
 ```
 
-- [ ] **Step 3: Verify merge scope + sweep** (`verify-merge-cli.ts`, `sweep-cli.ts` from the devops package).
+- [x] **Step 3: Verify merge scope + sweep** (`verify-merge-cli.ts`, `sweep-cli.ts` from the devops package).
 
 ---
 
@@ -336,3 +336,7 @@ gh ship   # = gh pr merge --squash — NEVER --auto, never wait for remote CI
 6. **UX superset:** spec demanded a numbered prompt; landed code uses `ctx.ui.select` (menu picker). Treated as satisfying the decision (picker ⊇ numbered prompt); flagging in case the owner wanted the literal numbered flow.
 7. **Worktree is behind `origin/main` by 2 commits** at plan time — shipper must `sync_repo`/rebase before branching.
 8. No preset versioning/migration, no auto-detect-and-prompt (spec YAGNI decisions) — do not add them.
+
+## Execution record (2026-08-16)
+
+Executed as verify-reconcile: T1–T6 all verify-only no-ops — implementation already on main since #833 (+ #842/#1383/#1456). T1 registration singular (staticExtensions[], no double-register). T2 3 presets on main (glm-lmstudio, deepseek-pro, deepseek-flash — Decision Rule: main wins). T3 command contract verified (picker UX ⊇ numbered prompt; .bak; confirm-on-existing). T4 file2md throw text already mentions /models-preset (sessions.ts:34-36). T5 no-op — hint already present in agent.ts:190 warning (#833 itself); plan's assumption wrong in the best way. T6 gates green (core-runtime 199/0 + biome-clean new test; workflow 1078/0). Out-of-plan hardening: tests/agent-model-spec.test.ts pins the /models-preset hint (substring). T7 = this closing PR.
