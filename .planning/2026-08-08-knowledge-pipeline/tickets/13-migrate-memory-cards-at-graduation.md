@@ -45,5 +45,5 @@ Execute the graduation milestone decided in ticket 05: move hermes's existing se
 
 ## Wave status
 - **A SHIPPED (#1363, 2026-08-15)**: card-store dual-backend (surreal via SurrealMemoryRepository, C6 dedup rides; md/dep-hash SQLITE_ONLY documented) + BackendBundle.cardStore (both branches + fallback + hot-swap). Review SHIP 9/9; 1614 tests green, surreal live 8/8.
-- B (writer re-point + lazy re-migration) — next.
-- C (Tier-1 + legacy deletion + harness) — after B.
+- **B SHIPPED (#1372, 2026-08-15)**: all memory-kind mirrors re-pointed to bundle cardStore via new `memory-card-mirror.ts` (add/replace/remove/entry; serializer-registry envelopes, no hand-rolled); sync-markdown startup = lazy re-migration (idempotent, md_id-keyed, real-cardStore tested); delete-by-md-id surfaced + exercised; memory-mirror sole-source grep gate. Runaway-dispatch salvage: payload verified clean. Review SHIP 10/10; 1625 tests green, surreal contract 45/0 live. md-canonical untouched (memory-store.ts zero diff).
+- C (Tier-1 walk mirror + legacy deletion + harness) — next.
