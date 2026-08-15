@@ -1,6 +1,6 @@
 # Ticket 01 — Exhaustive `persistedToSnapshot` adapter in `run-persistence.ts`
 
-> Wave 1 · spec §2.1 · status: open
+> Wave 1 · spec §2.1 · status: **done** — PR #1371 (squash-merged)
 
 ## Goal
 
@@ -27,3 +27,11 @@ structurally impossible.
 - `bun-apps/pi-agent-ext-workflow/src/run-persistence.ts` (adapter + exhaustiveness check)
 - `bun-apps/pi-agent-ext-workflow/src/workflow-ui.ts` (delete local copy, import adapter)
 - `bun-apps/pi-agent-ext-workflow/tests/` (round-trip + legacy-omit regression)
+
+## Done — PR #1371
+
+TDD proofs fired: failing-first (export-not-found) and TS2741 exhaustiveness (removing the
+`tokens:` row fails `bun run build`); final gate 1073 tests / 0 fail / 3 todo.
+Drift from plan verbatim (behavior identical): test used `errorCode: "AGENT_TIMEOUT"`
+(plan's `"E_TOOL"` is not in the `WorkflowErrorCode` enum — plan's fallback note permits it);
+`workflow-ui.ts` dropped the now-unused `PersistedRunState` type import (Biome `noUnusedImports`).
