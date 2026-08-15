@@ -106,7 +106,7 @@ To add/remove a workspace-local extension or skill, edit `run-dir/manifest.json`
 `dependency` in `package.json` AND add its `{ pkg, entry }` to the
 `npmExtensions` array in `run-dir/manifest.json` — that one array is the single
 source of truth read by both `run-dir/resolve.ts` (source mode) and
-`scripts/lib/codegen.ts` (which bakes resolved paths into the bundle).
+`../pi-agent-ext-devops/scripts/lib/codegen.ts` (which bakes resolved paths into the bundle).
 > `rpiv-todo` is intentionally NOT in `npmExtensions`: this user's global
 > `~/.pi/agent/settings.json` already loads it, so a second copy here crashes
 > with `Tool "todo" conflicts`. Another clone/environment must add it to their
@@ -115,7 +115,9 @@ source of truth read by both `run-dir/resolve.ts` (source mode) and
 Everything in `manifest.json` above loads **every** session — fine for cheap,
 general-purpose extensions, wrong for heavy on-demand ones (e.g.
 `pi-agent-ext-workflow`'s `workflow` tool costs ~2.5k tok/req). Those live in a
-separate **lazy registry**, `run-dir/settings.json`:
+separate **lazy registry** — the `lazyExtensions` field of the same
+`run-dir/manifest.json` (there is no `run-dir/settings.json`; the old
+`settings.json` was consolidated into the manifest):
 ```json
 { "lazyExtensions": { "workflow": "pi-agent-ext-workflow/extensions/workflow.ts", … } }
 ```
@@ -136,7 +138,7 @@ unique substring match (ambiguous → no guess, defers to SDK) → directory
 fallback (`<bun-apps>/<alias>/extensions/` with exactly one `.ts`). Real paths
 and URL schemes (`npm:`, `git:`, `file:`, `./…`, `/abs/…`) are passed through
 untouched, so `-e /real/path.ts` still works. To register a new opt-in
-extension, add one line to `run-dir/settings.json`.
+extension, add one line to `run-dir/manifest.json`'s `lazyExtensions` object.
 ### Flag semantics: `-ne` / `-ns`
 User-passed `-ne`/`--no-extensions` and `-ns`/`--no-skills` are honored by the
 wrapper (since 2026-07-19):
@@ -194,20 +196,22 @@ To still ship *some* extensions in the binary, the static extension set (`run-di
 are **statically imported** instead, in `src/static-extensions.ts`:
 ```
 Group A (original "general productivity" set):
-  pi-agent-ext-core-task · pi-agent-ext-hermes-memory · pi-agent-ext-superpowers
-  pi-agent-ext-wayfind   · pi-agent-ext-web-access
+  pi-agent-ext-core-task · pi-agent-ext-prompt-history · pi-agent-ext-hermes-memory
+  pi-agent-ext-superpowers · pi-agent-ext-wayfind · pi-agent-ext-web-access
 Group B (migrated from dynamic `-e`, tool-providing):
-  pi-agent-ext-obsidian  · pi-agent-ext-btw · pi-agent-ext-file2md
-  pi-agent-ext-workflow  · pi-agent-ext-knowledge-card
+  pi-agent-ext-obsidian · pi-agent-ext-btw · pi-agent-ext-file2md
+  pi-agent-ext-subagent · pi-agent-ext-workflow · pi-agent-ext-knowledge-card
+  pi-agent-ext-power-tool
 ```
 A static `import` is a native in-memory reference (no jiti involved), so
 `bun build --compile` inlines it into the executable like any other code —
 `main(argv, { extensionFactories: STATIC_EXTENSION_FACTORIES })` registers
-them without ever touching the `-e` path. These 10 are deliberately **absent**
+them without ever touching the `-e` path. These 13 are deliberately **absent**
 from `manifest.json`'s `extensions` array (keeping both would double-register
 them — a jiti-loaded module and a natively-imported module aren't guaranteed
-to be the same module identity) but Group A does keep a `binarySkills` entry
-there: their skill directories are plain markdown (no jiti/dynamic code
+to be the same module identity) but four of them — hermes-memory, superpowers,
+wayfind, web-access — keep `binarySkills` entries there: their skill directories
+are plain markdown (no jiti/dynamic code
 involved), so `../pi-agent-ext-devops/scripts/deploy.ts`'s `--exe` mode ships them as sibling dirs
 next to the exe (`dist/pi-agent/<ext>/skills/`), and `resolve.ts` still emits
 `--skill <path>` for them in binary mode.
@@ -223,8 +227,8 @@ bun src/cli.ts ext doctor --json           # verify every static factory registe
                                             # the binary's own `ext doctor` isn't binary-mode-aware)
 ```
 CI's `compile-verify` job (`.github/workflows/ci.yml`) builds the binary on
-every `pi-agent`-touching PR and asserts: `doctor --json` is healthy, all 10
-static extensions (Group A productivity + Group B tool-providing) register with
+every `pi-agent`-touching PR and asserts: `doctor --json` is healthy, all 13
+static extensions (6 Group A productivity + 7 Group B tool-providing) register with
 0 conflicts, all 4 `binarySkills` paths resolve, and obsidian's module body
 IS inlined into the compiled binary (`strings … | grep -c obsidian_list`
 must be `>0`) — proving Group B's static imports actually got bundled, not
@@ -355,15 +359,12 @@ pi-agent/
 ├── package.json            # bin: pi-agent → src/cli.ts; also holds the migrated npm extension deps
 ├── README.md
 ├── run-dir/
-│   ├── manifest.json          # this repo's fixed extension/skill list (eager; edit this)
-│   ├── settings.json          # lazy/opt-in extension aliases (loaded only via -e <alias>)
-│   └── resolve.ts             # resolves manifest.json + lazy aliases to absolute argv
+│   ├── manifest.json          # this repo's fixed extension/skill list (eager; edit this) + lazyExtensions aliases
+│   └── resolve.ts             # resolves manifest.json extensions + lazy aliases to absolute argv
 ├── scripts/
-│   ├── deploy.ts               # unified build+deploy: --bundle/--snapshot/--standalone/--exe
 │   ├── generate-embedded-assets.ts  # codegen for --exe's embedded theme/skills/assets
-│   └── lib/
-│       ├── codegen.ts               # pi-pkg-dir.ts / run-dir-base.ts / embedded-assets.ts generators
-│       └── build-extensions.ts      # THIN ext-bundles/*.thin.js builder (bundle/standalone modes)
+│   ├── run-ext-e2e.sh / run-image-agent-e2e.sh / run-self-improve-loop.sh  # opt-in runner scripts
+│   └── (deploy.ts + lib/ moved to ../pi-agent-ext-devops/scripts/ — see #1305)
 └── src/
     ├── cli.ts                    # entry — `cli` argv intercept, then applyPatches() → main(argv)
     ├── pre-load-providers.ts     # PROVIDERS config, pure, no side effects (edit this)

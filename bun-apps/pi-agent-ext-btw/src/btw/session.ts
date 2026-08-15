@@ -40,6 +40,7 @@ import {
   BTW_EVENT_CHANNEL,
   type BtwCommand,
   type BtwEvent,
+  type BtwThinkingLevel,
   type BtwThreadState,
 } from "./webui-events";
 import {
@@ -101,6 +102,18 @@ function createBtwResourceLoader(
     extendResources: () => {},
     reload: async () => {},
   };
+}
+
+/**
+ * Narrow a SessionThinkingLevel ("off" | "minimal" | "low" | "medium" | "high"
+ * | "xhigh" | "max") into the BtwThinkingLevel domain the webui event contract
+ * exposes ("off" | "low" | "medium" | "high"). The webui's thinking select has
+ * no minimal/xhigh/max options, so those map to their nearest neighbor.
+ */
+function toBtwThinkingLevel(level: SessionThinkingLevel): BtwThinkingLevel {
+  if (level === "minimal") return "low";
+  if (level === "xhigh" || level === "max") return "high";
+  return level; // "off" | "low" | "medium" | "high"
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -405,7 +418,7 @@ export class BtwEngine {
             api: this.btwModelOverride.api,
           }
         : null,
-      thinking: this.btwThinkingOverride,
+      thinking: this.btwThinkingOverride === null ? null : toBtwThinkingLevel(this.btwThinkingOverride),
     };
   }
 
@@ -728,14 +741,13 @@ export class BtwEngine {
     if (!question) { this.setOverlayStatus("Enter a BTW prompt before submitting.", ctx); return; }
     if (!("getSystemPrompt" in ctx)) { this.setOverlayStatus("BTW overlay submit requires a command context.", ctx); return; }
 
-    const cmdCtx = ctx as ExtensionContext;
     const btwCmd = this.parseOverlayBtwCommand(question);
-    if (btwCmd) { this.setOverlayDraft(""); await this.dispatchBtwCommand(btwCmd.name, btwCmd.args, cmdCtx); return; }
+    if (btwCmd) { this.setOverlayDraft(""); await this.dispatchBtwCommand(btwCmd.name, btwCmd.args, ctx); return; }
 
     this.setOverlayDraft("");
     this.setOverlayStatus("⏳ streaming...", ctx);
     this.syncUi(ctx);
-    await this.runBtw(cmdCtx, question, false);
+    await this.runBtw(ctx, question, false);
   }
 
   // ── Thread management ────────────────────────────────────────────────────

@@ -22,16 +22,17 @@ this meant the compiled binary shipped with **zero extensions**.
 
 ## The fix: a static extension subset (two groups)
 
-`src/static-extensions.ts` statically imports 10 extensions, in two groups
+`src/static-extensions.ts` statically imports 13 extensions, in two groups
 added at different times:
 
 ```
 Group A — original "general productivity" set:
-  pi-agent-ext-core-task, pi-agent-ext-hermes-memory, pi-agent-ext-superpowers,
-  pi-agent-ext-wayfind, pi-agent-ext-web-access
+  pi-agent-ext-core-task, pi-agent-ext-prompt-history, pi-agent-ext-hermes-memory,
+  pi-agent-ext-superpowers, pi-agent-ext-wayfind, pi-agent-ext-web-access
 Group B — migrated from dynamic `-e` (tool-providing):
   pi-agent-ext-obsidian, pi-agent-ext-btw, pi-agent-ext-file2md,
-  pi-agent-ext-workflow, pi-agent-ext-knowledge-card
+  pi-agent-ext-subagent, pi-agent-ext-workflow, pi-agent-ext-knowledge-card,
+  pi-agent-ext-power-tool
 ```
 
 Group B extensions used to be in `manifest.json`'s dynamic `extensions`
@@ -50,7 +51,7 @@ await main(process.argv.slice(2), { extensionFactories: STATIC_EXTENSION_FACTORI
 ```
 
 This registration happens in **every** mode (source/bundle/binary), not just
-binary — so all 4 modes exercise identical code for these 10, and they are
+binary — so all 4 modes exercise identical code for these 13, and they are
 deliberately **removed** from `manifest.json`'s dynamic `extensions` array
 (keeping both would double-register: a jiti-loaded module and a natively
 imported module aren't guaranteed to be the same module identity).
@@ -69,7 +70,7 @@ exposes the root `.` entry, pointing at a `dist/index.js` build output that
 doesn't exist in this checkout (no build step has run for them) — a
 `@repo/pi-agent-ext-superpowers/extensions/index.ts` subpath specifier
 can't resolve through that map at all. Relative imports bypass `exports`
-resolution entirely, so the same pattern works uniformly across all 10
+resolution entirely, so the same pattern works uniformly across all 13
 regardless of each package's own `exports` map.
 
 ### Why NOT `require()`

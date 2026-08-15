@@ -21,17 +21,7 @@ import { tmpdir } from "node:os";
 import manifest from "../run-dir/manifest.json";
 import { PATCH_TABLE, resolvePatchPlan } from "./patches/index.ts";
 import { PROVIDERS, resolveApiKey, type ApiKey } from "./pre-load-providers.ts";
-
-/**
- * Coarse mode from the module URL. NOTE: src/mode.ts's detectMode keys off a
- * "/run-dir/" marker (it's designed for resolve.ts); doctor.ts lives in src/,
- * so detect straight from the URL: source runs the .ts directly, a shipped
- * deploy is the bundled .js, the compiled binary is bun's virtual scheme.
- */
-function coarseFromUrl(url: string): "source" | "bundle" | "binary" {
-	if (url.includes("$bunfs") || url.includes("~BUN") || url.includes("%7EBUN")) return "binary";
-	return url.endsWith(".ts") ? "source" : "bundle";
-}
+import { detectMode } from "./mode.ts";
 
 export type CheckStatus = "pass" | "warn" | "fail" | "info";
 
@@ -173,7 +163,7 @@ export function checkExtensions(ctx: DoctorContext): CheckResult {
  * (source/binary resolve their own).
  *
  * KNOWN GAP — not "every deploy mode", only every mode doctor can tell apart.
- * A `--snapshot` deploy ships raw `.ts`, so coarseFromUrl calls it `source` and
+ * A `--snapshot` deploy ships raw `.ts`, so detectMode(…, "/src/") calls it `source` and
  * it takes the INFO branch — yet host deps are genuinely essential there
  * (deploy.ts's stageSnapshotHostDeps exists for exactly that reason: the
  * snapshot's own root is `target/`, so without those links the first sibling
@@ -473,7 +463,6 @@ export interface RunOptions {
 
 /** Build the real DoctorContext from process state + the module's location. */
 export function realContext(moduleUrl: string, env: Record<string, string | undefined>): DoctorContext {
-	const coarse = coarseFromUrl(moduleUrl);
 	const selfDir = dirname(fileURLToPath(moduleUrl));
 	// Binary mode has no separate entry FILE to verify — the compiled exe IS
 	// the entry (there's no sibling pi-agent.js shipped alongside `--compile`
@@ -481,6 +470,10 @@ export function realContext(moduleUrl: string, env: Record<string, string | unde
 	// passes instead of always failing against a pi-agent.js that never ships
 	// in this mode (a pre-existing gap: this branch was never binary-mode-aware
 	// before the compiled binary shipped real extensions worth doctoring).
+	// detectMode's source marker is "/src/" — doctor.ts's own dir — which also
+	// matches a --snapshot deploy (it ships raw .ts under src/), mirroring the
+	// old coarseFromUrl's `.endsWith(".ts")` rule.
+	const coarse = detectMode(moduleUrl, "/src/");
 	const entryPath =
 		coarse === "source" ? join(selfDir, "cli.ts") : coarse === "binary" ? process.execPath : join(selfDir, "pi-agent.js");
 	// Annotated (not inferred) so an unused marker is a tsc error rather than an

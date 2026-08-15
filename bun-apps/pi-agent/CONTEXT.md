@@ -28,8 +28,8 @@ _Avoid_: config dir, settings (it is a cwd-independent resource manifest, not us
 The **eager** extension/skill list — loaded every session. Edit this to add/remove workspace-local extensions.
 _Avoid_: extension list (too generic; distinguish from the lazy registry)
 
-**Lazy extension** (`run-dir/settings.json` `lazyExtensions`):
-An opt-in extension resolved only when invoked via `-e <alias>` (e.g. `workflow`). Costs zero context unless asked for by alias — for heavy on-demand tools.
+**Lazy extension** (`run-dir/manifest.json` `lazyExtensions`):
+An opt-in extension resolved only when invoked via `-e <alias>` (e.g. `workflow`). Costs zero context unless asked for by alias — for heavy on-demand tools. (No `run-dir/settings.json` exists — the registry is a field of the manifest.)
 _Avoid_: optional extension, plugin (it is alias-gated, zero-cost-until-invoked)
 
 **Alias resolution**:
@@ -37,7 +37,7 @@ _Avoid_: optional extension, plugin (it is alias-gated, zero-cost-until-invoked)
 _Avoid_: alias mapping, shortcut
 
 **npmExtensions**:
-The single array in `manifest.json` that is the source of truth for npm-sourced extensions, read by both `resolve.ts` (source) and `scripts/lib/codegen.ts` (bundle).
+The single array in `manifest.json` that is the source of truth for npm-sourced extensions, read by both `resolve.ts` (source) and `../pi-agent-ext-devops/scripts/lib/codegen.ts` (bundle).
 _Avoid_: deps list, package array
 
 ### Build & deploy
