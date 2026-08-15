@@ -22,13 +22,14 @@ Subagent live view + finalize report become terminal-width-aware and markdown-re
 
 - Finalize renderer: pi-tui `Markdown` + `getMarkdownTheme()`; settled branch returns Container = header Text + Markdown body; streaming branch unchanged.
 - Split from the dynamic-budget work into its own effort (different blast radius).
+- [01 — Width-aware pure render layer](tickets/01-width-aware-pure-render-layer.md) — five pure helpers + settled-collapsed truncate by explicit column width; shared truncation helper prefactor; constants become min() upper bounds; defaults keep today's behavior.
+- [02 — Width-aware mounting: compose-in-render](tickets/02-width-aware-component-mounting.md) — renderCall/renderResult (single + batch tools) return components composing inside render(width); resize re-flow free; settled-collapsed cap width-derived; streaming shapes untouched.
+- [03 — Markdown finalize report](tickets/03-markdown-finalize-report.md) — settled expanded = header row + Markdown body via getMarkdownTheme() matching host chat; streaming partials stay plain capped text (#1104 preserved).
+- [04 — Background-runs rows width-aware](tickets/04-background-runs-rows-width.md) — bottom-panel subagents section consumes its discarded width; shared row helpers gain optional width defaulting to today's constants; detached viewer byte-identical.
 
 ## Not yet specified
 
-- Width source (process.stdout.columns vs TUI resize event — must re-flow on resize)
-- Truncation helper redesign (ellipsis placement, min-width floor, CJK width handling)
-- Which exact lines move to width-aware
-- Ticket carve (tracer bullets)
+_None_
 
 ## Out of scope
 
