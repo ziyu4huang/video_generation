@@ -26,8 +26,10 @@ import { createStructuredOutputTool, type StructuredOutputCapture } from "./stru
 // them from agent.js (and index.ts re-exports them from here), so the names
 // must stay reachable at this path. Import above ONLY what agent.ts itself
 // CALLS — a symbol that is merely re-exported needs no local binding, and
-// adding one trips biome's noUnusedImports.
-export { listAvailableModelSpecs } from "./model-specs.js";
+// adding one trips biome's noUnusedImports. Entries are sorted by module path;
+// biome's assist/source/organizeImports enforces that, so an out-of-order line
+// fails `bun run check` rather than being flagged here.
+export { listAvailableModelSpecs } from "./available-models.js";
 export { lastAssistantError, throwIfProviderLimit } from "./provider-limit.js";
 
 /**

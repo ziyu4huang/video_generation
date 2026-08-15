@@ -1,10 +1,14 @@
 /**
  * Lists the user's available model specs (provider/modelId, auth configured).
  *
- * Split out of agent.ts so model-tier-config.ts can call listAvailableModelSpecs
- * without importing agent.js — that back-edge would otherwise cycle once a
- * planned agent-model.ts extraction pulls model/tier resolution out of agent.ts
- * and into a module that itself needs model-tier-config.js.
+ * Split out of agent.ts to break a cycle that already existed: agent.ts imports
+ * model-tier-config.js, while model-tier-config.ts needed listAvailableModelSpecs
+ * from agent.js. Holding it in a leaf makes that edge one-way, which is also what
+ * lets model/tier resolution move out of agent.ts into a module that itself
+ * imports model-tier-config.js.
+ *
+ * Named for what it holds — availability, not resolution. Resolving a spec
+ * (tier/fallback → one model) is a different concern and lives elsewhere.
  */
 import { join } from "node:path";
 import { getAgentDir, ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";

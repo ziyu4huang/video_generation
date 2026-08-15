@@ -17,7 +17,7 @@ Source spec: `.planning/specs/2026-08-15-core-packages-simplification-design.md`
 The spec's 1b said three new modules. Empirical dependency mapping found **two cycles the spec missed**, so 1b needs five:
 
 1. `resolveStructuredOutput` (agent.ts:114-175) calls `throwIfProviderLimit` (agent.ts:72-100), and `agent.ts` already imports `structured-output.js`. Moving the former into `structured-output.ts` creates `structured-output → agent → structured-output`. **Fix:** extract `provider-limit.ts` first.
-2. `agent-model` code (agent.ts:176-260) uses four symbols from `model-tier-config.js`, while `model-tier-config.ts:12` imports `listAvailableModelSpecs` from `agent.js`. **Fix:** extract `listAvailableModelSpecs` into its own `model-specs.ts` first, which both then import.
+2. `agent-model` code (agent.ts:176-260) uses four symbols from `model-tier-config.js`, while `model-tier-config.ts:12` imports `listAvailableModelSpecs` from `agent.js`. **Fix:** extract `listAvailableModelSpecs` into its own `available-models.ts` first, which both then import.
 
 `resolve.ts` has a third, smaller one: `warn()` is called 10× *after* line 315, so it cannot simply travel with the deps-probe block. It moves to `deps-probe.ts` and `resolve.ts` imports it back — direction stays one-way because `resolve.ts` already calls `maybeAutoInstall` / `emitMissingDepsGuide`.
 
@@ -30,7 +30,7 @@ Update the spec's 1b table as part of Task A7.
 | File | Status | Source lines | Responsibility |
 |---|---|---|---|
 | `provider-limit.ts` | create | agent.ts:72-100 | detect a provider-limit stop reason and throw the typed error |
-| `model-specs.ts` | create | agent.ts:298-311 | list model specs available in the agent dir |
+| `available-models.ts` | create | agent.ts:298-311 | list model specs available in the agent dir |
 | `agent-budget.ts` | create | agent.ts:312-631 | token/cost budget accounting and the budget guard |
 | `agent-turns.ts` | create | agent.ts:632-717 | turn counting and the turn guard |
 | `agent-model.ts` | create | agent.ts:176-260 | model-spec resolution and tier fallback |
@@ -110,10 +110,28 @@ found `errors.ts:138`. Already known to be waiting: `model-tier-config.ts:10`
 ("repair-loop fallback (agent.ts)") for Task A6. Before committing, run:
 
 ```bash
-grep -rn 'agent\.ts' bun-apps/pi-agent-ext-core-runtime/src/ | grep -v '^bun-apps/pi-agent-ext-core-runtime/src/agent.ts:'
+grep -rnE '(agent|available-models|agent-budget|agent-turns|agent-model|structured-output|provider-limit)\.(ts|js)' \
+  bun-apps/pi-agent-ext-core-runtime/src/
 ```
 
 and fix any pointer that now names the wrong file.
+
+**Both extensions matter.** The first version of this sweep matched only
+`agent\.ts`, so it structurally could not see `model-role-config.ts:5`, which said
+`agent.js` — and that is exactly how A2 shipped with a stale reciprocal pointer.
+Prose in this package uses both specifier styles.
+
+**Check the reciprocal, not just the file you edited.** When module X stops
+importing Y, it is usually *Y's* header (or a third sibling's) that becomes false.
+The model cluster produced two rounds of this: `errors.ts:138` after A1, then
+`model-role-config.ts:5` after A2 — the second one *created* by fixing the first.
+Whenever a header claims "split so consumers avoid pulling in Z", re-verify that Z
+is still what gets avoided.
+
+**A header must state present facts, not plans.** A2's first header described its
+cycle in the future tense ("would otherwise cycle once agent-model.ts is
+extracted") when the cycle already existed, and named a file that does not exist
+yet. Assert only what is true and checkable at commit time.
 
 **Facade re-export convention (set by A1, follow it):** put every re-export in the
 single annotated block below the import list in `agent.ts` — not at the old
@@ -202,15 +220,15 @@ resolveStructuredOutput calls throwIfProviderLimit, and agent.ts
 already imports structured-output.js."
 ```
 
-### Task A2: Extract `model-specs.ts`
+### Task A2: Extract `available-models.ts`
 
 **Files:**
-- Create: `bun-apps/pi-agent-ext-core-runtime/src/model-specs.ts`
+- Create: `bun-apps/pi-agent-ext-core-runtime/src/available-models.ts`
 - Modify: `bun-apps/pi-agent-ext-core-runtime/src/agent.ts`, `src/model-tier-config.ts`
 
 - [ ] **Step 1: Create the new module**
 
-Create `src/model-specs.ts` containing verbatim `agent.ts` lines 298-311 (`listAvailableModelSpecs`), with:
+Create `src/available-models.ts` containing verbatim `agent.ts` lines 298-311 (`listAvailableModelSpecs`), with:
 
 ```ts
 import { getAgentDir, ModelRegistry } from "@earendil-works/pi-coding-agent";
@@ -227,7 +245,7 @@ import { listAvailableModelSpecs } from "./agent.js";
 to:
 
 ```ts
-import { listAvailableModelSpecs } from "./model-specs.js";
+import { listAvailableModelSpecs } from "./available-models.js";
 ```
 
 This is the cycle break: `agent-model.ts` (Task A5) needs `model-tier-config.js`, so `model-tier-config.ts` must stop reaching back into `agent.js`.
@@ -237,7 +255,7 @@ This is the cycle break: `agent-model.ts` (Task A5) needs `model-tier-config.js`
 Delete lines 298-311 from `agent.ts`; add:
 
 ```ts
-export { listAvailableModelSpecs } from "./model-specs.js";
+export { listAvailableModelSpecs } from "./available-models.js";
 ```
 
 - [ ] **Step 4: Verify**
@@ -252,8 +270,8 @@ Expected: typecheck exit 0; `model-tier-config.test.ts` (151 lines) still passes
 - [ ] **Step 5: Commit**
 
 ```bash
-git add bun-apps/pi-agent-ext-core-runtime/src/model-specs.ts bun-apps/pi-agent-ext-core-runtime/src/agent.ts bun-apps/pi-agent-ext-core-runtime/src/model-tier-config.ts
-git commit -m "refactor(core-runtime): extract model-specs.ts and cut the model-tier-config back-edge"
+git add bun-apps/pi-agent-ext-core-runtime/src/available-models.ts bun-apps/pi-agent-ext-core-runtime/src/agent.ts bun-apps/pi-agent-ext-core-runtime/src/model-tier-config.ts
+git commit -m "refactor(core-runtime): extract available-models.ts and cut the model-tier-config back-edge"
 ```
 
 ### Task A3: Extract `agent-budget.ts`
@@ -453,7 +471,7 @@ git commit -m "refactor(core-runtime): move structured-output extraction beside 
 
 - [ ] **Step 1: Repoint `index.ts`**
 
-`index.ts` lines 5-40 currently re-export everything from `./agent.js`. Change each symbol's source to its new owning module (`./agent-budget.js`, `./agent-turns.js`, `./agent-model.js`, `./model-specs.js`, `./provider-limit.js`, `./structured-output.js`), leaving only `CoreAgent` and its option/result types on `./agent.js`.
+`index.ts` lines 5-40 currently re-export everything from `./agent.js`. Change each symbol's source to its new owning module (`./agent-budget.js`, `./agent-turns.js`, `./agent-model.js`, `./available-models.js`, `./provider-limit.js`, `./structured-output.js`), leaving only `CoreAgent` and its option/result types on `./agent.js`.
 
 The exported **names** must not change. Verify with:
 
@@ -470,10 +488,10 @@ Add to `bun-apps/pi-agent-ext-core-runtime/CONTEXT.md`, in the existing term-def
 ```markdown
 **Module layout** — `agent.ts` owns `CoreAgent` only. Budget accounting lives in
 `agent-budget.ts`, turn counting in `agent-turns.ts`, model/tier resolution in
-`agent-model.ts`, spec listing in `model-specs.ts`, provider-limit detection in
+`agent-model.ts`, spec listing in `available-models.ts`, provider-limit detection in
 `provider-limit.ts`, structured-output extraction beside its tool in
 `structured-output.ts`. Two edges are load-bearing and must stay one-way:
-`model-tier-config.ts` must NOT import from `agent.js` (use `model-specs.js`),
+`model-tier-config.ts` must NOT import from `agent.js` (use `available-models.js`),
 and `structured-output.ts` must NOT import from `agent.js` (use
 `provider-limit.js`). Both were cycles before the 2026-08-15 split.
 ```
