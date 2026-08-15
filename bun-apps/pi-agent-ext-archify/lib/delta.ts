@@ -4,8 +4,9 @@ import { isAbsolute, join, extname } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { runArchify } from "./run.ts";
 import { resolveOutputPath } from "./output-path.ts";
+import { announceOpen, type OpenBus } from "./open-announce.ts";
 
-export interface DeltaCtx { cwd: string; bin?: string }
+export interface DeltaCtx { cwd: string; bin?: string; events?: OpenBus }
 
 /** archify `compare` always writes a sidecar `<output>.receipt.json` beside the HTML. */
 function receiptPathFor(htmlPath: string): string {
@@ -49,10 +50,15 @@ export async function archifyDelta(params: { basePath: string; headPath: string;
       summary = `\nReceipt → ${receiptPath}.`;
     }
   }
+  // Success-only webui:open announce: compare-<basename sans .html> view,
+  // title = the delta diagramType const (compare has no ir.meta).
+  announceOpen(ctx.events, "delta", outPath, { diagram_type: "architecture-delta" });
   return { content: [{ type: "text" as const, text: `Rendered architecture delta → ${outPath}${summary}` }], details: { path: outPath, receipt: receiptPath, type: "architecture-delta" } };
 }
 
-export const deltaTool = defineTool({
+/** Factory form: wires the factory-captured pi.events bus into the tool ctx. */
+export function makeDeltaTool(events?: OpenBus) {
+  return defineTool({
   name: "archify_delta",
   label: "Archify Delta",
   description:
@@ -63,7 +69,8 @@ export const deltaTool = defineTool({
     headPath: Type.String({ description: "Head (after) architecture IR .json path." }),
     outputPath: Type.Optional(Type.String({ description: "Output HTML path. Default: <cwd>/architecture-delta.html." })),
   }),
-  async execute(_id, params, signal, _onUpdate, ctx) {
-    return archifyDelta(params, { cwd: ctx.cwd }, signal);
-  },
-});
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      return archifyDelta(params, { cwd: ctx.cwd, events }, signal);
+    },
+  });
+}

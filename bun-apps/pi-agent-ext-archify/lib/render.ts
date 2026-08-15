@@ -4,8 +4,9 @@ import { isAbsolute, join } from "node:path";
 import { runArchify, withTempIr } from "./run.ts";
 import { resolveOutputPath } from "./output-path.ts";
 import { loadIrMeta } from "./load-ir.ts";
+import { announceOpen, type OpenBus } from "./open-announce.ts";
 
-export interface RenderCtx { cwd: string; bin?: string }
+export interface RenderCtx { cwd: string; bin?: string; events?: OpenBus }
 
 interface DeliverReceipt {
   ok?: boolean;
@@ -85,13 +86,18 @@ export async function archifyRender(params: { ir?: unknown; irPath?: string; out
   const v = receipt.validation;
   const checks = v ? `${v.checksPassed ?? "?"}/${v.checkCount ?? "?"} checks` : "";
   const comp = v ? `; composition ${v.compositionProfile ?? "n/a"}: ${v.compositionStatus ?? "?"}` : "";
+  // Success-only webui:open announce: view = output basename sans .html,
+  // title = authored ir.meta.title with the diagram type as fallback.
+  announceOpen(ctx.events, "render", outPath, { meta: { title: loaded.meta.title }, diagram_type: type });
   return {
     content: [{ type: "text" as const, text: `Rendered ${type} diagram → ${outPath} (${checks}${comp}; sha256 ${sha.slice(0, 12)}).` }],
     details: { path: outPath, type, artifact: receipt.artifact, validation: receipt.validation },
   };
 }
 
-export const renderTool = defineTool({
+/** Factory form: wires the factory-captured pi.events bus into the tool ctx. */
+export function makeRenderTool(events?: OpenBus) {
+  return defineTool({
   name: "archify_render",
   label: "Archify Render",
   description:
@@ -104,7 +110,8 @@ export const renderTool = defineTool({
     outputPath: Type.Optional(Type.String({ description: "Output HTML path (absolute or cwd-relative). Default: ir.meta.output else <cwd>/<type>.html." })),
     type: Type.Optional(Type.String({ description: "Diagram type: architecture|workflow|sequence|dataflow|lifecycle. Inferred from ir.diagram_type (or the irPath file) if omitted." })),
   }),
-  async execute(_id, params, signal, _onUpdate, ctx) {
-    return archifyRender(params, { cwd: ctx.cwd }, signal);
-  },
-});
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      return archifyRender(params, { cwd: ctx.cwd, events }, signal);
+    },
+  });
+}

@@ -10,6 +10,17 @@ snapshot under `vendored/`. No dependency on the upstream source after vendor-co
 **Tools:** `archify_render`, `archify_validate`, `archify_delta`.
 **Skill:** `archify` (condensed; loads vendored depth on demand).
 
+## `webui:open` announce (webui-optional)
+
+A successful `archify_render` / `archify_delta` emits `webui:open` on the host event bus
+(`lib/open-announce.ts`) — `{ path, view, title }` where `view` is the output basename
+sans `.html` (delta: `compare-<basename>`) and `title` is `ir.meta.title ?? diagramType`.
+When the pi-agent-ext-webui is present and the output lives under its configured
+`WEBUI_FILE_ROOTS`, this surfaces a clickable `/files` URL in the TUI. Fully optional: no
+webui (or a path outside its roots) → no-op, and the tool result still prints the output
+path exactly as before. archify imports nothing from webui — the string-literal channel is
+the whole contract.
+
 ## Deck builder (`bun run deck`)
 
 Turn a set of IR files into a 16:9 PowerPoint deck — one diagram per slide with
