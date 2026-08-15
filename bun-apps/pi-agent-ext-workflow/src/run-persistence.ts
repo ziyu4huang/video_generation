@@ -23,6 +23,9 @@ export interface PersistedAgentState {
   history?: AgentHistoryEntry[];
   startedAt?: string;
   endedAt?: string;
+  /** Tokens used by this agent; absent on runs persisted before this field
+   *  existed (mapped back as undefined → UI renders 0 via `?? 0`). */
+  tokens?: number;
   /** The model this agent ran on (provider/id), when known. */
   model?: string;
 }

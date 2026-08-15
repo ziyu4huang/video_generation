@@ -130,7 +130,18 @@ function persistedRunManager(): Pick<WorkflowManager, "listRuns" | "getRun"> {
         workflowName: "old-run",
         status: "completed",
         phases: ["Build"],
-        agents: [{ id: 1, label: "builder", phase: "Build", status: "done", prompt: "build it", result: "ok" }],
+        agents: [
+          {
+            id: 1,
+            label: "builder",
+            phase: "Build",
+            status: "done",
+            prompt: "build it",
+            result: "ok",
+            tokens: 1234,
+            startedAt: "2025-06-01T12:00:00.000Z",
+          },
+        ],
         logs: ["done"],
       } as unknown as PersistedRunState,
     ],
@@ -230,6 +241,43 @@ test("NavigatorModel reads from persisted runs when no live snapshot", () => {
   const agents = model.agents("r-old", "Build");
   assert.equal(agents.length, 1);
   assert.equal(agents[0].label, "builder");
+});
+
+test("persistedToSnapshot round-trips tokens + startedAt (regression: dropped fields)", () => {
+  const model = new NavigatorModel(persistedRunManager());
+  const agents = model.agents("r-old", "Build");
+  assert.equal(agents.length, 1);
+  // tokens survive the persist -> snapshot round-trip intact
+  assert.equal(agents[0].tokens, 1234);
+  // ISO string startedAt is mapped back to the ms timestamp the UI expects
+  assert.equal(agents[0].startedAt, Date.parse("2025-06-01T12:00:00.000Z"));
+
+  const detail = model.agentDetail("r-old", 1);
+  assert.ok(detail);
+  assert.equal(detail.tokens, 1234);
+  assert.equal(detail.startedAt, Date.parse("2025-06-01T12:00:00.000Z"));
+});
+
+test("persistedToSnapshot tolerates old persisted files omitting tokens/startedAt", () => {
+  const legacy: PersistedRunState = {
+    runId: "r-legacy",
+    workflowName: "legacy-run",
+    status: "completed",
+    phases: ["Build"],
+    agents: [{ id: 1, label: "old builder", phase: "Build", status: "done", prompt: "build it", result: "ok" }],
+    logs: [],
+    startedAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z",
+  } as unknown as PersistedRunState;
+  const manager: Pick<WorkflowManager, "listRuns" | "getRun"> = {
+    listRuns: () => [legacy],
+    getRun: () => undefined,
+  };
+  const model = new NavigatorModel(manager);
+  const agents = model.agents("r-legacy", "Build");
+  assert.equal(agents.length, 1);
+  assert.equal(agents[0].tokens, undefined, "legacy files without tokens map to undefined");
+  assert.equal(agents[0].startedAt, undefined, "legacy files without startedAt map to undefined");
 });
 
 test("NavigatorState drills runs -> phases -> agents -> detail and back", () => {

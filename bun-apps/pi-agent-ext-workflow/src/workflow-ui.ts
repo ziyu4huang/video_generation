@@ -209,6 +209,8 @@ function persistedToSnapshot(p: PersistedRunState): WorkflowSnapshot {
       recoverable: a.recoverable,
       history: a.history,
       model: a.model,
+      tokens: a.tokens ?? undefined,
+      startedAt: a.startedAt ? Date.parse(a.startedAt) : undefined,
     })),
     agentCount: p.agents.length,
     runningCount: p.agents.filter((a) => a.status === "running").length,
