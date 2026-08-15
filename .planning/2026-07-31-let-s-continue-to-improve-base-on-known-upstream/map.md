@@ -37,6 +37,8 @@ handoff.
 - [06 — Watchdog zero-layer sentinel](tickets/06-watchdog-zero-layer-sentinel.md) — **DO**: double sentinel (`reviewRan` field + ⚠ summary) **escalated to subagent-tool top level**; fires only on ran:true-with-0-layers (not edit-gated/skipped). Spec + acceptance criteria recorded.
 - [08 — Watchdog L1 precise delta](tickets/08-watchdog-l1-precise-delta.md) — **DO**: content-level before→after delta (retain per-file hashes in RepoBaseline; L1+L2 lint only content-changed TS/JS). Corrects false premise (delta was NOT pre-computed — `_before` ignored); **Effort revised E2→E3**. Pairs with 06 (visibility) to harden the watchdog gate.
 
+- [Fog trio 12/13/14 closed 2026-08-16](tickets/) — re-open when web-search key exists; 07/10/11 remain frontier.
+
 ## Frontier (open, unblocked, unclaimed)
 
 The route — one do/defer/skip per ticket, HITL:

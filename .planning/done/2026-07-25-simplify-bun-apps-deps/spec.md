@@ -1,3 +1,5 @@
+> Archived 2026-08-16: design approved but never executed (superseded by inactivity). Resurrectable — copy back to .planning/ top level to re-prioritize.
+
 # Spec — Simplify bun-apps dependencies + wayfind↔superpowers boundary
 
 - **Effort:** `2026-07-25-simplify-bun-apps-deps`

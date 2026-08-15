@@ -1,7 +1,7 @@
 ---
 type: grilling
 blocked by: []
-status: open
+status: closed
 ---
 
 # 13 — Decide: rate-limit-aware (RPM/TPM token-bucket) concurrency scheduler
@@ -26,3 +26,5 @@ patterns via live search. Note this **pairs naturally** with the deferred run-wi
 `$` cap + global concurrency governor — decide whether to scope this ticket to just
 the token-bucket, or fold all three into one "concurrency & cost control" effort
 (recommend: token-bucket here; ledger + global governor as a follow-on effort).
+
+> Closed 2026-08-16: fog — verify-before-impl citations need live web search (web-search key absent). Re-open when search available and citations re-verified; design leans preserved above.

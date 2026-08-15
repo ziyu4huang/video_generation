@@ -1,7 +1,7 @@
 ---
 type: grilling
 blocked by: []
-status: open
+status: closed
 ---
 
 # 14 — Decide: record-replay mode (pin agent outputs)
@@ -27,3 +27,5 @@ via live search. If **do**: lock the match key (recommend: call-index +
 `sha256(prompt+model+tier+schema)` so a changed prompt invalidates the cassette),
 and decide cassette storage location (recommend `~/.pi/workflows/.../cassettes/`).
 Pairs with the deferred journal-divergence detector — revisit that if this → do.
+
+> Closed 2026-08-16: fog — verify-before-impl citations need live web search (web-search key absent). Re-open when search available and citations re-verified; design leans preserved above.
