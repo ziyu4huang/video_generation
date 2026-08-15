@@ -12,8 +12,13 @@
  * Remote CI can never see this class (dist is gitignored → always fresh there);
  * the boot-time patch (pi-agent/src/patches/ensure-workspace-dist.ts) self-heals
  * a dev machine, and THIS gate turns the same detection into a local-CI
- * regression-gate so a stale dist fails with an actionable message BEFORE the
- * matrix trips over it as NameTooLong.
+ * regression-gate. ORDERING NOTE: inside a local_ci run the per-package matrix
+ * executes BEFORE this gate, and pi-agent's suite imports the patch — which
+ * self-heals any staleness — so in that flow this gate is a last-line
+ * confirmation that fires only when the heal itself failed. Its standalone
+ * value is `bun run test:dist` alone (fresh clone, patch not yet booted, or
+ * BUN_PI_ENSURE_WORKSPACE_DIST=0): an actionable failure message instead of a
+ * cryptic NameTooLong.
  *
  * ONE implementation, no second copy: detection logic lives in
  * pi-agent/src/workspace-dist-staleness.ts (pure helpers, unit-tested there);

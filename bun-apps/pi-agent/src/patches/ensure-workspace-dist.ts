@@ -25,10 +25,14 @@
  * `bun run build` (same command as its canonical test script) to self-heal.
  * A failed rebuild never blocks startup — the warning names the manual command.
  *
- * MODE GATING
- * -----------
+ * MODE GATING + PATCH OUTCOME
+ * ---------------------------
  * SOURCE mode only (same import.meta.url key as ensure-extension-deps): bundle
- * and binary modes ship their own built artifacts. The rebuild is NOT gated on
+ * and binary modes ship their own built artifacts. Like ensure-extension-deps,
+ * this patch deliberately exports NO `patchApplied`: readPatchOutcome() treats
+ * an absent export as applied, while a mode-dependent `false` export would
+ * misfire the "enabled but did NOT bind" warning on every deployed launch
+ * (bundle/binary legitimately skip the heal). The rebuild is NOT gated on
  * running-under-tests: Bun sets no detectable test-mode env/argv, and healing a
  * stale dist mid-test-run is the desired outcome anyway (same discipline as
  * ensure-extension-deps, whose symlink side effects also run under tests).
@@ -57,12 +61,31 @@ import {
 const url = import.meta.url;
 const isSource = url.includes("/src/patches/");
 
-let patchApplied = false;
+/** Minimal shape healStaleWorkspaceDists reads off a build-spawn result. */
+export interface BuildSpawnResult {
+  status: number | null;
+  stdout?: { toString(): string } | null;
+  stderr?: { toString(): string } | null;
+}
 
-if (isSource) {
-  const repoRoot = path.resolve(import.meta.dirname, "../../../..");
-  const bunAppsDir = path.join(repoRoot, "bun-apps");
+/** Injectable seam: tests drive the heal loop without running `bun run build`. */
+export type BuildSpawn = (cwd: string) => BuildSpawnResult;
 
+const defaultBuildSpawn: BuildSpawn = (cwd) =>
+  spawnSync("bun", ["run", "build"], {
+    cwd,
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 180_000,
+    env: process.env,
+  });
+
+/**
+ * Scan `bunAppsDir` for `@repo/*` dist-entry packages with a stale dist/ and
+ * rebuild each via the injected spawn (default: `bun run build` in the package
+ * dir). Warns on failure, never throws. Runs at import time in SOURCE mode;
+ * exported separately (via __test) so the loop and its error paths are testable.
+ */
+export function healStaleWorkspaceDists(bunAppsDir: string, spawn: BuildSpawn = defaultBuildSpawn): void {
   let appDirs: string[] = [];
   try {
     appDirs = readdirSync(bunAppsDir, { withFileTypes: true })
@@ -96,21 +119,26 @@ if (isSource) {
     const hint = `( cd bun-apps/${dir} && bun run build )`;
     console.error(`[ensure-workspace-dist] ${pkg.name}: dist/ is stale — rebuilding (${hint}) …`);
     try {
-      const res = spawnSync("bun", ["run", "build"], {
-        cwd: pkgDir,
-        stdio: ["ignore", "pipe", "pipe"],
-        timeout: 180_000,
-        env: process.env,
-      });
-      const stillStale = shouldRebuildDist({
-        newestSrcMs: newestSrcMtimeMs(srcDir),
-        newestDistMs: newestMtimeMs(distDir),
-      });
-      if (res.status !== 0 || stillStale) {
+      const res = spawn(pkgDir);
+      if (res.status !== 0) {
         const tail = (res.stderr?.toString() ?? res.stdout?.toString() ?? "").slice(-800);
         console.error(
           `[ensure-workspace-dist] ${pkg.name}: rebuild FAILED (status ${res.status}). ` +
             `Boot may fail with a NameTooLong extension-load error. Run manually: ${hint}\n${tail}`,
+        );
+        continue;
+      }
+      const stillStale = shouldRebuildDist({
+        newestSrcMs: newestSrcMtimeMs(srcDir),
+        newestDistMs: newestMtimeMs(distDir),
+      });
+      if (stillStale) {
+        // exit 0 but the dist is still older than src — typically src was edited
+        // during the build, or the build wrote elsewhere. Distinct from a FAILED
+        // build: the command ran "successfully" without producing a fresh dist.
+        console.error(
+          `[ensure-workspace-dist] ${pkg.name}: rebuild exited 0 but dist/ is STILL stale ` +
+            `(src changed during the build?). Run manually: ${hint}`,
         );
       } else {
         console.error(`[ensure-workspace-dist] ${pkg.name}: dist rebuilt OK.`);
@@ -122,7 +150,11 @@ if (isSource) {
       );
     }
   }
-  patchApplied = true;
 }
 
-export { patchApplied };
+if (isSource) {
+  const repoRoot = path.resolve(import.meta.dirname, "../../../..");
+  healStaleWorkspaceDists(path.join(repoRoot, "bun-apps"));
+}
+
+export const __test = { isSource, healStaleWorkspaceDists };
