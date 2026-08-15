@@ -1,0 +1,33 @@
+{
+  "name": "dsh-sv-analyzer",
+  "version": "0.1.0",
+  "description": "Self-contained tree-sitter WASM analyzer for Verilog/SystemVerilog: sv_analyze (design summary) and sv_ast (parse tree) tools for the DeepSeek Harness",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib/",
+    "wasm/",
+    "cordis.patch.yml"
+  ],
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "tree-sitter",
+    "verilog",
+    "systemverilog",
+    "wasm"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

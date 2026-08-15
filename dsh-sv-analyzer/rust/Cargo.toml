@@ -1,0 +1,33 @@
+[package]
+name = "dsh-sv-analyzer"
+version = "0.1.0"
+edition = "2021"
+description = "Tree-sitter based Verilog/SystemVerilog analyzer compiled to WASM (WASI) for the DeepSeek Harness"
+license = "MIT"
+
+[lib]
+name = "dsh_sv_analyzer"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dsh-sv-cli"
+path = "src/bin/cli.rs"
+
+[[bin]]
+name = "dsh-sv-wasm"
+path = "src/main.rs"
+
+[dependencies]
+tree-sitter = "0.26"
+tree-sitter-verilog = "1.0.3"
+tree-sitter-systemverilog = "0.4.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+# Small, dependency-free wasm: the parser never unwinds and never prints.
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
