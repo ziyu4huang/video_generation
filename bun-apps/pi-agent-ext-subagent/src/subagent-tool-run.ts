@@ -163,8 +163,15 @@ export interface RunRecordCtx {
 
 /** Per-path delta. Optional fields are omitted from the record when absent
  *  (matching the original literals' key sets; JSON-equivalent on serialize). */
+/** Durable-record statuses only — "detached" (Task 05) writes no completed
+ * record in the parent, so the durable union excludes it. */
+export type DurableRunStatus = Exclude<SubagentToolDetails["status"], "detached">;
+
 export interface RunRecordDelta {
-  status: SubagentToolDetails["status"];
+  /** Durable-record statuses only — "detached" is excluded by design (Task 05):
+   * a detached run writes NO completed record in the parent; the detached
+   * subprocess owns execution and its eventual completed-record write. */
+  status: DurableRunStatus;
   output: string;
   usage?: SubagentToolDetails["usage"];
   /** Why it failed (was `stderr`); omitted on the success path. */
@@ -223,7 +230,7 @@ export function buildDetails(
     scopeCheck?: SubagentScopeCheck;
     watchdog?: WatchdogResult;
   },
-): SubagentToolDetails {
+): SubagentToolDetails & { status: DurableRunStatus } {
   const { failure } = result;
   return {
     agent: extra.agent,

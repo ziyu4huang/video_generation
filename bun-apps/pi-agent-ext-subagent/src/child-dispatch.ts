@@ -50,6 +50,9 @@ export interface ChildDispatchRequest {
     workIntent: string;
     /** Set on a batch child so the viewer can group it under its batch. */
     batchId?: string;
+    /** FULL raw task (Task 05): stored on the registry entry so a mid-flight
+     *  detach can flush a resumable manifest with the real prompt. */
+    task?: string;
   };
   /**
    * Commit-scope audit inputs. Omit to skip the audit entirely (the caller has
@@ -121,6 +124,23 @@ export async function dispatchChild(
   if (request.parentSignal?.aborted) childAc.abort();
   else request.parentSignal?.addEventListener("abort", onParentAbort, { once: true });
 
+  // Task 05: when the run is detached to background mid-flight (registry
+  // detached flip via convertToBackground), the awaited tool call resolves
+  // with outcome "detached": the in-process run is aborted (superseded by the
+  // detached OS subprocess — never double-work), the registry entry is NOT
+  // released (it stays live with foreground=false), and the spawned child is
+  // NOT killed (the detach pipeline owns it now; the rebound abort lever is
+  // the only kill path). Test doubles may omit onDetach — guard the call.
+  //
+  // SUBSCRIBE AFTER start() below, in the same synchronous slice: the
+  // registry treats an unknown id as an inert no-op subscription, so wiring
+  // the watcher before the entry exists would silently drop the detach (the
+  // awaited tool call would then never resolve). No detach can slip between
+  // start and subscribe — convertToBackground refuses an unknown id, and
+  // everything between the two calls is synchronous.
+  let detached = false;
+  let unsubscribeDetach: (() => void) | undefined;
+
   // Pre-dispatch repo HEAD. Real tree only: a worktree-isolated run is discarded
   // at teardown, so auditing it would be pure noise.
   let baseCommit: string | undefined;
@@ -142,6 +162,7 @@ export async function dispatchChild(
     id,
     agent: entry.agent,
     model: entry.model,
+    task: entry.task,
     taskPreview: entry.taskPreview,
     workIntent: entry.workIntent,
     startedAt,
@@ -151,6 +172,11 @@ export async function dispatchChild(
     // above-editor context box excludes it (no duplication).
     foreground: true,
   } as Parameters<SubagentInFlightRegistry["start"]>[0]);
+  const onDetach = () => {
+    detached = true;
+    childAc.abort();
+  };
+  if (typeof inFlight?.onDetach === "function") unsubscribeDetach = inFlight.onDetach(id, onDetach);
 
   let result: SpawnSubagentResult;
   try {
@@ -193,17 +219,23 @@ export async function dispatchChild(
   } finally {
     // Runs on throw too: a failed child must not leak its registry entry, and a
     // long batch must not accumulate one listener (and one retained controller
-    // closure) per child on the parent turn signal.
-    if (deps.release === "markCompleted") inFlight?.markCompleted(id);
-    else inFlight?.end(id);
+    // closure) per child on the parent turn signal. A DETACHED run is the one
+    // exception: its entry must stay live (Task 05) — the detached subprocess
+    // and the subagents section own it now.
+    if (!detached) {
+      if (deps.release === "markCompleted") inFlight?.markCompleted(id);
+      else inFlight?.end(id);
+    }
     request.parentSignal?.removeEventListener("abort", onParentAbort);
+    unsubscribeDetach?.();
   }
 
   const elapsedMs = Date.now() - startedAt;
   // A user abort fires childAc only (parent signal intact); a whole-turn Esc
   // fans the parent signal INTO childAc, so the parent's own state distinguishes
-  // them; a timeout leaves childAc un-aborted and falls through unchanged.
-  const userAborted = childAc.signal.aborted && !request.parentSignal?.aborted;
+  // them; a timeout leaves childAc un-aborted and falls through unchanged. A
+  // DETACH also aborts childAc (superseded in-process run) but is neither.
+  const userAborted = !detached && childAc.signal.aborted && !request.parentSignal?.aborted;
 
   // Post-run scope audit. Skipped for a worktree run or a missing baseline; an
   // unset `declared` scope means "flag any commit" via outOfScopePaths' empty-scope
@@ -221,7 +253,9 @@ export async function dispatchChild(
     result,
     // `aborted` is the one status a spawn result cannot carry: the child sees a
     // cancelled run, only the parent turn knows the user asked for it.
-    status: userAborted ? "aborted" : (result.failure?.kind ?? "done"),
+    // `detached` (Task 05): the run was backgrounded mid-flight — the detached
+    // subprocess owns execution, the parent turn resumes.
+    status: detached ? "detached" : userAborted ? "aborted" : (result.failure?.kind ?? "done"),
     userAborted,
     model: resolvedModel ?? entry.model,
     requestedModel: fellBack ? requestedSpec : undefined,

@@ -66,7 +66,7 @@ export interface BatchTask {
 export type BatchResultSlot =
   | {
       output: string;
-      status: "done" | "timedout" | "aborted";
+      status: "done" | "timedout" | "aborted" | "detached";
       id?: string;
       index: number;
       usage?: AgentUsage;
@@ -522,8 +522,14 @@ export function createSubagentsTool(
           };
         } else {
           slots[index] = {
-            output: result.output,
-            status: status === "timedout" ? "timedout" : "done",
+            // Task 05: a detached child was handed off to its detached OS
+            // subprocess — the run stays live in the subagents section; the
+            // slot records the hand-off, not a completion.
+            output:
+              status === "detached"
+                ? `Detached → background (run ${toolCallId}:${index}; still live in the status section / /subagents)`
+                : result.output,
+            status: status === "timedout" ? "timedout" : status === "detached" ? "detached" : "done",
             id: task.id,
             index,
             usage: result.usage,
@@ -538,8 +544,11 @@ export function createSubagentsTool(
         // and gate-skipped children (early-returned above, never reached spawn) are
         // NOT real completed runs, so they are not persisted — matching the singular
         // tool. Budget-aborted children (status "budget") ARE persisted with their
-        // `budget` field set, also matching the singular tool.
-        if (status !== "failed") {
+        // `budget` field set, also matching the singular tool. A DETACHED child
+        // (Task 05) persists nothing here either — the detached subprocess owns
+        // the run and its eventual completed-record write (persistence owns
+        // recovery via the detach manifest).
+        if (status !== "failed" && status !== "detached") {
           options.persistence?.save({
             id: generateSubagentRunId(),
             toolCallId,

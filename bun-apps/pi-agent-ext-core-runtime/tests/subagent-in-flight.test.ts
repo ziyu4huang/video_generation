@@ -91,3 +91,52 @@ describe("accrueUsage", () => {
     registry.accrueUsage("nope", { costUsd: 1, tokensIn: 1, tokensOut: 1 });
   });
 });
+
+describe("markDetached (Task 05)", () => {
+  test("unknown id → false (never throws)", () => {
+    expect(registry.markDetached("nope")).toBe(false);
+  });
+
+  test("flips foreground=false, stamps detached=true, keeps the entry live", () => {
+    start("a");
+    expect(registry.markDetached("a")).toBe(true);
+    const v = registry.view("a");
+    expect(v).toBeDefined();
+    expect(v?.foreground).toBe(false);
+    expect(v?.detached).toBe(true);
+    expect(v?.status).toBe("running");
+  });
+
+  test("rebinds abort to the detached child's kill lever", () => {
+    start("a");
+    let kills = 0;
+    registry.markDetached("a", { abort: () => void kills++ });
+    registry.abort("a");
+    expect(kills).toBe(1);
+  });
+
+  test("onDetach fires for a subscriber registered before the flip (exactly once)", () => {
+    start("a");
+    let fired = 0;
+    const off = registry.onDetach("a", () => void fired++);
+    registry.markDetached("a");
+    registry.markDetached("a"); // idempotent re-flip must not re-fire
+    expect(fired).toBe(1);
+    off();
+  });
+
+  test("onDetach fires immediately when the run is already detached", () => {
+    start("a");
+    registry.markDetached("a");
+    let fired = 0;
+    registry.onDetach("a", () => void fired++);
+    expect(fired).toBe(1);
+  });
+
+  test("onDetach for an unknown id is a no-op subscription", () => {
+    let fired = 0;
+    const off = registry.onDetach("missing", () => void fired++);
+    off();
+    expect(fired).toBe(0);
+  });
+});

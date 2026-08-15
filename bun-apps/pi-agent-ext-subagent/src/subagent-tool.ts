@@ -275,6 +275,31 @@ export function createSubagentTool(
         const elapsedMs = outcome.elapsedMs;
         progress.resolvedModel = outcome.model;
         progress.fellBack = outcome.fellBack;
+        // Task 05: the run was detached to background mid-flight. The detached
+        // OS subprocess (spawned by convertToBackground) owns execution and the
+        // eventual completed-record write; the parent turn resumes WITHOUT
+        // killing anything and WITHOUT persisting here (persistence owns
+        // recovery via the detach manifest). The registry entry stays live for
+        // the subagents section.
+        if (outcome.status === "detached") {
+          const model = progress.resolvedModel ?? displayModelBeforeResolve;
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Subagent detached → background (run ${toolCallId}; still live in the status section / /subagents)`,
+              },
+            ],
+            details: {
+              agent: params.agent,
+              model,
+              taskPreview: taskPreview(params.task),
+              elapsedMs,
+              startedAt: t0,
+              status: "detached" as const,
+            },
+          };
+        }
         if (outcome.userAborted) {
           // Partial work is discarded (worktree) or left in-tree (real-tree);
           // scope/watchdog review of a half-finished diff would be noise.

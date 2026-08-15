@@ -63,7 +63,7 @@ export interface SubagentToolDetails {
    * sit beside it and were derivable from it; old records carrying them stay
    * valid (an extra key on a parsed object is inert).
    */
-  status: "done" | "failed" | "timedout" | "budget" | "turns" | "aborted";
+  status: "done" | "failed" | "timedout" | "budget" | "turns" | "aborted" | "detached";
   /** Real token/cost usage from the child session, when reported. */
   usage?: AgentUsage;
   /** Budget block — exhaustion fields on the abort path, `warning` on the completed ≥80% path (see {@link SubagentBudgetDetails}). */
