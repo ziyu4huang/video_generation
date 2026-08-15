@@ -12,12 +12,12 @@
 #
 # USAGE
 #   bash bun-apps/pi-agent/scripts/run-image-agent-e2e.sh
-#   PI_AGENT_E2E_MODEL=google/gemma-4-26b-a4b-qat bash bun-apps/pi-agent/scripts/run-image-agent-e2e.sh
+#   PI_AGENT_E2E_MODEL=google/gemma-4-12b bash bun-apps/pi-agent/scripts/run-image-agent-e2e.sh
 #   PI_AGENT_E2E_PROMPT="verify I can use the Flux tool, reply in zh-TW, generate <X> to ./output/flux-output/<name>-<timestamp>.png and open it" \
 #     bash bun-apps/pi-agent/scripts/run-image-agent-e2e.sh
 #
 # ENV
-#   PI_AGENT_E2E_MODEL       model id (default: google/gemma-4-26b-a4b-qat)
+#   PI_AGENT_E2E_MODEL       model id (default: google/gemma-4-12b)
 #   PI_AGENT_E2E_PROMPT      override the NL prompt (default: neutral Japanese-garden subject)
 #   PI_AGENT_E2E_TIMEOUT_MS  per-run kill timeout (default: 600000)
 ########################################
@@ -46,7 +46,7 @@ fi
 
 export PI_AGENT_E2E_IMAGE=1
 # Default model mirrors the operator's canonical example.
-: "${PI_AGENT_E2E_MODEL:=google/gemma-4-26b-a4b-qat}"
+: "${PI_AGENT_E2E_MODEL:=google/gemma-4-12b}"
 
 echo "▶ image-agent integration e2e (model=$PI_AGENT_E2E_MODEL)"
 echo "  prompt default: neutral subject; override via PI_AGENT_E2E_PROMPT"

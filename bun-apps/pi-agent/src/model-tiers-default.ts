@@ -16,9 +16,8 @@ export interface ModelTierConfig {
 }
 
 export const DEFAULT_MODEL_TIER_CONFIG: ModelTierConfig = {
-	tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
-	capabilities: { vision: "lm-studio/google/gemma-4-12b-qat" },
-};
+tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
+	capabilities: { vision: "lm-studio/google/gemma-4-12b" },};
 
 /** Pure: serialize the config the same way /models-preset writes it. Testable. */
 export function buildModelTiersJson(config: ModelTierConfig = DEFAULT_MODEL_TIER_CONFIG): string {

@@ -16,7 +16,7 @@
 #   readonly (2.5) + read-only deploy e2e (freeze + foreign-cwd run + zero   ~6s
 #                  writes to the frozen tree). Opt-in tier (not in the stack).
 #   smoke    (2.7) + LIVE local-LLM check: boots the real launcher in print   ~30s
-#                  mode against LM Studio (google/gemma-4-12b-qat on
+#                  mode against LM Studio (google/gemma-4-12b on
 #                  localhost:1234) — zero cost, zero egress, fully local.
 #                  Skips (passes) when LM Studio is down; fails if it's up
 #                  but the default model isn't loaded. Opt-in tier; also
@@ -97,7 +97,7 @@ $(Y "pi-agent run-test.sh — effort tiers (each ⊇ the one above)"):
   $(G medium)  $(D '~11s')   + build + patch e2e (patches fire / splice / providers)  $(Y "[default]")
   $(G high)    $(D '~50s')   + deploy + 4-cwd extension-loading e2e (bundle/snapshot/standalone) + run.sh/pi-agent.sh launcher e2e
   $(G readonly) $(D '~6s')   read-only deploy e2e ONLY (freeze + foreign-cwd run + zero writes)
-  $(G smoke)   $(D '~30s')   LIVE local-LLM check vs LM Studio (gemma-4-12b-qat, localhost:1234);
+  $(G smoke)   $(D '~30s')   LIVE local-LLM check vs LM Studio (gemma-4-12b, localhost:1234);
                             zero cost/egress. Skips when LM Studio is down, fails if the
                             model isn't loaded. Also folded into $(G full) (skips when down).
   $(G full)    $(D '~70s')   + readonly + smoke + sibling pi-* unit baseline (whole stack)
@@ -160,7 +160,7 @@ run_readonly() {
 # environment condition, not a repo bug); fails with a hint when LM Studio is
 # up but the default model isn't loaded. Sets SMOKE_SKIPPED=1 so the caller
 # can print the skip notice (step() only surfaces the log on failure).
-SMOKE_MODEL="google/gemma-4-12b-qat"
+SMOKE_MODEL="google/gemma-4-12b"
 SMOKE_SKIPPED=0
 run_smoke() {
 	local base="http://localhost:1234/v1" models

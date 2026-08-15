@@ -99,7 +99,7 @@ result as JSON when --json is set.
 Examples:
   pi-agent cli workflow run echo
   pi-agent cli workflow run echo --args '{"msg":"hi"}'
-  pi-agent cli workflow run ./my-workflow.js --model lm-studio/google/gemma-4-26b-a4b-qat
+  pi-agent cli workflow run ./my-workflow.js --model lm-studio/google/gemma-4-12b
   pi-agent cli workflow run echo --dry-run`,
 	run: async (parsed: ParsedArgs): Promise<void> => {
 		const name = parsed.positionals[0];

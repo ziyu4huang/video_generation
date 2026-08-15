@@ -70,7 +70,7 @@ describe("/models-preset", () => {
 
     expect(savedConfig).toEqual({
       tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.2", big: "zai/glm-5.2" },
-      capabilities: { vision: "lm-studio/google/gemma-4-12b-qat" },
+      capabilities: { vision: "lm-studio/google/gemma-4-12b" },
     });
     expect(calls.confirm).toHaveLength(1);
     expect(existsSync(`${configPath}.bak`)).toBe(true);
@@ -97,7 +97,7 @@ describe("/models-preset", () => {
         medium: "deepseek/deepseek-v4-pro",
         big: "deepseek/deepseek-v4-pro",
       },
-      capabilities: { vision: "lm-studio/google/gemma-4-12b-qat" },
+      capabilities: { vision: "lm-studio/google/gemma-4-12b" },
     });
     expect(calls.confirm).toHaveLength(0);
     expect(existsSync(`${configPath}.bak`)).toBe(false);

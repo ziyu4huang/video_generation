@@ -128,7 +128,7 @@ function scenePipelineDoc(): string {
     "in a candidate's VLM reply for it to be the winner; first matching seed (in order) wins. " +
     "Falls back to the best-gated candidate if omitted or nothing matches.\n" +
     "  • vlmModel (string, optional) — \"provider/modelId\" override for the VLM subagent " +
-    "(default: lm-studio/google/gemma-4-12b-qat).\n" +
+    "(default: lm-studio/google/gemma-4-12b).\n" +
     "  • handRepairWinner (boolean, optional) — re-render the winning seed once more with " +
     "--hand-repair.\n" +
     "Result: `details.output` is the winner's (or hand-repaired winner's) PNG path — chains " +

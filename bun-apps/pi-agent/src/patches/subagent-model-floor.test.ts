@@ -55,7 +55,7 @@ describe("resolveSubagentFloor — env override wins", () => {
     expect(
       resolveSubagentFloor(
         S({ obsidian: { subagentModel: "deepseek/deepseek-v4-flash" } }),
-        E({ OB_SUBAGENT_MODEL: "lm-studio/google/gemma-4-12b-qat" }),
+        E({ OB_SUBAGENT_MODEL: "lm-studio/google/gemma-4-12b" }),
       ),
     ).toBeUndefined();
   });

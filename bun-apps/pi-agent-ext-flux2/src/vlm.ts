@@ -47,7 +47,7 @@ async function lmStudioRegistry(): Promise<ModelRegistry> {
         api: "openai-completions",
         apiKey: "lm-studio",
         models: [
-          { id: "google/gemma-4-12b-qat", name: "Gemma 4 12B (LM Studio)", reasoning: true, input: ["text", "image"], contextWindow: 200000, maxTokens: 16384, cost: FREE_COST, compat: LM_STUDIO_COMPAT },
+          { id: "google/gemma-4-12b", name: "Gemma 4 12B (LM Studio)", reasoning: true, input: ["text", "image"], contextWindow: 200000, maxTokens: 16384, cost: FREE_COST, compat: LM_STUDIO_COMPAT },
         ],
       });
       return reg;
@@ -56,7 +56,7 @@ async function lmStudioRegistry(): Promise<ModelRegistry> {
   return _lmStudioRegistry;
 }
 
-/** Default: lm-studio/google/gemma-4-12b-qat (per pi-file2md's resolveLLM default). */
+/** Default: lm-studio/google/gemma-4-12b (per pi-file2md's resolveLLM default). */
 export function resolveVlmLLM(modelOverride?: string): ResolvedLLM {
   return resolveLLM(modelOverride ? { model: modelOverride } : {});
 }

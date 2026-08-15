@@ -73,7 +73,7 @@ Source: `src/sessions.ts`. Pure parser, pinned by `__tests__/sessions.test.ts`.
 |---|---|---|
 | 1 | tool params | `params.model` / `params.provider` / `params.thinking` |
 | 2 | env | `PI_MODEL` / `PI_PROVIDER` / `PI_THINKING` |
-| 3 | hardcoded | `provider="lm-studio"`, `modelId="google/gemma-4-12b-qat"`, `thinking="off"` |
+| 3 | hardcoded | `provider="lm-studio"`, `modelId="google/gemma-4-12b"`, `thinking="off"` |
 
 > The hardcoded default lives **inside the function** as `DEFAULT_MODEL`, not in
 > models.json. So even a bare `~/.pi/agent/models.json` still yields the lm-studio
@@ -85,7 +85,7 @@ Source: `src/sessions.ts`. Pure parser, pinned by `__tests__/sessions.test.ts`.
 `model` accepts two shencodings:
 
 - **`provider/modelId`** — split on the **first** `/`. Only the first slash, so
-  `"lm-studio/google/gemma-4-12b-qat"` keeps `modelId = "google/gemma-4-12b-qat"`.
+  `"lm-studio/google/gemma-4-12b"` keeps `modelId = "google/gemma-4-12b"`.
 - **`modelId:thinking`** — the **last** `:` **after the first slash**, and only if
   the suffix is in `["off","minimal","low","medium","high","xhigh"]`. An unknown
   suffix (e.g. `"foo/bar:notalevel"`) is kept verbatim in `modelId`, not parsed.

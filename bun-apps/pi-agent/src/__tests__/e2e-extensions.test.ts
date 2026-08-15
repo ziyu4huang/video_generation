@@ -579,11 +579,12 @@ describe.skipIf(!E2E_ENABLED)("e2e: SOURCE lazy `-e <alias>` splice loads the ex
 // SNAPSHOT mode = `deploy.ts --snapshot` (copies pi-agent/ + every sibling
 // extension package dir the manifest/static-extensions reference, verbatim
 // source, no bundling — see scripts/deploy.ts's collectRequiredPkgDirs() +
-// stageSnapshot()). Runs as raw .ts, so doctor classifies it "source" (its
-// coarseFromUrl only distinguishes source/bundle/binary by file extension —
-// there's no separate "snapshot" DeployMode). bunAppsDir resolves to pkgDir
-// itself (siblings sit directly under it, not under a nested bun-apps/), so
-// marker=pkgDir the same way it did for the pre-unification --release mode.
+// stageSnapshot()). Runs as raw .ts, so doctor classifies it "source"
+// (detectMode(…, "/src/") — snapshot ships .ts under src/, so it matches the
+// source marker — there's no separate "snapshot" DeployMode). bunAppsDir
+// resolves to pkgDir itself (siblings sit directly under it, not under a
+// nested bun-apps/), so marker=pkgDir the same way it did for the
+// pre-unification --release mode.
 describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: SNAPSHOT (--snapshot) extension loading", () => {
 	let pkg = { pkgDir: "", pkgPiAgent: "", probePath: "" };
 	beforeAll(async () => {

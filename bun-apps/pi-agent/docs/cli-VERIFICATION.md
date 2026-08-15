@@ -76,8 +76,7 @@ end. Findings:
 | Config | `~/.pi/agent/{settings,models,auth}.json` |
 | Credentials | **from env** (`ZAI_API_KEY`, `DEEPSEEK_API_KEY`); `auth.json` is `{}` |
 | Default model | `zai/glm-5.3` (from `settings.json`) |
-| Local VLM | LM Studio `localhost:1234` — `google/gemma-4-26b-a4b-qat` loaded |
-| `list` | 53 models resolve with valid credentials |
+| Local VLM | LM Studio `localhost:1234` — `google/gemma-4-12b` loaded || `list` | 53 models resolve with valid credentials |
 
 ## Test matrix (all PASS)
 
@@ -88,9 +87,8 @@ end. Findings:
 | 3 | meta: `version` / `-v` / `help` / `help <cmd>` / `list` | — | ✓ |
 | 4 | passthrough (core agent loop) | zai/glm-5.3 | ✓ `PI-CLI-OK` |
 | 5 | `distill` (markdown → Zettelkasten) | zai/glm-5.3 | ✓ 5 notes + MOC, 14 wiki-links |
-| 6 | `file2md` (image → Obsidian md) | lm-studio/gemma-4-26b | ✓ OCR+describe, 397 chars |
-| 7 | `pipeline pdf-to-vault` (PDF → md → vault) | stage1 gemma / stage2 glm-5.3 | ✓ 1/1 page → 4 notes |
-| 8 | `pipeline pdf-to-vault` resume | — | ✓ skips done page + stage 2 |
+| 6 | `file2md` (image → Obsidian md) | lm-studio/gemma-4-12b | ✓ OCR+describe, 397 chars |
+| 7 | `pipeline pdf-to-vault` (PDF → md → vault) | stage1 gemma / stage2 glm-5.3 | ✓ 1/1 page → 4 notes || 8 | `pipeline pdf-to-vault` resume | — | ✓ skips done page + stage 2 |
 
 ### 2026-07-16 re-verification (post typecheck-fix + knowledge-card bug fix)
 
@@ -99,10 +97,9 @@ end. Findings:
 | 1 | ~~`scripts/build.ts` (bundle + minify)~~ | — | ~~✓ `dist/pi-agent-cli/cli.js`~~ — **obsolete 2026-08-12** (see banner) |
 | 2 | meta: `version` / `list` | — | ✓ (`list` now resolves 1068 models — registry growth since 06-27, unrelated to this pass) |
 | 3 | passthrough (core agent loop) | zai/glm-5.3 | ✓ `PI-CLI-OK` |
-| 4 | `vlm-describe` (image → Obsidian md) | lm-studio/gemma-4-26b | ✓ 709 chars (synthetic test image; the 06-27 fixture PDF is not checked into the repo) |
+| 4 | `vlm-describe` (image → Obsidian md) | lm-studio/gemma-4-12b | ✓ 709 chars (synthetic test image; the 06-27 fixture PDF is not checked into the repo) |
 | 5 | `distill` (markdown → Zettelkasten) | zai/glm-5.3 | ✓ 4 notes + MOC, 10 links — **first attempt hit the knowledge-card tool-allowlist bug below; passes after the fix** |
-| 6 | `pipeline pdf-to-vault` (PDF → md → vault) | stage1 gemma / stage2 glm-5.3 | ✓ 1/1 page → 3 notes — **stage 2 hit the same allowlist bug on the first attempt; passes after the fix** |
-| 7 | `pipeline pdf-to-vault` resume | — | not re-run this pass (unchanged code path; 06-27 result stands) |
+| 6 | `pipeline pdf-to-vault` (PDF → md → vault) | stage1 gemma / stage2 glm-5.3 | ✓ 1/1 page → 3 notes — **stage 2 hit the same allowlist bug on the first attempt; passes after the fix** || 7 | `pipeline pdf-to-vault` resume | — | not re-run this pass (unchanged code path; 06-27 result stands) |
 | 8 | `bun test` (this package) | — | ✓ 332/332, 22 files |
 | 9 | `bun test` (`pi-agent-ext-knowledge-card`, touched by the fix) | — | ✓ 337/337, 22 files |
 
@@ -117,7 +114,7 @@ end. Findings:
   TUI root — see ADR 0002.)*
 - **VLM path** — magic-number sniff (`kind: image|pdf`), profile classifier
   (VLM on page 1), per-page explain wrapped in `withRetry` (429/transient
-  aware). gemma-4-26b correctly read a hand-rendered "Photosynthesis" image.
+  aware). gemma-4-12b correctly read a hand-rendered "Photosynthesis" image.
 - **Pipeline coordination** — timestamped+slug run dir, `pipeline.json` with
   per-stage status (`file2md` / `distill`), options captured for resume.
 - **Resume** — re-run reuses the run dir: stage 1 skips pages already `done`,
@@ -225,7 +222,7 @@ Every attack vector fails gracefully: non-zero exit, a clean human message, and
 
 ### Known model-behavior findings (NOT CLI robustness bugs)
 
-These are gemma-4-26b / LM-Studio **output-fidelity** characteristics surfaced
+These are gemma-4-12b / LM-Studio **output-fidelity** characteristics surfaced
 by a real multi-page paper. The CLI handles all of them gracefully (no crash,
 clean exit, correct manifest); they are tracked as model/prompt follow-ups:
 

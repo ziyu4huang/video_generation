@@ -60,7 +60,7 @@ manifest, no `-e`), and writes a real PNG at the requested `<name>-<timestamp>.p
 path pattern. Gated behind `PI_AGENT_E2E_IMAGE=1` (separate from `PI_AGENT_E2E`) and
 NEVER wired into `run-test.sh` / CI. Default subject is neutral (a Japanese garden)
 with identical mechanics; override via `PI_AGENT_E2E_PROMPT`. Model via
-`PI_AGENT_E2E_MODEL` (default `google/gemma-4-26b-a4b-qat`).
+`PI_AGENT_E2E_MODEL` (default `google/gemma-4-12b`).
 
 ## Unified L2 contract
 

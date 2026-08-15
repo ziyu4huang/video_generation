@@ -27,7 +27,7 @@
  *
  * INVOCATION
  *   bun --cwd bun-apps/pi-agent src/cli.ts cli workflow run retrieval-quality-self-improve \
- *     --model lm-studio/google/gemma-4-26b-a4b-qat --thinking medium \
+ *     --model lm-studio/google/gemma-4-12b --thinking medium \
  *     --args '{"queryCount":3,"folder":"Zettelkasten/knowledge-graph"}'
  *
  * To isolate graph-dilution (iter-4), compare three-way vs semantic-lexical, or
@@ -88,7 +88,7 @@ const THINKING = String(A.thinkingLevel ?? "medium")
 // remote API doesn't share the local model, so a contended box no longer
 // truncates the retrieve. The semantic SEED still comes from vault-mind's local
 // embedding model (independent of this LLM), so semantic recall is preserved.
-const RETRIEVE_MODEL = String(A.retrieveModel ?? "lm-studio/google/gemma-4-26b-a4b-qat")
+const RETRIEVE_MODEL = String(A.retrieveModel ?? "lm-studio/google/gemma-4-12b")
 
 let PROJECT_ROOT = "/Users/huangziyu/proj/video_generation__pi"
 let VAULT = `${PROJECT_ROOT}/vaults_root/pi-agent-vault`

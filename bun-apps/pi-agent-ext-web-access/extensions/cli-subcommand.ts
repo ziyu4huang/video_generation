@@ -66,7 +66,7 @@ Positionals are the query verbatim. For multi-angle research, prefer a rich quer
 internally for broader coverage.
 
 Options (pi-aligned globals):
-  --model <pattern>      provider/id[:thinking]  (e.g. sonnet, gemma-4-26b)
+  --model <pattern>      provider/id[:thinking]  (e.g. sonnet, gemma-4-12b)
   --provider <name>      provider name
   --thinking <level>     off|minimal|low|medium|high|xhigh
   --tools <csv>          override the curated tool allowlist

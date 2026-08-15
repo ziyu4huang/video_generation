@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseManifestEntries } from "../run-dir/manifest-types.ts";
+import { isBunBinary } from "./mode.ts";
 // NOTE: static-extensions.ts is imported DYNAMICALLY inside runExtDoctor(),
 // below the ensure-extension-deps await — see the comment there. A top-level
 // import is hoisted, and `ext doctor` is one of cli.ts's PRE-patch intercepts,
@@ -95,14 +96,16 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 	// `-e` .ts paths DO load — upstream 0.80.10+ jiti binary path — but those
 	// aren't this doctor's concern). Fall back to checking ONLY the statically-bundled factories
 	// (STATIC_EXTENSION_FACTORIES below) — which is exactly the set that matters
-	// for verifying a compiled binary ships its tools.
+	// for verifying a compiled binary ships its tools. binaryMode is detected from
+	// the module URL (mode.ts's isBunBinary), NOT inferred from the manifest read
+	// failing below — a read failure (ENOENT, EACCES, bad JSON) is a genuine
+	// problem and must not silently masquerade as "compiled binary".
+	const binaryMode = isBunBinary(import.meta.url);
 	let manifest: { extensions: (string | object)[]; lazyExtensions?: Record<string, string> };
-	let binaryMode = false;
 	try {
 		manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
 	} catch {
 		manifest = { extensions: [], lazyExtensions: {} };
-		binaryMode = true;
 	}
 	const entries = parseManifestEntries(manifest.extensions ?? []);
 	const results: ExtDoctorEntry[] = [];

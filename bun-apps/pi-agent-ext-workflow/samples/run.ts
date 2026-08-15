@@ -17,7 +17,7 @@
  *
  * The model defaults to PI_MODEL (the same env pi-agent bridges). Set it
  * explicitly for reproducibility:
- *   PI_MODEL=google/gemma-4-26b-a4b-qat bun …/run.ts …/smoke01.js
+ *   PI_MODEL=google/gemma-4-12b bun …/run.ts …/smoke01.js
  *
  * This is the batch-mode path: deterministic script in, JSON out, exit 0 on
  * success / non-zero on workflow error.

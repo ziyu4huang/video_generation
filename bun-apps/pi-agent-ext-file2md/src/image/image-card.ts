@@ -38,7 +38,7 @@ export interface ImageCardInput {
   height: number;
   /** Vault-facing location tag (image basename). */
   locator: string;
-  /** Which stages produced this card, e.g. "vision-ocr+google/gemma-4-12b-qat". */
+  /** Which stages produced this card, e.g. "vision-ocr+google/gemma-4-12b". */
   extractor: string;
   ocrText: string | undefined;
   visionDescription: string | undefined;

@@ -140,7 +140,7 @@ hub owns every agent-facing knowledge tool (consolidation cycle, 2026-07-07).
 | ------------------------ | ---------------------------------------------------- |
 | `OB_VAULT_PATH` / `OB_VAULT_DIR` | Vault resolution (passed through to obsidian) |
 | `OB_SUBAGENT_TIMEOUT_MS`  | Subagent timeout in ms (default `300000` = 5 min)   |
-| `KC_SUBAGENT_MODEL`       | Model for the subagent-backed tools (`zk_card`, `zk_ask`). Default `google/gemma-4-12b-qat` (local LM Studio — keeps LLM spend off the cloud bill). Per-call override via each tool's `model` arg. Does **not** honor the sibling `OB_SUBAGENT_MODEL`. |
+| `KC_SUBAGENT_MODEL`       | Model for the subagent-backed tools (`zk_card`, `zk_ask`). Default `google/gemma-4-12b` (local LM Studio — keeps LLM spend off the cloud bill). Per-call override via each tool's `model` arg. Does **not** honor the sibling `OB_SUBAGENT_MODEL`. |
 
 ## Install
 

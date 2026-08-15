@@ -13,7 +13,7 @@
  *   5. Write manifest.json + <slug>.md (MOC)
  *
  * Env:
- *   PI_MODEL         Override model (default: lm-studio/google/gemma-4-12b-qat)
+ *   PI_MODEL         Override model (default: lm-studio/google/gemma-4-12b)
  *   PI_VLM_RETRIES   Per-page retry count (default 3)
  *   PI_VLM_RETRY_WAIT_MS  Wait between retries in ms (default 10000)
  */
@@ -181,7 +181,7 @@ export default function (pi: ExtensionAPI): void {
       model: Type.Optional(
         Type.String({
           description:
-            "VLM model in provider/id format (default: lm-studio/google/gemma-4-12b-qat). Honors the PI_MODEL env var when omitted.",
+            "VLM model in provider/id format (default: lm-studio/google/gemma-4-12b). Honors the PI_MODEL env var when omitted.",
         }),
       ),
       provider: Type.Optional(

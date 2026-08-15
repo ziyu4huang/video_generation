@@ -18,7 +18,7 @@
 export interface LmChatOptions {
 	/** Base URL; defaults to `LMSTUDIO_BASE_URL` env or `http://localhost:1234`. */
 	apiUrl?: string;
-	/** Model id; defaults to `PI_KG_LLM_MODEL` env or `"google/gemma-4-12b-qat"`. */
+	/** Model id; defaults to `PI_KG_LLM_MODEL` env or `"google/gemma-4-12b"`. */
 	model?: string;
 	/** Per-attempt timeout; default 30000ms. */
 	timeoutMs?: number;
@@ -78,7 +78,7 @@ function lmStudioBase(): string {
 }
 
 function defaultModel(): string {
-	return process.env.PI_KG_LLM_MODEL ?? "google/gemma-4-12b-qat";
+	return process.env.PI_KG_LLM_MODEL ?? "google/gemma-4-12b";
 }
 
 /**

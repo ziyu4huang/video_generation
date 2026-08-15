@@ -49,7 +49,7 @@ import { resolveLLMFromArgs } from "../sessions/passthrough.ts";
 import { slugify, loadManifest, type DocLayout, layoutFor } from "@repo/pi-agent-ext-file2md";
 
 /** Defaults. */
-const DEFAULT_VLM_MODEL = "lm-studio/google/gemma-4-12b-qat";
+const DEFAULT_VLM_MODEL = "lm-studio/google/gemma-4-12b";
 const DEFAULT_RETRIES = 3;
 const DEFAULT_RETRY_WAIT_SEC = 10;
 

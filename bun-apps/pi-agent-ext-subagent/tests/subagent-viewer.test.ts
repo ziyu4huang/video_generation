@@ -267,10 +267,10 @@ test("viewer Running section falls back to the task preview before any history e
 });
 
 test("viewer Running section shows the resolved model (short) once resolvedModel is set", () => {
-  const running = [runningEntry("r1", { modelSeg: "gemma-4-12b-qat" })];
+  const running = [runningEntry("r1", { modelSeg: "gemma-4-12b" })];
   const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
   const out = viewer.render(80).join("\n");
-  assert.ok(out.includes("gemma-4-12b-qat"), "running row shows the resolved model, shortened");
+  assert.ok(out.includes("gemma-4-12b"), "running row shows the resolved model, shortened");
   assert.ok(!out.includes("tier:medium"), "running row no longer shows the stale requested tier once resolved");
 });
 
@@ -353,11 +353,11 @@ test("follow esc returns to the list", () => {
 });
 
 test("follow shows the resolved model (short) once resolvedModel is set", () => {
-  const running = [runningEntry("r1", { modelSeg: "gemma-4-12b-qat" })];
+  const running = [runningEntry("r1", { modelSeg: "gemma-4-12b" })];
   const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
   viewer.handleInput("\r");
   const out = viewer.render(80).join("\n");
-  assert.ok(out.includes("gemma-4-12b-qat"), "follow header shows the resolved model, shortened");
+  assert.ok(out.includes("gemma-4-12b"), "follow header shows the resolved model, shortened");
 });
 
 test("follow falls back to 'ended' when the run leaves the registry (LIVE-only behavior, pre-Task-4)", () => {

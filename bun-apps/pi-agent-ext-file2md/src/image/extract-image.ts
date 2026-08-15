@@ -1,6 +1,6 @@
 // src/image/extract-image.ts — image input branch (ticket 07 #3): OCR via the
 // one-shot Swift Vision CLI, optional describe via the shared VLM seam
-// (askImage → lm-studio google/gemma-4-12b-qat), merged into ONE atomic
+// (askImage → lm-studio google/gemma-4-12b), merged into ONE atomic
 // kind=image vault-md card. Graceful degradation (decision #5): VLM failure
 // → OCR-only card + stderr warning; both stages failing → throw.
 import { basename, isAbsolute, resolve } from "node:path";
@@ -27,7 +27,7 @@ const DESCRIBE_PROMPT =
   "Describe this image factually for a knowledge base: the subject(s), the scene, any legible text, and notable details. 3-6 sentences, plain prose.";
 
 /** Default describe stage: file2md's shared VLM seam. askImage already
- *  defaults to lm-studio google/gemma-4-12b-qat (see ../vlm/ask.ts header). */
+ *  defaults to lm-studio google/gemma-4-12b (see ../vlm/ask.ts header). */
 export async function askImageDescribe(imagePath: string): Promise<DescribeResult> {
   try {
     const r = await askImage(imagePath, DESCRIBE_PROMPT);
@@ -85,7 +85,7 @@ export async function extractImageCard(imagePath: string, opts: ExtractImageOpts
 
   const extractor = [
     ocrRes !== undefined ? "vision-ocr" : undefined,
-    visionDescription !== undefined ? "google/gemma-4-12b-qat" : undefined,
+    visionDescription !== undefined ? "google/gemma-4-12b" : undefined,
   ]
     .filter((s): s is string => s !== undefined)
     .join("+");

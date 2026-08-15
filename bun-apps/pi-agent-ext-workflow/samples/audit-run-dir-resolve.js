@@ -12,7 +12,7 @@
  * purpose (4 agents) so a real model finishes in minutes, not hours.
  *
  * Run via the REAL e2e path (drives pi-agent CLI + the workflow tool):
- *   PI_MODEL=google/gemma-4-26b-a4b-qat \
+ *   PI_MODEL=google/gemma-4-12b \
  *     ./bun-apps/pi-agent-ext-workflow/samples/smoke-e2e.sh \
  *       bun-apps/pi-agent-ext-workflow/samples/audit-run-dir-resolve.js
  *

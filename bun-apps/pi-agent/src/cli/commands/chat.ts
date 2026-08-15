@@ -9,7 +9,7 @@
  *
  * Usage:
  *   pi-agent cli chat                          # start REPL (persistent session)
- *   pi-agent cli chat --model gemma-4-26b      # pick a model
+ *   pi-agent cli chat --model gemma-4-12b      # pick a model
  *   pi-agent cli --no-session chat             # ephemeral (in-memory) session
  *   pi-agent cli chat --tools read,bash,write  # curated toolset
  *   echo "hello" | pi-agent cli chat           # pipe one prompt, then exit
@@ -110,7 +110,7 @@ The session persists to disk by default (history survives across invocations).
 Pass --no-session for an ephemeral in-memory session.
 
 Options (pi-aligned globals):
-  --model <pattern>      provider/id[:thinking]  (e.g. gemma-4-26b, sonnet)
+  --model <pattern>      provider/id[:thinking]  (e.g. gemma-4-12b, sonnet)
   --provider <name>      provider name
   --thinking <level>     off|minimal|low|medium|high|xhigh
   --tools <csv>          curated tool allowlist (default: broad set)
@@ -128,7 +128,7 @@ In-session commands:
 
 Examples:
   pi-agent cli chat
-  pi-agent cli chat --model gemma-4-26b
+  pi-agent cli chat --model gemma-4-12b
   pi-agent cli --tools read,bash,edit chat
   echo "what files are here?" | pi-agent cli chat`,
 	async run(parsed: ParsedArgs): Promise<void> {

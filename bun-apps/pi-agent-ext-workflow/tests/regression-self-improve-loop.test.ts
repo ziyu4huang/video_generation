@@ -384,7 +384,7 @@ describe("flux2 self-improve loop", () => {
 
   it("judge-tier auto-fallback: 0 atoms under default → retry ONCE with 31b → scored (no longer unscored)", async () => {
     // Goal 0704 §1 pure-win fix: the 0612 arc DOCUMENTED that the default judge
-    // (gemma-4-26b-a4b-qat) returns 0 atoms on multi-subject images while 31b
+    // (gemma-4-12b) returns 0 atoms on multi-subject images while 31b
     // analyzes them, but only shipped --judge-model (a manual footgun — the user
     // had to KNOW). judgePose now auto-retries ONCE with the fallback tier when 0
     // atoms are returned. This test proves the retry converts unscored→scored:
@@ -402,9 +402,9 @@ describe("flux2 self-improve loop", () => {
           }
           if (/Validate this generated pose/.test(p)) {
             judgeCalls += 1;
-            // The fallback retry appends ` --model "google/gemma-4-31b-qat"` to
+            // The fallback retry appends ` --model "google/gemma-4-12b"` to
             // the run.py caption command. Distinguish the two calls by it.
-            const isFallback = /--model "google\/gemma-4-31b-qat"/.test(p);
+            const isFallback = /--model "google\/gemma-4-12b"/.test(p);
             if (!isFallback) {
               // default judge → 0 atoms (the multi-subject footgun)
               return {
@@ -454,13 +454,13 @@ describe("flux2 self-improve loop", () => {
   });
 
   it("judge-tier auto-fallback is a no-op when the user already pinned the fallback tier", async () => {
-    // If the user passed --judge-model gemma-4-31b-qat explicitly and it STILL
+    // If the user passed --judge-model google/gemma-4-12b explicitly and it STILL
     // returns 0 atoms, there is no stronger tier to try — declare unscored
     // instead of looping. Guards against a retry storm on a pinned fallback.
     let judgeCalls = 0;
     const result = await runWorkflow(SOURCE, {
       ...common,
-      args: { ...common.args, attempts: 1, seed: 8, judgeModel: "google/gemma-4-31b-qat" },
+      args: { ...common.args, attempts: 1, seed: 8, judgeModel: "google/gemma-4-12b" },
       agent: {
         async run(prompt: string) {
           const p = String(prompt ?? "");

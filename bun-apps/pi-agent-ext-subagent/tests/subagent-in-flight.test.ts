@@ -46,9 +46,9 @@ test("updateModel records resolvedModel and triggers the bound invalidate", () =
   reg.bindInvalidate("a", () => {
     invalidated++;
   });
-  reg.updateModel("a", "google/gemma-4-12b-qat");
+  reg.updateModel("a", "google/gemma-4-12b");
   // the projection surfaces the resolved model (provider prefix dropped)
-  assert.equal(reg.view("a")?.modelSeg, "gemma-4-12b-qat");
+  assert.equal(reg.view("a")?.modelSeg, "gemma-4-12b");
   assert.equal(invalidated, 1);
 });
 

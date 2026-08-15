@@ -118,7 +118,7 @@ graph-linked vault cards under engine gate control.
 
 ```bash
 bun --cwd bun-apps/pi-agent src/cli.ts cli workflow run knowledge-distill \
-  --model lm-studio/google/gemma-4-26b-a4b-qat --thinking low \
+  --model lm-studio/google/gemma-4-12b --thinking low \
   --args '{"pr":[244,242],"folder":"Zettelkasten/distill","maxNotes":14,"minCards":10}'
 ```
 

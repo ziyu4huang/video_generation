@@ -1,8 +1,7 @@
 export const meta = {
   name: 'verify-bun-pi-agent-cli',
   description: 'Dynamic end-to-end verification of the pi-agent CLI (resolve paths -> build bundle+sourcemap -> smoke -> regression on academic-paper fixture)',
-  whenToUse: 'Verifies the pi-agent CLI bundle end-to-end and writes <runDir>/result.jsonl for compare.ts. TWO MODES selected by `stage1From`: (1) FULL baseline re-check — OMIT stage1From to re-run VLM stage1 + distill stage2 (validates both stage code paths; ~6 min; needs LM Studio + distill creds + fixture). (2) DISTILL-MODEL comparison — pass stage1From=docs/benchmarks/verify-bun-pi-agent-cli/stage1-seed-emnlp-893 to reuse the committed stage1 and SKIP the VLM (vary only the distill model; regression ~2 min / full ~5 min; needs distill creds, NOT LM Studio). ARGS: distillModel (default zai/glm-5.3), vlmModel (default lm-studio/google/gemma-4-26b-a4b-qat), regPages (1-3), fixtureName, repoRoot (default git toplevel), runRoot (default <repoRoot>/tmp, gitignored). Phases degrade gracefully (skipped + logged) when a prerequisite is absent — see the file-top comment for the full phase list, prerequisites & graceful-degradation rules.',
-  phases: [
+  whenToUse: 'Verifies the pi-agent CLI bundle end-to-end and writes <runDir>/result.jsonl for compare.ts. TWO MODES selected by `stage1From`: (1) FULL baseline re-check — OMIT stage1From to re-run VLM stage1 + distill stage2 (validates both stage code paths; ~6 min; needs LM Studio + distill creds + fixture). (2) DISTILL-MODEL comparison — pass stage1From=docs/benchmarks/verify-bun-pi-agent-cli/stage1-seed-emnlp-893 to reuse the committed stage1 and SKIP the VLM (vary only the distill model; regression ~2 min / full ~5 min; needs distill creds, NOT LM Studio). ARGS: distillModel (default zai/glm-5.3), vlmModel (default lm-studio/google/gemma-4-12b), regPages (1-3), fixtureName, repoRoot (default git toplevel), runRoot (default <repoRoot>/tmp, gitignored). Phases degrade gracefully (skipped + logged) when a prerequisite is absent — see the file-top comment for the full phase list, prerequisites & graceful-degradation rules.',  phases: [
     { title: 'Resolve', detail: 'resolve absolute paths + health-check + fresh runDir (no cwd/worktree drift)' },
     { title: 'Build', detail: 'bundle + external sourcemap; gate on success' },
     { title: 'Smoke', detail: 'offline meta + passthrough + distill via the dist bundle' },
@@ -30,8 +29,7 @@ const CFG = {
   fixtureName: A.fixtureName ?? '2025.emnlp-main.893.pdf',
   runRoot: A.runRoot ?? '',              // '' => <repoRoot>/tmp (gitignored; resolved in Resolve)
   distillModel: A.distillModel ?? 'zai/glm-5.3',
-  vlmModel: A.vlmModel ?? 'lm-studio/google/gemma-4-12b-qat',
-  regPages: A.regPages ?? '1-3',
+  vlmModel: A.vlmModel ?? 'lm-studio/google/gemma-4-12b',  regPages: A.regPages ?? '1-3',
   stage1From: A.stage1From ?? '',        // dir containing 1-pdf-to-md/<slug>/ to REUSE (skip VLM stage1; control variation across distill models)
 }
 // distillSlug keys the per-run dir + result filename; identical to pdf-to-vault's slug for the fixture.
@@ -582,8 +580,7 @@ return {
  *      `<distill-slug>.jsonl` matching the run's distill model (slug =
  *      model.replace(/\//g, "-")), falling back to zai-glm-5.3.jsonl. Baselines
  *      committed: zai-glm-5.3.jsonl, zai-glm-4.7.jsonl,
- *      lm-studio-google-gemma-4-26b-a4b-qat.jsonl. Pass an explicit baseline
- *      file as the LAST arg to force it for all runs.
+ *      lm-studio-google-gemma-4-12b.jsonl. Pass an explicit baseline *      file as the LAST arg to force it for all runs.
  *   3. RESOLVED (not reproducible): zai/glm-4.7 `zk-card remove` once failed —
  *      `obsidian_delete` returned ok but the file stayed on disk. A re-run with
  *      the same model passed: the agent followed the safe-delete protocol and

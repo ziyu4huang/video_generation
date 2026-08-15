@@ -17,7 +17,7 @@ import { homeDir } from "./home.js";
  */
 export interface ModelTierConfig {
   tiers: Record<string, string>;
-  /** Capability → model-spec (e.g. { vision: "lmstudio/qwen2-vl-7b" }). Optional. */
+  /** Capability → model-spec (e.g. { vision: "lmstudio/google/gemma-4-12b" }). Optional. */
   capabilities?: Record<string, string>;
 }
 

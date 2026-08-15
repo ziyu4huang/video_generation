@@ -102,7 +102,7 @@ const NO_MODEL_ERR =
   "[file2md] No model configured. Set model config via `/models-preset` (or `/workflows-models`), or export PI_MODEL as a temporary escape hatch.";
 const STABLE_LLM = {
   provider: "lm-studio",
-  modelId: "google/gemma-4-12b-qat",
+  modelId: "google/gemma-4-12b",
   thinkingLevel: "off",
 };
 let resolveVisionMode: "throw" | "return" = "throw";

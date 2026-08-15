@@ -50,7 +50,7 @@ MLX_MODELS_DIR, KREA2_BIN, …). Use \`--tools\` / \`-V\` / \`--mode json\` for
 CLI-level control.
 
 Options (pi-aligned globals):
-  --model <pattern>      provider/id[:thinking]  (e.g. sonnet, gemma-4-26b)
+  --model <pattern>      provider/id[:thinking]  (e.g. sonnet, gemma-4-12b)
   --provider <name>      provider name
   --thinking <level>     off|minimal|low|medium|high|xhigh
   --tools <csv>          override the curated [krea2] tool allowlist

@@ -34,11 +34,11 @@ const truthy = (v: string | undefined) => v === "1" || v === "true" || v === "ye
 export const IMAGE_E2E_ENABLED = truthy(process.env.PI_AGENT_E2E_IMAGE);
 
 /**
- * Model id. The example used google/gemma-4-12b-qat; any model the operator
+ * Model id. The example used google/gemma-4-12b; any model the operator
  * has authenticated works. Fail-fast if unset AND no default fits — but we keep
  * the example default so `run-image-agent-e2e.sh` works with zero config.
  */
-const MODEL = process.env.PI_AGENT_E2E_MODEL || "google/gemma-4-12b-qat";
+const MODEL = process.env.PI_AGENT_E2E_MODEL || "google/gemma-4-12b";
 
 /** Overridable prompt; default keeps the example's mechanics with a neutral subject. */
 const PROMPT =

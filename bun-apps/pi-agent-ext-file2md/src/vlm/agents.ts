@@ -8,7 +8,7 @@
  *  - The orchestrator calls `explainPage()` once per page, feeding the PNG as
  *    an image attachment to the model via `session.prompt(text, { images })`.
  *
- * The model defaults to `lm-studio/google/gemma-4-12b-qat` (a vision-capable
+ * The model defaults to `lm-studio/google/gemma-4-12b` (a vision-capable
  * Gemma served locally). Override with --model / --provider / --thinking.
  *
  * Output markdown shape (Obsidian-compatible):

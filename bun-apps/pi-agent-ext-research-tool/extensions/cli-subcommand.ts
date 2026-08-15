@@ -59,7 +59,7 @@ Options (pi-aligned globals + research-specific):
   --proxy <url>       bilibili proxy URL (e.g. http://127.0.0.1:7890) to bypass 412 errors
   --recency <days>    youtube only: only videos from last N days (default: 30)
   --output-path <p>   explicit output path (default: vault weekly-news/<platform>-<preset>-<date>.md)
-  --model <pattern>   provider/id[:thinking]  (e.g. sonnet, gemma-4-26b)
+  --model <pattern>   provider/id[:thinking]  (e.g. sonnet, gemma-4-12b)
   --provider <name>   provider name
   --tools <csv>       override the curated tool allowlist
 

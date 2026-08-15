@@ -5,7 +5,7 @@
  * is a bare primitive: any pi-file2md consumer package can hand it an image path +
  * a free-form question and get the model's reply text back, without writing
  * its own LM Studio client or session plumbing. Defaults to the same shared
- * VLM target as the rest of pi-file2md (lm-studio/google/gemma-4-12b-qat).
+ * VLM target as the rest of pi-file2md (lm-studio/google/gemma-4-12b).
  */
 
 import { readFileSync } from "node:fs";

@@ -67,7 +67,7 @@ $(Y "pi-agent-ext-power-tool run-test.sh — effort tiers"):
 Env gates l2-e2e.test.ts reads:
   PI_RUN_L2=1      enable L2 (spawns real CLI + real LM Studio model)  (high+)
   PI_REQUIRE_L2=1  blocked services FAIL instead of SKIP               (full)
-  PI_L2_MODEL      override the LM Studio model (default: google/gemma-4-26b-a4b-qat)
+  PI_L2_MODEL      override the LM Studio model (default: google/gemma-4-12b)
 EOF
 }
 

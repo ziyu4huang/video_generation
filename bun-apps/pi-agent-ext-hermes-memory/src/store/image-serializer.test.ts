@@ -14,7 +14,7 @@ const IMAGE_MD = [
   "source_file: /abs/shot.png",
   "source_hash: aabbaabbaabbaabbaabbaabbaabbaabbaabbaabbaabbaabbaabbaabbaabbaabb",
   "content_hash: ccddccddccddccddccddccddccddccddccddccddccddccddccddccddccddccdd",
-  "extractor: vision-ocr+google/gemma-4-12b-qat",
+  "extractor: vision-ocr+google/gemma-4-12b",
   "format: png",
   "dimensions:",
   "  width: 800",

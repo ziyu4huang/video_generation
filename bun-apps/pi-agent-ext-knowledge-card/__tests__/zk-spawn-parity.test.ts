@@ -112,7 +112,7 @@ describe("resolveDistillModel precedence (explicit arg > KC_SUBAGENT_MODEL env >
 	});
 
 	it("DISTILL_MODEL_DEFAULT is the local LM Studio gemma", () => {
-		assert.equal(DISTILL_MODEL_DEFAULT, "google/gemma-4-12b-qat");
+		assert.equal(DISTILL_MODEL_DEFAULT, "google/gemma-4-12b");
 	});
 
 	it("returns the explicit arg when provided (wins over env + default)", () => {
@@ -127,7 +127,7 @@ describe("resolveDistillModel precedence (explicit arg > KC_SUBAGENT_MODEL env >
 
 	it("falls back to the hardcoded default when neither arg nor env set", () => {
 		delete process.env[ENV_KEY];
-		assert.equal(resolveDistillModel(undefined), "google/gemma-4-12b-qat");
+		assert.equal(resolveDistillModel(undefined), "google/gemma-4-12b");
 	});
 
 	it("zk_card spawn receives the resolved default model when no explicit arg", async () => {
@@ -141,7 +141,7 @@ describe("resolveDistillModel precedence (explicit arg > KC_SUBAGENT_MODEL env >
 		piKnowledgeCardExtension(pi);
 		const zkCard: any = tools.get("zk_card");
 		await zkCard.execute("id", { action: "check" }, undefined, undefined, CTX);
-		assert.equal(calls.at(-1)!.model, "google/gemma-4-12b-qat");
+		assert.equal(calls.at(-1)!.model, "google/gemma-4-12b");
 		__setZkSpawnForTest(null);
 	});
 });
