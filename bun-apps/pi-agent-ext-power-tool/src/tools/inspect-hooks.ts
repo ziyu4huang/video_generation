@@ -6,48 +6,16 @@
  * registered against an UNKNOWN event name (almost certainly a typo / dead
  * handler — it can never match the dispatch loop's real eventType).
  *
- * This module is SELF-CONTAINED (imports only from the SDK) to avoid a
- * module-init cycle with ../index.js. The Finding/Severity types are
- * duplicated here but structurally identical to index's, so JSON output stays
- * consistent across inspect_* tools.
+ * The finding vocabulary comes from ../findings.js, which every inspect_* tool
+ * shares. (It used to be duplicated here to avoid a module-init cycle with
+ * ../index.js — that cycle is gone now the vocabulary no longer lives in the
+ * same file as the extension factory.)
  */
 import { defineTool, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { type Finding, shortPath, summarizeFindings } from "../findings.js";
 
-// ─── Shared with inspect_extensions (structurally identical) ────────────────
-
-export type Severity = "high" | "medium" | "low" | "info";
-
-export interface Finding {
-  severity: Severity;
-  /** machine id, e.g. "unknown-event-name" */
-  check: string;
-  /** one human-readable line */
-  message: string;
-  /** structured payload (for JSON mode / assertions) */
-  detail?: Record<string, unknown>;
-}
-
-export function summarizeFindings(findings: Finding[]): {
-  total: number;
-  high: number;
-  medium: number;
-  low: number;
-} {
-  const counts = { high: 0, medium: 0, low: 0 };
-  for (const f of findings) {
-    if (f.severity === "info") continue;
-    counts[f.severity as "high" | "medium" | "low"] += 1;
-  }
-  return { total: counts.high + counts.medium + counts.low, ...counts };
-}
-
-/** Compact a source path: prefer the bun-apps/... tail, else last 2 segments. */
-function shortPath(p: string): string {
-  const i = p.indexOf("bun-apps/");
-  if (i >= 0) return p.slice(i);
-  return p.split("/").slice(-2).join("/");
-}
+export { type Finding, type Severity, summarizeFindings } from "../findings.js";
 
 // ─── Known events (pi 0.82.0) ───────────────────────────────────────────────
 // The on() overload string literals. A handler registered on an event NOT in

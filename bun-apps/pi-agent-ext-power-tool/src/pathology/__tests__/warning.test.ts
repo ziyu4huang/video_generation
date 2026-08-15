@@ -7,7 +7,7 @@
  */
 import { test, expect, describe } from "bun:test";
 import { pickWorstHighFinding, loopSignature, makeWarner } from "../warning.ts";
-import type { Finding } from "../../index.ts";
+import type { Finding } from "../../findings.ts";
 import type { ToolCallRecord } from "../types.ts";
 
 // ─── fixtures ────────────────────────────────────────────────────────────────

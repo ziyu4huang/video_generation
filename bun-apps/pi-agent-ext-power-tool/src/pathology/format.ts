@@ -10,8 +10,8 @@
  * declaration, so even though src/index.ts imports this module's sibling tool
  * wrapper, there is no runtime initialization-order hazard.
  */
-import type { Finding, Severity } from "../index.ts";
-import { summarizeFindings } from "../index.ts";
+import type { Finding, Severity } from "../findings.ts";
+import { summarizeFindings } from "../findings.ts";
 import type { ToolCallRecord } from "./types.ts";
 
 /** Render pathology findings as a human-readable severity-ranked report. PURE. */

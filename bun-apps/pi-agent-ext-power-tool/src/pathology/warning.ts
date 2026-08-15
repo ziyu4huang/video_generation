@@ -16,7 +16,7 @@
  * Pure core (pickWorstHighFinding, loopSignature, makeWarner) is unit-tested;
  * the factory wires the module-singleton surfacePathologyWarning into the hook.
  */
-import type { Finding } from "../index.ts";
+import type { Finding } from "../findings.ts";
 import { analyzePathology } from "./detector.ts";
 import type { ToolCallRecord } from "./types.ts";
 
