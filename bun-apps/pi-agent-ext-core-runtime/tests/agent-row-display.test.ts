@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ActivityStatus } from "../src/agent-row-display.js";
-import { activityGlyph, glyphFor, NO_THEME, renderBadge, runHeader } from "../src/agent-row-display.js";
+import { activityGlyph, glyphFor, NO_THEME, renderBadge, renderRunRow, runHeader } from "../src/agent-row-display.js";
 import type { RunView } from "../src/run-view.js";
 import { buildRunView } from "../src/run-view.js";
 
@@ -55,5 +55,24 @@ describe("renderBadge / runHeader", () => {
     expect(h.startsWith("[r1]")).toBe(true);
     expect(h).toContain("4.0s");
     expect(h).toContain("preview");
+  });
+});
+
+describe("renderRunRow — cost tail", () => {
+  const base = {
+    id: "r1",
+    startedAt: 0,
+    taskPreview: "preview",
+    status: "running" as ActivityStatus,
+  };
+
+  test("appends `· $0.04` when costUsd > 0", () => {
+    const v = buildRunView({ ...base, usageAccrued: { costUsd: 0.04, tokensIn: 1, tokensOut: 1 } }, 1000);
+    expect(renderRunRow(v, NO_THEME)).toContain("· $0.04");
+  });
+
+  test("cost tail absent when costUsd is 0", () => {
+    const v = buildRunView(base, 1000);
+    expect(renderRunRow(v, NO_THEME)).not.toContain("$");
   });
 });

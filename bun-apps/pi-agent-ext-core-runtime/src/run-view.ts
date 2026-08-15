@@ -37,6 +37,12 @@ export interface RunView {
   readonly abortable: boolean;
   readonly history: readonly AgentHistoryEntry[];
   readonly startedAt: number;
+  /** Accrued child cost (USD); frozen at terminal (mirrors elapsedFrozen). */
+  readonly costUsd: number;
+  /** Accrued child input tokens; frozen at terminal. */
+  readonly tokensIn: number;
+  /** Accrued child output tokens; frozen at terminal. */
+  readonly tokensOut: number;
 }
 
 /** Short, compact model segment: drop provider prefix, cap runaway ids. */
@@ -115,5 +121,8 @@ export function buildRunView(r: RunRecord, now: number): RunView {
     abortable: typeof r.abort === "function",
     history,
     startedAt: r.startedAt,
+    costUsd: r.usageAccrued?.costUsd ?? 0,
+    tokensIn: r.usageAccrued?.tokensIn ?? 0,
+    tokensOut: r.usageAccrued?.tokensOut ?? 0,
   };
 }

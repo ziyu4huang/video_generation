@@ -90,3 +90,19 @@ test("actor defaults to general-purpose; foreground defaults false; abortable fr
   expect(buildRunView(baseRun({ agent: "impl", abort: () => {} }), 0).actor).toBe("impl");
   expect(buildRunView(baseRun({ abort: () => {} }), 0).abortable).toBe(true);
 });
+
+describe("buildRunView — accrued usage projection", () => {
+  test("projects usageAccrued costUsd/tokensIn/tokensOut", () => {
+    const v = buildRunView(baseRun({ usageAccrued: { costUsd: 0.04, tokensIn: 100, tokensOut: 200 } }), 0);
+    expect(v.costUsd).toBe(0.04);
+    expect(v.tokensIn).toBe(100);
+    expect(v.tokensOut).toBe(200);
+  });
+
+  test("usage fields default to 0 when usageAccrued absent", () => {
+    const v = buildRunView(baseRun(), 0);
+    expect(v.costUsd).toBe(0);
+    expect(v.tokensIn).toBe(0);
+    expect(v.tokensOut).toBe(0);
+  });
+});

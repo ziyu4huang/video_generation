@@ -144,7 +144,10 @@ export function renderRunRow(v: RunView, theme: ThemeLike, maxDetailWidth = 50):
   const dim = (t: string) => theme.fg("dim", t);
   const badge = v.badgeText ? `${theme.fg("accent", v.badgeText)} ` : "";
   const head = `${badge}${theme.fg(color, icon)} ${theme.fg("muted", v.actor)}`;
-  const meta = [v.modelSeg, fmtElapsed(v.elapsedMs), `${v.toolCallCount} call${v.toolCallCount === 1 ? "" : "s"}`]
+  const meta = [
+    v.modelSeg,
+    v.costUsd > 0 ? `$${fmtCost(v.costUsd)}` : undefined,
+    fmtElapsed(v.elapsedMs), `${v.toolCallCount} call${v.toolCallCount === 1 ? "" : "s"}`]
     .filter(Boolean)
     .join(" · ");
   const tail = v.latestAction ? shorten(v.latestAction, maxDetailWidth) : undefined;
