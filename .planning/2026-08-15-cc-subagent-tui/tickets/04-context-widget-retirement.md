@@ -1,6 +1,6 @@
 # Ticket 04 — Context-widget retirement
 
-> Wave 1 · spec §2 · status: **stub** (awaiting plan)
+> Wave 1 · spec §2 · status: **done** (PR #1416, 2026-08-15)
 
 ## Goal
 
