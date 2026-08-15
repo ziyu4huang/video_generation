@@ -4,12 +4,15 @@
  * knowledge-card's `zk_card` / `zk_ask` migrate here off pi-obsidian's child-
  * process `runSubagentWithRetry`).
  *
- * The return shape MIRRORS `runSubagentWithRetry` (`{output, exitCode, stderr,
- * timedOut}`) so callers change one line and their result-handling stays
- * byte-identical. `WorkflowAgent.run` returns a string or throws, so this helper
- * ADAPTS success/throw into that shape, classifies transient failures (timeout /
- * abort / network) for the single retry, and accepts an injectable `agent` runner
- * for unit testing without a real session.
+ * The return shape was originally a copy of `runSubagentWithRetry`'s
+ * (`{output, exitCode, stderr, timedOut}`) so callers could migrate by changing
+ * one line. That subprocess vocabulary described a runner this one is not: there
+ * is no process, no exit code and no standard error stream behind
+ * `createAgentSession`. It is now `{output, failure?}` — see
+ * {@link SubagentFailure}. `WorkflowAgent.run` returns a string or throws, so
+ * this helper ADAPTS success/throw into that shape, classifies transient
+ * failures (timeout / abort / network) for the single retry, and accepts an
+ * injectable `agent` runner for unit testing without a real session.
  *
  * `extensionTools?` is the R2 bridge (Phase-1 finding): parent-session tools threaded
  * into the child so obsidian tools reach it in BOTH manifest-installed and `-e` dev mode.
@@ -118,26 +121,36 @@ export interface SpawnSubagentOptions {
   onUsage?: (u: AgentUsage) => void;
 }
 
+/**
+ * Why the run did not succeed. Absent from a result = the run succeeded.
+ *
+ * Every variant carries `message`, so a caller that only wants to report "what
+ * went wrong" never has to switch on `kind`. The two detail-bearing variants
+ * require their detail object: a WorkflowError may arrive with no `details`, and
+ * its PRESENCE is what selects the kind (a TURNS_EXHAUSTED with no details is a
+ * plain `failed`). `kind` is exactly the run's status, so no caller-side
+ * correlation of separate flags is needed to derive one.
+ *
+ * `aborted` is deliberately absent: a user abort is knowledge the parent turn
+ * holds, not the spawn, and is derived in child-dispatch.ts.
+ */
+export type SubagentFailure =
+  | { kind: "failed"; message: string }
+  | { kind: "timedout"; message: string }
+  | { kind: "turns"; message: string; turns: TurnExhaustion }
+  | { kind: "budget"; message: string; budget: BudgetExhaustion };
+
 export interface SpawnSubagentResult {
   output: string;
-  exitCode: number;
-  stderr: string;
-  timedOut: boolean;
+  /** Absent = success. See {@link SubagentFailure}. */
+  failure?: SubagentFailure;
   /** Real token/cost usage read from the child session, when the runner reports it. */
   usage?: AgentUsage;
-  /** Set when the run was aborted for exceeding tokenBudget/spendBudget (distinct from timedOut/failed). */
-  budget?: BudgetExhaustion;
-  /**
-   * Set when the run was aborted for exceeding maxTurns (distinct from
-   * timedOut/failed/budget). Timeout-like semantics — but wall-clock `timedOut`
-   * stays false so callers can tell a turn cap apart from a timeoutMs abort.
-   */
-  turns?: TurnExhaustion;
   /**
    * Informational 80%-of-budget warning (fixed 0.8 ratio): set when the run
    * COMPLETED (not aborted) and final usage reached ≥80% of a set budget —
-   * same {kind, limit, actual} shape as {@link budget}. Advisory only: it
-   * never aborts, never retries, and does not change exitCode/status.
+   * same {kind, limit, actual} shape as the `budget` failure variant's detail.
+   * Advisory only: it never aborts, never retries, and never sets `failure`.
    */
   budgetWarning?: BudgetWarning;
 }
@@ -146,53 +159,62 @@ const TRANSIENT_NETWORK_RE =
   /econnreset|econnrefused|enotfound|socket hang up|rate.?limit|429|503|502|network|fetch failed|eai_again/i;
 
 interface ErrorClass {
+  /** Whether a single retry is worth attempting (see `retryOnTransient`). */
   transient: boolean;
-  timedOut: boolean;
-  message: string;
-  budget?: BudgetExhaustion;
-  turns?: TurnExhaustion;
+  failure: SubagentFailure;
 }
 
+/**
+ * The single home of the outcome taxonomy. The branch ORDER below is the whole
+ * precedence rule (budget > timeout > turns > failed) — it used to be mirrored
+ * by a second precedence chain in `deriveSubagentStatus`, which is why that
+ * helper no longer exists. `tests/failure-union.test.ts` pins one case per
+ * branch, including the two detail-less ones.
+ */
 function classifyError(e: unknown, signalAborted = false): ErrorClass {
   const message = e instanceof Error ? e.message : String(e);
   // Budget exhaustion is non-recoverable: retrying would re-exhaust the same
-  // ceiling. Surfaced distinctly (result.budget) so the caller can tell a
-  // capped run apart from a generic failure or a timeout.
+  // ceiling. Surfaced as its own kind so the caller can tell a capped run apart
+  // from a generic failure or a timeout. A budget error that arrived WITHOUT
+  // its detail object has nothing to report as a cap, so it degrades to
+  // `failed` — the detail's presence is what earns the kind.
   if (isWorkflowError(e) && e.code === WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED) {
-    return { transient: false, timedOut: false, message, budget: e.details as BudgetExhaustion | undefined };
+    const budget = e.details as BudgetExhaustion | undefined;
+    return { transient: false, failure: budget ? { kind: "budget", message, budget } : { kind: "failed", message } };
   }
   // Schema noncompliance is intermittent on some models (zai/glm unreliably
   // emits structured_output under load) — a fresh full re-run usually succeeds,
   // so treat it as transient (the inner in-session repair already re-nudged
   // twice). Retried only when retryOnTransient is on (default true).
   if (isWorkflowError(e) && e.code === WorkflowErrorCode.SCHEMA_NONCOMPLIANCE) {
-    return { transient: true, timedOut: false, message };
+    return { transient: true, failure: { kind: "failed", message } };
   }
   if (isWorkflowError(e) && e.code === WorkflowErrorCode.AGENT_TIMEOUT) {
-    return { transient: true, timedOut: true, message };
+    return { transient: true, failure: { kind: "timedout", message } };
   }
-  // Turns exhaustion mirrors the TIMEOUT classification: timeout-like abort
-  // semantics (transient → retried once under retryOnTransient), NOT the
-  // budget path (a retry would re-exhaust the same ceiling — non-retryable).
-  // Surfaces the exhaustion as result.turns so callers can render/persist it.
+  // Turns exhaustion shares TIMEOUT's RETRY semantics (transient → retried once
+  // under retryOnTransient), NOT the budget path's (a retry would re-exhaust the
+  // same ceiling). It stays a distinct kind so a turn cap never renders as a
+  // wall-clock timeout. Detail-less → `failed`, as with budget above.
   if (isWorkflowError(e) && e.code === WorkflowErrorCode.TURNS_EXHAUSTED) {
-    return { transient: true, timedOut: false, message, turns: e.details as TurnExhaustion | undefined };
+    const turns = e.details as TurnExhaustion | undefined;
+    return { transient: true, failure: turns ? { kind: "turns", message, turns } : { kind: "failed", message } };
   }
   // Our own timeoutMs gate fires by aborting the call's controller — checking
   // the signal directly is authoritative, because the real WorkflowAgent runner
   // surfaces that abort as a plain `Error("Subagent was aborted")` (name
   // "Error"), NOT a DOMException named AbortError.
   if (signalAborted) {
-    return { transient: true, timedOut: true, message };
+    return { transient: true, failure: { kind: "timedout", message } };
   }
   // Fallback for runner-shaped abort errors: match name OR message.
   if (e instanceof Error && (/\babort/i.test(e.name) || /\baborted?\b/i.test(message))) {
-    return { transient: true, timedOut: true, message };
+    return { transient: true, failure: { kind: "timedout", message } };
   }
   if (TRANSIENT_NETWORK_RE.test(message)) {
-    return { transient: true, timedOut: false, message };
+    return { transient: true, failure: { kind: "failed", message } };
   }
-  return { transient: false, timedOut: false, message };
+  return { transient: false, failure: { kind: "failed", message } };
 }
 
 /** Sum token/cost usage across retry attempts (undefined-safe). */
@@ -306,31 +328,13 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
       // abort guard uses, but purely advisory.
       const budgetWarning = budgetWarningFor(usage, opts);
       return {
-        result: {
-          output,
-          exitCode: 0,
-          stderr: "",
-          timedOut: false,
-          usage,
-          ...(budgetWarning ? { budgetWarning } : {}),
-        },
+        result: { output, usage, ...(budgetWarning ? { budgetWarning } : {}) },
         transient: false,
       };
     } catch (e) {
       const c = classifyError(e, ac.signal.aborted);
       return {
-        result: {
-          output: "",
-          // 124 = the timeout exit convention; a turns abort shares it
-          // (timeout-like semantics) while staying distinguishable via
-          // timedOut:false + result.turns.
-          exitCode: c.timedOut || c.turns ? 124 : 1,
-          stderr: c.message,
-          timedOut: c.timedOut,
-          usage,
-          ...(c.budget ? { budget: c.budget } : {}),
-          ...(c.turns ? { turns: c.turns } : {}),
-        },
+        result: { output: "", failure: c.failure, usage },
         transient: c.transient,
       };
     } finally {
@@ -339,7 +343,7 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
   };
 
   const first = await tryOnce();
-  if (first.result.exitCode === 0 || !retry || !first.transient) return first.result;
+  if (!first.result.failure || !retry || !first.transient) return first.result;
   // Never retry a cancel the caller (or user) explicitly requested — retrying
   // would re-run work that was just aborted.
   if (opts.externalSignal?.aborted) return first.result;
