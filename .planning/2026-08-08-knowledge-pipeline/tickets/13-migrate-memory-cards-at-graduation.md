@@ -42,3 +42,8 @@ Execute the graduation milestone decided in ticket 05: move hermes's existing se
 - **Drift**: Tier-1 re-index for memory kinds ships IN 13 (walk-path hash-compare mirror, pattern = planning mirror); Tier-2/3 remain ticket 21. Acceptance bullet 3 scoped to Tier-1.
 - **Retirement**: legacy memory-mirror path for memory kinds is DELETED at the end (not flag-dormant). memoryRepo keeps serving sessions + non-memory uses.
 - **Waves**: 3 PRs — A: card-store dual-backend + bundle join; B: memory mirror via card-store + full writer re-point + lazy re-migration; C: Tier-1 walk mirror + legacy deletion + acceptance harness.
+
+## Wave status
+- **A SHIPPED (#1363, 2026-08-15)**: card-store dual-backend (surreal via SurrealMemoryRepository, C6 dedup rides; md/dep-hash SQLITE_ONLY documented) + BackendBundle.cardStore (both branches + fallback + hot-swap). Review SHIP 9/9; 1614 tests green, surreal live 8/8.
+- B (writer re-point + lazy re-migration) — next.
+- C (Tier-1 + legacy deletion + harness) — after B.
