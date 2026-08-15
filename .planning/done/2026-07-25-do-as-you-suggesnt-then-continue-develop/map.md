@@ -1,3 +1,4 @@
+> STATUS: DONE — archived 2026-08-15 (triage verdict: goal.ts modularization + auditor shipped (#814, #818))
 # Map — harden core-task (learn from pi-goal-list-loop-audit)
 
 Effort slug: `2026-07-25-do-as-you-suggesnt-then-continue-develop`

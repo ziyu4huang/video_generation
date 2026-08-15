@@ -1,3 +1,4 @@
+> STATUS: DONE — archived 2026-08-15 (triage verdict: sync-cli.ts + sync_repo shipped in devops)
 ---
 effort: 2026-08-07-i-ll-sync-via-the-proper-tool-this-time-scripts-
 created: 2026-08-07

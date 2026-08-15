@@ -1,3 +1,4 @@
+> STATUS: DONE — archived 2026-08-15 (triage verdict: pi-agent-ext-archify scaffolded; deck-builder #1037)
 # Map — convert archify into bun-apps/pi-agent-ext-archify
 
 ## Destination

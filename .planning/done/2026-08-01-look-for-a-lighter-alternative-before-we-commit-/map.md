@@ -1,3 +1,4 @@
+> STATUS: DONE — archived 2026-08-15 (triage verdict: per-turn injection #979; /response-language instant)
 # Map — lighter alternative to ctx.reload() in /response-language
 
 ## Destination

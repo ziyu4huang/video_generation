@@ -1,3 +1,4 @@
+> STATUS: DONE — archived 2026-08-15 (triage verdict: /list goal queue Loop 2 shipped (#826))
 # Wayfinder map: 2026-07-25-core-task-list-loop-the-continue-develop-frontie
 
 ## Destination

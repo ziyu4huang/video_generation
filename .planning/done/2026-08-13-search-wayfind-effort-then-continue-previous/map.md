@@ -1,3 +1,4 @@
+> STATUS: DONE — archived 2026-08-15 (triage verdict: transient search note; guardrails complete #1276-#1281)
 ---
 effort: 2026-08-13-search-wayfind-effort-then-continue-previous
 created: 2026-08-13
