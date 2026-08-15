@@ -16,6 +16,7 @@ import { Check, Convert } from "typebox/value";
 import { type AgentUsage, createBudgetGuard } from "./agent-budget.js";
 import { type AgentHistoryEntry, compactAgentHistory } from "./agent-history.js";
 import { applyToolPolicy } from "./agent-registry.js";
+import { createTurnGuard, turnExhaustionError } from "./agent-turns.js";
 import { WorkflowError, WorkflowErrorCode } from "./errors.js";
 import { loadModelTierConfig, type ModelTierConfig, resolveTierModel, sortedTierNames } from "./model-tier-config.js";
 import { throwIfProviderLimit } from "./provider-limit.js";
@@ -47,6 +48,13 @@ export {
   createBudgetGuard,
   isUsageObservation,
 } from "./agent-budget.js";
+export type { TurnExhaustion, TurnGuard, TurnSessionSurface } from "./agent-turns.js";
+export {
+  createTurnGuard,
+  isTurnEndObservation,
+  isTurnStartObservation,
+  turnExhaustionError,
+} from "./agent-turns.js";
 export { listAvailableModelSpecs } from "./available-models.js";
 export { lastAssistantError, throwIfProviderLimit } from "./provider-limit.js";
 
@@ -286,93 +294,6 @@ export interface WorkflowAgentOptions {
   loadTierConfig?: () => ModelTierConfig | null;
 }
 
-/** Minimal session surface the turn guard needs (real AgentSession or a test double): mid-run abort. */
-export interface TurnSessionSurface {
-  abort(): unknown;
-}
-
-/** Why a turn-capped subagent run was aborted before its next turn. */
-export interface TurnExhaustion {
-  /** The caller-declared ceiling on prompt→response turns. */
-  maxTurns: number;
-  /** Turns completed when the abort fired (== maxTurns). */
-  turnsUsed: number;
-}
-
-/** Detect the session event that delimits the start of a turn (one assistant API response cycle). */
-export function isTurnStartObservation(event: unknown): boolean {
-  return typeof event === "object" && event !== null && (event as { type?: unknown }).type === "turn_start";
-}
-
-/** Detect the session event that delimits the end of a turn (assistant response + its tool results). */
-export function isTurnEndObservation(event: unknown): boolean {
-  return typeof event === "object" && event !== null && (event as { type?: unknown }).type === "turn_end";
-}
-
-/**
- * Per-run turn cap: aborts the session BEFORE the model is asked for turn
- * maxTurns+1. One turn = one prompt→assistant-response cycle in the run loop,
- * delimited by the session's turn_start/turn_end events (the SDK emits
- * turn_start before each assistant API response, turn_end after its tool
- * results). A run that naturally finishes within maxTurns turns is never
- * aborted — only a loop that would CONTINUE past the cap is stopped. Idempotent:
- * after the abort fires once, later events are ignored. Distinct from the
- * budget guard: independent state, no shared classification.
- */
-export interface TurnGuard {
-  /** The exhaustion record once the cap fired; undefined before. */
-  readonly exhaustion: TurnExhaustion | undefined;
-  /** Turns completed so far (turn_end events observed). */
-  readonly turnsUsed: number;
-  /** Route a session event: turn_start → pre-turn cap check, turn_end → count. */
-  onSessionEvent(event: unknown): void;
-}
-
-/**
- * Build a TurnGuard over a session. Module-level and session-injected so the
- * cap semantics (exactly N allowed, abort before N+1, idempotence, natural-
- * finish-within-cap) are unit-testable with a minimal fake session, independent
- * of CoreAgent.run / createAgentSession.
- */
-export function createTurnGuard(session: TurnSessionSurface, options: { maxTurns?: number }): TurnGuard {
-  let turnsUsed = 0;
-  let exhaustion: TurnExhaustion | undefined;
-  return {
-    get exhaustion() {
-      return exhaustion;
-    },
-    get turnsUsed() {
-      return turnsUsed;
-    },
-    onSessionEvent(event: unknown) {
-      if (exhaustion) return; // idempotent: one abort, no double-fire
-      if (isTurnStartObservation(event)) {
-        // Turn maxTurns+1 is about to start (an assistant API call): abort BEFORE
-        // it runs. turnsUsed < maxTurns here means the cap hasn't been reached.
-        if (options.maxTurns !== undefined && turnsUsed >= options.maxTurns) {
-          exhaustion = { maxTurns: options.maxTurns, turnsUsed };
-          void session.abort();
-        }
-      } else if (isTurnEndObservation(event)) {
-        turnsUsed++;
-      }
-    },
-  };
-}
-
-/**
- * The distinct error surface for a turn-capped abort: non-recoverable (retrying
- * would re-burn the same turns), carrying {maxTurns, turnsUsed} in details.
- * Extracted from CoreAgent.run so the message/shape is unit-testable.
- */
-export function turnExhaustionError(exhaustion: TurnExhaustion, label?: string): WorkflowError {
-  return new WorkflowError(`max turns exceeded (${exhaustion.maxTurns})`, WorkflowErrorCode.TURNS_EXHAUSTED, {
-    recoverable: false,
-    agentLabel: label,
-    details: exhaustion,
-  });
-}
-
 export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefined> {
   label?: string;
   schema?: TSchemaDef;
@@ -386,14 +307,17 @@ export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefi
   images?: unknown[];
   signal?: AbortSignal;
   /**
-   * Abort the session mid-run once cumulative token usage (`tokens.total`)
-   * exceeds this. Checked on every usage observation (per API response, the
-   * same getSessionStats() source the onUsage callback reads) and — as a
-   * turn-boundary backstop — on each session state change, so an in-flight
-   * turn overshoots by at most one API response (sub-turn), not a full turn.
-   * Bounds a SINGLE runaway subagent — distinct from workflow's run-wide
-   * `tokenBudget` (a between-agent soft gate that never aborts an in-flight
-   * agent).
+   * Cap cumulative token usage (`tokens.total`) for this subagent run, with a
+   * one-turn wrap-up grace rather than an immediate abort. Checked on every
+   * usage observation (per API response, the same getSessionStats() source
+   * the onUsage callback reads) and — as a turn-boundary backstop — on each
+   * session state change. The FIRST crossing injects a one-turn wrap-up
+   * notice (flush state to disk) instead of aborting; the abort lands after
+   * that grace turn completes, hard-capped at `tokenBudget *
+   * BUDGET_GRACE_CEILING_RATIO` even mid-grace (see agent-budget.ts for the
+   * full two-stage mechanism). Bounds a SINGLE runaway subagent — distinct
+   * from workflow's run-wide `tokenBudget` (a between-agent soft gate that
+   * never aborts an in-flight agent).
    */
   tokenBudget?: number;
   /** Abort the session mid-run once cumulative cost ($) exceeds this (same seams as tokenBudget). */

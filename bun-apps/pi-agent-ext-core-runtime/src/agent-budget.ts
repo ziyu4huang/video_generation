@@ -234,6 +234,10 @@ export function createBudgetGuard(
         // turn (the one the model is about to run on it) may now complete.
         graceDelivered = true;
       }
+      // Raw type check rather than agent-turns.js's isTurnEndObservation:
+      // deliberate duplication, not drift. Importing that module would couple
+      // this guard to the turn guard's module, costing this file its
+      // zero-local-import property (see the module header).
       const evt = event as { type?: unknown } | null;
       if (evt?.type !== "turn_end" || !graceDelivered) {
         // Mid-grace token-only overshoot is expected (cumulative tokens are
