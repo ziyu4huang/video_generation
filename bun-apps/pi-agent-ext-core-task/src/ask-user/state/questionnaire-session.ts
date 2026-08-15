@@ -8,7 +8,8 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { getKeybindings, type Input, type OverlayHandle } from "@earendil-works/pi-tui";
 import type { QuestionData, QuestionnaireResult, QuestionParams } from "../tool/types.js";
 import type { WrappingSelectItem } from "../view/components/wrapping-select.js";
-import { COLLAPSED_HINT } from "../view/dialog-builder.js";
+import { buildHintText } from "../view/hint-table.js";
+import { formatKeySpec } from "../config.js";
 import type { QuestionnairePropsAdapter } from "../view/props-adapter.js";
 import { buildQuestionnaire } from "./build-questionnaire.js";
 import { t } from "./i18n-bridge.js";
@@ -85,6 +86,7 @@ export class QuestionnaireSession {
 			isMulti: this.isMulti,
 			initialState: this.state,
 			getCurrentTab: () => this.state.currentTab,
+			collapseKey: this.collapseKey,
 		});
 
 		this.notesInput = built.notesInput;
@@ -92,8 +94,18 @@ export class QuestionnaireSession {
 		this.viewAdapter = built.adapter;
 
 		const theme = config.theme;
+		// The collapsed bar is the same vocabulary in a different mode, so it goes
+		// through the same table rather than hand-joining an EXPAND + CANCEL pair
+		// that could (and did) name a key the router does not honour.
+		const collapsedHint = buildHintText({
+			mode: "collapsed",
+			isMulti: this.isMulti,
+			focusedIsMultiSelect: false,
+			notesAvailable: false,
+			collapseKey: formatKeySpec(this.collapseKey),
+		});
 		const collapsedRender = (_width: number): string[] => [
-			theme.fg("dim", ` ${t("hint.expand_line", COLLAPSED_HINT)} `),
+			theme.fg("dim", ` ${t("hint.expand_line", collapsedHint)} `),
 		];
 
 		this.component = {

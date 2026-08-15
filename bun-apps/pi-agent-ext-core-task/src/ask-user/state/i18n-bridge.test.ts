@@ -21,20 +21,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // Pull the exact dialog-builder literals (consts) so the dictionary keys are
 // guaranteed to match the source strings — no transcription drift.
-import {
-	COLLAPSED_HINT,
-	HINT_PART_CANCEL,
-	HINT_PART_COLLAPSE,
-	HINT_PART_ENTER,
-	HINT_PART_EXPAND,
-	HINT_PART_NAV,
-	HINT_PART_NOTES,
-	HINT_PART_TAB,
-	HINT_PART_TOGGLE,
-	INCOMPLETE_WARNING_PREFIX,
-	READY_PROMPT,
-	REVIEW_HEADING,
-} from "../view/dialog-builder.js";
+import { INCOMPLETE_WARNING_PREFIX, READY_PROMPT, REVIEW_HEADING } from "../view/dialog-builder.js";
+import { buildHintText, HINT_TABLE } from "../view/hint-table.js";
 import { DICTIONARIES, SUPPORTED_I18N_LOCALES } from "./i18n-dictionaries.js";
 import {
 	__setLocaleForTest,
@@ -48,20 +36,28 @@ import {
 const MULTI_SELECT = ["Next", "Type something."] as const;
 // submit-picker.ts — Submit / Cancel row labels
 const SUBMIT_PICKER = ["Submit", "Cancel"] as const;
-// dialog-builder.ts — every HINT_PART_* + REVIEW_HEADING + READY_PROMPT + INCOMPLETE_WARNING_PREFIX
+// hint-table.ts — the footer vocabulary, DERIVED from the table rather than
+// re-listed here. The old hand-written list was the same drift risk the table
+// exists to remove: a hint could be added to the source and silently left out of
+// the dictionary-coverage check below.
+const HINT_LABELS = HINT_TABLE.map((e) => e.label);
+// dialog-builder.ts — body chrome (headings/prompts), which is not keybindings.
 const DIALOG_BUILDER = [
-	HINT_PART_ENTER, // "Enter to select"
-	HINT_PART_NAV, // "↑/↓ to navigate"
-	HINT_PART_TOGGLE, // "Space to toggle"
-	HINT_PART_NOTES, // "n to add notes"
-	HINT_PART_TAB, // "Tab to switch questions"
-	HINT_PART_CANCEL, // "Esc to cancel"
-	HINT_PART_COLLAPSE, // "Ctrl+] to collapse"
-	HINT_PART_EXPAND, // "Ctrl+] to expand"
+	...HINT_LABELS,
 	REVIEW_HEADING, // "Review your answers"
 	READY_PROMPT, // "Ready to submit your answers?"
 	INCOMPLETE_WARNING_PREFIX, // "⚠ Answer remaining questions before submitting:"
 ] as const;
+
+/** The collapsed one-line bar, built the same way production builds it. */
+const collapsedHint = (collapseKey = "Ctrl+]") =>
+	buildHintText({
+		mode: "collapsed",
+		isMulti: false,
+		focusedIsMultiSelect: false,
+		notesAvailable: false,
+		collapseKey,
+	});
 
 const CHROME_LITERALS: readonly string[] = [...MULTI_SELECT, ...SUBMIT_PICKER, ...DIALOG_BUILDER];
 
@@ -139,11 +135,11 @@ describe("t() — fallbacks", () => {
 		// These keys are NOT chrome literals, so the dict never holds them → fallback.
 		__setLocaleForTest("en");
 		expect(t("sentinel.choose", "Choose")).toBe("Choose");
-		expect(t("hint.expand_line", COLLAPSED_HINT)).toBe(COLLAPSED_HINT);
+		expect(t("hint.expand_line", collapsedHint())).toBe(collapsedHint());
 		// Same in zh-TW — namespace keys still fall back (no behavior change).
 		__setLocaleForTest("zh-TW");
 		expect(t("sentinel.choose", "Choose")).toBe("Choose");
-		expect(t("hint.expand_line", COLLAPSED_HINT)).toBe(COLLAPSED_HINT);
+		expect(t("hint.expand_line", collapsedHint())).toBe(collapsedHint());
 	});
 });
 
@@ -244,7 +240,7 @@ describe("en-identity safety — askUserLanguage unset ⇒ zero behavior change"
 
 	test("legacy (key, fallback) call shape returns the fallback unchanged", () => {
 		expect(t("sentinel.choose", "Choose")).toBe("Choose");
-		expect(t("hint.expand_line", COLLAPSED_HINT)).toBe(COLLAPSED_HINT);
+		expect(t("hint.expand_line", collapsedHint())).toBe(collapsedHint());
 	});
 });
 

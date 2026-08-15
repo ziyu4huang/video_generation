@@ -35,10 +35,13 @@ export const DICTIONARIES: Record<string, Record<string, string>> = {
 
 	// ── 繁體中文 (zh-TW, Traditional Chinese — Taiwan) ───────────────────────
 	// Natural UI phrasing for the ask_user_question TUI chrome. Key names
-	// (Enter / Space / Tab / Esc / Ctrl+]) are kept verbatim — they are physical
-	// keys, not translatable words. Stage 3b view wiring passes the EXACT English
-	// literal (the HINT_PART_* / heading consts) as the key, so these entries
-	// must match those strings character-for-character.
+	// (Enter / Space / Tab / Esc) are kept verbatim — they are physical keys, not
+	// translatable words; the REBINDABLE one is a `{0}` placeholder instead of a
+	// literal. Render sites pass the EXACT English literal as the key (the
+	// view/hint-table.ts HINT_* labels and dialog-builder.ts heading consts), so
+	// these entries must match those strings character-for-character. The
+	// coverage test in state/i18n-bridge.test.ts derives its literal list from
+	// HINT_TABLE, so a new hint fails here until it is translated.
 	"zh-TW": {
 		// view/components/multi-select-view.ts — nextLabel default + Other-row placeholder
 		Next: "下一步",
@@ -48,7 +51,10 @@ export const DICTIONARIES: Record<string, Record<string, string>> = {
 		Submit: "提交",
 		Cancel: "取消",
 
-		// view/dialog-builder.ts — HINT_PART_* footer hints
+		// view/hint-table.ts — the footer keybinding vocabulary.
+		// `{0}` receives the CONFIGURED collapse key (Ctrl+], Alt+O, …) — the
+		// English side is templated for the same reason, so neither locale can
+		// hard-code a key the user may have rebound.
 		"Enter to select": "Enter 選取",
 		"Enter to submit": "Enter 提交",
 		"↑/↓ to navigate": "↑/↓ 移動",
@@ -56,8 +62,8 @@ export const DICTIONARIES: Record<string, Record<string, string>> = {
 		"n to add notes": "n 新增備註",
 		"Tab to switch questions": "Tab 切換問題",
 		"Esc to cancel": "Esc 取消",
-		"Ctrl+] to collapse": "Ctrl+] 收合",
-		"Ctrl+] to expand": "Ctrl+] 展開",
+		"{0} to collapse": "{0} 收合",
+		"{0} to expand": "{0} 展開",
 
 		// view/dialog-builder.ts — review-tab chrome
 		"Review your answers": "檢視您的回答",

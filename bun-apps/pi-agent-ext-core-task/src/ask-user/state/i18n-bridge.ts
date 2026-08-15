@@ -16,9 +16,15 @@
  *
  * The legacy `(key, fallback)` shape is detected when the 2nd arg is a string
  * (displayLabel passes `sentinel.<kind>` + the ROW_INTENT_META English label;
- * questionnaire-session passes `hint.expand_line` + COLLAPSED_HINT). Those
- * namespace keys are never chrome literals, so they always miss the dictionary
- * and return the English fallback unchanged.
+ * questionnaire-session passes `hint.expand_line` + the built collapsed hint).
+ * Those namespace keys are never chrome literals, so they always miss the
+ * dictionary and return the English fallback unchanged.
+ *
+ * CONSEQUENCE, and it bites: because the discriminator is the TYPE of the 2nd
+ * arg, a STRING can never be a format arg on its own. `t("{0} to collapse",
+ * "Ctrl+]")` returns "Ctrl+]" — the template is discarded as an unused fallback.
+ * A chrome literal with placeholders must pass the full shape, giving its own
+ * literal as the fallback: `t(label, label, ...args)`. See view/hint-table.ts.
  */
 
 import { DICTIONARIES, SUPPORTED_I18N_LOCALES } from "./i18n-dictionaries.js";
