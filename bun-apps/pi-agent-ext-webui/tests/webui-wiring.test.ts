@@ -800,4 +800,18 @@ describe("wireWebui — v2 mutex/present fixes (architecture v2 §3.5)", () => {
     clock.advance(11 * 60_000);
     expect(broadcaster.frames.filter((f) => f.type === "mutex_force_release")).toHaveLength(1);
   });
+
+  test("a render BEFORE session_start does not burn the announce latch (v2)", () => {
+    const { pi } = setup();
+    // Render fires before any session_start: no bound ctx -> no announce, and
+    // the latch stays OPEN (v1 set it before the ui guard, permanently
+    // suppressing the announce).
+    pi.events.emit("webui:render", { content: "# pre" });
+    expect(pi.ctx.notifications).toHaveLength(0);
+    // session_start binds; the NEXT render announces the resolved URL.
+    pi.emit("session_start", { type: "session_start", reason: "startup" });
+    pi.events.emit("webui:render", { content: "# post" });
+    expect(pi.ctx.notifications.some((n) => n.message.includes("webui ready"))).toBe(true);
+    expect(pi.ctx.statuses.some((s) => s.key === "webui")).toBe(true);
+  });
 });

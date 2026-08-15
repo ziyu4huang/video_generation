@@ -64,9 +64,7 @@ async function waitFor(name: string, predicate: () => boolean, ms = 2000): Promi
 /** Open a real WS to the server's /ws and resolve on open. Bun's WS client
  *  accepts a 2nd `headers` option (the WHATWG signature is extended at runtime). */
 function openWs(url: string, headers?: Record<string, string>): Promise<WebSocket> {
-  const opts = headers ? ({ headers } as unknown as undefined) : undefined;
   const ws = headers ? new WebSocket(url, { headers } as never) : new WebSocket(url);
-  void opts;
   return new Promise<WebSocket>((resolve, reject) => {
     ws.onopen = () => resolve(ws);
     ws.onerror = () => reject(new Error("ws open failed"));

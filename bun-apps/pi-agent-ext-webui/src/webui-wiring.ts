@@ -582,7 +582,19 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     // session — v1 kept a process-wide lock across sessions, so a stale driver
     // could block a fresh session. handleShutdown() is an idempotent release.
     controller.handleShutdown();
-    server.start();
+    // v2 guard (review): a full port-walk exhaustion makes start() throw —
+    // catch it so the failure surfaces to the TUI user instead of escaping
+    // into pi's session_start event dispatch.
+    try {
+      server.start();
+    } catch (e) {
+      const ui = (ctx as WebuiSessionCtx | undefined)?.ui;
+      ui?.notify(
+        `webui failed to start (port range exhausted): ${(e as Error)?.message ?? String(e)}`,
+        "error"
+      );
+      return; // do NOT bind a session against a dead server
+    }
     const sessionCtx = ctx as WebuiSessionCtx;
     server.bindSession(pi, sessionCtx);
     bound = { pi, ctx: sessionCtx };
@@ -611,13 +623,25 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // before any content exists is noise. Fire once (first render ever) via a
   // registry listener. server.start() runs at session_start before any render
   // can fire, so server.url is safe to read here. Uses the bound session's ctx.ui.
+  //
+  // v2 latch fix (architecture v2, review): the latch was set BEFORE the ui
+  // guard, so a render firing before the first session_start (no bound ctx)
+  // permanently suppressed the announce. The latch is now armed only when the
+  // announce is actually emitted, and the server.url read is guarded (a render
+  // before start() would otherwise throw inside the registry subscriber — which
+  // swallows it, but only after the latch was already burnt).
   let announced = false;
   registry.subscribe(() => {
     if (announced) return;
-    announced = true;
     const ui = bound?.ctx?.ui;
     if (!ui) return;
-    const url = server.url;
+    announced = true;
+    let url: string;
+    try {
+      url = server.url;
+    } catch {
+      return; // server not started yet — a later render will re-attempt
+    }
     ui.notify(`webui ready — open ${url} in a browser to view rendered results and send feedback. (loopback · no auth)`, "info");
     ui.setStatus("webui", `🌐 webui · ${url} · open in browser to view results`);
   });
