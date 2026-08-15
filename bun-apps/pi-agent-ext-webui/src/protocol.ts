@@ -168,6 +168,14 @@ export type WebFrame =
   | { type: "mutex_force_release"; driver: "web" | "tui" }
   // btw side-panel — thread state snapshots / notices (Task 6)
   | BtwWebFrame
+  // view-notifications (spec 01-B): a `webui:open` emission resolved to a
+  // servable /files URL. `url` is PATH-ABSOLUTE (client joins
+  // location.origin — encoding authority stays 100% server-side); `ts`
+  // (epoch ms) lets the shell age-gate toasts so replayed/stale frames update
+  // the panel but never re-toast. State-bearing: rides live broadcast AND the
+  // connect-time replay (the wiring's store wrapper appends it to the
+  // transcript ring like any outbound frame).
+  | { type: "view_opened"; view?: string; title?: string; url: string; ts: number }
   // forward-compat: any other host event is forwarded generically (never thrown on)
   | { type: string; details?: unknown; [k: string]: unknown };
 

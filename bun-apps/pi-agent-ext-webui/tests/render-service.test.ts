@@ -114,3 +114,24 @@ describe("RenderService — present-as-view fields (spec Decision A)", () => {
     expect(v).not.toHaveProperty("presentId");
   });
 });
+
+describe("openUrl (view-notifications spec 02-A, ticket 06)", () => {
+  it("id url:<view> — re-open updates title/updatedAt, never duplicates", () => {
+    let now = 100;
+    const r = new RenderService({ urlFor: () => "#", now: () => now });
+    r.openUrl({ view: "diagram", title: "T1", url: "/files/0/a.html" });
+    now = 200;
+    r.openUrl({ view: "diagram", title: "T2", url: "/files/0/a.html" });
+    const v = r.getView("url:diagram");
+    expect(v?.mode).toBe("url");
+    expect(v?.title).toBe("T2");
+    expect(v?.updatedAt).toBe(200);
+  });
+  it("no view name — id falls back to url:<url>; title null tolerated", () => {
+    const r = new RenderService({ urlFor: () => "#", now: () => 1 });
+    r.openUrl({ title: null, url: "/files/0/b.html" });
+    const v = r.getView("url:/files/0/b.html");
+    expect(v?.mode).toBe("url");
+    expect(v?.title).toBeNull();
+  });
+});

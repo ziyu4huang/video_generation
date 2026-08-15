@@ -103,7 +103,7 @@ export function createRenderRoutes(
       return json({
         id: view.id,
         mode: view.mode,
-        html: renderMarkdown(view.content),
+        html: renderMarkdown(view.content ?? ""),
         title: view.title ?? null,
         updatedAt: view.updatedAt,
         ...(view.controls !== undefined ? { controls: view.controls } : {}),

@@ -557,6 +557,10 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // session's ui (null before session_start -> notify no-ops). server.url is
   // read LAZILY (the server starts at session_start, after wiring returns)
   // and trailing-slash-stripped so exactly one slash precedes /files.
+  // Ticket 06 view-notifications (spec 02-A): the seam ALSO upserts the URL
+  // into the render registry (mode:"url", id-stable re-open) and broadcasts
+  // the `view_opened` frame through the STORE-WRAPPED broadcaster (so it
+  // rides live fan-out AND the connect-time transcript replay).
   // Guarded like the render seams above: a host without an events bus no-ops.
   pi.events?.on(
     "webui:open",
@@ -569,6 +573,8 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
         }
       },
       notify: (message) => bound?.ctx?.ui?.notify(message),
+      registerView: (input) => registry.openUrl(input),
+      broadcast: (frame) => broadcaster.broadcast(frame),
     })
   );
 

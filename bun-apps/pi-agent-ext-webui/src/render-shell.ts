@@ -10,6 +10,11 @@
  *     <iframe sandbox=""> (no allow-scripts / allow-same-origin) srcdoc (D5).
  *   - EventSource('/api/events') -> on view_update refresh tabs + re-render the
  *     affected view; a view carrying presentId auto-focuses (blocking HITL gate).
+ *   - view_opened frames (live + snapshot replay, effort webui-view-notifications):
+ *     fresh ones (<10s) toast (click = per-URL window handle, mutex untouched);
+ *     ALL frames feed the views panel (newest-first, <24h, cap 8, open/copy/
+ *     dismiss) + a 1s /api/views poll backstop while the panel is expanded.
+ *     url-mode tabs open top-level — NEVER into the sandbox srcdoc iframe.
  *   - When a view JSON carries presentId + controls, renderView appends a
  *     declarative .webui-toolbar under #content; a control click sends an
  *     appexec respond frame over /ws (one response per presentation).
@@ -45,6 +50,21 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   #webui-feedback-log .webui-log-head { display: flex; justify-content: space-between; align-items: center; opacity: .85; margin-bottom: .2rem; }
   #webui-feedback-log .webui-log-head a { color: #9cf; cursor: pointer; text-decoration: none; }
   #webui-feedback-log-body > div { border-bottom: 1px solid #fff2; padding: .12rem 0; word-break: break-word; }
+  /* view notifications (effort webui-view-notifications): toast stack + views panel. */
+  #webui-view-toasts { position: fixed; right: .6rem; bottom: 40vh; width: 22rem; max-width: 70vw; display: flex; flex-direction: column; gap: .4rem; z-index: 60; }
+  .webui-view-toast { background: #16324f; color: #eee; border: 1px solid #6cf6; border-radius: 6px; padding: .5rem .6rem; cursor: pointer; box-shadow: 0 2px 10px #0006; font-size: 13px; }
+  .webui-view-toast:hover { background: #1d4a75; }
+  .webui-view-toast .webui-view-toast-title { font-weight: 600; }
+  .webui-view-toast .webui-view-toast-sub { opacity: .75; font-size: 11px; word-break: break-all; }
+  #webui-views-panel { position: fixed; right: .6rem; top: 3.2rem; width: 22rem; max-width: 70vw; max-height: 45vh; overflow: auto; background: #0009; color: #eee; border-radius: 6px; padding: .45rem .55rem; font: 12px/1.45 ui-monospace, monospace; box-shadow: 0 2px 10px #0006; z-index: 55; }
+  #webui-views-panel .webui-log-head a { color: #9cf; cursor: pointer; text-decoration: none; }
+  .webui-view-row { display: flex; gap: .35rem; align-items: center; border-bottom: 1px solid #fff2; padding: .25rem 0; }
+  .webui-view-row .webui-view-title { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .webui-view-row button { font-size: 11px; padding: 1px 6px; border: 1px solid #8886; border-radius: 4px; background: #8882; color: inherit; cursor: pointer; }
+  .webui-view-row button:hover:not(:disabled) { background: #6cf3; }
+  .webui-view-row button:disabled { opacity: .45; cursor: default; }
+  /* Collapse persists under localStorage key "webui-views-collapsed" (btw precedent). */
+  body.views-collapsed #webui-views-list { display: none; }
   /* btw side panel (Task 9): shell-row flex layout + collapsed hide rule. */
   #shell-row { display: flex; flex: 1 1 auto; min-height: 0; }
   #shell-row > main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
@@ -118,6 +138,11 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   <button id="webui-send">Send</button>
   <button id="webui-abort" title="Abort the in-flight turn">Abort</button>
 </div>
+<div id="webui-views-panel">
+  <div class="webui-log-head"><span>views (<span id="webui-views-count">0</span>)</span><a id="webui-views-collapse" href="#" title="Collapse/expand the views panel">«</a></div>
+  <div id="webui-views-list"></div>
+</div>
+<div id="webui-view-toasts"></div>
 <div id="webui-feedback-log">
   <div class="webui-log-head"><span>response log</span><a id="webui-log-clear" href="#">clear</a></div>
   <div id="webui-feedback-log-body"></div>
@@ -143,10 +168,23 @@ async function loadViews() {
     el.dataset.viewId = v.id;
     el.textContent = v.title || v.id;
     el.title = v.id + ' · updated ' + fmtTime(v.updatedAt);
-    el.onclick = () => { activeId = v.id; location.hash = v.id; renderView(v.id); };
+    el.onclick = () => {
+      if (v.mode === 'url') {
+        // 02-A guardrail: a url view NEVER renders into the sandbox srcdoc
+        // iframe — route to the SAME top-level open/focus handler as the toast
+        // (the id→url map is frame-fed; /api/views carries no url).
+        const entry = viewEntries.find((e) => e.id === v.id);
+        if (entry && entry.url) openViewUrl(entry.url);
+        return;
+      }
+      activeId = v.id; location.hash = v.id; renderView(v.id);
+    };
     tabsEl.appendChild(el);
   }
   if (!views.some(v => v.id === activeId)) activeId = (views[0] && views[0].id) || 'main';
+  viewsMergePoll(views); // same fetch doubles as the panel's poll backstop
+  viewsRenderPanel();
+  viewsPollSync();
   return views;
 }
 
@@ -156,6 +194,17 @@ async function renderView(id) {
   if (seq !== renderSeq) return; // superseded by a newer render — drop the stale write
   if (!res.ok) { contentEl.innerHTML = '<p>no view</p>'; return; }
   const v = await res.json();
+  // 02-A guardrail (defensive — tab clicks already intercept url mode): if a
+  // url view ever reaches renderView (e.g. via hash/activeId default), open it
+  // top-level instead of sandboxing an empty body. The url comes from the
+  // frame-fed map — /api/view/:id carries no url field for url views.
+  if (v.mode === 'url') {
+    const entry = viewEntries.find((e) => e.id === id);
+    metaEl.textContent = (v.title ? (v.title + ' · ') : '') + 'url view · updated ' + fmtTime(v.updatedAt);
+    contentEl.innerHTML = '';
+    if (entry && entry.url) openViewUrl(entry.url);
+    return;
+  }
   document.querySelectorAll('.tab').forEach(function (t) {
     t.classList.toggle('active', t.dataset.viewId === id);
   });
@@ -322,7 +371,12 @@ function txApply(frame) {
     case 'mutex_blocked': txLine('tx-mutex', 'mutex: ' + frame.blocked + ' blocked by ' + frame.by); break;
     case 'mutex_force_release': txLine('tx-mutex', 'mutex force-released (' + frame.driver + ')'); break;
     case 'error': txLine('tx-mutex', 'error: ' + (frame.reason || 'unknown')); break;
-    default: break; // views / btw / control frames handled elsewhere
+    case 'view_opened':
+      // view notifications (03-B/04-C): all frames feed the panel; only fresh
+      // ones (<VIEW_TOAST_FRESH_MS) toast — replayed/stale frames never re-toast.
+      if (typeof frame.url === 'string' && typeof frame.ts === 'number') viewApplyFrame(frame);
+      break;
+    default: break; // other frames handled elsewhere
   }
 }
 
@@ -460,6 +514,185 @@ function btwInit() {
   });
 }
 
+// --- view notifications (effort webui-view-notifications, 03-B / 04-C) ---
+// Pure twins of src/shell-views.ts — the inline script cannot import (no
+// module/build step), so this is the SAME intentional duplication as
+// APPEXEC_FRAME/BTW_MESSAGE_HTML; tests grid the pure module + assert these
+// literals exist in the served HTML so the duplication stays honest.
+var VIEW_TOAST_FRESH_MS = 10000;
+var VIEW_TOAST_FADE_MS = 7000;
+var VIEW_TOAST_MIN_RESUME_MS = 250;
+var VIEW_TOAST_CAP = 3;
+var VIEW_PANEL_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+var VIEW_PANEL_CAP = 8;
+let viewEntries = [];   // newest-first {id,title,url?,updatedAt}; row identity = registry id
+let viewDismissed = {}; // id -> true: client-side hide overlay (server list untouched)
+let viewsCollapsed = false;
+const viewUrlHandles = {}; // url -> Window: first click opens, later clicks focus (no dup tabs)
+
+// 03-B click action, shared by toast / panel row / url-mode tab: per-URL window
+// handle. Mutex is NEVER consulted — opening a /files URL is not input, so
+// toasts/rows stay usable while another driver holds the mutex.
+function openViewUrl(url) {
+  const h = viewUrlHandles[url];
+  if (h && !h.closed) { h.focus(); return; }
+  viewUrlHandles[url] = window.open(url, '_blank');
+}
+
+// Spec 02-A id-stability rule mirrored client-side: url:<view> else url:<url>.
+function viewOpenedId(view, url) { return view ? 'url:' + view : 'url:' + url; }
+
+// 24h×8 windowing: age filter, newest-first, cap — a re-open floats to top.
+function viewsPanelWindow(entries, now) {
+  return entries
+    .filter(function (e) { return now - e.updatedAt < VIEW_PANEL_MAX_AGE_MS; })
+    .sort(function (a, b) { return b.updatedAt - a.updatedAt; })
+    .slice(0, VIEW_PANEL_CAP);
+}
+
+function viewsVisible(now) {
+  now = now || Date.now();
+  return viewsPanelWindow(viewEntries, now).filter(function (e) { return !viewDismissed[e.id]; });
+}
+
+// /api/views backstop merge: {id,title,mode,updatedAt} only — the url itself
+// travels ONLY in view_opened frames, so a poll-only entry stays url-less
+// (renders title-only, open/copy disabled until a frame for it arrives).
+function viewsMergePoll(summaries) {
+  const byId = {};
+  viewEntries.forEach(function (e) { byId[e.id] = { id: e.id, title: e.title, url: e.url, updatedAt: e.updatedAt }; });
+  (summaries || []).forEach(function (s) {
+    if (!s || s.mode !== 'url') return; // only url views belong to this panel
+    const ex = byId[s.id];
+    if (ex) {
+      if (s.title) ex.title = s.title;
+      if (typeof s.updatedAt === 'number' && s.updatedAt > ex.updatedAt) ex.updatedAt = s.updatedAt;
+    } else {
+      byId[s.id] = { id: s.id, title: s.title || null, updatedAt: typeof s.updatedAt === 'number' ? s.updatedAt : 0 };
+    }
+  });
+  viewEntries = viewsPanelWindow(Object.keys(byId).map(function (k) { return byId[k]; }), Date.now());
+}
+
+const viewToastOrder = []; // insertion (oldest-first) — the cap drops the head
+const viewToasts = {};     // id -> { el, timer, deadline }
+
+function viewToastRemove(id) {
+  const t = viewToasts[id];
+  if (!t) return;
+  clearTimeout(t.timer);
+  if (t.el && t.el.parentNode) t.el.parentNode.removeChild(t.el);
+  delete viewToasts[id];
+  const i = viewToastOrder.indexOf(id);
+  if (i >= 0) viewToastOrder.splice(i, 1);
+}
+
+function viewToastArm(id, ms) {
+  const t = viewToasts[id];
+  if (!t) return;
+  clearTimeout(t.timer);
+  t.deadline = Date.now() + ms;
+  t.timer = setTimeout(function () { viewToastRemove(id); }, ms);
+}
+
+function viewToastShow(id, title, url) {
+  const stack = document.getElementById('webui-view-toasts');
+  if (!stack) return;
+  if (viewToasts[id]) { viewToastArm(id, VIEW_TOAST_FADE_MS); return; } // dedupe: extend, never stack
+  while (viewToastOrder.length >= VIEW_TOAST_CAP) viewToastRemove(viewToastOrder[0]); // oldest dropped
+  const el = document.createElement('div');
+  el.className = 'webui-view-toast';
+  el.innerHTML = '<div class="webui-view-toast-title">' + escHtml(title || url) + '</div>' +
+                 '<div class="webui-view-toast-sub">' + escHtml(url) + '</div>';
+  el.title = 'open ' + url + ' (top-level)';
+  // hover-persist: pointer-over pauses the fade; pointer-leave resumes the REMAINING time
+  el.onmouseenter = function () { const t = viewToasts[id]; if (t) clearTimeout(t.timer); };
+  el.onmouseleave = function () {
+    const t = viewToasts[id];
+    if (t) viewToastArm(id, Math.max(VIEW_TOAST_MIN_RESUME_MS, t.deadline - Date.now()));
+  };
+  el.onclick = function () { openViewUrl(url); }; // same handle map as rows/tabs
+  stack.appendChild(el);
+  viewToasts[id] = { el: el, timer: 0, deadline: 0 };
+  viewToastOrder.push(id);
+  viewToastArm(id, VIEW_TOAST_FADE_MS);
+}
+
+function viewsRenderPanel() {
+  const list = document.getElementById('webui-views-list');
+  if (!list) return;
+  const rows = viewsVisible();
+  const countEl = document.getElementById('webui-views-count');
+  if (countEl) countEl.textContent = String(rows.length);
+  const toggle = document.getElementById('webui-views-collapse');
+  if (toggle) toggle.textContent = viewsCollapsed ? '\u00bb' : '\u00ab';
+  list.hidden = viewsCollapsed || rows.length === 0; // empty window ⇒ collapsed
+  list.innerHTML = '';
+  rows.forEach(function (e) {
+    const row = document.createElement('div');
+    row.className = 'webui-view-row';
+    const title = document.createElement('span');
+    title.className = 'webui-view-title';
+    title.textContent = e.title || e.id;
+    title.title = (e.url || 'url unknown (poll-only entry)') + ' \u00b7 ' + fmtTime(e.updatedAt);
+    const hasUrl = !!e.url;
+    if (hasUrl) title.onclick = function () { openViewUrl(e.url); };
+    else title.style.cursor = 'default';
+    const open = document.createElement('button');
+    open.textContent = 'open';
+    open.disabled = !hasUrl;
+    if (hasUrl) open.onclick = function () { openViewUrl(e.url); };
+    const copy = document.createElement('button');
+    copy.textContent = 'copy';
+    copy.disabled = !hasUrl;
+    if (hasUrl) copy.onclick = function () {
+      // loopback origin is a secure context — navigator.clipboard is available
+      navigator.clipboard.writeText(location.origin + e.url).catch(function () {});
+    };
+    const dismiss = document.createElement('button');
+    dismiss.textContent = 'dismiss';
+    dismiss.onclick = function () { viewDismissed[e.id] = true; viewsRenderPanel(); viewsPollSync(); };
+    row.appendChild(title); row.appendChild(open); row.appendChild(copy); row.appendChild(dismiss);
+    list.appendChild(row);
+  });
+}
+
+let viewsPollTimer = null;
+function viewsPollTick() {
+  fetch('/api/views').then(function (r) { return r.ok ? r.json() : []; }).then(function (s) {
+    viewsMergePoll(s); viewsRenderPanel();
+  }).catch(function () { /* backstop — transient poll failures are fine */ });
+}
+function viewsPollSync() {
+  // poll ONLY while the panel is expanded (not collapsed AND rows visible)
+  const expanded = !viewsCollapsed && viewsVisible().length > 0;
+  if (expanded && viewsPollTimer === null) viewsPollTimer = setInterval(viewsPollTick, 1000);
+  if (!expanded && viewsPollTimer !== null) { clearInterval(viewsPollTimer); viewsPollTimer = null; }
+}
+
+function viewApplyFrame(frame) {
+  // Panel takes ALL frames (live + replay); the age-gate is toast-only.
+  const id = viewOpenedId(frame.view, frame.url);
+  const rest = viewEntries.filter(function (e) { return e.id !== id; }); // re-open floats, never duplicates
+  viewEntries = viewsPanelWindow([{ id: id, title: frame.title || null, url: frame.url, updatedAt: frame.ts }].concat(rest), Date.now());
+  viewsRenderPanel();
+  viewsPollSync();
+  if (Date.now() - frame.ts < VIEW_TOAST_FRESH_MS) viewToastShow(id, frame.title || null, frame.url);
+}
+
+function viewsInit() {
+  viewsCollapsed = localStorage.getItem('webui-views-collapsed') === '1';
+  const toggle = document.getElementById('webui-views-collapse');
+  if (toggle) toggle.onclick = function (e) {
+    e.preventDefault();
+    viewsCollapsed = !viewsCollapsed;
+    localStorage.setItem('webui-views-collapsed', viewsCollapsed ? '1' : '0');
+    viewsRenderPanel();
+    viewsPollSync();
+  };
+  viewsRenderPanel();
+}
+
 // One response per presentation: remembered across SSE re-renders so the
 // toolbar re-renders disabled with the chosen control marked.
 let respondedPresent = null; // { id, action }
@@ -573,6 +806,7 @@ function webuiInit() {
     subscribe();
     btwInit(); // after the tab/view wiring so all getElementById targets exist
     webuiInit();
+    viewsInit(); // view notifications: toast stack + views panel (07)
   } catch (e) {
     console.warn('[webui] boot failed; reloading in 2s', e);
     setTimeout(function () { location.reload(); }, 2000);

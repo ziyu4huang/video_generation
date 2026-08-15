@@ -21,6 +21,8 @@ webui (or a path outside its roots) → no-op, and the tool result still prints 
 path exactly as before. archify imports nothing from webui — the string-literal channel is
 the whole contract.
 
+With webui view-notifications (2026-08-16), a successful render ALSO lands in the browser shell — a fresh-open toast plus an entry in the views panel — still with zero webui imports.
+
 ## Deck builder (`bun run deck`)
 
 Turn a set of IR files into a 16:9 PowerPoint deck — one diagram per slide with
