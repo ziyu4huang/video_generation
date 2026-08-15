@@ -178,11 +178,12 @@ jobs:
           - { package: pi-agent-ext-knowledge-card, test-cmd: "bun test __tests__/e2e-orchestration.test.ts --isolate && bun test __tests__/allowlists.test.mjs __tests__/ingest.test.ts __tests__/merge.test.ts __tests__/emit.test.ts __tests__/similarity.test.ts __tests__/retrieve.test.ts __tests__/pi-knowledge-card.test.ts __tests__/blend.test.ts && bun test __tests__/toolWiring.test.mjs" }
           - { package: pi-agent-ext-obsidian, test-cmd: "bun test extensions/__tests__/" }
           # ── special runners (see CLAUDE.md testing section) ──
-          # pi-agent-ext-workflow: build first (tests import compiled src/*.js);
-          # uses the CLAUDE.md canonical `build && bun test`, NOT the package's
-          # `npm run check` chain (biome has pre-existing formatting drift — out
-          # of scope for the CI cycle; the unit tests + build are the gate).
-          - { package: pi-agent-ext-workflow, test-cmd: "bun run build && bun test" }
+          # pi-agent-ext-workflow: src-entry package since the 2026-08-15
+          # src-entry migration (ticket 04): root resolves to ./src/index.ts,
+          # no build step; the generic canonical chain (check && test:unit) is
+          # the gate — biome check passes clean (warnings only; the old
+          # formatting-drift note is stale).
+          - { package: pi-agent-ext-workflow, test-cmd: "bun run test" }
           # pi-agent-ext-webui: 21 test files, never in the matrix — the largest
           # single uncovered suite in the repo. Src-entry package since the
           # 2026-08-15 src-entry migration (ticket 02, PR #1391): package root

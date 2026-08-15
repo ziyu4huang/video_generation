@@ -23,3 +23,30 @@ Also remove now-dead scaffolding:
 
 - `bun-apps/pi-agent/package.json:22` postinstall dist-presence heal for workflow.
 - Publish-side fields per ticket 01's decision.
+
+## Resolution
+
+**Done**. The flip: root fields → `./src/index.ts`;
+`publishConfig`/`files`/`prepublishOnly` deleted **plus `repository` + `author`** (upstream
+QuintinShaw provenance — false for this fork under decision 01-b); `test` =
+`check && test:unit` (biome check passes clean — the CI row's "formatting drift" note was
+stale); tsconfig `outDir` removed; **pi-agent postinstall dist-presence heal deleted**
+(scripts.postinstall removed entirely); CI matrix row → generic `bun run test`.
+
+**Deviation from the ticket plan**: `workflow-command.test.ts`'s deep import
+(`import("../../../../pi-agent-ext-workflow/src/index.ts")`) is KEPT — re-reading it, the
+bypass exists to dodge the file's own `mock.module("@repo/pi-agent-ext-workflow", …)`, not
+dist resolution; collapsing it to the bare specifier would route the "real module" loader
+through the mock. Root→src makes the deep import semantically identical to the specifier;
+comment already accurate, no edit needed.
+
+Verification — all with `rm -rf bun-apps/pi-agent-ext-workflow/dist` in force:
+
+- workflow canonical `bun run test`: **1078 tests / 0 fail** (7.5s, from src)
+- pi-agent CLI consumers (`workflow-command` + `workflow-retrieval-quality`): 17 tests pass
+- movie-director canonical `bun run test`: **895 tests / 0 fail** — the exact package that
+  was un-loadable in the 2026-08-15 NameTooLong incident
+- pi-agent cross-package typecheck: exit 0; `./pi-agent.sh -p`: `BOOT4OK`, zero stale
+  warnings, and boot no longer runs the (deleted) postinstall heal
+
+Ticket closed 2026-08-15.
