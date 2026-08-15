@@ -1,6 +1,6 @@
 # Ticket 03 — Unified delivery text (`deliverText` + `deliverTextFromPersisted`)
 
-> Wave 1 · spec §2.3 · status: open
+> Wave 1 · spec §2.3 · status: **done** — PR #1381 (squash-merged)
 
 ## Goal
 
@@ -34,3 +34,16 @@ adapter** (persisted → snapshot → shared builder) rather than re-reading raw
 ## Dependencies
 
 - Ticket 01 (adapter must exist and be exported before the persisted path rides it).
+
+## Done — PR #1381
+
+Squash-merged 2026-08-15 — 3 files, +120/−36 (`task-panel.ts`, `run-persistence.ts`,
+`tests/task-panel.test.ts`, dual-path regression under `describe("deliverText /
+deliverTextFromSnapshot share one builder")`). Implementation matches the plan
+verbatim: `DeliveryFacts` + `deliverTextBody` shared builder, persisted path reads
+name/result/agentCount/tokenUsage/durationMs through `persistedToSnapshot`
+(adapter gained run-level `durationMs`/`result` mappings),
+`deliverTextFromPersisted` deleted in favor of exported `deliverTextFromSnapshot`,
+call site in `redeliverPendingResults` updated. Delivered texts byte-identical
+(lead/tail preserved via the `suffix` string). Gate on main: 1075 pass / 0 fail / 3 todo.
+No drift from plan.
