@@ -23,6 +23,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { renderRunRow } from "@repo/pi-agent-ext-core-runtime";
 import type { RunView } from "@repo/pi-agent-ext-core-runtime";
+import { latestMessageLine } from "@repo/pi-agent-ext-subagent";
 import type { StatusSection } from "../shared/status-widget.js";
 import { SubagentNotify } from "./notify.js";
 
@@ -73,7 +74,14 @@ export function createSubagentsSection(deps: SubagentsSectionDeps): SubagentsSec
 			if (notifyLine) lines.push(notifyLine);
 			if (views.length > 0) {
 				lines.push(` ${views.length} background ${views.length === 1 ? "run" : "runs"}`);
-				for (const v of views) lines.push(`  ${renderRunRow(v, theme)}`);
+				for (const v of views) {
+					lines.push(`  ${renderRunRow(v, theme)}`);
+					// Task 04: migrated from the retired subagent-context-widget's
+					// collapsed view — one latest activity/prose line beneath each row
+					// (prose renders quoted; see latestMessageLine).
+					const live = latestMessageLine(v.history);
+					if (live) lines.push(`    ${live}`);
+				}
 			}
 			return lines;
 		},
