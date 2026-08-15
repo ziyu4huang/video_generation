@@ -2,56 +2,39 @@
 
 ## Problem
 
-Developers need runtime introspection of the pi agent's own state: what extensions are loaded, which tools are registered, how many tokens the context window holds, and whether the loaded extension surface is healthy. Without these diagnostics, debugging extension loading, tool conflicts, or context bloat is guesswork.
+Debugging a pi agent's own runtime is guesswork without introspection. Which
+extensions loaded? Which tools are actually registered, and what do they cost per
+request? Where did the context window go? And when a session goes wrong — the agent
+retrying the same call, drowning in one tool's errors, or drifting after twenty
+turns — nothing surfaces *that* either.
 
 ## Solution
 
-A pi extension with developer-focused diagnostic tools: `inspect_agent` dumps full agent state to YAML (extensions, tools, skills, context files, model, cwd); `inspect_context` breaks down the context window by component; `inspect_extensions` lints loaded extensions/tools/skills for health issues; `inspect_pathology` diagnoses how the agent is failing this session (retry loops, tool error storms, context saturation) from accumulated tool-call history.
+Two complementary diagnostic modes, both callable by the agent on itself:
 
-## Scope reality (2026-07)
+- **Static** — report the agent's current state (loaded extensions/tools/skills,
+  registered lifecycle hooks, above-editor widget state, token distribution, health
+  findings) at call time, with no session history.
+- **Dynamic (failure pathology)** — detect *how* the agent is failing this session,
+  from a hook-fed, session-scoped ring buffer of tool calls.
 
-The 2026-07 monolith split **completed** the extraction this section once
-flagged as future work. `src/index.ts` now registers only the four diagnostics. The previously co-bundled features were extracted to focused extensions:
-`todo`+`/todos`+`/goal`+`goal_complete` → `pi-agent-ext-core-task` (#504);
-`ask_user_question` → `pi-agent-ext-ask-user` (#502, merged into
-`pi-agent-ext-core-task` 2026-07-18 — no shared code, relocated as the first
-step of the core-task pi-ext consolidation); `/btw` →
-`pi-agent-ext-btw` (#499). Knowledge tools left earlier for `pi-knowledge-card`
-(#351/#354). The `schema-cost` export and CLI subcommand remain here. This
-PRD's diagnostics focus is now the literal truth, not just the original intent.
+Every analyzer is a pure function over a typed input, so the diagnostics are
+testable without the SDK; every tool accepts `self_test: true` to run against a
+fixture with no live session.
 
-## Tools
+Alongside the tools, `schema-cost` is exported as a standalone submodule: the
+static per-tool schema-token estimator, also consumed by `pi-agent`'s
+`schema-cost` CLI command and by `pi-agent-ext-tool-gate`.
 
-| Tool | Description |
-|------|-------------|
-| `inspect_agent` | Snapshot full agent state to YAML |
-| `inspect_context` | Token-cost breakdown by system-prompt component |
-| `inspect_extensions` | Lint loaded extensions/tools/skills for health issues |
-| `inspect_hooks` | List registered lifecycle hooks per extension and detect unknown event names |
-| `inspect_pathology` | Detect failure patterns this session (retry loops, error storms, saturation) — F v1 |
+## Where the inventory lives
 
-## Key Dependencies
+Deliberately **not** in this document. The tool list, each tool's parameters, and
+each analyzer's checks live in the code and are authoritative there — see the
+table in `README.md` § "Where the facts live". Five files once each claimed a
+different tool count; only the code was right, so the code is now the only place
+that says.
 
-- `pi-agent` (loaded via run-dir manifest)
-- Self-contained — no external services
+## Key dependencies
 
-## inspect-*
-
-### `inspect_hooks`
-
-Hook observability for extension development — the last blind spot of the
-inspect surface. Phase 1 (this work): registration listing + `unknown-event-name`
-typo detection, reading the aggregated `runner.extensions[].handlers` via a
-`getHooks()` polyfill on `sdk-patch.ts`'s `createContext` wrapper.
-
-Phase 2 (follow-up plan, same effort): firing counts — wrap each handler with a
-counter at the same patch point, add the `never-fired` (registered-but-dead)
-finding. The patch point is shared, so the scaffolding lands once in phase 1.
-
-## Use
-
-```bash
-# Auto-loaded via pi-agent's run-dir manifest
-# Or standalone:
-pi -e bun-apps/pi-agent-ext-power-tool
-```
+- `pi-agent` — registered as a static extension (`extensions/power-tool.ts`).
+- Otherwise self-contained: no external services, no network.

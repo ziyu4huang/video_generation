@@ -2,24 +2,20 @@
 /**
  * pi-agent-ext-power-tool — extension factory.
  *
- * This file registers the extension. Every tool lives in its own module under
- * `src/tools/` (matching the `pathology/` and `schema-cost/` convention); the
- * shared finding vocabulary lives in `src/findings.ts` and the report-formatting
- * helpers in `src/format.ts`.
+ * TOOL_FACTORIES below is the single inventory of what this extension provides:
+ * registration iterates it, and POWER_TOOL_NAMES is derived from it. Nothing
+ * else — not the CLI allowlist, not the README, not the PRD — restates the list,
+ * because five places once each claimed a different tool count and only the code
+ * was right. If you add a tool, add it there and everything downstream follows.
  *
- * Tools provided:
- *   inspect_context    — context-window breakdown by token bucket   (tools/inspect-context.ts)
- *   inspect_agent      — dump agent state to YAML                   (tools/inspect-agent.ts)
- *   inspect_extensions — lint extensions/tools/skills/guidelines    (tools/inspect-extensions.ts)
- *   inspect_hooks      — registered lifecycle hooks per extension   (tools/inspect-hooks.ts)
- *   inspect_tui        — above-editor widget state                  (tools/inspect-tui.ts)
- *   inspect_pathology  — how the agent is FAILING this session      (pathology/)
+ * Layering: tools/ depend on the leaves (cost, report, gating, findings); the
+ * leaves depend on schema-cost/; sdk-patch depends on runner-hooks. Never the
+ * other way — infra must not import a tool module.
  *
  * Usage:
  *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-power-tool/extensions/power-tool.ts -p "call inspect_context"
- *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-power-tool/extensions/power-tool.ts -p "call inspect_agent"
  */
-import type { ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionFactory, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { ensureGetSystemPromptOptions } from "./sdk-patch.js";
 import { makeExtensionsCommand } from "./extensions-command.js";
 import { makeInspectContextTool } from "./tools/inspect-context.js";
@@ -42,8 +38,10 @@ import {
 // Re-exported so `@repo/pi-agent-ext-power-tool` stays one import site for
 // consumers and tests. New code should prefer the owning module directly.
 
+export { type ToolApiCost, toolApiCost } from "./cost.js";
 export { type Finding, type Severity, shortPath, summarizeFindings } from "./findings.js";
-export { TOKEN_RATIO, bar, est, estTok, miniBar } from "./format.js";
+export { DIAGNOSTIC_GATING } from "./gating.js";
+export { TOKEN_RATIO, bar, est, estTok, miniBar, reportHeader } from "./report.js";
 export { makeInspectContextTool } from "./tools/inspect-context.js";
 export { makeInspectAgentTool } from "./tools/inspect-agent.js";
 export {
@@ -57,6 +55,30 @@ export {
 } from "./tools/inspect-extensions.js";
 export { makeInspectTuiTool } from "./tools/inspect-tui.js";
 
+// ─── Tool inventory ───────────────────────────────────────────────────────────
+
+/**
+ * Every tool this extension registers. Factories that don't need `getAllTools`
+ * simply ignore the argument. This array is the ONLY inventory — see the header.
+ */
+const TOOL_FACTORIES: ((getAllTools: () => ToolInfo[]) => { name: string })[] = [
+  makeInspectContextTool,
+  makeInspectAgentTool,
+  makeInspectExtensionsTool,
+  makeInspectHooksTool,
+  makeInspectTuiTool,
+  makeInspectPathologyTool,
+];
+
+/**
+ * The registered tool names, derived by constructing each tool (the factories are
+ * pure — `defineTool` just returns a descriptor). Consumers that need an allowlist
+ * — notably `extensions/cli-subcommand.ts` — read this instead of hand-listing,
+ * which is how `inspect_hooks` and `inspect_tui` were previously unreachable from
+ * `pi-agent cli power-tool`.
+ */
+export const POWER_TOOL_NAMES: readonly string[] = TOOL_FACTORIES.map((make) => make(() => []).name);
+
 // ─── Extension factory ────────────────────────────────────────────────────────
 
 const extension: ExtensionFactory = (pi: ExtensionAPI) => {
@@ -68,12 +90,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   // getAllTools() is on ExtensionAPI (pi), not ExtensionContext (ctx).
   // Pass it as a closure into the tool so execute() can call it.
   const getAllTools = () => pi.getAllTools();
-  pi.registerTool(makeInspectContextTool(getAllTools));
-  pi.registerTool(makeInspectAgentTool(getAllTools));
-  pi.registerTool(makeInspectExtensionsTool(getAllTools));
-  pi.registerTool(makeInspectHooksTool());
-  pi.registerTool(makeInspectPathologyTool());
-  pi.registerTool(makeInspectTuiTool());
+  for (const make of TOOL_FACTORIES) pi.registerTool(make(getAllTools) as never);
 
   // /extensions slash command: browse loaded pi-agent extensions and the
   // tools/commands/skills each provides. getAllTools closure is reused above;

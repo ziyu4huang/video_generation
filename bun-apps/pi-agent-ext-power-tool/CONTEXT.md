@@ -7,7 +7,7 @@ The ubiquitous language of pi-agent-ext-power-tool — agent self-diagnostics. T
 ### Diagnostic surface
 
 **Static diagnostic**:
-One of `inspect_agent`, `inspect_context`, `inspect_extensions` — reports the agent's current *state* (loaded tools/skills/extensions, token distribution, lint findings) at call time, with no session history.
+Any `inspect_*` tool that reports the agent's current *state* (loaded tools/skills/extensions, registered hooks, widget state, token distribution, lint findings) at call time, with no session history. The live roster is `TOOL_FACTORIES` in `src/index.ts` — not enumerated here, because an enumeration in prose goes stale.
 _Avoid_: health check, debugger, profiler (too generic; these answer "what is loaded?", not "what happened?")
 
 **Failure pathology**:
@@ -17,7 +17,7 @@ _Avoid_: error log, telemetry, crash report (it is pattern detection over live c
 ### Pathology detection
 
 **Pathology detector**:
-A deterministic, signal-driven check over the session's tool-call history (`retry-loop`, `consecutive-error`, `error-storm`, `context-saturation`, `long-session-recall-risk`). Implemented as a pure function over a typed input — fully unit-testable without the SDK.
+A deterministic, signal-driven check over the session's tool-call history. Implemented as a pure function over a typed input — fully unit-testable without the SDK. The detector set is `analyzePathology()` in `src/pathology/detector.ts`.
 _Avoid_: rule, validator, lint, heuristic (it is exact pattern matching over call history, not static source analysis or guessing)
 
 **Accumulator**:
@@ -43,5 +43,5 @@ The static tool-token estimator — estimates a tool's per-request cost from its
 _Avoid_: token counter, cost calculator
 
 **Extension token tax**:
-The per-extension estimated tokens-per-request breakdown that `inspect_extensions` and `inspect_context` report (sorted desc with a % bar) — answers "which extension is heaviest?"
+The per-extension estimated tokens-per-request breakdown the static diagnostics report (sorted desc with a % bar) — answers "which extension is heaviest?" Measured once, in `src/cost.ts` over `schema-cost/`.
 _Avoid_: token usage, cost breakdown

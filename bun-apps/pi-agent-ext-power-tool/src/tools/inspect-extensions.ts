@@ -5,8 +5,10 @@ import {
   formatSkillsForPrompt,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type Finding, type Severity, shortPath, summarizeFindings } from "../findings.js";
-import { estTok, miniBar } from "../format.js";
+import { toolApiCost } from "../cost.js";
+import { type Finding, shortPath, summarizeFindings } from "../findings.js";
+import { DIAGNOSTIC_GATING } from "../gating.js";
+import { findingsSummaryLine, miniBar, reportHeader, severitySections } from "../report.js";
 
 /**
  * inspect_extensions — lint loaded extensions/tools/skills/guidelines for
@@ -169,8 +171,7 @@ export function analyzeExtensions(input: AnalysisInput): Finding[] {
 
   // 🟡 oversized tool schema (desc + JSON(params)) — repeats on EVERY request
   for (const t of tools) {
-    const apiChars = (t.description?.length ?? 0) + JSON.stringify(t.parameters ?? {}).length;
-    const tok = estTok(apiChars);
+    const tok = toolApiCost(t).tokens;
     if (tok > toolTokenThreshold) {
       findings.push({
         severity: "medium",
@@ -243,7 +244,7 @@ export function analyzeExtensions(input: AnalysisInput): Finding[] {
   const tax = new Map<string, { tools: number; tokens: number }>();
   for (const t of tools) {
     if (t.source === "builtin") continue;
-    const tok = estTok((t.description?.length ?? 0) + JSON.stringify(t.parameters ?? {}).length);
+    const tok = toolApiCost(t).tokens;
     const e = tax.get(t.sourcePath) ?? { tools: 0, tokens: 0 };
     e.tools += 1;
     e.tokens += tok;
@@ -273,7 +274,7 @@ export function analyzeExtensions(input: AnalysisInput): Finding[] {
   const lazyTax = new Map<string, { tools: string[]; tokens: number }>();
   for (const t of inactiveTools ?? []) {
     if (t.source === "builtin") continue;
-    const tok = estTok((t.description?.length ?? 0) + JSON.stringify(t.parameters ?? {}).length);
+    const tok = toolApiCost(t).tokens;
     const e = lazyTax.get(t.sourcePath) ?? { tools: [], tokens: 0 };
     e.tools.push(t.name);
     e.tokens += tok;
@@ -302,34 +303,9 @@ export function analyzeExtensions(input: AnalysisInput): Finding[] {
 
 /** Render findings as a human-readable severity-ranked report. PURE. */
 export function formatExtensionReport(findings: Finding[]): string {
-  const lines: string[] = [];
-  lines.push("╔══════════════════════════════════════╗");
-  lines.push("║        Inspect Extensions           ║");
-  lines.push("╚══════════════════════════════════════╝");
-  lines.push("");
-
-  const summary = summarizeFindings(findings);
-  lines.push(
-    `▶ ${summary.total} issue(s): 🔴 ${summary.high} high · 🟡 ${summary.medium} medium · 🟢 ${summary.low} low`,
-  );
-  lines.push("");
-
-  const section = (sev: Severity, icon: string, label: string) => {
-    const items = findings.filter((f) => f.severity === sev);
-    if (items.length === 0) return;
-    lines.push(`▶ ${icon} ${label} (${items.length}):`);
-    for (const f of items) lines.push(`  • ${f.message}`);
-    lines.push("");
-  };
-
-  if (summary.total === 0) {
-    lines.push("✓ No actionable issues — extensions look healthy.");
-    lines.push("");
-  } else {
-    section("high", "🔴", "High");
-    section("medium", "🟡", "Medium");
-    section("low", "🟢", "Low");
-  }
+  const lines = reportHeader("Inspect Extensions");
+  lines.push(findingsSummaryLine(findings), "");
+  lines.push(...severitySections(findings, "No actionable issues — extensions look healthy."));
 
   // Extension token tax table (sorted by tokens desc)
   const tax = findings
@@ -380,13 +356,7 @@ export function formatExtensionReport(findings: Finding[]): string {
 export function makeInspectExtensionsTool(getAllTools: () => ToolInfo[]) {
   return defineTool({
     name: "inspect_extensions",
-    gating: {
-      keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
-      requires: {
-        nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
-        verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
-      },
-    },
+    gating: DIAGNOSTIC_GATING,
     label: "Inspect Extensions",
     description:
       "Lint loaded extensions, tools, skills, and guidelines for health issues: " +
@@ -415,46 +385,17 @@ export function makeInspectExtensionsTool(getAllTools: () => ToolInfo[]) {
     }),
 
     async execute(_id, params, _signal, _onUpdate, _ctx) {
-      const opts = (_ctx as ExtensionContext).getSystemPromptOptions();
-      const snippets = (opts.toolSnippets ?? {}) as Record<string, string>;
-      const selectedSet = new Set<string>((opts.selectedTools as string[] | undefined) ?? []);
-      const allTools = getAllTools();
-      const activeTools = allTools.filter((t) => selectedSet.size === 0 || selectedSet.has(t.name));
-      // Lazy/inactive tools: registered (getAllTools) but NOT in the active
-      // selection (opts.selectedTools) → not in the per-request tools[] array,
-      // costing 0 tok now. Surfaced as lazy-loaded-extension findings.
-      const inactiveRaw =
-        selectedSet.size === 0 ? [] : allTools.filter((t) => !selectedSet.has(t.name));
-
-      const toAnalysis = (t: (typeof allTools)[number]): AnalysisTool => ({
-        name: t.name,
-        description: t.description ?? "",
-        parameters: t.parameters,
-        promptGuidelines: t.promptGuidelines,
-        sourcePath: t.sourceInfo?.path ?? "(unknown)",
-        source: t.sourceInfo?.source ?? "unknown",
-        snippet: snippets[t.name],
-      });
-      const tools: AnalysisTool[] = activeTools.map(toAnalysis);
-      const inactiveAnalysisTools: AnalysisTool[] = inactiveRaw.map(toAnalysis);
-      const skills: AnalysisSkill[] = ((opts.skills as unknown[]) ?? []).map((s: any) => ({
-        name: s.name as string,
-        filePath: (s.filePath as string) ?? "",
-        formattedChars: formatSkillsForPrompt([s]).length,
-      }));
-      const contextFiles: AnalysisContextFile[] = ((opts.contextFiles as { path: string; content: string }[]) ?? []).map(
-        (f) => ({ path: f.path, chars: f.content.length }),
-      );
-
-      const input: AnalysisInput = {
-        tools,
-        inactiveTools: inactiveAnalysisTools,
-        skills,
-        contextFiles,
-        toolTokenThreshold: params.tool_token_threshold ?? 1500,
-        skillCharThreshold: params.skill_char_threshold ?? 2000,
-        contextFileCharThreshold: params.context_file_char_threshold ?? 20000,
-      };
+      // self_test: analyze the deterministic fixture instead of the live context, so
+      // the tool is exercisable with no session — matching every sibling inspect_*.
+      // The fixture carries its own deliberately-low thresholds; the params ones
+      // describe live data and would make it find nothing.
+      const input = params.self_test
+        ? SELF_TEST_ANALYSIS_INPUT
+        : deriveAnalysisInput(_ctx as ExtensionContext, getAllTools(), {
+            toolTokenThreshold: params.tool_token_threshold ?? 1500,
+            skillCharThreshold: params.skill_char_threshold ?? 2000,
+            contextFileCharThreshold: params.context_file_char_threshold ?? 20000,
+          });
       const findings = analyzeExtensions(input);
 
       if (params.return_json) {
@@ -479,7 +420,64 @@ export function makeInspectExtensionsTool(getAllTools: () => ToolInfo[]) {
           details: null,
         };
       }
-      return { content: [{ type: "text" as const, text: formatExtensionReport(findings) }], details: null };
+      const report = formatExtensionReport(findings);
+      return {
+        content: [
+          { type: "text" as const, text: params.self_test ? `self_test: true\n\n${report}` : report },
+        ],
+        details: null,
+      };
     },
   });
+}
+
+/** Thresholds an AnalysisInput carries alongside its data. */
+type Thresholds = Pick<
+  AnalysisInput,
+  "toolTokenThreshold" | "skillCharThreshold" | "contextFileCharThreshold"
+>;
+
+/**
+ * Project the live extension context into the pure analyzer's input. The only part
+ * of this tool that touches the SDK — kept out of execute() so the self_test path
+ * never reaches for a session that may not exist.
+ */
+function deriveAnalysisInput(
+  ctx: ExtensionContext,
+  allTools: ToolInfo[],
+  thresholds: Thresholds,
+): AnalysisInput {
+  const opts = ctx.getSystemPromptOptions();
+  const snippets = (opts.toolSnippets ?? {}) as Record<string, string>;
+  const selectedSet = new Set<string>((opts.selectedTools as string[] | undefined) ?? []);
+  const activeTools = allTools.filter((t) => selectedSet.size === 0 || selectedSet.has(t.name));
+  // Lazy/inactive tools: registered (getAllTools) but NOT in the active
+  // selection (opts.selectedTools) → not in the per-request tools[] array,
+  // costing 0 tok now. Surfaced as lazy-loaded-extension findings.
+  const inactiveRaw = selectedSet.size === 0 ? [] : allTools.filter((t) => !selectedSet.has(t.name));
+
+  const toAnalysis = (t: ToolInfo): AnalysisTool => ({
+    name: t.name,
+    description: t.description ?? "",
+    parameters: t.parameters,
+    promptGuidelines: t.promptGuidelines,
+    sourcePath: t.sourceInfo?.path ?? "(unknown)",
+    source: t.sourceInfo?.source ?? "unknown",
+    snippet: snippets[t.name],
+  });
+
+  return {
+    tools: activeTools.map(toAnalysis),
+    inactiveTools: inactiveRaw.map(toAnalysis),
+    skills: ((opts.skills as unknown[]) ?? []).map((s: any) => ({
+      name: s.name as string,
+      filePath: (s.filePath as string) ?? "",
+      formattedChars: formatSkillsForPrompt([s]).length,
+    })),
+    contextFiles: ((opts.contextFiles as { path: string; content: string }[]) ?? []).map((f) => ({
+      path: f.path,
+      chars: f.content.length,
+    })),
+    ...thresholds,
+  };
 }

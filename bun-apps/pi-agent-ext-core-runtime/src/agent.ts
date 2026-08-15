@@ -12,251 +12,53 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { Static, TSchema } from "typebox";
-import { Check, Convert } from "typebox/value";
+import { type AgentUsage, createBudgetGuard } from "./agent-budget.js";
 import { type AgentHistoryEntry, compactAgentHistory } from "./agent-history.js";
+import { resolveAgentModelSpec, resolveFallbackModel } from "./agent-model.js";
 import { applyToolPolicy } from "./agent-registry.js";
-import { classifyProviderLimit, WorkflowError, WorkflowErrorCode } from "./errors.js";
-import { loadModelTierConfig, type ModelTierConfig, resolveTierModel, sortedTierNames } from "./model-tier-config.js";
+import { createTurnGuard, turnExhaustionError } from "./agent-turns.js";
+import { WorkflowError, WorkflowErrorCode } from "./errors.js";
+import { loadModelTierConfig, type ModelTierConfig } from "./model-tier-config.js";
+import { throwIfProviderLimit } from "./provider-limit.js";
 import { parseSddReport, type SddReport } from "./sdd-report.js";
-import { createStructuredOutputTool, type StructuredOutputCapture } from "./structured-output.js";
+import { createStructuredOutputTool, resolveStructuredOutput, type StructuredOutputCapture } from "./structured-output.js";
 
-/**
- * Find a JSON object/array in free-form text: a fenced ```json block if present,
- * else the first balanced {...} or [...]. Best-effort (the schema check is the
- * real gate). Returns the raw JSON string, or undefined when none is found.
- */
-function findJsonBlock(text: string): string | undefined {
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence?.[1]) return fence[1].trim();
-  const start = text.search(/[{[]/);
-  if (start === -1) return undefined;
-  const open = text[start];
-  const close = open === "{" ? "}" : "]";
-  let depth = 0;
-  for (let i = start; i < text.length; i++) {
-    if (text[i] === open) depth++;
-    else if (text[i] === close && --depth === 0) return text.slice(start, i + 1);
-  }
-  return undefined;
-}
-
-/**
- * Last-resort structured-output recovery: extract a JSON block from prose, coerce
- * it toward the schema, and accept it only if it then validates. Never fabricates
- * — returns undefined unless the parsed value genuinely satisfies the schema.
- */
-export function extractValidated<T>(text: string, schema: TSchema): T | undefined {
-  const json = findJsonBlock(text);
-  if (json === undefined) return undefined;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(json);
-  } catch {
-    return undefined;
-  }
-  try {
-    const converted = Convert(schema, parsed);
-    if (Check(schema, converted)) return converted as T;
-  } catch {
-    // typebox can throw on exotic schemas; treat as no match.
-  }
-  return undefined;
-}
-
-/**
- * The last assistant message's terminal metadata (stopReason/errorMessage). The pi
- * SDK does NOT throw provider usage/quota limits — it records them as an assistant
- * message with stopReason "error" and an errorMessage. This is the only place that
- * metadata is observable to the workflow layer.
- */
-export function lastAssistantError(messages: unknown[]): { stopReason?: string; errorMessage?: string } | undefined {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i] as Partial<AssistantMessage> | undefined;
-    if (message?.role !== "assistant") continue;
-    return { stopReason: message.stopReason, errorMessage: message.errorMessage };
-  }
-  return undefined;
-}
-
-/**
- * If the subagent's turn ended in a provider usage/quota/rate-limit error, throw a
- * PROVIDER_USAGE_LIMIT WorkflowError carrying the real provider message + reset hint.
- * Gated on stopReason === "error" so a successful turn whose text merely mentions
- * "rate limit" is never misclassified. recoverable:false so the run checkpoints
- * (paused) rather than being retried into the same wall or collapsed to a silent null.
- */
-export function throwIfProviderLimit(messages: unknown[], label?: string): void {
-  const err = lastAssistantError(messages);
-  if (err?.stopReason !== "error") return;
-  const { matched, resetHint } = classifyProviderLimit(err.errorMessage);
-  if (!matched) return;
-  throw new WorkflowError(
-    err.errorMessage ?? "Provider usage/quota limit reached",
-    WorkflowErrorCode.PROVIDER_USAGE_LIMIT,
-    { recoverable: false, agentLabel: label, resetHint },
-  );
-}
-
-/** Minimal session surface resolveStructuredOutput needs (real session or a test double). */
-export interface StructuredSession {
-  prompt(text: string): Promise<void>;
-  setActiveToolsByName?(names: string[]): void;
-  messages: unknown[];
-}
-
-/**
- * Resolve a schema agent's result. If the tool was called, return the captured
- * value. Otherwise re-prompt up to maxSchemaRetries (tools restricted to
- * structured_output), then try strict schema-validated prose extraction, else
- * throw SCHEMA_NONCOMPLIANCE (non-recoverable — surfaced, never a silent null).
- * Module-level with an injected `lastText` so it is unit-testable.
- */
-export async function resolveStructuredOutput<T>(
-  session: StructuredSession,
-  capture: StructuredOutputCapture<T>,
-  schema: TSchema,
-  options: { maxSchemaRetries?: number; signal?: AbortSignal; label?: string },
-  lastText: (messages: unknown[]) => string,
-): Promise<T> {
-  if (capture.called) return capture.value as T;
-
-  const maxRetries = Math.max(0, options.maxSchemaRetries ?? 2);
-  // Restrict to the schema tool so the only useful next action is calling it
-  // (takes effect on the next prompt turn). Best-effort.
-  try {
-    session.setActiveToolsByName?.(["structured_output"]);
-  } catch {
-    // ignore — the re-prompt alone still drives most models to comply
-  }
-  for (let attempt = 0; attempt < maxRetries && !capture.called; attempt++) {
-    if (options.signal?.aborted) throw new Error("Subagent was aborted");
-    await session.prompt(
-      "You did not call the structured_output tool. Call structured_output now as your only action, with the required fields filled in. Do not write a prose answer.",
-    );
-  }
-  if (capture.called) return capture.value as T;
-
-  const extracted = extractValidated<T>(lastText(session.messages), schema);
-  if (extracted !== undefined) {
-    console.warn(
-      "[workflow] structured_output recovered from prose extraction (the model never called the tool); prefer a tool-reliable model",
-    );
-    return extracted;
-  }
-
-  // A repair re-prompt can itself hit the provider limit. Surface that as the real
-  // (recoverable) cause instead of the misleading non-recoverable SCHEMA_NONCOMPLIANCE.
-  throwIfProviderLimit(session.messages, options.label);
-
-  throw new WorkflowError(
-    "Subagent did not produce valid structured_output after repair attempts",
-    WorkflowErrorCode.SCHEMA_NONCOMPLIANCE,
-    { recoverable: false, agentLabel: options.label },
-  );
-}
-
-/**
- * Resolve which concrete model spec a subagent should use. Precedence, most
- * specific first:
- *   1. options.model — an explicit per-agent model (also carries agentType /
- *      phase model, which the workflow layer folds into options.model).
- *   2. options.tier  — resolved via the model-tiers config, falling back to the
- *      session's main model when the tier has no configured entry (with a
- *      warning — see RCA#6: an unknown/misspelled tier must not silently
- *      escalate to the most expensive model).
- *   3. DEFAULT TIER — when neither is set but the user has a model-tiers config,
- *      untagged agents default to the "medium" tier so a configured tier set
- *      actually affects the whole workflow (not just agents the script tagged).
- *      Fresh-install medium == the session model, so this is a no-op until the
- *      user customizes tiers via /workflows-models.
- * Returns undefined when nothing applies, so the session default is used.
- *
- * `loadConfig` is injectable for testing; it defaults to reading from disk.
- */
-export function resolveAgentModelSpec(
-  options: { model?: string; tier?: string },
-  mainModel: string | undefined,
-  loadConfig: () => ModelTierConfig | null = loadModelTierConfig,
-): string | undefined {
-  if (options.model) return options.model;
-  const config = loadConfig();
-  if (options.tier) {
-    const resolved = config ? resolveTierModel(options.tier, config) : undefined;
-    if (resolved) return resolved;
-    // RCA#6: an unknown/misspelled tier (or no tier config at all) used to fall
-    // back to mainModel SILENTLY — often the most expensive model, so a typo
-    // quietly escalated cost. Surface it so the degradation is visible.
-    console.warn(
-      `[workflow] unknown tier "${options.tier}"${config ? "" : " (no model-tiers config found)"} — falling back to the session default${mainModel ? ` (${mainModel})` : ""}. Configured tiers: ${config ? sortedTierNames(config).join(", ") || "(none)" : "(none)"}. Manage them via /workflows-models (or /models-preset to apply a full config).`,
-    );
-    return mainModel;
-  }
-  // Untagged agent: default to the configured medium tier when one exists.
-  if (config) {
-    const medium = resolveTierModel("medium", config);
-    if (medium) return medium;
-  }
-  return undefined;
-}
-
-/**
- * Fallback decision when an explicitly-requested model spec turns out to be
- * UNavailable. The caller's `tier` (→ active /models-preset) degrades BEFORE
- * the session default, so subagents follow the preset by default instead of
- * silently landing on an arbitrary session default. (Previously an explicit
- * model short-circuited the tier, then the tier was discarded on fallback.)
- *
- * Pure + injectable (the async resolver + the tier config are passed in) so the
- * decision is unit-testable independent of the real ModelRegistry /
- * createAgentSession. Returns:
- *   - `{ kind: "tier", spec }` — a tier is set AND its preset model resolves in
- *     the registry; use `spec` as the fallback model.
- *   - `{ kind: "sessionDefault" }` — no tier, the tier isn't configured, or its
- *     model is also unavailable; use the session default.
- * `warning` is a loud one-line message naming requested → tier → actual (or →
- * session default) for the run log.
- */
-export interface FallbackDecision {
-  kind: "tier" | "sessionDefault";
-  /** When `kind === "tier"`: the preset model spec to fall back to. */
-  spec?: string;
-  /** Loud one-line warning for the run log. */
-  warning: string;
-}
-
-export async function resolveFallbackModel(
-  requestedSpec: string,
-  options: { tier?: string },
-  config: ModelTierConfig | null,
-  resolveModel: (spec: string) => Promise<unknown>,
-): Promise<FallbackDecision> {
-  if (options.tier && config) {
-    const tierModelSpec = resolveTierModel(options.tier, config);
-    if (tierModelSpec) {
-      if (await resolveModel(tierModelSpec)) {
-        return {
-          kind: "tier",
-          spec: tierModelSpec,
-          warning: `[subagent] requested model "${requestedSpec}" unavailable; fell back to tier "${options.tier}" → "${tierModelSpec}" (active preset)`,
-        };
-      }
-      return {
-        kind: "sessionDefault",
-        warning: `[subagent] requested model "${requestedSpec}" unavailable; tier "${options.tier}" → "${tierModelSpec}" also unavailable; using session default`,
-      };
-    }
-    return {
-      kind: "sessionDefault",
-      warning: `[subagent] requested model "${requestedSpec}" unavailable; tier "${options.tier}" not configured in the active preset; using session default`,
-    };
-  }
-  return {
-    kind: "sessionDefault",
-    warning: `[subagent] requested model "${requestedSpec}" unavailable; ${
-      options.tier ? `tier "${options.tier}" has no model-tiers config to resolve; ` : "no tier given; "
-    }using session default`,
-  };
-}
+// ── Facade re-exports ────────────────────────────────────────────────────────
+// Definitions that moved out of this file. Consumers and tests still import
+// them from agent.js (and index.ts re-exports them from here), so the names
+// must stay reachable at this path. Import above ONLY what agent.ts itself
+// CALLS — a symbol that is merely re-exported needs no local binding, and
+// adding one trips biome's noUnusedImports.
+export type {
+  AgentUsage,
+  BudgetExhaustion,
+  BudgetGuard,
+  BudgetSeam,
+  BudgetSessionSurface,
+  BudgetWarning,
+} from "./agent-budget.js";
+export {
+  BUDGET_GRACE_CEILING_RATIO,
+  BUDGET_WARNING_RATIO,
+  BUDGET_WRAP_UP_MESSAGE,
+  checkBudgetExhaustion,
+  checkBudgetWarning,
+  createBudgetGuard,
+  isUsageObservation,
+} from "./agent-budget.js";
+export type { FallbackDecision } from "./agent-model.js";
+export { resolveAgentModelSpec, resolveFallbackModel } from "./agent-model.js";
+export type { TurnExhaustion, TurnGuard, TurnSessionSurface } from "./agent-turns.js";
+export {
+  createTurnGuard,
+  isTurnEndObservation,
+  isTurnStartObservation,
+  turnExhaustionError,
+} from "./agent-turns.js";
+export { listAvailableModelSpecs } from "./available-models.js";
+export { lastAssistantError, throwIfProviderLimit } from "./provider-limit.js";
+export type { StructuredSession } from "./structured-output.js";
+export { extractValidated, resolveStructuredOutput } from "./structured-output.js";
 
 export interface WorkflowAgentOptions {
   cwd?: string;
@@ -290,432 +92,6 @@ export interface WorkflowAgentOptions {
   loadTierConfig?: () => ModelTierConfig | null;
 }
 
-/**
- * List the user's currently available models (those with auth configured) as
- * `provider/modelId` specs. Used to tell the workflow author which models it may
- * route agents to. Best-effort: returns [] if the registry can't be built.
- */
-export async function listAvailableModelSpecs(): Promise<string[]> {
-  try {
-    const dir = getAgentDir();
-    const runtime = await ModelRuntime.create({
-      authPath: join(dir, "auth.json"),
-      modelsPath: join(dir, "models.json"),
-    });
-    const registry = new ModelRegistry(runtime);
-    return registry.getAvailable().map((m) => `${m.provider}/${m.id}`);
-  } catch {
-    return [];
-  }
-}
-
-/** Real token/cost usage for a single subagent run, read from the SDK session. */
-export interface AgentUsage {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-  total: number;
-  cost: number;
-}
-
-/** Why a budget-capped subagent run was aborted mid-run. */
-export interface BudgetExhaustion {
-  /** Which budget was exceeded. */
-  kind: "tokens" | "spend";
-  /** The caller-declared ceiling. */
-  limit: number;
-  /** The cumulative usage at the moment of abort. */
-  actual: number;
-}
-
-/**
- * Pure: check cumulative session usage against an optional per-run budget.
- * Returns the first exceeded budget (tokens checked before spend), or
- * `undefined` when neither is set or neither is exceeded. Uses `>` (strictly
- * greater), so reaching the limit exactly is allowed. Extracted from
- * `CoreAgent.run` so the threshold logic is unit-testable independent of
- * the session/subscribe wiring (which mirrors the existing onHistory/timeout
- * seams and is exercised via the spawnSubagent classification tests).
- */
-export function checkBudgetExhaustion(
-  stats: { tokens: { total: number }; cost: number },
-  budget: { tokenBudget?: number; spendBudget?: number },
-): BudgetExhaustion | undefined {
-  if (budget.tokenBudget !== undefined && stats.tokens.total > budget.tokenBudget) {
-    return { kind: "tokens", limit: budget.tokenBudget, actual: stats.tokens.total };
-  }
-  if (budget.spendBudget !== undefined && stats.cost > budget.spendBudget) {
-    return { kind: "spend", limit: budget.spendBudget, actual: stats.cost };
-  }
-  return undefined;
-}
-
-/**
- * Informational 80%-of-budget warning — structurally mirrors
- * {@link BudgetExhaustion} but is purely advisory: it NEVER aborts a run.
- * Computed by callers from the FINAL usage the runner already reports via
- * `AgentRunOptions.onUsage` (the existing usage-out channel — no new result
- * channel is introduced for it).
- */
-export interface BudgetWarning {
-  /** Which budget reached ≥80% of its ceiling. */
-  kind: "tokens" | "spend";
-  /** The caller-declared ceiling. */
-  limit: number;
-  /** The final cumulative usage. */
-  actual: number;
-}
-
-/** Fixed warning ratio: final usage at ≥ this fraction of a set budget trips the warning. No config knob by design. */
-export const BUDGET_WARNING_RATIO = 0.8;
-
-/**
- * Pure: check cumulative usage against the informational 80% warning line.
- * Mirrors {@link checkBudgetExhaustion}'s shape and tokens-before-spend
- * precedence, but with `>=` at BUDGET_WARNING_RATIO × limit — reaching
- * exactly 80% trips, 79.99% does not. Returns `undefined` when no budget is
- * set or neither trips. Informational only: never aborts, never retries.
- */
-export function checkBudgetWarning(
-  stats: { tokens: { total: number }; cost: number },
-  budget: { tokenBudget?: number; spendBudget?: number },
-): BudgetWarning | undefined {
-  if (budget.tokenBudget !== undefined && stats.tokens.total >= BUDGET_WARNING_RATIO * budget.tokenBudget) {
-    return { kind: "tokens", limit: budget.tokenBudget, actual: stats.tokens.total };
-  }
-  if (budget.spendBudget !== undefined && stats.cost >= BUDGET_WARNING_RATIO * budget.spendBudget) {
-    return { kind: "spend", limit: budget.spendBudget, actual: stats.cost };
-  }
-  return undefined;
-}
-
-/**
- * Minimal session surface the budget guard needs (real AgentSession or a test
- * double): cumulative stats + mid-run abort. `getSessionStats()` is the SAME
- * stat source the onUsage path reads just before disposal. `sendUserMessage`
- * (optional) queues a user-role message; the two-stage token stop needs it to
- * inject the wrap-up notice — when absent (or when the queue call rejects) the
- * guard falls back to the immediate hard abort, so the budget is still enforced.
- */
-export interface BudgetSessionSurface {
-  abort(): unknown;
-  getSessionStats(): { tokens: { total: number }; cost: number };
-  sendUserMessage?(content: string, options?: { deliverAs?: "steer" | "followUp" }): Promise<void>;
-}
-
-/**
- * Detect a usage observation: one assistant API response has finished and
- * carries usage (assistant message_end with `usage`). This is the finest
- * granularity at which cumulative usage becomes observable — finer than a
- * turn boundary, so checking here bounds budget overshoot to one API response.
- */
-export function isUsageObservation(event: unknown): boolean {
-  const evt = event as { type?: unknown; message?: { role?: unknown; usage?: unknown } } | null;
-  return (
-    typeof evt === "object" &&
-    evt !== null &&
-    evt.type === "message_end" &&
-    typeof evt.message === "object" &&
-    evt.message !== null &&
-    evt.message.role === "assistant" &&
-    evt.message.usage != null
-  );
-}
-
-/** Which seam first reported budget exhaustion. */
-export type BudgetSeam = "usage" | "turn";
-
-/**
- * The single wrap-up notice injected on the FIRST tokenBudget crossing. The
- * model sees it as a user message on its next (final) turn: flush state to
- * disk, then reply with a pointer — instead of being killed mid-flight and
- * losing everything it had learned.
- */
-export const BUDGET_WRAP_UP_MESSAGE =
-  "Token budget exhausted — this is your FINAL turn. Do not start new exploratory work or long tool calls. Write your current findings/state/artifacts to disk now (files, not prose), then reply with a one-line pointer to what you saved.";
-
-/**
- * Hard ceiling on the grace window, as a ratio over tokenBudget. During
- * grace-in-flight the guard still aborts once cumulative tokens exceed
- * tokenBudget * BUDGET_GRACE_CEILING_RATIO.
- */
-export const BUDGET_GRACE_CEILING_RATIO = 1.25;
-
-/**
- * Per-run budget guard: stops the session once cumulative usage exceeds the
- * ceiling. Both firing seams share ONE pure check
- * (checkBudgetExhaustion over session.getSessionStats()):
- *   - "usage" — evaluated on every usage observation (each assistant API
- *     response), i.e. MID-TURN; overshoot is bounded by one API response.
- *   - "turn" — backstop evaluated on every other session event (turn
- *     boundaries), in case the usage seam never fires.
- * spendBudget is a money valve: it ALWAYS hard-aborts immediately, even
- * mid-grace. tokenBudget gets a TWO-STAGE stop: the first crossing (on either
- * seam) injects BUDGET_WRAP_UP_MESSAGE as a followUp user message and does NOT
- * abort — token-kind aborts are then suppressed at BOTH check sites until the
- * wrap-up has been DELIVERED (a user-role message_start/message_end event after
- * issuance; pi-agent-core drains followUps only at a natural stop, so the
- * issuing turn's own turn_end fires first and must be ignored) AND the next
- * `turn_end` lands (the grace turn completed). That turn-end check then re-arms
- * the abort with the old hard-stop semantics (no third turn). The grace
- * window itself is hard-capped: once cumulative tokens exceed tokenBudget *
- * BUDGET_GRACE_CEILING_RATIO, the guard aborts immediately even mid-grace.
- * Idempotent: the first seam to fire wins — one abort, no double-throw of the
- * caller's TOKEN_BUDGET_EXHAUSTED error (run() reads `exhaustion` once after
- * prompt() returns).
- */
-export interface BudgetGuard {
-  /** The winning exhaustion record once a seam has fired; undefined before. */
-  readonly exhaustion: BudgetExhaustion | undefined;
-  /** Which seam fired first ("usage" mid-turn or "turn" backstop). */
-  readonly firedVia: BudgetSeam | undefined;
-  /** Whether the one-shot wrap-up message was already issued. */
-  readonly wrapUpIssued: boolean;
-  /** Route a session event to its seam: usage observation vs state-change backstop. */
-  onSessionEvent(event: unknown): void;
-}
-
-/** A user-role message event — the delivery signal for the queued wrap-up followUp. */
-function isUserMessageEvent(event: unknown): boolean {
-  const evt = event as { type?: unknown; message?: { role?: unknown } } | null;
-  return (
-    typeof evt === "object" &&
-    evt !== null &&
-    (evt.type === "message_start" || evt.type === "message_end") &&
-    evt.message?.role === "user"
-  );
-}
-
-/**
- * Build a BudgetGuard over a session. Module-level and session-injected so the
- * seam wiring (usage observation → mid-turn check; state change → backstop;
- * two-stage token grace; idempotence) is unit-testable with a minimal fake
- * session, independent of CoreAgent.run / createAgentSession.
- */
-export function createBudgetGuard(
-  session: BudgetSessionSurface,
-  budget: { tokenBudget?: number; spendBudget?: number },
-): BudgetGuard {
-  let exhaustion: BudgetExhaustion | undefined;
-  let firedVia: BudgetSeam | undefined;
-  let wrapUpIssued = false;
-  // "none": no grace turn outstanding. "grace-in-flight": the wrap-up
-  // followUp is queued and its turn has NOT yet emitted a post-delivery
-  // "turn_end" — token-kind exhaustion checks are suppressed (spend still
-  // hard-aborts). graceDelivered flips true once the injected wrap-up user
-  // message is actually observed in the event stream; until then turn_end
-  // events belong to the issuing/continuation turns and are ignored.
-  let graceState: "none" | "grace-in-flight" = "none";
-  let graceDelivered = false;
-  const hasBudget = budget.tokenBudget !== undefined || budget.spendBudget !== undefined;
-  const check = (seam: BudgetSeam, event: unknown) => {
-    if (exhaustion || !hasBudget) return;
-    let detected: BudgetExhaustion | undefined;
-    let cost: number;
-    let totalTokens: number;
-    try {
-      const stats = session.getSessionStats();
-      cost = stats.cost;
-      totalTokens = stats.tokens.total;
-      detected = checkBudgetExhaustion(
-        { tokens: { total: totalTokens }, cost },
-        { tokenBudget: budget.tokenBudget, spendBudget: budget.spendBudget },
-      );
-    } catch {
-      // getSessionStats not available yet (e.g. before the first turn) — skip;
-      // a later observation re-checks.
-      return;
-    }
-    if (graceState === "grace-in-flight") {
-      if (isUserMessageEvent(event)) {
-        // The wrap-up followUp was drained into the transcript — the grace
-        // turn (the one the model is about to run on it) may now complete.
-        graceDelivered = true;
-      }
-      const evt = event as { type?: unknown } | null;
-      if (evt?.type !== "turn_end" || !graceDelivered) {
-        // Mid-grace token-only overshoot is expected (cumulative tokens are
-        // monotonic) — the grace turn must be allowed to finish streaming.
-        // This also covers the issuing turn's turn_end while the followUp is
-        // still queued. spendBudget stays an immediate hard abort.
-        if (
-          detected &&
-          (detected.kind === "spend" || (budget.spendBudget !== undefined && cost > budget.spendBudget))
-        ) {
-          exhaustion = detected;
-          firedVia = seam;
-          void session.abort();
-          return;
-        }
-        // Grace ceiling: #1334's wrap-up grace suppresses token-kind aborts
-        // for an ENTIRE agentic turn with no upper bound — one turn can loop
-        // many API rounds, and usage totals count cacheRead 1:1 (each round
-        // re-bills the full context), so real incidents overshot 3.4-7.3x.
-        // Hard-abort once cumulative tokens exceed tokenBudget * the ceiling
-        // ratio even mid-grace. A wrap-up truncated mid-stream is acceptable
-        // — hard safety beats graceful wording. Big-context children may hit
-        // the ceiling within 1-2 rounds of crossing, which is the intent.
-        if (
-          detected?.kind === "tokens" &&
-          budget.tokenBudget !== undefined &&
-          totalTokens > budget.tokenBudget * BUDGET_GRACE_CEILING_RATIO
-        ) {
-          exhaustion = detected;
-          firedVia = seam;
-          void session.abort();
-        }
-        return;
-      }
-      // A turn_end observed AFTER the wrap-up message was delivered — the
-      // grace turn completed. Re-arm; this very check (and any later one)
-      // resumes the old hard-abort semantics. No third turn.
-      graceState = "none";
-    }
-    if (!detected) return;
-    // Hard-abort unless this is the FIRST tokenBudget crossing with no spend
-    // crossing — only tokenBudget earns a wrap-up turn.
-    if (
-      detected.kind === "tokens" &&
-      !wrapUpIssued &&
-      !(budget.spendBudget !== undefined && cost > budget.spendBudget)
-    ) {
-      wrapUpIssued = true;
-      graceState = "grace-in-flight";
-      graceDelivered = false;
-      // followUp queues the message for the model's NEXT turn (we are inside
-      // the streaming loop). Token-kind aborts are suppressed until that
-      // message is delivered (a user-role message event) AND its turn's
-      // "turn_end" lands; the turn-end check after it (or any later check)
-      // hits the already-issued path and aborts for real.
-      const queued = session.sendUserMessage?.(BUDGET_WRAP_UP_MESSAGE, { deliverAs: "followUp" });
-      if (queued) {
-        void queued.catch(() => {
-          // Could not queue the wrap-up turn — fall back to the hard abort
-          // so the budget is still enforced.
-          if (!exhaustion) {
-            exhaustion = detected;
-            firedVia = seam;
-            void session.abort();
-          }
-        });
-      } else {
-        // Session surface cannot queue user messages — no grace possible;
-        // keep the immediate hard abort (#1329 semantics).
-        exhaustion = detected;
-        firedVia = seam;
-        void session.abort();
-      }
-      return;
-    }
-    exhaustion = detected;
-    firedVia = seam;
-    void session.abort();
-  };
-  return {
-    get exhaustion() {
-      return exhaustion;
-    },
-    get firedVia() {
-      return firedVia;
-    },
-    get wrapUpIssued() {
-      return wrapUpIssued;
-    },
-    onSessionEvent(event: unknown) {
-      if (exhaustion) return; // idempotent: first seam wins, no double-abort
-      check(isUsageObservation(event) ? "usage" : "turn", event);
-    },
-  };
-}
-
-/** Minimal session surface the turn guard needs (real AgentSession or a test double): mid-run abort. */
-export interface TurnSessionSurface {
-  abort(): unknown;
-}
-
-/** Why a turn-capped subagent run was aborted before its next turn. */
-export interface TurnExhaustion {
-  /** The caller-declared ceiling on prompt→response turns. */
-  maxTurns: number;
-  /** Turns completed when the abort fired (== maxTurns). */
-  turnsUsed: number;
-}
-
-/** Detect the session event that delimits the start of a turn (one assistant API response cycle). */
-export function isTurnStartObservation(event: unknown): boolean {
-  return typeof event === "object" && event !== null && (event as { type?: unknown }).type === "turn_start";
-}
-
-/** Detect the session event that delimits the end of a turn (assistant response + its tool results). */
-export function isTurnEndObservation(event: unknown): boolean {
-  return typeof event === "object" && event !== null && (event as { type?: unknown }).type === "turn_end";
-}
-
-/**
- * Per-run turn cap: aborts the session BEFORE the model is asked for turn
- * maxTurns+1. One turn = one prompt→assistant-response cycle in the run loop,
- * delimited by the session's turn_start/turn_end events (the SDK emits
- * turn_start before each assistant API response, turn_end after its tool
- * results). A run that naturally finishes within maxTurns turns is never
- * aborted — only a loop that would CONTINUE past the cap is stopped. Idempotent:
- * after the abort fires once, later events are ignored. Distinct from the
- * budget guard: independent state, no shared classification.
- */
-export interface TurnGuard {
-  /** The exhaustion record once the cap fired; undefined before. */
-  readonly exhaustion: TurnExhaustion | undefined;
-  /** Turns completed so far (turn_end events observed). */
-  readonly turnsUsed: number;
-  /** Route a session event: turn_start → pre-turn cap check, turn_end → count. */
-  onSessionEvent(event: unknown): void;
-}
-
-/**
- * Build a TurnGuard over a session. Module-level and session-injected so the
- * cap semantics (exactly N allowed, abort before N+1, idempotence, natural-
- * finish-within-cap) are unit-testable with a minimal fake session, independent
- * of CoreAgent.run / createAgentSession.
- */
-export function createTurnGuard(session: TurnSessionSurface, options: { maxTurns?: number }): TurnGuard {
-  let turnsUsed = 0;
-  let exhaustion: TurnExhaustion | undefined;
-  return {
-    get exhaustion() {
-      return exhaustion;
-    },
-    get turnsUsed() {
-      return turnsUsed;
-    },
-    onSessionEvent(event: unknown) {
-      if (exhaustion) return; // idempotent: one abort, no double-fire
-      if (isTurnStartObservation(event)) {
-        // Turn maxTurns+1 is about to start (an assistant API call): abort BEFORE
-        // it runs. turnsUsed < maxTurns here means the cap hasn't been reached.
-        if (options.maxTurns !== undefined && turnsUsed >= options.maxTurns) {
-          exhaustion = { maxTurns: options.maxTurns, turnsUsed };
-          void session.abort();
-        }
-      } else if (isTurnEndObservation(event)) {
-        turnsUsed++;
-      }
-    },
-  };
-}
-
-/**
- * The distinct error surface for a turn-capped abort: non-recoverable (retrying
- * would re-burn the same turns), carrying {maxTurns, turnsUsed} in details.
- * Extracted from CoreAgent.run so the message/shape is unit-testable.
- */
-export function turnExhaustionError(exhaustion: TurnExhaustion, label?: string): WorkflowError {
-  return new WorkflowError(`max turns exceeded (${exhaustion.maxTurns})`, WorkflowErrorCode.TURNS_EXHAUSTED, {
-    recoverable: false,
-    agentLabel: label,
-    details: exhaustion,
-  });
-}
-
 export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefined> {
   label?: string;
   schema?: TSchemaDef;
@@ -729,14 +105,17 @@ export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefi
   images?: unknown[];
   signal?: AbortSignal;
   /**
-   * Abort the session mid-run once cumulative token usage (`tokens.total`)
-   * exceeds this. Checked on every usage observation (per API response, the
-   * same getSessionStats() source the onUsage callback reads) and — as a
-   * turn-boundary backstop — on each session state change, so an in-flight
-   * turn overshoots by at most one API response (sub-turn), not a full turn.
-   * Bounds a SINGLE runaway subagent — distinct from workflow's run-wide
-   * `tokenBudget` (a between-agent soft gate that never aborts an in-flight
-   * agent).
+   * Cap cumulative token usage (`tokens.total`) for this subagent run, with a
+   * one-turn wrap-up grace rather than an immediate abort. Checked on every
+   * usage observation (per API response, the same getSessionStats() source
+   * the onUsage callback reads) and — as a turn-boundary backstop — on each
+   * session state change. The FIRST crossing injects a one-turn wrap-up
+   * notice (flush state to disk) instead of aborting; the abort lands after
+   * that grace turn completes, hard-capped at `tokenBudget *
+   * BUDGET_GRACE_CEILING_RATIO` even mid-grace (see agent-budget.ts for the
+   * full two-stage mechanism). Bounds a SINGLE runaway subagent — distinct
+   * from workflow's run-wide `tokenBudget` (a between-agent soft gate that
+   * never aborts an in-flight agent).
    */
   tokenBudget?: number;
   /** Abort the session mid-run once cumulative cost ($) exceeds this (same seams as tokenBudget). */
@@ -985,22 +364,11 @@ export class CoreAgent {
       lastHistoryEmit = now;
       emitHistory();
     };
-    // Per-run token/spend budget (tokenBudget/spendBudget): stop the session
-    // once cumulative usage exceeds the ceiling. Two seams share one pure check
-    // (checkBudgetExhaustion over session.getSessionStats() — the same stat
-    // source onUsage reads before disposal):
-    //   1. usage observations — every assistant API response (message_end
-    //      carrying usage) checks MID-TURN, so overshoot is bounded by one API
-    //      response (sub-turn);
-    //   2. turn-boundary backstop — every session state change (the same
-    //      subscribe seam as onHistory), in case the usage seam never fires.
-    // spendBudget hard-aborts immediately (money valve); tokenBudget gets a
-    // two-stage stop via createBudgetGuard — one wrap-up turn (flush-to-disk
-    // notice injected as a followUp user message) before the real abort.
-    // createBudgetGuard is idempotent — first seam wins, one abort, no
-    // double-throw. Distinct from workflow's run-wide soft gate — this bounds
-    // a single runaway subagent. session.abort() makes session.prompt() return
-    // (same contract as the signal/timeout abort below).
+    // Per-run token/spend budget (tokenBudget/spendBudget): uses the same
+    // subscribe seam as onHistory below to watch session events. Idempotent —
+    // first seam wins, one abort, no double-throw. session.abort() makes
+    // session.prompt() return (same contract as the signal abort below). See
+    // agent-budget.ts for the full two-stage token-grace mechanism.
     const hasBudget = options.tokenBudget !== undefined || options.spendBudget !== undefined;
     const budgetGuard = createBudgetGuard(session, {
       tokenBudget: options.tokenBudget,

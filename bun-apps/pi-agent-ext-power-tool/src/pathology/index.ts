@@ -11,6 +11,8 @@
  */
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { DIAGNOSTIC_GATING } from "../gating.js";
+import { reportHeader } from "../report.js";
 import { analyzePathology } from "./detector.ts";
 import { formatPathologyReport } from "./format.ts";
 import { getCalls, getTurnCount } from "./accumulator.ts";
@@ -25,10 +27,7 @@ export type { ToolCallRecord, PathologyInput } from "./types.ts";
 // ─── deterministic self-test output (mirrors the other inspect_* tools) ───────
 
 const SELF_TEST_PATHOLOGY_OUTPUT = [
-  "╔══════════════════════════════════════╗",
-  "║         Inspect Pathology            ║",
-  "╚══════════════════════════════════════╝",
-  "",
+  ...reportHeader("Inspect Pathology"),
   "self_test: true",
   "Deterministic mock output — no live session state required",
   "inspect_pathology",
@@ -38,13 +37,7 @@ const SELF_TEST_PATHOLOGY_OUTPUT = [
 export function makeInspectPathologyTool() {
   return defineTool({
     name: "inspect_pathology",
-    gating: {
-      keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
-      requires: {
-        nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
-        verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
-      },
-    },
+    gating: DIAGNOSTIC_GATING,
     label: "Inspect Pathology",
     description:
       "Diagnose how the agent is failing this session — detect retry loops, " +

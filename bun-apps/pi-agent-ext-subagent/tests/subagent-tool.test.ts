@@ -2278,12 +2278,9 @@ test("width does NOT touch the streaming caps (isPartial rows unchanged with a w
   const header = "H-line-1\nH-line-2";
   const trace = Array.from({ length: 50 }, (_, i) => `trace-${i}`).join("\n");
   const text = `${header}\n${trace}`;
-  const expanded = renderSubagentResult(
-    { content: [{ type: "text", text }] },
-    { expanded: true, isPartial: true },
-    T,
-    { width: 40 },
-  );
+  const expanded = renderSubagentResult({ content: [{ type: "text", text }] }, { expanded: true, isPartial: true }, T, {
+    width: 40,
+  });
   const lines = expanded.split("\n");
   assert.equal(lines.length, 2 + 1 + STREAMING_TAIL, "2 header + 1 ellipsis + last 16 trace — cap untouched");
   const collapsed = renderSubagentResult(

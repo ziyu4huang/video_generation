@@ -15,7 +15,7 @@
  */
 
 import { createRequire } from "node:module";
-import { collectHooks, wrapHookHandlers, type HooksSnapshot } from "./tools/inspect-hooks.js";
+import { collectHooks, wrapHookHandlers, type HooksSnapshot } from "./runner-hooks.js";
 
 let patched = false;
 const sdkRequire = createRequire(import.meta.url);

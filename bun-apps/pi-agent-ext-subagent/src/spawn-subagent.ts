@@ -297,10 +297,10 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
   const retry = opts.retryOnTransient !== false;
   // Default-to-current-LLM: when the caller neither picks a model nor a tier, fall
   // back to the live session model (not a stale medium tier). Explicit model or
-  // tier always wins; resolveAgentModelSpec in agent.ts handles the rest.
+  // tier always wins; resolveAgentModelSpec in agent-model.ts handles the rest.
   // Resolve a capability (e.g. "vision") to a model-spec. Precedence:
   // explicit model > capability > tier > mainModel. An unconfigured capability
-  // warns and falls through to tier/mainModel (mirrors agent.ts unknown-tier).
+  // warns and falls through to tier/mainModel (mirrors agent-model.ts unknown-tier).
   let capabilitySpec: string | undefined;
   if (opts.capability) {
     const cfg = loadModelTierConfig();

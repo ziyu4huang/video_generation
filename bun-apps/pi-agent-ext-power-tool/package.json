@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Pi extension: power-tool suite. 4 diagnostic tools — inspect_context (context window breakdown by component), inspect_agent (agent-state YAML snapshot), inspect_extensions (extension health lint), inspect_pathology (retry-loop / error-storm detection) — plus schema-cost (static tool-schema token accounting).",
+  "description": "Pi extension: agent self-diagnostics. Static diagnostics (what is loaded, where the tokens go) plus failure pathology (how the agent is failing this session), and schema-cost — static tool-schema token accounting, also consumable standalone.",
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
@@ -11,7 +11,7 @@
     "./schema-cost": "./src/schema-cost/index.ts"
   },
   "pi": {
-    "extensions": ["./src/index.ts"],
+    "extensions": ["./extensions/power-tool.ts"],
     "skills": ["./skills"]
   },
   "scripts": {

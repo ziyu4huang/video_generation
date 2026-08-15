@@ -198,9 +198,7 @@ export function formatSubagentLive(
   // under the cap this is identical; a result whose call fell outside the recent
   // window degrades gracefully to verb-only.
   const window = history.slice(-maxTraceLines);
-  const trace = window.map((e, i) =>
-    formatHistoryLine(e, { matchedCallArgs: matchedCallArgsFor(window, i) }, width),
-  );
+  const trace = window.map((e, i) => formatHistoryLine(e, { matchedCallArgs: matchedCallArgsFor(window, i) }, width));
   return trace.length ? `${header}\n${trace.join("\n")}` : header;
 }
 

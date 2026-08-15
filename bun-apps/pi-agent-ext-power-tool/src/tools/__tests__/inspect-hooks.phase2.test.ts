@@ -27,7 +27,7 @@ import {
   collectHooks,
   getHookFiringCount,
   wrapHookHandlers,
-} from "../inspect-hooks.js";
+} from "../../runner-hooks.js";
 
 // Install the createContext prototype patch ONCE (same guard as production).
 // After this, every ExtensionRunner.createContext() runs applyContextPolyfills,
