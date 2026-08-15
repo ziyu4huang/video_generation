@@ -61,9 +61,11 @@ describe("changed-packages-cli — argv contract", () => {
 		expect(map["pi-agent-ext-devops"]).toBe(true);
 		// a package with no edge to devops is NOT affected → the routing saving.
 		expect(map["pi-agent-ext-ltx"]).toBe(false);
-		// the refs are passed through to `git diff` verbatim.
+		// the refs are passed through to `git diff` as a THREE-dot range, so scope
+		// is what this branch changed since the merge-base — not the symmetric
+		// difference with a base that keeps moving.
 		const diff = calls.find((c) => c.args[0] === "diff");
-		expect(diff?.args).toEqual(["diff", "--name-only", "base-sha", "head-sha"]);
+		expect(diff?.args).toEqual(["diff", "--name-only", "base-sha...head-sha"]);
 	});
 
 	test("fail-open survives the wrapper: a file outside bun-apps/<pkg>/ → all true", async () => {

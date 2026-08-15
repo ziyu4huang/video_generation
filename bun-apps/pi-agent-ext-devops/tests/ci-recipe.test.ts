@@ -727,3 +727,106 @@ describe("runLocalCi — link-breaker isolation (pi-agent runs sequential-first)
 		expect(calls2.some((c) => c.cmd === "bash" && c.args[0] === "-c" && c.args[2] === "heal-workspace-links")).toBe(false);
 	});
 });
+
+// ─── Hang containment (RCA 2026-08-15) ───────────────────────────────────────
+// A `bun test --isolate` child outlived its parent and spun at 100% CPU for six
+// hours; every later run in that worktree hung, because the spawn layer had no
+// timeout and `Bun.readableStreamToText` waits for EOF on a pipe a live
+// descendant is still holding. `budgetMs` could not help — it is measured after
+// the run and never kills.
+
+/** Recording spawn that ALSO captures each call's timeoutMs. */
+function mkTimedSpawn(
+	responses: Array<{ match: (cmd: string, args: string[], cwd: string) => boolean; result: SpawnResult }> = [],
+) {
+	const calls: Array<{ cmd: string; args: string[]; cwd: string; timeoutMs?: number }> = [];
+	const fn: SpawnFn = async (cmd, args, options) => {
+		calls.push({ cmd, args, cwd: options?.cwd ?? "", timeoutMs: options?.timeoutMs });
+		return responses.find((r) => r.match(cmd, args, options?.cwd ?? ""))?.result ?? { stdout: "", stderr: "", exitCode: 0 };
+	};
+	return { fn, calls };
+}
+
+describe("runLocalCi — hang containment", () => {
+	test("every package typecheck + test spawn carries a hard timeoutMs", async () => {
+		const { fn, calls } = mkTimedSpawn([verifyOk()]);
+		await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: mkDetect({ "pkg-a": true }).fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test", typecheck: "tsc --noEmit" } }),
+			includeGates: false,
+			perCommandTimeoutMs: 1234,
+		});
+		const perPackage = calls.filter((c) => c.cwd === pkgDir("pkg-a"));
+		expect(perPackage.length).toBeGreaterThanOrEqual(2);
+		for (const c of perPackage) expect(c.timeoutMs).toBe(1234);
+	});
+
+	test("default cap is applied when the caller sets none", async () => {
+		const { fn, calls } = mkTimedSpawn([verifyOk()]);
+		await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: mkDetect({ "pkg-a": true }).fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+			includeGates: false,
+		});
+		const testCall = calls.find((c) => c.cwd === pkgDir("pkg-a") && c.args[1] === "test");
+		expect(testCall?.timeoutMs).toBe(120_000);
+	});
+
+	test("a timed-out package (exit 124) fails overall AND says it hung, not that it failed", async () => {
+		const { fn } = mkTimedSpawn([
+			verifyOk(),
+			{
+				match: (c, a, cwd) => c === "bun" && a[1] === "test" && pkgOf(cwd) === "pkg-a",
+				result: { stdout: "", stderr: "", exitCode: 124 },
+			},
+		]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: mkDetect({ "pkg-a": true }).fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+			includeGates: false,
+		});
+		expect(out.overall).toBe("fail");
+		expect(out.packages[0].test.exitCode).toBe(124);
+		expect(out.packages[0].test.note).toMatch(/HUNG/);
+	});
+});
+
+describe("runLocalCi — each package's test runs exactly once", () => {
+	// pi-agent is pulled into the SEQUENTIAL-first phase by name (it rewrites
+	// @repo/* symlinks, so it must not run beside anything). The parallel phase
+	// used to select `!p.builds`, which is true for pi-agent — so its whole suite
+	// ran a second time, ~26s wasted and a symlink-rewrite race re-opened while
+	// other packages were resolving @repo/* concurrently.
+	test("pi-agent is not re-run by the parallel phase", async () => {
+		const { fn, calls } = mkTimedSpawn([verifyOk()]);
+		await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: mkDetect({ "pi-agent": true, "pkg-b": true }).fn,
+			readPkg: mkReadPkg({ "pi-agent": { test: "bun test" }, "pkg-b": { test: "bun test" } }),
+			includeGates: false,
+		});
+		const runsFor = (pkg: string) =>
+			calls.filter((c) => pkgOf(c.cwd) === pkg && c.cmd === "bun" && c.args[0] === "run" && c.args[1] === "test").length;
+		expect(runsFor("pi-agent")).toBe(1);
+		expect(runsFor("pkg-b")).toBe(1);
+	});
+
+	test("a build-bearing row also runs exactly once", async () => {
+		const { fn, calls } = mkTimedSpawn([verifyOk()]);
+		await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: mkDetect({ "pkg-a": true }).fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun run build && bun test" } }),
+			includeGates: false,
+		});
+		expect(calls.filter((c) => pkgOf(c.cwd) === "pkg-a" && c.args[1] === "test").length).toBe(1);
+	});
+});

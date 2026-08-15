@@ -9,7 +9,8 @@
  *
  * 1. Discover every `bun-apps/<pkg>/package.json` (dir name == matrix value).
  * 2. `--all` → every package `true`, done (push-to-main "run everything").
- * 3. `git diff --name-only <baseRef> <headRef>` for the changed file list.
+ * 3. `git diff --name-only <baseRef>...<headRef>` (THREE-dot: merge-base) for
+ *    the changed file list.
  *    - Empty diff AND `<baseRef>` unresolvable (e.g. shallow clone) → fail OPEN
  *      (every package true): a detection gap must never yield a false-green by
  *      collapsing to an empty package set.
@@ -152,7 +153,16 @@ export async function computeChangedPackages(
 	const headRef = opts.headRef ?? "HEAD";
 
 	// --- 2. git diff --name-only (stdout captured even on non-zero exit). ---
-	const diff = await opts.spawn("git", ["diff", "--name-only", baseRef, headRef], {
+	// THREE-dot (`base...head`) = "what THIS branch changed", measured from the
+	// merge-base. Two-dot is the symmetric difference against the base's CURRENT
+	// tip, so every commit that lands on main after you branch is counted as YOUR
+	// change. That is not a rounding error: it silently widens scope, and the
+	// moment one of those main-side files sits outside `bun-apps/<pkg>/` the
+	// rule-4 fail-open below escalates to the FULL 28-package matrix. Measured
+	// 2026-08-15: two-dot reported 17 changed files for a branch that had changed
+	// 4. Three-dot is also what GitHub's own PR path-filtering compares, so local
+	// and remote agree on what "changed" means.
+	const diff = await opts.spawn("git", ["diff", "--name-only", `${baseRef}...${headRef}`], {
 		cwd: opts.repoRoot,
 	});
 	// bash: `git diff … 2>/dev/null || true` — stdout is empty on failure. Mirror
