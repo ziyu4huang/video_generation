@@ -688,6 +688,20 @@ test("workIntentPreview handles task with only a preamble line (fallback)", () =
   assert.equal(out, "Working dir: /Users/x/proj");
 });
 
+// ── render-layer totality (2026-08-16 crash fix): partial args must never
+// throw from a composer callback — an uncaught render exception kills pi. ──
+test("workIntentPreview tolerates undefined task (render-layer totality)", () => {
+  assert.equal(workIntentPreview(undefined as unknown as string, 60), "");
+});
+test("taskPreview tolerates undefined task (render-layer totality)", () => {
+  assert.equal(taskPreview(undefined as unknown as string), "");
+});
+test("renderSubagentCall tolerates a missing task field (no throw, renders empty quotes)", () => {
+  const out = renderSubagentCall({ agent: "implementer" } as never, T);
+  assert.equal(typeof out, "string");
+  assert.ok(out.includes('""'));
+});
+
 // ── renderSubagentCall uses workIntentPreview (ticket 02) ──
 test("renderSubagentCall header uses workIntentPreview — strips Working dir preamble", () => {
   const out = renderSubagentCall(

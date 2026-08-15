@@ -757,10 +757,15 @@ export function renderBatchResult(details: SubagentsToolDetails): string {
 
 /** Theme the call line shown WHILE the batch runs. */
 export function renderSubagentsCall(
-  args: { tasks?: Array<{ task: string }>; concurrency?: number },
+  args: { tasks?: Array<{ task: string }>; concurrency?: number } | undefined,
   theme: Theme,
   width?: number,
 ): string {
+  // Render-layer safe (2026-08-16 crash fix #2): this composer captures RAW
+  // tool-call args and executes every frame — args can be nullish while the
+  // call's arguments are still streaming/absent. Total: degenerate input
+  // renders an empty line instead of throwing (an uncaught render kills pi).
+  if (!args) return "";
   const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagents"))];
   const taskCount = args.tasks?.length ?? 0;
   parts.push(theme.fg("muted", `${taskCount} tasks`));
