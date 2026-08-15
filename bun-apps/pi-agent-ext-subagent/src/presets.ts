@@ -37,9 +37,9 @@ export const MODEL_PRESETS: ModelPreset[] = [
   {
     id: "glm-lmstudio",
     label: "GLM (official) + LM Studio vision",
-    summary: "tiers: glm-4.7 / glm-5.2  ·  vision: lm-studio gemma-4-12b",
+    summary: "tiers: glm-4.7 / glm-5.3  ·  vision: lm-studio gemma-4-12b",
     config: {
-      tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.2", big: "zai/glm-5.2" },
+      tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
       capabilities: { vision: "lm-studio/google/gemma-4-12b" },
     },
   },

@@ -69,7 +69,7 @@ describe("/models-preset", () => {
     await makeHandler()("glm-lmstudio", ctx);
 
     expect(savedConfig).toEqual({
-      tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.2", big: "zai/glm-5.2" },
+      tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
       capabilities: { vision: "lm-studio/google/gemma-4-12b" },
     });
     expect(calls.confirm).toHaveLength(1);
