@@ -214,8 +214,13 @@ export class WebServer implements Broadcaster {
   /** Bounded in-memory server log (Fix 4) — served at GET /api/logs. */
   private readonly logs: ServerLogEntry[] = [];
 
-  /** True once `.unref()` has been called on the live server handle. */
-  unrefed = false;
+  /** True once `.unref()` has been called on the live server handle. Private
+   *  (review nit): a public mutable field let external code flip the flag
+   *  without touching the server. Read via the getter (tests assert it). */
+  private _unrefed = false;
+  get unrefed(): boolean {
+    return this._unrefed;
+  }
 
   constructor(opts: WebServerOptions = {}) {
     this.requestedPort = opts.port ?? 0;
@@ -252,7 +257,7 @@ export class WebServer implements Broadcaster {
     // process alive on its own (unref required). gui-movie-director does NOT
     // unref because it is a FOREGROUND dev server; the inverse is intentional.
     this.server.unref();
-    this.unrefed = true;
+    this._unrefed = true;
   }
 
   /**
@@ -542,7 +547,7 @@ export class WebServer implements Broadcaster {
       }
     }
     this.server = null;
-    this.unrefed = false;
+    this._unrefed = false;
     this.clients.clear();
   }
 }
