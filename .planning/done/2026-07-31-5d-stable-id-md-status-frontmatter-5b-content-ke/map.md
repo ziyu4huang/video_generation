@@ -1,3 +1,7 @@
+---
+status: complete
+---
+
 > STATUS: DONE — archived 2026-08-15 (shipped in main; see git history / PR references in map)
 # Wayfinder map: 5d stable-id + .md metadata format migration to YAML frontmatter
 
@@ -32,3 +36,4 @@ Migrate every `.md` memory entry's metadata into a **YAML frontmatter** block (r
 - **4 non-blocking minors from 5b/5c** (Task-1 `all.length>=2` looseness; Task-4 assertion (b); path 2/3 orphan-test coverage; pre-existing flaky lock tests) — clear, fog-less backlog; small PR or fold into 5d's implementation plan.
 - **Moving status / lineage (supersedes / supersededBy / parentIds) into `.md`** — the DB read-side stays authoritative for status/lineage; frontmatter carries id + metadata only.
 - **Retiring the DB read-side / making `.md` the complete lineage source** — out; status stays DB-only.
+> Closed 2026-08-15: all 7 tickets closed; YAML-frontmatter + stable-id migration shipped.

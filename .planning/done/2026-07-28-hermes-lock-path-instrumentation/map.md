@@ -1,3 +1,7 @@
+---
+status: complete
+---
+
 > STATUS: DONE — archived 2026-08-15 (shipped in main; see git history / PR references in map)
 # Wayfinder map: 2026-07-28-hermes-lock-path-instrumentation
 
@@ -101,3 +105,4 @@ those wait for the data this produces.
   recorded; leave them alone unless full-trace surfaces a near-threshold op.
 - **Non-hermes areas** — subagent TUI (#831), other extensions, upstream
   fidelity catch-up. Different destinations.
+> Closed 2026-08-15: all 4 tickets closed; lock/consolidation instrumentation shipped.

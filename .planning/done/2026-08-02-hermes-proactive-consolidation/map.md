@@ -2,7 +2,7 @@
 effort: 2026-08-02-hermes-proactive-consolidation
 created: 2026-08-03
 last: 2026-08-03
-status: active
+status: complete
 ---
 
 # Wayfinder map: 2026-08-02-hermes-proactive-consolidation
@@ -29,3 +29,4 @@ _(none)_
 ## Out of scope
 
 <!-- none -->
+> Closed 2026-08-15: D1–D4 all decided AND shipped (auto-consolidate.ts, maybeProactiveConsolidate); done-in-practice.

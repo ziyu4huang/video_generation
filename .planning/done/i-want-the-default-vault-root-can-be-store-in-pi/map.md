@@ -1,3 +1,7 @@
+---
+status: complete
+---
+
 > STATUS: DONE — archived 2026-08-15 (shipped in main; see git history / PR references in map)
 # Map — default vault root at ~/.pi (personal, not project)
 
@@ -54,3 +58,4 @@ The way is clear — hand to `writing-plans`/`executing-plans`, or implement dir
 - **A one-time config write without touching resolution logic** — rejected at the destination grill (shape B): it wouldn't actually move where the *default* is read from; project config would still win.
 - **Harmonizing `memory-to-vault.ts`'s own `resolveVaultPath()`** to call the shared `resolveVault()` — a separate CLI utility, not a live tool; a nice-to-have follow-up, not on this route. Link if the destination is ever redrawn to "single resolver everywhere."
 - **Changing Tier 2 (Obsidian-app open-vault) behavior** — untouched. The personal tier sits *above* it; app-follow semantics are unchanged.
+> Closed 2026-08-15: all 3 tickets closed; personal-tier vault resolver shipped.

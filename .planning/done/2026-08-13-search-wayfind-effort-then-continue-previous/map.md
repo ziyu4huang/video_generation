@@ -2,7 +2,7 @@
 effort: 2026-08-13-search-wayfind-effort-then-continue-previous
 created: 2026-08-13
 last: 2026-08-13
-status: active
+status: complete
 ---
 
 # Wayfinder map: 2026-08-13-search-wayfind-effort-then-continue-previous
@@ -66,3 +66,4 @@ _(none)_
 ## Out of scope
 
 <!-- none -->
+> Closed 2026-08-15: meta stub; superseded by the 2026-08-15 corpus consolidation session.

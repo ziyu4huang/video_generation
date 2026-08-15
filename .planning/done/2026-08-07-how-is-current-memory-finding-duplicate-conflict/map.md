@@ -1,5 +1,5 @@
 ---
-status: active
+status: complete
 effort: 2026-08-07-how-is-current-memory-finding-duplicate-conflict
 created: 2026-08-07
 ---
@@ -44,3 +44,4 @@ A measured decision on the default memory backend (disk-`MEMORY.md` / SQLite / S
 ## Cross-effort links
 
 - **Absorbed-by:** [2026-08-08-pi-agent-ext-knowledge-card-obsidian-surealdb-or](../2026-08-08-pi-agent-ext-knowledge-card-obsidian-surealdb-or/map.md) — generalizes this memory effort into a card-agnostic knowledge pipeline. This effort's open ticket 08 is resolved there (01: dedup promoted into store contract; MD canonical stands; backend now pending the 2026-08-08 A/B). Findings 06 (SQLite perf win) and 07 (near-dup threshold 0.6 -> ~0.3-0.4) carry forward as locked context. Ticket 08 closed 2026-08-08 as superseded.
+> Closed 2026-08-15: fog resolved by later work: dedup-into-contract = C6 (#1349); backend = kp Decision 04; canonical = kp 09; residual threshold-tuning (0.6→0.3-0.4) folded into hermes-arch ticket 04.
