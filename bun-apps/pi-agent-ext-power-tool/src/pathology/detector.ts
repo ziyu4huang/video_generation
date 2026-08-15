@@ -13,7 +13,7 @@
  * entry — a type-only import that is erased at compile time, so there is no
  * runtime dependency on src/index.ts.
  */
-import type { Finding } from "../index.ts";
+import type { Finding } from "../findings.ts";
 import type { PathologyInput, ToolCallRecord } from "./types.ts";
 
 // ─── defaults ────────────────────────────────────────────────────────────────

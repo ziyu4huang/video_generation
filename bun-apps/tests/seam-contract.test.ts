@@ -194,7 +194,7 @@ const STATUS_WIDGET = {
 	publisher: { pkg: "pi-agent-ext-core-task", file: "src/shared/status-widget.ts", className: "CoreTaskStatusWidget" },
 	consumers: [
 		{ pkg: "pi-agent-ext-wayfind", methods: () => extractInterfaceMethods(readPkgFile("pi-agent-ext-wayfind", "src/index.ts"), "SharedStatusWidget") },
-		{ pkg: "pi-agent-ext-power-tool", methods: () => extractInlineTypeMethods(readPkgFile("pi-agent-ext-power-tool", "src/index.ts"), "__piCoreTaskStatusWidget as {") },
+		{ pkg: "pi-agent-ext-power-tool", methods: () => extractInlineTypeMethods(readPkgFile("pi-agent-ext-power-tool", "src/tools/inspect-tui.ts"), "__piCoreTaskStatusWidget as {") },
 	],
 };
 
