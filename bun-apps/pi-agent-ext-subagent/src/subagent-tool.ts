@@ -10,7 +10,8 @@
  * Minimal v1: { agent?, task, model?, cwd?, tools?, excludeTools? } → child output.
  * No clarify-TUI / acceptance / turnBudget / toolBudget (deferred — see spec.md).
  */
-import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { defineTool, getMarkdownTheme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import {
   type AgentDefinition,
   createWorktree,
@@ -39,6 +40,8 @@ import {
   formatSubagentResult,
   renderSubagentCall,
   renderSubagentResult,
+  renderSubagentResultHeader,
+  subagentResultText,
   taskPreview,
   workIntentPreview,
 } from "./subagent-tool-render.js";
@@ -486,6 +489,22 @@ export function createSubagentTool(
       // degrades to the bare actual model otherwise. `options` here is the
       // tool-level closure (same source renderCall reads), not renderOptions.
       const v = options.inFlight?.view(context.toolCallId);
+      // Ticket 03: the SETTLED expanded report renders as STYLED markdown — a
+      // Container composing the unchanged header row (badge + meta) as Text
+      // above a Markdown component fed the full, uncapped report text and the
+      // host's shared theme (getMarkdownTheme), mirroring host chat's custom
+      // message rendering instead of dumping raw `##`/`**` markers. Markdown is
+      // itself width-aware (render(width) wraps), so resize re-flow stays free.
+      // ONLY this branch moves to components — streaming/partial and
+      // settled-collapsed keep the plain-string ComposerComponent path so the
+      // #1104 flicker fix holds untouched.
+      if (!renderOptions.isPartial && renderOptions.expanded) {
+        const box = new Container();
+        const header = renderSubagentResultHeader(result, theme, { modelSeg: v?.modelSeg });
+        if (header) box.addChild(new Text(header, 0, 0));
+        box.addChild(new Markdown(subagentResultText(result), 0, 0, getMarkdownTheme()));
+        return box;
+      }
       // Compose-in-render (ticket 02): renderSubagentResult receives the
       // render-time width via opts (settled-collapsed cap becomes width-
       // derived); resize re-flow is free from the render(width) contract.

@@ -360,39 +360,15 @@ export function capTraceTail(lines: string[], tail: number): string[] {
   return lines.length <= tail ? lines : ["…", ...lines.slice(-tail)];
 }
 
-/** Theme the result: collapsed = badge+meta+headline; expanded = full report. */
-export function renderSubagentResult(
-  result: { content: Array<{ type: string; text?: string }>; details?: SubagentToolDetails },
-  options: { expanded?: boolean; isPartial?: boolean },
-  theme: Theme,
-  opts?: { modelSeg?: string; width?: number },
-): string {
-  const text = result.content.find((c) => c.type === "text")?.text ?? "";
-  if (options.isPartial) {
-    // Streaming progress update. The payload (formatSubagentLive) is a 2-line
-    // header + a ≤100-line activity trace. Collapsed (default) shows just the
-    // header. Expanded (ctrl+o / app.tools.expand) shows the trace so a
-    // long-running subagent's recent work is inspectable without aborting —
-    // BUT capped to a viewport-safe tail (see STREAMING_EXPANDED_TAIL): the
-    // full ≤102-row box is taller than the terminal viewport, so its first
-    // line sits above the bottom-anchored viewport top and trips the TUI's
-    // per-frame fullRender (full-screen clear+rewrite) at ~4Hz → whole-TUI
-    // flicker. Keeping the streaming-expanded box small + height-stable keeps
-    // the first changed line inside the viewport → differential render → no
-    // fullRender. The settled (non-partial) expanded report is unaffected.
-    const lines = text.split("\n");
-    // Keep the first 2 (progress header) then cap the trace tail via the SHARED
-    // helper so this surface and the context-box expanded trace hold the SAME
-    // viewport-safe cap (ticket 05, finding 4). Byte-identical to the prior
-    // inline ternary: capTraceTail checks `trace.length <= tail`, which is
-    // `lines.length - 2 <= tail` ⟺ `lines.length <= 2 + tail`.
-    const shown = options.expanded
-      ? [...lines.slice(0, 2), ...capTraceTail(lines.slice(2), STREAMING_EXPANDED_TAIL)]
-      : lines.slice(0, 2);
-    return shown.map((l) => theme.fg("dim", l)).join("\n");
-  }
-  const d = result.details;
-  if (!d) return text;
+/**
+ * Settled header row: status badge + fallback-aware meta (usage / SDD /
+ * commit-scope / budget / turns tags). One home for both settle surfaces —
+ * the collapsed one-liner appends the width-capped headline, and the
+ * ticket-03 expanded CONTAINER (subagent-tool.ts renderResult) renders it as
+ * the header Text above the Markdown body — so the row's content can never
+ * drift between them. Content-identical to the pre-ticket-03 inline block.
+ */
+function settledHeaderRow(d: SubagentToolDetails, theme: Theme, opts?: { modelSeg?: string }): string {
   const badge =
     d.status === "done"
       ? theme.fg("success", "✓ done")
@@ -453,6 +429,72 @@ export function renderSubagentResult(
     budgetExhaustionTag +
     turnsExhaustionTag +
     budgetWarnTag;
+  return `${badge} ${meta}`;
+}
+
+/**
+ * Header segment for the settled expanded container (ticket 03): the same
+ * badge + meta row the string branch emits, exposed so the component-level
+ * composition in subagent-tool.ts (Container → Text header + Markdown body)
+ * can reuse it without re-parsing themed strings. Empty when the result
+ * carries no details (the fallback then renders just the Markdown child).
+ */
+export function renderSubagentResultHeader(
+  result: { content: Array<{ type: string; text?: string }>; details?: SubagentToolDetails },
+  theme: Theme,
+  opts?: { modelSeg?: string },
+): string {
+  const d = result.details;
+  return d ? settledHeaderRow(d, theme, opts) : "";
+}
+
+/**
+ * Full, unthemed report text of a result — the Markdown body for the settled
+ * expanded container (ticket 03). Uncapped by design: the Markdown component
+ * owns wrapping via render(width), so terminal-width re-flow comes free from
+ * the component contract.
+ */
+export function subagentResultText(result: { content: Array<{ type: string; text?: string }> }): string {
+  return result.content.find((c) => c.type === "text")?.text ?? "";
+}
+
+/** Theme the result: collapsed = badge+meta+headline; expanded = full report. */
+export function renderSubagentResult(
+  result: { content: Array<{ type: string; text?: string }>; details?: SubagentToolDetails },
+  options: { expanded?: boolean; isPartial?: boolean },
+  theme: Theme,
+  opts?: { modelSeg?: string; width?: number },
+): string {
+  const text = subagentResultText(result);
+  if (options.isPartial) {
+    // Streaming progress update. The payload (formatSubagentLive) is a 2-line
+    // header + a ≤100-line activity trace. Collapsed (default) shows just the
+    // header. Expanded (ctrl+o / app.tools.expand) shows the trace so a
+    // long-running subagent's recent work is inspectable without aborting —
+    // BUT capped to a viewport-safe tail (see STREAMING_EXPANDED_TAIL): the
+    // full ≤102-row box is taller than the terminal viewport, so its first
+    // line sits above the bottom-anchored viewport top and trips the TUI's
+    // per-frame fullRender (full-screen clear+rewrite) at ~4Hz → whole-TUI
+    // flicker. Keeping the streaming-expanded box small + height-stable keeps
+    // the first changed line inside the viewport → differential render → no
+    // fullRender. The settled (non-partial) expanded report is unaffected.
+    const lines = text.split("\n");
+    // Keep the first 2 (progress header) then cap the trace tail via the SHARED
+    // helper so this surface and the context-box expanded trace hold the SAME
+    // viewport-safe cap (ticket 05, finding 4). Byte-identical to the prior
+    // inline ternary: capTraceTail checks `trace.length <= tail`, which is
+    // `lines.length - 2 <= tail` ⟺ `lines.length <= 2 + tail`.
+    const shown = options.expanded
+      ? [...lines.slice(0, 2), ...capTraceTail(lines.slice(2), STREAMING_EXPANDED_TAIL)]
+      : lines.slice(0, 2);
+    return shown.map((l) => theme.fg("dim", l)).join("\n");
+  }
+  const d = result.details;
+  if (!d) return text;
+  // Both settle branches share the header row via settledHeaderRow (ticket 03)
+  // — collapsed appends the width-capped headline, expanded prepends it above
+  // the report body.
+  const header = settledHeaderRow(d, theme, opts);
   if (!options.expanded) {
     const firstLine =
       text
@@ -463,9 +505,9 @@ export function renderSubagentResult(
     // helper — cap min(60, width) columns, CJK double-width counted, one
     // trailing `…` inside budget when cut. Measured BEFORE theming (plain
     // text in, style out — render-width input contract).
-    return `${badge} ${meta} ${theme.fg("dim", ellipsizeToWidth(firstLine, capWidth(60, opts?.width)))}`;
+    return `${header} ${theme.fg("dim", ellipsizeToWidth(firstLine, capWidth(60, opts?.width)))}`;
   }
-  return `${badge} ${meta}\n${theme.fg("toolOutput", text)}`;
+  return `${header}\n${theme.fg("toolOutput", text)}`;
 }
 
 // `deriveSubagentStatus(r)` used to live here, holding a four-branch precedence
