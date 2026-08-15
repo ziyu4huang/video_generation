@@ -196,10 +196,21 @@ pub struct AnalyzeResult {
     /// Dialect actually used to produce this result.
     pub dialect: String,
     pub parse_ok: bool,
+    /// TRUE total number of error/missing nodes in the tree — never capped.
     pub error_count: usize,
+    /// Positional issues, capped at `max_errors` (default 50).
     pub issues: Vec<ParseIssue>,
+    /// `true` when `error_count > issues.len()` (more issues existed than
+    /// were returned).
+    pub issues_truncated: bool,
     pub design_units: Vec<DesignUnit>,
+    /// Present only when requested (`include_ast` / the `ast` op): a `null`
+    /// here would fail the tool's `output.schema` (`ast: {type: "object"}`).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ast: Option<JsonValue>,
+    /// `true` when the AST dump hit its node/depth budget and dropped
+    /// subtrees.
+    pub ast_truncated: bool,
     pub stats: Stats,
 }
 
@@ -219,6 +230,13 @@ pub struct AstNode {
 // ---------------------------------------------------------------------------
 // Node helpers (kind-independent, works for both grammars)
 // ---------------------------------------------------------------------------
+
+/// Maximum recursion depth for every tree walk below. Real HDL never
+/// approaches this depth; adversarial input (e.g. tens of thousands of
+/// nested parentheses) would otherwise recurse to the parse-tree depth and
+/// overflow the wasm stack, trapping the module. Past this depth walkers
+/// simply stop descending.
+const MAX_WALK_DEPTH: usize = 512;
 
 fn text_of(node: &Node, code: &str) -> String {
     node.utf8_text(code.as_bytes()).unwrap_or("").trim().to_string()
@@ -259,11 +277,18 @@ fn named_children<'t>(node: &Node<'t>) -> impl Iterator<Item = Node<'t>> {
 
 /// First identifier-kind node found via DFS.
 fn first_identifier<'t>(node: &Node<'t>) -> Option<Node<'t>> {
+    first_identifier_at(node, 0)
+}
+
+fn first_identifier_at<'t>(node: &Node<'t>, depth: usize) -> Option<Node<'t>> {
+    if depth >= MAX_WALK_DEPTH {
+        return None;
+    }
     for child in named_children(node) {
         if is_identifier(child.kind()) {
             return Some(child);
         }
-        if let Some(found) = first_identifier(&child) {
+        if let Some(found) = first_identifier_at(&child, depth + 1) {
             return Some(found);
         }
     }
@@ -273,6 +298,13 @@ fn first_identifier<'t>(node: &Node<'t>) -> Option<Node<'t>> {
 /// Collect identifier names while refusing to descend into expression /
 /// statement / dimension subtrees (heuristic, but reliable for declarations).
 fn collect_identifiers(node: &Node, code: &str, out: &mut Vec<String>) {
+    collect_identifiers_at(node, code, out, 0)
+}
+
+fn collect_identifiers_at(node: &Node, code: &str, out: &mut Vec<String>, depth: usize) {
+    if depth >= MAX_WALK_DEPTH {
+        return;
+    }
     for child in named_children(node) {
         let kind = child.kind();
         if is_identifier(kind) {
@@ -281,7 +313,7 @@ fn collect_identifiers(node: &Node, code: &str, out: &mut Vec<String>) {
                 out.push(name);
             }
         } else if is_declaration_container(kind) {
-            collect_identifiers(&child, code, out);
+            collect_identifiers_at(&child, code, out, depth + 1);
         }
     }
 }
@@ -314,11 +346,18 @@ fn first_named_child_of<'t>(node: &Node<'t>, kinds: &[&str]) -> Option<Node<'t>>
 }
 
 fn find_descendant_of<'t>(node: &Node<'t>, kinds: &[&str]) -> Option<Node<'t>> {
+    find_descendant_of_at(node, kinds, 0)
+}
+
+fn find_descendant_of_at<'t>(node: &Node<'t>, kinds: &[&str], depth: usize) -> Option<Node<'t>> {
+    if depth >= MAX_WALK_DEPTH {
+        return None;
+    }
     for child in named_children(node) {
         if kinds.contains(&child.kind()) {
             return Some(child);
         }
-        if let Some(found) = find_descendant_of(&child, kinds) {
+        if let Some(found) = find_descendant_of_at(&child, kinds, depth + 1) {
             return Some(found);
         }
     }
@@ -363,14 +402,24 @@ fn direction_of(node: &Node, code: &str) -> String {
 // ---------------------------------------------------------------------------
 
 fn count_errors(node: &Node) -> usize {
+    count_errors_at(node, 0)
+}
+
+fn count_errors_at(node: &Node, depth: usize) -> usize {
     let mut n = usize::from(node.is_error() || node.is_missing());
-    for child in children(node) {
-        n += count_errors(&child);
+    if depth < MAX_WALK_DEPTH {
+        for child in children(node) {
+            n += count_errors_at(&child, depth + 1);
+        }
     }
     n
 }
 
 fn collect_issues(node: &Node, code: &str, cap: usize, out: &mut Vec<ParseIssue>) {
+    collect_issues_at(node, code, cap, out, 0)
+}
+
+fn collect_issues_at(node: &Node, code: &str, cap: usize, out: &mut Vec<ParseIssue>, depth: usize) {
     if out.len() >= cap {
         return;
     }
@@ -384,11 +433,14 @@ fn collect_issues(node: &Node, code: &str, cap: usize, out: &mut Vec<ParseIssue>
             snippet: snippet_around(node, code),
         });
     }
+    if depth >= MAX_WALK_DEPTH {
+        return;
+    }
     for child in children(node) {
         if out.len() >= cap {
             return;
         }
-        collect_issues(&child, code, cap, out);
+        collect_issues_at(&child, code, cap, out, depth + 1);
     }
 }
 
@@ -489,6 +541,13 @@ fn build_unit(node: &Node, code: &str) -> DesignUnit {
 }
 
 fn walk_unit(node: &Node, code: &str, unit: &mut DesignUnit) {
+    walk_unit_at(node, code, unit, 0)
+}
+
+fn walk_unit_at(node: &Node, code: &str, unit: &mut DesignUnit, depth: usize) {
+    if depth >= MAX_WALK_DEPTH {
+        return;
+    }
     for child in named_children(node) {
         let kind = child.kind();
         match kind {
@@ -510,7 +569,7 @@ fn walk_unit(node: &Node, code: &str, unit: &mut DesignUnit) {
                 // Recurse through container nodes, but never into nested
                 // design units (generate / ifdef bodies declare their own).
                 if !is_design_unit(kind) && child.named_child_count() > 0 {
-                    walk_unit(&child, code, unit);
+                    walk_unit_at(&child, code, unit, depth + 1);
                 }
             }
         }
@@ -580,7 +639,7 @@ fn collect_parameters(node: &Node, code: &str, unit: &mut DesignUnit) {
     }
     // Hunt param_assignment leaves.
     let mut found = false;
-    collect_param_assignments(node, &mut push_from, &mut found);
+    collect_param_assignments(node, &mut push_from, &mut found, 0);
     if !found {
         // Fallback: whole declaration text, split on commas then '='.
         for segment in text_of(node, code).split(',') {
@@ -594,7 +653,10 @@ fn collect_parameters(node: &Node, code: &str, unit: &mut DesignUnit) {
     }
 }
 
-fn collect_param_assignments<F: FnMut(&Node)>(node: &Node, push: &mut F, found: &mut bool) {
+fn collect_param_assignments<F: FnMut(&Node)>(node: &Node, push: &mut F, found: &mut bool, depth: usize) {
+    if *found || depth >= MAX_WALK_DEPTH {
+        return;
+    }
     if node.kind() == "param_assignment" {
         *found = true;
         push(node);
@@ -607,7 +669,7 @@ fn collect_param_assignments<F: FnMut(&Node)>(node: &Node, push: &mut F, found: 
         ) {
             continue;
         }
-        collect_param_assignments(&child, push, found);
+        collect_param_assignments(&child, push, found, depth + 1);
     }
 }
 
@@ -722,11 +784,14 @@ fn collect_always(node: &Node, code: &str, unit: &mut DesignUnit) {
 
 fn collect_assigns(node: &Node, code: &str, unit: &mut DesignUnit) {
     for child in named_children(node) {
-        collect_assignment(&child, code, unit);
+        collect_assignment(&child, code, unit, 0);
     }
 }
 
-fn collect_assignment(node: &Node, code: &str, unit: &mut DesignUnit) {
+fn collect_assignment(node: &Node, code: &str, unit: &mut DesignUnit, depth: usize) {
+    if depth >= MAX_WALK_DEPTH {
+        return;
+    }
     if matches!(node.kind(), "net_assignment" | "variable_assignment") {
         let text = text_of(node, code);
         if let Some((lhs, rhs)) = text.split_once('=') {
@@ -739,7 +804,7 @@ fn collect_assignment(node: &Node, code: &str, unit: &mut DesignUnit) {
         return;
     }
     for child in named_children(node) {
-        collect_assignment(&child, code, unit);
+        collect_assignment(&child, code, unit, depth + 1);
     }
 }
 
@@ -750,8 +815,9 @@ fn collect_assignment(node: &Node, code: &str, unit: &mut DesignUnit) {
 const AST_MAX_DEPTH: usize = 64;
 const AST_MAX_NODES: usize = 20_000;
 
-fn dump_ast_rec(node: &Node, depth: usize, budget: &mut usize) -> Option<AstNode> {
+fn dump_ast_rec(node: &Node, depth: usize, budget: &mut usize, truncated: &mut bool) -> Option<AstNode> {
     if *budget == 0 {
+        *truncated = true;
         return None;
     }
     *budget -= 1;
@@ -759,6 +825,7 @@ fn dump_ast_rec(node: &Node, depth: usize, budget: &mut usize) -> Option<AstNode
     if depth < AST_MAX_DEPTH {
         for i in 0..node.child_count() {
             if *budget == 0 {
+                *truncated = true;
                 break;
             }
             if let Some(child) = node.child(i as u32) {
@@ -766,7 +833,7 @@ fn dump_ast_rec(node: &Node, depth: usize, budget: &mut usize) -> Option<AstNode
                     continue;
                 }
                 let field = node.field_name_for_child(i as u32);
-                if let Some(mut ast_child) = dump_ast_rec(&child, depth + 1, budget) {
+                if let Some(mut ast_child) = dump_ast_rec(&child, depth + 1, budget, truncated) {
                     if field.is_some() {
                         ast_child.field = field.map(|s| s.to_string());
                     }
@@ -774,6 +841,8 @@ fn dump_ast_rec(node: &Node, depth: usize, budget: &mut usize) -> Option<AstNode
                 }
             }
         }
+    } else if node.child_count() > 0 {
+        *truncated = true;
     }
     Some(AstNode {
         r#type: node.kind().to_string(),
@@ -786,11 +855,13 @@ fn dump_ast_rec(node: &Node, depth: usize, budget: &mut usize) -> Option<AstNode
     })
 }
 
-pub fn dump_ast(root: &Node) -> JsonValue {
+/// Dump the tree as JSON plus whether the node/depth budget truncated it.
+pub fn dump_ast(root: &Node) -> (JsonValue, bool) {
     let mut budget = AST_MAX_NODES;
-    match dump_ast_rec(root, 0, &mut budget) {
-        Some(node) => serde_json::to_value(node).unwrap_or(JsonValue::Null),
-        None => JsonValue::Null,
+    let mut truncated = false;
+    match dump_ast_rec(root, 0, &mut budget, &mut truncated) {
+        Some(node) => (serde_json::to_value(node).unwrap_or(JsonValue::Null), truncated),
+        None => (JsonValue::Null, true),
     }
 }
 
@@ -824,6 +895,8 @@ pub fn analyze(req: &AnalyzeRequest) -> Result<AnalyzeResult, String> {
     let (tree, used) = parse(&req.code, req.dialect);
     let root = tree.root_node();
 
+    // Total error count is never capped; the positional `issues` list is.
+    let total_errors = count_errors(&root);
     let mut issues = Vec::new();
     collect_issues(&root, &req.code, req.max_errors.max(1), &mut issues);
 
@@ -837,15 +910,22 @@ pub fn analyze(req: &AnalyzeRequest) -> Result<AnalyzeResult, String> {
         }
     }
 
-    let ast = if req.include_ast { Some(dump_ast(&root)) } else { None };
+    let (ast, ast_truncated) = if req.include_ast {
+        let (value, truncated) = dump_ast(&root);
+        (Some(value), truncated)
+    } else {
+        (None, false)
+    };
 
     Ok(AnalyzeResult {
         dialect: used.as_str().to_string(),
         parse_ok: !root.has_error(),
-        error_count: issues.len(),
+        error_count: total_errors,
+        issues_truncated: total_errors > issues.len(),
         issues,
         design_units: units,
         ast,
+        ast_truncated,
         stats,
     })
 }
@@ -1019,5 +1099,44 @@ endmodule
         assert!(top.ports.iter().any(|p| p.name == "a"), "{:?}", top.ports);
         assert!(top.ports.iter().any(|p| p.name == "b"), "{:?}", top.ports);
         assert!(top.signals.iter().any(|s| s.name == "w" && s.kind == "wire"), "{:?}", top.signals);
+    }
+
+    #[test]
+    fn deep_nesting_does_not_overflow_walkers() {
+        // Deeper than MAX_WALK_DEPTH: the walkers must stop descending
+        // instead of recursing to the parse-tree depth.
+        let depth = MAX_WALK_DEPTH * 4;
+        let code = format!("module m;\nassign x = {}1{};\nendmodule\n", "(".repeat(depth), ")".repeat(depth));
+        let res = analyze(&AnalyzeRequest { code, dialect: Dialect::SystemVerilog, include_ast: true, max_errors: 10 }).unwrap();
+        // The input is syntactically legal; whatever the grammar does with
+        // it, the call must complete without overflowing the stack.
+        assert!(res.ast.is_some());
+    }
+
+    #[test]
+    fn error_count_is_true_total_beyond_issue_cap() {
+        // NOTE: the space in `$$$bad {i}` matters — without it tree-sitter
+        // lexes the run as one merged ERROR node instead of many.
+        let mut code = String::from("module m;\n");
+        for i in 0..300 {
+            code.push_str(&format!("$$$bad {i} ;;\n"));
+        }
+        code.push_str("endmodule\n");
+        let res = analyze(&AnalyzeRequest { code, dialect: Dialect::SystemVerilog, include_ast: false, max_errors: 10 }).unwrap();
+        assert_eq!(res.issues.len(), 10, "issue list capped at max_errors");
+        assert!(res.error_count > 10, "error_count reports the true total, got {}", res.error_count);
+        assert!(res.issues_truncated, "issues_truncated flags the cap");
+    }
+
+    #[test]
+    fn ast_truncation_is_reported() {
+        // Enough modules to blow past AST_MAX_NODES (20k).
+        let mut code = String::new();
+        for i in 0..5000 {
+            code.push_str(&format!("module u{i};\nwire w{i};\nassign w{i} = 1'b0;\nendmodule\n"));
+        }
+        let res = analyze(&AnalyzeRequest { code, dialect: Dialect::SystemVerilog, include_ast: true, max_errors: 10 }).unwrap();
+        assert!(res.ast_truncated, "ast_truncated must be set when the node budget is hit");
+        assert!(!res.issues_truncated);
     }
 }

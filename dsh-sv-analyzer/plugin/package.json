@@ -1,9 +1,12 @@
 {
   "name": "dsh-sv-analyzer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Self-contained tree-sitter WASM analyzer for Verilog/SystemVerilog: sv_analyze (design summary) and sv_ast (parse tree) tools for the DeepSeek Harness",
   "type": "module",
   "main": "index.js",
+  "engines": {
+    "node": ">=22"
+  },
   "exports": {
     ".": "./index.js",
     "./package.json": "./package.json"

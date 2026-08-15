@@ -32,6 +32,8 @@ dsh-sv-analyzer/
 │   └── .cargo/config.toml# wasm-only link args (single self-contained module)
 ├── plugin/               # the DSH plugin package (bundle form)
 │   ├── index.js          # registers sv_analyze / sv_ast on ctx.tools
+│   ├── lib/analyzer.js   # worker-thread facade (spawn/teardown, abort, queueing)
+│   ├── lib/wasm-worker.mjs# worker entry: owns the WASI instance
 │   ├── lib/wasm-runner.js# node:wasi loader + JSON-over-linear-memory ABI
 │   ├── cordis.patch.yml  # bundle layer: activates the plugin row
 │   └── wasm/sv-analyzer.wasm  # build output, ships inside the tarball
@@ -54,7 +56,7 @@ dsh-sv-analyzer/
 ```bash
 ./build.sh                          # full: native tests → wasm → tests → tarball
 ./build.sh --no-tests               # skip wasm + plugin smoke tests
-./build.sh --check-patch            # validate the bundle patch against `dsh --dump-config`
+./build.sh --check-patch [profile]  # validate the bundle patch (default profile: web)
 ./build.sh --install web            # also install the tarball into dsh profile `web`
 ```
 
@@ -74,7 +76,7 @@ installing it auto-activates the layer:
 
 ```bash
 # from the tarball (no build permissions needed — the wasm ships prebuilt)
-dsh plugin --profile web add ./dist/dsh-sv-analyzer-0.1.0.tgz
+dsh plugin --profile web add ./dist/dsh-sv-analyzer-0.2.0.tgz
 
 # or from the local checkout
 dsh plugin --profile web add ./plugin
@@ -102,17 +104,26 @@ sv_ast     { code?: string, file?: string, dialect?: auto|systemverilog|verilog 
 
 - Pass source inline via `code`, or a workspace-relative path via `file`
   (read through the harness `fs` service, so the sandbox still applies).
-- `dialect: auto` (default) parses with SystemVerilog and falls back to the
-  classic Verilog grammar when the parse has errors; the result reports which
-  dialect was used.
+  `file` accepts HDL sources only (`.v` / `.sv` / `.vh` / `.svh`) and is
+  size-checked before the content is buffered; total input is capped at
+  **1 MiB** per call.
+- `dialect: auto` (default) parses with SystemVerilog; when that parse has
+  errors it also tries the classic Verilog grammar and keeps the cleaner
+  parse. The result reports which dialect was used.
+- Host-side safety: parsing runs on a worker thread (a heavy parse never
+  blocks the DSH event loop), every tree walk is depth-capped, the wasm
+  stack is sized for deeply nested input, and the model-facing render is
+  size-capped (compact JSON, then an explicit truncation notice).
 - `sv_analyze` result shape:
 
 ```jsonc
 {
   "dialect": "systemverilog",
   "parse_ok": true,
-  "error_count": 0,
-  "issues": [ /* { kind: "error"|"missing", node_type, start:{row,column}, end, snippet } */ ],
+  "error_count": 0,          // TRUE total of error/missing nodes — never capped
+  "issues_truncated": false, // true when error_count > issues.length
+  "ast_truncated": false,    // true when the AST dump hit its node budget
+  "issues": [ /* capped at 50: { kind: "error"|"missing", node_type, start:{row,column}, end, snippet } */ ],
   "design_units": [
     {
       "kind": "module", "name": "counter", "start_line": 3,
@@ -124,17 +135,24 @@ sv_ast     { code?: string, file?: string, dialect?: auto|systemverilog|verilog 
       "continuous_assigns": [{ "lhs": "next_count", "rhs": "count + 1'b1", "start_line": 24 }]
     }
   ],
-  "stats": { "modules": 2, "ports": 9, "instances": 1, "signals": 2, "always_blocks": 2, /* ... */ },
-  "ast": null  // present when include_ast: true
+  "stats": { "modules": 2, "ports": 9, "instances": 1, "signals": 2, "always_blocks": 2, /* ... */ }
+  // "ast" is present only when include_ast: true (never a null key)
 }
 ```
+
+`sv_ast` returns a slim payload — `dialect`, `parse_ok`, `error_count`,
+`issues_truncated`, `ast_truncated`, and `ast` — without the design summary
+(tree dumps are large enough on their own).
 
 ## How the WASM is built and called
 
 `rust/src/main.rs` exports a tiny allocator + dispatch ABI over linear memory —
 `alloc` / `run` / `response_len` / `free_response` / `dealloc` — and
-`plugin/lib/wasm-runner.js` marshals JSON across it with a persistent WASI
-instance. No stdin/stdout plumbing, no temp files, no spawned processes.
+`plugin/lib/analyzer.js` drives it from a **worker thread**
+(`plugin/lib/wasm-worker.mjs` + `plugin/lib/wasm-runner.js`) so a long parse
+never blocks the host event loop. The worker is spawned lazily, torn down
+after a idle timeout, and dies with the plugin fiber. No stdin/stdout
+plumbing, no temp files, no spawned processes.
 
 The one non-obvious build step: the `tree-sitter` and grammar crates compile
 their C code with `cc`, but cargo does not forward their `rustc-link-lib`
