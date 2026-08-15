@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentHistoryEntry, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
+import type { WorkflowSnapshot } from "./display.js";
 import type { ManifestIo } from "./workflow-pack-manifest.js";
 import { workflowProjectPaths } from "./workflow-paths.js";
 
@@ -102,6 +103,63 @@ export interface PersistedRunState {
   };
   /** Cached agent results for resume, keyed by deterministic call index. */
   journal?: Array<{ index: number; hash: string; result: unknown }>;
+}
+
+/**
+ * Project a persisted run back into the UI's WorkflowSnapshot shape. Moved
+ * from workflow-ui.ts (snapshot-row-single-source, ticket 01) so the mapping
+ * lives beside the type it must stay exhaustive over.
+ *
+ * `agentProjection` has one row per key of PersistedAgentState; the
+ * `Record<keyof PersistedAgentState, …>` annotation makes the table exhaustive
+ * in both directions: a NEW persisted field without a row is a compile error
+ * (the PR-#1362 bug class — new field, silently blank resumed row), and a row
+ * for a REMOVED field is an excess-property error. The gate's `bun run build`
+ * (tsc) step is what enforces this.
+ */
+const agentProjection: Record<keyof PersistedAgentState, (a: PersistedAgentState) => unknown> = {
+  id: (a) => a.id,
+  label: (a) => a.label,
+  phase: (a) => a.phase,
+  prompt: (a) => a.prompt,
+  status: (a) => a.status,
+  result: (a) =>
+    a.result == null ? undefined : String(typeof a.result === "string" ? a.result : JSON.stringify(a.result)),
+  error: (a) => a.error,
+  errorCode: (a) => a.errorCode,
+  recoverable: (a) => a.recoverable,
+  history: (a) => a.history,
+  startedAt: (a) => (a.startedAt ? Date.parse(a.startedAt) : undefined),
+  endedAt: () => undefined, // persisted-only (resume bookkeeping); no snapshot field
+  tokens: (a) => a.tokens,
+  model: (a) => a.model,
+};
+
+/** Run every projection row, then rename `result` → the snapshot's `resultPreview`. */
+function projectAgent(a: PersistedAgentState): WorkflowSnapshot["agents"][number] {
+  const projected: Record<string, unknown> = {};
+  for (const key of Object.keys(agentProjection) as Array<keyof PersistedAgentState>) {
+    projected[key] = agentProjection[key](a);
+  }
+  const { result, endedAt: _endedAt, ...rest } = projected;
+  void _endedAt;
+  return { ...rest, resultPreview: result } as WorkflowSnapshot["agents"][number];
+}
+
+export function persistedToSnapshot(p: PersistedRunState): WorkflowSnapshot {
+  return {
+    name: p.workflowName,
+    phases: p.phases,
+    currentPhase: p.currentPhase,
+    logs: p.logs,
+    agents: p.agents.map(projectAgent),
+    agentCount: p.agents.length,
+    runningCount: p.agents.filter((a) => a.status === "running").length,
+    doneCount: p.agents.filter((a) => a.status === "done").length,
+    errorCount: p.agents.filter((a) => a.status === "error").length,
+    tokenUsage: p.tokenUsage ? { ...p.tokenUsage } : undefined,
+    runId: p.runId,
+  };
 }
 
 export interface RunPersistence {
