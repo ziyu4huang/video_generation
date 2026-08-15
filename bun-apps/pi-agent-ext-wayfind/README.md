@@ -64,7 +64,7 @@ Both extensions can be loaded in the same pi process. wayfind has **no forward c
 Registered in the deploy manifest (`bun-apps/pi-agent/run-dir/manifest.json`) — the bundler picks it up. For ad-hoc loading:
 
 ```bash
-pi -e ./bun-apps/pi-agent-ext-wayfind/extensions/index.ts
+pi -e ./bun-apps/pi-agent-ext-wayfind/extensions/wayfind.ts
 ```
 
 Both load the extension **and** the skills via the `pi` manifest in `package.json`.
