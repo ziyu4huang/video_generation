@@ -2,13 +2,19 @@
  * open-event-handler.test.ts — tests for the `webui:open` event seam (spec
  * §4.2, archify-webui-html ticket 06): valid paths announce a /files URL via
  * notify; outside-roots and malformed payloads are ignored (never throw —
- * the pi.events bus robustness rule).
+ * the pi.events bus robustness rule). Ticket 06 view-notifications: the
+ * optional registerView/broadcast deps upsert the registry + emit the
+ * `view_opened` frame; absent deps keep notify-only back-compat.
  */
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { createOpenEventHandler } from "../src/open-event-handler.js";
+import {
+  createOpenEventHandler,
+  type OpenViewRegistration,
+  type ViewOpenedFrame,
+} from "../src/open-event-handler.js";
 import { createFileRoutes } from "../src/file-routes.js";
 
 const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "webui-open-test-"));
@@ -23,14 +29,31 @@ writeFileSync(secretPath, "SECRET");
 
 const BASE_URL = "http://loopback:1234";
 
-/** Handler + captured notify calls (deterministic, no server). */
-function make(roots: string[], getUrl: () => string = () => BASE_URL) {
+/** Handler + captured notify calls (deterministic, no server). `withViewDeps`
+ * additionally injects capturing registerView/broadcast (ticket 06). */
+function make(
+  roots: string[],
+  getUrl: () => string = () => BASE_URL,
+  withViewDeps = false
+) {
   const notified: string[] = [];
+  const registered: OpenViewRegistration[] = [];
+  const frames: ViewOpenedFrame[] = [];
   const handler = createOpenEventHandler(roots, {
     getUrl,
     notify: (m) => notified.push(m),
+    ...(withViewDeps
+      ? {
+          registerView: (i) => {
+            registered.push(i);
+          },
+          broadcast: (f) => {
+            frames.push(f);
+          },
+        }
+      : {}),
   });
-  return { handler, notified };
+  return { handler, notified, registered, frames };
 }
 
 describe("createOpenEventHandler — valid paths", () => {
@@ -149,5 +172,80 @@ describe("createOpenEventHandler — ignored paths (no notify, never throw)", ()
       },
     });
     expect(() => handler({ path: path.join(root, "a.html") })).not.toThrow();
+  });
+});
+
+describe("createOpenEventHandler — view-notifications (ticket 06, spec 02-A)", () => {
+  test("register + broadcast captured with matching url/ts/id; order register → broadcast → notify", () => {
+    const order: string[] = [];
+    const notified: string[] = [];
+    const registered: OpenViewRegistration[] = [];
+    const frames: ViewOpenedFrame[] = [];
+    const handler = createOpenEventHandler([root], {
+      getUrl: () => BASE_URL,
+      notify: (m) => {
+        order.push("notify");
+        notified.push(m);
+      },
+      registerView: (i) => {
+        order.push("register");
+        registered.push(i);
+      },
+      broadcast: (f) => {
+        order.push("broadcast");
+        frames.push(f);
+      },
+    });
+    const before = Date.now();
+    handler({ path: path.join(root, "a.html"), view: "diagram", title: "Diagram" });
+    const after = Date.now();
+    expect(registered).toEqual([
+      { view: "diagram", title: "Diagram", url: `${BASE_URL}/files/0/a.html` },
+    ]);
+    expect(frames).toHaveLength(1);
+    const f = frames[0]!;
+    expect(f.type).toBe("view_opened");
+    expect(f.view).toBe("diagram");
+    expect(f.title).toBe("Diagram");
+    expect(f.url).toBe(`${BASE_URL}/files/0/a.html`);
+    expect(f.ts).toBeGreaterThanOrEqual(before);
+    expect(f.ts).toBeLessThanOrEqual(after);
+    expect(order).toEqual(["register", "broadcast", "notify"]);
+  });
+
+  test("absent view/title omitted from the frame (optional members stay absent)", () => {
+    const { handler, frames } = make([root], undefined, true);
+    handler({ path: path.join(root, "a.html") });
+    expect(frames).toHaveLength(1);
+    const f = frames[0]!;
+    expect("view" in f).toBe(false);
+    expect("title" in f).toBe(false);
+    expect(f).toEqual({ type: "view_opened", url: `${BASE_URL}/files/0/a.html`, ts: f.ts });
+  });
+
+  test("non-string view/title treated as absent (payload validated, not trusted)", () => {
+    const { handler, registered, frames } = make([root], undefined, true);
+    handler({ path: path.join(root, "a.html"), view: 42, title: 42 });
+    expect(registered).toEqual([{ view: undefined, title: undefined, url: `${BASE_URL}/files/0/a.html` }]);
+    expect("view" in frames[0]!).toBe(false);
+    expect("title" in frames[0]!).toBe(false);
+  });
+
+  test("back-compat: absent registerView/broadcast options ⇒ no-throw, notify-only", () => {
+    // The default `make` injects NEITHER new dep — the pre-ticket-06 contract.
+    const { handler, notified } = make([root]);
+    expect(() =>
+      handler({ path: path.join(root, "a.html"), view: "v", title: "T" })
+    ).not.toThrow();
+    expect(notified).toEqual([`T — open ${BASE_URL}/files/0/a.html`]);
+  });
+
+  test("ignored paths skip register + broadcast too (no partial side-effects)", () => {
+    const { handler, registered, frames, notified } = make([root], undefined, true);
+    handler({ path: secretPath, view: "v", title: "X" });
+    handler({});
+    expect(registered).toEqual([]);
+    expect(frames).toEqual([]);
+    expect(notified).toEqual([]);
   });
 });

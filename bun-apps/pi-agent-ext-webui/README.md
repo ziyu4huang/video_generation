@@ -85,6 +85,27 @@ shared `pi.events` bus with `{ path, view?, title? }`:
   `archify_render` / `archify_delta` (see its README) — webui imports nothing from archify
   and vice versa; the string-literal channel is the whole contract.
 
+## View notifications (toast + views panel)
+
+A `webui:open` emission now surfaces in the connected browser shell too (effort
+2026-08-16-webui-view-notifications):
+
+- **Fresh-open toast** (`src/render-shell.ts` + `src/shell-views.ts`): a live
+  `view_opened` WS frame younger than 10s shows a clickable toast — first click
+  opens a top-level tab, later clicks focus it (per-URL handle map, no duplicate
+  tabs). 7s auto-fade with hover-persist, stack cap 3, same-view dedupe extends.
+- **Views panel**: mode `url` views (registered id-stably as `url:<view>` /
+  `url:<url>` in `src/render-service.ts`) list newest-first, <24h, capped 8,
+  empty ⇒ collapsed; re-open floats to top. Row affordances: open / copy URL /
+  dismiss (client-side). Collapse state persists in localStorage
+  (`webui-views-collapsed`). Panel data = `view_update` push + 1s `/api/views`
+  poll backstop while expanded.
+- **Tabs**: a `mode:"url"` tab opens its URL top-level — never the sandbox iframe.
+- **Replay**: `view_opened` rides the bounded transcript (stale frames feed the
+  panel only — the toast age-gate never re-toasts on reconnect).
+- Extension authors: emitting `webui:open` is enough — TUI notify, shell toast,
+  and the views panel all light up; no webui import, no extra payload fields.
+
 ## Startup & URL discovery
 
 - The server starts lazily on first use and **survives session shutdown** (persistent

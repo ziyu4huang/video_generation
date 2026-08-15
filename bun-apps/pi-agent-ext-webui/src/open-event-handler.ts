@@ -13,6 +13,16 @@
  * a TOP-LEVEL browser document); `view`/`title` are notify-label +
  * forward-compat payload fields only (ticket 04).
  *
+ * Ticket 06 view-notifications (spec 02-A): when the wiring ALSO injects the
+ * two optional deps, the success path (after url resolution) additionally
+ * registers the URL as a `mode:"url"` view in the render registry
+ * (`registerView` — an id-stable upsert so a re-open updates, never
+ * duplicates) and broadcasts the `view_opened` WebFrame (`broadcast` — the
+ * store-wrapped broadcaster in wiring, so the frame rides live fan-out AND
+ * the connect-time transcript replay). Order: registerView → broadcast →
+ * notify. BOTH optional — an embedding that passes neither keeps the exact
+ * notify-only back-compat behavior.
+ *
  * Robustness rule (pi.events bus): the handler NEVER throws — a malformed or
  * hostile payload from a bad emitter must not take down the host. Every
  * ignore path (non-object payload, non-string path, outside-roots path —
@@ -33,6 +43,28 @@ export interface OpenEventPayload {
   title?: string;
 }
 
+/** Input for the optional registry upsert (a `mode:"url"` view, spec 02-A —
+ * structurally mirrors `RenderService`'s UrlViewInput so wiring can pass its
+ * `openUrl` directly). */
+export interface OpenViewRegistration {
+  /** View name from the payload, when carried (drives the `url:<view>` id). */
+  view?: string;
+  /** Display title, validated by the handler (`undefined` = absent). */
+  title?: string | null;
+  /** The resolved path-absolute /files URL. */
+  url: string;
+}
+
+/** The outbound `view_opened` WebFrame (protocol.ts WebFrame member, ticket
+ * 06): state-bearing — rides live broadcast AND the connect-time replay. */
+export interface ViewOpenedFrame {
+  type: "view_opened";
+  view?: string;
+  title?: string;
+  url: string;
+  ts: number;
+}
+
 /**
  * Injectable surface the handler needs (wiring passes closures so no server
  * handle is captured at wiring time): `getUrl` reads the LIVE server.url
@@ -44,6 +76,12 @@ export interface OpenHandlerOptions {
   getUrl(): string;
   /** Announce channel (the TUI ui.notify surface). */
   notify(message: string): void;
+  /** Optional registry upsert (wiring passes `RenderService.openUrl`): same
+   * id re-opens (bumps updatedAt, refreshes title) — never duplicates. */
+  registerView?(input: OpenViewRegistration): unknown;
+  /** Optional live broadcast of the `view_opened` frame (wiring passes the
+   * STORE-WRAPPED broadcaster so the frame also reaches the replay ring). */
+  broadcast?(frame: ViewOpenedFrame): void;
 }
 
 /** Debug-log an ignored emission (never throws, never notifies). */
@@ -91,10 +129,27 @@ export function createOpenEventHandler(
         .map(encodeURIComponent)
         .join("/");
       const url = `${opts.getUrl()}/files/${loc.rootIdx}/${relUrl}`;
-      const label =
+      const view =
+        typeof payload.view === "string" && payload.view !== ""
+          ? payload.view
+          : undefined;
+      const title =
         typeof payload.title === "string" && payload.title !== ""
           ? payload.title
-          : payload.path;
+          : undefined;
+      const label = title ?? payload.path;
+      // Ticket 06 view-notifications (order: registerView → broadcast →
+      // notify). Both deps optional — absent means skip (notify-only back-compat).
+      if (opts.registerView) opts.registerView({ view, title, url });
+      if (opts.broadcast) {
+        opts.broadcast({
+          type: "view_opened",
+          url,
+          ts: Date.now(),
+          ...(view !== undefined ? { view } : {}),
+          ...(title !== undefined ? { title } : {}),
+        });
+      }
       opts.notify(`${label} — open ${url}`);
     } catch (e) {
       // Bus robustness rule: NEVER let a bad emitter (or a throwing
