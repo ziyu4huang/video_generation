@@ -6,10 +6,11 @@
  * Both functions are pure/injectable over model-tier-config.js only — neither
  * closes over CoreAgent or session state. That keeps this module a thin,
  * independently-testable layer between model-tier-config.ts and its callers:
- * a consumer that only needs model/tier resolution (this file's own tests,
- * and any future model-tiers tooling) can depend on this file without pulling
- * in CoreAgent's session-creation, budget, and turn-guard wiring that the rest
- * of agent.ts still carries.
+ * anything needing only model/tier resolution can depend on this file without
+ * pulling in CoreAgent's session-creation, budget, and turn-guard wiring that
+ * the rest of agent.ts still carries. Today every consumer reaches these
+ * through the barrel; the point is that the seam exists, not that it is
+ * already used directly.
  */
 import { loadModelTierConfig, type ModelTierConfig, resolveTierModel, sortedTierNames } from "./model-tier-config.js";
 
