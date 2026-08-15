@@ -1,6 +1,12 @@
 # Ticket 01 — Subagents section in CoreTaskStatusWidget
 
-> Wave 1 · spec §2 · status: **stub** (awaiting plan)
+> Wave 1 · spec §2 · status: **done** (#1410, 2026-08-15)
+>
+> Implemented: section module `src/subagents/subagents-section.ts` + tests; wired in
+> `extensions/core-task.ts` (addSection order 4, dispose on session_shutdown); subagent
+> barrel exports `formatSubagentTrace`/`latestMessageLine`. Drift: rows rendered via
+> `renderRunRow` (RunView-typed) instead of `renderActivityRow` (ActivityRow-typed — would
+> drop modelSeg/toolCallCount); resolved per plan's `// verify at implement time`.
 
 ## Goal
 
