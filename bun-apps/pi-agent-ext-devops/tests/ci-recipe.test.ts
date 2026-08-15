@@ -551,3 +551,179 @@ describe("runLocalCi — the CI matrix is the source of truth for test commands"
 		expect(calls.some((c) => c.cmd === "bun" && c.args[0] === "run" && c.args[1] === "test")).toBe(false);
 	});
 });
+
+// ── ≤5-minute budget + execution model (hardened 2026-08-15) ──────────────────
+// USER RULE: a local_ci run over ~5 minutes is bad CI. The recipe now (a) tracks
+// per-step durations + an explicit budget (default 300 s) and reports overBudget,
+// and (b) cuts wall-clock: typechecks run in PARALLEL (tsc --noEmit is read-only),
+// and test rows are split so BUILD rows (matrix commands containing `build`) run
+// SEQUENTIALLY FIRST — serializing every dist write — before the non-build rows
+// run with bounded parallelism (no dist writes in flight during the parallel
+// phase → the ci-local.sh "parallel runs race workflow's shared dist/" hazard is
+// eliminated by construction).
+
+describe("runLocalCi — ≤5-min budget (hard rule)", () => {
+	const base = {
+		repoRoot: REPO,
+		spawn: mkSpawn([verifyOk()]).fn,
+		readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+		readMatrix: async () => ({}),
+		includeGates: false,
+	};
+
+	test("default budget is 5 minutes and is echoed in the outcome", async () => {
+		const out = await runLocalCi({ ...base, packages: ["pkg-a"] });
+		expect(out.budgetMs).toBe(300_000);
+	});
+
+	test("overBudget=true when elapsed exceeds budgetMs (injectable clock)", async () => {
+		// An ADVANCING clock: every now() sample moves time forward 100 ms, so a
+		// run that samples the clock ≥2 times racks up elapsed > budget.
+		let t = 0;
+		const out = await runLocalCi({ ...base, packages: ["pkg-a"], budgetMs: 100, now: () => (t += 100) });
+		expect(t).toBeGreaterThan(100); // the recipe actually sampled the clock
+		expect(out.overBudget).toBe(true);
+		expect(out.overall).toBe("pass"); // budget is advisory, never a merge gate
+	});
+
+	test("per-step durations + slowest ranking are reported", async () => {
+		const out = await runLocalCi({
+			...base,
+			packages: ["pkg-a", "pkg-b"],
+			readPkg: mkReadPkg({ "pkg-a": { typecheck: "tsc --noEmit", test: "bun test" }, "pkg-b": { test: "bun test" } }),
+		});
+		for (const p of out.packages) {
+			expect(typeof p.test.durationMs).toBe("number");
+		}
+		const a = out.packages.find((p) => p.name === "pkg-a")!;
+		expect(typeof a.typecheck?.durationMs).toBe("number");
+		expect(Array.isArray(out.slowest)).toBe(true);
+		expect(out.slowest!.length).toBeLessThanOrEqual(5);
+	});
+});
+
+describe("runLocalCi — execution model (parallel, builder-first)", () => {
+	test("BUILD rows run before non-build rows even when listed later", async () => {
+		const { fn, calls } = mkSpawn([verifyOk()]);
+		await runLocalCi({
+			repoRoot: REPO,
+			packages: ["pkg-pure", "pkg-builder"],
+			spawn: fn,
+			readPkg: mkReadPkg({ "pkg-pure": { test: "bun test" }, "pkg-builder": { test: "bun test" } }),
+			readMatrix: async () => ({ "pkg-pure": "bun test", "pkg-builder": "bun run build && bun test" }),
+			includeGates: false,
+		});
+		const idx = (name: string) =>
+			calls.findIndex((c) => c.cmd === "bash" && pkgOf(c.cwd) === name);
+		expect(idx("pkg-builder")).toBeGreaterThanOrEqual(0);
+		expect(idx("pkg-builder")).toBeLessThan(idx("pkg-pure"));
+	});
+
+	test("result order follows the input package order, not execution order", async () => {
+		const { fn } = mkSpawn([verifyOk()]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			packages: ["pkg-pure", "pkg-builder"],
+			spawn: fn,
+			readPkg: mkReadPkg({ "pkg-pure": { test: "bun test" }, "pkg-builder": { test: "bun test" } }),
+			readMatrix: async () => ({ "pkg-pure": "bun test", "pkg-builder": "bun run build && bun test" }),
+			includeGates: false,
+		});
+		expect(out.packages.map((p) => p.name)).toEqual(["pkg-pure", "pkg-builder"]);
+	});
+
+	test("non-build test rows run with bounded concurrency", async () => {
+		const { fn } = mkSpawn([verifyOk()]);
+		let inFlight = 0;
+		let maxInFlight = 0;
+		const tracking: SpawnFn = async (cmd, args, options) => {
+			// these packages have no matrix row → tests spawn as `bun run test`.
+			if (cmd === "bun" && args[0] === "run" && args[1] === "test") {
+				inFlight++;
+				maxInFlight = Math.max(maxInFlight, inFlight);
+				await new Promise((r) => setTimeout(r, 5));
+				inFlight--;
+			}
+			return fn(cmd, args, options);
+		};
+		await runLocalCi({
+			repoRoot: REPO,
+			packages: ["p1", "p2", "p3", "p4", "p5", "p6"],
+			spawn: tracking,
+			readPkg: mkReadPkg(Object.fromEntries(["p1", "p2", "p3", "p4", "p5", "p6"].map((n) => [n, { test: "bun test" }]))),
+			readMatrix: async () => ({}),
+			includeGates: false,
+			concurrency: 2,
+		});
+		expect(maxInFlight).toBeGreaterThan(1); // actually parallel
+		expect(maxInFlight).toBeLessThanOrEqual(2); // bounded
+	});
+
+	test("typechecks of multiple packages run in parallel (read-only tsc)", async () => {
+		const { fn } = mkSpawn([verifyOk()]);
+		let inFlight = 0;
+		let maxInFlight = 0;
+		const tracking: SpawnFn = async (cmd, args, options) => {
+			if (cmd === "bun" && args[0] === "run" && args[1] === "typecheck") {
+				inFlight++;
+				maxInFlight = Math.max(maxInFlight, inFlight);
+				await new Promise((r) => setTimeout(r, 5));
+				inFlight--;
+			}
+			return fn(cmd, args, options);
+		};
+		await runLocalCi({
+			repoRoot: REPO,
+			packages: ["p1", "p2", "p3", "p4"],
+			spawn: tracking,
+			readPkg: mkReadPkg(Object.fromEntries(["p1", "p2", "p3", "p4"].map((n) => [n, { typecheck: "tsc --noEmit", test: "bun test" }]))),
+			readMatrix: async () => ({}),
+			includeGates: false,
+			concurrency: 3,
+		});
+		expect(maxInFlight).toBeGreaterThan(1);
+		expect(maxInFlight).toBeLessThanOrEqual(3);
+	});
+});
+
+describe("runLocalCi — link-breaker isolation (pi-agent runs sequential-first)", () => {
+	test("pi-agent's test row runs BEFORE non-build parallel rows even when listed last", async () => {
+		const { fn, calls } = mkSpawn([verifyOk()]);
+		await runLocalCi({
+			repoRoot: REPO,
+			packages: ["pkg-a", "pi-agent"],
+			spawn: fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" }, "pi-agent": { test: "bun test" } }),
+			readMatrix: async () => ({ "pkg-a": "bun test", "pi-agent": "bun test" }),
+			includeGates: false,
+		});
+		const idx = (name: string) =>
+			calls.findIndex((c) => (c.cmd === "bash" || (c.cmd === "bun" && c.args[1] === "test")) && pkgOf(c.cwd) === name);
+		expect(idx("pi-agent")).toBeGreaterThanOrEqual(0);
+		expect(idx("pi-agent")).toBeLessThan(idx("pkg-a"));
+	});
+
+	test("a heal spawn (relink dangling @repo links) runs between phases — only when pi-agent's suite ran", async () => {
+		const { fn, calls } = mkSpawn([verifyOk()]);
+		await runLocalCi({
+			repoRoot: REPO,
+			packages: ["pkg-a", "pi-agent"],
+			spawn: fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" }, "pi-agent": { test: "bun test" } }),
+			readMatrix: async () => ({ "pkg-a": "bun test", "pi-agent": "bun test" }),
+			includeGates: false,
+		});
+		expect(calls.some((c) => c.cmd === "bash" && c.args[0] === "-c" && c.args[2] === "heal-workspace-links")).toBe(true);
+		// …and NOT when pi-agent is absent (its suite is the sole link-breaker).
+		const { fn: fn2, calls: calls2 } = mkSpawn([verifyOk()]);
+		await runLocalCi({
+			repoRoot: REPO,
+			packages: ["pkg-a"],
+			spawn: fn2,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+			readMatrix: async () => ({ "pkg-a": "bun test" }),
+			includeGates: false,
+		});
+		expect(calls2.some((c) => c.cmd === "bash" && c.args[0] === "-c" && c.args[2] === "heal-workspace-links")).toBe(false);
+	});
+});

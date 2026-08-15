@@ -13,6 +13,6 @@
   },
   "pi": { "extensions": ["./extensions"] },
   "scripts": { "test": "bun test", "typecheck": "tsc --noEmit" },
-  "peerDependencies": { "@earendil-works/pi-coding-agent": "0.84.1" },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "0.84.2" },
   "devDependencies": { "@types/bun": "latest", "typescript": "^6.0.3" }
 }

@@ -136,7 +136,7 @@ export function assertSafePathComponent(value: string, kind: string): void {
  */
 function stripStrengthSuffix(raw: string): string {
   const m = raw.match(/^(.*):-?\d+(?:\.\d+)?$/);
-  return m ? m[1] : raw;
+  return m ? m[1]! : raw;
 }
 
 /**

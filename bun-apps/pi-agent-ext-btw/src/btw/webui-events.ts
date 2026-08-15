@@ -20,8 +20,9 @@ export interface BtwModelRef {
   api: string;
 }
 
-/** Thinking override level; keep in sync with the SDK SessionThinkingLevel used by btw. */
-export type BtwThinkingLevel = "off" | "low" | "medium" | "high";
+/** Thinking override level; keep in sync with the SDK SessionThinkingLevel used by btw
+ * (pi-ai 0.84.2 widened ThinkingLevel to minimal|low|medium|high|xhigh|max). */
+export type BtwThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export type BtwCommand =
   | { kind: "ask"; text: string }

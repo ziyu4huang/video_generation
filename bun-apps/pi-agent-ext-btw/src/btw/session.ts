@@ -14,7 +14,6 @@ import {
   type AgentSession,
   type AgentSessionEvent,
   type ExtensionAPI,
-  type ExtensionCommandContext,
   type ExtensionContext,
   type ResourceLoader,
 } from "@earendil-works/pi-coding-agent";
@@ -85,7 +84,7 @@ function stripDynamicSystemPromptFooter(systemPrompt: string): string {
 }
 
 function createBtwResourceLoader(
-  ctx: ExtensionCommandContext,
+  ctx: ExtensionContext,
   appendSystemPrompt: string[] = [BTW_SYSTEM_PROMPT],
 ): ResourceLoader {
   const extensionsResult = { extensions: [], errors: [] as { path: string; error: string }[], runtime: createExtensionRuntime() };
@@ -209,7 +208,7 @@ function formatModelRef(model: Pick<SessionModel, "provider" | "id" | "api">): s
   return `${model.provider}/${model.id} (${model.api})`;
 }
 
-function notify(ctx: ExtensionContext | ExtensionCommandContext, message: string, level: "info" | "warning" | "error"): void {
+function notify(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error"): void {
   if (ctx.hasUI) ctx.ui.notify(message, level);
 }
 
@@ -263,10 +262,10 @@ export class BtwEngine {
   overlayStatus: string | null = null;
   overlayDraft = "";
   overlayRuntime: OverlayRuntime | null = null;
-  lastUiContext: ExtensionContext | ExtensionCommandContext | null = null;
+  lastUiContext: ExtensionContext | null = null;
   activeBtwSession: BtwSessionRuntime | null = null;
-  /** Latest ExtensionCommandContext seen at session_start/session_tree; the webui command channel carries no ctx. */
-  private latestCtx: ExtensionCommandContext | null = null;
+  /** Latest ExtensionContext seen at session_start/session_tree; the webui command channel carries no ctx. */
+  private latestCtx: ExtensionContext | null = null;
   /** Status override for the last live message, derived from sub-session events. */
   private webuiStatus: BtwStatusUpdate | null = null;
   /** The BtwSessionRuntime currently bridged to the webui event channel. */
@@ -283,7 +282,7 @@ export class BtwEngine {
 
   // ── Sync UI ──────────────────────────────────────────────────────────────
 
-  syncUi(ctx?: ExtensionContext | ExtensionCommandContext): void {
+  syncUi(ctx?: ExtensionContext): void {
     const activeCtx = ctx ?? this.lastUiContext;
     if (activeCtx?.hasUI) {
       activeCtx.ui.setWidget("btw", undefined);
@@ -291,7 +290,7 @@ export class BtwEngine {
     }
   }
 
-  setOverlayStatus(status: string | null, ctx?: ExtensionContext | ExtensionCommandContext): void {
+  setOverlayStatus(status: string | null, ctx?: ExtensionContext): void {
     this.overlayStatus = status;
     this.syncUi(ctx);
   }
@@ -336,7 +335,7 @@ export class BtwEngine {
   private handleBtwSessionEvent(
     sessionRuntime: BtwSessionRuntime,
     event: AgentSessionEvent,
-    ctx?: ExtensionContext | ExtensionCommandContext,
+    ctx?: ExtensionContext,
   ): void {
     if (this.activeBtwSession?.session !== sessionRuntime.session || !this.overlayRuntime) return;
     applyTranscriptEvent(this.transcriptState, event);
@@ -346,7 +345,7 @@ export class BtwEngine {
     if (event.type === "message_start" || event.type === "message_update" || event.type === "message_end" || event.type === "turn_start") this.syncUi(ctx);
   }
 
-  subscribeOverlayToActiveBtwSession(ctx?: ExtensionContext | ExtensionCommandContext): void {
+  subscribeOverlayToActiveBtwSession(ctx?: ExtensionContext): void {
     const sr = this.activeBtwSession;
     if (!sr || sr.subscriptions.size > 0) return;
     const unsub = sr.session.subscribe((event: AgentSessionEvent) => this.handleBtwSessionEvent(sr, event, ctx));
@@ -356,7 +355,7 @@ export class BtwEngine {
   // ── Webui bridge (event-bus seam; independent of the TUI overlay path) ───
 
   /** Record the ctx the webui command handler should use (set from session_start/session_tree). */
-  setLatestCtx(ctx: ExtensionCommandContext): void {
+  setLatestCtx(ctx: ExtensionContext): void {
     this.latestCtx = ctx;
   }
 
@@ -504,7 +503,7 @@ export class BtwEngine {
 
   // ── Model resolution ─────────────────────────────────────────────────────
 
-  async resolveBtwSettings(ctx: ExtensionCommandContext, notifyOnFallback = false): Promise<ResolvedBtwSettings> {
+  async resolveBtwSettings(ctx: ExtensionContext, notifyOnFallback = false): Promise<ResolvedBtwSettings> {
     const modelResult = await this.resolveBtwModel(ctx, notifyOnFallback);
     const thinkingLevel = this.btwThinkingOverride ?? (this.pi.getThinkingLevel() as SessionThinkingLevel);
     return {
@@ -517,7 +516,7 @@ export class BtwEngine {
     };
   }
 
-  private async resolveBtwModel(ctx: ExtensionCommandContext, notifyOnFallback = false) {
+  private async resolveBtwModel(ctx: ExtensionContext, notifyOnFallback = false) {
     if (this.btwModelOverride) {
       const auth = await ctx.modelRegistry.getApiKeyAndHeaders(this.btwModelOverride);
       if (auth.ok && auth.apiKey) {
@@ -549,7 +548,7 @@ export class BtwEngine {
 
   // ── Sub-session creation ─────────────────────────────────────────────────
 
-  private buildBtwSeedState(ctx: ExtensionCommandContext): { messages: Message[]; sideThreadStartIndex: number } {
+  private buildBtwSeedState(ctx: ExtensionContext): { messages: Message[]; sideThreadStartIndex: number } {
     const messages: Message[] = [];
 
     if (this.pendingMode === "contextual") {
@@ -608,7 +607,7 @@ export class BtwEngine {
     return { messages, sideThreadStartIndex };
   }
 
-  async createBtwSubSession(ctx: ExtensionCommandContext): Promise<BtwSessionRuntime> {
+  async createBtwSubSession(ctx: ExtensionContext): Promise<BtwSessionRuntime> {
     const settings = await this.resolveBtwSettings(ctx, true);
     if (!settings.model) throw new Error(settings.fallbackReason || "No active model selected.");
 
@@ -630,7 +629,7 @@ export class BtwEngine {
     return sr;
   }
 
-  async ensureBtwSession(ctx: ExtensionCommandContext): Promise<BtwSessionRuntime | null> {
+  async ensureBtwSession(ctx: ExtensionContext): Promise<BtwSessionRuntime | null> {
     const settings = await this.resolveBtwSettings(ctx);
     if (!settings.model) return null;
     if (this.activeBtwSession?.mode === this.pendingMode) return this.activeBtwSession;
@@ -641,7 +640,7 @@ export class BtwEngine {
 
   // ── Overlay ──────────────────────────────────────────────────────────────
 
-  async ensureOverlay(ctx: ExtensionCommandContext | ExtensionContext): Promise<void> {
+  async ensureOverlay(ctx: ExtensionContext): Promise<void> {
     if (!ctx.hasUI) return;
     this.lastUiContext = ctx;
     if (this.overlayRuntime?.handle) { this.subscribeOverlayToActiveBtwSession(ctx); this.focusOverlay(); return; }
@@ -724,12 +723,12 @@ export class BtwEngine {
     return { name: m[1], args: m[2]?.trim() ?? "" };
   }
 
-  async submitFromOverlay(ctx: ExtensionCommandContext | ExtensionContext, value: string): Promise<void> {
+  async submitFromOverlay(ctx: ExtensionContext, value: string): Promise<void> {
     const question = value.trim();
     if (!question) { this.setOverlayStatus("Enter a BTW prompt before submitting.", ctx); return; }
     if (!("getSystemPrompt" in ctx)) { this.setOverlayStatus("BTW overlay submit requires a command context.", ctx); return; }
 
-    const cmdCtx = ctx as ExtensionCommandContext;
+    const cmdCtx = ctx as ExtensionContext;
     const btwCmd = this.parseOverlayBtwCommand(question);
     if (btwCmd) { this.setOverlayDraft(""); await this.dispatchBtwCommand(btwCmd.name, btwCmd.args, cmdCtx); return; }
 
@@ -741,7 +740,7 @@ export class BtwEngine {
 
   // ── Thread management ────────────────────────────────────────────────────
 
-  async resetThread(ctx: ExtensionContext | ExtensionCommandContext, persist = true): Promise<void> {
+  async resetThread(ctx: ExtensionContext, persist = true): Promise<void> {
     await this.disposeBtwSession();
     this.pendingThread = [];
     this.transcriptState = createEmptyTranscriptState();
@@ -803,7 +802,7 @@ export class BtwEngine {
     return this.pendingThread.map((e) => ({ user: e.question, assistant: e.answer }));
   }
 
-  async getBtwHandoffThread(ctx: ExtensionCommandContext): Promise<{ sessionRuntime: BtwSessionRuntime | null; thread: BtwHandoffExchange[] }> {
+  async getBtwHandoffThread(ctx: ExtensionContext): Promise<{ sessionRuntime: BtwSessionRuntime | null; thread: BtwHandoffExchange[] }> {
     const sessionRuntime = this.activeBtwSession ?? (await this.ensureBtwSession(ctx));
     const thread = sessionRuntime ? extractBtwHandoffThread(sessionRuntime, this.pendingThread) : [];
     const resolvedThread = thread.length > 0 ? thread : this.getPendingThreadForHandoff();
@@ -811,7 +810,7 @@ export class BtwEngine {
     return { sessionRuntime, thread: resolvedThread };
   }
 
-  async summarizeThread(ctx: ExtensionCommandContext, thread: BtwHandoffExchange[]): Promise<string> {
+  async summarizeThread(ctx: ExtensionContext, thread: BtwHandoffExchange[]): Promise<string> {
     const settings = await this.resolveBtwSettings(ctx, true);
     const model = settings.model;
     if (!model) throw new Error(settings.fallbackReason || "No active model selected.");
@@ -842,14 +841,14 @@ export class BtwEngine {
     }
   }
 
-  sendThreadToMain(ctx: ExtensionCommandContext, content: string): void {
+  sendThreadToMain(ctx: ExtensionContext, content: string): void {
     if (ctx.isIdle()) this.pi.sendUserMessage(content);
     else this.pi.sendUserMessage(content, { deliverAs: "followUp" });
   }
 
   // ── Model override management ────────────────────────────────────────────
 
-  async setBtwModelOverride(ctx: ExtensionCommandContext, nextModel: SessionModel | null): Promise<void> {
+  async setBtwModelOverride(ctx: ExtensionContext, nextModel: SessionModel | null): Promise<void> {
     this.btwModelOverride = nextModel;
     const details = nextModel
       ? { action: "set" as const, timestamp: Date.now(), provider: nextModel.provider, id: nextModel.id, api: nextModel.api }
@@ -862,7 +861,7 @@ export class BtwEngine {
     notify(ctx, `${msg} ${this.describeResolvedModel(s)}`, "info");
   }
 
-  async setBtwThinkingOverride(ctx: ExtensionCommandContext, nextLevel: SessionThinkingLevel | null): Promise<void> {
+  async setBtwThinkingOverride(ctx: ExtensionContext, nextLevel: SessionThinkingLevel | null): Promise<void> {
     this.btwThinkingOverride = nextLevel;
     const details = nextLevel
       ? { action: "set" as const, timestamp: Date.now(), thinkingLevel: nextLevel }
@@ -877,7 +876,7 @@ export class BtwEngine {
 
   // ── Command dispatch ─────────────────────────────────────────────────────
 
-  async dispatchBtwCommand(name: string, args: string, ctx: ExtensionCommandContext): Promise<boolean> {
+  async dispatchBtwCommand(name: string, args: string, ctx: ExtensionContext): Promise<boolean> {
     const trimmedArgs = args.trim();
 
     if (name === "btw") {
@@ -999,7 +998,7 @@ export class BtwEngine {
 
   // ── Run BTW conversation ─────────────────────────────────────────────────
 
-  async runBtw(ctx: ExtensionCommandContext, question: string, saveRequested: boolean = false): Promise<void> {
+  async runBtw(ctx: ExtensionContext, question: string, saveRequested: boolean = false): Promise<void> {
     this.lastUiContext = ctx;
     const settings = await this.resolveBtwSettings(ctx);
     const model = settings.model;

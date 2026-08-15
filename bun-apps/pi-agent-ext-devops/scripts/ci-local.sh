@@ -324,6 +324,32 @@ if [ "$LIST_ONLY" -eq 1 ]; then
   exit 0
 fi
 
+# ── self-heal bun-apps workspace links before running anything ───────────────
+# WHY (2026-08-15): running pi-agent's test suite (specifically importing
+#   src/patches/ensure-extension-deps.ts under `bun test` from the bun-apps
+#   workspace root) makes the BUN RUNTIME rewrite bun-apps/node_modules/@repo/*
+#   symlinks to `../../bun-apps/<pkg>` — a DANGLING target at that depth (it
+#   resolves to bun-apps/bun-apps/<pkg>). The next gate that resolves a @repo/*
+#   import from bun-apps/tests/ (the seam guard importing core-interface) then
+#   dies with ENOENT. Matrix mode breaks the links; gates mode then pays for
+#   it. Repairing here — relink any dangling @repo/* entry to `../../<dir>`,
+#   bun's own correct form — makes every ci-local invocation self-healing
+#   regardless of what a previous run did to the tree.
+heal_repo_links() {
+  local dir links_fixed=0
+  for dir in "$REPO_ROOT"/bun-apps/node_modules/@repo/*; do
+    [ -L "$dir" ] || continue
+    [ -e "$dir" ] && continue            # resolves — leave it alone
+    local name; name="$(basename "$dir")"
+    rm -f "$dir"
+    ln -s "../../$name" "$dir"
+    links_fixed=$((links_fixed + 1))
+  done
+  [ "$links_fixed" -gt 0 ] && warn "relinked $links_fixed dangling @repo/* workspace link(s) (bun-test runtime interference)"
+  return 0
+}
+heal_repo_links
+
 # ── run ──────────────────────────────────────────────────────────────────────
 LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ci-local.XXXXXX")"
 PASSED=(); FAILED=(); SKIPPED=()

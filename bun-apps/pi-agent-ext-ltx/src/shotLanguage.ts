@@ -119,7 +119,7 @@ const HUMANIZE: Record<string, string> = {
 };
 
 function depthOfFieldPhrase(v: DepthOfField): string {
-  return v === "medium" ? HUMANIZE.medium_dof : HUMANIZE[v];
+  return (v === "medium" ? HUMANIZE.medium_dof : HUMANIZE[v]) ?? "";
 }
 
 /** Render a ShotLanguage into a comma-joined clause, e.g. "close-up, dollying in, shot on a 35mm lens, golden hour lighting, shallow depth of field, warm color temperature". Empty/undefined input renders "". */

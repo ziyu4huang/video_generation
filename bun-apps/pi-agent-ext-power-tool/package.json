@@ -21,7 +21,7 @@
     "example:schema-cost": "bun examples/schema-cost-quick.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.84.1",
+    "@earendil-works/pi-coding-agent": "0.84.2",
     "@playwright/cli": "^0.1.17",
     "js-yaml": "latest",
     "typebox": "^1.3.7"

@@ -18,7 +18,8 @@ export interface BtwModelRef {
   api: string;
 }
 
-export type BtwThinkingLevel = "off" | "low" | "medium" | "high";
+// Keep in sync with btw's webui-events.ts BtwThinkingLevel (pi-ai 0.84.2 surface).
+export type BtwThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export type BtwCommand =
   | { kind: "ask"; text: string }

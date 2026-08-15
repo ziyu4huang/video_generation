@@ -240,6 +240,17 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	if (ci.overall !== "pass") {
 		return abort("local_ci_failed", `local CI ${ci.overall} for ${status.baseRefName}..${status.headRefName} (${ci.elapsedMs}ms) — fix before merging`);
 	}
+	// ≤5-minute budget (house rule): advisory, never blocks the merge — but it
+	// must be LOUD, because a slow local_ci stops being used as a gate.
+	if (ci.overBudget) {
+		const slowest = (ci.slowest ?? [])
+			.map((s) => `${s.name} ${(s.durationMs / 1000).toFixed(1)}s`)
+			.join(", ");
+		warnings.push(
+			`local_ci took ${(ci.elapsedMs / 1000).toFixed(0)}s (budget ${(ci.budgetMs / 1000).toFixed(0)}s) — ` +
+				`over-budget CI is bad CI; optimize before the next run. Slowest: ${slowest || "n/a"}`,
+		);
+	}
 
 	// --- 3. Merge gates. ------------------------------------------------------
 	if (status.state !== "OPEN") {
