@@ -205,7 +205,7 @@ describe("workflowRunCommand.run — --out-dir > PI_WORKFLOWS_OUT_DIR > default 
 // Hermeticity for readUserDefaults: we point PI_CODING_AGENT_DIR at an empty
 // temp dir (the same technique passthrough.test.ts uses), so no real
 // ~/.pi/agent/settings.json is read. With empty settings + no PI_PROVIDER /
-// PI_MODEL env, resolveLLM falls back to the hardcoded zai/glm-5.2 — giving a
+// PI_MODEL env, resolveLLM falls back to the hardcoded zai/glm-5.3 — giving a
 // deterministic piDefaultModel without depending on the user's machine.
 describe("workflowRunCommand.run — pi-default model + receipt (Task 3)", () => {
 	const ENV_KEYS = ["PI_MODEL", "PI_PROVIDER", "PI_THINKING", "PI_CODING_AGENT_DIR"] as const;
@@ -243,10 +243,10 @@ describe("workflowRunCommand.run — pi-default model + receipt (Task 3)", () =>
 		capturedPiDefaultModel = NOT_CAPTURED_YET;
 	}
 
-	it("forwards callerModel=undefined + piDefaultModel=zai/glm-5.2 when no --model / no PI_MODEL", async () => {
+	it("forwards callerModel=undefined + piDefaultModel=zai/glm-5.3 when no --model / no PI_MODEL", async () => {
 		await withCleanEnv(async () => {
 			resetCaptures();
-			fakeModel = "zai/glm-5.2";
+			fakeModel = "zai/glm-5.3";
 			fakeModelSource = "pi-default";
 			capturing = true;
 			try {
@@ -255,7 +255,7 @@ describe("workflowRunCommand.run — pi-default model + receipt (Task 3)", () =>
 				assert.equal(capturedEnvModel, undefined, "envModel must be undefined without PI_MODEL");
 				assert.equal(
 					capturedPiDefaultModel,
-					"zai/glm-5.2",
+					"zai/glm-5.3",
 					"piDefaultModel must resolve to the fallback spec",
 				);
 			} finally {
@@ -267,7 +267,7 @@ describe("workflowRunCommand.run — pi-default model + receipt (Task 3)", () =>
 	it("renders `model: <spec> [source]` in the text receipt", async () => {
 		await withCleanEnv(async () => {
 			resetCaptures();
-			fakeModel = "zai/glm-5.2";
+			fakeModel = "zai/glm-5.3";
 			fakeModelSource = "pi-default";
 			capturing = true;
 			const out: string[] = [];
@@ -282,7 +282,7 @@ describe("workflowRunCommand.run — pi-default model + receipt (Task 3)", () =>
 			const line = out.find((l) => l.includes("✓"));
 			assert.ok(line, "a receipt one-liner must be printed");
 			assert.ok(
-				line.includes("model: zai/glm-5.2 [pi-default]"),
+				line.includes("model: zai/glm-5.3 [pi-default]"),
 				`receipt must include the model tag; got: ${line}`,
 			);
 		});
@@ -304,7 +304,7 @@ describe("workflowRunCommand.run — pi-default model + receipt (Task 3)", () =>
 				capturing = false;
 			}
 			assert.equal(capturedCallerModel, "lm-studio/x");
-			assert.equal(capturedPiDefaultModel, "zai/glm-5.2", "piDefault is still computed");
+			assert.equal(capturedPiDefaultModel, "zai/glm-5.3", "piDefault is still computed");
 			const line = out.find((l) => l.includes("✓"));
 			assert.ok(line, "receipt printed");
 			assert.ok(

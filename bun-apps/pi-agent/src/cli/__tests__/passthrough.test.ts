@@ -85,7 +85,7 @@ describe("resolveLLMFromArgs", () => {
 	test("no settings.json → userDefaults undefined, FALLBACK applies", async () => {
 		const llm = await resolveLLMFromArgs({} as any);
 		expect(llm.provider).toBe("zai");
-		expect(llm.modelId).toBe("glm-5.2");
+		expect(llm.modelId).toBe("glm-5.3");
 		expect(llm.thinkingLevel).toBe("medium");
 	});
 
@@ -128,7 +128,7 @@ describe("resolveLLMFromArgs", () => {
 		writeSettings({ someOtherKey: 1 });
 		const llm = await resolveLLMFromArgs({} as any);
 		expect(llm.provider).toBe("zai");
-		expect(llm.modelId).toBe("glm-5.2");
+		expect(llm.modelId).toBe("glm-5.3");
 	});
 
 	test("--model shorthand still works through this layer", async () => {

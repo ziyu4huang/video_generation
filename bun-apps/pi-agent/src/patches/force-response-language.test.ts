@@ -104,7 +104,7 @@ describe("resolveForcedBlock — no-op cases", () => {
 	});
 
 	test("missing responseLanguage field → undefined", () => {
-		expect(resolveForcedBlock(S({ defaultModel: "glm-5.2" }))).toBeUndefined();
+		expect(resolveForcedBlock(S({ defaultModel: "glm-5.3" }))).toBeUndefined();
 	});
 
 	test("non-string responseLanguage (number) → undefined", () => {
@@ -288,7 +288,7 @@ describe("resolveCombinedForcedBlock — the wrap's combined block resolver", ()
 
 	test("both unset → undefined (no block at all)", () => {
 		withEnv("BUN_PI_FORCE_ASK_USER_LANGUAGE", undefined, () => {
-			expect(resolveCombinedForcedBlock(S({ defaultModel: "glm-5.2" }))).toBeUndefined();
+			expect(resolveCombinedForcedBlock(S({ defaultModel: "glm-5.3" }))).toBeUndefined();
 		});
 	});
 
