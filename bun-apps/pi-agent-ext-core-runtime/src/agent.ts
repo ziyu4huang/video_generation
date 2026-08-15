@@ -27,6 +27,7 @@ import { createStructuredOutputTool, type StructuredOutputCapture } from "./stru
 // must stay reachable at this path. Import above ONLY what agent.ts itself
 // CALLS — a symbol that is merely re-exported needs no local binding, and
 // adding one trips biome's noUnusedImports.
+export { listAvailableModelSpecs } from "./model-specs.js";
 export { lastAssistantError, throwIfProviderLimit } from "./provider-limit.js";
 
 /**
@@ -263,25 +264,6 @@ export interface WorkflowAgentOptions {
    * Injectable for tests (e.g. a counting loader to assert the cache).
    */
   loadTierConfig?: () => ModelTierConfig | null;
-}
-
-/**
- * List the user's currently available models (those with auth configured) as
- * `provider/modelId` specs. Used to tell the workflow author which models it may
- * route agents to. Best-effort: returns [] if the registry can't be built.
- */
-export async function listAvailableModelSpecs(): Promise<string[]> {
-  try {
-    const dir = getAgentDir();
-    const runtime = await ModelRuntime.create({
-      authPath: join(dir, "auth.json"),
-      modelsPath: join(dir, "models.json"),
-    });
-    const registry = new ModelRegistry(runtime);
-    return registry.getAvailable().map((m) => `${m.provider}/${m.id}`);
-  } catch {
-    return [];
-  }
 }
 
 /** Real token/cost usage for a single subagent run, read from the SDK session. */
