@@ -375,6 +375,10 @@ describe("computeChangedPackages — wiring with defaults", () => {
 			readDeps: () => [],
 		});
 		const diffCall = calls.find((c) => c.cmd === "git" && c.args[0] === "diff");
-		expect(diffCall?.args).toEqual(["diff", "--name-only", "origin/main", "HEAD"]);
+		// THREE-dot: scope is "what this branch changed" from the merge-base, not
+		// the symmetric difference with main's moving tip. Two-dot counted every
+		// post-branch main commit as yours and, via the rule-4 fail-open, escalated
+		// to the full matrix.
+		expect(diffCall?.args).toEqual(["diff", "--name-only", "origin/main...HEAD"]);
 	});
 });

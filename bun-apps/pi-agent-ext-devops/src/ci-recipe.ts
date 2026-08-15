@@ -154,8 +154,14 @@ export interface CiOptions {
 	budgetMs?: number;
 	/**
 	 * Hard per-command wall-clock cap in ms, applied to every typecheck and test
-	 * spawn. Default 600 000 (10 minutes) — well above the slowest real package
-	 * (pi-agent, ~26s) so it can only ever catch a HANG, never a slow suite.
+	 * spawn. Default 120 000 — ~4.6x the slowest real package (pi-agent, ~26s),
+	 * so it can only ever catch a HANG, never a slow suite.
+	 *
+	 * Sized against `budgetMs`, not against the slowest package alone: a single
+	 * command allowed 10 minutes can blow the ≤5-minute run budget by itself.
+	 * Measured 2026-08-15 — `pi-agent-ext-archify` hangs under the parallel phase
+	 * (it passes in 4s alone) and ate the full 600s cap, turning a 40s run into a
+	 * 639s one. At 120s the same hang costs 2 minutes and still reports.
 	 *
 	 * Distinct from `budgetMs`, which is advisory and measured after the fact.
 	 * This one actually kills, because "report the overrun once it finishes" is
@@ -335,7 +341,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	const concurrency = Math.max(1, opts.concurrency ?? 4);
 	// Every per-package spawn below carries this. A hung package now fails ITSELF
 	// (exit 124) instead of hanging the whole run forever.
-	const timeoutMs = opts.perCommandTimeoutMs ?? 600_000;
+	const timeoutMs = opts.perCommandTimeoutMs ?? 120_000;
 	const byName = new Map<string, CiPackageResult>(
 		pkgNames.map((name) => [name, { name, test: { exitCode: -1 } } as CiPackageResult]),
 	);

@@ -773,7 +773,7 @@ describe("runLocalCi — hang containment", () => {
 			includeGates: false,
 		});
 		const testCall = calls.find((c) => c.cwd === pkgDir("pkg-a") && c.args[1] === "test");
-		expect(testCall?.timeoutMs).toBe(600_000);
+		expect(testCall?.timeoutMs).toBe(120_000);
 	});
 
 	test("a timed-out package (exit 124) fails overall AND says it hung, not that it failed", async () => {
