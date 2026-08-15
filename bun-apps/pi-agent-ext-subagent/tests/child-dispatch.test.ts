@@ -12,8 +12,9 @@ import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
 import { type ChildDispatchDeps, dispatchChild } from "../src/child-dispatch.js";
 import type { GitScopeOps } from "../src/git-scope.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
+import { budgetAbort, failed, ok, timedout, turnsAbort } from "./_spawn-result.js";
 
-const OK: SpawnSubagentResult = { output: "out", exitCode: 0, stderr: "", timedOut: false };
+const OK: SpawnSubagentResult = ok("out");
 
 /** Minimal in-flight registry double recording the lifecycle calls. */
 function fakeRegistry() {
@@ -206,9 +207,10 @@ describe("dispatchChild — model resolution capture", () => {
 describe("dispatchChild — status derivation", () => {
   const cases: Array<[string, SpawnSubagentResult, string]> = [
     ["done", OK, "done"],
-    ["timedout", { ...OK, exitCode: 124, timedOut: true }, "timedout"],
-    ["failed", { ...OK, exitCode: 1, output: "", stderr: "nope" }, "failed"],
-    ["budget", { ...OK, exitCode: 1, budget: { kind: "tokens", limit: 10, actual: 11 } as never }, "budget"],
+    ["timedout", timedout("slow", "out"), "timedout"],
+    ["failed", failed("nope"), "failed"],
+    ["budget", budgetAbort({ kind: "tokens", limit: 10, actual: 11 }), "budget"],
+    ["turns", turnsAbort({ maxTurns: 3, turnsUsed: 3 }), "turns"],
   ];
   for (const [name, result, expected] of cases) {
     it(`maps a ${name} spawn result to status "${expected}"`, async () => {

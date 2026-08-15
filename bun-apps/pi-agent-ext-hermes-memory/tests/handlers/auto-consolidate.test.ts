@@ -46,9 +46,7 @@ function createFakeSpawn(overrides: FakeSpawnOverrides = {}) {
   const calls: SpawnSubagentOptions[] = [];
   const result: SpawnSubagentResult = {
     output: overrides.output ?? "Consolidated",
-    exitCode: overrides.exitCode ?? 0,
-    stderr: overrides.stderr ?? "",
-    timedOut: overrides.timedOut ?? false,
+    ...(overrides.failure ? { failure: overrides.failure } : {}),
     ...(overrides.usage ? { usage: overrides.usage } : {}),
   };
   const spawn = async (opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> => {
@@ -151,8 +149,8 @@ describe("triggerConsolidation", () => {
     assert.strictEqual(calls[0]!.externalSignal, ac.signal);
   });
 
-  it("returns { consolidated: true } on spawn exitCode 0", async () => {
-    const { spawn } = createFakeSpawn({ exitCode: 0, output: "Done" });
+  it("returns { consolidated: true } when the spawn reports no failure", async () => {
+    const { spawn } = createFakeSpawn({ output: "Done" });
     const result = await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
 
     assert.strictEqual(result.consolidated, true);
@@ -167,32 +165,32 @@ describe("triggerConsolidation", () => {
         reloaded = true;
       },
     } as never;
-    const { spawn } = createFakeSpawn({ exitCode: 0 });
+    const { spawn } = createFakeSpawn({});
 
     await triggerConsolidation(store, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
 
     assert.ok(reloaded, "store should reload from disk after success");
   });
 
-  it("returns { consolidated: false } on a non-zero spawn exitCode", async () => {
-    const { spawn } = createFakeSpawn({ exitCode: 1, stderr: "some error" });
+  it("returns { consolidated: false } when the spawn reports a failure", async () => {
+    const { spawn } = createFakeSpawn({ failure: { kind: "failed", message: "some error" } });
     const result = await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
 
     assert.strictEqual(result.consolidated, false);
     assert.ok(result.error, "should have an error message");
-    assert.ok(result.error!.includes("exited with code 1"), "error should mention the exit code");
+    assert.ok(result.error!.includes("some error"), "error should carry the failure message");
   });
 
-  it("surfaces the runner stderr detail on failure", async () => {
-    const { spawn } = createFakeSpawn({ exitCode: 2, stderr: "model not found" });
+  it("surfaces the runner failure message on failure", async () => {
+    const { spawn } = createFakeSpawn({ failure: { kind: "failed", message: "model not found" } });
     const result = await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
 
     assert.strictEqual(result.consolidated, false);
-    assert.ok(result.error!.includes("model not found"), "should surface stderr verbatim");
+    assert.ok(result.error!.includes("model not found"), "should surface the failure message verbatim");
   });
 
-  it("surfaces timeout when spawn reports timedOut", async () => {
-    const { spawn } = createFakeSpawn({ exitCode: 124, stderr: "timed out", timedOut: true });
+  it("surfaces timeout when the spawn failure is a timeout", async () => {
+    const { spawn } = createFakeSpawn({ failure: { kind: "timedout", message: "timed out" } });
     const result = await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
 
     assert.strictEqual(result.consolidated, false);
@@ -265,7 +263,7 @@ describe("registerConsolidateCommand", () => {
       },
     } as never;
 
-    const { spawn, calls } = createFakeSpawn({ exitCode: 0 });
+    const { spawn, calls } = createFakeSpawn({});
 
     const pi = {
       on: () => {},
@@ -301,7 +299,7 @@ describe("registerConsolidateCommand", () => {
   it("uses a longer timeout floor for the manual consolidate command", async () => {
     let handler: ((args: unknown, ctx: unknown) => Promise<void>) | undefined;
     const calls: SpawnSubagentOptions[] = [];
-    const { spawn } = createFakeSpawn({ exitCode: 0 });
+    const { spawn } = createFakeSpawn({});
 
     const pi = {
       on: () => {},
@@ -322,7 +320,7 @@ describe("registerConsolidateCommand", () => {
   it("emits an elapsed-time heartbeat while a consolidation target is in flight", async () => {
     let handler: ((args: unknown, ctx: unknown) => Promise<void>) | undefined;
     const notifications: string[] = [];
-    const { spawn } = createFakeSpawn({ exitCode: 0, delayMs: 60 }); // slow run → heartbeat window
+    const { spawn } = createFakeSpawn({ delayMs: 60 }); // slow run → heartbeat window
 
     const pi = {
       on: () => {},
@@ -361,7 +359,7 @@ describe("registerConsolidateCommand", () => {
 
   it("does not throw if the command ctx becomes stale before the final summary notify", async () => {
     let handler: ((args: unknown, ctx: unknown) => Promise<void>) | undefined;
-    const { spawn } = createFakeSpawn({ exitCode: 0 });
+    const { spawn } = createFakeSpawn({});
 
     const pi = {
       on: () => {},

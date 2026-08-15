@@ -32,7 +32,7 @@ describe("zk_card spawn migration (① Phase 3 parity)", () => {
 		calls = [];
 		__setZkSpawnForTest(async (opts: any) => {
 			calls.push(opts);
-			return { output: "SUBAGENT_OUTPUT", exitCode: 0, stderr: "", timedOut: false };
+			return { output: "SUBAGENT_OUTPUT" };
 		});
 	});
 	afterEach(() => __setZkSpawnForTest(null));
@@ -74,29 +74,29 @@ describe("zk_card spawn migration (① Phase 3 parity)", () => {
 		assert.deepEqual(calls.at(-1)!.excludeTools, ["bash"]);
 		assert.equal(res.isError, undefined, "success path is not an error");
 		assert.match(res.content[0].text, /SUBAGENT_OUTPUT/, "subagent output reaches the result");
-		assert.deepEqual(res.details, { exitCode: 0, stderr: "" }, "details shape preserved");
+		assert.deepEqual(res.details, { status: "done" }, "details shape preserved");
 	});
 
-	it("timedOut:true → isError result with the timed-out message (branch parity)", async () => {
-		__setZkSpawnForTest(async () => ({ output: "partial", exitCode: 124, stderr: "timeout", timedOut: true }));
+	it("a timedout failure → isError result with the timed-out message (branch parity)", async () => {
+		__setZkSpawnForTest(async () => ({ output: "partial", failure: { kind: "timedout", message: "timeout" } }));
 		const { pi, tools } = mkPi();
 		piKnowledgeCardExtension(pi);
 		const zkCard: any = tools.get("zk_card");
 		const res: any = await zkCard.execute("id", { action: "check" }, undefined, undefined, CTX);
 		assert.equal(res.isError, true);
 		assert.match(res.content[0].text, /timed out/i);
-		assert.deepEqual(res.details, { timedOut: true, stderr: "timeout" });
+		assert.deepEqual(res.details, { status: "timedout", error: "timeout" });
 	});
 
-	it("exitCode!==0 && !output → isError failure branch (branch parity)", async () => {
-		__setZkSpawnForTest(async () => ({ output: "", exitCode: 2, stderr: "boom", timedOut: false }));
+	it("a failure with no output → isError failure branch (branch parity)", async () => {
+		__setZkSpawnForTest(async () => ({ output: "", failure: { kind: "failed", message: "boom" } }));
 		const { pi, tools } = mkPi();
 		piKnowledgeCardExtension(pi);
 		const zkCard: any = tools.get("zk_card");
 		const res: any = await zkCard.execute("id", { action: "check" }, undefined, undefined, CTX);
 		assert.equal(res.isError, true);
 		assert.match(res.content[0].text, /boom/);
-		assert.deepEqual(res.details, { exitCode: 2, stderr: "boom" });
+		assert.deepEqual(res.details, { status: "failed", error: "boom" });
 	});
 });
 
@@ -134,7 +134,7 @@ describe("resolveDistillModel precedence (explicit arg > KC_SUBAGENT_MODEL env >
 		const calls: any[] = [];
 		__setZkSpawnForTest(async (opts: any) => {
 			calls.push(opts);
-			return { output: "OK", exitCode: 0, stderr: "", timedOut: false };
+			return { output: "OK" };
 		});
 		delete process.env[ENV_KEY];
 		const { pi, tools } = mkPi();

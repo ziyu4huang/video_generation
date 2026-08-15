@@ -437,13 +437,11 @@ export function renderSubagentResult(
   return `${badge} ${meta}\n${theme.fg("toolOutput", text)}`;
 }
 
-/** Derive a human status from the spawn result. */
-export function deriveSubagentStatus(r: SpawnSubagentResult): SubagentToolDetails["status"] {
-  if (r.budget) return "budget";
-  if (r.turns) return "turns";
-  if (r.exitCode === 0) return "done";
-  return r.timedOut ? "timedout" : "failed";
-}
+// `deriveSubagentStatus(r)` used to live here, holding a four-branch precedence
+// chain (budget > turns > timedout > failed) that mirrored `classifyError`'s
+// branch order in spawn-subagent.ts. With the failure union that chain has one
+// home, and the helper degenerated to `r.failure?.kind ?? "done"` — so its three
+// call sites now write that directly rather than import an alias for it.
 
 /** One-line informational notice for the parent agent's result text (never on the abort path). */
 function budgetWarningLine(w: BudgetWarning): string {
@@ -453,26 +451,30 @@ function budgetWarningLine(w: BudgetWarning): string {
 
 /** Format the subagent result into the text the parent agent reads. */
 export function formatSubagentResult(result: SpawnSubagentResult): string {
-  if (result.budget) {
-    const unit =
-      result.budget.kind === "tokens" ? `${result.budget.actual} tokens` : `$${fmtCost(result.budget.actual)}`;
-    return `Subagent aborted: ${result.budget.kind} budget exhausted (${unit} > limit ${result.budget.limit}).`;
+  const { failure } = result;
+  if (!failure) {
+    // Informational 80% warning on a COMPLETED run — appended as its own line so
+    // the parent agent (and the user reading the tool result) sees the near-miss
+    // without it reading as a failure (distinct from the abort messages below).
+    return `${result.output}${result.budgetWarning ? `\n${budgetWarningLine(result.budgetWarning)}` : ""}`;
+  }
+  if (failure.kind === "budget") {
+    const b = failure.budget;
+    const unit = b.kind === "tokens" ? `${b.actual} tokens` : `$${fmtCost(b.actual)}`;
+    return `Subagent aborted: ${b.kind} budget exhausted (${unit} > limit ${b.limit}).`;
   }
   // Turn-cap abort — same "Subagent aborted:" shape as the budget line, with
   // the parenthesized count matching core-runtime's own message
   // ("max turns exceeded (N)") so the parent sees the same number the child
-  // surfaced. Distinct from the timeout fate line below (timedOut stays false).
-  if (result.turns) {
-    return `Subagent aborted: max turns exceeded (${result.turns.maxTurns}).`;
+  // surfaced. Distinct from the timeout fate line below.
+  if (failure.kind === "turns") {
+    return `Subagent aborted: max turns exceeded (${failure.turns.maxTurns}).`;
   }
-  // Informational 80% warning on a COMPLETED run — appended as its own line so
-  // the parent agent (and the user reading the tool result) sees the near-miss
-  // without it reading as a failure (distinct from the abort message above).
-  const warningLine = result.budgetWarning ? `\n${budgetWarningLine(result.budgetWarning)}` : "";
-  if (result.exitCode === 0) return `${result.output}${warningLine}`;
-  const fate = result.timedOut ? "timed out" : "failed";
-  const head = `Subagent ${fate} (exit ${result.exitCode}).`;
-  const err = result.stderr ? `\n${result.stderr}` : "";
+  // No exit code in the head line any more: there was never a process, and the
+  // number it used to print (1, or 124 for a timeout) carried nothing the fate
+  // word does not already say.
+  const head = `Subagent ${failure.kind === "timedout" ? "timed out" : "failed"}.`;
+  const err = failure.message ? `\n${failure.message}` : "";
   const tail = result.output ? `\n\n--- subagent output ---\n${result.output}` : "";
   return `${head}${err}${tail}`;
 }

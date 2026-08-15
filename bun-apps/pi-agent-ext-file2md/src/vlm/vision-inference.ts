@@ -89,11 +89,10 @@ export async function runVisionInference(opts: {
       ...(capability ? { capability } : {}),
       ...(Object.keys(sessionOverride).length ? { session: sessionOverride } : {}),
     });
-    const ok = result.exitCode === 0;
     return {
       output: (result.output ?? "").trim(),
-      ok,
-      ...(ok ? {} : { error: result.stderr?.trim() || `vision inference exited ${result.exitCode}` }),
+      ok: !result.failure,
+      ...(result.failure ? { error: result.failure.message } : {}),
     };
   } catch (e: any) {
     return { output: "", ok: false, error: e?.message ?? String(e) };

@@ -17,8 +17,6 @@ test("reconstructSubagentRuns collects only subagent toolResults, in order, with
   const branch = [
     toolResultEntry("read", "ignored"),
     toolResultEntry("subagent", "Status: DONE\nreport A", {
-      exitCode: 0,
-      timedOut: false,
       agent: "implementer",
       model: "x/flash",
       taskPreview: "task A",
@@ -27,8 +25,6 @@ test("reconstructSubagentRuns collects only subagent toolResults, in order, with
     }),
     toolResultEntry("bash", "ignored"),
     toolResultEntry("subagent", "failed report B", {
-      exitCode: 1,
-      timedOut: false,
       agent: "reviewer",
       model: "y/pro",
       taskPreview: "task B",
@@ -45,13 +41,13 @@ test("reconstructSubagentRuns collects only subagent toolResults, in order, with
   assert.equal(runs[1].status, "failed");
 });
 
-test("reconstructSubagentRuns tolerates missing details (falls back to done/failed by exitCode)", () => {
-  const branch = [
-    toolResultEntry("subagent", "legacy", { exitCode: 0, timedOut: false } as Partial<SubagentToolDetails>),
-  ];
+test("reconstructSubagentRuns tolerates a details block with no status (falls back to failed)", () => {
+  // Every version that wrote these entries set `status`; the fallback exists
+  // only so a details block missing it still renders a row instead of throwing.
+  const branch = [toolResultEntry("subagent", "legacy", {} as Partial<SubagentToolDetails>)];
   const runs = reconstructSubagentRuns(branch as never);
   assert.equal(runs.length, 1);
-  assert.equal(runs[0].status, "done");
+  assert.equal(runs[0].status, "failed");
   assert.equal(runs[0].model, "default");
 });
 
@@ -99,8 +95,6 @@ test("reconstructSubagentRuns expands a subagents batch into child entries (skip
 test("reconstructSubagentRuns: singular subagent + batch children coexist; singular unchanged", () => {
   const branch = [
     toolResultEntry("subagent", "singular report", {
-      exitCode: 0,
-      timedOut: false,
       agent: "impl",
       model: "y/pro",
       taskPreview: "sing",
@@ -172,8 +166,6 @@ test("Completed section: collapsing a batch header hides its children", () => {
 test("viewer list shows all runs; enter opens the selected run's full output; esc goes back", () => {
   const runs = reconstructSubagentRuns([
     toolResultEntry("subagent", "report A line one", {
-      exitCode: 0,
-      timedOut: false,
       agent: "implementer",
       model: "x/flash",
       taskPreview: "task A",
@@ -181,8 +173,6 @@ test("viewer list shows all runs; enter opens the selected run's full output; es
       status: "done",
     }),
     toolResultEntry("subagent", "report B line one", {
-      exitCode: 1,
-      timedOut: false,
       agent: "reviewer",
       model: "y/pro",
       taskPreview: "task B",
@@ -213,8 +203,6 @@ test("reconstructSubagentRuns carries usage through from details", () => {
   const usage = { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, total: 150, cost: 0.0023 };
   const branch = [
     toolResultEntry("subagent", "report", {
-      exitCode: 0,
-      timedOut: false,
       agent: "implementer",
       model: "x/flash",
       taskPreview: "task A",
@@ -230,8 +218,6 @@ test("reconstructSubagentRuns carries usage through from details", () => {
 test("viewer output view shows cost/tokens when usage.total > 0", () => {
   const runs = reconstructSubagentRuns([
     toolResultEntry("subagent", "report A", {
-      exitCode: 0,
-      timedOut: false,
       agent: "implementer",
       model: "x/flash",
       taskPreview: "task A",
@@ -328,8 +314,6 @@ test("list cursor spans Running + Completed rows (unified); ▶ marks the select
   const running = [runningEntry("r1")];
   const runs = reconstructSubagentRuns([
     toolResultEntry("subagent", "old report", {
-      exitCode: 0,
-      timedOut: false,
       status: "done",
       agent: "reviewer",
       model: "y/pro",
@@ -475,8 +459,6 @@ test("follow never throws if getRuns throws (best-effort fallback)", () => {
 test("reconstructSubagentRuns carries startedAt through from details", () => {
   const branch = [
     toolResultEntry("subagent", "report A", {
-      exitCode: 0,
-      timedOut: false,
       agent: "implementer",
       model: "x/flash",
       taskPreview: "task A",
@@ -501,8 +483,6 @@ test("viewer list completed row shows relative time + model + elapsed + cost", (
   const startedAt = Date.now() - 5 * 60_000; // 5m ago
   const runs = reconstructSubagentRuns([
     toolResultEntry("subagent", "report A", {
-      exitCode: 0,
-      timedOut: false,
       agent: "implementer",
       model: "x/flash",
       taskPreview: "task A",
@@ -524,8 +504,6 @@ test("viewer output header shows absolute HH:MM start time", () => {
   const startedAt = new Date(2024, 0, 1, 14, 32).getTime();
   const runs = reconstructSubagentRuns([
     toolResultEntry("subagent", "report A", {
-      exitCode: 0,
-      timedOut: false,
       agent: "implementer",
       model: "x/flash",
       taskPreview: "task A",
@@ -543,8 +521,6 @@ test("viewer output header shows absolute HH:MM start time", () => {
 test("viewer completed row degrades gracefully when startedAt/model/cost are absent", () => {
   const runs = reconstructSubagentRuns([
     toolResultEntry("subagent", "report A", {
-      exitCode: 0,
-      timedOut: false,
       status: "done",
     } as Partial<SubagentToolDetails>),
   ] as never);
@@ -560,8 +536,6 @@ function completedRuns(n: number, agent = "implementer", preview = "task") {
   return reconstructSubagentRuns(
     Array.from({ length: n }, (_, i) =>
       toolResultEntry("subagent", `report ${i}`, {
-        exitCode: 0,
-        timedOut: false,
         agent,
         model: "x/flash",
         taskPreview: `${preview} ${i}`,
@@ -955,8 +929,6 @@ test("reconstruct surfaces 'aborted' for a singular subagent + a batch child; Co
       "subagent",
       "Subagent aborted by user.",
       {
-        exitCode: 124,
-        timedOut: false,
         agent: "scout",
         model: "x/flash",
         taskPreview: "aborted task",

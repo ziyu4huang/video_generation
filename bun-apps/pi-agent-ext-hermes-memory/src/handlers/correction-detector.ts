@@ -234,7 +234,7 @@ export function setupCorrectionDetector(
         externalSignal: ctx.signal,
         retryOnTransient: true,
       });
-      if (result.exitCode === 0 && result.output) {
+      if (!result.failure && result.output) {
         const output = result.output.trim();
         if (output && !output.toLowerCase().includes("nothing to save")) {
           ctx.ui.notify("🔧 Correction detected — memory updated", "info");

@@ -257,9 +257,7 @@ describe("setupCorrectionDetector handler", () => {
   function makeSpawn(overrides: Partial<SpawnSubagentResult> & { throwErr?: string } = {}) {
     const result: SpawnSubagentResult = {
       output: overrides.output ?? "Saved correction",
-      exitCode: overrides.exitCode ?? 0,
-      stderr: overrides.stderr ?? "",
-      timedOut: overrides.timedOut ?? false,
+      ...(overrides.failure ? { failure: overrides.failure } : {}),
     };
     const spawn = async (opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> => {
       spawnCalls.push(opts);

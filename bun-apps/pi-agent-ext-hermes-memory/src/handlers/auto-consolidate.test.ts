@@ -22,7 +22,7 @@ describe("produceMergePlan", () => {
     let captured: SpawnSubagentOptions | undefined;
     const spawnStub = async (opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> => {
       captured = opts;
-      return { output: JSON.stringify(validPlan), exitCode: 0, stderr: "", timedOut: false };
+      return { output: JSON.stringify(validPlan) };
     };
 
     const res = await produceMergePlan(snapshot, { timeoutMs: 30_000, spawn: spawnStub });
@@ -54,12 +54,7 @@ describe("produceMergePlan", () => {
 
   test("returns { error, terminated: true } on a timed-out spawn", async () => {
     const snapshot = buildSnapshot("failure", [ENCODED_ENTRY], 40_000);
-    const spawnStub = async (): Promise<SpawnSubagentResult> => ({
-      output: "",
-      exitCode: 124,
-      stderr: "Subagent was aborted",
-      timedOut: true,
-    });
+    const spawnStub = async (): Promise<SpawnSubagentResult> => ({ output: "", failure: { kind: "timedout", message: "Subagent was aborted" } });
 
     const res = await produceMergePlan(snapshot, { timeoutMs: 30_000, spawn: spawnStub });
 

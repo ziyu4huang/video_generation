@@ -6,14 +6,14 @@
  * of the inline code it replaces.
  */
 
-import type { AgentHistoryEntry, BudgetWarning, TurnExhaustion } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry, BudgetWarning } from "@repo/pi-agent-ext-core-runtime";
 import { parseSddReport } from "@repo/pi-agent-ext-core-runtime";
 import type { TSchema } from "typebox";
 import { tierDefaultToken } from "./budget-defaults.js";
 import type { computeScopeCheck, GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
-import type { SpawnSubagentOptions } from "./spawn-subagent.js";
+import type { SpawnSubagentOptions, SubagentFailure } from "./spawn-subagent.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
-import { deriveSubagentStatus, formatSubagentLive, taskPreview } from "./subagent-tool-render.js";
+import { formatSubagentLive, taskPreview } from "./subagent-tool-render.js";
 import { DEFAULT_TIMEOUT_MS, type SubagentToolDetails } from "./subagent-tool-schema.js";
 import type { computeBaseline, RepoBaseline } from "./watchdog/repo-diff.js";
 import { normalizeWatchdogParam, type WatchdogResult } from "./watchdog/types.js";
@@ -165,11 +165,10 @@ export interface RunRecordCtx {
  *  (matching the original literals' key sets; JSON-equivalent on serialize). */
 export interface RunRecordDelta {
   status: SubagentToolDetails["status"];
-  exitCode: number;
-  timedOut: boolean;
   output: string;
   usage?: SubagentToolDetails["usage"];
-  stderr?: string;
+  /** Why it failed (was `stderr`); omitted on the success path. */
+  error?: string;
   budget?: SubagentToolDetails["budget"];
   turns?: SubagentToolDetails["turns"];
   history?: AgentHistoryEntry[];
@@ -191,14 +190,12 @@ export function buildRunRecord(ctx: RunRecordCtx, delta: RunRecordDelta): Subage
     tier: ctx.tier,
     cwd: ctx.runCwd,
     status: delta.status,
-    exitCode: delta.exitCode,
-    timedOut: delta.timedOut,
     startedAt: new Date(ctx.t0).toISOString(),
     elapsedMs: ctx.elapsedMs,
     usage: delta.usage,
     output: delta.output,
   };
-  if (delta.stderr !== undefined) rec.stderr = delta.stderr;
+  if (delta.error !== undefined) rec.error = delta.error;
   if (delta.budget !== undefined) rec.budget = delta.budget;
   if (delta.turns !== undefined) rec.turns = delta.turns;
   if (delta.history !== undefined) rec.history = delta.history;
@@ -211,12 +208,8 @@ export function buildRunRecord(ctx: RunRecordCtx, delta: RunRecordDelta): Subage
 /** Phase N: the normal-completion details literal (L970–988). */
 export function buildDetails(
   result: {
-    exitCode: number;
-    timedOut: boolean;
+    failure?: SubagentFailure;
     usage?: SubagentToolDetails["usage"];
-    budget?: SubagentToolDetails["budget"];
-    /** Turns-exhaustion record from the spawn result (maxTurns abort). */
-    turns?: TurnExhaustion;
     /** Informational 80% warning from the spawn result — surfaced as details.budget.warning. */
     budgetWarning?: BudgetWarning;
     output: string;
@@ -231,9 +224,8 @@ export function buildDetails(
     watchdog?: WatchdogResult;
   },
 ): SubagentToolDetails {
+  const { failure } = result;
   return {
-    exitCode: result.exitCode,
-    timedOut: result.timedOut,
     agent: extra.agent,
     model: model.model,
     requestedModel: model.fellBack ? (model.requestedModel ?? undefined) : undefined,
@@ -241,13 +233,18 @@ export function buildDetails(
     taskPreview: taskPreview(extra.task),
     elapsedMs: extra.elapsedMs,
     startedAt: extra.startedAt,
-    status: deriveSubagentStatus(result as never),
+    status: failure?.kind ?? "done",
     usage: result.usage,
     // Exhaustion on the abort path; otherwise nest the informational 80%
     // warning as budget.warning (the two are mutually exclusive by
     // construction — a warned run completed, an aborted run carries no warning).
-    budget: result.budget ?? (result.budgetWarning ? { warning: result.budgetWarning } : undefined),
-    turns: result.turns,
+    budget:
+      failure?.kind === "budget"
+        ? failure.budget
+        : result.budgetWarning
+          ? { warning: result.budgetWarning }
+          : undefined,
+    turns: failure?.kind === "turns" ? failure.turns : undefined,
     report: parseSddReport(result.output),
     scopeCheck: extra.scopeCheck,
     watchdog: extra.watchdog,

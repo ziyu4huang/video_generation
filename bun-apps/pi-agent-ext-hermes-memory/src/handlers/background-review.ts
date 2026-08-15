@@ -71,8 +71,8 @@ function shouldNotifyDirect(result: DirectReviewResult): boolean {
   return result.ok && result.appliedCount > 0;
 }
 
-function shouldNotifySubprocess(stdout: string | undefined): boolean {
-  const output = stdout?.trim();
+function shouldReportSaved(text: string | undefined): boolean {
+  const output = text?.trim();
   return !!output && !output.toLowerCase().includes("nothing to save");
 }
 
@@ -80,16 +80,16 @@ function usesDirectTransport(config: MemoryConfig): boolean {
   return (config.reviewTransport ?? "direct") === "direct";
 }
 
-async function runSubprocessReview(
+async function runReviewSubagent(
   prompt: string,
   memoryToolDef: ToolDefinition,
   config: MemoryConfig,
   spawn: typeof spawnSubagent,
-): Promise<{ code: number; stdout?: string }> {
+): Promise<{ ok: boolean; output?: string }> {
   // The child saves via the bridged memory tool (extensionTools), so it writes
   // directly to the parent store — same effect as the old -e subprocess. The
   // review prompt carries COMBINED_REVIEW_PROMPT (incl. the "Nothing to save."
-  // convention that shouldNotifySubprocess reads) plus the conversation context.
+  // convention that shouldReportSaved reads) plus the conversation context.
   // llmThinkingOverride has no spawnSubagent equivalent — inert under the migration.
   const modelOverride = config.llmModelOverride?.trim();
   const result = await spawn({
@@ -102,7 +102,7 @@ async function runSubprocessReview(
     timeoutMs: 120000,
     retryOnTransient: true,
   });
-  return { code: result.exitCode, stdout: result.output };
+  return { ok: !result.failure, output: result.output };
 }
 
 export function setupBackgroundReview(
@@ -228,9 +228,9 @@ export function setupBackgroundReview(
       // memory tool. Production always threads memoryToolDef (captured from
       // registerMemoryTool in src/index.ts); the guard is defensive only.
       if (!memoryToolDef) return;
-      const subprocessResult = await runSubprocessReview(reviewTask, memoryToolDef, config, spawn);
-      if (subprocessResult.code === 0) {
-        notifyIfSaved(shouldNotifySubprocess(subprocessResult.stdout));
+      const reviewResult = await runReviewSubagent(reviewTask, memoryToolDef, config, spawn);
+      if (reviewResult.ok) {
+        notifyIfSaved(shouldReportSaved(reviewResult.output));
       }
     };
 

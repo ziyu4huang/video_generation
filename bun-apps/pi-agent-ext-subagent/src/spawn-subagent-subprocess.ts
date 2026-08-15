@@ -147,11 +147,16 @@ export function buildSubagentArgs(promptPath: string | undefined, opts: Subproce
   return args;
 }
 
-/** Heuristic: does this stderr/exit indicate a transient (retryable) failure? */
-export function isTransientError(stderr: string, exitCode: number): boolean {
-  if (exitCode === 0) return false;
-  if (!stderr) return false;
-  const s = stderr.toLowerCase();
+/**
+ * Heuristic: does this failure message indicate a transient (retryable) failure?
+ *
+ * Takes only the message: the old second parameter existed to answer "did this
+ * even fail?" via `exitCode === 0`, which the caller now knows from the presence
+ * of `result.failure` before it ever calls in.
+ */
+export function isTransientError(message: string): boolean {
+  if (!message) return false;
+  const s = message.toLowerCase();
   const signals = [
     "etimedout",
     "econnreset",
@@ -322,11 +327,27 @@ export async function spawnSubagentSubprocess(opts: SpawnSubagentSubprocessOptio
       try {
         outcome = await completion;
       } catch (e) {
-        // spawn error (e.g. ENOENT — `pi` not on PATH). Surface as exit 1.
+        // spawn error (e.g. ENOENT — `pi` not on PATH).
         const msg = e instanceof Error ? e.message : String(e);
-        return { output: "", exitCode: 1, stderr: msg, timedOut };
+        return { output: "", failure: { kind: timedOut ? "timedout" : "failed", message: msg } };
       }
-      return { output: outcome.text, exitCode: outcome.exitCode, stderr: outcome.stderr, timedOut };
+      // A timeout kill wins over the exit code: a SIGTERM'd child reports a null
+      // close code, which would otherwise read as a clean exit 0. Partial output
+      // is preserved alongside the failure either way.
+      if (timedOut) {
+        return { output: outcome.text, failure: { kind: "timedout", message: outcome.stderr || "timed out" } };
+      }
+      if (outcome.exitCode !== 0) {
+        // The real process exit code is genuine here, unlike on the in-process
+        // path — but nothing reads it, so it folds into the message rather than
+        // widening the interface both adapters share.
+        const detail = outcome.stderr ? `: ${outcome.stderr}` : "";
+        return {
+          output: outcome.text,
+          failure: { kind: "failed", message: `pi exited with code ${outcome.exitCode}${detail}` },
+        };
+      }
+      return { output: outcome.text };
     } finally {
       if (timer) clearTimeout(timer);
       if (tmpDir) await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
@@ -353,12 +374,12 @@ export async function spawnSubagentSubprocess(opts: SpawnSubagentSubprocessOptio
     // Single retry on a transient failure with no useful output (mirrors
     // pi-obsidian's runSubagentWithRetry).
     if (
-      first.exitCode !== 0 &&
+      first.failure &&
       retry &&
-      !first.timedOut &&
+      first.failure.kind !== "timedout" &&
       !opts.externalSignal?.aborted &&
       !first.output &&
-      isTransientError(first.stderr, first.exitCode)
+      isTransientError(first.failure.message)
     ) {
       result = await runOnce();
     }
@@ -369,10 +390,8 @@ export async function spawnSubagentSubprocess(opts: SpawnSubagentSubprocessOptio
       task: opts.task,
       model: displayModel,
       cwd: opts.cwd ?? process.cwd(),
-      status: result.timedOut ? "timedout" : result.exitCode === 0 ? "done" : "failed",
-      exitCode: result.exitCode,
-      timedOut: result.timedOut,
-      stderr: result.stderr || undefined,
+      status: result.failure?.kind ?? "done",
+      error: result.failure?.message,
       startedAt: new Date(t0).toISOString(),
       elapsedMs: Date.now() - t0,
       output: result.output,

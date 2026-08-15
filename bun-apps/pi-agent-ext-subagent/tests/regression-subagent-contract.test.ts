@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import type { AgentDefinition, AgentRegistry } from "@repo/pi-agent-ext-core-runtime";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 import { createSubagentTool } from "../src/subagent-tool.js";
+import { ok } from "./_spawn-result.js";
 
 function mkRegistry(defs: AgentDefinition[]): AgentRegistry {
   const registry: AgentRegistry = new Map();
@@ -49,7 +50,7 @@ test("two concurrent worktree-isolated subagent calls get distinct cwds and each
     spawn: async (opts) => {
       // Give both calls' create-worktree phases room to interleave before either resolves.
       await new Promise((r) => setTimeout(r, 5));
-      return { output: `ok:${opts.cwd}`, exitCode: 0, stderr: "", timedOut: false };
+      return ok(`ok:${opts.cwd}`);
     },
     agentRegistry: registry,
     cwd: "/repo",
@@ -125,7 +126,7 @@ test("unknown agentType never attempts to create a worktree, even when other reg
     { name: "isolated-worker", isolation: "worktree", prompt: "Work in isolation.", source: "project" },
   ]);
   let createCalls = 0;
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({
     spawn: f.spawn,
     agentRegistry: registry,
@@ -159,7 +160,7 @@ test("agentType + schema + usage + live progress all compose correctly in a sing
   const history = [{ role: "assistant" as const, kind: "toolCall" as const, toolName: "read", text: "{}" }];
   const f = fakeSpawn(async (opts) => {
     (opts.onHistory as ((h: typeof history) => void) | undefined)?.(history);
-    return { output: '{"ok":true}', exitCode: 0, stderr: "", timedOut: false, usage };
+    return ok('{"ok":true}', { usage });
   });
   const tool = createSubagentTool({
     spawn: f.spawn,

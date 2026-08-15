@@ -38,16 +38,20 @@ export function taskSignature(task: string): string {
 }
 
 /**
- * A failure's semantic class: `status:stderr` (stderr truncated + trimmed). The
- * stderr is bucketed as-is (the recurring loops had byte-identical error text);
- * two records with the same status and same stderr prefix are "identical". An
- * empty string is returned for NON-failures (done/aborted are not loop signals).
+ * A failure's semantic class: `status:error` (error text trimmed). The text is
+ * bucketed as-is (the recurring loops had byte-identical error text); two
+ * records with the same status and same error text are "identical". An empty
+ * string is returned for NON-failures (done/aborted are not loop signals).
+ *
+ * The parameter is structural and its text field optional, so a rename on
+ * SubagentRunRecord passes tsc while silently collapsing every failure into one
+ * bucket — which would trip the circuit breaker on a task that never looped.
+ * `tests/retry-loop-detector.test.ts` pins the field name against exactly that.
  */
-export function failureClass(record: { status: string; stderr?: string }): string {
+export function failureClass(record: { status: string; error?: string }): string {
   // Only real failure modes constitute a loop; done/aborted reset the streak.
   if (record.status !== "failed" && record.status !== "timedout" && record.status !== "budget") return "";
-  const stderr = (record.stderr ?? "").trim();
-  return `${record.status}:${stderr}`;
+  return `${record.status}:${(record.error ?? "").trim()}`;
 }
 
 /**

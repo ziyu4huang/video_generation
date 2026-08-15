@@ -22,9 +22,6 @@ function okFinding(): SpawnSubagentResult {
         { severity: "blocker", source: "model", path: "a.ts", message: "impl missing", suggestedFix: "add it" },
       ],
     }),
-    exitCode: 0,
-    stderr: "",
-    timedOut: false,
   };
 }
 

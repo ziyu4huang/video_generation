@@ -25,6 +25,7 @@ import {
   renderSubagentsResult,
   sumUsage,
 } from "../src/subagents-tool.js";
+import { budgetAbort, failed, ok, timedout, turnsAbort } from "./_spawn-result.js";
 
 test("createSubagentsTool has name 'subagents' + executionMode 'sequential'", () => {
   const tool = createSubagentsTool();
@@ -81,7 +82,7 @@ test("#01 plural mirror: per-child tier default applied when tokenBudget omitted
   const calls: SpawnSubagentOptions[] = [];
   const spawn = async (opts: SpawnSubagentOptions) => {
     calls.push(opts);
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   };
   const tool = createSubagentsTool({ spawn: spawn as never });
   await tool.execute(
@@ -104,7 +105,7 @@ test("#1336 plural mirror: per-child task.maxTurns forwarded; omitted → undefi
   const calls: SpawnSubagentOptions[] = [];
   const spawn = async (opts: SpawnSubagentOptions) => {
     calls.push(opts);
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   };
   const tool = createSubagentsTool({ spawn: spawn as never });
   await tool.execute(
@@ -127,16 +128,8 @@ test("#1336: per-child turn-cap abort maps to a 'turns' slot (counted as skipped
   let i = 0;
   const spawn = async (): Promise<SpawnSubagentResult> => {
     const idx = i++;
-    if (idx === 1) {
-      return {
-        output: "",
-        exitCode: 124,
-        stderr: "max turns exceeded (5)",
-        timedOut: false,
-        turns: { maxTurns: 5, turnsUsed: 5 },
-      };
-    }
-    return { output: `out${idx}`, exitCode: 0, stderr: "", timedOut: false };
+    if (idx === 1) return turnsAbort({ maxTurns: 5, turnsUsed: 5 });
+    return ok(`out${idx}`);
   };
   const tool = createSubagentsTool({ cwd: "/repo", spawn });
   const res = await tool.execute(
@@ -201,11 +194,7 @@ function fakeSpawnByIndex(outputs: (SpawnSubagentResult | ((opts: { task: string
 }
 
 test("execute fans out, returns positional results in input order", async () => {
-  const f = fakeSpawnByIndex([
-    { output: "A", exitCode: 0, stderr: "", timedOut: false },
-    { output: "B", exitCode: 0, stderr: "", timedOut: false },
-    { output: "C", exitCode: 0, stderr: "", timedOut: false },
-  ]);
+  const f = fakeSpawnByIndex([ok("A"), ok("B"), ok("C")]);
   const tool = createSubagentsTool({ cwd: "/repo", spawn: f.spawn });
   const res = await tool.execute(
     "call-1",
@@ -234,7 +223,7 @@ function fakeSpawnCapture() {
     calls,
     spawn: async (opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> => {
       calls.push(opts);
-      return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+      return ok("ok");
     },
   };
 }
@@ -276,10 +265,7 @@ test("an explicit per-task `tools` override wins over the active-set default", a
 });
 
 test("a failed child becomes a null slot (partial-failure tolerant)", async () => {
-  const f = fakeSpawnByIndex([
-    { output: "ok", exitCode: 0, stderr: "", timedOut: false },
-    { output: "", exitCode: 1, stderr: "boom", timedOut: false },
-  ]);
+  const f = fakeSpawnByIndex([ok("ok"), failed("boom")]);
   const tool = createSubagentsTool({ cwd: "/repo", spawn: f.spawn });
   const res = await tool.execute("call-2", { tasks: [{ task: "#0" }, { task: "#1" }] }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(res.details.results[0] && (res.details.results[0] as { status: string }).status, "done");
@@ -289,13 +275,7 @@ test("a failed child becomes a null slot (partial-failure tolerant)", async () =
 test("each completed slot carries task/model/elapsedMs; renderBatchResult is unchanged", async () => {
   // Generic output independent of the task text, so we can prove the task label
   // and model do NOT leak into the model-facing rendered text.
-  const spawn = async (_opts: { task: string }) => ({
-    output: "child-output",
-    exitCode: 0,
-    stderr: "",
-    timedOut: false,
-    usage: { total: 100, cost: 0.001 },
-  });
+  const spawn = async (_opts: { task: string }) => ok("child-output", { usage: { total: 100, cost: 0.001 } as never });
   const tool = createSubagentsTool({
     cwd: "/repo",
     spawn: spawn as never,
@@ -324,7 +304,7 @@ test("each completed slot carries task/model/elapsedMs; renderBatchResult is unc
 test("execute rejects an empty tasks array with an actionable message", async () => {
   const tool = createSubagentsTool({
     cwd: "/repo",
-    spawn: async () => ({ output: "", exitCode: 0, stderr: "", timedOut: false }),
+    spawn: async () => ok(),
   });
   const res = await tool.execute("call-3", { tasks: [] }, NO_SIGNAL, undefined, NO_CTX);
   assert.match(res.content[0].text, /tasks must be a non-empty array/i);
@@ -333,7 +313,7 @@ test("execute rejects an empty tasks array with an actionable message", async ()
 test("execute rejects an over-limit tasks array (MAX_BATCH_TASKS + 1) with an actionable message", async () => {
   const tool = createSubagentsTool({
     cwd: "/repo",
-    spawn: async () => ({ output: "", exitCode: 0, stderr: "", timedOut: false }),
+    spawn: async () => ok(),
   });
   const tasks = Array.from({ length: MAX_BATCH_TASKS + 1 }, (_v, i) => ({ task: `#${i}` }));
   const res = await tool.execute("call-cap", { tasks }, NO_SIGNAL, undefined, NO_CTX);
@@ -348,13 +328,9 @@ function fakeSpawnWithUsage(usages: { total: number; cost: number }[], delayMs =
     const idx = i++;
     if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
     const u = usages[idx] ?? { total: 0, cost: 0 };
-    return {
-      output: `out${idx}`,
-      exitCode: 0,
-      stderr: "",
-      timedOut: false,
+    return ok(`out${idx}`, {
       usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: u.total, cost: u.cost },
-    };
+    });
   };
 }
 
@@ -399,16 +375,8 @@ test("per-child hard-budget abort maps to a source:'child' budget slot (counted 
   let i = 0;
   const spawn = async (): Promise<SpawnSubagentResult> => {
     const idx = i++;
-    if (idx === 1) {
-      return {
-        output: "",
-        exitCode: 0,
-        stderr: "",
-        timedOut: false,
-        budget: { kind: "tokens", limit: 1000, actual: 1500 },
-      };
-    }
-    return { output: `out${idx}`, exitCode: 0, stderr: "", timedOut: false };
+    if (idx === 1) return budgetAbort({ kind: "tokens", limit: 1000, actual: 1500 });
+    return ok(`out${idx}`);
   };
   const tool = createSubagentsTool({ cwd: "/repo", spawn });
   const res = await tool.execute(
@@ -448,11 +416,11 @@ test("each dispatched child registers in-flight while running and persists once 
   const f = fakeSpawnByIndex([
     () => {
       seenDuringRun = inFlight.views().length;
-      return { output: "A", exitCode: 0, stderr: "", timedOut: false };
+      return ok("A");
     },
     () => {
       seenDuringRun = Math.max(seenDuringRun, inFlight.views().length);
-      return { output: "B", exitCode: 0, stderr: "", timedOut: false };
+      return ok("B");
     },
   ]);
   const persistence = memPersistence();
@@ -476,17 +444,16 @@ test("each dispatched child registers in-flight while running and persists once 
 
 test("a failed child is not persisted; a gate-skipped child is not persisted", async () => {
   const f = fakeSpawnByIndex([
-    { output: "", exitCode: 1, stderr: "x", timedOut: false }, // failed
-    { output: "ok", exitCode: 0, stderr: "", timedOut: false }, // done, trips gate
-    { output: "ok", exitCode: 0, stderr: "", timedOut: false }, // skipped by gate
+    failed("x"), // failed
+    ok("ok"), // done, trips gate
+    ok("ok"), // skipped by gate
   ]);
   const persistence = memPersistence();
   // give the done child heavy usage so the gate trips after it
   // (re-use the usage fake by wrapping)
   const wrappedSpawn = async (opts: { task: string }): Promise<SpawnSubagentResult> => {
     const r = await f.spawn(opts);
-    if (r.exitCode === 0)
-      return { ...r, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 60000, cost: 0 } };
+    if (!r.failure) return { ...r, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 60000, cost: 0 } };
     return r;
   };
   const tool2 = createSubagentsTool({ cwd: "/repo", spawn: wrappedSpawn, persistence });
@@ -542,7 +509,7 @@ test("batch children get batchId + forwarded onModelResolved/onHistory update th
       resolved: entry?.modelSeg,
       historyLen: entry?.history.length ?? 0,
     });
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   };
   const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
   await tool.execute(
@@ -562,13 +529,8 @@ test("batch children get batchId + forwarded onModelResolved/onHistory update th
 });
 
 test("a child hitting its own per-child budget renders as 'child budget' (source: child)", async () => {
-  const spawn = async (): Promise<SpawnSubagentResult> => ({
-    output: "out",
-    exitCode: 0,
-    stderr: "",
-    timedOut: false,
-    budget: { kind: "tokens", limit: 100, actual: 200 },
-  });
+  const spawn = async (): Promise<SpawnSubagentResult> =>
+    budgetAbort({ kind: "tokens", limit: 100, actual: 200 }, "out");
   const tool = createSubagentsTool({ cwd: "/repo", spawn });
   const res = await tool.execute("call-child-budget", { tasks: [{ task: "#0" }] }, NO_SIGNAL, undefined, NO_CTX);
   const slot = res.details.results[0];
@@ -588,7 +550,7 @@ test("batch keeps a completed child (status=done) mid-run; evicts the whole batc
       const c0 = inFlight.view("batch-call:0");
       seen.push({ id: "batch-call:0", status: c0?.status, present: !!c0 });
     }
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   };
   const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
   await tool.execute(
@@ -611,7 +573,7 @@ test("mid-batch throw: siblings drained, registry cleaned, no zombie children, e
     const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
     dispatched.push(idx);
     if (idx === 1) throw new Error("boom");
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   };
   const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
   await assert.rejects(
@@ -647,7 +609,7 @@ test("mid-batch throw at higher concurrency: in-flight sibling still settles; wo
       });
       spawn0Release = resolve;
       await spawn0Done;
-      return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+      return ok("ok");
     }
     throw new Error("boom-1");
   };
@@ -681,7 +643,7 @@ test("onUpdate emits a multi-line header + live table: `subagents · k/N running
     opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "r" }]);
     const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
     inFlight.markCompleted(`batch-call:${idx}`);
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   };
   const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
   await tool.execute(
@@ -725,7 +687,7 @@ test("runningUsage map is fed by onUsage and drives the live-header Σ across ch
     // header only renders via the onHistory→onUpdate path, so without a tick
     // `headers` stays empty and the Σ assertion has nothing to match.
     opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   };
   const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
   await tool.execute(
@@ -752,7 +714,7 @@ test("onUpdate is try/caught: a throwing buildLiveTable path never fails the chi
     onHistory?: (h: { kind: string }[]) => void;
   }): Promise<SpawnSubagentResult> => {
     opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   };
   const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
   const res = await tool.execute("batch-throw", { tasks: [{ task: "#0" }] }, NO_SIGNAL, undefined, NO_CTX);
@@ -790,21 +752,17 @@ function spawnBlockingOnAbort(blocking: Set<number>, normal: SpawnSubagentResult
         return;
       }
       if (sig.aborted) {
-        resolve({ output: "", exitCode: 124, stderr: "Subagent was aborted", timedOut: true });
+        resolve(timedout("Subagent was aborted"));
         return;
       }
-      sig.addEventListener(
-        "abort",
-        () => resolve({ output: "", exitCode: 124, stderr: "Subagent was aborted", timedOut: true }),
-        { once: true },
-      );
+      sig.addEventListener("abort", () => resolve(timedout("Subagent was aborted")), { once: true });
     });
   return { calls, spawn };
 }
 
 test("user per-child abort mid-batch → aborted slot; sibling unaffected; parent turn intact", async () => {
   const inFlight = new SubagentInFlightRegistry();
-  const f = spawnBlockingOnAbort(new Set([0]), { output: "sibling-ok", exitCode: 0, stderr: "", timedOut: false });
+  const f = spawnBlockingOnAbort(new Set([0]), ok("sibling-ok"));
   const tool = createSubagentsTool({ cwd: "/repo", spawn: f.spawn as never, inFlight, getMainModel: () => "p/m" });
   const parent = new AbortController(); // live turn, not aborted
   const p = tool.execute(
@@ -830,7 +788,7 @@ test("user per-child abort mid-batch → aborted slot; sibling unaffected; paren
 
 test("fan-in: aborting the parent signal aborts all in-flight batch children (new — they used to ignore it)", async () => {
   const inFlight = new SubagentInFlightRegistry();
-  const f = spawnBlockingOnAbort(new Set([0, 1]), { output: "x", exitCode: 0, stderr: "", timedOut: false });
+  const f = spawnBlockingOnAbort(new Set([0, 1]), ok("x"));
   const tool = createSubagentsTool({ cwd: "/repo", spawn: f.spawn as never, inFlight });
   const parent = new AbortController();
   const p = tool.execute(
@@ -1057,7 +1015,7 @@ test("ticket 04 / finding 2: a batch child that falls back stores the ACTUAL mod
     // Simulate fallback: onModelFallback fires first, then onModelResolved with the actual.
     opts.onModelFallback?.("anthropic/claude-opus-4-1");
     opts.onModelResolved?.("zai/glm-5.2");
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   };
   const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never });
   const res = await tool.execute(
@@ -1082,7 +1040,7 @@ test("ticket 04 / finding 2: a batch child that falls back stores the ACTUAL mod
 test("ticket 04 / finding 2: a batch child with NORMAL resolution stores the resolved model and NO audit fields", async () => {
   const spawn = async (opts: { onModelResolved?: (id: string) => void }): Promise<SpawnSubagentResult> => {
     opts.onModelResolved?.("zai/glm-5.2");
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   };
   const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never });
   const res = await tool.execute(
@@ -1209,7 +1167,7 @@ test("#03 plural mirror: a child missing a required tool is skipped (null), spaw
   const calls: unknown[] = [];
   const spawn = async (opts: SpawnSubagentOptions) => {
     calls.push(opts);
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   };
   const tool = createSubagentsTool({ spawn: spawn as never });
   const res = await tool.execute(
@@ -1581,7 +1539,7 @@ test("execute: a completed child's elapsed freezes across two onUpdate renders (
     tick(opts, [{ role: "assistant", kind: "toolCall", toolName: "grep", text: "g" }]); // completed tick #1
     fakeNow += 60_000;
     tick(opts, [{ role: "assistant", kind: "toolCall", toolName: "grep", text: "g" }]); // completed tick #2
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   };
   try {
     const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });

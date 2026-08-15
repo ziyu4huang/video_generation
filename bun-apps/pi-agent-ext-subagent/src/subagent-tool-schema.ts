@@ -42,8 +42,6 @@ export interface SubagentBudgetDetails {
 }
 
 export interface SubagentToolDetails {
-  exitCode: number;
-  timedOut: boolean;
   /** Role label (params.agent), if provided. */
   agent?: string;
   /** The ACTUAL model that ran (provider/id), or the requested display string when unresolvable. */
@@ -60,6 +58,11 @@ export interface SubagentToolDetails {
   elapsedMs: number;
   /** Wall-clock dispatch start, epoch ms — for /subagents timestamp display. */
   startedAt?: number;
+  /**
+   * The run's outcome — the sole discriminant. `exitCode` and `timedOut` used to
+   * sit beside it and were derivable from it; old records carrying them stay
+   * valid (an extra key on a parsed object is inert).
+   */
   status: "done" | "failed" | "timedout" | "budget" | "turns" | "aborted";
   /** Real token/cost usage from the child session, when reported. */
   usage?: AgentUsage;

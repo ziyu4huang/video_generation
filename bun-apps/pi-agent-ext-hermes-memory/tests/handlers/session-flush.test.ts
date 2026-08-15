@@ -35,9 +35,7 @@ function createFakeSpawn(overrides: FakeSpawnOverrides = {}) {
   const calls: SpawnSubagentOptions[] = [];
   const result: SpawnSubagentResult = {
     output: overrides.output ?? "",
-    exitCode: overrides.exitCode ?? 0,
-    stderr: overrides.stderr ?? "",
-    timedOut: overrides.timedOut ?? false,
+    ...(overrides.failure ? { failure: overrides.failure } : {}),
   };
   const spawn = async (opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> => {
     calls.push(opts);

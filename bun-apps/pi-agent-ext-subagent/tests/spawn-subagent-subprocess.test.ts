@@ -104,19 +104,19 @@ test("buildSubagentArgs: no --append-system-prompt when promptPath undefined", (
 
 // ---- isTransientError (pure) ---------------------------------------------
 
-test("isTransientError: exit 0 is never transient", () => {
-  expect(isTransientError("anything", 0)).toBe(false);
+test("isTransientError: an empty message is never transient", () => {
+  expect(isTransientError("")).toBe(false);
 });
 
 test("isTransientError: recognized transient signals", () => {
-  expect(isTransientError("fetch failed: ECONNRESET", 1)).toBe(true);
-  expect(isTransientError("Error: 429 Too Many Requests", 1)).toBe(true);
-  expect(isTransientError("socket hang up", 1)).toBe(true);
+  expect(isTransientError("fetch failed: ECONNRESET")).toBe(true);
+  expect(isTransientError("Error: 429 Too Many Requests")).toBe(true);
+  expect(isTransientError("socket hang up")).toBe(true);
 });
 
-test("isTransientError: non-transient + empty stderr are not transient", () => {
-  expect(isTransientError("some logic error", 1)).toBe(false);
-  expect(isTransientError("", 1)).toBe(false);
+test("isTransientError: an unrecognised message is not transient", () => {
+  expect(isTransientError("some logic error")).toBe(false);
+  expect(isTransientError("")).toBe(false);
 });
 
 // ---- getPiInvocation (shape) ---------------------------------------------
@@ -164,8 +164,7 @@ test("runner: success captures the last assistant text", async () => {
     }),
   });
   expect(result.output).toBe("hello world");
-  expect(result.exitCode).toBe(0);
-  expect(result.timedOut).toBe(false);
+  expect(result.failure).toBeUndefined();
 });
 
 test("runner: does NOT retry on a non-transient failure", async () => {
@@ -179,7 +178,7 @@ test("runner: does NOT retry on a non-transient failure", async () => {
     }),
   });
   expect(call).toBe(1);
-  expect(result.exitCode).toBe(1);
+  expect(result.failure?.kind).toBe("failed");
 });
 
 test("runner: retries once on a transient failure with no output", async () => {
@@ -198,7 +197,7 @@ test("runner: retries once on a transient failure with no output", async () => {
     }),
   });
   expect(call).toBe(2);
-  expect(result.exitCode).toBe(0);
+  expect(result.failure).toBeUndefined();
   expect(result.output).toBe("retried ok");
 });
 
@@ -216,7 +215,7 @@ test("runner: does NOT retry when retryOnTransient is false", async () => {
   expect(call).toBe(1);
 });
 
-test("runner: timeoutMs kills the child + flags timedOut (no retry on timeout)", async () => {
+test("runner: timeoutMs kills the child + reports kind timedout (no retry on timeout)", async () => {
   let call = 0;
   const result = await spawnSubagentSubprocess({
     task: "x",
@@ -226,7 +225,7 @@ test("runner: timeoutMs kills the child + flags timedOut (no retry on timeout)",
       return new MockChild() as unknown as ChildProcessLike; // never closes on its own
     },
   });
-  expect(result.timedOut).toBe(true);
+  expect(result.failure?.kind).toBe("timedout");
   expect(call).toBe(1);
 });
 
@@ -282,7 +281,7 @@ test("runner: onEvent forwards every parsed NDJSON event", async () => {
   expect((events[0] as { type: string }).type).toBe("tool_execution_start");
 });
 
-test("runner: spawn-error path surfaces as exit 1 without throwing", async () => {
+test("runner: spawn-error path surfaces as a failure without throwing", async () => {
   // A child that errors via 'error' (e.g. ENOENT) → exit 1, no rejection.
   const result = await spawnSubagentSubprocess({
     task: "x",
@@ -299,8 +298,10 @@ test("runner: spawn-error path surfaces as exit 1 without throwing", async () =>
       return c as unknown as ChildProcessLike;
     },
   });
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toBe("spawn ENOENT");
+  expect(result.failure?.kind).toBe("failed");
+  // The real process exit code folds into the message rather than widening the
+  // interface the in-process adapter shares with this one.
+  expect(result.failure?.message).toBe("pi exited with code 1: spawn ENOENT");
 });
 
 // ---- §4 phantom telemetry (slice 2) --------------------------------------
@@ -357,17 +358,16 @@ test("telemetry: persistence.save records a done run", async () => {
   expect(persist.saved.length).toBe(1);
   const rec = persist.saved[0] as {
     status: string;
-    exitCode: number;
     output: string;
     elapsedMs: number;
   };
   expect(rec.status).toBe("done");
-  expect(rec.exitCode).toBe(0);
+  expect(rec.status).toBe("done");
   expect(rec.output).toBe("ok");
   expect(rec.elapsedMs).toBeGreaterThanOrEqual(0);
 });
 
-test("telemetry: failed run -> status 'failed' + stderr recorded", async () => {
+test("telemetry: failed run -> status 'failed' + error recorded", async () => {
   const persist = mockPersistence();
   await spawnSubagentSubprocess({
     task: "x",
@@ -377,9 +377,9 @@ test("telemetry: failed run -> status 'failed' + stderr recorded", async () => {
       c.doClose(1);
     }),
   });
-  const rec = persist.saved[0] as { status: string; stderr?: string };
+  const rec = persist.saved[0] as { status: string; error?: string };
   expect(rec.status).toBe("failed");
-  expect(rec.stderr).toBe("boom");
+  expect(rec.error).toMatch(/boom/);
 });
 
 test("telemetry: start fires before the run, end after (wrapping order)", async () => {
@@ -411,7 +411,7 @@ test("telemetry: no registration when inFlight/persistence unset (opt-in default
       c.doClose(0);
     }),
   });
-  expect(result.exitCode).toBe(0);
+  expect(result.failure).toBeUndefined();
 });
 
 // ---- entry prefix (host namespaces its non-interactive mode) --------------

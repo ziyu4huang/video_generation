@@ -492,10 +492,10 @@ export function createSubagentsTool(
           };
         } else if (status === "failed") {
           slots[index] = null;
-        } else if (result.budget) {
+        } else if (result.failure?.kind === "budget") {
           slots[index] = {
             status: "budget",
-            exhaustion: result.budget,
+            exhaustion: result.failure.budget,
             source: "child",
             id: task.id,
             index,
@@ -505,13 +505,13 @@ export function createSubagentsTool(
             fellBack: slotFellBack,
             elapsedMs,
           };
-        } else if (result.turns) {
+        } else if (result.failure?.kind === "turns") {
           // Per-child turn-cap abort — mirrors the per-child budget slot (Task 3b):
           // the child ran, hit its maxTurns ceiling, and was aborted with
           // timeout-like semantics. No output → counted as skipped, never "done".
           slots[index] = {
             status: "turns",
-            turns: result.turns,
+            turns: result.failure.turns,
             id: task.id,
             index,
             task: preview,
@@ -552,14 +552,12 @@ export function createSubagentsTool(
             tier: task.tier,
             cwd: childOpts.cwd ?? defaultCwd,
             status,
-            exitCode: result.exitCode,
-            timedOut: userAborted ? false : result.timedOut,
-            stderr: result.stderr || undefined,
+            error: result.failure?.message,
             startedAt: new Date(childT0).toISOString(),
             elapsedMs,
             usage: result.usage,
-            budget: result.budget,
-            turns: result.turns,
+            budget: result.failure?.kind === "budget" ? result.failure.budget : undefined,
+            turns: result.failure?.kind === "turns" ? result.failure.turns : undefined,
             output: userAborted ? "Subagent aborted by user." : result.output,
           });
         }

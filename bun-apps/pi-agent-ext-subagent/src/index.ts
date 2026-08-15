@@ -38,7 +38,7 @@ export {
 } from "@repo/pi-agent-ext-core-runtime";
 
 // ── owned: programmatic dispatch ─────────────────────────────────────────────
-export type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
+export type { SpawnSubagentOptions, SpawnSubagentResult, SubagentFailure } from "./spawn-subagent.js";
 export { spawnSubagent } from "./spawn-subagent.js";
 // The isolated-PROCESS analog (wayfind ticket 04). Consumers that need a clean
 // child pi process (obsidian distill/garden, tool-gate L2 A/B) use this instead

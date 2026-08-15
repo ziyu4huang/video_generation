@@ -24,10 +24,10 @@ function mkRunner(impl: (p: { prompt: string; opts: Record<string, unknown> }) =
 }
 
 describe("spawnSubagent", () => {
-  it("success → {output, exitCode:0, stderr:'', timedOut:false}", async () => {
+  it("success → {output} with no failure", async () => {
     const runner = mkRunner(async () => "RESULT");
     const out = await spawnSubagent({ task: "do it", tools: ["read"], agent: runner });
-    assert.deepEqual(out, { output: "RESULT", exitCode: 0, stderr: "", timedOut: false, usage: undefined });
+    assert.deepEqual(out, { output: "RESULT", usage: undefined });
   });
 
   it("passes tools/excludeTools/model/cwd/instructions through to runner.run", async () => {
@@ -148,7 +148,7 @@ describe("spawnSubagent", () => {
     assert.deepEqual(res.usage, usage, "result.usage captured even with no caller onUsage");
   });
 
-  it("timeout (AGENT_TIMEOUT) → timedOut:true, retried once when retryOnTransient:true", async () => {
+  it("timeout (AGENT_TIMEOUT) → failure.kind timedout, retried once when retryOnTransient:true", async () => {
     let n = 0;
     const runner = mkRunner(async () => {
       n++;
@@ -156,8 +156,8 @@ describe("spawnSubagent", () => {
     });
     const out = await spawnSubagent({ task: "t", retryOnTransient: true, agent: runner });
     assert.equal(n, 2, "retried once after a transient timeout");
-    assert.equal(out.timedOut, true);
-    assert.notEqual(out.exitCode, 0);
+    assert.equal(out.failure?.kind, "timedout");
+    assert.ok(out.failure, "a timeout is a failure");
     assert.equal(out.output, "");
   });
 
@@ -169,10 +169,10 @@ describe("spawnSubagent", () => {
     });
     const out = await spawnSubagent({ task: "t", retryOnTransient: false, agent: runner });
     assert.equal(n, 1);
-    assert.equal(out.timedOut, true);
+    assert.equal(out.failure?.kind, "timedout");
   });
 
-  it("non-transient throw → {output:'', exitCode:1, stderr}, no retry", async () => {
+  it("non-transient throw → failure.kind failed with the message, no retry", async () => {
     let n = 0;
     const runner = mkRunner(async () => {
       n++;
@@ -181,9 +181,9 @@ describe("spawnSubagent", () => {
     const out = await spawnSubagent({ task: "t", retryOnTransient: true, agent: runner });
     assert.equal(n, 1, "non-transient errors are not retried");
     assert.equal(out.output, "");
-    assert.equal(out.exitCode, 1);
-    assert.match(out.stderr, /hard fail/);
-    assert.equal(out.timedOut, false);
+    assert.equal(out.failure?.kind, "failed");
+    assert.match(out.failure?.message ?? "", /hard fail/);
+    assert.notEqual(out.failure?.kind, "timedout");
   });
 
   it("transient-then-success → retried, returns the success output", async () => {
@@ -196,7 +196,7 @@ describe("spawnSubagent", () => {
     const out = await spawnSubagent({ task: "t", retryOnTransient: true, agent: runner });
     assert.equal(n, 2);
     assert.equal(out.output, "OK_AFTER_RETRY");
-    assert.equal(out.exitCode, 0);
+    assert.equal(out.failure, undefined);
   });
 
   // D8-1: when opts.schema is set, WorkflowAgent.run returns a validated OBJECT.
@@ -209,14 +209,14 @@ describe("spawnSubagent", () => {
       schema: { type: "object", properties: { ok: { type: "boolean" } } } as never,
       agent: runner,
     });
-    assert.equal(out.exitCode, 0);
+    assert.equal(out.failure, undefined);
     assert.equal(out.output, '{"ok":true}', "schema payload preserved as JSON, NOT [object Object]");
   });
 
   it("null result (recoverable exhaustion) → empty string output, not 'null' or [object Object]", async () => {
     const runner = mkRunner(async () => null);
     const out = await spawnSubagent({ task: "t", agent: runner });
-    assert.equal(out.exitCode, 0);
+    assert.equal(out.failure, undefined);
     assert.equal(out.output, "", "null result serializes to empty string");
   });
 
@@ -230,8 +230,8 @@ describe("spawnSubagent", () => {
       throw err;
     });
     const out = await spawnSubagent({ task: "t", externalSignal: controller.signal, agent: runner });
-    assert.equal(out.timedOut, true);
-    assert.equal(out.exitCode, 124);
+    assert.equal(out.failure?.kind, "timedout");
+    assert.equal(out.failure?.kind, "timedout");
   });
 
   it("externalSignal that aborts mid-run propagates to the internal signal (addEventListener path)", async () => {
@@ -247,7 +247,7 @@ describe("spawnSubagent", () => {
       throw err;
     });
     const out = await spawnSubagent({ task: "t", externalSignal: controller.signal, agent: runner });
-    assert.equal(out.timedOut, true);
+    assert.equal(out.failure?.kind, "timedout");
   });
 
   it("REGRESSION: an external abort must not trigger the transient-failure retry", async () => {
@@ -267,7 +267,7 @@ describe("spawnSubagent", () => {
       agent: runner,
     });
     assert.equal(n, 1, "external abort must not cause a retry — that would re-run work the user just cancelled");
-    assert.equal(out.timedOut, true);
+    assert.equal(out.failure?.kind, "timedout");
   });
 
   it("onUsage fires → result.usage carries the reported AgentUsage", async () => {
@@ -294,14 +294,14 @@ describe("spawnSubagent", () => {
     });
     const out = await spawnSubagent({ task: "t", retryOnTransient: false, agent: runner });
     assert.deepEqual(out.usage, fixtureUsage);
-    assert.equal(out.exitCode, 1);
+    assert.equal(out.failure?.kind, "failed");
   });
 
   // REGRESSION (2026-07 review): the REAL WorkflowAgent.run abort paths throw a
   // plain `Error("Subagent was aborted")` — name "Error", NOT a DOMException
   // named AbortError like the mocks above. A timeoutMs-triggered abort was
-  // classified as a generic failure (exitCode 1, timedOut:false, no retry).
-  it("timeoutMs abort with a runner-shaped Error('Subagent was aborted') → timedOut:true, 124, retried", async () => {
+  // classified as a generic failure (kind "failed", no retry).
+  it("timeoutMs abort with a runner-shaped Error('Subagent was aborted') → kind timedout, retried", async () => {
     let n = 0;
     const runner = mkRunner(async (p) => {
       n++;
@@ -314,8 +314,8 @@ describe("spawnSubagent", () => {
     });
     const out = await spawnSubagent({ task: "t", timeoutMs: 20, retryOnTransient: true, agent: runner });
     assert.equal(n, 2, "a timeout is transient and must be retried once");
-    assert.equal(out.timedOut, true, "signal-driven abort must classify as a timeout");
-    assert.equal(out.exitCode, 124);
+    assert.equal(out.failure?.kind, "timedout", "signal-driven abort must classify as a timeout");
+    assert.equal(out.failure?.kind, "timedout");
   });
 
   // REGRESSION (2026-07 review): usage was a tryOnce-local — a transient first
@@ -354,7 +354,7 @@ describe("spawnSubagent", () => {
 });
 
 describe("spawnSubagent budget", () => {
-  it("TOKEN_BUDGET_EXHAUSTED → result.budget set, non-transient (not retried)", async () => {
+  it("TOKEN_BUDGET_EXHAUSTED → failure.kind budget, non-transient (not retried)", async () => {
     const runner = mkRunner(async () => {
       throw new WorkflowError(
         "subagent tokens budget exhausted (1234 tokens > limit 1000)",
@@ -363,10 +363,13 @@ describe("spawnSubagent budget", () => {
       );
     });
     const out = await spawnSubagent({ task: "t", tokenBudget: 1000, agent: runner });
-    assert.deepEqual(out.budget, { kind: "tokens", limit: 1000, actual: 1234 });
-    assert.equal(out.exitCode, 1);
-    assert.equal(out.timedOut, false);
-    assert.match(out.stderr, /budget exhausted/);
+    assert.equal(out.failure?.kind, "budget");
+    assert.deepEqual(out.failure?.kind === "budget" ? out.failure.budget : undefined, {
+      kind: "tokens",
+      limit: 1000,
+      actual: 1234,
+    });
+    assert.match(out.failure?.message ?? "", /budget exhausted/);
     assert.equal(runner.calls.length, 1, "budget exhaustion is non-transient → not retried");
   });
 
@@ -385,7 +388,7 @@ describe("spawnSubagent budget", () => {
       });
     });
     const out = await spawnSubagent({ task: "t", spendBudget: 0.5, retryOnTransient: true, agent: runner });
-    assert.equal(out.budget?.kind, "spend");
+    assert.equal(out.failure?.kind === "budget" ? out.failure.budget.kind : undefined, "spend");
     assert.equal(runner.calls.length, 1, "never retry a budget exhaustion even with retryOnTransient");
   });
 });
@@ -407,8 +410,8 @@ describe("spawnSubagent budget warning (80%, informational)", () => {
     });
     const out = await spawnSubagent({ task: "t", tokenBudget: 1000, agent: runner });
     assert.deepEqual(out.budgetWarning, { kind: "tokens", limit: 1000, actual: 800 });
-    assert.equal(out.exitCode, 0, "warning alone never aborts — the run completes");
-    assert.equal(out.budget, undefined, "warning is NOT an exhaustion record");
+    assert.equal(out.failure, undefined, "warning alone never aborts — the run completes");
+    assert.notEqual(out.failure?.kind, "budget", "warning is NOT an exhaustion record");
     assert.equal(runner.calls.length, 1, "warning alone never triggers a retry");
   });
 
@@ -457,7 +460,7 @@ describe("spawnSubagent budget warning (80%, informational)", () => {
     });
     const out = await spawnSubagent({ task: "t", tokenBudget: 1000, retryOnTransient: true, agent: runner });
     assert.equal(n, 1, "a warned-but-successful run is never retried");
-    assert.equal(out.exitCode, 0);
+    assert.equal(out.failure, undefined);
   });
 });
 
@@ -474,7 +477,7 @@ describe("spawnSubagent schema repair", () => {
       return "ok";
     });
     const out = await spawnSubagent({ task: "t", agent: runner });
-    assert.equal(out.exitCode, 0);
+    assert.equal(out.failure, undefined);
     assert.equal(out.output, "ok");
     assert.equal(runner.calls.length, 2, "SCHEMA_NONCOMPLIANCE retried once");
   });
@@ -490,7 +493,7 @@ describe("spawnSubagent schema repair", () => {
       throw new WorkflowError("no structured_output", WorkflowErrorCode.SCHEMA_NONCOMPLIANCE, { recoverable: false });
     });
     const out = await spawnSubagent({ task: "t", retryOnTransient: false, agent: runner });
-    assert.equal(out.exitCode, 1);
+    assert.equal(out.failure?.kind, "failed");
     assert.equal(runner.calls.length, 1, "retryOnTransient:false → no retry");
   });
 });
@@ -502,17 +505,17 @@ describe("spawnSubagent turns cap (maxTurns)", () => {
       details: { maxTurns: 5, turnsUsed: 5 },
     });
 
-  it("TURNS_EXHAUSTED → transient, timedOut:false, result.turns {maxTurns, turnsUsed}, exitCode 124, retried once", async () => {
+  it("TURNS_EXHAUSTED → transient, failure.kind turns carrying {maxTurns, turnsUsed}, retried once", async () => {
     const runner = mkRunner(async () => {
       throw mkTurnsError();
     });
     const out = await spawnSubagent({ task: "t", maxTurns: 5, retryOnTransient: true, agent: runner });
     assert.equal(runner.calls.length, 2, "turns exhaustion is transient (timeout-like) → retried once");
-    assert.equal(out.timedOut, false, "a turn cap is NOT a wall-clock timeout");
-    assert.equal(out.exitCode, 124, "shares the timeout exit convention while staying distinguishable via turns");
-    assert.deepEqual(out.turns, { maxTurns: 5, turnsUsed: 5 });
+    assert.notEqual(out.failure?.kind, "timedout", "a turn cap is NOT a wall-clock timeout");
+    assert.equal(out.failure?.kind, "turns");
+    assert.deepEqual(out.failure?.kind === "turns" ? out.failure.turns : undefined, { maxTurns: 5, turnsUsed: 5 });
     assert.equal(out.output, "");
-    assert.match(out.stderr, /max turns exceeded/);
+    assert.match(out.failure?.message ?? "", /max turns exceeded/);
   });
 
   it("TURNS_EXHAUSTED NOT retried when retryOnTransient:false", async () => {
@@ -521,7 +524,7 @@ describe("spawnSubagent turns cap (maxTurns)", () => {
     });
     const out = await spawnSubagent({ task: "t", maxTurns: 5, retryOnTransient: false, agent: runner });
     assert.equal(runner.calls.length, 1);
-    assert.deepEqual(out.turns, { maxTurns: 5, turnsUsed: 5 });
+    assert.deepEqual(out.failure?.kind === "turns" ? out.failure.turns : undefined, { maxTurns: 5, turnsUsed: 5 });
   });
 
   it("forwards maxTurns to runner.run; omitted → undefined (no default)", async () => {

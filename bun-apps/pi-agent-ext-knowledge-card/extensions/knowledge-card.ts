@@ -842,7 +842,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				}
 			}
 
-			const { output, exitCode, stderr, timedOut } = await zkSpawn({
+			const { output, failure } = await zkSpawn({
 				cwd,
 				task,
 				tools,
@@ -851,7 +851,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				externalSignal: signal,
 				extensionTools: parentExtensionTools,
 			});
-			if (timedOut) {
+			if (failure?.kind === "timedout") {
 				return {
 					content: [
 						{
@@ -860,19 +860,19 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 						},
 					],
 					isError: true,
-					details: { timedOut, stderr },
+					details: { status: failure.kind, error: failure.message },
 				};
 			}
-			if (exitCode !== 0 && !output) {
+			if (failure && !output) {
 				return {
 					content: [
 						{
 							type: "text",
-							text: `zk_card ${params.action} failed (exit ${exitCode}).\n${stderr.slice(-2000)}`,
+							text: `zk_card ${params.action} failed.\n${failure.message.slice(-2000)}`,
 						},
 					],
 					isError: true,
-					details: { exitCode, stderr },
+					details: { status: failure.kind, error: failure.message },
 				};
 			}
 			return {
@@ -885,7 +885,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 						),
 					},
 				],
-				details: { exitCode, stderr },
+				details: { status: failure?.kind ?? "done" },
 			};
 		},
 	});
@@ -990,7 +990,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				params.folder,
 				params.blend ?? "default",
 			);
-			const { output, exitCode, stderr, timedOut } = await zkSpawn({
+			const { output, failure } = await zkSpawn({
 				cwd,
 				task,
 				tools: ragToolsFor(params.blend ?? "default"),
@@ -999,25 +999,25 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				externalSignal: signal,
 				extensionTools: parentExtensionTools,
 			});
-			if (timedOut) {
+			if (failure?.kind === "timedout") {
 				return {
 					content: [
 						{ type: "text", text: `zk_ask timed out.\n${output.slice(-2000)}` },
 					],
 					isError: true,
-					details: { timedOut, stderr },
+					details: { status: failure.kind, error: failure.message },
 				};
 			}
-			if (exitCode !== 0 && !output) {
+			if (failure && !output) {
 				return {
 					content: [
 						{
 							type: "text",
-							text: `zk_ask failed (exit ${exitCode}).\n${stderr.slice(-2000)}`,
+							text: `zk_ask failed.\n${failure.message.slice(-2000)}`,
 						},
 					],
 					isError: true,
-					details: { exitCode, stderr },
+					details: { status: failure.kind, error: failure.message },
 				};
 			}
 			return {
@@ -1030,7 +1030,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 						),
 					},
 				],
-				details: { exitCode, stderr },
+				details: { status: failure?.kind ?? "done" },
 			};
 		},
 	});

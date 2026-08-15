@@ -40,7 +40,7 @@ those from there instead.
 
 | Surface | What it is | Use when |
 | --- | --- | --- |
-| `spawnSubagent(opts)` | Public wrapper over `WorkflowAgent.run` for one isolated child run | You are peer-extension **code** that needs a subagent (e.g. `zk_card`/`zk_ask`). Returns `{ output, exitCode, stderr, timedOut, usage? }`. |
+| `spawnSubagent(opts)` | Public wrapper over `WorkflowAgent.run` for one isolated child run | You are peer-extension **code** that needs a subagent (e.g. `zk_card`/`zk_ask`). Returns `{ output, failure?, usage?, budgetWarning? }` — `failure` absent means success, and `failure.kind` (`failed`/`timedout`/`turns`/`budget`) is the run's status. |
 | `WorkflowAgent` | The LLM caller — a thin adapter over `createAgentSession()`. Owns no HTTP/provider path. | You need lower-level control than `spawnSubagent` (streaming history, budget hooks). |
 | `spawnSubagentSubprocess(opts)` | The isolated-**process** analog of `spawnSubagent` | You need a clean child `pi` process rather than an in-process session (obsidian distill/garden, tool-gate L2 A/B). |
 | `createSubagentTool` / `createSubagentsTool` / `createSubagentRunsTool` | The `subagent`, `subagents` + `subagent_runs` tool factories | You are an extension re-hosting these tools. The package's own extension already registers them; you normally do NOT call these. |
