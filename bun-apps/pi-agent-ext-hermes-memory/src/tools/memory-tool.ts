@@ -13,9 +13,13 @@ import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { MemoryStore } from "../store/memory-store.js";
 import { formatFailureMemoryContent, normalizeFailureState } from "../store/memory-format.js";
-import type { MemoryRepository } from "../store/repository.js";
 import type { CardStore } from "../store/card-store.js";
-import { mirrorMemoryAdd, mirrorMemoryReplace, mirrorMemoryRemove } from "../store/memory-card-mirror.js";
+import {
+  mirrorMemoryAdd,
+  mirrorMemoryReplace,
+  mirrorMemoryRemove,
+  mirrorMemoryEvictions,
+} from "../store/memory-card-mirror.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pathJoin } from "node:path";
@@ -171,14 +175,6 @@ function memoryErrorResponse(error: string): { content: Array<{ type: "text"; te
   return { content: [{ type: "text", text: formatMemoryResultLine(result) }], details: result };
 }
 
-function sqliteProjectFor(rawTarget: "memory" | "user" | "project" | "failure", projectName?: string | null): string | null | undefined {
-  if (rawTarget === "project") return projectName?.trim() || null;
-  if (rawTarget === "memory") return null;
-  if (rawTarget === "user") return null;
-  if (rawTarget === "failure") return null;
-  return undefined;
-}
-
 function sqliteTargetFor(rawTarget: "memory" | "user" | "project" | "failure"): "memory" | "user" | "failure" {
   if (rawTarget === "project") return "memory";
   return rawTarget;
@@ -278,30 +274,14 @@ async function syncRemoveFromCardStore(
   }
 }
 
-async function syncEvictionsFromSqlite(
-  rawTarget: "memory" | "user" | "project" | "failure",
-  mdIds: string[] | undefined,
-  memoryRepo: MemoryRepository | null,
-  projectName?: string | null,
-): Promise<void> {
-  if (!memoryRepo) return;
-  if (!mdIds || mdIds.length === 0) return;
-
-  const sqliteTarget = sqliteTargetFor(rawTarget);
-  const sqliteProject = sqliteProjectFor(rawTarget, projectName);
-
-  for (const mdId of mdIds) {
-    try {
-      await memoryRepo.removeByMdId(mdId, {
-        target: sqliteTarget,
-        project: sqliteProject,
-      });
-    } catch {
-      // FIFO already updated the Markdown source of truth. SQLite is only a
-      // best-effort search mirror, so eviction cleanup must not fail the write.
-    }
-  }
-}
+// ── kp13 Wave C: the memory-kind DB mirror is FULLY on the bundle CardStore —
+// adds/replaces/removes via the md_id-keyed mirror helpers, and
+// eviction/offload/transfer cleanup via mirrorMemoryEvictions (deleteCard by
+// md_id; ids are globally unique so no target/project scope is needed). The
+// legacy memoryRepo.removeByMdId loop is deleted — this tool holds NO
+// memoryRepo seam anymore. md stays canonical: MemoryStore still owns
+// MEMORY.md/USER.md/failures.md. syncMemoryEntry & co stay on the repository
+// interface for sessions + non-memory uses (memory-mirror sole-source gate).
 
 // ─── Staleness audit helpers (pure logic lives in staleness.ts) ─────────────
 import { formatStalenessAudit } from "../staleness.js";
@@ -310,7 +290,6 @@ export function registerMemoryTool(
   pi: ExtensionAPI,
   store: MemoryStore,
   projectStore: MemoryStore | null,
-  memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
   cardStore: CardStore | null = null,
 ): ToolDefinition {
@@ -430,8 +409,8 @@ export function registerMemoryTool(
               // Steady-state DB-sync keys on md_id (ticket 04). evicted_md_ids
               // carries the stable frontmatter ids; offloaded_superseded is
               // ALREADY md_id-only (no archive/display consumer — destructive).
-              await syncEvictionsFromSqlite(rawTarget, result.evicted_md_ids, memoryRepo, projectName);
-              await syncEvictionsFromSqlite(rawTarget, result.offloaded_superseded, memoryRepo, projectName);
+              await mirrorMemoryEvictions(cardStore, result.evicted_md_ids);
+              await mirrorMemoryEvictions(cardStore, result.offloaded_superseded);
               // Task 7 / F1: thread the birth id so the card row's id == the
               // `.md` frontmatter id (live-in-session bridge, not just restart).
               syncWarning = await syncAddToCardStore(rawTarget, content, undefined, undefined, cardStore, result.added_md_id);
@@ -475,25 +454,13 @@ export function registerMemoryTool(
             // (Convergence moved to the knowledge-card hub — ADR-0001.
             //  Hub auto-converges hermes memory on session_shutdown.)
 
-            // Sync removal to SQLite by md_id (ticket 04: full replace, no
+            // Sync removal to the store by md_id (ticket 04: full replace, no
             // content-key fallback). writeTransferArchive above already consumed
             // the CONTENT field (transferred_entries); the DB-sync uses the
-            // parallel transferred_md_ids field.
-            const transferredMdIds = result.transferred_md_ids ?? [];
-            if (memoryRepo && transferredMdIds.length > 0) {
-              const sqliteTarget = sqliteTargetFor(rawTarget);
-              const sqliteProject = sqliteProjectFor(rawTarget, projectName);
-              for (const mdId of transferredMdIds) {
-                try {
-                  await memoryRepo.removeByMdId(mdId, {
-                    target: sqliteTarget,
-                    project: sqliteProject,
-                  });
-                } catch {
-                  // Best-effort SQLite sync only
-                }
-              }
-            }
+            // parallel transferred_md_ids field. kp13 Wave C: deleteCard by
+            // md_id via the card-store mirror (the legacy memoryRepo.removeByMdId
+            // loop is retired — per-id best-effort inside the helper).
+            await mirrorMemoryEvictions(cardStore, result.transferred_md_ids ?? []);
 
             return {
               content: [{ type: "text", text: formatTransferResult(result, archivePath) }],

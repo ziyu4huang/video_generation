@@ -122,7 +122,7 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, mockStore, null, memoryRepo);
+    registerMemoryTool(mockPi, mockStore, null);
     const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
 
     assert.strictEqual(result.content[0].type, "text", "content should be text type");
@@ -143,7 +143,7 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, mockStore, null, memoryRepo);
+    registerMemoryTool(mockPi, mockStore, null);
     const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
 
     const text = result.content[0].text;
@@ -230,7 +230,7 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, mockStore, null, memoryRepo, null, await makeCardStore());
+    registerMemoryTool(mockPi, mockStore, null, null, await makeCardStore());
     await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
 
     const cards = await cardStore.getCardsByKind("memory");
@@ -283,7 +283,7 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, mockStore, null, memoryRepo, null, await makeCardStore());
+    registerMemoryTool(mockPi, mockStore, null, null, await makeCardStore());
     const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "New entry" }, undefined as any, undefined as any, undefined as any);
 
     assert.match(result.content[0].text, /Rotated active memory entries:/);
@@ -334,7 +334,7 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, {} as MemoryStore, mockProjectStore, memoryRepo, "project-a", await makeCardStore());
+    registerMemoryTool(mockPi, {} as MemoryStore, mockProjectStore, "project-a", await makeCardStore());
     await capturedResult.execute("tc-1", { action: "add", target: "project", content: "Project replacement" }, undefined as any, undefined as any, undefined as any);
 
     const globalRows = await memoryRepo.getMemories({ target: "memory", project: null });
@@ -373,7 +373,7 @@ describe("registerMemoryTool", () => {
       },
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, {} as MemoryStore, mockProjectStore, memoryRepo, 'project-a', await makeCardStore());
+    registerMemoryTool(mockPi, {} as MemoryStore, mockProjectStore, 'project-a', await makeCardStore());
     const result = await capturedResult.execute("tc-1", { action: "add", target: "project", content: "Project entry" }, undefined as any, undefined as any, undefined as any);
 
     const parsed = result.details;
@@ -407,7 +407,7 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, mockStore, null, memoryRepo, null, failingCardStore());
+    registerMemoryTool(mockPi, mockStore, null, null, failingCardStore());
     const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
 
     const parsed = result.details;
@@ -429,7 +429,7 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, mockStore, null, memoryRepo, null, await makeCardStore());
+    registerMemoryTool(mockPi, mockStore, null, null, await makeCardStore());
     const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
     const parsed = result.details;
 
@@ -454,7 +454,7 @@ describe("registerMemoryTool", () => {
 
     const persistentFlaky = failingCardStore("disk I/O error");
 
-    registerMemoryTool(mockPi, mockStore, null, memoryRepo, null, persistentFlaky);
+    registerMemoryTool(mockPi, mockStore, null, null, persistentFlaky);
     const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry two" }, undefined as any, undefined as any, undefined as any);
     const parsed = result.details;
 
@@ -478,7 +478,7 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, mockStore, null, memoryRepo);
+    registerMemoryTool(mockPi, mockStore, null);
     const result = await capturedResult.execute(
       "tc-1",
       { action: "add", target: "memory", content: "overflow entry" },
@@ -608,7 +608,7 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, mockStore, null, memoryRepo, null, await makeCardStore());
+    registerMemoryTool(mockPi, mockStore, null, null, await makeCardStore());
     await capturedResult.execute(
       "tc-1",
       { action: "add", target: "failure", content: "boom", state: "resolved", severity: 2 },
@@ -633,7 +633,7 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, mockStore, null, memoryRepo, null, await makeCardStore());
+    registerMemoryTool(mockPi, mockStore, null, null, await makeCardStore());
     await capturedResult.execute(
       "tc-1",
       { action: "add", target: "failure", content: "boom" },
@@ -656,7 +656,7 @@ describe("registerMemoryTool", () => {
       }),
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, mockStore, null, memoryRepo, null, await makeCardStore());
+    registerMemoryTool(mockPi, mockStore, null, null, await makeCardStore());
     await capturedResult.execute(
       "tc-1",
       { action: "add", target: "failure", content: "boom", severity: 9 },
@@ -690,7 +690,7 @@ describe("registerMemoryTool", () => {
     ].join("\n"));
     await store.upsertCard(prior);
 
-    registerMemoryTool(mockPi, mockStore, null, memoryRepo, null, store);
+    registerMemoryTool(mockPi, mockStore, null, null, store);
     const result = await capturedResult.execute(
       "tc-1",
       { action: "replace", target: "failure", old_text: "boom", content: "fixed", state: "acquired" },

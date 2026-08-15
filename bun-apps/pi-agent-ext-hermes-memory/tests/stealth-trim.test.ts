@@ -27,7 +27,7 @@ function captureAll(): Record<string, Record<string, unknown>> {
 	registerSessionSearchTool(pi as never, fake, { variant: "legacy" } as never);
 	registerSessionSearchTool(pi as never, fake, { variant: "anchors" } as never);
 	registerSkillTool(pi as never, fake);
-	registerMemoryTool(pi as never, fake, null, null);
+	registerMemoryTool(pi as never, fake, null);
 	return tools;
 }
 

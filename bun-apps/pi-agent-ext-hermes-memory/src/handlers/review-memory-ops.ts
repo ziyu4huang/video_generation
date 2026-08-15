@@ -8,9 +8,13 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DIRECT_REVIEW_SYSTEM_PROMPT } from "../constants.js";
 import { MemoryStore } from "../store/memory-store.js";
 import { formatFailureMemoryContent, normalizeFailureState } from "../store/memory-format.js";
-import type { MemoryRepository } from "../store/repository.js";
 import type { CardStore } from "../store/card-store.js";
-import { mirrorMemoryAdd, mirrorMemoryReplace, mirrorMemoryRemove } from "../store/memory-card-mirror.js";
+import {
+  mirrorMemoryAdd,
+  mirrorMemoryReplace,
+  mirrorMemoryRemove,
+  mirrorMemoryEvictions,
+} from "../store/memory-card-mirror.js";
 import type { FailureState, MemoryCategory, MemoryConfig, MemoryResult, ThinkingLevel } from "../types.js";
 
 export interface ReviewMemoryOperation {
@@ -204,15 +208,6 @@ export function parseReviewOperations(text: string): ReviewMemoryOperation[] | n
   return parsed;
 }
 
-function sqliteProjectFor(
-  rawTarget: ReviewMemoryOperation["target"],
-  projectName?: string | null,
-): string | null | undefined {
-  if (rawTarget === "project") return projectName?.trim() || null;
-  if (rawTarget === "memory" || rawTarget === "user" || rawTarget === "failure") return null;
-  return undefined;
-}
-
 function sqliteTargetFor(rawTarget: ReviewMemoryOperation["target"]): "memory" | "user" | "failure" {
   return rawTarget === "user" ? "user" : rawTarget === "failure" ? "failure" : "memory";
 }
@@ -221,7 +216,10 @@ function sqliteTargetFor(rawTarget: ReviewMemoryOperation["target"]): "memory" |
 // (md_id-keyed upsert/update/delete; dedup rides upsertCard's registered
 // MemoryDedupStrategy). The legacy memoryRepo.syncMemoryEntry content-keyed
 // mirror is retired from this path; md stays canonical (MemoryStore writes the
-// .md files). Eviction cleanup (removeByMdId) stays on memoryRepo — Wave C.
+// .md files). Wave C: eviction cleanup also rides the card store
+// (mirrorMemoryEvictions — deleteCard by globally-unique md_id); the
+// memoryRepo.removeByMdId loop is deleted, so this module holds NO memoryRepo
+// seam at all.
 async function syncAdd(
   rawTarget: ReviewMemoryOperation["target"],
   content: string,
@@ -279,30 +277,10 @@ async function syncRemove(
   await mirrorMemoryRemove(cardStore, sqliteTargetFor(rawTarget), oldText);
 }
 
-async function syncEvictions(
-  rawTarget: ReviewMemoryOperation["target"],
-  mdIds: string[] | undefined,
-  memoryRepo: MemoryRepository | null,
-  projectName?: string | null,
-): Promise<void> {
-  if (!memoryRepo || !mdIds?.length) return;
-  for (const mdId of mdIds) {
-    try {
-      await memoryRepo.removeByMdId(mdId, {
-        target: sqliteTargetFor(rawTarget),
-        project: sqliteProjectFor(rawTarget, projectName),
-      });
-    } catch {
-      // best effort
-    }
-  }
-}
-
 export async function applyReviewOperations(
   store: MemoryStore,
   projectStore: MemoryStore | null,
   operations: ReviewMemoryOperation[],
-  memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
   cardStore: CardStore | null = null,
 ): Promise<ApplyReviewOperationsResult> {
@@ -342,11 +320,11 @@ export async function applyReviewOperations(
         } else {
           result = await activeStore.add(memoryTarget, op.content);
           if (result.success) {
-            await syncEvictions(rawTarget, result.evicted_md_ids, memoryRepo, projectName);
+            await mirrorMemoryEvictions(cardStore, result.evicted_md_ids);
             // D2+D4: superseded entries purged from `.md` by the offload-first
             // overflow path must also have their DB rows deleted (destructive,
             // no audit). offloaded_superseded is md_id-only (ticket 04).
-            await syncEvictions(rawTarget, result.offloaded_superseded, memoryRepo, projectName);
+            await mirrorMemoryEvictions(cardStore, result.offloaded_superseded);
             await syncAdd(rawTarget, op.content, undefined, undefined, cardStore, result.added_md_id);
             appliedCount++;
           } else {
@@ -406,7 +384,6 @@ export async function runDirectBackgroundReview(
   store: MemoryStore,
   projectStore: MemoryStore | null,
   options: RunDirectBackgroundReviewOptions,
-  memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
   cardStore: CardStore | null = null,
 ): Promise<DirectReviewResult> {
@@ -468,7 +445,6 @@ export async function runDirectBackgroundReview(
       store,
       projectStore,
       operations,
-      memoryRepo,
       projectName,
       cardStore,
     );

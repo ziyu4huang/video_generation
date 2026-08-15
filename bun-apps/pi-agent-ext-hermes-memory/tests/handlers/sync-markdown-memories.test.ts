@@ -87,7 +87,7 @@ describe('memory sqlite sync + markdown backfill', () => {
       }),
     } as any;
 
-    registerMemoryTool(mockPi, mockStore, null, memoryRepo, null, await makeCardStore());
+    registerMemoryTool(mockPi, mockStore, null, null, await makeCardStore());
 
     await capturedTool.execute(
       'tc-1',

@@ -8,6 +8,10 @@ import { walkKnowledgeSources, type WalkOptions } from "./knowledge-walk.js";
 import { parseKnowledgeJsonl } from "./knowledge-jsonl.js";
 import { hasMergeConflictMarkers } from "./git-ops.js";
 import { AGENT_ROOT } from "./paths.js";
+import { MEMORY_FILE, USER_FILE } from "./constants.js";
+import { splitMemoryEntries } from "./merge-union.js";
+import { parseMarkdownMemoryEntry } from "./store/memory-format.js";
+import { mirrorMemoryEntry, type MemoryCardKind } from "./store/memory-card-mirror.js";
 import { createCardStore, type CardStore } from "./store/card-store.js";
 import type { CardKind } from "./store/card.js";
 import type { VectorStore } from "./store/surreal/vector-store.js";
@@ -111,6 +115,11 @@ export interface WalkAndIngestReceipt {
   /** # of planning-cards mirrored into the card-store (Phase-2 / 08; 0 when
    *  no .planning/ source is walked). Independent of the zk seam. */
   planningMirrored: number;
+  /** # of memory §-entries re-indexed into the card-store (kp13 Wave C /
+   *  ticket 13 — Tier-1 md-wins mirror of the GLOBAL MEMORY.md / USER.md /
+   *  failures.md; counts INSERT+UPDATE, skips excluded). Independent of the
+   *  zk seam and of the walked input (fixed memory-dir location). */
+  memoryMirrored: number;
   /** Effort ids whose md carries a conflict marker (scanned in T5). Empty in
    *  T3 — the field is reserved NOW so T5 is a pure populate-change. */
   conflictMarkerEfforts: string[];
@@ -227,6 +236,15 @@ export async function walkAndIngest(
     await reconcilePlanningDeletions(walk.files.planning, opts.memoryDir);
   }
 
+  // 8d. Memory DB-mirror (kp13 Wave C / ticket 13) — Tier-1 md-wins re-index of
+  // the GLOBAL memory md. Runs UNCONDITIONALLY (like the planning mirror): the
+  // 3 files live at a FIXED known location (the memory dir — NOT inside any
+  // walked input), so this needs no walk classification and no zk seam; it also
+  // runs in planningOnly mode, which makes the session-start planning backfill
+  // the Tier-1 re-index trigger for direct md edits. Idempotent (identity-
+  // compare skip on unchanged entries).
+  const memoryMirrored = await mirrorMemoryToStore(opts.memoryDir);
+
   // Phase B / T3: best-effort delta-keyed vector backfill. Fire-and-forget —
   // never blocks ingest. The deferred task re-checks the staleness delta and
   // embeds only changed/new cards (unchanged cards are skipped). A throw is
@@ -241,12 +259,16 @@ export async function walkAndIngest(
 
   // 10. Receipt.
   if (!kp && walk.files.planning.length === 0) {
+    // No zk seam AND no planning source. The memory mirror (8d) still ran —
+    // its count is reported truthfully; ok:false describes the walk's INPUT
+    // families (seam + planning), not the memory side-step.
     return {
       ok: false,
       vaultPath,
       folder,
       mirrored: 0,
       planningMirrored: 0,
+      memoryMirrored,
       driftStub: { filesHashed: 0, currentHashes: {} },
       skipped: walk.skipped,
       seamPresent: false,
@@ -262,6 +284,7 @@ export async function walkAndIngest(
     heal,
     mirrored,
     planningMirrored,
+    memoryMirrored,
     conflictMarkerEfforts,
     driftStub: {
       filesHashed: Object.keys(currentHashes).length,
@@ -436,6 +459,78 @@ async function mirrorPlanningToStore(
     await store.close();
   }
   return { planningMirrored, conflictMarkerEfforts };
+}
+
+/** Mirror step 8d (kp13 Wave C / ticket 13): Tier-1 md-wins re-index of the
+ *  GLOBAL memory md into the card-store. For each of MEMORY.md (kind memory),
+ *  USER.md (kind user), failures.md (kind failure) in the memory dir: split
+ *  §-entries → parseMarkdownMemoryEntry (the SAME parse the sync-markdown
+ *  startup pass uses) → mirrorMemoryEntry (the shared md_id-keyed identity-
+ *  compare primitive): no card for the id → INSERT through the registered
+ *  MemoryDedupStrategy; content OR envelope drifted (the md was edited
+ *  directly — md wins) → updateCard (UPDATE in place, id stable); identical →
+ *  skip. Entries without a stable id (comment-shape, pre-5d) are no-ops —
+ *  they mirror once the 5d backfill upgrades them (lazy, same as startup).
+ *
+ *  Hash-compare mechanism (deliberate divergence from the planning mirror):
+ *  an IN-MEMORY identity compare — getCard + content/frontmatter equality —
+ *  NOT planning's `card_md_hash` rows: those accessors are SQLITE_ONLY on the
+ *  CardPersistence seam (Wave A decision), so a hash-row-based memory mirror
+ *  would break the moment the mirror runs against a surreal-backed store. The
+ *  identity compare calls only dual-backend methods (getCard/upsertCard/
+ *  updateCard) and behaves identically on sqlite and surreal. The walk itself
+ *  opens the same short-lived sqlite-backed store the planning/knowledge
+ *  mirrors use (createCardStore({memoryDir})); the primitive is backend-
+ *  agnostic if a future caller passes the bundle store.
+ *
+ *  Scope (ticket 13 / plan 13-three-waves.md Wave C):
+ *  - GLOBAL files only. In-repo project memory (`.agents/memory/MEMORY.md`)
+ *    stays walk-deferred (walkKnowledgeSources deferredFamily) — its Tier-1
+ *    walk re-index is ticket 21. The startup pass covers it via
+ *    inRepoProjectFile today.
+ *  - NO delete reconciliation here: md removals flow through the writer-path
+ *    remove/eviction mirrors (mirrorMemoryRemove / mirrorMemoryEvictions).
+ *    Tier-2 derived-cache + Tier-3 are ticket 21.
+ *  - Gating: UNCONDITIONAL like the planning mirror (fixed location, ≤3 files,
+ *  idempotent, no VLM/cost concern — unlike images' opt-in includeImages).
+ *  Absent files (nothing written yet) are no-ops. Returns the # of entries
+ *  INSERTed or UPDATEd (skips excluded). */
+const MEMORY_MIRROR_FILES: ReadonlyArray<{ file: string; kind: MemoryCardKind }> = [
+  { file: MEMORY_FILE, kind: "memory" },
+  { file: USER_FILE, kind: "user" },
+  { file: "failures.md", kind: "failure" },
+];
+
+async function mirrorMemoryToStore(memoryDir?: string): Promise<number> {
+  const dir = memoryDir ?? join(AGENT_ROOT, "pi-hermes-memory");
+  const store = await createCardStore({ memoryDir: dir });
+  let memoryMirrored = 0;
+  try {
+    for (const { file, kind } of MEMORY_MIRROR_FILES) {
+      let bytes = "";
+      try {
+        bytes = readFileSync(join(dir, file), "utf8");
+      } catch {
+        continue; // file absent (nothing written yet) → no-op for this kind
+      }
+      for (const rawEntry of splitMemoryEntries(bytes)) {
+        const parsed = parseMarkdownMemoryEntry(rawEntry, kind, null);
+        const outcome = await mirrorMemoryEntry(store, kind, {
+          mdId: parsed.mdId,
+          content: parsed.content,
+          created: parsed.created ?? null,
+          last: parsed.lastReferenced ?? null,
+          ...(parsed.state ? { state: parsed.state } : {}),
+          ...(typeof parsed.severity === "number" ? { severity: parsed.severity } : {}),
+          ...(parsed.pin === true ? { pin: true } : {}),
+        });
+        if (outcome === "inserted" || outcome === "updated") memoryMirrored++;
+      }
+    }
+  } finally {
+    await store.close();
+  }
+  return memoryMirrored;
 }
 
 /** Mirror step 8c (Phase-2 / 09-impl): md-wins delete reconciliation. Given the

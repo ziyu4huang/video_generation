@@ -22,10 +22,10 @@ Execute the graduation milestone decided in ticket 05: move hermes's existing se
 
 ## Acceptance
 
-- [ ] Existing memory-cards round-trip into the unified store with no content loss (§-entries ↔ `kind: memory` cards).
-- [ ] hermes read/write/query/dedup work against the unified store (no legacy memory-only path in the hot path).
-- [ ] A knowledge-card edit and a memory-card edit both flow through the same md→db re-index + derived-cache regeneration (Tier 1 + Tier 2).
-- [ ] `bun test` green for hermes-memory + the store layer; the live memory system shows no regression.
+- [x] Existing memory-cards round-trip into the unified store with no content loss (§-entries ↔ `kind: memory` cards).
+- [x] hermes read/write/query/dedup work against the unified store (no legacy memory-only path in the hot path).
+- [x] A knowledge-card edit and a memory-card edit both flow through the same md→db re-index + derived-cache regeneration (Tier 1 + Tier 2).
+- [x] `bun test` green for hermes-memory + the store layer; the live memory system shows no regression.
 
 ## Notes
 
@@ -46,4 +46,4 @@ Execute the graduation milestone decided in ticket 05: move hermes's existing se
 ## Wave status
 - **A SHIPPED (#1363, 2026-08-15)**: card-store dual-backend (surreal via SurrealMemoryRepository, C6 dedup rides; md/dep-hash SQLITE_ONLY documented) + BackendBundle.cardStore (both branches + fallback + hot-swap). Review SHIP 9/9; 1614 tests green, surreal live 8/8.
 - **B SHIPPED (#1372, 2026-08-15)**: all memory-kind mirrors re-pointed to bundle cardStore via new `memory-card-mirror.ts` (add/replace/remove/entry; serializer-registry envelopes, no hand-rolled); sync-markdown startup = lazy re-migration (idempotent, md_id-keyed, real-cardStore tested); delete-by-md-id surfaced + exercised; memory-mirror sole-source grep gate. Runaway-dispatch salvage: payload verified clean. Review SHIP 10/10; 1625 tests green, surreal contract 45/0 live. md-canonical untouched (memory-store.ts zero diff).
-- C (Tier-1 walk mirror + legacy deletion + harness) — next.
+- **C SHIPPED (this PR, 2026-08-15)**: Tier-1 memory walk mirror (md-wins hash/identity compare); legacy dormant mirror helpers deleted; acceptance harness added. Ticket 13 COMPLETE pending review+merge.

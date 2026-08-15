@@ -36,10 +36,11 @@ const WRITER_FILES = [
 ];
 
 /** A live call site: `repo.syncMemoryEntry(`, `.replaceSyncedMemories(`, … —
- *  comment/doc mentions are allowed (they document the retirement). */
-const LIVE_CALL = /\.(syncMemoryEntry|replaceSyncedMemories|removeSyncedMemories|syncMemoryEntriesBatch)\s*\(/;
+ *  comment/doc mentions are allowed (they document the retirement). Wave C
+ *  adds `removeByMdId` (the retired eviction seam). */
+const LIVE_CALL = /\.(syncMemoryEntry|replaceSyncedMemories|removeSyncedMemories|syncMemoryEntriesBatch|removeByMdId)\s*\(/;
 
-describe("memory-mirror sole-source gate (kp13 Wave B)", () => {
+describe("memory-mirror sole-source gate (kp13 Wave B + Wave C)", () => {
   for (const rel of WRITER_FILES) {
     it(`${rel}: no live legacy sync* mirror calls`, () => {
       const src = readFileSync(join(pkgRoot, rel), "utf-8");
