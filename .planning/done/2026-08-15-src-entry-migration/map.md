@@ -1,5 +1,5 @@
 ---
-status: active
+status: complete
 ---
 # Src-entry migration — kill the stale-dist class at the root
 
@@ -35,7 +35,12 @@ by explicit decision. Landed per-package with canonical tests + cross-package ty
 - [workflow + consumers](tickets/04-workflow-consumers.md) — the blast-radius package
   flipped; postinstall heal deleted; all bare-spec consumers (pi-agent CLI, movie-director)
   green with dist/ deleted; mock-bypass deep import in workflow-command.test.ts correctly
-  KEPT (it dodges mock.module, not dist).
+  KEPT (it dodges mock.module, not dist). PR #1403, squash `aeff501b`. Consumer tail swept:
+  boot-smoke prebuild, ci-matrix expectations, flux2's deep `dist/workflow.js` import (the
+  last dist consumer anywhere).
+- [Retire the machinery](tickets/05-retire-machinery.md) — boot heal patch + staleness
+  walkers + env knob deleted; `distEntryMain` survives as the tripwire gate's predicate;
+  `test:dist` keeps guarding zero-dist-roots. Effort complete.
 
 ## Not yet specified
 
