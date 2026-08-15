@@ -59,6 +59,7 @@ function makeSection(getViews: () => RunView[]) {
 		},
 		setInterval: noopInterval,
 		clearInterval: noopClearInterval,
+		bell: () => {},
 	});
 	return { handle, renders: () => renders };
 }
@@ -131,6 +132,30 @@ describe("subagents section (order 4)", () => {
 		tick?.(); // 1 view → render requested (live elapsed ticks)
 		expect(renders).toBe(1);
 		handle.dispose();
+	});
+
+	describe("SubagentNotify integration (Task 02)", () => {
+		test("completion between ticks renders a transient notify line that fades next render", () => {
+			let views: RunView[] = [fakeView()];
+			const { handle } = makeSection(() => views);
+			handle.section.render(plainTheme, 100); // tick 1: running
+			views = [fakeView({ status: "done", elapsedMs: 12_300, elapsedFrozen: true, latestAction: "Wrote report" })];
+			const out = handle.section.render(plainTheme, 100); // tick 2: completion observed
+			expect(out[0]).toContain("researcher");
+			expect(out[0]).toContain("12s");
+			expect(out[0]).toContain("Wrote report");
+			const out2 = handle.section.render(plainTheme, 100); // tick 3: faded
+			expect(out2[0]).toBe(" 1 background run");
+		});
+
+		test("no notify line while runs stay running", () => {
+			const views = [fakeView()];
+			const { handle } = makeSection(() => views);
+			handle.section.render(plainTheme, 100);
+			handle.section.render(plainTheme, 100);
+			const out = handle.section.render(plainTheme, 100);
+			expect(out[0]).toBe(" 1 background run");
+		});
 	});
 
 	test("dispose stops the refresh timer", () => {
