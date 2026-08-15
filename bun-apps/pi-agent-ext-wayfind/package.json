@@ -4,40 +4,28 @@
   "version": "0.1.0",
   "description": "Pi-native port of Matt Pocock's decision-chain skill suite — grilling (relentless one-question-at-a-time interview), grill-me-with-docs (grilling + domain-modeling: writes CONTEXT.md glossary + ADRs inline), domain-modeling, wayfinder (chart a huge effort as a local-markdown map of decision tickets), to-spec, and to-tickets. Ships as a Layer-3 Pi extension: CSO-compliant skills + slash commands that kick off grilling/wayfinding sessions, and hands off resolved decisions -> a task_plan.md seed. Pure TypeScript, no Python, no shell scripts.",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "publishConfig": {
-    "access": "public"
-  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
     },
     "./src/*": "./src/*",
     "./extensions/*": "./extensions/*"
   },
-  "files": [
-    "dist/",
-    "extensions/",
-    "procedures/",
-    "src/",
-    "skills/",
-    "README.md"
-  ],
   "scripts": {
-    "test": "bun run check && bun run build && bun run test:unit",
+    "test": "bun run check && bun run test:unit",
     "test:unit": "bun test",
     "typecheck": "tsc --noEmit",
     "check": "biome check .",
     "format": "biome format --write .",
     "lint": "biome lint .",
-    "build": "bun run architecture:vendor && bunx tsc",
     "dev": "tsx src/index.ts",
     "architecture:render": "bun run src/architecture-render.ts",
     "architecture:vendor": "bun run scripts/vendor-mermaid.ts",
     "architecture:css": "bunx @tailwindcss/cli -i src/architecture.css -o vendor/tailwind.css --minify",
-    "prepublishOnly": "bun run build"
+    "pretest": "bun run architecture:vendor"
   },
   "keywords": [
     "pi-package",

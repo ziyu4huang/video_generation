@@ -4,33 +4,21 @@
   "version": "6.1.1",
   "description": "Pi-native port of Superpowers (Primer Radiant) — a complete software-development methodology built on 14 composable skills (brainstorming, writing-plans, executing-plans, subagent-driven-development, test-driven-development, systematic-debugging, requesting/receiving-code-review, verification-before-completion, finishing-a-development-branch, using-git-worktrees, dispatching-parallel-agents, writing-skills, using-superpowers). Ships as a Layer-3 Pi extension: CSO-compliant skills discovered via resources_discover + a using-superpowers bootstrap that is injected into context on session_start/session_compact until the first agent_end, mirroring the upstream .pi/extensions/superpowers.ts. Skills ported verbatim from the upstream repo; only the Pi extension wrapper is this package's own code. Pure TypeScript, no Python, no shell scripts of its own (skill resource scripts are upstream assets kept byte-identical).",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "publishConfig": {
-    "access": "public"
-  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
     }
   },
-  "files": [
-    "dist/",
-    "extensions/",
-    "src/",
-    "skills/",
-    "README.md"
-  ],
   "scripts": {
-    "test": "bun run check && bun run build && bun run test:unit",
+    "test": "bun run check && bun run test:unit",
     "test:unit": "bun test",
     "check": "biome check .",
     "format": "biome format --write .",
     "lint": "biome lint .",
-    "build": "bunx tsc",
-    "dev": "tsx src/index.ts",
-    "prepublishOnly": "bun run build"
+    "dev": "tsx src/index.ts"
   },
   "keywords": [
     "pi-package",
