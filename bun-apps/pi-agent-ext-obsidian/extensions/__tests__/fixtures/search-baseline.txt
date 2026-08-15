@@ -1,6 +1,6 @@
 # obsidian_search baseline (real submodule vault — drifts on content growth)
-Generated: 2026-07-18T13:08
-Vault note count: 2185
+Generated: 2026-08-15T14:57
+Vault note count: 2327
 
 Real-vault snapshot (NOT the contract). This legitimately drifts whenever
 notes are added/removed; baseline.test.mjs is skip-gated on submodule
@@ -189,7 +189,7 @@ Tags/Index.md:54: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Tags/Index.md:76: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Tags/Index.md:245: - [[Design/pi-Obsidian Package]]
 Tags/Index.md:254: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Knowledge Graph.md:1877: - [[Obsidian Tools Testing Gap]]
+Tags/Knowledge Graph.md:2003: - [[Obsidian Tools Testing Gap]]
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:8: # Agent Knowledge — Obsidian Integration
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:11: - 把 agent skill 與 Obsidian 透過 `pi-obsidian` extension 結合：用 `obsidian_append` 記錄決策、`obsidian_create` 產生 Zettelkasten 筆記、`sync-mcp.sh` 同步遠近端 vault，是整個知識庫的上層概念卡。
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:14: This note explores how to integrate Agent skills with Obsidian via the `pi-obsidian` extension.
@@ -219,8 +219,8 @@ Zettelkasten/knowledge-graph/Unified_Knowledge_Convergence.md:11: - 透過將分
 Zettelkasten/knowledge-graph/Unified_Knowledge_Convergence.md:14: - 將原本分散的 5 個知識池（包含多個工作流的 `.knowledge.jsonl`、Hermes、Obsidian vault、kcard vault、MEMORY.md）轉換為單一的知識圖譜。
 Zettelkasten/knowledge-graph/_archive/hermes-next-goal-naming-sop-ai-written-goal-notes-live-in-repo_root-output-not-..md:16: next-goal-naming SOP — AI-written goal notes live in `<REPO_ROOT>/output/` (NOT .output/, NOT bun-apps/pi-agent/goals/, NOT repo root, NOT the Obsidian vault — vault is knowledge/Zettelkasten only). Canonical filename: `next-goal-YYYYMMDD_HHMMSS.md` (8-digit date, UNDERSCORE separator, 6-digit time WITH seconds, local time; never dash, never omit seconds). Planning/goal docs belong in output/; keep only 10 newest. Enforce both rules via idempotent `bash scripts/tidy-next-goals.sh [KEEP=10]` (bash 3.2-safe, sorts by fixed-width name so lex order==recency). These are AI artifacts, gitignored under /output/.
 Zettelkasten/knowledge-graph/auto-memory-pi-obsidian-vault-distilled.md:26: 2. **Tier 2 auto-follow** — the vault currently `open: true` in Obsidian app's `obsidian.json`.
-Zettelkasten/knowledge-graph/gotcha-resolvevault-tier2-app-fallback.md:16: # resolveVault Tier-2 reads the Obsidian app open vault — can't fail deterministically in tests
-Zettelkasten/knowledge-graph/gotcha-resolvevault-tier2-app-fallback.md:19: > [!warning] pi-obsidian's resolveVault(cwd) has a Tier-2 fallback that resolves the REAL open Obsidian app vault.
+Zettelkasten/knowledge-graph/distill-memory-obsidian-banner-shows-full-resolved-vault-path.md:17: The Obsidian vault session_start banner now shows the full resolved path (`v.path`) instead of the folder basename (`v.name`), matching obsidian_status and /obsidian-config behavior. Change is in extensions/obsidian.ts scheduleVaultBanner call site.
+Zettelkasten/knowledge-graph/distill-user-obsidian-vault-root-personal-dotpi.md:14: # Obsidian default vault root is personal, stored in ~/.pi, strict priority over project config
 
 ### tag-like inline token [SUBSTRING-DEFAULT]
 query="#tag"

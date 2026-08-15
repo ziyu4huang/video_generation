@@ -67,7 +67,14 @@ export interface DockFocusClaim {
 export function createDockFocusClaim(deps: DockFocusClaimDeps): DockFocusClaim {
 	const windowMs = deps.entryWindowMs ?? DEFAULT_ENTRY_WINDOW_MS;
 	const so = deps.setTimeout ?? setTimeout;
-	const ct = deps.clearTimeout ?? clearTimeout;
+	// The seam types the timers as `unknown` so tests can inject fake handles
+	// (dock-claim.test.ts injects a number-returning setTimeout). The global
+	// clearTimeout is strictly typed (string | number | Timer), so union-ing it
+	// with the seam's `(handle: unknown) => void` makes `ct(windowHandle)` fail
+	// to typecheck when the handle is unknown. Wrap the default to the seam's
+	// signature instead — the cast is a type-level shim: the handle is whatever
+	// the real setTimeout produced, which clearTimeout accepts at runtime.
+	const ct = deps.clearTimeout ?? ((handle: unknown) => clearTimeout(handle as Parameters<typeof clearTimeout>[0]));
 	const focus = createDockFocus(() => deps.getViews().length);
 	let focused = false;
 	let prefixArmed = false;

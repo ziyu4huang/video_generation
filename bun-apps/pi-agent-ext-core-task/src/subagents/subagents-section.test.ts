@@ -198,8 +198,8 @@ describe("subagents section (order 4)", () => {
 			// 20 unpaired toolCalls → 20 `→ …` lines + 1 progress line = 21 trace lines;
 			// capTraceTail(21, STREAMING_EXPANDED_TAIL=16) → "…" + last 16 = 17 lines.
 			const history = Array.from({ length: 20 }, (_, i) => ({
-				role: "assistant",
-				kind: "toolCall",
+				role: "assistant" as const,
+				kind: "toolCall" as const,
 				text: "",
 				toolName: "read",
 				toolCallId: `t${i}`,
