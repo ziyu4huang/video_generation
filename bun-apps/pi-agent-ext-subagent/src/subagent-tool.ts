@@ -478,7 +478,12 @@ export function createSubagentTool(
       // component's render(width) at the REAL terminal width — ticket 01's
       // width-aware helpers re-flow on resize for free. The closure swap on
       // the reused lastComponent mirrors the old text.setText pattern.
-      component.setComposer((width) => renderSubagentCall({ ...args, modelSeg: v?.modelSeg }, theme, width));
+      // Root-cause hotfix: the host streams call args incrementally
+      // (`message_update` → updateArgs) and an abort can freeze them partial,
+      // so `args.task` may be undefined here — never forward a missing task.
+      component.setComposer((width) =>
+        renderSubagentCall({ ...args, task: args?.task ?? "", modelSeg: v?.modelSeg }, theme, width),
+      );
       return component;
     },
     renderResult(result, renderOptions, theme, context) {

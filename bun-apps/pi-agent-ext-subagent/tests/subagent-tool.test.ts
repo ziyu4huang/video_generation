@@ -712,6 +712,42 @@ test("renderSubagentCall header uses workIntentPreview — strips Working dir pr
   assert.ok(!String(out).includes("Working dir"));
 });
 
+// ── hotfix: undefined-task tolerance (partial streamed call args) ──
+test("taskPreview/workIntentPreview tolerate an undefined/null task — no throw, empty preview", () => {
+  assert.doesNotThrow(() => taskPreview(undefined as unknown as string, 60, 80));
+  assert.equal(taskPreview(undefined as unknown as string, 60, 80), "");
+  assert.equal(taskPreview(null as unknown as string), "");
+  assert.doesNotThrow(() => workIntentPreview(undefined as unknown as string, 60, 80));
+  assert.equal(workIntentPreview(undefined as unknown as string, 60, 80), "");
+  assert.equal(workIntentPreview(null as unknown as string), "");
+});
+
+test("renderSubagentCall with a task-less args object keeps the header segments, no throw", () => {
+  let out = "";
+  assert.doesNotThrow(() => {
+    out = renderSubagentCall({ agent: "implementer", tier: "medium", task: undefined as unknown as string }, T);
+  });
+  assert.match(out, /subagent/);
+  assert.match(out, /implementer/);
+  assert.match(out, /tier:medium/);
+  assert.ok(!out.includes("undefined"), "no leaked 'undefined' text in the preview slot");
+});
+
+test("renderCall wiring with a task-less call object renders, no throw (partial streamed args repro)", () => {
+  const tool = createSubagentTool({});
+  const comp = tool.renderCall?.({ agent: "implementer", tier: "medium" } as never, T, {
+    toolCallId: "tc-partial-args",
+  } as never);
+  assert.ok(comp instanceof ComposerComponent);
+  let lines: string[] = [];
+  assert.doesNotThrow(() => {
+    lines = comp.render(80);
+  });
+  assert.match(lines.join("\n"), /implementer/, "agent segment survives");
+  assert.match(lines.join("\n"), /tier:medium/, "model slot survives");
+  assert.ok(!lines.join("\n").includes("undefined"), "no leaked 'undefined' text");
+});
+
 // ── formatSubagentProgress (onHistory → progress-line rendering) ──
 test("formatSubagentProgress on empty history shows the '…' placeholder", () => {
   const out = formatSubagentProgress([], 0);

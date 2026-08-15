@@ -336,7 +336,7 @@ export function renderSubagentCall(
   if (args.modelSeg && args.modelSeg !== slot) {
     parts.push(theme.fg("muted", args.modelSeg));
   }
-  parts.push(theme.fg("dim", `"${workIntentPreview(args.task, 60, width)}"`));
+  parts.push(theme.fg("dim", `"${workIntentPreview(args.task ?? "", 60, width)}"`));
   return parts.join(" ▸ ");
 }
 
