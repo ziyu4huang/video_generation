@@ -73,7 +73,7 @@ EOF
 
 usage() {
   cat <<'EOF'
-Usage: ./build.sh [--install <profile>] [--check-patch] [--no-tests]
+Usage: ./build.sh [--install <profile>] [--check-patch [profile]] [--no-tests]
 
   (default)        full build: native tests, wasm build, wasm + plugin tests, pack
   --install <p>    after packing, install the tarball into dsh profile <p>
@@ -124,14 +124,20 @@ step_pack() {
   say "5/6 packing self-contained plugin tarball"
   mkdir -p "$DIST_DIR"
   rm -f "$DIST_DIR"/dsh-sv-analyzer-*.tgz
-  (cd "$PLUGIN_DIR" && npm pack --pack-destination "$DIST_DIR" >/dev/null)
+  # A scratch npm cache keeps packing hermetic: a user-level cache with
+  # root-owned files (a known old-npm artifact) must not break the build.
+  local scratch_cache
+  scratch_cache="$(mktemp -d)"
+  (cd "$PLUGIN_DIR" && npm pack --cache "$scratch_cache" --pack-destination "$DIST_DIR" >/dev/null)
+  rm -rf "$scratch_cache"
   say "   $(ls "$DIST_DIR")"
 }
 
 step_check_patch() {
-  say "6/6 validating bundle patch layer against dsh"
+  local profile="$1"
+  say "6/6 validating bundle patch layer against dsh profile '$profile'"
   command -v dsh >/dev/null || fail "--check-patch needs the dsh CLI on PATH"
-  dsh --profile web --dump-config --patch "$PLUGIN_DIR/cordis.patch.yml" >/dev/null \
+  dsh --profile "$profile" --dump-config --patch "$PLUGIN_DIR/cordis.patch.yml" >/dev/null \
     && say "   patch layer composes cleanly" \
     || fail "patch layer failed to compose (see output above)"
 }
@@ -147,12 +153,15 @@ step_install() {
 
 INSTALL_PROFILE=""
 CHECK_PATCH=0
+CHECK_PATCH_PROFILE="web"
 RUN_TESTS=1
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --install) INSTALL_PROFILE="${2:?--install needs a profile name}"; shift 2 ;;
-    --check-patch) CHECK_PATCH=1; shift ;;
+    --check-patch)
+      CHECK_PATCH=1; shift
+      if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then CHECK_PATCH_PROFILE="$1"; shift; fi ;;
     --no-tests) RUN_TESTS=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) fail "unknown argument: $1 (see --help)" ;;
@@ -171,7 +180,7 @@ fi
 step_pack
 
 if [[ "$CHECK_PATCH" == "1" ]]; then
-  step_check_patch
+  step_check_patch "$CHECK_PATCH_PROFILE"
 fi
 if [[ -n "$INSTALL_PROFILE" ]]; then
   step_install "$INSTALL_PROFILE"

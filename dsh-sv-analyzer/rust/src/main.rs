@@ -1,9 +1,9 @@
 //! WASM (wasm32-wasip1) entry point for the DSH sv-analyzer.
 //!
-//! The `tree-sitter` crate on wasm targets imports its C API (`ts_*`,
-//! `tree_sitter_*`) from the `env` module, so the runtime pairs this module
-//! with a sibling `env-provider.wasm` (tree-sitter C library + both grammar
-//! parsers) that satisfies those imports.
+//! The module is fully self-contained: the tree-sitter C library and both
+//! grammar parsers are linked in at build time (see rust/.cargo/config.toml),
+//! so the only imports are the WASI std surface — no `env` module, no
+//! sibling provider module.
 //!
 //! ABI (all exports, no stdio): the host calls
 //!   `alloc(len) -> ptr`        allocate a request buffer,
@@ -14,6 +14,10 @@
 //!
 //! Request:  `{ "op": "analyze" | "ast" | "version", "code": "...", ... }`
 //! Response: `{ "ok": true, "data": ... } | { "ok": false, "error": "..." }`
+//!
+//! The `ast` op returns a slim payload (parse status + the tree + truncation
+//! flags only): tree dumps are already large, so the design summary that
+//! `analyze` also computes is dropped on the floor for this op.
 
 #![allow(static_mut_refs)] // single-threaded wasm; RESPONSE is never aliased
 
@@ -55,7 +59,17 @@ fn dispatch(req_bytes: &[u8]) -> Vec<u8> {
                     max_errors: req.max_errors.unwrap_or(50),
                 };
                 match analyze(&ar) {
-                    Ok(result) => json!({ "ok": true, "data": result }),
+                    Ok(result) => json!({
+                        "ok": true,
+                        "data": {
+                            "dialect": result.dialect,
+                            "parse_ok": result.parse_ok,
+                            "error_count": result.error_count,
+                            "issues_truncated": result.issues_truncated,
+                            "ast_truncated": result.ast_truncated,
+                            "ast": result.ast,
+                        }
+                    }),
                     Err(e) => json!({ "ok": false, "error": e }),
                 }
             }

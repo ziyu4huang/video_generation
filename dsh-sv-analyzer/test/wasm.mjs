@@ -69,11 +69,50 @@ assert(broken.ok === true, 'broken source still returns ok')
 assert(broken.data.parse_ok === false, 'broken source parse_ok=false')
 assert(broken.data.error_count >= 1, `issues reported (${broken.data.error_count})`)
 
-// --- ast op --------------------------------------------------------------
+// --- issue cap semantics ---------------------------------------------------
+// error_count is the TRUE total; `issues` is capped (default 50) and
+// issues_truncated says so. NOTE: the space in `$$$bad {i}` matters —
+// without it tree-sitter merges the garbage into one ERROR node.
+console.log('analyze op (issue cap semantics)')
+let junk = 'module m;\n'
+for (let i = 0; i < 300; i++) junk += `$$$bad ${i} ;;\n`
+junk += 'endmodule\n'
+const capped = await analyzer.call({ op: 'analyze', code: junk, dialect: 'systemverilog' })
+assert(capped.ok === true, 'junk source returns ok')
+assert(capped.data.issues.length <= 50, `issues list capped (${capped.data.issues.length})`)
+assert(capped.data.error_count > capped.data.issues.length, 'error_count is the true total')
+assert(capped.data.issues_truncated === true, 'issues_truncated flags the cap')
+
+// --- deep nesting must not trap --------------------------------------------
+// Guards: MAX_WALK_DEPTH caps the walkers; the 8 MiB wasm stack (link flag)
+// carries tree-sitter's own C recursion. 20k nested parens trapped the
+// original 1 MiB-stack build.
+console.log('analyze op (deep nesting does not trap)')
+const depth = 20000
+const deep =
+  'module m;\nassign x = ' + '('.repeat(depth) + '1' + ')'.repeat(depth) + ';\nendmodule\n'
+const deepRes = await analyzer.call({ op: 'analyze', code: deep, dialect: 'systemverilog' })
+assert(deepRes.ok === true, 'deeply nested input returns ok (no stack trap)')
+
+// --- ast op: slim payload + truncation flag --------------------------------
 console.log('ast op')
 const ast = await analyzer.call({ op: 'ast', code: 'module m; endmodule', dialect: 'auto' })
 assert(ast.ok === true, 'ast returns ok')
 assert(ast.data.ast?.type === 'source_file', 'ast root is source_file')
+assert(!('design_units' in ast.data), 'ast op payload has no design_units')
+assert(!('stats' in ast.data), 'ast op payload has no stats')
+
+console.log('ast op (truncation flag)')
+let many = ''
+for (let i = 0; i < 6000; i++) many += `module u${i};\nwire w${i};\nassign w${i} = 1'b0;\nendmodule\n`
+const bigAst = await analyzer.call({ op: 'ast', code: many, dialect: 'systemverilog' })
+assert(bigAst.ok === true, 'big ast returns ok')
+assert(bigAst.data.ast_truncated === true, 'ast_truncated set when node budget is hit')
+
+// --- ast omitted when not requested (output.schema compat) ----------------
+console.log('analyze op (ast key omitted unless requested)')
+const plain = await analyzer.call({ op: 'analyze', code: 'module m; endmodule' })
+assert(!('ast' in plain.data), 'no null ast key when include_ast is unset')
 
 // --- error path ----------------------------------------------------------
 console.log('error paths')

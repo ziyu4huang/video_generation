@@ -13,4 +13,10 @@ rustflags = [
   "-C", "link-arg=-l:libtree-sitter.a",
   "-C", "link-arg=-l:libtree-sitter-verilog.a",
   "-C", "link-arg=-l:libtree-sitter-systemverilog.a",
+  # 8 MiB main-thread stack (rust-lld default is 1 MiB): tree-sitter's C
+  # parser recurses with input nesting, so deeply nested expressions would
+  # otherwise trap the module long before our own MAX_WALK_DEPTH guards
+  # matter. ~20k levels of parentheses survive with this size.
+  "-C", "link-arg=-z",
+  "-C", "link-arg=stack-size=8388608",
 ]
