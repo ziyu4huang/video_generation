@@ -7,6 +7,10 @@
  * base, rebase it, then force-push — or any subset.
  *
  * Flow (in fixed order; each step is gated by its boolean):
+ *   0. Detached-HEAD guard (always): a caller on a detached HEAD with no
+ *      explicit `branch` resolves to "" — flowing verbatim into
+ *      `git checkout -b ""` / `git push origin ""`. Aborts `detached-head`
+ *      BEFORE any checkout/push (zero spawns, regardless of dryRun).
  *   1. Worktree guard (always; read-only): if the target branch is checked out
  *      in a worktree OTHER than this one → abort `worktree-conflict` BEFORE any
  *      mutation (zero spawns). Checking a branch out twice fatals in git; this
@@ -14,11 +18,14 @@
  *   2. `create` → `git checkout -b <branch> <base>` (base defaults to
  *      `origin/<defaultBranch>`). Non-zero → abort `create-failed`.
  *   3. `rebase` → `git rebase <base>`; on conflict (exit!=0) run
- *      `git rebase --abort` (recorded) then abort `rebase-conflict`.
+ *      `git rebase --abort` (recorded) then abort `rebase-conflict`. Around
+ *      this step the outcome reports `head: {from, to}` (HEAD before/after).
  *   4. `forcePush` (only when explicitly true) →
  *      `git push --force-with-lease origin <branch>`; non-zero → abort
  *      `force-push-failed`. When `forcePush` is falsy NO push command is ever
  *      issued (the default — never force-pushes by accident).
+ *   5. Reporting (read-only): completed runs carry `head` + post-run
+ *      `aheadBehind` vs `base` (see PrepareOutcome).
  *
  * Throw-free discipline (mirrors sync-recipe.ts): every refusal surfaces as a
  * structured `aborted` descriptor + `warnings[]`; the outcome carries a `steps`
@@ -34,7 +41,10 @@ import type { BranchClient } from "./branch-recipe.js";
  * of BranchClient so the live `createBranchClient` satisfies it; tests inject a
  * minimal fake covering only these four methods.
  */
-export type PrepareClient = Pick<BranchClient, "currentBranch" | "defaultBranch" | "worktreeList" | "revParse">;
+export type PrepareClient = Pick<
+	BranchClient,
+	"currentBranch" | "defaultBranch" | "worktreeList" | "revParse" | "aheadBehind"
+>;
 
 export type PrepareStepName = "create" | "rebase" | "forcePush";
 
@@ -46,18 +56,48 @@ export interface PrepareStep {
 export interface PrepareAbort {
 	/** Always true — discriminator (present only on an aborted run). */
 	aborted: true;
-	/** Machine reason: "aborted-before-start" | "worktree-conflict" |
-	 *  "create-failed" | "rebase-conflict" | "force-push-failed". */
-	reason: "aborted-before-start" | "worktree-conflict" | "create-failed" | "rebase-conflict" | "force-push-failed";
+	/** Machine reason — one of PREPARE_ABORT_REASONS: "aborted-before-start" |
+	 *  "detached-head" | "worktree-conflict" | "create-failed" |
+	 *  "rebase-conflict" | "force-push-failed". */
+	reason: PrepareAbortReason;
 	/** Human-readable summary (what happened + immediate remediation). */
 	message: string;
 	/** Actionable hint, when relevant. */
 	hint?: string;
 }
 
+/** Every abort reason runPrepare can actually emit (the PrepareAbort.reason
+ *  union — kept in sync with the `outcome({ aborted: true, reason: … })` sites
+ *  below). Hyphenated, mirroring prepare_branch's own historical style;
+ *  deliberately NOT shared with snake_case SYNC_ABORT_REASONS (sync-recipe).
+ */
+export const PREPARE_ABORT_REASONS = [
+	"aborted-before-start",
+	"detached-head",
+	"worktree-conflict",
+	"create-failed",
+	"rebase-conflict",
+	"force-push-failed",
+] as const;
+
+export type PrepareAbortReason = (typeof PREPARE_ABORT_REASONS)[number];
+
 export interface PrepareOutcome {
 	branch: string;
 	base: string;
+	/** HEAD SHAs around the mutation sequence: `from` resolved before any
+	 *  mutation, `to` resolved after the rebase — the only step that moves HEAD
+	 *  (`checkout -b` keeps the same commit). On an aborted run `to === from`
+	 *  (create-failed leaves HEAD; rebase-conflict's recorded `rebase --abort`
+	 *  restores it). "" when the SHA is unresolvable. */
+	head: { from: string; to: string };
+	/** Present on completed (non-aborted) runs: how `branch` stands vs `base`
+	 *  AFTER the run — `ahead` = commits on the branch but not base (expected
+	 *  after a rebase), `behind` = commits on base but not the branch (0 after
+	 *  a successful rebase; >0 without one means base has moved). {0,0} with a
+	 *  pushed warning when the read itself fails. Under dryRun this reflects
+	 *  the pre-run state (read-only queries still run; nothing mutated). */
+	aheadBehind?: { ahead: number; behind: number };
 	/** One entry per attempted step (in order); ok = exit 0. */
 	steps: PrepareStep[];
 	/** Every mutating git command issued, rendered runnable. */
@@ -136,9 +176,14 @@ export async function runPrepare(opts: PrepareOptions): Promise<PrepareOutcome> 
 	const branch = opts.branch ?? current;
 	const base = opts.base ?? `origin/${detectedDefault}`;
 
-	const outcome = (aborted?: PrepareAbort): PrepareOutcome => ({
+	/** HEAD around the mutation sequence (see PrepareOutcome.head). */
+	const head: { from: string; to: string } = { from: "", to: "" };
+
+	const outcome = (aborted?: PrepareAbort, aheadBehind?: { ahead: number; behind: number }): PrepareOutcome => ({
 		branch,
 		base,
+		head: { ...head },
+		...(aheadBehind ? { aheadBehind } : {}),
 		steps,
 		commands,
 		warnings,
@@ -149,6 +194,24 @@ export async function runPrepare(opts: PrepareOptions): Promise<PrepareOutcome> 
 		warnings.push("aborted before start.");
 		return outcome({ aborted: true, reason: "aborted-before-start", message: "aborted before start." });
 	}
+
+	// --- 1. Detached-HEAD guard (hard gate). -----------------------------------
+	// A detached caller with no explicit `branch` resolves to "" — which would
+	// flow verbatim into `git checkout -b ""` / `git push origin ""`. Refuse
+	// BEFORE any checkout/push (zero spawns, regardless of dryRun).
+	if (branch === "") {
+		return outcome({
+			aborted: true,
+			reason: "detached-head",
+			message: "caller is on a detached HEAD and no explicit branch was given — resolved branch name is empty.",
+			hint: "pass an explicit branch (prepare_branch --branch <name>) or check out a branch first.",
+		});
+	}
+
+	// HEAD before any mutation (read-only; runs under dryRun too). Aborts
+	// restore HEAD, so `to` starts at `from` and only a completed rebase moves it.
+	head.from = (await safe("revParse HEAD (from)", () => client.revParse("HEAD"), "", warnings)) ?? "";
+	head.to = head.from;
 
 	// --- 2. Worktree guard (read-only; hard structural gate). ------------------
 	// The target branch checked out in ANOTHER worktree means `checkout` would
@@ -181,6 +244,8 @@ export async function runPrepare(opts: PrepareOptions): Promise<PrepareOutcome> 
 	}
 
 	// --- 4. rebase -------------------------------------------------------------
+	// The only step that moves HEAD (`checkout -b` keeps the same commit), so
+	// `head.to` is resolved right after it.
 	if (opts.rebase) {
 		const r = await git(repoRoot, ["rebase", base]);
 		steps.push({ step: "rebase", ok: r.exitCode === 0 });
@@ -195,6 +260,7 @@ export async function runPrepare(opts: PrepareOptions): Promise<PrepareOutcome> 
 				hint: "resolve conflicts locally, then re-run prepare.",
 			});
 		}
+		head.to = (await safe("revParse HEAD (to)", () => client.revParse("HEAD"), head.from, warnings)) ?? head.from;
 	}
 
 	// --- 5. forcePush (ONLY when explicitly opted in) --------------------------
@@ -212,5 +278,12 @@ export async function runPrepare(opts: PrepareOptions): Promise<PrepareOutcome> 
 		}
 	}
 
-	return outcome();
+	// --- 6. Reporting (read-only; completed runs). ------------------------------
+	const aheadBehind = await safe(
+		"aheadBehind",
+		() => client.aheadBehind(base, branch),
+		{ ahead: 0, behind: 0 },
+		warnings,
+	);
+	return outcome(undefined, aheadBehind);
 }

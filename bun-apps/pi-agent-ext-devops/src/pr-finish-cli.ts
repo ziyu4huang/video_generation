@@ -159,10 +159,20 @@ export interface PrFinishDeps {
  * package tests and gate commands fail while the same local_ci passes
  * standalone (observed 2026-08-15: 9 gates + the package row red inside
  * pr-finish, green directly). */
+/** Render a spawn as a runnable shell string — the `git -C <dir> …` form the
+ *  recipes record. A git invocation that carries a cwd gets it hoisted into a
+ *  quoted `-C "<dir>"` prefix; one whose dir is already baked into the args
+ * (recipes spawn `git -C <dir> …` directly) is already runnable as the plain
+ *  join; non-git spawns (bun, gh, echo, …) keep the plain join too. */
+function renderRecorded(cmd: string, args: string[], cwd?: string): string {
+	if (cmd === "git" && cwd) return `git -C "${cwd}" ${args.join(" ")}`;
+	return [cmd, ...args].join(" ");
+}
+
 function recordingSpawn(spawn: SpawnFn): { fn: SpawnFn; commands: string[] } {
 	const commands: string[] = [];
 	const fn: SpawnFn = async (cmd, args, options) => {
-		commands.push([cmd, ...args].join(" "));
+		commands.push(renderRecorded(cmd, args, options?.cwd));
 		return spawn(cmd, args, options);
 	};
 	return { fn, commands };
@@ -304,6 +314,12 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	} catch (err) {
 		return abort("merge-failed", `gh pr merge ${pr} --squash failed: ${errMsg(err)}`);
 	}
+	// The merge advanced ${baseRefName} on origin — the worktree holding the
+	// default branch (possibly this cwd) is now behind until synced. Nudge the
+	// caller (matches sync_repo's own behind-default warning style).
+	warnings.push(
+		`PR #${pr} merged into ${status.baseRefName} — the default-branch worktree / this cwd may now be behind origin/${status.baseRefName}; run sync_repo to catch up.`,
+	);
 
 	// --- 5. Verify (read-only; CONTAMINATED warns, never rolls back). -------
 	let verify: VerifyMergeOutcome;

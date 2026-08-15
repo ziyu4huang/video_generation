@@ -10,6 +10,8 @@
  *  - gate sequencing: dirty_tree → local_ci_failed → behind → not-clean →
  *    not-open all abort with exit 1 and NEVER reach mergeNow,
  *  - happy path: squash-merge + branch cleanup (deletes + prune),
+ *  - post-merge warning: run sync_repo (the default-branch worktree / cwd
+ *    may now be behind after the merge),
  *  - --dry-run: read-only gates only, planned commands, zero mutations,
  *  - usage errors exit 2; --help exits 0 with usage on stderr.
  *
@@ -21,6 +23,7 @@ import { test, expect, describe } from "bun:test";
 import { runPrFinishCli, parsePrFinishArgs, PR_FINISH_CLI_USAGE } from "../src/pr-finish-cli.js";
 import type { GhClient } from "../src/recipe.js";
 import type { BranchClient } from "../src/branch-recipe.js";
+import type { runLocalCi } from "../src/ci-recipe.js";
 import type { SpawnFn, SpawnResult } from "../src/spawn.js";
 import type { CiOutcome } from "../src/ci-recipe.js";
 
@@ -104,6 +107,9 @@ function ciPass(): CiOutcome {
 		packages: [],
 		gates: [],
 		elapsedMs: 1,
+		budgetMs: 300_000,
+		overBudget: false,
+		slowest: [],
 	};
 }
 
@@ -122,7 +128,7 @@ function greenDeps() {
 			client: clientParts.client,
 			spawn: fakeSpawn().fn,
 			repoRoot: REPO,
-			runCi: async (opts) => {
+			runCi: async (opts: Parameters<typeof runLocalCi>[0]) => {
 				ciOpts.push(opts);
 				return ciPass();
 			},
@@ -299,7 +305,7 @@ describe("pr-finish-cli — wrapper contract", () => {
 		const g = greenDeps();
 		const res = await runPrFinishCli(["42"], {
 			...g.deps,
-			spawn: (async (cmd, args, options) => {
+			spawn: (async (cmd: string, args: string[], options?: { cwd?: string }) => {
 				if (cmd === "echo") seen.push({ args, cwd: options?.cwd });
 				return { stdout: "", stderr: "", exitCode: 0 };
 			}) as unknown as typeof g.deps.spawn,

@@ -34,6 +34,8 @@ function fakeClient(s: {
 		currentBranch: async () => s.current ?? "",
 		worktreeList: async () => s.worktrees ?? [],
 		revParse: async (rev: string) => s.revs?.[rev],
+		// PrepareClient widened with aheadBehind (post-rebase divergence report).
+		aheadBehind: async () => ({ ahead: 0, behind: 0 }),
 	};
 }
 
