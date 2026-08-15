@@ -29,10 +29,26 @@
  *   the config took 31 errors to 6. A missing config does not fail loudly — it
  *   silently grades against the wrong rubric.
  *
+ * WHY `bunx` IS NOT AN ESCAPE HATCH
+ *   The original version of this guard exempted `bunx`-prefixed calls, on the
+ *   grounds that they resolve without a declaration. They do — over the NETWORK.
+ *   `bunx tsc --noEmit` in a package with no `typescript` devDependency prints
+ *   "Resolving dependencies / Resolved, downloaded and extracted / Saved
+ *   lockfile" and takes ~0.95s; the same call in a package that declares it
+ *   takes ~0.05s and touches nothing. So the exemption bought three things, all
+ *   bad: a network round-trip inside a gate, a version nobody pinned (whatever
+ *   the registry serves today), and a lockfile WRITE as a side effect of a
+ *   read-only typecheck. Measured 2026-08-16: pi-agent's `typecheck` was killed
+ *   mid-run (exit 137 at 866ms) during a local_ci matrix, which reads as a
+ *   typecheck failure and is not one.
+ *
+ *   A declared dependency makes `bunx X` and `X` identical, so the scripts now
+ *   just say `tsc` and this guard covers both spellings.
+ *
  * WHAT IS ASSERTED
- *   1. Every binary a package script invokes BARE is provided by a dependency
- *      that package declares. (`bunx`/`npx`-prefixed calls are exempt — those
- *      resolve without a declaration.)
+ *   1. Every provider-backed binary a package script invokes is provided by a
+ *      dependency that package declares — whether called bare or via
+ *      `bunx`/`npx`.
  *   2. Every package whose scripts run `biome` has a biome.json.
  *   3. Those biome.json files agree on the repo's formatting convention, so no
  *      two packages silently format to different rules.
@@ -69,8 +85,17 @@ const BIN_PROVIDER: Record<string, string> = {
 	esbuild: "esbuild",
 };
 
-/** Words that, immediately before a binary name, mean it is NOT a bare call. */
-const NOT_BARE = new Set(["bunx", "npx", "bun", "run", "pnpm", "yarn"]);
+/**
+ * Words that, immediately before a binary name, mean it is not an invocation of
+ * that binary at all — `bun run tsc` runs a SCRIPT named tsc, not the compiler.
+ *
+ * `bunx`/`npx` are deliberately absent: they DO invoke the binary, just with a
+ * network fallback when undeclared, which is exactly what this guard forbids.
+ */
+const NOT_AN_INVOCATION = new Set(["bun", "run", "pnpm", "yarn"]);
+
+/** Runner prefixes that invoke the binary but tolerate a missing declaration. */
+const NETWORK_RUNNERS = new Set(["bunx", "npx"]);
 
 interface Pkg {
 	name: string;
@@ -93,34 +118,50 @@ function declaredDeps(p: Pkg): Set<string> {
 	return new Set([...Object.keys(deps), ...Object.keys(dev)]);
 }
 
-interface BareCall {
+interface ProviderCall {
 	pkg: string;
 	script: string;
 	bin: string;
 	provider: string;
 	body: string;
+	/** Called through `bunx`/`npx` rather than bare. Still needs the declaration. */
+	viaRunner: boolean;
 }
 
-/** Every bare invocation of a provider-backed binary, across every package script. */
-function bareCalls(): BareCall[] {
-	const out: BareCall[] = [];
-	for (const p of packages()) {
-		const scripts = (p.json.scripts ?? {}) as Record<string, string>;
-		for (const [script, body] of Object.entries(scripts)) {
-			// Shell operators separate commands; a binary is only "invoked" as a
-			// command word, so split on them and inspect each segment's words.
-			for (const seg of body.split(/&&|\|\||;|\|/)) {
-				const words = seg.trim().split(/\s+/).filter((w) => w !== "");
-				words.forEach((w, i) => {
-					const provider = BIN_PROVIDER[w];
-					if (provider === undefined) return;
-					if (i > 0 && NOT_BARE.has(words[i - 1])) return;
-					out.push({ pkg: p.name, script, bin: w, provider, body });
+/**
+ * Every invocation of a provider-backed binary in one package's scripts.
+ * Split out from the filesystem walk so the vacuity guard can feed it a
+ * synthetic script map and pin the tokenizer's prefix handling directly.
+ */
+export function scanScripts(pkg: string, scripts: Record<string, string>): ProviderCall[] {
+	const out: ProviderCall[] = [];
+	for (const [script, body] of Object.entries(scripts)) {
+		// Shell operators separate commands; a binary is only "invoked" as a
+		// command word, so split on them and inspect each segment's words.
+		for (const seg of body.split(/&&|\|\||;|\|/)) {
+			const words = seg.trim().split(/\s+/).filter((w) => w !== "");
+			words.forEach((w, i) => {
+				const provider = BIN_PROVIDER[w];
+				if (provider === undefined) return;
+				const prev = i > 0 ? words[i - 1] : undefined;
+				if (prev !== undefined && NOT_AN_INVOCATION.has(prev)) return;
+				out.push({
+					pkg,
+					script,
+					bin: w,
+					provider,
+					body,
+					viaRunner: prev !== undefined && NETWORK_RUNNERS.has(prev),
 				});
-			}
+			});
 		}
 	}
 	return out;
+}
+
+/** Every provider-backed binary invocation across every package script. */
+function providerCalls(): ProviderCall[] {
+	return packages().flatMap((p) => scanScripts(p.name, (p.json.scripts ?? {}) as Record<string, string>));
 }
 
 /** Packages whose scripts run biome at all (bare or via bunx). */
@@ -131,33 +172,51 @@ function biomeUsers(): Pkg[] {
 	});
 }
 
-describe("package scripts — every bare binary is provided by a declared dependency", () => {
-	test("no script can exit 127 (the perf-harness / core-runtime class)", () => {
-		const broken = bareCalls()
+describe("package scripts — every binary is provided by a declared dependency", () => {
+	test("no script can exit 127 or fall back to the network (perf-harness / pi-agent class)", () => {
+		const broken = providerCalls()
 			.filter((c) => !declaredDeps(packages().find((p) => p.name === c.pkg)!).has(c.provider))
 			.map((c) => `${c.pkg}: "${c.script}": \`${c.bin}\` needs ${c.provider} — script is \`${c.body}\``);
 		expect(
 			broken,
-			`UNRUNNABLE PACKAGE SCRIPT(S): ${broken.join(" | ")} — the script calls a binary bare, but the ` +
-				"package does not declare the dependency that provides it. bun-apps/ uses an ISOLATED " +
-				"linker, so a package resolves only what it declares: this script exits 127 " +
-				'("command not found") for anyone who runs it. perf-harness\'s `check` and ' +
-				"pi-agent-ext-core-runtime's `check` both sat broken this way, unnoticed, because only 3 " +
-				"of the 10 `check` scripts are chained into a CI command. Either declare the dependency " +
-				"or prefix the call with `bunx`.",
+			`UNRUNNABLE / NETWORK-DEPENDENT PACKAGE SCRIPT(S): ${broken.join(" | ")} — the script invokes a ` +
+				"binary the package does not declare. bun-apps/ uses an ISOLATED linker, so a package " +
+				"resolves only what it declares. Called BARE the script exits 127 " +
+				'("command not found") — perf-harness\'s `check` and pi-agent-ext-core-runtime\'s `check` ' +
+				"both sat broken that way, unnoticed, because only 3 of the 10 `check` scripts are chained " +
+				"into a CI command. Called via `bunx`/`npx` it is worse: it silently resolves over the " +
+				"NETWORK at an unpinned version and writes a lockfile, inside a gate that is supposed to " +
+				"be read-only. Declare the dependency — `bunx` is not an escape hatch.",
 		).toEqual([]);
 	});
 
 	// Vacuity guard: a tokenizer regression that matched nothing would pass the
 	// assertion above forever.
-	test("the scanner actually finds bare binary invocations", () => {
-		const calls = bareCalls();
+	test("the scanner actually finds binary invocations", () => {
+		const calls = providerCalls();
 		expect(calls.length).toBeGreaterThanOrEqual(10);
 		expect(calls.some((c) => c.bin === "tsc")).toBe(true);
 		expect(calls.some((c) => c.bin === "biome")).toBe(true);
-		// …and it does not mistake a `bunx`-prefixed call for a bare one.
-		// pi-agent's `typecheck` is exactly `bunx tsc --noEmit`, so it must not appear.
-		expect(calls.filter((c) => c.pkg === "pi-agent" && c.script === "typecheck")).toEqual([]);
+	});
+
+	// Pinned on synthetic input so the prefix rules are asserted directly rather
+	// than inferred from whatever the real package.json files happen to say.
+	test("`bunx` counts as an invocation, `bun run` does not", () => {
+		const calls = scanScripts("fixture", {
+			bare: "tsc --noEmit",
+			viaBunx: "bunx tsc --noEmit",
+			viaNpx: "npx biome check .",
+			script: "bun run tsc",
+			chained: "biome check . && tsc --noEmit",
+		});
+		const seen = calls.map((c) => `${c.script}:${c.bin}:${c.viaRunner}`).sort();
+		expect(seen).toEqual([
+			"bare:tsc:false",
+			"chained:biome:false",
+			"chained:tsc:false",
+			"viaBunx:tsc:true",
+			"viaNpx:biome:true",
+		]);
 	});
 });
 

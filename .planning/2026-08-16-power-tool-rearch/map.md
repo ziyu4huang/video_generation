@@ -9,6 +9,9 @@ Simplify and re-architect `bun-apps/pi-agent-ext-power-tool` (breaking changes a
 where the benefit is real), and produce a side-car TUI review of
 `bun-apps/pi-agent-ext-core-task/src/ask-user/`.
 
+**Ticket 01 landed in PR #1464 (`0302f8f3`). Ticket 02 is unstarted and two of its
+findings are blocked on a decision — see [HANDOFF.md](HANDOFF.md) before resuming.**
+
 ## Notes
 
 - **power-tool has never had a wayfind two-axis review.** Every prior effort
@@ -42,6 +45,8 @@ where the benefit is real), and produce a side-car TUI review of
 
 - Whether ask-user's notes feature should be un-gated from `preview` presence, or the
   multi-select notes plumbing deleted instead (ticket 02, A2).
+- Whether Esc should stop cancelling a whole questionnaire from a question tab
+  (ticket 02, A6).
 
 ## Out of scope
 
