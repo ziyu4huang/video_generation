@@ -1,5 +1,7 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { DIAGNOSTIC_GATING } from "../gating.js";
+import { reportHeader } from "../report.js";
 
 /**
  * inspect_tui — debug the above-editor widget state (the ● Todos (N/M)
@@ -16,13 +18,7 @@ import { Type } from "typebox";
 export function makeInspectTuiTool() {
   return defineTool({
     name: "inspect_tui",
-    gating: {
-      keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
-      requires: {
-        nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
-        verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
-      },
-    },
+    gating: DIAGNOSTIC_GATING,
     label: "Inspect TUI",
     description:
       "Debug the above-editor widget state — the composite status widget (goal +" +
@@ -47,10 +43,7 @@ export function makeInspectTuiTool() {
           content: [{
             type: "text" as const,
             text: [
-              '╔═════════════════════════════════════╗',
-              '║          Inspect TUI                 ║',
-              '╚═════════════════════════════════════╝',
-              '',
+              ...reportHeader("Inspect TUI"),
               'self_test: true',
               'Deterministic mock output — no live session required',
             ].join("\n"),
@@ -81,10 +74,7 @@ export function makeInspectTuiTool() {
       // ── Widget not loaded ────────────────────────────────────────
       if (!widget || typeof widget.inspect !== "function") {
         const lines = [
-          '╔═════════════════════════════════════╗',
-          '║          Inspect TUI                 ║',
-          '╚═════════════════════════════════════╝',
-          '',
+          ...reportHeader("Inspect TUI"),
           '▶ Composite status widget: NOT FOUND',
           '  globalThis.__piCoreTaskStatusWidget is absent or has no inspect().',
           '  Is pi-agent-ext-core-task loaded?',
@@ -107,11 +97,7 @@ export function makeInspectTuiTool() {
       }
 
       // ── Format text report ───────────────────────────────────────
-      const lines: string[] = [];
-      lines.push('╔═════════════════════════════════════╗');
-      lines.push('║          Inspect TUI                 ║');
-      lines.push('╚═════════════════════════════════════╝');
-      lines.push('');
+      const lines = reportHeader("Inspect TUI");
 
       // Composite widget overview
       lines.push('▶ Composite status widget');

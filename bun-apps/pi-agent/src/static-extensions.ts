@@ -84,8 +84,9 @@ export const STATIC_EXTENSION_FACTORIES = [
 	{ name: "pi-agent-ext-subagent", factory: subagentExtension },
 	{ name: "pi-agent-ext-workflow", factory: workflowExtension },
 	{ name: "pi-agent-ext-knowledge-card", factory: knowledgeCardExtension },
-	// power-tool — always-on diagnostics suite (inspect_context/agent/extensions/
-	// pathology/tui); active not lazy, so belongs inline like the rest of Group B
+	// power-tool — always-on agent self-diagnostics suite (the inspect_* tools;
+	// roster in its own TOOL_FACTORIES, deliberately not restated here). Active,
+	// not lazy, so it belongs inline like the rest of Group B.
 	{ name: "pi-agent-ext-power-tool", factory: powerToolExtension },
 	// webui — web frontend co-driving one AgentSession with the TUI behind an
 	// agentic mutex (Bun.serve WS transport; starts lazily on session_start).

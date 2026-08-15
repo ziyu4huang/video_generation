@@ -12,13 +12,11 @@ import { Type } from "typebox";
 import * as yaml from "js-yaml";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve, sep } from "path";
-import { TOKEN_RATIO } from "../format.js";
+import { DIAGNOSTIC_GATING } from "../gating.js";
+import { TOKEN_RATIO, reportHeader } from "../report.js";
 
 const SELF_TEST_AGENT_INVENTORY_OUTPUT = [
-  '╔══════════════════════════════════════╗',
-  '║        Inspect Agent                ║',
-  '╚══════════════════════════════════════╝',
-  '',
+  ...reportHeader("Inspect Agent"),
   'Output: output/pi/inspect-agent-self-test.yaml',
   '',
   'Summary:',
@@ -35,13 +33,7 @@ const SELF_TEST_AGENT_INVENTORY_OUTPUT = [
 export function makeInspectAgentTool(getAllTools: () => ToolInfo[]) {
   return defineTool({
     name: "inspect_agent",
-    gating: {
-      keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
-      requires: {
-        nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
-        verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
-      },
-    },
+    gating: DIAGNOSTIC_GATING,
     label: "Inspect Agent",
     description:
       "Snapshot the full agent state — extensions, tools, skills, context files, " +
@@ -196,11 +188,7 @@ export function makeInspectAgentTool(getAllTools: () => ToolInfo[]) {
         };
       }
 
-      const lines: string[] = [];
-      lines.push("╔══════════════════════════════════════╗");
-      lines.push("║        Inspect Agent                ║");
-      lines.push("╚══════════════════════════════════════╝");
-      lines.push("");
+      const lines = reportHeader("Inspect Agent");
       lines.push(`Output: ${outputPath}`);
       lines.push("");
       lines.push(`Summary:`);

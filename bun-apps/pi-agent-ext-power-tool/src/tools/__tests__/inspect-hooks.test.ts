@@ -1,11 +1,6 @@
 import { test, expect, describe } from "bun:test";
-import {
-  KNOWN_EVENTS,
-  collectHooks,
-  analyzeHooks,
-  formatHooksReport,
-  type HooksSnapshot,
-} from "../inspect-hooks.js";
+import { analyzeHooks, formatHooksReport } from "../inspect-hooks.js";
+import { KNOWN_EVENTS, collectHooks, type HooksSnapshot } from "../../runner-hooks.js";
 
 const snap = (extensions: HooksSnapshot["extensions"], available = true): HooksSnapshot =>
   ({ extensions, available });

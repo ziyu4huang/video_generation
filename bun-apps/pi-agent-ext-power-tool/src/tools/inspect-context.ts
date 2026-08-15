@@ -12,7 +12,9 @@ import {
   formatSkillsForPrompt,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { bar, est, estTok, miniBar } from "../format.js";
+import { toolApiCost } from "../cost.js";
+import { DIAGNOSTIC_GATING } from "../gating.js";
+import { bar, est, estTok, miniBar, reportHeader } from "../report.js";
 
 const SELF_TEST_CONTEXT_ANALYZER_OUTPUT = [
   '"self_test": true',
@@ -34,13 +36,7 @@ const SELF_TEST_CONTEXT_ANALYZER_OUTPUT = [
 export function makeInspectContextTool(getAllTools: () => ToolInfo[]) {
   return defineTool({
     name: "inspect_context",
-    gating: {
-      keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
-      requires: {
-        nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
-        verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
-      },
-    },
+    gating: DIAGNOSTIC_GATING,
     label: "Inspect Context",
     description:
       "Break down the live context window by component — system-prompt text " +
@@ -67,13 +63,7 @@ export function makeInspectContextTool(getAllTools: () => ToolInfo[]) {
       const usage = ctx.getContextUsage();
       const opts = (ctx as ExtensionContext).getSystemPromptOptions();
       const fullSystemPrompt = (ctx as ExtensionContext).getSystemPrompt();
-      const lines: string[] = [];
-
-      // ── Header ────────────────────────────────────────────────────────────
-      lines.push("╔══════════════════════════════════════╗");
-      lines.push("║         Inspect Context              ║");
-      lines.push("╚══════════════════════════════════════╝");
-      lines.push("");
+      const lines = reportHeader("Inspect Context");
 
       // ── Live context window ───────────────────────────────────────────────
       lines.push("▶ Live context window:");
@@ -99,12 +89,10 @@ export function makeInspectContextTool(getAllTools: () => ToolInfo[]) {
       const activeTools = allTools.filter((t) => selectedSet.size === 0 || selectedSet.has(t.name));
 
       const toolApiMeasured = activeTools.map((t) => {
-        const descChars = (t.description ?? "").length;
-        const paramsChars = JSON.stringify(t.parameters ?? {}).length;
-        const apiChars = descChars + paramsChars;
+        const cost = toolApiCost(t);
         const guideChars = (t.promptGuidelines ?? []).join("\n").length;
         const snippetChars = (opts.toolSnippets?.[t.name] ?? "").length;
-        return { name: t.name, descChars, paramsChars, apiChars, guideChars, snippetChars };
+        return { name: t.name, ...cost, guideChars, snippetChars };
       });
 
       const totalApiChars = toolApiMeasured.reduce((s, t) => s + t.apiChars, 0);
@@ -228,7 +216,7 @@ export function makeInspectContextTool(getAllTools: () => ToolInfo[]) {
         );
         lines.push("  " + "─".repeat(70));
         sorted.forEach((t) => {
-          const tok = estTok(t.apiChars);
+          const tok = t.tokens;
           const guideNote = t.guideChars > 0 ? `+${est(t.guideChars)} sys` : "";
           lines.push(
             "  " +
