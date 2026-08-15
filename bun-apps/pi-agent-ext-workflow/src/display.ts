@@ -1,7 +1,7 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { AgentHistoryEntry, ThemeLike, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
 import { activityGlyph, fmtCost, NO_THEME, shorten } from "@repo/pi-agent-ext-core-runtime";
-
+import type { RunStatus } from "./run-persistence.js";
 import type { WorkflowMeta } from "./workflow.js";
 
 export type WorkflowAgentStatus = "queued" | "running" | "done" | "error" | "skipped";
@@ -305,6 +305,24 @@ function statusLine(snapshot: WorkflowSnapshot, completed: boolean): string {
 
 export function statusIcon(status: WorkflowAgentStatus): string {
   return activityGlyph(status).icon;
+}
+
+/** Run-level status glyphs. Exhaustive Record<RunStatus, string>: adding a
+ * RunStatus value without a glyph is a compile error, and every lookup is
+ * total — the silent `?? "?"` fallback of the old STATUS_ICON maps is gone
+ * by construction (snapshot-row-single-source, ticket 04). Agent-status
+ * glyphs stay with activityGlyph (core-runtime/agent-row-display.ts). */
+const RUN_STATUS_GLYPHS: Record<RunStatus, string> = {
+  pending: "·",
+  running: "◆",
+  paused: "⏸",
+  completed: "✓",
+  failed: "✗",
+  aborted: "⊘",
+};
+
+export function runStatusGlyph(status: RunStatus): string {
+  return RUN_STATUS_GLYPHS[status];
 }
 
 function unique(values: string[]): string[] {

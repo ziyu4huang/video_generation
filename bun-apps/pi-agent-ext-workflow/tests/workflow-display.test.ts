@@ -13,8 +13,13 @@
 
 import { describe, it, mock } from "bun:test";
 import assert from "node:assert/strict";
-import { agentCounts, recomputeWorkflowSnapshot, type WorkflowAgentSnapshot } from "../src/display.js";
-import { type PersistedAgentState, type PersistedRunState, persistedToSnapshot } from "../src/run-persistence.js";
+import { agentCounts, recomputeWorkflowSnapshot, runStatusGlyph, type WorkflowAgentSnapshot } from "../src/display.js";
+import {
+  type PersistedAgentState,
+  type PersistedRunState,
+  persistedToSnapshot,
+  type RunStatus,
+} from "../src/run-persistence.js";
 import type { WorkflowMeta } from "../src/workflow.js";
 import { summarizeRun } from "../src/workflow-commands.js";
 
@@ -1013,5 +1018,23 @@ describe("TUI rendering has no markdown syntax", () => {
     assert.doesNotThrow(() => {
       tool.renderResult(resultWithMarkdown as never, { isPartial: false }, theme as never);
     });
+  });
+});
+
+describe("runStatusGlyph (ticket 04)", () => {
+  it("runStatusGlyph is total: every RunStatus maps to a real glyph, never ?", () => {
+    const statuses: RunStatus[] = ["pending", "running", "paused", "completed", "failed", "aborted"];
+    for (const s of statuses) {
+      const glyph = runStatusGlyph(s);
+      assert.notEqual(glyph, "?");
+      assert.ok(glyph.length > 0, `empty glyph for ${s}`);
+    }
+    // glyph values match the maps being deleted (byte-identical rendered output)
+    assert.equal(runStatusGlyph("pending"), "·");
+    assert.equal(runStatusGlyph("running"), "◆");
+    assert.equal(runStatusGlyph("paused"), "⏸");
+    assert.equal(runStatusGlyph("completed"), "✓");
+    assert.equal(runStatusGlyph("failed"), "✗");
+    assert.equal(runStatusGlyph("aborted"), "⊘");
   });
 });

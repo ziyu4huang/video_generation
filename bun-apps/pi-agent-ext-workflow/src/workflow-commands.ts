@@ -5,7 +5,13 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { activityGlyph, fmtElapsed } from "@repo/pi-agent-ext-core-runtime";
-import { agentCounts, recomputeWorkflowSnapshot, renderWorkflowText, type WorkflowSnapshot } from "./display.js";
+import {
+  agentCounts,
+  recomputeWorkflowSnapshot,
+  renderWorkflowText,
+  runStatusGlyph,
+  type WorkflowSnapshot,
+} from "./display.js";
 import { type EffortState, effortDirective } from "./effort-command.js";
 import type { PersistedRunState } from "./run-persistence.js";
 import { registerSavedWorkflow } from "./saved-commands.js";
@@ -14,22 +20,13 @@ import type { WorkflowManager } from "./workflow-manager.js";
 import type { WorkflowStorage } from "./workflow-saved.js";
 import { openWorkflowNavigator } from "./workflow-ui.js";
 
-const STATUS_ICON: Record<string, string> = {
-  pending: "·",
-  running: "◆",
-  paused: "⏸",
-  completed: "✓",
-  failed: "✗",
-  aborted: "⊘",
-};
-
 const USAGE =
   "Usage: /workflows [list] | run <prompt> | status <id> | result [id] | watch <id> | stop <id> | pause <id> | resume <id> | rm <id> | save <name> [runId]";
 
 const RUN_USAGE = "Usage: /workflows run <prompt> — force a dynamic workflow from the prompt";
 
 export function summarizeRun(run: PersistedRunState): string {
-  const icon = STATUS_ICON[run.status] ?? "?"; // STATUS_ICON replaced in Task 4; unchanged here
+  const icon = runStatusGlyph(run.status);
   const counts = agentCounts(run.agents);
   const tokens = run.tokenUsage ? ` · ${run.tokenUsage.total.toLocaleString()} tok` : "";
   return `${icon} ${run.runId}  ${run.workflowName} [${run.status}] ${counts.done}/${counts.total} agents${tokens}`;
@@ -87,7 +84,7 @@ function watchRun(manager: WorkflowManager, pi: ExtensionAPI, ctx: ExtensionComm
 }
 
 export function renderPersistedStatus(run: PersistedRunState): string {
-  const lines = [`${STATUS_ICON[run.status] ?? "?"} ${run.workflowName} (${run.runId}) — ${run.status}`];
+  const lines = [`${runStatusGlyph(run.status)} ${run.workflowName} (${run.runId}) — ${run.status}`];
   if (run.currentPhase) lines.push(`  phase: ${run.currentPhase}`);
   for (const agent of run.agents) {
     const icon = activityGlyph(agent.status).icon;
@@ -108,7 +105,7 @@ const RESULT_MAX_CHARS = 4000;
  * Oversized results are truncated with the on-disk run path for the full text.
  */
 function renderPersistedResult(run: PersistedRunState): string {
-  const head = `${STATUS_ICON[run.status] ?? "?"} ${run.workflowName} (${run.runId}) — ${run.status}`;
+  const head = `${runStatusGlyph(run.status)} ${run.workflowName} (${run.runId}) — ${run.status}`;
   const meta: string[] = [];
   if (run.completedAt) meta.push(`  finished: ${run.completedAt.slice(0, 19).replace("T", " ")}`);
   if (run.durationMs) meta.push(`  duration: ${fmtElapsed(run.durationMs)}`);
@@ -280,7 +277,7 @@ export function registerWorkflowCommands(
               [
                 "Recent finished runs (any session) — `/workflows result <id>` to view a result:",
                 ...finished.map((r) => {
-                  const icon = STATUS_ICON[r.status] ?? "?";
+                  const icon = runStatusGlyph(r.status);
                   const when = r.completedAt ? r.completedAt.slice(0, 19).replace("T", " ") : "?";
                   return `${icon} ${r.runId}  ${r.workflowName}  ${when}`;
                 }),
