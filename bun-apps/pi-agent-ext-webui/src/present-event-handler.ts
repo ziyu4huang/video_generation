@@ -23,6 +23,8 @@ export interface PresentEventPayload {
   mode?: RenderMode;
   view?: string;
   title?: string;
+  /** Output paths appended as ![image](/output/0/...) markdown (v2, F3). */
+  images?: string[];
 }
 
 export type PresentEventHandler = (data: unknown) => void;
@@ -37,6 +39,10 @@ function isControl(c: unknown): c is Control {
   );
 }
 
+function isStringArray(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every((x) => typeof x === "string");
+}
+
 function isPayload(d: unknown): d is PresentEventPayload {
   if (typeof d !== "object" || d === null) return false;
   const o = d as Record<string, unknown>;
@@ -47,12 +53,26 @@ function isPayload(d: unknown): d is PresentEventPayload {
   return true;
 }
 
-export function createPresentEventHandler(registry: RenderService): PresentEventHandler {
+/** Options for {@link createPresentEventHandler} (v2, F3). */
+export interface PresentEventHandlerOptions {
+  /** Convert output paths into the markdown block appended to the content.
+   *  Default no-op (""); the wiring injects the imageMd-bound converter. */
+  toImageMarkdown?: (paths: string[]) => string;
+}
+
+export function createPresentEventHandler(
+  registry: RenderService,
+  opts: PresentEventHandlerOptions = {}
+): PresentEventHandler {
+  const toImageMarkdown = opts.toImageMarkdown ?? (() => "");
   return (data) => {
     if (!isPayload(data)) return;
+    const images = isStringArray(data.images) ? data.images : undefined;
+    const imageBlock = images && images.length > 0 ? toImageMarkdown(images) : "";
+    const content = imageBlock ? `${data.content}\n\n${imageBlock}` : data.content;
     registry.render({
       view: data.view ?? "present",
-      content: data.content,
+      content,
       ...(data.mode === "md" || data.mode === "html" ? { mode: data.mode } : {}),
       ...(typeof data.title === "string" ? { title: data.title } : {}),
       controls: data.controls,

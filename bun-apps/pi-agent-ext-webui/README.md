@@ -33,7 +33,10 @@ The webui is **on by default** (backward compatible). Disable or pin it three wa
   Abort button (`{type:"abort"}`); outbound frames QUEUE while the WS reconnects so a
   HITL answer is never lost.
 - **Rendered views**: tabs of named md/HTML views (`webui:render`), auto-focus on a
-  presenting view, `![image](/output/0/…)` images.
+  presenting view, `![image](/output/0/…)` images. Producers can pass an `images`
+  array on `webui:render` / `webui:present` — output paths are auto-converted to
+  `![image](/output/0/<rel>)` markdown (the previously-unwired image-presentation
+  helpers are now wired into the render/present path).
 - **HITL**: `webui_present` presents declarative controls; the user answers (or **Cancel**s
   via the `appexec cancel` op) from the browser; the agent's `execute()` resolves with
   `{action, tweak?}` / `{cancelled:true}`.

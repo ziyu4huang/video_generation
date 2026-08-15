@@ -233,18 +233,21 @@ Lessons adopted in v2 (with the finding each addresses):
   (bounded transcript + snapshot), `tests/webui-config.test.ts`,
   `tests/session-store.test.ts`, `tests/cli-argv.test.ts` (pi-agent).
 - **Files changed**: webui-wiring (gate, store wiring, watchdog sync, session
-  reset, TUI notify, WS-open snapshot seam, cancel dispatch), web-server
-  (Host validation for EVERY request, x-webui-token + timing-safe compare,
-  WS-open seam, onCommand guard, port-0 walk, no-routes fallback relabel),
-  protocol (7-level thinking union, WebFrame payloads + error member, snapshot
-  member, cancel op, minLength 1), web-transport (cancel parse), render-shell
-  (sandboxed md, transcript mirror, prompt/abort, HITL cancel, send queue,
-  model-select fix, boot try/catch, render race token, escaping, log cap,
-  mode label, APPEXEC_CANCEL_FRAME), output-routes (realpath containment),
-  image-presentation (per-segment encoding), present-tool (pre-aborted signal),
-  mutex + mutex-controller (watchdog suspend), port-resolver (strict decimal),
-  render-routes (URIError 400), index.ts (real lib entry), package.json
-  (description), pi-agent cli.ts + cli-argv.ts (--no-webui / --webui-port).
+  reset, TUI notify, WS-open snapshot seam, cancel dispatch, images→/output
+  markdown converter), web-server (Host validation for EVERY request,
+  x-webui-token + timing-safe compare, WS-open seam, onCommand guard, port-0
+  walk, no-routes fallback relabel, unrefed getter), protocol (7-level thinking
+  union, WebFrame payloads + error member, snapshot member, cancel op,
+  minLength 1), web-transport (cancel parse), render-shell (sandboxed md,
+  transcript mirror, prompt/abort, HITL cancel, send queue, model-select fix,
+  boot try/catch, render race token, escaping, log cap, mode label,
+  APPEXEC_CANCEL_FRAME), output-routes (realpath containment),
+  image-presentation (per-segment encoding), render-event-handler +
+  present-event-handler (optional `images` payload → image markdown, F3),
+  present-tool (pre-aborted signal), mutex + mutex-controller (watchdog
+  suspend), port-resolver (strict decimal), render-routes (URIError 400),
+  index.ts (real lib entry), package.json (description), pi-agent cli.ts +
+  cli-argv.ts (--no-webui / --webui-port).
 - **Behavior changes with tests**: disabled wiring registers nothing; snapshot
   is the FIRST frame a WS client receives; btw thinking levels minimal/xhigh/max
   are no longer dropped; appexec cancel resolves one pending; a suspended

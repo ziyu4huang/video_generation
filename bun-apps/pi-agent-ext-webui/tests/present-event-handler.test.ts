@@ -61,4 +61,27 @@ describe("createPresentEventHandler", () => {
     // tool schema enforces minItems:1 upstream); every malformed one was ignored.
     expect(registry.listViews()).toMatchObject([{ id: "present", content: "x", controls: [] }]);
   });
+
+  it("v2 (F3): appends image markdown from the injected converter when images are present", () => {
+    const registry = new RenderService({ urlFor: () => "#", now: () => 7 });
+    const handler = createPresentEventHandler(registry, {
+      toImageMarkdown: (paths) => paths.map((p) => `![image](/output/0/${p})`).join("\n"),
+    });
+    handler({ content: "# pick", controls: CONTROLS, id: "p1", images: ["shot.png"] });
+    expect(registry.getView("present")).toMatchObject({
+      id: "present",
+      presentId: "p1",
+      controls: CONTROLS,
+      content: "# pick\n\n![image](/output/0/shot.png)",
+    });
+  });
+
+  it("v2 (F3): no images -> content unchanged; malformed images ignored", () => {
+    const registry = new RenderService({ urlFor: () => "#" });
+    const handler = createPresentEventHandler(registry);
+    handler({ content: "x", controls: CONTROLS, images: ["a.png"] }); // default no-op
+    expect(registry.getView("present")?.content).toBe("x");
+    handler({ content: "y", controls: CONTROLS, images: 42 }); // malformed
+    expect(registry.getView("present")?.content).toBe("y");
+  });
 });
