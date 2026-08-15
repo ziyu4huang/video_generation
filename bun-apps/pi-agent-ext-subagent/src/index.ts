@@ -36,7 +36,15 @@ export {
   setRateLimitCapResolver,
   WorkflowAgent,
 } from "@repo/pi-agent-ext-core-runtime";
-
+// ── owned: detach pipeline (Task 05) — ctrl+b (Task 06) + dock (Task 08) ─────
+export type {
+  DetachDeps,
+  DetachedChildHandle,
+  DetachedSpawn,
+  DetachedSpawnSpec,
+  DetachOutcome,
+} from "./detach-run.js";
+export { convertToBackground, makeProdDetachDeps, spawnDetachedChild } from "./detach-run.js";
 // ── owned: programmatic dispatch ─────────────────────────────────────────────
 export type { SpawnSubagentOptions, SpawnSubagentResult, SubagentFailure } from "./spawn-subagent.js";
 export { spawnSubagent } from "./spawn-subagent.js";
@@ -55,7 +63,6 @@ export {
   isTransientError,
   spawnSubagentSubprocess,
 } from "./spawn-subagent-subprocess.js";
-
 // ── owned: durable run records ───────────────────────────────────────────────
 export type {
   CreateSubagentRunPersistenceOptions,
@@ -73,7 +80,6 @@ export {
   subagentHomeDir,
   subagentRunsDir,
 } from "./subagent-run-persistence.js";
-
 // ── owned: the LLM-facing tools ──────────────────────────────────────────────
 export type { SubagentRunsToolOptions } from "./subagent-runs-tool.js";
 export { createSubagentRunsTool } from "./subagent-runs-tool.js";
@@ -93,7 +99,6 @@ export {
   renderSubagentsResult,
   subagentsToolSchema,
 } from "./subagents-tool.js";
-
 // ── owned: two-layer edit-gated reviewer (ticket 02) ─────────────────────────
 export type {
   WatchdogFinding,

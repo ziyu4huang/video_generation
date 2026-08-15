@@ -60,6 +60,15 @@ export interface InFlightSubagent {
    *  two surfaces never duplicate. The box filters to `!foreground`; `/subagents`
    *  shows all regardless. `start()` defaults it to `false` when omitted. */
   foreground?: boolean;
+  /** True once the run was detached to background (Task 05): a detached OS
+   *  subprocess now owns execution and the awaited parent tool call resolved
+   *  with outcome "detached". The entry STAYS live (foreground flipped false)
+   *  so the subagents section keeps showing it. */
+  detached?: boolean;
+  /** The FULL raw task prompt (untruncated — unlike taskPreview). Written at
+   *  start() by dispatchChild so a mid-flight detach can flush a resumable
+   *  manifest whose `task` is the real prompt, not an 80-char preview. */
+  task?: string;
   taskPreview: string;
   /** Work-intent preview — `workIntentPreview(task)` computed once at `start()`
    *  (strips a leading `Working dir:`/`Cwd:`/`Repo:` preamble line, single-lined,
@@ -93,6 +102,8 @@ export interface InFlightSubagent {
  */
 export class SubagentInFlightRegistry {
   private runs = new Map<string, InFlightSubagent>();
+  /** Per-run detach watchers (Task 05) — consumed by markDetached, dropped by end(). */
+  private detachWatchers = new Map<string, Set<() => void>>();
 
   start(run: Omit<InFlightSubagent, "status"> & { status?: ActivityStatus }): void {
     // foreground defaults to `false` (background/detached) when the caller omits
@@ -170,6 +181,48 @@ export class SubagentInFlightRegistry {
 
   end(id: string): void {
     this.runs.delete(id);
+    this.detachWatchers.delete(id);
+  }
+
+  /** Flip a foreground run to background (Task 05 detach). Stamps
+   *  `foreground=false` + `detached=true`, rebinds `abort` to the detached
+   *  child's kill lever when given, fires any onDetach subscribers, and leaves
+   *  the entry LIVE (the subagents section picks it up via views()). Returns
+   *  false for an unknown id; a markDetached on an already-detached run is
+   *  idempotent (watchers fire at most once). */
+  markDetached(id: string, opts?: { abort?: () => void }): boolean {
+    const r = this.runs.get(id);
+    if (!r) return false;
+    r.foreground = false;
+    r.detached = true;
+    if (opts?.abort) r.abort = opts.abort;
+    r.invalidate?.();
+    const watchers = this.detachWatchers.get(id);
+    if (watchers) {
+      this.detachWatchers.delete(id);
+      for (const cb of watchers) cb();
+    }
+    return true;
+  }
+
+  /** Subscribe to this run's detach transition (fires at most once — the
+   *  watcher set is consumed by markDetached). Fires synchronously when the
+   *  run is ALREADY detached. Unknown id → inert unsubscribe. Used by
+   *  dispatchChild to resolve the awaited parent tool call with outcome
+   *  "detached" when a run is backgrounded mid-flight (Task 05). */
+  onDetach(id: string, cb: () => void): () => void {
+    const r = this.runs.get(id);
+    if (!r) return () => {};
+    if (r.detached) {
+      cb();
+      return () => {};
+    }
+    let set = this.detachWatchers.get(id);
+    if (!set) this.detachWatchers.set(id, (set = new Set()));
+    set.add(cb);
+    return () => {
+      set?.delete(cb);
+    };
   }
 
   /** Mark a run terminal WITHOUT removing it (so the header can show k/N

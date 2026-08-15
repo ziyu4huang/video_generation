@@ -102,7 +102,10 @@ export type SubagentFsLayer = {
   writeFileSync: typeof writeFileSync;
 };
 
-export interface SubagentRunPersistence {
+export type SubagentRunPersistence = SubagentCompletedRuns & SubagentDetachHandoff;
+
+/** Write-once records of COMPLETED runs (the original persistence surface). */
+export interface SubagentCompletedRuns {
   /** Persist a completed run (write-once, atomic). Best-effort: never throws. */
   save(record: SubagentRunRecord): void;
   /** List persisted runs, newest first (by startedAt). */
@@ -113,6 +116,43 @@ export interface SubagentRunPersistence {
   delete(id: string): boolean;
   /** Runs directory path. */
   getRunsDir(): string;
+}
+
+/**
+ * Detach hand-off manifest (Task 05): the resume-safe snapshot flushed when a
+ * foreground run is converted to background. NOT a completed-run record — it
+ * is the source of truth the detached OS subprocess resumes from, so it lives
+ * in a SEPARATE `detached/` subdir (invisible to list(), which reads only the
+ * top level). Written at detach time; the detached child's eventual completed
+ * record is written by that child through the normal save() path.
+ */
+export interface DetachedRunManifest {
+  /** The registry/toolCall id — names the manifest file. */
+  id: string;
+  /** The dispatching tool call (same as id for the singular tool). */
+  toolCallId: string;
+  /** Role label, when one was given. */
+  agent?: string;
+  /** The FULL raw task prompt — the detached child re-runs this. */
+  task: string;
+  /** Display model at detach time. */
+  model?: string;
+  /** Working directory the detached child should run in. */
+  cwd: string;
+  /** ISO timestamp of the detach. */
+  detachedAt: string;
+  /** Live history snapshot at detach (progress context for the resume). */
+  history: AgentHistoryEntry[];
+}
+
+/** The Task-05 detach hand-off surface (see DetachedRunManifest). */
+export interface SubagentDetachHandoff {
+  /** Flush a detach manifest; returns its path. Best-effort: on write failure
+   *  returns the intended path anyway (the detach itself must not fail over a
+   *  persistence hiccup — recovery then falls back to a fresh run). */
+  saveDetached(manifest: DetachedRunManifest): string;
+  /** Load one detach manifest by id (null when absent/corrupt). */
+  loadDetached(id: string): DetachedRunManifest | null;
 }
 
 export interface CreateSubagentRunPersistenceOptions {
@@ -152,6 +192,8 @@ export function createSubagentRunPersistence(
     if (!_existsSync(runsDir)) _mkdirSync(runsDir, { recursive: true });
   };
   const pathFor = (id: string) => join(runsDir, `${id}.json`);
+  const detachedDir = () => join(runsDir, "detached");
+  const detachedPathFor = (id: string) => join(detachedDir(), `${id}.json`);
 
   /**
    * Read-compat for records written before the failure-union change. Those
@@ -232,6 +274,26 @@ export function createSubagentRunPersistence(
     },
     getRunsDir() {
       return runsDir;
+    },
+    saveDetached(manifest: DetachedRunManifest) {
+      const path = detachedPathFor(manifest.id);
+      try {
+        if (!_existsSync(detachedDir())) _mkdirSync(detachedDir(), { recursive: true });
+        _writeFileSync(`${path}.tmp`, JSON.stringify(manifest, null, 2));
+        _renameSync(`${path}.tmp`, path);
+      } catch {
+        // Best-effort hand-off: never fail the detach over a write error.
+      }
+      return path;
+    },
+    loadDetached(id: string) {
+      try {
+        const path = detachedPathFor(id);
+        if (!_existsSync(path)) return null;
+        return JSON.parse(_readFileSync(path, "utf-8")) as DetachedRunManifest;
+      } catch {
+        return null;
+      }
     },
   };
 }

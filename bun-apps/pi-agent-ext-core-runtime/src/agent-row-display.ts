@@ -23,7 +23,8 @@ export type ActivityStatus =
   | "timedout"
   | "budget"
   | "turns"
-  | "aborted";
+  | "aborted"
+  | "detached";
 
 /** Minimal theme surface so rendering works without a real Theme (tool output, tests). */
 export interface ThemeLike {
@@ -77,6 +78,9 @@ export function glyphFor(status: ActivityStatus | null | undefined, opts?: { pla
         return { icon: "#", color: "warning" };
       case "aborted":
         return { icon: "/", color: "dim" };
+      case "detached":
+        // Task 05: run handed off to a detached subprocess → background.
+        return { icon: ">", color: "dim" };
     }
   }
   switch (s) {
@@ -99,6 +103,9 @@ export function glyphFor(status: ActivityStatus | null | undefined, opts?: { pla
       return { icon: "⏹", color: "warning" };
     case "aborted":
       return { icon: "⊘", color: "dim" };
+    case "detached":
+      // Task 05: run handed off to a detached subprocess → background.
+      return { icon: "→", color: "dim" };
   }
 }
 

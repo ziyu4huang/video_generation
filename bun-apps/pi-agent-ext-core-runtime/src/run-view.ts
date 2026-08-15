@@ -17,6 +17,11 @@ export interface RunView {
   readonly id: string;
   readonly batchId?: string;
   readonly foreground: boolean;
+  /** True once the run was detached to background (Task 05). */
+  readonly detached?: boolean;
+  /** The full raw task prompt, when the registering tool supplied one (Task 05
+   *  detach manifests). Absent on legacy entries — use taskPreview then. */
+  readonly task?: string;
   readonly status: ActivityStatus;
   /** agent ?? "general-purpose" */
   readonly actor: string;
@@ -108,6 +113,8 @@ export function buildRunView(r: RunRecord, now: number): RunView {
     id: r.id,
     batchId: r.batchId,
     foreground: r.foreground ?? false,
+    detached: r.detached,
+    task: r.task,
     status,
     actor: r.agent ?? "general-purpose",
     modelSeg: modelSegFor(r),

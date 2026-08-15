@@ -8,8 +8,9 @@
  */
 import { describe, it } from "bun:test";
 import * as assert from "node:assert/strict";
-import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
+import { type AgentHistoryEntry, SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 import { type ChildDispatchDeps, dispatchChild } from "../src/child-dispatch.js";
+import { convertToBackground } from "../src/detach-run.js";
 import type { GitScopeOps } from "../src/git-scope.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 import { budgetAbort, failed, ok, timedout, turnsAbort } from "./_spawn-result.js";
@@ -291,5 +292,64 @@ describe("dispatchChild — dispatch gate", () => {
       }),
     );
     assert.deepEqual(order, ["gate-in", "spawn", "gate-out"]);
+  });
+});
+
+describe("dispatchChild — detach to background (Task 05)", () => {
+  /** Spawn that resolves `aborted` when its external signal fires — mirrors
+   *  spawnSubagent's contract once dispatchChild aborts the in-process run. */
+  const hangUntilAborted = (o: SpawnSubagentOptions): Promise<SpawnSubagentResult> =>
+    new Promise((resolve) => {
+      o.externalSignal?.addEventListener(
+        "abort",
+        () => resolve({ output: "", failure: { kind: "aborted", message: "detached" } }),
+        { once: true },
+      );
+    });
+
+  it("resolves the awaited call with status 'detached' and keeps the registry entry live", async () => {
+    const registry = new SubagentInFlightRegistry();
+    const pending = dispatchChild(
+      req({ entry: { model: "m", taskPreview: "t", workIntent: "t", task: "full task" } }),
+      deps({ inFlight: registry, spawn: hangUntilAborted }),
+    );
+    // Wait until dispatchChild has registered the run (synchronous prefix done).
+    for (let i = 0; i < 100 && !registry.view("call-1"); i++) await Promise.resolve();
+    assert.ok(registry.view("call-1"), "run registered before detach");
+
+    const outcome = await (async () => {
+      const detach = convertToBackground("call-1", {
+        registry,
+        spawnDetached: () => ({ pid: 1, kill: () => void 0 }),
+        persistRun: () => "/tmp/m.json",
+      });
+      assert.deepEqual(detach, { ok: true, runId: "call-1" });
+      return pending;
+    })();
+
+    assert.equal(outcome.status, "detached");
+    assert.equal(outcome.userAborted, false);
+    // The entry stays LIVE (foreground flipped, detached stamped) — it was not
+    // ended or markCompleted'd by the release path.
+    const v = registry.view("call-1");
+    assert.ok(v, "registry entry survives detach");
+    assert.equal(v.foreground, false);
+    assert.equal(v.detached, true);
+  });
+
+  it("stores the full raw task on the registry entry (manifest source)", async () => {
+    const registry = new SubagentInFlightRegistry();
+    const pending = dispatchChild(
+      req({ entry: { model: "m", taskPreview: "t", workIntent: "t", task: "the full raw task" } }),
+      deps({ inFlight: registry, spawn: hangUntilAborted }),
+    );
+    for (let i = 0; i < 100 && !registry.view("call-1"); i++) await Promise.resolve();
+    assert.equal(registry.view("call-1")?.task, "the full raw task");
+    convertToBackground("call-1", {
+      registry,
+      spawnDetached: () => ({ pid: 1, kill: () => void 0 }),
+      persistRun: () => "/tmp/m.json",
+    });
+    await pending;
   });
 });
