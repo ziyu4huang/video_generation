@@ -1,6 +1,6 @@
 # Ticket 03 — RunView costUsd / tokensIn / tokensOut projection
 
-> Wave 1 · spec §2 · status: **stub** (awaiting plan)
+> Wave 1 · spec §2 · status: **done** (PR #1414, 2026-08-15)
 
 ## Goal
 
