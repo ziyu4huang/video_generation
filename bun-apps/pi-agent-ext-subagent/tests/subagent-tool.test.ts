@@ -1,5 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
 import { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
@@ -22,6 +23,11 @@ import {
 } from "../src/subagent-tool-render.js";
 import type { SubagentToolDetails } from "../src/subagent-tool-schema.js";
 import { DEFAULT_TIMEOUT_MS } from "../src/subagent-tool-schema.js";
+
+// getMarkdownTheme() (used by the settled-expanded Markdown finalize path) reads the
+// host theme proxy, which throws "Theme not initialized" unless initTheme() ran.
+// Init once for this test module (no watcher — tests are short-lived).
+initTheme();
 
 /** Injectable spawn that records the opts it was called with. */
 function fakeSpawn(impl: (opts: SpawnSubagentOptions) => SpawnSubagentResult | Promise<SpawnSubagentResult>) {
@@ -1637,6 +1643,75 @@ test("renderResult composes settled-collapsed at render width", () => {
   // of the long first output line than the 40-col one.
   const zRun = (s: string) => [...s].filter((c) => c === "z").length;
   assert.ok(zRun(comp.render(200).join("\n")) > zRun(comp.render(40).join("\n")));
+});
+
+// ── ticket 03: settled expanded renders styled markdown (component level) ──
+const MD_REPORT = [
+  "## Findings",
+  "",
+  "The **critical** fix landed in `renderResult`.",
+  "",
+  "- item alpha",
+  "- item beta",
+  "",
+  "Multi-paragraph tail word zephyrquix.",
+].join("\n");
+
+/** Settled (non-partial) + expanded renderResult — the ticket-03 component path. */
+function settledExpandedComponent() {
+  const tool = createSubagentTool({});
+  const details: SubagentToolDetails = {
+    agent: "implementer",
+    taskPreview: "p",
+    elapsedMs: 1000,
+    status: "done",
+  };
+  const result = { content: [{ type: "text", text: MD_REPORT }], details };
+  const comp = tool.renderResult?.(result, { expanded: true }, T, { lastComponent: undefined } as never);
+  assert.ok(comp !== undefined, "settled expanded returns a component");
+  assert.ok(!(comp instanceof ComposerComponent), "settled expanded leaves the plain-string composer path");
+  return comp as unknown as { render(width: number): string[] };
+}
+
+test("renderResult settled-expanded composes header + styled Markdown body", () => {
+  const comp = settledExpandedComponent();
+  const rendered = comp.render(80).join("\n");
+  // Header row shape unchanged: badge + meta still lead the rendered block.
+  assert.ok(rendered.includes("✓ done"), "status badge leads the rendered block");
+  assert.ok(rendered.includes("default"), "meta row (model segment) renders after the badge");
+  // Full uncapped body present — the last paragraph's tail word survives.
+  assert.ok(rendered.includes("zephyrquix"), "full report body renders uncapped");
+  // Styled markdown, not raw markers: h2 heading text drops the `##`, bold
+  // drops `**` — the theme codes carry the styling instead.
+  assert.ok(rendered.includes("Findings"), "heading text renders");
+  assert.ok(!rendered.includes("## Findings"), "h2 marker is styled away, not raw");
+  assert.ok(rendered.includes("critical"), "bold text renders");
+  assert.ok(!rendered.includes("**critical**"), "bold marker is styled away, not raw");
+});
+
+test("renderResult settled-expanded renders block structure, not the raw string", () => {
+  const comp = settledExpandedComponent();
+  // Markdown block spacing (blank lines around headings/paragraphs) plus the
+  // header row yield MORE rendered lines than the raw string's own lines.
+  assert.ok(comp.render(80).length > MD_REPORT.split("\n").length, "styled markdown adds block structure");
+  // Markdown-only content (a list) renders distinctly: the raw `- ` items
+  // become bulleted lines under the heading, and the doc's words all survive.
+  const rendered = comp.render(80).join("\n");
+  assert.ok(rendered.includes("item alpha") && rendered.includes("item beta"), "list items render");
+});
+
+test("renderResult settled-expanded re-flows with width (no overflow, no crash)", () => {
+  const comp = settledExpandedComponent();
+  for (const width of [40, 120]) {
+    const lines = comp.render(width);
+    assert.ok(lines.length > 0, `width ${width} renders`);
+    for (const line of lines) {
+      // +1 slack: themed lines measured after ANSI stripping (visibleWidth).
+      assert.ok(visibleWidth(line) <= width + 1, `width ${width} overflow: ${visibleWidth(line)}`);
+    }
+  }
+  // Wrapping monotonicity: a narrower width wraps into at least as many lines.
+  assert.ok(comp.render(40).length >= comp.render(120).length, "narrow width wraps into more (or equal) lines");
 });
 
 // ── formatHistoryLine (exported for the /subagents live-follow view) ──
