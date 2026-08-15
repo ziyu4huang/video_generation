@@ -766,7 +766,9 @@ export class WorkflowManager extends EventEmitter {
         currentPhase: managed.snapshot.currentPhase,
         agents: managed.snapshot.agents.map((a) => ({
           ...a,
-          startedAt: managed.startedAt.toISOString(),
+          // Preserve the agent's own start time (snapshot stores ms) so a
+          // resumed navigator row shows the right elapsed, not the run's start.
+          startedAt: a.startedAt != null ? new Date(a.startedAt).toISOString() : managed.startedAt.toISOString(),
           endedAt: new Date().toISOString(),
         })),
         logs: managed.snapshot.logs,
