@@ -19,30 +19,32 @@ picking anything up from `tickets/`.
     was red** for every PR touching that package. `bun test` alone passes, which is why
     it went unnoticed.
 
-## Ticket 02 (ask-user) — NOT started, and it needs two answers first
+## Ticket 02 (ask-user) — half done; the rest needs two answers
 
-No code in `pi-agent-ext-core-task/src/ask-user/` was touched. State of each finding:
+A1/A3/A4/A5 landed. State of each finding:
 
 | # | Ready to implement? |
 |---|---|
-| A1, A3, A4, A5 | **Yes — one shared fix, no decision needed.** |
+| A1, A3, A4, A5 | **DONE** — closed together by `view/hint-table.ts`. |
 | A2 | **Blocked on the user.** |
 | A6 | **Blocked on the user.** |
 | A7, A8, A9 | Yes, independent, low risk. |
 
-### The A1/A3/A4/A5 cluster is one bug wearing four hats
+### The A1/A3/A4/A5 cluster — CLOSED
 
-`buildHintText` hand-assembles the footer with `if (...) hintParts.push(...)`, while a
-parallel table of `HINT_*` constants sits beside it pretending to be the vocabulary.
-Nothing keeps the two in sync, so: a label got double-prefixed (A1 prints
-`n n to add notes`), a translated-and-tested hint is never appended (A3), a
-configurable key is described by a hard-coded string (A4), and four constants are
+`buildHintText` hand-assembled the footer with `if (...) hintParts.push(...)` while a
+parallel table of `HINT_*` constants sat beside it pretending to be the vocabulary.
+Nothing kept the two in sync, so: a label was double-prefixed (A1 printed
+`n n to add notes`), a translated-and-tested hint was never appended (A3), a
+configurable key was described by a hard-coded string (A4), and four constants were
 exported to nobody (A5).
 
-Proposed fix: replace the if-push chain with **one `{ key, condition, label }` table**
-that both drives the render and is the only place a key is named — which also makes
-A4's `resolveCollapseKey` the single source for the key spelling. All four close
-together. This does not need a decision; it needs a session.
+Fixed by `src/ask-user/view/hint-table.ts`: one `{ label, when, args }` table plus one
+`buildHintText(ctx)` renderer, shared by the dialog footer and the collapsed bar, with
+`config.formatKeySpec` as the single place a key is spelled for a human (the notify path
+was moved onto it too). The structural guard is the reachability suite in
+`view/__tests__/hint-table.test.ts`, which enumerates all 80 contexts and asserts that
+every table label is reachable and every rendered part is a table label.
 
 ### A2 — decision needed
 

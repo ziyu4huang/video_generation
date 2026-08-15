@@ -13,26 +13,18 @@ import type { TabBar } from "./components/tab-bar.js";
 import type { StatefulView } from "./stateful-view.js";
 import type { TabComponents } from "./tab-components.js";
 import { QuestionTabStrategy, SubmitTabStrategy, type TabContentStrategy } from "./tab-content-strategy.js";
-// Stage 3b: route chrome literals through t() at their render sites. The
-// HINT_PART_* / heading consts below stay as English strings (source of truth /
-// dictionary keys); every site where they are RENDERED (joined into the footer
-// hint, printed as a heading/prompt) wraps the const in t(). Under the default
-// `en` locale t() is identity, so render output is byte-identical to before.
+import { buildHintText, type HintMode } from "./hint-table.js";
+import { formatKeySpec } from "../config.js";
+// Chrome literals are routed through t() at their render sites. The heading
+// consts below stay as English strings (source of truth / dictionary keys) and
+// every render site wraps the const in t(); under the default `en` locale t() is
+// identity, so output is byte-identical to the un-localized form.
 import { t } from "../state/i18n-bridge.js";
 
-export const HINT_PART_ENTER = "Enter to select";
-export const HINT_PART_NAV = "↑/↓ to navigate";
-export const HINT_PART_TOGGLE = "Space to toggle";
-export const HINT_PART_NOTES = "n to add notes";
-export const HINT_PART_TAB = "Tab to switch questions";
-export const HINT_PART_CANCEL = "Esc to cancel";
-export const HINT_PART_COLLAPSE = "Ctrl+] to collapse";
-export const HINT_PART_EXPAND = "Ctrl+] to expand";
-export const HINT_SINGLE = [HINT_PART_ENTER, HINT_PART_NAV, HINT_PART_CANCEL].join(" · ");
-export const HINT_MULTI = [HINT_PART_ENTER, HINT_PART_NAV, HINT_PART_TAB, HINT_PART_CANCEL].join(" · ");
-export const HINT_MULTISELECT_SUFFIX = ` · ${HINT_PART_TOGGLE}`;
-export const HINT_NOTES_SUFFIX = ` · ${HINT_PART_NOTES}`;
-export const COLLAPSED_HINT = [HINT_PART_EXPAND, HINT_PART_CANCEL].join(" · ");
+// The footer keybinding vocabulary lives in ./hint-table.js — one table, one
+// renderer. It used to live here as a pile of HINT_PART_* constants that
+// `buildHintText` was free to ignore or re-spell; see that file's header for the
+// four defects that grew in the gap.
 export const REVIEW_HEADING = "Review your answers";
 export const READY_PROMPT = "Ready to submit your answers?";
 export const INCOMPLETE_WARNING_PREFIX = "⚠ Answer remaining questions before submitting:";
@@ -53,6 +45,12 @@ export interface DialogConfig {
 	isMulti: boolean;
 	tabsByIndex: ReadonlyArray<TabComponents>;
 	submitPicker?: Component;
+	/**
+	 * Resolved collapse-key spec (`resolveCollapseKey`'s output, e.g. `ctrl+]` or
+	 * the `off` sentinel). Threaded in so the footer names the key the router
+	 * actually matches, instead of a hard-coded one.
+	 */
+	collapseKey: string;
 	getBodyHeight: (width: number) => number;
 	getCurrentBodyHeight: (width: number) => number;
 	getTerminalRows: () => number;
@@ -170,22 +168,34 @@ export class DialogView implements StatefulView<DialogProps> {
 		return lines;
 	}
 
+	/**
+	 * Which footer applies. Checked in precedence order: an open overlay (notes)
+	 * wins over the tab it covers, the submit tab is only reachable in multi
+	 * mode, and inputMode is a state OF a question tab.
+	 */
+	private hintMode(state: DialogState): HintMode {
+		if (state.notesVisible) return "notes";
+		if (this.config.isMulti && state.currentTab >= this.config.questions.length) return "submit";
+		if (state.inputMode) return "input";
+		return "question";
+	}
+
 	private buildHintText(state: DialogState): string {
-		if (state.notesVisible) return `${t(HINT_PART_ENTER)} / ${t(HINT_PART_CANCEL)}`;
-		const isMulti = this.config.isMulti;
-		const onSubmitTab = isMulti && state.currentTab >= this.config.questions.length;
-		if (onSubmitTab) return `${t(HINT_PART_NAV)} · ${t(HINT_PART_TAB)} · ${t("Enter to submit")} · ${t(HINT_PART_CANCEL)}`;
-		if (state.inputMode) return `${t(HINT_PART_ENTER)} · ↑/↓ · Esc`;
-		const hintParts = [t(HINT_PART_ENTER), t(HINT_PART_NAV)];
-		if (isMulti) hintParts.push(t(HINT_PART_TAB));
-		// Multi-select questions toggle with Space — surface it so the user
-		// knows how to mark options (the HINT_MULTISELECT_SUFFIX existed but was
-		// never appended, leaving the hint to misleadingly say only "Enter to select").
 		const focusedQuestion =
 			state.currentTab < this.config.questions.length ? this.config.questions[state.currentTab] : undefined;
-		if (focusedQuestion?.multiSelect) hintParts.push(t(HINT_PART_TOGGLE));
-		if (state.focusedOptionHasPreview) hintParts.push(`n ${t(HINT_PART_NOTES)}`);
-		hintParts.push(t(HINT_PART_CANCEL));
-		return hintParts.join(" · ");
+		const focusedIsMultiSelect = Boolean(focusedQuestion?.multiSelect);
+		return buildHintText({
+			mode: this.hintMode(state),
+			isMulti: this.config.isMulti,
+			focusedIsMultiSelect,
+			// Mirrors key-router.ts's gate (`!multiSelect &&
+			// focusedOptionHasPreview`) in full. The multiSelect half is currently
+			// redundant — computeFocusedOptionHasPreview already returns false for
+			// a multiSelect question — but stating the whole rule here keeps the
+			// footer's promise self-contained instead of depending on a derivation
+			// two modules away to keep holding.
+			notesAvailable: state.focusedOptionHasPreview && !focusedIsMultiSelect,
+			collapseKey: formatKeySpec(this.config.collapseKey),
+		});
 	}
 }

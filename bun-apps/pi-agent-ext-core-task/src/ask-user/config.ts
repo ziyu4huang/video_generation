@@ -127,6 +127,46 @@ export function resolveCollapseKey(config: Pick<AskUserQuestionConfig, "collapse
 	return isValidCollapseKeySpec(raw) ? raw : DEFAULT_COLLAPSE_KEY;
 }
 
+/**
+ * Display spelling for the parts of a key spec. Specs are normalized to lower
+ * case by `resolveCollapseKey`; humans read `Ctrl+]`, not `ctrl+]`.
+ */
+const KEY_DISPLAY: Record<string, string> = {
+	ctrl: "Ctrl", shift: "Shift", alt: "Alt", super: "Super",
+	esc: "Esc", escape: "Esc", enter: "Enter", return: "Return", tab: "Tab",
+	space: "Space", backspace: "Backspace", delete: "Delete", insert: "Insert",
+	clear: "Clear", home: "Home", end: "End", pageup: "PageUp", pagedown: "PageDown",
+	up: "↑", down: "↓", left: "←", right: "→",
+};
+
+/**
+ * Render a resolved key spec for display, or `undefined` when the shortcut is
+ * off.
+ *
+ * This is the ONLY place a key is spelled for a human. The footer hint used to
+ * hard-code "Ctrl+]" while `ctx.ui.notify` printed the resolved spec, so
+ * configuring `alt+o` produced a dialog that named two different keys — one of
+ * them wrong. Both now read from here, which reads from the same spec
+ * `key-router` matches against.
+ *
+ * `formatKeySpec(DEFAULT_COLLAPSE_KEY)` is exactly `"Ctrl+]"`, so the default
+ * rendering is unchanged.
+ */
+export function formatKeySpec(spec: CollapseKeySpec): string | undefined {
+	if (spec === COLLAPSE_KEY_OFF) return undefined;
+	return spec
+		.split("+")
+		.map((part) => {
+			const known = KEY_DISPLAY[part];
+			if (known !== undefined) return known;
+			// Function keys read as F5; a single character (letter or punctuation)
+			// is upper-cased — `o` → `O`, `]` → `]`.
+			if (/^f\d+$/.test(part)) return part.toUpperCase();
+			return part.length === 1 ? part.toUpperCase() : part;
+		})
+		.join("+");
+}
+
 export function loadConfig(): AskUserQuestionConfig {
 	return loadJsonConfig<AskUserQuestionConfig>(activeConfigPath());
 }

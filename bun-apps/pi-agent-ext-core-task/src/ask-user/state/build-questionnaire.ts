@@ -44,6 +44,8 @@ export interface QuestionnaireBuildConfig {
 	isMulti: boolean;
 	initialState: QuestionnaireState;
 	getCurrentTab: () => number;
+	/** Resolved collapse-key spec, threaded through to the footer hint. */
+	collapseKey: string;
 }
 
 export interface QuestionnaireBuilt {
@@ -86,6 +88,7 @@ class QuestionnaireBuilder {
 	private readonly questions: readonly QuestionData[];
 	private readonly itemsByTab: ReadonlyArray<readonly WrappingSelectItem[]>;
 	private readonly isMulti: boolean;
+	private readonly collapseKey: string;
 	private readonly initialState: QuestionnaireState;
 	private readonly getCurrentTab: () => number;
 
@@ -101,6 +104,7 @@ class QuestionnaireBuilder {
 		this.questions = config.questions;
 		this.itemsByTab = config.itemsByTab;
 		this.isMulti = config.isMulti;
+		this.collapseKey = config.collapseKey;
 		this.initialState = config.initialState;
 		this.getCurrentTab = config.getCurrentTab;
 
@@ -212,6 +216,7 @@ class QuestionnaireBuilder {
 				isMulti: this.isMulti,
 				tabsByIndex: tabs,
 				submitPicker,
+				collapseKey: this.collapseKey,
 				getBodyHeight: heights.global,
 				getCurrentBodyHeight: heights.current,
 				getTerminalRows: this.getTerminalRows,

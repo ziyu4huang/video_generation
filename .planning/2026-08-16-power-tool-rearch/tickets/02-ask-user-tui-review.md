@@ -9,9 +9,29 @@ Read-only review of `bun-apps/pi-agent-ext-core-task/src/ask-user/` (2026-08-16)
 module split (state / view / tool, pure reducer) is sound — every finding below is in
 the **hint layer and the mode semantics**, not the architecture.
 
-**No code changed in this effort.** A2 and A6 need a decision before implementation.
+**A1 / A3 / A4 / A5 are FIXED** — they shared one root cause and closed together
+under `view/hint-table.ts` (see below). **A2, A6, A7, A8, A9 are still open**;
+A2 and A6 need a decision before implementation.
 
-## A1 · HIGH — the footer literally prints `n n to add notes`
+## Root cause (A1/A3/A4/A5) — CLOSED
+
+`buildHintText` hand-assembled the footer with `if (...) hintParts.push(...)`
+while a parallel `HINT_PART_*` constant table pretended to be the vocabulary.
+Nothing tied the two together, so a part could be defined without being rendered
+(A3, A5) or rendered without going through its definition (A1, A4).
+
+Fixed by `src/ask-user/view/hint-table.ts`: one `{ label, when, args }` table
+plus one `buildHintText(ctx)` renderer, used by the dialog footer AND the
+collapsed one-line bar. The structural guard is the reachability suite in
+`view/__tests__/hint-table.test.ts` — it enumerates all 80 contexts and asserts
+every table label is rendered by at least one, and every rendered part is a
+table label. A fifth instance of this class now fails a test instead of shipping.
+
+Side effects worth knowing: the footer now uses ONE separator (notes mode used
+` / `), ONE part order (the submit tab used a different one), and input mode's
+abbreviated `↑/↓ · Esc` became the translatable full labels.
+
+## A1 · HIGH — the footer literally prints `n n to add notes` — FIXED
 
 `view/dialog-builder.ts:187`
 
@@ -36,7 +56,7 @@ plain option.
 **Decision needed:** un-gate `n` (drop the preview condition, allow on multiSelect), or
 delete the multi-select notes plumbing.
 
-## A3 · MEDIUM — the collapse hint is defined, translated, tested, and never shown
+## A3 · MEDIUM — the collapse hint is defined, translated, tested, and never shown — FIXED
 
 `HINT_PART_COLLAPSE = "Ctrl+] to collapse"` exists in `dialog-builder.ts:29`, has a
 `zh-TW` entry (`i18n-dictionaries.ts:59`) and an assertion
@@ -44,14 +64,14 @@ delete the multi-select notes plumbing.
 invisible until after the user has already discovered it; `COLLAPSED_HINT` only appears
 once collapsed.
 
-## A4 · MEDIUM — the collapse key is configurable, the hint is hard-coded
+## A4 · MEDIUM — the collapse key is configurable, the hint is hard-coded — FIXED
 
 `config.ts:123 resolveCollapseKey` accepts any spec (e.g. `alt+o`), but
 `HINT_PART_EXPAND` / `COLLAPSED_HINT` hard-code `Ctrl+]`. Configure `alt+o` and the
 collapsed line says "Ctrl+] to expand" (wrong) while
 `ask-user-question.ts:135`'s notify says "alt+o" (right). Two sources of truth.
 
-## A5 · MEDIUM — a dead second hint vocabulary
+## A5 · MEDIUM — a dead second hint vocabulary — FIXED
 
 `HINT_SINGLE`, `HINT_MULTI`, `HINT_MULTISELECT_SUFFIX`, `HINT_NOTES_SUFFIX` are
 exported and used nowhere. The comment at `dialog-builder.ts:182` records that
@@ -59,9 +79,7 @@ exported and used nowhere. The comment at `dialog-builder.ts:182` records that
 inlining, the constant stayed, and the same trap is now armed for `HINT_NOTES_SUFFIX`
 (it is A1's near-miss twin).
 
-Root cause shared with A1/A3/A4: `buildHintText` hand-assembles the footer with
-if-push, while a parallel constant table pretends to be the vocabulary. One table of
-`{ key, condition, label }` driving the render would collapse all four.
+Root cause shared with A1/A3/A4 — see the CLOSED section at the top of this file.
 
 ## A6 · MEDIUM — Esc is asymmetric and destructive
 

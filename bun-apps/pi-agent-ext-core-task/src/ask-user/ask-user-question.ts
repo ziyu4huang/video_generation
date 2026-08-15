@@ -7,7 +7,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { matchesKey } from "@earendil-works/pi-tui";
-import { loadConfig, resolveCollapseKey, validateGuidanceFields } from "./config.js";
+import { formatKeySpec, loadConfig, resolveCollapseKey, validateGuidanceFields } from "./config.js";
 import { ASK_USER_PROMPT_EVENT, type AskUserPromptEventPayload } from "./events.js";
 import { hasDialogUI, runRpcQuestionnaire } from "./rpc-fallback.js";
 import { displayLabel } from "./state/i18n-bridge.js";
@@ -132,7 +132,10 @@ Use the optional \`preview\` field on options when presenting concrete artifacts
 					sessionRef.current?.toggleCollapsedExternal();
 					if (handle.isHidden() && !hasAnnouncedHide) {
 						hasAnnouncedHide = true;
-						ctx.ui.notify?.(`ask_user_question hidden — press ${collapseKey} to reopen`, "info");
+						// Same formatter the footer hint uses — the two used to spell
+						// the key differently (`ctrl+]` here, a hard-coded "Ctrl+]"
+						// there), which is only invisible while nobody rebinds it.
+						ctx.ui.notify?.(`ask_user_question hidden — press ${formatKeySpec(collapseKey)} to reopen`, "info");
 					}
 					return { consume: true };
 				});
