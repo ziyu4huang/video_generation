@@ -67,12 +67,12 @@
     "mermaid": "^11"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "0.84.1",
+    "@earendil-works/pi-coding-agent": "0.84.2",
     "typebox": "*"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.16",
-    "@earendil-works/pi-coding-agent": "0.84.1",
+    "@earendil-works/pi-coding-agent": "0.84.2",
     "@playwright/test": "^1",
     "@repo/pi-agent-ext-core-interface": "workspace:*",
     "@tailwindcss/cli": "^4",

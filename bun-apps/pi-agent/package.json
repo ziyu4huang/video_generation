@@ -32,9 +32,9 @@
     "deploy:exe": "bun ../pi-agent-ext-devops/scripts/deploy.ts --exe"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.84.1",
-    "@earendil-works/pi-ai": "0.84.1",
-    "@earendil-works/pi-coding-agent": "0.84.1",
+    "@earendil-works/pi-agent-core": "0.84.2",
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.2",
     "@repo/pi-agent-ext-archify": "workspace:*",
     "@repo/pi-agent-ext-btw": "workspace:*",
     "@repo/pi-agent-ext-core-task": "workspace:*",

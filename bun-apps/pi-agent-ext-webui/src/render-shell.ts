@@ -81,9 +81,12 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
     <select id="btw-thinking">
       <option value="">Thinking: main default</option>
       <option value="off">off</option>
+      <option value="minimal">minimal</option>
       <option value="low">low</option>
       <option value="medium">medium</option>
       <option value="high">high</option>
+      <option value="xhigh">xhigh</option>
+      <option value="max">max</option>
     </select>
   </div>
   <div id="btw-messages"></div>
