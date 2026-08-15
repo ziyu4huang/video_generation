@@ -233,7 +233,17 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	// --- 2. Local-CI gate (remote-CI waiting intentionally NOT ported). ------
 	let ci: CiOutcome;
 	try {
-		ci = await runCi({ repoRoot, baseRef: status.baseRefName, headRef: status.headRefName, spawn });
+		// Base the local_ci diff at the PR base's REMOTE-TRACKING ref, not the
+		// local base branch. In this repo's multi-worktree layout `main` is
+		// checked out in another worktree and the local ref cannot be
+		// fast-forwarded here — a stale local `main` sweeps every commit since
+		// into the diff and over-scopes local_ci to the whole matrix (observed
+		// 318 s vs 69 s for the same branch). Fall back to the plain base name
+		// when the tracking ref doesn't resolve (fresh clone, no fetch yet).
+		const originBase = `origin/${status.baseRefName}`;
+		const probe = await spawn("git", ["rev-parse", "--verify", "-q", originBase], { cwd: repoRoot });
+		const ciBase = probe.exitCode === 0 ? originBase : status.baseRefName;
+		ci = await runCi({ repoRoot, baseRef: ciBase, headRef: status.headRefName, spawn });
 	} catch (err) {
 		return abort("local_ci_failed", `local CI threw: ${errMsg(err)}`);
 	}
