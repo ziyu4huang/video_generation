@@ -288,6 +288,30 @@ describe("pr-finish-cli — wrapper contract", () => {
 		expect(JSON.parse(res.stdout).aborted.reason).toBe("dirty_tree");
 	});
 
+	test("recordingSpawn forwards spawn options (cwd) — a dropped opts made every local_ci gate run at the repo root", async () => {
+		// Regression (2026-08-15): recordingSpawn dropped the third SpawnFn
+		// argument, so every spawn local_ci makes on pr-finish's behalf lost its
+		// cwd and ran at the baked-in default — package tests and gate commands
+		// (`bun run test:seam` at bun-apps/) executed at the repo root and failed,
+		// while the same local_ci passed standalone. Drive the passthrough via the
+		// default-runCi path's spawn seam and assert the fake receives options.
+		const seen: Array<{ args: string[]; cwd?: string }> = [];
+		const g = greenDeps();
+		const res = await runPrFinishCli(["42"], {
+			...g.deps,
+			spawn: (async (cmd, args, options) => {
+				if (cmd === "echo") seen.push({ args, cwd: options?.cwd });
+				return { stdout: "", stderr: "", exitCode: 0 };
+			}) as unknown as typeof g.deps.spawn,
+			runCi: async (opts) => {
+				await opts.spawn("echo", ["probe"], { cwd: "/tmp/probe-cwd" });
+				return ciPass();
+			},
+		});
+		expect(res.exitCode).toBe(0);
+		expect(seen.some((s) => s.args[0] === "probe" && s.cwd === "/tmp/probe-cwd")).toBe(true);
+	});
+
 	test("usage: missing pr → exit 2 with usage on stderr; --help exits 0", async () => {
 		const g = greenDeps();
 		const bad = await runPrFinishCli(["--dry-run"], g.deps);

@@ -153,12 +153,17 @@ export interface PrFinishDeps {
 	runCi?: (opts: Parameters<typeof runLocalCi>[0]) => Promise<CiOutcome>;
 }
 
-/** Wrap a SpawnFn so every invocation is recorded (rendered runnable). */
+/** Wrap a SpawnFn so every invocation is recorded (rendered runnable).
+ * NB: options (cwd) MUST be forwarded — dropping it makes every spawn local_ci
+ * makes on pr-finish's behalf run at the baked-in default cwd (repo root), so
+ * package tests and gate commands fail while the same local_ci passes
+ * standalone (observed 2026-08-15: 9 gates + the package row red inside
+ * pr-finish, green directly). */
 function recordingSpawn(spawn: SpawnFn): { fn: SpawnFn; commands: string[] } {
 	const commands: string[] = [];
-	const fn: SpawnFn = async (cmd, args) => {
+	const fn: SpawnFn = async (cmd, args, options) => {
 		commands.push([cmd, ...args].join(" "));
-		return spawn(cmd, args);
+		return spawn(cmd, args, options);
 	};
 	return { fn, commands };
 }
