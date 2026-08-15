@@ -6,14 +6,17 @@ export interface IrMeta {
   type?: string;
   /** Authored output filename (`meta.output`), honored by render. */
   metaOutput?: string;
+  /** Authored title (`meta.title`), used as the webui:open announce title. */
+  title?: string;
 }
 
 export type LoadIrResult = { ok: true; meta: IrMeta } | { ok: false; error: string };
 
 function metaOf(ir: unknown): IrMeta {
-  const obj = (ir ?? {}) as { diagram_type?: string; meta?: { output?: string } };
+  const obj = (ir ?? {}) as { diagram_type?: string; meta?: { output?: string; title?: string } };
   const metaOutput = typeof obj.meta?.output === "string" && obj.meta.output ? obj.meta.output : undefined;
-  return { type: obj.diagram_type, metaOutput };
+  const title = typeof obj.meta?.title === "string" && obj.meta.title ? obj.meta.title : undefined;
+  return { type: obj.diagram_type, metaOutput, title };
 }
 
 /**

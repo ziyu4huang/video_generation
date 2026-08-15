@@ -43,6 +43,48 @@ The webui is **on by default** (backward compatible). Disable or pin it three wa
 - **btw side panel**: tangent thread, model/thinking switches (all 7 thinking levels now
   reach the wire).
 
+## Full-fidelity HTML: `/files` route + `webui:open` event
+
+Rendered views (`webui:render`) deliberately sandbox HTML with NO scripts. Some artifacts
+— e.g. archify diagrams — are self-contained HTML whose product IS the inline JS runtime
+(theme toggle, semantic nav, PNG/SVG/WebM export menu); stripping scripts would gut them.
+Those are served instead by the dedicated **file route**, opened as a TOP-LEVEL browser tab
+(not a shell view):
+
+- **`GET /files/<rootIdx>/<rel…>`** (`src/file-routes.ts`) serves a full-fidelity file
+  from the configured root allowlist. `.html` (case-insensitive) → `text/html;
+  charset=utf-8` served inline; anything else → `application/octet-stream`. The leading
+  `<rootIdx>` segment selects the root (REQUIRED — `/files/<rel>` without an index is a
+  404).
+- **Security posture**: every `/files` response carries
+  `Content-Security-Policy: sandbox allow-scripts allow-downloads` (opaque origin — the
+  document can never reach `/api` or the WS endpoint same-origin) + `X-Content-Type-Options:
+  nosniff`. Containment mirrors `/output`: decode-after-strip, NUL reject, `realpathSync`
+  both sides, trailing-separator prefix rule, regular files only — every failure
+  (traversal, symlink hop, escape, directory, missing file, bad index) is the SAME uniform
+  404 that never leaks existence.
+- **Fail closed**: an empty root allowlist (the default) serves nothing but uniform 404s.
+- `GET /files` exact and non-GET `/files` requests fall through to the WebServer's default
+  404 (no CSP header) — the `/output` convention; those paths can never serve `/files`
+  bytes.
+
+**`webui:open` event** (`src/open-event-handler.ts`) — ANY extension may emit it on the
+shared `pi.events` bus with `{ path, view?, title? }`:
+
+- `path` (required): absolute or cwd-relative path to the file. Validated against the SAME
+  root allowlist + containment core as the route (they can never disagree about what is
+  servable); outside-roots/malformed payloads are ignored (never throw — bus robustness).
+- On success the handler announces a clickable `${title ?? path} — open <url>` via
+  `ui.notify`; `rel` is percent-encoded per segment so filenames with spaces/`#` round-trip.
+  No shell tab is created — the URL opens a top-level browser document.
+- Config (`src/webui-config.ts` → `resolveFileRoots`): wiring `fileRoots` (e.g.
+  `wireWebui(pi, { fileRoots: ["/abs/dir"] })`) > env `WEBUI_FILE_ROOTS`
+  (`:`-separated; relative entries resolve vs cwd; duplicates dedupe, first-match-wins) >
+  default none.
+- Cross-package example: `pi-agent-ext-archify` emits `webui:open` after every successful
+  `archify_render` / `archify_delta` (see its README) — webui imports nothing from archify
+  and vice versa; the string-literal channel is the whole contract.
+
 ## Startup & URL discovery
 
 - The server starts lazily on first use and **survives session shutdown** (persistent

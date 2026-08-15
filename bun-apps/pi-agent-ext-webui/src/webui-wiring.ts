@@ -42,16 +42,18 @@ import type { ClientFrame, DispatchAction, WebFrame } from "./protocol.js";
 import { RenderService } from "./render-service.js";
 import { createRenderRoutes } from "./render-routes.js";
 import { createOutputRoutes } from "./output-routes.js";
+import { createFileRoutes } from "./file-routes.js";
 import { createBtwRoutes } from "./btw-routes.js";
 import { createBtwForwarder, createBtwStore } from "./btw-store.js";
 import { emitBtwCommand, onBtwEvent } from "./btw-channels.js";
 import { createRenderEventHandler } from "./render-event-handler.js";
 import { createPresentEventHandler } from "./present-event-handler.js";
+import { createOpenEventHandler } from "./open-event-handler.js";
 import { imageMd } from "./image-presentation.js";
 import { resolveOutputDir } from "./output-routes.js";
 import { createPresentTool, type PresentInput } from "./present-tool.js";
 import { resolvePort } from "./port-resolver.js";
-import { resolveWebuiEnabled } from "./webui-config.js";
+import { resolveFileRoots, resolveWebuiEnabled } from "./webui-config.js";
 import { createSessionStore, type SessionStore } from "./session-store.js";
 
 /**
@@ -178,6 +180,14 @@ export interface WebuiDeps {
    * mutating process.env.
    */
   port?: number;
+  /**
+   * /files serving root allowlist (spec §4.1, archify-webui-html ticket 06):
+   * explicit `deps.fileRoots` wins; otherwise env `WEBUI_FILE_ROOTS`
+   * (`:`-separated, see webui-config.resolveFileRoots). Default `[]` = FAIL
+   * CLOSED: the /files route serves uniform 404s and `webui:open` ignores
+   * every path.
+   */
+  fileRoots?: string[];
 }
 
 /**
@@ -265,6 +275,9 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
         Promise.resolve({ cancelled: true }),
     };
   }
+  // ticket 06 (archify-webui-html spec §4.1): /files root allowlist — resolved
+  // ONCE here so the route and the webui:open handler anchor identically.
+  const fileRoots = resolveFileRoots(process.env, deps.fileRoots);
   const server = deps.server ?? getServer(deps.port ?? resolvePort());
   // ticket 07 D1: loopback wiring — token OFF (null => no check). Loopback
   // binding + the DNS-rebinding-safe originAllowed guard is the v1 boundary;
@@ -497,6 +510,10 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // render routes — render answers first (incl. GET / shell), output serves
   // /output/{...}, everything else falls through to the WebServer defaults.
   const renderRoutes = createRenderRoutes(registry);
+  // ticket 06 (archify-webui-html spec §4.1): /files serves full-fidelity HTML
+  // from the configured root allowlist — chained AFTER render routes, BEFORE
+  // output routes (the spec-pinned registration order).
+  const fileRoutes = createFileRoutes({ roots: fileRoots });
   const outputRoutes = createOutputRoutes(deps.outputDir !== undefined ? { dir: deps.outputDir } : undefined);
   // Task 8: btw routes answer FIRST (/api/btw, /api/btw/models); render and
   // output keep their existing order behind them. Model list is read from the
@@ -513,7 +530,7 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
             id: m.id,
             api: m.api,
           })),
-      })(req, srv) ?? renderRoutes(req, srv) ?? outputRoutes(req, srv),
+      })(req, srv) ?? renderRoutes(req, srv) ?? fileRoutes(req, srv) ?? outputRoutes(req, srv),
   );
   // Render-seam registration is guarded: a host whose ExtensionAPI predates
   // ticket 06 has no `events` bus / `registerTool` — wiring must not throw at
@@ -533,6 +550,27 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   pi.events?.on("webui:render", createRenderEventHandler(registry, { toImageMarkdown }));
   const presentHandler = createPresentEventHandler(registry, { toImageMarkdown });
   pi.events?.on("webui:present", presentHandler);
+  // ticket 06 (archify-webui-html spec §4.2): the `webui:open` channel — any
+  // extension (archify; wayfind-style string-literal contract, no import)
+  // may emit {path, view?, title?}. The handler validates against the SAME
+  // roots the /files route serves and announces the URL via the BOUND
+  // session's ui (null before session_start -> notify no-ops). server.url is
+  // read LAZILY (the server starts at session_start, after wiring returns)
+  // and trailing-slash-stripped so exactly one slash precedes /files.
+  // Guarded like the render seams above: a host without an events bus no-ops.
+  pi.events?.on(
+    "webui:open",
+    createOpenEventHandler(fileRoots, {
+      getUrl: () => {
+        try {
+          return server.url.replace(/\/$/, "");
+        } catch {
+          return ""; // server not started/stopped — announce a bare /files path
+        }
+      },
+      notify: (message) => bound?.ctx?.ui?.notify(message),
+    })
+  );
 
   // webui_present (the blocking HITL gate, spec Component 2): the `present` dep
   // emits the webui:present event (the registered handler mints the view). If
