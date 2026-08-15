@@ -24,24 +24,17 @@ import {
   renderActivityRow,
   summarizeLatestAction,
 } from "@repo/pi-agent-ext-core-runtime";
-import { agentCounts, fmtDuration, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
-import { persistedToSnapshot } from "./run-persistence.js";
+import {
+  agentCounts,
+  fmtDuration,
+  runStatusGlyph,
+  type WorkflowAgentSnapshot,
+  type WorkflowSnapshot,
+} from "./display.js";
+import { persistedToSnapshot, type RunStatus } from "./run-persistence.js";
 import { registerSavedWorkflow } from "./saved-commands.js";
 import type { WorkflowManager } from "./workflow-manager.js";
 import type { SavedWorkflow, WorkflowStorage } from "./workflow-saved.js";
-
-const STATUS_ICON: Record<string, string> = {
-  pending: "·",
-  queued: "·",
-  running: "◆",
-  paused: "⏸",
-  completed: "✓",
-  done: "✓",
-  failed: "✗",
-  error: "✗",
-  aborted: "⊘",
-  skipped: "⊘",
-};
 
 /** Minimal theme surface so rendering is testable without the real Theme class. */
 export interface ThemeLike {
@@ -63,7 +56,7 @@ export type ItemKind = "run" | "saved";
 interface RunRow {
   runId: string;
   name: string;
-  status: string;
+  status: RunStatus;
   done: number;
   total: number;
   tokens: number;
@@ -367,7 +360,7 @@ export function renderNavigator(
     }
     // Render runs
     runs.forEach((r, i) => {
-      const icon = STATUS_ICON[r.status] ?? "?";
+      const icon = runStatusGlyph(r.status);
       const meta = [
         `${r.done}/${r.total}`,
         r.tokens > 0 ? `${fmtTokensShort(r.tokens)} tok` : "",
