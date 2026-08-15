@@ -17,15 +17,21 @@ scripts — `scripts/deploy.ts`, `scripts/run-test.sh`, `scripts/ci-local.sh`.
   ungated companion (always active).
 - **sweep_branches** — classify + (dry-run by default) delete merged
   local/remote branches. Conservative: only `gh`-confirmed MERGED PRs are
-  auto-deletable; uncertain cases go to a `review` bucket.
+  auto-deletable; uncertain cases go to a `review` bucket. A branch checked out
+  in any worktree is never deleted, LOCAL OR REMOTE — the guard protects the
+  person in that worktree (push target + upstream), not the checkout.
 - **local_ci** — OFFLINE local CI: typecheck + tests scoped to changed packages
-  vs `origin/main`, plus repo gates. Structured pass/fail; self-verify before
-  `gh ship` (await_pr_merge gates on this). A package's test command comes from
-  its row in `.github/workflows/ci.yml.disabled` (`src/ci-matrix.ts`), run via
-  `bash -c` — so `--isolate`, `&& bun run qa`, and build-first rows are honored
-  exactly as remote CI would; only packages with NO matrix row fall back to the
-  generic `bun run test`. `scripts/ci-local.sh` parses the same block, so the two
-  local runners cannot disagree.
+  vs `origin/main`, plus every step of the workflow's `regression-gates` job.
+  Structured pass/fail; self-verify before `gh ship` (await_pr_merge gates on
+  this). BOTH halves are derived from `.github/workflows/ci.yml.disabled` and
+  neither is hand-copied here: a package's test command from its `tests` matrix
+  row (`src/ci-matrix.ts`), the gate list from the `regression-gates` job
+  (`src/ci-gates.ts`). Matrix rows run via `bash -c` — so `--isolate`,
+  `&& bun run qa`, and build-first rows are honored exactly as remote CI would;
+  only packages with NO matrix row fall back to the generic `bun run test`.
+  `scripts/ci-local.sh` parses the same two blocks, so the runners cannot
+  disagree. An unparseable gate job FAILS the run (`gateError`) rather than
+  degrading to an empty, all-green gate set.
 - **changed-packages CLI** (`src/changed-packages-cli.ts`) — the bash-callable
   wrapper the workflow's `changed_packages` job shells out to (`--all`, or
   `<baseRef> <headRef>` → one line of JSON). Deliberately a plain script entry,

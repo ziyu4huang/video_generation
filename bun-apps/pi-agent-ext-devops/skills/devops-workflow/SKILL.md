@@ -50,11 +50,34 @@ the merge.
 
 ### 2. `local_ci` — self-verify (the local proxy for remote CI)
 
-Run typecheck + tests scoped to the packages changed vs `origin/main`, plus the
-repo's quality gates (file-size guard, lockfile-duplicate guard; strict adds the
-audit gates). **Offline** — a green run is the local proxy for a green remote
-run (remote CI is intentionally disabled in this repo). This is what
-`await_pr_merge` gates on; run it standalone to self-verify before merge.
+Run typecheck + tests scoped to the packages changed vs `origin/main`, plus
+**every step of the workflow's `regression-gates` job** (~14 gates, ~5s).
+**Offline** — a green run is the local proxy for a green remote run (remote CI
+is intentionally disabled in this repo). This is what `await_pr_merge` gates on;
+run it standalone to self-verify before merge.
+
+**Nothing here is hand-copied.** Both halves are derived from
+`.github/workflows/ci.yml.disabled` at runtime: the per-package command from the
+`tests` matrix (`src/ci-matrix.ts`), the gate list from the `regression-gates`
+job (`src/ci-gates.ts`). A hand-written gate list previously ran 2 of the 14
+steps, so `test:deps` / `test:adr` / `test:seam` / `test:routing` /
+`test:config-parity` / `test:ci-workflow` / `test:scripts` and the `--strict`
+portability audit never ran under the gate `await_pr_merge` merges on. If you add
+a gate step to the workflow, `local_ci` picks it up with no edit here.
+
+Two consequences worth knowing:
+
+- **A gate list that cannot be parsed fails the run** (`gateError`, `overall:
+  "fail"`), it does not degrade to "0 gates, all passed". That degradation is
+  the false-green the derivation exists to prevent. This is the OPPOSITE of the
+  matrix reader, which safely degrades to `{}` because a package with no row
+  still runs its generic `bun run test`.
+- **`strict: true` no longer means "add the audit gates"** — those are in the
+  job now and always run. It means "also run the audits that have NO workflow
+  step" (`check-workflow-patterns.mjs`, `verify-skills.ts`).
+
+`local_ci` is **change-scoped**, so it says nothing about packages your branch
+does not touch. It is not a health check for `main`.
 
 ### 3. `await_pr_merge` — local-CI-gated squash-merge
 
@@ -95,6 +118,14 @@ tree, or an unexpected ahead+behind / far-behind divergence. Run it last for a
 | Classify + clean up merged local/remote branches | `sweep_branches` |
 | Build + deploy the pi-agent bundle + thin ext bundles (mirrors `scripts/deploy.ts`) | `pi_deploy` |
 | Run a pi-agent `run-test.sh` tier (quick/medium/high/readonly/full) to self-verify | `pi_verify` |
+
+### `sweep_branches` — the worktree guard covers remotes too
+
+A branch checked out in ANY worktree is never deleted, **local or remote**.
+Deleting `origin/x` does not touch a local checkout of `x`, which is why remotes
+used to be exempt — but the guard protects the person in that worktree, whose
+push target and upstream tracking would vanish mid-session. The guard runs twice:
+at plan time and again against fresh state immediately before each delete.
 
 ### `sync_repo` — auto-managed hot files are preserved, not aborted
 
