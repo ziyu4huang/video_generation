@@ -38,6 +38,35 @@ describe("btw inbound frames", () => {
     expect(validateInbound({ type: "btw" })).toBeNull();
   });
 
+  it("v2: thinking frames accept ALL SEVEN BtwThinkingLevel values (minimal/xhigh/max no longer dropped)", () => {
+    // v1's schema admitted only off|low|medium|high — the panel's
+    // minimal/xhigh/max selections were silently dropped by validateInbound.
+    for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"]) {
+      expect(validateInbound({ type: "btw", kind: "thinking", level })).toEqual({
+        type: "btw",
+        kind: "thinking",
+        level,
+      });
+    }
+    expect(validateInbound({ type: "btw", kind: "thinking", level: null })).toEqual({
+      type: "btw",
+      kind: "thinking",
+      level: null,
+    });
+  });
+
+  it("v2: an UNKNOWN thinking level is REJECTED at the boundary (strict 7-value union)", () => {
+    // v2 tightened the level union to exactly the 7 real BtwThinkingLevel
+    // values (plus null) — garbage like "bogus" fails validateInbound and is
+    // dropped at the web boundary (web-server.onMessage), never forwarded to
+    // the btw thread. (parseCommand itself trusts an already-validated
+    // ClientFrame and forwards verbatim — it is not the gate.)
+    expect(validateInbound({ type: "btw", kind: "thinking", level: "bogus" })).toBeNull();
+    expect(
+      t.parseCommand({ type: "btw", kind: "thinking", level: "max" } as never),
+    ).toEqual({ kind: "btw", command: { kind: "thinking", level: "max" } });
+  });
+
   it("parseCommand maps btw frames to a btw dispatch action", () => {
     expect(t.parseCommand({ type: "btw", kind: "mode", mode: "tangent" } as never)).toEqual({
       kind: "btw",

@@ -31,6 +31,7 @@ import {
 	isCliCommand,
 	userSuppressFlags,
 	overriddenStaticExtensions,
+	webuiFlags,
 } from "./cli-argv.ts";
 // NOTE: static-extensions.ts is imported DYNAMICALLY, below the `cli` intercept
 // — see the comment there. A static import here would evaluate all 14 extension
@@ -53,6 +54,16 @@ import {
 // run-dir extension. (Regression introduced when this slice moved up for the
 // doctor intercept; fixed by re-slicing at the main() call.)
 const argv = process.argv.slice(2);
+
+// v2 webui optionality (architecture v2 §3.1): `--no-webui` / `--webui-port <n>`
+// translate to the env the webui extension's wireWebui gate reads. Set BEFORE
+// patches/main so the static extension factory (which runs inside main()) sees
+// them. Harmless for doctor / `cli <command>` (they never load the webui
+// factory). The flags are ALSO stripped from the argv handed to pi below so
+// they never reach the upstream parser.
+const webui = webuiFlags(argv);
+if (webui.disabled) process.env.WEBUI_DISABLED = "1";
+if (webui.port !== null) process.env.WEBUI_PORT = webui.port;
 
 // `doctor` self-check: intercept BEFORE patches/main so the diagnostic runs
 // even when patches/deploys are broken. `bun src/cli.ts doctor [--json]` or
@@ -153,6 +164,22 @@ const factories = userNoExtensions
 if (!userNoExtensions && overridden.size > 0) {
 	console.error(`[pi-agent] static extension(s) overridden by user -e: ${[...overridden].join(", ")}`);
 }
-await main(process.argv.slice(2), {
+
+// The v2 webui flags were captured from the PRE-patch argv; strip them from the
+// POST-patch slice too (the run-dir splice re-added tokens, but our flags are
+// still present). webuiFlags.rest would miss the spliced tokens, so filter the
+// final slice by the same patterns.
+const webuiTokens = new Set(["--no-webui", "--webui-port"]);
+const mainArgv: string[] = [];
+for (let i = 0; i < process.argv.length - 2; i++) {
+	const a = process.argv[2 + i]!;
+	if (webuiTokens.has(a)) {
+		if (a === "--webui-port") i++; // consume the paired value token
+		continue;
+	}
+	if (a.startsWith("--webui-port=")) continue;
+	mainArgv.push(a);
+}
+await main(mainArgv, {
 	extensionFactories: factories,
 });

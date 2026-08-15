@@ -30,6 +30,14 @@ describe("resolvePort", () => {
     expect(resolvePort({ WEBUI_PORT: "-5", PORT: "9000" })).toBe(9000);
   });
 
+  it("WEBUI_PORT hex / scientific notation rejected (strict decimal)", () => {
+    expect(resolvePort({ WEBUI_PORT: "0x10", PORT: "9000" })).toBe(9000);
+    expect(resolvePort({ WEBUI_PORT: "1e3", PORT: "9000" })).toBe(9000);
+    expect(resolvePort({ WEBUI_PORT: "+5", PORT: "9000" })).toBe(9000);
+    expect(resolvePort({ WEBUI_PORT: "5.5", PORT: "9000" })).toBe(9000);
+    expect(resolvePort({ WEBUI_PORT: "08080", PORT: "9000" })).toBe(8080); // leading zeros OK
+  });
+
   it("WEBUI_PORT empty -> falls through", () => {
     expect(resolvePort({ WEBUI_PORT: "", PORT: "9000" })).toBe(9000);
   });

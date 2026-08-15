@@ -163,6 +163,52 @@ describe("WebServer origin guard", () => {
     expect(http.status).toBe(403);
     expect(ws.status).toBe(403);
   });
+
+  it("POSITIVE: a valid loopback same-origin Origin passes (200)", async () => {
+    const s = makeServer({ port: 0 });
+    s.start();
+    const port = s.port;
+    for (const host of ["127.0.0.1", "localhost"]) {
+      const res = await fetch(`${s.url}/health`, {
+        headers: { Origin: `http://${host}:${port}` },
+      });
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it("v2: spoofed non-loopback HOST with no Origin -> 403 (DNS-rebinding read vector closed)", async () => {
+    const s = makeServer({ port: 0 });
+    s.start();
+    // The classic rebinding popup: Host: attacker.com, NO Origin header (a
+    // same-origin GET from the rebound origin sends no Origin). v1 allowed
+    // this through — /api/views, /api/view/:id, /api/logs, /output/* were all
+    // same-origin readable. v2 requires a loopback Host hostname unconditionally.
+    const res = await fetch(`${s.url}/health`, {
+      headers: { Host: `evil.com:${s.port}` },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("v2: non-loopback Host WITH a valid-looking Origin -> 403", async () => {
+    const s = makeServer({ port: 0 });
+    s.start();
+    const res = await fetch(`${s.url}/health`, {
+      headers: {
+        Host: `evil.com:${s.port}`,
+        Origin: `http://127.0.0.1:${s.port}`,
+      },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("v2: loopback Host + absent Origin still allowed (curl/scripts)", async () => {
+    const s = makeServer({ port: 0 });
+    s.start();
+    const res = await fetch(`${s.url}/health`, {
+      headers: { Host: `127.0.0.1:${s.port}` },
+    });
+    expect(res.status).toBe(200);
+  });
 });
 
 // --- WebServer stub page + health ------------------------------------------
@@ -176,14 +222,15 @@ describe("WebServer stub page + health", () => {
     expect(await res.text()).toBe("ok");
   });
 
-  it("GET / -> 200 HTML connect-test page that opens the WS", async () => {
+  it("GET / -> 200 HTML no-routes fallback page that opens the WS", async () => {
     const s = makeServer({ port: 0 });
     s.start();
     const res = await fetch(`${s.url}/`);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
     const body = await res.text();
-    // A real frontend is ticket 06; this stub only needs to open the WS.
+    // No routes installed here -> the fallback page opens the WS; in prod the
+    // wiring's render shell answers / via setHttpRoutes BEFORE this branch.
     expect(body).toContain("/ws");
     expect(body).toContain("WebSocket");
   });

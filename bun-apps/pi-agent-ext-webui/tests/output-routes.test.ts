@@ -8,7 +8,7 @@
  * live WebServer integration test proving the origin-guarded fetch() path.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createOutputRoutes, resolveOutputDir } from "../src/output-routes.js";
@@ -153,6 +153,44 @@ describe("createOutputRoutes — fall-through", () => {
   test("non-GET method -> null", () => {
     const req = new Request("http://t/output/0/a.png", { method: "POST" });
     expect(routes(req, undefined as never)).toBeNull();
+  });
+});
+
+describe("createOutputRoutes — symlink containment (v2, architecture v2 §3.2)", () => {
+  // v2: the v1 lexical startsWith containment was escapable via a symlink INSIDE
+  // the output dir (final component OR an intermediate directory) pointing
+  // anywhere — e.g. ~/.ssh. realpath re-check closes both.
+  const t2 = mkdtempSync(path.join(os.tmpdir(), "webui-output-symlink-"));
+  const out2 = path.join(t2, "out");
+  const outside = path.join(t2, "outside.txt");
+  mkdirSync(out2, { recursive: true });
+  writeFileSync(path.join(out2, "ok.png"), "OK");
+  writeFileSync(outside, "SECRET-OUTSIDE");
+  let symlinksAvailable = true;
+  try {
+    symlinkSync(outside, path.join(out2, "evil.png")); // final-component escape
+    symlinkSync(t2, path.join(out2, "linked-dir")); // intermediate-dir escape
+  } catch {
+    symlinksAvailable = false; // filesystem without symlink support — skip
+  }
+  const routes = createOutputRoutes({ dir: out2 });
+
+  test("a real file still serves (control)", async () => {
+    const res = call(routes, "http://t/output/ok.png")!;
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("OK");
+  });
+
+  test.skipIf(!symlinksAvailable)("a final-component symlink escaping the dir -> 404", () => {
+    const res = call(routes, "http://t/output/0/evil.png");
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(404);
+  });
+
+  test.skipIf(!symlinksAvailable)("a symlinked intermediate directory escaping the dir -> 404", () => {
+    const res = call(routes, "http://t/output/0/linked-dir/outside.txt");
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(404);
   });
 });
 

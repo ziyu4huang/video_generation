@@ -43,12 +43,15 @@ describe("RENDER_SHELL_HTML — declarative HITL response wiring (phase 3)", () 
     expect(RENDER_SHELL_HTML).toContain("type: 'appexec'");
   });
 
-  it("sends via JSON.stringify and guards against a non-OPEN ws, logging the sent frame", () => {
+  it("sends via JSON.stringify; queues instead of dropping when the ws is not OPEN (v2 send queue)", () => {
     expect(RENDER_SHELL_HTML).toContain("JSON.stringify");
     expect(RENDER_SHELL_HTML).toContain("ws.send");
     expect(RENDER_SHELL_HTML).toContain("WebSocket.OPEN");
-    expect(RENDER_SHELL_HTML).toContain("ws not open");
-    expect(RENDER_SHELL_HTML).toContain("appexec response sent");
+    // v2 (architecture v2 §3.6): a non-OPEN socket QUEUES the frame (flushed on
+    // open) instead of logging-and-dropping it — a HITL answer must survive a
+    // reconnect.
+    expect(RENDER_SHELL_HTML).toContain("wsQueue.push(payload)");
+    expect(RENDER_SHELL_HTML).toContain("sendAppexecResponse");
   });
 
   it("defines renderControls and calls it from renderView (both content branches)", () => {

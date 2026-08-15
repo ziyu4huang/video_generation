@@ -121,6 +121,42 @@ function openWs(url: string, headers?: Record<string, string>): Promise<WebSocke
   });
 }
 
+/**
+ * Resolve on the next WS message that is NOT the connect-time snapshot frame
+ * (v2, architecture v2 §3.3): the wiring now pushes `{type:"snapshot",…}` to
+ * every client on open, so tests that assert on the FIRST live frame must skip
+ * it. Snapshot frames are filtered; the first non-snapshot frame resolves.
+ */
+function nextNonSnapshot(ws: WebSocket): Promise<string> {
+  return new Promise<string>((resolve) => {
+    const handler = (ev: MessageEvent) => {
+      const text = String(ev.data);
+      try {
+        if (JSON.parse(text).type === "snapshot") return; // skip
+      } catch {
+        /* malformed — treat as a real frame */
+      }
+      ws.removeEventListener("message", handler);
+      resolve(text);
+    };
+    ws.addEventListener("message", handler);
+  });
+}
+
+/** True iff a frame (non-snapshot) has arrived on `ws`. */
+function hasLiveFrame(ws: WebSocket): { got: () => boolean } {
+  let got = false;
+  ws.addEventListener("message", (ev) => {
+    try {
+      if (JSON.parse(String(ev.data)).type === "snapshot") return;
+    } catch {
+      /* fall through */
+    }
+    got = true;
+  });
+  return { got: () => got };
+}
+
 // --- the minimal-but-real pi host stub --------------------------------------
 
 /**
@@ -255,15 +291,41 @@ describe("wireWebui live smoke — Tier A", () => {
     const ws = await withTimeout(openWs(`${server.url.replace("http", "ws")}/ws`), 2000, "ws open");
     await waitFor("client registered", () => server.clientCount === 1);
 
-    const received = new Promise<string>((resolve) => {
-      ws.onmessage = (ev) => resolve(String(ev.data));
-    });
+    // Skip the connect-time snapshot frame (v2) — resolve on the first LIVE frame.
+    const received = nextNonSnapshot(ws);
     // Replay an outbound event the wiring forwards verbatim (turn_start ∈
     // OUTBOUND_EVENTS). transport.mapEvent forwards .type intact.
     pi.emit("turn_start", { type: "turn_start" });
     const data = await withTimeout(received, 2000, "forwarded frame not delivered");
     expect(data).toBe(JSON.stringify({ type: "turn_start" }));
     expect(JSON.parse(data)).toEqual({ type: "turn_start" });
+  });
+
+  it("C2) a client connecting mid-session receives the v2 snapshot FIRST (bounded transcript replay)", async () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", {}, pi.ctx());
+    // Accumulate history BEFORE any client connects: a turn_start + a
+    // message_update (text delta) land in the session store via the wrapped
+    // broadcaster.
+    pi.emit("turn_start", { type: "turn_start" });
+    pi.emit("message_update", { type: "message_update", text: "hello" });
+
+    const ws = await withTimeout(openWs(`${server.url.replace("http", "ws")}/ws`), 2000, "ws open");
+    await waitFor("client registered", () => server.clientCount === 1);
+
+    const first = new Promise<string>((resolve) => {
+      ws.onmessage = (ev) => resolve(String(ev.data));
+    });
+    const raw = await withTimeout(first, 2000, "snapshot frame not delivered");
+    const frame = JSON.parse(raw);
+    expect(frame.type).toBe("snapshot");
+    expect(frame.state.transcript.map((f: { type: string }) => f.type)).toEqual([
+      "turn_start",
+      "message_update",
+    ]);
+    expect(frame.state.transcript[1]).toMatchObject({ type: "message_update", text: "hello" });
+    expect(frame.state.presentId).toBeNull();
+    expect(frame.state.driver).toBeNull();
   });
 
   it("D) inbound prompt dispatch: {type:prompt,text:'smoke hello'} -> pi.sendUserMessage('smoke hello')", async () => {
@@ -413,9 +475,8 @@ describe("wireWebui live smoke — Tier B", () => {
     const ws = await withTimeout(openWs(`${server.url.replace("http", "ws")}/ws`), 2000, "ws open");
     await waitFor("client registered", () => server.clientCount === 1);
 
-    const received = new Promise<string>((resolve) => {
-      ws.onmessage = (ev) => resolve(String(ev.data));
-    });
+    // Skip the connect-time snapshot frame (v2) — resolve on the first LIVE frame.
+    const received = nextNonSnapshot(ws);
 
     // (1) Acquire the mutex lock as the WEB frontend. The wiring's input handler
     //     is `controller.handleInput(event.source)`. "extension" -> toFrontend
@@ -441,13 +502,12 @@ describe("wireWebui live smoke — Tier B", () => {
     const ws = await withTimeout(openWs(`${server.url.replace("http", "ws")}/ws`), 2000, "ws open");
     await waitFor("client registered", () => server.clientCount === 1);
 
-    let gotFrame = false;
-    ws.onmessage = () => {
-      gotFrame = true;
-    };
+    // gotFrame counts LIVE frames only — the connect-time snapshot (v2) is
+    // expected and must not trip the negative control.
+    const live = hasLiveFrame(ws);
     // No prior acquisition — tui input is the FIRST gate call -> "continue".
     pi.emit("input", { source: "interactive" });
     await Bun.sleep(80); // give the (absent) broadcast time to never arrive
-    expect(gotFrame).toBe(false);
+    expect(live.got()).toBe(false);
   });
 });

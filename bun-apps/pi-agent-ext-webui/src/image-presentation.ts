@@ -31,9 +31,16 @@ export function imageMd(absPath: string, outputDir: string): string | null {
     return null;
   }
   // Percent-encode AFTER separator normalization: marked rejects raw spaces in
-  // link destinations (ledger [P4-final]); encodeURI keeps "/" and balanced
-  // parens intact, and the /output route decodeURIComponent round-trips it.
-  return `![image](/output/0/${encodeURI(rel.split(path.sep).join("/"))})`;
+  // link destinations (ledger [P4-final]); v2 encodes PER SEGMENT with
+  // encodeURIComponent (architecture v2 §3.6) — v1's encodeURI left # ? & raw,
+  // so a filename containing '#' truncated the URL at the fragment (image 404).
+  // The /output route decodeURIComponent round-trips it.
+  const relUrl = rel.split(path.sep).join("/");
+  const encoded = relUrl
+    .split("/")
+    .map((seg) => encodeURIComponent(seg))
+    .join("/");
+  return `![image](/output/0/${encoded})`;
 }
 
 /** Narrow shape an outputs[] entry may take (the flux2/ltx `{path}` form). */

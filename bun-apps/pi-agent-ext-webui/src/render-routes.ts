@@ -79,7 +79,14 @@ export function createRenderRoutes(
     }
 
     if (req.method === "GET" && pathname.startsWith("/api/view/")) {
-      const id = decodeURIComponent(pathname.slice("/api/view/".length));
+      let id: string;
+      try {
+        id = decodeURIComponent(pathname.slice("/api/view/".length));
+      } catch {
+        // Malformed %-escape (e.g. /api/view/%zz) would throw URIError and
+        // 500 via the unguarded httpRoutes seam — uniform 400 instead.
+        return new Response("bad request", { status: 400 });
+      }
       const view = registry.getView(id);
       if (!view) return new Response("not found", { status: 404 });
       if (view.mode === "html") {

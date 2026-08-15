@@ -69,6 +69,7 @@ export class AgentMutex {
   private _driver: Frontend | null = null;
   private lastActivity = 0;
   private timer: MutexTimer | null = null;
+  private watchdogSuspended = false;
   private readonly clock: MutexClock;
   private readonly watchdog: WatchdogConfig;
   private readonly callbacks: MutexCallbacks;
@@ -111,6 +112,19 @@ export class AgentMutex {
     if (this._driver !== null) this.lastActivity = this.clock.now();
   }
 
+  /**
+   * Suspend/resume the stale watchdog (architecture v2 §3.5). While a HITL
+   * presentation is pending, the agent turn is legitimately LIVE but produces
+   * NO message/tool activity (the user is deciding) — a stale force-release
+   * would free the mutex under the open presentation, letting the other
+   * frontend drive while the present is still pending. The wiring suspends
+   * while pending.size > 0 and resumes when the last pending resolves. A
+   * suspended watchdog keeps ticking but never force-releases.
+   */
+  setWatchdogSuspended(suspended: boolean): void {
+    this.watchdogSuspended = suspended;
+  }
+
   private startWatchdog(): void {
     this.lastActivity = this.clock.now();
     this.timer?.clear();
@@ -124,6 +138,7 @@ export class AgentMutex {
 
   private tick(): void {
     if (this._driver === null) return;
+    if (this.watchdogSuspended) return; // legitimate HITL block — never force-release
     if (this.clock.now() - this.lastActivity >= this.watchdog.staleMs) {
       const driver = this._driver;
       this.release("watchdog");

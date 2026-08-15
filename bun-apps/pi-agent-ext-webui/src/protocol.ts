@@ -12,24 +12,27 @@
  * isolation and preserves the Path-B migration seam.
  *
  * Validation stance: TypeBox (ecosystem standard — `pi-agent-cli` declares
- * `"typebox": "^1.3.7"`; repo-wide grep for `zod` returns zero; spec §4). The
- * import specifier is `"typebox"` (the v1.x package name — NOT legacy
- * `@sinclair/typebox`).
+ * `"typebox": "^1.3.7"`). The import specifier is `"typebox"` (the v1.x package
+ * name — NOT legacy `@sinclair/typebox`).
  */
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
 import type { BtwCommand, BtwEvent } from "./btw-channels.js";
+// Type-only: session-store imports WebFrame (also type-only) — no runtime cycle.
+import type { SessionSnapshot } from "./session-store.js";
 
 // --- Inbound commands (client -> server), specs/04 §4 "Inbound commands" ---
 
 /**
  * Agentic commands that carry a text payload and route THROUGH the mutex gate:
  * prompt / steer / followUp (steer/followUp map to `sendUserMessage` deliverAs).
+ * `minLength: 1` (architecture v2 §3.4): an empty prompt would otherwise reach
+ * `sendUserMessage("")` — a no-op at best, a confusing empty turn at worst.
  */
 const AgenticWithTextSchema = Type.Union([
-  Type.Object({ type: Type.Literal("prompt"), text: Type.String() }),
-  Type.Object({ type: Type.Literal("steer"), text: Type.String() }),
-  Type.Object({ type: Type.Literal("followUp"), text: Type.String() }),
+  Type.Object({ type: Type.Literal("prompt"), text: Type.String({ minLength: 1 }) }),
+  Type.Object({ type: Type.Literal("steer"), text: Type.String({ minLength: 1 }) }),
+  Type.Object({ type: Type.Literal("followUp"), text: Type.String({ minLength: 1 }) }),
 ]);
 
 /** `abort` is agentic (routes to `ctx.abort()`) but carries no text. */
@@ -85,10 +88,17 @@ export const BtwCommandFrameSchema = Type.Object({
     Type.Union([
       Type.Null(),
       Type.Union([
+        // Full BtwThinkingLevel (architecture v2 §3.4): v1 admitted only
+        // off|low|medium|high, so the panel's minimal/xhigh/max selections were
+        // silently dropped by validateInbound. Keep in sync with
+        // btw-channels.ts BtwThinkingLevel (7 values, pi-ai 0.84.2 surface).
         Type.Literal("off"),
+        Type.Literal("minimal"),
         Type.Literal("low"),
         Type.Literal("medium"),
         Type.Literal("high"),
+        Type.Literal("xhigh"),
+        Type.Literal("max"),
       ]),
     ]),
   ),
@@ -126,10 +136,16 @@ export interface EventLike {
  * Outbound frame union. Known event types are enumerated (so the frontend can
  * exhaustively switch on `.type`); a final forward-compat member lets unknown
  * host events pass through verbatim (spec §6 — malformed/unknown never throws).
+ *
+ * v2 (architecture v2 §3.4): known members declare their common payload fields
+ * (`text` on message_*, `details` on tool_*) instead of hiding everything
+ * behind the generic member — `toWebFrame` spreads the host event intact, so
+ * these are the fields the frontend can read WITHOUT a cast; any extra fields
+ * still ride the spread (and remain reachable via the forward-compat member).
  */
 export type WebFrame =
-  // agent stream — forwarded from pi.on
-  | { type: "message_start" | "message_update" | "message_end" }
+  // agent stream — forwarded from pi.on (message_update carries a text delta)
+  | { type: "message_start" | "message_update" | "message_end"; text?: string; details?: unknown }
   | {
       type: "tool_execution_start" | "tool_execution_update" | "tool_execution_end";
       toolName: string;
@@ -139,6 +155,14 @@ export type WebFrame =
   | { type: "turn_start" | "turn_end" }
   | { type: "agent_settled" }
   | { type: "session_before_compact" | "session_compact" }
+  // v2: the typed error reply (e.g. {type:"error",reason:"no_session"} from the
+  // wiring's no-session guard) — was previously only reachable via the generic
+  // forward-compat member.
+  | { type: "error"; reason: string }
+  // v2: connect-time session snapshot (architecture v2 §3.3) — sent to each WS
+  // client on open so a mid-session open / refresh sees the agent history
+  // (bounded transcript + current presentation + mutex driver).
+  | { type: "snapshot"; state: SessionSnapshot }
   // mutex signals — produced by the MutexNotifier impl (spec §3)
   | { type: "mutex_blocked"; blocked: "web" | "tui"; by: "tui" | "web" }
   | { type: "mutex_force_release"; driver: "web" | "tui" }
@@ -176,7 +200,10 @@ export type DispatchAction =
    * resolves THIS descriptor; an unknown op or a malformed respond resolves to
    * `null` (ignored at parse time, NOT rejected by the schema — spec §6). The
    * `op:"respond"` literal lets the wiring narrow `action.id` / `action.action`
-   * / `action.tweak` without an `as`. Future ops (e.g. an explicit cancel) add
+   * / `action.tweak` without an `as`. v2 adds the `cancel` op (architecture v2
+   * §3.4): `{ kind:"cancel", id }` resolves the ONE pending under `id` as
+   * {cancelled:true} — the browser's "Cancel" button, without dropping the WS
+   * (which would abort EVERY pending and force a re-present). Future ops add
    * union members here.
    */
   | {
@@ -186,6 +213,7 @@ export type DispatchAction =
       action: string;
       tweak?: string;
     }
+  | { kind: "appexec"; op: "cancel"; id: string }
   | { kind: "control"; op: "subscribe" | "unsubscribe" }
   /**
    * `btw` is the side-panel command path (Task 6): the wiring forwards the

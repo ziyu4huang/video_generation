@@ -92,6 +92,12 @@ export function describeHitlResponse(r: HitlResponse): string {
  * THIS pending (cancelPending resolves it as {cancelled:true}, so the outer
  * promise settles normally). No timeout — loopback HITL blocks indefinitely
  * until response or abort (spec).
+ *
+ * v2 (architecture v2 §3.5): an ALREADY-ABORTED signal must not hang the
+ * execute() — a signal that aborted before we attached the listener would
+ * never fire it, so the pending would block forever. Check signal.aborted
+ * first and resolve {cancelled:true} immediately (cancelling the pending so
+ * the registry does not leak).
  */
 function awaitPendingWithAbort(
   p: Promise<HitlResponse>,
@@ -99,6 +105,10 @@ function awaitPendingWithAbort(
   onCancel: () => void
 ): Promise<HitlResponse> {
   if (!signal) return p;
+  if (signal.aborted) {
+    onCancel();
+    return Promise.resolve({ cancelled: true });
+  }
   return new Promise<HitlResponse>((resolve) => {
     const onAbort = () => onCancel();
     signal.addEventListener("abort", onAbort, { once: true });

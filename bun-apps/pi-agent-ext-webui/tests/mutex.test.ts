@@ -134,6 +134,26 @@ describe("AgentMutex watchdog", () => {
     expect(released).toBe(false);
     expect(m.driver).toBeNull();
   });
+
+  it("a SUSPENDED watchdog never force-releases (HITL block is legitimate)", () => {
+    const clock = new FakeClock();
+    let released: { driver: Frontend } | null = null;
+    const m = new AgentMutex({
+      clock,
+      watchdog: { staleMs: 1000, intervalMs: 100 },
+      callbacks: { onForceRelease: (i: { driver: Frontend }) => { released = i; } },
+    });
+    m.gate("interactive");
+    m.setWatchdogSuspended(true); // wiring suspends while a presentation is pending
+    clock.advance(5000); // far past staleMs — no activity, but suspended
+    expect(m.driver).toBe("tui");
+    expect(released).toBeNull();
+    // Resume -> the NEXT tick force-releases (the turn is still stale).
+    m.setWatchdogSuspended(false);
+    clock.advance(1000);
+    expect(m.driver).toBeNull();
+    expect(released).toEqual({ driver: "tui" });
+  });
 });
 
 describe("toFrontend + DEFAULT_WATCHDOG", () => {

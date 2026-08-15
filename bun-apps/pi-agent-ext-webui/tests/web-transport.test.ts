@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import { WebTransport } from "../src/web-transport.js";
-import { toWebFrame } from "../src/protocol.js";
+import { toWebFrame, validateInbound } from "../src/protocol.js";
 import type { ClientFrame, DispatchAction, EventLike, WebFrame } from "../src/protocol.js";
 
 const t = new WebTransport();
@@ -83,6 +83,33 @@ describe("WebTransport.parseCommand — dispatch matrix", () => {
 
   it("appexec with no extra (unknown op) -> null (ignored at parse time, spec §6)", () => {
     expect(t.parseCommand({ type: "appexec" })).toBeNull();
+  });
+
+  it("v2: appexec cancel (id) -> typed bypass descriptor (browser Cancel button)", () => {
+    expect(t.parseCommand({ type: "appexec", extra: { kind: "cancel", id: "p9" } })).toEqual({
+      kind: "appexec",
+      op: "cancel",
+      id: "p9",
+    });
+    // cancel is NOT agentic (no source) — bypasses the mutex like respond.
+    const d = t.parseCommand({ type: "appexec", extra: { kind: "cancel", id: "p9" } }) as DispatchAction;
+    expect(d.kind).toBe("appexec");
+    expect((d as { source?: unknown }).source).toBeUndefined();
+  });
+
+  it("v2: appexec cancel without id -> null (malformed)", () => {
+    expect(t.parseCommand({ type: "appexec", extra: { kind: "cancel" } })).toBeNull();
+    expect(t.parseCommand({ type: "appexec", extra: { kind: "cancel", id: 5 } })).toBeNull();
+  });
+
+  it("v2: empty agentic text is rejected by the SCHEMA (minLength 1)", () => {
+    // parseCommand classifies an already-validated ClientFrame — the minLength
+    // gate lives in validateInbound (protocol.ts), so test there.
+    expect(validateInbound({ type: "prompt", text: "" })).toBeNull();
+    expect(validateInbound({ type: "steer", text: "" })).toBeNull();
+    expect(validateInbound({ type: "followUp", text: "" })).toBeNull();
+    // non-empty still validates
+    expect(validateInbound({ type: "prompt", text: "hi" })).not.toBeNull();
   });
 
   it("appexec with an unknown op in extra -> null (ignored, NOT rejected by schema)", () => {
