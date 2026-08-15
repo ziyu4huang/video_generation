@@ -78,7 +78,7 @@ export {
 export type { SubagentRunsToolOptions } from "./subagent-runs-tool.js";
 export { createSubagentRunsTool } from "./subagent-runs-tool.js";
 export { createSubagentTool } from "./subagent-tool.js";
-export { formatHistoryLine } from "./subagent-tool-render.js";
+export { formatHistoryLine, formatSubagentTrace, latestMessageLine } from "./subagent-tool-render.js";
 export type { SubagentToolDetails, SubagentToolOptions } from "./subagent-tool-schema.js";
 export type {
   BatchResultSlot,

@@ -146,6 +146,8 @@
       "version": "0.1.0",
       "devDependencies": {
         "@repo/pi-agent-ext-core-interface": "workspace:*",
+        "@repo/pi-agent-ext-core-runtime": "workspace:*",
+        "@repo/pi-agent-ext-subagent": "workspace:*",
         "@types/bun": "latest",
         "typescript": "^6.0.3",
       },
