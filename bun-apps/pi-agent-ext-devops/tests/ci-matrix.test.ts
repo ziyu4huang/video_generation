@@ -70,8 +70,10 @@ describe("readCiMatrix — against this repo's real workflow", () => {
 		expect(matrix["pi-agent-ext-file2md"]).toBe("bun test --isolate");
 		expect(matrix["pi-agent-ext-archify"]).toBe("bun test --isolate");
 		expect(matrix["pi-agent-ext-tool-gate"]).toBe("bun test && bun run qa");
-		expect(matrix["pi-agent-ext-workflow"]).toBe("bun run build && bun test");
-		expect(matrix["pi-agent-ext-webui"]).toBe("bun run build && bun run test:unit");
+		// src-entry since the 2026-08-15 migration (tickets 02/04): generic chain,
+		// no build prefix. Asserting these guards the rows against quiet re-widening.
+		expect(matrix["pi-agent-ext-workflow"]).toBe("bun run test");
+		expect(matrix["pi-agent-ext-webui"]).toBe("bun test");
 		expect(matrix["pi-agent-ext-knowledge-card"]).toContain("--isolate");
 		expect(matrix["pi-agent-ext-knowledge-card"]).toContain("toolWiring.test.mjs");
 	});
