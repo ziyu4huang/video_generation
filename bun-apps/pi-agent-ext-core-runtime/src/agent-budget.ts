@@ -4,10 +4,11 @@
  * wires them to session events (two-stage token stop with a wrap-up grace
  * turn; spend as an immediate hard abort).
  *
- * Split out of agent.ts: this block references no symbol from any other
- * section of that file, and its tests were already split along exactly this
- * seam — tests/budget-guard.test.ts and tests/agent-budget.test.ts — both
- * pass unedited against this module.
+ * Depends on nothing else in this package — the file has ZERO imports, and the
+ * guard reaches its session only through the structural BudgetSessionSurface.
+ * That makes both halves testable against a fake session with no runtime, and
+ * it is a deliberate invariant, not an accident: keep it that way. It is why
+ * the turn_end check below is duplicated rather than importing agent-turns.js.
  */
 
 /** Real token/cost usage for a single subagent run, read from the SDK session. */
