@@ -2,41 +2,41 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 
-test("registry start/list/end lifecycle", () => {
+test("registry start/views/end lifecycle", () => {
   const reg = new SubagentInFlightRegistry();
-  assert.equal(reg.list().length, 0);
+  assert.equal(reg.views().length, 0);
   reg.start({ id: "a", model: "x", taskPreview: "t", startedAt: 1000 });
   reg.start({ id: "b", model: "y", taskPreview: "u", startedAt: 2000, agent: "implementer" });
-  assert.equal(reg.list().length, 2);
-  assert.equal(reg.list().find((r) => r.id === "b")?.agent, "implementer");
+  assert.equal(reg.views().length, 2);
+  assert.equal(reg.views().find((v) => v.id === "b")?.actor, "implementer");
   reg.end("a");
-  assert.equal(reg.list().length, 1);
-  assert.equal(reg.list()[0].id, "b");
+  assert.equal(reg.views().length, 1);
+  assert.equal(reg.views()[0].id, "b");
   reg.end("b");
-  assert.equal(reg.list().length, 0);
+  assert.equal(reg.views().length, 0);
 });
 
 test("registry update streams history into the live entry; updates after end are no-ops", () => {
   const reg = new SubagentInFlightRegistry();
   reg.start({ id: "a", model: "x", taskPreview: "t", startedAt: 0 });
   reg.update("a", [{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
-  assert.equal(reg.list()[0].history?.[0]?.toolName, "read");
+  assert.equal(reg.views()[0].history[0]?.toolName, "read");
   reg.update("a", [
     { role: "assistant", kind: "toolCall", toolName: "grep", text: "{}" },
     { role: "assistant", kind: "toolCall", toolName: "ls", text: "{}" },
   ]);
-  assert.equal(reg.list()[0].history?.length, 2);
+  assert.equal(reg.views()[0].toolCallCount, 2);
   reg.end("a");
   // updates after end are no-ops (run gone)
   reg.update("a", [{ role: "assistant", kind: "toolCall", toolName: "zzz", text: "{}" }]);
-  assert.equal(reg.list().length, 0);
+  assert.equal(reg.views().length, 0);
 });
 
-test("get returns the live entry by id", () => {
+test("view() returns the live projection by id", () => {
   const reg = new SubagentInFlightRegistry();
-  assert.equal(reg.get("missing"), undefined);
+  assert.equal(reg.view("missing"), undefined);
   reg.start({ id: "a", model: "x", taskPreview: "t", startedAt: 0 });
-  assert.equal(reg.get("a")?.model, "x");
+  assert.equal(reg.view("a")?.modelSeg, "x");
 });
 
 test("updateModel records resolvedModel and triggers the bound invalidate", () => {
@@ -47,7 +47,8 @@ test("updateModel records resolvedModel and triggers the bound invalidate", () =
     invalidated++;
   });
   reg.updateModel("a", "google/gemma-4-12b-qat");
-  assert.equal(reg.get("a")?.resolvedModel, "google/gemma-4-12b-qat");
+  // the projection surfaces the resolved model (provider prefix dropped)
+  assert.equal(reg.view("a")?.modelSeg, "gemma-4-12b-qat");
   assert.equal(invalidated, 1);
 });
 
@@ -61,17 +62,17 @@ test("updateModel on an unknown or ended id is a no-op", () => {
   });
   reg.end("a");
   reg.updateModel("a", "x/y"); // ended — no-op
-  assert.equal(reg.get("a"), undefined);
+  assert.equal(reg.view("a"), undefined);
   assert.equal(invalidated, 0);
 });
 
 test("start carries batchId through for batch-tool children; undefined for singular-tool runs", () => {
   const reg = new SubagentInFlightRegistry();
   reg.start({ id: "c0", model: "x", taskPreview: "t", startedAt: 0, batchId: "batch-1" });
-  assert.equal(reg.get("c0")?.batchId, "batch-1");
+  assert.equal(reg.view("c0")?.batchId, "batch-1");
   // singular-tool children omit it → undefined (backward compatible)
   reg.start({ id: "solo", model: "y", taskPreview: "u", startedAt: 0 });
-  assert.equal(reg.get("solo")?.batchId, undefined);
+  assert.equal(reg.view("solo")?.batchId, undefined);
 });
 
 test("start carries status; markCompleted flips it; endBatch evicts the whole batch", () => {
@@ -79,15 +80,15 @@ test("start carries status; markCompleted flips it; endBatch evicts the whole ba
   reg.start({ id: "c0", model: "x", taskPreview: "t", startedAt: 0, batchId: "bX" });
   reg.start({ id: "c1", model: "y", taskPreview: "u", startedAt: 0, batchId: "bX" });
   // default status is "running" (the unified ActivityStatus vocabulary; start
-  // stamps live runs explicitly, so undefined never leaks through `get()`)
-  assert.equal(reg.get("c0")?.status, "running");
+  // stamps live runs explicitly, so undefined never leaks through `view()`)
+  assert.equal(reg.view("c0")?.status, "running");
   reg.markCompleted("c0");
-  assert.equal(reg.get("c0")?.status, "done");
-  assert.equal(reg.get("c1")?.status, "running", "sibling still running");
+  assert.equal(reg.view("c0")?.status, "done");
+  assert.equal(reg.view("c1")?.status, "running", "sibling still running");
   // both still present (kept for k/N + frozen-trace follow)
-  assert.equal(reg.list().length, 2);
+  assert.equal(reg.views().length, 2);
   reg.endBatch("bX");
-  assert.equal(reg.list().length, 0, "whole batch evicted");
+  assert.equal(reg.views().length, 0, "whole batch evicted");
 });
 
 test("abort(id) fires the entry's abort lever; no-op for unknown/ended ids; entry stays", () => {
@@ -104,7 +105,8 @@ test("abort(id) fires the entry's abort lever; no-op for unknown/ended ids; entr
   });
   reg.abort("a");
   assert.equal(abortCalls, 1, "the abort lever fires once");
-  assert.ok(reg.get("a"), "abort does NOT remove the entry (distinct from end)");
+  assert.ok(reg.view("a"), "abort does NOT remove the entry (distinct from end)");
+  assert.equal(reg.view("a")?.abortable, true, "the projection reports the abort lever as wired");
   // unknown id — no throw, no-op
   reg.abort("ghost");
   assert.equal(abortCalls, 1);
@@ -119,28 +121,31 @@ test("endBatch evicts only the named batch; a sibling batch is untouched", () =>
   reg.start({ id: "a0", model: "x", taskPreview: "t", startedAt: 0, batchId: "bA" });
   reg.start({ id: "b0", model: "y", taskPreview: "u", startedAt: 0, batchId: "bB" });
   reg.endBatch("bA");
-  assert.equal(reg.get("a0"), undefined);
-  assert.ok(reg.get("b0"), "bB untouched");
+  assert.equal(reg.view("a0"), undefined);
+  assert.ok(reg.view("b0"), "bB untouched");
 });
 
 test("start defaults foreground to false (background) when the caller omits it", () => {
   const reg = new SubagentInFlightRegistry();
   reg.start({ id: "a", model: "x", taskPreview: "t", startedAt: 0 });
-  assert.equal(reg.get("a")?.foreground, false, "omitted foreground normalizes to false (background)");
+  assert.equal(reg.view("a")?.foreground, false, "omitted foreground normalizes to false (background)");
+  // views({foreground}) filters on the same axis — the context box reads it
+  assert.equal(reg.views({ foreground: false }).length, 1);
+  assert.equal(reg.views({ foreground: true }).length, 0);
 });
 
 test("start carries foreground:true through (current-turn / inline run)", () => {
   const reg = new SubagentInFlightRegistry();
   reg.start({ id: "a", model: "x", taskPreview: "t", startedAt: 0, foreground: true });
-  assert.equal(reg.get("a")?.foreground, true);
-  // list() reflects it too — the context box reads list() and filters !foreground
-  assert.equal(reg.list()[0].foreground, true);
+  assert.equal(reg.view("a")?.foreground, true);
+  // views() reflects it too — the context box reads views() and filters !foreground
+  assert.equal(reg.views()[0].foreground, true);
 });
 
 test("start coerces an explicit foreground:undefined back to false", () => {
   const reg = new SubagentInFlightRegistry();
   reg.start({ id: "a", model: "x", taskPreview: "t", startedAt: 0, foreground: undefined });
-  assert.equal(reg.get("a")?.foreground, false);
+  assert.equal(reg.view("a")?.foreground, false);
 });
 
 test("start accepts an entry with no model (a workflow run aggregates agents across models)", () => {
@@ -155,12 +160,13 @@ test("start accepts an entry with no model (a workflow run aggregates agents acr
     startedAt: 0,
     foreground: false,
   });
-  const entry = reg.get("wf:r1");
-  assert.ok(entry);
-  assert.equal(entry.model, undefined, "model is optional — a workflow run omits it");
-  assert.equal(entry.agent, "workflow");
-  assert.equal(entry.foreground, false);
-  assert.equal(entry.taskPreview, "preview_wf · Scan · 1/2 agents");
+  const v = reg.view("wf:r1");
+  assert.ok(v);
+  assert.equal(v.modelSeg, "default", "model is optional — a workflow run omits it, the segment falls back");
+  assert.equal(v.actor, "workflow");
+  assert.equal(v.foreground, false);
+  // latestAction falls back to taskPreview when the run has no tool calls yet
+  assert.equal(v.latestAction, "preview_wf · Scan · 1/2 agents");
 });
 
 // ── markFallback (ticket 03: model-fallback display) ──
@@ -173,10 +179,14 @@ test("markFallback sets requestedModel + fellBack without touching resolvedModel
     invalidated++;
   });
   reg.markFallback("a", "anthropic/claude-opus-4-1");
-  const entry = reg.get("a");
-  assert.equal(entry?.requestedModel, "anthropic/claude-opus-4-1");
-  assert.equal(entry?.fellBack, true);
-  assert.equal(entry?.resolvedModel, undefined, "resolvedModel is NOT set by markFallback — updateModel handles that");
+  const v = reg.view("a");
+  assert.ok(v);
+  assert.equal(v.badgeText, "fallback", "the projection badges the fallback run");
+  assert.equal(
+    v.modelSeg,
+    "?→claude-opus-4-1",
+    "modelSeg shows resolved←requested; resolved is '?' until updateModel runs",
+  );
   assert.equal(invalidated, 1, "markFallback triggers the bound invalidate");
 });
 
@@ -190,6 +200,6 @@ test("markFallback on an unknown or ended id is a no-op", () => {
   });
   reg.end("a");
   reg.markFallback("a", "x/y"); // ended — no-op
-  assert.equal(reg.get("a"), undefined);
+  assert.equal(reg.view("a"), undefined);
   assert.equal(invalidated, 0);
 });
