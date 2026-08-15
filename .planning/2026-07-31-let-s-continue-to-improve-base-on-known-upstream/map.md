@@ -38,6 +38,7 @@ handoff.
 - [08 — Watchdog L1 precise delta](tickets/08-watchdog-l1-precise-delta.md) — **DO**: content-level before→after delta (retain per-file hashes in RepoBaseline; L1+L2 lint only content-changed TS/JS). Corrects false premise (delta was NOT pre-computed — `_before` ignored); **Effort revised E2→E3**. Pairs with 06 (visibility) to harden the watchdog gate.
 
 - [Fog trio 12/13/14 closed 2026-08-16](tickets/) — re-open when web-search key exists; 07/10/11 remain frontier.
+- 2026-08-16: ticket 07 StringEnum DONE (PR #1467) — Gemini tool-schema routing fixed; ~24 sites/15 files > ticket's 18/5.
 
 ## Frontier (open, unblocked, unclaimed)
 

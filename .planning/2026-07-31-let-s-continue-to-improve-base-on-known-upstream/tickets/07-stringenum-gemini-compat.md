@@ -1,7 +1,7 @@
 ---
 type: grilling
 blocked by: []
-status: open
+status: closed
 ---
 
 # 07 — Decide: `StringEnum` (Gemini/Google compat, 18 sites)
@@ -23,3 +23,5 @@ sub/workflow agent to a Gemini model breaks these tool schemas.
 **do / defer / skip?** If **do**: confirm this is purely mechanical (no semantic
 change) and whether to bundle a Gemini-routing smoke test. Recommend `do` as one
 PR — low risk, correctness for a whole provider family.
+
+> Closed 2026-08-16: done — PR #1467 (15-file StringEnum swap, desc+default preserved; file2md pre-existing red noted in PR body). Skips: protocol.ts/zai-mcp/test-fixture/core-task.
