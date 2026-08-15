@@ -82,6 +82,44 @@ Measured helper fan-out (why `internals.ts` must be first):
 
 Resulting one-way graph: `goal.ts → hooks / lifecycle / timers / prompting / goal-complete-tool → internals → state`.
 
+## Four corrections learned from Task A1 — apply to every remaining task
+
+**1. Line numbers are anchors, not boundaries.** Every range in this plan came from
+`grep -n` on the **declaration** line (`export function foo`). A doc comment sits
+*above* its declaration, so each stated range starts one comment too late and ends
+one comment too far — it drops the item's own doc comment and swallows the next
+item's. Cut by **named symbol + its own doc comment**, stopping before the next
+symbol's comment. Confirmed on A1: the stated 72-100 was actually 66-98, and line
+100 belonged to an unrelated interface. If the content at a stated range is not what
+the task describes, that is expected — follow the symbols. Report `NEEDS_CONTEXT`
+only if the named symbols cannot be found at all.
+
+**2. biome is not clean on `core-runtime`.** `bun run check` reports 5 pre-existing
+errors, in `src/agent-row-display.ts`, `src/subagent-in-flight.ts`, and four test
+files. The gate is **"no new findings"**, not "zero" — compare before/after with
+`git stash`.
+
+**3. A re-export needs no import.** `export { x } from "./m.js"` makes `x` public
+without binding it locally. Import only what the file still **calls**; importing a
+symbol you merely re-export trips biome's `noUnusedImports`.
+
+**4. Grep for stale `agent.ts` pointers — a required step in every task.** Comments
+that name the file the code just left rot invisibly, and six splits multiply it. A1
+found `errors.ts:138`. Already known to be waiting: `model-tier-config.ts:10`
+("which always wins — see agent.ts") for Task A5, and `structured-output.ts:40`
+("repair-loop fallback (agent.ts)") for Task A6. Before committing, run:
+
+```bash
+grep -rn 'agent\.ts' bun-apps/pi-agent-ext-core-runtime/src/ | grep -v '^bun-apps/pi-agent-ext-core-runtime/src/agent.ts:'
+```
+
+and fix any pointer that now names the wrong file.
+
+**Facade re-export convention (set by A1, follow it):** put every re-export in the
+single annotated block below the import list in `agent.ts` — not at the old
+definition site. After six extractions, positional placement would scatter six
+re-exports through the body.
+
 ## Gates (exact commands)
 
 Run from the repo root. **`core-runtime`'s `check` is biome, not tsc** — both are required.
