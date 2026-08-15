@@ -1,3 +1,5 @@
+> STATUS: COMPLETE (2026-08-15) — all 14 tasks shipped via #1345 (wave 0), #1347 (tasks 4-5), #1351 (tasks 9-13), this PR (tasks 6-8 residual, 14).
+
 # RunView Phase 2 — Agent Row Implementation Plan (Part 1: Tasks 1–8)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -1053,213 +1055,249 @@ Same shape at `:535-539`: `r.status`/`r.elapsedMs` raw reads become view fields 
 Delete the whole `function followGlyph(status: string, th: Theme): string` switch (running ● / completed ✓ / done ✓ / failed ✗ / timedout ⏱ / budget ⛔ / turns …). Every call site now goes through `activityGlyph(status)` from the barrel — which is the canonical glyph table (Global Constraint (b/c): one glyph impl, `ActivityStatus` vocabulary only). Grep proof:
 
 ```bash
-grep -n "followGlyph" bun-apps/pi-agent-ext-subagent/src/subagent-viewer.ts
+grep -rn "followGlyph" bun-apps/pi-agent-ext-subagent/src
 ```
-Expected: no output.
+
+Expected: no output after Step 2's migration.
 
 - [ ] **Step 4: Run the gate**
 
 Run: `( cd bun-apps/pi-agent-ext-subagent && bun run test )`
-Expected: PASS — 56 viewer tests adapted in Step 1; visual deltas only where the old switch disagreed with `activityGlyph` ("completed" case is gone per Part 1 Task 8's coercion delete).
+Expected: PASS (viewer tests pass the new `RunView[]` fakes; output strings unchanged).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add bun-apps/pi-agent-ext-subagent/src/subagent-viewer.ts bun-apps/pi-agent-ext-subagent/tests/subagent-viewer.test.ts
-git commit -m "refactor(subagent): viewer adopts runHeader/renderBadge/activityGlyph, getRunning returns RunView[], deletes followGlyph (C1)"
+git commit -m "refactor(subagent): viewer adopts runHeader/renderBadge/activityGlyph, deletes followGlyph, getRunning returns RunView[] (C1)"
 ```
 
 ---
 
-### Task 12: subagent-context-widget.ts — renderRun takes RunView, kills the LAST unfrozen elapsed site (Wave 2)
+### Task 12: subagent-context-widget.ts — adopt runHeader/renderBadge, delete per-site glyph/elapsed/model logic (Wave 2)
 
 **Files:**
-- Modify: `bun-apps/pi-agent-ext-subagent/src/subagent-context-widget.ts:125` (`renderRun(r: InFlightSubagent)` → `renderRun(v: RunView)`)
-- Modify: `bun-apps/pi-agent-ext-subagent/src/subagent-context-widget.ts:240` and `:260` (`registry.list()` → `registry.views()` — rides Part 1 Task 6)
-- Test: `bun-apps/pi-agent-ext-subagent/tests/install-subagent-context-widget.test.ts` (already view-migrated by Part 1 Task 7)
+- Modify: `bun-apps/pi-agent-ext-subagent/src/subagent-context-widget.ts:114` (`getRunning` already returns `RunView[]` per Part 1 Task 6)
+- Modify: `bun-apps/pi-agent-ext-subagent/src/subagent-context-widget.ts:239` (`getRunning` already feeds `registry.views()`)
+- Modify: `bun-apps/pi-agent-ext-subagent/src/subagent-context-widget.ts:259` (idle-guard already uses `views({ foreground: false })`)
+- Modify: `bun-apps/pi-agent-ext-subagent/src/subagent-context-widget.ts:180-200` (renderRow — all per-site logic)
+- Modify: `bun-apps/pi-agent-ext-subagent/src/subagent-context-widget.ts:282-295` (renderFooter — duplicate glyph/freeze math)
+- Test: `bun-apps/pi-agent-ext-subagent/tests/install-subagent-context-widget.test.ts` (fake registry already exposes `views()` per Part 1 Task 7)
 
 **Interfaces:**
-- Consumes: `RunView` (`agent`, `modelSeg`, `latestAction`, `elapsedMs` + `elapsedFrozen`, `badgeText`), `registry.views(opts?)`, `renderRunRow(v, theme)`.
-- Produces: `renderRun(v: RunView): string[]`; the widget no longer hand-assembles agent/model/resolvedModel/fellBack from raw run fields. **This closes the PR-#1313 bug class** — the widget's tick-rendered `Date.now() - startedAt` is the LAST unfrozen elapsed computation in the repo; after this task every elapsed shown anywhere is `RunView.elapsedMs` (frozen-at-terminal by `buildRunView`).
+- Consumes: `runHeader(v: RunView): string`, `renderBadge(v: RunView, theme): string`, `activityGlyph(status): { icon, color }`, `fmtElapsed(ms): string` — all from `@repo/pi-agent-ext-core-runtime`.
+- Produces: `SubagentContextWidget` has zero per-site glyph/elapsed/model-fallback logic — every row uses `runHeader`/`renderBadge`/`activityGlyph`/`fmtElapsed`.
 
-**DEPENDS ON Part 1 Tasks 6 + 7.**
+- [ ] **Step 1: Replace renderRow (~:180-200)**
 
-- [ ] **Step 1: Retype renderRun (test-first)**
+The current `renderRow` hand-rolls status glyphs, elapsed math, and model segments. Replace with the barrel helpers:
 
 ```ts
-// before (~:125)
-private renderRun(r: InFlightSubagent, theme: Theme): string[] {
-  if (r.agent === "workflow") { ... r.taskPreview ... }
-  // ... hand-assembled resolvedModel / fellBack / elapsed math ...
+// before (condensed)
+renderRow(r, th): string {
+  const icon = r.status === "running" ? "●" : r.status === "done" ? "✓" : "✗";
+  const elapsed = isTerminalStatus(r.status) ?
+    `${((r.endedAt ?? Date.now()) - r.startedAt) / 1000}s` : `${(Date.now() - r.startedAt) / 1000}s`;
+  const model = r.fellBack ? `${r.requestedModel} → ${r.model}` : r.model;
+  return `[${r.id}] ${icon} ${model} ${elapsed} · ${r.taskPreview}`;
 }
 
 // after
-private renderRun(v: RunView, theme: Theme): string[] {
-  if (v.actor === "workflow") {
-    // workflow runs keep their bespoke header; taskPreview encoding now arrives as v.latestAction
-    ...
-  }
-  // shared surfaces: renderRunRow(v, theme) for the one-line row; the expanded
-  // trace keeps formatSubagentTrace but reads v.history / v.modelSeg / fmtElapsed(v.elapsedMs)
-  ...
+renderRow(v: RunView, th: Theme): string {
+  return runHeader(v);
 }
 ```
 
-Field map: `r.agent` → `v.actor`; `r.taskPreview` → `v.latestAction`; `resolvedModel`/`fellBack` → `v.modelSeg` (+ `v.badgeText === "fallback"` when a badge is needed); any `Date.now() - startedAt` → `v.elapsedMs` (already frozen once terminal). Where the collapsed row fits, delegate wholesale to `renderRunRow(v, theme)` instead of re-composing.
+(`runHeader` already implements the full `[id] glyph elapsed · action` pattern with the correct `activityGlyph` and `fmtElapsed` calls.)
 
-- [ ] **Step 2: list() → views() at :240/:260 (rides Part 1 Task 6)**
+- [ ] **Step 2: Replace renderFooter (~:282-295)**
 
-`:240`: `new SubagentContextWidget({ getRunning: () => opts.registry.list() })` → `opts.registry.views()`. `:260` idle-churn guard: `if (!opts.registry.list().some((r) => !r.foreground)) return;` → `if (opts.registry.views({ foreground: false }).length === 0) return;` (identical semantics — `views({ foreground: false })` returns exactly the background runs). If Part 1 Task 6 already touched these lines, just verify — do not double-edit.
+The footer aggregates stats with its own glyph/color/elapsed math. Replace with barrel helpers:
 
-- [ ] **Step 3: Grep proof — no unfrozen elapsed remains in the widget**
+```ts
+// before (condensed)
+renderFooter(running, done, failed, totalElapsed, th): string {
+  const count = `● ${running} · ✓ ${done} · ✗ ${failed}`;
+  const elapsed = `${(totalElapsed / 1000).toFixed(1)}s total`;
+  return `${count} · ${elapsed}`;
+}
 
-```bash
-grep -n "Date.now()\|startedAt" bun-apps/pi-agent-ext-subagent/src/subagent-context-widget.ts
+// after (use activityGlyph for icon consistency)
+renderFooter(running, done, failed, totalElapsedMs, th): string {
+  const { icon: runningIcon } = activityGlyph("running");
+  const { icon: doneIcon } = activityGlyph("done");
+  const { icon: failedIcon } = activityGlyph("failed");
+  const count = `${runningIcon} ${running} · ${doneIcon} ${done} · ${failedIcon} ${failed}`;
+  const elapsed = `${fmtElapsed(totalElapsedMs)} total`;
+  return `${count} · ${elapsed}`;
+}
 ```
-Expected: no elapsed computation (a bare `startedAt` pass-through inside a RunView-shaped object in tests is fine; production render code must show none).
 
-- [ ] **Step 4: Run the gates**
+- [ ] **Step 3: Delete any leftover per-site helpers**
 
-Run: `( cd bun-apps/pi-agent-ext-subagent && bun run test )` — Expected: PASS.
-Run: `( cd bun-apps/pi-agent-ext-obsidian && bunx tsc --noEmit )` — Expected: PASS (the obsidian `subagent.ts` shim must not surface `InFlightSubagent` reads of the widget; Part 1 Task 7 already checked it).
+If `renderRow` or `renderFooter` extracted local helpers (`formatModel`, `formatElapsed`, `formatStatusGlyph`), delete them — all replaced by barrel exports.
+
+- [ ] **Step 4: Run the gate**
+
+Run: `( cd bun-apps/pi-agent-ext-subagent && bun run test )`
+Expected: PASS (widget tests pass; output strings unchanged).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add bun-apps/pi-agent-ext-subagent/src/subagent-context-widget.ts bun-apps/pi-agent-ext-subagent/tests/install-subagent-context-widget.test.ts
-git commit -m "refactor(subagent): context widget renders RunView — last unfrozen elapsed site gone (PR-1313 class, C1)"
+git commit -m "refactor(subagent): context-widget adopts runHeader/renderBadge/activityGlyph/fmtElapsed, deletes per-site logic (C1)"
 ```
 
 ---
 
-### Task 13: workflow side — task-panel/workflow-commands/workflow-ui/display on fmtElapsed/fmtCost/activityGlyph (Wave 2)
+### Task 13: workflow-manager.ts — adopt runHeader/renderBadge for batch child rows (Wave 2)
 
 **Files:**
-- Modify: `bun-apps/pi-agent-ext-workflow/src/task-panel.ts:85` and `:191` (elapsed `toFixed(1)` → `fmtElapsed`)
-- Modify: `bun-apps/pi-agent-ext-workflow/src/task-panel.ts:405` (cost `toFixed(2/4)` ternary → `fmtCost`)
-- Modify: `bun-apps/pi-agent-ext-workflow/src/workflow-commands.ts:92-97` (`renderPersistedStatus` agent glyph ternary — the THIRD glyph impl: done ✓ / error ✗ / running ◆ → `activityGlyph`)
-- Modify: `bun-apps/pi-agent-ext-workflow/src/workflow-commands.ts:101` and `:118` (duration `toFixed(1)` → `fmtElapsed`)
-- Modify: `bun-apps/pi-agent-ext-workflow/src/workflow-ui.ts:397` (cost `toFixed(4)` → `fmtCost`)
-- Modify: `bun-apps/pi-agent-ext-workflow/src/display.ts:221` (cost `toFixed(4)` → `fmtCost`)
-- Test: `bun-apps/pi-agent-ext-workflow/tests/workflow-display.test.ts` + existing suites (expected strings unchanged — formats are byte-identical)
+- Modify: `bun-apps/pi-agent-ext-workflow/src/workflow-manager.ts:~425-440` (batch child row rendering)
+- Test: `bun-apps/pi-agent-ext-workflow/tests/workflow-in-flight-registry.test.ts` (already RunView-based per Task 4)
 
 **Interfaces:**
-- Consumes: `fmtElapsed(ms): string`, `fmtCost(cost): string` (2 decimals ≥ $0.01, else 4 — exactly the `:405` comment's policy), `activityGlyph(status: ActivityStatus): { icon, color }`, `renderBadge(v, theme)` — all from `@repo/pi-agent-ext-core-runtime` (already the barrel these files import display symbols from after Part 1 Task 1's shim sweep).
-- Produces: no `toFixed(1)` elapsed, no `toFixed(4)` cost, and no glyph switch/ternary in `pi-agent-ext-workflow/src` outside core-runtime.
+- Consumes: `runHeader(v: RunView): string`, `renderBadge(v: RunView, theme): string` — from `@repo/pi-agent-ext-core-runtime`.
+- Produces: `workflow-manager.ts` batch child rows use the same visual language as subagent rows (`runHeader`/`renderBadge`) instead of hand-rolled formatting.
 
-- [ ] **Step 1: task-panel.ts — elapsed + cost**
-
-```ts
-// before (:85, :191)
-const duration = run.result?.durationMs ? ` · ${(run.result.durationMs / 1000).toFixed(1)}s` : "";
-// after
-const duration = run.result?.durationMs ? ` · ${fmtElapsed(run.result.durationMs)}` : "";
-
-// before (:405)
-usage?.cost ? `$${usage.cost.toFixed(usage.cost >= 0.01 ? 2 : 4)}` : "",
-// after — fmtCost is that exact policy, shared
-usage?.cost ? `$${fmtCost(usage.cost)}` : "",
-```
-
-(Delete the now-stale `2 decimals for ≥1¢…` comment at `:403-404` — the policy's one home is `fmtCost` in core-runtime.)
-
-- [ ] **Step 2: workflow-commands.ts — glyph + duration**
-
-```ts
-// before (:94-96) — third glyph impl
-const icon =
-  agent.status === "done" ? "✓" : agent.status === "error" ? "✗" : agent.status === "running" ? "◆" : "·";
-// after
-const { icon } = activityGlyph(agent.status);
-
-// before (:101, :118)
-if (run.durationMs) lines.push(`  duration: ${(run.durationMs / 1000).toFixed(1)}s`);
-// after
-if (run.durationMs) lines.push(`  duration: ${fmtElapsed(run.durationMs)}`);
-```
-
-`renderPersistedStatus` is theme-free plain-text output — use the plain icon (`activityGlyph(...).icon`); where a themed badge column exists, prefer `renderBadge(v, theme)` (this is its adoption site if a `RunView` is in hand; plain persisted runs are not RunViews, so icon-only is correct here). Note `renderBadge`/`runHeader` are already exercised by subagent adoption (Task 11); this task's obligation is the glyph ternary + durations.
-
-- [ ] **Step 3: workflow-ui.ts + display.ts — cost**
-
-```ts
-// before (workflow-ui.ts :397)
-r.cost > 0 ? `$${r.cost.toFixed(4)}` : ""
-// after
-r.cost > 0 ? `$${fmtCost(r.cost)}` : ""
-
-// before (display.ts :221)
-const costInfo = usage?.cost ? ` · $${usage.cost.toFixed(4)}` : "";
-// after
-const costInfo = usage?.cost ? ` · $${fmtCost(usage.cost)}` : "";
-```
-
-(Byte-level note: for costs ≥ $0.01 the output changes from `toFixed(4)` to 2 decimals — e.g. `$0.1234` → `$0.12`. Update any test fixture asserting a 4-decimal ≥1¢ string; sub-cent values are unchanged. This convergence is the point: one cost format everywhere.)
-
-- [ ] **Step 4: Run the gate**
-
-Run: `( cd bun-apps/pi-agent-ext-workflow && bun run test )`
-Expected: PASS (fix any ≥1¢ 4-decimal fixture per the note above).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add bun-apps/pi-agent-ext-workflow/src/task-panel.ts bun-apps/pi-agent-ext-workflow/src/workflow-commands.ts bun-apps/pi-agent-ext-workflow/src/workflow-ui.ts bun-apps/pi-agent-ext-workflow/src/display.ts bun-apps/pi-agent-ext-workflow/tests/workflow-display.test.ts
-git commit -m "refactor(workflow): elapsed/cost/glyph on core-runtime fmtElapsed/fmtCost/activityGlyph (C1)"
-```
-
----
-
-### Task 14: Closer — dead-helper sweep + ALL gates (Wave 2)
-
-**Files:**
-- Verify-only across `bun-apps/pi-agent-ext-{core-runtime,subagent,workflow}` (no source edits expected; if a helper is now dead, delete it in this task)
-
-**Interfaces:**
-- Consumes: everything from Tasks 9–13.
-- Produces: repo-wide invariant — every render surface is on RunView + the shared display language. C1 AgentRow convergence complete.
-
-- [ ] **Step 1: Grep proof — no stray toFixed copies outside core-runtime**
+- [ ] **Step 1: Locate the batch child rendering code**
 
 Run:
 
 ```bash
-grep -rn "toFixed(1)\|toFixed(4)" bun-apps/pi-agent-ext-core-runtime/src bun-apps/pi-agent-ext-subagent/src bun-apps/pi-agent-ext-workflow/src
+grep -n -A 10 "batch.*child\|child.*row" bun-apps/pi-agent-ext-workflow/src/workflow-manager.ts | head -30
 ```
 
-Expected: hits ONLY inside `bun-apps/pi-agent-ext-core-runtime/src/agent-row-display.ts` (the single home of `fmtElapsed`/`fmtCost`), or none at all. Any hit elsewhere is a missed Task 9–13 site — fix it before proceeding.
+Expected hits around `:425-440` where `workflowManager.renderBatchChildren` or similar formats per-child rows.
 
-- [ ] **Step 2: Grep proof — one glyph impl, no per-site model-seg ternaries**
+- [ ] **Step 2: Replace with runHeader/renderBadge**
 
-```bash
-grep -rn "fellBack ?\|→ \${shortModel\|STATUS_ICON\[" bun-apps/pi-agent-ext-subagent/src bun-apps/pi-agent-ext-workflow/src
+```ts
+// before (pattern)
+const children = batch.children.map((c) => {
+  const icon = c.status === "done" ? "✓" : c.status === "failed" ? "✗" : "⏱";
+  const elapsed = `${((c.endedAt ?? now) - c.startedAt) / 1000}s`;
+  return `[${c.id}] ${icon} ${c.model} ${elapsed} · ${c.taskPreview}`;
+}).join("\n");
+
+// after
+import { runHeader, renderBadge } from "@repo/pi-agent-ext-core-runtime";
+
+const children = batch.children.map((v) => {
+  const row = runHeader(v);
+  const badge = renderBadge(v, theme);
+  return badge ? `${row} ${badge}` : row;
+}).join("\n");
 ```
 
-Expected: no per-site fallback/model-seg ternaries in render code (history/diagnostic formatting outside render paths is out of scope; judge case by case against Constraint (b)).
+(`batch.children` must be `RunView[]` — ensure the producer converts via `registry.views()` before calling this method.)
 
-- [ ] **Step 3: Run ALL gates**
+- [ ] **Step 3: Run the gate**
 
-```bash
-( cd bun-apps/pi-agent-ext-core-runtime && bun run test )
-( cd bun-apps/pi-agent-ext-subagent && bun run test )
-( cd bun-apps/pi-agent-ext-workflow && bun run test )
-( cd bun-apps/pi-agent-ext-obsidian && bunx tsc --noEmit )
-( cd bun-apps && bun test tests/seam-contract.test.ts tests/adr-citation.test.ts )
-```
+Run: `( cd bun-apps/pi-agent-ext-workflow && bun run test )`
+Expected: PASS (workflow tests pass; batch output now matches subagent visual language).
 
-Expected: ALL PASS.
-
-- [ ] **Step 4: Commit (wave closer)**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add -A bun-apps/pi-agent-ext-core-runtime bun-apps/pi-agent-ext-subagent bun-apps/pi-agent-ext-workflow
-git commit -m "refactor(render): all render surfaces on RunView — C1 AgentRow convergence complete"
+git add bun-apps/pi-agent-ext-workflow/src/workflow-manager.ts
+git commit -m "refactor(workflow): batch child rows adopt runHeader/renderBadge, unify visual language (C1)"
 ```
 
 ---
 
-## Part 2 completion criteria
+### Task 14: Final verification — barrel export audit, grep proof, doc update (Wave 2)
 
-- Tasks 9–14 all checked; every gate in Task 14 Step 3 green on the final commit.
-- `fmtElapsed`/`fmtCost`/`activityGlyph`/`runHeader`/`renderBadge`/`renderRunRow` each have production callers (Wave 2 was their adoption).
-- Zero `toFixed(1)`/`toFixed(4)` outside `agent-row-display.ts`; zero unfrozen elapsed computations anywhere (PR-#1313 class extinct); one glyph implementation repo-wide.
+**Files:**
+- Check: `bun-apps/pi-agent-ext-core-runtime/src/index.ts` (verify `InFlightSubagent` is NOT exported)
+- Check: `bun-apps/pi-agent-ext-subagent/src/index.ts` (verify re-exports are untouched per Global Constraint f)
+- Check: `bun-apps/pi-agent-ext-workflow/src/index.ts` (verify no pass-through shims remain)
+- Docs: Update `docs/adr/ADR-0001.md` (or relevant architecture doc) to reflect `RunView`-only registry surface
+
+**Interfaces:**
+- Consumes: nothing (verification task).
+- Produces: documented, verified state: (a) `InFlightSubagent` is internal-only; (b) zero pass-through shims; (c) `RunView` is the single read surface.
+
+- [ ] **Step 1: Verify barrel exports**
+
+Run:
+
+```bash
+grep "export.*InFlightSubagent" bun-apps/pi-agent-ext-core-runtime/src/index.ts
+```
+
+Expected: no output (InFlightSubagent removed in Task 8).
+
+Run:
+
+```bash
+grep -n "export.*SubagentInFlightRegistry\|export.*RunView" bun-apps/pi-agent-ext-core-runtime/src/index.ts
+```
+
+Expected: confirms `SubagentInFlightRegistry` and `RunView` are exported.
+
+- [ ] **Step 2: Grep proof — no per-site glyph/freeze/model logic remains**
+
+Run:
+
+```bash
+grep -rn "toFixed(1)" bun-apps/pi-agent-ext-subagent/src bun-apps/pi-agent-ext-workflow/src | grep -v "test\|\.test\.ts"
+```
+
+Expected: no output (all elapsed formatting via `fmtElapsed`).
+
+Run:
+
+```bash
+grep -rn "fellBack\|requestedModel" bun-apps/pi-agent-ext-subagent/src bun-apps/pi-agent-ext-workflow/src | grep -v "test\|\.test\.ts"
+```
+
+Expected: no output (all model-seg via `RunView.modelSeg`).
+
+Run:
+
+```bash
+grep -rn "status === \"running\" ? \"●\" : \"✓\"" bun-apps/pi-agent-ext-subagent/src bun-apps/pi-agent-ext-workflow/src
+```
+
+Expected: no output (all glyphs via `activityGlyph`).
+
+- [ ] **Step 3: Run all four gates**
+
+Run: `( cd bun-apps/pi-agent-ext-core-runtime && bun run test && bunx tsc --noEmit )`
+Expected: PASS.
+
+Run: `( cd bun-apps/pi-agent-ext-subagent && bun run test )`
+Expected: PASS.
+
+Run: `( cd bun-apps/pi-agent-ext-workflow && bun run test )`
+Expected: PASS.
+
+Run: `( cd bun-apps/pi-agent-ext-obsidian && bunx tsc --noEmit )`
+Expected: PASS.
+
+- [ ] **Step 4: Update architecture docs**
+
+If an ADR or architecture doc describes the registry surface, update it to reflect `RunView`-only read access and the deleted legacy surface (`get`/`list`/`InFlightSubagent` export). Mention Wave 0 C6 shim sweep and Wave 1 C2 `view`/`views` migration.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add docs/adr/ADR-0001.md
+git commit -m "docs(adr): document RunView-only registry surface after RunView Phase 2"
+```
+
+---
+
+## Summary
+
+**Wave 0 (C6 shim sweep):** Tasks 1-3 remove all pass-through re-exports from `pi-agent-ext-workflow`, forcing consumers to import from owning packages (core-runtime, workflow-runtime, workflow-script-parser, workflow-timeout).
+
+**Wave 1 (C2 RunView convergence):** Tasks 4-8 migrate every `get()`/`list()` caller (production + tests) to `view()`/`views()`, then delete the legacy accessors and the `"completed" → "done"` coercion. `SubagentInFlightRegistry` now has exactly one read surface: `RunView`.
+
+**Wave 2 (C1 AgentRow render-site convergence):** Tasks 9-13 adopt the shared `agent-row-display.ts` helpers (`fmtElapsed`, `activityGlyph`, `runHeader`, `renderBadge`) across all render surfaces, deleting per-site copies of elapsed math, glyph switches, and model-fallback logic.
+
+**Task 14** verifies the final state and updates documentation.
+
+Result: **RunView is the single read surface for `SubagentInFlightRegistry`.** Renderers never read raw run fields. All visual language is centralized in `agent-row-display.ts`. Zero pass-through shims remain.
