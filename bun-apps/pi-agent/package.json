@@ -18,7 +18,7 @@
     "cli": "bun src/cli.ts",
     "list": "bun src/cli.ts --list-models",
     "test": "bun test",
-    "typecheck": "bunx tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "test:e2e": "PI_AGENT_E2E=1 bun test",
     "verify": "PI_AGENT_E2E=1 bun test src/__tests__/e2e-extensions.test.ts",
     "dist": "bun ../../dist/pi-agent/pi-agent.js",
@@ -62,6 +62,7 @@
   "devDependencies": {
     "@repo/pi-agent-ext-core-interface": "workspace:*",
     "@types/bun": "latest",
-    "javascript-obfuscator": "^5.4.3"
+    "javascript-obfuscator": "^5.4.3",
+    "typescript": "^7.0.2"
   }
 }

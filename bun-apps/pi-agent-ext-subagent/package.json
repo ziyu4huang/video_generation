@@ -29,9 +29,9 @@
     "check": "biome check .",
     "format": "biome format --write .",
     "lint": "biome lint .",
-    "build": "bunx tsc",
+    "build": "tsc",
     "dev": "tsx src/index.ts",
-    "typecheck": "bunx tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "prepublishOnly": "bun run build"
   },
   "keywords": [

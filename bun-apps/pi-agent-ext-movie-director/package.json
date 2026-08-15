@@ -18,7 +18,7 @@
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "bunx tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "check:schemas": "bun scripts/validate-data.ts",
     "cli": "bun src/cli.ts",
     "md": "bun src/cli.ts"
