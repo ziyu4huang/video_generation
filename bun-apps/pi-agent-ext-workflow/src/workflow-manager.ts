@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SubagentInFlightRegistry, WorkflowAgent } from "@repo/pi-agent-ext-core-runtime";
 import { preview, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
-import type { WorkflowSnapshot } from "./display.js";
+import { agentCounts, type WorkflowSnapshot } from "./display.js";
 import type { HostFnRegistry } from "./host-fn-registry.js";
 import { mirrorIntermediate } from "./pack-run-context.js";
 import {
@@ -63,12 +63,9 @@ export function workflowInFlightId(runId: string): string {
  *  snapshot's agent list (the manager keeps `agents` authoritative; the rollup
  *  count fields are recomputed downstream by recomputeWorkflowSnapshot). */
 export function workflowPreview(snapshot: WorkflowSnapshot): string {
-  const total = snapshot.agents.length;
-  const finished = snapshot.agents.filter(
-    (a) => a.status === "done" || a.status === "error" || a.status === "skipped",
-  ).length;
+  const c = agentCounts(snapshot.agents);
   const phase = snapshot.currentPhase ? ` · ${snapshot.currentPhase}` : "";
-  const counts = total > 0 ? ` · ${finished}/${total} agents` : "";
+  const counts = c.total > 0 ? ` · ${c.finished}/${c.total} agents` : "";
   return `${snapshot.name}${phase}${counts}`;
 }
 

@@ -17,7 +17,7 @@ import {
   shorten,
   summarizeLatestAction,
 } from "@repo/pi-agent-ext-core-runtime";
-import type { WorkflowAgentSnapshot, WorkflowSnapshot } from "./display.js";
+import { agentCounts, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
 import type { PersistedRunState } from "./run-persistence.js";
 import type { ManagedRun, WorkflowManager } from "./workflow-manager.js";
 import type { WorkflowStorage } from "./workflow-saved.js";
@@ -240,7 +240,7 @@ export function renderPanel(manager: WorkflowManager, theme: Theme, width?: numb
   const rows = active.map((r) => {
     const live = manager.getRun(r.runId);
     const agents = live?.snapshot.agents ?? r.agents;
-    const done = agents.filter((a) => a.status === "done").length;
+    const done = agentCounts(agents).done;
     const icon = r.status === "paused" ? "⏸" : "◆";
     const phase = live?.snapshot.currentPhase ? ` · ${live.snapshot.currentPhase}` : "";
     return `  ${icon} ${r.workflowName}  ${done}/${agents.length} agents${phase}`;
@@ -324,17 +324,14 @@ function renderRunBody(
   for (const title of order) {
     const phaseAgents = byPhase.get(title) ?? [];
     if (!phaseAgents.length) continue;
-    const done = phaseAgents.filter((a) => a.status === "done").length;
-    const running = phaseAgents.filter((a) => a.status === "running").length;
-    const errors = phaseAgents.filter((a) => a.status === "error").length;
-    const skipped = phaseAgents.filter((a) => a.status === "skipped").length;
-    const complete = done + errors + skipped === phaseAgents.length;
-    const marker = running > 0 || (!complete && snap.currentPhase === title) ? "▶" : complete ? "✓" : " ";
+    const counts = agentCounts(phaseAgents);
+    const complete = counts.finished === counts.total;
+    const marker = counts.running > 0 || (!complete && snap.currentPhase === title) ? "▶" : complete ? "✓" : " ";
     const phaseTokens = phaseAgents.reduce((n, a) => n + (a.tokens ?? 0), 0);
     const phaseMeta = [
-      `${done}/${phaseAgents.length} agents`,
-      running ? `${running} running` : "",
-      errors ? `${errors} errors` : "",
+      `${counts.done}/${counts.total} agents`,
+      counts.running ? `${counts.running} running` : "",
+      counts.error ? `${counts.error} errors` : "",
       phaseTokens > 0 ? `${fmtTokensShort(phaseTokens)} tok` : "",
     ]
       .filter(Boolean)
@@ -383,7 +380,7 @@ export function renderPanelDetailed(
     const live = manager.getRun(r.runId);
     const snap = live?.snapshot;
     const agents = (snap?.agents ?? r.agents) as WorkflowAgentSnapshot[];
-    const done = agents.filter((a) => a.status === "done").length;
+    const done = agentCounts(agents).done;
     const icon = r.status === "paused" ? "⏸" : "◆";
     const usage = snap?.tokenUsage ?? r.tokenUsage;
     // The run-level tokenUsage aggregate is only finalized when the run ends, so

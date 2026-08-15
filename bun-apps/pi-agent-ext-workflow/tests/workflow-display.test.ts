@@ -13,7 +13,10 @@
 
 import { describe, it, mock } from "bun:test";
 import assert from "node:assert/strict";
+import { agentCounts, recomputeWorkflowSnapshot, type WorkflowAgentSnapshot } from "../src/display.js";
+import { type PersistedAgentState, type PersistedRunState, persistedToSnapshot } from "../src/run-persistence.js";
 import type { WorkflowMeta } from "../src/workflow.js";
+import { summarizeRun } from "../src/workflow-commands.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -843,6 +846,68 @@ describe("recomputeWorkflowSnapshot", () => {
     assert.equal(r.runningCount, 1);
     assert.equal(r.doneCount, 1);
     assert.equal(r.errorCount, 1);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// agentCounts — single derivation (snapshot-row-single-source, ticket 02)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("agentCounts (ticket 02)", () => {
+  it("agentCounts counts every status in one pass", () => {
+    const agents = [
+      { status: "done" },
+      { status: "running" },
+      { status: "error" },
+      { status: "skipped" },
+      { status: "queued" },
+    ] as Array<Pick<WorkflowAgentSnapshot, "status">>;
+    const c = agentCounts(agents);
+    assert.equal(c.total, 5);
+    assert.equal(c.done, 1);
+    assert.equal(c.running, 1);
+    assert.equal(c.error, 1);
+    assert.equal(c.skipped, 1);
+    assert.equal(c.finished, 3, "finished = done + error + skipped");
+    assert.equal(agentCounts([]).total, 0);
+  });
+
+  it("agentCounts: every converged site agrees on the same agents array", () => {
+    const agents: PersistedAgentState[] = [
+      { id: 1, label: "a", prompt: "p", status: "done" },
+      { id: 2, label: "b", prompt: "p", status: "running" },
+      { id: 3, label: "c", prompt: "p", status: "error" },
+      { id: 4, label: "d", prompt: "p", status: "skipped" },
+      { id: 5, label: "e", prompt: "p", status: "queued" },
+    ];
+    const c = agentCounts(agents);
+
+    // persisted adapter rollup counters == helper output
+    const state = {
+      runId: "r-counts",
+      workflowName: "counts",
+      status: "running",
+      phases: [],
+      agents,
+      logs: [],
+      startedAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-01-01T00:00:00.000Z",
+    } as unknown as PersistedRunState;
+    const snap = persistedToSnapshot(state);
+    assert.equal(snap.agentCount, c.total);
+    assert.equal(snap.runningCount, c.running);
+    assert.equal(snap.doneCount, c.done);
+    assert.equal(snap.errorCount, c.error);
+
+    // live recomputation == same derivation
+    const recomputed = recomputeWorkflowSnapshot(snap);
+    assert.equal(recomputed.doneCount, snap.doneCount);
+    assert.equal(recomputed.runningCount, snap.runningCount);
+    assert.equal(recomputed.errorCount, snap.errorCount);
+    assert.equal(recomputed.agentCount, snap.agentCount);
+
+    // /workflows list summary shows the same done/total
+    assert.ok(summarizeRun(state).includes(`1/5 agents`), summarizeRun(state));
   });
 });
 

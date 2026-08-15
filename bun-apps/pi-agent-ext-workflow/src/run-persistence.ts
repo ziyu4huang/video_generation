@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentHistoryEntry, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
-import type { WorkflowSnapshot } from "./display.js";
+import { agentCounts, type WorkflowSnapshot } from "./display.js";
 import type { ManifestIo } from "./workflow-pack-manifest.js";
 import { workflowProjectPaths } from "./workflow-paths.js";
 
@@ -147,16 +147,17 @@ function projectAgent(a: PersistedAgentState): WorkflowSnapshot["agents"][number
 }
 
 export function persistedToSnapshot(p: PersistedRunState): WorkflowSnapshot {
+  const counts = agentCounts(p.agents);
   return {
     name: p.workflowName,
     phases: p.phases,
     currentPhase: p.currentPhase,
     logs: p.logs,
     agents: p.agents.map(projectAgent),
-    agentCount: p.agents.length,
-    runningCount: p.agents.filter((a) => a.status === "running").length,
-    doneCount: p.agents.filter((a) => a.status === "done").length,
-    errorCount: p.agents.filter((a) => a.status === "error").length,
+    agentCount: counts.total,
+    runningCount: counts.running,
+    doneCount: counts.done,
+    errorCount: counts.error,
     tokenUsage: p.tokenUsage ? { ...p.tokenUsage } : undefined,
     runId: p.runId,
   };
