@@ -85,3 +85,50 @@ export function overriddenStaticExtensions(argv: string[], staticNames: string[]
 	}
 	return overridden;
 }
+
+/**
+ * v2 webui optionality flags (architecture v2 §3.1) — parsed from the PRE-PATCH
+ * argv, exactly like userSuppressFlags:
+ *  - `--no-webui` — disable the webui extension (sets env WEBUI_DISABLED=1).
+ *  - `--webui-port <n>` / `--webui-port=<n>` — pin the webui port (sets env
+ *    WEBUI_PORT; the webui port-resolver's strict decimal parse validates it).
+ * The webui is ON by default; these are the explicit opt-out / pin seams. The
+ * paired `--webui-port <n>` value is consumed here so callers can also strip
+ * both tokens from the argv handed to pi (pi records unknown `--` flags as
+ * unknownFlags rather than erroring, but our flags must not leak into the
+ * upstream parser).
+ */
+export interface WebuiFlags {
+	disabled: boolean;
+	/** The raw port string (unvalidated — the webui resolver validates). */
+	port: string | null;
+	/** argv with every webui flag token (and the paired port value) removed. */
+	rest: string[];
+}
+
+export function webuiFlags(argv: string[]): WebuiFlags {
+	let disabled = false;
+	let port: string | null = null;
+	const rest: string[] = [];
+	for (let i = 0; i < argv.length; i++) {
+		const a = argv[i]!;
+		if (a === "--no-webui") {
+			disabled = true;
+			continue;
+		}
+		if (a === "--webui-port") {
+			const v = argv[i + 1];
+			if (v !== undefined && !v.startsWith("-")) {
+				port = v;
+				i++; // consume the paired value so it is not passed to pi
+			}
+			continue;
+		}
+		if (a.startsWith("--webui-port=")) {
+			port = a.slice("--webui-port=".length) || null;
+			continue;
+		}
+		rest.push(a);
+	}
+	return { disabled, port, rest };
+}
