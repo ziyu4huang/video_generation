@@ -25,6 +25,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "../store/memory-store.js";
 import { formatFailureMemoryContent } from "../store/memory-format.js";
 import type { MemoryRepository } from "../store/repository.js";
+import type { CardStore } from "../store/card-store.js";
+import { mirrorMemoryAdd } from "../store/memory-card-mirror.js";
 import { CaptureThrottle } from "./capture-throttle.js";
 import { envInt } from "../utils/env.js";
 import {
@@ -129,6 +131,12 @@ export function setupErrorDetector(
   config: MemoryConfig,
   memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
+  // kp13 Wave B: the failure-mirror target — the bundle CardStore
+  // (md_id-keyed upsert; dedup rides the registered MemoryDedupStrategy).
+  // memoryRepo is kept in the signature for call-site stability but no
+  // longer mirrors on this path — the legacy syncMemoryEntry mirror is
+  // retired from the memory-kind hot path.
+  cardStore: CardStore | null = null,
 ): void {
   if (config.errorCapture === false) return;
 
@@ -168,22 +176,18 @@ export function setupErrorDetector(
         project: scopedProject,
       });
 
-      if (addResult.success && memoryRepo) {
+      if (addResult.success && cardStore) {
         try {
-          await memoryRepo.syncMemoryEntry({
+          await mirrorMemoryAdd(cardStore, "failure", {
+            mdId: addResult.added_md_id,
             content: formatFailureMemoryContent(content, {
               category: "failure",
               failureReason: reason,
               project: scopedProject,
             }),
-            target: "failure",
-            project: scopedProject,
-            category: "failure",
-            failureReason: reason,
-            ...(addResult.added_md_id ? { mdId: addResult.added_md_id } : {}),
           });
         } catch {
-          // best-effort SQLite sync only
+          // best-effort card-store mirror only
         }
       }
 

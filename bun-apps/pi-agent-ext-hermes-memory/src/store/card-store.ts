@@ -219,6 +219,25 @@ function surrealRowToCard(row: SurrealCardRow): Card {
   });
 }
 
+/** kp13 Wave B: memory-kind envelope → `memories` row columns. The card
+ *  envelope (serializer-derived from the canonical §-md bytes) is the mirror's
+ *  payload; the `state`/`severity`/`pin` COLUMNS must track it so repo-seam
+ *  readers (`MemoryEntry.state` via getMemories/searchMemories) stay faithful
+ *  instead of seeing the INSERT defaults. Absent envelope fields fall back to
+ *  the schema defaults; non-memory kinds never carry these envelope fields, so
+ *  their derived values equal the insert defaults (idempotent on update). */
+function envelopeMemoryColumns(card: Card): {
+  state: string;
+  severity: number | null;
+  pin: number;
+} {
+  const fm = card.frontmatter as Record<string, unknown> | null | undefined;
+  const state = typeof fm?.state === "string" && fm.state ? fm.state : "active";
+  const severity = typeof fm?.severity === "number" ? fm.severity : null;
+  const pin = fm?.pin === true ? 1 : 0;
+  return { state, severity, pin };
+}
+
 // ---------------------------------------------------------------------------
 // SQLite implementation — the 06a SQL, moved verbatim behind the seam.
 // ---------------------------------------------------------------------------
@@ -248,8 +267,9 @@ function createSqliteCardPersistence(backend: SqliteBackend): CardPersistence {
       // frontmatter=JSON envelope, graph=JSON Card.graph (03; NULL when
       // absent). Memory-specific columns (category/failure_reason/tool_state/
       // corrected_to/supersedes*/mw_*/parent_ids) are NULL; the NOT NULL
-      // columns get their defaults (state='active', pin=0, status='active',
-      // mw_success/mw_fail=0, created/last_referenced = today).
+      // columns get their defaults EXCEPT state/severity/pin, which track the
+      // memory-kind envelope (kp13 Wave B — see envelopeMemoryColumns).
+      const mem = envelopeMemoryColumns(card);
       await runWithTransientRetry(() =>
         backend.withCorruptionRecovery(() => {
           getDb()
@@ -257,7 +277,7 @@ function createSqliteCardPersistence(backend: SqliteBackend): CardPersistence {
               `INSERT INTO memories
                  (project, target, category, content, failure_reason, tool_state, corrected_to,
                   created, last_referenced, mw_success, mw_fail, status, md_id, state, severity, pin, frontmatter, graph)
-               VALUES (?, ?, NULL, ?, NULL, NULL, NULL, ?, ?, 0, 0, 'active', ?, 'active', NULL, 0, ?, ?)`,
+               VALUES (?, ?, NULL, ?, NULL, NULL, NULL, ?, ?, 0, 0, 'active', ?, ?, ?, ?, ?, ?)`,
             )
             .run(
               null,
@@ -266,6 +286,9 @@ function createSqliteCardPersistence(backend: SqliteBackend): CardPersistence {
               today(),
               today(),
               card.id,
+              mem.state,
+              mem.severity,
+              mem.pin,
               JSON.stringify(card.frontmatter),
               card.graph ? JSON.stringify(card.graph) : null,
             );
@@ -274,12 +297,14 @@ function createSqliteCardPersistence(backend: SqliteBackend): CardPersistence {
     },
 
     async updateCard(card: Card): Promise<void> {
+      const mem = envelopeMemoryColumns(card);
       await runWithTransientRetry(() =>
         backend.withCorruptionRecovery(() => {
           getDb()
             .prepare(
               `UPDATE memories
-                 SET content = ?, frontmatter = ?, graph = ?, last_referenced = ?
+                 SET content = ?, frontmatter = ?, graph = ?, last_referenced = ?,
+                     state = ?, severity = ?, pin = ?
                WHERE md_id = ?`,
             )
             .run(
@@ -287,6 +312,9 @@ function createSqliteCardPersistence(backend: SqliteBackend): CardPersistence {
               JSON.stringify(card.frontmatter),
               card.graph ? JSON.stringify(card.graph) : null,
               today(),
+              mem.state,
+              mem.severity,
+              mem.pin,
               card.id,
             );
         }),
@@ -508,9 +536,10 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
   // failure. The dedup registry IS used by upsertCard; the serializer registry
   // is exposed via serializerFor (06b's disk-read path consumes it).
   // C5-lite note: memory/user/failure persistence reuses the ALREADY-
-  // registered `MemoryDedupStrategy` verbatim (exact stripped-equality →
-  // near-dup containment → topic-recurrence merge; identity-based, mirroring
-  // the MemorySerializer/MemoryStore semantics) — no new dedup semantics.
+  // registered `MemoryDedupStrategy` verbatim (kp13 Wave B: IDENTITY-keyed —
+  // same md_id → skip, distinct md_id → keep; md is canonical and its layer
+  // already refuses exact dups / warns-only on near-dups before mirroring).
+  // The near-dup/topic primitives stay live in MemoryStore's md-layer warnings.
   const serializers = new Map<CardKind, CardSerializer>([
     ["memory", new MemorySerializer("memory")],
     ["user", new MemorySerializer("user")],

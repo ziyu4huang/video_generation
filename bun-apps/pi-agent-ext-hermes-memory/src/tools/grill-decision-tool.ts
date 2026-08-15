@@ -7,7 +7,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { MemoryStore } from "../store/memory-store.js";
-import type { MemoryRepository } from "../store/repository.js";
+import type { CardStore } from "../store/card-store.js";
+import { mirrorMemoryAdd } from "../store/memory-card-mirror.js";
 import type { MemoryCategory } from "../types.js";
 
 export type GrillSignal = "reject" | "refine" | "confirm" | "preference" | "insight";
@@ -98,7 +99,11 @@ const GRILL_DECISION_DESCRIPTION = `Capture a resolved grill decision as durable
 export function registerGrillDecisionTool(
   pi: ExtensionAPI,
   store: MemoryStore,
-  memoryRepo: MemoryRepository | null,
+  // kp13 Wave B: the mirror target is the bundle CardStore (md_id-keyed upsert
+  // through the registered MemoryDedupStrategy). The legacy
+  // memoryRepo.syncMemoryEntry content-keyed mirror is retired on this path —
+  // md stays canonical; USER.md is still written by the MemoryStore above.
+  cardStore: CardStore | null = null,
 ): void {
   pi.registerTool({
     name: "grill_decision",
@@ -138,16 +143,14 @@ export function registerGrillDecisionTool(
         // Grill captures are user-traits: write to the `user` home carrying the
         // topical category label (per the memory model — not the failure/lesson target).
         const result = await store.add("user", content, { category });
-        if (result.success && memoryRepo) {
+        if (result.success && cardStore) {
           try {
-            await memoryRepo.syncMemoryEntry({
+            await mirrorMemoryAdd(cardStore, "user", {
+              mdId: result.added_md_id,
               content: `[${category}] ${content}`,
-              target: "user",
-              category,
-              ...(result.added_md_id ? { mdId: result.added_md_id } : {}),
             });
           } catch {
-            // best-effort SQLite search sync — must not block the grill
+            // best-effort card-store mirror — must not block the grill
           }
         }
         return {

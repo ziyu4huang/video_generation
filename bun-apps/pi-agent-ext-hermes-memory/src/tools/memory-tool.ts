@@ -14,6 +14,8 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { MemoryStore } from "../store/memory-store.js";
 import { formatFailureMemoryContent, normalizeFailureState } from "../store/memory-format.js";
 import type { MemoryRepository } from "../store/repository.js";
+import type { CardStore } from "../store/card-store.js";
+import { mirrorMemoryAdd, mirrorMemoryReplace, mirrorMemoryRemove } from "../store/memory-card-mirror.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pathJoin } from "node:path";
@@ -182,46 +184,44 @@ function sqliteTargetFor(rawTarget: "memory" | "user" | "project" | "failure"): 
   return rawTarget;
 }
 
-async function syncAddToSqlite(
+// ── kp13 Wave B: the memory-kind DB mirror goes through the bundle CardStore
+// (md_id-keyed upsert/update/delete; dedup rides upsertCard's registered
+// MemoryDedupStrategy). The legacy memoryRepo.syncMemoryEntry content-keyed
+// mirror is retired from this path — syncMemoryEntry stays on the repository
+// interface for sessions + non-memory uses. md stays canonical: MemoryStore
+// still owns MEMORY.md/USER.md/failures.md.
+async function syncAddToCardStore(
   rawTarget: "memory" | "user" | "project" | "failure",
   content: string,
   category: MemoryCategory | undefined,
   failureReason: string | undefined,
-  memoryRepo: MemoryRepository | null,
-  projectName?: string | null,
+  cardStore: CardStore | null,
   mdId?: string | null,
   state?: FailureState,
   severity?: number | null,
 ): Promise<string | null> {
-  if (!memoryRepo) return null;
+  if (!cardStore) return null;
 
   try {
-    const sqliteTarget = sqliteTargetFor(rawTarget);
-    const sqliteProject = sqliteProjectFor(rawTarget, projectName);
+    const kind = sqliteTargetFor(rawTarget);
 
     if (rawTarget === "failure") {
       const failureCategory = category ?? "failure";
-      await memoryRepo.syncMemoryEntry({
+      await mirrorMemoryAdd(cardStore, "failure", {
+        mdId,
         content: formatFailureMemoryContent(content, {
           category: failureCategory,
           failureReason,
         }),
-        target: "failure",
-        project: sqliteProject ?? null,
-        category: failureCategory,
-        failureReason,
-        ...(mdId ? { mdId } : {}),
         ...(state ? { state } : {}),
         ...(typeof severity === "number" ? { severity } : {}),
       });
       return null;
     }
 
-    await memoryRepo.syncMemoryEntry({
+    await mirrorMemoryAdd(cardStore, kind, {
+      mdId,
       content,
-      target: sqliteTarget,
-      project: sqliteProject ?? null,
-      ...(mdId ? { mdId } : {}),
     });
     return null;
   } catch (err) {
@@ -229,31 +229,26 @@ async function syncAddToSqlite(
   }
 }
 
-async function syncReplaceToSqlite(
+async function syncReplaceToCardStore(
   rawTarget: "memory" | "user" | "project" | "failure",
   oldText: string,
   newContent: string,
-  memoryRepo: MemoryRepository | null,
-  projectName?: string | null,
+  cardStore: CardStore | null,
   mdId?: string | null,
   state?: FailureState,
   severity?: number | null,
 ): Promise<string | null> {
-  if (!memoryRepo) return null;
+  if (!cardStore) return null;
 
   try {
-    const sqliteTarget = sqliteTargetFor(rawTarget);
-    const sqliteProject = sqliteProjectFor(rawTarget, projectName);
-    const syncResult = await memoryRepo.replaceSyncedMemories(oldText, {
+    const matched = await mirrorMemoryReplace(cardStore, sqliteTargetFor(rawTarget), oldText, {
+      mdId,
       content: newContent,
-      target: sqliteTarget,
-      project: sqliteProject,
-      ...(mdId ? { mdId } : {}),
       ...(state ? { state } : {}),
       ...(typeof severity === "number" ? { severity } : {}),
     });
 
-    if (syncResult.matched === 0) {
+    if (matched === 0) {
       return "Saved to Markdown, but no matching search store row was updated. Run /memory-sync-markdown if search results look stale.";
     }
 
@@ -263,23 +258,17 @@ async function syncReplaceToSqlite(
   }
 }
 
-async function syncRemoveFromSqlite(
+async function syncRemoveFromCardStore(
   rawTarget: "memory" | "user" | "project" | "failure",
   oldText: string,
-  memoryRepo: MemoryRepository | null,
-  projectName?: string | null,
+  cardStore: CardStore | null,
 ): Promise<string | null> {
-  if (!memoryRepo) return null;
+  if (!cardStore) return null;
 
   try {
-    const sqliteTarget = sqliteTargetFor(rawTarget);
-    const sqliteProject = sqliteProjectFor(rawTarget, projectName);
-    const syncResult = await memoryRepo.removeSyncedMemories(oldText, {
-      target: sqliteTarget,
-      project: sqliteProject,
-    });
+    const matched = await mirrorMemoryRemove(cardStore, sqliteTargetFor(rawTarget), oldText);
 
-    if (syncResult.matched === 0) {
+    if (matched === 0) {
       return "Saved to Markdown, but no matching search store row was removed. Run /memory-sync-markdown if search results look stale.";
     }
 
@@ -323,6 +312,7 @@ export function registerMemoryTool(
   projectStore: MemoryStore | null,
   memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
+  cardStore: CardStore | null = null,
 ): ToolDefinition {
   // Proactive-consolidation trigger gate (Task 4 / UPSP §1). memory-tool.ts
   // has no config in scope, and the wiring stays self-contained in this file
@@ -423,7 +413,7 @@ export function registerMemoryTool(
               onProgress,
             });
             if (result.success) {
-              syncWarning = await syncAddToSqlite(rawTarget, content, memoryCategory, failure_reason, memoryRepo, projectName, result.added_md_id, state, severity);
+              syncWarning = await syncAddToCardStore(rawTarget, content, memoryCategory, failure_reason, cardStore, result.added_md_id, state, severity);
             }
           } else {
             result = await store_.add(target, content, { onProgress });
@@ -442,9 +432,9 @@ export function registerMemoryTool(
               // ALREADY md_id-only (no archive/display consumer — destructive).
               await syncEvictionsFromSqlite(rawTarget, result.evicted_md_ids, memoryRepo, projectName);
               await syncEvictionsFromSqlite(rawTarget, result.offloaded_superseded, memoryRepo, projectName);
-              // Task 7 / F1: thread the birth id so the DB row's md_id == the
+              // Task 7 / F1: thread the birth id so the card row's id == the
               // `.md` frontmatter id (live-in-session bridge, not just restart).
-              syncWarning = await syncAddToSqlite(rawTarget, content, undefined, undefined, memoryRepo, projectName, result.added_md_id);
+              syncWarning = await syncAddToCardStore(rawTarget, content, undefined, undefined, cardStore, result.added_md_id);
             }
           }
           break;
@@ -458,7 +448,7 @@ export function registerMemoryTool(
           }
           result = await store_.replace(target, old_text, content);
           if (result.success) {
-            syncWarning = await syncReplaceToSqlite(rawTarget, old_text, content, memoryRepo, projectName, result.added_md_id, state, severity);
+            syncWarning = await syncReplaceToCardStore(rawTarget, old_text, content, cardStore, result.added_md_id, state, severity);
           }
           break;
 
@@ -468,7 +458,7 @@ export function registerMemoryTool(
           }
           result = await store_.remove(target, old_text);
           if (result.success) {
-            syncWarning = await syncRemoveFromSqlite(rawTarget, old_text, memoryRepo, projectName);
+            syncWarning = await syncRemoveFromCardStore(rawTarget, old_text, cardStore);
           }
           break;
 

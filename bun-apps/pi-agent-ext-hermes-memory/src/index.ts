@@ -35,6 +35,7 @@ import { createBackendBundle, createBackendBundleWithFallback } from "./store/ba
 import { asSwappable } from "./store/swappable.js";
 import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
 import type { MemoryRepository, SessionRepository, BackendBundle } from "./store/repository.js";
+import type { CardStore } from "./store/card-store.js";
 import type { DbBackend } from "./types.js";
 import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-backfill.js";
 import { schedulePlanningBackfill, waitForPlanningBackfill } from "./handlers/planning-backfill.js";
@@ -254,6 +255,10 @@ export default async function (pi: ExtensionAPI) {
   // signature changes) and in-flight background indexing follows the swap.
   const memoryRepo: MemoryRepository = asSwappable<MemoryRepository>(() => currentBundle.memoryRepo);
   const sessionRepo: SessionRepository = asSwappable<SessionRepository>(() => currentBundle.sessionRepo);
+  // kp13 Wave B: the memory-kind mirror target rides the SAME swappable
+  // pattern — every writer captured `cardStore` at registration follows a live
+  // backend switch transparently (bundle cardStore is backend-matched).
+  const cardStore: CardStore = asSwappable<CardStore>(() => currentBundle.cardStore);
   const sessionsDir = path.join(agentRoot, "sessions");
 
   // UPSP §9 / ticket #06 (Task 6): per-session shared holders consumed across
@@ -288,7 +293,7 @@ export default async function (pi: ExtensionAPI) {
   // freeze fix (wayfinder ticket 07). runConsolidator sets PI_HERMES_CONSOLIDATING=1.
   if (shouldRunStartupSync()) {
     try {
-      await perf.timed("startup.syncMarkdownMemories", () => syncMarkdownMemories(memoryRepo, globalDir, config.projectsMemoryDir, agentRoot, inRepoProjectFile, inRepoProjectName));
+      await perf.timed("startup.syncMarkdownMemories", () => syncMarkdownMemories(memoryRepo, globalDir, config.projectsMemoryDir, agentRoot, inRepoProjectFile, inRepoProjectName, cardStore));
     } catch {
       // Best-effort only: failed markdown backfill should not block extension startup.
     }
@@ -339,7 +344,7 @@ export default async function (pi: ExtensionAPI) {
     currentDbBackend = target;
     backendLabel = labelFor(target);
     try {
-      await syncMarkdownMemories(currentBundle.memoryRepo, globalDir, config.projectsMemoryDir, agentRoot, inRepoProjectFile, inRepoProjectName);
+      await syncMarkdownMemories(currentBundle.memoryRepo, globalDir, config.projectsMemoryDir, agentRoot, inRepoProjectFile, inRepoProjectName, currentBundle.cardStore);
     } catch {
       // best effort; next session_start re-syncs
     }
@@ -480,8 +485,8 @@ export default async function (pi: ExtensionAPI) {
   // the in-process child subagent via spawnSubagent's `extensionTools`: the
   // def's execute closure already binds this parent `store`, so the child's
   // memory writes land in the parent store (same effect as the old -e subprocess).
-  const memoryToolDef = registerMemoryTool(pi, store, projectStore, memoryRepo, projectName);
-  registerGrillDecisionTool(pi, store, memoryRepo);
+  const memoryToolDef = registerMemoryTool(pi, store, projectStore, memoryRepo, projectName, cardStore);
+  registerGrillDecisionTool(pi, store, cardStore);
 
   // ── 3b. Register the knowledge tools (06b). knowledge_search wraps zk's
   // retrieveRecords (vault-md graph); knowledge_ingest wraps walkAndIngest
@@ -517,6 +522,7 @@ export default async function (pi: ExtensionAPI) {
   // ── 5. Setup background learning loop (with tool-call-aware nudge) ──
   setupBackgroundReview(pi, store, projectStore, config, {
     memoryRepo,
+    cardStore,
     projectName: projectName || null,
     deps: { memoryToolDef },
   });
@@ -639,10 +645,10 @@ export default async function (pi: ExtensionAPI) {
   // flows to the producer (memory_search records recalled ids) and the consumer
   // (setupWorthScoring drains + bumps mw_success/mw_fail at turn_end).
   const recallSet = new RecallSet();
-  setupCorrectionDetector(pi, store, projectStore, config, memoryRepo, projectName, memoryToolDef);
+  setupCorrectionDetector(pi, store, projectStore, config, memoryRepo, projectName, memoryToolDef, undefined, undefined, cardStore);
 
   // ── 8b. Setup lesson-worthy error capture (auto-trigger on tool failures) ──
-  setupErrorDetector(pi, store, projectStore, config, memoryRepo, projectName);
+  setupErrorDetector(pi, store, projectStore, config, memoryRepo, projectName, cardStore);
 
   // ── 8c. Setup worth-scoring (drains recall-set at turn_end, bumps mw_success/mw_fail) ──
   setupWorthScoring(pi, memoryRepo, recallSet, config);
@@ -665,7 +671,7 @@ export default async function (pi: ExtensionAPI) {
   registerInterviewCommand(pi, store);
   registerSwitchProjectCommand(pi, config);
   registerLearnMemoryCommand(pi);
-  registerSyncMarkdownMemoriesCommand(pi, memoryRepo, globalDir, config.projectsMemoryDir, agentRoot, () => backendLabel, inRepoProjectFile, inRepoProjectName);
+  registerSyncMarkdownMemoriesCommand(pi, memoryRepo, globalDir, config.projectsMemoryDir, agentRoot, () => backendLabel, inRepoProjectFile, inRepoProjectName, cardStore);
   registerPreviewContextCommand(pi, store, projectStore, projectName, config);
 
   // ── 10. Live session indexing ──
@@ -679,7 +685,7 @@ export default async function (pi: ExtensionAPI) {
   // ── 11. SQLite session search + extended memory ──
   registerSessionSearchTool(pi, sessionRepo, config.sessionSearch ?? { variant: "legacy" });
   registerMemorySearchTool(pi, memoryRepo, recallSet);
-  registerMemorySupersedeTool(pi, memoryRepo, store, projectName);
+  registerMemorySupersedeTool(pi, memoryRepo, store, projectName, cardStore);
   registerIndexSessionsCommand(pi, globalDir, config);
 
   // (11b removed — convergence moved to the knowledge-card hub; ADR-0001.

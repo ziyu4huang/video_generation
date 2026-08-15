@@ -14,6 +14,7 @@ if (up) {
   const { runMemoryRepositoryContract, runMarkdownSyncContract } = await import("../repository-contract.test.js");
   const { SurrealBackend } = await import("../../../src/store/surreal/surreal-backend.js");
   const { SurrealMemoryRepository } = await import("../../../src/store/surreal/surreal-memory-repo.js");
+  const { createCardStore } = await import("../../../src/store/card-store.js");
 
   runMemoryRepositoryContract("SurrealDB", async () => {
     const ns = uniqueNs();
@@ -33,8 +34,13 @@ if (up) {
     const ns = uniqueNs();
     const backend = new SurrealBackend({ namespace: ns, database: ns });
     await backend.init();
+    const repo = new SurrealMemoryRepository(backend);
     return {
-      repo: new SurrealMemoryRepository(backend),
+      repo,
+      // kp13 Wave B: card mirror on the same surreal repo (rows land in the
+      // same memories store; close is the backend's — the card store is
+      // stateless on this branch).
+      cardStore: await createCardStore({ memoryDir: ns, dbBackend: "surrealdb", surrealRepo: repo }),
       close: async () => {
         try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
         await backend.close();

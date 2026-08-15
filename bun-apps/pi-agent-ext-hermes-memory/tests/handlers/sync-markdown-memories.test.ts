@@ -4,9 +4,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import type { MemorySyncInput, MemoryRepository, MemoryEntry } from '../../src/store/repository.js';
+import type { MemoryRepository, MemoryEntry } from '../../src/store/repository.js';
 import { SqliteBackend } from '../../src/store/sqlite/sqlite-backend.js';
 import { SqliteMemoryRepository } from '../../src/store/sqlite/sqlite-memory-repo.js';
+import { createCardStore } from '../../src/store/card-store.js';
+import type { CardStore } from '../../src/store/card-store.js';
 import { registerMemoryTool } from '../../src/tools/memory-tool.js';
 import {
   registerSyncMarkdownMemoriesCommand,
@@ -34,6 +36,7 @@ describe('memory sqlite sync + markdown backfill', () => {
   let globalDir: string;
   let backend: SqliteBackend;
   let memoryRepo: SqliteMemoryRepository;
+  let cardStore: CardStore;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-sync-command-test-'));
@@ -45,9 +48,24 @@ describe('memory sqlite sync + markdown backfill', () => {
   });
 
   afterEach(async () => {
+    if (cardStore) await cardStore.close();
     await backend.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
+
+  /** Real card store joined on the shared backend — kp13 Wave B: the startup
+   *  pass mirrors §-entries HERE (md_id-keyed lazy re-migration), so tests that
+   *  exercise the mirror must opt in before their first sync. */
+  async function makeCardStore(): Promise<CardStore> {
+    cardStore = await createCardStore({ memoryDir: globalDir, sqliteBackend: backend });
+    return cardStore;
+  }
+
+  /** Frontmatter §-entry fixture with a stable id (the 5d shape the lazy
+   *  re-migration keys on). */
+  function fm(id: string, text: string, created = '2026-05-08', last = '2026-05-09'): string {
+    return serializeMetadataFrontmatter({ id, text, created, last });
+  }
 
   it('memory tool writes are immediately searchable in SQLite', async () => {
     let capturedTool: any;
@@ -65,10 +83,11 @@ describe('memory sqlite sync + markdown backfill', () => {
         usage: '1% — 20/5000 chars',
         entry_count: 1,
         message: 'Entry added.',
+        added_md_id: 'md-live-sync-1',
       }),
     } as any;
 
-    registerMemoryTool(mockPi, mockStore, null, memoryRepo);
+    registerMemoryTool(mockPi, mockStore, null, memoryRepo, null, await makeCardStore());
 
     await capturedTool.execute(
       'tc-1',
@@ -78,6 +97,10 @@ describe('memory sqlite sync + markdown backfill', () => {
       undefined,
     );
 
+    // kp13 Wave B: the mirror lands as a card row (same table → still searchable).
+    const cards = await cardStore.getCardsByKind('memory');
+    assert.strictEqual(cards.length, 1);
+    assert.strictEqual(cards[0].id, 'md-live-sync-1');
     const results = await memoryRepo.searchMemories('sync token 2026-05-09', { target: 'memory' });
     assert.strictEqual(results.length, 1);
     assert.strictEqual(results[0].content, 'sync token 2026-05-09');
@@ -85,14 +108,14 @@ describe('memory sqlite sync + markdown backfill', () => {
 
   it('backfill command is idempotent across repeated runs', async () => {
     const memoryEntries = [
-      'global memory one <!-- created=2026-05-08, last=2026-05-08 -->',
-      'global memory two <!-- created=2026-05-08, last=2026-05-09 -->',
+      fm('md-idem-m1', 'global memory one', '2026-05-08', '2026-05-08'),
+      fm('md-idem-m2', 'global memory two'),
     ];
     const userEntries = [
-      'name: Chandra <!-- created=2026-05-08, last=2026-05-08 -->',
+      fm('md-idem-u1', 'name: Chandra', '2026-05-08', '2026-05-08'),
     ];
     const failureEntries = [
-      '[tool-quirk] npm cache stale — Failed: clear .cache/tsx <!-- created=2026-05-08, last=2026-05-09 -->',
+      fm('md-idem-f1', '[tool-quirk] npm cache stale — Failed: clear .cache/tsx'),
     ];
 
     fs.writeFileSync(path.join(globalDir, 'MEMORY.md'), memoryEntries.join(ENTRY_DELIMITER), 'utf-8');
@@ -103,7 +126,7 @@ describe('memory sqlite sync + markdown backfill', () => {
     fs.mkdirSync(projectDir, { recursive: true });
     fs.writeFileSync(
       path.join(projectDir, 'MEMORY.md'),
-      'project memory entry <!-- created=2026-05-08, last=2026-05-09 -->',
+      fm('md-idem-p1', 'project memory entry'),
       'utf-8',
     );
 
@@ -123,22 +146,32 @@ describe('memory sqlite sync + markdown backfill', () => {
       },
     } as any;
 
-    registerSyncMarkdownMemoriesCommand(mockPi, memoryRepo, globalDir, undefined, agentRoot);
+    registerSyncMarkdownMemoriesCommand(mockPi, memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, undefined, await makeCardStore());
 
     await handler({}, ctx);
-    const afterFirst = await memoryRepo.getMemories();
+    const firstMem = await cardStore.getCardsByKind('memory');
+    const firstUser = await cardStore.getCardsByKind('user');
+    const firstFail = await cardStore.getCardsByKind('failure');
 
     await handler({}, ctx);
-    const afterSecond = await memoryRepo.getMemories();
+    const secondMem = await cardStore.getCardsByKind('memory');
+    const secondUser = await cardStore.getCardsByKind('user');
+    const secondFail = await cardStore.getCardsByKind('failure');
 
-    assert.strictEqual(afterFirst.length, 5, 'first run should import all unique entries');
-    assert.strictEqual(afterSecond.length, 5, 'second run should not create duplicates');
+    // Lazy re-migration: 5 md_id-keyed cards (3 memory incl. the project entry
+    // + 1 user + 1 failure); the second run is a full no-op (stable rows).
+    assert.strictEqual(firstMem.length + firstUser.length + firstFail.length, 5, 'first run should mirror all unique entries');
+    assert.deepStrictEqual(
+      [...secondMem, ...secondUser, ...secondFail].map((c) => c.id).sort(),
+      [...firstMem, ...firstUser, ...firstFail].map((c) => c.id).sort(),
+      'second run should not create duplicates',
+    );
 
-    const projectRows = await memoryRepo.getMemories({ project: 'project-a', target: 'memory' });
-    assert.strictEqual(projectRows.length, 1);
+    const projectCard = firstMem.find((c) => c.content === 'project memory entry');
+    assert.ok(projectCard, 'project entry mirrors as a kind:memory card');
 
-    const failureRows = await memoryRepo.getMemories({ target: 'failure', category: 'tool-quirk' });
-    assert.strictEqual(failureRows.length, 1);
+    const failureCard = firstFail.find((c) => c.content.includes('npm cache stale'));
+    assert.ok(failureCard, 'tool-quirk failure mirrors as a kind:failure card');
 
     assert.ok(
       notifications.some((n) => n.message.includes('memory store sync complete')),
@@ -146,63 +179,53 @@ describe('memory sqlite sync + markdown backfill', () => {
     );
   });
 
-  it('re-sync skips unchanged entries — zero syncMemoryEntriesBatch calls', async () => {
+  it('re-sync skips unchanged entries (md_id-keyed idempotence, no writes)', async () => {
     const entries = [
-      'skip-probe one <!-- created=2026-05-08, last=2026-05-08 -->',
-      'skip-probe two <!-- created=2026-05-08, last=2026-05-09 -->',
-      'skip-probe three <!-- created=2026-05-08, last=2026-05-09 -->',
+      fm('md-skip-1', 'skip-probe one', '2026-05-08', '2026-05-08'),
+      fm('md-skip-2', 'skip-probe two'),
+      fm('md-skip-3', 'skip-probe three'),
     ];
     fs.writeFileSync(path.join(globalDir, 'MEMORY.md'), entries.join(ENTRY_DELIMITER), 'utf-8');
 
-    const first = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
-    assert.strictEqual(first.imported, 3, 'precondition: first sync imports all 3');
+    await makeCardStore();
+    const first = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, cardStore);
+    assert.strictEqual(first.imported, 3, 'precondition: first sync mirrors all 3');
 
-    // Spy: count syncMemoryEntriesBatch calls on the re-run. The per-entry N+1
-    // now lives in this single batched call — skipping unchanged entries in-TS
-    // must drive it to zero (empty dirty list → no batch call).
-    const calls: MemorySyncInput[][] = [];
-    const origBatch = memoryRepo.syncMemoryEntriesBatch.bind(memoryRepo);
-    memoryRepo.syncMemoryEntriesBatch = async (inputs) => {
-      calls.push(inputs);
-      return origBatch(inputs);
-    };
-
-    const second = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
-    assert.strictEqual(calls.length, 0, 'unchanged entries must be skipped without a syncMemoryEntriesBatch call');
-    assert.strictEqual(second.imported, 0);
+    const second = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, cardStore);
+    assert.strictEqual(second.imported, 0, 'unchanged entries are skipped (no insert, no update)');
     assert.strictEqual(second.skipped, 3);
+    const cards = await cardStore.getCardsByKind('memory');
+    assert.strictEqual(cards.length, 3, 'row count stable — no duplicates');
   });
 
-  it('re-sync calls syncMemoryEntriesBatch once with only the changed entries', async () => {
+  it('re-sync updates only the drifted entry, in place (md_id stable)', async () => {
     fs.writeFileSync(
       path.join(globalDir, 'MEMORY.md'),
-      'delta-stable <!-- created=2026-05-08, last=2026-05-08 -->' +
+      fm('md-delta-stable', 'delta-stable', '2026-05-08', '2026-05-08') +
         ENTRY_DELIMITER +
-        'delta-changed <!-- created=2026-05-08, last=2026-05-08 -->',
+        fm('md-delta-changed', 'delta-changed', '2026-05-08', '2026-05-08'),
       'utf-8',
     );
-    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+    await makeCardStore();
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, cardStore);
 
-    // Bump lastReferenced on ONE entry → its merge is no longer a no-op.
+    // Bump lastReferenced on ONE entry → its envelope drifted → updateCard.
     fs.writeFileSync(
       path.join(globalDir, 'MEMORY.md'),
-      'delta-stable <!-- created=2026-05-08, last=2026-05-08 -->' +
+      fm('md-delta-stable', 'delta-stable', '2026-05-08', '2026-05-08') +
         ENTRY_DELIMITER +
-        'delta-changed <!-- created=2026-05-08, last=2026-05-10 -->',
+        fm('md-delta-changed', 'delta-changed', '2026-05-08', '2026-05-10'),
       'utf-8',
     );
 
-    const calls: MemorySyncInput[][] = [];
-    const origBatch = memoryRepo.syncMemoryEntriesBatch.bind(memoryRepo);
-    memoryRepo.syncMemoryEntriesBatch = async (inputs) => {
-      calls.push(inputs);
-      return origBatch(inputs);
-    };
+    const second = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, cardStore);
+    assert.strictEqual(second.imported, 1, 'only the drifted entry updates');
+    assert.strictEqual(second.skipped, 1);
 
-    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
-    assert.strictEqual(calls.length, 1, 'all dirty entries must sync in a single batched call');
-    assert.strictEqual(calls[0].length, 1, 'only the changed entry is in the batch');
-    assert.strictEqual(calls[0][0].content, 'delta-changed');
+    const cards = await cardStore.getCardsByKind('memory');
+    assert.strictEqual(cards.length, 2, 'no new rows — update-in-place keeps the id stable');
+    const changed = cards.find((c) => c.id === 'md-delta-changed')!;
+    assert.strictEqual(changed.frontmatter.last, '2026-05-10', 'drifted envelope refreshed');
   });
 
   it('backfills legacy project memory directories from the old ~/.pi/agent/<project> layout', async () => {
@@ -210,7 +233,7 @@ describe('memory sqlite sync + markdown backfill', () => {
     fs.mkdirSync(legacyProjectDir, { recursive: true });
     fs.writeFileSync(
       path.join(legacyProjectDir, 'MEMORY.md'),
-      'legacy project entry <!-- created=2026-05-08, last=2026-05-09 -->',
+      fm('md-legacy-1', 'legacy project entry'),
       'utf-8',
     );
 
@@ -227,12 +250,13 @@ describe('memory sqlite sync + markdown backfill', () => {
       },
     } as any;
 
-    registerSyncMarkdownMemoriesCommand(mockPi, memoryRepo, globalDir, undefined, agentRoot);
+    registerSyncMarkdownMemoriesCommand(mockPi, memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, undefined, await makeCardStore());
     await handler({}, ctx);
 
-    const projectRows = await memoryRepo.getMemories({ project: 'legacy-project', target: 'memory' });
-    assert.strictEqual(projectRows.length, 1);
-    assert.strictEqual(projectRows[0].content, 'legacy project entry');
+    const cards = await cardStore.getCardsByKind('memory');
+    assert.strictEqual(cards.length, 1);
+    assert.strictEqual(cards[0].content, 'legacy project entry');
+    assert.strictEqual(cards[0].id, 'md-legacy-1');
   });
 
   it('makes new-layout project markdown searchable when startup sync runs', async () => {
@@ -240,17 +264,18 @@ describe('memory sqlite sync + markdown backfill', () => {
     fs.mkdirSync(projectDir, { recursive: true });
     fs.writeFileSync(
       path.join(projectDir, 'MEMORY.md'),
-      'latest path searchable entry <!-- created=2026-05-11, last=2026-05-11 -->',
+      fm('md-latest-1', 'latest path searchable entry', '2026-05-11', '2026-05-11'),
       'utf-8',
     );
 
-    const counters = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+    const counters = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, await makeCardStore());
 
     assert.strictEqual(counters.projectCount, 1);
     assert.strictEqual(counters.imported, 1);
 
+    // The card row lands in the same memories table (project-agnostic) and
+    // stays FTS-searchable without the project filter.
     const results = await memoryRepo.searchMemories('latest path searchable entry', {
-      project: 'latest-project',
       target: 'memory',
     });
     assert.strictEqual(results.length, 1);
@@ -263,24 +288,30 @@ describe('memory sqlite sync + markdown backfill', () => {
 
     const customBackend = new SqliteBackend(customGlobalDir);
     const customMemoryRepo = new SqliteMemoryRepository(customBackend);
+    // kp13 Wave B: the mirror target is a cardStore joined on the SAME custom
+    // backend (not the suite's default one).
+    const customCardStore = await createCardStore({ memoryDir: customGlobalDir, sqliteBackend: customBackend });
     try {
       const projectDir = path.join(agentRoot, 'projects-memory', 'custom-root-project');
       fs.mkdirSync(projectDir, { recursive: true });
       fs.writeFileSync(
         path.join(projectDir, 'MEMORY.md'),
-        'custom root project entry <!-- created=2026-05-11, last=2026-05-11 -->',
+        fm('md-custom-root-1', 'custom root project entry', '2026-05-11', '2026-05-11'),
         'utf-8',
       );
 
-      const counters = await syncMarkdownMemories(customMemoryRepo, customGlobalDir, undefined, agentRoot);
+      const counters = await syncMarkdownMemories(
+        customMemoryRepo, customGlobalDir, undefined, agentRoot, undefined, undefined, customCardStore,
+      );
 
       assert.strictEqual(counters.projectCount, 1);
-      const results = await customMemoryRepo.searchMemories('custom root project entry', {
-        project: 'custom-root-project',
-        target: 'memory',
-      });
-      assert.strictEqual(results.length, 1);
-      assert.strictEqual(results[0].content, 'custom root project entry');
+      // The mirror is md_id-keyed + project-blind (kind rows in the card store);
+      // the pin here is that the ~/.pi/agent project scan still fires when the
+      // global memoryDir lives elsewhere.
+      const cards = await customCardStore.getCardsByKind('memory');
+      assert.strictEqual(cards.length, 1);
+      assert.strictEqual(cards[0].content, 'custom root project entry');
+      assert.strictEqual(cards[0].id, 'md-custom-root-1');
     } finally {
       await customBackend.close();
     }
@@ -330,7 +361,7 @@ describe('memory sqlite sync + markdown backfill', () => {
     fs.mkdirSync(inRepoDir, { recursive: true });
     fs.writeFileSync(
       path.join(inRepoDir, 'MEMORY.md'),
-      'in-repo project convention <!-- created=2026-05-08, last=2026-05-09 -->',
+      fm('md-inrepo-1', 'in-repo project convention'),
       'utf-8',
     );
 
@@ -338,12 +369,15 @@ describe('memory sqlite sync + markdown backfill', () => {
       memoryRepo, globalDir, undefined, agentRoot,
       path.join(inRepoDir, 'MEMORY.md'),
       'demo-repo',
+      await makeCardStore(),
     );
 
-    // Searchable under the project name (single DB, tag-on-index — decision 02).
-    const projectRows = await memoryRepo.getMemories({ project: 'demo-repo', target: 'memory' });
-    assert.strictEqual(projectRows.length, 1);
-    assert.strictEqual(projectRows[0].content, 'in-repo project convention');
+    // kp13 Wave B: the mirror lands as an md_id-keyed card row (project-blind —
+    // project tagging rides the md layer / Wave C's Tier-1 reconciliation).
+    const cards = await cardStore.getCardsByKind('memory');
+    assert.strictEqual(cards.length, 1);
+    assert.strictEqual(cards[0].content, 'in-repo project convention');
+    assert.strictEqual(cards[0].id, 'md-inrepo-1');
   });
 
   it('search merges legacy global + in-repo project entries for the same project (ticket 05 merge pin)', async () => {
@@ -360,7 +394,7 @@ describe('memory sqlite sync + markdown backfill', () => {
     fs.mkdirSync(legacyDir, { recursive: true });
     fs.writeFileSync(
       path.join(legacyDir, 'MEMORY.md'),
-      'legacy global project entry <!-- created=2026-05-08, last=2026-05-09 -->',
+      fm('md-split-legacy-1', 'legacy global project entry'),
       'utf-8',
     );
 
@@ -369,7 +403,7 @@ describe('memory sqlite sync + markdown backfill', () => {
     fs.mkdirSync(inRepoDir, { recursive: true });
     fs.writeFileSync(
       path.join(inRepoDir, 'MEMORY.md'),
-      'in-repo project entry <!-- created=2026-05-08, last=2026-05-09 -->',
+      fm('md-split-inrepo-1', 'in-repo project entry'),
       'utf-8',
     );
 
@@ -377,13 +411,15 @@ describe('memory sqlite sync + markdown backfill', () => {
       memoryRepo, globalDir, undefined, agentRoot,
       path.join(inRepoDir, 'MEMORY.md'),
       projectName,
+      await makeCardStore(),
     );
 
-    // Both sources merged under the same project tag — the split works end-to-end.
-    const rows = await memoryRepo.getMemories({ project: projectName, target: 'memory' });
-    assert.strictEqual(rows.length, 2);
+    // kp13 Wave B: both sources merge into the single card store (one kind,
+    // distinct md_ids) — the split works end-to-end on the mirror seam.
+    const cards = await cardStore.getCardsByKind('memory');
+    assert.strictEqual(cards.length, 2);
     assert.deepStrictEqual(
-      rows.map((r) => r.content).sort(),
+      cards.map((c) => c.content).sort(),
       ['in-repo project entry', 'legacy global project entry'],
     );
   });
@@ -406,7 +442,7 @@ describe('memory sqlite sync + markdown backfill', () => {
     });
     fs.writeFileSync(path.join(globalDir, 'MEMORY.md'), entry, 'utf-8');
 
-    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, await makeCardStore());
 
     const rows = await memoryRepo.getMemories({ target: 'memory' });
     assert.strictEqual(rows.length, 1, 'mirror should insert exactly one row');
@@ -443,7 +479,7 @@ describe('memory sqlite sync + markdown backfill', () => {
       'utf-8',
     );
 
-    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, await makeCardStore());
 
     const md = readFailuresMd(globalDir);
     assert.strictEqual(stateOfEntry(md, '[failure] boom'), 'active');
@@ -500,7 +536,7 @@ describe('memory sqlite sync + markdown backfill', () => {
     });
     fs.writeFileSync(path.join(globalDir, 'failures.md'), resolvedEntry, 'utf-8');
 
-    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, await makeCardStore());
 
     const md = readFailuresMd(globalDir);
     assert.strictEqual(stateOfEntry(md, '[failure] already fixed'), 'resolved');
@@ -605,7 +641,7 @@ describe('memory sqlite sync + markdown backfill', () => {
       ].join(ENTRY_DELIMITER),
       'utf-8',
     );
-    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, await makeCardStore());
 
     const rows = await memoryRepo.getMemories({ target: 'memory' });
     const A = rows.find((r) => r.content === 'rot alpha');
@@ -623,7 +659,7 @@ describe('memory sqlite sync + markdown backfill', () => {
       'utf-8',
     );
 
-    const counters = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot);
+    const counters = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, cardStore);
     assert.ok(
       counters.warnings.some((w) => w.includes('dangling') && w.includes(String(A!.id))),
       `expected a dangling warning citing missing id ${A!.id}, got: ${JSON.stringify(counters.warnings)}`,

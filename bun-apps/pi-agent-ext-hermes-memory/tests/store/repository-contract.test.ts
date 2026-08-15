@@ -26,6 +26,8 @@ import type {
 } from "../../src/store/repository.js";
 import { syncMarkdownMemories } from "../../src/handlers/sync-markdown-memories.js";
 import { ENTRY_DELIMITER } from "../../src/constants.js";
+import { serializeMetadataFrontmatter } from "../../src/store/memory-format.js";
+import { createCardStore, type CardStore } from "../../src/store/card-store.js";
 import { createPerfRecorder, type PerfRecord } from "../../src/perf.js";
 
 // ---------------------------------------------------------------------------
@@ -619,15 +621,19 @@ export function runSessionRepositoryContract(
 // MemoryRepository: entries import, become searchable, and de-duplicate on
 // re-run. The markdown files are backend-agnostic; only the repo differs, so
 // the factory takes the same make() shape as the repository contract.
+// kp13 Wave B: the mirror target is the bundle CardStore (md_id-keyed lazy
+// re-migration), so make() also provides a cardStore joined on the SAME
+// backend — the mirrored rows land in the repo's own memories table and are
+// recalled via repo.searchMemories.
 // ---------------------------------------------------------------------------
 
 export function runMarkdownSyncContract(
   name: string,
-  make: () => Promise<{ repo: MemoryRepository; close: () => Promise<void> }>,
+  make: () => Promise<{ repo: MemoryRepository; cardStore: CardStore | null; close: () => Promise<void> }>,
 ): void {
   describe(`${name} markdown→store sync contract`, () => {
     it("imports markdown entries and makes them searchable", async () => {
-      const { repo, close } = await make();
+      const { repo, cardStore, close } = await make();
       const root = mkdtempSync(join(tmpdir(), `hm-sync-${name.toLowerCase()}-`));
       const agentRoot = join(root, "agent");
       const globalDir = join(agentRoot, "memory");
@@ -636,13 +642,16 @@ export function runMarkdownSyncContract(
         writeFileSync(
           join(globalDir, "MEMORY.md"),
           [
-            "contract memory one <!-- created=2026-05-08, last=2026-05-08 -->",
-            "contract memory two <!-- created=2026-05-08, last=2026-05-09 -->",
+            // kp13 Wave B: the lazy re-migration mirrors md_id-keyed (frontmatter)
+            // entries; comment-shape entries are skipped until the 5d backfill
+            // upgrades them (pinned by the idempotence test below).
+            serializeMetadataFrontmatter({ id: "md-contract-1", text: "contract memory one", created: "2026-05-08", last: "2026-05-08" }),
+            serializeMetadataFrontmatter({ id: "md-contract-2", text: "contract memory two", created: "2026-05-08", last: "2026-05-09" }),
           ].join(ENTRY_DELIMITER),
           "utf-8",
         );
 
-        const first = await syncMarkdownMemories(repo, globalDir, undefined, agentRoot);
+        const first = await syncMarkdownMemories(repo, globalDir, undefined, agentRoot, undefined, undefined, cardStore);
         expect(first.imported).toBe(2);
 
         const hits = await repo.searchMemories("contract memory one", { target: "memory" });
@@ -654,7 +663,7 @@ export function runMarkdownSyncContract(
     });
 
     it("is idempotent across repeated runs (no duplicate rows)", async () => {
-      const { repo, close } = await make();
+      const { repo, cardStore, close } = await make();
       const root = mkdtempSync(join(tmpdir(), `hm-sync-idem-${name.toLowerCase()}-`));
       const agentRoot = join(root, "agent");
       const globalDir = join(agentRoot, "memory");
@@ -662,12 +671,15 @@ export function runMarkdownSyncContract(
       try {
         writeFileSync(
           join(globalDir, "MEMORY.md"),
+          // Comment-shape (no stable id): the lazy re-migration skips it on
+          // EVERY pass until the 5d backfill upgrades the entry — which is
+          // exactly what makes re-runs no-ops (kp13 Wave B laziness pin).
           "idempotent entry <!-- created=2026-05-08, last=2026-05-09 -->",
           "utf-8",
         );
 
-        await syncMarkdownMemories(repo, globalDir, undefined, agentRoot);
-        const second = await syncMarkdownMemories(repo, globalDir, undefined, agentRoot);
+        await syncMarkdownMemories(repo, globalDir, undefined, agentRoot, undefined, undefined, cardStore);
+        const second = await syncMarkdownMemories(repo, globalDir, undefined, agentRoot, undefined, undefined, cardStore);
 
         expect(second.imported).toBe(0);
         expect(second.skipped).toBe(1);
@@ -725,6 +737,9 @@ runMarkdownSyncContract("SQLite", async () => {
   await backend.init();
   return {
     repo: new SqliteMemoryRepository(backend),
+    // Joined on the SAME backend (bundle-join path): the card rows land in
+    // this repo's memories table; close stays owned by the backend below.
+    cardStore: await createCardStore({ memoryDir: dir, sqliteBackend: backend }),
     close: async () => {
       await backend.close();
       rmSync(dir, { recursive: true, force: true });
