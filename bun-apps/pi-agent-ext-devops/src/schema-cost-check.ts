@@ -52,6 +52,15 @@ export interface SchemaCostCheckOptions {
 	 * `createLiveSpawn(repoRoot)` adapter. Tests inject a recording fake.
 	 */
 	spawn?: SpawnFn;
+	/**
+	 * Where the human-readable comparison block goes. Default `console.log`
+	 * (stdout), which is right for a terminal but WRONG for any caller whose own
+	 * stdout is a payload: this function is IMPORTED, not spawned, so its banner
+	 * lands in the caller's stdout. That made the devops CLIs emit unparseable
+	 * JSON until they started passing a stderr sink here. WARNINGs and collection
+	 * errors already go to stderr via console.warn/error and are unaffected.
+	 */
+	log?: (line: string) => void;
 }
 
 /** Result of {@link runSchemaCostCheck}. */
@@ -76,6 +85,7 @@ export async function runSchemaCostCheck(opts: SchemaCostCheckOptions): Promise<
 	const baselinePath = opts.baseline ?? `${root}/scripts/schema-cost-baseline.json`;
 	const livePath = opts.live;
 	const threshold = opts.threshold ?? 5;
+	const log = opts.log ?? ((l: string) => console.log(l));
 	const spawn = opts.spawn ?? createLiveSpawn(root);
 	const CLI = `${root}/bun-apps/pi-agent/src/cli.ts`;
 
@@ -121,12 +131,12 @@ export async function runSchemaCostCheck(opts: SchemaCostCheckOptions): Promise<
 		for (const e of live.errors) console.warn(`    - ${e}`);
 	}
 
-	console.log("── schema-cost regression ──────────────────────────────");
-	console.log(`  baseline totalTokens : ${baseTotal}  (${baseline.tools ?? "?"} tools)`);
-	console.log(`  live     totalTokens : ${liveTotal}  (${live.tools ?? "?"} tools)`);
-	console.log(`  delta                : ${delta >= 0 ? "+" : ""}${delta} tokens (${pct.toFixed(2)}%)`);
-	console.log(`  threshold            : +${threshold}% (WARNING only, not a block)`);
-	console.log("───────────────────────────────────────────────────────");
+	log("── schema-cost regression ──────────────────────────────");
+	log(`  baseline totalTokens : ${baseTotal}  (${baseline.tools ?? "?"} tools)`);
+	log(`  live     totalTokens : ${liveTotal}  (${live.tools ?? "?"} tools)`);
+	log(`  delta                : ${delta >= 0 ? "+" : ""}${delta} tokens (${pct.toFixed(2)}%)`);
+	log(`  threshold            : +${threshold}% (WARNING only, not a block)`);
+	log("───────────────────────────────────────────────────────");
 
 	if (over) {
 		console.warn(`⚠ WARNING: aggregate schema cost grew ${pct.toFixed(2)}% (> ${threshold}% threshold).`);
@@ -134,9 +144,9 @@ export async function runSchemaCostCheck(opts: SchemaCostCheckOptions): Promise<
 		console.warn("    bun bun-apps/pi-agent/src/cli.ts cli tools-metrics --schema-cost --json \\");
 		console.warn("      > scripts/schema-cost-baseline.json");
 	} else if (delta < 0) {
-		console.log(`✓ schema cost decreased by ${Math.abs(delta)} tokens (baseline still valid).`);
+		log(`✓ schema cost decreased by ${Math.abs(delta)} tokens (baseline still valid).`);
 	} else {
-		console.log("✓ schema cost within threshold (baseline held).");
+		log("✓ schema cost within threshold (baseline held).");
 	}
 
 	return { exitCode: 0 };

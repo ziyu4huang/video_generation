@@ -127,6 +127,15 @@ export interface CiOptions {
 	 * stays filesystem-free.
 	 */
 	readGates?: (repoRoot: string) => Promise<CiGatesResult>;
+	/**
+	 * Where the schema-cost check's human-readable block goes. Default stdout via
+	 * console.log. `runSchemaCostCheck` is IMPORTED, not spawned, so in a caller
+	 * whose own stdout is a payload (the devops CLIs) that banner corrupts it —
+	 * those pass a stderr sink here.
+	 */
+	log?: (line: string) => void;
+	/** Baseline JSON path forwarded to the schema-cost check (tests pin a fixture). */
+	schemaCostBaseline?: string;
 }
 
 /**
@@ -285,7 +294,12 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 		// schema-cost is ALWAYS info-only — a regression here must not block a merge.
 		// Imported (not spawned) so the check runs in-process; its internal
 		// tools-metrics spawn still goes through the injectable SpawnFn seam.
-		const sc = await runSchemaCostCheck({ repoRoot: opts.repoRoot, spawn });
+		const sc = await runSchemaCostCheck({
+			repoRoot: opts.repoRoot,
+			spawn,
+			log: opts.log,
+			baseline: opts.schemaCostBaseline,
+		});
 		schemaCost = { exitCode: sc.exitCode, note: "info-only — never affects overall" };
 	}
 
