@@ -304,3 +304,30 @@ test("buildSpawnOptions: forwards params.maxTurns; omitted → undefined (no def
   // omitted → undefined (unlike tokenBudget, NO tier-calibrated default — omit = unlimited turns)
   assert.equal(mk({}).maxTurns, undefined);
 });
+
+test("buildSpawnOptions: onUsage accrues mapped AgentUsage into the registry", () => {
+  const accrued: Array<[string, Record<string, number>]> = [];
+  const inFlight = {
+    updateModel: () => {},
+    markFallback: () => {},
+    update: () => {},
+    accrueUsage: (id: string, delta: Record<string, number>) => accrued.push([id, delta]),
+  } as never;
+  const opts = buildSpawnOptions(
+    {
+      toolCallId: "call-u",
+      t0: 1_700_000_000_000,
+      params: { task: "t" },
+      agentDef: undefined,
+      modelCtx: { requestedModel: undefined, tier: undefined, capability: undefined, mainModel: undefined },
+      spawnCwd: "/r",
+      childSignal: new AbortController().signal,
+    },
+    { resolvedModel: undefined, fellBack: false, lastHistory: undefined, maxToolCallsSeen: 0 },
+    { inFlight },
+  );
+  opts.onUsage?.({ input: 100, output: 200, cost: 0.04 } as never);
+  assert.equal(accrued.length, 1);
+  assert.equal(accrued[0][0], "call-u");
+  assert.deepEqual(accrued[0][1], { costUsd: 0.04, tokensIn: 100, tokensOut: 200 });
+});

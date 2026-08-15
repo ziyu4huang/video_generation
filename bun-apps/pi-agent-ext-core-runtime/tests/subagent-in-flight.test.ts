@@ -68,3 +68,26 @@ test("start defaults omitted status to 'running'", () => {
   start("a");
   expect(registry.view("a")?.status).toBe("running");
 });
+
+describe("accrueUsage", () => {
+  test("sums deltas on a live run", () => {
+    start("a");
+    registry.accrueUsage("a", { costUsd: 0.01, tokensIn: 10, tokensOut: 20 });
+    registry.accrueUsage("a", { costUsd: 0.03, tokensIn: 90, tokensOut: 180 });
+    const v = registry.view("a");
+    expect(v?.costUsd).toBe(0.04);
+    expect(v?.tokensIn).toBe(100);
+    expect(v?.tokensOut).toBe(200);
+  });
+
+  test("ignored after terminal (freeze mirrors elapsedFrozen)", () => {
+    start("a");
+    registry.markCompleted("a");
+    registry.accrueUsage("a", { costUsd: 0.04, tokensIn: 100, tokensOut: 200 });
+    expect(registry.view("a")?.costUsd).toBe(0);
+  });
+
+  test("no-op for unknown id (never throws)", () => {
+    registry.accrueUsage("nope", { costUsd: 1, tokensIn: 1, tokensOut: 1 });
+  });
+});

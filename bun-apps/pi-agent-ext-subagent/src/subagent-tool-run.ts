@@ -285,6 +285,7 @@ export interface SpawnDeps {
         updateModel?: (id: string, m: string) => void;
         markFallback?: (id: string, spec: string) => void;
         update?: (id: string, h: AgentHistoryEntry[]) => void;
+        accrueUsage?: (id: string, delta: { costUsd: number; tokensIn: number; tokensOut: number }) => void;
       }
     | undefined;
   persistence?: unknown;
@@ -330,6 +331,17 @@ export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: Sp
     onModelFallback: (requestedSpec: string) => {
       progress.fellBack = true;
       deps.inFlight?.markFallback?.(toolCallId, requestedSpec);
+    },
+    onUsage: (u) => {
+      // Task 03: accrue the child's reported usage (AgentUsage: input/output/
+      // cost) into the registry record so RunView carries live costUsd/tokensIn/
+      // tokensOut (frozen at terminal by accrueUsage itself). The registry
+      // no-ops for unknown ids, so this is safe even when inFlight is absent.
+      deps.inFlight?.accrueUsage?.(toolCallId, {
+        costUsd: u.cost ?? 0,
+        tokensIn: u.input ?? 0,
+        tokensOut: u.output ?? 0,
+      });
     },
     onHistory:
       deps.onUpdate || deps.inFlight || deps.persistence

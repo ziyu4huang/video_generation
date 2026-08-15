@@ -12,7 +12,7 @@
 import type { AgentHistoryEntry } from "./agent-history.js";
 import type { ActivityStatus } from "./agent-row-display.js";
 import type { RunView } from "./run-view.js";
-import { buildRunView } from "./run-view.js";
+import { buildRunView, isTerminalStatus } from "./run-view.js";
 
 /** The terminal subset of {@link ActivityStatus} — the only values markCompleted/markFailed accept. */
 export type TerminalStatus = Extract<
@@ -75,6 +75,10 @@ export interface InFlightSubagent {
   history?: AgentHistoryEntry[];
   /** Bound by renderCall so updateModel can force a call-line re-render mid-run. */
   invalidate?: () => void;
+  /** Monotonically accrued child usage (SUM of onUsage deltas). Once the run
+   *  is terminal, accrueUsage is a no-op so the projected values freeze
+   *  (mirrors elapsedFrozen). */
+  usageAccrued?: { costUsd: number; tokensIn: number; tokensOut: number };
   /** Per-child abort lever — fires the child's AbortController so the /subagents
    *  viewer (x-key) can abort ONE running child without aborting the whole turn.
    *  Set by the tool at dispatch; fired by the registry's abort(id). */
@@ -148,6 +152,19 @@ export class SubagentInFlightRegistry {
     if (!r) return;
     r.requestedModel = requestedModel;
     r.fellBack = true;
+    r.invalidate?.();
+  }
+
+  /** Accrue child usage deltas into a LIVE run (monotonic SUM). No-op for
+   *  terminal runs (freeze — mirrors elapsedFrozen) and unknown ids (never
+   *  throws, mirrors update()); forces a re-render when an invalidate is bound. */
+  accrueUsage(id: string, delta: { costUsd: number; tokensIn: number; tokensOut: number }): void {
+    const r = this.runs.get(id);
+    if (!r || isTerminalStatus(r.status)) return;
+    r.usageAccrued ??= { costUsd: 0, tokensIn: 0, tokensOut: 0 };
+    r.usageAccrued.costUsd += delta.costUsd;
+    r.usageAccrued.tokensIn += delta.tokensIn;
+    r.usageAccrued.tokensOut += delta.tokensOut;
     r.invalidate?.();
   }
 
