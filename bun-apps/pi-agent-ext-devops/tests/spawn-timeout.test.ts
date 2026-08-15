@@ -35,7 +35,11 @@ afterEach(() => {
 	Bun.spawnSync(["pkill", "-9", "-f", MARK]);
 });
 
-describe("createLiveSpawn — timeoutMs", () => {
+// P2 (host-binary probe) under the test-portability audit — these spawn real
+// bash/perl/pgrep. Gated per .github/TEST-PORTABILITY.md. Note `local_ci`
+// deliberately does NOT export CI=true, so this suite still runs there — which
+// is the run that gates a merge in this repo.
+describe.skipIf(Boolean(process.env.CI))("createLiveSpawn — timeoutMs", () => {
 	test("no timeoutMs → unchanged: the command runs to completion", async () => {
 		const spawn = createLiveSpawn(process.cwd());
 		const r = await spawn("bash", ["-c", "echo hello"]);
