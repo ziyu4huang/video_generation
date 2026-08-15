@@ -21,6 +21,7 @@
  * each call, never cached across ticks (RunView contract).
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { renderRunRow } from "@repo/pi-agent-ext-core-runtime";
 import type { RunView } from "@repo/pi-agent-ext-core-runtime";
 import { capTraceTail, formatSubagentTrace, latestMessageLine, STREAMING_EXPANDED_TAIL } from "@repo/pi-agent-ext-subagent";
@@ -73,13 +74,23 @@ export function createSubagentsSection(deps: SubagentsSectionDeps): SubagentsSec
 	const section: StatusSection = {
 		id: "subagents",
 		order: 4, // contract: goal=0, todo=1, wayfind=2, coordinator=3, subagents=4
-		render: (theme: Theme, _width: number): string[] => {
+		render: (theme: Theme, width: number): string[] => {
 			const views = deps.getViews();
 			// Task 02: diff consecutive snapshots; a stamped line shows THIS tick only.
 			notify.diff(prevViews, views);
 			prevViews = views;
 			const [transient] = notify.take();
 			if (views.length === 0 && !notifyLine && !transient && !dockState) return [];
+			// Ticket 04: consume the previously-discarded render width — a
+			// section-level whole-line guard fits every composed header/row/quote/
+			// trace line to the terminal width (CJK + ANSI correct via pi-tui;
+			// truncateToWidth returns its input unchanged when it already fits,
+			// and the visibleWidth fast path keeps short lines byte-identical).
+			// The core-runtime row helpers stay untouched — their char-count caps
+			// still bound content BEFORE this guard trims any remainder. The dock
+			// hint line is explicitly exempt (DOCK_HINT_LINE renders as-is).
+			const fit = (line: string): string =>
+				visibleWidth(line) <= width ? line : truncateToWidth(line, width);
 			const lines: string[] = [];
 			if (dockState) lines.push(DOCK_HINT_LINE);
 			if (transient) lines.push(` ${transient}`);
@@ -87,10 +98,10 @@ export function createSubagentsSection(deps: SubagentsSectionDeps): SubagentsSec
 			if (views.length > 0) {
 				let header = ` ${views.length} background ${views.length === 1 ? "run" : "runs"}`;
 				if (dockState?.armed) header = `${header} · [abort? y/n]`;
-				lines.push(header);
+				lines.push(fit(header));
 				views.forEach((v, i) => {
 					const selected = dockState !== undefined && dockState.selected === i;
-					const row = `${selected ? "▶" : " "} ${renderRunRow(v, theme)}`;
+					const row = fit(`${selected ? "▶" : " "} ${renderRunRow(v, theme)}`);
 					if (selected && dockState?.expanded) {
 						// Task 08: expanded — the selected run renders as ONE capped block,
 						// [row, ...trace] through capTraceTail, so a long trace keeps a
@@ -104,8 +115,8 @@ export function createSubagentsSection(deps: SubagentsSectionDeps): SubagentsSec
 						);
 						const rowVisible = block[0] === row; // uncapped: the row stays in view
 						block.forEach((l, bi) => {
-							if (bi === 0 && rowVisible) lines.push(l);
-							else lines.push(`      ${l}`);
+							if (bi === 0 && rowVisible) lines.push(l); // row: already fitted above
+							else lines.push(fit(`      ${l}`)); // trace: fit after the 6-space indent
 						});
 						return;
 					}
@@ -113,8 +124,11 @@ export function createSubagentsSection(deps: SubagentsSectionDeps): SubagentsSec
 					// Task 04: migrated from the retired subagent-context-widget's
 					// collapsed view — one latest activity/prose line beneath each row
 					// (prose renders quoted; see latestMessageLine).
-					const live = latestMessageLine(v.history);
-					if (live) lines.push(`    ${live}`);
+					// Ticket 04: thread width into the ticket-01 helper (the quote line
+					// renders 4-space indented, so it gets width - 4), then guard the
+					// indented line as backstop for any cap/wide-char remainder.
+					const live = latestMessageLine(v.history, Math.max(1, width - 4));
+					if (live) lines.push(fit(`    ${live}`));
 				});
 			}
 			return lines;
