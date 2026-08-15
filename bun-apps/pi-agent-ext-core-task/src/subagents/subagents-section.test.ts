@@ -91,6 +91,23 @@ describe("subagents section (order 4)", () => {
 		]);
 	});
 
+	test("row for a run with history renders the latest message line indented beneath", () => {
+		const views = [fakeView({ history: [{ role: "assistant", kind: "text", text: "summarizing findings" }] })];
+		const { handle } = makeSection(() => views);
+		expect(handle.section.render(plainTheme, 100)).toEqual([
+			" 1 background run",
+			"  ● researcher sonnet · 12.3s · 3 calls — Reading plan.md",
+			'    ↳ "summarizing findings"',
+		]);
+	});
+
+	test("no latest line when history is empty", () => {
+		const { handle } = makeSection(() => [fakeView()]);
+		const lines = handle.section.render(plainTheme, 100);
+		expect(lines).toEqual([" 1 background run", "  ● researcher sonnet · 12.3s · 3 calls — Reading plan.md"]);
+		expect(lines.some((l) => l.includes("↳"))).toBe(false);
+	});
+
 	test("section id is subagents, order is 4", () => {
 		const { handle } = makeSection(() => []);
 		expect(handle.section.id).toBe("subagents");
