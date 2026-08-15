@@ -1,6 +1,6 @@
 # Ticket 02 — `agentCounts(agents)` single derivation
 
-> Wave 1 · spec §2.2 · status: open
+> Wave 1 · spec §2.2 · status: **done** — PR #1376 (squash-merged)
 
 ## Goal
 
@@ -39,3 +39,18 @@ fits.
 - `bun-apps/pi-agent-ext-workflow/src/task-panel.ts`
 - `bun-apps/pi-agent-ext-workflow/src/workflow-manager.ts`
 - `bun-apps/pi-agent-ext-workflow/tests/` (consistency regression)
+
+## Done — PR #1376
+
+Squash-merged 2026-08-15 — 7 files, +138/−45 (six src + `tests/workflow-display.test.ts`,
+2 new tests under `describe("agentCounts (ticket 02)")`).
+TDD proofs fired: failing-first (`agentCounts` export-not-found) → final gate
+(biome + tsc + bun test) 1072 pass / 0 fail / 3 todo, rendered output byte-identical.
+Drift from plan verbatim (behavior identical): Task 1 (#1371) had already moved
+`persistedToSnapshot` into `run-persistence.ts`, so the rollup counters converged
+there (as the plan's post-Task-1 line refs anticipated); `workflow-ui.ts phases()`
+typed its `byPhase` map `WorkflowAgentSnapshot[]` instead of `AgentRow[]`
+(tsc: `AgentRow.status: string` is not assignable to the helper's
+`Pick<WorkflowAgentSnapshot, "status">`); the test file (dynamic-import style)
+gained the plan's imports as a top-level static block with `it()` per file
+convention plus a Biome import-order safe fix.

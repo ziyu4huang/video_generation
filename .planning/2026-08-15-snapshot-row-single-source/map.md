@@ -23,7 +23,7 @@ Make the workflow package's presentation layer read a **single trusted projectio
 Initial cut (5) — may be re-cut at plan time; details in `tickets/`:
 
 1. `tickets/01-exhaustive-persisted-to-snapshot.md` — Wave 1 · **done (PR #1371)**
-2. `tickets/02-agentcounts-single-derivation.md` — Wave 1
+2. `tickets/02-agentcounts-single-derivation.md` — Wave 1 · **done (PR #1376)**
 3. `tickets/03-unified-delivery-text.md` — Wave 1
 4. `tickets/04-typed-run-status-glyph.md` — Wave 1
 5. `tickets/05-activityrow-retirement-spike.md` — Wave 2 (time-boxed, user decision gate)
