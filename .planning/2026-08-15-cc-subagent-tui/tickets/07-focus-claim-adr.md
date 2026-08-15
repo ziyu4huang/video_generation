@@ -1,6 +1,6 @@
 # Ticket 07 — Focus-claim ADR + protocol (BEFORE ticket 08)
 
-> Wave 3 · spec §4 · status: **stub** (awaiting plan) — **ADR lands first; ticket 08 follows it**
+> Wave 3 · spec §4 · status: **done** (PR #1437) — docs-only, hard gate cleared for ticket 08
 
 ## Goal
 
