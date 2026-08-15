@@ -1,5 +1,6 @@
 ---
 status: active
+last: 2026-08-16
 ---
 # Hermes-memory architecture deepening
 
@@ -34,3 +35,4 @@ Rationale: sequencing C1/C5/C6 before 13 keeps the memory-card migration mechani
 - 2026-08-16 (Tier-1 drift design): per-file content hash in SQLite metadata (replaces the inert driftStub in walk-and-ingest.ts).
 - 2026-08-16 (#1130): root-cause-first — stale "unregistered extension" theory; the extension IS statically registered now and test:seam is red for a fresh reason. → ticket 11.
 - 2026-08-16 (C2 closure — ledger fix): skills-command split landed in code as #1185 (skill-rows/skill-batch-ops) + #1194 (skill-key-reducer); closed in code, recorded here.
+- 2026-08-16: ticket 05 zk audit CLOSED (12 findings; dedup-poor not test-poor) — spawned 12 (dedup) + 13 (megafile split, blocked by 12); wave 06-11 UNBLOCKED.

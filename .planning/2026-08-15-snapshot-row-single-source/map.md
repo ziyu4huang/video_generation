@@ -27,3 +27,7 @@ Initial cut (5) — may be re-cut at plan time; details in `tickets/`:
 3. `tickets/03-unified-delivery-text.md` — Wave 1 · **done (PR #1381)**
 4. `tickets/04-typed-run-status-glyph.md` — Wave 1
 5. `tickets/05-activityrow-retirement-spike.md` — Wave 2 (time-boxed, user decision gate)
+
+## Ledger
+
+- 2026-08-16: ticket 05 spike closed — KEEP-AND-DOCUMENT (user decision); all 5 tickets closed; effort complete, ready for archival.
