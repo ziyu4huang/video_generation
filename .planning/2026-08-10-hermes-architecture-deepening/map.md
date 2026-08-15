@@ -24,3 +24,13 @@ Rationale: sequencing C1/C5/C6 before 13 keeps the memory-card migration mechani
 - 2026-08-15: C5 re-scoped to C5-LITE — decisions in `tickets/02-c5-lite-card-abstraction.md`; closed (#1346 / 7a723437).
 - 2026-08-15: C6 CLOSED — addMemory exact-dup dedup in the MemoryRepository contract; closed (#1349 / 3038c50a).
 - 2026-08-15: ticket 04 opened (folded from archived dup-conflict effort) — near-dup threshold tuning 0.6 → 0.3–0.4.
+- 2026-08-16: **simplify-&-robusten wave** landed (grilling round) — tickets 05–11. Sequencing: zk pain-point audit (05) GATES the wave → C3 sqlite-backend split (06) → kp21 drift impl (07, cross-link — work item stays on the kp map); direct backend tests (08) after C3; SurrealDB-down hardening (09), kp18 T5b (10, cross-link — late in wave), #1130 re-diagnosis (11) open/parallel. C4 (index.ts composition root) stays a rolling item — parallel anytime, no new ticket. Ticket 04 (threshold tune) stays the existing ticket — tiny PR, no new ticket.
+
+## Decisions so far
+- 2026-08-16 (wave sequencing): zk-audit gate (05) → C3 (06) → kp21 (07); C4 composition-root parallel anytime (rolling item); hermes-04 threshold tune = existing ticket 04, tiny PR.
+- 2026-08-16 (robusten scope): kp21 drift + direct backend tests (sqlite + surreal) + SurrealDB-down hardening + kp18 T5b cosine fallback. Nothing else.
+- 2026-08-16 (acceptance gate): deletion-test + invariants (e.g. "memories column list declared exactly once") — no raw-LOC gates.
+- 2026-08-16: kp17 stays open on the kp map — explicitly NON-blocking for this wave.
+- 2026-08-16 (Tier-1 drift design): per-file content hash in SQLite metadata (replaces the inert driftStub in walk-and-ingest.ts).
+- 2026-08-16 (#1130): root-cause-first — stale "unregistered extension" theory; the extension IS statically registered now and test:seam is red for a fresh reason. → ticket 11.
+- 2026-08-16 (C2 closure — ledger fix): skills-command split landed in code as #1185 (skill-rows/skill-batch-ops) + #1194 (skill-key-reducer); closed in code, recorded here.

@@ -21,3 +21,6 @@ The Round-2 backend text said "semantic search unavailable when SurrealDB down";
 
 - Ship only if memory-card semantic recall during SurrealDB downtime is a felt requirement (FTS is arguably a better memory fallback today).
 - Re-evaluate after real usage of ticket 14's T5(a).
+
+## Cross-effort links
+- Shares-decision-with: `.planning/2026-08-10-hermes-architecture-deepening` — in the simplify-&-robusten wave scope (ticket 10 there), sequenced LATE in the wave. (2026-08-16)

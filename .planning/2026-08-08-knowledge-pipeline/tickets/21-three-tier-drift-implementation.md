@@ -17,3 +17,6 @@ Close decision 05's field-classification gap: the Tier-1 re-index hook at `walk-
 - Tier-2 derived caches invalidated on md change.
 - Tier-3 opt-in DB-authoritative fields round-trip md↔DB.
 - Opened 2026-08-15 from the standing "candidate fresh ticket (pending HITL)" note — HITL confirmed.
+
+## Cross-effort links
+- Claimed by: `.planning/2026-08-10-hermes-architecture-deepening` — simplify-&-robusten wave (ticket 07 there tracks wave sequencing; the work item STAYS on this map). Sequenced AFTER the C3 sqlite-backend split; Tier-1 design pinned = per-file content hash in SQLite metadata (replaces the inert driftStub). (2026-08-16)

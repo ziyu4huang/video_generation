@@ -22,3 +22,6 @@ Ticket 14 deferred T4. The ingest path's pluggable `DedupStrategy` stays FTS/has
 
 - Coordinate with `.planning/2026-08-07-how-is-current-memory-finding-duplicate-conflict/` near-dup tuning.
 - Purely additive — ship only if near-dup recall is a felt problem.
+
+## Cross-effort links
+- `.planning/2026-08-10-hermes-architecture-deepening` simplify-&-robusten wave: explicitly NON-blocking — stays open here as an optional refinement. (2026-08-16)
