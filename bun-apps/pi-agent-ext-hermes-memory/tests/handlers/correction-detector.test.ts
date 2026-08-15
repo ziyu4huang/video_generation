@@ -16,6 +16,8 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-ext-subagent";
 import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
+import { createCardStore } from "../../src/store/card-store.js";
+import type { CardStore } from "../../src/store/card-store.js";
 import type { MemoryRepository } from "../../src/store/repository.js";
 import { isCorrection, setupCorrectionDetector } from "../../src/handlers/correction-detector.js";
 
@@ -232,6 +234,7 @@ describe("setupCorrectionDetector handler", () => {
   let tmpDir: string;
   let backend: SqliteBackend;
   let memoryRepo: SqliteMemoryRepository;
+  let cardStore: CardStore;
 
   /** Minimal memory-tool def threaded verbatim through `extensionTools`. */
   const memoryToolDef: ToolDefinition = {
@@ -329,7 +332,15 @@ describe("setupCorrectionDetector handler", () => {
     memoryRepo = new SqliteMemoryRepository(backend);
   });
 
+  /** Real card store joined on the shared backend (deferred; cardStore mirror
+   *  tests opt in — kp13 Wave B: the failure mirror targets the card store). */
+  async function makeCardStore(): Promise<CardStore> {
+    cardStore = await createCardStore({ memoryDir: tmpDir, sqliteBackend: backend });
+    return cardStore;
+  }
+
   afterEach(async () => {
+    if (cardStore) await cardStore.close();
     await backend.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -464,14 +475,14 @@ describe("setupCorrectionDetector handler", () => {
     assert.ok(spawnCalls.length > firstCount, "deferred correction fires after the window opens");
   });
 
-  it("syncs direct correction saves into SQLite", async () => {
+  it("mirrors direct correction saves into the card store (md_id-keyed)", async () => {
     const pi = createMockPi();
     const correctionStore = {
       ...mockStore,
-      addFailure: async () => ({ success: true, target: 'failure', entry_count: 1, message: 'Failure memory saved: correction' }),
+      addFailure: async () => ({ success: true, target: 'failure', entry_count: 1, message: 'Failure memory saved: correction', added_md_id: 'md-correction-1' }),
     } as any;
 
-    setupCorrectionDetector(pi, correctionStore, null, config, memoryRepo, undefined, memoryToolDef, makeSpawn());
+    setupCorrectionDetector(pi, correctionStore, null, config, memoryRepo, undefined, memoryToolDef, makeSpawn(), undefined, await makeCardStore());
 
     const branch = [
       { type: "message", message: { role: "user", content: [{ type: "text", text: "no, use pnpm instead" }] } },
@@ -482,23 +493,26 @@ describe("setupCorrectionDetector handler", () => {
     fireTurnEnd(branch);
     await settle();
 
-    const failures = await memoryRepo.getMemories({ target: 'failure' });
-    assert.strictEqual(failures.length, 1);
-    assert.match(failures[0].content, /use pnpm instead/);
-    assert.strictEqual(failures[0].category, 'correction');
+    // kp13 Wave B: the failure mirror is an md_id-keyed card row (category
+    // rides the formatted content, not a column).
+    const cards = await cardStore.getCardsByKind("failure");
+    assert.strictEqual(cards.length, 1);
+    assert.match(cards[0].content, /use pnpm instead/);
+    assert.match(cards[0].content, /\[correction\]/);
+    assert.strictEqual(cards[0].id, 'md-correction-1');
   });
 
-  it("syncs project correction saves into SQLite with project scope", async () => {
+  it("mirrors project correction saves into the card store (project rides the content)", async () => {
     const pi = createMockPi();
     const correctionStore = {
       ...mockStore,
-      addFailure: async () => ({ success: true, target: 'failure', entry_count: 1, message: 'Failure memory saved: correction' }),
+      addFailure: async () => ({ success: true, target: 'failure', entry_count: 1, message: 'Failure memory saved: correction', added_md_id: 'md-correction-2' }),
     } as any;
     const projectStore = {
       getMemoryEntries: () => [],
     } as any;
 
-    setupCorrectionDetector(pi, correctionStore, projectStore, config, memoryRepo, 'project-a', memoryToolDef, makeSpawn());
+    setupCorrectionDetector(pi, correctionStore, projectStore, config, memoryRepo, 'project-a', memoryToolDef, makeSpawn(), undefined, await makeCardStore());
 
     const branch = [
       { type: "message", message: { role: "user", content: [{ type: "text", text: "no, use pnpm in this repo" }] } },
@@ -509,11 +523,13 @@ describe("setupCorrectionDetector handler", () => {
     fireTurnEnd(branch);
     await settle();
 
-    const projectFailures = await memoryRepo.getMemories({ target: 'failure', project: 'project-a' });
-    assert.strictEqual(projectFailures.length, 1);
-    assert.match(projectFailures[0].content, /use pnpm in this repo/);
-    assert.match(projectFailures[0].content, /Project: project-a/);
-    assert.strictEqual(projectFailures[0].category, 'correction');
+    // The card envelope is project-agnostic; the project scope rides the
+    // formatted content segment (Project: project-a).
+    const cards = await cardStore.getCardsByKind("failure");
+    assert.strictEqual(cards.length, 1);
+    assert.match(cards[0].content, /use pnpm in this repo/);
+    assert.match(cards[0].content, /Project: project-a/);
+    assert.strictEqual(cards[0].id, 'md-correction-2');
   });
 
   it("does not break correction handling when SQLite sync fails", async () => {
@@ -568,11 +584,12 @@ describe("setupCorrectionDetector handler", () => {
   // the OR-fallback never runs — so a prior sharing only one token is never
   // surfaced. See task-2-report.md.)
 
-  /** Inline correction store with a mocked addFailure (success path). */
-  function makeCorrectionStore() {
+  /** Inline correction store with a mocked addFailure (success path; F1
+   *  threads the birth md_id like the real store). */
+  function makeCorrectionStore(addedMdId = "md-correction-auto") {
     return {
       ...mockStore,
-      addFailure: async () => ({ success: true, target: "failure", entry_count: 1, message: "Failure memory saved: correction" }),
+      addFailure: async () => ({ success: true, target: "failure", entry_count: 1, message: "Failure memory saved: correction", added_md_id: addedMdId }),
     } as any;
   }
 
@@ -586,7 +603,7 @@ describe("setupCorrectionDetector handler", () => {
     const fakeJudge = async () => ({ contradictedId: prior.id });
     setupCorrectionDetector(
       pi, makeCorrectionStore(), null, { ...config, autoSupersede: true } as any,
-      memoryRepo, undefined, memoryToolDef, makeSpawn(), fakeJudge as any,
+      memoryRepo, undefined, memoryToolDef, makeSpawn(), fakeJudge as any, await makeCardStore(),
     );
 
     const branch = [

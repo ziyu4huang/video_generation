@@ -9,6 +9,8 @@ import { DIRECT_REVIEW_SYSTEM_PROMPT } from "../constants.js";
 import { MemoryStore } from "../store/memory-store.js";
 import { formatFailureMemoryContent, normalizeFailureState } from "../store/memory-format.js";
 import type { MemoryRepository } from "../store/repository.js";
+import type { CardStore } from "../store/card-store.js";
+import { mirrorMemoryAdd, mirrorMemoryReplace, mirrorMemoryRemove } from "../store/memory-card-mirror.js";
 import type { FailureState, MemoryCategory, MemoryConfig, MemoryResult, ThinkingLevel } from "../types.js";
 
 export interface ReviewMemoryOperation {
@@ -215,43 +217,40 @@ function sqliteTargetFor(rawTarget: ReviewMemoryOperation["target"]): "memory" |
   return rawTarget === "user" ? "user" : rawTarget === "failure" ? "failure" : "memory";
 }
 
+// ── kp13 Wave B: the memory-kind DB mirror goes through the bundle CardStore
+// (md_id-keyed upsert/update/delete; dedup rides upsertCard's registered
+// MemoryDedupStrategy). The legacy memoryRepo.syncMemoryEntry content-keyed
+// mirror is retired from this path; md stays canonical (MemoryStore writes the
+// .md files). Eviction cleanup (removeByMdId) stays on memoryRepo — Wave C.
 async function syncAdd(
   rawTarget: ReviewMemoryOperation["target"],
   content: string,
   category: MemoryCategory | undefined,
   failureReason: string | undefined,
-  memoryRepo: MemoryRepository | null,
-  projectName?: string | null,
+  cardStore: CardStore | null,
   mdId?: string | null,
   state?: FailureState,
 ): Promise<void> {
-  if (!memoryRepo) return;
+  if (!cardStore) return;
 
-  const sqliteTarget = sqliteTargetFor(rawTarget);
-  const sqliteProject = sqliteProjectFor(rawTarget, projectName);
+  const kind = sqliteTargetFor(rawTarget);
 
   if (rawTarget === "failure") {
     const failureCategory = category ?? "failure";
-    await memoryRepo.syncMemoryEntry({
+    await mirrorMemoryAdd(cardStore, "failure", {
+      mdId,
       content: formatFailureMemoryContent(content, {
         category: failureCategory,
         failureReason,
       }),
-      target: "failure",
-      project: sqliteProject ?? null,
-      category: failureCategory,
-      failureReason,
-      ...(mdId ? { mdId } : {}),
       ...(state ? { state } : {}),
     });
     return;
   }
 
-  await memoryRepo.syncMemoryEntry({
+  await mirrorMemoryAdd(cardStore, kind, {
+    mdId,
     content,
-    target: sqliteTarget,
-    project: sqliteProject ?? null,
-    ...(mdId ? { mdId } : {}),
   });
 }
 
@@ -259,17 +258,14 @@ async function syncReplace(
   rawTarget: ReviewMemoryOperation["target"],
   oldText: string,
   newContent: string,
-  memoryRepo: MemoryRepository | null,
-  projectName?: string | null,
+  cardStore: CardStore | null,
   mdId?: string | null,
   state?: FailureState,
 ): Promise<void> {
-  if (!memoryRepo) return;
-  await memoryRepo.replaceSyncedMemories(oldText, {
+  if (!cardStore) return;
+  await mirrorMemoryReplace(cardStore, sqliteTargetFor(rawTarget), oldText, {
+    mdId,
     content: newContent,
-    target: sqliteTargetFor(rawTarget),
-    project: sqliteProjectFor(rawTarget, projectName),
-    ...(mdId ? { mdId } : {}),
     ...(state ? { state } : {}),
   });
 }
@@ -277,14 +273,10 @@ async function syncReplace(
 async function syncRemove(
   rawTarget: ReviewMemoryOperation["target"],
   oldText: string,
-  memoryRepo: MemoryRepository | null,
-  projectName?: string | null,
+  cardStore: CardStore | null,
 ): Promise<void> {
-  if (!memoryRepo) return;
-  await memoryRepo.removeSyncedMemories(oldText, {
-    target: sqliteTargetFor(rawTarget),
-    project: sqliteProjectFor(rawTarget, projectName),
-  });
+  if (!cardStore) return;
+  await mirrorMemoryRemove(cardStore, sqliteTargetFor(rawTarget), oldText);
 }
 
 async function syncEvictions(
@@ -312,6 +304,7 @@ export async function applyReviewOperations(
   operations: ReviewMemoryOperation[],
   memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
+  cardStore: CardStore | null = null,
 ): Promise<ApplyReviewOperationsResult> {
   let appliedCount = 0;
   let skippedCount = 0;
@@ -341,7 +334,7 @@ export async function applyReviewOperations(
             ...(op.state ? { state: op.state } : {}),
           });
           if (result.success) {
-            await syncAdd(rawTarget, op.content, category, op.failure_reason, memoryRepo, projectName, result.added_md_id, op.state);
+            await syncAdd(rawTarget, op.content, category, op.failure_reason, cardStore, result.added_md_id, op.state);
             appliedCount++;
           } else {
             skippedCount++;
@@ -354,7 +347,7 @@ export async function applyReviewOperations(
             // overflow path must also have their DB rows deleted (destructive,
             // no audit). offloaded_superseded is md_id-only (ticket 04).
             await syncEvictions(rawTarget, result.offloaded_superseded, memoryRepo, projectName);
-            await syncAdd(rawTarget, op.content, undefined, undefined, memoryRepo, projectName, result.added_md_id);
+            await syncAdd(rawTarget, op.content, undefined, undefined, cardStore, result.added_md_id);
             appliedCount++;
           } else {
             skippedCount++;
@@ -369,7 +362,7 @@ export async function applyReviewOperations(
         }
         result = await activeStore.replace(memoryTarget, op.old_text, op.content);
         if (result.success) {
-          await syncReplace(rawTarget, op.old_text, op.content, memoryRepo, projectName, result.added_md_id, op.state);
+          await syncReplace(rawTarget, op.old_text, op.content, cardStore, result.added_md_id, op.state);
           appliedCount++;
         } else {
           skippedCount++;
@@ -383,7 +376,7 @@ export async function applyReviewOperations(
         }
         result = await activeStore.remove(memoryTarget, op.old_text);
         if (result.success) {
-          await syncRemove(rawTarget, op.old_text, memoryRepo, projectName);
+          await syncRemove(rawTarget, op.old_text, cardStore);
           appliedCount++;
         } else {
           skippedCount++;
@@ -415,6 +408,7 @@ export async function runDirectBackgroundReview(
   options: RunDirectBackgroundReviewOptions,
   memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
+  cardStore: CardStore | null = null,
 ): Promise<DirectReviewResult> {
   const model = resolveReviewModel(ctx.model, ctx.modelRegistry, options.config);
   if (!model) {
@@ -476,6 +470,7 @@ export async function runDirectBackgroundReview(
       operations,
       memoryRepo,
       projectName,
+      cardStore,
     );
     return { ok: true, appliedCount };
   } catch (err) {

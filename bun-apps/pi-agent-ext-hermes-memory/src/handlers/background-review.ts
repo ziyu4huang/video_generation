@@ -16,12 +16,16 @@ import { spawnSubagent } from "@repo/pi-agent-ext-subagent";
 import { COMBINED_REVIEW_PROMPT } from "../constants.js";
 import { MemoryStore } from "../store/memory-store.js";
 import type { MemoryRepository } from "../store/repository.js";
+import type { CardStore } from "../store/card-store.js";
 import type { MemoryConfig } from "../types.js";
 import { applyRecentMessageLimit, collectMessageParts, collectSubagentOutputs } from "./message-parts.js";
 import { runDirectBackgroundReview, type DirectReviewResult } from "./review-memory-ops.js";
 
 export interface BackgroundReviewOptions {
   memoryRepo?: MemoryRepository | null;
+  /** kp13 Wave B: the memory-kind mirror target — the bundle CardStore
+   *  (md_id-keyed; threaded into applyReviewOperations). */
+  cardStore?: CardStore | null;
   projectName?: string | null;
   deps?: BackgroundReviewDeps;
 }
@@ -113,6 +117,7 @@ export function setupBackgroundReview(
   options: BackgroundReviewOptions = {},
 ): void {
   const memoryRepo = options.memoryRepo ?? null;
+  const cardStore = options.cardStore ?? null;
   const projectName = options.projectName ?? null;
   const runDirectReview = options.deps?.runDirectReview ?? runDirectBackgroundReview;
   const memoryToolDef = options.deps?.memoryToolDef;
@@ -212,6 +217,7 @@ export function setupBackgroundReview(
           { userPrompt: directPrompt, config, timeoutMs: 120000 },
           memoryRepo,
           projectName,
+          cardStore,
         );
 
         if (directResult.ok) {

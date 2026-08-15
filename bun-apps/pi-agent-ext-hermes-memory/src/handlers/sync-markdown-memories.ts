@@ -1,17 +1,25 @@
 /**
  * Markdown memory sync command — /memory-sync-markdown imports existing
  * Markdown-backed memories into the active search store (SQLite by default,
- * SurrealDB when configured). The write path is backend-neutral: it goes
- * through MemoryRepository.syncMemoryEntriesBatch (one batched round-trip /
- * transaction for the whole dirty set), so the same command works for every
- * backend. The active backend's label is surfaced in the completion message
- * via the getLabel dependency.
+ * SurrealDB when configured). kp13 Wave B: the mirror target is the bundle
+ * CardStore — each §-entry is mirrored as an md_id-keyed card row (target =
+ * kind, md_id = frontmatter id, content = entry body, frontmatter = the
+ * serializer envelope) in the SAME memories table. This startup pass IS the
+ * lazy re-migration: entries without a stable id (comment-shape, pre-5d)
+ * mirror on a later pass once the 5d backfill upgrades them, and the pass is
+ * idempotent — re-running yields the same rows (md_id-keyed insert-once /
+ * update-in-place / skip). The legacy content-keyed syncMemoryEntry mirror is
+ * retired from this path; memoryRepo remains for the read-only lineage sweep.
+ * The active backend's label is surfaced in the completion message via the
+ * getLabel dependency.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { MemoryRepository, MemoryEntry } from '../store/repository.js';
+import type { MemoryRepository } from '../store/repository.js';
+import type { CardStore } from '../store/card-store.js';
+import { mirrorMemoryEntry } from '../store/memory-card-mirror.js';
 import type { FailureState } from '../types.js';
 import {
   parseMarkdownMemoryEntry,
@@ -54,109 +62,39 @@ function readEntries(filePath: string): string[] {
 
 type ParsedEntry = ReturnType<typeof parseMarkdownMemoryEntry>;
 
-/** Dedup key mirroring syncMemoryEntry's SELECT scope (target/project/category)
- *  + exact content match. */
-function existingKey(target: string, project: string | null, category: string | null, content: string): string {
-  return `${target}|${project ?? ''}|${category ?? ''}|${content.trim()}`;
-}
-
-/** True iff syncMemoryEntry's merge (created=min, lastReferenced=max,
- *  optionals = existing ?? new) would reproduce `existing` unchanged — i.e. the
- *  round-trip is a no-op safe to skip. Conservative: any unparseable date or
- *  thrown comparison returns false (fall through to syncMemoryEntry). */
-function mergeIsNoOp(existing: MemoryEntry, incoming: ParsedEntry): boolean {
-  try {
-    const exC = Date.parse(existing.created);
-    const inC = Date.parse(incoming.created ?? existing.created);
-    const exL = Date.parse(existing.lastReferenced);
-    const inL = Date.parse(incoming.lastReferenced ?? existing.lastReferenced);
-    if ([exC, inC, exL, inL].some((n) => !Number.isFinite(n))) return false;
-    const n = (v: string | null | undefined) => (v ?? null);
-    return exC <= inC
-      && exL >= inL
-      && (existing.category !== null || n(incoming.category) === null)
-      && (existing.failureReason !== null || n(incoming.failureReason) === null)
-      && (existing.toolState !== null || n(incoming.toolState) === null)
-      && (existing.correctedTo !== null || n(incoming.correctedTo) === null);
-  } catch {
-    return false;
-  }
-}
-
-/** Fetch every stored memory in ONE round-trip and index by dedup key. On
- *  failure returns an empty index — callers then fall through to
- *  syncMemoryEntry for every entry (correct, just not optimal). */
-async function buildExistingIndex(memoryRepo: MemoryRepository): Promise<Map<string, MemoryEntry>> {
-  try {
-    const all = await memoryRepo.getMemories();
-    const map = new Map<string, MemoryEntry>();
-    for (const e of all) map.set(existingKey(e.target, e.project, e.category, e.content), e);
-    return map;
-  } catch {
-    return new Map();
-  }
-}
-
+/** Mirror the parsed §-entries into the card store (md_id-keyed lazy
+ *  re-migration). Per entry: absent → upsertCard (INSERT through the
+ *  registered MemoryDedupStrategy); drifted content/envelope → updateCard
+ *  (UPDATE in place, id stable); identical → skip. Entries with no stable id
+ *  are counted as skipped — a later pass picks them up after the 5d backfill.
+ *  Per-entry failures record a precise warning and never lose the file. */
 async function importEntries(
-  memoryRepo: MemoryRepository,
+  cardStore: CardStore | null,
   counters: BackfillCounters,
   entries: string[],
   target: 'memory' | 'user' | 'failure',
   project: string | null = null,
-  existingByContent: Map<string, MemoryEntry> = new Map(),
 ): Promise<void> {
-  // Collect the dirty (non-no-op) entries and sync them in ONE batched call
-  // (syncMemoryEntriesBatch) instead of one syncMemoryEntry per entry. The
-  // Surreal backend collapses N per-entry HTTP round-trips into ≤2; SQLite
-  // wraps the loop in one transaction. A batch failure falls back to per-entry
-  // sync so a single bad entry still imports the rest and records a warning.
-  const dirty: ParsedEntry[] = [];
   for (const rawEntry of entries) {
     counters.entriesScanned++;
     try {
       const parsed = parseMarkdownMemoryEntry(rawEntry, target, project);
-      // Skip entries whose stored merge is already a no-op — avoids a
-      // syncMemoryEntriesBatch round-trip that would change nothing.
-      const existing = existingByContent.get(existingKey(parsed.target, parsed.project ?? null, parsed.category ?? null, parsed.content));
-      if (existing && mergeIsNoOp(existing, parsed)) {
-        counters.skipped++;
-        continue;
-      }
-      dirty.push(parsed);
+      const outcome = await mirrorMemoryEntry(cardStore, target, {
+        mdId: parsed.mdId,
+        content: parsed.content,
+        created: parsed.created ?? null,
+        last: parsed.lastReferenced ?? null,
+        ...(parsed.state ? { state: parsed.state } : {}),
+        ...(typeof parsed.severity === 'number' ? { severity: parsed.severity } : {}),
+        ...(parsed.pin === true ? { pin: true } : {}),
+      });
+      if (outcome === 'inserted' || outcome === 'updated') counters.imported++;
+      else counters.skipped++;
     } catch (err) {
       counters.warnings.push(
         `${path.basename(project ?? 'global')}/${target}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-  }
-
-  if (dirty.length === 0) return;
-
-  try {
-    const results = await memoryRepo.syncMemoryEntriesBatch(dirty);
-    for (const result of results) {
-      if (result.action === 'inserted') counters.imported++;
-      else counters.skipped++;
-    }
-  } catch (batchErr) {
-    // Resilience: a batched transaction that fails (e.g. one malformed entry)
-    // must not lose the whole file. Fall back to per-entry sync so the good
-    // entries still import and the bad one records a precise warning.
-    for (const parsed of dirty) {
-      try {
-        const result = await memoryRepo.syncMemoryEntry(parsed);
-        if (result.action === 'inserted') counters.imported++;
-        else counters.skipped++;
-      } catch (err) {
-        counters.warnings.push(
-          `${path.basename(project ?? 'global')}/${target}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-    // Surface the original batch failure once so it isn't silently swallowed.
-    counters.warnings.push(
-      `${path.basename(project ?? 'global')}/${target}: batch sync failed, fell back to per-entry — ${batchErr instanceof Error ? batchErr.message : String(batchErr)}`,
-    );
   }
 }
 
@@ -187,7 +125,7 @@ async function importEntries(
  *   warning); the `.md` upgrade still lands and a later sync completes the mirror.
  */
 async function backfillFailureState(
-  memoryRepo: MemoryRepository,
+  cardStore: CardStore | null,
   filePath: string,
   counters: BackfillCounters,
 ): Promise<void> {
@@ -250,25 +188,20 @@ async function backfillFailureState(
     fs.writeFileSync(filePath, rebuilt.join(ENTRY_DELIMITER), 'utf-8');
   }
 
-  // Mirror `state` onto the matching DB row by content key, exactly like the
-  // stable-id backfill mirrors a freshly-minted id (`setMdIdByContent`). A
-  // re-sync is the cheapest backend-neutral stamp: the per-entry sync finds
-  // the row by content and stamps `state` on its UPDATE branch (and INSERTs
-  // with the right state when the row does not yet exist).
+  // Mirror `state` onto the matching card row, md_id-keyed (kp13 Wave B). The
+  // entry already mirrors via importEntries above; mirrorMemoryEntry compares
+  // content AND envelope, so the drifted envelope (state now present) UPDATEs
+  // the existing card in place — the id stays stable. When no card exists yet
+  // the call INSERTs one with the right state (lazy re-migration parity).
   for (const { parsed, state } of mirrors) {
     try {
-      await memoryRepo.syncMemoryEntry({
+      await mirrorMemoryEntry(cardStore, 'failure', {
+        mdId: parsed.mdId,
         content: parsed.content,
-        target: parsed.target,
-        project: parsed.project ?? null,
-        category: parsed.category ?? null,
-        failureReason: parsed.failureReason ?? null,
-        toolState: parsed.toolState ?? null,
-        correctedTo: parsed.correctedTo ?? null,
         created: parsed.created ?? null,
-        lastReferenced: parsed.lastReferenced ?? null,
-        mdId: parsed.mdId ?? null,
+        last: parsed.lastReferenced ?? null,
         state,
+        ...(typeof parsed.severity === 'number' ? { severity: parsed.severity } : {}),
       });
     } catch (err) {
       counters.warnings.push(
@@ -321,6 +254,7 @@ export async function syncMarkdownMemories(
   agentRoot = AGENT_ROOT,
   inRepoProjectFile?: string | null,
   inRepoProjectName?: string | null,
+  cardStore: CardStore | null = null,
 ): Promise<BackfillCounters & { projectCount: number }> {
   const counters: BackfillCounters = {
     filesScanned: 0,
@@ -335,12 +269,10 @@ export async function syncMarkdownMemories(
   const globalUserFile = path.join(globalDir, USER_FILE);
   const globalFailureFile = path.join(globalDir, 'failures.md');
 
-  // Fetch every stored memory ONCE (1 round-trip) and skip entries whose merge
-  // is a no-op. Previously importEntries issued a syncMemoryEntry (SELECT +
-  // merge/insert) PER entry — an N+1 costing ~655 round-trips / ~7s on the real
-  // 219-entry store at every startup.
-  const existingByContent = await buildExistingIndex(memoryRepo);
-
+  // kp13 Wave B: the mirror target is the cardStore (md_id-keyed lazy
+  // re-migration, idempotent — see importEntries). The memoryRepo content-keyed
+  // batch mirror is retired; memoryRepo stays ONLY for the read-only lineage
+  // sweep at the end of this pass.
   const importFile = async (
     filePath: string,
     target: 'memory' | 'user' | 'failure',
@@ -349,7 +281,7 @@ export async function syncMarkdownMemories(
     if (!fs.existsSync(filePath)) return;
     counters.filesScanned++;
     const entries = readEntries(filePath);
-    await importEntries(memoryRepo, counters, entries, target, project, existingByContent);
+    await importEntries(cardStore, counters, entries, target, project);
   };
 
   await importFile(globalMemoryFile, 'memory');
@@ -360,7 +292,7 @@ export async function syncMarkdownMemories(
   // the DB rows exist; it rewrites stateless `.md` frontmatter entries to carry
   // the category-inferred `state` (source of truth) and mirrors it onto the row.
   // Re-running is a no-op (entries that already have a state are skipped).
-  await backfillFailureState(memoryRepo, globalFailureFile, counters);
+  await backfillFailureState(cardStore, globalFailureFile, counters);
 
   const projects = scanProjectDirs(agentRoot, globalDir, projectsMemoryDir);
   for (const project of projects) {
@@ -394,7 +326,7 @@ export async function syncMarkdownMemories(
     }
   } catch {
     // Non-fatal: advisory only. A DB/unreachable failure here must not block
-    // the sync (buildExistingIndex already tolerates the same failure).
+    // the sync (the card mirror above never depended on it).
   }
 
   return { ...counters, projectCount: projects.length };
@@ -409,6 +341,7 @@ export function registerSyncMarkdownMemoriesCommand(
   getLabel: () => string = () => "memory store",
   inRepoProjectFile?: string | null,
   inRepoProjectName?: string | null,
+  cardStore: CardStore | null = null,
 ): void {
   pi.registerCommand('memory-sync-markdown', {
     description: 'Backfill Markdown memories into the active search store',
@@ -416,7 +349,7 @@ export function registerSyncMarkdownMemoriesCommand(
       ctx.ui.notify('🔄 Scanning Markdown memory files for backfill into the active store…', 'info');
 
       try {
-        const counters = await syncMarkdownMemories(memoryRepo, globalDir, projectsMemoryDir, agentRoot, inRepoProjectFile, inRepoProjectName);
+        const counters = await syncMarkdownMemories(memoryRepo, globalDir, projectsMemoryDir, agentRoot, inRepoProjectFile, inRepoProjectName, cardStore);
         const label = getLabel();
 
         let output = `\n✅ Markdown → memory store sync complete! (backend: ${label})\n\n`;

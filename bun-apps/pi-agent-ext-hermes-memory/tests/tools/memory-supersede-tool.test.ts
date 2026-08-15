@@ -2,10 +2,12 @@
  * Unit tests for memory_supersede tool — replacement + lineage flip + probe.
  *
  * Mirrors memory-tool.test.ts's mock-store + real-SqliteMemoryRepository +
- * mock-pi scaffold. The tool's CRITICAL seam is that it CAPTURES
- * `syncMemoryEntry`'s `entry.id` for the replacement (the legacy
- * `syncAddToSqlite` helper DISCARDS it), so lineage can be flipped onto the
- * real new row id.
+ * mock-pi scaffold. kp13 Wave B: the replacement mirrors through the bundle
+ * CardStore (md_id-keyed upsert; the cardStore below is joined on the SAME
+ * backend, so the card row lands in the same memories table the repo reads).
+ * The CRITICAL seam is now the row-id resolution: the tool resolves the
+ * mirrored row's NUMERIC id by md_id (content fallback) so lineage can be
+ * flipped onto the real new row id.
  */
 import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert/strict";
@@ -16,20 +18,25 @@ import { registerMemorySupersedeTool } from "../../src/tools/memory-supersede-to
 import { MemoryStore } from "../../src/store/memory-store.js";
 import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
+import { createCardStore } from "../../src/store/card-store.js";
+import type { CardStore } from "../../src/store/card-store.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 describe("registerMemorySupersedeTool", () => {
   let tmpDir: string;
   let backend: SqliteBackend;
   let memoryRepo: SqliteMemoryRepository;
+  let cardStore: CardStore;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "memory-supersede-tool-test-"));
     backend = new SqliteBackend(tmpDir);
     memoryRepo = new SqliteMemoryRepository(backend);
+    cardStore = await createCardStore({ memoryDir: tmpDir, sqliteBackend: backend });
   });
 
   afterEach(async () => {
+    await cardStore.close();
     await backend.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -45,8 +52,9 @@ describe("registerMemorySupersedeTool", () => {
     return { pi, def: () => captured };
   }
 
-  /** Mock MemoryStore whose `add` pretends the .md write succeeded. */
-  function mockStore(): MemoryStore {
+  /** Mock MemoryStore whose `add` pretends the .md write succeeded (F1: the
+   *  birth id threads through, exactly like the real store's added_md_id). */
+  function mockStore(addedMdId = "md-supersede-new-1"): MemoryStore {
     return {
       add: () => ({
         success: true,
@@ -55,13 +63,14 @@ describe("registerMemorySupersedeTool", () => {
         usage: "1% — 10/5000 chars",
         entry_count: 1,
         message: "Entry added.",
+        added_md_id: addedMdId,
       }),
     } as unknown as MemoryStore;
   }
 
   it("registers a memory_supersede tool with the expected shape", () => {
     const { pi, def } = captureTool();
-    registerMemorySupersedeTool(pi, memoryRepo, mockStore());
+    registerMemorySupersedeTool(pi, memoryRepo, mockStore(), null, cardStore);
 
     const tool = def();
     assert.strictEqual(tool.name, "memory_supersede");
@@ -87,7 +96,7 @@ describe("registerMemorySupersedeTool", () => {
 
     // 2. Register the tool against the real repo + a mock .md store.
     const { pi, def } = captureTool();
-    registerMemorySupersedeTool(pi, memoryRepo, mockStore());
+    registerMemorySupersedeTool(pi, memoryRepo, mockStore(), null, cardStore);
 
     // 3. Execute supersession with a corrected replacement. The replacement
     //    shares its first 3 words with the prior so the probe's lexical handle
@@ -140,6 +149,12 @@ describe("registerMemorySupersedeTool", () => {
       replacementPresent: true,
       priorAbsent: true,
     });
+
+    // 9. kp13 Wave B: the replacement mirrored as an md_id-keyed card.
+    const mirrored = await cardStore.getCard("md-supersede-new-1");
+    assert.ok(mirrored, "replacement card mirrored into the card store");
+    assert.strictEqual(mirrored.content, "deploy strategy review beta approach");
+    assert.strictEqual(mirrored.kind, "memory");
   });
 
   it("returns ok + linked:false when no search store is wired (replacement still saved to .md)", async () => {
@@ -151,7 +166,7 @@ describe("registerMemorySupersedeTool", () => {
 
     const { pi, def } = captureTool();
     // memoryRepo = null → no DB to link lineage against.
-    registerMemorySupersedeTool(pi, null, mockStore());
+    registerMemorySupersedeTool(pi, null, mockStore()); // no repo, no cardStore — soft path
 
     const result = await def().execute(
       "tc-1",
@@ -180,7 +195,7 @@ describe("registerMemorySupersedeTool", () => {
 
     // Repo that syncs fine but blows up at the lineage step.
     const flakyRepo = {
-      syncMemoryEntry: async (input: any) => memoryRepo.syncMemoryEntry(input),
+      getMemories: async (o?: any) => memoryRepo.getMemories(o),
       supersedeMemory: async () => {
         throw new Error("lineage linkboom");
       },
@@ -188,7 +203,7 @@ describe("registerMemorySupersedeTool", () => {
     } as unknown as SqliteMemoryRepository;
 
     const { pi, def } = captureTool();
-    registerMemorySupersedeTool(pi, flakyRepo, mockStore());
+    registerMemorySupersedeTool(pi, flakyRepo, mockStore(), null, cardStore);
 
     const result = await def().execute(
       "tc-1",
@@ -213,7 +228,7 @@ describe("registerMemorySupersedeTool", () => {
     });
 
     const probeThrowRepo = {
-      syncMemoryEntry: async (input: any) => memoryRepo.syncMemoryEntry(input),
+      getMemories: async (o?: any) => memoryRepo.getMemories(o),
       supersedeMemory: async (p: number, n: number) => memoryRepo.supersedeMemory(p, n),
       searchMemories: async () => {
         throw new Error("search exploded");
@@ -221,7 +236,7 @@ describe("registerMemorySupersedeTool", () => {
     } as unknown as SqliteMemoryRepository;
 
     const { pi, def } = captureTool();
-    registerMemorySupersedeTool(pi, probeThrowRepo, mockStore());
+    registerMemorySupersedeTool(pi, probeThrowRepo, mockStore("md-supersede-new-2"), null, cardStore);
 
     const result = await def().execute(
       "tc-1",
@@ -248,12 +263,12 @@ describe("registerMemorySupersedeTool", () => {
     const spyStore = {
       add: (_target: string, _content: string, options?: { sources?: unknown }) => {
         capturedOptions = options;
-        return { success: true, target: "memory", entries: ["replacement"], usage: "1%", entry_count: 1, message: "Entry added." };
+        return { success: true, target: "memory", entries: ["replacement"], usage: "1%", entry_count: 1, message: "Entry added.", added_md_id: "md-src-1" };
       },
     } as unknown as MemoryStore;
 
     const { pi, def } = captureTool();
-    registerMemorySupersedeTool(pi, memoryRepo, spyStore);
+    registerMemorySupersedeTool(pi, memoryRepo, spyStore, null, cardStore);
 
     const sources = [
       { kind: "quote", locator: "session-42#m7", capture: "no, the value is 3 not 2" },
@@ -278,12 +293,12 @@ describe("registerMemorySupersedeTool", () => {
     const spyStore = {
       add: (_t: string, _c: string, options?: { sources?: unknown }) => {
         capturedOptions = options;
-        return { success: true, target: "memory", entries: ["r"], usage: "1%", entry_count: 1, message: "ok" };
+        return { success: true, target: "memory", entries: ["r"], usage: "1%", entry_count: 1, message: "ok", added_md_id: "md-nosrc-1" };
       },
     } as unknown as MemoryStore;
 
     const { pi, def } = captureTool();
-    registerMemorySupersedeTool(pi, memoryRepo, spyStore);
+    registerMemorySupersedeTool(pi, memoryRepo, spyStore, null, cardStore);
 
     const result = await def().execute(
       "tc-nosrc",

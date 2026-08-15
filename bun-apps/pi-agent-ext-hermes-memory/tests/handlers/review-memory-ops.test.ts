@@ -4,6 +4,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { MemoryStore } from "../../src/store/memory-store.js";
+import { createCardStore } from "../../src/store/card-store.js";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   applyReviewOperations,
@@ -148,6 +149,9 @@ describe("applyReviewOperations", () => {
   });
 
   it("marks a failure entry resolved when a review op carries state", async () => {
+    // kp13 Wave B: the mirror target is the card store — the resolved state
+    // lands on the mirrored card's envelope (md_id-keyed), not on a
+    // syncMemoryEntry row.
     const store = new MemoryStore({
       memoryDir: tmpDir,
       memoryCharLimit: 5000,
@@ -155,24 +159,25 @@ describe("applyReviewOperations", () => {
       autoConsolidate: true,
     });
     await store.loadFromDisk();
-
-    let capturedInput: any;
-    const mockRepo = {
-      syncMemoryEntry: async (input: any) => {
-        capturedInput = input;
-        return { action: "inserted", entry: {} };
-      },
-    };
+    const cardStore = await createCardStore({ memoryDir: tmpDir });
 
     const result = await applyReviewOperations(
       store,
       null,
       [{ action: "add", target: "failure", content: "boom", category: "failure", state: "resolved" }],
-      mockRepo as any,
+      null,
+      undefined,
+      cardStore,
     );
+    await cardStore.close();
 
     assert.strictEqual(result.appliedCount, 1);
-    assert.ok(capturedInput, "syncMemoryEntry must be called");
-    assert.strictEqual(capturedInput.state, "resolved");
+    const verify = await createCardStore({ memoryDir: tmpDir });
+    const cards = await verify.getCardsByKind("failure");
+    await verify.close();
+    assert.strictEqual(cards.length, 1, "failure card must be mirrored");
+    assert.match(cards[0].content, /boom/);
+    assert.strictEqual(cards[0].frontmatter.state, "resolved", "resolved state must land on the card envelope");
+    assert.ok(cards[0].id, "card id (md_id) must be set");
   });
 });

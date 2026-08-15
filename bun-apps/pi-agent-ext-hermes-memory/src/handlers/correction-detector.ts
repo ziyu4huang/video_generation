@@ -14,6 +14,8 @@ import { MemoryStore } from "../store/memory-store.js";
 import { readGrillActive } from "../grill-seam.js";
 import { formatFailureMemoryContent } from "../store/memory-format.js";
 import type { MemoryRepository } from "../store/repository.js";
+import type { CardStore } from "../store/card-store.js";
+import { mirrorMemoryAdd } from "../store/memory-card-mirror.js";
 import {
   CORRECTION_SAVE_PROMPT,
   CORRECTION_STRONG_PATTERNS,
@@ -131,6 +133,12 @@ export function setupCorrectionDetector(
   memoryToolDef?: ToolDefinition,
   spawn: typeof spawnSubagent = spawnSubagent,
   runJudge: typeof runContradictionJudge = runContradictionJudge,
+  // kp13 Wave B: the failure-mirror target — the bundle CardStore
+  // (md_id-keyed upsert; dedup rides upsertCard's registered
+  // MemoryDedupStrategy). memoryRepo stays for lineage (supersedeMemory) and
+  // the auto-supersede candidate pool (searchMemories — reads, not the
+  // retired sync mirror).
+  cardStore: CardStore | null = null,
 ): void {
   if (!config.correctionDetection) return;
 
@@ -255,21 +263,37 @@ export function setupCorrectionDetector(
             project: scopedProjectName ?? undefined,
           });
 
-          if (addResult.success && memoryRepo) {
+          if (addResult.success && cardStore) {
             try {
-              const correctionSync = await memoryRepo.syncMemoryEntry({
+              // kp13 Wave B: mirror through the card-store (md_id-keyed upsert;
+              // dedup rides the registered MemoryDedupStrategy). The legacy
+              // content-keyed syncMemoryEntry mirror is retired on this path.
+              await mirrorMemoryAdd(cardStore, "failure", {
+                mdId: addResult.added_md_id,
                 content: formatFailureMemoryContent(directive, {
                   category: "correction",
                   failureReason,
                   project: scopedProjectName,
                 }),
-                target: "failure",
-                project: scopedProjectName,
+              });
+              // Lineage keys on numeric row ids — resolve the mirrored row's id
+              // by md_id (content fallback covers the dedup-skipped insert).
+              const correctionContent = formatFailureMemoryContent(directive, {
                 category: "correction",
                 failureReason,
-                ...(addResult.added_md_id ? { mdId: addResult.added_md_id } : {}),
+                project: scopedProjectName,
               });
-              const correctionEntryId = correctionSync.entry.id;
+              let correctionEntryId: number | undefined;
+              if (memoryRepo) {
+                const rows = await memoryRepo.getMemories({
+                  target: "failure",
+                  project: scopedProjectName ?? null,
+                });
+                const row = addResult.added_md_id
+                  ? rows.find((m) => m.mdId === addResult.added_md_id)
+                  : undefined;
+                correctionEntryId = row?.id ?? rows.find((m) => m.content === correctionContent)?.id;
+              }
 
               // Auto-supersede (Plan 5a — judge-gated, opt-in). Fetch a
               // decoupled candidate pool via searchMemories(directive) (NOT the
@@ -282,7 +306,7 @@ export function setupCorrectionDetector(
               // Self is filtered out of the candidate pool BEFORE judging to
               // prevent self-supersede (correction entry id embedding in its own
               // content makes it match FTS5).
-              if (config.autoSupersede === true) {
+              if (config.autoSupersede === true && correctionEntryId !== undefined && memoryRepo) {
                 try {
                   const candidates = (await memoryRepo.searchMemories(directive, {
                     project: scopedProjectName ?? undefined,
