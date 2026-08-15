@@ -280,3 +280,7 @@ an enforced policy)
 **Ultracode** (`/ultracode`, `/effort ultra`):
 A standing opt-in that auto-arms an exhaustive multi-agent workflow for every substantive message.
 _Avoid_: max mode, turbo (it is a per-message standing trigger, not a one-shot flag)
+
+## Why ActivityRow is kept (2026-08-16 spike)
+
+Four production sites depend on it (workflow-ui navigator, task-panel per-phase, subagent-viewer running + completed). Snapshot rows lack `endedAt` (live elapsed can't freeze), and `renderRunRow` has no tokens segment / injectable badge. Revisit only if `renderRunRow` gains those (see `.planning/2026-08-15-snapshot-row-single-source/tickets/05` resolution).
