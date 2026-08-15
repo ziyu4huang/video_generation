@@ -1,6 +1,6 @@
 # Ticket 04 — Typed `runStatusGlyph()` replaces both `STATUS_ICON` maps
 
-> Wave 1 · spec §2.4 · status: open
+> Wave 1 · spec §2.4 · status: done (PR #1379)
 
 ## Goal
 
