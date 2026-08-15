@@ -159,6 +159,8 @@ export function persistedToSnapshot(p: PersistedRunState): WorkflowSnapshot {
     doneCount: counts.done,
     errorCount: counts.error,
     tokenUsage: p.tokenUsage ? { ...p.tokenUsage } : undefined,
+    durationMs: p.durationMs,
+    result: p.result,
     runId: p.runId,
   };
 }
