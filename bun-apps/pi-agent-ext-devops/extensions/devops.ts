@@ -276,7 +276,7 @@ export const SYNC_REPO_PROBES = {
 	gate: "sync_repo",
 	recallFloor: 0,
 	adversarial: [],
-	controls: ["sync with origin/main", "fetch and rebase", "merge --ff-only"],
+	controls: ["sync with origin/main", "fetch and rebase", "merge --ff-only", "git sync the repo", "update main to get latest changes", "bring main up to date with origin"],
 };
 export const DEVOPS_RETROSPECT_PROBES = {
 	gate: "devops_retrospect",
@@ -478,7 +478,16 @@ export default function (pi: ExtensionAPI): void {
 		label: "Sync this repo to latest default branch (TS port of sync-repo.sh)",
 		description:
 			"Sync this worktree/repo to the latest default branch. Modes: 'full' (default) — git fetch origin; auto-detect the default branch D via origin/HEAD; advance D to origin/<D> WORKTREE-AWARE (advance it in the worktree that holds D; only check it out here when free), then recursively sync submodules to their remote tips. By DEFAULT the advance uses `git merge --ff-only origin/<D>` — it REFUSES (aborts, reason 'divergent') when local <D> has divergent/unpushed commits, so it NEVER loses commits. Pass force:true to instead use `git reset --hard origin/<D>` (discards those divergent commits — explicit opt-in). 'rebase' — fetch + rebase the current branch onto origin/<D>. 'pull' — fetch + merge origin/<D> into the current branch (a real merge, never fast-forward). dryRun computes + returns the exact git commands without mutating. Pre-flight: a dirty tracked tree aborts mutating runs; unpushed commits are warned. Auto-managed hot files (default: .agents/memory/MEMORY.md) are stashed + restored across the advance instead of aborting; genuinely uncommitted work still aborts. Replaces the sync-repo.sh / git-remote-main-sync.sh / safe-sync.sh bash (agent-invoked only; no shell entry).",
-		gating: { keywords: ["sync", "fetch", "rebase", "pull", "default branch", "origin/main", "origin/master", "submodule", "reset --hard", "merge --ff-only", "fast-forward", "ff-only", "force", "devops"] },
+		gating: {
+			keywords: ["sync", "git sync", "fetch", "rebase", "pull", "default branch", "remote default", "origin/main", "origin/master", "submodule", "reset --hard", "merge --ff-only", "fast-forward", "ff-only", "force", "update main", "bring main", "get latest", "latest changes", "devops"],
+			// Broad phrasings ("up to date" / "up-to-date") false-fire on docs/tests
+			// being "kept up to date" — so they are NOT bare keywords; they require
+			// co-occurrence with a repo-ish noun (noun ∧ verb fires, per gateFires).
+			requires: {
+				nouns: ["main", "branch", "repo", "repository", "worktree", "origin"],
+				verbs: ["up to date", "up-to-date"],
+			},
+		},
 		promptSnippet:
 			"Sync this repo to latest default branch. full (default): fetch + advance default branch via merge --ff-only (worktree-aware; aborts on divergent unless force:true → reset --hard) + recursive submodules. rebase/pull: fetch + rebase/merge current branch onto origin/<default>. dryRun shows the plan. Dirty tree aborts.",
 		parameters: Type.Object({

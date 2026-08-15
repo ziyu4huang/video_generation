@@ -40,6 +40,8 @@ const captureOwner = (ext: (pi: any) => void) =>
 		// registers /subagents + /models-preset (registerCommand) — no-op them so
 		// capture stays tool-only. Other migrated factories register tools only.
 		registerCommand: () => {},
+		// subagent registers ctrl+b (detach-foreground shortcut) — no-op it too.
+		registerShortcut: () => {},
 	} as never);
 captureOwner(file2mdExtension);
 captureOwner(flux2Extension);

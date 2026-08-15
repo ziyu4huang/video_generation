@@ -9,6 +9,15 @@ The canonical branch → CI → merge → verify → reflect lifecycle is owned 
 **devops tools**. When you touch git in any of these phases, call the tools **in
 order** and **do NOT fall back to raw bash `git` / `gh`** for the parts they own.
 
+## Agent trigger map — git sync
+
+(a) The user asks to sync/update the repo to the latest remote default branch in ANY phrasing: "sync to remote", "git sync", "update main", "get latest", "pull latest", "up to date".
+(b) Devops tools loaded → call `sync_repo` (default full mode; `dryRun:true` to preview).
+(c) Plain `pi` session without the devops extension → CLI fallback: `bun bun-apps/pi-agent-ext-devops/src/sync-cli.ts` (same runSync orchestration; `--dry-run` supported; JSON on stdout).
+(d) Verify after: `git log --oneline -3 origin/main`.
+
+Note: tools activate on these keywords via owner-declared gating; `enable_tool` is the escape hatch when a gate hasn't fired.
+
 ## Why tools, not raw bash
 
 Past runs that reached for raw bash git produced three recurring failure modes —
