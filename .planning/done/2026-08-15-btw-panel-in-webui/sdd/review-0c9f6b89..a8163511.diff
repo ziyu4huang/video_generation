@@ -1,0 +1,454 @@
+# Review package: 0c9f6b89..a8163511
+
+## Commits
+a8163511 feat(btw): add webui event-bus channel constants and payload types
+
+## Files changed
+ .../2026-08-15-btw-panel-in-webui/sdd/progress.md  |   3 +
+ .../sdd/task-1-brief.md                            | 191 +++++++++++++++++++++
+ .../sdd/task-1-report.md                           |  63 +++++++
+ .../__tests__/webui-events.test.ts                 |  72 ++++++++
+ bun-apps/pi-agent-ext-btw/src/btw/webui-events.ts  |  81 +++++++++
+ 5 files changed, 410 insertions(+)
+
+## Diff
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+new file mode 100644
+index 00000000..629db856
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+@@ -0,0 +1,3 @@
++# SDD ledger — plan: .planning/2026-08-15-btw-panel-in-webui/plan.md
++(branch feat/btw-panel-in-webui, base 0c9f6b89)
++Task 1: implemented (commit pending review)
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-1-brief.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-1-brief.md
+new file mode 100644
+index 00000000..2bc4b4e0
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-1-brief.md
+@@ -0,0 +1,191 @@
++### Task 1: btw channel constants + payload types
++
++**Files:**
++- Create: `bun-apps/pi-agent-ext-btw/src/btw/webui-events.ts`
++- Test: `bun-apps/pi-agent-ext-btw/__tests__/webui-events.test.ts`
++
++**Interfaces:**
++- Consumes: nothing (first task of the effort).
++- Produces: `BTW_COMMAND_CHANNEL = "webui:btw-command"`, `BTW_EVENT_CHANNEL = "btw:event"`; types `BtwThreadMode`, `BtwModelRef`, `BtwThinkingLevel`, `BtwCommand`, `BtwMessageStatus`, `BtwMessageSnapshot`, `BtwThreadState`, `BtwEvent`; guard `isBtwCommand(data: unknown): data is BtwCommand`. Every later btw task imports from here; the webui package redeclares the same shapes locally (Task 5).
++
++- [ ] **Step 1: Write the failing test**
++
++```ts
++// bun-apps/pi-agent-ext-btw/__tests__/webui-events.test.ts
++import { describe, expect, it } from "bun:test";
++import {
++  BTW_COMMAND_CHANNEL,
++  BTW_EVENT_CHANNEL,
++  isBtwCommand,
++  type BtwCommand,
++  type BtwEvent,
++} from "../src/btw/webui-events";
++
++describe("btw webui-events channel contract", () => {
++  it("exports the agreed channel names", () => {
++    expect(BTW_COMMAND_CHANNEL).toBe("webui:btw-command");
++    expect(BTW_EVENT_CHANNEL).toBe("btw:event");
++  });
++
++  it("command payloads are JSON-safe", () => {
++    const commands: BtwCommand[] = [
++      { kind: "ask", text: "why did the render fail?" },
++      { kind: "new" },
++      { kind: "clear" },
++      { kind: "inject" },
++      { kind: "summarize" },
++      { kind: "model", model: { provider: "anthropic", id: "claude-sonnet-4", api: "anthropic" } },
++      { kind: "model", model: null },
++      { kind: "thinking", level: "off" },
++      { kind: "thinking", level: null },
++      { kind: "mode", mode: "tangent" },
++    ];
++    for (const command of commands) {
++      expect(() => JSON.stringify(command)).not.toThrow();
++      expect(JSON.parse(JSON.stringify(command))).toEqual(command);
++    }
++  });
++
++  it("event payloads are JSON-safe", () => {
++    const events: BtwEvent[] = [
++      {
++        type: "thread",
++        state: {
++          messages: [
++            { id: "btw-m-0", role: "user", text: "q", status: "done" },
++            {
++              id: "btw-m-1",
++              role: "assistant",
++              text: "a",
++              status: "running-tool",
++              statusText: "running-tool: bash",
++            },
++          ],
++          mode: "contextual",
++          model: null,
++          thinking: null,
++        },
++      },
++      { type: "notice", text: "Injected into the main session" },
++    ];
++    for (const event of events) {
++      expect(() => JSON.stringify(event)).not.toThrow();
++      expect(JSON.parse(JSON.stringify(event))).toEqual(event);
++    }
++  });
++
++  it("isBtwCommand accepts known kinds and rejects garbage", () => {
++    expect(isBtwCommand({ kind: "ask", text: "hi" })).toBe(true);
++    expect(isBtwCommand({ kind: "mode", mode: "tangent" })).toBe(true);
++    expect(isBtwCommand({ kind: "bogus" })).toBe(false);
++    expect(isBtwCommand(null)).toBe(false);
++    expect(isBtwCommand("ask")).toBe(false);
++    expect(isBtwCommand({ kind: "ask" })).toBe(false); // missing text
++  });
++});
++```
++
++- [ ] **Step 2: Run test to verify it fails**
++
++Run: `( cd bun-apps/pi-agent-ext-btw && bun test __tests__/webui-events.test.ts )`
++Expected: FAIL — cannot resolve `../src/btw/webui-events`.
++
++- [ ] **Step 3: Write minimal implementation**
++
++```ts
++// bun-apps/pi-agent-ext-btw/src/btw/webui-events.ts
++/**
++ * Event-bus seam between pi-agent-ext-btw and pi-agent-ext-webui.
++ *
++ * Plain string channels (SDK EventBus convention: on() returns an unsubscribe
++ * disposer, there is no off()). Payloads are JSON-safe. The webui package
++ * redeclares these constants and shapes locally in its own src/btw-channels.ts
++ * — there is deliberately NO package dependency webui -> btw; the string
++ * values are the contract (pinned by the cross-package contract test).
++ */
++
++export const BTW_COMMAND_CHANNEL = "webui:btw-command" as const;
++export const BTW_EVENT_CHANNEL = "btw:event" as const;
++
++export type BtwThreadMode = "contextual" | "tangent";
++
++/** Registry model reference; field names mirror the btw model-override entry payload. */
++export interface BtwModelRef {
++  provider: string;
++  id: string;
++  api: string;
++}
++
++/** Thinking override level; keep in sync with the SDK SessionThinkingLevel used by btw. */
++export type BtwThinkingLevel = "off" | "low" | "medium" | "high";
++
++export type BtwCommand =
++  | { kind: "ask"; text: string }
++  | { kind: "new" }
++  | { kind: "clear" }
++  | { kind: "inject" }
++  | { kind: "summarize" }
++  | { kind: "model"; model: BtwModelRef | null }
++  | { kind: "thinking"; level: BtwThinkingLevel | null }
++  | { kind: "mode"; mode: BtwThreadMode };
++
++export type BtwMessageStatus = "streaming" | "running-tool" | "done" | "error";
++
++export interface BtwMessageSnapshot {
++  id: string;
++  role: "user" | "assistant";
++  text: string;
++  status: BtwMessageStatus;
++  statusText?: string;
++}
++
++export interface BtwThreadState {
++  messages: BtwMessageSnapshot[];
++  mode: BtwThreadMode;
++  model: BtwModelRef | null;
++  thinking: BtwThinkingLevel | null;
++}
++
++export type BtwEvent =
++  | { type: "thread"; state: BtwThreadState }
++  | { type: "notice"; text: string };
++
++const KINDS: ReadonlySet<string> = new Set([
++  "ask",
++  "new",
++  "clear",
++  "inject",
++  "summarize",
++  "model",
++  "thinking",
++  "mode",
++]);
++
++/** Narrow an unknown event-bus payload to a BtwCommand; unknown data is ignored. */
++export function isBtwCommand(data: unknown): data is BtwCommand {
++  if (!data || typeof data !== "object") return false;
++  const command = data as Record<string, unknown>;
++  if (typeof command.kind !== "string" || !KINDS.has(command.kind)) return false;
++  switch (command.kind) {
++    case "ask":
++      return typeof command.text === "string";
++    case "mode":
++      return command.mode === "contextual" || command.mode === "tangent";
++    default:
++      return true;
++  }
++}
++```
++
++- [ ] **Step 4: Run test to verify it passes**
++
++Run: `( cd bun-apps/pi-agent-ext-btw && bun test __tests__/webui-events.test.ts )`
++Expected: PASS (4 tests).
++
++- [ ] **Step 5: Commit**
++
++```bash
++git add bun-apps/pi-agent-ext-btw/src/btw/webui-events.ts bun-apps/pi-agent-ext-btw/__tests__/webui-events.test.ts
++git commit -m "feat(btw): add webui event-bus channel constants and payload types"
++```
++
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-1-report.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-1-report.md
+new file mode 100644
+index 00000000..4309b0c7
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-1-report.md
+@@ -0,0 +1,63 @@
++# Task 1 Report — btw channel constants + payload types
++
++Status: DONE
++
++## What was implemented
++
++Per `.planning/2026-08-15-btw-panel-in-webui/sdd/task-1-brief.md`, verbatim:
++
++- Created `bun-apps/pi-agent-ext-btw/src/btw/webui-events.ts` — event-bus seam module exporting:
++  - `BTW_COMMAND_CHANNEL = "webui:btw-command"`, `BTW_EVENT_CHANNEL = "btw:event"` (both `as const`)
++  - Types: `BtwThreadMode`, `BtwModelRef`, `BtwThinkingLevel`, `BtwCommand` (8-kind discriminated union), `BtwMessageStatus`, `BtwMessageSnapshot`, `BtwThreadState`, `BtwEvent` (`thread` | `notice`)
++  - Guard: `isBtwCommand(data: unknown): data is BtwCommand` (kind allowlist + `ask`/`text` and `mode`/mode-value validation)
++- Created `bun-apps/pi-agent-ext-btw/__tests__/webui-events.test.ts` — 4 tests: channel names, command JSON-safety round-trip, event JSON-safety round-trip, guard accept/reject.
++
++## TDD evidence
++
++**RED** — `( cd bun-apps/pi-agent-ext-btw && bun test __tests__/webui-events.test.ts )`:
++
++```
++error: Cannot find module '../src/btw/webui-events' from '.../__tests__/webui-events.test.ts'
++ 0 pass
++ 1 fail
++ 1 error
++```
++
++**GREEN** — same command after implementation:
++
++```
++ 4 pass
++ 0 fail
++ 32 expect() calls
++Ran 4 tests across 1 file. [12.00ms]
++```
++
++## Canonical gate
++
++`( cd bun-apps/pi-agent-ext-btw && bun run test )`:
++
++```
++ 15 pass
++ 0 fail
++ 58 expect() calls
++Ran 15 tests across 4 files. [209.00ms]
++```
++
++`bun run typecheck` (tsc --noEmit): clean, no errors.
++
++## Files changed
++
++- `bun-apps/pi-agent-ext-btw/src/btw/webui-events.ts` (new)
++- `bun-apps/pi-agent-ext-btw/__tests__/webui-events.test.ts` (new)
++- `.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md` (ledger line appended)
++- `.planning/2026-08-15-btw-panel-in-webui/sdd/task-1-report.md` (this report)
++
++## Self-review findings
++
++- Both files are verbatim copies of the brief's code blocks; all exported names and shapes match the brief exactly (binding contract for Tasks 2-12).
++- No overbuild: no extra exports, no imports beyond `bun:test`.
++- Verified the module did not previously exist (`src/btw/` had constants/index/overlay/session/transcript/types only).
++
++## Concerns
++
++None.
+diff --git a/bun-apps/pi-agent-ext-btw/__tests__/webui-events.test.ts b/bun-apps/pi-agent-ext-btw/__tests__/webui-events.test.ts
+new file mode 100644
+index 00000000..1d529d59
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-btw/__tests__/webui-events.test.ts
+@@ -0,0 +1,72 @@
++// bun-apps/pi-agent-ext-btw/__tests__/webui-events.test.ts
++import { describe, expect, it } from "bun:test";
++import {
++  BTW_COMMAND_CHANNEL,
++  BTW_EVENT_CHANNEL,
++  isBtwCommand,
++  type BtwCommand,
++  type BtwEvent,
++} from "../src/btw/webui-events";
++
++describe("btw webui-events channel contract", () => {
++  it("exports the agreed channel names", () => {
++    expect(BTW_COMMAND_CHANNEL).toBe("webui:btw-command");
++    expect(BTW_EVENT_CHANNEL).toBe("btw:event");
++  });
++
++  it("command payloads are JSON-safe", () => {
++    const commands: BtwCommand[] = [
++      { kind: "ask", text: "why did the render fail?" },
++      { kind: "new" },
++      { kind: "clear" },
++      { kind: "inject" },
++      { kind: "summarize" },
++      { kind: "model", model: { provider: "anthropic", id: "claude-sonnet-4", api: "anthropic" } },
++      { kind: "model", model: null },
++      { kind: "thinking", level: "off" },
++      { kind: "thinking", level: null },
++      { kind: "mode", mode: "tangent" },
++    ];
++    for (const command of commands) {
++      expect(() => JSON.stringify(command)).not.toThrow();
++      expect(JSON.parse(JSON.stringify(command))).toEqual(command);
++    }
++  });
++
++  it("event payloads are JSON-safe", () => {
++    const events: BtwEvent[] = [
++      {
++        type: "thread",
++        state: {
++          messages: [
++            { id: "btw-m-0", role: "user", text: "q", status: "done" },
++            {
++              id: "btw-m-1",
++              role: "assistant",
++              text: "a",
++              status: "running-tool",
++              statusText: "running-tool: bash",
++            },
++          ],
++          mode: "contextual",
++          model: null,
++          thinking: null,
++        },
++      },
++      { type: "notice", text: "Injected into the main session" },
++    ];
++    for (const event of events) {
++      expect(() => JSON.stringify(event)).not.toThrow();
++      expect(JSON.parse(JSON.stringify(event))).toEqual(event);
++    }
++  });
++
++  it("isBtwCommand accepts known kinds and rejects garbage", () => {
++    expect(isBtwCommand({ kind: "ask", text: "hi" })).toBe(true);
++    expect(isBtwCommand({ kind: "mode", mode: "tangent" })).toBe(true);
++    expect(isBtwCommand({ kind: "bogus" })).toBe(false);
++    expect(isBtwCommand(null)).toBe(false);
++    expect(isBtwCommand("ask")).toBe(false);
++    expect(isBtwCommand({ kind: "ask" })).toBe(false); // missing text
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-btw/src/btw/webui-events.ts b/bun-apps/pi-agent-ext-btw/src/btw/webui-events.ts
+new file mode 100644
+index 00000000..5b4f0d2a
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-btw/src/btw/webui-events.ts
+@@ -0,0 +1,81 @@
++/**
++ * Event-bus seam between pi-agent-ext-btw and pi-agent-ext-webui.
++ *
++ * Plain string channels (SDK EventBus convention: on() returns an unsubscribe
++ * disposer, there is no off()). Payloads are JSON-safe. The webui package
++ * redeclares these constants and shapes locally in its own src/btw-channels.ts
++ * — there is deliberately NO package dependency webui -> btw; the string
++ * values are the contract (pinned by the cross-package contract test).
++ */
++
++export const BTW_COMMAND_CHANNEL = "webui:btw-command" as const;
++export const BTW_EVENT_CHANNEL = "btw:event" as const;
++
++export type BtwThreadMode = "contextual" | "tangent";
++
++/** Registry model reference; field names mirror the btw model-override entry payload. */
++export interface BtwModelRef {
++  provider: string;
++  id: string;
++  api: string;
++}
++
++/** Thinking override level; keep in sync with the SDK SessionThinkingLevel used by btw. */
++export type BtwThinkingLevel = "off" | "low" | "medium" | "high";
++
++export type BtwCommand =
++  | { kind: "ask"; text: string }
++  | { kind: "new" }
++  | { kind: "clear" }
++  | { kind: "inject" }
++  | { kind: "summarize" }
++  | { kind: "model"; model: BtwModelRef | null }
++  | { kind: "thinking"; level: BtwThinkingLevel | null }
++  | { kind: "mode"; mode: BtwThreadMode };
++
++export type BtwMessageStatus = "streaming" | "running-tool" | "done" | "error";
++
++export interface BtwMessageSnapshot {
++  id: string;
++  role: "user" | "assistant";
++  text: string;
++  status: BtwMessageStatus;
++  statusText?: string;
++}
++
++export interface BtwThreadState {
++  messages: BtwMessageSnapshot[];
++  mode: BtwThreadMode;
++  model: BtwModelRef | null;
++  thinking: BtwThinkingLevel | null;
++}
++
++export type BtwEvent =
++  | { type: "thread"; state: BtwThreadState }
++  | { type: "notice"; text: string };
++
++const KINDS: ReadonlySet<string> = new Set([
++  "ask",
++  "new",
++  "clear",
++  "inject",
++  "summarize",
++  "model",
++  "thinking",
++  "mode",
++]);
++
++/** Narrow an unknown event-bus payload to a BtwCommand; unknown data is ignored. */
++export function isBtwCommand(data: unknown): data is BtwCommand {
++  if (!data || typeof data !== "object") return false;
++  const command = data as Record<string, unknown>;
++  if (typeof command.kind !== "string" || !KINDS.has(command.kind)) return false;
++  switch (command.kind) {
++    case "ask":
++      return typeof command.text === "string";
++    case "mode":
++      return command.mode === "contextual" || command.mode === "tangent";
++    default:
++      return true;
++  }
++}

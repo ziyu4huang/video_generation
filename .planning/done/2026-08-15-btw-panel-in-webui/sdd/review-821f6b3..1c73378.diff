@@ -1,0 +1,277 @@
+# Review package: 821f6b3a..1c733782
+
+## Commits
+1c733782 test(webui): pin the btw/webui bus contract without package coupling
+
+## Files changed
+ .../2026-08-15-btw-panel-in-webui/sdd/progress.md  |   5 +
+ .../sdd/task-11-brief.md                           | 116 +++++++++++++++++++++
+ .../sdd/task-11-report.md                          |  27 +++++
+ .../pi-agent-ext-webui/tests/btw-contract.test.ts  |  83 +++++++++++++++
+ 4 files changed, 231 insertions(+)
+
+## Diff
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+index 423fc789..cb631775 100644
+--- a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+@@ -32,10 +32,15 @@ Task 7: minor (deferred): store returns shared EMPTY_STATE by reference pre-firs
+ Task 7: minor (deferred): no test for second-thread-event replacement — Task 8 tests may cover
+ Task 8: implemented (commit pending review)
+ Task 8: complete (commits a5f0b1b..a28dc86, review clean; implementer died post-staging — mechanical completion, reviewer sole compliance gate, approved)
+ Task 8: minor (deferred): createBtwRoutes deps closure re-instantiated per request (plan-mandated verbatim) — hoist candidate for hardening
+ Task 8: minor (deferred): no store second-thread-event-replacement or getModels null-bound test — deferred to Task 11 contract test per brief
+ Task 9: implemented (commit pending review)
+ Task 9: complete (commits a28dc86..cb38a61, review clean)
+ Task 9: minor (deferred): btw-panel-collapsed string only in CSS contract comment (plan-mandated toContain test) — Task 10 must wire the literal key
+ Task 9: minor (deferred): BTW_MESSAGE_HTML interpolates m.id/m.role unescaped (plan-mandated verbatim) — harden alongside Task 10/11
+ Task 10: implemented (commit pending review)
++Task 10: complete (commits cb38a61..821f6b3, review clean; implementer fixed brief's reconnect-loss bug by placing ws.onmessage inside connectWs)
++Task 10: minor (deferred): pull/subscribe race — thread event during initial /api/btw fetch can be overwritten by stale snapshot (plan-inherited, self-heals)
++Task 10: minor (deferred): snapshot load doesn't sync mode label or model/thinking dropdowns (display-only staleness, plan-verbatim)
++Task 10: minor (deferred): btwMessageHtml/btwRenderMessages unescaped m.id/m.role interpolation + notice rows never pruned (plan-mandated; harden with Task 9's copy together)
++Task 11: implemented (commit pending review)
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-11-brief.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-11-brief.md
+new file mode 100644
+index 00000000..c0c1479b
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-11-brief.md
+@@ -0,0 +1,116 @@
++### Task 11: cross-package contract test
++
++**Files:**
++- Create: `bun-apps/pi-agent-ext-webui/tests/btw-contract.test.ts`
++
++**Interfaces:**
++- Consumes: Task 5 (`BTW_COMMAND_CHANNEL`, `BTW_EVENT_CHANNEL`, `emitBtwCommand`, `onBtwEvent`); Task 7 (`createBtwStore`, `createBtwForwarder`); the btw package's published channel values (redeclared locally as string literals below — the duplication IS the contract under test).
++- Produces: a test proving both extensions' bus-facing seams interoperate over a plain `{ on, emit }` fake bus with NO import between the two packages, plus a `package.json` assertion that webui declares no dependency on `@repo/pi-agent-ext-btw`.
++
++**Chosen form (documented per Phase context):** the test lives in the webui package and uses webui's REAL seam modules; the btw side is represented by (a) locally redeclared channel-string constants copied from `pi-agent-ext-btw/src/btw/webui-events.ts` and (b) a test-local fake engine-side subscriber/emitter using those constants. This keeps the packages decoupled while pinning the string contract — if either package renames a channel, this test fails.
++
++- [ ] **Step 1: Write the test**
++
++```ts
++// bun-apps/pi-agent-ext-webui/tests/btw-contract.test.ts
++import { describe, expect, it } from "bun:test";
++import {
++  BTW_COMMAND_CHANNEL,
++  BTW_EVENT_CHANNEL,
++  emitBtwCommand,
++  onBtwEvent,
++} from "../src/btw-channels";
++import { createBtwForwarder, createBtwStore } from "../src/btw-store";
++import type { BtwThreadState } from "../src/btw-channels";
++
++// btw-side channel names, redeclared verbatim from
++// bun-apps/pi-agent-ext-btw/src/btw/webui-events.ts — there is deliberately
++// NO import between the two packages; these literals are the contract.
++const BTW_COMMAND_CHANNEL_BTW_SIDE = "webui:btw-command";
++const BTW_EVENT_CHANNEL_BTW_SIDE = "btw:event";
++
++const THREAD_STATE: BtwThreadState = {
++  messages: [
++    { id: "btw-m-0", role: "user", text: "why did the render fail?", status: "done" },
++    { id: "btw-m-1", role: "assistant", text: "the shader compile step", status: "done" },
++  ],
++  mode: "contextual",
++  model: null,
++  thinking: null,
++};
++
++function fakeBus() {
++  const handlers = new Map<string, Set<(data: unknown) => void>>();
++  return {
++    on(channel: string, handler: (data: unknown) => void) {
++      const set = handlers.get(channel) ?? new Set();
++      set.add(handler);
++      handlers.set(channel, set);
++      return () => set.delete(handler);
++    },
++    emit(channel: string, data: unknown) {
++      handlers.get(channel)?.forEach((handler) => handler(data));
++    },
++  };
++}
++
++describe("btw <-> webui bus contract", () => {
++  it("channel names match the btw package's published constants", () => {
++    expect(BTW_COMMAND_CHANNEL).toBe(BTW_COMMAND_CHANNEL_BTW_SIDE);
++    expect(BTW_EVENT_CHANNEL).toBe(BTW_EVENT_CHANNEL_BTW_SIDE);
++  });
++
++  it("drives ask -> snapshot -> frame across both seams with no package dependency", () => {
++    const bus = fakeBus();
++
++    // btw side (fake engine): a subscriber on the command channel ...
++    const receivedCommands: unknown[] = [];
++    bus.on(BTW_COMMAND_CHANNEL_BTW_SIDE, (data) => receivedCommands.push(data));
++
++    // webui side: store + forwarder wired to the bus, broadcast recorder
++    const store = createBtwStore();
++    const frames: unknown[] = [];
++    const dispose = onBtwEvent(bus, createBtwForwarder(store, (frame) => frames.push(frame)));
++
++    // ... and an emitter of pre-reduced thread snapshots on the event channel
++    bus.emit(BTW_EVENT_CHANNEL_BTW_SIDE, { type: "thread", state: THREAD_STATE });
++
++    // snapshot arrived in the pull store AND went out as the new WS frame
++    expect(store.state()).toEqual(THREAD_STATE);
++    expect(frames).toEqual([{ type: "btw", event: { type: "thread", state: THREAD_STATE } }]);
++
++    // panel command flows back over the command channel
++    emitBtwCommand(bus, { kind: "ask", text: "and the fix?" });
++    expect(receivedCommands).toEqual([{ kind: "ask", text: "and the fix?" }]);
++
++    dispose();
++  });
++
++  it("webui package.json declares no dependency on the btw package", async () => {
++    const pkg = (await Bun.file(new URL("../package.json", import.meta.url).pathname).json()) as {
++      dependencies?: Record<string, unknown>;
++      devDependencies?: Record<string, unknown>;
++    };
++    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
++    expect(deps["@repo/pi-agent-ext-btw"]).toBeUndefined();
++  });
++});
++```
++
++- [ ] **Step 2: Run test to verify it passes (it should pass immediately — it pins Tasks 1/5/7 output)**
++
++Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/btw-contract.test.ts )`
++Expected: PASS (3 tests). If the channel-name test fails, a seam module diverged — fix the seam, never the test.
++
++- [ ] **Step 3: Run the package gate**
++
++Run: `( cd bun-apps/pi-agent-ext-webui && bun run test )`
++Expected: PASS.
++
++- [ ] **Step 4: Commit**
++
++```bash
++git add bun-apps/pi-agent-ext-webui/tests/btw-contract.test.ts
++git commit -m "test(webui): pin the btw/webui bus contract without package coupling"
++```
++
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-11-report.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-11-report.md
+new file mode 100644
+index 00000000..3d045714
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-11-report.md
+@@ -0,0 +1,27 @@
++# Task 11 Report — cross-package contract test
++
++## Status
++Complete. Test file created verbatim per brief, package gate green, committed.
++
++## What was implemented
++`bun-apps/pi-agent-ext-webui/tests/btw-contract.test.ts` — a contract test exercising BOTH packages' bus-facing seams against a fake `{ on, emit }` bus with NO import between the two packages:
++
++1. **Channel-name pinning**: webui's `BTW_COMMAND_CHANNEL` / `BTW_EVENT_CHANNEL` (from `src/btw-channels.ts`) must equal the btw package's published literals (`"webui:btw-command"` / `"btw:event"`, redeclared verbatim from `pi-agent-ext-btw/src/btw/webui-events.ts`). The deliberate string duplication IS the contract — if either package renames a channel, this test fails.
++2. **End-to-end drive** (ask → snapshot → frame): a fake btw-side engine subscribes on the command channel and emits a pre-reduced `BtwThreadState` snapshot on the event channel; webui's real `onBtwEvent` + `createBtwForwarder` + `createBtwStore` consume it — the snapshot lands in the pull store AND broadcasts as `{ type: "btw", event }`; `emitBtwCommand({ kind: "ask", ... })` flows back over the command channel to the fake engine.
++3. **Decoupling assertion**: webui `package.json` declares no `@repo/pi-agent-ext-btw` in `dependencies` or `devDependencies` (read at test time, so a future accidental `bun add` fails the gate).
++
++## Hard-constraint compliance
++- No import of `@repo/pi-agent-ext-btw` anywhere in webui package code or `package.json` — btw side is represented purely by locally redeclared channel literals + a test-local fake engine (the brief's chosen mechanism).
++- No real model calls anywhere (pure fake bus).
++- Artifacts in English.
++
++## Verification
++- Focused: `( cd bun-apps/pi-agent-ext-webui && bun test tests/btw-contract.test.ts )` → **3 pass, 0 fail**
++- Package gate: `( cd bun-apps/pi-agent-ext-webui && bun run test )` (build + full suite) → **319 pass, 0 fail** (27 files, 701 expect calls)
++- Test passed immediately, as the brief predicted (it pins Tasks 1/5/7 output) — no seam changes were needed.
++
++## Commits
++- `test(webui): pin the btw/webui bus contract without package coupling` (includes test file + brief/report/progress planning artifacts, force-added per standing rule)
++
++## Concerns
++None. The contract-test mechanism relies on the redeclared literals staying in sync with the btw package source; the channel-name pinning test is exactly what enforces this, and the duplication is intentional per the brief.
+diff --git a/bun-apps/pi-agent-ext-webui/tests/btw-contract.test.ts b/bun-apps/pi-agent-ext-webui/tests/btw-contract.test.ts
+new file mode 100644
+index 00000000..3d092f57
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-webui/tests/btw-contract.test.ts
+@@ -0,0 +1,83 @@
++// bun-apps/pi-agent-ext-webui/tests/btw-contract.test.ts
++import { describe, expect, it } from "bun:test";
++import {
++  BTW_COMMAND_CHANNEL,
++  BTW_EVENT_CHANNEL,
++  emitBtwCommand,
++  onBtwEvent,
++} from "../src/btw-channels";
++import { createBtwForwarder, createBtwStore } from "../src/btw-store";
++import type { BtwThreadState } from "../src/btw-channels";
++
++// btw-side channel names, redeclared verbatim from
++// bun-apps/pi-agent-ext-btw/src/btw/webui-events.ts — there is deliberately
++// NO import between the two packages; these literals are the contract.
++const BTW_COMMAND_CHANNEL_BTW_SIDE = "webui:btw-command";
++const BTW_EVENT_CHANNEL_BTW_SIDE = "btw:event";
++
++const THREAD_STATE: BtwThreadState = {
++  messages: [
++    { id: "btw-m-0", role: "user", text: "why did the render fail?", status: "done" },
++    { id: "btw-m-1", role: "assistant", text: "the shader compile step", status: "done" },
++  ],
++  mode: "contextual",
++  model: null,
++  thinking: null,
++};
++
++function fakeBus() {
++  const handlers = new Map<string, Set<(data: unknown) => void>>();
++  return {
++    on(channel: string, handler: (data: unknown) => void) {
++      const set = handlers.get(channel) ?? new Set();
++      set.add(handler);
++      handlers.set(channel, set);
++      return () => set.delete(handler);
++    },
++    emit(channel: string, data: unknown) {
++      handlers.get(channel)?.forEach((handler) => handler(data));
++    },
++  };
++}
++
++describe("btw <-> webui bus contract", () => {
++  it("channel names match the btw package's published constants", () => {
++    expect(BTW_COMMAND_CHANNEL).toBe(BTW_COMMAND_CHANNEL_BTW_SIDE);
++    expect(BTW_EVENT_CHANNEL).toBe(BTW_EVENT_CHANNEL_BTW_SIDE);
++  });
++
++  it("drives ask -> snapshot -> frame across both seams with no package dependency", () => {
++    const bus = fakeBus();
++
++    // btw side (fake engine): a subscriber on the command channel ...
++    const receivedCommands: unknown[] = [];
++    bus.on(BTW_COMMAND_CHANNEL_BTW_SIDE, (data) => receivedCommands.push(data));
++
++    // webui side: store + forwarder wired to the bus, broadcast recorder
++    const store = createBtwStore();
++    const frames: unknown[] = [];
++    const dispose = onBtwEvent(bus, createBtwForwarder(store, (frame) => frames.push(frame)));
++
++    // ... and an emitter of pre-reduced thread snapshots on the event channel
++    bus.emit(BTW_EVENT_CHANNEL_BTW_SIDE, { type: "thread", state: THREAD_STATE });
++
++    // snapshot arrived in the pull store AND went out as the new WS frame
++    expect(store.state()).toEqual(THREAD_STATE);
++    expect(frames).toEqual([{ type: "btw", event: { type: "thread", state: THREAD_STATE } }]);
++
++    // panel command flows back over the command channel
++    emitBtwCommand(bus, { kind: "ask", text: "and the fix?" });
++    expect(receivedCommands).toEqual([{ kind: "ask", text: "and the fix?" }]);
++
++    dispose();
++  });
++
++  it("webui package.json declares no dependency on the btw package", async () => {
++    const pkg = (await Bun.file(new URL("../package.json", import.meta.url).pathname).json()) as {
++      dependencies?: Record<string, unknown>;
++      devDependencies?: Record<string, unknown>;
++    };
++    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
++    expect(deps["@repo/pi-agent-ext-btw"]).toBeUndefined();
++  });
++});

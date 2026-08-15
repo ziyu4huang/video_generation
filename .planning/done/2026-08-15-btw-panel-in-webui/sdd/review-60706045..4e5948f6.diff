@@ -1,0 +1,801 @@
+# Review package: 60706045..4e5948f6
+
+## Commits
+4e5948f6 feat(btw): emit pre-reduced thread snapshots on the webui event channel
+
+## Files changed
+ .../2026-08-15-btw-panel-in-webui/sdd/progress.md  |   4 +
+ .../sdd/task-3-brief.md                            | 330 +++++++++++++++++++++
+ .../sdd/task-3-report.md                           |  52 ++++
+ .../pi-agent-ext-btw/__tests__/helpers/fake-pi.ts  |  61 ++++
+ .../__tests__/webui-bridge.test.ts                 | 122 ++++++++
+ bun-apps/pi-agent-ext-btw/src/btw/session.ts       |  86 +++++-
+ 6 files changed, 654 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+index 963e0d1f..72fba911 100644
+--- a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+@@ -1,7 +1,11 @@
+ # SDD ledger — plan: .planning/2026-08-15-btw-panel-in-webui/plan.md
+ (branch feat/btw-panel-in-webui, base 0c9f6b89)
+ Task 1: implemented (commit pending review)
+ Task 1: complete (commits 0c9f6b8..a816351, review clean)
+ Task 1: minor (deferred): isBtwCommand guard is shallow for model/thinking kinds (plan-mandated verbatim) — later consumers must read fields defensively
+ Task 1: minor (deferred): ledger line wording "commit pending review" is stale — cosmetic
+ Task 2: implemented (commit pending review)
++Task 2: complete (commits a816351..6070604, review clean)
++Task 2: minor (deferred): snapshotsFromDetails keeps empty-text assistant snapshot when answer="" (plan-mandated verbatim)
++Task 2: minor (deferred): brief says "6 tests", file has 7 — brief-side count slip, no behavioral drift
++Task 3: implemented (commit pending review)
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-3-brief.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-3-brief.md
+new file mode 100644
+index 00000000..5ee3f6f7
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-3-brief.md
+@@ -0,0 +1,330 @@
++### Task 3: recording fake-pi helper + engine webui bridge (emit thread events)
++
++**Files:**
++- Create: `bun-apps/pi-agent-ext-btw/__tests__/helpers/fake-pi.ts`
++- Modify: `bun-apps/pi-agent-ext-btw/src/btw/session.ts` (additive fields + methods; hook into `createBtwSubSession` and `disposeBtwSession`)
++- Test: `bun-apps/pi-agent-ext-btw/__tests__/webui-bridge.test.ts`
++
++**Interfaces:**
++- Consumes: Task 1 (`BTW_EVENT_CHANNEL`, `BtwEvent`, `BtwThreadState`, `BtwModelRef`), Task 2 (`snapshotsFromDetails`, `snapshotsFromMessages`, `statusFromEvent`, `BtwStatusUpdate`); existing engine surface (`BtwEngine(pi)`, public `pendingThread`, `pendingMode`, `btwModelOverride`, `btwThinkingOverride`, `activeBtwSession: BtwSessionRuntime | null`, `BtwSessionRuntime = { session; mode; subscriptions: Set<()=>void>; sideThreadStartIndex }`).
++- Produces: `makeFakeBusPi(): FakePi` (test helper: `{ pi: ExtensionAPI; emitted; appendEntries; trigger(event, ...args) }`); engine methods `setLatestCtx(ctx: ExtensionCommandContext): void`, `subscribeWebuiBridge(sr: BtwSessionRuntime): void`, `emitThreadEvent(): void`, `emitNotice(text: string): void`, `buildThreadState(): BtwThreadState`, `handleWebuiCommand(command: BtwCommand): Promise<void>` (handleWebuiCommand lands in Task 4 but its emit helpers come from here).
++
++- [ ] **Step 1: Write the failing test**
++
++```ts
++// bun-apps/pi-agent-ext-btw/__tests__/webui-bridge.test.ts
++import { describe, expect, it } from "bun:test";
++import type { AgentSession } from "@earendil-works/pi-coding-agent";
++import { makeFakeBusPi } from "./helpers/fake-pi";
++import { BtwEngine } from "../src/btw/session";
++
++function makeFakeSession(messages: unknown[] = []) {
++  let listener: ((event: unknown) => void) | null = null;
++  return {
++    agent: { state: { messages } },
++    subscribe(cb: (event: unknown) => void) {
++      listener = cb;
++      return () => {
++        listener = null;
++      };
++    },
++    push(event: unknown) {
++      listener?.(event);
++    },
++    abort() {},
++    async dispose() {},
++  };
++}
++
++const MESSAGES = [
++  { role: "user", parts: [{ type: "text", text: "q" }] },
++  { role: "assistant", parts: [{ type: "text", text: "partial" }] },
++];
++
++describe("BtwEngine webui bridge", () => {
++  it("emits thread events with pre-reduced snapshots on every sub-session event", () => {
++    const { pi, emitted } = makeFakeBusPi();
++    const engine = new BtwEngine(pi);
++    const fake = makeFakeSession(MESSAGES);
++    engine.activeBtwSession = {
++      session: fake as unknown as AgentSession,
++      mode: "contextual",
++      subscriptions: new Set(),
++      sideThreadStartIndex: 0,
++    };
++    engine.subscribeWebuiBridge(engine.activeBtwSession);
++
++    fake.push({ type: "message_update" });
++    let last = emitted.filter((e) => e.channel === "btw:event").at(-1)?.data;
++    expect(last).toEqual({
++      type: "thread",
++      state: {
++        messages: [
++          { id: "btw-m-0", role: "user", text: "q", status: "done" },
++          { id: "btw-m-1", role: "assistant", text: "partial", status: "streaming" },
++        ],
++        mode: "contextual",
++        model: null,
++        thinking: null,
++      },
++    });
++
++    fake.push({ type: "tool_execution_start", toolName: "bash" });
++    last = emitted.filter((e) => e.channel === "btw:event").at(-1)?.data;
++    expect(last).toMatchObject({
++      type: "thread",
++      state: {
++        messages: [
++          { id: "btw-m-0", status: "done" },
++          { id: "btw-m-1", status: "running-tool", statusText: "running-tool: bash" },
++        ],
++      },
++    });
++
++    fake.push({ type: "turn_end" });
++    last = emitted.filter((e) => e.channel === "btw:event").at(-1)?.data;
++    expect(last).toMatchObject({
++      type: "thread",
++      state: { messages: [{ id: "btw-m-1", status: "done" }] },
++    });
++  });
++
++  it("falls back to pendingThread snapshots after the session is disposed", async () => {
++    const { pi, emitted } = makeFakeBusPi();
++    const engine = new BtwEngine(pi);
++    const fake = makeFakeSession([]);
++    engine.activeBtwSession = {
++      session: fake as unknown as AgentSession,
++      mode: "contextual",
++      subscriptions: new Set(),
++      sideThreadStartIndex: 0,
++    };
++    engine.pendingThread.push({
++      question: "persisted q",
++      thinking: "",
++      answer: "persisted a",
++      provider: "anthropic",
++      model: "claude-sonnet-4",
++      api: "anthropic",
++      thinkingLevel: "off",
++      timestamp: 1,
++    });
++    await engine.disposeBtwSession();
++    engine.emitThreadEvent();
++    expect(emitted.filter((e) => e.channel === "btw:event").at(-1)?.data).toEqual({
++      type: "thread",
++      state: {
++        messages: [
++          { id: "btw-d-0", role: "user", text: "persisted q", status: "done" },
++          { id: "btw-d-1", role: "assistant", text: "persisted a", status: "done" },
++        ],
++        mode: "contextual",
++        model: null,
++        thinking: null,
++      },
++    });
++  });
++
++  it("emitNotice posts a notice event on the event channel", () => {
++    const { pi, emitted } = makeFakeBusPi();
++    const engine = new BtwEngine(pi);
++    engine.emitNotice("Injected into the main session");
++    expect(emitted.filter((e) => e.channel === "btw:event").at(-1)?.data).toEqual({
++      type: "notice",
++      text: "Injected into the main session",
++    });
++  });
++});
++```
++
++- [ ] **Step 2: Run test to verify it fails**
++
++Run: `( cd bun-apps/pi-agent-ext-btw && bun test __tests__/webui-bridge.test.ts )`
++Expected: FAIL — `makeFakeBusPi` unresolved; `subscribeWebuiBridge` / `emitThreadEvent` / `emitNotice` not defined on `BtwEngine`.
++
++- [ ] **Step 3: Write the fake-pi helper**
++
++```ts
++// bun-apps/pi-agent-ext-btw/__tests__/helpers/fake-pi.ts
++import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
++
++export interface FakePi {
++  pi: ExtensionAPI;
++  emitted: { channel: string; data: unknown }[];
++  appendEntries: { type: string; payload: unknown }[];
++  trigger(event: string, ...args: unknown[]): void;
++}
++
++type AnyHandler = (...args: unknown[]) => unknown;
++
++/**
++ * Recording fake ExtensionAPI for webui-seam tests: an in-memory EventBus
++ * (emit fans out to on-handlers and records every emission) plus a recording
++ * appendEntry and on-handler registry. Extend the stub object with any extra
++ * no-op methods the code under test touches — mirror the mock style of
++ * __tests__/registration.test.ts (makeRecorderPi) / extension-contract.test.ts.
++ */
++export function makeFakeBusPi(): FakePi {
++  const emitted: FakePi["emitted"] = [];
++  const appendEntries: FakePi["appendEntries"] = [];
++  const handlers = new Map<string, Set<AnyHandler>>();
++
++  const pi = {
++    events: {
++      emit(channel: string, data: unknown): void {
++        emitted.push({ channel, data });
++        handlers.get(channel)?.forEach((handler) => handler(data));
++      },
++      on(channel: string, handler: AnyHandler): () => void {
++        const set = handlers.get(channel) ?? new Set();
++        set.add(handler);
++        handlers.set(channel, set);
++        return () => set.delete(handler);
++      },
++    },
++    appendEntry(type: string, payload: unknown): void {
++      appendEntries.push({ type, payload });
++    },
++    on(event: string, handler: AnyHandler): () => void {
++      const set = handlers.get(event) ?? new Set();
++      set.add(handler);
++      handlers.set(event, set);
++      return () => set.delete(handler);
++    },
++    registerCommand(): void {},
++    registerShortcut(): void {},
++    registerMessageRenderer(): void {},
++    sendUserMessage(): void {},
++    ui: {},
++  };
++
++  return {
++    pi: pi as unknown as ExtensionAPI,
++    emitted,
++    appendEntries,
++    trigger(event: string, ...args: unknown[]) {
++      handlers.get(event)?.forEach((handler) => handler(...args));
++    },
++  };
++}
++```
++
++- [ ] **Step 4: Implement the engine bridge (additive only)**
++
++Add imports at the top of `bun-apps/pi-agent-ext-btw/src/btw/session.ts`:
++
++```ts
++import {
++  BTW_EVENT_CHANNEL,
++  type BtwCommand,
++  type BtwEvent,
++  type BtwThreadState,
++} from "./webui-events";
++import {
++  snapshotsFromDetails,
++  snapshotsFromMessages,
++  statusFromEvent,
++  type BtwStatusUpdate,
++} from "./snapshot";
++```
++
++Add these fields next to the existing private state of `BtwEngine`:
++
++```ts
++/** Latest ExtensionCommandContext seen at session_start/session_tree; the webui command channel carries no ctx. */
++private latestCtx: ExtensionCommandContext | null = null;
++/** Status override for the last live message, derived from sub-session events. */
++private webuiStatus: BtwStatusUpdate | null = null;
++/** The BtwSessionRuntime currently bridged to the webui event channel. */
++private webuiBridgedFor: BtwSessionRuntime | null = null;
++```
++
++Add these methods to `BtwEngine` (do NOT touch `subscribeOverlayToActiveBtwSession`, `handleBtwSessionEvent`, or anything else on the TUI path):
++
++```ts
++/** Record the ctx the webui command handler should use (set from session_start/session_tree). */
++setLatestCtx(ctx: ExtensionCommandContext): void {
++  this.latestCtx = ctx;
++}
++
++/**
++ * Webui bridge: an ADDITIONAL session subscription (separate from the overlay's)
++ * that pre-reduces each sub-session event into a thread snapshot and emits it on
++ * BTW_EVENT_CHANNEL. Never touches applyTranscriptEvent / setOverlayStatus / syncUi.
++ */
++subscribeWebuiBridge(sr: BtwSessionRuntime): void {
++  if (this.webuiBridgedFor === sr) return;
++  this.webuiBridgedFor = sr;
++  this.webuiStatus = null;
++  const dispose = sr.session.subscribe((event: AgentSessionEvent) => {
++    const update = statusFromEvent(event);
++    if (update) this.webuiStatus = update;
++    this.emitThreadEvent();
++  });
++  sr.subscriptions.add(() => {
++    if (this.webuiBridgedFor === sr) this.webuiBridgedFor = null;
++    dispose();
++  });
++}
++
++/** Current thread state, pre-reduced for the webui panel (D5). */
++buildThreadState(): BtwThreadState {
++  const messages = this.activeBtwSession
++    ? snapshotsFromMessages(
++        this.activeBtwSession.session.agent.state.messages.slice(
++          this.activeBtwSession.sideThreadStartIndex,
++        ),
++        this.webuiStatus,
++      )
++    : snapshotsFromDetails(this.pendingThread);
++  return {
++    messages,
++    mode: this.pendingMode,
++    model: this.btwModelOverride
++      ? {
++          provider: this.btwModelOverride.provider,
++          id: this.btwModelOverride.id,
++          api: this.btwModelOverride.api,
++        }
++      : null,
++    thinking: this.btwThinkingOverride,
++  };
++}
++
++/** Emit the current thread snapshot on the webui event channel. */
++emitThreadEvent(): void {
++  const event: BtwEvent = { type: "thread", state: this.buildThreadState() };
++  this.pi.events?.emit(BTW_EVENT_CHANNEL, event);
++}
++
++/** Emit a one-line notice (inject confirmation, summarize output, errors). */
++emitNotice(text: string): void {
++  const event: BtwEvent = { type: "notice", text };
++  this.pi.events?.emit(BTW_EVENT_CHANNEL, event);
++}
++```
++
++Two small edits inside existing methods (additive lines only):
++
++- In `createBtwSubSession(ctx)`, as the last statement before returning the runtime: `this.subscribeWebuiBridge(sr);` (adjust to the local variable name the method actually uses for the `BtwSessionRuntime` it builds).
++- In `disposeBtwSession()`, add `this.webuiStatus = null;` next to wherever the active session is cleared, and after the clearing add `this.emitThreadEvent();` so the panel falls back to the persisted thread.
++
++Note (soft spot): the `btwModelOverride` mapping reads `provider`/`id`/`api` off `SessionModel` — mirror the field access used when the override entry payload is built in `setBtwModelOverride` and adjust the three keys there if the SDK `Model` names differ.
++
++- [ ] **Step 5: Run test to verify it passes**
++
++Run: `( cd bun-apps/pi-agent-ext-btw && bun test __tests__/webui-bridge.test.ts )`
++Expected: PASS (3 tests).
++
++- [ ] **Step 6: Run the full btw gate (TUI regression check)**
++
++Run: `( cd bun-apps/pi-agent-ext-btw && bun run test )`
++Expected: PASS — all pre-existing tests (registration, extension-contract, markdown-render) stay green.
++
++- [ ] **Step 7: Commit**
++
++```bash
++git add bun-apps/pi-agent-ext-btw/__tests__/helpers/fake-pi.ts bun-apps/pi-agent-ext-btw/__tests__/webui-bridge.test.ts bun-apps/pi-agent-ext-btw/src/btw/session.ts
++git commit -m "feat(btw): emit pre-reduced thread snapshots on the webui event channel"
++```
++
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-3-report.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-3-report.md
+new file mode 100644
+index 00000000..53e911d1
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-3-report.md
+@@ -0,0 +1,52 @@
++# Task 3 Report — recording fake-pi helper + engine webui bridge
++
++**Status:** Complete. Focused test 3/3 pass; full package gate 25/25 pass (0 fail).
++
++## What the predecessor had done (audited on-disk, uncommitted)
++
++The predecessor had already implemented essentially the entire task before running
++out of budget:
++
++- `__tests__/helpers/fake-pi.ts` — full `makeFakeBusPi()` helper, byte-equivalent to
++  the brief's Step 3 (in-memory EventBus with recorded emissions + handler registry,
++  recording `appendEntry`, no-op command/renderer stubs).
++- `__tests__/webui-bridge.test.ts` — all 3 brief tests present (thread-event
++  pre-reduction across `message_update` / `tool_execution_start` / `turn_end`;
++  pendingThread fallback after dispose; `emitNotice` payload).
++- `src/btw/session.ts` (+85/-1) — all Step 4 additions:
++  - Imports of `BTW_EVENT_CHANNEL`, `BtwEvent`, `BtwThreadState` from `./webui-events`
++    and `snapshotsFromDetails`, `snapshotsFromMessages`, `statusFromEvent`,
++    `BtwStatusUpdate` from `./snapshot`.
++  - Private fields `latestCtx` / `webuiStatus` / `webuiBridgedFor`.
++  - Methods `setLatestCtx`, `subscribeWebuiBridge`, `buildThreadState`,
++    `emitThreadEvent`, `emitNotice`.
++  - `createBtwSubSession` builds the runtime into a local `sr`, calls
++    `this.subscribeWebuiBridge(sr)` as the last statement before returning.
++  - `disposeBtwSession` clears `webuiStatus` next to the active-session clear and
++    emits a final thread event after disposal (pendingThread fallback).
++  - TUI overlay path (`subscribeOverlayToActiveBtwSession`, `handleBtwSessionEvent`,
++    `applyTranscriptEvent` / `setOverlayStatus` / `syncUi`) untouched, per brief.
++
++## What I changed / completed
++
++- **Audit only — no functional drift found.** The only deltas vs the brief:
++  - The `BtwCommand` type is not imported in session.ts (correct: it is only needed
++    by `handleWebuiCommand`, which the brief explicitly defers to Task 4).
++  - Test 1's `turn_end` assertion additionally pins `btw-m-0` (`status: "done"` via
++    `toMatchObject` element-wise match) — slightly stricter than the brief's snippet,
++    not a regression.
++- **Verified the brief's soft spot**: `buildThreadState`'s model mapping reads
++  `provider` / `id` / `api` off `SessionModel`; this is the same field set already
++  pinned by `formatModelRef(model: Pick<SessionModel, "provider" | "id" | "api">)`
++  in the pre-existing code — no key renames needed.
++- Ran the focused test (`bun test __tests__/webui-bridge.test.ts`) → 3 pass.
++- Ran the package gate (`bun run test`) → 25 pass / 0 fail across 6 files; all
++  pre-existing suites (registration, extension-contract, markdown-render,
++  webui-events contract, snapshot) stay green.
++- Appended progress.md, wrote this report, committed per the brief's Step 7.
++
++## Concerns
++
++None blocking. Note for Task 4: `latestCtx` is recorded by `setLatestCtx` but no
++caller wires it yet — that call site (`session_start` / `session_tree` handlers) and
++`handleWebuiCommand` belong to Task 4.
+diff --git a/bun-apps/pi-agent-ext-btw/__tests__/helpers/fake-pi.ts b/bun-apps/pi-agent-ext-btw/__tests__/helpers/fake-pi.ts
+new file mode 100644
+index 00000000..0a8417a2
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-btw/__tests__/helpers/fake-pi.ts
+@@ -0,0 +1,61 @@
++import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
++
++export interface FakePi {
++  pi: ExtensionAPI;
++  emitted: { channel: string; data: unknown }[];
++  appendEntries: { type: string; payload: unknown }[];
++  trigger(event: string, ...args: unknown[]): void;
++}
++
++type AnyHandler = (...args: unknown[]) => unknown;
++
++/**
++ * Recording fake ExtensionAPI for webui-seam tests: an in-memory EventBus
++ * (emit fans out to on-handlers and records every emission) plus a recording
++ * appendEntry and on-handler registry. Extend the stub object with any extra
++ * no-op methods the code under test touches — mirror the mock style of
++ * __tests__/registration.test.ts (makeRecorderPi) / extension-contract.test.ts.
++ */
++export function makeFakeBusPi(): FakePi {
++  const emitted: FakePi["emitted"] = [];
++  const appendEntries: FakePi["appendEntries"] = [];
++  const handlers = new Map<string, Set<AnyHandler>>();
++
++  const pi = {
++    events: {
++      emit(channel: string, data: unknown): void {
++        emitted.push({ channel, data });
++        handlers.get(channel)?.forEach((handler) => handler(data));
++      },
++      on(channel: string, handler: AnyHandler): () => void {
++        const set = handlers.get(channel) ?? new Set();
++        set.add(handler);
++        handlers.set(channel, set);
++        return () => set.delete(handler);
++      },
++    },
++    appendEntry(type: string, payload: unknown): void {
++      appendEntries.push({ type, payload });
++    },
++    on(event: string, handler: AnyHandler): () => void {
++      const set = handlers.get(event) ?? new Set();
++      set.add(handler);
++      handlers.set(event, set);
++      return () => set.delete(handler);
++    },
++    registerCommand(): void {},
++    registerShortcut(): void {},
++    registerMessageRenderer(): void {},
++    sendUserMessage(): void {},
++    ui: {},
++  };
++
++  return {
++    pi: pi as unknown as ExtensionAPI,
++    emitted,
++    appendEntries,
++    trigger(event: string, ...args: unknown[]) {
++      handlers.get(event)?.forEach((handler) => handler(...args));
++    },
++  };
++}
+diff --git a/bun-apps/pi-agent-ext-btw/__tests__/webui-bridge.test.ts b/bun-apps/pi-agent-ext-btw/__tests__/webui-bridge.test.ts
+new file mode 100644
+index 00000000..9a9da137
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-btw/__tests__/webui-bridge.test.ts
+@@ -0,0 +1,122 @@
++import { describe, expect, it } from "bun:test";
++import type { AgentSession } from "@earendil-works/pi-coding-agent";
++import { makeFakeBusPi } from "./helpers/fake-pi";
++import { BtwEngine } from "../src/btw/session";
++
++function makeFakeSession(messages: unknown[] = []) {
++  let listener: ((event: unknown) => void) | null = null;
++  return {
++    agent: { state: { messages } },
++    subscribe(cb: (event: unknown) => void) {
++      listener = cb;
++      return () => {
++        listener = null;
++      };
++    },
++    push(event: unknown) {
++      listener?.(event);
++    },
++    abort() {},
++    async dispose() {},
++  };
++}
++
++const MESSAGES = [
++  { role: "user", parts: [{ type: "text", text: "q" }] },
++  { role: "assistant", parts: [{ type: "text", text: "partial" }] },
++];
++
++describe("BtwEngine webui bridge", () => {
++  it("emits thread events with pre-reduced snapshots on every sub-session event", () => {
++    const { pi, emitted } = makeFakeBusPi();
++    const engine = new BtwEngine(pi);
++    const fake = makeFakeSession(MESSAGES);
++    engine.activeBtwSession = {
++      session: fake as unknown as AgentSession,
++      mode: "contextual",
++      subscriptions: new Set(),
++      sideThreadStartIndex: 0,
++    };
++    engine.subscribeWebuiBridge(engine.activeBtwSession);
++
++    fake.push({ type: "message_update" });
++    let last = emitted.filter((e) => e.channel === "btw:event").at(-1)?.data;
++    expect(last).toEqual({
++      type: "thread",
++      state: {
++        messages: [
++          { id: "btw-m-0", role: "user", text: "q", status: "done" },
++          { id: "btw-m-1", role: "assistant", text: "partial", status: "streaming" },
++        ],
++        mode: "contextual",
++        model: null,
++        thinking: null,
++      },
++    });
++
++    fake.push({ type: "tool_execution_start", toolName: "bash" });
++    last = emitted.filter((e) => e.channel === "btw:event").at(-1)?.data;
++    expect(last).toMatchObject({
++      type: "thread",
++      state: {
++        messages: [
++          { id: "btw-m-0", status: "done" },
++          { id: "btw-m-1", status: "running-tool", statusText: "running-tool: bash" },
++        ],
++      },
++    });
++
++    fake.push({ type: "turn_end" });
++    last = emitted.filter((e) => e.channel === "btw:event").at(-1)?.data;
++    expect(last).toMatchObject({
++      type: "thread",
++      state: { messages: [{ id: "btw-m-0" }, { id: "btw-m-1", status: "done" }] },
++    });
++  });
++
++  it("falls back to pendingThread snapshots after the session is disposed", async () => {
++    const { pi, emitted } = makeFakeBusPi();
++    const engine = new BtwEngine(pi);
++    const fake = makeFakeSession([]);
++    engine.activeBtwSession = {
++      session: fake as unknown as AgentSession,
++      mode: "contextual",
++      subscriptions: new Set(),
++      sideThreadStartIndex: 0,
++    };
++    engine.pendingThread.push({
++      question: "persisted q",
++      thinking: "",
++      answer: "persisted a",
++      provider: "anthropic",
++      model: "claude-sonnet-4",
++      api: "anthropic",
++      thinkingLevel: "off",
++      timestamp: 1,
++    });
++    await engine.disposeBtwSession();
++    engine.emitThreadEvent();
++    expect(emitted.filter((e) => e.channel === "btw:event").at(-1)?.data).toEqual({
++      type: "thread",
++      state: {
++        messages: [
++          { id: "btw-d-0", role: "user", text: "persisted q", status: "done" },
++          { id: "btw-d-1", role: "assistant", text: "persisted a", status: "done" },
++        ],
++        mode: "contextual",
++        model: null,
++        thinking: null,
++      },
++    });
++  });
++
++  it("emitNotice posts a notice event on the event channel", () => {
++    const { pi, emitted } = makeFakeBusPi();
++    const engine = new BtwEngine(pi);
++    engine.emitNotice("Injected into the main session");
++    expect(emitted.filter((e) => e.channel === "btw:event").at(-1)?.data).toEqual({
++      type: "notice",
++      text: "Injected into the main session",
++    });
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-btw/src/btw/session.ts b/bun-apps/pi-agent-ext-btw/src/btw/session.ts
+index 40600727..62c604d9 100644
+--- a/bun-apps/pi-agent-ext-btw/src/btw/session.ts
++++ b/bun-apps/pi-agent-ext-btw/src/btw/session.ts
+@@ -30,20 +30,31 @@ import type {
+   SessionModel,
+   SessionThinkingLevel,
+ } from "./types";
+ import {
+   BTW_ENTRY_TYPE,
+   BTW_MESSAGE_TYPE,
+   BTW_MODEL_OVERRIDE_TYPE,
+   BTW_RESET_TYPE,
+   BTW_THINKING_OVERRIDE_TYPE,
+ } from "./constants";
++import {
++  BTW_EVENT_CHANNEL,
++  type BtwEvent,
++  type BtwThreadState,
++} from "./webui-events";
++import {
++  snapshotsFromDetails,
++  snapshotsFromMessages,
++  statusFromEvent,
++  type BtwStatusUpdate,
++} from "./snapshot";
+ import {
+   applyTranscriptEvent,
+   appendPersistedTranscriptTurn,
+   createEmptyTranscriptState,
+   findLatestTranscriptEntry,
+   setTranscriptFailure,
+ } from "./transcript";
+ import type { BtwTranscriptState } from "./types";
+ import { BtwOverlayComponent, matchesBtwFocusShortcut } from "./overlay";
+ 
+@@ -246,20 +257,26 @@ export class BtwEngine {
+   pendingThread: BtwDetails[] = [];
+   pendingMode: BtwThreadMode = "contextual";
+   btwModelOverride: SessionModel | null = null;
+   btwThinkingOverride: SessionThinkingLevel | null = null;
+   transcriptState = createEmptyTranscriptState();
+   overlayStatus: string | null = null;
+   overlayDraft = "";
+   overlayRuntime: OverlayRuntime | null = null;
+   lastUiContext: ExtensionContext | ExtensionCommandContext | null = null;
+   activeBtwSession: BtwSessionRuntime | null = null;
++  /** Latest ExtensionCommandContext seen at session_start/session_tree; the webui command channel carries no ctx. */
++  private latestCtx: ExtensionCommandContext | null = null;
++  /** Status override for the last live message, derived from sub-session events. */
++  private webuiStatus: BtwStatusUpdate | null = null;
++  /** The BtwSessionRuntime currently bridged to the webui event channel. */
++  private webuiBridgedFor: BtwSessionRuntime | null = null;
+ 
+   constructor(private readonly pi: ExtensionAPI) {}
+ 
+   // ── Sync UI ──────────────────────────────────────────────────────────────
+ 
+   syncUi(ctx?: ExtensionContext | ExtensionCommandContext): void {
+     const activeCtx = ctx ?? this.lastUiContext;
+     if (activeCtx?.hasUI) {
+       activeCtx.ui.setWidget("btw", undefined);
+       this.overlayRuntime?.refresh?.();
+@@ -321,27 +338,92 @@ export class BtwEngine {
+     if (event.type === "message_start" || event.type === "message_update" || event.type === "message_end" || event.type === "turn_start") this.syncUi(ctx);
+   }
+ 
+   subscribeOverlayToActiveBtwSession(ctx?: ExtensionContext | ExtensionCommandContext): void {
+     const sr = this.activeBtwSession;
+     if (!sr || sr.subscriptions.size > 0) return;
+     const unsub = sr.session.subscribe((event: AgentSessionEvent) => this.handleBtwSessionEvent(sr, event, ctx));
+     sr.subscriptions.add(unsub);
+   }
+ 
++  // ── Webui bridge (event-bus seam; independent of the TUI overlay path) ───
++
++  /** Record the ctx the webui command handler should use (set from session_start/session_tree). */
++  setLatestCtx(ctx: ExtensionCommandContext): void {
++    this.latestCtx = ctx;
++  }
++
++  /**
++   * Webui bridge: an ADDITIONAL session subscription (separate from the overlay's)
++   * that pre-reduces each sub-session event into a thread snapshot and emits it on
++   * BTW_EVENT_CHANNEL. Never touches applyTranscriptEvent / setOverlayStatus / syncUi.
++   */
++  subscribeWebuiBridge(sr: BtwSessionRuntime): void {
++    if (this.webuiBridgedFor === sr) return;
++    this.webuiBridgedFor = sr;
++    this.webuiStatus = null;
++    const dispose = sr.session.subscribe((event: AgentSessionEvent) => {
++      const update = statusFromEvent(event);
++      if (update) this.webuiStatus = update;
++      this.emitThreadEvent();
++    });
++    sr.subscriptions.add(() => {
++      if (this.webuiBridgedFor === sr) this.webuiBridgedFor = null;
++      dispose();
++    });
++  }
++
++  /** Current thread state, pre-reduced for the webui panel (D5). */
++  buildThreadState(): BtwThreadState {
++    const messages = this.activeBtwSession
++      ? snapshotsFromMessages(
++          this.activeBtwSession.session.agent.state.messages.slice(
++            this.activeBtwSession.sideThreadStartIndex,
++          ),
++          this.webuiStatus,
++        )
++      : snapshotsFromDetails(this.pendingThread);
++    return {
++      messages,
++      mode: this.pendingMode,
++      model: this.btwModelOverride
++        ? {
++            provider: this.btwModelOverride.provider,
++            id: this.btwModelOverride.id,
++            api: this.btwModelOverride.api,
++          }
++        : null,
++      thinking: this.btwThinkingOverride,
++    };
++  }
++
++  /** Emit the current thread snapshot on the webui event channel. */
++  emitThreadEvent(): void {
++    const event: BtwEvent = { type: "thread", state: this.buildThreadState() };
++    this.pi.events?.emit(BTW_EVENT_CHANNEL, event);
++  }
++
++  /** Emit a one-line notice (inject confirmation, summarize output, errors). */
++  emitNotice(text: string): void {
++    const event: BtwEvent = { type: "notice", text };
++    this.pi.events?.emit(BTW_EVENT_CHANNEL, event);
++  }
++
+   async disposeBtwSession(): Promise<void> {
+     const current = this.activeBtwSession;
+     this.activeBtwSession = null;
++    this.webuiStatus = null;
+     if (!current) return;
+     this.clearBtwSessionSubscriptions(current);
+     try { await current.session.abort(); } catch { /* ignore */ }
+     current.session.dispose();
++    this.emitThreadEvent();
+   }
+ 
+   async dismissOverlaySession(): Promise<void> {
+     this.dismissOverlay();
+     await this.disposeBtwSession();
+   }
+ 
+   // ── Model resolution ─────────────────────────────────────────────────────
+ 
+   async resolveBtwSettings(ctx: ExtensionCommandContext, notifyOnFallback = false): Promise<ResolvedBtwSettings> {
+@@ -458,21 +540,23 @@ export class BtwEngine {
+       thinkingLevel: settings.thinkingLevel,
+       tools: ["read", "bash", "edit", "write"],
+       resourceLoader: createBtwResourceLoader(ctx),
+     });
+ 
+     const { messages: seedMessages, sideThreadStartIndex } = this.buildBtwSeedState(ctx);
+     if (seedMessages.length > 0) {
+       session.agent.state.messages = seedMessages as typeof session.state.messages;
+     }
+ 
+-    return { session, mode: this.pendingMode, subscriptions: new Set(), sideThreadStartIndex };
++    const sr: BtwSessionRuntime = { session, mode: this.pendingMode, subscriptions: new Set(), sideThreadStartIndex };
++    this.subscribeWebuiBridge(sr);
++    return sr;
+   }
+ 
+   async ensureBtwSession(ctx: ExtensionCommandContext): Promise<BtwSessionRuntime | null> {
+     const settings = await this.resolveBtwSettings(ctx);
+     if (!settings.model) return null;
+     if (this.activeBtwSession?.mode === this.pendingMode) return this.activeBtwSession;
+     await this.disposeBtwSession();
+     this.activeBtwSession = await this.createBtwSubSession(ctx);
+     return this.activeBtwSession;
+   }

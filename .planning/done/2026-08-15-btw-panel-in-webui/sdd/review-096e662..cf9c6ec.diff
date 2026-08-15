@@ -1,0 +1,301 @@
+# Review package: 096e6620..cf9c6ec6
+
+## Commits
+cf9c6ec6 fix(btw,webui): enforce cross-package channel parity, per-turn streaming status, model-not-found notice, esc alignment
+
+## Files changed
+ .../2026-08-15-btw-panel-in-webui/sdd/progress.md  |  2 ++
+ .../sdd/reports/task-final-fixwave.md              | 27 +++++++++++++++
+ .../__tests__/webui-bridge.test.ts                 | 32 +++++++++++++++++
+ .../__tests__/webui-channel-parity.test.ts         | 40 ++++++++++++++++++++++
+ .../__tests__/webui-command.test.ts                | 21 ++++++++++++
+ bun-apps/pi-agent-ext-btw/src/btw/session.ts       | 15 ++++++--
+ bun-apps/pi-agent-ext-webui/src/render-shell.ts    |  2 +-
+ 7 files changed, 135 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+index 180acaff..40d16e14 100644
+--- a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+@@ -43,10 +43,12 @@ Task 10: complete (commits cb38a61..821f6b3, review clean; implementer fixed bri
+ Task 10: minor (deferred): pull/subscribe race — thread event during initial /api/btw fetch can be overwritten by stale snapshot (plan-inherited, self-heals)
+ Task 10: minor (deferred): snapshot load doesn't sync mode label or model/thinking dropdowns (display-only staleness, plan-verbatim)
+ Task 10: minor (deferred): btwMessageHtml/btwRenderMessages unescaped m.id/m.role interpolation + notice rows never pruned (plan-mandated; harden with Task 9's copy together)
+ Task 11: implemented (commit pending review)
+ Task 11: complete (commits 821f6b3..1c73378, review clean)
+ Task 11: minor (deferred): contract test asserts no package.json dependency but not source-import absence — grep/lint assertion candidate
+ Task 12: complete (verification — both gates green, sweep clean)
+ Task 12: btw gate 31 pass/0 fail (7 files, 86 expects); webui gate 319 pass/0 fail (27 files, 701 expects)
+ Task 12: sweep — zero @repo imports in webui src/, zero package.json dep; only comment-only mention src/btw-channels.ts:5 ("Mirrors ... WITHOUT importing") — accepted, no coupling
+ Task 12: no real-model calls — only comment-only mention tests/helpers/mock-pi.ts:10; all tests use fake sessions/mocks/pure helpers
++Final review: FINDINGS (1 Important F1 contract-pin self-referential, 3 Minor F2-F4) — one fix wave; all deferred minors triaged ACCEPT (see final review)
++Final fix wave: complete (F1-F4 fixed, both gates green)
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/reports/task-final-fixwave.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/reports/task-final-fixwave.md
+new file mode 100644
+index 00000000..39fac24e
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/reports/task-final-fixwave.md
+@@ -0,0 +1,27 @@
++# Final-review fix wave (F1-F4)
++
++Task: `zk-spawn` — mechanical completion of the final-review fix wave (test, report, ledger, commit).
++All code landed on disk across two implementer dispatches (the first died after source edits; the second added tests); this dispatch tested and committed.
++
++## F1 — Cross-package channel parity test (Important)
++
++The final review flagged the channel-contract pin in `pi-agent-ext-btw` as self-referential: the btw side pinned its own channel names against itself, so a drift between the btw channel constants and the webui render-shell constants would go unnoticed. The fix wave added `bun-apps/pi-agent-ext-btw/__tests__/webui-channel-parity.test.ts`, which (a) imports the webui channel constants via a relative cross-package import and asserts they equal the btw-side constants, and (b) source-scans the webui render-shell for hardcoded `@repo/pi-agent-ext-btw` references so any future bypass of the shared constants fails loudly. This closes the last contract-drift hole between the two packages.
++
++## F2 — Per-turn streaming status reset
++
++Snapshots folded the streaming-status override from the previous turn into a new turn, so a new turn's live message could render as non-streaming until the first sub-session event arrived. `src/btw/session.ts` now resets `webuiStatus` on `turn_start`, guaranteeing the new turn's live message starts in streaming state. The covering case lives in `webui-bridge.test.ts` ("resets webuiStatus per turn so a new turn's live message streams again").
++
++## F3 — model-not-found emitNotice
++
++`handleWebuiCommand` swallowed model-not-found errors without surfacing them to the webui user; the webui side saw nothing happen. It now routes the failure through `emitNotice` on the webui event channel so the panel shows a visible notice. The covering case lives in `webui-command.test.ts`.
++
++## F4 — Inline escape alignment
++
++The render-shell's inline esc helper had drifted from the 4-replace `escapeHtml` used elsewhere, leaving one escape class inconsistent. `src/render-shell.ts` now runs the same 4-replace sequence as `escapeHtml`, aligning both paths. (`+2/-1` in render-shell.)
++
++## Gate results
++
++- `( cd bun-apps/pi-agent-ext-btw && bun run test )`: **36 pass / 0 fail** — 118 expect() calls across 8 files (includes new webui-channel-parity.test.ts, new webui-bridge and webui-command cases).
++- `( cd bun-apps/pi-agent-ext-webui && bun run test )`: **319 pass / 0 fail** — 701 expect() calls across 27 files.
++
++Both gates green; fix wave complete.
+diff --git a/bun-apps/pi-agent-ext-btw/__tests__/webui-bridge.test.ts b/bun-apps/pi-agent-ext-btw/__tests__/webui-bridge.test.ts
+index e68457b4..86faa356 100644
+--- a/bun-apps/pi-agent-ext-btw/__tests__/webui-bridge.test.ts
++++ b/bun-apps/pi-agent-ext-btw/__tests__/webui-bridge.test.ts
+@@ -67,20 +67,52 @@ describe("BtwEngine webui bridge", () => {
+     });
+ 
+     fake.push({ type: "turn_end" });
+     last = emitted.filter((e) => e.channel === "btw:event").at(-1)?.data;
+     expect(last).toMatchObject({
+       type: "thread",
+       state: { messages: [{ id: "btw-m-0" }, { id: "btw-m-1", status: "done" }] },
+     });
+   });
+ 
++  it("resets webuiStatus per turn so a new turn's live message streams again", () => {
++    const { pi, emitted } = makeFakeBusPi();
++    const engine = new BtwEngine(pi);
++    const fake = makeFakeSession(MESSAGES);
++    engine.activeBtwSession = {
++      session: fake as unknown as AgentSession,
++      mode: "contextual",
++      subscriptions: new Set(),
++      sideThreadStartIndex: 0,
++    };
++    engine.subscribeWebuiBridge(engine.activeBtwSession);
++
++    // First turn ends: the assistant snapshot lands on status "done".
++    fake.push({ type: "turn_end" });
++    let last = emitted.filter((e) => e.channel === "btw:event").at(-1)?.data;
++    expect(last).toMatchObject({
++      type: "thread",
++      state: { messages: [{ id: "btw-m-0" }, { id: "btw-m-1", status: "done" }] },
++    });
++
++    // A new turn begins and streams: the previous turn's terminal "done"
++    // must not leak — turn_start resets it, so ?? streaming re-engages.
++    fake.push({ type: "turn_start" });
++    fake.push({ type: "message_start" });
++    fake.push({ type: "message_update" });
++    last = emitted.filter((e) => e.channel === "btw:event").at(-1)?.data;
++    expect(last).toMatchObject({
++      type: "thread",
++      state: { messages: [{ id: "btw-m-0" }, { id: "btw-m-1", status: "streaming" }] },
++    });
++  });
++
+   it("falls back to pendingThread snapshots after the session is disposed", async () => {
+     const { pi, emitted } = makeFakeBusPi();
+     const engine = new BtwEngine(pi);
+     const fake = makeFakeSession([]);
+     engine.activeBtwSession = {
+       session: fake as unknown as AgentSession,
+       mode: "contextual",
+       subscriptions: new Set(),
+       sideThreadStartIndex: 0,
+     };
+diff --git a/bun-apps/pi-agent-ext-btw/__tests__/webui-channel-parity.test.ts b/bun-apps/pi-agent-ext-btw/__tests__/webui-channel-parity.test.ts
+new file mode 100644
+index 00000000..91bada56
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-btw/__tests__/webui-channel-parity.test.ts
+@@ -0,0 +1,40 @@
++// bun-apps/pi-agent-ext-btw/__tests__/webui-channel-parity.test.ts
++// F1: pin the cross-package channel-name contract. The webui package locally
++// redeclares the channel constants (no package dependency webui -> btw); these
++// tests import BOTH declarations and assert the string values match, so a
++// rename on either side fails loudly instead of silently breaking the bus seam.
++import { describe, expect, it } from "bun:test";
++import { Glob } from "bun";
++// Webui-side local redeclaration (intentional duplication is the contract).
++import {
++  BTW_COMMAND_CHANNEL as WUI_CMD,
++  BTW_EVENT_CHANNEL as WUI_EVT,
++} from "../../pi-agent-ext-webui/src/btw-channels.ts";
++// Btw-side canonical declaration.
++import { BTW_COMMAND_CHANNEL, BTW_EVENT_CHANNEL } from "../src/btw/webui-events.ts";
++
++describe("btw/webui channel parity", () => {
++  it("command channel name matches between btw and webui declarations", () => {
++    expect(WUI_CMD).toBe(BTW_COMMAND_CHANNEL);
++    expect(WUI_CMD).toBe("webui:btw-command");
++  });
++
++  it("event channel name matches between btw and webui declarations", () => {
++    expect(WUI_EVT).toBe(BTW_EVENT_CHANNEL);
++    expect(WUI_EVT).toBe("btw:event");
++  });
++
++  it("no webui source file imports the btw package (seam stays string-pinned)", async () => {
++    const glob = new Glob("**/*.ts");
++    const files: string[] = [];
++    const dir = new URL("../../pi-agent-ext-webui/src/", import.meta.url);
++    for await (const path of glob.scan({ cwd: dir.pathname, onlyFiles: true })) {
++      if (path.endsWith(".ts")) files.push(path);
++    }
++    expect(files.length).toBeGreaterThan(0); // sanity: the scan found sources
++    for (const file of files) {
++      const source = await Bun.file(`${dir.pathname}${file}`).text();
++      expect(source.includes("@repo/pi-agent-ext-btw")).toBe(false);
++    }
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-btw/__tests__/webui-command.test.ts b/bun-apps/pi-agent-ext-btw/__tests__/webui-command.test.ts
+index 0b8a33c5..57efc17c 100644
+--- a/bun-apps/pi-agent-ext-btw/__tests__/webui-command.test.ts
++++ b/bun-apps/pi-agent-ext-btw/__tests__/webui-command.test.ts
+@@ -50,18 +50,39 @@ describe("webui command channel", () => {
+   });
+ 
+   it("ignores malformed payloads instead of throwing", () => {
+     const fake = makeFakeBusPi();
+     registerBtwFeature(fake.pi);
+     fake.trigger("session_start", {}, fakeCtx);
+     expect(() => fake.pi.events?.emit(BTW_COMMAND_CHANNEL, { kind: "bogus" })).not.toThrow();
+     expect(() => fake.pi.events?.emit(BTW_COMMAND_CHANNEL, null)).not.toThrow();
+   });
+ 
++  it("model command with an unresolvable model emits a notice and clears the override", async () => {
++    const fake = makeFakeBusPi();
++    // resolveBtwSettings (via setBtwModelOverride) reads the main thinking level.
++    (fake.pi as unknown as { getThinkingLevel: () => string }).getThinkingLevel = () => "off";
++    registerBtwFeature(fake.pi);
++    fake.trigger("session_start", {}, fakeCtx);
++    await flush();
++    fake.pi.events?.emit(BTW_COMMAND_CHANNEL, {
++      kind: "model",
++      model: { provider: "anthropic", id: "no-such-model", api: "anthropic" },
++    });
++    await flush();
++    const notices = fake.emitted.filter(
++      (e) => e.channel === "btw:event" && (e.data as { type?: string }).type === "notice",
++    );
++    expect(notices.length).toBeGreaterThan(0);
++    const text = String((notices.at(-1)?.data as { text?: string }).text);
++    expect(text).toContain("model not found");
++    expect(text).toContain("anthropic/no-such-model");
++  });
++
+   it("emits an initial thread event at session_start (seeds the webui store)", async () => {
+     const fake = makeFakeBusPi();
+     registerBtwFeature(fake.pi);
+     fake.trigger("session_start", {}, fakeCtx);
+     await flush();
+     expect(threadEvents(fake.emitted).length).toBeGreaterThanOrEqual(1);
+   });
+ });
+diff --git a/bun-apps/pi-agent-ext-btw/src/btw/session.ts b/bun-apps/pi-agent-ext-btw/src/btw/session.ts
+index 2c00e7a6..25617089 100644
+--- a/bun-apps/pi-agent-ext-btw/src/btw/session.ts
++++ b/bun-apps/pi-agent-ext-btw/src/btw/session.ts
+@@ -364,20 +364,23 @@ export class BtwEngine {
+    * Webui bridge: an ADDITIONAL session subscription (separate from the overlay's)
+    * that pre-reduces each sub-session event into a thread snapshot and emits it on
+    * BTW_EVENT_CHANNEL. Never touches applyTranscriptEvent / setOverlayStatus / syncUi.
+    */
+   subscribeWebuiBridge(sr: BtwSessionRuntime): void {
+     if (this.webuiBridgedFor === sr) return;
+     this.webuiBridgeUnsub?.();
+     this.webuiBridgedFor = sr;
+     this.webuiStatus = null;
+     const dispose = sr.session.subscribe((event: AgentSessionEvent) => {
++      // A new turn invalidates the previous turn's terminal status ("done");
++      // reset so the ?? streaming default re-engages for the new live message.
++      if ((event as { type?: unknown }).type === "turn_start") this.webuiStatus = null;
+       const update = statusFromEvent(event);
+       if (update) this.webuiStatus = update;
+       this.emitThreadEvent();
+     });
+     // Tracked in a dedicated field (not sr.subscriptions) so the overlay attach
+     // guard in subscribeOverlayToActiveBtwSession still sees an empty set.
+     this.webuiBridgeUnsub = () => {
+       if (this.webuiBridgedFor === sr) this.webuiBridgedFor = null;
+       dispose();
+     };
+@@ -445,23 +448,29 @@ export class BtwEngine {
+           await this.dispatchBtwCommand("btw:inject", "", ctx);
+           this.emitNotice("Injected into the main session");
+           break;
+         case "summarize": {
+           const { thread } = await this.getBtwHandoffThread(ctx);
+           const summary = await this.summarizeThread(ctx, thread);
+           this.emitNotice(summary);
+           break;
+         }
+         case "model": {
+-          const model = command.model
+-            ? (ctx.modelRegistry.find(command.model.provider, command.model.id) ?? null)
+-            : null;
++          let model: SessionModel | null = null;
++          if (command.model) {
++            model = ctx.modelRegistry.find(command.model.provider, command.model.id) ?? null;
++            if (!model) {
++              this.emitNotice(
++                `btw: model not found: ${command.model.provider}/${command.model.id} — override cleared`,
++              );
++            }
++          }
+           await this.setBtwModelOverride(ctx, model);
+           break;
+         }
+         case "thinking":
+           await this.setBtwThinkingOverride(ctx, command.level);
+           break;
+         case "mode":
+           // Mirror the engine's dispose-on-mode-change semantics: next ensureBtwSession
+           // rebuilds in the new mode; dispose now so the panel reflects the reset.
+           this.pendingMode = command.mode;
+diff --git a/bun-apps/pi-agent-ext-webui/src/render-shell.ts b/bun-apps/pi-agent-ext-webui/src/render-shell.ts
+index 8acae5f8..a658a149 100644
+--- a/bun-apps/pi-agent-ext-webui/src/render-shell.ts
++++ b/bun-apps/pi-agent-ext-webui/src/render-shell.ts
+@@ -251,21 +251,21 @@ function btwRenderMessages(messages) {
+   list.querySelectorAll('[data-id]').forEach(function (el) {
+     if (!seen[el.getAttribute('data-id')]) el.remove();
+   });
+   list.scrollTop = list.scrollHeight;
+ }
+ 
+ // Inlined duplicate of the BTW_MESSAGE_HTML helper (the served HTML string has
+ // no module / build step — same intentional duplication as APPEXEC_FRAME).
+ function btwMessageHtml(m) {
+   const esc = function (s) {
+-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
++    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+   };
+   const status = m.status === 'done'
+     ? ''
+     : '<span class="btw-status">' + esc(m.statusText || m.status) + '</span>';
+   return '<div class="btw-msg btw-' + m.role + '" data-id="' + m.id + '"><div class="btw-text">' + esc(m.text) + '</div>' + status + '</div>';
+ }
+ 
+ function btwApplyEvent(event) {
+   if (event.type === 'thread') {
+     btwState = event.state;

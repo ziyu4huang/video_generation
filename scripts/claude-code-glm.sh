@@ -37,10 +37,10 @@
 # Default values (only set if not already defined)
 # The [1m] suffix on a GLM model id routes to its 1M-token context-window variant.
 : "${Z_AI_MODE:="ZAI"}"
-: "${Z_AI_MODEL_OPUS:="glm-5.2[1m]"}"
-: "${Z_AI_MODEL_DEFAULT:="glm-5.2[1m]"}"
+: "${Z_AI_MODEL_OPUS:="glm-5.3[1m]"}"
+: "${Z_AI_MODEL_DEFAULT:="glm-5.3[1m]"}"
 : "${Z_AI_MODEL_AIR:="glm-4.7"}"
-: "${Z_AI_MODEL_ALTERNATIVE:="glm-5.2[1m]"}"
+: "${Z_AI_MODEL_ALTERNATIVE:="glm-5.3[1m]"}"
 
 glm()
 {

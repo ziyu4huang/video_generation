@@ -1,0 +1,585 @@
+# Review package: a5f0b1b7..a28dc86e
+
+## Commits
+a28dc86e feat(webui): btw HTTP snapshot routes and wiring glue
+
+## Files changed
+ .../2026-08-15-btw-panel-in-webui/sdd/progress.md  |   4 +
+ .../sdd/task-8-brief.md                            | 212 +++++++++++++++++++++
+ .../sdd/task-8-report.md                           |  39 ++++
+ bun-apps/pi-agent-ext-webui/src/btw-routes.ts      |  61 ++++++
+ bun-apps/pi-agent-ext-webui/src/webui-wiring.ts    |  43 ++++-
+ .../pi-agent-ext-webui/tests/btw-routes.test.ts    |  63 ++++++
+ 6 files changed, 421 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+index c8a56e8c..819ab916 100644
+--- a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+@@ -20,10 +20,14 @@ Task 4: complete (commits 909428a..69270a5, review clean; implementer was mechan
+ Task 4: minor (deferred): BTW_COMMAND_CHANNEL subscription never torn down (no unsubscribe on shutdown) — harmless single-pi-per-process; note for hardening
+ Task 4: minor (deferred): handleWebuiCommand unserialized (rapid commands interleave) — brief defines single-command contract
+ Task 5: implemented (commit pending review)
+ Task 5: complete (commits 69270a5..046813f, review clean)
+ Task 5: minor (deferred): btwCommandFromFrame validates mode string only; thinking/model values pass unvalidated (plan-mandated verbatim) — Task 11 contract test mitigates
+ Task 5: minor (deferred): isBtwEvent thread-state validation shallow (plan-mandated verbatim) — consumers must not assume state.messages
+ Task 6: implemented (commit pending review)
+ Task 6: complete (commits 046813f..618ee8bc, review clean; implementer was mechanical tester/committer — reviewer sole compliance gate, approved)
+ Task 6: minor (deferred): BtwWebFrame interface declared after its WebFrame union reference (cosmetic, plan-mandated)
+ Task 7: implemented (commit pending review)
++Task 7: complete (commits 618ee8bc..a5f0b1b, review clean)
++Task 7: minor (deferred): store returns shared EMPTY_STATE by reference pre-first-thread-event (plan-mandated) — Task 8 consumers must NOT mutate state()
++Task 7: minor (deferred): no test for second-thread-event replacement — Task 8 tests may cover
++Task 8: implemented (commit pending review)
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-8-brief.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-8-brief.md
+new file mode 100644
+index 00000000..643a0adc
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-8-brief.md
+@@ -0,0 +1,212 @@
++### Task 8: HTTP routes + wiring glue
++
++**Files:**
++- Create: `bun-apps/pi-agent-ext-webui/src/btw-routes.ts`
++- Modify: `bun-apps/pi-agent-ext-webui/src/webui-wiring.ts` (widen `WebuiSessionCtx`; subscribe `onBtwEvent` → forwarder; `dispatch` case `"btw"`; chain btw routes into `setHttpRoutes`)
++- Test: `bun-apps/pi-agent-ext-webui/tests/btw-routes.test.ts`
++
++**Interfaces:**
++- Consumes: Task 5 (`onBtwEvent`, `emitBtwCommand`); Task 6 DispatchAction member `{ kind: "btw"; command: BtwCommand }`; Task 7 (`createBtwStore`, `createBtwForwarder`); existing `HttpRouteHandler = (req, srv) => Response | null` and `server.setHttpRoutes`, `server.broadcast`, `renderRoutes`/`outputRoutes` chain at `webui-wiring.ts` ~L370, `WebuiSessionCtx` (currently `{ abort(): void; ui: WebuiUi }` — the real `ExtensionContext` is a structural superset per the file's own comment).
++- Produces: `createBtwRoutes(deps: BtwRoutesDeps): HttpRouteHandler` with `BtwRoutesDeps = { getState(): BtwThreadState | null; getModels(): BtwModelSummary[] }` and `BtwModelSummary = { provider: string; id: string; api: string }`; `GET /api/btw` + `GET /api/btw/models` responses (`application/json; charset=utf-8`, `Cache-Control: no-store`); `WebuiSessionCtx` now includes `modelRegistry`.
++
++- [ ] **Step 1: Write the failing test**
++
++```ts
++// bun-apps/pi-agent-ext-webui/tests/btw-routes.test.ts
++import { afterEach, describe, expect, it } from "bun:test";
++import { WebServer } from "../src/web-server";
++import { createBtwRoutes } from "../src/btw-routes";
++import type { BtwThreadState } from "../src/btw-channels";
++
++const servers: WebServer[] = [];
++afterEach(() => {
++  for (const server of servers) server.stop();
++  servers.length = 0;
++});
++
++const STATE: BtwThreadState = {
++  messages: [{ id: "btw-m-0", role: "user", text: "q", status: "done" }],
++  mode: "contextual",
++  model: null,
++  thinking: null,
++};
++
++function startServer(deps: Parameters<typeof createBtwRoutes>[0]): WebServer {
++  const server = new WebServer({ port: 0 });
++  servers.push(server);
++  server.setHttpRoutes(createBtwRoutes(deps));
++  server.start();
++  return server;
++}
++
++describe("GET /api/btw", () => {
++  it("returns the latest thread snapshot with no-store headers", async () => {
++    const server = startServer({ getState: () => STATE, getModels: () => [] });
++    const res = await fetch(`${server.url}/api/btw`);
++    expect(res.status).toBe(200);
++    expect(res.headers.get("content-type")).toBe("application/json; charset=utf-8");
++    expect(res.headers.get("cache-control")).toBe("no-store");
++    expect(await res.json()).toEqual(STATE);
++  });
++
++  it("returns an empty default state when nothing has been emitted yet", async () => {
++    const server = startServer({ getState: () => null, getModels: () => [] });
++    const res = await fetch(`${server.url}/api/btw`);
++    expect(await res.json()).toEqual({ messages: [], mode: "contextual", model: null, thinking: null });
++  });
++});
++
++describe("GET /api/btw/models", () => {
++  it("returns the registry-backed model list", async () => {
++    const models = [{ provider: "anthropic", id: "claude-sonnet-4", api: "anthropic" }];
++    const server = startServer({ getState: () => STATE, getModels: () => models });
++    const res = await fetch(`${server.url}/api/btw/models`);
++    expect(res.status).toBe(200);
++    expect(res.headers.get("cache-control")).toBe("no-store");
++    expect(await res.json()).toEqual(models);
++  });
++});
++
++describe("route chaining", () => {
++  it("returns null for other paths so the existing chain continues", () => {
++    const handler = createBtwRoutes({ getState: () => STATE, getModels: () => [] });
++    expect(handler(new Request("http://localhost/api/views"), undefined as never)).toBeNull();
++    expect(handler(new Request("http://localhost/output/x.png"), undefined as never)).toBeNull();
++  });
++});
++```
++
++- [ ] **Step 2: Run test to verify it fails**
++
++Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/btw-routes.test.ts )`
++Expected: FAIL — cannot resolve `../src/btw-routes`.
++
++- [ ] **Step 3: Write the route handler**
++
++```ts
++// bun-apps/pi-agent-ext-webui/src/btw-routes.ts
++import type { HttpRouteHandler } from "./web-server";
++import type { BtwThreadState } from "./btw-channels";
++
++/** Registry-backed model summary fed to the panel's Model dropdown (D12). */
++export interface BtwModelSummary {
++  provider: string;
++  id: string;
++  api: string;
++}
++
++export interface BtwRoutesDeps {
++  getState(): BtwThreadState | null;
++  getModels(): BtwModelSummary[];
++}
++
++const EMPTY_STATE: BtwThreadState = {
++  messages: [],
++  mode: "contextual",
++  model: null,
++  thinking: null,
++};
++
++function jsonResponse(body: unknown): Response {
++  return new Response(JSON.stringify(body), {
++    headers: {
++      "Content-Type": "application/json; charset=utf-8",
++      "Cache-Control": "no-store",
++    },
++  });
++}
++
++/** GET /api/btw (thread snapshot, D7) + GET /api/btw/models (registry list, D12). */
++export function createBtwRoutes(deps: BtwRoutesDeps): HttpRouteHandler {
++  return (req) => {
++    const url = new URL(req.url);
++    if (req.method === "GET" && url.pathname === "/api/btw") {
++      return jsonResponse(deps.getState() ?? EMPTY_STATE);
++    }
++    if (req.method === "GET" && url.pathname === "/api/btw/models") {
++      return jsonResponse(deps.getModels());
++    }
++    return null;
++  };
++}
++```
++
++- [ ] **Step 4: Run test to verify it passes**
++
++Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/btw-routes.test.ts )`
++Expected: PASS (4 tests).
++
++- [ ] **Step 5: Wire everything into webui-wiring.ts (glue — covered end-to-end by Task 11's contract test)**
++
++In `bun-apps/pi-agent-ext-webui/src/webui-wiring.ts`, five additive edits:
++
++1. Imports:
++
++```ts
++import { createBtwRoutes } from "./btw-routes";
++import { createBtwForwarder, createBtwStore } from "./btw-store";
++import { emitBtwCommand, onBtwEvent } from "./btw-channels";
++```
++
++2. Widen `WebuiSessionCtx` (the real `ExtensionContext` is a structural superset, per the interface's own comment — this only narrows less):
++
++```ts
++interface WebuiSessionCtx {
++  abort(): void;
++  ui: WebuiUi;
++  modelRegistry: { getAvailable(): Array<{ provider: string; id: string; api: string }> };
++}
++```
++
++(If the SDK `ModelRegistry` type is importable with the same specifier style the file already uses for other SDK types, type the member as `ModelRegistry` instead of the structural literal — both satisfy the route mapping below.)
++
++3. In the factory body, next to where `bound` is declared, add the store + subscription (webui subscribes during factory setup, BEFORE any `session_start` fires, so it catches btw's initial thread event):
++
++```ts
++const btwStore = createBtwStore();
++const forwardBtwEvent = createBtwForwarder(btwStore, (frame) => server.broadcast(frame));
++onBtwEvent(pi.events, forwardBtwEvent);
++```
++
++4. In `dispatch(action)`, next to the existing `case "appexec":` block, add:
++
++```ts
++case "btw":
++  if (pi.events) emitBtwCommand(pi.events, action.command);
++  break;
++```
++
++5. Replace the HTTP route chain (~L370) so btw routes are consulted first:
++
++```ts
++server.setHttpRoutes(
++  (req, srv) =>
++    createBtwRoutes({
++      getState: () => btwStore.state(),
++      getModels: () =>
++        (bound?.ctx.modelRegistry?.getAvailable() ?? []).map((m) => ({
++          provider: m.provider,
++          id: m.id,
++          api: m.api,
++        })),
++    })(req, srv) ?? renderRoutes(req, srv) ?? outputRoutes(req, srv),
++);
++```
++
++Note (soft spot): the `provider`/`id`/`api` field mapping mirrors the btw override-entry payload convention; if the SDK `Model` names a field differently (e.g. `modelId`), adjust the three keys here AND keep `BtwModelSummary` unchanged.
++
++- [ ] **Step 6: Run the package gate**
++
++Run: `( cd bun-apps/pi-agent-ext-webui && bun run test )`
++Expected: PASS — the widened ctx and additive glue break nothing.
++
++- [ ] **Step 7: Commit**
++
++```bash
++git add bun-apps/pi-agent-ext-webui/src/btw-routes.ts bun-apps/pi-agent-ext-webui/tests/btw-routes.test.ts bun-apps/pi-agent-ext-webui/src/webui-wiring.ts
++git commit -m "feat(webui): serve /api/btw snapshot and model list, bridge bus to WS frames"
++```
++
++
++## Phase 3 — panel UI
++
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-8-report.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-8-report.md
+new file mode 100644
+index 00000000..b6d119c7
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-8-report.md
+@@ -0,0 +1,39 @@
++# Task 8 Report — HTTP routes + wiring glue
++
++**Status:** DONE (TDD followed)
++**Commit:** see below
++**Package:** `bun-apps/pi-agent-ext-webui`
++
++## What was done
++
++### Step 1–4: `src/btw-routes.ts` + `tests/btw-routes.test.ts` (TDD)
++
++- Wrote `tests/btw-routes.test.ts` first (verbatim from the brief: 4 tests — snapshot + headers, empty default state, model list, route-chaining fall-through). Verified FAIL (unresolvable `../src/btw-routes`).
++- Created `src/btw-routes.ts` per brief: `createBtwRoutes(deps: BtwRoutesDeps): HttpRouteHandler` with `BtwRoutesDeps = { getState(): BtwThreadState | null; getModels(): BtwModelSummary[] }`, `BtwModelSummary = { provider; id; api }`. `GET /api/btw` returns `getState() ?? EMPTY_STATE`; `GET /api/btw/models` returns `getModels()`; both `application/json; charset=utf-8` + `Cache-Control: no-store`; other paths → `null` (chain fall-through).
++- Verified 4/4 PASS.
++
++### Step 5: wiring glue in `src/webui-wiring.ts` (five additive edits)
++
++1. Imports: `createBtwRoutes`, `createBtwStore`/`createBtwForwarder`, `emitBtwCommand`/`onBtwEvent` (`.js` specifiers, matching file convention).
++2. `WebuiSessionCtx` widened with `modelRegistry: { getAvailable(): Array<{ provider; id; api }> }` (structural slice; real ExtensionContext remains a superset).
++3. Factory-body seam next to `bound`: `btwStore` + forwarder broadcasting the `btw` WebFrame via `server.broadcast`; subscribed during factory setup (pre-`session_start`) so btw's initial thread event is captured. **Deviation from brief (typing):** brief's verbatim `onBtwEvent(pi.events, forwardBtwEvent)` fails tsc because `pi.events` is `RenderHostEvents | undefined` and `onBtwEvent`'s bus param is non-optional; guarded as `if (pi.events) onBtwEvent(pi.events, forwardBtwEvent)` — same guarded-seam convention the file already uses for the render seams.
++4. `dispatch` gained `case "btw": if (pi.events) emitBtwCommand(pi.events, action.command); break;` — not agentic, bypasses mutex/pending registry by construction (separate switch case).
++5. `setHttpRoutes` chain now consults btw routes FIRST: `createBtwRoutes({ getState: () => btwStore.state(), getModels: () => (bound?.ctx.modelRegistry?.getAvailable() ?? []).map(...) })(req, srv) ?? renderRoutes(req, srv) ?? outputRoutes(req, srv)`. Model mapping mirrors the btw override-entry `provider/id/api` convention (brief soft spot: keys verified against `BtwModelRef` in btw-channels.ts — identical names, no adjustment needed).
++
++### Step 6: package gate
++
++`( cd bun-apps/pi-agent-ext-webui && bun run test )` → **306 pass / 0 fail** (includes `bunx tsc` build + full unit suite). The widened `WebuiSessionCtx` and additive glue broke nothing.
++
++## Deviations / notes
++
++- **Guarded `onBtwEvent` subscription** (see above) — the only textual deviation from the brief; required by tsc.
++- `getModels` uses `bound?.ctx.modelRegistry?.getAvailable() ?? []` — pre-`session_start` (or a host ctx without the registry) yields `[]`; the panel refetches after connect.
++- Known deferred quirk respected: no assumption that a btw dispose emits anything; the store simply holds the last snapshot.
++
++## Concerns
++
++- None blocking. The `provider/id/api` mapping is pinned only by the structural type; Task 11's contract test covers the glue end-to-end.
++
++## Completion note
++
++Tested + committed by mechanical follow-up dispatch (zk-spawn): implementer dispatch ran out of budget after staging. Reviewer is the compliance gate.
+diff --git a/bun-apps/pi-agent-ext-webui/src/btw-routes.ts b/bun-apps/pi-agent-ext-webui/src/btw-routes.ts
+new file mode 100644
+index 00000000..18728e8e
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-webui/src/btw-routes.ts
+@@ -0,0 +1,61 @@
++// bun-apps/pi-agent-ext-webui/src/btw-routes.ts
++/**
++ * btw-routes.ts — the additive HTTP adapter for the btw side panel
++ * (Task 8 of the btw-panel-in-webui effort).
++ *
++ * Installed at the FRONT of the setHttpRoutes chain (before renderRoutes /
++ * outputRoutes) so the two pull endpoints answer first; everything else falls
++ * through with null so the existing chain continues unchanged:
++ *   GET /api/btw         -> latest BtwThreadState snapshot (pull-then-subscribe, D7)
++ *   GET /api/btw/models  -> registry-backed model list for the panel dropdown (D12)
++ * The live push path is the `btw` WebFrame broadcast (btw-store's forwarder,
++ * Task 7) — these routes only serve the initial pull / reconnect refetch.
++ */
++import type { HttpRouteHandler } from "./web-server.js";
++import type { BtwThreadState } from "./btw-channels.js";
++
++/** Registry-backed model summary fed to the panel's Model dropdown (D12). */
++export interface BtwModelSummary {
++  provider: string;
++  id: string;
++  api: string;
++}
++
++/** Injected state/registry accessors (mirrors the package's DI style). */
++export interface BtwRoutesDeps {
++  /** Latest thread snapshot, or null when no btw event has been seen yet. */
++  getState(): BtwThreadState | null;
++  /** Available models from the host session's model registry. */
++  getModels(): BtwModelSummary[];
++}
++
++/** Pre-first-event default (mirrors btw-store's EMPTY_STATE shape, D7). */
++const EMPTY_STATE: BtwThreadState = {
++  messages: [],
++  mode: "contextual",
++  model: null,
++  thinking: null,
++};
++
++function jsonResponse(body: unknown): Response {
++  return new Response(JSON.stringify(body), {
++    headers: {
++      "Content-Type": "application/json; charset=utf-8",
++      "Cache-Control": "no-store",
++    },
++  });
++}
++
++/** GET /api/btw (thread snapshot, D7) + GET /api/btw/models (registry list, D12). */
++export function createBtwRoutes(deps: BtwRoutesDeps): HttpRouteHandler {
++  return (req) => {
++    const url = new URL(req.url);
++    if (req.method === "GET" && url.pathname === "/api/btw") {
++      return jsonResponse(deps.getState() ?? EMPTY_STATE);
++    }
++    if (req.method === "GET" && url.pathname === "/api/btw/models") {
++      return jsonResponse(deps.getModels());
++    }
++    return null;
++  };
++}
+diff --git a/bun-apps/pi-agent-ext-webui/src/webui-wiring.ts b/bun-apps/pi-agent-ext-webui/src/webui-wiring.ts
+index b1baf2e6..cc86ac8f 100644
+--- a/bun-apps/pi-agent-ext-webui/src/webui-wiring.ts
++++ b/bun-apps/pi-agent-ext-webui/src/webui-wiring.ts
+@@ -36,20 +36,23 @@
+ import { MutexController, type MutexNotifier } from "./mutex-controller.js";
+ import { DEFAULT_WATCHDOG, type InputSource, type MutexClock, type MutexTimer } from "./mutex.js";
+ import { BroadcastingNotifier } from "./notifier.js";
+ import { WebTransport } from "./web-transport.js";
+ import { WebServer, type CommandHandler, type HttpRouteHandler } from "./web-server.js";
+ import type { Broadcaster } from "./broadcaster.js";
+ import type { ClientFrame, DispatchAction, WebFrame } from "./protocol.js";
+ import { RenderService } from "./render-service.js";
+ import { createRenderRoutes } from "./render-routes.js";
+ import { createOutputRoutes } from "./output-routes.js";
++import { createBtwRoutes } from "./btw-routes.js";
++import { createBtwForwarder, createBtwStore } from "./btw-store.js";
++import { emitBtwCommand, onBtwEvent } from "./btw-channels.js";
+ import { createRenderEventHandler } from "./render-event-handler.js";
+ import { createPresentEventHandler } from "./present-event-handler.js";
+ import { createPresentTool, type PresentInput } from "./present-tool.js";
+ import { resolvePort } from "./port-resolver.js";
+ 
+ /**
+  * The event-bus surface the render framework needs (ticket 06 D2). The real
+  * SDK `EventBus` is `{ emit(channel,data): void; on(channel,handler): () => void }`
+  * — this mirrors exactly that so a MockPi stub is tiny.
+  */
+@@ -73,20 +76,24 @@ export interface WebuiUi {
+ 
+ /**
+  * The session-context slice the wiring touches: abort() (unchanged — the
+  * dispatch closure + bindSession still use it) + ui (new — the announce
+  * channel). Widening this UNDOES the prior `ctx as { abort(): void }` downcast
+  * so session_start can reach ctx.ui (specs/07 D3).
+  */
+ export interface WebuiSessionCtx {
+   abort(): void;
+   ui: WebuiUi;
++  /** Model registry (btw panel D12): structural slice of the SDK's
++   *  ExtensionContext.modelRegistry.getAvailable(). The real ExtensionContext
++   *  remains a structural superset. */
++  modelRegistry: { getAvailable(): Array<{ provider: string; id: string; api: string }> };
+ }
+ 
+ /**
+  * The minimal pi host surface wireWebui touches: a many-event `on` registrar,
+  * `sendUserMessage`, plus the ticket-06 render seams (`events` + `registerTool`).
+  * Narrow on purpose so a MockPi in tests is tiny; the real {@link ExtensionAPI}
+  * is a structural superset (assigned at the extensions/webui.ts entry via a cast).
+  */
+ export interface WebuiHost {
+   on(event: string, handler: (event: any, ctx: any) => any): void;
+@@ -228,20 +235,31 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
+     notifier,
+   });
+   const transport = new WebTransport();
+ 
+   // ctx widened to WebuiSessionCtx (vs the prior { abort(): void } downcast) so
+   // the fire-once announce listener can reach ctx.ui. Dispatch only needs abort(),
+   // which WebuiSessionCtx still provides (structural superset).
+   let bound: { pi: WebuiHost; ctx: WebuiSessionCtx } | null = null;
+   let disposed = false;
+ 
++  // --- btw side-panel seam (Task 8) -----------------------------------------
++  // Subscribed during factory setup, BEFORE any session_start fires, so the
++  // forwarder catches btw's initial thread event (the store serves it to
++  // GET /api/btw even pre-WS-connect). Every validated btw:event updates the
++  // store AND broadcasts the `btw` WebFrame to connected WS clients (D5/D7).
++  const btwStore = createBtwStore();
++  const forwardBtwEvent = createBtwForwarder(btwStore, (frame) => server.broadcast(frame));
++  // NOTE: onBtwEvent's bus param is non-optional, so the optional seam is
++  // guarded here (same convention as the pi.events?.on render seams above).
++  if (pi.events) onBtwEvent(pi.events, forwardBtwEvent);
++
+   // --- HITL pending-Promise registry (return transport; spec Component 1) ----
+   // Keyed by the respond `id`. registerPending creates + awaits a pending; the
+   // dispatch appexec case resolves it; abort (session_shutdown / WS close /
+   // tool-signal abort) resolves all pending as {cancelled:true}. The
+   // webui_present tool is the producer (Phase 2, Task 2). In-memory only (spec
+   // Decision C); cleared on resolve/abort. HitlResponse is the module-level
+   // exported UNION — branch on "cancelled" in r before reading r.action.
+   const pending = new Map<string, { resolve: (r: HitlResponse) => void }>();
+ 
+   function registerPending(id: string): Promise<HitlResponse> {
+@@ -318,20 +336,27 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
+         if (entry) {
+           pending.delete(action.id);
+           entry.resolve(
+             action.tweak !== undefined
+               ? { action: action.action, tweak: action.tweak }
+               : { action: action.action }
+           );
+         }
+         break;
+       }
++      case "btw":
++        // Side-panel command path (Task 6/8): forward the validated BtwCommand
++        // to the btw thread over the shared event bus. NOT agentic — never
++        // touches the mutex or the pending HITL registry. Guarded like the
++        // render seams: a host without an events bus no-ops instead of throwing.
++        if (pi.events) emitBtwCommand(pi.events, action.command);
++        break;
+       case "control":
+         // subscribe/unsubscribe: WS connect/close already auto-tracks clients
+         // in WebServer; the explicit command is a v1 no-op.
+         break;
+     }
+   }
+ 
+   server.setCommandHandler(onCommand);
+ 
+   // WS-close abort seam (spec Component 1): a disconnect mid-HITL resolves all
+@@ -359,21 +384,37 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
+       } catch {
+         return `#${id}`;
+       }
+     },
+   });
+   // Phase 4 (spec Component 5): chain the /output serving route BEHIND the
+   // render routes — render answers first (incl. GET / shell), output serves
+   // /output/{...}, everything else falls through to the WebServer defaults.
+   const renderRoutes = createRenderRoutes(registry);
+   const outputRoutes = createOutputRoutes(deps.outputDir !== undefined ? { dir: deps.outputDir } : undefined);
+-  server.setHttpRoutes((req, srv) => renderRoutes(req, srv) ?? outputRoutes(req, srv));
++  // Task 8: btw routes answer FIRST (/api/btw, /api/btw/models); render and
++  // output keep their existing order behind them. Model list is read from the
++  // BOUND session's registry (null pre-session_start -> empty list; the
++  // panel refetches after connect). The provider/id/api mapping mirrors the
++  // btw override-entry payload convention.
++  server.setHttpRoutes(
++    (req, srv) =>
++      createBtwRoutes({
++        getState: () => btwStore.state(),
++        getModels: () =>
++          (bound?.ctx.modelRegistry?.getAvailable() ?? []).map((m) => ({
++            provider: m.provider,
++            id: m.id,
++            api: m.api,
++          })),
++      })(req, srv) ?? renderRoutes(req, srv) ?? outputRoutes(req, srv),
++  );
+   // Render-seam registration is guarded: a host whose ExtensionAPI predates
+   // ticket 06 has no `events` bus / `registerTool` — wiring must not throw at
+   // boot when those capabilities are absent (no-ops instead). See WebuiHost.
+   pi.events?.on("webui:render", createRenderEventHandler(registry));
+   const presentHandler = createPresentEventHandler(registry);
+   pi.events?.on("webui:present", presentHandler);
+ 
+   // webui_present (the blocking HITL gate, spec Component 2): the `present` dep
+   // emits the webui:present event (the registered handler mints the view). If
+   // the host has NO shared event bus (guarded seam), fall back to invoking the
+diff --git a/bun-apps/pi-agent-ext-webui/tests/btw-routes.test.ts b/bun-apps/pi-agent-ext-webui/tests/btw-routes.test.ts
+new file mode 100644
+index 00000000..d49e910a
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-webui/tests/btw-routes.test.ts
+@@ -0,0 +1,63 @@
++// bun-apps/pi-agent-ext-webui/tests/btw-routes.test.ts
++// Task 8: GET /api/btw (thread snapshot, D7) + GET /api/btw/models (D12).
++import { afterEach, describe, expect, it } from "bun:test";
++import { WebServer } from "../src/web-server";
++import { createBtwRoutes } from "../src/btw-routes";
++import type { BtwThreadState } from "../src/btw-channels";
++
++const servers: WebServer[] = [];
++afterEach(() => {
++  for (const server of servers) server.stop();
++  servers.length = 0;
++});
++
++const STATE: BtwThreadState = {
++  messages: [{ id: "btw-m-0", role: "user", text: "q", status: "done" }],
++  mode: "contextual",
++  model: null,
++  thinking: null,
++};
++
++function startServer(deps: Parameters<typeof createBtwRoutes>[0]): WebServer {
++  const server = new WebServer({ port: 0 });
++  servers.push(server);
++  server.setHttpRoutes(createBtwRoutes(deps));
++  server.start();
++  return server;
++}
++
++describe("GET /api/btw", () => {
++  it("returns the latest thread snapshot with no-store headers", async () => {
++    const server = startServer({ getState: () => STATE, getModels: () => [] });
++    const res = await fetch(`${server.url}/api/btw`);
++    expect(res.status).toBe(200);
++    expect(res.headers.get("content-type")).toBe("application/json; charset=utf-8");
++    expect(res.headers.get("cache-control")).toBe("no-store");
++    expect(await res.json()).toEqual(STATE);
++  });
++
++  it("returns an empty default state when nothing has been emitted yet", async () => {
++    const server = startServer({ getState: () => null, getModels: () => [] });
++    const res = await fetch(`${server.url}/api/btw`);
++    expect(await res.json()).toEqual({ messages: [], mode: "contextual", model: null, thinking: null });
++  });
++});
++
++describe("GET /api/btw/models", () => {
++  it("returns the registry-backed model list", async () => {
++    const models = [{ provider: "anthropic", id: "claude-sonnet-4", api: "anthropic" }];
++    const server = startServer({ getState: () => STATE, getModels: () => models });
++    const res = await fetch(`${server.url}/api/btw/models`);
++    expect(res.status).toBe(200);
++    expect(res.headers.get("cache-control")).toBe("no-store");
++    expect(await res.json()).toEqual(models);
++  });
++});
++
++describe("route chaining", () => {
++  it("returns null for other paths so the existing chain continues", () => {
++    const handler = createBtwRoutes({ getState: () => STATE, getModels: () => [] });
++    expect(handler(new Request("http://localhost/api/views"), undefined as never)).toBeNull();
++    expect(handler(new Request("http://localhost/output/x.png"), undefined as never)).toBeNull();
++  });
++});

@@ -1,0 +1,236 @@
+# Review package: 4e5948f6..909428af
+
+## Commits
+909428af fix(btw): track webui bridge subscription in dedicated field — restore TUI overlay live updates
+
+## Files changed
+ .../2026-08-15-btw-panel-in-webui/sdd/progress.md  |  1 +
+ .../sdd/task-3-report.md                           | 28 +++++++++++++
+ .../__tests__/webui-bridge.test.ts                 | 47 ++++++++++++++++++++++
+ bun-apps/pi-agent-ext-btw/src/btw/session.ts       | 16 +++++++-
+ 4 files changed, 90 insertions(+), 2 deletions(-)
+
+## Diff
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+index 72fba911..2e843b62 100644
+--- a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+@@ -2,10 +2,11 @@
+ (branch feat/btw-panel-in-webui, base 0c9f6b89)
+ Task 1: implemented (commit pending review)
+ Task 1: complete (commits 0c9f6b8..a816351, review clean)
+ Task 1: minor (deferred): isBtwCommand guard is shallow for model/thinking kinds (plan-mandated verbatim) — later consumers must read fields defensively
+ Task 1: minor (deferred): ledger line wording "commit pending review" is stale — cosmetic
+ Task 2: implemented (commit pending review)
+ Task 2: complete (commits a816351..6070604, review clean)
+ Task 2: minor (deferred): snapshotsFromDetails keeps empty-text assistant snapshot when answer="" (plan-mandated verbatim)
+ Task 2: minor (deferred): brief says "6 tests", file has 7 — brief-side count slip, no behavioral drift
+ Task 3: implemented (commit pending review)
++Task 3: fix round 1/5 (ruling: dedicated webuiBridgeUnsub field, human-approved deviation from plan verbatim)
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-3-report.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-3-report.md
+index 53e911d1..02180332 100644
+--- a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-3-report.md
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-3-report.md
+@@ -43,10 +43,38 @@ out of budget:
+ - Ran the package gate (`bun run test`) → 25 pass / 0 fail across 6 files; all
+   pre-existing suites (registration, extension-contract, markdown-render,
+   webui-events contract, snapshot) stay green.
+ - Appended progress.md, wrote this report, committed per the brief's Step 7.
+ 
+ ## Concerns
+ 
+ None blocking. Note for Task 4: `latestCtx` is recorded by `setLatestCtx` but no
+ caller wires it yet — that call site (`session_start` / `session_tree` handlers) and
+ `handleWebuiCommand` belong to Task 4.
++
++## Fix round 1/5 (review finding: TUI overlay live updates dead for new sub-sessions)
++
++**Ruling applied:** dedicated-field tracking (human-approved deviation from the brief's
++verbatim `sr.subscriptions.add(...)` in `subscribeWebuiBridge`).
++
++**What changed (`src/btw/session.ts`):**
++- New private field `webuiBridgeUnsub: (() => void) | null` next to `webuiBridgedFor`.
++- `subscribeWebuiBridge` no longer adds its disposer to `sr.subscriptions`; it stores it
++  in `this.webuiBridgeUnsub` (disposing any prior bridge unsub first). This keeps
++  `sr.subscriptions` empty after `createBtwSubSession`, so the guard
++  `if (!sr || sr.subscriptions.size > 0) return;` in `subscribeOverlayToActiveBtwSession`
++  no longer bails — the overlay's `handleBtwSessionEvent` subscription attaches again.
++- `disposeBtwSession` invokes and nulls `webuiBridgeUnsub` alongside the existing
++  `webuiStatus` clear / `clearBtwSessionSubscriptions`.
++- `subscribeOverlayToActiveBtwSession` and its guard untouched, per the ruling.
++
++**Regression test added (`__tests__/webui-bridge.test.ts`):**
++"keeps the TUI overlay path attachable while the webui bridge is active" — builds an sr,
++subscribes the bridge, asserts `sr.subscriptions.size === 0`; monkey-patches
++`handleBtwSessionEvent` as a spy, calls `subscribeOverlayToActiveBtwSession`, asserts
++size increments to 1, pushes an event through a multi-listener fake session and asserts
++both the overlay spy fired AND the bridge emitted on `btw:event`; after `disposeBtwSession`
++asserts subscriptions drain to 0.
++
++**Covering tests:**
++- Focused: `bun test __tests__/webui-bridge.test.ts` → 4 pass / 0 fail.
++- Full gate: `bun run test` → 26 pass / 0 fail across 6 files (was 25; +1 regression test).
+diff --git a/bun-apps/pi-agent-ext-btw/__tests__/webui-bridge.test.ts b/bun-apps/pi-agent-ext-btw/__tests__/webui-bridge.test.ts
+index 9a9da137..e68457b4 100644
+--- a/bun-apps/pi-agent-ext-btw/__tests__/webui-bridge.test.ts
++++ b/bun-apps/pi-agent-ext-btw/__tests__/webui-bridge.test.ts
+@@ -103,20 +103,67 @@ describe("BtwEngine webui bridge", () => {
+           { id: "btw-d-0", role: "user", text: "persisted q", status: "done" },
+           { id: "btw-d-1", role: "assistant", text: "persisted a", status: "done" },
+         ],
+         mode: "contextual",
+         model: null,
+         thinking: null,
+       },
+     });
+   });
+ 
++  it("keeps the TUI overlay path attachable while the webui bridge is active", async () => {
++    const { pi, emitted } = makeFakeBusPi();
++    const engine = new BtwEngine(pi);
++    // Multi-listener fake: unlike makeFakeSession, every subscriber stays attached.
++    const listeners = new Set<(event: unknown) => void>();
++    const fake = {
++      agent: { state: { messages: [] as unknown[] } },
++      subscribe(cb: (event: unknown) => void) {
++        listeners.add(cb);
++        return () => listeners.delete(cb);
++      },
++      push(event: unknown) {
++        for (const cb of [...listeners]) cb(event);
++      },
++      abort() {},
++      async dispose() {},
++    };
++    const sr = {
++      session: fake as unknown as AgentSession,
++      mode: "contextual" as const,
++      subscriptions: new Set<() => void>(),
++      sideThreadStartIndex: 0,
++    };
++    engine.activeBtwSession = sr;
++    engine.subscribeWebuiBridge(sr);
++    // The bridge subscription must NOT occupy sr.subscriptions — otherwise the
++    // guard in subscribeOverlayToActiveBtwSession sees size>0 and returns early.
++    expect(sr.subscriptions.size).toBe(0);
++
++    let overlayEvents = 0;
++    engine.handleBtwSessionEvent = () => {
++      overlayEvents++;
++    };
++    engine.subscribeOverlayToActiveBtwSession();
++    expect(sr.subscriptions.size).toBe(1);
++
++    fake.push({ type: "message_update" });
++    // Both the overlay path and the webui bridge receive sub-session events.
++    expect(overlayEvents).toBe(1);
++    expect(emitted.filter((e) => e.channel === "btw:event").length).toBeGreaterThan(0);
++
++    // Dispose clears the dedicated bridge disposer alongside the overlay subscription.
++    await engine.disposeBtwSession();
++    expect(sr.subscriptions.size).toBe(0);
++    listeners.clear(); // fake has no weakrefs; engine-level clearing is asserted via size above
++  });
++
+   it("emitNotice posts a notice event on the event channel", () => {
+     const { pi, emitted } = makeFakeBusPi();
+     const engine = new BtwEngine(pi);
+     engine.emitNotice("Injected into the main session");
+     expect(emitted.filter((e) => e.channel === "btw:event").at(-1)?.data).toEqual({
+       type: "notice",
+       text: "Injected into the main session",
+     });
+   });
+ });
+diff --git a/bun-apps/pi-agent-ext-btw/src/btw/session.ts b/bun-apps/pi-agent-ext-btw/src/btw/session.ts
+index 62c604d9..530de61f 100644
+--- a/bun-apps/pi-agent-ext-btw/src/btw/session.ts
++++ b/bun-apps/pi-agent-ext-btw/src/btw/session.ts
+@@ -263,20 +263,27 @@ export class BtwEngine {
+   overlayDraft = "";
+   overlayRuntime: OverlayRuntime | null = null;
+   lastUiContext: ExtensionContext | ExtensionCommandContext | null = null;
+   activeBtwSession: BtwSessionRuntime | null = null;
+   /** Latest ExtensionCommandContext seen at session_start/session_tree; the webui command channel carries no ctx. */
+   private latestCtx: ExtensionCommandContext | null = null;
+   /** Status override for the last live message, derived from sub-session events. */
+   private webuiStatus: BtwStatusUpdate | null = null;
+   /** The BtwSessionRuntime currently bridged to the webui event channel. */
+   private webuiBridgedFor: BtwSessionRuntime | null = null;
++  /**
++   * Disposer for the active webui bridge subscription. Deliberately NOT stored in
++   * sr.subscriptions: the overlay attach guard in subscribeOverlayToActiveBtwSession
++   * treats a non-empty set as "overlay already attached", which would silently kill
++   * TUI live updates for every sub-session created after the bridge (Task 3 fix).
++   */
++  private webuiBridgeUnsub: (() => void) | null = null;
+ 
+   constructor(private readonly pi: ExtensionAPI) {}
+ 
+   // ── Sync UI ──────────────────────────────────────────────────────────────
+ 
+   syncUi(ctx?: ExtensionContext | ExtensionCommandContext): void {
+     const activeCtx = ctx ?? this.lastUiContext;
+     if (activeCtx?.hasUI) {
+       activeCtx.ui.setWidget("btw", undefined);
+       this.overlayRuntime?.refresh?.();
+@@ -352,31 +359,34 @@ export class BtwEngine {
+     this.latestCtx = ctx;
+   }
+ 
+   /**
+    * Webui bridge: an ADDITIONAL session subscription (separate from the overlay's)
+    * that pre-reduces each sub-session event into a thread snapshot and emits it on
+    * BTW_EVENT_CHANNEL. Never touches applyTranscriptEvent / setOverlayStatus / syncUi.
+    */
+   subscribeWebuiBridge(sr: BtwSessionRuntime): void {
+     if (this.webuiBridgedFor === sr) return;
++    this.webuiBridgeUnsub?.();
+     this.webuiBridgedFor = sr;
+     this.webuiStatus = null;
+     const dispose = sr.session.subscribe((event: AgentSessionEvent) => {
+       const update = statusFromEvent(event);
+       if (update) this.webuiStatus = update;
+       this.emitThreadEvent();
+     });
+-    sr.subscriptions.add(() => {
++    // Tracked in a dedicated field (not sr.subscriptions) so the overlay attach
++    // guard in subscribeOverlayToActiveBtwSession still sees an empty set.
++    this.webuiBridgeUnsub = () => {
+       if (this.webuiBridgedFor === sr) this.webuiBridgedFor = null;
+       dispose();
+-    });
++    };
+   }
+ 
+   /** Current thread state, pre-reduced for the webui panel (D5). */
+   buildThreadState(): BtwThreadState {
+     const messages = this.activeBtwSession
+       ? snapshotsFromMessages(
+           this.activeBtwSession.session.agent.state.messages.slice(
+             this.activeBtwSession.sideThreadStartIndex,
+           ),
+           this.webuiStatus,
+@@ -405,20 +415,22 @@ export class BtwEngine {
+   /** Emit a one-line notice (inject confirmation, summarize output, errors). */
+   emitNotice(text: string): void {
+     const event: BtwEvent = { type: "notice", text };
+     this.pi.events?.emit(BTW_EVENT_CHANNEL, event);
+   }
+ 
+   async disposeBtwSession(): Promise<void> {
+     const current = this.activeBtwSession;
+     this.activeBtwSession = null;
+     this.webuiStatus = null;
++    this.webuiBridgeUnsub?.();
++    this.webuiBridgeUnsub = null;
+     if (!current) return;
+     this.clearBtwSessionSubscriptions(current);
+     try { await current.session.abort(); } catch { /* ignore */ }
+     current.session.dispose();
+     this.emitThreadEvent();
+   }
+ 
+   async dismissOverlaySession(): Promise<void> {
+     this.dismissOverlay();
+     await this.disposeBtwSession();
