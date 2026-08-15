@@ -55,6 +55,7 @@ import {
 	DEVOPS_RETROSPECT_PROBES,
 	PREPARE_BRANCH_PROBES,
 	VERIFY_MERGE_PROBES,
+	MAIN_HEALTH_PROBES,
 } from "@repo/pi-agent-ext-devops/extensions/devops.ts";
 import { __GATE_PROBES__ as memorySupersedeProbes } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-supersede-tool.ts";
 
@@ -80,6 +81,7 @@ export const ALL_PROBE_SETS: GateProbeSet[] = [
 	DEVOPS_RETROSPECT_PROBES,
 	PREPARE_BRANCH_PROBES,
 	VERIFY_MERGE_PROBES,
+	MAIN_HEALTH_PROBES,
 ];
 
 /** Probe set per canonical gate name (harness looks up by group-member name). */
