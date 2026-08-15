@@ -25,7 +25,7 @@ import {
   summarizeLatestAction,
 } from "@repo/pi-agent-ext-core-runtime";
 import { fmtDuration, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
-import type { PersistedRunState } from "./run-persistence.js";
+import { persistedToSnapshot } from "./run-persistence.js";
 import { registerSavedWorkflow } from "./saved-commands.js";
 import type { WorkflowManager } from "./workflow-manager.js";
 import type { SavedWorkflow, WorkflowStorage } from "./workflow-saved.js";
@@ -189,37 +189,6 @@ type StackFrame = {
   agentId?: number;
   savedName?: string;
 };
-
-function persistedToSnapshot(p: PersistedRunState): WorkflowSnapshot {
-  return {
-    name: p.workflowName,
-    phases: p.phases,
-    currentPhase: p.currentPhase,
-    logs: p.logs,
-    agents: p.agents.map((a) => ({
-      id: a.id,
-      label: a.label,
-      phase: a.phase,
-      prompt: a.prompt,
-      status: a.status,
-      resultPreview:
-        a.result == null ? undefined : String(typeof a.result === "string" ? a.result : JSON.stringify(a.result)),
-      error: a.error,
-      errorCode: a.errorCode,
-      recoverable: a.recoverable,
-      history: a.history,
-      model: a.model,
-      tokens: a.tokens ?? undefined,
-      startedAt: a.startedAt ? Date.parse(a.startedAt) : undefined,
-    })),
-    agentCount: p.agents.length,
-    runningCount: p.agents.filter((a) => a.status === "running").length,
-    doneCount: p.agents.filter((a) => a.status === "done").length,
-    errorCount: p.agents.filter((a) => a.status === "error").length,
-    tokenUsage: p.tokenUsage ? { ...p.tokenUsage } : undefined,
-    runId: p.runId,
-  };
-}
 
 /** Navigation state machine: a stack of (view, cursor) frames plus detail scroll. */
 export class NavigatorState {

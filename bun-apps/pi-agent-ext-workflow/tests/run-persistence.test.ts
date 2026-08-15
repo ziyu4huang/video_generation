@@ -4,7 +4,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WORKFLOW_RUNS_DIR } from "../src/config.js";
-import { createRunPersistence, generateRunId, type PersistedRunState } from "../src/run-persistence.js";
+import {
+  createRunPersistence,
+  generateRunId,
+  type PersistedAgentState,
+  type PersistedRunState,
+  persistedToSnapshot,
+} from "../src/run-persistence.js";
 import { WorkflowManager } from "../src/workflow-manager.js";
 import { workflowProjectPaths } from "../src/workflow-paths.js";
 import { withFakeHomeAsync } from "./helpers/fake-home.js";
@@ -21,6 +27,99 @@ function withTempCwd(fn: (cwd: string) => Promise<void>) {
     }
   };
 }
+
+function fullAgent(): PersistedAgentState {
+  return {
+    id: 1,
+    label: "builder",
+    phase: "Build",
+    prompt: "build it",
+    status: "done",
+    result: { verdict: "ok" },
+    history: [{ role: "assistant", kind: "toolCall", toolName: "grep", text: "{}" }],
+    startedAt: "2025-06-01T12:00:00.000Z",
+    endedAt: "2025-06-01T12:01:00.000Z",
+    tokens: 1234,
+    model: "anthropic/claude-sonnet-4",
+  };
+}
+
+test("persistedToSnapshot round-trips every PersistedAgentState field", () => {
+  const agent = fullAgent();
+  const errored: PersistedAgentState = {
+    id: 2,
+    label: "failing",
+    prompt: "try it",
+    status: "error",
+    error: "boom",
+    errorCode: "AGENT_TIMEOUT" as PersistedAgentState["errorCode"],
+    recoverable: true,
+  };
+  const state: PersistedRunState = {
+    runId: "r-full",
+    workflowName: "full-run",
+    script: "export const meta = { name: 'f' }",
+    status: "completed",
+    phases: ["Build"],
+    currentPhase: "Build",
+    agents: [agent, errored],
+    logs: ["log line"],
+    result: "done",
+    startedAt: "2025-06-01T12:00:00.000Z",
+    updatedAt: "2025-06-01T12:01:00.000Z",
+    durationMs: 60000,
+    tokenUsage: { input: 10, output: 20, total: 30 },
+  };
+  const snap = persistedToSnapshot(state);
+  assert.equal(snap.name, "full-run");
+  assert.equal(snap.runId, "r-full");
+  assert.equal(snap.phases.length, 1);
+  assert.equal(snap.currentPhase, "Build");
+  assert.deepEqual(snap.logs, ["log line"]);
+  assert.deepEqual(snap.tokenUsage, { input: 10, output: 20, total: 30 });
+
+  const a = snap.agents[0]!;
+  assert.equal(a.id, agent.id);
+  assert.equal(a.label, agent.label);
+  assert.equal(a.phase, agent.phase);
+  assert.equal(a.prompt, agent.prompt);
+  assert.equal(a.status, agent.status);
+  assert.equal(a.resultPreview, '{"verdict":"ok"}');
+  assert.deepEqual(a.history, agent.history);
+  assert.equal(a.startedAt, Date.parse("2025-06-01T12:00:00.000Z"));
+  assert.equal(a.tokens, agent.tokens);
+  assert.equal(a.model, agent.model);
+
+  const e = snap.agents[1]!;
+  assert.equal(e.status, "error");
+  assert.equal(e.error, "boom");
+  assert.equal(e.errorCode, errored.errorCode);
+  assert.equal(e.recoverable, true);
+
+  assert.equal(snap.agentCount, 2);
+  assert.equal(snap.doneCount, 1);
+  assert.equal(snap.runningCount, 0);
+  assert.equal(snap.errorCount, 1);
+});
+
+test("persistedToSnapshot degrades gracefully on legacy persisted JSON (no tokens/model/startedAt)", () => {
+  const state = {
+    runId: "r-legacy",
+    workflowName: "legacy-run",
+    status: "completed",
+    phases: ["Build"],
+    agents: [{ id: 1, label: "old builder", phase: "Build", status: "done", prompt: "build it", result: "ok" }],
+    logs: [],
+    startedAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z",
+  } as unknown as PersistedRunState;
+  const snap = persistedToSnapshot(state);
+  assert.equal(snap.agentCount, 1);
+  assert.equal(snap.doneCount, 1);
+  assert.equal(snap.agents[0]!.tokens, undefined, "legacy files without tokens map to undefined");
+  assert.equal(snap.agents[0]!.model, undefined, "legacy files without model map to undefined");
+  assert.equal(snap.agents[0]!.startedAt, undefined, "legacy files without startedAt map to undefined");
+});
 
 test(
   "createRunPersistence creates runs directory on first save",
