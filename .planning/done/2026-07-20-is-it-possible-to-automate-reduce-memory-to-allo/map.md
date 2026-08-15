@@ -1,3 +1,7 @@
+---
+status: complete
+---
+
 > STATUS: DONE — archived 2026-08-15 (shipped in main; see git history / PR references in map)
 # Map — Concurrent-safe, self-reducing pi memory
 
@@ -35,3 +39,4 @@ Priority targets: `memory` (99%) and `failure` (near-full) first; the fix is uni
 - **DB-row reconciliation.** The 126-row figure was the sum across all project scopes, not bloat; `<global>` memory has only 2 stale rows (trivial). This is a *search-quality* concern, not a *capacity* concern, and the destination is about capacity/concurrency. Re-opens as a fresh effort only if search dedup becomes a real problem.
 - **Raising the per-target char limit / auto-TTL eviction.** Ruled out by choosing destination (A) — the goal is reliable *reduction*, not a bigger bucket. (`memory transfer` to the vault remains the manual escape valve for verbose-but-durable entries.)
 - **Auto-triggering dedup** (capacity-threshold hook, session-end hook). Ruled out by destination Q2 — reliable auto-reduce on overflow is the automation; dedup stays manual-but-safe.
+> Closed 2026-08-15: all 3 tickets closed; capacity-safe writes shipped (lock + vault-offload).

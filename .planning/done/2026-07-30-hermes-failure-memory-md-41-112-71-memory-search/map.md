@@ -1,3 +1,7 @@
+---
+status: complete
+---
+
 > STATUS: DONE — archived 2026-08-15 (shipped in main; see git history / PR references in map)
 # Map — make hermes `memory_search` reliable (fix the persistent SurrealDB timeout)
 
@@ -33,3 +37,4 @@
 - **Cleaning the SQLite 112 rows** — shadow store, doesn't affect search (destination decision: reliability-first). Revisit only if 00 finds it IS searched.
 - **A general hermes storage overhaul / backend unification.** Touching the dual-backend architecture is a separate, larger effort.
 - **The `.md` content itself** — already cleaned this session (96%→~82%); not the problem here.
+> Closed 2026-08-15: memory_search SurrealDB timeout fixed; shadow-store drift documented as left-by-decision.

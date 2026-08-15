@@ -1,3 +1,7 @@
+---
+status: complete
+---
+
 # Wayfinder map: per-session assembly log (prompt-provenance) — UPSP §5, DO ticket 05
 
 > Origin: the UPSP study effort (`2026-08-02-try-to-checkout-code-use-gh-and-learning-from-ht`,
@@ -62,3 +66,4 @@ destination is redrawn):
   mid-session memory-tool mutations entering the prompt). Rejected: mid-session writes are
   already audited by the memory tool's own `added_md_id`/lineage, so per-session-at-start
   covers "did S see M?" = loaded-at-start ∪ written-during-S.
+> Closed 2026-08-15: map records ✅ Reached (PR #1012, 7 SDD tasks).

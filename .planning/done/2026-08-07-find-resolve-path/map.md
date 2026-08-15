@@ -2,7 +2,7 @@
 effort: 2026-08-07-find-resolve-path
 created: 2026-08-07
 last: 2026-08-07
-status: active
+status: complete
 ---
 
 # Wayfinder map: 2026-08-07-find-resolve-path
@@ -26,3 +26,4 @@ _(none)_
 ## Out of scope
 
 <!-- none -->
+> Closed 2026-08-15: vacuous destination stub; superseded by the vault-root effort (archived above).

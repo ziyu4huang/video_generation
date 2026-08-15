@@ -1,3 +1,7 @@
+---
+status: complete
+---
+
 # Wayfinder map: 2026-07-28-finding-b-syncmarkdownmemories-per-entry-n-1-908
 
 ## Destination
@@ -21,3 +25,4 @@ _(none)_
 ## Out of scope
 
 <!-- none -->
+> Closed 2026-08-15: observation landed; N+1 batching + perf.jsonl auto-surfacing via #908.
