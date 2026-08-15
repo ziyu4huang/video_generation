@@ -41,6 +41,7 @@ function fakeClient(s: {
 		dirtyPaths: async (dir: string) => s.dirty?.[dir] ?? [],
 		revParse: async (rev: string) => s.revs?.[rev],
 		aheadBehind: async () => ({ ahead: 0, behind: 0 }),
+		logSubjects: async () => [],
 	};
 	// BranchClient adds isClean beyond the SyncClient Pick; the CLI never calls it.
 	return base as unknown as BranchClient;
@@ -83,7 +84,7 @@ describe("parseSyncArgs — argv contract", () => {
 	});
 
 	test("--mode accepts exactly full|rebase|pull", () => {
-		for (const m of ["full", "rebase", "pull"]) {
+		for (const m of ["full", "rebase", "pull"] as const) {
 			const r = parseSyncArgs(["--mode", m]);
 			expect(r.ok).toBe(true);
 			if (r.ok) expect(r.args.mode).toBe(m);

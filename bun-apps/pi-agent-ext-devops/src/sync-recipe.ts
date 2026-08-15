@@ -98,7 +98,7 @@ function isPreservable(path: string, preserve: string[]): boolean {
  */
 export type SyncClient = Pick<
 	BranchClient,
-	"defaultBranch" | "currentBranch" | "worktreeList" | "revParse" | "dirtyPaths" | "aheadBehind"
+	"defaultBranch" | "currentBranch" | "worktreeList" | "revParse" | "dirtyPaths" | "aheadBehind" | "logSubjects"
 >;
 
 export interface SyncAdvanced {
@@ -110,12 +110,58 @@ export interface SyncAdvanced {
 	from: string;
 	/** SHA after the operation (origin/<D> for full; post-op HEAD for rebase/pull). */
 	to: string;
+	/** How many commits the advance moved (rev-list count from..to). 0 under dryRun. */
+	count: number;
+	/** Commit subjects of the advance (newest first, capped at 15; a final
+	 *  `"... and N more"` entry appears when count exceeds the cap). [] under dryRun. */
+	subjects: string[];
 }
 
+/** One row of the full-mode submodule report. Evaluated in `worktree` against
+ *  THAT worktree's HEAD-recorded gitlink, after `submodule update --init
+ *  --recursive --remote` (so `+` typically means "advanced past the recorded
+ *  gitlink by --remote", not "dirty"). */
 export interface SyncSubmodule {
+	/** Worktree the status was evaluated in (the caller's repoRoot, or the worktree holding the default branch). */
+	worktree: string;
+	/** Submodule path, repo-relative. */
 	path: string;
+	/** Submodule SHA reported by `git submodule status`. */
 	sha: string;
-	clean: boolean;
+	/** git status flag: `" "` matches the recorded gitlink, `"+"` differs from
+	 *  it, `"-"` not initialized, `"U"` merge conflict. */
+	flag: " " | "+" | "-" | "U";
+	/** True iff flag is `" "` (the checked-out SHA matches the recorded gitlink). */
+	matchesRecordedGitlink: boolean;
+}
+
+/** Post-run snapshot of the CALLING worktree (opts.repoRoot): what is checked
+ *  out there after the sync, and how far behind origin/<D> it now is. */
+export interface SyncCaller {
+	/** The worktree that invoked sync_repo. */
+	worktree: string;
+	/** The branch checked out there AFTER the run; null when detached. */
+	branch: string | null;
+	/** True iff the calling worktree is on a detached HEAD. */
+	detached: boolean;
+	/** How many commits the caller's branch is behind origin/<D> AFTER the run
+	 *  (null when detached). >0 pushes a behind-default warning: full mode
+	 *  advances <D> only in the worktree that holds it. */
+	behindDefault: number | null;
+}
+
+/** Full-mode verification snapshot: does local <D> equal origin/<D> after the
+ *  advance? Always present in a completed full-mode run (dry included, where
+ *  it records the drift the plan would fix). */
+export interface SyncVerification {
+	/** The default branch verified. */
+	branch: string;
+	/** Local <D> SHA after the advance ("" when unresolvable). */
+	local: string;
+	/** The origin/<D> SHA the advance targeted. */
+	remote: string;
+	/** True iff local === remote. */
+	ok: boolean;
 }
 
 /**
@@ -128,10 +174,11 @@ export interface SyncSubmodule {
 export interface SyncAbort {
 	/** Always true — discriminator (present only on an aborted run). */
 	aborted: true;
-	/** Machine reason: "aborted_before_start" | "dirty_tree" | "no_origin_ref"
-	 *  | "checkout_failed" | "merge_ff_failed" (→ "divergent") | "reset_failed"
-	 *  | "detached_head" | "rebase_failed" | "merge_failed". */
-	reason: string;
+	/** Machine reason — one of SYNC_ABORT_REASONS: "aborted_before_start" |
+	 *  "dirty_tree" | "no_origin_ref" | "checkout_failed" | "preserve_failed" |
+	 *  "divergent" | "reset_failed" | "detached_head" | "rebase_failed" |
+	 *  "merge_failed". */
+	reason: SyncAbortReason;
 	/** Human-readable summary (what happened + immediate remediation). */
 	message: string;
 	/** The default branch, when relevant to the reason (divergent). */
@@ -140,6 +187,26 @@ export interface SyncAbort {
 	hint?: string;
 }
 
+/** Every abort reason runSync can actually emit (the SyncAbort.reason union —
+ *  kept in sync with the `outcome({ aborted: true, reason: … })` sites below).
+ *  NOTE: reason strings are snake_case here; prepare_branch separately emits
+ *  hyphenated reasons ("worktree-conflict", "rebase-conflict", …) — a
+ *  different union, NOT shared with this one. */
+export const SYNC_ABORT_REASONS = [
+	"aborted_before_start",
+	"dirty_tree",
+	"no_origin_ref",
+	"checkout_failed",
+	"preserve_failed",
+	"divergent",
+	"reset_failed",
+	"detached_head",
+	"rebase_failed",
+	"merge_failed",
+] as const;
+
+export type SyncAbortReason = (typeof SYNC_ABORT_REASONS)[number];
+
 export interface SyncOutcome {
 	mode: SyncMode;
 	dryRun: boolean;
@@ -147,8 +214,15 @@ export interface SyncOutcome {
 	defaultBranch: string;
 	/** Branch advancements performed (empty in an aborted run; populated under dryRun). */
 	advanced: SyncAdvanced[];
-	/** Full-mode submodule report (parsed `git submodule status --recursive`). */
+	/** Full-mode submodule report (parsed `git submodule status --recursive`,
+	 *  per worktree evaluated). */
 	submodules: SyncSubmodule[];
+	/** Post-run snapshot of the calling worktree. Present once the run reached
+	 *  the advance (full/rebase/pull, dry included); absent on early aborts. */
+	caller?: SyncCaller;
+	/** Full-mode post-advance verification snapshot. Present on every completed
+	 *  full-mode run (dry included); absent on aborts + rebase/pull. */
+	verification?: SyncVerification;
 	/** Pre-flight issues (uncommitted, unpushed, verification drift). */
 	warnings: string[];
 	/** Every git command issued, rendered runnable (`git -C "<dir>" <args>`).
@@ -213,6 +287,8 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	const advanced: SyncAdvanced[] = [];
 	const submodules: SyncSubmodule[] = [];
 	let preserved: SyncPreserved | undefined;
+	let caller: SyncCaller | undefined;
+	let verification: SyncVerification | undefined;
 
 	/** Issue a git command: always record it (for `commands`); skip execution
 	 *  entirely under dryRun (returns a canned success). */
@@ -238,6 +314,8 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		defaultBranch: D,
 		advanced,
 		submodules,
+		caller,
+		verification,
 		warnings,
 		commands,
 		aborted,
@@ -249,6 +327,59 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		warnings.push("aborted before start.");
 		return outcome({ aborted: true, reason: "aborted_before_start", message: "aborted before start." });
 	}
+
+	/** Post-run snapshot of the CALLING worktree (read-only): what's checked out
+	 *  there after the sync, and how far behind origin/<D> it now is. Warns when
+	 *  the caller lags — full mode advances <D> only in the worktree that HOLDS
+	 *  it, so every other worktree (possibly including the caller) stays behind. */
+	const callerPostState = async (): Promise<SyncCaller> => {
+		const branch = await client.currentBranch();
+		const detached = !branch || branch === "HEAD";
+		const behindDefault = detached ? null : (await client.aheadBehind(`origin/${D}`, branch)).behind;
+		if ((behindDefault ?? 0) > 0) {
+			warnings.push(
+				`calling worktree ${repoRoot} is ${behindDefault} commit(s) behind ${D} — full mode advances the default branch only in the worktree that holds it.`,
+			);
+		}
+		return { worktree: repoRoot, branch: detached ? null : branch, detached, behindDefault };
+	};
+
+	/** Enrich an advanced[] entry with the commits it moved: count via rev-list
+	 *  (from..to), subjects via `git log --format=%s` capped at 15 (a final
+	 *  `"... and N more"` entry when count exceeds the cap). dryRun: 0 / []. */
+	const advancedCommits = async (from: string, to: string): Promise<{ count: number; subjects: string[] }> => {
+		if (dry || !from || !to) return { count: 0, subjects: [] };
+		const count = (await client.aheadBehind(from, to)).ahead;
+		let subjects = await client.logSubjects(from, to, 15);
+		if (count > subjects.length) subjects = [...subjects, `... and ${count - subjects.length} more`];
+		return { count, subjects };
+	};
+
+	/** Run the 4-command submodule sync cycle at `dir` (fetch → update --remote →
+	 *  sync → status) and fold the per-submodule status into `submodules`,
+	 *  tagged with `dir`. Failures WARN + continue — never hard-abort the sync
+	 *  (a broken submodule must not undo the default-branch advance that just
+	 *  succeeded). Under dryRun the commands are recorded (the plan) and the
+	 *  canned empty status yields no rows. */
+	const submoduleOps = async (dir: string): Promise<void> => {
+		const steps: Array<[string, string[]]> = [
+			["fetch", ["submodule", "foreach", "--recursive", "git", "fetch", "--all", "--prune"]],
+			["update", ["submodule", "update", "--init", "--recursive", "--remote"]],
+			["sync", ["submodule", "sync", "--recursive"]],
+		];
+		for (const [label, args] of steps) {
+			const r = await git(dir, args);
+			if (r.exitCode !== 0) warnings.push(`submodule ${label} failed at ${dir}: ${trim(r.stderr || r.stdout)}`);
+		}
+		const status = await git(dir, ["submodule", "status", "--recursive"]);
+		if (status.exitCode !== 0) {
+			warnings.push(`submodule status failed at ${dir}: ${trim(status.stderr || status.stdout)}`);
+			return;
+		}
+		for (const s of parseSubmoduleStatus(status.stdout)) {
+			submodules.push({ worktree: dir, path: s.path, sha: s.sha, flag: s.flag, matchesRecordedGitlink: s.flag === " " });
+		}
+	};
 
 	const current = await client.currentBranch();
 
@@ -378,26 +509,29 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 
 		// Surface a refusal now — AFTER the stash was restored.
 		if (advanceAborted) return outcome(advanceAborted);
-		advanced.push({ worktree: advanceTarget, branch: D, from, to });
+		const { count, subjects } = await advancedCommits(from, to);
+		advanced.push({ worktree: advanceTarget, branch: D, from, to, count, subjects });
 
-		// 8. Verify local <D> now equals origin/<D> (the bash verify_default_at_latest
-		//    guard — turns a silent skipped-advance into a loud warning).
-		if (!dry) {
-			const localD = await client.revParse(D);
-			if (localD && localD !== to) {
-				warnings.push(`verification: local '${D}' (${localD.slice(0, 12)}) != origin/${D} (${to.slice(0, 12)}).`);
-			}
+		// 8. Verification snapshot (ALWAYS present in full mode — even under
+		//    dryRun, where it records the drift the plan would fix): does local
+		//    <D> equal the origin/<D> we targeted? Mismatch warns (never aborts —
+		//    the bash verify_default_at_latest guard, loud not fatal).
+		const localD = (await client.revParse(D)) ?? "";
+		verification = { branch: D, local: localD, remote: to, ok: localD === to };
+		if (!dry && localD && !verification.ok) {
+			warnings.push(`verification: local '${D}' (${localD.slice(0, 12)}) != origin/${D} (${to.slice(0, 12)}).`);
 		}
 
 		// 9. Recursive submodule sync (full only): fetch each, advance every
-		//    submodule to its configured remote tip, reconcile paths, then report.
-		await git(repoRoot, ["submodule", "foreach", "--recursive", "git", "fetch", "--all", "--prune"]);
-		await git(repoRoot, ["submodule", "update", "--init", "--recursive", "--remote"]);
-		await git(repoRoot, ["submodule", "sync", "--recursive"]);
-		const status = await git(repoRoot, ["submodule", "status", "--recursive"]);
-		for (const s of parseSubmoduleStatus(status.stdout)) {
-			submodules.push({ path: s.path, sha: s.sha, clean: s.flag === "" });
-		}
+		//    submodule to its configured remote tip, reconcile paths, then report —
+		//    in the CALLER's worktree AND (when <D> was advanced in a DIFFERENT
+		//    worktree) there too, so both trees' submodules sit at the remote tips.
+		//    Per-worktree failures warn; the sync never hard-aborts.
+		await submoduleOps(repoRoot);
+		if (advanceTarget !== repoRoot) await submoduleOps(advanceTarget);
+
+		// Post-run caller snapshot (behind-default warning when the caller lags).
+		caller = await callerPostState();
 		return outcome();
 	}
 
@@ -474,6 +608,9 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 
 	if (advanceAborted) return outcome(advanceAborted);
 	const after = (await client.revParse("HEAD")) ?? "";
-	advanced.push({ worktree: repoRoot, branch: current, from, to: after });
+	const { count, subjects } = await advancedCommits(from, after);
+	advanced.push({ worktree: repoRoot, branch: current, from, to: after, count, subjects });
+	// Post-run caller snapshot (behind-default warning when the caller lags).
+	caller = await callerPostState();
 	return outcome();
 }

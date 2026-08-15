@@ -233,8 +233,9 @@ export function parseWorktreeList(stdout: string): WorktreeRecord[] {
 
 /** One row of `git submodule status --recursive`: status flag + pinned SHA + path. */
 export interface SubmoduleStatus {
-	/** ` ` clean, `+` SHA differs from the recorded pointer, `-` not initialized, `U` merge conflict. */
-	flag: string;
+	/** ` ` matches the recorded gitlink, `+` SHA differs from the recorded
+	 *  pointer, `-` not initialized, `U` merge conflict. */
+	flag: " " | "+" | "-" | "U";
 	sha: string;
 	path: string;
 }
@@ -242,7 +243,8 @@ export interface SubmoduleStatus {
 /**
  * Parse `git submodule status --recursive` lines (`<flag><40-hex> <path>`, path
  * shell-quoted when it contains special chars) into structured rows. Used by
- * sync_repo's full-mode submodule report (clean = flag is a space).
+ * sync_repo's full-mode submodule report (flag `" "` = the checked-out SHA
+ * matches the HEAD-recorded gitlink).
  */
 export function parseSubmoduleStatus(stdout: string): SubmoduleStatus[] {
 	const out: SubmoduleStatus[] = [];
@@ -253,7 +255,9 @@ export function parseSubmoduleStatus(stdout: string): SubmoduleStatus[] {
 		if (!m) continue;
 		let path = m[3];
 		if (path.startsWith('"') && path.endsWith('"')) path = path.slice(1, -1).replace(/\\(.)/g, "$1");
-		out.push({ flag: m[1].trim(), sha: m[2], path });
+		// NOTE: the flag is kept verbatim — a leading SPACE means "in sync with
+		// the recorded gitlink" and must not be trimmed away.
+		out.push({ flag: m[1] as SubmoduleStatus["flag"], sha: m[2], path });
 	}
 	return out;
 }
@@ -418,6 +422,17 @@ export function createBranchClient(spawn: SpawnFn): BranchClient {
 			const ahead = await spawn("git", ["rev-list", "--count", `${base}..${head}`]);
 			const behind = await spawn("git", ["rev-list", "--count", `${head}..${base}`]);
 			return { ahead: intOr0(ahead.stdout), behind: intOr0(behind.stdout) };
+		},
+		async logSubjects(from, to, limit) {
+			// Read-only commit-subject listing (`git log --format=%s from..to`),
+			// newest first, capped at `limit`. An unresolvable range (missing ref,
+			// empty `from`) exits non-zero with empty stdout → [].
+			const r = await spawn("git", ["log", "--format=%s", "-n", String(limit), `${from}..${to}`]);
+			if (r.exitCode !== 0) return [];
+			return r.stdout
+				.split("\n")
+				.map((l) => l.replace(/\r$/, ""))
+				.filter((l) => l.length > 0);
 		},
 		async fetchPrune() {
 			await spawn("git", ["fetch", "--prune"]);
