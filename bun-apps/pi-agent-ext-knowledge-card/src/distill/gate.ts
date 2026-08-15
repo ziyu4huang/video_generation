@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { readCardFrontmatterFields } from "../card-format.ts";
 import type { MemoryEntry, Survivor, KilledEntry, GateResult } from "./types.ts";
 
 const STALE_DAYS = 90;
@@ -40,10 +40,10 @@ function existingCards(vaultPath: string): ExistingCard[] {
 		.filter((f) => f.endsWith(".md"))
 		.map((f) => {
 			const raw = readFileSync(join(dir, f), "utf-8");
-			const { data } = parseFrontmatter(raw);
+			const { id, status } = readCardFrontmatterFields(raw);
 			return {
-				id: typeof data?.id === "string" ? data.id : "",
-				status: typeof data?.status === "string" ? data.status.trim() : "active",
+				id: typeof id === "string" ? id : "",
+				status,
 				body: raw.replace(/^---\n[\s\S]*?\n---\n/, ""),
 			};
 		});

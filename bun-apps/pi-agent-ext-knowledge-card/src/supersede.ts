@@ -18,18 +18,9 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { yamlScalar } from "./card-format.ts";
 
 const GRAPH_FOLDER = "Zettelkasten/knowledge-graph";
-
-/** Match ingest.ts's yamlScalar: quote a string if it contains chars that
- *  confuse flat-YAML parsing (colon, bracket, quote, etc). `distill:<slug>` and
- *  `pi-memory:<target>:<hash>` both contain colons → must be double-quoted, or
- *  re-parsing breaks and idempotency (re-mark == no-op) fails. */
-function yamlScalar(v: unknown): string {
-	const s = String(v);
-	if (/[\:\[\]#"']/.test(s) || s.includes(", ")) return JSON.stringify(s);
-	return s;
-}
 
 export interface SupersedeResult {
 	/** True if a card with `cardId` was found in the graph folder. */

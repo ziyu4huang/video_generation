@@ -35,16 +35,16 @@
  */
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseFrontmatter, getIndex, graphDeadLinks, graphOrphans, invalidateCache } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { getIndex, graphDeadLinks, graphOrphans, invalidateCache } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import {
 	slugify,
 	normTag,
-	readCardMeta,
 	writeMoc,
 	extractFeatures,
 	type KnowledgeRecord,
 	type CoverageReport,
 } from "./ingest.ts";
+import { buildMocContent, cardAnatomy, readCardFrontmatterFields, readCardMeta } from "./card-format.ts";
 import { computeIdf, scoreOverlap, type LinkWeighting } from "@repo/pi-agent-ext-core-interface";
 import {
 	cosine,
@@ -424,20 +424,19 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		const content = readFileSync(abs, "utf8");
 		const bodyOverlap = bodyMatch ? bodyTokenOverlap(content, queryTags) : 0;
 		if (shared <= 0 && bodyOverlap <= 0 && slugOverlap <= 0) continue; // no overlap of any kind
-		const { data } = parseFrontmatter(content);
 		// Defense-in-depth: never surface retired/superseded cards as live
 		// knowledge. Archived cards already live under _archive/ (excluded by
 		// the flat readdirSync), but this guard also catches any stale card that
 		// was marked retired in-place without being moved.
-		const status = typeof data.status === "string" ? data.status.trim() : "active";
-		if (status === "retired" || status === "superseded") {
+		const fields = readCardFrontmatterFields(content);
+		if (fields.status === "retired" || fields.status === "superseded") {
 			excluded++;
 			continue;
 		}
 		const title = extractTitle(content);
 		const detail = extractDetail(content, maxDetailChars);
-		const type = typeof data.record_type === "string" ? data.record_type : "pattern";
-		const source = typeof data.source === "string" ? data.source : "unknown";
+		const type = typeof fields.recordType === "string" ? fields.recordType : "pattern";
+		const source = typeof fields.source === "string" ? fields.source : "unknown";
 
 		// Feature-aware ranking (kg-improvement-plan P1): a callout-bearing card
 		// gets a BOUNDED boost of +0.5, applied AFTER shared-tag count and BEFORE
@@ -648,20 +647,19 @@ function buildRetrievedCard(
 	if (meta.source_id && excludeIds.has(meta.source_id)) return null;
 	if (excludeSlugs.has(cardSlug)) return null;
 	const content = readFileSync(abs, "utf8");
-	const { data } = parseFrontmatter(content);
-	const status = typeof data.status === "string" ? data.status.trim() : "active";
-	if (status === "retired" || status === "superseded") return null;
+	const fields = readCardFrontmatterFields(content);
+	if (fields.status === "retired" || fields.status === "superseded") return null;
 	let calloutText = "";
 	if (meta.hasCallouts) calloutText = extractFeatures(content).calloutTexts[0] ?? "";
 	return {
 		id: meta.source_id ?? cardSlug,
 		title: extractTitle(content),
-		type: typeof data.record_type === "string" ? data.record_type : "pattern",
+		type: typeof fields.recordType === "string" ? fields.recordType : "pattern",
 		detail: extractDetail(content, maxDetailChars),
 		tags: [...meta.tags].filter((t) => t !== "zettel"),
 		sharedTags: scoreOverlap(queryTags, meta.tags, new Map(), "count"),
 		path: cardPath,
-		source: typeof data.source === "string" ? data.source : "unknown",
+		source: typeof fields.source === "string" ? fields.source : "unknown",
 		hasCallouts: meta.hasCallouts,
 		calloutText,
 		relations: parseRelationsBlock(content),
@@ -862,7 +860,7 @@ export async function graphHealth(opts: GraphHealthOptions): Promise<GraphHealth
 	} else {
 		const onDisk = readFileSync(mocAbs, "utf8");
 		// Build the expected MOC content into a temp buffer (dryRun-style).
-		const expected = buildMocContent(opts.vaultPath, folder, cardFiles.map((f) => join(opts.vaultPath, f)));
+		const expected = buildMocContent(cardFiles.map((f) => join(opts.vaultPath, f)));
 		if (normalizeMoc(onDisk) !== normalizeMoc(expected)) {
 			result.mocStale = true;
 		}
@@ -1004,59 +1002,16 @@ export async function healGraph(opts: GraphHealthOptions): Promise<HealResult> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Extract the first H1 title from markdown content. */
+/** Extract the first H1 title from markdown content (anatomy via cardAnatomy). */
 function extractTitle(content: string): string {
-	const m = content.match(/^#\s+(.+?)\s*$/m);
-	return m ? m[1]!.trim() : "(untitled)";
+	const title = cardAnatomy(content).title.trim();
+	return title || "(untitled)";
 }
 
-/** Extract the 核心想法 (core idea) body section, truncated. */
+/** Extract the 核心想法 (core idea) body section, truncated (anatomy via cardAnatomy). */
 function extractDetail(content: string, maxChars: number): string {
-	const m = content.match(/## 核心想法\n([\s\S]*?)(?=\n## )/);
-	if (!m) return "";
-	const body = m[1]!.trim();
+	const body = cardAnatomy(content).body.trim();
 	return body.length > maxChars ? body.slice(0, maxChars) + "…" : body;
-}
-
-/** Build the expected MOC content (dryRun — no write) for drift comparison. */
-function buildMocContent(vaultPath: string, folder: string, cardsAbs: string[]): string {
-	const groups = new Map<string, string[]>();
-	for (const abs of cardsAbs) {
-		const meta = readCardMeta(abs);
-		if (!meta) continue;
-		const base = abs.slice(abs.lastIndexOf("/") + 1, -3);
-		let type = "other";
-		const typeTag = [...meta.tags][1];
-		if (typeTag && typeTag !== "zettel") type = typeTag;
-		if (!groups.has(type)) groups.set(type, []);
-		groups.get(type)!.push(base);
-	}
-	for (const list of groups.values()) list.sort();
-
-	const order = ["gotcha", "avoid", "lever", "pattern", "metric", "false_positive", "other"];
-	const present = order.filter((g) => groups.has(g)).concat(
-		[...groups.keys()].filter((g) => !order.includes(g)).sort(),
-	);
-	const lines: string[] = [
-		"---",
-		"id: knowledge-graph-moc",
-		'created: "auto"',
-		"tags: [zettel, moc, knowledge-graph]",
-		"---",
-		"",
-		"# Knowledge Graph — Converged Cards MOC",
-		"",
-		"> Auto-generated by `zk_ingest`. Do not edit by hand — regenerate with a re-ingest.",
-		"> One card per structured knowledge record, dedup'd by canonical id, cross-linked by shared tags.",
-		"",
-	];
-	for (const g of present) {
-		lines.push(`## ${g}`);
-		lines.push("");
-		for (const name of groups.get(g)!) lines.push(`- [[${name}]]`);
-		lines.push("");
-	}
-	return lines.join("\n");
 }
 
 /** Normalize MOC content for drift comparison (trim trailing whitespace per line). */
