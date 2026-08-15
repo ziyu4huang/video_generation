@@ -207,8 +207,8 @@ function newestMp4(dir: string): string | null {
 function manifestPathFromStdout(stdout: string): string | null {
   const lines = stdout.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
-    const m = lines[i].match(/^\[t2i2v\]\s+manifest:\s*(.+)$/);
-    if (m) return m[1].trim();
+    const m = lines[i]!.match(/^\[t2i2v\]\s+manifest:\s*(.+)$/);
+    if (m) return m[1]!.trim();
   }
   return null;
 }

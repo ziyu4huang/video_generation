@@ -60,8 +60,8 @@ export interface LtxDetails {
 function lastMatch(stdout: string, re: RegExp): string | null {
   const lines = stdout.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
-    const m = lines[i].match(re);
-    if (m) return m[1];
+    const m = lines[i]!.match(re);
+    if (m) return m[1]!;
   }
   return null;
 }
@@ -70,7 +70,7 @@ function lastMatch(stdout: string, re: RegExp): string | null {
 function firstMatchLine(stdout: string, re: RegExp): string | null {
   for (const line of stdout.split("\n")) {
     const m = line.match(re);
-    if (m) return m[1];
+    if (m) return m[1]!;
   }
   return null;
 }
@@ -89,7 +89,7 @@ function allMatches(stdout: string, re: RegExp): string[] {
     .split("\n")
     .map((l) => l.match(re))
     .filter((m): m is RegExpMatchArray => !!m)
-    .map((m) => m[1]);
+    .map((m) => m[1]!);
 }
 
 function parseWallSeconds(stdout: string): number | null {
@@ -187,7 +187,7 @@ function buildT2IDetails(res: InvokeResult): LtxDetails {
   const ok = res.exitCode === 0 && !res.aborted;
   const stdout = res.stdout;
   const m = firstMatch(stdout, /^Wrote (\S+) —/);
-  const output = m ? m[1] : null;
+  const output = m ? m[1]! : null;
   return {
     ok,
     command: "t2i",
@@ -221,7 +221,7 @@ function buildI2VDetails(res: InvokeResult): LtxDetails {
     height: null,
     wallSeconds: parseWallSeconds(stdout),
     gate: gateMatch ? (gateMatch[1] as "PASS" | "WARN" | "FAIL") : null,
-    gateResults: gateMatch ? [{ path: video ?? "", status: gateMatch[1], reasons: [gateMatch[2]] }] : undefined,
+    gateResults: gateMatch ? [{ path: video ?? "", status: gateMatch[1]!, reasons: [gateMatch[2]!] }] : undefined,
     stdout,
   };
 }
@@ -243,7 +243,7 @@ function buildUpscaleDetails(res: InvokeResult): LtxDetails {
     height: null,
     wallSeconds: null,
     gate: gateMatch ? (gateMatch[1] as "PASS" | "WARN" | "FAIL") : null,
-    gateResults: gateMatch && output ? [{ path: output, status: gateMatch[1], reasons: [gateMatch[2]] }] : undefined,
+    gateResults: gateMatch && output ? [{ path: output, status: gateMatch[1]!, reasons: [gateMatch[2]!] }] : undefined,
     stdout,
   };
 }
@@ -275,7 +275,7 @@ function parseGateTextOutput(stdout: string): GateEntry[] {
   for (const line of lines) {
     const header = line.match(headerRe);
     if (header) {
-      current = { path: header[2], status: header[1] as "PASS" | "WARN" | "FAIL" };
+      current = { path: header[2]!, status: header[1] as "PASS" | "WARN" | "FAIL" };
       entries.push(current);
       continue;
     }
@@ -284,7 +284,7 @@ function parseGateTextOutput(stdout: string): GateEntry[] {
     if (asrMatch) {
       current.asr = {
         status: asrMatch[1] as "PASS" | "WARN" | "FAIL",
-        reasons: asrMatch[2].split(";").map((s) => s.trim()).filter(Boolean),
+        reasons: asrMatch[2]!.split(";").map((s) => s.trim()).filter(Boolean),
         detectedLang: "",
         transcript: "",
       };
@@ -292,7 +292,7 @@ function parseGateTextOutput(stdout: string): GateEntry[] {
     }
     const transcriptMatch = line.match(transcriptRe);
     if (transcriptMatch && current.asr) {
-      current.asr.transcript = transcriptMatch[1];
+      current.asr.transcript = transcriptMatch[1]!;
       continue;
     }
     // First indented, non-bracketed, non-ASR/transcript line after a header
@@ -524,7 +524,7 @@ function buildDecodeDetails(command: "audio-decode" | "video-decode", res: Invok
   const ok = res.exitCode === 0 && !res.aborted;
   const stdout = res.stdout;
   const m = firstMatch(stdout, /Wrote .* to (\S+) —/);
-  const output = m ? m[1] : null;
+  const output = m ? m[1]! : null;
   return {
     ok,
     command,

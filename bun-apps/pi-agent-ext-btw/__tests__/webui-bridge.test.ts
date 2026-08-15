@@ -172,7 +172,9 @@ describe("BtwEngine webui bridge", () => {
     expect(sr.subscriptions.size).toBe(0);
 
     let overlayEvents = 0;
-    engine.handleBtwSessionEvent = () => {
+    // handleBtwSessionEvent is private (internal event plumbing); the test
+    // monkey-patches it to COUNT deliveries — reach through a structural cast.
+    (engine as unknown as { handleBtwSessionEvent: () => void }).handleBtwSessionEvent = () => {
       overlayEvents++;
     };
     engine.subscribeOverlayToActiveBtwSession();
