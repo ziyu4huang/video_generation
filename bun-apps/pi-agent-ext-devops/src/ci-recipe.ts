@@ -37,7 +37,7 @@ import { readCiGates, LOCAL_ONLY_AUDITS, type CiGatesResult } from "./ci-gates.j
 
 export interface CiPackageResult {
 	name: string;
-	typecheck?: { exitCode: number; skipped?: boolean; note?: string };
+	typecheck?: { exitCode: number; skipped?: boolean; note?: string; durationMs?: number };
 	test: {
 		exitCode: number;
 		note?: string;
@@ -50,6 +50,7 @@ export interface CiPackageResult {
 		source?: "matrix" | "package-script";
 		/** The command as executed, for matrix rows (the row's `test-cmd`). */
 		command?: string;
+		durationMs?: number;
 	};
 }
 
@@ -68,6 +69,16 @@ export interface CiOutcome {
 	/** Info-only: a non-zero schema-cost exit NEVER affects `overall`. */
 	schemaCost?: { exitCode: number; note: string };
 	elapsedMs: number;
+	/**
+	 * The ≤5-minute budget this run was held to (default 300 000 ms — a house
+	 * rule: a local_ci run over ~5 minutes is bad CI and gets optimized, not
+	 * accepted). Advisory: `overBudget` NEVER flips `overall`.
+	 */
+	budgetMs: number;
+	/** elapsedMs > budgetMs. Advisory signal for callers to print loudly. */
+	overBudget: boolean;
+	/** Top (≤5) packages by typecheck+test wall-clock, slowest first. */
+	slowest: Array<{ name: string; durationMs: number }>;
 	/**
 	 * Set when change detection FAILED — `computeChangedPackages` threw (a genuine
 	 * I/O failure; its fail-open cases return all-true instead of throwing). Then
@@ -136,6 +147,41 @@ export interface CiOptions {
 	log?: (line: string) => void;
 	/** Baseline JSON path forwarded to the schema-cost check (tests pin a fixture). */
 	schemaCostBaseline?: string;
+	/**
+	 * Wall-clock budget in ms. Default 300 000 (the ≤5-minute house rule).
+	 * Overruns are reported (`overBudget`) but never fail `overall`.
+	 */
+	budgetMs?: number;
+	/** Injectable clock for deterministic budget tests. Default Date.now. */
+	now?: () => number;
+	/**
+	 * Max PARALLEL processes for the read-only typecheck phase and the
+	 * non-build test phase. Build-bearing test rows always run sequentially
+	 * first (they write shared dist/ trees; parallel runs race them). Default 4.
+	 */
+	concurrency?: number;
+}
+
+/**
+ * Run `worker` over `items` with at most `limit` in flight, preserving item
+ * order in the results. Workers that throw resolve to null (a failed step is
+ * data, not an abort).
+ */
+async function mapPool<T, R>(items: T[], limit: number, worker: (item: T) => Promise<R>): Promise<Array<R | null>> {
+	const results: Array<R | null> = new Array(items.length).fill(null);
+	let next = 0;
+	const run = async () => {
+		while (next < items.length) {
+			const i = next++;
+			try {
+				results[i] = await worker(items[i]!);
+			} catch {
+				results[i] = null;
+			}
+		}
+	};
+	await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, run));
+	return results;
 }
 
 /**
@@ -174,7 +220,8 @@ async function readPackageJson(pkgDir: string): Promise<{ scripts?: Record<strin
  * other failures surface as `overall: "fail"` with per-step exit codes.
  */
 export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
-	const t0 = Date.now();
+	const now = opts.now ?? Date.now;
+	const t0 = now();
 	const baseRef = opts.baseRef ?? "origin/main";
 	const headRef = opts.headRef ?? "HEAD";
 	const spawn = opts.spawn;
@@ -205,7 +252,10 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 			headRef,
 			packages: [],
 			gates: [],
-			elapsedMs: Date.now() - t0,
+			elapsedMs: now() - t0,
+			budgetMs: opts.budgetMs ?? 300_000,
+			overBudget: now() - t0 > (opts.budgetMs ?? 300_000),
+			slowest: [],
 			detectionError: resolved.error,
 		};
 	}
@@ -220,44 +270,101 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	//     the generic derivation; an unreadable workflow yields {} → all generic.
 	const matrix = await (opts.readMatrix ?? readCiMatrix)(opts.repoRoot);
 
-	// 3. Per package: typecheck (by precedence) + test.
-	const packages: CiPackageResult[] = [];
-	for (const name of pkgNames) {
-		if (opts.signal?.aborted) break;
-		const pkgDir = `${opts.repoRoot}/bun-apps/${name}`;
-		const scripts = (await readPkg(pkgDir)).scripts ?? {};
-		const result: CiPackageResult = { name, test: { exitCode: -1 } };
+	// 3. Per package: typecheck + test, in three phases (≤5-minute budget rule):
+	//    (a) typechecks run in PARALLEL (tsc --noEmit is read-only — nothing
+	//        races), replacing the former N×sequential tsc wall-clock;
+	//    (b) BUILD-bearing test rows (matrix/`test` commands containing `build`)
+	//        run SEQUENTIALLY FIRST, in package order — they write shared dist/
+	//        trees, and ci-local.sh documented that parallel runs race them;
+	//    (c) the remaining (non-build) test rows run with bounded parallelism —
+	//        by then no dist write is in flight, so the race is gone by
+	//        construction, not by luck.
+	//    Results are reassembled in the ORIGINAL package order.
+	const concurrency = Math.max(1, opts.concurrency ?? 4);
+	const byName = new Map<string, CiPackageResult>(
+		pkgNames.map((name) => [name, { name, test: { exitCode: -1 } } as CiPackageResult]),
+	);
 
-		// Typecheck precedence: scripts.typecheck > scripts.check (only if it runs tsc).
+	// 3a. Parallel typechecks. Precedence: scripts.typecheck > scripts.check
+	//     (only if it runs tsc) > skipped.
+	await mapPool(pkgNames, concurrency, async (name) => {
+		if (opts.signal?.aborted) return null;
+		const pkgDir = `${opts.repoRoot}/bun-apps/${name}`;
+		const result = byName.get(name)!;
+		const scripts = (await readPkg(pkgDir)).scripts ?? {};
+		const t0 = now();
 		if (typeof scripts.typecheck === "string") {
 			const r = await spawn("bun", ["run", "typecheck"], { cwd: pkgDir });
-			result.typecheck = { exitCode: r.exitCode };
+			result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0 };
 		} else if (typeof scripts.check === "string" && /tsc/.test(scripts.check)) {
 			const r = await spawn("bun", ["run", "check"], { cwd: pkgDir });
-			result.typecheck = { exitCode: r.exitCode };
+			result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0 };
 		} else {
 			result.typecheck = { exitCode: -1, skipped: true, note: "no tsc key" };
 		}
+		return null;
+	});
 
-		// Test. Precedence: the package's CI matrix row > its `test` script > nothing
-		// (-1, counts as pass). A matrix row is run through `bash -c` because the
-		// rows are shell COMMANDS, not single argv vectors (`bun test && bun run qa`,
-		// knowledge-card's 3-phase chain, `bun run build && bun test`) — the same way
-		// scripts/ci-local.sh executes them. NB: ci-local.sh additionally exports
-		// CI=true; local_ci deliberately does not, preserving its own pre-existing
-		// behavior — locally the machine-coupled tests SHOULD run, that's the point.
-		const matrixCmd = matrix[name];
-		if (typeof matrixCmd === "string") {
-			const r = await spawn("bash", ["-c", matrixCmd], { cwd: pkgDir });
-			result.test = { exitCode: r.exitCode, source: "matrix", command: matrixCmd };
-		} else if (typeof scripts.test === "string") {
-			const r = await spawn("bun", ["run", "test"], { cwd: pkgDir });
-			result.test = { exitCode: r.exitCode, source: "package-script" };
-		} else {
-			result.test = { exitCode: -1, note: "no test script" };
-		}
-		packages.push(result);
+	// 3b/3c. Tests. Precedence: the package's CI matrix row > its `test` script >
+	//        nothing (-1, counts as pass). A matrix row is run through `bash -c`
+	//        because the rows are shell COMMANDS, not single argv vectors
+	//        (`bun test && bun run qa`, knowledge-card's 3-phase chain,
+	//        `bun run build && bun test`) — the same way scripts/ci-local.sh
+	//        executes them. NB: ci-local.sh additionally exports CI=true;
+	//        local_ci deliberately does not, preserving its own pre-existing
+	//        behavior — locally the machine-coupled tests SHOULD run, that's the point.
+	interface TestPlan {
+		name: string;
+		pkgDir: string;
+		/** True when the command WRITES build artifacts (runs `build`) — sequential phase. */
+		builds: boolean;
+		run: () => Promise<void>;
 	}
+	const plans: TestPlan[] = [];
+	for (const name of pkgNames) {
+		const pkgDir = `${opts.repoRoot}/bun-apps/${name}`;
+		const scripts = (await readPkg(pkgDir)).scripts ?? {};
+		const result = byName.get(name)!;
+		const matrixCmd = matrix[name];
+		const cmdText =
+			typeof matrixCmd === "string" ? matrixCmd : typeof scripts.test === "string" ? scripts.test : null;
+		const plan: TestPlan = {
+			name,
+			pkgDir,
+			builds: cmdText !== null && /\bbuild\b/.test(cmdText),
+			run: async () => {
+				const t0 = now();
+				if (typeof matrixCmd === "string") {
+					const r = await spawn("bash", ["-c", matrixCmd], { cwd: pkgDir });
+					result.test = { exitCode: r.exitCode, source: "matrix", command: matrixCmd, durationMs: now() - t0 };
+				} else if (typeof scripts.test === "string") {
+					const r = await spawn("bun", ["run", "test"], { cwd: pkgDir });
+					result.test = { exitCode: r.exitCode, source: "package-script", durationMs: now() - t0 };
+				} else {
+					result.test = { exitCode: -1, note: "no test script" };
+				}
+			},
+		};
+		plans.push(plan);
+	}
+
+	// 3b. Build rows sequentially (dist writes serialize), in package order.
+	for (const plan of plans.filter((p) => p.builds)) {
+		if (opts.signal?.aborted) break;
+		await plan.run();
+	}
+	// 3c. Non-build rows, bounded parallelism.
+	await mapPool(
+		plans.filter((p) => !p.builds),
+		concurrency,
+		async (plan) => {
+			if (opts.signal?.aborted) return null;
+			await plan.run();
+			return null;
+		},
+	);
+
+	const packages = pkgNames.map((n) => byName.get(n)!);
 
 	// 4. Gates (default on) + info-only schema-cost.
 	//    The gate list is DERIVED from the workflow's `regression-gates` job —
@@ -314,6 +421,16 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	const gateFailed = gates.some((g) => g.exitCode !== 0);
 	const overall: "pass" | "fail" = typecheckFailed || testFailed || gateFailed || !!gateError ? "fail" : "pass";
 
+	const elapsedMs = now() - t0;
+	const budgetMs = opts.budgetMs ?? 300_000;
+	const slowest = packages
+		.map((p) => ({
+			name: p.name,
+			durationMs: (p.typecheck?.durationMs ?? 0) + (p.test.durationMs ?? 0),
+		}))
+		.sort((a, b) => b.durationMs - a.durationMs)
+		.slice(0, 5);
+
 	return {
 		overall,
 		baseRef,
@@ -321,7 +438,10 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 		packages,
 		gates,
 		schemaCost,
-		elapsedMs: Date.now() - t0,
+		elapsedMs,
+		budgetMs,
+		overBudget: elapsedMs > budgetMs,
+		slowest,
 		...(gateError ? { gateError } : {}),
 	};
 }
