@@ -16,8 +16,9 @@
  *     outcome "detached" (dispatchChild observes the registry's detached flag
  *     via `onDetach`) and the parent turn resumes.
  *
- * The capability is a FUNCTION, not a keybinding — Task 06 wires ctrl+b
- * (global + in-viewer) on top of `convertToBackground`/`makeProdDetachDeps`.
+ * The capability is a FUNCTION, not a keybinding — Task 06 wires the
+ * detach keys (global ctrl+shift+b + in-viewer ctrl+b) on top of
+ * `convertToBackground`/`makeProdDetachDeps`.
  */
 import { spawn } from "node:child_process";
 import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";

@@ -93,20 +93,19 @@ export default function extension(pi: ExtensionAPI) {
   // with /workflows-models (fine-edit). Preset templates live in src/presets.ts.
   registerModelsPresetCommand(pi);
 
-  // Ctrl+b (Task 06) — GLOBAL detach: background the OLDEST live foreground
-  // subagent run. Both ctrl+b surfaces share one lever: convertToBackground
+  // Ctrl+shift+b (Task 06) — GLOBAL detach: background the OLDEST live foreground
+  // subagent run. Both detach surfaces share one lever: convertToBackground
   // over makeProdDetachDeps (the /subagents viewer's in-viewer ctrl+b passes
   // the SAME assembly through the viewer's onDetach seam).
   //
-  // Key-claim note: ctrl+b is pi's default `tui.editor.cursorLeft` binding,
-  // but that action is NOT in pi's reserved-for-extension-conflicts list
-  // (only submit/confirm/cancel/copy/followUp/deleteToLineEnd are), so an
-  // extension-registered shortcut CLAIMS the key (pi emits a conflict
-  // diagnostic; editor cursor-left keeps the plain `left` binding). If pi
-  // ever reserves ctrl+b, fall back to a ui.onTerminalInput byte-sniff for
-  // \x02 (the retired Task-04 Ctrl-O hook's pattern).
-  pi.registerShortcut("ctrl+b", {
-    description: "subagent: detach foreground run to background",
+  // Key-claim note: ctrl+shift+b is NOT a built-in default in any of pi's
+  // keybinding tables (checked docs/keybindings.md), so registering it emits
+  // no conflict diagnostic. The previous ctrl+b registration shadowed pi's
+  // default `tui.editor.cursorLeft` binding and triggered the startup
+  // conflict warning; the in-viewer \x02 handling in subagent-viewer.ts
+  // stays viewer-scoped and unaffected.
+  pi.registerShortcut("ctrl+shift+b", {
+    description: "subagent: detach foreground run to background (ctrl+shift+b)",
     handler: () => {
       dispatchCtrlB(inFlight, (id) => convertToBackground(id, makeProdDetachDeps({ registry: inFlight, persistence })));
     },
