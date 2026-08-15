@@ -187,11 +187,15 @@ function buildAstDefinition(ctx) {
 
 export const name = 'dsh-sv-analyzer'
 
+// Hard dependency: wait for the tool registry instead of silently no-oping
+// when `tools` is not yet available at activation time (the pattern shipped
+// tool plugins use; `ctx.get` + early return would mount the row without
+// registering anything).
+export const inject = ['tools']
+
 export function apply(ctx) {
-  const tools = ctx.get('tools')
-  if (!tools) return
-  const disposers = [tools.register(buildAnalyzeDefinition(ctx)), tools.register(buildAstDefinition(ctx))]
-  ctx.on('dispose', () => {
-    for (const dispose of disposers) dispose()
-  })
+  // Registered contributions are owned by this plugin fiber and removed
+  // automatically on stop/update (same as shipped tool plugins).
+  ctx.tools.register(buildAnalyzeDefinition(ctx))
+  ctx.tools.register(buildAstDefinition(ctx))
 }

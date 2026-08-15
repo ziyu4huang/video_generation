@@ -18,18 +18,19 @@ function assert(cond, msg) {
 }
 
 // --- minimal ctx stub ----------------------------------------------------
+// Mirrors the Cordis inject contract: the plugin declares inject: ['tools'],
+// so the stub must expose ctx.tools directly (ctx.get stays for the optional
+// fs service used by the file-input path).
 const registered = []
 const ctx = {
+  tools: {
+    register(def) {
+      registered.push(def)
+      return () => {}
+    },
+  },
   get(name) {
-    if (name === 'tools') {
-      return {
-        register(def) {
-          registered.push(def)
-          return () => {}
-        },
-      }
-    }
-    return undefined
+    return name === 'fs' ? undefined : undefined
   },
   on() {},
 }
