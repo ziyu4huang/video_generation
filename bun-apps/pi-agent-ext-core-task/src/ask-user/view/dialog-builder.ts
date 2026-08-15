@@ -15,6 +15,7 @@ import type { TabComponents } from "./tab-components.js";
 import { QuestionTabStrategy, SubmitTabStrategy, type TabContentStrategy } from "./tab-content-strategy.js";
 import { buildHintText, type HintMode } from "./hint-table.js";
 import { formatKeySpec } from "../config.js";
+import { escDestination, type KeyRuleContext, notesKeyAccepted } from "../state/key-router.js";
 // Chrome literals are routed through t() at their render sites. The heading
 // consts below stay as English strings (source of truth / dictionary keys) and
 // every render site wraps the const in t(); under the default `en` locale t() is
@@ -183,18 +184,19 @@ export class DialogView implements StatefulView<DialogProps> {
 	private buildHintText(state: DialogState): string {
 		const focusedQuestion =
 			state.currentTab < this.config.questions.length ? this.config.questions[state.currentTab] : undefined;
-		const focusedIsMultiSelect = Boolean(focusedQuestion?.multiSelect);
+		// The two keybinding rules come from the ROUTER, not from a restatement
+		// here — that restatement is how the footer came to advertise `n` on
+		// questions where the router refused it.
+		const rules: KeyRuleContext = {
+			isMulti: this.config.isMulti,
+			questionCount: this.config.questions.length,
+		};
 		return buildHintText({
 			mode: this.hintMode(state),
 			isMulti: this.config.isMulti,
-			focusedIsMultiSelect,
-			// Mirrors key-router.ts's gate (`!multiSelect &&
-			// focusedOptionHasPreview`) in full. The multiSelect half is currently
-			// redundant — computeFocusedOptionHasPreview already returns false for
-			// a multiSelect question — but stating the whole rule here keeps the
-			// footer's promise self-contained instead of depending on a derivation
-			// two modules away to keep holding.
-			notesAvailable: state.focusedOptionHasPreview && !focusedIsMultiSelect,
+			focusedIsMultiSelect: Boolean(focusedQuestion?.multiSelect),
+			notesAvailable: notesKeyAccepted(state, rules),
+			escDestination: escDestination(state, rules),
 			collapseKey: formatKeySpec(this.config.collapseKey),
 		});
 	}

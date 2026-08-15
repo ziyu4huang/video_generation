@@ -56,6 +56,7 @@ const collapsedHint = (collapseKey = "Ctrl+]") =>
 		isMulti: false,
 		focusedIsMultiSelect: false,
 		notesAvailable: false,
+		escDestination: "cancel",
 		collapseKey,
 	});
 

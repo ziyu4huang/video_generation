@@ -14,7 +14,7 @@
 import { test, expect, describe } from "bun:test";
 import type { QuestionAnswer, QuestionData } from "../../tool/types.js";
 import type { WrappingSelectItem } from "../../view/components/wrapping-select.js";
-import { allAnswered, routeKey, wrapTab } from "../key-router.js";
+import { allAnswered, escDestination, notesKeyAccepted, routeKey, wrapTab } from "../key-router.js";
 import type { QuestionnaireRuntime, QuestionnaireState } from "../state.js";
 
 // ─── Keybinding helpers ─────────────────────────────────────────────────────
@@ -586,21 +586,39 @@ describe("routeKey — notes", () => {
 		});
 	});
 
-	test("'n' when focused option has no preview is ignored", () => {
+	// A2: `n` used to be gated on `!multiSelect && focusedOptionHasPreview`. The
+	// preview half was arbitrary (annotating a plain option is a fair thing to
+	// want) and the multiSelect half made the reducer's multi notes branches
+	// permanently unreachable. Both are gone; notes work on any question tab.
+	test("'n' works with no preview on the focused option", () => {
 		expect(routeKey("n", makeState({ focusedOptionHasPreview: false }), makeRuntime())).toEqual({
-			kind: "ignore",
+			kind: "notes_enter",
 		});
 	});
 
-	test("'n' is ignored on multiSelect questions even with preview", () => {
+	test("'n' works on multiSelect questions — this is what unblocked the reducer's multi notes paths", () => {
 		const multiQ = makeQuestion({ multiSelect: true });
 		expect(
 			routeKey(
 				"n",
-				makeState({ focusedOptionHasPreview: true }),
+				makeState({ focusedOptionHasPreview: false }),
 				makeRuntime({ questions: [multiQ, makeQuestion()] }),
 			),
-		).toEqual({ kind: "ignore" });
+		).toEqual({ kind: "notes_enter" });
+	});
+
+	test("'n' is refused where there is no question to annotate (submit tab)", () => {
+		const runtime = makeRuntime({ questions: [makeQuestion(), makeQuestion()] });
+		expect(routeKey("n", makeState({ currentTab: 2 }), runtime)).toEqual({ kind: "ignore" });
+	});
+
+	test("notesKeyAccepted is the ONE rule — the router and the footer both read it", () => {
+		const ctx = { isMulti: true, questionCount: 2 };
+		expect(notesKeyAccepted(makeState(), ctx)).toBe(true);
+		expect(notesKeyAccepted(makeState({ currentTab: 2 }), ctx)).toBe(false); // submit tab
+		expect(notesKeyAccepted(makeState({ notesVisible: true }), ctx)).toBe(false);
+		expect(notesKeyAccepted(makeState({ inputMode: true }), ctx)).toBe(false);
+		expect(notesKeyAccepted(makeState({ collapsed: true }), ctx)).toBe(false);
 	});
 
 	test("notesMode: Esc -> notes_exit", () => {
@@ -647,10 +665,61 @@ describe("routeKey — inputMode (Type something)", () => {
 		});
 	});
 
-	test("Esc cancels the questionnaire even in inputMode", () => {
-		expect(
-			routeKey(sentinel(KEY.CANCEL), makeState({ inputMode: true }), makeRuntime({ currentItem: other })),
-		).toEqual({ kind: "cancel" });
+	// A6: Esc in inputMode used to destroy the whole questionnaire. Input mode is
+	// a property of the FOCUSED ROW, so leaving the free-text field means moving
+	// off it — navHandler then clears inputMode and the buffer. Questions always
+	// carry real option rows above the free-text one, so there is somewhere to go.
+	test("Esc leaves the free-text row instead of cancelling the questionnaire", () => {
+		const runtime = makeRuntime({ currentItem: other, items: [{ kind: "option", label: "A" }, other] });
+		expect(routeKey(sentinel(KEY.CANCEL), makeState({ inputMode: true, optionIndex: 1 }), runtime)).toEqual({
+			kind: "nav",
+			nextIndex: 0,
+		});
+	});
+});
+
+// ─── A6: Esc is no longer a single destructive verb ──────────────────────────
+
+describe("escDestination — Esc stops discarding answers without confirmation", () => {
+	const multi = { isMulti: true, questionCount: 3 };
+	const single = { isMulti: false, questionCount: 1 };
+	const answered = (n: number) =>
+		new Map(
+			Array.from({ length: n }, (_, i) => [
+				i,
+				{ questionIndex: i, question: "q", kind: "option" as const, answer: "A" },
+			]),
+		);
+
+	test("a question tab with answers routes to the submit tab, not to oblivion", () => {
+		expect(escDestination(makeState({ answers: answered(1) }), multi)).toBe("review");
+		const runtime = makeRuntime({ questions: [makeQuestion(), makeQuestion(), makeQuestion()] });
+		expect(routeKey(sentinel(KEY.CANCEL), makeState({ answers: answered(1) }), runtime)).toEqual({
+			kind: "tab_switch",
+			nextTab: 3,
+		});
+	});
+
+	test("Esc Esc still quits — the submit tab IS the deliberate exit", () => {
+		expect(escDestination(makeState({ answers: answered(1), currentTab: 3 }), multi)).toBe("cancel");
+	});
+
+	test("a question tab with nothing answered still cancels outright", () => {
+		expect(escDestination(makeState(), multi)).toBe("cancel");
+	});
+
+	test("single-question sessions are unchanged (answering one completes the dialog)", () => {
+		expect(escDestination(makeState(), single)).toBe("cancel");
+		expect(escDestination(makeState({ answers: answered(1) }), single)).toBe("cancel");
+	});
+
+	test("open overlays go back, not away", () => {
+		expect(escDestination(makeState({ notesVisible: true }), multi)).toBe("back");
+		expect(escDestination(makeState({ inputMode: true }), multi)).toBe("back");
+	});
+
+	test("the collapsed bar dismisses — the dialog is already out of the way", () => {
+		expect(escDestination(makeState({ collapsed: true, answers: answered(2) }), multi)).toBe("cancel");
 	});
 });
 
