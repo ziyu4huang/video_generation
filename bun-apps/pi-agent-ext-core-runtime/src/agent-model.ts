@@ -8,9 +8,9 @@
  * independently-testable layer between model-tier-config.ts and its callers:
  * anything needing only model/tier resolution can depend on this file without
  * pulling in CoreAgent's session-creation, budget, and turn-guard wiring that
- * the rest of agent.ts still carries. Today every consumer reaches these
- * through the barrel; the point is that the seam exists, not that it is
- * already used directly.
+ * the rest of agent.ts still carries. Today every consumer outside this
+ * package reaches these through the barrel; the point is that the seam
+ * exists, not that it is already used directly.
  */
 import { loadModelTierConfig, type ModelTierConfig, resolveTierModel, sortedTierNames } from "./model-tier-config.js";
 

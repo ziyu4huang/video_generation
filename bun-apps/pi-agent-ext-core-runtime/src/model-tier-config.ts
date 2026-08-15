@@ -7,7 +7,7 @@
  * A tier is a named slot (small/medium/big) holding exactly ONE model spec
  * string (e.g. "openai/gpt-4.1-mini"). When an agent() call specifies opts.tier,
  * that single model is resolved and used as the subagent's model (unless an
- * explicit opts.model is given, which always wins — see agent.ts).
+ * explicit opts.model is given, which always wins — see agent-model.ts).
  */
 
 import { listAvailableModelSpecs } from "./available-models.js";
