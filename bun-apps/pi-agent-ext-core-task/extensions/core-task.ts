@@ -26,6 +26,8 @@
  * fallback.
  */
 import type { ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { getSubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
+import { createSubagentsSection } from "../src/subagents/subagents-section.js";
 import goal, { isGoalActive } from "../src/goal/goal.js";
 import { registerLoop, restoreLoopFromSession } from "../src/loop/loop.js";
 import { LoopOverlay } from "../src/loop/overlay.js";
@@ -94,6 +96,16 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 
 	statusWidget.addSection({ id: "todo", order: 1, render: (t, w) => todoOverlay.render(t, w), inspect: () => todoOverlay.inspect() });
 
+	// ── Subagents section (order 4) ────────────────────────────────────────
+	// Live background-run rows from the in-flight registry. Foreground runs
+	// stay inline (Surface A) — this section filters to foreground:false only,
+	// so a run never renders on both surfaces (plan Task 01, exclusion rule).
+	const subagentsHandle = createSubagentsSection({
+		getViews: () => getSubagentInFlightRegistry().views({ foreground: false }),
+		requestRender: () => statusWidget.update(),
+	});
+	statusWidget.addSection(subagentsHandle.section);
+
 	pi.on("session_start", async (_event, ctx) => {
 		// Todos are SESSION-ONLY: never replayed from the session branch and
 		// never seeded from disk plans, so each session starts empty. Permanent
@@ -144,6 +156,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 		goalOverlay.dispose();
 		loopOverlay.dispose();
 		todoOverlay.dispose();
+		subagentsHandle.dispose();
 		statusWidget.dispose();
 	});
 
