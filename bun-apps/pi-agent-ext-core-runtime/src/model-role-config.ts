@@ -2,7 +2,7 @@
  * Model-role configuration — the LEAF resolver for tier + capability → model-spec.
  *
  * Split from model-tier-config.ts so lightweight consumers (file2md) can resolve
- * a model role WITHOUT pulling in agent.js (WorkflowAgent machinery). Import via
+ * a model role WITHOUT pulling in model-specs.js. Import via
  * the package barrel: `@repo/pi-agent-ext-subagent`.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
