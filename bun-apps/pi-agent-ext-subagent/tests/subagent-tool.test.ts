@@ -1,8 +1,9 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { Text, visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
 import { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
+import { ComposerComponent } from "../src/composer-component.js";
 import type { GitScopeOps } from "../src/git-scope.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
@@ -1545,15 +1546,14 @@ test("renderCall reads resolvedModel from the registry and binds invalidate", ()
   reg.start({ id: "tc9", model: "tier:medium", taskPreview: "x", startedAt: 0 });
   reg.updateModel("tc9", "google/gemma-4-12b");
   let invalidated = 0;
-  const text = new Text("", 0, 0);
-  tool.renderCall?.({ agent: "auditor", tier: "medium", task: "x" }, T, {
+  const comp = tool.renderCall?.({ agent: "auditor", tier: "medium", task: "x" }, T, {
     toolCallId: "tc9",
-    lastComponent: text,
     invalidate: () => {
       invalidated++;
     },
   } as never);
-  assert.match(text.render(200).join("\n"), /tier:medium ▸ gemma-4-12b ▸/);
+  assert.ok(comp instanceof ComposerComponent);
+  assert.match(comp.render(200).join("\n"), /tier:medium ▸ gemma-4-12b ▸/);
   // invalidate was bound — a later updateModel re-renders the call line
   reg.updateModel("tc9", "anthropic/claude-opus");
   assert.equal(invalidated, 1);
@@ -1564,24 +1564,79 @@ test("renderCall drops the resolved-model segment after the run ends (end() tear
   const tool = createSubagentTool({ inFlight: reg });
   reg.start({ id: "tc-end", model: "tier:medium", taskPreview: "x", startedAt: 0 });
   reg.updateModel("tc-end", "google/gemma-4-12b");
-  const before = new Text("", 0, 0);
-  tool.renderCall?.({ agent: "auditor", tier: "medium", task: "x" }, T, {
+  const before = tool.renderCall?.({ agent: "auditor", tier: "medium", task: "x" }, T, {
     toolCallId: "tc-end",
-    lastComponent: before,
     invalidate: () => {},
   } as never);
+  assert.ok(before instanceof ComposerComponent);
   assert.match(before.render(200).join("\n"), /gemma-4-12b/);
   // After completion the entry is gone — segment reverts; model lives on the result line.
   reg.end("tc-end");
-  const after = new Text("", 0, 0);
-  tool.renderCall?.({ agent: "auditor", tier: "medium", task: "x" }, T, {
+  const after = tool.renderCall?.({ agent: "auditor", tier: "medium", task: "x" }, T, {
     toolCallId: "tc-end",
-    lastComponent: after,
     invalidate: () => {},
   } as never);
+  assert.ok(after instanceof ComposerComponent);
   const rendered = after.render(200).join("\n");
   assert.match(rendered, /tier:medium/);
   assert.doesNotMatch(rendered, /gemma-4-12b/);
+});
+
+// ── compose-in-render mounting (ticket 02): ladder, re-flow, reuse, settled ──
+
+test("renderCall composes at render width (ladder + re-flow)", () => {
+  const tool = createSubagentTool({});
+  const tail = "q".repeat(70); // >60-char tail starting at char 6: capWidth(60,width) truncation is observable
+  const task = `audit ${tail} across every mount site`;
+  const comp = tool.renderCall?.({ agent: "auditor", task }, T, { toolCallId: "tc-ladder" } as never);
+  assert.ok(comp instanceof ComposerComponent);
+  for (const width of [40, 80, 120, 200]) {
+    const lines = comp.render(width);
+    for (const line of lines) {
+      assert.ok(visibleWidth(line) <= width, `width ${width} overflow: ${visibleWidth(line)}`);
+    }
+  }
+  // Re-flow: composing at a different width yields a different rendering.
+  assert.notEqual(comp.render(40).join("\n"), comp.render(120).join("\n"));
+  // The wide render keeps more of the long tail than the narrowest one.
+  const qRun = (s: string) => [...s].filter((c) => c === "q").length;
+  assert.ok(qRun(comp.render(200).join("\n")) > qRun(comp.render(40).join("\n")));
+});
+
+test("renderResult reuses ComposerComponent via lastComponent", () => {
+  const tool = createSubagentTool({});
+  const a = tool.renderCall?.({ agent: "scout", task: "first task" }, T, {
+    lastComponent: undefined,
+  } as never);
+  assert.ok(a instanceof ComposerComponent);
+  const b = tool.renderCall?.({ agent: "scout", task: "second task" }, T, {
+    lastComponent: a,
+  } as never);
+  assert.equal(b, a, "a reused lastComponent ComposerComponent is returned, not replaced");
+  const wide = a.render(200).join("\n");
+  assert.ok(wide.includes("second task"), "the reused component composes the LATEST closure");
+  assert.ok(!wide.includes("first task"));
+});
+
+test("renderResult composes settled-collapsed at render width", () => {
+  const tool = createSubagentTool({});
+  const details: SubagentToolDetails = {
+    agent: "implementer",
+    taskPreview: "p",
+    elapsedMs: 1000,
+    status: "done",
+  };
+  // Settled non-partial result whose first output line is long (>60 cols).
+  const result = { content: [{ type: "text", text: "z".repeat(70) }], details };
+  const comp = tool.renderResult?.(result, { expanded: false }, T, { lastComponent: undefined } as never);
+  assert.ok(comp instanceof ComposerComponent);
+  for (const line of comp.render(40)) {
+    assert.ok(visibleWidth(line) <= 40, `width 40 overflow: ${visibleWidth(line)}`);
+  }
+  // capWidth(60, width) binds at wide widths: the 200-col render keeps more
+  // of the long first output line than the 40-col one.
+  const zRun = (s: string) => [...s].filter((c) => c === "z").length;
+  assert.ok(zRun(comp.render(200).join("\n")) > zRun(comp.render(40).join("\n")));
 });
 
 // ── formatHistoryLine (exported for the /subagents live-follow view) ──
