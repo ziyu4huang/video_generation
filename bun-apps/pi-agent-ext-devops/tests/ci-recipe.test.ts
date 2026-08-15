@@ -685,3 +685,34 @@ describe("runLocalCi — execution model (parallel, builder-first)", () => {
 		expect(maxInFlight).toBeLessThanOrEqual(3);
 	});
 });
+
+describe("runLocalCi — link-breaker isolation (pi-agent runs sequential-first)", () => {
+	test("pi-agent's test row runs BEFORE non-build parallel rows even when listed last", async () => {
+		const { fn, calls } = mkSpawn([verifyOk()]);
+		await runLocalCi({
+			repoRoot: REPO,
+			packages: ["pkg-a", "pi-agent"],
+			spawn: fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" }, "pi-agent": { test: "bun test" } }),
+			readMatrix: async () => ({ "pkg-a": "bun test", "pi-agent": "bun test" }),
+			includeGates: false,
+		});
+		const idx = (name: string) =>
+			calls.findIndex((c) => (c.cmd === "bash" || (c.cmd === "bun" && c.args[1] === "test")) && pkgOf(c.cwd) === name);
+		expect(idx("pi-agent")).toBeGreaterThanOrEqual(0);
+		expect(idx("pi-agent")).toBeLessThan(idx("pkg-a"));
+	});
+
+	test("a heal spawn (relink dangling @repo links) runs between phases", async () => {
+		const { fn, calls } = mkSpawn([verifyOk()]);
+		await runLocalCi({
+			repoRoot: REPO,
+			packages: ["pkg-a"],
+			spawn: fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+			readMatrix: async () => ({ "pkg-a": "bun test" }),
+			includeGates: false,
+		});
+		expect(calls.some((c) => c.cmd === "bash" && c.args[0] === "-c" && c.args[2] === "heal-workspace-links")).toBe(true);
+	});
+});

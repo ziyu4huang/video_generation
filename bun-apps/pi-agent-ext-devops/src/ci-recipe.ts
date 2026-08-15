@@ -185,6 +185,48 @@ async function mapPool<T, R>(items: T[], limit: number, worker: (item: T) => Pro
 }
 
 /**
+ * Relink any DANGLING `bun-apps/node_modules/@repo/*` symlink to bun's own
+ * correct `../../<dir>` form. Needed because the Bun runtime (observed
+ * 2026-08-15, Bun 1.3.14) rewrites those links to `../../bun-apps/<dir>` —
+ * dangling at that depth — when a `bun test` process imports
+ * pi-agent's ensure-extension-deps patch; left broken, the next package that
+ * resolves a `@repo/*` import from the workspace root dies with ENOENT
+ * (btw/movie-director typecheck exit 2, archify test exit 1 — all transient
+ * victims of pi-agent's suite running concurrently). Best-effort: the spawn's
+ * exit code is advisory, never a gate.
+ */
+async function healWorkspaceLinks(spawn: SpawnFn, repoRoot: string): Promise<void> {
+	const script =
+		'for d in "$1"/bun-apps/node_modules/@repo/*; do [ -L "$d" ] && [ ! -e "$d" ] || continue; ' +
+		'n="$(basename "$d")"; rm -f "$d"; ln -s "../../$n" "$d"; done';
+	try {
+		await spawn("bash", ["-c", script, "heal-workspace-links", repoRoot], { cwd: repoRoot });
+	} catch {
+		/* advisory only */
+	}
+}
+
+/** A gate's invocation: how to spawn it + whether its failure fails `overall`. */
+interface GateSpec {
+	/** Bare filename under scripts/ (e.g. "ci-file-size-guard.sh"). */
+	file: string;
+	/** Runner chosen by extension so the gate actually executes (see dispatchGate). */
+	cmd: string;
+	args: string[];
+	blocking: boolean;
+}
+
+/** Always-on (v1) blocking gates. */
+const BLOCKING_GATES_V1 = ["ci-file-size-guard.sh", "check-lockfile-duplicate-versions.sh"];
+/** Extra audit gates added only under `strict`. */
+const STRICT_AUDIT_GATES = [
+	"test-determinism-audit.sh",
+	"test-portability-audit.sh",
+	"check-workflow-patterns.mjs",
+	"verify-skills.ts",
+];
+
+/**
  * Pick the runner for a LOCAL_ONLY audit by extension. `.sh` → bash; `.ts` →
  * bun (shebang `#!/usr/bin/env bun`); `.mjs` → node (shebang
  * `#!/usr/bin/env node`). Running an `.mjs`/`.ts` under `bash` is a syntax
@@ -348,11 +390,20 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 		plans.push(plan);
 	}
 
-	// 3b. Build rows sequentially (dist writes serialize), in package order.
-	for (const plan of plans.filter((p) => p.builds)) {
+	// 3b. Sequential-first rows: BUILD-bearing commands (dist writes serialize)
+	//     and pi-agent's own suite (the one repo package whose test run makes
+	//     the Bun runtime rewrite bun-apps/node_modules/@repo/* symlinks to a
+	//     dangling form — running it in isolation FIRST means the rewrite
+	//     happens before any other package resolves @repo/*, and the heal
+	//     below repairs it before the parallel phase starts).
+	const sequentialFirst = (p: TestPlan) => p.builds || p.name === "pi-agent";
+	for (const plan of plans.filter(sequentialFirst)) {
 		if (opts.signal?.aborted) break;
 		await plan.run();
 	}
+	// Heal any @repo/* workspace link the sequential phase left dangling (the
+	// Bun-runtime rewrite above) so the parallel phase resolves cleanly.
+	await healWorkspaceLinks(spawn, opts.repoRoot);
 	// 3c. Non-build rows, bounded parallelism.
 	await mapPool(
 		plans.filter((p) => !p.builds),
