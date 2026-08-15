@@ -130,3 +130,67 @@ export function tierDefaultToken(
   // 6. clamp.
   return Math.max(1, Math.floor(result));
 }
+
+/**
+ * #03 role-aware dispatch bounds (2026-08-15 hardening). A dispatch that omits
+ * ALL of tokenBudget/maxTurns/timeoutMs used to run with only the tier token
+ * ceiling + the 15-min timeout and NO turn cap — unbounded recon dispatches
+ * burned 400-500k tokens returning zero output. These bounds give the two
+ * dispatch archetypes a complete default envelope instead:
+ *
+ * | role   | tokenBudget | maxTurns | timeoutMs | rationale                           |
+ * |--------|-------------|----------|-----------|-------------------------------------|
+ * | recon  | 60k (≤ tier | 8        | 5 min     | locate/read/paste work is 1-3 turns |
+ * |        | ceiling)    |          |           | at p90; the min() keeps the tier    |
+ * |        |             |          |           | policy (budget-protocol knowledge   |
+ * |        |             |          |           | file, 2026-08-15) intact.           |
+ * | writer | 400k        | 24       | 20 min    | implementer children run 3-10 min   |
+ * |        |             |          |           | well under 24 turns on real work.   |
+ *
+ * Applied ONLY when all three are omitted AT THE PARAMS level (timeoutMs is
+ * always defaulted downstream in buildSpawnOptions/mergeReadOnlyExclusion, so
+ * "omitted" must be detected before those defaults land). An explicit bound of
+ * any kind opts the WHOLE envelope out — partial overrides are never mixed in.
+ */
+export const ROLE_AWARE_DISPATCH_BOUNDS = {
+  recon: { tokenBudget: 60_000, maxTurns: 8, timeoutMs: 5 * 60_000 },
+  writer: { tokenBudget: 400_000, maxTurns: 24, timeoutMs: 20 * 60_000 },
+} as const;
+
+export type DispatchRole = keyof typeof ROLE_AWARE_DISPATCH_BOUNDS;
+
+export interface RoleAwareDefaults {
+  applied: boolean;
+  tokenBudget?: number;
+  maxTurns?: number;
+  timeoutMs?: number;
+  notice?: string;
+}
+
+/**
+ * Pure resolver for the role-aware dispatch envelope. `applied` is true ONLY
+ * when (a) SUBAGENT_TOKEN_BUDGET_DISABLE is unset (same escape hatch as the
+ * tier ceilings; env read at call time) and (b) all three bounds are omitted
+ * in `p`. `tierCeiling` (the tierDefaultToken value for the dispatch's model)
+ * caps the recon tokenBudget so a recon default never exceeds the
+ * p90-calibrated tier policy.
+ */
+export function roleAwareDefaults(
+  p: { tokenBudget?: number; maxTurns?: number; timeoutMs?: number },
+  role: DispatchRole,
+  tierCeiling?: number,
+): RoleAwareDefaults {
+  if (envFlagTrue(ENV_KEYS.disable)) return { applied: false };
+  if (p.tokenBudget !== undefined || p.maxTurns !== undefined || p.timeoutMs !== undefined) {
+    return { applied: false };
+  }
+  const bounds = ROLE_AWARE_DISPATCH_BOUNDS[role];
+  return {
+    applied: true,
+    tokenBudget:
+      role === "recon" && tierCeiling !== undefined ? Math.min(bounds.tokenBudget, tierCeiling) : bounds.tokenBudget,
+    maxTurns: bounds.maxTurns,
+    timeoutMs: bounds.timeoutMs,
+    notice: `bounds: defaults applied (${role}) — pass tokenBudget/maxTurns/timeoutMs to override`,
+  };
+}

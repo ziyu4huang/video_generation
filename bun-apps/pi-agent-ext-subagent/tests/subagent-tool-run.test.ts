@@ -1,13 +1,20 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
+import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
 import type { GitScopeOps, SubagentScopeCheck } from "../src/git-scope.js";
+import type { SubagentFailure } from "../src/spawn-subagent.js";
 import {
+  abortSafetyFooter,
+  abortSafetyLogPath,
+  augmentOutputWithSalvage,
   augmentOutputWithScopeViolation,
   captureCommitBaseline,
   captureWatchdogBaseline,
+  extractSalvage,
   resolveDisplayModel,
   runScopeCheck,
   runWatchdogReview,
+  shouldInjectFooter,
 } from "../src/subagent-tool-run.js";
 import type { RepoBaseline } from "../src/watchdog/repo-diff.js";
 import type { WatchdogResult } from "../src/watchdog/types.js";
@@ -330,4 +337,108 @@ test("buildSpawnOptions: onUsage accrues mapped AgentUsage into the registry", (
   assert.equal(accrued.length, 1);
   assert.equal(accrued[0][0], "call-u");
   assert.deepEqual(accrued[0][1], { costUsd: 0.04, tokensIn: 100, tokensOut: 200 });
+});
+
+// ── H2 (2026-08-15 hardening): abort salvage from the compact transcript ──
+
+const he = (e: Partial<AgentHistoryEntry>): AgentHistoryEntry => e as AgentHistoryEntry;
+
+test("extractSalvage: last assistant text captured, trimmed, capped at 1500", () => {
+  const salvage = extractSalvage([
+    he({ role: "assistant", kind: "text", text: "  earlier note  " }),
+    he({ role: "assistant", kind: "text", text: `  ${"x".repeat(1600)}  ` }),
+  ]);
+  assert.equal(salvage?.lastText, "x".repeat(1500));
+  assert.equal(salvage?.files, undefined);
+});
+
+test("extractSalvage: write-tool call paths parsed from JSON args + deduped; reads ignored", () => {
+  const salvage = extractSalvage([
+    he({ role: "assistant", kind: "toolCall", toolName: "edit", text: '{"path":"a.ts"}' }),
+    he({ role: "assistant", kind: "toolCall", toolName: "write", text: '{"file_path":"b.ts"}' }),
+    he({ role: "assistant", kind: "toolCall", toolName: "multiedit", text: '{"path":"a.ts"}' }),
+    he({ role: "assistant", kind: "toolCall", toolName: "apply_patch", text: '{"path":"c.ts"}' }),
+    he({ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"ignored.ts"}' }),
+  ]);
+  assert.deepEqual(salvage?.files, ["a.ts", "b.ts", "c.ts"]);
+  assert.equal(salvage?.lastText, undefined);
+});
+
+test("extractSalvage: malformed toolCall JSON swallowed; file list capped at 40", () => {
+  const many = Array.from({ length: 45 }, (_, i) =>
+    he({ role: "assistant", kind: "toolCall", toolName: "write", text: `{"path":"f${i}.ts"}` }),
+  );
+  const salvage = extractSalvage([
+    he({ role: "assistant", kind: "toolCall", toolName: "edit", text: "not json" }),
+    ...many,
+  ]);
+  assert.equal(salvage?.files?.length, 40);
+  assert.equal(salvage?.files?.[0], "f0.ts");
+});
+
+test("extractSalvage: empty/undefined history, or nothing salvageable → undefined", () => {
+  assert.equal(extractSalvage(undefined), undefined);
+  assert.equal(extractSalvage([]), undefined);
+  assert.equal(extractSalvage([he({ role: "user", kind: "text", text: "go" })]), undefined);
+  assert.equal(extractSalvage([he({ role: "tool", kind: "toolResult", toolName: "read", text: "ok" })]), undefined);
+});
+
+const budgetFailure: SubagentFailure = {
+  kind: "budget",
+  message: "budget exhausted",
+  budget: { kind: "tokens", limit: 1000, actual: 1234 },
+};
+
+test("augmentOutputWithSalvage: terminal abort appends the salvage section (files, then last words)", () => {
+  const out = augmentOutputWithSalvage("Subagent aborted: budget", budgetFailure, false, {
+    lastText: "final words",
+    files: ["a.ts"],
+  });
+  assert.equal(
+    out,
+    "Subagent aborted: budget\n\n--- salvage (terminal abort) ---\nfiles touched: a.ts\nlast words:\nfinal words",
+  );
+});
+
+test("augmentOutputWithSalvage: user abort counts as terminal even without a failure", () => {
+  const out = augmentOutputWithSalvage("Subagent aborted by user.", undefined, true, { lastText: "wip" });
+  assert.match(out, /--- salvage \(terminal abort\) ---\nlast words:\nwip/);
+});
+
+test("augmentOutputWithSalvage: non-terminal (done / plain failure) and salvage-less runs are untouched", () => {
+  const salvage = { lastText: "wip", files: ["a.ts"] };
+  assert.equal(augmentOutputWithSalvage("plain", undefined, false, salvage), "plain");
+  assert.equal(augmentOutputWithSalvage("plain", { kind: "failed", message: "boom" }, false, salvage), "plain");
+  assert.equal(augmentOutputWithSalvage("plain", budgetFailure, false, undefined), "plain");
+});
+
+// ── H4 (2026-08-15 hardening): abort-safety prompt footer ──
+
+test("shouldInjectFooter: write-capable toolset OR maxTurns>10", () => {
+  // write tools
+  assert.equal(shouldInjectFooter({ tools: ["edit"] }), true);
+  assert.equal(shouldInjectFooter({ tools: ["write", "multiedit", "apply_patch", "bash"] }), true);
+  assert.equal(shouldInjectFooter({ tools: undefined }), true, "unrestricted child reads as write-capable");
+  // read-only short
+  assert.equal(shouldInjectFooter({ tools: ["read", "grep"] }), false);
+  assert.equal(shouldInjectFooter({ tools: ["read", "grep"], maxTurns: 10 }), false, "10 is not >10");
+  // exclusions deny the write tool
+  assert.equal(shouldInjectFooter({ tools: ["edit", "read"], excludeTools: ["edit"] }), false);
+  // long runs
+  assert.equal(shouldInjectFooter({ tools: ["read"], maxTurns: 11 }), true);
+  assert.equal(shouldInjectFooter({ maxTurns: 12 }), true);
+});
+
+test("abortSafetyFooter: ≤6 lines citing the log path, shell timeout, report-first", () => {
+  const footer = abortSafetyFooter("/tmp/subagent-runs/x.md");
+  const lines = footer.split("\n");
+  assert.ok(lines.length <= 6, `footer stays ≤6 lines (${lines.length})`);
+  assert.match(footer, /abort-safety/);
+  assert.match(footer, /\/tmp\/subagent-runs\/x\.md/);
+  assert.match(footer, /timeout <seconds>/);
+  assert.match(footer, /FIRST write your final report to that log file/);
+});
+
+test("abortSafetyLogPath: run-scoped under /tmp/subagent-runs", () => {
+  assert.equal(abortSafetyLogPath("id-1"), "/tmp/subagent-runs/id-1.md");
 });

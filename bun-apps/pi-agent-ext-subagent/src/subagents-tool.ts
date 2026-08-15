@@ -27,15 +27,15 @@ import {
   summarizeLatestAction,
 } from "@repo/pi-agent-ext-core-runtime";
 import { Type } from "typebox";
-import { tierDefaultToken } from "./budget-defaults.js";
+import { roleAwareDefaults, tierDefaultToken } from "./budget-defaults.js";
 import { dispatchChild } from "./child-dispatch.js";
 import { realGitOps } from "./git-scope.js";
 import { missingRequiredTools } from "./impossible-tools.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
-import { spawnSubagent } from "./spawn-subagent.js";
+import { deriveTaskLabel, spawnSubagent } from "./spawn-subagent.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
 import { taskPreview, workIntentPreview } from "./subagent-tool-render.js";
-import { augmentOutputWithScopeViolation } from "./subagent-tool-run.js";
+import { abortSafetyFooter, augmentOutputWithScopeViolation, extractSalvage } from "./subagent-tool-run.js";
 import { DEFAULT_TIMEOUT_MS } from "./subagent-tool-schema.js";
 
 /** Tree-mutating tools a read-only child may NEVER carry (non-overridable). */
@@ -219,11 +219,28 @@ export function clampConcurrency(n: number | undefined, max = MAX_CONCURRENCY): 
  *  default when the task omits an explicit allowlist (optimization #1). */
 export function mergeReadOnlyExclusion(
   task: BatchTask,
-  ctx: { defaultCwd: string; mainModel?: string; extensionTools?: ToolDefinition[]; activeTools?: string[] },
+  ctx: {
+    defaultCwd: string;
+    mainModel?: string;
+    extensionTools?: ToolDefinition[];
+    activeTools?: string[];
+    /** Run token for the abort-safety footer's log path (`<toolCallId>:<index>`). */
+    logToken?: string;
+  },
 ): SpawnSubagentOptions {
   const excludeTools = Array.from(new Set([...(task.excludeTools ?? []), ...READ_ONLY_EXCLUDED]));
+  // H4: a batch child is read-only BY CONSTRUCTION (edit/write/bash always
+  // denied below), so the write-tool footer gate is always false here — the
+  // footer rides only on an explicit long turn cap (maxTurns > 10). Appended
+  // to the SPAWNED task only; task.task (persisted) stays raw.
+  const task0 =
+    (task.maxTurns ?? 0) > 10
+      ? `${task.task}${abortSafetyFooter(`/tmp/subagent-runs/${ctx.logToken ?? "batch-child"}.md`)}`
+      : task.task;
   const opts: SpawnSubagentOptions = {
-    task: task.task,
+    task: task0,
+    // H1: real per-task label (was a hardcoded "zk-spawn").
+    label: deriveTaskLabel(task.task),
     cwd: task.cwd ?? ctx.defaultCwd,
     // Default to the parent's gated active set (not the full definition universe)
     // so a spawned child doesn't re-pay the ~18k tok/req schema baseline the
@@ -377,7 +394,32 @@ export function createSubagentsTool(
           }
           return;
         }
-        const childOpts = mergeReadOnlyExclusion(task, { defaultCwd, mainModel, extensionTools, activeTools });
+        // H3: role-aware bounds for an all-omitted batch child. A batch child
+        // is read-only by construction (edit/write/bash always denied), so the
+        // role is always recon. Applied to the task BEFORE
+        // mergeReadOnlyExclusion so the spawn sees one coherent envelope; the
+        // notice lands in the durable record's output (grep-able) — batch
+        // slots stay compact.
+        const reconBounds = roleAwareDefaults(
+          { tokenBudget: task.tokenBudget, maxTurns: task.maxTurns, timeoutMs: task.timeoutMs },
+          "recon",
+          tierDefaultToken(task.tier, task.model ?? mainModel),
+        );
+        const effTask: BatchTask = reconBounds.applied
+          ? {
+              ...task,
+              tokenBudget: reconBounds.tokenBudget,
+              maxTurns: reconBounds.maxTurns,
+              timeoutMs: reconBounds.timeoutMs,
+            }
+          : task;
+        const childOpts = mergeReadOnlyExclusion(effTask, {
+          defaultCwd,
+          mainModel,
+          extensionTools,
+          activeTools,
+          logToken: `${toolCallId}:${index}`,
+        });
         // #03 plural mirror: impossible-tool preflight. A child missing a
         // required tool is skipped (null slot) and warned — never dispatched.
         const missingChild = missingRequiredTools(task.requiredTools, childOpts.tools, childOpts.excludeTools);
@@ -404,67 +446,61 @@ export function createSubagentsTool(
         // the actual-model capture (ticket 04, finding 2) and the default-on
         // scope audit ("#02 B1") each reached only one of the two tools.
         let outcome: Awaited<ReturnType<typeof dispatchChild>>;
-        try {
-          outcome = await dispatchChild(
-            {
-              id: childRunId,
-              startedAt: childT0,
-              spawn: childOpts,
-              entry: {
-                model: childModel,
-                taskPreview: preview,
-                // Work-intent strip from the RAW task, so the docked context box
-                // can surface it (ticket 04, finding 1).
-                workIntent: workIntentPreview(task.task),
-                batchId: toolCallId,
-              },
-              // Audit only when a scope is declared — deliberately NOT the
-              // singular tool's default-on policy, and stated here rather than
-              // left to diverge silently. The singular tool's child holds raw
-              // `bash`, so an undeclared scope must still flag a `git add -A`
-              // sweep. A batch child has edit/write/bash excluded and so cannot
-              // reach git at all, making an unconditional audit two git
-              // subprocesses per child to detect something it cannot do.
-              scope: task.commitScope
-                ? { declared: task.commitScope, runCwd: defaultCwd, spawnCwd: childOpts.cwd ?? defaultCwd }
-                : undefined,
-              parentSignal: signal,
+        outcome = await dispatchChild(
+          {
+            id: childRunId,
+            startedAt: childT0,
+            spawn: childOpts,
+            entry: {
+              model: childModel,
+              taskPreview: preview,
+              // Work-intent strip from the RAW task, so the docked context box
+              // can surface it (ticket 04, finding 1).
+              workIntent: workIntentPreview(task.task),
+              batchId: toolCallId,
             },
-            {
-              spawn,
-              inFlight: options.inFlight,
-              gitOps: realGitOps,
-              // Keep the entry after completion for k/N progress + a frozen
-              // trace; the whole batch is evicted on return via endBatch.
-              release: "markCompleted",
-              // Gate the provider dispatch under the shared per-provider cap
-              // (outer bound); the `concurrency` worker pool is the inner bound.
-              // Pass-through when no cap is configured for the provider.
-              gate: globalRateLimiter ? (fn) => globalRateLimiter.run(fn) : undefined,
-              onUsage: (u) => {
-                runningUsage.set(childRunId, u);
-              },
-              onHistory: () => {
-                // Single-line batch progress feed — kills the blind spinner on
-                // the batch's own call line. dispatchChild already swallows a
-                // throw here, so a broken feed can never fail a child.
-                const group = (options.inFlight?.views() ?? []).filter((v) => v.batchId === toolCallId);
-                const running = group.filter((v) => !isTerminalStatus(v.status)).length;
-                const total = params.tasks.length;
-                const agg = sumUsage(runningUsage.values());
-                const aggStr = agg.total > 0 ? ` · ${agg.total} tok · $${agg.cost.toFixed(3)}` : "";
-                const header = `subagents · ${running}/${total} running${aggStr}`;
-                const table = buildLiveTable(group);
-                const text = table ? `${header}\n${table}` : header;
-                onUpdate?.({ content: [{ type: "text" as const, text }], details: undefined as never });
-              },
+            // Audit only when a scope is declared — deliberately NOT the
+            // singular tool's default-on policy, and stated here rather than
+            // left to diverge silently. The singular tool's child holds raw
+            // `bash`, so an undeclared scope must still flag a `git add -A`
+            // sweep. A batch child has edit/write/bash excluded and so cannot
+            // reach git at all, making an unconditional audit two git
+            // subprocesses per child to detect something it cannot do.
+            scope: task.commitScope
+              ? { declared: task.commitScope, runCwd: defaultCwd, spawnCwd: childOpts.cwd ?? defaultCwd }
+              : undefined,
+            parentSignal: signal,
+          },
+          {
+            spawn,
+            inFlight: options.inFlight,
+            gitOps: realGitOps,
+            // Keep the entry after completion for k/N progress + a frozen
+            // trace; the whole batch is evicted on return via endBatch.
+            release: "markCompleted",
+            // Gate the provider dispatch under the shared per-provider cap
+            // (outer bound); the `concurrency` worker pool is the inner bound.
+            // Pass-through when no cap is configured for the provider.
+            gate: globalRateLimiter ? (fn) => globalRateLimiter.run(fn) : undefined,
+            onUsage: (u) => {
+              runningUsage.set(childRunId, u);
             },
-          );
-        } catch (err) {
-          // dispatchChild already released the registry entry in its own finally;
-          // let the worker wrapper record the failure and null this slot.
-          throw err;
-        }
+            onHistory: () => {
+              // Single-line batch progress feed — kills the blind spinner on
+              // the batch's own call line. dispatchChild already swallows a
+              // throw here, so a broken feed can never fail a child.
+              const group = (options.inFlight?.views() ?? []).filter((v) => v.batchId === toolCallId);
+              const running = group.filter((v) => !isTerminalStatus(v.status)).length;
+              const total = params.tasks.length;
+              const agg = sumUsage(runningUsage.values());
+              const aggStr = agg.total > 0 ? ` · ${agg.total} tok · $${agg.cost.toFixed(3)}` : "";
+              const header = `subagents · ${running}/${total} running${aggStr}`;
+              const table = buildLiveTable(group);
+              const text = table ? `${header}\n${table}` : header;
+              onUpdate?.({ content: [{ type: "text" as const, text }], details: undefined as never });
+            },
+          },
+        );
         const result = outcome.result;
         const elapsedMs = outcome.elapsedMs;
         dispatched++;
@@ -567,7 +603,20 @@ export function createSubagentsTool(
             usage: result.usage,
             budget: result.failure?.kind === "budget" ? result.failure.budget : undefined,
             turns: result.failure?.kind === "turns" ? result.failure.turns : undefined,
-            output: userAborted ? "Subagent aborted by user." : result.output,
+            // H2: record-only salvage for an aborted batch child (the slot
+            // output stays compact; subagent_runs get renders the section).
+            salvage:
+              userAborted ||
+              result.failure?.kind === "budget" ||
+              result.failure?.kind === "turns" ||
+              result.failure?.kind === "timedout"
+                ? extractSalvage(outcome.history)
+                : undefined,
+            output: userAborted
+              ? "Subagent aborted by user."
+              : reconBounds.applied && reconBounds.notice
+                ? `${result.output}\n${reconBounds.notice}`
+                : result.output,
           });
         }
         // Commit-scope violation surfaced into the child's output. Only slots

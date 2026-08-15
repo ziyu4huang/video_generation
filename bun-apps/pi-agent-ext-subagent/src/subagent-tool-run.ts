@@ -11,10 +11,10 @@ import { parseSddReport } from "@repo/pi-agent-ext-core-runtime";
 import type { TSchema } from "typebox";
 import { tierDefaultToken } from "./budget-defaults.js";
 import type { computeScopeCheck, GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
-import type { SpawnSubagentOptions, SubagentFailure } from "./spawn-subagent.js";
+import { deriveTaskLabel, type SpawnSubagentOptions, type SubagentFailure } from "./spawn-subagent.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
 import { formatSubagentLive, taskPreview } from "./subagent-tool-render.js";
-import { DEFAULT_TIMEOUT_MS, type SubagentToolDetails } from "./subagent-tool-schema.js";
+import { DEFAULT_TIMEOUT_MS, type SubagentSalvage, type SubagentToolDetails } from "./subagent-tool-schema.js";
 import type { computeBaseline, RepoBaseline } from "./watchdog/repo-diff.js";
 import { normalizeWatchdogParam, type WatchdogResult } from "./watchdog/types.js";
 import type { runWatchdog } from "./watchdog/watchdog.js";
@@ -145,6 +145,111 @@ export function augmentOutputWithScopeViolation(output: string, scopeCheck: Suba
   return output;
 }
 
+// ---- terminal-abort salvage (2026-08-15 hardening H2) ----
+
+const SALVAGE_WRITE_TOOLS = new Set(["edit", "write", "multiedit", "apply_patch"]);
+const SALVAGE_MAX_TEXT = 1500;
+const SALVAGE_MAX_FILES = 40;
+
+/**
+ * Extract what an aborted child managed to produce from its compact
+ * transcript: the LAST assistant text (role assistant + kind text, trimmed,
+ * ≤1500 chars) plus the paths touched by write tool calls (edit/write/
+ * multiedit/apply_patch — parsed from the toolCall entry's JSON-stringified
+ * arguments via the first write-tool arg key found; parse errors swallowed).
+ * Deduped, ≤40 files. Returns undefined when the history holds neither (or is
+ * absent) — a "done" run's real output already carries everything.
+ */
+export function extractSalvage(history: AgentHistoryEntry[] | undefined): SubagentSalvage | undefined {
+  if (!history || history.length === 0) return undefined;
+  let lastText: string | undefined;
+  const files: string[] = [];
+  const seen = new Set<string>();
+  for (const h of history) {
+    if (h.role === "assistant" && h.kind === "text" && h.text.trim()) lastText = h.text.trim();
+    if (h.kind === "toolCall" && h.toolName && SALVAGE_WRITE_TOOLS.has(h.toolName)) {
+      try {
+        const args = JSON.parse(h.text) as Record<string, unknown>;
+        const p = args.path ?? args.file_path;
+        if (typeof p === "string" && p && !seen.has(p)) {
+          seen.add(p);
+          files.push(p);
+        }
+      } catch {
+        // malformed toolCall args — nothing salvageable from this entry
+      }
+    }
+  }
+  const salvage: SubagentSalvage = {};
+  if (lastText) salvage.lastText = lastText.length > SALVAGE_MAX_TEXT ? lastText.slice(0, SALVAGE_MAX_TEXT) : lastText;
+  if (files.length > 0) salvage.files = files.slice(0, SALVAGE_MAX_FILES);
+  return salvage.lastText || salvage.files ? salvage : undefined;
+}
+
+/**
+ * Surface salvage into the parent-visible output — ONLY on a terminal abort
+ * (failure kind budget/turns/timedout, or a user abort via `userAborted`),
+ * where formatSubagentResult otherwise drops the child's last words and the
+ * parent reads a bare abort line ("(empty)" via subagent_runs). Never fires
+ * on "done" — the real output already carries it (no duplication).
+ */
+export function augmentOutputWithSalvage(
+  output: string,
+  failure: SubagentFailure | undefined,
+  userAborted: boolean,
+  salvage: SubagentSalvage | undefined,
+): string {
+  const terminal =
+    userAborted || failure?.kind === "budget" || failure?.kind === "turns" || failure?.kind === "timedout";
+  if (!salvage || !terminal) return output;
+  const parts: string[] = [];
+  if (salvage.files?.length) parts.push(`files touched: ${salvage.files.join(", ")}`);
+  if (salvage.lastText) parts.push(`last words:\n${salvage.lastText}`);
+  return `${output}\n\n--- salvage (terminal abort) ---\n${parts.join("\n")}`;
+}
+
+// ---- abort-safety prompt footer (2026-08-15 hardening H4) ----
+
+const WRITE_TOOL_NAMES = new Set(["edit", "write", "multiedit", "apply_patch", "bash"]);
+
+/**
+ * Whether the child's effective toolset can mutate the repo (a write tool not
+ * denied by excludeTools). An UNRESTRICTED child (no allowlist) reads as true
+ * — bash/edit are available in that case.
+ */
+export function hasWriteTools(tools: string[] | undefined, excludeTools?: string[]): boolean {
+  if (!tools) return true;
+  const denied = new Set(excludeTools ?? []);
+  return tools.some((t) => WRITE_TOOL_NAMES.has(t) && !denied.has(t));
+}
+
+/** Footer gate: write-capable child OR a long (maxTurns>10) run. */
+export function shouldInjectFooter(ctx: { tools?: string[]; excludeTools?: string[]; maxTurns?: number }): boolean {
+  return hasWriteTools(ctx.tools, ctx.excludeTools) || (ctx.maxTurns ?? 0) > 10;
+}
+
+/** Run-scoped progress-log path cited by the abort-safety footer. */
+export function abortSafetyLogPath(toolCallId: string): string {
+  return `/tmp/subagent-runs/${toolCallId}.md`;
+}
+
+/**
+ * ≤6-line footer appended to the SPAWNED task (never the persisted
+ * params.task) for write-capable or long dispatches. Mandates the three
+ * behaviors that make an aborted child recoverable: a run-scoped progress log
+ * written as-you-go, shell-level timeouts + orphan cleanup, and
+ * report-to-log BEFORE replying at the limits.
+ */
+export function abortSafetyFooter(logPath: string): string {
+  return [
+    "",
+    "--- abort-safety (appended by the dispatch layer — obey; don't restate) ---",
+    `- Append progress/findings to ${logPath} as you go (create the file and its dir if missing).`,
+    "- Wrap long shell commands in `timeout <seconds> <cmd>`; kill orphan processes you spawn.",
+    "- Near your turn/budget limits, FIRST write your final report to that log file, then reply.",
+  ].join("\n");
+}
+
 type SubagentRunRecord = Parameters<SubagentRunPersistence["save"]>[0];
 
 /** Shared fields for the durable record (aborted + normal paths). */
@@ -182,6 +287,7 @@ export interface RunRecordDelta {
   report?: SubagentToolDetails["report"];
   scopeCheck?: SubagentScopeCheck;
   watchdog?: WatchdogResult;
+  salvage?: SubagentSalvage;
 }
 
 /** Unifies the two persistence.save literals (aborted L897–914 + normal L994–1017). */
@@ -209,6 +315,7 @@ export function buildRunRecord(ctx: RunRecordCtx, delta: RunRecordDelta): Subage
   if (delta.report !== undefined) rec.report = delta.report;
   if (delta.scopeCheck !== undefined) rec.scopeCheck = delta.scopeCheck;
   if (delta.watchdog !== undefined) rec.watchdog = delta.watchdog;
+  if (delta.salvage !== undefined) rec.salvage = delta.salvage;
   return rec;
 }
 
@@ -229,6 +336,7 @@ export function buildDetails(
     startedAt: number;
     scopeCheck?: SubagentScopeCheck;
     watchdog?: WatchdogResult;
+    salvage?: SubagentSalvage;
   },
 ): SubagentToolDetails & { status: DurableRunStatus } {
   const { failure } = result;
@@ -255,6 +363,7 @@ export function buildDetails(
     report: parseSddReport(result.output),
     scopeCheck: extra.scopeCheck,
     watchdog: extra.watchdog,
+    salvage: extra.salvage,
   };
 }
 
@@ -306,10 +415,25 @@ export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: Sp
       .filter((s): s is string => Boolean(s))
       .join("\n\n") || undefined;
   const defaultActiveTools = deps.getActiveTools?.();
+  const effectiveTools = params.tools ?? agentDef?.tools ?? defaultActiveTools;
+  const effectiveExcludeTools = params.excludeTools ?? agentDef?.disallowedTools;
+  // H4: append the abort-safety footer to the SPAWNED task only — params.task
+  // (persisted task / taskSignature circuit-breaker input) stays raw, so both
+  // sides of the signature comparison keep seeing the identical string.
+  const task = shouldInjectFooter({
+    tools: effectiveTools,
+    excludeTools: effectiveExcludeTools,
+    maxTurns: params.maxTurns,
+  })
+    ? `${params.task}${abortSafetyFooter(abortSafetyLogPath(toolCallId))}`
+    : params.task;
   return {
-    task: params.task,
-    tools: params.tools ?? agentDef?.tools ?? defaultActiveTools,
-    excludeTools: params.excludeTools ?? agentDef?.disallowedTools,
+    task,
+    // H1: real per-task label (was a hardcoded "zk-spawn" leaking into every
+    // child's status and error messages).
+    label: deriveTaskLabel(params.task),
+    tools: effectiveTools,
+    excludeTools: effectiveExcludeTools,
     model: modelCtx.requestedModel,
     tier: modelCtx.tier,
     capability: modelCtx.capability,

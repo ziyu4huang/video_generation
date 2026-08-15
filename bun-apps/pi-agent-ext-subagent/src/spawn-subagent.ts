@@ -112,6 +112,12 @@ export interface SpawnSubagentOptions {
    */
   onHistory?: (history: AgentHistoryEntry[]) => void;
   /**
+   * Label for the child run — surfaces as the runner's agentLabel in child
+   * status displays and abort/error messages. Defaults to
+   * {@link deriveTaskLabel}(task); pass an explicit label to pin it.
+   */
+  label?: string;
+  /**
    * Fires with the child's real token/cost usage once known. Emitted exactly
    * once, at run completion (the runner reads session stats in its `finally`).
    * Mirrors {@link onHistory} / {@link onModelResolved} / {@link onModelFallback}
@@ -257,6 +263,28 @@ export function resolveSessionOverride(
   return modelRuntime ? { ...session, modelRuntime } : session;
 }
 
+/**
+ * Derive a short run label from a task prompt: the leading sentence of the
+ * first non-empty line, slugified, capped at 40 chars. Whitespace-only /
+ * slug-less input falls back to "task". Replaces the old hardcoded "zk-spawn"
+ * label that leaked into every child's status and error messages (2026-08-15
+ * incident).
+ */
+export function deriveTaskLabel(task: string): string {
+  const firstLine = task
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+  const lead = firstLine?.split(/(?<=[.!?])\s/)[0] ?? "";
+  const slug = lead
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/g, "");
+  return slug || "task";
+}
+
 export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> {
   const runner =
     opts.agent ??
@@ -296,7 +324,7 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
     let usage: AgentUsage | undefined;
     try {
       const out = await runner.run(opts.task, {
-        label: "zk-spawn",
+        label: opts.label ?? deriveTaskLabel(opts.task),
         schema: opts.schema,
         instructions: opts.instructions,
         model: effectiveModel,
