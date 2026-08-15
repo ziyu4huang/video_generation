@@ -165,7 +165,6 @@ describe("applyReviewOperations", () => {
       store,
       null,
       [{ action: "add", target: "failure", content: "boom", category: "failure", state: "resolved" }],
-      null,
       undefined,
       cardStore,
     );

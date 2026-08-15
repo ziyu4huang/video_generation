@@ -17,7 +17,7 @@ import { registerMemoryTool } from "../../src/tools/memory-tool.ts";
 function captureHermesTools(): Record<string, any> {
   const { pi, tools } = createCapturePi();
   const fake = {} as never;
-  registerMemoryTool(pi, fake, null, null);
+  registerMemoryTool(pi, fake, null);
   registerMemorySearchTool(pi, fake);
   registerSessionSearchTool(pi, fake, { variant: "legacy" } as never);
   registerSkillTool(pi, fake);

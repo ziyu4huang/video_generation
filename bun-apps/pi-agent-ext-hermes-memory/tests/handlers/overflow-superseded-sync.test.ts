@@ -4,7 +4,8 @@
  * When a store.add() overflows the char limit and the injected provider reports
  * superseded entries for the target, the store purges those superseded entries
  * from `.md` AND the caller must delete their DB rows (destructive, no audit —
- * the steady-state `syncEvictions`/`removeByMdId` md_id-keyed path, ticket 04).
+ * the steady-state card-store eviction mirror (kp13 Wave C: deleteCard by
+ * md_id), ticket 04).
  *
  * This test drives the full loop through `applyReviewOperations` (the same
  * operation path the memory-tool / review handlers use) and asserts the
@@ -35,6 +36,7 @@ import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
 import { MemoryStore } from "../../src/store/memory-store.js";
 import { applyReviewOperations } from "../../src/handlers/review-memory-ops.js";
+import { createCardStore } from "../../src/store/card-store.js";
 import { ENTRY_DELIMITER, MEMORY_FILE } from "../../src/constants.js";
 
 const PROJECT = "sync-proj";
@@ -198,8 +200,8 @@ describe("overflow add → offload superseded → sync DB (D2 + D4 destructive)"
           content: NEW_CONTENT,
         },
       ],
-      repo,
       PROJECT,
+      await createCardStore({ memoryDir: tmpDir, sqliteBackend: backend }),
     );
 
     assert.ok(result.appliedCount >= 1, "the overflow add should be applied, not skipped");
@@ -299,8 +301,8 @@ describe("resurrect-stale guard: superseded never consolidated into recall", () 
       store,
       null,
       [{ target: "memory", action: "add", content: GUARD_NEW }],
-      repo,
       PROJECT,
+      await createCardStore({ memoryDir: tmpDir, sqliteBackend: backend }),
     );
     assert.ok(result.appliedCount >= 1, "the overflow add should be applied, not skipped");
 
@@ -402,8 +404,8 @@ describe("overflow floor: superseded DB row is not orphaned after vault-offload"
       store,
       null,
       [{ target: "memory", action: "add", content: GUARD_NEW }],
-      repo,
       PROJECT,
+      await createCardStore({ memoryDir: tmpDir, sqliteBackend: backend }),
     );
     assert.ok(result.appliedCount >= 1, "the overflow add should be applied via the floor, not skipped");
     // (The floor-vs-early-return distinction is guaranteed by calibration:

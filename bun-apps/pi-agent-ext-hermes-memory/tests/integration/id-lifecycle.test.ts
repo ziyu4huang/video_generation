@@ -33,9 +33,9 @@
  * `.md`-ground-truth `MemoryStore` does NOT hold a `MemoryRepository` ref — on
  * eviction/offload/transfer it returns the retired md_ids
  * (`evicted_md_ids` / `offloaded_superseded` / `transferred_md_ids`) and the
- * ADAPTER (`src/tools/memory-tool.ts` → `syncEvictionsFromSqlite`,
- * `src/handlers/review-memory-ops.ts` → `syncEvictions`) hard-deletes the DB
- * rows via `repo.removeByMdId`. The OFFLOAD scenarios (2a/2b) wire that exact
+ * ADAPTER (`src/tools/memory-tool.ts` / `src/handlers/review-memory-ops.ts` →
+ * `mirrorMemoryEvictions`) hard-deletes the DB rows via `deleteCard` by
+ * md_id. The OFFLOAD scenarios (2a/2b) wire that exact
  * adapter call (the `syncEvictions` helper below is a verbatim mirror of the
  * production loop) so the .md→DB death contract is exercised end-to-end on the
  * real repo. Scenario 1 (consolidation) deliberately does NOT — see its comment.
@@ -48,6 +48,8 @@ import * as path from "node:path";
 import { MemoryStore } from "../../src/store/memory-store.js";
 import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
+import { createCardStore } from "../../src/store/card-store.js";
+import { mirrorMemoryEvictions } from "../../src/store/memory-card-mirror.js";
 import { ENTRY_DELIMITER, MEMORY_FILE } from "../../src/constants.js";
 import { serializeMetadataFrontmatter } from "../../src/store/memory-format.js";
 import type { MemoryConfig } from "../../src/types.js";
@@ -108,21 +110,23 @@ function seedMemoryFile(dir: string, entries: string[]): void {
 
 // ─── adapter mirror: the production steady-state DB-sync (ticket 04) ──────
 /**
- * Verbatim mirror of `syncEvictionsFromSqlite` (src/tools/memory-tool.ts) /
- * `syncEvictions` (src/handlers/review-memory-ops.ts): for each retired md_id,
- * hard-delete the DB row via `removeByMdId`. This is the call the real adapter
- * makes once the store returns the retired md_ids — kept in the test so the
- * full .md→DB traceless-death contract runs against the real repo.
+ * Verbatim mirror of the production eviction adapter (kp13 Wave C:
+ * `mirrorEvictions` in src/tools/memory-tool.ts / src/handlers/
+ * review-memory-ops.ts — both call `mirrorMemoryEvictions`): for each retired
+ * md_id, hard-delete the card row via `deleteCard` (md_id-keyed; ids are
+ * globally unique so no target/project scope). The card store is joined on the
+ * harness backend (bundle-join style — same `memories` table the repo reads).
+ * This is the call the real adapter makes once the store returns the retired
+ * md_ids — kept in the test so the full .md→DB traceless-death contract runs
+ * against the real store.
  */
 async function syncEvictions(
-  repo: MemoryRepository,
-  target: MemoryTarget,
+  backend: SqliteBackend,
+  dir: string,
   mdIds: string[],
-  project: string | null = null,
 ): Promise<void> {
-  for (const mdId of mdIds) {
-    await repo.removeByMdId(mdId, { target, project });
-  }
+  const cardStore = await createCardStore({ memoryDir: dir, sqliteBackend: backend });
+  await mirrorMemoryEvictions(cardStore, mdIds);
 }
 
 /** Seed a DB row for `content`, mirror `mdId` onto it (mirrors backfill), and
@@ -181,7 +185,7 @@ describe("id-lifecycle contract (ticket 03)", () => {
   // recursion neither threads consumed ids into evicted_md_ids nor into
   // offloaded_superseded. The successResponse the store ultimately returns
   // carries neither field, so the adapter's add-handler
-  // (syncEvictionsFromSqlite / syncEvictions) syncs an EMPTY md_id set for
+  // (mirrorMemoryEvictions) syncs an EMPTY md_id set for
   // consolidation-consumed rows.
   // The ONLY production cleanup of consolidation-consumed DB rows is the
   // consolidator CHILD subagent's content-key removes (removeSyncedMemories =
@@ -205,7 +209,7 @@ describe("id-lifecycle contract (ticket 03)", () => {
     // new add fits after consolidation (merged body is deliberately small).
     // Task 7: births emit a ~86-char frontmatter header, so the limit is raised
     // from 210 to 280 to keep [merged, new] under budget post-consolidation.
-    const { dir, store, repo } = await setup({
+    const { dir, store, backend, repo } = await setup({
       memoryCharLimit: 280,
       memoryOverflowStrategy: "auto-consolidate",
     });
@@ -274,7 +278,7 @@ describe("id-lifecycle contract (ticket 03)", () => {
     const BODY_KEEP = "keep active dtwo probe";
     const BODY_SUPER = "superseded dtwo probe with padding text to ensure overflow happens here xxx";
 
-    const { dir, store, repo } = await setup({
+    const { dir, store, backend, repo } = await setup({
       memoryCharLimit: 240,
       memoryOverflowStrategy: "auto-consolidate",
     });
@@ -303,7 +307,7 @@ describe("id-lifecycle contract (ticket 03)", () => {
     expect(entries.some((e) => frontmatterId(e) === KEEP_ID)).toBe(true);
 
     // ── DEATH: adapter hard-deletes the superseded DB row (traceless).
-    await syncEvictions(repo, "memory", result.offloaded_superseded!);
+    await syncEvictions(backend, dir, result.offloaded_superseded!);
     expect(await repo.getMdIdByContent(BODY_SUPER, { target: "memory", project: null })).toBeNull();
     const allRows = await repo.getMemories({ target: "memory" });
     expect(allRows.some((r) => r.content === BODY_SUPER)).toBe(false);
@@ -318,7 +322,7 @@ describe("id-lifecycle contract (ticket 03)", () => {
     const BODY_OLD = "old vault floor probe one retireme aaa";
     const BODY_KEEP = "keep vault floor probe two stay xxx";
 
-    const { dir, store, repo } = await setup({
+    const { dir, store, backend, repo } = await setup({
       memoryCharLimit: 260,
       memoryOverflowStrategy: "vault-offload",
     });
@@ -345,7 +349,7 @@ describe("id-lifecycle contract (ticket 03)", () => {
     expect(archived.some((r) => r.md_id === OLD_ID)).toBe(true);
 
     // ── DEATH: adapter hard-deletes the evicted DB row (traceless).
-    await syncEvictions(repo, "memory", result.evicted_md_ids!);
+    await syncEvictions(backend, dir, result.evicted_md_ids!);
     expect(await repo.getMdIdByContent(BODY_OLD, { target: "memory", project: null })).toBeNull();
     const allRows = await repo.getMemories({ target: "memory" });
     expect(allRows.some((r) => r.content === BODY_OLD)).toBe(false);
@@ -358,7 +362,7 @@ describe("id-lifecycle contract (ticket 03)", () => {
     const BODY_PRIOR = "prior fact supersede immutprobe";
     const REPLACEMENT = "corrected fact supersede immutprobe v2";
 
-    const { dir, store, repo } = await setup({ memoryCharLimit: 10000 });
+    const { dir, store, backend, repo } = await setup({ memoryCharLimit: 10000 });
 
     seedMemoryFile(dir, [fmEntry(PRIOR_ID, BODY_PRIOR)]);
     const priorDbId = await seedDbRow(repo, BODY_PRIOR, PRIOR_ID);
@@ -398,7 +402,7 @@ describe("id-lifecycle contract (ticket 03)", () => {
     const BODY_A = "alpha backfillprobe note";
     const BODY_B = "bravo backfillprobe note";
 
-    const { dir, store, repo } = await setup({ memoryCharLimit: 10000 });
+    const { dir, store, backend, repo } = await setup({ memoryCharLimit: 10000 });
 
     seedMemoryFile(dir, [commentEntry(BODY_A), commentEntry(BODY_B)]);
     await repo.addMemory({ content: BODY_A, target: "memory", project: null, created: TODAY, lastReferenced: TODAY });

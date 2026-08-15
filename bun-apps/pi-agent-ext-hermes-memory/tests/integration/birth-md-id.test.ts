@@ -6,7 +6,7 @@
  * (no frontmatter id) and the DB INSERTs omitted `md_id`. So entries born via
  * `store.add`/`replace` lacked an id until the next restart's backfill — and an
  * in-session entry that was evicted/transferred/superseded before that restart
- * had NO md_id, so `evicted_md_ids` was empty → `removeByMdId` fired zero times
+ * had NO md_id, so `evicted_md_ids` was empty → the eviction mirror fired zero times
  * → a PERMANENT DB orphan (the pre-5d content-key delete had caught these).
  *
  * These three scenarios are the acceptance proof for the F1 fix. They BIRTH via
@@ -17,7 +17,7 @@
  *   • BIRTH        — a `store.add` birth writes a frontmatter `.md` entry WITH
  *                    an `id`, AND the DB row's `md_id` is the SAME uuid.
  *   • NO-ORPHAN    — an in-session birth that is FIFO-evicted carries its id in
- *                    `evicted_md_ids`; the adapter's `removeByMdId` fires; the
+ *                    `evicted_md_ids`; the adapter's deleteCard fires; the
  *                    DB row is gone (the F1 regression — must now pass).
  *   • D2 SUPERSEDE — a freshly-added (in-session) superseded entry IS purged
  *                    on overflow (the provider returns its md_id; purge matches).
@@ -25,8 +25,8 @@
  * Harness mirrors `tests/integration/id-lifecycle.test.ts` (tmp memoryDir +
  * MemoryStore, SqliteBackend + SqliteMemoryRepository, backfill/superseded
  * provider wiring). The `addWithSync` helper is a verbatim mirror of the
- * production `memory-tool.ts` add-handler post-fix (threads `added_md_id` into
- * `syncMemoryEntry`).
+ * production `memory-tool.ts` add-handler (kp13 Wave C: card-store mirror,
+ * `added_md_id`-keyed).
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import * as fs from "node:fs";
@@ -36,6 +36,8 @@ import * as path from "node:path";
 import { MemoryStore } from "../../src/store/memory-store.js";
 import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
+import { createCardStore } from "../../src/store/card-store.js";
+import { mirrorMemoryAdd, mirrorMemoryEvictions } from "../../src/store/memory-card-mirror.js";
 import { ENTRY_DELIMITER, MEMORY_FILE } from "../../src/constants.js";
 import type { MemoryConfig } from "../../src/types.js";
 import type { MemoryTarget, MemoryRepository } from "../../src/store/repository.js";
@@ -102,32 +104,30 @@ async function setup(config: Partial<MemoryConfig> = {}): Promise<Harness> {
 }
 
 /**
- * Verbatim mirror of the production `memory-tool.ts` add-handler POST-FIX: birth
- * via `store.add`, sync evictions (evicted_md_ids + offloaded_superseded) by
- * md_id, then `syncMemoryEntry` the new row with the minted `added_md_id` so the
- * DB row's md_id == the `.md` frontmatter id. Returns the raw store result so
- * callers can assert on evicted_md_ids / added_md_id.
+ * Verbatim mirror of the production `memory-tool.ts` add-handler (kp13 Wave C):
+ * birth via `store.add`, mirror evictions (evicted_md_ids +
+ * offloaded_superseded) via `mirrorMemoryEvictions` (deleteCard by md_id —
+ * ids are globally unique, no target/project scope), then `mirrorMemoryAdd`
+ * the new row with the minted `added_md_id` so the card row's id == the `.md`
+ * frontmatter id. The card store is joined on the harness backend (bundle-join
+ * style — same `memories` table the repo reads). Returns the raw store result
+ * so callers can assert on evicted_md_ids / added_md_id.
  */
 async function addWithSync(
   store: MemoryStore,
-  repo: MemoryRepository,
+  backend: SqliteBackend,
+  dir: string,
   target: MemoryTarget,
   content: string,
-  project: string | null = null,
 ): Promise<ReturnType<MemoryStore["add"]>> {
+  const cardStore = await createCardStore({ memoryDir: dir, sqliteBackend: backend });
   const result = await store.add(target, content);
   if (!result.success) return result;
-  for (const mdId of result.evicted_md_ids ?? []) {
-    await repo.removeByMdId(mdId, { target, project });
-  }
-  for (const mdId of result.offloaded_superseded ?? []) {
-    await repo.removeByMdId(mdId, { target, project });
-  }
-  await repo.syncMemoryEntry({
+  await mirrorMemoryEvictions(cardStore, result.evicted_md_ids ?? []);
+  await mirrorMemoryEvictions(cardStore, result.offloaded_superseded ?? []);
+  await mirrorMemoryAdd(cardStore, target === "user" ? "user" : target === "failure" ? "failure" : "memory", {
+    mdId: result.added_md_id,
     content,
-    target,
-    project,
-    ...(result.added_md_id ? { mdId: result.added_md_id } : {}),
   });
   return result;
 }
@@ -139,9 +139,9 @@ describe("write-path birth md_id (ticket 7 / F1 fix)", () => {
   test("BIRTH: store.add writes a frontmatter .md entry WITH an id, and the DB row's md_id is the SAME uuid", async () => {
     const BODY = "birth probe single entry md-id parity check";
 
-    const { dir, store, repo } = await setup();
+    const { dir, store, backend, repo } = await setup();
 
-    const result = await addWithSync(store, repo, "memory", BODY);
+    const result = await addWithSync(store, backend, dir, "memory", BODY);
     expect(result.success).toBe(true);
     // The store surfaced the minted id (option (i) threading).
     expect(result.added_md_id).toMatch(UUID_RE);
@@ -164,20 +164,20 @@ describe("write-path birth md_id (ticket 7 / F1 fix)", () => {
     const BODY_B = "second entry birth orphan probe beta with enough body to overflow"; // survives
 
     // Sized so [A,B] overflows; B alone fits (vault-offload floor requirement).
-    const { dir, store, repo } = await setup({
+    const { dir, store, backend, repo } = await setup({
       memoryCharLimit: 175,
       memoryOverflowStrategy: "vault-offload",
     });
 
     // Birth A (in-session) → id on both sides.
-    const resA = await addWithSync(store, repo, "memory", BODY_A);
+    const resA = await addWithSync(store, backend, dir, "memory", BODY_A);
     expect(resA.success).toBe(true);
     const idA = resA.added_md_id!;
     expect(idA).toMatch(UUID_RE);
     expect(await repo.getMdIdByContent(BODY_A, { target: "memory", project: null })).toBe(idA);
 
     // Birth B → overflows → FIFO-evicts A (oldest) to the vault floor.
-    const resB = await addWithSync(store, repo, "memory", BODY_B);
+    const resB = await addWithSync(store, backend, dir, "memory", BODY_B);
     expect(resB.success).toBe(true);
     // REGRESSION ASSERTION (the F1 gap): the evicted in-session entry's md_id
     // IS surfaced. Pre-fix this was [] (A was comment-shape, id===undefined,
@@ -189,7 +189,7 @@ describe("write-path birth md_id (ticket 7 / F1 fix)", () => {
     expect(entries.some((e) => frontmatterId(e) === idA)).toBe(false);
     expect(entries.some((e) => e.includes(BODY_B))).toBe(true);
 
-    // DB: A's row is gone (adapter removeByMdId fired inside addWithSync).
+    // DB: A's row is gone (adapter deleteCard fired inside addWithSync).
     expect(await repo.getMdIdByContent(BODY_A, { target: "memory", project: null })).toBeNull();
     const allRows = await repo.getMemories({ target: "memory" });
     expect(allRows.some((r) => r.content === BODY_A)).toBe(false);
@@ -205,15 +205,15 @@ describe("write-path birth md_id (ticket 7 / F1 fix)", () => {
     // Sized so [KEEP, SUPER] fit; [KEEP, SUPER, NEW] overflows; after purging
     // SUPER, [KEEP, NEW] fits (so the post-D2-purge capacity check passes and
     // the store returns at the purge branch instead of the consolidation floor).
-    const { store, repo } = await setup({
+    const { store, backend, dir, repo } = await setup({
       memoryCharLimit: 260,
       memoryOverflowStrategy: "auto-consolidate",
     });
 
     // Birth KEEP + SUPER in-session (the regression path: ids exist only via
     // this task's fix). No consolidator wired → D2 purge alone must free space.
-    const resKeep = await addWithSync(store, repo, "memory", BODY_KEEP);
-    const resSuper = await addWithSync(store, repo, "memory", BODY_SUPER);
+    const resKeep = await addWithSync(store, backend, dir, "memory", BODY_KEEP);
+    const resSuper = await addWithSync(store, backend, dir, "memory", BODY_SUPER);
     expect(resKeep.success && resSuper.success).toBe(true);
     const idSuper = resSuper.added_md_id!;
     expect(idSuper).toMatch(UUID_RE);
@@ -240,7 +240,7 @@ describe("write-path birth md_id (ticket 7 / F1 fix)", () => {
     });
 
     // The overflowing add → D2 offload-superseded-first purges SUPER from `.md`.
-    const result = await addWithSync(store, repo, "memory", BODY_NEW);
+    const result = await addWithSync(store, backend, dir, "memory", BODY_NEW);
     expect(result.success).toBe(true);
     expect(result.offloaded_superseded).toContain(idSuper);
 
@@ -256,10 +256,10 @@ describe("write-path birth md_id (ticket 7 / F1 fix)", () => {
     const BODY_OLD = "replace probe old content original";
     const BODY_NEW = "replace probe new content replacement fresh";
 
-    const { dir, store, repo } = await setup();
+    const { dir, store, backend, repo } = await setup();
 
     // Birth the original entry.
-    const resOld = await addWithSync(store, repo, "memory", BODY_OLD);
+    const resOld = await addWithSync(store, backend, dir, "memory", BODY_OLD);
     expect(resOld.success).toBe(true);
     const idOld = resOld.added_md_id!;
     expect(idOld).toMatch(UUID_RE);

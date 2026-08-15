@@ -485,7 +485,7 @@ export default async function (pi: ExtensionAPI) {
   // the in-process child subagent via spawnSubagent's `extensionTools`: the
   // def's execute closure already binds this parent `store`, so the child's
   // memory writes land in the parent store (same effect as the old -e subprocess).
-  const memoryToolDef = registerMemoryTool(pi, store, projectStore, memoryRepo, projectName, cardStore);
+  const memoryToolDef = registerMemoryTool(pi, store, projectStore, projectName, cardStore);
   registerGrillDecisionTool(pi, store, cardStore);
 
   // ── 3b. Register the knowledge tools (06b). knowledge_search wraps zk's
@@ -521,7 +521,6 @@ export default async function (pi: ExtensionAPI) {
 
   // ── 5. Setup background learning loop (with tool-call-aware nudge) ──
   setupBackgroundReview(pi, store, projectStore, config, {
-    memoryRepo,
     cardStore,
     projectName: projectName || null,
     deps: { memoryToolDef },

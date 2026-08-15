@@ -15,6 +15,9 @@
  * `syncMemoryEntry` & co STAY on the MemoryRepository interface — sessions
  * and non-memory uses still call them; Wave B only removes them from the
  * memory-kind hot path (enforced by the memory-mirror sole-source gate test).
+ * Wave C finishes the retirement: eviction/offload/transfer cleanup moves off
+ * `memoryRepo.removeByMdId` onto `mirrorMemoryEvictions` (deleteCard by
+ * md_id), so the memory-kind writers hold NO memoryRepo seam at all.
  *
  * Envelope discipline: the mirror Card is NEVER hand-rolled here. It is built
  * by round-tripping the entry through the shared §-md codec
@@ -147,6 +150,35 @@ export async function mirrorMemoryRemove(
 ): Promise<number> {
   if (!cardStore) return 0;
   return deleteCardsByContent(cardStore, kind, oldText);
+}
+
+/** Eviction-mirror (kp13 Wave C — retires the last legacy memoryRepo call on
+ *  the memory-kind hot path, `removeByMdId`): hard-delete the mirrored card
+ *  rows for retired md_ids via `deleteCard` — the public delete-by-md-id seam
+ *  (Card.id == memories.md_id == surreal mdId). md_ids are globally unique
+ *  (5d), so id-keyed delete needs no target/project scope. md stays canonical:
+ *  MemoryStore already removed the entries from MEMORY.md/USER.md/failures.md;
+ *  this deletes the mirrored rows so evicted/offloaded-superseded/transferred
+ *  entries die tracelessly in the store too. Per-id best-effort (a throw is
+ *  swallowed — eviction cleanup must not fail the write, exactly like the
+ *  legacy loop). Returns the number of delete calls that did not throw
+ *  (deleteCard is void; ids come from the store's own retire result, so a
+ *  no-row id is a benign zero-change DELETE). Null cardStore → 0. */
+export async function mirrorMemoryEvictions(
+  cardStore: CardStore | null,
+  mdIds: string[] | undefined,
+): Promise<number> {
+  if (!cardStore || !mdIds || mdIds.length === 0) return 0;
+  let deleted = 0;
+  for (const mdId of mdIds) {
+    try {
+      await cardStore.deleteCard(mdId);
+      deleted++;
+    } catch {
+      // best-effort — never fail the md write that already succeeded
+    }
+  }
+  return deleted;
 }
 
 /** Outcome of one md_id-keyed lazy re-migration step. */
