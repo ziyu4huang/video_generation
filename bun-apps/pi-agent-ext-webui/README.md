@@ -96,8 +96,8 @@ A bounded (200-entry) in-memory ring buffer, served **before** any installed rou
 - `port N busy (…); walking to next port` — `serveWithFallback` port-walk attempts
 - `serve error: …` — uncaught fetch errors (serve `error` callback)
 
-The test gate for this package is **`bun test`** (the canonical `bun run test` =
-`bun run build && bun test`); `typecheck` alone is not the gate.
+The test gate for this package is **`bun test`** (the canonical `bun run test`; src-entry
+package — no build step); `typecheck` alone is not the gate.
 
 The browser shell HTML is an embedded string in `src/render-shell.ts` (no separate
 static file).
