@@ -13,6 +13,7 @@
  * Defaults are intentionally NOT duplicated — `toArgs` only emits a flag when
  * the agent sets a value, so the Swift default always wins. This avoids drift.
  */
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type, type TSchema } from "typebox";
 
 export type FieldType = "string" | "number" | "int" | "boolean" | "string[]" | "number[]" | "boolean[]";
@@ -101,7 +102,7 @@ function fieldSchema(f: FieldSpec): TSchema {
   switch (f.type) {
     case "string":
       if (f.enumValues) {
-        return wrap(Type.Union(f.enumValues.map((v) => Type.Literal(v)), { description: f.description }));
+        return wrap(StringEnum(f.enumValues, { description: f.description }));
       }
       return wrap(Type.String({ description: f.description }));
     case "number":

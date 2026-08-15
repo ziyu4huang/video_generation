@@ -8,20 +8,15 @@
  * over them, mirroring the /workflows slash-command version of the same
  * operations in workflow-commands.ts.
  */
+
+import { StringEnum } from "@earendil-works/pi-ai";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { recomputeWorkflowSnapshot, renderWorkflowText } from "./display.js";
 import { renderPersistedStatus, summarizeRun } from "./workflow-commands.js";
 import type { WorkflowManager } from "./workflow-manager.js";
 
-const workflowControlActionEnum = Type.Union([
-  Type.Literal("stop"),
-  Type.Literal("pause"),
-  Type.Literal("resume"),
-  Type.Literal("status"),
-  Type.Literal("list"),
-  Type.Literal("wait"),
-]);
+const workflowControlActionEnum = StringEnum(["stop", "pause", "resume", "status", "list", "wait"] as const);
 
 const workflowControlToolSchema = Type.Object({
   action: workflowControlActionEnum,

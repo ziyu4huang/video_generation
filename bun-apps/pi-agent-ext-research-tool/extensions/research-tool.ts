@@ -86,13 +86,13 @@ const collectVideosTool = defineTool({
 		},
 	},
 	parameters: Type.Object({
-		platform: Type.Union([Type.Literal("bilibili"), Type.Literal("youtube")], {
+		platform: StringEnum(["bilibili", "youtube"] as const, {
 			description: "Source platform.",
 		}),
-		preset: Type.Union(
-			[Type.Literal("llm"), Type.Literal("media"), Type.Literal("custom")],
-			{ description: "Keyword preset + relevance filter. `custom` uses `keywords` verbatim, no filtering.", default: "llm" },
-		),
+		preset: StringEnum(["llm", "media", "custom"] as const, {
+			description: "Keyword preset + relevance filter. `custom` uses `keywords` verbatim, no filtering.",
+			default: "llm",
+		}),
 		keywords: Type.Optional(
 			Type.Array(Type.String(), {
 				description: "Override keywords (comma-string also accepted via the command). Empty → preset defaults.",

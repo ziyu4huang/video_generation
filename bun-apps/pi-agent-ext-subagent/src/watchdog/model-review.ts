@@ -1,3 +1,4 @@
+import { StringEnum } from "@earendil-works/pi-ai";
 import { loadModelTierConfig, type ModelTierConfig, resolveModelRole } from "@repo/pi-agent-ext-core-runtime";
 import { Type } from "typebox";
 import { type SpawnSubagentOptions, spawnSubagent } from "../spawn-subagent.js";
@@ -7,7 +8,7 @@ const ReviewSchema = Type.Object(
   {
     findings: Type.Array(
       Type.Object({
-        severity: Type.Union([Type.Literal("blocker"), Type.Literal("concern")]),
+        severity: StringEnum(["blocker", "concern"] as const),
         path: Type.Optional(Type.String()),
         line: Type.Optional(Type.Number()),
         message: Type.String(),

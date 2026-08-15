@@ -36,6 +36,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 
@@ -615,19 +616,11 @@ export default function (pi: ExtensionAPI) {
 					"Search query (`#` prefix = tag search).",
 			}),
 			matchMode: Type.Optional(
-				Type.Union(
-					[
-						Type.Literal("substring"),
-						Type.Literal("regex"),
-						Type.Literal("words"),
-						Type.Literal("fuzzy"),
-					],
-					{
+				StringEnum(["substring", "regex", "words", "fuzzy"] as const, {
 						description:
 							"substring|regex|words|fuzzy. → obsidian_search_help.",
 						default: "substring",
-					},
-				),
+					}),
 			),
 			caseSensitive: Type.Optional(
 				Type.Boolean({
@@ -643,19 +636,10 @@ export default function (pi: ExtensionAPI) {
 			),
 			fields: Type.Optional(
 				Type.Array(
-					Type.Union(
-						[
-							Type.Literal("all"),
-							Type.Literal("title"),
-							Type.Literal("tags"),
-							Type.Literal("body"),
-							Type.Literal("frontmatter"),
-						],
-						{
-							description:
-								"all|title|tags|body|frontmatter. → obsidian_search_help.",
-						},
-					),
+					StringEnum(["all", "title", "tags", "body", "frontmatter"] as const, {
+						description:
+							"all|title|tags|body|frontmatter. → obsidian_search_help.",
+					}),
 				),
 			),
 			context: Type.Optional(
@@ -665,18 +649,11 @@ export default function (pi: ExtensionAPI) {
 				}),
 			),
 			sort: Type.Optional(
-				Type.Union(
-					[
-						Type.Literal("file"),
-						Type.Literal("relevance"),
-						Type.Literal("recency"),
-					],
-					{
-						description:
-							"file|relevance|recency. → obsidian_search_help.",
-						default: "file",
-					},
-				),
+				StringEnum(["file", "relevance", "recency"] as const, {
+					description:
+						"file|relevance|recency. → obsidian_search_help.",
+					default: "file",
+				}),
 			),
 			groupByFile: Type.Optional(
 				Type.Boolean({
@@ -697,14 +674,8 @@ export default function (pi: ExtensionAPI) {
 				}),
 			),
 			graph: Type.Optional(
-				Type.Union(
-					[
-						Type.Literal("backlinks"),
-						Type.Literal("outgoing"),
-						Type.Literal("orphans"),
-						Type.Literal("dead-links"),
-						Type.Literal("neighbors"),
-					],
+				StringEnum(
+					["backlinks", "outgoing", "orphans", "dead-links", "neighbors"] as const,
 					{
 						description:
 							"backlinks|outgoing|orphans|dead-links|neighbors. → obsidian_search_help.",
@@ -1648,17 +1619,14 @@ ${output.slice(-2000)}`,
 		].join(" "),
 		parameters: Type.Object({
 			engine: Type.Optional(
-				Type.Union(
-					[Type.Literal("deterministic"), Type.Literal("llm")],
-					{
-						description:
-							"deterministic = fast library scan of the convergence folder (default, no LLM); llm = full-vault audit via subagent (smart but slow)",
-						default: "deterministic",
-					},
-				),
+				StringEnum(["deterministic", "llm"] as const, {
+					description:
+						"deterministic = fast library scan of the convergence folder (default, no LLM); llm = full-vault audit via subagent (smart but slow)",
+					default: "deterministic",
+				}),
 			),
 			mode: Type.Optional(
-				Type.Union([Type.Literal("audit"), Type.Literal("fix")], {
+				StringEnum(["audit", "fix"] as const, {
 					description:
 						"audit = report only (default); fix = also apply safe repairs (add links, update MOC)",
 					default: "audit",

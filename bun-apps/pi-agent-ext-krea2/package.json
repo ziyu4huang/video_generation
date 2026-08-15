@@ -22,7 +22,9 @@
     "check:flags": "bun scripts/check-flags.ts",
     "test": "bun test"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.84.2"
+  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "0.84.2",
     "typebox": "*"

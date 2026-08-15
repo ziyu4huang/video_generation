@@ -171,6 +171,9 @@
         "devops-prepare-branch": "./src/prepare-cli.ts",
         "devops-verify-merge": "./src/verify-merge-cli.ts",
       },
+      "dependencies": {
+        "@earendil-works/pi-ai": "0.84.2",
+      },
       "devDependencies": {
         "@repo/pi-agent-ext-core-interface": "workspace:*",
         "@types/bun": "latest",
@@ -261,6 +264,9 @@
     "pi-agent-ext-krea2": {
       "name": "@repo/pi-agent-ext-krea2",
       "version": "0.1.0",
+      "dependencies": {
+        "@earendil-works/pi-ai": "0.84.2",
+      },
       "devDependencies": {
         "@repo/pi-agent-ext-core-interface": "workspace:*",
         "@types/bun": "latest",
@@ -274,6 +280,9 @@
     "pi-agent-ext-ltx": {
       "name": "@repo/pi-agent-ext-ltx",
       "version": "0.1.0",
+      "dependencies": {
+        "@earendil-works/pi-ai": "0.84.2",
+      },
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^6.0.3",
@@ -287,6 +296,7 @@
       "name": "@repo/pi-agent-ext-movie-director",
       "version": "0.1.0",
       "dependencies": {
+        "@earendil-works/pi-ai": "0.84.2",
         "ajv": "latest",
         "ajv-formats": "latest",
         "msedge-tts": "^2.0.7",
@@ -441,6 +451,7 @@
       "name": "@repo/pi-agent-ext-wayfind",
       "version": "0.1.0",
       "dependencies": {
+        "@earendil-works/pi-ai": "0.84.2",
         "marked": "^15",
         "mermaid": "^11",
       },
@@ -485,6 +496,7 @@
       "name": "@repo/pi-agent-ext-webui",
       "version": "0.1.0",
       "dependencies": {
+        "@earendil-works/pi-ai": "0.84.2",
         "marked": "^15",
       },
       "devDependencies": {

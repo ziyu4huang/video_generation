@@ -39,6 +39,7 @@ import {
   defineTool,
   type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import {
   COMMANDS,
@@ -192,15 +193,13 @@ function buildDescription(): string {
   );
 }
 
-const COMMAND_ENUM = Type.Union(
-  COMMAND_LIST.map((c) => Type.Literal(c.name)),
-  { description: "flux2 subcommand to run." },
-);
+const COMMAND_ENUM = StringEnum(COMMAND_LIST.map((c) => c.name), {
+  description: "flux2 subcommand to run.",
+});
 
-const HELP_TOPIC_ENUM = Type.Union(
-  [Type.Literal("scene-pipeline"), Type.Literal("self-improve")],
-  { description: "Reference topic to look up instead of a single command." },
-);
+const HELP_TOPIC_ENUM = StringEnum(["scene-pipeline", "self-improve"] as const, {
+  description: "Reference topic to look up instead of a single command.",
+});
 
 /**
  * Coerce the LLM-supplied `options` into a plain object.

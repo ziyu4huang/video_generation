@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
@@ -117,16 +118,9 @@ function modelRoutingEssentialGuideline(): string {
   return "For workflow, the user configures per-tier models, so TAG EVERY agent with opts.tier by role: 'small' for lightweight exploration/search/inventory, 'medium' for balanced analysis, 'big' for synthesis/judgment/decision. opts.tier ('small'|'medium'|'big') is enforced at runtime. If the user named a specific model, pass it verbatim as opts.model (provider/id); opts.model always overrides opts.tier. An agent with neither falls back to the user's medium tier — don't rely on that, tag explicitly. Call workflow_help({topic:\"models\"}) for the exact list of currently-available model IDs.";
 }
 
-const WORKFLOW_HELP_TOPIC_ENUM = Type.Union(
-  [
-    Type.Literal("helpers"),
-    Type.Literal("budget"),
-    Type.Literal("phases"),
-    Type.Literal("patterns"),
-    Type.Literal("models"),
-  ],
-  { description: "Reference topic: helpers | budget | phases | patterns | models." },
-);
+const WORKFLOW_HELP_TOPIC_ENUM = StringEnum(["helpers", "budget", "phases", "patterns", "models"] as const, {
+  description: "Reference topic: helpers | budget | phases | patterns | models.",
+});
 
 const workflowToolSchema = Type.Object({
   script: Type.Optional(

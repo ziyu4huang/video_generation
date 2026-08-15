@@ -16,6 +16,7 @@
  * Install: registered in bun-apps/pi-agent/run-dir/manifest.json (extensions[]).
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { createGhClient, createBranchClient } from "../src/gh.js";
 import { createLiveSpawn } from "../src/spawn.js";
@@ -656,8 +657,8 @@ export default function (pi: ExtensionAPI): void {
 			"Returns mode, outDir, pi-agent.js size, ext-bundle built/failed counts, exit code, and a log path.",
 		parameters: Type.Object({
 			mode: Type.Optional(
-				Type.Union(
-					[Type.Literal("bundle"), Type.Literal("snapshot"), Type.Literal("standalone"), Type.Literal("exe")],
+				StringEnum(
+					["bundle", "snapshot", "standalone", "exe"] as const,
 					{ description: "Deploy mode. Default: bundle.", default: "bundle" },
 				),
 			),
@@ -713,8 +714,8 @@ export default function (pi: ExtensionAPI): void {
 			"high = the exact CI `deploy -- verify` job. Returns steps, exit code, and a log path.",
 		parameters: Type.Object({
 			tier: Type.Optional(
-				Type.Union(
-					[Type.Literal("quick"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("readonly"), Type.Literal("full")],
+				StringEnum(
+					["quick", "medium", "high", "readonly", "full"] as const,
 					{ description: "run-test.sh tier. Default: medium.", default: "medium" },
 				),
 			),
