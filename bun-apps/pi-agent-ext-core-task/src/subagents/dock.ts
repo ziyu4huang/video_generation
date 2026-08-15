@@ -49,6 +49,21 @@ export const DOCK_KEYMAP: Record<string, DockAction> = {
 
 const NOOP: DockAction = { kind: "noop" };
 
+/**
+ * Render projection of the dock focus, published by the PART A2 claim
+ * adapter (dock-claim.ts) to the subagents section: focused state while the
+ * claim is held, `undefined` once released (plain rendering). Pure data —
+ * the section owns how it paints (hint line, ▶ prefix, armed marker, trace).
+ */
+export interface DockRenderState {
+	/** Selected row index (already clamped to the live run list). */
+	selected: number;
+	/** Abort arm live → the count header shows `[abort? y/n]`. */
+	armed: boolean;
+	/** Trace overlay open on the selected row. */
+	expanded: boolean;
+}
+
 export interface DockFocus {
 	/** Resolve one raw key byte to its action, advancing selection/arm state. */
 	handleKey(key: string): DockAction;
@@ -56,6 +71,9 @@ export interface DockFocus {
 	isArmed(): boolean;
 	/** Selected run index, re-clamped to the current run list on every read. */
 	readonly selected: number;
+	/** Clear a live abort arm without side effects (focus-session entry/release
+	 * hygiene in the A2 adapter). Sticky selection is preserved. */
+	reset(): void;
 }
 
 export function createDockFocus(runCount: () => number): DockFocus {
@@ -93,6 +111,9 @@ export function createDockFocus(runCount: () => number): DockFocus {
 	return {
 		handleKey,
 		isArmed: () => armed,
+		reset: () => {
+			armed = false;
+		},
 		get selected() {
 			const n = runCount();
 			return n === 0 ? 0 : Math.min(index, n - 1);
