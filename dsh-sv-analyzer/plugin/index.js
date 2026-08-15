@@ -80,6 +80,15 @@ async function resolveCode(args, ctx, toolName, exec) {
   let code = typeof args.code === 'string' ? args.code : ''
   if (typeof args.file === 'string' && args.file.length > 0) {
     checkExtension(args.file, toolName)
+    if (!ctx) {
+      // The tool's registrations can outlive the plugin fiber on a profile
+      // reload/stop (registrations are owned by the tool registry scope); a
+      // null context means the fiber is gone, so fail cleanly instead of
+      // crashing on `ctx.get`.
+      throw new Error(
+        `${toolName}: plugin context unavailable (the dsh-sv-analyzer fiber is not active — restart the profile or re-activate the plugin)`,
+      )
+    }
     const fs = ctx.get('fs')
     if (!fs) {
       throw new Error(
@@ -263,7 +272,10 @@ export function apply(ctx) {
   ctx.tools.register(buildAnalyzeDefinition())
   ctx.tools.register(buildAstDefinition())
   if (typeof ctx.effect === 'function') {
-    ctx.effect(() => {
+    // Cordis effect contract: the outer callback runs NOW (setup) and its
+    // RETURN VALUE runs when the fiber is disposed. Registering the teardown
+    // as the returned disposer is what ties it to the fiber lifecycle.
+    ctx.effect(() => () => {
       if (analyzerService) {
         analyzerService.dispose()
         analyzerService = null

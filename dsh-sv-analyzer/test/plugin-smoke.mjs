@@ -42,8 +42,20 @@ function assertRawJsonSchema(schema, label) {
 // Mirrors the Cordis inject contract: the plugin declares inject: ['tools'],
 // so the stub must expose ctx.tools directly (ctx.get stays for the optional
 // fs service used by the file-input path).
+//
+// ctx.effect uses Cordis 3 semantics: the callback runs NOW (setup) and its
+// RETURN VALUE is the disposer that runs when the fiber is disposed. A stub
+// that stores the callback verbatim masks the difference — the regression
+// this file guards against — so it must invoke the callback and collect the
+// returned disposer, exactly like the harness does.
 const registered = []
 const disposers = []
+
+// Fake fs service for the file-input path: only 'examples/counter.sv' exists.
+const FS_FILES = new Map()
+const counterSource = await readFile(join(here, '..', 'examples', 'counter.sv'), 'utf8')
+FS_FILES.set('examples/counter.sv', counterSource)
+
 const ctx = {
   tools: {
     register(def) {
@@ -52,12 +64,26 @@ const ctx = {
     },
   },
   get(name) {
+    if (name === 'fs') {
+      return {
+        async resolve(path) {
+          return { path }
+        },
+        async stat(target) {
+          return FS_FILES.has(target.path) ? { size: FS_FILES.get(target.path).length } : undefined
+        },
+        async readText(target) {
+          return FS_FILES.get(target.path) ?? ''
+        },
+      }
+    }
     return undefined
   },
   on() {},
   effect(fn) {
-    disposers.push(fn)
-    return fn
+    const disposer = fn()
+    disposers.push(disposer)
+    return disposer
   },
 }
 
@@ -92,6 +118,21 @@ assert(
 assert(result.issues_truncated === false, 'issues_truncated present and false')
 assert(!('ast' in result), 'ast absent when include_ast not set (no null vs {type:object} violation)')
 
+console.log('executing sv_analyze with file input (fs service path)')
+const fileResult = await analyze.execute(
+  { file: 'examples/counter.sv', dialect: 'auto' },
+  { signal: { aborted: false } },
+)
+assert(fileResult.parse_ok === true, 'file input parses ok')
+assert(
+  fileResult.design_units.some((u) => u.name === 'counter'),
+  'file input finds module counter',
+)
+assert(
+  fileResult.design_units.find((u) => u.name === 'counter').ports.some((p) => p.name === 'clk' && p.direction === 'input'),
+  'file input extracts port clk/input',
+)
+
 console.log('executing sv_ast via stub ctx')
 const astResult = await ast.execute({ code: 'module m; endmodule' }, { signal: { aborted: false } })
 assert(astResult.ast?.type === 'source_file', 'ast root source_file')
@@ -117,12 +158,21 @@ assert(missing instanceof Error, 'missing file raises an error')
 
 // --- lifecycle: dispose kills the worker, next call respawns --------------
 console.log('lifecycle (dispose -> respawn)')
-assert(disposers.length === 1, 'analyzer disposer registered via ctx.effect')
+assert(disposers.length === 1, 'one disposer collected from ctx.effect')
 for (const dispose of disposers) dispose()
 const after = await analyze.execute(
   { code: 'module post_dispose; endmodule' },
   { signal: { aborted: false } },
 )
 assert(after.parse_ok === true, 'analyzer respawns after dispose')
+// fiberCtx is nulled on dispose; file input must fail cleanly, never with a
+// TypeError from `null.get`.
+const afterDisposeFile = await analyze
+  .execute({ file: 'examples/counter.sv' }, { signal: { aborted: false } })
+  .then(() => null, (e) => e)
+assert(
+  afterDisposeFile instanceof Error && /fiber is not active/.test(afterDisposeFile.message),
+  'file input after dispose fails cleanly (not TypeError)',
+)
 
 console.log('\nALL PLUGIN SMOKE TESTS PASSED')

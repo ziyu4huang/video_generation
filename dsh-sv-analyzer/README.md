@@ -76,7 +76,7 @@ installing it auto-activates the layer:
 
 ```bash
 # from the tarball (no build permissions needed — the wasm ships prebuilt)
-dsh plugin --profile web add ./dist/dsh-sv-analyzer-0.2.0.tgz
+dsh plugin --profile web add ./dist/dsh-sv-analyzer-0.2.1.tgz
 
 # or from the local checkout
 dsh plugin --profile web add ./plugin
