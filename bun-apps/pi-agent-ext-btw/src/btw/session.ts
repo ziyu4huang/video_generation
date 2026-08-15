@@ -345,7 +345,12 @@ export class BtwEngine {
     for (const unsub of [...sessionRuntime.subscriptions]) this.removeBtwSessionSubscription(sessionRuntime, unsub);
   }
 
-  private handleBtwSessionEvent(
+  /**
+   * Reduce a sub-session event into the transcript + overlay status. Public
+   * (not private) because the webui-bridge test stubs it to observe the
+   * subscription wiring — a deliberate testing seam.
+   */
+  handleBtwSessionEvent(
     sessionRuntime: BtwSessionRuntime,
     event: AgentSessionEvent,
     ctx?: ExtensionContext,
