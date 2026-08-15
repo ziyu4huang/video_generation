@@ -34,7 +34,7 @@ const sha = (c: string) => c.repeat(40);
 
 /** Minimal SyncClient fake. `dirty`/`revs`/`aheadBehind` default to safe values.
  *  `dirty` is per-target: a map of worktree dir → list of dirty tracked paths
- *  (repo-relative); omitted ⇒ [] (clean). */
+ *  (repo-relative); omitted ⇒ [] (clean). `subjects` feeds logSubjects. */
 function fakeClient(s: {
 	defaultBranch?: string;
 	current?: string;
@@ -42,6 +42,7 @@ function fakeClient(s: {
 	dirty?: Record<string, string[]>;
 	revs?: Record<string, string>;
 	aheadBehind?: Record<string, { ahead: number; behind: number }>;
+	subjects?: string[];
 }): SyncClient {
 	return {
 		defaultBranch: async () => s.defaultBranch,
@@ -50,6 +51,7 @@ function fakeClient(s: {
 		dirtyPaths: async (dir: string) => s.dirty?.[dir] ?? [],
 		revParse: async (rev: string) => s.revs?.[rev],
 		aheadBehind: async (base: string, head: string) => s.aheadBehind?.[`${base}..${head}`] ?? { ahead: 0, behind: 0 },
+		logSubjects: async () => s.subjects ?? [],
 	};
 }
 
@@ -81,6 +83,9 @@ describe("runSync — full mode DEFAULT (current worktree holds the default bran
 			current: "main",
 			worktrees: [{ worktree: REPO, branch: "main" }],
 			revs: { "origin/main": sha("b"), main: sha("a") },
+			// the advance moved 2 commits with these subjects (advanced[] enrichment)
+			aheadBehind: { [`${sha("a")}..${sha("b")}`]: { ahead: 2, behind: 0 } },
+			subjects: ["feat: one", "feat: two"],
 		});
 		const { fn, calls } = fakeSpawn([
 			{
@@ -93,7 +98,9 @@ describe("runSync — full mode DEFAULT (current worktree holds the default bran
 
 		expect(out.aborted).toBeUndefined();
 		expect(out.defaultBranch).toBe("main");
-		expect(out.advanced).toEqual([{ worktree: REPO, branch: "main", from: sha("a"), to: sha("b") }]);
+		expect(out.advanced).toEqual([
+			{ worktree: REPO, branch: "main", from: sha("a"), to: sha("b"), count: 2, subjects: ["feat: one", "feat: two"] },
+		]);
 		// fetch + merge --ff-only in THIS worktree; NO checkout (main already here).
 		expect(out.commands).toContain(`git -C "${REPO}" fetch origin`);
 		expect(out.commands).toContain(`git -C "${REPO}" merge --ff-only origin/main`);
@@ -103,10 +110,12 @@ describe("runSync — full mode DEFAULT (current worktree holds the default bran
 		// merge --ff-only was actually spawned (non-dry), targeting THIS worktree.
 		expect(calls.some((c) => c.cmd === "git" && c.args.includes(REPO) && c.args.includes("merge"))).toBe(true);
 		expect(calls.some((c) => c.args.includes("reset"))).toBe(false);
-		// submodule report parsed from the canned status output.
+		// submodule report parsed from the canned status output: per-row flag +
+		// matchesRecordedGitlink (NOT the old `clean` boolean), tagged with the
+		// worktree the status was evaluated in.
 		expect(out.submodules).toEqual([
-			{ path: "sub-a", sha: sha("a"), clean: true },
-			{ path: "sub-b", sha: sha("b"), clean: false },
+			{ worktree: REPO, path: "sub-a", sha: sha("a"), flag: " ", matchesRecordedGitlink: true },
+			{ worktree: REPO, path: "sub-b", sha: sha("b"), flag: "+", matchesRecordedGitlink: false },
 		]);
 	});
 });
@@ -126,7 +135,7 @@ describe("runSync — full mode DEFAULT (default branch lives in ANOTHER worktre
 		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
 
 		expect(out.aborted).toBeUndefined();
-		expect(out.advanced).toEqual([{ worktree: OTHER, branch: "main", from: sha("a"), to: sha("c") }]);
+		expect(out.advanced).toEqual([{ worktree: OTHER, branch: "main", from: sha("a"), to: sha("c"), count: 0, subjects: [] }]);
 		// merge --ff-only targets the OTHER worktree, NOT this one; NO reset anywhere.
 		expect(out.commands).toContain(`git -C "${OTHER}" merge --ff-only origin/main`);
 		expect(out.commands.some((c) => c.includes("reset --hard"))).toBe(false);
@@ -221,7 +230,7 @@ describe("runSync — full mode force:true (explicit destructive opt-in)", () =>
 		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", force: true });
 
 		expect(out.aborted).toBeUndefined();
-		expect(out.advanced).toEqual([{ worktree: REPO, branch: "main", from: sha("a"), to: sha("b") }]);
+		expect(out.advanced).toEqual([{ worktree: REPO, branch: "main", from: sha("a"), to: sha("b"), count: 0, subjects: [] }]);
 		// THIS is the only path that issues reset --hard.
 		expect(out.commands).toContain(`git -C "${REPO}" reset --hard origin/main`);
 		expect(out.commands.some((c) => c.includes("merge --ff-only"))).toBe(false);
@@ -305,8 +314,9 @@ describe("runSync — dryRun", () => {
 
 		expect(out.dryRun).toBe(true);
 		expect(out.aborted).toBeUndefined();
-		// from/to resolved by read-only queries (real SHAs), so the plan is accurate.
-		expect(out.advanced).toEqual([{ worktree: REPO, branch: "main", from: sha("a"), to: sha("b") }]);
+		// from/to resolved by read-only queries (real SHAs), so the plan is accurate;
+		// the commit enrichment is NOT computed under dryRun (count 0, subjects []).
+		expect(out.advanced).toEqual([{ worktree: REPO, branch: "main", from: sha("a"), to: sha("b"), count: 0, subjects: [] }]);
 		// the full happy-path command set is present — ff-only, NOT reset --hard …
 		expect(out.commands).toContain(`git -C "${REPO}" fetch origin`);
 		expect(out.commands).toContain(`git -C "${REPO}" merge --ff-only origin/main`);
@@ -458,7 +468,7 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
 
 		expect(out.aborted).toBeUndefined();
-		expect(out.advanced).toEqual([{ worktree: OTHER, branch: "main", from: sha("a"), to: sha("c") }]);
+		expect(out.advanced).toEqual([{ worktree: OTHER, branch: "main", from: sha("a"), to: sha("c"), count: 0, subjects: [] }]);
 		// the full park→advance→restore command sequence, targeting the OTHER worktree.
 		expect(out.commands).toContain(STASH_PUSH);
 		expect(out.commands).toContain(`git -C "${OTHER}" merge --ff-only origin/main`);
@@ -626,5 +636,257 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 		expect(out.warnings.some((w) => /preserve-listed/.test(w))).toBe(true);
 		expect(out.preserved).toBeUndefined();
 		expect(calls.length).toBe(0); // zero mutating spawns
+	});
+});
+
+// --- caller post-state (#1): what's checked out in the CALLING worktree after
+// the sync + how far behind origin/<D> it now is (warn when it lags — full
+// mode advances <D> only in the worktree that HOLDS it).
+describe("runSync — caller post-state", () => {
+	test("caller behind origin/<D> → behindDefault + behind warning", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "feat/x",
+			worktrees: [
+				{ worktree: REPO, branch: "feat/x" },
+				{ worktree: OTHER, branch: "main" },
+			],
+			revs: { "origin/main": sha("c"), main: sha("a") },
+			aheadBehind: { "origin/main..feat/x": { ahead: 1, behind: 2 } },
+		});
+		const { fn } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.caller).toEqual({ worktree: REPO, branch: "feat/x", detached: false, behindDefault: 2 });
+		expect(out.warnings.some((w) => /calling worktree \/repo is 2 commit\(s\) behind main/.test(w))).toBe(true);
+	});
+
+	test("caller up to date → behindDefault 0, no behind warning", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "feat/x",
+			worktrees: [
+				{ worktree: REPO, branch: "feat/x" },
+				{ worktree: OTHER, branch: "main" },
+			],
+			revs: { "origin/main": sha("c"), main: sha("a") },
+		});
+		const { fn } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.caller).toEqual({ worktree: REPO, branch: "feat/x", detached: false, behindDefault: 0 });
+		expect(out.warnings.some((w) => /calling worktree/.test(w))).toBe(false);
+	});
+
+	test("detached caller → branch null, behindDefault null, no behind warning", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "HEAD", // detached (rev-parse --abbrev-ref HEAD → "HEAD")
+			worktrees: [
+				{ worktree: REPO, detached: true },
+				{ worktree: OTHER, branch: "main" },
+			],
+			revs: { "origin/main": sha("c"), main: sha("a") },
+		});
+		const { fn } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.caller).toEqual({ worktree: REPO, branch: null, detached: true, behindDefault: null });
+		expect(out.warnings.some((w) => /calling worktree/.test(w))).toBe(false);
+	});
+});
+
+// --- verification snapshot (#4): ALWAYS present on a completed full-mode run.
+describe("runSync — verification snapshot", () => {
+	test("local <D> != origin/<D> post-advance → ok:false + the drift warning", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			revs: { "origin/main": sha("b"), main: sha("a") }, // revParse(D) still stale → drift
+		});
+		const { fn } = fakeSpawn([{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS }]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.verification).toEqual({ branch: "main", local: sha("a"), remote: sha("b"), ok: false });
+		expect(out.warnings.some((w) => /verification: local 'main'/.test(w))).toBe(true);
+	});
+
+	test("local <D> == origin/<D> post-advance → ok:true, no drift warning", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			revs: { "origin/main": sha("b"), main: sha("b") }, // post-advance local == remote
+		});
+		const { fn } = fakeSpawn([{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS }]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.verification).toEqual({ branch: "main", local: sha("b"), remote: sha("b"), ok: true });
+		expect(out.warnings.some((w) => /verification: local/.test(w))).toBe(false);
+	});
+
+	test("present under dryRun too (records the drift the plan would fix), rebase mode omits it", async () => {
+		const base = {
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		};
+		const dry = await runSync({ client: fakeClient(base), spawn: fakeSpawn().fn, repoRoot: REPO, mode: "full", dryRun: true });
+		expect(dry.verification).toEqual({ branch: "main", local: sha("a"), remote: sha("b"), ok: false });
+		expect(dry.warnings.some((w) => /verification: local/.test(w))).toBe(false); // dry never warns
+		const rb = await runSync({
+			client: fakeClient({ ...base, revs: { "origin/main": sha("r"), HEAD: sha("h") } }),
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			mode: "rebase",
+		});
+		expect(rb.verification).toBeUndefined(); // full-mode only
+	});
+});
+
+// --- advanced[] enrichment (#5): count + capped subject list per advance.
+describe("runSync — advanced count/subjects", () => {
+	test("count from rev-list; subjects capped at 15 with a trailing '... and N more'", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			revs: { "origin/main": sha("b"), main: sha("a") },
+			aheadBehind: { [`${sha("a")}..${sha("b")}`]: { ahead: 20, behind: 0 } },
+			subjects: Array.from({ length: 15 }, (_, i) => `feat: #${i + 1}`),
+		});
+		const { fn } = fakeSpawn([{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS }]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.advanced[0]?.count).toBe(20);
+		expect(out.advanced[0]?.subjects).toHaveLength(16); // 15 + the cap note
+		expect(out.advanced[0]?.subjects[14]).toBe("feat: #15");
+		expect(out.advanced[0]?.subjects[15]).toBe("... and 5 more");
+	});
+
+	test("count <= 15 → subjects listed verbatim, no cap note", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			revs: { "origin/main": sha("b"), main: sha("a") },
+			aheadBehind: { [`${sha("a")}..${sha("b")}`]: { ahead: 2, behind: 0 } },
+			subjects: ["feat: one", "feat: two"],
+		});
+		const { fn } = fakeSpawn([{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS }]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.advanced[0]?.count).toBe(2);
+		expect(out.advanced[0]?.subjects).toEqual(["feat: one", "feat: two"]);
+	});
+
+	test("dryRun → count 0, subjects [], and logSubjects is NEVER called", async () => {
+		let logCalls = 0;
+		const base = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		const client: SyncClient = {
+			...base,
+			logSubjects: async () => {
+				logCalls++;
+				return [];
+			},
+		};
+		const { fn } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", dryRun: true });
+
+		expect(out.advanced[0]?.count).toBe(0);
+		expect(out.advanced[0]?.subjects).toEqual([]);
+		expect(logCalls).toBe(0);
+	});
+});
+
+// --- advanceTarget submodule ops (#3): when the default branch lives in
+// ANOTHER worktree, the 4-command submodule cycle ALSO runs there; entries are
+// per-worktree; failures warn and never hard-abort.
+describe("runSync — advanceTarget submodule ops", () => {
+	test("4 submodule commands run at BOTH repoRoot and advanceTarget; entries tagged per worktree", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "feat/x",
+			worktrees: [
+				{ worktree: REPO, branch: "feat/x" },
+			{ worktree: OTHER, branch: "main" },
+			],
+			revs: { "origin/main": sha("c"), main: sha("a") },
+		});
+		// canned status ONLY for the OTHER worktree (repoRoot gets the quiet default → no rows)
+		const { fn, calls } = fakeSpawn([
+			{
+				match: (a) => a[0] === "-C" && a[1] === OTHER && realArgs(a).join(" ").startsWith("submodule status"),
+				result: { stdout: `+${sha("d")} sub-q\n-${sha("e")} sub-r\n`, stderr: "", exitCode: 0 },
+			},
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.aborted).toBeUndefined();
+		// the 4-command cycle ran at BOTH worktrees (8 submodule commands total).
+		expect(out.commands.filter((c) => c.includes("submodule"))).toHaveLength(8);
+		expect(out.commands).toContain(`git -C "${OTHER}" submodule update --init --recursive --remote`);
+		expect(out.commands).toContain(`git -C "${REPO}" submodule update --init --recursive --remote`);
+		// entries tagged with the worktree they were evaluated in.
+		expect(out.submodules).toEqual([
+			{ worktree: OTHER, path: "sub-q", sha: sha("d"), flag: "+", matchesRecordedGitlink: false },
+			{ worktree: OTHER, path: "sub-r", sha: sha("e"), flag: "-", matchesRecordedGitlink: false },
+		]);
+		// the OTHER worktree actually saw its submodule spawns.
+		expect(calls.some((c) => c.args.includes(OTHER) && c.args.includes("submodule"))).toBe(true);
+	});
+
+	test("submodule failure at advanceTarget → warning + continue (advance kept, NOT aborted)", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "feat/x",
+			worktrees: [
+				{ worktree: REPO, branch: "feat/x" },
+				{ worktree: OTHER, branch: "main" },
+			],
+			revs: { "origin/main": sha("c"), main: sha("a") },
+		});
+		const { fn } = fakeSpawn([
+			{
+				match: (a) => a[0] === "-C" && a[1] === OTHER && realArgs(a).join(" ").startsWith("submodule update"),
+				result: { stdout: "", stderr: "fatal: remote error: access denied", exitCode: 1 },
+			},
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.aborted).toBeUndefined(); // NEVER hard-aborts on a submodule failure
+		expect(out.advanced).toHaveLength(1); // the default-branch advance is kept
+		expect(out.verification).toBeDefined();
+		expect(out.warnings.some((w) => /submodule update failed at \/repo-main-wt/.test(w))).toBe(true);
+	});
+
+	test("submodule status failure at advanceTarget → warning + no rows for that worktree", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "feat/x",
+			worktrees: [
+				{ worktree: REPO, branch: "feat/x" },
+				{ worktree: OTHER, branch: "main" },
+			],
+			revs: { "origin/main": sha("c"), main: sha("a") },
+		});
+		const { fn } = fakeSpawn([
+			{
+				match: (a) => a[0] === "-C" && a[1] === OTHER && realArgs(a).join(" ").startsWith("submodule status"),
+				result: { stdout: "", stderr: "fatal: not a git repository", exitCode: 128 },
+			},
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.submodules).toEqual([]); // no rows for either worktree (both status calls quiet/failed)
+		expect(out.warnings.some((w) => /submodule status failed at \/repo-main-wt/.test(w))).toBe(true);
 	});
 });

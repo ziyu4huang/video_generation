@@ -8,13 +8,21 @@
 import { test, expect, describe } from "bun:test";
 import entry from "../extensions/devops.js";
 
+/** Tool shape the fake API records — mirrors the fields these tests assert
+ * on (name/parameters + description + owner-declared gating). */
+type FakeTool = {
+	name: string;
+	description?: string;
+	parameters: { required?: string[]; properties?: Record<string, unknown> };
+	gating?: { keywords?: string[]; requires?: { nouns?: string[]; verbs?: string[] } };
+};
+
 function fakePi() {
-	const tools: Array<{ name: string; parameters: { required?: string[]; properties?: Record<string, unknown> } }> = [];
+	const tools: FakeTool[] = [];
 	return {
 		tools,
 		api: {
-			registerTool: (t: { name: string; parameters: { required?: string[]; properties?: Record<string, unknown> } }) =>
-				tools.push(t),
+			registerTool: (t: FakeTool) => tools.push(t),
 		},
 	};
 }

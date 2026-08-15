@@ -22,7 +22,7 @@ import { createLiveSpawn } from "../src/spawn.js";
 import { runMergeRecipe } from "../src/recipe.js";
 import { runSweep, type SweepOutcome } from "../src/branch-recipe.js";
 import { runLocalCi, type CiOutcome } from "../src/ci-recipe.js";
-import { runSync, type SyncMode, type SyncOutcome } from "../src/sync-recipe.js";
+import { runSync, type SyncMode, type SyncOutcome, type SyncSubmodule } from "../src/sync-recipe.js";
 import { runRetrospect, type RetrospectOutcome } from "../src/retrospect-recipe.js";
 import { runPrepare, type PrepareOutcome } from "../src/prepare-recipe.js";
 import { runVerifyMerge, type VerifyMergeOutcome } from "../src/verify-merge-recipe.js";
@@ -116,7 +116,8 @@ function formatMainHealth(o: MainHealthOutcome): string {
 	return L.join("\n");
 }
 
-/** Render a sync_repo outcome: status line, advancements, submodule report,
+/** Render a sync_repo outcome: status line, advancements (+ the commits they
+ *  moved), verification, per-worktree submodule report, caller post-state,
  *  warnings, and the full command list (the primary output under dryRun). */
 function formatSync(o: SyncOutcome): string {
 	const L: string[] = [];
@@ -127,11 +128,38 @@ function formatSync(o: SyncOutcome): string {
 			: `✅ sync_repo (${o.mode}) complete.`;
 	L.push(`${head} default=${o.defaultBranch || "?"}.`);
 	for (const a of o.advanced) {
-		L.push(`  advanced ${a.branch} @ ${a.worktree}: ${a.from.slice(0, 7)} → ${a.to.slice(0, 7)}`);
+		L.push(`  advanced ${a.branch} @ ${a.worktree}: ${a.from.slice(0, 7)} → ${a.to.slice(0, 7)} (${a.count} commit(s))`);
+		if (a.subjects.length) L.push(`    ${a.subjects.join(" | ")}`);
+	}
+	if (o.verification) {
+		L.push(
+			`  verification: ${o.verification.local.slice(0, 7) || "?"} ${o.verification.ok ? "==" : "!="} ${o.verification.remote.slice(0, 7)} (${o.verification.branch} vs origin/${o.verification.branch}).`,
+		);
 	}
 	if (o.submodules.length) {
-		const dirty = o.submodules.filter((s) => !s.clean).length;
-		L.push(`  submodules: ${o.submodules.length} (${dirty} not-clean).`);
+		// Grouped per worktree; the flag carries git's own semantics — no "not-clean":
+		// ' ' matches the HEAD-recorded gitlink, '+' drifted from it (typically
+		// advanced past it by --remote), '-' not initialized, 'U' merge conflict.
+		const byWorktree = new Map<string, SyncSubmodule[]>();
+		for (const s of o.submodules) {
+			const list = byWorktree.get(s.worktree) ?? [];
+			list.push(s);
+			byWorktree.set(s.worktree, list);
+		}
+		for (const [wt, subs] of byWorktree) {
+			const off = subs.filter((s) => !s.matchesRecordedGitlink);
+			L.push(`  submodules @ ${wt}: ${subs.length} (${off.length} not matching the recorded gitlink).`);
+			for (const s of off) {
+				const why =
+					s.flag === "+" ? "drifted from recorded gitlink" : s.flag === "-" ? "not initialized" : s.flag === "U" ? "merge conflict" : "differs";
+				L.push(`    ${why}: ${s.path} @ ${s.sha.slice(0, 7)}`);
+			}
+		}
+	}
+	if (o.caller) {
+		L.push(
+			`  caller: ${o.caller.detached ? "detached HEAD" : o.caller.branch} @ ${o.caller.worktree}${o.caller.behindDefault === null ? "" : `, ${o.caller.behindDefault} behind origin/${o.defaultBranch}`}.`,
+		);
 	}
 	if (o.preserved) {
 		L.push(

@@ -32,7 +32,7 @@ describe("resolvePiAgentDir", () => {
 		// three ".." drop deploy-run.ts + src + pi-agent-ext-devops, landing at
 		// `<root>/bun-apps`, where the sibling pi-agent/ lives.
 		const envPiAgent = join(modFile, "..", "..", "..", "pi-agent");
-		const got = resolvePiAgentDir({ PI_AGENT_DIR: envPiAgent } as NodeJS.ProcessEnv, `file://${modFile}`);
+		const got = resolvePiAgentDir({ PI_AGENT_DIR: envPiAgent }, `file://${modFile}`);
 		expect(got).toBe(envPiAgent);
 	});
 	test("walk-up finds the sibling pi-agent dir next to pi-agent-ext-devops/scripts", () => {

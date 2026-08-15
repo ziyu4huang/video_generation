@@ -95,12 +95,12 @@ const fakeGates = async () => ({ gates: [{ name: "File-size guard (2 MB, blocks)
 
 /** a gate that FAILS → overall fail (no packages needed). */
 const gateFail = () => ({
-	match: (c, a) => c === "bash" && a[0] === "-c" && a[1] === GATE_RUN,
+	match: (c: string, a: string[]) => c === "bash" && a[0] === "-c" && a[1] === GATE_RUN,
 	result: { stdout: "", stderr: "fail", exitCode: 1 },
 });
 /** `git fetch` that FAILS (offline) — recipe must ignore the exit code. */
 const fetchFail = () => ({
-	match: (c, a) => c === "git" && a[0] === "fetch",
+	match: (c: string, a: string[]) => c === "git" && a[0] === "fetch",
 	result: { stdout: "", stderr: "offline", exitCode: 1 },
 });
 

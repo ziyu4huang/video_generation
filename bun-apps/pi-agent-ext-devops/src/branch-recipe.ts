@@ -35,6 +35,9 @@ export interface BranchClient {
 	dirtyPaths(dir: string): Promise<string[]>;
 	/** ahead/behind commit counts between two refs (0 when a ref is missing). */
 	aheadBehind(base: string, head: string): Promise<{ ahead: number; behind: number }>;
+	/** Subject lines of the commits in `from..to` (newest first), capped at
+	 *  `limit`. Read-only; [] when the range fails to resolve. */
+	logSubjects(from: string, to: string, limit: number): Promise<string[]>;
 	fetchPrune(): Promise<void>;
 	deleteLocalBranch(name: string): Promise<void>;
 	deleteRemoteBranch(name: string): Promise<void>;

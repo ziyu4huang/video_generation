@@ -49,6 +49,13 @@ function fakeClient(s: {
 		},
 		containedBranches: async () => new Set(s.contained ?? []),
 		defaultBranch: async () => s.defaultBranch,
+		// BranchClient grew (sync/prepare recipes) — sweep tests never call these.
+		worktreeList: async () => [],
+		revParse: async () => undefined,
+		isClean: async () => true,
+		dirtyPaths: async () => [],
+		aheadBehind: async () => ({ ahead: 0, behind: 0 }),
+		logSubjects: async () => [],
 		fetchPrune: async () => {
 			calls.push("fetchPrune");
 		},

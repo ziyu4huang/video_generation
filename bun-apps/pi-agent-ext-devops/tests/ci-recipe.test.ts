@@ -75,7 +75,7 @@ const fakeGates =
 
 /** Matchers reused across cases. */
 const verifyOk = (base = "origin/main") => ({
-	match: (c, a) => c === "git" && a.includes("--verify") && a[a.length - 1] === base,
+	match: (c: string, a: string[]) => c === "git" && a.includes("--verify") && a[a.length - 1] === base,
 	result: { stdout: "deadbeef\n", stderr: "", exitCode: 0 },
 });
 

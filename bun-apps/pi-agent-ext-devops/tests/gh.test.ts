@@ -15,6 +15,7 @@ import {
 	parseOpenPrRefs,
 	parseContained,
 	parseDirtyPaths,
+	parseSubmoduleStatus,
 	createBranchClient,
 	type SpawnFn,
 	type SpawnResult,
@@ -263,6 +264,38 @@ describe("parseDirtyPaths", () => {
 		expect(parseDirtyPaths("")).toEqual([]);
 		expect(parseDirtyPaths("\n\n")).toEqual([]);
 		expect(parseDirtyPaths("ab\n")).toEqual([]); // 2-char line (< 3) skipped
+	});
+});
+
+describe("parseSubmoduleStatus", () => {
+	const sha = (c: string) => c.repeat(40);
+
+	test("all four flags parse verbatim: ' ' (in-sync), '+' (drifted), '-' (not initialized), 'U' (conflict)", () => {
+		const rows = parseSubmoduleStatus(` ${sha("a")} sub-a\n+${sha("b")} sub-b\n-${sha("c")} sub-c\nU${sha("d")} sub-d\n`);
+		expect(rows).toEqual([
+			{ flag: " ", sha: sha("a"), path: "sub-a" },
+			{ flag: "+", sha: sha("b"), path: "sub-b" },
+			{ flag: "-", sha: sha("c"), path: "sub-c" },
+			{ flag: "U", sha: sha("d"), path: "sub-d" },
+		]);
+	});
+
+	test("shell-quoted paths are unquoted + unescaped", () => {
+		const rows = parseSubmoduleStatus(`+${sha("a")} "weird \\"path\\" x"`);
+		expect(rows).toEqual([{ flag: "+", sha: sha("a"), path: 'weird "path" x' }]);
+	});
+
+	test("CRLF line endings: one row per line, no phantom rows", () => {
+		const rows = parseSubmoduleStatus(` ${sha("a")} sub-a\r\n+${sha("b")} sub-b\r\n`);
+		expect(rows).toEqual([
+			{ flag: " ", sha: sha("a"), path: "sub-a" },
+			{ flag: "+", sha: sha("b"), path: "sub-b" },
+		]);
+	});
+
+	test("garbage / blank lines are skipped defensively", () => {
+		expect(parseSubmoduleStatus("noise\n\nnot-a-status-line\n")).toEqual([]);
+		expect(parseSubmoduleStatus("")).toEqual([]);
 	});
 });
 
