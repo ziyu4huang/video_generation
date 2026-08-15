@@ -1,3 +1,17 @@
+/**
+ * Provider usage/quota/rate-limit detection from assistant-message METADATA.
+ *
+ * Split out of agent.ts so structured-output.ts can call throwIfProviderLimit
+ * without a cycle — agent.ts imports structured-output.js.
+ *
+ * Distinct from errors.ts's classifyProviderLimit, which matches free-form text
+ * on a THROWN error. This is the message-metadata path. It lives here rather
+ * than in errors.ts to keep that module a dependency-free leaf: this one needs
+ * the pi-ai AssistantMessage type.
+ *
+ * lastAssistantError is exported only for testability and barrel back-compat;
+ * throwIfProviderLimit is its sole production caller.
+ */
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { classifyProviderLimit, WorkflowError, WorkflowErrorCode } from "./errors.js";
 

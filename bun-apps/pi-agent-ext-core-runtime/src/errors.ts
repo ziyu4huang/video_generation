@@ -135,7 +135,7 @@ export function wrapError(error: unknown, context?: { agentLabel?: string }): Wo
   }
 
   // Defense-in-depth: today the SDK buries provider usage/quota limits in an
-  // assistant message (detected in agent.ts), but a future SDK might throw them.
+  // assistant message (detected in provider-limit.ts), but a future SDK might throw them.
   // Classify a thrown limit here too — recoverable:false so the run checkpoints
   // (paused) instead of being retried into the same wall or silently nulled.
   if (error instanceof Error) {

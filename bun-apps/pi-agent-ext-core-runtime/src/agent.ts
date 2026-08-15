@@ -21,6 +21,14 @@ import { throwIfProviderLimit } from "./provider-limit.js";
 import { parseSddReport, type SddReport } from "./sdd-report.js";
 import { createStructuredOutputTool, type StructuredOutputCapture } from "./structured-output.js";
 
+// ── Facade re-exports ────────────────────────────────────────────────────────
+// Definitions that moved out of this file. Consumers and tests still import
+// them from agent.js (and index.ts re-exports them from here), so the names
+// must stay reachable at this path. Import above ONLY what agent.ts itself
+// CALLS — a symbol that is merely re-exported needs no local binding, and
+// adding one trips biome's noUnusedImports.
+export { lastAssistantError, throwIfProviderLimit } from "./provider-limit.js";
+
 /**
  * Find a JSON object/array in free-form text: a fenced ```json block if present,
  * else the first balanced {...} or [...]. Best-effort (the schema check is the
@@ -63,8 +71,6 @@ export function extractValidated<T>(text: string, schema: TSchema): T | undefine
   }
   return undefined;
 }
-
-export { lastAssistantError, throwIfProviderLimit } from "./provider-limit.js";
 
 /** Minimal session surface resolveStructuredOutput needs (real session or a test double). */
 export interface StructuredSession {
