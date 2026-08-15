@@ -1,6 +1,6 @@
 ---
 type: task
-status: open
+status: closed
 ---
 # 01 — Width-aware pure render layer + shared truncation helper prefactor
 
@@ -25,3 +25,13 @@ How do all pure render/phrase functions become terminal-column-aware without cha
 - [ ] The previously bare no-ellipsis slices now ellipsize.
 - [ ] Row-count caps (streaming expanded tail) explicitly unchanged.
 - [ ] Zero new dependencies.
+
+## Resolution
+
+- Helper module `render-width` (`ellipsizeToWidth` / `capWidth`) extracted as the shared truncation surface.
+- Five pure functions (`taskPreview`, `workIntentPreview`, `describeLastActivity`, `latestMessageLine`, `formatHistoryLine`) + the settled-collapsed line are now width-aware via pi-tui width utils (CJK-correct).
+- Constants become upper bounds `min(constant, width)`; default width keeps legacy behavior.
+- Bare-slice sites now ellipsize.
+- Streaming row caps untouched (`STREAMING_EXPANDED_TAIL=16`, `maxTraceLines=100`).
+- Phrase-shaper adoption in core-runtime DEFERRED (split candidate — map fog note).
+- Gates: 604 pass / 0 fail + typecheck clean.
