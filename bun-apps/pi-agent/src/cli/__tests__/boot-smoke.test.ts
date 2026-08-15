@@ -56,10 +56,10 @@ function runCanary(): { exitCode: number | null; json: unknown; stderr: string }
 
 describe("boot-smoke canary", () => {
   beforeAll(() => {
-    // pi-agent-ext-workflow ships compiled dist/index.js (gitignored); setup-env
-    // builds it on CI, build-if-missing makes local `bun test` work. (KC now imports
-    // obsidian.ts directly post-#558 — no obsidian bundle build needed.)
-    buildIfMissing("pi-agent-ext-workflow", "build", "dist/index.js");
+    // pi-agent-ext-workflow is src-entry since the 2026-08-15 src-entry migration
+    // (ticket 04): package root resolves to src/index.ts, nothing to build.
+    // (KC now imports obsidian.ts directly post-#558 — no obsidian bundle build
+    // needed either.)
     buildIfMissing("pi-agent-ext-subagent", "build", "dist/index.js");
   });
 

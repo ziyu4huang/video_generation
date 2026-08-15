@@ -32,6 +32,10 @@ by explicit decision. Landed per-package with canonical tests + cross-package ty
 - [superpowers + wayfind](tickets/03-superpowers-wayfind.md) — same flip; mermaid vendor
   survives as wayfind `pretest` (offline copy from node_modules); stale compiled `.test.js`
   in old dists were duplicates, real suites green from src.
+- [workflow + consumers](tickets/04-workflow-consumers.md) — the blast-radius package
+  flipped; postinstall heal deleted; all bare-spec consumers (pi-agent CLI, movie-director)
+  green with dist/ deleted; mock-bypass deep import in workflow-command.test.ts correctly
+  KEPT (it dodges mock.module, not dist).
 
 ## Not yet specified
 
