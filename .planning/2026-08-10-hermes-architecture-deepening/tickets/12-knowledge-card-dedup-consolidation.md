@@ -1,6 +1,6 @@
 ---
 type: feature
-status: open
+status: closed
 claimed:
 blocked by: []
 ---
@@ -31,3 +31,26 @@ Consolidate the copy-paste duplication found by audit ticket 05 (findings K4–K
 
 ## Estimate
 small-M
+
+## Resolution (2026-08-16)
+
+**Landed:** new `src/card-format.ts` single-source module —
+
+- `readCardMeta` (moved from ingest, re-exported for compat) — extended frontmatter reader for the ~6 re-declared schemas (K4).
+- `readCardFrontmatterFields` (union reader; call-site narrowing preserved) (K4).
+- `buildMocContent` (byte-contract unified; retrieve's private copy deleted; healGraph output byte-identical) (K5).
+- `cardAnatomy` (3 tokeniser copies → wrappers) (K7).
+- `yamlScalar` (2 copies → 1) (K6).
+- `readCard` (K9).
+
+Rewired: `ingest.ts` (writeMoc delegates, tokeniseCardFile wrapper, re-export), `retrieve.ts` (field parsing ×2, extractTitle/Detail, graphHealth caller), `merge.ts` (snapshotCards, tokeniseCard), `supersede.ts` (yamlScalar import), `distill/gate.ts` (existingCards).
+
+**K8 `isLiveStatus` SKIPPED by design:** divergent liveness semantics (retrieve = not-in-{retired,superseded} union vs merge/gate = strict `==="active"`) — unifying would change behavior; documented instead of forced.
+
+**Deletion-test:** grep proves each helper declared exactly once (`card-format.ts` only). Gates: typecheck clean; 432 tests / 0 fail with ZERO test edits (behavior byte-identical).
+
+**Audit-gap closures:**
+
+- Importer map: 30 files outside the package reference `pi-agent-ext-knowledge-card` (pi-agent CLI commands + manifest + static-extensions, core-interface entities/interfaces, obsidian ext + zettel, subagent, devops ci-matrix + tests, file2md tests, tool-gate, hermes-memory embedder, dep-guard, perf-harness) — all name-level imports/registration; no cross-package copies of the dedup'd helpers.
+- K11 deletion-test: BOTH exist — `src/converge.ts` (bus-emission route; importers: `extensions/knowledge-card.ts`, `__tests__/converge.test.ts`) and `src/distill/converge.ts` (distill-pipeline route; importers: `extensions/knowledge-card.ts`, `__tests__/distill/*`) — distinct responsibilities, disjoint importers, zero intra-src imports; not accidental duplication, no action.
+- Registration check: registered exactly once — static-only (`manifest.json` `staticExtensions[]` + `static-extensions.ts` factory); no `extensions[]` entry, no double-register.

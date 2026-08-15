@@ -33,8 +33,8 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
-import { readCardMeta, slugify } from "./ingest.ts";
+import { cardAnatomy, readCardFrontmatterFields, readCardMeta } from "./card-format.ts";
+import { slugify } from "./ingest.ts";
 import { tokeniseText, jaccard } from "./similarity.ts";
 
 // ---------------------------------------------------------------------------
@@ -77,10 +77,7 @@ export interface MergeResult {
  *  Uses the shared {@link tokeniseText} so the duplicate scanner and the
  *  wiki-aware ingest matcher agree on what counts as the same concept. */
 function tokeniseCard(content: string): Set<string> {
-	const titleMatch = content.match(/^#\s+(.+?)\s*$/m);
-	const title = titleMatch ? titleMatch[1]! : "";
-	const bodyMatch = content.match(/## 核心想法\n([\s\S]*?)(?=\n## )/);
-	const body = bodyMatch ? bodyMatch[1]! : "";
+	const { title, body } = cardAnatomy(content);
 	return tokeniseText(`${title} ${body}`);
 }
 
@@ -119,19 +116,18 @@ function snapshotCards(vaultPath: string, folder: string): CardSnap[] {
 	for (const name of names) {
 		const abs = join(folderAbs, name);
 		const content = readFileSync(abs, "utf8");
-		const { data } = parseFrontmatter(content);
 		const meta = readCardMeta(abs);
 		if (!meta) continue;
-		const status = typeof data.status === "string" ? data.status.trim() : "active";
+		const { status, sourceId, confidence } = readCardFrontmatterFields(content);
 		if (status !== "active") continue;
 		const basename = name.slice(0, -3);
 		snaps.push({
 			basename,
 			abs,
 			rel: `${folder}/${name}`,
-			sourceId: typeof data.source_id === "string" ? data.source_id : basename,
+			sourceId: typeof sourceId === "string" ? sourceId : basename,
 			status,
-			confidence: typeof data.confidence === "number" ? data.confidence : 0,
+			confidence,
 			tags: meta.tags,
 			tokens: tokeniseCard(content),
 			inbound: inbound.get(basename) ?? 0,
