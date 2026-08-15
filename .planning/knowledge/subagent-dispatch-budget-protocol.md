@@ -37,3 +37,9 @@ Knobs + graceful wrap-up now SHIPPED (PR #1334, squash 66a275e3):
 - Finisher/salvager children may self-merge via `gh ship` even when told "do NOT merge" (observed 2x). Compensate: always run a post-hoc bounded review of the squash commit — it caught real gaps once (missing tests, #1336) and confirmed clean once (#1332).
 - Watchdog commit-scope lists flagged false positives on ~every dispatch, but also caught the ONE real `git add -A` sweep (MEMORY.md + submodule in a planning commit). Rule: verify `git show --stat <squash>` payload against the task's file list before/after every merge.
 - maxTurns (opt-in turn governor, TURNS_EXHAUSTED, retried-once) and the 80% warning + mid-turn onUsage abort are now SHIPPED (#1329/#1332/#1335/#1336/#1337) — this protocol's "turn count dominates cost" lesson now has a first-class enforcement lever; prefer `maxTurns` over shrinking tokenBudget below tier defaults.
+
+## 2026-08-15 root cause: grace window unbounded (5-7x overshoot)
+
+- Root cause of the 3.4-7.3x tokenBudget overshoots (4 incidents, 96-97% of the overshoot = cacheRead): #1334's graceful wrap-up suppresses ALL token-kind aborts for the ENTIRE grace turn — one turn = a whole agentic loop (unbounded rounds) — while usage totals count cacheRead 1:1, so every round re-bills the full context and the suppressed guard never catches up.
+- Fix (PR #1405, scoped option 1): hard ceiling during grace-in-flight — `BUDGET_GRACE_CEILING_RATIO = 1.25` in `pi-agent-ext-core-runtime/src/agent.ts`; once cumulative tokens exceed tokenBudget x 1.25 the guard hard-aborts immediately even mid-grace. spendBudget stays an immediate money valve; grace re-arm / wrap-up queueing are otherwise unchanged.
+- Dispatch-side advice UNCHANGED: bounds still matter — keep bounded prompts ("run exactly this, reply immediately"), tier-small + tools allowlist, and maxTurns; the ceiling caps the blast radius, it does not make overshoot free.

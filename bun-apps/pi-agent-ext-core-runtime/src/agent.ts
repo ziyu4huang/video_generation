@@ -436,6 +436,13 @@ export const BUDGET_WRAP_UP_MESSAGE =
   "Token budget exhausted — this is your FINAL turn. Do not start new exploratory work or long tool calls. Write your current findings/state/artifacts to disk now (files, not prose), then reply with a one-line pointer to what you saved.";
 
 /**
+ * Hard ceiling on the grace window, as a ratio over tokenBudget. During
+ * grace-in-flight the guard still aborts once cumulative tokens exceed
+ * tokenBudget * BUDGET_GRACE_CEILING_RATIO.
+ */
+export const BUDGET_GRACE_CEILING_RATIO = 1.25;
+
+/**
  * Per-run budget guard: stops the session once cumulative usage exceeds the
  * ceiling. Both firing seams share ONE pure check
  * (checkBudgetExhaustion over session.getSessionStats()):
@@ -451,7 +458,9 @@ export const BUDGET_WRAP_UP_MESSAGE =
  * issuance; pi-agent-core drains followUps only at a natural stop, so the
  * issuing turn's own turn_end fires first and must be ignored) AND the next
  * `turn_end` lands (the grace turn completed). That turn-end check then re-arms
- * the abort with the old hard-stop semantics (no third turn).
+ * the abort with the old hard-stop semantics (no third turn). The grace
+ * window itself is hard-capped: once cumulative tokens exceed tokenBudget *
+ * BUDGET_GRACE_CEILING_RATIO, the guard aborts immediately even mid-grace.
  * Idempotent: the first seam to fire wins — one abort, no double-throw of the
  * caller's TOKEN_BUDGET_EXHAUSTED error (run() reads `exhaustion` once after
  * prompt() returns).
@@ -504,11 +513,13 @@ export function createBudgetGuard(
     if (exhaustion || !hasBudget) return;
     let detected: BudgetExhaustion | undefined;
     let cost: number;
+    let totalTokens: number;
     try {
       const stats = session.getSessionStats();
       cost = stats.cost;
+      totalTokens = stats.tokens.total;
       detected = checkBudgetExhaustion(
-        { tokens: { total: stats.tokens.total }, cost },
+        { tokens: { total: totalTokens }, cost },
         { tokenBudget: budget.tokenBudget, spendBudget: budget.spendBudget },
       );
     } catch {
@@ -531,6 +542,24 @@ export function createBudgetGuard(
         if (
           detected &&
           (detected.kind === "spend" || (budget.spendBudget !== undefined && cost > budget.spendBudget))
+        ) {
+          exhaustion = detected;
+          firedVia = seam;
+          void session.abort();
+          return;
+        }
+        // Grace ceiling: #1334's wrap-up grace suppresses token-kind aborts
+        // for an ENTIRE agentic turn with no upper bound — one turn can loop
+        // many API rounds, and usage totals count cacheRead 1:1 (each round
+        // re-bills the full context), so real incidents overshot 3.4-7.3x.
+        // Hard-abort once cumulative tokens exceed tokenBudget * the ceiling
+        // ratio even mid-grace. A wrap-up truncated mid-stream is acceptable
+        // — hard safety beats graceful wording. Big-context children may hit
+        // the ceiling within 1-2 rounds of crossing, which is the intent.
+        if (
+          detected?.kind === "tokens" &&
+          budget.tokenBudget !== undefined &&
+          totalTokens > budget.tokenBudget * BUDGET_GRACE_CEILING_RATIO
         ) {
           exhaustion = detected;
           firedVia = seam;
