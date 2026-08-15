@@ -61,6 +61,9 @@ const greenCi = (): CiOutcome => ({
 	packages: [{ name: "pkg-a", test: { exitCode: 0 } }],
 	gates: [{ name: "File-size guard", exitCode: 0 }],
 	elapsedMs: 1,
+	budgetMs: 300_000,
+	overBudget: false,
+	slowest: [],
 });
 
 /** Records the CiOptions it was handed, so the tests can assert WHERE it ran. */
