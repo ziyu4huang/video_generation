@@ -94,6 +94,32 @@ function mapRow(r: Row): MemoryEntry {
 
 const FIELDS = "seq, project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, mwSuccess, mwFail, status, supersedes, supersededBy, parentIds, mdId, state, severity, pin";
 
+/** Card-lens projection of a `memories` row (kp13 Wave A card seam).
+ *  frontmatter/graph are SCHEMALESS free columns (JSON strings) — NULL when
+ *  the row predates the card seam or was written by a non-card path. */
+export interface SurrealCardRow {
+  target: string;
+  mdId: string | null;
+  content: string;
+  frontmatter: string | null;
+  graph: string | null;
+}
+
+/** Card-lens field list + row normalizer (SCHEMALESS-absent → null).
+ *  `seq` is selected ONLY to satisfy SurrealDB v3's requirement that the
+ *  ORDER BY idiom appear in the projection; it never reaches SurrealCardRow. */
+const CARD_FIELDS = "seq, target, mdId, content, frontmatter, graph";
+
+function mapCardRow(r: Partial<SurrealCardRow>): SurrealCardRow {
+  return {
+    target: r.target ?? "memory",
+    mdId: r.mdId ?? null,
+    content: r.content ?? "",
+    frontmatter: r.frontmatter ?? null,
+    graph: r.graph ?? null,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Batched-sync helpers (shared by syncMemoryEntry → syncMemoryEntriesBatch).
 // Pure statement builders: single + batch share ONE implementation because the
@@ -1018,6 +1044,68 @@ export class SurrealMemoryRepository implements MemoryRepository {
        UPDATE memories SET supersedes = $p, parentIds = [$p] WHERE seq = $n;
        COMMIT TRANSACTION;`,
       { p, n },
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // kp13 Wave A card seam (consumed by the card-store surreal backend in
+  // store/card-store.ts). Cards persist as `memories` rows exactly like the
+  // SQLite card path: target = Card.kind, mdId = Card.id (the join key),
+  // content = Card.content. The card envelope (frontmatter/graph JSON
+  // strings — dedicated columns on SQLite) rides as SCHEMALESS free columns.
+  // These are CONCRETE-class methods, deliberately NOT on the shared
+  // MemoryRepository interface: only the card-store surreal backend consumes
+  // them, and SQLite's card path talks SQL directly (its own seam).
+  // ------------------------------------------------------------------------
+
+  /** A `memories` row through the card lens (kind + card envelope). */
+  async getCardByMdId(mdId: string): Promise<SurrealCardRow | null> {
+    const rows = await this.c.query<Array<Partial<SurrealCardRow>>>(
+      `SELECT ${CARD_FIELDS} FROM memories WHERE mdId = $mdId ORDER BY seq ASC LIMIT 1;`,
+      { mdId },
+    );
+    return rows[0] ? mapCardRow(rows[0]) : null;
+  }
+
+  /** All card rows of one target kind (mdId IS NOT NULL — non-card mirror
+   *  rows are excluded), lowest seq first (mirrors SQLite ORDER BY id). */
+  async listCardsByTarget(target: string): Promise<SurrealCardRow[]> {
+    const rows = await this.c.query<Array<Partial<SurrealCardRow>>>(
+      `SELECT ${CARD_FIELDS} FROM memories WHERE target = $target AND mdId IS NOT NULL ORDER BY seq ASC;`,
+      { target },
+    );
+    return rows.map(mapCardRow);
+  }
+
+  /** Tier-1 md-wins refresh: UPDATE content + card envelope + lastReferenced
+   *  WHERE mdId. Zero matching rows is a silent no-op (mirrors SQLite). */
+  async updateCardByMdId(
+    mdId: string,
+    card: { content: string; frontmatter: string; graph: string | null },
+  ): Promise<void> {
+    await this.c.query(
+      `UPDATE memories SET content = $content, frontmatter = $frontmatter, graph = $graph, lastReferenced = $lr WHERE mdId = $mdId;`,
+      { content: card.content, frontmatter: card.frontmatter, graph: card.graph, lr: today(), mdId },
+    );
+  }
+
+  /** Hard-delete a card row by mdId + its outgoing `tagged` edges (mirrors
+   *  removeMemory's edge cleanup, keyed by mdId like removeByMdId). */
+  async deleteCardByMdId(mdId: string): Promise<void> {
+    await this.c.query(
+      `DELETE FROM tagged WHERE in IN (SELECT VALUE id FROM memories WHERE mdId = $mdId);
+       DELETE FROM memories WHERE mdId = $mdId;`,
+      { mdId },
+    );
+  }
+
+  /** Stamp the card envelope (frontmatter/graph JSON) onto a freshly
+   *  addMemory'd row by seq. addMemory does not know card columns, so the
+   *  surreal card backend calls this right after the C6-dedup'd insert. */
+  async setCardEnvelopeBySeq(seq: number, frontmatter: string, graph: string | null): Promise<void> {
+    await this.c.query(
+      `UPDATE memories SET frontmatter = $frontmatter, graph = $graph WHERE seq = $seq;`,
+      { seq, frontmatter, graph },
     );
   }
 }

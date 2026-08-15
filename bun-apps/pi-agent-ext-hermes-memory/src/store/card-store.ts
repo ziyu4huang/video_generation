@@ -1,29 +1,47 @@
 /**
  * card-store.ts — the kind-agnostic Card store façade (06a task 5).
  *
- * A THIN additive surface over the existing SQLite backend. It owns the
- * knowledge-card round-trip into the `memories` table directly (via the
- * concrete `SqliteBackend` handle) and dispatches dedup per-kind through the
- * registered `DedupStrategy`. It does NOT replace `MemoryStore`'s memory path
- * — memory/user/failure cards keep their proven section-md + MemoryStore path
- * byte-for-byte unchanged. C5-lite ENABLES memory-kind persistence here
+ * A THIN additive surface over the active backend. It owns the knowledge-card
+ * round-trip into the `memories` table and dispatches dedup per-kind through
+ * the registered `DedupStrategy`. It does NOT replace `MemoryStore`'s memory
+ * path — memory/user/failure cards keep their proven section-md + MemoryStore
+ * path byte-for-byte unchanged. C5-lite ENABLES memory-kind persistence here
  * (persistableKinds) so kp ticket 13 is a pure write-path switch; MemoryStore
  * stays the memory write path until 13 flips it. `sqlite-memory-repo.ts` is
  * intentionally left untouched (the knowledge SQL lives here) to guarantee
  * zero memory-path drift.
  *
- * 06a scope:
+ * kp13 Wave A — dual-backend. Persistence lives behind an internal
+ * `CardPersistence` seam with two implementations:
+ *  - sqlite: the original 06a SQL against the concrete `SqliteBackend` handle
+ *    (via the C5-lite factory seam — the sole sanctioned construction path);
+ *  - surrealdb: built ON TOP of `SurrealMemoryRepository` — insert rides
+ *    `addMemory` (so the C6 exact-dup dedup is inherited: same
+ *    target+project+category+content returns the existing row, no duplicate),
+ *    then stamps the card envelope (frontmatter/graph JSON) as SCHEMALESS
+ *    free columns; read/update/delete go through the card-seam methods on the
+ *    concrete repo. NO new Surreal record types are introduced.
+ *
+ * Backend-scoped surface, honestly documented:
+ *  - `get/upsert/deleteCardMdHash` + `get/upsert/deleteCardDepHash` are
+ *    SQLite-only (the `card_md_hash` / `card_dep_hash` tables have no Surreal
+ *    schema). On the surreal branch they THROW a documented error instead of
+ *    silently no-op'ing (the least-lie option): callers are the Tier-1
+ *    planning mirrors, which are sqlite-scoped today.
+ *
+ * 06a scope still standing:
  *  - `upsertCard`/`getCard`/`getCardsByKind` are exercised on kind "knowledge".
- *  - SurrealDB knowledge persistence is a no-op placeholder (06a is SQLite-only
- *    for knowledge): `createCardStore` throws a clear error for non-sqlite
- *    backends rather than silently no-op'ing.
  *  - `Card.embed` is NOT persisted/indexed here (04/06b); it round-trips as
  *    `undefined` through the SQLite path. `Card.graph` IS persisted (03): a
- *    nullable `graph` JSON column next to `frontmatter`.
+ *    nullable `graph` JSON column next to `frontmatter` (sqlite) / a free
+ *    column (surreal).
  */
 
 import { runWithTransientRetry } from "./sqlite/sqlite-backend.js";
 import { createSqliteBackend } from "./backend-factory.js";
+import type { SqliteBackend } from "./sqlite/sqlite-backend.js";
+import type { SurrealMemoryRepository, SurrealCardRow } from "./surreal/surreal-memory-repo.js";
+import type { MemoryTarget } from "./repository.js";
 import type { Card, CardKind, CardGraph } from "./card.js";
 import type { CardSerializer } from "./card-serializer.js";
 import type { DedupStrategy } from "./dedup-strategy.js";
@@ -42,7 +60,8 @@ export interface CardStore {
   /** Idempotent upsert of one Card through the per-kind dedup strategy.
    *  `keep` → INSERT; `skip`/`merge` → no-op in 06a (memory `merge` is already
    *  handled by the existing MemoryStore consolidation path; knowledge `merge`
-   *  is a 06b concern). */
+   *  is a 06b concern). On surreal the insert additionally rides addMemory's
+   *  C6 exact-dup dedup (target+project+category+content). */
   upsertCard(card: Card): Promise<void>;
   /** 09-impl: Tier-1 md-wins refresh — UPDATE an EXISTING card's content +
    *  frontmatter (NOT a new row). Bypasses dedup (pure identity cannot express
@@ -51,7 +70,8 @@ export interface CardStore {
   /** 09-impl: hard-delete a card row by Card.id (md-wins reconciliation — the
    *  source md vanished). Also paired with deleteCardMdHash by the sweep. */
   deleteCard(id: string): Promise<void>;
-  /** Fetch the Card whose canonical id (`memories.md_id`) equals `id`, or null. */
+  /** Fetch the Card whose canonical id (`memories.md_id` / surreal `mdId`)
+   *  equals `id`, or null. */
   getCard(id: string): Promise<Card | null>;
   /** All Cards of one kind (`memories.target` = kind). */
   getCardsByKind(kind: CardKind): Promise<Card[]>;
@@ -59,28 +79,80 @@ export interface CardStore {
    *  path stores `Card.frontmatter` as JSON directly and does not invoke it;
    *  exposed for the 06b orchestrator's disk-read path. */
   serializerFor(kind: CardKind): CardSerializer | undefined;
-  /** 09-impl: read the stored content-hash row for a card (by Card.id), or null. */
+  /** 09-impl: read the stored content-hash row for a card (by Card.id), or null.
+   *  SQLITE-ONLY (`card_md_hash` table) — throws on the surreal branch. */
   getCardMdHash(cardId: string): Promise<{ hash: string; mirroredAt: string; kind: string } | null>;
-  /** 09-impl: UPSERT a content-hash row (SQLite ON CONFLICT DO UPDATE). */
+  /** 09-impl: UPSERT a content-hash row (SQLite ON CONFLICT DO UPDATE).
+   *  SQLITE-ONLY (`card_md_hash` table) — throws on the surreal branch. */
   upsertCardMdHash(cardId: string, hash: string, kind?: string): Promise<void>;
-  /** 09-impl: delete the content-hash row for a card. */
+  /** 09-impl: delete the content-hash row for a card.
+   *  SQLITE-ONLY (`card_md_hash` table) — throws on the surreal branch. */
   deleteCardMdHash(cardId: string): Promise<void>;
-  /** 10-impl: read the stored dep-aggregate baseline hash for a card, or null. */
+  /** 10-impl: read the stored dep-aggregate baseline hash for a card, or null.
+   *  SQLITE-ONLY (`card_dep_hash` table) — throws on the surreal branch. */
   getCardDepHash(cardId: string): Promise<{ depHash: string; validatedAt: string } | null>;
-  /** 10-impl: UPSERT a dep-aggregate baseline hash (SQLite ON CONFLICT DO UPDATE). */
+  /** 10-impl: UPSERT a dep-aggregate baseline hash (SQLite ON CONFLICT DO UPDATE).
+   *  SQLITE-ONLY (`card_dep_hash` table) — throws on the surreal branch. */
   upsertCardDepHash(cardId: string, depHash: string): Promise<void>;
-  /** 10-impl: delete the dep-aggregate baseline hash for a card. */
+  /** 10-impl: delete the dep-aggregate baseline hash for a card.
+   *  SQLITE-ONLY (`card_dep_hash` table) — throws on the surreal branch. */
   deleteCardDepHash(cardId: string): Promise<void>;
-  /** Close the backing backend (release the SQLite handle). */
+  /** Release resources owned by THIS store. When the store was built on a
+   *  bundle-provided backend (or the stateless surreal backend) this is a
+   *  no-op — the backend's lifecycle belongs to the owner. */
   close(): Promise<void>;
 }
 
 export interface CreateCardStoreOptions {
   memoryDir: string;
-  /** Backend selector. 06a exercises "sqlite"; "surrealdb" is rejected
-   *  (knowledge persistence on Surreal is a 03/04/06b placeholder). */
-  dbBackend?: "sqlite";
+  /** Backend selector (default "sqlite"). kp13 Wave A adds "surrealdb"
+   *  (implemented over SurrealMemoryRepository). */
+  dbBackend?: "sqlite" | "surrealdb";
+  /** Bundle-join path (sqlite): reuse the bundle's already-initialized
+   *  concrete backend instead of opening another handle on memoryDir. The
+   *  store then does NOT own it (close() is a no-op — the bundle closes it). */
+  sqliteBackend?: SqliteBackend;
+  /** Surreal branch: the concrete repo the card persistence is built on
+   *  (required when dbBackend === "surrealdb"). */
+  surrealRepo?: SurrealMemoryRepository;
 }
+
+// ---------------------------------------------------------------------------
+// Internal persistence seam (kp13 Wave A). One implementation per backend;
+// `createCardStore` composes the shared per-kind registries + dedup flow on
+// top. This interface is deliberately NOT exported — callers go through the
+// `CardStore` façade.
+// ---------------------------------------------------------------------------
+
+interface CardPersistence {
+  /** Post-dedup INSERT of a new card row. */
+  insertCard(card: Card): Promise<void>;
+  /** UPDATE an existing card row by Card.id (content + envelope). */
+  updateCard(card: Card): Promise<void>;
+  /** DELETE the card row by Card.id. */
+  deleteCard(id: string): Promise<void>;
+  /** One card by Card.id, or null. */
+  getCard(id: string): Promise<Card | null>;
+  /** All cards of one kind. */
+  getCardsByKind(kind: CardKind): Promise<Card[]>;
+  /** md/dep-hash accessors — SQLite-only schema; the surreal implementation
+   *  throws the documented SQLITE_ONLY error. */
+  getCardMdHash(cardId: string): Promise<{ hash: string; mirroredAt: string; kind: string } | null>;
+  upsertCardMdHash(cardId: string, hash: string, kind?: string): Promise<void>;
+  deleteCardMdHash(cardId: string): Promise<void>;
+  getCardDepHash(cardId: string): Promise<{ depHash: string; validatedAt: string } | null>;
+  upsertCardDepHash(cardId: string, depHash: string): Promise<void>;
+  deleteCardDepHash(cardId: string): Promise<void>;
+}
+
+/** The documented sqlite-only exception for the md/dep-hash accessors on the
+ *  surreal branch (least-lie option: a loud error beats a silent no-op). */
+const SQLITE_ONLY = (op: string): Error =>
+  new Error(
+    `card-store.${op}: the card_md_hash / card_dep_hash tables are SQLite-only schema; ` +
+      "this store is on the surrealdb backend and the Tier-1 planning mirrors that use " +
+      "these accessors are sqlite-scoped today.",
+  );
 
 /** Columns the façade reads/maps for a Card. `frontmatter` is the 06a JSON
  *  envelope (knowledge only; NULL for memory kinds). `graph` is the 03
@@ -135,53 +207,23 @@ function rowToCard(row: CardRow): Card {
   };
 }
 
-export async function createCardStore(options: CreateCardStoreOptions): Promise<CardStore> {
-  const dbBackend = options.dbBackend ?? "sqlite";
-  if (dbBackend !== "sqlite") {
-    throw new Error(
-      `createCardStore (06a) supports only the sqlite backend for knowledge rows (got "${dbBackend}"); ` +
-        "SurrealDB knowledge persistence is a 03/04/06b placeholder.",
-    );
-  }
+/** Map a surreal card-seam row → Card through the shared rowToCard (same
+ *  envelope decoding; field-name adapter mdId→md_id). */
+function surrealRowToCard(row: SurrealCardRow): Card {
+  return rowToCard({
+    target: row.target,
+    md_id: row.mdId,
+    content: row.content,
+    frontmatter: row.frontmatter,
+    graph: row.graph,
+  });
+}
 
-  // Construct the backend through the C5-lite factory seam — the sole
-  // sanctioned construction path (see `createSqliteBackend` in
-  // backend-factory.ts; the sole-source gate bans the raw SqliteBackend
-  // constructor outside the factory). The factory returns the CONCRETE handle this façade's SQL
-  // needs (getDb / withCorruptionRecovery — on the class, not the `Backend`
-  // interface) without requiring a MemoryConfig, which is exactly the
-  // documented rationale for constructing directly; the seam satisfies it
-  // instead of overriding it.
-  const backend = await createSqliteBackend(options.memoryDir);
+// ---------------------------------------------------------------------------
+// SQLite implementation — the 06a SQL, moved verbatim behind the seam.
+// ---------------------------------------------------------------------------
 
-  // Per-kind registries (spec §7). One serializer per kind; the memory dedup
-  // strategy is kind-agnostic in logic, so one instance covers memory/user/
-  // failure. The dedup registry IS used by upsertCard; the serializer registry
-  // is exposed via serializerFor (06b's disk-read path consumes it).
-  // C5-lite note: memory/user/failure persistence reuses the ALREADY-
-  // registered `MemoryDedupStrategy` verbatim (exact stripped-equality →
-  // near-dup containment → topic-recurrence merge; identity-based, mirroring
-  // the MemorySerializer/MemoryStore semantics) — no new dedup semantics.
-  const serializers = new Map<CardKind, CardSerializer>([
-    ["memory", new MemorySerializer("memory")],
-    ["user", new MemorySerializer("user")],
-    ["failure", new MemorySerializer("failure")],
-    ["knowledge", new KnowledgeSerializer()],
-    ["planning-effort", new PlanningEffortSerializer()],
-    ["planning-ticket", new PlanningTicketSerializer()],
-    ["image", new ImageSerializer()],
-  ]);
-  const memoryDedup = new MemoryDedupStrategy();
-  const dedupStrategies = new Map<CardKind, DedupStrategy>([
-    ["memory", memoryDedup],
-    ["user", memoryDedup],
-    ["failure", memoryDedup],
-    ["knowledge", new KnowledgeDedupStrategy()],
-    ["planning-effort", new PlanningEffortDedupStrategy()],
-    ["planning-ticket", new PlanningTicketDedupStrategy()],
-    ["image", new KnowledgeDedupStrategy()],
-  ]);
-
+function createSqliteCardPersistence(backend: SqliteBackend): CardPersistence {
   const getDb = () => backend.getDb();
 
   /** Read all Cards of one target kind, wrapped in the same retry/recovery
@@ -199,48 +241,17 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
     );
   }
 
-  const store: CardStore = {
-    async upsertCard(card: Card): Promise<void> {
-      const strategy = dedupStrategies.get(card.kind);
-      if (!strategy) {
-        throw new Error(`createCardStore: no dedup strategy registered for kind "${card.kind}"`);
-      }
-      const existing = await fetchCardsByTarget(card.kind);
-      const decision = strategy.dedup(card, existing);
-      // 06a: keep → INSERT; skip/merge → no-op (memory merge is the existing
-      // MemoryStore consolidation path; knowledge merge is 06b).
-      if (decision.action !== "keep") return;
-
-      // C5-lite: ALL CardKinds are persistable. knowledge/planning-*/image are
-      // card-store-managed; memory/user/failure persistence is ENABLED here so
-      // kp ticket 13 becomes a pure write-path switch — MemoryStore REMAINS the
-      // memory write path until 13 flips it (nothing writes memory kinds through
-      // this façade today). The belt below guards against a future CardKind
-      // landing here without a serializer/dedup decision.
-      const persistableKinds = new Set<CardKind>([
-        "memory",
-        "user",
-        "failure",
-        "knowledge",
-        "planning-effort",
-        "planning-ticket",
-        "image",
-      ]);
+  return {
+    async insertCard(card: Card): Promise<void> {
+      // Card row mapping (spec §7): target=card.kind (knowledge OR planning-*),
+      // md_id=Card.id (the join key), content=Card.content,
+      // frontmatter=JSON envelope, graph=JSON Card.graph (03; NULL when
+      // absent). Memory-specific columns (category/failure_reason/tool_state/
+      // corrected_to/supersedes*/mw_*/parent_ids) are NULL; the NOT NULL
+      // columns get their defaults (state='active', pin=0, status='active',
+      // mw_success/mw_fail=0, created/last_referenced = today).
       await runWithTransientRetry(() =>
         backend.withCorruptionRecovery(() => {
-          if (!persistableKinds.has(card.kind)) {
-            throw new Error(
-              `createCardStore.upsertCard: kind "${card.kind}" has no persistence decision registered ` +
-                "(add a serializer + dedup strategy first).",
-            );
-          }
-          // Card row mapping (spec §7): target=card.kind (knowledge OR planning-*),
-          // md_id=Card.id (the join key), content=Card.content,
-          // frontmatter=JSON envelope, graph=JSON Card.graph (03; NULL when
-          // absent). Memory-specific columns (category/failure_reason/tool_state/
-          // corrected_to/supersedes*/mw_*/parent_ids) are NULL; the NOT NULL
-          // columns get their defaults (state='active', pin=0, status='active',
-          // mw_success/mw_fail=0, created/last_referenced = today).
           getDb()
             .prepare(
               `INSERT INTO memories
@@ -303,10 +314,6 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
 
     getCardsByKind(kind: CardKind): Promise<Card[]> {
       return fetchCardsByTarget(kind);
-    },
-
-    serializerFor(kind: CardKind): CardSerializer | undefined {
-      return serializers.get(kind);
     },
 
     getCardMdHash(cardId: string): Promise<{ hash: string; mirroredAt: string; kind: string } | null> {
@@ -379,9 +386,236 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
         }),
       );
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Surreal implementation — built ON TOP of SurrealMemoryRepository (kp13 Wave
+// A). Insert rides addMemory (C6 exact-dup dedup inherited: same
+// target+project+category+content returns the EXISTING row — no duplicate),
+// then stamps the card envelope as SCHEMALESS free columns (the same
+// frontmatter/graph JSON SQLite keeps in dedicated columns). NO new Surreal
+// record types. The md/dep-hash accessors throw SQLITE_ONLY (documented).
+// Caveat, documented honestly: when C6 returns an existing row written by a
+// different flow (e.g. a memory-mirror row with identical content), that
+// row keeps ITS mdId — the card is not readable by this card.id. This mirrors
+// SQLite (whose INSERT would add a second md_id row); identity collisions
+// across flows are the sync layer's concern (Wave B), not the store's.
+// ---------------------------------------------------------------------------
+
+function createSurrealCardPersistence(repo: SurrealMemoryRepository): CardPersistence {
+  return {
+    async insertCard(card: Card): Promise<void> {
+      const entry = await repo.addMemory({
+        content: card.content,
+        // CardKind ⊋ MemoryTarget: Surreal stores target as a plain string;
+        // the cast is type-level only (no runtime validation on either side).
+        target: card.kind as MemoryTarget,
+        mdId: card.id,
+      });
+      await repo.setCardEnvelopeBySeq(
+        Number(entry.id),
+        JSON.stringify(card.frontmatter),
+        card.graph ? JSON.stringify(card.graph) : null,
+      );
+    },
+
+    async updateCard(card: Card): Promise<void> {
+      await repo.updateCardByMdId(card.id, {
+        content: card.content,
+        frontmatter: JSON.stringify(card.frontmatter),
+        graph: card.graph ? JSON.stringify(card.graph) : null,
+      });
+    },
+
+    async deleteCard(id: string): Promise<void> {
+      await repo.deleteCardByMdId(id);
+    },
+
+    async getCard(id: string): Promise<Card | null> {
+      const row = await repo.getCardByMdId(id);
+      return row && row.mdId !== null ? surrealRowToCard(row) : null;
+    },
+
+    async getCardsByKind(kind: CardKind): Promise<Card[]> {
+      return (await repo.listCardsByTarget(kind)).map(surrealRowToCard);
+    },
+
+    async getCardMdHash(): Promise<null> {
+      throw SQLITE_ONLY("getCardMdHash");
+    },
+    async upsertCardMdHash(): Promise<void> {
+      throw SQLITE_ONLY("upsertCardMdHash");
+    },
+    async deleteCardMdHash(): Promise<void> {
+      throw SQLITE_ONLY("deleteCardMdHash");
+    },
+    async getCardDepHash(): Promise<null> {
+      throw SQLITE_ONLY("getCardDepHash");
+    },
+    async upsertCardDepHash(): Promise<void> {
+      throw SQLITE_ONLY("upsertCardDepHash");
+    },
+    async deleteCardDepHash(): Promise<void> {
+      throw SQLITE_ONLY("deleteCardDepHash");
+    },
+  };
+}
+
+export async function createCardStore(options: CreateCardStoreOptions): Promise<CardStore> {
+  const dbBackend = options.dbBackend ?? "sqlite";
+
+  let persistence: CardPersistence;
+  /** Non-null ONLY when THIS store constructed its sqlite backend (the
+   *  standalone quick path) — only then does close() release it. A
+   *  bundle-provided backend (and the stateless surreal backend) is closed
+   *  by its owner. */
+  let ownedSqliteBackend: SqliteBackend | null = null;
+  switch (dbBackend) {
+    case "sqlite": {
+      // Construct the backend through the C5-lite factory seam — the sole
+      // sanctioned construction path (see `createSqliteBackend` in
+      // backend-factory.ts; the sole-source gate bans the raw SqliteBackend
+      // constructor outside the factory). The factory returns the CONCRETE
+      // handle this façade's SQL needs (getDb / withCorruptionRecovery — on
+      // the class, not the `Backend` interface) without requiring a
+      // MemoryConfig; the bundle-join path instead reuses the bundle's
+      // already-initialized backend (one handle, one lifecycle).
+      if (options.sqliteBackend) {
+        persistence = createSqliteCardPersistence(options.sqliteBackend);
+      } else {
+        ownedSqliteBackend = await createSqliteBackend(options.memoryDir);
+        persistence = createSqliteCardPersistence(ownedSqliteBackend);
+      }
+      break;
+    }
+    case "surrealdb": {
+      if (!options.surrealRepo) {
+        throw new Error(
+          'createCardStore: dbBackend "surrealdb" requires surrealRepo (the bundle-provided ' +
+            "SurrealMemoryRepository the card persistence is built on).",
+        );
+      }
+      persistence = createSurrealCardPersistence(options.surrealRepo);
+      break;
+    }
+    default:
+      throw new Error(`createCardStore: unknown dbBackend "${dbBackend}"`);
+  }
+
+  // Per-kind registries (spec §7). One serializer per kind; the memory dedup
+  // strategy is kind-agnostic in logic, so one instance covers memory/user/
+  // failure. The dedup registry IS used by upsertCard; the serializer registry
+  // is exposed via serializerFor (06b's disk-read path consumes it).
+  // C5-lite note: memory/user/failure persistence reuses the ALREADY-
+  // registered `MemoryDedupStrategy` verbatim (exact stripped-equality →
+  // near-dup containment → topic-recurrence merge; identity-based, mirroring
+  // the MemorySerializer/MemoryStore semantics) — no new dedup semantics.
+  const serializers = new Map<CardKind, CardSerializer>([
+    ["memory", new MemorySerializer("memory")],
+    ["user", new MemorySerializer("user")],
+    ["failure", new MemorySerializer("failure")],
+    ["knowledge", new KnowledgeSerializer()],
+    ["planning-effort", new PlanningEffortSerializer()],
+    ["planning-ticket", new PlanningTicketSerializer()],
+    ["image", new ImageSerializer()],
+  ]);
+  const memoryDedup = new MemoryDedupStrategy();
+  const dedupStrategies = new Map<CardKind, DedupStrategy>([
+    ["memory", memoryDedup],
+    ["user", memoryDedup],
+    ["failure", memoryDedup],
+    ["knowledge", new KnowledgeDedupStrategy()],
+    ["planning-effort", new PlanningEffortDedupStrategy()],
+    ["planning-ticket", new PlanningTicketDedupStrategy()],
+    ["image", new KnowledgeDedupStrategy()],
+  ]);
+
+  // C5-lite: ALL CardKinds are persistable. knowledge/planning-*/image are
+  // card-store-managed; memory/user/failure persistence is ENABLED here so
+  // kp ticket 13 becomes a pure write-path switch — MemoryStore REMAINS the
+  // memory write path until 13 flips it (nothing writes memory kinds through
+  // this façade today). The belt below guards against a future CardKind
+  // landing here without a serializer/dedup decision.
+  const persistableKinds = new Set<CardKind>([
+    "memory",
+    "user",
+    "failure",
+    "knowledge",
+    "planning-effort",
+    "planning-ticket",
+    "image",
+  ]);
+
+  const store: CardStore = {
+    async upsertCard(card: Card): Promise<void> {
+      const strategy = dedupStrategies.get(card.kind);
+      if (!strategy) {
+        throw new Error(`createCardStore: no dedup strategy registered for kind "${card.kind}"`);
+      }
+      const existing = await persistence.getCardsByKind(card.kind);
+      const decision = strategy.dedup(card, existing);
+      // 06a: keep → INSERT; skip/merge → no-op (memory merge is the existing
+      // MemoryStore consolidation path; knowledge merge is 06b).
+      if (decision.action !== "keep") return;
+      if (!persistableKinds.has(card.kind)) {
+        throw new Error(
+          `createCardStore.upsertCard: kind "${card.kind}" has no persistence decision registered ` +
+            "(add a serializer + dedup strategy first).",
+        );
+      }
+      await persistence.insertCard(card);
+    },
+
+    updateCard(card: Card): Promise<void> {
+      return persistence.updateCard(card);
+    },
+
+    deleteCard(id: string): Promise<void> {
+      return persistence.deleteCard(id);
+    },
+
+    getCard(id: string): Promise<Card | null> {
+      return persistence.getCard(id);
+    },
+
+    getCardsByKind(kind: CardKind): Promise<Card[]> {
+      return persistence.getCardsByKind(kind);
+    },
+
+    serializerFor(kind: CardKind): CardSerializer | undefined {
+      return serializers.get(kind);
+    },
+
+    getCardMdHash(cardId: string): Promise<{ hash: string; mirroredAt: string; kind: string } | null> {
+      return persistence.getCardMdHash(cardId);
+    },
+
+    upsertCardMdHash(cardId: string, hash: string, kind = "mirror"): Promise<void> {
+      return persistence.upsertCardMdHash(cardId, hash, kind);
+    },
+
+    deleteCardMdHash(cardId: string): Promise<void> {
+      return persistence.deleteCardMdHash(cardId);
+    },
+
+    getCardDepHash(cardId: string): Promise<{ depHash: string; validatedAt: string } | null> {
+      return persistence.getCardDepHash(cardId);
+    },
+
+    upsertCardDepHash(cardId: string, depHash: string): Promise<void> {
+      return persistence.upsertCardDepHash(cardId, depHash);
+    },
+
+    deleteCardDepHash(cardId: string): Promise<void> {
+      return persistence.deleteCardDepHash(cardId);
+    },
 
     async close(): Promise<void> {
-      await backend.close();
+      // Release ONLY a backend this store constructed (the standalone sqlite
+      // quick path). A bundle-provided backend belongs to the bundle; the
+      // surreal backend is stateless HTTP.
+      if (ownedSqliteBackend) await ownedSqliteBackend.close();
     },
   };
 

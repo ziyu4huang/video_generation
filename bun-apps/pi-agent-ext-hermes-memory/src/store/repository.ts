@@ -6,6 +6,7 @@
 
 export type MemoryTarget = "memory" | "user" | "failure";
 import type { FailureState } from "../types.js";
+import type { CardStore } from "./card-store.js";
 
 export type { MemoryCategory, FailureState } from "../types.js";
 
@@ -230,4 +231,11 @@ export interface BackendBundle {
   backend: Backend;
   memoryRepo: MemoryRepository;
   sessionRepo: SessionRepository;
+  /** kp13 Wave A: the kind-agnostic Card store joined onto the bundle —
+   *  SAME backend lifetime as the repos (sqlite: shares the bundle's backend
+   *  handle, so closing the bundle closes it; surrealdb: built on the bundle's
+   *  SurrealMemoryRepository). A live backend swap (see index.ts switchTo)
+   * re-bundles, so a cardStore captured through the bundle always follows the
+   * active backend. */
+  cardStore: CardStore;
 }
