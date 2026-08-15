@@ -1067,7 +1067,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 							"Distill pipeline action (absent = deterministic ingest, the default). " +
 							"'gate' filters raw hermes-memory entries (dedup/stale/malformed) and returns " +
 							"survivors for in-context enrichment (read-only). 'converge' writes enriched " +
-							"notes via the ingest path, supersedes raw pi-memory cards, and adjusts the " +
+							"notes via the ingest path, supersedes the raw hermes/pi-memory card, and adjusts the " +
 							"adaptive threshold. 'status' reports the current threshold + run history. " +
 							"Workflow: status → gate → enrich survivors in your reasoning → converge.",
 					},

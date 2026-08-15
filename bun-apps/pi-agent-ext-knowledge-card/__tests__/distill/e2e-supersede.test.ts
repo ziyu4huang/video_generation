@@ -62,4 +62,46 @@ describe("e2e: hermes raw → distill upgrade → retrieve curated only", () => 
 		expect(ids).toContain("distill:lora-alpha-rank");
 		expect(ids).not.toContain("pi-memory:failure:h1");
 	});
+
+	test("hermes: raw (live hub adapter id) upgrades end-to-end (F3)", async () => {
+		// The CURRENT hub auto-converge mints `hermes:<slug>` ids (convergeHermesMemory
+		// → adaptHermesMarkdown), not `pi-memory:*`. Prove mechanism B works for that
+		// id scheme: gate upgrades → converge writes curated + supersedes the raw
+		// hermes card → retrieve excludes the superseded raw.
+		const rawId = "hermes:pin-bun-lockfile";
+		writeFileSync(
+			join(vault, "Zettelkasten", "knowledge-graph", "hermes-raw.md"),
+			`---\nid: "hermes:pin-bun-lockfile"\nstatus: active\nsuperseded_by: ""\ntags: [zettel, hermes, failure]\ncreated: 2026-07-14T00:00:00Z\n---\nPin bun lockfile before merging extension PRs\n`,
+		);
+
+		const entry: MemoryEntry = {
+			id: "m2",
+			target: "failure",
+			content: "Pin bun lockfile before merging extension PRs",
+			created: new Date().toISOString(),
+		};
+
+		// Stage 1 — gate: the hermes: raw card is an UPGRADE candidate (NOT killed).
+		const g = runGate([entry], vault);
+		expect(g.killed.length).toBe(0);
+		expect(g.survivors.length).toBe(1);
+		expect(g.survivors[0].supersedesCardId).toBe(rawId);
+
+		// Stage 2 — agent enriches, threading supersedesCardId.
+		const notes = [{
+			id: "distill:pin-bun-lockfile", type: "gotcha", title: "Pin bun lockfile before merging",
+			detail: "Always pin bun.lock before merging extension PRs to keep the workspace resolvable.",
+			tags: ["bun", "workflow"], confidence: 0.9,
+			supersedesCardId: rawId,
+		}];
+
+		// Stage 3 — converge: curated card + supersede the raw hermes card.
+		await runConverge(notes as any, vault, { candidates: 1, killed: 0, survivors: 1 });
+
+		// Stage 4 — retrieve: curated active, superseded raw excluded.
+		const r = await retrieveRecords({ vaultPath: vault, tags: ["bun"], topK: 10 });
+		const ids = r.cards.map((c) => c.id);
+		expect(ids).toContain("distill:pin-bun-lockfile");
+		expect(ids).not.toContain(rawId);
+	});
 });

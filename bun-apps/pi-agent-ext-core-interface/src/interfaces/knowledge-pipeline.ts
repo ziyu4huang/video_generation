@@ -9,10 +9,27 @@ export type SourceFamily = "workflow-jsonl" | "hermes" | "auto-memory" | "generi
 import type { LinkWeighting } from "../entities.js";
 export type { LinkWeighting };
 
+/** Provenance timestamps / occurrence stats carried by structured sources (the
+ *  workflow `.knowledge.jsonl` evidence block). Optional — hermes's
+ *  knowledge-jsonl adapter passes it through the seam so zk's ingestRecords can
+ *  use `first_seen` for the card `created:` date instead of the 1970-01-01
+ *  fallback (review F1). Mirrors zk's own KnowledgeRecord.evidence shape. */
+export interface KnowledgeRecordEvidence {
+  occurrences?: number;
+  first_seen?: string;
+  last_seen?: string;
+  run_ids?: string[];
+  extracted_at?: string;
+}
 export interface KnowledgeRecord {
   id: string; type: string; title: string; detail: string; tags: string[];
   dimension: string | null; confidence: number; status: string;
   superseded_by: string | null; entities?: unknown[];
+  /** Optional provenance (workflow evidence block). Carried verbatim into
+   *  zk's ingestRecords when the seam is used (walkAndIngest path). */
+  evidence?: KnowledgeRecordEvidence;
+  schema_version?: number;
+  extracted_at?: string;
 }
 export interface CollectInputFilesResult { files: string[]; skipped: { path: string; reason: string }[]; }
 export interface IngestOptions {

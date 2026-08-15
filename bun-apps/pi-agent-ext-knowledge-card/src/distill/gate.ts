@@ -31,7 +31,7 @@ interface ExistingCard {
 }
 
 /** Scan existing graph cards WITH frontmatter (id + status) so the gate can
- *  distinguish a raw `pi-memory:*` card (upgrade candidate) from a curated one.
+ *  distinguish a raw hermes card (upgrade candidate) from a curated one.
  *  Replaces the old body-only scan — mechanism B (C1 fix). */
 function existingCards(vaultPath: string): ExistingCard[] {
 	const dir = join(vaultPath, "Zettelkasten", "knowledge-graph");
@@ -47,6 +47,21 @@ function existingCards(vaultPath: string): ExistingCard[] {
 				body: raw.replace(/^---\n[\s\S]*?\n---\n/, ""),
 			};
 		});
+}
+
+/** RAW-card id prefixes the gate treats as UPGRADE candidates (survive + carry
+ *  their id for converge to supersede) instead of true duplicates:
+ *  - `hermes:<slug>`  — the CURRENT hub auto-converge adapter
+ *    (convergeHermesMemory → adaptHermesMarkdown) mints these (F3: the C1
+ *    partition was doc↔code drifted — the gate only knew the legacy prefix, so
+ *    every auto-converged hermes card was killed as a "duplicate" and the
+ *    curated upgrade path was dead-on-arrival for the live producer).
+ *  - `pi-memory:*`    — legacy ids minted by the PRE-ADR-0001 hermes
+ *    auto-converge (kept so older graph folders still upgrade). */
+const RAW_UPGRADE_PREFIXES = ["hermes:", "pi-memory:"];
+
+function isRawUpgradeCard(id: string, status: string): boolean {
+	return status === "active" && RAW_UPGRADE_PREFIXES.some((p) => id.startsWith(p));
 }
 
 export function runGate(entries: MemoryEntry[], vaultPath: string): GateResult {
@@ -70,14 +85,16 @@ export function runGate(entries: MemoryEntry[], vaultPath: string): GateResult {
 		}
 		// In-batch duplicate → kill (unchanged)
 		let dup = seenContents.some((c) => similarity(entry.content, c) >= SIM_THRESHOLD);
-		// Cross-vault match: a raw `pi-memory:*` active card is an UPGRADE candidate
-		// (survive + carry its id for converge to supersede); any other match
-		// (curated distill:/other id, or already-superseded) is a true duplicate.
+		// Cross-vault match: a raw active card (`hermes:*` — the live hub
+		// auto-converge adapter — or legacy `pi-memory:*`) is an UPGRADE
+		// candidate (survive + carry its id for converge to supersede); any
+		// other match (curated distill:/other id, or already-superseded) is a
+		// true duplicate.
 		let supersedesCardId: string | undefined;
 		if (!dup) {
 			const match = cards.find((c) => similarity(entry.content, c.body) >= SIM_THRESHOLD);
 			if (match) {
-				if (match.id.startsWith("pi-memory:") && match.status === "active") {
+				if (isRawUpgradeCard(match.id, match.status)) {
 					supersedesCardId = match.id; // upgrade candidate — do NOT kill
 				} else {
 					dup = true; // curated or already-superseded → true duplicate

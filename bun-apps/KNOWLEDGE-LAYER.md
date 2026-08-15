@@ -61,12 +61,16 @@ anything hermes touched.
 
 | Knowledge class | Owner | Trigger | Card shape |
 | --- | --- | --- | --- |
-| `memory` + `user` (low-stakes working memory) | **hermes** auto-converge | `transfer` + `session_shutdown` | raw `type:pattern`, id `pi-memory:…` |
+| `memory` + `user` (low-stakes working memory) | **hermes** auto-converge | `transfer` + `session_shutdown` | raw `type:pattern`, id `hermes:<slug>` (hub's `convergeHermesMemory` → `adaptHermesMarkdown`) |
 | `failure` + `correction` + `insight` (high-value, curated) | **distill** | agent-triggered gate→enrich→converge | typed (`gotcha`/`lever`/…), id `distill:…` |
 
-- distill's gate treats a matching **raw `pi-memory:*`** card as an **upgrade
-  candidate**, not a duplicate: on converge it writes the curated card and flips
-  the raw card to `status: superseded` + `superseded_by: <curated id>`.
+- distill's gate treats a matching **raw active card** (id prefix `hermes:` — the
+  live hub adapter — or legacy `pi-memory:*` from the pre-ADR-0001 auto-converge)
+  as an **upgrade candidate**, not a duplicate: on converge it writes the curated
+  card and flips the raw card to `status: superseded` + `superseded_by: <curated id>`.
+  *(F3, corrected: the gate previously recognized only `pi-memory:*`, so cards
+  minted by the current `hermes:<slug>` adapter were killed as duplicates and the
+  curated upgrade path never fired for them.)*
 - retrieve already excludes `superseded`/`retired` cards, so the raw card silently
   drops out of answers. (Caveat: `ingestRecords` defaults `status: active`, so
   superseding is an explicit 2-step op, not automatic.)

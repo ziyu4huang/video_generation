@@ -1,11 +1,12 @@
 /**
  * markSuperseded — flip a card's `status` to `superseded` + set `superseded_by`.
  *
- * Used by zk_ingest converge action (mechanism B) to retire a raw `pi-memory:*` card
- * when a curated `distill:*` card is written on top of it. retrieveRecords already
- * excludes `status: superseded` cards (`retrieve.ts:426,572`), so the raw card
- * silently drops out of answers once superseded — leaving the curated one as the
- * single active card for that knowledge.
+ * Used by zk_ingest converge action (mechanism B) to retire a raw
+ * `hermes:*` / legacy `pi-memory:*` card when a curated `distill:*` card is
+ * written on top of it. retrieveRecords already excludes `status: superseded`
+ * cards (`retrieve.ts:426,572`), so the raw card silently drops out of answers
+ * once superseded — leaving the curated one as the single active card for that
+ * knowledge.
  *
  * Surgical: rewrites ONLY the `status` and `superseded_by` frontmatter lines
  * (never the body or other additive keys). Idempotent — a card already
