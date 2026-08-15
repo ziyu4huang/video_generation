@@ -1,6 +1,9 @@
 # Ticket 06 — Claimable ctrl+b shortcut (global + in-viewer)
 
-> Wave 2 · spec §3 · status: **stub** (awaiting plan)
+> Wave 2 · spec §3 · status: **done** (PR #1432)
+>
+> Note: #1433 was an accidental duplicate ship of identical content (turn-exceeded
+> shipper bug); both merged — no net effect on the tree.
 
 ## Goal
 
