@@ -81,7 +81,7 @@ describe.skipIf(!E2E_ENABLED)("e2e: patches fire in the built bundle", () => {
 				const { stderr } = await runBundle(["--help"], {
 					env: {
 						BUN_PI_DEBUG_PATCHES: "1",
-						PI_MODEL: "zai/glm-5.2:high",
+						PI_MODEL: "zai/glm-5.3:high",
 						PI_PROVIDER: "lm-studio",
 					},
 				});
@@ -89,7 +89,7 @@ describe.skipIf(!E2E_ENABLED)("e2e: patches fire in the built bundle", () => {
 				expect(log).toMatch(/default-model-env spliced argv:/);
 				// provider/id:thinking shorthand passes through untouched.
 				expect(log).toContain('"--model"');
-				expect(log).toContain('"zai/glm-5.2:high"');
+				expect(log).toContain('"zai/glm-5.3:high"');
 				expect(log).toContain('"--provider"');
 				expect(log).toContain('"lm-studio"');
 			});

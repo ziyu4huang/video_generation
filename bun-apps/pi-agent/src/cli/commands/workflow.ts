@@ -115,7 +115,7 @@ Examples:
 		const outDir = parsed.outDir ?? process.env.PI_WORKFLOWS_OUT_DIR;
 
 		// pi-default model spec: resolveLLM with NO caller/provider override, so
-		// only user settings + the hardcoded fallback (zai/glm-5.2) apply. The
+		// only user settings + the hardcoded fallback (zai/glm-5.3) apply. The
 		// engine's 4-tier precedence then picks among callerModel (--model),
 		// envModel (PI_MODEL), manifest.model, and this pi-default — surfaced in
 		// the receipt as `model` + `modelSource`.

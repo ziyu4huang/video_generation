@@ -17,8 +17,8 @@ describe("resolveEnvBridges — env → argv bridging", () => {
 
   test("PI_MODEL set + no --model in argv → splices --model <val>", () => {
     expect(
-      resolveEnvBridges(["-p", "hi"], E({ PI_MODEL: "zai/glm-5.2" })),
-    ).toEqual(["--model", "zai/glm-5.2"]);
+      resolveEnvBridges(["-p", "hi"], E({ PI_MODEL: "zai/glm-5.3" })),
+    ).toEqual(["--model", "zai/glm-5.3"]);
   });
 
   test("PI_PROVIDER set + no --provider → splices --provider", () => {
@@ -43,8 +43,8 @@ describe("resolveEnvBridges — env → argv bridging", () => {
 
   test("provider/id:thinking shorthand passes through untouched (pi parses it)", () => {
     expect(
-      resolveEnvBridges([], E({ PI_MODEL: "zai/glm-5.2:high" })),
-    ).toEqual(["--model", "zai/glm-5.2:high"]);
+      resolveEnvBridges([], E({ PI_MODEL: "zai/glm-5.3:high" })),
+    ).toEqual(["--model", "zai/glm-5.3:high"]);
   });
 });
 

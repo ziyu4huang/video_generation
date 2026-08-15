@@ -45,7 +45,7 @@ describe("resolveSubagentFloor — env override wins", () => {
     expect(
       resolveSubagentFloor(
         S({ obsidian: { subagentModel: "deepseek/deepseek-v4-flash" } }),
-        E({ OB_SUBAGENT_MODEL: "zai/glm-5.2" }),
+        E({ OB_SUBAGENT_MODEL: "zai/glm-5.3" }),
       ),
     ).toBeUndefined();
   });
@@ -68,7 +68,7 @@ describe("resolveSubagentFloor — no-op cases", () => {
 
   test("missing obsidian.subagentModel field → undefined", () => {
     expect(
-      resolveSubagentFloor(S({ defaultModel: "glm-5.2", subagents: {} }), {}),
+      resolveSubagentFloor(S({ defaultModel: "glm-5.3", subagents: {} }), {}),
     ).toBeUndefined();
   });
 

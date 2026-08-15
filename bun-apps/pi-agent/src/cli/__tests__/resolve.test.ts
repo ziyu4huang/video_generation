@@ -48,10 +48,10 @@ describe("isThinkingLevel", () => {
 });
 
 describe("resolveLLM — defaults (no opts, no env)", () => {
-  test("falls back to the hardcoded FALLBACK target (zai / glm-5.2 / medium)", () => {
+  test("falls back to the hardcoded FALLBACK target (zai / glm-5.3 / medium)", () => {
     const r = resolveLLM({});
     expect(r.provider).toBe("zai");
-    expect(r.modelId).toBe("glm-5.2");
+    expect(r.modelId).toBe("glm-5.3");
     expect(r.thinkingLevel).toBe("medium");
   });
 });

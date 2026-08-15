@@ -64,7 +64,7 @@ export function isThinkingLevel(v: string): v is ThinkingLevel {
 /** Hardcoded fallback when nothing else is configured. */
 const FALLBACK = {
 	provider: "zai",
-	modelId: "glm-5.2",
+	modelId: "glm-5.3",
 	thinkingLevel: "medium" as ThinkingLevel,
 };
 

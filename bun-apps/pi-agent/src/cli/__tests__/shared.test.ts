@@ -66,15 +66,15 @@ describe("validateToolNames — fail-fast on unknown --tools", () => {
 });
 
 describe("modelLabel — display name with provider/id fallback", () => {
-  const llm = { provider: "zai", modelId: "glm-5.2" };
+  const llm = { provider: "zai", modelId: "glm-5.3" };
 
   test("uses the registry display name when present", () => {
     expect(modelLabel({ model: { name: "GLM 5.2" } }, llm)).toBe("GLM 5.2");
   });
 
   test("falls back to provider/modelId when no display name", () => {
-    expect(modelLabel({}, llm)).toBe("zai/glm-5.2");
-    expect(modelLabel({ model: {} }, llm)).toBe("zai/glm-5.2");
+    expect(modelLabel({}, llm)).toBe("zai/glm-5.3");
+    expect(modelLabel({ model: {} }, llm)).toBe("zai/glm-5.3");
   });
 });
 
@@ -146,9 +146,9 @@ describe("applyObsidianSubagentFloor — inject OB_SUBAGENT_MODEL from settings"
   });
 
   test("existing OB_SUBAGENT_MODEL env var wins (per-session override)", () => {
-    process.env.OB_SUBAGENT_MODEL = "zai/glm-5.2";
+    process.env.OB_SUBAGENT_MODEL = "zai/glm-5.3";
     applyObsidianSubagentFloor({ obsidian: { subagentModel: "deepseek/deepseek-v4-flash" } });
-    expect(process.env.OB_SUBAGENT_MODEL).toBe("zai/glm-5.2");
+    expect(process.env.OB_SUBAGENT_MODEL).toBe("zai/glm-5.3");
   });
 
   test("undefined settings → no-op (no env set)", () => {
@@ -157,7 +157,7 @@ describe("applyObsidianSubagentFloor — inject OB_SUBAGENT_MODEL from settings"
   });
 
   test("missing obsidian.subagentModel field → no-op", () => {
-    applyObsidianSubagentFloor({ defaultModel: "glm-5.2", subagents: {} });
+    applyObsidianSubagentFloor({ defaultModel: "glm-5.3", subagents: {} });
     expect(process.env.OB_SUBAGENT_MODEL).toBeUndefined();
   });
 

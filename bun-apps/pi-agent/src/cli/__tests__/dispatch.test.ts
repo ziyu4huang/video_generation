@@ -26,7 +26,7 @@ describe("findCommandToken — global flags before sub-command", () => {
   });
 
   test("multiple value-flags before command are all skipped", () => {
-    const argv = ["--provider", "zai", "--model", "glm-5.2", "zk-ask", "question?"];
+    const argv = ["--provider", "zai", "--model", "glm-5.3", "zk-ask", "question?"];
     expect(findCommandToken(argv)).toEqual({ name: "zk-ask", index: 4 });
   });
 
