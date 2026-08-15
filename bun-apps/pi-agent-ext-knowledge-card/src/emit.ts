@@ -40,7 +40,7 @@
  * `onKnowledge` swallow their own setup errors and return no-ops on failure.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { KnowledgeRecord, SourceFamily } from "./ingest.ts";
+import type { KnowledgeRecord, SourceFamily } from "./types.ts";
 
 /** The bus channel every knowledge emitter + sink agrees on. */
 export const KNOWLEDGE_CHANNEL = "pi:knowledge";

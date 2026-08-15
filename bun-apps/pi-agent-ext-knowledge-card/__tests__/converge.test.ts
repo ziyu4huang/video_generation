@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { convergeKnowledgeEmission } from "../src/converge.ts";
 import type { KnowledgeEmission } from "../src/emit.ts";
-import type { KnowledgeRecord } from "../src/ingest.ts";
+import type { KnowledgeRecord } from "../src/types.ts";
 
 
 let vault: string;

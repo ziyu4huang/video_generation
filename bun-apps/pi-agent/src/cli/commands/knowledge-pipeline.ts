@@ -28,12 +28,9 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, statSy
 import { resolve, isAbsolute, join, basename } from "node:path";
 import { homedir } from "node:os";
 import type { ParsedArgs } from "../args.ts";
-import {
-	ingestRecords,
-	adaptHermesMarkdown,
-	type KnowledgeRecord,
-	type IngestSummary,
-} from "@repo/pi-agent-ext-knowledge-card/src/ingest.ts";
+import { ingestRecords } from "@repo/pi-agent-ext-knowledge-card/src/ingest.ts";
+import { adaptHermesMarkdown } from "@repo/pi-agent-ext-knowledge-card/src/adapters.ts";
+import type { KnowledgeRecord, IngestSummary } from "@repo/pi-agent-ext-knowledge-card/src/types.ts";
 import { mergeDuplicates, type MergeResult } from "@repo/pi-agent-ext-knowledge-card/src/merge.ts";
 import { graphHealth, healGraph, type GraphHealthResult, type HealResult } from "@repo/pi-agent-ext-knowledge-card/src/retrieve.ts";
 

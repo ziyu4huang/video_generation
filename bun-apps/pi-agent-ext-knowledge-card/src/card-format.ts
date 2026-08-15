@@ -1,7 +1,6 @@
 // Single-source card format helpers (dedup ticket hermes-arch-12; from audit ticket 05 findings K4-K9)
 import { readFileSync } from "node:fs";
 import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
-import { normTag } from "./ingest.ts";
 
 /** Minimal YAML scalar renderer. Lifted verbatim from ingest.ts (was the
  *  local `yamlScalar` there); ingest imports it back for renderFrontmatter /
@@ -135,3 +134,21 @@ export function readCard(absPath: string) {
 	const { data } = parseFrontmatter(content);
 	return { data, content };
 }
+
+/** Slugify a record id into a filename-safe basename (keeps the namespace
+ *  prefix legible: "ltx:cfg-scale-7-lever" -> "ltx-cfg-scale-7-lever"). */
+export function slugify(id: string): string {
+	return id
+		.trim()
+		.replace(/[:/\\]+/g, "-") // namespace + path separators
+		.replace(/[^A-Za-z0-9._-]+/g, "-")
+		.replace(/-+/g, "-")
+		.replace(/^-|-$/g, "")
+		.toLowerCase()
+		.slice(0, 80) || "untitled";
+}
+
+export function normTag(t: string): string {
+	return t.trim().toLowerCase().replace(/\s+/g, "-");
+}
+

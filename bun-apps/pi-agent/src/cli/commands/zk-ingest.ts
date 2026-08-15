@@ -23,16 +23,14 @@
 import { existsSync, readFileSync, mkdirSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
+import { ingestRecords, formatSummary } from "@repo/pi-agent-ext-knowledge-card/src/ingest.ts";
 import {
-	ingestRecords,
 	parseKnowledgeJsonl,
 	adaptGenericMarkdown,
 	adaptAutoMemoryMarkdown,
 	adaptHermesMarkdown,
-	formatSummary,
-	type KnowledgeRecord,
-	type SourceFamily,
-} from "@repo/pi-agent-ext-knowledge-card/src/ingest.ts";
+} from "@repo/pi-agent-ext-knowledge-card/src/adapters.ts";
+import type { KnowledgeRecord, SourceFamily } from "@repo/pi-agent-ext-knowledge-card/src/types.ts";
 
 const KNOWN_SOURCES = new Set<SourceFamily>(["workflow-jsonl", "hermes", "auto-memory", "generic"]);
 

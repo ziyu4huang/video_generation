@@ -13,18 +13,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	ingestRecords,
+	formatSummary,
+	readCardMeta,
+} from "../src/ingest.ts";
+import {
 	parseKnowledgeJsonl,
 	adaptAutoMemoryMarkdown,
 	adaptHermesMarkdown,
 	stripWikiLinkBrackets,
 	collectInputFiles,
-	slugify,
 	extractDate,
-	formatSummary,
-	extractFeatures,
-	readCardMeta,
-	type KnowledgeRecord,
-} from "../src/ingest.ts";
+} from "../src/adapters.ts";
+import { slugify } from "../src/card-format.ts";
+import { extractFeatures } from "../src/card-render.ts";
+import type { KnowledgeRecord } from "../src/types.ts";
 import { validateZettelNote } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import { LlmRelationExtractor, type Extractor } from "../src/extractor.ts";
 import { retrieveRecords } from "../src/retrieve.ts";

@@ -19,7 +19,8 @@ import piKnowledgeCardExtension, {
 	buildUpdateTask,
 	__setVaultResolverForTest,
 } from "../extensions/knowledge-card.ts";
-import { ingestRecords, type KnowledgeRecord } from "../src/ingest.ts";
+import { ingestRecords } from "../src/ingest.ts";
+import type { KnowledgeRecord } from "../src/types.ts";
 
 // ---------------------------------------------------------------------------
 // Tool allowlists — sanity checks (the CLI imports these verbatim)
