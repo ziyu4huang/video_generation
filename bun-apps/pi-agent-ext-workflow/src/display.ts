@@ -79,11 +79,46 @@ export function createWorkflowSnapshot(meta: WorkflowMeta): WorkflowSnapshot {
   };
 }
 
+export interface AgentCounts {
+  total: number;
+  running: number;
+  done: number;
+  error: number;
+  skipped: number;
+  /** done + error + skipped — statuses that will not change again. */
+  finished: number;
+}
+
+/**
+ * The single agent-status count derivation (snapshot-row-single-source,
+ * ticket 02). Every presentation site that needs done/running/error/skipped/
+ * finished counts calls this — no per-site `agents.filter(...)` copies. Accepts
+ * anything with a `status` field, so both WorkflowAgentSnapshot[] (live) and
+ * PersistedAgentState[] (persisted) work.
+ */
+export function agentCounts(agents: Array<Pick<WorkflowAgentSnapshot, "status">>): AgentCounts {
+  let running = 0;
+  let done = 0;
+  let error = 0;
+  let skipped = 0;
+  for (const a of agents) {
+    if (a.status === "running") running++;
+    else if (a.status === "done") done++;
+    else if (a.status === "error") error++;
+    else if (a.status === "skipped") skipped++;
+  }
+  return { total: agents.length, running, done, error, skipped, finished: done + error + skipped };
+}
+
 export function recomputeWorkflowSnapshot(snapshot: WorkflowSnapshot): WorkflowSnapshot {
-  const runningCount = snapshot.agents.filter((agent) => agent.status === "running").length;
-  const doneCount = snapshot.agents.filter((agent) => agent.status === "done").length;
-  const errorCount = snapshot.agents.filter((agent) => agent.status === "error").length;
-  return { ...snapshot, agentCount: snapshot.agents.length, runningCount, doneCount, errorCount };
+  const counts = agentCounts(snapshot.agents);
+  return {
+    ...snapshot,
+    agentCount: counts.total,
+    runningCount: counts.running,
+    doneCount: counts.done,
+    errorCount: counts.error,
+  };
 }
 
 export function createWidgetWorkflowDisplay(

@@ -24,7 +24,7 @@ import {
   renderActivityRow,
   summarizeLatestAction,
 } from "@repo/pi-agent-ext-core-runtime";
-import { fmtDuration, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
+import { agentCounts, fmtDuration, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
 import { persistedToSnapshot } from "./run-persistence.js";
 import { registerSavedWorkflow } from "./saved-commands.js";
 import type { WorkflowManager } from "./workflow-manager.js";
@@ -105,12 +105,13 @@ export class NavigatorModel {
     return this.manager.listRuns().map((p) => {
       const live = this.manager.getRun(p.runId);
       const agents = (live?.snapshot.agents ?? p.agents) as WorkflowAgentSnapshot[];
+      const counts = agentCounts(agents);
       return {
         runId: p.runId,
         name: live?.snapshot.name ?? p.workflowName,
         status: live?.status ?? p.status,
-        done: agents.filter((a) => a.status === "done").length,
-        total: agents.length,
+        done: counts.done,
+        total: counts.total,
         tokens: (live?.snapshot.tokenUsage ?? p.tokenUsage)?.total ?? 0,
         cost: (live?.snapshot.tokenUsage ?? p.tokenUsage)?.cost ?? 0,
       };
@@ -141,7 +142,7 @@ export class NavigatorModel {
     const snap = this.snapshot(runId)?.snapshot;
     if (!snap) return [];
     const order = snap.phases.length ? [...snap.phases] : [];
-    const byPhase = new Map<string, AgentRow[]>();
+    const byPhase = new Map<string, WorkflowAgentSnapshot[]>();
     for (const a of snap.agents) {
       const key = a.phase ?? "(no phase)";
       if (!byPhase.has(key)) byPhase.set(key, []);
@@ -150,10 +151,11 @@ export class NavigatorModel {
     }
     return order.map((title) => {
       const agents = byPhase.get(title) ?? [];
+      const counts = agentCounts(agents);
       return {
         title,
-        done: agents.filter((a) => a.status === "done").length,
-        total: agents.length,
+        done: counts.done,
+        total: counts.total,
         tokens: agents.reduce((n, a) => n + (a.tokens ?? 0), 0),
       };
     });

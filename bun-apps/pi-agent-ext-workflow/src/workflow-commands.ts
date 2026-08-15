@@ -5,7 +5,7 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { activityGlyph, fmtElapsed } from "@repo/pi-agent-ext-core-runtime";
-import { recomputeWorkflowSnapshot, renderWorkflowText, type WorkflowSnapshot } from "./display.js";
+import { agentCounts, recomputeWorkflowSnapshot, renderWorkflowText, type WorkflowSnapshot } from "./display.js";
 import { type EffortState, effortDirective } from "./effort-command.js";
 import type { PersistedRunState } from "./run-persistence.js";
 import { registerSavedWorkflow } from "./saved-commands.js";
@@ -29,22 +29,18 @@ const USAGE =
 const RUN_USAGE = "Usage: /workflows run <prompt> — force a dynamic workflow from the prompt";
 
 export function summarizeRun(run: PersistedRunState): string {
-  const icon = STATUS_ICON[run.status] ?? "?";
-  const done = run.agents.filter((a) => a.status === "done").length;
-  const total = run.agents.length;
+  const icon = STATUS_ICON[run.status] ?? "?"; // STATUS_ICON replaced in Task 4; unchanged here
+  const counts = agentCounts(run.agents);
   const tokens = run.tokenUsage ? ` · ${run.tokenUsage.total.toLocaleString()} tok` : "";
-  return `${icon} ${run.runId}  ${run.workflowName} [${run.status}] ${done}/${total} agents${tokens}`;
+  return `${icon} ${run.runId}  ${run.workflowName} [${run.status}] ${counts.done}/${counts.total} agents${tokens}`;
 }
 
 function oneLineProgress(snapshot: WorkflowSnapshot): string {
-  const total = snapshot.agents.length;
-  const done = snapshot.agents.filter((a) => a.status === "done").length;
-  const running = snapshot.agents.filter((a) => a.status === "running").length;
-  const errs = snapshot.agents.filter((a) => a.status === "error").length;
+  const counts = agentCounts(snapshot.agents);
   const phase = snapshot.currentPhase ? ` · ${snapshot.currentPhase}` : "";
-  return `◆ ${snapshot.name}: ${done}/${total} done${running ? `, ${running} running` : ""}${
-    errs ? `, ${errs} err` : ""
-  }${phase}`;
+  return `◆ ${snapshot.name}: ${counts.done}/${counts.total} done${
+    counts.running ? `, ${counts.running} running` : ""
+  }${counts.error ? `, ${counts.error} err` : ""}${phase}`;
 }
 
 /**
