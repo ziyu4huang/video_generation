@@ -1,6 +1,6 @@
 # CC-Style Subagent TUI in core-task
 
-> STATUS: spec approved 2026-08-15 (brainstorming complete, awaiting plan)
+> STATUS: plan approved 2026-08-15 · ticket 01 DONE (#1410) · wave 1 in progress
 
 ## Goal
 
@@ -35,6 +35,6 @@ pi-core upstream changes.
 
 ## Tickets
 
-Wave 1 (§2): 01 subagents section · 02 completion notify · 03 RunView tokens/cost ·
+Wave 1 (§2): 01 subagents section (DONE #1410) · 02 completion notify · 03 RunView tokens/cost ·
 04 context-widget retirement. Wave 2 (§3): 05 detach pipeline · 06 Ctrl-B shortcut.
 Wave 3 (§4): 07 focus-claim ADR + protocol · 08 dock implementation.
