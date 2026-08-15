@@ -1,12 +1,14 @@
 /**
- * ensure-workspace-dist — unit tests for the pure helpers in
- * ../workspace-dist-staleness.ts.
+ * ensure-workspace-dist — unit tests.
  *
- * The import-time side effect (scanning bun-apps and rebuilding stale dists) is
- * intentionally NOT tested here; it would run `bun run build` against the live
- * workspace. We test the pure detection + decision helpers against tmp-dir
- * fixtures instead. Mirrors the ensure-model-tiers.test.ts split (pure helper
- * vs import-time wrapper).
+ * Two layers, mirroring the ensure-model-tiers.test.ts split (pure helper vs
+ * import-time wrapper):
+ *   1. Pure detection + decision helpers from ../workspace-dist-staleness.ts,
+ *      tested against tmp-dir fixtures.
+ *   2. The heal wrapper loop (healStaleWorkspaceDists) driven through the
+ *      injectable BuildSpawn seam against a fake bun-apps/ workspace — the
+ *      loop's discovery rules and every error path are covered WITHOUT running
+ *      `bun run build` against anything real.
  */
 import { describe, expect, test, afterAll } from "bun:test";
 import { mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
@@ -17,6 +19,7 @@ import {
   newestMtimeMs,
   shouldRebuildDist,
 } from "../workspace-dist-staleness.ts";
+import { __test, type BuildSpawn } from "./ensure-workspace-dist.ts";
 
 const TMP = join(tmpdir(), `ws-dist-staleness-${process.pid}`);
 afterAll(() => {
@@ -146,5 +149,159 @@ describe("newestMtimeMs — recursive walk (fixture end-to-end)", () => {
     const newestSrc = newestMtimeMs(join(dir, "src"));
     const newestDist = newestMtimeMs(join(dir, "dist"));
     expect(shouldRebuildDist({ newestSrcMs: newestSrc, newestDistMs: newestDist })).toBe(true);
+  });
+});
+
+describe("healStaleWorkspaceDists — wrapper loop (injectable BuildSpawn)", () => {
+  const T0 = 1_750_000_000_000;
+
+  /** Fake bun-apps/ dir: one sub-dir per package spec. */
+  function wsFixture(
+    pkgs: Array<{
+      dir: string;
+      name?: string | null; // null → malformed package.json
+      main?: string;
+      srcFiles?: string[];
+      distFiles?: string[];
+      srcMs?: number;
+      distMs?: number;
+      noSrcDir?: boolean;
+    }>,
+  ): string {
+    const appsDir = join(TMP, `apps-${Math.random().toString(36).slice(2)}`);
+    for (const p of pkgs) {
+      const pkgDir = join(appsDir, p.dir);
+      mkdirSync(pkgDir, { recursive: true });
+      if (p.name === null) {
+        writeFileSync(join(pkgDir, "package.json"), "{ not json");
+      } else {
+        writeFileSync(
+          join(pkgDir, "package.json"),
+          JSON.stringify({ name: p.name ?? `@repo/${p.dir}`, main: p.main ?? "./dist/index.js", type: "module" }),
+        );
+      }
+      if (!p.noSrcDir) {
+        for (const f of p.srcFiles ?? []) {
+          mkdirSync(join(pkgDir, "src"), { recursive: true });
+          const file = join(pkgDir, "src", f);
+          writeFileSync(file, "export {};\n");
+          if (p.srcMs !== undefined) utimesSync(file, new Date(p.srcMs), new Date(p.srcMs));
+        }
+      }
+      for (const f of p.distFiles ?? []) {
+        mkdirSync(join(pkgDir, "dist"), { recursive: true });
+        const file = join(pkgDir, "dist", f);
+        writeFileSync(file, "export {};\n");
+        if (p.distMs !== undefined) utimesSync(file, new Date(p.distMs), new Date(p.distMs));
+      }
+    }
+    return appsDir;
+  }
+
+  /** Capture console.error lines while fn runs. */
+  function captureStderr(fn: () => void): string[] {
+    const lines: string[] = [];
+    const orig = console.error;
+    console.error = (...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    };
+    try {
+      fn();
+    } finally {
+      console.error = orig;
+    }
+    return lines;
+  }
+
+  /** Build-spawn stub: records each cwd; `heal` writes a fresh dist when run. */
+  function stubSpawn(opts: { heal?: boolean; status?: number; throwMsg?: string } = {}) {
+    const calls: string[] = [];
+    const spawn: BuildSpawn = (cwd) => {
+      calls.push(cwd);
+      if (opts.throwMsg) throw new Error(opts.throwMsg);
+      if (opts.heal) {
+        // Simulate a real `bun run build`: write a dist file newer than any src.
+        const distDir = join(cwd, "dist");
+        mkdirSync(distDir, { recursive: true });
+        const file = join(distDir, "index.js");
+        writeFileSync(file, "export {};\n");
+        utimesSync(file, new Date(T0 + 60_000), new Date(T0 + 60_000));
+      }
+      return { status: opts.status ?? 0, stdout: "", stderr: "boom" };
+    };
+    return { calls, spawn };
+  }
+
+  test("stale dist → heal runs in the package dir and reports rebuilt OK", () => {
+    const apps = wsFixture([{ dir: "pkg-a", srcFiles: ["index.ts"], distFiles: ["index.js"], srcMs: T0 + 5000, distMs: T0 }]);
+    const { calls, spawn } = stubSpawn({ heal: true });
+    const err = captureStderr(() => __test.healStaleWorkspaceDists(apps, spawn));
+    expect(calls).toEqual([join(apps, "pkg-a")]);
+    expect(err.some((l) => l.includes("@repo/pkg-a") && l.includes("dist rebuilt OK"))).toBe(true);
+  });
+
+  test("fresh dist → no spawn, silent", () => {
+    const apps = wsFixture([{ dir: "pkg-a", srcFiles: ["index.ts"], distFiles: ["index.js"], srcMs: T0, distMs: T0 + 5000 }]);
+    const { calls, spawn } = stubSpawn();
+    const err = captureStderr(() => __test.healStaleWorkspaceDists(apps, spawn));
+    expect(calls).toEqual([]);
+    expect(err).toEqual([]);
+  });
+
+  test("missing dist (src only) → counts as stale, heal runs", () => {
+    const apps = wsFixture([{ dir: "pkg-a", srcFiles: ["index.ts"], srcMs: T0 }]);
+    const { calls, spawn } = stubSpawn({ heal: true });
+    const err = captureStderr(() => __test.healStaleWorkspaceDists(apps, spawn));
+    expect(calls.length).toBe(1);
+    expect(err.some((l) => l.includes("dist/ is stale"))).toBe(true);
+  });
+
+  test("build exits nonzero → warns with status + stderr tail, never throws", () => {
+    const apps = wsFixture([{ dir: "pkg-a", srcFiles: ["index.ts"], distFiles: ["index.js"], srcMs: T0 + 5000, distMs: T0 }]);
+    const { calls, spawn } = stubSpawn({ status: 1 });
+    const err = captureStderr(() => __test.healStaleWorkspaceDists(apps, spawn));
+    expect(calls.length).toBe(1);
+    expect(err.some((l) => l.includes("rebuild FAILED (status 1)") && l.includes("boom"))).toBe(true);
+  });
+
+  test("build exits 0 but dist still stale → DISTINCT still-stale message, not FAILED", () => {
+    const apps = wsFixture([{ dir: "pkg-a", srcFiles: ["index.ts"], distFiles: ["index.js"], srcMs: T0 + 5000, distMs: T0 }]);
+    const { spawn } = stubSpawn({ status: 0 }); // heal: false — writes nothing
+    const err = captureStderr(() => __test.healStaleWorkspaceDists(apps, spawn));
+    expect(err.some((l) => l.includes("STILL stale"))).toBe(true);
+    expect(err.some((l) => l.includes("FAILED"))).toBe(false);
+  });
+
+  test("spawn throws → caught, warns 'spawn failed', never throws", () => {
+    const apps = wsFixture([{ dir: "pkg-a", srcFiles: ["index.ts"], distFiles: ["index.js"], srcMs: T0 + 5000, distMs: T0 }]);
+    const { spawn } = stubSpawn({ throwMsg: "bun not found" });
+    const err = captureStderr(() => __test.healStaleWorkspaceDists(apps, spawn));
+    expect(err.some((l) => l.includes("rebuild spawn failed") && l.includes("bun not found"))).toBe(true);
+  });
+
+  test("skip rules: src-entry pkg, non-@repo pkg, malformed package.json, no-src-dir pkg, missing dir → no spawn, no throw", () => {
+    const apps = wsFixture([
+      { dir: "src-entry", main: "./src/index.ts", srcFiles: ["index.ts"], distFiles: ["index.js"], srcMs: T0 + 5000, distMs: T0 },
+      { dir: "not-repo", name: "some-lib", srcFiles: ["index.ts"], distFiles: ["index.js"], srcMs: T0 + 5000, distMs: T0 },
+      { dir: "broken-json", name: null, srcFiles: ["index.ts"], distFiles: ["index.js"], srcMs: T0 + 5000, distMs: T0 },
+      { dir: "no-src", noSrcDir: true, distFiles: ["index.js"], distMs: T0 },
+    ]);
+    const { calls, spawn } = stubSpawn();
+    const err = captureStderr(() => __test.healStaleWorkspaceDists(apps, spawn));
+    expect(calls).toEqual([]);
+    expect(err).toEqual([]);
+    // nonexistent bun-apps dir → no throw either
+    expect(() => __test.healStaleWorkspaceDists(join(TMP, "no-such-apps"), spawn)).not.toThrow();
+  });
+
+  test("multiple stale packages → each healed, in scan order", () => {
+    const apps = wsFixture([
+      { dir: "pkg-a", srcFiles: ["index.ts"], distFiles: ["index.js"], srcMs: T0 + 5000, distMs: T0 },
+      { dir: "pkg-b", srcFiles: ["index.ts"], distFiles: ["index.js"], srcMs: T0 + 5000, distMs: T0 },
+    ]);
+    const { calls, spawn } = stubSpawn({ heal: true });
+    const err = captureStderr(() => __test.healStaleWorkspaceDists(apps, spawn));
+    expect(calls).toEqual([join(apps, "pkg-a"), join(apps, "pkg-b")]);
+    expect(err.filter((l) => l.includes("rebuilt OK")).length).toBe(2);
   });
 });
