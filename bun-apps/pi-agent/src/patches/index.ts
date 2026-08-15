@@ -20,6 +20,7 @@ export type PatchName =
 	| "subagent-model-floor"
 	| "ensure-model-tiers"
 	| "ensure-extension-deps"
+	| "ensure-workspace-dist"
 	| "ext-context-get-system-prompt-options"
 	| "ext-api-get-all-tool-definitions"
 	| "footer-extension-status-notify"
@@ -86,6 +87,16 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // graph (so try-native succeeds and jiti never transforms — see the patch
   // file for the >4 KB tempfile bug this sidesteps). Still before main().
   { name: "ensure-extension-deps", env: "BUN_PI_ENSURE_EXT_DEPS", defaultValue: true },
+  // ensure-workspace-dist runs right after ensure-extension-deps: it detects
+  // @repo/* packages whose ./dist/ entry (gitignored, locally built) is older
+  // than their src and rebuilds them BEFORE extensions load. A stale dist makes
+  // the dist bundle import removed/renamed exports from live src barrels →
+  // try-native fails → jiti transforms the whole extension graph → Bun
+  // NameTooLong (incident 2026-08-15: cf6f1394 vs workflow's stale dist). CI
+  // can't catch it (dist always fresh there) — only a dev machine at boot.
+  // Self-healing; warns + never blocks startup. Disable with
+  // BUN_PI_ENSURE_WORKSPACE_DIST=0.
+  { name: "ensure-workspace-dist", env: "BUN_PI_ENSURE_WORKSPACE_DIST", defaultValue: true },
   // ext-context-get-system-prompt-options: patches ExtensionRunner.prototype.createContext
   // so getSystemPromptOptions() is available on ExtensionContext (not just
   // ExtensionCommandContext). Must run after ensure-extension-deps (which sets up
@@ -245,6 +256,9 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         break;
       case "ensure-extension-deps":
         mod = await import("./ensure-extension-deps.ts");
+        break;
+      case "ensure-workspace-dist":
+        mod = await import("./ensure-workspace-dist.ts");
         break;
       case "ext-context-get-system-prompt-options":
         mod = await import("./ext-context-get-system-prompt-options.ts");

@@ -618,6 +618,24 @@ jobs:
         working-directory: bun-apps
         run: bun run test:scripts
 
+      # Workspace dist-freshness guard (blocks). Four @repo/* packages resolve
+      # their entry to ./dist/index.js — a gitignored, LOCALLY built artifact
+      # (workflow, superpowers, wayfind, webui). Edit src without rebuilding and
+      # the stale dist keeps importing removed/renamed exports from live
+      # sibling barrels; the first consumer dies with a cryptic jiti
+      # NameTooLong (2026-08-15: cf6f1394 removed homeDir from the subagent
+      # barrel, workflow's stale dist still imported it, movie-director became
+      # un-loadable at ./pi-agent.sh boot). Remote CI can NEVER see this class
+      # — dist is gitignored, so CI always builds fresh; only a dev machine
+      # breaks, which is why the boot patch (ensure-workspace-dist) self-heals
+      # there and THIS gate fails the local-CI run with the rebuild command
+      # instead of letting the matrix trip over it as NameTooLong. Detection
+      # lives in ONE place (pi-agent/src/workspace-dist-staleness.ts) consumed
+      # by both the gate and the boot patch — no second copy to drift.
+      - name: Workspace dist-freshness guard (blocks)
+        working-directory: bun-apps
+        run: bun run test:dist
+
       # Test-portability prevention check — now BLOCKING (--strict). Scans the
       # test surface for the four "works on my machine" signal patterns and
       # exits non-zero on any UNGATED P1/P2 hit (existsSync of a machine-coupled
