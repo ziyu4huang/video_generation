@@ -10,15 +10,21 @@
  * renderer in agent-row-display.ts; `renderActivityRow` is its ActivityRow
  * cousin and would silently drop modelSeg/toolCallCount for a RunView).
  *
- * Collapsed when idle: zero background runs and no notifyLine → `[]` (the
- * composite widget hides empty sections). A 1s refresh timer re-requests a
+ * Collapsed when idle: zero background runs and no notify/transient line → `[]`
+ * (the composite widget hides empty sections). A 1s refresh timer re-requests a
  * render only while runs are live, so live elapsed ticks without idle churn
  * (mirrors subagent-context-widget.ts P5).
+ *
+ * Task 02: a SubagentNotify diffs consecutive per-tick view snapshots inside
+ * render(); a completion (non-terminal → terminal) stamps a transient line at
+ * the top of the section for THIS tick only — render reads notify.take() fresh
+ * each call, never cached across ticks (RunView contract).
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { renderRunRow } from "@repo/pi-agent-ext-core-runtime";
 import type { RunView } from "@repo/pi-agent-ext-core-runtime";
 import type { StatusSection } from "../shared/status-widget.js";
+import { SubagentNotify } from "./notify.js";
 
 const REFRESH_MS = 1000;
 
@@ -30,6 +36,8 @@ export interface SubagentsSectionDeps {
 	/** Injectable for tests (default: global setInterval). */
 	setInterval?: typeof setInterval;
 	clearInterval?: typeof clearInterval;
+	/** Injectable for tests (default: SubagentNotify's stdout bell). */
+	bell?: () => void;
 }
 
 export interface SubagentsSectionHandle {
@@ -42,6 +50,8 @@ export interface SubagentsSectionHandle {
 
 export function createSubagentsSection(deps: SubagentsSectionDeps): SubagentsSectionHandle {
 	let notifyLine: string | undefined;
+	const notify = new SubagentNotify({ bell: deps.bell });
+	let prevViews: RunView[] = [];
 	const si = deps.setInterval ?? setInterval;
 	const ci = deps.clearInterval ?? clearInterval;
 	let timer: ReturnType<typeof setInterval> | undefined;
@@ -53,8 +63,13 @@ export function createSubagentsSection(deps: SubagentsSectionDeps): SubagentsSec
 		order: 4, // contract: goal=0, todo=1, wayfind=2, coordinator=3, subagents=4
 		render: (theme: Theme, _width: number): string[] => {
 			const views = deps.getViews();
-			if (views.length === 0 && !notifyLine) return [];
+			// Task 02: diff consecutive snapshots; a stamped line shows THIS tick only.
+			notify.diff(prevViews, views);
+			prevViews = views;
+			const [transient] = notify.take();
+			if (views.length === 0 && !notifyLine && !transient) return [];
 			const lines: string[] = [];
+			if (transient) lines.push(` ${transient}`);
 			if (notifyLine) lines.push(notifyLine);
 			if (views.length > 0) {
 				lines.push(` ${views.length} background ${views.length === 1 ? "run" : "runs"}`);
