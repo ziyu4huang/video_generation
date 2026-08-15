@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { Text } from "@earendil-works/pi-tui";
+import { Text, visibleWidth } from "@earendil-works/pi-tui";
 import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
 import { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 import type { GitScopeOps } from "../src/git-scope.js";
@@ -2096,4 +2096,202 @@ test("H4: read-only short dispatch gets NO footer", async () => {
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute("id-h4b", { task: "read only", tools: ["read"] }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.task, "read only");
+});
+
+// ── effort 2026-08-15-subagent-tui-display (ticket 01): width-aware pure render layer ──
+// Every converted helper takes an optional terminal width: the historical fixed
+// constant survives as an UPPER BOUND — effective cap is min(constant, width),
+// budgets are terminal COLUMNS (East-Asian double-width via visibleWidth), a cut
+// ends in exactly one `…` INSIDE the budget, and defaults stay byte-identical.
+// (core-runtime phrase-shaper adoption is DEFERRED — toolCall/toolResult/error
+// VERB phrases stay width-blind by design; only the raw-text branches narrow.)
+const WIDTH_LADDER = [40, 80, 120, 200] as const;
+
+test("taskPreview: width ladder — within budget, wider shows more, constant binds at wide width", () => {
+  const long = "w".repeat(300);
+  const outs = WIDTH_LADDER.map((w) => taskPreview(long, 80, w));
+  for (const [i, w] of WIDTH_LADDER.entries()) {
+    const out = outs[i] ?? "";
+    assert.ok(visibleWidth(out) <= Math.min(80, w), `width ${w}: within min(constant, width)`);
+    if (visibleWidth(out) < 300) assert.ok(out.endsWith("…"), `width ${w}: cut marked with one trailing ellipsis`);
+  }
+  assert.ok(
+    (outs[0]?.length ?? 0) < (outs[1]?.length ?? 0),
+    "wider width shows strictly more content while still cutting",
+  );
+  // At width ≥ the constant the CONSTANT binds → byte-equal to the default call.
+  assert.equal(outs[1], taskPreview(long, 80));
+  assert.equal(outs[1], outs[2]);
+  assert.equal(outs[2], outs[3]);
+});
+
+test("taskPreview: CJK-only and mixed strings never exceed the width (double-width aware)", () => {
+  const cjkOnly = "你好世界".repeat(60); // 240 chars × 2 = 480 columns
+  for (const w of WIDTH_LADDER) {
+    const out = taskPreview(cjkOnly, 80, w);
+    assert.ok(visibleWidth(out) <= Math.min(80, w), `width ${w}: CJK-only within column budget`);
+  }
+  const mixed = `你好${"x".repeat(100)}`; // 4 + 100 = 104 columns
+  for (const w of WIDTH_LADDER) {
+    const out = taskPreview(mixed, 80, w);
+    assert.ok(visibleWidth(out) <= Math.min(80, w), `width ${w}: mixed within column budget`);
+  }
+  // Exact pin: a straddling double-width char is dropped, not overshooting.
+  assert.equal(taskPreview("你好世界", 5), "你好…"); // 2+2+1 = 5 columns
+});
+
+test("workIntentPreview: width ladder — within budget, wider shows more, constant binds at wide width", () => {
+  const task = `Working dir: /x\n${"I".repeat(300)}`;
+  const outs = WIDTH_LADDER.map((w) => workIntentPreview(task, 60, w));
+  for (const [i, w] of WIDTH_LADDER.entries()) {
+    const out = outs[i] ?? "";
+    assert.ok(visibleWidth(out) <= Math.min(60, w), `width ${w}: within min(constant, width)`);
+    assert.ok(out.endsWith("…"), `width ${w}: cut marked`);
+  }
+  assert.ok((outs[0]?.length ?? 0) < (outs[1]?.length ?? 0), "wider shows more");
+  assert.equal(outs[1], workIntentPreview(task, 60), "width 80 ≥ constant 60 → byte-equal to default");
+  assert.equal(outs[1], outs[2]);
+  assert.equal(outs[2], outs[3]);
+});
+
+test("describeLastActivity text branch (via formatSubagentProgress): width ladder + previously-bare slice now ellipsizes", () => {
+  const history: AgentHistoryEntry[] = [{ role: "assistant", kind: "text", text: "T".repeat(120) }];
+  const line = (w?: number) => (formatSubagentProgress(history, 1000, 0, w) ?? "").split("\n")[0] ?? "";
+  // Line framing: `↳ ` prefix = 2 columns on top of the activity budget.
+  const outs = WIDTH_LADDER.map((w) => line(w));
+  for (const [i, w] of WIDTH_LADDER.entries()) {
+    const out = outs[i] ?? "";
+    assert.ok(visibleWidth(out) <= Math.min(60, w) + 2, `width ${w}: within min(60, width) + ↳ prefix`);
+  }
+  assert.ok((outs[0]?.length ?? 0) < (outs[1]?.length ?? 0), "wider shows more");
+  assert.equal(outs[1], line(), "width 80 ≥ constant 60 → byte-equal to default");
+  assert.equal(outs[1], outs[2]);
+  assert.equal(outs[2], outs[3]);
+  // The previously BARE `.split("\n")[0]` slice (no ellipsis) now marks the cut:
+  // cap 60 → 59 chars + one `…`, exactly.
+  assert.equal(outs[1], `↳ ${"T".repeat(59)}…`);
+});
+
+test("latestMessageLine prose branch: width ladder — within budget, wider shows more, constant binds", () => {
+  const history: AgentHistoryEntry[] = [{ role: "assistant", kind: "text", text: "P".repeat(300) }];
+  // Framing `↳ "` + closing `"` = 4 columns on top of the prose budget.
+  const outs = WIDTH_LADDER.map((w) => latestMessageLine(history, w) ?? "");
+  for (const [i, w] of WIDTH_LADDER.entries()) {
+    const out = outs[i] ?? "";
+    assert.ok(visibleWidth(out) <= Math.min(80, w) + 4, `width ${w}: within min(80, width) + quote framing`);
+    assert.ok(out.endsWith(`"`), `width ${w}: closing quote kept`);
+    assert.ok(out.slice(0, -1).endsWith("…") || out.length <= 5, `width ${w}: cut marked inside the quotes`);
+  }
+  assert.ok((outs[0]?.length ?? 0) < (outs[1]?.length ?? 0), "wider shows more");
+  assert.equal(outs[1], latestMessageLine(history), "width 80 ≥ constant 80 → byte-equal to default");
+  assert.equal(outs[1], outs[2]);
+  assert.equal(outs[2], outs[3]);
+});
+
+test("latestMessageLine: CJK prose never exceeds the width (double-width aware)", () => {
+  const history: AgentHistoryEntry[] = [{ role: "assistant", kind: "text", text: "你好世界".repeat(60) }];
+  for (const w of WIDTH_LADDER) {
+    const out = latestMessageLine(history, w) ?? "";
+    assert.ok(visibleWidth(out) <= Math.min(80, w) + 4, `width ${w}: CJK prose within column budget`);
+  }
+});
+
+test("formatHistoryLine text branch: width ladder + previously-bare slice now ellipsizes", () => {
+  const e: AgentHistoryEntry = { role: "assistant", kind: "text", text: "H".repeat(300) };
+  const outs = WIDTH_LADDER.map((w) => formatHistoryLine(e, undefined, w));
+  for (const [i, w] of WIDTH_LADDER.entries()) {
+    const out = outs[i] ?? "";
+    assert.ok(visibleWidth(out) <= Math.min(200, w), `width ${w}: within min(200, width)`);
+    assert.ok(out.endsWith("…"), `width ${w}: cut marked`);
+    assert.equal(out.split("…").length - 1, 1, `width ${w}: exactly one ellipsis`);
+  }
+  assert.ok((outs[0]?.length ?? 0) < (outs[1]?.length ?? 0), "wider shows more");
+  const by120 = outs[2] ?? "";
+  assert.ok((outs[1]?.length ?? 0) < by120.length, "width 80 < 120 → more (both under the 200 constant)");
+  assert.ok(by120.length < (outs[3]?.length ?? 0), "width 120 < 200 → constant not yet binding");
+  // Upper-bound semantics: width 80 NARROWS below the 200 default…
+  assert.ok((outs[1]?.length ?? 0) < formatHistoryLine(e).length, "width 80 < default (constant 200 not bound)");
+  // …and at width ≥ constant the default is byte-identical (constant binds).
+  assert.equal(outs[3], formatHistoryLine(e), "width 200 = constant 200 → byte-equal to default");
+  // The previously BARE first-line slice now ends in one `…` at the 200 cap.
+  assert.equal(outs[3], `${"H".repeat(199)}…`);
+  // Multi-line text: the FIRST line is the surface; width applies to it.
+  const multi: AgentHistoryEntry = { role: "assistant", kind: "text", text: `${"M".repeat(300)}\nsecond line` };
+  assert.equal(formatHistoryLine(multi, undefined, 40), `${"M".repeat(39)}…`);
+});
+
+test("formatHistoryLine default branch (unknown kind): whole text now ellipsizes within min(200, width)", () => {
+  const e = { role: "assistant", kind: "custom" as never, text: "D".repeat(300) } as AgentHistoryEntry;
+  assert.equal(formatHistoryLine(e, undefined, 40), `${"D".repeat(39)}…`);
+  assert.equal(formatHistoryLine(e), `${"D".repeat(199)}…`);
+});
+
+test("settled-collapsed headline: width-aware via opts.width (min(60, width)); default byte-identical", () => {
+  const details: SubagentToolDetails = {
+    taskPreview: "p",
+    elapsedMs: 12350,
+    status: "done",
+    model: "x/flash",
+  };
+  const content = [{ type: "text", text: `${"L".repeat(300)}\nLine two` }];
+  const render = (opts?: { width?: number }) =>
+    renderSubagentResult({ content, details }, { expanded: false }, T, opts);
+  // Constant binds at width 200: headline = exactly 60 columns (59 chars + `…`),
+  // and the no-width default renders byte-identically (existing behavior kept).
+  const c200 = render({ width: 200 });
+  const prefix = c200.slice(0, -60); // badge+meta+space before the headline
+  assert.ok(prefix.length > 0, "badge+meta prefix present");
+  assert.ok(c200.endsWith(`${"L".repeat(59)}…`), "constant 60 binds at wide width: 59 chars + one ellipsis");
+  assert.equal(render(), c200, "default (no width) === width 200 (constant binds, unchanged)");
+  // Narrow widths shrink the headline within min(60, width), never the prefix.
+  const c40 = render({ width: 40 });
+  assert.ok(c40.startsWith(prefix), "only the headline narrows — badge/meta untouched");
+  assert.ok(c40.length <= prefix.length + 40, "headline within 40 columns");
+  assert.ok(c40.endsWith("…"), "cut marked");
+  assert.ok(c40.length < c200.length, "wider shows more");
+  const c120 = render({ width: 120 });
+  assert.equal(c120, c200, "width 120 ≥ constant 60 → identical");
+});
+
+test("settled-collapsed headline: CJK first line never exceeds the width", () => {
+  const details: SubagentToolDetails = { taskPreview: "p", elapsedMs: 1000, status: "done", model: "x/flash" };
+  const content = [{ type: "text", text: `${"你好世界".repeat(60)}\nsecond` }]; // 480 columns first line
+  // Derive the badge+meta prefix length from an ASCII render (same details →
+  // same prefix; headline at width 200 is exactly the 60-col constant).
+  const asciiFull = renderSubagentResult(
+    { content: [{ type: "text", text: `${"L".repeat(300)}\nsecond` }], details },
+    { expanded: false },
+    T,
+    { width: 200 },
+  );
+  const prefixLen = asciiFull.length - 60; // badge+meta+space before the 60-col headline
+  const out = renderSubagentResult({ content, details }, { expanded: false }, T, { width: 40 });
+  const headline = out.slice(prefixLen); // after badge+meta space
+  assert.ok(visibleWidth(headline) <= 40, "CJK headline within 40 columns");
+  assert.ok(headline.endsWith("…"), "cut marked");
+});
+
+test("width does NOT touch the streaming caps (isPartial rows unchanged with a width passed)", () => {
+  // Row-count caps are explicitly out of scope (ticket 01): the streaming
+  // expanded tail stays STREAMING_TAIL=16 and collapsed stays the 2-line
+  // header even when opts.width flows in (width only feeds the settled headline).
+  const header = "H-line-1\nH-line-2";
+  const trace = Array.from({ length: 50 }, (_, i) => `trace-${i}`).join("\n");
+  const text = `${header}\n${trace}`;
+  const expanded = renderSubagentResult(
+    { content: [{ type: "text", text }] },
+    { expanded: true, isPartial: true },
+    T,
+    { width: 40 },
+  );
+  const lines = expanded.split("\n");
+  assert.equal(lines.length, 2 + 1 + STREAMING_TAIL, "2 header + 1 ellipsis + last 16 trace — cap untouched");
+  const collapsed = renderSubagentResult(
+    { content: [{ type: "text", text }] },
+    { expanded: false, isPartial: true },
+    T,
+    { width: 40 },
+  );
+  assert.equal(collapsed.split("\n").length, 2, "collapsed stays the 2-line header shape");
+  assert.equal(lines[0], "H-line-1", "streamed header lines are not re-truncated by width");
 });

@@ -4,7 +4,6 @@
  * (behavior-preserving split — no logic change).
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { AgentHistoryEntry, BudgetWarning } from "@repo/pi-agent-ext-core-runtime";
 import {
   fmtCost,
@@ -14,13 +13,16 @@ import {
   matchedCallArgsFor,
   shortModel,
 } from "@repo/pi-agent-ext-core-runtime";
+import { capWidth, ellipsizeToWidth } from "./render-width.js";
 import type { SpawnSubagentResult } from "./spawn-subagent.js";
 import type { SubagentToolDetails } from "./subagent-tool-schema.js";
 
-/** Collapse a task prompt to a single-line preview of at most `n` chars. */
-export function taskPreview(task: string, n = 80): string {
+/** Collapse a task prompt to a single-line preview within `n` columns
+ *  (width-aware, ticket 01): the cap is min(n, `width`) via the shared helper,
+ *  so CJK counts double-width and a cut always ends in one `…` inside budget. */
+export function taskPreview(task: string, n = 80, width?: number): string {
   const oneLine = task.replace(/\s+/g, " ").trim();
-  return oneLine.length > n ? `${oneLine.slice(0, n - 1)}…` : oneLine;
+  return ellipsizeToWidth(oneLine, capWidth(n, width));
 }
 
 /** Display-only helper: strip a leading cwd/repo preamble line from the task
@@ -28,8 +30,9 @@ export function taskPreview(task: string, n = 80): string {
  *  The orchestrator's task prompt convention opens with a line like
  *  `Working dir: /path/to/repo` — this surfaces the actual work intent instead.
  *  Falls back to the first non-empty line (same as {@link taskPreview}) when
- *  there is no preamble. Does NOT mutate the raw task string. */
-export function workIntentPreview(task: string, n = 60): string {
+ *  there is no preamble. Does NOT mutate the raw task string. Width-aware
+ *  (ticket 01): effective cap min(n, `width`), CJK double-width counted. */
+export function workIntentPreview(task: string, n = 60, width?: number): string {
   const lines = task.split("\n");
   // Strip a leading cwd/repo preamble line (case-insensitive).
   const startIdx = lines.length > 0 && /^(working dir|cwd|repo)\s*:\s*\S+/i.test(lines[0]?.trim() ?? "") ? 1 : 0;
@@ -37,19 +40,22 @@ export function workIntentPreview(task: string, n = 60): string {
   for (let i = startIdx; i < lines.length; i++) {
     const trimmed = lines[i]?.trim();
     if (trimmed && trimmed.length > 0) {
-      return trimmed.length > n ? `${trimmed.slice(0, n - 1)}…` : trimmed;
+      return ellipsizeToWidth(trimmed, capWidth(n, width));
     }
   }
   // All lines were empty or preamble-only — fall back to single-line.
-  return taskPreview(task, n);
+  return taskPreview(task, n, width);
 }
 
 /** Describe the most recent history entry as a short one-line activity string.
  *  Delegates the PHRASE to {@link formatToolAction} and adds NO glyph prefix —
- *  callers (`formatSubagentProgress`) prepend their own `↳`. */
+ *  callers (`formatSubagentProgress`) prepend their own `↳`. Width-aware
+ *  (ticket 01): the text/default branches ellipsize within min(60, `width`)
+ *  — the previously BARE slices now end in one visible `…` when cut. */
 function describeLastActivity(
   last: AgentHistoryEntry | undefined,
   ctx?: { matchedCallArgs?: Record<string, unknown> },
+  width?: number,
 ): string {
   if (!last) return "…";
   switch (last.kind) {
@@ -62,9 +68,9 @@ function describeLastActivity(
       // already conveys failure (`Failed to …` / `⚠ …`), so no extra marker here.
       return formatToolAction(last);
     case "text":
-      return (last.text.split("\n")[0] ?? "").slice(0, 60);
+      return ellipsizeToWidth(last.text.split("\n")[0] ?? "", capWidth(60, width));
     default:
-      return last.text.slice(0, 60);
+      return ellipsizeToWidth(last.text, capWidth(60, width));
   }
 }
 
@@ -77,11 +83,6 @@ function firstNonEmptyLine(text: string): string {
   return "";
 }
 
-/** Truncate `s` to `max` chars with a trailing ellipsis when it exceeds. */
-function truncateEnd(s: string, max: number): string {
-  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
-}
-
 /**
  * Collapsed-box live line — the latest history entry as a single `↳ …` line.
  *  - assistant prose (role "assistant", kind "text", non-empty body) → QUOTED
@@ -92,20 +93,22 @@ function truncateEnd(s: string, max: number): string {
  *    (`↳ Reading src/x.ts`). Returns null only for empty history (the caller
  *    then omits the line entirely).
  *
- * Pure render helper — no data-model / compaction change.
+ * Pure render helper — no data-model / compaction change. Width-aware
+ *  (ticket 01): the quoted-prose cap is min(80, `width`) columns (the `width`
+ *  budgets the truncatable inner text — quotes/`↳` prefix are the caller's).
  */
-export function latestMessageLine(history: readonly AgentHistoryEntry[]): string | null {
+export function latestMessageLine(history: readonly AgentHistoryEntry[], width?: number): string | null {
   if (history.length === 0) return null;
   const last = history[history.length - 1];
   if (!last) return null; // invariant: history is non-empty (length guarded above)
   if (last.role === "assistant" && last.kind === "text" && last.text.trim()) {
-    return `↳ "${truncateEnd(firstNonEmptyLine(last.text), 80)}"`;
+    return `↳ "${ellipsizeToWidth(firstNonEmptyLine(last.text), capWidth(80, width))}"`;
   }
   // Pass matchedCallArgs so a toolResult last recovers its target (mirrors
   // formatSubagentProgress). describeLastActivity's error branch ignores ctx,
   // so an error stays verb-led `Failed to …` here (the expanded trace via
   // formatHistoryLine recovers the target — see formatSubagentTrace tests).
-  return `↳ ${describeLastActivity(last, { matchedCallArgs: matchedCallArgsFor(history, history.length - 1) })}`;
+  return `↳ ${describeLastActivity(last, { matchedCallArgs: matchedCallArgsFor(history, history.length - 1) }, width)}`;
 }
 
 /**
@@ -116,11 +119,23 @@ export function latestMessageLine(history: readonly AgentHistoryEntry[]): string
  * a retry gets a fresh (shorter) history array from a brand-new child session
  * (see spawnSubagent/tryOnce), and without the floor the displayed count would
  * visibly jump backward — read by the user as "did it lose progress?".
+ *
+ * `width` (ticket 01) flows to the activity snippet only — min(60, width)
+ * columns on the truncatable text; the `↳` markers and count line are fixed.
  */
-export function formatSubagentProgress(history: AgentHistoryEntry[], elapsedMs: number, minToolCalls = 0): string {
+export function formatSubagentProgress(
+  history: AgentHistoryEntry[],
+  elapsedMs: number,
+  minToolCalls = 0,
+  width?: number,
+): string {
   const last = history[history.length - 1];
   const toolCalls = Math.max(history.filter((h) => h.kind === "toolCall").length, minToolCalls);
-  const activity = describeLastActivity(last, { matchedCallArgs: matchedCallArgsFor(history, history.length - 1) });
+  const activity = describeLastActivity(
+    last,
+    { matchedCallArgs: matchedCallArgsFor(history, history.length - 1) },
+    width,
+  );
   // fmtElapsed already carries the trailing "s"
   return `↳ ${activity}\n  ↳ ${fmtElapsed(elapsedMs)} elapsed · ${toolCalls} tool call${toolCalls === 1 ? "" : "s"}`;
 }
@@ -128,8 +143,15 @@ export function formatSubagentProgress(history: AgentHistoryEntry[], elapsedMs: 
 /** Render one history entry as a single readable trace line (live-output buffer).
  *  Owns only the surface MARKER (`→`/`✓`/`✗`); the PHRASE comes from
  *  {@link formatToolAction}. The optional `ctx.matchedCallArgs` lets a toolResult
- *  line recover the target it acted on (obtain via `matchedCallArgsFor`). */
-export function formatHistoryLine(e: AgentHistoryEntry, ctx?: { matchedCallArgs?: Record<string, unknown> }): string {
+ *  line recover the target it acted on (obtain via `matchedCallArgsFor`).
+ *  Width-aware (ticket 01): the text/default branches ellipsize within
+ *  min(200, `width`) columns — the previously BARE slices now end in one
+ *  visible `…` when cut. */
+export function formatHistoryLine(
+  e: AgentHistoryEntry,
+  ctx?: { matchedCallArgs?: Record<string, unknown> },
+  width?: number,
+): string {
   switch (e.kind) {
     case "toolCall":
       // `text` holds the JSON-stringified arguments (compactAgentHistory);
@@ -149,9 +171,9 @@ export function formatHistoryLine(e: AgentHistoryEntry, ctx?: { matchedCallArgs?
       return phrase.startsWith("⚠") ? phrase : `✗ ${phrase}`;
     }
     case "text":
-      return (e.text.split("\n")[0] ?? "").slice(0, 200);
+      return ellipsizeToWidth(e.text.split("\n")[0] ?? "", capWidth(200, width));
     default:
-      return e.text.slice(0, 200);
+      return ellipsizeToWidth(e.text, capWidth(200, width));
   }
 }
 
@@ -169,13 +191,16 @@ export function formatSubagentLive(
   elapsedMs: number,
   minToolCalls = 0,
   maxTraceLines = 100,
+  width?: number,
 ): string {
-  const header = formatSubagentProgress(history, elapsedMs, minToolCalls);
+  const header = formatSubagentProgress(history, elapsedMs, minToolCalls, width);
   // matchedCallArgsFor scans the trace window (not the full history) — for runs
   // under the cap this is identical; a result whose call fell outside the recent
   // window degrades gracefully to verb-only.
   const window = history.slice(-maxTraceLines);
-  const trace = window.map((e, i) => formatHistoryLine(e, { matchedCallArgs: matchedCallArgsFor(window, i) }));
+  const trace = window.map((e, i) =>
+    formatHistoryLine(e, { matchedCallArgs: matchedCallArgsFor(window, i) }, width),
+  );
   return trace.length ? `${header}\n${trace.join("\n")}` : header;
 }
 
@@ -201,6 +226,7 @@ export function formatSubagentTrace(
   history: readonly AgentHistoryEntry[],
   elapsedMs: number,
   minToolCalls = 0,
+  width?: number,
 ): string {
   if (history.length === 0) return "";
   const lines: string[] = [];
@@ -257,7 +283,7 @@ export function formatSubagentTrace(
       // text → inline via formatHistoryLine (matchedCallArgsFor recovers a target
       // for an orphan result/error, else verb-only). A result already rendered
       // inline with its paired call is skipped (consumedResults).
-      lines.push(formatHistoryLine(e, { matchedCallArgs: matchedCallArgsFor(history, i) }));
+      lines.push(formatHistoryLine(e, { matchedCallArgs: matchedCallArgsFor(history, i) }, width));
     }
   }
   const toolCalls = Math.max(history.filter((h) => h.kind === "toolCall").length, minToolCalls);
@@ -340,7 +366,7 @@ export function renderSubagentResult(
   result: { content: Array<{ type: string; text?: string }>; details?: SubagentToolDetails },
   options: { expanded?: boolean; isPartial?: boolean },
   theme: Theme,
-  opts?: { modelSeg?: string },
+  opts?: { modelSeg?: string; width?: number },
 ): string {
   const text = result.content.find((c) => c.type === "text")?.text ?? "";
   if (options.isPartial) {
@@ -434,7 +460,11 @@ export function renderSubagentResult(
         .split("\n")
         .map((l) => l.trim())
         .find((l) => l) ?? "";
-    return `${badge} ${meta} ${theme.fg("dim", truncateToWidth(firstLine, 60))}`;
+    // Settled-collapsed headline (ticket 01): width-aware via the shared
+    // helper — cap min(60, width) columns, CJK double-width counted, one
+    // trailing `…` inside budget when cut. Measured BEFORE theming (plain
+    // text in, style out — render-width input contract).
+    return `${badge} ${meta} ${theme.fg("dim", ellipsizeToWidth(firstLine, capWidth(60, opts?.width)))}`;
   }
   return `${badge} ${meta}\n${theme.fg("toolOutput", text)}`;
 }
