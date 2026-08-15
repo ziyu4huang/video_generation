@@ -28,6 +28,7 @@ import { runPrepare, type PrepareOutcome } from "../src/prepare-recipe.js";
 import { runVerifyMerge, type VerifyMergeOutcome } from "../src/verify-merge-recipe.js";
 import { runDeploy } from "../src/deploy-tool.js";
 import { runVerify } from "../src/verify-tool.js";
+import { runMainHealth, type MainHealthOutcome } from "../src/main-health-recipe.js";
 
 /** Render a sweep outcome as a compact, human-readable plan/summary. */
 function formatSweep(o: SweepOutcome): string {
@@ -94,6 +95,24 @@ function formatCiOutcome(o: CiOutcome): string {
 	if (o.schemaCost) {
 		L.push(`Schema-cost: ${o.schemaCost.exitCode === 0 ? "✓" : `✗ exit ${o.schemaCost.exitCode}`} (${o.schemaCost.note}).`);
 	}
+	return L.join("\n");
+}
+
+/** Render a main_health outcome: verdict, what was tested, what is red. */
+function formatMainHealth(o: MainHealthOutcome): string {
+	if (o.aborted) return `❓ main_health: ${o.aborted} — ${o.message}`;
+	const secs = (o.elapsedMs / 1000).toFixed(1);
+	const L: string[] = [
+		`${o.healthy ? "✅" : "❌"} ${o.defaultBranch} is ${o.healthy ? "GREEN" : "RED"} — ` +
+			`${o.ci?.packages.length ?? 0} pkg(s), ${o.ci?.gates.length ?? 0} gate(s), ${secs}s.`,
+		`  tested: ${o.head?.slice(0, 8) ?? "?"} in ${o.worktree}`,
+	];
+	if (o.failingPackages.length) L.push(`  ✗ packages: ${o.failingPackages.join(", ")}`);
+	// Kept visually distinct from ✗: an uninstalled worktree is not a broken branch.
+	if (o.toolchainMissing.length) L.push(`  ? not typechecked (no toolchain): ${o.toolchainMissing.join(", ")}`);
+	if (o.failingGates.length) L.push(`  ✗ gates: ${o.failingGates.join(", ")}`);
+	if (o.gateError) L.push(`  ✗ gates NOT RUN: ${o.gateError}`);
+	for (const w of o.warnings) L.push(`  ⚠ ${w}`);
 	return L.join("\n");
 }
 
@@ -242,6 +261,12 @@ export const PREPARE_BRANCH_PROBES = {
 	recallFloor: 0,
 	adversarial: [],
 	controls: ["prepare the branch", "rebase before force-push", "branch is behind, prepare it"],
+};
+export const MAIN_HEALTH_PROBES = {
+	gate: "main_health",
+	recallFloor: 0,
+	adversarial: [],
+	controls: ["is main green", "is the default branch broken", "check main health"],
 };
 export const VERIFY_MERGE_PROBES = {
 	gate: "verify_merge",
@@ -400,6 +425,23 @@ export default function (pi: ExtensionAPI): void {
 				signal,
 			});
 			return { details: outcome, content: [{ type: "text" as const, text: formatCiOutcome(outcome) }] };
+		},
+	});
+
+	pi.registerTool({
+		name: "main_health",
+		label: "Is the default branch green right now?",
+		description:
+			"Run the FULL test matrix + the whole regression-gates suite against the default branch, in the worktree that actually has it checked out. local_ci is change-scoped and remote CI is disabled here, so a branch that avoids a broken package merges green forever and nothing reports that main itself is red — this is the missing health check. ABORTS (tests nothing, reports unhealthy) when no worktree holds the default branch: a tree is required because a suite runs against a working tree, not a ref. A dirty or behind tree still runs but the outcome carries a warning saying the verdict is about that tree, not exactly origin/<default>. Read-only: never checks out, syncs, or mutates anything.",
+		gating: { keywords: ["main", "health", "green", "red", "default branch", "broken", "status", "ci", "devops"] },
+		promptSnippet:
+			"main_health: full matrix + gates against the default branch, run in the worktree that holds it. Read-only. Says which packages/gates are red on main — the thing change-scoped local_ci structurally cannot see.",
+		parameters: Type.Object({}),
+		async execute(_id, _params, signal) {
+			const spawn = createLiveSpawn(process.cwd());
+			const client = createBranchClient(spawn);
+			const outcome = await runMainHealth({ client, spawn, signal });
+			return { details: outcome, content: [{ type: "text" as const, text: formatMainHealth(outcome) }] };
 		},
 	});
 

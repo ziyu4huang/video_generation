@@ -20,13 +20,14 @@ function fakePi() {
 }
 
 	describe("devops extension entry", () => {
-		test("registers await_pr_merge + pr_status + sweep_branches + local_ci + sync_repo + devops_retrospect + prepare_branch + verify_merge + pi_deploy + pi_verify tools", () => {
+		test("registers every devops tool, and nothing else", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
 			expect(pi.tools.map((t) => t.name).sort()).toEqual([
 				"await_pr_merge",
 				"devops_retrospect",
 				"local_ci",
+				"main_health",
 				"pi_deploy",
 				"pi_verify",
 				"pr_status",
