@@ -16,8 +16,9 @@
  * `bun run build`.
  *
  * ONE implementation, no second copy: detection lives in
- * pi-agent/src/workspace-dist-staleness.ts (pure helpers; distEntryMain is the
- * same predicate the boot patch used).
+ * pi-agent/src/workspace-dist-staleness.ts (distEntryMain — the sole survivor
+ * of the old staleness machinery; the boot heal patch and mtime walkers were
+ * deleted with the class they patrolled).
  *
  * Registered as `bun run test:dist` (bun-apps root) and wired into the
  * regression-gates job of .github/workflows/ci.yml.disabled.
