@@ -44,8 +44,7 @@ export interface InFlightSubagent {
   batchId?: string;
   /** Lifecycle status (single vocabulary: ActivityStatus). Live runs are
    *  "running"/"queued"; terminal transitions (markCompleted/markFailed) stamp
-   *  a TerminalStatus. Legacy callers passing the pre-unification literal
-   *  "completed" are coerced to "done" by start(). */
+   *  a TerminalStatus. */
   status: ActivityStatus;
   /** Wall-clock end time (epoch ms), stamped on the terminal transition
    *  (`markCompleted`). While a run is live, elapsed is computed as
@@ -91,29 +90,18 @@ export interface InFlightSubagent {
 export class SubagentInFlightRegistry {
   private runs = new Map<string, InFlightSubagent>();
 
-  start(run: Omit<InFlightSubagent, "status"> & { status?: ActivityStatus | "completed" }): void {
+  start(run: Omit<InFlightSubagent, "status"> & { status?: ActivityStatus }): void {
     // foreground defaults to `false` (background/detached) when the caller omits
     // it, so the above-editor context box picks the run up. Foreground tools
     // (`subagent`/`subagents`) set it explicitly to `true` to opt OUT of the box
     // (they render inline via Surface A). See subagent-context-widget.ts.
-    // Legacy "completed" (pre-unification literal) coerces to "done".
-    const status: ActivityStatus =
-      run.status === undefined || run.status === "running"
-        ? "running"
-        : run.status === "completed"
-          ? "done"
-          : run.status;
+    const status: ActivityStatus = run.status ?? "running";
     this.runs.set(run.id, { ...run, status, foreground: run.foreground ?? false });
   }
 
   update(id: string, history: AgentHistoryEntry[]): void {
     const r = this.runs.get(id);
     if (r) r.history = history;
-  }
-
-  /** @internal — Dispatch B removes; use view(). */
-  get(id: string): InFlightSubagent | undefined {
-    return this.runs.get(id);
   }
 
   /** Fresh per-tick projection of one run (never cache across render ticks). */
@@ -204,11 +192,6 @@ export class SubagentInFlightRegistry {
    *  must never throw. */
   abort(id: string): void {
     this.runs.get(id)?.abort?.();
-  }
-
-  /** @deprecated use views(). */
-  list(): InFlightSubagent[] {
-    return [...this.runs.values()];
   }
 }
 

@@ -1,15 +1,18 @@
 import { mock, test } from "bun:test";
 import assert from "node:assert/strict";
 import { buildRunView, type RunView } from "@repo/pi-agent-ext-core-runtime";
-import type { InFlightSubagent } from "../src/index.js";
 import { countNoun, isCtrlO, SubagentContextWidget } from "../src/subagent-context-widget.js";
 import { STREAMING_EXPANDED_TAIL, workIntentPreview } from "../src/subagent-tool-render.js";
+
+/** Raw registry record — the internal type buildRunView projects (the barrel
+ *  no longer exports InFlightSubagent; derived here for fixture construction). */
+type RunRecord = Parameters<typeof buildRunView>[0];
 
 // Identity theme so render() returns plain text we can assert on (mirrors the
 // old subagent-progress-widget.test.ts).
 const T = { fg: (_c: string, s: string) => s, bg: (_c: string, s: string) => s, bold: (s: string) => s } as never;
 
-function run(over: Partial<InFlightSubagent> = {}): InFlightSubagent {
+function run(over: Partial<RunRecord> = {}): RunRecord {
   return {
     id: "r1",
     agent: "implementer",
@@ -22,8 +25,8 @@ function run(over: Partial<InFlightSubagent> = {}): InFlightSubagent {
 }
 
 /** RunView fed to the widget — what registry.views() hands render() (the widget
- *  no longer accepts raw InFlightSubagent records). */
-function vrun(over: Partial<InFlightSubagent> = {}): RunView {
+ *  no longer accepts raw registry records). */
+function vrun(over: Partial<RunRecord> = {}): RunView {
   return buildRunView(run(over), Date.now());
 }
 
@@ -190,7 +193,7 @@ test("(regression) a completed run's elapsed does NOT grow across render ticks",
   const entry = vrun({
     id: "done-r1",
     foreground: false,
-    status: "completed",
+    status: "done",
     startedAt: t0,
     endedAt: t0 + 5_000,
     history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"a.ts"}' }],
@@ -262,7 +265,7 @@ test("(Stage B) a workflow run (agent='workflow') renders under a workflow-speci
 
 // --- ticket 04: countNoun picks the header noun from the actual run mix ---
 
-function wf(over: Partial<InFlightSubagent> = {}): RunView {
+function wf(over: Partial<RunRecord> = {}): RunView {
   return vrun({ id: "wf:1", agent: "workflow", model: undefined, taskPreview: "wf preview", ...over });
 }
 

@@ -535,12 +535,12 @@ test("batch children get batchId + forwarded onModelResolved/onHistory update th
     opts.onModelResolved?.("google/gemma-4-12b-qat");
     opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }]);
     const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
-    const entry = inFlight.get(`batch-call:${idx}`);
+    const entry = inFlight.view(`batch-call:${idx}`);
     captured.push({
       id: `batch-call:${idx}`,
       batchId: entry?.batchId,
-      resolved: entry?.resolvedModel,
-      historyLen: entry?.history?.length ?? 0,
+      resolved: entry?.modelSeg,
+      historyLen: entry?.history.length ?? 0,
     });
     return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
   };
@@ -555,7 +555,7 @@ test("batch children get batchId + forwarded onModelResolved/onHistory update th
   assert.equal(captured.length, 2, "both children ran");
   for (const c of captured) {
     assert.equal(c.batchId, "batch-call", "child registered with the batch toolCallId as batchId");
-    assert.equal(c.resolved, "google/gemma-4-12b-qat", "onModelResolved forwarded → resolvedModel set");
+    assert.equal(c.resolved, "gemma-4-12b-qat", "onModelResolved forwarded → modelSeg shows the resolved model");
     assert.equal(c.historyLen, 1, "onHistory forwarded → history stored");
   }
   assert.equal(inFlight.views().length, 0, "registry empty after the batch completes");
@@ -577,15 +577,15 @@ test("a child hitting its own per-child budget renders as 'child budget' (source
   assert.match(res.content[0].text, /child budget: tokens 200 > 100/);
 });
 
-test("batch keeps a completed child (status=completed) mid-run; evicts the whole batch on return", async () => {
+test("batch keeps a completed child (status=done) mid-run; evicts the whole batch on return", async () => {
   const inFlight = new SubagentInFlightRegistry();
   const seen: { id: string; status?: string; present: boolean }[] = [];
   const spawn = async (opts: { task: string }): Promise<SpawnSubagentResult> => {
     const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
     // child #0 finishes first (concurrency 1 → strict order): by the time #1 runs,
-    // #0 must still be present in the registry, marked completed (NOT evicted).
+    // #0 must still be present in the registry, marked terminal (NOT evicted).
     if (idx === 1) {
-      const c0 = inFlight.get("batch-call:0");
+      const c0 = inFlight.view("batch-call:0");
       seen.push({ id: "batch-call:0", status: c0?.status, present: !!c0 });
     }
     return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
@@ -815,8 +815,8 @@ test("user per-child abort mid-batch → aborted slot; sibling unaffected; paren
     NO_CTX,
   );
   // wait until child #0 is registered + blocking, then abort JUST it
-  await waitFor(() => inFlight.get("batch-abort:0"));
-  assert.equal(typeof inFlight.get("batch-abort:0")?.abort, "function", "abort lever wired on the child entry");
+  await waitFor(() => inFlight.view("batch-abort:0"));
+  assert.equal(inFlight.view("batch-abort:0")?.abortable, true, "abort lever wired on the child entry");
   inFlight.abort("batch-abort:0");
   const res = await p;
   const r = res.details.results;

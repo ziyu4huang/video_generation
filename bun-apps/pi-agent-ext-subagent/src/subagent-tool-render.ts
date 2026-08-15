@@ -7,6 +7,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { AgentHistoryEntry, BudgetWarning } from "@repo/pi-agent-ext-core-runtime";
 import {
+  fmtCost,
   fmtElapsed,
   formatToolAction,
   isSddReportActionable,
@@ -446,7 +447,7 @@ export function deriveSubagentStatus(r: SpawnSubagentResult): SubagentToolDetail
 
 /** One-line informational notice for the parent agent's result text (never on the abort path). */
 function budgetWarningLine(w: BudgetWarning): string {
-  const unit = w.kind === "tokens" ? `${w.actual} tokens` : `$${w.actual.toFixed(4)}`;
+  const unit = w.kind === "tokens" ? `${w.actual} tokens` : `$${fmtCost(w.actual)}`;
   return `[budget warning] ${w.kind} usage at ${unit} ≥ 80% of limit ${w.limit} (informational — run completed).`;
 }
 
@@ -454,7 +455,7 @@ function budgetWarningLine(w: BudgetWarning): string {
 export function formatSubagentResult(result: SpawnSubagentResult): string {
   if (result.budget) {
     const unit =
-      result.budget.kind === "tokens" ? `${result.budget.actual} tokens` : `$${result.budget.actual.toFixed(4)}`;
+      result.budget.kind === "tokens" ? `${result.budget.actual} tokens` : `$${fmtCost(result.budget.actual)}`;
     return `Subagent aborted: ${result.budget.kind} budget exhausted (${unit} > limit ${result.budget.limit}).`;
   }
   // Turn-cap abort — same "Subagent aborted:" shape as the budget line, with
