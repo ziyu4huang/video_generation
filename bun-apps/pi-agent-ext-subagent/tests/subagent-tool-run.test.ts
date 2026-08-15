@@ -133,18 +133,16 @@ test("buildRunRecord: aborted path JSON-matches the original literal", () => {
     },
     {
       status: "aborted",
-      exitCode: 0,
-      timedOut: false,
       output: "Subagent aborted by user.",
       usage: { input: 1, output: 2 } as never,
     },
   );
-  // The original aborted literal had exactly these keys (no stderr/budget/history/report/scopeCheck/watchdog).
+  // The aborted literal has exactly these keys (no error/budget/history/report/scopeCheck/watchdog).
   assert.equal(rec.status, "aborted");
   assert.equal(rec.output, "Subagent aborted by user.");
   assert.equal(rec.requestedModel, undefined);
   assert.equal(rec.fellBack, undefined);
-  // JSON-equivalent to the original aborted literal (16 keys; no stderr/budget/history/report/scopeCheck/watchdog).
+  // JSON-equivalent to the aborted literal (no error/budget/history/report/scopeCheck/watchdog).
   assert.deepEqual(
     JSON.parse(JSON.stringify(rec)),
     JSON.parse(
@@ -159,8 +157,6 @@ test("buildRunRecord: aborted path JSON-matches the original literal", () => {
         tier: "big",
         cwd: "/r",
         status: "aborted",
-        exitCode: 0,
-        timedOut: false,
         startedAt: new Date(1_700_000_000_000).toISOString(),
         elapsedMs: 5000,
         usage: { input: 1, output: 2 },
@@ -186,11 +182,9 @@ test("buildRunRecord: normal path includes the extra fields", () => {
     },
     {
       status: "done",
-      exitCode: 0,
-      timedOut: false,
       usage: { input: 3 } as never,
       output: "ok",
-      stderr: undefined,
+      error: undefined,
       budget: undefined,
       history: [],
       report: undefined,
@@ -206,12 +200,8 @@ test("buildRunRecord: normal path includes the extra fields", () => {
 
 test("buildDetails: matches the original normal details shape", () => {
   const result = {
-    exitCode: 0,
-    timedOut: false,
     usage: { input: 1 },
-    budget: undefined,
     output: "**Status:** DONE",
-    stderr: "",
   } as never;
   const d = buildDetails(
     result,
@@ -225,7 +215,6 @@ test("buildDetails: matches the original normal details shape", () => {
       watchdog: { ran: true } as never,
     },
   );
-  assert.equal(d.exitCode, 0);
   assert.equal(d.status, "done");
   assert.equal(d.model, "m1");
   assert.equal(d.requestedModel, "req");

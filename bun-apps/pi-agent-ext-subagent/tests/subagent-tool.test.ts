@@ -8,7 +8,6 @@ import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-sub
 import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
 import { createSubagentTool } from "../src/subagent-tool.js";
 import {
-  deriveSubagentStatus,
   formatHistoryLine,
   formatSubagentLive,
   formatSubagentProgress,
@@ -38,6 +37,7 @@ const NO_SIGNAL = undefined as never;
 const NO_CTX = { cwd: "/repo" } as never;
 
 import type { AgentDefinition, AgentRegistry } from "@repo/pi-agent-ext-core-runtime";
+import { budgetAbort, failed, ok, timedout } from "./_spawn-result.js";
 
 function mkRegistry(defs: AgentDefinition[]): AgentRegistry {
   const registry: AgentRegistry = new Map();
@@ -64,7 +64,7 @@ test("createSubagentTool exposes parameters, execute, promptSnippet, executionMo
 
 // ── execute maps params → spawn (success) ──
 test("execute maps params to spawn and returns the child output verbatim", async () => {
-  const f = fakeSpawn(() => ({ output: "Status: DONE\n- 1/1 passing", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("Status: DONE\n- 1/1 passing"));
   const tool = createSubagentTool({ spawn: f.spawn });
   const res = await tool.execute(
     "id",
@@ -78,20 +78,19 @@ test("execute maps params to spawn and returns the child output verbatim", async
   assert.deepEqual(f.calls[0]?.tools, ["read"]);
   assert.equal(f.calls[0]?.instructions, "You are the implementer for this task.");
   assert.equal((res.content[0] as { text: string }).text, "Status: DONE\n- 1/1 passing");
-  assert.equal(res.details.exitCode, 0);
-  assert.equal(res.details.timedOut, false);
+  assert.equal(res.details.status, "done");
 });
 
 // ── default wall-clock timeout (DEFAULT_TIMEOUT_MS) ──
 test("execute applies DEFAULT_TIMEOUT_MS when timeoutMs omitted", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.timeoutMs, DEFAULT_TIMEOUT_MS);
 });
 
 test("execute honors explicit timeoutMs over the default", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute("id", { task: "t", timeoutMs: 5000 }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.timeoutMs, 5000);
@@ -99,7 +98,7 @@ test("execute honors explicit timeoutMs over the default", async () => {
 
 // ── capability param threads through to spawn ──
 test("execute threads capability through to spawn", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute("id", { task: "describe image", capability: "vision" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.capability, "vision");
@@ -111,32 +110,31 @@ test("renderSubagentCall shows capability:<name> slot", () => {
 });
 
 // ── failure / timeout formatting ──
-test("execute on non-zero exit returns 'failed' + stderr text and keeps details", async () => {
-  const f = fakeSpawn(() => ({ output: "", exitCode: 1, stderr: "hard fail", timedOut: false }));
+test("execute on a failed child returns 'failed' + the failure message and keeps details", async () => {
+  const f = fakeSpawn(() => failed("hard fail"));
   const tool = createSubagentTool({ spawn: f.spawn });
   const res = await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   const text = (res.content[0] as { text: string }).text;
   assert.match(text, /failed/);
   assert.match(text, /hard fail/);
-  assert.equal(res.details.exitCode, 1);
-  assert.equal(res.details.timedOut, false);
+  assert.equal(res.details.status, "failed");
 });
-test("execute on timeout surfaces 'timed out', partial output, and details.timedOut=true", async () => {
-  const f = fakeSpawn(() => ({ output: "partial", exitCode: 124, stderr: "", timedOut: true }));
+test("execute on timeout surfaces 'timed out', partial output, and status timedout", async () => {
+  const f = fakeSpawn(() => timedout("timed out", "partial"));
   const tool = createSubagentTool({ spawn: f.spawn });
   const res = await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   const text = (res.content[0] as { text: string }).text;
   assert.match(text, /timed out/);
   assert.match(text, /partial/);
-  assert.equal(res.details.timedOut, true);
+  assert.equal(res.details.status, "timedout");
 });
 test("formatSubagentResult success returns output verbatim", () => {
-  assert.equal(formatSubagentResult({ output: "ok", exitCode: 0, stderr: "x", timedOut: false }), "ok");
+  assert.equal(formatSubagentResult(ok("ok")), "ok");
 });
 
 // ── extensionTools forwarding ──
 test("execute forwards getExtensionTools() into spawn.extensionTools", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const fakeTools = [{ name: "read" }] as never;
   const tool = createSubagentTool({ spawn: f.spawn, getExtensionTools: () => fakeTools });
   await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
@@ -145,25 +143,25 @@ test("execute forwards getExtensionTools() into spawn.extensionTools", async () 
 
 // ── additional coverage (post-merge review follow-up) ──
 test("execute forwards params.cwd override (wins over factory defaultCwd)", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn, cwd: "/factory-cwd" });
   await tool.execute("id", { task: "t", cwd: "/explicit-cwd" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.cwd, "/explicit-cwd");
 });
 test("execute forwards excludeTools to spawn", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute("id", { task: "t", excludeTools: ["edit", "write"] }, NO_SIGNAL, undefined, NO_CTX);
   assert.deepEqual(f.calls[0]?.excludeTools, ["edit", "write"]);
 });
 test("execute with no agent → instructions undefined (no role prefix)", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.instructions, undefined);
 });
 test("execute forwards getExtensionTools() === undefined when holder unset", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn, getExtensionTools: () => undefined });
   await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.extensionTools, undefined);
@@ -197,20 +195,16 @@ test("execute fans the runtime abort signal into a per-child externalSignal (not
 
 /** Fake spawn that resolves ONLY when its externalSignal aborts (a child
  *  blocked on a real run, then aborted). Mirrors spawnSubagent's signal-abort
- *  return shape: {exitCode:124, timedOut:true, output:""}. */
+ *  return shape: a timedout failure with empty output. */
 function spawnOnAbort() {
   const calls: SpawnSubagentOptions[] = [];
   const spawn = (opts: SpawnSubagentOptions) =>
     new Promise<SpawnSubagentResult>((resolve) => {
       calls.push(opts);
       const sig = opts.externalSignal;
-      if (!sig) return resolve({ output: "no-signal", exitCode: 0, stderr: "", timedOut: false });
-      if (sig.aborted) return resolve({ output: "", exitCode: 124, stderr: "Subagent was aborted", timedOut: true });
-      sig.addEventListener(
-        "abort",
-        () => resolve({ output: "", exitCode: 124, stderr: "Subagent was aborted", timedOut: true }),
-        { once: true },
-      );
+      if (!sig) return resolve(ok("no-signal"));
+      if (sig.aborted) return resolve(timedout("Subagent was aborted"));
+      sig.addEventListener("abort", () => resolve(timedout("Subagent was aborted")), { once: true });
     });
   return { calls, spawn };
 }
@@ -253,14 +247,14 @@ test("whole-turn abort (parent signal) → status 'timedout', NOT 'aborted' (unc
 });
 
 test("a timeout (no controller abort) → status 'timedout', NOT 'aborted'", async () => {
-  const f = fakeSpawn(() => ({ output: "", exitCode: 124, stderr: "", timedOut: true }));
+  const f = fakeSpawn(() => timedout());
   const tool = createSubagentTool({ spawn: f.spawn });
   const res = await tool.execute("id-t", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(res.details.status, "timedout");
 });
 
 test("execute forwards timeoutMs/retryOnTransient to spawn", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute("id", { task: "t", timeoutMs: 5000, retryOnTransient: false }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.timeoutMs, 5000);
@@ -269,7 +263,7 @@ test("execute forwards timeoutMs/retryOnTransient to spawn", async () => {
 
 // ── tier / mainModel / resolved-model (D: model-selection fix) ──
 test("execute forwards params.tier to spawn", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute("id", { task: "t", tier: "small" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.tier, "small");
@@ -277,7 +271,7 @@ test("execute forwards params.tier to spawn", async () => {
 });
 
 test("execute forwards getMainModel() into spawn.mainModel", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn, getMainModel: () => "deepseek/deepseek-v4-flash" });
   await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.mainModel, "deepseek/deepseek-v4-flash");
@@ -286,7 +280,7 @@ test("execute forwards getMainModel() into spawn.mainModel", async () => {
 test("details.model reflects the resolved model id (onModelResolved wins over requested)", async () => {
   const f = fakeSpawn((opts) => {
     opts.onModelResolved?.("deepseek/deepseek-v4-flash");
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   });
   const tool = createSubagentTool({ spawn: f.spawn });
   const res = await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
@@ -294,7 +288,7 @@ test("details.model reflects the resolved model id (onModelResolved wins over re
 });
 
 test("details.model falls back to the live session model when the runner never resolves", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn, getMainModel: () => "deepseek/deepseek-v4-flash" });
   const res = await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(res.details.model, "deepseek/deepseek-v4-flash", "omitted model → live session model shown");
@@ -302,7 +296,7 @@ test("details.model falls back to the live session model when the runner never r
 
 test("agentType resolves tier from the registry when the call omits it", async () => {
   const registry = mkRegistry([{ name: "scout", tier: "small", prompt: "Be quick.", source: "project" }]);
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn, agentRegistry: registry });
   await tool.execute("id", { task: "scan", agentType: "scout" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.tier, "small");
@@ -320,7 +314,7 @@ test("agentType resolves tools/model/prompt from the registry when the call omit
       source: "project",
     },
   ]);
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn, agentRegistry: registry });
   await tool.execute("id", { task: "audit this", agentType: "security-auditor" }, NO_SIGNAL, undefined, NO_CTX);
   assert.deepEqual(f.calls[0]?.tools, ["read", "grep"]);
@@ -333,7 +327,7 @@ test("agentType: explicit params.model/tools/excludeTools override the binding",
   const registry = mkRegistry([
     { name: "security-auditor", tools: ["read"], model: "openai/gpt-4.1", prompt: "Be thorough.", source: "project" },
   ]);
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn, agentRegistry: registry });
   await tool.execute(
     "id",
@@ -354,7 +348,7 @@ test("agentType: explicit params.model/tools/excludeTools override the binding",
 // ~10k gated schema baseline, not ~18k. Explicit `tools` always overrides.
 
 test("no-tools spawn defaults to the parent's gated active set (getActiveTools), not the full universe", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({
     spawn: f.spawn,
     getActiveTools: () => ["read", "grep", "find", "ls", "subagent"],
@@ -368,7 +362,7 @@ test("no-tools spawn defaults to the parent's gated active set (getActiveTools),
 });
 
 test("explicit `tools` override wins over the active-set default", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({
     spawn: f.spawn,
     getActiveTools: () => ["read", "grep", "find", "ls", "subagent"],
@@ -379,7 +373,7 @@ test("explicit `tools` override wins over the active-set default", async () => {
 
 test("agentType `tools` binding wins over the active-set default", async () => {
   const registry = mkRegistry([{ name: "reader", tools: ["read", "grep"], prompt: "Read only.", source: "project" }]);
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({
     spawn: f.spawn,
     agentRegistry: registry,
@@ -390,7 +384,7 @@ test("agentType `tools` binding wins over the active-set default", async () => {
 });
 
 test("no active set + no tools leaves tools undefined (best-effort when getActiveTools is unset)", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.tools, undefined, "no default + no tools → undefined (caller/runner decides)");
@@ -398,7 +392,7 @@ test("no active set + no tools leaves tools undefined (best-effort when getActiv
 
 test("unknown agentType returns a tool-level error listing available names, without calling spawn", async () => {
   const registry = mkRegistry([{ name: "reviewer", prompt: "Review.", source: "project" }]);
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn, agentRegistry: registry });
   const res = await tool.execute("id", { task: "t", agentType: "nope" }, NO_SIGNAL, undefined, NO_CTX);
   const text = (res.content[0] as { text: string }).text;
@@ -412,7 +406,7 @@ test("agentType with isolation:'worktree' passes the worktree cwd to spawn", asy
   const registry = mkRegistry([
     { name: "isolated-worker", isolation: "worktree", prompt: "Work in isolation.", source: "project" },
   ]);
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const fakeWorktree = { createCalls: [] as Array<{ baseCwd: string; name: string }>, removeCalls: 0 };
   const tool = createSubagentTool({
     spawn: f.spawn,
@@ -441,7 +435,7 @@ test("agentType with isolation:'worktree' falls back to runCwd when createWorktr
   const registry = mkRegistry([
     { name: "isolated-worker", isolation: "worktree", prompt: "Work in isolation.", source: "project" },
   ]);
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const fakeWorktree = { createCalls: 0, removeCalls: 0 };
   const tool = createSubagentTool({
     spawn: f.spawn,
@@ -463,14 +457,14 @@ test("agentType with isolation:'worktree' falls back to runCwd when createWorktr
 
 test("schema is forwarded to spawn unchanged", async () => {
   const schema = { type: "object", properties: { ok: { type: "boolean" } } };
-  const f = fakeSpawn(() => ({ output: '{"ok":true}', exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok('{"ok":true}'));
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute("id", { task: "t", schema }, NO_SIGNAL, undefined, NO_CTX);
   assert.deepEqual(f.calls[0]?.schema, schema);
 });
 
 test("malformed schema (not an object, or missing 'type') is rejected before spawn is called", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
 
   const res1 = await tool.execute("id", { task: "t", schema: "not an object" as never }, NO_SIGNAL, undefined, NO_CTX);
@@ -492,7 +486,7 @@ test("execute wires onHistory to _onUpdate as a partial content update", async (
   const fixtureHistory = [{ role: "assistant" as const, kind: "toolCall" as const, toolName: "read", text: "{}" }];
   const f = fakeSpawn(async (opts) => {
     (opts.onHistory as ((h: typeof fixtureHistory) => void) | undefined)?.(fixtureHistory);
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   });
   const tool = createSubagentTool({ spawn: f.spawn });
   const updates: Array<{ content: Array<{ type: string; text?: string }>; details?: unknown }> = [];
@@ -503,7 +497,7 @@ test("execute wires onHistory to _onUpdate as a partial content update", async (
 });
 
 test("execute passes no onHistory to spawn when the caller gave no _onUpdate", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.onHistory, undefined);
@@ -513,7 +507,7 @@ test("a throwing _onUpdate does not fail the subagent run (caught and swallowed)
   const fixtureHistory = [{ role: "assistant" as const, kind: "toolCall" as const, toolName: "read", text: "{}" }];
   const f = fakeSpawn(async (opts) => {
     (opts.onHistory as ((h: typeof fixtureHistory) => void) | undefined)?.(fixtureHistory);
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   });
   const tool = createSubagentTool({ spawn: f.spawn });
   const res = await tool.execute(
@@ -544,7 +538,7 @@ test("live progress: displayed tool-call count never regresses across a retryOnT
     const onHistory = opts.onHistory as ((h: typeof attempt1History) => void) | undefined;
     onHistory?.(attempt1History);
     onHistory?.(attempt2History);
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   });
   const tool = createSubagentTool({ spawn: f.spawn });
   const updates: Array<{ content: Array<{ type: string; text?: string }> }> = [];
@@ -574,7 +568,7 @@ test("renderSubagentResult with isPartial:true renders the streamed text, ignori
 
 test("execute carries usage from the spawn result into details", async () => {
   const usage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, total: 15, cost: 0.001 };
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false, usage }));
+  const f = fakeSpawn(() => ok("ok", { usage }));
   const tool = createSubagentTool({ spawn: f.spawn });
   const res = await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.deepEqual(res.details.usage, usage);
@@ -582,7 +576,7 @@ test("execute carries usage from the spawn result into details", async () => {
 
 // ── details enrichment (renderResult + /subagents data source) ──
 test("execute enriches details with agent/model/taskPreview/elapsedMs/status for a done run", async () => {
-  const f = fakeSpawn(() => ({ output: "Status: DONE", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("Status: DONE"));
   const tool = createSubagentTool({ spawn: f.spawn });
   const res = await tool.execute(
     "id",
@@ -595,14 +589,14 @@ test("execute enriches details with agent/model/taskPreview/elapsedMs/status for
   assert.equal(d.status, "done");
   assert.equal(d.agent, "implementer");
   assert.equal(d.model, "x/flash");
-  assert.equal(d.exitCode, 0);
+  assert.equal(d.status, "done");
   assert.ok(d.elapsedMs >= 0, "elapsedMs recorded");
   assert.ok(!d.taskPreview.includes("\n"), "taskPreview is single-line");
   assert.ok(d.taskPreview.length <= 80, "taskPreview bounded to 80");
 });
 
 test("execute defaults model to 'default' and omits agent when absent", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
   const res = await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(res.details.model, "default");
@@ -611,21 +605,22 @@ test("execute defaults model to 'default' and omits agent when absent", async ()
 
 test("execute reports status 'timedout' and 'failed' from the spawn result", async () => {
   const t = createSubagentTool({
-    spawn: fakeSpawn(() => ({ output: "", exitCode: 124, stderr: "x", timedOut: true })).spawn,
+    spawn: fakeSpawn(() => timedout("x")).spawn,
   });
   const rt = await t.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(rt.details.status, "timedout");
   const f = createSubagentTool({
-    spawn: fakeSpawn(() => ({ output: "", exitCode: 1, stderr: "boom", timedOut: false })).spawn,
+    spawn: fakeSpawn(() => failed("boom")).spawn,
   });
   const rf = await f.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(rf.details.status, "failed");
 });
 
-test("deriveSubagentStatus + taskPreview helpers", () => {
-  assert.equal(deriveSubagentStatus({ output: "", exitCode: 0, stderr: "", timedOut: false }), "done");
-  assert.equal(deriveSubagentStatus({ output: "", exitCode: 1, stderr: "", timedOut: false }), "failed");
-  assert.equal(deriveSubagentStatus({ output: "", exitCode: 124, stderr: "", timedOut: true }), "timedout");
+// Status derivation used to be a `deriveSubagentStatus` helper tested here. It
+// is now `failure?.kind ?? "done"` at its three call sites, with the taxonomy
+// pinned per-branch in failure-union.test.ts and the tool-level mapping in
+// child-dispatch.test.ts's status table.
+test("taskPreview helper", () => {
   assert.equal(taskPreview("hello"), "hello");
   const long = "x".repeat(120);
   assert.equal(taskPreview(long).length, 80);
@@ -809,8 +804,6 @@ test("renderSubagentCall shows both explicit model and a different resolved mode
 
 test("renderSubagentResult collapsed is short; expanded contains the full report", () => {
   const details: SubagentToolDetails = {
-    exitCode: 0,
-    timedOut: false,
     agent: "implementer",
     model: "x/flash",
     taskPreview: "p",
@@ -831,8 +824,6 @@ test("renderSubagentResult collapsed is short; expanded contains the full report
 
 test("renderSubagentResult shows cost/tokens when usage.total > 0, omits when 0 or absent", () => {
   const base: Omit<SubagentToolDetails, "usage"> = {
-    exitCode: 0,
-    timedOut: false,
     taskPreview: "p",
     elapsedMs: 1000,
     status: "done",
@@ -877,8 +868,6 @@ test("renderSubagentResult settled meta shows `requested → actual` (shortened)
     {
       content: [{ type: "text", text: "done" }],
       details: {
-        exitCode: 0,
-        timedOut: false,
         taskPreview: "p",
         elapsedMs: 1000,
         status: "done",
@@ -901,8 +890,6 @@ test("renderSubagentResult settled meta shows only the actual model (shortened) 
     {
       content: [{ type: "text", text: "done" }],
       details: {
-        exitCode: 0,
-        timedOut: false,
         taskPreview: "p",
         elapsedMs: 1000,
         status: "done",
@@ -921,7 +908,7 @@ test("renderSubagentResult renders an 'aborted' badge (distinct from failed/time
   const out = renderSubagentResult(
     {
       content: [{ type: "text", text: "Subagent aborted by user." }],
-      details: { exitCode: 124, timedOut: false, taskPreview: "p", elapsedMs: 800, status: "aborted" },
+      details: { taskPreview: "p", elapsedMs: 800, status: "aborted" },
     },
     { expanded: false },
     T,
@@ -934,7 +921,7 @@ test("renderSubagentResult failed/timedout badges + missing-details fallback", (
   const failStr = renderSubagentResult(
     {
       content: [{ type: "text", text: "err" }],
-      details: { exitCode: 1, timedOut: false, taskPreview: "p", elapsedMs: 0, status: "failed" },
+      details: { taskPreview: "p", elapsedMs: 0, status: "failed" },
     },
     { expanded: false },
     T,
@@ -943,7 +930,7 @@ test("renderSubagentResult failed/timedout badges + missing-details fallback", (
   const toStr = renderSubagentResult(
     {
       content: [{ type: "text", text: "err" }],
-      details: { exitCode: 124, timedOut: true, taskPreview: "p", elapsedMs: 0, status: "timedout" },
+      details: { taskPreview: "p", elapsedMs: 0, status: "timedout" },
     },
     { expanded: false },
     T,
@@ -1111,8 +1098,6 @@ test("renderSubagentResult isPartial+collapsed stays at 2 header lines regardles
 test("renderSubagentResult NON-partial+expanded renders the FULL report (streaming cap does not apply)", () => {
   // Settled report path must be UNCHANGED: no cap, even with a tall report.
   const details: SubagentToolDetails = {
-    exitCode: 0,
-    timedOut: false,
     taskPreview: "p",
     elapsedMs: 12_350,
     status: "done",
@@ -1168,14 +1153,14 @@ test("execute registers on inFlight at start, streams history, deregisters on co
   ] as never);
   assert.equal(reg.views()[0]?.history[0]?.toolName, "read");
   // complete → deregistered
-  resolveSpawn({ output: "ok", exitCode: 0, stderr: "", timedOut: false });
+  resolveSpawn(ok("ok"));
   await p;
   assert.equal(reg.views().length, 0, "deregistered after completion");
 });
 
 test("execute deregisters from inFlight even on failure", async () => {
   const reg = new SubagentInFlightRegistry();
-  const f = fakeSpawn(() => ({ output: "", exitCode: 1, stderr: "boom", timedOut: false }));
+  const f = fakeSpawn(() => failed("boom"));
   const tool = createSubagentTool({ spawn: f.spawn, inFlight: reg });
   await tool.execute("id-8", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(reg.views().length, 0, "deregistered even after a failed run");
@@ -1203,14 +1188,14 @@ test("execute persists a durable record on completion (done), carrying the compa
   const { saved, persistence } = fakePersistence();
   const f = fakeSpawn((opts) => {
     opts.onHistory?.([{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"x"}' }]);
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   });
   const tool = createSubagentTool({ spawn: f.spawn, persistence, cwd: "/repo" });
   await tool.execute("id-p1", { task: "do work", agent: "implementer" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(saved.length, 1, "one record saved");
   const rec = saved[0];
   assert.equal(rec.status, "done");
-  assert.equal(rec.exitCode, 0);
+  assert.equal(rec.status, "done");
   assert.equal(rec.output, "ok");
   assert.equal(rec.agent, "implementer");
   assert.equal(rec.cwd, "/repo");
@@ -1221,17 +1206,17 @@ test("execute persists a durable record on completion (done), carrying the compa
 
 test("execute persists a record on failure too (failed runs are worth inspecting)", async () => {
   const { saved, persistence } = fakePersistence();
-  const f = fakeSpawn(() => ({ output: "", exitCode: 1, stderr: "boom", timedOut: false }));
+  const f = fakeSpawn(() => failed("boom"));
   const tool = createSubagentTool({ spawn: f.spawn, persistence });
   await tool.execute("id-p2", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(saved.length, 1);
   assert.equal(saved[0].status, "failed");
-  assert.equal(saved[0].stderr, "boom");
+  assert.match(saved[0].error ?? "", /boom/);
 });
 
 test("execute does NOT persist on a pre-flight failure (invalid schema is not a real run)", async () => {
   const { saved, persistence } = fakePersistence();
-  const f = fakeSpawn(() => ({ output: "x", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("x"));
   const tool = createSubagentTool({ spawn: f.spawn, persistence });
   await tool.execute("id-p3", { task: "t", schema: "not-schema-shaped" as never }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(saved.length, 0, "pre-flight rejection must not create a run record");
@@ -1264,7 +1249,7 @@ function fakeGitOps(opts: { baseHead?: string; postHead?: string; paths?: string
 
 test("commitScope unset → #02 default-on: git scope check STILL runs (capture + post-run), empty when no commit", async () => {
   const { calls, ops } = fakeGitOps({ baseHead: "b1", postHead: "b1" });
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
   const res = await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   // #02: unset scope is treated as [] (flag any commit). The check RUNS even
@@ -1277,7 +1262,7 @@ test("commitScope unset → #02 default-on: git scope check STILL runs (capture 
 
 test("commitScope set, all touched in scope → scopeCheck present, outOfScope empty, output clean", async () => {
   const { calls, ops } = fakeGitOps({ baseHead: "b1", postHead: "h2", paths: ["src/a.ts", "src/sub/b.ts"] });
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
   const res = await tool.execute("id", { task: "t", commitScope: ["src/"] }, NO_SIGNAL, undefined, NO_CTX);
   const sc = res.details.scopeCheck;
@@ -1296,7 +1281,7 @@ test("commitScope set, out-of-scope paths → ⚠ block appended to output + det
     postHead: "h2",
     paths: ["src/a.ts", "README.md", ".planning/stub.md"],
   });
-  const f = fakeSpawn(() => ({ output: "Status: DONE", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("Status: DONE"));
   const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
   const res = await tool.execute("id", { task: "fix it", commitScope: ["src/"] }, NO_SIGNAL, undefined, NO_CTX);
   const text = (res.content[0] as { text: string }).text;
@@ -1308,7 +1293,7 @@ test("commitScope set, out-of-scope paths → ⚠ block appended to output + det
 
 test("commitScope: [] flags ANY committed path (read-only guard)", async () => {
   const { ops } = fakeGitOps({ baseHead: "b1", postHead: "h2", paths: ["src/a.ts"] });
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
   const res = await tool.execute("id", { task: "t", commitScope: [] }, NO_SIGNAL, undefined, NO_CTX);
   assert.deepEqual(res.details.scopeCheck?.outOfScope, ["src/a.ts"]);
@@ -1317,7 +1302,7 @@ test("commitScope: [] flags ANY committed path (read-only guard)", async () => {
 
 test("commitScope set but child committed nothing (base === head) → empty, no violation, no diff call", async () => {
   const { calls, ops } = fakeGitOps({ baseHead: "same", postHead: "same" });
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
   const res = await tool.execute("id", { task: "t", commitScope: ["src/"] }, NO_SIGNAL, undefined, NO_CTX);
   assert.deepEqual(res.details.scopeCheck?.touchedPaths, []);
@@ -1330,7 +1315,7 @@ test("commitScope ignored for worktree-isolated runs (their commits are discarde
     { name: "isolated-worker", isolation: "worktree", prompt: "Work in isolation.", source: "project" },
   ]);
   const { calls, ops } = fakeGitOps({ baseHead: "b1", postHead: "h2", paths: ["src/a.ts"] });
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({
     spawn: f.spawn,
     gitOps: ops,
@@ -1357,7 +1342,7 @@ test("commitScope ignored for worktree-isolated runs (their commits are discarde
 
 test("commitScope set but not a repo (headCommit undefined before dispatch) → scopeCheck undefined", async () => {
   const { calls, ops } = fakeGitOps({ baseHead: undefined, postHead: "h2" });
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, cwd: "/repo" });
   const res = await tool.execute("id", { task: "t", commitScope: ["src/"] }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(res.details.scopeCheck, undefined);
@@ -1366,8 +1351,6 @@ test("commitScope set but not a repo (headCommit undefined before dispatch) → 
 
 test("renderSubagentResult tints out-of-scope count as a warning (separate axis from status/SDD)", () => {
   const details: SubagentToolDetails = {
-    exitCode: 0,
-    timedOut: false,
     taskPreview: "p",
     elapsedMs: 1000,
     status: "done",
@@ -1385,7 +1368,7 @@ test("renderSubagentResult tints out-of-scope count as a warning (separate axis 
 test("execute persists scopeCheck on the durable run record (for /subagents replay)", async () => {
   const { saved, persistence } = fakePersistence();
   const { ops } = fakeGitOps({ baseHead: "b1", postHead: "h2", paths: ["src/a.ts", "README.md"] });
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn, gitOps: ops, persistence, cwd: "/repo" });
   await tool.execute("id", { task: "t", commitScope: ["src/"] }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(saved.length, 1);
@@ -1395,7 +1378,7 @@ test("execute persists scopeCheck on the durable run record (for /subagents repl
 // ── tokenBudget/spendBudget (budget cap) ──
 
 test("execute forwards tokenBudget/spendBudget to spawn", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute("id", { task: "t", tokenBudget: 5000, spendBudget: 0.25 }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.tokenBudget, 5000);
@@ -1405,21 +1388,21 @@ test("execute forwards tokenBudget/spendBudget to spawn", async () => {
 // ── #01 tiered token-budget defaults (hard-abort; p90-calibrated) ──
 
 test("#01 default budget: no tokenBudget + tier:small → spawn receives 500000", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute("id-bud", { task: "t", tier: "small" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.tokenBudget, 500_000, "tier:small with no explicit budget → 500k default");
 });
 
 test("#01 default budget: explicit tokenBudget still wins", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute("id-bud2", { task: "t", tier: "small", tokenBudget: 999 }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.tokenBudget, 999, "explicit tokenBudget overrides the tier default");
 });
 
 test("#01 default budget: no tier + no model → medium ceiling (1.2M)", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn }); // no getMainModel → mainModel undefined
   await tool.execute("id-bud3", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.tokenBudget, 1_200_000, "no tier, no model → safe medium fallback");
@@ -1428,10 +1411,7 @@ test("#01 default budget: no tier + no model → medium ceiling (1.2M)", async (
 test("spawn result with budget → status 'budget', details.budget, distinct output", async () => {
   const f = fakeSpawn(() => ({
     output: "",
-    exitCode: 1,
-    stderr: "",
-    timedOut: false,
-    budget: { kind: "tokens", limit: 1000, actual: 1234 },
+    failure: { kind: "budget", message: "budget exhausted", budget: { kind: "tokens", limit: 1000, actual: 1234 } },
   }));
   const tool = createSubagentTool({ spawn: f.spawn });
   const res = await tool.execute("id", { task: "t", tokenBudget: 1000 }, NO_SIGNAL, undefined, NO_CTX);
@@ -1444,8 +1424,6 @@ test("spawn result with budget → status 'budget', details.budget, distinct out
 
 test("renderSubagentResult renders a budget badge + budgetTag", () => {
   const details: SubagentToolDetails = {
-    exitCode: 1,
-    timedOut: false,
     taskPreview: "p",
     elapsedMs: 1000,
     status: "budget",
@@ -1458,25 +1436,8 @@ test("renderSubagentResult renders a budget badge + budgetTag", () => {
 
 // ── maxTurns (turns cap) — #1336 ──
 
-test("deriveSubagentStatus: result.turns → 'turns' (distinct from budget/timedout/failed)", () => {
-  assert.equal(
-    deriveSubagentStatus({
-      output: "",
-      exitCode: 124,
-      stderr: "",
-      timedOut: false,
-      turns: { maxTurns: 5, turnsUsed: 5 },
-    }),
-    "turns",
-  );
-  // without turns, the same 124/non-timeout shape still classifies as failed
-  assert.equal(deriveSubagentStatus({ output: "", exitCode: 124, stderr: "", timedOut: false }), "failed");
-});
-
 test("renderSubagentResult renders a '⏹ turns' badge + turns:n/n tag (distinct from ⛔ budget / ⏱ timedout)", () => {
   const details: SubagentToolDetails = {
-    exitCode: 124,
-    timedOut: false,
     taskPreview: "p",
     elapsedMs: 9000,
     status: "turns",
@@ -1493,10 +1454,7 @@ test("formatSubagentResult emits 'max turns exceeded (N)' on a turns abort", () 
   assert.equal(
     formatSubagentResult({
       output: "",
-      exitCode: 124,
-      stderr: "max turns exceeded (5)",
-      timedOut: false,
-      turns: { maxTurns: 5, turnsUsed: 5 },
+      failure: { kind: "turns", message: "max turns exceeded (5)", turns: { maxTurns: 5, turnsUsed: 5 } },
     }),
     "Subagent aborted: max turns exceeded (5).",
   );
@@ -1505,10 +1463,7 @@ test("formatSubagentResult emits 'max turns exceeded (N)' on a turns abort", () 
 test("execute: spawn result with turns → status 'turns', details.turns, 'max turns exceeded' in the model text", async () => {
   const f = fakeSpawn(() => ({
     output: "",
-    exitCode: 124,
-    stderr: "max turns exceeded (5)",
-    timedOut: false,
-    turns: { maxTurns: 5, turnsUsed: 5 },
+    failure: { kind: "turns", message: "max turns exceeded (5)", turns: { maxTurns: 5, turnsUsed: 5 } },
   }));
   const tool = createSubagentTool({ spawn: f.spawn });
   const res = await tool.execute("id", { task: "t", maxTurns: 5 }, NO_SIGNAL, undefined, NO_CTX);
@@ -1522,10 +1477,7 @@ test("execute persists turns on the durable run record (status 'turns')", async 
   const { saved, persistence } = fakePersistence();
   const f = fakeSpawn(() => ({
     output: "",
-    exitCode: 124,
-    stderr: "max turns exceeded (5)",
-    timedOut: false,
-    turns: { maxTurns: 5, turnsUsed: 5 },
+    failure: { kind: "turns", message: "max turns exceeded (5)", turns: { maxTurns: 5, turnsUsed: 5 } },
   }));
   const tool = createSubagentTool({ spawn: f.spawn, persistence });
   await tool.execute("id", { task: "t", maxTurns: 5 }, NO_SIGNAL, undefined, NO_CTX);
@@ -1536,13 +1488,7 @@ test("execute persists turns on the durable run record (status 'turns')", async 
 
 test("execute persists budget on the durable run record (status 'budget')", async () => {
   const { saved, persistence } = fakePersistence();
-  const f = fakeSpawn(() => ({
-    output: "",
-    exitCode: 1,
-    stderr: "",
-    timedOut: false,
-    budget: { kind: "spend", limit: 0.5, actual: 0.62 },
-  }));
+  const f = fakeSpawn(() => budgetAbort({ kind: "spend", limit: 0.5, actual: 0.62 }));
   const tool = createSubagentTool({ spawn: f.spawn, persistence });
   await tool.execute("id", { task: "t", spendBudget: 0.5 }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(saved.length, 1);
@@ -1553,7 +1499,7 @@ test("execute persists budget on the durable run record (status 'budget')", asyn
 // ── schemaRepairAttempts (structured-output repair) ──
 
 test("execute forwards schemaRepairAttempts to spawn", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute("id", { task: "t", schemaRepairAttempts: 4 }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.schemaRepairAttempts, 4);
@@ -1913,7 +1859,7 @@ test("execute with model fallback → details.requestedModel + fellBack set", as
     // Simulate fallback: onModelFallback fires first, then onModelResolved with actual
     opts.onModelFallback?.("anthropic/claude-opus-4-1");
     opts.onModelResolved?.("zai/glm-5.2");
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   });
   const tool = createSubagentTool({ spawn: f.spawn });
   const res = await tool.execute("id", { task: "t", model: "anthropic/claude-opus-4-1" }, NO_SIGNAL, undefined, NO_CTX);
@@ -1926,7 +1872,7 @@ test("execute with normal resolution (no fallback) → no audit fields", async (
   const f = fakeSpawn((opts) => {
     // Normal resolution: onModelResolved fires without onModelFallback
     opts.onModelResolved?.("anthropic/claude-sonnet-4");
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   });
   const tool = createSubagentTool({ spawn: f.spawn });
   const res = await tool.execute("id", { task: "t", model: "anthropic/claude-sonnet-4" }, NO_SIGNAL, undefined, NO_CTX);
@@ -1940,7 +1886,7 @@ test("execute persists requestedModel + fellBack on fallback", async () => {
   const f = fakeSpawn((opts) => {
     opts.onModelFallback?.("anthropic/claude-opus-4-1");
     opts.onModelResolved?.("zai/glm-5.2");
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   });
   const tool = createSubagentTool({ spawn: f.spawn, persistence });
   await tool.execute("id", { task: "t", model: "anthropic/claude-opus-4-1" }, NO_SIGNAL, undefined, NO_CTX);
@@ -1954,7 +1900,7 @@ test("execute with normal resolution → persistence omits audit fields", async 
   const { saved, persistence } = fakePersistence();
   const f = fakeSpawn((opts) => {
     opts.onModelResolved?.("anthropic/claude-sonnet-4");
-    return { output: "ok", exitCode: 0, stderr: "", timedOut: false };
+    return ok("ok");
   });
   const tool = createSubagentTool({ spawn: f.spawn, persistence });
   await tool.execute("id", { task: "t", model: "anthropic/claude-sonnet-4" }, NO_SIGNAL, undefined, NO_CTX);
@@ -1967,7 +1913,7 @@ test("execute with normal resolution → persistence omits audit fields", async 
 // ── #03 impossible-tool preflight (ABORT, pre-spawn) ──
 
 test("#03 preflight: required tool absent from allowlist → failEarly, spawn NOT called", async () => {
-  const f = fakeSpawn(() => ({ output: "should not reach", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("should not reach"));
   const tool = createSubagentTool({ spawn: f.spawn });
   const res = await tool.execute(
     "id-pf",
@@ -1985,7 +1931,7 @@ test("#03 preflight: required tool absent from allowlist → failEarly, spawn NO
 });
 
 test("#03 preflight: required tool satisfied → spawn IS called normally", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
   await tool.execute(
     "id-ok",
@@ -1998,7 +1944,7 @@ test("#03 preflight: required tool satisfied → spawn IS called normally", asyn
 });
 
 test("#03 preflight: required tool denied by excludeTools → failEarly", async () => {
-  const f = fakeSpawn(() => ({ output: "x", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("x"));
   const tool = createSubagentTool({ spawn: f.spawn });
   const res = await tool.execute(
     "id-ex",
@@ -2014,7 +1960,7 @@ test("#03 preflight: required tool denied by excludeTools → failEarly", async 
 // ── #02 commitScope warn-default (default-on: unset scope ⇒ warn on any commit) ──
 
 test("#02 default-on: UNSET commitScope + a commit → ⚠ block in output (never auto-reverts)", async () => {
-  const f = fakeSpawn(() => ({ output: "done", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("done"));
   // Fake git ops: HEAD was 'base' before, 'head' after → one touched path 'scratch.md'.
   // headCommit is called twice per checked run (call 1 pre-dispatch = base, call 2
   // post-run = head) — see fakeGitOps. The plan's literal `() => "head"` would make
@@ -2031,7 +1977,7 @@ test("#02 default-on: UNSET commitScope + a commit → ⚠ block in output (neve
 });
 
 test("#02 default-on: UNSET commitScope + NO commit → no ⚠ (clean run)", async () => {
-  const f = fakeSpawn(() => ({ output: "done", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("done"));
   const gitOps = { headCommit: async () => "same", changedPaths: async () => [] } as never;
   const tool = createSubagentTool({ spawn: f.spawn, gitOps });
   const res = await tool.execute("id-clean", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
@@ -2063,8 +2009,6 @@ function mkRec(task: string, status: SubagentRunRecord["status"], stderr: string
     model: "m",
     cwd: "/r",
     status,
-    exitCode: 1,
-    timedOut: false,
     startedAt: new Date(Date.now() - 1000).toISOString(),
     elapsedMs: 1,
     output: "",
@@ -2073,7 +2017,7 @@ function mkRec(task: string, status: SubagentRunRecord["status"], stderr: string
 }
 
 test("#04 circuit-break: 2 prior identical failures → failEarly, spawn NOT called", async () => {
-  const f = fakeSpawn(() => ({ output: "should not reach", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("should not reach"));
   const task = "Fix the memory store bootstrap";
   const persistence = fakeHistoryPersistence([
     mkRec(task, "failed", "tool 'memory' not found"),
@@ -2087,7 +2031,7 @@ test("#04 circuit-break: 2 prior identical failures → failEarly, spawn NOT cal
 });
 
 test("#04 circuit-break: 1 prior failure → NOT broken, spawn IS called (this is the 2nd attempt)", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const task = "Fix the memory store bootstrap";
   const persistence = fakeHistoryPersistence([mkRec(task, "failed", "tool 'memory' not found")]);
   const tool = createSubagentTool({ spawn: f.spawn, persistence });
@@ -2098,7 +2042,7 @@ test("#04 circuit-break: 1 prior failure → NOT broken, spawn IS called (this i
 test("#04 boundary: retryOnTransient's single in-dispatch retry is UNCHANGED (detector counts dispatch outcomes, not tryOnce calls)", async () => {
   // No prior records → no circuit-break. A transient failure still retries once
   // INSIDE spawn (tryOnce). The detector never interferes with that inner retry.
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const persistence = fakeHistoryPersistence([]); // clean history → never circuit-breaks
   const tool = createSubagentTool({ spawn: f.spawn, persistence });
   await tool.execute("id-bdy", { task: "unique task", retryOnTransient: true }, NO_SIGNAL, undefined, NO_CTX);
@@ -2110,7 +2054,7 @@ test("#04 boundary: retryOnTransient's single in-dispatch retry is UNCHANGED (de
 });
 
 test("#04 opt-out: retryCircuitBreak:0 disables the detector", async () => {
-  const f = fakeSpawn(() => ({ output: "ok", exitCode: 0, stderr: "", timedOut: false }));
+  const f = fakeSpawn(() => ok("ok"));
   const task = "Fix the memory store bootstrap";
   const persistence = fakeHistoryPersistence([mkRec(task, "failed", "x"), mkRec(task, "failed", "x")]);
   const tool = createSubagentTool({ spawn: f.spawn, persistence });

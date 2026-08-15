@@ -19,8 +19,6 @@ function makeRecord(over: Partial<SubagentRunRecord> = {}): SubagentRunRecord {
     model: "provider/model",
     cwd: "/repo",
     status: "done",
-    exitCode: 0,
-    timedOut: false,
     startedAt: new Date().toISOString(),
     elapsedMs: 1234,
     output: "all done",
@@ -129,7 +127,6 @@ test("turns exhaustion round-trips through save/load and list (status 'turns')",
   const rec = makeRecord({
     id: "turnsrec",
     status: "turns",
-    exitCode: 124,
     output: "",
     turns: { maxTurns: 5, turnsUsed: 5 },
   });
@@ -181,5 +178,76 @@ test("round-trips a record carrying a watchdog result", () => {
   const got = p.list().find((r) => r.watchdog);
   assert.ok(got?.watchdog);
   assert.equal(got.watchdog.l1.findings.length, 1);
+  rmSync(home, { recursive: true, force: true });
+});
+
+// ---- legacy-record read shim ---------------------------------------------
+//
+// Records written before the failure-union change carry `exitCode`/`timedOut`
+// (derivable duplicates of `status`, now dropped) and `stderr` (real
+// information, now `error`). ~200 such records exist in a long-running user's
+// ~/.pi/subagents/runs. The shim keeps them rendering unchanged in /subagents.
+//
+// The fixture below is a verbatim key-set from a real pre-migration record. Note
+// `status: "budget"` alongside `exitCode: 1` — the exit code never distinguished
+// a budget abort from a plain failure, which is the reason it is not worth
+// migrating forward.
+
+/** A record exactly as the pre-union code wrote it. */
+function legacyRecordJson(id: string) {
+  return {
+    id,
+    toolCallId: "call_legacy",
+    task: "consolidate memory",
+    model: "provider/model",
+    cwd: "/repo",
+    status: "budget",
+    exitCode: 1,
+    timedOut: false,
+    stderr: "subagent tokens budget exhausted (1508930 tokens > limit 1500000)",
+    startedAt: new Date().toISOString(),
+    elapsedMs: 4242,
+    output: "partial",
+  };
+}
+
+test("load() on a legacy record surfaces its stderr as `error`", () => {
+  const home = tmpHome();
+  const dir = subagentRunsDir(home);
+  mkdirSync(dir, { recursive: true });
+  const raw = legacyRecordJson("legacy-load");
+  writeFileSync(join(dir, "legacy-load.json"), JSON.stringify(raw, null, 2));
+
+  const loaded = createSubagentRunPersistence({ home }).load("legacy-load");
+  assert.equal(loaded?.error, raw.stderr, "legacy stderr must be readable as error");
+  assert.equal(loaded?.status, "budget", "the status discriminant is untouched by the shim");
+  assert.equal(loaded?.output, "partial");
+  rmSync(home, { recursive: true, force: true });
+});
+
+test("list() applies the same legacy shim as load()", () => {
+  const home = tmpHome();
+  const dir = subagentRunsDir(home);
+  mkdirSync(dir, { recursive: true });
+  const raw = legacyRecordJson("legacy-list");
+  writeFileSync(join(dir, "legacy-list.json"), JSON.stringify(raw, null, 2));
+
+  const got = createSubagentRunPersistence({ home })
+    .list()
+    .find((r) => r.id === "legacy-list");
+  assert.equal(got?.error, raw.stderr);
+  rmSync(home, { recursive: true, force: true });
+});
+
+test("the shim never overwrites an `error` a current-format record already has", () => {
+  const home = tmpHome();
+  const dir = subagentRunsDir(home);
+  mkdirSync(dir, { recursive: true });
+  // A record carrying BOTH (possible if an old file were hand-edited): the
+  // current field wins, so the shim can never corrupt fresh data.
+  const raw = { ...legacyRecordJson("both"), error: "the real one" };
+  writeFileSync(join(dir, "both.json"), JSON.stringify(raw, null, 2));
+
+  assert.equal(createSubagentRunPersistence({ home }).load("both")?.error, "the real one");
   rmSync(home, { recursive: true, force: true });
 });

@@ -58,8 +58,7 @@ export async function runModelReview(input: {
       // NO watchdog param — recursion-safe (spawnSubagent has no such field anyway).
       ...(input.agent ? { agent: input.agent } : {}),
     });
-    if (res.exitCode !== 0)
-      return { ran: false, findings: [], note: `review-skipped: ${res.stderr || "review failed"}` };
+    if (res.failure) return { ran: false, findings: [], note: `review-skipped: ${res.failure.message}` };
     const parsed = JSON.parse(res.output || "{}") as { findings?: Array<Record<string, unknown>> };
     const findings: WatchdogFinding[] = (parsed.findings ?? []).map((f) => ({
       severity: (f.severity === "blocker" ? "blocker" : "concern") as WatchdogFinding["severity"],

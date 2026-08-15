@@ -11,8 +11,6 @@ function mkRecord(over: Partial<SubagentRunRecord> = {}): SubagentRunRecord {
     model: "zai/glm-5.2",
     cwd: "/repo",
     status: "done",
-    exitCode: 0,
-    timedOut: false,
     startedAt: "2026-07-23T10:00:00Z",
     elapsedMs: 1500,
     output: "result text",

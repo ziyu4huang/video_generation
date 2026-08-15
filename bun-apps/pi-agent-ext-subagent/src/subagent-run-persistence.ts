@@ -52,11 +52,15 @@ export interface SubagentRunRecord {
   tier?: string;
   /** Working directory of the run (for future viewer scoping). */
   cwd: string;
+  /**
+   * The run's outcome. Sole discriminant: the record used to carry `exitCode`
+   * and `timedOut` alongside this, both derivable from it and neither read by
+   * anything (a budget abort was written as `status: "budget", exitCode: 1` —
+   * indistinguishable from a plain failure by the code alone).
+   */
   status: SubagentRunStatus;
-  exitCode: number;
-  timedOut: boolean;
-  /** Non-empty only on failure (mirrors SpawnSubagentResult.stderr). */
-  stderr?: string;
+  /** Why it failed. Set only on a non-"done" status (was `stderr`). */
+  error?: string;
   /** ISO timestamp of dispatch start. */
   startedAt: string;
   /** Wall-clock of the run, ms. */
@@ -149,13 +153,26 @@ export function createSubagentRunPersistence(
   };
   const pathFor = (id: string) => join(runsDir, `${id}.json`);
 
+  /**
+   * Read-compat for records written before the failure-union change. Those
+   * carry `stderr` where the current format has `error`; the dropped
+   * `exitCode`/`timedOut` need no handling, since an extra key on a parsed
+   * object is inert. A record that already has `error` is left alone, so this
+   * can never overwrite current data.
+   */
+  const migrateLegacy = (parsed: unknown): SubagentRunRecord => {
+    const r = parsed as Record<string, unknown>;
+    if (r.error === undefined && typeof r.stderr === "string") r.error = r.stderr;
+    return r as unknown as SubagentRunRecord;
+  };
+
   const listInternal = (): SubagentRunRecord[] => {
     if (!_existsSync(runsDir)) return [];
     const files = _readdirSync(runsDir).filter((f) => f.endsWith(".json"));
     const records: SubagentRunRecord[] = [];
     for (const file of files) {
       try {
-        records.push(JSON.parse(_readFileSync(join(runsDir, file), "utf-8")) as SubagentRunRecord);
+        records.push(migrateLegacy(JSON.parse(_readFileSync(join(runsDir, file), "utf-8"))));
       } catch {
         // skip corrupt files
       }
@@ -198,7 +215,7 @@ export function createSubagentRunPersistence(
       try {
         const path = pathFor(id);
         if (!_existsSync(path)) return null;
-        return JSON.parse(_readFileSync(path, "utf-8")) as SubagentRunRecord;
+        return migrateLegacy(JSON.parse(_readFileSync(path, "utf-8")));
       } catch {
         return null;
       }

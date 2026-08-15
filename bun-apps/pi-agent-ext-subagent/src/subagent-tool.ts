@@ -116,8 +116,6 @@ export function createSubagentTool(
       ): { content: Array<{ type: "text"; text: string }>; details: SubagentToolDetails } => ({
         content: [{ type: "text" as const, text }],
         details: {
-          exitCode: 1,
-          timedOut: false,
           agent: params.agent,
           model: params.model ?? "default",
           taskPreview: taskPreview(params.task),
@@ -297,8 +295,6 @@ export function createSubagentTool(
               },
               {
                 status: "aborted",
-                exitCode: result.exitCode,
-                timedOut: false,
                 output: "Subagent aborted by user.",
                 usage: result.usage,
               },
@@ -307,8 +303,6 @@ export function createSubagentTool(
           return {
             content: [{ type: "text" as const, text: "Subagent aborted by user." }],
             details: {
-              exitCode: result.exitCode,
-              timedOut: false,
               agent: params.agent,
               model,
               taskPreview: taskPreview(params.task),
@@ -367,11 +361,9 @@ export function createSubagentTool(
             },
             {
               status: details.status,
-              exitCode: details.exitCode,
-              timedOut: details.timedOut,
               usage: details.usage,
               output,
-              stderr: result.stderr || undefined,
+              error: result.failure?.message,
               budget: details.budget,
               turns: details.turns,
               history: outcome.history,

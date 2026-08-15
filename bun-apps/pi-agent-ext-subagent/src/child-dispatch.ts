@@ -27,7 +27,6 @@
 import type { AgentHistoryEntry, AgentUsage, SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
 import { computeScopeCheck, type GitScopeOps, realGitOps, type SubagentScopeCheck } from "./git-scope.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
-import { deriveSubagentStatus } from "./subagent-tool-render.js";
 import type { SubagentToolDetails } from "./subagent-tool-schema.js";
 
 /** One child dispatch. The caller supplies a fully-built request; this module runs it. */
@@ -220,7 +219,9 @@ export async function dispatchChild(
 
   return {
     result,
-    status: userAborted ? "aborted" : deriveSubagentStatus(result),
+    // `aborted` is the one status a spawn result cannot carry: the child sees a
+    // cancelled run, only the parent turn knows the user asked for it.
+    status: userAborted ? "aborted" : (result.failure?.kind ?? "done"),
     userAborted,
     model: resolvedModel ?? entry.model,
     requestedModel: fellBack ? requestedSpec : undefined,

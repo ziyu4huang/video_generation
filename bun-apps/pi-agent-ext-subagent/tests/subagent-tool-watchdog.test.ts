@@ -21,6 +21,7 @@ import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 import { createSubagentTool } from "../src/subagent-tool.js";
+import { ok } from "./_spawn-result.js";
 
 // Mirrors regression-subagent-contract.test.ts — the execute() harness signature.
 const NO_SIGNAL = undefined as never;
@@ -28,7 +29,7 @@ const NO_CTX = { cwd: "/repo" } as never;
 
 /** Clean success result a no-op mock spawn returns. */
 function cleanResult(): SpawnSubagentResult {
-  return { output: "done", exitCode: 0, stderr: "", timedOut: false };
+  return ok("done");
 }
 
 describe("subagent tool watchdog wiring", () => {

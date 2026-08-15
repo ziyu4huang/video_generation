@@ -114,7 +114,9 @@ export function reconstructSubagentRuns(branch: Iterable<BranchEntry>): Subagent
     if (msg.toolName !== "subagent") continue; // singular path — byte-identical to before
     i += 1;
     const d = msg.details;
-    const status: SubagentRun["status"] = d?.status ?? (d && d.exitCode === 0 ? "done" : "failed");
+    // `status` has been written by every version that produced these entries;
+    // the `failed` fallback only covers a details block with no status at all.
+    const status: SubagentRun["status"] = d?.status ?? "failed";
     runs.push({
       index: i,
       toolCallId: msg.toolCallId,
