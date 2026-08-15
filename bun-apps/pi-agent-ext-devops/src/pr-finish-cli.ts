@@ -258,7 +258,19 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 		const originBase = `origin/${status.baseRefName}`;
 		const probe = await spawn("git", ["rev-parse", "--verify", "-q", originBase], { cwd: repoRoot });
 		const ciBase = probe.exitCode === 0 ? originBase : status.baseRefName;
-		ci = await runCi({ repoRoot, baseRef: ciBase, headRef: status.headRefName, spawn });
+		// `log` MUST be forwarded, for the same reason `cwd` must (see the note on
+		// the spawn seam below): runSchemaCostCheck is IMPORTED, so without a sink
+		// its human-readable banner goes to this process's stdout via console.log —
+		// and stdout here is the JSON payload this CLI's own contract promises is
+		// "exactly what belongs on stdout". Dropping it emitted an unparseable
+		// outcome whenever the schema-cost baseline had drifted.
+		ci = await runCi({
+			repoRoot,
+			baseRef: ciBase,
+			headRef: status.headRefName,
+			spawn,
+			log: (line: string) => process.stderr.write(`${line}\n`),
+		});
 	} catch (err) {
 		return abort("local_ci_failed", `local CI threw: ${errMsg(err)}`);
 	}
