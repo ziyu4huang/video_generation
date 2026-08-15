@@ -69,6 +69,14 @@ function renderRun(record: SubagentRunRecord, includeHistory: boolean): string {
   if (record.scopeCheck?.outOfScope?.length) lines.push(`scope violations: ${record.scopeCheck.outOfScope.join(", ")}`);
   if (record.budget) lines.push(`budget: ${record.budget.kind} ${record.budget.actual}/${record.budget.limit}`);
   lines.push("", "## output", record.output || "(empty)");
+  // H2: salvage block for aborted runs — rendered unless the output already
+  // carries the appended section (singular-tool records persist it inline;
+  // batch-tool records are record-only, so this is where it surfaces).
+  if (record.salvage && !record.output.includes("--- salvage (terminal abort) ---")) {
+    lines.push("", "## salvage (terminal abort)");
+    if (record.salvage.files?.length) lines.push(`files touched: ${record.salvage.files.join(", ")}`);
+    if (record.salvage.lastText) lines.push("last words:", record.salvage.lastText);
+  }
   if (includeHistory && record.history?.length) {
     lines.push("", "## transcript");
     for (const h of record.history) {

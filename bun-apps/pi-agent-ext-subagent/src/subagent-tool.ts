@@ -21,6 +21,7 @@ import {
   resolveAgentType,
   type Worktree,
 } from "@repo/pi-agent-ext-core-runtime";
+import { roleAwareDefaults, tierDefaultToken } from "./budget-defaults.js";
 import { dispatchChild } from "./child-dispatch.js";
 import { realGitOps } from "./git-scope.js";
 import { missingRequiredTools } from "./impossible-tools.js";
@@ -42,11 +43,14 @@ import {
   workIntentPreview,
 } from "./subagent-tool-render.js";
 import {
+  augmentOutputWithSalvage,
   augmentOutputWithScopeViolation,
   buildDetails,
   buildRunRecord,
   buildSpawnOptions,
   captureWatchdogBaseline,
+  extractSalvage,
+  hasWriteTools,
   type RunProgress,
   resolveDisplayModel,
   runWatchdogReview,
@@ -192,6 +196,31 @@ export function createSubagentTool(
       // Shown WHILE the subagent runs, before the resolved model is known.
       const displayModelBeforeResolve = resolveDisplayModel(requestedModel, capability, tier, mainModel);
 
+      // 2026-08-15 hardening H3: role-aware dispatch bounds. Applied ONLY when
+      // the dispatch omits ALL of tokenBudget/maxTurns/timeoutMs (detected on
+      // the RAW params — timeoutMs is always defaulted downstream, so the check
+      // must run first). Role comes from the effective toolset (write tools ⇒
+      // writer); an unrestricted child reads as writer (bash is available).
+      // An explicit bound of ANY kind opts the whole envelope out, and
+      // SUBAGENT_TOKEN_BUDGET_DISABLE escapes entirely (same knob as the tier
+      // ceilings). Computed BEFORE buildSpawnOptions and written back into
+      // params so the spawn sees one coherent envelope; `bounds.notice` is
+      // surfaced into the result output + durable record below.
+      const effectiveAllowlist = params.tools ?? agentDef?.tools ?? options.getActiveTools?.();
+      const dispatchRole = hasWriteTools(effectiveAllowlist, params.excludeTools ?? agentDef?.disallowedTools)
+        ? "writer"
+        : "recon";
+      const bounds = roleAwareDefaults(
+        { tokenBudget: params.tokenBudget, maxTurns: params.maxTurns, timeoutMs: params.timeoutMs },
+        dispatchRole,
+        tierDefaultToken(tier, requestedModel ?? mainModel),
+      );
+      if (bounds.applied) {
+        params.tokenBudget = bounds.tokenBudget;
+        params.maxTurns = bounds.maxTurns;
+        params.timeoutMs = bounds.timeoutMs;
+      }
+
       try {
         const opts = buildSpawnOptions(
           {
@@ -302,8 +331,12 @@ export function createSubagentTool(
         }
         if (outcome.userAborted) {
           // Partial work is discarded (worktree) or left in-tree (real-tree);
-          // scope/watchdog review of a half-finished diff would be noise.
+          // scope/watchdog review of a half-finished diff would be noise. The
+          // transcript, though, is exactly the "code done, unreported" case —
+          // salvage the child's last words + touched files (H2).
           const model = progress.resolvedModel ?? displayModelBeforeResolve;
+          const salvage = extractSalvage(outcome.history ?? progress.lastHistory);
+          const abortedText = augmentOutputWithSalvage("Subagent aborted by user.", result.failure, true, salvage);
           options.persistence?.save(
             buildRunRecord(
               {
@@ -320,13 +353,14 @@ export function createSubagentTool(
               },
               {
                 status: "aborted",
-                output: "Subagent aborted by user.",
+                output: abortedText,
                 usage: result.usage,
+                salvage,
               },
             ),
           );
           return {
-            content: [{ type: "text" as const, text: "Subagent aborted by user." }],
+            content: [{ type: "text" as const, text: abortedText }],
             details: {
               agent: params.agent,
               model,
@@ -335,6 +369,7 @@ export function createSubagentTool(
               startedAt: t0,
               status: "aborted" as const,
               usage: result.usage,
+              salvage,
             },
           };
         }
@@ -342,6 +377,14 @@ export function createSubagentTool(
         // swallows any git failure so the guard never fails a run.
         const scopeCheck = outcome.scopeCheck;
         let output = augmentOutputWithScopeViolation(formatSubagentResult(result), scopeCheck);
+        // H3: one-line notice when role-aware bounds were applied (output+record).
+        if (bounds.applied && bounds.notice) output += `\n${bounds.notice}`;
+        // H2: terminal-abort salvage — budget/turns/timedout only (a "done" run
+        // already carries its output; "failed" keeps its error head).
+        const terminalAbort =
+          result.failure?.kind === "budget" || result.failure?.kind === "turns" || result.failure?.kind === "timedout";
+        const salvage = terminalAbort ? extractSalvage(outcome.history ?? progress.lastHistory) : undefined;
+        output = augmentOutputWithSalvage(output, result.failure, false, salvage);
         // Opt-in two-layer watchdog: run the review against the captured baseline.
         // Soft gate — appends a summary line only when runWatchdog actually ran OR
         // was edit-gated (no diff). A throw anywhere in the watchdog path is caught
@@ -363,7 +406,15 @@ export function createSubagentTool(
         const details = buildDetails(
           result,
           { model, requestedModel, fellBack: progress.fellBack },
-          { task: params.task, agent: params.agent, elapsedMs, startedAt: t0, scopeCheck, watchdog: watchdogResult },
+          {
+            task: params.task,
+            agent: params.agent,
+            elapsedMs,
+            startedAt: t0,
+            scopeCheck,
+            watchdog: watchdogResult,
+            salvage,
+          },
         );
         // Durable record for post-session replay (ticket 08). Write-once at
         // completion; best-effort — save() swallows errors so this can never
@@ -395,6 +446,7 @@ export function createSubagentTool(
               report: details.report,
               scopeCheck: details.scopeCheck,
               watchdog: watchdogResult,
+              salvage,
             },
           ),
         );

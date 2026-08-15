@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, test } from "bun:test";
 import assert from "node:assert/strict";
 import type { ModelTierConfig } from "@repo/pi-agent-ext-core-runtime";
-import { TIERED_TOKEN_BUDGET_DEFAULTS, tierDefaultToken } from "../src/budget-defaults.js";
+import {
+  ROLE_AWARE_DISPATCH_BOUNDS,
+  roleAwareDefaults,
+  TIERED_TOKEN_BUDGET_DEFAULTS,
+  tierDefaultToken,
+} from "../src/budget-defaults.js";
 
 const ENV_KNOBS = [
   "SUBAGENT_TOKEN_BUDGET_DISABLE",
@@ -127,4 +132,53 @@ test("env knobs: invalid multiplier values are silently ignored", () => {
 test("env knobs: disable flag with an invalid value is ignored (still budgeted)", () => {
   process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = "yes";
   assert.equal(tierDefaultToken("small", undefined, CFG), 500_000);
+});
+
+// ── #03 role-aware dispatch bounds (2026-08-15 hardening) ──
+
+test("ROLE_AWARE_DISPATCH_BOUNDS: recon 60k/8/5min, writer 400k/24/20min", () => {
+  assert.deepEqual(ROLE_AWARE_DISPATCH_BOUNDS.recon, { tokenBudget: 60_000, maxTurns: 8, timeoutMs: 300_000 });
+  assert.deepEqual(ROLE_AWARE_DISPATCH_BOUNDS.writer, { tokenBudget: 400_000, maxTurns: 24, timeoutMs: 1_200_000 });
+});
+
+test("roleAwareDefaults: all-omitted recon → full envelope + notice", () => {
+  const d = roleAwareDefaults({}, "recon");
+  assert.equal(d.applied, true);
+  assert.equal(d.tokenBudget, 60_000);
+  assert.equal(d.maxTurns, 8);
+  assert.equal(d.timeoutMs, 300_000);
+  assert.match(d.notice ?? "", /defaults applied \(recon\)/);
+});
+
+test("roleAwareDefaults: all-omitted writer → full envelope + notice", () => {
+  const d = roleAwareDefaults({}, "writer");
+  assert.equal(d.applied, true);
+  assert.deepEqual(
+    { tokenBudget: d.tokenBudget, maxTurns: d.maxTurns, timeoutMs: d.timeoutMs },
+    { tokenBudget: 400_000, maxTurns: 24, timeoutMs: 1_200_000 },
+  );
+  assert.match(d.notice ?? "", /defaults applied \(writer\)/);
+});
+
+test("roleAwareDefaults: ANY explicit bound (some- or all-passed) opts the whole envelope out", () => {
+  assert.equal(roleAwareDefaults({ tokenBudget: 5 }, "recon").applied, false);
+  assert.equal(roleAwareDefaults({ maxTurns: 3 }, "recon").applied, false);
+  assert.equal(roleAwareDefaults({ timeoutMs: 1_000 }, "recon").applied, false);
+  const all = roleAwareDefaults({ tokenBudget: 5, maxTurns: 3, timeoutMs: 1_000 }, "writer");
+  assert.equal(all.applied, false);
+  assert.equal(all.tokenBudget, undefined);
+  assert.equal(all.maxTurns, undefined);
+  assert.equal(all.timeoutMs, undefined);
+});
+
+test("roleAwareDefaults: SUBAGENT_TOKEN_BUDGET_DISABLE=1 escapes entirely", () => {
+  process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = "1";
+  assert.equal(roleAwareDefaults({}, "recon").applied, false);
+  assert.equal(roleAwareDefaults({}, "writer").applied, false);
+});
+
+test("roleAwareDefaults: recon ceiling is min(60k, tierCeiling); writer ignores it", () => {
+  assert.equal(roleAwareDefaults({}, "recon", 40_000).tokenBudget, 40_000);
+  assert.equal(roleAwareDefaults({}, "recon", 2_000_000).tokenBudget, 60_000);
+  assert.equal(roleAwareDefaults({}, "writer", 40_000).tokenBudget, 400_000);
 });

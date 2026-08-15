@@ -9,7 +9,7 @@ import {
   WorkflowError,
   WorkflowErrorCode,
 } from "@repo/pi-agent-ext-core-runtime";
-import { resolveSessionOverride, spawnSubagent } from "../src/spawn-subagent.js";
+import { deriveTaskLabel, resolveSessionOverride, spawnSubagent } from "../src/spawn-subagent.js";
 
 /** Minimal injectable runner (Pick<WorkflowAgent, "run">) that records calls. */
 function mkRunner(impl: (p: { prompt: string; opts: Record<string, unknown> }) => Promise<unknown>) {
@@ -550,5 +550,45 @@ describe("resolveSessionOverride (modelRuntime merge — ticket 07)", () => {
   it("top-level modelRuntime wins over session.modelRuntime", () => {
     const other = { __other: true } as any;
     assert.equal(resolveSessionOverride({ modelRuntime: other } as any, rt)?.modelRuntime, rt);
+  });
+});
+
+// ── H1 (2026-08-15 hardening): derived run labels (was hardcoded "zk-spawn") ──
+
+describe("deriveTaskLabel", () => {
+  it("leading sentence of the first non-empty line, slugified", () => {
+    assert.equal(deriveTaskLabel("Fix the login bug. Then verify."), "fix-the-login-bug");
+  });
+
+  it("caps at 40 chars with no trailing dashes", () => {
+    const label = deriveTaskLabel(
+      "investigate the flaky retry loop detector across every test file in the package now",
+    );
+    assert.ok(label.length <= 40, `label capped: "${label}"`);
+    assert.match(label, /^[a-z0-9][a-z0-9-]*[a-z0-9]$/, "slug-shaped, no leading/trailing dash");
+  });
+
+  it("skips blank leading lines", () => {
+    assert.equal(deriveTaskLabel("\n\n  Write the report.\nsecond line"), "write-the-report");
+  });
+
+  it('falls back to "task" on empty/whitespace/slug-less input', () => {
+    assert.equal(deriveTaskLabel(""), "task");
+    assert.equal(deriveTaskLabel("   \n\t \n"), "task");
+    assert.equal(deriveTaskLabel("!!! ???"), "task");
+  });
+});
+
+describe("spawnSubagent label threading (H1)", () => {
+  it("runner.run receives the derived label, not a hardcoded one", async () => {
+    const runner = mkRunner(async () => "ok");
+    await spawnSubagent({ task: "Do the thing now", tools: ["read"], agent: runner });
+    assert.equal(runner.calls[0]?.opts.label, "do-the-thing-now");
+  });
+
+  it("an explicit label wins over derivation", async () => {
+    const runner = mkRunner(async () => "ok");
+    await spawnSubagent({ task: "anything at all", label: "pinned", tools: ["read"], agent: runner });
+    assert.equal(runner.calls[0]?.opts.label, "pinned");
   });
 });

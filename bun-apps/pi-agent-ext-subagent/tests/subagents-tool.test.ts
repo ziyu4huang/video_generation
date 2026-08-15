@@ -89,7 +89,9 @@ test("#01 plural mirror: per-child tier default applied when tokenBudget omitted
     "batch-bud",
     {
       tasks: [
-        { task: "research", tier: "small" },
+        // H3: explicit maxTurns keeps the role-aware recon envelope off so the
+        // tier default (the thing under test) supplies the budget.
+        { task: "research", tier: "small", maxTurns: 6 },
         { task: "big synth", tier: "big", tokenBudget: 999 },
       ],
     } as never,
@@ -111,7 +113,12 @@ test("#1336 plural mirror: per-child task.maxTurns forwarded; omitted → undefi
   await tool.execute(
     "batch-maxturns",
     {
-      tasks: [{ task: "capped", maxTurns: 4 }, { task: "uncapped" }],
+      // H3: an explicit timeoutMs on "uncapped" opts out of the role-aware
+      // recon envelope, so omitted maxTurns stays genuinely unset.
+      tasks: [
+        { task: "capped", maxTurns: 4 },
+        { task: "uncapped", timeoutMs: 45_000 },
+      ],
     } as never,
     undefined as never,
     undefined,

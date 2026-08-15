@@ -20,7 +20,7 @@ import { join } from "node:path";
 import type { AgentHistoryEntry, AgentUsage, SddReport, TurnExhaustion } from "@repo/pi-agent-ext-core-runtime";
 import { homeDir } from "@repo/pi-agent-ext-core-runtime";
 import type { SubagentScopeCheck } from "./git-scope.js";
-import type { SubagentBudgetDetails } from "./subagent-tool-schema.js";
+import type { SubagentBudgetDetails, SubagentSalvage } from "./subagent-tool-schema.js";
 import type { WatchdogResult } from "./watchdog/types.js";
 
 export const SUBAGENT_HOME_RELATIVE_DIR = ".pi/subagents";
@@ -90,6 +90,13 @@ export interface SubagentRunRecord {
   turns?: TurnExhaustion;
   /** Two-layer watchdog review (ticket 02), when `watchdog` was requested on the dispatch. */
   watchdog?: WatchdogResult;
+  /**
+   * Terminal-abort salvage (2026-08-15 hardening): last assistant text (≤1500
+   * chars) + files touched by write tool calls, extracted from the transcript
+   * when the run aborted (budget/turns/timedout/user-abort). Old records
+   * without it parse unchanged.
+   */
+  salvage?: SubagentSalvage;
 }
 
 export type SubagentFsLayer = {

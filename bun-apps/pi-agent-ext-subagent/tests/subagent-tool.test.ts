@@ -77,7 +77,13 @@ test("execute maps params to spawn and returns the child output verbatim", async
   assert.equal(f.calls[0]?.model, "anthropic/claude-sonnet-4");
   assert.deepEqual(f.calls[0]?.tools, ["read"]);
   assert.equal(f.calls[0]?.instructions, "You are the implementer for this task.");
-  assert.equal((res.content[0] as { text: string }).text, "Status: DONE\n- 1/1 passing");
+  const text = (res.content[0] as { text: string }).text;
+  assert.match(text, /^Status: DONE\n- 1\/1 passing\b/, "child output is the head of the reply");
+  assert.match(
+    text,
+    /bounds: defaults applied \(recon\)/,
+    "H3: read-only all-omitted dispatch appends the recon notice",
+  );
   assert.equal(res.details.status, "done");
 });
 
@@ -85,7 +91,9 @@ test("execute maps params to spawn and returns the child output verbatim", async
 test("execute applies DEFAULT_TIMEOUT_MS when timeoutMs omitted", async () => {
   const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
-  await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  // H3: an explicit tokenBudget opts out of the role-aware envelope, so this
+  // still exercises the downstream wall-clock default in isolation.
+  await tool.execute("id", { task: "t", tokenBudget: 40_000 }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.timeoutMs, DEFAULT_TIMEOUT_MS);
 });
 
@@ -1196,7 +1204,12 @@ test("execute persists a durable record on completion (done), carrying the compa
   const rec = saved[0];
   assert.equal(rec.status, "done");
   assert.equal(rec.status, "done");
-  assert.equal(rec.output, "ok");
+  assert.ok(rec.output.startsWith("ok"), `child output leads the record: ${rec.output}`);
+  assert.match(
+    rec.output,
+    /bounds: defaults applied \(writer\)/,
+    "H3: unrestricted all-omitted dispatch notice persisted",
+  );
   assert.equal(rec.agent, "implementer");
   assert.equal(rec.cwd, "/repo");
   assert.equal(rec.toolCallId, "id-p1");
@@ -1390,7 +1403,9 @@ test("execute forwards tokenBudget/spendBudget to spawn", async () => {
 test("#01 default budget: no tokenBudget + tier:small → spawn receives 500000", async () => {
   const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
-  await tool.execute("id-bud", { task: "t", tier: "small" }, NO_SIGNAL, undefined, NO_CTX);
+  // H3: an explicit maxTurns opts out of the role-aware envelope so the tier
+  // policy (the thing under test) is what supplies the budget.
+  await tool.execute("id-bud", { task: "t", tier: "small", maxTurns: 20 }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.tokenBudget, 500_000, "tier:small with no explicit budget → 500k default");
 });
 
@@ -1404,7 +1419,7 @@ test("#01 default budget: explicit tokenBudget still wins", async () => {
 test("#01 default budget: no tier + no model → medium ceiling (1.2M)", async () => {
   const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn }); // no getMainModel → mainModel undefined
-  await tool.execute("id-bud3", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  await tool.execute("id-bud3", { task: "t", maxTurns: 20 }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.tokenBudget, 1_200_000, "no tier, no model → safe medium fallback");
 });
 
@@ -2060,4 +2075,25 @@ test("#04 opt-out: retryCircuitBreak:0 disables the detector", async () => {
   const tool = createSubagentTool({ spawn: f.spawn, persistence });
   await tool.execute("id-optout", { task, retryCircuitBreak: 0 }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls.length, 1, "retryCircuitBreak:0 disables the preflight");
+});
+
+// ── 2026-08-15 hardening: H4 footer at the tool seam + H1 derived label ──
+
+test("H4: abort-safety footer rides the SPAWNED task for write-capable children; the persisted task stays raw", async () => {
+  const { saved, persistence } = fakePersistence();
+  const f = fakeSpawn(() => ok("ok"));
+  const tool = createSubagentTool({ spawn: f.spawn, persistence });
+  await tool.execute("id-h4", { task: "refactor module", tools: ["edit", "read"] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.match(f.calls[0]?.task ?? "", /--- abort-safety/, "spawned task carries the footer");
+  assert.match(f.calls[0]?.task ?? "", /\/tmp\/subagent-runs\/id-h4\.md/, "cites the run-scoped log path");
+  assert.ok((f.calls[0]?.task ?? "").startsWith("refactor module"), "raw task still leads");
+  assert.equal(saved[0]?.task, "refactor module", "persisted record keeps the RAW task (no footer)");
+  assert.equal(f.calls[0]?.label, "refactor-module", "H1: derived label threads through the tool seam");
+});
+
+test("H4: read-only short dispatch gets NO footer", async () => {
+  const f = fakeSpawn(() => ok("ok"));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  await tool.execute("id-h4b", { task: "read only", tools: ["read"] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(f.calls[0]?.task, "read only");
 });

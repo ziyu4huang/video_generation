@@ -41,6 +41,19 @@ export interface SubagentBudgetDetails {
   warning?: BudgetWarning;
 }
 
+/**
+ * Terminal-abort salvage (2026-08-15 hardening): what an aborted child managed
+ * to produce before the ceiling hit. Present only on abort outcomes
+ * (budget/turns/timedout/user-abort); old records without it stay valid.
+ */
+export interface SubagentSalvage {
+  /** The child's LAST assistant text, trimmed, capped at 1500 chars. */
+  lastText?: string;
+  /** Paths touched by write tool calls (edit/write/multiedit/apply_patch),
+   *  first-touch order, deduped, capped at 40. */
+  files?: string[];
+}
+
 export interface SubagentToolDetails {
   /** Role label (params.agent), if provided. */
   agent?: string;
@@ -99,6 +112,8 @@ export interface SubagentToolDetails {
    * text carries a `watchdog-error:` line instead. Soft gate: never auto-fails.
    */
   watchdog?: WatchdogResult;
+  /** Terminal-abort salvage — see {@link SubagentSalvage}. Abort paths only. */
+  salvage?: SubagentSalvage;
 }
 
 /**
