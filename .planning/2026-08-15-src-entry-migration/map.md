@@ -27,12 +27,16 @@ by explicit decision. Landed per-package with canonical tests + cross-package ty
 - [Publish face: drop it](tickets/01-publish-face-decision.md) — (b) `private: true`; npm
   registry proof: all four 404 (never published, `@repo` scope unownable). Tickets 02–05
   delete publish fields with the root flip; ticket 05 may delete the heal machinery outright.
+- [webui pilot](tickets/02-webui-pilot.md) — root → src/index.ts, build dropped; 373 tests
+  green from src with dist/ deleted; recipe proven (PR #1391, squash `922664b6`).
+- [superpowers + wayfind](tickets/03-superpowers-wayfind.md) — same flip; mermaid vendor
+  survives as wayfind `pretest` (offline copy from node_modules); stale compiled `.test.js`
+  in old dists were duplicates, real suites green from src.
 
 ## Not yet specified
 
-- wayfind's mermaid vendor step (`architecture:vendor` in its `build`) — is the vendored
-  `vendor/mermaid.min.js` consumed from `src/` at dev time (making the vendor script
-  still needed after the tsc build goes away), or only from `dist/`? Sharpens ticket 03.
+(none — the mermaid-vendor fog resolved in ticket 03: src reads it at render time;
+vendor survives as wayfind's `pretest`, an offline copy from node_modules)
 
 ## Out of scope
 

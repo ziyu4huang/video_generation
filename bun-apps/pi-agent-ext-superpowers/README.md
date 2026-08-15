@@ -40,9 +40,8 @@ tests/                # skills.test.ts (Pi-loader rules) + bootstrap.test.ts (wi
 
 ```bash
 ( cd bun-apps/pi-agent-ext-superpowers && bun test )          # unit tests
-bun run --cwd bun-apps/pi-agent-ext-superpowers build          # tsc strict → dist/
 bun run --cwd bun-apps/pi-agent-ext-superpowers check          # biome (excludes skills/)
-bun run --cwd bun-apps/pi-agent-ext-superpowers test           # check + build + test:unit
+bun run --cwd bun-apps/pi-agent-ext-superpowers test           # check + test:unit (src entry — no build)
 ```
 
 ## Compatibility
