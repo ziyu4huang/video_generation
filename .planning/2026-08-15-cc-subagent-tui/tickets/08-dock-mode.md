@@ -1,6 +1,6 @@
 # Ticket 08 — Dock mode implementation (core-task)
 
-> Wave 3 · spec §4 · status: **stub** (awaiting plan) — depends on ticket 07 ADR
+> Wave 3 · spec §4 · status: **DONE** (#1441)
 
 ## Goal
 
