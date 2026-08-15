@@ -25,7 +25,7 @@
  * derivation. scripts/ci-local.sh parses the same matrix block, so the two local
  * runners cannot disagree about what a package's command is.
  */
-import type { SpawnFn } from "./spawn.js";
+import { SPAWN_TIMEOUT_EXIT_CODE, type SpawnFn } from "./spawn.js";
 import { runSchemaCostCheck } from "./schema-cost-check.js";
 import {
 	computeChangedPackages,
@@ -152,6 +152,16 @@ export interface CiOptions {
 	 * Overruns are reported (`overBudget`) but never fail `overall`.
 	 */
 	budgetMs?: number;
+	/**
+	 * Hard per-command wall-clock cap in ms, applied to every typecheck and test
+	 * spawn. Default 600 000 (10 minutes) — well above the slowest real package
+	 * (pi-agent, ~26s) so it can only ever catch a HANG, never a slow suite.
+	 *
+	 * Distinct from `budgetMs`, which is advisory and measured after the fact.
+	 * This one actually kills, because "report the overrun once it finishes" is
+	 * no help when the thing never finishes.
+	 */
+	perCommandTimeoutMs?: number;
 	/** Injectable clock for deterministic budget tests. Default Date.now. */
 	now?: () => number;
 	/**
@@ -323,6 +333,9 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	//        construction, not by luck.
 	//    Results are reassembled in the ORIGINAL package order.
 	const concurrency = Math.max(1, opts.concurrency ?? 4);
+	// Every per-package spawn below carries this. A hung package now fails ITSELF
+	// (exit 124) instead of hanging the whole run forever.
+	const timeoutMs = opts.perCommandTimeoutMs ?? 600_000;
 	const byName = new Map<string, CiPackageResult>(
 		pkgNames.map((name) => [name, { name, test: { exitCode: -1 } } as CiPackageResult]),
 	);
@@ -336,10 +349,10 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 		const scripts = (await readPkg(pkgDir)).scripts ?? {};
 		const t0 = now();
 		if (typeof scripts.typecheck === "string") {
-			const r = await spawn("bun", ["run", "typecheck"], { cwd: pkgDir });
+			const r = await spawn("bun", ["run", "typecheck"], { cwd: pkgDir, timeoutMs });
 			result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0 };
 		} else if (typeof scripts.check === "string" && /tsc/.test(scripts.check)) {
-			const r = await spawn("bun", ["run", "check"], { cwd: pkgDir });
+			const r = await spawn("bun", ["run", "check"], { cwd: pkgDir, timeoutMs });
 			result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0 };
 		} else {
 			result.typecheck = { exitCode: -1, skipped: true, note: "no tsc key" };
@@ -376,12 +389,24 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 			builds: cmdText !== null && /\bbuild\b/.test(cmdText),
 			run: async () => {
 				const t0 = now();
+				const timedOutNote = `HUNG — killed after ${timeoutMs}ms (exit ${SPAWN_TIMEOUT_EXIT_CODE}); this is a hang, not a test failure`;
 				if (typeof matrixCmd === "string") {
-					const r = await spawn("bash", ["-c", matrixCmd], { cwd: pkgDir });
-					result.test = { exitCode: r.exitCode, source: "matrix", command: matrixCmd, durationMs: now() - t0 };
+					const r = await spawn("bash", ["-c", matrixCmd], { cwd: pkgDir, timeoutMs });
+					result.test = {
+						exitCode: r.exitCode,
+						source: "matrix",
+						command: matrixCmd,
+						durationMs: now() - t0,
+						...(r.exitCode === SPAWN_TIMEOUT_EXIT_CODE ? { note: timedOutNote } : {}),
+					};
 				} else if (typeof scripts.test === "string") {
-					const r = await spawn("bun", ["run", "test"], { cwd: pkgDir });
-					result.test = { exitCode: r.exitCode, source: "package-script", durationMs: now() - t0 };
+					const r = await spawn("bun", ["run", "test"], { cwd: pkgDir, timeoutMs });
+					result.test = {
+						exitCode: r.exitCode,
+						source: "package-script",
+						durationMs: now() - t0,
+						...(r.exitCode === SPAWN_TIMEOUT_EXIT_CODE ? { note: timedOutNote } : {}),
+					};
 				} else {
 					result.test = { exitCode: -1, note: "no test script" };
 				}
@@ -410,7 +435,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	}
 	// 3c. Non-build rows, bounded parallelism.
 	await mapPool(
-		plans.filter((p) => !p.builds),
+		plans.filter((p) => !sequentialFirst(p)),
 		concurrency,
 		async (plan) => {
 			if (opts.signal?.aborted) return null;
