@@ -1,0 +1,525 @@
+# Review package: 046813fe..618ee8bc
+
+## Commits
+618ee8bc feat(webui): btw protocol frame and transport mapping
+
+## Files changed
+ .../2026-08-15-btw-panel-in-webui/sdd/progress.md  |   4 +
+ .../sdd/task-6-brief.md                            | 154 +++++++++++++++++++++
+ .../sdd/task-6-report.md                           |  27 ++++
+ bun-apps/pi-agent-ext-webui/src/protocol.ts        |  60 +++++++-
+ bun-apps/pi-agent-ext-webui/src/web-transport.ts   |  14 ++
+ .../pi-agent-ext-webui/tests/protocol-btw.test.ts  |  56 ++++++++
+ 6 files changed, 314 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+index b3172b59..64f67b60 100644
+--- a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+@@ -13,10 +13,14 @@ Task 3: fix round 1/5 (ruling: dedicated webuiBridgeUnsub field, human-approved
+ Task 3: fix round 1/5 (ruling: dedicated webuiBridgeUnsub field, human-approved deviation from plan verbatim; commits 4e5948f..909428a)
+ Task 3: complete (commits 6070604..909428a, re-review clean)
+ Task 3: minor (deferred): disposeBtwSession emits nothing when no active session (emitThreadEvent after early-exit) — Task 4 handlers must not rely on dispose-always-emits
+ Task 3: minor (deferred): subscribeWebuiBridge with a different runtime leaves old subscription attached (unreachable via current call sites)
+ Task 3: PLAN DEVIATION (human-approved 2026-08-15): bridge disposer lives in engine field webuiBridgeUnsub, NOT sr.subscriptions — plan Task 3 verbatim code superseded; later tasks/tests must not regress the overlay-attach guard
+ Task 4: implemented (commit pending review)
+ Task 4: complete (commits 909428a..69270a5, review clean; implementer was mechanical tester/committer — reviewer was sole compliance gate, approved)
+ Task 4: minor (deferred): BTW_COMMAND_CHANNEL subscription never torn down (no unsubscribe on shutdown) — harmless single-pi-per-process; note for hardening
+ Task 4: minor (deferred): handleWebuiCommand unserialized (rapid commands interleave) — brief defines single-command contract
+ Task 5: implemented (commit pending review)
++Task 5: complete (commits 69270a5..046813f, review clean)
++Task 5: minor (deferred): btwCommandFromFrame validates mode string only; thinking/model values pass unvalidated (plan-mandated verbatim) — Task 11 contract test mitigates
++Task 5: minor (deferred): isBtwEvent thread-state validation shallow (plan-mandated verbatim) — consumers must not assume state.messages
++Task 6: implemented (commit pending review)
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-6-brief.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-6-brief.md
+new file mode 100644
+index 00000000..245603d1
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-6-brief.md
+@@ -0,0 +1,154 @@
++### Task 6: protocol frame + transport mapping
++
++**Files:**
++- Modify: `bun-apps/pi-agent-ext-webui/src/protocol.ts` (add `BtwCommandFrameSchema` to the inbound union; add `BtwWebFrame` to the outbound `WebFrame` union)
++- Modify: `bun-apps/pi-agent-ext-webui/src/web-transport.ts` (new `parseCommand` case + `DispatchAction` member)
++- Test: `bun-apps/pi-agent-ext-webui/tests/protocol-btw.test.ts` (or extend the existing protocol/transport test files with these cases — follow wherever `appexec` frame tests live)
++
++**Interfaces:**
++- Consumes: Task 5 (`btwCommandFromFrame`, `BtwCommand`, `BtwEvent`); existing `validateInbound(raw): ClientFrame | null`, `WebTransport.parseCommand(frame): DispatchAction | ...`, TypeBox `Type`/`Static`.
++- Produces: `BtwCommandFrameSchema` / `BtwCommandFrame` (validated inbound frame `{ type: "btw"; kind; text?; mode?; model?; level? }`); `BtwWebFrame = { type: "btw"; event: BtwEvent }` member of `WebFrame`; `DispatchAction` member `{ kind: "btw"; command: BtwCommand }`.
++
++- [ ] **Step 1: Write the failing test**
++
++```ts
++// bun-apps/pi-agent-ext-webui/tests/protocol-btw.test.ts
++import { describe, expect, it } from "bun:test";
++import { validateInbound } from "../src/protocol";
++import { WebTransport } from "../src/web-transport";
++
++describe("btw inbound frames", () => {
++  it("validates well-formed btw command frames", () => {
++    expect(validateInbound({ type: "btw", kind: "ask", text: "hi" })).toEqual({
++      type: "btw",
++      kind: "ask",
++      text: "hi",
++    });
++    expect(validateInbound({ type: "btw", kind: "mode", mode: "tangent" })).toEqual({
++      type: "btw",
++      kind: "mode",
++      mode: "tangent",
++    });
++    expect(validateInbound({ type: "btw", kind: "model", model: { provider: "p", id: "m", api: "a" } })).toEqual({
++      type: "btw",
++      kind: "model",
++      model: { provider: "p", id: "m", api: "a" },
++    });
++  });
++
++  it("rejects frames with an unknown kind", () => {
++    expect(validateInbound({ type: "btw", kind: "bogus" })).toBeNull();
++    expect(validateInbound({ type: "btw" })).toBeNull();
++  });
++
++  it("parseCommand maps btw frames to a btw dispatch action", () => {
++    expect(WebTransport.parseCommand({ type: "btw", kind: "mode", mode: "tangent" } as never)).toEqual({
++      kind: "btw",
++      command: { kind: "mode", mode: "tangent" },
++    });
++    expect(WebTransport.parseCommand({ type: "btw", kind: "summarize" } as never)).toEqual({
++      kind: "btw",
++      command: { kind: "summarize" },
++    });
++  });
++
++  it("parseCommand returns null for inconsistent btw bodies", () => {
++    expect(WebTransport.parseCommand({ type: "btw", kind: "ask" } as never)).toBeNull();
++    expect(WebTransport.parseCommand({ type: "btw", kind: "mode", mode: "bogus" } as never)).toBeNull();
++  });
++});
++```
++
++If the existing transport tests already cover `parseCommand` for `appexec` in a dedicated file, add these cases there instead of a new file — keep the imports identical to that file's.
++
++- [ ] **Step 2: Run test to verify it fails**
++
++Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/protocol-btw.test.ts )`
++Expected: FAIL — `BtwCommandFrameSchema` not in the union (`validateInbound` returns null) and `parseCommand` has no `btw` case.
++
++- [ ] **Step 3: Implement protocol additions**
++
++In `bun-apps/pi-agent-ext-webui/src/protocol.ts` (TypeBox — NOT zod):
++
++```ts
++import { btwCommandFromFrame, type BtwEvent } from "./btw-channels";
++// (merge into the existing imports at the top of the file)
++
++export const BtwCommandFrameSchema = Type.Object({
++  type: Type.Literal("btw"),
++  kind: Type.Union([
++    Type.Literal("ask"),
++    Type.Literal("new"),
++    Type.Literal("clear"),
++    Type.Literal("inject"),
++    Type.Literal("summarize"),
++    Type.Literal("model"),
++    Type.Literal("thinking"),
++    Type.Literal("mode"),
++  ]),
++  text: Type.Optional(Type.String()),
++  mode: Type.Optional(Type.Union([Type.Literal("contextual"), Type.Literal("tangent")])),
++  model: Type.Optional(
++    Type.Union([
++      Type.Null(),
++      Type.Object({ provider: Type.String(), id: Type.String(), api: Type.String() }),
++    ]),
++  ),
++  level: Type.Optional(
++    Type.Union([
++      Type.Null(),
++      Type.Union([
++        Type.Literal("off"),
++        Type.Literal("low"),
++        Type.Literal("medium"),
++        Type.Literal("high"),
++      ]),
++    ]),
++  ),
++});
++export type BtwCommandFrame = Static<typeof BtwCommandFrameSchema>;
++```
++
++Add `BtwCommandFrameSchema` to the `InboundCommandSchema` union (alongside `AgenticWithTextSchema`, `AbortCommandSchema`, `AppExecCommandSchema`, `ControlCommandSchema`). Add the explicit outbound member to the `WebFrame` union:
++
++```ts
++export interface BtwWebFrame {
++  type: "btw";
++  event: BtwEvent;
++}
++```
++
++- [ ] **Step 4: Implement the transport mapping**
++
++In `bun-apps/pi-agent-ext-webui/src/web-transport.ts`:
++
++1. Extend the `DispatchAction` union with `{ kind: "btw"; command: BtwCommand }` (import `BtwCommand` from `./btw-channels`).
++2. In `parseCommand`, next to the existing `appexec` case:
++
++```ts
++if (frame.type === "btw") {
++  const command = btwCommandFromFrame(frame as BtwCommandFrameInput);
++  if (!command) return null;
++  return { kind: "btw", command };
++}
++```
++
++(Match the exact structural style of the existing `appexec` branch — if it uses a `switch` or destructuring, mirror that; keep the `btwCommandFromFrame` call and the null path identical.)
++
++- [ ] **Step 5: Run test to verify it passes**
++
++Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/protocol-btw.test.ts )`
++Expected: PASS (4 tests).
++
++- [ ] **Step 6: Run the package gate**
++
++Run: `( cd bun-apps/pi-agent-ext-webui && bun run test )`
++Expected: PASS — all 16 existing test files stay green (the new union member is additive).
++
++- [ ] **Step 7: Commit**
++
++```bash
++git add bun-apps/pi-agent-ext-webui/src/protocol.ts bun-apps/pi-agent-ext-webui/src/web-transport.ts bun-apps/pi-agent-ext-webui/tests/protocol-btw.test.ts
++git commit -m "feat(webui): add btw WS frame type and dispatch action"
++```
++
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-6-report.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-6-report.md
+new file mode 100644
+index 00000000..3de70114
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-6-report.md
+@@ -0,0 +1,27 @@
++# Task 6 Report — btw protocol frame and transport mapping
++
++## Status
++
++Implemented and committed. All tests green.
++
++## How work arrived
++
++The implementer dispatch ran out of budget with the implementation fully on disk but uncommitted. This dispatch performed mechanical completion only: ran the tests, wrote this report, updated the ledger, and committed. No source files were read or modified by this dispatch.
++
++## Test results
++
++- Focused: `bun test tests/protocol-btw.test.ts` — **4 pass / 0 fail** (9 expect() calls, 1 file)
++- Full gate: `bun run test` — **299 pass / 0 fail** (650 expect() calls, 23 files)
++
++## Files changed (git diff --stat)
++
++```
++ bun-apps/pi-agent-ext-webui/src/protocol.ts      | 60 +++++++++++++++++++++++-
++ bun-apps/pi-agent-ext-webui/src/web-transport.ts | 14 ++++++
++ bun-apps/pi-agent-ext-webui/tests/protocol-btw.test.ts (new, untracked → added)
++ 2 files changed, 73 insertions(+), 1 deletion(-)   (+ new test file)
++```
++
++## Compliance note
++
++Implementation not re-audited by implementer — task reviewer is the compliance gate.
+diff --git a/bun-apps/pi-agent-ext-webui/src/protocol.ts b/bun-apps/pi-agent-ext-webui/src/protocol.ts
+index 1e2f0cda..afaa8860 100644
+--- a/bun-apps/pi-agent-ext-webui/src/protocol.ts
++++ b/bun-apps/pi-agent-ext-webui/src/protocol.ts
+@@ -11,20 +11,21 @@
+  * compile time (spec §3) — this keeps the schema layer fully testable in
+  * isolation and preserves the Path-B migration seam.
+  *
+  * Validation stance: TypeBox (ecosystem standard — `pi-agent-cli` declares
+  * `"typebox": "^1.3.7"`; repo-wide grep for `zod` returns zero; spec §4). The
+  * import specifier is `"typebox"` (the v1.x package name — NOT legacy
+  * `@sinclair/typebox`).
+  */
+ import { Type, type Static } from "typebox";
+ import { Value } from "typebox/value";
++import type { BtwCommand, BtwEvent } from "./btw-channels.js";
+ 
+ // --- Inbound commands (client -> server), specs/04 §4 "Inbound commands" ---
+ 
+ /**
+  * Agentic commands that carry a text payload and route THROUGH the mutex gate:
+  * prompt / steer / followUp (steer/followUp map to `sendUserMessage` deliverAs).
+  */
+ const AgenticWithTextSchema = Type.Union([
+   Type.Object({ type: Type.Literal("prompt"), text: Type.String() }),
+   Type.Object({ type: Type.Literal("steer"), text: Type.String() }),
+@@ -46,26 +47,68 @@ const AppExecCommandSchema = Type.Object({
+   type: Type.Literal("appexec"),
+   extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+ });
+ 
+ /** Control commands (subscribe / unsubscribe) — v1 no-op beyond WS bookkeeping. */
+ const ControlCommandSchema = Type.Union([
+   Type.Object({ type: Type.Literal("subscribe") }),
+   Type.Object({ type: Type.Literal("unsubscribe") }),
+ ]);
+ 
++/**
++ * `btw` is the side-panel transport (Task 6): a validated command frame for the
++ * btw thread. Like `appexec`, the SCHEMA stays loose (optional payloads, no
++ * cross-field consistency) — an inconsistent body (e.g. `ask` without `text`)
++ * still VALIDATES here so it can be IGNORED at parse time via
++ * `btwCommandFromFrame` (never rejected by the schema, spec §6 forward-compat).
++ */
++export const BtwCommandFrameSchema = Type.Object({
++  type: Type.Literal("btw"),
++  kind: Type.Union([
++    Type.Literal("ask"),
++    Type.Literal("new"),
++    Type.Literal("clear"),
++    Type.Literal("inject"),
++    Type.Literal("summarize"),
++    Type.Literal("model"),
++    Type.Literal("thinking"),
++    Type.Literal("mode"),
++  ]),
++  text: Type.Optional(Type.String()),
++  mode: Type.Optional(Type.Union([Type.Literal("contextual"), Type.Literal("tangent")])),
++  model: Type.Optional(
++    Type.Union([
++      Type.Null(),
++      Type.Object({ provider: Type.String(), id: Type.String(), api: Type.String() }),
++    ]),
++  ),
++  level: Type.Optional(
++    Type.Union([
++      Type.Null(),
++      Type.Union([
++        Type.Literal("off"),
++        Type.Literal("low"),
++        Type.Literal("medium"),
++        Type.Literal("high"),
++      ]),
++    ]),
++  ),
++});
++export type BtwCommandFrame = Static<typeof BtwCommandFrameSchema>;
++
+ /** The full inbound command union (the authoritative wire schema, specs/04 §4). */
+ export const InboundCommandSchema = Type.Union([
+   AgenticWithTextSchema,
+   AbortCommandSchema,
+   AppExecCommandSchema,
+   ControlCommandSchema,
++  BtwCommandFrameSchema,
+ ]);
+ 
+ /** Inbound frame as validated by {@link validateInbound}. */
+ export type ClientFrame = Static<typeof InboundCommandSchema>;
+ 
+ // --- Outbound frames (server -> client), specs/04 §4 "Outbound frames" ---
+ 
+ /**
+  * Structural, type-only mirror of the reachable `ExtensionEvent` set (ticket 01).
+  * The SDK `ExtensionEvent` union is NEVER imported at runtime — this shape is
+@@ -92,23 +135,31 @@ export type WebFrame =
+       toolName: string;
+       details?: unknown;
+     }
+   | { type: "tool_result"; details?: unknown }
+   | { type: "turn_start" | "turn_end" }
+   | { type: "agent_settled" }
+   | { type: "session_before_compact" | "session_compact" }
+   // mutex signals — produced by the MutexNotifier impl (spec §3)
+   | { type: "mutex_blocked"; blocked: "web" | "tui"; by: "tui" | "web" }
+   | { type: "mutex_force_release"; driver: "web" | "tui" }
++  // btw side-panel — thread state snapshots / notices (Task 6)
++  | BtwWebFrame
+   // forward-compat: any other host event is forwarded generically (never thrown on)
+   | { type: string; details?: unknown; [k: string]: unknown };
+ 
++/** Outbound btw frame: a thread snapshot or notice (see `BtwEvent`, Task 5). */
++export interface BtwWebFrame {
++  type: "btw";
++  event: BtwEvent;
++}
++
+ // --- DispatchAction (the descriptor parseCommand returns), specs/04 §3 ---
+ 
+ /**
+  * The dispatch descriptor `WebTransport.parseCommand` resolves an inbound frame
+  * to (consumed by Task 1). `agentic` routes THROUGH the mutex; `appexec`
+  * BYPASSES it; `control` is a v1 no-op. `source: "extension"` marks the agentic
+  * path so the wiring gates via `MutexController.handleInput("extension")`.
+  */
+ export type DispatchAction =
+   | {
+@@ -128,21 +179,28 @@ export type DispatchAction =
+    * / `action.tweak` without an `as`. Future ops (e.g. an explicit cancel) add
+    * union members here.
+    */
+   | {
+       kind: "appexec";
+       op: "respond";
+       id: string;
+       action: string;
+       tweak?: string;
+     }
+-  | { kind: "control"; op: "subscribe" | "unsubscribe" };
++  | { kind: "control"; op: "subscribe" | "unsubscribe" }
++  /**
++   * `btw` is the side-panel command path (Task 6): the wiring forwards the
++   * command to the btw thread over the event bus — it is NOT agentic, so it
++   * must NOT acquire the mutex. An inconsistent body resolves to `null`
++   * (ignored at parse time, spec §6).
++   */
++  | { kind: "btw"; command: BtwCommand };
+ 
+ // --- Pure helpers ---
+ 
+ /**
+  * Schema-validate a parsed JSON value into a typed {@link ClientFrame}, or
+  * `null` if it is not a valid inbound command. Never throws — invalid input
+  * (non-objects, unknown discriminator, missing/non-string `text`) returns null
+  * (spec §6: malformed inbound is ignored, never crashes, never acquires a lock).
+  */
+ export function validateInbound(raw: unknown): ClientFrame | null {
+diff --git a/bun-apps/pi-agent-ext-webui/src/web-transport.ts b/bun-apps/pi-agent-ext-webui/src/web-transport.ts
+index a460b45f..c40cd928 100644
+--- a/bun-apps/pi-agent-ext-webui/src/web-transport.ts
++++ b/bun-apps/pi-agent-ext-webui/src/web-transport.ts
+@@ -24,39 +24,45 @@
+  *   followUp -> inject the text as a user message, delivered as a follow-up
+  *   abort    -> ask the context to abort the in-flight turn
+  */
+ import {
+   toWebFrame,
+   type ClientFrame,
+   type DispatchAction,
+   type EventLike,
+   type WebFrame,
+ } from "./protocol.js";
++import { btwCommandFromFrame } from "./btw-channels.js";
+ 
+ export class WebTransport {
+   /**
+    * Inbound: classify a validated {@link ClientFrame} into a
+    * {@link DispatchAction} descriptor.
+    *
+    * - agentic (`prompt` / `steer` / `followUp` / `abort`) → `{ kind:"agentic",
+    *   op, text?, source:"extension" }`. The `source:"extension"` is baked in here
+    *   because ALL inbound web agentic commands gate as `"extension"` (spec §1, §6)
+    *   — Task 3 passes it straight to the mutex controller's input gate
+    *   (`"extension"`) without having to know the web's source identity.
+    * - `appexec` → `{ kind:"appexec", op:"respond", id, action, tweak? }` with
+    *   NO `source` field. This is the contract the wiring branches on
+    *   (`kind === "agentic"`) to bypass the mutex entirely (spec §6: appexec
+    *   must NOT be routed through the input gate). `respond` is the HITL return
+    *   transport (spec Component 1, shipped in Phase 1): it resolves the pending
+    *   Promise registered under `id`. An unknown op or a malformed respond
+    *   resolves to `null` (ignored — spec §6 forward-compat).
+    * - `subscribe` / `unsubscribe` → `{ kind:"control", op }`.
++   * - `btw` → `{ kind:"btw", command }` (Task 6): the side-panel command path.
++   *   The validated frame body is narrowed via `btwCommandFromFrame`; an
++   *   inconsistent body (e.g. `ask` without text) → `null` (ignored — the schema
++   *   stays loose so such frames still VALIDATE, spec §6). NOT agentic: the
++   *   wiring must NOT route it through the mutex gate.
+    * - unknown type → `null` (defensive). A ClientFrame is a closed, validated
+    *   union so this is unreachable for well-typed input; but an unknown type must
+    *   never be silently mis-routed through agentic (which would spuriously acquire
+    *   the lock) or appexec. Malformed raw input is rejected earlier by
+    *   {@link validateInbound} (protocol.ts); this is the defensive tail.
+    */
+   parseCommand(frame: ClientFrame): DispatchAction | null {
+     switch (frame.type) {
+       case "prompt":
+       case "steer":
+@@ -85,20 +91,28 @@ export class WebTransport {
+             tweak?: string;
+           } = { kind: "appexec", op: "respond", id: extra.id, action: extra.action };
+           if (typeof extra.tweak === "string") out.tweak = extra.tweak;
+           return out;
+         }
+         return null;
+       }
+       case "subscribe":
+       case "unsubscribe":
+         return { kind: "control", op: frame.type };
++      case "btw": {
++        // Side-panel command path (Task 6): narrow the loose-but-validated body
++        // to a BtwCommand; inconsistent bodies are IGNORED here (null), never
++        // rejected by the schema (spec §6). Bypasses the mutex (not agentic).
++        const command = btwCommandFromFrame(frame);
++        if (!command) return null;
++        return { kind: "btw", command };
++      }
+       default:
+         // Unreachable for a valid ClientFrame (closed union). Defensive: never
+         // mis-route an unknown type through any gate (spec §6).
+         return null;
+     }
+   }
+ 
+   /**
+    * Outbound: map a host event to a {@link WebFrame}, forwarding `.details` /
+    * `.toolName` / any extras intact. Delegates to {@link toWebFrame} so the
+diff --git a/bun-apps/pi-agent-ext-webui/tests/protocol-btw.test.ts b/bun-apps/pi-agent-ext-webui/tests/protocol-btw.test.ts
+new file mode 100644
+index 00000000..e72c7011
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-webui/tests/protocol-btw.test.ts
+@@ -0,0 +1,56 @@
++/**
++ * protocol-btw.test.ts — btw WS frame schema + transport mapping (Task 6).
++ *
++ * Pins the inbound `{ type: "btw", kind, ... }` frame (BtwCommandFrameSchema in
++ * the InboundCommandSchema union) and the parseCommand mapping to the
++ * `{ kind: "btw", command }` DispatchAction via btwCommandFromFrame (Task 5).
++ * Inconsistent bodies resolve to null (ignored, spec §6) — never mis-routed.
++ */
++import { describe, expect, it } from "bun:test";
++import { validateInbound } from "../src/protocol.js";
++import { WebTransport } from "../src/web-transport.js";
++
++const t = new WebTransport();
++
++describe("btw inbound frames", () => {
++  it("validates well-formed btw command frames", () => {
++    expect(validateInbound({ type: "btw", kind: "ask", text: "hi" })).toEqual({
++      type: "btw",
++      kind: "ask",
++      text: "hi",
++    });
++    expect(validateInbound({ type: "btw", kind: "mode", mode: "tangent" })).toEqual({
++      type: "btw",
++      kind: "mode",
++      mode: "tangent",
++    });
++    expect(
++      validateInbound({ type: "btw", kind: "model", model: { provider: "p", id: "m", api: "a" } }),
++    ).toEqual({
++      type: "btw",
++      kind: "model",
++      model: { provider: "p", id: "m", api: "a" },
++    });
++  });
++
++  it("rejects frames with an unknown kind", () => {
++    expect(validateInbound({ type: "btw", kind: "bogus" })).toBeNull();
++    expect(validateInbound({ type: "btw" })).toBeNull();
++  });
++
++  it("parseCommand maps btw frames to a btw dispatch action", () => {
++    expect(t.parseCommand({ type: "btw", kind: "mode", mode: "tangent" } as never)).toEqual({
++      kind: "btw",
++      command: { kind: "mode", mode: "tangent" },
++    });
++    expect(t.parseCommand({ type: "btw", kind: "summarize" } as never)).toEqual({
++      kind: "btw",
++      command: { kind: "summarize" },
++    });
++  });
++
++  it("parseCommand returns null for inconsistent btw bodies", () => {
++    expect(t.parseCommand({ type: "btw", kind: "ask" } as never)).toBeNull();
++    expect(t.parseCommand({ type: "btw", kind: "mode", mode: "bogus" } as never)).toBeNull();
++  });
++});

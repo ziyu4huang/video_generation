@@ -1,0 +1,520 @@
+# Review package: cb38a618..821f6b3a
+
+## Commits
+821f6b3a feat(webui): wire btw panel client logic over /ws and /api/btw
+
+## Files changed
+ .../2026-08-15-btw-panel-in-webui/sdd/progress.md  |   4 +
+ .../sdd/task-10-brief.md                           | 183 +++++++++++++++++++++
+ .../sdd/task-10-report.md                          |  35 ++++
+ bun-apps/pi-agent-ext-webui/src/render-shell.ts    | 138 +++++++++++++++-
+ .../tests/render-shell-btw.test.ts                 |  21 +++
+ 5 files changed, 377 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+index 818edcad..423fc789 100644
+--- a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+@@ -28,10 +28,14 @@ Task 6: complete (commits 046813f..618ee8bc, review clean; implementer was mecha
+ Task 6: minor (deferred): BtwWebFrame interface declared after its WebFrame union reference (cosmetic, plan-mandated)
+ Task 7: implemented (commit pending review)
+ Task 7: complete (commits 618ee8bc..a5f0b1b, review clean)
+ Task 7: minor (deferred): store returns shared EMPTY_STATE by reference pre-first-thread-event (plan-mandated) — Task 8 consumers must NOT mutate state()
+ Task 7: minor (deferred): no test for second-thread-event replacement — Task 8 tests may cover
+ Task 8: implemented (commit pending review)
+ Task 8: complete (commits a5f0b1b..a28dc86, review clean; implementer died post-staging — mechanical completion, reviewer sole compliance gate, approved)
+ Task 8: minor (deferred): createBtwRoutes deps closure re-instantiated per request (plan-mandated verbatim) — hoist candidate for hardening
+ Task 8: minor (deferred): no store second-thread-event-replacement or getModels null-bound test — deferred to Task 11 contract test per brief
+ Task 9: implemented (commit pending review)
++Task 9: complete (commits a28dc86..cb38a61, review clean)
++Task 9: minor (deferred): btw-panel-collapsed string only in CSS contract comment (plan-mandated toContain test) — Task 10 must wire the literal key
++Task 9: minor (deferred): BTW_MESSAGE_HTML interpolates m.id/m.role unescaped (plan-mandated verbatim) — harden alongside Task 10/11
++Task 10: implemented (commit pending review)
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-10-brief.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-10-brief.md
+new file mode 100644
+index 00000000..c84d08b7
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-10-brief.md
+@@ -0,0 +1,183 @@
++### Task 10: shell client logic (pull-then-subscribe, first inbound WS consumer, command sends)
++
++**Files:**
++- Modify: `bun-apps/pi-agent-ext-webui/src/render-shell.ts` (`RENDER_SHELL_HTML` `<script>` block)
++- Test: extend `bun-apps/pi-agent-ext-webui/tests/render-shell-btw.test.ts`
++
++**Interfaces:**
++- Consumes: Task 9 (`BTW_FRAME` shape, panel ids, `BTW_MESSAGE_HTML` row contract); existing shell send path used by `sendAppexecResponse` (the `/ws` socket with 2s-retry reconnect — reuse its raw send, do not open a second socket); existing `new EventSource('/api/events')` refresh loop (unchanged).
++- Produces: shell JS behaviors — `fetch('/api/btw')` pull on load, `fetch('/api/btw/models')` dropdown fill, `ws.onmessage` handling `{ type: "btw"; event }` frames (FIRST inbound WS consumer), message list append/patch/prune keyed by `data-id`, `localStorage` collapse persistence, outbound `btw` frames via the existing socket.
++
++- [ ] **Step 1: Write the failing test (append to tests/render-shell-btw.test.ts)**
++
++```ts
++describe("RENDER_SHELL_HTML btw client logic", () => {
++  it("ships the first inbound ws handler for btw frames", () => {
++    expect(RENDER_SHELL_HTML).toContain("ws.onmessage");
++    expect(RENDER_SHELL_HTML).toContain('frame.type === "btw"');
++  });
++
++  it("pulls the thread snapshot and model list on load (pull-then-subscribe)", () => {
++    expect(RENDER_SHELL_HTML).toContain("fetch('/api/btw')");
++    expect(RENDER_SHELL_HTML).toContain("fetch('/api/btw/models')");
++  });
++
++  it("sends btw commands over the existing /ws socket", () => {
++    expect(RENDER_SHELL_HTML).toContain("sendBtw(");
++    expect(RENDER_SHELL_HTML.split("new WebSocket(").length - 1).toBe(1); // exactly one construction site
++  });
++
++  it("keeps the SSE refresh loop as-is", () => {
++    expect(RENDER_SHELL_HTML).toContain("new EventSource('/api/events')");
++  });
++});
++```
++
++Note the occurrence-count guard: the shell must keep exactly ONE `new WebSocket(` construction — the existing `connectWs` in `RENDER_SHELL_HTML` (which builds its single `/ws` socket once). The panel reuses that socket; the test guards against adding a second construction site.
++
++- [ ] **Step 2: Run test to verify it fails**
++
++Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/render-shell-btw.test.ts )`
++Expected: FAIL — the four new describe cases fail (no `ws.onmessage`, no btw fetches, no `sendBtw`).
++
++- [ ] **Step 3: Implement the shell client logic**
++
++Add to the `<script>` block in `RENDER_SHELL_HTML` (single-quoted strings to match the test assertions):
++
++```js
++// --- btw side panel ---
++var btwState = { messages: [], mode: 'contextual', model: null, thinking: null };
++var btwModels = [];
++
++function btwApplyCollapsed() {
++  document.body.classList.toggle('btw-collapsed', localStorage.getItem('btw-panel-collapsed') === '1');
++}
++
++function btwRenderMessages(messages) {
++  var list = document.getElementById('btw-messages');
++  if (!list) return;
++  var seen = {};
++  messages.forEach(function (m) {
++    seen[m.id] = true;
++    var existing = list.querySelector('[data-id="' + m.id + '"]');
++    var html = btwMessageHtml(m);
++    if (existing) existing.outerHTML = html;
++    else list.insertAdjacentHTML('beforeend', html);
++  });
++  Array.prototype.forEach.call(list.querySelectorAll('[data-id]'), function (el) {
++    if (!seen[el.getAttribute('data-id')]) el.remove();
++  });
++  list.scrollTop = list.scrollHeight;
++}
++
++function btwMessageHtml(m) {
++  var esc = function (s) {
++    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
++  };
++  var status = m.status === 'done' ? '' : '<span class="btw-status">' + esc(m.statusText || m.status) + '</span>';
++  return '<div class="btw-msg btw-' + m.role + '" data-id="' + m.id + '"><div class="btw-text">' + esc(m.text) + '</div>' + status + '</div>';
++}
++
++function btwApplyEvent(event) {
++  if (event.type === 'thread') {
++    btwState = event.state;
++    btwRenderMessages(event.state.messages);
++    var modeBtn = document.getElementById('btw-mode');
++    if (modeBtn) modeBtn.textContent = 'Mode: ' + event.state.mode;
++  } else if (event.type === 'notice') {
++    var list = document.getElementById('btw-messages');
++    if (list) list.insertAdjacentHTML('beforeend', '<div class="btw-notice">' + String(event.text).replace(/</g, '&lt;') + '</div>');
++  }
++}
++
++function sendBtw(kind, extra) {
++  var frame = { type: 'btw', kind: kind };
++  if (extra) Object.keys(extra).forEach(function (k) { if (extra[k] !== undefined) frame[k] = extra[k]; });
++  sendRaw(JSON.stringify(frame));
++}
++
++function btwInit() {
++  btwApplyCollapsed();
++  var collapse = document.getElementById('btw-collapse');
++  if (collapse) collapse.addEventListener('click', function () {
++    var collapsed = document.body.classList.toggle('btw-collapsed');
++    localStorage.setItem('btw-panel-collapsed', collapsed ? '1' : '0');
++  });
++
++  fetch('/api/btw').then(function (r) { return r.ok ? r.json() : null; }).then(function (state) {
++    if (state && state.messages) { btwState = state; btwRenderMessages(state.messages); }
++  });
++
++  fetch('/api/btw/models').then(function (r) { return r.ok ? r.json() : []; }).then(function (models) {
++    btwModels = models || [];
++    var sel = document.getElementById('btw-model');
++    if (!sel) return;
++    sel.innerHTML = '';
++    var none = document.createElement('option');
++    none.value = '';
++    none.textContent = 'Main session model';
++    sel.appendChild(none);
++    btwModels.forEach(function (m, i) {
++      var opt = document.createElement('option');
++      opt.value = String(i);
++      opt.textContent = m.provider + '/' + m.id;
++      sel.appendChild(opt);
++    });
++  });
++
++  document.getElementById('btw-ask').addEventListener('click', function () {
++    var input = document.getElementById('btw-input');
++    var text = input.value.trim();
++    if (!text) return;
++    input.value = '';
++    sendBtw('ask', { text: text });
++  });
++  ['new', 'clear', 'inject', 'summarize'].forEach(function (kind) {
++    document.getElementById('btw-' + kind).addEventListener('click', function () { sendBtw(kind); });
++  });
++  document.getElementById('btw-mode').addEventListener('click', function () {
++    sendBtw('mode', { mode: btwState.mode === 'contextual' ? 'tangent' : 'contextual' });
++  });
++  document.getElementById('btw-model').addEventListener('change', function () {
++    var m = btwModels[Number(this.value)];
++    sendBtw('model', { model: m ? { provider: m.provider, id: m.id, api: m.api } : null });
++  });
++  document.getElementById('btw-thinking').addEventListener('change', function () {
++    sendBtw('thinking', { level: this.value === '' ? null : this.value });
++  });
++}
++btwInit();
++
++// First inbound consumer of the /ws socket (it was send-only before this change).
++ws.onmessage = function (message) {
++  var frame;
++  try { frame = JSON.parse(message.data); } catch (e) { return; }
++  if (frame && frame.type === 'btw' && frame.event) btwApplyEvent(frame.event);
++};
++```
++
++Placement notes for the implementer:
++
++- `sendRaw(payload)` — send `payload` through the SAME `/ws` socket `sendAppexecResponse` uses. If that function inlines its `ws.send(...)` call, extract or reuse the identical send expression inside `sendBtw` (do not duplicate the reconnect logic; the existing 2s-retry socket stays the only one). Do NOT build the `{ type: 'btw', ... }` object with an `extra` wrapper — the frame must be FLAT (`{ type: 'btw', kind, text?, mode?, model?, level? }`), matching `BtwCommandFrameSchema`; if the spread of `extra` keys above is awkward, write `var frame = { type: 'btw', kind: kind }; if (extra) Object.keys(extra).forEach(function (k) { if (extra[k] !== undefined) frame[k] = extra[k]; });` and `JSON.stringify(frame)`.
++- `ws.onmessage` — assign it at the site where the `/ws` socket is created/opened (next to `sendAppexecResponse`'s definition), so `ws` refers to the live, reconnecting socket instance.
++- `btwInit()` — call it at the end of the existing DOM-ready/init sequence, after the tab/view wiring, so all `getElementById` targets exist.
++
++- [ ] **Step 4: Run test to verify it passes**
++
++Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/render-shell-btw.test.ts )`
++Expected: PASS (9 tests: 5 from Task 9 + 4 new).
++
++- [ ] **Step 5: Run the package gate**
++
++Run: `( cd bun-apps/pi-agent-ext-webui && bun run test )`
++Expected: PASS.
++
++- [ ] **Step 6: Commit**
++
++```bash
++git add bun-apps/pi-agent-ext-webui/src/render-shell.ts bun-apps/pi-agent-ext-webui/tests/render-shell-btw.test.ts
++git commit -m "feat(webui): wire btw panel client logic over /ws and /api/btw"
++```
++
++## Phase 4 — contract + gates
++
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-10-report.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-10-report.md
+new file mode 100644
+index 00000000..d7b6a737
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-10-report.md
+@@ -0,0 +1,35 @@
++# Task 10 Report — shell client logic (pull-then-subscribe, first inbound WS consumer, command sends)
++
++## Status
++
++Complete. Commit `7015f88d` (amended to include planning artifacts) on `feat/btw-panel-in-webui`.
++
++## What was implemented
++
++All in `bun-apps/pi-agent-ext-webui/src/render-shell.ts` (`RENDER_SHELL_HTML` `<script>` block), plus 4 new test cases in `tests/render-shell-btw.test.ts`:
++
++1. **Failing tests first (TDD)** — appended the brief's `RENDER_SHELL_HTML btw client logic` describe block verbatim; confirmed 3 of 4 new cases fail before implementation (the SSE case already passed).
++2. **First inbound WS consumer** — `ws.onmessage` assigned inside `connectWs()` (so every reconnecting socket instance gets it), parsing JSON frames and dispatching `{ type: "btw", event }` to `btwApplyEvent`. Exactly one `new WebSocket(` construction site remains (guarded by test).
++3. **sendRaw extraction** — `sendAppexecResponse`'s inline `ws.send` + readyState check extracted into `sendRaw(payload)`; `sendAppexecResponse` and `sendBtw` both route through it. No second socket, no duplicated reconnect logic.
++4. **sendBtw(kind, extra)** — builds the FLAT `{ type: 'btw', kind, ...extra }` frame (no nested `extra` wrapper, undefined keys omitted) per `BtwCommandFrameSchema`, stringified via `sendRaw`.
++5. **Pull-then-subscribe** — `btwInit()` fetches `GET /api/btw` (thread snapshot → `btwRenderMessages`) and `GET /api/btw/models` (dropdown fill, index-valued options, "Main session model" default), called at the end of the init IIFE after `refresh()`/`subscribe()`.
++6. **Render pipeline** — `btwRenderMessages` append/patch/prune keyed by `data-id` (outerHTML patch for existing rows, removal of unseen rows, autoscroll); `btwMessageHtml` is the inlined duplicate of `BTW_MESSAGE_HTML` (same intentional duplication pattern as `APPEXEC_FRAME`); `btwApplyEvent` handles `thread` (state swap + re-render + mode button label) and `notice` (escaped notice row).
++7. **Wiring** — collapse toggle persists `localStorage["btw-panel-collapsed"]` ('1'/'0') and `btwApplyCollapsed()` applies it on load (was only a CSS contract comment after Task 9); ask/new/clear/inject/summarize/mode/model/thinking handlers send via `sendBtw`.
++
++## Deviations from the brief's verbatim snippet
++
++- **`frame.type === "btw"` uses double quotes** in the `ws.onmessage` handler: the brief's Step 1 test asserts `toContain('frame.type === "btw"')` while its Step 3 snippet used single quotes — contradiction; the test is binding, so double quotes win (harmless inside the TS template literal).
++- **`sendRaw` extracted** rather than duplicating the readyState-guarded send inside `sendBtw` (brief explicitly allows/encourages this).
++- Shell style adapted (const/let, null-guarded `getElementById` before `addEventListener`) — all test-asserted literals preserved exactly.
++- Notice rows also autoscroll the message list (brief snippet set `scrollTop` only on thread renders; small consistency win, no contract impact).
++
++## Test results
++
++- Focused: `bun test tests/render-shell-btw.test.ts` → 10 pass, 0 fail (5 Task 9 + 4 new + …; counts as plan predicted).
++- Package gate: `bun run test` → **316 pass, 0 fail** across 26 files.
++
++## Concerns / notes for review
++
++- `btwMessageHtml` (inline) still interpolates `m.id` / `m.role` unescaped — carried over deliberately from Task 9's plan-verbatim helper; Task 9 progress notes flag hardening for Task 10/11. Since ids/roles originate server-side (btw package), the exposure is internal; recommend hardening both copies together in a later pass.
++- `btwState.model` / `btwState.thinking` from the snapshot are not reflected into the `<select>` UI on load (the snapshot drives messages + mode only, matching the brief's verbatim snippet). If the server later sends selections, Task 11 or a follow-up can sync the dropdowns.
++- Model selection sends `{ provider, id, api }` derived from the last `/api/btw/models` fetch; if the list is stale the engine is expected to reject unknown models (server-side concern).
+diff --git a/bun-apps/pi-agent-ext-webui/src/render-shell.ts b/bun-apps/pi-agent-ext-webui/src/render-shell.ts
+index aaf27962..8acae5f8 100644
+--- a/bun-apps/pi-agent-ext-webui/src/render-shell.ts
++++ b/bun-apps/pi-agent-ext-webui/src/render-shell.ts
+@@ -178,51 +178,180 @@ let ws = null;
+ let wsRetryTimer = null;
+ 
+ function connectWs() {
+   ws = new WebSocket(wsUrl);
+   ws.onopen = function () { console.log('[webui] response ws open'); };
+   ws.onclose = function () {
+     console.log('[webui] response ws closed; retry in 2s');
+     scheduleWsRetry();
+   };
+   ws.onerror = function () { console.warn('[webui] response ws error'); scheduleWsRetry(); };
++  // FIRST inbound consumer of the /ws socket (it was send-only before btw).
++  ws.onmessage = function (message) {
++    let frame; try { frame = JSON.parse(message.data); } catch { return; }
++    if (frame && frame.type === "btw" && frame.event) btwApplyEvent(frame.event);
++  };
+ }
+ 
+ function scheduleWsRetry() {
+   if (wsRetryTimer !== null) return; // one in-flight retry timer at most
+   wsRetryTimer = setTimeout(function () { wsRetryTimer = null; connectWs(); }, 2000);
+ }
+ 
+ connectWs();
+ 
+ function logResponse(text) {
+   const body = document.getElementById('webui-feedback-log-body');
+   if (!body) return;
+   const line = document.createElement('div');
+   const shown = text.length > 120 ? text.slice(0, 117) + '...' : text;
+   line.textContent = '\u2192 ' + fmtTime(Date.now()) + ' \u00b7 ' + shown;
+   body.appendChild(line);
+ }
+ 
++function sendRaw(payload) {
++  if (ws && ws.readyState === WebSocket.OPEN) {
++    ws.send(payload);
++    return true;
++  }
++  console.warn('[webui] ws not open; would send:', payload);
++  return false;
++}
++
+ function sendAppexecResponse(id, action, tweak) {
+   const extra = { kind: 'respond', id: id, action: action };
+   if (tweak) extra.tweak = tweak; // omit the key when absent (present-tool details semantics)
+   const frame = { type: 'appexec', extra: extra };
+-  if (ws && ws.readyState === WebSocket.OPEN) {
+-    ws.send(JSON.stringify(frame));
++  if (sendRaw(JSON.stringify(frame))) {
+     console.log('[webui] appexec response sent:', JSON.stringify(frame));
+-  } else {
+-    console.warn('[webui] ws not open; would send:', frame);
+   }
+   logResponse(action + (tweak ? ' (tweak: ' + tweak + ')' : ''));
+ }
+ 
++// --- btw side panel client logic (Task 10) ---
++// Pull-then-subscribe: GET /api/btw + /api/btw/models on load, then inbound
++// { type: 'btw', event } frames over the SAME /ws socket keep the panel live.
++let btwState = { messages: [], mode: 'contextual', model: null, thinking: null };
++let btwModels = [];
++
++function btwApplyCollapsed() {
++  document.body.classList.toggle('btw-collapsed', localStorage.getItem('btw-panel-collapsed') === '1');
++}
++
++function btwRenderMessages(messages) {
++  const list = document.getElementById('btw-messages');
++  if (!list) return;
++  const seen = {};
++  messages.forEach(function (m) {
++    seen[m.id] = true;
++    const existing = list.querySelector('[data-id="' + m.id + '"]');
++    const html = btwMessageHtml(m);
++    if (existing) existing.outerHTML = html;
++    else list.insertAdjacentHTML('beforeend', html);
++  });
++  list.querySelectorAll('[data-id]').forEach(function (el) {
++    if (!seen[el.getAttribute('data-id')]) el.remove();
++  });
++  list.scrollTop = list.scrollHeight;
++}
++
++// Inlined duplicate of the BTW_MESSAGE_HTML helper (the served HTML string has
++// no module / build step — same intentional duplication as APPEXEC_FRAME).
++function btwMessageHtml(m) {
++  const esc = function (s) {
++    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
++  };
++  const status = m.status === 'done'
++    ? ''
++    : '<span class="btw-status">' + esc(m.statusText || m.status) + '</span>';
++  return '<div class="btw-msg btw-' + m.role + '" data-id="' + m.id + '"><div class="btw-text">' + esc(m.text) + '</div>' + status + '</div>';
++}
++
++function btwApplyEvent(event) {
++  if (event.type === 'thread') {
++    btwState = event.state;
++    btwRenderMessages(event.state.messages);
++    const modeBtn = document.getElementById('btw-mode');
++    if (modeBtn) modeBtn.textContent = 'Mode: ' + event.state.mode;
++  } else if (event.type === 'notice') {
++    const list = document.getElementById('btw-messages');
++    if (list) {
++      list.insertAdjacentHTML('beforeend', '<div class="btw-notice">' + String(event.text).replace(/</g, '&lt;') + '</div>');
++      list.scrollTop = list.scrollHeight;
++    }
++  }
++}
++
++// Flat btw command frame (BtwCommandFrameSchema shape — NO extra wrapper),
++// sent over the single /ws socket via sendRaw.
++function sendBtw(kind, extra) {
++  const frame = { type: 'btw', kind: kind };
++  if (extra) Object.keys(extra).forEach(function (k) { if (extra[k] !== undefined) frame[k] = extra[k]; });
++  sendRaw(JSON.stringify(frame));
++}
++
++function btwInit() {
++  btwApplyCollapsed();
++  const collapse = document.getElementById('btw-collapse');
++  if (collapse) collapse.addEventListener('click', function () {
++    const collapsed = document.body.classList.toggle('btw-collapsed');
++    localStorage.setItem('btw-panel-collapsed', collapsed ? '1' : '0');
++  });
++
++  fetch('/api/btw').then(function (r) { return r.ok ? r.json() : null; }).then(function (state) {
++    if (state && state.messages) { btwState = state; btwRenderMessages(state.messages); }
++  });
++
++  fetch('/api/btw/models').then(function (r) { return r.ok ? r.json() : []; }).then(function (models) {
++    btwModels = models || [];
++    const sel = document.getElementById('btw-model');
++    if (!sel) return;
++    sel.innerHTML = '';
++    const none = document.createElement('option');
++    none.value = '';
++    none.textContent = 'Main session model';
++    sel.appendChild(none);
++    btwModels.forEach(function (m, i) {
++      const opt = document.createElement('option');
++      opt.value = String(i);
++      opt.textContent = m.provider + '/' + m.id;
++      sel.appendChild(opt);
++    });
++  });
++
++  const ask = document.getElementById('btw-ask');
++  if (ask) ask.addEventListener('click', function () {
++    const input = document.getElementById('btw-input');
++    const text = input.value.trim();
++    if (!text) return;
++    input.value = '';
++    sendBtw('ask', { text: text });
++  });
++  ['new', 'clear', 'inject', 'summarize'].forEach(function (kind) {
++    const btn = document.getElementById('btw-' + kind);
++    if (btn) btn.addEventListener('click', function () { sendBtw(kind); });
++  });
++  const modeBtn = document.getElementById('btw-mode');
++  if (modeBtn) modeBtn.addEventListener('click', function () {
++    sendBtw('mode', { mode: btwState.mode === 'contextual' ? 'tangent' : 'contextual' });
++  });
++  const modelSel = document.getElementById('btw-model');
++  if (modelSel) modelSel.addEventListener('change', function () {
++    const m = btwModels[Number(this.value)];
++    sendBtw('model', { model: m ? { provider: m.provider, id: m.id, api: m.api } : null });
++  });
++  const thinkingSel = document.getElementById('btw-thinking');
++  if (thinkingSel) thinkingSel.addEventListener('change', function () {
++    sendBtw('thinking', { level: this.value === '' ? null : this.value });
++  });
++}
++
+ // One response per presentation: remembered across SSE re-renders so the
+ // toolbar re-renders disabled with the chosen control marked.
+ let respondedPresent = null; // { id, action }
+ 
+ function renderControls(v) {
+   if (!v.presentId || !v.controls || !v.controls.length) return;
+   const done = respondedPresent && respondedPresent.id === v.presentId;
+   const bar = document.createElement('div');
+   bar.className = 'webui-toolbar';
+   v.controls.forEach(function (c) {
+@@ -275,20 +404,21 @@ function renderControls(v) {
+ 
+ (async function () {
+   const clearLink = document.getElementById('webui-log-clear');
+   if (clearLink) clearLink.onclick = function (e) {
+     e.preventDefault();
+     const body = document.getElementById('webui-feedback-log-body');
+     if (body) body.innerHTML = '';
+   };
+   await refresh();
+   subscribe();
++  btwInit(); // after the tab/view wiring so all getElementById targets exist
+ })();
+ </script>
+ </body>
+ </html>`;
+ 
+ /**
+  * Pure appexec respond frame (phase 3, spec Component 4). This is the PINNED
+  * wire shape the inline browser script above duplicates; tests assert against
+  * it so the exact frame is gridded WITHOUT a DOM. The inline script must
+  * inline the same logic (the served HTML string has no module / build step),
+diff --git a/bun-apps/pi-agent-ext-webui/tests/render-shell-btw.test.ts b/bun-apps/pi-agent-ext-webui/tests/render-shell-btw.test.ts
+index 3b2c28c3..3172dd69 100644
+--- a/bun-apps/pi-agent-ext-webui/tests/render-shell-btw.test.ts
++++ b/bun-apps/pi-agent-ext-webui/tests/render-shell-btw.test.ts
+@@ -22,20 +22,41 @@ describe("BTW_FRAME pure helper", () => {
+     expect(BTW_FRAME("mode", { mode: "tangent" })).toEqual({ type: "btw", kind: "mode", mode: "tangent" });
+   });
+ 
+   it("omits the extra keys entirely when none are given", () => {
+     const f = BTW_FRAME("clear");
+     expect(f).toEqual({ type: "btw", kind: "clear" });
+     expect("text" in f).toBe(false);
+   });
+ });
+ 
++describe("RENDER_SHELL_HTML btw client logic", () => {
++  it("ships the first inbound ws handler for btw frames", () => {
++    expect(RENDER_SHELL_HTML).toContain("ws.onmessage");
++    expect(RENDER_SHELL_HTML).toContain('frame.type === "btw"');
++  });
++
++  it("pulls the thread snapshot and model list on load (pull-then-subscribe)", () => {
++    expect(RENDER_SHELL_HTML).toContain("fetch('/api/btw')");
++    expect(RENDER_SHELL_HTML).toContain("fetch('/api/btw/models')");
++  });
++
++  it("sends btw commands over the existing /ws socket", () => {
++    expect(RENDER_SHELL_HTML).toContain("sendBtw(");
++    expect(RENDER_SHELL_HTML.split("new WebSocket(").length - 1).toBe(1); // exactly one construction site
++  });
++
++  it("keeps the SSE refresh loop as-is", () => {
++    expect(RENDER_SHELL_HTML).toContain("new EventSource('/api/events')");
++  });
++});
++
+ describe("BTW_MESSAGE_HTML pure helper", () => {
+   it("renders a snapshot row keyed by id with escaped text", () => {
+     const html = BTW_MESSAGE_HTML({ id: "btw-m-1", role: "assistant", text: "a < b", status: "done" });
+     expect(html).toContain('data-id="btw-m-1"');
+     expect(html).toContain("a &lt; b");
+     expect(html).not.toContain("btw-status");
+   });
+ 
+   it("renders the status line for non-done snapshots", () => {
+     const html = BTW_MESSAGE_HTML({

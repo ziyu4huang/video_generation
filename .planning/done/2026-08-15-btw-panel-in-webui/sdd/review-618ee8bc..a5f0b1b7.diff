@@ -1,0 +1,296 @@
+# Review package: 618ee8bc..a5f0b1b7
+
+## Commits
+a5f0b1b7 feat(webui): add btw latest-snapshot store and broadcast forwarder
+
+## Files changed
+ .../2026-08-15-btw-panel-in-webui/sdd/progress.md  |   3 +
+ .../sdd/task-7-brief.md                            | 124 +++++++++++++++++++++
+ .../sdd/task-7-report.md                           |  31 ++++++
+ bun-apps/pi-agent-ext-webui/src/btw-store.ts       |  38 +++++++
+ .../pi-agent-ext-webui/tests/btw-store.test.ts     |  47 ++++++++
+ 5 files changed, 243 insertions(+)
+
+## Diff
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+index 64f67b60..c8a56e8c 100644
+--- a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+@@ -17,10 +17,13 @@ Task 3: minor (deferred): subscribeWebuiBridge with a different runtime leaves o
+ Task 3: PLAN DEVIATION (human-approved 2026-08-15): bridge disposer lives in engine field webuiBridgeUnsub, NOT sr.subscriptions — plan Task 3 verbatim code superseded; later tasks/tests must not regress the overlay-attach guard
+ Task 4: implemented (commit pending review)
+ Task 4: complete (commits 909428a..69270a5, review clean; implementer was mechanical tester/committer — reviewer was sole compliance gate, approved)
+ Task 4: minor (deferred): BTW_COMMAND_CHANNEL subscription never torn down (no unsubscribe on shutdown) — harmless single-pi-per-process; note for hardening
+ Task 4: minor (deferred): handleWebuiCommand unserialized (rapid commands interleave) — brief defines single-command contract
+ Task 5: implemented (commit pending review)
+ Task 5: complete (commits 69270a5..046813f, review clean)
+ Task 5: minor (deferred): btwCommandFromFrame validates mode string only; thinking/model values pass unvalidated (plan-mandated verbatim) — Task 11 contract test mitigates
+ Task 5: minor (deferred): isBtwEvent thread-state validation shallow (plan-mandated verbatim) — consumers must not assume state.messages
+ Task 6: implemented (commit pending review)
++Task 6: complete (commits 046813f..618ee8bc, review clean; implementer was mechanical tester/committer — reviewer sole compliance gate, approved)
++Task 6: minor (deferred): BtwWebFrame interface declared after its WebFrame union reference (cosmetic, plan-mandated)
++Task 7: implemented (commit pending review)
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-7-brief.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-7-brief.md
+new file mode 100644
+index 00000000..e63804cf
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-7-brief.md
+@@ -0,0 +1,124 @@
++### Task 7: snapshot store + broadcast forwarder
++
++**Files:**
++- Create: `bun-apps/pi-agent-ext-webui/src/btw-store.ts`
++- Test: `bun-apps/pi-agent-ext-webui/tests/btw-store.test.ts`
++
++**Interfaces:**
++- Consumes: Task 5 (`BtwEvent`, `BtwThreadState`); existing `WebFrame` from `./protocol`.
++- Produces: `interface BtwStore { apply(event: BtwEvent): void; state(): BtwThreadState }`; `createBtwStore(): BtwStore`; `createBtwForwarder(store: BtwStore, broadcast: (frame: WebFrame) => void): (event: BtwEvent) => void`.
++
++- [ ] **Step 1: Write the failing test**
++
++```ts
++// bun-apps/pi-agent-ext-webui/tests/btw-store.test.ts
++import { describe, expect, it } from "bun:test";
++import type { WebFrame } from "../src/protocol";
++import { createBtwForwarder, createBtwStore } from "../src/btw-store";
++import type { BtwEvent, BtwThreadState } from "../src/btw-channels";
++
++const STATE: BtwThreadState = {
++  messages: [{ id: "btw-m-0", role: "user", text: "q", status: "done" }],
++  mode: "contextual",
++  model: null,
++  thinking: null,
++};
++
++describe("createBtwStore", () => {
++  it("defaults to an empty contextual thread", () => {
++    expect(createBtwStore().state()).toEqual({
++      messages: [],
++      mode: "contextual",
++      model: null,
++      thinking: null,
++    });
++  });
++
++  it("keeps only the latest thread state; notices do not clobber it", () => {
++    const store = createBtwStore();
++    store.apply({ type: "thread", state: STATE });
++    store.apply({ type: "notice", text: "Injected into the main session" });
++    expect(store.state()).toEqual(STATE);
++  });
++});
++
++describe("createBtwForwarder", () => {
++  it("applies thread events to the store AND broadcasts a btw frame", () => {
++    const store = createBtwStore();
++    const frames: WebFrame[] = [];
++    const forward = createBtwForwarder(store, (frame) => frames.push(frame));
++
++    const threadEvent: BtwEvent = { type: "thread", state: STATE };
++    forward(threadEvent);
++    expect(frames).toEqual([{ type: "btw", event: threadEvent }]);
++    expect(store.state()).toEqual(STATE);
++
++    const noticeEvent: BtwEvent = { type: "notice", text: "ok" };
++    forward(noticeEvent);
++    expect(frames).toEqual([{ type: "btw", event: threadEvent }, { type: "btw", event: noticeEvent }]);
++    expect(store.state()).toEqual(STATE); // notice did not clobber the snapshot
++  });
++});
++```
++
++- [ ] **Step 2: Run test to verify it fails**
++
++Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/btw-store.test.ts )`
++Expected: FAIL — cannot resolve `../src/btw-store`.
++
++- [ ] **Step 3: Write minimal implementation**
++
++```ts
++// bun-apps/pi-agent-ext-webui/src/btw-store.ts
++import type { WebFrame } from "./protocol";
++import type { BtwEvent, BtwThreadState } from "./btw-channels";
++
++const EMPTY_STATE: BtwThreadState = {
++  messages: [],
++  mode: "contextual",
++  model: null,
++  thinking: null,
++};
++
++/** Latest-snapshot store for GET /api/btw (pull-then-subscribe, D7). */
++export interface BtwStore {
++  apply(event: BtwEvent): void;
++  state(): BtwThreadState;
++}
++
++export function createBtwStore(): BtwStore {
++  let current: BtwThreadState | null = null;
++  return {
++    apply(event) {
++      if (event.type === "thread") current = event.state;
++    },
++    state() {
++      return current ?? EMPTY_STATE;
++    },
++  };
++}
++
++/** Bus event -> store update + broadcast of the new `btw` WebFrame (D5). */
++export function createBtwForwarder(
++  store: BtwStore,
++  broadcast: (frame: WebFrame) => void,
++): (event: BtwEvent) => void {
++  return (event) => {
++    store.apply(event);
++    broadcast({ type: "btw", event });
++  };
++}
++```
++
++- [ ] **Step 4: Run test to verify it passes**
++
++Run: `( cd bun-apps/pi-agent-ext-webui && bun test tests/btw-store.test.ts )`
++Expected: PASS (3 tests).
++
++- [ ] **Step 5: Commit**
++
++```bash
++git add bun-apps/pi-agent-ext-webui/src/btw-store.ts bun-apps/pi-agent-ext-webui/tests/btw-store.test.ts
++git commit -m "feat(webui): add btw latest-snapshot store and broadcast forwarder"
++```
++
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-7-report.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-7-report.md
+new file mode 100644
+index 00000000..9a800173
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-7-report.md
+@@ -0,0 +1,31 @@
++# Task 7 Report: snapshot store + broadcast forwarder
++
++## Status
++COMPLETE — implemented per brief, all tests green, committed.
++
++## Commits
++- `feat(webui): add btw latest-snapshot store and broadcast forwarder` (single commit on `feat/btw-panel-in-webui`, parent `618ee8bc`)
++
++## What was built
++- `bun-apps/pi-agent-ext-webui/src/btw-store.ts`
++  - `BtwStore` interface: `apply(event: BtwEvent): void` + `state(): BtwThreadState`
++  - `createBtwStore()`: latest-snapshot store; only `thread` events replace the snapshot; `notice` events never clobber it; defaults to an empty `contextual` thread (`messages: []`, `model: null`, `thinking: null`)
++  - `createBtwForwarder(store, broadcast)`: returns `(event: BtwEvent) => void` that applies the event to the store and re-broadcasts it as the outbound `BtwWebFrame` `{ type: "btw", event }` (Task 6 protocol)
++- `bun-apps/pi-agent-ext-webui/tests/btw-store.test.ts` — 3 tests, verbatim from the brief
++
++## TDD trail
++1. Wrote the test verbatim → `bun test tests/btw-store.test.ts` → FAIL (cannot resolve `../src/btw-store`) ✅
++2. Wrote the minimal implementation → focused run: **3 pass / 0 fail** ✅
++3. Full gate `( cd bun-apps/pi-agent-ext-webui && bun run test )` (tsc + unit): first run caught `TS2835` — the package uses `moduleResolution: nodenext`, so relative imports need explicit `.js` extensions (same convention as `src/protocol.ts` and `tests/protocol-btw.test.ts`). Added `.js` to the import specifiers in both new files.
++4. Final full gate: **302 pass / 0 fail** across 24 files (656 expect calls) ✅
++
++## Deviations from brief
++- Only deviation: import specifiers carry explicit `.js` extensions (`./protocol.js`, `./btw-channels.js`) instead of the brief's extensionless form — required by the package's `tsc` build (nodenext); no semantic change.
++
++## Verification of contract points
++- `BtwEvent` / `BtwThreadState` shapes match `src/btw-channels.ts` (Task 5): `thread`/`notice` variants; `messages | mode | model | thinking`.
++- `{ type: "btw", event }` matches `BtwWebFrame` in `src/protocol.ts` (Task 6) and is a member of the `WebFrame` union accepted by `server.broadcast(frame: WebFrame): void`.
++- Pull-then-subscribe (D7): the store is the source for Task 8's `GET /api/btw`.
++
++## Concerns
++None. The store holds a reference (not a deep copy) to the event's `state` — fine here since `BtwEvent` payloads are treated as immutable snapshots on the bus; Task 8 reads it read-only.
+diff --git a/bun-apps/pi-agent-ext-webui/src/btw-store.ts b/bun-apps/pi-agent-ext-webui/src/btw-store.ts
+new file mode 100644
+index 00000000..504726f6
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-webui/src/btw-store.ts
+@@ -0,0 +1,38 @@
++import type { WebFrame } from "./protocol.js";
++import type { BtwEvent, BtwThreadState } from "./btw-channels.js";
++
++const EMPTY_STATE: BtwThreadState = {
++  messages: [],
++  mode: "contextual",
++  model: null,
++  thinking: null,
++};
++
++/** Latest-snapshot store for GET /api/btw (pull-then-subscribe, D7). */
++export interface BtwStore {
++  apply(event: BtwEvent): void;
++  state(): BtwThreadState;
++}
++
++export function createBtwStore(): BtwStore {
++  let current: BtwThreadState | null = null;
++  return {
++    apply(event) {
++      if (event.type === "thread") current = event.state;
++    },
++    state() {
++      return current ?? EMPTY_STATE;
++    },
++  };
++}
++
++/** Bus event -> store update + broadcast of the new `btw` WebFrame (D5). */
++export function createBtwForwarder(
++  store: BtwStore,
++  broadcast: (frame: WebFrame) => void,
++): (event: BtwEvent) => void {
++  return (event) => {
++    store.apply(event);
++    broadcast({ type: "btw", event });
++  };
++}
+diff --git a/bun-apps/pi-agent-ext-webui/tests/btw-store.test.ts b/bun-apps/pi-agent-ext-webui/tests/btw-store.test.ts
+new file mode 100644
+index 00000000..3ed0ca23
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-webui/tests/btw-store.test.ts
+@@ -0,0 +1,47 @@
++import { describe, expect, it } from "bun:test";
++import type { WebFrame } from "../src/protocol.js";
++import { createBtwForwarder, createBtwStore } from "../src/btw-store.js";
++import type { BtwEvent, BtwThreadState } from "../src/btw-channels.js";
++
++const STATE: BtwThreadState = {
++  messages: [{ id: "btw-m-0", role: "user", text: "q", status: "done" }],
++  mode: "contextual",
++  model: null,
++  thinking: null,
++};
++
++describe("createBtwStore", () => {
++  it("defaults to an empty contextual thread", () => {
++    expect(createBtwStore().state()).toEqual({
++      messages: [],
++      mode: "contextual",
++      model: null,
++      thinking: null,
++    });
++  });
++
++  it("keeps only the latest thread state; notices do not clobber it", () => {
++    const store = createBtwStore();
++    store.apply({ type: "thread", state: STATE });
++    store.apply({ type: "notice", text: "Injected into the main session" });
++    expect(store.state()).toEqual(STATE);
++  });
++});
++
++describe("createBtwForwarder", () => {
++  it("applies thread events to the store AND broadcasts a btw frame", () => {
++    const store = createBtwStore();
++    const frames: WebFrame[] = [];
++    const forward = createBtwForwarder(store, (frame) => frames.push(frame));
++
++    const threadEvent: BtwEvent = { type: "thread", state: STATE };
++    forward(threadEvent);
++    expect(frames).toEqual([{ type: "btw", event: threadEvent }]);
++    expect(store.state()).toEqual(STATE);
++
++    const noticeEvent: BtwEvent = { type: "notice", text: "ok" };
++    forward(noticeEvent);
++    expect(frames).toEqual([{ type: "btw", event: threadEvent }, { type: "btw", event: noticeEvent }]);
++    expect(store.state()).toEqual(STATE); // notice did not clobber the snapshot
++  });
++});

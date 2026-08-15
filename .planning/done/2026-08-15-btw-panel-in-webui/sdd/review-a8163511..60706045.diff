@@ -1,0 +1,454 @@
+# Review package: a8163511..60706045
+
+## Commits
+60706045 feat(btw): add snapshot derivation for webui thread events
+
+## Files changed
+ .../2026-08-15-btw-panel-in-webui/sdd/progress.md  |   4 +
+ .../sdd/task-2-brief.md                            | 206 +++++++++++++++++++++
+ .../sdd/task-2-report.md                           |  35 ++++
+ .../pi-agent-ext-btw/__tests__/snapshot.test.ts    |  89 +++++++++
+ bun-apps/pi-agent-ext-btw/src/btw/snapshot.ts      |  74 ++++++++
+ 5 files changed, 408 insertions(+)
+
+## Diff
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+index 629db856..963e0d1f 100644
+--- a/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/progress.md
+@@ -1,3 +1,7 @@
+ # SDD ledger — plan: .planning/2026-08-15-btw-panel-in-webui/plan.md
+ (branch feat/btw-panel-in-webui, base 0c9f6b89)
+ Task 1: implemented (commit pending review)
++Task 1: complete (commits 0c9f6b8..a816351, review clean)
++Task 1: minor (deferred): isBtwCommand guard is shallow for model/thinking kinds (plan-mandated verbatim) — later consumers must read fields defensively
++Task 1: minor (deferred): ledger line wording "commit pending review" is stale — cosmetic
++Task 2: implemented (commit pending review)
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-2-brief.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-2-brief.md
+new file mode 100644
+index 00000000..5ac2241f
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-2-brief.md
+@@ -0,0 +1,206 @@
++### Task 2: snapshot derivation module
++
++**Files:**
++- Create: `bun-apps/pi-agent-ext-btw/src/btw/snapshot.ts`
++- Test: `bun-apps/pi-agent-ext-btw/__tests__/snapshot.test.ts`
++
++**Interfaces:**
++- Consumes: `BtwDetails` from `src/btw/types.ts` (existing: `{ question; thinking; answer; provider; model; api; thinkingLevel; timestamp; usage? }`); `AgentSessionEvent` type (import from the same SDK module path `src/btw/session.ts` uses — adjust the import specifier if it differs); `BtwMessageSnapshot` from Task 1.
++- Produces: `interface BtwStatusUpdate { status: BtwMessageStatus; statusText?: string }`; `snapshotsFromDetails(details: BtwDetails[]): BtwMessageSnapshot[]`; `statusFromEvent(event: AgentSessionEvent): BtwStatusUpdate | null`; `snapshotsFromMessages(messages: AgentMessage[], status: BtwStatusUpdate | null): BtwMessageSnapshot[]`.
++
++- [ ] **Step 1: Write the failing test**
++
++```ts
++// bun-apps/pi-agent-ext-btw/__tests__/snapshot.test.ts
++import { describe, expect, it } from "bun:test";
++import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
++import type { BtwDetails } from "../src/btw/types";
++import { snapshotsFromDetails, snapshotsFromMessages, statusFromEvent } from "../src/btw/snapshot";
++
++const ev = (partial: Record<string, unknown>): AgentSessionEvent =>
++  partial as unknown as AgentSessionEvent;
++
++const details: BtwDetails[] = [
++  {
++    question: "what failed?",
++    thinking: "",
++    answer: "the shader compile step",
++    provider: "anthropic",
++    model: "claude-sonnet-4",
++    api: "anthropic",
++    thinkingLevel: "off",
++    timestamp: 1,
++  },
++];
++
++describe("snapshotsFromDetails", () => {
++  it("maps persisted BtwDetails to stable keyed snapshots", () => {
++    expect(snapshotsFromDetails(details)).toEqual([
++      { id: "btw-d-0", role: "user", text: "what failed?", status: "done" },
++      { id: "btw-d-1", role: "assistant", text: "the shader compile step", status: "done" },
++    ]);
++  });
++
++  it("returns an empty array for an empty thread", () => {
++    expect(snapshotsFromDetails([])).toEqual([]);
++  });
++});
++
++describe("statusFromEvent", () => {
++  it("maps tool lifecycle events to running-tool status", () => {
++    expect(statusFromEvent(ev({ type: "tool_execution_start", toolName: "bash" }))).toEqual({
++      status: "running-tool",
++      statusText: "running-tool: bash",
++    });
++    expect(statusFromEvent(ev({ type: "tool_execution_start" }))).toEqual({
++      status: "running-tool",
++      statusText: "running-tool: tool",
++    });
++  });
++
++  it("maps turn lifecycle back to streaming/done", () => {
++    expect(statusFromEvent(ev({ type: "tool_execution_end" }))).toEqual({ status: "streaming" });
++    expect(statusFromEvent(ev({ type: "turn_end" }))).toEqual({ status: "done" });
++  });
++
++  it("returns null for events that do not change status", () => {
++    expect(statusFromEvent(ev({ type: "message_update" }))).toBeNull();
++    expect(statusFromEvent(ev({ type: "turn_start" }))).toBeNull();
++  });
++});
++
++describe("snapshotsFromMessages", () => {
++  it("derives keyed snapshots, folding the status override into the last message", () => {
++    const messages = [
++      { role: "user", parts: [{ type: "text", text: "q" }] },
++      { role: "assistant", parts: [{ type: "text", text: "partial answer" }] },
++    ] as unknown as Parameters<typeof snapshotsFromMessages>[0];
++    expect(
++      snapshotsFromMessages(messages, { status: "running-tool", statusText: "running-tool: bash" }),
++    ).toEqual([
++      { id: "btw-m-0", role: "user", text: "q", status: "done" },
++      {
++        id: "btw-m-1",
++        role: "assistant",
++        text: "partial answer",
++        status: "running-tool",
++        statusText: "running-tool: bash",
++      },
++    ]);
++  });
++
++  it("defaults the last live message to streaming when no override is set", () => {
++    const messages = [
++      { role: "user", parts: [{ type: "text", text: "q" }] },
++      { role: "assistant", parts: [{ type: "text", text: "a" }] },
++    ] as unknown as Parameters<typeof snapshotsFromMessages>[0];
++    expect(snapshotsFromMessages(messages, null)).toEqual([
++      { id: "btw-m-0", role: "user", text: "q", status: "done" },
++      { id: "btw-m-1", role: "assistant", text: "a", status: "streaming" },
++    ]);
++  });
++});
++```
++
++Note for the implementer: the fixture message shape above (`role` + `parts[].text`) is the plan's best-grounded guess. Before writing the implementation, check the real `AgentMessage` shape via the extraction already in `src/btw/session.ts` (`runBtw`'s answer extraction and `getBtwHandoffThread`'s live-message walk) and adjust BOTH `textOf`/`roleOf` below and these fixtures together so the assertions stay exactly these.
++
++- [ ] **Step 2: Run test to verify it fails**
++
++Run: `( cd bun-apps/pi-agent-ext-btw && bun test __tests__/snapshot.test.ts )`
++Expected: FAIL — cannot resolve `../src/btw/snapshot`.
++
++- [ ] **Step 3: Write minimal implementation**
++
++```ts
++// bun-apps/pi-agent-ext-btw/src/btw/snapshot.ts
++import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
++import type { BtwDetails } from "./types";
++import type { BtwMessageSnapshot, BtwMessageStatus } from "./webui-events";
++
++/** A status change derived from a sub-session AgentSessionEvent; null = no change. */
++export interface BtwStatusUpdate {
++  status: BtwMessageStatus;
++  statusText?: string;
++}
++
++/** Persisted thread (BtwDetails[]) -> snapshots. Ids are index-stable: btw-d-<index>. */
++export function snapshotsFromDetails(details: BtwDetails[]): BtwMessageSnapshot[] {
++  const snapshots: BtwMessageSnapshot[] = [];
++  for (const entry of details) {
++    snapshots.push({ id: `btw-d-${snapshots.length}`, role: "user", text: entry.question, status: "done" });
++    snapshots.push({ id: `btw-d-${snapshots.length}`, role: "assistant", text: entry.answer, status: "done" });
++  }
++  return snapshots;
++}
++
++/**
++ * Map a sub-session event to a status override for the LAST live message.
++ * Reads only the event type discriminant plus an optional tool name — never
++ * full event payloads — so it stays robust across SDK event shapes.
++ */
++export function statusFromEvent(event: AgentSessionEvent): BtwStatusUpdate | null {
++  const type = (event as { type?: unknown }).type;
++  if (type === "tool_execution_start") {
++    const toolName = (event as { toolName?: unknown }).toolName;
++    return { status: "running-tool", statusText: `running-tool: ${typeof toolName === "string" && toolName ? toolName : "tool"}` };
++  }
++  if (type === "tool_execution_end") return { status: "streaming" };
++  if (type === "turn_end") return { status: "done" };
++  return null;
++}
++
++// roleOf/textOf mirror the extraction already used by src/btw/session.ts
++// (runBtw's answer extraction / getBtwHandoffThread's live-message walk).
++// If session.ts exports a reusable helper, import it instead of duplicating.
++function roleOf(message: unknown): "user" | "assistant" {
++  const role = (message as { role?: unknown }).role;
++  return role === "user" ? "user" : "assistant";
++}
++
++function textOf(message: unknown): string {
++  const parts = (message as { parts?: Array<{ type?: unknown; text?: unknown }> }).parts ?? [];
++  return parts
++    .filter((part) => part.type === "text" && typeof part.text === "string")
++    .map((part) => part.text as string)
++    .join("\n");
++}
++
++/**
++ * Live sub-session messages -> snapshots. Ids are index-stable: btw-m-<index>.
++ * The status override (if any) is folded into the LAST message only; with no
++ * override the last message defaults to "streaming" (mid-turn).
++ */
++export function snapshotsFromMessages(
++  messages: readonly unknown[],
++  status: BtwStatusUpdate | null,
++): BtwMessageSnapshot[] {
++  return messages.map((message, index) => {
++    const isLast = index === messages.length - 1;
++    const update = isLast ? (status ?? { status: "streaming" as const }) : null;
++    return {
++      id: `btw-m-${index}`,
++      role: roleOf(message),
++      text: textOf(message),
++      status: update ? update.status : "done",
++      ...(update?.statusText ? { statusText: update.statusText } : {}),
++    };
++  });
++}
++```
++
++If the real `AgentMessage` type is available as an export, type `messages: readonly AgentMessage[]` and drop the `unknown` casting — keep the runtime behavior identical either way.
++
++Note: real code (`src/btw/session.ts` `handleBtwSessionEvent`) maps `tool_execution_end` back to "streaming" only when the session is still streaming (`session.isStreaming`); `statusFromEvent` maps it unconditionally. This simplification is deliberate — `statusFromEvent` has no session handle, and the unconditional mapping only differs in the brief post-tool window.
++
++- [ ] **Step 4: Run test to verify it passes**
++
++Run: `( cd bun-apps/pi-agent-ext-btw && bun test __tests__/snapshot.test.ts )`
++Expected: PASS (6 tests).
++
++- [ ] **Step 5: Commit**
++
++```bash
++git add bun-apps/pi-agent-ext-btw/src/btw/snapshot.ts bun-apps/pi-agent-ext-btw/__tests__/snapshot.test.ts
++git commit -m "feat(btw): add snapshot derivation for webui thread events"
++```
++
+diff --git a/.planning/2026-08-15-btw-panel-in-webui/sdd/task-2-report.md b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-2-report.md
+new file mode 100644
+index 00000000..83bfbb22
+--- /dev/null
++++ b/.planning/2026-08-15-btw-panel-in-webui/sdd/task-2-report.md
+@@ -0,0 +1,35 @@
++# Task 2 Report: snapshot derivation module
++
++## Status
++
++DONE
++
++## What was done
++
++Transcribed the brief verbatim (TDD order) into:
++
++- `bun-apps/pi-agent-ext-btw/__tests__/snapshot.test.ts` — 7 test blocks covering `snapshotsFromDetails`, `statusFromEvent`, `snapshotsFromMessages`.
++- `bun-apps/pi-agent-ext-btw/src/btw/snapshot.ts` — exports `BtwStatusUpdate`, `snapshotsFromDetails`, `statusFromEvent`, `snapshotsFromMessages`.
++
++## Verification of brief steps
++
++1. **Failing test**: `bun test __tests__/snapshot.test.ts` → FAIL with `Cannot find module '../src/btw/snapshot'` — exactly as the brief expected.
++2. **Implementation**: transcribed verbatim from the brief.
++3. **Focused test**: PASS — 7 pass, 0 fail, 10 expect() calls.
++4. **Package gate**: `( cd bun-apps/pi-agent-ext-btw && bun run test )` → 22 pass, 0 fail across 5 files.
++
++## Import-specifier check (brief requirement)
++
++`AgentSessionEvent` is confirmed exported from `@earendil-works/pi-coding-agent` (verified via `src/btw/session.ts` import lines and the SDK `dist/index.d.ts`). No specifier adjustment was needed.
++
++## Deviations / notes
++
++- Brief said "Expected: PASS (6 tests)" but the test file defines 7 `it` blocks (2 + 3 + 2); 7 pass. Count-only drift in the brief, not a behavioral difference.
++- `snapshotsFromMessages` kept the brief's `readonly unknown[]` signature (duck-typed `roleOf`/`textOf`); the test's `Parameters<typeof snapshotsFromMessages>[0]` cast works identically either way, per the brief's own note.
++- The brief's note about the fixture message shape (`role` + `parts[].text`): the implementation is duck-typed and the fixtures assert exactly the brief's expected outputs, so no fixture/impl adjustment was required.
++- Deliberate simplification per brief: `statusFromEvent` maps `tool_execution_end` → `"streaming"` unconditionally (no session handle), unlike `handleBtwSessionEvent`'s `session.isStreaming` guard.
++
++## Commit
++
++- Files staged: `bun-apps/pi-agent-ext-btw/src/btw/snapshot.ts`, `bun-apps/pi-agent-ext-btw/__tests__/snapshot.test.ts`, plus `-f` the SDD planning artifacts (`task-2-brief.md`, `task-2-report.md`, `progress.md`).
++- Message: `feat(btw): add snapshot derivation for webui thread events`
+diff --git a/bun-apps/pi-agent-ext-btw/__tests__/snapshot.test.ts b/bun-apps/pi-agent-ext-btw/__tests__/snapshot.test.ts
+new file mode 100644
+index 00000000..680d5087
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-btw/__tests__/snapshot.test.ts
+@@ -0,0 +1,89 @@
++// bun-apps/pi-agent-ext-btw/__tests__/snapshot.test.ts
++import { describe, expect, it } from "bun:test";
++import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
++import type { BtwDetails } from "../src/btw/types";
++import { snapshotsFromDetails, snapshotsFromMessages, statusFromEvent } from "../src/btw/snapshot";
++
++const ev = (partial: Record<string, unknown>): AgentSessionEvent =>
++  partial as unknown as AgentSessionEvent;
++
++const details: BtwDetails[] = [
++  {
++    question: "what failed?",
++    thinking: "",
++    answer: "the shader compile step",
++    provider: "anthropic",
++    model: "claude-sonnet-4",
++    api: "anthropic",
++    thinkingLevel: "off",
++    timestamp: 1,
++  },
++];
++
++describe("snapshotsFromDetails", () => {
++  it("maps persisted BtwDetails to stable keyed snapshots", () => {
++    expect(snapshotsFromDetails(details)).toEqual([
++      { id: "btw-d-0", role: "user", text: "what failed?", status: "done" },
++      { id: "btw-d-1", role: "assistant", text: "the shader compile step", status: "done" },
++    ]);
++  });
++
++  it("returns an empty array for an empty thread", () => {
++    expect(snapshotsFromDetails([])).toEqual([]);
++  });
++});
++
++describe("statusFromEvent", () => {
++  it("maps tool lifecycle events to running-tool status", () => {
++    expect(statusFromEvent(ev({ type: "tool_execution_start", toolName: "bash" }))).toEqual({
++      status: "running-tool",
++      statusText: "running-tool: bash",
++    });
++    expect(statusFromEvent(ev({ type: "tool_execution_start" }))).toEqual({
++      status: "running-tool",
++      statusText: "running-tool: tool",
++    });
++  });
++
++  it("maps turn lifecycle back to streaming/done", () => {
++    expect(statusFromEvent(ev({ type: "tool_execution_end" }))).toEqual({ status: "streaming" });
++    expect(statusFromEvent(ev({ type: "turn_end" }))).toEqual({ status: "done" });
++  });
++
++  it("returns null for events that do not change status", () => {
++    expect(statusFromEvent(ev({ type: "message_update" }))).toBeNull();
++    expect(statusFromEvent(ev({ type: "turn_start" }))).toBeNull();
++  });
++});
++
++describe("snapshotsFromMessages", () => {
++  it("derives keyed snapshots, folding the status override into the last message", () => {
++    const messages = [
++      { role: "user", parts: [{ type: "text", text: "q" }] },
++      { role: "assistant", parts: [{ type: "text", text: "partial answer" }] },
++    ] as unknown as Parameters<typeof snapshotsFromMessages>[0];
++    expect(
++      snapshotsFromMessages(messages, { status: "running-tool", statusText: "running-tool: bash" }),
++    ).toEqual([
++      { id: "btw-m-0", role: "user", text: "q", status: "done" },
++      {
++        id: "btw-m-1",
++        role: "assistant",
++        text: "partial answer",
++        status: "running-tool",
++        statusText: "running-tool: bash",
++      },
++    ]);
++  });
++
++  it("defaults the last live message to streaming when no override is set", () => {
++    const messages = [
++      { role: "user", parts: [{ type: "text", text: "q" }] },
++      { role: "assistant", parts: [{ type: "text", text: "a" }] },
++    ] as unknown as Parameters<typeof snapshotsFromMessages>[0];
++    expect(snapshotsFromMessages(messages, null)).toEqual([
++      { id: "btw-m-0", role: "user", text: "q", status: "done" },
++      { id: "btw-m-1", role: "assistant", text: "a", status: "streaming" },
++    ]);
++  });
++});
+diff --git a/bun-apps/pi-agent-ext-btw/src/btw/snapshot.ts b/bun-apps/pi-agent-ext-btw/src/btw/snapshot.ts
+new file mode 100644
+index 00000000..fdbe97be
+--- /dev/null
++++ b/bun-apps/pi-agent-ext-btw/src/btw/snapshot.ts
+@@ -0,0 +1,74 @@
++// bun-apps/pi-agent-ext-btw/src/btw/snapshot.ts
++import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
++import type { BtwDetails } from "./types";
++import type { BtwMessageSnapshot, BtwMessageStatus } from "./webui-events";
++
++/** A status change derived from a sub-session AgentSessionEvent; null = no change. */
++export interface BtwStatusUpdate {
++  status: BtwMessageStatus;
++  statusText?: string;
++}
++
++/** Persisted thread (BtwDetails[]) -> snapshots. Ids are index-stable: btw-d-<index>. */
++export function snapshotsFromDetails(details: BtwDetails[]): BtwMessageSnapshot[] {
++  const snapshots: BtwMessageSnapshot[] = [];
++  for (const entry of details) {
++    snapshots.push({ id: `btw-d-${snapshots.length}`, role: "user", text: entry.question, status: "done" });
++    snapshots.push({ id: `btw-d-${snapshots.length}`, role: "assistant", text: entry.answer, status: "done" });
++  }
++  return snapshots;
++}
++
++/**
++ * Map a sub-session event to a status override for the LAST live message.
++ * Reads only the event type discriminant plus an optional tool name — never
++ * full event payloads — so it stays robust across SDK event shapes.
++ */
++export function statusFromEvent(event: AgentSessionEvent): BtwStatusUpdate | null {
++  const type = (event as { type?: unknown }).type;
++  if (type === "tool_execution_start") {
++    const toolName = (event as { toolName?: unknown }).toolName;
++    return { status: "running-tool", statusText: `running-tool: ${typeof toolName === "string" && toolName ? toolName : "tool"}` };
++  }
++  if (type === "tool_execution_end") return { status: "streaming" };
++  if (type === "turn_end") return { status: "done" };
++  return null;
++}
++
++// roleOf/textOf mirror the extraction already used by src/btw/session.ts
++// (runBtw's answer extraction / getBtwHandoffThread's live-message walk).
++// If session.ts exports a reusable helper, import it instead of duplicating.
++function roleOf(message: unknown): "user" | "assistant" {
++  const role = (message as { role?: unknown }).role;
++  return role === "user" ? "user" : "assistant";
++}
++
++function textOf(message: unknown): string {
++  const parts = (message as { parts?: Array<{ type?: unknown; text?: unknown }> }).parts ?? [];
++  return parts
++    .filter((part) => part.type === "text" && typeof part.text === "string")
++    .map((part) => part.text as string)
++    .join("\n");
++}
++
++/**
++ * Live sub-session messages -> snapshots. Ids are index-stable: btw-m-<index>.
++ * The status override (if any) is folded into the LAST message only; with no
++ * override the last message defaults to "streaming" (mid-turn).
++ */
++export function snapshotsFromMessages(
++  messages: readonly unknown[],
++  status: BtwStatusUpdate | null,
++): BtwMessageSnapshot[] {
++  return messages.map((message, index) => {
++    const isLast = index === messages.length - 1;
++    const update = isLast ? (status ?? { status: "streaming" as const }) : null;
++    return {
++      id: `btw-m-${index}`,
++      role: roleOf(message),
++      text: textOf(message),
++      status: update ? update.status : "done",
++      ...(update?.statusText ? { statusText: update.statusText } : {}),
++    };
++  });
++}
