@@ -139,6 +139,22 @@ describe("createPresentTool", () => {
     await b;
     expect(deps.presented[0].id).not.toBe(deps.presented[1].id);
   });
+
+  it("an ALREADY-ABORTED signal resolves {cancelled:true} immediately (no hang) and cancels the pending", async () => {
+    const deps = fakeDeps();
+    const tool = createPresentTool(deps);
+    const ac = new AbortController();
+    ac.abort(); // aborted BEFORE execute() — the abort listener would never fire
+    const out = await tool.execute(
+      "c10", { content: "x", controls: CONTROLS }, ac.signal, undefined, {} as never
+    );
+    expect(out.details).toEqual({ cancelled: true });
+    expect(out.content[0].text).toBe("User cancelled / connection lost.");
+    // The pending was cancelled through the abort path (not leaked), and the
+    // presentation WAS minted before the abort short-circuit.
+    expect(deps.presented).toHaveLength(1);
+    expect(deps.hasPending()).toBe(false);
+  });
 });
 
 describe("describeHitlResponse", () => {

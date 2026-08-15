@@ -30,9 +30,10 @@ describe("BTW_FRAME pure helper", () => {
 });
 
 describe("RENDER_SHELL_HTML btw client logic", () => {
-  it("ships the first inbound ws handler for btw frames", () => {
+  it("ships the inbound ws handler for btw frames (alongside the v2 snapshot + transcript)", () => {
     expect(RENDER_SHELL_HTML).toContain("ws.onmessage");
-    expect(RENDER_SHELL_HTML).toContain('frame.type === "btw"');
+    expect(RENDER_SHELL_HTML).toContain("frame.type === 'btw'");
+    expect(RENDER_SHELL_HTML).toContain("frame.type === 'snapshot'");
   });
 
   it("pulls the thread snapshot and model list on load (pull-then-subscribe)", () => {

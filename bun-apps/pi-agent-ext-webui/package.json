@@ -2,7 +2,7 @@
   "name": "@repo/pi-agent-ext-webui",
   "private": true,
   "version": "0.1.0",
-  "description": "Pi extension: a web frontend co-driving one AgentSession with the TUI behind an agentic mutex. Scaffold (mutex module); full Bun.serve extension lands in tickets 02/04.",
+  "description": "Pi extension: an optional loopback webui that co-drives one AgentSession with the TUI behind an agentic mutex — renders agent output (md/HTML views, live transcript) and routes user interaction (prompts, abort, HITL presentations) back through the same session.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

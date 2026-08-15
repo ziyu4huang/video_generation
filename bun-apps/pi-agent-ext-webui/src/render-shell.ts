@@ -60,6 +60,22 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   #btw-bar button, #btw-bar select { font-size: 12px; padding: 3px 8px; }
   #btw-compose { display: flex; gap: 4px; }
   #btw-input { flex: 1 1 auto; }
+  /* v2 main-session compose bar (architecture v2 §3.3): prompt input + abort,
+     so the browser is a REAL co-frontend interaction surface, not just a
+     viewer. Pinned below the shell row. */
+  #webui-compose { display: flex; gap: .4rem; padding: .5rem; border-top: 1px solid #8884; }
+  #webui-input { flex: 1 1 auto; padding: .4rem .55rem; border: 1px solid #8886; border-radius: 6px; background: transparent; color: inherit; font: inherit; }
+  #webui-compose button { padding: .35rem .8rem; border: 1px solid #8886; border-radius: 6px; background: #8882; color: inherit; cursor: pointer; }
+  #webui-compose button:hover:not(:disabled) { background: #6cf3; }
+  #webui-abort { color: #f88; }
+  /* v2 live transcript (architecture v2 §3.3): the agent stream rendered as a
+     mirror — message deltas, tool calls, mutex signals. */
+  #webui-transcript { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: .6rem 1rem; font-size: 13px; }
+  #webui-transcript .tx-turn { margin: .8rem 0 .2rem; color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  #webui-transcript .tx-msg { margin: .2rem 0; white-space: pre-wrap; word-break: break-word; }
+  #webui-transcript .tx-tool { margin: .2rem 0; color: #9cf; }
+  #webui-transcript .tx-mutex { margin: .2rem 0; color: #e0a030; }
+  #webui-transcript .tx-settled { margin: .3rem 0; color: #7ec87e; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -68,6 +84,7 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
 <main>
   <div class="meta" id="meta"></div>
   <div id="content"></div>
+  <div id="webui-transcript"></div>
 </main>
 <aside id="btw-panel">
   <div id="btw-bar">
@@ -96,6 +113,11 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   </div>
 </aside>
 </div>
+<div id="webui-compose">
+  <input id="webui-input" type="text" placeholder="Prompt the session (mutex-gated)..." />
+  <button id="webui-send">Send</button>
+  <button id="webui-abort" title="Abort the in-flight turn">Abort</button>
+</div>
 <div id="webui-feedback-log">
   <div class="webui-log-head"><span>response log</span><a id="webui-log-clear" href="#">clear</a></div>
   <div id="webui-feedback-log-body"></div>
@@ -105,6 +127,9 @@ const tabsEl = document.getElementById('tabs');
 const metaEl = document.getElementById('meta');
 const contentEl = document.getElementById('content');
 let activeId = location.hash.slice(1) || 'main';
+// v2 (architecture v2 §3.6): monotonic render token — an older fetch resolving
+// after a newer one must not overwrite newer content (async interleave race).
+let renderSeq = 0;
 
 function fmtTime(ms) { try { return new Date(ms).toLocaleString(); } catch { return ''; } }
 
@@ -126,22 +151,27 @@ async function loadViews() {
 }
 
 async function renderView(id) {
+  const seq = ++renderSeq;
   const res = await fetch('/api/view/' + encodeURIComponent(id));
+  if (seq !== renderSeq) return; // superseded by a newer render — drop the stale write
   if (!res.ok) { contentEl.innerHTML = '<p>no view</p>'; return; }
   const v = await res.json();
   document.querySelectorAll('.tab').forEach(function (t) {
     t.classList.toggle('active', t.dataset.viewId === id);
   });
   metaEl.textContent = (v.title ? (v.title + ' · ') : '') + 'mode ' + v.mode + ' · updated ' + fmtTime(v.updatedAt);
-  if (v.mode === 'html') {
-    contentEl.innerHTML = '';
-    const f = document.createElement('iframe');
-    f.setAttribute('sandbox', ''); // D5: most restrictive — no scripts, no same-origin
-    f.srcdoc = v.content;
-    contentEl.appendChild(f);
-  } else {
-    contentEl.innerHTML = v.html || '';
-  }
+  // v2 (architecture v2 §3.2): BOTH md and html content render inside the
+  // most-restrictive sandbox="" iframe. v1 injected md into the page origin via
+  // innerHTML — server-side marked output passes raw HTML through (markdown
+  // may contain <img onerror=...>/<svg onload=...>), so agent-generated md
+  // executed scripts with full same-origin /ws+/api access. The sandbox blocks
+  // scripts/forms/popups; subresource loads (same-origin /output images) still
+  // work, so image markdown keeps rendering.
+  contentEl.innerHTML = '';
+  const f = document.createElement('iframe');
+  f.setAttribute('sandbox', ''); // most restrictive — no scripts, no same-origin
+  f.srcdoc = v.mode === 'html' ? v.content : (v.html || '');
+  contentEl.appendChild(f);
   renderControls(v);
 }
 
@@ -179,19 +209,33 @@ function subscribe() {
 const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
 let ws = null;
 let wsRetryTimer = null;
+// v2 send queue (architecture v2 §3.3): outbound frames are QUEUED while the
+// socket is connecting/reconnecting and flushed on open — a HITL answer or
+// prompt typed during a reconnect is never silently lost (v1 dropped it).
+let wsQueue = [];
 
 function connectWs() {
   ws = new WebSocket(wsUrl);
-  ws.onopen = function () { console.log('[webui] response ws open'); };
+  ws.onopen = function () {
+    console.log('[webui] response ws open');
+    const q = wsQueue; wsQueue = [];
+    q.forEach(function (p) { try { ws.send(p); } catch (e) { /* socket died mid-flush */ } });
+  };
   ws.onclose = function () {
     console.log('[webui] response ws closed; retry in 2s');
     scheduleWsRetry();
   };
   ws.onerror = function () { console.warn('[webui] response ws error'); scheduleWsRetry(); };
-  // FIRST inbound consumer of the /ws socket (it was send-only before btw).
+  // Inbound consumers of the /ws socket: btw events (side panel), the v2
+  // connect-time snapshot (history replay), and every other frame -> the live
+  // transcript mirror (v1 dropped all non-btw frames — mutex signals and the
+  // agent stream were invisible in the browser).
   ws.onmessage = function (message) {
     let frame; try { frame = JSON.parse(message.data); } catch { return; }
-    if (frame && frame.type === "btw" && frame.event) btwApplyEvent(frame.event);
+    if (!frame || typeof frame.type !== 'string') return;
+    if (frame.type === 'btw' && frame.event) { btwApplyEvent(frame.event); return; }
+    if (frame.type === 'snapshot' && frame.state) { txRenderSnapshot(frame.state); return; }
+    txApply(frame);
   };
 }
 
@@ -209,6 +253,8 @@ function logResponse(text) {
   const shown = text.length > 120 ? text.slice(0, 117) + '...' : text;
   line.textContent = '\u2192 ' + fmtTime(Date.now()) + ' \u00b7 ' + shown;
   body.appendChild(line);
+  // v2: bound the log DOM — a long session must not grow the page forever.
+  while (body.children.length > 50) body.removeChild(body.firstChild);
 }
 
 function sendRaw(payload) {
@@ -216,7 +262,7 @@ function sendRaw(payload) {
     ws.send(payload);
     return true;
   }
-  console.warn('[webui] ws not open; would send:', payload);
+  wsQueue.push(payload); // v2: queue, never drop (flushed on open)
   return false;
 }
 
@@ -224,10 +270,66 @@ function sendAppexecResponse(id, action, tweak) {
   const extra = { kind: 'respond', id: id, action: action };
   if (tweak) extra.tweak = tweak; // omit the key when absent (present-tool details semantics)
   const frame = { type: 'appexec', extra: extra };
-  if (sendRaw(JSON.stringify(frame))) {
-    console.log('[webui] appexec response sent:', JSON.stringify(frame));
-  }
+  sendRaw(JSON.stringify(frame));
   logResponse(action + (tweak ? ' (tweak: ' + tweak + ')' : ''));
+}
+
+// v2 HITL cancel (architecture v2 §3.4): {type:'appexec', extra:{kind:'cancel',
+// id}} resolves the ONE pending presentation as {cancelled:true} — the
+// browser's Cancel button, without dropping the WS (which would abort EVERY
+// pending and force a re-present).
+function sendAppexecCancel(id) {
+  const frame = { type: 'appexec', extra: { kind: 'cancel', id: id } };
+  sendRaw(JSON.stringify(frame));
+  logResponse('cancel requested');
+}
+
+// --- v2 live transcript mirror (architecture v2 §3.3) -----------------------
+// Renders the agent stream (message deltas, tool calls, mutex signals) as a
+// scrollback mirror — the research-backed pattern (gptme/OmniTerm: "render from
+// the structured event stream"). A connect-time snapshot replaces the mirror
+// with an authoritative replay of the session history.
+const txEl = document.getElementById('webui-transcript');
+
+function txEsc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function txAppend(html) {
+  if (!txEl) return;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  txEl.appendChild(wrap.firstChild);
+  txEl.scrollTop = txEl.scrollHeight;
+}
+
+function txLine(cls, text) {
+  txAppend('<div class="' + cls + '">' + txEsc(text) + '</div>');
+}
+
+function txApply(frame) {
+  switch (frame.type) {
+    case 'turn_start': txAppend('<div class="tx-turn">turn</div>'); break;
+    case 'message_update':
+      if (frame.text) txLine('tx-msg', frame.text);
+      break;
+    case 'tool_execution_start': txLine('tx-tool', 'tool ' + (frame.toolName || '?') + ' \u2026'); break;
+    case 'tool_execution_end': txLine('tx-tool', 'tool ' + (frame.toolName || '?') + ' done'); break;
+    case 'tool_result':
+      if (frame.details) txLine('tx-tool', 'result: ' + JSON.stringify(frame.details).slice(0, 240));
+      break;
+    case 'agent_settled': txAppend('<div class="tx-settled">settled</div>'); break;
+    case 'mutex_blocked': txLine('tx-mutex', 'mutex: ' + frame.blocked + ' blocked by ' + frame.by); break;
+    case 'mutex_force_release': txLine('tx-mutex', 'mutex force-released (' + frame.driver + ')'); break;
+    case 'error': txLine('tx-mutex', 'error: ' + (frame.reason || 'unknown')); break;
+    default: break; // views / btw / control frames handled elsewhere
+  }
+}
+
+function txRenderSnapshot(state) {
+  if (!txEl) return;
+  txEl.innerHTML = ''; // authoritative replay — replace, never append over stale
+  if (state && Array.isArray(state.transcript)) state.transcript.forEach(txApply);
 }
 
 // --- btw side panel client logic (Task 10) ---
@@ -259,14 +361,17 @@ function btwRenderMessages(messages) {
 
 // Inlined duplicate of the BTW_MESSAGE_HTML helper (the served HTML string has
 // no module / build step — same intentional duplication as APPEXEC_FRAME).
+// v2 (architecture v2 §3.6): EVERY interpolated field is escaped — v1 escaped
+// only the text, leaving id/role free to inject attributes (data-id/class).
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function btwMessageHtml(m) {
-  const esc = function (s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  };
   const status = m.status === 'done'
     ? ''
-    : '<span class="btw-status">' + esc(m.statusText || m.status) + '</span>';
-  return '<div class="btw-msg btw-' + m.role + '" data-id="' + m.id + '"><div class="btw-text">' + esc(m.text) + '</div>' + status + '</div>';
+    : '<span class="btw-status">' + escHtml(m.statusText || m.status) + '</span>';
+  return '<div class="btw-msg btw-' + escHtml(m.role) + '" data-id="' + escHtml(m.id) + '"><div class="btw-text">' + escHtml(m.text) + '</div>' + status + '</div>';
 }
 
 function btwApplyEvent(event) {
@@ -278,7 +383,7 @@ function btwApplyEvent(event) {
   } else if (event.type === 'notice') {
     const list = document.getElementById('btw-messages');
     if (list) {
-      list.insertAdjacentHTML('beforeend', '<div class="btw-notice">' + String(event.text).replace(/</g, '&lt;') + '</div>');
+      list.insertAdjacentHTML('beforeend', '<div class="btw-notice">' + escHtml(event.text) + '</div>');
       list.scrollTop = list.scrollHeight;
     }
   }
@@ -302,6 +407,10 @@ function btwInit() {
 
   fetch('/api/btw').then(function (r) { return r.ok ? r.json() : null; }).then(function (state) {
     if (state && state.messages) { btwState = state; btwRenderMessages(state.messages); }
+    // v2 (architecture v2 §3.6): the mode button label was only updated on PUSH
+    // events — a pull-after-reload left it stale. Set it from the pulled state.
+    const modeBtn = document.getElementById('btw-mode');
+    if (modeBtn && state && state.mode) modeBtn.textContent = 'Mode: ' + state.mode;
   });
 
   fetch('/api/btw/models').then(function (r) { return r.ok ? r.json() : []; }).then(function (models) {
@@ -339,6 +448,9 @@ function btwInit() {
   });
   const modelSel = document.getElementById('btw-model');
   if (modelSel) modelSel.addEventListener('change', function () {
+    // v2 (architecture v2 §3.6): Number('') === 0, so the "Main session model"
+    // placeholder used to silently send the FIRST model. '' -> null explicitly.
+    if (this.value === '') { sendBtw('model', { model: null }); return; }
     const m = btwModels[Number(this.value)];
     sendBtw('model', { model: m ? { provider: m.provider, id: m.id, api: m.api } : null });
   });
@@ -402,7 +514,49 @@ function renderControls(v) {
     bar.appendChild(btn);
     bar.appendChild(box);
   });
+  // v2 (architecture v2 §3.4): a Cancel button — resolves the ONE pending
+  // presentation as {cancelled:true} via the appexec cancel op, so the user
+  // can dismiss a presentation without dropping the socket (which would abort
+  // every pending and force a re-present).
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.title = 'Cancel this presentation (the agent sees {cancelled:true})';
+  cancelBtn.disabled = done;
+  cancelBtn.onclick = function () {
+    if (cancelBtn.disabled) return;
+    cancelBtn.disabled = true;
+    sendAppexecCancel(v.presentId);
+    respondedPresent = { id: v.presentId, action: '' };
+    bar.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+  };
+  bar.appendChild(cancelBtn);
   contentEl.appendChild(bar);
+}
+
+// --- v2 main-session compose (architecture v2 §3.3) -------------------------
+// The browser becomes a REAL interaction surface: prompt input (mutex-gated via
+// the {type:"prompt"} frame) + an Abort button ({type:"abort"}) for the
+// in-flight turn. The protocol always supported these; v1 never wired the UI.
+function webuiInit() {
+  const input = document.getElementById('webui-input');
+  const send = document.getElementById('webui-send');
+  const abort = document.getElementById('webui-abort');
+  function doSend() {
+    const text = (input.value || '').trim();
+    if (!text) return;
+    input.value = '';
+    sendRaw(JSON.stringify({ type: 'prompt', text: text }));
+    logResponse('prompt: ' + text.slice(0, 80));
+  }
+  if (send) send.addEventListener('click', doSend);
+  if (input) input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); doSend(); }
+  });
+  if (abort) abort.addEventListener('click', function () {
+    sendRaw(JSON.stringify({ type: 'abort' }));
+    logResponse('abort requested');
+  });
 }
 
 (async function () {
@@ -412,9 +566,17 @@ function renderControls(v) {
     const body = document.getElementById('webui-feedback-log-body');
     if (body) body.innerHTML = '';
   };
-  await refresh();
-  subscribe();
-  btwInit(); // after the tab/view wiring so all getElementById targets exist
+  // v2 (architecture v2 §3.6): a rejected initial fetch must not permanently
+  // skip subscribe()/btwInit()/webuiInit() — retry the whole boot.
+  try {
+    await refresh();
+    subscribe();
+    btwInit(); // after the tab/view wiring so all getElementById targets exist
+    webuiInit();
+  } catch (e) {
+    console.warn('[webui] boot failed; reloading in 2s', e);
+    setTimeout(function () { location.reload(); }, 2000);
+  }
 })();
 </script>
 </body>
@@ -451,6 +613,20 @@ export function BTW_FRAME(
   return extra ? { type: "btw", kind, ...extra } : { type: "btw", kind };
 }
 
+/**
+ * Pure appexec CANCEL frame (v2, architecture v2 §3.4). The PINNED wire shape
+ * the inline browser script's `sendAppexecCancel` duplicates; tests grid the
+ * exact frame WITHOUT a DOM. Resolves the ONE pending presentation under `id`
+ * as {cancelled:true} — the browser's Cancel button (vs WS close, which
+ * aborts every pending).
+ */
+export function APPEXEC_CANCEL_FRAME(id: string): {
+  type: "appexec";
+  extra: { kind: "cancel"; id: string };
+} {
+  return { type: "appexec", extra: { kind: "cancel", id } };
+}
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -471,5 +647,7 @@ export function BTW_MESSAGE_HTML(m: {
     m.status === "done"
       ? ""
       : `<span class="btw-status">${escapeHtml(m.statusText ?? m.status)}</span>`;
-  return `<div class="btw-msg btw-${m.role}" data-id="${m.id}"><div class="btw-text">${escapeHtml(m.text)}</div>${status}</div>`;
+  // v2 (architecture v2 §3.6): id/role escaped too — v1 interpolated them raw
+  // into data-id/class (attribute injection via a quoted id/role).
+  return `<div class="btw-msg btw-${escapeHtml(m.role)}" data-id="${escapeHtml(m.id)}"><div class="btw-text">${escapeHtml(m.text)}</div>${status}</div>`;
 }

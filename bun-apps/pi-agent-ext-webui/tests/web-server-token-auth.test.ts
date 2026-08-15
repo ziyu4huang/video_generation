@@ -114,4 +114,48 @@ describe("WebServer token auth (setTokenAuth, ticket 07 D1)", () => {
     expect(res.status).toBe(403);
     expect(await res.text()).toBe("Forbidden");
   });
+
+  it("v2: x-webui-token HEADER passes (preferred over ?session= — no query-string leak)", async () => {
+    const s = makeServer();
+    s.setTokenAuth("secret");
+    s.start();
+    const res = await fetch(`${s.url}/health`, {
+      headers: { "x-webui-token": "secret" },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("v2: wrong x-webui-token HEADER => 403 (even with a valid ?session=)", async () => {
+    // Header precedence: a presented header is authoritative — a wrong header
+    // must not be rescued by a valid legacy query token.
+    const s = makeServer();
+    s.setTokenAuth("secret");
+    s.start();
+    const res = await fetch(`${s.url}/health?session=secret`, {
+      headers: { "x-webui-token": "nope" },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("v2: constant-time compare — wrong-length token => 403, no throw", async () => {
+    const s = makeServer();
+    s.setTokenAuth("a-very-long-secret-token");
+    s.start();
+    const res = await fetch(`${s.url}/health`, {
+      headers: { "x-webui-token": "short" },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("v2: WS upgrade ?session= path still works with the token set", async () => {
+    const s = makeServer();
+    s.setTokenAuth("secret");
+    s.start();
+    const res = await fetch(`${s.url}/ws?session=secret`, {
+      headers: { Upgrade: "websocket", Connection: "Upgrade" },
+    });
+    // 400 (upgrade failed, no valid WS handshake headers) proves the token
+    // check PASSED — a token failure would be 403.
+    expect(res.status).toBe(400);
+  });
 });

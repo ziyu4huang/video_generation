@@ -48,6 +48,8 @@ class FakeWebServer implements WebuiServer {
   tokenAuth: string | null = null;
   /** Recorded WS-close handler (spec Component 1; the test fires it to assert abort). */
   wsCloseHandler: (() => void) | null = null;
+  /** Recorded WS-open handler (v2 snapshot seam). */
+  wsOpenHandler: ((ws: unknown) => void) | null = null;
   /** Stub URL (urlFor is only read for the real WebServer; never hit here). */
   readonly url = "http://fake.local/";
   /** Unused in tests (a MemoryBroadcaster is injected as the broadcaster). */
@@ -77,6 +79,9 @@ class FakeWebServer implements WebuiServer {
   }
   setWsCloseHandler(cb: (() => void) | null): void {
     this.wsCloseHandler = cb;
+  }
+  setWsOpenHandler(cb: ((ws: unknown) => void) | null): void {
+    this.wsOpenHandler = cb;
   }
   stop(): void {
     this.stopCalls++;
@@ -665,5 +670,134 @@ describe("wireWebui — persistent-co-frontend singleton (Path-A keystone)", () 
     // start() is idempotent on a live server → the bound port is unchanged
     // (no second Bun.serve bound a different port).
     expect(instances[0].port).toBe(port1);
+  });
+});
+
+describe("wireWebui — optionality gate (architecture v2 §3.1)", () => {
+  test("enabled:false registers NO pi.on handlers and NO tools", () => {
+    const pi = new MockPi();
+    const wiring = wireWebui(pi, { enabled: false });
+    expect(pi.registeredEvents()).toEqual([]);
+    expect(pi.registeredTools).toEqual([]);
+    expect(wiring.dispose).toBeTypeOf("function");
+  });
+
+  test("enabled:false → session_start never touches the server (deps.server ignored)", () => {
+    const pi = new MockPi();
+    const server = new FakeWebServer();
+    wireWebui(pi, { enabled: false, server });
+    pi.emit("session_start", { type: "session_start", reason: "startup" });
+    expect(server.startCalls).toBe(0);
+    expect(server.hasSession()).toBe(false);
+    expect(pi.handlersFor("session_start")).toEqual([]);
+  });
+
+  test("enabled:false → registerPending resolves {cancelled:true} immediately", async () => {
+    const pi = new MockPi();
+    const wiring = wireWebui(pi, { enabled: false });
+    await expect(wiring.registerPending("x")).resolves.toEqual({ cancelled: true });
+  });
+
+  test("enabled:false → dispose() is a no-op and repeatable", () => {
+    const pi = new MockPi();
+    const wiring = wireWebui(pi, { enabled: false });
+    expect(() => wiring.dispose()).not.toThrow();
+    expect(() => wiring.dispose()).not.toThrow();
+  });
+
+  test("WEBUI_DISABLED=1 env disables the wiring (no deps.enabled)", () => {
+    const prev = process.env.WEBUI_DISABLED;
+    process.env.WEBUI_DISABLED = "1";
+    try {
+      const pi = new MockPi();
+      const wiring = wireWebui(pi);
+      expect(pi.registeredEvents()).toEqual([]);
+      expect(wiring.dispose).toBeTypeOf("function");
+    } finally {
+      if (prev === undefined) delete process.env.WEBUI_DISABLED;
+      else process.env.WEBUI_DISABLED = prev;
+    }
+  });
+});
+
+describe("wireWebui — v2 session store + snapshot (architecture v2 §3.3)", () => {
+  test("outbound frames accumulate in the store; wsOpenHandler pushes a snapshot to THAT client", () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", { type: "session_start", reason: "startup" });
+    // Drive two outbound events through the wiring's broadcast path.
+    pi.emit("turn_start", { type: "turn_start" });
+    pi.emit("message_update", { type: "message_update", text: "hi" });
+    expect(server.wsOpenHandler).not.toBeNull();
+    const sent: string[] = [];
+    server.wsOpenHandler!({ send: (s: string) => sent.push(s) } as never);
+    expect(sent).toHaveLength(1);
+    const frame = JSON.parse(sent[0]);
+    expect(frame.type).toBe("snapshot");
+    expect(frame.state.transcript.map((f: { type: string }) => f.type)).toEqual([
+      "turn_start",
+      "message_update",
+    ]);
+    expect(frame.state.presentId).toBeNull();
+    expect(frame.state.driver).toBeNull();
+  });
+
+  test("session_shutdown clears the store; a later snapshot is empty (server survives)", () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", { type: "session_start", reason: "startup" });
+    pi.emit("turn_start", { type: "turn_start" });
+    pi.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+    const sent: string[] = [];
+    server.wsOpenHandler!({ send: (s: string) => sent.push(s) } as never);
+    expect(JSON.parse(sent[0]).state.transcript).toEqual([]);
+  });
+});
+
+describe("wireWebui — v2 mutex/present fixes (architecture v2 §3.5)", () => {
+  test("session_start resets a stale mutex driver (per-session lock)", () => {
+    const { pi, broadcaster } = setup();
+    pi.emit("session_start", { type: "session_start", reason: "startup" });
+    pi.emit("input", { type: "input", source: "extension" }); // web acquires
+    // A NEW session_start must release the stale lock: a TUI input now
+    // continues (no mutex_blocked) instead of being suppressed.
+    pi.emit("session_start", { type: "session_start", reason: "resume" });
+    pi.emit("input", { type: "input", source: "interactive" });
+    expect(broadcaster.frames.filter((f) => f.type === "mutex_blocked")).toEqual([]);
+  });
+
+  test("a blocked INTERACTIVE input notifies the TUI user via ctx.ui (feedback reaches the TUI)", () => {
+    const { pi } = setup();
+    pi.emit("session_start", { type: "session_start", reason: "startup" });
+    pi.emit("input", { type: "input", source: "extension" }); // web acquires
+    pi.emit("input", { type: "input", source: "interactive" }); // tui blocked
+    expect(
+      pi.ctx.notifications.some((n) => n.type === "warning" && n.message.includes("blocked"))
+    ).toBe(true);
+    // A web-side block does NOT spam the TUI user (they are not the blocker).
+    pi.emit("input", { type: "input", source: "interactive" }); // tui now drives
+    const before = pi.ctx.notifications.length;
+    pi.emit("input", { type: "input", source: "extension" }); // web blocked
+    expect(pi.ctx.notifications.length).toBe(before);
+  });
+
+  test("appexec cancel resolves the ONE pending under id as {cancelled:true}", async () => {
+    const { pi, server, wiring } = setup();
+    pi.emit("session_start", { type: "session_start", reason: "startup" });
+    const p = wiring.registerPending("pres-1");
+    const replies = dispatch(pi, server, { type: "appexec", extra: { kind: "cancel", id: "pres-1" } });
+    expect(replies).toEqual([]); // no reply frame on the cancel path
+    await expect(p).resolves.toEqual({ cancelled: true });
+  });
+
+  test("the watchdog is SUSPENDED while a presentation is pending (no force-release under HITL)", () => {
+    const { pi, broadcaster, clock, server, wiring } = setup();
+    pi.emit("session_start", { type: "session_start", reason: "startup" });
+    pi.emit("input", { type: "input", source: "extension" }); // web drives (watchdog armed)
+    void wiring.registerPending("p1");
+    clock.advance(11 * 60_000); // way past the 10-min stale — suspended, no release
+    expect(broadcaster.frames.filter((f) => f.type === "mutex_force_release")).toEqual([]);
+    // Resolve the pending -> watchdog resumes -> the stale turn force-releases.
+    dispatch(pi, server, { type: "appexec", extra: { kind: "cancel", id: "p1" } });
+    clock.advance(11 * 60_000);
+    expect(broadcaster.frames.filter((f) => f.type === "mutex_force_release")).toHaveLength(1);
   });
 });

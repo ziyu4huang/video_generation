@@ -72,10 +72,12 @@ export class WebTransport {
         return { kind: "agentic", op: "abort", source: "extension" };
       case "appexec": {
         // HITL return transport (spec Component 1): validate the respond
-        // sub-shape in `extra` and surface a typed descriptor. Unknown op or
-        // malformed respond -> null (IGNORED at parse time; the schema stays
-        // loose so such frames still VALIDATE, spec §6). This seam MUST bypass
-        // the mutex gate (the wiring branches on `kind === "agentic"` first).
+        // sub-shape in `extra` and surface a typed descriptor. v2 also
+        // recognizes `{ kind:"cancel", id }` — the browser's "Cancel" button
+        // (architecture v2 §3.4). Unknown op or malformed sub-shape -> null
+        // (IGNORED at parse time; the schema stays loose so such frames still
+        // VALIDATE, spec §6). This seam MUST bypass the mutex gate (the wiring
+        // branches on `kind === "agentic"` first).
         const extra = frame.extra;
         if (
           extra?.kind === "respond" &&
@@ -92,6 +94,9 @@ export class WebTransport {
           } = { kind: "appexec", op: "respond", id: extra.id, action: extra.action };
           if (typeof extra.tweak === "string") out.tweak = extra.tweak;
           return out;
+        }
+        if (extra?.kind === "cancel" && typeof extra.id === "string") {
+          return { kind: "appexec", op: "cancel", id: extra.id };
         }
         return null;
       }

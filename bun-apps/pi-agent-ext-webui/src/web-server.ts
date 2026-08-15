@@ -33,19 +33,43 @@
  * dispatch module (Task 1).
  */
 import type { Server, ServerWebSocket } from "bun";
+import { timingSafeEqual } from "node:crypto";
 import type { Broadcaster } from "./broadcaster.js";
 import type { ClientFrame, WebFrame } from "./protocol.js";
 import { validateInbound } from "./protocol.js";
 
 // --- origin guard (COPIED inline from gui-movie-director/lib/origin.ts) ------
 // DNS-rebinding-safe loopback Host-header guard, shared identically on HTTP
-// fetch and the WS upgrade (spec §2). An absent Origin (curl/scripts) is allowed
-// through; a present Origin must be same-origin loopback for the bound port.
+// fetch and the WS upgrade (spec §2).
+//
+// v2 hardening (architecture v2 §3.2): the Host header HOSTNAME is now
+// validated for EVERY request, independent of Origin. v1 only extracted the
+// port from Host and allowed any no-Origin request through — a classic
+// DNS-rebinding navigation (attacker page rebinds attacker.com -> 127.0.0.1
+// and navigates; same-origin GETs carry NO Origin header) could then
+// same-origin-read /api/views, /api/view/:id, /api/logs and /output/* with
+// Host: attacker.com. Requiring a loopback Host hostname unconditionally
+// closes that read-exfiltration vector; an absent Origin (curl/scripts) is
+// still allowed, but only when the Host hostname is loopback.
 const LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "[::1]"];
 
+/** Host-header hostname (port stripped, IPv6 brackets kept, case-folded). */
+function hostHostname(host: string | null): string {
+  if (!host) return "";
+  const h = host.toLowerCase();
+  if (h.startsWith("[")) {
+    const end = h.indexOf("]");
+    return end === -1 ? h : h.slice(0, end + 1);
+  }
+  return h.split(":")[0] ?? "";
+}
+
 function originAllowed(origin: string | null, host: string | null): boolean {
-  if (!origin) return true; // absent Origin (curl/scripts) allowed
-  if (!host) return false;
+  // 1) Host hostname MUST be loopback — every request, with or without Origin.
+  if (!LOOPBACK_HOSTS.includes(hostHostname(host))) return false;
+  // 2) A present Origin must be same-origin loopback for the bound port.
+  if (!origin) return true; // absent Origin (curl/scripts) allowed — Host already loopback
+  if (host === null) return false; // unreachable (hostHostname(null) === "") — narrows for TS
   // Extract port from the Host header (IPv6 addresses are bracketed). A
   // present-but-portless Host yields port="" (webui binds EPHEMERAL — no fixed
   // default like gui-movie-director's DEFAULT_PORT="3099"), so it can never
@@ -58,11 +82,16 @@ function originAllowed(origin: string | null, host: string | null): boolean {
 
 /**
  * Read the presented auth token for the OPTIONAL token check (ticket 07 D1).
- * GET + WS-URL: the ?session= query param; POST: body.token (JSON, read via
- * clone() so a downstream additive route can still read the body). Returns null
- * when absent / unparseable. Only called when this.token !== null.
+ * Precedence (v2, architecture v2 §3.2): the `x-webui-token` header FIRST — it
+ * does not leak into browser history / referrers / server logs the way a query
+ * string does; then `body.token` (POST JSON, read via clone() so a downstream
+ * additive route can still read the body); finally the legacy `?session=` query
+ * param (kept for compatibility). Returns null when absent / unparseable. Only
+ * called when this.token !== null.
  */
 async function readPresentedToken(req: Request, url: URL): Promise<string | null> {
+  const header = req.headers.get("x-webui-token");
+  if (header) return header;
   if (req.method === "POST") {
     try {
       const body = await req.clone().json();
@@ -72,6 +101,18 @@ async function readPresentedToken(req: Request, url: URL): Promise<string | null
     }
   }
   return url.searchParams.get("session");
+}
+
+/**
+ * Constant-time token compare (v2, architecture v2 §3.2): flat `!==` leaks the
+ * token length via timing; timingSafeEqual on equal-length buffers does not.
+ * Length mismatch short-circuits (timingSafeEqual throws on unequal lengths).
+ */
+function tokensEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
 }
 
 /**
@@ -128,13 +169,15 @@ export interface WebServerOptions {
 }
 
 /**
- * Stub connect-test page: opens the WS and `console.log`s received frames (spec
- * §5). Enough to validate the protocol end-to-end manually (Task 3 Step 8); the
- * real frontend is ticket 06.
+ * No-routes fallback page (architecture v2 §3.7): opens the WS so the
+ * transport is manually provable. In PROD the wiring installs the real render
+ * shell at GET / via `setHttpRoutes` (render-routes.ts) BEFORE this branch, so
+ * the stub is only reachable when no routes are installed (a bare WebServer /
+ * tests). Relabeled from the v1 "ticket 06" connect-test wording.
  */
 const STUB_PAGE = `<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>webui connect-test</title></head>
+<head><meta charset="utf-8"><title>webui (not wired)</title></head>
 <body>
 <pre id="log"></pre>
 <script>
@@ -164,6 +207,8 @@ export class WebServer implements Broadcaster {
   private token: string | null = null;
   /** Optional WS-close handler (spec Component 1); null => none (the default). */
   private onWsClose: (() => void) | null = null;
+  /** Optional WS-open handler (v2 snapshot seam); null => none (the default). */
+  private onWsOpen: ((ws: ServerWebSocket<unknown>) => void) | null = null;
   private readonly requestedPort: number;
   private readonly hostname: string;
   /** Bounded in-memory server log (Fix 4) — served at GET /api/logs. */
@@ -210,9 +255,16 @@ export class WebServer implements Broadcaster {
     this.unrefed = true;
   }
 
-  /** Re-point the live session (called on each session_start). */
-  bindSession(pi: SessionRef["pi"], ctx: SessionRef["ctx"]): void {
-    this.session = { pi, ctx };
+  /**
+   * Re-point the live session (called on each session_start). The stored ref is
+   * VESTIGIAL — WebServer only ever reads `hasSession()`; the real dispatch
+   * closure (set via setCommandHandler by the wiring) holds the live pi/ctx.
+   * Params are widened to unknown so the union call site
+   * (`WebuiServer | WebServer`) accepts a narrow host surface; the cast is the
+   * single documented narrowing.
+   */
+  bindSession(pi: unknown, ctx: unknown): void {
+    this.session = { pi: pi as SessionRef["pi"], ctx: ctx as SessionRef["ctx"] };
   }
 
   /** Drop the session ref (session_shutdown). The server STAYS up (spec §6). */
@@ -258,6 +310,16 @@ export class WebServer implements Broadcaster {
     this.onWsClose = cb;
   }
 
+  /**
+   * Inject the WS-open handler (v2 snapshot seam, architecture v2 §3.3).
+   * Invoked on EVERY ws open with the new socket so the wiring can push a
+   * connect-time session snapshot to THAT client before any live frames.
+   * `null` removes it. Mirrors setWsCloseHandler.
+   */
+  setWsOpenHandler(cb: ((ws: ServerWebSocket<unknown>) => void) | null): void {
+    this.onWsOpen = cb;
+  }
+
   /** The actual bound port (throws if not started). */
   get port(): number {
     if (!this.server) throw new Error("WebServer not started");
@@ -294,19 +356,26 @@ export class WebServer implements Broadcaster {
 
   private async fetch(req: Request, srv: Server<undefined>): Promise<Response> {
     const url = new URL(req.url);
-    // Shared origin guard (spec §2): the same check gates HTTP fetch AND the WS
-    // upgrade (the /ws branch below). Absent Origin is allowed. This is the
-    // FIRST chokepoint and stays first.
+    // Shared origin guard (spec §2 + v2 hardening, architecture v2 §3.2): the
+    // same check gates HTTP fetch AND the WS upgrade (the /ws branch below).
+    // v1 only consulted the guard when an Origin was PRESENT — a no-Origin
+    // request (curl, scripts, a DNS-rebinding navigation) skipped it entirely,
+    // so the Host-hostname validation never ran. v2 calls originAllowed for
+    // EVERY request: the Host hostname must be loopback (with or without
+    // Origin), and a present Origin must additionally be same-origin. This is
+    // the FIRST chokepoint and stays first.
     const origin = req.headers.get("origin");
-    if (origin && !originAllowed(origin, req.headers.get("host"))) {
+    const host = req.headers.get("host");
+    if (!originAllowed(origin, host)) {
       return new Response("forbidden", { status: 403 });
     }
     // Optional token auth (ticket 07 D1): null => NO check. Runs AFTER the
-    // origin guard and BEFORE this.httpRoutes. ?session= for GET + the WS-URL;
-    // body.token (JSON, via clone()) for POST. Flat !==, 403 on mismatch.
+    // origin guard and BEFORE this.httpRoutes. x-webui-token header first, then
+    // body.token (POST), then ?session= (legacy). Constant-time compare.
     if (this.token !== null) {
       const presented = await readPresentedToken(req, url);
-      if (presented !== this.token) return new Response("Forbidden", { status: 403 });
+      if (presented === null || !tokensEqual(presented, this.token))
+        return new Response("Forbidden", { status: 403 });
     }
     // GET /api/logs is served DIRECTLY — BEFORE the installed httpRoutes seam —
     // so the log buffer stays viewable even when no routes are installed (or a
@@ -358,13 +427,20 @@ export class WebServer implements Broadcaster {
     const frame = validateInbound(raw);
     if (!frame) return; // schema-invalid — ignore (spec §6)
     if (this.onCommand) {
-      this.onCommand(frame, (f) => {
-        try {
-          ws.send(JSON.stringify(f));
-        } catch {
-          /* socket closed — reply is fire-and-forget */
-        }
-      });
+      try {
+        this.onCommand(frame, (f) => {
+          try {
+            ws.send(JSON.stringify(f));
+          } catch {
+            /* socket closed — reply is fire-and-forget */
+          }
+        });
+      } catch (e) {
+        // A throwing wiring callback (e.g. sendUserMessage rejecting in the
+        // dispatch closure) must never escape the WS message handler — record
+        // it in the /api/logs ring instead (architecture v2 §3.2).
+        this.log("error", `command handler error: ${(e as Error)?.message ?? String(e)}`);
+      }
     }
   }
 
@@ -403,6 +479,16 @@ export class WebServer implements Broadcaster {
         open: (ws: ServerWebSocket<unknown>) => {
           this.clients.add(ws);
           this.log("info", `ws open (${this.clients.size} live)`);
+          // v2 snapshot seam: the wiring sends the connect-time snapshot to
+          // THIS client (before any live frames). A throw here must not kill
+          // the socket — record it like the command-handler guard.
+          if (this.onWsOpen) {
+            try {
+              this.onWsOpen(ws);
+            } catch (e) {
+              this.log("error", `ws open handler error: ${(e as Error)?.message ?? String(e)}`);
+            }
+          }
         },
         message: (ws: ServerWebSocket<unknown>, msg: string | Buffer) => this.onMessage(ws, msg),
         close: (ws: ServerWebSocket<unknown>) => {

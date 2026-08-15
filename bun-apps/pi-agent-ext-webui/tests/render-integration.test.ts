@@ -195,10 +195,19 @@ describe("wireWebui render framework — decoupling (spec D8)", () => {
     const { pi, server } = setup();
     pi.emit("session_start", {}, pi.ctx());
     // Observe any broadcast on the chat WS (mutex_blocked would arrive here).
+    // Live frames only — the v2 connect-time snapshot is expected and must not
+    // trip this negative control.
     const ws = await withTimeout(openWs(`${server.url.replace("http", "ws")}/ws`), 2000, "ws open");
     await waitFor("client registered", () => server.clientCount === 1);
     let gotFrame = false;
-    ws.onmessage = () => { gotFrame = true; };
+    ws.onmessage = (ev) => {
+      try {
+        if (JSON.parse(String(ev.data)).type === "snapshot") return;
+      } catch {
+        /* fall through */
+      }
+      gotFrame = true;
+    };
 
     // Drive the event producer path (webui_render is dropped — spec Decision B).
     pi.events.emit("webui:render", { content: "# via-event", view: "t" });

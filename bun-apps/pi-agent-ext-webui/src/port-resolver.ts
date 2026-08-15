@@ -14,6 +14,9 @@ const MAX_PORT = 65535;
 
 function parsePort(raw: string | undefined): number | null {
   if (!raw) return null;
+  // Strict decimal digits ONLY — Number() would accept "0x10" (16) and "1e3"
+  // (1000), silently binding a port the user never asked for.
+  if (!/^\d+$/.test(raw)) return null;
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 1 || n > MAX_PORT) return null;
   return n;

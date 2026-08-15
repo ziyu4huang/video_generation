@@ -35,7 +35,6 @@
  */
 import { MutexController, type MutexNotifier } from "./mutex-controller.js";
 import { DEFAULT_WATCHDOG, type InputSource, type MutexClock, type MutexTimer } from "./mutex.js";
-import { BroadcastingNotifier } from "./notifier.js";
 import { WebTransport } from "./web-transport.js";
 import { WebServer, type CommandHandler, type HttpRouteHandler } from "./web-server.js";
 import type { Broadcaster } from "./broadcaster.js";
@@ -50,6 +49,8 @@ import { createRenderEventHandler } from "./render-event-handler.js";
 import { createPresentEventHandler } from "./present-event-handler.js";
 import { createPresentTool, type PresentInput } from "./present-tool.js";
 import { resolvePort } from "./port-resolver.js";
+import { resolveWebuiEnabled } from "./webui-config.js";
+import { createSessionStore, type SessionStore } from "./session-store.js";
 
 /**
  * The event-bus surface the render framework needs (ticket 06 D2). The real
@@ -111,6 +112,15 @@ export interface WebuiHost {
 }
 
 /**
+ * Minimal socket surface the WS-open snapshot seam needs (structural — Bun's
+ * `ServerWebSocket` is a superset). Keeps webui-wiring.ts free of a Bun import
+ * (the wiring stays host-agnostic; web-server.ts is the only Bun touchpoint).
+ */
+export interface WebuiSocket {
+  send(data: string): void;
+}
+
+/**
  * The server lifecycle surface wireWebui drives. The real {@link WebServer}
  * satisfies this (it also implements {@link Broadcaster}, so it serves as its
  * own default broadcaster in prod). Tests inject a fake.
@@ -128,6 +138,10 @@ export interface WebuiServer extends Broadcaster {
    *  wiring can resolve all pending HITL presentations as {cancelled:true}.
    *  Mirrors setCommandHandler/setHttpRoutes. */
   setWsCloseHandler(cb: (() => void) | null): void;
+  /** WS-open snapshot seam (v2, architecture v2 §3.3): invoked on each WS open
+   *  with the new socket so the wiring can push the connect-time session
+   *  snapshot to THAT client. Mirrors setWsCloseHandler. */
+  setWsOpenHandler(cb: ((ws: WebuiSocket) => void) | null): void;
   /**
    * The loopback URL the server is reachable on (throws "WebServer not started"
    * before start / after stop). Read lazily by the render framework's `urlFor`
@@ -148,6 +162,20 @@ export interface WebuiDeps {
    *  env MLX_OUTPUT_DIR → ../video_generation__output vs cwd (see
    *  output-routes.ts). Injectable so wiring tests use a temp fixture. */
   outputDir?: string;
+  /**
+   * Optionality gate (architecture v2 §3.1): explicit override for the webui's
+   * enabled state. Default: read env WEBUI_DISABLED (see webui-config.ts).
+   * When disabled, wireWebui registers NOTHING (no pi.on handlers, no tool, no
+   * server) and returns an inert {@link WebuiWiring}.
+   */
+  enabled?: boolean;
+  /**
+   * Port override for the WebServer singleton (architecture v2 §3.1). Default:
+   * env WEBUI_PORT > PORT > 0 (see port-resolver.ts). Injectable so an
+   * embedding host (or the pi-agent `--webui-port` flag) pins the port without
+   * mutating process.env.
+   */
+  port?: number;
 }
 
 /**
@@ -200,8 +228,8 @@ const OUTBOUND_EVENTS = [
 
 // --- module-level WebServer singleton (persistent co-frontend transport) ----
 let singletonServer: WebServer | null = null;
-function getServer(): WebServer {
-  if (!singletonServer) singletonServer = new WebServer({ port: resolvePort() });
+function getServer(port: number): WebServer {
+  if (!singletonServer) singletonServer = new WebServer({ port });
   return singletonServer;
 }
 
@@ -219,16 +247,56 @@ const REAL_CLOCK: MutexClock = {
  * call re-points the session + command handler but reuses the live transport).
  */
 export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
-  const server = deps.server ?? getServer();
+  // --- OPTIONALITY GATE (architecture v2 §3.1) ------------------------------
+  // The webui is ON by default; opt out via env WEBUI_DISABLED or deps.enabled.
+  // Disabled = register NOTHING and own nothing: no pi.on handlers, no tool,
+  // no server, no event-bus subscriptions. registerPending resolves
+  // {cancelled:true} immediately so any (mis-)caller fails fast instead of
+  // hanging; dispose() is a no-op. This is the "TUI optionally uses the webui"
+  // seam: a host that never calls wireWebui with enabled=true pays zero cost.
+  if (!resolveWebuiEnabled(process.env, deps.enabled)) {
+    return {
+      dispose(): void {
+        /* nothing was wired — nothing to tear down */
+      },
+      registerPending: (_id: string): Promise<HitlResponse> =>
+        Promise.resolve({ cancelled: true }),
+    };
+  }
+  const server = deps.server ?? getServer(deps.port ?? resolvePort());
   // ticket 07 D1: loopback wiring — token OFF (null => no check). Loopback
   // binding + the DNS-rebinding-safe originAllowed guard is the v1 boundary;
   // the token mechanism stays AVAILABLE but OFF (a future non-loopback deployer
   // sets a non-null token). No shell-token injection: RENDER_SHELL_HTML is a
   // const and no request carries ?session=.
   server.setTokenAuth(null);
-  const broadcaster: Broadcaster = deps.broadcaster ?? server;
+  const rawBroadcaster: Broadcaster = deps.broadcaster ?? server;
+  // v2 session store (architecture v2 §3.3): EVERY outbound frame is appended
+  // (bounded transcript) before fan-out, so a mid-session WS open can replay
+  // history. The store wrapper is the single broadcast sink — the notifier and
+  // the outbound event loop both go through it.
+  const sessionStore: SessionStore = createSessionStore();
+  const broadcaster: Broadcaster = {
+    broadcast(frame: WebFrame): void {
+      sessionStore.append(frame);
+      rawBroadcaster.broadcast(frame);
+    },
+  };
   const clock = deps.clock ?? REAL_CLOCK;
-  const notifier: MutexNotifier = new BroadcastingNotifier(broadcaster);
+  const notifier: MutexNotifier = {
+    notifyBlocked(blocked, by) {
+      broadcaster.broadcast({ type: "mutex_blocked", blocked, by });
+    },
+    notifyForceRelease(driver) {
+      broadcaster.broadcast({ type: "mutex_force_release", driver });
+      // v2 (architecture v2 §3.5): force-release feedback reaches the TUI user
+      // too (v1 broadcast it only to browsers, which didn't even render it).
+      bound?.ctx?.ui?.notify(
+        `A web turn was force-released after inactivity (driver: ${driver}).`,
+        "warning"
+      );
+    },
+  };
   const controller = new MutexController({
     clock,
     watchdog: DEFAULT_WATCHDOG,
@@ -262,6 +330,19 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // exported UNION — branch on "cancelled" in r before reading r.action.
   const pending = new Map<string, { resolve: (r: HitlResponse) => void }>();
 
+  /**
+   * v2 watchdog/present sync (architecture v2 §3.5): while a presentation is
+   * pending, the agent turn is legitimately live with no activity — suspend the
+   * stale watchdog so it never force-releases under the open presentation; the
+   * session store's presentId reflects the pending so a snapshot tells the
+   * browser a presentation is awaiting its answer.
+   */
+  function syncPendingState(): void {
+    controller.setWatchdogSuspended(pending.size > 0);
+    const id = pending.size === 1 ? [...pending.keys()][0]! : null;
+    sessionStore.setPresentId(id);
+  }
+
   function registerPending(id: string): Promise<HitlResponse> {
     return new Promise<HitlResponse>((resolve) => {
       // Duplicate-id safety (Phase-2 ledger): never silently overwrite — a
@@ -273,6 +354,7 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
         stale.resolve({ cancelled: true });
       }
       pending.set(id, { resolve });
+      syncPendingState();
     });
   }
 
@@ -280,6 +362,7 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   function cancelAllPending(): void {
     for (const entry of pending.values()) entry.resolve({ cancelled: true });
     pending.clear();
+    syncPendingState();
   }
 
   /** Cancel ONE pending as {cancelled:true} (the webui_present tool's signal-abort path). */
@@ -288,6 +371,7 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     if (entry) {
       pending.delete(id);
       entry.resolve({ cancelled: true });
+      syncPendingState();
     }
   }
 
@@ -332,6 +416,13 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
         // respond descriptor (Task 1). Resolve the pending Promise keyed by id;
         // an unknown id is ignored (no pending was registered for it). MUST
         // bypass the mutex (the wiring already branched on `kind === "agentic"`).
+        // v2 adds the `cancel` op (architecture v2 §3.4): the browser's Cancel
+        // button resolves THIS pending as {cancelled:true} — unlike WS close,
+        // which cancels every pending and forces a re-present.
+        if (action.op === "cancel") {
+          cancelPending(action.id);
+          break;
+        }
         const entry = pending.get(action.id);
         if (entry) {
           pending.delete(action.id);
@@ -340,6 +431,7 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
               ? { action: action.action, tweak: action.tweak }
               : { action: action.action }
           );
+          syncPendingState();
         }
         break;
       }
@@ -369,6 +461,19 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // Re-attaching a pending presentation to a reconnect is deferred (spec
   // Decision A/C future work).
   server.setWsCloseHandler(() => cancelAllPending());
+
+  // v2 connect-time snapshot (architecture v2 §3.3): on EVERY ws open, push the
+  // accumulated session state to THAT client before any live frames — a browser
+  // opening mid-session (or refreshing) sees the agent history instead of an
+  // empty page. The store is append-only from broadcasts, so the snapshot is
+  // authoritative (research lesson: pi-client "no optimistic state").
+  server.setWsOpenHandler((ws) => {
+    try {
+      ws.send(JSON.stringify({ type: "snapshot", state: sessionStore.snapshot() }));
+    } catch {
+      /* socket closed between open and send — fire-and-forget */
+    }
+  });
 
   // --- render framework (ticket 06 D2/D3) ---------------------------------
   // The registry is constructed here (not via deps) so it owns a urlFor bound
@@ -450,7 +555,21 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     });
   };
 
-  reg("input", (event) => controller.handleInput(event.source as InputSource));
+  reg("input", (event) => {
+    const source = event.source as InputSource;
+    const r = controller.handleInput(source);
+    // v2 (architecture v2 §3.5): block feedback reaches the TUI user too —
+    // v1 only broadcast a mutex_blocked frame (which the browser didn't even
+    // render). A suppressed INTERACTIVE (TUI) submission is the silent-stall
+    // case worth surfacing; web-side blocks are already visible in the browser.
+    if (r.action === "handled" && source === "interactive" && bound?.ctx?.ui) {
+      bound.ctx.ui.notify(
+        "The web UI is driving the session — your input was blocked until the current turn settles.",
+        "warning"
+      );
+    }
+    return r;
+  });
 
   // release / activity (gate side of the dual-purpose events).
   reg("agent_settled", () => controller.handleSettled());
@@ -459,6 +578,10 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
 
   // lifecycle — lazy server start on first session_start; re-point on subsequent.
   reg("session_start", (_event, ctx) => {
+    // v2 (architecture v2 §3.5): defensively reset the mutex for the new
+    // session — v1 kept a process-wide lock across sessions, so a stale driver
+    // could block a fresh session. handleShutdown() is an idempotent release.
+    controller.handleShutdown();
     server.start();
     const sessionCtx = ctx as WebuiSessionCtx;
     server.bindSession(pi, sessionCtx);
@@ -478,6 +601,9 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     cancelAllPending();
     server.dropSession();
     bound = null;
+    // v2: the server survives session shutdown, but the next session must not
+    // inherit this session's transcript (architecture v2 §3.3).
+    sessionStore.clear();
   });
 
   // ticket 04 (refined): announce the resolved URL ONLY when the first content is
@@ -496,7 +622,9 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     ui.setStatus("webui", `🌐 webui · ${url} · open in browser to view results`);
   });
 
-  // outbound broadcast — mapEvent forwards .details/.toolName verbatim.
+  // outbound broadcast — mapEvent forwards .details/.toolName verbatim. The
+  // wrapped `broadcaster` appends every frame to the session store first, so a
+  // later WS open can replay the transcript (v2 snapshot).
   for (const ev of OUTBOUND_EVENTS) {
     reg(ev, (event) => broadcaster.broadcast(transport.mapEvent(event)));
   }
@@ -508,10 +636,12 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       server.setHttpRoutes(null);
       server.setCommandHandler(null);
       server.setWsCloseHandler(null);
+      server.setWsOpenHandler(null);
       cancelAllPending();
       controller.handleShutdown();
       server.dropSession();
       bound = null;
+      sessionStore.clear();
       server.stop();
     },
     registerPending,

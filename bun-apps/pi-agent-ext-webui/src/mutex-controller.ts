@@ -74,4 +74,14 @@ export class MutexController {
   handleShutdown(): void {
     this.mutex.release("shutdown");
   }
+
+  /**
+   * Suspend/resume the stale watchdog (architecture v2 §3.5): while a HITL
+   * presentation is pending, the agent turn is legitimately live with no
+   * activity — a force-release would free the mutex under the open
+   * presentation. The wiring calls this with pending.size > 0.
+   */
+  setWatchdogSuspended(suspended: boolean): void {
+    this.mutex.setWatchdogSuspended(suspended);
+  }
 }

@@ -6,6 +6,40 @@ browser frontend at `/` that co-drives the same `AgentSession` as the TUI, and s
 frames over a WebSocket. Rendered markdown/HTML views land in the browser, and HITL
 presentations can be answered from there.
 
+Architecture v2 (see `docs/architecture-v2.md`): the webui is now an **optional** render
++ interaction surface for the TUI agent — the browser mirrors the live agent stream
+(transcript), accepts prompts + abort mid-turn, and answers HITL presentations (with a
+Cancel button), all behind the same agentic mutex as the TUI. Security hardening
+(loopback Host validation, sandboxed markdown/HTML rendering, symlink-safe `/output`,
+header token auth) is documented there too.
+
+## Optionality — the TUI can opt in/out
+
+The webui is **on by default** (backward compatible). Disable or pin it three ways:
+
+- **Env**: `WEBUI_DISABLED=1` (or `true`) disables the wiring entirely — no handlers, no
+  tool, no server. `WEBUI_PORT=<n>` pins the port (else `PORT`, else OS-assigned).
+- **pi-agent CLI** (TUI path): `bun bun-apps/pi-agent/src/cli.ts --no-webui` disables it;
+  `--webui-port <n>` pins the port. The flags never reach pi's own parser.
+- **Embedding hosts**: `wireWebui(pi, { enabled: false })` (and `{ port }`) — see
+  `src/webui-config.ts` / `src/webui-wiring.ts`.
+
+## What the browser can do (v2)
+
+- **Live transcript mirror**: `message_update` deltas, tool calls/results, mutex signals,
+  and turn/`settled` markers render into a scrollback; a connect-time `snapshot` frame
+  replays session history on open/refresh (bounded, 500 frames).
+- **Main-session interaction**: a prompt input (`{type:"prompt"}`, mutex-gated) and an
+  Abort button (`{type:"abort"}`); outbound frames QUEUE while the WS reconnects so a
+  HITL answer is never lost.
+- **Rendered views**: tabs of named md/HTML views (`webui:render`), auto-focus on a
+  presenting view, `![image](/output/0/…)` images.
+- **HITL**: `webui_present` presents declarative controls; the user answers (or **Cancel**s
+  via the `appexec cancel` op) from the browser; the agent's `execute()` resolves with
+  `{action, tweak?}` / `{cancelled:true}`.
+- **btw side panel**: tangent thread, model/thinking switches (all 7 thinking levels now
+  reach the wire).
+
 ## Startup & URL discovery
 
 - The server starts lazily on first use and **survives session shutdown** (persistent

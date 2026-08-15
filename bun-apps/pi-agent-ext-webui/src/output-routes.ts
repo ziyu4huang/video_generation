@@ -24,7 +24,7 @@
  *    MLX_OUTPUT_DIR → default ../video_generation__output (same default as
  *    config.py). Absolute values pass through untouched.
  */
-import { statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import * as path from "node:path";
 import type { Server } from "bun";
 
@@ -86,7 +86,19 @@ export function createOutputRoutes(opts: OutputRouteOptions = {}): OutputRouteHa
   const dir = resolveOutputDir(opts.dir);
   // Containment anchor MUST carry the trailing separator (gallery.ts comment):
   // a bare startsWith lets a sibling named "<dir>something" slip through.
-  const resolvedDir = path.resolve(dir) + path.sep;
+  //
+  // v2 (architecture v2 §3.2): the anchor is REALPATH'd so a symlinked output
+  // dir still contains correctly, and per-request realpath re-checks
+  // containment — the lexical startsWith alone was escapable via a symlink
+  // INSIDE the dir (final component OR an intermediate directory) pointing
+  // anywhere (e.g. ~/.ssh). realpath resolves every symlink in the chain.
+  let baseReal: string;
+  try {
+    baseReal = realpathSync(path.resolve(dir));
+  } catch {
+    baseReal = path.resolve(dir); // dir missing — every file under it 404s anyway
+  }
+  const resolvedDir = baseReal + path.sep;
   return (req) => {
     const url = new URL(req.url);
     if (req.method !== "GET" || !url.pathname.startsWith("/output/")) return null;
@@ -112,14 +124,24 @@ export function createOutputRoutes(opts: OutputRouteOptions = {}): OutputRouteHa
     if (rest === "") return notFound();
 
     const filePath = path.normalize(path.join(dir, rest));
-    if (!filePath.startsWith(resolvedDir)) return notFound(); // escape -> 404
-    const stat = statSync(filePath, { throwIfNoEntry: false });
+    // Symlink-escape guard: resolve EVERY symlink in the chain, then re-check
+    // containment against the realpath'd anchor. A file whose real path leaves
+    // the output dir (final symlink OR a symlinked intermediate directory) is
+    // a uniform 404. Also normalizes the file for serving/stat below.
+    let real: string;
+    try {
+      real = realpathSync(filePath);
+    } catch {
+      return notFound(); // missing / broken link -> uniform 404
+    }
+    if (!real.startsWith(resolvedDir)) return notFound(); // escape -> 404
+    const stat = statSync(real, { throwIfNoEntry: false });
     if (!stat || !stat.isFile()) return notFound(); // missing/dir -> 404
 
-    return new Response(Bun.file(filePath), {
+    return new Response(Bun.file(real), {
       headers: {
         "Content-Type":
-          OUTPUT_MIME[path.extname(filePath).toLowerCase()] ??
+          OUTPUT_MIME[path.extname(real).toLowerCase()] ??
           "application/octet-stream",
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "no-cache",
