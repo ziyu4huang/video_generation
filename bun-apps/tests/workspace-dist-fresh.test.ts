@@ -1,29 +1,23 @@
 /**
- * workspace-dist-fresh — regression gate: no @repo/* package may have a dist/
- * older than (or absent for) its src.
+ * workspace-dist-fresh — tripwire gate: ZERO @repo/* packages may resolve their
+ * package root to a dist/ build output.
  *
- * WHY THIS IS A GATE (incident 2026-08-15): four packages resolve their entry
- * to `./dist/index.js` — a gitignored, locally built artifact (workflow,
- * superpowers, wayfind, webui). When a refactor edits src without rebuilding,
- * the stale dist keeps importing removed/renamed exports from LIVE sibling
- * barrels, and the first consumer blows up with a cryptic jiti `NameTooLong`
- * (stale workflow dist still imported `homeDir` after cf6f1394 removed it from
- * the subagent barrel → movie-director un-loadable at `./pi-agent.sh` boot).
- * Remote CI can never see this class (dist is gitignored → always fresh there);
- * the boot-time patch (pi-agent/src/patches/ensure-workspace-dist.ts) self-heals
- * a dev machine, and THIS gate turns the same detection into a local-CI
- * regression-gate. ORDERING NOTE: inside a local_ci run the per-package matrix
- * executes BEFORE this gate, and pi-agent's suite imports the patch — which
- * self-heals any staleness — so in that flow this gate is a last-line
- * confirmation that fires only when the heal itself failed. Its standalone
- * value is `bun run test:dist` alone (fresh clone, patch not yet booted, or
- * BUN_PI_ENSURE_WORKSPACE_DIST=0): an actionable failure message instead of a
- * cryptic NameTooLong.
+ * HISTORY: this gate used to check staleness (no dist/ older than src/) for the
+ * four dist-entry packages (workflow, superpowers, wayfind, webui) after the
+ * 2026-08-15 jiti `NameTooLong` incident (cf6f1394: stale workflow dist still
+ * imported a removed export; movie-director un-loadable at boot; remote CI
+ * could never see it — dist is gitignored). The src-entry migration
+ * (.planning/2026-08-15-src-entry-migration/, tickets 02–04) flipped all four
+ * roots to ./src/index.ts and deleted the build steps, retiring the bug class
+ * at the habitat. The gate now guards the retirement itself: a re-added
+ * `main → ./dist/…` package resurrects the whole class (stale gitignored
+ * artifacts, boot-order NameTooLong, CI-invisible drift), so one appearing is
+ * a REGRESSION, not a staleness to patch. The remediation is migration, not
+ * `bun run build`.
  *
- * ONE implementation, no second copy: detection logic lives in
- * pi-agent/src/workspace-dist-staleness.ts (pure helpers, unit-tested there);
- * this gate and the boot patch both consume it. Missing dist counts as stale —
- * a consumer's tests would fail on it anyway; the message says how to build.
+ * ONE implementation, no second copy: detection lives in
+ * pi-agent/src/workspace-dist-staleness.ts (pure helpers; distEntryMain is the
+ * same predicate the boot patch used).
  *
  * Registered as `bun run test:dist` (bun-apps root) and wired into the
  * regression-gates job of .github/workflows/ci.yml.disabled.
@@ -31,19 +25,13 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  distEntryMain,
-  newestMtimeMs,
-  newestSrcMtimeMs,
-  shouldRebuildDist,
-} from "../pi-agent/src/workspace-dist-staleness.ts";
+import { distEntryMain } from "../pi-agent/src/workspace-dist-staleness.ts";
 
 const BUN_APPS = import.meta.dirname + "/..";
 
 describe("workspace-dist-fresh gate", () => {
-  test("every @repo/* dist-entry package has a dist at least as new as its src", () => {
-    const stale: string[] = [];
-    let checked = 0;
+  test("zero @repo/* packages resolve their root to dist (src-entry invariant)", () => {
+    const distEntries: string[] = [];
 
     for (const dir of readdirSync(BUN_APPS, { withFileTypes: true })) {
       if (!dir.isDirectory()) continue;
@@ -54,21 +42,15 @@ describe("workspace-dist-fresh gate", () => {
         continue;
       }
       if (typeof pkg.name !== "string" || !pkg.name.startsWith("@repo/")) continue;
-      const entry = distEntryMain(pkg);
-      if (!entry) continue; // src-entry package — no build artifact
-
-      checked++;
-      const newestSrcMs = newestSrcMtimeMs(join(BUN_APPS, dir.name, "src"));
-      const newestDistMs = newestMtimeMs(join(BUN_APPS, dir.name, "dist"));
-      if (shouldRebuildDist({ newestSrcMs, newestDistMs })) {
-        const why = newestDistMs === null ? "dist/ is MISSING" : "dist/ is older than src";
-        stale.push(`${pkg.name}: ${why} — ( cd bun-apps/${dir.name} && bun run build )`);
+      if (distEntryMain(pkg)) {
+        distEntries.push(`${pkg.name} (root → ${String(distEntryMain(pkg))})`);
       }
     }
 
-    expect(checked, "dist-entry packages found (if 0, the gate is scanning nothing)").toBeGreaterThan(0);
     expect(
-      stale.length === 0 ? "all fresh" : `stale dist builds:\n  ${stale.join("\n  ")}`,
-    ).toBe("all fresh");
+      distEntries.length === 0
+        ? "all src-entry"
+        : `dist-root packages reintroduced (the stale-dist class is retired — migrate to a src root):\n  ${distEntries.join("\n  ")}`,
+    ).toBe("all src-entry");
   });
 });
