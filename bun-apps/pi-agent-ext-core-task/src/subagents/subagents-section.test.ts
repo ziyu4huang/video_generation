@@ -175,6 +175,88 @@ describe("subagents section (order 4)", () => {
 		});
 	});
 
+	describe("dock focus render state (Task 08 PART 2)", () => {
+		test("selected row gets the ▶ prefix while dock focused; hint line on top", () => {
+			const views = [fakeView(), fakeView({ id: "run-2", actor: "implementer", modelSeg: "opus" })];
+			const { handle } = makeSection(() => views);
+			handle.setDockState({ selected: 1, armed: false, expanded: false });
+			const lines = handle.section.render(plainTheme, 100);
+			expect(lines[0]).toBe(" ⎇ dock focused · j/k scroll · x abort · e trace · ctrl+b detach · ⏎ viewer · esc release");
+			expect(lines[1]).toBe(" 2 background runs");
+			expect(lines[2]).toBe("  ● researcher sonnet · 12.3s · 3 calls — Reading plan.md");
+			expect(lines[3]).toBe("▶ ● implementer opus · 12.3s · 3 calls — Reading plan.md");
+		});
+
+		test("armed state shows the [abort? y/n] marker on the count header", () => {
+			const { handle } = makeSection(() => [fakeView()]);
+			handle.setDockState({ selected: 0, armed: true, expanded: false });
+			const lines = handle.section.render(plainTheme, 100);
+			expect(lines[1]).toBe(" 1 background run · [abort? y/n]");
+		});
+
+		test("expanded: capped formatSubagentTrace tail renders beneath the selected row", () => {
+			// 20 unpaired toolCalls → 20 `→ …` lines + 1 progress line = 21 trace lines;
+			// capTraceTail(21, STREAMING_EXPANDED_TAIL=16) → "…" + last 16 = 17 lines.
+			const history = Array.from({ length: 20 }, (_, i) => ({
+				role: "assistant",
+				kind: "toolCall",
+				text: "",
+				toolName: "read",
+				toolCallId: `t${i}`,
+			}));
+			const views = [fakeView({ id: "run-1", history })];
+			const { handle } = makeSection(() => views);
+			handle.setDockState({ selected: 0, armed: false, expanded: true });
+			const lines = handle.section.render(plainTheme, 100);
+			const header = lines.indexOf(" 1 background run");
+			expect(header).toBe(1);
+			const trace = lines.slice(header + 1).map((l) => l.slice(6)); // strip 6-space indent
+			expect(trace).toHaveLength(17);
+			expect(trace[0]).toBe("…"); // ellipsis marker when capped
+			expect(trace.at(-1)).toContain("20 calls"); // progress line survives the cap
+			expect(trace.at(-1)).toContain("12.3s");
+		});
+
+		test("expanded with a short history renders uncapped (no ellipsis line)", () => {
+			const views = [fakeView({ history: [{ role: "assistant", kind: "text", text: "thinking" }] })];
+			const { handle } = makeSection(() => views);
+			handle.setDockState({ selected: 0, armed: false, expanded: true });
+			const lines = handle.section.render(plainTheme, 100);
+			// text entry + progress line, both under the selected row
+			const trace = lines.slice(3).map((l) => l.slice(6));
+			expect(trace[0]).toBe("thinking");
+			expect(trace.at(-1)).toContain("3 calls");
+		});
+
+		test("setDockState(undefined) restores plain (unfocused) rendering", () => {
+			const views = [fakeView(), fakeView({ id: "run-2", actor: "implementer", modelSeg: "opus" })];
+			const { handle } = makeSection(() => views);
+			handle.setDockState({ selected: 1, armed: true, expanded: true });
+			handle.setDockState(undefined);
+			expect(handle.section.render(plainTheme, 100)).toEqual([
+				" 2 background runs",
+				"  ● researcher sonnet · 12.3s · 3 calls — Reading plan.md",
+				"  ● implementer opus · 12.3s · 3 calls — Reading plan.md",
+			]);
+		});
+
+		test("setDockState requests a render (hint repaint without waiting for the 1s tick)", () => {
+			let renders = 0;
+			const handle = createSubagentsSection({
+				getViews: () => [fakeView()],
+				requestRender: () => {
+					renders++;
+				},
+				setInterval: noopInterval,
+				clearInterval: noopClearInterval,
+			});
+			handle.setDockState({ selected: 0, armed: false, expanded: false });
+			expect(renders).toBe(1);
+			handle.setDockState(undefined);
+			expect(renders).toBe(2);
+		});
+	});
+
 	test("dispose stops the refresh timer", () => {
 		let cleared = 0;
 		const handle = createSubagentsSection({

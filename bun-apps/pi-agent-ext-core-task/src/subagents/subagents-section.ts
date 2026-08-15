@@ -23,11 +23,17 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { renderRunRow } from "@repo/pi-agent-ext-core-runtime";
 import type { RunView } from "@repo/pi-agent-ext-core-runtime";
-import { latestMessageLine } from "@repo/pi-agent-ext-subagent";
+import { capTraceTail, formatSubagentTrace, latestMessageLine, STREAMING_EXPANDED_TAIL } from "@repo/pi-agent-ext-subagent";
 import type { StatusSection } from "../shared/status-widget.js";
+import type { DockRenderState } from "./dock.js";
 import { SubagentNotify } from "./notify.js";
 
 const REFRESH_MS = 1000;
+
+/** One-line keymap cheat-sheet rendered on top while dock focus is held
+ * (ticket 08). Single source — the section and any diagnostics share it. */
+export const DOCK_HINT_LINE =
+	" ⎇ dock focused · j/k scroll · x abort · e trace · ctrl+b detach · ⏎ viewer · esc release";
 
 export interface SubagentsSectionDeps {
 	/** prod: () => registry.views({ foreground: false }) */
@@ -45,12 +51,17 @@ export interface SubagentsSectionHandle {
 	section: StatusSection; // { id: "subagents", order: 4 }
 	/** Task 02 consumes: transient completion-notify line rendered on top. */
 	setNotifyLine: (line: string | undefined) => void;
+	/** Task 08 PART 2: dock focus render state (hint line, ▶ selection, armed
+	 * marker, expanded trace). `undefined` restores plain rendering. Requests a
+	 * render on every call so repaints don't wait for the 1s tick. */
+	setDockState: (state: DockRenderState | undefined) => void;
 	/** Stops the refresh timer. */
 	dispose: () => void;
 }
 
 export function createSubagentsSection(deps: SubagentsSectionDeps): SubagentsSectionHandle {
 	let notifyLine: string | undefined;
+	let dockState: DockRenderState | undefined;
 	const notify = new SubagentNotify({ bell: deps.bell });
 	let prevViews: RunView[] = [];
 	const si = deps.setInterval ?? setInterval;
@@ -68,20 +79,43 @@ export function createSubagentsSection(deps: SubagentsSectionDeps): SubagentsSec
 			notify.diff(prevViews, views);
 			prevViews = views;
 			const [transient] = notify.take();
-			if (views.length === 0 && !notifyLine && !transient) return [];
+			if (views.length === 0 && !notifyLine && !transient && !dockState) return [];
 			const lines: string[] = [];
+			if (dockState) lines.push(DOCK_HINT_LINE);
 			if (transient) lines.push(` ${transient}`);
 			if (notifyLine) lines.push(notifyLine);
 			if (views.length > 0) {
-				lines.push(` ${views.length} background ${views.length === 1 ? "run" : "runs"}`);
-				for (const v of views) {
-					lines.push(`  ${renderRunRow(v, theme)}`);
+				let header = ` ${views.length} background ${views.length === 1 ? "run" : "runs"}`;
+				if (dockState?.armed) header = `${header} · [abort? y/n]`;
+				lines.push(header);
+				views.forEach((v, i) => {
+					const selected = dockState !== undefined && dockState.selected === i;
+					const row = `${selected ? "▶" : " "} ${renderRunRow(v, theme)}`;
+					if (selected && dockState?.expanded) {
+						// Task 08: expanded — the selected run renders as ONE capped block,
+						// [row, ...trace] through capTraceTail, so a long trace keeps a
+						// viewport-safe tail (STREAMING_EXPANDED_TAIL — the #1104 flicker
+						// cap shared with the inline ctrl+o surface) and the row scrolls
+						// inside that window. The ↳ latest line is subsumed by the trace.
+						const trace = formatSubagentTrace(v.history, v.elapsedMs, v.toolCallCount);
+						const block = capTraceTail(
+							trace === "" ? [row] : [row, ...trace.split("\n")],
+							STREAMING_EXPANDED_TAIL,
+						);
+						const rowVisible = block[0] === row; // uncapped: the row stays in view
+						block.forEach((l, bi) => {
+							if (bi === 0 && rowVisible) lines.push(l);
+							else lines.push(`      ${l}`);
+						});
+						return;
+					}
+					lines.push(row);
 					// Task 04: migrated from the retired subagent-context-widget's
 					// collapsed view — one latest activity/prose line beneath each row
 					// (prose renders quoted; see latestMessageLine).
 					const live = latestMessageLine(v.history);
 					if (live) lines.push(`    ${live}`);
-				}
+				});
 			}
 			return lines;
 		},
@@ -92,6 +126,10 @@ export function createSubagentsSection(deps: SubagentsSectionDeps): SubagentsSec
 		setNotifyLine: (l) => {
 			notifyLine = l;
 			deps.requestRender();
+		},
+		setDockState: (state) => {
+			dockState = state;
+			deps.requestRender(); // hint/selection repaint without waiting for the tick
 		},
 		dispose: () => {
 			if (timer !== undefined) ci(timer);
