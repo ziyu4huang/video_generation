@@ -66,7 +66,7 @@ bun run --cwd bun-apps/gui-movie-director check:schema                  # valida
 python/venv/bin/python -m pytest python/mlx-movie-director/app/tests [--run-gpu]
 ```
 
-**Per-package gates differ.** `pi-agent-ext-hermes-memory` `bun run check` = `tsc`. `pi-agent-ext-wayfind` `bun run check` = **biome** (tsc runs under `build`, not `check`). For wayfind run **both** `bun run check && bunx tsc --noEmit && bun test`. Always run a package's canonical `bun run test` script (it may include `build`), not a hand-assembled `bun run check && bun test` subset.
+**Per-package gates differ.** `pi-agent-ext-hermes-memory` `bun run check` = `tsc`. `pi-agent-ext-wayfind` `bun run check` = **biome** (tsc lives in `typecheck`, not under `check`/`test`). For wayfind run **both** `bun run check && bun run typecheck && bun test`. Always run a package's canonical `bun run test` script (it may include `build`), not a hand-assembled `bun run check && bun test` subset.
 
 ## Subagent dispatch conventions
 
@@ -102,7 +102,7 @@ bun-apps/gui-movie-director/  # ACTIVE — Bun + React GUI
 Every `bun-apps/pi-agent-ext-<X>/` registers its pi extension at **exactly one** canonical entry: `extensions/<X>.ts` (filename == folder suffix, no `pi-` prefix). One registered extension per folder.
 
 - **Naming**: `extensions/<X>.ts` where `<X>` is the folder minus `pi-agent-ext-`. Never `src/index.ts`, root `index.ts`, `extensions/index.ts`, or `extensions/pi-<X>.ts` as the registration entry.
-- **Lib entry stays separate**: if a package's lib `main` is `src/index.ts` (power-tool, hermes-memory) or root `index.ts` (web-access), add a 1-line re-export shim `export { default } from "../src/index.ts";` at `extensions/<X>.ts` as the registered entry — don't move the lib.
+- **Lib entry stays separate**: src-entry (`main: "./src/index.ts"`) is the standard lib face — webui, superpowers, wayfind, workflow, power-tool, hermes-memory follow it (web-access uses root `index.ts`). Regardless, the pi registration entry stays `extensions/<X>.ts` (filename == folder suffix) — never `src/index.ts`, root `index.ts`, `extensions/index.ts`, or `extensions/pi-<X>.ts`. For packages whose lib entry is separate from the registration entry with no in-file implementation (power-tool, hermes-memory), add a 1-line re-export shim `export { default } from "../src/index.ts";` at `extensions/<X>.ts` as the registered entry — don't move the lib.
 - **Registration**: dynamic extensions → `bun-apps/pi-agent/run-dir/manifest.json` (`extensions[]`); always-on/static → `bun-apps/pi-agent/src/static-extensions.ts`. Never list the same extension in both (double-register).
 - **Schema-cost canary**: `bun-apps/pi-agent/src/cli/commands/schema-cost.ts` `discoverExtensionEntries()` derives its list from `bun-apps/pi-agent/run-dir/manifest.json` (`extensions[]` + `staticExtensions[]`) — extensions registered there are measured automatically. Only unregistered measure-worthy files need a manual `EXTRA_ENTRIES` row.
 - **CLI subcommands**: extension-backed CLI subcommands live at `extensions/cli-subcommand.ts` and are wired in `bun-apps/pi-agent/src/cli/extensions/registry.ts`.
