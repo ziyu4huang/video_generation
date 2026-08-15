@@ -202,6 +202,80 @@ describe("computeChangedPackages — fail-open semantics", () => {
 	});
 });
 
+describe("computeChangedPackages — matrix-irrelevant paths (scoped, NOT fail-open)", () => {
+	// The ≤5-minute local_ci budget depends on scoping. Two path classes are
+	// provably package-matrix-irrelevant and must NOT trip the rule-4 fail-open:
+	//   .planning/**     — docs-only artifacts the standing rule REQUIRES
+	//                      committing with every branch/PR; before this guard,
+	//                      every PR that obeyed the rule ran the FULL matrix.
+	//   bun-apps/tests/**— workspace-root gate tests; they run in the
+	//                      regression-gates job (bun run test:dist), which
+	//                      local_ci executes regardless of package scoping.
+	const PKGS = ["a", "b"];
+
+	test(".planning/ docs only → all false (docs need no package matrix)", async () => {
+		const { fn } = mkSpawn({ diffStdout: ".planning/REVIEW-2026-08-15-pi-agent.md\n" });
+		const map = await computeChangedPackages({
+			repoRoot: REPO,
+			baseRef: "main",
+			spawn: fn,
+			discoverPackages: discover(PKGS),
+			readDeps: readDepsFrom({ a: [], b: ["a"] }),
+		});
+		expect(map).toEqual({ a: false, b: false });
+	});
+
+	test("package file + .planning/ doc → scoped to the package's reverse-deps, NOT all true", async () => {
+		const { fn } = mkSpawn({ diffStdout: ".planning/spec.md\nbun-apps/a/x.ts\n" });
+		const map = await computeChangedPackages({
+			repoRoot: REPO,
+			baseRef: "main",
+			spawn: fn,
+			discoverPackages: discover(PKGS),
+			readDeps: readDepsFrom({ a: [], b: ["a"] }),
+		});
+		expect(map).toEqual({ a: true, b: true }); // reverse-BFS, not fail-open
+	});
+
+	test("bun-apps/tests/ gate test only → all false (covered by regression-gates, not the matrix)", async () => {
+		const { fn } = mkSpawn({ diffStdout: "bun-apps/tests/workspace-dist-fresh.test.ts\n" });
+		const map = await computeChangedPackages({
+			repoRoot: REPO,
+			baseRef: "main",
+			spawn: fn,
+			discoverPackages: discover(PKGS),
+			readDeps: readDepsFrom({ a: [], b: ["a"] }),
+		});
+		expect(map).toEqual({ a: false, b: false });
+	});
+
+	test("package file + bun-apps/tests/ file → scoped, NOT all true", async () => {
+		const { fn } = mkSpawn({ diffStdout: "bun-apps/a/x.ts\nbun-apps/tests/gate.test.ts\n" });
+		const map = await computeChangedPackages({
+			repoRoot: REPO,
+			baseRef: "main",
+			spawn: fn,
+			discoverPackages: discover(PKGS),
+			readDeps: readDepsFrom({ a: [], b: ["a"] }),
+		});
+		expect(map).toEqual({ a: true, b: true });
+	});
+
+	test("everything else outside packages STILL fails open (shared config, .github/, submodules)", async () => {
+		const { fn } = mkSpawn({
+			diffStdout: "bun-apps/package.json\n.github/workflows/ci.yml\nassets/x\ndocs/foo.md\n",
+		});
+		const map = await computeChangedPackages({
+			repoRoot: REPO,
+			baseRef: "main",
+			spawn: fn,
+			discoverPackages: discover(PKGS),
+			readDeps: readDepsFrom({ a: [], b: ["a"] }),
+		});
+		expect(map).toEqual({ a: true, b: true }); // fail-open preserved
+	});
+});
+
 describe("computeChangedPackages — exact JSON shape (bash parity)", () => {
 	test("output keys are sorted by package name; booleans are real booleans", async () => {
 		// Discover out of order; output MUST still be sorted (bash glob is sorted).

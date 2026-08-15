@@ -100,6 +100,23 @@ export function defaultReadDeps(pkgName: string, extsDir: string): string[] {
 }
 
 /**
+ * Repo path prefixes that are PROVABLY package-matrix-irrelevant: a change under
+ * them cannot affect any bun-apps/<pkg> build or test, so they must NOT trip the
+ * rule-4 fail-open (which makes local_ci run the FULL 29-package matrix — the
+ * ≤5-minute budget's worst amplifier). Each entry says where its coverage
+ * actually lives:
+ *   .planning/      — docs-only artifacts the standing rule REQUIRES committing
+ *                      with every branch/PR; before this list, every PR that
+ *                      obeyed the rule ran everything (~12+ min observed).
+ *   bun-apps/tests/ — workspace-root gate tests; they execute in the
+ *                      regression-gates job (bun run test:dist / test:seam),
+ *                      which local_ci runs REGARDLESS of package scoping.
+ * Anything else outside bun-apps/<pkg>/ still fails open (shared config,
+ * scripts/, .github/, submodules — any of those CAN affect every package).
+ */
+const MATRIX_IRRELEVANT_PREFIXES = [".planning/", "bun-apps/tests/"];
+
+/**
  * Compute the changed-package map. Always returns a well-formed
  * `Record<string, boolean>` (one entry per discovered package); fail-open cases
  * surface as "all true" rather than throwing. Only a genuine I/O failure (e.g.
@@ -147,10 +164,13 @@ export async function computeChangedPackages(
 		if (rev.exitCode !== 0) return allTrue();
 	}
 
-	// --- 4. Any file outside a known bun-apps/<pkg>/ → fail open (all true). -
+	// --- 4. Any file outside a known bun-apps/<pkg>/ → fail open (all true). --
+	// Matrix-irrelevant prefixes (see MATRIX_IRRELEVANT_PREFIXES) are skipped
+	// BEFORE the package match: they neither map to a package nor fail open.
 	let runAll = false;
 	const directlyTouched = new Set<string>();
 	for (const file of changedFiles) {
+		if (MATRIX_IRRELEVANT_PREFIXES.some((p) => file.startsWith(p))) continue;
 		let matched = false;
 		for (const pkg of packages) {
 			if (file.startsWith(`bun-apps/${pkg}/`)) {
