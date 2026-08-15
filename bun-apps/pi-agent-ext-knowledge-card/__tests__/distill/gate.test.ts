@@ -84,6 +84,27 @@ describe("distill gate", () => {
 		expect(up?.reason).toMatch(/upgrade/i);
 	});
 
+	test("raw hermes: card match → upgrade candidate (F3 — the live hub adapter id)", () => {
+		// The CURRENT hub auto-converge (convergeHermesMemory → adaptHermesMarkdown)
+		// mints `hermes:<slug>` ids, not `pi-memory:*`. The gate must treat those
+		// as upgrade candidates too, or every auto-converged card is killed as a
+		// "duplicate" and the curated upgrade path never fires (C1 doc↔code drift).
+		writeFileSync(
+			join(vault, "Zettelkasten", "knowledge-graph", "hermes-up.md"),
+			`---\nid: "hermes:lora-alpha-rank"\nstatus: active\nsuperseded_by: ""\ntags: [zettel, hermes]\n---\nLoRA alpha must match rank or training diverges\n`,
+		);
+		const entries = [
+			entry("h", "LoRA alpha must match rank or training diverges"), // matches hermes raw → upgrade
+			entry("k", "A brand new insight about kv cache memory"), // no match → survive
+		];
+		const result = runGate(entries, vault);
+		expect(result.killed.length).toBe(0);
+		expect(result.survivors.length).toBe(2);
+		const up = result.survivors.find((s) => s.entry.id === "h");
+		expect(up?.supersedesCardId).toBe("hermes:lora-alpha-rank");
+		expect(up?.reason).toMatch(/upgrade/i);
+	});
+
 	test("curated (distill:) card match → killed as true duplicate", () => {
 		writeFileSync(
 			join(vault, "Zettelkasten", "knowledge-graph", "curated-dup.md"),

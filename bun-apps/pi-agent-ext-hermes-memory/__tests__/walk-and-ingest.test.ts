@@ -97,34 +97,48 @@ describe("walkAndIngest (orchestrator: walk → adapt → ingest → heal)", () 
     writeFileSync(join(inputDir, "blob.zip"), "PK");
 
     publishSeam(KEY, makeStubPipeline());
+    // Explicit tmpdir memoryDir (F2): never default to the REAL
+    // ~/.pi/agent/pi-hermes-memory DB from a test (sandbox read-only / live-
+    // session clobbering). Sibling tests follow the same pattern.
+    const memDir = mkdtempSync(join(tmpdir(), "kvi-mem-"));
+    try {
+      const receipt = await walkAndIngest(inputDir, { memoryDir: memDir });
 
-    const receipt = await walkAndIngest(inputDir);
-
-    assert.equal(receipt.ok, true);
-    assert.equal(receipt.seamPresent, true);
-    assert.equal(receipt.vaultPath, vault);
-    assert.equal(receipt.folder, FOLDER);
-    assert.ok(receipt.ingest, "ingest summary present");
-    assert.ok((receipt.ingest!.created + receipt.ingest!.updated) >= 3, "≥3 records ingested");
-    assert.ok(receipt.heal, "heal receipt present");
-    assert.equal(receipt.heal!.mocRegenerated, true, "MOC regenerated");
-    // vault-md written under <vault>/<folder>/
-    const dir = join(vault, FOLDER);
-    assert.ok(existsSync(dir), "convergence folder created");
-    const mds = readdirSync(dir).filter((n) => n.endsWith(".md"));
-    assert.ok(mds.length >= 3, `≥3 vault-md files written (got ${mds.length})`);
-    // junk skipped
-    assert.ok(receipt.skipped.dirs.some((d) => d.endsWith(".git")), ".git skipped");
-    assert.ok(receipt.skipped.binaries.some((b) => b.endsWith("blob.zip")), "blob.zip skipped");
+      assert.equal(receipt.ok, true);
+      assert.equal(receipt.seamPresent, true);
+      assert.equal(receipt.vaultPath, vault);
+      assert.equal(receipt.folder, FOLDER);
+      assert.ok(receipt.ingest, "ingest summary present");
+      assert.ok((receipt.ingest!.created + receipt.ingest!.updated) >= 3, "≥3 records ingested");
+      assert.ok(receipt.heal, "heal receipt present");
+      assert.equal(receipt.heal!.mocRegenerated, true, "MOC regenerated");
+      // vault-md written under <vault>/<folder>/
+      const dir = join(vault, FOLDER);
+      assert.ok(existsSync(dir), "convergence folder created");
+      const mds = readdirSync(dir).filter((n) => n.endsWith(".md"));
+      assert.ok(mds.length >= 3, `≥3 vault-md files written (got ${mds.length})`);
+      // junk skipped
+      assert.ok(receipt.skipped.dirs.some((d) => d.endsWith(".git")), ".git skipped");
+      assert.ok(receipt.skipped.binaries.some((b) => b.endsWith("blob.zip")), "blob.zip skipped");
+    } finally {
+      rmSync(memDir, { recursive: true, force: true });
+    }
   });
 
   it("degrades gracefully when the zk seam is absent", async () => {
     writeFileSync(join(inputDir, "run.knowledge.jsonl"), '{"id":"r1","title":"R"}');
-    const receipt = await walkAndIngest(inputDir);
-    assert.equal(receipt.ok, false);
-    assert.equal(receipt.seamPresent, false);
-    assert.match(receipt.reason ?? "", /seam not present/i);
-    assert.equal(receipt.mirrored, 0);
+    // Explicit tmpdir memoryDir (F2): the memory DB-mirror (step 8d) opens the
+    // store unconditionally — never point it at the real ~/.pi/agent DB.
+    const memDir = mkdtempSync(join(tmpdir(), "kvi-mem-"));
+    try {
+      const receipt = await walkAndIngest(inputDir, { memoryDir: memDir });
+      assert.equal(receipt.ok, false);
+      assert.equal(receipt.seamPresent, false);
+      assert.match(receipt.reason ?? "", /seam not present/i);
+      assert.equal(receipt.mirrored, 0);
+    } finally {
+      rmSync(memDir, { recursive: true, force: true });
+    }
   });
 
   it("DB-mirrors vault-md into the unified card-store (idempotent, single dedup site)", async () => {
@@ -222,10 +236,17 @@ describe("walkAndIngest (orchestrator: walk → adapt → ingest → heal)", () 
     writeFileSync(join(inputDir, "notes", "readme.md"), "# readme");
     publishSeam(KEY, makeStubPipeline());
 
-    const receipt = await walkAndIngest(inputDir);
-    assert.equal(receipt.ok, true);
-    // generic .md is NOT in the ingest count (only the 1 jsonl record ingested).
-    assert.equal(receipt.ingest!.created, 1);
+    // Explicit tmpdir memoryDir (F2): the memory DB-mirror opens the store
+    // unconditionally — never default to the real ~/.pi/agent DB.
+    const memDir = mkdtempSync(join(tmpdir(), "kvi-mem-"));
+    try {
+      const receipt = await walkAndIngest(inputDir, { memoryDir: memDir });
+      assert.equal(receipt.ok, true);
+      // generic .md is NOT in the ingest count (only the 1 jsonl record ingested).
+      assert.equal(receipt.ingest!.created, 1);
+    } finally {
+      rmSync(memDir, { recursive: true, force: true });
+    }
   });
 });
 

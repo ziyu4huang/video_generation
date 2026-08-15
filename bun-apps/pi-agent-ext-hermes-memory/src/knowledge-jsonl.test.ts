@@ -40,6 +40,42 @@ describe("parseKnowledgeJsonl (hermes-side adapter, Option A)", () => {
     assert.equal(r.confidence, 0);
     assert.equal(r.status, "active");
     assert.equal(r.superseded_by, null);
+    // Provenance (F1): absent → undefined (never a partial/empty object).
+    assert.equal(r.evidence, undefined);
+    assert.equal(r.schema_version, undefined);
+    assert.equal(r.extracted_at, undefined);
+  });
+
+  it("passes the evidence block / schema_version / extracted_at through (F1)", () => {
+    const { records, parseErrors } = parseKnowledgeJsonl(
+      '{"id":"e1","title":"E","evidence":{"occurrences":3,"first_seen":"2026-06-20","last_seen":"2026-07-01","run_ids":["r1"]},"schema_version":2,"extracted_at":"2026-07-02T10:00:00Z"}',
+    );
+    assert.equal(parseErrors.length, 0);
+    const r = records[0]!;
+    assert.deepEqual(r.evidence, {
+      occurrences: 3,
+      first_seen: "2026-06-20",
+      last_seen: "2026-07-01",
+      run_ids: ["r1"],
+    });
+    assert.equal(r.schema_version, 2);
+    assert.equal(r.extracted_at, "2026-07-02T10:00:00Z");
+  });
+
+  it("drops a malformed (non-object) evidence field instead of crashing", () => {
+    const { records, parseErrors } = parseKnowledgeJsonl(
+      '{"id":"e2","title":"E2","evidence":"not-an-object"}',
+    );
+    assert.equal(parseErrors.length, 0);
+    assert.equal(records[0]!.evidence, undefined);
+  });
+
+  it("drops an array-shaped evidence field (arrays are not evidence blocks)", () => {
+    const { records, parseErrors } = parseKnowledgeJsonl(
+      '{"id":"e3","title":"E3","evidence":[{"first_seen":"2026-01-01"}]}',
+    );
+    assert.equal(parseErrors.length, 0);
+    assert.equal(records[0]!.evidence, undefined);
   });
 
   it("records a JSON parse error (malformed line)", () => {

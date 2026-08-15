@@ -33,8 +33,9 @@ export async function runConverge(
 		sourceLabel: "distill:pipeline",
 	});
 
-	// Supersede the raw `pi-memory:*` cards these notes upgrade (mechanism B):
-	// after writing the curated card, flip the matching raw card to
+	// Supersede the raw cards these notes upgrade (mechanism B): raw ids are
+	// `hermes:*` (the live hub auto-converge adapter) or legacy `pi-memory:*`.
+	// After writing the curated card, flip the matching raw card to
 	// status:superseded so retrieveRecords excludes it — leaving the curated
 	// card as the single active card for that knowledge.
 	for (const note of notes) {

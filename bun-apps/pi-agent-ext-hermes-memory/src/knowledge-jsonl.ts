@@ -47,6 +47,17 @@ export function parseKnowledgeJsonl(content: string): KnowledgeJsonlResult {
       status: typeof rec.status === "string" ? rec.status : "active",
       superseded_by: rec.superseded_by ?? null,
       entities: Array.isArray(rec.entities) ? (rec.entities as unknown[]) : undefined,
+      // Provenance pass-through (review F1): carry the workflow evidence block /
+      // schema version so zk's ingestRecords can derive `created` from
+      // first_seen and render the 證據 / 脈絡 block — previously stripped here,
+      // which sent every walkAndIngest card down the 1970-01-01 fallback. Only a
+      // non-null plain object passes; strings/arrays/null are dropped (undefined).
+      evidence:
+        rec.evidence && typeof rec.evidence === "object" && !Array.isArray(rec.evidence)
+          ? rec.evidence
+          : undefined,
+      schema_version: typeof rec.schema_version === "number" ? rec.schema_version : undefined,
+      extracted_at: typeof rec.extracted_at === "string" ? rec.extracted_at : undefined,
     });
   }
   return { records, parseErrors };
