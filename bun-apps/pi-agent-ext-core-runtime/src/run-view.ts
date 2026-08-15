@@ -29,6 +29,8 @@ export interface RunView {
   readonly toolCallCount: number;
   /** last toolCall summary ?? taskPreview */
   readonly latestAction?: string;
+  /** taskPreview passthrough — the header task when workIntent is absent. */
+  readonly taskPreview: string;
   readonly workIntent?: string;
   readonly badgeText?: string;
   /** abort lever present */
@@ -107,6 +109,7 @@ export function buildRunView(r: RunRecord, now: number): RunView {
     elapsedFrozen,
     toolCallCount,
     latestAction,
+    taskPreview: r.taskPreview,
     workIntent: r.workIntent,
     badgeText: r.fellBack ? "fallback" : undefined,
     abortable: typeof r.abort === "function",

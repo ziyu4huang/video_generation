@@ -17,7 +17,13 @@ import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi
 import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
 import { parseKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
-import { type ActivityRow, renderActivityRow, summarizeLatestAction } from "@repo/pi-agent-ext-core-runtime";
+import {
+  type ActivityRow,
+  fmtCost,
+  fmtTokensShort,
+  renderActivityRow,
+  summarizeLatestAction,
+} from "@repo/pi-agent-ext-core-runtime";
 import { fmtDuration, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
 import type { PersistedRunState } from "./run-persistence.js";
 import { registerSavedWorkflow } from "./saved-commands.js";
@@ -389,7 +395,11 @@ export function renderNavigator(
     // Render runs
     runs.forEach((r, i) => {
       const icon = STATUS_ICON[r.status] ?? "?";
-      const meta = [`${r.done}/${r.total}`, fmtTokens(r.tokens), r.cost > 0 ? `$${r.cost.toFixed(4)}` : ""]
+      const meta = [
+        `${r.done}/${r.total}`,
+        r.tokens > 0 ? `${fmtTokensShort(r.tokens)} tok` : "",
+        r.cost > 0 ? `$${fmtCost(r.cost)}` : "",
+      ]
         .filter(Boolean)
         .join(" · ");
       lines.push(sel(i, `${icon} ${r.name}  ${dim(`${r.runId} · ${r.status} · ${meta}`)}`));

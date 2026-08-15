@@ -1,5 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
+import type { RunView } from "@repo/pi-agent-ext-core-runtime";
 import type { SubagentsToolDetails, SubagentToolDetails } from "../src/index.js";
 import { reconstructSubagentRuns, type SubagentRun, SubagentViewer } from "../src/subagent-viewer.js";
 
@@ -247,22 +248,13 @@ test("viewer output view shows cost/tokens when usage.total > 0", () => {
 });
 
 test("viewer list shows a Running section with live elapsed when getRunning returns in-flight runs", () => {
-  const running = [
-    {
-      id: "r1",
-      agent: "implementer",
-      model: "x/flash",
-      taskPreview: "doing X",
-      startedAt: Date.now() - 1500,
-      history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }],
-    },
-  ];
-  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  const running = [runningEntry("r1")];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running, onClose: () => {} }, T);
   const out = viewer.render(80).join("\n");
   assert.match(out, /Running/);
   assert.ok(out.includes("implementer"), "running section shows the agent role");
   assert.ok(out.includes("flash"), "running section shows the (shortened) model");
-  assert.match(out, /\d+\.\d+s/, "running section shows live elapsed");
+  assert.ok(out.includes("1.5s"), "running section shows the view's elapsedMs");
   assert.match(out, /1 call/, "running section shows the live tool-call count");
 });
 
@@ -274,14 +266,7 @@ test("viewer list omits the Running section when no in-flight runs", () => {
 
 test("viewer Running section shows the agent's latest tool call instead of the static task preview once it has history", () => {
   const running = [
-    {
-      id: "r1",
-      agent: "implementer",
-      model: "x/flash",
-      taskPreview: "doing X",
-      startedAt: Date.now() - 1500,
-      history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }],
-    },
+    runningEntry("r1", { history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }] }),
   ];
   const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
   const out = viewer.render(80).join("\n");
@@ -289,33 +274,14 @@ test("viewer Running section shows the agent's latest tool call instead of the s
 });
 
 test("viewer Running section falls back to the task preview before any history exists", () => {
-  const running = [
-    {
-      id: "r1",
-      agent: "implementer",
-      model: "x/flash",
-      taskPreview: "doing X",
-      startedAt: Date.now() - 1500,
-      history: [],
-    },
-  ];
-  const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
+  const running = [runningEntry("r1", { history: [], toolCallCount: 0, latestAction: "doing X" })];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running, onClose: () => {} }, T);
   const out = viewer.render(80).join("\n");
   assert.ok(out.includes("doing X"), "falls back to the static task preview before any tool call happened");
 });
 
 test("viewer Running section shows the resolved model (short) once resolvedModel is set", () => {
-  const running = [
-    {
-      id: "r1",
-      agent: "implementer",
-      model: "tier:medium",
-      resolvedModel: "google/gemma-4-12b-qat",
-      taskPreview: "doing X",
-      startedAt: Date.now() - 1500,
-      history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }],
-    },
-  ];
+  const running = [runningEntry("r1", { modelSeg: "gemma-4-12b-qat" })];
   const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
   const out = viewer.render(80).join("\n");
   assert.ok(out.includes("gemma-4-12b-qat"), "running row shows the resolved model, shortened");
@@ -323,16 +289,7 @@ test("viewer Running section shows the resolved model (short) once resolvedModel
 });
 
 test("viewer Running section falls back to the model field when resolvedModel is absent", () => {
-  const running = [
-    {
-      id: "r1",
-      agent: "implementer",
-      model: "tier:medium",
-      taskPreview: "doing X",
-      startedAt: Date.now() - 1500,
-      history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }],
-    },
-  ];
+  const running = [runningEntry("r1", { modelSeg: "tier:medium" })];
   const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
   const out = viewer.render(80).join("\n");
   assert.ok(out.includes("tier:medium"), "pre-resolution row still shows the requested tier (unchanged behavior)");
@@ -348,16 +305,23 @@ test("reconstructSubagentRuns carries toolCallId through from the branch message
 
 // ── unified selectable list + live-follow (LIVE) ──
 
-function runningEntry(id: string, overrides: Record<string, unknown> = {}) {
+/** RunView-shaped fixture — mirrors what registry.views() feeds getRunning (Task 11). */
+function runningEntry(id: string, overrides: Record<string, unknown> = {}): RunView {
   return {
     id,
-    agent: "implementer",
-    model: "x/flash",
-    taskPreview: `doing ${id}`,
-    startedAt: Date.now() - 1500,
+    actor: "implementer",
+    status: "running",
+    modelSeg: "flash",
+    elapsedMs: 1500,
+    elapsedFrozen: false,
+    toolCallCount: 1,
+    latestAction: `doing ${id}`,
+    foreground: false,
+    abortable: false,
     history: [{ role: "assistant", kind: "toolCall", toolName: "read", text: '{"path":"a.ts"}' }],
+    startedAt: Date.now() - 1500,
     ...overrides,
-  };
+  } as RunView;
 }
 
 test("list cursor spans Running + Completed rows (unified); ▶ marks the selected row", () => {
@@ -405,7 +369,7 @@ test("follow esc returns to the list", () => {
 });
 
 test("follow shows the resolved model (short) once resolvedModel is set", () => {
-  const running = [runningEntry("r1", { model: "tier:medium", resolvedModel: "google/gemma-4-12b-qat" })];
+  const running = [runningEntry("r1", { modelSeg: "gemma-4-12b-qat" })];
   const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
   viewer.handleInput("\r");
   const out = viewer.render(80).join("\n");
@@ -813,9 +777,9 @@ test("collapsing one batch does not collapse another", () => {
 
 test("filter narrows batch children: matching children keep a (recounted) header; a non-matching batch leaves no orphan header", () => {
   const running = [
-    runningEntry("batchX:0", { batchId: "batchX", history: [], taskPreview: "auth service" }),
-    runningEntry("batchX:1", { batchId: "batchX", history: [], taskPreview: "auth tokens" }),
-    runningEntry("batchY:0", { batchId: "batchY", history: [], taskPreview: "billing report" }),
+    runningEntry("batchX:0", { batchId: "batchX", history: [], toolCallCount: 0, latestAction: "auth service" }),
+    runningEntry("batchX:1", { batchId: "batchX", history: [], toolCallCount: 0, latestAction: "auth tokens" }),
+    runningEntry("batchY:0", { batchId: "batchY", history: [], toolCallCount: 0, latestAction: "billing report" }),
   ];
   const viewer = new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {} }, T);
   viewer.handleInput("a");
@@ -900,17 +864,8 @@ test("counts update as more children complete (2 running → 1 running 1 done �
 // ── per-child mid-flight abort: viewer x-key + confirm (Frontier A, Task 3) ──
 
 function viewerWithRunning(onAbort?: (id: string) => void) {
-  const running = [
-    {
-      id: "r1",
-      agent: "implementer",
-      model: "x/flash",
-      taskPreview: "doing X",
-      startedAt: Date.now() - 100,
-      history: [],
-    },
-  ];
-  return new SubagentViewer({ runs: [], getRunning: () => running as never, onClose: () => {}, onAbort }, T);
+  const running = [runningEntry("r1", { history: [], toolCallCount: 0, elapsedMs: 100 })];
+  return new SubagentViewer({ runs: [], getRunning: () => running, onClose: () => {}, onAbort }, T);
 }
 
 test("x on a Running entry → confirm; y aborts via onAbort(id); confirm clears", () => {
@@ -932,7 +887,7 @@ test("x then n (and Esc) cancels the confirm without aborting or closing the vie
   const v = new SubagentViewer(
     {
       runs: [],
-      getRunning: () => [{ id: "r1", model: "m", taskPreview: "p", startedAt: 0 }] as never,
+      getRunning: () => [runningEntry("r1")],
       onClose: () => {
         closed++;
       },
@@ -967,7 +922,7 @@ test("x on a Completed entry is a no-op; x while a filter is active is a no-op",
   const v2 = new SubagentViewer(
     {
       runs: [],
-      getRunning: () => [{ id: "r1", model: "m", taskPreview: "p", startedAt: 0 }] as never,
+      getRunning: () => [runningEntry("r1")],
       onClose: () => {},
       onAbort: (id) => aborted.push(id),
     },

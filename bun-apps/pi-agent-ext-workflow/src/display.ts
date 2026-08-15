@@ -1,6 +1,6 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { AgentHistoryEntry, ThemeLike, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
-import { activityGlyph, NO_THEME, shorten } from "@repo/pi-agent-ext-core-runtime";
+import { activityGlyph, fmtCost, NO_THEME, shorten } from "@repo/pi-agent-ext-core-runtime";
 
 import type { WorkflowMeta } from "./workflow.js";
 
@@ -202,7 +202,7 @@ export function renderWorkflowLines(
         : "";
   // Build header with token info (and cost when the provider reports it)
   const usage = snapshot.tokenUsage;
-  const costInfo = usage?.cost ? ` · $${usage.cost.toFixed(4)}` : "";
+  const costInfo = usage?.cost ? ` · $${fmtCost(usage.cost)}` : "";
   const tokenInfo = usage ? ` · ${usage.total.toLocaleString()} tokens${costInfo}` : "";
   const lines = [
     `${theme.bold(`◆ Workflow: ${snapshot.name}`)} (${snapshot.doneCount}/${snapshot.agentCount} done${state}${tokenInfo})`,

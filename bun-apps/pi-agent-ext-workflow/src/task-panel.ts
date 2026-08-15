@@ -10,6 +10,8 @@ import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi
 import { type Component, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import {
   type ActivityRow,
+  fmtCost,
+  fmtElapsed,
   fmtTokensShort,
   renderActivityRow,
   shorten,
@@ -81,7 +83,7 @@ export function deliverText(run: ManagedRun): string {
   const summary = summarizeResult(run.result?.result);
   const tokens = run.result?.tokenUsage ? ` · ${run.result.tokenUsage.total.toLocaleString()} tokens` : "";
   const agents = run.result?.agentCount ?? run.snapshot.agentCount;
-  const duration = run.result?.durationMs ? ` · ${(run.result.durationMs / 1000).toFixed(1)}s` : "";
+  const duration = run.result?.durationMs ? ` · ${fmtElapsed(run.result.durationMs)}` : "";
   return [
     `✓ Background workflow "${run.snapshot.name}" finished (${agents} agents${tokens}${duration}).`,
     "",
@@ -187,7 +189,7 @@ function deliverTextFromPersisted(run: {
   const summary = summarizeResult(run.result);
   const tokens = run.tokenUsage ? ` · ${run.tokenUsage.total.toLocaleString()} tokens` : "";
   const agents = run.agents?.length ?? 0;
-  const duration = run.durationMs ? ` · ${(run.durationMs / 1000).toFixed(1)}s` : "";
+  const duration = run.durationMs ? ` · ${fmtElapsed(run.durationMs)}` : "";
   return [
     `✓ Background workflow "${run.workflowName}" finished while this session was closed` +
       ` (${agents} agents${tokens}${duration}). Recovered result:`,
@@ -399,9 +401,8 @@ export function renderPanelDetailed(
       `${done}/${agents.length} agents`,
       snap?.currentPhase || "",
       total > 0 ? `${fmtTokensShort(total)} tok` : "",
-      // 2 decimals for ≥1¢, 4 for sub-cent so a real cost never shows as "$0.00".
       // (cost is only known once the run finalizes its usage.)
-      usage?.cost ? `$${usage.cost.toFixed(usage.cost >= 0.01 ? 2 : 4)}` : "",
+      usage?.cost ? `$${fmtCost(usage.cost)}` : "",
       rate > 0 ? `${Math.round(rate)} tok/s` : "",
     ]
       .filter(Boolean)

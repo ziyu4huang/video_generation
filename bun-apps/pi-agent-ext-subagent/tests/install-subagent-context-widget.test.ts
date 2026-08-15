@@ -1,12 +1,19 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
+import { buildRunView } from "@repo/pi-agent-ext-core-runtime";
 import { installSubagentContextWidget, isCtrlO } from "../src/subagent-context-widget.js";
 
 const T = { fg: (_c: string, s: string) => s, bg: (_c: string, s: string) => s, bold: (s: string) => s } as never;
 
-/** Minimal fake registry: only `.list()` is read. */
+/** Minimal fake registry: only `.views()` is read (raw records projected the
+ *  way the real registry's views() does — buildRunView + foreground filter). */
 function fakeRegistry(list: () => unknown[]) {
-  return { list } as never;
+  return {
+    views: (opts?: { foreground?: boolean }) =>
+      list()
+        .map((r) => buildRunView(r as never, Date.now()))
+        .filter((v) => opts?.foreground === undefined || v.foreground === opts.foreground),
+  } as never;
 }
 
 /**

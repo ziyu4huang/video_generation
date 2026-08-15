@@ -150,7 +150,7 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
  * stays available via the existing History block; this is a status-line
  * snippet, not content.
  */
-export function summarizeLatestAction(history?: AgentHistoryEntry[]): string | undefined {
+export function summarizeLatestAction(history?: readonly AgentHistoryEntry[]): string | undefined {
   const last = history?.[history.length - 1];
   if (!last) return undefined;
   const lastIdx = (history?.length ?? 1) - 1;

@@ -868,10 +868,11 @@ test("renderSubagentResult shows cost/tokens when usage.total > 0, omits when 0 
 
 // --- ticket 04 finding 3: settled result meta persists the fallback indicator ---
 // The live call line showed `▸ opus ▸ → glm-5.2` mid-run, but on settle the meta
-// collapsed to just the actual model and the fallback became invisible. Persist
-// a `requested → actual` segment (shortened) on the settled meta so a surprising
-// fallback survives settle.
-test("renderSubagentResult settled meta shows `requested → actual` (shortened) when d.fellBack", () => {
+// collapsed to just the actual model and the fallback became invisible. The
+// fallback-aware segment now comes from the RunView (opts.modelSeg, passed by
+// the caller holding registry.view(toolCallId)) so a surprising fallback
+// survives settle without the renderer re-deriving it from d.fellBack.
+test("renderSubagentResult settled meta shows `requested → actual` (shortened) from opts.modelSeg (RunView-sourced)", () => {
   const out = renderSubagentResult(
     {
       content: [{ type: "text", text: "done" }],
@@ -888,6 +889,7 @@ test("renderSubagentResult settled meta shows `requested → actual` (shortened)
     },
     { expanded: false },
     T,
+    { modelSeg: "claude-opus-4-1 → glm-5.2" },
   );
   assert.match(out, /claude-opus-4-1 → glm-5\.2/, "the fallback indicator persists after settle");
   assert.ok(!out.includes("anthropic/claude-opus-4-1"), "requested id shortened on the meta (finding 5)");

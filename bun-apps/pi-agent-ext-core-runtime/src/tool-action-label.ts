@@ -334,7 +334,10 @@ export function formatToolAction(entry: AgentHistoryEntry, ctx?: ToolActionConte
  *     nearest preceding toolCall with the SAME toolName — the legacy path that
  *     handles older/id-less transcripts unchanged.
  */
-export function matchedCallArgsFor(history: AgentHistoryEntry[], index: number): Record<string, unknown> | undefined {
+export function matchedCallArgsFor(
+  history: readonly AgentHistoryEntry[],
+  index: number,
+): Record<string, unknown> | undefined {
   const entry = history[index];
   if (!entry) return undefined;
   if (entry.kind !== "toolResult" && entry.kind !== "error") return undefined;
