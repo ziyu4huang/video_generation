@@ -184,14 +184,11 @@ jobs:
           # of scope for the CI cycle; the unit tests + build are the gate).
           - { package: pi-agent-ext-workflow, test-cmd: "bun run build && bun test" }
           # pi-agent-ext-webui: 21 test files, never in the matrix — the largest
-          # single uncovered suite in the repo. Second package (after workflow)
-          # whose `main` points at a gitignored compiled dist/ (./dist/index.js),
-          # so a fresh checkout has NO dist and a plain `bun test` would fail on
-          # import. Spelled out as `build && test:unit` rather than the package's
-          # `bun run test` alias so the build dependency stays visible in the
-          # matrix itself (the alias is byte-identical today; the explicit form
-          # can't be quietly hollowed out by an edit to package.json).
-          - { package: pi-agent-ext-webui, test-cmd: "bun run build && bun run test:unit" }
+          # single uncovered suite in the repo. Src-entry package since the
+          # 2026-08-15 src-entry migration (ticket 02, PR #1391): package root
+          # resolves to ./src/index.ts, no build step, dist/ deleted — a plain
+          # `bun test` runs from source on any checkout.
+          - { package: pi-agent-ext-webui, test-cmd: "bun test" }
           # pi-agent-ext-subagent: extracted from workflow (spawnSubagent +
           # WorkflowAgent runner + subagent/subagent_runs tools). Uses the
           # package's canonical `bun run test` chain (biome check → tsc build →
