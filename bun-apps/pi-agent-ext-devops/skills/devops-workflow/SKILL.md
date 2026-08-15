@@ -17,8 +17,12 @@ all of which the devops tools exist to prevent:
 - **Scope-verification false-positives.** Hand-rolled `git show --stat` /
   `git diff --name-only` parsing mis-split binary lines / summary lines and
   reported CLEAN where the merge had actually drifted out of scope.
-  `verify_merge` owns a tested `parseShowStat` + an explicit CLEAN/CONTAMINATED
-  verdict, so the verdict is never a hunch.
+  `verify_merge` owns a tested parser + an explicit CLEAN/CONTAMINATED verdict,
+  so the verdict is never a hunch. **Never parse `--stat` yourself, and note the
+  tool no longer does either**: `--stat` renders for a terminal and abbreviates
+  long paths as `.../tail`, which broke every prefix match and reported a clean
+  merge as CONTAMINATED (PR #1360). `--numstat` is the machine-readable form —
+  full paths, per-file counts.
 - **Worktree-blocked checkouts.** A bare `git checkout -b` fatals when the
   branch is already checked out in another worktree. `prepare_branch` guards
   against this **before** any mutation and aborts cleanly (`worktree-conflict`).
@@ -121,10 +125,21 @@ When it reports BEHIND, go back to step 1 (`prepare_branch`).
 
 After the merge: confirm the PR actually merged, inspect the merge commit's real
 file scope against an optional `expectedScope` (verdict CLEAN vs CONTAMINATED),
-and whether the feature branch is now **spent** (fully contained in the default
-branch). Pass the same `expectedScope` you intended the work to touch — a
-CONTAMINATED verdict means the merge pulled in out-of-scope paths. Replaces
-manual `git show --stat` / `git branch --merged` verification.
+and whether the feature branch is now **spent**. Pass the same `expectedScope`
+you intended the work to touch — a CONTAMINATED verdict means the merge pulled in
+out-of-scope paths. Replaces manual `git show` / `git branch --merged`
+verification.
+
+**`spent` does not mean "contained".** A squash merge rewrites the branch into
+one new commit, so the head ref is never an ancestor of the base and
+`git branch --merged` never lists it — under this repo's squash convention that
+made `branchSpent` permanently false. It now keys off gh's `headRefOid`: still
+pointing at the SHA that was merged ⇒ nothing left to lose ⇒ safe to delete. A
+branch with commits pushed AFTER the merge correctly reports NOT spent.
+
+Do not reach for a tree comparison against the merge commit instead — that tree
+is all of the default branch at merge time, so it includes every unrelated PR
+that landed between this branch's last rebase and its merge.
 
 ### 5. `devops_retrospect` — advisory anomaly review
 
