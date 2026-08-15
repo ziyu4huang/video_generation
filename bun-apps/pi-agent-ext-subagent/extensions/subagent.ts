@@ -1,11 +1,14 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { registerModelsPresetCommand } from "../extensions/models-preset.js";
 import {
+  convertToBackground,
   createSubagentRunsTool,
   createSubagentsTool,
   createSubagentTool,
+  dispatchCtrlB,
   getSubagentInFlightRegistry,
   getSubagentRunPersistence,
+  makeProdDetachDeps,
 } from "../src/index.js";
 import { createSubagentsCommand } from "../src/subagents-command.js";
 
@@ -89,6 +92,25 @@ export default function extension(pi: ExtensionAPI) {
   // ~/.pi/workflows/model-tiers.json. The one-stop setup/switch command; pairs
   // with /workflows-models (fine-edit). Preset templates live in src/presets.ts.
   registerModelsPresetCommand(pi);
+
+  // Ctrl+b (Task 06) — GLOBAL detach: background the OLDEST live foreground
+  // subagent run. Both ctrl+b surfaces share one lever: convertToBackground
+  // over makeProdDetachDeps (the /subagents viewer's in-viewer ctrl+b passes
+  // the SAME assembly through the viewer's onDetach seam).
+  //
+  // Key-claim note: ctrl+b is pi's default `tui.editor.cursorLeft` binding,
+  // but that action is NOT in pi's reserved-for-extension-conflicts list
+  // (only submit/confirm/cancel/copy/followUp/deleteToLineEnd are), so an
+  // extension-registered shortcut CLAIMS the key (pi emits a conflict
+  // diagnostic; editor cursor-left keeps the plain `left` binding). If pi
+  // ever reserves ctrl+b, fall back to a ui.onTerminalInput byte-sniff for
+  // \x02 (the retired Task-04 Ctrl-O hook's pattern).
+  pi.registerShortcut("ctrl+b", {
+    description: "subagent: detach foreground run to background",
+    handler: () => {
+      dispatchCtrlB(inFlight, (id) => convertToBackground(id, makeProdDetachDeps({ registry: inFlight, persistence })));
+    },
+  });
 
   // Force-activate on EVERY lifecycle hook that precedes a system-prompt rebuild.
   // Mirrors pi-agent-ext-workflow's activateWorkflowTools: session_start alone is

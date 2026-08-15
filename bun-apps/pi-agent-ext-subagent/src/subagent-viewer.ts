@@ -143,6 +143,11 @@ interface ViewerOpts {
   /** Per-child abort lever — fires when the user confirms an x-key abort on a
    *  Running entry. Wired to registry.abort(id) in subagents-command.ts. */
   onAbort?: (id: string) => void;
+  /** Ctrl+b detach lever (Task 06) — fires on the FOCUSED run (list: the
+   *  cursor's Running row; follow: the followed run). Wired to
+   *  `convertToBackground(id, makeProdDetachDeps())` in subagents-command.ts —
+   *  the SAME assembly as the global ctrl+b path in extensions/subagent.ts. */
+  onDetach?: (id: string) => void;
 }
 
 /** Stateful list↔output↔follow viewer. `view` flips on enter/esc; no second UI mount. */
@@ -162,6 +167,8 @@ export class SubagentViewer {
   private onClose: () => void;
   /** Per-child abort callback (Frontier A); fires on a confirmed x-key abort. */
   private onAbort?: (id: string) => void;
+  /** Ctrl+b detach callback (Task 06); fires with the FOCUSED run's id. */
+  private onDetach?: (id: string) => void;
   /** When set, the viewer is mid-abort-confirm on this running id; only y/n/Esc resolve. */
   private confirmAbortId?: string;
   private cachedWidth?: number;
@@ -186,6 +193,7 @@ export class SubagentViewer {
     this.getRuns = opts.getRuns;
     this.onClose = opts.onClose;
     this.onAbort = opts.onAbort;
+    this.onDetach = opts.onDetach;
     this.theme = theme;
   }
 
@@ -293,6 +301,14 @@ export class SubagentViewer {
     this.showAll = false; // re-entering the list starts capped
   }
 
+  /** Ctrl+b (Task 06): hand the FOCUSED run's id to the detach lever. Unknown /
+   *  already-background / terminal runs are refused (never thrown) inside
+   *  `convertToBackground` — the viewer treats a refusal as a silent no-op. */
+  private detachFocused(id: string | undefined): void {
+    if (id === undefined) return;
+    this.onDetach?.(id);
+  }
+
   handleInput(data: string): void {
     if (matchesKey(data, Key.escape)) {
       // A pending abort confirm is cancelled by Esc WITHOUT closing the viewer
@@ -318,7 +334,14 @@ export class SubagentViewer {
       }
       return;
     }
-    if (this.view !== "list") return; // follow/output: no nav/filter keys in v1
+    if (this.view === "follow") {
+      // ctrl+b (Task 06): detach the FOLLOWED run to background. The run may
+      // have already left the registry — `convertToBackground` refuses unknown
+      // ids and the refusal surfaces as a silent no-op (same as the global path).
+      if (data === "\x02") this.detachFocused(this.followedId);
+      return; // follow: no nav/filter keys in v1
+    }
+    if (this.view !== "list") return; // output: no nav/filter keys in v1
     // Per-child abort confirm (Frontier A): while confirming, only y/n resolve
     // (Esc is handled above); nav/enter/printable are ignored so a stray key
     // can't follow, filter, or abort mid-confirm.
@@ -332,6 +355,17 @@ export class SubagentViewer {
         this.confirmAbortId = undefined;
         this.invalidate();
       }
+      return;
+    }
+    // ctrl+b (Task 06): detach the FOCUSED (cursor) run — only a Running row is
+    // a detach target; batch headers and completed rows are silent no-ops
+    // (never throws, onDetach never fires). Checked AFTER the confirm gate (a
+    // pending abort confirm resolves only via y/n/Esc) and BEFORE the printable
+    // filter branch so the \x02 control byte can never land in the filter
+    // (plain 'b' still filters).
+    if (data === "\x02") {
+      const e = this.entries()[this.selected];
+      if (e?.kind === "running") this.detachFocused(e.ref.id);
       return;
     }
     // filter input

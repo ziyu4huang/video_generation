@@ -951,3 +951,64 @@ test("reconstruct surfaces 'aborted' for a singular subagent + a batch child; Co
   const out = v.render(80).join("\n");
   assert.match(out, /⊘/, "aborted completed rows carry the aborted glyph");
 });
+
+// ── Task 06: in-viewer ctrl+b detaches the FOCUSED run ──────────────────────
+
+test("in-viewer ctrl+b detaches the FOCUSED run, not the oldest", () => {
+  const running = [runningEntry("run-old"), runningEntry("run-new")];
+  const detached: string[] = [];
+  const viewer = new SubagentViewer(
+    {
+      runs: [],
+      getRunning: () => running as never,
+      onClose: () => {},
+      onDetach: (id) => detached.push(id),
+    },
+    T,
+  );
+  viewer.handleInput("\x02"); // ctrl+b with cursor on entry 0 would detach run-old…
+  assert.deepEqual(detached, ["run-old"]);
+  viewer.handleInput("\x1b[B"); // down → run-new (the YOUNGER run)
+  viewer.handleInput("\x02");
+  assert.deepEqual(detached, ["run-old", "run-new"], "ctrl+b follows the cursor (focused), not age order");
+});
+
+test("in-viewer ctrl+b on a non-running selection is a no-op (no throw)", () => {
+  const runs = reconstructSubagentRuns([
+    toolResultEntry("subagent", "done report", {
+      status: "done",
+      agent: "reviewer",
+      model: "y/pro",
+      taskPreview: "done",
+      elapsedMs: 1000,
+    }),
+  ] as never);
+  const detached: string[] = [];
+  const viewer = new SubagentViewer(
+    { runs, getRunning: () => [], onClose: () => {}, onDetach: (id) => detached.push(id) },
+    T,
+  );
+  viewer.handleInput("\x1b[B"); // down → the completed row (only entry)
+  viewer.handleInput("\x02");
+  assert.deepEqual(detached, []);
+});
+
+test("ctrl+b does not conflict with the existing viewer keymap (x abort, printable filter)", () => {
+  const running = [runningEntry("r1", { abortable: true })];
+  const aborted: string[] = [];
+  const viewer = new SubagentViewer(
+    { runs: [], getRunning: () => running as never, onClose: () => {}, onAbort: (id) => aborted.push(id) },
+    T,
+  );
+  viewer.handleInput("\x02"); // ctrl+b: NOT a filter char, NOT an abort arm
+  let out = viewer.render(80).join("\n");
+  assert.ok(!out.includes("filter"), "ctrl+b must not open the filter");
+  viewer.handleInput("x"); // x still arms the abort confirm (y fires it)
+  viewer.handleInput("y");
+  assert.deepEqual(aborted, ["r1"], "x/y abort flow untouched by ctrl+b");
+  // printable 'b' still lands in the filter (ctrl+b \x02 never does)
+  const viewer2 = new SubagentViewer({ runs: [], getRunning: () => [] as never, onClose: () => {} }, T);
+  viewer2.handleInput("b");
+  out = viewer2.render(80).join("\n");
+  assert.ok(out.toLowerCase().includes("filter"), "plain 'b' still filters");
+});
