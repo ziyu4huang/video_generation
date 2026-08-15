@@ -11,8 +11,14 @@ One isolated child Pi session, spawned ad-hoc by the model (via the `subagent` t
 _Avoid_: child process, worker, thread (a subagent is an in-process Pi session driven by `WorkflowAgent`, not an OS process).
 
 **Spawn** (`spawnSubagent`):
-The publicly-exported wrapper over `WorkflowAgent.run` for **programmatic** single-subagent dispatch from peer-extension CODE (not the LLM tool path). Stabilized as a public surface so `pi-agent-ext-knowledge-card` (`zk_card`/`zk_ask`), `pi-agent-ext-wayfind`, `pi-agent-ext-superpowers` import it instead of re-implementing a child runner. Returns `{ output, exitCode, stderr, timedOut, usage? }`.
+The publicly-exported wrapper over `WorkflowAgent.run` for **programmatic** single-subagent dispatch from peer-extension CODE (not the LLM tool path). Stabilized as a public surface so `pi-agent-ext-knowledge-card` (`zk_card`/`zk_ask`), `pi-agent-ext-wayfind`, `pi-agent-ext-superpowers` import it instead of re-implementing a child runner. Returns `{ output, failure?, usage?, budgetWarning? }` — see **Failure**.
 _Avoid_: re-implementing a child runner in a peer extension (call `spawnSubagent` instead); reaching into `./src/spawn-subagent.ts` directly (it is exported from the package root).
+
+**Failure** (`SubagentFailure`, `result.failure`):
+Why a run did not succeed — a discriminated union of `failed` / `timedout` / `turns` / `budget`, **absent on success**. `failure.kind` IS the run's status: there is nothing to derive and no flags to correlate. Every variant carries `message`, so a caller that only wants to report what went wrong never switches on `kind`. The two detail-bearing variants require their detail object, and that PRESENCE is what selects the kind — a turns error arriving without details is a plain `failed`.
+
+The taxonomy has exactly one home: `classifyError`'s branch order in `spawn-subagent.ts`, pinned case-by-case by `tests/failure-union.test.ts`. It replaced `{ exitCode, stderr, timedOut, budget, turns }` — subprocess vocabulary for a runner with no process, whose numeric range was dead (nothing read `124`; a budget abort wrote `exitCode: 1`, indistinguishable from a plain failure) and whose five fields forced every caller to correlate. The persisted surfaces dropped their `exitCode`/`timedOut` for the same reason and renamed `stderr` → `error`, with a read shim for older records. See [ADR-subagent-0003](docs/adr/0003-failure-union-over-subprocess-vocabulary.md).
+_Avoid_: `exitCode` / `stderr` / `timedOut` anywhere on a spawn result or a run record (all gone); a second place that maps a failure to a status; `aborted` as a failure kind (the parent turn owns that — see **Child dispatch**).
 
 ### LLM-facing tools (this package owns them)
 
@@ -25,7 +31,7 @@ The LLM-facing inspection tool — lists completed `subagent`-tool runs (newest-
 _Avoid_: conflating with the `/subagents` interactive viewer (a TUI slash-command living in this package's `src/subagent-viewer.ts`, reading the same persistence singleton).
 
 **Child dispatch** (`dispatchChild`, `src/child-dispatch.ts`):
-The single place one isolated child run is DRIVEN. Owns the per-child abort controller and the parent-turn-signal fan-in, the in-flight registry lifecycle, capture of the ACTUAL resolved model (and any fallback), history streaming, the commit-scope audit, the user-abort-vs-whole-turn-Esc distinction, and status derivation. Both LLM-facing tools call it: the `subagent` tool once, the `subagents` tool once per batch child.
+The single place one isolated child run is DRIVEN. Owns the per-child abort controller and the parent-turn-signal fan-in, the in-flight registry lifecycle, capture of the ACTUAL resolved model (and any fallback), history streaming, the commit-scope audit, and the user-abort-vs-whole-turn-Esc distinction — which is why `aborted` is the one status not reachable from a spawn result's **Failure**. Both LLM-facing tools call it: the `subagent` tool once, the `subagents` tool once per batch child.
 
 The callers keep what genuinely differs — building the spawn REQUEST (agentType resolution, worktree isolation, the batch's non-overridable read-only exclusion), the watchdog, the circuit breaker, rendering, and persistence. **This module owns the run, not the request.**
 
