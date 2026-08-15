@@ -90,20 +90,12 @@ function labelForTarget(target: MemoryTarget, toolTarget: ToolMemoryTarget): str
 }
 
 function describeConsolidationFailure(result: SpawnSubagentResult, timeoutMs: number): string {
-  const stderr = result.stderr?.trim();
-  const terminated = result.timedOut;
-
-  if (terminated) {
+  if (result.failure?.kind === "timedout") {
     return `Consolidation subprocess was terminated (likely timeout or cancellation). Timeout: ${timeoutMs}ms. Consider increasing consolidationTimeoutMs if this is a manual run.`;
   }
-
-  // spawnSubagent reports a failure via `stderr` + `exitCode` (a transient
-  // abort/timeout also sets `timedOut`, handled above). On a non-zero exit with
-  // empty stderr the runner gave us nothing to surface — fall back to a generic
-  // descriptor that still names the exit code instead of an opaque "unknown
-  // error", so a bare non-zero run is at least diagnosable.
-  const detail = stderr?.slice(0, 200) || `runner exited (code ${result.exitCode})`;
-  return `Consolidation process exited with code ${result.exitCode}: ${detail}`;
+  // Every failure variant carries a message, so the old "runner exited (code N)"
+  // fallback — which existed only because `stderr` could be empty — is gone.
+  return `Consolidation failed: ${result.failure?.message.slice(0, 200) ?? "unknown"}`;
 }
 
 export async function triggerConsolidation(
@@ -153,11 +145,15 @@ export async function triggerConsolidation(
       // only re-holds the lock and re-fails. Opt OUT of transient retry.
       retryOnTransient: false,
     });
-    if (result.exitCode === 0) {
+    if (!result.failure) {
       store.loadFromDisk(); // mirror today's post-child reload
       return { consolidated: true };
     }
-    return { consolidated: false, error: describeConsolidationFailure(result, timeoutMs), terminated: result.timedOut };
+    return {
+      consolidated: false,
+      error: describeConsolidationFailure(result, timeoutMs),
+      terminated: result.failure.kind === "timedout",
+    };
   } catch (err) {
     return { consolidated: false, error: `Consolidation failed: ${String(err).slice(0, 200)}` };
   }
@@ -205,7 +201,7 @@ function buildMergePlanPrompt(snapshot: ConsolidationSnapshot): string {
  * On a structured-output success the payload is run through
  * {@link mergePlanValidate} and returned as `{ plan }`. On a non-zero exit, an
  * empty output, a timeout, or a thrown/rejected spawn it returns `{ error,
- * terminated }` — `terminated` mirrors `result.timedOut` so the caller can tell a
+ * terminated }` — `terminated` mirrors a timedout failure kind so the caller can tell a
  * cancellation/timeout apart from a plain failure. `retryOnTransient` is off: a
  * timed-out plan is best-effort (the caller falls through to the existing
  * consolidation floor) and must never re-hold resources for a second attempt.
@@ -239,12 +235,11 @@ export async function produceMergePlan(
       externalSignal: opts.signal,
     });
 
-    if (result.exitCode !== 0) {
-      const detail = result.stderr?.trim().slice(0, 200) || `runner exited (code ${result.exitCode})`;
-      return { error: detail, terminated: result.timedOut };
+    if (result.failure) {
+      return { error: result.failure.message.slice(0, 200), terminated: result.failure.kind === "timedout" };
     }
     if (!result.output) {
-      return { error: "no structured output", terminated: result.timedOut };
+      return { error: "no structured output", terminated: false };
     }
 
     // spawnSubagent JSON-stringifies the validated structured_output object into

@@ -33,9 +33,7 @@ interface FakeSpawnOverrides extends Partial<SpawnSubagentResult> {
 function createFakeSpawn(overrides: FakeSpawnOverrides = {}) {
   const result: SpawnSubagentResult = {
     output: overrides.output ?? "Saved memory",
-    exitCode: overrides.exitCode ?? 0,
-    stderr: overrides.stderr ?? "",
-    timedOut: overrides.timedOut ?? false,
+    ...(overrides.failure ? { failure: overrides.failure } : {}),
   };
   const spawn = async (opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> => {
     spawnCalls.push(opts);
@@ -327,7 +325,7 @@ describe("setupBackgroundReview", () => {
     const slowSpawn = async (opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> => {
       spawnCalls.push(opts);
       await new Promise<void>((r) => { resolveSpawn = r; });
-      return { output: "Saved", exitCode: 0, stderr: "", timedOut: false };
+      return { output: "Saved" };
     };
 
     const pi = createMockPi();

@@ -16,9 +16,6 @@ const calls = [];
 function defaultOk() {
 	return {
 		output: "DONE",
-		exitCode: 0,
-		stderr: "",
-		timedOut: false,
 		result: null,
 		attempts: 1,
 	};
@@ -215,7 +212,7 @@ describe("result shaping", () => {
 		const text = r.content[0].text;
 		expect(text.startsWith("vault: TestVault (/tmp/v) [env]")).toBe(true);
 		expect(text.includes("the answer")).toBe(true);
-		expect(r.details).toEqual({ exitCode: 0, stderr: "" });
+		expect(r.details).toEqual({ status: "done" });
 	});
 
 	it("marks ⚠stale when resolveVault returns staleReason", async () => {
@@ -234,16 +231,15 @@ describe("result shaping", () => {
 		expect(r.content[0].text.includes("[walk] ⚠stale")).toBe(true);
 	});
 
-	it("timedOut → isError with output tail", async () => {
+	it("a timedout failure → isError with output tail", async () => {
 		const r = await run(
 			"zk_card",
 			{ action: "find", query: "q" },
 			{
 				result: {
 					...defaultOk(),
-					timedOut: true,
 					output: "x".repeat(3000),
-					stderr: "boom",
+					failure: { kind: "timedout", message: "boom" },
 				},
 			},
 		);
@@ -253,29 +249,29 @@ describe("result shaping", () => {
 		expect(r.content[0].text.length).toBeLessThanOrEqual(
 			"zk_card find timed out.\n".length + 2000,
 		);
-		expect(r.details).toEqual({ timedOut: true, stderr: "boom" });
+		expect(r.details).toEqual({ status: "timedout", error: "boom" });
 	});
 
-	it("non-zero exit + no output → isError with stderr tail", async () => {
+	it("a failure with no output → isError with the message tail", async () => {
 		const r = await run(
 			"zk_card",
 			{ action: "find", query: "q" },
-			{ result: { ...defaultOk(), exitCode: 2, output: "", stderr: "y".repeat(3000) } },
+			{ result: { ...defaultOk(), output: "", failure: { kind: "failed", message: "y".repeat(3000) } } },
 		);
 		expect(r.isError).toBe(true);
-		expect(r.content[0].text.includes("failed (exit 2)")).toBe(true);
-		expect(r.details).toEqual({ exitCode: 2, stderr: "y".repeat(3000) });
+		expect(r.content[0].text.includes("zk_card find failed.")).toBe(true);
+		expect(r.details).toEqual({ status: "failed", error: "y".repeat(3000) });
 	});
 
-	it("non-zero exit WITH output → still success (output shown)", async () => {
-		// exitCode !== 0 but output present is treated as soft success.
+	it("a failure WITH output → still success (output shown)", async () => {
+		// A failure with output present is treated as soft success.
 		const r = await run(
 			"zk_ask",
 			{ question: "Q" },
-			{ result: { ...defaultOk(), exitCode: 1, output: "partial result" } },
+			{ result: { ...defaultOk(), output: "partial result", failure: { kind: "failed", message: "partial" } } },
 		);
 		expect(r.isError).toBeUndefined();
 		expect(r.content[0].text.includes("partial result")).toBe(true);
-		expect(r.details.exitCode).toBe(1);
+		expect(r.details.status).toBe("failed");
 	});
 });

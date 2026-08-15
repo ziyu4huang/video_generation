@@ -1522,7 +1522,7 @@ export default function (pi: ExtensionAPI) {
 			// are observable (the subagent is otherwise silent until it exits).
 			const prog = makeSubagentProgressLogger("distill");
 			const t0 = Date.now();
-			const { output, exitCode, stderr, timedOut, result } =
+			const { output, failure, result } =
 				await runObsidianSubagent({
 					cwd,
 					systemPrompt: ZETTEL_SYSTEM_PROMPT,
@@ -1537,7 +1537,7 @@ export default function (pi: ExtensionAPI) {
 				`  [distill] ${created} note(s) created${failed ? `, ${failed} failed` : ""} (${elapsed}s)`,
 			);
 			invalidateCache(); // A3.2: child wrote notes; parent search must see them
-			if (timedOut) {
+			if (failure?.kind === "timedout") {
 				return {
 					content: [
 						{
@@ -1547,19 +1547,19 @@ ${output.slice(-2000)}`,
 						},
 					],
 					isError: true,
-					details: { timedOut: true, stderr, result },
+					details: { status: failure.kind, error: failure.message, result },
 				};
 			}
-			if (exitCode !== 0 && !output) {
+			if (failure && !output) {
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Distiller failed (exit ${exitCode}).\n${stderr.slice(-2000)}`,
+							text: `Distiller failed.\n${failure.message.slice(-2000)}`,
 						},
 					],
 					isError: true,
-					details: { exitCode, stderr, result },
+					details: { status: failure.kind, error: failure.message, result },
 				};
 			}
 			// Phase 2 / WS-B1: post-run audit of every note the subagent claims to
@@ -1628,7 +1628,7 @@ ${output.slice(-2000)}`,
 						text: (output || "(distiller produced no output)") + validationText,
 					},
 				],
-				details: { exitCode, stderr, result, validation },
+				details: { status: failure?.kind ?? "done", error: failure?.message, result, validation },
 			};
 		},
 	});
@@ -1711,7 +1711,7 @@ ${output.slice(-2000)}`,
 			// fix mode needs write tools; audit is read-only.
 			const prog = makeSubagentProgressLogger("garden");
 			const t0 = Date.now();
-			const { output, exitCode, stderr, timedOut, result } =
+			const { output, failure, result } =
 				await runObsidianSubagent({
 					cwd,
 					systemPrompt: GARDEN_SYSTEM_PROMPT,
@@ -1726,7 +1726,7 @@ ${output.slice(-2000)}`,
 				`  [garden] ${toolCalls} tool call(s)${created ? `, ${created} note(s) added` : ""}${failed ? `, ${failed} failed` : ""} (${elapsed}s)`,
 			);
 			invalidateCache(); // A3.2: child may have added links/notes
-			if (timedOut) {
+			if (failure?.kind === "timedout") {
 				return {
 					content: [
 						{
@@ -1735,19 +1735,19 @@ ${output.slice(-2000)}`,
 						},
 					],
 					isError: true,
-					details: { timedOut: true, stderr, result },
+					details: { status: failure.kind, error: failure.message, result },
 				};
 			}
-			if (exitCode !== 0 && !output) {
+			if (failure && !output) {
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Gardener failed (exit ${exitCode}).\n${stderr.slice(-2000)}`,
+							text: `Gardener failed.\n${failure.message.slice(-2000)}`,
 						},
 					],
 					isError: true,
-					details: { exitCode, stderr, result },
+					details: { status: failure.kind, error: failure.message, result },
 				};
 			}
 			// Phase 5 / WS-B4: in fix mode, audit every note the gardener
@@ -1785,7 +1785,7 @@ ${output.slice(-2000)}`,
 				content: [
 					{ type: "text", text: (output || "(gardener produced no output)") + validationText },
 				],
-				details: { exitCode, stderr, result, validation },
+				details: { status: failure?.kind ?? "done", error: failure?.message, result, validation },
 			};
 		},
 	});

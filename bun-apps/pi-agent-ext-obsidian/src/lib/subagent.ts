@@ -1,6 +1,7 @@
 import { getSubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent";
 import { getSubagentRunPersistence } from "@repo/pi-agent-ext-subagent";
 import { spawnSubagentSubprocess } from "@repo/pi-agent-ext-subagent";
+import type { SubagentFailure } from "@repo/pi-agent-ext-subagent";
 
 /** Resolve a tool-name allowlist from an env var (comma-separated), falling
  *  back to `defaults` when unset/empty. Used by distill/garden so a custom
@@ -302,7 +303,7 @@ export interface RunObsidianSubagentOptions {
  */
 export async function runObsidianSubagent(
 	opts: RunObsidianSubagentOptions,
-): Promise<{ output: string; exitCode: number; stderr: string; timedOut: boolean; result: any }> {
+): Promise<{ output: string; failure?: SubagentFailure; result: any }> {
 	const resolved = resolveSubagentModel({});
 	const res = await spawnSubagentSubprocess({
 		cwd: opts.cwd,
