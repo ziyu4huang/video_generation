@@ -1,7 +1,7 @@
 ---
 type: grilling
 blocked by: []
-status: open
+status: closed
 ---
 
 # 12 — Decide: per-agent retry policy (backoff + non-retryable)
@@ -28,3 +28,5 @@ retry surfaces via live search before locking the spec. If **do**: decide whethe
 per-call config supersedes the global `agentRetries` (recommend: keep global as
 default, per-call overrides) and the backoff default (recommend exp, base 2, cap
 30s).
+
+> Closed 2026-08-16: fog — verify-before-impl citations need live web search (web-search key absent). Re-open when search available and citations re-verified; design leans preserved above.

@@ -1,6 +1,6 @@
 # Model Preset System — Design
 
-Status: design (awaiting approval)  ·  Follow-on to the unify-subagent-model-config effort (Phase 1 config + Phase 2 runner migration).
+Status: design approved (2026-08-16 — forced decision)  ·  Follow-on to the unify-subagent-model-config effort (Phase 1 config + Phase 2 runner migration).
 
 ## Problem
 
@@ -57,3 +57,4 @@ The "no hardcoded model ids in code" principle targets the **resolution path** (
 
 - `/models-preset` interactive UX: numbered prompt vs reuse menu-picker (picker not landed → numbered).
 - deepseek exact ids: confirm when user adds the provider.
+- 2026-08-16 approved with: /models-preset UX = numbered prompt (menu-picker not landed); deepseek ids confirmed/edited at provider-switch time via /workflows-models (best-guess template stays).
