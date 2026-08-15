@@ -9,14 +9,13 @@
  * vault and no env coupling.
  */
 import { readFileSync } from "node:fs";
+import { ingestRecords } from "./ingest.ts";
 import {
 	collectInputFiles,
 	adaptGenericMarkdown,
 	parseKnowledgeJsonl,
-	ingestRecords,
-	type KnowledgeRecord,
-	type IngestSummary,
-} from "./ingest.ts";
+} from "./adapters.ts";
+import type { KnowledgeRecord, IngestSummary } from "./types.ts";
 import type { KnowledgeEmission } from "./emit.ts";
 
 export interface ConvergeOptions {

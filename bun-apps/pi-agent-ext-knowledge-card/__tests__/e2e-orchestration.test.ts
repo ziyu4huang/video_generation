@@ -521,7 +521,7 @@ describe("E2E - full deterministic orchestration (write -> read -> audit)", () =
 // vault cards are reproducible from it.
 // ===========================================================================
 
-import { parseKnowledgeJsonl } from "../src/ingest.ts";
+import { parseKnowledgeJsonl } from "../src/adapters.ts";
 const FIXTURE_RECORD_COUNT = 11;
 
 describe("E2E - real pi-ext-dev fixture (reproducible extraction guard)", () => {

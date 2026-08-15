@@ -52,17 +52,15 @@ import {
 	resolveVault,
 	registerDeterministicHealthCheck,
 } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { ingestRecords, formatSummary } from "../src/ingest.ts";
 import {
-	ingestRecords,
-	parseKnowledgeJsonl,
 	adaptAutoMemoryMarkdown,
 	adaptHermesMarkdown,
 	adaptGenericMarkdown,
+	parseKnowledgeJsonl,
 	collectInputFiles,
-	formatSummary,
-	type KnowledgeRecord,
-	type SourceFamily,
-} from "../src/ingest.ts";
+} from "../src/adapters.ts";
+import type { KnowledgeRecord, SourceFamily } from "../src/types.ts";
 import {
 	retrieveRecords,
 	type RetrieveOptions,

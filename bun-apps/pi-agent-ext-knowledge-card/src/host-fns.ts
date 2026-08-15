@@ -21,17 +21,15 @@ import {
   type HealResult,
   type RetrieveResult,
 } from "./retrieve.js";
+import { ingestRecords, coverageReport } from "./ingest.js";
 import {
   adaptAutoMemoryMarkdown,
   adaptGenericMarkdown,
   adaptHermesMarkdown,
   collectInputFiles,
-  ingestRecords,
   parseKnowledgeJsonl,
-  coverageReport,
-  type KnowledgeRecord,
-  type SourceFamily,
-} from "./ingest.js";
+} from "./adapters.js";
+import type { KnowledgeRecord, SourceFamily } from "./types.js";
 import { loadWatchlist, resolveSpecsToRecords, type SourceSpec } from "./source-watchlist.js";
 
 /** Context handed to every zk.* host fn. vaultPath is optional (test injection). */

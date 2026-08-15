@@ -37,3 +37,4 @@ Rationale: sequencing C1/C5/C6 before 13 keeps the memory-card migration mechani
 - 2026-08-16 (C2 closure — ledger fix): skills-command split landed in code as #1185 (skill-rows/skill-batch-ops) + #1194 (skill-key-reducer); closed in code, recorded here.
 - 2026-08-16: ticket 05 zk audit CLOSED (12 findings; dedup-poor not test-poor) — spawned 12 (dedup) + 13 (megafile split, blocked by 12); wave 06-11 UNBLOCKED.
 - 2026-08-16: ticket 12 dedup DONE — card-format.ts single-source (K4-K7,K9; K8 skipped: divergent semantics documented); 432/0 gates; ticket 13 (megafile split) UNBLOCKED.
+- 2026-08-16: ticket 13 wave 1/3 DONE — ingest engine-only (512 LOC), 4 new modules, cycle removed, 432/0 gates; waves 2-3 (K2 extension, K3 retrieve) remain.

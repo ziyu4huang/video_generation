@@ -25,16 +25,15 @@
 
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
+import { ingestRecords } from "./ingest.ts";
 import {
 	collectInputFiles,
-	ingestRecords,
 	parseKnowledgeJsonl,
 	adaptAutoMemoryMarkdown,
 	adaptHermesMarkdown,
 	adaptGenericMarkdown,
-	type KnowledgeRecord,
-	type SourceFamily,
-} from "./ingest.ts";
+} from "./adapters.ts";
+import type { KnowledgeRecord, SourceFamily } from "./types.ts";
 import {
 	graphHealth,
 	healGraph,

@@ -17,14 +17,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import {
-  type SourceFamily,
-  type KnowledgeRecord,
-  type CoverageSourceSpec,
   parseKnowledgeJsonl,
   adaptAutoMemoryMarkdown,
   adaptHermesMarkdown,
   collectInputFiles,
-} from "./ingest.js";
+} from "./adapters.js";
+import type {
+  SourceFamily,
+  KnowledgeRecord,
+  CoverageSourceSpec,
+} from "./types.js";
 
 export interface SourceSpec {
   family: SourceFamily;

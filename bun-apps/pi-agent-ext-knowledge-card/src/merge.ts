@@ -33,8 +33,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { cardAnatomy, readCardFrontmatterFields, readCardMeta } from "./card-format.ts";
-import { slugify } from "./ingest.ts";
+import { cardAnatomy, readCardFrontmatterFields, readCardMeta, slugify } from "./card-format.ts";
 import { tokeniseText, jaccard } from "./similarity.ts";
 
 // ---------------------------------------------------------------------------

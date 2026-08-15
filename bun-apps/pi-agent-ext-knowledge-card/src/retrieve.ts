@@ -36,15 +36,10 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getIndex, graphDeadLinks, graphOrphans, invalidateCache } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
-import {
-	slugify,
-	normTag,
-	writeMoc,
-	extractFeatures,
-	type KnowledgeRecord,
-	type CoverageReport,
-} from "./ingest.ts";
-import { buildMocContent, cardAnatomy, readCardFrontmatterFields, readCardMeta } from "./card-format.ts";
+import { writeMoc } from "./ingest.ts";
+import { extractFeatures } from "./card-render.ts";
+import type { KnowledgeRecord, CoverageReport } from "./types.ts";
+import { buildMocContent, cardAnatomy, readCardFrontmatterFields, readCardMeta, slugify, normTag } from "./card-format.ts";
 import { computeIdf, scoreOverlap, type LinkWeighting } from "@repo/pi-agent-ext-core-interface";
 import {
 	cosine,

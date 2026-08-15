@@ -1,5 +1,5 @@
 import type { EnrichedNote, ConvergeMetrics, ConvergeResult } from "./types.ts";
-import type { KnowledgeRecord, IngestSummary } from "../ingest.ts";
+import type { KnowledgeRecord, IngestSummary } from "../types.ts";
 import { ingestRecords } from "../ingest.ts";
 import { markSuperseded } from "../supersede.ts";
 import { readState, writeState } from "./state.ts";

@@ -15,9 +15,8 @@ import { join } from "node:path";
 import {
   ingestRecords,
   coverageReport,
-  type KnowledgeRecord,
-  type CoverageSourceSpec,
 } from "../src/ingest.ts";
+import type { KnowledgeRecord, CoverageSourceSpec } from "../src/types.ts";
 
 function rec(over: Partial<KnowledgeRecord> = {}): KnowledgeRecord {
   return {

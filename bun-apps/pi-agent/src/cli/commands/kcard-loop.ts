@@ -37,7 +37,7 @@ import {
 	type SourceInput,
 	type ProbeQuery,
 } from "@repo/pi-agent-ext-knowledge-card/src/loop.ts";
-import type { SourceFamily } from "@repo/pi-agent-ext-knowledge-card/src/ingest.ts";
+import type { SourceFamily } from "@repo/pi-agent-ext-knowledge-card/src/types.ts";
 
 const KNOWN_FAMILIES: ReadonlySet<SourceFamily> = new Set([
 	"workflow-jsonl",

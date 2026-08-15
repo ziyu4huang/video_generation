@@ -11,7 +11,8 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ingestRecords, type KnowledgeRecord } from "../src/ingest.ts";
+import { ingestRecords } from "../src/ingest.ts";
+import type { KnowledgeRecord } from "../src/types.ts";
 import { mergeDuplicates, findDuplicatePairs } from "../src/merge.ts";
 
 let vault: string;

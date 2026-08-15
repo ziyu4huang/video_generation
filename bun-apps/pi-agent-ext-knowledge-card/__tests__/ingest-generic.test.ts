@@ -11,13 +11,10 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	adaptGenericMarkdown,
-	ingestRecords,
-	collectInputFiles,
-	slugify,
-	type KnowledgeRecord,
-} from "../src/ingest.ts";
+import { ingestRecords } from "../src/ingest.ts";
+import { adaptGenericMarkdown, collectInputFiles } from "../src/adapters.ts";
+import { slugify } from "../src/card-format.ts";
+import type { KnowledgeRecord } from "../src/types.ts";
 import { validateZettelNote } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 
 let vault: string;
