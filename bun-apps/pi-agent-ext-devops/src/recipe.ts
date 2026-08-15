@@ -40,6 +40,9 @@ export interface GhClient {
 		/** Check tally (used by the pr_status tool; the merge recipe ignores it). */
 		checks: CheckTally;
 		mergeSha?: string;
+		/** The head ref's SHA — what was merged. Lets verify_merge tell a spent
+		 *  branch from one with commits pushed after the merge. */
+		headRefOid?: string;
 	}>;
 	/**
 	 * Direct (synchronous) merge — `gh pr merge` WITHOUT `--auto`. Used once the

@@ -258,8 +258,8 @@ describe("verify-merge-cli", () => {
 				revParse: async () => "deadbee",
 			} as never,
 			spawn: (async (_c: string, args: string[]) =>
-				args.includes("--stat")
-					? { stdout: " scripts/rogue.sh | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)\n", stderr: "", exitCode: 0 }
+				args.includes("--numstat")
+					? { stdout: "1\t1\tscripts/rogue.sh\n", stderr: "", exitCode: 0 }
 					: { stdout: "", stderr: "", exitCode: 0 }) as never,
 			repoRoot: REPO,
 		});

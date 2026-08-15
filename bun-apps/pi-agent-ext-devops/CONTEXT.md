@@ -67,7 +67,12 @@ scripts — `scripts/deploy.ts`, `scripts/run-test.sh`, `scripts/ci-local.sh`.
 - **prepare_branch** — worktree-aware branch prepare (create / rebase /
   force-push-with-lease). Covers the BEHIND state.
 - **verify_merge** — post-merge verify (merge state + file scope CLEAN/CONTAMINATED
-  + branch-spent).
+  + branch-spent). Reads the merge commit with `git show --numstat`, NOT `--stat`:
+  `--stat` renders for a terminal and abbreviates long paths as `.../tail`, which
+  broke every `startsWith(expectedScope)` check and called a clean merge
+  CONTAMINATED. `branchSpent` keys off gh's `headRefOid` rather than ancestry,
+  because a squash merge (this repo's convention) makes the head ref an ancestor
+  of nothing.
 
 ### Build & verify tools (absorbed from the former `pi-agent-ext-deploy`)
 Two thin tools that wrap the existing build/verify/deploy scripts. Each keeps

@@ -31,7 +31,7 @@ const FAIL_STATES = new Set([
 const PASS_STATES = new Set(["SUCCESS", "SKIPPED", "NEUTRAL"]);
 
 /**
- * Parse `gh pr view --json state,mergeStateStatus,mergeCommit,baseRefName,headRefName`
+ * Parse `gh pr view --json state,…,headRefName,headRefOid`
  * into our domain types. The base/head refs drive the local_ci gate (diff
  * origin/<base>..origin/<head>); mergeCommit feeds mergeSha. Defensive:
  * unknown/garbage → OPEN/UNKNOWN defaults + empty ref names (never throws).
@@ -42,6 +42,8 @@ export function parsePrView(raw: unknown): {
 	mergeSha?: string;
 	baseRefName: string;
 	headRefName: string;
+	/** The head ref's SHA at the time gh answered — what actually got merged. */
+	headRefOid?: string;
 } {
 	const r = (raw ?? {}) as Record<string, unknown>;
 	const rawState = typeof r.state === "string" ? (r.state as PrState) : "OPEN";
@@ -49,12 +51,14 @@ export function parsePrView(raw: unknown): {
 	const mc = r.mergeCommit as { oid?: string } | null | undefined;
 	const baseRefName = typeof r.baseRefName === "string" ? r.baseRefName : "";
 	const headRefName = typeof r.headRefName === "string" ? r.headRefName : "";
+	const headRefOid = typeof r.headRefOid === "string" && r.headRefOid ? r.headRefOid : undefined;
 	return {
 		state: VALID_STATES.has(rawState) ? rawState : "OPEN",
 		mergeState: VALID_MERGE_STATES.has(rawMerge) ? rawMerge : "UNKNOWN",
 		mergeSha: mc?.oid ?? undefined,
 		baseRefName,
 		headRefName,
+		headRefOid,
 	};
 }
 
@@ -91,7 +95,7 @@ export function parseChecks(rows: unknown): CheckTally {
 export function createGhClient(spawn: SpawnFn): GhClient {
 	return {
 		async prStatus(n) {
-			const view = await spawn("gh", ["pr", "view", String(n), "--json", "state,mergeStateStatus,mergeCommit,baseRefName,headRefName"]);
+			const view = await spawn("gh", ["pr", "view", String(n), "--json", "state,mergeStateStatus,mergeCommit,baseRefName,headRefName,headRefOid"]);
 			const checks = await spawn("gh", ["pr", "checks", String(n), "--json", "name,state,completedAt"]);
 			const parsed = parsePrView(safeJson(view.stdout));
 			const tally = parseChecks(safeJson(checks.stdout));
