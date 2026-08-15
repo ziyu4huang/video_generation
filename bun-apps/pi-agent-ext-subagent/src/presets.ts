@@ -44,14 +44,27 @@ export const MODEL_PRESETS: ModelPreset[] = [
     },
   },
   {
-    id: "deepseek-lmstudio",
-    label: "DeepSeek (official) + LM Studio vision",
-    summary: "tiers: deepseek-v4-flash / deepseek-v4-pro  ·  vision: lm-studio gemma-4-12b",
+    id: "deepseek-pro",
+    label: "DeepSeek pro (official) + LM Studio vision",
+    summary: "tiers: gemma-4-12b / flash / pro  ·  vision: lm-studio gemma-4-12b",
     config: {
       tiers: {
-        small: "deepseek/deepseek-v4-flash",
-        medium: "deepseek/deepseek-v4-pro",
+        small: "lm-studio/google/gemma-4-12b",
+        medium: "deepseek/deepseek-v4-flash",
         big: "deepseek/deepseek-v4-pro",
+      },
+      capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+    },
+  },
+  {
+    id: "deepseek-flash",
+    label: "DeepSeek flash (official) + LM Studio vision",
+    summary: "tiers: gemma-4-12b / gemma-4-12b / flash  ·  vision: lm-studio gemma-4-12b",
+    config: {
+      tiers: {
+        small: "lm-studio/google/gemma-4-12b",
+        medium: "lm-studio/google/gemma-4-12b",
+        big: "deepseek/deepseek-v4-flash",
       },
       capabilities: { vision: "lm-studio/google/gemma-4-12b" },
     },

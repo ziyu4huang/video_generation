@@ -90,17 +90,34 @@ describe("/models-preset", () => {
   test("no existing config → no confirm, no backup, just save", async () => {
     existingConfig = null;
     const { ctx, calls } = fakeCtx();
-    await makeHandler()("deepseek-lmstudio", ctx);
+    await makeHandler()("deepseek-pro", ctx);
     expect(savedConfig).toEqual({
       tiers: {
-        small: "deepseek/deepseek-v4-flash",
-        medium: "deepseek/deepseek-v4-pro",
+        small: "lm-studio/google/gemma-4-12b",
+        medium: "deepseek/deepseek-v4-flash",
         big: "deepseek/deepseek-v4-pro",
       },
       capabilities: { vision: "lm-studio/google/gemma-4-12b" },
     });
     expect(calls.confirm).toHaveLength(0);
     expect(existsSync(`${configPath}.bak`)).toBe(false);
+  });
+
+  test("deepseek-flash preset applies the budget tier mapping", async () => {
+    existingConfig = null;
+    const { ctx, calls } = fakeCtx();
+    await makeHandler()("deepseek-flash", ctx);
+    expect(savedConfig).toEqual({
+      tiers: {
+        small: "lm-studio/google/gemma-4-12b",
+        medium: "lm-studio/google/gemma-4-12b",
+        big: "deepseek/deepseek-v4-flash",
+      },
+      capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+    });
+    expect(calls.confirm).toHaveLength(0);
+    expect(calls.notify[0]?.level).toBe("info");
+    expect(calls.notify[0]?.msg).toContain("flash");
   });
 
   test("confirm cancelled → nothing saved", async () => {
