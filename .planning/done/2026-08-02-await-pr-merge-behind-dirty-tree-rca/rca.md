@@ -1,3 +1,4 @@
+> STATUS: DONE — archived 2026-08-15 (triage verdict: gh.ts exitCode hardening shipped)
 # RCA — await_pr_merge silent "aborted" on BEHIND + dirty working tree
 
 **Date:** 2026-08-02 · **Symptom PR:** #1009 (first attempt) · **Tool:** `await_pr_merge` (`bun-apps/pi-agent-ext-devops`)

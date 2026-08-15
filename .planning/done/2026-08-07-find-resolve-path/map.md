@@ -1,3 +1,4 @@
+> STATUS: DONE — archived 2026-08-15 (triage verdict: dead empty stub)
 ---
 effort: 2026-08-07-find-resolve-path
 created: 2026-08-07
