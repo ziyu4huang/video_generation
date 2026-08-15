@@ -54,6 +54,22 @@ describe("withinDriftBand (single-source-of-truth guard — pure)", () => {
 		// zai loads when ZAI_API_KEY is set — the dominant legitimate drift.
 		expect(withinDriftBand(CLAIMED_SAVED_TOK + 1100)).toBe(true);
 	});
+
+	test("net band is a CONSISTENT envelope — in-band gross + in-band overhead must land in the net band", () => {
+		// The net assertion may only reject a measurement its two INPUT assertions
+		// also reject. Worst legit combo: gross near its upper edge (zai loaded)
+		// with overhead slightly under claim → net drift ≈ gross drift + overhead
+		// drift. The net band must therefore be the SUM of the input bands, not
+		// DRIFT_BAND × CLAIMED_NET_TOK (which is tighter than the envelope it is
+		// fed from — rejected 5.6 tok of otherwise-in-band drift on a machine with
+		// ZAI_API_KEY set, failing deterministically on main, 2026-08-15).
+		const netBand = DRIFT_BAND * (CLAIMED_SAVED_TOK + ENABLE_TOOL_OVERHEAD_TOK); // 2,008.6
+		const grossNearEdge = CLAIMED_SAVED_TOK + DRIFT_BAND * CLAIMED_SAVED_TOK - 10; // in band
+		const overheadUnderClaim = ENABLE_TOOL_OVERHEAD_TOK - 43; // in overhead band
+		const net = grossNearEdge - overheadUnderClaim;
+		expect(Math.abs(net - CLAIMED_NET_TOK)).toBeLessThanOrEqual(netBand); // accepted (fixed)
+		expect(Math.abs(net - CLAIMED_NET_TOK)).toBeGreaterThan(DRIFT_BAND * CLAIMED_NET_TOK); // old band rejected it
+	});
 });
 
 describe("measureSavings (integration — reports net + overhead, audit I-6)", () => {
@@ -72,10 +88,11 @@ describe("measureSavings (integration — reports net + overhead, audit I-6)", (
 			// Single-source-of-truth guard: measured gross within DRIFT_BAND of the
 			// README claim — fails loudly if the claim goes stale (deviation > ±20%).
 			expect(withinDriftBand(r.savedTok)).toBe(true);
-			// Net claim guard (review #2): net derives from gross − overhead, so band it
-			// the same way — catches enable_tool-overhead drift (audit I-6 root cause).
+			// Net claim guard (review #2): net = gross − overhead, so its band must be
+			// the SUM of the two input bands (see the envelope unit test above) —
+			// anything tighter rejects combos the input assertions already accepted.
 			expect(Math.abs(r.netSavedTok - CLAIMED_NET_TOK)).toBeLessThanOrEqual(
-				DRIFT_BAND * CLAIMED_NET_TOK,
+				DRIFT_BAND * (CLAIMED_SAVED_TOK + ENABLE_TOOL_OVERHEAD_TOK),
 			);
 			// enable_tool overhead band — the net-drift root cause; fails if the escape
 			// hatch schema bloats (±20% of the 243-tok claim).

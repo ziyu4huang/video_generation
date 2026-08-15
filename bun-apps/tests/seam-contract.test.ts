@@ -43,7 +43,15 @@ import * as assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SEAM_KEY_ENTRIES } from "@repo/pi-agent-ext-core-interface";
+// Relative path, NOT the "@repo/…" bare specifier: this gate must stay immune
+// to bun-apps/node_modules/@repo/* link state. The Bun runtime (1.3.14)
+// rewrites those workspace links to a dangling form on bun invocations inside
+// bun-apps/ — a mid-CI bun-spawned step could otherwise ENOENT this import and
+// fail the gate spuriously (observed 2026-08-15: local_ci's seam gate red while
+// the same gate passed standalone). core-interface is a src-entry package
+// (exports["."] → ./src/index.ts), so the relative import is the same module
+// the specifier resolves to, with no node_modules indirection.
+import { SEAM_KEY_ENTRIES } from "../pi-agent-ext-core-interface/src/index.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // bun-apps/
 const EXTS = readdirSync(ROOT)

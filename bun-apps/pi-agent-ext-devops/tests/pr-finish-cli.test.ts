@@ -115,16 +115,21 @@ function ciFail(): CiOutcome {
 function greenDeps() {
 	const ghParts = fakeGh([OPEN_CLEAN, MERGED]);
 	const clientParts = fakeClient();
+	const ciOpts: Array<Parameters<typeof runLocalCi>[0]> = [];
 	return {
 		deps: {
 			gh: ghParts.gh,
 			client: clientParts.client,
 			spawn: fakeSpawn().fn,
 			repoRoot: REPO,
-			runCi: async () => ciPass(),
+			runCi: async (opts) => {
+				ciOpts.push(opts);
+				return ciPass();
+			},
 		},
 		mergeCalls: ghParts.mergeCalls,
 		clientCalls: clientParts.calls,
+		ciOpts,
 	};
 }
 
@@ -168,6 +173,13 @@ describe("pr-finish-cli — wrapper contract", () => {
 		expect(outcome.aborted).toBeUndefined();
 		expect(g.mergeCalls).toEqual([42]);
 		expect(g.clientCalls).toEqual(["deleteLocal:feature", "deleteRemote:feature", "fetchPrune"]);
+		// The local_ci diff must be based at the PR base's REMOTE-TRACKING ref,
+		// not the local base branch: in this repo's multi-worktree layout `main`
+		// is checked out in another worktree and can never be fast-forwarded
+		// here, so a stale local `main` over-scopes the diff (observed 318 s vs
+		// 69 s for the same branch).
+		expect(g.ciOpts[0]?.baseRef).toBe("origin/main");
+		expect(g.ciOpts[0]?.headRef).toBe("feature");
 	});
 
 	test("ci fail → abort local_ci_failed, exit 1, mergeNow never called", async () => {

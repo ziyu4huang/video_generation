@@ -119,6 +119,11 @@ export const MUST_FIRE: Probe[] = [
 	{ gate: "devops_retrospect", prompt: "do a post-run retrospect of the run", note: "keyword retrospect / post-run" },
 	{ gate: "prepare_branch", prompt: "prepare the feature branch off main", note: "keyword prepare / branch" },
 	{ gate: "verify_merge", prompt: "verify the merge scope is clean not contaminated", note: "keyword verify / merge / scope / contaminated" },
+	// main_health (devops registrar) — its keyword set (main/health/green/red/
+	// default branch/broken/status/ci/devops) is unique among devops gates → its
+	// own signature-group; landed (e2cc0441) without corpus probes and was
+	// reported as a coverage gap — closed here.
+	{ gate: "main_health", prompt: "is main green right now", note: "keyword main / green" },
 ];
 
 // ── MUST_NOT_FIRE (lookalikes the gate CORRECTLY rejects) ────────────────────
@@ -166,6 +171,7 @@ export const MUST_NOT_FIRE: Probe[] = [
 	{ gate: "devops_retrospect", prompt: "summarize what changed in this session", note: "no retrospect/review/anomaly keyword" },
 	{ gate: "prepare_branch", prompt: "commit the staged changes", note: "no prepare/rebase/branch keyword" },
 	{ gate: "verify_merge", prompt: "show the files changed by the last commit", note: "no verify/merge/scope keyword" },
+	{ gate: "main_health", prompt: "write a haiku about trees", note: "no main/health/green/red/status/ci keyword" },
 ];
 
 // ── ESCAPE_NAME — every gate reachable by enable_tool({ name }) ──────────────
