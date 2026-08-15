@@ -19,6 +19,7 @@
  */
 import { test, expect, describe } from "bun:test";
 import { runLocalCi, type CiOutcome } from "../src/ci-recipe.js";
+import { LOCAL_ONLY_AUDITS } from "../src/ci-gates.js";
 import type { SpawnFn, SpawnResult } from "../src/spawn.js";
 import type { ComputeChangedPackagesOptions, ChangedPackagesMap } from "../src/changed-packages.js";
 import { resolve } from "node:path";
@@ -59,6 +60,18 @@ function mkDetect(map: ChangedPackagesMap) {
 	};
 	return { fn, calls };
 }
+
+/**
+ * Injectable gate reader. The REAL one parses the repo's workflow; these tests
+ * run against a fake REPO path, so every case that leaves gates on injects this
+ * instead. Two rows on purpose: one at the repo root, one with a
+ * `working-directory`, since running a `bun-apps` gate from the root fails.
+ */
+const GATE_FILE_SIZE = { name: "File-size guard (2 MB, blocks)", cwd: ".", run: "bash scripts/ci-file-size-guard.sh" };
+const GATE_DEPS = { name: "Dependency-direction guard (blocks)", cwd: "bun-apps", run: "bun run test:deps" };
+const fakeGates =
+  (gates = [GATE_FILE_SIZE, GATE_DEPS]) =>
+  async () => ({ gates });
 
 /** Matchers reused across cases. */
 const verifyOk = (base = "origin/main") => ({
@@ -158,19 +171,20 @@ describe("runLocalCi — aggregation", () => {
 		expect(out.overall).toBe("pass");
 	});
 
-	test("blocking gate ci-file-size-guard.sh exit 1 → overall fail", async () => {
+	test("a failing gate → overall fail", async () => {
 		const { fn } = mkSpawn([
 			verifyOk(),
-			{ match: (c, a) => c === "bash" && a[0] === "scripts/ci-file-size-guard.sh", result: { stdout: "", stderr: "too big", exitCode: 1 } },
+			{ match: (c, a) => c === "bash" && a[1] === GATE_FILE_SIZE.run, result: { stdout: "", stderr: "too big", exitCode: 1 } },
 		]);
 		const out = await runLocalCi({
 			repoRoot: REPO,
 			spawn: fn,
 			detectChangedPackages: mkDetect({ "pkg-a": true }).fn,
 			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+			readGates: fakeGates(),
 		});
 		expect(out.overall).toBe("fail");
-		expect(out.gates.find((g) => g.name === "ci-file-size-guard.sh")?.exitCode).toBe(1);
+		expect(out.gates.find((g) => g.name === GATE_FILE_SIZE.name)?.exitCode).toBe(1);
 	});
 
 	test("schema-cost exit 1 is info-only → overall still pass", async () => {
@@ -185,6 +199,7 @@ describe("runLocalCi — aggregation", () => {
 			spawn: fn,
 			detectChangedPackages: mkDetect({ "pkg-a": true }).fn,
 			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+			readGates: fakeGates(),
 		});
 		expect(out.overall).toBe("pass");
 		expect(out.schemaCost?.exitCode).toBe(1);
@@ -241,60 +256,122 @@ describe("runLocalCi — typecheck precedence", () => {
 	});
 });
 
-describe("runLocalCi — strict audit gates", () => {
-	const AUDIT = ["test-determinism-audit.sh", "test-portability-audit.sh", "check-workflow-patterns.mjs", "verify-skills.ts"];
+describe("runLocalCi — gates come from the workflow, not a hand-written list", () => {
+	const detect = () => mkDetect({ "pkg-a": true }).fn;
+	const readPkg = () => mkReadPkg({ "pkg-a": { test: "bun test" } });
 
-	test("strict=true spawns the audit gates", async () => {
+	test("runs EVERY gate the reader returns, as a shell command in the gate's own cwd", async () => {
+		// The regression this pins: the old code ran two hardcoded files, so the
+		// eight `bun run test:*` guards in the job — the ones await_pr_merge is
+		// supposed to gate on — never executed.
 		const { fn, calls } = mkSpawn([verifyOk()]);
-		await runLocalCi({
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect(),
+			readPkg: readPkg(),
+			readGates: fakeGates(),
+		});
+		const gateCalls = calls.filter((c) => c.cmd === "bash" && c.args[0] === "-c");
+		expect(gateCalls.map((c) => c.args[1])).toEqual([GATE_FILE_SIZE.run, GATE_DEPS.run]);
+		// A `working-directory` row must run THERE — `bun run test:deps` at the
+		// repo root would fail for a reason that has nothing to do with the guard.
+		expect(gateCalls[0].cwd).toBe(REPO);
+		expect(gateCalls[1].cwd).toBe(`${REPO}/bun-apps`);
+		expect(out.gates.map((g) => g.name)).toEqual([GATE_FILE_SIZE.name, GATE_DEPS.name]);
+	});
+
+	test("any gate failing → overall fail", async () => {
+		const { fn } = mkSpawn([
+			verifyOk(),
+			{ match: (c, a) => c === "bash" && a[1] === GATE_DEPS.run, result: { stdout: "", stderr: "cycle", exitCode: 1 } },
+		]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect(),
+			readPkg: readPkg(),
+			readGates: fakeGates(),
+		});
+		expect(out.overall).toBe("fail");
+		expect(out.gates.find((g) => g.name === GATE_DEPS.name)?.exitCode).toBe(1);
+	});
+
+	test("an unreadable gate job → overall fail + gateError, and NO gate is spawned", async () => {
+		// The whole point of ci-gates' inverted degradation contract: an empty gate
+		// list is indistinguishable from "every gate passed". Failing closed here is
+		// what stops that false-green from reaching `gh pr merge`.
+		const { fn, calls } = mkSpawn([verifyOk()]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect(),
+			readPkg: readPkg(),
+			readGates: async () => ({ gates: [], error: "no `regression-gates` job" }),
+		});
+		expect(out.overall).toBe("fail");
+		expect(out.gateError).toContain("regression-gates");
+		expect(out.gates).toEqual([]);
+		expect(calls.some((c) => c.cmd === "bash" && c.args[0] === "-c")).toBe(false);
+		// the per-package work still ran and is still reported.
+		expect(out.packages).toHaveLength(1);
+	});
+
+	test("strict=true appends the audits that have NO workflow step", async () => {
+		const { fn, calls } = mkSpawn([verifyOk()]);
+		const out = await runLocalCi({
 			repoRoot: REPO,
 			strict: true,
 			spawn: fn,
-			detectChangedPackages: mkDetect({ "pkg-a": true }).fn,
-			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+			detectChangedPackages: detect(),
+			readPkg: readPkg(),
+			readGates: fakeGates(),
 		});
-		for (const file of AUDIT) {
-			expect(calls.some((c) => c.args.includes(`scripts/${file}`)), `spawned ${file}`).toBe(true);
+		for (const file of LOCAL_ONLY_AUDITS) {
+			expect(out.gates.some((g) => g.name === file), `strict ran ${file}`).toBe(true);
 		}
+		// …and they run through the same shell path, after the derived gates.
+		const shellCmds = calls.filter((c) => c.cmd === "bash" && c.args[0] === "-c").map((c) => c.args[1]);
+		expect(shellCmds.slice(0, 2)).toEqual([GATE_FILE_SIZE.run, GATE_DEPS.run]);
 	});
 
-	test("strict=false (default) does NOT spawn the audit gates", async () => {
-		const { fn, calls } = mkSpawn([verifyOk()]);
-		await runLocalCi({
+	test("strict=false (default) runs ONLY what CI runs", async () => {
+		const { fn } = mkSpawn([verifyOk()]);
+		const out = await runLocalCi({
 			repoRoot: REPO,
 			spawn: fn,
-			detectChangedPackages: mkDetect({ "pkg-a": true }).fn,
-			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+			detectChangedPackages: detect(),
+			readPkg: readPkg(),
+			readGates: fakeGates(),
 		});
-		for (const file of AUDIT) {
-			expect(calls.some((c) => c.args.includes(`scripts/${file}`)), `did NOT spawn ${file}`).toBe(false);
+		for (const file of LOCAL_ONLY_AUDITS) {
+			expect(out.gates.some((g) => g.name === file), `did NOT run ${file}`).toBe(false);
 		}
-		// the always-on v1 gates still ran.
-		expect(calls.some((c) => c.args.includes("scripts/ci-file-size-guard.sh"))).toBe(true);
+		expect(out.gates).toHaveLength(2);
 	});
 
-	test("includeGates=false skips ALL gates + schema-cost", async () => {
+	test("includeGates=false skips ALL gates + schema-cost, and never reads the job", async () => {
 		const { fn, calls } = mkSpawn([verifyOk()]);
+		let read = 0;
 		const out: CiOutcome = await runLocalCi({
 			repoRoot: REPO,
 			spawn: fn,
-			detectChangedPackages: mkDetect({ "pkg-a": true }).fn,
-			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+			detectChangedPackages: detect(),
+			readPkg: readPkg(),
+			readGates: async () => {
+				read++;
+				return { gates: [GATE_FILE_SIZE] };
+			},
 			includeGates: false,
 		});
 		expect(out.gates).toEqual([]);
+		expect(out.gateError).toBeUndefined();
+		expect(read).toBe(0);
+		expect(calls.some((c) => c.cmd === "bash" && c.args[0] === "-c")).toBe(false);
+		// NB: schema-cost is not a spawned script — runSchemaCostCheck is an
+		// in-process import, skipped entirely when includeGates=false, so the
+		// tools-metrics instrument spawn never happens either.
 		expect(out.schemaCost).toBeUndefined();
-		// no GATE script ran.
-		// NB: schema-cost is no longer a spawned script — runSchemaCostCheck is an
-		// in-process import, and it is skipped entirely when includeGates=false, so
-		// the tools-metrics instrument spawn never happens either.
-		const gateFiles = [
-			"ci-file-size-guard.sh", "check-lockfile-duplicate-versions.sh",
-			"test-determinism-audit.sh", "test-portability-audit.sh", "check-workflow-patterns.mjs", "verify-skills.ts",
-		];
-		for (const f of gateFiles) {
-			expect(calls.some((c) => c.args.includes(`scripts/${f}`)), `did NOT spawn gate ${f}`).toBe(false);
-		}
 		expect(calls.some((c) => c.args.includes("tools-metrics") && c.args.includes("--schema-cost")), "did NOT spawn tools-metrics").toBe(false);
 	});
 });

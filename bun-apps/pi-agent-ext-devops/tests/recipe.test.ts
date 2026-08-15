@@ -85,9 +85,17 @@ function mkDetect(map: ChangedPackagesMap = {}, throws = false) {
 	return { fn, calls };
 }
 
-/** a blocking gate that FAILS → overall fail (no packages needed). */
-const gateFail = (file: string) => ({
-	match: (_c, a) => a.includes(`scripts/${file}`),
+/**
+ * The gate list local_ci derives from the workflow. Injected here so the recipe
+ * stays filesystem-free: the REAL reader parses the repo's workflow, and against
+ * this fake REPO path it would fail closed (gateError) and block every merge.
+ */
+const GATE_RUN = "bash scripts/ci-file-size-guard.sh";
+const fakeGates = async () => ({ gates: [{ name: "File-size guard (2 MB, blocks)", cwd: ".", run: GATE_RUN }] });
+
+/** a gate that FAILS → overall fail (no packages needed). */
+const gateFail = () => ({
+	match: (c, a) => c === "bash" && a[0] === "-c" && a[1] === GATE_RUN,
 	result: { stdout: "", stderr: "fail", exitCode: 1 },
 });
 /** `git fetch` that FAILS (offline) — recipe must ignore the exit code. */
@@ -104,6 +112,7 @@ function baseOpts(gh: GhClient, fn: SpawnFn, detect?: { fn: (o: ComputeChangedPa
 		gh,
 		spawn: fn,
 		repoRoot: REPO,
+		readGates: fakeGates,
 		...(detect ? { detectChangedPackages: detect.fn } : {}),
 	};
 }
@@ -131,7 +140,7 @@ describe("runMergeRecipe — the 8 gates", () => {
 	test("2. RED (CLEAN + ci.overall=fail) → NO merge, merged:false, error, localCi attached", async () => {
 		const { client, calls } = fakeGh([{ state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" }]);
 		const detect = mkDetect({});
-		const { fn } = mkSpawn([gateFail("ci-file-size-guard.sh")]); // a blocking gate fails
+		const { fn } = mkSpawn([gateFail()]); // a gate fails
 		const r = await runMergeRecipe(baseOpts(client, fn, detect));
 		expect(r.merged).toBe(false);
 		expect(r.error).toMatch(/local_ci failed/);

@@ -33,6 +33,7 @@ import {
 	type ComputeChangedPackagesOptions,
 } from "./changed-packages.js";
 import { readCiMatrix, type CiMatrix } from "./ci-matrix.js";
+import { readCiGates, LOCAL_ONLY_AUDITS, type CiGatesResult } from "./ci-gates.js";
 
 export interface CiPackageResult {
 	name: string;
@@ -53,9 +54,9 @@ export interface CiPackageResult {
 }
 
 export interface CiGateResult {
+	/** The workflow step's `name:` (or, for a `strict` extra, the script filename). */
 	name: string;
 	exitCode: number;
-	blocking: boolean;
 }
 
 export interface CiOutcome {
@@ -75,6 +76,13 @@ export interface CiOutcome {
 	 * package set (that yields a false-green).
 	 */
 	detectionError?: string;
+	/**
+	 * Set when the `regression-gates` job could not be read out of the workflow.
+	 * `overall` is then "fail" and NO gate ran. An empty gate list is
+	 * indistinguishable from "every gate passed", so this fails closed rather
+	 * than letting `await_pr_merge` squash-merge on a gate suite that never ran.
+	 */
+	gateError?: string;
 }
 
 export interface CiOptions {
@@ -87,7 +95,10 @@ export interface CiOptions {
 	packages?: string[];
 	/** Run every bun-apps/* package (computeChangedPackages all:true). */
 	all?: boolean;
-	/** Add the audit gates (determinism / portability / workflow-patterns / verify-skills). */
+	/**
+	 * Also run the audits that have NO workflow step (`LOCAL_ONLY_AUDITS`).
+	 * Default (false) runs exactly the `regression-gates` job — no more, no less.
+	 */
 	strict?: boolean;
 	/** Run the gate suite. Default true. */
 	includeGates?: boolean;
@@ -110,40 +121,26 @@ export interface CiOptions {
 	 * derivation. Tests inject a fixed map so the recipe stays filesystem-free.
 	 */
 	readMatrix?: (repoRoot: string) => Promise<CiMatrix>;
+	/**
+	 * Injectable `regression-gates` reader. Default: parse the job out of
+	 * .github/workflows/ci.yml.disabled. Tests inject a fixed list so the recipe
+	 * stays filesystem-free.
+	 */
+	readGates?: (repoRoot: string) => Promise<CiGatesResult>;
 }
-
-/** A gate's invocation: how to spawn it + whether its failure fails `overall`. */
-interface GateSpec {
-	/** Bare filename under scripts/ (e.g. "ci-file-size-guard.sh"). */
-	file: string;
-	/** Runner chosen by extension so the gate actually executes (see dispatchGate). */
-	cmd: string;
-	args: string[];
-	blocking: boolean;
-}
-
-/** Always-on (v1) blocking gates. */
-const BLOCKING_GATES_V1 = ["ci-file-size-guard.sh", "check-lockfile-duplicate-versions.sh"];
-/** Extra audit gates added only under `strict`. */
-const STRICT_AUDIT_GATES = [
-	"test-determinism-audit.sh",
-	"test-portability-audit.sh",
-	"check-workflow-patterns.mjs",
-	"verify-skills.ts",
-];
 
 /**
- * Pick the runner for a scripts/<gate> by extension. `.sh` → bash (matches
- * .github/workflows/ci.yml); `.ts` → bun (shebang `#!/usr/bin/env bun`,
- * documented `bun scripts/…`); `.mjs` → node (shebang `#!/usr/bin/env node`,
- * documented `node scripts/…`). NB: running an `.mjs`/`.ts` under `bash` would
- * be a hard failure (syntax error → non-zero exit → spurious gate failure), so
- * the runner is chosen per extension rather than uniformly `bash`.
+ * Pick the runner for a LOCAL_ONLY audit by extension. `.sh` → bash; `.ts` →
+ * bun (shebang `#!/usr/bin/env bun`); `.mjs` → node (shebang
+ * `#!/usr/bin/env node`). Running an `.mjs`/`.ts` under `bash` is a syntax
+ * error → non-zero exit → a spurious gate failure, so the runner is chosen per
+ * extension rather than uniformly `bash`. Workflow-derived gates need none of
+ * this: they carry their own full command.
  */
-function dispatchGate(file: string): { cmd: string; args: string[] } {
-	if (file.endsWith(".ts")) return { cmd: "bun", args: [`scripts/${file}`] };
-	if (file.endsWith(".mjs")) return { cmd: "node", args: [`scripts/${file}`] };
-	return { cmd: "bash", args: [`scripts/${file}`] };
+function auditCommand(file: string): string {
+	if (file.endsWith(".ts")) return `bun scripts/${file}`;
+	if (file.endsWith(".mjs")) return `node scripts/${file}`;
+	return `bash scripts/${file}`;
 }
 
 /** JSON.parse that returns null on empty/garbage (never throws). */
@@ -254,18 +251,36 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	}
 
 	// 4. Gates (default on) + info-only schema-cost.
+	//    The gate list is DERIVED from the workflow's `regression-gates` job —
+	//    never hand-written here. A hardcoded list drifted into running 2 of the
+	//    job's 14 steps, so eight blocking structural guards (dep-direction, ADR,
+	//    seam, routing, config-parity, ci-workflow, package-scripts, --strict
+	//    portability) never ran under the tool await_pr_merge gates the merge on.
 	const gates: CiGateResult[] = [];
+	let gateError: string | undefined;
 	let schemaCost: CiOutcome["schemaCost"];
 	const includeGates = opts.includeGates !== false;
 	if (includeGates && !opts.signal?.aborted) {
-		const specs: GateSpec[] = BLOCKING_GATES_V1.map((file) => ({ file, ...dispatchGate(file), blocking: true }));
-		if (opts.strict) {
-			for (const file of STRICT_AUDIT_GATES) specs.push({ file, ...dispatchGate(file), blocking: true });
-		}
-		for (const spec of specs) {
-			if (opts.signal?.aborted) break;
-			const r = await spawn(spec.cmd, spec.args, { cwd: opts.repoRoot });
-			gates.push({ name: spec.file, exitCode: r.exitCode, blocking: spec.blocking });
+		const parsed = await (opts.readGates ?? readCiGates)(opts.repoRoot);
+		if (parsed.error) {
+			// Fail closed. Running zero gates and reporting "pass" is the false-green
+			// this whole path exists to prevent.
+			gateError = parsed.error;
+		} else {
+			// Every step is run as a SHELL command in its own working-directory: the
+			// rows are commands, not argv vectors (`bun run test:deps`), and a
+			// `bun-apps` row fails at the repo root for reasons unrelated to the guard.
+			const specs = parsed.gates.map((g) => ({ name: g.name, run: g.run, cwd: g.cwd }));
+			if (opts.strict) {
+				// The audits CI has no step for — otherwise nothing ever runs them.
+				for (const file of LOCAL_ONLY_AUDITS) specs.push({ name: file, run: auditCommand(file), cwd: "." });
+			}
+			for (const spec of specs) {
+				if (opts.signal?.aborted) break;
+				const cwd = spec.cwd === "." ? opts.repoRoot : `${opts.repoRoot}/${spec.cwd}`;
+				const r = await spawn("bash", ["-c", spec.run], { cwd });
+				gates.push({ name: spec.name, exitCode: r.exitCode });
+			}
 		}
 		// schema-cost is ALWAYS info-only — a regression here must not block a merge.
 		// Imported (not spawned) so the check runs in-process; its internal
@@ -275,12 +290,15 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	}
 
 	// 5. Aggregate. overall = fail iff any non-skipped typecheck failed, any test
-	//    failed (exit not in {0=pass, -1=no-test-script}), or any BLOCKING gate
-	//    failed. schemaCost never participates.
+	//    failed (exit not in {0=pass, -1=no-test-script}), any gate failed, or the
+	//    gate job could not be read at all. schemaCost never participates.
+	//    Every gate is blocking: GitHub fails a job on any failed step and
+	//    `regression-gates` carries no continue-on-error, so a step's "warn-only"
+	//    naming is encoded in the SCRIPT's exit code, not in a per-gate flag here.
 	const typecheckFailed = packages.some((p) => !!p.typecheck && !p.typecheck.skipped && p.typecheck.exitCode !== 0);
 	const testFailed = packages.some((p) => p.test.exitCode !== 0 && p.test.exitCode !== -1);
-	const gateFailed = gates.some((g) => g.blocking && g.exitCode !== 0);
-	const overall: "pass" | "fail" = typecheckFailed || testFailed || gateFailed ? "fail" : "pass";
+	const gateFailed = gates.some((g) => g.exitCode !== 0);
+	const overall: "pass" | "fail" = typecheckFailed || testFailed || gateFailed || !!gateError ? "fail" : "pass";
 
 	return {
 		overall,
@@ -290,6 +308,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 		gates,
 		schemaCost,
 		elapsedMs: Date.now() - t0,
+		...(gateError ? { gateError } : {}),
 	};
 }
 

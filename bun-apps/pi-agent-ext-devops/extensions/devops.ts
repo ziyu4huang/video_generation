@@ -83,9 +83,12 @@ function formatCiOutcome(o: CiOutcome): string {
 			L.push(`  ${p.name}: test ${fmtTest(p.test)}${cmd} (typecheck ${fmtTypecheck(p.typecheck)})`);
 		}
 	}
+	// A gate-read failure is NOT "0 gates passed" — say so loudly, since the run
+	// is blocked for a reason no per-gate line can show.
+	if (o.gateError) L.push(`Gates: NOT RUN — could not read the regression-gates job: ${o.gateError}`);
 	if (o.gates.length) {
 		const pass = o.gates.filter((g) => g.exitCode === 0).length;
-		const failed = o.gates.filter((g) => g.exitCode !== 0).map((g) => `${g.name}${g.blocking ? " (blocking)" : ""}`);
+		const failed = o.gates.filter((g) => g.exitCode !== 0).map((g) => g.name);
 		L.push(`Gates: ${pass} pass / ${o.gates.length - pass} fail.${failed.length ? ` ✗ ${failed.join(", ")}` : ""}`);
 	}
 	if (o.schemaCost) {
@@ -359,7 +362,7 @@ export default function (pi: ExtensionAPI): void {
 		name: "local_ci",
 		label: "Local CI verification",
 		description:
-			"Run local CI — typecheck + tests scoped to the packages changed vs origin/main, plus the repo's quality gates (file-size guard, lockfile-duplicate guard; optional audit gates under strict; info-only schema-cost). Returns a STRUCTURED pass/fail so you can self-verify before merge. OFFLINE (no network): change detection runs in-process (extension-native TS) and the gate suite uses the same committed scripts remote CI uses (scripts/ci-file-size-guard.sh, …), so a green run is the local proxy for a green remote run. Use to self-verify before merge; await_pr_merge / merge should gate on this.",
+			"Run local CI — typecheck + tests scoped to the packages changed vs origin/main, plus EVERY step of the workflow's regression-gates job (file-size, lockfile, dep-direction, ADR citation, seam, routing, config-parity, ci-workflow, package-scripts, portability, determinism, …; info-only schema-cost). Returns a STRUCTURED pass/fail so you can self-verify before merge. OFFLINE (no network): change detection runs in-process (extension-native TS), the per-package command comes from the CI matrix, and the gate list is DERIVED from the same workflow — neither is hand-copied here — so a green run is the local proxy for a green remote run. Use to self-verify before merge; await_pr_merge / merge should gate on this.",
 		gating: { keywords: ["ci", "test", "typecheck", "verify", "gate", "green", "merge", "local ci"] },
 		promptSnippet:
 			"Local CI: typecheck + tests for changed packages vs origin/main, plus repo gates. Structured pass/fail, offline. Self-verify before `gh ship`.",
@@ -372,7 +375,10 @@ export default function (pi: ExtensionAPI): void {
 			),
 			all: Type.Optional(Type.Boolean({ description: "Run every bun-apps/* package (computeChangedPackages all:true)." })),
 			strict: Type.Optional(
-				Type.Boolean({ description: "Add the audit gates (determinism / portability / workflow-patterns / verify-skills). Default false." }),
+				Type.Boolean({
+					description:
+						"Also run the audits that have NO step in the CI workflow (check-workflow-patterns.mjs, verify-skills.ts). Default false = exactly the regression-gates job, no more and no less.",
+				}),
 			),
 			includeGates: Type.Optional(Type.Boolean({ description: "Run the gate suite (default true)." })),
 		}),

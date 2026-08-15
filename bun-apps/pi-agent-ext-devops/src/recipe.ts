@@ -27,6 +27,7 @@ import type { SpawnFn } from "./spawn.js";
 import type { CiOutcome } from "./ci-recipe.js";
 import { runLocalCi } from "./ci-recipe.js";
 import type { ComputeChangedPackagesOptions, ChangedPackagesMap } from "./changed-packages.js";
+import type { CiGatesResult } from "./ci-gates.js";
 import type { PrState, MergeState, CheckTally } from "./pr-logic.js";
 
 /** Injectable gh/git operations. Real impl: src/gh.ts. Tests inject fakes. */
@@ -62,6 +63,12 @@ export interface RecipeOptions {
 	 * ci-changed-packages.sh). Tests inject a fake so the recipe stays fs-free.
 	 */
 	detectChangedPackages?: (opts: ComputeChangedPackagesOptions) => Promise<ChangedPackagesMap>;
+	/**
+	 * Injectable `regression-gates` reader forwarded to runLocalCi. Default:
+	 * parse the job out of the workflow. Tests inject a fake so the recipe stays
+	 * fs-free — and so a fake repoRoot doesn't fail the merge on a gate-read error.
+	 */
+	readGates?: (repoRoot: string) => Promise<CiGatesResult>;
 }
 
 export interface RecipeOutcome {
@@ -123,6 +130,7 @@ export async function runMergeRecipe(opts: RecipeOptions): Promise<RecipeOutcome
 			spawn,
 			signal,
 			detectChangedPackages: opts.detectChangedPackages,
+			readGates: opts.readGates,
 		});
 	} catch (err) {
 		return {
