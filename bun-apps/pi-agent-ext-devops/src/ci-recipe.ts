@@ -402,8 +402,12 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 		await plan.run();
 	}
 	// Heal any @repo/* workspace link the sequential phase left dangling (the
-	// Bun-runtime rewrite above) so the parallel phase resolves cleanly.
-	await healWorkspaceLinks(spawn, opts.repoRoot);
+	// Bun-runtime rewrite above) so the parallel phase resolves cleanly. Only
+	// needed when pi-agent's own suite ran — it is the sole link-breaker — which
+	// also keeps the heal spawn out of unrelated runs' spawn sequences.
+	if (plans.some((p) => p.name === "pi-agent")) {
+		await healWorkspaceLinks(spawn, opts.repoRoot);
+	}
 	// 3c. Non-build rows, bounded parallelism.
 	await mapPool(
 		plans.filter((p) => !p.builds),

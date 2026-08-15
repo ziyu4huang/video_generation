@@ -703,16 +703,27 @@ describe("runLocalCi — link-breaker isolation (pi-agent runs sequential-first)
 		expect(idx("pi-agent")).toBeLessThan(idx("pkg-a"));
 	});
 
-	test("a heal spawn (relink dangling @repo links) runs between phases", async () => {
+	test("a heal spawn (relink dangling @repo links) runs between phases — only when pi-agent's suite ran", async () => {
 		const { fn, calls } = mkSpawn([verifyOk()]);
 		await runLocalCi({
 			repoRoot: REPO,
-			packages: ["pkg-a"],
+			packages: ["pkg-a", "pi-agent"],
 			spawn: fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" }, "pi-agent": { test: "bun test" } }),
+			readMatrix: async () => ({ "pkg-a": "bun test", "pi-agent": "bun test" }),
+			includeGates: false,
+		});
+		expect(calls.some((c) => c.cmd === "bash" && c.args[0] === "-c" && c.args[2] === "heal-workspace-links")).toBe(true);
+		// …and NOT when pi-agent is absent (its suite is the sole link-breaker).
+		const { fn: fn2, calls: calls2 } = mkSpawn([verifyOk()]);
+		await runLocalCi({
+			repoRoot: REPO,
+			packages: ["pkg-a"],
+			spawn: fn2,
 			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
 			readMatrix: async () => ({ "pkg-a": "bun test" }),
 			includeGates: false,
 		});
-		expect(calls.some((c) => c.cmd === "bash" && c.args[0] === "-c" && c.args[2] === "heal-workspace-links")).toBe(true);
+		expect(calls2.some((c) => c.cmd === "bash" && c.args[0] === "-c" && c.args[2] === "heal-workspace-links")).toBe(false);
 	});
 });
