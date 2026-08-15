@@ -84,7 +84,9 @@ Whenever you create or update anything under `.planning/`, `git add .planning/..
 
 Any git sync / branch prep / rebase / PR merge / local CI / branch sweep / post-run review in this repo goes through the **devops tool chain** (`sync_repo`, `prepare_branch`, `local_ci`, `await_pr_merge`, `verify_merge`, `sweep_branches`, `devops_retrospect`) per `bun-apps/pi-agent-ext-devops/skills/devops-workflow/SKILL.md`. Never dispatch hand-rolled raw-bash git/gh subagents for phases a devops tool owns.
 
-**Plain `pi` sessions** (no repo extensions loaded — diagnose by absence of the devops tools): use the CLI fallback `bun bun-apps/pi-agent-ext-devops/src/sync-cli.ts [--dry-run]` for sync; do not invent git command sequences. Prefer launching sessions via the pi-agent wrapper `bun bun-apps/pi-agent/src/cli.ts`, which auto-loads all run-dir extensions and skills.
+**Plain `pi` sessions** (no repo extensions loaded — diagnose by absence of the devops tools): every owned phase has a CLI fallback under `bun-apps/pi-agent-ext-devops/src/*-cli.ts` — `sync-cli`, `main-health-cli`, `sweep-cli`, `local-ci-cli`, `prepare-cli`, `verify-merge-cli`, `pr-finish-cli`. All take `--help`, emit JSON on stdout, and exit 0/1/2. Do not invent git command sequences. Prefer launching sessions via the pi-agent wrapper `bun bun-apps/pi-agent/src/cli.ts`, which auto-loads all run-dir extensions and skills.
+
+**Is `main` itself green?** `bun bun-apps/pi-agent-ext-devops/src/main-health-cli.ts` (or the `main_health` tool). `local_ci` is change-scoped, so it structurally cannot see a package your branch doesn't touch.
 
 ## Key Directories
 

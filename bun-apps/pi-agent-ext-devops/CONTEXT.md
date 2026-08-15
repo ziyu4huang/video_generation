@@ -32,6 +32,22 @@ scripts — `scripts/deploy.ts`, `scripts/run-test.sh`, `scripts/ci-local.sh`.
   `scripts/ci-local.sh` parses the same two blocks, so the runners cannot
   disagree. An unparseable gate job FAILS the run (`gateError`) rather than
   degrading to an empty, all-green gate set.
+- **main_health** — "is the default branch green right now?" Runs the FULL
+  matrix + the whole gate suite in the worktree that HOLDS the default branch
+  (a suite runs against a working tree, not a ref, so running it elsewhere would
+  report that tree's health under main's name). Read-only. ABORTS — reporting
+  unhealthy — when no worktree holds it; a dirty/behind tree still runs but the
+  outcome warns that the verdict is about that tree, not `origin/<default>`.
+  Exists because `local_ci` is change-scoped and remote CI is disabled, so a
+  branch avoiding a broken package merges green forever and nothing reports that
+  main itself is red. Thin over `runLocalCi({all:true})` — no second engine.
+- **CLI fallbacks** (`src/*-cli.ts`, all in `bin`) — every owned phase is
+  reachable from a non-pi session: `main-health-cli`, `sweep-cli`,
+  `local-ci-cli`, `prepare-cli`, `verify-merge-cli`, plus the pre-existing
+  `sync-cli` / `pr-finish-cli` / `verify-deploy-cli`. Shared contract in
+  `src/cli-common.ts`: JSON on stdout, diagnostics on stderr, exit 0/1/2. They
+  parse argv and serialize — nothing else — so a wrapper cannot drift from its
+  recipe's guards.
 - **changed-packages CLI** (`src/changed-packages-cli.ts`) — the bash-callable
   wrapper the workflow's `changed_packages` job shells out to (`--all`, or
   `<baseRef> <headRef>` → one line of JSON). Deliberately a plain script entry,
