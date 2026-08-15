@@ -10,6 +10,7 @@
  */
 
 import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
+import { convertToBackground, makeProdDetachDeps } from "./detach-run.js";
 import { reconstructSubagentRuns, SubagentViewer } from "./subagent-viewer.js";
 
 /** Minimal slice of the pi host command context this command depends on. */
@@ -73,6 +74,12 @@ export function createSubagentsCommand(opts: { subagentInFlight: SubagentInFligh
               done();
             },
             onAbort: (id) => subagentInFlight.abort(id),
+            // Ctrl+b (Task 06): the SAME detach assembly as the global shortcut —
+            // convertToBackground over the prod deps (shared registry + real
+            // detached spawn + persistence manifest). The run stays in the
+            // registry with foreground flipped false, so the row silently moves
+            // from "foreground" to the background list on the next render.
+            onDetach: (id) => convertToBackground(id, makeProdDetachDeps({ registry: subagentInFlight })),
           },
           theme as never,
         );

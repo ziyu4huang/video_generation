@@ -54,6 +54,7 @@ describe("subagent extension — tool registration", () => {
       registerCommand: ((name: string) => {
         registeredCommands.push(name);
       }) as never,
+      registerShortcut: (() => {}) as never,
       getActiveTools: () => active,
       setActiveTools: (tools: string[]) => {
         setActiveToolsCalls.push([...tools]);
