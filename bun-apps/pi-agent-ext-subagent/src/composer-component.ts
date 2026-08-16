@@ -23,6 +23,16 @@ import { type Component, Text } from "@earendil-works/pi-tui";
  */
 export type Composer = (width: number) => string;
 
+/**
+ * The one degradation message for a render-time throw. Kept unthemed on
+ * purpose: theming is itself a render-time call and must not be able to throw
+ * inside the barrier that exists to catch throws.
+ */
+export function renderErrorLine(error: unknown): string {
+  const message = (error as Error | undefined)?.message;
+  return String(message ?? error ?? "render error");
+}
+
 export class ComposerComponent implements Component {
   private composer: Composer;
 
@@ -45,12 +55,51 @@ export class ComposerComponent implements Component {
       // uncaughtException and killed the whole host session. Degrade to a
       // single error line instead; render-time failures must never crash the
       // host TUI.
-      const message = (error as Error | undefined)?.message;
-      text = String(message ?? error ?? "render error");
+      text = renderErrorLine(error);
     }
     return new Text(text, 0, 0).render(width);
   }
 
   /** Composing is pure — there is no cached rendering state to invalidate. */
   invalidate(): void {}
+}
+
+/**
+ * The same barrier for a COMPONENT subtree rather than a string composer.
+ *
+ * WHY BOTH EXIST
+ *   ComposerComponent's try/catch is what makes a render-time throw survivable,
+ *   and every string-composing surface goes through it. But ticket 03's settled
+ *   EXPANDED report is not a string — it is a `Container` of a header `Text`
+ *   plus a `Markdown` body — so it returned a bare Container and escaped the
+ *   barrier entirely. Two crash hotfixes (2026-08-16) had already been spent on
+ *   exactly this failure mode on the call-render side; this closes the one
+ *   remaining path instead of leaving the third occurrence to find it.
+ *
+ * The subtree is built LAZILY inside `render` so a throw in the BUILDER (e.g.
+ * reading `.content` off a partial result) is caught by the same barrier as a
+ * throw inside a child's own `render`. A successful build is cached; a failed
+ * one is dropped so the next frame retries rather than latching the error.
+ */
+export class GuardedComponent implements Component {
+  private readonly build: () => Component;
+  private built: Component | undefined;
+
+  constructor(build: () => Component) {
+    this.build = build;
+  }
+
+  render(width: number): string[] {
+    try {
+      this.built ??= this.build();
+      return this.built.render(width);
+    } catch (error) {
+      this.built = undefined;
+      return new Text(renderErrorLine(error), 0, 0).render(width);
+    }
+  }
+
+  invalidate(): void {
+    this.built?.invalidate?.();
+  }
 }

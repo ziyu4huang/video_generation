@@ -23,7 +23,7 @@ import {
 } from "@repo/pi-agent-core-runtime";
 import { roleAwareDefaults, tierDefaultToken } from "./budget-defaults.js";
 import { dispatchChild } from "./child-dispatch.js";
-import { ComposerComponent } from "./composer-component.js";
+import { ComposerComponent, GuardedComponent } from "./composer-component.js";
 import { realGitOps } from "./git-scope.js";
 import { missingRequiredTools } from "./impossible-tools.js";
 import {
@@ -503,12 +503,19 @@ export function createSubagentTool(
       // ONLY this branch moves to components — streaming/partial and
       // settled-collapsed keep the plain-string ComposerComponent path so the
       // #1104 flicker fix holds untouched.
+      // Wrapped in GuardedComponent so this branch carries the SAME render-time
+      // exception barrier the string path gets from ComposerComponent — it is a
+      // Container, not a composer, and returning it bare was the one remaining
+      // path where a throw (partial `result`, a Markdown parse fault) would
+      // reach the host's frame loop and kill the session.
       if (!renderOptions.isPartial && renderOptions.expanded) {
-        const box = new Container();
-        const header = renderSubagentResultHeader(result, theme, { modelSeg: v?.modelSeg });
-        if (header) box.addChild(new Text(header, 0, 0));
-        box.addChild(new Markdown(subagentResultText(result), 0, 0, getMarkdownTheme()));
-        return box;
+        return new GuardedComponent(() => {
+          const box = new Container();
+          const header = renderSubagentResultHeader(result, theme, { modelSeg: v?.modelSeg });
+          if (header) box.addChild(new Text(header, 0, 0));
+          box.addChild(new Markdown(subagentResultText(result), 0, 0, getMarkdownTheme()));
+          return box;
+        });
       }
       // Compose-in-render (ticket 02): renderSubagentResult receives the
       // render-time width via opts (settled-collapsed cap becomes width-

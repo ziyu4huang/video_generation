@@ -27,6 +27,7 @@ import {
   shortModel,
   summarizeLatestAction,
 } from "@repo/pi-agent-core-runtime";
+import { DETACH_KEY_BYTE } from "./ctrl-b.js";
 import { formatHistoryLine } from "./subagent-tool-render.js";
 import type { SubagentToolDetails } from "./subagent-tool-schema.js";
 import type { SubagentsToolDetails } from "./subagents-tool.js";
@@ -338,7 +339,7 @@ export class SubagentViewer {
       // ctrl+b (Task 06): detach the FOLLOWED run to background. The run may
       // have already left the registry — `convertToBackground` refuses unknown
       // ids and the refusal surfaces as a silent no-op (same as the global path).
-      if (data === "\x02") this.detachFocused(this.followedId);
+      if (data === DETACH_KEY_BYTE) this.detachFocused(this.followedId);
       return; // follow: no nav/filter keys in v1
     }
     if (this.view !== "list") return; // output: no nav/filter keys in v1
@@ -361,9 +362,9 @@ export class SubagentViewer {
     // a detach target; batch headers and completed rows are silent no-ops
     // (never throws, onDetach never fires). Checked AFTER the confirm gate (a
     // pending abort confirm resolves only via y/n/Esc) and BEFORE the printable
-    // filter branch so the \x02 control byte can never land in the filter
+    // filter branch so the control byte can never land in the filter
     // (plain 'b' still filters).
-    if (data === "\x02") {
+    if (data === DETACH_KEY_BYTE) {
       const e = this.entries()[this.selected];
       if (e?.kind === "running") this.detachFocused(e.ref.id);
       return;

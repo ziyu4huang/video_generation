@@ -6,6 +6,7 @@ import {
   createSubagentsTool,
   createSubagentTool,
   dispatchCtrlB,
+  GLOBAL_DETACH_KEY,
   getSubagentInFlightRegistry,
   getSubagentRunPersistence,
   makeProdDetachDeps,
@@ -93,19 +94,17 @@ export default function extension(pi: ExtensionAPI) {
   // with /workflows-models (fine-edit). Preset templates live in src/presets.ts.
   registerModelsPresetCommand(pi);
 
-  // Ctrl+shift+b (Task 06) — GLOBAL detach: background the OLDEST live foreground
+  // Ctrl+b (Task 06) — GLOBAL detach: background the OLDEST live foreground
   // subagent run. Both detach surfaces share one lever: convertToBackground
   // over makeProdDetachDeps (the /subagents viewer's in-viewer ctrl+b passes
   // the SAME assembly through the viewer's onDetach seam).
   //
-  // Key-claim note: ctrl+shift+b is NOT a built-in default in any of pi's
-  // keybinding tables (checked docs/keybindings.md), so registering it emits
-  // no conflict diagnostic. The previous ctrl+b registration shadowed pi's
-  // default `tui.editor.cursorLeft` binding and triggered the startup
-  // conflict warning; the in-viewer \x02 handling in subagent-viewer.ts
-  // stays viewer-scoped and unaffected.
-  pi.registerShortcut("ctrl+shift+b", {
-    description: "subagent: detach foreground run to background (ctrl+shift+b)",
+  // The chord itself is GLOBAL_DETACH_KEY — see src/ctrl-b.ts for why it must
+  // be a plain ctrl+<letter> (a ctrl+shift+ chord is undeliverable on terminals
+  // that negotiate neither Kitty CSI-u nor modifyOtherKeys) and why the
+  // resulting startup conflict diagnostic is the accepted cost.
+  pi.registerShortcut(GLOBAL_DETACH_KEY, {
+    description: "subagent: detach foreground run to background (ctrl+b)",
     handler: () => {
       dispatchCtrlB(inFlight, (id) => convertToBackground(id, makeProdDetachDeps({ registry: inFlight, persistence })));
     },
