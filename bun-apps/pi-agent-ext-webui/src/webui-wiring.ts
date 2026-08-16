@@ -48,9 +48,6 @@ import { RenderService } from "./render-service.js";
 import { createRenderRoutes } from "./render-routes.js";
 import { createOutputRoutes } from "./output-routes.js";
 import { createFileRoutes } from "./file-routes.js";
-import { createBtwRoutes } from "./btw-routes.js";
-import { createBtwForwarder, createBtwStore } from "./btw-store.js";
-import { emitBtwCommand, onBtwEvent } from "./btw-channels.js";
 import { createRenderEventHandler } from "./render-event-handler.js";
 import { createPresentEventHandler } from "./present-event-handler.js";
 import { createOpenEventHandler } from "./open-event-handler.js";
@@ -86,18 +83,14 @@ export interface WebuiUi {
 
 /**
  * The session-context slice the wiring touches: `ui` (the announce +
- * block-feedback channel) + `modelRegistry` (btw panel D12). DE-CHAT
- * (event-cards 00): `abort()` is gone — the retired agentic dispatch was its
- * only wiring consumer (the Abort button rode the removed main composer).
- * Structural slice of the real ExtensionContext, which remains a superset;
- * narrowing on purpose keeps a MockPi ctx stub tiny.
+ * block-feedback channel). DE-CHAT (event-cards 00): `abort()` is gone — the
+ * retired agentic dispatch was its only wiring consumer (the Abort button
+ * rode the removed main composer). Structural slice of the real
+ * ExtensionContext, which remains a superset; narrowing on purpose keeps a
+ * MockPi ctx stub tiny.
  */
 export interface WebuiSessionCtx {
   ui: WebuiUi;
-  /** Model registry (btw panel D12): structural slice of the SDK's
-   *  ExtensionContext.modelRegistry.getAvailable(). The real ExtensionContext
-   *  remains a structural superset. */
-  modelRegistry: { getAvailable(): Array<{ provider: string; id: string; api: string }> };
 }
 
 /**
@@ -105,8 +98,8 @@ export interface WebuiSessionCtx {
  * plus the ticket-06 render seams (`events` + `registerTool`). DE-CHAT
  * (event-cards 00): no `sendUserMessage` — the retired agentic dispatch was
  * its only caller; the wiring no longer injects prompts into the session
- * (chat lives in the TUI; the btw side channel + HITL appexec are the
- * web-native input surfaces). Narrow on purpose so a MockPi in tests is
+ * (chat lives in the TUI; the HITL appexec return transport is the
+ * web-native input surface). Narrow on purpose so a MockPi in tests is
  * tiny; the real {@link ExtensionAPI} is a structural superset (assigned at
  * the extensions/webui.ts entry via a cast).
  */
@@ -467,17 +460,6 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     }
   }
 
-  // --- btw side-panel seam (Task 8) -----------------------------------------
-  // Subscribed during factory setup, BEFORE any session_start fires, so the
-  // forwarder catches btw's initial thread event (the store serves it to
-  // GET /api/btw even pre-WS-connect). Every validated btw:event updates the
-  // store AND broadcasts the `btw` WebFrame to connected WS clients (D5/D7).
-  const btwStore = createBtwStore();
-  const forwardBtwEvent = createBtwForwarder(btwStore, (frame) => server.broadcast(frame));
-  // NOTE: onBtwEvent's bus param is non-optional, so the optional seam is
-  // guarded here (same convention as the pi.events?.on render seams above).
-  if (pi.events) onBtwEvent(pi.events, forwardBtwEvent);
-
   // --- HITL pending-Promise registry (return transport; spec Component 1) ----
   // Keyed by the respond `id`. registerPending creates + awaits a pending; the
   // dispatch appexec case resolves it; abort (session_shutdown / WS close /
@@ -651,8 +633,8 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
         // shell's main composer is gone. prompt/steer/followUp/abort frames
         // still VALIDATE (protocol) and parse (web-transport) but are
         // deliberately NOT routed to pi.sendUserMessage / ctx.abort. The
-        // browser's web-native input surface is the btw side channel + HITL
-        // appexec (below).
+        // browser's web-native input surface is the HITL appexec return
+        // transport (below).
         break;
       case "appexec": {
         // Phase 1 return transport (spec Component 1): `action` is the typed
@@ -678,13 +660,6 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
         }
         break;
       }
-      case "btw":
-        // Side-panel command path (Task 6/8): forward the validated BtwCommand
-        // to the btw thread over the shared event bus. NOT agentic — never
-        // touches the mutex or the pending HITL registry. Guarded like the
-        // render seams: a host without an events bus no-ops instead of throwing.
-        if (pi.events) emitBtwCommand(pi.events, action.command);
-        break;
       case "control":
         // subscribe/unsubscribe: WS connect/close already auto-tracks clients
         // in WebServer; the explicit command is a v1 no-op.
@@ -743,22 +718,10 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // output routes (the spec-pinned registration order).
   const fileRoutes = createFileRoutes({ roots: fileRoots });
   const outputRoutes = createOutputRoutes(deps.outputDir !== undefined ? { dir: deps.outputDir } : undefined);
-  // Task 8: btw routes answer FIRST (/api/btw, /api/btw/models); render and
-  // output keep their existing order behind them. Model list is read from the
-  // BOUND session's registry (null pre-session_start -> empty list; the
-  // panel refetches after connect). The provider/id/api mapping mirrors the
-  // btw override-entry payload convention.
+  // Route chain: render answers first (incl. GET / shell), then /files, then
+  // /output; everything else falls through to the WebServer defaults.
   server.setHttpRoutes(
-    (req, srv) =>
-      createBtwRoutes({
-        getState: () => btwStore.state(),
-        getModels: () =>
-          (bound?.ctx.modelRegistry?.getAvailable() ?? []).map((m) => ({
-            provider: m.provider,
-            id: m.id,
-            api: m.api,
-          })),
-      })(req, srv) ?? renderRoutes(req, srv) ?? fileRoutes(req, srv) ?? outputRoutes(req, srv),
+    (req, srv) => renderRoutes(req, srv) ?? fileRoutes(req, srv) ?? outputRoutes(req, srv),
   );
   // Render-seam registration is guarded: a host whose ExtensionAPI predates
   // ticket 06 has no `events` bus / `registerTool` — wiring must not throw at

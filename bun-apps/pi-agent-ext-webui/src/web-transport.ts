@@ -31,8 +31,6 @@ import {
   type EventLike,
   type WebFrame,
 } from "./protocol.js";
-import { btwCommandFromFrame } from "./btw-channels.js";
-
 export class WebTransport {
   /**
    * Inbound: classify a validated {@link ClientFrame} into a
@@ -51,11 +49,6 @@ export class WebTransport {
    *   Promise registered under `id`. An unknown op or a malformed respond
    *   resolves to `null` (ignored — spec §6 forward-compat).
    * - `subscribe` / `unsubscribe` → `{ kind:"control", op }`.
-   * - `btw` → `{ kind:"btw", command }` (Task 6): the side-panel command path.
-   *   The validated frame body is narrowed via `btwCommandFromFrame`; an
-   *   inconsistent body (e.g. `ask` without text) → `null` (ignored — the schema
-   *   stays loose so such frames still VALIDATE, spec §6). NOT agentic: the
-   *   wiring must NOT route it through the mutex gate.
    * - unknown type → `null` (defensive). A ClientFrame is a closed, validated
    *   union so this is unreachable for well-typed input; but an unknown type must
    *   never be silently mis-routed through agentic (which would spuriously acquire
@@ -103,14 +96,6 @@ export class WebTransport {
       case "subscribe":
       case "unsubscribe":
         return { kind: "control", op: frame.type };
-      case "btw": {
-        // Side-panel command path (Task 6): narrow the loose-but-validated body
-        // to a BtwCommand; inconsistent bodies are IGNORED here (null), never
-        // rejected by the schema (spec §6). Bypasses the mutex (not agentic).
-        const command = btwCommandFromFrame(frame);
-        if (!command) return null;
-        return { kind: "btw", command };
-      }
       default:
         // Unreachable for a valid ClientFrame (closed union). Defensive: never
         // mis-route an unknown type through any gate (spec §6).

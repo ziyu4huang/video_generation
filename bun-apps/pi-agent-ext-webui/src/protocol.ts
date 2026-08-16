@@ -17,7 +17,6 @@
  */
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
-import type { BtwCommand, BtwEvent } from "./btw-channels.js";
 // Type-only: session-store imports WebFrame (also type-only) — no runtime cycle.
 import type { SessionSnapshot } from "./session-store.js";
 
@@ -57,61 +56,12 @@ const ControlCommandSchema = Type.Union([
   Type.Object({ type: Type.Literal("unsubscribe") }),
 ]);
 
-/**
- * `btw` is the side-panel transport (Task 6): a validated command frame for the
- * btw thread. Like `appexec`, the SCHEMA stays loose (optional payloads, no
- * cross-field consistency) — an inconsistent body (e.g. `ask` without `text`)
- * still VALIDATES here so it can be IGNORED at parse time via
- * `btwCommandFromFrame` (never rejected by the schema, spec §6 forward-compat).
- */
-export const BtwCommandFrameSchema = Type.Object({
-  type: Type.Literal("btw"),
-  kind: Type.Union([
-    Type.Literal("ask"),
-    Type.Literal("new"),
-    Type.Literal("clear"),
-    Type.Literal("inject"),
-    Type.Literal("summarize"),
-    Type.Literal("model"),
-    Type.Literal("thinking"),
-    Type.Literal("mode"),
-  ]),
-  text: Type.Optional(Type.String()),
-  mode: Type.Optional(Type.Union([Type.Literal("contextual"), Type.Literal("tangent")])),
-  model: Type.Optional(
-    Type.Union([
-      Type.Null(),
-      Type.Object({ provider: Type.String(), id: Type.String(), api: Type.String() }),
-    ]),
-  ),
-  level: Type.Optional(
-    Type.Union([
-      Type.Null(),
-      Type.Union([
-        // Full BtwThinkingLevel (architecture v2 §3.4): v1 admitted only
-        // off|low|medium|high, so the panel's minimal/xhigh/max selections were
-        // silently dropped by validateInbound. Keep in sync with
-        // btw-channels.ts BtwThinkingLevel (7 values, pi-ai 0.84.2 surface).
-        Type.Literal("off"),
-        Type.Literal("minimal"),
-        Type.Literal("low"),
-        Type.Literal("medium"),
-        Type.Literal("high"),
-        Type.Literal("xhigh"),
-        Type.Literal("max"),
-      ]),
-    ]),
-  ),
-});
-export type BtwCommandFrame = Static<typeof BtwCommandFrameSchema>;
-
 /** The full inbound command union (the authoritative wire schema, specs/04 §4). */
 export const InboundCommandSchema = Type.Union([
   AgenticWithTextSchema,
   AbortCommandSchema,
   AppExecCommandSchema,
   ControlCommandSchema,
-  BtwCommandFrameSchema,
 ]);
 
 /** Inbound frame as validated by {@link validateInbound}. */
@@ -180,8 +130,6 @@ export type WebFrame =
   // mutex signals — produced by the MutexNotifier impl (spec §3)
   | { type: "mutex_blocked"; blocked: "web" | "tui"; by: "tui" | "web" }
   | { type: "mutex_force_release"; driver: "web" | "tui" }
-  // btw side-panel — thread state snapshots / notices (Task 6)
-  | BtwWebFrame
   // view-notifications (spec 01-B): a `webui:open` emission resolved to a
   // servable /files URL. `url` is PATH-ABSOLUTE (client joins
   // location.origin — encoding authority stays 100% server-side); `ts`
@@ -271,12 +219,6 @@ export type WebFrame =
   // forward-compat: any other host event is forwarded generically (never thrown on)
   | { type: string; details?: unknown; [k: string]: unknown };
 
-/** Outbound btw frame: a thread snapshot or notice (see `BtwEvent`, Task 5). */
-export interface BtwWebFrame {
-  type: "btw";
-  event: BtwEvent;
-}
-
 // --- DispatchAction (the descriptor parseCommand returns), specs/04 §3 ---
 
 /**
@@ -315,13 +257,6 @@ export type DispatchAction =
     }
   | { kind: "appexec"; op: "cancel"; id: string }
   | { kind: "control"; op: "subscribe" | "unsubscribe" }
-  /**
-   * `btw` is the side-panel command path (Task 6): the wiring forwards the
-   * command to the btw thread over the event bus — it is NOT agentic, so it
-   * must NOT acquire the mutex. An inconsistent body resolves to `null`
-   * (ignored at parse time, spec §6).
-   */
-  | { kind: "btw"; command: BtwCommand };
 
 // --- Pure helpers ---
 
