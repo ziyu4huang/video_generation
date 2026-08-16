@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registerCommands } from "../src/commands.js";
 import { createEffort } from "../src/effort-tool.js";
+import { setEffortStatus } from "../src/lifecycle.js";
 import { readMap, writeMap, writeTicket } from "../src/map.js";
 import { WayfindOverlay } from "../src/overlay.js";
 import { readWayfindStatusBar } from "../src/settings.js";
@@ -446,6 +447,111 @@ describe("/grill and /wayfind dispatchers — routing", () => {
     await run(pi, "wayfind", "sync", ctx);
     expect(notifications.some((n) => n.includes("Usage") && n.includes("sync"))).toBe(true);
     expect(pi.sent.every((s) => !s.includes("Charting"))).toBe(true);
+  });
+});
+
+// ─── /wayfind bare — claim path + disk adoption (no-op bugfix) ───────────────
+// Regression lock: a bare /wayfind in a session with NO in-memory active
+// effort (fresh process / resumed session — activeEffortBySession is
+// per-process and never restored) used to be a toast-only usage warning with
+// zero persisted trace even when `status: active` efforts sat on disk. Now it
+// adopts the most-recently-modified active effort from disk and claims through
+// the exact same path as the in-memory branch.
+describe("/wayfind bare — claim path + disk adoption", () => {
+  /** Create a `status: active` effort on disk with one open, unclaimed,
+   *  unblocked (frontier) ticket ready to claim. */
+  function seedActiveEffortWithTicket(cwd: string, effort: string): void {
+    const created = createEffort(cwd, { effort, destination: `${effort} destination` });
+    if (!created.ok) throw new Error(`createEffort failed for ${effort}`);
+    writeTicket(cwd, effort, {
+      id: "01",
+      slug: "first-question",
+      title: "First question",
+      question: "What is the first takeable step?",
+      type: "task",
+      blocking: [],
+      status: "open",
+    });
+  }
+
+  const ticketPath = (cwd: string, effort: string) => join(cwd, ".planning", effort, "tickets", "01-first-question.md");
+
+  it("with an in-memory active effort: claims the next ticket + sends the steer (existing behavior)", async () => {
+    const { pi, state } = setup();
+    const cwd = makeCwd();
+    const ctx = makeCtx(cwd);
+    seedActiveEffortWithTicket(cwd, "2026-08-16-effort-mem");
+    state.activeEffortBySession.set("test-session", "2026-08-16-effort-mem");
+
+    await run(pi, "wayfind", "", ctx);
+
+    // Steer sent to work the claimed ticket:
+    expect(pi.sent.some((s) => s.includes("Working wayfinder ticket 01") && s.includes("2026-08-16-effort-mem"))).toBe(
+      true,
+    );
+    // Claim persisted on disk:
+    expect(readFileSync(ticketPath(cwd, "2026-08-16-effort-mem"), "utf-8")).toContain("claimed: test-session");
+  });
+
+  it("with NO in-memory effort and exactly ONE active on disk: adopts it, notifies the adoption, claims + steers", async () => {
+    const { pi, state } = setup();
+    const cwd = makeCwd();
+    const { ctx, notifications } = ctxCapturing(cwd);
+    seedActiveEffortWithTicket(cwd, "2026-08-16-effort-only");
+
+    await run(pi, "wayfind", "", ctx);
+
+    // Adoption notify names the effort + the active count:
+    expect(notifications.some((n) => n.includes("2026-08-16-effort-only") && n.includes("1 active"))).toBe(true);
+    // Claim steer sent for the adopted effort:
+    expect(pi.sent.some((s) => s.includes("Working wayfinder ticket 01") && s.includes("2026-08-16-effort-only"))).toBe(
+      true,
+    );
+    // Claim persisted + session state now bound to the adopted effort:
+    expect(readFileSync(ticketPath(cwd, "2026-08-16-effort-only"), "utf-8")).toContain("claimed: test-session");
+    expect(state.activeEffortBySession.get("test-session")).toBe("2026-08-16-effort-only");
+  });
+
+  it("with NO in-memory effort and MULTIPLE active: adopts the most-recent map.md mtime, notify mentions the count", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    const { ctx, notifications } = ctxCapturing(cwd);
+    seedActiveEffortWithTicket(cwd, "2026-08-16-effort-older");
+    seedActiveEffortWithTicket(cwd, "2026-08-16-effort-newer");
+    // Force deterministic mtimes: "newer" wins regardless of write order.
+    const older = new Date("2026-08-10T12:00:00Z");
+    const newer = new Date("2026-08-20T12:00:00Z");
+    utimesSync(join(cwd, ".planning", "2026-08-16-effort-older", "map.md"), older, older);
+    utimesSync(join(cwd, ".planning", "2026-08-16-effort-newer", "map.md"), newer, newer);
+
+    await run(pi, "wayfind", "", ctx);
+
+    // Adoption notify: names the most-recent effort + counts all actives:
+    expect(notifications.some((n) => n.includes("2026-08-16-effort-newer") && n.includes("2 active"))).toBe(true);
+    // Steer works the ADOPTED (most-recent) effort, and its ticket is claimed:
+    expect(
+      pi.sent.some((s) => s.includes("Working wayfinder ticket 01") && s.includes("2026-08-16-effort-newer")),
+    ).toBe(true);
+    expect(readFileSync(ticketPath(cwd, "2026-08-16-effort-newer"), "utf-8")).toContain("claimed: test-session");
+    // The older effort's ticket stays untouched:
+    expect(readFileSync(ticketPath(cwd, "2026-08-16-effort-older"), "utf-8")).not.toContain("claimed:");
+  });
+
+  it("with ZERO active efforts: informative usage notify, no steer, nothing claimed", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    const { ctx, notifications } = ctxCapturing(cwd);
+    seedActiveEffortWithTicket(cwd, "2026-08-16-effort-paused");
+    // Flip the only effort to paused — nothing adoptable on disk.
+    setEffortStatus(cwd, "2026-08-16-effort-paused", "paused");
+
+    await run(pi, "wayfind", "", ctx);
+
+    expect(
+      notifications.some((n) => n.includes("No active wayfind effort") && n.includes("/wayfind <destination>")),
+    ).toBe(true);
+    expect(pi.sent.length).toBe(0);
+    expect(readFileSync(ticketPath(cwd, "2026-08-16-effort-paused"), "utf-8")).not.toContain("claimed:");
   });
 });
 

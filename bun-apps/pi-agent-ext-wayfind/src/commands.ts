@@ -25,6 +25,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { seedPlan, syncChainState } from "./chain.js";
 import { PKG_NAME } from "./constants.js";
 import { publishWayfindGrill, unpublishWayfindGrill } from "./coordination.js";
+import { adoptMostRecentActiveEffort } from "./effort-query.js";
 import { renderValidate, validateEffort } from "./effort-tool.js";
 import { buildFreshnessWarning, checkFactFreshness } from "./freshness.js";
 import { buildGrillPriming } from "./grill.js";
@@ -348,9 +349,25 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     if (freshnessWarn) ctx.ui.notify(freshnessWarn, "warning");
 
     if (!destination) {
-      const effort = state.activeEffortBySession.get(sessionId);
+      // Bugfix — bare /wayfind no-op. activeEffortBySession is in-memory and
+      // per-process (never restored on resume), so a fresh/resumed session used
+      // to hit a toast-only usage warning even with `status: active` efforts
+      // sitting on disk — zero persisted trace, no steer, no claim. Now: fall
+      // back to disk and adopt the most-recently-modified active effort, then
+      // run the exact same claim path as the in-memory branch below.
+      let effort = state.activeEffortBySession.get(sessionId);
       if (!effort) {
-        ctx.ui.notify(`Usage: /wayfind <destination> to chart a new map, or set an active effort first.`, "warning");
+        const adopted = adoptMostRecentActiveEffort(ctx.cwd);
+        if (adopted) {
+          effort = adopted.effort;
+          ctx.ui.notify(
+            `🧭 No active effort in this session — adopting ${effort} (most recent of ${adopted.activeCount} active on disk). Use /wayfind -- <destination> to chart a different one.`,
+            "info",
+          );
+        }
+      }
+      if (!effort) {
+        ctx.ui.notify(`No active wayfind effort. Chart one: /wayfind <destination>`, "warning");
         return;
       }
       syncChainState(ctx.cwd, effort);
