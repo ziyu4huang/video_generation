@@ -12,6 +12,7 @@ import {
   formatSkillsForPrompt,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { readSeam } from "@repo/pi-agent-core-interface";
 import { toolApiCost } from "../cost.js";
 import { bar, est, estTok, miniBar, reportHeader } from "../report.js";
 
@@ -35,7 +36,7 @@ const SELF_TEST_CONTEXT_ANALYZER_OUTPUT = [
 export function makeInspectContextTool(getAllTools: () => ToolInfo[]) {
   return defineTool({
     name: "inspect_context",
-    gating: { gate: "inspect" }, // reference form (ticket 01) — family in GATE_DEFS["inspect"]
+    gating: { core: true }, // un-gated (ticket 06 HITL): diagnostics always-on
     label: "Inspect Context",
     description:
       "Break down the live context window by component — system-prompt text " +
@@ -243,6 +244,31 @@ export function makeInspectContextTool(getAllTools: () => ToolInfo[]) {
       if (opts.customPrompt) {
         const chars = opts.customPrompt.length;
         lines.push(`▶ Custom system prompt (replaces default):  ${chars.toLocaleString()} chars  (${est(chars)})`);
+        lines.push("");
+      }
+
+      // ── Tool gate live state (wayfinder ticket 06) ────────────────────────
+      // Reads the __piToolGateStatus seam published by pi-agent-ext-tool-gate:
+      // which gate families fired vs dormant, their keywords, and the measured
+      // token cost — the live view of why a tool is (or isn't) in the list.
+      const gateStatus = readSeam("__piToolGateStatus")?.();
+      if (gateStatus) {
+        lines.push("▶ Tool gate  (live state):");
+        lines.push(
+          `  ${gateStatus.activeCount}/${gateStatus.totalCount} tools active · ${gateStatus.coreCount} core always-on · ` +
+            `${gateStatus.gates.filter((g) => g.fired).length}/${gateStatus.gates.length} gates fired`,
+        );
+        lines.push("");
+        const sortedGates = [...gateStatus.gates].sort((a, b) => b.tokens - a.tokens);
+        lines.push("  " + "Gate".padEnd(26) + "state".padEnd(9) + "tok".padStart(6) + "  keywords");
+        lines.push("  " + "─".repeat(70));
+        for (const g of sortedGates) {
+          const state = g.fired ? "FIRED" : g.dormant ? "dormant" : "n/a";
+          const kw = g.keywords.slice(0, 4).join(", ") + (g.keywords.length > 4 ? ", …" : "");
+          lines.push(`  ${g.id.padEnd(26)} ${state.padEnd(9)} ${String(g.tokens).padStart(6)}  ${kw}`);
+        }
+        lines.push("");
+        lines.push(`  sticky: ${gateStatus.sticky.length ? gateStatus.sticky.join(", ") : "(none)"}`);
         lines.push("");
       }
 

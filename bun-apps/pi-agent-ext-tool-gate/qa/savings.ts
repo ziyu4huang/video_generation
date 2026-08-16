@@ -29,10 +29,11 @@ import { CORPUS_GATES, CORPUS_EFF } from "./evaluate.ts";
 /** The savings figure tool-gate's README/banner claims (~9,800 tok/req; zai-mcp env-gated — see caveats()).
  *  THE single source of truth — every prose mention cites ~9,800 and points to
  *  `bun run qa:savings` for live numbers. Do not hardcode a competing figure. */
-// 16,290 = measured gross after ticket 02 (always-active core halved: 10,759 →
-// 5,664 tok; 14 on-demand tools demoted to gates). Ticket 04 refreshes the
-// prose; this constant is the single source the drift-band test locks to.
-export const CLAIMED_SAVED_TOK = 16290;
+// 15,186 = measured gross after ticket 02 + ticket 06 (14 demotions halved the
+// core to 5,664; ticket 06 un-gated the 6 inspect_* diagnostics → 6,765, so
+// gross = 21,951 − 6,765 = 15,186). This constant is the single source the
+// drift-band test locks to; refresh via `bun run qa:savings`.
+export const CLAIMED_SAVED_TOK = 15186;
 
 /** Max |savedTok − CLAIMED_SAVED_TOK| before the README/banner claim is stale.
  *  ±20%: the figure legitimately drifts as the gate set and sibling-extension
@@ -58,7 +59,7 @@ export function withinDriftBand(savedTok: number): boolean {
  *  pays for its escape hatch. A constant so the net claim DERIVES from the gross
  *  claim (single source, not an independent figure); an overhead-band guard in
  *  savings.test.ts catches its drift (audit I-6 root cause). Refresh via qa:savings. */
-export const ENABLE_TOOL_OVERHEAD_TOK = 312;
+export const ENABLE_TOOL_OVERHEAD_TOK = 309;
 
 /** Net savings claim = gross claim − enable_tool overhead. Derived, never
  *  independent. Prose cites ~9,600 (round-to-100); the live measured net is
@@ -72,11 +73,10 @@ export const CLAIMED_NET_TOK = CLAIMED_SAVED_TOK - ENABLE_TOOL_OVERHEAD_TOK; // 
  *  gross numbers (~7,900 / ~7,940 / ~8,050) silently coexist. baseline/gated
  *  are measured approximations refreshed via qa:savings. */
 export const SANCTIONED_PROSE_TOK: ReadonlySet<number> = new Set([
-	CLAIMED_SAVED_TOK, // ~16,290 gross (post ticket-02)
-	Math.round(CLAIMED_NET_TOK / 100) * 100, // ~16,000 net (claim rounded)
-	15_980, // ~15,980 net (README/PRD/tool-gate.ts prose cite it)
-	21_900, // ~21,900 OFF baseline (measured 21,954)
-	5_700, // ~5,700 ON gated (measured 5,664, ticket-02 core halving)
+	CLAIMED_SAVED_TOK, // ~15,186 gross (post ticket-02 + 06)
+	Math.round(CLAIMED_NET_TOK / 100) * 100, // ~14,900 net (claim rounded)
+	21_950, // ~21,950 OFF baseline (measured 21,951)
+	6_750, // ~6,750 ON gated (measured 6,765)
 ]);
 
 export interface GateSavings {

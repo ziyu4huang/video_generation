@@ -17,7 +17,7 @@ import { reportHeader } from "../report.js";
 export function makeInspectTuiTool() {
   return defineTool({
     name: "inspect_tui",
-    gating: { gate: "inspect" }, // reference form (ticket 01) — family in GATE_DEFS["inspect"]
+    gating: { core: true }, // un-gated (ticket 06 HITL): diagnostics always-on
     label: "Inspect TUI",
     description:
       "Debug the above-editor widget state — the composite status widget (goal +" +

@@ -168,74 +168,12 @@ describe("updateSticky (mutation half)", () => {
 // Ticket 15 deleted the hardcoded GATES array (it was empty post-migration).
 // The former `describe("GATES data (S1)")` block lived here; its GATES-asserting
 // test (`expect(GATES).toHaveLength(0)`) was removed with the symbol. The movie
-// CJK firing + inspect owner-declared narrowing/firing it also held are covered
-// elsewhere: movie CJK via the matchIntent (S1) block; inspect false-fire/firing
-// via the "inspect_* precision/escape (recovered from dropped QA probes)" block
-// (which tests gateFires/matchIntent directly, more rigorously than the
-// updateSticky+filterActive form here did).
+// CJK firing is covered via the matchIntent (S1) block below.
 
-// inspect_* is owner-declared (power-tool) as of the Task-3 migration and no
-// longer a hardcoded gate, so the QA corpus (qa/probes.ts, evaluated via the
-// hardcoded-GATES-only qa/evaluate.ts) lost its inspect precision/escape
-// coverage. Recover those dropped probes here as UNIT TESTS against the
-// EFFECTIVE gate built from the owner-declared gating — real behavior coverage
-// of the migrated gating, not a vacuous pass. Each scenario mirrors a dropped
-// qa/probes.ts entry, re-scored the same way qa/evaluate.ts scores it but
-// against eff.gates instead of hardcoded GATES. Upgrading the QA harness itself
-// to evaluate effective gates is a separate follow-up (NOT done here).
-describe("inspect_* precision/escape (recovered from dropped QA probes)", () => {
-  // INSPECT_GATING mirrors power-tool's GATE_DEFS["inspect"] family verbatim.
-  const INSPECT_GATING = {
-    keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
-    requires: {
-      nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
-      verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
-    },
-  };
-  const eff = buildEffectiveGates(
-    [{ name: "inspect_context", description: "d", gating: { gate: "inspect" } }],
-    { inspect: { id: "inspect", ...INSPECT_GATING } },
-  );
-
-  // False-fire guard (the key historical one). Was qa/probes.ts MUST_NOT_FIRE:
-  // { gate: "inspect_context", prompt: "inspect element in chrome devtools",
-  //   note: "FIXED — 'element' is not a requires noun; bare 'inspect' removed" }.
-  // 'element' is NOT a requires noun; bare 'inspect' is no longer a keyword.
-  // The verb 'inspect' matches but no noun does → noun∧verb fails → no fire.
-  test("false-fire guard: 'inspect element in chrome devtools' does NOT fire", () => {
-    const gate = eff.gates.find((g) => g.names[0] === "inspect_context")!;
-    expect(gateFires(gate, "inspect element in chrome devtools")).toBe(false);
-  });
-
-  // Precision risk (was qa/probes.ts PRECISION_RISKS, severity low):
-  // { gate: "inspect_context", prompt: "check the context of this error",
-  //   why: 'noun "context" ∧ verb "check" (debugging, not introspection)' }.
-  // Per the VERBATIM gating this FIRES (noun 'context' ∧ verb 'check'); pinning
-  // it documents the migrated gating's real over-match — not a vacuous pass.
-  test("precision risk: 'check the context of this error' FIRES (noun context ∧ verb check — known over-match)", () => {
-    const gate = eff.gates.find((g) => g.names[0] === "inspect_context")!;
-    expect(gateFires(gate, "check the context of this error")).toBe(true);
-  });
-
-  // Escape reachability — by INTENT. Mirrors qa/evaluate.ts's ESCAPE_INTENT
-  // scoring: matchIntent(intent, gates, emptySticky) returns the inspect gate.
-  // 'show the agent's context tokens': nouns 'agent'/'context' ∧ verb 'show'.
-  test("escape by INTENT: 'show the agent's context tokens' reaches the inspect group", () => {
-    const gate = eff.gates.find((g) => g.names[0] === "inspect_context")!;
-    expect(gateFires(gate, "show the agent's context tokens")).toBe(true);
-    const matched = matchIntent("show the agent's context tokens", eff.gates, new Set());
-    expect(matched.some((g) => g.names[0] === "inspect_context")).toBe(true);
-  });
-
-  // Escape reachability — by NAME. Mirrors qa/evaluate.ts's ESCAPE_NAME scoring
-  // AND enable_tool's name-mode resolution: `effectiveGates.find((g) =>
-  // g.names.includes(name))` resolves to the inspect gate.
-  test("escape by NAME: 'inspect_context' resolves to the inspect gate (reachable via enable_tool name mode)", () => {
-    const resolved = eff.gates.find((g) => g.names.includes("inspect_context"));
-    expect(resolved).toBeDefined();
-    expect(resolved!.names[0]).toBe("inspect_context");
-  });
-});
+// The former "inspect_* precision/escape" block (gateFires/matchIntent coverage
+// of the keyword-gated inspect family) was REMOVED in wayfinder ticket 06
+// (HITL): the six inspect_* diagnostics are now owner-declared CORE (always-on)
+// — there is no inspect gate to fire anymore. See power-tool src/gating.ts.
 
 describe("matchIntent (S1)", () => {
   const sticky = () => new Set(CORE_SET);
@@ -814,16 +752,14 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
     expect(CORE_SET.has("obsidian_help")).toBe(true);
   });
 
-  test("inspect_tui is owner-gated (gated, not fail-open)", () => {
-    // inspect_* is owner-declared as of the Task-3 migration (no longer in
-    // hardcoded GATES). buildEffectiveGates with the reference-form gating must
-    // still track inspect_tui so it is NOT fail-open at runtime.
-    const eff = buildEffectiveGates(
-      [{ name: "inspect_tui", description: "d", gating: { gate: "inspect" } }],
-      { inspect: { id: "inspect", keywords: ["token usage"], requires: { nouns: ["tui"], verbs: ["inspect"] } } },
-    );
-    expect(eff.gates.find((g) => g.names.includes("inspect_tui"))).toBeDefined();
-    expect(eff.tracked.has("inspect_tui")).toBe(true); // tracked → not fail-open
+  test("inspect_tui is owner-declared CORE (ticket 06 un-gate, not fail-open)", () => {
+    // ticket 06 (HITL): the inspect_* diagnostics are always-on core, NOT
+    // keyword-gated. buildEffectiveGates must route core:true into eff.core.
+    const eff = buildEffectiveGates([
+      { name: "inspect_tui", description: "d", gating: { core: true } },
+    ]);
+    expect(eff.core.has("inspect_tui")).toBe(true); // core → always active
+    expect(eff.gates.find((g) => g.names.includes("inspect_tui"))).toBeUndefined();
   });
 });
 
@@ -858,17 +794,17 @@ describe("buildEffectiveGates", () => {
     // 01c: the ONLY non-core form is `gating: { gate: "<id>" }` — keywords/
     // requires come from the registry spec, grouped by id.
     const defs = [{
-      name: "inspect_hooks", description: "d",
-      gating: { gate: "inspect" },
+      name: "flux2", description: "d",
+      gating: { gate: "flux2" },
     }] as Array<{ name: string; description?: string; gating?: any }>;
     const eff = buildEffectiveGates(defs, {
-      inspect: { id: "inspect", keywords: ["schema cost"], requires: { nouns: ["agent"], verbs: ["inspect"] } },
+      flux2: { id: "flux2", keywords: ["flux"], requires: { nouns: ["image"], verbs: ["generate"] } },
     });
-    const g = eff.gates.find((x) => x.names.includes("inspect_hooks"));
+    const g = eff.gates.find((x) => x.names.includes("flux2"));
     expect(g).toBeDefined();
-    expect(g!.keywords).toEqual(["schema cost"]);
-    expect(g!.requires).toEqual({ nouns: ["agent"], verbs: ["inspect"] });
-    expect(g!.gateId).toBe("inspect");
+    expect(g!.keywords).toEqual(["flux"]);
+    expect(g!.requires).toEqual({ nouns: ["image"], verbs: ["generate"] });
+    expect(g!.gateId).toBe("flux2");
   });
 
   test("undeclared names are simply ungated (no hardcoded fallback — ticket 04 deleted CORE_TOOLS)", () => {
@@ -943,22 +879,14 @@ describe("injectBuiltinCore (ticket 03 — Path B injected-core for the 4 built-
 });
 
 describe("tool-gate runtime reads owner-declared gating", () => {
-  test("a tool whose owner declared gating is gated; a core-declared tool is active", async () => {
-    // Register the "inspect" family locally (this file doesn't import power-tool,
-    // so GATE_DEFS["inspect"] would otherwise be absent → inspect_hooks would
-    // fail-open and stay active). Scoped to this test, cleaned up after.
-    GATE_DEFS["inspect"] = {
-      id: "inspect",
-      keywords: ["schema cost", "token usage"],
-      requires: { nouns: ["agent", "context"], verbs: ["inspect", "dump"] },
-    };
-    try {
+  test("a core-declared tool is active; a gated tool is dormant", async () => {
     const activeCalls: string[][] = [];
     let sessionStartHandler: ((e: unknown, ctx: unknown) => Promise<void>) | null = null;
     const pi = {
       getAllToolDefinitions: () => [
         { name: "read", description: "r", gating: { core: true } },
-        { name: "inspect_hooks", description: "d", gating: { gate: "inspect" } },
+        // inspect_hooks is owner-declared CORE since ticket 06 (un-gate) → active.
+        { name: "inspect_hooks", description: "d", gating: { core: true } },
         { name: "zai_web_search_web_search_prime", description: "f", gating: { gate: "zai" } }, // reference form (ticket 01) → gated; no keyword in "" prompt → dormant
       ],
       on: (_chan: string, h: (e: unknown, ctx: unknown) => Promise<void>) => { if (_chan === "session_start") sessionStartHandler = h; return () => {}; },
@@ -970,11 +898,8 @@ describe("tool-gate runtime reads owner-declared gating", () => {
     await sessionStartHandler!({}, { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} } });
     const active = activeCalls[0];
     expect(active).toContain("read");            // core-declared → active
-    expect(active).not.toContain("inspect_hooks"); // owner-gated, no keyword in "" prompt → dormant
+    expect(active).toContain("inspect_hooks");     // core (ticket 06 un-gate) → active
     expect(active).not.toContain("zai_web_search_web_search_prime");          // owner-declared (ticket 12), no keyword → dormant
-    } finally {
-      delete GATE_DEFS["inspect"];
-    }
   });
 
   test("enable_tool recompute must NOT spuriously activate an owner-gated tool absent from TRACKED_TOOLS", async () => {
@@ -1053,6 +978,91 @@ describe("tool-gate runtime reads owner-declared gating", () => {
     const active = activeCalls[activeCalls.length - 1];
     expect(active).toEqual(expect.arrayContaining(["read", "bash"])); // core seeded from effectiveCore
     expect(active).not.toContain("flux2");                            // gated, no keyword → dormant
+  });
+
+  test("ticket 05: parent + child sessions have INDEPENDENT gate state (keyed by session id)", async () => {
+    // Parent fires session_start; a child (distinct session id) skips it and
+    // seeds its own state on first before_agent_start. Firing a gate in the
+    // PARENT must NOT leak into the CHILD's sticky, and vice versa.
+    const setActiveCalls: string[][] = [];
+    const handlers: Record<string, (e?: any, ctx?: any) => Promise<void> | void> = {};
+    let toolCount = 0;
+    const pi = {
+      getAllToolDefinitions: () => [
+        { name: "read", gating: { core: true } },
+        { name: "flux2", gating: { gate: "flux2" } },
+      ],
+      on: (chan: string, h: any) => { handlers[chan] = h; },
+      setActiveTools: (names: string[]) => { setActiveCalls.push(names); },
+      registerTool: () => {},
+    } as unknown as Parameters<typeof toolGateExtension>[0];
+    toolGateExtension(pi);
+
+    const parentCtx = { sessionManager: { getSessionId: () => "parent-session" } };
+    const childCtx = { sessionManager: { getSessionId: () => "child-session" } };
+
+    // parent session_start → parent state seeded with core only
+    await handlers.session_start!({}, { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} }, ...parentCtx } as any);
+    expect(setActiveCalls[0]).toEqual(expect.arrayContaining(["read"]));
+    expect(setActiveCalls[0]).not.toContain("flux2");
+
+    // parent turn fires flux2 → parent sticky gains it
+    await handlers.before_agent_start!({ prompt: "generate an image" }, parentCtx);
+    expect(setActiveCalls[1]).toContain("flux2"); // parent active
+
+    // child's FIRST turn (no session_start) — child seeds its OWN state: core
+    // only, flux2 still dormant despite the parent having fired it.
+    await handlers.before_agent_start!({ prompt: "a benign child prompt" }, childCtx);
+    const childActive = setActiveCalls[setActiveCalls.length - 1];
+    expect(childActive).toContain("read");        // child core seeded
+    expect(childActive).not.toContain("flux2");   // parent's fire did NOT leak into child
+  });
+
+  test("ticket 05: per-turn path does NOT rebuild the gate set (session_start is the one rebuild)", async () => {
+    // F6: before_agent_start must fire + filter only. getDiscovered is called
+    // at session_start (1) and at most once more to seed a missing session — a
+    // session that already fired session_start sees NO further discovery calls
+    // on its per-turn path.
+    let discoveryCalls = 0;
+    const handlers: Record<string, (e?: any, ctx?: any) => Promise<void> | void> = {};
+    const pi = {
+      getAllToolDefinitions: () => { discoveryCalls++; return [{ name: "read", gating: { core: true } }]; },
+      on: (chan: string, h: any) => { handlers[chan] = h; },
+      setActiveTools: () => {},
+      registerTool: () => {},
+    } as unknown as Parameters<typeof toolGateExtension>[0];
+    toolGateExtension(pi);
+    const ctx = { sessionManager: { getSessionId: () => "s" } };
+    await handlers.session_start!({}, { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} }, ...ctx } as any);
+    expect(discoveryCalls).toBe(1); // the ONE session_start rebuild
+    await handlers.before_agent_start!({ prompt: "hi" }, ctx);
+    await handlers.before_agent_start!({ prompt: "hi again" }, ctx);
+    expect(discoveryCalls).toBe(1); // per-turn path performed NO rebuild
+  });
+
+  test("ticket 05: session_shutdown drops the session's gate state (no cross-session leak)", async () => {
+    const setActiveCalls: string[][] = [];
+    const handlers: Record<string, (e?: any, ctx?: any) => Promise<void> | void> = {};
+    const pi = {
+      getAllToolDefinitions: () => [
+        { name: "read", gating: { core: true } },
+        { name: "flux2", gating: { gate: "flux2" } },
+      ],
+      on: (chan: string, h: any) => { handlers[chan] = h; },
+      setActiveTools: (names: string[]) => { setActiveCalls.push(names); },
+      registerTool: () => {},
+    } as unknown as Parameters<typeof toolGateExtension>[0];
+    toolGateExtension(pi);
+    const ctx = { sessionManager: { getSessionId: () => "s" } };
+    await handlers.session_start!({}, { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} }, ...ctx } as any);
+    await handlers.before_agent_start!({ prompt: "generate an image" }, ctx);
+    expect(setActiveCalls[1]).toContain("flux2"); // fired in session s
+
+    // shutdown s → state dropped
+    await handlers.session_shutdown!({}, ctx);
+    // a NEW session with the SAME id must start fresh (flux2 dormant again)
+    await handlers.session_start!({}, { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} }, ...ctx } as any);
+    expect(setActiveCalls[2]).not.toContain("flux2"); // fresh session, flux2 dormant
   });
 });
 

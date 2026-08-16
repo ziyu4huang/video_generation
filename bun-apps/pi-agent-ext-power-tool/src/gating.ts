@@ -1,39 +1,17 @@
 /**
- * gating.ts — the one tool-gate predicate every inspect_* tool shares.
+ * gating.ts — UN-GATED (wayfinder ticket 06, HITL decision 2026-08-16).
  *
- * All six diagnostics answer the same class of request ("what is loaded / where do
- * the tokens go / how is the agent failing"), so they gate identically. This used to
- * be an eight-line literal copy-pasted into all six tool modules; a keyword added to
- * one copy silently left the other five behind. `pi-agent-ext-tool-gate`'s QA probes
- * (see `extensions/power-tool.ts` `__GATE_PROBES__`) assert against this predicate,
- * so there must be exactly one of it.
- */
-import { GATE_DEFS } from "@repo/pi-agent-core-interface";
-
-/**
- * Shared gate for the inspect_* diagnostics suite — pass straight to
- * `defineTool({ gating })`.
+ * The six inspect_* diagnostics are now owner-declared CORE (always-on), not
+ * keyword-gated: they are the exact tools the agent needs WHEN SOMETHING IS
+ * WRONG, and keyword-gating ("schema cost" / "pathology") made them unreachable
+ * unless the prompt happened to use those words. The ticket-06 introspection
+ * surface (tool-gate's __piToolGateStatus seam rendered by inspect_context)
+ * makes them MORE valuable, so keeping them dormant was counterproductive.
  *
- * Deliberately NOT `as const`: the SDK's `Gating` type takes mutable `string[]`,
- * and a readonly literal fails to assign.
+ * This file is retained as the shared-predicate HISTORY + the auditable record
+ * of the former DIAGNOSTIC_GATING / GATE_DEFS["inspect"] family. Nothing here
+ * is referenced at runtime anymore (the six tools declare `gating: { core: true
+ * }` directly); reverting the decision is a one-file flip — re-register
+ * GATE_DEFS["inspect"] with this predicate and set the tools' gating back to
+ * `{ gate: "inspect" }`.
  */
-export const DIAGNOSTIC_GATING: {
-  keywords: string[];
-  requires: { nouns: string[]; verbs: string[] };
-} = {
-  keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
-  requires: {
-    nouns: ["agent", "context", "extension", "pathology", "token", "schema", "tui", "工具"],
-    verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
-  },
-};
-
-// Register the family in the shared registry at module load (wayfinder ticket
-// 01 reference form): the six inspect_* tools reference `gating: { gate:
-// "inspect" }` so buildEffectiveGates groups them into ONE co-firing family
-// gate (names[0] === "inspect_context", the first-registered inspect tool).
-GATE_DEFS["inspect"] = {
-  id: "inspect",
-  ...DIAGNOSTIC_GATING,
-  description: "Diagnostics: inspect agent/context/extensions/hooks/pathology/tui",
-};

@@ -18,8 +18,8 @@
  *  workflow/workflow_help/subagent/workflow_control migrated in tickets 10 + 11,
  *  rolled out TOGETHER as one atomic unit over their single shared combined gate.)
  *
- * Baseline:  ~72 tools → ~21,900 tok/req   (measured via `bun run qa`)
- * Gated:    ON at start ~5,700 tok/req   (saves ~16,290 tok/turn, ~74%; net ~15,980; zai-mcp env-gated)
+ * Baseline:  ~72 tools → ~21,950 tok/req   (measured via `bun run qa`)
+ * Gated:    ON at start ~6,750 tok/req   (saves ~15,186 tok/turn, ~69%; net ~14,900; zai-mcp env-gated)
  *
  * Tools reactivate instantly when the prompt mentions relevant keywords, and
  * once activated stay active for the rest of the session (they never re-gate
@@ -29,7 +29,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { GATE_DEFS, type Gate, type Gating } from "@repo/pi-agent-core-interface";
+import { GATE_DEFS, publishSeam, type Gate, type Gating, type ToolGateStatus } from "@repo/pi-agent-core-interface";
 import { appendFileSync } from "node:fs";
 import { Type } from "typebox";
 import { estimateToolCost } from "@repo/pi-agent-ext-power-tool/schema-cost";
@@ -443,81 +443,131 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     // unchanged (always-active).
     return injectBuiltinCore(raw);
   };
-  let effectiveGates: ToolGate[] = [];
-  let effectiveCore: Set<string> = new Set<string>();
-  let effectiveTracked: Set<string> = new Set<string>();
 
-  let allToolNames: string[] = [];
-  let sticky = new Set<string>();
-  let measuredTokens = new Map<string, number>(); // built at session_start (S3), grown per-turn (M7)
-
-  // ── On session start: capture full tool list and gate ──
-  pi.on("session_start", async (_event, ctx) => {
+  // ── Per-session gate state (ticket 05) ─────────────────────────────────────
+  // One state object PER SESSION, keyed by `ctx.sessionManager.getSessionId()`.
+  // The full rebuild (getDiscovered + buildEffectiveGates + measureToolTokens)
+  // runs ONCE at session_start; the per-turn path only fires + filters. This
+  // kills two things: (F6) the per-turn full rebuild in before_agent_start, and
+  // (F7) the `sticky.size === 0` sentinel hack for in-process subagent children.
+  //
+  // A child spawned via WorkflowAgent.run never fires session_start — its first
+  // before_agent_start finds NO state for its session id and seeds one from
+  // scratch (idempotent; touches only this map, never the parent's state).
+  interface SessionGateState {
+    allToolNames: string[];
+    gates: ToolGate[];
+    core: Set<string>;
+    tracked: Set<string>;
+    sticky: Set<string>;
+    measuredTokens: Map<string, number>;
+  }
+  const gateStateBySession = new Map<string, SessionGateState>();
+  /** Session id from ctx (ticket 05) — fallback "__default__" for hosts/tests
+   *  without a sessionManager (the seam stays closed for them too). Null-safe:
+   *  tool execute() call sites may pass no ctx at all. */
+  const sessionIdOf = (ctx: unknown): string =>
+    (ctx as { sessionManager?: { getSessionId?: () => string } } | undefined | null)
+      ?.sessionManager?.getSessionId?.() ?? "__default__";
+  /** The one-time full build: capture tool list, gates, sticky (core), tokens. */
+  const buildSessionState = (): SessionGateState => {
     const all = getDiscovered();
-    allToolNames = all.map((t) => t.name);
     const eff = buildEffectiveGates(all);
-    effectiveGates = eff.gates; effectiveCore = eff.core; effectiveTracked = eff.tracked;
-    sticky = new Set(effectiveCore);
+    return {
+      allToolNames: all.map((t) => t.name),
+      gates: eff.gates,
+      core: eff.core,
+      tracked: eff.tracked,
+      sticky: new Set(eff.core),
+      measuredTokens: new Map(all.map((t) => [t.name, measureToolTokens(t)])),
+    };
+  };
 
-    measuredTokens = new Map(all.map((t) => [t.name, measureToolTokens(t)]));
+  // ── Live-state seam (wayfinder ticket 06) ─────────────────────────────────
+  // publishSeam("__piToolGateStatus") exposes a reader power-tool's
+  // inspect_context calls to render the "tool gate" section: per-gate
+  // fired/dormant + keywords + measured token cost, plus the sticky set.
+  // `lastSessionId` tracks the most recent session (inspect_context carries no
+  // session id, so the reader returns the current/last session's state).
+  let lastSessionId = "__default__";
+  publishSeam("__piToolGateStatus", (): ToolGateStatus | undefined => {
+    const state = gateStateBySession.get(lastSessionId);
+    if (!state) return undefined;
+    const active = filterActive(state.allToolNames, state.sticky, state.tracked);
+    return {
+      sessionId: lastSessionId,
+      activeCount: active.length,
+      totalCount: state.allToolNames.length,
+      coreCount: state.core.size,
+      gates: state.gates.map((g) => ({
+        id: g.gateId ?? g.names[0]!,
+        names: g.names,
+        fired: g.names.every((n) => state.sticky.has(n)),
+        dormant: !g.names.every((n) => state.sticky.has(n)),
+        keywords: g.keywords,
+        tokens: g.names.reduce((s, n) => s + (state.measuredTokens.get(n) ?? 0), 0),
+      })),
+      sticky: [...state.sticky],
+    };
+  });
 
-    const active = filterActive(allToolNames, sticky, effectiveTracked);
+  // ── On session start: capture full tool list and gate (the ONE rebuild) ──
+  pi.on("session_start", async (_event, ctx) => {
+    const state = buildSessionState();
+    lastSessionId = sessionIdOf(ctx);
+    gateStateBySession.set(lastSessionId, state);
+
+    const active = filterActive(state.allToolNames, state.sticky, state.tracked);
     pi.setActiveTools(active);
 
-    const saved = computeBannerSaved(active, allToolNames, measuredTokens, effectiveGates);
+    const saved = computeBannerSaved(active, state.allToolNames, state.measuredTokens, state.gates);
     const debug = process.env.TOOL_GATE_DEBUG_BANNER === "1";
     const theme = ctx.ui?.theme ?? ({ fg: (_k: string, s: string) => s } as NonNullable<typeof ctx.ui.theme>);
     scheduleToolGateBanner(
       ctx,
       [
-        theme.fg("accent", `🔧 Tool gate: ${active.length}/${allToolNames.length} active`),
+        theme.fg("accent", `🔧 Tool gate: ${active.length}/${state.allToolNames.length} active`),
         theme.fg("dim", `saves ~${saved} tok/req`),
       ],
       debug ? { immediate: true, log: true } : undefined,
     );
   });
 
-  // ── Per-turn: refresh tool list (D), re-evaluate gates (sticky), emit telemetry ──
-  pi.on("before_agent_start", async (event, _ctx) => {
-    const all = getDiscovered();
-    allToolNames = all.map((t) => t.name);
-    const eff = buildEffectiveGates(all);
-    effectiveGates = eff.gates; effectiveCore = eff.core; effectiveTracked = eff.tracked;
-    // #2 — in-process subagent children (WorkflowAgent.run → createAgentSession) skip
-    // session_start (bindExtensions is never called for them), so `sticky` starts and
-    // stays empty: core tools land in effectiveTracked but never in sticky → they get
-    // filtered out, and measuredTokens is built lazily every turn instead of once.
-    // Seed idempotently here. This touches ONLY tool-gate's own closure state — do NOT
-    // instead fire session_start in the child, which would wipe the parent's ext-task
-    // singletons (shared module cells). See .planning/2026-08-08-fix-subagent-spawn-seam-
-    // tool-gate-core-task/ ticket 02 + map.md KEY CONSTRAINT.
-    if (sticky.size === 0) {
-      sticky = new Set(effectiveCore);
-      measuredTokens = new Map(all.map((t) => [t.name, measureToolTokens(t)]));
+  // ── Per-turn: fire gates (sticky), filter, setActiveTools — NO rebuild ──
+  // The full def/measure rebuild happens ONLY at session_start (buildSessionState).
+  // A session with no state yet (in-process subagent child that skipped
+  // session_start) seeds it here ONCE by session id — the F7 sentinel hack
+  // (sticky.size === 0) is gone: state identity is the session id, not a size
+  // heuristic, and this touches ONLY this map (never fires session_start in the
+  // child, which would wipe the parent's core-task singletons).
+  pi.on("before_agent_start", async (event, ctx) => {
+    const sid = sessionIdOf(ctx);
+    let state = gateStateBySession.get(sid);
+    if (!state) {
+      state = buildSessionState();
+      gateStateBySession.set(sid, state);
     }
-    for (const t of all) {
-      if (!measuredTokens.has(t.name)) measuredTokens.set(t.name, measureToolTokens(t));
-    }
+    lastSessionId = sid;
     const prompt = event.prompt ?? "";
 
-    const before = new Set(sticky);
-    updateSticky(prompt, sticky, effectiveGates);
-    const active = filterActive(allToolNames, sticky, effectiveTracked);
+    const before = new Set(state.sticky);
+    updateSticky(prompt, state.sticky, state.gates);
+    const active = filterActive(state.allToolNames, state.sticky, state.tracked);
     pi.setActiveTools(active);
 
     // telemetry: which gates newly fired this turn, which are still dormant
-    const gatesFired = effectiveGates
-      .filter((g) => g.names.some((n) => sticky.has(n) && !before.has(n)))
+    const gatesFired = state.gates
+      .filter((g) => g.names.some((n) => state.sticky.has(n) && !before.has(n)))
       .map((g) => g.names[0]);
-    const dormantGates = effectiveGates
-      .filter((g) => !g.names.every((n) => sticky.has(n)))
+    const dormantGates = state.gates
+      .filter((g) => !g.names.every((n) => state.sticky.has(n)))
       .map((g) => g.names[0]);
 
     emitToolGateLog({
       kind: "turn", ts: new Date().toISOString(),
       promptLen: prompt.length, gatesFired, dormantGates,
-      activeCount: active.length, totalCount: allToolNames.length,
-      savedTok: computeBannerSaved(active, allToolNames, measuredTokens, effectiveGates),
+      activeCount: active.length, totalCount: state.allToolNames.length,
+      savedTok: computeBannerSaved(active, state.allToolNames, state.measuredTokens, state.gates),
     });
     if (isMissCandidate(prompt, gatesFired, dormantGates)) {
       emitToolGateLog({
@@ -525,6 +575,13 @@ export default function toolGateExtension(pi: ExtensionAPI) {
         dormantGates, promptHead: prompt.slice(0, 80),
       });
     }
+  });
+
+  // Session teardown (ticket 05): drop the session's gate state so a fresh
+  // session never inherits a prior session's sticky/gates, and the map never
+  // grows unbounded across many sessions.
+  pi.on("session_shutdown", async (_event, ctx) => {
+    gateStateBySession.delete(sessionIdOf(ctx));
   });
 
   // ── Escape hatch: enable_tool (always active; activates dormant gates) ──
@@ -554,8 +611,17 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       try {
+        // Resolve the CALLING session's gate state (ticket 05) — a tool execute
+        // runs inside a session; if that session has no state yet (defensive —
+        // session_start or the child seed always runs first), seed on demand.
+        const sid = sessionIdOf(_ctx);
+        let state = gateStateBySession.get(sid);
+        if (!state) {
+          state = buildSessionState();
+          gateStateBySession.set(sid, state);
+        }
         if (params.list) {
-          const dormant = effectiveGates.filter((g) => !g.names.every((n) => sticky.has(n)));
+          const dormant = state.gates.filter((g) => !g.names.every((n) => state.sticky.has(n)));
           const lines = dormant.map(
             (g) => `- ${g.names.join(", ")} — ${g.description} (keywords: ${g.keywords.slice(0, 6).join(", ")})`,
           );
@@ -574,7 +640,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
         let via: "name" | "intent" = "intent";
         if (params.name) {
           via = "name";
-          const gate = effectiveGates.find((g) => g.names.includes(params.name as string));
+          const gate = state.gates.find((g) => g.names.includes(params.name as string));
           if (!gate) {
             matched = [];
           } else {
@@ -588,7 +654,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
             // already-active filtering: keep the gate only while it still has a
             // dormant (not-yet-sticky) name, so the reported `activated` list
             // contains only newly-on tools.
-            const dormant = !gate.names.every((n) => sticky.has(n)) ? [gate] : [];
+            const dormant = !gate.names.every((n) => state.sticky.has(n)) ? [gate] : [];
             if (dormant.length === 0) {
               // F3: the matched family gate is already fully active.
               emitToolGateLog({
@@ -603,7 +669,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
             matched = dormant;
           }
         } else if (params.intent) {
-          matched = matchIntent(params.intent, effectiveGates, sticky);
+          matched = matchIntent(params.intent, state.gates, state.sticky);
         } else {
           return {
             details: undefined,
@@ -630,14 +696,14 @@ export default function toolGateExtension(pi: ExtensionAPI) {
         }
 
         const activated: string[] = [];
-        for (const g of matched) for (const n of g.names) { sticky.add(n); activated.push(n); }
+        for (const g of matched) for (const n of g.names) { state.sticky.add(n); activated.push(n); }
         // F1 fix: compute the active list directly from sticky — do NOT
         // re-evaluate gates against the turn prompt (updateSticky), which
         // would silently activate additional gates beyond the one explicitly
-        // requested. Pass effectiveTracked so owner-declared gated tools are
-        // NOT treated as fail-open — without this they'd be spuriously active
-        // on recompute.
-        const active = filterActive(allToolNames, sticky, effectiveTracked);
+        // requested. Pass the session's tracked set so owner-declared gated
+        // tools are NOT treated as fail-open — without this they'd be
+        // spuriously active on recompute.
+        const active = filterActive(state.allToolNames, state.sticky, state.tracked);
         pi.setActiveTools(active);
         emitToolGateLog({
           kind: "activate", ts: new Date().toISOString(),

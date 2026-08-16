@@ -355,7 +355,7 @@ export function formatExtensionReport(findings: Finding[]): string {
 export function makeInspectExtensionsTool(getAllTools: () => ToolInfo[]) {
   return defineTool({
     name: "inspect_extensions",
-    gating: { gate: "inspect" }, // reference form (ticket 01) — family in GATE_DEFS["inspect"]
+    gating: { core: true }, // un-gated (ticket 06 HITL): diagnostics always-on
     label: "Inspect Extensions",
     description:
       "Lint loaded extensions, tools, skills, and guidelines for health issues: " +

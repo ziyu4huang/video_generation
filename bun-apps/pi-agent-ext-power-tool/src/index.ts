@@ -40,7 +40,6 @@ import {
 
 export { type ToolApiCost, toolApiCost } from "./cost.js";
 export { type Finding, type Severity, shortPath, summarizeFindings } from "./findings.js";
-export { DIAGNOSTIC_GATING } from "./gating.js";
 export { TOKEN_RATIO, bar, est, estTok, miniBar, reportHeader } from "./report.js";
 export { makeInspectContextTool } from "./tools/inspect-context.js";
 export { makeInspectAgentTool } from "./tools/inspect-agent.js";
