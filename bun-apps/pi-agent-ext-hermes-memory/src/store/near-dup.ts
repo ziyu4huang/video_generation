@@ -31,7 +31,12 @@ const STOPWORDS = new Set<string>([
 const MIN_TOKEN_LEN = 4;
 /** Below this many distinctive tokens, content is too short to judge reliably. */
 export const MIN_CONTENT_TOKENS = 6;
-export const DEFAULT_NEAR_DUP_THRESHOLD = 0.6;
+/**
+ * Tuned per the 2026-08-07 near-dup baseline: recall 54.5% → 95.5%, zero
+ * precision loss at every measured threshold. Env override
+ * PI_MEMORY_NEAR_DUP_THRESHOLD unchanged.
+ */
+export const DEFAULT_NEAR_DUP_THRESHOLD = 0.3;
 
 /** Strip a leading bracketed category prefix like "[tool-quirk] ". */
 function stripCategoryPrefix(text: string): string {

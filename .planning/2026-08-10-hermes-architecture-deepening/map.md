@@ -43,3 +43,4 @@ Rationale: sequencing C1/C5/C6 before 13 keeps the memory-card migration mechani
 - 2026-08-16: ticket 06 CLOSED — corruption-recovery extracted (backend 1090 + module 434), MEMORIES_COLUMNS single-sourced; wave body C3 done, kp21 (07) unblocked.
 - 2026-08-16: ticket 07 CLOSED — kp21 dispositioned (T1 #1494 / T2 satisfied / T3 waived not-MVP).
 - 2026-08-16 (later): ticket 07 amendment — kp21 Tier-3 shipped after user un-waived (DB-authoritative opt-in round-trip).
+- 2026-08-16: ticket 04 closed — DEFAULT_NEAR_DUP_THRESHOLD 0.6→0.3 (baseline best point, zero precision loss); env override pre-existing; +near-dup.test.ts recall/precision fixtures.
