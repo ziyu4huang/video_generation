@@ -240,7 +240,7 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		name: "hermes-memory",
 		ungatedByDesign: ["skill_manage_help"],
 		register: (pi) => {
-			registerMemoryTool(pi, {} as any, null, null, "");
+			registerMemoryTool(pi, {} as any, null, null, null, null);
 			registerSearchTool(pi, {} as any, {} as any, { variant: "legacy" });
 			registerSkillTool(pi, {} as any);
 		},
@@ -259,7 +259,6 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 					registerPending: () => Promise.resolve({ cancelled: true }),
 					hasPending: () => false,
 					cancelPending: () => false,
-					detach: () => {},
 				}),
 			);
 		},
