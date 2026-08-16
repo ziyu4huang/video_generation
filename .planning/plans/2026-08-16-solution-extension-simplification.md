@@ -299,7 +299,7 @@ git commit -m "feat(superpowers): fold Standards-vs-Spec dual axis into review s
 - Consumes: the prototype *concept* from `bun-apps/pi-agent-ext-wayfind/skills/prototype/SKILL.md` (26 lines + `LOGIC.md` + `UI.md` — all deleted in Task 6; pointer only, per spec disposition #18).
 - Produces: brainstorming routes design questions that need runnable answers to a prototype detour; Task 7's ask-matt main-flow branch 2 points here.
 
-- [ ] **Step 1: Append the prototype section**
+- [x] **Step 1: Append the prototype section**
 
 Append to `brainstorming/SKILL.md`:
 
@@ -326,12 +326,12 @@ cases) and switchable UI variants on one route are the two canonical shapes —
 pick by which question is being answered.
 ```
 
-- [ ] **Step 2: Run the superpowers gate**
+- [x] **Step 2: Run the superpowers gate**
 
 Run: `( cd bun-apps/pi-agent-ext-superpowers && bun test )`
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add bun-apps/pi-agent-ext-superpowers/skills/brainstorming/SKILL.md

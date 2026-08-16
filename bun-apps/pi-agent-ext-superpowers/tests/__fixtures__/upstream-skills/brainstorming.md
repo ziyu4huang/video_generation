@@ -149,3 +149,24 @@ A question about a UI topic is not automatically a visual question. "What does p
 
 If they agree to the companion, read the detailed guide before proceeding:
 `skills/brainstorming/visual-companion.md`
+
+## When a question needs a prototype
+
+Some design questions can't be settled in conversation — a state model that has
+to be *felt*, a UI that has to be *seen*. When brainstorming surfaces such a
+question, spin it off as a **prototype**: throwaway code that answers exactly
+one question.
+
+- Name it so a casual reader sees it's a prototype; locate it next to the code
+  it informs; obey the project's existing routing conventions.
+- Trivial to run (one command / one double-click); no persistence by default;
+  no tests, no polish — the point is to learn something fast.
+- Surface the full relevant state after every action or variant switch.
+- When done: fold the validated decision into the real code, capture the
+  throwaway code on a branch out of main, and leave a pointer on the
+  originating ticket/decision under `.planning/<effort>/`. The main branch
+  keeps only the validated decision.
+
+A logic demo (single shareable HTML file driving the state machine through hard
+cases) and switchable UI variants on one route are the two canonical shapes —
+pick by which question is being answered.
