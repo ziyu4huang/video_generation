@@ -1,6 +1,7 @@
 /**
- * stealth-trim.test.ts — regression guard: power-tool's 5 inspect_* tools must
- * stay free of per-turn `promptSnippet`. (They have no promptGuidelines field —
+ * stealth-trim.test.ts — regression guard: power-tool's registered tools
+ * (6 inspect_* diagnostics + the gated browser tool) must stay free of
+ * per-turn `promptSnippet`. (They have no promptGuidelines field —
  * the many `promptGuidelines` references in index.ts are either fixture data
  * in SELF_TEST_ANALYSIS_INPUT or inspection LOGIC that reads OTHER tools'
  * fields; those are NOT trimmed.)
@@ -35,9 +36,9 @@ function captureInspectTools(): Record<string, Record<string, unknown>> {
 	return tools;
 }
 
-test("power-tool inspect_* tools are stealth-trimmed: no promptSnippet/guidelines", () => {
+test("power-tool tools are stealth-trimmed: no promptSnippet/guidelines", () => {
 	const tools = captureInspectTools();
-	const expected = ["inspect_agent", "inspect_context", "inspect_extensions", "inspect_hooks", "inspect_pathology", "inspect_tui"];
+	const expected = ["browser", "inspect_agent", "inspect_context", "inspect_extensions", "inspect_hooks", "inspect_pathology", "inspect_tui"];
 	expect(Object.keys(tools).sort()).toEqual(expected.sort());
 
 	for (const [name, tool] of Object.entries(tools)) {
