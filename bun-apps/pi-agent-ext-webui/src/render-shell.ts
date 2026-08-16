@@ -87,6 +87,9 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   form.card-form label { font-size: .75rem; color: #888; }
   form.card-form input, form.card-form select { width: 100%; padding: .3rem .5rem; border-radius: 6px; border: 1px solid #8884; background: #0000; color: inherit; font-size: .8rem; }
   form.card-form button[type='submit'] { align-self: flex-start; padding: .35rem .9rem; border-radius: 6px; border: 1px solid #6cf; background: #6cf3; color: inherit; cursor: pointer; font-size: .8rem; }
+  #cards-pane .card .card-done-toggle { display: flex; gap: .5rem; align-items: baseline; margin-top: .4rem; padding: 0; border: 0; background: none; color: #888; cursor: pointer; font-size: .75rem; font-style: italic; }
+  #cards-pane .card .card-done-detail { margin: .3rem 0 0; padding: .35rem .55rem; border-left: 2px solid #8886; font-size: .75rem; }
+  #cards-pane .card .card-done-detail p { margin: .2rem 0; }
   #cards-pane .card p.card-answered { margin-top: .4rem; font-size: .75rem; color: #888; font-style: italic; }
   #cards-pane .card.card-answered { opacity: .65; }
   /* event-cards (04): the sandboxed viewer frame + the confirm-gate pre. */
@@ -316,6 +319,15 @@ function txLine(cls, text) {
   txAppend('<div class="' + cls + '">' + txEsc(text) + '</div>');
 }
 
+// cards-ux2 01: QuestionnaireResult shape detection — an ask-user tool_result
+// carries { cancelled, answers: [...] }. Used ONLY display-side: the answered
+// card beside the transcript line already shows the answers, so echoing the
+// raw JSON here duplicated the card (the "appendix" echo). The tool result
+// itself still returns answers to the orchestrator untouched.
+function isQuestionnaireDetails(d) {
+  return !!d && typeof d === 'object' && Array.isArray(d.answers);
+}
+
 function txApply(frame) {
   switch (frame.type) {
     case 'message_update':
@@ -324,7 +336,10 @@ function txApply(frame) {
     case 'tool_execution_start': txLine('tx-tool', 'tool ' + (frame.toolName || '?') + ' \u2026'); break;
     case 'tool_execution_end': txLine('tx-tool', 'tool ' + (frame.toolName || '?') + ' done'); break;
     case 'tool_result':
-      if (frame.details) txLine('tx-tool', 'result: ' + JSON.stringify(frame.details).slice(0, 240));
+      // cards-ux2 01: skip the transcript echo when the details are a
+      // QuestionnaireResult (answers) — the answered card right next to this
+      // line already renders them; the echo was the "appendix" duplication.
+      if (frame.details && !isQuestionnaireDetails(frame.details)) txLine('tx-tool', 'result: ' + JSON.stringify(frame.details).slice(0, 240));
       break;
     case 'agent_settled': txAppend('<div class="tx-settled">settled</div>'); break;
     case 'mutex_blocked': txLine('tx-mutex', 'mutex: ' + frame.blocked + ' blocked by ' + frame.by); break;
@@ -511,6 +526,16 @@ function appendCardForm(art, frame) {
   form.onsubmit = function (ev) {
     ev.preventDefault(); // never navigate — the answer rides /ws
     var answers = Object.fromEntries(new FormData(form));
+    // cards-ux2 01: stash the COLLECTED answers on the article — retireCard
+    // renders the read-only review block from this on the card_done
+    // tombstone (LIVE only; snapshot replay has no submit and degrades to
+    // the collapsed summary). Still NO optimistic retire — card_done drives.
+    art.cardAnswers = {
+      question: b.question,
+      rows: fields.map(function (f) {
+        return { label: typeof f.label === 'string' ? f.label : f.name, answer: answers[f.name] !== undefined && answers[f.name] !== '' ? answers[f.name] : null };
+      })
+    };
     if (isAskCard(cardId)) {
       sendRaw(JSON.stringify({ type: 'appexec', extra: { kind: 'ask_user_answer', promptId: cardId.slice(4), result: { cancelled: false, answers: fields.map(function (f, i) { return { questionIndex: i, question: typeof f.label === 'string' ? f.label : f.name, kind: f.type === 'select' ? 'option' : 'custom', answer: answers[f.name] !== undefined ? answers[f.name] : null }; }) } } }));
       return false;
@@ -523,9 +548,13 @@ function appendCardForm(art, frame) {
 
 // retireCard: the card_done tombstone (live + snapshot replay — the replay
 // applies card then card_done IN ORDER, so a refreshed client renders the
-// answered state for free). The form swaps for an inert answered marker; the
-// card itself stays as history. An ABSENT article (ordering anomaly, a card
-// that fell out of the transcript cap) is IGNORED — never an error.
+// answered state for free). cards-ux2 01: the form swaps for a COLLAPSED
+// reviewable summary (title + answered marker); clicking toggles a read-only
+// question + per-field "label: answer" block built from the submit-time stash
+// (art.cardAnswers — LIVE only; replay degrades to the collapsed summary).
+// createElement/textContent ONLY — producer/user strings stay inert. An
+// ABSENT article (ordering anomaly, a card that fell out of the transcript
+// cap) is IGNORED — never an error.
 function retireCard(frame) {
   if (!cardsPaneEl) return;
   if (typeof frame.id !== 'string' || !frame.id) return;
@@ -533,9 +562,39 @@ function retireCard(frame) {
   if (!art) return; // ordering anomaly — ignore
   const form = art.querySelector('form.card-form');
   if (form) {
-    const done = document.createElement('p');
-    done.className = 'card-answered';
-    done.textContent = 'answered';
+    const stash = art.cardAnswers;
+    const done = document.createElement('div');
+    done.className = 'card-done';
+    const head = document.createElement('button');
+    head.type = 'button';
+    head.className = 'card-done-toggle';
+    const title = document.createElement('span');
+    title.className = 'card-done-title';
+    const h4 = art.querySelector('h4');
+    title.textContent = (h4 && h4.textContent) || 'card';
+    const mark = document.createElement('span');
+    mark.className = 'card-done-mark';
+    mark.textContent = 'answered';
+    head.appendChild(title);
+    head.appendChild(mark);
+    done.appendChild(head);
+    if (stash && typeof stash.question === 'string' && Array.isArray(stash.rows)) {
+      const detail = document.createElement('div');
+      detail.className = 'card-done-detail';
+      detail.hidden = true;
+      const q = document.createElement('p');
+      q.textContent = stash.question;
+      detail.appendChild(q);
+      for (const r of stash.rows) {
+        if (!r || typeof r.label !== 'string') continue; // malformed row — skip
+        const line = document.createElement('p');
+        line.className = 'card-done-answer';
+        line.textContent = r.label + ': ' + (r.answer === null || r.answer === undefined ? '—' : String(r.answer));
+        detail.appendChild(line);
+      }
+      head.onclick = function () { detail.hidden = !detail.hidden; };
+      done.appendChild(detail);
+    }
     form.replaceWith(done);
   }
   art.classList.add('card-answered');
@@ -731,10 +790,20 @@ function renderAskUser(frame) {
   submit.textContent = 'Submit';
   submit.style.cssText = 'padding:.4rem 1rem;border-radius:6px;border:1px solid #6cf;background:#6cf3;color:inherit;cursor:pointer';
   submit.onclick = function () {
+    // cards-ux2 01: THE canonical row shape (same as the ask-card submit —
+    // render-shell L515). The old bare {question, answer} map rows lack
+    // 'kind'/'questionIndex', so the task-side envelope formatter's switch
+    // fell through and the orchestrator literally saw "undefined" as the
+    // tool result. Picks map: array -> multi (selected), a string matching an
+    // option label -> option, anything else -> custom; unpicked -> null.
     var answers = (frame.questions || []).map(function (q, qi) {
-      return { question: q.question, answer: state.picks[qi] === undefined ? null : state.picks[qi] };
+      var v = state.picks[qi];
+      if (Array.isArray(v)) return { questionIndex: qi, question: q.question, kind: 'multi', answer: null, selected: v };
+      var labels = (q.options || []).map(function (o) { return o.label; });
+      var isOpt = typeof v === 'string' && labels.indexOf(v) >= 0;
+      return { questionIndex: qi, question: q.question, kind: isOpt ? 'option' : 'custom', answer: v === undefined ? null : v };
     });
-    ws.send(JSON.stringify({ type: 'appexec', extra: { kind: 'ask_user_answer', promptId: frame.promptId, result: { answers: answers } } }));
+    sendRaw(JSON.stringify({ type: 'appexec', extra: { kind: 'ask_user_answer', promptId: frame.promptId, result: { cancelled: false, answers: answers } } }));
     askUserEl.remove();
     askUserEl = null;
   };

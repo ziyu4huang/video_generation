@@ -121,6 +121,8 @@ describe("RENDER_SHELL_HTML — interactive cards (event-cards 02)", () => {
     expect(RENDER_SHELL_HTML).toContain("#cards-pane .card p.card-question");
     expect(RENDER_SHELL_HTML).toContain("form.card-form");
     expect(RENDER_SHELL_HTML).toContain("form.card-form input, form.card-form select");
+    expect(RENDER_SHELL_HTML).toContain("#cards-pane .card .card-done-toggle");
+    expect(RENDER_SHELL_HTML).toContain("#cards-pane .card .card-done-detail");
     expect(RENDER_SHELL_HTML).toContain("#cards-pane .card p.card-answered");
     expect(RENDER_SHELL_HTML).toContain("#cards-pane .card.card-answered");
   });
@@ -184,14 +186,24 @@ describe("RENDER_SHELL_HTML — interactive cards (event-cards 02)", () => {
     });
   });
 
-  it("card_done retires the form into an inert answered marker (absent article ignored)", () => {
+  it("card_done retires the form into a reviewable collapsed summary (cards-ux2 01; absent article ignored)", () => {
     const src = retireCardSrc();
     expect(src).toContain("document.getElementById(cardDomId(frame.id))");
     expect(src).toContain("if (!art) return"); // ordering anomaly — ignore, never error
     expect(src).toContain("art.querySelector('form.card-form')");
-    expect(src).toContain("done.className = 'card-answered'");
-    expect(src).toContain("done.textContent = 'answered'");
+    // collapsed summary: title + answered marker
+    expect(src).toContain("done.className = 'card-done'");
+    expect(src).toContain("mark.textContent = 'answered'");
     expect(src).toContain("form.replaceWith(done)");
     expect(src).toContain("art.classList.add('card-answered')");
+    // click toggles the read-only question + per-field answers, from the
+    // submit-time stash (live only — replay degrades to the summary)
+    expect(src).toContain("art.cardAnswers");
+    expect(src).toContain("head.onclick = function () { detail.hidden = !detail.hidden; }");
+    expect(src).toContain("line.textContent = r.label + ': ' +");
+    // the answered path builds NO markup — createElement/textContent only
+    for (const sink of ["innerHTML", "insertAdjacentHTML", "outerHTML", "document.write"]) {
+      expect(src).not.toContain(sink);
+    }
   });
 });
