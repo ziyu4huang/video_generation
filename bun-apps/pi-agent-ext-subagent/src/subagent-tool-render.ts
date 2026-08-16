@@ -448,11 +448,11 @@ function settledHeaderRow(d: SubagentToolDetails, theme: Theme, opts?: { modelSe
  * carries no details (the fallback then renders just the Markdown child).
  */
 export function renderSubagentResultHeader(
-  result: { content: Array<{ type: string; text?: string }>; details?: SubagentToolDetails },
+  result: { content?: Array<{ type: string; text?: string }>; details?: SubagentToolDetails } | undefined,
   theme: Theme,
   opts?: { modelSeg?: string },
 ): string {
-  const d = result.details;
+  const d = result?.details;
   return d ? settledHeaderRow(d, theme, opts) : "";
 }
 
@@ -461,18 +461,27 @@ export function renderSubagentResultHeader(
  * expanded container (ticket 03). Uncapped by design: the Markdown component
  * owns wrapping via render(width), so terminal-width re-flow comes free from
  * the component contract.
+ *
+ * Render-layer safe: `content` is optional here for the same reason the call
+ * renderers tolerate nullish args — these run inside a render pass, where a
+ * throw is a whole-session crash rather than a bad line.
  */
-export function subagentResultText(result: { content: Array<{ type: string; text?: string }> }): string {
-  return result.content.find((c) => c.type === "text")?.text ?? "";
+export function subagentResultText(result: { content?: Array<{ type: string; text?: string }> } | undefined): string {
+  return result?.content?.find((c) => c.type === "text")?.text ?? "";
 }
 
 /** Theme the result: collapsed = badge+meta+headline; expanded = full report. */
 export function renderSubagentResult(
-  result: { content: Array<{ type: string; text?: string }>; details?: SubagentToolDetails },
-  options: { expanded?: boolean; isPartial?: boolean },
+  result: { content?: Array<{ type: string; text?: string }>; details?: SubagentToolDetails } | undefined,
+  options: { expanded?: boolean; isPartial?: boolean } | undefined,
   theme: Theme,
   opts?: { modelSeg?: string; width?: number },
 ): string {
+  // Render-layer safe: total over nullish/partial input, matching
+  // renderSubagentCall / renderSubagentsCall. GuardedComponent and
+  // ComposerComponent are the barrier of last resort; degrading to a correct
+  // empty render beats degrading to an error line.
+  if (!options) return subagentResultText(result);
   const text = subagentResultText(result);
   if (options.isPartial) {
     // Streaming progress update. The payload (formatSubagentLive) is a 2-line
@@ -497,7 +506,7 @@ export function renderSubagentResult(
       : lines.slice(0, 2);
     return shown.map((l) => theme.fg("dim", l)).join("\n");
   }
-  const d = result.details;
+  const d = result?.details;
   if (!d) return text;
   // Both settle branches share the header row via settledHeaderRow (ticket 03)
   // — collapsed appends the width-capped headline, expanded prepends it above
