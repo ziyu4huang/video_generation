@@ -1,6 +1,6 @@
 ---
 ticket: 01
-status: open
+status: done
 blocked-by: []
 ---
 
