@@ -34,6 +34,12 @@ describe("vendored archify bin — recovered subcommands", () => {
     // into the snapshot examples dir; compare before/after and clean up so the
     // test leaves no generated artifacts in the vendored tree.
     const examplesDir = join(PKG_ROOT, "vendored/examples");
+    // Stale gitignored renders from earlier runs are overwritten in place,
+    // which would zero the new-file diff; drop them first so the count is
+    // deterministic regardless of leftover state.
+    for (const f of readdirSync(examplesDir).filter((f) => f.endsWith(".html"))) {
+      rmSync(join(examplesDir, f), { force: true });
+    }
     const before = readdirSync(examplesDir).filter((f) => f.endsWith(".html"));
     const r = run(["examples"]);
     expect(r.status).toBe(0);
