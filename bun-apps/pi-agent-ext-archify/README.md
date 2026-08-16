@@ -25,6 +25,8 @@ With webui view-notifications (2026-08-16), a successful render ALSO lands in th
 
 With webui present adoption (2026-08-16), a successful render ALSO emits `webui:present` (Approve / Regenerate… with free-text tweak) — still zero webui imports; without webui both events are no-ops.
 
+With webui event cards (2026-08-16), both emissions ALSO surface as readonly cards in the browser's Cards tab (attention `view`, clickable `/files` deep link via `#card-archify-<view>`).
+
 ## Deck builder (`bun run deck`)
 
 Turn a set of IR files into a 16:9 PowerPoint deck — one diagram per slide with

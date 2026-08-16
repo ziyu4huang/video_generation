@@ -119,6 +119,50 @@ A `webui:open` emission now surfaces in the connected browser shell too (effort
 - Extension authors: emitting `webui:open` is enough — TUI notify, shell toast,
   and the views panel all light up; no webui import, no extra payload fields.
 
+## Cards
+
+The browser shell's **Cards tab** (`src/render-shell.ts` + the store-wrapped
+broadcaster in `src/webui-wiring.ts`) is a chronological, replay-eligible card
+stream — every `card` frame rides live fan-out AND the connect-time snapshot,
+so a refresh restores the board exactly (including answered state, via the
+ordered `card` → `card_done` replay).
+
+- **Bus event stream** (readonly cards): every non-lifecycle bus event the
+  webui does not already forward is projected as a `card` frame (kind
+  `readonly`, attention `silent` — the snoop never bells) with a truncated
+  JSON summary; raw objects never leak onto the wire.
+- **Viewer cards** (kind `viewer`): producer-supplied raw HTML rendered ONLY
+  inside a `sandbox="allow-scripts"` iframe srcdoc (NO `allow-same-origin` —
+  opaque origin, no parent/same-origin access). The ONLY exit is the injected
+  `webui.emit` postMessage bridge, gated host-side by a confirmation card
+  whose Approve rides the generic answer loop.
+- **Interactive cards** (kind `interactive`): fill-in form cards (question +
+  labeled text/select fields, capped 8). Submit posts the `card_answer`
+  appexec envelope; the wiring enforces FIRST-ANSWER-WINS, appends one JSONL
+  decision-log line, and broadcasts the `card_done` tombstone that retires
+  the form into an inert answered marker.
+- **Questionnaire pilot** (event-cards 05): `rpiv:ask-user:prompt` ALSO
+  broadcasts an interactive card (`ask-<promptId>`, attention `input`, fields
+  mapped from the questionnaire). Its submit rides the EXISTING ask-user
+  bridge — the `ask_user_answer` appexec envelope (same channel as the ask
+  dialog; promptId = card id minus `ask-`), NOT `card_answer` — so ask answers
+  are excluded from the cards decision log by design. The `card_done` tombstone
+  rides `rpiv:ask-user:answered` (any questionnaire exit — TUI answer, browser
+  card/dialog answer, or cancel retires the card).
+- **archify pilot** (event-cards 05): `webui:open` (and the event-originated
+  `webui:present` that follows) ALSO broadcasts a readonly card
+  (`archify-<view>`, attention `view`) whose optional `body.url` deep link is
+  the RESOLVED `/files` url — rendered as a `createElement` anchor
+  (`target="_blank" rel="noopener"`). Same view → same card id, so an
+  open+present pair replaces, never duplicates.
+- **Attention bell + deep links**: non-silent cards ring `ui.notify` once with
+  a `#card-<id>` deep link (see `cardBellMessage`); the shell routes the hash
+  to the Cards tab and flashes the card (cold-load included).
+- **Decision log**: answered generic/interactive cards append one line to
+  `~/.pi/webui/sessions/<stamp>/cards.jsonl` (`{ts, cardId, answers}`) — the
+  per-session audit trail. Ask-card answers are NOT logged there (the unify
+  choice above: they are already attributable to the questionnaire).
+
 ## Startup & URL discovery
 
 - The server starts lazily on first use and **survives session shutdown** (persistent

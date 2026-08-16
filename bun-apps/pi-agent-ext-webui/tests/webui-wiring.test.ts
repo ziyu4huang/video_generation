@@ -894,7 +894,7 @@ describe("wireWebui — bus snoop card projection (event-cards 01)", () => {
   test("a non-outbound bus event projects a readonly card frame (kind/attention/source/title/body)", () => {
     const { pi, broadcaster } = setup();
     broadcaster.frames.length = 0; // drop any wiring-time noise
-    pi.events.emit("webui:open", { reason: "deep-link" });
+    pi.events.emit("custom:event", { reason: "deep-link" });
     const card = broadcaster.frames.find(
       (f): f is Extract<WebFrame, { type: "card" }> => f.type === "card"
     );
@@ -904,7 +904,7 @@ describe("wireWebui — bus snoop card projection (event-cards 01)", () => {
       kind: "readonly",
       attention: "silent",
       source: "bus",
-      title: "webui:open",
+      title: "custom:event",
     });
     expect(card!.id).toMatch(/^card-\d+$/);
     expect(typeof card!.ts).toBe("number");
@@ -939,14 +939,14 @@ describe("wireWebui — bus snoop card projection (event-cards 01)", () => {
     wiring.dispose();
     expect(pi.events.emit).toBe(orig); // the wrapper must not outlive the wiring
     broadcaster.frames.length = 0;
-    pi.events.emit("webui:open", { reason: "post-dispose" });
+    pi.events.emit("custom:event", { reason: "post-dispose" });
     expect(broadcaster.frames.some((f) => f.type === "card")).toBe(false);
   });
 
   test("a snooped bus card lands in the connect-time snapshot transcript (replay-eligible)", () => {
     const { pi, server } = setup();
     pi.emit("session_start", { type: "session_start", reason: "startup" });
-    pi.events.emit("webui:open", { reason: "deep-link" });
+    pi.events.emit("custom:event", { reason: "deep-link" });
     const sent: string[] = [];
     server.wsOpenHandler!({ send: (s: string) => sent.push(s) } as never);
     expect(sent).toHaveLength(1);
@@ -962,7 +962,7 @@ describe("wireWebui — bus snoop card projection (event-cards 01)", () => {
       kind: "readonly",
       attention: "silent",
       source: "bus",
-      title: "webui:open",
+      title: "custom:event",
     });
     expect(card.id).toMatch(/^card-\d+$/);
   });
