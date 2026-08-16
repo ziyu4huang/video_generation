@@ -62,7 +62,7 @@ function renderBody(s: { component: { render(w: number): string[] } }): string {
 }
 
 // Determinism: this regression asserts ENGLISH chrome literals (Next sentinel,
-// "Space to toggle"). Those are t()-localized, so under a zh-TW locale (e.g. a
+// the footer hints). Those are t()-localized, so under a zh-TW locale (e.g. a
 // developer who set `askUserLanguage`) they render as translated strings and
 // the assertions break. Pin locale=en for this file so it is deterministic
 // regardless of ambient ~/.pi/agent/settings.json, and restore the pin after so
@@ -101,9 +101,13 @@ describe("multi-select render + selection regression", () => {
 		expect(cap.result!.answers[0]?.selected).toEqual(["Fix docs count"]);
 	});
 
-	test("hint surfaces 'Space to toggle' for multi-select questions", () => {
+	test("hint surfaces the toggle + Next-row affordances for multi-select questions", () => {
 		const s = makeSession({});
 		const out = s.component.render(120).join("\n");
-		expect(out).toContain("Space to toggle");
+		expect(out).toContain("Enter/Space to toggle");
+		expect(out).toContain("Next to confirm");
+		// The old footer read "Enter to select · Space to toggle", which named the
+		// wrong key as the one that commits — Enter on an ordinary row toggles.
+		expect(out).not.toContain("Enter to select");
 	});
 });
