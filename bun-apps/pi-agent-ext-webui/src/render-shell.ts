@@ -125,6 +125,9 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   form.card-form button[type='submit'] { align-self: flex-start; padding: .35rem .9rem; border-radius: 6px; border: 1px solid #6cf; background: #6cf3; color: inherit; cursor: pointer; font-size: .8rem; }
   #cards-pane .card p.card-answered { margin-top: .4rem; font-size: .75rem; color: #888; font-style: italic; }
   #cards-pane .card.card-answered { opacity: .65; }
+  /* event-cards (04): the sandboxed viewer frame + the confirm-gate pre. */
+  #cards-pane .card iframe.card-viewer { width: 100%; min-height: 240px; border: 1px solid #8884; border-radius: 6px; background: #fff; }
+  #cards-pane .card.card-confirm pre { background: #8881; padding: .4rem; border-radius: 4px; overflow: auto; font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; margin: .4rem 0; }
   /* event-cards (03): #card-<id> deep-link flash — background highlight pulse
      + fade, timed to the classList remove (~1.6s). */
   @keyframes card-flash-pulse { from { background: #6cf6; } to { background: #0000; } }
@@ -507,6 +510,9 @@ function renderCard(frame) {
   // { text } — the body div stays empty and the fill-in form appends after it
   // (an absent/malformed interactive body degrades to the inert card above).
   if (kind === 'interactive') appendCardForm(art, frame);
+  // event-cards (04): viewer cards carry { html } — the body div stays empty
+  // and the sandboxed iframe appends after it.
+  if (kind === 'viewer') appendViewerFrame(art, frame);
   cardsPaneEl.appendChild(art); // newest LAST — chronological
 }
 
@@ -592,6 +598,91 @@ function retireCard(frame) {
     form.replaceWith(done);
   }
   art.classList.add('card-answered');
+}
+
+// --- event-cards (04): viewer sandbox + webui.emit bridge + confirm gate ----
+// A viewer card body is raw HTML (producer-sourced). It renders ONLY inside an
+// iframe with sandbox="allow-scripts" — scripts run, but WITHOUT
+// allow-same-origin the frame gets a UNIQUE OPAQUE ORIGIN: the parent DOM,
+// /ws, /api and localStorage are all unreachable from inside. The BRIDGE SHIM
+// is injected as a leading <script> so the ONLY way out is webui.emit ->
+// postMessage -> the host confirm gate (nothing reaches the bus unconfirmed).
+function appendViewerFrame(art, frame) {
+  var b = frame.body;
+  var html = b && typeof b.html === 'string' ? b.html : ''; // malformed -> inert empty frame
+  var rawId = typeof frame.id === 'string' ? frame.id : '';
+  const f = document.createElement('iframe');
+  f.setAttribute('sandbox', 'allow-scripts'); // scripts YES, same-origin NEVER
+  f.className = 'card-viewer';
+  // srcdoc is set via the DOM PROPERTY (never string-interpolated into an
+  // attribute), so the value is the frame document source VERBATIM — no
+  // attribute-escaping step exists on this path. The shim id rides a
+  // JSON-stringified script literal ('<' escaped) so a hostile id can neither
+  // break out of the string nor close the script tag early.
+  f.srcdoc = cardBridgeShimInline(rawId) + html;
+  art.appendChild(f);
+}
+
+// Inlined duplicate of the pure CARD_BRIDGE_SHIM twin (module-level export in
+// render-shell.ts — the served script has no build step; same intentional
+// duplication as APPEXEC_FRAME / parseCardHash).
+function cardBridgeShimInline(cardId) {
+  var idLit = JSON.stringify(String(cardId == null ? '' : cardId)).replace(/</g, '\\\\u003c');
+  return '<script>window.webui = { emit: function (payload) { parent.postMessage({ __webuiCard: ' + idLit + ', payload: payload }, "*"); } };<\\/script>';
+}
+
+// The host side of the gate: every bridged emit becomes a LOCAL confirm card.
+// The confirm id is a LOCAL counter — never derived from frame data (a spoofed
+// __webuiCard cannot choose its id). article id 'card-confirm-<n>' equals
+// cardDomId('confirm-<n>'), so the wiring's card_done tombstone for the
+// Approve envelope finds and retires this article through the SAME t02
+// retireCard path — free. Every string rides createElement/textContent ONLY.
+var confirmSeq = 0;
+function showConfirmCard(fromId, payload) {
+  if (!cardsPaneEl) return;
+  confirmSeq++;
+  var n = confirmSeq;
+  var art = document.createElement('article');
+  art.id = 'card-confirm-' + n;
+  art.className = 'card card-confirm';
+  art.setAttribute('data-kind', 'confirm');
+  art.setAttribute('data-attention', 'input');
+  var h = document.createElement('h4');
+  h.textContent = 'Confirm viewer emit';
+  var meta = document.createElement('div');
+  meta.className = 'card-meta';
+  meta.textContent = typeof fromId === 'string' && fromId ? 'from ' + fromId : 'from unknown card';
+  var pre = document.createElement('pre');
+  var shown;
+  try { shown = JSON.stringify(payload); } catch { shown = undefined; } // circular refs etc.
+  if (typeof shown !== 'string') shown = String(payload);
+  pre.textContent = shown; // TEXT ONLY — the payload displays, never executes
+  var bar = document.createElement('div');
+  bar.className = 'webui-toolbar';
+  var approve = document.createElement('button');
+  approve.type = 'button';
+  approve.textContent = 'Approve';
+  approve.onclick = function () {
+    // Approve rides the t02 card_answer envelope — cardId 'confirm-<n>'
+    // (string answers), so the wiring appends the JSONL decision line and
+    // broadcasts card_done exactly as for any interactive card.
+    sendRaw(JSON.stringify({ type: 'appexec', extra: { kind: 'card_answer', cardId: 'confirm-' + n, answers: { emit: shown } } }));
+    art.classList.add('card-answered'); // local marker (the card_done tombstone rides retireCard)
+    approve.disabled = true;
+    deny.disabled = true;
+  };
+  var deny = document.createElement('button');
+  deny.type = 'button';
+  deny.textContent = 'Deny';
+  deny.onclick = function () { art.remove(); }; // discard — nothing is sent
+  bar.appendChild(approve);
+  bar.appendChild(deny);
+  art.appendChild(h);
+  art.appendChild(meta);
+  art.appendChild(pre);
+  art.appendChild(bar);
+  cardsPaneEl.appendChild(art);
+  toggleCardsTab(true); // attention:input — the gate must be visible to act on
 }
 
 // --- event-cards (03): #card-<id> deep link --------------------------------
@@ -1121,6 +1212,18 @@ function renderControls(v) {
     btwInit(); // after the tab/view wiring so all getElementById targets exist
     viewsInit(); // view notifications: toast stack + views panel (07)
     window.addEventListener('hashchange', handleCardHash); // live re-route on later hash changes
+    // event-cards (04): host listener for the viewer bridge — ONE global
+    // message listener. A postMessage carrying __webuiCard becomes a LOCAL
+    // confirm card (Approve -> the t02 card_answer loop, Deny -> discard).
+    // Deliberately minimal per scope: NO origin allowlist, NO anti-spoofing —
+    // the sandbox attribute + the confirm gate ARE the security surface.
+    try {
+      window.addEventListener('message', function (ev) {
+        var d = ev && ev.data;
+        if (!d || typeof d.__webuiCard !== 'string') return;
+        showConfirmCard(d.__webuiCard, d.payload);
+      });
+    } catch { /* never break boot */ }
   } catch (e) {
     console.warn('[webui] boot failed; reloading in 2s', e);
     setTimeout(function () { location.reload(); }, 2000);
@@ -1199,6 +1302,27 @@ export function APPEXEC_CARD_ANSWER(
 export function parseCardHash(hash: string): string | null {
   const m = /^#card-([A-Za-z0-9_-]+)$/.exec(hash);
   return m ? m[1]! : null;
+}
+
+/**
+ * Pure viewer-card BRIDGE SHIM (event-cards 04) — the leading <script>
+ * injected into every viewer srcdoc. Defines `window.webui = { emit }` inside
+ * the sandboxed frame: emit posts `{ __webuiCard: cardId, payload }` to the
+ * parent, where the host message listener wraps it into a confirm card. The
+ * card id rides a JSON-stringified script literal with `<` escaped
+ * (`\u003c`) so a hostile id can neither break out of the string literal nor
+ * close the script tag early. The inline shell script duplicates this as
+ * `cardBridgeShimInline` (the served HTML string has no module/build step —
+ * same intentional duplication as APPEXEC_FRAME / parseCardHash); tests grid
+ * this pure twin AND assert the inline literal so the duplication stays honest.
+ */
+export function CARD_BRIDGE_SHIM(cardId: string): string {
+  const idLit = JSON.stringify(String(cardId ?? "")).replace(/</g, "\\u003c");
+  return (
+    '<script>window.webui = { emit: function (payload) { parent.postMessage({ __webuiCard: ' +
+    idLit +
+    ', payload: payload }, "*"); } };</script>'
+  );
 }
 
 /**

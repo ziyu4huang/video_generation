@@ -208,24 +208,44 @@ export type WebFrame =
   // anchor (`#card-<id>`, ticket 03). Replay-eligible: the snoop broadcasts
   // through the SAME store-wrapped broadcaster, so connect-time snapshot
   // replay comes free.
-  // event-cards (02): the body is discriminated BY KIND — readonly/viewer
-  // keeps `{ text: string }` (01's pin, unchanged); interactive pins
+  // event-cards (02): the body is discriminated BY KIND — readonly keeps
+  // `{ text: string }` (01's pin, unchanged); interactive pins
   // `{ question, fields }` (the fill-in form card whose answers ride the
   // loose appexec channel back as extra.kind:"card_answer" and are
-  // tombstoned by the `card_done` frame below).
+  // tombstoned by the `card_done` frame below); viewer (04) pins
+  // `{ html: string }` — raw HTML rendered ONLY inside a
+  // sandbox="allow-scripts" iframe srcdoc (NO allow-same-origin).
   | {
       type: "card";
       /** Wiring-generated (`card-${n}`, per-session counter) or a producer id (t05). */
       id: string;
-      kind: "readonly" | "viewer";
+      kind: "readonly";
       /** textContent-rendered ONLY — treat as untrusted. */
       title: string;
       /** "bus" (t01 snoop) | producer id (t05). */
       source: string;
       ts: number;
       attention: "view" | "input" | "silent";
-      /** readonly/viewer body: plain text, textContent-rendered. */
+      /** readonly body: plain text, textContent-rendered. */
       body: { text: string };
+    }
+  | {
+      type: "card";
+      /** Same id space as the readonly member — the answer loop keys on it. */
+      id: string;
+      kind: "viewer";
+      /** textContent-rendered ONLY — treat as untrusted. */
+      title: string;
+      /** Producer id (t05) — viewer cards are never snoop-generated. */
+      source: string;
+      ts: number;
+      attention: "view" | "input" | "silent";
+      /** viewer body (event-cards 04): raw HTML rendered ONLY inside a
+       * sandbox="allow-scripts" iframe srcdoc — NO allow-same-origin, so the
+       * frame gets an opaque origin and cannot touch the parent DOM or the
+       * same-origin /ws + /api. The ONLY exit is the injected webui.emit
+       * postMessage bridge, gated host-side by a confirm card. */
+      body: { html: string };
     }
   | {
       type: "card";
