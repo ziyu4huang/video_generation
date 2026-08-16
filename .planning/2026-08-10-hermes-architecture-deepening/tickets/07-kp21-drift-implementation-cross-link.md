@@ -16,3 +16,6 @@ Work item tracked on the kp map: [kp 21 — three-tier drift implementation](../
 
 ## Sequencing
 - After C3 (ticket 06): the split lands first so drift builds on the re-shaped backend.
+
+## Progress
+- 2026-08-16: Tier-1 shipped (see kp 21); Tier-2 residual moved to knowledge-card scope; Tier-3 pending.
