@@ -71,3 +71,22 @@ export function parseModelRoutingFromMeta(
 
   return { defaultModel, routes };
 }
+
+/**
+ * Clamp a requested model spec (`provider/id`) to the session's scoped models
+ * (ctx.scopedModels, fed by CLI --models / enabledModels).
+ *
+ * Behavior lock (ticket 11):
+ * - empty scope → the request stands unchanged (full-catalog behavior);
+ * - exact match → the request stands unchanged;
+ * - out of scope → warn-and-clamp to the FIRST scoped model (never a hard error).
+ * Pure: no I/O, no logging — callers own the warning surface.
+ */
+export function clampModelToScope(
+  requestedSpec: string,
+  scopedSpecs: readonly string[],
+): { spec: string; clamped: boolean } {
+  if (scopedSpecs.length === 0) return { spec: requestedSpec, clamped: false };
+  if (scopedSpecs.includes(requestedSpec)) return { spec: requestedSpec, clamped: false };
+  return { spec: scopedSpecs[0], clamped: true };
+}

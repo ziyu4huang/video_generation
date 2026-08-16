@@ -119,8 +119,15 @@ export async function editSingleTier(
   tiers: Record<string, string>,
   tierName: string,
 ): Promise<Record<string, string> | null> {
-  const available = await listAvailableModelSpecs();
+  // Session model scope (ctx.scopedModels, fed by CLI --models / enabledModels).
+  // Behavior lock: empty/undefined scope → full catalog (current behavior);
+  // non-empty scope → only scoped specs are offered.
+  const scoped = (ctx.scopedModels ?? []).map((sm) => `${sm.model.provider}/${sm.model.id}`);
+  const available = scoped.length > 0 ? [...scoped] : await listAvailableModelSpecs();
   const current = tiers[tierName];
+  // A stale out-of-scope tier value stays visible/selectable instead of being
+  // silently hidden, so the operator can see (and change) the current setting.
+  if (current && !available.includes(current)) available.push(current);
 
   // Build SelectItems: all available models as scrollable list
   const items: SelectItem[] = available.map((m) => ({ value: m, label: m }));

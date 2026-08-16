@@ -62,6 +62,12 @@ export interface WorkflowRunOptions extends WorkflowAgentOptions {
   /** The session's main model (provider/id), shown in /workflows for default agents. */
   mainModel?: string;
   /**
+   * Session model scope (ticket 11): specs (`provider/id`) resolved from CLI
+   * --models / enabledModels. Empty/undefined → full catalog (no clamping);
+   * non-empty → out-of-scope agent models are warn-and-clamped at dispatch.
+   */
+  scopedModels?: readonly string[];
+  /**
    * Named subagent definitions for `agent({ agentType })`. Snapshotted once per
    * run for determinism. Defaults to scanning `.pi/agents` (project) + `~/.pi/agents`.
    * Injectable for tests.
