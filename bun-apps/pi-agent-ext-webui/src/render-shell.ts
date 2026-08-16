@@ -82,6 +82,8 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
      deep-link anchor; newest LAST (chronological). Badge color per attention. */
   #cards-pane { display: flex; flex-direction: column; gap: .5rem; padding: .4rem 0; max-height: 45vh; overflow-y: auto; }
   #cards-pane[hidden] { display: none; } /* the flex display must not defeat [hidden] */
+  #report-pane, #ask-pane, #data-pane { display: flex; flex-direction: column; gap: .4rem; padding: .4rem 0; max-height: 45vh; overflow-y: auto; }
+  #report-pane[hidden], #ask-pane[hidden], #data-pane[hidden] { display: none; }
   #cards-pane .card { border: 1px solid #8884; border-radius: 6px; padding: .5rem .6rem; }
   #cards-pane .card h4 { margin: 0 0 .25rem; font-size: .85rem; }
   #cards-pane .card-meta { display: flex; gap: .5rem; align-items: center; color: #888; font-size: .75rem; }
@@ -117,7 +119,10 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
 <header id="tabs"><span id="session-status" style="margin-left:auto;color:#888;font-size:.8rem;align-self:center"></span></header>
 <main>
   <div id="content"></div>
+  <section id="report-pane" hidden></section>
+  <section id="ask-pane" hidden></section>
   <section id="cards-pane" hidden></section>
+  <section id="data-pane" hidden></section>
   <div id="webui-transcript"></div>
 </main>
 <div id="webui-feedback-log">
@@ -170,10 +175,20 @@ async function loadViews() {
   const cardsTab = document.createElement('div');
   cardsTab.className = 'tab' + (cardsVisible ? ' active' : '');
   cardsTab.id = 'cards-tab';
-  cardsTab.textContent = 'Cards';
+  cardsTab.textContent = 'Events';
   cardsTab.title = 'projected event cards';
   cardsTab.onclick = function () { toggleCardsTab(); };
   tabsEl.appendChild(cardsTab);
+  // tab-views (01): Report / Ask / Data tabs — same strip, exclusive panes.
+  for (const spec of [['Report', 'report', 'static reports by agent/skill'], ['Ask', 'ask', 'questionnaire queue + history'], ['Data', 'data', 'interactive HTML views']]) {
+    const el = document.createElement('div');
+    el.className = 'tab';
+    el.id = 'pane-tab-' + spec[1];
+    el.textContent = spec[0];
+    el.title = spec[2];
+    el.onclick = function () { setPane(activePane === spec[1] ? null : spec[1]); };
+    tabsEl.appendChild(el);
+  }
   if (!views.some(v => v.id === activeId)) activeId = (views[0] && views[0].id) || 'main';
   return views;
 }
@@ -377,6 +392,7 @@ function txApply(frame) {
     }
     case 'card': renderCard(frame); break;
     case 'card_done': retireCard(frame); break; // event-cards (02) tombstone
+    case 'report': renderReport(frame); break; // tab-views (01)
     default: break; // other frames handled elsewhere
   }
 }
@@ -388,6 +404,9 @@ function txRenderSnapshot(state) {
   // semantics — reset before the transcript replay, then txApply re-appends
   // (a card that fell out of the bounded transcript cap disappears).
   if (cardsPaneEl) cardsPaneEl.textContent = '';
+  if (reportPaneEl) reportPaneEl.textContent = '';
+  if (askPaneEl) askPaneEl.textContent = '';
+  if (dataPaneEl) dataPaneEl.textContent = '';
   if (state && Array.isArray(state.transcript)) state.transcript.forEach(txApply);
 }
 
@@ -399,6 +418,10 @@ function txRenderSnapshot(state) {
 // The article id IS the deep-link anchor (ticket 03 routes #card-<id>).
 // Newest LAST — chronological; ticket 03 can scroll to a card.
 const cardsPaneEl = document.getElementById('cards-pane');
+const reportPaneEl = document.getElementById('report-pane');
+const askPaneEl = document.getElementById('ask-pane');
+const dataPaneEl = document.getElementById('data-pane');
+let activePane = null; // tab-views (01): 'report'|'ask'|'events'|'data'|null(=transcript)
 let cardsVisible = false;
 
 // toggleCardsTab: the ONE tab-activation path the Cards tab click AND the
@@ -406,12 +429,19 @@ let cardsVisible = false;
 // link — never toggles a visible pane away); undefined toggles. The tab is
 // looked up by id on every call — loadViews rebuilds the strip, so no stale
 // element closure survives a rebuild.
-function toggleCardsTab(force) {
-  cardsVisible = typeof force === 'boolean' ? force : !cardsVisible;
-  cardsPaneEl.hidden = !cardsVisible;
-  const tab = document.getElementById('cards-tab');
-  if (tab) tab.classList.toggle('active', cardsVisible);
+function setPane(name) {
+  activePane = name;
+  cardsVisible = name === 'events';
+  if (reportPaneEl) reportPaneEl.hidden = name !== 'report';
+  if (askPaneEl) askPaneEl.hidden = name !== 'ask';
+  if (cardsPaneEl) cardsPaneEl.hidden = name !== 'events';
+  if (dataPaneEl) dataPaneEl.hidden = name !== 'data';
+  for (const tn of ['report', 'ask', 'events', 'data']) {
+    const el = document.getElementById('pane-tab-' + tn);
+    if (el) el.classList.toggle('active', name === tn);
+  }
 }
+function toggleCardsTab(force) { setPane(typeof force === 'boolean' && !force ? null : 'events'); }
 
 // The frame id already carries the card- prefix when wiring-generated
 // (card-<n>, per-session counter); prefix only foreign producer ids so EVERY
@@ -419,12 +449,15 @@ function toggleCardsTab(force) {
 function cardDomId(id) { return /^card-/.test(id) ? id : 'card-' + id; }
 
 function renderCard(frame) {
-  if (!cardsPaneEl) return;
+  if (!cardsPaneEl || !askPaneEl || !dataPaneEl) return;
   const rawId = typeof frame.id === 'string' ? frame.id : '';
   const domId = cardDomId(rawId);
   if (domId && document.getElementById(domId)) return; // live/replay interleave dedupe
   const attention = frame.attention === 'view' || frame.attention === 'input' ? frame.attention : 'silent';
   const kind = frame.kind === 'interactive' || frame.kind === 'viewer' ? frame.kind : 'readonly';
+  // tab-views (01): route — ask cards to the Ask pane, viewer cards to Data,
+  // everything else stays in Events. card_done finds articles document-wide.
+  const pane = rawId.indexOf('ask-') === 0 ? askPaneEl : (kind === 'viewer' ? dataPaneEl : cardsPaneEl);
   const art = document.createElement('article');
   art.id = domId;
   art.className = 'card';
@@ -470,7 +503,7 @@ function renderCard(frame) {
   // event-cards (04): viewer cards carry { html } — the body div stays empty
   // and the sandboxed iframe appends after it.
   if (kind === 'viewer') appendViewerFrame(art, frame);
-  cardsPaneEl.appendChild(art); // newest LAST — chronological
+  pane.appendChild(art); // newest LAST — chronological
 }
 
 // --- event-cards (02): interactive fill-in form + card_done tombstone --------
@@ -597,6 +630,68 @@ function appendCardForm(art, frame) {
 // createElement/textContent ONLY — producer/user strings stay inert. An
 // ABSENT article (ordering anomaly, a card that fell out of the transcript
 // cap) is IGNORED — never an error.
+function renderReport(frame) {
+  if (!reportPaneEl) return;
+  const art = document.createElement('article');
+  art.className = 'card';
+  art.id = 'report-' + (typeof frame.id === 'string' ? frame.id : String(frame.ts || Date.now()));
+  const h = document.createElement('h4');
+  h.textContent = typeof frame.title === 'string' ? frame.title : '';
+  const meta = document.createElement('div');
+  meta.className = 'card-meta';
+  const ms = document.createElement('span');
+  ms.textContent = fmtClock(frame.ts) + ' · ' + (typeof frame.source === 'string' ? frame.source : '');
+  meta.appendChild(ms);
+  art.appendChild(h); art.appendChild(meta);
+  const body = document.createElement('div');
+  body.className = 'card-body';
+  if (typeof frame.html === 'string' && frame.html !== '') {
+    const ifr = document.createElement('iframe');
+    ifr.setAttribute('sandbox', 'allow-scripts'); // NO allow-same-origin
+    ifr.srcdoc = frame.html; // property assignment — untrusted HTML stays sandboxed
+    body.appendChild(ifr);
+  } else if (typeof frame.markdown === 'string') {
+    body.appendChild(renderMarkdown(frame.markdown));
+  }
+  art.appendChild(body);
+  reportPaneEl.appendChild(art);
+}
+
+// tab-views (01): minimal markdown to DOM (createElement/textContent ONLY —
+// md is producer-authored but untrusted; no HTML parsing on this path).
+// FENCE avoids backticks: render-shell's JS lives inside a template literal.
+function appendInline(el, text) {
+  const parts = String(text).split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  for (const p of parts) {
+    if (!p) continue;
+    if (p.indexOf('**') === 0 && p.lastIndexOf('**') === p.length - 2 && p.length > 4) { const b = document.createElement('strong'); b.textContent = p.slice(2, -2); el.appendChild(b); }
+    else if (p.charAt(0) === '*' && p.charAt(p.length - 1) === '*' && p.length > 2) { const em = document.createElement('em'); em.textContent = p.slice(1, -1); el.appendChild(em); }
+    else el.appendChild(document.createTextNode(p));
+  }
+}
+function renderMarkdown(md) {
+  const FENCE = String.fromCharCode(96, 96, 96);
+  const wrap = document.createElement('div');
+  wrap.className = 'md';
+  const lines = String(md).split('\n');
+  let list = null, para = [], code = null;
+  const flushPara = function () { if (para.length) { const p = document.createElement('p'); p.textContent = para.join(' '); wrap.appendChild(p); para = []; } };
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, '');
+    if (code !== null) { if (line.indexOf(FENCE) === 0) { const pre = document.createElement('pre'); const c = document.createElement('code'); c.textContent = code.join('\n'); pre.appendChild(c); wrap.appendChild(pre); code = null; } else code.push(line); continue; }
+    if (line.indexOf(FENCE) === 0) { flushPara(); list = null; code = []; continue; }
+    const hm = /^(#{1,3})\s+(.*)$/.exec(line);
+    if (hm) { flushPara(); list = null; const el = document.createElement('h' + String(hm[1].length + 1)); el.textContent = hm[2]; wrap.appendChild(el); continue; }
+    const lim = /^[-*]\s+(.*)$/.exec(line);
+    if (lim) { flushPara(); if (!list) { list = document.createElement('ul'); wrap.appendChild(list); } const it = document.createElement('li'); appendInline(it, lim[1]); list.appendChild(it); continue; }
+    if (line.trim() === '') { flushPara(); list = null; continue; }
+    para.push(line.trim());
+  }
+  flushPara();
+  if (code !== null) { const pre = document.createElement('pre'); pre.textContent = code.join('\n'); wrap.appendChild(pre); }
+  return wrap;
+}
+
 function retireCard(frame) {
   if (!cardsPaneEl) return;
   if (typeof frame.id !== 'string' || !frame.id) return;
@@ -823,7 +918,10 @@ function handleCardHash() {
   try {
     const id = parseCardHashInline(location.hash);
     if (id === null) return;
-    toggleCardsTab(true);
+    const art = document.getElementById(cardDomId(id));
+    const owner = art && art.closest ? art.closest('section') : null;
+    const pid = owner ? owner.id : 'cards-pane';
+    setPane(pid === 'report-pane' ? 'report' : pid === 'ask-pane' ? 'ask' : pid === 'data-pane' ? 'data' : 'events');
     focusCardArticle(id, 0);
   } catch { /* never break boot */ }
 }
