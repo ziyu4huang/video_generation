@@ -31,7 +31,7 @@ verification a single tool call away.
 
 | # | title | status | result |
 |---|---|---|---|
-| 01 | `webui` audit tool in power-tool | open | — |
+| 01 | `webui` audit tool in power-tool | closed | tool + 6 invariants + per-tab screenshots; gates green |
 | 02 | frame diet: wiring allowlist + store trim | open | — |
 | 03 | shell rebuild: 3 tabs, transcript gone | open | — |
 | 04 | README + docs + map close | open | — |

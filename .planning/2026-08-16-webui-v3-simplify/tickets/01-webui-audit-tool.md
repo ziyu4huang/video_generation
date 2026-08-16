@@ -25,3 +25,6 @@ live webui (headless Chrome on the browser-tool engine).
 ## Done when
 - Tool registered + schema-cost measured; units green; integration green on
   machines with Chrome; README row added.
+
+## Result
+`webui` tool shipped: evaluateInvariants (6 checks, v2/v3 family-tolerant) + formatReport pure units; Chrome audit() with per-tab screenshots + console/pageerror capture + run-dir trail; gated power_browser family; tool-inventory tests updated 7->8.
