@@ -43,10 +43,8 @@ import knowledgeCardExtension from "@repo/pi-agent-ext-knowledge-card/extensions
 import webAccessExtension from "@repo/pi-agent-ext-web-access";
 import obsidianExtension from "@repo/pi-agent-ext-obsidian";
 import { registerMemoryTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-tool.ts";
-import { registerMemorySearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-search-tool.ts";
-import { registerSessionSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/session-search-tool.ts";
+import { registerSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/search-tool.ts";
 import { registerSkillTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";
-import { registerGrillDecisionTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/grill-decision-tool.ts";
 import { createPresentTool } from "@repo/pi-agent-ext-webui/src/present-tool.ts";
 import toolGate from "./tool-gate.ts";
 
@@ -233,23 +231,18 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		},
 	},
 	{
-		// ticket 02 — hermes-memory. The default factory is async + heavy (backend
-		// bundle creation before any registerTool), so invoke the 5 individual
-		// registrars with stub args (store/repo deref'd only inside execute, which
-		// capture never calls) — mirroring ext-task's direct-registrar entry. The
-		// 5 owner-declared-core tools carry gating:{core:true}. skill_manage_help
-		// (registered alongside skill_manage by registerSkillTool) is an ungated
-		// always-on companion (NOT a CORE_TOOLS member) → ungatedByDesign.
-		// memory_supersede (a separate registrar, also ungated + out of scope) is
-		// not invoked; capture is best-effort per the migration scope.
+		// ticket 03+08 — hermes surface is 6 tools: memory / search /
+		// skill_manage (owner-declared core) + skill_manage_help (registered by
+		// registerSkillTool, ungated always-on companion) + knowledge_search /
+		// knowledge_ingest (keyword-gated; captured in qa/evaluate.ts's corpus).
+		// grill_decision / planning_stale / memory_supersede registrars were
+		// removed (ticket 03): the tools no longer exist on the surface.
 		name: "hermes-memory",
 		ungatedByDesign: ["skill_manage_help"],
 		register: (pi) => {
-			registerMemoryTool(pi, {} as any, null, null, null);
-			registerMemorySearchTool(pi, {} as any);
-			registerSessionSearchTool(pi, {} as any, { variant: "legacy" });
+			registerMemoryTool(pi, {} as any, null, null, null, null);
+			registerSearchTool(pi, {} as any, {} as any, { variant: "legacy" });
 			registerSkillTool(pi, {} as any);
-			registerGrillDecisionTool(pi, {} as any, null);
 		},
 	},
 	{

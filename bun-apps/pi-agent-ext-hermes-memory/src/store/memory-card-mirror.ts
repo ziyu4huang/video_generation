@@ -27,8 +27,8 @@
  *
  * Dedup: `upsertCard` dispatches through the registered `MemoryDedupStrategy`,
  * which for memory kinds is IDENTITY-keyed (same md_id → skip; distinct md_id →
- * keep — the md layer already refuses exact dups and warns-only on near-dups
- * BEFORE the mirror runs, so content overlap must not drop a row here).
+ * keep — the md layer already refuses exact dups BEFORE the mirror runs, so
+ * content overlap must not drop a row here).
  */
 
 import type { Card, CardKind } from "./card.js";

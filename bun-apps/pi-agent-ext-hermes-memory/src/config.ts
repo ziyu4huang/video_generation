@@ -31,7 +31,6 @@ import {
   DEFAULT_VECTOR_EF,
   DEFAULT_SURVIVING_K,
   DEFAULT_BOOST_WEIGHT,
-  DEFAULT_KG_LLM,
 } from "./constants.js";
 import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
 import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
@@ -106,7 +105,10 @@ const DEFAULT_CONFIG: MemoryConfig = {
   nudgeToolCalls: DEFAULT_NUDGE_TOOL_CALLS,
   projectsMemoryDir: DEFAULT_PROJECTS_MEMORY_DIR,
   sessionSearch: { variant: "legacy" },
-  dbBackend: "sqlite",
+  // Ticket 05: surrealdb is the DEFAULT backend (ticket 04 machinery); if
+  // its init fails at startup, createBackendBundleWithFallback transparently
+  // falls back to sqlite (local file, no server) so the agent always boots.
+  dbBackend: "surrealdb",
   failureModel: DEFAULT_FAILURE_MODEL,
   // Vector / semantic search (ticket 14 phase A). The card_vectors HNSW side-
   // table is independent of the CRUD backend (#06 lesson: registered here AND
@@ -124,10 +126,6 @@ const DEFAULT_CONFIG: MemoryConfig = {
   // Registered in DEFAULT_CONFIG AND the parse allowlist below (#06
   // config-gap lesson). Default 1.0 (DEFAULT_BOOST_WEIGHT).
   boostWeight: DEFAULT_BOOST_WEIGHT,
-  // kgLlm (ticket 03 T3 / D4): opt-in LLM typed-relation extraction. Default
-  // OFF (deterministic-by-design, ADR-0001). Registered in DEFAULT_CONFIG AND
-  // the parse allowlist below (#06 config-gap lesson).
-  kgLlm: DEFAULT_KG_LLM,
 };
 
 export const DEFAULT_CONFIG_PATH = path.join(
@@ -389,10 +387,6 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
       // but NOT Math.floor'd — it is a continuous weight, not a count. Invalid
       // values (≤0 / non-number / null / NaN) silently keep the default.
       if (typeof parsed.boostWeight === "number" && Number.isFinite(parsed.boostWeight) && parsed.boostWeight > 0) config.boostWeight = parsed.boostWeight;
-      // kgLlm (ticket 03 T3 / D4): boolean opt-in. Only a strict boolean value
-      // flows through; any other JSON type (string/number/null) is ignored →
-      // the flag stays at its default (OFF). Deterministic-by-design (ADR-0001).
-      if (typeof parsed.kgLlm === "boolean") config.kgLlm = parsed.kgLlm;
       if (hasMemoryOverflowStrategy) {
         config.autoConsolidate = config.memoryOverflowStrategy === "auto-consolidate";
       } else if (hasLegacyAutoConsolidate) {

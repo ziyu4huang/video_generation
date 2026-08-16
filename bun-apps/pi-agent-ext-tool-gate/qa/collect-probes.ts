@@ -100,14 +100,10 @@ import {
 	VERIFY_MERGE_PROBES,
 	MAIN_HEALTH_PROBES,
 } from "@repo/pi-agent-ext-devops/extensions/devops.ts";
-import { __GATE_PROBES__ as memorySupersedeProbes } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-supersede-tool.ts";
 import { __GATE_PROBES__ as zkProbes } from "@repo/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 import { __GATE_PROBES__ as skillProbes } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";
-import { __GATE_PROBES__ as sessionSearchProbes } from "@repo/pi-agent-ext-hermes-memory/src/tools/session-search-tool.ts";
 import { __GATE_PROBES__ as knowledgeSearchProbes } from "@repo/pi-agent-ext-hermes-memory/src/tools/knowledge-search-tool.ts";
 import { __GATE_PROBES__ as knowledgeIngestProbes } from "@repo/pi-agent-ext-hermes-memory/src/tools/knowledge-ingest-tool.ts";
-import { __GATE_PROBES__ as planningStaleProbes } from "@repo/pi-agent-ext-hermes-memory/src/tools/planning-stale-tool.ts";
-import { __GATE_PROBES__ as grillProbes } from "@repo/pi-agent-ext-hermes-memory/src/tools/grill-decision-tool.ts";
 import { __GATE_PROBES__ as webAccessProbes } from "@repo/pi-agent-ext-web-access";
 import { __GATE_PROBES__ as obsidianProbes } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import { __GATE_PROBES__ as wayfindProbes } from "@repo/pi-agent-ext-wayfind/extensions/wayfind.ts";
@@ -127,15 +123,11 @@ export const ALL_PROBE_SETS: GateProbeSet[] = [
 	zaiProbes,
 	// Dispatch / utility gates — controls-only (recallFloor 0, adversarial []):
 	workflowProbes,
-	memorySupersedeProbes,
 	...zkProbes,
 	wayfindProbes,
 	skillProbes,
-	sessionSearchProbes,
 	knowledgeSearchProbes,
 	knowledgeIngestProbes,
-	planningStaleProbes,
-	grillProbes,
 	webAccessProbes,
 	obsidianProbes,
 	browserProbes,

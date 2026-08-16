@@ -1,38 +1,46 @@
 /**
  * schema-cost.regression.test.ts — pins the total schema-token cost of
- * hermes-memory's 5 tools. Baseline measured 2026-07-13 at commit 2b3f987c.
+ * hermes-memory's 6 tools (ticket 10 hard pin).
  *
  * Uses individual registerXxxTool calls (NOT the heavy main factory) — matches
  * the stealth-trim.test.ts pattern. The register functions produce the same
- * tool schemas the LLM sees; only one session_search variant (legacy, the
- * default) is registered, matching production.
+ * tool schemas the LLM sees; the unified search tool is registered once with
+ * its default (legacy) session variant, matching production.
  */
 import { test, expect, describe } from "bun:test";
 import { createCapturePi, estimateTotalSchemaTokens, assertWithinBudget } from "../../../perf-harness/src/index.ts";
-import { registerMemorySearchTool } from "../../src/tools/memory-search-tool.ts";
-import { registerSessionSearchTool } from "../../src/tools/session-search-tool.ts";
+import { registerSearchTool } from "../../src/tools/search-tool.ts";
 import { registerSkillTool } from "../../src/tools/skill-tool.ts";
 import { registerMemoryTool } from "../../src/tools/memory-tool.ts";
+import { registerKnowledgeIngestTool } from "../../src/tools/knowledge-ingest-tool.ts";
+import { registerKnowledgeSearchTool } from "../../src/tools/knowledge-search-tool.ts";
+
+// Ticket 10 final pin — measured at 4ddd1a21 (6-tool surface, post-trim):
+const SIX_TOOL_BASELINE = 2033; // measured 2033 tok after knowledge-tool trims
+const SIX_TOOL_MEASURED_AT = "2026-08-17";
+const SIX_TOOL_MEASURED_COMMIT = "4ddd1a21";
+export const BUDGET_MAX_TOKENS = 2100; // measured 2033 + headroom to the 2100 ceiling
 
 function captureHermesTools(): Record<string, any> {
   const { pi, tools } = createCapturePi();
   const fake = {} as never;
   registerMemoryTool(pi, fake, null);
-  registerMemorySearchTool(pi, fake);
-  registerSessionSearchTool(pi, fake, { variant: "legacy" } as never);
+  registerSearchTool(pi, fake, fake, { variant: "legacy" } as never);
   registerSkillTool(pi, fake);
+  registerKnowledgeIngestTool(pi);
+  registerKnowledgeSearchTool(pi, () => "/tmp");
   return tools;
 }
 
 describe("hermes-memory schema-cost regression", () => {
-  test("5 tools registered", () => {
+  test("6 tools registered", () => {
     const tools = captureHermesTools();
     expect(Object.keys(tools).sort()).toEqual(
-      ["memory", "memory_search", "session_search", "skill_manage", "skill_manage_help"].sort(),
+      ["memory", "search", "knowledge_ingest", "knowledge_search", "skill_manage", "skill_manage_help"].sort(),
     );
   });
 
-  test("total schema ≤ 1700 tokens (baseline 1550, +9.7% headroom)", () => {
+  test("total schema ≤ 2100 tokens (ticket 10 hard pin; measured 2033)", () => {
     const tools = captureHermesTools();
     const { perTool, total } = estimateTotalSchemaTokens(tools);
     // Log per-tool for visibility on failure
@@ -40,11 +48,11 @@ describe("hermes-memory schema-cost regression", () => {
     console.log(`  ${"TOTAL".padEnd(26)} ${String(total.tokens).padStart(5)} tok`);
 
     assertWithinBudget(total.tokens, {
-      label: "hermes-memory schema (5 tools)",
-      max: 1700,
-      baseline: 1550,
-      measuredAt: "2026-07-13",
-      commit: "2b3f987c",
+      label: "hermes-memory schema (6 tools)",
+      max: BUDGET_MAX_TOKENS, // ticket 10 final 6-tool hard pin (spec decision 6); re-pin consciously, never silently
+      baseline: SIX_TOOL_BASELINE,
+      measuredAt: SIX_TOOL_MEASURED_AT,
+      commit: SIX_TOOL_MEASURED_COMMIT,
     });
   });
 

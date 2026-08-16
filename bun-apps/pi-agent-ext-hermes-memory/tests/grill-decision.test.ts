@@ -1,6 +1,9 @@
-// tests/grill-decision.test.ts
+// tests/grill-decision.test.ts — direct `executeGrillDecision(store, cardStore, params)`
+// calls (kp14: registerGrillDecisionTool retired; the handler is the internal
+// execute export returning a plain JSON string). Pure gate helpers stay covered as-is.
 import { test, expect } from "bun:test";
-import { evaluateGrillSignal, lexicalOverlap, composeMemoryContent, registerGrillDecisionTool } from "../src/tools/grill-decision-tool.js";
+import { evaluateGrillSignal, lexicalOverlap, composeMemoryContent, executeGrillDecision } from "../src/tools/grill-decision-tool.js";
+import type { MemoryStore } from "../src/store/memory-store.js";
 
 test("reject → FIRE as preference", () => {
   const r = evaluateGrillSignal({ signal: "reject", content: "prefers httpOnly cookies", existingEntries: [] });
@@ -64,12 +67,9 @@ test("composeMemoryContent produces a durable behavioral line", () => {
   expect(c).toContain("Prefers stateless auth");
 });
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { MemoryStore } from "../src/store/memory-store.js";
-
-// Minimal stub of the MemoryStore surface the tool touches. grill_decision now
-// writes user-traits to the `user` target (not failure), so the stub captures
-// `add(target, content, options)` and reads `getUserEntries()` for dedup.
+// Minimal stub of the MemoryStore surface the handler touches: it writes
+// user-traits via add(target, content, {category}) and reads getUserEntries()
+// for dedup.
 function makeStubStore(userEntries: string[]) {
   const writes: { target: string; content: string; category?: string }[] = [];
   return {
@@ -84,30 +84,27 @@ function makeStubStore(userEntries: string[]) {
   };
 }
 
-test("registerGrillDecisionTool: FIRE writes to user target as preference", async () => {
+test("executeGrillDecision: FIRE writes to user target as preference (JSON string)", async () => {
   const { store, writes } = makeStubStore([]);
-  const calls: any[] = [];
-  const pi = { registerTool: (def: any) => calls.push(def) } as unknown as ExtensionAPI;
-  registerGrillDecisionTool(pi, store, null);
-  expect(calls).toHaveLength(1);
-  const out = await calls[0].execute("id", {
+  const out = await executeGrillDecision(store, null, {
     decision: "auth storage", recommendation: "JWT in localStorage",
     userAnswer: "no", signal: "reject", notes: "prefers httpOnly cookies",
   });
+  expect(typeof out).toBe("string");
+  const parsed = JSON.parse(out);
   expect(writes).toHaveLength(1);
   expect(writes[0].target).toBe("user");
   expect(writes[0].category).toBe("preference");
-  expect(out.details.written).toBe(true);
+  expect(parsed.written).toBe(true);
+  expect(parsed.category).toBe("preference");
 });
 
-test("registerGrillDecisionTool: SUPPRESS (confirm) writes nothing", async () => {
+test("executeGrillDecision: SUPPRESS (confirm) writes nothing", async () => {
   const { store, writes } = makeStubStore([]);
-  const calls: any[] = [];
-  const pi = { registerTool: (def: any) => calls.push(def) } as unknown as ExtensionAPI;
-  registerGrillDecisionTool(pi, store, null);
-  const out = await calls[0].execute("id", {
+  const out = await executeGrillDecision(store, null, {
     decision: "x", recommendation: "y", userAnswer: "ok", signal: "confirm",
   });
+  const parsed = JSON.parse(out);
   expect(writes).toHaveLength(0);
-  expect(out.details.written).toBe(false);
+  expect(parsed.written).toBe(false);
 });

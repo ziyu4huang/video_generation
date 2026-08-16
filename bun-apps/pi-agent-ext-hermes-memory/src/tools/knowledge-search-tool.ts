@@ -273,14 +273,7 @@ GATE_DEFS["knowledge_search"] = {
   description: "Search the knowledge graph for lessons/gotchas/patterns",
 };
 
-const KNOWLEDGE_SEARCH_DESCRIPTION = `Search the knowledge graph (vault-md cards written by zk's ingest pipeline) for lessons, gotchas, and patterns relevant to the current task.
-
-Use cases:
-- Recall a resolved decision or gotcha before re-deriving it: knowledge_search("cfg-scale tuning")
-- Find patterns/levers tagged with a topic: knowledge_search(query="diffusion", tags=["sampler"])
-- Look up prior lessons before repeating work
-
-Returns matching knowledge cards with tags + a digest. Knowledge cards live in the obsidian vault graph (not the memory store); semantic retrieval needs the embed index (ticket 04) and is off by default.`;
+const KNOWLEDGE_SEARCH_DESCRIPTION = `Search knowledge-graph cards (vault-md, from zk ingest) for lessons, gotchas, patterns — recall before re-deriving. Returns cards with tags + digest. Cards live in the vault graph, not the memory store; semantic needs the embed index (ticket 04), off by default.`;
 
 /** Tokenize a natural-language query into lexical tags (lowercase alnum tokens)
  *  for the retrieveRecords lexical path. Mirrors zk's tag tokenization shape. */
@@ -332,17 +325,17 @@ export function registerKnowledgeSearchTool(
     description: KNOWLEDGE_SEARCH_DESCRIPTION,
     parameters: Type.Object({
       query: Type.String({
-        description: "Natural-language query (tokenized into tags for the lexical path; passed as queryText for the semantic path).",
+        description: "Natural-language query (tags for lexical path; queryText for semantic path).",
       }),
       tags: Type.Optional(
         Type.Array(Type.String(), {
-          description: "Optional explicit tag filter (overrides query tokenization when present).",
+          description: "Explicit tag filter (overrides query tokenization).",
         }),
       ),
       topK: Type.Optional(Type.Number({ description: "Maximum results (default 10)." })),
       semantic: Type.Optional(
         Type.Boolean({
-          description: "Enable semantic retrieval (needs the embed index = ticket 04; default false).",
+          description: "Semantic retrieval (needs embed index, ticket 04; default false).",
         }),
       ),
       excludeIds: Type.Optional(Type.Array(Type.String(), { description: "Record ids to exclude." })),

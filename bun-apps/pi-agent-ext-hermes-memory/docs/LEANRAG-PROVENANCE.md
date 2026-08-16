@@ -16,12 +16,12 @@ from the source, not just from planning docs.
 
 | # | LeanRAG concept | Our module | Status | Ticket / ADR |
 |---|---|---|---|---|
-| ④ | Dual store (vector ANN + graph) | `src/store/surreal/vector-store.ts`, `src/store/surreal/schema.ts`, `src/store/semantic-search.ts` (warm path) | **Have / ahead** — HNSW side-table supersedes Milvus IVF_FLAT/IP; SurrealDB `RELATE` supersedes MySQL+CTE | ADR-0001 |
-| ③ | Redundancy-aware context (frequency-voted recall + dedup) | `src/store/semantic-search.ts` | **Porting** — ticket 19 | ticket 19, ADR-0001 |
-| ⑥ | Entity-description summarization | `src/merge-union.ts` (partial) | **Deferred** — full condense needs ticket 03 | ticket 03, ADR-0001 |
+| ④ | Dual store (vector ANN + graph) | `src/store/surreal/vector-store.ts`, `src/store/surreal/schema.ts`, `src/store/semantic-search.ts` (warm path) | **Ahead (dual store: Surreal HNSW + RELATE)** — HNSW side-table supersedes Milvus IVF_FLAT/IP; SurrealDB `RELATE` supersedes MySQL+CTE | ADR-0001 |
+| ③ | Redundancy-aware context (frequency-voted recall + dedup) | `src/store/semantic-search.ts` | **Shipped (kp 19+20)** — ticket 19 | ticket 19, ADR-0001 |
+| ⑥ | Entity-description summarization | `src/merge-union.ts` (partial) | **Shipped (kp-03 Phase2, derived-only side-cache)** — full condense needs ticket 03 | ticket 03, ADR-0001 |
 | ⑤ | Pluggable extraction (dict vs LLM few-shot) | knowledge-card `entities.ts` (deterministic tagging; different pkg) | **Design home** — ticket 03 | ticket 03 |
-| ① | Semantic-aggregation hierarchy (parent-tree) | — | **Deferred (fog/future)** — LLM-heavy, cuts against deterministic-by-design | ADR-0001 |
-| ② | Hierarchical LCA retrieval | — | **Deferred** (depends on ①) | ADR-0001 |
+| ① | Semantic-aggregation hierarchy (parent-tree) | — | **Deferred (fog/future)** — LLM-heavy, cuts against deterministic-by-design (follow-up seeded: .planning/knowledge/leanrag-hierarchy-port-followup.md — user-approved 2026-08-16) | ADR-0001 |
+| ② | Hierarchical LCA retrieval | — | **Deferred** (depends on ①; follow-up seeded: .planning/knowledge/leanrag-hierarchy-port-followup.md — user-approved 2026-08-16) | ADR-0001 |
 
 ## Status legend
 

@@ -21,17 +21,17 @@ describe("buildPromptContext", () => {
     );
 
     assert.strictEqual(result, MEMORY_POLICY_PROMPT);
-    assert.match(result, /memory_search/);
+    assert.match(result, /search \(mode=memory\)/);
     assert.match(result, /Accepted memory categories/);
     assert.match(result, /category filters categorized failure\/lesson memories only/);
     assert.match(result, /Use category only for categorized failure\/lesson searches/);
-    assert.match(result, /session_search: search indexed past conversation messages/);
+    assert.match(result, /search: search durable user, global, project-scoped, and failure memories \(mode=memory\), or indexed past conversation messages \(mode=session\)\./);
     assert.match(result, /skill_manage: list, view, create, patch, update, and delete procedural skills/);
     assert.match(result, /Always pass scope explicitly on create/);
     assert.match(result, /Do not create skills for one-off task state/);
     assert.doesNotMatch(result, /category="preference"/);
     assert.doesNotMatch(result, /inspect, and update procedural skills/);
-    assert.doesNotMatch(result, /memory_search: search relevant user, project, session, failure, and skill memories/);
+    assert.doesNotMatch(result, /\b(memory|session)[-_]search\b/);
     assert.doesNotMatch(result, /MEMORY<\/memory-context>/);
     assert.doesNotMatch(result, /PROJECT demo/);
     assert.doesNotMatch(result, /SKILLS/);
@@ -59,7 +59,7 @@ describe("buildPromptContext", () => {
     assert.strictEqual(result, MEMORY_POLICY_PROMPT_COMPACT);
     assert.match(result, /category filters categorized failure\/lesson memories only/);
     assert.match(result, /scope is required: global for transferable workflows, project for repo-specific ones/);
-    assert.match(result, /Do not use memory_search for generic questions/);
+    assert.match(result, /Do not use search for generic questions/);
     assert.doesNotMatch(result, /MEMORY<\/memory-context>/);
     assert.doesNotMatch(result, /PROJECT demo/);
     assert.doesNotMatch(result, /SKILLS/);

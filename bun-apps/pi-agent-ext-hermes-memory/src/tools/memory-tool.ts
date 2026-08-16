@@ -24,6 +24,8 @@ import { MEMORY_TOOL_DESCRIPTION, DEFAULT_STALENESS_THRESHOLD_DAYS } from "../co
 import type { FailureState, MemoryCategory, MemoryResult } from "../types.js";
 import { fireProactiveIfReady } from "../handlers/auto-consolidate.js";
 import { isConsolidatingChild, loadConfig } from "../config.js";
+import type { MemoryRepository } from "../store/repository.js";
+import { executeMemorySupersede } from "./memory-supersede-tool.js";
 
 function appendSyncWarning(result: MemoryResult, warning: string): MemoryResult {
   const warnings = [...(((result as any).warnings ?? []) as string[]), warning];
@@ -289,6 +291,7 @@ export function registerMemoryTool(
   projectStore: MemoryStore | null,
   projectName?: string | null,
   cardStore: CardStore | null = null,
+  memoryRepo: MemoryRepository | null = null,
 ): ToolDefinition {
   // Proactive-consolidation trigger gate (Task 4 / UPSP §1). memory-tool.ts
   // has no config in scope, and the wiring stays self-contained in this file
@@ -309,7 +312,7 @@ export function registerMemoryTool(
     gating: { core: true },
     description: MEMORY_TOOL_DESCRIPTION,
     parameters: Type.Object({
-      action: StringEnum(["add", "replace", "remove", "transfer", "audit"] as const),
+      action: StringEnum(["add", "replace", "remove", "transfer", "audit", "supersede"] as const),
       target: StringEnum(["memory", "user", "project", "failure"] as const),
       content: Type.Optional(
         Type.String({ description: "Entry content for add/replace" })
@@ -323,7 +326,7 @@ export function registerMemoryTool(
       query: Type.Optional(
         Type.String({
           description:
-            "Substring to match entries for transfer. Omit to transfer all entries from the target.",
+            "Substring to match entries for transfer. Omit for all.",
         })
       ),
       category: Type.Optional(
@@ -336,7 +339,7 @@ export function registerMemoryTool(
       ),
       state: Type.Optional(
         StringEnum(["active", "resolved", "acquired"] as const, {
-          description: "Lifecycle state for failure entries (active|resolved|acquired). Default: active.",
+          description: "Failure-entry lifecycle. Default: active."
         })
       ),
       severity: Type.Optional(
@@ -346,8 +349,28 @@ export function registerMemoryTool(
       ),
       older_than: Type.Optional(
         Type.Number({
-          description: `Audit only: flag entries whose last-edited date is older than this many days (default ${DEFAULT_STALENESS_THRESHOLD_DAYS}).`,
+          description: `Audit only: flag entries older than this many days (default ${DEFAULT_STALENESS_THRESHOLD_DAYS}).`,
         })
+      ),
+      prior_id: Type.Optional(
+        Type.Integer({
+          description: "ID of memory to supersede",
+        })
+      ),
+      replacement: Type.Optional(
+        Type.String({
+          description: "Replacement content",
+        })
+      ),
+      sources: Type.Optional(
+        Type.Array(
+          Type.Object({
+            kind: Type.String({ description: "Source kind" }),
+            locator: Type.String({ description: "Stable ref into source" }),
+            capture: Type.String({ description: "Verbatim grounding text" }),
+          }),
+          { description: "Supersede only: grounding sources (.md-resident only)" },
+        )
       ),
     }),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -484,10 +507,32 @@ export function registerMemoryTool(
           };
         }
 
+        case "supersede": {
+          if (rawTarget !== "memory" && rawTarget !== "user" && rawTarget !== "failure") {
+            return memoryErrorResponse("Supersede is not supported for project target. Use 'memory', 'user', or 'failure'.");
+          }
+          if (typeof params.prior_id !== "number" || typeof params.replacement !== "string" || !params.replacement) {
+            return memoryErrorResponse("prior_id and replacement are required for 'supersede' action.");
+          }
+          // Delegate to the memory-supersede execute helper (formerly the
+          // standalone memory_supersede tool). It returns a plain string;
+          // wrap it in this tool's {content, details} envelope.
+          const text = await executeMemorySupersede(memoryRepo, store, projectName, cardStore, {
+            prior_id: params.prior_id,
+            replacement: params.replacement,
+            target: rawTarget as "memory" | "user" | "failure",
+            sources: params.sources,
+          });
+          return {
+            content: [{ type: "text", text }],
+            details: { success: true, action: "supersede", target: rawTarget },
+          };
+        }
+
         default:
           result = {
             success: false,
-            error: `Unknown action '${action}'. Use: add, replace, remove, transfer, audit`,
+            error: `Unknown action '${action}'. Use: add, replace, remove, transfer, audit, supersede`,
           };
       }
 

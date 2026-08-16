@@ -667,8 +667,8 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
   // These 5 tools were untracked (fail-open → always active) before the fix.
   // Each must now be explicitly tracked — either owner-declared core or a GATE.
 
-  test("grill_decision is in the core set (always active, not fail-open)", () => {
-    expect(CORE_SET.has("grill_decision")).toBe(true);
+  test("grill_decision is gone from the core set (hermes ticket 03 removed the tool)", () => {
+    expect(CORE_SET.has("grill_decision")).toBe(false);
   });
 
   test("subagent + workflow_control are gated (tracked, not fail-open)", () => {
@@ -693,7 +693,7 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
     expect(readerGate).toBeDefined();
   });
 
-  test("none of the 5 previously-leaked tools are untracked (fail-open)", () => {
+  test("none of the 4 previously-leaked tools are untracked (fail-open)", () => {
     // Full tracked set = core ∪ all gate names (what buildEffectiveGates emits as
     // `.tracked` when given the complete def list). EFF here is built from the
     // migrated GATED extensions only (its `.core` is empty — no core registrar
@@ -703,7 +703,6 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
     // tracked regardless of which gate/set owns them.
     const tracked = new Set<string>([...CORE_NAMES, ...EFF.tracked]);
     const leaked = [
-      "grill_decision",
       "subagent",
       "workflow_control",
       "zai_web_search_web_search_prime",

@@ -648,41 +648,12 @@ describe("loadConfig", () => {
     }
   });
 
-  // ─── kgLlm (ticket 03 T3 / D4) — opt-in LLM typed-relation extraction.
-  // Mirrors survivingK's 4-point pattern but as a boolean: default OFF
-  // (DEFAULT_KG_LLM = false), `typeof === "boolean"` parse-allowlist guard.
-  // The #06 config-gap lesson: registered in DEFAULT_CONFIG AND the parse
-  // allowlist from day one. Deterministic-by-design (ADR-0001) — the flag is
-  // real + wired but turning it ON is a graceful no-op until Phase-2's LLM
-  // extractor exists (zk falls back to the dictionary default).
-  it("defaults kgLlm to DEFAULT_KG_LLM (false) when unset", () => {
-    const config = loadConfig(TEST_CONFIG_PATH);
-    assert.strictEqual(config.kgLlm, false);
-  });
-
-  it("carries kgLlm through from the config file (allowlisted boolean)", () => {
-    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ kgLlm: true }));
-    const config = loadConfig(TEST_CONFIG_PATH);
-    assert.strictEqual(config.kgLlm, true);
-  });
-
-  it("ignores invalid kgLlm values (non-boolean / null) → default kept", () => {
-    // The guard is `typeof parsed.kgLlm === "boolean"`; any other JSON value
-    // (string, number, null) is silently ignored — the flag stays OFF.
-    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    for (const invalid of ["true", 1, 0, null, "false"]) {
-      fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ kgLlm: invalid }));
-      const config = loadConfig(TEST_CONFIG_PATH);
-      assert.strictEqual(config.kgLlm, false, `invalid ${JSON.stringify(invalid)} keeps default`);
-    }
-  });
 });
 
 describe("config dbBackend", () => {
-  it("defaults to sqlite when unset", () => {
+  it("defaults to surrealdb when unset (ticket 05; sqlite stays a transparent fallback)", () => {
     const cfg = loadConfig(path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`));
-    assert.strictEqual(cfg.dbBackend, "sqlite");
+    assert.strictEqual(cfg.dbBackend, "surrealdb");
   });
   it("parses dbBackend: surrealdb and surreal connection overrides", () => {
     const p = path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`);
@@ -700,7 +671,7 @@ describe("config dbBackend", () => {
     const p = path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`);
     fs.writeFileSync(p, JSON.stringify({ dbBackend: "mongodb" }));
     const cfg = loadConfig(p);
-    assert.strictEqual(cfg.dbBackend, "sqlite");
+    assert.strictEqual(cfg.dbBackend, "surrealdb");
     fs.rmSync(p, { force: true });
   });
 });
@@ -850,7 +821,7 @@ describe("loadConfig repo-local project-memory overlay (ticket 01)", () => {
     try {
       const config = loadConfig(TEST_CONFIG_PATH, cwd);
       assert.strictEqual(config.autoCommitProjectMemory, true, "project-memory key applied");
-      assert.strictEqual(config.dbBackend, "sqlite", "dbBackend NOT overridden by repo-local overlay");
+      assert.strictEqual(config.dbBackend, "surrealdb", "dbBackend NOT overridden by repo-local overlay (stays surrealdb default)");
       assert.ok(!config.surreal || config.surreal.endpoint !== "http://evil:8000", "surreal NOT overridden by overlay");
       assert.strictEqual(config.llmModelOverride, undefined, "llm override NOT applied from overlay");
     } finally {

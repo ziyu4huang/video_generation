@@ -29,9 +29,9 @@ export interface SessionSearchConfig {
 }
 
 /** Failure-memory model generation. "legacy" (default) = today's behavior;
- *  "v1" = topic-key dedup + recurrence→skill graduation warning + deterministic
- *  backlog canonicalization (wayfind effort 2026-08-05). Mirrors `memoryMode`'s
- *  flag shape. ⚠ paired with config.ts loadConfig allowlist (the drift trap). */
+ *  "v1" = deterministic backlog canonicalization (wayfind effort 2026-08-05).
+ *  Mirrors `memoryMode`'s flag shape. ⚠ paired with config.ts loadConfig
+ *  allowlist (the drift trap). */
 export type FailureModel = "legacy" | "v1";
 
 export interface MemoryConfig {
@@ -211,18 +211,6 @@ export interface MemoryConfig {
    * `searchSemantic` path only (fallbacks stay single-signal).
    * Default: 1.0 (DEFAULT_BOOST_WEIGHT). */
   boostWeight: number;
-  /** Opt-in: typed-relation extraction via LLM (LeanRAG ⑤ Phase-2 / D4).
-   *  Default OFF (false) — the ingest path is deterministic-by-design
-   *  (ADR-0001), zero LLM cost. When ON, zk's ingest gate selects the LLM
-   *  extractor (Phase-2) instead of the dictionary default; until Phase-2 the
-   *  flag is real + wired but turning it ON is a graceful no-op (dictionary
-   *  fallback). Carried across the seam via `IngestOptions.kgLlm`. */
-  kgLlm: boolean;
-  /** Model override for the LLM relation extractor when `kgLlm` is ON.
-   *  Optional LLM chat model id for kg.llm extraction. Currently
-   *  opts/env-only (`PI_KG_LLM_MODEL`); config-file parsing intentionally
-   *  deferred. Carried across the seam via `IngestOptions.kgLlmModel`. */
-  kgLlmModel?: string;
 }
 
 /** Trust/auditability marker for a memory entry. Markdown-resident only. */

@@ -3,9 +3,8 @@
  * 2026-08-05, tickets 04/05/06). Mirrors project-memory-migration.ts: pure fs
  * read/write, result struct, no LLM → auditable before/after diff.
  *
- * Three tiers, applied in order: (1) near-dup wording collapse (longest-wins),
- * (2) topic-family collapse (most-recent/resolved wins), (3) compress resolved/
- * stale to a one-line canonical fact. Active unique entries are never touched.
+ * Compresses resolved/stale survivors to a one-line canonical fact. Active
+ * unique entries are never touched.
  *
  * `.md`-first: operates on the markdown source-of-truth. NOTE — this is a
  * `.md`-ONLY operation: it does NOT reconcile the DB. The startup mirror
@@ -19,13 +18,9 @@ import * as fs from "node:fs";
 import { ENTRY_DELIMITER } from "./constants.js";
 import { splitMemoryEntries } from "./merge-union.js";
 import { parseMarkdownMemoryEntry, serializeMetadataComment, today } from "./store/memory-format.js";
-import { findNearDuplicate, DEFAULT_NEAR_DUP_THRESHOLD } from "./store/near-dup.js";
-import { topicKey } from "./store/topic-key.js";
 
 export interface FailureModelMigrationResult {
   scanned: number;
-  nearDupCollapsed: number;
-  topicCollapsed: number;
   compressed: number;
   dropped: number;
   finalChars: number;
@@ -63,7 +58,7 @@ export function canonicalizeFailureBacklog(opts: {
   backup?: boolean;
 }): FailureModelMigrationResult {
   const result: FailureModelMigrationResult = {
-    scanned: 0, nearDupCollapsed: 0, topicCollapsed: 0,
+    scanned: 0,
     compressed: 0, dropped: 0, finalChars: 0, warnings: [], diff: "",
   };
 
@@ -75,59 +70,8 @@ export function canonicalizeFailureBacklog(opts: {
   }
   const before = original.join(ENTRY_DELIMITER);
 
-  // Tier 1: near-dup wording collapse (longest-wins).
-  const consumed = new Set<number>();
-  const afterTier1: string[] = [];
-  for (let i = 0; i < original.length; i++) {
-    if (consumed.has(i)) continue;
-    const group = [original[i]];
-    const strippedI = parseMarkdownMemoryEntry(original[i], "failure").content;
-    for (let j = i + 1; j < original.length; j++) {
-      if (consumed.has(j)) continue;
-      const strippedJ = parseMarkdownMemoryEntry(original[j], "failure").content;
-      const hit = findNearDuplicate(strippedI, [strippedJ], DEFAULT_NEAR_DUP_THRESHOLD);
-      if (hit) {
-        group.push(original[j]);
-        consumed.add(j);
-      }
-    }
-    if (group.length > 1) {
-      result.nearDupCollapsed += group.length - 1;
-      result.dropped += group.length - 1;
-      afterTier1.push(group.reduce((a, b) => (a.length >= b.length ? a : b)));
-    } else {
-      afterTier1.push(original[i]);
-    }
-  }
-
-  // Tier 2: topic-family collapse (most-recent last-date wins; ties → longest).
-  const consumed2 = new Set<number>();
-  const afterTier2: string[] = [];
-  for (let i = 0; i < afterTier1.length; i++) {
-    if (consumed2.has(i)) continue;
-    const keyI = topicKey(parseMarkdownMemoryEntry(afterTier1[i], "failure").content);
-    if (!keyI) { afterTier2.push(afterTier1[i]); continue; }
-    const groupIdx = [i];
-    for (let j = i + 1; j < afterTier1.length; j++) {
-      if (consumed2.has(j)) continue;
-      const keyJ = topicKey(parseMarkdownMemoryEntry(afterTier1[j], "failure").content);
-      if (keyJ === keyI) { groupIdx.push(j); consumed2.add(j); }
-    }
-    if (groupIdx.length > 1) {
-      result.topicCollapsed += groupIdx.length - 1;
-      result.dropped += groupIdx.length - 1;
-      const winner = groupIdx
-        .map((idx) => ({ idx, raw: afterTier1[idx], parsed: parseMarkdownMemoryEntry(afterTier1[idx], "failure") }))
-        .sort((a, b) => (b.parsed.lastReferenced ?? "").localeCompare(a.parsed.lastReferenced ?? "")
-          || b.raw.length - a.raw.length)[0];
-      afterTier2.push(winner.raw);
-    } else {
-      afterTier2.push(afterTier1[i]);
-    }
-  }
-
-  // Tier 3: compress resolved/stale survivors to a one-line canonical fact.
-  const finalEntries = afterTier2.map((raw) => {
+  // Compress resolved/stale entries to a one-line canonical fact.
+  const finalEntries = original.map((raw) => {
     const parsed = parseMarkdownMemoryEntry(raw, "failure");
     const isResolved = parsed.state === "resolved" || RESOLVED_MARKER_RE.test(parsed.content);
     if (!isResolved) return raw;
@@ -141,7 +85,6 @@ export function canonicalizeFailureBacklog(opts: {
   result.diff =
     `--- before (${before.length} chars, ${original.length} entries)\n` +
     `+++ after (${after.length} chars, ${finalEntries.length} entries)\n` +
-    `near-dup collapsed: ${result.nearDupCollapsed} | topic collapsed: ${result.topicCollapsed} | ` +
     `compressed: ${result.compressed} | dropped: ${result.dropped}\n\n` +
     after;
 

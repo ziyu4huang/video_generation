@@ -80,9 +80,9 @@ export function runMemoryRepositoryContract(
 
     // C6: exact-dup dedup is part of the MemoryRepository CONTRACT itself —
     // addMemory no longer blind-INSERTs. Identity is the sync path's:
-    // target + project + category + content (exact equality). Boundary: NEAR-dup
-    // / topic-level dedup (similarity, semantic keys) stays in the MemoryStore
-    // layer (dedup-strategy / near-dup) — only exact identity equality lives here.
+    // target + project + category + content (exact equality). Boundary:
+    // overlap-level dedup stays in the MemoryStore layer (dedup-strategy) —
+    // only exact identity equality lives here.
     it("addMemory dedups exact identity duplicates (C6): same id both calls, one row", async () => {
       const { repo, close } = await make();
       try {

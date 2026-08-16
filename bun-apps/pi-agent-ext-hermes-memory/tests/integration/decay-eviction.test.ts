@@ -104,7 +104,7 @@ function fm(
  *  size by the same amount regardless of WHICH entries are removed — so ONE
  *  limit forces the same eviction COUNT under both FIFO and heat ordering
  *  (essential for the disable-vs-enable parity comparison). Repetition of a
- *  per-entry label keeps cross-entry similarity low (no near-dup false hit). */
+ *  per-entry label keeps cross-entry similarity low (no false overlap). */
 function body(label: string, targetLen = 60): string {
   let out = label;
   while (out.length < targetLen) out += " " + label;

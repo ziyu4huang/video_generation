@@ -26,11 +26,7 @@ GATE_DEFS["knowledge_ingest"] = {
   description: "Ingest .knowledge.jsonl records into the knowledge graph",
 };
 
-const KNOWLEDGE_INGEST_DESCRIPTION = `Ingest workflow knowledge records (a .knowledge.jsonl file or a directory of them) into the knowledge graph, then heal the vault graph and mirror the resulting cards into the memory store.
-
-Use this when you have a batch of structured knowledge records to add (e.g. a workflow's .knowledge.jsonl export). The ingest writes vault-md cards (zk), regenerates the knowledge-graph MOC, and mirrors the cards into the unified store. Re-running on the same input is idempotent.
-
-Generic .md files are detected but deferred (not ingested). Images, binaries, symlinks, and junk dirs (.git/node_modules/_archive) are skipped.`;
+const KNOWLEDGE_INGEST_DESCRIPTION = `Ingest .knowledge.jsonl (file or dir) into the knowledge graph: writes vault-md cards, regenerates the MOC, mirrors cards into the memory store. Idempotent. Generic .md deferred; images/binaries/symlinks and junk dirs skipped.`;
 
 /** Format a WalkAndIngestReceipt into a human-readable summary. */
 function formatKnowledgeIngestText(receipt: WalkAndIngestReceipt): string {
