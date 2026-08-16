@@ -17,11 +17,12 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { enumerateEfforts, listEfforts, searchEfforts } from "../src/effort-query.js";
+import { adoptMostRecentActiveEffort, enumerateEfforts, listEfforts, searchEfforts } from "../src/effort-query.js";
 import { makeWayfindEffortTool } from "../src/effort-tool.js";
 
 const fresh = () => mkdtempSync(join(tmpdir(), "wf-effort-query-"));
@@ -348,6 +349,67 @@ describe("listEfforts", () => {
     expect(effC?.status).toBe("active"); // default when no manifest
     expect(effC?.destination).toBe("");
     rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
+// ─── adoptMostRecentActiveEffort — bare /wayfind disk fallback ───────────────
+describe("adoptMostRecentActiveEffort", () => {
+  /** Set a map.md's mtime (and atime) to a fixed instant for deterministic ranking. */
+  function setMtime(cwd: string, effort: string, when: Date): void {
+    utimesSync(join(planning(cwd), effort, "map.md"), when, when);
+  }
+
+  it("returns undefined when .planning/ does not exist", () => {
+    expect(adoptMostRecentActiveEffort(fresh())).toBeUndefined();
+  });
+
+  it("adopts the single active effort (activeCount 1); skips paused ones", () => {
+    const cwd = fresh();
+    seedTwoEfforts(cwd); // effA active, effB paused
+    expect(adoptMostRecentActiveEffort(cwd)).toEqual({ effort: "effA", activeCount: 1 });
+  });
+
+  it("adopts the most-recently-modified active effort by map.md mtime", () => {
+    const cwd = fresh();
+    seedTwoEfforts(cwd);
+    // Make effB active too, then make effA the NEWER map — effA must win.
+    const effBMap = join(planning(cwd), "effB", "map.md");
+    writeFileSync(effBMap, readFileSync(effBMap, "utf-8").replace("status: paused", "status: active"), "utf-8");
+    setMtime(cwd, "effB", new Date("2026-08-20T12:00:00Z"));
+    setMtime(cwd, "effA", new Date("2026-08-21T12:00:00Z"));
+    expect(adoptMostRecentActiveEffort(cwd)).toEqual({ effort: "effA", activeCount: 2 });
+    // Flip the mtimes — effB must win with the same activeCount.
+    setMtime(cwd, "effA", new Date("2026-08-01T12:00:00Z"));
+    expect(adoptMostRecentActiveEffort(cwd)).toEqual({ effort: "effB", activeCount: 2 });
+  });
+
+  it("breaks mtime ties deterministically by slug order (first in listEfforts order)", () => {
+    const cwd = fresh();
+    seedTwoEfforts(cwd);
+    const effBMap = join(planning(cwd), "effB", "map.md");
+    writeFileSync(effBMap, readFileSync(effBMap, "utf-8").replace("status: paused", "status: active"), "utf-8");
+    const same = new Date("2026-08-21T12:00:00Z");
+    setMtime(cwd, "effA", same);
+    setMtime(cwd, "effB", same);
+    // effA sorts before effB in listEfforts (slug ascending) — tie keeps effA.
+    expect(adoptMostRecentActiveEffort(cwd)).toEqual({ effort: "effA", activeCount: 2 });
+  });
+
+  it("skips active-listed dirs without a readable map.md (not adoptable, not counted)", () => {
+    const cwd = fresh();
+    seedTwoEfforts(cwd);
+    // An empty effort dir: listed by enumerateEfforts, no manifest → defaults
+    // "active" in listEfforts, but has no map.md to stat → must be skipped.
+    mkdirSync(join(planning(cwd), "effEmpty", "tickets"), { recursive: true });
+    expect(adoptMostRecentActiveEffort(cwd)).toEqual({ effort: "effA", activeCount: 1 });
+  });
+
+  it("returns undefined when no effort on disk is active", () => {
+    const cwd = fresh();
+    seedTwoEfforts(cwd);
+    const effAMap = join(planning(cwd), "effA", "map.md");
+    writeFileSync(effAMap, readFileSync(effAMap, "utf-8").replace("status: active", "status: complete"), "utf-8");
+    expect(adoptMostRecentActiveEffort(cwd)).toBeUndefined();
   });
 });
 

@@ -9,6 +9,12 @@
  *
  *   enumerateEfforts(cwd)        -> string[]          (effort slugs, sorted)
  *   listEfforts(cwd)             -> EffortListResult  (per-effort summary)
+ *   adoptMostRecentActiveEffort(cwd) -> { effort, activeCount } | undefined
+ *
+ * adoptMostRecentActiveEffort is the bare-`/wayfind` disk fallback: when a
+ * session has NO in-memory active effort (fresh process / resumed session —
+ * activeEffortBySession is per-process and never restored), it picks the
+ * `status: active` effort whose map.md was modified most recently.
  */
 
 import { readdirSync, statSync } from "node:fs";
@@ -16,6 +22,37 @@ import { join } from "node:path";
 
 import { readEffortMeta } from "./lifecycle.js";
 import { readMap } from "./map.js";
+
+// ─── adopt most-recent active effort (bare /wayfind fallback) ────────────────
+
+export interface AdoptedEffort {
+  /** The adopted effort slug (its map.md has the newest mtime among active efforts). */
+  effort: string;
+  /** # of adoptable active efforts on disk (>= 1). */
+  activeCount: number;
+}
+
+/** Pick the `status: active` effort whose map.md was modified most recently.
+ *  Reuses {@link listEfforts} for front-matter parsing (never re-parses);
+ *  ranks by map.md mtimeMs with a deterministic tie-break (slug ascending, as
+ *  listEfforts returns them). Active efforts without a readable map.md are
+ *  not adoptable and not counted. Throw-free: undefined when no active effort
+ *  on disk is adoptable. */
+export function adoptMostRecentActiveEffort(cwd: string): AdoptedEffort | undefined {
+  const candidates: { slug: string; mtimeMs: number }[] = [];
+  for (const item of listEfforts(cwd).efforts) {
+    if (item.status !== "active") continue;
+    try {
+      const mtimeMs = statSync(join(cwd, ".planning", item.slug, "map.md")).mtimeMs;
+      candidates.push({ slug: item.slug, mtimeMs });
+    } catch {
+      // no readable map.md — not adoptable, not counted
+    }
+  }
+  let best: { slug: string; mtimeMs: number } | undefined;
+  for (const c of candidates) if (!best || c.mtimeMs > best.mtimeMs) best = c;
+  return best ? { effort: best.slug, activeCount: candidates.length } : undefined;
+}
 
 // ─── types (list action) ─────────────────────────────────────────────────────
 
