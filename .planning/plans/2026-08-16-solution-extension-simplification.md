@@ -140,7 +140,7 @@ git commit -m "feat(superpowers): merge dispatch guardrails + research pattern f
 - Consumes: `bun-apps/pi-agent-ext-wayfind/skills/diagnosing-bugs/SKILL.md` (142 lines; six phases: build feedback loop → reproduce+minimise → hypothesise → instrument → fix+regression test → cleanup+post-mortem) — deleted in Task 6.
 - Produces: superpowers `systematic-debugging` owning loop-engineering depth; Task 6's redirect table points `diagnosing-bugs` here; Task 7's ask-matt rewrite drops the separate `diagnosing-bugs` pointer.
 
-- [ ] **Step 1: Copy the HITL template**
+- [x] **Step 1: Copy the HITL template**
 
 ```bash
 mkdir -p bun-apps/pi-agent-ext-superpowers/skills/systematic-debugging/scripts
@@ -148,7 +148,7 @@ cp bun-apps/pi-agent-ext-wayfind/skills/diagnosing-bugs/scripts/hitl-loop.templa
    bun-apps/pi-agent-ext-superpowers/skills/systematic-debugging/scripts/hitl-loop.template.sh
 ```
 
-- [ ] **Step 2: Append the "Engineering the reproduction loop" section**
+- [x] **Step 2: Append the "Engineering the reproduction loop" section**
 
 Append to `systematic-debugging/SKILL.md` (condensed from wayfind `diagnosing-bugs`; keep the numbered list and the completion checklist verbatim in substance):
 
@@ -204,16 +204,16 @@ the debug prefix, delete throwaway prototypes, state the winning hypothesis in
 the commit message).
 ```
 
-- [ ] **Step 3: Extend the frontmatter description**
+- [x] **Step 3: Extend the frontmatter description**
 
 Add loop-engineering trigger words to `systematic-debugging`'s `description:` (keep its existing text, append): `… Also when the wall is building the reproduction loop itself — flaky, non-deterministic, multi-component, or human-in-the-loop bugs.`
 
-- [ ] **Step 4: Run the superpowers gate**
+- [x] **Step 4: Run the superpowers gate**
 
 Run: `( cd bun-apps/pi-agent-ext-superpowers && bun test )`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bun-apps/pi-agent-ext-superpowers/skills/systematic-debugging/
