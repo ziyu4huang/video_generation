@@ -13,6 +13,7 @@
  *   /wayfind seed [effort]     — seed a task_plan.md from tickets/decisions (was /plan-seed)
  *   /wayfind sync [effort]     — close tickets whose plan phase completed (was /chain-sync)
  *   /wayfind done [effort]     — closing ceremony: harvest the map into output/next-goal-<ts>.md
+ *   /wayfind help               — usage overview: subcommand table + efforts on disk (alias: usage)
  *
  * Each subcommand's logic lives in its own private handler function, unchanged
  * from the pre-consolidation per-command registrations — only the routing
@@ -21,11 +22,14 @@
  * Type-only imports keep this module cycle-free with index.ts.
  */
 
+import { statSync } from "node:fs";
+import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+
 import { seedPlan, syncChainState } from "./chain.js";
 import { PKG_NAME } from "./constants.js";
 import { publishWayfindGrill, unpublishWayfindGrill } from "./coordination.js";
-import { adoptMostRecentActiveEffort } from "./effort-query.js";
+import { adoptMostRecentActiveEffort, listEfforts } from "./effort-query.js";
 import { renderValidate, validateEffort } from "./effort-tool.js";
 import { buildFreshnessWarning, checkFactFreshness } from "./freshness.js";
 import { buildGrillPriming } from "./grill.js";
@@ -44,7 +48,22 @@ import {
   statusReport,
 } from "./wayfinder.js";
 
-const WAYFIND_KEYWORDS = new Set(["status", "spec", "tickets", "seed", "sync", "done", "validate", "statusbar"]);
+const WAYFIND_KEYWORDS = new Set([
+  "status",
+  "spec",
+  "tickets",
+  "seed",
+  "sync",
+  "done",
+  "validate",
+  "statusbar",
+  "help",
+  "usage",
+]);
+
+/** Subcommand keywords whose remainder is NOT an effort id — the dispatcher
+ *  never banners these (statusbar takes on|off; help/usage take nothing). */
+const NO_BANNER_KEYWORDS = new Set(["statusbar", "help", "usage"]);
 
 // Guard: placeholder words passed as destinations almost always mean "work the next frontier", not a new effort named e.g. "next".
 const PLACEHOLDER_DESTINATIONS = new Set([
@@ -80,6 +99,58 @@ export function resolveWayfindEffortId(trimmed: string, getActive: () => string 
   return getActive();
 }
 
+/** Render the full `/wayfind` usage overview: subcommand table, efforts on
+ *  disk, and next steps. The on-disk section reuses {@link listEfforts} — the
+ *  same read path bare-/wayfind adoption uses — ranked by map.md mtime,
+ *  newest first (the same signal adoptMostRecentActiveEffort ranks by), capped
+ *  at 10. Pure: takes cwd + the session's active effort slug (marked
+ *  `(active)` in the listing) so it is unit-testable without a live session. */
+export function renderWayfindHelp(cwd: string, activeEffort: string | undefined): string {
+  const lines: string[] = [
+    "🧭 wayfind — usage",
+    "",
+    "  /wayfind <destination>      chart a new effort: grill + map the frontier under .planning/<effort>/",
+    "  /wayfind                    resume the active effort: claim + steer the next frontier ticket",
+    "  /wayfind status [effort]    frontier + open/closed/claimed/fog counts (auto-closes completed plan phases)",
+    "  /wayfind spec [effort]      steer: synthesize this conversation into .planning/<effort>/spec.md",
+    "  /wayfind tickets [effort]   steer: break the spec into tracer-bullet tickets under .planning/<effort>/tickets/",
+    "  /wayfind seed [effort]      flatten tickets/decisions into .planning/<effort>/task_plan.md (refuses to overwrite)",
+    "  /wayfind sync [effort]      close tickets whose task_plan phase completed",
+    "  /wayfind done [effort]      closing ceremony: harvest to output/next-goal-<ts>.md + archive to .planning/done/",
+    "  /wayfind validate [effort]  check map/manifest/ticket conformance",
+    "  /wayfind statusbar on|off   toggle the persistent effort status bar",
+    "  /wayfind help               this overview (alias: usage)",
+    "  /wayfind -- <destination>   force-chart a name that starts with a reserved keyword",
+    "",
+    "  [effort]: explicit id, else the session's active effort (status, seed, sync, done, validate);",
+    "  spec/tickets use it only to name the output dir.",
+    "",
+    "Efforts on disk (most recent first):",
+  ];
+  const ranked = listEfforts(cwd)
+    .efforts.map((e) => {
+      let mtimeMs = 0;
+      try {
+        mtimeMs = statSync(join(cwd, ".planning", e.slug, "map.md")).mtimeMs;
+      } catch {
+        // unreadable map.md — rank last (mtime 0), still listed
+      }
+      return { e, mtimeMs };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs || a.e.slug.localeCompare(b.e.slug));
+  if (ranked.length === 0) lines.push("  (none — chart one with /wayfind <destination>)");
+  for (const { e } of ranked.slice(0, 10)) {
+    lines.push(
+      `  ${e.slug}${e.slug === activeEffort ? " (active)" : ""} — ${e.status} · open ${e.ticketCounts.open} / closed ${e.ticketCounts.closed}`,
+    );
+  }
+  if (ranked.length > 10) lines.push(`  … +${ranked.length - 10} more`);
+  lines.push(
+    "Next steps: inspect with /wayfind status <effort> · resume with bare /wayfind · chart new with /wayfind <destination>",
+  );
+  return lines.join("\n");
+}
+
 export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay: WayfindOverlay): void {
   /** Shared kickoff: set the active-grill state, publish the grill seam, and
    *  send the priming user-message so the agent enters grilling mode. */
@@ -94,16 +165,19 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
 
   /** Resolve the active effort for a `/wayfind <cmd> <effort>` subcommand: an
    *  explicit arg wins, else fall back to the session's active effort. If
-   *  neither resolves, emit the canonical usage warning and return undefined. */
+   *  neither resolves, notify the full usage overview (subcommands + efforts
+   *  on disk) and return undefined. */
   function resolveEffortOrWarn(
-    command: string,
+    _command: string,
     args: string,
     ctx: ExtensionCommandContext,
     sessionId: string,
   ): string | undefined {
     const effort = args.trim() || state.activeEffortBySession.get(sessionId);
     if (!effort) {
-      ctx.ui.notify(`Usage: /wayfind ${command} <effort>  (or run /wayfind <destination> first)`, "warning");
+      // No effort resolvable — notify the full usage overview (subcommands +
+      // efforts on disk) so the user can pick/copy a name, not a bare one-liner.
+      ctx.ui.notify(renderWayfindHelp(ctx.cwd, undefined), "warning");
       return undefined;
     }
     return effort;
@@ -310,6 +384,15 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       return;
     }
     ctx.ui.notify(renderStatus(r), "info");
+    // Notify-only by design — never auto-steer from status. But leave the user
+    // a resume breadcrumb derived from the report's own counts: open tickets
+    // remain → bare /wayfind claims the next one; frontier clear → chart next.
+    ctx.ui.notify(
+      r.open > 0
+        ? "Resume: /wayfind  (claims the next ticket)"
+        : "All done — chart the next effort: /wayfind <destination>",
+      "info",
+    );
   }
 
   /** `/wayfind statusbar [on|off]` — toggle the opt-in persistent effort status
@@ -343,6 +426,13 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
     }
   }
 
+  /** `/wayfind help` (alias: `usage`) — notify the full usage overview:
+   *  subcommand table + efforts on disk + next steps. Takes no effort arg. */
+  function handleWayfindHelp(_args: string, ctx: ExtensionCommandContext): void {
+    const sessionId = getSessionId(ctx);
+    ctx.ui.notify(renderWayfindHelp(ctx.cwd, state.activeEffortBySession.get(sessionId)), "info");
+  }
+
   async function handleWayfinderChart(destination: string, ctx: ExtensionCommandContext): Promise<void> {
     const sessionId = getSessionId(ctx);
     const freshnessWarn = buildFreshnessWarning(checkFactFreshness(ctx.cwd));
@@ -367,7 +457,9 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
         }
       }
       if (!effort) {
-        ctx.ui.notify(`No active wayfind effort. Chart one: /wayfind <destination>`, "warning");
+        // Nothing chartable anywhere — show the full usage overview (incl.
+        // efforts on disk) instead of a dead-end one-liner.
+        ctx.ui.notify(renderWayfindHelp(ctx.cwd, undefined), "warning");
         return;
       }
       syncChainState(ctx.cwd, effort);
@@ -449,7 +541,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
 
   pi.registerCommand("wayfind", {
     description:
-      "Wayfinder family: '<destination>' (chart a map) or no args (work next ticket); 'status'/'spec'/'tickets'/'seed'/'sync'/'validate'/'done' [effort]; '-- <destination>' force-charts a name that starts with a reserved keyword",
+      "Wayfinder family: '<destination>' (chart a map) or no args (work next ticket); 'status'/'spec'/'tickets'/'seed'/'sync'/'validate'/'done' [effort]; 'help' (usage overview); '-- <destination>' force-charts a name that starts with a reserved keyword",
     handler: async (args, ctx) => {
       const trimmed = args.trim();
       // Always banner the wayfind id (effort slug) for this invocation — one
@@ -476,9 +568,9 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
         return handleWayfinderStatus("", ctx);
       }
       const bannerEffort = resolveWayfindEffortId(trimmed, () => state.activeEffortBySession.get(sessionId));
-      // The `statusbar` subcommand's args ("on"/"off") are not an effort id —
-      // never banner it. Every other keyword banners the resolved effort id.
-      if (bannerEffort && firstToken !== "statusbar") ctx.ui.notify(`🧭 ${bannerEffort}`, "info");
+      // The `statusbar`/`help`/`usage` subcommands take no effort id — never
+      // banner them. Every other keyword banners the resolved effort id.
+      if (bannerEffort && !NO_BANNER_KEYWORDS.has(firstToken)) ctx.ui.notify(`🧭 ${bannerEffort}`, "info");
       // "/wayfind -- <destination>" forces charting, escaping reserved keywords
       // (e.g. an effort named "sync the database"). Bare keywords still win.
       if (trimmed.startsWith("--")) {
@@ -512,6 +604,9 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
             return handleWayfindValidate(remainder, ctx);
           case "statusbar":
             return handleWayfindStatusbar(remainder, ctx);
+          case "help":
+          case "usage":
+            return handleWayfindHelp(remainder, ctx);
         }
       }
       return handleWayfinderChart(trimmed, ctx);

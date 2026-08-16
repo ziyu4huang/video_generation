@@ -132,7 +132,7 @@ Two modes. Either way, **never resolve more than one ticket per session** — wi
 
 ### Chart the map
 
-User invokes with a loose idea. If the destination's first word collides with a reserved keyword (`status`/`spec`/`tickets`/`seed`/`sync`/`done`/`validate`), chart it with `/wayfind -- <destination>` so the name isn't taken for a subcommand.
+User invokes with a loose idea. If the destination's first word collides with a reserved keyword (`status`/`spec`/`tickets`/`seed`/`sync`/`done`/`validate`/`help`/`usage`), chart it with `/wayfind -- <destination>` so the name isn't taken for a subcommand.
 
 1. **Confirm fact freshness.** If the `/wayfind` command warned the branch is behind `origin/<default>`, tell the human and prefer rebasing first — see **Fact freshness** above. A map charted on a stale premise is wasted work.
 2. **Name the destination.** Run a `grilling` and `domain-modeling` session to pin down what this map is finding its way to — the spec, decision, or change. The destination fixes the scope, so it's settled first.

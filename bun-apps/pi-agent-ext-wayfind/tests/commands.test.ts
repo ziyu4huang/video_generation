@@ -445,7 +445,7 @@ describe("/grill and /wayfind dispatchers — routing", () => {
     const cwd = makeCwd();
     const { ctx, notifications } = ctxCapturing(cwd);
     await run(pi, "wayfind", "sync", ctx);
-    expect(notifications.some((n) => n.includes("Usage") && n.includes("sync"))).toBe(true);
+    expect(notifications.some((n) => n.includes("wayfind — usage") && n.includes("/wayfind sync"))).toBe(true);
     expect(pi.sent.every((s) => !s.includes("Charting"))).toBe(true);
   });
 });
@@ -537,7 +537,7 @@ describe("/wayfind bare — claim path + disk adoption", () => {
     expect(readFileSync(ticketPath(cwd, "2026-08-16-effort-older"), "utf-8")).not.toContain("claimed:");
   });
 
-  it("with ZERO active efforts: informative usage notify, no steer, nothing claimed", async () => {
+  it("with ZERO active efforts: full usage overview (incl. the paused effort), no steer, nothing claimed", async () => {
     const { pi } = setup();
     const cwd = makeCwd();
     const { ctx, notifications } = ctxCapturing(cwd);
@@ -547,11 +547,133 @@ describe("/wayfind bare — claim path + disk adoption", () => {
 
     await run(pi, "wayfind", "", ctx);
 
+    // Dead-end now shows the full help overview, still listing the paused effort:
     expect(
-      notifications.some((n) => n.includes("No active wayfind effort") && n.includes("/wayfind <destination>")),
+      notifications.some(
+        (n) => n.includes("wayfind — usage") && n.includes("2026-08-16-effort-paused") && n.includes("paused"),
+      ),
     ).toBe(true);
     expect(pi.sent.length).toBe(0);
     expect(readFileSync(ticketPath(cwd, "2026-08-16-effort-paused"), "utf-8")).not.toContain("claimed:");
+  });
+});
+
+// ─── /wayfind help — usage overview + dead-end fallbacks + status hint ───────
+describe("/wayfind help — usage overview + dead-end fallbacks", () => {
+  /** Seed an effort (manifest + map, `status: active`) with one open frontier
+   *  ticket unless `openTicket: false`. */
+  function seedEffort(cwd: string, effort: string, opts?: { openTicket?: boolean }): void {
+    const created = createEffort(cwd, { effort, destination: `${effort} destination` });
+    if (!created.ok) throw new Error(`createEffort failed for ${effort}`);
+    if (opts?.openTicket !== false) {
+      writeTicket(cwd, effort, {
+        id: "01",
+        slug: "first-question",
+        title: "First question",
+        question: "q",
+        type: "task",
+        blocking: [],
+        status: "open",
+      });
+    }
+  }
+
+  it("bare /wayfind with ZERO efforts on disk notifies the help overview (subcommand table), sends no steer", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd(); // no .planning/ at all
+    const { ctx, notifications } = ctxCapturing(cwd);
+
+    await run(pi, "wayfind", "", ctx);
+
+    const help = notifications.find((n) => n.includes("wayfind — usage"));
+    expect(help).toBeDefined();
+    expect(help).toContain("/wayfind <destination>");
+    expect(help).toContain("/wayfind status [effort]");
+    expect(help).toContain("/wayfind statusbar on|off");
+    expect(help).toContain("(none — chart one");
+    expect(pi.sent.length).toBe(0); // dead-end must not steer
+  });
+
+  it("/wayfind status with no arg + no session effort notifies help that lists the on-disk effort", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    seedEffort(cwd, "2026-08-20-demo");
+    const { ctx, notifications } = ctxCapturing(cwd);
+
+    await run(pi, "wayfind", "status", ctx);
+
+    const help = notifications.find((n) => n.includes("wayfind — usage"));
+    expect(help).toBeDefined();
+    expect(help).toContain("2026-08-20-demo");
+    expect(pi.sent.length).toBe(0);
+  });
+
+  it("/wayfind help (and the usage alias) renders the overview: no banner, no steer, active effort marked", async () => {
+    const { pi, state } = setup();
+    const cwd = makeCwd();
+    seedEffort(cwd, "2026-08-20-demo");
+    state.activeEffortBySession.set("test-session", "2026-08-20-demo");
+    const { ctx, notifications } = ctxCapturing(cwd);
+
+    await run(pi, "wayfind", "help", ctx);
+    await run(pi, "wayfind", "usage", ctx);
+
+    const helps = notifications.filter((n) => n.includes("wayfind — usage"));
+    expect(helps.length).toBe(2);
+    // help never banners an effort id (like statusbar)…
+    expect(notifications.every((n) => n !== "🧭 2026-08-20-demo")).toBe(true);
+    // …but the on-disk listing marks the session's active effort:
+    expect(helps.every((h) => h.includes("2026-08-20-demo (active)"))).toBe(true);
+    expect(pi.sent.length).toBe(0);
+  });
+
+  it("efforts on disk are listed most recent first (map.md mtime)", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    seedEffort(cwd, "aaa-older");
+    seedEffort(cwd, "zzz-newer");
+    // Force deterministic mtimes: "newer" wins regardless of write order.
+    const older = new Date("2026-08-10T12:00:00Z");
+    const newer = new Date("2026-08-20T12:00:00Z");
+    utimesSync(join(cwd, ".planning", "aaa-older", "map.md"), older, older);
+    utimesSync(join(cwd, ".planning", "zzz-newer", "map.md"), newer, newer);
+    const { ctx, notifications } = ctxCapturing(cwd);
+
+    await run(pi, "wayfind", "help", ctx);
+
+    const help = notifications.find((n) => n.includes("wayfind — usage"));
+    const idxNewer = help?.indexOf("zzz-newer") ?? -2;
+    const idxOlder = help?.indexOf("aaa-older") ?? -1;
+    expect(idxNewer).toBeGreaterThanOrEqual(0);
+    expect(idxNewer).toBeLessThan(idxOlder);
+  });
+
+  it("status <effort> with open tickets notifies the report followed by the resume hint", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    seedEffort(cwd, "demo"); // one open ticket
+    const { ctx, notifications } = ctxCapturing(cwd);
+
+    await run(pi, "wayfind", "status demo", ctx);
+
+    const reportIdx = notifications.findIndex((n) => n.includes("[demo]") && n.includes("open 1"));
+    const hintIdx = notifications.findIndex((n) => n.includes("Resume: /wayfind  (claims the next ticket)"));
+    expect(reportIdx).toBeGreaterThanOrEqual(0);
+    expect(hintIdx).toBeGreaterThan(reportIdx);
+  });
+
+  it("status <effort> with no open tickets notifies the all-done hint instead", async () => {
+    const { pi } = setup();
+    const cwd = makeCwd();
+    seedEffort(cwd, "demo", { openTicket: false });
+    const { ctx, notifications } = ctxCapturing(cwd);
+
+    await run(pi, "wayfind", "status demo", ctx);
+
+    expect(notifications.some((n) => n.includes("All done — chart the next effort: /wayfind <destination>"))).toBe(
+      true,
+    );
+    expect(notifications.every((n) => !n.includes("Resume:"))).toBe(true);
   });
 });
 

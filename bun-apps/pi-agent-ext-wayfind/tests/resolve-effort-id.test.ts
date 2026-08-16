@@ -36,4 +36,9 @@ describe("resolveWayfindEffortId (wayfind effort-id banner)", () => {
   it("bare `/wayfind` with an active effort returns that effort", () => {
     expect(resolveWayfindEffortId("", () => "2026-08-10-active")).toBe("2026-08-10-active");
   });
+
+  it("help/usage parse as subcommands (active fallback), never as a chart slug", () => {
+    expect(resolveWayfindEffortId("help", () => "2026-08-10-active")).toBe("2026-08-10-active");
+    expect(resolveWayfindEffortId("usage", () => undefined)).toBeUndefined();
+  });
 });
