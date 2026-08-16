@@ -351,7 +351,7 @@ git commit -m "feat(superpowers): add prototype pointer to brainstorming"
 - Consumes: `bun-apps/pi-agent-ext-wayfind/skills/writing-for-agents/SKILL.md` (83 lines) + its `SKILL-MECHANICS.md` — both deleted in Task 6.
 - Produces: superpowers `writing-skills` as the craft reference for any agent-consumed doc; Task 6's redirect table points `writing-for-agents` here.
 
-- [ ] **Step 1: Copy and adapt SKILL-MECHANICS.md**
+- [x] **Step 1: Copy and adapt SKILL-MECHANICS.md**
 
 ```bash
 cp bun-apps/pi-agent-ext-wayfind/skills/writing-for-agents/SKILL-MECHANICS.md \
@@ -360,7 +360,7 @@ cp bun-apps/pi-agent-ext-wayfind/skills/writing-for-agents/SKILL-MECHANICS.md \
 
 Then edit the copy: replace any wayfind-specific relative links so they resolve inside `writing-skills/` (the file is self-contained frontmatter/invocation/router guidance; verify with `( cd bun-apps/pi-agent-ext-superpowers && grep -n "writing-for-agents\|\.\./" skills/writing-skills/SKILL-MECHANICS.md )` — Expected: no hits referencing the old package).
 
-- [ ] **Step 2: Append the generalization section to `writing-skills/SKILL.md`**
+- [x] **Step 2: Append the generalization section to `writing-skills/SKILL.md`**
 
 Append (condensed from wayfind `writing-for-agents`):
 
@@ -402,16 +402,16 @@ Skill-specific mechanics (frontmatter, invocation choice, router skills):
 see [SKILL-MECHANICS.md](SKILL-MECHANICS.md).
 ```
 
-- [ ] **Step 3: Extend the frontmatter description**
+- [x] **Step 3: Extend the frontmatter description**
 
 Append to `writing-skills`'s `description:`: `… Also use when creating or editing any document an agent consumes — AGENTS.md, CONTEXT.md, pointed-at docs.`
 
-- [ ] **Step 4: Run the superpowers gate**
+- [x] **Step 4: Run the superpowers gate**
 
 Run: `( cd bun-apps/pi-agent-ext-superpowers && bun test )`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bun-apps/pi-agent-ext-superpowers/skills/writing-skills/
