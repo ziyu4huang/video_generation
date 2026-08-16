@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 ---
 # 00 — de-chat: remove main composer, fix btw IME, simplify layout
 
@@ -22,3 +22,6 @@ stops duplicating it; fix the remaining IME defect in the btw sidebar.
 ## Acceptance
 - No `#webui-input`/`#webui-send` in served HTML; typecheck + webui suite 0 fail.
 - IME-composition Enter no-ops in btw input (test-covered).
+
+## Result
+00: main composer removed (chat in TUI); btw Enter IME-guarded (isComposing/229) + isSendEnter helper; dispatch no-ops agentic frames; sendRaw/queue/mutex-gate kept.
