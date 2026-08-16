@@ -19,7 +19,7 @@ stops duplicating the TUI chat composer.
 | 01 | card frame contract + Cards tab (projection) | closed | card frames + tab + bus snoop; 486/0 |
 | 02 | interactive cards: answer loop + JSONL decision log | closed | form cards + card_answer + cards.jsonl + card_done; 496/0 |
 | 03 | TUI attention bell + #card-<id> deep link | closed | bell + hash deep link w/ cold-load; 505/0 |
-| 04 | viewer sandbox: postMessage bridge + user-confirmation gate | open | — |
+| 04 | viewer sandbox: postMessage bridge + user-confirmation gate | closed | simplified: allow-scripts iframe (no same-origin) + webui.emit shim; confirm gate rides t02 card_answer loop; webui 510/0 |
 | 05 | v1 pilot wiring (questionnaire + archify cards) + docs/E2E | open | — |
 
 Absorbed: webui-tui-parity ticket 03 (bus console) → tickets 01/05 here.

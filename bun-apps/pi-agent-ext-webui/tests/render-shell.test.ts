@@ -30,11 +30,18 @@ describe("RENDER_SHELL_HTML constant", () => {
     expect(RENDER_SHELL_HTML).toContain("/api/view/");
   });
 
-  it("sandboxes html-mode content (iframe sandbox attribute, no allow-scripts)", () => {
+  it("sandboxes html-mode content (iframe sandbox attribute stays EMPTY; allow-scripts is viewer-cards-only)", () => {
     // The shell builds the iframe via JS and sets an EMPTY sandbox (most
     // restrictive — no allow-scripts, no allow-same-origin) per spec D5.
     expect(RENDER_SHELL_HTML).toContain("setAttribute('sandbox', '')");
-    expect(RENDER_SHELL_HTML).not.toContain("allow-scripts");
+    // event-cards (04): allow-scripts now exists in the shell — but ONLY on
+    // the viewer card frame (appendViewerFrame); the VIEW iframe above keeps
+    // the empty sandbox. allow-same-origin remains forbidden everywhere.
+    expect(RENDER_SHELL_HTML).toContain("f.setAttribute('sandbox', 'allow-scripts')");
+    // allow-same-origin is NEVER granted as an attribute value (comments may
+    // mention the word — this asserts the runtime sinks, not prose)
+    expect(RENDER_SHELL_HTML).not.toContain("'allow-same-origin'");
+    expect(RENDER_SHELL_HTML).not.toContain('"allow-same-origin"');
   });
 });
 
