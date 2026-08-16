@@ -87,29 +87,49 @@ deep-imports core-runtime internals (all consumers go through the `index.ts` bar
 `resolve.ts` has exactly two real consumers (`src/index.ts`,
 `patches/load-run-dir-resources.ts`).
 
-#### 1a — `core-task/src/goal/goal.ts`: 1,522 → ~200
+#### 1a — `core-task/src/goal/goal.ts`: 1,522 → ~200 — **SHIPPED** (277)
 
-| New module | Contents | ~lines |
-|---|---|---:|
-| `goal/internals.ts` | the ~35 shared tail helpers (`updateStatus`, `setAndPersistGoal`, `abortCurrentTurn`, `clearActiveGoal`, …) | 220 |
-| `goal/goal-complete-tool.ts` | the inline `goalCompleteTool` definition (current 182–480) | 300 |
-| `goal/hooks.ts` | the six `pi.on(...)` handlers (current 665–938; `agent_end` alone is 160) | 275 |
-| `goal/lifecycle.ts` | `startGoal` / pause / resume / clear / edit / show | 260 |
-| `goal/timers.ts` | status-refresh timer + heartbeat timer | 90 |
-| `goal/prompting.ts` | the `sendXPrompt` family + continuation-marker tracking | 200 |
-| `goal.ts` (kept) | facade re-exports, `StatusContext`, `default function goal()` wiring, `isGoalActive`, `planningGateBlocking`, `planProgressLineFromPeer` | ~200 |
+| New module | Contents | planned | actual |
+|---|---|---:|---:|
+| `goal/internals.ts` | leaf helpers: continuation markers, recovery flags, plan gates, token total | 220 | 191 |
+| `goal/goal-complete-tool.ts` | the inline `goalCompleteTool` definition + the audit test seam | 300 | 374 |
+| `goal/hooks.ts` | the `pi.on(...)` handlers (nine, not six; `agent_end` alone is ~145) | 275 | 337 |
+| `goal/lifecycle.ts` | `startGoal` / pause / resume / clear / edit / show | 260 | 249 |
+| `goal/status.ts` | *(planned as `timers.ts`)* overlay updates + both timers + `clearActiveGoal` | 90 | 177 |
+| `goal/prompting.ts` | the `sendXPrompt` family | 200 | 84 |
+| `goal/context.ts` | *(not in the plan)* `StatusContext` | — | 22 |
+| `goal.ts` (kept) | facade re-exports, `default function goal()` wiring, `isGoalActive` | ~200 | 277 |
 
-**The one real risk: an import cycle.** `hooks.ts` needs the tail helpers while
-`goal.ts` needs `hooks.ts`'s registration. Therefore `internals.ts` must be
-extracted **first**, giving a strictly one-way graph:
+**The one real risk: an import cycle.** Confirmed real, and extracting
+`internals.ts` first does NOT dissolve it. The actual cycle is
+`internals → status → prompting → internals`: `updateStatus` (planned for
+internals) calls the timer syncs, the heartbeat timer calls
+`sendContinuationPrompt`, and that calls back down for the pending-message check
+and the marker. It is broken by DIRECTION, not order — `updateStatus`,
+`setAndPersistGoal` and `clearActiveGoal` moved to `status.ts` with the timers
+they drive, leaving `internals.ts` a true leaf. ES modules would have tolerated
+the cycle via function hoisting, which is precisely why it needed to be found
+deliberately rather than discovered by a crash.
 
-```
-goal.ts → hooks / lifecycle / timers / prompting → internals → state
-```
+`context.ts` was also unforeseen: `StatusContext` was planned to stay in
+`goal.ts`, but every extracted module takes it as a parameter, so leaving it
+there gave each module a back-edge into the facade. It cannot live in `state.ts`
+(its `ui` field is pi's `ExtensionUIContext`, and state.ts is deliberately free
+of `@earendil-works/*` imports), so it got its own file.
 
-The three module-level bindings in `goal.ts` (`goalOverlay`, `piRef`, `auditRunner`)
-move into the existing `goalState` singleton in `state.ts`, which already exports
-`GoalRuntimeState` and `__resetGoalState()`.
+Verified acyclic after the split, and nothing imports `goal.js` back.
+
+The three module-level bindings resolved differently than planned:
+- `goalOverlay` → `goalState.overlay`, as designed (four modules write it).
+- `piRef` → **deleted**. It was assigned on the line after
+  `goalState.extensionApi` from the same value; its only purpose was avoiding an
+  `as ExtensionAPI` cast, which does not justify a second source of truth.
+- `auditRunner` → **stayed a module binding**, in `goal-complete-tool.ts`. Unlike
+  the overlay it has exactly one reader and is a test seam, not session state;
+  moving it to `goalState` would have forced it to `unknown` (its signature names
+  pi's `ExtensionContext`) and traded real types for uniformity nothing needed.
+
+Public surface verified unchanged: 17 exports, none missing, none added.
 
 #### 1b — `core-runtime/src/agent.ts`: 1,146 → ~450
 
@@ -125,16 +145,34 @@ The seams are corroborated by the existing test layout: `budget-guard.test.ts` (
 and `agent-turns.test.ts` (325) are already split along exactly these lines. Only
 `index.ts`'s re-export sources change; external consumers are unaffected.
 
-#### 1c — `pi-agent/run-dir/resolve.ts`: 822 → ~380
+#### 1c — `pi-agent/run-dir/resolve.ts`: 822 → ~380 — **SHIPPED**
 
-| New module | Contents | ~lines |
-|---|---|---:|
-| `run-dir/deps-probe.ts` | dependency probing, auto-install, missing-deps guide output | 260 |
-| `run-dir/lazy-extensions.ts` | `looksLikeAlias`, `resolveLazyExtension`, `rewriteArgvLazyExtensions` | 135 |
-| `resolve.ts` (kept) | layout detection + argv building (three modes) + re-exports | ~380 |
+| New module | Contents | planned | actual |
+|---|---|---:|---:|
+| `run-dir/deps-probe.ts` | dependency probing, auto-install, missing-deps guide output | 260 | 317 |
+| `run-dir/lazy-extensions.ts` | `looksLikeAlias`, `resolveLazyExtension`, `rewriteArgvLazyExtensions` | 135 | 167 |
+| `run-dir/run-context.ts` | *(not in the plan)* `mode`, `resolveBunAppsDir`, `warn` | — | 64 |
+| `resolve.ts` (kept) | layout detection + argv building (three modes) + re-exports | ~380 | 367 |
+
+`run-context.ts` was not foreseen: `mode`, `resolveBunAppsDir()` and `warn()` were
+module-private in resolve.ts and read by all three concerns, so the split forced
+them to become shared. Recomputing `detectMode(import.meta.url)` per module would
+have worked (all sit in `run-dir/`) but re-creates the duplication `src/mode.ts`
+exists to prevent. Import direction is strictly one-way:
+`resolve → {deps-probe, lazy-extensions} → run-context → src/mode`.
+
+The public surface is unchanged: `mode`, `resolveBunAppsDir`, `maybeAutoInstall`,
+`emitMissingDepsGuide` and `resolveNpmExtensionPaths` were private before and stay
+unexported from the facade — extraction is not a reason to widen an API. The one
+consumer edit is `check-deps.ts`, pointed at `deps-probe.ts` directly: it is a
+pre-flight that runs before pi boots, and the facade would pull in the argv
+builders and the alias resolver for a probe that needs neither.
+
+Dropped in passing: a `missingNpm` accumulator that `resolveNpmExtensionPaths`
+maintained and nothing ever read (the guide recomputes via `probeMissingNpm()`).
 
 Suggested order if serialized: `agent.ts` (safest, tests pre-aligned) → `resolve.ts`
-→ `goal.ts` (needs the cycle care above).
+→ `goal.ts` (needs the cycle care above). **All three of step 1 are now shipped.**
 
 ### Step 2 — power-tool
 

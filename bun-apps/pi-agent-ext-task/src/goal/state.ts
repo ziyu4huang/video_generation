@@ -145,6 +145,13 @@ export function isGoal(value: unknown): value is ActiveGoal {
 export interface GoalRuntimeState {
 	activeGoal: import("./format.js").ActiveGoal | undefined;
 	extensionApi: unknown; // ExtensionAPI — typed loosely to keep state.ts pi-import-free
+	// The status widget. Lives here rather than as a module-level binding in
+	// goal.ts because the goal.ts split (spec 1a) gave lifecycle, timers and the
+	// hook handlers each their own module, and all four update the overlay — a
+	// module-level `let` in the facade would have had to be exported and written
+	// from four files. The type is an inline `import(...)` like `activeGoal`
+	// above, so state.ts stays free of @earendil-works/* import statements.
+	overlay: import("./overlay.js").GoalOverlayLike | undefined;
 	continuationPending: ContinuationPending | undefined;
 	goalRecovery: GoalRecovery | undefined;
 	staleGoalToolCallsBlocked: boolean;
@@ -194,6 +201,7 @@ export interface GoalRuntimeState {
 export const goalState: GoalRuntimeState = {
 	activeGoal: undefined,
 	extensionApi: undefined,
+	overlay: undefined,
 	continuationPending: undefined,
 	goalRecovery: undefined,
 	staleGoalToolCallsBlocked: false,
@@ -221,6 +229,7 @@ export const goalState: GoalRuntimeState = {
 export function __resetGoalState(): void {
 	goalState.activeGoal = undefined;
 	goalState.extensionApi = undefined;
+	goalState.overlay = undefined;
 	goalState.continuationPending = undefined;
 	goalState.goalRecovery = undefined;
 	goalState.staleGoalToolCallsBlocked = false;
