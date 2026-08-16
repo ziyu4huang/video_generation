@@ -1,7 +1,17 @@
-// TSNOCHECK-OFF — pre-existing type errors, never checked before this file
-// became reachable via pi-agent's static import (src/static-extensions.ts);
-// see that file's header comment for the full rationale. Runtime unaffected
-// (Bun doesn't enforce types).
+// @ts-nocheck — 49 remaining errors, all strict-null (TS18048/TS2322/TS2345)
+// across 2,648 lines. The other five suppressed files in this package are now
+// fixed and checked; this one is deferred to its own pass rather than bulk-
+// silenced alongside them.
+//
+// Do NOT read the suppression as "these are cosmetic". Checking this file
+// temporarily surfaced two live ReferenceErrors that no test could reach —
+// a free `ctx` in openCuratorBrowser's add-search path, and a
+// sendCuratorFallbackUpdate declared inside the `try` that its own `catch`
+// called. Both are fixed here. Whatever is left is unaudited, not benign.
+//
+// The remaining work needs tests first: this package has ~700 test lines
+// against ~14,000 source lines, and strict-null repairs add guards that change
+// runtime paths. See static-extensions.ts for the ordering rationale.
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Box, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -989,9 +999,39 @@ export default function (pi: ExtensionAPI) {
 		return { results, urls };
 	}
 
-	async function openCuratorBrowser(callId: string, pc: PendingCurate, searchesComplete = true): Promise<void> {
+	async function openCuratorBrowser(
+		callId: string,
+		pc: PendingCurate,
+		searchesComplete = true,
+		// This function referenced a free `ctx` that exists only in the shortcut /
+		// tool handlers, so the in-curator "add search" path threw a ReferenceError.
+		// Threaded in as a parameter instead; `extensionContext` is optional on
+		// SearchOptions, so an omitted ctx degrades to the env/config API key path
+		// exactly as it does everywhere else.
+		ctx?: ExtensionContext,
+	): Promise<void> {
 		if (pendingCurates.get(callId) !== pc) return;
 		let handle: CuratorServerHandle | null = null;
+		/**
+		 * Declared BEFORE the try: the catch below calls it when the browser fails
+		 * to open, but it used to be defined inside the try, so the failure path hit
+		 * a ReferenceError — turning a recoverable "open this URL yourself" into a
+		 * crash precisely when things had already gone wrong.
+		 */
+		const sendCuratorFallbackUpdate = (message: string) => {
+			if (!handle) return;
+			pc.onUpdate?.({
+				content: [{ type: "text", text: `${message}\nOpen manually: ${handle.url}` }],
+				details: {
+					phase: "curator-fallback",
+					progress: searchesComplete ? 1 : 0.5,
+					curatorUrl: handle.url,
+					timeoutSeconds: pc.timeoutSeconds,
+					shortcut: curateKey,
+					browserOpenError: pc.browserOpenError,
+				},
+			});
+		};
 		try {
 			pc.phase = "curating";
 
@@ -1164,20 +1204,6 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (searchesComplete) handle.searchesDone();
 
-			const sendCuratorFallbackUpdate = (message: string) => {
-				pc.onUpdate?.({
-					content: [{ type: "text", text: `${message}\nOpen manually: ${handle.url}` }],
-					details: {
-						phase: "curator-fallback",
-						progress: searchesComplete ? 1 : 0.5,
-						curatorUrl: handle.url,
-						timeoutSeconds: pc.timeoutSeconds,
-						shortcut: curateKey,
-						browserOpenError: pc.browserOpenError,
-					},
-				});
-			};
-
 			pc.onUpdate?.({
 				content: [{ type: "text", text: searchesComplete ? "Waiting for summary approval in browser..." : "Searches streaming to browser..." }],
 				details: {
@@ -1229,7 +1255,7 @@ export default function (pi: ExtensionAPI) {
 				const [callId, pc] = entries[entries.length - 1];
 
 				if (pc.phase === "searching") {
-					pc.browserPromise = openCuratorBrowser(callId, pc, false);
+					pc.browserPromise = openCuratorBrowser(callId, pc, false, ctx);
 					ctx.ui.notify("Opening curator — remaining searches will stream in", "info");
 					return;
 				}
@@ -1407,7 +1433,7 @@ export default function (pi: ExtensionAPI) {
 				const onAbort = () => closeCurator(callId);
 				pendingCurates.set(callId, pc);
 				signal?.addEventListener("abort", onAbort, { once: true });
-				pc.browserPromise = openCuratorBrowser(callId, pc, false);
+				pc.browserPromise = openCuratorBrowser(callId, pc, false, ctx);
 
 				for (let qi = 0; qi < queryList.length; qi++) {
 					if (signal?.aborted || cancelled || searchAbort.signal.aborted) break;
