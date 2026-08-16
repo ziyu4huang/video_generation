@@ -41,3 +41,4 @@ Rationale: sequencing C1/C5/C6 before 13 keeps the memory-card migration mechani
 - 2026-08-16: ticket 13 wave 2/3 DONE — extension task-builders+config extracted to src/ (shim-compat, zero test edits); wave 3 = retrieve.ts split.
 - 2026-08-16: ticket 13 CLOSED — all 3 megafiles split (ingest 512, extension 1077 via shim, retrieve 770 + graph-health 348); optional K2b deferred to future effort.
 - 2026-08-16: ticket 06 CLOSED — corruption-recovery extracted (backend 1090 + module 434), MEMORIES_COLUMNS single-sourced; wave body C3 done, kp21 (07) unblocked.
+- 2026-08-16: ticket 07 CLOSED — kp21 dispositioned (T1 #1494 / T2 satisfied / T3 waived not-MVP).

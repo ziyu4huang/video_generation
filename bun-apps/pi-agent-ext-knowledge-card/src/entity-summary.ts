@@ -65,19 +65,53 @@ export interface EntitySummaryCache {
 	[entityKey: string]: string;
 }
 
+/** On-disk cache file format version. A load-time mismatch (older shape,
+ * newer shape, corrupt) resets the cache wholesale — safe because the cache
+ * is derived and regenerates lazily on the next summaries pass. */
+export const ENTITY_SUMMARY_CACHE_VERSION = 2;
+
+/** Envelope written to disk; `version` gates interpretation of `entries`. */
+interface EntitySummaryCacheFile {
+	version: number;
+	entries: EntitySummaryCache;
+}
+
 /** Cache path mirroring semantic.ts's cachePath: <vault>/.knowledge-semantic/. */
 function summaryCachePath(vaultPath: string, model: string): string {
 	const slug = model.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
 	return join(vaultPath, ".knowledge-semantic", `entity-summaries-${slug}.json`);
 }
 
-/** Load the derived cache; missing/corrupt → {} (cache miss, non-fatal). */
+/*
+ * PRUNE-ON-REBUILD — deliberately NOT implemented here. Dead-entry eviction
+ * belongs in the summaries-pass consumer: after iterating the FULL current
+ * entity set, that consumer should rebuild the cache to only the entries it
+ * touched (lookup hits + regenerations) and save that. No such consumer
+ * exists yet — loadEntitySummaries/saveEntitySummaries have no callers in
+ * src/ (embed-pipeline wiring is deferred to the ③/20 integration; see
+ * module header). Content-keying makes stale entries self-heal, but dead
+ * entries are only evicted once that consumer lands and prunes on rebuild.
+ */
+
+/** Load the derived cache; missing/corrupt/version-mismatch → {}
+ * (cache miss, non-fatal; one-time wholesale reset on format change). */
 export function loadEntitySummaries(vaultPath: string, model: string): EntitySummaryCache {
 	try {
 		const p = summaryCachePath(vaultPath, model);
 		if (!existsSync(p)) return {};
-		const j = JSON.parse(readFileSync(p, "utf8")) as EntitySummaryCache;
-		return j && typeof j === "object" && !Array.isArray(j) ? j : {};
+		const j = JSON.parse(readFileSync(p, "utf8")) as unknown;
+		// Version gate: v1 files were plain { mergedText: summary } maps with no
+		// envelope, so any old/foreign shape fails here and resets wholesale.
+		if (
+			!j ||
+			typeof j !== "object" ||
+			Array.isArray(j) ||
+			(j as EntitySummaryCacheFile).version !== ENTITY_SUMMARY_CACHE_VERSION
+		) {
+			return {};
+		}
+		const { entries } = j as EntitySummaryCacheFile;
+		return entries && typeof entries === "object" && !Array.isArray(entries) ? entries : {};
 	} catch {
 		return {};
 	}
@@ -88,7 +122,11 @@ export function saveEntitySummaries(vaultPath: string, model: string, cache: Ent
 	try {
 		const p = summaryCachePath(vaultPath, model);
 		mkdirSync(join(vaultPath, ".knowledge-semantic"), { recursive: true });
-		writeFileSync(p, JSON.stringify(cache, null, 2), "utf8");
+		const file: EntitySummaryCacheFile = {
+			version: ENTITY_SUMMARY_CACHE_VERSION,
+			entries: cache,
+		};
+		writeFileSync(p, JSON.stringify(file, null, 2), "utf8");
 	} catch {
 		// Derived-only artifact: a failed cache write must never fail the pipeline.
 	}
