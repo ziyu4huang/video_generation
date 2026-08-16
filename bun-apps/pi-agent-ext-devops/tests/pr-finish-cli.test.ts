@@ -196,13 +196,15 @@ describe("pr-finish-cli — wrapper contract", () => {
 		expect(outcome.branchSpent).toBe(true); // fake containedBranches lists "feature"
 		expect(outcome.aborted).toBeUndefined();
 		expect(g.mergeCalls).toEqual([42]);
-		// `detach:origin/main` is new. The worktree that runs pr_finish is still on
-		// the head branch, and git refuses `branch -D` on a checked-out branch — so
+		// The detach step is new. The worktree that runs pr_finish is still on the
+		// head branch, and git refuses `branch -D` on a checked-out branch — so
 		// deleteLocal used to fail on essentially every real run and the caller had
 		// to detach and sweep by hand. The fake now models that refusal, which is
-		// why this sequence changed rather than merely gaining a step.
+		// why this sequence changed rather than merely gaining a step. The target is
+		// the MERGE SHA, not `origin/main`: the remote-tracking ref is still at the
+		// pre-merge tip until the `fetchPrune` two lines below.
 		expect(g.clientCalls).toEqual([
-			"detach:origin/main",
+			`detach:${MERGED.mergeSha}`,
 			"deleteLocal:feature",
 			"deleteRemote:feature",
 			"fetchPrune",
@@ -367,11 +369,45 @@ describe("pr-finish-cli — wrapper contract", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("pr-finish-cli — spent-branch deletion", () => {
+	test("detaches onto the MERGE COMMIT, not the stale origin/<base> ref", async () => {
+		// `fetchPrune()` runs after this block, so `origin/main` still points at the
+		// PRE-merge tip — detaching onto it left the worktree one commit behind the
+		// merge it had just made. verify already fetched + read the merge sha, so
+		// that is the ref to land on.
+		const g = greenDeps({ current: "feature" });
+		const withNumstat: SpawnFn = async (_cmd, args) =>
+			args.includes("show")
+				? { stdout: "1\t0\tbun-apps/x.ts\n", stderr: "", exitCode: 0 }
+				: { stdout: "", stderr: "", exitCode: 0 };
+		const res = await runPrFinishCli(["42"], { ...g.deps, spawn: withNumstat });
+		expect(res.exitCode).toBe(0);
+		expect(JSON.parse(res.stdout).verdict).toBe("CLEAN");
+		expect(g.clientCalls).toContain(`detach:${MERGED.mergeSha}`);
+		expect(g.clientCalls).not.toContain("detach:origin/main");
+	});
+
+	test("falls back to origin/<base> when the merge could not be inspected", async () => {
+		// No usable merge sha locally → the sha may not resolve, so the base ref is
+		// the only safe target. Still detaches, so the delete still succeeds.
+		const g = greenDeps({ current: "feature" });
+		const badShow: SpawnFn = async (_cmd, args) =>
+			args.includes("show") || args.includes("fetch")
+				? { stdout: "", stderr: "fatal: bad object", exitCode: 128 }
+				: { stdout: "", stderr: "", exitCode: 0 };
+		const res = await runPrFinishCli(["42"], { ...g.deps, spawn: badShow });
+		expect(JSON.parse(res.stdout).verdict).toBe("UNVERIFIED");
+		expect(g.clientCalls).toContain("detach:origin/main");
+		expect(g.clientCalls).toContain("deleteLocal:feature");
+	});
+
 	test("detaches THIS worktree off the head branch before deleting it", async () => {
 		const g = greenDeps({ current: "feature" });
 		const res = await runPrFinishCli(["42"], g.deps);
 		expect(res.exitCode).toBe(0);
-		expect(g.clientCalls).toContain("detach:origin/main");
+		// Target-agnostic on purpose — WHICH ref we land on is pinned by the two
+		// tests above; what matters here is that a detach happens at all, because
+		// without it the delete cannot succeed.
+		expect(g.clientCalls.some((c) => c.startsWith("detach:"))).toBe(true);
 		expect(g.clientCalls).toContain("deleteLocal:feature");
 		const outcome = JSON.parse(res.stdout);
 		expect(outcome.warnings.some((w: string) => /deleteLocalBranch.*failed/.test(w))).toBe(false);

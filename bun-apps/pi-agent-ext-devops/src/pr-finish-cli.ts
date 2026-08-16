@@ -423,7 +423,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 			//
 			// Safe by construction: preflight already gated on a clean tree, and we
 			// only reach this when verify said the branch is spent — its commits are
-			// all in the base, so detaching onto the base loses nothing.
+			// all in the merge, so detaching onto it loses nothing.
 			const heldElsewhere = await ownerWorktreeOf(client, headRefName, repoRoot, warnings);
 			if (heldElsewhere) {
 				warnings.push(
@@ -432,7 +432,16 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 			} else {
 				const current = await safeRead(() => client.currentBranch(), undefined, "currentBranch", warnings);
 				if (current === headRefName) {
-					const onto = `origin/${status.baseRefName}`;
+					// Prefer the MERGE COMMIT over `origin/<base>`. The local
+					// remote-tracking ref still points at the PRE-merge tip here —
+					// `fetchPrune()` runs after this block — so detaching onto it left
+					// the worktree one commit behind the merge it had just made, and the
+					// caller had to check out again by hand. The merge sha is the commit
+					// we actually want, and verify has already guaranteed it is in the
+					// local object store (it read the diff out of it, fetching first if
+					// needed). Fall back to `origin/<base>` only when verify could not
+					// inspect — there the sha may genuinely not be local.
+					const onto = verify.inspected && verify.mergeSha ? verify.mergeSha : `origin/${status.baseRefName}`;
 					try {
 						await client.detachHead(onto);
 						commands.push(`git -C "${repoRoot}" checkout --detach ${onto}`);
