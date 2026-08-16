@@ -1,6 +1,6 @@
 ---
 type: feature
-status: open
+status: closed
 claimed:
 blocked by: [12]
 ---
@@ -29,3 +29,6 @@ M
 
 ## Progress (2026-08-16, wave 2/3)
 - extensions/knowledge-card.ts 1492 → 1077 LOC. New modules: src/zk-task-config.ts 116 (tool allowlists, resolveDistillModel, blend scoring — exported so CLI reuses), src/task-builders.ts 325 (pure buildXxxTask template builders). Extension keeps compat re-export shims → 8 production importers + 14 test files untouched, ZERO test edits (better than wave 1's import-line repoints). One boundary clip caught+fixed (resolveKnowledgeVault closer at old-L263). Gates: typecheck clean; 432/0. Remaining: wave 3 = K3 retrieve.ts 1057 split (graph-health) + optional K2b tool-execute-body extraction (~758 LOC in factory) to reach <400 target.
+
+## Progress (2026-08-16, wave 3/3 — K3 done)
+- retrieve.ts 1052 → 770 LOC. New src/graph-health.ts 348: graphHealth/healGraph + GraphHealth*/HealResult types + MOC helpers (extractTitle/extractDetail exported back to retrieve for digest formatting). retrieve.ts keeps retrieval core (retrieveRecords, semantic blend, overlap ranking) + compat re-export shims → zero importer/test edits. Gates: typecheck clean; 432/0. K3 COMPLETE. Ticket scope now: K1+K2+K3 done (ingest 1699→512, extension 1492→1077, retrieve 1052→770); remaining optional K2b (tool-execute bodies ~758 LOC in extension factory) tracked for a future effort — CLOSING this ticket as its three megafile targets are split.
