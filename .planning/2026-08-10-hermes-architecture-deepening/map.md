@@ -39,3 +39,4 @@ Rationale: sequencing C1/C5/C6 before 13 keeps the memory-card migration mechani
 - 2026-08-16: ticket 12 dedup DONE — card-format.ts single-source (K4-K7,K9; K8 skipped: divergent semantics documented); 432/0 gates; ticket 13 (megafile split) UNBLOCKED.
 - 2026-08-16: ticket 13 wave 1/3 DONE — ingest engine-only (512 LOC), 4 new modules, cycle removed, 432/0 gates; waves 2-3 (K2 extension, K3 retrieve) remain.
 - 2026-08-16: ticket 13 wave 2/3 DONE — extension task-builders+config extracted to src/ (shim-compat, zero test edits); wave 3 = retrieve.ts split.
+- 2026-08-16: ticket 13 CLOSED — all 3 megafiles split (ingest 512, extension 1077 via shim, retrieve 770 + graph-health 348); optional K2b deferred to future effort.
