@@ -323,10 +323,11 @@ describe("wireWebui live smoke — Tier A", () => {
     const frame = JSON.parse(raw);
     expect(frame.type).toBe("snapshot");
     expect(frame.state.transcript.map((f: { type: string }) => f.type)).toEqual([
+      "session_info",
       "turn_start",
       "message_update",
     ]);
-    expect(frame.state.transcript[1]).toMatchObject({ type: "message_update", text: "hello" });
+    expect(frame.state.transcript[2]).toMatchObject({ type: "message_update", text: "hello" });
     expect(frame.state.presentId).toBeNull();
     expect(frame.state.driver).toBeNull();
   });

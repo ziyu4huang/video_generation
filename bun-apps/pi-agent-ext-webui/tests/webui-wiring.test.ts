@@ -729,6 +729,7 @@ describe("wireWebui — v2 session store + snapshot (architecture v2 §3.3)", ()
     const frame = JSON.parse(sent[0]);
     expect(frame.type).toBe("snapshot");
     expect(frame.state.transcript.map((f: { type: string }) => f.type)).toEqual([
+      "session_info",
       "turn_start",
       "message_update",
     ]);
