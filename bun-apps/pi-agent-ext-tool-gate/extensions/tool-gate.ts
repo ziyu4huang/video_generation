@@ -29,6 +29,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { GATE_DEFS, type Gate } from "@repo/pi-agent-core-interface";
 import { appendFileSync } from "node:fs";
 import { Type } from "typebox";
 import { estimateToolCost } from "@repo/pi-agent-ext-power-tool/schema-cost";
@@ -52,6 +53,11 @@ export interface ToolGate {
   description: string;
   /** Optional co-occurrence trigger (noun ∧ verb). See CoOccurrence. */
   requires?: CoOccurrence;
+  /** Gate-family id when this gate was declared via the reference form
+   *  (`gating: { gate: id }`, wayfinder ticket 01). Sibling tools share one id;
+   *  `undefined` for legacy inline-declared gates. Lets consumers (enable_tool,
+   *  introspection) group by identity instead of fingerprint equality. */
+  gateId?: string;
 }
 
 /** The 4 pi-coding-agent built-in tools that tool-gate treats as always-active
@@ -104,27 +110,65 @@ export interface EffectiveGates {
  * authoritative, NO hardcoded fallback (ticket 04 deleted the former CORE_TOOLS
  * always-active set — every core member is now owner-declared via tickets 02 +
  * 03; ticket 15 earlier deleted the hardcoded GATES array). A `core:true` def →
- * always-active core; any other `gating` def → a single-name gate; a def without
- * `gating` is simply ungated. Pure: no pi dependency.
+ * always-active core; any other `gating` def → a gate; a def without `gating`
+ * is simply ungated. Pure: no pi dependency.
+ *
+ * Two declaration forms (wayfinder ticket 01, expand–contract):
+ *   - legacy INLINE form — `gating: { keywords, requires? }`: one single-name
+ *     gate per tool, exactly as before (byte-identical output).
+ *   - reference form — `gating: { gate: "<id>" }`: keywords/requires/description
+ *     are resolved from `gateDefs` (default: the shared `GATE_DEFS` registry);
+ *     every tool referencing the same id groups into ONE multi-name gate (the
+ *     co-firing family), in declaration order. An id absent from the registry
+ *     fails OPEN — the tool is treated as ungated (always active), matching the
+ *     standing fail-open posture; the drift-guard test catches such declaration
+ *     bugs at CI time (asserts every referenced id is known).
+ *
+ * `core:true` always wins over a `gate` reference (checked first). A def that
+ * carries both `gate` and inline `keywords`/`requires` uses the registry spec
+ * for keywords/requires and the registry description (falling back to the
+ * tool's description).
  */
 export function buildEffectiveGates(
   defs: Array<{ name: string; description?: string; gating?: Gating }>,
+  gateDefs: Record<string, Gate> = GATE_DEFS,
 ): EffectiveGates {
   const gates: ToolGate[] = [];
   const core = new Set<string>();
+  const byId = new Map<string, ToolGate>(); // gate id → grouped gate (reference form)
   for (const def of defs) {
     const g = def.gating;
     if (!g) continue;
     if (g.core === true) {
       core.add(def.name);
-    } else {
-      gates.push({
-        names: [def.name],
-        keywords: g.keywords ?? [],
-        requires: g.requires,
-        description: def.description ?? "",
-      });
+      continue;
     }
+    if (g.gate != null) {
+      // Reference form: resolve the family spec from the registry once per id.
+      const spec = gateDefs[g.gate];
+      if (!spec) continue; // unknown id → fail-open (untracked, always active)
+      let gate = byId.get(g.gate);
+      if (!gate) {
+        gate = {
+          names: [],
+          keywords: spec.keywords ?? [],
+          requires: spec.requires,
+          description: spec.description ?? def.description ?? "",
+          gateId: g.gate,
+        };
+        byId.set(g.gate, gate);
+        gates.push(gate);
+      }
+      gate.names.push(def.name);
+      continue;
+    }
+    // Legacy inline form — single-name gate, unchanged.
+    gates.push({
+      names: [def.name],
+      keywords: g.keywords ?? [],
+      requires: g.requires,
+      description: def.description ?? "",
+    });
   }
   const tracked = new Set<string>([...core, ...gates.flatMap((g) => g.names)]);
   return { gates, core, tracked };

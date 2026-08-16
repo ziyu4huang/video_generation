@@ -54,6 +54,11 @@ declare global {
     requires?: { nouns: string[]; verbs: string[] };
     /** If true, always active (core/escape-hatch); never gated. */
     core?: boolean;
+    /** Reference to a shared gate family declared in `GATE_DEFS` (exported `Gate`
+     *  type, wayfinder ticket 01). When present, `keywords`/`requires` are
+     *  resolved from the registry instead of inlined per-tool — the first-class
+     *  contract shape that replaces fingerprint reconstruction (phase 01c). */
+    gate?: string;
   }
 }
 

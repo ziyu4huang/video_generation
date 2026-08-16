@@ -44,7 +44,8 @@
  * heavy overlay/widget/globalThis side effects unrelated to tool registration);
  * tool-gate's default factory registers enable_tool.
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import {
 	MIGRATED_EXTENSIONS,
 	captureRegisteredTools,
@@ -56,8 +57,16 @@ import {
  * Pure gating validator — the heart of the drift-guard. Throws on:
  *   - missing/null `gating` (declaration bug), or
  *   - a DEAD GATE: non-core gating with no keywords and no fireable requires
- *     (can never fire = declaration bug). Factored out so the NEGATIVE cases
- *     can assert it throws via expect().toThrow.
+ *     (can never fire = declaration bug), or
+ *   - an UNKNOWN gate reference: `gating: { gate: "<id>" }` where `<id>` is
+ *     absent from the shared `GATE_DEFS` registry (wayfinder ticket 01
+ *     reference form — the runtime fails open, the guard fails loudly).
+ * Factored out so the NEGATIVE cases can assert it throws via expect().toThrow.
+ *
+ * The reference form (`g.gate`) validates the RESOLVED registry spec: the id
+ * must exist AND the spec must be fireable (≥1 keyword, or requires with ≥1
+ * noun AND ≥1 verb). Inline fields on the def are ignored when a reference is
+ * present — keywords/requires come from the registry, not the def.
  */
 export function validateGating(def: ToolDef): void {
 	if (!def || typeof def !== "object") throw new Error("invalid tool def");
@@ -65,13 +74,22 @@ export function validateGating(def: ToolDef): void {
 	if (def.gating == null) throw new Error(`'${name}' is missing owner-declared gating`);
 	const g = def.gating;
 	if (g.core === true) return; // core/escape-hatch — exempt from the dead-gate check
+	// Resolve the effective spec: reference form reads the shared registry;
+	// inline form reads the def's own fields.
+	const spec = g.gate != null ? GATE_DEFS[g.gate] : g;
+	if (g.gate != null && !spec) {
+		throw new Error(
+			`'${name}' references unknown gate id '${g.gate}' — declare it in GATE_DEFS ` +
+				`(or fix the reference)`,
+		);
+	}
 	// DEAD-GATE check (mirrors gateFires): a non-core gate can fire iff it has
 	// ≥1 keyword OR a requires with ≥1 noun AND ≥1 verb. Anything else can NEVER
 	// fire = dead gate = declaration bug. FOLLOWUPS #8: the prior check treated
 	// ANY non-null object as "has requires", letting `requires:{}` (and noun-only /
 	// verb-only) slip through as non-dead.
-	const hasKeywords = Array.isArray(g.keywords) && g.keywords.length > 0;
-	const req = g.requires;
+	const hasKeywords = Array.isArray(spec.keywords) && spec.keywords.length > 0;
+	const req = spec.requires;
 	const hasNoun = Array.isArray(req?.nouns) && req.nouns.length > 0;
 	const hasVerb = Array.isArray(req?.verbs) && req.verbs.length > 0;
 	const canFireRequires = hasNoun && hasVerb;
@@ -299,5 +317,57 @@ describe("drift-guard — rollout regression net (iterates MIGRATED_EXTENSIONS)"
 		expect(() => runDriftGuardNet([ext])).toThrow(
 			/lists 'ghost_tool' in ungatedByDesign but does not register it/,
 		);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Reference form (wayfinder ticket 01): `gating: { gate: "<id>" }` resolves
+// keywords/requires/description from the shared GATE_DEFS registry. The net
+// must validate the RESOLVED spec, not the (empty) inline fields.
+// ────────────────────────────────────────────────────────────────────
+describe("drift-guard — reference form (gating:{gate:id})", () => {
+	const saved = { ...GATE_DEFS };
+	afterEach(() => {
+		// Restore the shared registry — tests must not leak declared gates.
+		for (const k of Object.keys(GATE_DEFS)) delete GATE_DEFS[k];
+		Object.assign(GATE_DEFS, saved);
+	});
+
+	test("reference to a known fireable gate id passes the net", () => {
+		GATE_DEFS["flux2"] = { id: "flux2", keywords: ["flux", "flux2"] };
+		const def = { name: "flux2", gating: { gate: "flux2" } } as ToolDef;
+		expect(() => validateGating(def)).not.toThrow();
+	});
+
+	test("reference form uses the REGISTRY spec — inline fields on the def are ignored", () => {
+		// The def carries no keywords at all; fireability must come from GATE_DEFS.
+		GATE_DEFS["ltx"] = { id: "ltx", requires: { nouns: ["video"], verbs: ["generate"] } };
+		const def = { name: "ltx", gating: { gate: "ltx" } } as ToolDef;
+		expect(() => validateGating(def)).not.toThrow();
+	});
+
+	test("NEGATIVE: reference to an UNKNOWN gate id fails the net (declaration bug)", () => {
+		const def = { name: "ghost", gating: { gate: "no-such-gate" } } as ToolDef;
+		expect(() => validateGating(def)).toThrow(/references unknown gate id 'no-such-gate'/);
+	});
+
+	test("NEGATIVE: reference to a DEAD registry spec fails the net", () => {
+		// A registered id whose spec has no keywords and no fireable requires can
+		// never fire — same dead-gate rule, applied to the resolved spec.
+		GATE_DEFS["dead"] = { id: "dead" };
+		const def = { name: "dead_tool", gating: { gate: "dead" } } as ToolDef;
+		expect(() => validateGating(def)).toThrow(/DEAD GATE/);
+	});
+
+	test("reference + inline both present: the registry spec wins (reference is authoritative)", () => {
+		GATE_DEFS["mix"] = { id: "mix", keywords: ["registry-kw"] };
+		const def = { name: "mix_tool", gating: { gate: "mix", keywords: ["inline-kw"] } } as ToolDef;
+		expect(() => validateGating(def)).not.toThrow();
+	});
+
+	test("core:true wins over a gate reference (a core tool with a stray id is still core)", () => {
+		GATE_DEFS["corex"] = { id: "corex", keywords: ["x"] };
+		const def = { name: "tool", gating: { core: true, gate: "corex" } } as ToolDef;
+		expect(() => validateGating(def)).not.toThrow();
 	});
 });

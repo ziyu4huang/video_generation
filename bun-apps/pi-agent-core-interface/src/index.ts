@@ -1,4 +1,7 @@
 /// <reference path="./tool-gating.d.ts" />
+// First-class gate contract (wayfinder ticket 01): the exported `Gate` type +
+// shared `GATE_DEFS` registry. Importable — no ambient-global dependency.
+export { GATE_DEFS, type Gate } from "./gates.js";
 export { SEAM_KEYS, SEAM_KEY_ENTRIES, type SeamKey } from "./seam-keys.js";
 export { publishSeam, readSeam, type SeamImplMap } from "./seam.js";
 export type {

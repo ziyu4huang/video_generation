@@ -39,6 +39,7 @@
  * `hasKeywords || canFireRequires`); there are 0 today, so this is latent.
  */
 import { describe, expect, test } from "bun:test";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import { MIGRATED_EXTENSIONS, captureRegisteredTools, type ToolDef } from "./migrated-extensions.ts";
 import { gateGatingKey } from "./tool-gate.ts";
 
@@ -63,6 +64,13 @@ interface GateRow {
  * adapting the def into the minimal ToolGate shape that function reads
  * (`names` and `description` are ignored by it).
  *
+ * Reference-form defs (`gating: { gate: id }`, wayfinder ticket 01) are
+ * resolved through the shared GATE_DEFS registry first — their effective
+ * keywords/requires come from the registry, so two tools referencing the same
+ * id fingerprint identically (same family) by construction. An unknown id is
+ * treated as EMPTY keywords (the runtime fails open) — the drift-guard's
+ * validateGating is the loud guard for unknown ids.
+ *
  * Normalizing `requires` is deliberate, not incidental: ToolGate's CoOccurrence
  * declares `nouns`/`verbs` as REQUIRED string[], while a captured def types them
  * as optional unknown[]. Passing `undefined` through when the def has no
@@ -71,11 +79,14 @@ interface GateRow {
  */
 function fingerprintOf(def: ToolDef): string {
 	const g = def.gating ?? {};
-	const req = g.requires;
+	// Reference form: resolve keywords/requires from the shared registry.
+	const spec = g.gate != null ? GATE_DEFS[g.gate] : undefined;
+	const keywords = spec?.keywords ?? g.keywords ?? [];
+	const req = spec?.requires ?? g.requires;
 	return gateGatingKey({
 		names: [def.name ?? "<anonymous>"],
 		description: "",
-		keywords: g.keywords ?? [],
+		keywords,
 		requires: req
 			? { nouns: (req.nouns ?? []) as string[], verbs: (req.verbs ?? []) as string[] }
 			: undefined,
@@ -89,10 +100,14 @@ function collectGateRows(extensions: typeof MIGRATED_EXTENSIONS): GateRow[] {
 		for (const def of captureRegisteredTools(ext.register)) {
 			const g = def.gating;
 			if (!g || g.core === true) continue;
+			// Reference form (ticket 01): effective keywords come from the shared
+			// registry, not the def — resolve so the overlap guard compares what
+			// the gate ACTUALLY matches, not the (empty) inline field.
+			const spec = g.gate != null ? GATE_DEFS[g.gate] : undefined;
 			rows.push({
 				tool: def.name ?? "<anonymous>",
 				ext: ext.name,
-				keywords: [...(g.keywords ?? [])],
+				keywords: [...(spec?.keywords ?? g.keywords ?? [])],
 				fingerprint: fingerprintOf(def),
 			});
 		}
