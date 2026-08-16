@@ -1,12 +1,8 @@
-// TSNOCHECK-OFF — pre-existing type errors, never checked before this file
-// became reachable via pi-agent's static import (src/static-extensions.ts);
-// see that file's header comment for the full rationale. Runtime unaffected
-// (Bun doesn't enforce types).
 import { existsSync, readFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { activityMonitor } from "./activity.ts";
 import type { SearchOptions, SearchResponse, SearchResult } from "./perplexity.ts";
-import { getWebSearchConfigPath } from "./utils.ts";
+import { dropNullHeaders, getWebSearchConfigPath } from "./utils.ts";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses";
@@ -119,9 +115,28 @@ function extractAccountId(token: string): string | undefined {
 	return typeof id === "string" && id.trim().length > 0 ? id.trim() : undefined;
 }
 
+/**
+ * `getModel` as an EXISTENCE PROBE.
+ *
+ * Its parameter type is the LIVE model catalog, but the candidate list below is
+ * deliberately a superset: a miss simply falls through to the next candidate,
+ * which is the graceful-degradation this function is built on. Probing a retired
+ * id is therefore a type error describing correct behaviour.
+ *
+ * It is still reporting something true. These candidates are no longer in the
+ * catalog and can never resolve: gpt-5.3-codex, gpt-5.2, gpt-5.2-codex,
+ * gpt-4.1-mini, gpt-4o. They are kept rather than pruned here because whether an
+ * older deployment should still match them is a product call, not a type call.
+ */
+type ModelProbe = (
+	provider: string,
+	modelId: string,
+) => ReturnType<typeof import("@earendil-works/pi-ai/compat").getModel>;
+
 export async function resolveOpenAIAuth(ctx?: ExtensionContext): Promise<OpenAIAuth | undefined> {
 	if (ctx) {
-		const { getModel } = await import("@earendil-works/pi-ai/compat");
+		const { getModel: rawGetModel } = await import("@earendil-works/pi-ai/compat");
+		const getModel = rawGetModel as ModelProbe;
 		for (const candidate of AUTH_MODEL_CANDIDATES) {
 			for (const modelId of candidate.models) {
 				const model = getModel(candidate.provider, modelId);
@@ -133,7 +148,7 @@ export async function resolveOpenAIAuth(ctx?: ExtensionContext): Promise<OpenAIA
 							provider: candidate.provider,
 							apiKey: resolved.apiKey,
 							model: modelId,
-							headers: resolved.headers ?? {},
+							headers: dropNullHeaders(resolved.headers),
 						};
 					}
 				} catch {

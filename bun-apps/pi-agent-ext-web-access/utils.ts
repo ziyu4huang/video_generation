@@ -55,3 +55,20 @@ export function mapFfmpegError(err: unknown): string {
 	const snippet = trimErrorText(stderr || message);
 	return snippet ? `ffmpeg failed: ${snippet}` : "ffmpeg failed";
 }
+
+/**
+ * Drop `null`-valued headers.
+ *
+ * A provider's header map may hold `null`; request headers may not. Nulls
+ * survived into `Record<string, string>` only because both call sites were
+ * unchecked — each would have reached fetch as the literal string "null".
+ */
+export function dropNullHeaders(
+	headers: Record<string, string | null> | undefined,
+): Record<string, string> {
+	const out: Record<string, string> = {};
+	for (const [k, v] of Object.entries(headers ?? {})) {
+		if (typeof v === "string") out[k] = v;
+	}
+	return out;
+}
