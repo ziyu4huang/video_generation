@@ -32,6 +32,7 @@ import type { CardStore } from "../store/card-store.js";
 import type { VectorStore } from "../store/surreal/vector-store.js";
 import type { Embedder } from "../store/surreal/embedder.js";
 import { planningContentHash } from "../store/planning-sync-state.js";
+import { upsertCachedCardVectors } from "../store/card-vectors-cache.js";
 
 export const VECTOR_BACKFILL_SHUTDOWN_TIMEOUT_MS = 5000;
 /** Embedding batch size — matches the embedder default (LM Studio /v1/embeddings
@@ -71,6 +72,8 @@ export function createVectorBackfillState(): VectorBackfillState {
 }
 
 export interface ScheduleVectorBackfillOptions {
+  /** kp18 T5b: mirror target dir for `card-vectors-cache.json`. Optional — unset → no mirror. */
+  memoryDir?: string;
   notify?: NotifyFn;
   state?: VectorBackfillState;
   setTimeoutFn?: SetTimeoutFn;
@@ -218,6 +221,25 @@ export function scheduleVectorBackfill(
             modelVersion,
           }));
           await timed("vectorBackfill.upsertVectors", () => vectorStore.upsertVectors(entries));
+          // kp18 T5b: mirror the batch into the hermes-side JSON cache so the memory
+          // cold path can cosine locally while SurrealDB is down. Best-effort — a
+          // mirror failure never breaks the backfill.
+          if (options.memoryDir) {
+            try {
+              upsertCachedCardVectors(
+                options.memoryDir,
+                entries.map((e) => ({
+                  mdId: e.mdId,
+                  kind: e.kind,
+                  embedModel,
+                  contentHash: e.contentHash,
+                  vec: Array.from(e.vec ?? []),
+                })),
+              );
+            } catch {
+              /* best-effort mirror */
+            }
+          }
           for (const c of batch) stored.set(c.mdId, c.contentHash);
           embedded += batch.length;
         }

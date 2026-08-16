@@ -25,6 +25,10 @@ import type { VectorStore, VectorKnnHit } from "../../src/store/surreal/vector-s
 import type { Embedder } from "../../src/store/surreal/embedder.js";
 import type { KnowledgePipeline, RetrieveResult } from "@repo/pi-agent-core-interface";
 import type { MemoryRepository, MemoryEntry } from "../../src/store/repository.js";
+import { upsertCachedCardVectors } from "../../src/store/card-vectors-cache.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const EVEC: number[] = [1, 0, 0]; // the canned embedded query vector
 
@@ -835,5 +839,95 @@ describe("searchSemantic — multi-signal frequency vote (ticket 20 T1)", () => 
     });
     expect(hits.map((h) => h.mdId)).toEqual(["mem-1"]);
     expect(hits[0].signalCount).toBeUndefined(); // fallback hits never get signalCount
+  });
+});
+
+
+describe("T5(b) hermes-cosine memory degrade (kp18 / hermes-arch 10)", () => {
+  const mkDir = () => mkdtempSync(join(tmpdir(), "hermes-cosine-"));
+  const lexRepo = () => {
+    const searchMemories = mock(async () => [{ mdId: "md-lex" }] as never);
+    return { searchMemories, repo: { searchMemories } as never };
+  };
+
+  it("knn-throw + embed OK + matching cache → hermes-cosine, similarity-ordered, lexical NOT called", async () => {
+    const dir = mkDir();
+    try {
+      upsertCachedCardVectors(dir, [
+        { mdId: "md-align", kind: "memory", embedModel: "m-test", contentHash: "h1", vec: [1, 0, 0] },
+        { mdId: "md-orth", kind: "memory", embedModel: "m-test", contentHash: "h2", vec: [0, 1, 0] },
+        { mdId: "md-k-kind", kind: "knowledge", embedModel: "m-test", contentHash: "h3", vec: [1, 0, 0] },
+        { mdId: "md-model", kind: "memory", embedModel: "other", contentHash: "h4", vec: [1, 0, 0] },
+      ]);
+      const { searchMemories, repo } = lexRepo();
+      const hits = await searchSemantic({
+        queryText: "anything",
+        kind: "memory",
+        model: "m-test",
+        embedder: fakeEmbedder(),
+        vectorStore: throwingVectorStore(),
+        memoryRepo: repo,
+        memoryDir: dir,
+        topK: 5,
+      } as never);
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits.every((h) => h.source === "hermes-cosine")).toBe(true);
+      expect(hits.map((h) => h.mdId)).toEqual(["md-align", "md-orth"]);
+      expect((searchMemories.mock.calls as unknown[][]).length).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("cache EMPTY → lexical floor unchanged", async () => {
+    const dir = mkDir();
+    try {
+      const { repo } = lexRepo();
+      const hits = await searchSemantic({
+        queryText: "anything", kind: "memory", model: "m-test",
+        embedder: fakeEmbedder(), vectorStore: throwingVectorStore(),
+        memoryRepo: repo, memoryDir: dir, topK: 5,
+      } as never);
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits[0].source).toBe("memory-lexical");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("cache present but embedModel differs → lexical floor", async () => {
+    const dir = mkDir();
+    try {
+      upsertCachedCardVectors(dir, [
+        { mdId: "md-model", kind: "memory", embedModel: "other", contentHash: "h4", vec: [1, 0, 0] },
+      ]);
+      const { repo } = lexRepo();
+      const hits = await searchSemantic({
+        queryText: "anything", kind: "memory", model: "m-test",
+        embedder: fakeEmbedder(), vectorStore: throwingVectorStore(),
+        memoryRepo: repo, memoryDir: dir, topK: 5,
+      } as never);
+      expect(hits[0].source).toBe("memory-lexical");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("embed fails (LM Studio down) + cache present → lexical floor (no query vec → no cosine)", async () => {
+    const dir = mkDir();
+    try {
+      upsertCachedCardVectors(dir, [
+        { mdId: "md-align", kind: "memory", embedModel: "m-test", contentHash: "h1", vec: [1, 0, 0] },
+      ]);
+      const { repo } = lexRepo();
+      const hits = await searchSemantic({
+        queryText: "anything", kind: "memory", model: "m-test",
+        embedder: throwingEmbedder(), vectorStore: throwingVectorStore(),
+        memoryRepo: repo, memoryDir: dir, topK: 5,
+      } as never);
+      expect(hits[0].source).toBe("memory-lexical");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
