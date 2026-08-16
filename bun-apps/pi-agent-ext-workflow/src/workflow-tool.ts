@@ -35,8 +35,13 @@ import { loadWorkflowSettings } from "./workflow-settings.js";
  * This string is injected into the workflow tool's promptGuidelines and
  * therefore appears in the LLM's system prompt for every workflow execution.
  */
-export async function modelRoutingGuideline(): Promise<string> {
-  const available = await listAvailableModelSpecs();
+export async function modelRoutingGuideline(scopedSpecs?: readonly string[]): Promise<string> {
+  // Session scope (--models / enabledModels) narrows what the model may route
+  // to. Without this the guideline advertised the FULL catalog while telling
+  // the model "route only to these" — so under a scoped session we asked for
+  // models the session had excluded and then silently clamped the resulting
+  // dispatches. The picker and the prompt now agree.
+  const available = scopedSpecs?.length ? [...scopedSpecs] : await listAvailableModelSpecs();
   const list = available.length
     ? `The user's currently available models (route only to these) are: ${available.join(", ")}.`
     : "Use models the user has configured.";
@@ -273,7 +278,7 @@ export function buildSimplifiedGuidelines(): string[] {
  * the simplified set defers to workflow_help. Extracted verbatim from the old
  * static promptGuidelines so verbose-mode behavior is byte-identical.
  */
-export async function buildVerboseGuidelines(): Promise<string[]> {
+export async function buildVerboseGuidelines(scopedModels?: readonly string[]): Promise<string[]> {
   return [
     "Use workflow only when the user explicitly asks for a workflow, workflows, fan-out, or multi-agent orchestration.",
     "For workflow, always pass one raw JavaScript string in the required script parameter; do not include Markdown fences or prose around the script.",
@@ -292,7 +297,7 @@ export async function buildVerboseGuidelines(): Promise<string[]> {
     "For workflow, failed agent(), parallel(), or pipeline() branches return null and log the failure unless the workflow is aborted. Check for nulls before synthesizing conclusions.",
     "For workflow, include a final synthesis/assertion agent when combining multiple subagent results; return a compact JSON-serializable value with ok/verdict plus the important outputs.",
     "For workflow, if agent() needs machine-readable output, pass a plain JSON Schema via opts.schema; agent() will return the validated object. Use JSON Schema syntax, not TypeScript or TypeBox constructors.",
-    await modelRoutingGuideline(),
+    await modelRoutingGuideline(scopedModels),
     agentTypeGuideline(),
     "For workflow, do not assume the parent assistant has repository code context inside subagents; include enough task context and relevant paths in each agent prompt.",
     "For workflow, runs are background by default: the tool returns immediately with a run ID, the turn ends so the user isn't blocked, and the result is delivered back into the conversation when the run finishes. Pass background: false only when you must use the result inline in this same turn (it will block).",
@@ -345,6 +350,14 @@ export interface WorkflowGuidelinesForTurnOptions {
   full: boolean;
   /** When full, use the verbose ~22-bullet set instead of the default ~12. */
   verbose?: boolean;
+  /**
+   * The session's model scope (`provider/id` specs from --models /
+   * enabledModels). When non-empty, the model-routing bullet advertises ONLY
+   * these instead of the full catalog — otherwise the prompt tells the model to
+   * "route only to" models the session has excluded, and the resulting
+   * dispatches get silently clamped. Empty/undefined = full catalog.
+   */
+  scopedModels?: readonly string[];
 }
 
 /**
@@ -355,7 +368,9 @@ export interface WorkflowGuidelinesForTurnOptions {
  */
 export async function buildWorkflowGuidelinesForTurn(options: WorkflowGuidelinesForTurnOptions): Promise<string> {
   if (options.full) {
-    return (options.verbose ? await buildVerboseGuidelines() : buildSimplifiedGuidelines()).join("\n");
+    return (options.verbose ? await buildVerboseGuidelines(options.scopedModels) : buildSimplifiedGuidelines()).join(
+      "\n",
+    );
   }
   return buildWorkflowPointerGuideline();
 }
@@ -634,7 +649,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
  * RESULT (conversation history), so it appears only when requested. Register
  * it alongside createWorkflowTool() at the same call site.
  */
-export function createWorkflowHelpTool() {
+export function createWorkflowHelpTool(options: { getScopedModels?: () => readonly string[] | undefined } = {}) {
   return defineTool({
     name: "workflow_help",
     label: "Workflow Reference",
@@ -672,7 +687,10 @@ export function createWorkflowHelpTool() {
           text = workflowPatternsDoc();
           break;
         case "models":
-          text = await modelRoutingGuideline();
+          // Scoped, for the same reason the always-on guideline is: the
+          // "route only to these" list must not name a model the session
+          // has excluded.
+          text = await modelRoutingGuideline(options.getScopedModels?.());
           break;
         default:
           text =

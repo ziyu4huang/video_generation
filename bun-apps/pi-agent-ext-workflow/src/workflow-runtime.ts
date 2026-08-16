@@ -20,7 +20,7 @@ import { buildCallGlobal } from "./call-global.js";
 import { MAX_AGENT_RETRIES } from "./config.js";
 import type { HostFnAskOptions } from "./host-fn-registry.js";
 import type { createWorkflowLogger } from "./logger.js";
-import { clampModelToScope, type parseModelRoutingFromMeta, resolveModelForPhase } from "./model-routing.js";
+import { type parseModelRoutingFromMeta, resolveModelForPhase } from "./model-routing.js";
 import type {
   AgentFn,
   AgentOptions,
@@ -282,20 +282,20 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     shared.agentCount++;
     const label = requestedLabel || defaultAgentLabel(assignedPhase, shared.agentCount);
 
-    // Session scope (ticket 11): clamp an out-of-scope spec to the first scoped
-    // model — warn-and-clamp, never a hard error. Empty scope = full catalog.
-    // callHash deliberately keeps the UNCLAMPED spec so the journal key stays
-    // stable across scope toggles (a resumed prefix replays identically), and
-    // in-flight runs are not mutated — scope is applied per dispatch only.
-    let effectiveSpec = modelSpec;
-    if (modelSpec && options.scopedModels && options.scopedModels.length > 0) {
-      const { spec, clamped } = clampModelToScope(modelSpec, options.scopedModels);
-      if (clamped) {
-        log(`${label}: model "${modelSpec}" out of session scope — clamped to "${spec}"`);
-        effectiveSpec = spec;
-        displayModel = spec;
-      }
-    }
+    // Session scope (ticket 11) is NOT applied here any more. This layer only
+    // ever sees a concrete spec on the opts.model branch — the tier and
+    // untagged-default branches leave modelSpec undefined so they can resolve
+    // downstream — so clamping here covered one path and silently missed the
+    // two the tool's own guideline steers authors toward. The clamp now lives
+    // in core-runtime's agent-model.ts, applied once below resolveAgentModelSpec
+    // where every branch has become a concrete spec; scopedModels is threaded to
+    // the WorkflowAgent via WorkflowRunOptions.
+    //
+    // callHash is computed ABOVE from the unclamped spec and stays that way, so
+    // the journal key is stable across scope toggles (a resumed prefix replays
+    // identically). displayModel likewise keeps the REQUESTED spec until
+    // onModelResolved reports the real one the session was created with — which
+    // is the clamped model, so /workflows still ends up showing the truth.
 
     // Longest-unchanged-prefix resume: replay a cached result only while the
     // prefix is still intact — this call's index is before the first changed/new
@@ -378,7 +378,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
                   schema: agentOptions.schema,
                   signal,
                   instructions: buildAgentInstructions(assignedPhase, agentOptions, agentDef, resolvedIsolation),
-                  model: effectiveSpec,
+                  model: modelSpec,
                   tier: agentOptions.tier,
                   toolNames: agentDef?.tools,
                   disallowedToolNames: agentDef?.disallowedTools,

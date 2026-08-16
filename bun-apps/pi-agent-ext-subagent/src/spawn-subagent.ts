@@ -97,6 +97,14 @@ export interface SpawnSubagentOptions {
    * unknown-tier warning can name the fallback model.
    */
   mainModel?: string;
+  /**
+   * The parent session's model scope (`provider/id` specs from `--models` /
+   * `enabledModels`). Empty/undefined = full catalog. Threaded into
+   * WorkflowAgent, which clamps the child's resolved model into scope AFTER
+   * the explicit > capability > tier > mainModel precedence has run — so no
+   * single branch of that chain can route outside the scope.
+   */
+  scopedModels?: readonly string[];
   /** Fires with the concrete `provider/id` the child actually runs on, once known. */
   onModelResolved?: (modelId: string) => void;
   /** Fires when a requested model/tier spec couldn't be resolved (fell back). */
@@ -292,6 +300,7 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
       cwd: opts.cwd,
       extensionTools: opts.extensionTools,
       mainModel: opts.mainModel,
+      scopedModels: opts.scopedModels,
       session: resolveSessionOverride(opts.session, opts.modelRuntime),
     });
   const retry = opts.retryOnTransient !== false;

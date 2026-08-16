@@ -1,9 +1,11 @@
 /**
- * Model-spec resolution and tier fallback for a subagent run: which concrete
- * model an agent should use (explicit > tier > default-medium-tier), and what
- * to fall back to when a resolved spec turns out to be unavailable.
+ * Model-spec resolution, session-scope clamping, and tier fallback for a
+ * subagent run: which concrete model an agent should use (explicit > tier >
+ * default-medium-tier), whether that model is inside the session's allowed
+ * scope, and what to fall back to when a resolved spec turns out to be
+ * unavailable.
  *
- * Both functions are pure/injectable over model-tier-config.js only — neither
+ * All functions are pure/injectable over model-tier-config.js only — none
  * closes over CoreAgent or session state. That keeps this module a thin,
  * independently-testable layer between model-tier-config.ts and its callers:
  * anything needing only model/tier resolution can depend on this file without
@@ -56,6 +58,79 @@ export function resolveAgentModelSpec(
     if (medium) return medium;
   }
   return undefined;
+}
+
+/**
+ * Clamp a resolved model spec (`provider/id`) to the session's scoped models
+ * (`ctx.scopedModels`, fed by CLI `--models` / `enabledModels`).
+ *
+ * Contract:
+ * - empty/undefined scope → the request stands unchanged (full-catalog);
+ * - spec already in scope → unchanged;
+ * - out of scope → warn-and-clamp, never a hard error.
+ *
+ * WHERE IT LIVES, AND WHY HERE
+ *   This started life in pi-agent-ext-workflow, applied to `opts.model` inside
+ *   workflow-runtime. That covered ONE dispatch path. `opts.tier` sets
+ *   `modelSpec` to undefined at that layer on purpose (the tier resolves later),
+ *   so the tier path — the path `modelRoutingGuideline` actively steers authors
+ *   toward with "TAG EVERY agent with opts.tier" — went out of scope unclamped,
+ *   as did the untagged default-to-medium path. Both resolve through
+ *   {@link resolveAgentModelSpec}, so the clamp belongs next to it: one rule,
+ *   applied once, downstream of every precedence branch.
+ *
+ * FALLBACK CHOICE
+ *   Prefer `mainModel` when it is itself in scope: it is the user's actual
+ *   session model, so a clamped `big`-tier agent lands on something deliberate.
+ *   The previous rule — always the FIRST scoped spec — meant an expensive
+ *   synthesis agent silently ran on whatever `--models` happened to list first.
+ *   `scopedSpecs[0]` remains the fallback-of-the-fallback for when there is no
+ *   main model or it is out of scope, which preserves the old behavior exactly
+ *   in those cases.
+ *
+ * Pure: no I/O, no logging — callers own the warning surface.
+ */
+export function clampModelToScope(
+  requestedSpec: string,
+  scopedSpecs: readonly string[] | undefined,
+  mainModel?: string,
+): { spec: string; clamped: boolean } {
+  // Destructure rather than test `.length === 0`: it states the same "empty
+  // scope" condition AND gives the compiler the narrowing it needs for the
+  // clamp return. `scopedSpecs[0]` is `string | undefined` under
+  // noUncheckedIndexedAccess, which the length check does not refute.
+  const [first] = scopedSpecs ?? [];
+  if (first === undefined) return { spec: requestedSpec, clamped: false };
+  if (scopedSpecs?.includes(requestedSpec)) return { spec: requestedSpec, clamped: false };
+  const fallback = mainModel !== undefined && scopedSpecs?.includes(mainModel) ? mainModel : first;
+  return { spec: fallback, clamped: true };
+}
+
+/**
+ * Resolve + clamp in one step: the exact composition `CoreAgent.run` performs.
+ *
+ * It exists as a named function rather than two calls at the call site so the
+ * guard test can enumerate EVERY precedence path — explicit model, agentType /
+ * phase model (both folded into `options.model` upstream), tier, unknown tier,
+ * and the untagged default-to-medium — against the real composition. Testing
+ * `resolveAgentModelSpec` and `clampModelToScope` separately proves each is
+ * right and proves nothing about whether the second is reached from every
+ * branch of the first, which is precisely the defect this closes.
+ *
+ * `spec` is undefined only when resolution yields nothing (session default
+ * applies); the session's own model is already inside its scope, so there is
+ * nothing to clamp in that case.
+ */
+export function resolveScopedAgentModelSpec(
+  options: { model?: string; tier?: string },
+  mainModel: string | undefined,
+  scopedSpecs: readonly string[] | undefined,
+  loadConfig: () => ModelTierConfig | null = loadModelTierConfig,
+): { spec: string | undefined; clamped: boolean; requested?: string } {
+  const resolved = resolveAgentModelSpec(options, mainModel, loadConfig);
+  if (resolved === undefined) return { spec: undefined, clamped: false };
+  const { spec, clamped } = clampModelToScope(resolved, scopedSpecs, mainModel);
+  return clamped ? { spec, clamped, requested: resolved } : { spec, clamped };
 }
 
 /**

@@ -28,6 +28,9 @@ export default function extension(pi: ExtensionAPI) {
   const cwd = process.cwd();
   const extensionToolsHolder: { current: ToolDefinition[] | undefined } = { current: undefined };
   const mainModelHolder: { current: string | undefined } = { current: undefined };
+  // Session model scope (--models / enabledModels). Snapshotted at session_start
+  // like mainModelHolder; empty means the full catalog, i.e. no clamping.
+  const scopedModelsHolder: { current: readonly string[] | undefined } = { current: undefined };
 
   const inFlight = getSubagentInFlightRegistry();
   const persistence = getSubagentRunPersistence();
@@ -36,6 +39,7 @@ export default function extension(pi: ExtensionAPI) {
     cwd,
     getExtensionTools: () => extensionToolsHolder.current,
     getMainModel: () => mainModelHolder.current,
+    getScopedModels: () => scopedModelsHolder.current,
     // Parent's gated active set, read lazily at spawn time so a child inherits
     // the freshest ~24-tool gated set (optimization #1), not the full ~55-tool
     // universe. Best-effort: getActiveTools may be unavailable in some hosts.
@@ -73,6 +77,7 @@ export default function extension(pi: ExtensionAPI) {
     cwd,
     getExtensionTools: () => extensionToolsHolder.current,
     getMainModel: () => mainModelHolder.current,
+    getScopedModels: () => scopedModelsHolder.current,
     getActiveTools: () => {
       try {
         return pi.getActiveTools();
@@ -145,6 +150,7 @@ export default function extension(pi: ExtensionAPI) {
       extensionToolsHolder.current = extTools;
     }
     mainModelHolder.current = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+    scopedModelsHolder.current = (ctx.scopedModels ?? []).map((sm) => `${sm.model.provider}/${sm.model.id}`);
   });
 
   // Track runtime model switches (e.g. /model, model cycling): future dispatches

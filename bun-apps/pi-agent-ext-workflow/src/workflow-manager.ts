@@ -334,6 +334,16 @@ export class WorkflowManager extends EventEmitter {
   }
 
   /**
+   * The session's model scope, captured at session_start. Read by the guideline
+   * builder so the prompt advertises the SAME set the dispatch clamp enforces —
+   * they disagreed before, and the prompt was the one telling the model to
+   * "route only to" models the session had excluded.
+   */
+  getScopedModels(): readonly string[] | undefined {
+    return this.scopedModels;
+  }
+
+  /**
    * The session's current model (provider/id), captured at session_start. Used by
    * the `subagent` tool so an untagged dispatch defaults to the live session model
    * instead of a stale medium tier. Undefined before session_start fires.
