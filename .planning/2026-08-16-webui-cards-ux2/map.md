@@ -11,5 +11,5 @@ Goal: two user-reported card UX gaps + one correctness bug. (1) answered questio
   - D5 delivery: card_send -> JSONL decision log + pi.sendUserMessage("[card <id>] <title>: <answers JSON>") — injects like typed input at the next turn boundary (de-chat left this seam available; agentic frames stay retired).
 - Tickets:
   | # | ticket | status | result |
-  | 01 | answer round-trip fix + reviewable answered cards + no appendix echo | open | — |
+  | 01 | answer round-trip fix + reviewable answered cards + no appendix echo | closed | — |
   | 02 | non-blocking draft cards (blocking flag, card_send, sendUserMessage injection) + tests/docs | open | — |
