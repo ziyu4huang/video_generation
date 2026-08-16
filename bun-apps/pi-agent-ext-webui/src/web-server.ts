@@ -159,7 +159,7 @@ export type CommandHandler = (
 export type HttpRouteHandler = (
   req: Request,
   srv: Server<undefined>
-) => Response | null;
+) => Response | Promise<Response> | null; // tab-views (02): async-capable (fetch() awaits; null still falls through)
 
 export interface WebServerOptions {
   /** Requested port; 0 (default) = OS-assigned ephemeral. */

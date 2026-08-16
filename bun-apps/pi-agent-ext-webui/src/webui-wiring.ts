@@ -843,7 +843,7 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // Phase 4 (spec Component 5): chain the /output serving route BEHIND the
   // render routes — render answers first (incl. GET / shell), output serves
   // /output/{...}, everything else falls through to the WebServer defaults.
-  const renderRoutes = createRenderRoutes(registry);
+  const renderRoutes = createRenderRoutes(registry, { onReport: (frame) => broadcaster.broadcast(frame) }); // tab-views (02): POST /api/report -> live broadcast + store append (replay)
   // ticket 06 (archify-webui-html spec §4.1): /files serves full-fidelity HTML
   // from the configured root allowlist — chained AFTER render routes, BEFORE
   // output routes (the spec-pinned registration order).
