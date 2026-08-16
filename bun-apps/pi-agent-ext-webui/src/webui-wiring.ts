@@ -41,6 +41,9 @@ import { WebTransport } from "./web-transport.js";
 import { WebServer, type CommandHandler, type HttpRouteHandler } from "./web-server.js";
 import type { Broadcaster } from "./broadcaster.js";
 import type { ClientFrame, DispatchAction, WebFrame } from "./protocol.js";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import * as path from "node:path";
 import { RenderService } from "./render-service.js";
 import { createRenderRoutes } from "./render-routes.js";
 import { createOutputRoutes } from "./output-routes.js";
@@ -196,6 +199,13 @@ export interface WebuiDeps {
    * every path.
    */
   fileRoots?: string[];
+  /**
+   * event-cards (02): root dir for the per-session JSONL decision log — one
+   * `<cardsDir>/<sessionStamp>/cards.jsonl` line per ANSWERED interactive
+   * card (`{ ts, cardId, answers }`, D3). Default `~/.pi/webui/sessions`.
+   * Injectable so tests use a tmp fixture — tests must NEVER touch ~/.pi.
+   */
+  cardsDir?: string;
 }
 
 /**
@@ -261,6 +271,20 @@ const REAL_CLOCK: MutexClock = {
     return { clear: () => globalThis.clearInterval(id) };
   },
 };
+
+/**
+ * event-cards (02): the per-session decision-log dir name — `YYYYMMDD-HHmmss`
+ * from the session_start wall clock. Same-second session restarts share a
+ * stamp dir (the JSONL is append-only, so lines never clobber — documented
+ * shipped behavior). Pure: grid-able without a wiring.
+ */
+export function formatSessionStamp(d: Date): string {
+  const p = (n: number): string => String(n).padStart(2, "0");
+  return (
+    `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}` +
+    `-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
+  );
+}
 
 /**
  * Compose the webui extension. Idempotent w.r.t. the singleton server (a second
@@ -401,6 +425,54 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     }
   }
 
+  // --- event-cards (02): interactive-card answer loop ------------------------
+  // State closed over by the wiring (same lifetime as cardSeq): the JSONL
+  // root, the per-session stamp (minted at each session_start), and the
+  // FIRST-ANSWER-WINS ledger. Exactly-once per cardId: the first VALID answer
+  // appends one decision-log line + broadcasts the card_done tombstone; every
+  // later same-id answer is inert. Cleared in the session_shutdown handler
+  // next to sessionStore.clear() — a fresh session may re-answer a cardId.
+  const cardsDir = deps.cardsDir ?? path.join(homedir(), ".pi", "webui", "sessions");
+  let sessionStamp = "";
+  const answeredCardIds = new Set<string>();
+
+  /**
+   * Handle an inbound interactive-card answer (guarded at onCommand TOP,
+   * BEFORE parseCommand — the proven ask_user_answer pattern). Invalid shapes
+   * are ignored silently (loose-channel contract: never error); NO ack reply
+   * is sent (the card_done tombstone IS the feedback). Filesystem failures on
+   * the JSONL append are swallowed too — the tombstone still fires.
+   */
+  function handleCardAnswer(extra: unknown): void {
+    const a = extra as { cardId?: unknown; answers?: unknown } | undefined;
+    const cardId = a?.cardId;
+    const answers = a?.answers;
+    if (typeof cardId !== "string" || cardId === "") return; // invalid — ignore silently
+    if (typeof answers !== "object" || answers === null || Array.isArray(answers)) return;
+    for (const v of Object.values(answers)) {
+      if (typeof v !== "string") return; // answers: field-name -> string, nothing else
+    }
+    if (answeredCardIds.has(cardId)) return; // FIRST-ANSWER-WINS — exactly once
+    answeredCardIds.add(cardId);
+    // Decision log (D3): one JSONL line per answered card. No stamp = the
+    // answer arrived outside any session (no session_start yet) — the
+    // tombstone still fires (dedupe is per-cardId), the log line is skipped
+    // (there is no session dir to attribute it to).
+    if (sessionStamp !== "") {
+      try {
+        const dir = path.join(cardsDir, sessionStamp);
+        mkdirSync(dir, { recursive: true });
+        appendFileSync(
+          path.join(dir, "cards.jsonl"),
+          `${JSON.stringify({ ts: Date.now(), cardId, answers })}\n`,
+        );
+      } catch {
+        /* filesystem failure must never error the loose channel */
+      }
+    }
+    broadcaster.broadcast({ type: "card_done", id: cardId, ts: Date.now() });
+  }
+
   // --- inbound dispatch seam (handed to WebServer.setCommandHandler) ---------
   // web-server.ts ALREADY validated the frame (validateInbound) before invoking
   // this seam, so `frame` is a typed ClientFrame; parseCommand classifies it.
@@ -420,6 +492,20 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
         result: a.result,
       });
       return; // early-exit so the existing respond path is untouched below
+    }
+    // event-cards (02): interactive-card answers ride the SAME loose appexec
+    // extra record (extra.kind:"card_answer"). Guarded at TOP like
+    // ask_user_answer — BEFORE parseCommand (the loose extra resolves to null
+    // there, and the early-return below would drop it before this seam): the
+    // answer appends its JSONL decision-log line and broadcasts the card_done
+    // tombstone. NO ack reply (feedback = the tombstone), and the frame NEVER
+    // reaches the appexec respond path below.
+    if (
+      frame.type === "appexec" &&
+      (frame.extra as { kind?: string } | undefined)?.kind === "card_answer"
+    ) {
+      handleCardAnswer(frame.extra);
+      return; // early-exit: card_answer is never dispatched as appexec
     }
     const action = transport.parseCommand(frame);
     if (!action) return; // unknown type — ignore (defensive tail)
@@ -709,6 +795,10 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     const sessionCtx = ctx as WebuiSessionCtx;
     server.bindSession(pi, sessionCtx);
     bound = { pi, ctx: sessionCtx };
+    // event-cards (02): mint the decision-log stamp for THIS session (wall
+    // clock at session_start; same-second restarts share a dir — the JSONL
+    // is append-only, so lines never clobber).
+    sessionStamp = formatSessionStamp(new Date());
     // session info status (webui-tui-parity C2): TUI-parity context for the
     // shell header — which worktree/branch this browser tab co-drives.
     let branch = "";
@@ -740,6 +830,12 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     // replayed snapshot of the NEXT session must never collide card ids with
     // frames still live in a browser tab from the previous one.
     cardSeq = 0;
+    // event-cards (02): the answer ledger is per-session — exactly-once must
+    // not leak across sessions (a fresh session may re-answer a cardId; the
+    // new stamp re-targets the decision log). No stamp between sessions — a
+    // stray pre-session answer skips the log (see handleCardAnswer).
+    answeredCardIds.clear();
+    sessionStamp = "";
   });
 
   // ticket 04 (refined): announce the resolved URL ONLY when the first content is
@@ -831,6 +927,10 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       // projecting cards).
       if (eventsBus && origEmit) eventsBus.emit = origEmit;
       cardSeq = 0;
+      // event-cards (02): neutralize the answer loop with the rest of the
+      // per-session state.
+      answeredCardIds.clear();
+      sessionStamp = "";
       server.setHttpRoutes(null);
       server.setCommandHandler(null);
       server.setWsCloseHandler(null);
