@@ -9,12 +9,14 @@ import { test, expect, describe } from "bun:test";
 import entry from "../extensions/devops.js";
 
 /** Tool shape the fake API records — mirrors the fields these tests assert
- * on (name/parameters + description + owner-declared gating). */
+ * on (name/parameters + description + owner-declared gating). The `gating`
+ * field is the 01c reference form ({ core?, gate? }) — inline keywords/requires
+ * were deleted. */
 type FakeTool = {
 	name: string;
 	description?: string;
 	parameters: { required?: string[]; properties?: Record<string, unknown> };
-	gating?: { keywords?: string[]; requires?: { nouns?: string[]; verbs?: string[] } };
+	gating?: { core?: boolean; gate?: string };
 };
 
 function fakePi() {
@@ -142,7 +144,7 @@ function fakePi() {
 			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual(["mode", "noFreeze", "outDir"]);
 			// reference form (ticket 01): shared "pi_deploy" family (pi_deploy + pi_verify).
 			expect(tool?.gating?.gate).toBe("pi_deploy");
-			expect(tool?.gating?.keywords).toBeUndefined();
+			expect("keywords" in (tool?.gating ?? {})).toBe(false); // no inline keywords on the tool (01c)
 		});
 
 		test("pi_verify has optional tier/bail (no required params) + mirrors pi_deploy gating", () => {
@@ -153,6 +155,6 @@ function fakePi() {
 			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual(["bail", "tier"]);
 			// same "pi_deploy" family as pi_deploy — co-fire as one group (ticket 01).
 			expect(tool?.gating?.gate).toBe("pi_deploy");
-			expect(tool?.gating?.keywords).toBeUndefined();
+			expect("keywords" in (tool?.gating ?? {})).toBe(false); // no inline keywords on the tool (01c)
 		});
 	});
