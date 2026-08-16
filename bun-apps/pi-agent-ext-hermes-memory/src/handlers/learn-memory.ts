@@ -81,10 +81,8 @@ export function registerLearnMemoryCommand(pi: ExtensionAPI): void {
         lines.push("  ║             📋 Commands                      ║");
         lines.push("  ╚══════════════════════════════════════════════╝");
         lines.push("");
-        lines.push("  /memory-insights      Show everything stored in memory");
         lines.push("  /memory-skills        List all saved skills");
         lines.push("  /memory-consolidate   Manually trigger memory cleanup");
-        lines.push("  /memory-interview     Answer questions to pre-fill profile");
         lines.push("  /memory-switch-project List all project memories");
         lines.push("  /memory-index-sessions Import past sessions for search");
         lines.push("  /memory-sync-markdown Backfill Markdown memories into SQLite");
@@ -172,7 +170,7 @@ export function registerLearnMemoryCommand(pi: ExtensionAPI): void {
         lines.push("    → /memory-sync-markdown to import older Markdown entries");
         lines.push("");
         lines.push("  \"Agent forgot something\"");
-        lines.push("    → Check /memory-insights, tell agent \"remember X\"");
+        lines.push("    → Run memory_search, tell agent \"remember X\"");
         lines.push("");
         lines.push("  \"Want to edit manually\"");
         lines.push("    → Files at ~/.pi/agent/memory/ (plain markdown)");

@@ -11,13 +11,11 @@
  * 5. Correction Detection — immediate save on user corrections
  * 6. Procedural Skills — SKILL.md files for reusable procedures
  * 7. Tool-Call-Aware Nudge — review triggers on tool call count too
- * 8. /memory-insights — shows what's stored
- * 9. /memory-skills — lists procedural skills
- * 10. /memory-consolidate — manual consolidation trigger
- * 11. /memory-interview — onboarding interview to pre-fill user profile
- * 12. /memory-switch-project — list project memories
- * 13. Context Fencing — <memory-context> tags prevent injection through stored memory
- * 14. Memory Aging — entry timestamps guide consolidation
+ * 8. /memory-skills — lists procedural skills
+ * 9. /memory-consolidate — manual consolidation trigger
+ * 10. /memory-switch-project — list project memories
+ * 11. Context Fencing — <memory-context> tags prevent injection through stored memory
+ * 12. Memory Aging — entry timestamps guide consolidation
  *
  * See docs/ROADMAP.md for full roadmap and Hermes competitive analysis.
  */
@@ -62,14 +60,12 @@ import { captureAssembly } from "./handlers/session-assembly.js";
 import { setupBackgroundReview } from "./handlers/background-review.js";
 import { setupSessionFlush } from "./handlers/session-flush.js";
 import { setupCommitProjectMemory } from "./handlers/commit-project-memory.js";
-import { registerInsightsCommand } from "./handlers/insights.js";
 import { triggerConsolidation, registerConsolidateCommand, resolveConsolidatorModelLabel, produceMergePlan } from "./handlers/auto-consolidate.js";
 import { setupCorrectionDetector } from "./handlers/correction-detector.js";
 import { setupErrorDetector } from "./handlers/error-detector.js";
 import { RecallSet, setupWorthScoring } from "./handlers/worth-scoring.js";
 import { SurfacedSignatureSet, setupUsedDetection } from "./handlers/used-detection.js";
 import { registerSkillsCommand } from "./handlers/skills-command.js";
-import { registerInterviewCommand } from "./handlers/interview.js";
 import { registerSwitchProjectCommand } from "./handlers/switch-project.js";
 import { registerIndexSessionsCommand } from "./handlers/index-sessions.js";
 import { registerLearnMemoryCommand } from "./handlers/learn-memory.js";
@@ -495,10 +491,7 @@ export default async function (pi: ExtensionAPI) {
     resolveKnowledgeVaultPath,
     buildKnowledgeSemanticOpts(config, globalDir),
   );
-  // kgLlm (FIX 1): thread MemoryConfig.kgLlm into the ingest tool's options so
-  // the config-file flag reaches zk's ingest gate (env fallback PI_KG_LLM=1
-  // stays available when the flag is unset/default).
-  registerKnowledgeIngestTool(pi, { memoryDir: globalDir, kgLlm: config.kgLlm });
+  registerKnowledgeIngestTool(pi, { memoryDir: globalDir });
   // Phase-2 (knowledge-pipeline / 10-impl T6): the stale: query + revalidate
   // Phase-2 (knowledge-pipeline / 10-impl T7): publish the staleness reverse
   // seam for wayfind's graduation gate (T8) + read-side surfacing (T9). The
@@ -656,9 +649,7 @@ export default async function (pi: ExtensionAPI) {
   setupUsedDetection(pi, sessionRepo, surfacedSignatures, config, () => activeSessionId ?? null);
 
   // ── 9. Register commands ──
-  registerInsightsCommand(pi, store, projectStore, projectName);
   registerSkillsCommand(pi, skillStore);
-  registerInterviewCommand(pi, store);
   registerSwitchProjectCommand(pi, config);
   registerLearnMemoryCommand(pi);
   registerSyncMarkdownMemoriesCommand(pi, memoryRepo, globalDir, config.projectsMemoryDir, agentRoot, () => backendLabel, inRepoProjectFile, inRepoProjectName, cardStore);

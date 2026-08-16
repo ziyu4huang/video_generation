@@ -53,7 +53,6 @@ export interface CardGraph {
   links?: string[];
   /** Typed entities, parsed from additive `entities: [type:name,…]` frontmatter. */
   entities?: Array<{ type: string; name: string }>;
-  /** Typed relations, parsed from additive `relations: [{s,rel,o}]` frontmatter
-   *  (only present when `kg.llm` wrote them — ticket 03 fork 2.1). */
+  /** Typed relations, parsed from additive `relations: [{s,rel,o}]` frontmatter. */
   relations?: Array<{ s: string; rel: string; o: string }>;
 }
