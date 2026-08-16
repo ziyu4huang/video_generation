@@ -245,11 +245,14 @@ guessing at launch flags. When they are absent:
   (preflight → local-CI gate → merge gates → squash-merge → verify_merge →
   branch cleanup).
 
-  Its cleanup **detaches this worktree** onto `origin/<base>` before deleting
+  Its cleanup **detaches this worktree onto the merge commit** before deleting
   the spent head branch — git refuses `branch -D` on a branch checked out
   anywhere, and the worktree that ran the merge is normally still on it, so
   that step used to fail on essentially every run and the caller had to detach
-  and sweep by hand. A branch held by a **different** worktree is deliberately
+  and sweep by hand. The target is the merge sha rather than `origin/<base>`
+  because the remote-tracking ref is still at the pre-merge tip at that point
+  (`fetch --prune` runs after), which would leave you one commit behind the
+  merge you just made. A branch held by a **different** worktree is deliberately
   left alone (that tree is not ours to move) and reported in `warnings`; its
   remote counterpart is still deleted.
 
