@@ -52,7 +52,20 @@ describe("resolvePort", () => {
   });
 
   it("defaults to process.env when no arg given (unset in the runner -> 0)", () => {
-    expect(resolvePort()).toBe(0);
-    expect(typeof resolvePort()).toBe("number");
+    const savedWebui = process.env.WEBUI_PORT;
+    const savedPort = process.env.PORT;
+    delete process.env.WEBUI_PORT;
+    delete process.env.PORT;
+    try {
+      expect(resolvePort()).toBe(0);
+      expect(typeof resolvePort()).toBe("number");
+      process.env.WEBUI_PORT = "9001";
+      expect(resolvePort()).toBe(9001);
+    } finally {
+      if (savedWebui === undefined) delete process.env.WEBUI_PORT;
+      else process.env.WEBUI_PORT = savedWebui;
+      if (savedPort === undefined) delete process.env.PORT;
+      else process.env.PORT = savedPort;
+    }
   });
 });

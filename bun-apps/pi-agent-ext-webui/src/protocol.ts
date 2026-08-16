@@ -174,6 +174,11 @@ export type WebFrame =
       source: string;
       ts: number;
       attention: "view" | "input" | "silent";
+      /** cards-ux2 (02): blocking mode. Absent/true = MODAL — the t02
+       *  card_answer loop (first valid answer wins, the form retires on
+       *  card_done). false = DRAFT — the card_send loop (submits post draft
+       *  state into the session; the form stays live). */
+      blocking?: boolean;
       /** readonly body: plain text (textContent-rendered) + optional deep-link
        * url rendered as a createElement anchor (event-cards 05, archify cards). */
       body: { text: string; url?: string };
@@ -189,6 +194,9 @@ export type WebFrame =
       source: string;
       ts: number;
       attention: "view" | "input" | "silent";
+      /** cards-ux2 (02): blocking mode — see the readonly member (absent/true
+       *  = modal; false = draft). */
+      blocking?: boolean;
       /** viewer body (event-cards 04): raw HTML rendered ONLY inside a
        * sandbox="allow-scripts" iframe srcdoc — NO allow-same-origin, so the
        * frame gets an opaque origin and cannot touch the parent DOM or the
@@ -207,6 +215,9 @@ export type WebFrame =
       source: string;
       ts: number;
       attention: "view" | "input" | "silent";
+      /** cards-ux2 (02): blocking mode — see the readonly member (absent/true
+       *  = modal; false = draft). */
+      blocking?: boolean;
       /** interactive body: the question + fill-in fields (the form card). */
       body: { question: string; fields: CardField[] };
     }
@@ -269,6 +280,45 @@ export type DispatchAction =
 export function validateInbound(raw: unknown): ClientFrame | null {
   if (typeof raw !== "object" || raw === null) return null;
   return Value.Check(InboundCommandSchema, raw) ? (raw as ClientFrame) : null;
+}
+
+/**
+ * cards-ux2 (02): the `card_send` appexec extra payload — a NON-BLOCKING
+ * (draft) card posted its collected state back to the host. Structural
+ * sibling of the card_answer envelope (`{ kind, cardId, answers }` on the
+ * same loose appexec channel); the DIFFERENCE is semantics: card_answer
+ * resolves the MODAL answer loop (first valid answer wins, form retires on
+ * card_done), card_send delivers DRAFT state into the agent session via the
+ * wiring's sendMessage seam (the form stays live). Exported like the
+ * card_answer envelope type — the host-side validator owns the sub-shape
+ * (the wire schema stays loose by design, spec §6 forward-compat).
+ */
+export interface CardSendExtra {
+  kind: "card_send";
+  /** Non-empty string — mirrors card_answer's cardId rule. */
+  cardId: string;
+  /** field-name -> string, nothing else — mirrors card_answer's answers rule. */
+  answers: Record<string, string>;
+}
+
+/**
+ * Validate a card_send extra payload, or `null` if malformed. Mirrors the
+ * card_answer validation EXACTLY (the same rules the wiring's
+ * handleCardAnswer enforces inline): `kind` the "card_send" literal;
+ * `cardId` a non-empty string; `answers` a non-null, non-array object whose
+ * values are ALL strings. Never throws — the loose-channel contract
+ * (invalid input is ignored, never errors).
+ */
+export function validateCardSendExtra(extra: unknown): CardSendExtra | null {
+  if (typeof extra !== "object" || extra === null) return null;
+  const e = extra as { kind?: unknown; cardId?: unknown; answers?: unknown };
+  if (e.kind !== "card_send") return null;
+  if (typeof e.cardId !== "string" || e.cardId === "") return null;
+  if (typeof e.answers !== "object" || e.answers === null || Array.isArray(e.answers)) return null;
+  for (const v of Object.values(e.answers)) {
+    if (typeof v !== "string") return null; // answers: field-name -> string, nothing else
+  }
+  return { kind: "card_send", cardId: e.cardId, answers: e.answers as Record<string, string> };
 }
 
 /**
