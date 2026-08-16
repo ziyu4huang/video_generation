@@ -100,7 +100,7 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
 </style>
 </head>
 <body>
-<header id="tabs"></header>
+<header id="tabs"><span id="session-status" style="margin-left:auto;color:#888;font-size:.8rem;align-self:center"></span></header>
 <div id="shell-row">
 <main>
   <div class="meta" id="meta"></div>
@@ -379,6 +379,14 @@ function txApply(frame) {
       break;
     case 'ask_user': renderAskUser(frame);
       break;
+    case 'ask_user_done':
+      if (askUserEl && askUserPromptId === frame.promptId) { askUserEl.remove(); askUserEl = null; askUserPromptId = null; }
+      break;
+    case 'session_info': {
+      var ss = document.getElementById('session-status');
+      if (ss) ss.textContent = (frame.cwd || '') + (frame.branch ? ' (' + frame.branch + ')' : '');
+      break;
+    }
     default: break; // other frames handled elsewhere
   }
 }
@@ -395,7 +403,9 @@ function txRenderSnapshot(state) {
 // the loose appexec channel; core-task routes it through the SAME done the
 // TUI submit uses (first answer wins; a late submit is an inert no-op).
 let askUserEl = null;
+var askUserPromptId = null;
 function renderAskUser(frame) {
+  askUserPromptId = frame.promptId;
   if (askUserEl) askUserEl.remove();
   askUserEl = document.createElement('div');
   askUserEl.id = 'ask-user-dialog';

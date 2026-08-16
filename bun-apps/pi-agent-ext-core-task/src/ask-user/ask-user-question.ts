@@ -10,8 +10,10 @@ import { matchesKey } from "@earendil-works/pi-tui";
 import { formatKeySpec, loadConfig, resolveCollapseKey, validateGuidanceFields } from "./config.js";
 import {
 	ASK_USER_ANSWER_EVENT,
+	ASK_USER_ANSWERED_EVENT,
 	ASK_USER_PROMPT_EVENT,
 	type AskUserAnswerEventPayload,
+	type AskUserAnsweredEventPayload,
 	type AskUserPromptEventPayload,
 } from "./events.js";
 import { hasDialogUI, runRpcQuestionnaire } from "./rpc-fallback.js";
@@ -207,6 +209,8 @@ Use the optional \`preview\` field on options when presenting concrete artifacts
 			} finally {
 				removeOverlayInputListener?.();
 				unsubscribeAnswer?.();
+				// Tombstone (webui-tui-parity C1): retire external mirrors on ANY exit.
+				pi.events.emit(ASK_USER_ANSWERED_EVENT, { promptId } satisfies AskUserAnsweredEventPayload);
 			}
 		},
 	});

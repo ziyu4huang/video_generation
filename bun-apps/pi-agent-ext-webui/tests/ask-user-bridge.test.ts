@@ -4,7 +4,10 @@
  * questionnaire prompt event is mirrored as a replay-eligible `ask_user` WS
  * frame, and a browser answer riding the loose appexec channel is re-emitted
  * on the host bus as `rpiv:ask-user:answer` (which ask-user's execute
- * consumes via its doneRef — covered core-task-side).
+ * consumes via its doneRef — covered core-task-side). Tombstone (effort
+ * 2026-08-16-webui-tui-parity C1): `rpiv:ask-user:answered` is mirrored as a
+ * replay-eligible `ask_user_done` frame so live + replaying shells retire
+ * the dialog.
  *
  * Harness mirrors view-opened-e2e.test.ts (file-local helpers + a minimal
  * host stub with a REAL EventEmitter bus).
@@ -91,6 +94,61 @@ describe("ask-user bridge (ticket 03)", () => {
     expect(Array.isArray(frame.questions)).toBe(true);
     expect(frame.questions.length).toBe(1);
     expect(Math.abs(Date.now() - frame.ts)).toBeLessThan(10_000);
+  });
+
+  it("rpiv:ask-user:answered → ask_user_done frame broadcast", async () => {
+    const pi = new MockPi();
+    const server = new WebServer({ port: 0 });
+    started.push(server);
+    const wiring = wireWebui(pi as never, { server });
+    wirings.push(wiring);
+    pi.emitHost("session_start", {});
+    await waitFor("server started", () => server.port > 0);
+
+    const ws = await withTimeout(openWs(`${server.url.replace("http", "ws")}/ws`), 2000, "ws open");
+    await waitFor("client registered", () => server.clientCount === 1);
+
+    pi.events.emit("rpiv:ask-user:answered", { promptId: "p1" });
+
+    const raw = await withTimeout(nextNonSnapshot(ws), 2000, "ask_user_done frame not delivered");
+    const frame = JSON.parse(raw);
+    expect(frame.type).toBe("ask_user_done");
+    expect(frame.promptId).toBe("p1");
+  });
+
+  it("session_start broadcasts replay-eligible session_info (cwd + branch)", async () => {
+    const pi = new MockPi();
+    const server = new WebServer({ port: 0 });
+    started.push(server);
+    const wiring = wireWebui(pi as never, { server });
+    wirings.push(wiring);
+    pi.emitHost("session_start", {});
+    await waitFor("server started", () => server.port > 0);
+
+    const ws = await withTimeout(openWs(`${server.url.replace("http", "ws")}/ws`), 2000, "ws open");
+    await waitFor("client registered", () => server.clientCount === 1);
+
+    // session_info rides replay (broadcast happens at session_start, BEFORE
+    // this client connects) → the CONNECT SNAPSHOT must carry it.
+    const snapshot = await withTimeout(
+      new Promise<string>((resolve) => {
+        const handler = (ev: MessageEvent) => {
+          const text = String(ev.data);
+          try { if (JSON.parse(text).type !== "snapshot") return; } catch { return; }
+          ws.removeEventListener("message", handler);
+          resolve(text);
+        };
+        ws.addEventListener("message", handler);
+      }),
+      2000,
+      "connect snapshot not delivered"
+    );
+    expect(snapshot).toContain("session_info");
+    const parsed = JSON.parse(snapshot) as { transcript?: Array<{ type: string; cwd?: string }> };
+    const info = parsed.transcript?.find((f) => f.type === "session_info");
+    expect(info).toBeDefined();
+    expect(typeof info?.cwd).toBe("string");
+    expect((info?.cwd ?? "").length).toBeGreaterThan(0);
   });
 
   it("inbound appexec ask_user_answer → rpiv:ask-user:answer on host bus", async () => {

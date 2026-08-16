@@ -4,6 +4,9 @@
  * optional ctx.events bus after a successful render, and never otherwise.
  * Payload: { path, view, title }. A missing or throwing bus must not change
  * the tool result.
+ * (2026-08-16-webui-present-adoption §C2) success now ALSO emits one
+ * "webui:present" (approve + free-text-tweak controls) under the same
+ * guarded announce — still exactly one webui:open, never on failure.
  */
 import { describe, it, expect } from "bun:test";
 import { join, isAbsolute } from "node:path";
@@ -29,17 +32,22 @@ const makeBus = () => {
 };
 
 describe("webui:open announce (archify_render)", () => {
-  it("render success → exactly 1 emit, webui:open, absolute path, basename view, meta.title", async () => {
+  it("render success → open + present emits, webui:open, absolute path, basename view, meta.title", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "archify-open-render-"));
     const bus = makeBus();
     const res = await archifyRender({ irPath: fixtureBase }, { cwd, events: bus });
     expect(res.isError).toBeFalsy();
-    expect(bus.emitted.length).toBe(1);
+    expect(bus.emitted.length).toBe(2); // webui:open + webui:present (§C2)
     const { ch, payload } = bus.emitted[0]!;
     expect(ch).toBe("webui:open");
     // fixture authors meta.output "mini.html" + meta.title "Mini"
     expect(payload).toEqual({ path: join(cwd, "mini.html"), view: "mini", title: "Mini" });
     expect(isAbsolute(payload.path as string)).toBe(true);
+    // HITL presentation (§C2): webui:present emitted with approve + free-text tweak.
+    expect(bus.emitted.some((e) => e.ch === "webui:present")).toBe(true); // webui:present emitted
+    const pres = bus.emitted.find((e) => e.ch === "webui:present")?.payload as { controls?: { takesInput?: boolean }[] };
+    expect(pres?.controls?.length).toBe(2); // approve + tweak controls
+    expect(pres?.controls?.[1]?.takesInput).toBe(true); // tweak takes input
   });
 
   // NOTE: no tool-level "meta.title absent → diagramType fallback" case here —
@@ -65,7 +73,7 @@ describe("webui:open announce (archify_delta)", () => {
     const bus = makeBus();
     const res = await archifyDelta({ basePath: fixtureBase, headPath: fixtureHead }, { cwd, events: bus });
     expect(res.isError).toBeFalsy();
-    expect(bus.emitted.length).toBe(1);
+    expect(bus.emitted.length).toBe(2); // webui:open + webui:present (§C2)
     const { ch, payload } = bus.emitted[0]!;
     expect(ch).toBe("webui:open");
     expect(payload).toEqual({

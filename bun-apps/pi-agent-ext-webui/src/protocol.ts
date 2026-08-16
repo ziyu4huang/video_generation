@@ -180,6 +180,13 @@ export type WebFrame =
   // prompt mirrored to the shell (promptId correlates the answer). Replay-
   // eligible: rides live broadcast + the store-wrapped connect replay.
   | { type: "ask_user"; promptId: string; questions: unknown[]; ts: number }
+  // ask-user tombstone (webui-tui-parity C1): the questionnaire resolved (or
+  // exited early) — the shell retires its dialog. Replay ordering guarantees a
+  // refreshed client renders ask_user then ask_user_done → no ghost.
+  | { type: "ask_user_done"; promptId: string }
+  // session info (webui-tui-parity C2): TUI-parity status — worktree + branch.
+  // Replay-eligible so a refreshed tab knows which session it co-drives.
+  | { type: "session_info"; cwd: string; branch?: string }
   // forward-compat: any other host event is forwarded generically (never thrown on)
   | { type: string; details?: unknown; [k: string]: unknown };
 

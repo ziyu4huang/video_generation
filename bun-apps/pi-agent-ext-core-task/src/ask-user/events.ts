@@ -31,6 +31,14 @@ export const ASK_USER_PROMPT_EVENT = "rpiv:ask-user:prompt" as const;
  */
 export const ASK_USER_ANSWER_EVENT = "rpiv:ask-user:answer" as const;
 
+/**
+ * Tombstone (effort webui-tui-parity, spec C1): fired when the questionnaire
+ * resolves on ANY surface — or exits early (no-UI fallback, abort). External
+ * mirrors (the webui shell) use it to retire their dialog; replay ordering
+ * (ask_user then ask_user_done) leaves no ghost after refresh.
+ */
+export const ASK_USER_ANSWERED_EVENT = "rpiv:ask-user:answered" as const;
+
 export interface AskUserPromptEventPayload {
 	/** Correlates prompt -> answer. Optional + append-only (stability policy
 	 *  §2): listeners on the v1 payload must tolerate its absence. */
@@ -44,6 +52,11 @@ export interface AskUserAnswerEventPayload {
 	promptId: string;
 	/** Same shape the TUI dialog's done() carries (QuestionnaireResult). */
 	result: unknown;
+}
+
+/** Payload for {@link ASK_USER_ANSWERED_EVENT}. JSON-safe. */
+export interface AskUserAnsweredEventPayload {
+	promptId: string;
 }
 
 export interface AskUserPromptQuestion {
