@@ -27,7 +27,7 @@
  *  - dispose() neutralizes every handler + stops the server.
  */
 import { beforeEach, afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { MockPi } from "./helpers/mock-pi.js";
@@ -965,5 +965,142 @@ describe("wireWebui — bus snoop card projection (event-cards 01)", () => {
       title: "webui:open",
     });
     expect(card.id).toMatch(/^card-\d+$/);
+  });
+});
+
+// --- event-cards (02): interactive card answers ---------------------------------
+// The card_answer appexec guard runs at onCommand TOP (before parseCommand):
+// one JSONL decision-log line per answered card under <cardsDir>/<stamp>/,
+// exactly-once per session (first answer wins), a card_done tombstone per
+// answer — and NEVER routed as appexec (no respond resolution, no ack).
+describe("wireWebui — interactive card answers (event-cards 02)", () => {
+  /** Walk every <stamp>/cards.jsonl under root, returning the parsed lines. */
+  function readCardLines(root: string): Array<Record<string, unknown>> {
+    const lines: Array<Record<string, unknown>> = [];
+    for (const entry of readdirSync(root)) {
+      const file = path.join(root, entry, "cards.jsonl");
+      try {
+        for (const line of readFileSync(file, "utf8").split("\n")) {
+          if (line.trim() !== "") lines.push(JSON.parse(line));
+        }
+      } catch {
+        /* no cards.jsonl in this stamp dir yet */
+      }
+    }
+    return lines;
+  }
+
+  /** Fixture with an INJECTED tmp cardsDir (never ~/.pi). */
+  function setupCards(cardsDir: string) {
+    const pi = new MockPi();
+    const broadcaster = new MemoryBroadcaster();
+    const server = new FakeWebServer();
+    wireWebui(pi, { broadcaster, clock: new FakeClock(), server, cardsDir });
+    return { pi, broadcaster, server };
+  }
+
+  const ANSWER = {
+    type: "appexec",
+    extra: { kind: "card_answer", cardId: "card-1", answers: { mood: "rain" } },
+  };
+
+  test("inbound card_answer appends the JSONL decision line + broadcasts card_done (no ack)", () => {
+    const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "webui-cards-"));
+    try {
+      const { pi, server, broadcaster } = setupCards(tmpRoot);
+      pi.emit("session_start", { type: "session_start", reason: "startup" });
+      const replies = dispatch(pi, server, ANSWER);
+      // loose channel: NO ack reply (the tombstone IS the feedback)
+      expect(replies).toEqual([]);
+      // the tombstone is broadcast (store-wrapped — replay-eligible)
+      const done = broadcaster.frames.find(
+        (f): f is Extract<WebFrame, { type: "card_done" }> => f.type === "card_done",
+      );
+      expect(done).toBeDefined();
+      expect(done!.id).toBe("card-1");
+      expect(typeof done!.ts).toBe("number");
+      // the decision log: exactly one line under <tmpRoot>/<stamp>/cards.jsonl
+      const lines = readCardLines(tmpRoot);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatchObject({ cardId: "card-1", answers: { mood: "rain" } });
+      expect(typeof lines[0].ts).toBe("number");
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("SECOND same-id card_answer is a no-op; a new session answers again (append-only)", () => {
+    const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "webui-cards-"));
+    try {
+      const { pi, server, broadcaster } = setupCards(tmpRoot);
+      pi.emit("session_start", { type: "session_start", reason: "startup" });
+      dispatch(pi, server, ANSWER);
+      dispatch(pi, server, ANSWER); // duplicate — first answer wins, exactly once
+      expect(broadcaster.frames.filter((f) => f.type === "card_done")).toHaveLength(1);
+      expect(readCardLines(tmpRoot)).toHaveLength(1);
+      // shutdown clears the dedupe; a new session answers the same id again.
+      // NOTE (shipped semantics): a same-second restart shares the stamp dir —
+      // the log is append-only across both, so count lines, not files.
+      pi.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+      pi.emit("session_start", { type: "session_start", reason: "startup" });
+      dispatch(pi, server, ANSWER);
+      expect(readCardLines(tmpRoot)).toHaveLength(2);
+      expect(broadcaster.frames.filter((f) => f.type === "card_done")).toHaveLength(2);
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("invalid card_answer shapes are ignored silently (no log, no tombstone, no reply)", () => {
+    const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "webui-cards-"));
+    try {
+      const { pi, server, broadcaster } = setupCards(tmpRoot);
+      pi.emit("session_start", { type: "session_start", reason: "startup" });
+      const bad = [
+        { type: "appexec", extra: { kind: "card_answer", cardId: "", answers: {} } }, // empty id
+        { type: "appexec", extra: { kind: "card_answer", cardId: "card-9", answers: ["a"] } }, // array answers
+        { type: "appexec", extra: { kind: "card_answer", cardId: "card-9", answers: { n: 7 } } }, // non-string value
+      ];
+      for (const frame of bad) {
+        expect(dispatch(pi, server, frame)).toEqual([]);
+      }
+      expect(broadcaster.frames.some((f) => f.type === "card_done")).toBe(false);
+      expect(readCardLines(tmpRoot)).toHaveLength(0);
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("card_answer is NEVER routed as appexec — a registered pending stays pending", async () => {
+    const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "webui-cards-"));
+    try {
+      const pi = new MockPi();
+      const broadcaster = new MemoryBroadcaster();
+      const server = new FakeWebServer();
+      const wiring = wireWebui(pi, {
+        broadcaster,
+        clock: new FakeClock(),
+        server,
+        cardsDir: tmpRoot,
+      });
+      pi.emit("session_start", { type: "session_start", reason: "startup" });
+      const pending = wiring.registerPending("keep");
+      // The top guard consumes the frame BEFORE parseCommand — the appexec
+      // respond path never sees it (an unknown respond id would be ignored,
+      // but here there is not even an id to correlate).
+      dispatch(pi, server, ANSWER);
+      expect(pi.sent).toEqual([]); // never a sendUserMessage
+      let resolved = false;
+      pending.then(() => {
+        resolved = true;
+      });
+      await Promise.resolve(); // drain microtasks — resolve() is synchronous
+      expect(resolved).toBe(false); // the pending under "keep" stays pending
+      // Clean up via shutdown (re-asserts the cancel semantics).
+      pi.emit("session_shutdown", { type: "session_shutdown", reason: "done" });
+      await expect(pending).resolves.toEqual({ cancelled: true });
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
   });
 });

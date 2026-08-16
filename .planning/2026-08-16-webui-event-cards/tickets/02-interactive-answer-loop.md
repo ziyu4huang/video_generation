@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 ---
 # 02 — interactive cards: answer loop + JSONL decision log
 
@@ -16,3 +16,6 @@ status: open
 ## Acceptance
 - Answers reach the bus exactly once; JSONL grows; replayed shells show the
   answered state, not a live form.
+
+## Result
+02: interactive card body (question + text/select fields) rendered as a form card; submit sends appexec-loose card_answer (first-answer-wins Set); JSONL decision log at cardsDir/<sessionStamp>/cards.jsonl (deps.cardsDir injectable, ~/.pi/webui/sessions default); card_done tombstone retires the form live + on replay; webui 496/0.

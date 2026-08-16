@@ -22,6 +22,13 @@
  *   - event-cards (01): card frames (live + snapshot replay) project into the
  *     Cards tab pane (#cards-pane) — textContent ONLY; the article id is the
  *     article id is the deep-link anchor (#card-<id>, ticket 03);
+ *   - event-cards (02): interactive cards render a fill-in <form> (built with
+ *     createElement/textContent ONLY — producer strings are untrusted); submit
+ *     posts the collected answers as a loose appexec extra.kind:"card_answer"
+ *     envelope over sendRaw (queued while reconnecting), with NO optimistic
+ *     state — the inbound card_done tombstone (retireCard) is the only thing
+ *     that retires the form; snapshot replay applies card then card_done in
+ *     order, so a refreshed client renders the answered state for free;
  *   - DE-CHAT (event-cards 00): chat lives in the TUI — the v2 main-session
  *     composer (prompt input + Send + Abort) is GONE; the webui keeps only
  *     web-native interaction (btw side channel, HITL appexec, ask-user).
@@ -110,6 +117,14 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   #cards-pane .card[data-attention="view"] .badge { border-color: #e0a030; color: #e0a030; }
   #cards-pane .card[data-attention="input"] .badge { border-color: #6cf; color: #6cf; }
   #cards-pane .card-body { margin-top: .3rem; white-space: pre-wrap; word-break: break-word; font-size: .8rem; }
+  /* event-cards (02): the interactive fill-in form + the answered tombstone. */
+  #cards-pane .card p.card-question { margin: .45rem 0 .3rem; font-size: .85rem; font-weight: 600; }
+  form.card-form { display: flex; flex-direction: column; gap: .45rem; margin-top: .4rem; }
+  form.card-form label { font-size: .75rem; color: #888; }
+  form.card-form input, form.card-form select { width: 100%; padding: .3rem .5rem; border-radius: 6px; border: 1px solid #8884; background: #0000; color: inherit; font-size: .8rem; }
+  form.card-form button[type='submit'] { align-self: flex-start; padding: .35rem .9rem; border-radius: 6px; border: 1px solid #6cf; background: #6cf3; color: inherit; cursor: pointer; font-size: .8rem; }
+  #cards-pane .card p.card-answered { margin-top: .4rem; font-size: .75rem; color: #888; font-style: italic; }
+  #cards-pane .card.card-answered { opacity: .65; }
 </style>
 </head>
 <body>
@@ -414,6 +429,7 @@ function txApply(frame) {
       break;
     }
     case 'card': renderCard(frame); break;
+    case 'card_done': retireCard(frame); break; // event-cards (02) tombstone
     default: break; // other frames handled elsewhere
   }
 }
@@ -475,7 +491,95 @@ function renderCard(frame) {
   art.appendChild(h);
   art.appendChild(meta);
   art.appendChild(body);
+  // event-cards (02): interactive cards carry { question, fields } instead of
+  // { text } — the body div stays empty and the fill-in form appends after it
+  // (an absent/malformed interactive body degrades to the inert card above).
+  if (kind === 'interactive') appendCardForm(art, frame);
   cardsPaneEl.appendChild(art); // newest LAST — chronological
+}
+
+// --- event-cards (02): interactive fill-in form + card_done tombstone --------
+// appendCardForm: EVERY string rides createElement/textContent ONLY — no
+// markup sinks exist (question/labels/options are producer-sourced, i.e.
+// UNTRUSTED; same contract as the readonly body text). The data-card-id
+// attribute carries the RAW frame id — the same key handleCardAnswer
+// correlates on (never the prefixed dom id). Invalid fields are SKIPPED, not
+// fatal.
+function appendCardForm(art, frame) {
+  var b = frame.body;
+  if (!b || typeof b.question !== 'string' || !Array.isArray(b.fields)) return; // malformed — inert text card
+  const cardId = typeof frame.id === 'string' ? frame.id : '';
+  const form = document.createElement('form');
+  form.className = 'card-form';
+  form.setAttribute('data-card-id', cardId);
+  const q = document.createElement('p');
+  q.className = 'card-question';
+  q.textContent = b.question;
+  form.appendChild(q);
+  for (const f of b.fields) {
+    if (!f || typeof f.name !== 'string' || !f.name) continue; // skip invalid fields
+    if (f.type !== 'text' && f.type !== 'select') continue; // unknown field type — skip
+    const lab = document.createElement('label');
+    lab.textContent = typeof f.label === 'string' ? f.label : f.name;
+    form.appendChild(lab);
+    if (f.type === 'text') {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.name = f.name;
+      if (typeof f.placeholder === 'string' && f.placeholder) inp.placeholder = f.placeholder;
+      form.appendChild(inp);
+    } else {
+      const sel = document.createElement('select');
+      sel.name = f.name;
+      const opts = Array.isArray(f.options) ? f.options : [];
+      for (const o of opts) {
+        if (typeof o !== 'string') continue;
+        const opt = document.createElement('option');
+        opt.value = o;
+        opt.textContent = o;
+        sel.appendChild(opt);
+      }
+      form.appendChild(sel);
+    }
+  }
+  const btn = document.createElement('button');
+  btn.type = 'submit';
+  btn.textContent = 'Submit';
+  form.appendChild(btn);
+  // Submit collects EVERY named field in one shot (FormData) and posts a
+  // loose appexec card_answer envelope — the SAME loose-extra channel the
+  // ask-user dialog uses. DEVIATION from the ask dialog (documented): this
+  // goes through sendRaw, NOT raw ws.send — sendRaw queues while the WS is
+  // reconnecting (v2 queue-never-drop), so an answer typed during a retry
+  // lands instead of dropping. NO optimistic local state: card_done drives
+  // the retire (first answer wins, enforced server-side).
+  form.onsubmit = function (ev) {
+    ev.preventDefault(); // never navigate — the answer rides /ws
+    var answers = Object.fromEntries(new FormData(form));
+    sendRaw(JSON.stringify({ type: 'appexec', extra: { kind: 'card_answer', cardId: cardId, answers: answers } }));
+    return false;
+  };
+  art.appendChild(form);
+}
+
+// retireCard: the card_done tombstone (live + snapshot replay — the replay
+// applies card then card_done IN ORDER, so a refreshed client renders the
+// answered state for free). The form swaps for an inert answered marker; the
+// card itself stays as history. An ABSENT article (ordering anomaly, a card
+// that fell out of the transcript cap) is IGNORED — never an error.
+function retireCard(frame) {
+  if (!cardsPaneEl) return;
+  if (typeof frame.id !== 'string' || !frame.id) return;
+  const art = document.getElementById(cardDomId(frame.id));
+  if (!art) return; // ordering anomaly — ignore
+  const form = art.querySelector('form.card-form');
+  if (form) {
+    const done = document.createElement('p');
+    done.className = 'card-answered';
+    done.textContent = 'answered';
+    form.replaceWith(done);
+  }
+  art.classList.add('card-answered');
 }
 
 // --- ask-user bridge dialog (§C3) -------------------------------------
@@ -1012,6 +1116,20 @@ export function BTW_FRAME(
  */
 export function isSendEnter(e: { key?: string; isComposing?: boolean; keyCode?: number }): boolean {
   return e.key === "Enter" && e.isComposing !== true && e.keyCode !== 229;
+}
+
+/**
+ * Pure appexec CARD_ANSWER frame (event-cards 02) — the PINNED wire shape the
+ * inline browser script's card-form submit duplicates; tests grid the exact
+ * envelope WITHOUT a DOM (same convention as APPEXEC_FRAME /
+ * APPEXEC_CANCEL_FRAME). `answers` is the collected
+ * Object.fromEntries(new FormData(form)) — field name -> string.
+ */
+export function APPEXEC_CARD_ANSWER(
+  cardId: string,
+  answers: Record<string, string>,
+): { type: "appexec"; extra: { kind: "card_answer"; cardId: string; answers: Record<string, string> } } {
+  return { type: "appexec", extra: { kind: "card_answer", cardId, answers } };
 }
 
 /**

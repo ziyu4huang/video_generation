@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { RENDER_SHELL_HTML } from "../src/render-shell.js";
+import { APPEXEC_CARD_ANSWER, RENDER_SHELL_HTML } from "../src/render-shell.js";
 
 /**
  * event-cards (01): Cards tab + pane projection. The inline shell script
@@ -10,10 +10,13 @@ import { RENDER_SHELL_HTML } from "../src/render-shell.js";
  * renderCard definition to the next function definition).
  */
 
-/** Slice the in-string renderCard source — the unit card-path assertions run against. */
+/** Slice the in-string renderCard source — the unit card-path assertions run
+ *  against (from the renderCard definition to the next function definition;
+ *  event-cards 02 added appendCardForm/retireCard between renderCard and the
+ *  ask-user dialog, so the slice ends at appendCardForm). */
 function renderCardSrc(): string {
   const start = RENDER_SHELL_HTML.indexOf("function renderCard(frame)");
-  const end = RENDER_SHELL_HTML.indexOf("function renderAskUser(frame)");
+  const end = RENDER_SHELL_HTML.indexOf("function appendCardForm(art, frame)");
   expect(start).toBeGreaterThan(-1);
   expect(end).toBeGreaterThan(start);
   return RENDER_SHELL_HTML.slice(start, end);
@@ -83,5 +86,112 @@ describe("RENDER_SHELL_HTML — Cards tab + pane scaffold (event-cards 01)", () 
     ]) {
       expect(src).not.toContain(sink);
     }
+  });
+});
+
+/** Slice the in-string interactive-card form source — the event-cards (02)
+ *  unit assertions run against (from the appendCardForm definition to the
+ *  retireCard definition). */
+function cardFormSrc(): string {
+  const start = RENDER_SHELL_HTML.indexOf("function appendCardForm(art, frame)");
+  const end = RENDER_SHELL_HTML.indexOf("function retireCard(frame)");
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  return RENDER_SHELL_HTML.slice(start, end);
+}
+
+/** Slice the in-string card_done tombstone source (retireCard -> ask-user). */
+function retireCardSrc(): string {
+  const start = RENDER_SHELL_HTML.indexOf("function retireCard(frame)");
+  const end = RENDER_SHELL_HTML.indexOf("// --- ask-user bridge dialog");
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  return RENDER_SHELL_HTML.slice(start, end);
+}
+
+describe("RENDER_SHELL_HTML — interactive cards (event-cards 02)", () => {
+  it("routes card_done through retireCard in txApply, AFTER card (replay order)", () => {
+    const cardAt = RENDER_SHELL_HTML.indexOf("case 'card': renderCard(frame); break;");
+    const doneAt = RENDER_SHELL_HTML.indexOf("case 'card_done': retireCard(frame); break;");
+    expect(cardAt).toBeGreaterThan(-1);
+    expect(doneAt).toBeGreaterThan(cardAt); // card THEN card_done — a [card, card_done] transcript replays answered
+  });
+
+  it("ships the form + answered-marker CSS next to the (01) card styles", () => {
+    expect(RENDER_SHELL_HTML).toContain("#cards-pane .card p.card-question");
+    expect(RENDER_SHELL_HTML).toContain("form.card-form");
+    expect(RENDER_SHELL_HTML).toContain("form.card-form input, form.card-form select");
+    expect(RENDER_SHELL_HTML).toContain("#cards-pane .card p.card-answered");
+    expect(RENDER_SHELL_HTML).toContain("#cards-pane .card.card-answered");
+  });
+
+  it("interactive body renders a fill-in form: question + labeled text input + select options + submit", () => {
+    const src = cardFormSrc();
+    // the form carries the RAW frame id (the key handleCardAnswer correlates on)
+    expect(src).toContain("form.className = 'card-form'");
+    expect(src).toContain("form.setAttribute('data-card-id', cardId)");
+    // question paragraph
+    expect(src).toContain("q.className = 'card-question'");
+    expect(src).toContain("q.textContent = b.question");
+    // per-field: label + named text input (name + placeholder) OR select
+    expect(src).toContain("lab.textContent = typeof f.label === 'string' ? f.label : f.name");
+    expect(src).toContain("inp.name = f.name");
+    expect(src).toContain("inp.placeholder = f.placeholder");
+    expect(src).toContain("sel.name = f.name");
+    expect(src).toContain("document.createElement('option')");
+    expect(src).toContain("opt.textContent = o");
+    // invalid fields are skipped, never fatal
+    expect(src).toContain("continue; // skip invalid fields");
+    // submit button
+    expect(src).toContain("btn.type = 'submit'");
+    expect(src).toContain("btn.textContent = 'Submit'");
+    // renderCard only appends the form for the interactive kind
+    expect(RENDER_SHELL_HTML).toContain("if (kind === 'interactive') appendCardForm(art, frame)");
+  });
+
+  it("XSS: a question/label/option containing <script> renders as text — the form path builds NO markup", () => {
+    const src = cardFormSrc();
+    // every producer-sourced string lands in a text sink verbatim; no
+    // markup-building sink exists anywhere on the form path
+    for (const sink of [
+      "innerHTML",
+      "insertAdjacentHTML",
+      "outerHTML",
+      "document.write",
+      "createContextualFragment",
+      "setAttribute('on",
+    ]) {
+      expect(src).not.toContain(sink);
+    }
+  });
+
+  it("submit posts the card_answer envelope via sendRaw (queued while reconnecting) — never raw ws.send", () => {
+    const src = cardFormSrc();
+    // one-shot collection of EVERY named field
+    expect(src).toContain("var answers = Object.fromEntries(new FormData(form));");
+    // the pinned envelope (mirrors the ask dialog's ask_user_answer, but over
+    // sendRaw — the queue-when-reconnecting contract; DEVIATION is documented)
+    expect(src).toContain(
+      "sendRaw(JSON.stringify({ type: 'appexec', extra: { kind: 'card_answer', cardId: cardId, answers: answers } }));",
+    );
+    expect(src).not.toContain("ws.send(");
+    // NO optimistic local state — the submit handler sends and does nothing else
+    expect(src).not.toContain("classList.add('card-answered')");
+    // pure twin: the exact envelope a DOM submit would produce, gridded no-DOM
+    expect(APPEXEC_CARD_ANSWER("card-1", { mood: "rain" })).toEqual({
+      type: "appexec",
+      extra: { kind: "card_answer", cardId: "card-1", answers: { mood: "rain" } },
+    });
+  });
+
+  it("card_done retires the form into an inert answered marker (absent article ignored)", () => {
+    const src = retireCardSrc();
+    expect(src).toContain("document.getElementById(cardDomId(frame.id))");
+    expect(src).toContain("if (!art) return"); // ordering anomaly — ignore, never error
+    expect(src).toContain("art.querySelector('form.card-form')");
+    expect(src).toContain("done.className = 'card-answered'");
+    expect(src).toContain("done.textContent = 'answered'");
+    expect(src).toContain("form.replaceWith(done)");
+    expect(src).toContain("art.classList.add('card-answered')");
   });
 });

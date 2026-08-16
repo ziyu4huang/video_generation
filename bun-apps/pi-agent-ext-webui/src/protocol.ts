@@ -133,6 +133,20 @@ export interface EventLike {
 }
 
 /**
+ * event-cards (02): one fill-in field of an interactive card body. `type`
+ * "text" renders a text input (`placeholder` optional); "select" renders a
+ * dropdown whose `options` are the choices. `name` keys the answer record
+ * the browser posts back (`extra.answers` on the card_answer appexec frame).
+ */
+export interface CardField {
+  name: string;
+  label: string;
+  type: "text" | "select";
+  options?: string[];
+  placeholder?: string;
+}
+
+/**
  * Outbound frame union. Known event types are enumerated (so the frontend can
  * exhaustively switch on `.type`); a final forward-compat member lets unknown
  * host events pass through verbatim (spec §6 — malformed/unknown never throws).
@@ -193,22 +207,46 @@ export type WebFrame =
   // renders it via textContent ONLY, never innerHTML). `id` is the deep-link
   // anchor (`#card-<id>`, ticket 03). Replay-eligible: the snoop broadcasts
   // through the SAME store-wrapped broadcaster, so connect-time snapshot
-  // replay comes free. Later tickets extend `body` per kind (interactive /
-  // viewer); v1 pins `{ text: string }`.
+  // replay comes free.
+  // event-cards (02): the body is discriminated BY KIND — readonly/viewer
+  // keeps `{ text: string }` (01's pin, unchanged); interactive pins
+  // `{ question, fields }` (the fill-in form card whose answers ride the
+  // loose appexec channel back as extra.kind:"card_answer" and are
+  // tombstoned by the `card_done` frame below).
   | {
       type: "card";
       /** Wiring-generated (`card-${n}`, per-session counter) or a producer id (t05). */
       id: string;
-      kind: "readonly" | "interactive" | "viewer";
+      kind: "readonly" | "viewer";
       /** textContent-rendered ONLY — treat as untrusted. */
       title: string;
       /** "bus" (t01 snoop) | producer id (t05). */
       source: string;
       ts: number;
       attention: "view" | "input" | "silent";
-      /** v1 readonly body: plain text, textContent-rendered. */
+      /** readonly/viewer body: plain text, textContent-rendered. */
       body: { text: string };
     }
+  | {
+      type: "card";
+      /** Same id space as the readonly member — the answer loop keys on it. */
+      id: string;
+      kind: "interactive";
+      /** textContent-rendered ONLY — treat as untrusted. */
+      title: string;
+      /** Producer id (t05) — interactive cards are never snoop-generated. */
+      source: string;
+      ts: number;
+      attention: "view" | "input" | "silent";
+      /** interactive body: the question + fill-in fields (the form card). */
+      body: { question: string; fields: CardField[] };
+    }
+  // event-cards (02): the card tombstone — an interactive card was answered
+  // (FIRST-ANSWER-WINS, wiring-side exactly-once). Replay-eligible: rides the
+  // same store-wrapped broadcaster as `card`, so a refreshed client replays
+  // card then card_done IN ORDER and renders the answered state, never a
+  // ghost form (same lesson as ask_user_done).
+  | { type: "card_done"; id: string; ts: number }
   // forward-compat: any other host event is forwarded generically (never thrown on)
   | { type: string; details?: unknown; [k: string]: unknown };
 
