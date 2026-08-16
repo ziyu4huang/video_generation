@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-15-subagent-dynamic-budgets
 created: 2026-08-15
-last: 2026-08-15
-status: active
+last: 2026-08-16
+status: paused
 ---
 
 # Wayfinder map: 2026-08-15-subagent-dynamic-budgets
@@ -27,10 +27,8 @@ Subagent budgets become self-calibrating and symmetric across tokens/turns/time 
 
 ## Not yet specified
 
-- Recalibration cadence + persistence format (where the recalibrated table lives; how it interacts with env overrides)
 - cacheRead accounting policy (count 1:1 vs exclude vs separate cacheBudget)
 - Role-model granularity beyond binary recon/writer
-- Report-edge headroom reservation (the #1 observed death pattern)
 - All-or-nothing envelope mixing semantics
 - Env knob extension to time (`SUBAGENT_TIME_BUDGET_*`)
 - Grace ceiling ratio for time
@@ -42,3 +40,7 @@ Subagent budgets become self-calibrating and symmetric across tokens/turns/time 
 - Workflow-tool budget changes
 - Rate-limiter/concurrency
 - Display-layer work (effort `2026-08-15-subagent-tui-display`)
+
+## Cross-effort links
+
+Shares-decision-with: 2026-08-16-optimize-planning-pipeline-aka-extension — its dispatch-cost destination is absorbed into that effort's spec (which cites this map's 4 closed decisions and settles report-edge headroom + recalibration cadence). Revivable as its own effort; the 6 remaining Not-yet-specified items stay here.
