@@ -238,6 +238,23 @@ export type WebFrame =
        */
       answers?: Array<{ label: string; answer: string | null }>;
     }
+  // tab-views (01a): a static report rendered by an agent/skill in the
+  // Report tab (D2) — replay-eligible like `card`, so a refreshed client
+  // re-renders it from the snapshot. Producer contract: exactly one of
+  // markdown|html is non-empty (no runtime validator — mirrors card style).
+  | {
+      /** Static report rendered by an agent/skill in the Report tab (tab-views D2). */
+      type: "report";
+      id: string;
+      title: string;
+      /** Producer label (skill/tool name). */
+      source: string;
+      ts: number;
+      /** Markdown mode — rendered via the shell's DOM md builder. */
+      markdown?: string;
+      /** HTML mode — sandboxed iframe (allow-scripts, NO allow-same-origin). */
+      html?: string;
+    }
   // forward-compat: any other host event is forwarded generically (never thrown on)
   | { type: string; details?: unknown; [k: string]: unknown };
 

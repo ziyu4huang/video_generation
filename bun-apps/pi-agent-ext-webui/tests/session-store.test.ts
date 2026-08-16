@@ -71,6 +71,32 @@ describe("createSessionStore", () => {
     ]);
   });
 
+  it("tab-views (01a): report frames are exempt from eviction", () => {
+    const s = createSessionStore(5); // tiny cap so eviction actually fires
+    // report EARLY, generic frames after (a plain FIFO would drop the report)
+    s.append({
+      type: "report",
+      id: "r1",
+      title: "Report",
+      source: "test",
+      ts: 1,
+      markdown: "# hi",
+    });
+    for (const t of ["1", "2", "3", "4", "5", "6", "7"]) {
+      s.append({ type: "message_update", text: t });
+    }
+    const snap = s.snapshot();
+    expect(snap.transcript.length).toBeLessThanOrEqual(5);
+    // 8 appended, cap 5 → the report + the 4 newest messages survive
+    expect(snap.transcript.map((f) => f.type)).toEqual([
+      "report",
+      "message_update",
+      "message_update",
+      "message_update",
+      "message_update",
+    ]);
+  });
+
   it("tracks the mutex driver from mutex_blocked; clears on settle / force-release", () => {
     const s = createSessionStore();
     expect(s.snapshot().driver).toBeNull();
