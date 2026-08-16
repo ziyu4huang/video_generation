@@ -35,15 +35,14 @@
  *   accidents of hand-assembly, not decisions.
  *
  * WHAT IS DELIBERATELY NOT HERE
- *   The `n`-key gate itself. `notesAvailable` is supplied by the caller, which
- *   states the rule `state/key-router.ts` actually applies
- *   (`!multiSelect && focusedOptionHasPreview`). Whether that GATE is the right
- *   one is a separate open question — the reducer plumbs notes for multi-select
- *   answers that the gate makes unreachable
- *   (.planning/2026-08-16-power-tool-rearch/tickets/02, A2). This module reports
- *   the rule; it does not choose it.
+ *   The keybinding rules themselves. `notesAvailable` and `escDestination` are
+ *   supplied by the caller, which gets them from `state/key-router.ts`'s own
+ *   exported predicates (`notesKeyAccepted`, `escDestination`). Restating a
+ *   router rule here is what produced a footer advertising a key the router
+ *   refused; this module reports the rules, it does not decide them.
  */
 import { t } from "../state/i18n-bridge.js";
+import type { EscDestination } from "../state/key-router.js";
 
 // ── The vocabulary ──────────────────────────────────────────────────────────
 // Each label is the English literal AND its i18n dictionary key (see
@@ -59,7 +58,13 @@ export const HINT_TOGGLE = "Space to toggle";
 export const HINT_NOTES = "n to add notes";
 export const HINT_COLLAPSE = "{0} to collapse";
 export const HINT_EXPAND = "{0} to expand";
+// Esc no longer means one thing everywhere (see key-router's escDestination), so
+// the footer must say WHICH thing. One label per destination, chosen by the
+// router's own predicate — a single "Esc to cancel" would now be a lie in two of
+// the five modes.
 export const HINT_CANCEL = "Esc to cancel";
+export const HINT_BACK = "Esc to go back";
+export const HINT_REVIEW = "Esc to review answers";
 
 /** Joins the rendered parts. One separator for every mode — see header. */
 export const HINT_SEPARATOR = " · ";
@@ -81,8 +86,10 @@ export interface HintContext {
 	isMulti: boolean;
 	/** The focused question takes multiple options, so Space toggles. */
 	focusedIsMultiSelect: boolean;
-	/** `n` would actually be accepted right now (mirrors key-router's gate). */
+	/** `n` would actually be accepted right now — key-router's `notesKeyAccepted`. */
 	notesAvailable: boolean;
+	/** Where Esc goes from here — key-router's `escDestination`. */
+	escDestination: EscDestination;
 	/**
 	 * Display spelling of the configured collapse key (`Ctrl+]`, `Alt+O`, …), or
 	 * undefined when the shortcut is off. Produced by `config.formatKeySpec` —
@@ -131,7 +138,9 @@ export const HINT_TABLE: readonly HintEntry[] = [
 		when: (c) => c.mode === "collapsed" && c.collapseKey !== undefined,
 		args: (c) => [c.collapseKey ?? ""],
 	},
-	{ label: HINT_CANCEL, when: () => true },
+	{ label: HINT_CANCEL, when: (c) => c.escDestination === "cancel" },
+	{ label: HINT_BACK, when: (c) => c.escDestination === "back" },
+	{ label: HINT_REVIEW, when: (c) => c.escDestination === "review" },
 ];
 
 /**

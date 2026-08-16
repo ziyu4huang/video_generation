@@ -19,5 +19,19 @@ export function openAnnounceFor(kind: OpenAnnounceKind, outPath: string, ir?: Op
 
 /** Fire-and-forget emit on the optional host bus; a throwing bus never breaks the tool result. */
 export function announceOpen(events: OpenBus | undefined, kind: OpenAnnounceKind, outPath: string, ir?: OpenAnnounceIr): void {
-  try { events?.emit?.("webui:open", openAnnounceFor(kind, outPath, ir)); } catch { /* bus robustness */ }
+  try {
+    const open = openAnnounceFor(kind, outPath, ir);
+    events?.emit?.("webui:open", open);
+    // HITL presentation (2026-08-16-webui-present-adoption §C2): fire-and-forget —
+    // webui-optional, same inert guard as webui:open. Approve / free-text Tweak.
+    events?.emit?.("webui:present", {
+      path: open.path,
+      view: open.view,
+      title: open.title,
+      controls: [
+        { id: "approve", label: "Approve" },
+        { id: "tweak", label: "Regenerate…", takesInput: true },
+      ],
+    });
+  } catch { /* bus robustness */ }
 }

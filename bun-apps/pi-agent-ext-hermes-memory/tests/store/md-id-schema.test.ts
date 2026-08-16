@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend";
+import { getColumnNames } from "../../src/store/sqlite/corruption-recovery";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo";
 import { tmpdir } from "node:os"; import { join } from "node:path"; import { rmSync } from "node:fs";
 
@@ -14,7 +15,7 @@ describe("md_id schema", () => {
     // Two rows, no md_id yet — both NULL must coexist under the UNIQUE index.
     await repo.addMemory({ target: "memory", project: null, content: "a", created: "2026-08-01", lastReferenced: "2026-08-01" });
     await repo.addMemory({ target: "memory", project: null, content: "b", created: "2026-08-01", lastReferenced: "2026-08-01" });
-    const cols = backend["getColumnNames"](backend["db"], "memories");
+    const cols = getColumnNames(backend["db"], "memories");
     expect(cols.has("md_id")).toBe(true);
     expect(await repo.getMdIdByContent("a", { target: "memory" })).toBeNull();
   });

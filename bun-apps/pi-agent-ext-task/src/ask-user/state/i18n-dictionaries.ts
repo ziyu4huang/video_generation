@@ -62,6 +62,8 @@ export const DICTIONARIES: Record<string, Record<string, string>> = {
 		"n to add notes": "n 新增備註",
 		"Tab to switch questions": "Tab 切換問題",
 		"Esc to cancel": "Esc 取消",
+		"Esc to go back": "Esc 返回",
+		"Esc to review answers": "Esc 檢視回答",
 		"{0} to collapse": "{0} 收合",
 		"{0} to expand": "{0} 展開",
 

@@ -1,3 +1,7 @@
+---
+last: 2026-08-16
+---
+
 # Wayfinder map: 2026-07-31-let-s-continue-to-improve-base-on-known-upstream
 
 ## Destination
@@ -39,6 +43,8 @@ handoff.
 
 - [Fog trio 12/13/14 closed 2026-08-16](tickets/) — re-open when web-search key exists; 07/10/11 remain frontier.
 - 2026-08-16: ticket 07 StringEnum DONE (PR #1467) — Gemini tool-schema routing fixed; ~24 sites/15 files > ticket's 18/5.
+- 2026-08-16: ticket 10 model_select DONE — subscribed in both exts (workflow `setMainModel` @ workflow.ts:223, subagent `mainModelHolder` @ subagent.ts:154); future-dispatches-only; new test `tests/extension-model-select.test.ts`; gates workflow 1079/0, subagent 626/0.
+- 2026-08-16: ticket 11 closed — ctx.scopedModels honored (picker + dispatch warn-and-clamp).
 
 ## Frontier (open, unblocked, unclaimed)
 

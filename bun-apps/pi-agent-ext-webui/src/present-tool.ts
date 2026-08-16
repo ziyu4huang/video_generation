@@ -9,6 +9,13 @@
  * return transport) or an abort fires (session_shutdown / WS close resolve all
  * pending; the tool's own `signal` cancels just this one via `cancelPending`).
  *
+ * Connected-gate (ticket 01, spec §C1): the OPTIONAL getClientCount /
+ * onClientsChanged deps surface the server's live client count. Zero clients
+ * at call time → immediate `{skipped: "no_client"}` RESULT (a TUI-only session
+ * must never block on a browser that cannot answer); a 1→0 transition while
+ * pending → release as `{cancelled: true, reason: "no_client"}`. Deps absent
+ * (or count undefined) → ungated v1 behavior — minimal fakes keep working.
+ *
  * Deliberately a FACTORY over explicit deps so the
  * blocking/guard/abort logic is unit-testable with fakes — no live wiring, no
  * Bun.serve. The error path returns a tool RESULT (text + `details.error`),
@@ -59,19 +66,35 @@ export interface PresentToolDeps {
   present: PresentFn;
   registerPending: (id: string) => Promise<HitlResponse>;
   hasPending: () => boolean;
-  cancelPending: (id: string) => void;
+  cancelPending: (id: string, reason?: string) => void;
+  /** Live connected-client count (wiring: WebServer#clientCount). `0` gates
+   *  the call; `undefined` (seam absent) never gates — ungated v1 behavior. */
+  getClientCount?: () => number | undefined;
+  /** Subscribe to client-count changes; returns an unsubscribe (the tool
+   *  detaches on EVERY settlement — no permanent listeners). */
+  onClientsChanged?: (cb: (count: number) => void) => () => void;
 }
 
 export interface PresentToolDetails {
   action?: string;
   tweak?: string;
   cancelled?: boolean;
+  reason?: string;
   error?: string;
+  skipped?: string;
 }
 
 const ERROR_ALREADY_PENDING =
   "Another webui_present is already pending (one presentation at a time in v1). " +
   "Wait for the user to respond to it — or for it to be cancelled — before presenting again.";
+
+const NO_CLIENT_SKIPPED =
+  "No webui client connected — presentation skipped (skipped: no_client). " +
+  "Show the content another way (e.g. ui.notify) and continue without waiting.";
+
+const NO_CLIENT_RELEASED =
+  "All webui clients disconnected — presentation released " +
+  "(cancelled: no_client); continue without browser approval.";
 
 /** Module-level sequence so ids are unique within a process. */
 let presentSeq = 0;
@@ -120,6 +143,43 @@ function awaitPendingWithAbort(
   });
 }
 
+/**
+ * Connected-gate wait wrapper (ticket 01, spec §C1): awaitPendingWithAbort +
+ * the mid-wait release. The pending promise arrives ALREADY armed (the
+ * registry entry exists — registerPending's executor ran synchronously), so a
+ * release fired at any point below finds its entry. Subscribes to
+ * client-count changes; a 0 fires releaseNoClient (cancel THIS pending tagged
+ * reason "no_client" → the registry resolves {cancelled:true, reason}). The
+ * subscription detaches in `finally` on EVERY settlement (respond / abort /
+ * this release) — no permanent listeners. Double-release is safe: the
+ * registry deletes the entry on first resolution, so later cancelPending
+ * calls (abort vs release racing) are no-ops — the same single-resolution
+ * guard the abort path relies on.
+ */
+async function awaitPendingWithRelease(
+  p: Promise<HitlResponse>,
+  signal: AbortSignal | undefined,
+  onCancel: () => void,
+  releaseNoClient: () => void,
+  watch?: {
+    getClientCount?: () => number | undefined;
+    onClientsChanged?: (cb: (count: number) => void) => () => void;
+  }
+): Promise<HitlResponse> {
+  const detach = watch?.onClientsChanged?.((count) => {
+    if (count === 0) releaseNoClient();
+  });
+  // Arm-race re-check: a disconnect between the caller's call-time gate and
+  // this subscription would never fire the callback — re-read the count and
+  // release directly if the last client is already gone.
+  if (watch?.getClientCount?.() === 0) releaseNoClient();
+  try {
+    return await awaitPendingWithAbort(p, signal, onCancel);
+  } finally {
+    detach?.();
+  }
+}
+
 export function createPresentTool(
   deps: PresentToolDeps
 ): ToolDefinition<typeof PresentParameters, PresentToolDetails> {
@@ -131,8 +191,9 @@ export function createPresentTool(
       "browser TOGETHER with declarative response controls, and BLOCK until the user picks one. " +
       "Each control is a button ({id, label}); controls with takesInput reveal a free-text tweak " +
       "field. Returns {action: <controlId>, tweak?} when the user responds, or {cancelled: true} " +
-      "if the user cancels / the connection drops. One presentation at a time. To present " +
-      "generated images, reference them as ![image](/output/0/<name>) markdown — images live " +
+      "if the user cancels / the connection drops. One presentation at a time. If no webui client " +
+      "is connected, resolves immediately as {skipped: no_client} — fall back to ui.notify. " +
+      "To present generated images, reference them as ![image](/output/0/<name>) markdown — images live " +
       "under the MLX output dir and are served at /output/ (subpaths preserved, e.g. " +
       "![image](/output/0/profile_TS/front.png)).",
     promptSnippet:
@@ -140,6 +201,17 @@ export function createPresentTool(
       "Present generated images as ![image](/output/0/<name>) markdown.",
     parameters: PresentParameters,
     async execute(_callId, params, signal, _onUpdate, _ctx) {
+      // Connected-gate, call time (ticket 01, spec §C1): zero connected webui
+      // clients — a TUI-only session would block forever on a browser that
+      // cannot answer. Skipped RESULT (ask-user envelope style), checked BEFORE
+      // the one-pending guard: no_client tells the caller to fall back
+      // (ui.notify) and continue, so it must win over already_pending.
+      if (deps.getClientCount?.() === 0) {
+        return {
+          content: [{ type: "text", text: NO_CLIENT_SKIPPED }],
+          details: { skipped: "no_client" },
+        };
+      }
       // One-pending-at-a-time guard (spec: v1) — an error RESULT, not a crash.
       if (deps.hasPending()) {
         return {
@@ -156,17 +228,29 @@ export function createPresentTool(
         ...(params.view !== undefined ? { view: params.view } : {}),
         ...(params.title !== undefined ? { title: params.title } : {}),
       });
-      const response = await awaitPendingWithAbort(
+      const response = await awaitPendingWithRelease(
         deps.registerPending(presentId),
         signal,
-        () => deps.cancelPending(presentId)
+        () => deps.cancelPending(presentId),
+        () => deps.cancelPending(presentId, "no_client"),
+        deps
       );
       // Branch on `cancelled` BEFORE reading `action` (Phase-2 ledger: the
-      // HitlResponse union makes this the only narrowing path).
+      // HitlResponse union makes this the only narrowing path). A reason-bearing
+      // cancel (connected-gate no_client release) rides the reason in details +
+      // a release-specific text; the plain abort/cancel shape is unchanged.
       if ("cancelled" in response) {
         return {
-          content: [{ type: "text", text: "User cancelled / connection lost." }],
-          details: { cancelled: true },
+          content: [
+            {
+              type: "text",
+              text: response.reason === "no_client" ? NO_CLIENT_RELEASED : "User cancelled / connection lost.",
+            },
+          ],
+          details:
+            response.reason !== undefined
+              ? { cancelled: true, reason: response.reason }
+              : { cancelled: true },
         };
       }
       return {

@@ -20,7 +20,7 @@ import { buildCallGlobal } from "./call-global.js";
 import { MAX_AGENT_RETRIES } from "./config.js";
 import type { HostFnAskOptions } from "./host-fn-registry.js";
 import type { createWorkflowLogger } from "./logger.js";
-import { type parseModelRoutingFromMeta, resolveModelForPhase } from "./model-routing.js";
+import { clampModelToScope, type parseModelRoutingFromMeta, resolveModelForPhase } from "./model-routing.js";
 import type {
   AgentFn,
   AgentOptions,
@@ -282,6 +282,21 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     shared.agentCount++;
     const label = requestedLabel || defaultAgentLabel(assignedPhase, shared.agentCount);
 
+    // Session scope (ticket 11): clamp an out-of-scope spec to the first scoped
+    // model — warn-and-clamp, never a hard error. Empty scope = full catalog.
+    // callHash deliberately keeps the UNCLAMPED spec so the journal key stays
+    // stable across scope toggles (a resumed prefix replays identically), and
+    // in-flight runs are not mutated — scope is applied per dispatch only.
+    let effectiveSpec = modelSpec;
+    if (modelSpec && options.scopedModels && options.scopedModels.length > 0) {
+      const { spec, clamped } = clampModelToScope(modelSpec, options.scopedModels);
+      if (clamped) {
+        log(`${label}: model "${modelSpec}" out of session scope — clamped to "${spec}"`);
+        effectiveSpec = spec;
+        displayModel = spec;
+      }
+    }
+
     // Longest-unchanged-prefix resume: replay a cached result only while the
     // prefix is still intact — this call's index is before the first changed/new
     // call. Once any call misses, it AND everything after it run live (matching
@@ -363,7 +378,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
                   schema: agentOptions.schema,
                   signal,
                   instructions: buildAgentInstructions(assignedPhase, agentOptions, agentDef, resolvedIsolation),
-                  model: modelSpec,
+                  model: effectiveSpec,
                   tier: agentOptions.tier,
                   toolNames: agentDef?.tools,
                   disallowedToolNames: agentDef?.disallowedTools,

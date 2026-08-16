@@ -176,6 +176,10 @@ export type WebFrame =
   // connect-time replay (the wiring's store wrapper appends it to the
   // transcript ring like any outbound frame).
   | { type: "view_opened"; view?: string; title?: string; url: string; ts: number }
+  // ask-user bridge (webui-present-adoption §C3): the core-task questionnaire
+  // prompt mirrored to the shell (promptId correlates the answer). Replay-
+  // eligible: rides live broadcast + the store-wrapped connect replay.
+  | { type: "ask_user"; promptId: string; questions: unknown[]; ts: number }
   // forward-compat: any other host event is forwarded generically (never thrown on)
   | { type: string; details?: unknown; [k: string]: unknown };
 

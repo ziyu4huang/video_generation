@@ -147,4 +147,11 @@ export default function extension(pi: ExtensionAPI) {
     }
     mainModelHolder.current = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
   });
+
+  // Track runtime model switches (e.g. /model, model cycling): future dispatches
+  // use the newly selected main model. Mirrors the session_start capture above;
+  // in-flight runs are not mutated.
+  pi.on("model_select", (event) => {
+    mainModelHolder.current = event.model ? `${event.model.provider}/${event.model.id}` : undefined;
+  });
 }

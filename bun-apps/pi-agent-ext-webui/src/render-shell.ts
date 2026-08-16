@@ -18,6 +18,7 @@
  *   - When a view JSON carries presentId + controls, renderView appends a
  *     declarative .webui-toolbar under #content; a control click sends an
  *     appexec respond frame over /ws (one response per presentation).
+ *   - ask_user frames render the mirrored ask-user questionnaire dialog (§C3);
  */
 export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
 <!doctype html>
@@ -376,6 +377,8 @@ function txApply(frame) {
       // ones (<VIEW_TOAST_FRESH_MS) toast — replayed/stale frames never re-toast.
       if (typeof frame.url === 'string' && typeof frame.ts === 'number') viewApplyFrame(frame);
       break;
+    case 'ask_user': renderAskUser(frame);
+      break;
     default: break; // other frames handled elsewhere
   }
 }
@@ -384,6 +387,78 @@ function txRenderSnapshot(state) {
   if (!txEl) return;
   txEl.innerHTML = ''; // authoritative replay — replace, never append over stale
   if (state && Array.isArray(state.transcript)) state.transcript.forEach(txApply);
+}
+
+// --- ask-user bridge dialog (§C3) -------------------------------------
+// Mirrors the core-task questionnaire: options as toggle buttons,
+// multiSelect as multi-toggle, a free-text row per question. Submit rides
+// the loose appexec channel; core-task routes it through the SAME done the
+// TUI submit uses (first answer wins; a late submit is an inert no-op).
+let askUserEl = null;
+function renderAskUser(frame) {
+  if (askUserEl) askUserEl.remove();
+  askUserEl = document.createElement('div');
+  askUserEl.id = 'ask-user-dialog';
+  askUserEl.style.cssText = 'position:fixed;bottom:3.5rem;left:50%;transform:translateX(-50%);width:min(560px,92vw);max-height:60vh;overflow:auto;z-index:60;box-shadow:0 4px 18px #0008';
+  document.body.appendChild(askUserEl);
+  const state = { promptId: frame.promptId, picks: {} };
+  (frame.questions || []).forEach(function (q, qi) {
+    var block = document.createElement('div');
+    block.style.marginBottom = '.6rem';
+    var chip = document.createElement('span');
+    chip.className = 'meta';
+    chip.textContent = q.header || '';
+    var text = document.createElement('div');
+    text.textContent = q.question || '';
+    block.appendChild(chip);
+    block.appendChild(text);
+    (q.options || []).forEach(function (o) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = o.label;
+      b.style.cssText = 'display:block;width:100%;text-align:left;margin:.15rem 0;padding:.3rem .5rem;border-radius:6px;border:1px solid #8884;background:#8882;color:inherit;cursor:pointer';
+      b.onclick = function () {
+        if (!Array.isArray(state.picks[qi])) state.picks[qi] = q.multiSelect ? [] : null;
+        if (q.multiSelect) {
+          var arr = state.picks[qi];
+          var i = arr.indexOf(o.label);
+          if (i >= 0) arr.splice(i, 1); else arr.push(o.label);
+          b.style.borderColor = arr.indexOf(o.label) >= 0 ? '#6cf' : '#8884';
+        } else {
+          Array.prototype.forEach.call(block.querySelectorAll('button'), function (sib) { sib.style.borderColor = '#8884'; });
+          state.picks[qi] = o.label;
+          b.style.borderColor = '#6cf';
+        }
+      };
+      block.appendChild(b);
+      if (o.description) {
+        var d = document.createElement('div');
+        d.className = 'meta';
+        d.textContent = o.description;
+        block.appendChild(d);
+      }
+    });
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.placeholder = 'Type something.';
+    inp.style.cssText = 'width:100%;margin-top:.3rem;padding:.3rem .5rem;border-radius:6px;border:1px solid #8884;background:#0000;color:inherit';
+    inp.oninput = function () { state.picks[qi] = inp.value; };
+    block.appendChild(inp);
+    askUserEl.appendChild(block);
+  });
+  var submit = document.createElement('button');
+  submit.type = 'button';
+  submit.textContent = 'Submit';
+  submit.style.cssText = 'padding:.4rem 1rem;border-radius:6px;border:1px solid #6cf;background:#6cf3;color:inherit;cursor:pointer';
+  submit.onclick = function () {
+    var answers = (frame.questions || []).map(function (q, qi) {
+      return { question: q.question, answer: state.picks[qi] === undefined ? null : state.picks[qi] };
+    });
+    ws.send(JSON.stringify({ type: 'appexec', extra: { kind: 'ask_user_answer', promptId: frame.promptId, result: { answers: answers } } }));
+    askUserEl.remove();
+    askUserEl = null;
+  };
+  askUserEl.appendChild(submit);
 }
 
 // --- btw side panel client logic (Task 10) ---

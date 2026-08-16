@@ -102,6 +102,9 @@ export class QuestionnaireSession {
 			isMulti: this.isMulti,
 			focusedIsMultiSelect: false,
 			notesAvailable: false,
+			// Esc always dismisses from the collapsed bar — the dialog is already
+			// out of the way, so there is no gentler destination to offer.
+			escDestination: "cancel",
 			collapseKey: formatKeySpec(this.collapseKey),
 		});
 		const collapsedRender = (_width: number): string[] => [

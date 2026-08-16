@@ -43,6 +43,18 @@ The webui is **on by default** (backward compatible). Disable or pin it three wa
 - **btw side panel**: tangent thread, model/thinking switches (all 7 thinking levels now
   reach the wire).
 
+### present adoption (2026-08-16)
+
+- **Connected-gate**: zero connected clients ⇒ `webui_present` resolves
+  `{skipped:"no_client"}` immediately — TUI-only sessions never deadlock. A mid-wait
+  client disconnect auto-releases `{cancelled:true,reason:"no_client"}`.
+- **Producers**: ANY extension may emit `webui:present` (archify does after render/delta,
+  presenting Approve / Regenerate… controls); event-originated answers arrive as injected
+  user turns — `[webui:present] "<title>": approved | tweak: "<text>"`.
+- **ask-user mirror**: `rpiv:ask-user:prompt` → `ask_user` frame (replay-eligible) renders
+  a dialog in the shell; answers ride the loose appexec channel back as
+  `rpiv:ask-user:answer` — same `done` callback as the TUI dialog, first answer wins.
+
 ## Full-fidelity HTML: `/files` route + `webui:open` event
 
 Rendered views (`webui:render`) deliberately sandbox HTML with NO scripts. Some artifacts
