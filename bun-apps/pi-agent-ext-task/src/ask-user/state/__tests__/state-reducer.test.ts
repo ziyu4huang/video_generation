@@ -111,6 +111,82 @@ describe("reduce — tab_switch", () => {
 			{ kind: "set_notes_value", value: "" },
 		]);
 	});
+
+	// ── A7 — an answered tab must show what was answered ──────────────────────
+	// Multi-select ticks were already restored on tab-back; single-select answers
+	// were not, and there the cursor position IS the answer.
+
+	test("returning to a tab answered with an option puts the cursor back on that row", () => {
+		const questions = [makeQuestion(), makeQuestion()];
+		const answers = new Map<number, QuestionAnswer>([
+			[1, { questionIndex: 1, question: "Pick one", kind: "option", answer: "B" }],
+		]);
+		const r = reduce(
+			makeState({ answers }),
+			{ kind: "tab_switch", nextTab: 1 },
+			makeCtx({ questions, itemsByTab: [itemsRegular, itemsRegular] }),
+		);
+		expect(r.state.optionIndex).toBe(1); // itemsRegular = [A, B]
+		expect(r.state.inputMode).toBe(false);
+	});
+
+	test("returning to a tab answered with free text restores the row AND seeds the shared inline Input", () => {
+		const questions = [makeQuestion(), makeQuestion()];
+		const answers = new Map<number, QuestionAnswer>([
+			[1, { questionIndex: 1, question: "Pick one", kind: "custom", answer: "Hello" }],
+		]);
+		const r = reduce(
+			makeState({ answers }),
+			{ kind: "tab_switch", nextTab: 1 },
+			makeCtx({ questions, itemsByTab: [itemsRegular, itemsWithOther] }),
+		);
+		expect(r.state.optionIndex).toBe(2); // itemsWithOther = [A, B, other]
+		expect(r.state.inputMode).toBe(true);
+		// Without the seed the row would render whatever the OTHER tab last typed —
+		// there is one inline Input for the whole questionnaire.
+		expect(r.effects[0]).toEqual({ kind: "set_input_buffer", value: "Hello" });
+	});
+
+	test("an answer whose label is no longer on the tab falls back to row 0 rather than a stale index", () => {
+		const questions = [makeQuestion(), makeQuestion()];
+		const answers = new Map<number, QuestionAnswer>([
+			[1, { questionIndex: 1, question: "Pick one", kind: "option", answer: "Z" }],
+		]);
+		const r = reduce(
+			makeState({ answers }),
+			{ kind: "tab_switch", nextTab: 1 },
+			makeCtx({ questions, itemsByTab: [itemsRegular, itemsRegular] }),
+		);
+		expect(r.state.optionIndex).toBe(0);
+	});
+
+	test("a multi-select tab stays on row 0 — its answer is the tick set, not a cursor", () => {
+		const questions = [makeQuestion(), makeQuestion({ multiSelect: true })];
+		const answers = new Map<number, QuestionAnswer>([
+			[1, { questionIndex: 1, question: "Pick one", kind: "multi", answer: null, selected: ["B"] }],
+		]);
+		const r = reduce(
+			makeState({ answers }),
+			{ kind: "tab_switch", nextTab: 1 },
+			makeCtx({ questions, itemsByTab: [itemsRegular, itemsRegular] }),
+		);
+		expect(r.state.optionIndex).toBe(0);
+		expect([...r.state.multiSelectChecked]).toEqual([1]);
+	});
+
+	test("auto-advancing to an unanswered tab still lands on row 0 with no input effect", () => {
+		const questions = [makeQuestion(), makeQuestion()];
+		const ctx = makeCtx({ questions, itemsByTab: [itemsRegular, itemsWithOther] });
+		const r = reduce(
+			makeState(),
+			{ kind: "confirm", answer: { questionIndex: 0, question: "Pick one", kind: "option", answer: "A" }, autoAdvanceTab: 1 },
+			ctx,
+		);
+		expect(r.state.currentTab).toBe(1);
+		expect(r.state.optionIndex).toBe(0);
+		expect(r.state.inputMode).toBe(false);
+		expect(r.effects.some((e) => e.kind === "set_input_buffer")).toBe(false);
+	});
 });
 
 // ─── confirm ─────────────────────────────────────────────────────────────────
