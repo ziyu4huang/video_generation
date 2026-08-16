@@ -45,6 +45,7 @@ import { agentCommand } from "./commands/agent.ts";
 import { workflowRunCommand, workflowListCommand } from "./commands/workflow.ts";
 import { doctorCommand } from "./commands/doctor.ts";
 import { toolsMetricsCommand } from "./commands/tools-metrics.ts";
+import { agentTrendsCommand } from "./commands/agent-trends.ts";
 import { sessionsCommand } from "./commands/sessions.ts";
 import { memoryCommand } from "./commands/memory.ts";
 import { printCompletions, completionsMeta } from "./commands/completions.ts";
@@ -77,6 +78,7 @@ const COMMANDS: Command[] = [
   kcardLoopCommand,
   doctorCommand,
   toolsMetricsCommand,
+  agentTrendsCommand,
   sessionsCommand,
   memoryCommand,
   // Extension-backed sub-commands (each = one workspace extension exporting an

@@ -24,6 +24,27 @@ _Avoid_: rule, validator, lint, heuristic (it is exact pattern matching over cal
 The hook-fed bounded ring buffer that records every `tool_execution_start` / `tool_execution_end` into a per-session, reset-each-`session_start` store the detectors read.
 _Avoid_: log, buffer, cache (it is bounded, session-scoped, and fed by lifecycle hooks)
 
+**Historical replay**:
+Re-running the pathology detectors over past session transcripts
+(`~/.pi/agent/sessions/**/*.jsonl`) instead of the live accumulator. The detectors
+are unchanged — `analyzePathology()` is already pure over `PathologyInput`, so replay
+only builds that input from a transcript. Because nothing derived is stored, a
+threshold change re-derives the entire history consistently.
+_Avoid_: backfill, import, migration (nothing is written; every number is recomputed)
+
+**Environment sidecar**:
+The one-line-per-session record of facts a transcript cannot reconstruct — HEAD sha
+and the loaded-tool fingerprint — appended at `session_start` to
+`~/.pi/agent/power-tool/env.jsonl`. Carries no derived metric by design.
+_Avoid_: telemetry, log, metrics (it records environment identity, never measurements)
+
+**Occurrence rate**:
+Sessions in which a pathology fired ÷ sessions **containing at least one tool call**.
+The denominator excludes tool-less sessions deliberately: 2,226 of 3,391 measured
+sessions have no tool call and cannot trigger any detector, so including them tracks
+prompt volume rather than agent behaviour.
+_Avoid_: frequency, count (a count series is dominated by long sessions)
+
 **Proactive warning**:
 The non-invasive status-line nudge (`⚠ retry loop: bash ×3`) surfaced automatically when a *high*-severity pathology is active — a status bar line only, no context injection and no turn hijack.
 _Avoid_: alert, notification, interrupt (it never injects into the model context)

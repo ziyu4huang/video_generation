@@ -101,3 +101,37 @@ in whether a blocked service skips (`high`) or fails (`full`). See
 - `docs/schema-cost.md` — the estimator's contract.
 - `docs/extension-ui-conventions.md` — report/UI conventions.
 - `CONTEXT.md` — the ubiquitous language for this domain.
+
+## Longitudinal analysis
+
+`pi-agent cli agent-trends` replays the pathology detectors over historical session
+transcripts and reports occurrence-rate trends with regression verdicts. Nothing is
+uploaded and nothing derived is persisted — every number is recomputed from
+transcripts on each run (1,166 sessions in ~1.4 s), so changing a threshold
+re-derives the whole history consistently.
+
+Measured base rates over 1,165 tool-using sessions (49 days, 2026-06-28 → 2026-08-16):
+
+| pathology | rate | sessions |
+|---|---:|---:|
+| long-session-recall-risk | 37.0% | 431 |
+| consecutive-error | 5.7% | 66 |
+| error-storm | 1.8% | 21 |
+| retry-loop | 0.9% | 10 |
+| context-saturation | 0% | 0 |
+
+Three things to know before reading a report:
+
+- **`retry-loop` and `error-storm` are too sparse for a verdict** at this data
+  volume — they report `insufficient signal` rather than a direction. Designed
+  behaviour, not a missing feature.
+- **`context-saturation` has never fired.** Peak context fill across the whole
+  archive is 56.2% against an 85% threshold, so it is excluded from the trend views.
+- **The `--delta` threshold is global, but the checks have very different
+  volatility.** Observed window-to-window series:
+  `long-session-recall-risk` 15.5 · 3 · 53 · 39 · 44.5 · 72.9 (swings > 30pp are
+  routine) versus `consecutive-error` 5 · 2 · 12 · 3 · 10.5 · 0.6. A single 10pp
+  rule therefore over-reports on the volatile check and under-reports on the quiet
+  one — it called a 10.5% → 0.6% drop "stable" by 0.1pp. Treat a
+  `long-session-recall-risk` verdict with suspicion until the threshold is made
+  per-check or volatility-relative.
