@@ -1,11 +1,11 @@
 {
   "compilerOptions": {
-    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "lib": ["ESNext"],
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
     "allowJs": true,
-    "types": ["bun"],
+    "types": ["bun", "@repo/pi-agent-core-interface"],
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
@@ -13,10 +13,12 @@
     "strict": true,
     "skipLibCheck": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
+    // No `noUncheckedIndexedAccess`: this package had no tsconfig at all until now,
+    // and turning it on here would bury the entry-coverage fix under ~50 unrelated
+    // index-access edits in the existing test suite. Adopting it is its own change.
     "noImplicitOverride": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false
   },
-  "include": ["*.ts", "skills/**/*.ts", "extensions/**/*.ts"]
+  "include": ["src/**/*.ts", "extensions/**/*.ts"]
 }

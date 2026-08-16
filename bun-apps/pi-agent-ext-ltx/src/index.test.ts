@@ -81,7 +81,7 @@ describe("runLtx — pre-spawn validation", () => {
   // .github/CI.md. Also skips locally when the ltx-video binary is unbuilt
   // (e.g. right after `git clean -dxf` removed .build/) — same hang risk.
   const LTX_BIN_PRESENT = existsSync(defaultBinaryPath(resolveRepoRoot()));
-  test.skipIf(process.env.CI || !LTX_BIN_PRESENT)("does NOT throw PathSafetyError for a bare variant name with no embedded path (e.g. 'baseline')", async () => {
+  test.skipIf(Boolean(process.env.CI) || !LTX_BIN_PRESENT)("does NOT throw PathSafetyError for a bare variant name with no embedded path (e.g. 'baseline')", async () => {
     // Pre-abort so this never actually runs a real (multi-minute)
     // generation — invokeLtx kills the process immediately post-spawn and
     // resolves with aborted:true rather than rejecting. The only thing this

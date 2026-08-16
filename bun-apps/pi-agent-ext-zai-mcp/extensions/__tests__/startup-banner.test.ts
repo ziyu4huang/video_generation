@@ -33,7 +33,7 @@ function captureTimers(): void {
 	globalThis.setTimeout = ((fn: () => void) => {
 		pending.push(fn);
 		return pending.length;
-	}) as typeof setTimeout;
+	}) as unknown as typeof setTimeout;
 }
 function restoreTimers(): void {
 	if (origSetTimeout) globalThis.setTimeout = origSetTimeout;

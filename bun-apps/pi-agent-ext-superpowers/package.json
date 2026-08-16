@@ -18,7 +18,8 @@
     "check": "biome check .",
     "format": "biome format --write .",
     "lint": "biome lint .",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "pi-package",

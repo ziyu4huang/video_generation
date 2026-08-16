@@ -9,7 +9,9 @@
       "DOM.Iterable"
     ],
     "outDir": "dist",
-    "rootDir": "src",
+    // No `rootDir`: the registration entry lives in `extensions/`, outside `src/`,
+    // and `rootDir: "src"` would reject it (TS6059) instead of checking it.
+    // `check` is `tsc --noEmit`, so the emit layout this would have pinned is moot.
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -24,7 +26,8 @@
     "allowImportingTsExtensions": true
   },
   "include": [
-    "src/**/*.ts"
+    "src/**/*.ts",
+    "extensions/**/*.ts"
   ],
   "exclude": [
     "node_modules",

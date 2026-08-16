@@ -9,8 +9,13 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "rootDir": "src",
-    "declaration": true
+    // No `rootDir`: the registration entry lives in `extensions/`, outside `src/`,
+    // and `rootDir: "src"` would reject it (TS6059) instead of checking it.
+    // `noEmit` states what was already true — the only tsc script here is
+    // `typecheck` — and it is what lets `extensions/` import `../src/index.ts`
+    // by its real filename (allowImportingTsExtensions requires no emit).
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "extensions/**/*.ts"]
 }

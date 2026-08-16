@@ -630,6 +630,30 @@ jobs:
         working-directory: bun-apps
         run: bun run test:dist
 
+      # Extension-entry typecheck-coverage guard (blocks). An extension package's
+      # registration entry lives at extensions/<X>.ts while its source lives in
+      # src/ — and most of these packages wrote `include: ["src/**/*.ts"]`, so
+      # `bun run typecheck` inside the package compiled everything EXCEPT the one
+      # file the package exists to export. The entry still had an executor, just
+      # the wrong one: the HOST pi-agent typechecks it through run-dir/manifest.json.
+      # So the author's own pre-push gate said nothing and the failure surfaced one
+      # package away, on main, after merge — twice. This asserts each package with
+      # an extensions/ dir has a tsconfig, that its `include` covers every entry,
+      # and that some script actually invokes tsc (coverage with no executor reads
+      # as fixed and is not — cf. the package-script runnability guard above).
+      - name: Extension-entry typecheck coverage (blocks)
+        working-directory: bun-apps
+        run: bun run test:ext-entry
+
+      # …and the executor for it. The guard above proves each package CAN
+      # typecheck its entry; this is what makes CI actually do it. Needed because
+      # the per-package matrix gives most of these a plain `bun test`, which never
+      # chains typecheck — so without this step the guard would be green while the
+      # entry files stayed uncompiled, which is the failure it exists to prevent.
+      - name: Extension-entry typecheck (executor, blocks)
+        working-directory: bun-apps
+        run: bun run typecheck:ext
+
       # Test-portability prevention check — now BLOCKING (--strict). Scans the
       # test surface for the four "works on my machine" signal patterns and
       # exits non-zero on any UNGATED P1/P2 hit (existsSync of a machine-coupled
