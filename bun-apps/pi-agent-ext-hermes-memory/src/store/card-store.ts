@@ -31,10 +31,8 @@
  *
  * 06a scope still standing:
  *  - `upsertCard`/`getCard`/`getCardsByKind` are exercised on kind "knowledge".
- *  - `Card.embed` is NOT persisted/indexed here (04/06b); it round-trips as
- *    `undefined` through the SQLite path. `Card.graph` IS persisted (03): a
- *    nullable `graph` JSON column next to `frontmatter` (sqlite) / a free
- *    column (surreal).
+ *  - `Card.graph` IS persisted (03): a nullable `graph` JSON column next to
+ *    `frontmatter` (sqlite) / a free column (surreal).
  */
 
 import { runWithTransientRetry } from "./sqlite/sqlite-backend.js";

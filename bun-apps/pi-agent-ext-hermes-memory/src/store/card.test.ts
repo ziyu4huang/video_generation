@@ -17,9 +17,8 @@ describe("Card model", () => {
     };
     assert.equal(c.kind, "knowledge");
   });
-  it("a memory Card omits optional embed/graph", () => {
+  it("a memory Card omits optional graph", () => {
     const c: Card = { id: "mem-uuid", kind: "memory", content: "x", frontmatter: { id: "mem-uuid" } };
-    assert.equal(c.embed, undefined);
     assert.equal(c.graph, undefined);
   });
 });

@@ -29,17 +29,15 @@ export type CardKind =
  *  - `frontmatter` is the kind-specific metadata envelope (memory: id/created/
  *    last/state/severity/pin/provenance/...; knowledge: id/created/tags/
  *    record_type/status/superseded_by/confidence/dimension/entities/...).
- *  - `embed?` is part of the TYPE but NOT persisted/indexed in 06a (embed →
- *    ticket 04 / 06b); it round-trips as `undefined` through the SQLite path.
- *    `graph?` IS persisted (03): a nullable `graph` JSON column next to
+ *  - `graph?` IS persisted (03): a nullable `graph` JSON column next to
  *    `frontmatter` round-trips it; it is not graph-indexed (the persistent
- *    relation index is a deferred scale-trigger ticket). */
+ *    relation index is a deferred scale-trigger ticket). (Removed in 09: the
+ *    never-persisted `embed?` type stub.) */
 export interface Card {
   id: string;
   kind: CardKind;
   content: string;
   frontmatter: Record<string, unknown>;
-  embed?: unknown;          // 04/06b — left opaquely typed in 06a (not indexed)
   graph?: CardGraph;        // 03 — persisted (nullable `graph` JSON col); not indexed
 }
 
