@@ -222,6 +222,13 @@ export interface WebuiWiring {
   /** Neutralize every handler + tear the server down (tests / session end). */
   dispose(): void;
   /**
+   * event-cards (03) seam: the STORE-WRAPPED broadcaster — the exact path
+   * every producer's card frame crosses (sessionStore append → TUI attention
+   * bell → fan-out). Exposed so tests/tools inject frames through the REAL
+   * wiring path (t05 producers call it too).
+   */
+  readonly broadcaster: Broadcaster;
+  /**
    * Create + await a pending HITL presentation keyed by `id` (spec Component 1).
    * The `webui_present` tool calls this, then awaits the returned Promise.
    * Resolves with `{action, tweak?}` when an appexec `respond` arrives for the
@@ -287,6 +294,38 @@ export function formatSessionStamp(d: Date): string {
 }
 
 /**
+ * event-cards (03): the TUI attention-bell message for one card frame — the
+ * PURE half of the bell (grid-able without a wiring; the wiring's wrapped
+ * broadcaster calls it and routes the result through safeNotify). Returns
+ * null unless the frame is a NON-silent `card`: silent cards NEVER bell (the
+ * snoop flood guard — replayed snapshots must not re-bell; replay is
+ * snapshot-only so no double-bell by construction), and card_done + every
+ * non-card frame are null too. A non-empty serverUrl prefixes the
+ * `#card-<id>` deep link ("" → bare anchor); the title truncates to ~60 chars.
+ */
+export function cardBellMessage(
+  card: { type: string; id: string; title: string; attention: string },
+  serverUrl: string
+): string | null {
+  if (card.type !== "card" || card.attention === "silent") return null;
+  // TOTAL across the WebFrame union: the forward-compat member types
+  // title/id as unknown structurals — coerce at runtime, never trust shape.
+  const rawTitle = typeof card.title === "string" ? card.title : String(card.title ?? "");
+  const title = rawTitle.length > 60 ? `${rawTitle.slice(0, 57)}...` : rawTitle;
+  const id = typeof card.id === "string" ? card.id : String(card.id ?? "");
+  return `[webui] card "${title}" — ${serverUrl ? serverUrl + "/" : ""}#card-${id}`;
+}
+
+/**
+ * Type predicate: `frame.type === "card"` alone does NOT drop the WebFrame
+ * union's forward-compat member (`{ type: string; ... }`), so the wrapped
+ * broadcaster narrows through this before calling cardBellMessage (TS2345).
+ */
+function isCardFrame(frame: WebFrame): frame is Extract<WebFrame, { type: "card" }> {
+  return frame.type === "card";
+}
+
+/**
  * Compose the webui extension. Idempotent w.r.t. the singleton server (a second
  * call re-points the session + command handler but reuses the live transport).
  */
@@ -305,6 +344,8 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       },
       registerPending: (_id: string): Promise<HitlResponse> =>
         Promise.resolve({ cancelled: true }),
+      // inert seam (03): nothing is wired — broadcasts sink to a no-op
+      broadcaster: { broadcast(): void {} },
     };
   }
   // ticket 06 (archify-webui-html spec §4.1): /files root allowlist — resolved
@@ -326,6 +367,14 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   const broadcaster: Broadcaster = {
     broadcast(frame: WebFrame): void {
       sessionStore.append(frame);
+      // event-cards (03): TUI attention bell — CENTRALIZED here, the ONE point
+      // every card frame crosses (the t01 snoop today, t05 producers later).
+      // Non-silent cards ring the bound session's ui; safeNotify never throws
+      // out of broadcast. Replayed snapshots never cross this path (the store
+      // READS back — no re-broadcast), so no double-bell by construction.
+      if (frame.type === "card" && frame.attention !== "silent" && isCardFrame(frame)) {
+        safeNotify(cardBellMessage(frame, resolvedServerUrl()));
+      }
       rawBroadcaster.broadcast(frame);
     },
   };
@@ -356,6 +405,35 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // which WebuiSessionCtx still provides (structural superset).
   let bound: { pi: WebuiHost; ctx: WebuiSessionCtx } | null = null;
   let disposed = false;
+
+  /**
+   * event-cards (03): ring the bound session's TUI bell. A null message is
+   * not bell-worthy (cardBellMessage already filtered); no bound session =
+   * no bell (pre-session_start cards are replay-visible only); the try/catch
+   * guarantees broadcast NEVER throws (fire-and-forget contract, broadcaster.ts).
+   */
+  function safeNotify(message: string | null): void {
+    if (message === null) return;
+    try {
+      bound?.ctx?.ui?.notify(message, "info");
+    } catch {
+      /* a throwing ui must never break broadcast fan-out */
+    }
+  }
+
+  /**
+   * event-cards (03): the bell's deep-link origin. server.url is read LAZILY
+   * (it throws "WebServer not started" before start/after stop — same guard
+   * as the webui:open handler); "" degrades the link to a bare #card-<id>
+   * anchor.
+   */
+  function resolvedServerUrl(): string {
+    try {
+      return server.url.replace(/\/+$/, "");
+    } catch {
+      return "";
+    }
+  }
 
   // --- btw side-panel seam (Task 8) -----------------------------------------
   // Subscribed during factory setup, BEFORE any session_start fires, so the
@@ -944,6 +1022,7 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       server.stop();
     },
     registerPending,
+    broadcaster, // event-cards (03) seam — the store-wrapped path (append → bell → fan-out)
   };
 }
 

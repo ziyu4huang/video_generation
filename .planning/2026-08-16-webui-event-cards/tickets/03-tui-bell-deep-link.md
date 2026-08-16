@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 ---
 # 03 — TUI attention bell + #card-<id> deep link
 
@@ -12,3 +12,8 @@ status: open
 
 ## Acceptance
 - Silent cards never bell; `#card-<id>` lands on the card from a cold load.
+
+## Result
+- Attention bell via TUI notify (respects bell setting) with card id; `#card-<id>`
+  deep link opens Cards tab, scrolls + flashes the card, incl. cold load.
+- Gates: bun test 505 pass / 0 fail.
