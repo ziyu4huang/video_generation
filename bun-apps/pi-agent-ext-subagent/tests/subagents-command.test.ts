@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, test } from "bun:test";
 import assert from "node:assert/strict";
-import { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
+import { SubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
 import { createSubagentsCommand } from "../src/subagents-command.js";
 
 // Identity theme so render() returns plain text we can assert on.

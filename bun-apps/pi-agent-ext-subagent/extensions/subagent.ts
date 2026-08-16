@@ -139,7 +139,7 @@ export default function extension(pi: ExtensionAPI) {
     // The always-on subagent-context box (aboveEditor widget + Ctrl-O
     // \x0f onTerminalInput byte-sniff) was retired in Task 04 of the CC-style
     // subagent TUI plan; its unique collapsed-view behavior (latestMessageLine
-    // beneath each row) now lives in core-task's `subagents` status section.
+    // beneath each row) now lives in ext-task's `subagents` status section.
     // Drill-down for the live trace stays `/subagents`.
     const extTools = (pi as unknown as { getAllToolDefinitions?: () => ToolDefinition[] }).getAllToolDefinitions?.();
     if (extTools?.length) {

@@ -21,8 +21,8 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { walkAndIngest } from "../src/walk-and-ingest.js";
-import { publishSeam } from "@repo/pi-agent-ext-core-interface";
-import type { IngestOptions, IngestSummary } from "@repo/pi-agent-ext-core-interface";
+import { publishSeam } from "@repo/pi-agent-core-interface";
+import type { IngestOptions, IngestSummary } from "@repo/pi-agent-core-interface";
 
 const EMPTY_SUMMARY: IngestSummary = {
   source: "workflow-jsonl",

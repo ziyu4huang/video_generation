@@ -15,10 +15,10 @@ import {
 	type EntityType,
 	type ExtractedEntity,
 	type Relation,
-} from "@repo/pi-agent-ext-core-interface";
+} from "@repo/pi-agent-core-interface";
 import { chatJson, type LmChatOptions } from "./llm-chat.ts";
 
-export type { Relation } from "@repo/pi-agent-ext-core-interface";
+export type { Relation } from "@repo/pi-agent-core-interface";
 
 /** Result of extracting graph structure from text. */
 export interface ExtractionResult {

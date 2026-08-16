@@ -22,11 +22,11 @@
  *
  * The post-detach "detached → background" notify line needs no seam here: it
  * fires from the registry's `foreground:true → false` flip (Task 02's
- * `SubagentNotify` diff rule), covered by core-task's notify.test.ts
+ * `SubagentNotify` diff rule), covered by ext-task's notify.test.ts
  * integration test.
  */
-import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
-import { isTerminalStatus } from "@repo/pi-agent-ext-core-runtime";
+import type { SubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
+import { isTerminalStatus } from "@repo/pi-agent-core-runtime";
 import type { DetachOutcome } from "./detach-run.js";
 
 /**

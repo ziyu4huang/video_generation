@@ -4,7 +4,7 @@ import type { WorkflowAgentSnapshot } from "../src/display.js";
 import type { WorkflowMeta } from "../src/workflow.js";
 
 async function loadErrors() {
-  return import("@repo/pi-agent-ext-core-runtime");
+  return import("@repo/pi-agent-core-runtime");
 }
 
 async function loadConfig() {
@@ -355,5 +355,5 @@ async function load() {
 }
 
 async function loadCore() {
-  return import("@repo/pi-agent-ext-core-runtime");
+  return import("@repo/pi-agent-core-runtime");
 }

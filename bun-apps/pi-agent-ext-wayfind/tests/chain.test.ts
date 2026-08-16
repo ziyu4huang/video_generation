@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parsePlan } from "../../pi-agent-ext-core-task/src/plan/parse.ts";
+import { parsePlan } from "../../pi-agent-ext-task/src/plan/parse.ts";
 import { flattenTicketsToPlan, seedFromDecisions, syncChainState } from "../src/chain.js";
 import type { GlossaryTerm, ResolvedDecision } from "../src/grill.js";
 import { readMap, writeMap, writeTicket } from "../src/map.js";
@@ -138,7 +138,7 @@ describe("continuous chain loop — end-to-end toy effort", () => {
     expect(readMap(cwd, effort)?.tickets.find((t) => t.id === "01")?.status).toBe("closed");
   });
 
-  it("writing-plans plan (real core-task parsePlan) → __piPlanPhases → syncChainState closes the ticket", () => {
+  it("writing-plans plan (real ext-task parsePlan) → __piPlanPhases → syncChainState closes the ticket", () => {
     // Proves the cross-package contract with the REAL publisher output (status
     // "completed" + stem ticketIds), not a hand-written mock. Guards the seam
     // against drift that isolated mock tests miss (the TB6 status-token bug).

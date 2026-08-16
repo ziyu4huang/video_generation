@@ -14,7 +14,7 @@
  * bucket serves ctx-less callers (tests, module-level), preserving legacy
  * single-bucket behavior. Optimization #3 / ticket #16, stage 1 of 4.
  *
- * Module-scoped (not a class) to mirror the core-task accumulator pattern
+ * Module-scoped (not a class) to mirror the ext-task accumulator pattern
  * already proven in this repo. Memory is bounded by MAX_CALLS via a soft cap
  * that slices the oldest entries when a bucket grows to 2× the cap (indices in
  * `pending` are re-based accordingly).

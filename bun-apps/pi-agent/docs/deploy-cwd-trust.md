@@ -139,7 +139,7 @@ repo), and asserts:
 - `matched > 0` — tool-bearing extensions loaded (probe counts `getAllTools()`
   by source-path marker).
 - `cmdMatched > 0` — command-bearing extensions registered (covers extensions
-  like pi-agent-ext-wayfind / -core-task that register slash commands but 0 tools).
+  like pi-agent-ext-wayfind / -ext-task that register slash commands but 0 tools).
 - `skillMatched > 0` — a manifest-declared skill (`pi-agent-ext-superpowers`)
   loaded into `systemPromptOptions.skills` (probe on `before_agent_start`).
 

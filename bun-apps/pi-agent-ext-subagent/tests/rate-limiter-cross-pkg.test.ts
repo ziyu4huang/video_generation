@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
  * use in production:
  *
  *   - pi-agent-ext-subagent imports the shared runtime directly:
- *         import { ... } from "@repo/pi-agent-ext-core-runtime"
+ *         import { ... } from "@repo/pi-agent-core-runtime"
  *   - pi-agent-ext-workflow imports the package root:
  *         import { ... } from "@repo/pi-agent-ext-subagent"
  *
@@ -30,7 +30,7 @@ import {
   __resetRateLimitStateForTests,
   getGlobalRateLimiter as getViaSrc,
   setRateLimitCapResolver as setResolverViaSrc,
-} from "@repo/pi-agent-ext-core-runtime";
+} from "@repo/pi-agent-core-runtime";
 // PACKAGE-ROOT path - the core-runtime facade this barrel re-exports for peers
 // that do not declare core-runtime (see tests/barrel-surface.test.ts). Both
 // spellings must gate on ONE budget, or a facade consumer would silently get an

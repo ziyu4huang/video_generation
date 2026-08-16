@@ -10,7 +10,7 @@
  *     - `changed_packages` shelled out to scripts/ci-changed-packages.sh — deleted
  *       (ported to bun-apps/pi-agent-ext-devops/src/changed-packages.ts).
  *     - the matrix carried a row for pi-agent-ext-picker — package deleted.
- *     - pi-agent-ext-core-runtime was created by #1251 and never entered the
+ *     - pi-agent-core-runtime was created by #1251 and never entered the
  *       matrix, so its 10 test files silently left CI the moment they moved.
  *
  * WHAT IS ASSERTED
@@ -508,7 +508,7 @@ describe("deploy.ts — every flag a shell script passes is a flag it accepts", 
 });
 
 describe("ci.yml.disabled — every workspace package is in the matrix", () => {
-	test("no package is invisible to CI (the pi-agent-ext-core-runtime class)", () => {
+	test("no package is invisible to CI (the pi-agent-core-runtime class)", () => {
 		const inMatrix = new Set(readMatrix().map((r) => r.pkg));
 		const uncovered = workspacePackages().filter((p) => !inMatrix.has(p));
 		expect(
@@ -516,7 +516,7 @@ describe("ci.yml.disabled — every workspace package is in the matrix", () => {
 			`WORKSPACE PACKAGE(S) MISSING FROM THE CI MATRIX: ${uncovered.join(", ")} — ` +
 				"bun-apps/<pkg>/package.json exists but the tests matrix in " +
 				".github/workflows/ci.yml.disabled has no row for it, so its tests never run in CI. " +
-				"This is how pi-agent-ext-core-runtime's 10 test files silently left CI when #1251 " +
+				"This is how pi-agent-core-runtime's 10 test files silently left CI when #1251 " +
 				"extracted them into a new package. Add a `- { package: <pkg>, test-cmd: \"…\" }` row " +
 				"(and list it in .github/CI.md).",
 		).toEqual([]);

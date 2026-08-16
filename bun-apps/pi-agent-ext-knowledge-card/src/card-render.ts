@@ -1,6 +1,6 @@
 /** Pure markdown → zettel-card rendering (split from ingest.ts — hermes-arch-13). */
 import { yamlScalar, normTag } from "./card-format.ts";
-import type { ExtractedEntity, Relation } from "@repo/pi-agent-ext-core-interface";
+import type { ExtractedEntity, Relation } from "@repo/pi-agent-core-interface";
 import type { CardOutcome, IngestOptions, KnowledgeRecord } from "./types.ts";
 export interface MarkdownFeatures {
 	/** True iff at least one `> [!type]` callout block is present. */

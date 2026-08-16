@@ -232,7 +232,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			// getAllToolDefinitions is a runtime patch — absent in some contexts.
 		}
 		// Publish zk's 5-function knowledge surface as the __piKnowledgePipeline
-		// seam (typed via @repo/pi-agent-ext-core-interface). Live for the session;
+		// seam (typed via @repo/pi-agent-core-interface). Live for the session;
 		// unpublishKnowledgePipeline() tears it down at session_shutdown.
 		publishKnowledgePipeline({ collectInputFiles, ingestRecords, runConvergenceLoop, retrieveRecords, healGraph });
 	});

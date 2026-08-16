@@ -24,7 +24,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-import type { WorkflowAgent } from "@repo/pi-agent-ext-core-runtime";
+import type { WorkflowAgent } from "@repo/pi-agent-core-runtime";
 import { runWorkflow } from "./workflow.js";
 import { type Manifest, readManifest } from "./workflow-pack-manifest.js";
 import { parseWorkflowScript } from "./workflow-script-parser.js";

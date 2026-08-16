@@ -20,7 +20,7 @@ import {
   removeWorktree,
   resolveAgentType,
   type Worktree,
-} from "@repo/pi-agent-ext-core-runtime";
+} from "@repo/pi-agent-core-runtime";
 import { roleAwareDefaults, tierDefaultToken } from "./budget-defaults.js";
 import { dispatchChild } from "./child-dispatch.js";
 import { ComposerComponent } from "./composer-component.js";

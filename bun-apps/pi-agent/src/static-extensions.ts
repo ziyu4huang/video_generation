@@ -41,7 +41,7 @@
  * regardless of each package's own exports map.
  *
  * TWO groups, added at different times:
- *   - Group A (original "general productivity" 5): core-task, hermes-memory,
+ *   - Group A (original "general productivity" 5): ext-task, hermes-memory,
  *     superpowers, wayfind, web-access.
  *   - Group B (migrated from dynamic `-e`): obsidian, btw, file2md,
  *     workflow, knowledge-card, power-tool. These were PREVIOUSLY in manifest.extensions
@@ -52,7 +52,7 @@
  *     manifest.extensions AND (for workflow) manifest.lazyExtensions at the
  *     same time to avoid the static+dynamic double-registration noted above.
  */
-import coreTaskExtension from "../../pi-agent-ext-core-task/extensions/core-task.ts";
+import coreTaskExtension from "../../pi-agent-ext-task/extensions/task.ts";
 import promptHistoryExtension from "../../pi-agent-ext-prompt-history/extensions/prompt-history.ts";
 import hermesMemoryExtension from "../../pi-agent-ext-hermes-memory/extensions/hermes-memory.ts";
 import superpowersExtension from "../../pi-agent-ext-superpowers/extensions/superpowers.ts";
@@ -69,7 +69,7 @@ import webuiExtension from "../../pi-agent-ext-webui/extensions/webui.ts";
 
 export const STATIC_EXTENSION_FACTORIES = [
 	// Group A — original "general productivity" set
-	{ name: "pi-agent-ext-core-task", factory: coreTaskExtension },
+	{ name: "pi-agent-ext-task", factory: coreTaskExtension },
 	{ name: "pi-agent-ext-prompt-history", factory: promptHistoryExtension },
 	{ name: "pi-agent-ext-hermes-memory", factory: hermesMemoryExtension },
 	{ name: "pi-agent-ext-superpowers", factory: superpowersExtension },

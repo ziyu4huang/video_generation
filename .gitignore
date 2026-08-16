@@ -9,8 +9,11 @@ node_modules
 .pi/agent/trust.json
 **/.pi/npm/
 
-# runtime artifacts — reviewer review reports
+# runtime artifacts — reviewer review reports (all context-dir variants:
+# core-task / ext-task / task)
 **/.pi/core-task/reviews/
+**/.pi/ext-task/reviews/
+**/.pi/task/reviews/
 
 # Bun monorepo SOP — bun.lock at the root is the single canonical lockfile.
 # Per-package npm lockfiles (package-lock.json) are NOT used here and must not

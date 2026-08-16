@@ -13,7 +13,7 @@ import type {
   RunView,
   SubagentInFlightRegistry,
   TurnExhaustion,
-} from "@repo/pi-agent-ext-core-runtime";
+} from "@repo/pi-agent-core-runtime";
 import {
   checkBudgetExhaustion,
   DEFAULT_BATCH_CONCURRENCY,
@@ -25,7 +25,7 @@ import {
   providerFromModelSpec,
   shortModel,
   summarizeLatestAction,
-} from "@repo/pi-agent-ext-core-runtime";
+} from "@repo/pi-agent-core-runtime";
 import { Type } from "typebox";
 import { roleAwareDefaults, tierDefaultToken } from "./budget-defaults.js";
 import { dispatchChild } from "./child-dispatch.js";

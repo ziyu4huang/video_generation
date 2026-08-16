@@ -1,4 +1,4 @@
-import { readSeam, type KnowledgePipeline, type HealOptions, type HealReceipt } from "@repo/pi-agent-ext-core-interface";
+import { readSeam, type KnowledgePipeline, type HealOptions, type HealReceipt } from "@repo/pi-agent-core-interface";
 
 // Re-export the heal contract types so hermes callers (knowledge-heal.ts, the
 // walkAndIngest orchestrator) consume the seam contract from ONE site.

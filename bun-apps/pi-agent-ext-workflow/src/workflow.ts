@@ -1,5 +1,5 @@
 import vm from "node:vm";
-import type { AgentHistoryEntry, SddReport } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry, SddReport } from "@repo/pi-agent-core-runtime";
 import {
   type AgentRegistry,
   getGlobalRateLimiter,
@@ -8,7 +8,7 @@ import {
   WorkflowAgent,
   type WorkflowAgentOptions,
   type WorkflowErrorCode,
-} from "@repo/pi-agent-ext-core-runtime";
+} from "@repo/pi-agent-core-runtime";
 import type { TSchema } from "typebox";
 import { DEFAULT_AGENT_TIMEOUT_MS, MAX_AGENTS_PER_RUN, MAX_CONCURRENCY } from "./config.js";
 import type { HostFnRegistry } from "./host-fn-registry.js";

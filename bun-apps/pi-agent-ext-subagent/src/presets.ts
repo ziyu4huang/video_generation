@@ -14,7 +14,7 @@
  *
  * To add a provider: add one entry to MODEL_PRESETS below (data only).
  */
-import type { ModelTierConfig } from "@repo/pi-agent-ext-core-runtime";
+import type { ModelTierConfig } from "@repo/pi-agent-core-runtime";
 
 export interface ModelPreset {
   /** Stable id used on the command line / picker (kebab-case). */

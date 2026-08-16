@@ -21,8 +21,8 @@
  * `convertToBackground`/`makeProdDetachDeps`.
  */
 import { spawn } from "node:child_process";
-import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
-import { getSubagentInFlightRegistry, isTerminalStatus } from "@repo/pi-agent-ext-core-runtime";
+import type { SubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
+import { getSubagentInFlightRegistry, isTerminalStatus } from "@repo/pi-agent-core-runtime";
 import { buildSubagentArgs, getPiInvocation } from "./spawn-subagent-subprocess.js";
 import { getSubagentRunPersistence, type SubagentRunPersistence } from "./subagent-run-persistence.js";
 

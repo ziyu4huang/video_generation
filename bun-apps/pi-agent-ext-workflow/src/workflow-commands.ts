@@ -4,7 +4,7 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { activityGlyph, fmtElapsed } from "@repo/pi-agent-ext-core-runtime";
+import { activityGlyph, fmtElapsed } from "@repo/pi-agent-core-runtime";
 import {
   agentCounts,
   recomputeWorkflowSnapshot,

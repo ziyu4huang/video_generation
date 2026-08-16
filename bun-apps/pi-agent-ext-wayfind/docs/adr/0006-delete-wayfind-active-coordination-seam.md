@@ -21,7 +21,7 @@ Reality check (the core-task-review #01 audit):
   (`isWayfindActivePublished()`), exercised solely in wayfind's own tests.
 - **The plan-coordinator yield is fiction in code.** No such plan coordinator
   existed when the seam was authored (ADR-0003: "designed, not built"), and even
-  after `pi-agent-ext-core-task` was built as the plan coordinator, it never
+  after `pi-agent-ext-task` was built as the plan coordinator, it never
   read `__piWayfindActive`. There is no `isExternalDriverActive()`, no
   "injection yielded" status string, and no before_agent_start / agent_end
   gating wired to this key.
@@ -52,8 +52,8 @@ Removed:
 
 All false-narrative doc/comment sites (wayfind README/CONTEXT/comments, the
 `grill-me-with-docs` skill, `package.json`, ADR-0002/0003/0004) and the related
-M9 `__piGoalActive` prose (`pi-agent-ext-core-task` CONTEXT/goal.ts/extensions)
-were reworded: `__piGoalActive` is published by core-task and read only by the
+M9 `__piGoalActive` prose (`pi-agent-ext-task` CONTEXT/goal.ts/extensions)
+were reworded: `__piGoalActive` is published by ext-task and read only by the
 in-package `/loop` subsystem (goal⇄loop mutual exclusion), surfaced display-only
 by power-tool's `inspect_tui`; no plan coordinator or wayfind reads it.
 
@@ -62,7 +62,7 @@ by power-tool's `inspect_tui`; no plan coordinator or wayfind reads it.
 - **(a) Implement the yield.** One-directional (wayfind publishes → plan
   coordinator yields) would be an *asymmetric* trap: the plan coordinator would
   yield to a grill, but a grill would NOT yield to an active `/goal` or `/loop`
-  (the goal⇄loop mutex is already bidirectional within core-task, so adding a
+  (the goal⇄loop mutex is already bidirectional within ext-task, so adding a
   one-way wayfind guard creates a new fiction on the other axis). Making it
   genuinely bidirectional (grill ⇄ /goal ⇄ /loop all mutually yield) is a
   two-package scope change well beyond this ticket, and would gate

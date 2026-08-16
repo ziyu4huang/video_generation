@@ -16,14 +16,14 @@
 import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
 import { parseKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry } from "@repo/pi-agent-core-runtime";
 import {
   type ActivityRow,
   fmtCost,
   fmtTokensShort,
   renderActivityRow,
   summarizeLatestAction,
-} from "@repo/pi-agent-ext-core-runtime";
+} from "@repo/pi-agent-core-runtime";
 import {
   agentCounts,
   fmtDuration,

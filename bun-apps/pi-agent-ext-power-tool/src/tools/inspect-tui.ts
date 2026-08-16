@@ -6,7 +6,7 @@ import { reportHeader } from "../report.js";
 /**
  * inspect_tui — debug the above-editor widget state (the ● Todos (N/M)
  * banner and friends). Reads the globalThis-backed CoreTaskStatusWidget
- * singleton that pi-agent-ext-core-task publishes, calls its inspect() to get
+ * singleton that pi-agent-ext-task publishes, calls its inspect() to get
  * a JSON snapshot of widget registration, section list, rendered output, and
  * per-section detail (e.g. the todo overlay's hidden-task state).
  *
@@ -77,7 +77,7 @@ export function makeInspectTuiTool() {
           ...reportHeader("Inspect TUI"),
           '▶ Composite status widget: NOT FOUND',
           '  globalThis.__piCoreTaskStatusWidget is absent or has no inspect().',
-          '  Is pi-agent-ext-core-task loaded?',
+          '  Is pi-agent-ext-task loaded?',
           '',
           '▶ Coordination seams:',
         ];

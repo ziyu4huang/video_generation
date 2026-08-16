@@ -111,7 +111,7 @@ jobs:
           - { package: pi-agent-ext-movie-director, test-cmd: "bun test" }
           - { package: pi-agent-ext-power-tool, test-cmd: "bun test" }
           - { package: pi-agent-ext-btw, test-cmd: "bun test" }
-          - { package: pi-agent-ext-core-task, test-cmd: "bun test" }
+          - { package: pi-agent-ext-task, test-cmd: "bun test" }
           - { package: pi-agent-ext-research-tool, test-cmd: "bun test" }
           - { package: pi-agent-ext-zai-mcp, test-cmd: "bun test" }
           # pi-agent-ext-tool-gate: unit tests + the encoded QA verdict gate
@@ -138,18 +138,18 @@ jobs:
           - { package: pi-agent-ext-wayfind, test-cmd: "bun run test" }
           - { package: pi-agent-ext-superpowers, test-cmd: "bun run test" }
           - { package: pi-agent-ext-web-access, test-cmd: "bun test" }
-          # pi-agent-ext-core-interface: the cross-extension seam contract
+          # pi-agent-core-interface: the cross-extension seam contract
           # (__piCoreTaskStatusWidget key + shape). 2 test files that had never
           # been in the matrix — the static seam guard in `regression gates`
           # covers the publisher/consumer drift, but nothing ran this package's
           # OWN tests.
-          - { package: pi-agent-ext-core-interface, test-cmd: "bun test" }
-          # pi-agent-ext-core-runtime: extracted from pi-agent-ext-subagent in
+          - { package: pi-agent-core-interface, test-cmd: "bun test" }
+          # pi-agent-core-runtime: extracted from pi-agent-ext-subagent in
           # #1251 (decouples workflow -> subagent). The extraction moved 10 test
           # files into a NEW package, and a new package is invisible to a matrix
           # that lists packages by hand — so those 10 files silently left CI the
           # moment they moved. Uses the package's plain `bun test`.
-          - { package: pi-agent-ext-core-runtime, test-cmd: "bun test" }
+          - { package: pi-agent-core-runtime, test-cmd: "bun test" }
           # pi-agent-ext-devops: 17 test files (local-CI recipe, changed-packages
           # port, deploy/gh/branch/sync recipes) that had never been in the
           # matrix. Notably it owns src/changed-packages.ts + its CLI wrapper —
@@ -295,7 +295,7 @@ jobs:
           fetch-depth: 0
       - id: filter
         run: |
-          PATTERN='^bun-apps/pi-agent/|^bun-apps/pi-agent-ext-(core-task|hermes-memory|superpowers|wayfind|web-access)/'
+          PATTERN='^bun-apps/pi-agent/|^bun-apps/pi-agent-ext-(task|hermes-memory|superpowers|wayfind|web-access)/'
           if [ "${{ github.event_name }}" = "push" ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           elif git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} | grep -qE "$PATTERN"; then
@@ -341,7 +341,7 @@ jobs:
   # coverage catching it. Checks: (1) the binary boots and `doctor --json`
   # reports ok:true (entry/mode/providers/patches all healthy in binary
   # mode); (2) the 13 statically-bundled extensions (6 productivity:
-  # core-task/hermes-memory/prompt-history/superpowers/wayfind/web-access + 7 tool-providing:
+  # ext-task/hermes-memory/prompt-history/superpowers/wayfind/web-access + 7 tool-providing:
   # obsidian/btw/file2md/subagent/workflow/knowledge-card/power-tool — see src/static-extensions.ts)
   # register cleanly, via `ext doctor` in source
   # mode (the compiled binary's own `ext doctor` subcommand isn't binary-
@@ -546,9 +546,9 @@ jobs:
 
       # Cross-extension seam-contract guard (ADR-wayfind-0004). The
       # status-widget seam (__piCoreTaskStatusWidget) is duplicated across
-      # core-task (publisher) + wayfind/power-tool (consumers) with no
+      # ext-task (publisher) + wayfind/power-tool (consumers) with no
       # compile-time link — each side's tests mock its own literal, so a
-      # rename/reshape in core-task stays green and breaks consumers only in
+      # rename/reshape in ext-task stays green and breaks consumers only in
       # production. This static source-analysis guard turns that silent drift
       # loud (key agreement + consumer-declared methods ⊆ publisher class).
       # No runtime import of any package — respects ADR-wayfind-0004's decoupling.
@@ -593,7 +593,7 @@ jobs:
       # none: a reference inside a DISABLED workflow is never run, so it rots
       # silently (scripts/ci-changed-packages.sh was deleted while this file kept
       # calling it; the matrix carried a row for the deleted pi-agent-ext-picker;
-      # pi-agent-ext-core-runtime was created by #1251 and never got a row).
+      # pi-agent-core-runtime was created by #1251 and never got a row).
       # Asserts: every matrix row names a real package, every path this workflow
       # shells out to resolves, and every bun-apps/* package has a matrix row.
       # Reads the matrix through scripts/ci-local.sh --tsv — the ONE parser — so
@@ -607,7 +607,7 @@ jobs:
       # names a binary its package does not declare. Under the isolated linker
       # that script exits 127, and since only 3 of the 10 `check` scripts are
       # chained into a CI command, nothing ever ran them — perf-harness's
-      # `tsc --noEmit` (no devDependencies at all) and pi-agent-ext-core-runtime's
+      # `tsc --noEmit` (no devDependencies at all) and pi-agent-core-runtime's
       # `biome check .` (no @biomejs/biome) both sat broken. Also asserts every
       # biome user HAS a biome.json — core-runtime's was left behind when #1251
       # extracted it from subagent, so biome silently graded against its own

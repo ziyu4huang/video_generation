@@ -70,10 +70,10 @@ Tool-gate controls 11 gates covering ~31 tools. The owning extension column is t
 
 ```
 read, write, edit, bash        → pi builtins
-todo, goal_complete             → pi-agent-ext-core-task
+todo, goal_complete             → pi-agent-ext-task
 memory, memory_search, grill_decision → pi-agent-ext-hermes-memory
 session_search                  → pi core
-ask_user_question               → pi-agent-ext-core-task
+ask_user_question               → pi-agent-ext-task
 enable_tool                     → THIS extension (the escape hatch)
 skill_manage                    → pi core
 obsidian, obsidian_help         → pi-agent-ext-obsidian

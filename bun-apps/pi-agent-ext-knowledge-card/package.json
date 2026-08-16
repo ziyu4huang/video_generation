@@ -26,7 +26,7 @@
     "typebox": "*",
     "@repo/pi-agent-ext-obsidian": "*",
     "@repo/pi-agent-ext-subagent": "workspace:*",
-    "@repo/pi-agent-ext-core-interface": "workspace:*"
+    "@repo/pi-agent-core-interface": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^7.0.2"

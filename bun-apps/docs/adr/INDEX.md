@@ -50,13 +50,13 @@ Then add its row below. `bun run test:adr` fails until you do.
 
 | ID | Decision | File |
 | --- | --- | --- |
-| `ADR-core-task-0001` | Subagent dock focus via `onTerminalInput` prefix-claim (`Ctrl-G s`, zero upstream changes) | [`pi-agent-ext-core-task/…/0001`](../../pi-agent-ext-core-task/docs/adr/0001-subagent-dock-focus-claim.md) |
+| `ADR-task-0001` | Subagent dock focus via `onTerminalInput` prefix-claim (`Ctrl-G s`, zero upstream changes) | [`pi-agent-ext-task/…/0001`](../../pi-agent-ext-task/docs/adr/0001-subagent-dock-focus-claim.md) |
 
 ### core-runtime
 
 | ID | Decision | File |
 | --- | --- | --- |
-| `ADR-core-runtime-0001` | RunView — destructive convergence of the run read surface | [`pi-agent-ext-core-runtime/…/0001`](../../pi-agent-ext-core-runtime/docs/adr/0001-runview-destructive-convergence.md) |
+| `ADR-pi-agent-core-runtime-0001` | RunView — destructive convergence of the run read surface | [`pi-agent-core-runtime/…/0001`](../../pi-agent-core-runtime/docs/adr/0001-runview-destructive-convergence.md) |
 
 ### hermes-memory
 

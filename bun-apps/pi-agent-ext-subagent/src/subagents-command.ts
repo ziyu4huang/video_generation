@@ -9,7 +9,7 @@
  * explicit and testable.
  */
 
-import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
+import type { SubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
 import { convertToBackground, makeProdDetachDeps } from "./detach-run.js";
 import { reconstructSubagentRuns, SubagentViewer } from "./subagent-viewer.js";
 

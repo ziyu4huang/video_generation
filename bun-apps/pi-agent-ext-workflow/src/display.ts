@@ -1,6 +1,6 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import type { AgentHistoryEntry, ThemeLike, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
-import { activityGlyph, fmtCost, NO_THEME, shorten } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry, ThemeLike, WorkflowErrorCode } from "@repo/pi-agent-core-runtime";
+import { activityGlyph, fmtCost, NO_THEME, shorten } from "@repo/pi-agent-core-runtime";
 import type { RunStatus } from "./run-persistence.js";
 import type { WorkflowMeta } from "./workflow.js";
 

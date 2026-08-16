@@ -65,15 +65,15 @@ import { registerSessionSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/
 import { registerSkillTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";
 import { registerGrillDecisionTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/grill-decision-tool.ts";
 import { registerMemorySupersedeTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-supersede-tool.ts";
-// ticket 04 — core-task's 3 core tools (todo / goal_complete / ask_user_question)
-// are owner-declared core. core-task's default factory is synchronous but HEAVY
+// ticket 04 — ext-task's 3 core tools (todo / goal_complete / ask_user_question)
+// are owner-declared core. ext-task's default factory is synchronous but HEAVY
 // (globalThis pollution, overlays, registerLoop, statusWidget setup) — like
 // hermes-memory it can't be driven cleanly by the capturing stub, so drive its
 // 3 individual registrars instead (mirrors hermesMemoryRegistrar; proven safe
-// by pi-agent-ext-core-task/src/__tests__/core-gating.test.ts).
-import { registerAskUserQuestionTool } from "@repo/pi-agent-ext-core-task/src/ask-user/ask-user-question.ts";
-import { registerTodoTool } from "@repo/pi-agent-ext-core-task/src/todo/todo.ts";
-import goalDefault from "@repo/pi-agent-ext-core-task/src/goal/goal.ts";
+// by pi-agent-ext-task/src/__tests__/core-gating.test.ts).
+import { registerAskUserQuestionTool } from "@repo/pi-agent-ext-task/src/ask-user/ask-user-question.ts";
+import { registerTodoTool } from "@repo/pi-agent-ext-task/src/todo/todo.ts";
+import goalDefault from "@repo/pi-agent-ext-task/src/goal/goal.ts";
 // ticket 04 — tool-gate's own enable_tool is owner-declared core (gating:{ core:true }),
 // registered synchronously at the top of its default factory. Driving the factory
 // against the capturing stub captures enable_tool (its session_start/before_*
@@ -192,7 +192,7 @@ const hermesMemoryRegistrar = (pi: any) => {
 	registerMemorySupersedeTool(pi, null, {} as any);
 };
 
-// ticket 04 — core-task's default factory is heavy (see import note); drive the
+// ticket 04 — ext-task's default factory is heavy (see import note); drive the
 // 3 owner-declared-core registrars directly so todo / goal_complete /
 // ask_user_question land in CORPUS_EFF.core. goal's overlay arg defaults to
 // `new GoalOverlay()`, so it's safe to call with just pi.
@@ -204,7 +204,7 @@ const coreTaskRegistrar = (pi: any) => {
 
 // ticket 04 — the offline corpus must mirror the runtime 22-core. The 22 =
 // 18 owner-declared core tools captured from the registrars above (hermes-memory
-// ×5, knowledge-card ×4, web-access ×3, obsidian ×2, core-task ×3, tool-gate's
+// ×5, knowledge-card ×4, web-access ×3, obsidian ×2, ext-task ×3, tool-gate's
 // enable_tool ×1) PLUS the 4 pi-coding-agent built-ins (read/write/edit/bash).
 // The built-ins are NOT registered by any extension here (they're harness
 // built-ins), so injectBuiltinCore alone wouldn't add them — synthesize the 4
