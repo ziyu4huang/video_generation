@@ -25,11 +25,12 @@ A landed, staged redesign of the wayfind / superpowers / subagent trio that keep
 - [Probe cut evidence](tickets/02-probe-cut-evidence.md) — wayfind: 0/16 ported skills cuttable (all have ≥3 planning refs + live session exposure; weakest tier saves only ~365 LOC, poor ROI); superpowers: verification-before-completion already default-excluded (−241 via rebaseline), brainstorming KEEP but visual-companion.md + server.cjs ungated (−1,014); subagent: subprocess/retry/scope/runs-tool all KEEP (load-bearing, obsidian caller at src/lib/subagent.ts:308); only stale dist + dangling jsdoc cuttable. NET: subagent in-package cuts ≈ trivia → the net-negative-package rule needs trio-level accounting at ticket-03 ratification.
 - [Ratify subagent cuts](tickets/03-ratify-subagent-cuts.md) — 4× KEEP (all candidates load-bearing), cuts = trivia only; substrate survives untouched; budget = trio-wide net-negative vs 2026-08-16 snapshot: Δtrio ≤ −400, subagent Δsrc ≤ +800, superpowers Δ ≤ −1,200, features ≥80%/pkg.
 - [Ratify skill cuts](tickets/04-ratify-skill-cuts.md) — wayfind 0/16 cut (39/39 anchor); superpowers: delete verification-before-completion −241 (runtime-excluded already; prose refs left dangling per ADR) + brainstorming companions −1,014 (SKILL.md byte-pin kept); Δsuperpowers −1,255 ≤ −1,200, trio gates firm.
+- [Batch live-progress feed] (no ticket — opportunistic fix; instantiates standing decision 6) — subagents tool collapsed live view now renders the live feed multi-line: default 5 child rows via SUBAGENT_LIVE_LINES (invalid → 5), header always shown and exempt from the budget, dim `… +K more` indicator only when cut; landed PR #1548 (13802018) + follow-up #1552 (217ed4eb); gates 647 pass / 0 fail; TUI-verified (custom renderResult displays unclamped, both streaming `!d` and isPartial paths share one helper).
 
 ## Not yet specified
 
 - subagents-tool.ts (993L) monolith split — may graduate from stage-landing review if it blocks cuts.
-- Batch-fan-out (subagents tool) gauges — gauge design lands for singular/viewer first; batch extension graduates after stage review.
+- Batch-fan-out (subagents tool) gauges — gauge design lands for singular/viewer first; batch extension graduates after stage review. (Feed substrate landed meanwhile: #1548/#1552 collapsed live feed, 5 rows + exempt header; GAUGES still the open question.)
 - Monitor-message formats beyond data rendering (tone/structure redesign) — explicitly deferred; revisit only if render-through upgrade proves insufficient.
 
 ## Out of scope
