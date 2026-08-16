@@ -11,7 +11,7 @@ export interface DedupStrategy<K extends CardKind = CardKind> {
 /** The outcome of a dedup check. */
 export interface DedupDecision {
   /** `keep` — insert `incoming` as a new card.
-   *  `merge` — `incoming` is a near-duplicate; the store merges it into
+   *  `merge` — `incoming` overlaps an existing card; the store merges it into
    *    `existingId` (compose `merge-plan.ts` for memory; upsert evidence for
    *    knowledge — but knowledge `merge` is a 06b concern; 06a returns skip).
    *  `skip` — `incoming` is a duplicate; drop it (the canonical card is
@@ -19,7 +19,6 @@ export interface DedupDecision {
   action: "keep" | "merge" | "skip";
   /** Present for `merge`/`skip`: the existing card's `Card.id`. */
   existingId?: string;
-  /** Human-readable rationale (surfaced to the agent as the write-time signal,
-   *  mirroring the existing `formatTopicRecurrenceWarning` pattern). */
+  /** Human-readable rationale (surfaced to the agent as the write-time signal). */
   reason?: string;
 }

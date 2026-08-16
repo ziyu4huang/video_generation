@@ -24,7 +24,7 @@ describe("DedupStrategy", () => {
       const d = s.dedup(mk("b", "prefers MLX bf16 for generation"), existing);
       assert.equal(d.action, "keep");
     });
-    it("keep on a near-duplicate with a different md_id (md layer warns only — the entry is still added, so the mirror must be faithful)", () => {
+    it("keep on overlapping content with a different md_id (identity-keyed: distinct id ⇒ keep)", () => {
       const existing = [mk("a", "the mupdf renderer fails on encrypted pdfs with a permission error consistently")];
       const d = s.dedup(mk("b", "the mupdf renderer fails on encrypted pdfs with a permission error"), existing);
       assert.equal(d.action, "keep");

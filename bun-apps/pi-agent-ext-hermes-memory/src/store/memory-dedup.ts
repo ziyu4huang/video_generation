@@ -3,10 +3,9 @@
  *
  * kp13 Wave B: memory kinds are md_id-keyed and md is CANONICAL — every §-entry
  * the md layer accepted gets its own card row keyed by its frontmatter id. The
- * md layer (MemoryStore.add) already adjudicates content overlap BEFORE the
- * mirror runs: exact duplicates are refused outright and near-dups/topic
- * recurrence are WARNINGS ONLY ("the entry is still added" — see
- * memory-store.ts). Content-based dropping here would therefore only ever
+ * md layer (MemoryStore.add) already adjudicates content overlap:
+ * exact duplicates are refused outright before the mirror runs.
+ * Content-based dropping here would therefore only ever
  * delete rows the md layer deliberately kept — silently unsearchable memories
  * and a non-converging lazy re-migration (the dropped entry is re-attempted
  * on every startup pass).

@@ -559,8 +559,7 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
   // C5-lite note: memory/user/failure persistence reuses the ALREADY-
   // registered `MemoryDedupStrategy` verbatim (kp13 Wave B: IDENTITY-keyed —
   // same md_id → skip, distinct md_id → keep; md is canonical and its layer
-  // already refuses exact dups / warns-only on near-dups before mirroring).
-  // The near-dup/topic primitives stay live in MemoryStore's md-layer warnings.
+  // already refuses exact dups before mirroring).
   const serializers = new Map<CardKind, CardSerializer>([
     ["memory", new MemorySerializer("memory")],
     ["user", new MemorySerializer("user")],

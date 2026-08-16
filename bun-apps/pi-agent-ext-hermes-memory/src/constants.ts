@@ -24,8 +24,7 @@ export const DEFAULT_PROJECT_CHAR_LIMIT = 10000;
 export const DEFAULT_FAILURE_CHAR_LIMIT = 40000;
 
 /** Failure-memory model generation. Default "legacy" (today's behavior); "v1"
- *  opts into topic-key dedup + write-gate graduation warning + backlog
- *  canonicalization. Mirrors memoryMode's flag shape. */
+ *  opts into backlog canonicalization. Mirrors memoryMode's flag shape. */
 export const DEFAULT_FAILURE_MODEL = "legacy" as const;
 
 export const DEFAULT_NUDGE_INTERVAL = 10;

@@ -29,9 +29,9 @@ export interface SessionSearchConfig {
 }
 
 /** Failure-memory model generation. "legacy" (default) = today's behavior;
- *  "v1" = topic-key dedup + recurrence→skill graduation warning + deterministic
- *  backlog canonicalization (wayfind effort 2026-08-05). Mirrors `memoryMode`'s
- *  flag shape. ⚠ paired with config.ts loadConfig allowlist (the drift trap). */
+ *  "v1" = deterministic backlog canonicalization (wayfind effort 2026-08-05).
+ *  Mirrors `memoryMode`'s flag shape. ⚠ paired with config.ts loadConfig
+ *  allowlist (the drift trap). */
 export type FailureModel = "legacy" | "v1";
 
 export interface MemoryConfig {

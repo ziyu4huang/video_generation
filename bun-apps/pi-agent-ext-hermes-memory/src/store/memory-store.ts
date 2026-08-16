@@ -40,9 +40,7 @@ import {
 import { splitMemoryEntries } from "../merge-union.js";
 import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy, Provenance, MemorySource, FailureState } from "../types.js";
 import { AGENT_ROOT } from "../paths.js";
-import { envFloat, envInt } from "../utils/env.js";
-import { DEFAULT_NEAR_DUP_THRESHOLD, findNearDuplicate } from "./near-dup.js";
-import { findTopicRecurrence, formatTopicRecurrenceWarning } from "./topic-key.js";
+import { envInt } from "../utils/env.js";
 import { computeSignature } from "./signature.js";
 import type { TimedFn, TimedAlwaysFn } from "../perf.js";
 
@@ -1016,32 +1014,6 @@ export class MemoryStore {
       return this.successResponse(target, "Entry already exists (no duplicate added).");
     }
 
-    // Near-duplicate WARNING (wayfinder 2026-07-30 ticket 02): the exact check
-    // above only catches identical content. Containment-based near-dup detection
-    // flags re-captured lessons (same gotcha, different wording — mupdf ×3,
-    // SurrealDB ×2-3 in the failure store) so the agent consolidates via
-    // `memory replace` instead of accumulating. Warning only — the entry is
-    // still added. Disable: PI_MEMORY_NEAR_DUP_THRESHOLD=0. Tune: default 0.3.
-    let nearDupNote = "";
-    const nearDupThreshold = envFloat("PI_MEMORY_NEAR_DUP_THRESHOLD", DEFAULT_NEAR_DUP_THRESHOLD);
-    if (nearDupThreshold > 0) {
-      const hit = findNearDuplicate(content, strippedEntries, nearDupThreshold);
-      if (hit) {
-        nearDupNote = ` ⚠ near-duplicate of an existing entry (${(hit.similarity * 100) | 0}% overlap): "${hit.preview}…". Consider \`memory replace\` to consolidate instead of accumulating near-dups.`;
-      }
-    }
-
-    // Topic-key recurrence WARNING (wayfind 2026-08-05 ticket 04, failureModel v1):
-    // 2nd+ failure entry sharing a topic-key → flag it so the agent graduates the
-    // recurring procedure to a skill (the recurrence→skill prompt rule in MEMORY_POLICY_PROMPT, constants.ts) instead of
-    // accumulating. Warning only; graduation execution is agent-driven. Gated on
-    // v1 so legacy behavior is byte-identical. Appended to nearDupNote so every
-    // return path that surfaces nearDupNote carries it.
-    if (target === "failure" && this.config.failureModel === "v1") {
-      const topicHit = findTopicRecurrence(content, strippedEntries);
-      if (topicHit) nearDupNote += formatTopicRecurrenceWarning(topicHit);
-    }
-
     // Encode metadata: both dates = today. Mint the stable id ONCE here and
     // thread it to both sides: the `.md` frontmatter (encodeEntry) and the DB
     // row (MemoryResult.added_md_id → caller's syncMemoryEntry md_id). Option
@@ -1118,7 +1090,7 @@ export class MemoryStore {
         // consolidation-failure case — accepted as destructive capacity
         // compaction (consistent with D0). Attach the purged-superseded set so
         // the caller syncs those DB rows too.
-        const r = await this.vaultOffloadAndAdd(target, this.entriesFor(target), encoded, content.length, limit, nearDupNote);
+        const r = await this.vaultOffloadAndAdd(target, this.entriesFor(target), encoded, content.length, limit);
         if (offloadedSuperseded.length) r.offloaded_superseded = offloadedSuperseded;
         // Only surface the birth id when the entry actually landed (the floor
         // returns memoryFullError when the entry alone exceeds the limit).
@@ -1136,7 +1108,7 @@ export class MemoryStore {
     this.setEntries(target, entries);
     await this.saveToDisk(target);
 
-    return { ...this.successResponse(target, addedMessage + nearDupNote), added_md_id: id };
+    return { ...this.successResponse(target, addedMessage), added_md_id: id };
   }
 
   /**
@@ -1190,7 +1162,6 @@ export class MemoryStore {
     encoded: string,
     contentLength: number,
     limit: number,
-    nearDupNote: string,
   ): Promise<MemoryResult> {
     if (encoded.length > limit) {
       return this.memoryFullError(target, contentLength);
@@ -1235,7 +1206,7 @@ export class MemoryStore {
     return {
       ...this.successResponse(
         target,
-        `Memory updated. Offloaded ${evictedDecoded.length} older ${evictedDecoded.length === 1 ? "entry" : "entries"} to vault archive to stay within the limit.${nearDupNote}`,
+        `Memory updated. Offloaded ${evictedDecoded.length} older ${evictedDecoded.length === 1 ? "entry" : "entries"} to vault archive to stay within the limit.`,
       ),
       evicted_entries: strippedEvicted,
       evicted_md_ids: evictedMdIds,
@@ -1376,7 +1347,6 @@ export class MemoryStore {
     encoded: string,
     contentLength: number,
     limit: number,
-    nearDupNote: string,
   ): Promise<MemoryResult> {
     if (encoded.length > limit) {
       return this.memoryFullError(target, contentLength);
@@ -1400,7 +1370,7 @@ export class MemoryStore {
     return {
       ...this.successResponse(
         target,
-        `Memory updated. Rotated ${evictedEntries.length} older ${evictedEntries.length === 1 ? "entry" : "entries"} to stay within the limit.${nearDupNote}`,
+        `Memory updated. Rotated ${evictedEntries.length} older ${evictedEntries.length === 1 ? "entry" : "entries"} to stay within the limit.`,
       ),
       evicted_entries: evictedEntries,
       evicted_md_ids: evictedMdIds,

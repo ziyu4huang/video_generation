@@ -12,7 +12,7 @@ function fm(id: string, body: string, created: string, last: string, state?: str
   return fmLines.join("\n");
 }
 
-test("dry-run collapses the await_pr_merge family and compresses resolved", () => {
+test("dry-run compresses resolved and keeps unique lessons", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hm-mig-"));
   const failuresPath = path.join(dir, "failures.md");
   const entries = [
@@ -28,7 +28,7 @@ test("dry-run collapses the await_pr_merge family and compresses resolved", () =
 
   expect(result.scanned).toBe(5);
   expect(result.diff).toContain("unrelated unique lesson about mlx");
-  expect(result.dropped + result.nearDupCollapsed + result.topicCollapsed).toBeGreaterThan(0);
+  expect(result.dropped + result.compressed).toBeGreaterThan(0);
   expect(fs.readFileSync(failuresPath, "utf-8")).toBe(entries.join(ENTRY_DELIMITER));
 });
 
@@ -37,12 +37,24 @@ test("apply writes a smaller file and produces a backup", () => {
   const failuresPath = path.join(dir, "failures.md");
   const original = [
     fm("a", "[tool-quirk] `await_pr_merge` first capture here", "2026-08-02", "2026-08-02"),
-    fm("b", "[tool-quirk] `await_pr_merge` second capture here", "2026-08-03", "2026-08-03"),
+    // Ticket 06 removed near-dup/topic-key collapse, so the shrink invariant is
+    // compression alone: a long resolved entry compresses to a one-line fact
+    // vs its uncompressed baseline (a one-line entry compresses to equal length).
+    fm(
+      "b",
+      "[tool-quirk] `await_pr_merge` second capture with several sentences of incident detail — " +
+        "the merge waited on remote CI, blocked the branch for hours, and needed a manual squash " +
+        "fallback to unblock. Now resolved after #1030 landed.",
+      "2026-08-03",
+      "2026-08-03",
+      "resolved",
+    ),
   ].join(ENTRY_DELIMITER);
   fs.writeFileSync(failuresPath, original, "utf-8");
 
   const result = canonicalizeFailureBacklog({ failuresPath, dryRun: false, backup: true });
   const after = fs.readFileSync(failuresPath, "utf-8");
+  expect(result.compressed).toBe(1);
   expect(after.length).toBeLessThan(original.length);
   expect(fs.existsSync(failuresPath + ".bak")).toBe(true);
   expect(fs.readFileSync(failuresPath + ".bak", "utf-8")).toBe(original);
@@ -59,6 +71,4 @@ test("active unique entries with different subjects are never trimmed", () => {
 
   const result = canonicalizeFailureBacklog({ failuresPath, dryRun: true });
   expect(result.dropped).toBe(0);
-  expect(result.nearDupCollapsed).toBe(0);
-  expect(result.topicCollapsed).toBe(0);
 });
