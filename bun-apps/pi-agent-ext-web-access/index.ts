@@ -1,17 +1,32 @@
 // @ts-nocheck — the last suppressed file in this package. The other five are
 // fixed and checked.
 //
-// The errors are NOT spread across this file. Measured by lifting the directive
-// and running tsc: 49 errors, and 43 of them (88%) fall inside the single
-// function `openCuratorBrowser`. Six live everywhere else. That function is
-// ~1,660 lines nested inside `export default function (pi)`, which is why the
-// suppression has to be file-wide — there is no smaller unit to scope it to.
+// The errors are NOT spread across this file. Lifting the directive and running
+// tsc gives 49, and they cluster in the inline handler bodies passed to
+// `pi.registerTool` / `pi.registerCommand` — the package's own tool surface:
 //
-// So the way out is structural, not a null-guard sweep: extract
-// openCuratorBrowser into its own module and the suppression follows it there,
-// leaving ~900 lines that need six fixes to be fully checked. Extraction is not
-// free — it closes over 11 names from the enclosing scope plus six `pi.*`
-// members — which is why it is a deliberate pass, not a drive-by.
+//   fetch_content        1755-2005   251 lines   20 errors
+//   web_search           1206-1753   548 lines   12 errors
+//   /websearch command   2172-2419   248 lines    5 errors
+//   get_search_content   2007-2170   164 lines    2 errors
+//   (rest: shortcut/commands 5, module scope 3, gaps 2)
+//
+// `openCuratorBrowser` has ZERO. An earlier revision of this header claimed 43
+// of the 49 were in it and that it spanned ~1,660 lines; both were wrong. They
+// came from locating the function's end with a "next top-level declaration"
+// heuristic — and since it is the LAST such declaration, the heuristic ran on
+// to the end of the closure and swallowed ~1,400 lines of unrelated
+// registration code. Brace-balanced, it is 911-1156: 246 lines, no errors.
+// Leave it alone; it is not the problem.
+//
+// The way out is to give each tool its own module, which also makes the file
+// structure match the three tools CONTEXT.md names. Two of them are nearly
+// free — measured against the enclosing scope, `fetch_content` and
+// `get_search_content` close over NOTHING from it (fetch_content needs only
+// `pi.appendEntry` threaded in). That is 415 lines and 22 errors, 45% of the
+// total, moved into checked modules with no closure threading at all. Do those
+// first. `web_search` (5 closure names) and `/websearch` (4) are the harder
+// half and can follow separately.
 //
 // Do NOT read the suppression as "these are cosmetic". Checking this file
 // temporarily surfaced two live ReferenceErrors that no test could reach —
