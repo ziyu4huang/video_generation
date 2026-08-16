@@ -2,16 +2,39 @@
  * runVerifyMerge — the PURE orchestration behind a post-merge verification.
  * After a PR merges, confirm (a) it actually merged, (b) the merge touched ONLY
  * paths within an optional `expectedScope`, and (c) whether the PR's head branch
- * is now "spent" (fully contained in the default branch). READ-ONLY: the only
- * mutation-adjacent call is a `git show --stat` (read-only history query); it
- * never mutates the repo.
+ * is now "spent" (fully contained in the default branch).
+ *
+ * READ-ONLY by default: the only git call is `git show --numstat`, a history
+ * query. The single exception is opt-in `allowFetch`, which permits one
+ * `git fetch origin <mergeSha>` to pull the merge commit into the local object
+ * store — object store only: no ref moves, no index or working-tree change.
+ * Nothing here ever mutates the repo's state.
  *
  * Verdict (the headline result):
  *   - "NOT-MERGED"   — gh says the PR is not MERGED (OPEN/CLOSED/unknown).
- *   - "CLEAN"        — merged AND (no expectedScope given, OR every touched
- *                      file lives under an expectedScope prefix).
+ *   - "CLEAN"        — merged, the touched files WERE inspected, AND (no
+ *                      expectedScope given, OR every touched file lives under
+ *                      an expectedScope prefix).
  *   - "CONTAMINATED" — merged AND at least one touched file is outside every
  *                      expectedScope prefix (scope drift into the merge).
+ *   - "UNVERIFIED"   — merged but the touched files could NOT be inspected
+ *                      (no mergeSha, or `git show` failed). See below.
+ *
+ * WHY "UNVERIFIED" EXISTS (issue #1439)
+ *   CLEAN used to be the else-branch of the scope check, so ANY failure to read
+ *   the merge's files produced an empty `files` list, an empty `outOfScope`
+ *   list, and therefore a CLEAN verdict with `fileCount: 0`. The scope gate
+ *   silently degraded to a pass exactly when it could not do its job.
+ *
+ *   The common trigger is mundane and hit on essentially every merge: right
+ *   after `gh pr merge`, the squash commit exists on the remote but not in the
+ *   local object store, so `git show <sha>` fails with `fatal: bad object` —
+ *   and verify_merge reported CLEAN having inspected zero files. `allowFetch`
+ *   removes the cause; UNVERIFIED makes the symptom impossible to miss even
+ *   when the cause is something else.
+ *
+ *   CLEAN now REQUIRES a successful inspection. "I could not check" and
+ *   "I checked and it was fine" are no longer the same answer.
  *
  * Two injected seams (mirrors every other recipe): a full `GhClient` (gh reads)
  * + a `Pick`-typed BranchClient (git reads) + a `SpawnFn` (the read-only
@@ -41,7 +64,7 @@ import type { PrState } from "./pr-logic.js";
  */
 export type VerifyMergeClient = Pick<BranchClient, "defaultBranch" | "containedBranches" | "revParse">;
 
-export type VerifyVerdict = "CLEAN" | "CONTAMINATED" | "NOT-MERGED";
+export type VerifyVerdict = "CLEAN" | "CONTAMINATED" | "NOT-MERGED" | "UNVERIFIED";
 
 /** One touched file from `git show --stat`. `status` is best-effort ("M"). */
 export interface VerifyFile {
@@ -70,6 +93,13 @@ export interface VerifyMergeOutcome {
 	deletions: number;
 	/** Files outside every expectedScope prefix (empty when no scope given). */
 	outOfScope: VerifyFile[];
+	/**
+	 * True iff the merge's touched files were actually READ. When false the
+	 * scope check had no input and the verdict is UNVERIFIED — never CLEAN.
+	 * Callers gating on "CLEAN" get the right answer from the verdict alone;
+	 * this field is here so a caller can say WHY without parsing warnings.
+	 */
+	inspected: boolean;
 	/** True iff the PR head ref is contained in the default branch (spent). */
 	branchSpent: boolean;
 	/** Every git invocation issued, rendered runnable (always read-only here). */
@@ -87,6 +117,20 @@ export interface VerifyMergeOptions {
 	pr: number;
 	/** Optional scope prefixes; touched files outside ALL prefixes → CONTAMINATED. */
 	expectedScope?: string[];
+	/**
+	 * Permit ONE `git fetch origin <mergeSha>` when the merge commit is not in
+	 * the local object store, then retry the inspection.
+	 *
+	 * Default false, which keeps the documented read-only contract intact for
+	 * plain `verify_merge` callers. It exists because the object is missing on
+	 * essentially every post-merge call — `gh pr merge` lands the squash commit
+	 * on the remote, and nothing has fetched it locally yet — so without this
+	 * the caller must remember to fetch first, and forgetting used to look like
+	 * a pass. Callers that already mutate (pr_finish, which just merged) pass
+	 * true. Fetching a single object updates the object store only: no ref
+	 * moves, no index or working-tree change.
+	 */
+	allowFetch?: boolean;
 	signal?: AbortSignal;
 }
 
@@ -213,6 +257,7 @@ export async function runVerifyMerge(opts: VerifyMergeOptions): Promise<VerifyMe
 			insertions: 0,
 			deletions: 0,
 			outOfScope: [],
+			inspected: false,
 			branchSpent: false,
 			commands,
 			warnings,
@@ -236,6 +281,7 @@ export async function runVerifyMerge(opts: VerifyMergeOptions): Promise<VerifyMe
 			insertions: 0,
 			deletions: 0,
 			outOfScope: [],
+			inspected: false,
 			branchSpent: false,
 			commands,
 			warnings,
@@ -256,6 +302,7 @@ export async function runVerifyMerge(opts: VerifyMergeOptions): Promise<VerifyMe
 			insertions: 0,
 			deletions: 0,
 			outOfScope: [],
+			inspected: false,
 			branchSpent: false,
 			commands,
 			warnings,
@@ -268,21 +315,43 @@ export async function runVerifyMerge(opts: VerifyMergeOptions): Promise<VerifyMe
 	let fileCount = 0;
 	let insertions = 0;
 	let deletions = 0;
+	let inspected = false;
 	if (mergeSha) {
-		const r = await safe(
-			"show-numstat",
-			() => git(repoRoot, ["show", "--numstat", "--format=", mergeSha]),
-			{ stdout: "", stderr: "", exitCode: 1 },
-			warnings,
-		);
+		const showNumstat = () =>
+			safe(
+				"show-numstat",
+				() => git(repoRoot, ["show", "--numstat", "--format=", mergeSha]),
+				{ stdout: "", stderr: "", exitCode: 1 },
+				warnings,
+			);
+		let r = await showNumstat();
+		// The squash commit lands on the remote first, so immediately after a
+		// merge the object is simply absent here (`fatal: bad object`). One
+		// targeted fetch of that single object fixes it; refs are untouched.
+		if (r.exitCode !== 0 && opts.allowFetch) {
+			const f = await safe(
+				"fetch-merge-sha",
+				() => git(repoRoot, ["fetch", "origin", mergeSha]),
+				{ stdout: "", stderr: "", exitCode: 1 },
+				warnings,
+			);
+			if (f.exitCode !== 0) {
+				warnings.push(`git fetch origin ${mergeSha} failed: ${trim(f.stderr || f.stdout)}`);
+			}
+			r = await showNumstat();
+		}
 		if (r.exitCode === 0) {
 			const parsed = parseShowStat(r.stdout);
 			files = parsed.files;
 			fileCount = parsed.fileCount;
 			insertions = parsed.insertions;
 			deletions = parsed.deletions;
+			inspected = true;
 		} else {
-			warnings.push(`git show --numstat ${mergeSha} failed: ${trim(r.stderr || r.stdout)}`);
+			warnings.push(
+				`git show --numstat ${mergeSha} failed: ${trim(r.stderr || r.stdout)}` +
+					(opts.allowFetch ? "" : " — pass allowFetch (or fetch first) if the merge sha is simply not local yet"),
+			);
 		}
 	} else {
 		warnings.push("PR is MERGED but gh returned no mergeSha — cannot inspect touched files.");
@@ -295,8 +364,17 @@ export async function runVerifyMerge(opts: VerifyMergeOptions): Promise<VerifyMe
 	}
 
 	// --- 5. Verdict. -----------------------------------------------------------
+	// `inspected` is checked FIRST and CLEAN is no longer the else-branch: an
+	// unreadable merge must never be reported as a checked-and-fine merge
+	// (issue #1439). CONTAMINATED still outranks nothing here — it can only be
+	// reached when files were actually read.
 	let verdict: VerifyVerdict;
-	if (opts.expectedScope && opts.expectedScope.length > 0 && outOfScope.length > 0) {
+	if (!inspected) {
+		verdict = "UNVERIFIED";
+		warnings.push(
+			`UNVERIFIED: PR #${pr} merged, but its touched files could not be inspected — the scope check did not run.`,
+		);
+	} else if (opts.expectedScope && opts.expectedScope.length > 0 && outOfScope.length > 0) {
 		verdict = "CONTAMINATED";
 	} else {
 		verdict = "CLEAN";
@@ -354,6 +432,7 @@ export async function runVerifyMerge(opts: VerifyMergeOptions): Promise<VerifyMe
 		insertions,
 		deletions,
 		outOfScope,
+		inspected,
 		branchSpent,
 		commands,
 		warnings,

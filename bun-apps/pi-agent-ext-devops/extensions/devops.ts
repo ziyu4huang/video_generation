@@ -214,8 +214,10 @@ function formatPrepare(o: PrepareOutcome): string {
 	return L.join("\n");
 }
 
-/** Render a verify-merge outcome: verdict line (CLEAN/CONTAMINATED/NOT-MERGED),
- *  out-of-scope files, warnings, and the read-only commands issued. */
+/** Render a verify-merge outcome: verdict line (CLEAN/CONTAMINATED/UNVERIFIED/
+ *  NOT-MERGED), out-of-scope files, warnings, and the commands issued.
+ *  Only CLEAN gets ✅ — UNVERIFIED means the scope check never ran, which must
+ *  not read like a pass (issue #1439). */
 function formatVerifyMerge(o: VerifyMergeOutcome): string {
 	const L: string[] = [];
 	if (o.aborted) {
@@ -601,7 +603,7 @@ export default function (pi: ExtensionAPI): void {
 		name: "verify_merge",
 		label: "Post-merge verify (merge state + scope + branch-spent)",
 		description:
-			"Post-merge verify: confirm the PR merged, inspect the merge commit's actual file scope (vs an optional expectedScope → CLEAN/CONTAMINATED), and whether the feature branch is spent. Replaces manual `git show --stat` verification.",
+			"Post-merge verify: confirm the PR merged, inspect the merge commit's actual file scope (vs an optional expectedScope → CLEAN/CONTAMINATED), and whether the feature branch is spent. Pass allowFetch when calling right after a merge, or the sha will not be local and the verdict is UNVERIFIED. Replaces manual `git show --stat` verification.",
 		gating: { keywords: ["verify", "merge", "scope", "contaminated", "spent"] },
 		promptSnippet:
 			"Post-merge verify: confirm merged, inspect the merge's file scope (CLEAN/CONTAMINATED vs expectedScope), check branch-spent. Read-only.",
@@ -609,6 +611,12 @@ export default function (pi: ExtensionAPI): void {
 			pr: Type.Integer({ description: "The PR number to verify." }),
 			expectedScope: Type.Optional(
 				Type.Array(Type.String(), { description: "Optional scope prefixes; touched files outside ALL prefixes → CONTAMINATED." }),
+			),
+			allowFetch: Type.Optional(
+				Type.Boolean({
+					description:
+						"Allow one `git fetch origin <mergeSha>` when the merge commit is not local yet (the usual case right after a merge). Without it such a run reports UNVERIFIED instead of checking the scope.",
+				}),
 			),
 		}),
 		async execute(_id, params, signal) {
@@ -626,6 +634,7 @@ export default function (pi: ExtensionAPI): void {
 				repoRoot,
 				pr: params.pr as number,
 				expectedScope: params.expectedScope as string[] | undefined,
+				allowFetch: params.allowFetch as boolean | undefined,
 				signal,
 			});
 			return { details: outcome, content: [{ type: "text" as const, text: formatVerifyMerge(outcome) }] };

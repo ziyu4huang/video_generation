@@ -139,6 +139,15 @@ you intended the work to touch — a CONTAMINATED verdict means the merge pulled
 out-of-scope paths. Replaces manual `git show` / `git branch --merged`
 verification.
 
+**`UNVERIFIED` is a fourth verdict, and it is not a pass.** It means the merge
+landed but its files could not be read, so the scope check never ran. Treat the
+scope as unknown — never as clean. The usual cause is mundane: right after
+`gh pr merge` the squash commit exists only on the remote, so `git show <sha>`
+fails with `fatal: bad object`. Pass `--fetch` (CLI) / `allowFetch` (recipe) to
+pull that one object and verify for real; `pr_finish` already does. Before this
+verdict existed, that everyday case reported **CLEAN with `fileCount: 0`** —
+identical to a genuinely clean merge (issue #1439).
+
 **`spent` does not mean "contained".** A squash merge rewrites the branch into
 one new commit, so the head ref is never an ancestor of the base and
 `git branch --merged` never lists it — under this repo's squash convention that
@@ -235,6 +244,14 @@ guessing at launch flags. When they are absent:
   (`src/pr-finish-cli.ts`), which wraps the whole finish sequence
   (preflight → local-CI gate → merge gates → squash-merge → verify_merge →
   branch cleanup).
+
+  Its cleanup **detaches this worktree** onto `origin/<base>` before deleting
+  the spent head branch — git refuses `branch -D` on a branch checked out
+  anywhere, and the worktree that ran the merge is normally still on it, so
+  that step used to fail on essentially every run and the caller had to detach
+  and sweep by hand. A branch held by a **different** worktree is deliberately
+  left alone (that tree is not ours to move) and reported in `warnings`; its
+  remote counterpart is still deleted.
 
 ## Discipline
 

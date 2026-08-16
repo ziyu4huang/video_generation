@@ -143,7 +143,7 @@ export interface PrFinishOutcome {
 	aborted?: { aborted: true; reason: string; message: string };
 }
 
-/** Injectable seams (`gh`, `client`, `spawn`, `repoRoot`, `runCi`) for tests. */
+/** Injectable seams (`gh`, `client`, `spawn`, `repoRoot`, `runCi`, `verify`) for tests. */
 export interface PrFinishDeps {
 	gh?: GhClient;
 	client?: BranchClient;
@@ -151,6 +151,12 @@ export interface PrFinishDeps {
 	repoRoot?: string;
 	/** Defaults to the real `runLocalCi`; tests stub it (offline). */
 	runCi?: (opts: Parameters<typeof runLocalCi>[0]) => Promise<CiOutcome>;
+	/**
+	 * The verification step. Injectable ONLY so the catch around it is testable:
+	 * runVerifyMerge is throw-free today, which is exactly why that catch could
+	 * fabricate a `verdict: "CLEAN"` for years without anyone noticing.
+	 */
+	verify?: typeof runVerifyMerge;
 }
 
 /** Wrap a SpawnFn so every invocation is recorded (rendered runnable).
@@ -182,8 +188,35 @@ function errMsg(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
 }
 
+/** Read `fn`; a throw becomes a warning + `fallback` (cleanup must never abort a done merge). */
+async function safeRead<T>(fn: () => Promise<T>, fallback: T, label: string, warnings: string[]): Promise<T> {
+	try {
+		return await fn();
+	} catch (err) {
+		warnings.push(`${label} read failed: ${errMsg(err)}`);
+		return fallback;
+	}
+}
+
 /**
- * Pure argv → result. `gh` / `client` / `spawn` / `runCi` are injectable so
+ * The path of a DIFFERENT worktree holding `branch`, or undefined when no other
+ * worktree has it. `repoRoot` (ours) is excluded on purpose: we can detach our
+ * own HEAD, but another worktree's checkout is not ours to move.
+ */
+async function ownerWorktreeOf(
+	client: Pick<BranchClient, "worktreeList">,
+	branch: string,
+	repoRoot: string,
+	warnings: string[],
+): Promise<string | undefined> {
+	const list = await safeRead(() => client.worktreeList(), [], "worktreeList", warnings);
+	const norm = (p: string) => path.resolve(p);
+	const mine = norm(repoRoot);
+	return list.find((w) => w.branch === branch && norm(w.worktree) !== mine)?.worktree;
+}
+
+/**
+ * Pure argv → result. `gh` / `client` / `spawn` / `runCi` / `verify` are injectable so
  * tests never touch a real repo or a real gh; the live entry point below
  * supplies the real set (the same wiring extensions/devops.ts uses).
  */
@@ -204,6 +237,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	const gh = deps.gh ?? createGhClient(spawn);
 	const client = deps.client ?? createBranchClient(spawn);
 	const runCi = deps.runCi ?? runLocalCi;
+	const verifyMerge = deps.verify ?? runVerifyMerge;
 
 	const commands = recorded.commands;
 	const warnings: string[] = [];
@@ -336,18 +370,26 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	// --- 5. Verify (read-only; CONTAMINATED warns, never rolls back). -------
 	let verify: VerifyMergeOutcome;
 	try {
-		verify = await runVerifyMerge({ gh, client, spawn, repoRoot, pr, expectedScope });
+		// allowFetch: we just merged, so the squash commit is on the remote and
+		// not yet in the local object store — without the fetch this verification
+		// could not read a single file. (pr_finish already mutates; the fetch
+		// touches the object store only.)
+		verify = await verifyMerge({ gh, client, spawn, repoRoot, pr, expectedScope, allowFetch: true });
 	} catch (err) {
+		// This used to synthesize `verdict: "CLEAN"`. A total failure of the
+		// verification step reported itself as a verified-clean merge — the same
+		// launder-failure-into-success bug as issue #1439, one layer up.
 		verify = {
 			pr,
 			state: "MERGED",
 			merged: true,
-			verdict: "CLEAN",
+			verdict: "UNVERIFIED",
 			files: [],
 			fileCount: 0,
 			insertions: 0,
 			deletions: 0,
 			outOfScope: [],
+			inspected: false,
 			branchSpent: false,
 			commands: [],
 			warnings: [`runVerifyMerge threw: ${errMsg(err)}`],
@@ -362,20 +404,52 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 			`CONTAMINATED merge: ${verify.outOfScope.length} out-of-scope file(s): ${verify.outOfScope.map((f) => f.path).join(", ")} — NOT rolled back`,
 		);
 	}
+	if (verify.verdict === "UNVERIFIED") {
+		warnings.push(
+			`UNVERIFIED merge: PR #${pr} merged but its file scope could NOT be checked — treat the scope as unknown, not as clean.`,
+		);
+	}
 
 	// --- 6. Cleanup: delete the spent head branch, prune (unless kept). ------
 	const headRefName = status.headRefName;
 	if (!keepBranch) {
 		if (verify.branchSpent && headRefName) {
-			for (const [label, del] of [
-				["deleteLocalBranch", () => client.deleteLocalBranch(headRefName)],
-				["deleteRemoteBranch", () => client.deleteRemoteBranch(headRefName)],
-			] as const) {
-				try {
-					await del();
-				} catch (err) {
-					warnings.push(`${label}(${headRefName}) failed: ${errMsg(err)}`);
+			// Git refuses `branch -D` on a branch checked out in ANY worktree, and
+			// the worktree that just ran the merge is normally still sitting on the
+			// head branch — so this step failed on essentially every run and the
+			// caller had to detach and sweep by hand. Detach HERE first; a branch
+			// held by a DIFFERENT worktree is left alone (that tree is not ours to
+			// move) and reported as such instead of as a bare git error.
+			//
+			// Safe by construction: preflight already gated on a clean tree, and we
+			// only reach this when verify said the branch is spent — its commits are
+			// all in the base, so detaching onto the base loses nothing.
+			const heldElsewhere = await ownerWorktreeOf(client, headRefName, repoRoot, warnings);
+			if (heldElsewhere) {
+				warnings.push(
+					`local branch '${headRefName}' is checked out in another worktree (${heldElsewhere}) — left in place; delete it from there.`,
+				);
+			} else {
+				const current = await safeRead(() => client.currentBranch(), undefined, "currentBranch", warnings);
+				if (current === headRefName) {
+					const onto = `origin/${status.baseRefName}`;
+					try {
+						await client.detachHead(onto);
+						commands.push(`git -C "${repoRoot}" checkout --detach ${onto}`);
+					} catch (err) {
+						warnings.push(`detachHead(${onto}) failed: ${errMsg(err)} — local branch delete will be skipped`);
+					}
 				}
+				try {
+					await client.deleteLocalBranch(headRefName);
+				} catch (err) {
+					warnings.push(`deleteLocalBranch(${headRefName}) failed: ${errMsg(err)}`);
+				}
+			}
+			try {
+				await client.deleteRemoteBranch(headRefName);
+			} catch (err) {
+				warnings.push(`deleteRemoteBranch(${headRefName}) failed: ${errMsg(err)}`);
 			}
 		}
 		try {
