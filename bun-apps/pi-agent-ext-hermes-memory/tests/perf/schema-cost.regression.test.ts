@@ -1,16 +1,15 @@
 /**
  * schema-cost.regression.test.ts — pins the total schema-token cost of
- * hermes-memory's 5 tools. Baseline measured 2026-07-13 at commit 2b3f987c.
+ * hermes-memory's 4 tools. Baseline measured 2026-07-13 at commit 2b3f987c.
  *
  * Uses individual registerXxxTool calls (NOT the heavy main factory) — matches
  * the stealth-trim.test.ts pattern. The register functions produce the same
- * tool schemas the LLM sees; only one session_search variant (legacy, the
- * default) is registered, matching production.
+ * tool schemas the LLM sees; the unified search tool is registered once with
+ * its default (legacy) session variant, matching production.
  */
 import { test, expect, describe } from "bun:test";
 import { createCapturePi, estimateTotalSchemaTokens, assertWithinBudget } from "../../../perf-harness/src/index.ts";
-import { registerMemorySearchTool } from "../../src/tools/memory-search-tool.ts";
-import { registerSessionSearchTool } from "../../src/tools/session-search-tool.ts";
+import { registerSearchTool } from "../../src/tools/search-tool.ts";
 import { registerSkillTool } from "../../src/tools/skill-tool.ts";
 import { registerMemoryTool } from "../../src/tools/memory-tool.ts";
 
@@ -18,17 +17,16 @@ function captureHermesTools(): Record<string, any> {
   const { pi, tools } = createCapturePi();
   const fake = {} as never;
   registerMemoryTool(pi, fake, null);
-  registerMemorySearchTool(pi, fake);
-  registerSessionSearchTool(pi, fake, { variant: "legacy" } as never);
+  registerSearchTool(pi, fake, fake, { variant: "legacy" } as never);
   registerSkillTool(pi, fake);
   return tools;
 }
 
 describe("hermes-memory schema-cost regression", () => {
-  test("5 tools registered", () => {
+  test("4 tools registered", () => {
     const tools = captureHermesTools();
     expect(Object.keys(tools).sort()).toEqual(
-      ["memory", "memory_search", "session_search", "skill_manage", "skill_manage_help"].sort(),
+      ["memory", "search", "skill_manage", "skill_manage_help"].sort(),
     );
   });
 
@@ -40,7 +38,7 @@ describe("hermes-memory schema-cost regression", () => {
     console.log(`  ${"TOTAL".padEnd(26)} ${String(total.tokens).padStart(5)} tok`);
 
     assertWithinBudget(total.tokens, {
-      label: "hermes-memory schema (5 tools)",
+      label: "hermes-memory schema (4 tools)",
       max: 1700,
       baseline: 1550,
       measuredAt: "2026-07-13",

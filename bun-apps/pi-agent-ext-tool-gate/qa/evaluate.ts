@@ -60,8 +60,7 @@ import knowledgeCardDefault from "@repo/pi-agent-ext-knowledge-card/extensions/k
 import webAccessDefault from "@repo/pi-agent-ext-web-access";
 import obsidianDefault from "@repo/pi-agent-ext-obsidian";
 import { registerMemoryTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-tool.ts";
-import { registerMemorySearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-search-tool.ts";
-import { registerSessionSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/session-search-tool.ts";
+import { registerSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/search-tool.ts";
 import { registerSkillTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";
 import { registerGrillDecisionTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/grill-decision-tool.ts";
 import { registerMemorySupersedeTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-supersede-tool.ts";
@@ -188,9 +187,9 @@ const zaiRegistrar = (pi: any) => {
 
 // ticket 02 — hermes-memory's default factory is async + does heavy backend
 // (sqlite/surreal bundle) setup BEFORE registering tools, so the capturing stub
-// can't drive it (registration happens after the first await). Invoke the 6
+// can't drive it (registration happens after the first await). Invoke the 5
 // individual registrars with stub args (store/repo are deref'd only inside
-// `execute`, which capture never calls) so the 5 owner-declared-core tools +
+// `execute`, which capture never calls) so the 4 owner-declared-core tools +
 // memory_supersede (keyword-gated) build here. registerSkillTool ALSO registers
 // skill_manage_help (an ungated companion, NOT a CORE_TOOLS member) —
 // buildEffectiveGates skips it via `if (!g) continue`. memory_supersede takes
@@ -200,8 +199,7 @@ const zaiRegistrar = (pi: any) => {
 // ungated count drops to 0.
 const hermesMemoryRegistrar = (pi: any) => {
 	registerMemoryTool(pi, {} as any, null, null, "");
-	registerMemorySearchTool(pi, {} as any);
-	registerSessionSearchTool(pi, {} as any, { variant: "legacy" });
+	registerSearchTool(pi, {} as any, {} as any, { variant: "legacy" });
 	registerSkillTool(pi, {} as any);
 	registerGrillDecisionTool(pi, {} as any, null);
 	registerMemorySupersedeTool(pi, null, {} as any);
@@ -222,9 +220,9 @@ const coreTaskRegistrar = (pi: any) => {
 	goalDefault(pi);
 };
 
-// ticket 04 — the offline corpus must mirror the runtime 22-core. The 22 =
-// 18 owner-declared core tools captured from the registrars above (hermes-memory
-// ×5, knowledge-card ×4, web-access ×3, obsidian ×2, ext-task ×3, tool-gate's
+// ticket 04 — the offline corpus must mirror the runtime 21-core. The 21 =
+// 17 owner-declared core tools captured from the registrars above (hermes-memory
+// ×4, knowledge-card ×4, web-access ×3, obsidian ×2, ext-task ×3, tool-gate's
 // enable_tool ×1) PLUS the 4 pi-coding-agent built-ins (read/write/edit/bash).
 // The built-ins are NOT registered by any extension here (they're harness
 // built-ins), so injectBuiltinCore alone wouldn't add them — synthesize the 4

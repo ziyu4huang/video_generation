@@ -103,7 +103,6 @@ import {
 import { __GATE_PROBES__ as memorySupersedeProbes } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-supersede-tool.ts";
 import { __GATE_PROBES__ as zkProbes } from "@repo/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 import { __GATE_PROBES__ as skillProbes } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";
-import { __GATE_PROBES__ as sessionSearchProbes } from "@repo/pi-agent-ext-hermes-memory/src/tools/session-search-tool.ts";
 import { __GATE_PROBES__ as knowledgeSearchProbes } from "@repo/pi-agent-ext-hermes-memory/src/tools/knowledge-search-tool.ts";
 import { __GATE_PROBES__ as knowledgeIngestProbes } from "@repo/pi-agent-ext-hermes-memory/src/tools/knowledge-ingest-tool.ts";
 import { __GATE_PROBES__ as planningStaleProbes } from "@repo/pi-agent-ext-hermes-memory/src/tools/planning-stale-tool.ts";
@@ -131,7 +130,6 @@ export const ALL_PROBE_SETS: GateProbeSet[] = [
 	...zkProbes,
 	wayfindProbes,
 	skillProbes,
-	sessionSearchProbes,
 	knowledgeSearchProbes,
 	knowledgeIngestProbes,
 	planningStaleProbes,

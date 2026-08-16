@@ -126,7 +126,6 @@ export const MUST_FIRE: Probe[] = [
 	{ gate: "knowledge_query", prompt: "查卡片 matching the tag argparse", note: "keyword 查卡片" },
 	// ticket 02 demotions (hermes/web-access/wayfind/obsidian).
 	{ gate: "skill_manage", prompt: "create a skill for running tests", note: "keyword create skill" },
-	{ gate: "session_search", prompt: "search past sessions for the auth discussion", note: "keyword session search" },
 	{ gate: "knowledge_search", prompt: "search the knowledge graph for the sampler gotcha", note: "keyword knowledge search" },
 	{ gate: "knowledge_ingest", prompt: "ingest the knowledge records from the workflow export", note: "keyword knowledge ingest" },
 	{ gate: "planning_stale", prompt: "query stale planning decisions", note: "keyword planning stale" },
@@ -192,7 +191,6 @@ export const MUST_NOT_FIRE: Probe[] = [
 	{ gate: "knowledge_query", prompt: "query the database directly", note: "query + database, no knowledge/card/graph noun" },
 	// ticket 02 demotions — lookalikes without the demoted intent.
 	{ gate: "skill_manage", prompt: "the skills section of the README", note: "skill noun, no manage verb" },
-	{ gate: "session_search", prompt: "the session timed out", note: "session noun, no search/find verb" },
 	{ gate: "knowledge_search", prompt: "search the web for lora papers", note: "web search, not the knowledge graph" },
 	{ gate: "knowledge_ingest", prompt: "ingest the error from the logs", note: "ingest + error, no knowledge record" },
 	{ gate: "planning_stale", prompt: "the plan went stale", note: "stale as adjective, no query/revalidate verb" },

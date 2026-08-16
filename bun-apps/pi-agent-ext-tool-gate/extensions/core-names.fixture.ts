@@ -1,6 +1,6 @@
-/** Shared TEST fixture: the 22 always-active core tool names.
+/** Shared TEST fixture: the 21 always-active core tool names.
  *
- * Mirrors the runtime owner-declared core (18 in-repo tools carrying
+ * Mirrors the runtime owner-declared core (17 in-repo tools carrying
  * `gating:{ core: true }` + the 4 pi-coding-agent built-ins tool-gate injects
  * core onto via BUILTIN_CORE). Previously duplicated verbatim in
  * tool-gate.test.ts and self-promotion-interaction.test.ts; centralized here to
@@ -11,7 +11,7 @@
 export const CORE_NAMES: string[] = [
   "read", "write", "edit", "bash",
   "todo", "goal_complete",
-  "memory", "memory_search", "session_search",
+  "memory", "search",
   "ask_user_question", "enable_tool", "skill_manage", "grill_decision",
   "obsidian", "obsidian_help", "zk_card", "zk_ask", "zk_ingest", "knowledge_query",
   "web_search", "fetch_content", "get_search_content",

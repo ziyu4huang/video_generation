@@ -44,9 +44,8 @@ import { parseSessionFile } from "./store/session-parser.js";
 import { registerMemoryTool } from "./tools/memory-tool.js";
 import { registerGrillDecisionTool } from "./tools/grill-decision-tool.js";
 import { registerSkillTool } from "./tools/skill-tool.js";
-import { registerSessionSearchTool } from "./tools/session-search-tool.js";
+import { registerSearchTool } from "./tools/search-tool.js";
 import { createPerfRecorder } from "./perf.js";
-import { registerMemorySearchTool } from "./tools/memory-search-tool.js";
 import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
 import {
   registerKnowledgeSearchTool,
@@ -640,8 +639,8 @@ export default async function (pi: ExtensionAPI) {
 
   // ── 8. Setup correction detection ──
   // The shared recall-set is instantiated ONCE, before both
-  // setupCorrectionDetector and registerMemorySearchTool, so the same instance
-  // flows to the producer (memory_search records recalled ids) and the consumer
+  // setupCorrectionDetector and registerSearchTool, so the same instance
+  // flows to the producer (the search tool's memory mode records recalled ids) and the consumer
   // (setupWorthScoring drains + bumps mw_success/mw_fail at turn_end).
   const recallSet = new RecallSet();
   setupCorrectionDetector(pi, store, projectStore, config, memoryRepo, projectName, memoryToolDef, undefined, undefined, cardStore);
@@ -682,8 +681,7 @@ export default async function (pi: ExtensionAPI) {
   });
 
   // ── 11. SQLite session search + extended memory ──
-  registerSessionSearchTool(pi, sessionRepo, config.sessionSearch ?? { variant: "legacy" });
-  registerMemorySearchTool(pi, memoryRepo, recallSet);
+  registerSearchTool(pi, memoryRepo, sessionRepo, config.sessionSearch ?? { variant: "legacy" }, recallSet);
   registerMemorySupersedeTool(pi, memoryRepo, store, projectName, cardStore);
   registerIndexSessionsCommand(pi, globalDir, config);
 

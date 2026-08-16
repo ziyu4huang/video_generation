@@ -43,8 +43,7 @@ import knowledgeCardExtension from "@repo/pi-agent-ext-knowledge-card/extensions
 import webAccessExtension from "@repo/pi-agent-ext-web-access";
 import obsidianExtension from "@repo/pi-agent-ext-obsidian";
 import { registerMemoryTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-tool.ts";
-import { registerMemorySearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-search-tool.ts";
-import { registerSessionSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/session-search-tool.ts";
+import { registerSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/search-tool.ts";
 import { registerSkillTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";
 import { registerGrillDecisionTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/grill-decision-tool.ts";
 import { createPresentTool } from "@repo/pi-agent-ext-webui/src/present-tool.ts";
@@ -237,7 +236,7 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		// bundle creation before any registerTool), so invoke the 5 individual
 		// registrars with stub args (store/repo deref'd only inside execute, which
 		// capture never calls) — mirroring ext-task's direct-registrar entry. The
-		// 5 owner-declared-core tools carry gating:{core:true}. skill_manage_help
+		// 4 owner-declared-core tools carry gating:{core:true}. skill_manage_help
 		// (registered alongside skill_manage by registerSkillTool) is an ungated
 		// always-on companion (NOT a CORE_TOOLS member) → ungatedByDesign.
 		// memory_supersede (a separate registrar, also ungated + out of scope) is
@@ -245,9 +244,8 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		name: "hermes-memory",
 		ungatedByDesign: ["skill_manage_help"],
 		register: (pi) => {
-			registerMemoryTool(pi, {} as any, null, null, null);
-			registerMemorySearchTool(pi, {} as any);
-			registerSessionSearchTool(pi, {} as any, { variant: "legacy" });
+			registerMemoryTool(pi, {} as any, null, null, "");
+			registerSearchTool(pi, {} as any, {} as any, { variant: "legacy" });
 			registerSkillTool(pi, {} as any);
 			registerGrillDecisionTool(pi, {} as any, null);
 		},
@@ -266,6 +264,7 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 					registerPending: () => Promise.resolve({ cancelled: true }),
 					hasPending: () => false,
 					cancelPending: () => false,
+					detach: () => {},
 				}),
 			);
 		},
