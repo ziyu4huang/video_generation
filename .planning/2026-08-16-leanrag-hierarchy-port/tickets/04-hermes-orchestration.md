@@ -9,3 +9,4 @@ Acceptance: e2e — ingest fixture corpus → tree built with N layers; surreal-
 ## Progress
 
 04a done: core-interface KnowledgePipeline + buildHierarchy (HierarchyBuildOptions/Result); zk hierarchy-build.ts (108 LOC) loop-with-checkpoints wired into seam; 4 orchestration tests green (3-layer, resume, skip, gating). 04b (hermes hook) pending.
+04b-1 done: cards optional in HierarchyBuildOptions; zk loadKbCards (id-preferring, sources=id∪frontmatter, agg-L* skipped); loader test green; suite 465/0.

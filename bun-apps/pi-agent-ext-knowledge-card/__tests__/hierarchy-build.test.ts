@@ -11,7 +11,7 @@
  * depth cap (maxDepth 2 → 3 layers × 5 nodes).
  */
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildHierarchy } from "../src/hierarchy-build.ts";
@@ -137,5 +137,70 @@ describe("buildHierarchy", () => {
 		expect(r.layers).toBe(3); // the loop still ran to the depth cap
 		expect(r.llmCalls).toBe(0);
 		expect(summarizeCalls).toBe(0);
+	});
+
+	test("(e) no cards → loader reads kbDir md files, skips agg-L*-* MOCs", async () => {
+		writeFileSync(
+			join(kb, "card-config.md"),
+			[
+				"---",
+				"id: card-config",
+				"entities:",
+				"  - config",
+				"  - tooling",
+				"sources:",
+				"  - h-config",
+				"---",
+				"alpha config body text with some length to cluster",
+			].join("\n"),
+		);
+		// no frontmatter id → falls back to the filename stem
+		writeFileSync(
+			join(kb, "card-tooling.md"),
+			[
+				"---",
+				"entities:",
+				"  - tooling",
+				"  - setup",
+				"---",
+				"beta tooling body text with some length to cluster",
+			].join("\n"),
+		);
+		// {type, name}-style entity entries → names extracted
+		writeFileSync(
+			join(kb, "card-entities.md"),
+			[
+				"---",
+				"id: card-entities",
+				"entities:",
+				"  - type: topic",
+				"    name: config",
+				"  - type: tool",
+				"    name: editor",
+				"---",
+				"zeta object-entity body text with some length to cluster",
+			].join("\n"),
+		);
+		// pre-existing agg MOC — must NOT be loaded as a card
+		writeFileSync(
+			join(kb, "agg-L0-0.md"),
+			"---\nentities:\n  - ghost\n---\nghost aggregation body\n",
+		);
+
+		const r = await buildHierarchy({
+			kbDir: kb,
+			embedFn: fakeEmbedFn,
+			summarizeFn: fakeSummarizeFn,
+			tokenBudget: 1_000_000,
+			maxDepth: 2,
+		});
+		expect(r.nodes.length).toBeGreaterThan(0);
+		expect(r.skipped).toBeUndefined(); // 3 loaded cards → real build, no skip
+		const loadedIds = new Set(r.nodes.flatMap((n) => n.sources));
+		expect(loadedIds).toContain("card-config"); // frontmatter id
+		expect(loadedIds).toContain("card-tooling"); // filename-stem fallback id
+		expect(loadedIds).toContain("card-entities"); // {type, name} entities parsed
+		expect(loadedIds.has("agg-L0-0")).toBe(false); // agg MOC skipped
+		expect(r.nodes.some((n) => n.entities.includes("ghost"))).toBe(false);
 	});
 });

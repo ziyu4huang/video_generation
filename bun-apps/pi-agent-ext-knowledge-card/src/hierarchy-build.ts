@@ -25,6 +25,9 @@ import {
 	type HierarchyCard,
 } from "./hierarchy.ts";
 import { writeAggregationMocs } from "./aggregation-write.ts";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 
 export interface HierarchyBuildOptions {
 	kbDir: string;
@@ -56,6 +59,52 @@ function nodeToCard(n: AggregationNode): HierarchyCard {
 	return { id: n.id, text: n.summary, entities: n.entities, sources: n.sources };
 }
 
+/** Flatten one frontmatter list entry: a plain name string, an object-ish
+ *  `{type, name}` entry, or a raw "name: y" line — always resolve to a name. */
+function flattenEntry(entry: unknown): string | null {
+	if (typeof entry === "string") {
+		const m = /(?:^|\n)\s*name:\s*(.+)$/m.exec(entry);
+		return (m ? m[1] : entry).trim() || null;
+	}
+	if (entry && typeof entry === "object") {
+		const name = (entry as Record<string, unknown>).name;
+		if (typeof name === "string" && name.trim()) return name.trim();
+	}
+	return null;
+}
+
+function flattenList(value: unknown): string[] {
+	if (!Array.isArray(value)) return typeof value === "string" && value.trim() ? [value.trim()] : [];
+	return value.map(flattenEntry).filter((s): s is string => s !== null);
+}
+
+/** Load HierarchyCards from kbDir's *.md files (agg-L*-* MoCs skipped).
+ *  Entities/sources come from frontmatter, extracted defensively — entries
+ *  may be name strings or `{type, name}`-ish objects depending on the writer. */
+async function loadKbCards(kbDir: string): Promise<HierarchyCard[]> {
+	const files = (await readdir(kbDir)).filter(
+		(f) => f.endsWith(".md") && !/^agg-L\d+-\d+\.md$/.test(f),
+	);
+	const cards: HierarchyCard[] = [];
+	for (const file of files) {
+		const raw = await readFile(join(kbDir, file), "utf8");
+		const { data, bodyStart } = parseFrontmatter(raw);
+		const entities = flattenList(data.entities);
+		if (entities.length === 0) continue;
+		const id =
+			typeof data.id === "string" && data.id ? data.id : file.replace(/\.md$/, "");
+		cards.push({
+			id,
+			text: raw.slice(bodyStart).trim(),
+			entities,
+			sources: [id, ...flattenList(data.sources ?? data.contentHash)].filter(
+				(v, i, a) => v !== "" && a.indexOf(v) === i,
+			),
+		});
+	}
+	return cards;
+}
+
 /**
  * Build the full aggregation hierarchy over `opts.cards` into `opts.kbDir`.
  * Resume-safe (per-layer checkpoints), budget-gated end-to-end (D6 — llmCalls
@@ -64,7 +113,8 @@ function nodeToCard(n: AggregationNode): HierarchyCard {
  * "no-entities"` (nothing to aggregate).
  */
 export async function buildHierarchy(opts: HierarchyBuildOptions): Promise<HierarchyBuildResult> {
-	if (opts.cards.length === 0 || opts.cards.every((c) => c.entities.length === 0)) {
+	const cards = opts.cards ?? (await loadKbCards(opts.kbDir));
+	if (cards.length === 0 || cards.every((c) => c.entities.length === 0)) {
 		return { layers: 0, nodes: [], llmCalls: 0, resumed: false, skipped: "no-entities" };
 	}
 	const tokenBudget = opts.tokenBudget ?? 10_000;
@@ -72,7 +122,7 @@ export async function buildHierarchy(opts: HierarchyBuildOptions): Promise<Hiera
 	const all: AggregationNode[] = [];
 	let llmCalls = 0;
 	let resumed = false;
-	let current: HierarchyCard[] = opts.cards;
+	let current: HierarchyCard[] = cards;
 	for (let depth = 0; depth <= maxDepth; depth++) {
 		const ckpt = (await readCheckpoint(opts.kbDir, depth)) as LayerCheckpoint | null;
 		if (ckpt && Array.isArray(ckpt.nodes)) {

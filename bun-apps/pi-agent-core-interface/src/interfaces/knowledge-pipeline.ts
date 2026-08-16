@@ -124,7 +124,9 @@ export interface HealReceipt {
 export interface HierarchyBuildOptions {
   /** Convergence folder the derived agg cards + layer checkpoints live in. */
   kbDir: string;
-  cards: { id: string; text: string; entities: string[]; sources?: string[] }[];
+  /** Explicit card set. When omitted, zk loads cards + entities
+   *  from the .md files in kbDir (agg-L*-* MoCs skipped). */
+  cards?: { id: string; text: string; entities: string[]; sources?: string[] }[];
   embedFn(texts: string[]): Promise<number[][]>;
   summarizeFn(clusterText: string, budget: number): Promise<string>;
   tokenBudget?: number;
