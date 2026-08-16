@@ -47,3 +47,4 @@ Rationale: sequencing C1/C5/C6 before 13 keeps the memory-card migration mechani
 - 2026-08-16: ticket 11 closed — #1130 seam red not reproducible on main (test:seam 8/0 green); cause was pre-#1490 worktree bases; no code change.
 - 2026-08-16: ticket 08 closed — audit: 10 direct suites pre-existed (premise stale); gaps filled: tests/store/sqlite-backend.test.ts (SqliteBackend.healthCheck + close-twice, 2 tests).
 - 2026-08-16: ticket 09 closed — audit: every surreal down-path degrades or throws-by-design; offline down-path suite added (tests/store/surreal/surreal-down-paths.test.ts).
+- 2026-08-16: ticket 10 closed — kp18 T5b shipped (user decision): card-vectors JSON mirror + hermes-cosine memory cold path, guarded by embedModel (embedding endpoint id, not lineage MODEL_VERSION).

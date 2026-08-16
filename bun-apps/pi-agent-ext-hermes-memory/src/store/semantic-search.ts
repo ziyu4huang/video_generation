@@ -23,7 +23,9 @@
  * sqlite-vec not loadable under Bun). Semantic search must therefore degrade
  * to the existing deterministic lexical arc whenever the vector store is cold,
  * down, or unwired, with byte-identical parity to the pre-semantic baseline.
- * (T5(b) hermes-local cosine cache + T4 dedup depth-pass are deferred —
+ *  T5(b) SHIPPED (kp18 / hermes-arch 10): hermes-cosine over the local
+ *  card-vectors-cache.json mirror, embedModel-guarded. T4 dedup depth-pass
+ *  remains deferred.
  * follow-up tickets.)
  */
 
@@ -33,6 +35,7 @@ import type { VectorStore, VectorKnnHit } from "./surreal/vector-store.js";
 import { embedQuery, type Embedder } from "./surreal/embedder.js";
 import { normalizeRelation } from "./relation-schema.js";
 import { DEFAULT_BOOST_WEIGHT } from "../constants.js";
+import { loadCardVectorsCache, cosineSimilarity } from "./card-vectors-cache.js";
 
 /** The card "kind" namespace. Mirrors zk's knowledge folder vs hermes memory. */
 export type SemanticKind = "memory" | "knowledge";
@@ -43,7 +46,7 @@ export interface SemanticSearchHit {
   /** Optional relevance score (HNSW returns none; lexical/cosine fallbacks may). */
   score?: number;
   /** Which path produced this hit — useful for tracing the fallback decision. */
-  source: "hnsw" | "zk-semantic" | "memory-lexical";
+  source: "hnsw" | "zk-semantic" | "memory-lexical" | "hermes-cosine";
   /** Content hash surfaced from card_vectors on the warm (HNSW) path — the
    *  redundancy-aware dedup key (ticket 19). Optional: the cold fallback paths
    *  (memory-lexical / zk-semantic) do not carry it, so do not assume present. */
@@ -85,6 +88,11 @@ export interface SearchSemanticOptions {
   ef?: number;
   /** Embedding model id (default nomic-embed-text-v1.5). */
   model?: string;
+  /** kp18 T5b (hermes-arch 10): memory dir holding `card-vectors-cache.json`.
+   *  When set AND a query vector exists, the memory cold path tries local
+   *  cosine over the hermes-side mirror BEFORE the lexical floor (SurrealDB
+   *  down degrade). Absent → behavior unchanged (lexical only). */
+  memoryDir?: string;
   /** Injectable embedder (default: constructed by the caller from config). */
   embedder?: Embedder;
   /** The HNSW vector store (warm path). Undefined → skip straight to T5(a). */
@@ -286,10 +294,11 @@ function dedupByRelation(hits: SemanticSearchHit[]): SemanticSearchHit[] {
  *   3. The result is always a normalized ranked list (deduped by mdId).
  */
 export async function searchSemantic(opts: SearchSemanticOptions): Promise<SemanticSearchHit[]> {
+  let warmQueryVec: number[] | null = null;
   const {
     queryText, kind, topK = 10, ef = 100, model, embedder,
     vectorStore, memoryRepo, kp, vaultPath, folder, excludeIds,
-    scheduleVectorBackfill, survivingK, fetchRelations,
+    scheduleVectorBackfill, survivingK, fetchRelations, memoryDir,
     lexicalRecall, entityRecall, boostWeight,
   } = opts;
   const exclude = new Set(excludeIds ?? []);
@@ -305,6 +314,7 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
       const qvec = await embedQuery(queryText, { model: modelId, embedder });
       if (qvec) {
         try {
+          warmQueryVec = qvec;
           const rows = await vectorStore.knn(qvec, topK, ef);
           const hits = rows.map((r) => toHit(r, kind));
           // Ticket 20 T1: multi-signal frequency vote — WARM PATH ONLY, after
@@ -417,7 +427,14 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
   const resolvedKind: SemanticKind = kind ?? "memory";
   return resolvedKind === "knowledge"
     ? await knowledgeFallback(queryText, modelId, kp, vaultPath, folder, exclude, topK, cap)
-    : await memoryFallback(queryText, memoryRepo, exclude, topK, cap);
+    : await memoryFallback(
+        queryText,
+        memoryRepo,
+        exclude,
+        topK,
+        cap,
+        memoryDir && warmQueryVec ? { qvec: warmQueryVec, embedModel: modelId, memoryDir } : undefined,
+      );
 }
 
 /** T5(a) knowledge fallback: zk cosine cache via the KnowledgePipeline seam.
@@ -476,7 +493,36 @@ async function memoryFallback(
   exclude: Set<string>,
   topK: number,
   cap: number,
+  cosine?: { qvec: number[]; embedModel: string; memoryDir: string },
 ): Promise<SemanticSearchHit[]> {
+  // kp18 T5b: hermes-side cosine over the JSON vector mirror — the memory
+  // degrade when SurrealDB (and its card_vectors) is down but LM Studio is
+  // alive. embedModel guard: cosine across embedding models is garbage.
+  if (cosine) {
+    try {
+      const cache = loadCardVectorsCache(cosine.memoryDir);
+      const scored: Array<{ mdId: string; s: number }> = [];
+      for (const e of cache.values()) {
+        if (e.kind !== "memory") continue;
+        if (e.embedModel !== cosine.embedModel) continue;
+        if (exclude.has(e.mdId)) continue;
+        scored.push({ mdId: e.mdId, s: cosineSimilarity(cosine.qvec, e.vec) });
+      }
+      if (scored.length > 0) {
+        scored.sort((a, b) => b.s - a.s);
+        const hits: SemanticSearchHit[] = scored.slice(0, topK).map(({ mdId, s }) => ({
+          mdId,
+          kind: "memory",
+          score: s,
+          source: "hermes-cosine",
+        }));
+        return dedupByRelation(dedupByContentHash(hits)).slice(0, cap);
+      }
+      // empty or model-mismatched cache → fall through to the lexical floor
+    } catch {
+      // mirror read failed → lexical floor
+    }
+  }
   if (!memoryRepo) return [];
   try {
     const entries = await memoryRepo.searchMemories(queryText, { limit: topK });
