@@ -73,6 +73,8 @@ A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pd
 - 2026-08-16: kp21 Tier-1 SHIPPED — vault-md mirror hash-gated (card_md_hash kind='vault-md', INSERT/skip/UPDATE + sweep); Tier-2 residual = knowledge-card entity-summaries cache; Tier-3 open.
 - 2026-08-16: kp21 CLOSED — Tier-1 shipped (#1494); Tier-2 satisfied (backfill delta-aware, cache version-gated, no consumers yet); Tier-3 waived by user (not MVP; relations round-trip already live).
 - 2026-08-16: kp18 T5b shipped — memory cards degrade to hermes-cosine over a local JSON vector mirror (embedModel-guarded); gate resolved by user decision.
+- 2026-08-16: kp17 waived by user decision — dedup depth-pass optional; coverage satisfied by near-dup 0.3 + T5a/T5b cosine. kp18 closed (T5a+T5b shipped, #1524). Knowledge-pipeline tickets 100% dispositioned.
+
 
 ## Not yet specified
 - CLIP image-vector embed (SurrealDB-only) — fog until a real visual-similarity need appears. (Supersedes the "Image embed strategy -> ticket 07" line; resolved 2026-08-14.)

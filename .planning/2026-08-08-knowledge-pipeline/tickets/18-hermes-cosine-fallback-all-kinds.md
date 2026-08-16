@@ -1,6 +1,6 @@
 ---
 type: build
-status: open
+status: closed
 claimed:
 blocked by: 14 (closed — index shipped)
 ---
@@ -30,3 +30,7 @@ The Round-2 backend text said "semantic search unavailable when SurrealDB down";
 - Ship-gate ("only if felt requirement" — FTS arguably a better memory fallback) resolved by USER DECISION: implement now, symmetric with T5(a) knowledge-cosine.
 - Shipped in hermes-memory: `src/store/card-vectors-cache.ts` (JSON mirror module, never-throw) + batch mirror hook in `handlers/vector-backfill.ts` (options.memoryDir, best-effort) + hermes-cosine cold branch in `src/store/semantic-search.ts` (tried BEFORE the lexical floor; source "hermes-cosine"); guarded by `embedModel` (embedding endpoint id, NOT lineage MODEL_VERSION). Suite 1659/0.
 - Follow-up-optional: dedicated backfill-mirror integration test; production threading of memoryDir into the walk-and-ingest fire-and-forget scheduleVectorBackfill call (currently NOT threaded — mirror off until then). Details in hermes-arch ticket 10.
+
+## Closed (2026-08-16)
+- Both arms shipped: T5(a) knowledge cosine degrade (earlier PR), T5(b) memory hermes-cosine over local card-vectors JSON mirror (PR #1524, 5c29c002; embedModel = embedding endpoint id guard, NOT lineage MODEL_VERSION). All checkboxes [x]. Suite 1659/0.
+

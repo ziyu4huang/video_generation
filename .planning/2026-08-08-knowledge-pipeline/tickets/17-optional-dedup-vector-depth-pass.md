@@ -1,6 +1,6 @@
 ---
 type: build
-status: open
+status: closed
 claimed:
 blocked by: 14 (closed — index shipped)
 ---
@@ -25,3 +25,7 @@ Ticket 14 deferred T4. The ingest path's pluggable `DedupStrategy` stays FTS/has
 
 ## Cross-effort links
 - `.planning/2026-08-10-hermes-architecture-deepening` simplify-&-robusten wave: explicitly NON-blocking — stays open here as an optional refinement. (2026-08-16)
+
+## Closed (waived) (2026-08-16)
+- WAIVED by user decision: optional depth-pass has marginal value — dedup coverage already satisfied by near-dup threshold 0.3 (H04/#1508) and the T5(a)/T5(b) cosine degrade paths (#1524). The three unchecked boxes above are superseded by this waiver, deliberately left unchecked.
+
