@@ -24,6 +24,14 @@
  *     state — the inbound card_done tombstone (retireCard) is the only thing
  *     that retires the form; snapshot replay applies card then card_done in
  *     order, so a refreshed client renders the answered state for free;
+ *   - cards-ux2 (02): blocking:false interactive cards render as DRAFT forms
+ *     (a draft badge + a "Send" submit) whose submit posts a loose appexec
+ *     extra.kind:"card_send" envelope (NOT card_answer — that is the MODAL
+ *     answer loop); card_done FREEZES a draft instead of retiring it: every
+ *     input+button disables, a `sent <HH:MM:SS>` stamp (the tombstone ts)
+ *     appears, and the t01 collapsed-review toggle rides below the frozen
+ *     form. Draft INPUT values are NOT persisted across refresh (v1 — the
+ *     snapshot replays card structure only, never form state);
  *   - DE-CHAT (event-cards 00): chat lives in the TUI — the v2 main-session
  *     composer (prompt input + Send + Abort) is GONE; the webui keeps only
  *     web-native interaction (HITL appexec, ask-user).
@@ -92,6 +100,10 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   #cards-pane .card .card-done-detail p { margin: .2rem 0; }
   #cards-pane .card p.card-answered { margin-top: .4rem; font-size: .75rem; color: #888; font-style: italic; }
   #cards-pane .card.card-answered { opacity: .65; }
+  /* cards-ux2 (02): DRAFT (blocking:false) cards — the draft badge + the
+     frozen sent HH:MM:SS state (the form STAYS disabled, never removed). */
+  #cards-pane .card .badge.card-draft-badge { border-color: #7ec87e; color: #7ec87e; }
+  #cards-pane .card .card-done-mark { font-style: normal; }
   /* event-cards (04): the sandboxed viewer frame + the confirm-gate pre. */
   #cards-pane .card iframe.card-viewer { width: 100%; min-height: 240px; border: 1px solid #8884; border-radius: 6px; background: #fff; }
   #cards-pane .card.card-confirm pre { background: #8881; padding: .4rem; border-radius: 4px; overflow: auto; font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; margin: .4rem 0; }
@@ -121,6 +133,14 @@ let activeId = location.hash.slice(1) || 'main';
 let renderSeq = 0;
 
 function fmtTime(ms) { try { return new Date(ms).toLocaleString(); } catch { return ''; } }
+
+// cards-ux2 (02): local-clock HH:MM:SS for the frozen-draft sent stamp.
+function fmtClock(ms) {
+  try {
+    var d = new Date(ms);
+    return [d.getHours(), d.getMinutes(), d.getSeconds()].map(function (n) { return String(n).padStart(2, '0'); }).join(':');
+  } catch { return ''; }
+}
 
 async function loadViews() {
   const res = await fetch('/api/views');
@@ -478,6 +498,19 @@ function appendCardForm(art, frame) {
   const form = document.createElement('form');
   form.className = 'card-form';
   form.setAttribute('data-card-id', cardId);
+  // cards-ux2 (02): blocking === false = DRAFT — the SAME field builder as
+  // the modal form, plus a draft badge and a "Send" submit that posts the
+  // card_send envelope (never card_answer — that loop is MODAL-only). The
+  // data-draft attribute is retireCard's freeze probe on the card_done
+  // tombstone (absent/true keeps the modal retire semantics untouched).
+  const draft = frame.blocking === false;
+  if (draft) {
+    form.setAttribute('data-draft', '1');
+    const draftBadge = document.createElement('span');
+    draftBadge.className = 'badge card-draft-badge';
+    draftBadge.textContent = 'draft';
+    form.appendChild(draftBadge);
+  }
   const q = document.createElement('p');
   q.className = 'card-question';
   q.textContent = b.question;
@@ -512,6 +545,7 @@ function appendCardForm(art, frame) {
   const btn = document.createElement('button');
   btn.type = 'submit';
   btn.textContent = 'Submit';
+  if (draft) btn.textContent = 'Send'; // cards-ux2 (02): drafts SEND state, not answer
   form.appendChild(btn);
   // Submit collects EVERY named field in one shot (FormData) and posts ONE
   // loose appexec envelope over sendRaw. ASK CARDS (unify choice, event-cards
@@ -536,6 +570,14 @@ function appendCardForm(art, frame) {
         return { label: typeof f.label === 'string' ? f.label : f.name, answer: answers[f.name] !== undefined && answers[f.name] !== '' ? answers[f.name] : null };
       })
     };
+    // cards-ux2 (02): DRAFT — one-shot card_send envelope over sendRaw
+    // (queued while reconnecting). NEVER card_answer, and NO optimistic
+    // retire: the form stays live until the inbound card_done tombstone
+    // FREEZES it (first-send-wins is enforced host-side).
+    if (draft) {
+      sendRaw(JSON.stringify({ type: 'appexec', extra: { kind: 'card_send', cardId: cardId, answers: answers } }));
+      return false;
+    }
     if (isAskCard(cardId)) {
       sendRaw(JSON.stringify({ type: 'appexec', extra: { kind: 'ask_user_answer', promptId: cardId.slice(4), result: { cancelled: false, answers: fields.map(function (f, i) { return { questionIndex: i, question: typeof f.label === 'string' ? f.label : f.name, kind: f.type === 'select' ? 'option' : 'custom', answer: answers[f.name] !== undefined ? answers[f.name] : null }; }) } } }));
       return false;
@@ -561,6 +603,11 @@ function retireCard(frame) {
   const art = document.getElementById(cardDomId(frame.id));
   if (!art) return; // ordering anomaly — ignore
   const form = art.querySelector('form.card-form');
+  // cards-ux2 (02): a DRAFT card (blocking:false) FREEZES on card_done — it
+  // never retires to the collapsed summary. The form STAYS (every input +
+  // button disabled), a sent HH:MM:SS stamp (the tombstone ts) appears,
+  // and the t01 collapsed-review toggle rides below the frozen form.
+  if (form && form.getAttribute('data-draft') === '1') { freezeDraftCard(art, form, frame.ts); return; }
   if (form) {
     const stash = art.cardAnswers;
     const done = document.createElement('div');
@@ -598,6 +645,55 @@ function retireCard(frame) {
     form.replaceWith(done);
   }
   art.classList.add('card-answered');
+}
+
+// freezeDraftCard (cards-ux2 02): the DRAFT card_done path — FREEZE, never
+// remove. Every input/select/button disables, the submit handler is
+// neutralized (a stray Enter on a frozen form must never re-send), and the
+// t01 collapsed-review toggle appends BELOW the frozen form: title +
+// sent HH:MM:SS (the tombstone ts, local clock); click toggles the
+// read-only question + per-field rows from the live submit-time stash
+// (art.cardAnswers — LIVE only; a replayed frozen draft degrades to the
+// stamp, its INPUT values are not persisted across refresh — v1). The
+// whole path is createElement/textContent ONLY — no markup sinks exist.
+function freezeDraftCard(art, form, ts) {
+  form.querySelectorAll('input, select, button').forEach(function (el) { el.disabled = true; });
+  form.onsubmit = function (ev) { ev.preventDefault(); return false; }; // frozen — never re-send
+  const done = document.createElement('div');
+  done.className = 'card-done';
+  const head = document.createElement('button');
+  head.type = 'button';
+  head.className = 'card-done-toggle';
+  const title = document.createElement('span');
+  title.className = 'card-done-title';
+  const h4 = art.querySelector('h4');
+  title.textContent = (h4 && h4.textContent) || 'card';
+  const mark = document.createElement('span');
+  mark.className = 'card-done-mark';
+  mark.textContent = 'sent ' + fmtClock(typeof ts === 'number' ? ts : Date.now());
+  head.appendChild(title);
+  head.appendChild(mark);
+  done.appendChild(head);
+  const stash = art.cardAnswers;
+  if (stash && typeof stash.question === 'string' && Array.isArray(stash.rows)) {
+    const detail = document.createElement('div');
+    detail.className = 'card-done-detail';
+    detail.hidden = true;
+    const q = document.createElement('p');
+    q.textContent = stash.question;
+    detail.appendChild(q);
+    for (const r of stash.rows) {
+      if (!r || typeof r.label !== 'string') continue; // malformed row — skip
+      const line = document.createElement('p');
+      line.className = 'card-done-answer';
+      line.textContent = r.label + ': ' + (r.answer === null || r.answer === undefined ? '—' : String(r.answer));
+      detail.appendChild(line);
+    }
+    head.onclick = function () { detail.hidden = !detail.hidden; }; // t01 collapsed-review semantics
+    done.appendChild(detail);
+  }
+  form.after(done); // the frozen form STAYS — the marker rides below it
+  art.classList.add('card-answered', 'card-sent');
 }
 
 // --- event-cards (04): viewer sandbox + webui.emit bridge + confirm gate ----
@@ -956,6 +1052,23 @@ export function APPEXEC_CARD_ANSWER(
   answers: Record<string, string>,
 ): { type: "appexec"; extra: { kind: "card_answer"; cardId: string; answers: Record<string, string> } } {
   return { type: "appexec", extra: { kind: "card_answer", cardId, answers } };
+}
+
+/**
+ * Pure appexec CARD_SEND frame (cards-ux2 02) — the PINNED wire shape the
+ * inline browser script's DRAFT card-form submit duplicates; tests grid the
+ * exact envelope WITHOUT a DOM (same convention as APPEXEC_CARD_ANSWER).
+ * Semantics vs card_answer: card_answer resolves the MODAL answer loop
+ * (first valid answer wins, the form retires on card_done); card_send
+ * delivers DRAFT state into the agent session via the wiring's sendMessage
+ * seam — the shell form only FREEZES when the inbound card_done tombstone
+ * arrives (no optimistic state).
+ */
+export function APPEXEC_CARD_SEND(
+  cardId: string,
+  answers: Record<string, string>,
+): { type: "appexec"; extra: { kind: "card_send"; cardId: string; answers: Record<string, string> } } {
+  return { type: "appexec", extra: { kind: "card_send", cardId, answers } };
 }
 
 /**
