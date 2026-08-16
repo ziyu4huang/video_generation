@@ -1,7 +1,3 @@
-// @ts-nocheck — pre-existing type errors, never checked before this file
-// became reachable via pi-agent's static import (src/static-extensions.ts);
-// see that file's header comment for the full rationale. Runtime unaffected
-// (Bun doesn't enforce types).
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { generateCuratorPage } from "./curator-page.ts";
 import type { SummaryMeta } from "./summary-review.ts";
@@ -186,6 +182,18 @@ export function startCuratorServer(
 	let completed = false;
 	let watchdog: NodeJS.Timeout | null = null;
 	let state: ServerState = "SEARCHING";
+	/**
+	 * Read `state` without carrying a stale narrowing across an `await`.
+	 *
+	 * A handler that early-returns on `state === "COMPLETED"` leaves TypeScript
+	 * believing the value can only be SEARCHING|RESULT_SELECTION for the rest of
+	 * the function — and it keeps that belief across an await, even though
+	 * `markCompleted()` can flip the variable while the handler is suspended.
+	 * Re-checking after the await is therefore correct code that the checker
+	 * reports as an impossible comparison. A function call returns the declared
+	 * type, so this preserves the runtime guard instead of deleting it.
+	 */
+	const currentState = (): ServerState => state;
 	let sseResponse: ServerResponse | null = null;
 	const sseBuffer: string[] = [];
 	let nextQueryIndex = queries.length;
@@ -470,7 +478,7 @@ export function startCuratorServer(
 
 				try {
 					const result = await callbacks.onSummarize(parsed.indices, controller.signal, model, feedback);
-					if (requestId !== summarizeRequestSeq || state === "COMPLETED") {
+					if (requestId !== summarizeRequestSeq || currentState() === "COMPLETED") {
 						sendJson(res, 409, { ok: false, error: "Summarize request superseded" });
 						return;
 					}

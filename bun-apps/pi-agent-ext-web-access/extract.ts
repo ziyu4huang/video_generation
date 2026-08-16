@@ -1,7 +1,3 @@
-// @ts-nocheck — pre-existing type errors, never checked before this file
-// became reachable via pi-agent's static import (src/static-extensions.ts);
-// see that file's header comment for the full rationale. Runtime unaffected
-// (Bun doesn't enforce types).
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
@@ -176,8 +172,17 @@ function parseTimestamp(ts: string): number | null {
 	if (!isNaN(num) && num >= 0) return Math.floor(num);
 	const parts = ts.split(":").map(Number);
 	if (parts.some(p => isNaN(p) || p < 0)) return null;
-	if (parts.length === 3) return Math.floor(parts[0] * 3600 + parts[1] * 60 + parts[2]);
-	if (parts.length === 2) return Math.floor(parts[0] * 60 + parts[1]);
+	// Destructured + explicitly checked rather than indexed: a `length === 3`
+	// test does not narrow element types, so indexing here reads as possibly
+	// undefined. The length check still gates the shape — "1:2:3:4" must not
+	// parse as an h:m:s triple.
+	const [a, b, c] = parts;
+	if (parts.length === 3 && a !== undefined && b !== undefined && c !== undefined) {
+		return Math.floor(a * 3600 + b * 60 + c);
+	}
+	if (parts.length === 2 && a !== undefined && b !== undefined) {
+		return Math.floor(a * 60 + b);
+	}
 	return null;
 }
 
@@ -513,7 +518,10 @@ function isLikelyJSRendered(html: string): boolean {
 	const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
 	if (!bodyMatch) return false;
 
+	// Matches the `!bodyMatch` case above: no readable body means we cannot claim
+	// the page is JS-rendered.
 	const bodyHtml = bodyMatch[1];
+	if (bodyHtml === undefined) return false;
 
 	// Strip tags to get text content
 	const textContent = bodyHtml
@@ -636,7 +644,12 @@ async function extractViaHttp(
 		const reader = new Readability(document as unknown as Document);
 		const article = reader.parse();
 
-		if (!article) {
+		// `article.content`, not just `article`: Readability can return an article
+		// whose content is null, and the only consumer below feeds it straight to
+		// turndown, which does not accept null. A content-less article IS a failed
+		// extraction, so it belongs on this fallback path rather than one step
+		// further on.
+		if (!article?.content) {
 			const rscResult = extractRSCContent(text);
 			if (rscResult) {
 				activityMonitor.logComplete(activityId, response.status);
@@ -691,6 +704,7 @@ async function extractViaHttp(
 export function extractHeadingTitle(text: string): string | null {
 	const match = text.match(/^#{1,2}\s+(.+)/m);
 	if (!match) return null;
+	if (match[1] === undefined) return null;
 	const cleaned = match[1].replace(/\*+/g, "").trim();
 	return cleaned || null;
 }

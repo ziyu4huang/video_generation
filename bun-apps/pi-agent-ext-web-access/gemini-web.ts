@@ -1,7 +1,4 @@
-// @ts-nocheck — pre-existing type errors, never checked before this file
-// became reachable via pi-agent's static import (src/static-extensions.ts);
-// see that file's header comment for the full rationale. Runtime unaffected
-// (Bun doesn't enforce types).
+import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { type CookieMap, getGoogleCookies } from "./chrome-cookies.ts";
 import { getChromeProfileFromConfig, isBrowserCookieAccessAllowed, normalizeChromeProfile } from "./gemini-web-config.ts";
@@ -23,6 +20,9 @@ const MODEL_HEADERS: Record<string, string> = {
 	"gemini-2.5-pro": '[1,null,null,null,"4af6c7f5da75d65d",null,null,0,[4]]',
 	"gemini-2.5-flash": '[1,null,null,null,"9ec249fc9ad08861",null,null,0,[4]]',
 };
+
+/** The header for the model every caller falls back to. */
+const DEFAULT_MODEL_HEADER = MODEL_HEADERS["gemini-2.5-flash"] as string;
 
 const REQUIRED_COOKIES = ["__Secure-1PSID", "__Secure-1PSIDTS"];
 
@@ -141,7 +141,11 @@ async function runGeminiWebOnce(
 			"x-same-domain": "1",
 			"user-agent": USER_AGENT,
 			cookie: cookieHeader,
-			[MODEL_HEADER_NAME]: MODEL_HEADERS[model],
+			// Explicit fallback rather than a non-null assertion: callers already
+			// normalise an unknown model to the default (queryWithCookies), so this
+			// is unreachable today — but an index lookup that can be undefined puts
+			// an `undefined` header on the wire if that invariant ever slips.
+			[MODEL_HEADER_NAME]: MODEL_HEADERS[model] ?? DEFAULT_MODEL_HEADER,
 		},
 		body: params.toString(),
 		signal: effectiveSignal,
@@ -281,7 +285,12 @@ function decodeEmailEscapes(value: string): string {
 		.replace(/\\\\/g, "\\");
 }
 
-async function uploadFile(
+/**
+ * Exported for the characterization test only. `readFileSync` is its first
+ * statement, so an unreadable path fails before any network call — which is what
+ * lets a test pin the bug this function shipped with (see __tests__).
+ */
+export async function uploadFile(
 	filePath: string,
 	cookieHeader: string,
 	signal: AbortSignal,

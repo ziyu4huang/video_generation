@@ -1,11 +1,8 @@
-// @ts-nocheck — pre-existing type errors, never checked before this file
-// became reachable via pi-agent's static import (src/static-extensions.ts);
-// see that file's header comment for the full rationale. Runtime unaffected
-// (Bun doesn't enforce types).
-import { complete, type Message, type Model } from "@earendil-works/pi-ai/compat";
+import { complete, type Api, type Message, type Model } from "@earendil-works/pi-ai/compat";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
 import type { QueryResultData } from "./storage.ts";
+import { dropNullHeaders } from "./utils.ts";
 
 const PREFERRED_SUMMARY_MODELS = [
 	{ provider: "anthropic", id: "claude-haiku-4-5" },
@@ -46,8 +43,10 @@ function summarizeQueryResult(result: QueryResultData): string {
 	}
 
 	lines.push("Sources:");
-	for (let i = 0; i < result.results.length; i++) {
-		const source = result.results[i];
+	// entries() rather than an index loop: indexing types the element as possibly
+	// undefined under noUncheckedIndexedAccess even though `i` is in range by
+	// construction, and a guard here would be unreachable noise.
+	for (const [i, source] of result.results.entries()) {
 		lines.push(`${i + 1}. ${source.title} — ${source.url}`);
 	}
 
@@ -73,9 +72,9 @@ export function buildSummaryPrompt(results: QueryResultData[], feedback?: string
 	sections.push("");
 	sections.push("<search_results>");
 
-	for (let i = 0; i < results.length; i++) {
+	for (const [i, result] of results.entries()) {
 		sections.push(`\n[Result ${i + 1}]`);
-		sections.push(summarizeQueryResult(results[i]));
+		sections.push(summarizeQueryResult(result));
 	}
 
 	sections.push("\n</search_results>");
@@ -196,14 +195,14 @@ function parseModelSelector(value: string): { provider: string; id: string } {
 async function resolveSummaryModelCandidates(
 	ctx: SummaryGenerationContext,
 	modelOverride?: string,
-): Promise<{ candidates: Array<{ model: Model; apiKey: string; headers?: Record<string, string> }>; errors: string[] }> {
+): Promise<{ candidates: Array<{ model: Model<Api>; apiKey: string; headers?: Record<string, string> }>; errors: string[] }> {
 	const enabledModelPatterns = loadEnabledModelPatterns(ctx);
 	const specs: Array<{ provider: string; id: string }> = [];
 	const normalizedOverride = typeof modelOverride === "string" ? modelOverride.trim() : "";
 	if (normalizedOverride.length > 0) specs.push(parseModelSelector(normalizedOverride));
 	specs.push(...PREFERRED_SUMMARY_MODELS);
 
-	const candidates: Array<{ model: Model; apiKey: string; headers?: Record<string, string> }> = [];
+	const candidates: Array<{ model: Model<Api>; apiKey: string; headers?: Record<string, string> }> = [];
 	const errors: string[] = [];
 	const seen = new Set<string>();
 	for (const spec of specs) {
@@ -225,7 +224,7 @@ async function resolveSummaryModelCandidates(
 			errors.push(`No API key available for summary model ${value}`);
 			continue;
 		}
-		candidates.push({ model, apiKey: auth.apiKey, headers: auth.headers });
+		candidates.push({ model, apiKey: auth.apiKey, headers: dropNullHeaders(auth.headers) });
 	}
 	return { candidates, errors };
 }
