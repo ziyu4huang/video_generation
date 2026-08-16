@@ -3,12 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  type AgentUsage,
-  saveModelTierConfig,
-  WorkflowError,
-  WorkflowErrorCode,
-} from "@repo/pi-agent-core-runtime";
+import { type AgentUsage, saveModelTierConfig, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-core-runtime";
 import { deriveTaskLabel, resolveSessionOverride, spawnSubagent } from "../src/spawn-subagent.js";
 
 /** Minimal injectable runner (Pick<WorkflowAgent, "run">) that records calls. */
