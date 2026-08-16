@@ -13,6 +13,15 @@ export {
 } from "./replay.ts";
 export { type ScopeSpec, buildScope, inScope } from "./scope.ts";
 export {
+  type BuildInput,
+  type SidecarRecord,
+  buildSidecarRecord,
+  defaultSidecarPath,
+  readSidecar,
+  resolveGitSha,
+  writeSidecar,
+} from "./sidecar.ts";
+export {
   type AggregateOptions,
   type AggregateReport,
   type CheckSeries,
