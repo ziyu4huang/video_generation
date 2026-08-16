@@ -1,6 +1,6 @@
 ---
 effort: 2026-08-16-hermes-leanrag-simplify
-status: active
+status: complete
 created: 2026-08-16
 pipeline: wayfind→superpowers
 ---
@@ -24,6 +24,7 @@ pi-agent-ext-hermes-memory reshaped to LeanRAG architecture shape (~80%): ≤ ~1
 ## Fog
 - Seam compatibility audit (stale-seam, zk seam) during consolidation — verify before demoting planning_stale.
 - origin/main moves fast (dea56780→fc18a154 during setup); ff before PR via devops chain.
+- Effort complete 2026-08-16. D2 LOC target unmet (+0.1% — surface simplification instead). Follow-up: leanrag-hierarchy-port (seeded).
 
 ## Tickets
 - 01 baseline → 02-03 tool-surface, 04 repos → 05 fallback, 06 dedup → 07 cuts, 08 C4, 09 dead-code → 10 cost-pin → 11 acceptance

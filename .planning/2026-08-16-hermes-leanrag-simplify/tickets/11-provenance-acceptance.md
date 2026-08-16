@@ -1,6 +1,6 @@
 ---
 ticket: 11
-status: open
+status: done
 blocked-by: [10]
 ---
 
@@ -19,3 +19,7 @@ Refresh LEANRAG-PROVENANCE.md and complete the acceptance accounting.
 
 - `acceptance.md` in the effort dir with the full accounting.
 - Provenance doc accurate.
+
+## Resolution
+
+Acceptance recorded: 90.7% features kept, −34% schema cost, LOC flat (+0.1%, D2 unmet — surface simplification instead), provenance refreshed, effort complete.
