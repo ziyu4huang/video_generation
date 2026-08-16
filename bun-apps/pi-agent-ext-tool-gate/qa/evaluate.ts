@@ -62,10 +62,7 @@ import obsidianDefault from "@repo/pi-agent-ext-obsidian";
 import { registerMemoryTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-tool.ts";
 import { registerSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/search-tool.ts";
 import { registerSkillTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";
-import { registerGrillDecisionTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/grill-decision-tool.ts";
-import { registerMemorySupersedeTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-supersede-tool.ts";
 import { registerKnowledgeSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/knowledge-search-tool.ts";
-import { registerPlanningStaleTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/planning-stale-tool.ts";
 import { registerKnowledgeIngestTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/knowledge-ingest-tool.ts";
 import { createPresentTool } from "@repo/pi-agent-ext-webui/src/present-tool.ts";
 // ticket 04 — ext-task's 3 core tools (todo / goal_complete / ask_user_question)
@@ -185,27 +182,21 @@ const zaiRegistrar = (pi: any) => {
 	);
 };
 
-// ticket 02 — hermes-memory's default factory is async + does heavy backend
+// tickets 03+08 — hermes-memory's default factory is async + does heavy backend
 // (sqlite/surreal bundle) setup BEFORE registering tools, so the capturing stub
-// can't drive it (registration happens after the first await). Invoke the 5
-// individual registrars with stub args (store/repo are deref'd only inside
-// `execute`, which capture never calls) so the 4 owner-declared-core tools +
-// memory_supersede (keyword-gated) build here. registerSkillTool ALSO registers
-// skill_manage_help (an ungated companion, NOT a CORE_TOOLS member) —
-// buildEffectiveGates skips it via `if (!g) continue`. memory_supersede takes
-// (pi, memoryRepo, store, projectName?) — a null repo hits its soft-success
-// path (ok:true, linked:false) and is never deref'd during capture, so passing
-// it here promotes memory_supersede into CORPUS_EFF (→ tracked) so the --strict
-// ungated count drops to 0.
+// can't drive it (registration happens after the first await). Invoke the live
+// registrars with stub args (store/repo are deref'd only inside `execute`, which
+// capture never calls) so the 3 owner-declared-core tools (memory / search /
+// skill_manage) build here. registerSkillTool ALSO registers skill_manage_help
+// (an ungated companion, NOT a CORE_TOOLS member) — buildEffectiveGates skips
+// it via `if (!g) continue`. knowledge_search + knowledge_ingest (keyword-
+// gated, NOT core) are captured so their gates stay live in the corpus.
+// grill_decision / planning_stale / memory_supersede registrars were REMOVED
+// (hermes ticket 03 — the tools no longer exist on the 6-tool surface).
 const hermesMemoryRegistrar = (pi: any) => {
 	registerMemoryTool(pi, {} as any, null, null, "");
 	registerSearchTool(pi, {} as any, {} as any, { variant: "legacy" });
 	registerSkillTool(pi, {} as any);
-	registerGrillDecisionTool(pi, {} as any, null);
-	registerMemorySupersedeTool(pi, null, {} as any);
-	// ticket 03 — planning_stale + knowledge_search are owner-declared core:true;
-	// capture them so qa:coverage sees them tracked, not "ungated heavy".
-	registerPlanningStaleTool(pi, { memoryDir: "/tmp" });
 	registerKnowledgeIngestTool(pi, {});
 	registerKnowledgeSearchTool(pi, () => "/tmp");
 };
@@ -220,15 +211,15 @@ const coreTaskRegistrar = (pi: any) => {
 	goalDefault(pi);
 };
 
-// ticket 04 — the offline corpus must mirror the runtime 21-core. The 21 =
-// 17 owner-declared core tools captured from the registrars above (hermes-memory
-// ×4, knowledge-card ×4, web-access ×3, obsidian ×2, ext-task ×3, tool-gate's
-// enable_tool ×1) PLUS the 4 pi-coding-agent built-ins (read/write/edit/bash).
-// The built-ins are NOT registered by any extension here (they're harness
-// built-ins), so injectBuiltinCore alone wouldn't add them — synthesize the 4
-// as bare defs and let injectBuiltinCore attach gating:{core:true} (the same
-// transformation getDiscovered() runs at runtime), then buildEffectiveGates
-// routes all 22 into core.
+// ticket 04 — the offline corpus must mirror the runtime 20-core. The 20 =
+// 16 owner-declared core tools captured from the registrars above (hermes-memory
+// ×3 — memory/search/skill_manage, knowledge-card ×4, web-access ×3, obsidian ×2,
+// ext-task ×3, tool-gate's enable_tool ×1) PLUS the 4 pi-coding-agent built-ins
+// (read/write/edit/bash). The built-ins are NOT registered by any extension here
+// (they're harness built-ins), so injectBuiltinCore alone wouldn't add them —
+// synthesize the 4 as bare defs and let injectBuiltinCore attach gating:{core:true}
+// (the same transformation getDiscovered() runs at runtime), then
+// buildEffectiveGates routes all 21 (16 + webui_present + 4 built-ins) into core.
 const builtinCoreDefs = () => [...BUILTIN_CORE].map((name) => ({ name }));
 
 // ticket 03 — webui_present (owner-declared core:true, always-on HITL bridge).

@@ -89,15 +89,15 @@ export const MUST_FIRE: Probe[] = [
 	{ gate: "arxiv_search", prompt: "find papers on diffusion policies", note: "noun papers ∧ verb find" },
 	{ gate: "arxiv_search", prompt: "fetch the arxiv paper 2401.12345", note: "keyword arxiv" },
 	{ gate: "arxiv_search", prompt: "搜尋論文 robotics", note: "keyword 論文 / 搜尋論文" },
-	// devops + memory_supersede (tickets 03 + 05) — keyword-only gates captured
-	// once their source registrars were wired into evaluate.ts's capture list.
-	// await_pr_merge + sweep_branches + memory_supersede each carry a DISTINCT
-	// keyword signature (no overlap with any prior gate), so each is its own
-	// signature-group; one must-fire per gate (a real keyword trigger) validates
-	// the whole group (the coverageGap check groups by signature).
+	// devops (ticket 03) — keyword-only gates captured once their source
+	// registrars were wired into evaluate.ts's capture list.
+	// await_pr_merge + sweep_branches each carry a DISTINCT keyword signature
+	// (no overlap with any prior gate), so each is its own signature-group; one
+	// must-fire per gate (a real keyword trigger) validates the whole group
+	// (the coverageGap check groups by signature).
+	// (memory_supersede probes removed with the gate — ticket 03 deleted the tool.)
 	{ gate: "await_pr_merge", prompt: "wait for PR 42 to merge", note: "keyword wait / pr / merge" },
 	{ gate: "sweep_branches", prompt: "sweep merged branches and clean up", note: "keyword sweep / branch / cleanup" },
-	{ gate: "memory_supersede", prompt: "supersede the wrong memory with a correction", note: "keyword supersede / memory / correction" },
 	// devops registrar — the 5 remaining devops gates (local_ci, sync_repo,
 	// devops_retrospect, prepare_branch, verify_merge) each carry a DISTINCT
 	// keyword-SET signature (individual keywords like merge/verify/rebase/branch
@@ -128,8 +128,6 @@ export const MUST_FIRE: Probe[] = [
 	{ gate: "skill_manage", prompt: "create a skill for running tests", note: "keyword create skill" },
 	{ gate: "knowledge_search", prompt: "search the knowledge graph for the sampler gotcha", note: "keyword knowledge search" },
 	{ gate: "knowledge_ingest", prompt: "ingest the knowledge records from the workflow export", note: "keyword knowledge ingest" },
-	{ gate: "planning_stale", prompt: "query stale planning decisions", note: "keyword planning stale" },
-	{ gate: "grill_decision", prompt: "grill the decision on the model picker", note: "keyword grill decision" },
 	{ gate: "wayfind_effort", prompt: "what's the effort status for tool-gate", note: "keyword effort status" },
 	{ gate: "get_search_content", prompt: "get the stored content for that response", note: "keyword stored content" },
 	{ gate: "obsidian", prompt: "put this note into the vault", note: "keyword vault" },
@@ -163,13 +161,13 @@ export const MUST_NOT_FIRE: Probe[] = [
 	// verb "inspect" IS in the verb list, but these prompts pair it with a noun
 	// that is NOT in [agent,context,extension,pathology,token,schema,tui,工具]
 	// → no noun∧verb co-occurrence → no keyword → correctly rejected.,,
-	// devops + memory_supersede (tickets 03 + 05) — lookalikes the gate CORRECTLY
-	// rejects (no keyword present). Word-boundary matching matters: "remember"
-	// is not "memory", and bare "delete" is not the hyphenated "delete-branch"
-	// keyword — so neither fires.
+	// devops (ticket 03) — lookalikes the gate CORRECTLY rejects (no keyword
+	// present). Word-boundary matching matters: bare "delete" is not the
+	// hyphenated "delete-branch" keyword — so it doesn't fire.
+	// (memory_supersede / planning_stale / grill_decision probes removed with
+	// their gates — ticket 03 deleted the tools from the surface.)
 	{ gate: "await_pr_merge", prompt: "summarize the open issues", note: "no pr/merge/wait keyword" },
 	{ gate: "sweep_branches", prompt: "delete the temp file", note: 'bare "delete" is not the "delete-branch" keyword' },
-	{ gate: "memory_supersede", prompt: "remember to buy milk", note: '"remember" is not "memory" (word-boundary)' },
 	// devops registrar — the 5 remaining devops gates (see MUST_FIRE). Lookalikes
 	// in the git/build/advisory domain that correctly avoid EVERY keyword of the
 	// named gate. gateFires is checked only against the gate in `gate:`, so
@@ -193,8 +191,6 @@ export const MUST_NOT_FIRE: Probe[] = [
 	{ gate: "skill_manage", prompt: "the skills section of the README", note: "skill noun, no manage verb" },
 	{ gate: "knowledge_search", prompt: "search the web for lora papers", note: "web search, not the knowledge graph" },
 	{ gate: "knowledge_ingest", prompt: "ingest the error from the logs", note: "ingest + error, no knowledge record" },
-	{ gate: "planning_stale", prompt: "the plan went stale", note: "stale as adjective, no query/revalidate verb" },
-	{ gate: "grill_decision", prompt: "grill the chicken for dinner", note: "grill + food, no decision noun" },
 	{ gate: "wayfind_effort", prompt: "effort is required here", note: "effort noun, no wayfind/planning verb" },
 	{ gate: "get_search_content", prompt: "the search summary is above", note: "search noun, no stored-content retrieval verb" },
 	{ gate: "obsidian", prompt: "organize the meeting notes", note: "organize + notes, no vault/obsidian keyword, no file/folder noun" },
