@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { CoreAgent } from "../src/agent.js";
 import { type BudgetSessionSurface, createBudgetGuard } from "../src/agent-budget.js";
 import { createTurnGuard, type TurnSessionSurface, turnExhaustionError } from "../src/agent-turns.js";
-import { WorkflowErrorCode, WorkflowError } from "../src/errors.js";
+import { WorkflowError, WorkflowErrorCode } from "../src/errors.js";
 
 // ---------------------------------------------------------------------------
 // createTurnGuard semantics over a minimal fake session: one turn = one
@@ -159,7 +159,7 @@ const usageObservation = (total: number) => ({
 });
 
 test("turn cap fires while the budget stays under its limit", () => {
-  let total = 10;
+  const total = 10;
   const { session, aborts } = fakeCombinedSession(() => ({ tokens: { total }, cost: 0 }));
   const budget = createBudgetGuard(session, { tokenBudget: 1000 });
   const turns = createTurnGuard(session, { maxTurns: 2 });
@@ -234,7 +234,7 @@ function agentForValidationRuns() {
   };
 }
 
-test('CoreAgent.run({ maxTurns: 0 }) rejects immediately with SCRIPT_VALIDATION_ERROR', async () => {
+test("CoreAgent.run({ maxTurns: 0 }) rejects immediately with SCRIPT_VALIDATION_ERROR", async () => {
   const { agent, runOptions, tierConfigReads, modelEvents } = agentForValidationRuns();
 
   await assert.rejects(agent.run("hi", runOptions(0)), (err) => {
@@ -250,7 +250,7 @@ test('CoreAgent.run({ maxTurns: 0 }) rejects immediately with SCRIPT_VALIDATION_
   assert.equal(tierConfigReads(), 0);
 });
 
-test('CoreAgent.run({ maxTurns: 1.5 }) rejects immediately (non-integer)', async () => {
+test("CoreAgent.run({ maxTurns: 1.5 }) rejects immediately (non-integer)", async () => {
   const { agent, runOptions, tierConfigReads, modelEvents } = agentForValidationRuns();
 
   await assert.rejects(agent.run("hi", runOptions(1.5)), (err) => {
@@ -263,7 +263,7 @@ test('CoreAgent.run({ maxTurns: 1.5 }) rejects immediately (non-integer)', async
   assert.equal(tierConfigReads(), 0);
 });
 
-test('CoreAgent.run({ maxTurns: -1 }) rejects immediately (below 1)', async () => {
+test("CoreAgent.run({ maxTurns: -1 }) rejects immediately (below 1)", async () => {
   const { agent, runOptions, tierConfigReads, modelEvents } = agentForValidationRuns();
 
   await assert.rejects(agent.run("hi", runOptions(-1)), (err) => {
@@ -287,7 +287,7 @@ test('CoreAgent.run({ maxTurns: -1 }) rejects immediately (below 1)', async () =
 // ---------------------------------------------------------------------------
 
 test("post-prompt decision: turn cap alone trips → TURNS_EXHAUSTED, never TOKEN_BUDGET_EXHAUSTED", () => {
-  let total = 10;
+  const total = 10;
   const { session } = fakeCombinedSession(() => ({ tokens: { total }, cost: 0 }));
   const budget = createBudgetGuard(session, { tokenBudget: 1000 });
   const turns = createTurnGuard(session, { maxTurns: 2 });

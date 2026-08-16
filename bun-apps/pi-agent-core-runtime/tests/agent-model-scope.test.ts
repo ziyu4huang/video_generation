@@ -18,7 +18,7 @@
  *   and proves nothing about whether the second is REACHED from every branch of
  *   the first — which was the entire defect.
  */
-import { test, describe } from "bun:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { clampModelToScope, resolveScopedAgentModelSpec } from "@repo/pi-agent-core-runtime";
 
