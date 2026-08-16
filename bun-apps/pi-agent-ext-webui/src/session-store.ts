@@ -56,14 +56,15 @@ export function createSessionStore(cap = TRANSCRIPT_CAP): SessionStore {
   return {
     append(frame: WebFrame): void {
       transcript.push(frame);
-      // cards-ux2 (04): card frames are sparse and review-critical — a plain
-      // FIFO would evict them early in any long session (browser-probe-proven).
-      // Evict only NON-card frames, oldest first.
+      // cards-ux2 (04) / tab-views (01a): card frames AND reports are sparse
+      // and review-critical — a plain FIFO would evict them early in any long
+      // session (browser-probe-proven). Evict only NON-card/NON-report frames,
+      // oldest first.
       if (transcript.length > cap) {
         let remove = transcript.length - cap;
         for (let i = 0; i < transcript.length && remove > 0; i += 1) {
           const t = transcript[i]?.type;
-          if (t === "card" || t === "card_done") continue;
+          if (t === "card" || t === "card_done" || t === "report") continue;
           transcript.splice(i, 1);
           remove -= 1;
           i -= 1;

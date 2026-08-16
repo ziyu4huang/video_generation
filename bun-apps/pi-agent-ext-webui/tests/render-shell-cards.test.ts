@@ -56,7 +56,7 @@ describe("RENDER_SHELL_HTML — Cards tab + pane scaffold (event-cards 01)", () 
     expect(RENDER_SHELL_HTML).toContain("/^card-/.test(id) ? id : 'card-' + id");
     // dedupe by dom id + newest LAST (chronological order)
     expect(src).toContain("document.getElementById(domId)");
-    expect(src).toContain("cardsPaneEl.appendChild(art)");
+    expect(src).toContain("pane.appendChild(art)");
   });
 
   it("renders title/time/badge/body as TEXT (textContent assignments only)", () => {
