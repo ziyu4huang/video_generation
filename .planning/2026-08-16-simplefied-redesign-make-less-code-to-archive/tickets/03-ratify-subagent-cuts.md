@@ -1,5 +1,6 @@
 ---
 type: grilling
+claimed: ratify-session 2026-08-16
 blocking: 2
 ---
 
