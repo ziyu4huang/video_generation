@@ -2,7 +2,8 @@
 
 Goal: two user-reported card UX gaps + one correctness bug. (1) answered questionnaire cards must stay REVIEWABLE (read-only question+answers, click to expand) and answers must NOT be duplicated into the transcript/appendix. (2) NEW non-blocking cards: deferred drafts the user answers ANY time; once sent -> stamped sentAt, immutable, never re-sendable; the send injects into the main session like typed input (agent never blocked). (3) BUG: browser ask-card answer resolves the tool but the orchestrator receives `undefined` (answer lands in transcript echo but not in the tool result) — fix the round-trip.
 
-- Status: active
+- Status: done
+- Effort summary: t01 answer round-trip fix + reviewable answered cards merged via PR #1539; t02 non-blocking draft cards shipped as 02a e0eb9dd1 (protocol `blocking?: boolean` flag, `CardSendExtra` + `validateCardSendExtra`, wiring onCommand TOP guard with first-send-wins JSONL + card_done broadcast + sendMessage seam injection, session_shutdown ledger reset, tests in nonblocking-cards.test.ts + protocol.test.ts, port-resolver env-isolation fix) and 02b shell commit 0db6695e (render-shell draft forms + draft badge + Send button + freezeDraftCard tombstone + APPEXEC_CARD_SEND twin, tests/nonblocking-shell.test.ts).
 - Decisions:
   - D1 answered cards are collapsed reviewable (question + given answers, read-only), live + replay.
   - D2 no answer duplication: the answered card is the single source of truth; kill whatever appends the answer echo to the transcript/appendix (verify in repro).
@@ -12,4 +13,4 @@ Goal: two user-reported card UX gaps + one correctness bug. (1) answered questio
 - Tickets:
   | # | ticket | status | result |
   | 01 | answer round-trip fix + reviewable answered cards + no appendix echo | closed | — |
-  | 02 | non-blocking draft cards (blocking flag, card_send, sendUserMessage injection) + tests/docs | open | — |
+  | 02 | non-blocking draft cards (blocking flag, card_send, sendUserMessage injection) + tests/docs | closed | draft cards one-shot send -> card_send -> JSONL + card_done freeze + sendMessage injection; webui 481 pass / 0 fail, innerHTML 8; 02a e0eb9dd1 + 02b 0db6695e |
