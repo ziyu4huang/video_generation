@@ -2,10 +2,16 @@
  * Event-bus seam between pi-agent-ext-btw and pi-agent-ext-webui.
  *
  * Plain string channels (SDK EventBus convention: on() returns an unsubscribe
- * disposer, there is no off()). Payloads are JSON-safe. The webui package
- * redeclares these constants and shapes locally in its own src/btw-channels.ts
- * — there is deliberately NO package dependency webui -> btw; the string
- * values are the contract (pinned by the cross-package contract test).
+ * disposer, there is no off()). Payloads are JSON-safe. There is deliberately NO
+ * package dependency webui -> btw; the string values are the contract.
+ *
+ * NO CONSUMER RIGHT NOW. webui used to redeclare these constants in its own
+ * src/btw-channels.ts, and PR #1532 ("webui v2 cards-first") deleted that file
+ * along with the btw sidebar. btw still publishes on both channels; nothing
+ * subscribes. Kept rather than deleted because the seam is the documented
+ * integration point and the v2 webui is expected to reattach — but treat "the
+ * webui reflects this" as false until something in webui reads these strings
+ * again. See __tests__/webui-channel-parity.test.ts.
  */
 
 export const BTW_COMMAND_CHANNEL = "webui:btw-command" as const;
