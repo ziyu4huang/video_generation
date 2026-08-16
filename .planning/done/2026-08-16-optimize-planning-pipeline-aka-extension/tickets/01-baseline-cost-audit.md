@@ -1,5 +1,7 @@
+---
 type: research
-claimed: charting-session 2026-08-16
+status: closed
+---
 
 ## Question
 

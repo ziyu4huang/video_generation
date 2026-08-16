@@ -2,7 +2,7 @@
 effort: 2026-08-16-optimize-planning-pipeline-aka-extension
 created: 2026-08-16
 last: 2026-08-16
-status: active
+status: complete
 ---
 
 # Wayfinder map: 2026-08-16-optimize-planning-pipeline-aka-extension
@@ -22,6 +22,10 @@ A spec at `.planning/2026-08-16-optimize-planning-pipeline-aka-extension/spec.md
 
 - [Baseline cost audit](tickets/01-baseline-cost-audit.md) — 200-run window (2026-08-16, ~3.7h): truncated dispatches (budget/turns aborts) consumed 76% of measured token spend while producing 39% of output; planning-stage overhead is dwarfed by dispatch waste; $ unrecoverable (all runs $0.00); main-session tokens invisible to the runs DB.
 - [SDD overhead anatomy](tickets/02-sdd-overhead-anatomy.md) — across 12 SDD workspaces: 31/40 reviewed tasks clean first review; top levers = drop per-task review for mechanical tasks (~2.4M at btw scale), plan-slice briefs (30× smaller), one-fix-wave extended to task rounds, pre-SDD plan review to kill the parked-minor tax; one per-finding wave cost 1.06M; one reset --hard pivot lost ~2.5M.
+- [Absorb budgets effort](tickets/03-absorb-budgets-effort.md) — old budgets map paused with Shares-decision-with cross-links both ways; spec cites its 4 closed decisions and settles report-edge headroom + recalibration cadence; other 6 fog items stay on the paused map.
+- [Batching policy](tickets/04-batching-policy.md) — cluster + envelope rule replaces one-ticket-per-session (draft text in ticket); direct edit of procedures/wayfinder.md:131, provenance repo-authored.
+- [SDD loop redesign](tickets/05-sdd-loop-redesign.md) — five quantified levers make the spec cut (mechanical-review drop, plan-slice briefs, one-fix-wave at task rounds, pre-SDD plan review, glue-task merge); final review stays mandatory; ledger + parallelism deferred.
+- [Spec assembly](tickets/06-spec-assembly.md) — spec.md written (destination reached): batching rule + 5 SDD levers + dispatch budgets w/ metrics-bounded quality bar; deferred items listed as prizes.
 
 ## Not yet specified
 
@@ -29,7 +33,6 @@ A spec at `.planning/2026-08-16-optimize-planning-pipeline-aka-extension/spec.md
 - Per-session fixed cost (bootstrap injection size, 22+14 skill-description surface) — revisit if the baseline shows fixed cost dominating.
 - Grilling compression (AFK pre-recon to cut rounds) — shape unclear until the session-count audit lands.
 - Forward seam / single-driver coordination between wayfind sessions and `/goal`/`/loop` — session-adjacent, no sharp question yet.
-- Quality-guardrail metrics beyond "gates stay" (parked-findings rate, fix-loop depth as quality signals) — sharpens after the lever tickets land.
 - Parallel execution of independent SDD tasks (worktrees) — inside SDD-redesign scope but may deserve its own ticket once the cost anatomy is known.
 
 ## Out of scope
@@ -37,3 +40,7 @@ A spec at `.planning/2026-08-16-optimize-planning-pipeline-aka-extension/spec.md
 - Route-clarity doc/code debt of the trio (REVIEW-2026-08-15 findings: phantom manifest entry, stale glossary, dual parser, missing superpowers CONTEXT.md, subagent TUI issues) — per-package hygiene, not cost.
 - Stalled-effort hygiene automation / `.planning/` housekeeping (16 live efforts).
 - Persistent cost-measurement infrastructure (this effort uses a one-shot audit only).
+
+## Cross-effort links
+
+Shares-decision-with: 2026-08-15-subagent-dynamic-budgets (paused) — its dispatch-cost destination absorbed here; its map holds the 6 unsettled fog items.
