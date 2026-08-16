@@ -5,16 +5,29 @@
   "type": "module",
   "description": "Pi extension: wraps the swift/flux2-image-director CLI (flux2) as an agent-optimized tool. One dispatcher tool with typed per-command parameters, structured manifest parsing, progress streaming + abort, and path-safety guards.",
   "license": "MIT",
-  "keywords": ["pi-package", "flux2", "image-generation", "mlx", "swift"],
+  "keywords": [
+    "pi-package",
+    "flux2",
+    "image-generation",
+    "mlx",
+    "swift"
+  ],
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",
     "./extensions/*": "./extensions/*"
   },
-  "files": ["extensions", "src", "scripts", "README.md"],
+  "files": [
+    "extensions",
+    "src",
+    "scripts",
+    "README.md"
+  ],
   "pi": {
-    "extensions": ["./extensions"]
+    "extensions": [
+      "./extensions"
+    ]
   },
   "scripts": {
     "build:bundle": "bun scripts/build-bundle.ts",
@@ -24,6 +37,7 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.2",
+    "@repo/pi-agent-core-interface": "workspace:*",
     "@repo/pi-agent-ext-file2md": "workspace:*"
   },
   "peerDependencies": {
@@ -31,7 +45,6 @@
     "typebox": "*"
   },
   "devDependencies": {
-    "@repo/pi-agent-core-interface": "workspace:*",
     "@types/bun": "latest",
     "typescript": "^6.0.3"
   }

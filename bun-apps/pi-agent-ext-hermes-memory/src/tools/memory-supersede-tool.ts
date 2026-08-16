@@ -34,11 +34,21 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import type { MemoryRepository, MemoryTarget } from "../store/repository.js";
 import type { CardStore } from "../store/card-store.js";
 import { mirrorMemoryAdd } from "../store/memory-card-mirror.js";
 import type { MemoryStore } from "../store/memory-store.js";
 import type { MemorySource } from "../types.js";
+
+// ─── Gate family (wayfinder ticket 01 — reference form) ─────────────────────
+// memory_supersede is the hermes-memory extension's ONE non-core tool; the
+// family is declared here once and the tool references it via gating:{gate}.
+GATE_DEFS["memory_supersede"] = {
+  id: "memory_supersede",
+  keywords: ["memory", "supersede", "superseded", "retire", "replace", "replacement", "correction", "overwrite"],
+  description: "Retire a stale/wrong memory via a linked replacement",
+};
 
 interface SupersedeProbe {
   replacementPresent: boolean;
@@ -70,7 +80,7 @@ export function registerMemorySupersedeTool(
     description:
       "Retire a stale/wrong memory by creating a linked replacement. The prior is marked superseded (hidden from search); the replacement carries lineage back to it. " +
       "Use when a recalled memory is wrong and you have the correction. Pass the prior's DB id (from a memory_search result) + the corrected content.",
-    gating: { keywords: ["memory", "supersede", "superseded", "retire", "replace", "replacement", "correction", "overwrite"] },
+    gating: { gate: "memory_supersede" }, // reference form (ticket 01) — family in GATE_DEFS
     parameters: Type.Object({
       prior_id: Type.Integer({
         description: "The DB id of the memory to retire (from a memory_search result).",

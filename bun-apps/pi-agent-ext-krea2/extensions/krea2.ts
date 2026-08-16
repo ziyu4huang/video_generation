@@ -40,6 +40,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import {
   COMMANDS,
   COMMAND_LIST,
@@ -48,6 +49,21 @@ import {
   type CommandName,
   type Krea2Details,
 } from "../src/index.ts";
+
+// ─── Gate family (wayfinder ticket 01 — reference form) ─────────────────────
+// Declared ONCE by id; krea2 + krea2_help both reference it via
+// `gating: { gate: "krea2" }` so buildEffectiveGates groups them into one
+// co-firing family gate (names[0] === "krea2"). The former per-tool verbatim
+// duplication is gone — edit the family here, both tools follow.
+GATE_DEFS["krea2"] = {
+  id: "krea2",
+  keywords: ["krea", "krea2", "草圖", "快速生成", "即時生成", "實時繪圖", "sketch", "real-time", "real time"],
+  requires: {
+    nouns: ["doodle", "concept", "mockup", "draft", "草稿", "概念"],
+    verbs: ["draw", "doodle", "live-draw", "render", "畫", "塗鴉", "速寫"],
+  },
+  description: "Krea 2 Turbo fast image generation",
+};
 
 // ─── On-demand reference builders (shared by the slim description + help tool) ─
 //
@@ -155,18 +171,13 @@ function makeKrea2Tool() {
     // Owner-declared gating — migrated from tool-gate's hardcoded GATES (was the
     // {names:["krea2","krea2_help"]} gate). Per ticket 06's semantics-preserving
     // rule, the SAME gating is mirrored on krea2_help so both activate together
-    // and reconstructOwnerDeclaredGates collapses them back into one multi-name
-    // gate (names[0] === "krea2"). Keywords cover the narrow krea/草圖/快速生成/
-    // sketch/real-time triggers; the noun∧verb `requires` path mirrors flux2 so
-    // keyword-free paraphrases (doodle a concept / live-draw a mockup / 畫草稿)
-    // also reach the gate (gate-recall adversarial floor 0.9).
-    gating: {
-      keywords: ["krea", "krea2", "草圖", "快速生成", "即時生成", "實時繪圖", "sketch", "real-time", "real time"],
-      requires: {
-        nouns: ["doodle", "concept", "mockup", "draft", "草稿", "概念"],
-        verbs: ["draw", "doodle", "live-draw", "render", "畫", "塗鴉", "速寫"],
-      },
-    },
+    // Owner-declared gating — reference form (wayfinder ticket 01): family
+    // declared once in GATE_DEFS["krea2"] above; krea2 + krea2_help reference
+    // it so buildEffectiveGates groups them into one co-firing gate (names[0]
+    // === "krea2"). The noun∧verb `requires` path mirrors flux2 so keyword-free
+    // paraphrases (doodle a concept / live-draw a mockup / 畫草稿) also reach
+    // the gate (gate-recall adversarial floor 0.9).
+    gating: { gate: "krea2" },
     promptSnippet:
       "Generate/edit images with Krea 2 Turbo (Swift/MLX). One tool, 2 subcommands (t2i, i2i); " +
       "call krea2_help for a command's options; chain via details.output.",
@@ -260,17 +271,9 @@ function makeKrea2HelpTool() {
   return defineTool({
     name: "krea2_help",
     label: "Krea 2 Command Reference",
-    // Owner-declared gating — mirrored IDENTICALLY from krea2 (same signature)
-    // so reconstructOwnerDeclaredGates collapses the two into one multi-name
-    // gate {names:["krea2","krea2_help"]} (ticket 06). Co-fire preserved: when
-    // the gate fires, both names activate together. See krea2's gating comment.
-    gating: {
-      keywords: ["krea", "krea2", "草圖", "快速生成", "即時生成", "實時繪圖", "sketch", "real-time", "real time"],
-      requires: {
-        nouns: ["doodle", "concept", "mockup", "draft", "草稿", "概念"],
-        verbs: ["draw", "doodle", "live-draw", "render", "畫", "塗鴉", "速寫"],
-      },
-    },
+    // Owner-declared gating — reference form: same GATE_DEFS["krea2"] family as
+    // the krea2 dispatcher, so the two co-fire together (ticket 01).
+    gating: { gate: "krea2" },
     description:
       "On-demand reference for the `krea2` tool. Pass {command} for option keys/defaults/path rules + example; omit to list subcommands.",
     parameters: Type.Object({

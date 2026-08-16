@@ -27,10 +27,10 @@
     "typebox": "*"
   },
   "dependencies": {
+    "@repo/pi-agent-core-interface": "workspace:*",
     "@repo/pi-agent-ext-power-tool": "workspace:*"
   },
   "devDependencies": {
-    "@repo/pi-agent-core-interface": "workspace:*",
     "@repo/pi-agent-ext-task": "workspace:*",
     "@repo/pi-agent-ext-devops": "workspace:*",
     "@repo/pi-agent-ext-file2md": "workspace:*",

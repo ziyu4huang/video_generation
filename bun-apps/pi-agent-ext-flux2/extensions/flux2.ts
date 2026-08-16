@@ -41,6 +41,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import {
   COMMANDS,
   COMMAND_LIST,
@@ -49,6 +50,25 @@ import {
   type CommandName,
   type Flux2Details,
 } from "../src/index.ts";
+
+// ─── Gate family (wayfinder ticket 01 — reference form) ─────────────────────
+// Declared ONCE by id; flux2 + flux2_help both reference it via
+// `gating: { gate: "flux2" }`. buildEffectiveGates groups the two into ONE
+// co-firing family gate (names[0] === "flux2") — the former per-tool verbatim
+// duplication (Spec-B hazard) is gone; edit the family here, both tools follow.
+GATE_DEFS["flux2"] = {
+  id: "flux2",
+  keywords: [
+    "flux", "flux2", "outpaint", "upscale image", "t2i", "txt2img",
+    "圖像", "圖片", "生成圖", "產圖", "繪圖", "修圖", "去背", "換臉",
+    "做成圖", "轉成圖",
+  ],
+  requires: {
+    nouns: ["image", "picture", "photo", "圖片", "圖像", "照片", "相片"],
+    verbs: ["generate", "create", "make", "draw", "render", "produce", "生成", "做", "畫", "繪"],
+  },
+  description: "FLUX.2 image generation",
+};
 
 // ─── On-demand reference builders (shared by the slim description + help tool) ─
 //
@@ -233,22 +253,11 @@ function makeFlux2Tool() {
     name: "flux2",
     label: "Flux2 Image Director",
     description: buildDescription(),
-    // Owner-declared gating — migrated from tool-gate's hardcoded GATES (was the
-    // {names:["flux2","flux2_help"]} gate). Per ticket 05's semantics-preserving
-    // rule, the SAME gating is mirrored on flux2_help so both activate together
-    // and reconstructOwnerDeclaredGates collapses them back into one multi-name
-    // gate (names[0] === "flux2") — preserving the original co-fire behavior.
-    gating: {
-      keywords: [
-        "flux", "flux2", "outpaint", "upscale image", "t2i", "txt2img",
-        "圖像", "圖片", "生成圖", "產圖", "繪圖", "修圖", "去背", "換臉",
-        "做成圖", "轉成圖",
-      ],
-      requires: {
-        nouns: ["image", "picture", "photo", "圖片", "圖像", "照片", "相片"],
-        verbs: ["generate", "create", "make", "draw", "render", "produce", "生成", "做", "畫", "繪"],
-      },
-    },
+    // Owner-declared gating — reference form (wayfinder ticket 01): the family
+    // is declared once in GATE_DEFS["flux2"] above; both flux2 + flux2_help
+    // reference it so buildEffectiveGates groups them into one co-firing gate
+    // (names[0] === "flux2") — preserving the original co-fire behavior.
+    gating: { gate: "flux2" },
     // promptSnippet + promptGuidelines REMOVED (stealth): usage is taught via
     // the routing description + the on-demand flux2_help tool, not per-turn
     // system-prompt injection.
@@ -368,21 +377,9 @@ function makeFlux2HelpTool() {
   return defineTool({
     name: "flux2_help",
     label: "Flux2 Command Reference",
-    // Owner-declared gating — mirrored IDENTICALLY from flux2 (same signature)
-    // so reconstructOwnerDeclaredGates collapses the two into one multi-name
-    // gate {names:["flux2","flux2_help"]} (ticket 05). Co-fire preserved: when
-    // the gate fires, both names activate together. See flux2's gating comment.
-    gating: {
-      keywords: [
-        "flux", "flux2", "outpaint", "upscale image", "t2i", "txt2img",
-        "圖像", "圖片", "生成圖", "產圖", "繪圖", "修圖", "去背", "換臉",
-        "做成圖", "轉成圖",
-      ],
-      requires: {
-        nouns: ["image", "picture", "photo", "圖片", "圖像", "照片", "相片"],
-        verbs: ["generate", "create", "make", "draw", "render", "produce", "生成", "做", "畫", "繪"],
-      },
-    },
+    // Owner-declared gating — reference form: same GATE_DEFS["flux2"] family as
+    // the flux2 dispatcher, so the two co-fire together (ticket 01).
+    gating: { gate: "flux2" },
     description:
       "On-demand reference for the `flux2` tool. Pass {command} for option keys/defaults/path rules + example; omit args to list subcommands; {topic} for scene-pipeline / self-improve.",
     parameters: Type.Object({

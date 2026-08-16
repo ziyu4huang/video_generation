@@ -418,9 +418,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
     // preserving the original co-fire behavior. Mirrors the original GATES entry
     // verbatim (keywords were unambiguous workflow/orchestration intents that
     // never false-fired the way image/video nouns do, so no requires is needed).
-    gating: {
-      keywords: ["workflow", "pipeline", "orchestrate", "fan-out", "fan out", "parallel agent", "multi-step"],
-    },
+    gating: { gate: "workflow" }, // reference form (ticket 01) — family in GATE_DEFS["workflow"] (workflow ext)
     promptSnippet:
       "Run a deterministic JavaScript workflow. Required script header: export const meta = { name: 'short_snake_case', description: 'non-empty description', phases: [{ title: 'Phase' }] }.",
     // Guidelines are NO LONGER static here — they are injected per-turn by the
@@ -664,9 +662,7 @@ export function createWorkflowHelpTool(options: { getScopedModels?: () => readon
     // tools share the SAME keywords-only gating and collapse back into one
     // 4-name gate (names[0] === "workflow") — when the gate fires, all 4 names
     // activate together (co-fire preserved). See `workflow`'s gating comment.
-    gating: {
-      keywords: ["workflow", "pipeline", "orchestrate", "fan-out", "fan out", "parallel agent", "multi-step"],
-    },
+    gating: { gate: "workflow" }, // reference form (ticket 01) — family in GATE_DEFS["workflow"] (workflow ext)
     promptSnippet: "On-demand advanced reference for the workflow tool (helpers/budget/phases/patterns/models).",
     parameters: Type.Object({
       topic: Type.Optional(WORKFLOW_HELP_TOPIC_ENUM),

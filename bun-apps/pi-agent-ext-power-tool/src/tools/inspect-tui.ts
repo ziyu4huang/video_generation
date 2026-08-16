@@ -1,6 +1,5 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { DIAGNOSTIC_GATING } from "../gating.js";
 import { reportHeader } from "../report.js";
 
 /**
@@ -18,7 +17,7 @@ import { reportHeader } from "../report.js";
 export function makeInspectTuiTool() {
   return defineTool({
     name: "inspect_tui",
-    gating: DIAGNOSTIC_GATING,
+    gating: { gate: "inspect" }, // reference form (ticket 01) — family in GATE_DEFS["inspect"]
     label: "Inspect TUI",
     description:
       "Debug the above-editor widget state — the composite status widget (goal +" +

@@ -7,10 +7,11 @@ import {
   makeInspectTuiTool,
 } from "../../index.ts";
 import { makeInspectPathologyTool } from "../../pathology/index.ts";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 
-// The verbatim gating every inspect_* tool must carry. Lifted from tool-gate's
-// former hardcoded inspect_* gate (now removed from GATES — the group is fully
-// owner-declared by these literals). Do NOT re-tune.
+// The verbatim gating every inspect_* tool shares via the "inspect" family.
+// Lifted from tool-gate's former hardcoded inspect_* gate (now removed from
+// GATES — the group is fully owner-declared). Do NOT re-tune.
 const EXPECTED_GATING = {
   keywords: [
     "schema cost",
@@ -40,56 +41,35 @@ const EXPECTED_GATING = {
  * `defineTool({...})` (a `ToolDefinition`). The 3 enumerating tools
  * (context/agent/extensions) take a `getAllTools: () => ToolInfo[]` callback;
  * the other 3 (tui/pathology/hooks) take none. We invoke each factory with its
- * real signature and assert the returned definition carries `gating`.
+ * real signature and assert the returned definition references the "inspect"
+ * family (wayfinder ticket 01 reference form), whose spec lives in GATE_DEFS.
  */
-describe("inspect_* tools carry owner-declared gating", () => {
-  test("inspect_context declares gating (keywords+requires, verbatim)", () => {
-    const tool = makeInspectContextTool(() => []);
-    expect(tool.name).toBe("inspect_context");
-    expect(tool.gating).toBeDefined();
-    expect(tool.gating!.keywords).toEqual(EXPECTED_GATING.keywords);
-    expect(tool.gating!.requires).toEqual(EXPECTED_GATING.requires);
+describe("inspect_* tools reference the 'inspect' gate family (ticket 01)", () => {
+  const tools = [
+    { name: "inspect_context", tool: makeInspectContextTool(() => []) },
+    { name: "inspect_agent", tool: makeInspectAgentTool(() => []) },
+    { name: "inspect_extensions", tool: makeInspectExtensionsTool(() => []) },
+    { name: "inspect_tui", tool: makeInspectTuiTool() },
+    { name: "inspect_pathology", tool: makeInspectPathologyTool() },
+    { name: "inspect_hooks", tool: makeInspectHooksTool() },
+  ];
+
+  test("the 'inspect' family is declared in GATE_DEFS with the verbatim spec", () => {
+    const spec = GATE_DEFS["inspect"];
+    expect(spec).toBeDefined();
+    expect(spec!.keywords).toEqual(EXPECTED_GATING.keywords);
+    expect(spec!.requires).toEqual(EXPECTED_GATING.requires);
   });
 
-  test("inspect_agent declares gating (keywords+requires, verbatim)", () => {
-    const tool = makeInspectAgentTool(() => []);
-    expect(tool.name).toBe("inspect_agent");
-    expect(tool.gating).toBeDefined();
-    expect(tool.gating!.keywords).toEqual(EXPECTED_GATING.keywords);
-    expect(tool.gating!.requires).toEqual(EXPECTED_GATING.requires);
-  });
-
-  test("inspect_extensions declares gating (keywords+requires, verbatim)", () => {
-    const tool = makeInspectExtensionsTool(() => []);
-    expect(tool.name).toBe("inspect_extensions");
-    expect(tool.gating).toBeDefined();
-    expect(tool.gating!.keywords).toEqual(EXPECTED_GATING.keywords);
-    expect(tool.gating!.requires).toEqual(EXPECTED_GATING.requires);
-  });
-
-  test("inspect_tui declares gating (keywords+requires, verbatim)", () => {
-    const tool = makeInspectTuiTool();
-    expect(tool.name).toBe("inspect_tui");
-    expect(tool.gating).toBeDefined();
-    expect(tool.gating!.keywords).toEqual(EXPECTED_GATING.keywords);
-    expect(tool.gating!.requires).toEqual(EXPECTED_GATING.requires);
-  });
-
-  test("inspect_pathology declares gating (keywords+requires, verbatim)", () => {
-    const tool = makeInspectPathologyTool();
-    expect(tool.name).toBe("inspect_pathology");
-    expect(tool.gating).toBeDefined();
-    expect(tool.gating!.keywords).toEqual(EXPECTED_GATING.keywords);
-    expect(tool.gating!.requires).toEqual(EXPECTED_GATING.requires);
-  });
-
-  test("inspect_hooks declares gating (orphan-fix: previously registered but in no gate)", () => {
-    // inspect_hooks was ORPHANED: registered by the extension but absent from
-    // tool-gate's GATES → never gated. Now it carries gating by construction.
-    const tool = makeInspectHooksTool();
-    expect(tool.name).toBe("inspect_hooks");
-    expect(tool.gating).toBeDefined();
-    expect(tool.gating!.keywords).toEqual(EXPECTED_GATING.keywords);
-    expect(tool.gating!.requires).toEqual(EXPECTED_GATING.requires);
-  });
+  for (const { name, tool } of tools) {
+    test(`${name} references the "inspect" family (gating: { gate: "inspect" })`, () => {
+      expect(tool.name).toBe(name);
+      expect(tool.gating).toBeDefined();
+      // Reference form (01c): the tool only carries the family id — keywords/
+      // requires live in GATE_DEFS, NOT on the tool's gating field.
+      expect(tool.gating!.gate).toBe("inspect");
+      expect("keywords" in (tool.gating as object)).toBe(false);
+      expect("requires" in (tool.gating as object)).toBe(false);
+    });
+  }
 });

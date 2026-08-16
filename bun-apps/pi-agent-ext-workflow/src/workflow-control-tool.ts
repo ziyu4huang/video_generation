@@ -141,9 +141,7 @@ export function createWorkflowControlTool(
     // tools share the SAME keywords-only gating and collapse back into one
     // 4-name gate (names[0] === "workflow") — when the gate fires, all 4 names
     // activate together (co-fire preserved). See `workflow`'s gating comment.
-    gating: {
-      keywords: ["workflow", "pipeline", "orchestrate", "fan-out", "fan out", "parallel agent", "multi-step"],
-    },
+    gating: { gate: "workflow" }, // reference form (ticket 01) — family in GATE_DEFS["workflow"] (workflow ext)
     promptSnippet:
       "Control a background workflow run: workflow_control({ action, runId }). action is one of stop | pause | resume | status | list | wait.",
     parameters: workflowControlToolSchema,

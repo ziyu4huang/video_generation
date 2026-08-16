@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 // The in-flight registry singleton MUST resolve to the SAME module instance the
 // subagent extension + obsidian extension use. Imported via the package barrel
 // (`@repo/pi-agent-core-runtime`) — verified to share one instance with the
@@ -28,6 +29,19 @@ import {
   shouldInjectFullWorkflowGuidelines,
   WorkflowManager,
 } from "../src/index.js";
+
+// ─── Gate family (wayfinder ticket 01 — reference form) ─────────────────────
+// Declared ONCE by id, shared by the CROSS-PACKAGE workflow/subagent family:
+// workflow / workflow_help / workflow_control (this package) + subagent /
+// subagents (pi-agent-ext-subagent) all reference `gating: { gate: "workflow" }`
+// so buildEffectiveGates groups all five into ONE co-firing gate (names[0] ===
+// "workflow"). The former per-tool verbatim duplication across two packages is
+// gone — edit the family here, all five tools follow.
+GATE_DEFS["workflow"] = {
+  id: "workflow",
+  keywords: ["workflow", "pipeline", "orchestrate", "fan-out", "fan out", "parallel agent", "multi-step"],
+  description: "Deterministic workflow orchestration + control",
+};
 
 /**
  * Gate-Recall Guard probe set (QA-DATA only — NOT part of the runtime
