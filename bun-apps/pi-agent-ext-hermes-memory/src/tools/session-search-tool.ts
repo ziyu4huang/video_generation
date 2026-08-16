@@ -2,11 +2,23 @@ import * as path from 'node:path';
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import type { SessionRepository } from '../store/repository.js';
 import { searchSessionAnchors } from '../store/session-anchor-search.js';
 import type { SessionAnchorRange, SessionAnchorSearchResult } from '../store/session-anchor-search.js';
 import type { SessionSearchConfig } from '../types.js';
 import { AGENT_ROOT } from '../paths.js';
+
+// ─── Gate family (wayfinder ticket 02 — demoted from core) ──────────────────
+GATE_DEFS["session_search"] = {
+  id: "session_search",
+  keywords: ["session search", "past session", "previous discussion", "earlier session", "search sessions", "搜尋 session", "之前的對話", "上次討論"],
+  requires: {
+    nouns: ["session", "discussion", "conversation", "討論", "對話"],
+    verbs: ["search", "find", "recall", "look up", "搜尋", "找", "回顧"],
+  },
+  description: "Search past Pi sessions for relevant context",
+};
 
 interface SearchResult {
   success: boolean;
@@ -40,7 +52,7 @@ function registerAnchorSessionSearchTool(pi: ExtensionAPI, sessionsDir: string):
   pi.registerTool({
     name: 'session_search',
     label: 'Session Search',
-    gating: { core: true },
+    gating: { gate: 'session_search' }, // demoted from core (ticket 02)
     description: `Search Pi session JSONL files in the opt-in anchor mode using a Markdown request.
 
 This mode accepts only a markdown request. Supported scalar fields are from, to, cwd, and limit. Supported list sections are all, any, and exclude: all terms must match, any requires at least one listed term, and exclude removes matching ranges. It returns compact JSONL line-range anchors, not summaries or previews. Output is plain text: count, optional message, then anchors as path:startLine-endLine with a short reason.
@@ -114,7 +126,7 @@ function registerLegacySessionSearchTool(pi: ExtensionAPI, sessionRepo: SessionR
   pi.registerTool({
     name: 'session_search',
     label: 'Session Search',
-    gating: { core: true },
+    gating: { gate: 'session_search' }, // demoted from core (ticket 02)
     description: `Search across past Pi coding sessions for relevant conversation context. Use this when the user asks about previous discussions, past work, or when you need context from earlier sessions.
 
 Examples:
@@ -176,3 +188,18 @@ Returns conversation snippets with session dates and project context.`,
     },
   });
 }
+
+
+/**
+ * Gate-Recall Guard probe set (QA-DATA only — NOT part of runtime gating).
+ * Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts. Controls-only
+ * (recallFloor 0, adversarial []): demoted from core in ticket 02; narrow
+ * keywords are intentional, so we assert the predicate fires on its own
+ * keyword/requires path, not paraphrased intent.
+ */
+export const __GATE_PROBES__ = {
+  gate: "session_search",
+  recallFloor: 0,
+  adversarial: [],
+  controls: ['search past sessions for the auth discussion', 'search past sessions for the auth discussion', 'recall the discussion about auth from last week', 'what did we discuss in the earlier session about lora'],
+};

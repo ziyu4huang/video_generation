@@ -39,6 +39,23 @@ import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-age
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type, type TSchema } from "typebox";
 import { Value } from "typebox/value";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
+
+// ─── Gate family (wayfinder ticket 02 — demoted from core) ──────────────────
+// obsidian + obsidian_help share the vault I/O domain (vault read/write/search/
+// organize across 18 actions). Demoted from always-active core to an on-demand
+// gate: vault work is bursty (a "put this in the vault" turn), not per-turn.
+// Keywords are the vault/note vocabulary; the noun∧verb requires path keeps
+// "check the vault for X" reachable without a bare vault keyword.
+GATE_DEFS["obsidian"] = {
+  id: "obsidian",
+  keywords: ["obsidian", "vault", "vault note", "vault file", "weekly-news", "筆記庫", "知識庫", "放入 vault"],
+  requires: {
+    nouns: ["vault", "note", "file", "folder", "筆記", "檔案", "資料夾"],
+    verbs: ["read", "write", "search", "organize", "move", "create", "讀取", "寫入", "搜尋", "整理", "建立"],
+  },
+  description: "Vault I/O (read/write/search/organize 18 actions) + on-demand help",
+};
 
 /**
  * The `obsidian` actions that MUTATE the vault.
@@ -2024,7 +2041,7 @@ ${output.slice(-2000)}`,
 	pi.registerTool({
 		name: "obsidian",
 		label: "Obsidian",
-		gating: { core: true },
+		gating: { gate: "obsidian" }, // demoted from core (ticket 02),
 		// Expose captured individual tools for backward compat (tests, CLI
 		// introspection). Intentionally NOT part of ToolDefinition — read by
 		// __tests__ via a loosely-typed mock registerTool.
@@ -2077,7 +2094,7 @@ ${output.slice(-2000)}`,
 	pi.registerTool({
 		name: "obsidian_help",
 		label: "Obsidian Action Reference",
-		gating: { core: true },
+		gating: { gate: "obsidian" }, // demoted from core (ticket 02),
 		description:
 			"On-demand reference for the `obsidian` tool. Call to get the full " +
 			"per-action semantics (what each action does, which params it uses, constraints). " +
@@ -2134,3 +2151,21 @@ ${output.slice(-2000)}`,
 		}
 	});
 }
+
+
+/**
+ * Gate-Recall Guard probe set (QA-DATA only — NOT part of runtime gating).
+ * Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts. Controls-only:
+ * obsidian/obsidian_help were demoted from core in ticket 02.
+ */
+export const __GATE_PROBES__ = {
+  gate: "obsidian",
+  recallFloor: 0,
+  adversarial: [],
+  controls: [
+    "put this note into the vault",
+    "search the vault for weekly-news",
+    "create a new vault file under the knowledge base",
+    "read the obsidian note about the model",
+  ],
+};

@@ -13,6 +13,7 @@
  */
 
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import { Type } from "typebox";
 import type { RetrieveResult } from "@repo/pi-agent-core-interface";
 import { getKnowledgePipeline } from "../knowledge-pipeline-seam.js";
@@ -262,6 +263,16 @@ export function buildEntityRecall(
   };
 }
 
+GATE_DEFS["knowledge_search"] = {
+  id: "knowledge_search",
+  keywords: ["knowledge search", "knowledge graph", "recall a decision", "prior lesson", "patterns for", "gotcha", "知識搜尋", "過往經驗"],
+  requires: {
+    nouns: ["knowledge", "lesson", "pattern", "gotcha", "card", "經驗", "教訓"],
+    verbs: ["search", "recall", "find", "look up", "搜尋", "查詢", "回憶"],
+  },
+  description: "Search the knowledge graph for lessons/gotchas/patterns",
+};
+
 const KNOWLEDGE_SEARCH_DESCRIPTION = `Search the knowledge graph (vault-md cards written by zk's ingest pipeline) for lessons, gotchas, and patterns relevant to the current task.
 
 Use cases:
@@ -317,7 +328,7 @@ export function registerKnowledgeSearchTool(
   const definition = defineTool({
     name: "knowledge_search",
     label: "Knowledge search",
-    gating: { core: true },
+    gating: { gate: "knowledge_search" }, // demoted from core (ticket 02)
     description: KNOWLEDGE_SEARCH_DESCRIPTION,
     parameters: Type.Object({
       query: Type.String({
@@ -434,3 +445,18 @@ export function registerKnowledgeSearchTool(
   pi.registerTool(definition);
   return definition;
 }
+
+
+/**
+ * Gate-Recall Guard probe set (QA-DATA only — NOT part of runtime gating).
+ * Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts. Controls-only
+ * (recallFloor 0, adversarial []): demoted from core in ticket 02; narrow
+ * keywords are intentional, so we assert the predicate fires on its own
+ * keyword/requires path, not paraphrased intent.
+ */
+export const __GATE_PROBES__ = {
+  gate: "knowledge_search",
+  recallFloor: 0,
+  adversarial: [],
+  controls: ['search the knowledge graph for the sampler gotcha', 'recall the lesson on cfg-scale tuning', 'search the knowledge cards for the lora gotcha', 'look up prior lessons on attention'],
+};

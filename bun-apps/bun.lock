@@ -482,6 +482,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@mozilla/readability": "^0.6.0",
+        "@repo/pi-agent-core-interface": "workspace:*",
         "linkedom": "^0.16.0",
         "p-limit": "^6.1.0",
         "turndown": "^7.2.0",

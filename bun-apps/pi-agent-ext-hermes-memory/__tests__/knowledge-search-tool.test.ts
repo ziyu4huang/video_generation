@@ -87,7 +87,7 @@ describe("knowledge_search tool", () => {
     const def = pi.def();
     assert.ok(def, "knowledge_search tool registered");
     assert.equal(def!.name, "knowledge_search");
-    assert.deepEqual(def!.gating, { core: true });
+    assert.deepEqual(def!.gating, { gate: "knowledge_search" }); // demoted from core (ticket 02)
 
     const out = await def!.execute("call-1", { query: "cfg-scale" }, undefined, undefined, { });
     assert.match(textOf(out), /CFG Scale Lever/, "text contains the card title");

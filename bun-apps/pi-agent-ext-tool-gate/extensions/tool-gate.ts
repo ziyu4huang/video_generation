@@ -18,8 +18,8 @@
  *  workflow/workflow_help/subagent/workflow_control migrated in tickets 10 + 11,
  *  rolled out TOGETHER as one atomic unit over their single shared combined gate.)
  *
- * Baseline:  ~55 tools → ~18,000 tok/req   (measured via `bun run qa`)
- * Gated:    ON at start ~10,000 tok/req   (saves ~9,800 tok/turn, ~52%; net ~9,600; zai-mcp env-gated)
+ * Baseline:  ~72 tools → ~21,900 tok/req   (measured via `bun run qa`)
+ * Gated:    ON at start ~5,700 tok/req   (saves ~16,290 tok/turn, ~74%; net ~15,980; zai-mcp env-gated)
  *
  * Tools reactivate instantly when the prompt mentions relevant keywords, and
  * once activated stay active for the rest of the session (they never re-gate

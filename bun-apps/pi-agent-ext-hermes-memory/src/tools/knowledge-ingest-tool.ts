@@ -11,9 +11,20 @@
  */
 
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import { Type } from "typebox";
 import { walkAndIngest, type WalkAndIngestReceipt, type WalkAndIngestOptions } from "../walk-and-ingest.js";
 import type { ToolRegistrar } from "./knowledge-search-tool.js";
+
+GATE_DEFS["knowledge_ingest"] = {
+  id: "knowledge_ingest",
+  keywords: ["knowledge ingest", "ingest knowledge", "ingest records", "walk and ingest", "知識收錄", "匯入知識"],
+  requires: {
+    nouns: ["knowledge", "record", "knowledge.jsonl", "card", "知識", "記錄"],
+    verbs: ["ingest", "import", "add", "heal", "收錄", "匯入", "新增"],
+  },
+  description: "Ingest .knowledge.jsonl records into the knowledge graph",
+};
 
 const KNOWLEDGE_INGEST_DESCRIPTION = `Ingest workflow knowledge records (a .knowledge.jsonl file or a directory of them) into the knowledge graph, then heal the vault graph and mirror the resulting cards into the memory store.
 
@@ -46,7 +57,7 @@ export function registerKnowledgeIngestTool(pi: ToolRegistrar, opts: WalkAndInge
   const definition = defineTool({
     name: "knowledge_ingest",
     label: "Knowledge ingest",
-    gating: { core: true },
+    gating: { gate: "knowledge_ingest" }, // demoted from core (ticket 02)
     description: KNOWLEDGE_INGEST_DESCRIPTION,
     parameters: Type.Object({
       path: Type.String({
@@ -64,3 +75,18 @@ export function registerKnowledgeIngestTool(pi: ToolRegistrar, opts: WalkAndInge
   pi.registerTool(definition);
   return definition;
 }
+
+
+/**
+ * Gate-Recall Guard probe set (QA-DATA only — NOT part of runtime gating).
+ * Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts. Controls-only
+ * (recallFloor 0, adversarial []): demoted from core in ticket 02; narrow
+ * keywords are intentional, so we assert the predicate fires on its own
+ * keyword/requires path, not paraphrased intent.
+ */
+export const __GATE_PROBES__ = {
+  gate: "knowledge_ingest",
+  recallFloor: 0,
+  adversarial: [],
+  controls: ["ingest the workflow's .knowledge.jsonl records", 'walk and ingest the knowledge directory', 'import the distilled knowledge cards', 'ingest the knowledge records from the workflow export'],
+};

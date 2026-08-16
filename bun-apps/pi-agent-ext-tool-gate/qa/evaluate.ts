@@ -67,6 +67,7 @@ import { registerGrillDecisionTool } from "@repo/pi-agent-ext-hermes-memory/src/
 import { registerMemorySupersedeTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-supersede-tool.ts";
 import { registerKnowledgeSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/knowledge-search-tool.ts";
 import { registerPlanningStaleTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/planning-stale-tool.ts";
+import { registerKnowledgeIngestTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/knowledge-ingest-tool.ts";
 import { createPresentTool } from "@repo/pi-agent-ext-webui/src/present-tool.ts";
 // ticket 04 — ext-task's 3 core tools (todo / goal_complete / ask_user_question)
 // are owner-declared core. ext-task's default factory is synchronous but HEAVY
@@ -196,6 +197,7 @@ const hermesMemoryRegistrar = (pi: any) => {
 	// ticket 03 — planning_stale + knowledge_search are owner-declared core:true;
 	// capture them so qa:coverage sees them tracked, not "ungated heavy".
 	registerPlanningStaleTool(pi, { memoryDir: "/tmp" });
+	registerKnowledgeIngestTool(pi, {});
 	registerKnowledgeSearchTool(pi, () => "/tmp");
 };
 

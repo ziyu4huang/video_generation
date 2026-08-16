@@ -21,6 +21,7 @@
 
 import { StringEnum } from "@earendil-works/pi-ai";
 import { defineTool, type EventBus } from "@earendil-works/pi-coding-agent";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import { Type } from "typebox";
 import { type EffortListResult, type EffortSearchResult, listEfforts, searchEfforts } from "./effort-query.js";
 import { readMap, writeMap } from "./map.js";
@@ -33,6 +34,30 @@ import {
   type WayfindMap,
 } from "./model.js";
 import { readStaleDecisions } from "./stale-seam.js";
+
+// ─── Gate family (wayfinder ticket 02 — demoted from core) ──────────────────
+// wayfind_effort is planning-status inventory, on-demand (the reflective
+// charting/synthesis stays with /wayfind commands). Demoted from always-active
+// core to an on-demand gate; keywords are the effort/planning vocabulary.
+GATE_DEFS["wayfind_effort"] = {
+  id: "wayfind_effort",
+  keywords: [
+    "wayfind",
+    "effort status",
+    "planning status",
+    "frontier",
+    "ticket status",
+    "effort list",
+    "effort search",
+    "計劃狀態",
+    "進度",
+  ],
+  requires: {
+    nouns: ["effort", "ticket", "frontier", "map", "planning", "計劃", "進度"],
+    verbs: ["status", "list", "search", "validate", "create", "查詢", "列出", "搜尋"],
+  },
+  description: "Wayfinder effort status/list/search/validate (on-demand planning inventory)",
+};
 
 // ─── create ──────────────────────────────────────────────────────────────────
 
@@ -323,7 +348,7 @@ export function makeWayfindEffortTool(events?: EventBus) {
       "action:'list' enumerates every effort under .planning/ with a compact summary (status / ticket counts / frontier / fog / last); action:'search' runs a cross-effort keyword search over tickets + map decisions (term-frequency, field-weighted, ranked top-K, filterable by effort/status/type). " +
       +"Prefer action:'status' over reading whole map.md / ticket files for inventory or audit: it returns only titles, statuses, and blocking edges, never decision bodies, so it can't blow the token budget (failure memory #455). " +
       "Use this for the mechanical manifest/structure ops — the reflective charting/synthesis stays with the /wayfind commands.",
-    gating: { core: true },
+    gating: { gate: "wayfind_effort" }, // demoted from core (ticket 02)
     parameters: Type.Object({
       action: StringEnum(["create", "validate", "status", "list", "search"] as const, {
         description:

@@ -124,6 +124,25 @@ export const MUST_FIRE: Probe[] = [
 	// own signature-group; landed (e2cc0441) without corpus probes and was
 	// reported as a coverage gap — closed here.
 	{ gate: "main_health", prompt: "is main green right now", note: "keyword main / green" },
+	// zk_* + knowledge_query (ticket 02 — demoted from core to on-demand gates).
+	{ gate: "zk_card", prompt: "add a vault note about the lora fix", note: "keyword vault note" },
+	{ gate: "zk_card", prompt: "find my card on argparse patterns", note: "keyword card + verb find (requires)" },
+	{ gate: "zk_ask", prompt: "ask my vault about the training recipe", note: "keyword ask my vault" },
+	{ gate: "zk_ask", prompt: "query my notes on attention heads", note: "nouns notes ∧ verb query (requires)" },
+	{ gate: "zk_ingest", prompt: "converge the knowledge records into the vault", note: "keyword converge / knowledge" },
+	{ gate: "zk_ingest", prompt: "ingest the .knowledge.jsonl records", note: "keyword ingest / knowledge.jsonl" },
+	{ gate: "knowledge_query", prompt: "query the knowledge graph for lora cards", note: "keyword knowledge graph / query" },
+	{ gate: "knowledge_query", prompt: "查卡片 matching the tag argparse", note: "keyword 查卡片" },
+	// ticket 02 demotions (hermes/web-access/wayfind/obsidian).
+	{ gate: "skill_manage", prompt: "create a skill for running tests", note: "keyword create skill" },
+	{ gate: "session_search", prompt: "search past sessions for the auth discussion", note: "keyword session search" },
+	{ gate: "knowledge_search", prompt: "search the knowledge graph for the sampler gotcha", note: "keyword knowledge search" },
+	{ gate: "knowledge_ingest", prompt: "ingest the knowledge records from the workflow export", note: "keyword knowledge ingest" },
+	{ gate: "planning_stale", prompt: "query stale planning decisions", note: "keyword planning stale" },
+	{ gate: "grill_decision", prompt: "grill the decision on the model picker", note: "keyword grill decision" },
+	{ gate: "wayfind_effort", prompt: "what's the effort status for tool-gate", note: "keyword effort status" },
+	{ gate: "get_search_content", prompt: "get the stored content for that response", note: "keyword stored content" },
+	{ gate: "obsidian", prompt: "put this note into the vault", note: "keyword vault" },
 ];
 
 // ── MUST_NOT_FIRE (lookalikes the gate CORRECTLY rejects) ────────────────────
@@ -172,6 +191,24 @@ export const MUST_NOT_FIRE: Probe[] = [
 	{ gate: "prepare_branch", prompt: "commit the staged changes", note: "no prepare/rebase/branch keyword" },
 	{ gate: "verify_merge", prompt: "show the files changed by the last commit", note: "no verify/merge/scope keyword" },
 	{ gate: "main_health", prompt: "write a haiku about trees", note: "no main/health/green/red/status/ci keyword" },
+	// zk_* lookalikes (ticket 02): surface words (note/card/vault/knowledge)
+	// WITHOUT the intent verb must NOT fire.
+	{ gate: "zk_card", prompt: "I noted the card number on my desk", note: "note as verb, no vault/add/find intent" },
+	{ gate: "zk_card", prompt: "please note that I left", note: "note as verb, no vault/card noun" },
+	{ gate: "zk_ask", prompt: "ask the user for their name", note: "ask + user, not vault/notes" },
+	{ gate: "zk_ask", prompt: "my notes app crashed", note: "notes but no ask/query verb" },
+	{ gate: "zk_ingest", prompt: "the records show a converging trend", note: "converge as adjective, no ingest intent" },
+	{ gate: "knowledge_query", prompt: "query the database directly", note: "query + database, no knowledge/card/graph noun" },
+	// ticket 02 demotions — lookalikes without the demoted intent.
+	{ gate: "skill_manage", prompt: "the skills section of the README", note: "skill noun, no manage verb" },
+	{ gate: "session_search", prompt: "the session timed out", note: "session noun, no search/find verb" },
+	{ gate: "knowledge_search", prompt: "search the web for lora papers", note: "web search, not the knowledge graph" },
+	{ gate: "knowledge_ingest", prompt: "ingest the error from the logs", note: "ingest + error, no knowledge record" },
+	{ gate: "planning_stale", prompt: "the plan went stale", note: "stale as adjective, no query/revalidate verb" },
+	{ gate: "grill_decision", prompt: "grill the chicken for dinner", note: "grill + food, no decision noun" },
+	{ gate: "wayfind_effort", prompt: "effort is required here", note: "effort noun, no wayfind/planning verb" },
+	{ gate: "get_search_content", prompt: "the search summary is above", note: "search noun, no stored-content retrieval verb" },
+	{ gate: "obsidian", prompt: "organize the meeting notes", note: "organize + notes, no vault/obsidian keyword, no file/folder noun" },
 ];
 
 // ── ESCAPE_NAME — every gate reachable by enable_tool({ name }) ──────────────
