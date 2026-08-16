@@ -111,29 +111,19 @@ The three module-level bindings in `goal.ts` (`goalOverlay`, `piRef`, `auditRunn
 move into the existing `goalState` singleton in `state.ts`, which already exports
 `GoalRuntimeState` and `__resetGoalState()`.
 
-#### 1b — `core-runtime/src/agent.ts`: 1,146 → ~450 — LANDED (#1464 + the barrel repoint below)
+#### 1b — `core-runtime/src/agent.ts`: 1,146 → ~450
 
 | Action | Contents | ~lines |
 |---|---|---:|
 | merge into existing `structured-output.ts` | `findJsonBlock`, `extractValidated`, `StructuredSession`, `resolveStructuredOutput` | 52 → 200 |
 | new `agent-budget.ts` | budget types, `checkBudgetExhaustion`, `checkBudgetWarning`, `createBudgetGuard`, constants | 320 |
 | new `agent-turns.ts` | `TurnGuard`, `createTurnGuard`, `turnExhaustionError` | 85 |
-| new `agent-model.ts` | `resolveAgentModelSpec`, `resolveFallbackModel` | 135 |
-| `agent.ts` (kept) | `CoreAgent`, its option/result types | ~450 |
-
-Shipped with **five** new modules, not three: `listAvailableModelSpecs` and the
-`lastAssistantError` / `throwIfProviderLimit` pair each earned their own file
-(`available-models.ts`, `provider-limit.ts`) rather than riding along in a module
-named for something else.
+| new `agent-model.ts` | `resolveAgentModelSpec`, `resolveFallbackModel`, `listAvailableModelSpecs` | 135 |
+| `agent.ts` (kept) | `CoreAgent`, its option/result types, `lastAssistantError`, `throwIfProviderLimit` | ~450 |
 
 The seams are corroborated by the existing test layout: `budget-guard.test.ts` (422)
 and `agent-turns.test.ts` (325) are already split along exactly these lines. Only
 `index.ts`'s re-export sources change; external consumers are unaffected.
-
-That last sentence was the part left undone: the split shipped with `agent.ts`
-re-exporting the pieces and `index.ts` still sourcing them from `agent.js`, so the
-barrel credited a file that no longer defined them. Closed separately — the barrel
-is now one hop and the pass-through block is gone.
 
 #### 1c — `pi-agent/run-dir/resolve.ts`: 822 → ~380
 
@@ -225,7 +215,7 @@ the extensions, and pi-agent is that layer.*
 |---|---:|---:|
 | `pi-agent` src | 12,545 | ~10,440 (−17%) |
 | three god files | 3,490 | ~1,030 |
-| new focused modules | — | projected 11 (6 goal + 3 agent + 2 run-dir) + `gating.ts`; **landed so far: 5 agent** (1a and 1c not started) |
+| new focused modules | — | 11 (6 goal + 3 agent + 2 run-dir) + `gating.ts` |
 | new contracts | — | 1 |
 | diagnostic-turn schema | ~1,000 | ~250 |
 

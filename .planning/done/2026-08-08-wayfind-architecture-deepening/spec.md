@@ -1,8 +1,7 @@
 # Spec — wayfind architecture-deepening (dogfood #3 + #1)
 
 **Date:** 2026-08-08
-**Status:** COMPLETE — all items shipped: #1/#3 via #1113 (map.ts split + renderer unify); #4 ceremony dedup via #1150; #2 parser unification via #1152 (fs-free `markdown.ts`). 
-**Waived 2026-08-16:** #2's fs-free tail CLOSED as waived by user decision — not-MVP (kp21 close-out precedent, cf. 71e569d8 "Tier-3 waived not-MVP"): the fs-free refactor spans 9 src files still importing fs; no consumer pressure since 2026-08-08; effort archived DONE 2026-08-13. Parser unification itself shipped via #1152; only the fs-free completeness is waived.
+**Status:** COMPLETE — all items shipped: #1/#3 via #1113 (map.ts split + renderer unify); #4 ceremony dedup via #1150; #2 parser unification via #1152 (fs-free `markdown.ts`).
 **Effort:** `2026-08-08-wayfind-architecture-deepening`
 **Branch:** `feat/wayfind-architecture-deepening`
 **Source finding:** `.planning/2026-08-08-improve-codebase-architecture/architecture-review-2026-08-08.md` (deliverable C's dogfood self-scan of `bun-apps/pi-agent-ext-wayfind/src/`)

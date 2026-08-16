@@ -16,7 +16,7 @@ stops duplicating the TUI chat composer.
 | # | Ticket | Status | Result |
 |---|--------|--------|--------|
 | 00 | de-chat: remove main composer, fix btw IME, simplify layout | closed | composer removed; IME-guarded btw Enter; gates green |
-| 01 | card frame contract + Cards tab (projection) | open | — |
+| 01 | card frame contract + Cards tab (projection) | closed | card frames + tab + bus snoop; 486/0 |
 | 02 | interactive cards: answer loop + JSONL decision log | open | — |
 | 03 | TUI attention bell + #card-<id> deep link | open | — |
 | 04 | viewer sandbox: postMessage bridge + user-confirmation gate | open | — |

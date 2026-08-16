@@ -885,3 +885,85 @@ describe("wireWebui — images → /output markdown wiring (render-review F3)", 
     }
   });
 });
+
+// --- event-cards (01): bus snoop card projection --------------------------------
+// MockPi OWNS `events` — after wiring, pi.events.emit IS the snoop wrapper.
+// Capture any original-emit reference BEFORE wireWebui for restore assertions
+// (dispose() restores it by assignment, so identity `toBe` is the proof).
+describe("wireWebui — bus snoop card projection (event-cards 01)", () => {
+  test("a non-outbound bus event projects a readonly card frame (kind/attention/source/title/body)", () => {
+    const { pi, broadcaster } = setup();
+    broadcaster.frames.length = 0; // drop any wiring-time noise
+    pi.events.emit("webui:open", { reason: "deep-link" });
+    const card = broadcaster.frames.find(
+      (f): f is Extract<WebFrame, { type: "card" }> => f.type === "card"
+    );
+    expect(card).toBeDefined();
+    expect(card).toMatchObject({
+      type: "card",
+      kind: "readonly",
+      attention: "silent",
+      source: "bus",
+      title: "webui:open",
+    });
+    expect(card!.id).toMatch(/^card-\d+$/);
+    expect(typeof card!.ts).toBe("number");
+    expect(typeof card!.body.text).toBe("string");
+    expect(card!.body.text.length).toBeGreaterThan(0);
+  });
+
+  test("an OUTBOUND event (message_update) riding the bus projects NO card (already replayed verbatim)", () => {
+    const { pi, broadcaster } = setup();
+    broadcaster.frames.length = 0;
+    pi.events.emit("message_update", { text: "partial" });
+    expect(broadcaster.frames.some((f) => f.type === "card")).toBe(false);
+  });
+
+  test("webui:render (high-frequency control noise) projects NO card", () => {
+    const { pi, broadcaster } = setup();
+    broadcaster.frames.length = 0;
+    pi.events.emit("webui:render", { content: "# x" });
+    expect(broadcaster.frames.some((f) => f.type === "card")).toBe(false);
+  });
+
+  test("dispose() restores the ORIGINAL bus emit — identity check + no cards after dispose", () => {
+    const pi = new MockPi();
+    const broadcaster = new MemoryBroadcaster();
+    const orig = pi.events.emit; // captured BEFORE wiring (MockPi owns events)
+    const wiring = wireWebui(pi, {
+      broadcaster,
+      clock: new FakeClock(),
+      server: new FakeWebServer(),
+    });
+    expect(pi.events.emit).not.toBe(orig); // the snoop wrapper is installed
+    wiring.dispose();
+    expect(pi.events.emit).toBe(orig); // the wrapper must not outlive the wiring
+    broadcaster.frames.length = 0;
+    pi.events.emit("webui:open", { reason: "post-dispose" });
+    expect(broadcaster.frames.some((f) => f.type === "card")).toBe(false);
+  });
+
+  test("a snooped bus card lands in the connect-time snapshot transcript (replay-eligible)", () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", { type: "session_start", reason: "startup" });
+    pi.events.emit("webui:open", { reason: "deep-link" });
+    const sent: string[] = [];
+    server.wsOpenHandler!({ send: (s: string) => sent.push(s) } as never);
+    expect(sent).toHaveLength(1);
+    const frame = JSON.parse(sent[0]);
+    expect(frame.type).toBe("snapshot");
+    expect(frame.state.transcript.map((f: { type: string }) => f.type)).toEqual([
+      "session_info",
+      "card",
+    ]);
+    const card = frame.state.transcript[1];
+    expect(card).toMatchObject({
+      type: "card",
+      kind: "readonly",
+      attention: "silent",
+      source: "bus",
+      title: "webui:open",
+    });
+    expect(card.id).toMatch(/^card-\d+$/);
+  });
+});

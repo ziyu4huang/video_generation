@@ -22,4 +22,3 @@ Work item tracked on the kp map: [kp 21 — three-tier drift implementation](../
 
 ## Closed (2026-08-16)
 - Wave sequencing complete: kp21 Tier-1 shipped (#1494), Tier-2 satisfied, Tier-3 waived by user decision (not MVP). Cross-link tracker closed; see kp map for the work-item record.
-- Amendment: the 'T3 waived' note above was superseded same day by user correction — Tier-3 shipped (DB-wins merge + opt-in write-back). See kp 21 record.

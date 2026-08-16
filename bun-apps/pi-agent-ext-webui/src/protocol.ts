@@ -187,6 +187,28 @@ export type WebFrame =
   // session info (webui-tui-parity C2): TUI-parity status — worktree + branch.
   // Replay-eligible so a refreshed tab knows which session it co-drives.
   | { type: "session_info"; cwd: string; branch?: string }
+  // event-cards (01): the card frame — one primitive, three roles. v1 ships
+  // the readonly projection: bus events snooped off the shared host bus
+  // (source "bus") are summarized into `body.text` (plain text — the shell
+  // renders it via textContent ONLY, never innerHTML). `id` is the deep-link
+  // anchor (`#card-<id>`, ticket 03). Replay-eligible: the snoop broadcasts
+  // through the SAME store-wrapped broadcaster, so connect-time snapshot
+  // replay comes free. Later tickets extend `body` per kind (interactive /
+  // viewer); v1 pins `{ text: string }`.
+  | {
+      type: "card";
+      /** Wiring-generated (`card-${n}`, per-session counter) or a producer id (t05). */
+      id: string;
+      kind: "readonly" | "interactive" | "viewer";
+      /** textContent-rendered ONLY — treat as untrusted. */
+      title: string;
+      /** "bus" (t01 snoop) | producer id (t05). */
+      source: string;
+      ts: number;
+      attention: "view" | "input" | "silent";
+      /** v1 readonly body: plain text, textContent-rendered. */
+      body: { text: string };
+    }
   // forward-compat: any other host event is forwarded generically (never thrown on)
   | { type: string; details?: unknown; [k: string]: unknown };
 

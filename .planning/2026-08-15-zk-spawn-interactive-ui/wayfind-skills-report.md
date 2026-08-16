@@ -6,7 +6,6 @@
 > the exact semantics of `purify` / `unify` / `search` / `continue` / `status`
 > subcommands live there. Extracted knowledge about them is marked [INFERRED].
 > Next agent: read those four files (~1.4k lines total) to finish.
-> CLOSE-OUT 2026-08-16: wayfind purify complete — all 16 wayfind efforts archived DONE; 3 stale wayfind/* branches verified LANDED and swept; the follow-up reading list below remains valid only if this effort still needs skill-extraction data.
 
 ## Locations
 

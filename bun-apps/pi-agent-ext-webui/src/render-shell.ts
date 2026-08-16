@@ -19,6 +19,9 @@
  *     declarative .webui-toolbar under #content; a control click sends an
  *     appexec respond frame over /ws (one response per presentation).
  *   - ask_user frames render the mirrored ask-user questionnaire dialog (§C3);
+ *   - event-cards (01): card frames (live + snapshot replay) project into the
+ *     Cards tab pane (#cards-pane) — textContent ONLY; the article id is the
+ *     article id is the deep-link anchor (#card-<id>, ticket 03);
  *   - DE-CHAT (event-cards 00): chat lives in the TUI — the v2 main-session
  *     composer (prompt input + Send + Abort) is GONE; the webui keeps only
  *     web-native interaction (btw side channel, HITL appexec, ask-user).
@@ -95,6 +98,18 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   #webui-transcript .tx-tool { margin: .2rem 0; color: #9cf; }
   #webui-transcript .tx-mutex { margin: .2rem 0; color: #e0a030; }
   #webui-transcript .tx-settled { margin: .3rem 0; color: #7ec87e; font-size: 11px; }
+  /* event-cards (01): Cards tab pane — projected card frames. Every field is
+     textContent-rendered (raw HTML injection forbidden); the article id is the
+     deep-link anchor; newest LAST (chronological). Badge color per attention. */
+  #cards-pane { display: flex; flex-direction: column; gap: .5rem; padding: .4rem 0; max-height: 45vh; overflow-y: auto; }
+  #cards-pane[hidden] { display: none; } /* the flex display must not defeat [hidden] */
+  #cards-pane .card { border: 1px solid #8884; border-radius: 6px; padding: .5rem .6rem; }
+  #cards-pane .card h4 { margin: 0 0 .25rem; font-size: .85rem; }
+  #cards-pane .card-meta { display: flex; gap: .5rem; align-items: center; color: #888; font-size: .75rem; }
+  #cards-pane .card .badge { padding: 0 .45rem; border: 1px solid #8886; border-radius: 999px; font-size: .7rem; }
+  #cards-pane .card[data-attention="view"] .badge { border-color: #e0a030; color: #e0a030; }
+  #cards-pane .card[data-attention="input"] .badge { border-color: #6cf; color: #6cf; }
+  #cards-pane .card-body { margin-top: .3rem; white-space: pre-wrap; word-break: break-word; font-size: .8rem; }
 </style>
 </head>
 <body>
@@ -103,6 +118,7 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
 <main>
   <div class="meta" id="meta"></div>
   <div id="content"></div>
+  <section id="cards-pane" hidden></section>
   <div id="webui-transcript"></div>
 </main>
 <aside id="btw-panel">
@@ -175,6 +191,21 @@ async function loadViews() {
     };
     tabsEl.appendChild(el);
   }
+  // event-cards (01): the Cards tab rides the SAME tab strip. loadViews owns
+  // the strip (it rebuilds from scratch on every load), so the tab is created
+  // here on every rebuild — its active state mirrors cardsVisible and its
+  // toggle shows/hides #cards-pane (a projection pane independent of views).
+  const cardsTab = document.createElement('div');
+  cardsTab.className = 'tab' + (cardsVisible ? ' active' : '');
+  cardsTab.id = 'cards-tab';
+  cardsTab.textContent = 'Cards';
+  cardsTab.title = 'projected event cards';
+  cardsTab.onclick = function () {
+    cardsVisible = !cardsVisible;
+    cardsPaneEl.hidden = !cardsVisible;
+    cardsTab.classList.toggle('active', cardsVisible);
+  };
+  tabsEl.appendChild(cardsTab);
   if (!views.some(v => v.id === activeId)) activeId = (views[0] && views[0].id) || 'main';
   viewsMergePoll(views); // same fetch doubles as the panel's poll backstop
   viewsRenderPanel();
@@ -199,7 +230,9 @@ async function renderView(id) {
     if (entry && entry.url) openViewUrl(entry.url);
     return;
   }
-  document.querySelectorAll('.tab').forEach(function (t) {
+  // event-cards (01): scope the active toggle to VIEW tabs (.tab[data-view-id])
+  // so the Cards tab (no data-view-id) keeps its own active state below.
+  document.querySelectorAll('.tab[data-view-id]').forEach(function (t) {
     t.classList.toggle('active', t.dataset.viewId === id);
   });
   metaEl.textContent = (v.title ? (v.title + ' · ') : '') + 'mode ' + v.mode + ' · updated ' + fmtTime(v.updatedAt);
@@ -380,6 +413,7 @@ function txApply(frame) {
       if (ss) ss.textContent = (frame.cwd || '') + (frame.branch ? ' (' + frame.branch + ')' : '');
       break;
     }
+    case 'card': renderCard(frame); break;
     default: break; // other frames handled elsewhere
   }
 }
@@ -387,7 +421,61 @@ function txApply(frame) {
 function txRenderSnapshot(state) {
   if (!txEl) return;
   txEl.innerHTML = ''; // authoritative replay — replace, never append over stale
+  // event-cards (01): the cards pane replays with the SAME authoritative
+  // semantics — reset before the transcript replay, then txApply re-appends
+  // (a card that fell out of the bounded transcript cap disappears).
+  if (cardsPaneEl) cardsPaneEl.textContent = '';
   if (state && Array.isArray(state.transcript)) state.transcript.forEach(txApply);
+}
+
+// --- event-cards (01): Cards tab projection --------------------------------
+// Every card frame (live or snapshot replay) appends an <article> to
+// #cards-pane. ALL fields render via textContent ONLY — card titles/bodies
+// are bus-sourced and treated as UNTRUSTED (raw HTML injection is FORBIDDEN on this
+// path; a body containing <script>/<img onerror> renders as literal text).
+// The article id IS the deep-link anchor (ticket 03 routes #card-<id>).
+// Newest LAST — chronological; ticket 03 can scroll to a card.
+const cardsPaneEl = document.getElementById('cards-pane');
+let cardsVisible = false;
+
+// The frame id already carries the card- prefix when wiring-generated
+// (card-<n>, per-session counter); prefix only foreign producer ids so EVERY
+// anchor is #card-<x>.
+function cardDomId(id) { return /^card-/.test(id) ? id : 'card-' + id; }
+
+function renderCard(frame) {
+  if (!cardsPaneEl) return;
+  const rawId = typeof frame.id === 'string' ? frame.id : '';
+  const domId = cardDomId(rawId);
+  if (domId && document.getElementById(domId)) return; // live/replay interleave dedupe
+  const attention = frame.attention === 'view' || frame.attention === 'input' ? frame.attention : 'silent';
+  const kind = frame.kind === 'interactive' || frame.kind === 'viewer' ? frame.kind : 'readonly';
+  const art = document.createElement('article');
+  art.id = domId;
+  art.className = 'card';
+  art.setAttribute('data-kind', kind);
+  art.setAttribute('data-attention', attention);
+  const h = document.createElement('h4');
+  h.textContent = typeof frame.title === 'string' ? frame.title : '';
+  const meta = document.createElement('div');
+  meta.className = 'card-meta';
+  const t = document.createElement('time');
+  if (typeof frame.ts === 'number' && isFinite(frame.ts)) {
+    try { t.setAttribute('datetime', new Date(frame.ts).toISOString()); } catch { /* invalid ts — skip the machine attr */ }
+  }
+  t.textContent = fmtTime(typeof frame.ts === 'number' ? frame.ts : 0);
+  const badge = document.createElement('span');
+  badge.className = 'badge'; // inert — a label, never a control
+  badge.textContent = attention;
+  meta.appendChild(t);
+  meta.appendChild(badge);
+  const body = document.createElement('div');
+  body.className = 'card-body';
+  body.textContent = frame.body && typeof frame.body.text === 'string' ? frame.body.text : '';
+  art.appendChild(h);
+  art.appendChild(meta);
+  art.appendChild(body);
+  cardsPaneEl.appendChild(art); // newest LAST — chronological
 }
 
 // --- ask-user bridge dialog (§C3) -------------------------------------

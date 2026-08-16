@@ -3,6 +3,7 @@ import {
   toWebFrame,
   validateInbound,
   type EventLike,
+  type WebFrame,
 } from "../src/protocol.js";
 
 describe("validateInbound (schema parse/validate)", () => {
@@ -60,5 +61,56 @@ describe("toWebFrame (event -> outbound, .details forwarded intact)", () => {
   });
   it("maps an unknown-but-reachable event shape to a generic frame (forward-compat, no throw)", () => {
     expect(() => toWebFrame({ type: "future_event", details: { a: 1 } })).not.toThrow();
+  });
+});
+
+// --- event-cards (01): the card frame contract --------------------------------
+// There is NO outbound validator (inbound-only module: validateInbound); the
+// outbound contract is pinned two ways instead: (1) the union member via a
+// typed literal (tsc fails if the member or a field disappears/renames) and
+// (2) toWebFrame forwarding a full-field card 1:1 (the outbound seam a host
+// card event rides through).
+describe("card frame (event-cards 01)", () => {
+  /** Every field of the union member, exercised at once. */
+  const cardEvent: EventLike = {
+    type: "card",
+    id: "card-7",
+    kind: "readonly",
+    title: "webui:open",
+    source: "bus",
+    ts: 1739380000000,
+    attention: "silent",
+    body: { text: '{"reason":"deep-link"}' },
+  };
+
+  it("the full-field frame is accepted by the WebFrame card union member (compile-time pin)", () => {
+    // Assignability against the NARROW member (not the forward-compat
+    // catch-all) — a dropped/renamed field fails `bun run typecheck` here.
+    const frame: Extract<WebFrame, { type: "card" }> = {
+      type: "card",
+      id: "card-7",
+      kind: "readonly",
+      title: "webui:open",
+      source: "bus",
+      ts: 1739380000000,
+      attention: "silent",
+      body: { text: '{"reason":"deep-link"}' },
+    };
+    expect(frame.body.text).toBe('{"reason":"deep-link"}');
+    expect(frame.kind).toBe("readonly");
+    expect(frame.attention).toBe("silent");
+  });
+
+  it("toWebFrame forwards a full-field card frame 1:1 (no field dropped, none added)", () => {
+    const f = toWebFrame(cardEvent);
+    expect(f).toEqual(cardEvent);
+    expect(f.type).toBe("card");
+    // Narrow reads mirror what the shell's renderCard touches.
+    expect((f as { kind?: string }).kind).toBe("readonly");
+    expect((f as { attention?: string }).attention).toBe("silent");
+    expect((f as { source?: string }).source).toBe("bus");
+    expect((f as { body?: { text: string } }).body).toEqual({
+      text: '{"reason":"deep-link"}',
+    });
   });
 });
