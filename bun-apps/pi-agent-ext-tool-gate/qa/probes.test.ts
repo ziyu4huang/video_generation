@@ -76,6 +76,19 @@ describe("L1 corpus — report", () => {
 			"──── end report ────",
 		];
 		process.stderr.write(lines.join("\n") + "\n");
-		expect(r.coverageGaps).toEqual([]);
+		// Actionable on purpose. This assertion fires in tool-gate, but the repair
+		// almost always belongs to the package that shipped the gated tool — when
+		// `browser` (#1544) landed uncovered, main stayed red while the fix was
+		// hunted for here instead of there.
+		expect(
+			r.coverageGaps,
+			r.coverageGaps.length
+				? `gate(s) with no L1 coverage: ${r.coverageGaps.join(", ")}.\n` +
+					"Fix in the package that OWNS the gate, not here: export a\n" +
+					"`__GATE_PROBES__` object beside its GATE_DEFS entry with `controls`\n" +
+					"(must fire) and `mustNotFire` (lookalikes it must reject), then add\n" +
+					"one import line to qa/collect-probes.ts. See browser-tool.ts."
+				: undefined,
+		).toEqual([]);
 	});
 });

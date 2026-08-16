@@ -1,13 +1,10 @@
-// @ts-nocheck — pre-existing type errors, never checked before this file
-// became reachable via pi-agent's static import (src/static-extensions.ts);
-// see that file's header comment for the full rationale. Runtime unaffected
-// (Bun doesn't enforce types).
 /**
  * Memory tool — registers the LLM-callable `memory` tool.
  * Ported from hermes-agent/tools/memory_tool.py (MEMORY_SCHEMA + memory_tool dispatch).
  * See PLAN.md → "Hermes Source File Reference Map" for source lines.
  */
 
+import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
@@ -301,7 +298,12 @@ export function registerMemoryTool(
   // matches store.config.proactiveConsolidateEnabled (which the store also
   // re-checks as its own invariant inside maybeProactiveConsolidate).
   const proactiveConsolidateEnabled = loadConfig().proactiveConsolidateEnabled;
-  const definition: ToolDefinition = {
+  // `defineTool`, not a `: ToolDefinition` annotation. The annotation is what
+  // made `params` `unknown` inside execute: annotating the literal with the
+  // non-generic ToolDefinition discards the TypeBox schema before inference can
+  // read it, so every destructured field errored and the file was silenced with
+  // @ts-nocheck. defineTool carries the schema through instead.
+  const definition = defineTool({
     name: "memory",
     label: "Memory",
     gating: { core: true },
@@ -506,7 +508,7 @@ export function registerMemoryTool(
         details: result,
       };
     },
-  };
+  });
   pi.registerTool(definition);
   return definition;
 }
