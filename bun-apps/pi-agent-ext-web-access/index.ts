@@ -1,17 +1,28 @@
-// @ts-nocheck — 49 remaining errors, all strict-null (TS18048/TS2322/TS2345)
-// across 2,648 lines. The other five suppressed files in this package are now
-// fixed and checked; this one is deferred to its own pass rather than bulk-
-// silenced alongside them.
+// @ts-nocheck — the last suppressed file in this package. The other five are
+// fixed and checked.
+//
+// The errors are NOT spread across this file. Measured by lifting the directive
+// and running tsc: 49 errors, and 43 of them (88%) fall inside the single
+// function `openCuratorBrowser`. Six live everywhere else. That function is
+// ~1,660 lines nested inside `export default function (pi)`, which is why the
+// suppression has to be file-wide — there is no smaller unit to scope it to.
+//
+// So the way out is structural, not a null-guard sweep: extract
+// openCuratorBrowser into its own module and the suppression follows it there,
+// leaving ~900 lines that need six fixes to be fully checked. Extraction is not
+// free — it closes over 11 names from the enclosing scope plus six `pi.*`
+// members — which is why it is a deliberate pass, not a drive-by.
 //
 // Do NOT read the suppression as "these are cosmetic". Checking this file
 // temporarily surfaced two live ReferenceErrors that no test could reach —
 // a free `ctx` in openCuratorBrowser's add-search path, and a
 // sendCuratorFallbackUpdate declared inside the `try` that its own `catch`
-// called. Both are fixed here. Whatever is left is unaudited, not benign.
+// called. Both are fixed. Whatever is left is unaudited, not benign.
 //
-// The remaining work needs tests first: this package has ~700 test lines
-// against ~14,000 source lines, and strict-null repairs add guards that change
-// runtime paths. See static-extensions.ts for the ordering rationale.
+// Ordering: tests before type fixes. Strict-null repairs add guards that change
+// runtime paths, and this package has ~1,000 test lines against ~14,000 source
+// lines. curation-shape.ts is the first step of that — five pure helpers hoisted
+// out of the closure, now checked and covered. See static-extensions.ts.
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Box, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -57,6 +68,13 @@ import {
 	type SummaryGenerationContext,
 	type SummaryMeta,
 } from "./summary-review.ts";
+import {
+	buildCurationCancelledReturn,
+	collectAllResultsAndUrls,
+	filterByQueryIndices,
+	normalizeSummaryMeta,
+	resolveSummaryForSubmit,
+} from "./curation-shape.ts";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -663,68 +681,6 @@ export default function (pi: ExtensionAPI) {
 		summaryMeta?: SummaryMeta;
 	}
 
-	function normalizeSummaryMeta(meta: SummaryMeta | undefined, summaryText: string): SummaryMeta {
-		const normalizedText = summaryText.trim();
-		if (!meta) {
-			return {
-				model: null,
-				durationMs: 0,
-				tokenEstimate: normalizedText.length > 0 ? Math.max(1, Math.ceil(normalizedText.length / 4)) : 0,
-				fallbackUsed: false,
-				edited: false,
-			};
-		}
-
-		return {
-			model: meta.model,
-			durationMs: Number.isFinite(meta.durationMs) && meta.durationMs >= 0 ? meta.durationMs : 0,
-			tokenEstimate: Number.isFinite(meta.tokenEstimate) && meta.tokenEstimate >= 0
-				? meta.tokenEstimate
-				: (normalizedText.length > 0 ? Math.max(1, Math.ceil(normalizedText.length / 4)) : 0),
-			fallbackUsed: meta.fallbackUsed === true,
-			fallbackReason: meta.fallbackReason,
-			edited: meta.edited === true,
-		};
-	}
-
-	function buildCurationCancelledReturn(
-		reason: "user" | "stale",
-		partial?: {
-			queries?: QueryResultData[];
-			queryCount?: number;
-			browserConnected?: boolean;
-			lastHeartbeatAgeMs?: number | null;
-			curatorUrl?: string;
-			browserOpenError?: string;
-		},
-	) {
-		const message = `Search curation cancelled (${reason}).`;
-		const cancelledQueries = partial?.queries?.length
-			? partial.queries.map(q => ({
-				query: q.query,
-				provider: q.provider ?? null,
-				error: q.error,
-				resultCount: q.results?.length ?? 0,
-			}))
-			: undefined;
-		const extraLines: string[] = [];
-		if (partial?.curatorUrl) extraLines.push(`curator: ${partial.curatorUrl}`);
-		if (partial?.browserOpenError) extraLines.push(`browser open error: ${partial.browserOpenError}`);
-		return {
-			content: [{ type: "text", text: message }],
-			details: {
-				error: message,
-				cancelled: true,
-				cancelReason: reason,
-				browserConnected: partial?.browserConnected,
-				lastHeartbeatAgeMs: partial?.lastHeartbeatAgeMs,
-				queryCount: partial?.queryCount,
-				cancelledQueries,
-				extraLines: extraLines.length > 0 ? extraLines : undefined,
-			},
-		};
-	}
-
 	async function resolveFirstAvailableModel(
 		ctx: SummaryGenerationContext,
 		candidates: Array<{ provider: string; id: string }>,
@@ -862,27 +818,6 @@ export default function (pi: ExtensionAPI) {
 		return { summaryModels, defaultSummaryModel };
 	}
 
-	function resolveSummaryForSubmit(
-		payload: { selectedQueryIndices: number[]; summary?: string; summaryMeta?: SummaryMeta },
-		resultsByIndex: Map<number, QueryResultData>,
-	): { approvedSummary: string; summaryMeta: SummaryMeta } {
-		const submittedSummary = typeof payload.summary === "string" ? payload.summary.trim() : "";
-		if (submittedSummary.length > 0) {
-			return {
-				approvedSummary: submittedSummary,
-				summaryMeta: normalizeSummaryMeta(payload.summaryMeta, submittedSummary),
-			};
-		}
-
-		const selected = filterByQueryIndices(payload.selectedQueryIndices, resultsByIndex).results;
-		const fallbackResults = selected.length > 0 ? selected : [...resultsByIndex.values()];
-		const deterministic = buildDeterministicSummary(fallbackResults);
-		return {
-			approvedSummary: deterministic.summary,
-			summaryMeta: deterministic.meta,
-		};
-	}
-
 	function buildSearchReturn(opts: SearchReturnOptions) {
 		const sc = opts.results.filter(r => !r.error).length;
 		const tr = opts.results.reduce((sum, r) => sum + r.results.length, 0);
@@ -971,32 +906,6 @@ export default function (pi: ExtensionAPI) {
 					: {}),
 			},
 		};
-	}
-
-	function filterByQueryIndices(selectedQueryIndices: number[], results: Map<number, QueryResultData>) {
-		const filteredResults: QueryResultData[] = [];
-		const filteredUrls: string[] = [];
-		for (const qi of selectedQueryIndices) {
-			const r = results.get(qi);
-			if (r) {
-				filteredResults.push(r);
-				for (const res of r.results) {
-					if (!filteredUrls.includes(res.url)) filteredUrls.push(res.url);
-				}
-			}
-		}
-		return { results: filteredResults, urls: filteredUrls };
-	}
-
-	function collectAllResultsAndUrls(resultsByIndex: Map<number, QueryResultData>) {
-		const results = [...resultsByIndex.values()];
-		const urls: string[] = [];
-		for (const result of results) {
-			for (const source of result.results) {
-				if (!urls.includes(source.url)) urls.push(source.url);
-			}
-		}
-		return { results, urls };
 	}
 
 	async function openCuratorBrowser(

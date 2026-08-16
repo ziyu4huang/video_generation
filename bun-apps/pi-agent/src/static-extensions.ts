@@ -29,11 +29,21 @@
  * each — a `: ToolDefinition` annotation that discarded the TypeBox schema, and
  * a details generic inferred from the first `return` — not deep type debt.
  *
- * web-access still carries `// @ts-nocheck` on 6 files (72 errors, mostly
- * strict-null). Deliberately NOT fixed here: that package has 694 test lines
- * against 14,394 source lines, and adding null guards to code with no
- * behavioural safety net changes runtime paths silently. It needs tests before
- * type fixes, in that order.
+ * web-access is down to ONE suppressed file, its `index.ts`. Five of the six
+ * are fixed and checked; fixing them surfaced three live ReferenceErrors that
+ * `@ts-nocheck` had been hiding, so the suppressions were never cosmetic.
+ *
+ * index.ts is a structural problem, not a type-debt one: of its 49 errors, 43
+ * sit inside a single ~1,660-line function (`openCuratorBrowser`) nested in the
+ * `export default function (pi)` closure, so the directive cannot be scoped any
+ * narrower than the whole file. Extracting that function moves the suppression
+ * with it and leaves the rest checkable for six fixes. See that file's header.
+ *
+ * The ordering is tests-before-type-fixes, and it is not a preference: null
+ * guards change runtime paths, and this package had 694 test lines against
+ * 14,394 source lines. curation-shape.ts is the first increment — five pure
+ * helpers that were closure-nested (hence unreachable by both the checker and
+ * any test file) hoisted into a checked module with 28 tests.
  *
  * UNIFORM ENTRY CONVENTION: every extension is registered from
  * `pi-agent-ext-<X>/extensions/<X>.ts`. Three packages (power-tool,
