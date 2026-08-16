@@ -8,8 +8,9 @@
 //     dependency bytes (the agent re-grill "re-validate" step, clearing the stale
 //     flag) and reports whether it HAD drifted.
 // Standalone tool mirroring the knowledge_search / knowledge_ingest house style
-// (decision δ — memory-tool.ts is @ts-nocheck and carries no prefix-query grammar,
-// so a standalone tool is the cleanest additive surface). The pure resolvers
+// (decision δ — memory-tool.ts carries no prefix-query grammar, so a standalone
+// tool is the cleanest additive surface; it was also @ts-nocheck at the time,
+// which is no longer true). The pure resolvers
 // (runStaleQuery / revalidateCard / parseStaleQuery) are exported for unit testing
 // WITHOUT the pi API.
 

@@ -21,11 +21,19 @@
  * a literal `import` also makes TypeScript's checker traverse and type-check
  * the FULL internals of the imported file. pi-agent-ext-hermes-memory and
  * pi-agent-ext-web-access had never been reached by any static type-checker
- * before (previously jiti-loaded only), so this surfaced ~35 pre-existing,
- * unrelated type errors in their own source. Those specific files now carry a
- * `// @ts-nocheck` (added as part of this change, see each file's own comment)
- * rather than being deep-fixed here — silences without altering runtime
- * behavior (Bun doesn't enforce types).
+ * before (previously jiti-loaded only), so this surfaced pre-existing, unrelated
+ * type errors in their own source, silenced at the time with `// @ts-nocheck`.
+ *
+ * hermes-memory's share is now FIXED, not silenced: both suppressions are gone
+ * and the package type-checks clean. Both errors were one inference problem
+ * each — a `: ToolDefinition` annotation that discarded the TypeBox schema, and
+ * a details generic inferred from the first `return` — not deep type debt.
+ *
+ * web-access still carries `// @ts-nocheck` on 6 files (72 errors, mostly
+ * strict-null). Deliberately NOT fixed here: that package has 694 test lines
+ * against 14,394 source lines, and adding null guards to code with no
+ * behavioural safety net changes runtime paths silently. It needs tests before
+ * type fixes, in that order.
  *
  * UNIFORM ENTRY CONVENTION: every extension is registered from
  * `pi-agent-ext-<X>/extensions/<X>.ts`. Three packages (power-tool,

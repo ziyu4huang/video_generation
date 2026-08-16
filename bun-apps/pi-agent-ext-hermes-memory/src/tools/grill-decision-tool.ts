@@ -1,7 +1,3 @@
-// @ts-nocheck — pre-existing type errors, never checked before this file
-// became reachable via pi-agent's static import (src/static-extensions.ts);
-// see that file's header comment for the full rationale. Runtime unaffected
-// (Bun doesn't enforce types).
 // src/tools/grill-decision-tool.ts
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { GATE_DEFS } from "@repo/pi-agent-core-interface";
@@ -11,6 +7,18 @@ import { MemoryStore } from "../store/memory-store.js";
 import type { CardStore } from "../store/card-store.js";
 import { mirrorMemoryAdd } from "../store/memory-card-mirror.js";
 import type { MemoryCategory } from "../types.js";
+
+/**
+ * The `details` payload every grill outcome returns.
+ *
+ * Declared once and annotated on `execute` because TypeScript otherwise infers
+ * the tool's details generic from the FIRST return statement — the gate-did-not-
+ * fire branch, which carries no category — and then rejects the write-succeeded
+ * branch that does. That single inference conflict is what put @ts-nocheck on
+ * this file; the shapes themselves were always compatible.
+ */
+type GrillDetails = { written: boolean; reason: string; category?: MemoryCategory };
+type GrillResult = { content: Array<{ type: "text"; text: string }>; details: GrillDetails };
 
 export type GrillSignal = "reject" | "refine" | "confirm" | "preference" | "insight";
 
@@ -132,7 +140,7 @@ export function registerGrillDecisionTool(
         Type.String({ description: "Durable phrasing for the memory, or a project-scope flag" }),
       ),
     }),
-    async execute(_toolCallId, params) {
+    async execute(_toolCallId, params): Promise<GrillResult> {
       const { decision, recommendation, userAnswer, signal, notes } = params;
       const content = composeMemoryContent({ decision, recommendation, userAnswer, notes });
       const gate = evaluateGrillSignal({
