@@ -42,11 +42,9 @@ import { schedulePlanningBackfill, waitForPlanningBackfill } from "./handlers/pl
 import { scheduleLiveSessionIndex, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";
 import { parseSessionFile } from "./store/session-parser.js";
 import { registerMemoryTool } from "./tools/memory-tool.js";
-import { registerGrillDecisionTool } from "./tools/grill-decision-tool.js";
 import { registerSkillTool } from "./tools/skill-tool.js";
 import { registerSearchTool } from "./tools/search-tool.js";
 import { createPerfRecorder } from "./perf.js";
-import { registerMemorySupersedeTool } from "./tools/memory-supersede-tool.js";
 import {
   registerKnowledgeSearchTool,
   buildGraphRelationsFetcher,
@@ -54,7 +52,6 @@ import {
   buildEntityRecall,
 } from "./tools/knowledge-search-tool.js";
 import { registerKnowledgeIngestTool } from "./tools/knowledge-ingest-tool.js";
-import { registerPlanningStaleTool } from "./tools/planning-stale-tool.js";
 import { publishStaleCheck, unpublishStaleCheck } from "./stale-seam.js";
 import { resolveKnowledgeVaultPath } from "./knowledge-vault-path.js";
 // Ticket 14 phase A — HNSW vector side-table + lazy semantic query.
@@ -484,8 +481,7 @@ export default async function (pi: ExtensionAPI) {
   // the in-process child subagent via spawnSubagent's `extensionTools`: the
   // def's execute closure already binds this parent `store`, so the child's
   // memory writes land in the parent store (same effect as the old -e subprocess).
-  const memoryToolDef = registerMemoryTool(pi, store, projectStore, projectName, cardStore);
-  registerGrillDecisionTool(pi, store, cardStore);
+  const memoryToolDef = registerMemoryTool(pi, store, projectStore, projectName, cardStore, memoryRepo);
 
   // ── 3b. Register the knowledge tools (06b). knowledge_search wraps zk's
   // retrieveRecords (vault-md graph); knowledge_ingest wraps walkAndIngest
@@ -504,10 +500,6 @@ export default async function (pi: ExtensionAPI) {
   // stays available when the flag is unset/default).
   registerKnowledgeIngestTool(pi, { memoryDir: globalDir, kgLlm: config.kgLlm });
   // Phase-2 (knowledge-pipeline / 10-impl T6): the stale: query + revalidate
-  // tool. Uses the SAME globalDir memory DB the planning mirror + knowledge
-  // ingest use; fsRoot comes from ctx.cwd at call time. Additive — mirrors the
-  // knowledge_* registration pattern.
-  registerPlanningStaleTool(pi, { memoryDir: globalDir });
   // Phase-2 (knowledge-pipeline / 10-impl T7): publish the staleness reverse
   // seam for wayfind's graduation gate (T8) + read-side surfacing (T9). The
   // closure lazily opens an ephemeral CardStore per call; null-safe (degrades
@@ -682,7 +674,6 @@ export default async function (pi: ExtensionAPI) {
 
   // ── 11. SQLite session search + extended memory ──
   registerSearchTool(pi, memoryRepo, sessionRepo, config.sessionSearch ?? { variant: "legacy" }, recallSet);
-  registerMemorySupersedeTool(pi, memoryRepo, store, projectName, cardStore);
   registerIndexSessionsCommand(pi, globalDir, config);
 
   // (11b removed — convergence moved to the knowledge-card hub; ADR-0001.

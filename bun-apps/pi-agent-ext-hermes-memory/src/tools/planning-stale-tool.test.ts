@@ -14,7 +14,7 @@ import * as assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { parseStaleQuery, runStaleQuery, revalidateCard } from "./planning-stale-tool.js";
+import { executePlanningStale, parseStaleQuery, runStaleQuery, revalidateCard } from "./planning-stale-tool.js";
 import { createCardStore } from "../store/card-store.js";
 import { computeStaleness } from "../store/planning-staleness.js";
 
@@ -145,6 +145,43 @@ describe("runStaleQuery (10-impl T6)", () => {
     }
   });
 });
+
+describe("executePlanningStale (direct handler, plain-string returns)", () => {
+  it("query with no tickets → 'No stale planning decisions.'", async () => {
+    const mem = mkdtempSync(join(tmpdir(), "staleq-x-mem-"));
+    try {
+      const text = await executePlanningStale({ memoryDir: mem }, { action: "query", query: "stale" });
+      expectTypeString(text);
+      assert.equal(text, "No stale planning decisions.");
+    } finally {
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+
+  it("revalidate without cardId → ✗ plain-string error", async () => {
+    const text = await executePlanningStale({ memoryDir: "/nonexistent-x" }, { action: "revalidate" });
+    expectTypeString(text);
+    assert.equal(text, "✗ Missing 'cardId' for revalidate.");
+  });
+
+  it("revalidate of an unknown card → ✗ failure text (plain string)", async () => {
+    const mem = mkdtempSync(join(tmpdir(), "staleq-x2-mem-"));
+    try {
+      const text = await executePlanningStale(
+        { memoryDir: mem },
+        { action: "revalidate", cardId: "planning-ticket:ghost:99" },
+      );
+      expectTypeString(text);
+      assert.match(text, /^✗ Re-validate failed:/);
+    } finally {
+      rmSync(mem, { recursive: true, force: true });
+    }
+  });
+});
+
+function expectTypeString(v: unknown): void {
+  assert.equal(typeof v, "string", `expected plain-string return, got ${typeof v}`);
+}
 
 describe("revalidateCard (10-impl T6)", () => {
   it("on a stale card -> {ok:true, stale:true} AND clears staleness", async () => {

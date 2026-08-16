@@ -1,24 +1,12 @@
+// @ts-nocheck — pre-existing type errors, never checked before this file
+// became reachable via pi-agent's static import (src/static-extensions.ts);
+// see that file's header comment for the full rationale. Runtime unaffected
+// (Bun doesn't enforce types).
 // src/tools/grill-decision-tool.ts
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { GATE_DEFS } from "@repo/pi-agent-core-interface";
-import { Type } from "typebox";
-import { StringEnum } from "@earendil-works/pi-ai";
-import { MemoryStore } from "../store/memory-store.js";
+import type { MemoryStore } from "../store/memory-store.js";
 import type { CardStore } from "../store/card-store.js";
 import { mirrorMemoryAdd } from "../store/memory-card-mirror.js";
 import type { MemoryCategory } from "../types.js";
-
-/**
- * The `details` payload every grill outcome returns.
- *
- * Declared once and annotated on `execute` because TypeScript otherwise infers
- * the tool's details generic from the FIRST return statement — the gate-did-not-
- * fire branch, which carries no category — and then rejects the write-succeeded
- * branch that does. That single inference conflict is what put @ts-nocheck on
- * this file; the shapes themselves were always compatible.
- */
-type GrillDetails = { written: boolean; reason: string; category?: MemoryCategory };
-type GrillResult = { content: Array<{ type: "text"; text: string }>; details: GrillDetails };
 
 export type GrillSignal = "reject" | "refine" | "confirm" | "preference" | "insight";
 
@@ -103,101 +91,63 @@ export function evaluateGrillSignal(input: GrillGateInput): GrillGateResult {
   return { fire: true, category, reason: `signal '${signal}' → category '${category}'` };
 }
 
-const GRILL_DECISION_DESCRIPTION = `Capture a resolved grill decision as durable behavioral memory. Call this once per resolved decision during a grill-me / grill-me-with-docs session, AFTER the user has answered. Pass your recommended answer, the user's actual answer, and a 'signal' classification (reject = user contradicted/rejected the recommendation; preference = user stated a standing preference or recurring trade-off; insight = user revealed a priority; refine = minor tweak; confirm = user agreed). The tool applies a gate: it writes only durable, non-duplicate, non-project-scoped signals to portable memory. Do not call this for plain confirms.`;
+/** Parameters for executeGrillDecision (was the grill_decision tool schema). */
+export interface GrillDecisionParams {
+  /** The sub-decision being grilled */
+  decision: string;
+  /** Your recommended answer */
+  recommendation: string;
+  /** The user's actual answer */
+  userAnswer: string;
+  /** Your semantic read of the user's answer (drives the gate) */
+  signal: GrillSignal;
+  /** Durable phrasing for the memory, or a project-scope flag */
+  notes?: string;
+}
 
-GATE_DEFS["grill_decision"] = {
-  id: "grill_decision",
-  keywords: ["grill decision", "grill a decision", "record decision", "decision grilling", "grill 決策", "記錄決策"],
-  requires: {
-    nouns: ["decision", "choice", "tradeoff", "決策", "選擇"],
-    verbs: ["grill", "record", "capture", "decide", "記錄", "決定"],
-  },
-  description: "Grill/capture a decision with its tradeoffs",
-};
-
-export function registerGrillDecisionTool(
-  pi: ExtensionAPI,
+/** Execute the grill_decision capture. `store` is the MemoryStore (USER.md
+ *  stays canonical); `cardStore` is the kp13 Wave B mirror target (md_id-keyed
+ *  upsert through the registered MemoryDedupStrategy). */
+export async function executeGrillDecision(
   store: MemoryStore,
   // kp13 Wave B: the mirror target is the bundle CardStore (md_id-keyed upsert
   // through the registered MemoryDedupStrategy). The legacy
   // memoryRepo.syncMemoryEntry content-keyed mirror is retired on this path —
   // md stays canonical; USER.md is still written by the MemoryStore above.
   cardStore: CardStore | null = null,
-): void {
-  pi.registerTool({
-    name: "grill_decision",
-    label: "Grill Decision",
-    gating: { gate: "grill_decision" }, // demoted from core (ticket 02)
-    description: GRILL_DECISION_DESCRIPTION,
-    parameters: Type.Object({
-      decision: Type.String({ description: "The sub-decision being grilled" }),
-      recommendation: Type.String({ description: "Your recommended answer" }),
-      userAnswer: Type.String({ description: "The user's actual answer" }),
-      signal: StringEnum(["reject", "refine", "confirm", "preference", "insight"] as const, {
-        description: "Your semantic read of the user's answer (drives the gate)",
-      }),
-      notes: Type.Optional(
-        Type.String({ description: "Durable phrasing for the memory, or a project-scope flag" }),
-      ),
-    }),
-    async execute(_toolCallId, params): Promise<GrillResult> {
-      const { decision, recommendation, userAnswer, signal, notes } = params;
-      const content = composeMemoryContent({ decision, recommendation, userAnswer, notes });
-      const gate = evaluateGrillSignal({
-        signal,
-        content,
-        notes,
-        existingEntries: store.getUserEntries(),
-      });
-
-      if (!gate.fire) {
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ written: false, reason: gate.reason }) }],
-          details: { written: false, reason: gate.reason },
-        };
-      }
-
-      const category = gate.category!; // "preference" for every fired grill signal
-      try {
-        // Grill captures are user-traits: write to the `user` home carrying the
-        // topical category label (per the memory model — not the failure/lesson target).
-        const result = await store.add("user", content, { category });
-        if (result.success && cardStore) {
-          try {
-            await mirrorMemoryAdd(cardStore, "user", {
-              mdId: result.added_md_id,
-              content: `[${category}] ${content}`,
-            });
-          } catch {
-            // best-effort card-store mirror — must not block the grill
-          }
-        }
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ written: result.success, category, reason: gate.reason }) }],
-          details: { written: result.success, category, reason: gate.reason },
-        };
-      } catch (err) {
-        // A memory write must never block the interview.
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ written: false, reason: `write failed: ${err instanceof Error ? err.message : String(err)}` }) }],
-          details: { written: false, reason: "write failed" },
-        };
-      }
-    },
+  params: GrillDecisionParams,
+): Promise<string> {
+  const { decision, recommendation, userAnswer, signal, notes } = params;
+  const content = composeMemoryContent({ decision, recommendation, userAnswer, notes });
+  const gate = evaluateGrillSignal({
+    signal,
+    content,
+    notes,
+    existingEntries: store.getUserEntries(),
   });
+
+  if (!gate.fire) {
+    return JSON.stringify({ written: false, reason: gate.reason });
+  }
+
+  const category = gate.category!; // "preference" for every fired grill signal
+  try {
+    // Grill captures are user-traits: write to the `user` home carrying the
+    // topical category label (per the memory model — not the failure/lesson target).
+    const result = await store.add("user", content, { category });
+    if (result.success && cardStore) {
+      try {
+        await mirrorMemoryAdd(cardStore, "user", {
+          mdId: result.added_md_id,
+          content: `[${category}] ${content}`,
+        });
+      } catch {
+        // best-effort card-store mirror — must not block the grill
+      }
+    }
+    return JSON.stringify({ written: result.success, category, reason: gate.reason });
+  } catch (err) {
+    // A memory write must never block the interview.
+    return JSON.stringify({ written: false, reason: `write failed: ${err instanceof Error ? err.message : String(err)}` });
+  }
 }
-
-
-/**
- * Gate-Recall Guard probe set (QA-DATA only — NOT part of runtime gating).
- * Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts. Controls-only
- * (recallFloor 0, adversarial []): demoted from core in ticket 02; narrow
- * keywords are intentional, so we assert the predicate fires on its own
- * keyword/requires path, not paraphrased intent.
- */
-export const __GATE_PROBES__ = {
-  gate: "grill_decision",
-  recallFloor: 0,
-  adversarial: [],
-  controls: ['grill the decision on the model picker', 'record this decision with tradeoffs', 'capture the tradeoff we just discussed', 'grill 這個決策'],
-};

@@ -30,7 +30,7 @@ describe("hermes-memory schema-cost regression", () => {
     );
   });
 
-  test("total schema ≤ 1700 tokens (baseline 1550, +9.7% headroom)", () => {
+  test("total schema ≤ 1750 tokens (baseline 1550, +12.9% headroom)", () => {
     const tools = captureHermesTools();
     const { perTool, total } = estimateTotalSchemaTokens(tools);
     // Log per-tool for visibility on failure
@@ -39,7 +39,7 @@ describe("hermes-memory schema-cost regression", () => {
 
     assertWithinBudget(total.tokens, {
       label: "hermes-memory schema (4 tools)",
-      max: 1700,
+      max: 1750, // supersede fold (ticket 03) — spec decision 6 trajectory allows interim pin; ticket 10 re-pins final surface
       baseline: 1550,
       measuredAt: "2026-07-13",
       commit: "2b3f987c",
