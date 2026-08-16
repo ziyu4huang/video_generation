@@ -135,48 +135,57 @@ describe("01a — buildEffectiveGates reference form (gating:{gate:id})", () => 
     expect(eff.gates).toHaveLength(0);
   });
 
-  test("reference + inline both present: registry spec wins (reference authoritative)", () => {
+  test("01c: a def with core:true AND a stray gate reference is still core (core wins)", () => {
     const eff = buildEffectiveGates(
-      [{ name: "flux2", gating: { gate: "flux2", keywords: ["inline-kw"] } }],
-      reg({ flux2: FLUX_SPEC }),
+      [{ name: "enable_tool", gating: { core: true, gate: "movie" } }],
+      reg({ movie: MOVIE_SPEC }),
     );
-    expect(eff.gates[0]!.keywords).toEqual(FLUX_SPEC.keywords!); // NOT ["inline-kw"]
+    expect(eff.core.has("enable_tool")).toBe(true);
+    expect(eff.gates).toHaveLength(0);
   });
 
-  test("mixed: core + inline + reference coexist in one defs set", () => {
+  test("mixed: core + two reference families coexist in one defs set", () => {
     const eff = buildEffectiveGates(
       [
         { name: "enable_tool", gating: { core: true } },
-        { name: "legacy_gate", gating: { keywords: ["legacy"] } },
+        { name: "legacy_gate", gating: { gate: "legacy" } },
         { name: "flux2", gating: { gate: "flux2" } },
         { name: "flux2_help", gating: { gate: "flux2" } },
       ],
-      reg({ flux2: FLUX_SPEC }),
+      reg({ flux2: FLUX_SPEC, legacy: { id: "legacy", keywords: ["legacy"] } }),
     );
     expect(eff.core.has("enable_tool")).toBe(true);
     const legacy = eff.gates.find((g) => g.names.includes("legacy_gate"));
-    expect(legacy?.gateId).toBeUndefined(); // inline form has no id
+    expect(legacy?.gateId).toBe("legacy"); // every non-core gate carries an id (01c)
     expect(legacy?.keywords).toEqual(["legacy"]);
     const family = eff.gates.find((g) => g.gateId === "flux2");
     expect(family?.names).toEqual(["flux2", "flux2_help"]);
     expect(eff.tracked.size).toBe(4); // enable_tool + legacy_gate + flux2 + flux2_help
   });
+
+  test("01c: the inline keywords/requires form is DELETED — such a def is invalid (fail-open, untracked)", () => {
+    // Phase 01c deleted the inline branch: non-core gating must be a gate
+    // reference. A def carrying inline keywords carries NO valid gating now —
+    // it is simply untracked (fail-open); the drift-guard flags it at CI time.
+    const eff = buildEffectiveGates(
+      [{ name: "legacy", description: "l", gating: { keywords: ["kw1", "kw2"] } }] as never, // deleted inline shape (cast: no longer type-valid)
+      reg({}),
+    );
+    expect(eff.gates).toHaveLength(0);
+    expect(eff.tracked.has("legacy")).toBe(false);
+  });
 });
 
-describe("01a — legacy inline form is UNCHANGED (expand–contract)", () => {
-  // Byte-identical to pre-01a output: same single-name gates, same order.
-  test("inline gating produces exactly the pre-01a effective gates", () => {
+describe("01c — contract closed: only the reference form remains (expand–contract complete)", () => {
+  test("reference-form families produce exactly the expected grouped gates", () => {
     const defs = [
-      { name: "inspect_hooks", description: "d", gating: { keywords: ["schema cost"], requires: { nouns: ["agent"], verbs: ["inspect"] } } },
+      { name: "inspect_hooks", description: "d", gating: { gate: "inspect" } },
       { name: "enable_tool", description: "e", gating: { core: true } },
-      { name: "legacy", description: "l", gating: { keywords: ["kw1", "kw2"] } },
     ];
-    const eff = buildEffectiveGates(defs, reg({})); // empty registry — reference form inert
-    expect(eff.gates.map((g) => ({ names: g.names, keywords: g.keywords, requires: g.requires, description: g.description }))).toEqual([
-      { names: ["inspect_hooks"], keywords: ["schema cost"], requires: { nouns: ["agent"], verbs: ["inspect"] }, description: "d" },
-      { names: ["legacy"], keywords: ["kw1", "kw2"], requires: undefined, description: "l" },
+    const eff = buildEffectiveGates(defs, reg({ inspect: { id: "inspect", keywords: ["schema cost"], requires: { nouns: ["agent"], verbs: ["inspect"] } } }));
+    expect(eff.gates.map((g) => ({ names: g.names, keywords: g.keywords, requires: g.requires, description: g.description, gateId: g.gateId }))).toEqual([
+      { names: ["inspect_hooks"], keywords: ["schema cost"], requires: { nouns: ["agent"], verbs: ["inspect"] }, description: "d", gateId: "inspect" },
     ]);
-    expect(eff.gates.every((g) => g.gateId === undefined)).toBe(true); // no ids on inline gates
     expect(eff.core.has("enable_tool")).toBe(true);
   });
 

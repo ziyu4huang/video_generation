@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { updateSticky, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens, filterActive, buildEffectiveGates, injectBuiltinCore, BUILTIN_CORE, gatesWithSameGating } from "./tool-gate.ts";
+import { updateSticky, computeBannerSaved, matchIntent, matchesKeyword, gateFires, measureToolTokens, filterActive, buildEffectiveGates, injectBuiltinCore, BUILTIN_CORE } from "./tool-gate.ts";
 import type { ToolGate, CoOccurrence } from "./tool-gate.ts";
 import { CORE_NAMES, CORE_SET, CORE_TOOLS_ARRAY } from "./core-names.fixture.ts";
 import { emitToolGateLog, isMissCandidate } from "./tool-gate.ts";
@@ -70,18 +70,23 @@ captureOwner(subagentExtension);
 // session_start (tool names are discovered from each MCP server's listTools()),
 // so — unlike the extensions above — captureOwner(zaiExtension) captures NOTHING
 // (no top-level registerTool). Inject the owner-declared gating SYNTHETICALLY
-// here, mirroring ZAI_GATING the production registerServerTools now attaches to
-// every dynamically-registered zai tool. buildEffectiveGates then splits each
-// name into its own single-name gate (identical predicates → intent-mode co-fire
-// preserved); the enable_tool NAME-mode sibling gap is the cross-cutting note
-// tracked in the migration map. This keeps EFF/ownerByName reconstructing the
-// zai gate exactly as production's buildEffectiveGates path does.
-const ZAI_NAMES = ["zai_web_search_web_search_prime", "zai_web_reader_webReader"];
-const ZAI_GATING = {
+// here, mirroring what production's registerServerTools attaches to every
+// dynamically-registered zai tool: the reference form `gating: { gate: "zai" }`
+// (wayfinder ticket 01) + the GATE_DEFS["zai"] family registration. buildEffectiveGates
+// groups both names into one "zai" family gate; this keeps EFF/ownerByName
+// reconstructing the zai gate exactly as production's buildEffectiveGates path does.
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
+GATE_DEFS["zai"] = {
+  id: "zai",
   keywords: ["zai search", "zai reader", "zai web", "zai_mcp", "z.ai", "z.ai search", "z.ai reader"],
+  requires: {
+    nouns: ["online", "internet", "page", "site", "news", "網路", "網頁", "線上"],
+    verbs: ["search", "find", "搜尋", "查", "找"],
+  },
 };
+const ZAI_NAMES = ["zai_web_search_web_search_prime", "zai_web_reader_webReader"];
 for (const name of ZAI_NAMES) {
-  ownerDeclaredDefs.push({ name, description: "Z.ai MCP web tool", gating: ZAI_GATING });
+  ownerDeclaredDefs.push({ name, description: "Z.ai MCP web tool", gating: { gate: "zai" } });
 }
 const EFF = buildEffectiveGates(ownerDeclaredDefs as never);
 /** name → owner-declared def (incl. `gating`) for the migrated extensions. The
@@ -179,7 +184,7 @@ describe("updateSticky (mutation half)", () => {
 // against eff.gates instead of hardcoded GATES. Upgrading the QA harness itself
 // to evaluate effective gates is a separate follow-up (NOT done here).
 describe("inspect_* precision/escape (recovered from dropped QA probes)", () => {
-  // INSPECT_GATING mirrors power-tool's 6 inspect_* literals verbatim.
+  // INSPECT_GATING mirrors power-tool's GATE_DEFS["inspect"] family verbatim.
   const INSPECT_GATING = {
     keywords: ["schema cost", "pathology", "extension health", "工具開銷", "context window", "token usage"],
     requires: {
@@ -187,9 +192,10 @@ describe("inspect_* precision/escape (recovered from dropped QA probes)", () => 
       verbs: ["inspect", "show", "check", "diagnose", "dump", "report"],
     },
   };
-  const eff = buildEffectiveGates([
-    { name: "inspect_context", description: "d", gating: INSPECT_GATING },
-  ]);
+  const eff = buildEffectiveGates(
+    [{ name: "inspect_context", description: "d", gating: { gate: "inspect" } }],
+    { inspect: { id: "inspect", ...INSPECT_GATING } },
+  );
 
   // False-fire guard (the key historical one). Was qa/probes.ts MUST_NOT_FIRE:
   // { gate: "inspect_context", prompt: "inspect element in chrome devtools",
@@ -283,57 +289,6 @@ describe("matchIntent (S1)", () => {
     // ltx/ltx_help owner-declared (ticket 07) → EFF.gates; both already in
     // sticky → dormant-skip returns [].
     expect(matchIntent("make a video", EFF.gates, s)).toEqual([]);
-  });
-});
-
-describe("gatesWithSameGating (sibling co-activation)", () => {
-  // Pure unit tests for the gating-fingerprint sibling-grouping helper that
-  // backs enable_tool NAME-mode sibling co-activation. Sibling identity =
-  // identical {keywords, requires} fingerprint (description excluded; keyword /
-  // noun / verb declaration order independent via sort).
-  const gate = (
-    names: string[], keywords: string[], requires?: CoOccurrence, description = "d",
-  ): ToolGate => ({ names, keywords, requires, description });
-
-  test("two gates with identical keywords AND identical requires → both siblings (plus input)", () => {
-    const a = gate(["a"], ["x", "y"], { nouns: ["cat"], verbs: ["make"] });
-    const b = gate(["b"], ["x", "y"], { nouns: ["cat"], verbs: ["make"] }, "d2");
-    const res = gatesWithSameGating(a, [a, b]);
-    expect(res).toEqual(expect.arrayContaining([a, b]));
-    expect(res).toHaveLength(2);
-  });
-
-  test("identical keywords but one has `requires` and the other doesn't → NOT siblings (separate groups)", () => {
-    const a = gate(["a"], ["x"], { nouns: ["cat"], verbs: ["make"] });
-    const b = gate(["b"], ["x"], undefined, "d2");
-    // a has requires, b doesn't → distinct fingerprints → a is its own group.
-    expect(gatesWithSameGating(a, [a, b])).toEqual([a]);
-    expect(gatesWithSameGating(b, [a, b])).toEqual([b]);
-  });
-
-  test("different keywords → separate groups", () => {
-    const a = gate(["a"], ["x"]);
-    const b = gate(["b"], ["z"], undefined, "d2");
-    expect(gatesWithSameGating(a, [a, b])).toEqual([a]);
-    expect(gatesWithSameGating(b, [a, b])).toEqual([b]);
-  });
-
-  test("keyword declaration order independence: [a,b] and [b,a] → same fingerprint → siblings", () => {
-    const a = gate(["a"], ["alpha", "beta"]);
-    const b = gate(["b"], ["beta", "alpha"], undefined, "d2");
-    const res = gatesWithSameGating(a, [a, b]);
-    expect(res).toEqual(expect.arrayContaining([a, b]));
-    expect(res).toHaveLength(2);
-  });
-
-  test("the input gate is always included in the result even if it's the only member", () => {
-    const a = gate(["a"], ["solo"]);
-    expect(gatesWithSameGating(a, [a])).toEqual([a]);
-  });
-
-  test("empty `all` with a gate not present → returns [] (filters from `all`, not synthetic)", () => {
-    const a = gate(["a"], ["x"]);
-    expect(gatesWithSameGating(a, [])).toEqual([]);
   });
 });
 
@@ -567,7 +522,7 @@ describe("enable_tool (S1 A escape hatch)", () => {
     const handlers: Record<string, any> = {};
     let throwOnSetActive = false;
     const pi: any = {
-      getAllToolDefinitions: () => [...CORE_NAMES, ...ZAI_NAMES].map((name) => ({ name, ...(name.startsWith("zai_") ? { gating: ZAI_GATING } : {}) })),
+      getAllToolDefinitions: () => [...CORE_NAMES, ...ZAI_NAMES].map((name) => ({ name, ...(name.startsWith("zai_") ? { gating: { gate: "zai" } } : {}) })),
       setActiveTools: () => { if (throwOnSetActive) throw new Error("setActiveTools boom"); },
       registerTool: (def: any) => { (pi as any)._t = def; },
       on: (ev: string, h: any) => { handlers[ev] = h; },
@@ -861,11 +816,12 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
 
   test("inspect_tui is owner-gated (gated, not fail-open)", () => {
     // inspect_* is owner-declared as of the Task-3 migration (no longer in
-    // hardcoded GATES). buildEffectiveGates with the owner-declared gating must
+    // hardcoded GATES). buildEffectiveGates with the reference-form gating must
     // still track inspect_tui so it is NOT fail-open at runtime.
-    const eff = buildEffectiveGates([
-      { name: "inspect_tui", description: "d", gating: { keywords: ["token usage"], requires: { nouns: ["tui"], verbs: ["inspect"] } } },
-    ]);
+    const eff = buildEffectiveGates(
+      [{ name: "inspect_tui", description: "d", gating: { gate: "inspect" } }],
+      { inspect: { id: "inspect", keywords: ["token usage"], requires: { nouns: ["tui"], verbs: ["inspect"] } } },
+    );
     expect(eff.gates.find((g) => g.names.includes("inspect_tui"))).toBeDefined();
     expect(eff.tracked.has("inspect_tui")).toBe(true); // tracked → not fail-open
   });
@@ -891,23 +847,28 @@ describe("measureToolTokens (S3)", () => {
 describe("buildEffectiveGates", () => {
   test("owner-declared core:true → core set, removed from fallback need", () => {
     const defs = [{ name: "enable_tool", gating: { core: true } }] as Array<{
-      name: string; description?: string; gating?: { keywords: string[]; requires?: { nouns: string[]; verbs: string[] }; core?: boolean };
+      name: string; description?: string; gating?: { core?: boolean; gate?: string };
     }>;
     const eff = buildEffectiveGates(defs);
     expect(eff.core.has("enable_tool")).toBe(true);
     expect(eff.gates.find((g) => g.names.includes("enable_tool"))).toBeUndefined();
   });
 
-  test("owner-declared non-core gating becomes a single-name gate", () => {
+  test("owner-declared non-core gating (reference form) resolves keywords/requires from the registry", () => {
+    // 01c: the ONLY non-core form is `gating: { gate: "<id>" }` — keywords/
+    // requires come from the registry spec, grouped by id.
     const defs = [{
       name: "inspect_hooks", description: "d",
-      gating: { keywords: ["schema cost"], requires: { nouns: ["agent"], verbs: ["inspect"] } },
+      gating: { gate: "inspect" },
     }] as Array<{ name: string; description?: string; gating?: any }>;
-    const eff = buildEffectiveGates(defs);
+    const eff = buildEffectiveGates(defs, {
+      inspect: { id: "inspect", keywords: ["schema cost"], requires: { nouns: ["agent"], verbs: ["inspect"] } },
+    });
     const g = eff.gates.find((x) => x.names.includes("inspect_hooks"));
     expect(g).toBeDefined();
     expect(g!.keywords).toEqual(["schema cost"]);
     expect(g!.requires).toEqual({ nouns: ["agent"], verbs: ["inspect"] });
+    expect(g!.gateId).toBe("inspect");
   });
 
   test("undeclared names are simply ungated (no hardcoded fallback — ticket 04 deleted CORE_TOOLS)", () => {
@@ -919,6 +880,15 @@ describe("buildEffectiveGates", () => {
     const eff = buildEffectiveGates([]); // no owner declarations
     expect(eff.core.has("read")).toBe(false); // no fallback — read is ungated here
     expect(eff.gates).toHaveLength(0); // no fallback gates exist
+  });
+
+  test("01c: a def with neither core:true nor a gate reference is invalid → ungated (fail-open)", () => {
+    // The inline keywords/requires form was DELETED in 01c — such a def carries
+    // no valid gating, so it is simply untracked (fail-open); the drift-guard
+    // flags the declaration at CI time.
+    const eff = buildEffectiveGates([{ name: "legacy", gating: { keywords: ["kw"] } }] as never);
+    expect(eff.gates).toHaveLength(0);
+    expect(eff.tracked.has("legacy")).toBe(false);
   });
 
   // Ticket 15 deleted the hardcoded GATES array, the buildEffectiveGates
@@ -960,7 +930,7 @@ describe("injectBuiltinCore (ticket 03 — Path B injected-core for the 4 built-
   });
 
   test("non-built-in defs pass through untouched (same reference, no gating added)", () => {
-    const flux = { name: "flux2", gating: { keywords: ["flux"] } };
+    const flux = { name: "flux2", gating: { gate: "flux2" } }; // reference form (01c)
     const injected = injectBuiltinCore([flux]);
     expect(injected[0]).toBe(flux); // same reference — untouched
   });
@@ -974,13 +944,22 @@ describe("injectBuiltinCore (ticket 03 — Path B injected-core for the 4 built-
 
 describe("tool-gate runtime reads owner-declared gating", () => {
   test("a tool whose owner declared gating is gated; a core-declared tool is active", async () => {
+    // Register the "inspect" family locally (this file doesn't import power-tool,
+    // so GATE_DEFS["inspect"] would otherwise be absent → inspect_hooks would
+    // fail-open and stay active). Scoped to this test, cleaned up after.
+    GATE_DEFS["inspect"] = {
+      id: "inspect",
+      keywords: ["schema cost", "token usage"],
+      requires: { nouns: ["agent", "context"], verbs: ["inspect", "dump"] },
+    };
+    try {
     const activeCalls: string[][] = [];
     let sessionStartHandler: ((e: unknown, ctx: unknown) => Promise<void>) | null = null;
     const pi = {
       getAllToolDefinitions: () => [
         { name: "read", description: "r", gating: { core: true } },
-        { name: "inspect_hooks", description: "d", gating: { keywords: ["schema cost"], requires: { nouns: ["agent"], verbs: ["inspect"] } } },
-        { name: "zai_web_search_web_search_prime", description: "f", gating: ZAI_GATING }, // owner-declared (ticket 12) → gated; no keyword in "" prompt → dormant
+        { name: "inspect_hooks", description: "d", gating: { gate: "inspect" } },
+        { name: "zai_web_search_web_search_prime", description: "f", gating: { gate: "zai" } }, // reference form (ticket 01) → gated; no keyword in "" prompt → dormant
       ],
       on: (_chan: string, h: (e: unknown, ctx: unknown) => Promise<void>) => { if (_chan === "session_start") sessionStartHandler = h; return () => {}; },
       setActiveTools: (names: string[]) => { activeCalls.push(names); },
@@ -993,6 +972,9 @@ describe("tool-gate runtime reads owner-declared gating", () => {
     expect(active).toContain("read");            // core-declared → active
     expect(active).not.toContain("inspect_hooks"); // owner-gated, no keyword in "" prompt → dormant
     expect(active).not.toContain("zai_web_search_web_search_prime");          // owner-declared (ticket 12), no keyword → dormant
+    } finally {
+      delete GATE_DEFS["inspect"];
+    }
   });
 
   test("enable_tool recompute must NOT spuriously activate an owner-gated tool absent from TRACKED_TOOLS", async () => {
@@ -1003,6 +985,11 @@ describe("tool-gate runtime reads owner-declared gating", () => {
     // session-built effective tracked set is therefore absent from TRACKED_TOOLS
     // → filterActive treats it as fail-open → it is spuriously active during an
     // enable_tool recompute. Fix: pass effectiveTracked.
+    // Local family registration (scoped to this test; cleaned up after) so the
+    // reference-form `gating: { gate: "unobtanium" }` resolves to a REAL gate —
+    // the fixture needs it tracked+gated, not fail-open.
+    GATE_DEFS["unobtanium"] = { id: "unobtanium", keywords: ["unobtanium-trigger"] };
+    try {
     const activeCalls: string[][] = [];
     let sessionStartHandler: ((e: unknown, ctx: unknown) => Promise<void>) | null = null;
     let enableToolExecute: ((toolCallId: string, params: any) => Promise<any>) | null = null;
@@ -1012,11 +999,12 @@ describe("tool-gate runtime reads owner-declared gating", () => {
         // owner-declared NON-CORE gated tool; "unobtanium_tool" is NOT in any
         // owner-declared core set or gate → absent from the effective tracked
         // set (and from the now-empty module TRACKED_TOOLS).
-        { name: "unobtanium_tool", gating: { keywords: ["unobtanium-trigger"] } },
+        // (reference form, 01c — family registered below)
+        { name: "unobtanium_tool", gating: { gate: "unobtanium" } },
         // a separate gated tool (zai-mcp, owner-declared in ticket 12 via
         // registerServerTools; we mirror ZAI_GATING here so it reconstructs as a
         // gate and enable_tool name-mode can resolve + activate it on request).
-        { name: "zai_web_search_web_search_prime", gating: ZAI_GATING },
+        { name: "zai_web_search_web_search_prime", gating: { gate: "zai" } },
       ],
       on: (_chan: string, h: (e: unknown, ctx: unknown) => Promise<void>) => {
         if (_chan === "session_start") sessionStartHandler = h;
@@ -1038,6 +1026,9 @@ describe("tool-gate runtime reads owner-declared gating", () => {
     const recomputeActive = activeCalls[activeCalls.length - 1];
     expect(recomputeActive).toContain("zai_web_search_web_search_prime");               // zai explicitly requested → active
     expect(recomputeActive).not.toContain("unobtanium_tool"); // X must stay dormant during the recompute
+    } finally {
+      delete GATE_DEFS["unobtanium"]; // scoped cleanup — don't leak into other test files
+    }
   });
 
   test("#2 before_agent_start self-seeds sticky when session_start was skipped (in-process subagent child)", async () => {
@@ -1050,7 +1041,7 @@ describe("tool-gate runtime reads owner-declared gating", () => {
       getAllToolDefinitions: () => [
         { name: "read", gating: { core: true } },
         { name: "bash", gating: { core: true } },
-        { name: "flux2", gating: { keywords: ["flux", "image"] } },
+        { name: "flux2", gating: { gate: "flux2" } }, // reference form (01c)
       ],
       on: (chan: string, h: any) => { if (chan === "before_agent_start") beforeAgentStart = h; return () => {}; },
       setActiveTools: (names: string[]) => { activeCalls.push(names); },
@@ -1087,7 +1078,7 @@ describe("session_start banner reflects runtime effectiveGates (ticket 14 underc
       // from module GATES (empty). measureToolTokens is importable (see imports
       // atop this file) → assert the EXACT banner value, not just > 0.
       const FLUX_DESC = "Generate an image with the flux2 diffusion model. ".repeat(10);
-      const fluxTool = { name: "flux2", description: FLUX_DESC, parameters: {}, gating: { keywords: ["flux"] } };
+      const fluxTool = { name: "flux2", description: FLUX_DESC, parameters: {}, gating: { gate: "flux2" } }; // reference form (01c)
       let captured: string[] | undefined;
       let sessionStartHandler: ((e: unknown, ctx: unknown) => Promise<void>) | null = null;
       const pi = {

@@ -54,8 +54,6 @@ export type ToolDef = {
 	name?: string;
 	gating?: {
 		core?: boolean;
-		keywords?: string[];
-		requires?: { nouns?: unknown[]; verbs?: unknown[] };
 		/** Reference form (wayfinder ticket 01): id into the shared GATE_DEFS registry. */
 		gate?: string;
 	};

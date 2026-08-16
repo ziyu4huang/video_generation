@@ -8,7 +8,7 @@
  *   - the Spec-B hazard — verbatim-duplicated `gating` across sibling tools
  *     (edit one side and the family silently splits), and
  *   - the fingerprint-JSON reconstruction in tool-gate
- *     (`gateGatingKey` / `gatesWithSameGating`, deleted in phase 01c):
+ *     (`gateGatingKey` / `gatesWithSameGating` — deleted in phase 01c):
  *     sibling identity is now "same id", not "byte-equal keywords".
  *
  * Precedent: power-tool's `DIAGNOSTIC_GATING` (one shared object for all six
@@ -31,6 +31,21 @@ export interface Gate {
   /** One-line description — used for enable_tool intent matching + list output.
    *  Falls back to the referencing tool's description when absent. */
   description?: string;
+}
+
+/**
+ * The tool-facing `gating` field on a `ToolDefinition` (replaces the former
+ * ambient-global `Gating` — wayfinder ticket 01, phase 01c). Two forms only:
+ *   - `{ core: true }` — always active (core/escape-hatch), never gated, and
+ *   - `{ gate: "<id>" }` — reference to a family declared in `GATE_DEFS`.
+ * The legacy inline form (`{ keywords, requires }` per tool) is DELETED — the
+ * family spec lives in `GATE_DEFS` and tools only reference it by id.
+ */
+export interface Gating {
+  /** If true, always active (core/escape-hatch); never gated. */
+  core?: boolean;
+  /** Reference to a shared gate family declared in `GATE_DEFS`. */
+  gate?: string;
 }
 
 /**

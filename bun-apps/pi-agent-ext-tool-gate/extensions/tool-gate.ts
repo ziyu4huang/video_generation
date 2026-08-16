@@ -29,7 +29,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { GATE_DEFS, type Gate } from "@repo/pi-agent-core-interface";
+import { GATE_DEFS, type Gate, type Gating } from "@repo/pi-agent-core-interface";
 import { appendFileSync } from "node:fs";
 import { Type } from "typebox";
 import { estimateToolCost } from "@repo/pi-agent-ext-power-tool/schema-cost";
@@ -55,8 +55,8 @@ export interface ToolGate {
   requires?: CoOccurrence;
   /** Gate-family id when this gate was declared via the reference form
    *  (`gating: { gate: id }`, wayfinder ticket 01). Sibling tools share one id;
-   *  `undefined` for legacy inline-declared gates. Lets consumers (enable_tool,
-   *  introspection) group by identity instead of fingerprint equality. */
+   *  every non-core gate carries one (the inline form was deleted in 01c).
+   *  Lets consumers (enable_tool, introspection) group by identity. */
   gateId?: string;
 }
 
@@ -100,7 +100,7 @@ export function injectBuiltinCore<T extends { name: string; gating?: Gating }>(
 
 /** Effective gate set built from owner-declared `gating`. */
 export interface EffectiveGates {
-  gates: ToolGate[];   // non-core gates: one per owner-declared non-core tool (single-name)
+  gates: ToolGate[];   // non-core gates: one per id-referenced gate family (multi-name)
   core: Set<string>;   // always-active names: owner-declared core:true
   tracked: Set<string>; // core ∪ all gate names — the explicit-track set for filterActive
 }
@@ -110,24 +110,17 @@ export interface EffectiveGates {
  * authoritative, NO hardcoded fallback (ticket 04 deleted the former CORE_TOOLS
  * always-active set — every core member is now owner-declared via tickets 02 +
  * 03; ticket 15 earlier deleted the hardcoded GATES array). A `core:true` def →
- * always-active core; any other `gating` def → a gate; a def without `gating`
- * is simply ungated. Pure: no pi dependency.
+ * always-active core; a def with `gating: { gate: "<id>" }` → a reference-form
+ * gate; a def without `gating` is simply ungated. Pure: no pi dependency.
  *
- * Two declaration forms (wayfinder ticket 01, expand–contract):
- *   - legacy INLINE form — `gating: { keywords, requires? }`: one single-name
- *     gate per tool, exactly as before (byte-identical output).
- *   - reference form — `gating: { gate: "<id>" }`: keywords/requires/description
- *     are resolved from `gateDefs` (default: the shared `GATE_DEFS` registry);
- *     every tool referencing the same id groups into ONE multi-name gate (the
- *     co-firing family), in declaration order. An id absent from the registry
- *     fails OPEN — the tool is treated as ungated (always active), matching the
- *     standing fail-open posture; the drift-guard test catches such declaration
- *     bugs at CI time (asserts every referenced id is known).
- *
- * `core:true` always wins over a `gate` reference (checked first). A def that
- * carries both `gate` and inline `keywords`/`requires` uses the registry spec
- * for keywords/requires and the registry description (falling back to the
- * tool's description).
+ * Reference form (wayfinder ticket 01 — the ONLY non-core form since phase 01c
+ * deleted the legacy inline keywords/requires shape): keywords/requires/
+ * description are resolved from `gateDefs` (default: the shared `GATE_DEFS`
+ * registry); every tool referencing the same id groups into ONE multi-name gate
+ * (the co-firing family), in declaration order. An id absent from the registry
+ * fails OPEN — the tool is treated as ungated (always active), matching the
+ * standing fail-open posture; the drift-guard test catches such declaration
+ * bugs at CI time (asserts every referenced id is known).
  */
 export function buildEffectiveGates(
   defs: Array<{ name: string; description?: string; gating?: Gating }>,
@@ -135,7 +128,7 @@ export function buildEffectiveGates(
 ): EffectiveGates {
   const gates: ToolGate[] = [];
   const core = new Set<string>();
-  const byId = new Map<string, ToolGate>(); // gate id → grouped gate (reference form)
+  const byId = new Map<string, ToolGate>(); // gate id → grouped family gate
   for (const def of defs) {
     const g = def.gating;
     if (!g) continue;
@@ -160,15 +153,9 @@ export function buildEffectiveGates(
         gates.push(gate);
       }
       gate.names.push(def.name);
-      continue;
     }
-    // Legacy inline form — single-name gate, unchanged.
-    gates.push({
-      names: [def.name],
-      keywords: g.keywords ?? [],
-      requires: g.requires,
-      description: def.description ?? "",
-    });
+    // gating present but neither core nor a gate reference: invalid declaration
+    // — ignored (fail-open), the drift-guard flags it at CI time.
   }
   const tracked = new Set<string>([...core, ...gates.flatMap((g) => g.names)]);
   return { gates, core, tracked };
@@ -360,42 +347,6 @@ export function matchIntent(
   });
 }
 
-/**
- * Structural fingerprint of a gate's owner-declared gating — its `keywords` and
- * optional `requires` (noun∧verb) co-occurrence spec. Two gates with the same
- * fingerprint share identical gating and therefore co-fire together under
- * {@link matchIntent} / {@link updateSticky}: when one fires on a prompt, every
- * sibling fires. `description` is intentionally excluded (it is not a match
- * surface — see {@link matchIntent}). Pure + deterministic regardless of
- * declaration order (keywords/nouns/verbs are sorted). Used by enable_tool NAME
- * mode to co-activate siblings, so the escape hatch behaves consistently whether
- * a tool is requested by name or by intent.
- */
-export function gateGatingKey(gate: ToolGate): string {
-  return JSON.stringify({
-    keywords: [...gate.keywords].sort(),
-    requires: gate.requires
-      ? {
-          nouns: [...(gate.requires.nouns ?? [])].sort(),
-          verbs: [...(gate.requires.verbs ?? [])].sort(),
-        }
-      : null,
-  });
-}
-
-/**
- * Every gate in `all` whose owner-declared gating is identical to `gate`'s — the
- * sibling group that co-fires together (always includes `gate` itself). Pure.
- * Used by enable_tool NAME mode so requesting one member of a gated family (e.g.
- * `workflow`) also activates its siblings (e.g. `workflow_help`,
- * `workflow_control`, `subagent`, `subagents`) — matching the co-firing that
- * already happens under intent mode and auto-gating.
- */
-export function gatesWithSameGating(gate: ToolGate, all: ToolGate[]): ToolGate[] {
-  const key = gateGatingKey(gate);
-  return all.filter((g) => gateGatingKey(g) === key);
-}
-
 // ── Telemetry (S3-lite, baked in) ─────────────────────────────────
 // Opt-in: silent by default. Enable stderr output via TOOL_GATE_LOG=1, or
 // write JSONL to a file via TOOL_GATE_LOG_PATH. Non-essential: write failures
@@ -577,12 +528,21 @@ export default function toolGateExtension(pi: ExtensionAPI) {
   });
 
   // ── Escape hatch: enable_tool (always active; activates dormant gates) ──
+  // F8 (ticket 01, phase 01c): the description is DERIVED from the GATE_DEFS
+  // registry — no hardcoded domain prose that drifts from the actual gates.
+  const enableToolDescription =
+    `Heavy tools are GATED out of your tool list to save context. Registered gate ` +
+    `families: ${Object.keys(GATE_DEFS).sort().join(", ") || "(none loaded yet)"}. ` +
+    `If you need a capability you don't see, call this tool: use \`intent\` to describe what ` +
+    `you want (e.g. 'make a video', 'generate an image', 'orchestrate a montage'), \`name\` to ` +
+    `activate a specific tool or family (e.g. 'ltx', 'flux2', 'movie', 'workflow'), or ` +
+    `\`list:true\` to see dormant tools. Activation is sticky — once enabled, the tool stays ` +
+    `available for the session.`;
   pi.registerTool({
     name: "enable_tool",
     gating: { core: true },
     label: "Enable a gated tool",
-    description:
-      "Heavy tools (flux2 image, ltx video, movie orchestrator, krea2, file2md/vision, inspect, workflow, research/video-collect, arxiv papers, movie-production cost, z.ai web tools, pi-agent deploy/verify) are GATED out of your tool list to save context. If you need a capability you don't see, call this tool: use `intent` to describe what you want (e.g. 'make a video', 'generate an image', 'orchestrate a montage'), `name` to activate a specific tool (e.g. 'ltx', 'flux2', 'movie'), or `list:true` to see dormant tools. Activation is sticky — once enabled, the tool stays available for the session.",
+    description: enableToolDescription,
     promptSnippet: "Enable a gated heavy tool (video/image/movie/...) by intent or name.",
     promptGuidelines: [
       "If you need a capability not in your tool list (e.g. video/image/movie generation), call enable_tool first rather than telling the user it's unavailable.",
@@ -618,21 +578,19 @@ export default function toolGateExtension(pi: ExtensionAPI) {
           if (!gate) {
             matched = [];
           } else {
-            // Sibling co-activation: buildEffectiveGates splits each owner-declared
-            // tool into a single-name gate, so a name resolves to exactly one gate —
-            // but tools that share identical owner-declared gating (e.g. workflow /
-            // workflow_help / workflow_control / subagent / subagents) co-fire as a
-            // family under intent mode (matchIntent) and auto-gating (updateSticky).
-            // Extend that same behavior to NAME mode so the escape hatch is
-            // consistent regardless of how a tool is requested. Sibling identity =
-            // identical gating fingerprint (see gatesWithSameGating).
-            const siblings = gatesWithSameGating(gate, effectiveGates);
-            // Mirror matchIntent's already-active filtering: keep only gates that
-            // still have at least one dormant (not-yet-sticky) name, so the reported
-            // `activated` list contains only newly-on tools.
-            const dormant = siblings.filter((g) => !g.names.every((n) => sticky.has(n)));
+            // Sibling co-activation by construction (wayfinder ticket 01): since
+            // phase 01c, buildEffectiveGates groups every tool referencing the
+            // same gate id into ONE multi-name family gate (e.g. workflow /
+            // workflow_help / workflow_control / subagent / subagents all live in
+            // the "workflow" gate). A name lookup therefore already returns the
+            // WHOLE family — no fingerprint reconstruction needed (gateGatingKey /
+            // gatesWithSameGating were deleted in 01c). Mirror matchIntent's
+            // already-active filtering: keep the gate only while it still has a
+            // dormant (not-yet-sticky) name, so the reported `activated` list
+            // contains only newly-on tools.
+            const dormant = !gate.names.every((n) => sticky.has(n)) ? [gate] : [];
             if (dormant.length === 0) {
-              // F3: the matched gate AND all its siblings are already fully active.
+              // F3: the matched family gate is already fully active.
               emitToolGateLog({
                 kind: "activate", ts: new Date().toISOString(),
                 via, intent: params.name as string, matchedGate: null, activated: [],
