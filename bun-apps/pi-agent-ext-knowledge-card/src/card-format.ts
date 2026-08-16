@@ -123,6 +123,19 @@ export function buildMocContent(cardsAbs: string[]): string {
 		for (const name of groups.get(g)!) lines.push(`- [[${name}]]`);
 		lines.push("");
 	}
+	// Aggregation section (ticket 03): link only TOP-layer derived nodes
+	// (multi-level tree entry points; lower levels reachable through their
+	// 子節點 links).
+	const aggNames = cardsAbs
+		.map((abs) => abs.slice(abs.lastIndexOf("/") + 1, -3))
+		.filter((b) => /^agg-L\d+-\d+$/.test(b));
+	if (aggNames.length > 0) {
+		const maxLayer = Math.max(...aggNames.map((b) => Number(/^agg-L(\d+)-/.exec(b)![1])));
+		lines.push("## aggregation", "");
+		for (const n of aggNames.filter((b) => Number(/^agg-L(\d+)-/.exec(b)![1]) === maxLayer).sort())
+			lines.push(`- [[${n}]]`);
+		lines.push("");
+	}
 	return lines.join("\n");
 }
 
