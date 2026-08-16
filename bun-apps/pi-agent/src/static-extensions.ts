@@ -33,11 +33,18 @@
  * are fixed and checked; fixing them surfaced three live ReferenceErrors that
  * `@ts-nocheck` had been hiding, so the suppressions were never cosmetic.
  *
- * index.ts is a structural problem, not a type-debt one: of its 49 errors, 43
- * sit inside a single ~1,660-line function (`openCuratorBrowser`) nested in the
- * `export default function (pi)` closure, so the directive cannot be scoped any
- * narrower than the whole file. Extracting that function moves the suppression
- * with it and leaves the rest checkable for six fixes. See that file's header.
+ * index.ts is a structural problem, not a type-debt one: its 49 errors cluster
+ * in the inline handler bodies passed to `pi.registerTool` / `pi.registerCommand`
+ * — 20 in fetch_content, 12 in web_search, 5 in the /websearch command. Since
+ * those handlers are anonymous closures inside `export default function (pi)`,
+ * the directive cannot be scoped narrower than the whole file. Giving each tool
+ * its own module is the fix, and two of them close over nothing from the
+ * enclosing scope, so they move for free. See that file's header for the
+ * measured table.
+ *
+ * (An earlier revision of this comment blamed a ~1,660-line `openCuratorBrowser`
+ * for 43 of the 49. That was a measurement error — the function is 246 lines and
+ * has none of them.)
  *
  * The ordering is tests-before-type-fixes, and it is not a preference: null
  * guards change runtime paths, and this package had 694 test lines against
