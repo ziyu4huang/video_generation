@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   toWebFrame,
+  validateCardSendExtra,
   validateInbound,
   type EventLike,
   type WebFrame,
@@ -112,5 +113,81 @@ describe("card frame (event-cards 01)", () => {
     expect((f as { body?: { text: string } }).body).toEqual({
       text: '{"reason":"deep-link"}',
     });
+  });
+});
+
+// --- cards-ux2 (02): blocking flag + card_send inbound validation ----------
+describe("card frame blocking flag (cards-ux2 02)", () => {
+  /** Shared full-field base (the 01 pin above minus `blocking`). */
+  const base = {
+    id: "card-9",
+    kind: "readonly",
+    title: "t",
+    source: "bus",
+    ts: 1739380000000,
+    attention: "silent",
+    body: { text: "x" },
+  } as const;
+
+  it("absent blocking stays assignable (modal default — compile-time pin)", () => {
+    const frame: Extract<WebFrame, { type: "card" }> = { type: "card", ...base };
+    expect(frame.blocking).toBeUndefined();
+  });
+
+  it("blocking:false (draft) and blocking:true (explicit modal) are assignable", () => {
+    const draft: Extract<WebFrame, { type: "card" }> = { type: "card", ...base, blocking: false };
+    const modal: Extract<WebFrame, { type: "card" }> = { type: "card", ...base, blocking: true };
+    expect(draft.blocking).toBe(false);
+    expect(modal.blocking).toBe(true);
+  });
+
+  it("toWebFrame forwards blocking 1:1 (no drop, none added)", () => {
+    const f = toWebFrame({ type: "card", ...base, blocking: false });
+    expect((f as { blocking?: boolean }).blocking).toBe(false);
+    const absent = toWebFrame({ type: "card", ...base });
+    expect((absent as { blocking?: boolean }).blocking).toBeUndefined();
+  });
+});
+
+describe("validateCardSendExtra (cards-ux2 02 — mirrors card_answer's rules)", () => {
+  it("accepts a good shape", () => {
+    expect(validateCardSendExtra({ kind: "card_send", cardId: "c1", answers: { a: "1" } })).toEqual({
+      kind: "card_send",
+      cardId: "c1",
+      answers: { a: "1" },
+    });
+  });
+
+  it("accepts an empty answers object (vacuously all-string)", () => {
+    expect(validateCardSendExtra({ kind: "card_send", cardId: "c1", answers: {} })?.cardId).toBe("c1");
+  });
+
+  it("rejects non-objects", () => {
+    expect(validateCardSendExtra(null)).toBeNull();
+    expect(validateCardSendExtra("card_send")).toBeNull();
+  });
+
+  it("rejects wrong/absent kind", () => {
+    expect(validateCardSendExtra({ kind: "card_answer", cardId: "c1", answers: {} })).toBeNull();
+    expect(validateCardSendExtra({ cardId: "c1", answers: {} })).toBeNull();
+  });
+
+  it("rejects empty or non-string cardId", () => {
+    expect(validateCardSendExtra({ kind: "card_send", cardId: "", answers: {} })).toBeNull();
+    expect(validateCardSendExtra({ kind: "card_send", cardId: 7, answers: {} })).toBeNull();
+  });
+
+  it("rejects answers that are null/array/non-string values (card_answer rules)", () => {
+    expect(validateCardSendExtra({ kind: "card_send", cardId: "c1", answers: null })).toBeNull();
+    expect(validateCardSendExtra({ kind: "card_send", cardId: "c1", answers: ["x"] })).toBeNull();
+    expect(validateCardSendExtra({ kind: "card_send", cardId: "c1", answers: { a: 1 } })).toBeNull();
+  });
+
+  it("the appexec wrapper stays schema-loose (validateInbound accepts the frame)", () => {
+    const frame = validateInbound({
+      type: "appexec",
+      extra: { kind: "card_send", cardId: "c1", answers: { a: "1" } },
+    });
+    expect(frame?.type).toBe("appexec");
   });
 });

@@ -1,4 +1,4 @@
-status: open
+status: closed
 
 # 02 — non-blocking draft cards
 
@@ -9,3 +9,7 @@ Steps:
 4. Tests: frame validation (blocking flag + card_send shapes); wiring guard (first-send-wins, JSONL, card_done, sendMessage called with the formatted text); shell (draft render, send click -> card_send envelope, freeze on card_done, replay frozen).
 5. Gates: typecheck clean; bun test 0 fail (REAL lines); innerHTML <= 8.
 Acceptance: a blocking:false card sits as a draft; send any time; frozen + stamped after; agent receives it as an injected message; gates green.
+
+## Result
+
+Shipped in two commits. 02a e0eb9dd1: protocol card frames gained `blocking?: boolean` (absent/true = modal, current semantics), `CardSendExtra` + `validateCardSendExtra` (mirrors card_answer validation), and the wiring onCommand TOP guard — first-send-wins Set, channel-tagged JSONL decision line, `card_done {id, ts}` broadcast, and delivery via the injectable `sendMessage` seam as `[card <id>] <title>: <json>` (behaves like typed input at the next turn boundary; agent never blocked); `session_shutdown` resets the ledger; came in with the same commit: port-resolver env-isolation fix (tests/port-resolver.test.ts). 02b 0db6695e: render-shell renders `blocking:false` cards as draft forms (green "draft" badge, Send button, `data-draft="1"`); submit is one-shot `appexec/card_send` (ask/card_answer branches never reached); `card_done` freezes the card in place via `freezeDraftCard` (inputs disabled, `sent <HH:MM:SS>` stamp, collapsed answer detail, form kept not replaced); draft input is DOM-only and not persisted across refresh (v1 note). Gates: webui `bun test` REAL lines 481 pass / 0 fail across 33 files; typecheck clean; innerHTML count 8 exactly (zero sinks added, bound test asserts <= 8). Ask cards stay modal on ask_user_answer; only `blocking === false` drafts take card_send.

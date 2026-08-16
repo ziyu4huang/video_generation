@@ -40,7 +40,7 @@ import { DEFAULT_WATCHDOG, type InputSource, type MutexClock, type MutexTimer } 
 import { WebTransport } from "./web-transport.js";
 import { WebServer, type CommandHandler, type HttpRouteHandler } from "./web-server.js";
 import type { Broadcaster } from "./broadcaster.js";
-import type { CardField, ClientFrame, DispatchAction, WebFrame } from "./protocol.js";
+import { validateCardSendExtra, type CardField, type ClientFrame, type DispatchAction, type WebFrame } from "./protocol.js";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
@@ -96,15 +96,25 @@ export interface WebuiSessionCtx {
 /**
  * The minimal pi host surface wireWebui touches: a many-event `on` registrar
  * plus the ticket-06 render seams (`events` + `registerTool`). DE-CHAT
- * (event-cards 00): no `sendUserMessage` — the retired agentic dispatch was
- * its only caller; the wiring no longer injects prompts into the session
- * (chat lives in the TUI; the HITL appexec return transport is the
- * web-native input surface). Narrow on purpose so a MockPi in tests is
+ * (event-cards 00): no REQUIRED `sendUserMessage` — the retired agentic
+ * dispatch was its only caller; the wiring no longer injects chat prompts
+ * into the session (chat lives in the TUI; the HITL appexec return
+ * transport is the web-native input surface). cards-ux2 (02) re-adds an
+ * OPTIONAL guarded member for the card_send draft seam (see below). Narrow
+ * on purpose so a MockPi in tests is
  * tiny; the real {@link ExtensionAPI} is a structural superset (assigned at
  * the extensions/webui.ts entry via a cast).
  */
 export interface WebuiHost {
   on(event: string, handler: (event: any, ctx: any) => any): void;
+  /**
+   * cards-ux2 (02): OPTIONAL session-message injection — the card_send
+   * (draft card) delivery seam. Re-introduced as OPTIONAL after de-chat
+   * (event-cards 00) removed the REQUIRED member: the wiring calls it only
+   * on card_send and always guards (`?.`), so a host predating cards-ux2
+   * boots unchanged (the send no-ops; the card_done tombstone still fires).
+   */
+  sendUserMessage?(text: string): unknown;
   /** Shared event bus (ticket 06 render channel "webui:render"). Optional —
    *  the render seam may be absent on host SDK builds that predate ticket 06;
    *  wiring no-ops the render registration then instead of throwing at boot. */
@@ -199,6 +209,14 @@ export interface WebuiDeps {
    * Injectable so tests use a tmp fixture — tests must NEVER touch ~/.pi.
    */
   cardsDir?: string;
+  /**
+   * cards-ux2 (02): injectable card_send delivery — where a non-blocking
+   * (draft) card's posted answers enter the agent session. Default: a
+   * guarded `pi.sendUserMessage?.(text)` (the optional host seam — no-op
+   * when the host predates cards-ux2). Injectable so tests capture the exact
+   * message text without a live pi.
+   */
+  sendMessage?: (text: string) => void;
 }
 
 /**
@@ -392,6 +410,11 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   const broadcaster: Broadcaster = {
     broadcast(frame: WebFrame): void {
       sessionStore.append(frame);
+      // cards-ux2 (02): the card_send title ledger — the ONE point every
+      // card frame crosses (snoop, pilot ask cards, archify, future t05
+      // producers alike). Silent cards record too (they are still cards; the
+      // map is per-session, cleared with the send ledger on shutdown/dispose).
+      if (isCardFrame(frame)) cardTitles.set(frame.id, frame.title);
       // event-cards (03): TUI attention bell — CENTRALIZED here, the ONE point
       // every card frame crosses (the t01 snoop today, t05 producers later).
       // Non-silent cards ring the bound session's ui; safeNotify never throws
@@ -527,6 +550,25 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   const cardsDir = deps.cardsDir ?? path.join(homedir(), ".pi", "webui", "sessions");
   let sessionStamp = "";
   const answeredCardIds = new Set<string>();
+  // cards-ux2 (02): NON-BLOCKING card state — the FIRST-SEND-WINS ledger for
+  // card_send + the id→title map the send cites in its delivered message.
+  // The map is written at the ONE point every card frame crosses (the store-
+  // wrapped broadcaster above). Cleared in the session_shutdown handler +
+  // dispose() next to answeredCardIds — a fresh session may re-send a cardId
+  // once its card frame re-broadcasts.
+  const sentCardIds = new Set<string>();
+  const cardTitles = new Map<string, string>();
+  // cards-ux2 (02): the card_send delivery seam — where a non-blocking
+  // card's posted answers enter the agent session. WebuiHost lost the
+  // REQUIRED sendUserMessage in de-chat (event-cards 00); the seam is
+  // OPTIONAL on the host (guarded `?.`) and overridable via deps so tests
+  // capture the exact text without a live pi. Absent host + absent dep =
+  // the send no-ops (the card_done tombstone still fires).
+  const sendMessage =
+    deps.sendMessage ??
+    ((text: string): void => {
+      pi.sendUserMessage?.(text);
+    });
   // event-cards (05): pilot wiring state — the pending ask-card ledger (which
   // ask-<promptId> cards were broadcast; gates the card_done tombstone the
   // answered handler fires, first-fire deletes) + the archify view→url cache
@@ -582,6 +624,50 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     broadcaster.broadcast({ type: "card_done", id: cardId, ts: Date.now() });
   }
 
+  /**
+   * cards-ux2 (02): handle an inbound NON-BLOCKING (draft) card send —
+   * guarded at onCommand TOP next to card_answer. Mirrors handleCardAnswer's
+   * validation + FIRST-SEND-WINS + card_done tombstone, and DIFFERS twice:
+   * (1) the JSONL decision-log line is tagged channel:"card_send" (drafts
+   * are distinguishable from modal answers in the same log), and (2) the
+   * answers are DELIVERED into the agent session via the sendMessage seam as
+   * `[card <id>] <title>: <answers json>` — a draft card feeds the agent
+   * without retiring the form. Validation delegates to the protocol's
+   * validateCardSendExtra (the same rules card_answer enforces inline).
+   * Invalid shapes are ignored silently (loose-channel contract);
+   * filesystem failures on the JSONL append AND a throwing send seam are
+   * swallowed — the tombstone still fires.
+   */
+  function handleCardSend(extra: unknown): void {
+    const send = validateCardSendExtra(extra);
+    if (send === null) return; // invalid — ignore silently
+    const { cardId, answers } = send;
+    if (sentCardIds.has(cardId)) return; // FIRST-SEND-WINS — exactly once
+    sentCardIds.add(cardId);
+    // Decision log (D3): same skip rule as handleCardAnswer — no stamp = the
+    // send arrived outside any session; tombstone + delivery still fire.
+    if (sessionStamp !== "") {
+      try {
+        const dir = path.join(cardsDir, sessionStamp);
+        mkdirSync(dir, { recursive: true });
+        appendFileSync(
+          path.join(dir, "cards.jsonl"),
+          `${JSON.stringify({ ts: Date.now(), cardId, answers, channel: "card_send" })}\n`,
+        );
+      } catch {
+        /* filesystem failure must never error the loose channel */
+      }
+    }
+    broadcaster.broadcast({ type: "card_done", id: cardId, ts: Date.now() });
+    // Delivery: title from the per-session id→title map (written where card
+    // frames broadcast); an unregistered id delivers an empty title segment.
+    try {
+      sendMessage(`[card ${cardId}] ${cardTitles.get(cardId) ?? ""}: ${JSON.stringify(answers)}`);
+    } catch {
+      /* a throwing host seam must never error the loose channel */
+    }
+  }
+
   // --- inbound dispatch seam (handed to WebServer.setCommandHandler) ---------
   // web-server.ts ALREADY validated the frame (validateInbound) before invoking
   // this seam, so `frame` is a typed ClientFrame; parseCommand classifies it.
@@ -615,6 +701,22 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     ) {
       handleCardAnswer(frame.extra);
       return; // early-exit: card_answer is never dispatched as appexec
+    }
+    // cards-ux2 (02): NON-BLOCKING (draft) cards post their state via the
+    // SAME loose appexec extra record (extra.kind:"card_send"). Guarded at
+    // TOP exactly like card_answer — BEFORE parseCommand (the loose extra
+    // resolves to null there, and the early-return below would drop it
+    // before this seam): validate the sub-shape, enforce FIRST-SEND-WINS per
+    // cardId, append the channel-tagged JSONL decision-log line, broadcast
+    // the card_done tombstone, and deliver the answers into the session via
+    // the sendMessage seam. NO ack reply (feedback = the tombstone); the
+    // frame NEVER reaches the appexec respond path below.
+    if (
+      frame.type === "appexec" &&
+      (frame.extra as { kind?: string } | undefined)?.kind === "card_send"
+    ) {
+      handleCardSend(frame.extra);
+      return; // early-exit: card_send is never dispatched as appexec
     }
     const action = transport.parseCommand(frame);
     if (!action) return; // unknown type — ignore (defensive tail)
@@ -1008,6 +1110,11 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     // new stamp re-targets the decision log). No stamp between sessions — a
     // stray pre-session answer skips the log (see handleCardAnswer).
     answeredCardIds.clear();
+    // cards-ux2 (02): the send ledger + title map reset with the answer
+    // ledger — exactly-once must not leak across sessions (a fresh session
+    // may re-send a cardId once its card frame re-broadcasts).
+    sentCardIds.clear();
+    cardTitles.clear();
     sessionStamp = "";
     // event-cards (05): pilot wiring state resets with the rest of the
     // per-session card state (see the declaration for the lifetime contract).
@@ -1110,6 +1217,9 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       // event-cards (02): neutralize the answer loop with the rest of the
       // per-session state.
       answeredCardIds.clear();
+      // cards-ux2 (02): same reset as shutdown (send ledger + title map).
+      sentCardIds.clear();
+      cardTitles.clear();
       sessionStamp = "";
       // event-cards (05): pilot wiring state — same reset as shutdown.
       askCardIds.clear();
