@@ -15,12 +15,15 @@ import { __setLocaleForTest } from "../../state/i18n-bridge.js";
 import { buildItemsForQuestion } from "../../ask-user-question.js";
 import { QuestionnaireSession } from "../../state/questionnaire-session.js";
 import type { QuestionParams } from "../../tool/types.js";
+import type { EscDestination } from "../../state/key-router.js";
 import {
 	buildHintText,
+	HINT_BACK,
 	HINT_CANCEL,
 	HINT_COLLAPSE,
 	HINT_EXPAND,
 	HINT_NOTES,
+	HINT_REVIEW,
 	HINT_SEPARATOR,
 	HINT_TABLE,
 	HINT_TOGGLE,
@@ -35,19 +38,24 @@ const ctx = (over: Partial<HintContext> = {}): HintContext => ({
 	isMulti: false,
 	focusedIsMultiSelect: false,
 	notesAvailable: false,
+	escDestination: "cancel",
 	collapseKey: "Ctrl+]",
 	...over,
 });
 
-/** Every context the table can be asked about (5 × 2 × 2 × 2 × 2 = 80). */
+const ESC_DESTINATIONS: readonly EscDestination[] = ["cancel", "back", "review"];
+
+/** Every context the table can be asked about (5 × 2 × 2 × 2 × 3 × 2 = 240). */
 function allContexts(): HintContext[] {
 	const out: HintContext[] = [];
 	for (const mode of MODES) {
 		for (const isMulti of [false, true]) {
 			for (const focusedIsMultiSelect of [false, true]) {
 				for (const notesAvailable of [false, true]) {
-					for (const collapseKey of ["Ctrl+]", undefined]) {
-						out.push({ mode, isMulti, focusedIsMultiSelect, notesAvailable, collapseKey });
+					for (const escDestination of ESC_DESTINATIONS) {
+						for (const collapseKey of ["Ctrl+]", undefined]) {
+							out.push({ mode, isMulti, focusedIsMultiSelect, notesAvailable, escDestination, collapseKey });
+						}
 					}
 				}
 			}
@@ -92,11 +100,25 @@ describe("A5 — the vocabulary has no dead entries", () => {
 		}
 	});
 
-	test("every mode ends with the cancel hint and uses one separator", () => {
+	test("every mode ends with exactly one Esc hint and uses one separator", () => {
+		const escLabels = [HINT_CANCEL, HINT_BACK, HINT_REVIEW];
 		for (const c of allContexts()) {
 			const text = buildHintText(c);
-			expect(text.endsWith(HINT_CANCEL), `${c.mode} does not end with cancel`).toBe(true);
+			const shown = escLabels.filter((l) => text.split(HINT_SEPARATOR).includes(l));
+			expect(shown, `${JSON.stringify(c)} showed ${shown.length} Esc hints`).toHaveLength(1);
+			expect(text.endsWith(shown[0] as string), `${c.mode} does not end with its Esc hint`).toBe(true);
 			expect(text).not.toContain(" / ");
+		}
+	});
+
+	test("the Esc hint always names the destination the router will take", () => {
+		const label: Record<EscDestination, string> = {
+			cancel: HINT_CANCEL,
+			back: HINT_BACK,
+			review: HINT_REVIEW,
+		};
+		for (const c of allContexts()) {
+			expect(buildHintText(c), JSON.stringify(c)).toContain(label[c.escDestination]);
 		}
 	});
 });

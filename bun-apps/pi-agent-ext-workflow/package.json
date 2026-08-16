@@ -18,6 +18,7 @@
     "test": "bun run check && bun run test:unit",
     "test:unit": "bun test",
     "check": "biome check .",
+    "typecheck": "tsc --noEmit",
     "format": "biome format --write .",
     "lint": "biome lint .",
     "dev": "tsx src/index.ts"
