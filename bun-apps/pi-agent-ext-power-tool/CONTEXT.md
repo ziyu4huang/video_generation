@@ -45,6 +45,15 @@ sessions have no tool call and cannot trigger any detector, so including them tr
 prompt volume rather than agent behaviour.
 _Avoid_: frequency, count (a count series is dominated by long sessions)
 
+**Volatility-relative threshold**:
+The per-check bar a rate move must clear to earn a `regressed` / `improved` verdict:
+the largest window-to-window move that check made *before* the pair under judgement,
+floored by `--delta`. Excluding the judged pair stops a jump from licensing itself.
+Max rather than mean or sigma — "larger than anything this check has ever done" is
+deterministic and needs no distributional assumption.
+_Avoid_: significance, confidence, baseline deviation (there is no p-value and no
+distribution model — see [[Pathology detector]], which is signal-driven, not heuristic)
+
 **Proactive warning**:
 The non-invasive status-line nudge (`⚠ retry loop: bash ×3`) surfaced automatically when a *high*-severity pathology is active — a status bar line only, no context injection and no turn hijack.
 _Avoid_: alert, notification, interrupt (it never injects into the model context)

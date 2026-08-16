@@ -26,6 +26,8 @@ const base = {
 			baselineRatePct: 10,
 			recentRatePct: 30,
 			deltaPct: 20,
+			volatilityPct: 0,
+			thresholdPct: 10,
 			baselineEvents: 20,
 			verdict: "regressed" as const,
 		},
@@ -49,6 +51,22 @@ describe("formatTrendReport", () => {
 		const text = formatTrendReport(report, { unmeasurableSessions: 0 }).join("\n");
 		expect(text).toContain("insufficient signal");
 		expect(text).not.toContain("regressed");
+	});
+
+	test("names the threshold the verdict was measured against", () => {
+		const text = formatTrendReport(base, { unmeasurableSessions: 0 }).join("\n");
+		expect(text).toContain("vs 10pp");
+		expect(text).toContain("floor");
+	});
+
+	test("says when a check was judged against its own volatility", () => {
+		const report = {
+			...base,
+			verdicts: [{ ...base.verdicts[0]!, volatilityPct: 40, thresholdPct: 40, verdict: "stable" as const }],
+		};
+		const text = formatTrendReport(report, { unmeasurableSessions: 0 }).join("\n");
+		expect(text).toContain("vs 40pp own volatility");
+		expect(text).not.toContain("floor");
 	});
 
 	test("discloses how many sessions were unmeasurable", () => {

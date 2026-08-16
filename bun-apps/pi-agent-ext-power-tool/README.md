@@ -127,11 +127,16 @@ Three things to know before reading a report:
   behaviour, not a missing feature.
 - **`context-saturation` has never fired.** Peak context fill across the whole
   archive is 56.2% against an 85% threshold, so it is excluded from the trend views.
-- **The `--delta` threshold is global, but the checks have very different
-  volatility.** Observed window-to-window series:
-  `long-session-recall-risk` 15.5 · 3 · 53 · 39 · 44.5 · 72.9 (swings > 30pp are
-  routine) versus `consecutive-error` 5 · 2 · 12 · 3 · 10.5 · 0.6. A single 10pp
-  rule therefore over-reports on the volatile check and under-reports on the quiet
-  one — it called a 10.5% → 0.6% drop "stable" by 0.1pp. Treat a
-  `long-session-recall-risk` verdict with suspicion until the threshold is made
-  per-check or volatility-relative.
+- **Each check is judged against its own volatility, not a global constant.** The
+  checks differ by an order of magnitude: `long-session-recall-risk` runs
+  15.5 · 3 · 53 · 39 · 44.5 · 73.4 (50pp swings are its normal state) while
+  `consecutive-error` runs 5 · 2 · 12 · 3 · 10.5 · 0.6. A single 10pp rule
+  over-reported the first and under-reported the second, so the threshold is now
+  the largest window-to-window move that check made *before* the pair under
+  judgement, floored by `--delta`. Every verdict prints the threshold it used
+  (`stable (vs 50pp own volatility)`), so a surprising verdict is self-explaining.
+
+Known limitation: the threshold compares one step at a time, so it sees a jump but
+not a march. `long-session-recall-risk` has climbed 3% → 73.4% across four windows
+without any single step exceeding its historical maximum — correctly not flagged as
+a regression, and still worth watching. Read the series, not only the verdict.

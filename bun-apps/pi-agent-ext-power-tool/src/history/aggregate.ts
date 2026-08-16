@@ -28,7 +28,12 @@ export interface AggregateOptions {
   windowSize: number;
   /** Minimum baseline-window occurrences required to issue a verdict. */
   minEvents: number;
-  /** Percentage-point move that counts as a regression / improvement. */
+  /**
+   * FLOOR on the percentage-point move that counts as a regression / improvement
+   * — not the rule itself. The effective threshold is per-check (see
+   * `historicalVolatility`); this only stops a check with a flat history from
+   * getting a 0pp threshold, where every move would read as a regression.
+   */
   deltaPct: number;
 }
 
@@ -53,6 +58,10 @@ export interface RegressionVerdict {
   recentRatePct: number;
   /** recent − baseline, in percentage points. */
   deltaPct: number;
+  /** Largest window-to-window move this check made BEFORE the compared pair. */
+  volatilityPct: number;
+  /** The threshold actually applied: max(volatilityPct, options.deltaPct). */
+  thresholdPct: number;
   baselineEvents: number;
   verdict: Verdict;
 }
@@ -65,6 +74,32 @@ export interface AggregateReport {
 }
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;
+
+/**
+ * The largest window-to-window move this check made in the part of its history
+ * that is NOT under judgement.
+ *
+ * Why per-check rather than one global threshold: checks differ in volatility by
+ * an order of magnitude. Measured on the real corpus, long-session-recall-risk
+ * swings 15.5 · 3 · 53 · 39 · 44.5 · 72.9 — 30pp moves are its normal state —
+ * while consecutive-error moves within a few points. A single 10pp rule flags the
+ * first constantly and stays silent on a 94% relative drop in the second.
+ *
+ * Max, not mean or standard deviation: "larger than anything this check has ever
+ * done" is a directly interpretable, deterministic quantity. A mean or sigma
+ * would import a distributional assumption these samples do not satisfy, and
+ * CONTEXT.md defines a detector as signal-driven, not heuristic.
+ *
+ * The final pair is excluded so the move being judged can never raise its own
+ * threshold — otherwise a large jump would license itself.
+ */
+export function historicalVolatility(points: SeriesPoint[]): number {
+  let max = 0;
+  for (let i = 0; i <= points.length - 3; i++) {
+    max = Math.max(max, Math.abs(points[i + 1]!.ratePct - points[i]!.ratePct));
+  }
+  return round1(max);
+}
 
 /** Bucket sessions into fixed-size windows (oldest first) and rate each check. */
 export function aggregate(rows: SessionResult[], opts: AggregateOptions): AggregateReport {
@@ -97,12 +132,14 @@ export function aggregate(rows: SessionResult[], opts: AggregateOptions): Aggreg
       const baseline = s.points[s.points.length - 2]!;
       const recent = s.points[s.points.length - 1]!;
       const deltaPct = round1(recent.ratePct - baseline.ratePct);
+      const volatilityPct = historicalVolatility(s.points);
+      const thresholdPct = Math.max(volatilityPct, opts.deltaPct);
       const verdict: Verdict =
         baseline.occurrences < opts.minEvents
           ? "insufficient-signal"
-          : deltaPct >= opts.deltaPct
+          : deltaPct >= thresholdPct
             ? "regressed"
-            : deltaPct <= -opts.deltaPct
+            : deltaPct <= -thresholdPct
               ? "improved"
               : "stable";
       verdicts.push({
@@ -110,6 +147,8 @@ export function aggregate(rows: SessionResult[], opts: AggregateOptions): Aggreg
         baselineRatePct: baseline.ratePct,
         recentRatePct: recent.ratePct,
         deltaPct,
+        volatilityPct,
+        thresholdPct,
         baselineEvents: baseline.occurrences,
         verdict,
       });

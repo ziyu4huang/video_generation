@@ -52,10 +52,14 @@ export function formatTrendReport(report: AggregateReport, ctx: FormatContext): 
 
 	for (const v of report.verdicts) {
 		const arrow = v.deltaPct > 0 ? "+" : "";
+		// Always show the threshold the verdict was measured against: without it
+		// "stable" on a 25pp move looks like a bug rather than a check whose own
+		// history routinely swings 40pp.
 		const tail =
 			v.verdict === "insufficient-signal"
 				? `insufficient signal (${v.baselineEvents} baseline event(s))`
-				: v.verdict;
+				: `${v.verdict} (vs ${v.thresholdPct}pp` +
+					`${v.volatilityPct >= v.thresholdPct ? " own volatility" : " floor"})`;
 		out.push(
 			`  ${v.check.padEnd(28)} ${String(v.baselineRatePct).padStart(5)}% → ` +
 				`${String(v.recentRatePct).padStart(5)}%  (${arrow}${v.deltaPct}pp)  ${tail}`,
@@ -167,7 +171,11 @@ Scope (default: this repo family):
 Windowing:
   --window <n>       Sessions per comparison window (default: ${DEFAULT_WINDOW})
   --min-events <n>   Baseline occurrences required for a verdict (default: ${DEFAULT_MIN_EVENTS})
-  --delta <pp>       Percentage-point move counting as a change (default: ${DEFAULT_DELTA_PCT})
+  --delta <pp>       FLOOR on the percentage-point move counting as a change
+                     (default: ${DEFAULT_DELTA_PCT}). Each check is judged against the largest
+                     window-to-window move in its OWN history, so a volatile
+                     check is not flagged for behaving normally; this floor only
+                     applies when that history is flat or absent.
 
 Output:
   --json             Emit a single JSON object to stdout

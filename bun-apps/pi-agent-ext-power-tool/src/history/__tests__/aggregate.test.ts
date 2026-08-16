@@ -64,6 +64,68 @@ describe("aggregate", () => {
     expect(out.verdicts).toHaveLength(0);
   });
 
+  test("judges a move against the check's OWN historical volatility", () => {
+    // History swings 10 → 50 → 20 (moves of 40 and 30), so a final +25 is well
+    // inside what this check does when nothing is wrong. A fixed 10pp rule would
+    // call it a regression; the adaptive threshold must not.
+    const rows = [
+      ...sessions(100, "swingy", 10, 0),
+      ...sessions(100, "swingy", 50, 1_000_000),
+      ...sessions(100, "swingy", 20, 2_000_000),
+      ...sessions(100, "swingy", 45, 3_000_000),
+    ];
+    const v = aggregate(rows, { windowSize: 100, minEvents: 10, deltaPct: 10 }).verdicts.find(
+      (x) => x.check === "swingy",
+    )!;
+    expect(v.deltaPct).toBe(25);
+    expect(v.volatilityPct).toBe(40);
+    expect(v.thresholdPct).toBe(40);
+    expect(v.verdict).toBe("stable");
+  });
+
+  test("flags a move that exceeds everything in the check's history", () => {
+    const rows = [
+      ...sessions(100, "swingy", 10, 0),
+      ...sessions(100, "swingy", 50, 1_000_000),
+      ...sessions(100, "swingy", 20, 2_000_000),
+      ...sessions(100, "swingy", 70, 3_000_000),
+    ];
+    const v = aggregate(rows, { windowSize: 100, minEvents: 10, deltaPct: 10 }).verdicts.find(
+      (x) => x.check === "swingy",
+    )!;
+    expect(v.deltaPct).toBe(50);
+    expect(v.thresholdPct).toBe(40);
+    expect(v.verdict).toBe("regressed");
+  });
+
+  test("the move being judged never sets its own threshold", () => {
+    // Flat history → volatility 0. Without the floor, ANY move would clear a
+    // 0pp threshold and every check would read as regressed forever.
+    const rows = [
+      ...sessions(100, "flat", 10, 0),
+      ...sessions(100, "flat", 10, 1_000_000),
+      ...sessions(100, "flat", 10, 2_000_000),
+      ...sessions(100, "flat", 15, 3_000_000),
+    ];
+    const v = aggregate(rows, { windowSize: 100, minEvents: 10, deltaPct: 10 }).verdicts.find(
+      (x) => x.check === "flat",
+    )!;
+    expect(v.volatilityPct).toBe(0);
+    expect(v.thresholdPct).toBe(10); // the --delta floor won
+    expect(v.verdict).toBe("stable");
+  });
+
+  test("falls back to the floor when there is no history to measure", () => {
+    // Two windows = one move, and that move is the one under judgement.
+    const rows = [...sessions(100, "c", 20), ...sessions(100, "c", 60, 1_000_000)];
+    const v = aggregate(rows, { windowSize: 100, minEvents: 10, deltaPct: 10 }).verdicts.find(
+      (x) => x.check === "c",
+    )!;
+    expect(v.volatilityPct).toBe(0);
+    expect(v.thresholdPct).toBe(10);
+    expect(v.verdict).toBe("regressed");
+  });
+
   test("orders sessions by time regardless of input order", () => {
     const rows = [...sessions(5, "c", 0, 1_000_000), ...sessions(5, "c", 5, 0)];
     const out = aggregate(rows, { windowSize: 5, minEvents: 1, deltaPct: 10 });
