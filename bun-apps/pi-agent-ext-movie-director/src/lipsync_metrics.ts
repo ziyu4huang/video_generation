@@ -4,7 +4,7 @@
  *
  * Pure Swift (Vision + AVFoundation), no Python — see
  * swift/ltx-video-director/Sources/LTXVideoDirector/LipsyncMetrics.swift and
- * docs/superpowers/specs/2026-07-25-swift-lipsync-metrics-design.md. This
+ * .planning/specs/2026-07-25-swift-lipsync-metrics-design.md. This
  * module replaces the prior `python -m app.lipsync_metrics` adapter
  * (formerly runpy_lipsync.ts) — same interface, different binary.
  *

@@ -101,6 +101,7 @@ Then add its row below. `bun run test:adr` fails until you do.
 | `ADR-superpowers-0006` | The superpowers ↔ subagent cooperation contract | [`pi-agent-ext-superpowers/…/0006`](../../pi-agent-ext-superpowers/docs/adr/0006-superpowers-subagent-cooperation.md) |
 | `ADR-superpowers-0007` | Unconditional artifact home — never write to upstream paths | [`pi-agent-ext-superpowers/…/0007`](../../pi-agent-ext-superpowers/docs/adr/0007-unconditional-artifact-home.md) |
 | `ADR-superpowers-0008` | Default skill-exclusion policy | [`pi-agent-ext-superpowers/…/0008`](../../pi-agent-ext-superpowers/docs/adr/0008-default-skill-exclusion-policy.md) |
+| `ADR-superpowers-0009` | Retire docs/superpowers namespace — .planning is the sole artifact home | [`pi-agent-ext-superpowers/…/0009`](../../pi-agent-ext-superpowers/docs/adr/0009-retire-docs-superpowers-namespace.md) |
 
 > superpowers numbers from `0004`; there is no `ADR-superpowers-0001..0003`.
 

@@ -6,7 +6,7 @@
  * a planner mapping a gemma-produced (or --scenes-file) scene list onto
  * per-shot generation specs. No LLM, no generation — fully testable. Part of
  * the storyboard Swift/Bun-native port
- * (docs/superpowers/specs/2026-08-01-storyboard-native-port-design.md).
+ * (.planning/specs/2026-08-01-storyboard-native-port-design.md).
  *
  * Each shot carries an optional `characterId`: when the same character
  * recurs across shots, `storyboard_native.ts`'s routing applies the

@@ -1,7 +1,7 @@
 # Archify Real-Result Structural Evaluation — Findings (2026-07-25)
 
 Suite: `PI_AGENT_E2E=1 bun test __tests__/real-result.test.ts`
-Spec: `docs/superpowers/specs/2026-07-25-archify-real-result-eval-design.md`
+Spec: `.planning/specs/2026-07-25-archify-real-result-eval-design.md`
 
 ## Result
 

@@ -2,7 +2,7 @@
  * kokoro_tts_native.ts — the Bun-native Kokoro TTS adapter, calling the
  * compiled `kokoro-tts` Swift binary (swift/musicgen-director's KokoroTTSCLI
  * target) — wiring mlx-audio-swift's already-implemented Kokoro model, NOT a
- * from-scratch port (see docs/superpowers/specs/2026-08-01-kokoro-tts-swift-
+ * from-scratch port (see .planning/specs/2026-08-01-kokoro-tts-swift-
  * native-port-design.md). Same shape as music_native.ts's ensureBinary()/
  * spawn pattern.
  *

@@ -26,12 +26,12 @@ _Avoid_: waterfall phases (they are routing triggers on what's already on disk, 
 
 ### Artifact home
 
-**Canonical home rule** (ADR-superpowers-0007):
+**Canonical home rule** (ADR-superpowers-0007, amended by ADR-superpowers-0009):
 Every artifact lives under `.planning/<effort>/`: specs → `spec.md`, plans → `plan.md`, brainstorm mockups → `brainstorm/`, the SDD workspace → `.planning/<effort>/sdd/<plan-basename>/` (briefs, reports, reviews, recovery ledger at `progress.md`). Upstream paths (`docs/superpowers/`, `.superpowers/sdd/`) are never written.
-_Avoid_: docs/superpowers, .superpowers (upstream locations exist only as entry symlinks or never)
+_Avoid_: docs/superpowers, .superpowers (retired upstream locations — the docs/superpowers namespace is deleted per ADR-superpowers-0009; never recreate)
 
 **No-effort fallback**:
-When no effort is active: specs/plans land in `.planning/specs/` / `.planning/plans/` (surfaced via the `docs/superpowers/{specs,plans}` symlinks), and SDD workspaces go to the flat, gitignored `.planning/sdd/` — local-only, never committed.
+When no effort is active: specs/plans land in `.planning/specs/` / `.planning/plans/` directly (the former `docs/superpowers/{specs,plans}` alias symlinks are retired, ADR-superpowers-0009 — `.planning` is the sole artifact home), and SDD workspaces go to the flat, gitignored `.planning/sdd/` — local-only, never committed.
 _Avoid_: default effort (it is the no-effort branch, keyed on `PI_PLANNING_EFFORT` being unset)
 
 **SDD workspace path — upstream text vs actual behavior**:

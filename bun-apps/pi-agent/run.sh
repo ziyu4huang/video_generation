@@ -112,8 +112,7 @@ MODE=""
 # STALE BRANCHES: the `packages/` and `.deploy-portable` arms below are dead.
 # deploy.ts accepts only --bundle/--snapshot/--standalone/--exe and writes only
 # `.deploy-bundle`/`.deploy-readonly`; no code path produces either marker (the
-# unified-deploy design doc says so explicitly:
-# docs/superpowers/specs/2026-07-18-unified-deploy-design.md). They survive a
+# since-retired unified-deploy design doc said so explicitly). They survive a
 # rename that deploy.ts and the docs completed and the launcher did not — the
 # same drift removed from doctor.ts. Left in place only because ripping them out
 # also touches run-dir/resolve.ts's `deploy-package` layout mode (a documented

@@ -4,7 +4,7 @@
 
 Date: 2026-07-20 (S2 audit)
 Status: accepted
-See: [spec `2026-07-20-tool-gate-s2-s3-keyword-precision-telemetry-design.md`](../../../../docs/superpowers/specs/2026-07-20-tool-gate-s2-s3-keyword-precision-telemetry-design.md)
+See: [spec `2026-07-20-tool-gate-s2-s3-keyword-precision-telemetry-design.md`](../../../../.planning/specs/2026-07-20-tool-gate-s2-s3-keyword-precision-telemetry-design.md)
 
 ## Context
 

@@ -204,10 +204,14 @@ describe("bootstrap payload assembly", () => {
     // note: "SDD workspace" the bare topic word legitimately remains in rule 1;
     // only the retired header phrase "SDD workspace override" must be gone
     expect(payload).not.toContain("SDD workspace override");
-    // ADR-0007: no-effort specs route to the flat .planning/specs/
-    // (docs/superpowers/{specs,plans} symlink there); other upstream paths forbidden
+    // ADR-0007 → ADR-0009: no-effort specs route to the flat .planning/specs/;
+    // the former alias symlinks under the retired upstream docs namespace are
+    // gone — .planning is the sole artifact home and the payload never names
+    // the dead namespace (asserted via joined segments, not a literal, so this
+    // file does not re-introduce the retired path string)
     expect(payload).toContain(".planning/specs/");
-    expect(payload).toContain("symlink");
+    expect(payload).not.toContain("symlink");
+    expect(payload).not.toContain(["docs", "superpowers"].join("/"));
     expect(payload).not.toContain("when an effort is active");
   });
 

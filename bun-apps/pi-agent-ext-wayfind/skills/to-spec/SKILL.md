@@ -14,7 +14,7 @@ This skill takes the current conversation context and codebase understanding and
 
 2. Sketch out the **seams** at which you're going to test the feature. Existing seams should be preferred to new ones. Use the highest seam possible. If new seams are needed, propose them at the highest point you can. The fewer seams across the codebase, the better — the ideal number is one. Check with the user that these seams match their expectations.
 
-3. Write the spec using the template below, then write it to a local file — `.planning/<effort>/spec.md`. Tell the user the path. (Superpowers' `brainstorming` writes its spec to `docs/superpowers/specs/` upstream; the using-superpowers bootstrap overrides that to `.planning/<effort>/spec.md` at runtime, so both converge on this home — but they are separate entry paths, not a shared artifact. Do not offer `docs/specs/` or any other location.)
+3. Write the spec using the template below, then write it to a local file — `.planning/<effort>/spec.md`. Tell the user the path. (Superpowers' `brainstorming` converges on the same `.planning/` home — its no-effort specs land in the flat `.planning/specs/` — but they are separate entry paths, not a shared artifact. Do not offer `docs/specs/` or any other location.)
 
 <spec-template>
 

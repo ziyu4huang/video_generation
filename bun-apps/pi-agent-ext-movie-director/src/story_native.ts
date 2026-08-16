@@ -18,7 +18,7 @@
  * storyboard` subprocess (see `app/commands/story.py`'s `run_shots`); this
  * never touches the TS registry/selector, so it never reaches
  * `storyboard_native.ts`'s Bun-native generation line (2026-08-01, see
- * docs/superpowers/specs/2026-08-01-storyboard-native-port-design.md). The
+ * .planning/specs/2026-08-01-storyboard-native-port-design.md). The
  * ONLY way to reach the Bun-native path is to bypass `runpy_story.ts`
  * entirely: build the shots request with `conceptToStory` and call
  * `image_generation:storyboard` directly — this both cuts one full Python

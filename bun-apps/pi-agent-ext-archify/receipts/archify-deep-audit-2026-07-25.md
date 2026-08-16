@@ -2,7 +2,7 @@
 
 - Date: 2026-07-25
 - Scope: bun-apps/pi-agent-ext-archify/
-- Spec: docs/superpowers/specs/2026-07-25-archify-deep-audit-design.md
+- Spec: .planning/specs/2026-07-25-archify-deep-audit-design.md
 - Mode: Read-only charter (no code changed)
 
 ## Overall verdict
