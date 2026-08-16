@@ -31,3 +31,4 @@ Initial cut (5) — may be re-cut at plan time; details in `tickets/`:
 ## Ledger
 
 - 2026-08-16: ticket 05 spike closed — KEEP-AND-DOCUMENT (user decision); all 5 tickets closed; effort complete, ready for archival.
+- 2026-08-16: EFFORT ARCHIVED — ticket 05 spike closed keep-and-document (ActivityRow stays; 4 production sites; why-note in bun-apps/pi-agent-ext-workflow/CONTEXT.md). No open work remains.
