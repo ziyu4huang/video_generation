@@ -33,7 +33,8 @@
     "build:bundle": "bun scripts/build-bundle.ts",
     "build:bundle:obf": "bun scripts/build-bundle.ts --obfuscate",
     "check:flags": "bun scripts/check-flags.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.2",

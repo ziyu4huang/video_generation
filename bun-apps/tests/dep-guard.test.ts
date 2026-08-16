@@ -25,6 +25,7 @@ import * as assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readJsonc } from "./read-jsonc.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // bun-apps/
 const EXTS = readdirSync(ROOT)
@@ -93,11 +94,13 @@ function parseTypesRepos(tsconfig: unknown): Set<string> {
 }
 
 /** `@repo/*` tsconfig `types` edges for a package. Missing tsconfig → empty
- *  (a few ext packages have none). */
+ *  (a few ext packages have none). readJsonc, not JSON.parse: tsconfig.json is
+ *  JSONC, and one self-documenting tsconfig used to throw here and take three
+ *  unrelated assertions in this file down with it. */
 function typesRepos(pkg: string): Set<string> {
 	const f = join(ROOT, pkg, "tsconfig.json");
 	if (!existsSync(f)) return new Set();
-	return parseTypesRepos(JSON.parse(readFileSync(f, "utf8")));
+	return parseTypesRepos(readJsonc(f));
 }
 
 /** All @repo edges a package has: import statements ∪ tsconfig `types`. */

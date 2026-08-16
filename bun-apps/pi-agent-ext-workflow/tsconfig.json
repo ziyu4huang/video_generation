@@ -10,8 +10,9 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "rootDir": "src",
+    // No `rootDir`: the registration entry lives in `extensions/`, outside `src/`,
+    // and `rootDir: "src"` would reject it (TS6059) instead of checking it.
     "declaration": true
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "extensions/**/*.ts"]
 }

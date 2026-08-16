@@ -126,8 +126,12 @@ describe("runPyVideo (run.py video t2i2v adapter)", () => {
     const manifestPath = join(runDir, "t2i2v_manifest.json");
     writeFileSync(manifestPath, JSON.stringify({ pipeline: "t2i2v", output_dir: runDir, stages: {} }));
     try {
+      // No options: this asserts the exit-0-without-mp4 gate, and nothing else.
+      // It used to pass `{ reviewRuns: true }`, which is not a RunPyVideoOptions
+      // field and which buildArgs never emits — inert decoration that only read
+      // as meaningful because no typechecker had ever seen this file.
       const out = await runPyVideo({
-        options: { reviewRuns: true },
+        options: {},
         outputDir: box,
         _spawnImpl: async () => ({
           exitCode: 0,
@@ -204,7 +208,7 @@ describe("runPyVideo (run.py video t2i2v adapter)", () => {
   // Skip (not fail) whenever the venv is absent — CI AND a local machine
   // right after `git clean -dxf` / fresh clone (before setup-offline.sh).
   const VENV_PRESENT = existsSync(resolveRunPyPaths(resolveRepoRoot()).python);
-  test.skipIf(process.env.CI || !VENV_PRESENT)("resolves venv python + run.py from the repo root (paths exist on this machine)", () => {
+  test.skipIf(Boolean(process.env.CI) || !VENV_PRESENT)("resolves venv python + run.py from the repo root (paths exist on this machine)", () => {
     const { python, runPy } = resolveRunPyPaths(resolveRepoRoot());
     expect(existsSync(python)).toBe(true);
     expect(existsSync(runPy)).toBe(true);

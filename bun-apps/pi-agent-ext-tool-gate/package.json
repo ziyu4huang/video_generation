@@ -26,7 +26,8 @@
     "qa:miss-ab": "bun run qa/gate-recall.ts",
     "qa:gate-recall": "bun run qa/gate-recall.ts",
     "qa:coverage": "bun run qa/coverage.ts",
-    "qa": "bun run qa/run.ts"
+    "qa": "bun run qa/run.ts",
+    "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "0.84.2",
@@ -53,6 +54,7 @@
     "@repo/pi-agent-ext-web-access": "workspace:*",
     "@repo/pi-agent-ext-webui": "workspace:*",
     "@repo/pi-agent-ext-workflow": "workspace:*",
-    "@repo/pi-agent-ext-zai-mcp": "workspace:*"
+    "@repo/pi-agent-ext-zai-mcp": "workspace:*",
+    "typescript": "^7.0.2"
   }
 }

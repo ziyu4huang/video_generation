@@ -25,7 +25,9 @@ function captureTools(): Record<string, Record<string, unknown>> {
 test("flux2 tool is stealth-trimmed: short routing description + no promptSnippet/guidelines", () => {
 	const tools = captureTools();
 	const flux2 = tools["flux2"];
-	expect(flux2).toBeDefined();
+	// `throw` rather than `expect(...).toBeDefined()`: it narrows for the reads
+	// below, which an expect() cannot, and still fails the test on absence.
+	if (!flux2) throw new Error("captureTools() registered no `flux2` tool");
 
 	const desc = String(flux2.description ?? "");
 	expect(desc.length).toBeLessThan(240);

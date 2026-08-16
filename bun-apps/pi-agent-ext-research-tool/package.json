@@ -7,7 +7,8 @@
   "keywords": ["pi-package", "research", "bilibili", "youtube", "video-collection", "obsidian"],
   "type": "module",
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
   },
   "exports": {
     "./extensions/*": "./extensions/*",

@@ -54,7 +54,7 @@ describe("pi-flux2 extension", () => {
     // The subcommand list now lives in flux2_help's no-arg output (commandIndex).
     const help = getTool("flux2_help");
     const res = await help.execute("id", {});
-    const text = (res.content as Array<{ type: string; text?: string }>)[0].text ?? "";
+    const text = (res.content as Array<{ type: string; text?: string }>)[0]?.text ?? "";
     for (const cmd of ALL_COMMANDS) {
       expect(text).toContain(cmd);
     }
