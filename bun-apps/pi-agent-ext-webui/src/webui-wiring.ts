@@ -40,7 +40,7 @@ import { DEFAULT_WATCHDOG, type InputSource, type MutexClock, type MutexTimer } 
 import { WebTransport } from "./web-transport.js";
 import { WebServer, type CommandHandler, type HttpRouteHandler } from "./web-server.js";
 import type { Broadcaster } from "./broadcaster.js";
-import type { ClientFrame, DispatchAction, WebFrame } from "./protocol.js";
+import type { CardField, ClientFrame, DispatchAction, WebFrame } from "./protocol.js";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
@@ -317,6 +317,38 @@ export function cardBellMessage(
 }
 
 /**
+ * event-cards (05): map a questionnaire payload's `questions` onto
+ * interactive-card fields (the pilot ask-card body). One field per question
+ * (`q<index>`): a `select` carrying the option labels when the question has
+ * options, `text` otherwise (free-text intent). Capped at 8 fields — a card
+ * form is a quick-pick surface, not a full dialog replacement (the ask_user
+ * frame remains the primary mirror). PURE + bus-robust: invalid entries
+ * degrade (non-string labels dropped, malformed questions become text
+ * fields), never throw.
+ */
+export function askCardFields(questions: unknown): CardField[] {
+  const qs = Array.isArray(questions) ? questions : [];
+  const fields: CardField[] = [];
+  for (let i = 0; i < qs.length && fields.length < 8; i++) {
+    const q = qs[i] as { question?: unknown; options?: unknown } | undefined;
+    const label =
+      q && typeof q.question === "string" && q.question ? q.question : `Question ${i + 1}`;
+    const opts = Array.isArray(q?.options)
+      ? q.options
+          .map((o) =>
+            typeof (o as { label?: unknown })?.label === "string"
+              ? (o as { label: string }).label
+              : "",
+          )
+          .filter((s): s is string => s !== "")
+      : [];
+    if (opts.length > 0) fields.push({ name: `q${i}`, label, type: "select", options: opts });
+    else fields.push({ name: `q${i}`, label, type: "text" });
+  }
+  return fields;
+}
+
+/**
  * Type predicate: `frame.type === "card"` alone does NOT drop the WebFrame
  * union's forward-compat member (`{ type: string; ... }`), so the wrapped
  * broadcaster narrows through this before calling cardBellMessage (TS2345).
@@ -513,6 +545,16 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   const cardsDir = deps.cardsDir ?? path.join(homedir(), ".pi", "webui", "sessions");
   let sessionStamp = "";
   const answeredCardIds = new Set<string>();
+  // event-cards (05): pilot wiring state — the pending ask-card ledger (which
+  // ask-<promptId> cards were broadcast; gates the card_done tombstone the
+  // answered handler fires, first-fire deletes) + the archify view→url cache
+  // and seq counter (viewless webui:open/present emissions mint sequential
+  // ids; present payloads carry no url, so the open-side cache feeds them).
+  // Reset in the session_shutdown handler + dispose() next to answeredCardIds
+  // — a fresh session re-broadcasts fresh pilot cards.
+  const askCardIds = new Set<string>();
+  const viewUrls = new Map<string, string>();
+  let archifySeq = 0;
 
   /**
    * Handle an inbound interactive-card answer (guarded at onCommand TOP,
@@ -520,6 +562,13 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
    * are ignored silently (loose-channel contract: never error); NO ack reply
    * is sent (the card_done tombstone IS the feedback). Filesystem failures on
    * the JSONL append are swallowed too — the tombstone still fires.
+   *
+   * UNIFY CHOICE (event-cards 05): ask cards (id ask-<promptId>) do NOT ride
+   * this loop — their submit posts the EXISTING ask_user_answer appexec
+   * envelope (the ask-user bridge consumes it via doneRef), and their answers
+   * are NOT logged to cards.jsonl: one answer path per card kind, the JSONL
+   * decision log stays generic-interactive-only (ask answers are already
+   * attributable to the questionnaire, not the card surface).
    */
   function handleCardAnswer(extra: unknown): void {
     const a = extra as { cardId?: unknown; answers?: unknown } | undefined;
@@ -728,7 +777,35 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   };
   pi.events?.on("webui:render", createRenderEventHandler(registry, { toImageMarkdown }));
   const presentHandler = createPresentEventHandler(registry, { toImageMarkdown });
-  pi.events?.on("webui:present", presentHandler);
+  // event-cards (05): wrap the present handler so event-originated (archify)
+  // presentations ALSO project a readonly archify card. Only id-less payloads
+  // (archify's {path, view, title, controls}) announce — the webui_present
+  // tool's own payload carries an `id` and already owns its HITL surface. The
+  // card reuses the SAME archify-<view> id as the open-side card (archify
+  // opens the view first), so renderCard's dom-id dedupe turns open+present
+  // into replace-only — never two cards for one view. The url comes from the
+  // open-side view cache (present payloads carry no url); an unknown/viewless
+  // emission omits the OPTIONAL url and mints a sequential id. Replay-eligible
+  // via the store-wrapped broadcaster.
+  const presentHandlerWrapper = (payload: unknown): void => {
+    presentHandler(payload);
+    const p = payload as { view?: unknown; title?: unknown; id?: unknown } | null;
+    if (!p || typeof p !== "object" || p.id !== undefined) return;
+    const view =
+      typeof p.view === "string" && p.view !== "" ? p.view : `present-${++archifySeq}`;
+    const url = viewUrls.get(view);
+    broadcaster.broadcast({
+      type: "card",
+      id: `archify-${view}`,
+      kind: "readonly",
+      title: (typeof p.title === "string" && p.title) || "archify view",
+      source: "archify",
+      ts: Date.now(),
+      attention: "view",
+      body: { text: "archify view ready", ...(url !== undefined ? { url } : {}) },
+    });
+  };
+  pi.events?.on("webui:present", presentHandlerWrapper);
   // ticket 06 (archify-webui-html spec §4.2): the `webui:open` channel — any
   // extension (archify; wayfind-style string-literal contract, no import)
   // may emit {path, view?, title?}. The handler validates against the SAME
@@ -753,7 +830,31 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       },
       notify: (message) => bound?.ctx?.ui?.notify(message),
       registerView: (input) => registry.openUrl(input),
-      broadcast: (frame) => broadcaster.broadcast(frame),
+      // event-cards (05): wrap the broadcast dep so a successful open ALSO
+      // projects an archify readonly card (attention view; deep link = the
+      // RESOLVED /files url already on the view_opened frame — never raw
+      // payload paths). id archify-<view> matches the present wrapper above
+      // (open+present dedupe to replace-only); a viewless emission mints a
+      // sequential id. The view→url cache feeds the present wrapper. Replay-
+      // eligible via the store-wrapped broadcaster (snapshot refreshes keep
+      // the card).
+      broadcast: (frame) => {
+        broadcaster.broadcast(frame);
+        if (frame.type !== "view_opened") return;
+        const hasView = typeof frame.view === "string" && frame.view !== "";
+        const view = hasView ? (frame.view as string) : `open-${++archifySeq}`;
+        if (hasView) viewUrls.set(frame.view as string, frame.url);
+        broadcaster.broadcast({
+          type: "card",
+          id: `archify-${view}`,
+          kind: "readonly",
+          title: (typeof frame.title === "string" && frame.title) || "archify view",
+          source: "archify",
+          ts: Date.now(),
+          attention: "view",
+          body: { text: "archify view ready", url: frame.url },
+        });
+      },
     })
   );
 
@@ -764,12 +865,33 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // execute consumes via its doneRef. No cross-package import either direction.
   pi.events?.on("rpiv:ask-user:prompt", (payload: unknown) => {
     const p = payload as { promptId?: string; questions?: unknown[] } | undefined;
+    const promptId = typeof p?.promptId === "string" ? p.promptId : "";
     broadcaster.broadcast({
       type: "ask_user",
-      promptId: typeof p?.promptId === "string" ? p.promptId : "",
+      promptId,
       questions: Array.isArray(p?.questions) ? p.questions : [],
       ts: Date.now(),
     });
+    // event-cards (05): ALSO project the questionnaire as an interactive card
+    // (the pilot's DUAL broadcast — ask_user frame + card). UNIFY choice: the
+    // card's submit rides the EXISTING ask-user bridge (ask_user_answer appexec
+    // envelope — see render-shell appendCardForm), NOT the t02 card_answer
+    // loop, so no cards.jsonl line is written for ask answers. The id embeds
+    // the promptId (ask-<promptId>) so the shell's submit recovers it; the
+    // answered handler's card_done tombstone retires it (Set-guarded below).
+    // Replay-eligible via the store-wrapped broadcaster.
+    const cardId = `ask-${promptId}`;
+    broadcaster.broadcast({
+      type: "card",
+      id: cardId,
+      kind: "interactive",
+      title: "Questionnaire",
+      source: "ask-user",
+      ts: Date.now(),
+      attention: "input",
+      body: { question: "Answer the questionnaire", fields: askCardFields(p?.questions) },
+    });
+    askCardIds.add(cardId);
   });
 
   // ask-user tombstone (webui-tui-parity C1): every questionnaire exit emits
@@ -777,7 +899,17 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // the dialog. String-literal contract; no task-package import.
   pi.events?.on("rpiv:ask-user:answered", (payload: unknown) => {
     const p = payload as { promptId?: string } | undefined;
-    broadcaster.broadcast({ type: "ask_user_done", promptId: typeof p?.promptId === "string" ? p.promptId : "" });
+    const promptId = typeof p?.promptId === "string" ? p.promptId : "";
+    broadcaster.broadcast({ type: "ask_user_done", promptId });
+    // event-cards (05): ALSO retire the ask card — Set-guarded (only when the
+    // card was broadcast; delete makes the first fire win, a duplicate
+    // answered event is a no-op; cleared on session_shutdown). The tombstone
+    // rides the same replay path, so a refreshed shell replays card then
+    // card_done IN ORDER and renders the answered form, never a ghost form.
+    const cardId = `ask-${promptId}`;
+    if (askCardIds.delete(cardId)) {
+      broadcaster.broadcast({ type: "card_done", id: cardId, ts: Date.now() });
+    }
   });
 
   // webui_present (the blocking HITL gate, spec Component 2): the `present` dep
@@ -914,6 +1046,11 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     // stray pre-session answer skips the log (see handleCardAnswer).
     answeredCardIds.clear();
     sessionStamp = "";
+    // event-cards (05): pilot wiring state resets with the rest of the
+    // per-session card state (see the declaration for the lifetime contract).
+    askCardIds.clear();
+    viewUrls.clear();
+    archifySeq = 0;
   });
 
   // ticket 04 (refined): announce the resolved URL ONLY when the first content is
@@ -972,6 +1109,8 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   }
   function maybeCard(name: string, payload: unknown): void {
     if (disposed || SNOOP_SKIP.has(name)) return;
+    // rpiv:* is internal plumbing; webui:open/present have dedicated pilot cards (t05) — snoop copies are noise.
+    if (name.startsWith("rpiv:") || name === "webui:open" || name === "webui:present") return;
     broadcaster.broadcast({
       type: "card",
       id: `card-${++cardSeq}`,
@@ -1009,6 +1148,10 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       // per-session state.
       answeredCardIds.clear();
       sessionStamp = "";
+      // event-cards (05): pilot wiring state — same reset as shutdown.
+      askCardIds.clear();
+      viewUrls.clear();
+      archifySeq = 0;
       server.setHttpRoutes(null);
       server.setCommandHandler(null);
       server.setWsCloseHandler(null);

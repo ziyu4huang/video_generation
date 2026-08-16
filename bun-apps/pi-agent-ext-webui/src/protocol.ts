@@ -226,8 +226,9 @@ export type WebFrame =
       source: string;
       ts: number;
       attention: "view" | "input" | "silent";
-      /** readonly body: plain text, textContent-rendered. */
-      body: { text: string };
+      /** readonly body: plain text (textContent-rendered) + optional deep-link
+       * url rendered as a createElement anchor (event-cards 05, archify cards). */
+      body: { text: string; url?: string };
     }
   | {
       type: "card";

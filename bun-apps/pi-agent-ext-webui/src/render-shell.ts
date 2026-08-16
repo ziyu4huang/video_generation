@@ -503,6 +503,19 @@ function renderCard(frame) {
   const body = document.createElement('div');
   body.className = 'card-body';
   body.textContent = frame.body && typeof frame.body.text === 'string' ? frame.body.text : '';
+  // event-cards (05): an optional body.url deep link (archify cards) renders
+  // as a createElement anchor — href/target/rel via property assignment ONLY,
+  // never setAttribute (url is producer-sourced, i.e. UNTRUSTED; a javascript:
+  // href string displays as text at worst — same sink discipline as the rest
+  // of the card path: no markup sink exists).
+  if (frame.body && typeof frame.body.url === 'string' && frame.body.url) {
+    var link = document.createElement('a');
+    link.href = frame.body.url;
+    link.textContent = frame.body.url;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    body.appendChild(link);
+  }
   art.appendChild(h);
   art.appendChild(meta);
   art.appendChild(body);
@@ -523,10 +536,21 @@ function renderCard(frame) {
 // attribute carries the RAW frame id — the same key handleCardAnswer
 // correlates on (never the prefixed dom id). Invalid fields are SKIPPED, not
 // fatal.
+// isAskCard: the pilot ask cards (event-cards 05) — wiring mints id
+// ask-<promptId> for questionnaire cards. Their submit posts the EXISTING
+// ask_user_answer envelope (the ask-user bridge), NOT card_answer: one answer
+// path per card kind (the unify choice — the t02 JSONL decision log stays
+// generic-interactive-only; the wiring-side card_done tombstone from
+// rpiv:ask-user:answered retires the form).
+function isAskCard(id) { return /^ask-/.test(id); }
+
 function appendCardForm(art, frame) {
   var b = frame.body;
   if (!b || typeof b.question !== 'string' || !Array.isArray(b.fields)) return; // malformed — inert text card
   const cardId = typeof frame.id === 'string' ? frame.id : '';
+  // The RENDERED fields only (invalid entries are skipped below — the submit
+  // envelope maps over exactly what the user can fill, in render order).
+  var fields = [];
   const form = document.createElement('form');
   form.className = 'card-form';
   form.setAttribute('data-card-id', cardId);
@@ -537,6 +561,7 @@ function appendCardForm(art, frame) {
   for (const f of b.fields) {
     if (!f || typeof f.name !== 'string' || !f.name) continue; // skip invalid fields
     if (f.type !== 'text' && f.type !== 'select') continue; // unknown field type — skip
+    fields.push(f);
     const lab = document.createElement('label');
     lab.textContent = typeof f.label === 'string' ? f.label : f.name;
     form.appendChild(lab);
@@ -564,16 +589,23 @@ function appendCardForm(art, frame) {
   btn.type = 'submit';
   btn.textContent = 'Submit';
   form.appendChild(btn);
-  // Submit collects EVERY named field in one shot (FormData) and posts a
-  // loose appexec card_answer envelope — the SAME loose-extra channel the
-  // ask-user dialog uses. DEVIATION from the ask dialog (documented): this
-  // goes through sendRaw, NOT raw ws.send — sendRaw queues while the WS is
+  // Submit collects EVERY named field in one shot (FormData) and posts ONE
+  // loose appexec envelope over sendRaw. ASK CARDS (unify choice, event-cards
+  // 05): the ask_user_answer envelope — same channel + payload shape as the
+  // ask dialog's submit (promptId = cardId minus the ask- prefix; answers as
+  // proper {questionIndex, question, kind, answer} rows the ask-user envelope
+  // formatter consumes). Generic interactive cards: the card_answer envelope.
+  // Both go through sendRaw, NOT raw ws.send — sendRaw queues while the WS is
   // reconnecting (v2 queue-never-drop), so an answer typed during a retry
   // lands instead of dropping. NO optimistic local state: card_done drives
   // the retire (first answer wins, enforced server-side).
   form.onsubmit = function (ev) {
     ev.preventDefault(); // never navigate — the answer rides /ws
     var answers = Object.fromEntries(new FormData(form));
+    if (isAskCard(cardId)) {
+      sendRaw(JSON.stringify({ type: 'appexec', extra: { kind: 'ask_user_answer', promptId: cardId.slice(4), result: { cancelled: false, answers: fields.map(function (f, i) { return { questionIndex: i, question: typeof f.label === 'string' ? f.label : f.name, kind: f.type === 'select' ? 'option' : 'custom', answer: answers[f.name] !== undefined ? answers[f.name] : null }; }) } } }));
+      return false;
+    }
     sendRaw(JSON.stringify({ type: 'appexec', extra: { kind: 'card_answer', cardId: cardId, answers: answers } }));
     return false;
   };
@@ -1288,6 +1320,50 @@ export function APPEXEC_CARD_ANSWER(
   answers: Record<string, string>,
 ): { type: "appexec"; extra: { kind: "card_answer"; cardId: string; answers: Record<string, string> } } {
   return { type: "appexec", extra: { kind: "card_answer", cardId, answers } };
+}
+
+/**
+ * Pure ask-card submit frame (event-cards 05) — the PINNED wire shape the
+ * inline `appendCardForm` submit duplicates for ask cards (id ask-<promptId>):
+ * the ask_user_answer appexec envelope (NOT card_answer — the unify choice;
+ * ask answers ride the existing ask-user bridge and never touch the t02 JSONL
+ * loop). `promptId` is the card id minus the ask- prefix; each rendered field
+ * maps to a proper `{questionIndex, question, kind, answer}` row (the ask-user
+ * envelope formatter keys on questionIndex + kind; select -> option,
+ * text -> custom). Tests grid this pure twin AND assert the inline literal so
+ * the duplication stays honest.
+ */
+export function APPEXEC_ASK_CARD_ANSWER(
+  cardId: string,
+  answers: Record<string, string>,
+  fields: Array<{ name: string; label?: string; type?: string }>,
+): {
+  type: "appexec";
+  extra: {
+    kind: "ask_user_answer";
+    promptId: string;
+    result: {
+      cancelled: boolean;
+      answers: Array<{ questionIndex: number; question: string; kind: "option" | "custom"; answer: string | null }>;
+    };
+  };
+} {
+  return {
+    type: "appexec",
+    extra: {
+      kind: "ask_user_answer",
+      promptId: cardId.replace(/^ask-/, ""),
+      result: {
+        cancelled: false,
+        answers: fields.map((f, i) => ({
+          questionIndex: i,
+          question: typeof f.label === "string" ? f.label : f.name,
+          kind: f.type === "select" ? "option" : "custom",
+          answer: answers[f.name] !== undefined ? answers[f.name] : null,
+        })),
+      },
+    },
+  };
 }
 
 /**
