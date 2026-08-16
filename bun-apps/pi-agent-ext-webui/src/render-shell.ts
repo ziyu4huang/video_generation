@@ -661,7 +661,7 @@ function renderReport(frame) {
 // md is producer-authored but untrusted; no HTML parsing on this path).
 // FENCE avoids backticks: render-shell's JS lives inside a template literal.
 function appendInline(el, text) {
-  const parts = String(text).split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  const parts = String(text).split(/(\\*\\*[^*]+\\*\\*|\\*[^*]+\\*)/g);
   for (const p of parts) {
     if (!p) continue;
     if (p.indexOf('**') === 0 && p.lastIndexOf('**') === p.length - 2 && p.length > 4) { const b = document.createElement('strong'); b.textContent = p.slice(2, -2); el.appendChild(b); }
@@ -677,12 +677,12 @@ function renderMarkdown(md) {
   let list = null, para = [], code = null;
   const flushPara = function () { if (para.length) { const p = document.createElement('p'); p.textContent = para.join(' '); wrap.appendChild(p); para = []; } };
   for (const raw of lines) {
-    const line = raw.replace(/\s+$/, '');
+    const line = raw.replace(/\\s+$/, '');
     if (code !== null) { if (line.indexOf(FENCE) === 0) { const pre = document.createElement('pre'); const c = document.createElement('code'); c.textContent = code.join('\n'); pre.appendChild(c); wrap.appendChild(pre); code = null; } else code.push(line); continue; }
     if (line.indexOf(FENCE) === 0) { flushPara(); list = null; code = []; continue; }
-    const hm = /^(#{1,3})\s+(.*)$/.exec(line);
+    const hm = /^(#{1,3})\\s+(.*)$/.exec(line);
     if (hm) { flushPara(); list = null; const el = document.createElement('h' + String(hm[1].length + 1)); el.textContent = hm[2]; wrap.appendChild(el); continue; }
-    const lim = /^[-*]\s+(.*)$/.exec(line);
+    const lim = /^[-*]\\s+(.*)$/.exec(line);
     if (lim) { flushPara(); if (!list) { list = document.createElement('ul'); wrap.appendChild(list); } const it = document.createElement('li'); appendInline(it, lim[1]); list.appendChild(it); continue; }
     if (line.trim() === '') { flushPara(); list = null; continue; }
     para.push(line.trim());
