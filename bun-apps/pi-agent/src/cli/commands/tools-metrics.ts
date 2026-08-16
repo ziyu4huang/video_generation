@@ -32,48 +32,21 @@ import {
 	formatSchemaCostReport,
 	formatSchemaCostJson,
 } from "./schema-cost.ts";
+import {
+	type CallRec,
+	type ResultRec,
+	type SessionScan,
+	parseSessionLines,
+} from "@repo/pi-agent-ext-power-tool/history";
 
 // --- types -------------------------------------------------------------------
 
-/** Minimal shape of a JSONL event line — only the fields we read. */
-interface AnyEvent {
-	type: string;
-	timestamp?: string;
-	cwd?: string;
-	message?: {
-		role?: string;
-		content?: Array<{
-			type: string;
-			id?: string;
-			name?: string;
-		}>;
-		toolCallId?: string;
-		toolName?: string;
-		isError?: boolean;
-	};
-}
-
-/** One toolCall block, flattened. */
-interface CallRec {
-	callId: string;
-	name: string;
-	t0: number;
-}
-/** One toolResult message, flattened. */
-interface ResultRec {
-	callId: string;
-	name: string;
-	t1: number;
-	isError: boolean;
-}
-
-/** Parsed view of a single transcript file. */
-export interface SessionScan {
-	cwd?: string;
-	startedAt?: number; // epoch ms of the `session` event (earliest event)
-	calls: CallRec[];
-	results: ResultRec[];
-}
+// The transcript parser (AnyEvent / CallRec / ResultRec / SessionScan /
+// parseSessionLines) now lives in @repo/pi-agent-ext-power-tool/history so that
+// tool-health metrics and pathology replay read transcripts through ONE parser.
+// Re-exported here because both names were already part of this module's surface.
+export type { SessionScan } from "@repo/pi-agent-ext-power-tool/history";
+export { parseSessionLines } from "@repo/pi-agent-ext-power-tool/history";
 
 /** Per-tool aggregated numbers. */
 export interface ToolStat {
@@ -112,70 +85,7 @@ export interface MetricsFilters {
 	cwdSubstr?: string;
 }
 
-// --- pure parsing + aggregation (unit-testable) ------------------------------
-
-/** Parse one JSONL transcript (array of raw lines) into a SessionScan. */
-export function parseSessionLines(lines: string[]): SessionScan {
-	const scan: SessionScan = { calls: [], results: [] };
-	let earliest: number | undefined;
-
-	for (const raw of lines) {
-		const trimmed = raw.trim();
-		if (!trimmed) continue;
-		let ev: AnyEvent;
-		try {
-			ev = JSON.parse(trimmed) as AnyEvent;
-		} catch {
-			continue; // skip malformed lines silently
-		}
-		const t = parseTs(ev.timestamp);
-		if (t !== undefined && (earliest === undefined || t < earliest)) earliest = t;
-
-		if (ev.type === "session" && typeof ev.cwd === "string") {
-			scan.cwd = ev.cwd;
-			if (scan.startedAt === undefined && t !== undefined) scan.startedAt = t;
-		}
-
-		if (ev.type !== "message" || !ev.message) continue;
-		const m = ev.message;
-
-		if (m.role === "assistant" && Array.isArray(m.content) && t !== undefined) {
-			for (const b of m.content) {
-				if (b?.type === "toolCall" && b.id && b.name) {
-					scan.calls.push({ callId: b.id, name: b.name, t0: t });
-				}
-			}
-		} else if (m.role === "toolResult" && t !== undefined) {
-			const callId = m.toolCallId;
-			const name = m.toolName ?? "(unknown)";
-			if (callId) {
-				scan.results.push({ callId, name, t1: t, isError: !!m.isError });
-			} else {
-				// toolResult without a callId still counts toward results/errors;
-				// use a synthetic unique id so it can't accidentally pair.
-				scan.results.push({
-					callId: `__orphan__${name}__${scan.results.length}`,
-					name,
-					t1: t,
-					isError: !!m.isError,
-				});
-			}
-		}
-	}
-
-	if (scan.startedAt === undefined) scan.startedAt = earliest;
-	return scan;
-}
-
-/** Parse an event timestamp (ISO string or epoch-ms number) → epoch ms. */
-function parseTs(ts: unknown): number | undefined {
-	if (typeof ts === "number" && Number.isFinite(ts)) return ts;
-	if (typeof ts === "string") {
-		const n = Date.parse(ts);
-		if (!Number.isNaN(n)) return n;
-	}
-	return undefined;
-}
+// --- pure aggregation (unit-testable) ----------------------------------------
 
 /**
  * Aggregate an array of SessionScans into a MetricsReport, applying filters.
