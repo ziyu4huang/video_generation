@@ -19,6 +19,11 @@
  *     declarative .webui-toolbar under #content; a control click sends an
  *     appexec respond frame over /ws (one response per presentation).
  *   - ask_user frames render the mirrored ask-user questionnaire dialog (§C3);
+ *   - DE-CHAT (event-cards 00): chat lives in the TUI — the v2 main-session
+ *     composer (prompt input + Send + Abort) is GONE; the webui keeps only
+ *     web-native interaction (btw side channel, HITL appexec, ask-user).
+ *     Enter-to-send handlers ignore IME composition (isComposing / keyCode
+ *     229) — a CJK IME's confirmation Enter must never dispatch a send.
  */
 export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
 <!doctype html>
@@ -81,16 +86,9 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   #btw-bar button, #btw-bar select { font-size: 12px; padding: 3px 8px; }
   #btw-compose { display: flex; gap: 4px; }
   #btw-input { flex: 1 1 auto; }
-  /* v2 main-session compose bar (architecture v2 §3.3): prompt input + abort,
-     so the browser is a REAL co-frontend interaction surface, not just a
-     viewer. Pinned below the shell row. */
-  #webui-compose { display: flex; gap: .4rem; padding: .5rem; border-top: 1px solid #8884; }
-  #webui-input { flex: 1 1 auto; padding: .4rem .55rem; border: 1px solid #8886; border-radius: 6px; background: transparent; color: inherit; font: inherit; }
-  #webui-compose button { padding: .35rem .8rem; border: 1px solid #8886; border-radius: 6px; background: #8882; color: inherit; cursor: pointer; }
-  #webui-compose button:hover:not(:disabled) { background: #6cf3; }
-  #webui-abort { color: #f88; }
   /* v2 live transcript (architecture v2 §3.3): the agent stream rendered as a
-     mirror — message deltas, tool calls, mutex signals. */
+     mirror — message deltas, tool calls, mutex signals. De-chat (event-cards
+     00): full-height — the compose bar that sat below #shell-row is gone. */
   #webui-transcript { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: .6rem 1rem; font-size: 13px; }
   #webui-transcript .tx-turn { margin: .8rem 0 .2rem; color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
   #webui-transcript .tx-msg { margin: .2rem 0; white-space: pre-wrap; word-break: break-word; }
@@ -133,11 +131,6 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
     <button id="btw-ask">Ask</button>
   </div>
 </aside>
-</div>
-<div id="webui-compose">
-  <input id="webui-input" type="text" placeholder="Prompt the session (mutex-gated)..." />
-  <button id="webui-send">Send</button>
-  <button id="webui-abort" title="Abort the in-flight turn">Abort</button>
 </div>
 <div id="webui-views-panel">
   <div class="webui-log-head"><span>views (<span id="webui-views-count">0</span>)</span><a id="webui-views-collapse" href="#" title="Collapse/expand the views panel">«</a></div>
@@ -569,13 +562,26 @@ function btwInit() {
     });
   });
 
-  const ask = document.getElementById('btw-ask');
-  if (ask) ask.addEventListener('click', function () {
+  // Ask dispatch (Ask button + Enter on the btw input — event-cards 00 adds
+  // Enter-to-send). The keydown guard is MANDATORY: a CJK IME confirms its
+  // composition with Enter — without the isComposing / keyCode-229 check that
+  // confirmation would dispatch the half-composed question. Grid: isSendEnter
+  // (exported pure twin) + literal assertions in render-shell-btw.test.ts.
+  function btwAsk() {
     const input = document.getElementById('btw-input');
     const text = input.value.trim();
     if (!text) return;
     input.value = '';
     sendBtw('ask', { text: text });
+  }
+  const ask = document.getElementById('btw-ask');
+  if (ask) ask.addEventListener('click', btwAsk);
+  const askInput = document.getElementById('btw-input');
+  if (askInput) askInput.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    if (e.isComposing || e.keyCode === 229) return; // IME composition — never a send
+    e.preventDefault();
+    btwAsk();
   });
   ['new', 'clear', 'inject', 'summarize'].forEach(function (kind) {
     const btn = document.getElementById('btw-' + kind);
@@ -815,7 +821,9 @@ function renderControls(v) {
     }
     tweakSend.onclick = submit;
     tweakIn.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); submit(); }
+      if (e.key !== 'Enter') return;
+      if (e.isComposing || e.keyCode === 229) return; // IME composition — never a send
+      e.preventDefault(); submit();
     });
     box.appendChild(tweakIn);
     box.appendChild(tweakSend);
@@ -852,31 +860,6 @@ function renderControls(v) {
   contentEl.appendChild(bar);
 }
 
-// --- v2 main-session compose (architecture v2 §3.3) -------------------------
-// The browser becomes a REAL interaction surface: prompt input (mutex-gated via
-// the {type:"prompt"} frame) + an Abort button ({type:"abort"}) for the
-// in-flight turn. The protocol always supported these; v1 never wired the UI.
-function webuiInit() {
-  const input = document.getElementById('webui-input');
-  const send = document.getElementById('webui-send');
-  const abort = document.getElementById('webui-abort');
-  function doSend() {
-    const text = (input.value || '').trim();
-    if (!text) return;
-    input.value = '';
-    sendRaw(JSON.stringify({ type: 'prompt', text: text }));
-    logResponse('prompt: ' + text.slice(0, 80));
-  }
-  if (send) send.addEventListener('click', doSend);
-  if (input) input.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') { e.preventDefault(); doSend(); }
-  });
-  if (abort) abort.addEventListener('click', function () {
-    sendRaw(JSON.stringify({ type: 'abort' }));
-    logResponse('abort requested');
-  });
-}
-
 (async function () {
   const clearLink = document.getElementById('webui-log-clear');
   if (clearLink) clearLink.onclick = function (e) {
@@ -885,12 +868,11 @@ function webuiInit() {
     if (body) body.innerHTML = '';
   };
   // v2 (architecture v2 §3.6): a rejected initial fetch must not permanently
-  // skip subscribe()/btwInit()/webuiInit() — retry the whole boot.
+  // skip subscribe()/btwInit()/viewsInit() — retry the whole boot.
   try {
     await refresh();
     subscribe();
     btwInit(); // after the tab/view wiring so all getElementById targets exist
-    webuiInit();
     viewsInit(); // view notifications: toast stack + views panel (07)
   } catch (e) {
     console.warn('[webui] boot failed; reloading in 2s', e);
@@ -930,6 +912,18 @@ export function BTW_FRAME(
   extra?: Record<string, unknown>,
 ): { type: "btw"; kind: string; [key: string]: unknown } {
   return extra ? { type: "btw", kind, ...extra } : { type: "btw", kind };
+}
+
+/**
+ * Pure Enter-to-send gate (event-cards 00, de-chat): true ONLY for a real
+ * Enter that is not mid-IME-composition. The inline shell script duplicates
+ * this decision as the literal guard `if (e.isComposing || e.keyCode === 229)
+ * return;` on every Enter-to-send handler (btw input, HITL tweak input);
+ * tests grid this pure twin AND assert the inline literals so the duplication
+ * stays honest (same convention as APPEXEC_FRAME / BTW_MESSAGE_HTML).
+ */
+export function isSendEnter(e: { key?: string; isComposing?: boolean; keyCode?: number }): boolean {
+  return e.key === "Enter" && e.isComposing !== true && e.keyCode !== 229;
 }
 
 /**

@@ -8,7 +8,8 @@ presentations can be answered from there.
 
 Architecture v2 (see `docs/architecture-v2.md`): the webui is now an **optional** render
 + interaction surface for the TUI agent — the browser mirrors the live agent stream
-(transcript), accepts prompts + abort mid-turn, and answers HITL presentations (with a
+(transcript), serves the client-end interactive surface (transcript, views, btw ask) —
+no chat composer, and answers HITL presentations (with a
 Cancel button), all behind the same agentic mutex as the TUI. Security hardening
 (loopback Host validation, sandboxed markdown/HTML rendering, symlink-safe `/output`,
 header token auth) is documented there too.
@@ -29,9 +30,9 @@ The webui is **on by default** (backward compatible). Disable or pin it three wa
 - **Live transcript mirror**: `message_update` deltas, tool calls/results, mutex signals,
   and turn/`settled` markers render into a scrollback; a connect-time `snapshot` frame
   replays session history on open/refresh (bounded, 500 frames).
-- **Main-session interaction**: a prompt input (`{type:"prompt"}`, mutex-gated) and an
-  Abort button (`{type:"abort"}`); outbound frames QUEUE while the WS reconnects so a
-  HITL answer is never lost.
+- **Side-channel interaction**: the btw panel asks a web-native side-channel question
+  (IME-safe Enter); main chat lives in the TUI — the webui has no composer. Outbound
+  frames QUEUE while the WS reconnects so a HITL answer is never lost.
 - **Rendered views**: tabs of named md/HTML views (`webui:render`), auto-focus on a
   presenting view, `![image](/output/0/…)` images. Producers can pass an `images`
   array on `webui:render` / `webui:present` — output paths are auto-converted to

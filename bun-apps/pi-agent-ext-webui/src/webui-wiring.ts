@@ -15,13 +15,15 @@
  *   pi.on(message_*|tool_*|turn_*|agent_settled|session_*compact) → broadcast
  *
  * CRITICAL invariants (specs/04 §6):
- *  - The `input` extension event IS the mutex gate. The inbound dispatch closure
- *    does NOT pre-gate: it calls `pi.sendUserMessage(text)`, which fires pi's
- *    internal `input` event (source "extension"). That event's handler gates via
- *    MutexController.handleInput; a block returns {action:"handled"} and pi
- *    SUPPRESSES the message (agent-session.js short-circuits on "handled"), while
- *    the notifier broadcasts `mutex_blocked`. So block feedback is BROADCAST
- *    only — there is no per-command ack.
+ *  - The `input` extension event IS the mutex gate. ANY input (source
+ *    "extension" vs "interactive") gates via MutexController.handleInput; a
+ *    block returns {action:"handled"} and pi SUPPRESSES the message
+ *    (agent-session.js short-circuits on "handled"), while the notifier
+ *    broadcasts `mutex_blocked`. So block feedback is BROADCAST only — there
+ *    is no per-command ack. DE-CHAT (event-cards 00): the wiring itself no
+ *    longer produces `input` events — the retired agentic dispatch was the
+ *    only `pi.sendUserMessage` caller (chat lives in the TUI); the gate stays
+ *    for OTHER extension-sourced inputs on the shared host.
  *  - `appexec` BYPASSES the mutex entirely — it is the HITL return transport
  *    (spec Component 1): a typed `respond` descriptor resolves the pending
  *    Promise registered under its `id` (unknown ids are ignored), while
@@ -80,13 +82,14 @@ export interface WebuiUi {
 }
 
 /**
- * The session-context slice the wiring touches: abort() (unchanged — the
- * dispatch closure + bindSession still use it) + ui (new — the announce
- * channel). Widening this UNDOES the prior `ctx as { abort(): void }` downcast
- * so session_start can reach ctx.ui (specs/07 D3).
+ * The session-context slice the wiring touches: `ui` (the announce +
+ * block-feedback channel) + `modelRegistry` (btw panel D12). DE-CHAT
+ * (event-cards 00): `abort()` is gone — the retired agentic dispatch was its
+ * only wiring consumer (the Abort button rode the removed main composer).
+ * Structural slice of the real ExtensionContext, which remains a superset;
+ * narrowing on purpose keeps a MockPi ctx stub tiny.
  */
 export interface WebuiSessionCtx {
-  abort(): void;
   ui: WebuiUi;
   /** Model registry (btw panel D12): structural slice of the SDK's
    *  ExtensionContext.modelRegistry.getAvailable(). The real ExtensionContext
@@ -95,17 +98,17 @@ export interface WebuiSessionCtx {
 }
 
 /**
- * The minimal pi host surface wireWebui touches: a many-event `on` registrar,
- * `sendUserMessage`, plus the ticket-06 render seams (`events` + `registerTool`).
- * Narrow on purpose so a MockPi in tests is tiny; the real {@link ExtensionAPI}
- * is a structural superset (assigned at the extensions/webui.ts entry via a cast).
+ * The minimal pi host surface wireWebui touches: a many-event `on` registrar
+ * plus the ticket-06 render seams (`events` + `registerTool`). DE-CHAT
+ * (event-cards 00): no `sendUserMessage` — the retired agentic dispatch was
+ * its only caller; the wiring no longer injects prompts into the session
+ * (chat lives in the TUI; the btw side channel + HITL appexec are the
+ * web-native input surfaces). Narrow on purpose so a MockPi in tests is
+ * tiny; the real {@link ExtensionAPI} is a structural superset (assigned at
+ * the extensions/webui.ts entry via a cast).
  */
 export interface WebuiHost {
   on(event: string, handler: (event: any, ctx: any) => any): void;
-  sendUserMessage(
-    content: string | unknown[],
-    opts?: { deliverAs?: "steer" | "followUp" }
-  ): void;
   /** Shared event bus (ticket 06 render channel "webui:render"). Optional —
    *  the render seam may be absent on host SDK builds that predate ticket 06;
    *  wiring no-ops the render registration then instead of throwing at boot. */
@@ -425,29 +428,18 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       reply({ type: "error", reason: "no_session" });
       return;
     }
-    dispatch(action, bound);
+    dispatch(action);
   };
 
-  function dispatch(action: DispatchAction, session: { pi: WebuiHost; ctx: { abort(): void } }): void {
+  function dispatch(action: DispatchAction): void {
     switch (action.kind) {
       case "agentic":
-        // The input event IS the mutex gate — do NOT pre-gate. sendUserMessage
-        // fires pi's internal input event (source "extension"); on a block pi
-        // suppresses delivery and the notifier broadcasts mutex_blocked.
-        switch (action.op) {
-          case "prompt":
-            session.pi.sendUserMessage(action.text ?? "");
-            break;
-          case "steer":
-            session.pi.sendUserMessage(action.text ?? "", { deliverAs: "steer" });
-            break;
-          case "followUp":
-            session.pi.sendUserMessage(action.text ?? "", { deliverAs: "followUp" });
-            break;
-          case "abort":
-            session.ctx.abort();
-            break;
-        }
+        // RETIRED (event-cards 00, de-chat): chat lives in the TUI — the served
+        // shell's main composer is gone. prompt/steer/followUp/abort frames
+        // still VALIDATE (protocol) and parse (web-transport) but are
+        // deliberately NOT routed to pi.sendUserMessage / ctx.abort. The
+        // browser's web-native input surface is the btw side channel + HITL
+        // appexec (below).
         break;
       case "appexec": {
         // Phase 1 return transport (spec Component 1): `action` is the typed

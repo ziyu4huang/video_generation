@@ -6,8 +6,9 @@
  * `wireWebui` composition root. This is NOT a re-implementation — it drives the
  * production wiring path against a minimal-but-real `pi` host stub, with a REAL
  * `Bun.serve` (the wiring's WebServer) and REAL WebSocket clients. The only
- * thing mocked is the narrow `WebuiHost` surface (`on` + `sendUserMessage`),
- * which is exactly the interface the wiring declares as its dependency.
+ * thing mocked is the narrow `WebuiHost` surface (`on` + render seams); the
+ * stub's `sendUserMessage` is now a RECORDER — de-chat (event-cards 00) proof
+ * that the wiring never injects prompts into the session.
  *
  * PORT DISCOVERY SEAM (the KEY QUESTION):
  *   `wireWebui(pi, deps)` accepts `deps.server: WebuiServer` (documented in
@@ -31,7 +32,7 @@
  * `{source:"interactive"}` (tui blocked) by invoking the handler the wiring
  * registered. This exercises the REAL MutexController + REAL BroadcastingNotifier
  * + REAL WebServer broadcaster → REAL WS delivery. NOT a mock of the controller;
- * the only stub is the `on`/`sendUserMessage` host surface.
+ * the only stub is the `on`/render-seam host surface.
  *
  * Helper parity: withTimeout / waitFor / openWs are lifted verbatim from
  * web-server.test.ts so this file shares its proven harness shape.
@@ -163,7 +164,9 @@ function hasLiveFrame(ws: WebSocket): { got: () => boolean } {
  * Minimal `WebuiHost` implementation. Records every `on` registration so tests
  * can REPLAY pi events into the wiring's real handlers (the exact thing a real
  * ExtensionAPI does — fire the event, the handler runs). Records sendUserMessage
- * + abort calls for assertions.
+ * + abort calls for assertions (de-chat: `sendUserMessage` is an EXTRA member —
+ * the narrowed WebuiHost no longer declares it; the recorder stays as negative
+ * proof that the wiring never injects prompts).
  */
 class MockPi implements WebuiHost {
   readonly handlers = new Map<string, (event: any, ctx: any) => any>();
@@ -328,19 +331,19 @@ describe("wireWebui live smoke — Tier A", () => {
     expect(frame.state.driver).toBeNull();
   });
 
-  it("D) inbound prompt dispatch: {type:prompt,text:'smoke hello'} -> pi.sendUserMessage('smoke hello')", async () => {
+  it("D) inbound prompt frame is deliberately IGNORED (de-chat): pi.sendUserMessage never called", async () => {
     const { pi, server } = setup();
     pi.emit("session_start", {}, pi.ctx());
     const ws = await withTimeout(openWs(`${server.url.replace("http", "ws")}/ws`), 2000, "ws open");
     await waitFor("client registered", () => server.clientCount === 1);
 
+    // DE-CHAT (event-cards 00): the main composer is gone — the wiring no
+    // longer routes prompt frames to pi.sendUserMessage. The frame still
+    // validates (protocol) + parses (transport), but the wiring's dispatch
+    // seam is a deliberate no-op for agentic frames.
     ws.send(JSON.stringify({ type: "prompt", text: "smoke hello" }));
-    // The wiring's onCommand seam dispatches synchronously after the server's
-    // message handler runs; poll for the recorded call.
-    await waitFor("sendUserMessage recorded", () => pi.sent.length === 1);
-    expect(pi.sent).toEqual([
-      { content: "smoke hello", opts: undefined },
-    ]);
+    await Bun.sleep(150); // give the (absent) dispatch time to never fire
+    expect(pi.sent).toEqual([]); // sendUserMessage never called
   });
 
   it("E) origin guard: a non-loopback Origin is rejected (HTTP 403)", async () => {

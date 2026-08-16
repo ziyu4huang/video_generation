@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { BTW_FRAME, BTW_MESSAGE_HTML, RENDER_SHELL_HTML } from "../src/render-shell";
+import { BTW_FRAME, BTW_MESSAGE_HTML, RENDER_SHELL_HTML, isSendEnter } from "../src/render-shell";
 
 describe("RENDER_SHELL_HTML btw panel scaffold", () => {
   it("embeds the btw side panel structure", () => {
@@ -69,5 +69,29 @@ describe("BTW_MESSAGE_HTML pure helper", () => {
     });
     expect(html).toContain("btw-status");
     expect(html).toContain("running-tool: bash");
+  });
+});
+
+describe("de-chat (event-cards 00): Enter-to-send IME gate", () => {
+  it("isSendEnter grids the pure twin: real Enter only, never mid-composition", () => {
+    // CJK IME confirmation Enter — isComposing true — must NOT send.
+    expect(isSendEnter({ key: "Enter", isComposing: true })).toBe(false);
+    // Safari/legacy keydown: composition Enter reports keyCode 229 instead.
+    expect(isSendEnter({ key: "Enter", keyCode: 229 })).toBe(false);
+    // A plain Enter sends.
+    expect(isSendEnter({ key: "Enter" })).toBe(true);
+  });
+
+  it("the inline shell duplicates the guard on EVERY Enter-to-send handler (exactly 2: btw input + HITL tweak input)", () => {
+    expect(
+      RENDER_SHELL_HTML.split("isComposing || e.keyCode === 229").length - 1
+    ).toBe(2);
+  });
+
+  it("the main composer is gone: no #webui-input / #webui-send / #webui-compose / webuiInit", () => {
+    expect(RENDER_SHELL_HTML).not.toContain('id="webui-input"');
+    expect(RENDER_SHELL_HTML).not.toContain('id="webui-send"');
+    expect(RENDER_SHELL_HTML).not.toContain('id="webui-compose"');
+    expect(RENDER_SHELL_HTML).not.toContain("webuiInit");
   });
 });

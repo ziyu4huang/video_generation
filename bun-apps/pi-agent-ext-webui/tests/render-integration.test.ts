@@ -190,32 +190,20 @@ describe("wireWebui render framework — end-to-end", () => {
   });
 });
 
-describe("wireWebui render framework — decoupling (spec D8)", () => {
-  it("the render path does NOT call sendUserMessage and does NOT broadcast a mutex_blocked frame", async () => {
+describe("wireWebui render framework — de-chat: the send-queue machinery survives (event-cards 00)", () => {
+  it("the SERVED shell still ships sendRaw + wsQueue + sendAppexecResponse (composer removed, queue kept)", async () => {
     const { pi, server } = setup();
     pi.emit("session_start", {}, pi.ctx());
-    // Observe any broadcast on the chat WS (mutex_blocked would arrive here).
-    // Live frames only — the v2 connect-time snapshot is expected and must not
-    // trip this negative control.
-    const ws = await withTimeout(openWs(`${server.url.replace("http", "ws")}/ws`), 2000, "ws open");
-    await waitFor("client registered", () => server.clientCount === 1);
-    let gotFrame = false;
-    ws.onmessage = (ev) => {
-      try {
-        if (JSON.parse(String(ev.data)).type === "snapshot") return;
-      } catch {
-        /* fall through */
-      }
-      gotFrame = true;
-    };
-
-    // Drive the event producer path (webui_render is dropped — spec Decision B).
-    pi.events.emit("webui:render", { content: "# via-event", view: "t" });
-
-    await Bun.sleep(100); // give any (absent) broadcast time to never arrive
-    expect(pi.sent).toEqual([]); // render never injects a user message
-    expect(gotFrame).toBe(false); // no mutex_blocked / no chat frame on the render path
-    ws.close();
+    const body = await (await fetch(`${server.url}/`)).text();
+    // The main composer is gone (no prompt input / send button)...
+    expect(body).not.toContain('id="webui-compose"');
+    expect(body).not.toContain('id="webui-input"');
+    // ...but the outbound queue machinery — the thing that guarantees a HITL
+    // answer is never lost across a WS reconnect, and which the btw panel
+    // rides too — is fully intact in the served HTML.
+    expect(body).toContain("wsQueue.push(payload)");
+    expect(body).toContain("WebSocket.OPEN");
+    expect(body).toContain("sendAppexecResponse(");
   });
 });
 
