@@ -125,6 +125,10 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   form.card-form button[type='submit'] { align-self: flex-start; padding: .35rem .9rem; border-radius: 6px; border: 1px solid #6cf; background: #6cf3; color: inherit; cursor: pointer; font-size: .8rem; }
   #cards-pane .card p.card-answered { margin-top: .4rem; font-size: .75rem; color: #888; font-style: italic; }
   #cards-pane .card.card-answered { opacity: .65; }
+  /* event-cards (03): #card-<id> deep-link flash — background highlight pulse
+     + fade, timed to the classList remove (~1.6s). */
+  @keyframes card-flash-pulse { from { background: #6cf6; } to { background: #0000; } }
+  #cards-pane .card.card-flash { animation: card-flash-pulse 1.6s ease-out; }
 </style>
 </head>
 <body>
@@ -215,11 +219,7 @@ async function loadViews() {
   cardsTab.id = 'cards-tab';
   cardsTab.textContent = 'Cards';
   cardsTab.title = 'projected event cards';
-  cardsTab.onclick = function () {
-    cardsVisible = !cardsVisible;
-    cardsPaneEl.hidden = !cardsVisible;
-    cardsTab.classList.toggle('active', cardsVisible);
-  };
+  cardsTab.onclick = function () { toggleCardsTab(); };
   tabsEl.appendChild(cardsTab);
   if (!views.some(v => v.id === activeId)) activeId = (views[0] && views[0].id) || 'main';
   viewsMergePoll(views); // same fetch doubles as the panel's poll backstop
@@ -454,6 +454,18 @@ function txRenderSnapshot(state) {
 const cardsPaneEl = document.getElementById('cards-pane');
 let cardsVisible = false;
 
+// toggleCardsTab: the ONE tab-activation path the Cards tab click AND the
+// #card-<id> deep link share (event-cards 03). force=true ACTIVATES (deep
+// link — never toggles a visible pane away); undefined toggles. The tab is
+// looked up by id on every call — loadViews rebuilds the strip, so no stale
+// element closure survives a rebuild.
+function toggleCardsTab(force) {
+  cardsVisible = typeof force === 'boolean' ? force : !cardsVisible;
+  cardsPaneEl.hidden = !cardsVisible;
+  const tab = document.getElementById('cards-tab');
+  if (tab) tab.classList.toggle('active', cardsVisible);
+}
+
 // The frame id already carries the card- prefix when wiring-generated
 // (card-<n>, per-session counter); prefix only foreign producer ids so EVERY
 // anchor is #card-<x>.
@@ -580,6 +592,47 @@ function retireCard(frame) {
     form.replaceWith(done);
   }
   art.classList.add('card-answered');
+}
+
+// --- event-cards (03): #card-<id> deep link --------------------------------
+// parseCardHashInline duplicates the pure parseCardHash twin (module-level
+// export in render-shell.ts — the served script has no build step; same
+// intentional duplication as APPEXEC_FRAME / isSendEnter). The id charset is
+// regex-validated so the DOM lookup is getElementById ONLY — never a composed
+// querySelector (no selector-string injection risk on this path).
+function parseCardHashInline(hash) {
+  var m = /^#card-([A-Za-z0-9_-]+)$/.exec(String(hash || ''));
+  return m ? m[1] : null;
+}
+
+// Cold load: the snapshot arrives ASYNC over /ws (connect-time replay), so the
+// article may not exist on the first look — retry with backoff (~6 tries over
+// ~3s) before giving up quietly. Flash is add-once + remove after ~1.6s
+// (matches the card-flash-pulse animation), guarded against duplicate adds.
+var CARD_HASH_RETRY_DELAYS = [150, 250, 400, 600, 800, 800]; // ~3s total
+function focusCardArticle(id, attempt) {
+  const el = document.getElementById('card-' + id);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (!el.classList.contains('card-flash')) { // guard duplicate adds
+      el.classList.add('card-flash');
+      setTimeout(function () { el.classList.remove('card-flash'); }, 1600);
+    }
+    return;
+  }
+  if (attempt >= CARD_HASH_RETRY_DELAYS.length) return; // gave up quietly
+  setTimeout(function () { focusCardArticle(id, attempt + 1); }, CARD_HASH_RETRY_DELAYS[attempt]);
+}
+
+// handleCardHash: #card-<id> -> activate the Cards tab + scroll/flash. Never
+// throws (the whole body is try/caught — a deep link must never break boot).
+function handleCardHash() {
+  try {
+    const id = parseCardHashInline(location.hash);
+    if (id === null) return;
+    toggleCardsTab(true);
+    focusCardArticle(id, 0);
+  } catch { /* never break boot */ }
 }
 
 // --- ask-user bridge dialog (§C3) -------------------------------------
@@ -1063,9 +1116,11 @@ function renderControls(v) {
   // skip subscribe()/btwInit()/viewsInit() — retry the whole boot.
   try {
     await refresh();
+    handleCardHash(); // event-cards (03): #card-<id> deep link — after the first render; the retry backoff covers the async snapshot
     subscribe();
     btwInit(); // after the tab/view wiring so all getElementById targets exist
     viewsInit(); // view notifications: toast stack + views panel (07)
+    window.addEventListener('hashchange', handleCardHash); // live re-route on later hash changes
   } catch (e) {
     console.warn('[webui] boot failed; reloading in 2s', e);
     setTimeout(function () { location.reload(); }, 2000);
@@ -1130,6 +1185,20 @@ export function APPEXEC_CARD_ANSWER(
   answers: Record<string, string>,
 ): { type: "appexec"; extra: { kind: "card_answer"; cardId: string; answers: Record<string, string> } } {
   return { type: "appexec", extra: { kind: "card_answer", cardId, answers } };
+}
+
+/**
+ * Pure #card-<id> hash parser (event-cards 03). The inline shell script
+ * duplicates this as the literal regex in `parseCardHashInline` (the served
+ * HTML string has no module/build step — same intentional duplication as
+ * APPEXEC_FRAME / isSendEnter); tests grid this pure twin AND assert the
+ * inline literal so the duplication stays honest. Anything but `#card-` +
+ * [A-Za-z0-9_-]+ is null — the validated id only ever feeds getElementById
+ * (never a composed querySelector).
+ */
+export function parseCardHash(hash: string): string | null {
+  const m = /^#card-([A-Za-z0-9_-]+)$/.exec(hash);
+  return m ? m[1]! : null;
 }
 
 /**
