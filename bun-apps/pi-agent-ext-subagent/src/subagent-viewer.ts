@@ -147,7 +147,8 @@ interface ViewerOpts {
   /** Ctrl+b detach lever (Task 06) — fires on the FOCUSED run (list: the
    *  cursor's Running row; follow: the followed run). Wired to
    *  `convertToBackground(id, makeProdDetachDeps())` in subagents-command.ts —
-   *  the SAME assembly as the global ctrl+b path in extensions/subagent.ts. */
+   *  the SAME assembly as the global shortcut path (alt+s) in
+   *  extensions/subagent.ts. */
   onDetach?: (id: string) => void;
 }
 

@@ -36,9 +36,15 @@ export {
   setRateLimitCapResolver,
   WorkflowAgent,
 } from "@repo/pi-agent-core-runtime";
-// ── owned: detach dispatch (Task 06) — ctrl+b, global + in-viewer ───────────
-export { DETACH_KEY_BYTE, dispatchCtrlB, foregroundRunIds, GLOBAL_DETACH_KEY } from "./ctrl-b.js";
-// ── owned: detach pipeline (Task 05) — ctrl+b (Task 06) + dock (Task 08) ────
+// ── owned: detach dispatch (Task 06) — alt+s global + ctrl+b in-viewer ─────
+export {
+  DETACH_KEY_BYTE,
+  dispatchCtrlB,
+  foregroundRunIds,
+  GLOBAL_DETACH_KEY,
+  GLOBAL_DETACH_SEQUENCE,
+} from "./ctrl-b.js";
+// ── owned: detach pipeline (Task 05) — global detach (Task 06) ─────────────
 export type {
   DetachDeps,
   DetachedChildHandle,

@@ -99,17 +99,34 @@ export default function extension(pi: ExtensionAPI) {
   // with /workflows-models (fine-edit). Preset templates live in src/presets.ts.
   registerModelsPresetCommand(pi);
 
-  // Ctrl+b (Task 06) — GLOBAL detach: background the OLDEST live foreground
-  // subagent run. Both detach surfaces share one lever: convertToBackground
-  // over makeProdDetachDeps (the /subagents viewer's in-viewer ctrl+b passes
-  // the SAME assembly through the viewer's onDetach seam).
+  // alt+s (Task 06, rebound from ctrl+b) — GLOBAL detach: background the
+  // OLDEST live foreground subagent run. Both detach key surfaces share one
+  // lever: convertToBackground over makeProdDetachDeps (the /subagents
+  // viewer's in-viewer ctrl+b passes the SAME assembly through the viewer's
+  // onDetach seam).
   //
-  // The chord itself is GLOBAL_DETACH_KEY — see src/ctrl-b.ts for why it must
-  // be a plain ctrl+<letter> (a ctrl+shift+ chord is undeliverable on terminals
-  // that negotiate neither Kitty CSI-u nor modifyOtherKeys) and why the
-  // resulting startup conflict diagnostic is the accepted cost.
+  // The chord itself is GLOBAL_DETACH_KEY — see src/ctrl-b.ts for the full
+  // why. Short form: ctrl+b shadowed pi's built-in `tui.editor.cursorLeft`
+  // (a startup conflict warning on every launch); #1481's ctrl+shift+b
+  // rebound was reverted by #1492 because pi-tui has no legacy fallback for
+  // ctrl+shift+<letter> — the chord was silently dead on terminals without
+  // Kitty CSI-u / modifyOtherKeys. alt+<letter> HAS the legacy fallback
+  // (ESC+s → "alt+s"), and alt+s is free of ALL pi built-in defaults, so it
+  // claims cleanly: no warning, shadows nothing. See ADR-subagent-0004; the
+  // repo-wide guard test in pi-agent/src/__tests__/extension-shortcut-guard.
+  // test.ts keeps it that way.
+  //
+  // Terminal note: alt+s requires the terminal to send ESC+s for Option+S —
+  // iTerm2: Profiles → Keys → Option key = "Esc+"; Terminal.app: "Use Option
+  // as Esc+" (Preferences → Profiles → Keyboard); Ghostty and kitty pass
+  // alt+s through by default.
+  //
+  // The scoped ctrl+b surface keeps ctrl+b deliberately — it acts only while
+  // the /subagents viewer owns the input (no pi editor active), so it cannot
+  // collide with built-in editor bindings: the in-viewer key in
+  // subagent-viewer.ts (raw \x02 byte sniff, unregistered).
   pi.registerShortcut(GLOBAL_DETACH_KEY, {
-    description: "subagent: detach foreground run to background (ctrl+b)",
+    description: "subagent: detach foreground run to background (alt+s)",
     handler: () => {
       dispatchCtrlB(inFlight, (id) => convertToBackground(id, makeProdDetachDeps({ registry: inFlight, persistence })));
     },

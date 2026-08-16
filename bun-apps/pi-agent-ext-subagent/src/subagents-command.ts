@@ -74,7 +74,8 @@ export function createSubagentsCommand(opts: { subagentInFlight: SubagentInFligh
               done();
             },
             onAbort: (id) => subagentInFlight.abort(id),
-            // Ctrl+b (Task 06): the SAME detach assembly as the global shortcut —
+            // Ctrl+b (Task 06): the SAME detach assembly as the global
+            // shortcut (alt+s) —
             // convertToBackground over the prod deps (shared registry + real
             // detached spawn + persistence manifest). The run stays in the
             // registry with foreground flipped false, so the row silently moves

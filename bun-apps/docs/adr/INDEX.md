@@ -90,6 +90,7 @@ Then add its row below. `bun run test:adr` fails until you do.
 | `ADR-subagent-0001` | Why the subagent subsystem was extracted into its own package | [`pi-agent-ext-subagent/…/0001`](../../pi-agent-ext-subagent/docs/adr/0001-why-extracted.md) |
 | `ADR-subagent-0002` | Relocate the `/subagents` viewer + command into this package | [`pi-agent-ext-subagent/…/0002`](../../pi-agent-ext-subagent/docs/adr/0002-relocate-viewer-command-to-subagent.md) |
 | `ADR-subagent-0003` | `SpawnSubagentResult` reports a failure union, not a subprocess exit | [`pi-agent-ext-subagent/…/0003`](../../pi-agent-ext-subagent/docs/adr/0003-failure-union-over-subprocess-vocabulary.md) |
+| `ADR-subagent-0004` | Global detach shortcut is `alt+s`, not `ctrl+b` (scoped in-viewer surface keeps `ctrl+b`) | [`pi-agent-ext-subagent/…/0004`](../../pi-agent-ext-subagent/docs/adr/0004-global-detach-shortcut-alt-s.md) |
 
 ### superpowers
 
