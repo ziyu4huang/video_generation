@@ -23,7 +23,10 @@ export type QuestionnaireAction =
 	| { kind: "multi_confirm"; selected: string[]; autoAdvanceTab?: number }
 	| { kind: "cancel" }
 	| { kind: "notes_enter" }
-	| { kind: "notes_exit" }
+	// Carries the editor's text: the notes `Input` owns the buffer, so the value
+	// travels with the action instead of being mirrored into state. See
+	// QuestionnaireRuntime.notesBuffer.
+	| { kind: "notes_exit"; value: string }
 	| { kind: "submit" }
 	| { kind: "submit_nav"; nextIndex: 0 | 1 }
 	| { kind: "notes_forward"; data: string }
@@ -193,7 +196,9 @@ function escAction(state: QuestionnaireState, runtime: QuestionnaireRuntime): Qu
 			// move off that row — which navHandler already does, clearing the input
 			// buffer on the way. Questions carry at least MIN_OPTIONS real rows
 			// above the free-text one, so there is always somewhere to land.
-			return state.notesVisible ? { kind: "notes_exit" } : prevNavOnUp(state, runtime);
+			return state.notesVisible
+				? { kind: "notes_exit", value: runtime.notesBuffer }
+				: prevNavOnUp(state, runtime);
 		case "review":
 			return { kind: "tab_switch", nextTab: runtime.questions.length };
 		default:
@@ -219,7 +224,7 @@ export function routeKey(
 
 	if (state.notesVisible) {
 		if (kb.matches(data, KEYBIND_CANCEL)) return escAction(state, runtime);
-		if (kb.matches(data, KEYBIND_CONFIRM)) return { kind: "notes_exit" };
+		if (kb.matches(data, KEYBIND_CONFIRM)) return { kind: "notes_exit", value: runtime.notesBuffer };
 		return { kind: "notes_forward", data };
 	}
 

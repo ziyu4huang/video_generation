@@ -1,17 +1,20 @@
 ---
 type: grilling
-status: open
+status: closed
 blocked by:
 ---
-# 02 — ask-user TUI side-car review (core-task)
+# 02 — ask-user TUI side-car review (task)
 
-Read-only review of `bun-apps/pi-agent-ext-core-task/src/ask-user/` (2026-08-16). The
+Read-only review of `bun-apps/pi-agent-ext-task/src/ask-user/` (2026-08-16). The
 module split (state / view / tool, pure reducer) is sound — every finding below is in
 the **hint layer and the mode semantics**, not the architecture.
 
-**A1 / A3 / A4 / A5 are FIXED** — they shared one root cause and closed together
-under `view/hint-table.ts` (see below). **A2, A6, A7, A8, A9 are still open**;
-A2 and A6 need a decision before implementation.
+**All nine findings are CLOSED.** A1/A3/A4/A5 shared one root cause and closed
+together under `view/hint-table.ts`; A2 and A6 (the two that needed a decision)
+closed under `state/key-router.ts`'s exported `notesKeyAccepted` / `escDestination`
+predicates; A7/A8/A9 closed last. Each section below keeps the original finding
+and records the resolution — the code carries the current rules, so read the
+cited file when they matter.
 
 ## Root cause (A1/A3/A4/A5) — CLOSED
 
@@ -23,7 +26,7 @@ Nothing tied the two together, so a part could be defined without being rendered
 Fixed by `src/ask-user/view/hint-table.ts`: one `{ label, when, args }` table
 plus one `buildHintText(ctx)` renderer, used by the dialog footer AND the
 collapsed one-line bar. The structural guard is the reachability suite in
-`view/__tests__/hint-table.test.ts` — it enumerates all 80 contexts and asserts
+`view/__tests__/hint-table.test.ts` — it enumerates all 240 contexts and asserts
 every table label is rendered by at least one, and every rendered part is a
 table label. A fifth instance of this class now fails a test instead of shipping.
 
@@ -43,7 +46,7 @@ if (state.focusedOptionHasPreview) hintParts.push(`n ${t(HINT_PART_NOTES)}`);
 Renders `n n to add notes` under `en`, `n n 新增備註` under `zh-TW`. Fires on every
 question whose focused option carries a preview.
 
-## A2 · HIGH — notes are unreachable for multi-select, but the reducer plumbs them
+## A2 · HIGH — notes are unreachable for multi-select, but the reducer plumbs them — FIXED
 
 `state/key-router.ts:178` gates the `n` key on
 `!q.multiSelect && state.focusedOptionHasPreview`. Yet `state-reducer.ts` reads
@@ -53,8 +56,10 @@ question whose focused option carries a preview.
 Tying notes to preview presence is also arbitrary — a user may well want to annotate a
 plain option.
 
-**Decision needed:** un-gate `n` (drop the preview condition, allow on multiSelect), or
-delete the multi-select notes plumbing.
+**Decided: un-gate.** Both conditions are gone — `state/key-router.ts`'s exported
+`notesKeyAccepted` is now the single rule (the footer reads the same predicate), so
+the reducer's multi-select notes branches are live. Pinned by the end-to-end
+round-trips in `__tests__/notes-and-esc.test.ts`.
 
 ## A3 · MEDIUM — the collapse hint is defined, translated, tested, and never shown — FIXED
 
@@ -81,7 +86,7 @@ inlining, the constant stayed, and the same trap is now armed for `HINT_NOTES_SU
 
 Root cause shared with A1/A3/A4 — see the CLOSED section at the top of this file.
 
-## A6 · MEDIUM — Esc is asymmetric and destructive
+## A6 · MEDIUM — Esc is asymmetric and destructive — FIXED
 
 | Mode | Esc does |
 |---|---|
@@ -91,27 +96,41 @@ Root cause shared with A1/A3/A4 — see the CLOSED section at the top of this fi
 
 On a four-question dialog, one stray Esc loses everything.
 
-**Decision needed:** proposal is Esc-in-inputMode returns to the option list, and Esc on
-a question tab with >=1 answer jumps to the submit tab (where Cancel is an explicit,
-deliberate choice) instead of aborting.
+**Decided: adopt the proposal.** `escDestination` (`state/key-router.ts`) now maps
+state -> `cancel` / `back` / `review`, and the footer names the destination the
+router will actually take. Esc Esc still quits, in two steps.
 
-## A7 · MEDIUM — single-select answers are not restored on tab switch
+## A7 · MEDIUM — single-select answers are not restored on tab switch — FIXED
 
 `state-reducer.ts:97 switchTabResult` always resets `optionIndex: 0`, but restores
 multi-select ticks via `syncMultiSelectFromAnswers`. So revisiting an answered
 **multi**-select tab shows your ticks; revisiting an answered **single**-select tab puts
-the cursor on row 0 with no indication of what you chose. Fix: derive `optionIndex` from
-the saved answer's label.
+the cursor on row 0 with no indication of what you chose.
 
-## A8 · LOW — view state flows back into the "canonical" reducer state
+Fixed by `restoreFocus` in the same file: an `option` answer lands on the row
+carrying its label; a `custom` answer lands on the free-text row in input mode with
+the buffer seeded (the inline `Input` is shared by every tab, so the row would
+otherwise show another tab's text); `multi` and a label no longer on the tab keep
+row 0.
+
+## A8 · LOW — view state flows back into the "canonical" reducer state — FIXED
 
 `questionnaire-session.ts:125 mirrorNotesDraft` reads `notesInput.getValue()` after
 every commit and writes it into `state.notesDraft`. Combined with the
 `forward_notes_keystroke` effect this is a round trip, and it means the reducer is not
 the single source of truth for the field `state.ts` says it owns.
 
-## A9 · LOW — multi-select submit is hard to discover
+Fixed by giving the field to the widget that was already editing it:
+`QuestionnaireRuntime.notesBuffer` joins `inputBuffer`, `notes_exit` carries the
+value on the action, and `notesDraft` + `mirrorNotesDraft` are gone.
+
+## A9 · LOW — multi-select submit is hard to discover — FIXED
 
 `key-router.ts:200`: Enter on an ordinary row toggles; only the `next` sentinel commits.
 The footer reads "Enter to select · Space to toggle", which implies Enter submits.
 Suggest "Enter/Space to toggle · Next to confirm".
+
+Adopted. `Enter to select` is suppressed on a multi-select question tab (but not in
+`input` mode, where the router's inputMode branch really does confirm), and the
+confirm hint is templated from `ROW_INTENT_META.next.label` through the same `t()`
+entry the row renders with.

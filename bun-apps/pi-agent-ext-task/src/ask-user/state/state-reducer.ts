@@ -87,22 +87,66 @@ function persistMultiSelectAnswer(state: QuestionnaireState, ctx: ApplyContext):
 	return out;
 }
 
+/** Where the cursor lands when the dialog (re-)enters a tab. */
+interface RestoredFocus {
+	optionIndex: number;
+	inputMode: boolean;
+	/** Emitted only when the restored row needs the inline Input seeded. */
+	effect?: Effect;
+}
+
+const NO_FOCUS_RESTORE: RestoredFocus = { optionIndex: 0, inputMode: false };
+
+/**
+ * Put the cursor back on the row the saved answer came from.
+ *
+ * Tab switching used to hard-reset to row 0 while multi-select ticks WERE
+ * restored (`syncMultiSelectFromAnswers`), so revisiting an answered
+ * single-select question showed no trace of what you had chosen — and that is
+ * the one question type where the answer IS the cursor position. (Ticket 02 · A7.)
+ *
+ * `option` answers map back to the row carrying their label. `custom` answers
+ * were typed on the free-text row, so they restore that row AND its input mode,
+ * seeding the buffer exactly as `navHandler` does when you walk onto the row
+ * with a prior custom answer — the inline Input is shared by every tab, so
+ * focusing the row without seeding it would show another tab's text.
+ * Multi-select tabs stay on row 0: their answer is the tick set, which
+ * `syncMultiSelectFromAnswers` restores instead.
+ */
+function restoreFocus(state: QuestionnaireState, nextTab: number, ctx: ApplyContext): RestoredFocus {
+	const saved = state.answers.get(nextTab);
+	if (!saved || typeof saved.answer !== "string") return NO_FOCUS_RESTORE;
+	const items = ctx.itemsByTab[nextTab] ?? [];
+	if (saved.kind === "option") {
+		const index = items.findIndex((item) => item.kind === "option" && item.label === saved.answer);
+		return index >= 0 ? { optionIndex: index, inputMode: false } : NO_FOCUS_RESTORE;
+	}
+	if (saved.kind === "custom") {
+		const index = items.findIndex((item) => ROW_INTENT_META[item.kind].activatesInputMode);
+		if (index >= 0) {
+			return { optionIndex: index, inputMode: true, effect: { kind: "set_input_buffer", value: saved.answer } };
+		}
+	}
+	return NO_FOCUS_RESTORE;
+}
+
 function switchTabResult(state: QuestionnaireState, nextTab: number, ctx: ApplyContext): ApplyResult {
 	const notesValue = state.notesByTab.get(nextTab) ?? state.answers.get(nextTab)?.notes ?? "";
+	const focus = restoreFocus(state, nextTab, ctx);
 	const transitioned: QuestionnaireState = {
 		...state,
 		currentTab: nextTab,
-		optionIndex: 0,
-		inputMode: false,
+		optionIndex: focus.optionIndex,
+		inputMode: focus.inputMode,
 		notesVisible: false,
 		submitChoiceIndex: 0,
 		multiSelectChecked: syncMultiSelectFromAnswers(state.answers, ctx.questions, nextTab),
-		notesDraft: notesValue,
 	};
 	const finalState = withFocusedOptionHasPreview(transitioned, ctx.questions);
 	return {
 		state: finalState,
 		effects: [
+			...(focus.effect ? [focus.effect] : []),
 			{ kind: "set_notes_focused", focused: false },
 			{ kind: "set_notes_value", value: notesValue },
 		],
@@ -195,8 +239,10 @@ const multiConfirmHandler: Handler<"multi_confirm"> = (state, action, ctx) => {
 
 const notesEnterHandler: Handler<"notes_enter"> = (state, _action, _ctx) => {
 	const value = state.answers.get(state.currentTab)?.notes ?? "";
+	// `set_notes_value` is the seed — the editor owns the text from here, and
+	// hands it back on `notes_exit`.
 	return {
-		state: { ...state, notesVisible: true, notesDraft: value },
+		state: { ...state, notesVisible: true },
 		effects: [
 			{ kind: "set_notes_value", value },
 			{ kind: "set_notes_focused", focused: true },
@@ -204,8 +250,8 @@ const notesEnterHandler: Handler<"notes_enter"> = (state, _action, _ctx) => {
 	};
 };
 
-const notesExitHandler: Handler<"notes_exit"> = (state, _action, _ctx) => {
-	const trimmed = state.notesDraft.trim();
+const notesExitHandler: Handler<"notes_exit"> = (state, action, _ctx) => {
+	const trimmed = action.value.trim();
 	const notes = new Map(state.notesByTab);
 	const answers = new Map(state.answers);
 	if (trimmed.length === 0) {
