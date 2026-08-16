@@ -6,7 +6,7 @@ import {
   checkBudgetExhaustion,
   checkBudgetWarning,
   createBudgetGuard,
-} from "../src/agent.js";
+} from "../src/agent-budget.js";
 
 // ---------------------------------------------------------------------------
 // Direct semantics of checkBudgetExhaustion (previously covered only indirectly

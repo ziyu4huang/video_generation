@@ -1,13 +1,8 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import {
-  type BudgetSessionSurface,
-  CoreAgent,
-  createBudgetGuard,
-  createTurnGuard,
-  type TurnSessionSurface,
-  turnExhaustionError,
-} from "../src/agent.js";
+import { CoreAgent } from "../src/agent.js";
+import { type BudgetSessionSurface, createBudgetGuard } from "../src/agent-budget.js";
+import { createTurnGuard, type TurnSessionSurface, turnExhaustionError } from "../src/agent-turns.js";
 import { WorkflowErrorCode, WorkflowError } from "../src/errors.js";
 
 // ---------------------------------------------------------------------------
