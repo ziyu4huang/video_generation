@@ -9,3 +9,6 @@ Steps:
 4. README: Tab guide section (five tabs, what lands where, deep links).
 5. Tests: helper broadcast lands as report frame (wiring level); full-pane open/close literal; hash activates the OWNING tab for an ask card vs a data row (literal/DOM style).
 Acceptance: typecheck clean; webui 0 fail REAL lines; innerHTML ≤ 8; ci-local PASS.
+
+## Progress (02 producer slice)
+POST /api/report shipped: strict validation (exactly one of markdown|html, title 1-200, 128KB cap), sync route contract preserved (POST branch defers via returned promise; route types widened Response | Promise<Response> | null), wiring injects broadcaster (store append = replay). Remaining for 02: Data full-pane + deep links + README.

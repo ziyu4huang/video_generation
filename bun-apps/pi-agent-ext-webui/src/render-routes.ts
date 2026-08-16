@@ -24,16 +24,19 @@
  */
 import type { Server } from "bun";
 import type { RenderService, RenderView } from "./render-service.js";
+import type { WebFrame } from "./protocol.js";
 import { renderMarkdown } from "./render-markdown.js";
 import { RENDER_SHELL_HTML } from "./render-shell.js";
 
 export type RenderRouteHandler = (
   req: Request,
   srv: Server<undefined>
-) => Response | null;
+) => Response | Promise<Response> | null; // tab-views (02): /api/report defers body read (sync fall-through preserved)
 
 /** Options for {@link createRenderRoutes} (mirrors the file's DI style). */
 export interface RenderRouteOptions {
+  /** tab-views (02): report producer sink — receives validated report frames. */
+  onReport?: (frame: Extract<WebFrame, { type: "report" }>) => void;
   /**
    * SSE heartbeat interval in ms for /api/events (Fix 3): Bun.serve's idle
    * timeout (and any intermediate proxy) closes silent streams; a periodic
@@ -76,6 +79,41 @@ export function createRenderRoutes(
 
     if (req.method === "GET" && pathname === "/api/views") {
       return json(registry.listViews().map(viewSummary));
+    }
+
+    // tab-views (02): report producer — POST /api/report {title, markdown|html, source?}.
+    // Localhost agent surface: strict validation (EXACTLY one body mode), size
+    // caps, opts-injected sink; the frame rides the normal broadcaster (store
+    // append -> replay; md renders DOM-built, html renders sandboxed iframe).
+    if (req.method === "POST" && pathname === "/api/report") {
+      const sink = opts.onReport;
+      if (!sink) return new Response("not found", { status: 404 });
+      // Sync-handler CONTRACT (HttpRouteHandler: Response | null; the wiring
+      // chain composes routes with ?? — an async handler returns a truthy
+      // Promise for EVERY request and breaks fall-through + the WS upgrade
+      // seam). Only THIS branch goes async — via the returned promise itself.
+      return req.text().then((raw: string): Response => {
+        if (raw.length > 131072) return new Response("payload too large", { status: 413 });
+        let body: unknown;
+        try { body = JSON.parse(raw); } catch { return new Response("bad request", { status: 400 }); }
+        const b = (body ?? {}) as Record<string, unknown>;
+        const title = typeof b.title === "string" ? b.title.trim() : "";
+        if (!title || title.length > 200) return new Response("bad request", { status: 400 });
+        const md = typeof b.markdown === "string" ? b.markdown : "";
+        const html = typeof b.html === "string" ? b.html : "";
+        if ((md ? 1 : 0) + (html ? 1 : 0) !== 1) return new Response("bad request", { status: 400 });
+        const source = typeof b.source === "string" && b.source ? b.source.slice(0, 100) : "api";
+        const frame: Extract<WebFrame, { type: "report" }> = {
+          type: "report",
+          id: "report-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6),
+          title,
+          source,
+          ts: Date.now(),
+          ...(md ? { markdown: md } : { html }),
+        };
+        sink(frame);
+        return json({ ok: true, id: frame.id });
+      }, (): Response => new Response("bad request", { status: 400 }));
     }
 
     if (req.method === "GET" && pathname.startsWith("/api/view/")) {
