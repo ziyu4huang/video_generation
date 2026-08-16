@@ -34,6 +34,7 @@ import {
 } from "./changed-packages.js";
 import { readCiMatrix, type CiMatrix } from "./ci-matrix.js";
 import { readCiGates, LOCAL_ONLY_AUDITS, type CiGatesResult } from "./ci-gates.js";
+import { ONESHOT_SMOKE_GATE_NAME, runOneshotSmoke, type OneshotSmokeResult } from "./oneshot-smoke.js";
 
 export interface CiPackageResult {
 	name: string;
@@ -58,6 +59,10 @@ export interface CiGateResult {
 	/** The workflow step's `name:` (or, for a `strict` extra, the script filename). */
 	name: string;
 	exitCode: number;
+	/** One-liner outcome note (set by the in-process oneshot-smoke gate). */
+	note?: string;
+	/** Multi-line diagnostics on a failed gate (timeout recipe / captured tail). */
+	detail?: string;
 }
 
 export interface CiOutcome {
@@ -138,6 +143,16 @@ export interface CiOptions {
 	 * stays filesystem-free.
 	 */
 	readGates?: (repoRoot: string) => Promise<CiGatesResult>;
+	/**
+	 * Injectable oneshot-smoke boot gate (default: src/oneshot-smoke.ts, which
+	 * returns null for a repoRoot that is not this monorepo). Tests inject a
+	 * fake so the recipe stays filesystem/spawn-free.
+	 */
+	runOneshotSmoke?: (o: {
+		repoRoot: string;
+		spawn: SpawnFn;
+		now: () => number;
+	}) => Promise<OneshotSmokeResult | null>;
 	/**
 	 * Where the schema-cost check's human-readable block goes. Default stdout via
 	 * console.log. `runSchemaCostCheck` is IMPORTED, not spawned, so in a caller
@@ -482,6 +497,31 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 				const cwd = spec.cwd === "." ? opts.repoRoot : `${opts.repoRoot}/${spec.cwd}`;
 				const r = await spawn("bash", ["-c", spec.run], { cwd });
 				gates.push({ name: spec.name, exitCode: r.exitCode });
+			}
+			// oneshot-smoke — the ONE gate hand-added beside the workflow-derived set,
+			// and it can never have a workflow home: it boots the real pi-agent CLI,
+			// which needs this machine's providers/credentials (remote CI — disabled
+			// anyway — has neither; there it would classify as provider-unavailable
+			// SKIP and guard nothing). Like LOCAL_ONLY_AUDITS it is local-only, but
+			// unlike them it is ALWAYS on, not `strict`-only: its entire purpose is
+			// catching a boot hang (hermes startup syncMarkdownMemories / surrealdb
+			// wedge, 2026-08-15) before a session pays 6+ minutes for it, and its
+			// adaptive state (6h pass-cache / 24h canary) keeps steady-state cost at
+			// one sha256. Env override: DEVOPS_ONESHOT_SMOKE=force|skip.
+			if (!opts.signal?.aborted) {
+				const smoke = await (opts.runOneshotSmoke ?? runOneshotSmoke)({
+					repoRoot: opts.repoRoot,
+					spawn,
+					now,
+				});
+				if (smoke) {
+					gates.push({
+						name: ONESHOT_SMOKE_GATE_NAME,
+						exitCode: smoke.exitCode,
+						note: smoke.note,
+						...(smoke.detail ? { detail: smoke.detail } : {}),
+					});
+				}
 			}
 		}
 		// schema-cost is ALWAYS info-only — a regression here must not block a merge.

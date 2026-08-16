@@ -114,3 +114,7 @@ python/embed-bench/results/
 # curated static Tailwind build, ~20 KB) IS still committed — only this binary
 # is ignored.
 bun-apps/pi-agent-ext-wayfind/vendor/mermaid.min.js
+
+# pi-agent-ext-devops oneshot-smoke gate: TTL state cache (inputHash +
+# lastPassTs/lastCanaryTs) — machine-local, never committed.
+bun-apps/pi-agent-ext-devops/.cache/

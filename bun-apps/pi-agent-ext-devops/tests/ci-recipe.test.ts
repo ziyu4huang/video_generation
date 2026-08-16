@@ -376,6 +376,105 @@ describe("runLocalCi — gates come from the workflow, not a hand-written list",
 	});
 });
 
+describe("runLocalCi — oneshot-smoke boot gate wiring", () => {
+	// Same scoped helpers as the gates describe above (detect/readPkg defaults).
+	const detect = () => mkDetect({ "pkg-a": true }).fn;
+	const readPkg = () => mkReadPkg({ "pkg-a": { test: "bun test" } });
+	// The gate itself is unit-tested in tests/oneshot-smoke.test.ts; these cover
+	// ONLY the recipe wiring: a smoke row lands in `gates` blocking (a FAIL flips
+	// overall, unlike the info-only schema-cost), null (not applicable / foreign
+	// repoRoot) adds no row, and the fail-closed gateError path skips it.
+	const smokePass = { exitCode: 0, verdict: "pass" as const, mode: "fast-only" as const, note: "pass (fast 1.2s)", durationMs: 1200 };
+	const smokeFail = {
+		exitCode: 1,
+		verdict: "fail" as const,
+		mode: "fast+canary" as const,
+		note: "fail (fast probe: timeout)",
+		detail: "BOOT HANG: …",
+		durationMs: 90_000,
+	};
+
+	test("smoke PASS row lands in gates with its note; overall stays pass", async () => {
+		const { fn } = mkSpawn([verifyOk()]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect(),
+			readPkg: readPkg(),
+			readGates: fakeGates(),
+			runOneshotSmoke: async () => smokePass,
+		});
+		const row = out.gates.find((g) => g.name === "oneshot-smoke");
+		expect(row?.exitCode).toBe(0);
+		expect(row?.note).toBe("pass (fast 1.2s)");
+		expect(out.overall).toBe("pass");
+	});
+
+	test("smoke FAIL row is BLOCKING — overall fails and the diagnostic is carried", async () => {
+		const { fn } = mkSpawn([verifyOk()]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect(),
+			readPkg: readPkg(),
+			readGates: fakeGates(),
+			runOneshotSmoke: async () => smokeFail,
+		});
+		expect(out.overall).toBe("fail");
+		const row = out.gates.find((g) => g.name === "oneshot-smoke");
+		expect(row?.exitCode).toBe(1);
+		expect(row?.detail).toContain("BOOT HANG");
+	});
+
+	test("smoke null (not applicable) adds no gates row", async () => {
+		const { fn } = mkSpawn([verifyOk()]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect(),
+			readPkg: readPkg(),
+			readGates: fakeGates(),
+			runOneshotSmoke: async () => null,
+		});
+		expect(out.gates.some((g) => g.name === "oneshot-smoke")).toBe(false);
+		expect(out.overall).toBe("pass");
+	});
+
+	test("default runner at a foreign repoRoot (/repo has no devops package) adds no row", async () => {
+		const { fn } = mkSpawn([verifyOk()]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect(),
+			readPkg: readPkg(),
+			readGates: fakeGates(),
+			// NOTE: no runOneshotSmoke injection — the DEFAULT runs here and must
+		// self-select out via the monorepo marker instead of spawning or writing.
+		});
+		expect(out.gates.map((g) => g.name)).toEqual([GATE_FILE_SIZE.name, GATE_DEPS.name]);
+		expect(out.overall).toBe("pass");
+	});
+
+	test("gateError (unreadable job) skips the smoke gate too — fail-closed means NO gate ran", async () => {
+		const { fn } = mkSpawn([verifyOk()]);
+		let smokeCalls = 0;
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect(),
+			readPkg: readPkg(),
+			readGates: async () => ({ gates: [], error: "no `regression-gates` job" }),
+			runOneshotSmoke: async () => {
+				smokeCalls++;
+				return smokePass;
+			},
+		});
+		expect(out.overall).toBe("fail");
+		expect(out.gates).toEqual([]);
+		expect(smokeCalls).toBe(0);
+	});
+});
+
 describe("runLocalCi — base-ref guard", () => {
 	test("missing baseRef (git rev-parse --verify exit 1) → throws (stays offline)", async () => {
 		const { fn, calls } = mkSpawn([
