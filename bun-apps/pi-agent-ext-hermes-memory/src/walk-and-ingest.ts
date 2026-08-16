@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import type { IngestSummary, HealReceipt, LinkWeighting } from "@repo/pi-agent-core-interface";
@@ -100,6 +100,14 @@ export interface WalkAndIngestOptions extends WalkOptions {
    *  is error-isolated. The deferred task re-checks the staleness delta and
    *  embeds only changed/new cards (unchanged cards are skipped). */
   vectorBackfill?: VectorBackfillDeps;
+  /** kp21 Tier-3: frontmatter fields where the DB row is authoritative
+   *  (opt-in; default empty = md-canonical). For each listed field, the
+   *  vault-md mirror copies the stored card's value over the md-deserialized
+   *  value BEFORE hashing/writing, so the DB value survives re-walks. */
+  dbAuthoritativeFields?: readonly string[];
+  /** kp21 Tier-3: write DB-authoritative values back into the md file when
+   *  they differ (default false — decision 05: no md write-through). */
+  dbAuthoritativeWriteBack?: boolean;
 }
 
 /** Receipt for a walkAndIngest run. mirrored + driftStub are placeholders in
@@ -143,6 +151,12 @@ export interface WalkAndIngestReceipt {
      *  fallback, zero drift counts. */
     driftDisabled?: boolean;
   };
+  /** kp21 Tier-3: DB-authoritative frontmatter merge counts. `merged` = # of
+   *  dbAuthoritativeFields values copied from the DB row over the md card;
+   *  `writtenBack` = # of those also spliced back into the md file
+   *  (dbAuthoritativeWriteBack). Always populated; zeros when the feature is
+   *  off or drift is disabled. */
+  dbAuthoritative: { merged: number; writtenBack: number };
   skipped: { dirs: string[]; binaries: string[]; symlinks: string[]; deferredFamily: string[] };
   seamPresent: boolean;
   /** Set when ok:false (graceful degradation reason). */
@@ -187,6 +201,9 @@ export async function walkAndIngest(
   let driftUnchanged = 0;
   let driftRemoved = 0;
   let driftDisabled: boolean | undefined;
+  // kp21 Tier-3 DB-authoritative merge counters (vault-md mirror).
+  let dbAuthMerged = 0;
+  let dbAuthWrittenBack = 0;
   const currentHashes: Record<string, string> = {};
 
   if (kp) {
@@ -233,12 +250,17 @@ export async function walkAndIngest(
     // dir is the existing hermes memory DB dir (`<AGENT_ROOT>/pi-hermes-memory`),
     // NEVER inside the obsidian vault. Re-mirror is idempotent via
     // KnowledgeDedupStrategy (id-upsert). Hermes READS vault-md; it does NOT write it.
-    const m = await mirrorVaultMdToStore(vaultPath, folder, opts.memoryDir);
+    const m = await mirrorVaultMdToStore(vaultPath, folder, opts.memoryDir, {
+      fields: opts.dbAuthoritativeFields,
+      writeBack: opts.dbAuthoritativeWriteBack,
+    });
     mirrored = m.mirrored;
     driftChanged = m.changed;
     driftUnchanged = m.unchanged;
     driftRemoved = m.removed;
     driftDisabled = m.driftDisabled;
+    dbAuthMerged = m.dbAuthoritative.merged;
+    dbAuthWrittenBack = m.dbAuthoritative.writtenBack;
     Object.assign(currentHashes, m.currentHashes);
   }
 
@@ -292,6 +314,7 @@ export async function walkAndIngest(
       planningMirrored: 0,
       memoryMirrored,
       driftStub: { filesHashed: 0, currentHashes: {}, changed: 0, unchanged: 0, removed: 0 },
+      dbAuthoritative: { merged: 0, writtenBack: 0 },
       skipped: walk.skipped,
       seamPresent: false,
       reason: "zk KnowledgePipeline seam not present and no planning source",
@@ -317,6 +340,7 @@ export async function walkAndIngest(
       removed: driftRemoved,
       ...(driftDisabled ? { driftDisabled: true } : {}),
     },
+    dbAuthoritative: { merged: dbAuthMerged, writtenBack: dbAuthWrittenBack },
     skipped: walk.skipped,
     seamPresent: !!kp,
   };
@@ -391,11 +415,18 @@ function fireVectorBackfillBestEffort(memoryDir: string | undefined, deps: Vecto
  *  card_md_hash keys card_id-only with NO source-path column, but vault-md
  *  knowledge ids (e.g. "r1") and planning ids (planning-effort:*,
  *  planning-ticket:*) are disjoint id spaces AND the sweep filters
- *  kind='vault-md', so planning mirror rows are never touched. */
+ *  kind='vault-md', so planning mirror rows are never touched.
+ *
+ *  kp21 Tier-3 (dbAuthoritativeFields / dbAuthoritativeWriteBack): for each
+ *  opted-in field, the DB row's frontmatter value wins over the md value —
+ *  merged into the card BEFORE planningContentHash (so the stored hash
+ *  reflects the merged row) — and, when write-back is on, spliced back into
+ *  the md file via spliceFrontmatterField. Default off = md-canonical. */
 async function mirrorVaultMdToStore(
   vaultPath: string,
   folder: string,
   memoryDir?: string,
+  dbAuth?: { fields?: readonly string[]; writeBack?: boolean },
 ): Promise<{
   mirrored: number;
   currentHashes: Record<string, string>;
@@ -403,8 +434,11 @@ async function mirrorVaultMdToStore(
   unchanged: number;
   removed: number;
   driftDisabled?: boolean;
+  dbAuthoritative: { merged: number; writtenBack: number };
 }> {
   const dir = memoryDir ?? join(AGENT_ROOT, "pi-hermes-memory");
+  const dbFields = dbAuth?.fields ?? [];
+  const dbWriteBack = dbAuth?.writeBack === true;
   const store = await createCardStore({ memoryDir: dir });
   let mirrored = 0;
   const currentHashes: Record<string, string> = {};
@@ -416,12 +450,15 @@ async function mirrorVaultMdToStore(
       mdFiles = readdirSync(folderDir).filter((n) => n.endsWith(".md")).sort();
     } catch {
       // Folder absent (no cards written) → mirror + drift stub are no-ops.
-      return { mirrored: 0, currentHashes, changed: 0, unchanged: 0, removed: 0 };
+      return { mirrored: 0, currentHashes, changed: 0, unchanged: 0, removed: 0, dbAuthoritative: { merged: 0, writtenBack: 0 } };
     }
     // Pass 1 — read + hash + deserialize everything BEFORE any card write, so
     // the capability probe below uses a real first-card id and no partial state
     // is written when the backend turns out to lack card_md_hash.
-    const cards: Card[] = [];
+    const cards: Array<{ card: Card; relPath: string }> = [];
+    // kp21 Tier-3: raw utf8 text per relPath — the write-back splices DB-
+    // authoritative values into this text and re-writes the md file in place.
+    const rawByRel = new Map<string, string>();
     for (const name of mdFiles) {
       const abs = join(folderDir, name);
       let bytes = "";
@@ -433,17 +470,18 @@ async function mirrorVaultMdToStore(
       // Tier-1 md-hash hook point (task 7): sha256 of the file bytes, keyed by
       // the vault-relative path. Captured for drift detection; no re-index here.
       const relPath = join(folder, name);
+      rawByRel.set(relPath, bytes);
       currentHashes[relPath] = createHash("sha256").update(bytes).digest("hex");
       // KnowledgeSerializer.deserialize tolerates a non-zettel/partial file → []
       // (defensive; never throws on one malformed vault file).
       const deserialized = serializer ? serializer.deserialize(bytes, { filePath: relPath }) : [];
-      cards.push(...deserialized);
+      for (const card of deserialized) cards.push({ card, relPath });
     }
     // kp21 capability probe (side-effect-free read): a real card id when the
     // vault yielded cards, else the synthetic id — sqlite returns null, a
     // card_md_hash-less backend throws ⇒ legacy unconditional-upsert fallback.
     let driftOk: boolean | null = null;
-    const probeId = cards.length > 0 ? cards[0].id : "__kp21_capability_probe__";
+    const probeId = cards.length > 0 ? cards[0].card.id : "__kp21_capability_probe__";
     try {
       await store.getCardMdHash(probeId);
       driftOk = true;
@@ -452,20 +490,63 @@ async function mirrorVaultMdToStore(
     }
     if (driftOk !== true) {
       // Legacy fallback (pre-kp21 behavior, verbatim): unconditional id-upsert
-      // per card, no hash rows, no sweep, zeroed drift counts.
-      for (const card of cards) {
+      // per card, no hash rows, no sweep, zeroed drift counts (Tier-3 zeros
+      // too — merge needs the drift-capable path's hash-consistent rows).
+      for (const { card } of cards) {
         await store.upsertCard(card);
         mirrored++;
       }
-      return { mirrored, currentHashes, changed: 0, unchanged: 0, removed: 0, driftDisabled: true };
+      return {
+        mirrored,
+        currentHashes,
+        changed: 0,
+        unchanged: 0,
+        removed: 0,
+        driftDisabled: true,
+        dbAuthoritative: { merged: 0, writtenBack: 0 },
+      };
     }
     let changed = 0;
     let unchanged = 0;
     let removed = 0;
+    let dbMerged = 0;
+    let dbWrittenBack = 0;
     const present = new Set<string>();
-    for (const card of cards) {
-      const incoming = planningContentHash(card);
+    for (const { card, relPath } of cards) {
       const existing = await store.getCard(card.id);
+      // kp21 Tier-3: DB-authoritative frontmatter merge. Runs BEFORE
+      // planningContentHash so the incoming hash reflects the MERGED card
+      // (otherwise the hash would claim drift on every re-walk). md value is
+      // left untouched unless dbAuthoritativeWriteBack splices the DB value
+      // back into the md file (decision 05 opt-in).
+      let mergedFields = 0;
+      let writeBackDone = 0;
+      if (dbFields.length > 0) {
+        const dbFm = existing?.frontmatter as unknown as Record<string, unknown> | undefined;
+        const mdFm = card.frontmatter as unknown as Record<string, unknown> | undefined;
+        for (const f of dbFields) {
+          const dbVal = dbFm?.[f];
+          if (dbVal === undefined) continue;
+          if (JSON.stringify(dbVal) === JSON.stringify(mdFm?.[f])) continue;
+          if (!card.frontmatter) card.frontmatter = {} as typeof card.frontmatter;
+          (card.frontmatter as unknown as Record<string, unknown>)[f] = dbVal;
+          mergedFields++;
+          if (dbWriteBack) {
+            const raw = rawByRel.get(relPath);
+            if (raw !== undefined) {
+              const spliced = spliceFrontmatterField(raw, f, dbVal);
+              if (spliced !== null) {
+                writeFileSync(join(vaultPath, relPath), spliced, "utf8");
+                rawByRel.set(relPath, spliced);
+                writeBackDone++;
+              }
+            }
+          }
+        }
+      }
+      dbMerged += mergedFields;
+      dbWrittenBack += writeBackDone;
+      const incoming = planningContentHash(card);
       const stored = await getStoredHash(store, card.id);
       if (existing === null) {
         // Truly new card → INSERT through dedup, write hash row.
@@ -498,7 +579,7 @@ async function mirrorVaultMdToStore(
         removed++;
       }
     }
-    return { mirrored, currentHashes, changed, unchanged, removed };
+    return { mirrored, currentHashes, changed, unchanged, removed, dbAuthoritative: { merged: dbMerged, writtenBack: dbWrittenBack } };
   } finally {
     await store.close();
   }
@@ -605,7 +686,8 @@ async function mirrorPlanningToStore(
  *    inRepoProjectFile today.
  *  - NO delete reconciliation here: md removals flow through the writer-path
  *    remove/eviction mirrors (mirrorMemoryRemove / mirrorMemoryEvictions).
- *    Tier-2 derived-cache + Tier-3 are ticket 21.
+ *    Tier-2 derived-cache is ticket 21; Tier-3 implemented
+ *    (dbAuthoritativeFields/dbAuthoritativeWriteBack).
  *  - Gating: UNCONDITIONAL like the planning mirror (fixed location, ≤3 files,
  *  idempotent, no VLM/cost concern — unlike images' opt-in includeImages).
  *  Absent files (nothing written yet) are no-ops. Returns the # of entries
@@ -684,4 +766,42 @@ async function reconcilePlanningDeletions(
     await store.close();
   }
   return { planningDeleted };
+}
+
+/** kp21 Tier-3: render a scalar frontmatter value as a YAML scalar string.
+ *  Strings stay plain unless they contain `:`/`#`, carry leading/trailing
+ *  whitespace, or are empty — then single-quoted with `''` escaping. Numbers /
+ *  booleans render via String(); null (and undefined, defensive) render as
+ *  `null`; plain objects / arrays render as JSON. */
+function renderYamlScalar(value: unknown): string {
+  if (typeof value === "string") {
+    if (value === "" || /[:#]/.test(value) || value.trim() !== value) {
+      return `'${value.replace(/'/g, "''")}'`;
+    }
+    return value;
+  }
+  if (value === null || value === undefined) return "null";
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
+}
+
+/** kp21 Tier-3: splice `field: <scalar>` into the leading YAML frontmatter of
+ *  an md file's raw text. Frontmatter = a leading `---` line through the next
+ *  `---` line. An existing top-level `field:` line inside the block is
+ *  replaced in place; otherwise the field is inserted immediately before the
+ *  closing `---`. No frontmatter block → null (caller skips the write-back). */
+function spliceFrontmatterField(raw: string, field: string, value: unknown): string | null {
+  const lines = raw.split("\n");
+  if (lines[0]?.trimEnd() !== "---") return null;
+  const closeIdx = lines.findIndex((line, i) => i > 0 && line.trimEnd() === "---");
+  if (closeIdx === -1) return null;
+  const rendered = `${field}: ${renderYamlScalar(value)}`;
+  for (let i = 1; i < closeIdx; i++) {
+    if (lines[i]!.startsWith(`${field}:`)) {
+      lines[i] = rendered;
+      return lines.join("\n");
+    }
+  }
+  lines.splice(closeIdx, 0, rendered);
+  return lines.join("\n");
 }
