@@ -1,5 +1,6 @@
 ---
 status: active
+last: 2026-08-16
 ---
 # Knowledge pipeline — memory/files -> cards -> graph -> DB-CRUD -> obsidian
 
@@ -69,6 +70,7 @@ A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pd
 - 19 shipped (#1282): LeanRAG selective port (dedup-first) — contentHash dedup seam in searchSemantic (3 paths) + survivingK cap; multi-signal frequency-vote + boostWeight deferred to ticket 20 (blocked by 03); aggregation hierarchy ①② fog/future (ADR-0001).
   (PLAN 2026-08-14: 20 planned → plans/20-leanrag-multi-signal-frequency-vote.md — 4 tasks: vote core + injectable lexical/entity seams (rank/membership-based, PINNED formula final = (signalCount-1)*boostWeight + bestRankScore, allSettled silent-skip, vote before dedup+cap); boostWeight 4-point knob (default 1.0, >0 floor); production builders (FTS target='knowledge' membership + query-side extractEntities × graph scan — hermes→zk sanctioned); signalCount observability. augmentEmbedText wiring EXPLICITLY deferred (scope guard). Next = EXECUTE (SDD).)
   (EXECUTE 2026-08-14: 20 SHIPPED via SDD — 4 tasks × (implementer + review/salvage) + whole-branch review + micro fix wave, all green (hermes 1585 / zk 449 / tsc ×3). Landed: frequency-vote core in searchSemantic warm path (rank/membership-based; PINNED formula final = (signalCount-1)*boostWeight + bestRankScore; allSettled silent-skip; vote before dedup+cap; fallbacks single-signal); 2 real signals wired in production — knowledge-lexical (FTS target='knowledge' membership, fts5 normalize+fallback) + entity-recall (query-side extractEntities × paged graph scan; hermes→zk dep added — sanctioned spine direction; normEntity exported); boostWeight 4-point knob (default 1.0, >0 floor, seam guard); signalCount observability; tool card order follows the vote (T4 integration). LeanRAG selective port ③⑤⑥ COMPLETE. Noted: entity scan revisit at >2k-cards scale trigger; 3 ephemeral SQLite opens per warm query (accepted; share-backend optional follow-up); augmentEmbedText wiring still deferred (separate polish).)
+- 2026-08-16: kp21 Tier-1 SHIPPED — vault-md mirror hash-gated (card_md_hash kind='vault-md', INSERT/skip/UPDATE + sweep); Tier-2 residual = knowledge-card entity-summaries cache; Tier-3 open.
 
 ## Not yet specified
 - CLIP image-vector embed (SurrealDB-only) — fog until a real visual-similarity need appears. (Supersedes the "Image embed strategy -> ticket 07" line; resolved 2026-08-14.)

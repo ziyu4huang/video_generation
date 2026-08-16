@@ -13,7 +13,7 @@ import { splitMemoryEntries } from "./merge-union.js";
 import { parseMarkdownMemoryEntry } from "./store/memory-format.js";
 import { mirrorMemoryEntry, type MemoryCardKind } from "./store/memory-card-mirror.js";
 import { createCardStore, type CardStore } from "./store/card-store.js";
-import type { CardKind } from "./store/card.js";
+import type { Card, CardKind } from "./store/card.js";
 import type { VectorStore } from "./store/surreal/vector-store.js";
 import type { Embedder } from "./store/surreal/embedder.js";
 import { scheduleVectorBackfill, vectorBackfillState } from "./handlers/vector-backfill.js";
@@ -130,6 +130,18 @@ export interface WalkAndIngestReceipt {
     filesHashed: number;
     previousHashes?: Record<string, string>;
     currentHashes: Record<string, string>;
+    /** kp21 Tier-1 drift: # of cards INSERTed (existing===null) or UPDATEd
+     *  (stored hash missing or ≠ incoming) by the vault-md mirror. */
+    changed: number;
+    /** kp21 Tier-1 drift: # of cards skipped (stored hash === incoming). */
+    unchanged: number;
+    /** kp21 Tier-1 drift: # of md-wins sweep deletions (kind='vault-md' hash
+     *  rows whose cardId is absent from the walked present-set). */
+    removed: number;
+    /** kp21: the store lacks the card_md_hash capability (SQLITE_ONLY seam
+     *  throw on the side-effect-free probe) → legacy unconditional-upsert
+     *  fallback, zero drift counts. */
+    driftDisabled?: boolean;
   };
   skipped: { dirs: string[]; binaries: string[]; symlinks: string[]; deferredFamily: string[] };
   seamPresent: boolean;
@@ -169,6 +181,12 @@ export async function walkAndIngest(
   let ingest: IngestSummary | undefined;
   let heal: HealReceipt | undefined;
   let mirrored = 0;
+  // kp21 Tier-1 drift counters (vault-md mirror): changed = INSERT/UPDATE
+  // arms, unchanged = hash-match skips, removed = md-wins sweep deletions.
+  let driftChanged = 0;
+  let driftUnchanged = 0;
+  let driftRemoved = 0;
+  let driftDisabled: boolean | undefined;
   const currentHashes: Record<string, string> = {};
 
   if (kp) {
@@ -217,6 +235,10 @@ export async function walkAndIngest(
     // KnowledgeDedupStrategy (id-upsert). Hermes READS vault-md; it does NOT write it.
     const m = await mirrorVaultMdToStore(vaultPath, folder, opts.memoryDir);
     mirrored = m.mirrored;
+    driftChanged = m.changed;
+    driftUnchanged = m.unchanged;
+    driftRemoved = m.removed;
+    driftDisabled = m.driftDisabled;
     Object.assign(currentHashes, m.currentHashes);
   }
 
@@ -269,7 +291,7 @@ export async function walkAndIngest(
       mirrored: 0,
       planningMirrored: 0,
       memoryMirrored,
-      driftStub: { filesHashed: 0, currentHashes: {} },
+      driftStub: { filesHashed: 0, currentHashes: {}, changed: 0, unchanged: 0, removed: 0 },
       skipped: walk.skipped,
       seamPresent: false,
       reason: "zk KnowledgePipeline seam not present and no planning source",
@@ -290,6 +312,10 @@ export async function walkAndIngest(
       filesHashed: Object.keys(currentHashes).length,
       previousHashes: opts.previousHashes,
       currentHashes,
+      changed: driftChanged,
+      unchanged: driftUnchanged,
+      removed: driftRemoved,
+      ...(driftDisabled ? { driftDisabled: true } : {}),
     },
     skipped: walk.skipped,
     seamPresent: !!kp,
@@ -335,20 +361,49 @@ function fireVectorBackfillBestEffort(memoryDir: string | undefined, deps: Vecto
   })();
 }
 
-/** Mirror step 8 (Decision 4) + Tier-1 drift stub (step 9): read
+/** Mirror step 8 (Decision 4) + Tier-1 drift (kp21): read
  *  `<vaultPath>/<folder>/*.md` → deserialize via the store's knowledge serializer
- *  (the 06a registry) → upsertCard, AND capture the sha256 of each file's bytes
- *  (`relPath → hash`) as the Tier-1 md-hash hook point. The store reuses the SAME
- *  SQLite DB the memory-cards use (`<memoryDir>/sessions.db`); `memoryDir`
- *  defaults to the existing hermes memory DB dir, NEVER inside the vault. Returns
- *  the # of deserialized knowledge cards pushed through the single dedup site
- *  (idempotent — re-mirroring an unchanged corpus yields zero new rows) + the
- *  `currentHashes` map. NO re-index action (full drift = ticket 05). */
+ *  (the 06a registry) → hash-compare mirror into the card-store, AND capture the
+ *  sha256 of each file's bytes (`relPath → hash`) as the Tier-1 md-hash hook
+ *  point. The store reuses the SAME SQLite DB the memory-cards use
+ *  (`<memoryDir>/sessions.db`); `memoryDir` defaults to the existing hermes
+ *  memory DB dir, NEVER inside the vault.
+ *
+ *  Capability guard (kp21): the card_md_hash accessors are SQLITE_ONLY on the
+ *  CardPersistence seam, so BEFORE any card write the mirror probes the store
+ *  with a side-effect-free getCardMdHash (probe id = the first deserialized
+ *  card's id, or the synthetic `__kp21_capability_probe__` when the vault
+ *  yielded no cards — a read that returns null on sqlite and throws on a
+ *  card_md_hash-less backend). Throw ⇒ driftDisabled: run the legacy
+ *  unconditional per-card upsertCard loop verbatim (no hash rows, no sweep) and
+ *  report zeroed drift counts.
+ *
+ *  Tier-1 arms (drift-capable store; same shape as mirrorPlanningToStore): no
+ *  existing card → upsertCard (INSERT; dedup keep) + hash row; existing card
+ *  with missing/≠ hash → updateCard (UPDATE — NOT upsertCard: a pure id-skip
+ *  dedup strategy would no-op an existing id and freeze the row at stale
+ *  content while the hash falsely claims "current"; 09-impl review B) +
+ *  refresh hash; hash match → skip (no write). `mirrored` counts EVERY arm
+ *  including skips (pre-existing contract: re-walking an unchanged corpus
+ *  yields the same mirrored count). md-wins sweep: kind='vault-md' card_md_hash
+ *  rows whose cardId is absent from the walked present-set are hard-deleted
+ *  (card + hash row) — the vault md was removed, so the store follows.
+ *  card_md_hash keys card_id-only with NO source-path column, but vault-md
+ *  knowledge ids (e.g. "r1") and planning ids (planning-effort:*,
+ *  planning-ticket:*) are disjoint id spaces AND the sweep filters
+ *  kind='vault-md', so planning mirror rows are never touched. */
 async function mirrorVaultMdToStore(
   vaultPath: string,
   folder: string,
   memoryDir?: string,
-): Promise<{ mirrored: number; currentHashes: Record<string, string> }> {
+): Promise<{
+  mirrored: number;
+  currentHashes: Record<string, string>;
+  changed: number;
+  unchanged: number;
+  removed: number;
+  driftDisabled?: boolean;
+}> {
   const dir = memoryDir ?? join(AGENT_ROOT, "pi-hermes-memory");
   const store = await createCardStore({ memoryDir: dir });
   let mirrored = 0;
@@ -361,8 +416,12 @@ async function mirrorVaultMdToStore(
       mdFiles = readdirSync(folderDir).filter((n) => n.endsWith(".md")).sort();
     } catch {
       // Folder absent (no cards written) → mirror + drift stub are no-ops.
-      return { mirrored: 0, currentHashes };
+      return { mirrored: 0, currentHashes, changed: 0, unchanged: 0, removed: 0 };
     }
+    // Pass 1 — read + hash + deserialize everything BEFORE any card write, so
+    // the capability probe below uses a real first-card id and no partial state
+    // is written when the backend turns out to lack card_md_hash.
+    const cards: Card[] = [];
     for (const name of mdFiles) {
       const abs = join(folderDir, name);
       let bytes = "";
@@ -377,16 +436,72 @@ async function mirrorVaultMdToStore(
       currentHashes[relPath] = createHash("sha256").update(bytes).digest("hex");
       // KnowledgeSerializer.deserialize tolerates a non-zettel/partial file → []
       // (defensive; never throws on one malformed vault file).
-      const cards = serializer ? serializer.deserialize(bytes, { filePath: relPath }) : [];
+      const deserialized = serializer ? serializer.deserialize(bytes, { filePath: relPath }) : [];
+      cards.push(...deserialized);
+    }
+    // kp21 capability probe (side-effect-free read): a real card id when the
+    // vault yielded cards, else the synthetic id — sqlite returns null, a
+    // card_md_hash-less backend throws ⇒ legacy unconditional-upsert fallback.
+    let driftOk: boolean | null = null;
+    const probeId = cards.length > 0 ? cards[0].id : "__kp21_capability_probe__";
+    try {
+      await store.getCardMdHash(probeId);
+      driftOk = true;
+    } catch {
+      driftOk = false;
+    }
+    if (driftOk !== true) {
+      // Legacy fallback (pre-kp21 behavior, verbatim): unconditional id-upsert
+      // per card, no hash rows, no sweep, zeroed drift counts.
       for (const card of cards) {
         await store.upsertCard(card);
         mirrored++;
       }
+      return { mirrored, currentHashes, changed: 0, unchanged: 0, removed: 0, driftDisabled: true };
     }
+    let changed = 0;
+    let unchanged = 0;
+    let removed = 0;
+    const present = new Set<string>();
+    for (const card of cards) {
+      const incoming = planningContentHash(card);
+      const existing = await store.getCard(card.id);
+      const stored = await getStoredHash(store, card.id);
+      if (existing === null) {
+        // Truly new card → INSERT through dedup, write hash row.
+        await store.upsertCard(card);
+        await upsertHash(store, card.id, incoming, "vault-md");
+        changed++;
+      } else if (stored === null || stored.hash !== incoming) {
+        // Drift (vault md edited) or pre-hash backfill (card exists, no hash
+        // row yet): UPDATE via updateCard (bypasses the id-skip dedup no-op)
+        // and refresh the hash row.
+        await store.updateCard(card);
+        await upsertHash(store, card.id, incoming, "vault-md");
+        changed++;
+      } else {
+        // Hash match → skip the write (cheap idempotent re-walk).
+        unchanged++;
+      }
+      mirrored++; // count ALL arms, including skips (count-all contract).
+      present.add(card.id);
+    }
+    // kp21 md-wins sweep: kind='vault-md' hash rows whose card id was NOT in
+    // the walked vault → the md was deleted; the store follows (card + hash
+    // row). Disjoint from planning rows: knowledge ids vs planning-* ids are
+    // disjoint id spaces and the sweep filters kind='vault-md'.
+    const rows = await store.listCardMdHashes("vault-md");
+    for (const row of rows) {
+      if (!present.has(row.cardId)) {
+        await store.deleteCard(row.cardId);
+        await store.deleteCardMdHash(row.cardId);
+        removed++;
+      }
+    }
+    return { mirrored, currentHashes, changed, unchanged, removed };
   } finally {
     await store.close();
   }
-  return { mirrored, currentHashes };
 }
 
 /** Mirror step 8b (Phase-2 / 09-impl): self-correcting hash-compare mirror.

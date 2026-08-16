@@ -230,6 +230,76 @@ describe("walkAndIngest (orchestrator: walk → adapt → ingest → heal)", () 
     }
   });
 
+  it("Tier-1 drift receipt arms: changed (INSERT) → unchanged (skip) → changed (UPDATE) → removed (sweep)", async () => {
+    // Same zk-shaped stub + fixture family as the hash-stability test above:
+    // the stub only EMITS vault-md for new files, so an external edit/delete
+    // persists across runs — exactly what the drift arms must classify.
+    const jsonl =
+      '{"id":"d1","type":"lever","title":"Drift One","detail":"base","tags":["d"],"dimension":null,"confidence":1,"status":"active","superseded_by":null}';
+    writeFileSync(join(inputDir, "run.knowledge.jsonl"), jsonl);
+    publishSeam(KEY, makeStubPipeline());
+    const memDir = mkdtempSync(join(tmpdir(), "kvi-drift-"));
+    try {
+      // (a) First run on an empty store: the only vault-md card is new → the
+      // INSERT arm counts it as changed; nothing to skip, nothing to sweep.
+      const r1 = await walkAndIngest(inputDir, { memoryDir: memDir });
+      assert.equal(r1.ok, true);
+      assert.equal(r1.driftStub.changed, 1, "(a) first run: new card → changed=INSERT");
+      assert.equal(r1.driftStub.unchanged, 0, "(a) first run: nothing to skip yet");
+      assert.equal(r1.driftStub.removed, 0, "(a) first run: nothing to sweep");
+      assert.equal("driftDisabled" in r1.driftStub, false, "sqlite store: drift arms enabled");
+
+      // (b) Identical re-run: the stub leaves the existing md bytes untouched
+      // → hash-match skip arm only (cheap idempotent re-walk).
+      const r2 = await walkAndIngest(inputDir, { memoryDir: memDir });
+      assert.equal(r2.ok, true);
+      assert.equal(r2.driftStub.changed, 0, "(b) unchanged corpus: zero changed");
+      assert.equal(r2.driftStub.unchanged, 1, "(b) unchanged corpus: hash-match skip");
+      assert.equal(r2.driftStub.removed, 0, "(b) unchanged corpus: zero removed");
+
+      // (c) External edit to the `## 核心想法` section body (the part that
+      // drives the card content hash) → the UPDATE arm fires for exactly the
+      // mutated card.
+      const dir = join(vault, FOLDER);
+      const mds = readdirSync(dir).filter((n) => n.endsWith(".md"));
+      assert.equal(mds.length, 1, "exactly one vault-md fixture file");
+      const target = join(dir, mds[0]!);
+      const before = readFileSync(target, "utf8");
+      assert.ok(before.includes("## 核心想法\nbase\n"), "fixture carries the 核心想法 body");
+      writeFileSync(target, before.replace("## 核心想法\nbase\n", "## 核心想法\nkp21 tier-1 externally edited\n"));
+      const r3 = await walkAndIngest(inputDir, { memoryDir: memDir });
+      assert.equal(r3.driftStub.changed, 1, "(c) edited card: exactly the mutated one changed");
+      assert.equal(r3.driftStub.unchanged, 0, "(c) edited card: no skips");
+      assert.equal(r3.driftStub.removed, 0, "(c) edited card: no removals");
+
+      // (d) md-wins sweep: the mirror always walks the FULL folder
+      // (readdirSync of <vault>/<folder>), and the sweep runs on every
+      // drift-capable pass. The deletion only sticks because the record ALSO
+      // leaves the input — the stub re-creates missing md for records still
+      // present in the jsonl. Swap the input to a different id, so the walked
+      // present-set no longer holds d1 → its card + hash row are swept.
+      unlinkSync(target);
+      writeFileSync(
+        join(inputDir, "run.knowledge.jsonl"),
+        '{"id":"d2","type":"lever","title":"Drift Two","detail":"second","tags":["d"],"dimension":null,"confidence":1,"status":"active","superseded_by":null}',
+      );
+      const r4 = await walkAndIngest(inputDir, { memoryDir: memDir });
+      assert.equal(r4.ok, true);
+      assert.equal(r4.driftStub.removed, 1, "(d) deleted md swept out of the store");
+      assert.equal(r4.driftStub.changed, 1, "(d) the replacement record is the only change");
+      // The sweep is real: d1's card is hard-deleted from the unified store.
+      const store = await createCardStore({ memoryDir: memDir });
+      try {
+        assert.equal(await store.getCard("d1"), null, "(d) d1 card hard-deleted by the sweep");
+        assert.notEqual(await store.getCard("d2"), null, "(d) d2 card present after the sweep");
+      } finally {
+        await store.close();
+      }
+    } finally {
+      rmSync(memDir, { recursive: true, force: true });
+    }
+  });
+
   it("reports generic family as detected-but-deferred (not ingested)", async () => {
     writeFileSync(join(inputDir, "run.knowledge.jsonl"), '{"id":"r1","title":"R"}');
     mkdirSync(join(inputDir, "notes"), { recursive: true });

@@ -88,6 +88,11 @@ export interface CardStore {
   /** 09-impl: delete the content-hash row for a card.
    *  SQLITE-ONLY (`card_md_hash` table) — throws on the surreal branch. */
   deleteCardMdHash(cardId: string): Promise<void>;
+  /** kp21: list stored content-hash rows filtered by kind (default 'mirror');
+   *  the vault-md md-wins sweep scans kind='vault-md' rows only (the kind
+   *  index `idx_card_md_hash_kind` already exists). SQLITE-ONLY (`card_md_hash`
+   *  table) — throws on the surreal branch. */
+  listCardMdHashes(kind?: string): Promise<Array<{ cardId: string; hash: string }>>;
   /** 10-impl: read the stored dep-aggregate baseline hash for a card, or null.
    *  SQLITE-ONLY (`card_dep_hash` table) — throws on the surreal branch. */
   getCardDepHash(cardId: string): Promise<{ depHash: string; validatedAt: string } | null>;
@@ -140,6 +145,7 @@ interface CardPersistence {
   getCardMdHash(cardId: string): Promise<{ hash: string; mirroredAt: string; kind: string } | null>;
   upsertCardMdHash(cardId: string, hash: string, kind?: string): Promise<void>;
   deleteCardMdHash(cardId: string): Promise<void>;
+  listCardMdHashes(kind?: string): Promise<Array<{ cardId: string; hash: string }>>;
   getCardDepHash(cardId: string): Promise<{ depHash: string; validatedAt: string } | null>;
   upsertCardDepHash(cardId: string, depHash: string): Promise<void>;
   deleteCardDepHash(cardId: string): Promise<void>;
@@ -380,6 +386,18 @@ function createSqliteCardPersistence(backend: SqliteBackend): CardPersistence {
       );
     },
 
+    listCardMdHashes(kind = "mirror"): Promise<Array<{ cardId: string; hash: string }>> {
+      return runWithTransientRetry(() =>
+        backend.withCorruptionRecovery(() =>
+          (
+            getDb()
+              .prepare("SELECT card_id, content_hash FROM card_md_hash WHERE kind = ?")
+              .all(kind) as Array<{ card_id: string; content_hash: string }>
+          ).map((row) => ({ cardId: row.card_id, hash: row.content_hash })),
+        ),
+      );
+    },
+
     getCardDepHash(cardId: string): Promise<{ depHash: string; validatedAt: string } | null> {
       return runWithTransientRetry(() =>
         backend.withCorruptionRecovery(() => {
@@ -477,6 +495,9 @@ function createSurrealCardPersistence(repo: SurrealMemoryRepository): CardPersis
     },
     async deleteCardMdHash(): Promise<void> {
       throw SQLITE_ONLY("deleteCardMdHash");
+    },
+    async listCardMdHashes(): Promise<Array<{ cardId: string; hash: string }>> {
+      throw SQLITE_ONLY("listCardMdHashes");
     },
     async getCardDepHash(): Promise<null> {
       throw SQLITE_ONLY("getCardDepHash");
@@ -626,6 +647,10 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
 
     deleteCardMdHash(cardId: string): Promise<void> {
       return persistence.deleteCardMdHash(cardId);
+    },
+
+    listCardMdHashes(kind?: string): Promise<Array<{ cardId: string; hash: string }>> {
+      return persistence.listCardMdHashes(kind);
     },
 
     getCardDepHash(cardId: string): Promise<{ depHash: string; validatedAt: string } | null> {
