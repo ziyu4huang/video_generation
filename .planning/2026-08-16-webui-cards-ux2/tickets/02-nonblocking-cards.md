@@ -1,4 +1,12 @@
+---
+type: grilling
+claimed: 01a009ff-c598-76b9-993a-3a7d5a3d4a7d
 status: closed
+---
+
+# 02 — non-blocking draft cards
+
+## Question
 
 # 02 — non-blocking draft cards
 
