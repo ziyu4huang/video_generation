@@ -199,8 +199,8 @@ describe("wireWebui render framework — de-chat: the send-queue machinery survi
     expect(body).not.toContain('id="webui-compose"');
     expect(body).not.toContain('id="webui-input"');
     // ...but the outbound queue machinery — the thing that guarantees a HITL
-    // answer is never lost across a WS reconnect, and which the btw panel
-    // rides too — is fully intact in the served HTML.
+    // answer is never lost across a WS reconnect — is fully intact in the
+    // served HTML.
     expect(body).toContain("wsQueue.push(payload)");
     expect(body).toContain("WebSocket.OPEN");
     expect(body).toContain("sendAppexecResponse(");
