@@ -34,6 +34,12 @@ import {
   surfacePathologyWarning,
   resetWarning,
 } from "./pathology/index.ts";
+import {
+  buildSidecarRecord,
+  defaultSidecarPath,
+  resolveGitSha,
+  writeSidecar,
+} from "./history/sidecar.ts";
 
 // ─── Public surface ───────────────────────────────────────────────────────────
 // Re-exported so `@repo/pi-agent-ext-power-tool` stays one import site for
@@ -121,6 +127,28 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   pi.on("session_start", (_e, ctx) => {
     resetAccumulator(ctx?.sessionManager?.getSessionId());
     resetWarning();
+    // Record the environment fingerprint for longitudinal analysis. Everything
+    // else the analyzer needs is derived from transcripts on demand; only these
+    // facts (which commit, which tools) cannot be reconstructed later. Written
+    // at session_start rather than shutdown because shutdown does not fire on a
+    // crash, and crashed long sessions are among the most diagnostic ones.
+    // Fully best-effort — writeSidecar swallows its own errors and this block
+    // must never fail a session start.
+    try {
+      const cwd = process.cwd();
+      writeSidecar(
+        defaultSidecarPath(),
+        buildSidecarRecord({
+          sessionId: ctx?.sessionManager?.getSessionId() ?? "",
+          ts: Date.now(),
+          cwd,
+          toolNames: pi.getAllTools().map((t) => t.name),
+          gitSha: resolveGitSha(cwd),
+        }),
+      );
+    } catch {
+      // never break session start
+    }
   });
   // Delete this session's pathology bucket on shutdown so the Map doesn't grow
   // unbounded across many sessions in one process. (In-process children that

@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./extensions/*": "./extensions/*",
+    "./history": "./src/history/index.ts",
     "./schema-cost": "./src/schema-cost/index.ts"
   },
   "pi": {

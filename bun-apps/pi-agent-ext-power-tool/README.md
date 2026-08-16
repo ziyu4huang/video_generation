@@ -101,3 +101,42 @@ in whether a blocked service skips (`high`) or fails (`full`). See
 - `docs/schema-cost.md` — the estimator's contract.
 - `docs/extension-ui-conventions.md` — report/UI conventions.
 - `CONTEXT.md` — the ubiquitous language for this domain.
+
+## Longitudinal analysis
+
+`pi-agent cli agent-trends` replays the pathology detectors over historical session
+transcripts and reports occurrence-rate trends with regression verdicts. Nothing is
+uploaded and nothing derived is persisted — every number is recomputed from
+transcripts on each run (1,166 sessions in ~1.4 s), so changing a threshold
+re-derives the whole history consistently.
+
+Measured base rates over 1,165 tool-using sessions (49 days, 2026-06-28 → 2026-08-16):
+
+| pathology | rate | sessions |
+|---|---:|---:|
+| long-session-recall-risk | 37.0% | 431 |
+| consecutive-error | 5.7% | 66 |
+| error-storm | 1.8% | 21 |
+| retry-loop | 0.9% | 10 |
+| context-saturation | 0% | 0 |
+
+Three things to know before reading a report:
+
+- **`retry-loop` and `error-storm` are too sparse for a verdict** at this data
+  volume — they report `insufficient signal` rather than a direction. Designed
+  behaviour, not a missing feature.
+- **`context-saturation` has never fired.** Peak context fill across the whole
+  archive is 56.2% against an 85% threshold, so it is excluded from the trend views.
+- **Each check is judged against its own volatility, not a global constant.** The
+  checks differ by an order of magnitude: `long-session-recall-risk` runs
+  15.5 · 3 · 53 · 39 · 44.5 · 73.4 (50pp swings are its normal state) while
+  `consecutive-error` runs 5 · 2 · 12 · 3 · 10.5 · 0.6. A single 10pp rule
+  over-reported the first and under-reported the second, so the threshold is now
+  the largest window-to-window move that check made *before* the pair under
+  judgement, floored by `--delta`. Every verdict prints the threshold it used
+  (`stable (vs 50pp own volatility)`), so a surprising verdict is self-explaining.
+
+Known limitation: the threshold compares one step at a time, so it sees a jump but
+not a march. `long-session-recall-risk` has climbed 3% → 73.4% across four windows
+without any single step exceeding its historical maximum — correctly not flagged as
+a regression, and still worth watching. Read the series, not only the verdict.

@@ -177,13 +177,14 @@ function entry(name: string): MigratedExtension {
 // source of truth stays single.
 // ────────────────────────────────────────────────────────────────────
 describe("drift-guard — pilot tools declare valid gating", () => {
-	test("power-tool: all 6 inspect_* carry valid (non-dead) gating", () => {
+	test("power-tool: 6 core inspect_* + gated browser carry valid (non-dead) gating", () => {
 		const defs = captureRegisteredTools(entry("power-tool").register);
 		// Non-vacuous: assert the expected names are present (capture captured the
 		// real tools, not an empty set).
 		const names = defs.map((d) => d.name).sort();
 		expect(names).toEqual(
 			[
+				"browser",
 				"inspect_agent",
 				"inspect_context",
 				"inspect_extensions",
@@ -196,10 +197,17 @@ describe("drift-guard — pilot tools declare valid gating", () => {
 		// ticket 06 (HITL): the inspect_* group is now owner-declared CORE
 		// (always-on diagnostics — the former "inspect" gate family + its
 		// keyword predicate were retired; see power-tool src/gating.ts).
-		for (const d of defs) {
+		for (const d of defs.filter((x) => x.name?.startsWith("inspect_"))) {
 			expect(d.gating?.core, `'${d.name}' is owner-declared core (ticket 06 un-gate)`).toBe(true);
 			expect(d.gating?.gate, `'${d.name}' no longer references a gate family`).toBeUndefined();
 		}
+		// `browser` is the deliberate exception: on-demand headless Chrome, so it
+		// stays keyword-gated rather than riding along with the always-on
+		// diagnostics. Asserting the inverse of the inspect_* rule keeps a future
+		// un-gating from passing silently.
+		const browser = defs.find((d) => d.name === "browser");
+		expect(browser?.gating?.gate, "'browser' is gated, not core").toBe("power_browser");
+		expect(browser?.gating?.core, "'browser' must not be owner-declared core").toBeFalsy();
 	});
 
 	test("ext-task: ask_user_question / todo / goal_complete carry gating:{core:true}", () => {

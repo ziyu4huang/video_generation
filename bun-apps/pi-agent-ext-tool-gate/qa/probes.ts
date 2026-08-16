@@ -134,6 +134,10 @@ export const MUST_FIRE: Probe[] = [
 	{ gate: "wayfind_effort", prompt: "what's the effort status for tool-gate", note: "keyword effort status" },
 	{ gate: "get_search_content", prompt: "get the stored content for that response", note: "keyword stored content" },
 	{ gate: "obsidian", prompt: "put this note into the vault", note: "keyword vault" },
+	// power_browser (keyword) — on-demand headless Chrome, deliberately NOT core
+	// so it stays dormant until a browsing intent appears.
+	{ gate: "browser", prompt: "open the page in a headless browser and snapshot it", note: "keyword browser / headless" },
+	{ gate: "browser", prompt: "drive the gui and screenshot the webui", note: "keyword drive the gui / webui" },
 ];
 
 // ── MUST_NOT_FIRE (lookalikes the gate CORRECTLY rejects) ────────────────────
@@ -197,6 +201,11 @@ export const MUST_NOT_FIRE: Probe[] = [
 	{ gate: "wayfind_effort", prompt: "effort is required here", note: "effort noun, no wayfind/planning verb" },
 	{ gate: "get_search_content", prompt: "the search summary is above", note: "search noun, no stored-content retrieval verb" },
 	{ gate: "obsidian", prompt: "organize the meeting notes", note: "organize + notes, no vault/obsidian keyword, no file/folder noun" },
+	// power_browser lookalikes — browsing-adjacent surface words that are NOT
+	// keywords. Word-boundary matching is what saves these: "browse" is not
+	// "browser", and bare "page" is not "web page"/"open page"/"page snapshot".
+	{ gate: "browser", prompt: "browse the repo for the config file", note: '"browse" is not "browser" (word-boundary)' },
+	{ gate: "browser", prompt: "the error is on page 3 of the log", note: 'bare "page" is not "web page"/"open page"/"page snapshot"' },
 ];
 
 // ── ESCAPE_NAME — every gate reachable by enable_tool({ name }) ──────────────
