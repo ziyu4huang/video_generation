@@ -185,8 +185,8 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 
 describe("parseTypesRepos (tsconfig `types` dependency edges)", () => {
 	it("extracts @repo entries from compilerOptions.types", () => {
-		const t = { compilerOptions: { types: ["bun", "@repo/pi-agent-ext-core-interface"] } };
-		assert.deepEqual([...parseTypesRepos(t)], ["pi-agent-ext-core-interface"]);
+		const t = { compilerOptions: { types: ["bun", "@repo/pi-agent-core-interface"] } };
+		assert.deepEqual([...parseTypesRepos(t)], ["pi-agent-core-interface"]);
 	});
 
 	it("ignores non-@repo entries", () => {

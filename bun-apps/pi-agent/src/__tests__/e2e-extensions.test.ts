@@ -281,7 +281,7 @@ async function runScenario(s: Scenario): Promise<Result> {
 // session_start). Asserts ZERO load errors, the probe extension loaded
 // (matched > 0 — tool-bearing extensions), AND command-bearing extensions
 // registered (cmdMatched > 0 — covers command-only extensions like
-// pi-agent-ext-wayfind / -core-task, which register commands but 0 tools).
+// pi-agent-ext-wayfind / -ext-task, which register commands but 0 tools).
 function assertCleanLoad(r: Result) {
 	if (r.errors.length > 0) console.error("[assertCleanLoad] non-empty errors:", JSON.stringify(r));
 	// ZERO conflict/cannot-find/failed-to-load.

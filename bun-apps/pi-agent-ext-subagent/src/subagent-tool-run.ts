@@ -6,8 +6,8 @@
  * of the inline code it replaces.
  */
 
-import type { AgentHistoryEntry, BudgetWarning } from "@repo/pi-agent-ext-core-runtime";
-import { parseSddReport } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry, BudgetWarning } from "@repo/pi-agent-core-runtime";
+import { parseSddReport } from "@repo/pi-agent-core-runtime";
 import type { TSchema } from "typebox";
 import { tierDefaultToken } from "./budget-defaults.js";
 import type { computeScopeCheck, GitScopeOps, SubagentScopeCheck } from "./git-scope.js";

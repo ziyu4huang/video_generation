@@ -62,7 +62,7 @@ import {
 	computeIdf,
 	scoreOverlap,
 	type ExtractedEntity,
-} from "@repo/pi-agent-ext-core-interface";
+} from "@repo/pi-agent-core-interface";
 import { resolveExtractor, type Relation } from "./extractor.ts";
 import type {
 	CardOutcome,

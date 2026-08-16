@@ -8,14 +8,14 @@
     "visual_preset": "blueprint",
     "quality_profile": "standard",
     "views": [
-      { "id": "registration-topology", "label": "Registration topology", "focus": ["core-task","hermes-memory","superpowers","wayfind","web-access","obsidian","btw","file2md","subagent","workflow","knowledge-card","power-tool","tool-gate","flux2","krea2","ltx","research-tool","zai-mcp","movie-director","deploy","archify"], "note": "Static extensions enter the --exe binary; dynamic ones are jiti -e, source/bundle only." },
+      { "id": "registration-topology", "label": "Registration topology", "focus": ["task","hermes-memory","superpowers","wayfind","web-access","obsidian","btw","file2md","subagent","workflow","knowledge-card","power-tool","tool-gate","flux2","krea2","ltx","research-tool","zai-mcp","movie-director","deploy","archify"], "note": "Static extensions enter the --exe binary; dynamic ones are jiti -e, source/bundle only." },
       { "id": "memory-knowledge", "label": "Memory & knowledge", "focus": ["hermes-memory","knowledge-card","research-tool","obsidian"], "note": "Persistent memory, zettelkasten RAG, and the vault they share." },
       { "id": "media-gen", "label": "Media generation", "focus": ["flux2","krea2","ltx","movie-director","tool-gate"], "note": "Native director wrappers + orchestrator, gated by tool-gate." },
-      { "id": "agent-infra", "label": "Agent infra", "focus": ["core-task","subagent","workflow","power-tool","btw","superpowers","wayfind"], "note": "Task cockpit, subagent dispatch, fan-out, diagnostics, skills." }
+      { "id": "agent-infra", "label": "Agent infra", "focus": ["task","subagent","workflow","power-tool","btw","superpowers","wayfind"], "note": "Task cockpit, subagent dispatch, fan-out, diagnostics, skills." }
     ]
   },
   "components": [
-    { "id": "core-task", "type": "backend", "label": "Core Task", "sublabel": "goal cockpit · todos · ask_user", "pos": [60, 140], "size": [160, 58], "tag": "static" },
+    { "id": "task", "type": "backend", "label": "Core Task", "sublabel": "goal cockpit · todos · ask_user", "pos": [60, 140], "size": [160, 58], "tag": "static" },
     { "id": "wayfind", "type": "backend", "label": "Wayfind", "sublabel": "decision-chain skills", "pos": [280, 140], "size": [160, 58], "tag": "static" },
     { "id": "hermes-memory", "type": "database", "label": "Hermes Memory", "sublabel": "persistent memory · FTS5", "pos": [500, 140], "size": [160, 58], "tag": "static" },
     { "id": "superpowers", "type": "backend", "label": "Superpowers", "sublabel": "14 composable skills", "pos": [720, 140], "size": [160, 58], "tag": "static" },
@@ -41,7 +41,7 @@
     { "id": "archify", "type": "cloud", "label": "Archify", "sublabel": "IR → HTML diagrams", "pos": [940, 700], "size": [160, 58], "tag": "dynamic · thin · skills" }
   ],
   "boundaries": [
-    { "kind": "region", "label": "Static — native import · in --exe binary", "wraps": ["core-task","hermes-memory","superpowers","wayfind","web-access","obsidian","btw","file2md","subagent","workflow","knowledge-card","power-tool"] },
+    { "kind": "region", "label": "Static — native import · in --exe binary", "wraps": ["task","hermes-memory","superpowers","wayfind","web-access","obsidian","btw","file2md","subagent","workflow","knowledge-card","power-tool"] },
     { "kind": "region", "label": "Dynamic — jiti -e · source/bundle only", "wraps": ["tool-gate","flux2","krea2","ltx","research-tool","zai-mcp","movie-director","deploy","archify"] }
   ],
   "connections": [
@@ -55,7 +55,7 @@
     { "from": "movie-director", "to": "ltx", "label": "orchestrates" },
     { "from": "movie-director", "to": "workflow", "label": "imports", "fromSide": "top", "toSide": "bottom", "via": [[360, 640], [900, 640], [900, 440], [800, 440]], "labelAt": [640, 640] },
     { "from": "research-tool", "to": "obsidian", "label": "imports" },
-    { "from": "wayfind", "to": "core-task", "label": "imports" },
+    { "from": "wayfind", "to": "task", "label": "imports" },
     { "from": "workflow", "to": "subagent", "label": "imports" }
   ],
   "cards": [

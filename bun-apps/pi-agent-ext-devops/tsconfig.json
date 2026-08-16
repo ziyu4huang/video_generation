@@ -10,7 +10,7 @@
 		"skipLibCheck": true,
 		"forceConsistentCasingInFileNames": true,
 		"resolveJsonModule": true,
-		"types": ["bun", "@repo/pi-agent-ext-core-interface"],
+		"types": ["bun", "@repo/pi-agent-core-interface"],
 		"allowImportingTsExtensions": true
 	},
 	"include": [

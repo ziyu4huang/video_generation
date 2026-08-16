@@ -129,7 +129,7 @@ export function buildGrillPriming(topic: string | undefined, withDocs: boolean):
  * handoff (ticket 08: migrated from the legacy task_plan phase-spine shape).
  * Output carries an inline `**Goal:**`, an optional glossary block, and one or
  * more `### Task N` sections with `- [ ]` steps — exactly what the plan
- * coordinator's `parsePlan` (pi-agent-ext-core-task) consumes.
+ * coordinator's `parsePlan` (pi-agent-ext-task) consumes.
  *
  * Two regimes:
  *  - decisions known (programmatic / future)  → a single Task with one step per decision.

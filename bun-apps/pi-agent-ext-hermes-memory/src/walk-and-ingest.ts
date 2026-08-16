@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import type { IngestSummary, HealReceipt, LinkWeighting } from "@repo/pi-agent-ext-core-interface";
+import type { IngestSummary, HealReceipt, LinkWeighting } from "@repo/pi-agent-core-interface";
 import { getKnowledgePipeline } from "./knowledge-pipeline-seam.js";
 import { resolveKnowledgeVaultPath, KNOWLEDGE_FOLDER_DEFAULT, KNOWLEDGE_MOC_DEFAULT } from "./knowledge-vault-path.js";
 import { walkKnowledgeSources, type WalkOptions } from "./knowledge-walk.js";

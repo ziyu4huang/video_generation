@@ -8,11 +8,11 @@
  *  - terminal foreground entries are not detach targets (refusal is the
  *    capability's own contract, not the dispatcher's).
  * The post-detach notify line (Task 02 foreground-flip rule) is covered by
- * core-task's notify.test.ts dispatch integration test.
+ * ext-task's notify.test.ts dispatch integration test.
  */
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
+import { SubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
 import { dispatchCtrlB, foregroundRunIds } from "../src/ctrl-b.js";
 
 function startRun(

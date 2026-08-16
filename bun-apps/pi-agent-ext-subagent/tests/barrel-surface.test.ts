@@ -3,13 +3,13 @@
  *
  * Why this exists: the barrel had grown to 114 exported names, of which 21 were
  * ever imported through it. ~68 of the rest were straight pass-throughs of
- * `@repo/pi-agent-ext-core-runtime` symbols that no peer package reached for.
+ * `@repo/pi-agent-core-runtime` symbols that no peer package reached for.
  * That is a wide interface with no leverage behind it — every reader of this
  * package's public API had to scan five times more surface than exists.
  *
  * The facade is not simply deletable, which is the subtle part. `pi-agent`,
  * `pi-agent-ext-obsidian`, `pi-agent-ext-file2md` and `pi-agent-ext-knowledge-card`
- * do NOT declare `@repo/pi-agent-ext-core-runtime` in package.json, so for them
+ * do NOT declare `@repo/pi-agent-core-runtime` in package.json, so for them
  * this barrel is the only legal path to those symbols (bun-apps/tests/dep-guard.test.ts
  * invariant 1 rejects an undeclared @repo edge). So the rule is not "no
  * pass-throughs" — it is "a pass-through must have a named peer that needs it".
@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 const PKG = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const BUN_APPS = resolve(PKG, "..");
 const INDEX = join(PKG, "src", "index.ts");
-const CORE = "@repo/pi-agent-ext-core-runtime";
+const CORE = "@repo/pi-agent-core-runtime";
 
 /**
  * The sanctioned facade: a core-runtime symbol this barrel re-exports, mapped to

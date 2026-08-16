@@ -1,13 +1,13 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import type { AgentUsage, RunView } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentUsage, RunView } from "@repo/pi-agent-core-runtime";
 import {
   DEFAULT_BATCH_CONCURRENCY,
   MAX_BATCH_TASKS,
   MAX_CONCURRENCY,
   SubagentInFlightRegistry,
-} from "@repo/pi-agent-ext-core-runtime";
+} from "@repo/pi-agent-core-runtime";
 import { ComposerComponent } from "../src/composer-component.js";
 import { createSubagentsTool as fromIndex } from "../src/index.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";

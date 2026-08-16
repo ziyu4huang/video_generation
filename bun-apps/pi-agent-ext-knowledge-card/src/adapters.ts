@@ -2,7 +2,7 @@
 import { type Dirent, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
-import type { ExtractedEntity } from "@repo/pi-agent-ext-core-interface";
+import type { ExtractedEntity } from "@repo/pi-agent-core-interface";
 import { normTag, slugify } from "./card-format.ts";
 import { extractFeatures } from "./card-render.ts";
 import type { KnowledgeRecord, SourceFamily } from "./types.ts";

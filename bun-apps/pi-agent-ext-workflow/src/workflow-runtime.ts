@@ -14,7 +14,7 @@ import {
   WorkflowErrorCode,
   type Worktree,
   wrapError,
-} from "@repo/pi-agent-ext-core-runtime";
+} from "@repo/pi-agent-core-runtime";
 import type { TSchema } from "typebox";
 import { buildCallGlobal } from "./call-global.js";
 import { MAX_AGENT_RETRIES } from "./config.js";

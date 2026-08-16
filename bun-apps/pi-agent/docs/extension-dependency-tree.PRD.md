@@ -72,7 +72,7 @@ aggregator, not a hard install edge).
   │       │  └──────► ltx                                       │
   │       └─────────► workflow ──► subagent                     │
   │                                                             │
-  │  wayfind ──► core-task                                      │
+  │  wayfind ──► ext-task                                      │
   │                                                             │
   │  knowledge-card ⇢ obsidian, ⇢ subagent   (peer)             │
   │  hermes-memory ⇢ subagent                 (peer)            │
@@ -93,7 +93,7 @@ aggregator, not a hard install edge).
 | `pi-agent-ext-movie-director` | `pi-agent-ext-ltx` | `dependencies` |
 | `pi-agent-ext-movie-director` | `pi-agent-ext-workflow` | `dependencies` |
 | `pi-agent-ext-workflow` | `pi-agent-ext-subagent` | `dependencies` |
-| `pi-agent-ext-wayfind` | `pi-agent-ext-core-task` | `dependencies` |
+| `pi-agent-ext-wayfind` | `pi-agent-ext-task` | `dependencies` |
 | `pi-agent-ext-knowledge-card` | `pi-agent-ext-obsidian` | `peerDependencies` |
 | `pi-agent-ext-knowledge-card` | `pi-agent-ext-subagent` | `peerDependencies` |
 | `pi-agent-ext-hermes-memory` | `pi-agent-ext-subagent` | `peerDependencies` |
@@ -102,7 +102,7 @@ aggregator, not a hard install edge).
 `flux2 → file2md` as a side branch off movie-director). Nothing is cyclic.
 
 **Implication for big changes:** deleting or renaming `subagent`, `file2md`,
-`core-task`, or `workflow` has the widest blast radius — each is consumed by
+`ext-task`, or `workflow` has the widest blast radius — each is consumed by
 at least one other extension, not just by the aggregators.
 
 ## 4. Per-extension manifest
@@ -119,7 +119,7 @@ runtime `dependencies`; `peers` = `peerDependencies` (host-provided).
 |-----------|---------|----------|-------|-----|-------|
 | `archify` | — | — | ai, pca, tui, typebox | DYN | `extensions/archify.ts` (vendored archify@2.12.0) |
 | `btw` | — | — | ai, pca, tui | STA | `extensions/btw.ts` |
-| `core-task` | — | — | pca, tui, typebox | STA | `extensions/core-task.ts` |
+| `ext-task` | — | — | pca, tui, typebox | STA | `extensions/task.ts` |
 | `deploy` | — | — | pca, typebox | DYN | `extensions/deploy.ts` |
 | `file2md` | — | — | ai, core, pca, tui, typebox | STA | `extensions/file2md.ts` (shim → `src/index.ts`) |
 | `flux2` | file2md | pi-ai, pi-agent-core | pca, typebox | DYN | `extensions/flux2.ts` |
@@ -134,7 +134,7 @@ runtime `dependencies`; `peers` = `peerDependencies` (host-provided).
 | `subagent` | — | — | pca, tui, typebox | STA | `extensions/subagent.ts` |
 | `superpowers` | — | — | pca | STA | `extensions/superpowers.ts` |
 | `tool-gate` | — | — | pca, typebox | DYN | `extensions/tool-gate.ts` |
-| `wayfind` | core-task | — | pca | STA | `extensions/wayfind.ts` |
+| `wayfind` | ext-task | — | pca | STA | `extensions/wayfind.ts` |
 | `web-access` | — | @mozilla/readability, linkedom, p-limit, turndown, unpdf | ai, pca, tui, typebox | STA | `extensions/web-access.ts` (shim → root `index.ts`) |
 | `workflow` | subagent | acorn | pca, tui, typebox | STA | `extensions/workflow.ts` |
 | `zai-mcp` | — | @modelcontextprotocol/sdk | ai, core, pca, tui, typebox | DYN | `extensions/zai-mcp.ts` |
@@ -163,7 +163,7 @@ against the code by `run-dir/manifest-consistency.test.ts`):
 
 ```
 Group A (original general-productivity set):
-  core-task → hermes-memory → superpowers → wayfind → web-access
+  ext-task → hermes-memory → superpowers → wayfind → web-access
 Group B (migrated from dynamic -e so the exe build bundles them):
   obsidian → btw → file2md → subagent → workflow → knowledge-card → power-tool
 ```
@@ -207,7 +207,7 @@ Every extension package is registered exactly once across the two layers.
 
 ### `pi-agent` (TUI wrapper)
 
-`dependencies` declares only **5** workspace members — `core-task`,
+`dependencies` declares only **5** workspace members — `ext-task`,
 `hermes-memory`, `superpowers`, `wayfind`, `web-access` — but these are NOT
 how extensions are discovered (they are imported via **relative** paths in
 `static-extensions.ts`, not the `@repo/*` specifiers, so they do not appear as
@@ -274,9 +274,9 @@ for the full decision record.
 
 | | **wayfind** (decide-phase) | **superpowers** (plan/execute-phase) |
 |---|---|---|
-| Pipeline | `grilling`/`wayfinder → to-spec → to-tickets → /wayfind seed → core-task coordinator` | `brainstorming → writing-plans → executing` |
+| Pipeline | `grilling`/`wayfinder → to-spec → to-tickets → /wayfind seed → ext-task coordinator` | `brainstorming → writing-plans → executing` |
 | Driver | command-driven (`/grill`, `/wayfind`) + `globalThis.__piWayfindGrill` seam | skill-driven, **zero commands, zero globals** |
-| Runtime deps | `{core-task}` (workspace) | `{}` |
+| Runtime deps | `{ext-task}` (workspace) | `{}` |
 | peerDeps | `pi-coding-agent` | `pi-coding-agent` |
 | devDeps | biome, pi-coding-agent, @types/bun, tsx, typescript | biome, pi-coding-agent, @types/bun, tsx, typescript |
 

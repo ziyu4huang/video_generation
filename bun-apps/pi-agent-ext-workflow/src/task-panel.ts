@@ -16,7 +16,7 @@ import {
   renderActivityRow,
   shorten,
   summarizeLatestAction,
-} from "@repo/pi-agent-ext-core-runtime";
+} from "@repo/pi-agent-core-runtime";
 import { agentCounts, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
 import { type PersistedRunState, persistedToSnapshot } from "./run-persistence.js";
 import type { ManagedRun, WorkflowManager } from "./workflow-manager.js";

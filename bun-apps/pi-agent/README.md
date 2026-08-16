@@ -196,7 +196,7 @@ To still ship *some* extensions in the binary, the static extension set (`run-di
 are **statically imported** instead, in `src/static-extensions.ts`:
 ```
 Group A (original "general productivity" set):
-  pi-agent-ext-core-task · pi-agent-ext-prompt-history · pi-agent-ext-hermes-memory
+  pi-agent-ext-task · pi-agent-ext-prompt-history · pi-agent-ext-hermes-memory
   pi-agent-ext-superpowers · pi-agent-ext-wayfind · pi-agent-ext-web-access
 Group B (migrated from dynamic `-e`, tool-providing):
   pi-agent-ext-obsidian · pi-agent-ext-btw · pi-agent-ext-file2md

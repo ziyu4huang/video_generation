@@ -9,7 +9,7 @@ Supersedes: [ADR-0002](./0002-shared-status-widget-and-command-consolidation.md)
 ## Context
 
 ADR-0002 made `pi-agent-ext-wayfind` take a `workspace:*` dependency on
-`pi-agent-ext-core-task` to call `getSharedStatusWidget()` and register a
+`pi-agent-ext-task` to call `getSharedStatusWidget()` and register a
 `StatusSection` (order 2) on the shared composite status widget. That was the
 right call at the time: two external consumers (wayfind + planning-with-files)
 were both writing the TUI footer and colliding, and command namespaces overlapped.
@@ -40,7 +40,7 @@ already relied on this; the reversal does not weaken it.
 `src/index.ts` no longer imports `getSharedStatusWidget()`. Instead it reads
 `globalThis.__piCoreTaskStatusWidget` through a local structural interface
 (existence-checked, never `instanceof` — the same cross-loader discipline
-core-task's own singleton guard uses) and registers wayfind's section exactly as
+ext-task's own singleton guard uses) and registers wayfind's section exactly as
 before when the widget is present:
 
 ```ts
@@ -53,9 +53,9 @@ const widget = readSharedStatusWidget();   // globalThis.__piCoreTaskStatusWidge
 if (widget) widget.addSection({ id: "wayfind", order: 2, render: ... });
 ```
 
-**No fallback.** When core-task's widget is not on the global, wayfind's status
+**No fallback.** When ext-task's widget is not on the global, wayfind's status
 section simply does not render — ADR-0002's accepted consequence, retained. This
-is theoretical in practice: core-task is the earliest-loaded core package (first
+is theoretical in practice: ext-task is the earliest-loaded core package (first
 in `run-dir/manifest.json`) and creates the widget in its own factory body, so
 the global is populated before wayfind's factory runs.
 
@@ -65,14 +65,14 @@ ADR-0002 **Decision 2** (command consolidation: `/grill [me|docs|done|domain]`,
 ## Consequences
 
 - **Build-time coupling gone; runtime coupling loosened.** wayfind's
-  `package.json` no longer lists core-task. A residual *runtime* string+shape
+  `package.json` no longer lists ext-task. A residual *runtime* string+shape
   contract remains (the global key `__piCoreTaskStatusWidget` + the
   `{ addSection, setUICtx, update }` / `StatusSection` surface) — deliberately.
   This is the intended trade-off: decoupled at build time, loosely coordinated at
   runtime, unified widget UX preserved.
 - **Contract-drift surface is small but real.** The global key + the section
-  shape are core-task's internal implementation detail, not a published API. If
-  core-task renames the key or reshapes `StatusSection`, wayfind's status stops
+  shape are ext-task's internal implementation detail, not a published API. If
+  ext-task renames the key or reshapes `StatusSection`, wayfind's status stops
   rendering (silently, not crashing — the existence-check guards it). Acceptable:
   the shape is small, stable, and documented here + in `status-widget.ts`.
 - **Tests unaffected.** `overlay.test.ts` exercises `WayfindOverlay` in

@@ -45,8 +45,8 @@ import { SurrealBackend } from "../src/store/surreal/surreal-backend.js";
 import { loadConfig } from "../src/config.js";
 import { serializeMetadataFrontmatter } from "../src/store/memory-format.js";
 import { ENTRY_DELIMITER, MEMORY_FILE, USER_FILE } from "../src/constants.js";
-import { publishSeam } from "@repo/pi-agent-ext-core-interface";
-import type { IngestOptions, IngestSummary } from "@repo/pi-agent-ext-core-interface";
+import { publishSeam } from "@repo/pi-agent-core-interface";
+import type { IngestOptions, IngestSummary } from "@repo/pi-agent-core-interface";
 import type { CardStore } from "../src/store/card-store.js";
 import type { Card } from "../src/store/card.js";
 

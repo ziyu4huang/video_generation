@@ -5,7 +5,7 @@
     "module": "Preserve",
     "moduleDetection": "force",
     "allowJs": true,
-    "types": ["bun", "@repo/pi-agent-ext-core-interface"],
+    "types": ["bun", "@repo/pi-agent-core-interface"],
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,

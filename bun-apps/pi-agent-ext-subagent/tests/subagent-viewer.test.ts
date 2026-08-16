@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { RunView } from "@repo/pi-agent-ext-core-runtime";
+import type { RunView } from "@repo/pi-agent-core-runtime";
 import type { SubagentsToolDetails, SubagentToolDetails } from "../src/index.js";
 import { reconstructSubagentRuns, type SubagentRun, SubagentViewer } from "../src/subagent-viewer.js";
 

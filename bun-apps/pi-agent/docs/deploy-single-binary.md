@@ -27,7 +27,7 @@ added at different times:
 
 ```
 Group A — original "general productivity" set:
-  pi-agent-ext-core-task, pi-agent-ext-prompt-history, pi-agent-ext-hermes-memory,
+  pi-agent-ext-task, pi-agent-ext-prompt-history, pi-agent-ext-hermes-memory,
   pi-agent-ext-superpowers, pi-agent-ext-wayfind, pi-agent-ext-web-access
 Group B — migrated from dynamic `-e` (tool-providing):
   pi-agent-ext-obsidian, pi-agent-ext-btw, pi-agent-ext-file2md,
@@ -63,7 +63,7 @@ simply unavailable in the compiled binary.
 ### Why relative imports, not `@repo/pkg/...` specifiers
 
 `static-extensions.ts` imports each extension by relative path
-(`../../pi-agent-ext-core-task/extensions/core-task.ts`), not a
+(`../../pi-agent-ext-task/extensions/task.ts`), not a
 package specifier. Two of Group A's original five (`pi-agent-ext-superpowers`,
 `pi-agent-ext-wayfind`) declare a package.json `exports` map that only
 exposes the root `.` entry, pointing at a `dist/index.js` build output that
@@ -81,7 +81,7 @@ that problem — `require`'s type is a plain `any`-returning function, so `tsc`
 never opens the target file — but Bun's bundler does **not** inline
 `require()` calls with `bun build --compile` the way it inlines `import`.
 The resulting binary crashed at runtime: `Cannot find module
-'../../pi-agent-ext-core-task/...' from '/$bunfs/root/pi-agent'`. Confirmed
+'../../pi-agent-ext-task/...' from '/$bunfs/root/pi-agent'`. Confirmed
 empirically (grep the bundle output for the target module's source — with
 `require()` it's a single unresolved literal string; with `import` it's
 fully inlined, ~3 MB heavier). **The import must be a literal ESM `import`.**
@@ -179,7 +179,7 @@ Keep these two in lockstep by construction (both read `manifest.binarySkills`)
 |---|---|---|
 | `extensions` | `resolve.ts` (source/bundle), `build-extensions.ts` | Dynamic jiti-loaded set. The static extensions are **absent** here. |
 | `binarySkills` | `deploy.ts`, `resolve.ts` | Skill dirs shipped + `--skill`'d in binary mode: a curated 4-of-6 subset (Group A's hermes-memory/superpowers/wayfind + web-access). Group B's obsidian and knowledge-card also ship `skills/` dirs but are intentionally NOT in this list, so their skills aren't `--skill`'d in binary mode even though their extension code is statically bundled. |
-| `staticExtensions` | `deploy.ts` (`--snapshot` mode) | Package **directory names** (not paths) of the static extensions. Needed so `--snapshot`'s self-contained `packages/` tree includes them — even though their code is inlined into `pi-agent.js`, `pi-agent`'s own `package.json` now `workspace:*`-depends on them, and other copied packages (e.g. `pi-agent-ext-wayfind` importing `pi-agent-ext-core-task`'s shared status-widget module) reference them as real workspace siblings that `bun install` must resolve. |
+| `staticExtensions` | `deploy.ts` (`--snapshot` mode) | Package **directory names** (not paths) of the static extensions. Needed so `--snapshot`'s self-contained `packages/` tree includes them — even though their code is inlined into `pi-agent.js`, `pi-agent`'s own `package.json` now `workspace:*`-depends on them, and other copied packages (e.g. `pi-agent-ext-wayfind` importing `pi-agent-ext-task`'s shared status-widget module) reference them as real workspace siblings that `bun install` must resolve. |
 
 ## Adding / removing a statically-bundled extension
 

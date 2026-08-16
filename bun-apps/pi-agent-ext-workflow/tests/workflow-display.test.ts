@@ -60,7 +60,7 @@ async function loadDisplay() {
 }
 
 async function loadCore() {
-  return import("@repo/pi-agent-ext-core-runtime");
+  return import("@repo/pi-agent-core-runtime");
 }
 
 async function loadTaskPanel() {

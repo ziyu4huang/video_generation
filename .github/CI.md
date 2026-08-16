@@ -37,14 +37,14 @@ gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   "extension-contract", "regression gates",
   "test · pi-agent-ext-knowledge-card", "test · pi-agent-ext-hermes-memory",
   "test · pi-agent-ext-workflow",
-  "test · pi-agent-ext-btw", "test · pi-agent-ext-core-task",
+  "test · pi-agent-ext-btw", "test · pi-agent-ext-task",
   "test · pi-agent-ext-file2md", "test · pi-agent-ext-obsidian",
   "test · pi-agent-ext-research-tool",
   "test · pi-agent-ext-zai-mcp", "test · pi-agent-ext-wayfind", "test · pi-agent-ext-archify",
   "test · perf-harness",
   "test · pi-agent-ext-tool-gate", "test · pi-agent-ext-superpowers",
   "test · pi-agent-ext-subagent",
-  "test · pi-agent-ext-core-interface", "test · pi-agent-ext-core-runtime",
+  "test · pi-agent-core-interface", "test · pi-agent-core-runtime",
   "test · pi-agent-ext-devops", "test · pi-agent-ext-prompt-history",
   "test · pi-agent-ext-webui"
 ] } } /* …preserve existing review/admin settings in the full PUT body… */
@@ -186,14 +186,14 @@ depends on `changed_packages` — see "Smart test routing" above):
 ```
 pi-agent, pi-agent-ext-flux2, pi-agent-ext-krea2,
 pi-agent-ext-ltx, pi-agent-ext-movie-director, pi-agent-ext-power-tool,
-pi-agent-ext-btw, pi-agent-ext-core-task, pi-agent-ext-archify,
+pi-agent-ext-btw, pi-agent-ext-task, pi-agent-ext-archify,
 pi-agent-ext-web-access, pi-agent-ext-file2md, gui-movie-director,
 pi-agent-ext-knowledge-card, pi-agent-ext-obsidian,
 pi-agent-ext-workflow, pi-agent-ext-hermes-memory,
 pi-agent-ext-research-tool, pi-agent-ext-zai-mcp,
 pi-agent-ext-wayfind, perf-harness,
 pi-agent-ext-tool-gate, pi-agent-ext-superpowers, pi-agent-ext-subagent,
-pi-agent-ext-core-interface, pi-agent-ext-core-runtime,
+pi-agent-core-interface, pi-agent-core-runtime,
 pi-agent-ext-devops, pi-agent-ext-prompt-history, pi-agent-ext-webui
 ```
 
@@ -206,8 +206,8 @@ parsed straight out of `ci.yml.disabled`, so it cannot drift.
 |---|---|---|---|
 | `pi-agent-ext-webui` | 21 | `bun run build && bun run test:unit` | compiled-`dist` package; largest uncovered suite in the repo |
 | `pi-agent-ext-devops` | 17 | `bun test` | owns the CI change-detection port — CI's own routing logic was untested by CI |
-| `pi-agent-ext-core-runtime` | 10 | `bun test` | extracted from `pi-agent-ext-subagent` in #1251; a NEW package is invisible to a hand-listed matrix, so its 10 files left CI at extraction time |
-| `pi-agent-ext-core-interface` | 2 | `bun test` | seam-contract package; only the static guard in `regression gates` touched the seam, never these tests |
+| `pi-agent-core-runtime` | 10 | `bun test` | extracted from `pi-agent-ext-subagent` in #1251; a NEW package is invisible to a hand-listed matrix, so its 10 files left CI at extraction time |
+| `pi-agent-core-interface` | 2 | `bun test` | seam-contract package; only the static guard in `regression gates` touched the seam, never these tests |
 | `pi-agent-ext-prompt-history` | 2 | `bun test` | statically bundled into the compiled binary (see `compile-verify`), so a break ships into the exe |
 
 **Removed 2026-08-12:** `test · pi-agent-ext-picker` — `bun-apps/pi-agent-ext-picker/`
@@ -218,13 +218,13 @@ does not exist. A required check for a deleted package is permanently
 nonetheless a correct matrix row: `bun test` discovers `*.test.ts` without one
 (2 files). Don't "clean it up".
 
-`pi-agent-ext-btw`/`pi-agent-ext-ask-user`/`pi-agent-ext-core-task` were already
+`pi-agent-ext-btw`/`pi-agent-ext-ask-user`/`pi-agent-ext-task` were already
 in the `ci.yml` matrix but missing from this list (a doc-drift gap found and
 fixed alongside the 5 newly-added packages below).
 
 Later, `pi-agent-ext-ask-user`'s standalone check was retired on 2026-07-18
-when the package was merged into `pi-agent-ext-core-task` (see that package's
-`CONTEXT.md`) — its tests now run under `test · pi-agent-ext-core-task`.
+when the package was merged into `pi-agent-ext-task` (see that package's
+`CONTEXT.md`) — its tests now run under `test · pi-agent-ext-task`.
 
 `pi-agent-cli` was merged into `pi-agent` as a `cli` namespace in #1257; its
 suites run under `test · pi-agent`.

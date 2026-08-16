@@ -15,7 +15,7 @@
  * strict-fails if any lacks a valid `gating`.
  *
  * SCOPE (today): the 3 migration pilots + file2md
- * (ticket 04) — power-tool (6 inspect_*), core-task (ask_user_question /
+ * (ticket 04) — power-tool (6 inspect_*), ext-task (ask_user_question /
  * todo / goal_complete), tool-gate (enable_tool), file2md (file2md /
  * vision_ask). The other ~7 unmigrated extensions are NOT asserted here; rollout tickets 05–12
  * APPEND their extension to MIGRATED_EXTENSIONS as they migrate, which
@@ -40,7 +40,7 @@
  * real session would see. power-tool's default factory registers all 6
  * inspect_* (two of the factories — hooks/pathology — are not individually
  * exported, so the default factory is the only way to capture the full set);
- * core-task's 3 registrars are invoked directly (its full extension factory has
+ * ext-task's 3 registrars are invoked directly (its full extension factory has
  * heavy overlay/widget/globalThis side effects unrelated to tool registration);
  * tool-gate's default factory registers enable_tool.
  */
@@ -154,8 +154,8 @@ describe("drift-guard — pilot tools declare valid gating", () => {
 		}
 	});
 
-	test("core-task: ask_user_question / todo / goal_complete carry gating:{core:true}", () => {
-		const defs = captureRegisteredTools(entry("core-task").register);
+	test("ext-task: ask_user_question / todo / goal_complete carry gating:{core:true}", () => {
+		const defs = captureRegisteredTools(entry("task").register);
 		const names = defs.map((d) => d.name).sort();
 		expect(names).toEqual(["ask_user_question", "goal_complete", "todo"].sort());
 		assertAllValid(defs);

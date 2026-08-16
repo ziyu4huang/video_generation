@@ -6,7 +6,7 @@ Superpowers and Wayfind are two **parallel, non-connecting pipelines** that shar
 the `.planning/<effort>/` layout but do not share a flow:
 
 - **Wayfind** (decide-phase): `grilling`/`wayfinder` → `to-spec` → `to-tickets`
-  → `/wayfind seed` → `task_plan.md` → the `core-task` goal coordinator.
+  → `/wayfind seed` → `task_plan.md` → the `ext-task` goal coordinator.
 - **Superpowers** (plan/execute-phase): `brainstorming` → `writing-plans` →
   `subagent-driven-development`.
 
@@ -22,7 +22,7 @@ write a plan right now from what's already settled?* Yes (spec in hand) →
 Superpowers; no (decisions open) → Wayfind (`wayfinder` if huge/multi-session,
 else `grilling`). Size is a secondary threshold within the Wayfind branch only.
 
-The **decomposition skills cannot merge**: `to-tickets` ↔ `core-task`
+The **decomposition skills cannot merge**: `to-tickets` ↔ `ext-task`
 coordinator and `writing-plans` ↔ `subagent-driven-development` are coupled
 decomposition+execution stacks — each skill's output shape is dictated by its
 executor's contract. Merging would require unifying the execution models.

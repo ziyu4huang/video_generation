@@ -1,4 +1,4 @@
-/// <reference types="@repo/pi-agent-ext-core-interface" />
+/// <reference types="@repo/pi-agent-core-interface" />
 /**
  * pi-agent-ext-power-tool — extension factory.
  *

@@ -12,7 +12,7 @@ import type {
   SddReport,
   SubagentInFlightRegistry,
   TurnExhaustion,
-} from "@repo/pi-agent-ext-core-runtime";
+} from "@repo/pi-agent-core-runtime";
 import type { TSchema } from "typebox";
 import { Type } from "typebox";
 import type { GitScopeOps, SubagentScopeCheck } from "./git-scope.js";

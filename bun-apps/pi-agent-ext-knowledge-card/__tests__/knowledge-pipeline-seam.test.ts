@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert/strict";
-import { readSeam } from "@repo/pi-agent-ext-core-interface";
+import { readSeam } from "@repo/pi-agent-core-interface";
 import { ingestRecords } from "../src/ingest.js";
 import { collectInputFiles } from "../src/adapters.js";
 import { runConvergenceLoop } from "../src/loop.js";

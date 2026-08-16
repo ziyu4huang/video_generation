@@ -37,7 +37,7 @@ import {
   type KnowledgePipeline,
   type RetrieveResult,
   type RetrievedCard,
-} from "@repo/pi-agent-ext-core-interface";
+} from "@repo/pi-agent-core-interface";
 import { walkAndIngest } from "../src/walk-and-ingest.js";
 import { createCardStore } from "../src/store/card-store.js";
 import { registerKnowledgeSearchTool } from "../src/tools/knowledge-search-tool.js";

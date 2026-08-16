@@ -27,7 +27,7 @@ import {
   loadModelTierConfig,
   saveModelTierConfig,
   sortedTierNames,
-} from "@repo/pi-agent-ext-core-runtime";
+} from "@repo/pi-agent-core-runtime";
 
 /**
  * Register the `/workflows-models` command with Pi.

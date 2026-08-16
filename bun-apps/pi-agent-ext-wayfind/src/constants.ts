@@ -3,7 +3,7 @@
  *
  * The globalThis seam-key strings live here so the wayfind side and any consumer
  * can import the canonical string — mirroring how the plan coordinator
- * (pi-agent-ext-core-task) centralizes its keys in its own constants module.
+ * (pi-agent-ext-task) centralizes its keys in its own constants module.
  * wayfind PUBLISHES `WAYFIND_GRILL_KEY` (read by hermes-memory); it only READS
  * the plan coordinator's `__piPlan*` keys below.
  */
@@ -33,7 +33,7 @@ export const PLAN_SUMMARY_KEY = "__piPlanSummary";
  * Read by `syncChainState` (`/wayfind sync`) to close tickets whose phase
  * reports complete. Read-only on the wayfind side (graceful fallback → empty
  * when no publisher is present — the coordinator is now built as
- * pi-agent-ext-core-task; see ADR-0003).
+ * pi-agent-ext-task; see ADR-0003).
  */
 export const PLAN_PHASES_KEY = "__piPlanPhases";
 

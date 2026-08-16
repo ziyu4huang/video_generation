@@ -11,7 +11,7 @@
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import type { AgentHistoryEntry, AgentUsage } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry, AgentUsage } from "@repo/pi-agent-core-runtime";
 import {
   type ActivityRow,
   type ActivityStatus,
@@ -26,7 +26,7 @@ import {
   runHeader,
   shortModel,
   summarizeLatestAction,
-} from "@repo/pi-agent-ext-core-runtime";
+} from "@repo/pi-agent-core-runtime";
 import { formatHistoryLine } from "./subagent-tool-render.js";
 import type { SubagentToolDetails } from "./subagent-tool-schema.js";
 import type { SubagentsToolDetails } from "./subagents-tool.js";

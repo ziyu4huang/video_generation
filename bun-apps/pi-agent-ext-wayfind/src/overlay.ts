@@ -1,6 +1,6 @@
 /**
  * overlay.ts — wayfind's status-line section for the shared CoreTaskStatusWidget
- * (owned by pi-agent-ext-core-task, reached via its `globalThis.__piCoreTaskStatusWidget`
+ * (owned by pi-agent-ext-task, reached via its `globalThis.__piCoreTaskStatusWidget`
  * singleton — no package import; see docs/adr/0004).
  *
  * Renders ONE branded status-bar line — `🧭 wayfind │ {emoji} {text}` — so the

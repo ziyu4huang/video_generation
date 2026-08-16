@@ -40,7 +40,7 @@ import {
 	retrieveRecords,
 	type GraphHealthResult,
 } from "./retrieve.ts";
-import { type LinkWeighting } from "@repo/pi-agent-ext-core-interface";
+import { type LinkWeighting } from "@repo/pi-agent-core-interface";
 
 // ---------------------------------------------------------------------------
 // Public types

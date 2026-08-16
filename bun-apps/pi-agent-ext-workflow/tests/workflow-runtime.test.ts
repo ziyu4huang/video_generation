@@ -1,7 +1,7 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { AgentUsage } from "@repo/pi-agent-ext-core-runtime";
-import { WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentUsage } from "@repo/pi-agent-core-runtime";
+import { WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-core-runtime";
 import { type CheckpointOptions, type JournalEntry, runWorkflow } from "../src/workflow.js";
 import { hashAgentCall } from "../src/workflow-runtime.js";
 

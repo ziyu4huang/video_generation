@@ -73,7 +73,7 @@ _Avoid_: export, transfer (it is a synthesis + handoff into the planning substra
 ### Boundary
 
 **Decide-phase**:
-The wayfind half of the methodology — resolve fog into decisions before any code. Grilling, wayfinder, to-spec, to-tickets, domain-modeling. Terminates at `/wayfind seed` → the core-task coordinator. Entered when a plan can't yet be written.
+The wayfind half of the methodology — resolve fog into decisions before any code. Grilling, wayfinder, to-spec, to-tickets, domain-modeling. Terminates at `/wayfind seed` → the ext-task coordinator. Entered when a plan can't yet be written.
 _Avoid_: planning, design phase (it is decision-resolution, not design or planning)
 
 **Plan/execute-phase**:

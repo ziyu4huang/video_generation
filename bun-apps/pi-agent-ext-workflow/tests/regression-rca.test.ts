@@ -12,7 +12,7 @@
 
 import { describe, it, test } from "bun:test";
 import assert from "node:assert/strict";
-import { WorkflowErrorCode, wrapError } from "@repo/pi-agent-ext-core-runtime";
+import { WorkflowErrorCode, wrapError } from "@repo/pi-agent-core-runtime";
 import type { JournalEntry } from "../src/workflow.js";
 import { runWorkflow } from "../src/workflow.js";
 

@@ -7,7 +7,7 @@
  * there is no plan-coordinator yield: mutual-exclusion between a
  * grill/wayfinder session and /goal or /loop is user-initiated — run one
  * driver at a time. It joins the shared composite status widget by reading
- * core-task's `globalThis` singleton (`__piCoreTaskStatusWidget`) WITHOUT a
+ * ext-task's `globalThis` singleton (`__piCoreTaskStatusWidget`) WITHOUT a
  * package dependency (reverses ADR-0002; see docs/adr/0004) — no
  * `ctx.ui.setStatus()` footer line.
  *
@@ -23,13 +23,13 @@ import { readWayfindStatusBar } from "./settings.js";
 import { createRuntimeState, getSessionId } from "./state.js";
 
 /**
- * Structural view of core-task's shared status widget, obtained via its
+ * Structural view of ext-task's shared status widget, obtained via its
  * `globalThis` singleton WITHOUT a package import (reverses ADR-0002's workspace
  * dependency — see docs/adr/0004). Existence-checked, never `instanceof`: pi
  * loads extensions via jiti, so module identity isn't guaranteed across loaders
- * (same reason core-task's own singleton guard avoids `instanceof`). When
- * core-task isn't loaded this is `undefined` and wayfind's status section simply
- * doesn't render — ADR-0002's accepted no-fallback consequence (core-task is the
+ * (same reason ext-task's own singleton guard avoids `instanceof`). When
+ * ext-task isn't loaded this is `undefined` and wayfind's status section simply
+ * doesn't render — ADR-0002's accepted no-fallback consequence (ext-task is the
  * earliest-loaded core package).
  */
 interface SharedStatusWidget {
@@ -95,7 +95,7 @@ export default function wayfindExtension(pi: ExtensionAPI): void {
     // mirroring the plan coordinator's session_shutdown cleanup. Only clears
     // wayfind's own overlay section — NEVER calls widget.dispose(), which would
     // tear down every other package's section too (see status-widget.ts's
-    // dispose() doc comment: only pi-agent-ext-core-task's own session_shutdown
+    // dispose() doc comment: only pi-agent-ext-task's own session_shutdown
     // owns that).
     endGrillForSession(state, getSessionId(ctx));
     overlay.dispose();

@@ -1,4 +1,4 @@
-import { publishSeam, type KnowledgePipeline } from "@repo/pi-agent-ext-core-interface";
+import { publishSeam, type KnowledgePipeline } from "@repo/pi-agent-core-interface";
 
 /** Publish zk's knowledge surface as the __piKnowledgePipeline seam.
  *  Called from the extension factory on session_start. */

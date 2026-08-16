@@ -1,4 +1,4 @@
-export { preview } from "@repo/pi-agent-ext-core-runtime";
+export { preview } from "@repo/pi-agent-core-runtime";
 export type { AdversarialReviewConfig } from "./adversarial-review.js";
 export { generateAdversarialReviewWorkflow, generateMultiPerspectiveWorkflow } from "./adversarial-review.js";
 export { registerBuiltinWorkflows } from "./builtin-commands.js";

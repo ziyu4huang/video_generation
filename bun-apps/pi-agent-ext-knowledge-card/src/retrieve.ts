@@ -41,7 +41,7 @@ import { extractFeatures } from "./card-render.ts";
 import { extractDetail, extractTitle } from "./graph-health.ts";
 import type { KnowledgeRecord, CoverageReport } from "./types.ts";
 import { buildMocContent, cardAnatomy, readCardFrontmatterFields, readCardMeta, slugify, normTag } from "./card-format.ts";
-import { computeIdf, scoreOverlap, type LinkWeighting } from "@repo/pi-agent-ext-core-interface";
+import { computeIdf, scoreOverlap, type LinkWeighting } from "@repo/pi-agent-core-interface";
 import {
 	cosine,
 	blendScore,

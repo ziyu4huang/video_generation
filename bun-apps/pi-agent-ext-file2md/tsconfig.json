@@ -4,7 +4,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "lib": ["ESNext"],
-    "types": ["bun", "@repo/pi-agent-ext-core-interface"],
+    "types": ["bun", "@repo/pi-agent-core-interface"],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

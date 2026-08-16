@@ -1,4 +1,4 @@
-import type { KnowledgeRecord } from "@repo/pi-agent-ext-core-interface";
+import type { KnowledgeRecord } from "@repo/pi-agent-core-interface";
 
 /** Result of parsing a `.knowledge.jsonl` blob (hermes-side, Option A). */
 export interface KnowledgeJsonlResult {

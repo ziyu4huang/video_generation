@@ -78,11 +78,11 @@ is markdown loaded on demand, not a TS handler.
 
 ## 4. Concrete examples (file:line)
 
-- **Pure command**: `pi-agent-ext-core-task/src/goal/goal.ts:331` —
+- **Pure command**: `pi-agent-ext-task/src/goal/goal.ts:331` —
   `pi.registerCommand("goal", { description, getArgumentCompletions:
   completeGoalArguments, handler })`, registered from the default factory
   `export default function goal(pi, overlay)` at `goal.ts:326`. Wired in via
-  `"pi-agent-ext-core-task/extensions/core-task.ts"` in
+  `"pi-agent-ext-task/extensions/task.ts"` in
   `run-dir/manifest.json`.
 
 - **Command spawning a workflow**:
