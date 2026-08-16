@@ -19,6 +19,7 @@ pi-agent-ext-hermes-memory reshaped to LeanRAG architecture shape (~80%): ≤ ~1
 - D6 Acceptance = checklist×tests×cost pin, ≥80% kept by count (user, grilling R2).
 - D7 3-tier drift + two retrieval paths honored, implementations simplified not removed (user, grilling R2).
 - D8 Explicit overturn: near-dup 0.3 / signature / topic-key dedup mechanisms removed (supersedes hermes-arch 04, C6 #1349).
+- D9 (04): repo extraction pilot net-negative (+364 LOC) — reverted; repos = parallel dialects (LeanRAG precedent); LOC cuts re-anchored to 06/07/09 content removal.
 
 ## Fog
 - Seam compatibility audit (stale-seam, zk seam) during consolidation — verify before demoting planning_stale.
