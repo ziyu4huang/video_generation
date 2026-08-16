@@ -10,6 +10,9 @@
   },
   "license": "MIT",
   "devDependencies": {
+    "@repo/pi-agent-ext-hermes-memory": "workspace:*",
+    "@repo/pi-agent-ext-knowledge-card": "workspace:*",
+    "@repo/pi-agent-ext-obsidian": "workspace:*",
     "@types/bun": "^1.3.14",
     "typescript": "^6.0.3"
   }
