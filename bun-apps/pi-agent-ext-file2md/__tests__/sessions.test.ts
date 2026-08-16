@@ -21,6 +21,9 @@ let saved: Record<string, string | undefined>;
 beforeEach(() => {
   saved = {};
   for (const k of KEYS) saved[k] = process.env[k];
+  // Hermeticity: ambient pi-harness env (PI_MODEL etc. exported into every
+  // spawn) must not satisfy the deprecated fallback the no-config test pins.
+  for (const k of KEYS) delete process.env[k];
 });
 afterEach(() => {
   for (const k of KEYS) {
