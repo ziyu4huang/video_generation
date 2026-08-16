@@ -1643,7 +1643,7 @@ test("liveProgressLineBudget: default 5; SUBAGENT_LIVE_LINES overrides; invalid 
   withLiveLines("0", () => assert.equal(liveProgressLineBudget(), 5));
 });
 
-test("isPartial+collapsed: 7-line feed shows first 5 lines + trailing `… +2 more` (default budget)", () => {
+test("isPartial+collapsed: header + 6 rows → header + first 5 child rows + trailing `… +1 more` (default budget, header exempt)", () => {
   withLiveLines(undefined, () => {
     const out = renderSubagentsResult(
       { content: [{ type: "text", text: liveFeed() }] },
@@ -1651,13 +1651,14 @@ test("isPartial+collapsed: 7-line feed shows first 5 lines + trailing `… +2 mo
       THEME,
     );
     const lines = out.split("\n");
-    assert.equal(lines.length, 6, "5 shown + indicator");
-    assert.equal(lines[4], "[3] glm-5.2 ⏱ 3.0s · pt", "first 5 lines (header + rows 0-3) kept verbatim");
-    assert.equal(lines[5], "… +2 more", "indicator is the LAST line");
+    assert.equal(lines.length, 7, "header + 5 rows + indicator");
+    assert.equal(lines[0], "subagents · 3/6 running · 12k tok · $0.004", "header always shown, exempt from budget");
+    assert.equal(lines[5], "[4] glm-5.2 ⏱ 4.0s · pt", "header + first 5 child rows kept verbatim");
+    assert.equal(lines[6], "… +1 more", "indicator is the LAST line, counts only cut child rows");
   });
 });
 
-test("isPartial+collapsed: SUBAGENT_LIVE_LINES=3 → 3 lines + `… +4 more`", () => {
+test("isPartial+collapsed: SUBAGENT_LIVE_LINES=3 → header + 3 rows + `… +3 more`", () => {
   withLiveLines("3", () => {
     const out = renderSubagentsResult(
       { content: [{ type: "text", text: liveFeed() }] },
@@ -1665,13 +1666,13 @@ test("isPartial+collapsed: SUBAGENT_LIVE_LINES=3 → 3 lines + `… +4 more`", (
       THEME,
     );
     const lines = out.split("\n");
-    assert.equal(lines.length, 4);
-    assert.equal(lines[2], "[1] glm-5.2 ⏱ 1.0s · pt");
-    assert.equal(lines[3], "… +4 more");
+    assert.equal(lines.length, 5, "header + 3 rows + indicator");
+    assert.equal(lines[3], "[2] glm-5.2 ⏱ 2.0s · pt");
+    assert.equal(lines[4], "… +3 more");
   });
 });
 
-test("isPartial+collapsed: invalid SUBAGENT_LIVE_LINES (abc, 0) → default 5-line budget", () => {
+test("isPartial+collapsed: invalid SUBAGENT_LIVE_LINES (abc, 0) → default 5 child rows", () => {
   for (const bad of ["abc", "0"]) {
     withLiveLines(bad, () => {
       const out = renderSubagentsResult(
@@ -1680,14 +1681,14 @@ test("isPartial+collapsed: invalid SUBAGENT_LIVE_LINES (abc, 0) → default 5-li
         THEME,
       );
       const lines = out.split("\n");
-      assert.equal(lines.length, 6, `(${bad}) 5 shown + indicator`);
-      assert.equal(lines[5], "… +2 more");
+      assert.equal(lines.length, 7, `(${bad}) header + 5 rows + indicator`);
+      assert.equal(lines[6], "… +1 more");
     });
   }
 });
 
-test("isPartial+collapsed: feed with ≤5 lines renders whole (no indicator)", () => {
-  // 3 lines → verbatim.
+test("isPartial+collapsed: header + ≤5 child rows renders whole (no indicator); header-only unchanged", () => {
+  // header + 2 rows → verbatim.
   const three = ["subagents · 1/2 running", "[0] glm-5.2 ⏱ 1.0s · pt", "[1] glm-5.2 ⏱ 2.0s · pt"].join("\n");
   withLiveLines(undefined, () => {
     const out3 = renderSubagentsResult(
@@ -1697,30 +1698,41 @@ test("isPartial+collapsed: feed with ≤5 lines renders whole (no indicator)", (
     );
     assert.equal(out3, three, "no truncation, no indicator");
   });
-  // Boundary: exactly 5 lines → still whole.
-  const five = Array.from({ length: 5 }, (_, i) => `line ${i}`).join("\n");
+  // Boundary: exactly header + 5 rows → still whole.
+  const six = ["subagents · 1/6 running", ...[0, 1, 2, 3, 4].map((i) => `[${i}] glm-5.2 ⏱ ${i}.0s · pt`)].join("\n");
   withLiveLines(undefined, () => {
-    const out5 = renderSubagentsResult(
-      { content: [{ type: "text", text: five }] },
+    const out6 = renderSubagentsResult(
+      { content: [{ type: "text", text: six }] },
       { expanded: false, isPartial: true },
       THEME,
     );
-    assert.equal(out5, five);
+    assert.equal(out6, six);
+  });
+  // Single-line text (header only) → unchanged.
+  const headerOnly = "subagents · 1/2 running";
+  withLiveLines(undefined, () => {
+    const out1 = renderSubagentsResult(
+      { content: [{ type: "text", text: headerOnly }] },
+      { expanded: false, isPartial: true },
+      THEME,
+    );
+    assert.equal(out1, headerOnly);
   });
 });
 
-test("`!d` streaming path (details: undefined — what onHistory/onUpdate emits) honors the budget in all option combos", () => {
-  const feed = liveFeed(); // 7 lines
+test("`!d` streaming path (details: undefined — what onHistory/onUpdate emits) honors the header-exempt budget in all option combos", () => {
+  const feed = liveFeed(); // header + 6 rows
   withLiveLines("3", () => {
-    // collapsed partial → first 3 lines + indicator.
+    // collapsed partial → header + first 3 rows + indicator.
     const collapsed = renderSubagentsResult(
       { content: [{ type: "text", text: feed }] },
       { expanded: false, isPartial: true },
       THEME,
     );
     const lines = collapsed.split("\n");
-    assert.equal(lines.length, 4, "3 shown + indicator");
-    assert.equal(lines[3], "… +4 more");
+    assert.equal(lines.length, 5, "header + 3 rows + indicator");
+    assert.equal(lines[0], "subagents · 3/6 running · 12k tok · $0.004", "header exempt, always shown");
+    assert.equal(lines[4], "… +3 more");
     // expanded partial → full feed.
     const expanded = renderSubagentsResult(
       { content: [{ type: "text", text: feed }] },
@@ -1744,7 +1756,7 @@ test("details-carrying isPartial render budgets identically (shared helper on bo
       THEME,
     );
     const lines = out.split("\n");
-    assert.equal(lines.length, 3, "2 shown + indicator");
-    assert.equal(lines[2], "… +5 more");
+    assert.equal(lines.length, 4, "header + 2 rows + indicator");
+    assert.equal(lines[3], "… +4 more");
   });
 });

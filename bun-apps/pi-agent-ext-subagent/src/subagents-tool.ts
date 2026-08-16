@@ -888,10 +888,11 @@ export function sumUsage(values: Iterable<AgentUsage>): { total: number; cost: n
   return { total, cost };
 }
 
-/** Default live-feed line budget for a COLLAPSED partial `subagents` render —
- *  the first N lines of the batch progress feed stay visible while the
- *  tool-call is collapsed (see renderLiveFeedDim, used by BOTH the details-less
- *  streaming path and the isPartial branch of renderSubagentsResult). */
+/** Default live-feed CHILD-row budget for a COLLAPSED partial `subagents`
+ *  render — line 0 (the header) is always shown and EXEMPT; the first N child
+ *  rows of the batch progress feed stay visible while the tool-call is
+ *  collapsed (see renderLiveFeedDim, used by BOTH the details-less streaming
+ *  path and the isPartial branch of renderSubagentsResult). */
 const DEFAULT_LIVE_LINES = 5;
 
 /** How many live-feed lines a collapsed partial `subagents` render shows.
@@ -904,8 +905,11 @@ export function liveProgressLineBudget(): number {
 }
 
 /** Dim-render a live-feed text under the live-line budget. Collapsed partial
- *  render → first `liveProgressLineBudget()` lines plus a dim "… +K more"
- *  indicator appended as the last line ONLY when lines were actually cut;
+ *  render → line 0 (the `subagents · k/N running · …` header) is ALWAYS shown
+ *  and does NOT count against the budget; the budget (default 5 = 5 CHILD
+ *  rows; env knob `SUBAGENT_LIVE_LINES`, positive int) applies only to the
+ *  remaining child rows, with a dim "… +K more" indicator appended as the
+ *  last line ONLY when child rows were actually cut (K = cut child rows only);
  *  everything else (expanded, or non-partial) → the full text. Shared by the
  *  details-less streaming path (the live feed onHistory/onUpdate emits has
  *  `details: undefined`, so it always takes the `!d` early return) and the
@@ -916,10 +920,11 @@ export function renderLiveFeedDim(
   theme: Theme,
 ): string {
   if (options.expanded || !options.isPartial) return theme.fg("dim", text);
-  const lines = text.split("\n");
+  const [header, ...rows] = text.split("\n");
   const budget = liveProgressLineBudget();
-  const shown = lines.slice(0, budget).join("\n");
-  const extra = lines.length - budget;
+  const shownRows = rows.slice(0, budget);
+  const extra = rows.length - shownRows.length;
+  const shown = [header, ...shownRows].join("\n");
   return theme.fg("dim", extra > 0 ? `${shown}\n… +${extra} more` : shown);
 }
 
