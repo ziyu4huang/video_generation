@@ -673,12 +673,12 @@ function renderMarkdown(md) {
   const FENCE = String.fromCharCode(96, 96, 96);
   const wrap = document.createElement('div');
   wrap.className = 'md';
-  const lines = String(md).split('\n');
+  const lines = String(md).split('\\n');
   let list = null, para = [], code = null;
   const flushPara = function () { if (para.length) { const p = document.createElement('p'); p.textContent = para.join(' '); wrap.appendChild(p); para = []; } };
   for (const raw of lines) {
     const line = raw.replace(/\\s+$/, '');
-    if (code !== null) { if (line.indexOf(FENCE) === 0) { const pre = document.createElement('pre'); const c = document.createElement('code'); c.textContent = code.join('\n'); pre.appendChild(c); wrap.appendChild(pre); code = null; } else code.push(line); continue; }
+    if (code !== null) { if (line.indexOf(FENCE) === 0) { const pre = document.createElement('pre'); const c = document.createElement('code'); c.textContent = code.join('\\n'); pre.appendChild(c); wrap.appendChild(pre); code = null; } else code.push(line); continue; }
     if (line.indexOf(FENCE) === 0) { flushPara(); list = null; code = []; continue; }
     const hm = /^(#{1,3})\\s+(.*)$/.exec(line);
     if (hm) { flushPara(); list = null; const el = document.createElement('h' + String(hm[1].length + 1)); el.textContent = hm[2]; wrap.appendChild(el); continue; }
@@ -688,7 +688,7 @@ function renderMarkdown(md) {
     para.push(line.trim());
   }
   flushPara();
-  if (code !== null) { const pre = document.createElement('pre'); pre.textContent = code.join('\n'); wrap.appendChild(pre); }
+  if (code !== null) { const pre = document.createElement('pre'); pre.textContent = code.join('\\n'); wrap.appendChild(pre); }
   return wrap;
 }
 

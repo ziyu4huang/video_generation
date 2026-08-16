@@ -55,3 +55,10 @@ describe("tab-views 01c — template-literal escape guard (regex SyntaxError cla
     for (const body of main) expect(() => new Script(body, { filename: "webui-main-shell.js" })).not.toThrow();
   });
 });
+describe("tab-views 01d — newline-escape guard (real-LF-in-string class)", () => {
+  test("string \\n sites stay ESCAPED in cooked output (no real LF inside string literals)", () => {
+    expect(RENDER_SHELL_HTML).toContain("String(md).split('\\n')");
+    expect(RENDER_SHELL_HTML).toContain("c.textContent = code.join('\\n');");
+    expect(RENDER_SHELL_HTML).toContain("pre.textContent = code.join('\\n');");
+  });
+});
