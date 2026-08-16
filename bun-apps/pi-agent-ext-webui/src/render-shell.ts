@@ -610,6 +610,12 @@ function retireCard(frame) {
   if (form && form.getAttribute('data-draft') === '1') { freezeDraftCard(art, form, frame.ts); return; }
   if (form) {
     const stash = art.cardAnswers;
+    // cards-ux2 (04): replay path — the tombstone carries answers rows.
+    const frameRows = Array.isArray(frame.answers)
+      ? frame.answers
+          .filter(function (r) { return r != null && typeof r.label === 'string'; })
+          .map(function (r) { return { label: r.label, answer: r.answer == null ? null : String(r.answer) }; })
+      : null;
     const done = document.createElement('div');
     done.className = 'card-done';
     const head = document.createElement('button');
@@ -625,7 +631,7 @@ function retireCard(frame) {
     head.appendChild(title);
     head.appendChild(mark);
     done.appendChild(head);
-    if (stash && typeof stash.question === 'string' && Array.isArray(stash.rows)) {
+    if ((stash && typeof stash.question === 'string' && Array.isArray(stash.rows)) || (frameRows && frameRows.length > 0)) {
       const detail = document.createElement('div');
       detail.className = 'card-done-detail';
       detail.hidden = true;

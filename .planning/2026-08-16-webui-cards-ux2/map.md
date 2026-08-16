@@ -15,4 +15,4 @@ Goal: two user-reported card UX gaps + one correctness bug. (1) answered questio
   | 01 | answer round-trip fix + reviewable answered cards + no appendix echo | closed | — |
   | 02 | non-blocking draft cards (blocking flag, card_send, sendUserMessage injection) + tests/docs | closed | draft cards one-shot send -> card_send -> JSONL + card_done freeze + sendMessage injection; webui 481 pass / 0 fail, innerHTML 8; 02a e0eb9dd1 + 02b 0db6695e |
   | 03 | persist draft-card input across refresh/replay | open | — |
-  | 04 | answered-card detail persistence for replay | open | — |
+  | 04 | answered-card detail persistence for replay | closed | cap-exempt cards + answers-bearing card_done; replay review renders; webui 482/0 |

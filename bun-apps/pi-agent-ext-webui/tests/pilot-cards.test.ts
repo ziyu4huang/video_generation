@@ -177,14 +177,21 @@ describe("ask-user pilot — dual broadcast on rpiv:ask-user:prompt", () => {
 
 // --- wiring: answered tombstone ------------------------------------------------
 describe("ask-user pilot — card_done retire on rpiv:ask-user:answered", () => {
-  test("answered broadcasts card_done for the ask card (after ask_user_done)", () => {
-    const { pi, broadcaster } = setup();
+  test("answered alone emits ONLY ask_user_done; the ANSWER frame owns the tombstone (with answers)", () => {
+    const { pi, broadcaster, server } = setup();
     pi.events.emit("rpiv:ask-user:prompt", ONE_QUESTION_PAYLOAD);
     broadcaster.frames.length = 0; // isolate the answered emission
     pi.events.emit("rpiv:ask-user:answered", { promptId: "p1" });
+    expect(broadcaster.frames.map((f) => f.type)).toEqual(["ask_user_done"]); // cards-ux2 04: tombstone moved to the answer frame
 
-    expect(broadcaster.frames.map((f) => f.type)).toEqual(["ask_user_done", "card_done"]);
-    expect((broadcaster.frames[1] as { id: string }).id).toBe("ask-p1");
+    broadcaster.frames.length = 0;
+    const s = server as unknown as Record<string, unknown>;
+    const seam = (s.commandHandler) as ((f: unknown, r: unknown) => void) | undefined;
+    if (seam) seam.call(s, { type: "appexec", extra: { kind: "ask_user_answer", promptId: "p1", result: { cancelled: false, answers: [{ questionIndex: 0, question: "Pick a color", kind: "option", answer: "Red" }] } } }, () => {});
+    const done = broadcaster.frames.find((f) => f.type === "card_done") as { id?: string; answers?: Array<{ label: string; answer: string | null }> };
+    expect(done).toBeDefined();
+    expect(done!.id).toBe("ask-p1");
+    expect(done!.answers).toEqual([{ label: "Pick a color", answer: "Red" }]);
   });
 
   test("Set-guarded: no card for unknown promptIds, first fire wins, shutdown clears", () => {
@@ -197,7 +204,7 @@ describe("ask-user pilot — card_done retire on rpiv:ask-user:answered", () => 
     pi.events.emit("rpiv:ask-user:answered", { promptId: "p1" });
     // duplicate answered -> the first fire already deleted the ledger entry
     pi.events.emit("rpiv:ask-user:answered", { promptId: "p1" });
-    expect(broadcaster.frames.filter((f) => f.type === "card_done")).toHaveLength(1);
+    expect(broadcaster.frames.filter((f) => f.type === "card_done")).toHaveLength(0); // cards-ux2 04: the answer frame owns the tombstone
 
     // session_shutdown clears the ledger: a stray late answered is a no-op
     pi.emit("session_shutdown", { type: "session_shutdown", reason: "exit" });
