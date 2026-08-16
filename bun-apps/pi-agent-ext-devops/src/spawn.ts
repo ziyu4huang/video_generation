@@ -22,6 +22,12 @@ export interface SpawnResult {
 	stdout: string;
 	stderr: string;
 	exitCode: number;
+	/**
+	 * True when the call hit its `timeoutMs` cap and was SIGKILLed (exitCode is
+	 * then `SPAWN_TIMEOUT_EXIT_CODE`). Needed by callers that branch on the
+	 * timeout reason rather than the exit code alone (oneshot-smoke gate).
+	 */
+	timedOut?: boolean;
 }
 
 /** Exit code reported for a command killed by `timeoutMs`. Matches GNU `timeout`. */
@@ -99,6 +105,9 @@ export function createLiveSpawn(cwd: string): SpawnFn {
 					stdout,
 					stderr: `${stderr}\n[spawn] KILLED after ${timeoutMs}ms — command exceeded its timeout`,
 					exitCode: SPAWN_TIMEOUT_EXIT_CODE,
+					// Flag the timeout reason for callers (oneshot-smoke) that branch on
+					// it rather than on the exit code alone.
+					timedOut: true,
 				};
 			}
 			return { stdout, stderr, exitCode };
