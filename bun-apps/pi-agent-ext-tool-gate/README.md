@@ -24,11 +24,13 @@ Gated:    ON at start ~6,750 tok/req   (saves ~15,186 tok/turn gross, ~69%; **ne
 
 | Concept | Description |
 |---|---|
-| **CORE_TOOLS** | A set of lightweight tools that are **always active** — file I/O, memory, search, user interaction, vault access. These never gate. |
-| **GATES** | An array of tool groups. Each gate has `names` (the tools it controls), `keywords` (trigger words), and an optional `requires` co-occurrence rule. |
-| **sticky** | A `Set<string>` accumulator. Starts as a copy of `CORE_TOOLS`. When a gate fires, its tool names are added to `sticky`. Once added, they **never leave** — tools are sticky for the entire session. |
+| **GATE_DEFS** | The shared gate registry (`@repo/pi-agent-core-interface` `GATE_DEFS`). Each owning extension declares its gate **family once by id** (`{ id, keywords?, requires?, description }`); every tool in the family references it via `gating: { gate: "<id>" }` on its `ToolDefinition`. Sibling co-firing = same id (no per-tool keyword duplication). |
+| **Core** | Tools whose `gating: { core: true }` makes them **always active** — file I/O, memory, search, user interaction, diagnostics. These never gate. |
+| **sticky** | A `Set<string>` accumulator, one per session (keyed by `sessionManager.getSessionId()`). Starts as a copy of the core set. When a gate fires, its tool names are added to `sticky`. Once added, they **never leave** — tools are sticky for the entire session. |
 
 ### The per-turn pipeline
+
+The full gate-set build (discover tools → `buildEffectiveGates` → measure token costs) runs **once at session start**. Each turn is fire + filter only:
 
 ```
 User prompt arrives
@@ -49,7 +51,7 @@ User prompt arrives
    pi.setActiveTools(active)
 ```
 
-**Fail-open design**: any tool not explicitly tracked by this extension (not in `CORE_TOOLS` and not in any gate) is always active. This ensures new tools from other extensions are never accidentally hidden.
+**Fail-open design**: any tool not explicitly tracked by this extension (not core and not in any gate) is always active. This ensures new tools from other extensions are never accidentally hidden.
 
 ### Sticky activation — why tools never re-gate
 
@@ -61,53 +63,65 @@ Once you've shown intent to use a domain tool, the gate trusts you and keeps it 
 
 ## Architecture (post-refactor)
 
-The original monolithic `computeActiveTools()` was split into two functions with clear separation of concerns:
+The core is a **first-class, auditable gating contract** (wayfinder ticket 01, expand–contract completed): gates live in the shared `GATE_DEFS` registry keyed by id; `buildEffectiveGates` resolves every tool's `gating: { gate: id }` reference into one multi-name family gate per id (fingerprint reconstruction and the inline keywords/requires form were deleted in 01c).
 
 | Function | Type | Responsibility |
 |---|---|---|
-| `updateSticky(prompt, sticky)` | **Mutate** | Evaluate gates against the prompt; add matching tool names to `sticky` |
-| `filterActive(allToolNames, sticky)` | **Pure** | Filter the full tool list to the active set; fail-open for untracked tools |
+| `buildEffectiveGates(defs, gateDefs)` | **Pure** | Resolve owner-declared `gating` → `{ gates, core, tracked }`. Reference form only since 01c |
+| `updateSticky(prompt, sticky, gates)` | **Mutate** | Evaluate gates against the prompt; add matching tool names to `sticky` |
+| `filterActive(allToolNames, sticky, tracked)` | **Pure** | Filter the full tool list to the active set; fail-open for untracked tools |
 | `matchIntent(intent, gates, sticky)` | **Pure** | Find dormant gates matching a natural-language intent (used by `enable_tool`) |
 | `gateFires(gate, promptLower)` | **Pure** | Does a gate fire? (keyword match OR co-occurrence) |
 | `matchesKeyword(keyword, promptLower)` | **Pure** | Does a keyword appear in the prompt? (word-boundary vs substring) |
 
 **Why split?** `enable_tool` only needs to filter the tool list — it should not re-evaluate gate keywords against a stale prompt (which could silently activate unrelated gates). The split lets `enable_tool` call `filterActive` directly.
 
+**Per-session state (ticket 05):** each session (parent or in-process subagent child) owns an independent gate state keyed by `sessionManager.getSessionId()`; a child that skips `session_start` seeds its own on first `before_agent_start`. `session_shutdown` drops the state.
+
 ## Gate Configuration
 
-The current gate definitions (`GATES` array in `extensions/tool-gate.ts`):
+Gate families are declared **in each owning extension** (`GATE_DEFS["flux2"] = {...}` at the extension's module top-level), not in tool-gate. The full registry is visible via `enable_tool({list})` or power-tool's `inspect_context` "▶ Tool gate (live state)" section (which reads tool-gate's `__piToolGateStatus` seam — per-gate fired/dormant + token cost + sticky).
 
-| Gate | Tools | Keywords (sample) | Co-occurrence | Description |
-|---|---|---|---|---|
-| **flux2** | `flux2`, `flux2_help` | flux, t2i, 圖像, 生成圖, 去背 | `nouns` ∩ `verbs` | Flux2 image generation — t2i, i2i, faceswap, outpaint, upscale |
-| **krea2** | `krea2`, `krea2_help` | krea, 草圖, 快速生成 | *(none — keywords are narrow enough)* | Krea2 fast image generation — real-time draft to image |
-| **ltx** | `ltx`, `ltx_help` | ltx, t2v, i2v, vbvr | `nouns` ∩ `verbs` | LTX video generation — t2v, i2v, upscale, vbvr |
-| **file2md** | `file2md`, `vision_ask` | file2md, ocr, caption, 識別 | `nouns` ∩ `verbs` | Document/image understanding — file→markdown, VLM, OCR |
-| **inspect** | `inspect_context`, `inspect_agent`, `inspect_extensions`, `inspect_pathology`, `inspect_tui` | schema cost, pathology, extension health | `nouns` ∩ `verbs` | Agent/extension introspection |
-| **workflow** | `workflow`, `workflow_help`, `subagent`, `workflow_control` | workflow, pipeline, orchestrate | *(none)* | Multi-agent fan-out/pipeline orchestration |
-| **research** | `collect_videos`, `organize_vault_notes`, `import_memory_to_vault` | bilibili, youtube, 收集影片 | *(none)* | Research — collect videos, organize vault |
-| **movie** | `movie`, `movie_help` | montage, storyboard, 分鏡, 剪輯 | *(none)* | Movie orchestrator — idea→script→scene→edit pipeline |
-| **zai-mcp** | `zai_web_search_web_search_prime`, `zai_web_reader_webReader` | zai search, zai reader | *(none)* | Z.ai MCP web tools (redundant with core web_search/fetch_content) |
-| **arxiv** | `arxiv_search`, `arxiv_fetch2md`, `arxiv_paper` | arxiv, 論文 | `nouns` ∩ `verbs` | ArXiv paper retrieval — search, fetch-to-markdown |
-| **cost** | `cost` | 成本估算, cost estimate | `nouns` ∩ `verbs` | Movie-production cost lifecycle — estimate/reserve/reconcile |
-| **pi_deploy** | `pi_deploy`, `pi_verify` | build bundle, bundle pi-agent | `nouns` ∩ `verbs` | Build/verify/deploy the pi-agent bundle |
+Current families (each declared once by id; all tools in a family reference it):
+
+| Gate id | Tools | Co-occurrence |
+|---|---|---|
+| flux2 | `flux2`, `flux2_help` | `nouns` ∩ `verbs` |
+| krea2 | `krea2`, `krea2_help` | — |
+| ltx | `ltx`, `ltx_help` | `nouns` ∩ `verbs` |
+| file2md | `file2md`, `vision_ask` | `nouns` ∩ `verbs` |
+| workflow | `workflow`, `workflow_help`, `workflow_control`, `subagent`, `subagents` | — (cross-package: workflow + subagent) |
+| collect_videos | `collect_videos`, `organize_vault_notes`, `import_memory_to_vault` | — |
+| arxiv | `arxiv_search`, `arxiv_fetch2md`, `arxiv_paper` | `nouns` ∩ `verbs` |
+| movie | `movie`, `movie_help` | `nouns` ∩ `verbs` |
+| zai | `zai_web_search_web_search_prime`, `zai_web_reader_webReader` | `nouns` ∩ `verbs` |
+| pi_deploy | `pi_deploy`, `pi_verify` | `nouns` ∩ `verbs` |
+| await_pr_merge / sweep_branches / local_ci / main_health / sync_repo / devops_retrospect / prepare_branch / verify_merge | devops single-tool gates | — |
+| zk_card / zk_ask / zk_ingest / knowledge_query | knowledge-card on-demand | `nouns` ∩ `verbs` |
+| skill_manage / session_search / knowledge_search / knowledge_ingest / planning_stale / grill_decision / memory_supersede | hermes-memory on-demand | varies |
+| wayfind_effort | wayfind | `nouns` ∩ `verbs` |
+| get_search_content | web-access | `nouns` ∩ `verbs` |
+| obsidian | `obsidian`, `obsidian_help` | `nouns` ∩ `verbs` |
+
+The six `inspect_*` diagnostics (context/agent/extensions/hooks/pathology/tui) were **un-gated to core in ticket 06** — they are always-on so the agent can reach them exactly when something is wrong.
 
 ### Co-occurrence gating (`requires`)
 
 Some core nouns like *image*, *video*, and *pdf* false-fire on common phrases ("docker image", "video call") but must survive on real intents ("generate an image", "make a video"). These gates use a **co-occurrence** trigger: the gate fires only when the prompt contains **≥1 noun AND ≥1 verb** from the `requires` lists.
 
 ```typescript
-{
-  names: ["flux2", "flux2_help"],
+GATE_DEFS["flux2"] = {
+  id: "flux2",
   keywords: ["flux", "t2i", "圖像", ...],
   requires: {
     nouns: ["image", "picture", "photo", "圖"],
     verbs: ["generate", "create", "make", "draw", "render", ...],
   },
-}
+  description: "FLUX.2 image generation",
+};
 ```
 
-Gates whose keywords are already narrow enough (krea2, workflow, research, movie, zai-mcp, pi_deploy) skip `requires` entirely.
+Gates whose keywords are already narrow enough (krea2, workflow, etc.) skip `requires` entirely.
 
 ### Keyword matching rules
 
@@ -163,19 +177,23 @@ The `miss_candidate` event quantifies the dormant-tool miss rate — making the 
 On session start, a transient above-editor widget (keyed `"tool-gate"`) shows the active/gated ratio and estimated savings:
 
 ```
-🔧 Tool gate: 24/52 active
-saves ~9800 tok/req
+🔧 Tool gate: 45/72 active
+saves ~15186 tok/req
 ```
 
 The banner uses `setWidget` (not `notify`) so it never clobbers or is clobbered by other extensions' startup messages. It auto-dismisses after 8 seconds.
 
 ## Adding a new gate
 
-1. **Add a `ToolGate` entry** to the `GATES` array in `extensions/tool-gate.ts`:
+The gate contract is **owner-declared** — each extension declares its family once in the shared `GATE_DEFS` registry and references it from its tools. To gate a new tool:
+
+1. **Declare the family** in your extension's module (top-level side effect, next to the tool):
 
 ```typescript
-{
-  names: ["my_tool", "my_tool_help"],
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
+
+GATE_DEFS["my_tool"] = {
+  id: "my_tool",
   keywords: ["my tool", "special keyword", "特定詞"],
   // Optional: add co-occurrence if your keywords are broad nouns
   requires: {
@@ -183,37 +201,38 @@ The banner uses `setWidget` (not `notify`) so it never clobbers or is clobbered 
     verbs: ["do", "make"],
   },
   description: "What this tool does — used for enable_tool matching + list output",
-}
+};
 ```
 
-2. **Do NOT add the tool names to `CORE_TOOLS`** — that defeats the gate.
+2. **Reference it from each tool** in the family: `gating: { gate: "my_tool" }` on the `ToolDefinition`. Sibling tools share one id — edit the family once, all tools follow.
 
-3. **`TRACKED_TOOLS` updates automatically** — it's computed from `CORE_TOOLS ∪ GATES`.
+3. **Do NOT use `gating: { core: true }`** unless the tool must be always-active (file I/O, memory, HITL interaction, diagnostics). Core tools are never gated.
 
 4. **Test keyword precision**: verify your keywords don't false-fire on common phrases. If a bare noun like "image" over-matches, use `requires` co-occurrence instead.
 
-5. **Run tests**:
+5. **Add probes**: a `__GATE_PROBES__` export (gate-recall) + must-fire/must-not-fire corpus cases in `qa/probes.ts`, so `qa:gate-recall` and `qa --strict` cover the new gate.
+
+6. **Run tests**:
 ```bash
 bun test --cwd bun-apps/pi-agent-ext-tool-gate
 ```
 
 ## Core tools (always active)
 
+The always-active core was **re-triaged in ticket 02** (14 on-demand tools demoted to gates) + **ticket 06** (diagnostics un-gated). Current core:
+
 ```
-read, write, edit, bash           — file I/O & shell
-todo, goal_complete                — task & goal tracking
-memory, memory_search              — persistent memory
-session_search                     — past session search
-ask_user_question                  — user interaction
+read, write, edit, bash           — file I/O & shell (injected builtins)
 enable_tool                        — escape hatch for dormant gates
-skill_manage                        — procedural skills
-grill_decision                      — grilling decision capture
-obsidian, obsidian_help            — vault I/O
-zk_card, zk_ask, zk_ingest         — Zettelkasten knowledge graph
-knowledge_query                    — knowledge graph query
+ask_user_question                  — HITL interaction
+memory, memory_search              — persistent memory
+todo, goal_complete                — task & goal tracking
 web_search, fetch_content          — web access
-get_search_content                 — retrieve stored search results
+inspect_context, inspect_agent, inspect_extensions,   — diagnostics (ticket 06)
+inspect_hooks, inspect_pathology, inspect_tui          — always-on on purpose
 ```
+
+Demoted to on-demand gates in ticket 02: `zk_card`, `zk_ask`, `zk_ingest`, `knowledge_query`, `wayfind_effort`, `skill_manage`, `session_search`, `knowledge_search`, `knowledge_ingest`, `planning_stale`, `grill_decision`, `get_search_content`, `obsidian`, `obsidian_help`.
 
 ## Testing
 

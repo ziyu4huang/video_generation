@@ -10,8 +10,8 @@ The root cause is structural — pi activates every registered tool by default �
 
 A pi extension that acts as a **cost-control / visibility layer** between `pi.getAllTools()` and `pi.setActiveTools()`. It owns **no domain functionality**; it only decides which tool names reach the API on a given turn.
 
-- **Core tools** (~24 lightweight tools: file I/O, memory, search, vault, web, user interaction) stay **always active** — they are cheap and frequently needed.
-- **Heavy domain tools** (~31 tools: image/video/movie generation, introspection, workflow orchestration, research, ArXiv, deploy, Z.ai web) are **gated** — hidden until the prompt shows intent, then reactivated instantly.
+- **Core tools** (a lean, audited always-active set: file I/O, memory, HITL interaction, web, diagnostics) stay **always active** — re-triaged in ticket 02 (14 on-demand tools demoted) + ticket 06 (diagnostics un-gated).
+- **Heavy domain tools** (~32 gates across ~24 families: image/video/movie generation, workflow orchestration, research, ArXiv, deploy, Z.ai web, knowledge/vault ops) are **gated** — hidden until the prompt shows intent, then reactivated instantly.
 - **Sticky activation**: once a gate fires, its tools stay active for the rest of the session — a workflow using `flux2` never loses the tool mid-task when a follow-up like *"make it bigger"* drops the trigger keyword.
 - **Fail-open**: any tool not explicitly tracked (new tools from other extensions) is always active, so tool-gate can never accidentally hide functionality it doesn't know about.
 
@@ -26,13 +26,15 @@ pi session ── getAllTools() ──▶ tool-gate ── setActiveTools(active
                                   │
                   ┌───────────────┼───────────────────────┐
                   ▼                                       ▼
-        CORE_TOOLS (always on)                 GATES (lazy, hidden until intent)
-        ~24 lightweight tools                  ~31 heavy domain tools
-        ─ never gated ─                        ─ fire on keyword / noun∧verb ─
-                                                saves ~15,186 tok/req
+          core (always on)                    GATE_DEFS families (lazy, hidden until intent)
+          lean audited set                     ~32 gates / ~24 families
+          ─ never gated ─                      ─ fire on keyword / noun∧verb ─
+                                                 saves ~15,186 tok/req
                                   │
                           enable_tool (always on) ◀── escape hatch for misses
 ```
+
+Gates are **owner-declared**: each extension declares its family once in the shared `GATE_DEFS` registry (`@repo/pi-agent-core-interface`) and its tools reference it via `gating: { gate: "<id>" }` on their `ToolDefinition`.
 
 ## Scope reality (2026-07)
 
@@ -46,55 +48,67 @@ The extension is feature-complete against its original goal. Five ADRs capture t
 
 ### Out of scope
 
-The gating **mechanism** is not redesigned here. A semantic/embedding matcher or a declarative-DSL redesign (replacing keyword + co-occurrence matching) is a separate effort. The gated tools themselves are owned by their own extensions; tool-gate only controls their visibility.
+The gating **mechanism** is not redesigned here. A semantic/embedding matcher or a declarative-DSL redesign (replacing keyword + co-occurrence matching) is a separate effort — re-evaluated on evidence in wayfinder ticket 00 (keyword matching passes 46/46 must-fire + 20/20 gate-recall, 0 task-breaking; a semantic fallback stays fog until telemetry shows a real miss-rate). The gated tools themselves are owned by their own extensions; tool-gate only controls their visibility.
 
 ## Gates (lazy) and their owning extensions
 
-Tool-gate controls 11 gates covering ~31 tools. The owning extension column is the single source of truth for **who implements** each gated tool — tool-gate owns none of them.
+Every gate family is declared in the shared `GATE_DEFS` registry by its **owning extension** (single source of truth for who implements each tool — tool-gate owns none). Each family id is referenced by every tool in it via `gating: { gate: "<id>" }`.
 
-| Gate | Gated tools | Owning extension | Trigger |
+| Gate id | Tools | Owning extension | Trigger |
 |---|---|---|---|
-| **flux2** | `flux2`, `flux2_help` | pi-agent-ext-flux2 | keywords + noun∧verb |
-| **krea2** | `krea2`, `krea2_help` | pi-agent-ext-krea2 | keywords (narrow) |
-| **ltx** | `ltx`, `ltx_help` | pi-agent-ext-ltx | keywords + noun∧verb |
-| **file2md** | `file2md`, `vision_ask` | pi-agent-ext-file2md | keywords + noun∧verb |
-| **inspect** | `inspect_context`, `inspect_agent`, `inspect_extensions`, `inspect_pathology`, `inspect_tui` | pi-agent-ext-power-tool *(static)* | keywords + noun∧verb |
-| **workflow** | `workflow`, `workflow_help`, `subagent`, `workflow_control` | pi-agent-ext-workflow + pi-agent-ext-subagent *(static)* | keywords |
-| **research** | `collect_videos`, `organize_vault_notes`, `import_memory_to_vault` | pi-agent-ext-research-tool | keywords |
-| **arxiv** | `arxiv_search`, `arxiv_fetch2md`, `arxiv_paper` | pi-agent-ext-research-tool | keywords + noun∧verb |
-| **movie** | `movie`, `movie_help` | pi-agent-ext-movie-director | keywords |
-| **zai-mcp** | `zai_web_search_web_search_prime`, `zai_web_reader_webReader` | pi-agent-ext-zai-mcp *(env-gated on ZAI_API_KEY)* | keywords |
-| **pi_deploy** | `pi_deploy`, `pi_verify` | pi-agent-ext-devops | keywords + noun∧verb |
+| flux2 | `flux2`, `flux2_help` | pi-agent-ext-flux2 | keywords + noun∧verb |
+| krea2 | `krea2`, `krea2_help` | pi-agent-ext-krea2 | keywords (narrow) |
+| ltx | `ltx`, `ltx_help` | pi-agent-ext-ltx | keywords + noun∧verb |
+| file2md | `file2md`, `vision_ask` | pi-agent-ext-file2md | keywords + noun∧verb |
+| workflow | `workflow`, `workflow_help`, `workflow_control`, `subagent`, `subagents` | pi-agent-ext-workflow + pi-agent-ext-subagent (cross-package family) | keywords |
+| collect_videos | `collect_videos`, `organize_vault_notes`, `import_memory_to_vault` | pi-agent-ext-research-tool | keywords |
+| arxiv | `arxiv_search`, `arxiv_fetch2md`, `arxiv_paper` | pi-agent-ext-research-tool | keywords + noun∧verb |
+| movie | `movie`, `movie_help` | pi-agent-ext-movie-director | keywords + noun∧verb |
+| zai | `zai_web_search_web_search_prime`, `zai_web_reader_webReader` | pi-agent-ext-zai-mcp *(env-gated on ZAI_API_KEY)* | keywords + noun∧verb |
+| pi_deploy | `pi_deploy`, `pi_verify` | pi-agent-ext-devops | keywords + noun∧verb |
+| await_pr_merge, sweep_branches, local_ci, main_health, sync_repo, devops_retrospect, prepare_branch, verify_merge | devops single-tool gates | pi-agent-ext-devops | keywords |
+| zk_card, zk_ask, zk_ingest, knowledge_query | knowledge-card on-demand | pi-agent-ext-knowledge-card | keywords + noun∧verb (ticket 02) |
+| skill_manage, session_search, knowledge_search, knowledge_ingest, planning_stale, grill_decision, memory_supersede | hermes-memory on-demand | pi-agent-ext-hermes-memory | keywords ± noun∧verb (ticket 02) |
+| wayfind_effort | wayfind | pi-agent-ext-wayfind | keywords + noun∧verb (ticket 02) |
+| get_search_content | web-access | pi-agent-ext-web-access | keywords + noun∧verb (ticket 02) |
+| obsidian | `obsidian`, `obsidian_help` | pi-agent-ext-obsidian | keywords + noun∧verb (ticket 02) |
+
+The six `inspect_*` diagnostics (context/agent/extensions/hooks/pathology/tui) were **un-gated to core in ticket 06** — always-on so the agent can reach them exactly when something is wrong.
 
 ## Core tools (always active) — owners
 
 ```
-read, write, edit, bash        → pi builtins
-todo, goal_complete             → pi-agent-ext-task
-memory, memory_search, grill_decision → pi-agent-ext-hermes-memory
-session_search                  → pi core
-ask_user_question               → pi-agent-ext-task
-enable_tool                     → THIS extension (the escape hatch)
-skill_manage                    → pi core
-obsidian, obsidian_help         → pi-agent-ext-obsidian
-zk_card, zk_ask, zk_ingest      → pi-agent-ext-knowledge-card
-knowledge_query                 → pi-agent-ext-knowledge-card
-web_search, fetch_content, get_search_content → pi-agent-ext-web-access
+read, write, edit, bash                    → pi builtins (injected core)
+todo, goal_complete                        → pi-agent-ext-task
+ask_user_question                          → pi-agent-ext-task (HITL)
+memory, memory_search                      → pi-agent-ext-hermes-memory
+web_search, fetch_content                  → pi-agent-ext-web-access
+inspect_context, inspect_agent, inspect_extensions,   → pi-agent-ext-power-tool
+inspect_hooks, inspect_pathology, inspect_tui          (ticket 06 un-gate)
+enable_tool                                → THIS extension (the escape hatch)
 ```
+
+Demoted to on-demand gates in ticket 02: `zk_card`, `zk_ask`, `zk_ingest`, `knowledge_query`, `wayfind_effort`, `skill_manage`, `session_search`, `knowledge_search`, `knowledge_ingest`, `planning_stale`, `grill_decision`, `get_search_content`, `obsidian`, `obsidian_help`.
 
 ## How it works (per-turn pipeline)
 
 ```
-prompt arrives (session_start / before_agent_start)
+session_start:  ONE full rebuild — discover tools → buildEffectiveGates (resolve
+                GATE_DEFS id references) → measure token costs → per-session state.
+                (ticket 05: the per-turn path does NOT rebuild.)
+
+per turn (before_agent_start):
    │
    ▼
-updateSticky(prompt, sticky)      MUTATE — fire gates whose keywords or
-   │                              noun∧verb co-occurrence match → add names to sticky
+updateSticky(prompt, sticky, gates)   MUTATE — fire gates whose keywords or
+   │                                  noun∧verb co-occurrence match → add names to sticky
    ▼
-filterActive(allToolNames, sticky)  PURE — keep a tool if untracked (fail-open)
-   │                                       OR present in sticky
+filterActive(allToolNames, sticky, tracked)  PURE — keep a tool if untracked (fail-open)
+   │                                        OR present in sticky
    ▼
 pi.setActiveTools(active)
+
+session_shutdown:  drop the session's gate state.
 ```
 
 The **mutate/pure split** is deliberate: `enable_tool` calls `filterActive` directly so it never re-evaluates gates against a stale prompt and silently activates unrelated gates.
