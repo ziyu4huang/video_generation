@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 ---
 # 01 — card frame contract + Cards tab (projection)
 
@@ -14,3 +14,6 @@ status: open
 
 ## Acceptance
 - Card frames replay from the snapshot store; tab survives refresh; XSS-safe.
+
+## Result
+01: card outbound-union frame (id/kind/title/source/ts/attention/body.text); Cards tab + pane projecting card frames live + via snapshot replay (textContent-only render); bus snoop wraps host events.emit forwarding non-OUTBOUND (excl webui:render) as silent readonly cards; dispose restores emit; webui 486/0.
