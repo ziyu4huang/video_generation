@@ -39,6 +39,15 @@ export interface BranchClient {
 	 *  `limit`. Read-only; [] when the range fails to resolve. */
 	logSubjects(from: string, to: string, limit: number): Promise<string[]>;
 	fetchPrune(): Promise<void>;
+	/**
+	 * Detach HEAD onto `ref` in THIS worktree (`git checkout --detach <ref>`).
+	 *
+	 * Exists so a spent branch can be deleted after it has been merged: git
+	 * refuses `branch -D` on a branch that is checked out anywhere, and the
+	 * worktree that ran the merge is usually still sitting on it. Callers must
+	 * establish a clean tree first — this moves HEAD.
+	 */
+	detachHead(ref: string): Promise<void>;
 	deleteLocalBranch(name: string): Promise<void>;
 	deleteRemoteBranch(name: string): Promise<void>;
 }

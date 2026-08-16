@@ -279,14 +279,19 @@ describe("runVerifyMerge — failure modes", () => {
 		expect(calls.length).toBe(0);
 	});
 
-	test("merged but no mergeSha → warning + empty files, verdict CLEAN (no scope)", async () => {
+	// CHANGED for issue #1439. This test previously asserted `verdict: "CLEAN"`
+	// here — i.e. it pinned the bug as the spec: "we could not inspect anything,
+	// therefore the merge is clean". A merge whose files were never read is
+	// UNVERIFIED; the rest of the assertions are unchanged.
+	test("merged but no mergeSha → warning + empty files, verdict UNVERIFIED", async () => {
 		const gh = fakeGh({ state: "MERGED", headRefName: "feat/x" }); // no mergeSha
 		const client = fakeClient({ defaultBranch: "main" });
 		const { fn, calls } = fakeSpawn();
 		const out = await runVerifyMerge({ gh, client, spawn: fn, repoRoot: REPO, pr: 42 });
 
 		expect(out.merged).toBe(true);
-		expect(out.verdict).toBe("CLEAN");
+		expect(out.verdict).toBe("UNVERIFIED");
+		expect(out.inspected).toBe(false);
 		expect(out.files).toEqual([]);
 		expect(out.warnings.some((w) => /no mergeSha/.test(w))).toBe(true);
 		// no mergeSha → no `git show` issued.
@@ -434,5 +439,156 @@ describe("BUG: branchSpent is always false under the repo's squash convention", 
 		const client = fakeClient({ defaultBranch: "main", contained: [], revs: { "feat/x": sha("a") } });
 		const out = await runVerifyMerge({ gh, client, spawn: showOnly().fn, repoRoot: REPO, pr: 42 });
 		expect(out.branchSpent).toBe(false);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Issue #1439: a merge whose files could not be READ must never report CLEAN.
+//
+// CLEAN used to be the else-branch of the scope check, so an unreadable merge
+// produced files=[] → outOfScope=[] → CLEAN with fileCount 0. The trigger is
+// the normal post-merge state, not an edge case: `gh pr merge` puts the squash
+// commit on the remote, and `git show` on a sha that is not local yet fails
+// with `fatal: bad object`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `git show` on a sha the local object store does not have. */
+const SHOW_BAD_OBJECT: SpawnResult = {
+	stdout: "",
+	stderr: `fatal: bad object ${SHA}\n`,
+	exitCode: 128,
+};
+
+const isShow = (a: string[]) => realArgs(a)[0] === "show";
+const isFetch = (a: string[]) => realArgs(a)[0] === "fetch";
+
+describe("unreadable merge (issue #1439)", () => {
+	test("an unfetched merge sha reports UNVERIFIED, not CLEAN", async () => {
+		const spawn = fakeSpawn([{ match: isShow, result: SHOW_BAD_OBJECT }]);
+		const out = await runVerifyMerge({
+			gh: fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA }),
+			client: fakeClient({ defaultBranch: "main" }),
+			spawn: spawn.fn,
+			repoRoot: REPO,
+			pr: 1,
+			expectedScope: ["src/"],
+		});
+		expect(out.verdict).toBe("UNVERIFIED");
+		expect(out.inspected).toBe(false);
+		expect(out.merged).toBe(true);
+		// The old shape: merged + CLEAN + zero files, indistinguishable from a
+		// genuinely empty in-scope merge.
+		expect(out.fileCount).toBe(0);
+	});
+
+	test("UNVERIFIED even with NO expectedScope — the failure is the file read, not the scope", async () => {
+		const spawn = fakeSpawn([{ match: isShow, result: SHOW_BAD_OBJECT }]);
+		const out = await runVerifyMerge({
+			gh: fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA }),
+			client: fakeClient({ defaultBranch: "main" }),
+			spawn: spawn.fn,
+			repoRoot: REPO,
+			pr: 1,
+		});
+		expect(out.verdict).toBe("UNVERIFIED");
+	});
+
+	test("a MERGED PR with no mergeSha is UNVERIFIED", async () => {
+		const spawn = fakeSpawn();
+		const out = await runVerifyMerge({
+			gh: fakeGh({ state: "MERGED", headRefName: "feat/x" }),
+			client: fakeClient({ defaultBranch: "main" }),
+			spawn: spawn.fn,
+			repoRoot: REPO,
+			pr: 1,
+			expectedScope: ["src/"],
+		});
+		expect(out.verdict).toBe("UNVERIFIED");
+		expect(out.inspected).toBe(false);
+	});
+
+	test("without allowFetch, no fetch is attempted (read-only contract holds)", async () => {
+		const spawn = fakeSpawn([{ match: isShow, result: SHOW_BAD_OBJECT }]);
+		await runVerifyMerge({
+			gh: fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA }),
+			client: fakeClient({ defaultBranch: "main" }),
+			spawn: spawn.fn,
+			repoRoot: REPO,
+			pr: 1,
+		});
+		expect(spawn.calls.filter((c) => isFetch(c.args)).length).toBe(0);
+	});
+
+	test("allowFetch fetches the missing object once, then verifies for real", async () => {
+		// First `show` fails (object absent); the fetch lands it; the retry reads it.
+		let shows = 0;
+		const spawn = fakeSpawn([
+			{
+				match: isShow,
+				get result() {
+					shows++;
+					return shows === 1 ? SHOW_BAD_OBJECT : SHOW_IN_SCOPE;
+				},
+			} as never,
+		]);
+		const out = await runVerifyMerge({
+			gh: fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA }),
+			client: fakeClient({ defaultBranch: "main" }),
+			spawn: spawn.fn,
+			repoRoot: REPO,
+			pr: 1,
+			expectedScope: ["src/"],
+			allowFetch: true,
+		});
+		expect(out.verdict).toBe("CLEAN");
+		expect(out.inspected).toBe(true);
+		expect(out.fileCount).toBe(2);
+		const fetches = spawn.calls.filter((c) => isFetch(c.args));
+		expect(fetches.length).toBe(1);
+		expect(realArgs(fetches[0]!.args)).toEqual(["fetch", "origin", SHA]);
+	});
+
+	test("allowFetch does NOT launder a real failure into CLEAN", async () => {
+		// The object genuinely does not exist anywhere: fetch fails, show still
+		// fails. The answer must stay UNVERIFIED.
+		const spawn = fakeSpawn([
+			{ match: isShow, result: SHOW_BAD_OBJECT },
+			{ match: isFetch, result: { stdout: "", stderr: "fatal: could not fetch", exitCode: 128 } },
+		]);
+		const out = await runVerifyMerge({
+			gh: fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA }),
+			client: fakeClient({ defaultBranch: "main" }),
+			spawn: spawn.fn,
+			repoRoot: REPO,
+			pr: 1,
+			expectedScope: ["src/"],
+			allowFetch: true,
+		});
+		expect(out.verdict).toBe("UNVERIFIED");
+		expect(out.inspected).toBe(false);
+	});
+
+	test("a successful read still yields CLEAN / CONTAMINATED as before", async () => {
+		const clean = await runVerifyMerge({
+			gh: fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA }),
+			client: fakeClient({ defaultBranch: "main" }),
+			spawn: fakeSpawn([{ match: isShow, result: SHOW_IN_SCOPE }]).fn,
+			repoRoot: REPO,
+			pr: 1,
+			expectedScope: ["src/"],
+		});
+		expect(clean.verdict).toBe("CLEAN");
+		expect(clean.inspected).toBe(true);
+
+		const drift = await runVerifyMerge({
+			gh: fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA }),
+			client: fakeClient({ defaultBranch: "main" }),
+			spawn: fakeSpawn([{ match: isShow, result: SHOW_DRIFT }]).fn,
+			repoRoot: REPO,
+			pr: 1,
+			expectedScope: ["src/"],
+		});
+		expect(drift.verdict).toBe("CONTAMINATED");
+		expect(drift.inspected).toBe(true);
 	});
 });

@@ -119,12 +119,18 @@ function fakePi() {
 			expect(tool?.description).toMatch(/behind/i);
 		});
 
-		test("verify_merge requires pr + only expectedScope optional", () => {
+		test("verify_merge requires pr; expectedScope + allowFetch are optional", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
 			const tool = pi.tools.find((t) => t.name === "verify_merge");
 			expect(tool?.parameters.required).toEqual(["pr"]);
-			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual(["expectedScope", "pr"]);
+			// allowFetch is new (issue #1439): without it a call made right after a
+			// merge cannot read the sha, and the verdict is UNVERIFIED.
+			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual([
+				"allowFetch",
+				"expectedScope",
+				"pr",
+			]);
 			expect(tool?.description).toMatch(/CLEAN\/CONTAMINATED|scope/);
 		});
 

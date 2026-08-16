@@ -42,6 +42,10 @@ function fakeClient(s: {
 			return worktrees;
 		},
 		currentBranch: async () => current,
+		detachHead: async (ref: string) => {
+			calls.push(`detachHead:${ref}`);
+			current = "";
+		},
 		mergedPrRefs: async () => new Map(Object.entries(s.merged ?? {})),
 		openPrRefs: async () => {
 			calls.push("openPrRefs");

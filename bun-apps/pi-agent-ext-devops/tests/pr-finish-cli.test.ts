@@ -58,15 +58,32 @@ function fakeGh(statuses: PrStatus[], mergeCalls: number[] = []) {
 	};
 }
 
-/** BranchClient fake: clean tree, records every mutating call. */
-function fakeClient(opts: { clean?: boolean } = {}) {
+/** BranchClient fake: clean tree, records every mutating call.
+ *  `current` defaults to "feature" — i.e. the worktree is sitting ON the head
+ *  branch, which is the normal post-merge state and the one that used to make
+ *  `git branch -D` fail. `worktreeList` lets a test place the branch in a
+ *  DIFFERENT worktree instead. */
+function fakeClient(opts: {
+	clean?: boolean;
+	current?: string;
+	worktrees?: { worktree: string; branch?: string; detached?: boolean }[];
+	failDeleteLocal?: boolean;
+} = {}) {
 	const calls: string[] = [];
+	let current = opts.current ?? "feature";
 	const client = {
-		currentBranch: async () => "feature",
+		currentBranch: async () => current,
 		defaultBranch: async () => "main",
 		isClean: async () => opts.clean ?? true,
 		dirtyPaths: async () => (opts.clean ?? true ? [] : ["src/x.ts"]),
+		detachHead: async (ref: string) => {
+			calls.push(`detach:${ref}`);
+			current = "";
+		},
 		deleteLocalBranch: async (name: string) => {
+			if (opts.failDeleteLocal || current === name) {
+				throw new Error(`cannot delete branch '${name}' used by worktree`);
+			}
 			calls.push(`deleteLocal:${name}`);
 		},
 		deleteRemoteBranch: async (name: string) => {
@@ -77,7 +94,7 @@ function fakeClient(opts: { clean?: boolean } = {}) {
 		},
 		revParse: async () => undefined,
 		containedBranches: async () => new Set(["feature"]),
-		worktreeList: async () => [],
+		worktreeList: async () => opts.worktrees ?? [],
 	};
 	return { client: client as unknown as BranchClient, calls };
 }
@@ -117,10 +134,11 @@ function ciFail(): CiOutcome {
 	return { ...ciPass(), overall: "fail" };
 }
 
-/** Standard green deps: OPEN+CLEAN pre-merge, MERGED post-merge, CI pass. */
-function greenDeps() {
+/** Standard green deps: OPEN+CLEAN pre-merge, MERGED post-merge, CI pass.
+ *  `client` forwards to fakeClient so a test can vary the worktree situation. */
+function greenDeps(client: Parameters<typeof fakeClient>[0] = {}) {
 	const ghParts = fakeGh([OPEN_CLEAN, MERGED]);
-	const clientParts = fakeClient();
+	const clientParts = fakeClient(client);
 	const ciOpts: Array<Parameters<typeof runLocalCi>[0]> = [];
 	return {
 		deps: {
@@ -178,7 +196,17 @@ describe("pr-finish-cli — wrapper contract", () => {
 		expect(outcome.branchSpent).toBe(true); // fake containedBranches lists "feature"
 		expect(outcome.aborted).toBeUndefined();
 		expect(g.mergeCalls).toEqual([42]);
-		expect(g.clientCalls).toEqual(["deleteLocal:feature", "deleteRemote:feature", "fetchPrune"]);
+		// `detach:origin/main` is new. The worktree that runs pr_finish is still on
+		// the head branch, and git refuses `branch -D` on a checked-out branch — so
+		// deleteLocal used to fail on essentially every real run and the caller had
+		// to detach and sweep by hand. The fake now models that refusal, which is
+		// why this sequence changed rather than merely gaining a step.
+		expect(g.clientCalls).toEqual([
+			"detach:origin/main",
+			"deleteLocal:feature",
+			"deleteRemote:feature",
+			"fetchPrune",
+		]);
 		// The local_ci diff must be based at the PR base's REMOTE-TRACKING ref,
 		// not the local base branch: in this repo's multi-worktree layout `main`
 		// is checked out in another worktree and can never be fast-forwarded
@@ -328,5 +356,119 @@ describe("pr-finish-cli — wrapper contract", () => {
 		expect(help.exitCode).toBe(0);
 		expect(help.stdout).toBe("");
 		expect(help.stderr).toBe(PR_FINISH_CLI_USAGE);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Post-merge cleanup: git refuses `branch -D` on a branch checked out in ANY
+// worktree. The worktree running pr_finish is normally still on the head
+// branch, so this failed every run; a branch held by a DIFFERENT worktree is
+// not ours to move and must be reported rather than force-deleted.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("pr-finish-cli — spent-branch deletion", () => {
+	test("detaches THIS worktree off the head branch before deleting it", async () => {
+		const g = greenDeps({ current: "feature" });
+		const res = await runPrFinishCli(["42"], g.deps);
+		expect(res.exitCode).toBe(0);
+		expect(g.clientCalls).toContain("detach:origin/main");
+		expect(g.clientCalls).toContain("deleteLocal:feature");
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.warnings.some((w: string) => /deleteLocalBranch.*failed/.test(w))).toBe(false);
+	});
+
+	test("does NOT detach when the worktree is already elsewhere", async () => {
+		const g = greenDeps({ current: "some-other-branch" });
+		await runPrFinishCli(["42"], g.deps);
+		expect(g.clientCalls.some((c) => c.startsWith("detach:"))).toBe(false);
+		expect(g.clientCalls).toContain("deleteLocal:feature");
+	});
+
+	test("leaves a branch held by ANOTHER worktree alone, and says so", async () => {
+		const g = greenDeps({
+			current: "some-other-branch",
+			worktrees: [
+				{ worktree: "/repo", branch: "some-other-branch" },
+				{ worktree: "/elsewhere", branch: "feature" },
+			],
+		});
+		const res = await runPrFinishCli(["42"], g.deps);
+		expect(res.exitCode).toBe(0);
+		// Never touched locally...
+		expect(g.clientCalls.some((c) => c.startsWith("detach:"))).toBe(false);
+		expect(g.clientCalls).not.toContain("deleteLocal:feature");
+		// ...but the REMOTE branch is still spent and still deleted.
+		expect(g.clientCalls).toContain("deleteRemote:feature");
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.warnings.some((w: string) => /checked out in another worktree \(\/elsewhere\)/.test(w))).toBe(true);
+	});
+
+	test("a deleteLocal failure is a warning, never a lost remote delete or a non-zero exit", async () => {
+		const g = greenDeps({ current: "some-other-branch", failDeleteLocal: true });
+		const res = await runPrFinishCli(["42"], g.deps);
+		expect(res.exitCode).toBe(0);
+		expect(g.clientCalls).toContain("deleteRemote:feature");
+		expect(g.clientCalls).toContain("fetchPrune");
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.warnings.some((w: string) => /deleteLocalBranch\(feature\) failed/.test(w))).toBe(true);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The verification step must never launder its own failure into a pass. This
+// is issue #1439 one layer up: the catch around runVerifyMerge used to build a
+// synthetic outcome with `verdict: "CLEAN"`, so a total failure to verify was
+// reported as a verified-clean merge.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("pr-finish-cli — verification failures are not passes", () => {
+	test("an unreadable merge sha does NOT report CLEAN", async () => {
+		// The reachable form of issue #1439 at this layer: the merge lands, but
+		// `git show` cannot read it. pr_finish used to print verdict CLEAN having
+		// inspected zero files.
+		const g = greenDeps();
+		const failingShow: SpawnFn = async (cmd, args) => {
+			if (args.includes("show")) return { stdout: "", stderr: "fatal: bad object", exitCode: 128 };
+			if (args.includes("fetch")) return { stdout: "", stderr: "fatal: could not fetch", exitCode: 128 };
+			return { stdout: "", stderr: "", exitCode: 0 };
+		};
+		const res = await runPrFinishCli(["42"], { ...g.deps, spawn: failingShow });
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.merged).toBe(true);
+		expect(outcome.verdict).toBe("UNVERIFIED");
+		expect(outcome.warnings.some((w: string) => /UNVERIFIED merge/.test(w))).toBe(true);
+	});
+
+	test("pr_finish passes allowFetch — it just merged, so the sha is remote-only", async () => {
+		// Without allowFetch the case above could never recover; with it, the one
+		// targeted object fetch is attempted before giving up. Asserting the
+		// attempt (not its success) is what pins the flag being passed through.
+		const g = greenDeps();
+		const calls: string[][] = [];
+		const failingShow: SpawnFn = async (_cmd, args) => {
+			calls.push(args);
+			if (args.includes("show")) return { stdout: "", stderr: "fatal: bad object", exitCode: 128 };
+			return { stdout: "", stderr: "", exitCode: 0 };
+		};
+		await runPrFinishCli(["42"], { ...g.deps, spawn: failingShow });
+		expect(calls.some((a) => a.includes("fetch") && a.includes("origin"))).toBe(true);
+	});
+
+	test("a verify step that THROWS falls back to UNVERIFIED, never CLEAN", async () => {
+		// runVerifyMerge is throw-free today, so this catch is purely defensive —
+		// which is exactly why its fabricated `verdict: "CLEAN"` sat there
+		// unnoticed. The `verify` seam exists so the defensive path is reachable
+		// from a test instead of being trusted by inspection.
+		const g = greenDeps();
+		const res = await runPrFinishCli(["42"], {
+			...g.deps,
+			verify: async () => {
+				throw new Error("verify exploded");
+			},
+		});
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.merged).toBe(true);
+		expect(outcome.verdict).toBe("UNVERIFIED");
+		expect(outcome.warnings.some((w: string) => /runVerifyMerge threw: verify exploded/.test(w))).toBe(true);
 	});
 });
