@@ -35,7 +35,7 @@
 - Consumes: content of `bun-apps/pi-agent-ext-wayfind/skills/subagent-dispatch-discipline/SKILL.md` (52 lines) and `bun-apps/pi-agent-ext-wayfind/skills/research/SKILL.md` (23 lines) — read both before editing; they are deleted in Task 6.
 - Produces: a superpowers skill whose description triggers on "about to dispatch a subagent" (guardrails) and "research against primary sources" (findings-artifact pattern); Phase 2's redirect table (Task 6) points `subagent-dispatch-discipline` and `research` here by name.
 
-- [ ] **Step 1: Extend the frontmatter description**
+- [x] **Step 1: Extend the frontmatter description**
 
 Replace the `description:` line in `dispatching-parallel-agents/SKILL.md` with:
 
@@ -43,7 +43,7 @@ Replace the `description:` line in `dispatching-parallel-agents/SKILL.md` with:
 description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies, OR when about to dispatch any subagent (run the pre-dispatch guardrails first), OR when a question needs primary-source research captured as a cited Markdown findings file.
 ```
 
-- [ ] **Step 2: Append the "Pre-dispatch guardrails" section**
+- [x] **Step 2: Append the "Pre-dispatch guardrails" section**
 
 Append to the end of the skill (condensed from wayfind `subagent-dispatch-discipline`, preserving its numbers and knob paths verbatim):
 
@@ -89,7 +89,7 @@ and reverse-engineered a workaround instead of failing fast.
 - `DEFAULT_TIMEOUT_MS` (15 min) — `bun-apps/pi-agent-ext-subagent/src/subagent-tool.ts`
 ```
 
-- [ ] **Step 3: Append the "Research as a background subagent" section**
+- [x] **Step 3: Append the "Research as a background subagent" section**
 
 Append (condensed from wayfind `research`):
 
@@ -115,12 +115,12 @@ into the decision process and resolve it there — don't let the research subage
 decide.
 ```
 
-- [ ] **Step 4: Run the superpowers gate**
+- [x] **Step 4: Run the superpowers gate**
 
 Run: `( cd bun-apps/pi-agent-ext-superpowers && bun test )`
 Expected: PASS (all existing tests; skills are Markdown — the suite guards packaging/registration, not prose).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bun-apps/pi-agent-ext-superpowers/skills/dispatching-parallel-agents/SKILL.md
