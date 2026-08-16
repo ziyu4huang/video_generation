@@ -36,7 +36,19 @@ export class ComposerComponent implements Component {
   }
 
   render(width: number): string[] {
-    return new Text(this.composer(width), 0, 0).render(width);
+    let text: string;
+    try {
+      text = this.composer(width);
+    } catch (error) {
+      // Systemic barrier (hotfix): the TUI frame loop has no exception
+      // barrier of its own — a composer throw at render time surfaced as an
+      // uncaughtException and killed the whole host session. Degrade to a
+      // single error line instead; render-time failures must never crash the
+      // host TUI.
+      const message = (error as Error | undefined)?.message;
+      text = String(message ?? error ?? "render error");
+    }
+    return new Text(text, 0, 0).render(width);
   }
 
   /** Composing is pure — there is no cached rendering state to invalidate. */

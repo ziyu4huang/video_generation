@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-15-subagent-tui-display
 created: 2026-08-15
-last: 2026-08-15
-status: active
+last: 2026-08-16
+status: complete
 ---
 
 # Wayfinder map: 2026-08-15-subagent-tui-display
@@ -29,7 +29,7 @@ Subagent live view + finalize report become terminal-width-aware and markdown-re
 
 ## Not yet specified
 
-_None_
+- Core-runtime phrase-shaper width adoption (deferred at ticket 01 — `render-width` helpers exist; adopt optional width defaulting to today's constants in the core-runtime phrase-shaper) — candidate for the dynamic-budgets-era follow-up (`2026-08-15-subagent-dynamic-budgets`) or its own micro-effort
 
 ## Out of scope
 
