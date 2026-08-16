@@ -165,11 +165,20 @@ describe("drift-guard — pilot tools declare valid gating", () => {
 		);
 		assertAllValid(defs);
 		// The inspect_* group is non-core — prove the DEAD-GATE branch is exercised
-		// (each has keywords AND requires, so none is dead).
+		// via the REFERENCE form (ticket 01): each tool references the "inspect"
+		// family, whose registry spec (GATE_DEFS["inspect"]) carries keywords AND
+		// requires, so none is dead.
 		for (const d of defs) {
 			expect(d.gating?.core, `'${d.name}' is intentionally non-core (keyword-gated)`).not.toBe(true);
-			expect(d.gating?.keywords?.length, `'${d.name}' has non-empty keywords`).toBeGreaterThan(0);
+			expect(d.gating?.gate, `'${d.name}' references the 'inspect' gate family`).toBe("inspect");
 		}
+		// The resolved family spec must be fireable (non-dead) — validateGating
+		// already resolves references; prove the registry entry itself is live.
+		const spec = GATE_DEFS["inspect"];
+		expect(spec).toBeDefined();
+		expect(spec!.keywords?.length).toBeGreaterThan(0);
+		expect(spec!.requires?.nouns?.length).toBeGreaterThan(0);
+		expect(spec!.requires?.verbs?.length).toBeGreaterThan(0);
 	});
 
 	test("ext-task: ask_user_question / todo / goal_complete carry gating:{core:true}", () => {

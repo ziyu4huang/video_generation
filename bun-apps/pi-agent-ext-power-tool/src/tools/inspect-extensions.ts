@@ -7,7 +7,6 @@ import {
 import { Type } from "typebox";
 import { toolApiCost } from "../cost.js";
 import { type Finding, shortPath, summarizeFindings } from "../findings.js";
-import { DIAGNOSTIC_GATING } from "../gating.js";
 import { findingsSummaryLine, miniBar, reportHeader, severitySections } from "../report.js";
 
 /**
@@ -356,7 +355,7 @@ export function formatExtensionReport(findings: Finding[]): string {
 export function makeInspectExtensionsTool(getAllTools: () => ToolInfo[]) {
   return defineTool({
     name: "inspect_extensions",
-    gating: DIAGNOSTIC_GATING,
+    gating: { gate: "inspect" }, // reference form (ticket 01) — family in GATE_DEFS["inspect"]
     label: "Inspect Extensions",
     description:
       "Lint loaded extensions, tools, skills, and guidelines for health issues: " +

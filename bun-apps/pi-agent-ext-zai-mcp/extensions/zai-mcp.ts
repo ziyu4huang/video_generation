@@ -28,6 +28,7 @@ import { Type, type TSchema } from "typebox";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 
 // @modelcontextprotocol/sdk is loaded dynamically so a missing bun install gives
 // a friendly error instead of a module-not-found crash at load time.
@@ -327,6 +328,13 @@ const ZAI_GATING = {
 	},
 };
 
+// Register the family in the shared registry at module load (ticket 01).
+GATE_DEFS["zai"] = {
+	id: "zai",
+	...ZAI_GATING,
+	description: "Z.ai MCP web search / reader tools",
+};
+
 /** Register every MCP tool from a connected server as a pi tool. */
 export function registerServerTools(
 	pi: ExtensionAPI,
@@ -341,7 +349,7 @@ export function registerServerTools(
 			name: piName,
 			label: `Z.ai ${managed.serverName} / ${tool.name}`,
 			description,
-			gating: ZAI_GATING,
+			gating: { gate: "zai" }, // reference form (ticket 01) — family in GATE_DEFS["zai"]
 			parameters: jsonSchemaToTypebox(tool.inputSchema),
 			async execute(_toolCallId, params, signal, _onUpdate, _ctx: ExtensionContext) {
 				let result;

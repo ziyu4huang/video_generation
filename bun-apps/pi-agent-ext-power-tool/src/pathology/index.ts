@@ -11,7 +11,6 @@
  */
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { DIAGNOSTIC_GATING } from "../gating.js";
 import { reportHeader } from "../report.js";
 import { analyzePathology } from "./detector.ts";
 import { formatPathologyReport } from "./format.ts";
@@ -37,7 +36,7 @@ const SELF_TEST_PATHOLOGY_OUTPUT = [
 export function makeInspectPathologyTool() {
   return defineTool({
     name: "inspect_pathology",
-    gating: DIAGNOSTIC_GATING,
+    gating: { gate: "inspect" }, // reference form (ticket 01) — family in GATE_DEFS["inspect"]
     label: "Inspect Pathology",
     description:
       "Diagnose how the agent is failing this session — detect retry loops, " +

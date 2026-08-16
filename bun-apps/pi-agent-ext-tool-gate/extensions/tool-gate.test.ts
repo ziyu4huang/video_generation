@@ -234,45 +234,42 @@ describe("inspect_* precision/escape (recovered from dropped QA probes)", () => 
 describe("matchIntent (S1)", () => {
   const sticky = () => new Set(CORE_SET);
 
-  test("video intent → ltx", () => {
-    // ltx/ltx_help are owner-declared (ticket 07) → buildEffectiveGates splits
-    // them into separate single-name gates, so matchIntent surfaces BOTH
-    // (identical gating). The enable_tool NAME-mode co-activation consequence
-    // (sibling no longer auto-activates) is tracked cross-cutting in the map.
-    expect(matchIntent("make a video", EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["ltx", "ltx_help"]);
+  test("video intent → ltx family", () => {
+    // ltx/ltx_help share ONE id-referenced gate family (wayfinder ticket 01) →
+    // buildEffectiveGates groups them into a single multi-name gate; matchIntent
+    // surfaces the family, and co-firing (both names active together) is
+    // preserved by the grouped gate's names array.
+    const matched = matchIntent("make a video", EFF.gates, sticky());
+    expect(matched.map((g) => g.names[0])).toEqual(["ltx"]);
+    expect(matched[0]!.names).toEqual(["ltx", "ltx_help"]);
   });
-  test("image intent → flux2", () => {
-    // flux2/flux2_help are owner-declared (ticket 05) → buildEffectiveGates
-    // splits them into separate single-name gates, so matchIntent surfaces BOTH
-    // (identical gating). The enable_tool NAME-mode co-activation consequence
-    // (sibling no longer auto-activates) is tracked cross-cutting in the map.
-    expect(matchIntent("generate an image of a cat", EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["flux2", "flux2_help"]);
+  test("image intent → flux2 family", () => {
+    // flux2/flux2_help share the "flux2" gate family (ticket 01 reference form).
+    const matched = matchIntent("generate an image of a cat", EFF.gates, sticky());
+    expect(matched.map((g) => g.names[0])).toEqual(["flux2"]);
+    expect(matched[0]!.names).toEqual(["flux2", "flux2_help"]);
   });
-  test("describe intent → file2md", () => {
-    // file2md/vision_ask are owner-declared (ticket 04) → buildEffectiveGates
-    // splits them into separate single-name gates, so matchIntent surfaces BOTH
-    // (identical gating). The enable_tool NAME-mode co-activation consequence
-    // (sibling no longer auto-activates) is tracked cross-cutting in the map.
-    expect(matchIntent("describe this picture", EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["file2md", "vision_ask"]);
+  test("describe intent → file2md family", () => {
+    // file2md/vision_ask share the "file2md" gate family (ticket 01 reference form).
+    const matched = matchIntent("describe this picture", EFF.gates, sticky());
+    expect(matched.map((g) => g.names[0])).toEqual(["file2md"]);
+    expect(matched[0]!.names).toEqual(["file2md", "vision_ask"]);
   });
-  test("movie intent (CJK) → movie", () => {
-    // movie/movie_help owner-declared (ticket 08) → buildEffectiveGates splits
-    // them into separate single-name gates, so matchIntent surfaces BOTH
-    // (identical gating). The enable_tool NAME-mode co-activation consequence
-    // (sibling no longer auto-activates) is tracked cross-cutting in the map.
-    expect(matchIntent("做一個 movie 分鏡", EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["movie", "movie_help"]);
+  test("movie intent (CJK) → movie family", () => {
+    // movie/movie_help share the "movie" gate family (ticket 01 reference form).
+    const matched = matchIntent("做一個 movie 分鏡", EFF.gates, sticky());
+    expect(matched.map((g) => g.names[0])).toEqual(["movie"]);
+    expect(matched[0]!.names).toEqual(["movie", "movie_help"]);
   });
-  test("workflow intent → workflow", () => {
-    // workflow/workflow_help/workflow_control/subagent/subagents owner-declared
-    // (tickets 10 + 11, rolled out together over their single shared combined
-    // gate; plural subagents mirrored from singular subagent in ticket 01) →
-    // buildEffectiveGates splits each into its own single-name gate, so an
-    // intent that fires the shared keywords surfaces ALL 5 (co-fire via
-    // updateSticky preserved) — both singular subagent AND plural subagents
-    // legitimately gate on "workflow". The enable_tool NAME-mode sibling
-    // co-activation gap (name-mode activates only the named sibling) is
-    // cross-cutting — tracked in the map; intent-mode here fires every matching gate.
-    expect(matchIntent("orchestrate a parallel pipeline", EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["workflow", "workflow_help", "workflow_control", "subagent", "subagents"]);
+  test("workflow intent → the 5-tool workflow/subagent family", () => {
+    // workflow/workflow_help/workflow_control/subagent/subagents all reference
+    // the ONE "workflow" gate family (ticket 01, declared in the workflow
+    // extension, referenced cross-package by subagent) → buildEffectiveGates
+    // groups all 5 into a single multi-name gate. Intent-mode fires the whole
+    // family; co-fire via updateSticky is preserved by the grouped names.
+    const matched = matchIntent("orchestrate a parallel pipeline", EFF.gates, sticky());
+    expect(matched.map((g) => g.names[0])).toEqual(["workflow"]);
+    expect(matched[0]!.names).toEqual(["workflow", "workflow_help", "workflow_control", "subagent", "subagents"]);
   });
   test("S2 flip: 'docker image cleanup' → [] (image noun, no gen-verb)", () => {
     expect(matchIntent("docker image cleanup", EFF.gates, sticky()).map((g) => g.names[0])).toEqual([]);
@@ -760,11 +757,13 @@ describe("S2 matchIntent false-fire cases", () => {
   test("describe the architecture → []", () => {
     expect(first("describe the architecture")).toEqual([]);
   });
-  test("make an image → [flux2, flux2_help] (make+image via requires; owner-declared co-fire)", () => {
-    // flux2/flux2_help owner-declared (ticket 05) → EFF splits them into two
-    // single-name gates, so matchIntent surfaces BOTH (co-fire via updateSticky
-    // is preserved; enable_tool NAME-mode sibling is the known cross-cutting gap).
-    expect(matchIntent("make an image", EFF.gates, sticky()).map((g) => g.names[0])).toEqual(["flux2", "flux2_help"]);
+  test("make an image → the flux2 family [flux2, flux2_help] (make+image via requires)", () => {
+    // flux2/flux2_help share the ONE "flux2" gate family (ticket 01 reference
+    // form) → EFF groups them into a single multi-name gate; matchIntent
+    // surfaces the family with both names (co-fire preserved by construction).
+    const matched = matchIntent("make an image", EFF.gates, sticky());
+    expect(matched.map((g) => g.names[0])).toEqual(["flux2"]);
+    expect(matched[0]!.names).toEqual(["flux2", "flux2_help"]);
   });
   test("conflux library → [] (flux word-boundary, not inside conflux)", () => {
     expect(first("use the conflux library")).toEqual([]);

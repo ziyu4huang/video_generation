@@ -26,6 +26,7 @@ import {
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import { writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
@@ -51,6 +52,35 @@ import {
 	type FetchMarkdownDetails,
 } from "../lib/arxiv.ts";
 
+// ─── Gate families (wayfinder ticket 01 — reference form) ───────────────────
+// Declared ONCE by id; the three collection tools share "collect_videos" and
+// the three arxiv tools share "arxiv", each referenced via gating:{gate}.
+// buildEffectiveGates groups each family into ONE co-firing gate (names[0] ===
+// "collect_videos" / "arxiv_search") — the former per-tool verbatim
+// duplication is gone; edit a family here, all its tools follow.
+GATE_DEFS["collect_videos"] = {
+	id: "collect_videos",
+	keywords: [
+		"bilibili", "youtube", "collect videos", "video trending",
+		"vault notes", "organize vault", "import memory",
+		"收集影片", "整理筆記",
+	],
+	requires: {
+		nouns: ["clip", "clips", "footage", "videos", "platform", "vault", "影片", "短片", "平台", "筆記"],
+		verbs: ["gather", "collect", "pull", "organize", "scrape", "收集", "整理", "抓"],
+	},
+	description: "Bilibili/YouTube collection + vault notes organization",
+};
+GATE_DEFS["arxiv"] = {
+	id: "arxiv",
+	keywords: ["arxiv", "論文", "找論文", "抓論文", "讀論文", "search paper", "search papers", "find paper", "find papers"],
+	requires: {
+		nouns: ["paper", "papers", "論文"],
+		verbs: ["search", "find", "fetch", "read", "look up", "找", "查", "搜尋", "讀"],
+	},
+	description: "arXiv search / paper lookup / fetch-to-markdown",
+};
+
 /* ================================================================
  * collect_videos
  * ================================================================ */
@@ -74,17 +104,7 @@ const collectVideosTool = defineTool({
 	// noun∧verb `requires` path mirrors flux2 so keyword-free paraphrases (gather
 	// clips / pull footage / 整理 vault 筆記) also reach the gate (gate-recall
 	// adversarial floor 0.9).
-	gating: {
-		keywords: [
-			"bilibili", "youtube", "collect videos", "video trending",
-			"vault notes", "organize vault", "import memory",
-			"收集影片", "整理筆記",
-		],
-		requires: {
-			nouns: ["clip", "clips", "footage", "videos", "platform", "vault", "影片", "短片", "平台", "筆記"],
-			verbs: ["gather", "collect", "pull", "organize", "scrape", "收集", "整理", "抓"],
-		},
-	},
+	gating: { gate: "collect_videos" }, // reference form (ticket 01) — family in GATE_DEFS["collect_videos"]
 	parameters: Type.Object({
 		platform: StringEnum(["bilibili", "youtube"] as const, {
 			description: "Source platform.",
@@ -203,17 +223,7 @@ const organizeTool = defineTool({
 	// {names:["collect_videos","organize_vault_notes","import_memory_to_vault"]}
 	// (ticket 09). Co-fire preserved: when the gate fires, all three names
 	// activate together. See collect_videos's gating comment.
-	gating: {
-		keywords: [
-			"bilibili", "youtube", "collect videos", "video trending",
-			"vault notes", "organize vault", "import memory",
-			"收集影片", "整理筆記",
-		],
-		requires: {
-			nouns: ["clip", "clips", "footage", "videos", "platform", "vault", "影片", "短片", "平台", "筆記"],
-			verbs: ["gather", "collect", "pull", "organize", "scrape", "收集", "整理", "抓"],
-		},
-	},
+	gating: { gate: "collect_videos" }, // reference form (ticket 01) — family in GATE_DEFS["collect_videos"]
 	parameters: Type.Object({
 		vaultRoot: Type.Optional(Type.String({ description: "Vault root (absolute or cwd-relative). Default: active vault." })),
 		dryRun: Type.Optional(Type.Boolean({ description: "Report changes without writing.", default: false })),
@@ -251,17 +261,7 @@ const importMemoryTool = defineTool({
 	// {names:["collect_videos","organize_vault_notes","import_memory_to_vault"]}
 	// (ticket 09). Co-fire preserved: when the gate fires, all three names
 	// activate together. See collect_videos's gating comment.
-	gating: {
-		keywords: [
-			"bilibili", "youtube", "collect videos", "video trending",
-			"vault notes", "organize vault", "import memory",
-			"收集影片", "整理筆記",
-		],
-		requires: {
-			nouns: ["clip", "clips", "footage", "videos", "platform", "vault", "影片", "短片", "平台", "筆記"],
-			verbs: ["gather", "collect", "pull", "organize", "scrape", "收集", "整理", "抓"],
-		},
-	},
+	gating: { gate: "collect_videos" }, // reference form (ticket 01) — family in GATE_DEFS["collect_videos"]
 	parameters: Type.Object({
 		outputPath: Type.Optional(Type.String({ description: "JSONL output (absolute or cwd-relative). Default: <vault>/collections/study_news.jsonl." })),
 		hermesDir: Type.Optional(Type.String({ description: "Override hermes-memory dir. Default: $HOME/.pi/agent/pi-hermes-memory or PI_HERMES_MEMORY_DIR." })),
@@ -327,13 +327,7 @@ const arxivSearchTool = defineTool({
 	label: "arXiv Search",
 	description:
 		"Search arXiv papers by query, optional category, sorting, and pagination. Returns titles, authors, abstracts, dates, categories, and links. Use arxiv_search when the user asks to find papers, recent papers, related work, or papers in an arXiv category; follow with arxiv_fetch2md when the full body of a specific paper is needed.",
-	gating: {
-		keywords: ["arxiv", "論文", "找論文", "抓論文", "讀論文", "search paper", "search papers", "find paper", "find papers"],
-		requires: {
-			nouns: ["paper", "papers", "論文"],
-			verbs: ["search", "find", "fetch", "read", "look up", "找", "查", "搜尋", "讀"],
-		},
-	},
+	gating: { gate: "arxiv" }, // reference form (ticket 01) — family in GATE_DEFS["arxiv"]
 	// Owner-declared gating — migrated from tool-gate's hardcoded GATES (was the
 	// {names:["arxiv_search","arxiv_fetch2md","arxiv_paper"]} gate). Per ticket
 	// 09's semantics-preserving rule, the SAME gating is mirrored on arxiv_paper
@@ -404,13 +398,7 @@ const arxivPaperTool = defineTool({
 	name: "arxiv_paper",
 	label: "arXiv Paper",
 	description: "Fetch exact metadata for one arXiv paper by ID or URL. Returns title, authors, abstract, dates, categories, and links. Use arxiv_paper when the user gives a specific arXiv ID/URL and wants metadata or abstract.",
-	gating: {
-		keywords: ["arxiv", "論文", "找論文", "抓論文", "讀論文", "search paper", "search papers", "find paper", "find papers"],
-		requires: {
-			nouns: ["paper", "papers", "論文"],
-			verbs: ["search", "find", "fetch", "read", "look up", "找", "查", "搜尋", "讀"],
-		},
-	},
+	gating: { gate: "arxiv" }, // reference form (ticket 01) — family in GATE_DEFS["arxiv"]
 	// Owner-declared gating — mirrored IDENTICALLY from arxiv_search (same
 	// signature) so reconstructOwnerDeclaredGates collapses the three arxiv
 	// tools into one multi-name gate
@@ -446,13 +434,7 @@ const arxivFetchTool = defineTool({
 	label: "arXiv Fetch Markdown",
 	description:
 		"Fetch the full body of an arXiv paper as Markdown using arxiv2md; prefer it over scraping PDFs (it preserves sections + math via the HTML pipeline). Saves the Markdown to <vault>/papers/ unless save=false or output_path is given. Use arxiv_fetch2md when the user asks to read, analyze, summarize, or quote the full body of a specific arXiv paper.",
-	gating: {
-		keywords: ["arxiv", "論文", "找論文", "抓論文", "讀論文", "search paper", "search papers", "find paper", "find papers"],
-		requires: {
-			nouns: ["paper", "papers", "論文"],
-			verbs: ["search", "find", "fetch", "read", "look up", "找", "查", "搜尋", "讀"],
-		},
-	},
+	gating: { gate: "arxiv" }, // reference form (ticket 01) — family in GATE_DEFS["arxiv"]
 	// Owner-declared gating — mirrored IDENTICALLY from arxiv_search (same
 	// signature) so reconstructOwnerDeclaredGates collapses the three arxiv
 	// tools into one multi-name gate

@@ -2,19 +2,28 @@
   "name": "@repo/pi-agent-ext-zai-mcp",
   "private": true,
   "version": "0.1.0",
-  "description": "Z.ai MCP servers (web search, web reader, zread) as pi tools — the extension acts as an MCP client and re-registers each MCP tool as a pi tool.",
+  "description": "Z.ai MCP servers (web search, web reader, zread) as pi tools \u2014 the extension acts as an MCP client and re-registers each MCP tool as a pi tool.",
   "license": "MIT",
-  "keywords": ["pi-package", "zai", "mcp", "web-search", "z.ai"],
+  "keywords": [
+    "pi-package",
+    "zai",
+    "mcp",
+    "web-search",
+    "z.ai"
+  ],
   "type": "module",
   "files": [
     "extensions",
     "README.md"
   ],
   "pi": {
-    "extensions": ["./extensions"]
+    "extensions": [
+      "./extensions"
+    ]
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@repo/pi-agent-core-interface": "workspace:*"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "0.84.2",

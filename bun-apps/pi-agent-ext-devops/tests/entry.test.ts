@@ -140,10 +140,9 @@ function fakePi() {
 			const tool = pi.tools.find((t) => t.name === "pi_deploy");
 			expect(tool?.parameters.required ?? []).toEqual([]);
 			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual(["mode", "noFreeze", "outDir"]);
-			// gating keywords preserved verbatim from the dissolved deploy extension.
-			expect(tool?.gating?.keywords).toEqual(["build bundle", "bundle pi-agent", "pi-agent bundle", "run-test"]);
-			expect((tool as any)?.gating?.requires?.nouns).toContain("pi-agent");
-			expect((tool as any)?.gating?.requires?.verbs).toContain("deploy");
+			// reference form (ticket 01): shared "pi_deploy" family (pi_deploy + pi_verify).
+			expect(tool?.gating?.gate).toBe("pi_deploy");
+			expect(tool?.gating?.keywords).toBeUndefined();
 		});
 
 		test("pi_verify has optional tier/bail (no required params) + mirrors pi_deploy gating", () => {
@@ -152,7 +151,8 @@ function fakePi() {
 			const tool = pi.tools.find((t) => t.name === "pi_verify");
 			expect(tool?.parameters.required ?? []).toEqual([]);
 			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual(["bail", "tier"]);
-			// mirrored gating — same keywords as pi_deploy.
-			expect(tool?.gating?.keywords).toEqual(["build bundle", "bundle pi-agent", "pi-agent bundle", "run-test"]);
+			// same "pi_deploy" family as pi_deploy — co-fire as one group (ticket 01).
+			expect(tool?.gating?.gate).toBe("pi_deploy");
+			expect(tool?.gating?.keywords).toBeUndefined();
 		});
 	});

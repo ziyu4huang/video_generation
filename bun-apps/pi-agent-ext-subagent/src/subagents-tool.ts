@@ -311,9 +311,7 @@ export function createSubagentsTool(
     label: "Subagents",
     description:
       "Dispatch N isolated read-only subagents in parallel (bounded) and return a positional array of results.",
-    gating: {
-      keywords: ["workflow", "pipeline", "orchestrate", "fan-out", "fan out", "parallel agent", "multi-step"],
-    },
+    gating: { gate: "workflow" }, // reference form (ticket 01) — family declared in GATE_DEFS["workflow"] (workflow ext)
     promptSnippet:
       "Fan out read-only research/review subagents in parallel. Each child has edit/write/bash excluded. Returns one result per task in input order (null for a failed child).",
     executionMode: "sequential",

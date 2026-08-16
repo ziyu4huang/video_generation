@@ -91,9 +91,7 @@ export function createSubagentTool(
     // preserving the original co-fire behavior. Mirrors the original GATES entry
     // verbatim (keywords were unambiguous workflow/orchestration intents that
     // never false-fired the way image/video nouns do, so no requires is needed).
-    gating: {
-      keywords: ["workflow", "pipeline", "orchestrate", "fan-out", "fan out", "parallel agent", "multi-step"],
-    },
+    gating: { gate: "workflow" }, // reference form (ticket 01) — family declared in GATE_DEFS["workflow"] (workflow ext)
     promptSnippet:
       "Dispatch an isolated-context subagent for one focused task (implementer / reviewer / researcher). Pass a self-contained `task`; pick `model`/`tier` per role (omit to use the current model); restrict with `tools`/`excludeTools`.",
     // Sequential: serialize any turn whose tool-call batch contains a

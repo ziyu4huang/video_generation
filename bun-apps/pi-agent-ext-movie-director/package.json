@@ -3,18 +3,35 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Pi extension: the movie-director orchestration layer — an instruction-driven (agent-first) video production pipeline rewriter. Pure Bun orchestration (pipeline manifest loader, gate-enforced checkpoints, artifact schema validation, cost tracker, tool registry) consuming the swift/MLX native directors (krea2/flux2/ltx) + ffmpeg/cloud providers. Rewrite of OpenMontage's Python orchestration.",
+  "description": "Pi extension: the movie-director orchestration layer \u2014 an instruction-driven (agent-first) video production pipeline rewriter. Pure Bun orchestration (pipeline manifest loader, gate-enforced checkpoints, artifact schema validation, cost tracker, tool registry) consuming the swift/MLX native directors (krea2/flux2/ltx) + ffmpeg/cloud providers. Rewrite of OpenMontage's Python orchestration.",
   "license": "MIT",
-  "keywords": ["pi-package", "movie-director", "orchestration", "pipeline", "video", "mlx", "swift", "openmontage"],
+  "keywords": [
+    "pi-package",
+    "movie-director",
+    "orchestration",
+    "pipeline",
+    "video",
+    "mlx",
+    "swift",
+    "openmontage"
+  ],
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",
     "./extensions/*": "./extensions/*"
   },
-  "files": ["extensions", "src", "scripts", "data", "README.md"],
+  "files": [
+    "extensions",
+    "src",
+    "scripts",
+    "data",
+    "README.md"
+  ],
   "pi": {
-    "extensions": ["./extensions"]
+    "extensions": [
+      "./extensions"
+    ]
   },
   "scripts": {
     "test": "bun test",
@@ -25,6 +42,7 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.2",
+    "@repo/pi-agent-core-interface": "workspace:*",
     "ajv": "latest",
     "ajv-formats": "latest",
     "msedge-tts": "^2.0.7",
@@ -39,7 +57,6 @@
     "typebox": "*"
   },
   "devDependencies": {
-    "@repo/pi-agent-core-interface": "workspace:*",
     "@types/bun": "latest",
     "typescript": "^6.0.3"
   }

@@ -12,7 +12,6 @@ import { Type } from "typebox";
 import * as yaml from "js-yaml";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve, sep } from "path";
-import { DIAGNOSTIC_GATING } from "../gating.js";
 import { TOKEN_RATIO, reportHeader } from "../report.js";
 
 const SELF_TEST_AGENT_INVENTORY_OUTPUT = [
@@ -33,7 +32,7 @@ const SELF_TEST_AGENT_INVENTORY_OUTPUT = [
 export function makeInspectAgentTool(getAllTools: () => ToolInfo[]) {
   return defineTool({
     name: "inspect_agent",
-    gating: DIAGNOSTIC_GATING,
+    gating: { gate: "inspect" }, // reference form (ticket 01) — family in GATE_DEFS["inspect"]
     label: "Inspect Agent",
     description:
       "Snapshot the full agent state — extensions, tools, skills, context files, " +
