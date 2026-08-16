@@ -47,6 +47,7 @@ import { homedir } from "node:os";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import { zkRetrieve, zkIngest, zkHealth, zkHeal } from "../src/host-fns.ts";
 import {
 	resolveVault,
@@ -60,6 +61,50 @@ import {
 	parseKnowledgeJsonl,
 	collectInputFiles,
 } from "../src/adapters.ts";
+
+// ─── Gate families (wayfinder ticket 02 — demoted from core) ────────────────
+// The 4 zettelkasten/knowledge tools were always-active core; ticket 02 demotes
+// them to on-demand gates (each its own family — a "find my note" intent should
+// not also load the ingest/query tools). Keywords are the tool's own label
+// vocabulary; the noun∧verb `requires` mirrors the flux2 pattern so keyword-free
+// paraphrases ("ask my vault about lora", "converge the knowledge records")
+// still reach the right gate.
+GATE_DEFS["zk_card"] = {
+  id: "zk_card",
+  keywords: ["zk card", "vault note", "note card", "zettelkasten", "卡片", "筆記卡", "新增筆記", "找筆記", "改筆記"],
+  requires: {
+    nouns: ["note", "card", "vault", "筆記", "卡片", "便籤"],
+    verbs: ["add", "find", "update", "remove", "search", "新增", "尋找", "更新", "刪除", "搜尋"],
+  },
+  description: "Zettelkasten vault note CRUD (add/find/update/remove/check)",
+};
+GATE_DEFS["zk_ask"] = {
+  id: "zk_ask",
+  keywords: ["zk ask", "ask my vault", "ask my notes", "vault question", "問我的筆記", "知識問答"],
+  requires: {
+    nouns: ["vault", "note", "notes", "knowledge", "筆記", "知識"],
+    verbs: ["ask", "query", "retrieve", "問", "查詢", "搜尋"],
+  },
+  description: "Graph-enhanced RAG over the Zettelkasten vault",
+};
+GATE_DEFS["zk_ingest"] = {
+  id: "zk_ingest",
+  keywords: ["zk ingest", "ingest knowledge", "converge", "knowledge.jsonl", "收錄知識", "匯入筆記"],
+  requires: {
+    nouns: ["knowledge", "record", "vault", "筆記", "知識"],
+    verbs: ["ingest", "converge", "import", "收錄", "匯入", "收斂"],
+  },
+  description: "Deterministically converge .knowledge.jsonl records into the vault",
+};
+GATE_DEFS["knowledge_query"] = {
+  id: "knowledge_query",
+  keywords: ["knowledge query", "knowledge graph", "query cards", "查卡片", "知識圖譜"],
+  requires: {
+    nouns: ["knowledge", "card", "graph", "tag", "知識", "卡片"],
+    verbs: ["query", "search", "match", "查詢", "搜尋"],
+  },
+  description: "Query the Zettelkasten knowledge graph by tags or question",
+};
 import type { KnowledgeRecord, SourceFamily } from "../src/types.ts";
 import {
 	retrieveRecords,
@@ -265,7 +310,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "zk_card",
 		label: "ZK Card",
-		gating: { core: true },
+		gating: { gate: "zk_card" }, // demoted from core (ticket 02),
 		description: [
 			"CRUD operations on Zettelkasten vault notes.",
 			"Actions: add (new note with 4-layer duplicate check), find (multi-strategy search),",
@@ -467,7 +512,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "zk_ask",
 		label: "ZK Ask",
-		gating: { core: true },
+		gating: { gate: "zk_ask" }, // demoted from core (ticket 02),
 		description: [
 			"Graph-enhanced RAG over the Zettelkasten vault.",
 			"Pipeline: seed retrieval (fuzzy title + tag + body keyword) →",
@@ -616,7 +661,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "zk_ingest",
 		label: "ZK Ingest",
-		gating: { core: true },
+		gating: { gate: "zk_ingest" }, // demoted from core (ticket 02),
 		description: [
 			"Deterministically converge structured .knowledge.jsonl records into the shared Zettelkasten vault.",
 			"One card per record (id/type/title/detail/tags/dimension/confidence/status/superseded_by/evidence),",
@@ -922,7 +967,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "knowledge_query",
 		label: "Knowledge Query",
-		gating: { core: true },
+		gating: { gate: "knowledge_query" }, // demoted from core (ticket 02),
 		description:
 			"Query the project's Zettelkasten knowledge graph for cards matching given tags " +
 			"or a natural-language question. Returns a compact digest of relevant stored " +
@@ -1075,3 +1120,55 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 export { ADD_TOOLS, CHECK_TOOLS, DISTILL_MODEL_DEFAULT, DISTILL_TOOLS, FIND_TOOLS, RAG_TOOLS, RAG_TOOLS_THREE_WAY, ragToolsFor, rankBlendScore, REMOVE_TOOLS, resolveDistillModel, UPDATE_TOOLS } from "../src/zk-task-config.ts";
 export type { BlendMode, BlendScoreParts } from "../src/zk-task-config.ts";
 export { buildAddTask, buildDistillTask, buildFindTask, buildRagTask, buildRemoveTask, buildUpdateTask, CHECK_TASK } from "../src/task-builders.ts";
+
+/**
+ * Gate-Recall Guard probe set (QA-DATA only — NOT part of the runtime gating).
+ * Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts. Plain object, no
+ * `satisfies` — shape enforced by tool-gate's drift-guard. Controls-only
+ * (recallFloor 0, adversarial []): the 4 zk_* gates were demoted from core in
+ * ticket 02; their narrow keywords are intentional, so we assert each fires on
+ * its own keyword / requires path, not paraphrased intent.
+ */
+export const __GATE_PROBES__ = [
+	{
+		gate: "zk_card",
+		recallFloor: 0,
+		adversarial: [],
+		controls: [
+			"add a vault note about the lora fix",
+			"find my card on argparse",
+			"update the note about swin transformers",
+			"remove the stale zettel card",
+		],
+	},
+	{
+		gate: "zk_ask",
+		recallFloor: 0,
+		adversarial: [],
+		controls: [
+			"ask my vault about the training recipe",
+			"query my notes on attention heads",
+			"retrieve knowledge from the vault about lora",
+		],
+	},
+	{
+		gate: "zk_ingest",
+		recallFloor: 0,
+		adversarial: [],
+		controls: [
+			"converge the knowledge records into the vault",
+			"ingest the .knowledge.jsonl records",
+			"import the distilled knowledge into the zettelkasten",
+		],
+	},
+	{
+		gate: "knowledge_query",
+		recallFloor: 0,
+		adversarial: [],
+		controls: [
+			"query the knowledge graph for lora cards",
+			"search the knowledge cards matching argparse",
+			"查卡片 matching the tag lora",
+		],
+	},
+];

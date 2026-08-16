@@ -4,7 +4,7 @@
 
 ## What it is
 
-An always-on extension that **gates heavy domain tools** (image/video/movie/research/deploy generators — large API schemas, rarely needed in any one session) behind prompt keyword matching, keeping lightweight **core tools** always active. Purpose: cut the per-request tools-schema token overhead — **~18k → ~10k tok/req (~52%; gross ~9,800 saved)**, measured by `bun run qa:savings` (re-run it for live numbers; the figure drifts as the gate set changes).
+An always-on extension that **gates heavy domain tools** (image/video/movie/research/deploy generators — large API schemas, rarely needed in any one session) behind prompt keyword matching, keeping lightweight **core tools** always active. Purpose: cut the per-request tools-schema token overhead — **~22k → ~5.7k tok/req (~74%; gross ~16,290 saved)**, measured by `bun run qa:savings` (re-run it for live numbers; the figure drifts as the gate set changes).
 
 ## Ubiquitous language
 

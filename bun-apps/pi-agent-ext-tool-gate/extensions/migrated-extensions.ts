@@ -47,6 +47,7 @@ import { registerMemorySearchTool } from "@repo/pi-agent-ext-hermes-memory/src/t
 import { registerSessionSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/session-search-tool.ts";
 import { registerSkillTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";
 import { registerGrillDecisionTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/grill-decision-tool.ts";
+import { createPresentTool } from "@repo/pi-agent-ext-webui/src/present-tool.ts";
 import toolGate from "./tool-gate.ts";
 
 /** A registered tool def — only the fields the guard reads are typed. */
@@ -249,6 +250,25 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 			registerSessionSearchTool(pi, {} as any, { variant: "legacy" });
 			registerSkillTool(pi, {} as any);
 			registerGrillDecisionTool(pi, {} as any, null);
+		},
+	},
+	{
+		// ticket 03 — webui. The real wireWebui boots a WebServer + event handlers
+		// (NOT capture-safe), so register the ONE tool def (webui_present,
+		// owner-declared core:true — always-on HITL bridge) directly via its
+		// exported factory with no-op deps, mirroring zai-mcp's direct-registration
+		// entry. execute() never runs under capture.
+		name: "webui",
+		register: (pi) => {
+			pi.registerTool(
+				createPresentTool({
+					present: () => "",
+					registerPending: () => Promise.resolve({ cancelled: true }),
+					hasPending: () => false,
+					cancelPending: () => false,
+					detach: () => {},
+				}),
+			);
 		},
 	},
 ];

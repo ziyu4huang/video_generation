@@ -6,10 +6,26 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Box, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { StringEnum, complete, type Model } from "@earendil-works/pi-ai/compat";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import { fetchAllContent, type ExtractedContent } from "./extract.ts";
 import { normalizeFetchContentParams } from "./fetch-params.ts";
 import { clearCloneCache } from "./github-extract.ts";
 import { search, type SearchProvider, type ResolvedSearchProvider } from "./gemini-search.ts";
+
+// ─── Gate family (wayfinder ticket 02 — demoted from core) ──────────────────
+// get_search_content is a companion retrieval surface for stored web_search /
+// fetch_content results — on-demand, not needed every turn (web_search +
+// fetch_content themselves stay core). Keywords are the stored-content
+// retrieval vocabulary.
+GATE_DEFS["get_search_content"] = {
+  id: "get_search_content",
+  keywords: ["get search content", "full content", "stored content", "previous search", "responseId", "取回內容", "完整內容"],
+  requires: {
+    nouns: ["content", "search", "response", "url", "query", "內容"],
+    verbs: ["retrieve", "get", "fetch", "取回", "取得"],
+  },
+  description: "Retrieve full content from a previous web_search/fetch_content",
+};
 import type { SearchResult } from "./perplexity.ts";
 import { formatSeconds, getWebSearchConfigDir, getWebSearchConfigPath } from "./utils.ts";
 import {
@@ -2056,7 +2072,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "get_search_content",
 		label: "Get Search Content",
-		gating: { core: true },
+		gating: { gate: "get_search_content" }, // demoted from core (ticket 02),
 		description: "Retrieve full content from a previous web_search or fetch_content call.",
 		promptSnippet:
 			"Use after web_search/fetch_content when full stored content is needed via responseId plus query/url selectors.",
@@ -2613,3 +2629,20 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 }
+
+
+/**
+ * Gate-Recall Guard probe set (QA-DATA only — NOT part of runtime gating).
+ * Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts. Controls-only:
+ * get_search_content was demoted from core in ticket 02.
+ */
+export const __GATE_PROBES__ = {
+  gate: "get_search_content",
+  recallFloor: 0,
+  adversarial: [],
+  controls: [
+    "get the full content from that search",
+    "retrieve the stored content for responseId abc",
+    "get the stored content for that response",
+  ],
+};

@@ -14,6 +14,7 @@
 // WITHOUT the pi API.
 
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ToolRegistrar } from "./knowledge-search-tool.js";
@@ -128,6 +129,16 @@ function renderStale(stale: StaleCard[]): string {
  *  mirror use) — captured in a closure at registration, mirroring
  *  `registerKnowledgeSearchTool`'s `vaultResolver` + `registerKnowledgeIngestTool`'s
  *  `opts.memoryDir`. The repo root (`fsRoot`) comes from `ctx.cwd` at call time. */
+GATE_DEFS["planning_stale"] = {
+  id: "planning_stale",
+  keywords: ["planning stale", "stale decision", "stale planning", "revalidate decision", "stale query", "過期決策", "重新驗證"],
+  requires: {
+    nouns: ["decision", "planning", "dependency", "card", "決策", "計劃"],
+    verbs: ["query", "revalidate", "check", "stale", "查詢", "驗證", "檢查"],
+  },
+  description: "Query/revalidate stale planning-ticket decisions",
+};
+
 export function registerPlanningStaleTool(
   pi: ToolRegistrar,
   opts: { memoryDir: string },
@@ -135,7 +146,7 @@ export function registerPlanningStaleTool(
   const definition = defineTool({
     name: "planning_stale",
     label: "Planning Stale",
-    gating: { core: true },
+    gating: { gate: "planning_stale" }, // demoted from core (ticket 02)
     description: PLANNING_STALE_DESCRIPTION,
     parameters: Type.Object({
       action: StringEnum(["query", "revalidate"] as const, {
@@ -176,3 +187,18 @@ export function registerPlanningStaleTool(
   pi.registerTool(definition);
   return definition;
 }
+
+
+/**
+ * Gate-Recall Guard probe set (QA-DATA only — NOT part of runtime gating).
+ * Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts. Controls-only
+ * (recallFloor 0, adversarial []): demoted from core in ticket 02; narrow
+ * keywords are intentional, so we assert the predicate fires on its own
+ * keyword/requires path, not paraphrased intent.
+ */
+export const __GATE_PROBES__ = {
+  gate: "planning_stale",
+  recallFloor: 0,
+  adversarial: [],
+  controls: ['query stale planning decisions', 'revalidate the stale decision card', 'check which planning tickets went stale', 'stale query for the tool-gate effort'],
+};

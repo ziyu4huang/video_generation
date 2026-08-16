@@ -4,6 +4,7 @@
 // (Bun doesn't enforce types).
 // src/tools/grill-decision-tool.ts
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { MemoryStore } from "../store/memory-store.js";
@@ -96,6 +97,16 @@ export function evaluateGrillSignal(input: GrillGateInput): GrillGateResult {
 
 const GRILL_DECISION_DESCRIPTION = `Capture a resolved grill decision as durable behavioral memory. Call this once per resolved decision during a grill-me / grill-me-with-docs session, AFTER the user has answered. Pass your recommended answer, the user's actual answer, and a 'signal' classification (reject = user contradicted/rejected the recommendation; preference = user stated a standing preference or recurring trade-off; insight = user revealed a priority; refine = minor tweak; confirm = user agreed). The tool applies a gate: it writes only durable, non-duplicate, non-project-scoped signals to portable memory. Do not call this for plain confirms.`;
 
+GATE_DEFS["grill_decision"] = {
+  id: "grill_decision",
+  keywords: ["grill decision", "grill a decision", "record decision", "decision grilling", "grill 決策", "記錄決策"],
+  requires: {
+    nouns: ["decision", "choice", "tradeoff", "決策", "選擇"],
+    verbs: ["grill", "record", "capture", "decide", "記錄", "決定"],
+  },
+  description: "Grill/capture a decision with its tradeoffs",
+};
+
 export function registerGrillDecisionTool(
   pi: ExtensionAPI,
   store: MemoryStore,
@@ -108,7 +119,7 @@ export function registerGrillDecisionTool(
   pi.registerTool({
     name: "grill_decision",
     label: "Grill Decision",
-    gating: { core: true },
+    gating: { gate: "grill_decision" }, // demoted from core (ticket 02)
     description: GRILL_DECISION_DESCRIPTION,
     parameters: Type.Object({
       decision: Type.String({ description: "The sub-decision being grilled" }),
@@ -167,3 +178,18 @@ export function registerGrillDecisionTool(
     },
   });
 }
+
+
+/**
+ * Gate-Recall Guard probe set (QA-DATA only — NOT part of runtime gating).
+ * Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts. Controls-only
+ * (recallFloor 0, adversarial []): demoted from core in ticket 02; narrow
+ * keywords are intentional, so we assert the predicate fires on its own
+ * keyword/requires path, not paraphrased intent.
+ */
+export const __GATE_PROBES__ = {
+  gate: "grill_decision",
+  recallFloor: 0,
+  adversarial: [],
+  controls: ['grill the decision on the model picker', 'record this decision with tradeoffs', 'capture the tradeoff we just discussed', 'grill 這個決策'],
+};

@@ -6,8 +6,20 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import { SkillStore } from "../store/skill-store.js";
 import { SKILL_TOOL_DESCRIPTION, SKILL_REFERENCE_TEXT } from "../constants.js";
+
+// ─── Gate family (wayfinder ticket 02 — demoted from core) ──────────────────
+GATE_DEFS["skill_manage"] = {
+  id: "skill_manage",
+  keywords: ["skill manage", "skill manager", "create skill", "list skills", "patch skill", "edit skill", "delete skill", "skill 管理", "技能"],
+  requires: {
+    nouns: ["skill", "skills", "技能", "skill_id"],
+    verbs: ["create", "view", "list", "patch", "update", "edit", "delete", "manage", "建立", "管理", "修改"],
+  },
+  description: "Skill manager CRUD (create/view/patch/update/edit/delete)",
+};
 
 function normalizeTextList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -130,7 +142,7 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
   pi.registerTool({
     name: SKILL_MANAGE_TOOL_NAME,
     label: "Skill Manager",
-    gating: { core: true },
+    gating: { gate: "skill_manage" }, // demoted from core (ticket 02)
     description: SKILL_TOOL_DESCRIPTION,
     parameters: SKILL_TOOL_PARAMETERS,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -300,3 +312,18 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
     },
   });
 }
+
+
+/**
+ * Gate-Recall Guard probe set (QA-DATA only — NOT part of runtime gating).
+ * Consumed by pi-agent-ext-tool-gate/qa/collect-probes.ts. Controls-only
+ * (recallFloor 0, adversarial []): demoted from core in ticket 02; narrow
+ * keywords are intentional, so we assert the predicate fires on its own
+ * keyword/requires path, not paraphrased intent.
+ */
+export const __GATE_PROBES__ = {
+  gate: "skill_manage",
+  recallFloor: 0,
+  adversarial: [],
+  controls: ['create a new skill for running tests', 'list the skills I have', "patch the skill's when_to_use", 'delete the stale skill'],
+};

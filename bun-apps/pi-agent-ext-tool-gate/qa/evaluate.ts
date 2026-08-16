@@ -65,6 +65,10 @@ import { registerSessionSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/
 import { registerSkillTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";
 import { registerGrillDecisionTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/grill-decision-tool.ts";
 import { registerMemorySupersedeTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-supersede-tool.ts";
+import { registerKnowledgeSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/knowledge-search-tool.ts";
+import { registerPlanningStaleTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/planning-stale-tool.ts";
+import { registerKnowledgeIngestTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/knowledge-ingest-tool.ts";
+import { createPresentTool } from "@repo/pi-agent-ext-webui/src/present-tool.ts";
 // ticket 04 — ext-task's 3 core tools (todo / goal_complete / ask_user_question)
 // are owner-declared core. ext-task's default factory is synchronous but HEAVY
 // (globalThis pollution, overlays, registerLoop, statusWidget setup) — like
@@ -190,6 +194,11 @@ const hermesMemoryRegistrar = (pi: any) => {
 	registerSkillTool(pi, {} as any);
 	registerGrillDecisionTool(pi, {} as any, null);
 	registerMemorySupersedeTool(pi, null, {} as any);
+	// ticket 03 — planning_stale + knowledge_search are owner-declared core:true;
+	// capture them so qa:coverage sees them tracked, not "ungated heavy".
+	registerPlanningStaleTool(pi, { memoryDir: "/tmp" });
+	registerKnowledgeIngestTool(pi, {});
+	registerKnowledgeSearchTool(pi, () => "/tmp");
 };
 
 // ticket 04 — ext-task's default factory is heavy (see import note); drive the
@@ -213,9 +222,27 @@ const coreTaskRegistrar = (pi: any) => {
 // routes all 22 into core.
 const builtinCoreDefs = () => [...BUILTIN_CORE].map((name) => ({ name }));
 
+// ticket 03 — webui_present (owner-declared core:true, always-on HITL bridge).
+// webui's real `wireWebui` boots a WebServer + event handlers — NOT corpus-safe.
+// Capture the TOOL DEF directly by constructing createPresentTool with no-op
+// deps (execute never runs under capture), mirroring how zai-mcp's registrar
+// drives the real registration path. This routes webui_present into
+// CORPUS_EFF.core so qa:coverage sees it tracked (not "ungated heavy").
+const webuiPresentRegistrar = (pi: any) => {
+	pi.registerTool(
+		createPresentTool({
+			present: () => "",
+			registerPending: () => Promise.resolve({ cancelled: true }),
+			hasPending: () => false,
+			cancelPending: () => false,
+			detach: () => {},
+		}),
+	);
+};
+
 export const CORPUS_EFF = buildEffectiveGates(
 	injectBuiltinCore([
-		...captureOwnerDeclaredDefs([coreTaskRegistrar, toolGateDefault, file2mdDefault, flux2Default, krea2Default, ltxDefault, movieDefault, researchDefault, workflowDefault, subagentDefault, devopsDefault, wayfindDefault, zaiRegistrar, powerToolDefault, knowledgeCardDefault, webAccessDefault, obsidianDefault, hermesMemoryRegistrar]),
+		...captureOwnerDeclaredDefs([coreTaskRegistrar, toolGateDefault, file2mdDefault, flux2Default, krea2Default, ltxDefault, movieDefault, researchDefault, workflowDefault, subagentDefault, devopsDefault, wayfindDefault, zaiRegistrar, powerToolDefault, knowledgeCardDefault, webAccessDefault, obsidianDefault, hermesMemoryRegistrar, webuiPresentRegistrar]),
 		...builtinCoreDefs(),
 	] as never),
 );
