@@ -1,3 +1,7 @@
+---
+last: 2026-08-16
+---
+
 # Wayfinder map: 2026-07-31-let-s-continue-to-improve-base-on-known-upstream
 
 ## Destination
