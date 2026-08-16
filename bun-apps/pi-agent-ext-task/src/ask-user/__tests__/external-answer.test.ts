@@ -3,7 +3,7 @@
  *  resolution as a TUI keyboard submit; first answer wins; wrong id ignored. */
 import { describe, expect, test } from "bun:test";
 import { registerAskUserQuestionTool } from "../ask-user-question.js";
-import { ASK_USER_ANSWER_EVENT, ASK_USER_PROMPT_EVENT } from "../events.js";
+import { ASK_USER_ANSWER_EVENT, ASK_USER_ANSWERED_EVENT, ASK_USER_PROMPT_EVENT } from "../events.js";
 
 type AnyRec = Record<string, any>;
 
@@ -100,5 +100,20 @@ describe("ask_user external answer channel", () => {
 		expect(res.content?.[0]?.text).toContain("Yes");
 		// second answer after resolution — ignored without throwing
 		answer({ promptId: prompt[1].promptId, result: { answers: [] } });
+	});
+
+	test("answered tombstone emits on execute exit, promptId-matched (webui-tui-parity C1)", async () => {
+		const f = makeFakePi();
+		registerAskUserQuestionTool(f.pi);
+		const pending = capturedTool!.execute("id", PARAMS, undefined, undefined, makeCtx().ctx);
+		await Bun.sleep(10);
+		const prompt = f.emitted.find(([e]) => e === ASK_USER_PROMPT_EVENT)!;
+		f.handlers.get(ASK_USER_ANSWER_EVENT)!({ promptId: prompt[1].promptId, result: EXTERNAL_RESULT });
+		await pending;
+		// the tombstone fires AFTER resolution — exactly once per execute, with
+		// the same promptId (external mirrors retire their dialog on it).
+		const answeredAll = f.emitted.filter(([e]) => e === ASK_USER_ANSWERED_EVENT);
+		expect(answeredAll.length).toBe(1);
+		expect(answeredAll[0]?.[1]?.promptId).toBe(prompt[1].promptId);
 	});
 });

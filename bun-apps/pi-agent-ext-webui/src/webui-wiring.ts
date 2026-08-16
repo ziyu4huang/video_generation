@@ -616,6 +616,14 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     });
   });
 
+  // ask-user tombstone (webui-tui-parity C1): every questionnaire exit emits
+  // rpiv:ask-user:answered — broadcast it so live + replaying shells retire
+  // the dialog. String-literal contract; no task-package import.
+  pi.events?.on("rpiv:ask-user:answered", (payload: unknown) => {
+    const p = payload as { promptId?: string } | undefined;
+    broadcaster.broadcast({ type: "ask_user_done", promptId: typeof p?.promptId === "string" ? p.promptId : "" });
+  });
+
   // webui_present (the blocking HITL gate, spec Component 2): the `present` dep
   // emits the webui:present event (the registered handler mints the view). If
   // the host has NO shared event bus (guarded seam), fall back to invoking the
@@ -709,6 +717,15 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     const sessionCtx = ctx as WebuiSessionCtx;
     server.bindSession(pi, sessionCtx);
     bound = { pi, ctx: sessionCtx };
+    // session info status (webui-tui-parity C2): TUI-parity context for the
+    // shell header — which worktree/branch this browser tab co-drives.
+    let branch = "";
+    try {
+      branch = Bun.spawnSync(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: process.cwd() }).stdout.toString().trim();
+    } catch {
+      /* best-effort */
+    }
+    broadcaster.broadcast({ type: "session_info", cwd: process.cwd(), branch: branch || undefined });
     // ticket 07 announce (specs/07 D3): surface the RESOLVED URL to the TUI user
     // via the SDK ui surface (notify + setStatus). NO console.log (it does not
     // reach the TUI user — debugging only); NO auto-open (the host exposes no
