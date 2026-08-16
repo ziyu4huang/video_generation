@@ -437,6 +437,11 @@ export function createBranchClient(spawn: SpawnFn): BranchClient {
 		async fetchPrune() {
 			await spawn("git", ["fetch", "--prune"]);
 		},
+		async detachHead(ref) {
+			const r = await spawn("git", ["checkout", "--detach", ref]);
+			if (r.exitCode !== 0)
+				throw new Error(`git checkout --detach ${ref} failed (exit ${r.exitCode}): ${(r.stderr || r.stdout).trim()}`);
+		},
 		async deleteLocalBranch(name) {
 			const r = await spawn("git", ["branch", "-D", name]);
 			if (r.exitCode !== 0) throw new Error(`git branch -D ${name} failed (exit ${r.exitCode}): ${(r.stderr || r.stdout).trim()}`);

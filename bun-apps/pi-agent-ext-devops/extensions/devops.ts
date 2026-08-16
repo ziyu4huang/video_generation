@@ -18,6 +18,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
+import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import { createGhClient, createBranchClient } from "../src/gh.js";
 import { createLiveSpawn } from "../src/spawn.js";
 import { runMergeRecipe } from "../src/recipe.js";
@@ -30,6 +31,66 @@ import { runVerifyMerge, type VerifyMergeOutcome } from "../src/verify-merge-rec
 import { runDeploy } from "../src/deploy-tool.js";
 import { runVerify } from "../src/verify-tool.js";
 import { runMainHealth, type MainHealthOutcome } from "../src/main-health-recipe.js";
+
+// ─── Gate families (wayfinder ticket 01 — reference form) ───────────────────
+// Declared ONCE by id; each devops tool references its family via
+// `gating: { gate: "<id>" }` so buildEffectiveGates resolves keywords/requires
+// from the registry. pi_deploy + pi_verify share ONE family (their former
+// byte-identical inline gating). The per-tool verbatim duplication is gone —
+// edit a family here, its tool(s) follow.
+GATE_DEFS["await_pr_merge"] = {
+  id: "await_pr_merge",
+  keywords: ["pr", "pull-request", "merge", "merged", "ship", "gate", "local ci", "devops"],
+  description: "Merge a PR gated on local CI",
+};
+GATE_DEFS["sweep_branches"] = {
+  id: "sweep_branches",
+  keywords: ["sweep", "branch", "branches", "cleanup", "prune", "delete-branch", "devops"],
+  description: "Sweep/cleanup spent local branches",
+};
+GATE_DEFS["local_ci"] = {
+  id: "local_ci",
+  keywords: ["ci", "test", "typecheck", "verify", "gate", "green", "merge", "local ci"],
+  description: "Run offline local CI scoped to changed packages",
+};
+GATE_DEFS["main_health"] = {
+  id: "main_health",
+  keywords: ["main", "health", "green", "red", "default branch", "broken", "status", "ci", "devops"],
+  description: "Check whether the default branch is green",
+};
+GATE_DEFS["sync_repo"] = {
+  id: "sync_repo",
+  keywords: ["sync", "git sync", "fetch", "rebase", "pull", "default branch", "remote default", "origin/main", "origin/master", "submodule", "reset --hard", "merge --ff-only", "fast-forward", "ff-only", "force", "update main", "bring main", "get latest", "latest changes", "devops"],
+  requires: {
+    nouns: ["main", "branch", "repo", "repository", "worktree", "origin"],
+    verbs: ["up to date", "up-to-date"],
+  },
+  description: "Sync this repo to the latest default branch",
+};
+GATE_DEFS["devops_retrospect"] = {
+  id: "devops_retrospect",
+  keywords: ["retrospect", "review", "reflect", "post-run", "anomaly"],
+  description: "Post-run devops retrospect / anomaly review",
+};
+GATE_DEFS["prepare_branch"] = {
+  id: "prepare_branch",
+  keywords: ["prepare", "rebase", "force-push", "branch", "behind"],
+  description: "Prepare a branch against the default branch",
+};
+GATE_DEFS["verify_merge"] = {
+  id: "verify_merge",
+  keywords: ["verify", "merge", "scope", "contaminated", "spent"],
+  description: "Verify a PR merge landed cleanly",
+};
+GATE_DEFS["pi_deploy"] = {
+  id: "pi_deploy",
+  keywords: ["build bundle", "bundle pi-agent", "pi-agent bundle", "run-test"],
+  requires: {
+    nouns: ["bundle", "pi-agent", "pi agent", "extension"],
+    verbs: ["build", "deploy", "verify", "bundle", "部署", "建置", "驗證", "打包"],
+  },
+  description: "Build & deploy the pi-agent bundle",
+};
 
 /** Render a sweep outcome as a compact, human-readable plan/summary. */
 function formatSweep(o: SweepOutcome): string {
@@ -214,8 +275,10 @@ function formatPrepare(o: PrepareOutcome): string {
 	return L.join("\n");
 }
 
-/** Render a verify-merge outcome: verdict line (CLEAN/CONTAMINATED/NOT-MERGED),
- *  out-of-scope files, warnings, and the read-only commands issued. */
+/** Render a verify-merge outcome: verdict line (CLEAN/CONTAMINATED/UNVERIFIED/
+ *  NOT-MERGED), out-of-scope files, warnings, and the commands issued.
+ *  Only CLEAN gets ✅ — UNVERIFIED means the scope check never ran, which must
+ *  not read like a pass (issue #1439). */
 function formatVerifyMerge(o: VerifyMergeOutcome): string {
 	const L: string[] = [];
 	if (o.aborted) {
@@ -310,7 +373,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Gate a GitHub PR on local_ci, then squash-merge",
 		description:
 			"Gate a GitHub PR on local_ci (offline typecheck+tests+quality-gates for the PR's changed packages vs its base), then squash-merge — no remote CI, no polling. Blocks (no merge) when local_ci fails OR detection errors OR the PR is BEHIND/non-CLEAN. Remote CI is disabled in this repo; this is the local proxy gate. Returns merged/blocked + a localCi breakdown.",
-		gating: { keywords: ["pr", "pull-request", "merge", "merged", "ship", "gate", "local ci", "devops"] },
+		gating: { gate: "await_pr_merge" }, // reference form (ticket 01)
 		promptSnippet: "Merge a PR: run local_ci over the PR's changed packages vs its base, then squash-merge when green + CLEAN. Blocks on red CI / BEHIND / non-CLEAN. No remote CI, no polling.",
 		parameters: Type.Object({
 			prNumber: Type.Integer({ description: "The PR number to merge." }),
@@ -379,7 +442,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Sweep merged local + remote branches (conservative, dry-run by default)",
 		description:
 			"Classify every local + remote branch and report which are safe to delete. CONSERVATIVE: a branch is deleted only when gh shows a MERGED PR for it (high confidence); uncertain cases ([gone] without gh proof, or a head ref reused by an open PR) go to a `review` bucket the human decides — never auto-deleted. Worktree-checked-out, protected (main/master/default) and the current branch are NEVER deleted (absolute). Dry-run by default: returns the plan only; pass execute:true to delete the high-confidence set, or confirm:[...] to delete specific reviewed branches. Uses structured git/gh JSON — never `git branch --merged` (wrong for squash merges).",
-		gating: { keywords: ["sweep", "branch", "branches", "cleanup", "prune", "delete-branch", "devops"] },
+		gating: { gate: "sweep_branches" }, // reference form (ticket 01)
 		promptSnippet:
 			"Sweep merged local+remote branches. Conservative: delete only on gh-confirmed merge; uncertain → review (human). Dry-run by default; worktree/protected/current never deleted.",
 		parameters: Type.Object({
@@ -417,7 +480,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Local CI verification",
 		description:
 			"Run local CI — typecheck + tests scoped to the packages changed vs origin/main, plus EVERY step of the workflow's regression-gates job (file-size, lockfile, dep-direction, ADR citation, seam, routing, config-parity, ci-workflow, package-scripts, portability, determinism, …; info-only schema-cost). Returns a STRUCTURED pass/fail so you can self-verify before merge. OFFLINE (no network): change detection runs in-process (extension-native TS), the per-package command comes from the CI matrix, and the gate list is DERIVED from the same workflow — neither is hand-copied here — so a green run is the local proxy for a green remote run. Use to self-verify before merge; await_pr_merge / merge should gate on this.",
-		gating: { keywords: ["ci", "test", "typecheck", "verify", "gate", "green", "merge", "local ci"] },
+		gating: { gate: "local_ci" }, // reference form (ticket 01)
 		promptSnippet:
 			"Local CI: typecheck + tests for changed packages vs origin/main, plus repo gates. Structured pass/fail, offline. Self-verify before `gh ship`.",
 		parameters: Type.Object({
@@ -462,7 +525,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Is the default branch green right now?",
 		description:
 			"Run the FULL test matrix + the whole regression-gates suite against the default branch, in the worktree that actually has it checked out. local_ci is change-scoped and remote CI is disabled here, so a branch that avoids a broken package merges green forever and nothing reports that main itself is red — this is the missing health check. ABORTS (tests nothing, reports unhealthy) when no worktree holds the default branch: a tree is required because a suite runs against a working tree, not a ref. A dirty or behind tree still runs but the outcome carries a warning saying the verdict is about that tree, not exactly origin/<default>. Read-only: never checks out, syncs, or mutates anything.",
-		gating: { keywords: ["main", "health", "green", "red", "default branch", "broken", "status", "ci", "devops"] },
+		gating: { gate: "main_health" }, // reference form (ticket 01)
 		promptSnippet:
 			"main_health: full matrix + gates against the default branch, run in the worktree that holds it. Read-only. Says which packages/gates are red on main — the thing change-scoped local_ci structurally cannot see.",
 		parameters: Type.Object({}),
@@ -479,16 +542,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Sync this repo to latest default branch (TS port of sync-repo.sh)",
 		description:
 			"Sync this worktree/repo to the latest default branch. Modes: 'full' (default) — git fetch origin; auto-detect the default branch D via origin/HEAD; advance D to origin/<D> WORKTREE-AWARE (advance it in the worktree that holds D; only check it out here when free), then recursively sync submodules to their remote tips. By DEFAULT the advance uses `git merge --ff-only origin/<D>` — it REFUSES (aborts, reason 'divergent') when local <D> has divergent/unpushed commits, so it NEVER loses commits. Pass force:true to instead use `git reset --hard origin/<D>` (discards those divergent commits — explicit opt-in). 'rebase' — fetch + rebase the current branch onto origin/<D>. 'pull' — fetch + merge origin/<D> into the current branch (a real merge, never fast-forward). dryRun computes + returns the exact git commands without mutating. Pre-flight: a dirty tracked tree aborts mutating runs; unpushed commits are warned. Auto-managed hot files (default: .agents/memory/MEMORY.md) are stashed + restored across the advance instead of aborting; genuinely uncommitted work still aborts. Replaces the sync-repo.sh / git-remote-main-sync.sh / safe-sync.sh bash (agent-invoked only; no shell entry).",
-		gating: {
-			keywords: ["sync", "git sync", "fetch", "rebase", "pull", "default branch", "remote default", "origin/main", "origin/master", "submodule", "reset --hard", "merge --ff-only", "fast-forward", "ff-only", "force", "update main", "bring main", "get latest", "latest changes", "devops"],
-			// Broad phrasings ("up to date" / "up-to-date") false-fire on docs/tests
-			// being "kept up to date" — so they are NOT bare keywords; they require
-			// co-occurrence with a repo-ish noun (noun ∧ verb fires, per gateFires).
-			requires: {
-				nouns: ["main", "branch", "repo", "repository", "worktree", "origin"],
-				verbs: ["up to date", "up-to-date"],
-			},
-		},
+		gating: { gate: "sync_repo" }, // reference form (ticket 01) — family in GATE_DEFS
 		promptSnippet:
 			"Sync this repo to latest default branch. full (default): fetch + advance default branch via merge --ff-only (worktree-aware; aborts on divergent unless force:true → reset --hard) + recursive submodules. rebase/pull: fetch + rebase/merge current branch onto origin/<default>. dryRun shows the plan. Dirty tree aborts.",
 		parameters: Type.Object({
@@ -528,7 +582,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Advisory post-run retrospective (anomaly review)",
 		description:
 			"Advisory post-run retrospective: inspects recent git ops + branch/worktree/divergence state, flags anomalies (force-push, scope drift, worktree-conflict, dirty-tree, divergence). Advisory only — never blocks.",
-		gating: { keywords: ["retrospect", "review", "reflect", "post-run", "anomaly"] },
+		gating: { gate: "devops_retrospect" }, // reference form (ticket 01)
 		promptSnippet:
 			"Advisory retrospective after a mutating recipe: flags force-push / scope-drift / worktree-conflict / dirty-tree / divergence. Read-only, never blocks.",
 		parameters: Type.Object({
@@ -561,7 +615,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Worktree-aware branch prepare (create / rebase / force-push)",
 		description:
 			"Worktree-aware branch prepare: create off base, rebase onto base, and/or force-push-with-lease. Covers the BEHIND state await_pr_merge blocks on; aborts cleanly on worktree-conflict or rebase-conflict.",
-		gating: { keywords: ["prepare", "rebase", "force-push", "branch", "behind"] },
+		gating: { gate: "prepare_branch" }, // reference form (ticket 01)
 		promptSnippet:
 			"Prepare a branch worktree-safely: create off base, rebase onto base, and/or force-push-with-lease. Covers the BEHIND state; throw-free aborts on conflicts. dryRun shows the plan.",
 		parameters: Type.Object({
@@ -601,14 +655,20 @@ export default function (pi: ExtensionAPI): void {
 		name: "verify_merge",
 		label: "Post-merge verify (merge state + scope + branch-spent)",
 		description:
-			"Post-merge verify: confirm the PR merged, inspect the merge commit's actual file scope (vs an optional expectedScope → CLEAN/CONTAMINATED), and whether the feature branch is spent. Replaces manual `git show --stat` verification.",
-		gating: { keywords: ["verify", "merge", "scope", "contaminated", "spent"] },
+			"Post-merge verify: confirm the PR merged, inspect the merge commit's actual file scope (vs an optional expectedScope → CLEAN/CONTAMINATED), and whether the feature branch is spent. Pass allowFetch when calling right after a merge, or the sha will not be local and the verdict is UNVERIFIED. Replaces manual `git show --stat` verification.",
+		gating: { gate: "verify_merge" }, // reference form (ticket 01)
 		promptSnippet:
 			"Post-merge verify: confirm merged, inspect the merge's file scope (CLEAN/CONTAMINATED vs expectedScope), check branch-spent. Read-only.",
 		parameters: Type.Object({
 			pr: Type.Integer({ description: "The PR number to verify." }),
 			expectedScope: Type.Optional(
 				Type.Array(Type.String(), { description: "Optional scope prefixes; touched files outside ALL prefixes → CONTAMINATED." }),
+			),
+			allowFetch: Type.Optional(
+				Type.Boolean({
+					description:
+						"Allow one `git fetch origin <mergeSha>` when the merge commit is not local yet (the usual case right after a merge). Without it such a run reports UNVERIFIED instead of checking the scope.",
+				}),
 			),
 		}),
 		async execute(_id, params, signal) {
@@ -626,6 +686,7 @@ export default function (pi: ExtensionAPI): void {
 				repoRoot,
 				pr: params.pr as number,
 				expectedScope: params.expectedScope as string[] | undefined,
+				allowFetch: params.allowFetch as boolean | undefined,
 				signal,
 			});
 			return { details: outcome, content: [{ type: "text" as const, text: formatVerifyMerge(outcome) }] };
@@ -644,13 +705,7 @@ export default function (pi: ExtensionAPI): void {
 		// Owner-declared gating — migrated verbatim from the deploy extension
 		// (was the {names:["pi_deploy","pi_verify"]} gate). The SAME gating is
 		// mirrored on pi_verify so both activate together.
-		gating: {
-			keywords: ["build bundle", "bundle pi-agent", "pi-agent bundle", "run-test"],
-			requires: {
-				nouns: ["bundle", "pi-agent", "pi agent", "extension"],
-				verbs: ["build", "deploy", "verify", "bundle", "部署", "建置", "驗證", "打包"],
-			},
-		},
+		gating: { gate: "pi_deploy" }, // reference form (ticket 01) — shared family (pi_deploy + pi_verify)
 		label: "Build & Deploy pi-agent Bundle",
 		description:
 			"Build and deploy the pi-agent bundle + thin extension bundles (mirrors `bun scripts/deploy.ts`). " +
@@ -701,13 +756,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "pi_verify",
 		// Owner-declared gating — mirrored from pi_deploy (same hardcoded gate).
-		gating: {
-			keywords: ["build bundle", "bundle pi-agent", "pi-agent bundle", "run-test"],
-			requires: {
-				nouns: ["bundle", "pi-agent", "pi agent", "extension"],
-				verbs: ["build", "deploy", "verify", "bundle", "部署", "建置", "驗證", "打包"],
-			},
-		},
+		gating: { gate: "pi_deploy" }, // reference form (ticket 01) — shared family (pi_deploy + pi_verify)
 		label: "Verify pi-agent (run-test.sh tier)",
 		description:
 			"Run a pi-agent run-test.sh tier (quick|medium|high|readonly|full; default medium) and report per-step pass/fail. " +

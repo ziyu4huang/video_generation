@@ -422,9 +422,12 @@ describe("pi-movie-director extension", () => {
   test("movie and movie_help share ONE gating object (cannot drift apart)", () => {
     const movie = captureTool("movie");
     const help = captureTool("movie_help");
-    // Same reference, not merely deep-equal: co-firing is decided by fingerprint
-    // equality in tool-gate (gatesWithSameGating), and two separate literals can
-    // be edited apart with no signal. One object makes that impossible.
-    expect(movie.gating).toBe(help.gating);
+    // Reference form (ticket 01): both declare gating:{ gate: "movie" }, so
+    // buildEffectiveGates resolves BOTH through the single GATE_DEFS["movie"]
+    // family — one declaration, so the two can never drift apart. Same id, not
+    // same object reference: co-firing is decided by shared id, not fingerprint
+    // equality over duplicated literals.
+    expect(movie.gating).toEqual({ gate: "movie" });
+    expect(help.gating).toEqual({ gate: "movie" });
   });
 });

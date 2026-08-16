@@ -27,47 +27,12 @@ import {
   type StructuredOutputCapture,
 } from "./structured-output.js";
 
-// ── Facade re-exports ────────────────────────────────────────────────────────
-// Definitions that moved out of this file. Consumers and tests still import
-// them from agent.js (and index.ts re-exports them from here), so the names
-// must stay reachable at this path. Import above ONLY what agent.ts itself
-// CALLS — a symbol that is merely re-exported needs no local binding, and
-// adding one trips biome's noUnusedImports.
-export type {
-  AgentUsage,
-  BudgetExhaustion,
-  BudgetGuard,
-  BudgetSeam,
-  BudgetSessionSurface,
-  BudgetWarning,
-} from "./agent-budget.js";
-export {
-  BUDGET_GRACE_CEILING_RATIO,
-  BUDGET_WARNING_RATIO,
-  BUDGET_WRAP_UP_MESSAGE,
-  checkBudgetExhaustion,
-  checkBudgetWarning,
-  createBudgetGuard,
-  isUsageObservation,
-} from "./agent-budget.js";
-export type { FallbackDecision } from "./agent-model.js";
-export {
-  clampModelToScope,
-  resolveAgentModelSpec,
-  resolveFallbackModel,
-  resolveScopedAgentModelSpec,
-} from "./agent-model.js";
-export type { TurnExhaustion, TurnGuard, TurnSessionSurface } from "./agent-turns.js";
-export {
-  createTurnGuard,
-  isTurnEndObservation,
-  isTurnStartObservation,
-  turnExhaustionError,
-} from "./agent-turns.js";
-export { listAvailableModelSpecs } from "./available-models.js";
-export { lastAssistantError, throwIfProviderLimit } from "./provider-limit.js";
-export type { StructuredSession } from "./structured-output.js";
-export { extractValidated, resolveStructuredOutput } from "./structured-output.js";
+// This file exports only what it DEFINES: CoreAgent and its option/result types.
+// It used to carry a block of pass-through re-exports for the definitions that
+// moved out of it during the split, kept "so consumers and tests can still
+// import them from agent.js". Every one of those consumers now names the owning
+// module directly, which is what makes the barrel one hop deep — see the header
+// of index.ts. Re-adding a pass-through here would rebuild the second route.
 
 export interface WorkflowAgentOptions {
   cwd?: string;

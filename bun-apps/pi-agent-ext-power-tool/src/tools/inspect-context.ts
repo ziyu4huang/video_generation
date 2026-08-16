@@ -13,7 +13,6 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { toolApiCost } from "../cost.js";
-import { DIAGNOSTIC_GATING } from "../gating.js";
 import { bar, est, estTok, miniBar, reportHeader } from "../report.js";
 
 const SELF_TEST_CONTEXT_ANALYZER_OUTPUT = [
@@ -36,7 +35,7 @@ const SELF_TEST_CONTEXT_ANALYZER_OUTPUT = [
 export function makeInspectContextTool(getAllTools: () => ToolInfo[]) {
   return defineTool({
     name: "inspect_context",
-    gating: DIAGNOSTIC_GATING,
+    gating: { gate: "inspect" }, // reference form (ticket 01) — family in GATE_DEFS["inspect"]
     label: "Inspect Context",
     description:
       "Break down the live context window by component — system-prompt text " +

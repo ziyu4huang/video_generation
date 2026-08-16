@@ -1021,7 +1021,7 @@ export class MemoryStore {
     // flags re-captured lessons (same gotcha, different wording — mupdf ×3,
     // SurrealDB ×2-3 in the failure store) so the agent consolidates via
     // `memory replace` instead of accumulating. Warning only — the entry is
-    // still added. Disable: PI_MEMORY_NEAR_DUP_THRESHOLD=0. Tune: default 0.6.
+    // still added. Disable: PI_MEMORY_NEAR_DUP_THRESHOLD=0. Tune: default 0.3.
     let nearDupNote = "";
     const nearDupThreshold = envFloat("PI_MEMORY_NEAR_DUP_THRESHOLD", DEFAULT_NEAR_DUP_THRESHOLD);
     if (nearDupThreshold > 0) {

@@ -300,6 +300,227 @@ describe("walkAndIngest (orchestrator: walk → adapt → ingest → heal)", () 
     }
   });
 
+  describe("kp21 Tier-3: db-authoritative frontmatter merge (opt-in DB-wins fields)", () => {
+    // One-record fixture (same zk-shaped stub + fixture family as the Tier-1
+    // drift tests above). The stub's vault-md frontmatter carries id/created/
+    // tags but NO used_at — tests (a)-(c) splice `used_at: T1` into the md
+    // externally after the first plain walk; test (d) relies on the field
+    // staying absent, exactly as the stub writes it.
+    const writeTier3Fixture = () => {
+      writeFileSync(
+        join(inputDir, "run.knowledge.jsonl"),
+        '{"id":"u1","type":"lever","title":"Tier Three","detail":"t3","tags":["u"],"dimension":null,"confidence":1,"status":"active","superseded_by":null}',
+      );
+      publishSeam(KEY, makeStubPipeline());
+    };
+
+    const mdPathOf = () => {
+      const dir = join(vault, FOLDER);
+      const mds = readdirSync(dir).filter((n) => n.endsWith(".md"));
+      assert.equal(mds.length, 1, "exactly one vault-md fixture file");
+      return join(dir, mds[0]!);
+    };
+
+    /** External md edit: insert a top-level `used_at:` line as the first
+     *  frontmatter key (the stub never writes this field itself). */
+    const spliceUsedAtIntoMd = (fp: string, value: string) => {
+      const before = readFileSync(fp, "utf8");
+      assert.ok(before.startsWith("---\n"), "fixture md opens with frontmatter");
+      writeFileSync(fp, before.replace(/^---\n/, `---\nused_at: ${value}\n`));
+    };
+
+    /** Seed DB divergence the way production state looks: open the SAME store
+     *  the mirror opens (createCardStore({memoryDir})), clone the mirrored
+     *  card, set the field on the DB row (updateCard — adds the key when
+     *  absent), verify the write round-tripped, close. Stored card_md_hash
+     *  rows are left untouched. */
+    const seedDbUsedAt = async (memDir: string, value: string) => {
+      const store = await createCardStore({ memoryDir: memDir });
+      try {
+        const card = (await store.getCardsByKind("knowledge")).find((c) => c.id === "u1");
+        assert.ok(card, "u1 knowledge card mirrored before seeding");
+        await store.updateCard({
+          id: card.id,
+          kind: card.kind,
+          content: card.content,
+          frontmatter: { ...(card.frontmatter ?? {}), used_at: value },
+        });
+        // Prove the divergence actually persisted (DB row must hold `value`).
+        const verify = await store.getCard("u1");
+        assert.equal(
+          verify?.frontmatter?.used_at,
+          value,
+          `seed round-tripped: DB row used_at=${value}`,
+        );
+      } finally {
+        await store.close();
+      }
+    };
+
+    it("Tier-3: DB-authoritative field wins over md when opted in (no write-back)", async () => {
+      writeTier3Fixture();
+      const memDir = mkdtempSync(join(tmpdir(), "kvi-t3a-"));
+      try {
+        // Plain first walk: stub emits the vault-md (no used_at) and the
+        // mirror stores the card + its md hash.
+        const r1 = await walkAndIngest(inputDir, { memoryDir: memDir });
+        assert.equal(r1.ok, true);
+        const fp = mdPathOf();
+        // md now says T1; the DB row is seeded to a divergent T2.
+        spliceUsedAtIntoMd(fp, "T1");
+        await seedDbUsedAt(memDir, "T2");
+
+        const r2 = await walkAndIngest(inputDir, {
+          memoryDir: memDir,
+          dbAuthoritativeFields: ["used_at"],
+        });
+        assert.equal(r2.ok, true);
+        assert.equal(r2.dbAuthoritative.merged, 1, "one opted-in value copied DB→card");
+        assert.equal(r2.dbAuthoritative.writtenBack, 0, "write-back off by default");
+
+        // No write-through: the md file on disk still carries T1.
+        const mdText = readFileSync(fp, "utf8");
+        assert.ok(mdText.includes("used_at: T1"), "md file on disk still carries T1");
+        assert.ok(!mdText.includes("used_at: T2"), "no md write-through without the opt-in");
+
+        // The DB row keeps the DB-authoritative value into the next mirror.
+        const store = await createCardStore({ memoryDir: memDir });
+        try {
+          const card = await store.getCard("u1");
+          assert.equal(card?.frontmatter?.used_at, "T2", "merged card keeps the DB value");
+        } finally {
+          await store.close();
+        }
+
+        // Without write-back the md file keeps its stale T1 forever
+        // (decision 05: no md write-through), so md↔DB divergence persists
+        // and EVERY opted-in run re-merges the DB value into the card
+        // (merged stays 1 — an idempotent re-merge, not a new change).
+        // The true convergence signal is store/hash stability: run 3 hits
+        // the skip arm (driftStub.changed === 0) and the stored card keeps
+        // the DB-authoritative value.
+        const r3 = await walkAndIngest(inputDir, {
+          memoryDir: memDir,
+          dbAuthoritativeFields: ["used_at"],
+        });
+        assert.equal(
+          r3.dbAuthoritative.merged,
+          1,
+          "divergence persists without write-back: idempotent re-merge every run",
+        );
+        assert.equal(r3.driftStub.changed, 0, "converged: skip arm — store/hash stable");
+        const store3 = await createCardStore({ memoryDir: memDir });
+        try {
+          const card3 = await store3.getCard("u1");
+          assert.equal(
+            card3?.frontmatter?.used_at,
+            "T2",
+            "store card still holds the DB value after run 3",
+          );
+        } finally {
+          await store3.close();
+        }
+      } finally {
+        rmSync(memDir, { recursive: true, force: true });
+      }
+    });
+
+    it("Tier-3: opt-in write-back syncs md file from DB", async () => {
+      writeTier3Fixture();
+      const memDir = mkdtempSync(join(tmpdir(), "kvi-t3b-"));
+      try {
+        await walkAndIngest(inputDir, { memoryDir: memDir }); // md + mirror + hash
+        const fp = mdPathOf();
+        spliceUsedAtIntoMd(fp, "T1");
+        await seedDbUsedAt(memDir, "T2");
+
+        const r2 = await walkAndIngest(inputDir, {
+          memoryDir: memDir,
+          dbAuthoritativeFields: ["used_at"],
+          dbAuthoritativeWriteBack: true,
+        });
+        assert.equal(r2.ok, true);
+        assert.equal(r2.dbAuthoritative.merged, 1, "DB value merged into the mirrored card");
+        assert.equal(r2.dbAuthoritative.writtenBack, 1, "exactly one md line written back");
+
+        const mdText = readFileSync(fp, "utf8");
+        assert.ok(mdText.includes("used_at: T2"), "md file now carries the DB value");
+        assert.ok(!mdText.includes("used_at: T1"), "stale md line replaced in place");
+
+        // Converged: md and DB agree now → nothing merged, nothing written.
+        const r3 = await walkAndIngest(inputDir, {
+          memoryDir: memDir,
+          dbAuthoritativeFields: ["used_at"],
+          dbAuthoritativeWriteBack: true,
+        });
+        assert.equal(r3.dbAuthoritative.merged, 0, "converged: no merge on re-run");
+        assert.equal(r3.dbAuthoritative.writtenBack, 0, "converged: no write-back on re-run");
+      } finally {
+        rmSync(memDir, { recursive: true, force: true });
+      }
+    });
+
+    it("Tier-3: default off preserves md-canonical behavior", async () => {
+      writeTier3Fixture();
+      const memDir = mkdtempSync(join(tmpdir(), "kvi-t3c-"));
+      try {
+        await walkAndIngest(inputDir, { memoryDir: memDir }); // md + mirror + hash
+        const fp = mdPathOf();
+        spliceUsedAtIntoMd(fp, "T1");
+        await seedDbUsedAt(memDir, "T2");
+
+        // NO tier-3 opts: md stays canonical — the re-walk overwrites the
+        // seeded DB divergence with the md value.
+        const r2 = await walkAndIngest(inputDir, { memoryDir: memDir });
+        assert.equal(r2.ok, true);
+        assert.deepEqual(
+          r2.dbAuthoritative,
+          { merged: 0, writtenBack: 0 },
+          "receipt arms idle when the feature is off",
+        );
+
+        const store = await createCardStore({ memoryDir: memDir });
+        try {
+          const card = await store.getCard("u1");
+          assert.equal(card?.frontmatter?.used_at, "T1", "md value wins into the DB row");
+        } finally {
+          await store.close();
+        }
+        assert.ok(readFileSync(fp, "utf8").includes("used_at: T1"), "md file untouched");
+      } finally {
+        rmSync(memDir, { recursive: true, force: true });
+      }
+    });
+
+    it("Tier-3: field absent in md gains the line on write-back", async () => {
+      writeTier3Fixture();
+      const memDir = mkdtempSync(join(tmpdir(), "kvi-t3d-"));
+      try {
+        // The stub's md carries NO used_at line — keep it that way (the
+        // absent-field arm of write-back).
+        await walkAndIngest(inputDir, { memoryDir: memDir }); // md + mirror + hash
+        const fp = mdPathOf();
+        assert.ok(!readFileSync(fp, "utf8").includes("used_at"), "fixture md lacks used_at");
+        await seedDbUsedAt(memDir, "T9"); // upsert ADDS the field to the DB row
+
+        const r2 = await walkAndIngest(inputDir, {
+          memoryDir: memDir,
+          dbAuthoritativeFields: ["used_at"],
+          dbAuthoritativeWriteBack: true,
+        });
+        assert.equal(r2.ok, true);
+        assert.equal(r2.dbAuthoritative.merged, 1, "absent in md + set in DB → merged");
+        assert.equal(r2.dbAuthoritative.writtenBack, 1, "line inserted into the md file");
+
+        const mdText = readFileSync(fp, "utf8");
+        const fmBlock = mdText.split("---\n")[1] ?? "";
+        assert.ok(fmBlock.includes("used_at: T9"), "used_at: T9 inserted inside the frontmatter");
+      } finally {
+        rmSync(memDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   it("reports generic family as detected-but-deferred (not ingested)", async () => {
     writeFileSync(join(inputDir, "run.knowledge.jsonl"), '{"id":"r1","title":"R"}');
     mkdirSync(join(inputDir, "notes"), { recursive: true });

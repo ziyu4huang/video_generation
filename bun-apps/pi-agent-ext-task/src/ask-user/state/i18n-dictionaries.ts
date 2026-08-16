@@ -52,13 +52,17 @@ export const DICTIONARIES: Record<string, Record<string, string>> = {
 		Cancel: "取消",
 
 		// view/hint-table.ts — the footer keybinding vocabulary.
-		// `{0}` receives the CONFIGURED collapse key (Ctrl+], Alt+O, …) — the
-		// English side is templated for the same reason, so neither locale can
-		// hard-code a key the user may have rebound.
+		// `{0}` receives a value the dictionary must not spell out itself: the
+		// CONFIGURED collapse key (Ctrl+], Alt+O, …) or the `next` row's own
+		// label. The English side is templated for the same reason, so neither
+		// locale can hard-code something the user rebound or a rename moved.
 		"Enter to select": "Enter 選取",
 		"Enter to submit": "Enter 提交",
 		"↑/↓ to navigate": "↑/↓ 移動",
-		"Space to toggle": "Space 切換",
+		"Enter/Space to toggle": "Enter/Space 切換",
+		// `{0}` receives the `next` sentinel's own rendered label, so this line and
+		// the row it points at share the `Next` entry above.
+		"{0} to confirm": "{0} 確認",
 		"n to add notes": "n 新增備註",
 		"Tab to switch questions": "Tab 切換問題",
 		"Esc to cancel": "Esc 取消",

@@ -43,6 +43,7 @@
  */
 import { t } from "../state/i18n-bridge.js";
 import type { EscDestination } from "../state/key-router.js";
+import { ROW_INTENT_META } from "../state/row-intent.js";
 
 // ── The vocabulary ──────────────────────────────────────────────────────────
 // Each label is the English literal AND its i18n dictionary key (see
@@ -54,7 +55,14 @@ export const HINT_ENTER_SELECT = "Enter to select";
 export const HINT_ENTER_SUBMIT = "Enter to submit";
 export const HINT_NAV = "↑/↓ to navigate";
 export const HINT_TAB = "Tab to switch questions";
-export const HINT_TOGGLE = "Space to toggle";
+// On a multi-select question Enter does NOT commit — key-router routes it to
+// `toggle` for every row except the `next` sentinel, which is the only thing
+// that produces `multi_confirm`. The footer used to read "Enter to select ·
+// Space to toggle", which named two keys for one action and implied the wrong
+// one submitted; users pressed Enter expecting to move on and just re-toggled
+// the row they were sitting on. These two labels replace that pair. (A9.)
+export const HINT_MULTI_TOGGLE = "Enter/Space to toggle";
+export const HINT_MULTI_CONFIRM = "{0} to confirm";
 export const HINT_NOTES = "n to add notes";
 export const HINT_COLLAPSE = "{0} to collapse";
 export const HINT_EXPAND = "{0} to expand";
@@ -115,15 +123,27 @@ const NAVIGABLE: ReadonlySet<HintMode> = new Set<HintMode>(["question", "input",
 const SELECTS_ON_ENTER: ReadonlySet<HintMode> = new Set<HintMode>(["question", "input", "notes"]);
 
 /**
+ * The one context where Enter toggles instead of selecting. `input` is excluded
+ * on purpose even on a multi-select question: the free-text row captures Enter
+ * as a confirm (`key-router`'s inputMode branch runs before the multiSelect
+ * one), so "Enter to select" is the truth there.
+ */
+const TOGGLES_ON_ENTER = (c: HintContext): boolean => c.mode === "question" && c.focusedIsMultiSelect;
+
+/**
  * The whole vocabulary, in render order. Adding a hint means adding a row —
  * there is no second place to also remember to touch.
  */
 export const HINT_TABLE: readonly HintEntry[] = [
-	{ label: HINT_ENTER_SELECT, when: (c) => SELECTS_ON_ENTER.has(c.mode) },
+	{ label: HINT_ENTER_SELECT, when: (c) => SELECTS_ON_ENTER.has(c.mode) && !TOGGLES_ON_ENTER(c) },
 	{ label: HINT_ENTER_SUBMIT, when: (c) => c.mode === "submit" },
+	{ label: HINT_MULTI_TOGGLE, when: TOGGLES_ON_ENTER },
+	// The row label comes from ROW_INTENT_META, through the SAME t() entry the
+	// row itself renders with — so a rename (or a translation) moves both at once
+	// instead of leaving the footer pointing at a row that no longer exists.
+	{ label: HINT_MULTI_CONFIRM, when: TOGGLES_ON_ENTER, args: () => [t(ROW_INTENT_META.next.label)] },
 	{ label: HINT_NAV, when: (c) => NAVIGABLE.has(c.mode) },
 	{ label: HINT_TAB, when: (c) => c.isMulti && (c.mode === "question" || c.mode === "submit") },
-	{ label: HINT_TOGGLE, when: (c) => c.mode === "question" && c.focusedIsMultiSelect },
 	{ label: HINT_NOTES, when: (c) => c.mode === "question" && c.notesAvailable },
 	// Shown on the question tab only. One place is enough to make the shortcut
 	// discoverable (its absence everywhere was the bug); repeating it in every

@@ -14,7 +14,6 @@
 import { defineTool, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { type Finding, shortPath, summarizeFindings } from "../findings.js";
-import { DIAGNOSTIC_GATING } from "../gating.js";
 import { bulletSection, findingsSummaryLine, reportHeader } from "../report.js";
 import { KNOWN_EVENTS, type HooksSnapshot } from "../runner-hooks.js";
 
@@ -171,7 +170,7 @@ const SELF_TEST_SNAPSHOT: HooksSnapshot = {
 export function makeInspectHooksTool() {
   return defineTool({
     name: "inspect_hooks",
-    gating: DIAGNOSTIC_GATING,
+    gating: { gate: "inspect" }, // reference form (ticket 01) — family in GATE_DEFS["inspect"]
     label: "Inspect Hooks",
     description:
       "List every loaded extension's registered lifecycle hooks (pi.on handlers) — which events each extension listens on, handler counts, and any handler registered against an unknown event name (likely a typo / dead handler). Fact-finder companion to inspect_extensions.",

@@ -24,12 +24,14 @@ import {
 	HINT_EXPAND,
 	HINT_NOTES,
 	HINT_REVIEW,
+	HINT_MULTI_CONFIRM,
+	HINT_MULTI_TOGGLE,
 	HINT_SEPARATOR,
 	HINT_TABLE,
-	HINT_TOGGLE,
 	type HintContext,
 	type HintMode,
 } from "../hint-table.js";
+import { ROW_INTENT_META } from "../../state/row-intent.js";
 
 const MODES: readonly HintMode[] = ["question", "input", "notes", "submit", "collapsed"];
 
@@ -69,13 +71,24 @@ afterEach(() => __setLocaleForTest(null));
 
 // ── A5 (root cause) — no part can be defined without being reachable ─────────
 
+/**
+ * A label as it can appear once rendered. `{0}` stands for a value the table
+ * supplies at render time — the configured collapse key, the `next` row's own
+ * label — so the slot matches anything rather than one hard-coded fill. (An
+ * earlier version substituted "Ctrl+]" for every `{0}`, which quietly assumed
+ * the collapse key was the only templated hint there would ever be.)
+ */
+const labelPattern = (label: string): RegExp =>
+	new RegExp(`^${label.split("{0}").map(escapeRegExp).join(".+")}$`);
+
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 describe("A5 — the vocabulary has no dead entries", () => {
 	test("every label in HINT_TABLE is rendered by at least one context", () => {
-		const rendered = new Set(allContexts().flatMap((c) => buildHintText(c).split(HINT_SEPARATOR)));
-		// `{0}`-templated labels render with the key substituted, so compare on the
-		// substituted form for those.
-		const expected = HINT_TABLE.map((e) => e.label.replace("{0}", "Ctrl+]"));
-		const unreachable = expected.filter((label) => !rendered.has(label));
+		const rendered = [...new Set(allContexts().flatMap((c) => buildHintText(c).split(HINT_SEPARATOR)))];
+		const unreachable = HINT_TABLE.map((e) => e.label).filter(
+			(label) => !rendered.some((part) => labelPattern(label).test(part)),
+		);
 		expect(
 			unreachable,
 			`DEAD HINT(S): ${unreachable.join(", ")} — defined in HINT_TABLE but no context renders them. ` +
@@ -85,10 +98,13 @@ describe("A5 — the vocabulary has no dead entries", () => {
 	});
 
 	test("no rendered part is absent from the vocabulary", () => {
-		const vocabulary = new Set(HINT_TABLE.map((e) => e.label.replace("{0}", "Ctrl+]")));
+		const vocabulary = HINT_TABLE.map((e) => labelPattern(e.label));
 		for (const c of allContexts()) {
 			for (const part of buildHintText(c).split(HINT_SEPARATOR)) {
-				expect(vocabulary.has(part), `rendered part ${JSON.stringify(part)} is not a HINT_TABLE label`).toBe(true);
+				expect(
+					vocabulary.some((re) => re.test(part)),
+					`rendered part ${JSON.stringify(part)} is not a HINT_TABLE label`,
+				).toBe(true);
 			}
 		}
 	});
@@ -245,10 +261,10 @@ describe("mode shapes", () => {
 	test("question tab, multi-question multi-select with notes", () => {
 		expect(buildHintText(ctx({ isMulti: true, focusedIsMultiSelect: true, notesAvailable: true }))).toBe(
 			[
-				"Enter to select",
+				HINT_MULTI_TOGGLE,
+				"Next to confirm",
 				"↑/↓ to navigate",
 				"Tab to switch questions",
-				HINT_TOGGLE,
 				HINT_NOTES,
 				"Ctrl+] to collapse",
 				HINT_CANCEL,
@@ -273,11 +289,36 @@ describe("mode shapes", () => {
 		expect(text).toBe(["Enter to select", "↑/↓ to navigate", HINT_CANCEL].join(HINT_SEPARATOR));
 	});
 
-	test("Space is offered only on a multi-select question tab", () => {
+	// ── A9 — the footer must not claim Enter submits when it toggles ───────────
+
+	test("a multi-select question tab offers toggle + the Next row, never `Enter to select`", () => {
 		for (const c of allContexts()) {
-			const offered = buildHintText(c).includes(HINT_TOGGLE);
-			expect(offered, JSON.stringify(c)).toBe(c.mode === "question" && c.focusedIsMultiSelect);
+			const text = buildHintText(c);
+			const isMultiQuestion = c.mode === "question" && c.focusedIsMultiSelect;
+			expect(text.includes(HINT_MULTI_TOGGLE), JSON.stringify(c)).toBe(isMultiQuestion);
+			expect(text.includes("Next to confirm"), JSON.stringify(c)).toBe(isMultiQuestion);
+			// "Enter to select" is what implied Enter would commit. Enter on an
+			// ordinary multi-select row routes to `toggle` (key-router.ts), so the
+			// two labels must never appear together.
+			if (isMultiQuestion) expect(text).not.toContain("Enter to select");
 		}
+	});
+
+	test("the confirm hint names the row key-router actually commits on", () => {
+		// `multi_confirm` is reachable only from the row whose META says so; if that
+		// row is ever renamed or another row becomes the committing one, this fails
+		// instead of leaving the footer pointing at a row that no longer exists.
+		expect(ROW_INTENT_META.next.autoSubmitsInMulti).toBe(true);
+		expect(buildHintText(ctx({ focusedIsMultiSelect: true }))).toContain(`${ROW_INTENT_META.next.label} to confirm`);
+		expect(HINT_MULTI_CONFIRM).toContain("{0}");
+	});
+
+	test("input mode on a multi-select question still says Enter selects", () => {
+		// The free-text row is handled by key-router's inputMode branch, which runs
+		// BEFORE the multiSelect branch — there Enter really does confirm.
+		const text = buildHintText(ctx({ mode: "input", focusedIsMultiSelect: true }));
+		expect(text).toContain("Enter to select");
+		expect(text).not.toContain(HINT_MULTI_TOGGLE);
 	});
 
 	test("`n` is offered only when the caller says the key is accepted", () => {

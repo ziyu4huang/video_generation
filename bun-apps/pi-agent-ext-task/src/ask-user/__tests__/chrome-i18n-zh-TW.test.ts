@@ -88,8 +88,9 @@ describe("ask-user TUI chrome — zh-TW localization (Stage 3b wiring)", () => {
 		expect(out).toContain("輸入內容。"); // "Type something." (Other-row placeholder render)
 
 		// dialog-builder.ts buildHintText render sites (multi-select branch)
-		expect(out).toContain("Enter 選取"); // "Enter to select"
-		expect(out).toContain("Space 切換"); // "Space to toggle" (multiSelect)
+		expect(out).toContain("Enter/Space 切換"); // "Enter/Space to toggle" (multiSelect)
+		expect(out).toContain("下一步 確認"); // "{0} to confirm" — {0} is the SAME "Next" entry as the row above
+		expect(out).not.toContain("Enter 選取"); // "Enter to select" — Enter toggles here, it does not commit
 		expect(out).toContain("Esc 取消"); // "Esc to cancel"
 		expect(out).toContain("↑/↓ 移動"); // "↑/↓ to navigate"
 		expect(out).toContain("Tab 切換問題"); // "Tab to switch questions" (isMulti)

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Pi extension: agent self-diagnostics. Static diagnostics (what is loaded, where the tokens go) plus failure pathology (how the agent is failing this session), and schema-cost — static tool-schema token accounting, also consumable standalone.",
+  "description": "Pi extension: agent self-diagnostics. Static diagnostics (what is loaded, where the tokens go) plus failure pathology (how the agent is failing this session), and schema-cost \u2014 static tool-schema token accounting, also consumable standalone.",
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
@@ -11,8 +11,12 @@
     "./schema-cost": "./src/schema-cost/index.ts"
   },
   "pi": {
-    "extensions": ["./extensions/power-tool.ts"],
-    "skills": ["./skills"]
+    "extensions": [
+      "./extensions/power-tool.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
   },
   "scripts": {
     "test": "bun test",
@@ -23,11 +27,11 @@
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.84.2",
     "@playwright/cli": "^0.1.17",
+    "@repo/pi-agent-core-interface": "workspace:*",
     "js-yaml": "latest",
     "typebox": "^1.3.7"
   },
   "devDependencies": {
-    "@repo/pi-agent-core-interface": "workspace:*",
     "@types/bun": "latest",
     "typescript": "^6.0.3"
   }

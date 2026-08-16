@@ -9,12 +9,14 @@ import { test, expect, describe } from "bun:test";
 import entry from "../extensions/devops.js";
 
 /** Tool shape the fake API records — mirrors the fields these tests assert
- * on (name/parameters + description + owner-declared gating). */
+ * on (name/parameters + description + owner-declared gating). The `gating`
+ * field is the 01c reference form ({ core?, gate? }) — inline keywords/requires
+ * were deleted. */
 type FakeTool = {
 	name: string;
 	description?: string;
 	parameters: { required?: string[]; properties?: Record<string, unknown> };
-	gating?: { keywords?: string[]; requires?: { nouns?: string[]; verbs?: string[] } };
+	gating?: { core?: boolean; gate?: string };
 };
 
 function fakePi() {
@@ -119,12 +121,18 @@ function fakePi() {
 			expect(tool?.description).toMatch(/behind/i);
 		});
 
-		test("verify_merge requires pr + only expectedScope optional", () => {
+		test("verify_merge requires pr; expectedScope + allowFetch are optional", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
 			const tool = pi.tools.find((t) => t.name === "verify_merge");
 			expect(tool?.parameters.required).toEqual(["pr"]);
-			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual(["expectedScope", "pr"]);
+			// allowFetch is new (issue #1439): without it a call made right after a
+			// merge cannot read the sha, and the verdict is UNVERIFIED.
+			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual([
+				"allowFetch",
+				"expectedScope",
+				"pr",
+			]);
 			expect(tool?.description).toMatch(/CLEAN\/CONTAMINATED|scope/);
 		});
 
@@ -134,10 +142,9 @@ function fakePi() {
 			const tool = pi.tools.find((t) => t.name === "pi_deploy");
 			expect(tool?.parameters.required ?? []).toEqual([]);
 			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual(["mode", "noFreeze", "outDir"]);
-			// gating keywords preserved verbatim from the dissolved deploy extension.
-			expect(tool?.gating?.keywords).toEqual(["build bundle", "bundle pi-agent", "pi-agent bundle", "run-test"]);
-			expect((tool as any)?.gating?.requires?.nouns).toContain("pi-agent");
-			expect((tool as any)?.gating?.requires?.verbs).toContain("deploy");
+			// reference form (ticket 01): shared "pi_deploy" family (pi_deploy + pi_verify).
+			expect(tool?.gating?.gate).toBe("pi_deploy");
+			expect("keywords" in (tool?.gating ?? {})).toBe(false); // no inline keywords on the tool (01c)
 		});
 
 		test("pi_verify has optional tier/bail (no required params) + mirrors pi_deploy gating", () => {
@@ -146,7 +153,8 @@ function fakePi() {
 			const tool = pi.tools.find((t) => t.name === "pi_verify");
 			expect(tool?.parameters.required ?? []).toEqual([]);
 			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual(["bail", "tier"]);
-			// mirrored gating — same keywords as pi_deploy.
-			expect(tool?.gating?.keywords).toEqual(["build bundle", "bundle pi-agent", "pi-agent bundle", "run-test"]);
+			// same "pi_deploy" family as pi_deploy — co-fire as one group (ticket 01).
+			expect(tool?.gating?.gate).toBe("pi_deploy");
+			expect("keywords" in (tool?.gating ?? {})).toBe(false); // no inline keywords on the tool (01c)
 		});
 	});

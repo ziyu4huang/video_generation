@@ -61,10 +61,99 @@ test("list respects limit", async () => {
   assert.equal(text.includes("id=c"), false, "only 2 of 3 (newest-first slice)");
 });
 
-test("list empty → clear message", async () => {
+function mkUsage(total: number): SubagentRunRecord["usage"] {
+  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total, cost: 0 };
+}
+
+test("list header: line 1 describes the archive; line 2 stats over filtered set with limit slicing", async () => {
+  const p = fakePersistence([
+    mkRecord({ id: "r1", status: "done", usage: mkUsage(100_000) }),
+    mkRecord({ id: "r2", status: "failed", usage: mkUsage(50_000) }),
+    mkRecord({ id: "r3", status: "done", usage: mkUsage(242_000) }),
+    mkRecord({ id: "r4", status: "timedout" }),
+    mkRecord({ id: "r5", status: "turns" }),
+  ]);
+  const tool = createSubagentRunsTool({ persistence: p });
+  const res = await tool.execute("id", { action: "list", limit: 3 }, NO_SIGNAL, undefined, undefined);
+  const text = (res.content[0] as { text: string }).text;
+  const lines = text.split("\n");
+  assert.equal(
+    lines[0],
+    "Subagent run history — read-only archive of past subagent/subagents dispatches (~/.pi/subagents/runs)",
+  );
+  // Counts come from the post-filter pre-slice set (5 rows): done 2 · failed 1
+  // · timedout 1 · turns 1 · budget 0. Token total is over the 3 shown rows
+  // (392k), span over shown startedAt values (all same day → same stamp).
+  assert.equal(
+    lines[1],
+    "Showing 3 most recent of 5 total · done 2 · failed 1 · timedout 1 · turns 1 · budget 0 · 392k tok total · span 07-23 10:00→07-23 10:00",
+  );
+  assert.match(lines[2], /^#1 {2}\[done\] {2}zai\/glm-5\.2/);
+  assert.equal(lines.filter((l) => l.startsWith("#")).length, 3, "exactly 3 rows rendered");
+});
+
+test("list header: token total M-case at/above 1e6", async () => {
+  const p = fakePersistence([
+    mkRecord({ id: "r1", startedAt: "2026-08-16T02:13:00Z", usage: mkUsage(800_000) }),
+    mkRecord({ id: "r2", startedAt: "2026-07-23T10:00:00Z", usage: mkUsage(900_000) }),
+  ]);
+  const tool = createSubagentRunsTool({ persistence: p });
+  const res = await tool.execute("id", { action: "list" }, NO_SIGNAL, undefined, undefined);
+  const lines = (res.content[0] as { text: string }).text.split("\n");
+  assert.match(lines[1], /1\.7M tok total/);
+  assert.match(lines[1], /span 07-23 10:00→08-16 02:13/); // oldest→newest among shown
+});
+
+test("list header: token total 0 when no usage", async () => {
+  const p = fakePersistence([mkRecord({ id: "r1" })]);
+  const tool = createSubagentRunsTool({ persistence: p });
+  const res = await tool.execute("id", { action: "list" }, NO_SIGNAL, undefined, undefined);
+  const lines = (res.content[0] as { text: string }).text.split("\n");
+  assert.match(lines[1], /0 tok total/);
+  assert.match(lines[1], /span 07-23 10:00$/); // single shown row → lone stamp
+});
+
+test("list header: status/cwd filters annotate the end of line 2; counts are post-filter", async () => {
+  const p = fakePersistence([
+    mkRecord({ id: "ok1", status: "done", cwd: "/repo" }),
+    mkRecord({ id: "ok2", status: "done", cwd: "/other" }),
+    mkRecord({ id: "bad", status: "failed", cwd: "/repo" }),
+  ]);
+  const tool = createSubagentRunsTool({ persistence: p });
+  const res = await tool.execute(
+    "id",
+    { action: "list", status: "done", cwd: "/repo" },
+    NO_SIGNAL,
+    undefined,
+    undefined,
+  );
+  const lines = (res.content[0] as { text: string }).text.split("\n");
+  assert.match(
+    lines[1],
+    /Showing 1 most recent of 1 total · done 1 · failed 0 · timedout 0 · turns 0 · budget 0 · 0 tok total · span 07-23 10:00 · filter: status=done · filter: cwd=\/repo$/,
+  );
+});
+
+test("list header: statuses beyond the five named ones append without crashing", async () => {
+  const p = fakePersistence([mkRecord({ id: "a", status: "aborted" }), mkRecord({ id: "b", status: "done" })]);
+  const tool = createSubagentRunsTool({ persistence: p });
+  const res = await tool.execute("id", { action: "list" }, NO_SIGNAL, undefined, undefined);
+  const lines = (res.content[0] as { text: string }).text.split("\n");
+  assert.match(lines[1], /done 1 · failed 0 · timedout 0 · turns 0 · budget 0 · aborted 1 ·/);
+});
+
+test("list empty → headers first, then graceful no-match line", async () => {
   const tool = createSubagentRunsTool({ persistence: fakePersistence([]) });
   const res = await tool.execute("id", { action: "list" }, NO_SIGNAL, undefined, undefined);
-  assert.match((res.content[0] as { text: string }).text, /No subagent runs recorded/);
+  const text = (res.content[0] as { text: string }).text;
+  const lines = text.split("\n");
+  assert.match(lines[0], /Subagent run history — read-only archive/);
+  assert.match(
+    lines[1],
+    /Showing 0 most recent of 0 total · done 0 · failed 0 · timedout 0 · turns 0 · budget 0 · 0 tok total · span —$/,
+  );
+  assert.equal(lines[2], "No runs match.");
+  assert.equal(lines.length, 3);
 });
 
 test("get found → output + metadata", async () => {

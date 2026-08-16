@@ -112,7 +112,12 @@ export function evaluateGateRecall(): GateRecallReport {
 	for (const gate of CORPUS_GATES) {
 		const s = sigOf(gate);
 		if (!groupRep.has(s)) groupRep.set(s, gate);
-		members.set(s, [...(members.get(s) ?? []), gate.names[0]]);
+		// Spread ALL names, not just names[0]: an id-grouped family gate (ticket
+		// 01 reference form) carries its whole co-fire set in `names`; spreading
+		// yields the same member list a set of single-name sibling gates produced
+		// pre-migration, keeping the report byte-identical across the contract
+		// change. (For legacy single-name gates names.length===1 — unchanged.)
+		members.set(s, [...(members.get(s) ?? []), ...gate.names]);
 	}
 	const rows: GateRecallRow[] = [];
 	const uncovered: string[] = [];
