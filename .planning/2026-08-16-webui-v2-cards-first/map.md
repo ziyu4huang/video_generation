@@ -2,7 +2,7 @@
 
 Goal: finish the de-chat philosophy. Webui = Transcript (clean read-only log) + Cards (interactive surface). Remove everything that duplicates TUI or clutters: btw sidebar, views list panel, TURN dividers, meta panel.
 
-- Status: active
+- Status: done
 - Decisions:
   - D1 cards-first two-pane: tabs = Transcript + Cards only.
   - D2 views surface ONLY as cards (archify url cards, shipped event-cards 05). The floating views list panel is DELETED. #content stays as the PRESENTATION surface: present (blocking HITL) views still auto-focus there with their Approve/controls bar (existing sendAppexecResponse / cancel envelopes, unchanged).
@@ -11,4 +11,5 @@ Goal: finish the de-chat philosophy. Webui = Transcript (clean read-only log) + 
 - Tickets:
   | # | ticket | status | result |
   | 01 | de-btw + de-clutter (sidebar, views list panel, TURN, meta) | closed | — |
-  | 02 | verify + polish: replay/UX checks post-removal, README v2 section | open | — |
+  | 02 | verify + polish: replay/UX checks post-removal, README v2 section | closed | all replay coverage intact; README "Cards-first v2" (e1fa83c9); 458/0, innerHTML 8 |
+- Done (2026-08-16): t01 de-btw/de-clutter landed via PRs #1532/#1533 (16 files, +30/-1689); t02 verified replay coverage intact and shipped the README cards-first v2 section (e1fa83c9). Effort complete — webui is Transcript + Cards + present-only #content, gates 458/0, innerHTML 8.

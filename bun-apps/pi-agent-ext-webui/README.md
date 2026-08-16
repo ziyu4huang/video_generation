@@ -8,9 +8,9 @@ presentations can be answered from there.
 
 Architecture v2 (see `docs/architecture-v2.md`): the webui is now an **optional** render
 + interaction surface for the TUI agent — the browser mirrors the live agent stream
-(transcript), serves the client-end interactive surface (transcript, views, btw ask) —
-no chat composer, and answers HITL presentations (with a
-Cancel button), all behind the same agentic mutex as the TUI. Security hardening
+(transcript), serves the client-end interactive surface (cards) — no chat composer,
+and answers HITL presentations (with a Cancel button), all behind the same agentic
+mutex as the TUI. Security hardening
 (loopback Host validation, sandboxed markdown/HTML rendering, symlink-safe `/output`,
 header token auth) is documented there too.
 
@@ -25,24 +25,35 @@ The webui is **on by default** (backward compatible). Disable or pin it three wa
 - **Embedding hosts**: `wireWebui(pi, { enabled: false })` (and `{ port }`) — see
   `src/webui-config.ts` / `src/webui-wiring.ts`.
 
-## What the browser can do (v2)
+## Cards-first v2
 
-- **Live transcript mirror**: `message_update` deltas, tool calls/results, mutex signals,
-  and turn/`settled` markers render into a scrollback; a connect-time `snapshot` frame
-  replays session history on open/refresh (bounded, 500 frames).
-- **Side-channel interaction**: the btw panel asks a web-native side-channel question
-  (IME-safe Enter); main chat lives in the TUI — the webui has no composer. Outbound
-  frames QUEUE while the WS reconnects so a HITL answer is never lost.
-- **Rendered views**: tabs of named md/HTML views (`webui:render`), auto-focus on a
-  presenting view, `![image](/output/0/…)` images. Producers can pass an `images`
-  array on `webui:render` / `webui:present` — output paths are auto-converted to
-  `![image](/output/0/<rel>)` markdown (the previously-unwired image-presentation
-  helpers are now wired into the render/present path).
-- **HITL**: `webui_present` presents declarative controls; the user answers (or **Cancel**s
-  via the `appexec cancel` op) from the browser; the agent's `execute()` resolves with
-  `{action, tweak?}` / `{cancelled:true}`.
-- **btw side panel**: tangent thread, model/thinking switches (all 7 thinking levels now
-  reach the wire).
+De-chat, finished: the browser is a read mirror plus an interactive card surface —
+no composer, no side panels, no views list. Chat lives in the TUI; the webui
+co-drives the same session.
+
+- **Transcript (read-only log)**: `message_update` deltas, tool calls/results, mutex
+  signals, and `settled` markers render into a scrollback; a connect-time `snapshot`
+  frame replays session history on open/refresh (bounded, 500 frames).
+- **Cards tab (interactive surface)**: the chronological, replay-eligible card stream
+  (per-kind detail in [Cards](#cards) below) — **ask cards** (the ask-user
+  questionnaire mirrored as a fill-in form), **archify url cards** (readonly,
+  deep-linked to the resolved `/files` url), **interactive form cards** (first answer
+  wins; a `card_done` tombstone retires the form into an answered marker), and the
+  **viewer sandbox** (`sandbox="allow-scripts"` iframe srcdoc — no same-origin) whose
+  only exit is a confirm-gate card.
+- **Presentation surface (`#content`)**: named md/HTML views render into the sandboxed
+  iframe (tabs; `![image](/output/0/…)` images work — producers may pass an `images`
+  array on `webui:render` / `webui:present`). A presenting view (`presentId`)
+  auto-focuses with its Approve/controls bar: `webui_present` / `webui:present` HITL
+  the user answers (or **Cancel**s) from the browser, and the agent's `execute()`
+  resolves `{action, tweak?}` / `{cancelled:true}`. Outbound frames QUEUE while the WS
+  reconnects so a HITL answer is never lost.
+- **Deep links + TUI bell**: non-silent cards ring `ui.notify` once with a `#card-<id>`
+  deep link; the shell routes the hash to the Cards tab and scrolls/flashes the card
+  (cold-load included).
+- **Decision log**: answered generic/interactive cards append `{ts, cardId, answers}`
+  to `~/.pi/webui/sessions/<stamp>/cards.jsonl` — the per-session audit trail (ask-card
+  answers ride the ask-user bridge instead; excluded by design).
 
 ### present adoption (2026-08-16)
 
@@ -97,27 +108,6 @@ shared `pi.events` bus with `{ path, view?, title? }`:
 - Cross-package example: `pi-agent-ext-archify` emits `webui:open` after every successful
   `archify_render` / `archify_delta` (see its README) — webui imports nothing from archify
   and vice versa; the string-literal channel is the whole contract.
-
-## View notifications (toast + views panel)
-
-A `webui:open` emission now surfaces in the connected browser shell too (effort
-2026-08-16-webui-view-notifications):
-
-- **Fresh-open toast** (`src/render-shell.ts` + `src/shell-views.ts`): a live
-  `view_opened` WS frame younger than 10s shows a clickable toast — first click
-  opens a top-level tab, later clicks focus it (per-URL handle map, no duplicate
-  tabs). 7s auto-fade with hover-persist, stack cap 3, same-view dedupe extends.
-- **Views panel**: mode `url` views (registered id-stably as `url:<view>` /
-  `url:<url>` in `src/render-service.ts`) list newest-first, <24h, capped 8,
-  empty ⇒ collapsed; re-open floats to top. Row affordances: open / copy URL /
-  dismiss (client-side). Collapse state persists in localStorage
-  (`webui-views-collapsed`). Panel data = `view_update` push + 1s `/api/views`
-  poll backstop while expanded.
-- **Tabs**: a `mode:"url"` tab opens its URL top-level — never the sandbox iframe.
-- **Replay**: `view_opened` rides the bounded transcript (stale frames feed the
-  panel only — the toast age-gate never re-toasts on reconnect).
-- Extension authors: emitting `webui:open` is enough — TUI notify, shell toast,
-  and the views panel all light up; no webui import, no extra payload fields.
 
 ## Cards
 
