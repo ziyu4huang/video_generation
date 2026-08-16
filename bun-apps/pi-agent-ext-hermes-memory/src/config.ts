@@ -106,7 +106,10 @@ const DEFAULT_CONFIG: MemoryConfig = {
   nudgeToolCalls: DEFAULT_NUDGE_TOOL_CALLS,
   projectsMemoryDir: DEFAULT_PROJECTS_MEMORY_DIR,
   sessionSearch: { variant: "legacy" },
-  dbBackend: "sqlite",
+  // Ticket 05: surrealdb is the DEFAULT backend (ticket 04 machinery); if
+  // its init fails at startup, createBackendBundleWithFallback transparently
+  // falls back to sqlite (local file, no server) so the agent always boots.
+  dbBackend: "surrealdb",
   failureModel: DEFAULT_FAILURE_MODEL,
   // Vector / semantic search (ticket 14 phase A). The card_vectors HNSW side-
   // table is independent of the CRUD backend (#06 lesson: registered here AND

@@ -680,9 +680,9 @@ describe("loadConfig", () => {
 });
 
 describe("config dbBackend", () => {
-  it("defaults to sqlite when unset", () => {
+  it("defaults to surrealdb when unset (ticket 05; sqlite stays a transparent fallback)", () => {
     const cfg = loadConfig(path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`));
-    assert.strictEqual(cfg.dbBackend, "sqlite");
+    assert.strictEqual(cfg.dbBackend, "surrealdb");
   });
   it("parses dbBackend: surrealdb and surreal connection overrides", () => {
     const p = path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`);
@@ -700,7 +700,7 @@ describe("config dbBackend", () => {
     const p = path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`);
     fs.writeFileSync(p, JSON.stringify({ dbBackend: "mongodb" }));
     const cfg = loadConfig(p);
-    assert.strictEqual(cfg.dbBackend, "sqlite");
+    assert.strictEqual(cfg.dbBackend, "surrealdb");
     fs.rmSync(p, { force: true });
   });
 });
@@ -850,7 +850,7 @@ describe("loadConfig repo-local project-memory overlay (ticket 01)", () => {
     try {
       const config = loadConfig(TEST_CONFIG_PATH, cwd);
       assert.strictEqual(config.autoCommitProjectMemory, true, "project-memory key applied");
-      assert.strictEqual(config.dbBackend, "sqlite", "dbBackend NOT overridden by repo-local overlay");
+      assert.strictEqual(config.dbBackend, "surrealdb", "dbBackend NOT overridden by repo-local overlay (stays surrealdb default)");
       assert.ok(!config.surreal || config.surreal.endpoint !== "http://evil:8000", "surreal NOT overridden by overlay");
       assert.strictEqual(config.llmModelOverride, undefined, "llm override NOT applied from overlay");
     } finally {
