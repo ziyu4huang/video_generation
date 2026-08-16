@@ -86,7 +86,12 @@ export function clampModelToScope(
   requestedSpec: string,
   scopedSpecs: readonly string[],
 ): { spec: string; clamped: boolean } {
-  if (scopedSpecs.length === 0) return { spec: requestedSpec, clamped: false };
+  // Destructure rather than test `.length === 0`: it states the same "empty
+  // scope" condition AND gives the compiler the narrowing it needs for the
+  // clamp return. `scopedSpecs[0]` is `string | undefined` under
+  // noUncheckedIndexedAccess, which the length check does not refute.
+  const [fallback] = scopedSpecs;
+  if (fallback === undefined) return { spec: requestedSpec, clamped: false };
   if (scopedSpecs.includes(requestedSpec)) return { spec: requestedSpec, clamped: false };
-  return { spec: scopedSpecs[0], clamped: true };
+  return { spec: fallback, clamped: true };
 }
