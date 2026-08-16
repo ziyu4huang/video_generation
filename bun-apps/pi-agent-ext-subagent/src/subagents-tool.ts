@@ -888,6 +888,41 @@ export function sumUsage(values: Iterable<AgentUsage>): { total: number; cost: n
   return { total, cost };
 }
 
+/** Default live-feed line budget for a COLLAPSED partial `subagents` render —
+ *  the first N lines of the batch progress feed stay visible while the
+ *  tool-call is collapsed (see renderLiveFeedDim, used by BOTH the details-less
+ *  streaming path and the isPartial branch of renderSubagentsResult). */
+const DEFAULT_LIVE_LINES = 5;
+
+/** How many live-feed lines a collapsed partial `subagents` render shows.
+ *  Env knob `SUBAGENT_LIVE_LINES` (positive int) overrides the default 5;
+ *  unset/non-integer/<1 values fall back to the default. Read fresh per call
+ *  (budget-defaults.ts style) so tests can set/restore it. */
+export function liveProgressLineBudget(): number {
+  const n = parseInt(process.env.SUBAGENT_LIVE_LINES ?? "", 10);
+  return !Number.isFinite(n) || n < 1 ? DEFAULT_LIVE_LINES : n;
+}
+
+/** Dim-render a live-feed text under the live-line budget. Collapsed partial
+ *  render → first `liveProgressLineBudget()` lines plus a dim "… +K more"
+ *  indicator appended as the last line ONLY when lines were actually cut;
+ *  everything else (expanded, or non-partial) → the full text. Shared by the
+ *  details-less streaming path (the live feed onHistory/onUpdate emits has
+ *  `details: undefined`, so it always takes the `!d` early return) and the
+ *  details-carrying isPartial branch — one budget, both paths. */
+export function renderLiveFeedDim(
+  text: string,
+  options: { expanded?: boolean; isPartial?: boolean },
+  theme: Theme,
+): string {
+  if (options.expanded || !options.isPartial) return theme.fg("dim", text);
+  const lines = text.split("\n");
+  const budget = liveProgressLineBudget();
+  const shown = lines.slice(0, budget).join("\n");
+  const extra = lines.length - budget;
+  return theme.fg("dim", extra > 0 ? `${shown}\n… +${extra} more` : shown);
+}
+
 /** Theme the batch result: collapsed = header + per-child one-liners; expanded = full themed output. */
 export function renderSubagentsResult(
   result: { content: Array<{ type: string; text?: string }>; details?: SubagentsToolDetails },
@@ -896,16 +931,15 @@ export function renderSubagentsResult(
 ): string {
   const d = result.details;
   if (!d) {
+    // Live streaming feed (details: undefined) — same budget as below.
     const text = result.content.find((c) => c.type === "text")?.text ?? "";
-    return theme.fg("dim", text);
+    return renderLiveFeedDim(text, options, theme);
   }
 
-  // Streaming: compact progress line.
+  // Streaming: compact progress block.
   if (options.isPartial) {
     const text = result.content.find((c) => c.type === "text")?.text ?? "";
-    // The batch onUpdate emits "subagents · k/N running · latest: ..." — keep it compact.
-    if (options.expanded) return theme.fg("dim", text);
-    return theme.fg("dim", text.split("\n")[0] ?? text);
+    return renderLiveFeedDim(text, options, theme);
   }
 
   // Build the batch header.
