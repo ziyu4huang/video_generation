@@ -233,7 +233,7 @@ git commit -m "feat(superpowers): fold reproduction-loop engineering into system
 - Consumes: `bun-apps/pi-agent-ext-wayfind/skills/code-review/SKILL.md` (127 lines) — deleted in Task 6.
 - Produces: both superpowers review skills carry the two-axis vocabulary; Task 6's redirect table points `code-review` here; Task 7's ask-matt main-flow step cites `requesting-code-review`/`receiving-code-review` instead of `code-review`.
 
-- [ ] **Step 1: Append the dual-axis section to `requesting-code-review`**
+- [x] **Step 1: Append the dual-axis section to `requesting-code-review`**
 
 Append:
 
@@ -260,7 +260,7 @@ hunch — leave it out. End with one line per axis: total count + the single wor
 issue *within that axis*. Never crown a cross-axis winner.
 ```
 
-- [ ] **Step 2: Add the receiving-side mirror to `receiving-code-review`**
+- [x] **Step 2: Add the receiving-side mirror to `receiving-code-review`**
 
 Append to `receiving-code-review/SKILL.md`:
 
@@ -275,12 +275,12 @@ not let a clean Standards block mask a Spec failure (or vice versa): address
 both lists before declaring the review handled.
 ```
 
-- [ ] **Step 3: Run the superpowers gate**
+- [x] **Step 3: Run the superpowers gate**
 
 Run: `( cd bun-apps/pi-agent-ext-superpowers && bun test )`
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add bun-apps/pi-agent-ext-superpowers/skills/requesting-code-review/SKILL.md bun-apps/pi-agent-ext-superpowers/skills/receiving-code-review/SKILL.md
