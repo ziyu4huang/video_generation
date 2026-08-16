@@ -2,16 +2,22 @@
   "name": "@repo/pi-agent-ext-tool-gate",
   "private": true,
   "version": "0.1.0",
-  "description": "Dynamic Tool Gate — keeps core tools always active while gating heavy domain-specific tools (image/video/movie generation, document understanding, introspection, workflow orchestration, research, arxiv, production cost, z.ai web, deploy) behind prompt keyword matching. Reactivates instantly on keyword and stays active for the session.",
+  "description": "Dynamic Tool Gate \u2014 keeps core tools always active while gating heavy domain-specific tools (image/video/movie generation, document understanding, introspection, workflow orchestration, research, arxiv, production cost, z.ai web, deploy) behind prompt keyword matching. Reactivates instantly on keyword and stays active for the session.",
   "license": "MIT",
-  "keywords": ["pi-package", "tool-gate", "token-optimization"],
+  "keywords": [
+    "pi-package",
+    "tool-gate",
+    "token-optimization"
+  ],
   "type": "module",
   "files": [
     "extensions",
     "README.md"
   ],
   "pi": {
-    "extensions": ["./extensions"]
+    "extensions": [
+      "./extensions"
+    ]
   },
   "scripts": {
     "test": "bun test",
@@ -31,7 +37,6 @@
     "@repo/pi-agent-ext-power-tool": "workspace:*"
   },
   "devDependencies": {
-    "@repo/pi-agent-ext-task": "workspace:*",
     "@repo/pi-agent-ext-devops": "workspace:*",
     "@repo/pi-agent-ext-file2md": "workspace:*",
     "@repo/pi-agent-ext-flux2": "workspace:*",
@@ -43,8 +48,10 @@
     "@repo/pi-agent-ext-obsidian": "workspace:*",
     "@repo/pi-agent-ext-research-tool": "workspace:*",
     "@repo/pi-agent-ext-subagent": "workspace:*",
+    "@repo/pi-agent-ext-task": "workspace:*",
     "@repo/pi-agent-ext-wayfind": "workspace:*",
     "@repo/pi-agent-ext-web-access": "workspace:*",
+    "@repo/pi-agent-ext-webui": "workspace:*",
     "@repo/pi-agent-ext-workflow": "workspace:*",
     "@repo/pi-agent-ext-zai-mcp": "workspace:*"
   }

@@ -186,6 +186,20 @@ export function createPresentTool(
   return {
     name: "webui_present",
     label: "Present",
+    // ALWAYS-ON core (wayfinder ticket 03, documented rationale): webui_present
+    // is a BLOCKING HITL interaction bridge — the same class as ask_user_question
+    // (owner-declared core:true). The agent must be able to present content +
+    // await a decision at ANY point, typically right after generating something
+    // ("here's your image — approve or tweak"). The user's prompt that started
+    // the task ("generate a cat image") carries NO presentation keyword, so a
+    // keyword gate would stay dormant exactly when the decision moment arrives,
+    // forcing the agent through enable_tool before every HITL handoff — a real
+    // miss-risk. Gating a blocking interaction tool is therefore rejected;
+    // the ~389 tok is the audited price of the bridge being always-callable
+    // (same rationale as ask_user_question). `no_client` skip keeps TUI-only
+    // sessions safe. NOT in the ticket-02 demotion set: it is an interaction
+    // primitive, not an on-demand capability.
+    gating: { core: true },
     description:
       "Present content (markdown or HTML, e.g. a generated image as markdown) to the user in the " +
       "browser TOGETHER with declarative response controls, and BLOCK until the user picks one. " +
