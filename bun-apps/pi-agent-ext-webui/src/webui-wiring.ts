@@ -736,6 +736,10 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     // v2: the server survives session shutdown, but the next session must not
     // inherit this session's transcript (architecture v2 §3.3).
     sessionStore.clear();
+    // event-cards (01): reset the per-session card counter with the store — a
+    // replayed snapshot of the NEXT session must never collide card ids with
+    // frames still live in a browser tab from the previous one.
+    cardSeq = 0;
   });
 
   // ticket 04 (refined): announce the resolved URL ONLY when the first content is
@@ -773,10 +777,60 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     reg(ev, (event) => broadcaster.broadcast(transport.mapEvent(event)));
   }
 
+  // --- event-cards (01): bus snoop — readonly card projection ---------------
+  // Every event that rides the shared host bus but is NOT already forwarded
+  // verbatim (OUTBOUND_EVENTS — the 12 replayed lifecycle events) and NOT
+  // high-frequency internal control noise (webui:render, the render channel)
+  // is projected as a `card` frame (kind readonly, attention silent — spec
+  // flood guard: replayed snapshots must not re-bell) through the SAME
+  // store-wrapped broadcaster, so snapshot replay comes FREE. The summary is
+  // a truncated JSON string — raw objects NEVER leak into the frame.
+  const SNOOP_SKIP = new Set<string>([...OUTBOUND_EVENTS, "webui:render"]);
+  let cardSeq = 0;
+  function safeSummary(payload: unknown): string {
+    let s: string;
+    try {
+      s = JSON.stringify(payload) ?? String(payload); // undefined -> String()
+    } catch {
+      s = String(payload); // circular refs etc. — NEVER rethrow into the bus
+    }
+    return s.length > 200 ? `${s.slice(0, 197)}...` : s;
+  }
+  function maybeCard(name: string, payload: unknown): void {
+    if (disposed || SNOOP_SKIP.has(name)) return;
+    broadcaster.broadcast({
+      type: "card",
+      id: `card-${++cardSeq}`,
+      kind: "readonly",
+      title: name,
+      source: "bus",
+      ts: Date.now(),
+      attention: "silent",
+      body: { text: safeSummary(payload) },
+    });
+  }
+  // Wrap AFTER the subscriptions above are registered (on() is untouched —
+  // only emit is wrapped). dispose() restores the original emit by
+  // assignment, so no wrapper outlives the wiring. Guarded like the other
+  // seams: a host without an events bus no-ops instead of throwing.
+  const eventsBus = pi.events;
+  const origEmit = eventsBus?.emit;
+  if (eventsBus && origEmit) {
+    eventsBus.emit = (name: string, payload: unknown): void => {
+      origEmit.call(eventsBus, name, payload);
+      maybeCard(name, payload);
+    };
+  }
+
   return {
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      // event-cards (01): restore the ORIGINAL bus emit — the snoop wrapper
+      // must not outlive the wiring (a later emit on the same host bus stops
+      // projecting cards).
+      if (eventsBus && origEmit) eventsBus.emit = origEmit;
+      cardSeq = 0;
       server.setHttpRoutes(null);
       server.setCommandHandler(null);
       server.setWsCloseHandler(null);
