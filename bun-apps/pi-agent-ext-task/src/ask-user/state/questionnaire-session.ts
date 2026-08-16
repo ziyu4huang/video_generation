@@ -46,7 +46,6 @@ function initialState(): QuestionnaireState {
 		notesByTab: new Map(),
 		focusedOptionHasPreview: false,
 		submitChoiceIndex: 0,
-		notesDraft: "",
 		collapsed: false,
 	};
 }
@@ -133,13 +132,7 @@ export class QuestionnaireSession {
 		const result = reduce(this.state, action, this.applyContext());
 		this.state = result.state;
 		for (const effect of result.effects) this.runEffect(effect);
-		this.state = this.mirrorNotesDraft(this.state);
 		this.viewAdapter.apply(this.state);
-	}
-
-	private mirrorNotesDraft(s: QuestionnaireState): QuestionnaireState {
-		const draft = this.notesInput.getValue();
-		return s.notesDraft === draft ? s : { ...s, notesDraft: draft };
 	}
 
 	private runEffect(effect: Effect): void {
@@ -179,6 +172,7 @@ export class QuestionnaireSession {
 		return {
 			keybindings: getKeybindings(),
 			inputBuffer: this.inlineInput.getValue(),
+			notesBuffer: this.notesInput.getValue(),
 			questions: this.questions,
 			isMulti: this.isMulti,
 			currentItem: this.currentItem(),

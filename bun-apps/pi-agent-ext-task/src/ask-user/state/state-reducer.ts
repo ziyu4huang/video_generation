@@ -141,7 +141,6 @@ function switchTabResult(state: QuestionnaireState, nextTab: number, ctx: ApplyC
 		notesVisible: false,
 		submitChoiceIndex: 0,
 		multiSelectChecked: syncMultiSelectFromAnswers(state.answers, ctx.questions, nextTab),
-		notesDraft: notesValue,
 	};
 	const finalState = withFocusedOptionHasPreview(transitioned, ctx.questions);
 	return {
@@ -240,8 +239,10 @@ const multiConfirmHandler: Handler<"multi_confirm"> = (state, action, ctx) => {
 
 const notesEnterHandler: Handler<"notes_enter"> = (state, _action, _ctx) => {
 	const value = state.answers.get(state.currentTab)?.notes ?? "";
+	// `set_notes_value` is the seed — the editor owns the text from here, and
+	// hands it back on `notes_exit`.
 	return {
-		state: { ...state, notesVisible: true, notesDraft: value },
+		state: { ...state, notesVisible: true },
 		effects: [
 			{ kind: "set_notes_value", value },
 			{ kind: "set_notes_focused", focused: true },
@@ -249,8 +250,8 @@ const notesEnterHandler: Handler<"notes_enter"> = (state, _action, _ctx) => {
 	};
 };
 
-const notesExitHandler: Handler<"notes_exit"> = (state, _action, _ctx) => {
-	const trimmed = state.notesDraft.trim();
+const notesExitHandler: Handler<"notes_exit"> = (state, action, _ctx) => {
+	const trimmed = action.value.trim();
 	const notes = new Map(state.notesByTab);
 	const answers = new Map(state.answers);
 	if (trimmed.length === 0) {

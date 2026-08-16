@@ -52,7 +52,6 @@ function makeState(over: Partial<QuestionnaireState> = {}): QuestionnaireState {
 		notesByTab: new Map<number, string>(),
 		focusedOptionHasPreview: false,
 		submitChoiceIndex: 0,
-		notesDraft: "",
 		collapsed: false,
 		...over,
 	};
@@ -306,20 +305,24 @@ describe("reduce — cancel/submit", () => {
 // ─── notes_enter / notes_exit / notes_forward ────────────────────────────────
 
 describe("reduce — notes_enter / notes_exit / notes_forward", () => {
-	test("notes_enter seeds state.notesDraft from existing answer.notes and emits set_notes_value", () => {
+	// A8: the editor's text is NOT reducer state. `notes_enter` seeds the Input
+	// through an effect; `notes_exit` receives the value back on the action. The
+	// reducer therefore has no field to be stale about.
+
+	test("notes_enter seeds the editor from answer.notes without storing a copy in state", () => {
 		const answers = new Map<number, QuestionAnswer>([
 			[0, { questionIndex: 0, question: "q", kind: "option", answer: "A", notes: "old note" }],
 		]);
 		const r = reduce(makeState({ answers }), { kind: "notes_enter" }, makeCtx());
 		expect(r.state.notesVisible).toBe(true);
-		expect(r.state.notesDraft).toBe("old note");
 		expect(r.effects).toEqual([
 			{ kind: "set_notes_value", value: "old note" },
 			{ kind: "set_notes_focused", focused: true },
 		]);
+		expect(Object.keys(r.state)).not.toContain("notesDraft");
 	});
 
-	test("notes_exit with empty notesDraft clears notesByTab + strips answer.notes", () => {
+	test("notes_exit with an empty value clears notesByTab + strips answer.notes", () => {
 		const answers = new Map<number, QuestionAnswer>([
 			[0, { questionIndex: 0, question: "q", kind: "option", answer: "A", notes: "old note" }],
 		]);
@@ -327,28 +330,27 @@ describe("reduce — notes_enter / notes_exit / notes_forward", () => {
 			answers,
 			notesByTab: new Map([[0, "old note"]]),
 			notesVisible: true,
-			notesDraft: "",
 		});
-		const r = reduce(state, { kind: "notes_exit" }, makeCtx());
+		const r = reduce(state, { kind: "notes_exit", value: "" }, makeCtx());
 		expect(r.state.notesVisible).toBe(false);
 		expect(r.state.notesByTab.has(0)).toBe(false);
 		expect(r.state.answers.get(0)?.notes).toBeUndefined();
 	});
 
-	test("notes_exit trims state.notesDraft before persisting", () => {
+	test("notes_exit trims the action's value before persisting", () => {
 		const answers = new Map<number, QuestionAnswer>([
 			[0, { questionIndex: 0, question: "q", kind: "option", answer: "A" }],
 		]);
 		const r = reduce(
-			makeState({ answers, notesVisible: true, notesDraft: "  fresh  " }),
-			{ kind: "notes_exit" },
+			makeState({ answers, notesVisible: true }),
+			{ kind: "notes_exit", value: "  fresh  " },
 			makeCtx(),
 		);
 		expect(r.state.notesByTab.get(0)).toBe("fresh");
 		expect(r.state.answers.get(0)?.notes).toBe("fresh");
 	});
 
-	test("notes_exit with whitespace-only notesDraft clears notesByTab + strips answer.notes", () => {
+	test("notes_exit with a whitespace-only value clears notesByTab + strips answer.notes", () => {
 		const answers = new Map<number, QuestionAnswer>([
 			[0, { questionIndex: 0, question: "q", kind: "option", answer: "A", notes: "old note" }],
 		]);
@@ -357,9 +359,8 @@ describe("reduce — notes_enter / notes_exit / notes_forward", () => {
 				answers,
 				notesByTab: new Map([[0, "old note"]]),
 				notesVisible: true,
-				notesDraft: "   ",
 			}),
-			{ kind: "notes_exit" },
+			{ kind: "notes_exit", value: "   " },
 			makeCtx(),
 		);
 		expect(r.state.notesByTab.has(0)).toBe(false);
@@ -367,7 +368,7 @@ describe("reduce — notes_enter / notes_exit / notes_forward", () => {
 	});
 
 	test("notes_forward emits a single forward_notes_keystroke effect with no state change", () => {
-		const s = makeState({ notesVisible: true, notesDraft: "hel" });
+		const s = makeState({ notesVisible: true });
 		const r = reduce(s, { kind: "notes_forward", data: "l" }, makeCtx());
 		expect(r.state).toBe(s);
 		expect(r.effects).toEqual([{ kind: "forward_notes_keystroke", data: "l" }]);
@@ -453,12 +454,14 @@ describe("reduce — toggle_collapsed", () => {
 		const answers = new Map<QuestionAnswer["questionIndex"], QuestionAnswer>([
 			[0, { questionIndex: 0, question: "Pick one", kind: "option", answer: "A" }],
 		]);
-		const s = makeState({ optionIndex: 1, notesVisible: true, notesDraft: "in-flight", answers });
+		// The in-flight note text itself lives in the notes `Input` (A8), which the
+		// reducer never touches; what must survive here is the state saying the
+		// editor is OPEN, so collapsing and expanding returns to it.
+		const s = makeState({ optionIndex: 1, notesVisible: true, answers });
 		const r = reduce(s, { kind: "toggle_collapsed" }, makeCtx());
 		expect(r.state.collapsed).toBe(true);
 		expect(r.state.optionIndex).toBe(1);
 		expect(r.state.notesVisible).toBe(true);
-		expect(r.state.notesDraft).toBe("in-flight");
 		expect(r.state.answers).toBe(answers);
 		expect(r.effects).toEqual([{ kind: "set_overlay_hidden", hidden: true }]);
 	});

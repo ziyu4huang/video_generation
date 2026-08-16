@@ -69,7 +69,6 @@ function makeState(over: Partial<QuestionnaireState> = {}): QuestionnaireState {
 		notesByTab: new Map<number, string>(),
 		focusedOptionHasPreview: false,
 		submitChoiceIndex: 0,
-		notesDraft: "",
 		collapsed: false,
 		...over,
 	};
@@ -83,6 +82,7 @@ function makeRuntime(over: Partial<QuestionnaireRuntime> = {}): QuestionnaireRun
 	return {
 		keybindings,
 		inputBuffer: "",
+		notesBuffer: "",
 		questions,
 		isMulti: questions.length > 1,
 		currentItem: items[0],
@@ -624,13 +624,29 @@ describe("routeKey — notes", () => {
 	test("notesMode: Esc -> notes_exit", () => {
 		expect(routeKey(sentinel(KEY.CANCEL), makeState({ notesVisible: true }), makeRuntime())).toEqual({
 			kind: "notes_exit",
+			value: "",
 		});
 	});
 
 	test("notesMode: Enter -> notes_exit (save + return to options)", () => {
 		expect(routeKey(sentinel(KEY.CONFIRM), makeState({ notesVisible: true }), makeRuntime())).toEqual({
 			kind: "notes_exit",
+			value: "",
 		});
+	});
+
+	// A8: the editor owns the text, so the router is what carries it to the
+	// reducer. Both exits must read the LIVE buffer — an exit that shipped a
+	// stale or empty value would silently discard the note being written.
+	test("notesMode: both exits carry the live editor buffer, not a state mirror", () => {
+		const runtime = makeRuntime({ notesBuffer: "half-written note" });
+		const state = makeState({ notesVisible: true });
+		for (const key of [KEY.CANCEL, KEY.CONFIRM]) {
+			expect(routeKey(sentinel(key), state, runtime)).toEqual({
+				kind: "notes_exit",
+				value: "half-written note",
+			});
+		}
 	});
 
 	test("notesMode: Tab byte emits notes_forward (any non-Esc/Enter key forwards to the Input)", () => {
