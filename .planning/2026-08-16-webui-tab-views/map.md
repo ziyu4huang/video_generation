@@ -12,5 +12,5 @@ Goal: replace the single Cards surface with semantic tabs. Transcript (agent str
   - D6 session store append accepts report frames; report frames are card-exempt like card/card_done (never evicted by cap).
 - Tickets:
   | # | ticket | status | result |
-  | 01 | report frame + 5-tab shell + routing + md renderer | open | — |
+  | 01 | report frame + 5-tab shell + routing + md renderer | closed | five tabs + routing + md renderer; webui 489/0 |
   | 02 | report producer helper + Data full-pane + deep-link routing + README | open | — |
