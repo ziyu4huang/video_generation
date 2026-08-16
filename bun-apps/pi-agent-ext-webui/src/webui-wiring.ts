@@ -621,7 +621,12 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
         /* filesystem failure must never error the loose channel */
       }
     }
-    broadcaster.broadcast({ type: "card_done", id: cardId, ts: Date.now() });
+    broadcaster.broadcast({
+      type: "card_done",
+      id: cardId,
+      ts: Date.now(),
+      answers: Object.entries(answers).map(([name, v]) => ({ label: name, answer: v })),
+    });
   }
 
   /**
@@ -658,7 +663,12 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
         /* filesystem failure must never error the loose channel */
       }
     }
-    broadcaster.broadcast({ type: "card_done", id: cardId, ts: Date.now() });
+    broadcaster.broadcast({
+      type: "card_done",
+      id: cardId,
+      ts: Date.now(),
+      answers: Object.entries(answers).map(([name, v]) => ({ label: name, answer: v })),
+    });
     // Delivery: title from the per-session id→title map (written where card
     // frames broadcast); an unregistered id delivers an empty title segment.
     try {
@@ -682,6 +692,25 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       (frame.extra as { kind?: string } | undefined)?.kind === "ask_user_answer"
     ) {
       const a = frame.extra as { promptId?: string; result?: unknown };
+      // cards-ux2 (04): the answer guard owns the ask-card tombstone so it can
+      // carry the ANSWERS for replay review (the answered event has promptId only).
+      {
+        const result = (a.result ?? {}) as { answers?: unknown };
+        const rows = Array.isArray(result.answers)
+          ? (result.answers as Array<{ question?: unknown; questionIndex?: unknown; answer?: unknown }>)
+              .filter((r) => r !== null && typeof r === "object")
+              .map((r) => ({
+                label: typeof r.question === "string" && r.question !== "" ? r.question : String(r.questionIndex ?? ""),
+                answer: typeof r.answer === "string" ? r.answer : null,
+              }))
+          : [];
+        broadcaster.broadcast({
+          type: "card_done",
+          id: `ask-${typeof a.promptId === "string" ? a.promptId : ""}`,
+          ts: Date.now(),
+          ...(rows.length > 0 ? { answers: rows } : {}),
+        });
+      }
       pi.events?.emit("rpiv:ask-user:answer", {
         promptId: typeof a.promptId === "string" ? a.promptId : "",
         result: a.result,
@@ -971,10 +1000,7 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     // answered event is a no-op; cleared on session_shutdown). The tombstone
     // rides the same replay path, so a refreshed shell replays card then
     // card_done IN ORDER and renders the answered form, never a ghost form.
-    const cardId = `ask-${promptId}`;
-    if (askCardIds.delete(cardId)) {
-      broadcaster.broadcast({ type: "card_done", id: cardId, ts: Date.now() });
-    }
+    askCardIds.delete(`ask-${promptId}`); // cards-ux2 (04): tombstone moved to the answer guard
   });
 
   // webui_present (the blocking HITL gate, spec Component 2): the `present` dep

@@ -97,7 +97,7 @@ describe("card_send wiring (cards-ux2 02 scope A)", () => {
     const h = makeHarness();
     h.broadcastCard("c1", "T");
     h.sendCard("c1", { a: "1" });
-    expect(h.cardDoneFrames()).toEqual([{ type: "card_done", id: "c1", ts: expect.any(Number) }]);
+    expect(h.cardDoneFrames()[0]).toMatchObject({ type: "card_done", id: "c1" }); // cards-ux2 04: now also carries answers rows
     expect(h.sent).toEqual([`[card c1] T: {"a":"1"}`]);
     const stamps = readdirSync(h.cardsDir);
     expect(stamps.length).toBe(1);
