@@ -34,7 +34,11 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { dirname, join, resolve as pResolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { missingExtensionPackages } from "./resolve.ts";
+// Straight from deps-probe.ts, which DEFINES it, not through resolve.ts's
+// facade: this runs as a pre-flight before pi boots, and going via the facade
+// would load the layout/argv builders and the lazy-alias resolver for a probe
+// that needs neither.
+import { missingExtensionPackages } from "./deps-probe.ts";
 
 const url = import.meta.url;
 // run-dir/ → pi-agent/ → bun-apps/  (mirrors resolve.ts's source-mode computation).

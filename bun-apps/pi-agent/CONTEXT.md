@@ -33,12 +33,16 @@ An opt-in extension resolved only when invoked via `-e <alias>` (e.g. `workflow`
 _Avoid_: optional extension, plugin (it is alias-gated, zero-cost-until-invoked)
 
 **Alias resolution**:
-`run-dir/resolve.ts` rewrites `-e <alias>` to an absolute factory path before `main()` sees argv. First-hit-wins: exact key → unique substring → single-`.ts` directory fallback; real paths and URL schemes pass through untouched.
+`run-dir/lazy-extensions.ts` rewrites `-e <alias>` to an absolute factory path before `main()` sees argv. First-hit-wins: exact key → unique substring → single-`.ts` directory fallback; real paths and URL schemes pass through untouched. Acts on the USER's argv — which is what makes it a separate module from the argv `resolve.ts` produces.
 _Avoid_: alias mapping, shortcut
 
 **npmExtensions**:
-The single array in `manifest.json` that is the source of truth for npm-sourced extensions, read by both `resolve.ts` (source) and `../pi-agent-ext-devops/scripts/lib/codegen.ts` (bundle).
+The single array in `manifest.json` that is the source of truth for npm-sourced extensions, read by both `run-dir/deps-probe.ts` (source) and `../pi-agent-ext-devops/scripts/lib/codegen.ts` (bundle).
 _Avoid_: deps list, package array
+
+**run-dir module split** (`run-dir/run-context.ts`):
+`resolve.ts` owns deploy-layout detection + argv construction and re-exports — one hop, naming the defining module — what moved out: `deps-probe.ts` (will the extensions be able to import what they need; auto-install; missing-deps guide) and `lazy-extensions.ts` (alias rewriting). `run-context.ts` holds the three facts all of them must agree on: `mode`, `resolveBunAppsDir()`, `warn()`. Import direction is strictly `resolve → {deps-probe, lazy-extensions} → run-context`.
+_Avoid_: helpers, utils (each module is a concern, not a grab bag)
 
 ### Build & deploy
 

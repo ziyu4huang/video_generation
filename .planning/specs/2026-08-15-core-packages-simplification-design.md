@@ -125,16 +125,34 @@ The seams are corroborated by the existing test layout: `budget-guard.test.ts` (
 and `agent-turns.test.ts` (325) are already split along exactly these lines. Only
 `index.ts`'s re-export sources change; external consumers are unaffected.
 
-#### 1c — `pi-agent/run-dir/resolve.ts`: 822 → ~380
+#### 1c — `pi-agent/run-dir/resolve.ts`: 822 → ~380 — **SHIPPED**
 
-| New module | Contents | ~lines |
-|---|---|---:|
-| `run-dir/deps-probe.ts` | dependency probing, auto-install, missing-deps guide output | 260 |
-| `run-dir/lazy-extensions.ts` | `looksLikeAlias`, `resolveLazyExtension`, `rewriteArgvLazyExtensions` | 135 |
-| `resolve.ts` (kept) | layout detection + argv building (three modes) + re-exports | ~380 |
+| New module | Contents | planned | actual |
+|---|---|---:|---:|
+| `run-dir/deps-probe.ts` | dependency probing, auto-install, missing-deps guide output | 260 | 317 |
+| `run-dir/lazy-extensions.ts` | `looksLikeAlias`, `resolveLazyExtension`, `rewriteArgvLazyExtensions` | 135 | 167 |
+| `run-dir/run-context.ts` | *(not in the plan)* `mode`, `resolveBunAppsDir`, `warn` | — | 64 |
+| `resolve.ts` (kept) | layout detection + argv building (three modes) + re-exports | ~380 | 367 |
+
+`run-context.ts` was not foreseen: `mode`, `resolveBunAppsDir()` and `warn()` were
+module-private in resolve.ts and read by all three concerns, so the split forced
+them to become shared. Recomputing `detectMode(import.meta.url)` per module would
+have worked (all sit in `run-dir/`) but re-creates the duplication `src/mode.ts`
+exists to prevent. Import direction is strictly one-way:
+`resolve → {deps-probe, lazy-extensions} → run-context → src/mode`.
+
+The public surface is unchanged: `mode`, `resolveBunAppsDir`, `maybeAutoInstall`,
+`emitMissingDepsGuide` and `resolveNpmExtensionPaths` were private before and stay
+unexported from the facade — extraction is not a reason to widen an API. The one
+consumer edit is `check-deps.ts`, pointed at `deps-probe.ts` directly: it is a
+pre-flight that runs before pi boots, and the facade would pull in the argv
+builders and the alias resolver for a probe that needs neither.
+
+Dropped in passing: a `missingNpm` accumulator that `resolveNpmExtensionPaths`
+maintained and nothing ever read (the guide recomputes via `probeMissingNpm()`).
 
 Suggested order if serialized: `agent.ts` (safest, tests pre-aligned) → `resolve.ts`
-→ `goal.ts` (needs the cycle care above).
+→ `goal.ts` (needs the cycle care above). 1b and 1c are shipped; `goal.ts` remains.
 
 ### Step 2 — power-tool
 
