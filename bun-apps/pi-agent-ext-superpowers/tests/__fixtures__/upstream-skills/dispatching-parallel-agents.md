@@ -1,6 +1,6 @@
 ---
 name: dispatching-parallel-agents
-description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
+description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies, OR when about to dispatch any subagent (run the pre-dispatch guardrails first), OR when a question needs primary-source research captured as a cited Markdown findings file.
 ---
 
 # Dispatching Parallel Agents
@@ -165,3 +165,63 @@ After agents return:
 2. **Check for conflicts** - Did agents edit same code?
 3. **Run full suite** - Verify all fixes work together
 4. **Spot check** - Agents can make systematic errors
+
+## Pre-dispatch guardrails (run before EVERY dispatch)
+
+Subagent dispatch is the largest source of token waste in this stack. Run-history
+analysis (2026-08-09, ~30 subagent runs): **budget exhaustion is the dominant
+failure** — 15 of ~30 runs; per-run usage 130k–3.4M tokens. A "write 2 memory
+entries" task cost **927k tokens** because the subagent lacked the `memory` tool
+and reverse-engineered a workaround instead of failing fast.
+
+1. **Budget — always set it.** Pass `tokenBudget` + `spendBudget`, calibrated:
+   read-only research/inventory → 30k–60k; single SDD implementer slice →
+   80k–150k; big synthesis/multi-file → 150k–300k. Raise above these only with a
+   stated reason — the uncapped default is the bug, not the baseline.
+2. **Scope — always set `commitScope`.** Exact paths the subagent may touch;
+   `[]` for read-only. State the same exact paths in the task prose. Never ask a
+   subagent to `git add` selectively on its own.
+3. **Tool-fit — never delegate an impossible task.** Confirm every tool the task
+   needs is in the subagent's allowlist; otherwise do it in the orchestrator,
+   add the tool, or reshape the task.
+4. **Bound the task.** If it would plausibly exceed the tier budget, split into
+   staged dispatches. One subagent = one bounded outcome.
+5. **Pick the right tool.** read-only parallel fan-out → `subagents` (plural);
+   one focused task with side effects → `subagent` (singular); a trivial single
+   write/call → do it in the orchestrator.
+6. **Tag the tier.** small (search/inventory) · medium (balanced) · big
+   (synthesis/judgment).
+
+### Anti-patterns
+
+- Dispatching with no `tokenBudget`.
+- `git add -A` / `git add .` inside a subagent.
+- Delegating a task that needs a tool the child lacks.
+- Re-verifying from a detached HEAD, or redundant confirmation loops.
+- One giant task where bounded dispatches would do.
+
+### Knob locations
+
+- `tokenBudget` / `spendBudget` params — `bun-apps/pi-agent-ext-subagent/src/subagent-tool.ts`
+- `commitScope` guard — `bun-apps/pi-agent-ext-subagent/src/git-scope.ts`
+- `DEFAULT_TIMEOUT_MS` (15 min) — `bun-apps/pi-agent-ext-subagent/src/subagent-tool.ts`
+
+## Research as a background subagent (markdown-findings artifact)
+
+When a question needs investigating against high-trust primary sources, dispatch
+a **background subagent** (apply the guardrails above) and keep working while it
+reads. Give it the question, the output path, and the citation rule:
+
+1. Investigate against **primary sources** — official docs, source code, specs,
+   first-party APIs, the code under your feet. A blog paraphrasing the docs is a
+   lead, not a citation; the docs are the citation.
+2. Write the findings to a **single Markdown file, citing each claim's source** —
+   a link, a `file:line`, a commit, an API response. An uncited claim is a hunch;
+   either find its source or mark it explicitly as the agent's inference.
+3. Save it where the repo already keeps such notes; if there is none, put it
+   under `.planning/<effort>/` (a `findings.md` or a `research/` note next to the
+   decision it informs) and say where.
+
+Research gathers *facts*; if the question is a *decision*, take what it found
+into the decision process and resolve it there — don't let the research subagent
+decide.
