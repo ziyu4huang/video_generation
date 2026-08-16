@@ -1,8 +1,8 @@
 ---
-type: task
+type: grilling
 blocking: 4
 ---
 
 ## Question
 
-Land the wayfind stage: delete ratified ported-skill dirs + unregister from manifest/skills lists (04); any ratified src trims; update README feature list + CONTEXT.md glossary if terms retire. Gates: `bun run check && bun run typecheck && bun test` green; feature count ≥80% per ticket-01 census (the 6 core skills + all /grill + /wayfind subcommands must survive); prose-weight not regressed (skill-weight tests). Devops chain as 06.
+Wayfind skill cuts landed at zero (ticket 04: 0/16 KEEP), so this ticket re-scopes to the src side. Probe then ratify wayfind src trims — effort-query.ts (354L), architecture-render.ts (329L), stale-seam surfaces, README staleness (says 6 skills; 22 ship) — against the trio budget (Δtrio ≤ −400 vs ticket-01 snapshot). Small ratified trims land here; anything big becomes its own landing ticket. Output: ratified trim list + Δwayfind number.
