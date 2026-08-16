@@ -213,7 +213,7 @@ describe("discoverExtensionEntries (manifest-derived)", () => {
 			expect(sources.has(s)).toBe(true);
 		}
 		// staticExtensions via the extensions/<X>.ts convention
-		for (const s of ["core-task", "hermes-memory", "superpowers", "wayfind", "web-access", "obsidian", "btw", "file2md", "workflow", "knowledge-card"]) {
+		for (const s of ["task", "hermes-memory", "superpowers", "wayfind", "web-access", "obsidian", "btw", "file2md", "workflow", "knowledge-card"]) {
 			expect(sources.has(s)).toBe(true);
 		}
 	});

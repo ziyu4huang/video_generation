@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { loadAgentRegistry } from "@repo/pi-agent-ext-core-runtime";
+import { loadAgentRegistry } from "@repo/pi-agent-core-runtime";
 import { validateManifest } from "../src/workflow-pack-manifest.js";
 
 /**

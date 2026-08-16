@@ -22,7 +22,7 @@
  *
  * Static source analysis only — NO runtime import of any package (mirrors the
  * seam/routing guards; reads source as text). Scope is a package REGISTRY so
- * adding another config-bearing package (`core-task/ask-user`, …) is a one-line
+ * adding another config-bearing package (`ext-task/ask-user`, …) is a one-line
  * entry, not a new test file.
  *
  * Run: bun run test:config-parity   (from bun-apps/)

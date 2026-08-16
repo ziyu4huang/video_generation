@@ -618,7 +618,7 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
 
   // ask-user tombstone (webui-tui-parity C1): every questionnaire exit emits
   // rpiv:ask-user:answered — broadcast it so live + replaying shells retire
-  // the dialog. String-literal contract; no core-task import.
+  // the dialog. String-literal contract; no task-package import.
   pi.events?.on("rpiv:ask-user:answered", (payload: unknown) => {
     const p = payload as { promptId?: string } | undefined;
     broadcaster.broadcast({ type: "ask_user_done", promptId: typeof p?.promptId === "string" ? p.promptId : "" });

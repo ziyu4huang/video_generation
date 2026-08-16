@@ -31,11 +31,11 @@ import {
 ```
 
 Everything above is **owned by this package**. A handful of
-`@repo/pi-agent-ext-core-runtime` symbols (`WorkflowAgent`,
+`@repo/pi-agent-core-runtime` symbols (`WorkflowAgent`,
 `getSubagentInFlightRegistry`, the model-tier config accessors, the rate-limiter
 accessors) are ALSO re-exported here, but only as a deliberate facade for the
 peers that cannot import core-runtime directly — see [the facade rule](#the-core-runtime-facade).
-If your package already depends on `@repo/pi-agent-ext-core-runtime`, import
+If your package already depends on `@repo/pi-agent-core-runtime`, import
 those from there instead.
 
 | Surface | What it is | Use when |
@@ -46,11 +46,11 @@ those from there instead.
 | `createSubagentTool` / `createSubagentsTool` / `createSubagentRunsTool` | The `subagent`, `subagents` + `subagent_runs` tool factories | You are an extension re-hosting these tools. The package's own extension already registers them; you normally do NOT call these. |
 | `getSubagentInFlightRegistry()` / `getSubagentRunPersistence()` | Process-wide singletons | You are a viewer/command that must observe the SAME live + persisted runs the `subagent` tool writes. Any import path resolves to one instance — see [module identity](#module-identity--the-singletons). |
 | `runWatchdog(input)` | Opt-in two-layer (LSP + model) review of an implementer's final diff | You are gating a write-heavy dispatch. Soft gate — never auto-fails a run. |
-| `createWorktree` / `removeWorktree`, `WorkflowError` / `WorkflowErrorCode` | Worktree isolation + the typed error envelope | Import these from `@repo/pi-agent-ext-core-runtime`; they are no longer re-exported here (nothing reached them through this barrel). |
+| `createWorktree` / `removeWorktree`, `WorkflowError` / `WorkflowErrorCode` | Worktree isolation + the typed error envelope | Import these from `@repo/pi-agent-core-runtime`; they are no longer re-exported here (nothing reached them through this barrel). |
 
 ## The core-runtime facade
 
-This barrel re-exports a small, fixed set of `@repo/pi-agent-ext-core-runtime`
+This barrel re-exports a small, fixed set of `@repo/pi-agent-core-runtime`
 symbols. That is not laziness — `pi-agent`, `pi-agent-ext-obsidian`,
 `pi-agent-ext-file2md` and `pi-agent-ext-knowledge-card` do **not** declare
 core-runtime in their `package.json`, and `bun-apps/tests/dep-guard.test.ts`

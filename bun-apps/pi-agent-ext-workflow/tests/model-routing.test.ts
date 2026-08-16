@@ -1,6 +1,11 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { type ModelRoutingConfig, parseModelRoutingFromMeta, resolveModelForPhase } from "../src/model-routing.js";
+import {
+  clampModelToScope,
+  type ModelRoutingConfig,
+  parseModelRoutingFromMeta,
+  resolveModelForPhase,
+} from "../src/model-routing.js";
 
 test("resolveModelForPhase returns default when no phases match", () => {
   assert.equal(resolveModelForPhase("Discovery", { defaultModel: "default-model", routes: [] }), "default-model");
@@ -98,4 +103,23 @@ test("parseModelRoutingFromMeta returns empty routes / no default when nothing d
 
 test("parseModelRoutingFromMeta returns empty routes when phases have no models", () => {
   assert.deepEqual(parseModelRoutingFromMeta([{ title: "Scan" }, { title: "Report" }]).routes, []);
+});
+
+test("clampModelToScope: empty scope leaves the request unchanged (full-catalog behavior)", () => {
+  assert.deepEqual(clampModelToScope("prov/any", []), { spec: "prov/any", clamped: false });
+});
+
+test("clampModelToScope: exact scoped match leaves the request unchanged", () => {
+  assert.deepEqual(clampModelToScope("prov/b", ["prov/a", "prov/b"]), { spec: "prov/b", clamped: false });
+});
+
+test("clampModelToScope: out-of-scope request clamps to the FIRST scoped model", () => {
+  assert.deepEqual(clampModelToScope("prov/other", ["prov/a", "prov/b"]), { spec: "prov/a", clamped: true });
+});
+
+test("clampModelToScope: matching is an exact string compare — case and format matter", () => {
+  // Case-sensitive: "PROV/a" is not "prov/a".
+  assert.deepEqual(clampModelToScope("PROV/a", ["prov/a"]), { spec: "prov/a", clamped: true });
+  // Format-sensitive: a bare id does not equal the canonical "provider/id" spec.
+  assert.deepEqual(clampModelToScope("a", ["prov/a"]), { spec: "prov/a", clamped: true });
 });

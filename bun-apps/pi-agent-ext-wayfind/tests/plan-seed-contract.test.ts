@@ -4,7 +4,7 @@
  *
  * Intentionally STANDALONE: does NOT import the plan coordinator, so wayfind
  * stays testable in isolation. It pins the exact tokens parsePlan keys on
- * (see pi-agent-ext-core-task/src/plan/parse.ts):
+ * (see pi-agent-ext-task/src/plan/parse.ts):
  *
  *   - Task heading regex: `/^###\s+Task\s+(\d+)/`  →  needs `### Task N`
  *   - step regex:         `/^-\s+\[(x| )\]/`        →  needs `- [ ]`
@@ -31,7 +31,7 @@ describe("PLAN_PHASES_KEY — the reverse-seam contract string", () => {
   it("is exported and equals the globalThis key syncChainState reads", () => {
     // This literal MUST match the one the plan coordinator publishes on globalThis
     // (the reader syncChainState closes tickets against). Pins wayfind's half of
-    // the reverse seam (ADR-wayfind-0003). Coordinator now built as pi-agent-ext-core-task.
+    // the reverse seam (ADR-wayfind-0003). Coordinator now built as pi-agent-ext-task.
     expect(PLAN_PHASES_KEY).toBe("__piPlanPhases");
     expect(typeof PLAN_PHASES_KEY).toBe("string");
     expect(PLAN_PHASES_KEY.length).toBeGreaterThan(0);

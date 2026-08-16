@@ -7,8 +7,8 @@ import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { SubagentInFlightRegistry, WorkflowAgent } from "@repo/pi-agent-ext-core-runtime";
-import { preview, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
+import type { SubagentInFlightRegistry, WorkflowAgent } from "@repo/pi-agent-core-runtime";
+import { preview, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-core-runtime";
 import { agentCounts, type WorkflowSnapshot } from "./display.js";
 import type { HostFnRegistry } from "./host-fn-registry.js";
 import { mirrorIntermediate } from "./pack-run-context.js";
@@ -140,6 +140,8 @@ export interface WorkflowManagerOptions {
   agent?: Pick<WorkflowAgent, "run">;
   /** The session's main model (provider/id), for auto-tiering explore agents. */
   mainModel?: string;
+  /** Session model scope (ticket 11); see WorkflowRunOptions.scopedModels. */
+  scopedModels?: readonly string[];
   /** The pi session id to tag runs with (see setSessionId). */
   sessionId?: string;
   /** Default per-agent timeout when a run does not pass agentTimeoutMs. null means no hard timeout. */
@@ -227,6 +229,8 @@ export class WorkflowManager extends EventEmitter {
   private agent?: Pick<WorkflowAgent, "run">;
   /** The session's main model (provider/id), for auto-tiering explore agents. */
   private mainModel?: string;
+  /** Session model scope (ticket 11); see WorkflowRunOptions.scopedModels. */
+  private scopedModels?: readonly string[];
   /** The current pi session id; runs are stamped with it and listRuns() filters by it. */
   private sessionId?: string;
   private defaultAgentTimeoutMs: number | null;
@@ -244,6 +248,7 @@ export class WorkflowManager extends EventEmitter {
     this.loadSavedWorkflow = options.loadSavedWorkflow;
     this.agent = options.agent;
     this.mainModel = options.mainModel;
+    this.scopedModels = options.scopedModels;
     this.sessionId = options.sessionId;
     this.defaultAgentTimeoutMs = options.defaultAgentTimeoutMs ?? null;
     this.defaultAgentRetries = options.defaultAgentRetries ?? 0;
@@ -317,6 +322,15 @@ export class WorkflowManager extends EventEmitter {
   /** Set the session's main model (provider/id). Used to auto-tier explore agents. */
   setMainModel(spec: string | undefined): void {
     this.mainModel = spec;
+  }
+
+  /**
+   * Set the session's model scope (ticket 11): specs resolved from CLI --models /
+   * enabledModels at session_start. Empty/undefined → full catalog (no clamping);
+   * non-empty → out-of-scope agent models are warn-and-clamped at dispatch.
+   */
+  setScopedModels(specs: readonly string[] | undefined): void {
+    this.scopedModels = specs;
   }
 
   /**
@@ -512,6 +526,7 @@ export class WorkflowManager extends EventEmitter {
         args,
         agent: this.agent,
         mainModel: this.mainModel,
+        scopedModels: this.scopedModels,
         extensionTools: this.extensionTools,
         hostFns: this.hostFns,
         signal: managed.controller.signal,

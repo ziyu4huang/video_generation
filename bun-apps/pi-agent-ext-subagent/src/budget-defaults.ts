@@ -26,8 +26,8 @@
  * spendBudget is intentionally NOT defaulted: on this MLX stack every model is
  * local (cost≡0 in every retained run), so a spend ceiling can never fire.
  */
-import type { ModelTierConfig } from "@repo/pi-agent-ext-core-runtime";
-import { loadModelTierConfig } from "@repo/pi-agent-ext-core-runtime";
+import type { ModelTierConfig } from "@repo/pi-agent-core-runtime";
+import { loadModelTierConfig } from "@repo/pi-agent-core-runtime";
 
 /**
  * p90-calibrated per-tier token ceilings (hard-abort). See module doc + the

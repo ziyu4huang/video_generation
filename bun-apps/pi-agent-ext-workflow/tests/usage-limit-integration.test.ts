@@ -31,7 +31,7 @@ import { join } from "node:path";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { createFauxCore, fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { WorkflowAgent, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
+import { WorkflowAgent, WorkflowErrorCode } from "@repo/pi-agent-core-runtime";
 import { WorkflowManager } from "../src/workflow-manager.js";
 import { withFakeHomeAsync } from "./helpers/fake-home.js";
 

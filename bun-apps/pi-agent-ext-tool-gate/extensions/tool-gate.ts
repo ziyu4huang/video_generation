@@ -1,4 +1,4 @@
-/// <reference types="@repo/pi-agent-ext-core-interface" />
+/// <reference types="@repo/pi-agent-core-interface" />
 /**
  * Dynamic Tool Gate Extension — reduces API tools schema overhead
  *
@@ -493,7 +493,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     // stays empty: core tools land in effectiveTracked but never in sticky → they get
     // filtered out, and measuredTokens is built lazily every turn instead of once.
     // Seed idempotently here. This touches ONLY tool-gate's own closure state — do NOT
-    // instead fire session_start in the child, which would wipe the parent's core-task
+    // instead fire session_start in the child, which would wipe the parent's ext-task
     // singletons (shared module cells). See .planning/2026-08-08-fix-subagent-spawn-seam-
     // tool-gate-core-task/ ticket 02 + map.md KEY CONSTRAINT.
     if (sticky.size === 0) {

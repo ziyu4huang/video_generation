@@ -1,5 +1,5 @@
 /** Shared knowledge-card data contract (split from ingest.ts — hermes-arch-13). */
-import type { ExtractedEntity, LinkWeighting, Relation } from "@repo/pi-agent-ext-core-interface";
+import type { ExtractedEntity, LinkWeighting, Relation } from "@repo/pi-agent-core-interface";
 import type { Extractor } from "./extractor.ts";
 // ---------------------------------------------------------------------------
 // Types

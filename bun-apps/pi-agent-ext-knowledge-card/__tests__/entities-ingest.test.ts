@@ -14,7 +14,7 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { extractEntities } from "@repo/pi-agent-ext-core-interface";
+import { extractEntities } from "@repo/pi-agent-core-interface";
 import { ingestRecords } from "../src/ingest.ts";
 import type { KnowledgeRecord } from "../src/types.ts";
 

@@ -15,7 +15,7 @@ const ir = JSON.parse(readFileSync(IR_PATH, "utf8")) as {
 };
 
 const STATIC = [
-  "core-task", "hermes-memory", "superpowers", "wayfind", "web-access",
+  "task", "hermes-memory", "superpowers", "wayfind", "web-access",
   "obsidian", "btw", "file2md", "subagent", "workflow", "knowledge-card", "power-tool",
 ];
 const DYNAMIC = [
@@ -29,7 +29,7 @@ const EXPECTED_EDGES = [
   ["movie-director", "flux2"], ["movie-director", "krea2"],
   ["movie-director", "ltx"], ["movie-director", "workflow"],
   ["research-tool", "obsidian"],
-  ["wayfind", "core-task"],
+  ["wayfind", "task"],
   ["workflow", "subagent"],
 ];
 

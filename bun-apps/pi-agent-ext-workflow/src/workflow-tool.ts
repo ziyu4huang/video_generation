@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
+import type { SubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
 import {
   fmtCost,
   listAgentTypes,
@@ -10,7 +10,7 @@ import {
   loadAgentRegistry,
   WorkflowError,
   WorkflowErrorCode,
-} from "@repo/pi-agent-ext-core-runtime";
+} from "@repo/pi-agent-core-runtime";
 import { Type } from "typebox";
 import {
   createToolUpdateWorkflowDisplay,

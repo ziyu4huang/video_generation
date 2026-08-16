@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import type { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
+import type { SubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
 import {
   buildSubagentArgs,
   type ChildProcessLike,

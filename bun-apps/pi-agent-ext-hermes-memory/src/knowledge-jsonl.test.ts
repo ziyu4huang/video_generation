@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
 import { parseKnowledgeJsonl } from "./knowledge-jsonl.js";
-import type { KnowledgeRecord } from "@repo/pi-agent-ext-core-interface";
+import type { KnowledgeRecord } from "@repo/pi-agent-core-interface";
 
 describe("parseKnowledgeJsonl (hermes-side adapter, Option A)", () => {
   it("parses a valid record, skips blank/comment, records a missing-id error", () => {

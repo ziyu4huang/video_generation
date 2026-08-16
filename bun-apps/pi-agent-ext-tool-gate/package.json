@@ -30,8 +30,8 @@
     "@repo/pi-agent-ext-power-tool": "workspace:*"
   },
   "devDependencies": {
-    "@repo/pi-agent-ext-core-interface": "workspace:*",
-    "@repo/pi-agent-ext-core-task": "workspace:*",
+    "@repo/pi-agent-core-interface": "workspace:*",
+    "@repo/pi-agent-ext-task": "workspace:*",
     "@repo/pi-agent-ext-devops": "workspace:*",
     "@repo/pi-agent-ext-file2md": "workspace:*",
     "@repo/pi-agent-ext-flux2": "workspace:*",

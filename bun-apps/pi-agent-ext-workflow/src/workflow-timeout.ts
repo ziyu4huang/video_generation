@@ -1,4 +1,4 @@
-import { WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
+import { WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-core-runtime";
 
 export function createLimiter(limit: number) {
   let active = 0;

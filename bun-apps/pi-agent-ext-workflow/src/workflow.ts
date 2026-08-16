@@ -1,5 +1,5 @@
 import vm from "node:vm";
-import type { AgentHistoryEntry, SddReport } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry, SddReport } from "@repo/pi-agent-core-runtime";
 import {
   type AgentRegistry,
   getGlobalRateLimiter,
@@ -8,7 +8,7 @@ import {
   WorkflowAgent,
   type WorkflowAgentOptions,
   type WorkflowErrorCode,
-} from "@repo/pi-agent-ext-core-runtime";
+} from "@repo/pi-agent-core-runtime";
 import type { TSchema } from "typebox";
 import { DEFAULT_AGENT_TIMEOUT_MS, MAX_AGENTS_PER_RUN, MAX_CONCURRENCY } from "./config.js";
 import type { HostFnRegistry } from "./host-fn-registry.js";
@@ -61,6 +61,12 @@ export interface WorkflowRunOptions extends WorkflowAgentOptions {
   agent?: Pick<WorkflowAgent, "run">;
   /** The session's main model (provider/id), shown in /workflows for default agents. */
   mainModel?: string;
+  /**
+   * Session model scope (ticket 11): specs (`provider/id`) resolved from CLI
+   * --models / enabledModels. Empty/undefined → full catalog (no clamping);
+   * non-empty → out-of-scope agent models are warn-and-clamped at dispatch.
+   */
+  scopedModels?: readonly string[];
   /**
    * Named subagent definitions for `agent({ agentType })`. Snapshotted once per
    * run for determinism. Defaults to scanning `.pi/agents` (project) + `~/.pi/agents`.

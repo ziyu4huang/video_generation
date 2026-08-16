@@ -2,8 +2,8 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
-import { SubagentInFlightRegistry } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry } from "@repo/pi-agent-core-runtime";
+import { SubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
 import { ComposerComponent } from "../src/composer-component.js";
 import type { GitScopeOps } from "../src/git-scope.js";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
@@ -43,7 +43,7 @@ function fakeSpawn(impl: (opts: SpawnSubagentOptions) => SpawnSubagentResult | P
 const NO_SIGNAL = undefined as never;
 const NO_CTX = { cwd: "/repo" } as never;
 
-import type { AgentDefinition, AgentRegistry } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentDefinition, AgentRegistry } from "@repo/pi-agent-core-runtime";
 import { budgetAbort, failed, ok, timedout } from "./_spawn-result.js";
 
 function mkRegistry(defs: AgentDefinition[]): AgentRegistry {

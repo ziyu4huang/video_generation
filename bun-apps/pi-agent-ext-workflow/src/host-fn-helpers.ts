@@ -7,7 +7,7 @@
  * Pure + dependency-light so every behavior is unit-testable in isolation.
  */
 
-import { isWorkflowError, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
+import { isWorkflowError, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-core-runtime";
 import { Check } from "typebox/value";
 import type { HostFnCtx, HostFnEntry } from "./host-fn-registry.js";
 

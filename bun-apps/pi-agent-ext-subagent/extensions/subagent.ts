@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext, ModelSelectEvent, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { registerModelsPresetCommand } from "../extensions/models-preset.js";
 import {
   convertToBackground,
@@ -139,7 +139,7 @@ export default function extension(pi: ExtensionAPI) {
     // The always-on subagent-context box (aboveEditor widget + Ctrl-O
     // \x0f onTerminalInput byte-sniff) was retired in Task 04 of the CC-style
     // subagent TUI plan; its unique collapsed-view behavior (latestMessageLine
-    // beneath each row) now lives in core-task's `subagents` status section.
+    // beneath each row) now lives in ext-task's `subagents` status section.
     // Drill-down for the live trace stays `/subagents`.
     const extTools = (pi as unknown as { getAllToolDefinitions?: () => ToolDefinition[] }).getAllToolDefinitions?.();
     if (extTools?.length) {
@@ -151,7 +151,7 @@ export default function extension(pi: ExtensionAPI) {
   // Track runtime model switches (e.g. /model, model cycling): future dispatches
   // use the newly selected main model. Mirrors the session_start capture above;
   // in-flight runs are not mutated.
-  pi.on("model_select", (event: ModelSelectEvent) => {
+  pi.on("model_select", (event) => {
     mainModelHolder.current = event.model ? `${event.model.provider}/${event.model.id}` : undefined;
   });
 }

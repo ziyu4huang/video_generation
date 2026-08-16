@@ -16,9 +16,9 @@
  * extension (this package's one registered extension is extensions/tool-gate.ts).
  */
 import powerTool from "@repo/pi-agent-ext-power-tool";
-import { registerAskUserQuestionTool } from "@repo/pi-agent-ext-core-task/src/ask-user/ask-user-question.ts";
-import { registerTodoTool } from "@repo/pi-agent-ext-core-task/src/todo/todo.ts";
-import goalDefault from "@repo/pi-agent-ext-core-task/src/goal/goal.ts";
+import { registerAskUserQuestionTool } from "@repo/pi-agent-ext-task/src/ask-user/ask-user-question.ts";
+import { registerTodoTool } from "@repo/pi-agent-ext-task/src/todo/todo.ts";
+import goalDefault from "@repo/pi-agent-ext-task/src/goal/goal.ts";
 import file2mdExtension from "@repo/pi-agent-ext-file2md/extensions/file2md.ts";
 import flux2Extension from "@repo/pi-agent-ext-flux2/extensions/flux2.ts";
 import krea2Extension from "@repo/pi-agent-ext-krea2/extensions/krea2.ts";
@@ -38,7 +38,7 @@ import { registerServerTools } from "@repo/pi-agent-ext-zai-mcp/extensions/zai-m
 // default factory is async + heavy (backend setup before registerTool), so its
 // entry below invokes the 5 individual registrars with stub args (store/repo are
 // deref'd only inside `execute`, which capture never calls) — mirroring how
-// core-task's entry invokes registerAskUserQuestionTool/registerTodoTool directly.
+// ext-task's entry invokes registerAskUserQuestionTool/registerTodoTool directly.
 import knowledgeCardExtension from "@repo/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 import webAccessExtension from "@repo/pi-agent-ext-web-access";
 import obsidianExtension from "@repo/pi-agent-ext-obsidian";
@@ -98,7 +98,7 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		},
 	},
 	{
-		name: "core-task",
+		name: "task",
 		register: (pi) => {
 			registerAskUserQuestionTool(pi);
 			registerTodoTool(pi);
@@ -231,7 +231,7 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		// ticket 02 — hermes-memory. The default factory is async + heavy (backend
 		// bundle creation before any registerTool), so invoke the 5 individual
 		// registrars with stub args (store/repo deref'd only inside execute, which
-		// capture never calls) — mirroring core-task's direct-registrar entry. The
+		// capture never calls) — mirroring ext-task's direct-registrar entry. The
 		// 5 owner-declared-core tools carry gating:{core:true}. skill_manage_help
 		// (registered alongside skill_manage by registerSkillTool) is an ungated
 		// always-on companion (NOT a CORE_TOOLS member) → ungatedByDesign.
@@ -258,7 +258,7 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
  * nested no-op Proxy so `pi.events.emit(...)` (if probed) resolves harmlessly.
  */
 // `pi` is typed `any` (matching the repo's existing stub-pi test convention —
-// see core-task src/__tests__/core-gating.test.ts and tool-gate.test.ts setupPi):
+// see ext-task src/__tests__/core-gating.test.ts and tool-gate.test.ts setupPi):
 // a real ExtensionAPI has dozens of methods; we only need registerTool capture
 // + no-op everything else. `bun test` is this package's gate (no typecheck
 // script), and `any` avoids TS2345 friction at each registrar call site.

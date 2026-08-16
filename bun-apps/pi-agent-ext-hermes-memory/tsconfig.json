@@ -19,7 +19,7 @@
     "sourceMap": true,
     "types": [
       "bun",
-      "@repo/pi-agent-ext-core-interface"
+      "@repo/pi-agent-core-interface"
     ],
     "allowImportingTsExtensions": true
   },

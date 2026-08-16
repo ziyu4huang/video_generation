@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert/strict";
-import { publishSeam, type KnowledgePipeline } from "@repo/pi-agent-ext-core-interface";
+import { publishSeam, type KnowledgePipeline } from "@repo/pi-agent-core-interface";
 import { getKnowledgePipeline } from "../src/knowledge-pipeline-seam.js";
 
 const KEY = "__piKnowledgePipeline";

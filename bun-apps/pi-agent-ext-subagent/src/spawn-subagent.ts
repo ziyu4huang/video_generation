@@ -19,7 +19,7 @@
  */
 
 import type { CreateAgentSessionOptions, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { AgentHistoryEntry } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry } from "@repo/pi-agent-core-runtime";
 import {
   type AgentUsage,
   type BudgetExhaustion,
@@ -31,7 +31,7 @@ import {
   type TurnExhaustion,
   WorkflowAgent,
   WorkflowErrorCode,
-} from "@repo/pi-agent-ext-core-runtime";
+} from "@repo/pi-agent-core-runtime";
 import type { TSchema } from "typebox";
 
 export interface SpawnSubagentOptions {
@@ -63,7 +63,7 @@ export interface SpawnSubagentOptions {
    * disk read). Shortcut for `session: { modelRuntime }`; the top-level opt
    * wins on conflict (it is the more-specific, explicit choice). The runtime
    * was itself config-resolved by the parent, so this is NOT a hardcode.
-   * Used by core-task's auditor to share the parent's auth (ticket 07/08).
+   * Used by ext-task's auditor to share the parent's auth (ticket 07/08).
    */
   modelRuntime?: CreateAgentSessionOptions["modelRuntime"];
   /** Image attachments for a vision-capable subagent (see AgentRunOptions.images). */

@@ -187,7 +187,7 @@ describe("tool registration", () => {
   test("registers all 5 inspect_* tools", () => {
     const { captured } = loadExtension([]);
     // ask_user_question -> pi-agent-ext-ask-user (A2, merged into
-    // pi-agent-ext-core-task 2026-07-18); goal+todo -> pi-agent-ext-core-task
+    // pi-agent-ext-task 2026-07-18); goal+todo -> pi-agent-ext-task
     // (A3); knowledge_query + graph_health -> knowledge-graph hub.
     // power-tool is now self-contained diagnostics: inspect_* only, plus
     // inspect_pathology (F v1) for failure-pattern detection, plus
@@ -899,7 +899,7 @@ describe("inspect_tui", () => {
       const { captured } = loadExtension([]);
       const res = await captured.inspect_tui.execute(undefined, {}, undefined, undefined, BASE_CTX);
       expect(res.content[0].text).toContain("NOT FOUND");
-      expect(res.content[0].text).toContain("pi-agent-ext-core-task");
+      expect(res.content[0].text).toContain("pi-agent-ext-task");
     } finally {
       if (orig !== undefined) g.__piCoreTaskStatusWidget = orig;
     }

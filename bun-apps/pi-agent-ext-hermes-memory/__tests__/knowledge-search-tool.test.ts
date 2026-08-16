@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { publishSeam, type KnowledgePipeline, type RetrieveResult } from "@repo/pi-agent-ext-core-interface";
+import { publishSeam, type KnowledgePipeline, type RetrieveResult } from "@repo/pi-agent-core-interface";
 import { registerKnowledgeSearchTool, buildLexicalRecall, buildEntityRecall } from "../src/tools/knowledge-search-tool.js";
 import { SqliteBackend } from "../src/store/sqlite/sqlite-backend.js";
 import { searchSemantic } from "../src/store/semantic-search.js";

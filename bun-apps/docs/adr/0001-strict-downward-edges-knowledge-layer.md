@@ -94,7 +94,7 @@ signal dies whenever zk is not loaded.
 
 - **D — Shared primitive, owned below both (CHOSEN).** The module was
   self-contained (291 lines, zero imports), so it moved to
-  `pi-agent-ext-core-interface/src/entities.ts` — a package both tiers already
+  `pi-agent-core-interface/src/entities.ts` — a package both tiers already
   depend on. Both edges now point down and the shared-normalization guarantee is
   structural. `LinkWeighting`, previously declared in both `entities.ts` and
   `interfaces/knowledge-pipeline.ts`, collapsed to one definition.

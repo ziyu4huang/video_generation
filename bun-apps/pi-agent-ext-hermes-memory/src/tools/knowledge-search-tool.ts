@@ -14,7 +14,7 @@
 
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { RetrieveResult } from "@repo/pi-agent-ext-core-interface";
+import type { RetrieveResult } from "@repo/pi-agent-core-interface";
 import { getKnowledgePipeline } from "../knowledge-pipeline-seam.js";
 import { KNOWLEDGE_FOLDER_DEFAULT } from "../knowledge-vault-path.js";
 import type { VectorStore } from "../store/surreal/vector-store.js";
@@ -25,7 +25,7 @@ import { normalizeFts5Query, buildFallbackFts5Query, isFts5QueryError } from "..
 // From core-interface (BELOW both tiers), not from knowledge-card. hermes is
 // TIER-0 and may not import the hub — ADR-0001. Same module either way, so the
 // query side and the card side still normalize identically.
-import { extractEntities, normEntity } from "@repo/pi-agent-ext-core-interface";
+import { extractEntities, normEntity } from "@repo/pi-agent-core-interface";
 import { searchSemantic, type SemanticRelation } from "../store/semantic-search.js";
 
 /** Narrow the pi surface to exactly what this tool uses (registerTool). The

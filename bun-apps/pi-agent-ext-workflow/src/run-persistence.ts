@@ -4,7 +4,7 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentHistoryEntry, WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
+import type { AgentHistoryEntry, WorkflowErrorCode } from "@repo/pi-agent-core-runtime";
 import { agentCounts, type WorkflowSnapshot } from "./display.js";
 import type { ManifestIo } from "./workflow-pack-manifest.js";
 import { workflowProjectPaths } from "./workflow-paths.js";

@@ -91,7 +91,7 @@
       "approxTokens": 448,
       "descLen": 392,
       "paramsLen": 1401,
-      "source": "core-task",
+      "source": "task",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -253,7 +253,7 @@
       "approxTokens": 99,
       "descLen": 151,
       "paramsLen": 243,
-      "source": "core-task",
+      "source": "task",
       "hasExecute": true,
       "schemaValid": true
     },

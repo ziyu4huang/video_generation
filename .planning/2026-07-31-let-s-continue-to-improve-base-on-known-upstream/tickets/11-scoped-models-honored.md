@@ -1,7 +1,7 @@
 ---
 type: grilling
 blocked by: []
-status: open
+status: closed
 ---
 
 # 11 — Decide: honor `ctx.scopedModels` in model-tier picker
@@ -24,3 +24,10 @@ children obey the conversation scope.
 **do / defer / skip?** If **do**: lock behavior when scopedModels is empty
 (recommend: fall back to full catalog, current behavior) and whether an
 out-of-scope request is hard-error or warn-and-clamp (recommend warn-and-clamp).
+
+## Done (2026-08-16)
+
+- decision: do, with locked behaviors: empty scopedModels → full catalog/no clamp (current behavior); out-of-scope request → warn-and-clamp to first scoped spec (log() warning), never hard-error.
+- Premise re-verified on pi 0.84.2: ctx.scopedModels IS typed (dist/core/sdk.d.ts:22, Array<{model, thinkingLevel?}>); ticket's cited sites were stale — real sites: src/workflows-models-command.ts (picker, was listAvailableModelSpecs full catalog) + src/workflow-runtime.ts (dispatch).
+- Impl: clampModelToScope pure helper (model-routing.ts, unit-tested ×4); picker scopes to ctx.scopedModels with stale tier value kept visible; session_start capture (extensions/workflow.ts) → WorkflowRunOptions.scopedModels → WorkflowManager propagation → runtime clamp at dispatch (future dispatches only).
+- Gates: biome clean; 1083 tests / 0 fail (was 1079).

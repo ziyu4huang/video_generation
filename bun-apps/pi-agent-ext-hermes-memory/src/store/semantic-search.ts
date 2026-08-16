@@ -28,7 +28,7 @@
  */
 
 import type { MemoryRepository } from "./repository.js";
-import type { KnowledgePipeline, RetrieveResult } from "@repo/pi-agent-ext-core-interface";
+import type { KnowledgePipeline, RetrieveResult } from "@repo/pi-agent-core-interface";
 import type { VectorStore, VectorKnnHit } from "./surreal/vector-store.js";
 import { embedQuery, type Embedder } from "./surreal/embedder.js";
 import { normalizeRelation } from "./relation-schema.js";

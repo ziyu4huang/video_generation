@@ -4075,7 +4075,7 @@
       <p class="subtitle">21 extensions — registration topology (static vs dynamic) and verified runtime-import dependencies</p>
     </div>
 
-    <script id="archify-guided-views-data" type="application/json">[{"id":"registration-topology","label":"Registration topology","focus":["core-task","hermes-memory","superpowers","wayfind","web-access","obsidian","btw","file2md","subagent","workflow","knowledge-card","power-tool","tool-gate","flux2","krea2","ltx","research-tool","zai-mcp","movie-director","deploy","archify"],"note":"Static extensions enter the --exe binary; dynamic ones are jiti -e, source/bundle only."},{"id":"memory-knowledge","label":"Memory \u0026 knowledge","focus":["hermes-memory","knowledge-card","research-tool","obsidian"],"note":"Persistent memory, zettelkasten RAG, and the vault they share."},{"id":"media-gen","label":"Media generation","focus":["flux2","krea2","ltx","movie-director","tool-gate"],"note":"Native director wrappers + orchestrator, gated by tool-gate."},{"id":"agent-infra","label":"Agent infra","focus":["core-task","subagent","workflow","power-tool","btw","superpowers","wayfind"],"note":"Task cockpit, subagent dispatch, fan-out, diagnostics, skills."}]</script>
+    <script id="archify-guided-views-data" type="application/json">[{"id":"registration-topology","label":"Registration topology","focus":["task","hermes-memory","superpowers","wayfind","web-access","obsidian","btw","file2md","subagent","workflow","knowledge-card","power-tool","tool-gate","flux2","krea2","ltx","research-tool","zai-mcp","movie-director","deploy","archify"],"note":"Static extensions enter the --exe binary; dynamic ones are jiti -e, source/bundle only."},{"id":"memory-knowledge","label":"Memory \u0026 knowledge","focus":["hermes-memory","knowledge-card","research-tool","obsidian"],"note":"Persistent memory, zettelkasten RAG, and the vault they share."},{"id":"media-gen","label":"Media generation","focus":["flux2","krea2","ltx","movie-director","tool-gate"],"note":"Native director wrappers + orchestrator, gated by tool-gate."},{"id":"agent-infra","label":"Agent infra","focus":["task","subagent","workflow","power-tool","btw","superpowers","wayfind"],"note":"Task cockpit, subagent dispatch, fan-out, diagnostics, skills."}]</script>
 
     <div class="guided-views no-print" id="guided-views" hidden aria-label="Guided diagram views">
       <button id="guided-view-prev" type="button" aria-label="Previous guided view" title="Previous guided view ([)">&#8592;</button>
@@ -4161,11 +4161,11 @@
         <path data-edge-from="movie-director" data-edge-to="ltx" data-edge-label="orchestrates" data-edge-key="7" data-composition-points="440,736;440,652.5;720,652.5;720,569" d="M 440 736 L 440 660.5 Q 440 652.5 448 652.5 L 712 652.5 Q 720 652.5 720 644.5 L 720 569" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="movie-director" data-edge-to="workflow" data-edge-label="imports" data-edge-key="8" data-composition-points="360,700;360,640;900,640;900,440;800,440;800,358" d="M 360 700 L 360 648 Q 360 640 368 640 L 892 640 Q 900 640 900 632 L 900 448 Q 900 440 892 440 L 808 440 Q 800 440 800 432 L 800 358" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="research-tool" data-edge-to="obsidian" data-edge-label="imports" data-edge-key="9" data-composition-points="1020,540;1020,358" d="M 1020 540 L 1020 358" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="wayfind" data-edge-to="core-task" data-edge-label="imports" data-edge-key="10" data-composition-points="280,169;220,169" d="M 280 169 L 220 169" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="wayfind" data-edge-to="task" data-edge-label="imports" data-edge-key="10" data-composition-points="280,169;220,169" d="M 280 169 L 220 169" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="workflow" data-edge-to="subagent" data-edge-label="imports" data-edge-key="11" data-composition-points="720,329;660,329" d="M 720 329 L 660 329" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 
         <!-- Components -->
-        <g id="node-core-task" data-node-id="core-task" data-node-label="Core Task" tabindex="0" role="button" aria-label="Focus Core Task, goal cockpit · todos · ask_user, Static — native import · in --exe binary" aria-pressed="false" data-node-kind="backend" data-node-sublabel="goal cockpit · todos · ask_user" data-node-tag="static" data-node-context="Static — native import · in --exe binary">
+        <g id="node-task" data-node-id="task" data-node-label="Core Task" tabindex="0" role="button" aria-label="Focus Core Task, goal cockpit · todos · ask_user, Static — native import · in --exe binary" aria-pressed="false" data-node-kind="backend" data-node-sublabel="goal cockpit · todos · ask_user" data-node-tag="static" data-node-context="Static — native import · in --exe binary">
           <title>Core Task · goal cockpit · todos · ask_user · Static — native import · in --exe binary · static</title>
           <rect x="60" y="140" width="160" height="58" rx="6" class="c-mask"/>
           <rect x="60" y="140" width="160" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
@@ -4464,7 +4464,7 @@
           <rect x="998.2" y="520" width="43.6" height="14" rx="3" class="c-mask"/>
           <text x="1020" y="530" class="t-muted" font-size="8" text-anchor="middle">imports</text>
         </g>
-        <g data-detail="context" data-edge-from="wayfind" data-edge-to="core-task" data-edge-label="imports" data-edge-key="10">
+        <g data-detail="context" data-edge-from="wayfind" data-edge-to="task" data-edge-label="imports" data-edge-key="10">
           <rect x="228.2" y="149" width="43.6" height="14" rx="3" class="c-mask"/>
           <text x="250" y="159" class="t-muted" font-size="8" text-anchor="middle">imports</text>
         </g>

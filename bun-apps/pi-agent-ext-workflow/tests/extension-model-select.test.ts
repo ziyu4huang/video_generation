@@ -24,7 +24,9 @@ describe("workflow extension — model_select tracking (upstream 10)", () => {
         get(target, prop) {
           if (prop === "on")
             return (event: string, handler: Handler) => {
-              (handlers[event] ??= []).push(handler);
+              const bucket = handlers[event];
+              if (bucket) bucket.push(handler);
+              else handlers[event] = [handler];
             };
           if (prop === "getActiveTools") return () => [];
           if (prop === "events") return target.events;
@@ -57,7 +59,11 @@ describe("workflow extension — model_select tracking (upstream 10)", () => {
 
       // The two switches each landed, in order, and the captured model CHANGED.
       const tail = setCalls.slice(-2);
-      assert.deepEqual(tail, ["prov-a/id-a", "prov-b/id-b"], `unexpected setMainModel calls: ${JSON.stringify(setCalls)}`);
+      assert.deepEqual(
+        tail,
+        ["prov-a/id-a", "prov-b/id-b"],
+        `unexpected setMainModel calls: ${JSON.stringify(setCalls)}`,
+      );
 
       // Unset model clears the capture (mirrors the session_start ternary).
       fire(undefined);

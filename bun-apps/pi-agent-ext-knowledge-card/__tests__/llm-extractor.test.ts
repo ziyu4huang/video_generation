@@ -16,7 +16,7 @@
  *   dictionary no-op).
  */
 import { test, expect, describe } from "bun:test";
-import { extractEntities } from "@repo/pi-agent-ext-core-interface";
+import { extractEntities } from "@repo/pi-agent-core-interface";
 import {
 	DictionaryExtractor,
 	LlmRelationExtractor,

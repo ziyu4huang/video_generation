@@ -398,10 +398,10 @@ async function stageExe(input: string) {
 // symlink pointing at a directory that was never copied.
 //
 // That is not hypothetical: pi-agent-ext-workflow (a staticExtension) and
-// pi-agent-ext-subagent both depend on @repo/pi-agent-ext-core-runtime, which
+// pi-agent-ext-subagent both depend on @repo/pi-agent-core-runtime, which
 // appears in no manifest list. Every --snapshot deploy since PR #1251 shipped
 // a tree that died at first launch with
-//   ENOENT ... /pi-agent-ext-workflow/node_modules/@repo/pi-agent-ext-core-runtime
+//   ENOENT ... /pi-agent-ext-workflow/node_modules/@repo/pi-agent-core-runtime
 // while the deploy itself printed "✓ N sibling extension package dir(s)" and
 // exited 0. So the set has to be closed transitively.
 function collectRequiredPkgDirs(bunAppsDir: string): Set<string> {

@@ -176,9 +176,9 @@ export function probeMissingExtensionDeps(bunAppsDir: string | undefined): strin
   for (const e of manifest.extensions) {
     consider(typeof e === "string" ? e : e?.entry);
   }
-  // staticExtensions are bare dir names ("pi-agent-ext-core-task", not full
+  // staticExtensions are bare dir names ("pi-agent-ext-task", not full
   // entry paths) and are loaded just like `extensions` — they MUST be probed
-  // too, or a missing dep on a static extension (e.g. pi-tui on core-task) is
+  // too, or a missing dep on a static extension (e.g. pi-tui on ext-task) is
   // invisible to the self-heal and crashes pi on launch.
   for (const e of manifest.staticExtensions ?? []) {
     consider(typeof e === "string" ? e : (e as { entry?: string })?.entry);

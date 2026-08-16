@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, test } from "bun:test";
 import assert from "node:assert/strict";
-import type { ModelTierConfig } from "@repo/pi-agent-ext-core-runtime";
+import type { ModelTierConfig } from "@repo/pi-agent-core-runtime";
 import {
   ROLE_AWARE_DISPATCH_BOUNDS,
   roleAwareDefaults,

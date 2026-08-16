@@ -1,4 +1,4 @@
-import { WorkflowErrorCode } from "@repo/pi-agent-ext-core-runtime";
+import { WorkflowErrorCode } from "@repo/pi-agent-core-runtime";
 import type { TSchema } from "typebox";
 import type { AgentFn, ParallelFn } from "./workflow.js";
 

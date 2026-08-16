@@ -12,7 +12,7 @@
  *       all. Under the workspace's isolated linker a package resolves only what
  *       it declares, so the script exited 127 (`tsc: command not found`) the
  *       instant anyone ran it.
- *     - pi-agent-ext-core-runtime's `check` was `biome check .` without
+ *     - pi-agent-core-runtime's `check` was `biome check .` without
  *       `@biomejs/biome` declared. Same 127.
  *
  *   Only 3 of the 10 packages that define a `check` script chain it into their
@@ -21,7 +21,7 @@
  *   missing dependency, and green-by-never-running reads as green.
  *
  * A SECOND, QUIETER FAILURE
- *   pi-agent-ext-core-runtime was extracted from pi-agent-ext-subagent by #1251
+ *   pi-agent-core-runtime was extracted from pi-agent-ext-subagent by #1251
  *   and its biome.json did not come along. `biome check .` with no config falls
  *   back to biome's OWN defaults (tabs, 80 columns) rather than this repo's
  *   (spaces, width 2, 120 columns), so it reported 27 files as
@@ -182,7 +182,7 @@ describe("package scripts — every binary is provided by a declared dependency"
 			`UNRUNNABLE / NETWORK-DEPENDENT PACKAGE SCRIPT(S): ${broken.join(" | ")} — the script invokes a ` +
 				"binary the package does not declare. bun-apps/ uses an ISOLATED linker, so a package " +
 				"resolves only what it declares. Called BARE the script exits 127 " +
-				'("command not found") — perf-harness\'s `check` and pi-agent-ext-core-runtime\'s `check` ' +
+				'("command not found") — perf-harness\'s `check` and pi-agent-core-runtime\'s `check` ' +
 				"both sat broken that way, unnoticed, because only 3 of the 10 `check` scripts are chained " +
 				"into a CI command. Called via `bunx`/`npx` it is worse: it silently resolves over the " +
 				"NETWORK at an unpinned version and writes a lockfile, inside a gate that is supposed to " +
@@ -229,7 +229,7 @@ describe("biome — every user has a config, and the configs agree", () => {
 			missing,
 			`PACKAGE(S) RUNNING biome WITH NO CONFIG: ${missing.join(", ")} — biome falls back to its OWN ` +
 				"defaults (tabs, 80 columns), not this repo's (spaces, width 2, 120 columns), so it grades " +
-				"correctly-formatted code as violations. pi-agent-ext-core-runtime lost its biome.json when " +
+				"correctly-formatted code as violations. pi-agent-core-runtime lost its biome.json when " +
 				"#1251 extracted it from pi-agent-ext-subagent, and reported 27 phantom format errors until " +
 				"the config was restored. Copy the config from a sibling package.",
 		).toEqual([]);

@@ -3,7 +3,7 @@ import * as assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { publishSeam, type KnowledgePipeline } from "@repo/pi-agent-ext-core-interface";
+import { publishSeam, type KnowledgePipeline } from "@repo/pi-agent-core-interface";
 import { walkAndIngest } from "../src/walk-and-ingest.js";
 import { createCardStore } from "../src/store/card-store.js";
 

@@ -8,7 +8,7 @@ See: [superpowers ADR-0005](../../../pi-agent-ext-superpowers/docs/adr/0005-para
 
 ## Context
 
-wayfind, superpowers, and the core-task plan coordinator all read/write the
+wayfind, superpowers, and the ext-task plan coordinator all read/write the
 **same** `.planning/<effort>/` tree (the unified layout, per superpowers
 ADR-0005 "parallel coexistence boundary"). wayfind owns `map.md` + `tickets/`;
 superpowers owns `spec.md` / `plan.md` / `sdd/<plan>/` / `brainstorm/`. The

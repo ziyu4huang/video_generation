@@ -15,7 +15,7 @@
  * trivially on an empty collection and becomes meaningful once probes land.
  *
  * `GateProbeSet` lives HERE (tool-gate), per the spec's lean (Open Question #2:
- * tool-gate, a QA concern, not the shared `@repo/pi-agent-ext-core-interface`).
+ * tool-gate, a QA concern, not the shared `@repo/pi-agent-core-interface`).
  * Extensions export their probes as a PLAIN object (no type import) to avoid a
  * circular dependency on tool-gate; shape is enforced by the drift-guard test.
  */
