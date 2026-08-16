@@ -84,14 +84,25 @@ import goalDefault from "@repo/pi-agent-ext-task/src/goal/goal.ts";
 // handlers are no-op'd by the stub; enable_tool's registerTool fires first).
 // (toolGateDefault imported above alongside the named exports.)
 import {
-	MUST_FIRE,
-	MUST_NOT_FIRE,
+	MUST_FIRE as AUTHORED_MUST_FIRE,
+	MUST_NOT_FIRE as AUTHORED_MUST_NOT_FIRE,
 	ESCAPE_NAME,
 	ESCAPE_INTENT,
 	ESCAPE_INTENT_BLIND,
 	PRECISION_RISKS,
 	OVERLAPS,
 } from "./probes.ts";
+import { ALL_PROBE_SETS, deriveL1Cases } from "./collect-probes.ts";
+
+// L1 cases come from two sources that are deliberately NOT merged upstream:
+// `probes.ts` holds the corpus authored here (gates whose owning package
+// predates the __GATE_PROBES__ seam), while each gated extension owns its own
+// cases and exports them from its entry file. Deriving rather than mirroring is
+// what lets a package ship a gated tool without editing tool-gate — the failure
+// mode that left main red on 2026-08-16.
+const DERIVED = deriveL1Cases(ALL_PROBE_SETS);
+const MUST_FIRE = [...AUTHORED_MUST_FIRE, ...DERIVED.mustFire];
+const MUST_NOT_FIRE = [...AUTHORED_MUST_NOT_FIRE, ...DERIVED.mustNotFire];
 
 /** Structural shape of a gate (== the non-exported tool-gate `ToolGate`). */
 type CorpusGate = ToolGate;

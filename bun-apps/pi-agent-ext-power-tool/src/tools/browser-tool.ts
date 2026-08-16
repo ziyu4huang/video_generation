@@ -53,6 +53,37 @@ GATE_DEFS["power_browser"] = {
   description: "Code-first headless-Chrome browsing: openPage/snapshot/screenshot via JS",
 };
 
+/**
+ * QA-only gate probes, colocated with the gate they describe.
+ *
+ * tool-gate collects these (qa/collect-probes.ts) and derives its L1 corpus from
+ * them, so this gate is fully covered without editing tool-gate. Keeping the
+ * probes next to GATE_DEFS above means a keyword change and its probes move
+ * together — when they lived in tool-gate, adding this tool left main red until
+ * someone repaired a package its author does not own.
+ *
+ * PLAIN object, no type import: tool-gate depends on power-tool, so importing
+ * `GateProbeSet` back would close a dependency cycle. Shape is enforced by
+ * tool-gate's collector drift guard.
+ *
+ * `recallFloor: 0` with no adversarial set — browsing is a deliberate-dispatch
+ * gate. You ask for a browser by name; there is no "I need this without saying
+ * so" phrasing to recall-test, which is exactly why the tool is keyword-gated
+ * and not always-on core.
+ */
+export const __GATE_PROBES__ = {
+  gate: "browser",
+  recallFloor: 0,
+  adversarial: [] as string[],
+  controls: [
+    "open the page in a headless browser and snapshot it",
+    "drive the gui and screenshot the webui",
+  ],
+  // Word-boundary matching is what makes these inert: "browse" is not "browser",
+  // and bare "page" is not "web page" / "open page" / "page snapshot".
+  mustNotFire: ["browse the repo for the config file", "the error is on page 3 of the log"],
+};
+
 const IDLE_CLOSE_MS = 120_000;
 const CODE_TIMEOUT_MS = 30_000;
 

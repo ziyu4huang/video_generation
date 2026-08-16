@@ -29,6 +29,50 @@ export interface GateProbeSet {
 	adversarial: string[];
 	/** Phrasings carrying a current keyword / satisfying requires — MUST fire (100%). */
 	controls: string[];
+	/**
+	 * Lookalikes the gate must CORRECTLY REJECT — surface words that resemble the
+	 * gate's domain without carrying any of its keywords.
+	 *
+	 * Declaring these is what lets the L1 coverage check pass without an edit to
+	 * tool-gate: `controls` already supplies the must-fire half, and this supplies
+	 * the must-not-fire half, so a gated tool is fully coverable from the package
+	 * that owns it. Optional only for backward compatibility with probe sets
+	 * authored before this seam existed.
+	 */
+	mustNotFire?: string[];
+}
+
+/** An L1 case derived from an extension-owned probe set. */
+export interface DerivedCase {
+	gate: string;
+	prompt: string;
+	note: string;
+}
+
+/** Attribution stamped on every derived case, so a failing case names its source. */
+const DERIVED_NOTE = "owned by the extension (__GATE_PROBES__)";
+
+/**
+ * Project extension-owned probe sets onto the L1 corpus. PURE.
+ *
+ * must-fire derives from `controls` rather than a new field: `controls` is
+ * already defined as "carries a keyword — MUST fire (100%)", which is the same
+ * assertion L1 makes. Adding a parallel field would have meant two places to
+ * author the same sentence, which is the exact defect this seam removes.
+ */
+export function deriveL1Cases(sets: GateProbeSet[]): {
+	mustFire: DerivedCase[];
+	mustNotFire: DerivedCase[];
+} {
+	const mustFire: DerivedCase[] = [];
+	const mustNotFire: DerivedCase[] = [];
+	for (const s of sets) {
+		for (const prompt of s.controls) mustFire.push({ gate: s.gate, prompt, note: DERIVED_NOTE });
+		for (const prompt of s.mustNotFire ?? []) {
+			mustNotFire.push({ gate: s.gate, prompt, note: DERIVED_NOTE });
+		}
+	}
+	return { mustFire, mustNotFire };
 }
 
 // ── Per-extension probe sets ─────────────────────────────────────────────
@@ -67,6 +111,9 @@ import { __GATE_PROBES__ as grillProbes } from "@repo/pi-agent-ext-hermes-memory
 import { __GATE_PROBES__ as webAccessProbes } from "@repo/pi-agent-ext-web-access";
 import { __GATE_PROBES__ as obsidianProbes } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import { __GATE_PROBES__ as wayfindProbes } from "@repo/pi-agent-ext-wayfind/extensions/wayfind.ts";
+// Imported from the tool module rather than the package entry so the probes sit
+// beside GATE_DEFS["power_browser"] (same precedent as the hermes-memory tools).
+import { __GATE_PROBES__ as browserProbes } from "@repo/pi-agent-ext-power-tool/src/tools/browser-tool.ts";
 
 /** Every authored probe set (drift-guard iterates this). */
 export const ALL_PROBE_SETS: GateProbeSet[] = [
@@ -91,6 +138,7 @@ export const ALL_PROBE_SETS: GateProbeSet[] = [
 	grillProbes,
 	webAccessProbes,
 	obsidianProbes,
+	browserProbes,
 	PI_DEPLOY_PROBES,
 	AWAIT_PR_MERGE_PROBES,
 	SWEEP_BRANCHES_PROBES,
