@@ -21,8 +21,29 @@
 
 export const ASK_USER_PROMPT_EVENT = "rpiv:ask-user:prompt" as const;
 
+/**
+ * Answer channel (effort webui-present-adoption, spec §C3): an EXTERNAL
+ * surface (the webui shell mirror) returns a questionnaire answer. The
+ * webui emits it; ask_user_question's execute consumes it and drives the SAME
+ * `done` the TUI overlay session uses (first surface to answer wins). Pure
+ * string-literal contract — NO cross-package imports in either direction.
+ * External answers correlate by `promptId`; first surface (TUI or webui mirror) to answer wins.
+ */
+export const ASK_USER_ANSWER_EVENT = "rpiv:ask-user:answer" as const;
+
 export interface AskUserPromptEventPayload {
+	/** Correlates prompt -> answer. Optional + append-only (stability policy
+	 *  §2): listeners on the v1 payload must tolerate its absence. */
+	promptId?: string;
 	questions: ReadonlyArray<AskUserPromptQuestion>;
+}
+
+/** An external surface's answer to {@link ASK_USER_ANSWER_EVENT}. JSON-safe. */
+export interface AskUserAnswerEventPayload {
+	/** Must match the prompt's promptId; answers for other prompts are ignored. */
+	promptId: string;
+	/** Same shape the TUI dialog's done() carries (QuestionnaireResult). */
+	result: unknown;
 }
 
 export interface AskUserPromptQuestion {

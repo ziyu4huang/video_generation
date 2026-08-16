@@ -209,6 +209,11 @@ export class WebServer implements Broadcaster {
   private onWsClose: (() => void) | null = null;
   /** Optional WS-open handler (v2 snapshot seam); null => none (the default). */
   private onWsOpen: ((ws: ServerWebSocket<unknown>) => void) | null = null;
+  /** Optional clients-changed handler (spec webui-present-adoption §C1,
+   *  ticket 01); null => none (the default). Fired with the NEW count on every
+   *  ws open/close — the wiring uses it to auto-release a pending presentation
+   *  when the count drops to 0 (connected-gate mid-wait release). */
+  private onClientsChanged: ((count: number) => void) | null = null;
   private readonly requestedPort: number;
   private readonly hostname: string;
   /** Bounded in-memory server log (Fix 4) — served at GET /api/logs. */
@@ -325,6 +330,18 @@ export class WebServer implements Broadcaster {
     this.onWsOpen = cb;
   }
 
+  /**
+   * Inject the clients-changed handler (connected-gate, ticket 01): invoked
+   * with the live clientCount on EVERY ws open/close so the wiring can watch
+   * for the 1→0 transition while a presentation pends. `null` removes it.
+   * Mirrors setWsCloseHandler. On close it fires BEFORE onWsClose so a
+   * reason-bearing no-client release settles the pending before the coarse
+   * cancel-all net would resolve it reason-less.
+   */
+  setClientsChangedHandler(cb: ((count: number) => void) | null): void {
+    this.onClientsChanged = cb;
+  }
+
   /** The actual bound port (throws if not started). */
   get port(): number {
     if (!this.server) throw new Error("WebServer not started");
@@ -342,6 +359,17 @@ export class WebServer implements Broadcaster {
   /** Current connected-client count (WS pruning is observable for tests). */
   get clientCount(): number {
     return this.clients.size;
+  }
+
+  /** Fan out the clients-changed seam (guarded like onWsOpen: a throwing
+   *  watcher must never take the socket path down with it). */
+  private notifyClientsChanged(): void {
+    if (!this.onClientsChanged) return;
+    try {
+      this.onClientsChanged(this.clients.size);
+    } catch (e) {
+      this.log("error", `clients-changed handler error: ${(e as Error)?.message ?? String(e)}`);
+    }
   }
 
   /**
@@ -484,6 +512,7 @@ export class WebServer implements Broadcaster {
         open: (ws: ServerWebSocket<unknown>) => {
           this.clients.add(ws);
           this.log("info", `ws open (${this.clients.size} live)`);
+          this.notifyClientsChanged();
           // v2 snapshot seam: the wiring sends the connect-time snapshot to
           // THIS client (before any live frames). A throw here must not kill
           // the socket — record it like the command-handler guard.
@@ -499,6 +528,7 @@ export class WebServer implements Broadcaster {
         close: (ws: ServerWebSocket<unknown>) => {
           this.clients.delete(ws);
           this.log("info", `ws close (${this.clients.size} live)`);
+          this.notifyClientsChanged();
           if (this.onWsClose) this.onWsClose();
         },
       },

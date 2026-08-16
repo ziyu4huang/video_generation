@@ -23,6 +23,8 @@ the whole contract.
 
 With webui view-notifications (2026-08-16), a successful render ALSO lands in the browser shell — a fresh-open toast plus an entry in the views panel — still with zero webui imports.
 
+With webui present adoption (2026-08-16), a successful render ALSO emits `webui:present` (Approve / Regenerate… with free-text tweak) — still zero webui imports; without webui both events are no-ops.
+
 ## Deck builder (`bun run deck`)
 
 Turn a set of IR files into a 16:9 PowerPoint deck — one diagram per slide with

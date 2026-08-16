@@ -59,15 +59,19 @@ describe("openAnnounceFor — delta", () => {
 });
 
 describe("announceOpen — bus wrapper", () => {
-  it("emits webui:open once with the built payload", () => {
+  it("emits webui:open with the built payload, then webui:present (§C2 HITL)", () => {
     const seen: { channel: string; payload: unknown }[] = [];
     announceOpen({ emit: (channel, payload) => seen.push({ channel, payload }) }, "render", "/tmp/x/my-diagram.html", {
       meta: { title: "T" },
       diagram_type: "architecture",
     });
-    expect(seen).toEqual([
-      { channel: "webui:open", payload: { path: "/tmp/x/my-diagram.html", view: "my-diagram", title: "T" } },
-    ]);
+    expect(seen[0]).toEqual({ channel: "webui:open", payload: { path: "/tmp/x/my-diagram.html", view: "my-diagram", title: "T" } });
+    // HITL presentation (2026-08-16-webui-present-adoption §C2): same guarded emit —
+    // approve + free-text Tweak ride along with the open announcement.
+    expect(seen.some((s) => s.channel === "webui:present")).toBe(true); // webui:present emitted
+    const pres = seen.find((s) => s.channel === "webui:present")?.payload as { controls?: { takesInput?: boolean }[] };
+    expect(pres?.controls?.length).toBe(2); // approve + tweak controls
+    expect(pres?.controls?.[1]?.takesInput).toBe(true); // tweak takes input
   });
 
   it("does not throw when the bus is undefined", () => {
