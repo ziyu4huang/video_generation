@@ -8,7 +8,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { matchesKey } from "@earendil-works/pi-tui";
 import { formatKeySpec, loadConfig, resolveCollapseKey, validateGuidanceFields } from "./config.js";
-import { ASK_USER_PROMPT_EVENT, type AskUserPromptEventPayload } from "./events.js";
+import {
+	ASK_USER_ANSWER_EVENT,
+	ASK_USER_PROMPT_EVENT,
+	type AskUserAnswerEventPayload,
+	type AskUserPromptEventPayload,
+} from "./events.js";
 import { hasDialogUI, runRpcQuestionnaire } from "./rpc-fallback.js";
 import { displayLabel } from "./state/i18n-bridge.js";
 import { sentinelsToAppend } from "./state/row-intent.js";
@@ -25,8 +30,10 @@ import {
 import { validateQuestionnaire } from "./tool/validate-questionnaire.js";
 import type { WrappingSelectItem } from "./view/components/wrapping-select.js";
 
-function emitAskUserPromptEvent(pi: ExtensionAPI, params: QuestionParams): void {
+function emitAskUserPromptEvent(pi: ExtensionAPI, params: QuestionParams): string {
+	const promptId = crypto.randomUUID();
 	const payload: AskUserPromptEventPayload = {
+		promptId,
 		questions: params.questions.map((q) => ({
 			question: q.question,
 			header: q.header,
@@ -39,6 +46,7 @@ function emitAskUserPromptEvent(pi: ExtensionAPI, params: QuestionParams): void 
 		})),
 	};
 	pi.events.emit(ASK_USER_PROMPT_EVENT, payload);
+	return promptId;
 }
 
 export const ASK_USER_QUESTION_TOOL_NAME = "ask_user_question";
@@ -103,7 +111,7 @@ Use the optional \`preview\` field on options when presenting concrete artifacts
 				});
 			}
 
-			emitAskUserPromptEvent(pi, typed);
+			const promptId = emitAskUserPromptEvent(pi, typed);
 
 			if ((ctx as { mode?: string }).mode === "rpc" && hasDialogUI(ctx.ui)) {
 				return buildQuestionnaireResponse(await runRpcQuestionnaire(ctx.ui, typed), typed);
@@ -120,6 +128,20 @@ Use the optional \`preview\` field on options when presenting concrete artifacts
 			const overlayHandleRef: { current: import("@earendil-works/pi-tui").OverlayHandle | undefined } = {
 				current: undefined,
 			};
+			// External answer channel (webui-present-adoption §C3): the webui shell
+			// mirror answers via ASK_USER_ANSWER_EVENT. doneRef captures the SAME
+			// resolution callback the TUI submit uses — calling it is identical to a
+			// keyboard submit (overlay dismisses, promise resolves; null-out =
+			// first-answer-wins).
+			const doneRef: { current: ((r: QuestionnaireResult) => void) | undefined } = { current: undefined };
+			const unsubscribeAnswer = pi.events.on(ASK_USER_ANSWER_EVENT, (payload: unknown) => {
+				const p = payload as AskUserAnswerEventPayload | undefined;
+				if (!p || p.promptId !== promptId) return;
+				const done = doneRef.current;
+				if (typeof done !== "function") return;
+				doneRef.current = undefined;
+				done(p.result as QuestionnaireResult);
+			});
 			let hasAnnouncedHide = false;
 			let removeOverlayInputListener: (() => void) | undefined;
 
@@ -144,6 +166,10 @@ Use the optional \`preview\` field on options when presenting concrete artifacts
 			try {
 				const result = await ctx.ui.custom<QuestionnaireResult>(
 					(tui, theme, _kb, done) => {
+						// Capture done FIRST — QuestionnaireSession construction can throw
+						// (e.g. a fake tui in tests), and the external answer channel must
+						// still be able to resolve execute regardless.
+						doneRef.current = done;
 						const session = new QuestionnaireSession({
 							tui,
 							theme,
@@ -180,6 +206,7 @@ Use the optional \`preview\` field on options when presenting concrete artifacts
 				return buildQuestionnaireResponse(result, typed);
 			} finally {
 				removeOverlayInputListener?.();
+				unsubscribeAnswer?.();
 			}
 		},
 	});

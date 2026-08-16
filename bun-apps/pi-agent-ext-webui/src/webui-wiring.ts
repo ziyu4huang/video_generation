@@ -146,6 +146,11 @@ export interface WebuiServer extends Broadcaster {
    *  with the new socket so the wiring can push the connect-time session
    *  snapshot to THAT client. Mirrors setWsCloseHandler. */
   setWsOpenHandler(cb: ((ws: WebuiSocket) => void) | null): void;
+  /** OPTIONAL connected-gate surface (ticket 01, spec §C1): the live client
+   *  count + its change seam. Optional so minimal test fakes still satisfy the
+   *  interface; when absent the tool degrades to the ungated v1 behavior. */
+  readonly clientCount?: number;
+  setClientsChangedHandler?(cb: ((count: number) => void) | null): void;
   /**
    * The loopback URL the server is reachable on (throws "WebServer not started"
    * before start / after stop). Read lazily by the render framework's `urlFor`
@@ -198,7 +203,7 @@ export interface WebuiDeps {
  * consumer MUST branch on `cancelled` before reading `action`. Exported
  * alongside WebuiWiring (present-tool exports its types; same convention).
  */
-export type HitlResponse = { action: string; tweak?: string } | { cancelled: true };
+export type HitlResponse = { action: string; tweak?: string } | { cancelled: true; reason?: string };
 
 export interface WebuiWiring {
   /** Neutralize every handler + tear the server down (tests / session end). */
@@ -373,19 +378,22 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     });
   }
 
-  /** Resolve every pending as {cancelled:true} (session_shutdown / WS close). */
-  function cancelAllPending(): void {
-    for (const entry of pending.values()) entry.resolve({ cancelled: true });
+  /** Resolve every pending as {cancelled:true} (session_shutdown / WS close).
+   *  `reason` (ticket 01) rides along on the no-client auto-release. */
+  function cancelAllPending(reason?: string): void {
+    for (const entry of pending.values())
+      entry.resolve(reason !== undefined ? { cancelled: true, reason } : { cancelled: true });
     pending.clear();
     syncPendingState();
   }
 
-  /** Cancel ONE pending as {cancelled:true} (the webui_present tool's signal-abort path). */
-  function cancelPending(id: string): void {
+  /** Cancel ONE pending as {cancelled:true} (the webui_present tool's
+   *  signal-abort path); `reason` tags the no-client connected-gate release. */
+  function cancelPending(id: string, reason?: string): void {
     const entry = pending.get(id);
     if (entry) {
       pending.delete(id);
-      entry.resolve({ cancelled: true });
+      entry.resolve(reason !== undefined ? { cancelled: true, reason } : { cancelled: true });
       syncPendingState();
     }
   }
@@ -395,6 +403,21 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // this seam, so `frame` is a typed ClientFrame; parseCommand classifies it.
   const onCommand: CommandHandler = (frame: ClientFrame, reply) => {
     if (disposed) return;
+    // ask-user bridge (§C3): answers ride the loose appexec extra record.
+    // Forward to the host bus; ask-user's execute correlates by promptId.
+    // (Ahead of parseCommand: the loose ask_user_answer extra resolves to
+    // null there, and the early-return below would drop it before this seam.)
+    if (
+      frame.type === "appexec" &&
+      (frame.extra as { kind?: string } | undefined)?.kind === "ask_user_answer"
+    ) {
+      const a = frame.extra as { promptId?: string; result?: unknown };
+      pi.events?.emit("rpiv:ask-user:answer", {
+        promptId: typeof a.promptId === "string" ? a.promptId : "",
+        result: a.result,
+      });
+      return; // early-exit so the existing respond path is untouched below
+    }
     const action = transport.parseCommand(frame);
     if (!action) return; // unknown type — ignore (defensive tail)
     // NO-SESSION guard: never deref a null session (specs/04 §6).
@@ -578,6 +601,21 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     })
   );
 
+  // ask-user bridge (§C3): the core-task questionnaire prompt mirrored as a
+  // replay-eligible ask_user frame. Browser answers ride the EXISTING loose
+  // appexec channel (extra.kind:"ask_user_answer" — schema-loose by design) and
+  // are re-emitted on the host bus as rpiv:ask-user:answer, which ask-user's
+  // execute consumes via its doneRef. No cross-package import either direction.
+  pi.events?.on("rpiv:ask-user:prompt", (payload: unknown) => {
+    const p = payload as { promptId?: string; questions?: unknown[] } | undefined;
+    broadcaster.broadcast({
+      type: "ask_user",
+      promptId: typeof p?.promptId === "string" ? p.promptId : "",
+      questions: Array.isArray(p?.questions) ? p.questions : [],
+      ts: Date.now(),
+    });
+  });
+
   // webui_present (the blocking HITL gate, spec Component 2): the `present` dep
   // emits the webui:present event (the registered handler mints the view). If
   // the host has NO shared event bus (guarded seam), fall back to invoking the
@@ -602,6 +640,21 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       registerPending,
       hasPending: () => pending.size > 0,
       cancelPending,
+      // Connected-gate surface (ticket 01, spec §C1): live client count + the
+      // server's single-slot change seam. getClientCount returning undefined
+      // (fake server without the field) never gates — ungated v1 behavior.
+      // The unsubscribe detaches the slot; the tool calls it on EVERY
+      // settlement, so no handler outlives a presentation. dispose() also
+      // nulls the slot as the belt-and-suspenders teardown.
+      getClientCount: () => server.clientCount,
+      ...(server.setClientsChangedHandler
+        ? {
+            onClientsChanged: (cb: (count: number) => void): (() => void) => {
+              server.setClientsChangedHandler!(cb);
+              return () => server.setClientsChangedHandler!(null);
+            },
+          }
+        : {}),
     })
   );
 
@@ -719,6 +772,7 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       server.setCommandHandler(null);
       server.setWsCloseHandler(null);
       server.setWsOpenHandler(null);
+      server.setClientsChangedHandler?.(null);
       cancelAllPending();
       controller.handleShutdown();
       server.dropSession();

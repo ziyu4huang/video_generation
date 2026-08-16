@@ -22,13 +22,17 @@ describe("createPresentEventHandler", () => {
     });
   });
 
-  it("forwards an explicit view/mode/title; id is optional inbound (view minted without presentId)", () => {
+  it("forwards an explicit view/mode/title; id-less payload gets a MINTED presentId (spec §C2)", () => {
     const registry = new RenderService({ urlFor: () => "#", now: () => 7 });
-    const handler = createPresentEventHandler(registry);
+    const registered: { id: string; title?: string }[] = [];
+    const handler = createPresentEventHandler(registry, {
+      onEventPresent: (info) => registered.push(info),
+    });
     handler({ content: "<p>x</p>", mode: "html", view: "v1", title: "T", controls: CONTROLS });
     const v = registry.getView("v1")!;
     expect(v).toMatchObject({ id: "v1", mode: "html", content: "<p>x</p>", title: "T", controls: CONTROLS });
-    expect(v).not.toHaveProperty("presentId");
+    expect(typeof v.presentId).toBe("string"); // minted by the handler (spec §C2)
+    expect(registered).toEqual([{ id: v.presentId as string, title: "T" }]);
   });
 
   it("ignores an invalid mode (falls back to 'md')", () => {

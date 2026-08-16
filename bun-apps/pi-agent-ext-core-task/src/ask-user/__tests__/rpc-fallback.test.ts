@@ -29,7 +29,9 @@ function createMockPi() {
 		getActiveTools: mock(() => []),
 		setActiveTools: mock(() => {}),
 		on: mock(() => {}),
-		events: { emit: mock(() => {}) },
+		// External answer channel (frozen impl contract): execute subscribes via
+		// pi.events.on and later calls the returned teardown — no-op stub is enough.
+		events: { emit: mock(() => {}), on: mock(() => () => {}) },
 	};
 	return { pi: pi as unknown as ExtensionAPI, tools };
 }
