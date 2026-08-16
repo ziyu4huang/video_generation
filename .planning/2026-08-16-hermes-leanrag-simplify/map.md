@@ -25,4 +25,4 @@ pi-agent-ext-hermes-memory reshaped to LeanRAG architecture shape (~80%): ≤ ~1
 - origin/main moves fast (dea56780→fc18a154 during setup); ff before PR via devops chain.
 
 ## Tickets
-- (to be charted from spec — wayfind tickets next step)
+- 01 baseline → 02-03 tool-surface, 04 repos → 05 fallback, 06 dedup → 07 cuts, 08 C4, 09 dead-code → 10 cost-pin → 11 acceptance
