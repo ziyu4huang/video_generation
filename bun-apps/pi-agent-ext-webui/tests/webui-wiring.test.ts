@@ -16,11 +16,13 @@
  *  - lifecycle: session_start starts the server + binds (hasSession true);
  *    session_shutdown drops the session (hasSession false) but does NOT stop
  *    the server.
- *  - inbound dispatch: prompt/steer/followUp/abort/appexec/control.
+ *  - inbound dispatch: DE-CHAT (event-cards 00) — prompt/steer/followUp/abort
+ *    frames validate + parse but are deliberately NOT routed (no sendUserMessage,
+ *    no ctx.abort); appexec/control still act.
  *  - NO-SESSION guard: before session_start, an agentic command is rejected
  *    with a no_session reply, never derefs a null session.
- *  - BLOCK FEEDBACK IS BROADCAST: a web command while "tui" driving is
- *    swallowed (no delivered sendUserMessage) AND a mutex_blocked frame is
+ *  - BLOCK FEEDBACK IS BROADCAST (de-chat form): an extension-sourced input
+ *    while "tui" driving is suppressed AND a mutex_blocked frame is
  *    broadcast; NO per-command ack frame.
  *  - dispose() neutralizes every handler + stops the server.
  */
@@ -326,33 +328,24 @@ describe("wireWebui — lifecycle", () => {
 });
 
 describe("wireWebui — inbound dispatch", () => {
-  test("agentic prompt → pi.sendUserMessage(text) delivered", () => {
-    const { pi, server } = setup();
-    pi.emit("session_start", { type: "session_start", reason: "startup" });
-    dispatch(pi, server, { type: "prompt", text: "hello web" });
-    expect(pi.sent).toEqual([{ content: "hello web", opts: undefined }]);
-  });
-
-  test("agentic steer → sendUserMessage(text,{deliverAs:'steer'})", () => {
-    const { pi, server } = setup();
-    pi.emit("session_start", { type: "session_start", reason: "startup" });
-    dispatch(pi, server, { type: "steer", text: "nudge" });
-    expect(pi.sent).toEqual([{ content: "nudge", opts: { deliverAs: "steer" } }]);
-  });
-
-  test("agentic followUp → sendUserMessage(text,{deliverAs:'followUp'})", () => {
-    const { pi, server } = setup();
-    pi.emit("session_start", { type: "session_start", reason: "startup" });
-    dispatch(pi, server, { type: "followUp", text: "more" });
-    expect(pi.sent).toEqual([{ content: "more", opts: { deliverAs: "followUp" } }]);
-  });
-
-  test("agentic abort → ctx.abort() recorded (no message)", () => {
-    const { pi, server } = setup();
-    pi.emit("session_start", { type: "session_start", reason: "startup" });
-    dispatch(pi, server, { type: "abort" });
-    expect(pi.ctx.abortCalls).toBe(1);
-    expect(pi.sent).toHaveLength(0);
+  test("agentic prompt/steer/followUp/abort frames are deliberately IGNORED (de-chat 00)", () => {
+    const frames = [
+      { type: "prompt", text: "hello web" },
+      { type: "steer", text: "nudge" },
+      { type: "followUp", text: "more" },
+      { type: "abort" },
+    ];
+    for (const frame of frames) {
+      const { pi, server } = setup();
+      pi.emit("session_start", { type: "session_start", reason: "startup" });
+      const replies = dispatch(pi, server, frame);
+      // RETIRED (event-cards 00, de-chat): frames validate (protocol) + parse
+      // (transport) but the wiring's dispatch is a deliberate no-op — chat
+      // lives in the TUI, the served composer is gone.
+      expect(pi.sent).toEqual([]); // sendUserMessage never called
+      expect(pi.ctx.abortCalls).toBe(0); // abort never called
+      expect(replies).toEqual([]); // silent — no error, no ack frame
+    }
   });
 
   describe("HITL appexec return transport (respond resolve + registry + abort)", () => {
@@ -449,26 +442,28 @@ describe("wireWebui — NO-SESSION guard", () => {
 });
 
 describe("wireWebui — block feedback is broadcast (no ack)", () => {
-  test("web command while 'tui' driving: swallowed + mutex_blocked broadcast, NO ack", () => {
-    const { pi, server, broadcaster } = setup();
+  test("an extension-sourced input while 'tui' driving: suppressed + mutex_blocked broadcast, NO ack", () => {
+    const { pi, broadcaster } = setup();
     pi.emit("session_start", { type: "session_start", reason: "startup" });
     // tui acquires the lock via the input gate
     const gate = pi.handlersFor("input")[0];
     gate({ type: "input", source: "interactive", text: "tui owns" }, pi.ctx);
     broadcaster.frames.length = 0;
 
-    const replies = dispatch(pi, server, { type: "prompt", text: "web tries" });
-    // The web command is swallowed (sendUserMessage suppresses on "handled").
-    expect(pi.sent).toHaveLength(0);
-    // A mutex_blocked frame IS broadcast.
+    // DE-CHAT (event-cards 00): the wiring itself no longer produces `input`
+    // events (the prompt composer is retired), but the gate still guards
+    // OTHER extension-sourced inputs on the shared host — drive the gate
+    // through the full emit path (same pattern as the v2 mutex/present tests).
+    pi.emit("input", { type: "input", source: "extension", text: "ext tries" });
+    // The extension-sourced input is suppressed: a mutex_blocked frame IS
+    // broadcast...
     expect(broadcaster.frames).toContainEqual({
       type: "mutex_blocked",
       blocked: "web",
       by: "tui",
     });
-    // NO per-command ack frame of any kind.
+    // ...and there is NO per-command ack frame of any kind.
     expect(broadcaster.frames.every((f) => f.type !== "ack")).toBe(true);
-    expect(replies).toHaveLength(0); // no reply either (block feedback is broadcast-only)
   });
 });
 
@@ -734,6 +729,7 @@ describe("wireWebui — v2 session store + snapshot (architecture v2 §3.3)", ()
     const frame = JSON.parse(sent[0]);
     expect(frame.type).toBe("snapshot");
     expect(frame.state.transcript.map((f: { type: string }) => f.type)).toEqual([
+      "session_info",
       "turn_start",
       "message_update",
     ]);

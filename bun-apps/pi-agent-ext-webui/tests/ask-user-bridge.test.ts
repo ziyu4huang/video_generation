@@ -144,8 +144,9 @@ describe("ask-user bridge (ticket 03)", () => {
       "connect snapshot not delivered"
     );
     expect(snapshot).toContain("session_info");
-    const parsed = JSON.parse(snapshot) as { transcript?: Array<{ type: string; cwd?: string }> };
-    const info = parsed.transcript?.find((f) => f.type === "session_info");
+    const parsed = JSON.parse(snapshot) as
+      { state?: { transcript?: Array<{ type: string; cwd?: string }> } };
+    const info = parsed.state?.transcript?.find((f) => f.type === "session_info");
     expect(info).toBeDefined();
     expect(typeof info?.cwd).toBe("string");
     expect((info?.cwd ?? "").length).toBeGreaterThan(0);
