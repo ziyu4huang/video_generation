@@ -20,6 +20,7 @@ import {
   createSubagentsTool,
   formatSlotMeta,
   formatUsage,
+  liveProgressLineBudget,
   mergeReadOnlyExclusion,
   READ_ONLY_EXCLUDED,
   renderBatchResult,
@@ -1009,14 +1010,15 @@ test("renderSubagentsResult no details → dim raw text fallback", () => {
   assert.equal(out, "raw fallback");
 });
 
-test("renderSubagentsResult isPartial+collapsed shows a compact single-line; expanded shows full", () => {
+test("renderSubagentsResult isPartial+collapsed keeps a short feed intact (no truncation); expanded shows full", () => {
   const text = "subagents · 2/4 running · latest: read src/foo.ts";
   const collapsed = renderSubagentsResult(
     { content: [{ type: "text", text }] },
     { expanded: false, isPartial: true },
     THEME,
   );
-  assert.ok(collapsed.split("\n").length === 1, "collapsed is a single line");
+  // A feed within the live-line budget renders verbatim — one line in, one line out.
+  assert.equal(collapsed, text, "collapsed shows the single-line feed as-is");
   const expanded = renderSubagentsResult(
     { content: [{ type: "text", text }] },
     { expanded: true, isPartial: true },
@@ -1608,4 +1610,141 @@ test("buildLiveTable: sorted ascending by dispatch index", () => {
   ]);
   const idxs = rows.split("\n").map((l) => l.slice(1, 2));
   assert.deepEqual(idxs, ["0", "1", "2"]);
+});
+
+// ── collapsed partial render: live-feed line budget (SUBAGENT_LIVE_LINES) ──
+
+/** Set SUBAGENT_LIVE_LINES for one block, restoring the ambient value after
+ *  (budget-defaults.test.ts save/restore style, scoped to a single test). */
+function withLiveLines<T>(value: string | undefined, fn: () => T): T {
+  const saved = process.env.SUBAGENT_LIVE_LINES;
+  if (value === undefined) delete process.env.SUBAGENT_LIVE_LINES;
+  else process.env.SUBAGENT_LIVE_LINES = value;
+  try {
+    return fn();
+  } finally {
+    if (saved === undefined) delete process.env.SUBAGENT_LIVE_LINES;
+    else process.env.SUBAGENT_LIVE_LINES = saved;
+  }
+}
+
+/** A realistic 7-line live feed: header + 6 table rows. */
+function liveFeed(): string {
+  return [
+    "subagents · 3/6 running · 12k tok · $0.004",
+    ...[0, 1, 2, 3, 4, 5].map((i) => `[${i}] glm-5.2 ⏱ ${i}.0s · pt`),
+  ].join("\n");
+}
+
+test("liveProgressLineBudget: default 5; SUBAGENT_LIVE_LINES overrides; invalid falls back", () => {
+  withLiveLines(undefined, () => assert.equal(liveProgressLineBudget(), 5));
+  withLiveLines("3", () => assert.equal(liveProgressLineBudget(), 3));
+  withLiveLines("abc", () => assert.equal(liveProgressLineBudget(), 5));
+  withLiveLines("0", () => assert.equal(liveProgressLineBudget(), 5));
+});
+
+test("isPartial+collapsed: 7-line feed shows first 5 lines + trailing `… +2 more` (default budget)", () => {
+  withLiveLines(undefined, () => {
+    const out = renderSubagentsResult(
+      { content: [{ type: "text", text: liveFeed() }] },
+      { expanded: false, isPartial: true },
+      THEME,
+    );
+    const lines = out.split("\n");
+    assert.equal(lines.length, 6, "5 shown + indicator");
+    assert.equal(lines[4], "[3] glm-5.2 ⏱ 3.0s · pt", "first 5 lines (header + rows 0-3) kept verbatim");
+    assert.equal(lines[5], "… +2 more", "indicator is the LAST line");
+  });
+});
+
+test("isPartial+collapsed: SUBAGENT_LIVE_LINES=3 → 3 lines + `… +4 more`", () => {
+  withLiveLines("3", () => {
+    const out = renderSubagentsResult(
+      { content: [{ type: "text", text: liveFeed() }] },
+      { expanded: false, isPartial: true },
+      THEME,
+    );
+    const lines = out.split("\n");
+    assert.equal(lines.length, 4);
+    assert.equal(lines[2], "[1] glm-5.2 ⏱ 1.0s · pt");
+    assert.equal(lines[3], "… +4 more");
+  });
+});
+
+test("isPartial+collapsed: invalid SUBAGENT_LIVE_LINES (abc, 0) → default 5-line budget", () => {
+  for (const bad of ["abc", "0"]) {
+    withLiveLines(bad, () => {
+      const out = renderSubagentsResult(
+        { content: [{ type: "text", text: liveFeed() }] },
+        { expanded: false, isPartial: true },
+        THEME,
+      );
+      const lines = out.split("\n");
+      assert.equal(lines.length, 6, `(${bad}) 5 shown + indicator`);
+      assert.equal(lines[5], "… +2 more");
+    });
+  }
+});
+
+test("isPartial+collapsed: feed with ≤5 lines renders whole (no indicator)", () => {
+  // 3 lines → verbatim.
+  const three = ["subagents · 1/2 running", "[0] glm-5.2 ⏱ 1.0s · pt", "[1] glm-5.2 ⏱ 2.0s · pt"].join("\n");
+  withLiveLines(undefined, () => {
+    const out3 = renderSubagentsResult(
+      { content: [{ type: "text", text: three }] },
+      { expanded: false, isPartial: true },
+      THEME,
+    );
+    assert.equal(out3, three, "no truncation, no indicator");
+  });
+  // Boundary: exactly 5 lines → still whole.
+  const five = Array.from({ length: 5 }, (_, i) => `line ${i}`).join("\n");
+  withLiveLines(undefined, () => {
+    const out5 = renderSubagentsResult(
+      { content: [{ type: "text", text: five }] },
+      { expanded: false, isPartial: true },
+      THEME,
+    );
+    assert.equal(out5, five);
+  });
+});
+
+test("`!d` streaming path (details: undefined — what onHistory/onUpdate emits) honors the budget in all option combos", () => {
+  const feed = liveFeed(); // 7 lines
+  withLiveLines("3", () => {
+    // collapsed partial → first 3 lines + indicator.
+    const collapsed = renderSubagentsResult(
+      { content: [{ type: "text", text: feed }] },
+      { expanded: false, isPartial: true },
+      THEME,
+    );
+    const lines = collapsed.split("\n");
+    assert.equal(lines.length, 4, "3 shown + indicator");
+    assert.equal(lines[3], "… +4 more");
+    // expanded partial → full feed.
+    const expanded = renderSubagentsResult(
+      { content: [{ type: "text", text: feed }] },
+      { expanded: true, isPartial: true },
+      THEME,
+    );
+    assert.equal(expanded, feed, "expanded shows all 7 lines");
+    // non-partial (final render, no isPartial) → full feed.
+    const done = renderSubagentsResult({ content: [{ type: "text", text: feed }] }, { expanded: false }, THEME);
+    assert.equal(done, feed, "non-partial shows the full text");
+  });
+});
+
+test("details-carrying isPartial render budgets identically (shared helper on both paths)", () => {
+  const feed = liveFeed();
+  const details: SubagentsToolDetails = { results: [], dispatched: 0, skipped: 0, elapsedMs: 1 };
+  withLiveLines("2", () => {
+    const out = renderSubagentsResult(
+      { content: [{ type: "text", text: feed }], details },
+      { expanded: false, isPartial: true },
+      THEME,
+    );
+    const lines = out.split("\n");
+    assert.equal(lines.length, 3, "2 shown + indicator");
+    assert.equal(lines[2], "… +5 more");
+  });
 });
