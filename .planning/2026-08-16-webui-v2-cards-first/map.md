@@ -10,5 +10,5 @@ Goal: finish the de-chat philosophy. Webui = Transcript (clean read-only log) + 
   - D4 transcript keeps frames; drops .tx-turn dividers and #meta panel. session-status chip stays.
 - Tickets:
   | # | ticket | status | result |
-  | 01 | de-btw + de-clutter (sidebar, views list panel, TURN, meta) | open | — |
+  | 01 | de-btw + de-clutter (sidebar, views list panel, TURN, meta) | closed | — |
   | 02 | verify + polish: replay/UX checks post-removal, README v2 section | open | — |
