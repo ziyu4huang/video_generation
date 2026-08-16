@@ -29,6 +29,48 @@ describe("createSessionStore", () => {
     expect(s.snapshot().transcript).toHaveLength(TRANSCRIPT_CAP);
   });
 
+  it("cards-ux2 (04a): card / card_done frames are exempt from eviction", () => {
+    const s = createSessionStore(5); // tiny cap so eviction actually fires
+    // cards EARLY, generic frames after (a plain FIFO would drop both cards)
+    s.append({
+      type: "card",
+      id: "c1",
+      kind: "readonly",
+      title: "Draft",
+      source: "test",
+      ts: 1,
+      attention: "view",
+      body: { text: "q" },
+    });
+    s.append({ type: "message_update", text: "1" });
+    s.append({ type: "message_update", text: "2" });
+    s.append({
+      type: "card_done",
+      id: "c1",
+      ts: 2,
+      answers: [{ label: "L", answer: "a" }],
+    });
+    for (const t of ["3", "4", "5", "6", "7", "8"]) {
+      s.append({ type: "message_update", text: t });
+    }
+    const snap = s.snapshot();
+    expect(snap.transcript.length).toBeLessThanOrEqual(5);
+    const types = snap.transcript.map((f) => f.type);
+    const cardIdx = types.indexOf("card");
+    const doneIdx = types.indexOf("card_done");
+    expect(cardIdx).toBeGreaterThanOrEqual(0);
+    expect(doneIdx).toBeGreaterThanOrEqual(0);
+    expect(cardIdx).toBeLessThan(doneIdx); // replay order preserved
+    // 10 appended, cap 5 → both cards + the 3 newest messages survive
+    expect(types).toEqual([
+      "card",
+      "card_done",
+      "message_update",
+      "message_update",
+      "message_update",
+    ]);
+  });
+
   it("tracks the mutex driver from mutex_blocked; clears on settle / force-release", () => {
     const s = createSessionStore();
     expect(s.snapshot().driver).toBeNull();

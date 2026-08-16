@@ -226,7 +226,18 @@ export type WebFrame =
   // same store-wrapped broadcaster as `card`, so a refreshed client replays
   // card then card_done IN ORDER and renders the answered state, never a
   // ghost form (same lesson as ask_user_done).
-  | { type: "card_done"; id: string; ts: number }
+  | {
+      type: "card_done";
+      id: string;
+      ts: number;
+      /** cards-ux2 (04): the answers that retired the card (label -> value;
+       *  null = skipped field) so a replayed session renders the answered
+       *  state with content, not just a bare tombstone. Optional — older
+       *  producers and non-form cards omit it. Outbound-only frame: no
+       *  validator mirrors it (validateInbound covers ClientFrame only).
+       */
+      answers?: Array<{ label: string; answer: string | null }>;
+    }
   // forward-compat: any other host event is forwarded generically (never thrown on)
   | { type: string; details?: unknown; [k: string]: unknown };
 
