@@ -218,7 +218,10 @@ export class SubagentInFlightRegistry {
       return () => {};
     }
     let set = this.detachWatchers.get(id);
-    if (!set) this.detachWatchers.set(id, (set = new Set()));
+    if (!set) {
+      set = new Set();
+      this.detachWatchers.set(id, set);
+    }
     set.add(cb);
     return () => {
       set?.delete(cb);

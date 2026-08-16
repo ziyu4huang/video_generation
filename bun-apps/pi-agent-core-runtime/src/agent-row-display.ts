@@ -54,7 +54,10 @@ export interface ActivityRow {
 /** Single icon+color mapping for an agent-level status.
  *  Themed output is byte-identical to activityGlyph (which delegates here);
  *  `plain: true` yields plain-text glyphs for theme-free live tables. */
-export function glyphFor(status: ActivityStatus | null | undefined, opts?: { plain?: boolean }): { icon: string; color: string } {
+export function glyphFor(
+  status: ActivityStatus | null | undefined,
+  opts?: { plain?: boolean },
+): { icon: string; color: string } {
   // defensive: records constructed before the status field became required may omit it
   const s = status ?? "running";
   if (opts?.plain) {
@@ -154,7 +157,9 @@ export function renderRunRow(v: RunView, theme: ThemeLike, maxDetailWidth = 50):
   const meta = [
     v.modelSeg,
     v.costUsd > 0 ? `$${fmtCost(v.costUsd)}` : undefined,
-    fmtElapsed(v.elapsedMs), `${v.toolCallCount} call${v.toolCallCount === 1 ? "" : "s"}`]
+    fmtElapsed(v.elapsedMs),
+    `${v.toolCallCount} call${v.toolCallCount === 1 ? "" : "s"}`,
+  ]
     .filter(Boolean)
     .join(" · ");
   const tail = v.latestAction ? shorten(v.latestAction, maxDetailWidth) : undefined;

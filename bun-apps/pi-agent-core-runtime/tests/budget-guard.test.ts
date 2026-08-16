@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { BUDGET_GRACE_CEILING_RATIO, BUDGET_WRAP_UP_MESSAGE, type BudgetSessionSurface, createBudgetGuard } from "../src/agent.js";
+import {
+  BUDGET_GRACE_CEILING_RATIO,
+  BUDGET_WRAP_UP_MESSAGE,
+  type BudgetSessionSurface,
+  createBudgetGuard,
+} from "../src/agent-budget.js";
 
 /**
  * Fake session for the two-stage budget stop. Mirrors only the seams
