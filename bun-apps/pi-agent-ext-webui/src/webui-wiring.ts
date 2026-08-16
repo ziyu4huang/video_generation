@@ -259,20 +259,22 @@ export interface WebuiWiring {
  * a `tool_execution_update` BOTH ticks activity (its gate handler) AND emits an
  * outbound frame (specs/04 §4 lists tool_execution_{start,update,end}).
  */
-const OUTBOUND_EVENTS = [
-  "message_start",
-  "message_update",
-  "message_end",
-  "tool_execution_start",
-  "tool_execution_update",
-  "tool_execution_end",
-  "tool_result",
-  "turn_start",
-  "turn_end",
-  "agent_settled",
-  "session_before_compact",
-  "session_compact",
-] as const;
+// webui-v3 (02) D4 SOURCE DIET: log frames (message_*, tool_execution_*,
+// tool_result, turn_*, agent_settled, session_*compact) are TUI-ONLY — the
+// webui is a pure HITL companion (cards / reports / ask / appexec / present).
+// Nothing subscribes the family for broadcast anymore. The dual-purpose note
+// above SURVIVES: agent_settled / tool_execution_update keep their GATE
+// handlers (registered independently — pi fires ALL handlers per event).
+const OUTBOUND_EVENTS = [] as const;
+// The diet family still rides the host bus — the snoop must keep SKIPPING it
+// (projecting tool logs as readonly cards would flood Events). Explicit set,
+// decoupled from the (now empty) outbound list.
+const SNOOP_SKIP_EVENTS = new Set<string>([
+  "message_start", "message_update", "message_end",
+  "tool_execution_start", "tool_execution_update", "tool_execution_end",
+  "tool_result", "turn_start", "turn_end", "agent_settled",
+  "session_before_compact", "session_compact", "webui:render",
+]);
 
 // --- module-level WebServer singleton (persistent co-frontend transport) ----
 let singletonServer: WebServer | null = null;
@@ -1192,7 +1194,7 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // flood guard: replayed snapshots must not re-bell) through the SAME
   // store-wrapped broadcaster, so snapshot replay comes FREE. The summary is
   // a truncated JSON string — raw objects NEVER leak into the frame.
-  const SNOOP_SKIP = new Set<string>([...OUTBOUND_EVENTS, "webui:render"]);
+  const SNOOP_SKIP = SNOOP_SKIP_EVENTS;
   let cardSeq = 0;
   function safeSummary(payload: unknown): string {
     let s: string;

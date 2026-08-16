@@ -288,30 +288,29 @@ describe("wireWebui live smoke — Tier A", () => {
     expect(server.clientCount).toBe(1);
   });
 
-  it("C) frame forwarding: a forwarded pi event reaches the WS client as the exact WebFrame", async () => {
+  it("C) webui-v3 02 diet: log events never reach the WS client", async () => {
     const { pi, server } = setup();
     pi.emit("session_start", {}, pi.ctx());
     const ws = await withTimeout(openWs(`${server.url.replace("http", "ws")}/ws`), 2000, "ws open");
     await waitFor("client registered", () => server.clientCount === 1);
 
-    // Skip the connect-time snapshot frame (v2) — resolve on the first LIVE frame.
-    const received = nextNonSnapshot(ws);
-    // Replay an outbound event the wiring forwards verbatim (turn_start ∈
-    // OUTBOUND_EVENTS). transport.mapEvent forwards .type intact.
+    // webui-v3 (02) diet: log events (turn_start) are TUI-only — NOTHING may
+    // reach the WS client. Collect every frame after connect for a beat.
+    const live: string[] = [];
+    ws.onmessage = (ev: { data: unknown }) => live.push(String(ev.data));
     pi.emit("turn_start", { type: "turn_start" });
-    const data = await withTimeout(received, 2000, "forwarded frame not delivered");
-    expect(data).toBe(JSON.stringify({ type: "turn_start" }));
-    expect(JSON.parse(data)).toEqual({ type: "turn_start" });
+    await Bun.sleep(250); // give a would-be forward time to (never) fire
+    const liveTypes = live.map((s) => { try { return JSON.parse(s).type; } catch { return "?"; } });
+    expect(liveTypes.filter((ty) => ty !== "snapshot")).toEqual([]); // snapshot may race in; NO live frames
   });
 
   it("C2) a client connecting mid-session receives the v2 snapshot FIRST (bounded transcript replay)", async () => {
     const { pi, server } = setup();
     pi.emit("session_start", {}, pi.ctx());
-    // Accumulate history BEFORE any client connects: a turn_start + a
-    // message_update (text delta) land in the session store via the wrapped
-    // broadcaster.
-    pi.emit("turn_start", { type: "turn_start" });
-    pi.emit("message_update", { type: "message_update", text: "hello" });
+    // webui-v3 (02) diet: history = kept-family frames only — web acquires
+    // the lock, a blocked TUI input broadcasts mutex_blocked.
+    pi.emit("input", { type: "input", source: "extension" });
+    pi.emit("input", { type: "input", source: "interactive" });
 
     const ws = await withTimeout(openWs(`${server.url.replace("http", "ws")}/ws`), 2000, "ws open");
     await waitFor("client registered", () => server.clientCount === 1);
@@ -324,12 +323,10 @@ describe("wireWebui live smoke — Tier A", () => {
     expect(frame.type).toBe("snapshot");
     expect(frame.state.transcript.map((f: { type: string }) => f.type)).toEqual([
       "session_info",
-      "turn_start",
-      "message_update",
+      "mutex_blocked",
     ]);
-    expect(frame.state.transcript[2]).toMatchObject({ type: "message_update", text: "hello" });
     expect(frame.state.presentId).toBeNull();
-    expect(frame.state.driver).toBeNull();
+    expect(frame.state.driver).toBe("web"); // blocked-TUI fixture: web legitimately holds the lock
   });
 
   it("D) inbound prompt frame is deliberately IGNORED (de-chat): pi.sendUserMessage never called", async () => {

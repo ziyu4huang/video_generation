@@ -22,3 +22,6 @@ turn_*, agent_settled, session_*compact) is TUI-only.
 
 ## Done when
 webui suite green; a replay snapshot contains zero log frames; docs updated.
+
+## Result
+D4 diet landed: OUTBOUND_EVENTS emptied (12 log types TUI-only; gate handlers unaffected — independently registered). Snoop skip decoupled (SNOOP_SKIP_EVENTS). 9 old-contract tests inverted into diet guards + diet describe (dropped never broadcast/stored/snooped). Fixtures assert real driver semantics. Store cap kept as safety net.

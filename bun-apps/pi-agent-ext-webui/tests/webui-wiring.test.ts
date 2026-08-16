@@ -142,6 +142,9 @@ describe("wireWebui — chained render+output http routes", () => {
 describe("wireWebui — construction", () => {
   test("registers the expected pi.on event SET", () => {
     const { pi } = setup();
+    // webui-v3 (02) D4 diet: the log family no longer registers ANY broadcast
+    // handler — gate handlers (agent_settled / message_update /
+    // tool_execution_update) remain; the outbound broadcast set is gone.
     const expected = [
       "input",
       "agent_settled",
@@ -149,26 +152,16 @@ describe("wireWebui — construction", () => {
       "tool_execution_update",
       "session_start",
       "session_shutdown",
-      // outbound broadcast set
-      "message_start",
-      "message_end",
-      "tool_execution_start",
-      "tool_execution_end",
-      "tool_result",
-      "turn_start",
-      "turn_end",
-      "session_before_compact",
-      "session_compact",
     ];
     expect(pi.registeredEvents().sort()).toEqual([...expected].sort());
   });
 
-  test("dual-purpose events register BOTH a gate and a broadcast handler", () => {
+  test("diet: dual-purpose events keep ONLY their gate handler (webui-v3 02)", () => {
     const { pi } = setup();
-    expect(pi.handlersFor("agent_settled")).toHaveLength(2);
-    expect(pi.handlersFor("message_update")).toHaveLength(2);
-    // tool_execution_update is dual-purpose too (activity gate + outbound frame).
-    expect(pi.handlersFor("tool_execution_update")).toHaveLength(2);
+    // webui-v3 (02) diet: gate handler ONLY (broadcast registration removed).
+    expect(pi.handlersFor("agent_settled")).toHaveLength(1);
+    expect(pi.handlersFor("message_update")).toHaveLength(1);
+    expect(pi.handlersFor("tool_execution_update")).toHaveLength(1);
   });
 
   test("installs the inbound command handler on the server", () => {
@@ -202,7 +195,7 @@ describe("wireWebui — input gate handler", () => {
 });
 
 describe("wireWebui — outbound broadcast", () => {
-  test("tool_execution_end with .details is mapped 1:1 and broadcast", () => {
+  test("webui-v3 02 diet: tool_execution_end is NOT broadcast", () => {
     const { pi, broadcaster } = setup();
     const evt = {
       type: "tool_execution_end",
@@ -213,7 +206,8 @@ describe("wireWebui — outbound broadcast", () => {
       details: { stdout: "ok" },
     };
     pi.emit("tool_execution_end", evt);
-    expect(broadcaster.frames).toContainEqual({ ...evt });
+    // webui-v3 (02) diet: log frames are TUI-only — never broadcast.
+    expect(broadcaster.frames).toHaveLength(0);
   });
 });
 
@@ -229,7 +223,7 @@ describe("wireWebui — outbound broadcast", () => {
  * handler unwired, lastActivity would stay frozen and the watchdog would fire.
  */
 describe("wireWebui — dual-purpose behavior (gate effect + broadcast)", () => {
-  test("message_update BOTH ticks activity AND broadcasts a frame", () => {
+  test("message_update ticks activity but broadcasts NOTHING (webui-v3 02)", () => {
     const { pi, broadcaster, clock } = setup();
     // Acquire the lock as web (starts the watchdog, lastActivity = 0).
     const gate = pi.handlersFor("input")[0];
@@ -239,14 +233,15 @@ describe("wireWebui — dual-purpose behavior (gate effect + broadcast)", () => 
     clock.advance(599_000);
     // Emit message_update → handleActivity bumps + broadcast handler forwards.
     pi.emit("message_update", { type: "message_update", text: "partial" });
-    expect(broadcaster.frames).toContainEqual({ type: "message_update", text: "partial" });
+    // webui-v3 (02) diet: activity ticks, but NOTHING is broadcast.
+    expect(broadcaster.frames.filter((f) => f.type === "message_update")).toHaveLength(0);
     // Activity effect: past the original stale point (0 + 600_000) with no release.
     clock.advance(1_000);
     const forceReleases = broadcaster.frames.filter((f) => f.type === "mutex_force_release");
     expect(forceReleases).toHaveLength(0); // lastActivity was reset → no stale
   });
 
-  test("tool_execution_update BOTH ticks activity AND broadcasts a frame", () => {
+  test("tool_execution_update ticks activity but broadcasts NOTHING (webui-v3 02)", () => {
     const { pi, broadcaster, clock } = setup();
     const gate = pi.handlersFor("input")[0];
     gate({ type: "input", source: "extension", text: "x" }, pi.ctx);
@@ -258,17 +253,13 @@ describe("wireWebui — dual-purpose behavior (gate effect + broadcast)", () => 
       toolName: "bash",
       details: { n: 1 },
     });
-    expect(broadcaster.frames).toContainEqual({
-      type: "tool_execution_update",
-      toolName: "bash",
-      details: { n: 1 },
-    });
+    expect(broadcaster.frames.filter((f) => f.type === "tool_execution_update")).toHaveLength(0);
     clock.advance(1_000);
     const forceReleases = broadcaster.frames.filter((f) => f.type === "mutex_force_release");
     expect(forceReleases).toHaveLength(0);
   });
 
-  test("agent_settled BOTH releases the mutex AND broadcasts a frame", () => {
+  test("agent_settled releases the mutex but broadcasts NOTHING (webui-v3 02)", () => {
     const { pi, broadcaster } = setup();
     const gate = pi.handlersFor("input")[0];
     // web acquires the lock.
@@ -276,7 +267,8 @@ describe("wireWebui — dual-purpose behavior (gate effect + broadcast)", () => 
     broadcaster.frames.length = 0;
     // Emit agent_settled → handleSettled releases + broadcast handler forwards.
     pi.emit("agent_settled", { type: "agent_settled" });
-    expect(broadcaster.frames).toContainEqual({ type: "agent_settled" });
+    // webui-v3 (02) diet: settle releases, no frame.
+    expect(broadcaster.frames.filter((f) => f.type === "agent_settled")).toHaveLength(0);
     // Release effect: after settle, a TUI input can now acquire (web no longer
     // driving). Were handleSettled unwired, this would be {action:"handled"}.
     const tui = gate({ type: "input", source: "interactive", text: "tui" }, pi.ctx);
@@ -716,12 +708,14 @@ describe("wireWebui — optionality gate (architecture v2 §3.1)", () => {
 });
 
 describe("wireWebui — v2 session store + snapshot (architecture v2 §3.3)", () => {
-  test("outbound frames accumulate in the store; wsOpenHandler pushes a snapshot to THAT client", () => {
+  test("kept-family frames accumulate in the store; wsOpenHandler pushes a snapshot to THAT client (webui-v3 02)", () => {
     const { pi, server } = setup();
     pi.emit("session_start", { type: "session_start", reason: "startup" });
     // Drive two outbound events through the wiring's broadcast path.
-    pi.emit("turn_start", { type: "turn_start" });
-    pi.emit("message_update", { type: "message_update", text: "hi" });
+    // webui-v3 (02) diet: kept-family frames still accumulate — web acquires
+    // the lock, a blocked TUI input broadcasts mutex_blocked.
+    pi.emit("input", { type: "input", source: "extension" });
+    pi.emit("input", { type: "input", source: "interactive" });
     expect(server.wsOpenHandler).not.toBeNull();
     const sent: string[] = [];
     server.wsOpenHandler!({ send: (s: string) => sent.push(s) } as never);
@@ -730,11 +724,10 @@ describe("wireWebui — v2 session store + snapshot (architecture v2 §3.3)", ()
     expect(frame.type).toBe("snapshot");
     expect(frame.state.transcript.map((f: { type: string }) => f.type)).toEqual([
       "session_info",
-      "turn_start",
-      "message_update",
+      "mutex_blocked",
     ]);
     expect(frame.state.presentId).toBeNull();
-    expect(frame.state.driver).toBeNull();
+    expect(frame.state.driver).toBe("web"); // blocked-TUI fixture: web legitimately holds the lock
   });
 
   test("session_shutdown clears the store; a later snapshot is empty (server survives)", () => {
@@ -1102,5 +1095,24 @@ describe("wireWebui — interactive card answers (event-cards 02)", () => {
     } finally {
       rmSync(tmpRoot, { recursive: true, force: true });
     }
+  });
+});
+
+describe("wireWebui — webui-v3 02 frame diet", () => {
+  test("diet family never reaches broadcast or the replay store", () => {
+    const { pi, broadcaster, server } = setup();
+    pi.emit("session_start", { type: "session_start", reason: "startup" });
+    broadcaster.frames.length = 0;
+    for (const ev of [
+      "message_start", "message_update", "message_end",
+      "tool_execution_start", "tool_execution_update", "tool_execution_end",
+      "tool_result", "turn_start", "turn_end", "agent_settled",
+      "session_before_compact", "session_compact",
+    ]) pi.emit(ev, { type: ev });
+    expect(broadcaster.frames).toEqual([]);
+    const sent: string[] = [];
+    server.wsOpenHandler!({ send: (s: string) => sent.push(s) } as never);
+    const t = JSON.parse(sent[0]).state.transcript.map((f: { type: string }) => f.type);
+    expect(t).toEqual(["session_info"]); // diet frames never stored; no snoop cards for them
   });
 });
