@@ -196,6 +196,7 @@ export function createSubagentTool(
       const tier = params.tier ?? agentDef?.tier;
       const capability = params.capability;
       const mainModel = options.getMainModel?.();
+      const scopedModels = options.getScopedModels?.();
       // Shown WHILE the subagent runs, before the resolved model is known.
       const displayModelBeforeResolve = resolveDisplayModel(requestedModel, capability, tier, mainModel);
 
@@ -231,7 +232,7 @@ export function createSubagentTool(
             t0,
             params,
             agentDef,
-            modelCtx: { requestedModel, tier, capability, mainModel },
+            modelCtx: { requestedModel, tier, capability, mainModel, scopedModels },
             spawnCwd,
             // dispatchChild owns the child controller and overwrites this field;
             // buildSpawnOptions still needs a signal-shaped value for its type.

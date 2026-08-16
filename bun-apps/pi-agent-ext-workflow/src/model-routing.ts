@@ -73,25 +73,17 @@ export function parseModelRoutingFromMeta(
 }
 
 /**
- * Clamp a requested model spec (`provider/id`) to the session's scoped models
- * (ctx.scopedModels, fed by CLI --models / enabledModels).
+ * The scope clamp now lives in `@repo/pi-agent-core-runtime` (agent-model.ts),
+ * next to `resolveAgentModelSpec`.
  *
- * Behavior lock (ticket 11):
- * - empty scope → the request stands unchanged (full-catalog behavior);
- * - exact match → the request stands unchanged;
- * - out of scope → warn-and-clamp to the FIRST scoped model (never a hard error).
- * Pure: no I/O, no logging — callers own the warning surface.
+ * It used to live here and was applied in workflow-runtime to `opts.model`,
+ * which is the ONE dispatch path this layer can see a concrete spec for. The
+ * tier path deliberately leaves `modelSpec` undefined here so the tier resolves
+ * downstream, and the untagged default-to-medium path never produces a spec at
+ * this layer at all — so both escaped the clamp entirely while the picker and
+ * the runtime both looked scoped. Moving the rule below the resolution point
+ * means every branch of the precedence chain passes through it exactly once.
+ *
+ * Re-exported so existing importers of this module keep working.
  */
-export function clampModelToScope(
-  requestedSpec: string,
-  scopedSpecs: readonly string[],
-): { spec: string; clamped: boolean } {
-  // Destructure rather than test `.length === 0`: it states the same "empty
-  // scope" condition AND gives the compiler the narrowing it needs for the
-  // clamp return. `scopedSpecs[0]` is `string | undefined` under
-  // noUncheckedIndexedAccess, which the length check does not refute.
-  const [fallback] = scopedSpecs;
-  if (fallback === undefined) return { spec: requestedSpec, clamped: false };
-  if (scopedSpecs.includes(requestedSpec)) return { spec: requestedSpec, clamped: false };
-  return { spec: fallback, clamped: true };
-}
+export { clampModelToScope } from "@repo/pi-agent-core-runtime";

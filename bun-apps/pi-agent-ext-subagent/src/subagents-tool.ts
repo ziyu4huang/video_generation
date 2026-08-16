@@ -134,6 +134,8 @@ export interface SubagentsToolOptions {
   cwd?: string;
   getExtensionTools?: () => ToolDefinition[] | undefined;
   getMainModel?: () => string | undefined;
+  /** Parent session's model scope; see SubagentToolOptions.getScopedModels. */
+  getScopedModels?: () => readonly string[] | undefined;
   /**
    * Parent session's CURRENT active tool-name set (the gated set). When a child
    * task omits an explicit `tools` allowlist, it defaults to THIS set instead of
@@ -223,6 +225,7 @@ export function mergeReadOnlyExclusion(
   ctx: {
     defaultCwd: string;
     mainModel?: string;
+    scopedModels?: readonly string[];
     extensionTools?: ToolDefinition[];
     activeTools?: string[];
     /** Run token for the abort-safety footer's log path (`<toolCallId>:<index>`). */
@@ -264,6 +267,7 @@ export function mergeReadOnlyExclusion(
   if (task.tier) opts.tier = task.tier;
   if (task.capability) opts.capability = task.capability;
   if (ctx.mainModel) opts.mainModel = ctx.mainModel;
+  if (ctx.scopedModels?.length) opts.scopedModels = ctx.scopedModels;
   if (ctx.extensionTools?.length) opts.extensionTools = ctx.extensionTools;
   return opts;
 }
@@ -336,6 +340,7 @@ export function createSubagentsTool(
       }
       const concurrency = clampConcurrency(params.concurrency);
       const mainModel = options.getMainModel?.();
+      const scopedModels = options.getScopedModels?.();
       const extensionTools = options.getExtensionTools?.();
       // Parent's gated active set — the per-task `tools` default (optimization #1).
       const activeTools = options.getActiveTools?.();
@@ -417,6 +422,7 @@ export function createSubagentsTool(
         const childOpts = mergeReadOnlyExclusion(effTask, {
           defaultCwd,
           mainModel,
+          scopedModels,
           extensionTools,
           activeTools,
           logToken: `${toolCallId}:${index}`,

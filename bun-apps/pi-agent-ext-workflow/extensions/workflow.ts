@@ -96,7 +96,7 @@ export default function extension(pi: ExtensionAPI) {
   // On-demand reference companion (helpers/budget/phases/patterns/models).
   // The workflow tool's always-on guidelines stay slim; advanced docs live here
   // and appear only in the turn they are requested (tool result, not schema).
-  const workflowHelpTool = createWorkflowHelpTool();
+  const workflowHelpTool = createWorkflowHelpTool({ getScopedModels: () => manager.getScopedModels() });
   pi.registerTool(workflowHelpTool);
 
   // Shared holder for parent-session tool definitions, updated in session_start.
@@ -125,6 +125,9 @@ export default function extension(pi: ExtensionAPI) {
     const block = await buildWorkflowGuidelinesForTurn({
       full,
       verbose: settings.verboseWorkflowGuidelines,
+      // Same scope the dispatch clamp enforces, so the prompt cannot advertise
+      // a model the session has excluded.
+      scopedModels: manager.getScopedModels(),
     });
     const base = event.systemPrompt ?? "";
     return { systemPrompt: `${base}\n\n${block}` };

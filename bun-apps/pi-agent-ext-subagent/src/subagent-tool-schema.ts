@@ -254,6 +254,14 @@ export interface SubagentToolOptions {
   /** Parent session's current model (provider/id), captured at session_start. Lets an untagged dispatch default to the live session model. */
   getMainModel?: () => string | undefined;
   /**
+   * Parent session's model SCOPE (`ctx.scopedModels`, from CLI `--models` /
+   * `enabledModels`), captured at session_start. Empty/undefined = full
+   * catalog. When non-empty, the child's resolved model — however it was
+   * chosen: explicit, capability, tier, or the session default — is clamped
+   * into scope by CoreAgent. Read lazily for the same reason getMainModel is.
+   */
+  getScopedModels?: () => readonly string[] | undefined;
+  /**
    * Parent session's CURRENT active tool-name set (the gated set, ~24 names).
    * Read lazily at spawn time so it reflects the freshest gating. When the
    * caller omits an explicit `tools` allowlist (and no agentType binds one),

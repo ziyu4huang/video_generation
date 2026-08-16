@@ -389,6 +389,7 @@ export interface SpawnCtx {
     tier: string | undefined;
     capability: string | undefined;
     mainModel: string | undefined;
+    scopedModels: readonly string[] | undefined;
   };
   spawnCwd: string;
   childSignal: AbortSignal;
@@ -438,6 +439,7 @@ export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: Sp
     tier: modelCtx.tier,
     capability: modelCtx.capability,
     mainModel: modelCtx.mainModel,
+    scopedModels: modelCtx.scopedModels,
     cwd: spawnCwd,
     instructions,
     extensionTools: deps.getExtensionTools?.(),

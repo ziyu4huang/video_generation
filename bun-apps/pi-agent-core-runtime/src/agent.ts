@@ -14,14 +14,18 @@ import {
 import type { Static, TSchema } from "typebox";
 import { type AgentUsage, createBudgetGuard } from "./agent-budget.js";
 import { type AgentHistoryEntry, compactAgentHistory } from "./agent-history.js";
-import { resolveAgentModelSpec, resolveFallbackModel } from "./agent-model.js";
+import { resolveFallbackModel, resolveScopedAgentModelSpec } from "./agent-model.js";
 import { applyToolPolicy } from "./agent-registry.js";
 import { createTurnGuard, turnExhaustionError } from "./agent-turns.js";
 import { WorkflowError, WorkflowErrorCode } from "./errors.js";
 import { loadModelTierConfig, type ModelTierConfig } from "./model-tier-config.js";
 import { throwIfProviderLimit } from "./provider-limit.js";
 import { parseSddReport, type SddReport } from "./sdd-report.js";
-import { createStructuredOutputTool, resolveStructuredOutput, type StructuredOutputCapture } from "./structured-output.js";
+import {
+  createStructuredOutputTool,
+  resolveStructuredOutput,
+  type StructuredOutputCapture,
+} from "./structured-output.js";
 
 // ── Facade re-exports ────────────────────────────────────────────────────────
 // Definitions that moved out of this file. Consumers and tests still import
@@ -47,7 +51,12 @@ export {
   isUsageObservation,
 } from "./agent-budget.js";
 export type { FallbackDecision } from "./agent-model.js";
-export { resolveAgentModelSpec, resolveFallbackModel } from "./agent-model.js";
+export {
+  clampModelToScope,
+  resolveAgentModelSpec,
+  resolveFallbackModel,
+  resolveScopedAgentModelSpec,
+} from "./agent-model.js";
 export type { TurnExhaustion, TurnGuard, TurnSessionSurface } from "./agent-turns.js";
 export {
   createTurnGuard,
@@ -83,6 +92,16 @@ export interface WorkflowAgentOptions {
    * to the session default when no config is saved yet.
    */
   mainModel?: string;
+  /**
+   * The session's model scope (`provider/id` specs), from CLI `--models` /
+   * `enabledModels` via `ctx.scopedModels`. Empty/undefined means the full
+   * catalog, i.e. no clamping. When non-empty, EVERY resolved spec — explicit
+   * model, agentType model, phase model, tier, and the untagged
+   * default-to-medium — is clamped into scope by `run()`; see
+   * {@link clampModelToScope} for why the clamp lives downstream of resolution
+   * rather than at each call site.
+   */
+  scopedModels?: readonly string[];
   /**
    * Loads the model-tier config (model-tiers.json). Defaults to a disk read via
    * loadModelTierConfig; the result is cached per CoreAgent instance so a
@@ -195,6 +214,7 @@ export class CoreAgent {
   private readonly sessionOptions: Partial<CreateAgentSessionOptions>;
   private readonly instructions?: string;
   private readonly mainModel?: string;
+  private readonly scopedModels?: readonly string[];
   /** Lazily built once; shares the SDK's agentDir/auth so resolved models are authed. */
   private registryPromise?: Promise<ModelRegistry>;
   /**
@@ -212,6 +232,7 @@ export class CoreAgent {
     this.sessionOptions = options.session ?? {};
     this.instructions = options.instructions;
     this.mainModel = options.mainModel;
+    this.scopedModels = options.scopedModels;
     this.loadTierConfigFn = options.loadTierConfig ?? loadModelTierConfig;
   }
 
@@ -285,7 +306,20 @@ export class CoreAgent {
     // options.model when a phase pattern matches — so an explicit model wins.
     // The tier config is read from the instance cache (once per agent) instead
     // of re-reading disk on every call.
-    const modelSpec = resolveAgentModelSpec(options, this.mainModel, () => this.getTierConfig());
+    // Session scope is applied ONCE downstream of every precedence branch — so
+    // the tier and untagged-default paths are covered, not just opts.model
+    // (which was the only one the workflow layer could see). Warn-and-clamp,
+    // never a hard error; an empty scope is the full catalog.
+    const {
+      spec: modelSpec,
+      clamped,
+      requested,
+    } = resolveScopedAgentModelSpec(options, this.mainModel, this.scopedModels, () => this.getTierConfig());
+    if (clamped) {
+      console.warn(
+        `[subagent] model "${requested}" is outside this session's model scope — clamped to "${modelSpec}". Scope comes from --models / enabledModels; widen it or retag the agent.`,
+      );
+    }
 
     // Resolve a requested model spec to a Model object. A given-but-unresolved
     // spec degrades to the caller's tier (→ active /models-preset) BEFORE the
