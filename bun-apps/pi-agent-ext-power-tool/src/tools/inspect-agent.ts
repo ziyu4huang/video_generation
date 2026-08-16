@@ -32,7 +32,7 @@ const SELF_TEST_AGENT_INVENTORY_OUTPUT = [
 export function makeInspectAgentTool(getAllTools: () => ToolInfo[]) {
   return defineTool({
     name: "inspect_agent",
-    gating: { gate: "inspect" }, // reference form (ticket 01) — family in GATE_DEFS["inspect"]
+    gating: { core: true }, // un-gated (ticket 06 HITL): diagnostics always-on
     label: "Inspect Agent",
     description:
       "Snapshot the full agent state — extensions, tools, skills, context files, " +

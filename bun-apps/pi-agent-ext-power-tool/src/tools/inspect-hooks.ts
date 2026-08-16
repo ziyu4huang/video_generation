@@ -170,7 +170,7 @@ const SELF_TEST_SNAPSHOT: HooksSnapshot = {
 export function makeInspectHooksTool() {
   return defineTool({
     name: "inspect_hooks",
-    gating: { gate: "inspect" }, // reference form (ticket 01) — family in GATE_DEFS["inspect"]
+    gating: { core: true }, // un-gated (ticket 06 HITL): diagnostics always-on
     label: "Inspect Hooks",
     description:
       "List every loaded extension's registered lifecycle hooks (pi.on handlers) — which events each extension listens on, handler counts, and any handler registered against an unknown event name (likely a typo / dead handler). Fact-finder companion to inspect_extensions.",

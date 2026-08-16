@@ -193,21 +193,13 @@ describe("drift-guard — pilot tools declare valid gating", () => {
 			].sort(),
 		);
 		assertAllValid(defs);
-		// The inspect_* group is non-core — prove the DEAD-GATE branch is exercised
-		// via the REFERENCE form (ticket 01): each tool references the "inspect"
-		// family, whose registry spec (GATE_DEFS["inspect"]) carries keywords AND
-		// requires, so none is dead.
+		// ticket 06 (HITL): the inspect_* group is now owner-declared CORE
+		// (always-on diagnostics — the former "inspect" gate family + its
+		// keyword predicate were retired; see power-tool src/gating.ts).
 		for (const d of defs) {
-			expect(d.gating?.core, `'${d.name}' is intentionally non-core (keyword-gated)`).not.toBe(true);
-			expect(d.gating?.gate, `'${d.name}' references the 'inspect' gate family`).toBe("inspect");
+			expect(d.gating?.core, `'${d.name}' is owner-declared core (ticket 06 un-gate)`).toBe(true);
+			expect(d.gating?.gate, `'${d.name}' no longer references a gate family`).toBeUndefined();
 		}
-		// The resolved family spec must be fireable (non-dead) — validateGating
-		// already resolves references; prove the registry entry itself is live.
-		const spec = GATE_DEFS["inspect"];
-		expect(spec).toBeDefined();
-		expect(spec!.keywords?.length).toBeGreaterThan(0);
-		expect(spec!.requires?.nouns?.length).toBeGreaterThan(0);
-		expect(spec!.requires?.verbs?.length).toBeGreaterThan(0);
 	});
 
 	test("ext-task: ask_user_question / todo / goal_complete carry gating:{core:true}", () => {

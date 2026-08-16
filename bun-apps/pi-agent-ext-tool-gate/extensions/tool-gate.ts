@@ -18,8 +18,8 @@
  *  workflow/workflow_help/subagent/workflow_control migrated in tickets 10 + 11,
  *  rolled out TOGETHER as one atomic unit over their single shared combined gate.)
  *
- * Baseline:  ~72 tools → ~21,900 tok/req   (measured via `bun run qa`)
- * Gated:    ON at start ~5,700 tok/req   (saves ~16,290 tok/turn, ~74%; net ~15,980; zai-mcp env-gated)
+ * Baseline:  ~72 tools → ~21,950 tok/req   (measured via `bun run qa`)
+ * Gated:    ON at start ~6,750 tok/req   (saves ~15,186 tok/turn, ~69%; net ~14,900; zai-mcp env-gated)
  *
  * Tools reactivate instantly when the prompt mentions relevant keywords, and
  * once activated stay active for the rest of the session (they never re-gate
@@ -29,7 +29,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { GATE_DEFS, type Gate, type Gating } from "@repo/pi-agent-core-interface";
+import { GATE_DEFS, publishSeam, type Gate, type Gating, type ToolGateStatus } from "@repo/pi-agent-core-interface";
 import { appendFileSync } from "node:fs";
 import { Type } from "typebox";
 import { estimateToolCost } from "@repo/pi-agent-ext-power-tool/schema-cost";
@@ -483,10 +483,39 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     };
   };
 
+  // ── Live-state seam (wayfinder ticket 06) ─────────────────────────────────
+  // publishSeam("__piToolGateStatus") exposes a reader power-tool's
+  // inspect_context calls to render the "tool gate" section: per-gate
+  // fired/dormant + keywords + measured token cost, plus the sticky set.
+  // `lastSessionId` tracks the most recent session (inspect_context carries no
+  // session id, so the reader returns the current/last session's state).
+  let lastSessionId = "__default__";
+  publishSeam("__piToolGateStatus", (): ToolGateStatus | undefined => {
+    const state = gateStateBySession.get(lastSessionId);
+    if (!state) return undefined;
+    const active = filterActive(state.allToolNames, state.sticky, state.tracked);
+    return {
+      sessionId: lastSessionId,
+      activeCount: active.length,
+      totalCount: state.allToolNames.length,
+      coreCount: state.core.size,
+      gates: state.gates.map((g) => ({
+        id: g.gateId ?? g.names[0]!,
+        names: g.names,
+        fired: g.names.every((n) => state.sticky.has(n)),
+        dormant: !g.names.every((n) => state.sticky.has(n)),
+        keywords: g.keywords,
+        tokens: g.names.reduce((s, n) => s + (state.measuredTokens.get(n) ?? 0), 0),
+      })),
+      sticky: [...state.sticky],
+    };
+  });
+
   // ── On session start: capture full tool list and gate (the ONE rebuild) ──
   pi.on("session_start", async (_event, ctx) => {
     const state = buildSessionState();
-    gateStateBySession.set(sessionIdOf(ctx), state);
+    lastSessionId = sessionIdOf(ctx);
+    gateStateBySession.set(lastSessionId, state);
 
     const active = filterActive(state.allToolNames, state.sticky, state.tracked);
     pi.setActiveTools(active);
@@ -518,6 +547,7 @@ export default function toolGateExtension(pi: ExtensionAPI) {
       state = buildSessionState();
       gateStateBySession.set(sid, state);
     }
+    lastSessionId = sid;
     const prompt = event.prompt ?? "";
 
     const before = new Set(state.sticky);

@@ -9,6 +9,13 @@ export const SEAM_KEYS = {
   __piPlanPhases:           { crossPackage: true },
   __piPlanSummary:          { crossPackage: true },
   __piWayfindGrill:         { crossPackage: true },
+  // __piToolGateStatus: the tool-gate LIVE-STATE seam (wayfinder ticket 06) —
+  // tool-gate publishes a reader of its current session's effective gate state
+  // (active count, per-gate fired/dormant + keywords + token cost, sticky set);
+  // power-tool's inspect_context reads it to render the "tool gate" section of
+  // the live context breakdown. The literal is duplicated verbatim across the
+  // two packages (tool-gate publishes, power-tool reads) — crossPackage:true.
+  __piToolGateStatus:       { crossPackage: true },
   __piKnowledgePipeline:    { crossPackage: true },
   // __piHermesStaleCheck: the staleness REVERSE seam added by #1242 — hermes
   // publishes the async reader (hermes-memory/src/stale-seam.ts), wayfind reads

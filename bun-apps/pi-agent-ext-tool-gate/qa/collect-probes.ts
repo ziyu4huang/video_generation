@@ -45,7 +45,6 @@ import { __GATE_PROBES__ as file2mdProbes } from "@repo/pi-agent-ext-file2md/ext
 import { COLLECT_VIDEOS_PROBES, ARXIV_SEARCH_PROBES } from "@repo/pi-agent-ext-research-tool/extensions/research-tool.ts";
 import { __GATE_PROBES__ as zaiProbes } from "@repo/pi-agent-ext-zai-mcp/extensions/zai-mcp.ts";
 import { __GATE_PROBES__ as workflowProbes } from "@repo/pi-agent-ext-workflow/extensions/workflow.ts";
-import { __GATE_PROBES__ as inspectProbes } from "@repo/pi-agent-ext-power-tool/extensions/power-tool.ts";
 import {
 	PI_DEPLOY_PROBES,
 	AWAIT_PR_MERGE_PROBES,
@@ -81,7 +80,6 @@ export const ALL_PROBE_SETS: GateProbeSet[] = [
 	zaiProbes,
 	// Dispatch / utility gates — controls-only (recallFloor 0, adversarial []):
 	workflowProbes,
-	inspectProbes,
 	memorySupersedeProbes,
 	...zkProbes,
 	wayfindProbes,

@@ -53,11 +53,11 @@ test("the canonical gross claim is actually cited in the prose (guard against si
 	// If someone deletes the ~9,800 claim from every file, the sanctioned-set
 	// test above still passes (vacuously) — so explicitly assert the claim is present.
 	const readme = readFileSync(join(extRoot, "README.md"), "utf8");
-	expect(readme).toContain("~16,290");
+	expect(readme).toContain("~15,186");
 });
 
 test("sanctioned set is internally consistent (gross + net derive from the claims)", () => {
 	expect(SANCTIONED_PROSE_TOK.has(CLAIMED_SAVED_TOK)).toBe(true);
 	expect(SANCTIONED_PROSE_TOK.has(Math.round(CLAIMED_NET_TOK / 100) * 100)).toBe(true);
-	expect(CLAIMED_NET_TOK).toBe(CLAIMED_SAVED_TOK - 312); // net derives from gross − overhead (post ticket-02)
+	expect(CLAIMED_NET_TOK).toBe(CLAIMED_SAVED_TOK - 309); // net derives from gross − overhead (post ticket-02 + 06)
 });

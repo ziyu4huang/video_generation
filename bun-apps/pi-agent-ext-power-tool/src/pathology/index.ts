@@ -36,7 +36,7 @@ const SELF_TEST_PATHOLOGY_OUTPUT = [
 export function makeInspectPathologyTool() {
   return defineTool({
     name: "inspect_pathology",
-    gating: { gate: "inspect" }, // reference form (ticket 01) — family in GATE_DEFS["inspect"]
+    gating: { core: true }, // un-gated (ticket 06 HITL): diagnostics always-on
     label: "Inspect Pathology",
     description:
       "Diagnose how the agent is failing this session — detect retry loops, " +

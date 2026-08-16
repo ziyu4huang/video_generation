@@ -32,11 +32,11 @@ describe("computeNet (pure — audit I-6 net accounting)", () => {
 });
 
 describe("withinDriftBand (single-source-of-truth guard — pure)", () => {
-	const band = DRIFT_BAND * CLAIMED_SAVED_TOK; // ±20% of 16,290 = ±3,258
+	const band = Math.round(DRIFT_BAND * CLAIMED_SAVED_TOK); // ±20% of 15,186 = ±3,037 (rounded to dodge FP edge)
 
 	test("measured ≈ claim → within band", () => {
 		expect(withinDriftBand(CLAIMED_SAVED_TOK)).toBe(true); // exact
-		expect(withinDriftBand(16290)).toBe(true); // current measured gross (post ticket-02)
+		expect(withinDriftBand(15186)).toBe(true); // current measured gross (post ticket-02 + 06)
 	});
 
 	test("band edges are inclusive", () => {

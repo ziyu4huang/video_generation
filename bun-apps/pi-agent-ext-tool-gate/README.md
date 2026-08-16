@@ -1,16 +1,16 @@
 # Dynamic Tool Gate
 
-> Keeps core tools always active while gating heavy domain-specific tools behind prompt keyword matching — saving ~16,290 tokens per request (~74%; the ~16,290 gross claim is the single source of truth in `qa/savings.ts` — locked to measured reality by a ±20% deviation-band test; figures drift as the gate set changes — re-run `bun run qa:savings` for live numbers; zai-mcp adds ~1.1k when registered).
+> Keeps core tools always active while gating heavy domain-specific tools behind prompt keyword matching — saving ~15,186 tokens per request (~69%; the ~15,186 gross claim is the single source of truth in `qa/savings.ts` — locked to measured reality by a ±20% deviation-band test; figures drift as the gate set changes — re-run `bun run qa:savings` for live numbers; zai-mcp adds ~1.1k when registered).
 
 ## The Problem
 
-Every registered tool adds to the API request's tools schema. With a full extension ecosystem loaded, a single pi session can carry **~72 tools → ~21,900 tokens per request** — a fixed overhead charged on every turn, even when 95% of those tools are never used.
+Every registered tool adds to the API request's tools schema. With a full extension ecosystem loaded, a single pi session can carry **~72 tools → ~21,950 tokens per request** — a fixed overhead charged on every turn, even when 95% of those tools are never used.
 
 This extension solves that by keeping lightweight core tools always active and hiding heavy domain-specific tools (video generation, image generation, movie orchestration, etc.) behind keyword gates. When the user's prompt mentions a relevant keyword, the matching gate fires instantly and the tool becomes available for the rest of the session.
 
 ```
-Baseline:  ~72 tools → ~21,900 tok/req   (measured via `bun run qa`)
-Gated:    ON at start ~5,700 tok/req   (saves ~16,290 tok/turn gross, ~74%; **net ~15,980** after the ~312 tok `enable_tool` escape-hatch overhead — audit I-6; zai-mcp env-gated)
+Baseline:  ~72 tools → ~21,950 tok/req   (measured via `bun run qa`)
+Gated:    ON at start ~6,750 tok/req   (saves ~15,186 tok/turn gross, ~69%; **net ~14,900** after the ~309 tok `enable_tool` escape-hatch overhead — audit I-6; zai-mcp env-gated)
 ```
 
 > Figures are measured by `bun run qa` (power-tool `schema-cost`). Only
@@ -230,7 +230,7 @@ bun test --cwd bun-apps/pi-agent-ext-tool-gate
 
 ### Savings (`qa/savings.ts`)
 
-Validates the "~16,290 tok/req saved" claim by measuring the actual token cost difference between the ungated baseline and the gated configuration. Uses the same schema-cost measurement as the runtime telemetry (`(desc+params)/4` heuristic) to ensure offline and runtime numbers agree by construction.
+Validates the "~15,186 tok/req saved" claim by measuring the actual token cost difference between the ungated baseline and the gated configuration. Uses the same schema-cost measurement as the runtime telemetry (`(desc+params)/4` heuristic) to ensure offline and runtime numbers agree by construction.
 
 ```bash
 bun run qa:savings     # standalone, shows per-gate breakdown

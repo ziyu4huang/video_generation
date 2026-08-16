@@ -2,7 +2,7 @@
 
 ## Problem
 
-Every tool registered by an extension is added to the per-request tools schema and charged as token overhead on **every turn of every session** — even when 95% of those tools are never used. With a full extension ecosystem loaded, a single pi session carries ~72 tools → ~21,900 tok/req of fixed overhead. The cost is paid regardless of relevance: a session that only edits code still lugs around the full schemas of image/video/movie generation, ArXiv retrieval, deploy, and Z.ai web tools.
+Every tool registered by an extension is added to the per-request tools schema and charged as token overhead on **every turn of every session** — even when 95% of those tools are never used. With a full extension ecosystem loaded, a single pi session carries ~72 tools → ~21,950 tok/req of fixed overhead. The cost is paid regardless of relevance: a session that only edits code still lugs around the full schemas of image/video/movie generation, ArXiv retrieval, deploy, and Z.ai web tools.
 
 The root cause is structural — pi activates every registered tool by default — so a session either pays full overhead or uninstalls extensions (losing them everywhere).
 
@@ -15,7 +15,7 @@ A pi extension that acts as a **cost-control / visibility layer** between `pi.ge
 - **Sticky activation**: once a gate fires, its tools stay active for the rest of the session — a workflow using `flux2` never loses the tool mid-task when a follow-up like *"make it bigger"* drops the trigger keyword.
 - **Fail-open**: any tool not explicitly tracked (new tools from other extensions) is always active, so tool-gate can never accidentally hide functionality it doesn't know about.
 
-Net effect: **~21,900 → ~5,700 tok/req (~74% saved; gross ~16,290, net ~15,980 after the `enable_tool` escape-hatch overhead)**, measured by `bun run qa:savings` (re-run for live numbers; figures drift as the gate set changes).
+Net effect: **~21,950 → ~6,750 tok/req (~69% saved; gross ~15,186, net ~14,900 after the `enable_tool` escape-hatch overhead)**, measured by `bun run qa:savings` (re-run for live numbers; figures drift as the gate set changes).
 
 ## Main focus
 
@@ -29,7 +29,7 @@ pi session ── getAllTools() ──▶ tool-gate ── setActiveTools(active
         CORE_TOOLS (always on)                 GATES (lazy, hidden until intent)
         ~24 lightweight tools                  ~31 heavy domain tools
         ─ never gated ─                        ─ fire on keyword / noun∧verb ─
-                                                saves ~16,290 tok/req
+                                                saves ~15,186 tok/req
                                   │
                           enable_tool (always on) ◀── escape hatch for misses
 ```
