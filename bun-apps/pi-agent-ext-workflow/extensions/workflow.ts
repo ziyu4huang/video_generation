@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ModelSelectEvent, ToolDefinition } from "@earendil-works/pi-coding-agent";
 // The in-flight registry singleton MUST resolve to the SAME module instance the
 // subagent extension + obsidian extension use. Imported via the package barrel
 // (`@repo/pi-agent-ext-core-runtime`) — verified to share one instance with the
@@ -215,5 +215,12 @@ export default function extension(pi: ExtensionAPI) {
       });
       editorInstalled = true;
     }
+  });
+
+  // Track runtime model switches (e.g. /model, model cycling): future agent
+  // dispatches auto-tier against the newly selected main model. Mirrors the
+  // session_start capture above; in-flight runs are not mutated.
+  pi.on("model_select", (event: ModelSelectEvent) => {
+    manager.setMainModel(event.model ? `${event.model.provider}/${event.model.id}` : undefined);
   });
 }
