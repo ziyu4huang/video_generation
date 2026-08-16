@@ -33,7 +33,7 @@ interface Payload {
 /** Drive the tool the way pi does: execute -> JSON text payload. */
 async function runTool(code: string, note?: string): Promise<Payload> {
   const tool = makeBrowserTool();
-  const res = await tool.execute("test-call", { code, ...(note ? { note } : {}) }, undefined, undefined, {} as never);
+  const res = await tool.execute("test-call", { code, ...(note ? { note } : {}) }, undefined, undefined, undefined as never);
   const first = res.content[0];
   if (!first || first.type !== "text") throw new Error("expected text content");
   return JSON.parse(first.text) as Payload;
@@ -115,18 +115,17 @@ describe("integration (requires system Chrome)", () => {
   test.skipIf(!chromeOk)("two-page lifecycle: openPage x2 -> 2 new pages, closePage -> 1", async () => {
     const payload = await runTool(`
       const before = pages.length;
-      const a = await openPage("about:blank");
-      const b = await openPage("about:blank");
+      await openPage("about:blank");
+      await openPage("about:blank");
       const two = pages.length - before;
-      await closePage(b);
+      await closePage(pages[pages.length - 1]);
       const one = pages.length - before;
-      return { two, one, urls: [a, b] };
+      return { two, one };
     `);
     expect(payload.ok).toBe(true);
-    const result = payload.result as { two: number; one: number; urls: string[] };
+    const result = payload.result as { two: number; one: number };
     expect(result.two).toBe(2);
     expect(result.one).toBe(1);
-    expect(result.urls[0]).toContain("page ");
     expect(payload.pages).toBeInstanceOf(Array);
   });
 

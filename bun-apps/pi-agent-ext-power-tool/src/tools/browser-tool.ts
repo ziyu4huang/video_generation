@@ -328,7 +328,7 @@ async function takeScreenshot(pathArg?: string): Promise<string> {
 // ─── Code execution ───────────────────────────────────────────────────────────
 
 type AsyncFunction = new (...args: string[]) => (...args: unknown[]) => Promise<unknown>;
-const AsyncFunction = (async () => {}) as unknown as AsyncFunction;
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as unknown as AsyncFunction;
 const GLOBAL_NAMES = [
   "page",
   "pages",
@@ -351,8 +351,22 @@ async function runCode(code: string): Promise<CodeOutcome> {
   armIdleTimer();
   const fn = new AsyncFunction(...GLOBAL_NAMES, code);
   let screenshotPath: string | undefined;
+  // Live page binding: invocation snapshots globals ONCE, so a plain value (or a
+  // one-shot read of the getter) would pin `page` to the pre-code page. A Proxy
+  // forwards EVERY property access (methods bound) to the CURRENT page.
+  const livePage = new Proxy(
+    {},
+    {
+      get: (_t, prop) => {
+        const cur = state.current as unknown as Record<string, unknown> | null;
+        if (!cur) return undefined;
+        const value = cur[prop as string];
+        return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(cur) : value;
+      },
+    },
+  ) as unknown as Page;
   const globals: Record<(typeof GLOBAL_NAMES)[number], unknown> = {
-    page: state.current,
+    page: livePage,
     pages: state.pages,
     context: state.context,
     openPage,
