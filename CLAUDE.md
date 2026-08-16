@@ -39,7 +39,7 @@ Self-test `--self-test [t2i:portrait]`; `--offline` for zero network egress.
 ```bash
 ( cd bun-apps/<pkg> && bun test )                                        # any bun-apps/*
 bun run --cwd bun-apps/gui-movie-director check:schema                  # validate vs run.py
-( cd bun-apps/pi-agent-ext-workflow && bun run build && bun test )
+( cd bun-apps/pi-agent-ext-workflow && bun run test )
 python/venv/bin/python -m pytest python/mlx-movie-director/app/tests [--run-gpu]
 ```
 

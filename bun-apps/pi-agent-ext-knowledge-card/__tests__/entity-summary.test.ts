@@ -10,7 +10,9 @@
  *    canned-chat condensed string; chat null → ORIGINAL merged text.
  *  - summarizeEntity: merge + condense + memoize into cache (keyed by the
  *    merged input text — deterministic, avoids repeat chat calls).
- *  - load/save round-trip in a temp dir; corrupt JSON → {}.
+ *  - load/save round-trip in a temp dir; corrupt JSON → {}; version
+ *    envelope: mismatched version (v1) or old plain-object shape → {}
+ *    (wholesale reset — cache is derived, regenerates lazily).
  *  - augmentEmbedText: undefined → base unchanged; with summary → prefixed,
  *    capped at 1000 chars total.
  */
@@ -19,6 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
 import {
+	ENTITY_SUMMARY_CACHE_VERSION,
 	SUMMARY_TOKEN_THRESHOLD,
 	augmentEmbedText,
 	condenseSummary,
@@ -169,9 +172,12 @@ describe("entity summary cache load/save", () => {
 		const cache: EntitySummaryCache = { "person:ada": "summary text" };
 		saveEntitySummaries(dir, "model/x", cache);
 		expect(loadEntitySummaries(dir, "model/x")).toEqual(cache);
-		// path shape mirrors semantic.ts: .knowledge-semantic/entity-summaries-<slug>.json
+		// path shape mirrors semantic.ts; disk shape is the version envelope
 		const p = join(dir, ".knowledge-semantic", "entity-summaries-model-x.json");
-		expect(JSON.parse(readFileSync(p, "utf8"))).toEqual(cache);
+		expect(JSON.parse(readFileSync(p, "utf8"))).toEqual({
+			version: ENTITY_SUMMARY_CACHE_VERSION,
+			entries: cache,
+		});
 	});
 
 	test("corrupt JSON load → {}", () => {
@@ -180,6 +186,29 @@ describe("entity summary cache load/save", () => {
 		mkdirSync(join(dir, ".knowledge-semantic"), { recursive: true });
 		const p = join(dir, ".knowledge-semantic", "entity-summaries-model-x.json");
 		writeFileSync(p, "{ not json", "utf8");
+		expect(loadEntitySummaries(dir, "model/x")).toEqual({});
+	});
+
+	test("version mismatch (v1 envelope) → wholesale reset to {}", () => {
+		const dir = mkdtempSync(join(tmpdir(), "es-"));
+		tmpDirs.push(dir);
+		mkdirSync(join(dir, ".knowledge-semantic"), { recursive: true });
+		const p = join(dir, ".knowledge-semantic", "entity-summaries-model-x.json");
+		writeFileSync(
+			p,
+			JSON.stringify({ version: ENTITY_SUMMARY_CACHE_VERSION - 1, entries: { "k": "stale" } }),
+			"utf8",
+		);
+		expect(loadEntitySummaries(dir, "model/x")).toEqual({});
+	});
+
+	test("old-shape file (plain object, no version envelope) → treated as empty", () => {
+		const dir = mkdtempSync(join(tmpdir(), "es-"));
+		tmpDirs.push(dir);
+		mkdirSync(join(dir, ".knowledge-semantic"), { recursive: true });
+		const p = join(dir, ".knowledge-semantic", "entity-summaries-model-x.json");
+		// pre-v2 on-disk shape: { [mergedText]: summary } directly, no wrapper
+		writeFileSync(p, JSON.stringify({ "person:ada": "legacy summary" }), "utf8");
 		expect(loadEntitySummaries(dir, "model/x")).toEqual({});
 	});
 });
