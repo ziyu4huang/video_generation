@@ -1054,6 +1054,91 @@ describe("tool-gate runtime reads owner-declared gating", () => {
     expect(active).toEqual(expect.arrayContaining(["read", "bash"])); // core seeded from effectiveCore
     expect(active).not.toContain("flux2");                            // gated, no keyword → dormant
   });
+
+  test("ticket 05: parent + child sessions have INDEPENDENT gate state (keyed by session id)", async () => {
+    // Parent fires session_start; a child (distinct session id) skips it and
+    // seeds its own state on first before_agent_start. Firing a gate in the
+    // PARENT must NOT leak into the CHILD's sticky, and vice versa.
+    const setActiveCalls: string[][] = [];
+    const handlers: Record<string, (e?: any, ctx?: any) => Promise<void> | void> = {};
+    let toolCount = 0;
+    const pi = {
+      getAllToolDefinitions: () => [
+        { name: "read", gating: { core: true } },
+        { name: "flux2", gating: { gate: "flux2" } },
+      ],
+      on: (chan: string, h: any) => { handlers[chan] = h; },
+      setActiveTools: (names: string[]) => { setActiveCalls.push(names); },
+      registerTool: () => {},
+    } as unknown as Parameters<typeof toolGateExtension>[0];
+    toolGateExtension(pi);
+
+    const parentCtx = { sessionManager: { getSessionId: () => "parent-session" } };
+    const childCtx = { sessionManager: { getSessionId: () => "child-session" } };
+
+    // parent session_start → parent state seeded with core only
+    await handlers.session_start!({}, { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} }, ...parentCtx } as any);
+    expect(setActiveCalls[0]).toEqual(expect.arrayContaining(["read"]));
+    expect(setActiveCalls[0]).not.toContain("flux2");
+
+    // parent turn fires flux2 → parent sticky gains it
+    await handlers.before_agent_start!({ prompt: "generate an image" }, parentCtx);
+    expect(setActiveCalls[1]).toContain("flux2"); // parent active
+
+    // child's FIRST turn (no session_start) — child seeds its OWN state: core
+    // only, flux2 still dormant despite the parent having fired it.
+    await handlers.before_agent_start!({ prompt: "a benign child prompt" }, childCtx);
+    const childActive = setActiveCalls[setActiveCalls.length - 1];
+    expect(childActive).toContain("read");        // child core seeded
+    expect(childActive).not.toContain("flux2");   // parent's fire did NOT leak into child
+  });
+
+  test("ticket 05: per-turn path does NOT rebuild the gate set (session_start is the one rebuild)", async () => {
+    // F6: before_agent_start must fire + filter only. getDiscovered is called
+    // at session_start (1) and at most once more to seed a missing session — a
+    // session that already fired session_start sees NO further discovery calls
+    // on its per-turn path.
+    let discoveryCalls = 0;
+    const handlers: Record<string, (e?: any, ctx?: any) => Promise<void> | void> = {};
+    const pi = {
+      getAllToolDefinitions: () => { discoveryCalls++; return [{ name: "read", gating: { core: true } }]; },
+      on: (chan: string, h: any) => { handlers[chan] = h; },
+      setActiveTools: () => {},
+      registerTool: () => {},
+    } as unknown as Parameters<typeof toolGateExtension>[0];
+    toolGateExtension(pi);
+    const ctx = { sessionManager: { getSessionId: () => "s" } };
+    await handlers.session_start!({}, { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} }, ...ctx } as any);
+    expect(discoveryCalls).toBe(1); // the ONE session_start rebuild
+    await handlers.before_agent_start!({ prompt: "hi" }, ctx);
+    await handlers.before_agent_start!({ prompt: "hi again" }, ctx);
+    expect(discoveryCalls).toBe(1); // per-turn path performed NO rebuild
+  });
+
+  test("ticket 05: session_shutdown drops the session's gate state (no cross-session leak)", async () => {
+    const setActiveCalls: string[][] = [];
+    const handlers: Record<string, (e?: any, ctx?: any) => Promise<void> | void> = {};
+    const pi = {
+      getAllToolDefinitions: () => [
+        { name: "read", gating: { core: true } },
+        { name: "flux2", gating: { gate: "flux2" } },
+      ],
+      on: (chan: string, h: any) => { handlers[chan] = h; },
+      setActiveTools: (names: string[]) => { setActiveCalls.push(names); },
+      registerTool: () => {},
+    } as unknown as Parameters<typeof toolGateExtension>[0];
+    toolGateExtension(pi);
+    const ctx = { sessionManager: { getSessionId: () => "s" } };
+    await handlers.session_start!({}, { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} }, ...ctx } as any);
+    await handlers.before_agent_start!({ prompt: "generate an image" }, ctx);
+    expect(setActiveCalls[1]).toContain("flux2"); // fired in session s
+
+    // shutdown s → state dropped
+    await handlers.session_shutdown!({}, ctx);
+    // a NEW session with the SAME id must start fresh (flux2 dormant again)
+    await handlers.session_start!({}, { ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => {} }, ...ctx } as any);
+    expect(setActiveCalls[2]).not.toContain("flux2"); // fresh session, flux2 dormant
+  });
 });
 
 // Ticket 14 — telemetry undercount fix.
