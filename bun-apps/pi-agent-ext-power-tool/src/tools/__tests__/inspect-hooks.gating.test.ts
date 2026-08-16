@@ -65,10 +65,11 @@ describe("inspect_* tools reference the 'inspect' gate family (ticket 01)", () =
     test(`${name} references the "inspect" family (gating: { gate: "inspect" })`, () => {
       expect(tool.name).toBe(name);
       expect(tool.gating).toBeDefined();
-      // Reference form: no inline keywords/requires — the id is the contract.
+      // Reference form (01c): the tool only carries the family id — keywords/
+      // requires live in GATE_DEFS, NOT on the tool's gating field.
       expect(tool.gating!.gate).toBe("inspect");
-      expect(tool.gating!.keywords).toBeUndefined();
-      expect(tool.gating!.requires).toBeUndefined();
+      expect("keywords" in (tool.gating as object)).toBe(false);
+      expect("requires" in (tool.gating as object)).toBe(false);
     });
   }
 });
