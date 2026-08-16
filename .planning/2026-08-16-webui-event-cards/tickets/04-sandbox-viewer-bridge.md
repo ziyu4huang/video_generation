@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 ---
 # 04 — viewer sandbox: postMessage bridge + user-confirmation gate
 
@@ -15,3 +15,6 @@ status: open
 
 ## Acceptance
 - Unconfirmed emits never leave the browser; sandbox cannot touch parent DOM.
+
+## Result
+04 (simplified per user): viewer cards render in sandbox="allow-scripts" iframes (no same-origin) with an injected webui.emit→postMessage shim; host listener wraps every emit into a local confirm card (payload shown as text) — Approve rides the t02 card_answer loop (JSONL + card_done), Deny discards; security intentionally minimal (no origin allowlist/CSP additions/anti-spoof tests); webui 510/0.
