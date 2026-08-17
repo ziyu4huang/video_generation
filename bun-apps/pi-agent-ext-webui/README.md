@@ -7,9 +7,9 @@ frames over a WebSocket. Rendered markdown/HTML views land in the browser, and H
 presentations can be answered from there.
 
 Architecture v2 (see `docs/architecture-v2.md`): the webui is now an **optional** render
-+ interaction surface for the TUI agent — the browser mirrors the live agent stream
-(transcript), serves the client-end interactive surface (cards) — no chat composer,
-and answers HITL presentations (with a Cancel button), all behind the same agentic
++ interaction surface for the TUI agent — the browser is a PURE HITL companion (three
+tabs: Inbox / Report / Data) — the TUI owns the conversation and tool logs, the webui
+owns interaction: questionnaires, reports, and interactive data views, all behind the same agentic
 mutex as the TUI. Security hardening
 (loopback Host validation, sandboxed markdown/HTML rendering, symlink-safe `/output`,
 header token auth) is documented there too.
@@ -25,35 +25,25 @@ The webui is **on by default** (backward compatible). Disable or pin it three wa
 - **Embedding hosts**: `wireWebui(pi, { enabled: false })` (and `{ port }`) — see
   `src/webui-config.ts` / `src/webui-wiring.ts`.
 
-## Cards-first v2
+## webui v3 — pure HITL companion (three tabs)
 
-De-chat, finished: the browser is a read mirror plus an interactive card surface —
-no composer, no side panels, no views list. Chat lives in the TUI; the webui
-co-drives the same session.
+The TUI owns the conversation and tool logs; the webui owns INTERACTION. v3 removed the
+transcript scrollback and stopped subscribing the log frame family at the source.
 
-- **Transcript (read-only log)**: `message_update` deltas, tool calls/results, mutex
-  signals, and `settled` markers render into a scrollback; a connect-time `snapshot`
-  frame replays session history on open/refresh (bounded, 500 frames).
-- **Cards tab (interactive surface)**: the chronological, replay-eligible card stream
-  (per-kind detail in [Cards](#cards) below) — **ask cards** (the ask-user
-  questionnaire mirrored as a fill-in form), **archify url cards** (readonly,
-  deep-linked to the resolved `/files` url), **interactive form cards** (first answer
-  wins; a `card_done` tombstone retires the form into an answered marker), and the
-  **viewer sandbox** (`sandbox="allow-scripts"` iframe srcdoc — no same-origin) whose
-  only exit is a confirm-gate card.
-- **Presentation surface (`#content`)**: named md/HTML views render into the sandboxed
-  iframe (tabs; `![image](/output/0/…)` images work — producers may pass an `images`
-  array on `webui:render` / `webui:present`). A presenting view (`presentId`)
-  auto-focuses with its Approve/controls bar: `webui_present` / `webui:present` HITL
-  the user answers (or **Cancel**s) from the browser, and the agent's `execute()`
-  resolves `{action, tweak?}` / `{cancelled:true}`. Outbound frames QUEUE while the WS
-  reconnects so a HITL answer is never lost.
-- **Deep links + TUI bell**: non-silent cards ring `ui.notify` once with a `#card-<id>`
-  deep link; the shell routes the hash to the Cards tab and scrolls/flashes the card
-  (cold-load included).
-- **Decision log**: answered generic/interactive cards append `{ts, cardId, answers}`
-  to `~/.pi/webui/sessions/<stamp>/cards.jsonl` — the per-session audit trail (ask-card
-  answers ride the ask-user bridge instead; excluded by design).
+- **Inbox** (boot default) — ask cards (questionnaire quick-pick; answers ride the
+  ask-user bridge) + event cards, chronological; answered cards collapse into
+  reviewable summaries. `#card-<id>` deep links activate the owning tab.
+- **Report** — static reports: `report` frames render markdown via a DOM-built
+  renderer, or sandboxed HTML (`iframe sandbox="allow-scripts"`, no same-origin).
+  Producer: `POST /api/report {title, markdown|html, source?}` — loopback,
+  origin-guarded, exactly one body mode, title 1–200 chars, 128KB cap; frames are
+  replay-eligible (refresh-safe).
+- **Data** — viewer cards (interactive HTML, sandboxed iframes).
+
+Frame diet — web clients receive ONLY: `card`, `card_done`, `report`, `ask_user`,
+`ask_user_done`, `session_info`, `error`, `mutex_blocked`, `mutex_force_release`,
+`snapshot`, `appexec`, `view_opened`. TUI-only (never broadcast): `message_*`,
+`tool_execution_*`, `tool_result`, `turn_*`, `agent_settled`, `session_*compact`.
 
 ### present adoption (2026-08-16)
 
@@ -192,6 +182,9 @@ intermediate proxies also see liveness. Comment frames are ignored by `EventSour
 parsers — they never surface as a view update.
 
 ## Debugging
+
+- power-tool `webui` tool — single-call visual audit of the live shell (per-tab
+  screenshots, card outline, console/page errors, design invariants).
 
 ```bash
 curl -s http://127.0.0.1:<port>/api/logs | jq
