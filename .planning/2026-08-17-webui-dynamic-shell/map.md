@@ -10,7 +10,7 @@ PR #1576 — still a cap, not a fill), main capped at max-width 1100px, and the
 page itself scrolled below the fold on short windows. An app-shell layout
 fills whatever viewport it is given.
 
-## What (PR #<PR>)
+## What (PR #1577)
 
 - body: height 100dvh, flex column, overflow hidden — the page never scrolls;
   panes do (internally).
