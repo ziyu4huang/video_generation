@@ -124,6 +124,7 @@ Then add its row below. `bun run test:adr` fails until you do.
 | `ADR-wayfind-0004` | Decouple the status widget via the `globalThis` singleton — no cross-package import | [`pi-agent-ext-wayfind/…/0004`](../../pi-agent-ext-wayfind/docs/adr/0004-decouple-status-widget-via-global.md) |
 | `ADR-wayfind-0005` | Accept last-write-wins for `.planning/<effort>/` concurrency | [`pi-agent-ext-wayfind/…/0005`](../../pi-agent-ext-wayfind/docs/adr/0005-accept-last-write-wins-planning-concurrency.md) |
 | `ADR-wayfind-0006` | Delete the `__piWayfindActive` coordination seam | [`pi-agent-ext-wayfind/…/0006`](../../pi-agent-ext-wayfind/docs/adr/0006-delete-wayfind-active-coordination-seam.md) |
+| `ADR-wayfind-0007` | Solution-extension simplification — 6 methodology skills merged into superpowers; wayfind is the pure decide/wayfinder engine | [`pi-agent-ext-wayfind/…/0007`](../../pi-agent-ext-wayfind/docs/adr/0007-solution-extension-simplification.md) |
 
 > wayfind numbers from 0002; there has never been a wayfind ADR 0001. Code and
 > docs that cited "ADR-0001" for the reverse seam / continuous chain meant

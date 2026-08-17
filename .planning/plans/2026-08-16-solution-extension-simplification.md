@@ -535,7 +535,7 @@ Expected result: ≤ 45 lines.
 Run: `( cd bun-apps/pi-agent-ext-wayfind && bun run check && bun run typecheck && bun test )`
 Expected: PASS (`tests/plan-seed-contract.test.ts` and `tests/skills.test.ts` must stay green — they guard the chain contracts being kept).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add bun-apps/pi-agent-ext-wayfind/skills/to-spec/SKILL.md bun-apps/pi-agent-ext-wayfind/skills/to-tickets/SKILL.md
@@ -766,17 +766,17 @@ git commit -m "refactor(archify): relocate architecture-render + mermaid/tailwin
 - Consumes: Task 11's relocation (lib-only move; no new extension surface added).
 - Produces: recorded confirmation that the archify registration entry convention holds and measured schema cost after the merge (spec §3.2 requires the canary re-run).
 
-- [ ] **Step 1: Verify registration entry conventions**
+- [x] **Step 1: Verify registration entry conventions**
 
 Run: `( cd bun-apps/pi-agent-ext-archify && ls extensions/ && cat package.json | grep -A4 '"pi"' )`
 Expected: exactly one registration entry dir/file (`extensions/archify.ts`), `pi.extensions` pointing at it — the relocation added no extension surface, so no new entry and no double registration. Cross-check `bun-apps/pi-agent/run-dir/manifest.json` still lists archify once.
 
-- [ ] **Step 2: Re-run the schema-cost canary**
+- [x] **Step 2: Re-run the schema-cost canary**
 
 Run the canary per OPEN-4 (read `bun-apps/pi-agent/src/cli/commands/schema-cost.ts` for its exact invocation — likely `bun bun-apps/pi-agent/src/cli/commands/schema-cost.ts` from repo root, or a `pi-agent` CLI subcommand; prefer the pi-agent wrapper `bun bun-apps/pi-agent/src/cli.ts`).
 Expected: runs to completion; wayfind's measured cost drops or holds (6 fewer skill dirs); record before/after numbers in the commit message of Task 14 if actionable. Any regression beyond noise → investigate before proceeding.
 
-- [ ] **Step 3: Commit (only if a fix was needed)**
+- [x] **Step 3: Commit (only if a fix was needed)**
 
 If (and only if) a check failed and you modified a file:
 ```bash
@@ -799,21 +799,21 @@ Otherwise no commit — verification-only task.
 - Consumes: spec `docs/superpowers/specs/2026-08-16-solution-extension-simplification-design.md`; ADR-wayfind-0003 (reverse seam), ADR-wayfind-0004 (globalThis seams), ADR-superpowers-0008 (exclusion policy).
 - Produces: a resolvable decision record for the merge; ADR citations elsewhere in the repo keep resolving (`test:adr` gate).
 
-- [ ] **Step 1: Write ADR-wayfind-0007**
+- [x] **Step 1: Write ADR-wayfind-0007**
 
 Create `bun-apps/pi-agent-ext-wayfind/docs/adr/0007-solution-extension-simplification.md` with the standard ADR shape used by `0002`–`0006` in that dir (Status/Context/Decision/Consequences). Content requirements: full merge of 6 wayfind skills into superpowers counterparts (name the six and their targets, matching the Task 6 redirect table); wayfind = pure decide/wayfinder engine with artifact chain `CONTEXT.md → spec.md → tickets/ → task_plan.md → /wayfind seed → /wayfind sync`; `architecture-render` relocated to `@repo/pi-agent-ext-archify` with zero src importers and byte-identical goldens; invariants preserved per ADR-wayfind-0004 (globalThis seams) and ADR-wayfind-0003 (reverse seam); one-release redirect stubs in `ask-matt` with deletion scheduled per `docs/versioning.md` (ties to OPEN-3). Cite all ADRs with full IDs.
 
-- [ ] **Step 2: Amend ADR-superpowers-0008**
+- [x] **Step 2: Amend ADR-superpowers-0008**
 
 Append to `bun-apps/pi-agent-ext-superpowers/docs/adr/0008-default-skill-exclusion-policy.md` a short "Interplay (2026-08 solution-extension simplification)" note: the methodology vocabulary is now consolidated in superpowers (6 wayfind skills merged — name them); `DEFAULT_SKILL_EXCLUDE` remains `["verification-before-completion", "using-superpowers"]` and requires no change; wayfind `ask-matt` redirects deleted-skill lookups here. Cite the spec by path.
 
-- [ ] **Step 3: Update the ADR index and run the gate**
+- [x] **Step 3: Update the ADR index and run the gate**
 
 Add the new ADR row to `bun-apps/docs/adr/INDEX.md` (match its existing column format).
 Run: `( cd bun-apps && bun run test:adr )`
 Expected: PASS — all citations resolve, no bare-number citations anywhere in the touched files.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add bun-apps/pi-agent-ext-wayfind/docs/adr/0007-solution-extension-simplification.md bun-apps/pi-agent-ext-superpowers/docs/adr/0008-default-skill-exclusion-policy.md bun-apps/docs/adr/INDEX.md
