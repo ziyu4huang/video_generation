@@ -15,7 +15,7 @@
 import { stringify as stringifyYaml } from "yaml";
 import type { FailureState, MemoryCategory, Provenance, MemorySource } from "../types.js";
 import type { MemoryTarget } from "./repository.js";
-import { splitFencedYaml } from "./frontmatter-codec.js";
+import { splitFencedYaml } from "@repo/pi-agent-core-interface";
 
 // ---------------------------------------------------------------------------
 // Pure helpers (copied verbatim from the former sqlite-memory-store.ts).

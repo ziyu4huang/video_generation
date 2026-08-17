@@ -31,7 +31,7 @@ import {
   type VectorBackfillState,
 } from "../../src/handlers/vector-backfill.js";
 import type { Card, CardKind } from "../../src/store/card.js";
-import type { Embedder } from "../../src/store/surreal/embedder.js";
+import type { Embedder } from "@repo/pi-agent-core-interface";
 import type { VectorUpsertEntry } from "../../src/store/surreal/vector-store.js";
 import { planningContentHash } from "../../src/store/planning-sync-state.js";
 

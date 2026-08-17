@@ -22,7 +22,7 @@
 import { describe, it, expect, mock } from "bun:test";
 import { searchSemantic, type SemanticSearchHit } from "../../src/store/semantic-search.js";
 import type { VectorStore, VectorKnnHit } from "../../src/store/surreal/vector-store.js";
-import type { Embedder } from "../../src/store/surreal/embedder.js";
+import type { Embedder } from "@repo/pi-agent-core-interface";
 import type { KnowledgePipeline, RetrieveResult } from "@repo/pi-agent-core-interface";
 import type { MemoryRepository, MemoryEntry } from "../../src/store/repository.js";
 import { upsertCachedCardVectors } from "../../src/store/card-vectors-cache.js";

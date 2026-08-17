@@ -21,7 +21,7 @@ import {
 } from "../tools/knowledge-search-tool.js";
 import { SurrealClient } from "../store/surreal/surreal-client.js";
 import { createVectorStore } from "../store/surreal/vector-store.js";
-import { defaultEmbedder, SEMANTIC_MODEL_DEFAULT } from "../store/surreal/embedder.js";
+import { defaultEmbedder, SEMANTIC_MODEL_DEFAULT } from "@repo/pi-agent-core-interface";
 
 /** Dedicated database for the card_vectors HNSW side-table. Lives in the
  *  per-user namespace (same as the CRUD store when dbBackend=surrealdb) but in

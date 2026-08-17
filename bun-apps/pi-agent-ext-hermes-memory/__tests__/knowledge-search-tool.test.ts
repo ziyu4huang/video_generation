@@ -9,7 +9,7 @@ import { registerKnowledgeSearchTool, buildLexicalRecall, buildEntityRecall } fr
 import { SqliteBackend } from "../src/store/sqlite/sqlite-backend.js";
 import { searchSemantic } from "../src/store/semantic-search.js";
 import type { VectorKnnHit, VectorStore } from "../src/store/surreal/vector-store.js";
-import type { Embedder } from "../src/store/surreal/embedder.js";
+import type { Embedder } from "@repo/pi-agent-core-interface";
 import { existsSync, writeFileSync } from "node:fs";
 
 const KEY = "__piKnowledgePipeline";

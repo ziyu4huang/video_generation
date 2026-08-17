@@ -14,7 +14,7 @@
 import type { Card, CardGraph } from "./card.js";
 import type { CardSerializer } from "./card-serializer.js";
 import { parsePlanningPath, planningEffortId, planningTicketId } from "./planning-id.js";
-import { splitFencedYaml } from "./frontmatter-codec.js";
+import { splitFencedYaml } from "@repo/pi-agent-core-interface";
 import {
   extractTitle,
   extractResolutionGist,

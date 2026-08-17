@@ -19,7 +19,7 @@ import type { RetrieveResult } from "@repo/pi-agent-core-interface";
 import { getKnowledgePipeline } from "../knowledge-pipeline-seam.js";
 import { KNOWLEDGE_FOLDER_DEFAULT } from "../knowledge-vault-path.js";
 import type { VectorStore } from "../store/surreal/vector-store.js";
-import type { Embedder } from "../store/surreal/embedder.js";
+import type { Embedder } from "@repo/pi-agent-core-interface";
 import type { SqliteBackend } from "../store/sqlite/sqlite-backend.js";
 import { createSqliteBackend } from "../store/backend-factory.js";
 import { normalizeFts5Query, buildFallbackFts5Query, isFts5QueryError } from "../store/sqlite/fts-query.js";

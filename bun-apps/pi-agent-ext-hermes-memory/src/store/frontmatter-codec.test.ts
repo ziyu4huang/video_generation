@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
-import { splitFencedYaml } from "./frontmatter-codec.js";
+import { splitFencedYaml } from "@repo/pi-agent-core-interface";
 
 describe("splitFencedYaml (fence-split leaf)", () => {
   it("splits a well-formed fence (data parsed, body returned)", () => {

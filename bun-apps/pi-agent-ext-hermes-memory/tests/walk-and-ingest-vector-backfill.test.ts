@@ -18,7 +18,7 @@ import { walkAndIngest } from "../src/walk-and-ingest.js";
 import { createCardStore } from "../src/store/card-store.js";
 import type { Card } from "../src/store/card.js";
 import type { VectorStore, VectorUpsertEntry } from "../src/store/surreal/vector-store.js";
-import type { Embedder } from "../src/store/surreal/embedder.js";
+import type { Embedder } from "@repo/pi-agent-core-interface";
 import { planningContentHash } from "../src/store/planning-sync-state.js";
 import { waitForVectorBackfill } from "../src/handlers/vector-backfill.js";
 
