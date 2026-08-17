@@ -4,31 +4,34 @@ import { Script } from "node:vm";
 import { RENDER_SHELL_HTML } from "../src/render-shell.js";
 const src = readFileSync(new URL("../src/render-shell.ts", import.meta.url), "utf8");
 describe("tab-views 01b — five tabs (literal)", () => {
-  test("template: four panes", () => {
+  test("template: three panes — Inbox visible at boot (v3 03)", () => {
     expect(src).toContain('<section id="report-pane" hidden></section>');
-    expect(src).toContain('<section id="ask-pane" hidden></section>');
-    expect(src).toContain('<section id="cards-pane" hidden></section>');
+    expect(src).toContain('<section id="cards-pane"></section>');
+    expect(src).not.toContain('id="ask-pane"');
+    expect(src).not.toContain('webui-transcript');
+    expect(src).not.toContain('function txLine');
     expect(src).toContain('<section id="data-pane" hidden></section>');
   });
   test("setPane exclusive + tabs wired + Events relabel", () => {
     expect(src).toContain("function setPane(name)");
     expect(src).toContain("'pane-tab-' + spec[1]");
-    expect(src).toContain("cardsTab.textContent = 'Events';");
+    expect(src).toContain("cardsTab.textContent = 'Inbox';");
   });
   test("routing: ask->ask pane, viewer->data, else events", () => {
-    expect(src).toContain("rawId.indexOf('ask-') === 0 ? askPaneEl : (kind === 'viewer' ? dataPaneEl : cardsPaneEl)");
+    expect(src).toContain("const pane = kind === 'viewer' ? dataPaneEl : cardsPaneEl;");
   });
   test("report: md builder + sandboxed html iframe", () => {
     expect(src).toContain("function renderReport(frame)");
     expect(src).toContain("function renderMarkdown(md)");
     expect(src).toContain("ifr.setAttribute('sandbox', 'allow-scripts')");
   });
-  test("replay resets all four panes", () => {
+  test("replay resets all three panes (v3 03)", () => {
     expect(src).toContain("if (reportPaneEl) reportPaneEl.textContent = '';");
     expect(src).toContain("if (dataPaneEl) dataPaneEl.textContent = '';");
+    expect(src).not.toContain("askPaneEl");
   });
   test("hash activates the OWNING pane", () => {
-    expect(src).toContain("setPane(pid === 'report-pane' ? 'report' : pid === 'ask-pane' ? 'ask' : pid === 'data-pane' ? 'data' : 'events')");
+    expect(src).toContain("setPane(pid === 'report-pane' ? 'report' : pid === 'data-pane' ? 'data' : 'events')");
   });
 });
 describe("tab-views 01c — template-literal escape guard (regex SyntaxError class)", () => {

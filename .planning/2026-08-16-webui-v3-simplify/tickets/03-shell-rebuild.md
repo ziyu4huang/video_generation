@@ -25,3 +25,6 @@ D1+D2: render-shell rebuilt lean — tabs Inbox/Report/Data, no transcript pane.
 ## Done when
 Shell renders 3 tabs; zero transcript markup; suite green; Chrome probe
 screenshot attached to ticket.
+
+## Result
+Shell rebuilt lean (v3 03): transcript machinery GONE (txEl/txAppend/txLine/isQuestionnaireDetails + 5 CSS rules + tx log cases in txApply; txEsc kept); 3 tabs Inbox/Report/Data — ask pane merged into Inbox (cards-pane id kept, label Inbox, boot-visible default); routing viewer->Data, everything else->Inbox; hash routing + snapshot replay updated. Chrome probe verified.

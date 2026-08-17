@@ -23,9 +23,9 @@ function renderCardSrc(): string {
 }
 
 describe("RENDER_SHELL_HTML — Cards tab + pane scaffold (event-cards 01)", () => {
-  it("embeds the hidden cards pane (flex must not defeat [hidden]) + the Cards tab build site", () => {
+  it("embeds the cards pane (Inbox, boot-visible; flex must not defeat [hidden] when setPane hides it) + the Cards tab build site", () => {
     expect(RENDER_SHELL_HTML).toContain('id="cards-pane"');
-    expect(RENDER_SHELL_HTML).toContain('id="cards-pane" hidden');
+    expect(RENDER_SHELL_HTML).toContain('<section id="cards-pane"></section>'); // v3 03: Inbox visible at boot (hidden only via setPane)
     expect(RENDER_SHELL_HTML).toContain("cards-pane[hidden]");
     // the tab is DOM-built inside loadViews (not an HTML attribute) — its id
     // assignment lives in the script string

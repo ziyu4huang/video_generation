@@ -72,11 +72,7 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   /* v2 live transcript (architecture v2 §3.3): the agent stream rendered as a
      mirror — message deltas, tool calls, mutex signals. De-chat (event-cards
      00): full-height — the compose bar that sat below the shell row is gone. */
-  #webui-transcript { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: .6rem 1rem; font-size: 13px; }
-  #webui-transcript .tx-msg { margin: .2rem 0; white-space: pre-wrap; word-break: break-word; }
-  #webui-transcript .tx-tool { margin: .2rem 0; color: #9cf; }
-  #webui-transcript .tx-mutex { margin: .2rem 0; color: #e0a030; }
-  #webui-transcript .tx-settled { margin: .3rem 0; color: #7ec87e; font-size: 11px; }
+  /* webui-v3 (03): the transcript scrollback is GONE — the TUI owns logs. */
   /* event-cards (01): Cards tab pane — projected card frames. Every field is
      textContent-rendered (raw HTML injection forbidden); the article id is the
      deep-link anchor; newest LAST (chronological). Badge color per attention. */
@@ -120,10 +116,8 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
 <main>
   <div id="content"></div>
   <section id="report-pane" hidden></section>
-  <section id="ask-pane" hidden></section>
-  <section id="cards-pane" hidden></section>
+  <section id="cards-pane"></section>
   <section id="data-pane" hidden></section>
-  <div id="webui-transcript"></div>
 </main>
 <div id="webui-feedback-log">
   <div class="webui-log-head"><span>response log</span><a id="webui-log-clear" href="#">clear</a></div>
@@ -175,12 +169,12 @@ async function loadViews() {
   const cardsTab = document.createElement('div');
   cardsTab.className = 'tab' + (cardsVisible ? ' active' : '');
   cardsTab.id = 'cards-tab';
-  cardsTab.textContent = 'Events';
-  cardsTab.title = 'projected event cards';
+  cardsTab.textContent = 'Inbox';
+  cardsTab.title = 'ask + event cards — the HITL inbox';
   cardsTab.onclick = function () { toggleCardsTab(); };
   tabsEl.appendChild(cardsTab);
   // tab-views (01): Report / Ask / Data tabs — same strip, exclusive panes.
-  for (const spec of [['Report', 'report', 'static reports by agent/skill'], ['Ask', 'ask', 'questionnaire queue + history'], ['Data', 'data', 'interactive HTML views']]) {
+  for (const spec of [['Report', 'report', 'static reports by agent/skill'], ['Data', 'data', 'interactive HTML views']]) {
     const el = document.createElement('div');
     el.className = 'tab';
     el.id = 'pane-tab-' + spec[1];
@@ -332,54 +326,16 @@ function sendAppexecCancel(id) {
 }
 
 // --- v2 live transcript mirror (architecture v2 §3.3) -----------------------
-// Renders the agent stream (message deltas, tool calls, mutex signals) as a
-// scrollback mirror — the research-backed pattern (gptme/OmniTerm: "render from
-// the structured event stream"). A connect-time snapshot replaces the mirror
-// with an authoritative replay of the session history.
-const txEl = document.getElementById('webui-transcript');
-
+// webui-v3 (03): the transcript scrollback (txEl/txAppend/txLine) is GONE —
+// log frames are TUI-only (t02 diet); the shell renders HITL surfaces only.
 function txEsc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function txAppend(html) {
-  if (!txEl) return;
-  const wrap = document.createElement('div');
-  wrap.innerHTML = html;
-  txEl.appendChild(wrap.firstChild);
-  txEl.scrollTop = txEl.scrollHeight;
-}
-
-function txLine(cls, text) {
-  txAppend('<div class="' + cls + '">' + txEsc(text) + '</div>');
-}
-
-// cards-ux2 01: QuestionnaireResult shape detection — an ask-user tool_result
-// carries { cancelled, answers: [...] }. Used ONLY display-side: the answered
-// card beside the transcript line already shows the answers, so echoing the
-// raw JSON here duplicated the card (the "appendix" echo). The tool result
-// itself still returns answers to the orchestrator untouched.
-function isQuestionnaireDetails(d) {
-  return !!d && typeof d === 'object' && Array.isArray(d.answers);
-}
-
 function txApply(frame) {
   switch (frame.type) {
-    case 'message_update':
-      if (frame.text) txLine('tx-msg', frame.text);
-      break;
-    case 'tool_execution_start': txLine('tx-tool', 'tool ' + (frame.toolName || '?') + ' \u2026'); break;
-    case 'tool_execution_end': txLine('tx-tool', 'tool ' + (frame.toolName || '?') + ' done'); break;
-    case 'tool_result':
-      // cards-ux2 01: skip the transcript echo when the details are a
-      // QuestionnaireResult (answers) — the answered card right next to this
-      // line already renders them; the echo was the "appendix" duplication.
-      if (frame.details && !isQuestionnaireDetails(frame.details)) txLine('tx-tool', 'result: ' + JSON.stringify(frame.details).slice(0, 240));
-      break;
-    case 'agent_settled': txAppend('<div class="tx-settled">settled</div>'); break;
-    case 'mutex_blocked': txLine('tx-mutex', 'mutex: ' + frame.blocked + ' blocked by ' + frame.by); break;
-    case 'mutex_force_release': txLine('tx-mutex', 'mutex force-released (' + frame.driver + ')'); break;
-    case 'error': txLine('tx-mutex', 'error: ' + (frame.reason || 'unknown')); break;
+    // webui-v3 (03): the log/mutex case family is GONE — those frames never
+    // arrive (t02 diet); the TUI owns logs and mutex feedback.
     case 'ask_user': renderAskUser(frame);
       break;
     case 'ask_user_done':
@@ -398,14 +354,10 @@ function txApply(frame) {
 }
 
 function txRenderSnapshot(state) {
-  if (!txEl) return;
-  txEl.innerHTML = ''; // authoritative replay — replace, never append over stale
-  // event-cards (01): the cards pane replays with the SAME authoritative
-  // semantics — reset before the transcript replay, then txApply re-appends
-  // (a card that fell out of the bounded transcript cap disappears).
+  // webui-v3 (03): authoritative replay — panes reset, then txApply re-appends
+  // (kept-family frames only: cards / reports / ask / status).
   if (cardsPaneEl) cardsPaneEl.textContent = '';
   if (reportPaneEl) reportPaneEl.textContent = '';
-  if (askPaneEl) askPaneEl.textContent = '';
   if (dataPaneEl) dataPaneEl.textContent = '';
   if (state && Array.isArray(state.transcript)) state.transcript.forEach(txApply);
 }
@@ -419,9 +371,8 @@ function txRenderSnapshot(state) {
 // Newest LAST — chronological; ticket 03 can scroll to a card.
 const cardsPaneEl = document.getElementById('cards-pane');
 const reportPaneEl = document.getElementById('report-pane');
-const askPaneEl = document.getElementById('ask-pane');
 const dataPaneEl = document.getElementById('data-pane');
-let activePane = null; // tab-views (01): 'report'|'ask'|'events'|'data'|null(=transcript)
+let activePane = 'events'; // webui-v3 (03): 'report'|'events'(Inbox)|'data'|null — Inbox at boot
 let cardsVisible = false;
 
 // toggleCardsTab: the ONE tab-activation path the Cards tab click AND the
@@ -433,13 +384,14 @@ function setPane(name) {
   activePane = name;
   cardsVisible = name === 'events';
   if (reportPaneEl) reportPaneEl.hidden = name !== 'report';
-  if (askPaneEl) askPaneEl.hidden = name !== 'ask';
   if (cardsPaneEl) cardsPaneEl.hidden = name !== 'events';
   if (dataPaneEl) dataPaneEl.hidden = name !== 'data';
-  for (const tn of ['report', 'ask', 'events', 'data']) {
+  for (const tn of ['report', 'data']) {
     const el = document.getElementById('pane-tab-' + tn);
     if (el) el.classList.toggle('active', name === tn);
   }
+  const ct = document.getElementById('cards-tab');
+  if (ct) ct.classList.toggle('active', name === 'events');
 }
 function toggleCardsTab(force) { setPane(typeof force === 'boolean' && !force ? null : 'events'); }
 
@@ -449,15 +401,15 @@ function toggleCardsTab(force) { setPane(typeof force === 'boolean' && !force ? 
 function cardDomId(id) { return /^card-/.test(id) ? id : 'card-' + id; }
 
 function renderCard(frame) {
-  if (!cardsPaneEl || !askPaneEl || !dataPaneEl) return;
+  if (!cardsPaneEl || !dataPaneEl) return;
   const rawId = typeof frame.id === 'string' ? frame.id : '';
   const domId = cardDomId(rawId);
   if (domId && document.getElementById(domId)) return; // live/replay interleave dedupe
   const attention = frame.attention === 'view' || frame.attention === 'input' ? frame.attention : 'silent';
   const kind = frame.kind === 'interactive' || frame.kind === 'viewer' ? frame.kind : 'readonly';
-  // tab-views (01): route — ask cards to the Ask pane, viewer cards to Data,
-  // everything else stays in Events. card_done finds articles document-wide.
-  const pane = rawId.indexOf('ask-') === 0 ? askPaneEl : (kind === 'viewer' ? dataPaneEl : cardsPaneEl);
+  // webui-v3 (03): route — viewer cards to Data, EVERYTHING else (ask + event
+  // cards) to the Inbox. card_done finds articles document-wide.
+  const pane = kind === 'viewer' ? dataPaneEl : cardsPaneEl;
   const art = document.createElement('article');
   art.id = domId;
   art.className = 'card';
@@ -921,7 +873,7 @@ function handleCardHash() {
     const art = document.getElementById(cardDomId(id));
     const owner = art && art.closest ? art.closest('section') : null;
     const pid = owner ? owner.id : 'cards-pane';
-    setPane(pid === 'report-pane' ? 'report' : pid === 'ask-pane' ? 'ask' : pid === 'data-pane' ? 'data' : 'events');
+    setPane(pid === 'report-pane' ? 'report' : pid === 'data-pane' ? 'data' : 'events');
     focusCardArticle(id, 0);
   } catch { /* never break boot */ }
 }
