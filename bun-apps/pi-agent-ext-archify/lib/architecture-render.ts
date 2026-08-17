@@ -308,7 +308,7 @@ export async function main(argv: string[]): Promise<number> {
 
   const markdown = readFileSync(inputPath, "utf-8");
 
-  const vendorDir = join(import.meta.dir, "..", "vendor");
+  const vendorDir = join(import.meta.dir, "..", "vendored");
   const css = readFileSync(join(vendorDir, "tailwind.css"), "utf-8");
   const mermaidSource = existsSync(join(vendorDir, "mermaid.min.js"))
     ? readFileSync(join(vendorDir, "mermaid.min.js"), "utf-8")

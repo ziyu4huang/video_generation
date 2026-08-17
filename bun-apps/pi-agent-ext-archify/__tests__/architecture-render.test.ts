@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { renderReport } from "../src/architecture-render";
+import { renderReport } from "../lib/architecture-render";
 
 // Canonical architecture-review Markdown + the committed curated Tailwind build.
 // Both are deterministic, committed inputs — so renders of them are byte-stable.
@@ -19,7 +19,7 @@ const SAMPLE = readFileSync(
   ),
   "utf-8",
 );
-const CSS = readFileSync(join(import.meta.dir, "..", "vendor", "tailwind.css"), "utf-8");
+const CSS = readFileSync(join(import.meta.dir, "..", "vendored", "tailwind.css"), "utf-8");
 
 const GOLDEN_DIR = join(import.meta.dir, "fixtures");
 const GOLDEN = join(GOLDEN_DIR, "architecture-render.golden.html");
