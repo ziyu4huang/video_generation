@@ -206,6 +206,22 @@ and reverse-engineered a workaround instead of failing fast.
 - `commitScope` guard — `bun-apps/pi-agent-ext-subagent/src/git-scope.ts`
 - `DEFAULT_TIMEOUT_MS` (15 min) — `bun-apps/pi-agent-ext-subagent/src/subagent-tool.ts`
 
+## Verify-child protocol
+
+After every write child lands, dispatch a read-only verify child (tools:
+read/grep/find only) that re-runs, mechanically:
+- the task's own gates (the plan step's Run: commands), AND
+- the repo-wide gates the task's package tests do not cover — at minimum the
+  extension-entry typecheck (`typecheck:ext`) and the task's sanity greps.
+
+Motivating case: the archify relocation (PR #1574) shipped ~15 strict-mode type
+errors because verification ran package-local tests only — package green is not
+repo green.
+
+On green: record the ledger line per executing-plans `## Dispatch ledger`.
+On red: never paper over — redispatch a janitor child (status -> gate -> check
+boxes -> commit green work) or escalate to systematic-debugging.
+
 ## Research as a background subagent (markdown-findings artifact)
 
 When a question needs investigating against high-trust primary sources, dispatch

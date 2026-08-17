@@ -15,6 +15,13 @@ Interview and idea-development methodology: see the superpowers **brainstorming*
 - **Precedes:** `grill-me-with-docs` / wayfinder map collapse — decisions must be settled first (else brainstorm or grill before synthesizing).
 - **Follows:** `/wayfind tickets` → `/wayfind seed` → executing-plans / subagent-driven-development.
 
+## Entry criteria
+
+Start only when the source map is frozen: the map exists and its `## Not yet
+specified` is empty (or every remaining item is explicitly deferred with an
+owner). If questions remain open, grill (grill-me / grill-me-with-docs)
+before synthesizing — do not interview during to-spec.
+
 ## Artifact contract: `.planning/<effort>/spec.md`
 
 Required sections:

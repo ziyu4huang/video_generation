@@ -13,6 +13,10 @@ Load plan, review critically, execute all tasks, report when complete.
 
 **Note:** Tell your human partner that Superpowers works much better with access to subagents (Claude Code, Codex CLI, Codex App, Copilot CLI, and Gemini CLI all qualify; see the per-platform tool refs in `../using-superpowers/references/`). If subagents are available, use superpowers:subagent-driven-development instead of this skill.
 
+## Entry criteria
+
+- Every task in the plan carries Run:/Expected: verification steps; a task without them goes back to writing-plans, never executed on trust.
+
 ## The Process
 
 ### Step 1: Load and Review Plan
@@ -36,6 +40,16 @@ After all tasks complete and verified:
 - Announce: "I'm using the finishing-a-development-branch skill to complete this work."
 - **REQUIRED SUB-SKILL:** Use superpowers:finishing-a-development-branch
 - Follow that skill to verify tests, present options, execute choice
+
+## Dispatch ledger
+
+The SDD progress.md carries one line per dispatched child:
+
+```
+[<task>] child(<tokenBudget>k/<maxTurns>t) -> done|died|janitored @<commit-sha>
+```
+
+Baseline from the 2026-08-16 effort: tokenBudget 150-260k, maxTurns 6-14, retryOnTransient false. Janitor recovery for died children: status -> gate -> check boxes -> commit green work (check git log before redispatching — budget-dead children still commit completed work).
 
 ## When to Stop and Ask for Help
 
