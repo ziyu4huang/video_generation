@@ -5,3 +5,7 @@ Goal: LEANRAG-PROVENANCE.md + zk CONTEXT.md update.
 Scope: ①② status Shipped (this effort), link ADR rewrite; zk CONTEXT gains hierarchy section (D4/D5/D6 rationale).
 
 Acceptance: provenance accurate; test:adr green.
+
+## Resolution
+
+DONE. Provenance ①② → Shipped (linked to ADR-0001 supersede + effort); zk CONTEXT.md gains the Hierarchy section; test:adr green.
