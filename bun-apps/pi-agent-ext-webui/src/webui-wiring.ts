@@ -54,6 +54,7 @@ import { createOpenEventHandler } from "./open-event-handler.js";
 import { imageMd } from "./image-presentation.js";
 import { resolveOutputDir } from "./output-routes.js";
 import { createPresentTool, type PresentInput } from "./present-tool.js";
+import { createWebuiReportTool } from "./report-tool.js";
 import { resolvePort } from "./port-resolver.js";
 import { resolveFileRoots, resolveWebuiEnabled } from "./webui-config.js";
 import { createSessionStore, type SessionStore } from "./session-store.js";
@@ -1023,6 +1024,14 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     else presentHandler(payload);
     return input.id;
   };
+  // webui-v3 follow-up: the in-process report producer — the SAME sink the
+  // POST /api/report route uses (store-wrapped broadcaster: live broadcast +
+  // replay append). The agent publishes reports without a socket detour.
+  pi.registerTool?.(
+    createWebuiReportTool({
+      onReport: (frame) => broadcaster.broadcast(frame),
+    })
+  );
   pi.registerTool?.(
     createPresentTool({
       present,

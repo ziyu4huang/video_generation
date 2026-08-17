@@ -25,6 +25,7 @@
 import type { Server } from "bun";
 import type { RenderService, RenderView } from "./render-service.js";
 import type { WebFrame } from "./protocol.js";
+import { buildReportFrame } from "./report-frame.js";
 import { renderMarkdown } from "./render-markdown.js";
 import { RENDER_SHELL_HTML } from "./render-shell.js";
 
@@ -96,23 +97,13 @@ export function createRenderRoutes(
         if (raw.length > 131072) return new Response("payload too large", { status: 413 });
         let body: unknown;
         try { body = JSON.parse(raw); } catch { return new Response("bad request", { status: 400 }); }
-        const b = (body ?? {}) as Record<string, unknown>;
-        const title = typeof b.title === "string" ? b.title.trim() : "";
-        if (!title || title.length > 200) return new Response("bad request", { status: 400 });
-        const md = typeof b.markdown === "string" ? b.markdown : "";
-        const html = typeof b.html === "string" ? b.html : "";
-        if ((md ? 1 : 0) + (html ? 1 : 0) !== 1) return new Response("bad request", { status: 400 });
-        const source = typeof b.source === "string" && b.source ? b.source.slice(0, 100) : "api";
-        const frame: Extract<WebFrame, { type: "report" }> = {
-          type: "report",
-          id: "report-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6),
-          title,
-          source,
-          ts: Date.now(),
-          ...(md ? { markdown: md } : { html }),
-        };
-        sink(frame);
-        return json({ ok: true, id: frame.id });
+        // webui-v3 follow-up: validation + frame construction live in
+        // report-frame.ts — shared with the in-process webui_report tool so
+        // both doors emit identical frames.
+        const r = buildReportFrame((body ?? {}) as Record<string, unknown>);
+        if (!r.ok) return new Response(r.error, { status: r.status });
+        sink(r.frame);
+        return json({ ok: true, id: r.frame.id });
       }, (): Response => new Response("bad request", { status: 400 }));
     }
 
