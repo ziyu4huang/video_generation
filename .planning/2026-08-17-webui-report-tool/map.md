@@ -22,7 +22,7 @@ construction extracted to shared `src/report-frame.ts`, used by BOTH doors:
 
 | # | ticket | status | notes |
 | - | - | - | - |
-| 01 | webui_report tool + shared builder | closed | #<PR> |
+| 01 | webui_report tool + shared builder | closed | #1572 |
 
 ## Verification
 
