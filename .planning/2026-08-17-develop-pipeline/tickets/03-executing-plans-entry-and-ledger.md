@@ -1,6 +1,6 @@
 ---
 type: task
-status: open
+status: closed
 ---
 # 03 — executing-plans entry criteria + dispatch ledger format
 
@@ -20,3 +20,6 @@ Fidelity protocol: rebalance + full test; UPSTREAM.ref LOCAL-DIVERGENCES rows fo
 - [ ] executing-plans SKILL.md has `## Dispatch ledger` with the exact line format + baseline
 - [ ] rebalance run; superpowers `bun test` green (132 baseline)
 - [ ] UPSTREAM.ref LOCAL-DIVERGENCES rows added
+
+## Resolution
+Done — executing-plans entry criteria (Run:/Expected: per task) + `## Dispatch ledger` one-line-per-child format with 2026-08-16 baseline; rebalance run, UPSTREAM.ref rows, 75db939d.

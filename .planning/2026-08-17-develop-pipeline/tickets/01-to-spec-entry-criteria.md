@@ -1,6 +1,6 @@
 ---
 type: task
-status: open
+status: closed
 ---
 # 01 — to-spec entry-criteria block
 
@@ -15,3 +15,6 @@ Add a named `## Entry criteria` block to `bun-apps/pi-agent-ext-wayfind/skills/t
 - [ ] Chain wiring section unchanged (still references grill-me-with-docs / map collapse)
 - [ ] `( cd bun-apps/pi-agent-ext-wayfind && bun run check && bun run typecheck && bun test )` green (513 baseline)
 - [ ] Commit message references ticket 01
+
+## Resolution
+Done — to-spec entry criteria: `## Entry criteria` block in to-spec SKILL.md gating synthesis on a frozen map (exists, Not-yet-specified empty or deferred with owner), 1138bac8.

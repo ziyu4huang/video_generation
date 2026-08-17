@@ -1,6 +1,6 @@
 ---
 type: task
-status: open
+status: closed
 ---
 # 02 — writing-plans entry criteria
 
@@ -15,3 +15,6 @@ Add `## Entry criteria` to `bun-apps/pi-agent-ext-superpowers/skills/writing-pla
 - [ ] rebalance-upstream-skills.ts run; byte-pinned fixtures updated
 - [ ] superpowers `bun test` green (132 baseline)
 - [ ] UPSTREAM.ref LOCAL-DIVERGENCES carries the new row
+
+## Resolution
+Done — writing-plans entry criteria: settled spec with zero open decisions before planning; rebalance run, byte-pinned fixtures + UPSTREAM.ref LOCAL-DIVERGENCES row, 9376ea1e.

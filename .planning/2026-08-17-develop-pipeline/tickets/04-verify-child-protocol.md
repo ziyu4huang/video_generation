@@ -1,7 +1,7 @@
 ---
 type: task
 blocking: 03
-status: open
+status: closed
 ---
 # 04 — verify-child protocol in dispatching-parallel-agents
 
@@ -16,3 +16,6 @@ Add `## Verify-child protocol` to `bun-apps/pi-agent-ext-superpowers/skills/disp
 - [ ] archify motivating case cited
 - [ ] rebalance run; superpowers `bun test` green (132 baseline)
 - [ ] UPSTREAM.ref LOCAL-DIVERGENCES row added
+
+## Resolution
+Done — verify-child protocol in dispatching-parallel-agents: read-only verify child re-runs task gates + typecheck:ext + greps after every write child; ledger on green, janitor/systematic-debugging on red; archify PR #1574 cited, c2e5fa76.
