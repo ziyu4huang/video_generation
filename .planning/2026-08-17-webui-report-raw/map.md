@@ -13,7 +13,7 @@ allow-downloads for exactly this reason. Scroll: the app-shell (overflow
 hidden) + pane scroll + iframe internal scroll nest three scroll regions —
 the visible bar is two insets from the edge.
 
-## What (PR #<PR>)
+## What (PR #1583)
 
 - render-shell: report iframe sandbox -> "allow-scripts allow-downloads"
   (mirrors /files; still NO allow-same-origin).
