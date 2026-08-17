@@ -114,3 +114,6 @@ export function ragToolsFor(blend: BlendMode = "default"): string[] {
 		? [...RAG_TOOLS_THREE_WAY]
 		: [...RAG_TOOLS];
 }
+
+/** LeanRAG ① hierarchy defaults (ticket 06). Budget is a CHARS proxy — the per-layer schedule halves it each level (LeanRAG (max_depth−layer)×80 analog, chars-scaled), floor 1200. */
+export const HIERARCHY_DEFAULTS = { threshold: 0.72, maxDepth: 3, baseBudget: 10_000 } as const;

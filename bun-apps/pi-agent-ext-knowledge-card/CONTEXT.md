@@ -107,3 +107,7 @@ Per-vault pipeline state — adaptive threshold (N ∈ [20,200]) + run history +
 lastRun. Read via `action=status`; converge adjusts the threshold from killRate
 + passRate (high kill+pass → −5; low pass → +10; else stable) and persists.
 _Avoid:_ config, settings (it is the distill run-state + threshold + history).
+
+## Hierarchy (LeanRAG ①②)
+
+Effort 2026-08-16-leanrag-hierarchy-port. `KnowledgePipeline.buildHierarchy` seam method drives `src/hierarchy.ts`'s pure core (deterministic cosine clustering, budget-gated buildLayer, per-layer checkpoints, parentChain) over kbDir cards; nodes materialize as derived-aggregation MOC cards (T2 regen-able, heal-pruned). Retrieval auto-expands: lineage-matched node summaries appended post-ranking (≤3, layer-desc, viaTree) — ranking stays authoritative; no tree → byte-identical. Config: `HIERARCHY_DEFAULTS` + `layerBudgetOf` (base>>depth, floor 1200) in zk-task-config; hermes fires the build post-ingest (fire-and-forget, `hierarchyEnabled` knob, PI_HIERARCHY_DISABLED env). D4 injected callables / D5 deterministic clustering (no GMM/UMAP) / D6 token-budget gating — see the effort map.

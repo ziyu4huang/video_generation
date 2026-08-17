@@ -9,7 +9,7 @@ export type {
   KnowledgePipeline, KnowledgeRecord, KnowledgeRecordEvidence, SourceFamily, LinkWeighting,
   IngestOptions, IngestSummary, ConvergeOptions, ConvergeReceipt,
   RetrieveOptions, RetrieveResult, CollectInputFilesResult,
-  HealOptions, HealReceipt,
+  HealOptions, HealReceipt, HierarchyBuildOptions, HierarchyBuildResult,
 } from "./interfaces/knowledge-pipeline.js";
 // Deterministic entity primitives, shared BY VALUE across the ADR-0001 tier
 // boundary (knowledge-card ranking ↔ hermes-memory entityRecall). See

@@ -117,6 +117,33 @@ export interface HealReceipt {
   cardsTouched: string[];
 }
 
+/** Options for the hierarchy build (LeanRAG ① / ticket 04a). `cards` are the
+ *  leaf records; `embedFn`/`summarizeFn` are injected callables (D4 — hermes
+ *  supplies card_vectors + llm-chat; zk never imports a store or LLM client
+ *  for this). */
+export interface HierarchyBuildOptions {
+  /** Convergence folder the derived agg cards + layer checkpoints live in. */
+  kbDir: string;
+  /** Explicit card set. When omitted, zk loads cards + entities
+   *  from the .md files in kbDir (agg-L*-* MoCs skipped). */
+  cards?: { id: string; text: string; entities: string[]; sources?: string[] }[];
+  embedFn(texts: string[]): Promise<number[][]>;
+  summarizeFn?(clusterText: string, budget: number): Promise<string>;
+  tokenBudget?: number;
+  threshold?: number;
+  maxDepth?: number;
+}
+/** Receipt for a hierarchy build. `nodes` is the full multi-level set
+ *  (AggregationNode-lite, inlined — zk's richer type assigns structurally,
+ *  per the core-interface SUBSET pattern). */
+export interface HierarchyBuildResult {
+  layers: number;
+  nodes: { id: string; parentOf: string[]; entities: string[]; sources: string[]; summary: string; layer: number; clusterSize: number }[];
+  llmCalls: number;
+  resumed: boolean;
+  skipped?: string;
+}
+
 export interface KnowledgePipeline {
   collectInputFiles(paths: string[], opts: { source: SourceFamily; cwd: string }): CollectInputFilesResult;
   ingestRecords(records: KnowledgeRecord[], opts: IngestOptions): Promise<IngestSummary>;
@@ -125,6 +152,12 @@ export interface KnowledgePipeline {
    *  no convergence loop, no probe. zk already implements it (retrieve.ts);
    *  hermes calls it AFTER ingest to keep the vault graph healthy. */
   healGraph(opts: HealOptions): Promise<HealReceipt>;
+  /** Multi-layer aggregation-hierarchy build (LeanRAG ① / ticket 04a).
+   *  Embeds + clusters the leaf cards into aggregation nodes, recurses (node
+   *  summaries become the next layer's cards) until ≤4 nodes / depth cap,
+   *  materializes derived MOC cards + per-layer checkpoints in kbDir — a
+   *  crashed batch build resumes at the last complete layer. */
+  buildHierarchy(opts: HierarchyBuildOptions): Promise<HierarchyBuildResult>;
   runConvergenceLoop(opts: ConvergeOptions): Promise<ConvergeReceipt>;
   retrieveRecords(opts: RetrieveOptions): Promise<RetrieveResult>;
 }

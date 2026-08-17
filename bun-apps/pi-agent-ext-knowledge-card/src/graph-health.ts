@@ -34,9 +34,10 @@
  *
  * Env (passed through from pi-obsidian): OB_VAULT_PATH / OB_VAULT_DIR.
  */
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getIndex, graphDeadLinks, graphOrphans, invalidateCache } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { isDerivedAggregation } from "./aggregation-write.ts";
 import { writeMoc } from "./ingest.ts";
 import { extractFeatures } from "./card-render.ts";
 import type { KnowledgeRecord, CoverageReport } from "./types.ts";
@@ -88,6 +89,9 @@ export interface HealResult {
 	mocRegenerated: boolean;
 	deadLinksPruned: number;
 	linksDeduped: number;
+	/** Derived aggregation files pruned by the orphan cascade (ticket 03) —
+	 *  folder-relative paths. */
+	aggPruned: string[];
 	cardsTouched: string[];
 }
 
@@ -185,11 +189,44 @@ export async function healGraph(opts: GraphHealthOptions): Promise<HealResult> {
 	const folder = opts.folder ?? "Zettelkasten/knowledge-graph";
 	const mocPath = opts.mocPath ?? "Tags/Knowledge Graph.md";
 	const folderAbs = join(opts.vaultPath, folder);
-	const result: HealResult = { mocRegenerated: false, deadLinksPruned: 0, linksDeduped: 0, cardsTouched: [] };
+	const result: HealResult = { mocRegenerated: false, deadLinksPruned: 0, linksDeduped: 0, aggPruned: [], cardsTouched: [] };
 
 	if (!existsSync(folderAbs)) return result;
 
-	// 1. Regenerate MOC.
+	// 0. Prune orphaned derived-aggregation nodes (ticket 03) — fixpoint
+	//    cascade: a layer-N node deleted here can orphan its layer-N+1
+	//    parent, so loop until stable. Runs BEFORE the MOC regen so the
+	//    regenerated MOC never lists nodes deleted in the same heal. Only
+	//    ever deletes `kind: derived-aggregation` files — user-authored
+	//    cards are untouchable.
+	let aggChanged = true;
+	while (aggChanged) {
+		aggChanged = false;
+		const present = new Set(
+			readdirSync(folderAbs)
+				.filter((n) => n.endsWith(".md"))
+				.map((n) => n.replace(/\.md$/, "")),
+		);
+		for (const name of [...present].sort()) {
+			if (!/^agg-L\d+-\d+$/.test(name)) continue;
+			const abs = join(folderAbs, `${name}.md`);
+			const content = readFileSync(abs, "utf8");
+			if (!isDerivedAggregation(content)) continue;
+			// children = wikilink targets in the file (agg cards only carry
+		// 子節點 links); a node with zero live children is an orphan.
+			const targets = [...content.matchAll(/\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g)].map((m) => m[1]!);
+			const alive = targets.filter((t) => present.has(t));
+			if (alive.length === 0) {
+				rmSync(abs);
+				result.aggPruned.push(`${folder}/${name}.md`);
+				result.cardsTouched.push(`${folder}/${name}.md`);
+				present.delete(name);
+				aggChanged = true;
+			}
+		}
+	}
+
+	// 1. Regenerate MOC (AFTER the prune so deleted nodes never appear).
 	const cardAbs = readdirSync(folderAbs)
 		.filter((n) => n.endsWith(".md"))
 		.map((n) => join(folderAbs, n));

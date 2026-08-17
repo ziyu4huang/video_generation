@@ -20,8 +20,8 @@ from the source, not just from planning docs.
 | ③ | Redundancy-aware context (frequency-voted recall + dedup) | `src/store/semantic-search.ts` | **Shipped (kp 19+20)** — ticket 19 | ticket 19, ADR-0001 |
 | ⑥ | Entity-description summarization | `src/merge-union.ts` (partial) | **Shipped (kp-03 Phase2, derived-only side-cache)** — full condense needs ticket 03 | ticket 03, ADR-0001 |
 | ⑤ | Pluggable extraction (dict vs LLM few-shot) | knowledge-card `entities.ts` (deterministic tagging; different pkg) | **Design home** — ticket 03 | ticket 03 |
-| ① | Semantic-aggregation hierarchy (parent-tree) | — | **Deferred (fog/future)** — LLM-heavy, cuts against deterministic-by-design (follow-up seeded: .planning/knowledge/leanrag-hierarchy-port-followup.md — user-approved 2026-08-16) | ADR-0001 |
-| ② | Hierarchical LCA retrieval | — | **Deferred** (depends on ①; follow-up seeded: .planning/knowledge/leanrag-hierarchy-port-followup.md — user-approved 2026-08-16) | ADR-0001 |
+| ① | Semantic-aggregation hierarchy (parent-tree) | — | **Shipped** (2026-08-16-leanrag-hierarchy-port: deterministic cosine clustering, budget-gated summaries, checkpoints, aggregation MOCs; ADR-0001 superseded-in-part) | ADR-0001 |
+| ② | Hierarchical LCA retrieval | — | **Shipped** (auto tree-expansion in retrieveRecords — lineage-matched ≤3 layer-desc viaTree evidence; no-tree byte-identical) | ADR-0001 |
 
 ## Status legend
 

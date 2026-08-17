@@ -1,5 +1,5 @@
 /**
- * src/retrieve.ts — deterministic knowledge-graph READ side (symmetric to
+ * src/retrieve.ts â deterministic knowledge-graph READ side (symmetric to
  * ingest.ts's WRITE side).
  *
  * ingest.ts converges structured records INTO the shared vault folder as
@@ -8,27 +8,27 @@
  * workflows learn that is relevant to my tag space?" and gets a compact
  * digest of cards it does NOT already own.
  *
- * Three primitives (all deterministic — no LLM, no network):
+ * Three primitives (all deterministic â no LLM, no network):
  *
- *   readActiveIds(kbFile)        — parse a workflow's .knowledge.jsonl,
+ *   readActiveIds(kbFile)        â parse a workflow's .knowledge.jsonl,
  *                                  return the active record ids (the caller's
  *                                  OWN ids, used to exclude self-cards).
  *
- *   retrieveRecords(opts)        — scan the convergence folder, match ANY of
+ *   retrieveRecords(opts)        â scan the convergence folder, match ANY of
  *                                  the given tags, rank by shared-tag count,
  *                                  EXCLUDE the caller's own ids, return topK
  *                                  cards with a compact digest.
  *
- *   graphHealth(opts)            — dead-link / MOC-drift / orphan audit scoped
+ *   graphHealth(opts)            â dead-link / MOC-drift / orphan audit scoped
  *                                  to the convergence folder (uses the
  *                                  pi-obsidian VaultIndex substrate).
  *
- *   healGraph(opts)              — auto-heal: regenerate the MOC from on-disk
+ *   healGraph(opts)              â auto-heal: regenerate the MOC from on-disk
  *                                  cards + prune dead [[...]] links in-card.
  *                                  Scoped to the convergence folder; NEVER
  *                                  touches human-authored cards outside it.
  *
- * Library only — no ExtensionAPI, no LLM, no network. The zk-query CLI
+ * Library only â no ExtensionAPI, no LLM, no network. The zk-query CLI
  * (pi-agent) is a thin shell over these functions.
  *
  * Env (passed through from pi-obsidian): OB_VAULT_PATH / OB_VAULT_DIR.
@@ -36,6 +36,7 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getIndex, graphDeadLinks, graphOrphans, invalidateCache } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import { writeMoc } from "./ingest.ts";
 import { extractFeatures } from "./card-render.ts";
 import { extractDetail, extractTitle } from "./graph-health.ts";
@@ -72,21 +73,23 @@ export interface RetrievedCard {
 	tags: string[];
 	/** Shared-tag count with the query (the ranking score before the callout boost). */
 	sharedTags: number;
+	/** Tree-expansion marker: derived aggregation evidence, appended post-ranking. */
+	viaTree?: boolean;
 	/** Vault-relative card path. */
 	path: string;
 	/** Source provenance label. */
 	source: string;
 	/** True iff the card carries Obsidian callout(s) (P1 feature metadata). */
 	hasCallouts: boolean;
-	/** First callout headline ("[!warning] ...") — lifted into the digest so the
+	/** First callout headline ("[!warning] ...") â lifted into the digest so the
 	 *  highest-signal line is not buried in the truncated prose body. */
 	calloutText: string;
-	/** Typed graph edges (ticket 03 T5 / D2). OPTIONAL — undefined for cards
+	/** Typed graph edges (ticket 03 T5 / D2). OPTIONAL â undefined for cards
 	 *  with no `relations:` frontmatter (the default dictionary ingest path
 	 *  emits entities only, never relations). When present, the edges are the
 	 *  on-disk `relations:` block (already canonicalized by T4's serializer
 	 *  write-back); retrieve is a faithful pass-through, it does NOT
-	 *  re-normalize. Substrate for ticket 20 + LeanRAG ③. */
+	 *  re-normalize. Substrate for ticket 20 + LeanRAG â¢. */
 	relations?: Array<{ s: string; rel: string; o: string }>;
 }
 
@@ -105,45 +108,45 @@ export interface RetrieveOptions {
 	maxDetailChars?: number;
 	/** Ranking weight (SAG-inspired, kg-improvement-plan P8):
 	 *  - "count" (default): raw shared-tag count (the pinned baseline).
-	 *  - "idf": Σ IDF(sharedTag) — rare specific tags outrank ubiquitous
+	 *  - "idf": Î£ IDF(sharedTag) â rare specific tags outrank ubiquitous
 	 *    type-tags, improving recall on natural-language queries where the
 	 *    caller's tags name a SPECIFIC concept (pi-obsidian) not a type (pattern).
 	 *    ADDITIVE + OPT-IN; default preserves the measured tag-path baseline. */
 	linkWeighting?: LinkWeighting;
 	/** Opt-in body/full-text recall path (kg-improvement-plan follow-on to P8).
 	 *  When true, a card is also eligible when query tokens appear in its BODY
-	 *  prose (not just its tags), and ranking blends tag-overlap (×2, precision)
+	 *  prose (not just its tags), and ranking blends tag-overlap (Ã2, precision)
 	 *  with body-token overlap (recall) + the callout boost. Closes the
-	 *  knowledge_query recall gap: tags-only 0.48 → 0.84 hit-rate@4 on the
+	 *  knowledge_query recall gap: tags-only 0.48 â 0.84 hit-rate@4 on the
 	 *  25-query eval, zero regression. Default false = byte-identical tag-only
 	 *  behaviour (drift-guard stays green; no extra file reads). */
 	bodyMatch?: boolean;
 	/** Opt-in slug-dominant precision path (kg-improvement-plan iter-2, follow-on
 	 *  to bodyMatch). When true, a card whose SLUG (filename, derived from the
-	 *  record id at ingest) overlaps ≥3 query tokens scores by slug×4 — the slug
+	 *  record id at ingest) overlaps â¥3 query tokens scores by slugÃ4 â the slug
 	 *  is the card's distilled topic fingerprint and beats ubiquitous-tag noise.
 	 *  Rescues cards whose tags are generic but whose id names the exact query
-	 *  topic (knowledge_query 0.80→0.84 hit-rate@4, zero regression). Works with
-	 *  or without bodyMatch; the ≥3 hard gate is essential (additive slug weight
-	 *  floods top-4 with weak 1–2-token matches — probed, regresses). Cheap: the
+	 *  topic (knowledge_query 0.80â0.84 hit-rate@4, zero regression). Works with
+	 *  or without bodyMatch; the â¥3 hard gate is essential (additive slug weight
+	 *  floods top-4 with weak 1â2-token matches â probed, regresses). Cheap: the
 	 *  slug IS the filename, so no extra file read. Default false = unchanged. */
 	slugDom?: boolean;
 	/** Opt-in semantic (embedding) blend (recall-regime-change-eval, 2026-07-12).
 	 *  When true AND a local embedding model (nomic-embed-text via LM Studio) is
 	 *  available, the lexical top-12 pool is UNION'd with a semantic top-12
 	 *  (cosine over precomputed card embeddings) and reranked by
-	 *  α·(lexical rank norm) + (1-α)·(cosine min-max norm). Bridges symptom→cause
-	 *  semantic gaps lexical retrieval cannot (measured 0.84 → 1.00 hit-rate@4,
-	 *  zero regression, robust α∈[0.12,0.22]). GRACEFUL FALLBACK: if LM Studio or
+	 *  Î±Â·(lexical rank norm) + (1-Î±)Â·(cosine min-max norm). Bridges symptomâcause
+	 *  semantic gaps lexical retrieval cannot (measured 0.84 â 1.00 hit-rate@4,
+	 *  zero regression, robust Î±â[0.12,0.22]). GRACEFUL FALLBACK: if LM Studio or
 	 *  the model is unavailable, or embeddings fail, retrieval is pure lexical
-	 *  (the shipped 0.84 path) — no error. Default false = byte-identical baseline.
+	 *  (the shipped 0.84 path) â no error. Default false = byte-identical baseline.
 	 *  Requires `queryText` (the natural-language query to embed). */
 	semantic?: boolean;
 	/** Natural-language query text to embed when `semantic` is true. The lexical
 	 *  path uses `tags` (tokenised); the semantic path embeds THIS string because
 	 *  vector similarity needs the query's prose, not its tag tokens. */
 	queryText?: string;
-	/** Blend weight α (lexical) in [0,1]; semantic weight = 1-α. Default 0.18
+	/** Blend weight Î± (lexical) in [0,1]; semantic weight = 1-Î±. Default 0.18
 	 *  (center of the measured 1.00 band). */
 	semanticAlpha?: number;
 	/** Embedding model id (default text-embedding-nomic-embed-text-v1.5). */
@@ -154,7 +157,7 @@ export interface RetrieveOptions {
 	 *  Never set in production. */
 	_testEmbedder?: Embedder;
 	/** Opt-in retrieval TRACE (Phase C observability). When true, the result
-	 *  carries a `trace` with per-card score/sharedTags/source provenance — lets
+	 *  carries a `trace` with per-card score/sharedTags/source provenance â lets
 	 *  a caller debug why cards surfaced without re-reading the vault. Default
 	 *  false = the result is byte-identical to omitting it (no trace computation,
 	 *  drift-guard stays green). */
@@ -209,12 +212,12 @@ export interface RetrieveTrace {
 }
 
 // ---------------------------------------------------------------------------
-// readActiveIds — the caller's OWN active record ids
+// readActiveIds â the caller's OWN active record ids
 // ---------------------------------------------------------------------------
 
 /**
  * Parse a workflow's `.knowledge.jsonl` and return the ids of records whose
- * status === "active". These are the caller's own cards — retrieveRecords
+ * status === "active". These are the caller's own cards â retrieveRecords
  * excludes them so the digest is genuinely cross-workflow.
  *
  * Returns [] if the file does not exist or is empty (a new/clean workflow).
@@ -231,14 +234,14 @@ export function readActiveIds(kbFile: string): string[] {
 				ids.push(rec.id);
 			}
 		} catch {
-			// malformed line — skip
+			// malformed line â skip
 		}
 	}
 	return ids;
 }
 
 // ---------------------------------------------------------------------------
-// retrieveRecords — cross-workflow tag-ranked retrieval
+// retrieveRecords â cross-workflow tag-ranked retrieval
 // ---------------------------------------------------------------------------
 
 /**
@@ -248,11 +251,11 @@ export function readActiveIds(kbFile: string): string[] {
  *
  * Symmetric to ingestRecords: where ingestRecords WRITES cards and computes
  * cross-link neighbours by shared tags, retrieveRecords READS them back and
- * ranks by the same shared-tag signal — so the retrieval ranking is consistent
+ * ranks by the same shared-tag signal â so the retrieval ranking is consistent
  * with the graph's own edge weights.
  */
 /** Minimal English stop-word set. Query tags equal to one of these are ignored
- *  for body matching — they appear in almost every card and would flood recall
+ *  for body matching â they appear in almost every card and would flood recall
  *  with false positives. Standard IR practice; mirrors the eval harness's
  *  fullTextProxy logic (`scripts/real-retrieval-measure.mjs`). */
 const BODY_STOP = new Set([
@@ -294,12 +297,12 @@ const SLUG_STOP = new Set([
 ]);
 
 /** Minimum slug-token overlap for the slug-dom precision branch to fire. Below
- *  this the slug signal is too weak (1–2 common tokens) and a slug weight
- *  floods top-4 with weak matches — probed and rejected (slug2/slug3 regress). */
+ *  this the slug signal is too weak (1â2 common tokens) and a slug weight
+ *  floods top-4 with weak matches â probed and rejected (slug2/slug3 regress). */
 const SLUG_DOM_THRESHOLD = 3;
 
 /** Count how many query tags appear in the card's SLUG (filename) tokens. The
- *  slug — derived from the record id at ingest — is the card's distilled topic
+ *  slug â derived from the record id at ingest â is the card's distilled topic
  *  fingerprint, so slug overlap is the highest-signal deterministic match. Type
  *  prefixes + stop words are filtered so namespace noise (auto-memory-, gotcha-)
  *  never counts. Pure + no file read (the slug IS the filename). */
@@ -337,7 +340,7 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 
 	// IDF pre-scan (only when linkWeighting === "idf"): collect every card's tag
 	// set so the IDF table spans the full folder. The default "count" mode skips
-	// this entirely — no behaviour change for the pinned baseline.
+	// this entirely â no behaviour change for the pinned baseline.
 	let idfTable = new Map<string, number>();
 	if (linkWeighting === "idf") {
 		const folderTagSets: Set<string>[] = [];
@@ -355,6 +358,9 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 
 	for (const name of readdirSync(folderAbs)) {
 		if (!name.endsWith(".md")) continue;
+		// LeanRAG â¡ (ticket 05): derived aggregation MOCs never RANK â surfaced
+		// only via post-ranking tree expansion (lineage-matched, capped).
+		if (/^agg-L\d+-\d+\.md$/.test(name)) continue;
 		const abs = join(folderAbs, name);
 		const meta = readCardMeta(abs);
 		if (!meta) continue;
@@ -372,12 +378,12 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		}
 
 		// Shared-tag score under the selected weighting ("count" = raw integer,
-		// the pinned baseline; "idf" = Σ IDF(sharedTag), SAG-inspired P8). Both
+		// the pinned baseline; "idf" = Î£ IDF(sharedTag), SAG-inspired P8). Both
 		// modes exclude the ubiquitous "zettel" tag (scoreOverlap handles it).
 		const shared = scoreOverlap(queryTags, meta.tags, idfTable, linkWeighting);
 		// Opt-in slug-dom precision: the card's SLUG (filename) is its distilled
-		// topic fingerprint. When ≥3 query tokens appear in the slug, the card is
-		// eligible AND scores dominantly — rescues cards whose tags are generic but
+		// topic fingerprint. When â¥3 query tokens appear in the slug, the card is
+		// eligible AND scores dominantly â rescues cards whose tags are generic but
 		// whose id names the exact query topic. Cheap: the slug is the filename, no
 		// extra read. Default slugDom=false keeps the pinned baseline.
 		const slugOverlap = slugDom ? slugTokenOverlap(cardSlug, queryTags) : 0;
@@ -413,9 +419,9 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		// tag tie surfaces it earlier without distorting clearly-better matches.
 		//
 		// BY-DESIGN: this boost lives in retrieveRecords ONLY, not in zk_ask's
-		// buildRagTask Step-3 score (0.7×search + 0.3×links). The two read paths
+		// buildRagTask Step-3 score (0.7Ãsearch + 0.3Ãlinks). The two read paths
 		// use different score signals AND have different access to feature
-		// metadata: retrieveRecords is the deterministic library — it reads each
+		// metadata: retrieveRecords is the deterministic library â it reads each
 		// card's frontmatter directly (so hasCallouts is available at rank time);
 		// zk_ask's score is computed by the agent from obsidian_search results,
 		// where frontmatter is NOT available at Step 3 (notes are read via
@@ -444,14 +450,14 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			hasCallouts: meta.hasCallouts,
 			calloutText,
 			relations: parseRelationsBlock(content),
-			// Blend score: tag overlap ×2 (precision) + body-token overlap (recall) +
-			// callout boost. Tag×2 keeps precise tag matches dominant while body adds
-			// recall — measured zero-regression vs the tag-only baseline.
-			// slugDom (iter-2): when the card's slug overlaps ≥3 query tokens, the slug
-			// fingerprint DOMINATES (slug×4) — the highest-signal deterministic match,
+			// Blend score: tag overlap Ã2 (precision) + body-token overlap (recall) +
+			// callout boost. TagÃ2 keeps precise tag matches dominant while body adds
+			// recall â measured zero-regression vs the tag-only baseline.
+			// slugDom (iter-2): when the card's slug overlaps â¥3 query tokens, the slug
+			// fingerprint DOMINATES (slugÃ4) â the highest-signal deterministic match,
 			// beating ubiquitous-tag noise (e.g. a card whose id literally names the
-			// query topic but whose tags are generic). The ≥3 hard gate is essential:
-			// additive slug weight floods top-4 with weak 1–2-token matches (probed,
+			// query topic but whose tags are generic). The â¥3 hard gate is essential:
+			// additive slug weight floods top-4 with weak 1â2-token matches (probed,
 			// regresses). Default (bodyMatch=false, slugDom=false): shared + calloutBoost.
 			_score: slugDom && slugOverlap >= SLUG_DOM_THRESHOLD
 				? slugOverlap * 4 + calloutBoost
@@ -465,7 +471,7 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 
 	// Opt-in semantic blend (recall-regime-change-eval). Default off = unchanged.
 	// Union the lexical top-12 with a semantic top-12 (cosine), rerank by
-	// α·lexRankNorm + (1-α)·cosNorm. Returns null on any embedding failure →
+	// Î±Â·lexRankNorm + (1-Î±)Â·cosNorm. Returns null on any embedding failure â
 	// graceful fall-through to pure lexical below.
 	if (semantic) {
 		const sem = await trySemanticBlend({
@@ -492,10 +498,14 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 
 	const topScored = scored.slice(0, topK);
 	const top = topScored.map(({ _score, ...rest }) => rest);
+	// LeanRAG ② (ticket 05): auto tree-expansion — append lineage-matched
+	// aggregation summaries as evidence AFTER the ranked list (ranking stays
+	// authoritative). No agg files → zero code-path change (byte-identical).
+	const expanded = await expandWithTree(folderAbs, top, maxDetailChars);
 
 	return {
 		count: top.length,
-		cards: top,
+		cards: [...top, ...expanded],
 		digest: formatDigest(top, opts.tags),
 		folder,
 		scanned,
@@ -519,15 +529,61 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 	};
 }
 
-/** Parse the additive `relations: [{s,rel,o},…]` frontmatter block into typed
+/** LeanRAG ② tree expansion (ticket 05): load agg-L*-* MOCs, keep nodes whose
+ *  sources (lineage union) contain any ranked card id; append <=3 nearest-layer
+ *  summaries as viaTree evidence cards. Pure read; never re-ranks. */
+async function expandWithTree(
+	folderAbs: string,
+	ranked: RetrievedCard[],
+	maxDetailChars: number,
+): Promise<RetrievedCard[]> {
+	if (ranked.length === 0) return [];
+	const rankedIds = new Set(ranked.map((c) => c.id));
+	const matches: { layer: number; card: RetrievedCard }[] = [];
+	for (const name of readdirSync(folderAbs)) {
+		if (!/^agg-L\d+-\d+\.md$/.test(name)) continue;
+		const raw = readFileSync(join(folderAbs, name), "utf8");
+		const { data } = parseFrontmatter(raw);
+		const sources = flattenScalarList(data.sources);
+		if (!sources.some((s) => rankedIds.has(s))) continue;
+		const layer = Number(data.layer ?? 0) || 0;
+		const summary = typeof data.summary === "string" ? data.summary : "";
+		const entities = flattenScalarList(data.entities);
+		matches.push({
+			layer,
+			card: {
+				id: typeof data.id === "string" ? data.id : name.replace(/\.md$/, ""),
+				title: `Aggregation L${layer}`,
+				type: "aggregation",
+				detail: summary.length > maxDetailChars ? `${summary.slice(0, maxDetailChars - 1)}…` : summary,
+				tags: entities,
+				sharedTags: 0,
+				path: name.replace(/\.md$/, ""),
+				source: "aggregation",
+				hasCallouts: false,
+				calloutText: "",
+				viaTree: true,
+			},
+		});
+	}
+	matches.sort((a, b) => b.layer - a.layer);
+	return matches.slice(0, 3).map((m) => m.card);
+}
+/** Flat string-list frontmatter flattener (agg MOCs carry flat lists only). */
+function flattenScalarList(v: unknown): string[] {
+	if (!Array.isArray(v)) return typeof v === "string" && v ? [v] : [];
+	return v.filter((x): x is string => typeof x === "string" && x !== "");
+}
+
+/** Parse the additive `relations: [{s,rel,o},â¦]` frontmatter block into typed
  *  edges (ticket 03 T5 / D2). retrieve.ts can't reuse obsidian's
  *  `parseFrontmatter` here: its block-list branch captures scalar items only
  *  and breaks on the first non-`- ` line, so a nested `{s,rel,o}` map would
  *  collapse to `["s: a"]`. This walker reads the nested entries directly.
  *
- *  CANONICALIZATION DECISION — Option C (raw pass-through, D3): retrieve does
+ *  CANONICALIZATION DECISION â Option C (raw pass-through, D3): retrieve does
  *  NOT re-normalize `rel`, and zk must NOT import hermes's `normalizeRelation`
- *  (hermes is the spine that CALLS zk — zk→hermes would be a backward edge; zk
+ *  (hermes is the spine that CALLS zk â zkâhermes would be a backward edge; zk
  *  has zero `@repo/pi-agent-ext-hermes-memory` deps/imports). The on-disk block
  *  is already canonical regardless: T4's serializer write-back
  *  (`KnowledgeSerializer.serialize`, the sole write site) emits the
@@ -550,7 +606,7 @@ function parseRelationsBlock(
 	}
 	if (end === -1) return undefined;
 
-	// Locate the top-level `relations:` key (empty value ⇒ block form).
+	// Locate the top-level `relations:` key (empty value â block form).
 	let relIdx = -1;
 	for (let k = 1; k < end; k++) {
 		if (/^relations\s*:\s*$/.test(lines[k]!)) { relIdx = k; break; }
@@ -563,7 +619,7 @@ function parseRelationsBlock(
 	let cur: string[] | null = null;
 	for (let k = relIdx + 1; k < end; k++) {
 		const ln = lines[k]!;
-		if (/^\S/.test(ln)) break; // next top-level key → relations block ended
+		if (/^\S/.test(ln)) break; // next top-level key â relations block ended
 		if (/^\s*-\s+/.test(ln)) { cur = []; entries.push(cur); }
 		if (!cur) continue;
 		cur.push(ln.replace(/^\s*-\s+/, "").trim());
@@ -577,7 +633,7 @@ function parseRelationsBlock(
 		for (const seg of entry) {
 			const kv = seg.match(/^([A-Za-z_][\w-]*)\s*:\s*(.*)$/);
 			if (!kv) continue;
-			// s/rel/o are plain ids + a predicate key — strip a defensive
+			// s/rel/o are plain ids + a predicate key â strip a defensive
 			// surrounding quote pair (serializer emits unquoted; a hand-authored
 			// card may quote).
 			const val = kv[2]!.trim().replace(/^["']|["']$/g, "");
@@ -633,7 +689,7 @@ function buildRetrievedCard(
 }
 
 /** Opt-in semantic blend. Union lexical top-12 with semantic top-12 (cosine),
- *  rerank by α·lexRankNorm + (1-α)·cosNorm. Returns null on any embedding
+ *  rerank by Î±Â·lexRankNorm + (1-Î±)Â·cosNorm. Returns null on any embedding
  *  failure so the caller falls back to pure lexical. */
 async function trySemanticBlend(args: {
 	scored: (RetrievedCard & { _score: number })[];
@@ -685,7 +741,7 @@ async function trySemanticBlend(args: {
 		}
 	}
 
-	// Cosine min-max norm over the union; blend by α·lexRank + (1-α)·cosNorm.
+	// Cosine min-max norm over the union; blend by Î±Â·lexRank + (1-Î±)Â·cosNorm.
 	const unionPaths = [...unionByPath.keys()];
 	const cosines = unionPaths.map((p) => {
 		const idx = cardEmb.paths.indexOf(p);
@@ -758,8 +814,8 @@ function formatDigest(cards: RetrievedCard[], queryTags: string[]): string {
 			// P1 callout surfacing: when a card carries a callout, lift its headline
 			// (`[!warning] ...`) ahead of the truncated prose so the highest-signal
 			// sentence reaches the RAG context instead of being buried in the body.
-			const calloutPrefix = c.calloutText ? `${c.calloutText} — ` : "";
-			parts.push(`- ${c.title} — ${calloutPrefix}${c.detail.slice(0, 160)} (${c.source})`);
+			const calloutPrefix = c.calloutText ? `${c.calloutText} â ` : "";
+			parts.push(`- ${c.title} â ${calloutPrefix}${c.detail.slice(0, 160)} (${c.source})`);
 		}
 	}
 	return parts.join("\n");

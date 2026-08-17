@@ -120,8 +120,8 @@ export interface MemoryConfig {
    *  order — the disable path is a first-class, byte-identical-parity
    *  invariant. Default: true. */
   decayEnabled?: boolean;
-  /** Recency-exp halflife in days for heat decay (UPSP §1 / ticket #1b).
-   *  recencySpine = exp(-ageDays / halflifeDays). Default: 14. */
+  /** LeanRAG ① hierarchy build at ingest (ticket 04b-2). Default true; PI_HIERARCHY_DISABLED=1 overrides. */
+  hierarchyEnabled?: boolean;
   decayHalflifeDays?: number;
   /** Worth multiplier weight (0..1) for heat decay (UPSP §1 / ticket #1b).
    *  worthMult = 1 + worthWeight * (laplace - 0.5); neutral 1.0 at laplace 0.5.
