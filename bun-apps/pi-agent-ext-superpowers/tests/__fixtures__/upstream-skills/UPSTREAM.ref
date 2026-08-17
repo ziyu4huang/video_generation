@@ -59,3 +59,5 @@ baselined: 2026-07-26
 #       wayfind prototype, deleted 2026-08-16 — do not re-add)
 #     - writing-skills — generalized to all agent-consumed docs (from wayfind
 #       writing-for-agents, deleted 2026-08-16 — do not re-add)
+#     - writing-plans — "Entry criteria" section (repo-local addition,
+#       develop-pipeline ticket 02, 2026-08-16 — do-not-drop-on-resync)

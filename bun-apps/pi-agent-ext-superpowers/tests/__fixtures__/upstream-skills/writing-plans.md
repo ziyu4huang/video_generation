@@ -18,6 +18,11 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 **Save plans to:** `.planning/plans/YYYY-MM-DD-<feature-name>.md`
 - (User preferences for plan location override this default)
 
+## Entry criteria
+
+- A settled spec exists: `.planning/<effort>/spec.md` (effort path) or `.planning/specs/<name>.md` (no-effort path)
+- Zero open decisions: the spec's Implementation Decisions section is present with nothing left unresolved; if decisions are open, brainstorm/grill first (wayfind), do not plan past fog
+
 ## Scope Check
 
 If the spec covers multiple independent subsystems, it should have been broken into sub-project specs during brainstorming. If it wasn't, suggest breaking this into separate plans — one per subsystem. Each plan should produce working, testable software on its own.
