@@ -23,11 +23,13 @@ A locked simplification SPEC for the four knowledge-pipeline packages (pi-agent-
 - [Docs drift census](tickets/01-docs-drift-census.md) — 3 high / 4 med / 1 low drift findings; surreal-default + dead peerDep story + tool-list omissions top the list.
 - [Dead-code census](tickets/02-dead-code-census.md) — 0 DEAD modules in all four packages; ~704 LOC lives only behind zk's CLI tier; ~17 trivially dead.
 - [Redundancy census](tickets/03-redundancy-census.md) — layering already healthy; ≈830 LOC total levers (CLI retirement + leaf hoists + trivia); cross-pkg redundancy ~0.
+- [Collapse decisions](tickets/04-collapse-decisions.md) — integration polish one-effort; retire loop+merge+CLI; hoist leaves; sqlite keep.
+- [Structure targets](tickets/05-structure-targets.md) — file count ≥ −3 · dead exports 0 · docs truthful · mirrors-must-hoist rule.
+- [Risk boundary](tickets/06-risk-boundary.md) — formats/schemas/contracts/pinned surfaces untouchable; L1–L4 independent slices.
 
 ## Not yet specified
 
-- Spec assembly: the execution effort's ticket list falls out of the census (01–03) + grilling (04–06); chart at closing ceremony via to-spec.
-- Whether obsidian's subagent runner and hermes' card-store / knowledge-search survive as-is or fold — sharpened by the redundancy census.
+- (cleared — spec synthesized; see spec.md)
 
 ## Out of scope
 
