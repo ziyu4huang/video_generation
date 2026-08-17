@@ -148,10 +148,8 @@ export interface ParsedArgs {
 	health?: boolean;
 	/** zk-query: convergence coverage audit (missing / sourceOrphaned per family) */
 	coverage?: boolean;
-	/** zk-query: auto-heal (with --health) / apply merges (with --merge-duplicates) */
+	/** zk-query: auto-heal (with --health) */
 	fix?: boolean;
-	/** zk-query: detect + merge near-duplicate cards */
-	mergeDuplicates?: boolean;
 	/** zk-query: merge similarity threshold (default 0.9) */
 	threshold?: number;
 	/** collect-videos: also pull Bilibili popular feed (bilibili only) */
@@ -175,21 +173,21 @@ export interface ParsedArgs {
 	/** workflow: override the run-log output dir (default PWD/.pi/workflows/runs).
 	 *  Also via PI_WORKFLOWS_OUT_DIR env. Absolute or relative to cwd. */
 	outDir?: string;
-	/** kcard-loop: cross-link weighting (count | idf) — also used by zk-ingest. */
+	/** Convergence-loop tuning: cross-link weighting (count | idf) — read by zk-ingest. */
 	linkWeighting?: string;
-	/** kcard-loop: path to a probe eval JSON ({queries:[{q,expect}]}). */
+	/** Convergence-loop tuning: path to a probe eval JSON ({queries:[{q,expect}]}). */
 	probeEval?: string;
-	/** kcard-loop: max heal rounds (default 8). */
+	/** Convergence-loop tuning: max heal rounds (default 8). */
 	maxRounds?: number;
-	/** kcard-loop: consecutive no-progress rounds before stopping (default 2). */
+	/** Convergence-loop tuning: consecutive no-progress rounds before stopping (default 2). */
 	consecutiveEmpty?: number;
-	/** kcard-loop: max cross-link neighbours per card (default 20). */
+	/** Convergence-loop tuning: max cross-link neighbours per card (default 20). */
 	maxLinks?: number;
-	/** kcard-loop: wiki-aware upsert at ingest. */
+	/** Convergence-loop tuning: wiki-aware upsert at ingest. */
 	wikiAware?: boolean;
-	/** kcard-loop: skip ingest, only heal + probe. */
+	/** Convergence-loop tuning: skip ingest, only heal + probe. */
 	healOnly?: boolean;
-	/** kcard-loop: skip the recall probe. */
+	/** Convergence-loop tuning: skip the recall probe. */
 	noProbe?: boolean;
 	/** Emit JSON output (supported by zk-query, etc.) */
 	json?: boolean;

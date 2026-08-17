@@ -21,33 +21,10 @@ describe("arg validation — --dpi (1–4096 positive integer)", () => {
 });
 
 describe("arg validation — numeric flags fail-fast", () => {
-	test("--max-rounds abc → Invalid --max-rounds", () => {
-		const r = runCli(["kcard-loop", "--max-rounds", "abc", "x.jsonl"]);
-		expect(r.exitCode).toBe(1);
-		expect(r.stderr).toContain("Invalid --max-rounds");
-		expect(r.stderr).not.toMatch(NO_STACK);
-	});
-
-	test("negative --consecutive-empty → rejected", () => {
-		const r = runCli(["kcard-loop", "--consecutive-empty", "-1", "x.jsonl"]);
-		expect(r.exitCode).toBe(1);
-		expect(r.stderr).toMatch(/consecutive-empty|Invalid/);
-		expect(r.stderr).not.toMatch(NO_STACK);
-	});
-
 	test("--top-k abc → Invalid --top-k (zk-ask numeric)", () => {
 		const r = runCli(["zk-ask", "--top-k", "abc", "q?"]);
 		expect(r.exitCode).toBe(1);
 		expect(r.stderr).toContain("Invalid --top-k");
-		expect(r.stderr).not.toMatch(NO_STACK);
-	});
-});
-
-describe("arg validation — command-level fail-fast", () => {
-	test("kcard-loop --source bogus → Unknown --source (before file check)", () => {
-		const r = runCli(["kcard-loop", "--source", "bogus", "x.jsonl"]);
-		expect(r.exitCode).toBe(1);
-		expect(r.stderr).toContain("Unknown --source");
 		expect(r.stderr).not.toMatch(NO_STACK);
 	});
 });

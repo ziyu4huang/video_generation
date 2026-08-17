@@ -164,7 +164,7 @@ export interface WalkAndIngestReceipt {
  *  walk → family detect → adapt workflow-jsonl → kp.ingestRecords (zk writes
  *  vault-md) → kp.healGraph once → receipt. The DB-mirror (step 8) + drift stub
  *  (step 9) land in tasks 5/7. generic family is detected-but-deferred (Option A).
- *  Hermes NEVER calls runConvergenceLoop (Decision 1) and NEVER imports zk.
+ *  Hermes NEVER calls the convergence loop (retired L1; Decision 1) and NEVER imports zk.
  *
  *  Phase-2 / 08: the knowledge block runs ONLY when the zk seam is present
  *  (`if (kp)`), but the planning DB-mirror (step 8b) runs INDEPENDENTLY —

@@ -31,7 +31,6 @@ import type { ParsedArgs } from "../args.ts";
 import { ingestRecords } from "@repo/pi-agent-ext-knowledge-card/src/ingest.ts";
 import { adaptHermesMarkdown } from "@repo/pi-agent-ext-knowledge-card/src/adapters.ts";
 import type { KnowledgeRecord, IngestSummary } from "@repo/pi-agent-ext-knowledge-card/src/types.ts";
-import { mergeDuplicates, type MergeResult } from "@repo/pi-agent-ext-knowledge-card/src/merge.ts";
 import { graphHealth, healGraph, type GraphHealthResult, type HealResult } from "@repo/pi-agent-ext-knowledge-card/src/retrieve.ts";
 
 const DEFAULT_MEMORY_DIR = join(homedir(), ".pi", "agent", "pi-hermes-memory");
@@ -130,7 +129,6 @@ interface PipelineReceipt {
 	vaultPath: string;
 	memoryDir: string;
 	converge?: IngestSummary;
-	merge?: MergeResult;
 	heal?: HealResult;
 	health?: GraphHealthResult;
 }
@@ -232,18 +230,16 @@ Examples:
 			return;
 		}
 
-		// ── LINT (merge + heal only) ────────────────────────────────────
+		// ── LINT (heal only) ────────────────────────────────────
 		if (sub === "lint") {
 			const dryRun = parsed.fix !== true || parsed.dryRun === true;
-			const merge = await mergeDuplicates({ vaultPath, folder, threshold, dryRun });
 			const heal = dryRun ? null : await healGraph({ vaultPath, folder, mocPath });
 			const health = await graphHealth({ vaultPath, folder, mocPath });
 
 			if (json) {
-				console.log(JSON.stringify({ mode: "lint", merge, heal, health }, null, 2));
+				console.log(JSON.stringify({ mode: "lint", heal, health }, null, 2));
 			} else {
 				console.log(`pipeline lint ${dryRun ? "(dry-run)" : "(applying)"}`);
-				console.log(`  merge: ${merge.pairs.length} duplicate pair(s)${dryRun ? "" : `, ${merge.merged} merged, ${merge.linksRewritten} links rewritten`}`);
 				if (heal) console.log(`  heal:  MOC ${heal.mocRegenerated ? "regenerated" : "(no change)"}, ${heal.deadLinksPruned} dead link(s) pruned`);
 				console.log(`  graph: ${health.ok ? "✓ clean" : "✗ drift"}`);
 			}
@@ -307,18 +303,14 @@ Examples:
 			parseErrors: [],
 		};
 
-		// 2. Merge duplicates (catches cross-namespace near-dupes that slipped
-		//    past the 0.85 wiki gate). In dry-run, report only.
-		const merge = await mergeDuplicates({ vaultPath, folder, threshold, dryRun });
-
-		// 3. Heal graph (MOC + dead links). Skipped in dry-run (no writes).
+		// 2. Heal graph (MOC + dead links). Skipped in dry-run (no writes).
 		const heal = dryRun ? null : await healGraph({ vaultPath, folder, mocPath });
 
-		// 4. Graph health snapshot.
+		// 3. Graph health snapshot.
 		const health = await graphHealth({ vaultPath, folder, mocPath });
 
 		const timestamp = new Date().toISOString();
-		const receipt: PipelineReceipt = { timestamp, mode: dryRun ? "dry-run" : "run", vaultPath, memoryDir, converge, merge, heal: heal ?? undefined, health };
+		const receipt: PipelineReceipt = { timestamp, mode: dryRun ? "dry-run" : "run", vaultPath, memoryDir, converge, heal: heal ?? undefined, health };
 		const receiptPath = dryRun ? null : writeReceipt(receipt, cwd);
 
 		if (json) {
@@ -327,7 +319,6 @@ Examples:
 			console.log(`pipeline ${sub}`);
 			console.log("─────────────────────────");
 			console.log(`converge: ${converge.total} records → ${converge.created} created, ${converge.updated} updated, ${converge.unchanged} unchanged, ${converge.wikiMerged} wiki-merged, ${converge.skipped} skipped`);
-			console.log(`merge:    ${merge.pairs.length} duplicate pair(s)${dryRun ? " (dry-run)" : `, ${merge.merged} merged`}`);
 			if (heal) console.log(`heal:     MOC ${heal.mocRegenerated ? "regenerated" : "(no change)"}, ${heal.deadLinksPruned} dead link(s) pruned`);
 			console.log(`graph:    ${health.cardCount} cards, ${health.deadLinks.length} dead link(s), MOC ${health.mocMissing ? "missing" : health.mocStale ? "stale" : "ok"} — ${health.ok ? "✓ clean" : "✗ drift"}`);
 			if (receiptPath) console.log(`receipt:  ${receiptPath}`);

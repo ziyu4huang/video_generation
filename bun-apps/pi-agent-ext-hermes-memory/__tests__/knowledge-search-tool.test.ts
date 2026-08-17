@@ -23,10 +23,6 @@ function makeStubPipeline(result: RetrieveResult): KnowledgePipeline {
       unchanged: 0, skipped: 0, linked: 0, wikiMerged: 0, mocUpdated: false,
       vaultPath: opts.vaultPath, folder: opts.folder ?? "", cards: [], parseErrors: [],
     }),
-    runConvergenceLoop: async () => ({
-      sourcesIngested: 0, created: 0, updated: 0, unchanged: 0, deadLinksBefore: 0, deadLinksAfter: 0,
-      mocMissingBefore: false, mocMissingAfter: false, rounds: 0, converged: false, truncated: false, health: null,
-    }),
     retrieveRecords: async () => result,
     healGraph: async () => ({ mocRegenerated: true, deadLinksPruned: 0, linksDeduped: 0, cardsTouched: [] }),
   };

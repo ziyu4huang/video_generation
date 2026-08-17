@@ -5,7 +5,6 @@
  * process.exitCode and return:
  *   - commands/doctor.ts      (`if (!ok) process.exitCode = 1`)
  *   - commands/zk-query.ts    (unconverged coverage / failed health check)
- *   - commands/kcard-loop.ts  (`if (!receipt.converged) process.exitCode = 1`)
  *
  * Before the merge, the CLI's entry block let the success path fall out of the
  * module with no process.exit() at all, so Bun honoured process.exitCode on the
@@ -49,7 +48,7 @@ describe("runCli — process.exitCode propagation", () => {
 		const saved = process.exitCode;
 		const savedPrefix = process.env.PI_SELF_ENTRY_PREFIX;
 		try {
-			// Simulate doctor/zk-query/kcard-loop's non-throwing failure report.
+			// Simulate doctor/zk-query's non-throwing failure report.
 			process.exitCode = 1;
 			expect(await runCli(["version"])).toBe(1);
 		} finally {

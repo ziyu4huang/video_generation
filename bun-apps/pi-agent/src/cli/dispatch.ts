@@ -33,7 +33,6 @@ import { zkCardCommand } from "./commands/zk-card.ts";
 import { zkAskCommand } from "./commands/zk-ask.ts";
 import { zkIngestCommand } from "./commands/zk-ingest.ts";
 import { zkQueryCommand } from "./commands/zk-query.ts";
-import { kcardLoopCommand } from "./commands/kcard-loop.ts";
 import { file2mdCommand } from "./commands/file2md.ts";
 import { pdfToVaultCommand } from "./commands/pdf-to-vault.ts";
 import { imageToVaultCommand } from "./commands/image-to-vault.ts";
@@ -75,7 +74,6 @@ const COMMANDS: Command[] = [
   zkAskCommand,
   zkIngestCommand,
   zkQueryCommand,
-  kcardLoopCommand,
   doctorCommand,
   toolsMetricsCommand,
   agentTrendsCommand,
@@ -569,8 +567,8 @@ export async function runCli(argv: string[]): Promise<number> {
   process.env.PI_SELF_ENTRY_PREFIX = "cli";
   try {
     await dispatch(argv);
-    // Honour the `process.exitCode = 1` convention used by doctor / zk-query /
-    // kcard-loop, which report failure WITHOUT throwing. Returning a hardcoded
+    // Honour the `process.exitCode = 1` convention used by doctor / zk-query,
+    // which report failure WITHOUT throwing. Returning a hardcoded
     // 0 here would be clobbered onto the caller's `process.exit(0)` and silently
     // turn those documented failures into successes.
     return typeof process.exitCode === "number" ? process.exitCode : 0;

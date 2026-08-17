@@ -7,7 +7,7 @@ export { SEAM_KEYS, SEAM_KEY_ENTRIES, type SeamKey } from "./seam-keys.js";
 export { publishSeam, readSeam, type SeamImplMap, type ToolGateStatus } from "./seam.js";
 export type {
   KnowledgePipeline, KnowledgeRecord, KnowledgeRecordEvidence, SourceFamily, LinkWeighting,
-  IngestOptions, IngestSummary, ConvergeOptions, ConvergeReceipt,
+  IngestOptions, IngestSummary,
   RetrieveOptions, RetrieveResult, CollectInputFilesResult,
   HealOptions, HealReceipt, HierarchyBuildOptions, HierarchyBuildResult,
 } from "./interfaces/knowledge-pipeline.js";

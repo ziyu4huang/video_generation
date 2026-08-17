@@ -11,8 +11,8 @@
  * on "is this the same concept?". Centralising here avoids divergence.
  *
  * Deterministic — no embedding model (deliberately; embeddings would re-open
- * the closed semantic-retrieval question per #370). The same conservative bar
- * `mergeDuplicates` uses (token-set Jaccard) is reused for wiki-aware ingest,
+ * the closed semantic-retrieval question per #370). The token-set Jaccard path
+ * (ex-merge, retired L1) is reused for wiki-aware ingest,
  * keeping a single notion of "duplicate concept" across the pipeline.
  */
 

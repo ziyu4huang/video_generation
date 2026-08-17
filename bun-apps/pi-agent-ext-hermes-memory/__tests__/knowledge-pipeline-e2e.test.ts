@@ -101,10 +101,6 @@ function makeRealisticPipeline(): KnowledgePipeline {
         mocUpdated: false, vaultPath: opts.vaultPath, folder: opts.folder ?? "", cards, parseErrors: [],
       };
     },
-    runConvergenceLoop: async () => ({
-      sourcesIngested: 0, created: 0, updated: 0, unchanged: 0, deadLinksBefore: 0, deadLinksAfter: 0,
-      mocMissingBefore: false, mocMissingAfter: false, rounds: 0, converged: false, truncated: false, health: null,
-    }),
     healGraph: async (opts) => {
       const dir = join(opts.vaultPath, opts.folder ?? FOLDER);
       let cards: string[] = [];
