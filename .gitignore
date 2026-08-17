@@ -109,8 +109,8 @@ python/embed-bench/results/
 
 # Vendored mermaid UMD bundle — ~3.4 MiB, regenerated at build time by
 # `architecture:vendor` (copies node_modules/mermaid/dist/mermaid.min.js).
-# Sourced from npm (runtime dep of @repo/pi-agent-ext-wayfind); never committed
-# because it exceeds the repo's 2 MB pre-commit guard. vendor/tailwind.css (the
+# Sourced from npm (runtime dep of @repo/pi-agent-ext-archify); never committed
+# because it exceeds the repo's 2 MB pre-commit guard. vendored/tailwind.css (the
 # curated static Tailwind build, ~20 KB) IS still committed — only this binary
 # is ignored.
 bun-apps/pi-agent-ext-wayfind/vendor/mermaid.min.js
@@ -118,3 +118,4 @@ bun-apps/pi-agent-ext-wayfind/vendor/mermaid.min.js
 # pi-agent-ext-devops oneshot-smoke gate: TTL state cache (inputHash +
 # lastPassTs/lastCanaryTs) — machine-local, never committed.
 bun-apps/pi-agent-ext-devops/.cache/
+bun-apps/pi-agent-ext-archify/vendored/mermaid.min.js

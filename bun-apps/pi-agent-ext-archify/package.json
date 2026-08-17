@@ -9,7 +9,10 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "deck": "bun scripts/deck.ts"
+    "deck": "bun scripts/deck.ts",
+    "architecture:render": "bun run lib/architecture-render.ts",
+    "architecture:vendor": "bun run scripts/vendor-mermaid.ts",
+    "architecture:css": "bunx @tailwindcss/cli -i lib/architecture.css -o vendored/tailwind.css --minify"
   },
   "exports": {
     "./extensions/*": "./extensions/*",
@@ -27,7 +30,10 @@
     "extensions": ["./extensions"],
     "skills": ["./skills"]
   },
-  "dependencies": {},
+  "dependencies": {
+    "marked": "^15",
+    "mermaid": "^11"
+  },
   "peerDependencies": {
     "@earendil-works/pi-ai": "0.84.2",
     "@earendil-works/pi-coding-agent": "0.84.2",
@@ -35,10 +41,12 @@
     "typebox": "*"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4",
     "@types/bun": "latest",
     "ajv": "^8.17.1",
     "playwright": "1.60.0",
     "pptxgenjs": "4.0.1",
+    "tailwindcss": "^4",
     "typescript": "^6.0.3"
   }
 }

@@ -95,3 +95,7 @@ Six methodology skills were deliberately removed 2026-08-16, superseded by super
 Adapted from Matt Pocock's [skills](https://github.com/mattpocock/skills) (MIT). Pi-native port by the video_generation monorepo. MIT.
 
 **Ported skills** — batch 1 (PR #1138): `prototype`, `resolving-merge-conflicts`, `to-questionnaire`, `wizard`, `handoff`. Batch 2 (2026-08-09): `diagnosing-bugs`, `research`, `wait-what` — ported from mattpocock/skills @ `84fdeff` with pi adaptations (Use-when frontmatter, `.planning/<effort>/` convention, superpowers routing).
+
+## Moved out
+
+architecture:render moved to pi-agent-ext-archify (2026-08-16) — do not re-add here.

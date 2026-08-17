@@ -702,12 +702,12 @@ git commit -m "refactor(wayfind): extract renderers + webui emit + hermes enrich
 - Consumes: `renderReport` (exported by `architecture-render.ts`, imported today only by the two test files); the CLI entry `bun run src/architecture-render.ts`; `vendor/tailwind.css` read at `src/architecture-render.ts:312` (relative path must be re-anchored to `../vendored/tailwind.css` after the move); the golden file compared by `architecture-render.test.ts`.
 - Produces: archify owns the docs-diagram CLI (`bun run architecture:render` inside archify); wayfind has zero architecture-render surface. No src-level compat re-export is needed (verified: zero wayfind src importers — spec §4.3).
 
-- [ ] **Step 1: Confirm zero importers (safety re-check)**
+- [x] **Step 1: Confirm zero importers (safety re-check)**
 
 Run: `( cd bun-apps/pi-agent-ext-wayfind && grep -rn "architecture-render" src/ extensions/ --include='*.ts' | grep -v "src/architecture-render.ts:" )`
 Expected: no hits (the spec's verification log says zero; re-verify at execution time — if a hit appears, stop and re-scope per OPEN-1).
 
-- [ ] **Step 2: Move the files with git mv**
+- [x] **Step 2: Move the files with git mv**
 
 ```bash
 git mv bun-apps/pi-agent-ext-wayfind/src/architecture-render.ts bun-apps/pi-agent-ext-archify/lib/architecture-render.ts
@@ -722,11 +722,11 @@ mkdir -p bun-apps/pi-agent-ext-archify/__tests__/fixtures
 git mv bun-apps/pi-agent-ext-wayfind/tests/fixtures/architecture-render.golden.html bun-apps/pi-agent-ext-archify/__tests__/fixtures/architecture-render.golden.html
 ```
 
-- [ ] **Step 3: Re-anchor paths in the moved files**
+- [x] **Step 3: Re-anchor paths in the moved files**
 
 In `lib/architecture-render.ts`: change the `vendor/tailwind.css` read (line ~312) to resolve `../vendored/tailwind.css` relative to the new file location. In `scripts/vendor-mermaid.ts`: re-anchor its output path from `vendor/mermaid.min.js` to `vendored/mermaid.min.js` relative to the archify package root. In the two moved tests: change `renderReport` import paths from `../src/architecture-render.js` to `../lib/architecture-render.js`, and any fixture path from `tests/fixtures/…`/`./fixtures/…` to `./fixtures/…` under `__tests__/`. In `lib/architecture.css` handling inside `architecture:css` script (Step 4) the `-i` input moves to `lib/architecture.css`.
 
-- [ ] **Step 4: Update both package.json files**
+- [x] **Step 4: Update both package.json files**
 
 wayfind `package.json`: delete the `architecture:render`, `architecture:vendor`, `architecture:css`, and `pretest` scripts. archify `package.json` `scripts` gains:
 
@@ -738,7 +738,7 @@ wayfind `package.json`: delete the `architecture:render`, `architecture:vendor`,
 
 Dependencies: run `( cd bun-apps/pi-agent-ext-wayfind && grep -rn "mermaid\|tailwind" src/ scripts/ tests/ --include='*.ts' | grep -v architecture )` — if empty, `git rm`-level removal of `mermaid` from wayfind `dependencies` and `@tailwindcss/cli` + `tailwindcss` from wayfind `devDependencies` (via `bun remove` inside `bun-apps/pi-agent-ext-wayfind`); add `mermaid: ^11` to archify `dependencies` and `@tailwindcss/cli: ^4` + `tailwindcss: ^4` to archify `devDependencies` (via `bun add` inside `bun-apps/pi-agent-ext-archify`). Wayfind keeps `marked` (used by `src/markdown.ts` — verify with the same grep pattern for `marked`).
 
-- [ ] **Step 5: Run both gates + golden byte-identity**
+- [x] **Step 5: Run both gates + golden byte-identity**
 
 Run: `( cd bun-apps/pi-agent-ext-archify && bun test )`
 Expected: PASS including the two moved suites; the golden comparison in `architecture-render.test.ts` passing **is** the byte-identity acceptance bar (spec OPEN-2 resolution — archify's `__tests__/fixtures/` convention matches).
@@ -747,7 +747,7 @@ Expected: PASS (wayfind no longer vendors in `pretest`; its suite must not refer
 Run: `( cd bun-apps/pi-agent-ext-archify && bun run architecture:render --help 2>&1 | head -5 )`
 Expected: the CLI runs from its new home (exact flag surface per the file's own arg parsing; a usage/error banner is fine — the point is it executes, resolving OPEN-1: archify exposes the same CLI verb).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A bun-apps/pi-agent-ext-wayfind/ bun-apps/pi-agent-ext-archify/
