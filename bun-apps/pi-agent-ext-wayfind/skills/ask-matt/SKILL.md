@@ -1,6 +1,6 @@
 ---
 name: ask-matt
-description: Use when you don't remember which wayfind skill or flow fits your situation — a router over the wayfind family mapping the idea→ship main flow, the on-ramps, codebase health, and the vocabulary layer to the ported skills.
+description: Use when you don't remember which wayfind skill or flow fits your situation — a router over the wayfind family (grilling, wayfinder, to-spec, to-tickets, handoff, triage, codebase health). Methodology questions route to the superpowers using-superpowers skill.
 disable-model-invocation: true
 ---
 
@@ -9,6 +9,8 @@ disable-model-invocation: true
 You don't remember every skill, so ask.
 
 A **flow** is a path through the skills. Most paths run along one **main flow**, and three **on-ramps** merge onto it. Everything else is standalone, or a vocabulary layer that runs underneath.
+
+> **Methodology (brainstorm → plan → TDD → debug → review)?** That vocabulary lives in superpowers — use the **using-superpowers** skill. This router covers the wayfind family only.
 
 > **Skill index rebuilt for this port.** Every reference below is a skill in this extension's `skills/` dir — the `executing-plans`, `test-driven-development`, and `systematic-debugging` skills live in the sibling **superpowers** extension.
 
@@ -41,16 +43,13 @@ The route most work travels. You have an idea and want it built.
 
 1. **grill-me-with-docs** — sharpen the idea by interview. Start here whenever you are **working in a working directory**: it's stateful, retaining what it learns in `CONTEXT.md` and ADRs. (No working directory? Use the **grill-me** skill — see Standalone. Both run the same **grilling** primitive; `grill-me-with-docs` is the one that leaves a paper trail, which makes it the better of the two whenever a repo is there to leave it in.)
 
-2. **Branch — can you settle every question in conversation?** If a question needs a runnable answer (state, business logic, a UI you have to see), detour through a prototype (see the **brainstorming** skill's prototype section in superpowers), bridged by the **handoff** skill in both directions (a prototype lives in its own directory, which is exactly what the handoff skill is for — see Phase boundaries):
-   - **handoff** out (write a portable doc), then start a fresh session reading it,
-   - answer the question with throwaway prototype code (per the superpowers **brainstorming** skill's prototype section),
-   - **handoff** back what you learned, and reference it from the original idea thread.
+2. **Branch — can you settle every question in conversation?** If a question needs a runnable answer (state, business logic, a UI you have to see), detour through a prototype — the how lives in the superpowers **brainstorming** skill, routed via **using-superpowers** — bridged by the **handoff** skill in both directions: handoff out to a fresh session, answer it in throwaway code, handoff back what you learned and reference it from the original idea thread (see Phase boundaries).
 
 3. **Branch — is this a multi-session build?**
-   - **Yes** → the **to-spec** skill (turn the thread into a spec), then **to-tickets** to split it into tracer-bullet tickets, each declaring its **blocking edges**. That's one file per ticket under `.planning/<effort>/tickets/`, worked blockers-first; any ticket whose blockers are done can be grabbed — kick off the **executing-plans** skill (superpowers) per ticket, handing off / starting a fresh session between each one. Each ticket is self-contained, so the last one's context is disposable.
-   - **No** → the **executing-plans** skill (superpowers) right here, in the same session.
+   - **Yes** → the **to-spec** skill (turn the thread into a spec), then **to-tickets** to split it into tracer-bullet tickets, each declaring its **blocking edges**. That's one file per ticket under `.planning/<effort>/tickets/`, worked blockers-first; any ticket whose blockers are done can be grabbed — kick off the superpowers **executing-plans** skill per ticket, handing off / starting a fresh session between each one. Each ticket is self-contained, so the last one's context is disposable.
+   - **No** → the superpowers **executing-plans** skill right here, in the same session.
 
-   Either way, **executing-plans** builds each ticket by driving the **test-driven-development** skill (superpowers) internally — one red-green slice at a time — then closes out by requesting a code review (superpowers **requesting-code-review**/**receiving-code-review** — Standards + Spec dual axis) of the diff, before committing. Reach for the **test-driven-development** skill on its own when you just want to build a concrete behaviour test-first without a full spec, and superpowers **requesting-code-review** whenever you want to review a branch or PR against a fixed point.
+   How executing-plans builds each ticket (TDD slices, code review) is superpowers methodology — methodology routing lives in superpowers:using-superpowers; do not re-add here.
 
 ### Context hygiene
 
@@ -64,7 +63,7 @@ A starting situation that generates work, then merges onto the main flow.
 
 - **Bugs and requests piling up** → **triage**. It moves issues through triage roles and produces agent-ready briefs, which **executing-plans** later picks up. Triage is only for issues **you didn't create** — bug reports, incoming feature requests, anything that arrives raw. Tickets that `to-tickets` produced are already agent-ready, so **don't triage them**.
 
-- **Something's broken** → the **systematic-debugging** skill (superpowers). For the hard ones: the bug that resists a first glance, the intermittent flake, the regression that crept in between two known-good states. It refuses to theorise until it has a **tight feedback loop** — one command that already goes red on *this* bug — then fixes with a regression test (including its reproduction-loop engineering for flaky/HITL bugs). Its post-mortem hands off to the **improve-codebase-architecture** skill when the real finding is that there's no good seam to lock the bug down.
+- **Something's broken** → the superpowers **systematic-debugging** skill — for the bug that resists a first glance, the intermittent flake, the regression between two known-good states; its post-mortem can hand off to **improve-codebase-architecture** when the finding is a missing seam. Methodology routing lives in superpowers:using-superpowers — do not re-add here.
 
 - **A huge, foggy effort — a greenfield project or a huge feature build, too big for one session** → the **wayfind effort-map** (the `wayfinder` procedure at `procedures/wayfinder.md`, driven by the **`/wayfind`** command; described in the extension's `CONTEXT.md`). When the way from here to the destination isn't visible yet, it charts a **shared map** of **decision tickets** under `.planning/<effort>/` and resolves them one at a time — producing **decisions, not deliverables** — until the fog is pushed back and the way is clear. Where **grill-me-with-docs** sharpens an idea you can hold in one session, wayfinder is for the idea you can't — and it's slower and denser, so save it for exactly that, never a well-scoped feature.
 

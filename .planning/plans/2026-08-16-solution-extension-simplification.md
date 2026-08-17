@@ -554,7 +554,7 @@ git commit -m "refactor(wayfind): trim to-spec/to-tickets to artifact contracts 
 - Consumes: Task 6's redirect table (stays in place).
 - Produces: `ask-matt` routing the wayfind family only; methodology questions redirect to superpowers `using-superpowers`.
 
-- [ ] **Step 1: Rewrite the router scope**
+- [x] **Step 1: Rewrite the router scope**
 
 Edit `ask-matt/SKILL.md`:
 - Frontmatter `description` becomes: `Use when you don't remember which wayfind skill or flow fits your situation — a router over the wayfind family (grilling, wayfinder, to-spec, to-tickets, handoff, triage, codebase health). Methodology questions route to the superpowers using-superpowers skill.` (keep `disable-model-invocation: true`).
@@ -562,12 +562,12 @@ Edit `ask-matt/SKILL.md`:
 - Keep: the main flow's wayfind legs (grill-me-with-docs, to-spec, to-tickets, handoff, wayfinder on-ramp), Codebase health, Vocabulary underneath, Phase boundaries (+ `PHASE-BOUNDARIES.md` link), Standalone wayfind skills, and the Task 6 redirect table.
 - Delete: any remaining prose that explains superpowers methodology steps in depth (e.g. long elaborations of what executing-plans/TDD do internally) — compress each to its routing sentence.
 
-- [ ] **Step 2: Run the wayfind gate**
+- [x] **Step 2: Run the wayfind gate**
 
 Run: `( cd bun-apps/pi-agent-ext-wayfind && bun run check && bun run typecheck && bun test )`
 Expected: PASS. `( cd bun-apps/pi-agent-ext-wayfind && grep -c 'using-superpowers' skills/ask-matt/SKILL.md )` — Expected: ≥ 2 (router line + redirects context).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add bun-apps/pi-agent-ext-wayfind/skills/ask-matt/SKILL.md
