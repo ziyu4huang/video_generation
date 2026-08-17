@@ -196,15 +196,43 @@ fi
 # farm into <git-root>/node_modules (junk: pure symlinks into the global store,
 # re-created after every `git clean -dxf`). Pinning a symlink to the REAL
 # workspace store satisfies Bun's resolution, so the farm is never built.
-# Create-if-missing only — never clobbers an existing dir/link; skipped when
-# the git root IS the workspace root (single-workspace-at-top repos, deployed
-# layouts) or when the store target is absent (deps broken anyway).
+# Skipped when the git root IS the workspace root (single-workspace-at-top
+# repos, deployed layouts) or when the store target is absent (deps broken
+# anyway).
+#
+# RECLAIM (added after this self-heal was found to be inert in practice): the
+# original guard was create-if-missing only. A repo that ALREADY had a real farm
+# directory sitting at the git root — the exact state this code exists to
+# prevent — could therefore never be healed: the guard saw something there and
+# declined forever, while Bun kept re-materializing into it on every launch. So
+# a real directory is now reclaimed first, but ONLY when it is provably nothing
+# but a link farm: zero regular files anywhere beneath it. A farm is pure
+# symlinks-into-the-global-store plus the directories holding them, so that test
+# passes for junk and fails for anything with real content (a genuine install
+# has package.json / .js files). If any regular file exists we leave the whole
+# thing alone rather than guess — deleting a user's real tree is far worse than
+# leaving the farm.
 if [ -f "$SCRIPT_DIR/src/cli.ts" ] && command -v git >/dev/null 2>&1; then
   REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
   WORKSPACE_ROOT="$(cd -P "$SCRIPT_DIR/.." && pwd)"
+  # Derived, not hardcoded to "bun-apps": the link is relative to the git root,
+  # so it must name whatever the workspace dir is actually called.
+  WORKSPACE_NAME="$(basename "$WORKSPACE_ROOT")"
   if [ -n "$REPO_ROOT" ] && [ "$REPO_ROOT" != "$WORKSPACE_ROOT" ] \
-      && [ -d "$WORKSPACE_ROOT/node_modules" ] && [ ! -e "$REPO_ROOT/node_modules" ]; then
-    ln -s bun-apps/node_modules "$REPO_ROOT/node_modules"
+      && [ -d "$WORKSPACE_ROOT/node_modules" ]; then
+    ROOT_NM="$REPO_ROOT/node_modules"
+    if [ -d "$ROOT_NM" ] && [ ! -L "$ROOT_NM" ] \
+        && [ -z "$(find "$ROOT_NM" -type f -print -quit 2>/dev/null)" ]; then
+      rm -rf "$ROOT_NM"
+      if [ "${PIAGENT_DEBUG:-0}" = "1" ]; then
+        echo "[run.sh] reclaimed $ROOT_NM (Bun link farm, no regular files)" >&2
+      fi
+    fi
+    # `-e` alone is false for a DANGLING symlink, which would then make `ln -s`
+    # fail with "File exists"; `-L` covers that case.
+    if [ ! -e "$ROOT_NM" ] && [ ! -L "$ROOT_NM" ]; then
+      ln -s "$WORKSPACE_NAME/node_modules" "$ROOT_NM"
+    fi
   fi
 fi
 
