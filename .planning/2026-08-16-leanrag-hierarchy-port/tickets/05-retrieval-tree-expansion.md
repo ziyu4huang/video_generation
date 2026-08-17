@@ -8,3 +8,6 @@ Acceptance: golden tests — no-tree = byte-identical to today; tree = expanded 
 
 ## Resolution
 DONE. Auto tree-expansion when agg-L*-* MOCs exist: scan loop never ranks agg files; post-ranking expandWithTree appends ≤3 lineage-matched node summaries (layer-desc) as viaTree:true evidence cards; ranking authoritative (freq-vote/tag order untouched); digest + count ranked-only (non-invasive). No agg files → byte-identical (retrieve/blend goldens green + new golden test). 4 new tests; zk suite 469/0, typecheck clean.
+
+## Resolution
+DONE. Auto tree-expansion when agg-L*-* MOCs exist: scan loop never ranks agg files; post-ranking expandWithTree appends ≤3 lineage-matched node summaries (layer-desc) as viaTree:true evidence cards; ranking authoritative (freq-vote/tag order untouched); digest + count ranked-only (non-invasive). No agg files → byte-identical (retrieve/blend goldens green + new golden test). 4 new tests; zk suite 469/0, typecheck clean.
