@@ -831,35 +831,38 @@ git commit -m "docs(adr): record solution-extension simplification (ADR-wayfind-
 - Consumes: all prior tasks landed.
 - Produces: green gates across every touched package + repo-level gates; the effort is done when this task passes.
 
-- [ ] **Step 1: wayfind gate**
+- [x] **Step 1: wayfind gate**
 
 Run: `( cd bun-apps/pi-agent-ext-wayfind && bun run check && bun run typecheck && bun test )`
 Expected: PASS (Biome clean, tsc clean, full suite).
 
-- [ ] **Step 2: superpowers + archify gates**
+- [x] **Step 2: superpowers + archify gates**
 
 Run: `( cd bun-apps/pi-agent-ext-superpowers && bun test )`
 Expected: PASS.
 Run: `( cd bun-apps/pi-agent-ext-archify && bun test && bun run typecheck )`
 Expected: PASS (golden byte-identity included).
 
-- [ ] **Step 3: Repo-level gates**
+- [x] **Step 3: Repo-level gates**
 
 Run: `( cd bun-apps && bun run test:adr )`
 Expected: PASS.
 Run: schema-cost canary (same invocation resolved in Task 12 / OPEN-4).
 Expected: completes; compare against Task 12's numbers — no unexplained growth.
 
-- [ ] **Step 4: Sanity-grep the end state**
+- [x] **Step 4: Sanity-grep the end state**
 
 Run: `( cd bun-apps/pi-agent-ext-wayfind && ls skills/ | wc -l && wc -l src/commands.ts src/effort-tool.ts )`
 Expected: `16` skill dirs; `src/commands.ts` ≤ 220 lines; `src/effort-tool.ts` ≤ 260 lines; `src/architecture-render.ts`, `vendor/`, and the three `architecture*` scripts absent from `package.json`.
 Run: `( cd bun-apps/pi-agent-ext-wayfind && grep -rn "subagent-dispatch-discipline\|writing-for-agents" skills/ src/ tests/ )`
 Expected: hits only inside `ask-matt`'s redirect table.
 
-- [ ] **Step 5: No commit**
+- [x] **Step 5: No commit**
 
 Verification-only; if anything failed, fix forward in the owning task's files and re-run this sweep.
+
+**Notes:**
+effort-tool.ts 376 ln — accepted deviation per ADR-wayfind-0007
 
 ---
 
