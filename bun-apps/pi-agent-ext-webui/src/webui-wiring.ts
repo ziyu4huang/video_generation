@@ -846,7 +846,16 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // Phase 4 (spec Component 5): chain the /output serving route BEHIND the
   // render routes — render answers first (incl. GET / shell), output serves
   // /output/{...}, everything else falls through to the WebServer defaults.
-  const renderRoutes = createRenderRoutes(registry, { onReport: (frame) => broadcaster.broadcast(frame) }); // tab-views (02): POST /api/report -> live broadcast + store append (replay)
+  // tab-views (02): POST /api/report -> live broadcast + store append (replay).
+  // getReport (report-raw): the standalone /raw route reads the session store
+  // via the connect-time snapshot transcript — the same frames the tab replays.
+  const renderRoutes = createRenderRoutes(registry, {
+    onReport: (frame) => broadcaster.broadcast(frame),
+    getReport: (id) =>
+      sessionStore.snapshot().transcript.find(
+        (f) => f.type === "report" && f.id === id
+      ) as Extract<WebFrame, { type: "report" }> | undefined,
+  });
   // ticket 06 (archify-webui-html spec §4.1): /files serves full-fidelity HTML
   // from the configured root allowlist — chained AFTER render routes, BEFORE
   // output routes (the spec-pinned registration order).

@@ -610,7 +610,7 @@ function renderReport(frame) {
   body.className = 'card-body';
   if (typeof frame.html === 'string' && frame.html !== '') {
     const ifr = document.createElement('iframe');
-    ifr.setAttribute('sandbox', 'allow-scripts'); // NO allow-same-origin
+    ifr.setAttribute('sandbox', 'allow-scripts allow-downloads'); // NO allow-same-origin — allow-downloads unblocks export menus (archify PNG/SVG)
     ifr.srcdoc = frame.html; // property assignment — untrusted HTML stays sandboxed
     body.appendChild(ifr);
     // webui-v3 fix: a tall sandboxed doc scrolls INSIDE the frame (opaque
@@ -622,6 +622,15 @@ function renderReport(frame) {
     fsBtn.style.cssText = 'margin-top:.35rem;align-self:flex-start;padding:.2rem .6rem;border:1px solid #8886;border-radius:4px;background:#8882;color:inherit;cursor:pointer;font-size:.75rem';
     fsBtn.addEventListener('click', function () { if (ifr.requestFullscreen) ifr.requestFullscreen(); });
     body.appendChild(fsBtn);
+    // standalone door: /api/report/<id>/raw serves this frame as a TOP-LEVEL
+    // page (native browser-edge scrolling + the same CSP as /files) — the
+    // parent window opens it, so no sandbox/popups constraint applies.
+    const openBtn = document.createElement('button');
+    openBtn.type = 'button';
+    openBtn.textContent = 'open standalone \u2197';
+    openBtn.style.cssText = 'margin-top:.35rem;align-self:flex-start;padding:.2rem .6rem;border:1px solid #8886;border-radius:4px;background:#8882;color:inherit;cursor:pointer;font-size:.75rem;margin-left:.4rem';
+    openBtn.addEventListener('click', function () { window.open('/api/report/' + encodeURIComponent(frame.id) + '/raw', '_blank'); });
+    body.appendChild(openBtn);
   } else if (typeof frame.markdown === 'string') {
     body.appendChild(renderMarkdown(frame.markdown));
   }

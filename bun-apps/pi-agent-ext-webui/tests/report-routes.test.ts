@@ -58,3 +58,46 @@ describe("POST /api/report (tab-views 02 producer)", () => {
     expect((await post(bare.server.url, JSON.stringify({ title: "T", markdown: "a" }))).status).toBe(404);
   });
 });
+
+describe("GET /api/report/<id>/raw (standalone door)", () => {
+  // Same construction as the POST suite (WebServer + createRenderRoutes),
+  // plus the standalone reader: getReport over a local frames array.
+  const setupRaw = (): { server: WebServer } => {
+    const frames: ReportFrame[] = [
+      { type: "report", id: "report-html-1", title: "H", source: "api", ts: 1, html: "<b>x</b>" },
+      { type: "report", id: "report-md-1", title: "M", source: "api", ts: 2, markdown: "# m" },
+    ];
+    const registry = new RenderService({ urlFor: (id) => `http://t/#${id}` });
+    const server = new WebServer({ port: 0 });
+    started.push(server);
+    server.setHttpRoutes(createRenderRoutes(registry, { getReport: (id) => frames.find((f) => f.id === id) }));
+    server.start();
+    return { server };
+  };
+  const get = (url: string, id: string) => fetch(`${url}/api/report/${id}/raw`, { method: "GET" });
+
+  it("unknown id -> 404 (also 404 when no reader is wired)", async () => {
+    const { server } = setupRaw();
+    expect((await get(server.url, "report-nope")).status).toBe(404);
+    // No getReport in opts: the standalone door stays closed (404, not 500).
+    const bare = new WebServer({ port: 0 });
+    started.push(bare);
+    bare.setHttpRoutes(createRenderRoutes(new RenderService({ urlFor: (id) => `http://t/#${id}` }), {}));
+    bare.start();
+    expect((await get(bare.url, "report-html-1")).status).toBe(404);
+  });
+
+  it("stored html frame -> 200 text/html with CSP 'sandbox allow-scripts allow-downloads'", async () => {
+    const { server } = setupRaw();
+    const res = await get(server.url, "report-html-1");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+    expect(res.headers.get("Content-Security-Policy")).toBe("sandbox allow-scripts allow-downloads");
+    expect(await res.text()).toBe("<b>x</b>");
+  });
+
+  it("markdown-only frame -> 404 (standalone door serves html frames only)", async () => {
+    const { server } = setupRaw();
+    expect((await get(server.url, "report-md-1")).status).toBe(404);
+  });
+});

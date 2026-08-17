@@ -21,6 +21,9 @@ describe("tab-views 01b — five tabs (literal)", () => {
     expect(src).not.toContain('max-height: 45vh');
     expect(src).not.toContain('#ask-pane');
     expect(src).toContain('requestFullscreen');
+    // report-raw: downloads unblocked in-frame + the standalone door.
+    expect(src).toContain("'allow-scripts allow-downloads'");
+    expect(src).toContain("encodeURIComponent(frame.id)");
     expect(src).toContain('<section id="data-pane" hidden></section>');
   });
   test("setPane exclusive + tabs wired + Events relabel", () => {
@@ -34,7 +37,7 @@ describe("tab-views 01b — five tabs (literal)", () => {
   test("report: md builder + sandboxed html iframe", () => {
     expect(src).toContain("function renderReport(frame)");
     expect(src).toContain("function renderMarkdown(md)");
-    expect(src).toContain("ifr.setAttribute('sandbox', 'allow-scripts')");
+    expect(src).toContain("ifr.setAttribute('sandbox', 'allow-scripts allow-downloads')"); // report-raw: downloads unblocked
   });
   test("replay resets all three panes (v3 03)", () => {
     expect(src).toContain("if (reportPaneEl) reportPaneEl.textContent = '';");
