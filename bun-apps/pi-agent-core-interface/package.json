@@ -9,6 +9,6 @@
   "exports": { ".": { "types": "./src/types.d.ts", "default": "./src/index.ts" } },
   "files": ["src", "README.md"],
   "scripts": { "test": "bun test", "check": "tsc --noEmit" },
-  "peerDependencies": { "@earendil-works/pi-coding-agent": "0.84.2", "typebox": "*" },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "0.84.2", "typebox": "*" }, "dependencies": { "yaml": "^2" },
   "devDependencies": { "typescript": "^6.0.3" }
 }
