@@ -1,5 +1,5 @@
 ---
-status: active
+status: complete
 ---
 
 # Knowledge pipeline simplify — 2026-08-17
