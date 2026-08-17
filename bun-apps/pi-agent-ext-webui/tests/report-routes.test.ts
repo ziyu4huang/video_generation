@@ -53,7 +53,7 @@ describe("POST /api/report (tab-views 02 producer)", () => {
     expect((await post(server.url, JSON.stringify({ title: "T" }))).status).toBe(400);
     expect((await post(server.url, JSON.stringify({ markdown: "a" }))).status).toBe(400);
     expect((await post(server.url, "not-json")).status).toBe(400);
-    expect((await post(server.url, JSON.stringify({ title: "T", markdown: "x".repeat(131073) }))).status).toBe(413);
+    expect((await post(server.url, JSON.stringify({ title: "T", markdown: "x".repeat(16777217) }))).status).toBe(413);
     const bare = setup();
     expect((await post(bare.server.url, JSON.stringify({ title: "T", markdown: "a" }))).status).toBe(404);
   });

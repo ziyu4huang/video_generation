@@ -94,7 +94,7 @@ export function createRenderRoutes(
       // Promise for EVERY request and breaks fall-through + the WS upgrade
       // seam). Only THIS branch goes async — via the returned promise itself.
       return req.text().then((raw: string): Response => {
-        if (raw.length > 131072) return new Response("payload too large", { status: 413 });
+        if (raw.length > 16777216) return new Response("payload too large", { status: 413 });
         let body: unknown;
         try { body = JSON.parse(raw); } catch { return new Response("bad request", { status: 400 }); }
         // webui-v3 follow-up: validation + frame construction live in
