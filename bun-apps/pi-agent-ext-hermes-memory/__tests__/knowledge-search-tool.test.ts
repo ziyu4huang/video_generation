@@ -9,7 +9,7 @@ import { registerKnowledgeSearchTool, buildLexicalRecall, buildEntityRecall } fr
 import { SqliteBackend } from "../src/store/sqlite/sqlite-backend.js";
 import { searchSemantic } from "../src/store/semantic-search.js";
 import type { VectorKnnHit, VectorStore } from "../src/store/surreal/vector-store.js";
-import type { Embedder } from "../src/store/surreal/embedder.js";
+import type { Embedder } from "@repo/pi-agent-core-interface";
 import { existsSync, writeFileSync } from "node:fs";
 
 const KEY = "__piKnowledgePipeline";
@@ -22,10 +22,6 @@ function makeStubPipeline(result: RetrieveResult): KnowledgePipeline {
       source: opts.source, sourceLabel: opts.sourceLabel, total: 0, created: 0, updated: 0,
       unchanged: 0, skipped: 0, linked: 0, wikiMerged: 0, mocUpdated: false,
       vaultPath: opts.vaultPath, folder: opts.folder ?? "", cards: [], parseErrors: [],
-    }),
-    runConvergenceLoop: async () => ({
-      sourcesIngested: 0, created: 0, updated: 0, unchanged: 0, deadLinksBefore: 0, deadLinksAfter: 0,
-      mocMissingBefore: false, mocMissingAfter: false, rounds: 0, converged: false, truncated: false, health: null,
     }),
     retrieveRecords: async () => result,
     healGraph: async () => ({ mocRegenerated: true, deadLinksPruned: 0, linksDeduped: 0, cardsTouched: [] }),

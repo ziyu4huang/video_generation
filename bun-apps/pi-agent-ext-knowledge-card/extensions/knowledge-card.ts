@@ -113,7 +113,6 @@ import {
 	healGraph,
 	formatHealth,
 } from "../src/retrieve.ts";
-import { runConvergenceLoop } from "../src/loop.ts";
 import { buildHierarchy } from "../src/hierarchy-build.ts";
 import {
 	publishKnowledgePipeline,
@@ -277,10 +276,10 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 		} catch {
 			// getAllToolDefinitions is a runtime patch — absent in some contexts.
 		}
-		// Publish zk's 5-function knowledge surface as the __piKnowledgePipeline
+		// Publish zk's 4-function knowledge surface as the __piKnowledgePipeline
 		// seam (typed via @repo/pi-agent-core-interface). Live for the session;
 		// unpublishKnowledgePipeline() tears it down at session_shutdown.
-		publishKnowledgePipeline({ collectInputFiles, ingestRecords, runConvergenceLoop, retrieveRecords, healGraph, buildHierarchy });
+		publishKnowledgePipeline({ collectInputFiles, ingestRecords, retrieveRecords, healGraph, buildHierarchy });
 	});
 
 	// ── Auto-converge hermes memory → graph on session_shutdown (ADR-0001) ──

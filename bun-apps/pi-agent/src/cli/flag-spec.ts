@@ -48,7 +48,7 @@ export type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
 	| "forceDistill" | "deletePng" | "noSession" | "print" | "noTools"
 	| "noBuiltinTools" | "dryRun" | "health" | "fix" | "json"
-	| "noPersistLogs" | "mergeDuplicates" | "save"
+	| "noPersistLogs" | "save"
 	| "popular" | "coverage"
 	| "wikiAware" | "healOnly" | "noProbe"
 	| "verify" | "reconverge";
@@ -136,7 +136,8 @@ const WORKFLOW_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--out-dir", field: "outDir" },
 ];
 
-// ── kcard-loop — convergence loop tuning (link-weighting shared with zk-ingest) ─
+// ── zk-ingest — convergence-loop tuning (link-weighting read by zk-ingest; ──
+// probe-eval parsed for pipeline consumers) ─────────────────────────────────
 const KCARD_LOOP_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--link-weighting", field: "linkWeighting" }, // also fixes zk-ingest's latent gap (flag was documented but never parsed)
 	{ flag: "--probe-eval", field: "probeEval" },
@@ -210,7 +211,7 @@ const ZK_QUERY_NUM_FLAGS: readonly NumericFlagSpec[] = [
 	{ flag: "--threshold", field: "threshold", integer: false, example: "0.9" },
 ];
 
-// ── kcard-loop — heal-loop tuning ───────────────────────────────────────────
+// ── zk-ingest — convergence-loop tuning: heal-loop budgets ────────────────
 const KCARD_LOOP_NUM_FLAGS: readonly NumericFlagSpec[] = [
 	{ flag: "--max-rounds", field: "maxRounds", example: "8" },
 	{ flag: "--consecutive-empty", field: "consecutiveEmpty", example: "2" },
@@ -275,7 +276,6 @@ const PDF_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 const ZK_QUERY_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--health"], field: "health" },
 	{ flags: ["--fix"], field: "fix" },
-	{ flags: ["--merge-duplicates"], field: "mergeDuplicates" },
 	{ flags: ["--coverage"], field: "coverage" },
 	{ flags: ["--json"], field: "json" },
 ];
@@ -291,7 +291,7 @@ const KNOWLEDGE_PIPELINE_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--reconverge"], field: "reconverge" },
 ];
 
-// ── kcard-loop — ingest/heal/probe control ──────────────────────────────────
+// ── zk-ingest — convergence-loop tuning: ingest/heal/probe switches ────────
 const KCARD_LOOP_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--wiki-aware"], field: "wikiAware" },
 	{ flags: ["--heal-only"], field: "healOnly" },

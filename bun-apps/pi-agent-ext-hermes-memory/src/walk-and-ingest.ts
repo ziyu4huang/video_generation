@@ -15,7 +15,7 @@ import { mirrorMemoryEntry, type MemoryCardKind } from "./store/memory-card-mirr
 import { createCardStore, type CardStore } from "./store/card-store.js";
 import type { Card, CardKind } from "./store/card.js";
 import type { VectorStore } from "./store/surreal/vector-store.js";
-import type { Embedder } from "./store/surreal/embedder.js";
+import type { Embedder } from "@repo/pi-agent-core-interface";
 import { scheduleVectorBackfill, vectorBackfillState } from "./handlers/vector-backfill.js";
 import { fireHierarchyBuildBestEffort, type HierarchyDeps } from "./handlers/hierarchy-build.js";
 import {
@@ -164,7 +164,7 @@ export interface WalkAndIngestReceipt {
  *  walk → family detect → adapt workflow-jsonl → kp.ingestRecords (zk writes
  *  vault-md) → kp.healGraph once → receipt. The DB-mirror (step 8) + drift stub
  *  (step 9) land in tasks 5/7. generic family is detected-but-deferred (Option A).
- *  Hermes NEVER calls runConvergenceLoop (Decision 1) and NEVER imports zk.
+ *  Hermes NEVER calls the convergence loop (retired L1; Decision 1) and NEVER imports zk.
  *
  *  Phase-2 / 08: the knowledge block runs ONLY when the zk seam is present
  *  (`if (kp)`), but the planning DB-mirror (step 8b) runs INDEPENDENTLY —

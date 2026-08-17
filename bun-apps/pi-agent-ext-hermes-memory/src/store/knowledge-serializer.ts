@@ -29,7 +29,7 @@
 import { stringify as stringifyYaml } from "yaml";
 import type { Card, CardGraph } from "./card.js";
 import type { CardSerializer } from "./card-serializer.js";
-import { splitFencedYaml } from "./frontmatter-codec.js";
+import { splitFencedYaml } from "@repo/pi-agent-core-interface";
 import { normalizeRelation } from "./relation-schema.js";
 
 const FENCE = "---";

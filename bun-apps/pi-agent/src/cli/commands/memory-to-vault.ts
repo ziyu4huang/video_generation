@@ -3,7 +3,7 @@
  *
  * Discovers ~16 memory files → fans out one obsidian-distill agent per file via
  * the workflow engine (concurrency-capped, retried on 429, journaled resume) →
- * deterministic mergeDuplicates + healGraph → receipt + graphHealth snapshot.
+ * deterministic healGraph → receipt + graphHealth snapshot.
  *
  * GATE-0 resolution (findings.md § GATE-0.8a): workflow agents don't inherit
  * the CLI's baked extensions, so the orchestrator captures the obsidian
@@ -20,7 +20,6 @@ import { discoverMemoryFiles } from "./memory-to-vault-discover.ts";
 import { generateWorkflowScript } from "./memory-to-vault-script.ts";
 import { runWorkflow } from "@repo/pi-agent-ext-workflow";
 import { WorkflowAgent } from "@repo/pi-agent-ext-subagent";
-import { mergeDuplicates } from "@repo/pi-agent-ext-knowledge-card/src/merge.ts";
 import { healGraph, graphHealth } from "@repo/pi-agent-ext-knowledge-card/src/retrieve.ts";
 // Subpath import requires pi-agent-ext-obsidian's package.json `exports` map.
 import obsidianExtension from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
@@ -247,7 +246,7 @@ Examples:
 			const plan = {
 				files: scope.files.length, excluded: scope.excluded, concurrency, retries,
 				folder, vaultPath, model: parsed.model ?? "(default)",
-				wouldRun: "workflow fan-out (1 obsidian-distill/file) → mergeDuplicates → healGraph",
+				wouldRun: "workflow fan-out (1 obsidian-distill/file) → healGraph",
 			};
 			console.log(JSON.stringify(plan, null, 2));
 			return;
@@ -314,14 +313,13 @@ Examples:
 		}
 
 		// 5. STAGE B — deterministic hygiene (no LLM).
-		console.error("▶ STAGE B: merge-duplicates + heal-graph");
+		console.error("▶ STAGE B: heal-graph");
 		doc.stages.hygiene = { status: "running" };
 		writePipelineDoc(pipelinePath, doc);
-		const merge = await mergeDuplicates({ vaultPath, folder, threshold, dryRun: false });
 		const heal = await healGraph({ vaultPath, folder, mocPath: MOC_PATH });
 		const health = await graphHealth({ vaultPath, folder, mocPath: MOC_PATH });
 		doc.stages.hygiene = {
-			status: "done", mergedPairs: merge.pairs.length, deadLinksPruned: heal.deadLinksPruned,
+			status: "done", deadLinksPruned: heal.deadLinksPruned,
 		};
 		doc.health = {
 			cardCount: health.cardCount, deadLinks: health.deadLinks.length,
@@ -337,7 +335,7 @@ Examples:
 		// MemoryPipelineDoc has modelled "partial" the whole time.
 		doc.status = resolveRunStatus(doc);
 		if (doc.status === "partial") {
-			// Same convention as doctor / zk-query / kcard-loop: report failure
+			// Same convention as doctor / zk-query: report failure
 			// WITHOUT throwing, so the receipt and summary below still get written.
 			process.exitCode = 1;
 		}
@@ -354,11 +352,11 @@ Examples:
 		}, null, 2), "utf8");
 
 		console.error(`\n━━━ memory-to-vault ${doc.status.toUpperCase()} ━━━`);
-		console.error(`  cards: ${health.cardCount}  merged: ${merge.pairs.length}  dead-links pruned: ${heal.deadLinksPruned}  graph: ${health.ok ? "✓" : "✗"}`);
+		console.error(`  cards: ${health.cardCount}  dead-links pruned: ${heal.deadLinksPruned}  graph: ${health.ok ? "✓" : "✗"}`);
 		console.error(`  receipt: ${relative(cwd, receiptPath)}`);
 		if (json) {
 			console.log(JSON.stringify({
-				files: scope.files.length, mergedPairs: merge.pairs.length,
+				files: scope.files.length,
 				deadLinksPruned: heal.deadLinksPruned, cards: health.cardCount, graphOk: health.ok,
 			}, null, 2));
 		}

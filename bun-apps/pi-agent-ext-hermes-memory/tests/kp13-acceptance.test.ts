@@ -97,9 +97,6 @@ function publishNoopSeam(): void {
       linksDeduped: 0,
       cardsTouched: [],
     }),
-    runConvergenceLoop: async () => {
-      throw new Error("not used in this test");
-    },
     retrieveRecords: async () => {
       throw new Error("not used in this test");
     },

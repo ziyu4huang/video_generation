@@ -4,7 +4,7 @@
 // vault-md parsing. Parity with wayfind parseTicketFile/readMap is by format.
 // The fence split delegates to the one leaf (frontmatter-codec.ts, C1 #1196);
 // the alias export keeps the historical name for callers/tests.
-export { splitFencedYaml as splitPlanningFrontmatter } from "./frontmatter-codec.js";
+export { splitFencedYaml as splitPlanningFrontmatter } from "@repo/pi-agent-core-interface";
 
 /** First H1 line (`# title`), or undefined. */
 export function extractTitle(body: string): string | undefined {

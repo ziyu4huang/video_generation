@@ -12,7 +12,8 @@ import { fileURLToPath } from "node:url";
 // outside the factory forces every caller (bundle path, card-store, ephemeral
 // read-only opens) through the one construction path, so migrations/WAL setup
 // cannot drift between call sites. Mirrors the C1 fence-split gate
-// (frontmatter-codec-sole-source.test.ts).
+// (frontmatter-codec-sole-source.test.ts — its leaf hoisted to
+// pi-agent-core-interface in L2).
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC_ROOT = join(here, "..");
 

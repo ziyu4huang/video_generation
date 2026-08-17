@@ -30,7 +30,7 @@ import type { TimedFn } from "../perf.js";
 import type { Card, CardKind } from "../store/card.js";
 import type { CardStore } from "../store/card-store.js";
 import type { VectorStore } from "../store/surreal/vector-store.js";
-import type { Embedder } from "../store/surreal/embedder.js";
+import type { Embedder } from "@repo/pi-agent-core-interface";
 import { planningContentHash } from "../store/planning-sync-state.js";
 import { upsertCachedCardVectors } from "../store/card-vectors-cache.js";
 

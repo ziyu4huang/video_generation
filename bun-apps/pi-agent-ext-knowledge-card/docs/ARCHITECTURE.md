@@ -57,9 +57,6 @@ src/retrieve.ts (600 LOC) — READ side. Symmetric to ingest.
   readActiveIds · retrieveRecords (shared-tag rank + P1 callout boost)
   graphHealth · healGraph · formatDigest · formatHealth
 
-src/merge.ts    (368 LOC) — duplicate detection + safe merge (#345).
-  findDuplicatePairs · mergeDuplicates · formatMerge
-
 src/emit.ts     (100 LOC) — in-session event-bus contract (runtime surface).
   KNOWLEDGE_CHANNEL="pi:knowledge" · emitKnowledge · onKnowledge
 ```

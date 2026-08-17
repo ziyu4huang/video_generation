@@ -32,20 +32,6 @@ describe("hermes reads KnowledgePipeline defensively", () => {
         cards: [],
         parseErrors: [],
       }),
-      runConvergenceLoop: async () => ({
-        sourcesIngested: 0,
-        created: 0,
-        updated: 0,
-        unchanged: 0,
-        deadLinksBefore: 0,
-        deadLinksAfter: 0,
-        mocMissingBefore: false,
-        mocMissingAfter: false,
-        rounds: 0,
-        converged: false,
-        truncated: false,
-        health: null,
-      }),
       retrieveRecords: async () => ({
         count: 0,
         cards: [],
@@ -62,7 +48,6 @@ describe("hermes reads KnowledgePipeline defensively", () => {
     assert.equal(typeof kp?.collectInputFiles, "function");
     assert.equal(typeof kp?.ingestRecords, "function");
     assert.equal(typeof kp?.healGraph, "function");
-    assert.equal(typeof kp?.runConvergenceLoop, "function");
     assert.equal(typeof kp?.retrieveRecords, "function");
   });
 });

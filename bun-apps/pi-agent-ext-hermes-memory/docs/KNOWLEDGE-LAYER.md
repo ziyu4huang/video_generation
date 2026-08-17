@@ -1,54 +1,34 @@
 # pi-hermes-memory — Knowledge-Layer Role
 
-> pi-hermes-memory is **loosely coupled** to
-> [`pi-knowledge-card`](../../pi-knowledge-card) by design: it is the only
-> consumer that treats the knowledge graph as an **optional enhancement**, not
-> a requirement. When pi-knowledge-card is present, hermes converges memory
-> entries into the shared graph; when absent, it degrades to writing an archive
-> file.
+> TIER-0 foundation (ADR-hermes-memory-0001): raw memory I/O — store, search,
+> session index, flush. Hermes owns vectors (embedder wiring via LM Studio) and
+> orchestration (walk-and-ingest); the vault-md knowledge graph is owned by
+> `pi-agent-ext-knowledge-card` (zk).
 
-## The coupling shape (optional peer + dynamic import)
+## The coupling shape (seam-only, no package dep)
 
-```jsonc
-// package.json
-"peerDependencies":      { "pi-knowledge-card": "*" },            // any version
-"peerDependenciesMeta":  { "pi-knowledge-card": { "optional": true } },
-"devDependencies":       { "pi-knowledge-card": "workspace:*" }  // local for dev/test
-```
+Hermes has NO dependency on `@repo/pi-agent-ext-knowledge-card` (dep-guard:
+hermes→zk via the `@repo/pi-agent-core-interface` seam ONLY —
+`readSeam("__piKnowledgePipeline")`). Every vault write/read goes through
+`kp.ingestRecords` / `kp.retrieveRecords` / `kp.healGraph` / `kp.buildHierarchy`.
+When zk is absent the seam is unset and hermes degrades gracefully (archive
+file + skip semantic paths); it never imports zk modules directly. The former
+optional-peer (`pi-knowledge-card` peerDep + `vault-converge.ts` dynamic
+import) coupling described here before 2026-08-17 no longer exists in code.
 
-```ts
-// src/store/vault-converge.ts  (~line 129)
-const kc = await import("pi-knowledge-card/src/ingest.ts");
-ingestRecordsFn = kc.ingestRecords;
-// → on throw (package absent):
-//   { ok: false, reason: "pi-knowledge-card / pi-obsidian not installed;
-//    use the archive file + zk_ingest handoff" }
-```
+## Role split (post #1556 / #1571 / 2026-08-17 polish)
 
-## Why `*` and not `workspace:*` in peerDependencies?
+| Concern | Owner |
+| --- | --- |
+| Memory store (surreal DEFAULT backend; sqlite = contracted fallback + test substrate) | hermes |
+| Working-memory + session search, knowledge tools — pinned 6-tool surface, ≤2100 schema tok (#1556) | hermes |
+| Embedder/cosine/fence-split leaf (`embedding-leaf.ts`: defaultEmbedder, embedQuery, lmStudioAvailable, cosine, splitFencedYaml) | `@repo/pi-agent-core-interface` (hoisted 2026-08-17, L2) |
+| Vault-md card graph, retrieval engine, hierarchy build/buildHierarchy | zk |
 
-hermes is **publishable standalone** to npm; `workspace:*` is meaningless
-off-repo. The loose `*` + `optional: true` flag is the canonical "enhancement
-if present" pattern. `devDependencies: workspace:*` pins the local copy for
-repo dev/test. **This is intentional loose coupling, not a version-drift
-hazard.**
+## Standing rules
 
-## What hermes feeds the graph
-
-`vault-converge.ts` adapts hermes memory entries into `ConvergeRecord`s
-(structurally compatible with pi-knowledge-card's `KnowledgeRecord`) and calls
-`ingestRecords` so memory joins the SAME convergence folder as workflow-jsonl
-records — a hermes feedback memory and a flux2 gotcha sharing a tag get a
-`## 連結` edge. The `memory-tool.ts` archive handoff is the fallback when the
-graph is unavailable.
-
-## Cross-links
-
-- Canonical dependency graph (incl. why hermes is the SOFT edge):
-  [`../../pi-knowledge-card/docs/DEPENDENCIES.md`](../../pi-knowledge-card/docs/DEPENDENCIES.md)
-- The convergence primitive hermes calls:
-  [`../../pi-knowledge-card/src/ingest.ts`](../../pi-knowledge-card/src/ingest.ts)
-- Data model (the record shape hermes adapts to):
-  [`../../pi-knowledge-card/docs/DATA-MODEL.md`](../../pi-knowledge-card/docs/DATA-MODEL.md)
-- PR history (ebd6afd7 added auto-memory/dir ingest — the second source):
-  [`../../pi-knowledge-card/docs/PR-HISTORY.md`](../../pi-knowledge-card/docs/PR-HISTORY.md)
+- **Mirrors-must-hoist**: any new cross-package leaf duplication hoists to
+  `@repo/pi-agent-core-interface` — never copy it (effort
+  2026-08-17-knowledge-pipeline-polish, ticket L2).
+- Hermes NEVER calls the convergence loop (retired with the CLI tier, L1) and
+  NEVER imports zk.

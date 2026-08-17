@@ -57,18 +57,6 @@ export interface IngestSummary {
   unchanged: number; skipped: number; linked: number; wikiMerged: number; mocUpdated: boolean;
   vaultPath: string; folder: string; cards: IngestCardReport[]; parseErrors: { line: number; reason: string }[];
 }
-export interface SourceInput { path: string; family: SourceFamily; label?: string; }
-export interface ConvergeOptions {
-  sources: SourceInput[]; vaultPath: string; folder?: string; mocPath?: string;
-  probeQueries?: unknown[]; probeTopK?: number; maxRounds?: number; consecutiveEmpty?: number;
-  linkWeighting?: LinkWeighting; wikiAware?: boolean; maxLinks?: number;
-}
-export interface ConvergeReceipt {
-  sourcesIngested: number; created: number; updated: number; unchanged: number;
-  deadLinksBefore: number; deadLinksAfter: number; mocMissingBefore: boolean;
-  mocMissingAfter: boolean; rounds: number; converged: boolean; truncated: boolean;
-  probeHitRate?: number; health: unknown;
-}
 export interface RetrievedCard {
   id: string;
   title: string;
@@ -158,6 +146,5 @@ export interface KnowledgePipeline {
    *  materializes derived MOC cards + per-layer checkpoints in kbDir — a
    *  crashed batch build resumes at the last complete layer. */
   buildHierarchy(opts: HierarchyBuildOptions): Promise<HierarchyBuildResult>;
-  runConvergenceLoop(opts: ConvergeOptions): Promise<ConvergeReceipt>;
   retrieveRecords(opts: RetrieveOptions): Promise<RetrieveResult>;
 }

@@ -1,5 +1,5 @@
 ---
-status: active
+status: complete
 ---
 
 # Knowledge pipeline polish — 2026-08-17

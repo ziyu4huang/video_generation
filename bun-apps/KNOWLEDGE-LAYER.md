@@ -18,7 +18,7 @@
 
 ```
 TIER 0 — FOUNDATIONS (raw I/O; no upward edges allowed)
-  pi-agent-ext-obsidian         vault I/O · parser · resolveVault · validateZettelNote · runSubagentWithRetry
+  pi-agent-ext-obsidian         vault I/O · parser · resolveVault · validateZettelNote
   pi-agent-ext-hermes-memory    memory I/O · store · search · session index · flush
         ▲                ▲
         │ hard import     │ hub reads hermes memory files at well-known path
@@ -39,9 +39,9 @@ TIER 1 — CONVERGENCE HUB: pi-agent-ext-knowledge-card
 
 | Extension | Role | Tools |
 | --- | --- | --- |
-| [`pi-agent-ext-obsidian`](./pi-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md) | Foundation: vault I/O, frontmatter parser/validation, `resolveVault`, subagent runner | `obsidian` (1 fat tool, ~17 actions) |
+| [`pi-agent-ext-obsidian`](./pi-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md) | Foundation: vault I/O, frontmatter parser/validation, `resolveVault` | `obsidian` (1 fat tool, ~17 actions) |
 | [`pi-agent-ext-knowledge-card`](./pi-agent-ext-knowledge-card/docs/ARCHITECTURE.md) | Convergence hub: deterministic ingest + retrieval over the shared graph | `zk_card`, `zk_ask`, `zk_ingest`, `knowledge_query` |
-| [`pi-agent-ext-hermes-memory`](./pi-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md) | Working memory + session search; auto-converges memory into the graph | `memory`, `memory_search`, `session_search` |
+| [`pi-agent-ext-hermes-memory`](./pi-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md) | Working memory + session search; auto-converges memory into the graph | `memory`, `search` (memory+session search), `knowledge_search`, `knowledge_ingest` (pinned 6-tool surface, effort #1556) |
 | [`zk_ingest` distill actions](./pi-agent-ext-knowledge-card/) | Agent-self-triggered distillation of hermes entries (Gate→Enrich→Converge) | `zk_ingest` with `action=gate`/`converge`/`status` |
 
 ## Write path — sources → ONE shared graph
@@ -105,9 +105,23 @@ anything hermes touched.
   the original review conflated the removed `zk_extract` tool with the live builder.)*
 - **C4** 🟡 five overlapping search surfaces → R4 (above).
 - **C5** ✅ resolved — distill is now runtime-wired as `zk_ingest` actions (`gate`/`converge`/`status`) inside knowledge-card; the standalone `distill` extension was folded in.
+- runSubagentWithRetry lives in `pi-agent-ext-subagent` (moved pre-2026-08-17; the old tier-0 placement was a docs ghost, cleared 2026-08-17).
 
 ## Package deep-dives
 
 - [pi-agent-ext-obsidian — KNOWLEDGE-LAYER](./pi-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md)
 - [pi-agent-ext-knowledge-card — ARCHITECTURE](./pi-agent-ext-knowledge-card/docs/ARCHITECTURE.md)
 - [pi-agent-ext-hermes-memory — KNOWLEDGE-LAYER](./pi-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md)
+
+## 2026-08-17 polish (effort knowledge-pipeline-polish)
+
+- **L1 CLI retirement**: zk `loop.ts` + `merge.ts` + `kcard-loop` CLI + merge
+  stages/flags retired; seam members `mergeDuplicates` / `runConvergenceLoop`
+  removed from the pipeline contract.
+- **L2 leaf hoist**: embedder/cosine/fence-split leaf now lives in
+  `@repo/pi-agent-core-interface` `src/embedding-leaf.ts`; hermes'
+  `store/surreal/embedder.ts` + `store/frontmatter-codec.ts` mirrors deleted;
+  zk `semantic.ts` delegates. Standing rule: mirrors must hoist, never copy.
+- **L3**: dead `INTERVIEW_PROMPT` export removed.
+- Hierarchy (#1571): `buildHierarchy` seam + aggregation MOCs + retrieval
+  `viaTree` auto-expansion — no-tree retrieval byte-identical.

@@ -23,7 +23,7 @@ import { registerIndexSessionsCommand } from "../handlers/index-sessions.js";
 import { buildKnowledgeSemanticOpts } from "./knowledge-semantic.js";
 import type { HermesCtx } from "./stores.js";
 import type { RecallSet } from "../handlers/worth-scoring.js";
-import { defaultEmbedder } from "../store/surreal/embedder.js";
+import { defaultEmbedder } from "@repo/pi-agent-core-interface";
 
 export function registerTools(
 	pi: ExtensionAPI,

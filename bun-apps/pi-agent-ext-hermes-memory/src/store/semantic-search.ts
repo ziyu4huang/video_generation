@@ -32,7 +32,7 @@
 import type { MemoryRepository } from "./repository.js";
 import type { KnowledgePipeline, RetrieveResult } from "@repo/pi-agent-core-interface";
 import type { VectorStore, VectorKnnHit } from "./surreal/vector-store.js";
-import { embedQuery, type Embedder } from "./surreal/embedder.js";
+import { embedQuery, type Embedder } from "@repo/pi-agent-core-interface";
 import { normalizeRelation } from "./relation-schema.js";
 import { DEFAULT_BOOST_WEIGHT } from "../constants.js";
 import { loadCardVectorsCache, cosineSimilarity } from "./card-vectors-cache.js";

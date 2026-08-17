@@ -34,7 +34,6 @@ import {
 	healGraph,
 	formatHealth,
 } from "@repo/pi-agent-ext-knowledge-card/src/retrieve.ts";
-import { mergeDuplicates, formatMerge } from "@repo/pi-agent-ext-knowledge-card/src/merge.ts";
 import { coverageReport } from "@repo/pi-agent-ext-knowledge-card/src/ingest.ts";
 import { loadWatchlist, resolveSpecsToRecords } from "@repo/pi-agent-ext-knowledge-card/src/source-watchlist.ts";
 
@@ -70,23 +69,13 @@ Health mode (--health):
   reported but non-fatal. Add --fix to auto-heal: regenerate MOC + prune dead
   [[...]] links in-card (scoped to the folder; never touches human-authored cards).
 
-Merge mode (--merge-duplicates):
-  Detect near-duplicate cards (token-set Jaccard similarity over title +
-  core-idea body) and merge each pair into one canonical card. Loser is marked
-  status:superseded + moved to <folder>/_archive/; its links are unioned into
-  the canonical card and inbound links are rewritten. Default threshold 0.9
-  (deliberately high — a bad merge never collapses merely-related ideas).
-  Without --fix, reports candidate pairs only (dry-run).
-
 Options:
   --tags <csv>             tags to match, comma-separated (ANY semantics)
   --exclude-from-kb <f>    .knowledge.jsonl → read active ids and exclude them
   --exclude-ids <csv>      explicit ids to exclude (adds to --exclude-from-kb)
   --top-k <n>              max cards to return (default 10)
   --health                 run graph health audit instead of retrieval
-  --fix                    with --health: auto-heal; with --merge-duplicates: apply merges
-  --merge-duplicates       detect + (with --fix) merge near-duplicate cards
-  --threshold <0..1>       merge similarity threshold (default 0.9)
+  --fix                    with --health: auto-heal: regenerate MOC + prune dead links
   --folder <name>          convergence folder (default Zettelkasten/knowledge-graph)
   --vault <path>           absolute vault path (sets OB_VAULT_PATH)
   --vault-dir <name>       vault folder name under cwd (default vault)
@@ -100,10 +89,7 @@ Examples:
   pi-agent cli zk-query --health
 
   # Auto-heal drift
-  pi-agent cli zk-query --health --fix
-
-  # Detect + merge duplicate cards
-  pi-agent cli zk-query --merge-duplicates --fix`,
+  pi-agent cli zk-query --health --fix`,
 	async run(parsed: ParsedArgs): Promise<void> {
 		const cwd = process.cwd();
 		const vaultPath = resolveVaultPath(parsed, cwd);
@@ -154,23 +140,6 @@ Examples:
 			}
 			if (!h.ok) {
 				process.exitCode = 1;
-			}
-			return;
-		}
-
-		// ── MERGE MODE ───────────────────────────────────────────────────
-		if (parsed.mergeDuplicates) {
-			const threshold = typeof parsed.threshold === "number" ? parsed.threshold : 0.9;
-			const m = await mergeDuplicates({
-				vaultPath,
-				folder,
-				threshold,
-				dryRun: !parsed.fix || parsed.dryRun === true,
-			});
-			if (parsed.json || parsed.mode === "json") {
-				console.log(JSON.stringify({ mode: "merge", ...m }, null, 2));
-			} else {
-				console.log(formatMerge(m));
 			}
 			return;
 		}

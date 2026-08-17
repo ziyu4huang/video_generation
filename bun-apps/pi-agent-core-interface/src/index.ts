@@ -7,7 +7,7 @@ export { SEAM_KEYS, SEAM_KEY_ENTRIES, type SeamKey } from "./seam-keys.js";
 export { publishSeam, readSeam, type SeamImplMap, type ToolGateStatus } from "./seam.js";
 export type {
   KnowledgePipeline, KnowledgeRecord, KnowledgeRecordEvidence, SourceFamily, LinkWeighting,
-  IngestOptions, IngestSummary, ConvergeOptions, ConvergeReceipt,
+  IngestOptions, IngestSummary,
   RetrieveOptions, RetrieveResult, CollectInputFilesResult,
   HealOptions, HealReceipt, HierarchyBuildOptions, HierarchyBuildResult,
 } from "./interfaces/knowledge-pipeline.js";
@@ -18,3 +18,11 @@ export {
   extractEntities, normEntity, computeIdf, scoreOverlap,
   type EntityType, type ExtractedEntity, type Relation,
 } from "./entities.js";
+// Hoisted L2 leaf (effort 2026-08-17-knowledge-pipeline-polish): the ONE
+// embedder/cosine/fence-split primitive shared across the knowledge layer,
+// replacing the deliberate mirrors in hermes-memory and zk.
+export {
+  SEMANTIC_MODEL_DEFAULT, type Embedder, type DefaultEmbedderOptions,
+  defaultEmbedder, lmStudioAvailable, type EmbedQueryOptions, embedQuery,
+  cosine, splitFencedYaml,
+} from "./embedding-leaf.js";

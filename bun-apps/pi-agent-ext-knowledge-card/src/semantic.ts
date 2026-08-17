@@ -23,48 +23,28 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-export const SEMANTIC_MODEL_DEFAULT = "text-embedding-nomic-embed-text-v1.5";
 export const SEMANTIC_ALPHA_DEFAULT = 0.18;
 const LMSTUDIO_BASE = process.env.LMSTUDIO_BASE_URL ?? "http://localhost:1234";
 
-/** Cosine similarity. Vectors need not be pre-normalised. */
-export function cosine(a: number[], b: number[]): number {
-	let dot = 0;
-	let dotA = 0;
-	let dotB = 0;
-	for (let i = 0; i < a.length; i++) {
-		dot += a[i]! * b[i]!;
-		dotA += a[i]! * a[i]!;
-		dotB += b[i]! * b[i]!;
-	}
-	return dot / (Math.sqrt(dotA) * Math.sqrt(dotB));
-}
+// L2 (2026-08-17-knowledge-pipeline-polish): the embedder/cosine leaf is hoisted
+// to @repo/pi-agent-core-interface. semantic.ts re-exports the leaf for its
+// internal consumers (retrieve, graph-health, tests) and keeps only the blend
+// engine + cache local.
+import {
+	SEMANTIC_MODEL_DEFAULT,
+	type Embedder,
+	defaultEmbedder as makeDefaultEmbedder,
+	lmStudioAvailable as lmStudioAvailableAt,
+	cosine,
+} from "@repo/pi-agent-core-interface";
 
-/** Injectable embedder: texts → vectors. Default calls LM Studio /v1/embeddings. */
-export type Embedder = (texts: string[], model: string) => Promise<number[][]>;
+export { cosine, SEMANTIC_MODEL_DEFAULT, type Embedder };
 
-export const defaultEmbedder: Embedder = async (texts, model) => {
-	const res = await fetch(`${LMSTUDIO_BASE}/v1/embeddings`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ model, input: texts }),
-	});
-	if (!res.ok) throw new Error(`LM Studio embeddings HTTP ${res.status}`);
-	const j = (await res.json()) as { data: { embedding: number[] }[] };
-	return j.data.map((d) => d.embedding);
-};
+export const defaultEmbedder: Embedder = makeDefaultEmbedder({ baseUrl: LMSTUDIO_BASE });
 
-/** Is a local LM Studio reachable AND serving the model? Cheap HEAD/list probe. */
-export async function lmStudioAvailable(model: string = SEMANTIC_MODEL_DEFAULT): Promise<boolean> {
-	try {
-		const res = await fetch(`${LMSTUDIO_BASE}/v1/models`, { signal: AbortSignal.timeout(1500) });
-		if (!res.ok) return false;
-		const j = (await res.json()) as { data: { id: string }[] };
-		return j.data.some((m) => m.id === model);
-	} catch {
-		return false;
-	}
-}
+export const lmStudioAvailable = (model: string = SEMANTIC_MODEL_DEFAULT): Promise<boolean> =>
+	lmStudioAvailableAt(LMSTUDIO_BASE, model);
+
 
 export interface CardEmbeddings {
 	model: string;

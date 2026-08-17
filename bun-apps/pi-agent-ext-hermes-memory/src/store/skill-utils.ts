@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import type { SkillDocument, SkillScope } from "../types.js";
-import { splitFencedYaml } from "./frontmatter-codec.js";
+import { splitFencedYaml } from "@repo/pi-agent-core-interface";
 // `today` has ONE home (memory-format.ts); re-exported here so skill-store's
 // existing `import { today } from "./skill-utils.js"` keeps working without a
 // caller change (architecture-deepening C1 dedupe).

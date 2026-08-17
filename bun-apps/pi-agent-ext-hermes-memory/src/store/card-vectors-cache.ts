@@ -1,6 +1,11 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+// L2 leaf-hoist: cosine now lives in @repo/pi-agent-core-interface (single
+// source); re-exported under the historical name so callers importing
+// cosineSimilarity from this module keep working unchanged.
+export { cosine as cosineSimilarity } from "@repo/pi-agent-core-interface";
+
 /** kp18 T5b (hermes-arch 10): hermes-side mirror of SurrealDB card_vectors so
  *  memory-card semantic search degrades to local cosine when SurrealDB is down.
  *  `embedModel` records the embedding ENDPOINT id (types.ts embedModel, e.g.
@@ -54,12 +59,4 @@ export function removeCachedCardVectors(memoryDir: string, mdIds: string[]): voi
   let touched = false;
   for (const id of mdIds) touched = cache.delete(id) || touched;
   if (touched) saveCardVectorsCache(memoryDir, cache);
-}
-
-export function cosineSimilarity(a: number[], b: number[]): number {
-  const n = Math.min(a.length, b.length);
-  let dot = 0; let na = 0; let nb = 0;
-  for (let i = 0; i < n; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
-  const denom = Math.sqrt(na) * Math.sqrt(nb);
-  return denom === 0 ? 0 : dot / denom;
 }
