@@ -1,6 +1,6 @@
 ---
 effort: 2026-08-16-leanrag-hierarchy-port
-status: active
+status: complete
 created: 2026-08-16
 pipeline: wayfind→superpowers
 seed: .planning/knowledge/leanrag-hierarchy-port-followup.md
@@ -24,6 +24,7 @@ LeanRAG ① (semantic-aggregation hierarchy) + ② (LCA tree retrieval) ported o
 - hermes walk-and-ingest orchestration point for the build phase (8e-style step) — verify seam arg shape at implementation.
 - Surreal-down path: hierarchy build skips (embeds unavailable) — same degradation class as today's cold path.
 - Determinism-test surface for auto-expansion — enumerate before adapting.
+- Effort complete 2026-08-16. ①② shipped; deterministic + budget-gated per mitigations D5/D6.
 
 ## Tickets
 - (charted below)
