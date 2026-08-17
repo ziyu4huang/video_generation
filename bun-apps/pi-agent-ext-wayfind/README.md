@@ -22,7 +22,7 @@ A **Pi-native** port of [Matt Pocock's decision-chain skill suite](https://githu
 A relentless, one-question-at-a-time interview that **leaves a paper trail**. As terms resolve they're written to `CONTEXT.md`; hard-to-reverse decisions land as ADRs. When you reach shared understanding, `/grill done --seed-plan` synthesizes the resolved decisions + glossary into a `task_plan.md` — then execute the plan.
 
 ```
-grill docs → wayfind spec → wayfind tickets → (execute the plan) → implement → code-review
+grill docs → wayfind spec → wayfind tickets → (execute the plan) → implement → code review (superpowers requesting-code-review/receiving-code-review)
 ```
 
 ## Where it fits
@@ -76,6 +76,19 @@ Both load the extension **and** the skills via the `pi` manifest in `package.jso
 ```
 
 CSO skill rules + pure helpers (grill priming, plan-seed, glossary parse, map frontier computation, ticket lifecycle) are all unit-tested with no LLM, no network.
+
+## Locally deleted skills (2026-08-16) — do NOT re-port
+
+Six methodology skills were deliberately removed 2026-08-16, superseded by superpowers counterparts — do NOT re-port/re-add them from Matt Pocock's upstream suite (era simplification, ADR-wayfind-0007; plan `.planning/plans/2026-08-16-solution-extension-simplification.md`). `skills/ask-matt/SKILL.md` carries the user-facing redirect table (expires at the `0.2.0` release marker, per `docs/versioning.md`):
+
+| deleted wayfind skill | superseded by superpowers |
+|---|---|
+| `research` | `dispatching-parallel-agents` (background research subagent + cited findings artifact) |
+| `prototype` | `brainstorming` (prototype pointer section) |
+| `subagent-dispatch-discipline` | `dispatching-parallel-agents` (pre-dispatch guardrails) |
+| `code-review` | `requesting-code-review` + `receiving-code-review` (Standards-vs-Spec dual axis) |
+| `diagnosing-bugs` | `systematic-debugging` (reproduction-loop engineering) |
+| `writing-for-agents` | `writing-skills` (generalized to all agent-consumed docs) |
 
 ## Source & license
 

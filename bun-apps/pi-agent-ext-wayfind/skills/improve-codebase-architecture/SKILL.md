@@ -30,7 +30,7 @@ Then **spawn a subagent** (pi `subagent` or `workflow`) to walk the codebase for
 
 Apply the **deletion test** to anything you suspect is shallow: would deleting it concentrate complexity, or just move it? A "yes, concentrates" is the signal you want.
 
-**Process hygiene** (adapted from `code-review`):
+**Process hygiene** (adapted from the wayfind `code-review` skill — deliberately removed 2026-08-16, superseded by superpowers `requesting-code-review` + `receiving-code-review`, Standards-vs-Spec dual axis — do not re-port/re-add; see ADR-wayfind-0007):
 
 - **Pin the scan base** — state the commit, ref, or "working tree" up front so the scan is reproducible.
 - **Every candidate cites its friction + the `codebase-design` principle it invokes.** No uncited finding.

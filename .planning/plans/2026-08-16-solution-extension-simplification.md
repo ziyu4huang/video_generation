@@ -437,12 +437,12 @@ git commit -m "feat(superpowers): generalize writing-skills to agent-consumed do
 - Consumes: merged content landed in Tasks 1–5 (the redirect targets must exist before the stubs point at them).
 - Produces: wayfind `skills/` = 16 dirs (13 untouched + `to-spec`/`to-tickets`/`ask-matt` trimmed in Tasks 7–8); `ask-matt` carrying the one-release redirect table consumed by muscle-memory users.
 
-- [ ] **Step 1: Find every reference to the deleted names**
+- [x] **Step 1: Find every reference to the deleted names**
 
 Run: `( cd bun-apps/pi-agent-ext-wayfind && grep -rn -e research -e prototype -e subagent-dispatch-discipline -e code-review -e diagnosing-bugs -e writing-for-agents --include='*.md' --include='*.ts' skills/ src/ tests/ procedures/ 2>/dev/null | grep -v node_modules )`
 Expected: hits in `skills/ask-matt/SKILL.md` (research, prototype, code-review, diagnosing-bugs, writing-for-agents prose) and possibly `procedures/` or tests; each hit is either rewritten in Step 3 or verified as a false positive (e.g. the word "research" as a ticket type in `src/effort-tool.ts` `typeFilter` enum and `tests/` — those stay: ticket *types* are data, not skill references).
 
-- [ ] **Step 2: Delete the 6 skill directories**
+- [x] **Step 2: Delete the 6 skill directories**
 
 ```bash
 git rm -r bun-apps/pi-agent-ext-wayfind/skills/research \
@@ -453,7 +453,7 @@ git rm -r bun-apps/pi-agent-ext-wayfind/skills/research \
           bun-apps/pi-agent-ext-wayfind/skills/writing-for-agents
 ```
 
-- [ ] **Step 3: Add the redirect table to `ask-matt/SKILL.md`**
+- [x] **Step 3: Add the redirect table to `ask-matt/SKILL.md`**
 
 Insert a new section right after the "Skill index rebuilt for this port" note:
 
@@ -480,16 +480,16 @@ Then remove/rewrite the now-dangling prose in `ask-matt/SKILL.md`:
 - On-ramps ("Something's broken"): delete the `diagnosing-bugs` sentence; keep the `systematic-debugging` pointer and append "(including its reproduction-loop engineering for flaky/HITL bugs)".
 - Standalone list: delete the `research`, `prototype`, and `writing-for-agents` bullets entirely (the redirect table above now covers them).
 
-- [ ] **Step 4: Fix remaining references found in Step 1**
+- [x] **Step 4: Fix remaining references found in Step 1**
 
 For every non-false-positive hit outside `ask-matt/SKILL.md`: rewrite the reference to the superpowers counterpart per the table in Step 3. If a hit is in a test that asserts the deleted skill's existence, update the test to assert the 16-skill set.
 
-- [ ] **Step 5: Run the wayfind gate**
+- [x] **Step 5: Run the wayfind gate**
 
 Run: `( cd bun-apps/pi-agent-ext-wayfind && bun run check && bun run typecheck && bun test )`
 Expected: PASS with 16 skill dirs. If `tests/skills.test.ts` hardcodes the 22-skill list, this is the failure that tells you — update it in this task.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A bun-apps/pi-agent-ext-wayfind/skills/
