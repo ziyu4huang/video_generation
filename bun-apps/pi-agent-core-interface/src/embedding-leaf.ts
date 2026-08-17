@@ -16,13 +16,34 @@ export const SEMANTIC_MODEL_DEFAULT = "text-embedding-nomic-embed-text-v1.5";
  *  deterministic mock. */
 export type Embedder = (texts: string[], model: string) => Promise<number[][]>;
 
+/** Structural fetch contract — deliberately NOT `typeof fetch`. This leaf is
+ *  compiled by every consumer of the package's types entry, and some of them
+ *  typecheck under lib:["ESNext"] with a DOM-less global `Response` that lacks
+ *  ok/status/json (ext-entry typecheck broke on @types/bun-1.3.14 packages).
+ *  The real global fetch satisfies this shape at runtime; default references
+ *  are cast through `unknown` so no program needs DOM types to check us. */
+export interface FetchLikeResponse {
+	ok: boolean;
+	status: number;
+	json(): Promise<unknown>;
+}
+
+export interface FetchLikeInit {
+	method?: string;
+	headers?: Record<string, string>;
+	body?: string;
+	signal?: AbortSignal;
+}
+
+export type FetchLike = (url: string, init?: FetchLikeInit) => Promise<FetchLikeResponse>;
+
 export interface DefaultEmbedderOptions {
 	/** LM Studio base URL, e.g. http://127.0.0.1:1234. */
 	baseUrl: string;
 	/** Per-request embedding batch size (LM Studio /v1/embeddings is batched). */
 	batchSize?: number;
 	/** Injectable fetch (tests). Defaults to the global fetch. */
-	fetch?: typeof fetch;
+	fetch?: FetchLike;
 }
 
 /** Build an `Embedder` backed by LM Studio's OpenAI-compatible `/v1/embeddings`
@@ -31,7 +52,7 @@ export interface DefaultEmbedderOptions {
 export function defaultEmbedder(opts: DefaultEmbedderOptions): Embedder {
 	const baseUrl = opts.baseUrl.replace(/\/+$/, "");
 	const batchSize = opts.batchSize ?? 32;
-	const fetchFn = opts.fetch ?? fetch;
+	const fetchFn = opts.fetch ?? (fetch as unknown as FetchLike);
 	return async (texts, _model) => {
 		const out: number[][] = [];
 		for (let i = 0; i < texts.length; i += batchSize) {
@@ -54,7 +75,7 @@ export function defaultEmbedder(opts: DefaultEmbedderOptions): Embedder {
 export async function lmStudioAvailable(
 	baseUrl: string,
 	model: string = SEMANTIC_MODEL_DEFAULT,
-	fetchImpl: typeof fetch = fetch,
+	fetchImpl: FetchLike = fetch as unknown as FetchLike,
 ): Promise<boolean> {
 	try {
 		const res = await fetchImpl(`${baseUrl.replace(/\/+$/, "")}/v1/models`, {
