@@ -60,9 +60,9 @@ describe("webui_report tool (in-process producer)", () => {
     expect(s1.frames.length + s2.frames.length).toBe(0);
   });
 
-  test("oversize body (>131072) -> payload too large", async () => {
+  test("oversize body (>16MB) -> payload too large", async () => {
     const sink = recordSink();
-    const res = await runTool(sink, { title: "Big", html: "x".repeat(131073) });
+    const res = await runTool(sink, { title: "Big", html: "x".repeat(16777217) });
     expect(res.details.error).toBe("payload too large");
     expect(sink.frames.length).toBe(0);
   });

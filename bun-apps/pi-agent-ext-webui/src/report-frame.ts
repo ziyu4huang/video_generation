@@ -4,7 +4,7 @@
  *   - render-routes.ts  POST /api/report   (external, cross-process door)
  *   - report-tool.ts    webui_report tool  (agent-side, in-process door)
  * Route semantics preserved verbatim from the pre-extraction inline block:
- * title trimmed to 1-200; EXACTLY ONE body mode; 128KB body cap; source
+ * title trimmed to 1-200; EXACTLY ONE body mode; 16MB body cap; source
  * capped at 100 with a per-door default ("api" for the route, "agent" for
  * the tool).
  */
@@ -24,7 +24,10 @@ export function buildReportFrame(
   const md = typeof b.markdown === "string" ? b.markdown : "";
   const html = typeof b.html === "string" ? b.html : "";
   if ((md ? 1 : 0) + (html ? 1 : 0) !== 1) return { ok: false, status: 400, error: "bad request" };
-  if (md.length > 131072 || html.length > 131072)
+  // 16MB (user decision 2026-08-17): the 128KB text-era cap rejected HTML
+  // artifacts (full archify renders ~600KB). 16MB covers them with headroom;
+  // truly huge content belongs on disk behind /files references, not in frames.
+  if (md.length > 16777216 || html.length > 16777216)
     return { ok: false, status: 413, error: "payload too large" };
   const source = typeof b.source === "string" && b.source ? b.source.slice(0, 100) : defaultSource;
   return {
