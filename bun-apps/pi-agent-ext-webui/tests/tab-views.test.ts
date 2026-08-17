@@ -10,6 +10,13 @@ describe("tab-views 01b — five tabs (literal)", () => {
     expect(src).not.toContain('id="ask-pane"');
     expect(src).not.toContain('webui-transcript');
     expect(src).not.toContain('function txLine');
+    // webui-v3 fix (report-iframe): the report iframe gets a REAL size rule
+    // (browser default was 300x150) + panes 70vh + fullscreen escape hatch.
+    expect(src).toContain('#report-pane article iframe { width: 100%; min-height: 70vh;');
+    expect(src).toContain('max-height: 70vh; overflow-y: auto;');
+    expect(src).not.toContain('max-height: 45vh');
+    expect(src).not.toContain('#ask-pane');
+    expect(src).toContain('requestFullscreen');
     expect(src).toContain('<section id="data-pane" hidden></section>');
   });
   test("setPane exclusive + tabs wired + Events relabel", () => {

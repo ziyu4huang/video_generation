@@ -76,10 +76,14 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   /* event-cards (01): Cards tab pane — projected card frames. Every field is
      textContent-rendered (raw HTML injection forbidden); the article id is the
      deep-link anchor; newest LAST (chronological). Badge color per attention. */
-  #cards-pane { display: flex; flex-direction: column; gap: .5rem; padding: .4rem 0; max-height: 45vh; overflow-y: auto; }
+  #cards-pane { display: flex; flex-direction: column; gap: .5rem; padding: .4rem 0; max-height: 70vh; overflow-y: auto; }
   #cards-pane[hidden] { display: none; } /* the flex display must not defeat [hidden] */
-  #report-pane, #ask-pane, #data-pane { display: flex; flex-direction: column; gap: .4rem; padding: .4rem 0; max-height: 45vh; overflow-y: auto; }
-  #report-pane[hidden], #ask-pane[hidden], #data-pane[hidden] { display: none; }
+  #report-pane, #data-pane { display: flex; flex-direction: column; gap: .4rem; padding: .4rem 0; max-height: 70vh; overflow-y: auto; }
+  #report-pane[hidden], #data-pane[hidden] { display: none; }
+  /* webui-v3 fix (report-iframe): html reports render in a sandboxed iframe
+     that NO other rule sizes — the browser default is 300x150, unreadable for
+     archify-class diagrams. Size it like the present-surface frames. */
+  #report-pane article iframe { width: 100%; min-height: 70vh; border: 1px solid #8884; border-radius: 6px; background: #fff; }
   #cards-pane .card { border: 1px solid #8884; border-radius: 6px; padding: .5rem .6rem; }
   #cards-pane .card h4 { margin: 0 0 .25rem; font-size: .85rem; }
   #cards-pane .card-meta { display: flex; gap: .5rem; align-items: center; color: #888; font-size: .75rem; }
@@ -602,6 +606,15 @@ function renderReport(frame) {
     ifr.setAttribute('sandbox', 'allow-scripts'); // NO allow-same-origin
     ifr.srcdoc = frame.html; // property assignment — untrusted HTML stays sandboxed
     body.appendChild(ifr);
+    // webui-v3 fix: a tall sandboxed doc scrolls INSIDE the frame (opaque
+    // origin — the parent can never measure it) — give readers a fullscreen
+    // escape hatch instead of forcing nested-scroll archaeology.
+    const fsBtn = document.createElement('button');
+    fsBtn.type = 'button';
+    fsBtn.textContent = 'fullscreen';
+    fsBtn.style.cssText = 'margin-top:.35rem;align-self:flex-start;padding:.2rem .6rem;border:1px solid #8886;border-radius:4px;background:#8882;color:inherit;cursor:pointer;font-size:.75rem';
+    fsBtn.addEventListener('click', function () { if (ifr.requestFullscreen) ifr.requestFullscreen(); });
+    body.appendChild(fsBtn);
   } else if (typeof frame.markdown === 'string') {
     body.appendChild(renderMarkdown(frame.markdown));
   }
