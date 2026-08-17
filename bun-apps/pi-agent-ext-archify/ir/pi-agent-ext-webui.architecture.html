@@ -4072,10 +4072,10 @@
         <div class="pulse-dot"></div>
         <h1>pi-agent-ext-webui Architecture (v3 — pure HITL companion)</h1>
       </div>
-      <p class="subtitle">Loopback co-frontend for the pi agent — v3 (2026-08-17): the TUI owns conversation and tool logs (frame diet at the source); the webui owns interaction: Inbox (ask + event cards), Report (two-door producer, archive surface), Data (viewer) — plus /files + webui:open full-fidelity channel</p>
+      <p class="subtitle">Loopback co-frontend for the pi agent — v3 (2026-08-17): the TUI owns conversation and tool logs (frame diet at the source); the webui owns interaction: Inbox (ask + event cards), Report (two-door producer, archive surface), Data (viewer) in a DYNAMIC app-shell (100dvh flex — panes fill any browser size) — plus /files + webui:open full-fidelity channel</p>
     </div>
 
-    <script id="archify-guided-views-data" type="application/json">[{"id":"config-serving","label":"Config \u0026 serving","focus":["config","ports","server","output-route","files-route"],"note":"webui-config pins port/loopback/fileRoots; Bun.serve hosts /output and /files on 127.0.0.1, unref'd."},{"id":"realtime-hitl","label":"Realtime — pure HITL frames","focus":["broadcaster","ws-gateway","session-store","report-producer","mutex-controller"],"note":"t02 frame diet: log families (message_*, tool_*, turn_*…) never reach the wire — cards, reports, ask, status only."},{"id":"surfaces","label":"Three tabs + views","focus":["render-shell","render-views","open-handler","files-route","archify-announce"],"note":"Inbox (ask + event cards, boot default), Report (md DOM / sandboxed HTML, cap-exempt archive), Data (viewer iframes)."}]</script>
+    <script id="archify-guided-views-data" type="application/json">[{"id":"config-serving","label":"Config \u0026 serving","focus":["config","ports","server","output-route","files-route"],"note":"webui-config pins port/loopback/fileRoots; Bun.serve hosts /output and /files on 127.0.0.1, unref'd."},{"id":"realtime-hitl","label":"Realtime — pure HITL frames","focus":["broadcaster","ws-gateway","session-store","report-producer","mutex-controller"],"note":"t02 frame diet: log families (message_*, tool_*, turn_*…) never reach the wire — cards, reports, ask, status only."},{"id":"surfaces","label":"Three tabs + views","focus":["render-shell","render-views","open-handler","files-route","archify-announce"],"note":"Inbox, Report (sized 70vh iframe + fullscreen hatch, cap-exempt), Data (viewer) — panes flex-fill the viewport: 100dvh dynamic app-shell."}]</script>
 
     <div class="guided-views no-print" id="guided-views" hidden aria-label="Guided diagram views">
       <button id="guided-view-prev" type="button" aria-label="Previous guided view" title="Previous guided view ([)">&#8592;</button>
@@ -4120,7 +4120,7 @@
     <div class="diagram-container" data-detail-level="map">
       <svg viewBox="0 0 1410 746" role="img" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="blueprint" data-quality-profile="standard">
         <title id="archify-diagram-title">pi-agent-ext-webui Architecture (v3 — pure HITL companion)</title>
-        <desc id="archify-diagram-description">Loopback co-frontend for the pi agent — v3 (2026-08-17): the TUI owns conversation and tool logs (frame diet at the source); the webui owns interaction: Inbox (ask + event cards), Report (two-door producer, archive surface), Data (viewer) — plus /files + webui:open full-fidelity channel</desc>
+        <desc id="archify-diagram-description">Loopback co-frontend for the pi agent — v3 (2026-08-17): the TUI owns conversation and tool logs (frame diet at the source); the webui owns interaction: Inbox (ask + event cards), Report (two-door producer, archive surface), Data (viewer) in a DYNAMIC app-shell (100dvh flex — panes fill any browser size) — plus /files + webui:open full-fidelity channel</desc>
         <!-- Definitions -->
         <defs>
           <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
@@ -4330,8 +4330,8 @@
         <text data-detail="fine" x="1260" y="190" class="t-backend" font-size="7" text-anchor="middle">src/present-tool.ts</text>
         </g>
 
-        <g id="node-render-shell" data-node-id="render-shell" data-node-label="Browser shell (3 tabs)" tabindex="0" role="button" aria-label="Focus Browser shell (3 tabs), Inbox · Report · Data · #card-&lt;id&gt; deep links · bell, Surfaces — three tabs + views" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="Inbox · Report · Data · #card-&lt;id&gt; deep links · bell" data-node-tag="src/render-shell.ts" data-node-context="Surfaces — three tabs + views">
-          <title>Browser shell (3 tabs) · Inbox · Report · Data · #card-&lt;id&gt; deep links · bell · Surfaces — three tabs + views · src/render-shell.ts</title>
+        <g id="node-render-shell" data-node-id="render-shell" data-node-label="Browser shell (3 tabs)" tabindex="0" role="button" aria-label="Focus Browser shell (3 tabs), Inbox · Report · Data · 100dvh shell · deep links · bell, Surfaces — three tabs + views" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="Inbox · Report · Data · 100dvh shell · deep links · bell" data-node-tag="src/render-shell.ts" data-node-context="Surfaces — three tabs + views">
+          <title>Browser shell (3 tabs) · Inbox · Report · Data · 100dvh shell · deep links · bell · Surfaces — three tabs + views · src/render-shell.ts</title>
           <rect x="960" y="300" width="160" height="58" rx="6" class="c-mask"/>
           <rect x="960" y="300" width="160" height="58" rx="6" class="c-frontend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(966 306) scale(0.6875)">
@@ -4341,7 +4341,7 @@
             <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
           <text data-detail-anchor x="1040" y="327" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Browser shell (3 tabs)</text>
-        <text data-detail="context" x="1040" y="343" class="t-muted" font-size="9" text-anchor="middle">Inbox · Report · Data · #card-&lt;id&gt; deep links · bell</text>
+        <text data-detail="context" x="1040" y="343" class="t-muted" font-size="9" text-anchor="middle">Inbox · Report · Data · 100dvh shell · deep links · bell</text>
         <text data-detail="fine" x="1040" y="350" class="t-frontend" font-size="7" text-anchor="middle">src/render-shell.ts</text>
         </g>
 
@@ -4724,7 +4724,7 @@
         </div>
         <ul>
           <li>&bull; t02 frame diet at the SOURCE: message_*, tool_execution_*, tool_result, turn_*, agent_settled, session_*compact are never subscribed — the store, the wire, and the shell all stay lean; the TUI owns logs.</li>
-          <li>&bull; t03 shell rebuild: the transcript scrollback machinery is deleted (−68 lines); three tabs — Inbox (ask + event cards, boot default), Report, Data (viewer) — with #card-&lt;id&gt; deep links that activate the owning tab.</li>
+          <li>&bull; t03 shell rebuild: the transcript scrollback machinery is deleted (−68 lines); three tabs — Inbox (ask + event cards, boot default), Report, Data (viewer) — with #card-&lt;id&gt; deep links that activate the owning tab. Post-t03 hardening (#1576/#1577): the html-report iframe is properly sized (70vh — it was the 300x150 browser default) with a fullscreen escape hatch, and the shell is a dynamic 100dvh app-shell — panes fill any browser size, no fixed caps.</li>
           <li>&bull; D1 decision: the webui is a pure interaction surface. No chat composer, no log mirror — answers flow back through the appexec bridge, first-answer-wins, queued while offline.</li>
         </ul>
       </div>

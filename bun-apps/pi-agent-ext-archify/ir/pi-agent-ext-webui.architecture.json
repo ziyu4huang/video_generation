@@ -3,7 +3,7 @@
   "diagram_type": "architecture",
   "meta": {
     "title": "pi-agent-ext-webui Architecture (v3 — pure HITL companion)",
-    "subtitle": "Loopback co-frontend for the pi agent — v3 (2026-08-17): the TUI owns conversation and tool logs (frame diet at the source); the webui owns interaction: Inbox (ask + event cards), Report (two-door producer, archive surface), Data (viewer) — plus /files + webui:open full-fidelity channel",
+    "subtitle": "Loopback co-frontend for the pi agent — v3 (2026-08-17): the TUI owns conversation and tool logs (frame diet at the source); the webui owns interaction: Inbox (ask + event cards), Report (two-door producer, archive surface), Data (viewer) in a DYNAMIC app-shell (100dvh flex — panes fill any browser size) — plus /files + webui:open full-fidelity channel",
     "output": "ir/pi-agent-ext-webui.architecture.html",
     "visual_preset": "blueprint",
     "quality_profile": "standard",
@@ -42,7 +42,7 @@
           "files-route",
           "archify-announce"
         ],
-        "note": "Inbox (ask + event cards, boot default), Report (md DOM / sandboxed HTML, cap-exempt archive), Data (viewer iframes)."
+        "note": "Inbox, Report (sized 70vh iframe + fullscreen hatch, cap-exempt), Data (viewer) — panes flex-fill the viewport: 100dvh dynamic app-shell."
       }
     ]
   },
@@ -231,7 +231,7 @@
       "id": "render-shell",
       "type": "frontend",
       "label": "Browser shell (3 tabs)",
-      "sublabel": "Inbox · Report · Data · #card-<id> deep links · bell",
+      "sublabel": "Inbox · Report · Data · 100dvh shell · deep links · bell",
       "pos": [
         960,
         300
@@ -734,7 +734,7 @@
       "title": "v3 — pure HITL companion",
       "items": [
         "t02 frame diet at the SOURCE: message_*, tool_execution_*, tool_result, turn_*, agent_settled, session_*compact are never subscribed — the store, the wire, and the shell all stay lean; the TUI owns logs.",
-        "t03 shell rebuild: the transcript scrollback machinery is deleted (−68 lines); three tabs — Inbox (ask + event cards, boot default), Report, Data (viewer) — with #card-<id> deep links that activate the owning tab.",
+        "t03 shell rebuild: the transcript scrollback machinery is deleted (−68 lines); three tabs — Inbox (ask + event cards, boot default), Report, Data (viewer) — with #card-<id> deep links that activate the owning tab. Post-t03 hardening (#1576/#1577): the html-report iframe is properly sized (70vh — it was the 300x150 browser default) with a fullscreen escape hatch, and the shell is a dynamic 100dvh app-shell — panes fill any browser size, no fixed caps.",
         "D1 decision: the webui is a pure interaction surface. No chat composer, no log mirror — answers flow back through the appexec bridge, first-answer-wins, queued while offline."
       ]
     },
