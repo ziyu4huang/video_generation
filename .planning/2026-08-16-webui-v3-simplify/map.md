@@ -33,7 +33,7 @@ verification a single tool call away.
 |---|---|---|---|
 | 01 | `webui` audit tool in power-tool | closed | tool + 6 invariants + per-tab screenshots; gates green |
 | 02 | frame diet: wiring allowlist + store trim | closed | OUTBOUND_EVENTS diet + snoop-skip decouple; guards added |
-| 03 | shell rebuild: 3 tabs, transcript gone | open | — |
+| 03 | shell rebuild: 3 tabs, transcript gone | closed | Inbox/Report/Data; transcript machinery deleted; probe green |
 | 04 | README + docs + map close | open | — |
 
 ## Notes
