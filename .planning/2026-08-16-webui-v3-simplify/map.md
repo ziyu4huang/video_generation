@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-16-webui-v3-simplify
 created: 2026-08-16
-status: active
+status: done
 ---
 
 # Map: webui v3 — simplify + co-work with TUI
@@ -34,7 +34,7 @@ verification a single tool call away.
 | 01 | `webui` audit tool in power-tool | closed | tool + 6 invariants + per-tab screenshots; gates green |
 | 02 | frame diet: wiring allowlist + store trim | closed | OUTBOUND_EVENTS diet + snoop-skip decouple; guards added |
 | 03 | shell rebuild: 3 tabs, transcript gone | closed | Inbox/Report/Data; transcript machinery deleted; probe green |
-| 04 | README + docs + map close | open | — |
+| 04 | README + docs + map close | closed | README v3 + map done |
 
 ## Notes
 
