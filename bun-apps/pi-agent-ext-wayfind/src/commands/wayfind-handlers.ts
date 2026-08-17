@@ -10,7 +10,8 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { seedPlan, syncChainState } from "../chain.js";
 import { PKG_NAME } from "../constants.js";
 import { adoptMostRecentActiveEffort } from "../effort-query.js";
-import { renderValidate, validateEffort } from "../effort-tool.js";
+import { renderValidate } from "../effort-render.js";
+import { validateEffort } from "../effort-tool.js";
 import { buildFreshnessWarning, checkFactFreshness } from "../freshness.js";
 import { readEffortMeta } from "../lifecycle.js";
 import type { WayfindOverlay } from "../overlay.js";

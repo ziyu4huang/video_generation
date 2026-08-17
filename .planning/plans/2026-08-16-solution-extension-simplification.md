@@ -653,30 +653,30 @@ git commit -m "refactor(wayfind): split commands.ts into per-command handler mod
   - `src/effort-enrich.ts` → `export async function enrichStatusStaleness(r: EffortStatusResult, cwd: string): Promise<void>` (the try/catch `readStaleDecisions` + `r.stale` + per-ticket `⚠` marking block) and `export async function enrichListStaleness(r: EffortListResult, cwd: string): Promise<void>` (the per-effort loop), plus `export function emitWayfindView(events: EventBus | undefined, content: string): void` (the guarded `webui:render` emit)
   - `src/effort-tool.ts` keeps: the `GATE_DEFS["wayfind_effort"]` registration, `createEffort`/`validateEffort`/`effortStatus` (pure cwd-based ops), their result interfaces, and `makeWayfindEffortTool` with all 5 actions dispatching to the extracted modules.
 
-- [ ] **Step 1: Baseline**
+- [x] **Step 1: Baseline**
 
 Run: `( cd bun-apps/pi-agent-ext-wayfind && bun test tests/effort-tool.test.ts )`
 Expected: PASS — record the count.
 
-- [ ] **Step 2: Move the renderers**
+- [x] **Step 2: Move the renderers**
 
 Create `effort-render.ts`; move `renderCreate`, `renderValidate`, `renderStatus`, `renderList`, `renderSearch` verbatim (making `renderCreate`/`renderSearch` exported); move the renderer-owned type imports (`EffortListResult`, `EffortSearchResult` from `./effort-query.js`; the result interfaces stay in `effort-tool.ts` — import them type-only). `effort-tool.ts` imports the renderers; re-export `renderValidate`/`renderStatus`/`renderList` from `effort-tool.ts` (`export { renderValidate, renderStatus, renderList } from "./effort-render.js";`) so `commands.ts`/`wayfind-handlers.ts` and tests keep resolving.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 Run: `( cd bun-apps/pi-agent-ext-wayfind && bun test tests/effort-tool.test.ts )`
 Expected: PASS, same count.
 
-- [ ] **Step 4: Move enrichment + webui emit**
+- [x] **Step 4: Move enrichment + webui emit**
 
 Create `effort-enrich.ts` with the three functions above (bodies moved verbatim from the `status` and `list` action cases). In `makeWayfindEffortTool`, the `status` case becomes: guard → `effortStatus` → `await enrichStatusStaleness(r, cwd)` → `if (r.ok) emitWayfindView(events, renderStatus(r))` → return; the `list` case likewise with `enrichListStaleness`. The 5-action switch, parameter schema, and gate wiring stay in `effort-tool.ts`.
 
-- [ ] **Step 5: Run the full wayfind gate**
+- [x] **Step 5: Run the full wayfind gate**
 
 Run: `( cd bun-apps/pi-agent-ext-wayfind && bun run check && bun run typecheck && bun test )`
 Expected: PASS. `wc -l bun-apps/pi-agent-ext-wayfind/src/effort-tool.ts` — Expected: ≤ 260 lines.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add bun-apps/pi-agent-ext-wayfind/src/effort-render.ts bun-apps/pi-agent-ext-wayfind/src/effort-enrich.ts bun-apps/pi-agent-ext-wayfind/src/effort-tool.ts
