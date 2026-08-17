@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "webui Report — Two Doors, One Tab",
+    "subtitle": "The #1572 publish pipeline: agent-side webui_report (in-process) and POST /api/report (external) converge on shared validation, then one store-wrapped broadcaster serves the Report tab with replay durability",
+    "output": "ir/webui-report-tool.architecture.html",
+    "visual_preset": "blueprint",
+    "quality_profile": "standard",
+    "views": [
+      { "id": "doors", "label": "Two doors", "focus": ["agent-session", "report-tool", "http-route", "ext-producer", "frame-builder"], "note": "Both producers emit byte-identical frames through one shared builder." },
+      { "id": "delivery", "label": "Delivery and durability", "focus": ["broadcaster", "ws-gateway", "session-store", "report-tab", "browser"], "note": "Live broadcast + store append; reports are replay-eligible and exempt from the card cap." }
+    ]
+  },
+  "components": [
+    { "id": "agent-session", "type": "backend", "label": "pi AgentSession", "sublabel": "tool execute · events bus", "pos": [60, 140], "size": [160, 58], "tag": "shared session" },
+    { "id": "report-tool", "type": "backend", "label": "webui_report", "sublabel": "in-process door · core, always-on · errors are RESULTs", "pos": [280, 140], "size": [160, 58], "tag": "src/report-tool.ts" },
+    { "id": "http-route", "type": "security", "label": "POST /api/report", "sublabel": "external door · loopback · Host/Origin guard", "pos": [500, 140], "size": [160, 58], "tag": "src/render-routes.ts" },
+    { "id": "ext-producer", "type": "external", "label": "External producers", "sublabel": "scripts · other sessions · curl", "pos": [720, 140], "size": [160, 58], "tag": "any loopback client" },
+
+    { "id": "frame-builder", "type": "backend", "label": "buildReportFrame", "sublabel": "title 1-200 · exactly-one body · 128KB · source <=100", "pos": [280, 300], "size": [160, 58], "tag": "src/report-frame.ts (shared)" },
+    { "id": "broadcaster", "type": "backend", "label": "Broadcaster", "sublabel": "store-wrapped: broadcast + append", "pos": [500, 300], "size": [160, 58], "tag": "src/broadcaster.ts" },
+    { "id": "ws-gateway", "type": "backend", "label": "WS Gateway", "sublabel": "WebFrame stream · idleTimeout 0", "pos": [720, 300], "size": [160, 58], "tag": "src/web-transport.ts" },
+    { "id": "report-tab", "type": "frontend", "label": "Report tab", "sublabel": "markdown -> DOM renderer · html -> sandboxed iframe", "pos": [940, 300], "size": [160, 58], "tag": "src/render-shell.ts" },
+
+    { "id": "tui", "type": "frontend", "label": "TUI", "sublabel": "co-driver · owns conversation + logs (t02 diet)", "pos": [60, 460], "size": [160, 58], "tag": "terminal frontend" },
+    { "id": "session-store", "type": "database", "label": "Session store", "sublabel": "replay ring · reports exempt from card cap", "pos": [500, 460], "size": [160, 58], "tag": "src/session-store.ts" },
+    { "id": "browser", "type": "frontend", "label": "Browser", "sublabel": "refresh / reconnect -> snapshot replay restores", "pos": [940, 460], "size": [160, 58], "tag": "user surface" }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Producers — two doors", "wraps": ["agent-session", "report-tool", "http-route", "ext-producer"] },
+    { "kind": "region", "label": "Validation + publish (shared)", "wraps": ["frame-builder", "broadcaster", "ws-gateway", "session-store"] },
+    { "kind": "region", "label": "Surface — durable reading", "wraps": ["report-tab", "browser"] }
+  ],
+  "connections": [
+    { "from": "agent-session", "to": "report-tool", "label": "execute()" },
+    { "from": "ext-producer", "to": "http-route", "label": "curl POST" },
+    { "from": "report-tool", "to": "frame-builder", "label": "in-process · zero sockets", "labelAt": [360, 212] },
+    { "from": "http-route", "to": "frame-builder", "label": "parsed JSON body" },
+    { "from": "frame-builder", "to": "broadcaster", "label": "identical ReportFrame", "labelAt": [470, 296] },
+    { "from": "broadcaster", "to": "ws-gateway", "label": "live broadcast", "labelAt": [690, 296] },
+    { "from": "broadcaster", "to": "session-store", "label": "append — replay-eligible", "labelAt": [580, 372] },
+    { "from": "ws-gateway", "to": "report-tab", "label": "WebFrame" },
+    { "from": "report-tab", "to": "browser", "label": "article render", "labelAt": [1020, 372] },
+    { "from": "session-store", "to": "browser", "label": "snapshot replay on (re)connect" },
+    { "from": "agent-session", "to": "tui", "label": "co-drives", "labelAt": [140, 212] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Why two doors", "items": ["The agent and its webui share ONE process — the agent POSTing to its own loopback was a pure socket detour (#1572 answered 'why HTTP?').", "Validation and frame construction live in shared src/report-frame.ts so BOTH doors emit byte-identical frames; the HTTP route simply delegates.", "webui_report is core/always-on and non-blocking: publish is the natural epilogue of generating content, not an on-demand capability."] },
+    { "dot": "rose", "title": "Frame contract (both doors)", "items": ["title trimmed to 1-200 chars; EXACTLY ONE of markdown | html; body cap 128KB.", "source label capped at 100 (default 'agent' for the tool, 'api' for the route); frame id report-<ts36>-<rand>.", "Errors never throw: the tool returns error RESULTs, the route returns 400 / 413."] },
+    { "dot": "emerald", "title": "Durability", "items": ["Store-wrapped broadcaster: every report is broadcast live AND appended to the replay store.", "Report frames are exempt from the bounded card-eviction cap — the Report tab is the archive surface.", "Reports survive browser refresh and WS reconnect (snapshot replay); the store is in-memory, so a process restart clears history."] }
+  ]
+}

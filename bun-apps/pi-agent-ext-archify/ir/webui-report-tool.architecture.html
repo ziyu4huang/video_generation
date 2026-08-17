@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="generator" content="archify 2.12.0">
-  <title>pi-agent-ext-webui Architecture (v3 — pure HITL companion) Diagram</title>
+  <title>webui Report — Two Doors, One Tab Diagram</title>
   <script>
     // Resolve the theme before first paint so light-preference users don't
     // see a dark flash. The toolbar script below re-applies with UI state.
@@ -4070,12 +4070,12 @@
     <div class="header">
       <div class="header-row">
         <div class="pulse-dot"></div>
-        <h1>pi-agent-ext-webui Architecture (v3 — pure HITL companion)</h1>
+        <h1>webui Report — Two Doors, One Tab</h1>
       </div>
-      <p class="subtitle">Loopback co-frontend for the pi agent — v3 (2026-08-17): the TUI owns conversation and tool logs (frame diet at the source); the webui owns interaction: Inbox (ask + event cards), Report (two-door producer, archive surface), Data (viewer) — plus /files + webui:open full-fidelity channel</p>
+      <p class="subtitle">The #1572 publish pipeline: agent-side webui_report (in-process) and POST /api/report (external) converge on shared validation, then one store-wrapped broadcaster serves the Report tab with replay durability</p>
     </div>
 
-    <script id="archify-guided-views-data" type="application/json">[{"id":"config-serving","label":"Config \u0026 serving","focus":["config","ports","server","output-route","files-route"],"note":"webui-config pins port/loopback/fileRoots; Bun.serve hosts /output and /files on 127.0.0.1, unref'd."},{"id":"realtime-hitl","label":"Realtime — pure HITL frames","focus":["broadcaster","ws-gateway","session-store","report-producer","mutex-controller"],"note":"t02 frame diet: log families (message_*, tool_*, turn_*…) never reach the wire — cards, reports, ask, status only."},{"id":"surfaces","label":"Three tabs + views","focus":["render-shell","render-views","open-handler","files-route","archify-announce"],"note":"Inbox (ask + event cards, boot default), Report (md DOM / sandboxed HTML, cap-exempt archive), Data (viewer iframes)."}]</script>
+    <script id="archify-guided-views-data" type="application/json">[{"id":"doors","label":"Two doors","focus":["agent-session","report-tool","http-route","ext-producer","frame-builder"],"note":"Both producers emit byte-identical frames through one shared builder."},{"id":"delivery","label":"Delivery and durability","focus":["broadcaster","ws-gateway","session-store","report-tab","browser"],"note":"Live broadcast + store append; reports are replay-eligible and exempt from the card cap."}]</script>
 
     <div class="guided-views no-print" id="guided-views" hidden aria-label="Guided diagram views">
       <button id="guided-view-prev" type="button" aria-label="Previous guided view" title="Previous guided view ([)">&#8592;</button>
@@ -4118,9 +4118,9 @@
 
     <!-- Main Diagram -->
     <div class="diagram-container" data-detail-level="map">
-      <svg viewBox="0 0 1410 746" role="img" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="blueprint" data-quality-profile="standard">
-        <title id="archify-diagram-title">pi-agent-ext-webui Architecture (v3 — pure HITL companion)</title>
-        <desc id="archify-diagram-description">Loopback co-frontend for the pi agent — v3 (2026-08-17): the TUI owns conversation and tool logs (frame diet at the source); the webui owns interaction: Inbox (ask + event cards), Report (two-door producer, archive surface), Data (viewer) — plus /files + webui:open full-fidelity channel</desc>
+      <svg viewBox="0 0 1170 606" role="img" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="blueprint" data-quality-profile="standard">
+        <title id="archify-diagram-title">webui Report — Two Doors, One Tab</title>
+        <desc id="archify-diagram-description">The #1572 publish pipeline: agent-side webui_report (in-process) and POST /api/report (external) converge on shared validation, then one store-wrapped broadcaster serves the Report tab with replay durability</desc>
         <!-- Definitions -->
         <defs>
           <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
@@ -4144,382 +4144,241 @@
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Boundaries (behind everything) -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" x="30" y="110" width="440" height="108" rx="12" class="c-region" stroke-width="1"/>
-        <text x="38" y="128" class="t-cloud" font-size="9" font-weight="600">Config — fail-closed defaults</text>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" x="30" y="110" width="880" height="108" rx="12" class="c-region" stroke-width="1"/>
+        <text x="38" y="128" class="t-cloud" font-size="9" font-weight="600">Producers — two doors</text>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="1" x="30" y="270" width="660" height="108" rx="12" class="c-region" stroke-width="1"/>
-        <text x="38" y="288" class="t-cloud" font-size="9" font-weight="600">Serving — loopback HTTP (idleTimeout 0)</text>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="1" x="250" y="270" width="660" height="268" rx="12" class="c-region" stroke-width="1"/>
+        <text x="258" y="288" class="t-cloud" font-size="9" font-weight="600">Validation + publish (shared)</text>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="2" x="30" y="430" width="880" height="108" rx="12" class="c-region" stroke-width="1"/>
-        <text x="38" y="448" class="t-cloud" font-size="9" font-weight="600">Publish — pure-HITL frames, store-wrapped</text>
-
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="3" x="710" y="110" width="660" height="108" rx="12" class="c-region" stroke-width="1"/>
-        <text x="718" y="128" class="t-cloud" font-size="9" font-weight="600">Input &amp; HITL — floor-controlled</text>
-
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="4" x="930" y="270" width="440" height="108" rx="12" class="c-region" stroke-width="1"/>
-        <text x="938" y="288" class="t-cloud" font-size="9" font-weight="600">Surfaces — three tabs + views</text>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="2" x="910" y="270" width="220" height="268" rx="12" class="c-region" stroke-width="1"/>
+        <text x="918" y="288" class="t-cloud" font-size="9" font-weight="600">Surface — durable reading</text>
 
         <!-- Connection paths (before components for correct z-order) -->
-        <path data-edge-from="config" data-edge-to="ports" data-edge-label="pins port" data-edge-key="0" data-composition-points="220,162;250,162;250,169;280,169" d="M 220 162 L 246.5 162 Q 250 162 250 165.5 L 250 165.5 Q 250 169 253.5 169 L 280 169" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="config" data-edge-to="server" data-edge-label="127.0.0.1 · unref" data-edge-key="1" data-composition-points="140,198;140,300" d="M 140 198 L 140 300" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="config" data-edge-to="files-route" data-edge-label="fileRoots allowlist" data-edge-key="2" data-composition-points="220,176;220,252.5;500,252.5;500,329" d="M 220 176 L 220 244.5 Q 220 252.5 228 252.5 L 492 252.5 Q 500 252.5 500 260.5 L 500 329" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="server" data-edge-to="output-route" data-edge-label="hosts /output" data-edge-key="3" data-composition-points="220,329;280,329" d="M 220 329 L 280 329" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="server" data-edge-to="ws-gateway" data-edge-label="WS upgrade" data-edge-key="4" data-composition-points="140,358;140,400;360,400;580,460" d="M 140 358 L 140 392 Q 140 400 148 400 L 352 400 Q 360 400 367.71811056990185 402.10493924633687 L 580 460" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="broadcaster" data-edge-to="ws-gateway" data-edge-label="live broadcast" data-edge-key="5" data-composition-points="440,489;500,489" d="M 440 489 L 500 489" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="broadcaster" data-edge-to="session-store" data-edge-label="append · replay" data-edge-key="6" data-composition-points="360,460;360,420;800,420;800,460" d="M 360 460 L 360 428 Q 360 420 368 420 L 792 420 Q 800 420 800 428 L 800 460" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="render-shell" data-edge-to="ws-gateway" data-edge-label="HITL answers (queued offline)" data-edge-key="7" data-composition-points="1040,358;1040,420;1160,420;1160,610;360,610;580,518" d="M 1040 358 L 1040 412 Q 1040 420 1048 420 L 1152 420 Q 1160 420 1160 428 L 1160 602 Q 1160 610 1152 610 L 368 610 Q 360 610 367.3806390171605 606.9135509564602 L 580 518" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="ws-gateway" data-edge-to="ask-bridge" data-edge-label="appexec respond / cancel" data-edge-key="8" data-composition-points="660,489;580,489;580,680;700,680;700,169;740,169" d="M 660 489 L 588 489 Q 580 489 580 497 L 580 672 Q 580 680 588 680 L 692 680 Q 700 680 700 672 L 700 177 Q 700 169 708 169 L 740 169" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="ask-bridge" data-edge-to="agent-session" data-edge-label="tool results · first-answer-wins" data-edge-key="9" data-composition-points="820,198;820,250;700,250;700,580;820,580;820,620" d="M 820 198 L 820 242 Q 820 250 812 250 L 708 250 Q 700 250 700 258 L 700 572 Q 700 580 708 580 L 812 580 Q 820 580 820 588 L 820 620" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="ask-bridge" data-edge-to="mutex-controller" data-edge-label="⇒ pi.on(input) gate" data-edge-key="10" data-composition-points="900,169;960,169" d="M 900 169 L 960 169" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="tui" data-edge-to="agent-session" data-edge-label="co-drives" data-edge-key="11" data-composition-points="960,649;900,649" d="M 960 649 L 900 649" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="agent-session" data-edge-to="broadcaster" data-edge-label="pure-HITL frames only (t02 diet)" data-edge-key="12" data-composition-points="820,678;820,700;360,700;360,518" d="M 820 678 L 820 692 Q 820 700 812 700 L 368 700 Q 360 700 360 692 L 360 518" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="agent-session" data-edge-to="render-views" data-edge-label="webui:render" data-edge-key="13" data-composition-points="900,649;940,649;940,380;1260,380;1260,358" d="M 900 649 L 932 649 Q 940 649 940 641 L 940 388 Q 940 380 948 380 L 1252 380 Q 1260 380 1260 372 L 1260 358" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="report-producer" data-edge-to="broadcaster" data-edge-label="two doors · identical frames" data-edge-key="14" data-composition-points="220,489;280,489" d="M 220 489 L 280 489" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="present-tool" data-edge-to="render-shell" data-edge-label="present ⇄ answer / cancel" data-edge-key="15" data-composition-points="1180,169;1160,169;1160,225;1040,225;1040,300" d="M 1180 169 L 1168 169 Q 1160 169 1160 177 L 1160 217 Q 1160 225 1152 225 L 1048 225 Q 1040 225 1040 233 L 1040 300" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="render-views" data-edge-to="render-shell" data-edge-label="Data tab iframes" data-edge-key="16" data-composition-points="1180,329;1120,329" d="M 1180 329 L 1120 329" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="render-views" data-edge-to="output-route" data-edge-label="![image](/output/0/…)" data-edge-key="17" data-composition-points="1260,300;1260,245;360,245;360,300" d="M 1260 300 L 1260 253 Q 1260 245 1252 245 L 368 245 Q 360 245 360 253 L 360 300" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="config" data-edge-to="open-handler" data-edge-label="same root allowlist" data-edge-key="18" data-composition-points="140,140;140,105;1380,105;1380,489;1180,489" d="M 140 140 L 140 113 Q 140 105 148 105 L 1372 105 Q 1380 105 1380 113 L 1380 481 Q 1380 489 1372 489 L 1180 489" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="open-handler" data-edge-to="files-route" data-edge-label="shared containment core" data-edge-key="19" data-composition-points="1340,489;1360,489;1360,410;580,410;580,358" d="M 1340 489 L 1352 489 Q 1360 489 1360 481 L 1360 418 Q 1360 410 1352 410 L 588 410 Q 580 410 580 402 L 580 358" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="archify-announce" data-edge-to="open-handler" data-edge-label="emit webui:open" data-edge-key="20" data-composition-points="1260,620;1260,518" d="M 1260 620 L 1260 518" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="agent-session" data-edge-to="report-tool" data-edge-label="execute()" data-edge-key="0" data-composition-points="220,169;280,169" d="M 220 169 L 280 169" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="ext-producer" data-edge-to="http-route" data-edge-label="curl POST" data-edge-key="1" data-composition-points="720,169;660,169" d="M 720 169 L 660 169" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="report-tool" data-edge-to="frame-builder" data-edge-label="in-process · zero sockets" data-edge-key="2" data-composition-points="360,198;360,300" d="M 360 198 L 360 300" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="http-route" data-edge-to="frame-builder" data-edge-label="parsed JSON body" data-edge-key="3" data-composition-points="500,169;470,169;470,329;440,329" d="M 500 169 L 478 169 Q 470 169 470 177 L 470 321 Q 470 329 462 329 L 440 329" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="frame-builder" data-edge-to="broadcaster" data-edge-label="identical ReportFrame" data-edge-key="4" data-composition-points="440,329;500,329" d="M 440 329 L 500 329" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="broadcaster" data-edge-to="ws-gateway" data-edge-label="live broadcast" data-edge-key="5" data-composition-points="660,329;720,329" d="M 660 329 L 720 329" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="broadcaster" data-edge-to="session-store" data-edge-label="append — replay-eligible" data-edge-key="6" data-composition-points="580,358;580,460" d="M 580 358 L 580 460" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="ws-gateway" data-edge-to="report-tab" data-edge-label="WebFrame" data-edge-key="7" data-composition-points="880,329;940,329" d="M 880 329 L 940 329" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="report-tab" data-edge-to="browser" data-edge-label="article render" data-edge-key="8" data-composition-points="1020,358;1020,460" d="M 1020 358 L 1020 460" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="session-store" data-edge-to="browser" data-edge-label="snapshot replay on (re)connect" data-edge-key="9" data-composition-points="660,489;940,489" d="M 660 489 L 940 489" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="agent-session" data-edge-to="tui" data-edge-label="co-drives" data-edge-key="10" data-composition-points="140,198;140,460" d="M 140 198 L 140 460" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 
         <!-- Components -->
-        <g id="node-config" data-node-id="config" data-node-label="WebUI Config" tabindex="0" role="button" aria-label="Focus WebUI Config, webui-config · port/loopback · resolveFileRoots fail-closed, Config — fail-closed defaults" aria-pressed="false" data-node-kind="backend" data-node-sublabel="webui-config · port/loopback · resolveFileRoots fail-closed" data-node-tag="src/webui-config.ts" data-node-context="Config — fail-closed defaults">
-          <title>WebUI Config · webui-config · port/loopback · resolveFileRoots fail-closed · Config — fail-closed defaults · src/webui-config.ts</title>
+        <g id="node-agent-session" data-node-id="agent-session" data-node-label="pi AgentSession" tabindex="0" role="button" aria-label="Focus pi AgentSession, tool execute · events bus, Producers — two doors" aria-pressed="false" data-node-kind="backend" data-node-sublabel="tool execute · events bus" data-node-tag="shared session" data-node-context="Producers — two doors">
+          <title>pi AgentSession · tool execute · events bus · Producers — two doors · shared session</title>
           <rect x="60" y="140" width="160" height="58" rx="6" class="c-mask"/>
           <rect x="60" y="140" width="160" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(66 146) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-detail-anchor x="140" y="167" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">WebUI Config</text>
-        <text data-detail="context" x="140" y="183" class="t-muted" font-size="9" text-anchor="middle">webui-config · port/loopback · resolveFileRoots fail-closed</text>
-        <text data-detail="fine" x="140" y="190" class="t-backend" font-size="7" text-anchor="middle">src/webui-config.ts</text>
+          <text data-detail-anchor x="140" y="167" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">pi AgentSession</text>
+        <text data-detail="context" x="140" y="183" class="t-muted" font-size="9" text-anchor="middle">tool execute · events bus</text>
+        <text data-detail="fine" x="140" y="190" class="t-backend" font-size="7" text-anchor="middle">shared session</text>
         </g>
 
-        <g id="node-ports" data-node-id="ports" data-node-label="Port Resolver" tabindex="0" role="button" aria-label="Focus Port Resolver, WEBUI_PORT &gt; PORT &gt; 0 · busy-walk +50, Config — fail-closed defaults" aria-pressed="false" data-node-kind="backend" data-node-sublabel="WEBUI_PORT &gt; PORT &gt; 0 · busy-walk +50" data-node-tag="src/port-resolver.ts" data-node-context="Config — fail-closed defaults">
-          <title>Port Resolver · WEBUI_PORT &gt; PORT &gt; 0 · busy-walk +50 · Config — fail-closed defaults · src/port-resolver.ts</title>
+        <g id="node-report-tool" data-node-id="report-tool" data-node-label="webui_report" tabindex="0" role="button" aria-label="Focus webui_report, in-process door · core, always-on · errors are RESULTs, Producers — two doors" aria-pressed="false" data-node-kind="backend" data-node-sublabel="in-process door · core, always-on · errors are RESULTs" data-node-tag="src/report-tool.ts" data-node-context="Producers — two doors">
+          <title>webui_report · in-process door · core, always-on · errors are RESULTs · Producers — two doors · src/report-tool.ts</title>
           <rect x="280" y="140" width="160" height="58" rx="6" class="c-mask"/>
           <rect x="280" y="140" width="160" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(286 146) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-detail-anchor x="360" y="167" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Port Resolver</text>
-        <text data-detail="context" x="360" y="183" class="t-muted" font-size="9" text-anchor="middle">WEBUI_PORT &gt; PORT &gt; 0 · busy-walk +50</text>
-        <text data-detail="fine" x="360" y="190" class="t-backend" font-size="7" text-anchor="middle">src/port-resolver.ts</text>
+          <text data-detail-anchor x="360" y="167" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">webui_report</text>
+        <text data-detail="context" x="360" y="183" class="t-muted" font-size="9" text-anchor="middle">in-process door · core, always-on · errors are RESULTs</text>
+        <text data-detail="fine" x="360" y="190" class="t-backend" font-size="7" text-anchor="middle">src/report-tool.ts</text>
         </g>
 
-        <g id="node-server" data-node-id="server" data-node-label="Web Server" tabindex="0" role="button" aria-label="Focus Web Server, Bun.serve · 127.0.0.1 · unref() · idleTimeout 0, Serving — loopback HTTP (idleTimeout 0)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Bun.serve · 127.0.0.1 · unref() · idleTimeout 0" data-node-tag="src/web-server.ts" data-node-context="Serving — loopback HTTP (idleTimeout 0)">
-          <title>Web Server · Bun.serve · 127.0.0.1 · unref() · idleTimeout 0 · Serving — loopback HTTP (idleTimeout 0) · src/web-server.ts</title>
-          <rect x="60" y="300" width="160" height="58" rx="6" class="c-mask"/>
-          <rect x="60" y="300" width="160" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(66 306) scale(0.6875)">
-            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+        <g id="node-http-route" data-node-id="http-route" data-node-label="POST /api/report" tabindex="0" role="button" aria-label="Focus POST /api/report, external door · loopback · Host/Origin guard, Producers — two doors" aria-pressed="false" data-node-kind="security" data-node-sublabel="external door · loopback · Host/Origin guard" data-node-tag="src/render-routes.ts" data-node-context="Producers — two doors">
+          <title>POST /api/report · external door · loopback · Host/Origin guard · Producers — two doors · src/render-routes.ts</title>
+          <rect x="500" y="140" width="160" height="58" rx="6" class="c-mask"/>
+          <rect x="500" y="140" width="160" height="58" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(506 146) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
           </g>
-          <text data-detail-anchor x="140" y="327" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Web Server</text>
-        <text data-detail="context" x="140" y="343" class="t-muted" font-size="9" text-anchor="middle">Bun.serve · 127.0.0.1 · unref() · idleTimeout 0</text>
-        <text data-detail="fine" x="140" y="350" class="t-backend" font-size="7" text-anchor="middle">src/web-server.ts</text>
+          <text data-detail-anchor x="580" y="167" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">POST /api/report</text>
+        <text data-detail="context" x="580" y="183" class="t-muted" font-size="9" text-anchor="middle">external door · loopback · Host/Origin guard</text>
+        <text data-detail="fine" x="580" y="190" class="t-security" font-size="7" text-anchor="middle">src/render-routes.ts</text>
         </g>
 
-        <g id="node-output-route" data-node-id="output-route" data-node-label="Output Route" tabindex="0" role="button" aria-label="Focus Output Route, /output static · symlink-safe · MIME allowlist, Serving — loopback HTTP (idleTimeout 0)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="/output static · symlink-safe · MIME allowlist" data-node-tag="src/output-routes.ts" data-node-context="Serving — loopback HTTP (idleTimeout 0)">
-          <title>Output Route · /output static · symlink-safe · MIME allowlist · Serving — loopback HTTP (idleTimeout 0) · src/output-routes.ts</title>
+        <g id="node-ext-producer" data-node-id="ext-producer" data-node-label="External producers" tabindex="0" role="button" aria-label="Focus External producers, scripts · other sessions · curl, Producers — two doors" aria-pressed="false" data-node-kind="external" data-node-sublabel="scripts · other sessions · curl" data-node-tag="any loopback client" data-node-context="Producers — two doors">
+          <title>External producers · scripts · other sessions · curl · Producers — two doors · any loopback client</title>
+          <rect x="720" y="140" width="160" height="58" rx="6" class="c-mask"/>
+          <rect x="720" y="140" width="160" height="58" rx="6" class="c-external" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(726 146) scale(0.6875)">
+            <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
+            <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
+          </g>
+          <text data-detail-anchor x="800" y="167" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">External producers</text>
+        <text data-detail="context" x="800" y="183" class="t-muted" font-size="9" text-anchor="middle">scripts · other sessions · curl</text>
+        <text data-detail="fine" x="800" y="190" class="t-external" font-size="7" text-anchor="middle">any loopback client</text>
+        </g>
+
+        <g id="node-frame-builder" data-node-id="frame-builder" data-node-label="buildReportFrame" tabindex="0" role="button" aria-label="Focus buildReportFrame, title 1-200 · exactly-one body · 128KB · source &lt;=100, Validation + publish (shared)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="title 1-200 · exactly-one body · 128KB · source &lt;=100" data-node-tag="src/report-frame.ts (shared)" data-node-context="Validation + publish (shared)">
+          <title>buildReportFrame · title 1-200 · exactly-one body · 128KB · source &lt;=100 · Validation + publish (shared) · src/report-frame.ts (shared)</title>
           <rect x="280" y="300" width="160" height="58" rx="6" class="c-mask"/>
           <rect x="280" y="300" width="160" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(286 306) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-detail-anchor x="360" y="327" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Output Route</text>
-        <text data-detail="context" x="360" y="343" class="t-muted" font-size="9" text-anchor="middle">/output static · symlink-safe · MIME allowlist</text>
-        <text data-detail="fine" x="360" y="350" class="t-backend" font-size="7" text-anchor="middle">src/output-routes.ts</text>
+          <text data-detail-anchor x="360" y="327" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">buildReportFrame</text>
+        <text data-detail="context" x="360" y="343" class="t-muted" font-size="9" text-anchor="middle">title 1-200 · exactly-one body · 128KB · source &lt;=100</text>
+        <text data-detail="fine" x="360" y="350" class="t-backend" font-size="7" text-anchor="middle">src/report-frame.ts (shared)</text>
         </g>
 
-        <g id="node-files-route" data-node-id="files-route" data-node-label="Files Route" tabindex="0" role="button" aria-label="Focus Files Route, /files/&lt;i&gt;/&lt;rel&gt; · CSP sandbox · uniform 404, Serving — loopback HTTP (idleTimeout 0)" aria-pressed="false" data-node-kind="security" data-node-sublabel="/files/&lt;i&gt;/&lt;rel&gt; · CSP sandbox · uniform 404" data-node-tag="src/file-routes.ts" data-node-context="Serving — loopback HTTP (idleTimeout 0)">
-          <title>Files Route · /files/&lt;i&gt;/&lt;rel&gt; · CSP sandbox · uniform 404 · Serving — loopback HTTP (idleTimeout 0) · src/file-routes.ts</title>
+        <g id="node-broadcaster" data-node-id="broadcaster" data-node-label="Broadcaster" tabindex="0" role="button" aria-label="Focus Broadcaster, store-wrapped: broadcast + append, Validation + publish (shared)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="store-wrapped: broadcast + append" data-node-tag="src/broadcaster.ts" data-node-context="Validation + publish (shared)">
+          <title>Broadcaster · store-wrapped: broadcast + append · Validation + publish (shared) · src/broadcaster.ts</title>
           <rect x="500" y="300" width="160" height="58" rx="6" class="c-mask"/>
-          <rect x="500" y="300" width="160" height="58" rx="6" class="c-security" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(506 306) scale(0.6875)">
-            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
-            <path d="m5.8 8 1.5 1.5 3-3"/>
+          <rect x="500" y="300" width="160" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(506 306) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-detail-anchor x="580" y="327" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Files Route</text>
-        <text data-detail="context" x="580" y="343" class="t-muted" font-size="9" text-anchor="middle">/files/&lt;i&gt;/&lt;rel&gt; · CSP sandbox · uniform 404</text>
-        <text data-detail="fine" x="580" y="350" class="t-security" font-size="7" text-anchor="middle">src/file-routes.ts</text>
+          <text data-detail-anchor x="580" y="327" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Broadcaster</text>
+        <text data-detail="context" x="580" y="343" class="t-muted" font-size="9" text-anchor="middle">store-wrapped: broadcast + append</text>
+        <text data-detail="fine" x="580" y="350" class="t-backend" font-size="7" text-anchor="middle">src/broadcaster.ts</text>
         </g>
 
-        <g id="node-report-producer" data-node-id="report-producer" data-node-label="Report producers" tabindex="0" role="button" aria-label="Focus Report producers, webui_report tool (in-process) + POST /api/report · shared report-frame.ts · 16MB cap, Publish — pure-HITL frames, store-wrapped" aria-pressed="false" data-node-kind="backend" data-node-sublabel="webui_report tool (in-process) + POST /api/report · shared report-frame.ts · 16MB cap" data-node-tag="src/report-tool.ts · report-frame.ts" data-node-context="Publish — pure-HITL frames, store-wrapped">
-          <title>Report producers · webui_report tool (in-process) + POST /api/report · shared report-frame.ts · 16MB cap · Publish — pure-HITL frames, store-wrapped · src/report-tool.ts · report-frame.ts</title>
+        <g id="node-ws-gateway" data-node-id="ws-gateway" data-node-label="WS Gateway" tabindex="0" role="button" aria-label="Focus WS Gateway, WebFrame stream · idleTimeout 0, Validation + publish (shared)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="WebFrame stream · idleTimeout 0" data-node-tag="src/web-transport.ts" data-node-context="Validation + publish (shared)">
+          <title>WS Gateway · WebFrame stream · idleTimeout 0 · Validation + publish (shared) · src/web-transport.ts</title>
+          <rect x="720" y="300" width="160" height="58" rx="6" class="c-mask"/>
+          <rect x="720" y="300" width="160" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(726 306) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor x="800" y="327" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">WS Gateway</text>
+        <text data-detail="context" x="800" y="343" class="t-muted" font-size="9" text-anchor="middle">WebFrame stream · idleTimeout 0</text>
+        <text data-detail="fine" x="800" y="350" class="t-backend" font-size="7" text-anchor="middle">src/web-transport.ts</text>
+        </g>
+
+        <g id="node-report-tab" data-node-id="report-tab" data-node-label="Report tab" tabindex="0" role="button" aria-label="Focus Report tab, markdown -&gt; DOM renderer · html -&gt; sandboxed iframe, Surface — durable reading" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="markdown -&gt; DOM renderer · html -&gt; sandboxed iframe" data-node-tag="src/render-shell.ts" data-node-context="Surface — durable reading">
+          <title>Report tab · markdown -&gt; DOM renderer · html -&gt; sandboxed iframe · Surface — durable reading · src/render-shell.ts</title>
+          <rect x="940" y="300" width="160" height="58" rx="6" class="c-mask"/>
+          <rect x="940" y="300" width="160" height="58" rx="6" class="c-frontend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(946 306) scale(0.6875)">
+            <rect x="2" y="3" width="12" height="10" rx="2"/>
+            <path d="M2 6.5h12"/>
+            <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
+            <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
+          </g>
+          <text data-detail-anchor x="1020" y="327" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Report tab</text>
+        <text data-detail="context" x="1020" y="343" class="t-muted" font-size="9" text-anchor="middle">markdown -&gt; DOM renderer · html -&gt; sandboxed iframe</text>
+        <text data-detail="fine" x="1020" y="350" class="t-frontend" font-size="7" text-anchor="middle">src/render-shell.ts</text>
+        </g>
+
+        <g id="node-tui" data-node-id="tui" data-node-label="TUI" tabindex="0" role="button" aria-label="Focus TUI, co-driver · owns conversation + logs (t02 diet), Architecture component" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="co-driver · owns conversation + logs (t02 diet)" data-node-tag="terminal frontend" data-node-context="Architecture component">
+          <title>TUI · co-driver · owns conversation + logs (t02 diet) · Architecture component · terminal frontend</title>
           <rect x="60" y="460" width="160" height="58" rx="6" class="c-mask"/>
-          <rect x="60" y="460" width="160" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(66 466) scale(0.6875)">
-            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          <rect x="60" y="460" width="160" height="58" rx="6" class="c-frontend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(66 466) scale(0.6875)">
+            <rect x="2" y="3" width="12" height="10" rx="2"/>
+            <path d="M2 6.5h12"/>
+            <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
+            <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
-          <text data-detail-anchor x="140" y="487" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Report producers</text>
-        <text data-detail="context" x="140" y="503" class="t-muted" font-size="9" text-anchor="middle">webui_report tool (in-process) + POST /api/report · shared report-frame.ts · 16MB cap</text>
-        <text data-detail="fine" x="140" y="510" class="t-backend" font-size="7" text-anchor="middle">src/report-tool.ts · report-frame.ts</text>
+          <text data-detail-anchor x="140" y="487" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">TUI</text>
+        <text data-detail="context" x="140" y="503" class="t-muted" font-size="9" text-anchor="middle">co-driver · owns conversation + logs (t02 diet)</text>
+        <text data-detail="fine" x="140" y="510" class="t-frontend" font-size="7" text-anchor="middle">terminal frontend</text>
         </g>
 
-        <g id="node-broadcaster" data-node-id="broadcaster" data-node-label="Broadcaster" tabindex="0" role="button" aria-label="Focus Broadcaster, store-wrapped · pure-HITL frames only (t02 diet), Publish — pure-HITL frames, store-wrapped" aria-pressed="false" data-node-kind="backend" data-node-sublabel="store-wrapped · pure-HITL frames only (t02 diet)" data-node-tag="src/broadcaster.ts" data-node-context="Publish — pure-HITL frames, store-wrapped">
-          <title>Broadcaster · store-wrapped · pure-HITL frames only (t02 diet) · Publish — pure-HITL frames, store-wrapped · src/broadcaster.ts</title>
-          <rect x="280" y="460" width="160" height="58" rx="6" class="c-mask"/>
-          <rect x="280" y="460" width="160" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(286 466) scale(0.6875)">
-            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
-          </g>
-          <text data-detail-anchor x="360" y="487" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Broadcaster</text>
-        <text data-detail="context" x="360" y="503" class="t-muted" font-size="9" text-anchor="middle">store-wrapped · pure-HITL frames only (t02 diet)</text>
-        <text data-detail="fine" x="360" y="510" class="t-backend" font-size="7" text-anchor="middle">src/broadcaster.ts</text>
-        </g>
-
-        <g id="node-ws-gateway" data-node-id="ws-gateway" data-node-label="WS Gateway" tabindex="0" role="button" aria-label="Focus WS Gateway, upgrade · Host/Origin guard · ws idleTimeout 0, Publish — pure-HITL frames, store-wrapped" aria-pressed="false" data-node-kind="backend" data-node-sublabel="upgrade · Host/Origin guard · ws idleTimeout 0" data-node-tag="src/web-transport.ts" data-node-context="Publish — pure-HITL frames, store-wrapped">
-          <title>WS Gateway · upgrade · Host/Origin guard · ws idleTimeout 0 · Publish — pure-HITL frames, store-wrapped · src/web-transport.ts</title>
+        <g id="node-session-store" data-node-id="session-store" data-node-label="Session store" tabindex="0" role="button" aria-label="Focus Session store, replay ring · reports exempt from card cap, Validation + publish (shared)" aria-pressed="false" data-node-kind="database" data-node-sublabel="replay ring · reports exempt from card cap" data-node-tag="src/session-store.ts" data-node-context="Validation + publish (shared)">
+          <title>Session store · replay ring · reports exempt from card cap · Validation + publish (shared) · src/session-store.ts</title>
           <rect x="500" y="460" width="160" height="58" rx="6" class="c-mask"/>
-          <rect x="500" y="460" width="160" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(506 466) scale(0.6875)">
-            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
-          </g>
-          <text data-detail-anchor x="580" y="487" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">WS Gateway</text>
-        <text data-detail="context" x="580" y="503" class="t-muted" font-size="9" text-anchor="middle">upgrade · Host/Origin guard · ws idleTimeout 0</text>
-        <text data-detail="fine" x="580" y="510" class="t-backend" font-size="7" text-anchor="middle">src/web-transport.ts</text>
-        </g>
-
-        <g id="node-session-store" data-node-id="session-store" data-node-label="Session store" tabindex="0" role="button" aria-label="Focus Session store, bounded ring · reports exempt — archive surface, Publish — pure-HITL frames, store-wrapped" aria-pressed="false" data-node-kind="database" data-node-sublabel="bounded ring · reports exempt — archive surface" data-node-tag="src/session-store.ts" data-node-context="Publish — pure-HITL frames, store-wrapped">
-          <title>Session store · bounded ring · reports exempt — archive surface · Publish — pure-HITL frames, store-wrapped · src/session-store.ts</title>
-          <rect x="720" y="460" width="160" height="58" rx="6" class="c-mask"/>
-          <rect x="720" y="460" width="160" height="58" rx="6" class="c-database" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(726 466) scale(0.6875)">
+          <rect x="500" y="460" width="160" height="58" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(506 466) scale(0.6875)">
             <ellipse cx="8" cy="4" rx="5" ry="2"/>
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
-          <text data-detail-anchor x="800" y="487" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Session store</text>
-        <text data-detail="context" x="800" y="503" class="t-muted" font-size="9" text-anchor="middle">bounded ring · reports exempt — archive surface</text>
-        <text data-detail="fine" x="800" y="510" class="t-database" font-size="7" text-anchor="middle">src/session-store.ts</text>
+          <text data-detail-anchor x="580" y="487" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Session store</text>
+        <text data-detail="context" x="580" y="503" class="t-muted" font-size="9" text-anchor="middle">replay ring · reports exempt from card cap</text>
+        <text data-detail="fine" x="580" y="510" class="t-database" font-size="7" text-anchor="middle">src/session-store.ts</text>
         </g>
 
-        <g id="node-ask-bridge" data-node-id="ask-bridge" data-node-label="HITL answer bridge" tabindex="0" role="button" aria-label="Focus HITL answer bridge, appexec respond/cancel · first-answer-wins · queued offline, Input &amp; HITL — floor-controlled" aria-pressed="false" data-node-kind="backend" data-node-sublabel="appexec respond/cancel · first-answer-wins · queued offline" data-node-tag="src/webui-wiring.ts" data-node-context="Input &amp; HITL — floor-controlled">
-          <title>HITL answer bridge · appexec respond/cancel · first-answer-wins · queued offline · Input &amp; HITL — floor-controlled · src/webui-wiring.ts</title>
-          <rect x="740" y="140" width="160" height="58" rx="6" class="c-mask"/>
-          <rect x="740" y="140" width="160" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(746 146) scale(0.6875)">
-            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
-          </g>
-          <text data-detail-anchor x="820" y="167" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">HITL answer bridge</text>
-        <text data-detail="context" x="820" y="183" class="t-muted" font-size="9" text-anchor="middle">appexec respond/cancel · first-answer-wins · queued offline</text>
-        <text data-detail="fine" x="820" y="190" class="t-backend" font-size="7" text-anchor="middle">src/webui-wiring.ts</text>
-        </g>
-
-        <g id="node-mutex-controller" data-node-id="mutex-controller" data-node-label="Mutex Controller" tabindex="0" role="button" aria-label="Focus Mutex Controller, pi.on(input) gate → agent_settled release, Input &amp; HITL — floor-controlled" aria-pressed="false" data-node-kind="security" data-node-sublabel="pi.on(input) gate → agent_settled release" data-node-tag="src/mutex-controller.ts" data-node-context="Input &amp; HITL — floor-controlled">
-          <title>Mutex Controller · pi.on(input) gate → agent_settled release · Input &amp; HITL — floor-controlled · src/mutex-controller.ts</title>
-          <rect x="960" y="140" width="160" height="58" rx="6" class="c-mask"/>
-          <rect x="960" y="140" width="160" height="58" rx="6" class="c-security" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(966 146) scale(0.6875)">
-            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
-            <path d="m5.8 8 1.5 1.5 3-3"/>
-          </g>
-          <text data-detail-anchor x="1040" y="167" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Mutex Controller</text>
-        <text data-detail="context" x="1040" y="183" class="t-muted" font-size="9" text-anchor="middle">pi.on(input) gate → agent_settled release</text>
-        <text data-detail="fine" x="1040" y="190" class="t-security" font-size="7" text-anchor="middle">src/mutex-controller.ts</text>
-        </g>
-
-        <g id="node-present-tool" data-node-id="present-tool" data-node-label="webui_present" tabindex="0" role="button" aria-label="Focus webui_present, blocking HITL controls · {action,tweak} / {cancelled:true}, Input &amp; HITL — floor-controlled" aria-pressed="false" data-node-kind="backend" data-node-sublabel="blocking HITL controls · {action,tweak} / {cancelled:true}" data-node-tag="src/present-tool.ts" data-node-context="Input &amp; HITL — floor-controlled">
-          <title>webui_present · blocking HITL controls · {action,tweak} / {cancelled:true} · Input &amp; HITL — floor-controlled · src/present-tool.ts</title>
-          <rect x="1180" y="140" width="160" height="58" rx="6" class="c-mask"/>
-          <rect x="1180" y="140" width="160" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1186 146) scale(0.6875)">
-            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
-          </g>
-          <text data-detail-anchor x="1260" y="167" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">webui_present</text>
-        <text data-detail="context" x="1260" y="183" class="t-muted" font-size="9" text-anchor="middle">blocking HITL controls · {action,tweak} / {cancelled:true}</text>
-        <text data-detail="fine" x="1260" y="190" class="t-backend" font-size="7" text-anchor="middle">src/present-tool.ts</text>
-        </g>
-
-        <g id="node-render-shell" data-node-id="render-shell" data-node-label="Browser shell (3 tabs)" tabindex="0" role="button" aria-label="Focus Browser shell (3 tabs), Inbox · Report · Data · #card-&lt;id&gt; deep links · bell, Surfaces — three tabs + views" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="Inbox · Report · Data · #card-&lt;id&gt; deep links · bell" data-node-tag="src/render-shell.ts" data-node-context="Surfaces — three tabs + views">
-          <title>Browser shell (3 tabs) · Inbox · Report · Data · #card-&lt;id&gt; deep links · bell · Surfaces — three tabs + views · src/render-shell.ts</title>
-          <rect x="960" y="300" width="160" height="58" rx="6" class="c-mask"/>
-          <rect x="960" y="300" width="160" height="58" rx="6" class="c-frontend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(966 306) scale(0.6875)">
+        <g id="node-browser" data-node-id="browser" data-node-label="Browser" tabindex="0" role="button" aria-label="Focus Browser, refresh / reconnect -&gt; snapshot replay restores, Surface — durable reading" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="refresh / reconnect -&gt; snapshot replay restores" data-node-tag="user surface" data-node-context="Surface — durable reading">
+          <title>Browser · refresh / reconnect -&gt; snapshot replay restores · Surface — durable reading · user surface</title>
+          <rect x="940" y="460" width="160" height="58" rx="6" class="c-mask"/>
+          <rect x="940" y="460" width="160" height="58" rx="6" class="c-frontend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(946 466) scale(0.6875)">
             <rect x="2" y="3" width="12" height="10" rx="2"/>
             <path d="M2 6.5h12"/>
             <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
             <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
-          <text data-detail-anchor x="1040" y="327" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Browser shell (3 tabs)</text>
-        <text data-detail="context" x="1040" y="343" class="t-muted" font-size="9" text-anchor="middle">Inbox · Report · Data · #card-&lt;id&gt; deep links · bell</text>
-        <text data-detail="fine" x="1040" y="350" class="t-frontend" font-size="7" text-anchor="middle">src/render-shell.ts</text>
-        </g>
-
-        <g id="node-render-views" data-node-id="render-views" data-node-label="Render views" tabindex="0" role="button" aria-label="Focus Render views, webui:render / viewer → sandboxed md/HTML (Data tab), Surfaces — three tabs + views" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="webui:render / viewer → sandboxed md/HTML (Data tab)" data-node-tag="src/render-event-handler.ts" data-node-context="Surfaces — three tabs + views">
-          <title>Render views · webui:render / viewer → sandboxed md/HTML (Data tab) · Surfaces — three tabs + views · src/render-event-handler.ts</title>
-          <rect x="1180" y="300" width="160" height="58" rx="6" class="c-mask"/>
-          <rect x="1180" y="300" width="160" height="58" rx="6" class="c-frontend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(1186 306) scale(0.6875)">
-            <rect x="2" y="3" width="12" height="10" rx="2"/>
-            <path d="M2 6.5h12"/>
-            <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
-            <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
-          </g>
-          <text data-detail-anchor x="1260" y="327" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Render views</text>
-        <text data-detail="context" x="1260" y="343" class="t-muted" font-size="9" text-anchor="middle">webui:render / viewer → sandboxed md/HTML (Data tab)</text>
-        <text data-detail="fine" x="1260" y="350" class="t-frontend" font-size="7" text-anchor="middle">src/render-event-handler.ts</text>
-        </g>
-
-        <g id="node-agent-session" data-node-id="agent-session" data-node-label="pi AgentSession" tabindex="0" role="button" aria-label="Focus pi AgentSession, tool execute · events bus · ctx.abort, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="tool execute · events bus · ctx.abort" data-node-tag="shared session" data-node-context="Architecture component">
-          <title>pi AgentSession · tool execute · events bus · ctx.abort · Architecture component · shared session</title>
-          <rect x="740" y="620" width="160" height="58" rx="6" class="c-mask"/>
-          <rect x="740" y="620" width="160" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(746 626) scale(0.6875)">
-            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
-          </g>
-          <text data-detail-anchor x="820" y="647" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">pi AgentSession</text>
-        <text data-detail="context" x="820" y="663" class="t-muted" font-size="9" text-anchor="middle">tool execute · events bus · ctx.abort</text>
-        <text data-detail="fine" x="820" y="670" class="t-backend" font-size="7" text-anchor="middle">shared session</text>
-        </g>
-
-        <g id="node-tui" data-node-id="tui" data-node-label="TUI" tabindex="0" role="button" aria-label="Focus TUI, co-driver · owns conversation + tool logs (v3 diet), Architecture component" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="co-driver · owns conversation + tool logs (v3 diet)" data-node-tag="terminal frontend" data-node-context="Architecture component">
-          <title>TUI · co-driver · owns conversation + tool logs (v3 diet) · Architecture component · terminal frontend</title>
-          <rect x="960" y="620" width="160" height="58" rx="6" class="c-mask"/>
-          <rect x="960" y="620" width="160" height="58" rx="6" class="c-frontend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(966 626) scale(0.6875)">
-            <rect x="2" y="3" width="12" height="10" rx="2"/>
-            <path d="M2 6.5h12"/>
-            <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
-            <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
-          </g>
-          <text data-detail-anchor x="1040" y="647" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">TUI</text>
-        <text data-detail="context" x="1040" y="663" class="t-muted" font-size="9" text-anchor="middle">co-driver · owns conversation + tool logs (v3 diet)</text>
-        <text data-detail="fine" x="1040" y="670" class="t-frontend" font-size="7" text-anchor="middle">terminal frontend</text>
-        </g>
-
-        <g id="node-open-handler" data-node-id="open-handler" data-node-label="Open handler" tabindex="0" role="button" aria-label="Focus Open handler, webui:open {path,view,title} → ui.notify URL, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="webui:open {path,view,title} → ui.notify URL" data-node-tag="src/open-event-handler.ts" data-node-context="Architecture component">
-          <title>Open handler · webui:open {path,view,title} → ui.notify URL · Architecture component · src/open-event-handler.ts</title>
-          <rect x="1180" y="460" width="160" height="58" rx="6" class="c-mask"/>
-          <rect x="1180" y="460" width="160" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1186 466) scale(0.6875)">
-            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
-          </g>
-          <text data-detail-anchor x="1260" y="487" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Open handler</text>
-        <text data-detail="context" x="1260" y="503" class="t-muted" font-size="9" text-anchor="middle">webui:open {path,view,title} → ui.notify URL</text>
-        <text data-detail="fine" x="1260" y="510" class="t-backend" font-size="7" text-anchor="middle">src/open-event-handler.ts</text>
-        </g>
-
-        <g id="node-archify-announce" data-node-id="archify-announce" data-node-label="Archify announceOpen" tabindex="0" role="button" aria-label="Focus Archify announceOpen, optional-chain emit after render / delta, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="optional-chain emit after render / delta" data-node-tag="external producer" data-node-context="Architecture component">
-          <title>Archify announceOpen · optional-chain emit after render / delta · Architecture component · external producer</title>
-          <rect x="1180" y="620" width="160" height="58" rx="6" class="c-mask"/>
-          <rect x="1180" y="620" width="160" height="58" rx="6" class="c-external" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(1186 626) scale(0.6875)">
-            <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
-            <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
-          </g>
-          <text data-detail-anchor x="1260" y="647" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Archify announceOpen</text>
-        <text data-detail="context" x="1260" y="663" class="t-muted" font-size="9" text-anchor="middle">optional-chain emit after render / delta</text>
-        <text data-detail="fine" x="1260" y="670" class="t-external" font-size="7" text-anchor="middle">external producer</text>
+          <text data-detail-anchor x="1020" y="487" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Browser</text>
+        <text data-detail="context" x="1020" y="503" class="t-muted" font-size="9" text-anchor="middle">refresh / reconnect -&gt; snapshot replay restores</text>
+        <text data-detail="fine" x="1020" y="510" class="t-frontend" font-size="7" text-anchor="middle">user surface</text>
         </g>
 
         <!-- Connection labels -->
-        <g data-detail="context" data-edge-from="config" data-edge-to="ports" data-edge-label="pins port" data-edge-key="0">
-          <rect x="223.4" y="145.5" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
-          <text x="250" y="155.5" class="t-muted" font-size="8" text-anchor="middle">pins port</text>
+        <g data-detail="context" data-edge-from="agent-session" data-edge-to="report-tool" data-edge-label="execute()" data-edge-key="0">
+          <rect x="223.4" y="149" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
+          <text x="250" y="159" class="t-muted" font-size="8" text-anchor="middle">execute()</text>
         </g>
-        <g data-detail="context" data-edge-from="config" data-edge-to="server" data-edge-label="127.0.0.1 · unref" data-edge-key="1">
-          <rect x="94.2" y="202" width="91.6" height="14" rx="3" class="c-mask"/>
-          <text x="140" y="212" class="t-muted" font-size="8" text-anchor="middle">127.0.0.1 · unref</text>
+        <g data-detail="context" data-edge-from="ext-producer" data-edge-to="http-route" data-edge-label="curl POST" data-edge-key="1">
+          <rect x="663.4" y="149" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
+          <text x="690" y="159" class="t-muted" font-size="8" text-anchor="middle">curl POST</text>
         </g>
-        <g data-detail="context" data-edge-from="config" data-edge-to="files-route" data-edge-label="fileRoots allowlist" data-edge-key="2">
-          <rect x="309.4" y="232.5" width="101.2" height="14" rx="3" class="c-mask"/>
-          <text x="360" y="242.5" class="t-muted" font-size="8" text-anchor="middle">fileRoots allowlist</text>
+        <g data-detail="context" data-edge-from="report-tool" data-edge-to="frame-builder" data-edge-label="in-process · zero sockets" data-edge-key="2">
+          <rect x="295" y="202" width="130" height="14" rx="3" class="c-mask"/>
+          <text x="360" y="212" class="t-muted" font-size="8" text-anchor="middle">in-process · zero sockets</text>
         </g>
-        <g data-detail="context" data-edge-from="server" data-edge-to="output-route" data-edge-label="hosts /output" data-edge-key="3">
-          <rect x="213.8" y="362" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="250" y="372" class="t-muted" font-size="8" text-anchor="middle">hosts /output</text>
+        <g data-detail="context" data-edge-from="http-route" data-edge-to="frame-builder" data-edge-label="parsed JSON body" data-edge-key="3">
+          <rect x="426.6" y="229" width="86.8" height="14" rx="3" class="c-mask"/>
+          <text x="470" y="239" class="t-muted" font-size="8" text-anchor="middle">parsed JSON body</text>
         </g>
-        <g data-detail="context" data-edge-from="server" data-edge-to="ws-gateway" data-edge-label="WS upgrade" data-edge-key="4">
-          <rect x="111" y="362" width="58" height="14" rx="3" class="c-mask"/>
-          <text x="140" y="372" class="t-muted" font-size="8" text-anchor="middle">WS upgrade</text>
+        <g data-detail="context" data-edge-from="frame-builder" data-edge-to="broadcaster" data-edge-label="identical ReportFrame" data-edge-key="4">
+          <rect x="414.6" y="286" width="110.8" height="14" rx="3" class="c-mask"/>
+          <text x="470" y="296" class="t-muted" font-size="8" text-anchor="middle">identical ReportFrame</text>
         </g>
         <g data-detail="context" data-edge-from="broadcaster" data-edge-to="ws-gateway" data-edge-label="live broadcast" data-edge-key="5">
-          <rect x="211.4" y="522" width="77.2" height="14" rx="3" class="c-mask"/>
-          <text x="250" y="532" class="t-muted" font-size="8" text-anchor="middle">live broadcast</text>
+          <rect x="651.4" y="286" width="77.2" height="14" rx="3" class="c-mask"/>
+          <text x="690" y="296" class="t-muted" font-size="8" text-anchor="middle">live broadcast</text>
         </g>
-        <g data-detail="context" data-edge-from="broadcaster" data-edge-to="session-store" data-edge-label="append · replay" data-edge-key="6">
-          <rect x="519" y="410" width="82" height="14" rx="3" class="c-mask"/>
-          <text x="560" y="420" class="t-muted" font-size="8" text-anchor="middle">append · replay</text>
+        <g data-detail="context" data-edge-from="broadcaster" data-edge-to="session-store" data-edge-label="append — replay-eligible" data-edge-key="6">
+          <rect x="517.4" y="362" width="125.19999999999999" height="14" rx="3" class="c-mask"/>
+          <text x="580" y="372" class="t-muted" font-size="8" text-anchor="middle">append — replay-eligible</text>
         </g>
-        <g data-detail="context" data-edge-from="render-shell" data-edge-to="ws-gateway" data-edge-label="HITL answers (queued offline)" data-edge-key="7">
-          <rect x="685.4" y="600" width="149.2" height="14" rx="3" class="c-mask"/>
-          <text x="760" y="610" class="t-muted" font-size="8" text-anchor="middle">HITL answers (queued offline)</text>
+        <g data-detail="context" data-edge-from="ws-gateway" data-edge-to="report-tab" data-edge-label="WebFrame" data-edge-key="7">
+          <rect x="885.8" y="309" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="910" y="319" class="t-muted" font-size="8" text-anchor="middle">WebFrame</text>
         </g>
-        <g data-detail="context" data-edge-from="ws-gateway" data-edge-to="ask-bridge" data-edge-label="appexec respond / cancel" data-edge-key="8">
-          <rect x="547.4" y="670" width="125.19999999999999" height="14" rx="3" class="c-mask"/>
-          <text x="610" y="680" class="t-muted" font-size="8" text-anchor="middle">appexec respond / cancel</text>
+        <g data-detail="context" data-edge-from="report-tab" data-edge-to="browser" data-edge-label="article render" data-edge-key="8">
+          <rect x="981.4" y="362" width="77.2" height="14" rx="3" class="c-mask"/>
+          <text x="1020" y="372" class="t-muted" font-size="8" text-anchor="middle">article render</text>
         </g>
-        <g data-detail="context" data-edge-from="ask-bridge" data-edge-to="agent-session" data-edge-label="tool results · first-answer-wins" data-edge-key="9">
-          <rect x="558.2" y="550" width="163.6" height="14" rx="3" class="c-mask"/>
-          <text x="640" y="560" class="t-muted" font-size="8" text-anchor="middle">tool results · first-answer-wins</text>
+        <g data-detail="context" data-edge-from="session-store" data-edge-to="browser" data-edge-label="snapshot replay on (re)connect" data-edge-key="9">
+          <rect x="723" y="469" width="154" height="14" rx="3" class="c-mask"/>
+          <text x="800" y="479" class="t-muted" font-size="8" text-anchor="middle">snapshot replay on (re)connect</text>
         </g>
-        <g data-detail="context" data-edge-from="ask-bridge" data-edge-to="mutex-controller" data-edge-label="⇒ pi.on(input) gate" data-edge-key="10">
-          <rect x="879.4" y="202" width="101.2" height="14" rx="3" class="c-mask"/>
-          <text x="930" y="212" class="t-muted" font-size="8" text-anchor="middle">⇒ pi.on(input) gate</text>
-        </g>
-        <g data-detail="context" data-edge-from="tui" data-edge-to="agent-session" data-edge-label="co-drives" data-edge-key="11">
-          <rect x="903.4" y="685" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
-          <text x="930" y="695" class="t-muted" font-size="8" text-anchor="middle">co-drives</text>
-        </g>
-        <g data-detail="context" data-edge-from="agent-session" data-edge-to="broadcaster" data-edge-label="pure-HITL frames only (t02 diet)" data-edge-key="12">
-          <rect x="478.2" y="705" width="163.6" height="14" rx="3" class="c-mask"/>
-          <text x="560" y="715" class="t-muted" font-size="8" text-anchor="middle">pure-HITL frames only (t02 diet)</text>
-        </g>
-        <g data-detail="context" data-edge-from="agent-session" data-edge-to="render-views" data-edge-label="webui:render" data-edge-key="13">
-          <rect x="1056.2" y="370" width="67.6" height="14" rx="3" class="c-mask"/>
-          <text x="1090" y="380" class="t-muted" font-size="8" text-anchor="middle">webui:render</text>
-        </g>
-        <g data-detail="context" data-edge-from="report-producer" data-edge-to="broadcaster" data-edge-label="two doors · identical frames" data-edge-key="14">
-          <rect x="67.8" y="422" width="144.4" height="14" rx="3" class="c-mask"/>
-          <text x="140" y="432" class="t-muted" font-size="8" text-anchor="middle">two doors · identical frames</text>
-        </g>
-        <g data-detail="context" data-edge-from="present-tool" data-edge-to="render-shell" data-edge-label="present ⇄ answer / cancel" data-edge-key="15">
-          <rect x="965" y="205" width="130" height="14" rx="3" class="c-mask"/>
-          <text x="1030" y="215" class="t-muted" font-size="8" text-anchor="middle">present ⇄ answer / cancel</text>
-        </g>
-        <g data-detail="context" data-edge-from="render-views" data-edge-to="render-shell" data-edge-label="Data tab iframes" data-edge-key="16">
-          <rect x="1106.6" y="362" width="86.8" height="14" rx="3" class="c-mask"/>
-          <text x="1150" y="372" class="t-muted" font-size="8" text-anchor="middle">Data tab iframes</text>
-        </g>
-        <g data-detail="context" data-edge-from="render-views" data-edge-to="output-route" data-edge-label="![image](/output/0/…)" data-edge-key="17">
-          <rect x="704.6" y="235" width="110.8" height="14" rx="3" class="c-mask"/>
-          <text x="760" y="245" class="t-muted" font-size="8" text-anchor="middle">![image](/output/0/…)</text>
-        </g>
-        <g data-detail="context" data-edge-from="config" data-edge-to="open-handler" data-edge-label="same root allowlist" data-edge-key="18">
-          <rect x="709.4" y="95" width="101.2" height="14" rx="3" class="c-mask"/>
-          <text x="760" y="105" class="t-muted" font-size="8" text-anchor="middle">same root allowlist</text>
-        </g>
-        <g data-detail="context" data-edge-from="open-handler" data-edge-to="files-route" data-edge-label="shared containment core" data-edge-key="19">
-          <rect x="839.8" y="400" width="120.39999999999999" height="14" rx="3" class="c-mask"/>
-          <text x="900" y="410" class="t-muted" font-size="8" text-anchor="middle">shared containment core</text>
-        </g>
-        <g data-detail="context" data-edge-from="archify-announce" data-edge-to="open-handler" data-edge-label="emit webui:open" data-edge-key="20">
-          <rect x="1219" y="559" width="82" height="14" rx="3" class="c-mask"/>
-          <text x="1260" y="569" class="t-muted" font-size="8" text-anchor="middle">emit webui:open</text>
+        <g data-detail="context" data-edge-from="agent-session" data-edge-to="tui" data-edge-label="co-drives" data-edge-key="10">
+          <rect x="113.4" y="202" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
+          <text x="140" y="212" class="t-muted" font-size="8" text-anchor="middle">co-drives</text>
         </g>
 
         <!-- Legend -->
         <g data-legend-bridge>
-          <text x="40" y="717" class="t-primary" font-size="9" font-weight="600">Legend</text>
+          <text x="40" y="577" class="t-primary" font-size="9" font-weight="600">Legend</text>
           <g data-legend-kind="backend">
-            <rect x="40" y="722" width="14" height="9" rx="2" class="c-backend" stroke-width="1"/>
-            <text x="60" y="730" class="t-muted" font-size="8">Backend</text>
+            <rect x="40" y="582" width="14" height="9" rx="2" class="c-backend" stroke-width="1"/>
+            <text x="60" y="590" class="t-muted" font-size="8">Backend</text>
           </g>
           <g data-legend-kind="security">
-            <rect x="139" y="722" width="14" height="9" rx="2" class="c-security" stroke-width="1"/>
-            <text x="159" y="730" class="t-muted" font-size="8">Security</text>
-          </g>
-          <g data-legend-kind="database">
-            <rect x="243" y="722" width="14" height="9" rx="2" class="c-database" stroke-width="1"/>
-            <text x="263" y="730" class="t-muted" font-size="8">Database</text>
-          </g>
-          <g data-legend-kind="frontend">
-            <rect x="347" y="722" width="14" height="9" rx="2" class="c-frontend" stroke-width="1"/>
-            <text x="367" y="730" class="t-muted" font-size="8">Frontend</text>
+            <rect x="139" y="582" width="14" height="9" rx="2" class="c-security" stroke-width="1"/>
+            <text x="159" y="590" class="t-muted" font-size="8">Security</text>
           </g>
           <g data-legend-kind="external">
-            <rect x="451" y="722" width="14" height="9" rx="2" class="c-external" stroke-width="1"/>
-            <text x="471" y="730" class="t-muted" font-size="8">External</text>
+            <rect x="243" y="582" width="14" height="9" rx="2" class="c-external" stroke-width="1"/>
+            <text x="263" y="590" class="t-muted" font-size="8">External</text>
+          </g>
+          <g data-legend-kind="frontend">
+            <rect x="347" y="582" width="14" height="9" rx="2" class="c-frontend" stroke-width="1"/>
+            <text x="367" y="590" class="t-muted" font-size="8">Frontend</text>
+          </g>
+          <g data-legend-kind="database">
+            <rect x="451" y="582" width="14" height="9" rx="2" class="c-database" stroke-width="1"/>
+            <text x="471" y="590" class="t-muted" font-size="8">Database</text>
           </g>
         </g>
       </svg>
@@ -4708,36 +4567,36 @@
       <div class="card">
         <div class="card-header">
           <div class="card-dot cyan"></div>
-          <h3>Security posture</h3>
+          <h3>Why two doors</h3>
         </div>
         <ul>
-          <li>&bull; Loopback-only bind (127.0.0.1) with a DNS-rebinding-safe Host/Origin guard on every HTTP request and the WS upgrade; the server is .unref()&#39;d and never keeps the process alive.</li>
-          <li>&bull; Every /files response carries Content-Security-Policy: sandbox allow-scripts allow-downloads (opaque origin — the document can never reach /api or the WS endpoint same-origin) plus X-Content-Type-Options: nosniff.</li>
-          <li>&bull; Containment mirrors /output: decode-after-strip, NUL reject, realpathSync both sides, regular files only — traversal, symlink hop, escape, and missing file are all the SAME uniform 404 that never leaks existence.</li>
+          <li>&bull; The agent and its webui share ONE process — the agent POSTing to its own loopback was a pure socket detour (#1572 answered &#39;why HTTP?&#39;).</li>
+          <li>&bull; Validation and frame construction live in shared src/report-frame.ts so BOTH doors emit byte-identical frames; the HTTP route simply delegates.</li>
+          <li>&bull; webui_report is core/always-on and non-blocking: publish is the natural epilogue of generating content, not an on-demand capability.</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot rose"></div>
-          <h3>v3 — pure HITL companion</h3>
+          <h3>Frame contract (both doors)</h3>
         </div>
         <ul>
-          <li>&bull; t02 frame diet at the SOURCE: message_*, tool_execution_*, tool_result, turn_*, agent_settled, session_*compact are never subscribed — the store, the wire, and the shell all stay lean; the TUI owns logs.</li>
-          <li>&bull; t03 shell rebuild: the transcript scrollback machinery is deleted (−68 lines); three tabs — Inbox (ask + event cards, boot default), Report, Data (viewer) — with #card-&lt;id&gt; deep links that activate the owning tab.</li>
-          <li>&bull; D1 decision: the webui is a pure interaction surface. No chat composer, no log mirror — answers flow back through the appexec bridge, first-answer-wins, queued while offline.</li>
+          <li>&bull; title trimmed to 1-200 chars; EXACTLY ONE of markdown | html; body cap 128KB.</li>
+          <li>&bull; source label capped at 100 (default &#39;agent&#39; for the tool, &#39;api&#39; for the route); frame id report-&lt;ts36&gt;-&lt;rand&gt;.</li>
+          <li>&bull; Errors never throw: the tool returns error RESULTs, the route returns 400 / 413.</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot emerald"></div>
-          <h3>Report — two doors, one archive</h3>
+          <h3>Durability</h3>
         </div>
         <ul>
-          <li>&bull; Producers: the webui_report tool (in-process, zero sockets) and POST /api/report (external) converge on ONE shared builder (report-frame.ts) — byte-identical frames: title 1–200, exactly-one body mode, 16MB cap (v3 follow-up #1573).</li>
-          <li>&bull; Store-wrapped broadcast: live delivery + replay append; report frames are EXEMPT from the bounded card-eviction cap — the Report tab is the durable archive surface.</li>
-          <li>&bull; Markdown renders via the DOM-built renderer; HTML renders in a sandboxed iframe — the same trust boundary as /files, inside the tab.</li>
+          <li>&bull; Store-wrapped broadcaster: every report is broadcast live AND appended to the replay store.</li>
+          <li>&bull; Report frames are exempt from the bounded card-eviction cap — the Report tab is the archive surface.</li>
+          <li>&bull; Reports survive browser refresh and WS reconnect (snapshot replay); the store is in-memory, so a process restart clears history.</li>
         </ul>
       </div>
     </div>
