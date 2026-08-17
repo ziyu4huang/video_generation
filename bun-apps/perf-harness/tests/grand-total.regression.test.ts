@@ -1,24 +1,37 @@
 /**
  * grand-total.regression.test.ts — the headline agent-efficiency metric.
- * Pins the COMBINED schema-token cost of all 11 tools across hermes-memory +
+ * Pins the COMBINED schema-token cost of all 10 tools across hermes-memory +
  * obsidian + knowledge-card. The standalone distill extension was folded into
  * knowledge-card's `zk_ingest` (action param) on 2026-07-18; distill's former
  * tool surface is now counted inside zk_ingest, not as a separate tool.
  *
  * hermes-memory uses individual register calls (avoids heavy main factory);
  * obsidian + knowledge-card use their main factories (lightweight registration).
+ *
+ * 11 → 10 on 2026-08-17: hermes-memory's LeanRAG-shape simplification (#1556)
+ * collapsed `memory_search` + `session_search` into one unified `search` tool.
+ * That PR updated hermes-memory's own schema-cost test but not this
+ * cross-package one, which kept importing the deleted `registerMemorySearchTool`
+ * — so this file threw a SyntaxError at import time and the whole suite errored
+ * out rather than reporting a number. Fixed by adopting the same registration
+ * shape hermes-memory's own perf test now uses.
  */
 import { test, expect, describe } from "bun:test";
 import { createCapturePi, estimateTotalSchemaTokens, assertWithinBudget } from "../src/index.ts";
 
+// Package specifiers, not `../../../bun-apps/…` relative paths. The relative
+// form is what let #1556 break this file unnoticed: it reaches across package
+// boundaries while package.json declares no dependency, so the edge is invisible
+// to the workspace graph and to change-scoped CI, which therefore never runs
+// this suite when hermes-memory changes. These three are now declared workspace
+// devDependencies so the edge is real.
 // hermes-memory — individual register functions
-import { registerMemorySearchTool } from "../../../bun-apps/pi-agent-ext-hermes-memory/src/tools/memory-search-tool.ts";
-import { registerSessionSearchTool } from "../../../bun-apps/pi-agent-ext-hermes-memory/src/tools/session-search-tool.ts";
-import { registerSkillTool } from "../../../bun-apps/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";
-import { registerMemoryTool } from "../../../bun-apps/pi-agent-ext-hermes-memory/src/tools/memory-tool.ts";
+import { registerSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/search-tool.ts";
+import { registerSkillTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";
+import { registerMemoryTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-tool.ts";
 // obsidian + knowledge-card — main factories
-import obsidianFactory from "../../../bun-apps/pi-agent-ext-obsidian/extensions/obsidian.ts";
-import kcardFactory from "../../../bun-apps/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
+import obsidianFactory from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import kcardFactory from "@repo/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 
 function captureAll(): Record<string, any> {
   const all: Record<string, any> = {};
@@ -27,8 +40,10 @@ function captureAll(): Record<string, any> {
   const h = createCapturePi();
   const fake = {} as never;
   registerMemoryTool(h.pi, fake, null, null);
-  registerMemorySearchTool(h.pi, fake);
-  registerSessionSearchTool(h.pi, fake, { variant: "legacy" } as never);
+  // Unified search (#1556): memory_search + session_search collapsed into one
+  // `search` tool. Registered once with the default legacy session variant,
+  // matching production wiring in hermes-memory's composition/tools.ts.
+  registerSearchTool(h.pi, fake, fake, { variant: "legacy" } as never);
   registerSkillTool(h.pi, fake);
   Object.assign(all, h.tools);
 
@@ -46,24 +61,34 @@ function captureAll(): Record<string, any> {
 }
 
 describe("cross-extension grand-total schema-cost", () => {
-  test("11 tools registered across 3 extensions", () => {
+  test("10 tools registered across 3 extensions", () => {
     const tools = captureAll();
-    expect(Object.keys(tools).length).toBe(11);
+    expect(Object.keys(tools).sort()).toEqual(
+      [
+        "memory", "search", "skill_manage", "skill_manage_help",
+        "obsidian", "obsidian_help",
+        "zk_ingest", "zk_ask", "zk_card", "knowledge_query",
+      ].sort(),
+    );
   });
 
-  test("grand total within budget (baseline re-measured 2026-07-18 after distill fold)", () => {
+  test("grand total within budget (baseline re-measured 2026-08-17 after the #1556 search unification)", () => {
     const tools = captureAll();
     const { perTool, total } = estimateTotalSchemaTokens(tools);
-    console.log("\n  === AGENT TOOL SURFACE (11 tools) ===");
+    console.log("\n  === AGENT TOOL SURFACE (10 tools) ===");
     for (const t of perTool) console.log(`  ${t.name.padEnd(26)} ${String(t.tokens).padStart(5)} tok`);
     console.log(`  ${"GRAND TOTAL".padEnd(26)} ${String(total.tokens).padStart(5)} tok`);
 
     assertWithinBudget(total.tokens, {
-      label: "cross-ext grand total (11 tools)",
+      // `max` is the gate; `baseline` is documentation of the last conscious
+      // measurement. max is deliberately UNCHANGED at 4576 — re-pinning the
+      // baseline must never quietly buy headroom. Headroom is now 294 tok
+      // (6.9%), down from 416 (10.0%) against the old 4160 baseline.
+      label: "cross-ext grand total (10 tools)",
       max: 4576,
-      baseline: 4160,
-      measuredAt: "2026-07-18",
-      commit: "merge-distill-into-knowledge-card",
+      baseline: 4282,
+      measuredAt: "2026-08-17",
+      commit: "b800f979",
     });
   });
 });
