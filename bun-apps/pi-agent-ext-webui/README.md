@@ -35,9 +35,10 @@ transcript scrollback and stopped subscribing the log frame family at the source
   reviewable summaries. `#card-<id>` deep links activate the owning tab.
 - **Report** — static reports: `report` frames render markdown via a DOM-built
   renderer, or sandboxed HTML (`iframe sandbox="allow-scripts"`, no same-origin).
-  Producer: `POST /api/report {title, markdown|html, source?}` — loopback,
-  origin-guarded, exactly one body mode, title 1–200 chars, 128KB cap; frames are
-  replay-eligible (refresh-safe).
+  Producers (identical frames): the agent-side `webui_report` tool (in-process,
+  no HTTP) and `POST /api/report {title, markdown|html, source?}` (external,
+  loopback, origin-guarded); exactly one body mode, title 1–200 chars, 128KB
+  cap; frames are replay-eligible (refresh-safe).
 - **Data** — viewer cards (interactive HTML, sandboxed iframes).
 
 Frame diet — web clients receive ONLY: `card`, `card_done`, `report`, `ask_user`,
