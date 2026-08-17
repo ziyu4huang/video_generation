@@ -9,7 +9,7 @@
  * Discovery: the active effort = the `.planning/<effort>/` with the newest
  * `map.md`; aggregate phases from its `plans/*.md`. No cross-effort fallback: if
  * the active effort has no `plans/`, there is "no active plan" (#278). Legacy
- * global fallback (docs/superpowers/plans/) only when no effort exists at all.
+ * flat fallback (.planning/plans/) only when no effort exists at all.
  * Multi-plan precision / effort-selection refinement = ticket 05 (deferred).
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -76,15 +76,15 @@ export function discoverActivePlan(cwd: string): ParsedPlan | undefined {
 			return { phases, sourcePath: plansDir };
 		}
 		// Active effort exists but has no plans/ — surface "no active plan" for THIS
-		// effort instead of cross-contaminating from the global docs/superpowers/
-		// plans/ (≈ .planning/plans/) or another effort's plans (failure memory
-		// #278: an unrelated stale plan → goal_complete false-positive).
+		// effort instead of cross-contaminating from the flat .planning/plans/
+		// fallback or another effort's plans (failure memory #278: an unrelated
+		// stale plan → goal_complete false-positive).
 		return undefined;
 	}
-	// Legacy fallback (no effort at all): newest plan in docs/superpowers/plans/.
-	const dsFiles = listMd(join(cwd, "docs", "superpowers", "plans"));
-	if (dsFiles.length > 0) {
-		const newest = dsFiles
+	// Legacy fallback (no effort at all): newest plan in the flat .planning/plans/.
+	const flatFiles = listMd(join(cwd, ".planning", "plans"));
+	if (flatFiles.length > 0) {
+		const newest = flatFiles
 			.map((f) => ({ f, t: statSync(f).mtimeMs }))
 			.sort((a, b) => b.t - a.t)[0]!.f;
 		return parsePlan(readFileSync(newest, "utf8"), newest);

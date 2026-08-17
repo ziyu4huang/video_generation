@@ -57,7 +57,7 @@ HEAD_SHA=$(git rev-parse HEAD)
 
 [Dispatch code reviewer subagent]
   DESCRIPTION: Added verifyIndex() and repairIndex() with 4 issue types
-  PLAN_OR_REQUIREMENTS: Task 2 from docs/superpowers/plans/deployment-plan.md
+  PLAN_OR_REQUIREMENTS: Task 2 from .planning/plans/deployment-plan.md
   BASE_SHA: a7981ec
   HEAD_SHA: 3df7661
 
@@ -93,3 +93,24 @@ You: [Fix progress indicators]
 - Request clarification
 
 See template at: [code-reviewer.md](code-reviewer.md)
+
+## The two review axes: Standards vs Spec
+
+Review along two **deliberately-separate axes**, never merged or re-ranked:
+
+- **Standards** — does the code follow this repo's *documented* conventions?
+  (Are we building the thing right?) Sources: `CLAUDE.md`, global
+  `~/.pi/agent/AGENTS.md`, the nearest per-package `CONTEXT.md`, `docs/adr/`.
+  Repo docs override any generic smell baseline; skip what Biome/tsc already
+  enforce.
+- **Spec** — does the code faithfully implement the originating issue/ticket/
+  spec? (Are we building the *right* thing?) Report four failure shapes, each
+  quoting the spec line: **Missing**, **Partial**, **Scope creep**,
+  **Implemented wrongly**. "No spec available" is a valid Spec-axis outcome.
+
+A change can sail through one axis and fail the other — clean code implementing
+the wrong requirement, or correct behavior breaking every convention. Emit two
+blocks (`## Standards` / `## Spec`), each finding citing its source (repo doc +
+rule, named smell + quoted hunk, or quoted spec line). An uncited finding is a
+hunch — leave it out. End with one line per axis: total count + the single worst
+issue *within that axis*. Never crown a cross-axis winner.

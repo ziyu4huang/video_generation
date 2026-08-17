@@ -1,6 +1,6 @@
 ---
 name: writing-skills
-description: Use when creating new skills, editing existing skills, or verifying skills work before deployment
+description: Use when creating new skills, editing existing skills, or verifying skills work before deployment. Also use when creating or editing any document an agent consumes — AGENTS.md, CONTEXT.md, pointed-at docs.
 ---
 
 # Writing Skills
@@ -677,3 +677,39 @@ How future agents find your skill:
 6. **Loads example** (only when implementing)
 
 **Optimize for this flow** - put searchable terms early and often.
+
+## Beyond skills: any document an agent consumes
+
+The same craft applies to `AGENTS.md`, `CONTEXT.md`, and any doc reached by a
+pointer — the packaging differs, the writing does not. The levers:
+
+- **Context pointers** — a reference in the agent's context naming out-of-context
+  material plus the condition for reaching it. Front-load the leading word; one
+  trigger per branch (synonyms renaming one branch are that branch written
+  twice); cut identity the body already carries. A must-have target behind a
+  weakly worded pointer is a variance bug.
+- **Two loads** — context load (always-loaded material spends tokens/attention
+  every turn) vs cognitive load (which docs exist and when to reach for each —
+  the human is the index; spend it where human judgement matters). Pointer-only
+  material escapes context load at the price of the pointer's line.
+- **Information hierarchy** — in-file step → in-file reference → disclosed
+  reference (behind a pointer). Progressive disclosure protects the hierarchy:
+  inline what every branch needs, push behind a pointer what only some branches
+  reach. Co-locate a concept's definition/rules/caveats under one heading.
+  Sprawl (a doc simply too long) is cured by the ladder, not by trimming words.
+- **Completion criteria** — every step ends on one; clarity (agent can tell done
+  from not-done; vague bounds invite premature completion) and demand
+  ("every modified model accounted for" forces legwork that "produce a change
+  list" does not). The strongest criteria are both checkable and exhaustive.
+- **Leading words** — compact pretrained concepts (_tight_, _red_, _fog of war_)
+  repeated as tokens, never as sentences; they anchor execution in the body and
+  invocation in pointers. Refactor restatements into them. Steer positive, not
+  by negation — prohibition drags the forbidden behavior into context.
+- **Pruning** — one meaning, one source of truth; the environment (scripts,
+  configs, `--help`) is a source of truth too, and restating it is a cache that
+  earns its load only when the lookup is expensive. Hunt no-op sentences (does
+  it change behavior versus the model's default? delete the whole sentence when
+  it fails). Without pruning, documents sediment.
+
+Skill-specific mechanics (frontmatter, invocation choice, router skills):
+see [SKILL-MECHANICS.md](SKILL-MECHANICS.md).

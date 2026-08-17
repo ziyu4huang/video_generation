@@ -25,7 +25,7 @@
  *      the crop/regenerate/composite loop using the existing
  *      `Flux2EditPipeline` (SDEdit I2I) + `Flux2Composite` (feathered
  *      paste-back) primitives — see
- *      docs/superpowers/specs/2026-08-02-face-detail-swift-native-port-design.md.
+ *      .planning/specs/2026-08-02-face-detail-swift-native-port-design.md.
  *      Exposed as `flux2 face-detail`, chained here between base-gen and
  *      upscale (see `runWorkflowNative`).
  *

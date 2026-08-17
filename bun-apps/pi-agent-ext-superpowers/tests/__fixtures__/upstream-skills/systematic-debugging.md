@@ -1,6 +1,6 @@
 ---
 name: systematic-debugging
-description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
+description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes. Also when the wall is building the reproduction loop itself — flaky, non-deterministic, multi-component, or human-in-the-loop bugs.
 ---
 
 # Systematic Debugging
@@ -281,3 +281,53 @@ These techniques are part of systematic debugging and available in this director
 - **`root-cause-tracing.md`** - Trace bugs backward through call stack to find original trigger
 - **`defense-in-depth.md`** - Add validation at multiple layers after finding root cause
 - **`condition-based-waiting.md`** - Replace arbitrary timeouts with condition polling
+
+## Engineering the reproduction loop
+
+When the hard part is **building the loop itself** — a flaky bug, a
+non-deterministic timing failure, a multi-component chain, or a bug that needs a
+human to click — spend disproportionate effort on the loop. Be aggressive, be
+creative, refuse to give up. **Redact every secret first** (`<REDACTED>`); build
+loops against env vars so credentials stay in the environment.
+
+### Ten ways to construct a signal (roughly in order)
+
+1. **Failing test** at whatever seam reaches the bug — unit, integration, e2e.
+2. **Curl / HTTP script** against a running dev server.
+3. **CLI invocation** with a fixture input, diffing stdout against a known-good snapshot.
+4. **Headless browser script** (Playwright/Puppeteer) — asserts on DOM/console/network.
+5. **Replay a captured trace.** Save a real request/payload/event log; replay it in isolation.
+6. **Throwaway harness.** Minimal subset of the system exercising the bug path with one call.
+7. **Property / fuzz loop.** 1000 random inputs, watch for the failure mode.
+8. **Bisection harness.** Automate "boot at state X, check, repeat" for `git bisect run`.
+9. **Differential loop.** Same input through old vs new version; diff outputs.
+10. **HITL bash script.** Last resort — drive the human with
+    `scripts/hitl-loop.template.sh` so the loop stays structured.
+
+### Tighten the loop
+
+Treat the loop as a product: faster (cache setup, narrow scope), sharper (assert
+the specific symptom, not "didn't crash"), more deterministic (pin time, seed
+RNG, isolate fs, freeze network). For non-deterministic bugs the goal is a
+**higher reproduction rate** — loop the trigger 100×, parallelise, stress,
+narrow timing windows. If you genuinely cannot build a loop, stop and say so;
+list what you tried; ask for an environment, a redacted artifact, or permission
+for temporary instrumentation. No red-capable command, no hypothesising.
+
+### Loop completion criterion
+
+The loop is done when it is **tight and red-capable**: one named command you
+have already run at least once that is — red-capable (drives the actual bug path
+and asserts the user's exact symptom), deterministic (or a pinned high repro
+rate), fast (seconds), and agent-runnable (a human only via the HITL template).
+
+Then: reproduce → **minimise** (cut inputs/callers/config one at a time,
+re-running after each cut; done when every remaining element is load-bearing) →
+hypothesise 3–5 **ranked, falsifiable** hypotheses (show the user the ranking
+before testing; don't block if AFK) → instrument one variable at a time (tag
+debug logs `[DEBUG-xxxx]`; perf bugs: measure a baseline first, bisect, never
+log-and-grep) → fix with a regression test written **before** the fix, but only
+at a **correct seam** — if no correct seam exists, that absence is itself the
+finding (hand off to architecture improvement) → cleanup (re-run the loop, grep
+the debug prefix, delete throwaway prototypes, state the winning hypothesis in
+the commit message).

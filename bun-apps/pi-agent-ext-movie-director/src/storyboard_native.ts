@@ -14,7 +14,7 @@
  *   - kontext-lock shots  → flux2 `kontext` (true in-context identity lock)
  *
  * Two documented deltas from the Python (not silently dropped — see
- * docs/superpowers/specs/2026-08-01-storyboard-native-port-design.md):
+ * .planning/specs/2026-08-01-storyboard-native-port-design.md):
  *   - The Python's soft character-lock uses `denoise_strength=0.85` (partial
  *     SDEdit redraw on top of flux2-klein's reference conditioning). flux2's
  *     `edit` command has no denoise-strength knob (verified against

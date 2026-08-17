@@ -26,7 +26,7 @@ You MUST create a task for each of these items and complete them in order:
 3. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria
 4. **Propose 2-3 approaches** — with trade-offs and your recommendation
 5. **Present design** — in sections scaled to their complexity, get user approval after each section
-6. **Write design doc** — save to `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` and commit
+6. **Write design doc** — save to `.planning/specs/YYYY-MM-DD-<topic>-design.md` and commit
 7. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
 8. **User reviews written spec** — ask user to review the spec file before proceeding
 9. **Transition to implementation** — invoke writing-plans skill to create implementation plan
@@ -104,7 +104,7 @@ digraph brainstorming {
 
 **Documentation:**
 
-- Write the validated design (spec) to `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`
+- Write the validated design (spec) to `.planning/specs/YYYY-MM-DD-<topic>-design.md`
   - (User preferences for spec location override this default)
 - Use elements-of-style:writing-clearly-and-concisely skill if available
 - Commit the design document to git
@@ -149,3 +149,24 @@ A question about a UI topic is not automatically a visual question. "What does p
 
 If they agree to the companion, read the detailed guide before proceeding:
 `skills/brainstorming/visual-companion.md`
+
+## When a question needs a prototype
+
+Some design questions can't be settled in conversation — a state model that has
+to be *felt*, a UI that has to be *seen*. When brainstorming surfaces such a
+question, spin it off as a **prototype**: throwaway code that answers exactly
+one question.
+
+- Name it so a casual reader sees it's a prototype; locate it next to the code
+  it informs; obey the project's existing routing conventions.
+- Trivial to run (one command / one double-click); no persistence by default;
+  no tests, no polish — the point is to learn something fast.
+- Surface the full relevant state after every action or variant switch.
+- When done: fold the validated decision into the real code, capture the
+  throwaway code on a branch out of main, and leave a pointer on the
+  originating ticket/decision under `.planning/<effort>/`. The main branch
+  keeps only the validated decision.
+
+A logic demo (single shareable HTML file driving the state machine through hard
+cases) and switchable UI variants on one route are the two canonical shapes —
+pick by which question is being answered.

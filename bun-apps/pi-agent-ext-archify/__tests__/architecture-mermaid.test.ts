@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { chromium } from "@playwright/test";
-import { renderReport } from "../src/architecture-render";
+import { chromium } from "playwright";
+import { renderReport } from "../lib/architecture-render";
 
 // ── This is the paint-check the prototype COULD NOT make. ───────────────────
 // Mermaid renders client-side on `startOnLoad`; the prototype only emitted the
@@ -27,8 +27,8 @@ const SAMPLE_PATH = join(
   "brainstorm",
   "sample-report.md",
 );
-const CSS_PATH = join(import.meta.dir, "..", "vendor", "tailwind.css");
-const MERMAID_PATH = join(import.meta.dir, "..", "vendor", "mermaid.min.js");
+const CSS_PATH = join(import.meta.dir, "..", "vendored", "tailwind.css");
+const MERMAID_PATH = join(import.meta.dir, "..", "vendored", "mermaid.min.js");
 
 // Sync preconditions (no network): is the vendored blob present, and is a
 // chromium binary installed where Playwright expects it? Both feed declarative
@@ -45,7 +45,7 @@ try {
 
 if (RUN_RENDER && (!mermaidVendored || !browserReady)) {
   const reasons: string[] = [];
-  if (!mermaidVendored) reasons.push("vendor/mermaid.min.js missing — run `bun run build`");
+  if (!mermaidVendored) reasons.push("vendored/mermaid.min.js missing — run `bun run architecture:vendor`");
   if (!browserReady) reasons.push("Playwright chromium missing — run `bunx playwright install chromium`");
   console.warn(`[paint-check] skipping: ${reasons.join("; ")}`);
 }

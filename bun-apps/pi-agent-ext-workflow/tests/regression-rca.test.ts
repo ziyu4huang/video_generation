@@ -185,7 +185,7 @@ describe("RCA design-level findings (regression targets — not yet fixed)", () 
   // production (the agent layer enforces schemas), so these are latent —
   // recorded here as `.todo` pending a design decision on whether the engine
   // should re-validate, and tracked in the audit docket
-  // (docs/superpowers/audit/2026-07-18-workflow-pack-finding-docket.md).
+  // (`.planning/audit/2026-07-18-workflow-pack-finding-docket.md).
   // Promote each to a real test once the design call is made.
   test.todo(
     "RCA: verify() should not count a truthy-but-schema-noncompliant reviewer as a definitive real:false vote (workflow.ts ~702-709)",

@@ -1,6 +1,6 @@
 # Skill mechanics
 
-The skill-specific branch of [`writing-for-agents`](SKILL.md): what changes when the document is a skill — frontmatter, the invocation choice, and router skills. Everything else about writing it is the universal reference in `SKILL.md`.
+The skill-specific branch of [`writing-skills`](SKILL.md): what changes when the document is a skill — frontmatter, the invocation choice, and router skills. Everything else about writing it is the universal reference in `SKILL.md`.
 
 ## How pi loads a skill
 
@@ -23,4 +23,4 @@ The invocation cut of splitting (the sequence cut lives in `SKILL.md`): split of
 
 ## Router skills
 
-When user-invoked skills multiply past what you can remember, that piled-up cognitive load is cured by a **router skill**: one user-invoked skill that names the others and when to reach for each, so the human has one skill to remember instead of many. It can only hint, never fire them: user-invoked skills aren't model-reachable, so nothing but the human can reach them. The `ask-matt` skill in this extension is exactly that router.
+When user-invoked skills multiply past what you can remember, that piled-up cognitive load is cured by a **router skill**: one user-invoked skill that names the others and when to reach for each, so the human has one skill to remember instead of many. It can only hint, never fire them: user-invoked skills aren't model-reachable, so nothing but the human can reach them. The `ask-matt` skill in the wayfind extension is exactly that router.

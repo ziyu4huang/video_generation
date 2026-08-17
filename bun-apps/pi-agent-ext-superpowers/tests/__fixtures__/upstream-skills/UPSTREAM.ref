@@ -37,3 +37,25 @@ baselined: 2026-07-26
 #   -6 each). using-superpowers unchanged (already at v6.2.0). TDD's load-bearing
 #   test-first core (RED/GREEN, write-failing-test) verified preserved. pi-convention
 #   leak check clean. Suite 122/0.
+#
+# LOCAL-DIVERGENCES (2026-08-16, solution-extension simplification — plan
+#   .planning/plans/2026-08-16-solution-extension-simplification.md, decision
+#   record ADR-wayfind-0007): 5 superpowers SKILL.md carry sanctioned LOCAL
+#   extension sections layered onto the upstream v6.2.0 bodies (fixtures
+#   re-baselined to the merged result, so the byte-equal pin guards the MERGED
+#   body, not bare upstream). An upstream re-sync MUST merge the new upstream
+#   body WITH these local sections — do NOT blow them away with a naive re-port
+#   (a naive re-port fails skills-fidelity.test.ts by design; rebase the local
+#   sections onto the new upstream body, then re-baseline + log it here):
+#     - dispatching-parallel-agents — "Pre-dispatch guardrails" + "Research as a
+#       background subagent" sections (from wayfind subagent-dispatch-discipline
+#       and research, both deleted 2026-08-16 — do not re-add as separate skills)
+#     - systematic-debugging — "Engineering the reproduction loop" section
+#       (from wayfind diagnosing-bugs, deleted 2026-08-16 — do not re-add)
+#     - requesting-code-review + receiving-code-review — "The two review axes:
+#       Standards vs Spec" / "Receiving two-axis feedback" sections (from
+#       wayfind code-review, deleted 2026-08-16 — do not re-add)
+#     - brainstorming — "When a question needs a prototype" section (from
+#       wayfind prototype, deleted 2026-08-16 — do not re-add)
+#     - writing-skills — generalized to all agent-consumed docs (from wayfind
+#       writing-for-agents, deleted 2026-08-16 — do not re-add)

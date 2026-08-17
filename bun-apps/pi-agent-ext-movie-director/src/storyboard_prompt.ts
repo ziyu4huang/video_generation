@@ -4,7 +4,7 @@
  *
  * Ports `app/planning/shot_prompt_builder.py` (188 lines) 1:1: pure string
  * assembly, no I/O, no MLX. Part of the storyboard Swift/Bun-native port
- * (docs/superpowers/specs/2026-08-01-storyboard-native-port-design.md).
+ * (.planning/specs/2026-08-01-storyboard-native-port-design.md).
  *
  * The 5-layer framework:
  *   Layer 1: Camera     — lens, depth of field

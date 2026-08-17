@@ -11,7 +11,7 @@
  *
  * LOCAL ONLY: LM Studio always resolves to localhost — never a cloud LLM.
  * Part of the storyboard Swift/Bun-native port
- * (docs/superpowers/specs/2026-08-01-storyboard-native-port-design.md).
+ * (.planning/specs/2026-08-01-storyboard-native-port-design.md).
  */
 import { lmStudioJsonCall, type LmStudioChatOptions } from "./lmstudio.ts";
 

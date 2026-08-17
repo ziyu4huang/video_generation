@@ -23,7 +23,9 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { defineTool, type EventBus } from "@earendil-works/pi-coding-agent";
 import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import { Type } from "typebox";
-import { type EffortListResult, type EffortSearchResult, listEfforts, searchEfforts } from "./effort-query.js";
+import { emitWayfindView, enrichListStaleness, enrichStatusStaleness } from "./effort-enrich.js";
+import { listEfforts, searchEfforts } from "./effort-query.js";
+import { renderCreate, renderList, renderSearch, renderStatus, renderValidate } from "./effort-render.js";
 import { readMap, writeMap } from "./map.js";
 import {
   computeFrontier,
@@ -33,13 +35,16 @@ import {
   validateEffortMap,
   type WayfindMap,
 } from "./model.js";
-import { readStaleDecisions } from "./stale-seam.js";
+
+// Renderer re-exports (plan Task 10): the renderers live in effort-render.ts;
+// re-exported here so commands/wayfind-handlers.ts and tests keep resolving.
+export { renderList, renderStatus, renderValidate } from "./effort-render.js";
 
 // ─── Gate family (wayfinder ticket 02 — demoted from core) ──────────────────
 // wayfind_effort is planning-status inventory, on-demand (the reflective
 // charting/synthesis stays with /wayfind commands). Demoted from always-active
 // core to an on-demand gate; keywords are the effort/planning vocabulary.
-GATE_DEFS["wayfind_effort"] = {
+GATE_DEFS.wayfind_effort = {
   id: "wayfind_effort",
   keywords: [
     "wayfind",
@@ -233,107 +238,6 @@ export function effortStatus(cwd: string, effort: string): EffortStatusResult {
   };
 }
 
-// ─── text renderers (tool result `content`) ──────────────────────────────────
-
-function renderCreate(r: EffortCreateResult): string {
-  if (r.error) return r.error;
-  if (!r.ok) {
-    return `Effort '${r.effort}' already exists at ${r.path} — create refused (edit it directly, or use /wayfind to chart).`;
-  }
-  return `Created effort manifest at ${r.path} (status: ${r.meta?.status ?? "active"}). Next: /wayfind ${r.effort} to chart the frontier, or add tickets under .planning/${r.effort}/tickets/.`;
-}
-
-export function renderValidate(r: EffortValidateResult): string {
-  if (r.error) return r.error;
-  if (!r.exists) return `No map at .planning/${r.effort}/map.md — nothing to validate.`;
-  if (r.ok) return `Effort '${r.effort}' is valid (manifest present, Destination set).`;
-  return `Effort '${r.effort}' is INVALID:\n  - ${r.problems.join("\n  - ")}`;
-}
-
-export function renderStatus(r: EffortStatusResult): string {
-  if (r.error) return r.error;
-  if (!r.ok) return `No map at .planning/${r.effort}/map.md.`;
-  const status = r.meta?.status ?? "(no manifest)";
-  const lines = [
-    `[${r.effort}] open ${r.open} · closed ${r.closed} · claimed ${r.claimed} · fog ${r.fog} · status ${status}`,
-    `destination: ${r.destination || "(unset)"}`,
-  ];
-  // 10-impl T9: staleness line (after destination). undefined = not enriched /
-  // hermes absent → emit nothing (byte-identical to pre-T9); null = explicitly
-  // unavailable; 0 = clean; N = stale count.
-  const staleStr =
-    r.stale === undefined
-      ? ""
-      : r.stale === null
-        ? "staleness: unavailable"
-        : r.stale === 0
-          ? "stale: 0 (clean)"
-          : `stale: ${r.stale}`;
-  if (staleStr) lines.push(staleStr);
-  if (r.frontier.length > 0) {
-    lines.push("frontier:");
-    for (const t of r.frontier) lines.push(`  ${t.id} ${t.title} [${t.type}]`);
-  } else {
-    lines.push("frontier: (clear)");
-  }
-  // Budget-bounded ticket inventory: id/title/status/blocking ONLY (no bodies).
-  if (r.tickets.length > 0) {
-    lines.push("tickets:");
-    for (const t of r.tickets) {
-      const blk = t.blocking.length > 0 ? ` blocked-by ${t.blocking.join(",")}` : "";
-      const stl = t.stale ? " ⚠ stale" : ""; // 10-impl T9: per-ticket stale marker
-      lines.push(`  ${t.id} ${t.title} [${t.status}]${blk}${stl}`);
-    }
-  } else {
-    lines.push("tickets: (none)");
-  }
-  return lines.join("\n");
-}
-
-export function renderList(r: EffortListResult): string {
-  if (!r.ok) return r.error ? `Failed to list efforts: ${r.error}` : "Failed to list efforts under .planning/.";
-  if (r.efforts.length === 0) return "No efforts found under .planning/.";
-  const lines = [`${r.efforts.length} effort${r.efforts.length === 1 ? "" : "s"} under .planning/:`, ""];
-  for (const e of r.efforts) {
-    const c = e.ticketCounts;
-    const last = e.lastModified ? `  last=${e.lastModified}` : "";
-    // 10-impl T9: per-effort stale token. undefined = not enriched / hermes
-    // absent → no token (byte-identical to pre-T9); null = unavailable; N = count.
-    const staleToken = e.stale === undefined ? "" : e.stale === null ? "  stale=?" : `  stale=${e.stale}`;
-    lines.push(
-      `${e.slug}  [${e.status}]  open=${c.open} closed=${c.closed} claimed=${c.claimed}  frontier=${e.frontierSize}  fog=${e.fog}${last}${staleToken}`,
-    );
-    if (e.destination) lines.push(`    ${e.destination}`);
-  }
-  return lines.join("\n");
-}
-
-function renderSearch(r: EffortSearchResult): string {
-  if (!r.ok) return r.error ? `Search failed: ${r.error}` : "Search failed.";
-  const filterParts: string[] = [];
-  if (r.filters.effort) filterParts.push(`effort:${r.filters.effort}`);
-  if (r.filters.status) filterParts.push(`status:${r.filters.status}`);
-  if (r.filters.type) filterParts.push(`type:${r.filters.type}`);
-  const filterStr = filterParts.length > 0 ? ` [${filterParts.join(", ")}]` : "";
-  const header = `search: "${r.query}"${filterStr}`;
-  if (r.matches.length === 0) return `${header}\nNo matches.`;
-  const lines = [header, ""];
-  r.matches.forEach((m, i) => {
-    const n = i + 1;
-    // Fall back to the title when the body snippet is empty (title-only match).
-    const snippet = m.snippet || m.title;
-    if (m.kind === "ticket") {
-      lines.push(`${n}. [${m.effort}] #${m.ticketId} ${m.title} (${m.status},${m.type}) score=${m.score} — ${snippet}`);
-    } else {
-      lines.push(`${n}. [${m.effort}] · decision: ${m.title} — ${snippet}`);
-    }
-  });
-  if (r.truncated) {
-    lines.push(`… (truncated — more matches exist beyond the top ${r.matches.length})`);
-  }
-  return lines.join("\n");
-}
-
 // ─── the tool ────────────────────────────────────────────────────────────────
 
 export function makeWayfindEffortTool(events?: EventBus) {
@@ -439,53 +343,23 @@ export function makeWayfindEffortTool(events?: EventBus) {
             return { content: [{ type: "text" as const, text: renderStatus(r) }], details: r };
           }
           const r = effortStatus(cwd, params.effort);
-          // 10-impl T9: enrich the stale count + per-ticket markers from the
-          // hermes seam (async). readStaleDecisions returns null when hermes is
-          // absent → leave `stale` UNSET so renderStatus emits nothing (output
-          // byte-identical to pre-T9). A non-null array → stale.length (0 =
-          // clean) + a ⚠ marker on each ticket whose cardId is stale. The SYNC
-          // effortStatus leaves `stale` unset; staleness is a tool-layer concern.
-          try {
-            const stale = await readStaleDecisions(params.effort, cwd);
-            if (stale !== null) {
-              r.stale = stale.length;
-              const staleNos = new Set(stale.map((s) => s.cardId.split(":").pop() ?? ""));
-              for (const t of r.tickets) if (staleNos.has(t.id)) t.stale = true;
-            }
-          } catch {
-            // seam threw (defensive — readStaleDecisions already catches) → leave unset
-          }
-          // zk-spawn: mirror the rendered status into the webui's dedicated
-          // "Wayfind" tab (mode md). Only on a real effort (r.ok) so an error
-          // state never spawns a noisy tab. events?. is defensive — a
-          // registered tool always has the bus, but no-arg callers stay safe.
-          if (r.ok) {
-            events?.emit("webui:render", { content: renderStatus(r), mode: "md", view: "wayfind", title: "Wayfind" });
-          }
+          // 10-impl T9: hermes staleness enrichment (r.stale + per-ticket ⚠)
+          // lives in effort-enrich.ts (plan Task 10).
+          await enrichStatusStaleness(r, cwd);
+          // zk-spawn: mirror the rendered status into the webui's "Wayfind" tab.
+          // Only on a real effort (r.ok) so an error state never spawns a noisy tab.
+          if (r.ok) emitWayfindView(events, renderStatus(r));
           return { content: [{ type: "text" as const, text: renderStatus(r) }], details: r };
         }
         case "list": {
           const r = listEfforts(cwd);
-          // 10-impl T9: per-effort stale count from the hermes seam. Each call
-          // opens an ephemeral store in hermes; N efforts = N calls (acceptable
-          // for a manual list, not a hot path). null = hermes absent → leave
-          // `stale` UNSET so renderList emits no token (byte-identical to pre-T9).
-          for (const e of r.efforts) {
-            try {
-              const stale = await readStaleDecisions(e.slug, cwd);
-              if (stale !== null) e.stale = stale.length;
-            } catch {
-              // seam threw → leave unset
-            }
-          }
-          // zk-spawn: mirror the rendered list into the webui's dedicated
-          // "Wayfind" tab (mode md). Only on a successful read (r.ok) so a
-          // catastrophic fs error never spawns a noisy tab. events?. is
-          // defensive — a registered tool always has the bus, but no-arg
-          // callers stay safe.
-          if (r.ok) {
-            events?.emit("webui:render", { content: renderList(r), mode: "md", view: "wayfind", title: "Wayfind" });
-          }
+          // 10-impl T9: per-effort hermes stale counts live in effort-enrich.ts
+          // (plan Task 10).
+          await enrichListStaleness(r, cwd);
+          // zk-spawn: mirror the rendered list into the webui's "Wayfind" tab.
+          // Only on a successful read (r.ok) so a catastrophic fs error never
+          // spawns a noisy tab.
+          if (r.ok) emitWayfindView(events, renderList(r));
           return { content: [{ type: "text" as const, text: renderList(r) }], details: r };
         }
         case "search": {

@@ -347,7 +347,7 @@ describe("selectProvider command routing", () => {
     // capability, zero new pipeline code. Moved off runpy_image onto
     // flux2_image. --playbook style-source support stays deferred (no
     // playbook YAML parser exists anywhere in Swift/TS yet — see
-    // docs/superpowers/specs/2026-07-30-styletransfer-swift-native-port-design.md).
+    // .planning/specs/2026-07-30-styletransfer-swift-native-port-design.md).
     const e = selectProvider("image_generation", { command: "styletransfer", env: NO_ENV });
     expect(e.provider).toBe("flux2");
     expect(e.invoke).toBe("swift:flux2");
@@ -365,7 +365,7 @@ describe("selectProvider command routing", () => {
     // runpy_image onto flux2_image. --feather/--fill-holes configurability
     // stays deferred (the bridge has a fixed feather radius and never fills
     // holes) — see
-    // docs/superpowers/specs/2026-07-31-cutout-swift-native-port-design.md.
+    // .planning/specs/2026-07-31-cutout-swift-native-port-design.md.
     const e = selectProvider("image_generation", { command: "cutout", env: NO_ENV });
     expect(e.provider).toBe("flux2");
     expect(e.invoke).toBe("swift:flux2");

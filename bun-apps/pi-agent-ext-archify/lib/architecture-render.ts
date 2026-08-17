@@ -114,11 +114,12 @@ function withCaptions(blocks: Block[]): Node[] {
   const nodes: Node[] = [];
   for (let k = 0; k < blocks.length; k++) {
     const b = blocks[k];
+    if (!b) continue; // unreachable: k < blocks.length keeps b defined
     if (b.t === "p") {
       const m = /^\*\*([^*]+)\*\*\s*$/.exec(b.text.trim());
-      if (m && k + 1 < blocks.length && blocks[k + 1].t === "code") {
-        const codeBlock = blocks[k + 1] as { t: "code"; lang: string; code: string };
-        nodes.push({ t: "code", lang: codeBlock.lang, code: codeBlock.code, caption: m[1] });
+      const next = m ? blocks[k + 1] : undefined;
+      if (m && next?.t === "code") {
+        nodes.push({ t: "code", lang: next.lang, code: next.code, caption: m[1] });
         k++; // consume the code block
         continue;
       }
@@ -148,10 +149,11 @@ function renderNodes(nodes: Node[]): string {
   let k = 0;
   while (k < nodes.length) {
     const n = nodes[k];
+    if (!n) break; // unreachable: k < nodes.length keeps n defined
     // before/after side-by-side: two captioned code blocks in a row
     if (isCodeNode(n) && n.caption && k + 1 < nodes.length) {
       const next = nodes[k + 1];
-      if (isCodeNode(next) && next.caption) {
+      if (next && isCodeNode(next) && next.caption) {
         html += `<div class="before-after">`;
         html += `<div class="diagram"><div class="cap">${escapeHtml(n.caption)}</div>${
           n.lang === "mermaid"
@@ -244,9 +246,9 @@ export function renderReport(markdown: string, css: string, mermaidSource: strin
   for (const s of sections) {
     const cand = candidateRe.exec(s.heading);
     if (cand) {
-      const num = cand[1];
-      const ctitle = cand[2].trim();
-      const badge = BADGE[cand[3]] || { cls: "slate", label: cand[3] };
+      const num = cand[1] ?? "";
+      const ctitle = (cand[2] ?? "").trim();
+      const badge = BADGE[cand[3] ?? ""] || { cls: "slate", label: cand[3] ?? "" };
       body += `<article class="card" data-strength="${badge.cls}">`;
       body += `<div class="card-head"><h2><span class="num">${num}</span>${escapeHtml(ctitle)}</h2>`;
       body += `<span class="badge ${badge.cls}">${escapeHtml(badge.label)}</span></div>`;
@@ -308,7 +310,7 @@ export async function main(argv: string[]): Promise<number> {
 
   const markdown = readFileSync(inputPath, "utf-8");
 
-  const vendorDir = join(import.meta.dir, "..", "vendor");
+  const vendorDir = join(import.meta.dir, "..", "vendored");
   const css = readFileSync(join(vendorDir, "tailwind.css"), "utf-8");
   const mermaidSource = existsSync(join(vendorDir, "mermaid.min.js"))
     ? readFileSync(join(vendorDir, "mermaid.min.js"), "utf-8")

@@ -23,10 +23,10 @@
  * `views[].cutout` was therefore hardcoded `null` forever, with the mask
  * riding under an undocumented extension field, `views[].mask`. The
  * 2026-07-31 `cutout` Swift-native port
- * (docs/superpowers/specs/2026-07-31-cutout-swift-native-port-design.md)
+ * (.planning/specs/2026-07-31-cutout-swift-native-port-design.md)
  * closed that gap by shipping `flux2 cutout` (SAM3 bridge unchanged, new
  * `ImageSave.savePNGRGBA` MLX-tensor compositing); this module was updated
- * (docs/superpowers/specs/2026-08-01-character-native-cutout-wiring-design.md)
+ * (.planning/specs/2026-08-01-character-native-cutout-wiring-design.md)
  * to call it instead. `views[].mask` is gone — `views[].cutout` now carries
  * the real alpha-composited path, or `null` when SAM3 found no detection for
  * that view (or the bridge itself failed).

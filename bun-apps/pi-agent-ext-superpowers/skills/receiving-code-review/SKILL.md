@@ -203,3 +203,12 @@ You understand 1,2,3,6. Unclear on 4,5.
 ## GitHub Thread Replies
 
 When replying to inline review comments on GitHub, reply in the comment thread (`gh api repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`), not as a top-level PR comment.
+
+## Receiving two-axis feedback
+
+Reviews you receive may report **Standards** and **Spec** as separate blocks —
+keep them separate when triaging. A Standards finding is fixed by conforming to
+the cited repo doc; a Spec finding is fixed by reconciling with the quoted spec
+line (fix the code, or fix the spec — never silently split the difference). Do
+not let a clean Standards block mask a Spec failure (or vice versa): address
+both lists before declaring the review handled.

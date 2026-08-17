@@ -4,7 +4,7 @@
 
 Date: 2026-07-20 (S1)
 Status: accepted
-See: [spec `2026-07-20-tool-gate-s1-escape-hatch-design.md`](../../../../docs/superpowers/specs/2026-07-20-tool-gate-s1-escape-hatch-design.md), [CONTEXT.md](../../CONTEXT.md)
+See: [spec `2026-07-20-tool-gate-s1-escape-hatch-design.md`](../../../../.planning/specs/2026-07-20-tool-gate-s1-escape-hatch-design.md), [CONTEXT.md](../../CONTEXT.md)
 
 ## Context
 

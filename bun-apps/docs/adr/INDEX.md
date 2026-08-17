@@ -101,6 +101,7 @@ Then add its row below. `bun run test:adr` fails until you do.
 | `ADR-superpowers-0006` | The superpowers ↔ subagent cooperation contract | [`pi-agent-ext-superpowers/…/0006`](../../pi-agent-ext-superpowers/docs/adr/0006-superpowers-subagent-cooperation.md) |
 | `ADR-superpowers-0007` | Unconditional artifact home — never write to upstream paths | [`pi-agent-ext-superpowers/…/0007`](../../pi-agent-ext-superpowers/docs/adr/0007-unconditional-artifact-home.md) |
 | `ADR-superpowers-0008` | Default skill-exclusion policy | [`pi-agent-ext-superpowers/…/0008`](../../pi-agent-ext-superpowers/docs/adr/0008-default-skill-exclusion-policy.md) |
+| `ADR-superpowers-0009` | Retire docs/superpowers namespace — .planning is the sole artifact home | [`pi-agent-ext-superpowers/…/0009`](../../pi-agent-ext-superpowers/docs/adr/0009-retire-docs-superpowers-namespace.md) |
 
 > superpowers numbers from `0004`; there is no `ADR-superpowers-0001..0003`.
 
@@ -123,6 +124,7 @@ Then add its row below. `bun run test:adr` fails until you do.
 | `ADR-wayfind-0004` | Decouple the status widget via the `globalThis` singleton — no cross-package import | [`pi-agent-ext-wayfind/…/0004`](../../pi-agent-ext-wayfind/docs/adr/0004-decouple-status-widget-via-global.md) |
 | `ADR-wayfind-0005` | Accept last-write-wins for `.planning/<effort>/` concurrency | [`pi-agent-ext-wayfind/…/0005`](../../pi-agent-ext-wayfind/docs/adr/0005-accept-last-write-wins-planning-concurrency.md) |
 | `ADR-wayfind-0006` | Delete the `__piWayfindActive` coordination seam | [`pi-agent-ext-wayfind/…/0006`](../../pi-agent-ext-wayfind/docs/adr/0006-delete-wayfind-active-coordination-seam.md) |
+| `ADR-wayfind-0007` | Solution-extension simplification — 6 methodology skills merged into superpowers; wayfind is the pure decide/wayfinder engine | [`pi-agent-ext-wayfind/…/0007`](../../pi-agent-ext-wayfind/docs/adr/0007-solution-extension-simplification.md) |
 
 > wayfind numbers from 0002; there has never been a wayfind ADR 0001. Code and
 > docs that cited "ADR-0001" for the reverse seam / continuous chain meant

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -72,17 +72,17 @@ describe("discoverActivePlan (fs)", () => {
 	});
 
 	// Failure memory #278: an active effort (map.md) with NO plans/ dir must NOT
-	// fall back to the global docs/superpowers/plans/ (≈ .planning/plans/) or any
-	// other cross-effort plan — that returns an unrelated stale plan and causes a
-	// goal_complete false-positive. Must surface "no active plan" instead.
-	it("active effort with no plans/ must not pick up docs/superpowers/plans/ (#278)", () => {
+	// fall back to the flat .planning/plans/ fallback or any other cross-effort
+	// plan — that returns an unrelated stale plan and causes a goal_complete
+	// false-positive. Must surface "no active plan" instead.
+	it("active effort with no plans/ must not pick up .planning/plans/ (#278)", () => {
 		// Active effort exists (newest map.md) but has no plans/ subdir.
 		mkdirSync(join(tmp, ".planning", "lonely-effort"), { recursive: true });
 		writeFileSync(join(tmp, ".planning", "lonely-effort", "map.md"), "# lonely\n");
-		// Unrelated stale plan sitting in the global fallback dir.
-		mkdirSync(join(tmp, "docs", "superpowers", "plans"), { recursive: true });
+		// Unrelated stale plan sitting in the flat fallback dir.
+		mkdirSync(join(tmp, ".planning", "plans"), { recursive: true });
 		writeFileSync(
-			join(tmp, "docs", "superpowers", "plans", "stale.md"),
+			join(tmp, ".planning", "plans", "stale.md"),
 			"# Stale\n### Task 1: Old thing\n- [x] done\n",
 		);
 
@@ -95,14 +95,14 @@ describe("discoverActivePlan (fs)", () => {
 		expect(getPlanSummary(tmp)).toBe("");
 	});
 
-	it("active effort with empty plans/ must not fall back to docs/superpowers/plans/ (#278)", () => {
+	it("active effort with empty plans/ must not fall back to .planning/plans/ (#278)", () => {
 		// Active effort: map.md present, plans/ dir exists but holds no .md.
 		mkdirSync(join(tmp, ".planning", "eff", "plans"), { recursive: true });
 		writeFileSync(join(tmp, ".planning", "eff", "map.md"), "# eff\n");
-		// Unrelated stale plan sitting in the global fallback dir.
-		mkdirSync(join(tmp, "docs", "superpowers", "plans"), { recursive: true });
+		// Unrelated stale plan sitting in the flat fallback dir.
+		mkdirSync(join(tmp, ".planning", "plans"), { recursive: true });
 		writeFileSync(
-			join(tmp, "docs", "superpowers", "plans", "stale.md"),
+			join(tmp, ".planning", "plans", "stale.md"),
 			"# Stale\n### Task 1: Old thing\n- [x] done\n",
 		);
 
@@ -111,6 +111,20 @@ describe("discoverActivePlan (fs)", () => {
 		expect(getPlanPhases(tmp)).toEqual([]);
 		expect(isPlanIncomplete(tmp)).toBe(false);
 		expect(getPlanSummary(tmp)).toBe("");
+	});
+
+	it("legacy fallback (no effort at all): newest plan in flat .planning/plans/", () => {
+		mkdirSync(join(tmp, ".planning", "plans"), { recursive: true });
+		const oldP = join(tmp, ".planning", "plans", "old.md");
+		const newP = join(tmp, ".planning", "plans", "new.md");
+		writeFileSync(oldP, "# Old\n### Task 1: Old thing\n- [x] done\n");
+		writeFileSync(newP, "# New\n### Task 1: New thing\n- [ ] todo\n");
+		utimesSync(oldP, new Date(1_000), new Date(1_000));
+		utimesSync(newP, new Date(2_000), new Date(2_000));
+		refreshPlan(tmp);
+		expect(getPlanPhases(tmp)).toHaveLength(1);
+		expect(isPlanIncomplete(tmp)).toBe(true); // the NEW plan (pending step) won
+		expect(getPlanSummary(tmp)).toContain("new.md");
 	});
 });
 

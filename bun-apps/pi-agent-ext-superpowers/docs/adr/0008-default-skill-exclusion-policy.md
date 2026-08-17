@@ -127,3 +127,21 @@ hold (`v-b-c` = Phase-3 auto-run behavior, not model-invoked;
 advertisement is a redundant ~96-tok pointer + a confusing invokable entry). Only
 the magnitudes and the mechanism description were corrected. The dominant eager
 per-session cost is the bootstrap payload (~2,050 tok), not skill advertisement.
+
+## Interplay (2026-08 solution-extension simplification)
+
+The 2026-08-16 solution-extension simplification
+(`.planning/plans/2026-08-16-solution-extension-simplification.md`, decision
+record `ADR-wayfind-0007`) consolidated all methodology vocabulary into
+superpowers by merging six wayfind skills into their counterparts:
+`research` and `subagent-dispatch-discipline` → `dispatching-parallel-agents`;
+`diagnosing-bugs` → `systematic-debugging`; `code-review` →
+`requesting-code-review` + `receiving-code-review`; `prototype` →
+`brainstorming`; `writing-for-agents` → `writing-skills`.
+
+`DEFAULT_SKILL_EXCLUDE` is **unchanged** — `["verification-before-completion",
+"using-superpowers"]` remains exactly as decided above: none of the six merge
+targets duplicates a bootstrap body or lost Phase-3 auto-run behavior, so no
+new exclusion is warranted. Lookups for the deleted wayfind skill names are
+redirected by wayfind `ask-matt`'s one-release stub table (expires at wayfind
+`0.2.0` per its `docs/versioning.md`).
