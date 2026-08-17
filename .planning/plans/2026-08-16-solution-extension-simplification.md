@@ -509,7 +509,7 @@ git commit -m "refactor(wayfind): delete 6 methodology skills merged into superp
 - Consumes: superpowers `brainstorming` + `writing-plans` skills (interview/methodology prose now lives there).
 - Produces: two engine skills whose remaining content is exactly the artifact contracts + chain wiring: `CONTEXT.md → spec.md → tickets/ → task_plan.md → /wayfind seed → /wayfind sync`. `src/commands.ts` handlers `handleToSpec`/`handleToTickets` steer agents to these skills — the steers reference "Load the `to-spec` skill" / "Load the `to-tickets` skill" and must keep resolving.
 
-- [ ] **Step 1: Trim `to-spec/SKILL.md`**
+- [x] **Step 1: Trim `to-spec/SKILL.md`**
 
 Keep (verbatim, they are the contract):
 - The frontmatter `name`/`description` (tighten the description to "Turn what's already on the table into `.planning/<effort>/spec.md` — synthesis only, no interview; artifact contract + chain wiring.").
@@ -519,7 +519,7 @@ Keep (verbatim, they are the contract):
 Delete: interview technique, question-asking craft, and any how-to-brainstorm prose — replace with one pointer line: `Interview and idea-development methodology: see the superpowers **brainstorming** and **writing-plans** skills.`
 Expected result: ≤ 35 lines.
 
-- [ ] **Step 2: Trim `to-tickets/SKILL.md`**
+- [x] **Step 2: Trim `to-tickets/SKILL.md`**
 
 Keep (verbatim, they are the contract):
 - Frontmatter `name`/`description` (tighten similarly: "Break a spec into tracer-bullet tickets under `.planning/<effort>/tickets/` — artifact contract + chain wiring.").
@@ -530,7 +530,7 @@ Keep (verbatim, they are the contract):
 Delete: decomposition methodology prose — replace with one pointer line: `Slicing and planning methodology: see the superpowers **writing-plans** and **subagent-driven-development** skills.`
 Expected result: ≤ 45 lines.
 
-- [ ] **Step 3: Run the wayfind gate**
+- [x] **Step 3: Run the wayfind gate**
 
 Run: `( cd bun-apps/pi-agent-ext-wayfind && bun run check && bun run typecheck && bun test )`
 Expected: PASS (`tests/plan-seed-contract.test.ts` and `tests/skills.test.ts` must stay green — they guard the chain contracts being kept).
