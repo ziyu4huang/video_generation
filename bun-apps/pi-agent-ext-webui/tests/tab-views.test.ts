@@ -13,7 +13,11 @@ describe("tab-views 01b — five tabs (literal)", () => {
     // webui-v3 fix (report-iframe): the report iframe gets a REAL size rule
     // (browser default was 300x150) + panes 70vh + fullscreen escape hatch.
     expect(src).toContain('#report-pane article iframe { width: 100%; min-height: 70vh;');
-    expect(src).toContain('max-height: 70vh; overflow-y: auto;');
+    // webui-v3 (dynamic shell): full-viewport app layout — no fixed caps.
+    expect(src).toContain('height: 100dvh');
+    expect(src).toContain('flex: 1; min-height: 0; overflow-y: auto;');
+    expect(src).not.toContain('max-height: 70vh');
+    expect(src).toContain('#content:empty');
     expect(src).not.toContain('max-height: 45vh');
     expect(src).not.toContain('#ask-pane');
     expect(src).toContain('requestFullscreen');
