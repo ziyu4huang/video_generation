@@ -17,6 +17,7 @@ import type { Card, CardKind } from "./store/card.js";
 import type { VectorStore } from "./store/surreal/vector-store.js";
 import type { Embedder } from "./store/surreal/embedder.js";
 import { scheduleVectorBackfill, vectorBackfillState } from "./handlers/vector-backfill.js";
+import { fireHierarchyBuildBestEffort, type HierarchyDeps } from "./handlers/hierarchy-build.js";
 import {
   planningCardKindFromPath,
   parsePlanningPath,
@@ -91,6 +92,11 @@ export interface WalkAndIngestOptions extends WalkOptions {
    *  is error-isolated. The deferred task re-checks the staleness delta and
    *  embeds only changed/new cards (unchanged cards are skipped). */
   vectorBackfill?: VectorBackfillDeps;
+  /** LeanRAG ① / ticket 04b-2: fire-and-forget multi-layer hierarchy build
+   *  fired after the vector-backfill block. Injected callables (D4); skips
+   *  silently when embeds are unavailable (same degradation class as the
+   *  vector cold path). */
+  hierarchy?: HierarchyDeps;
   /** kp21 Tier-3: frontmatter fields where the DB row is authoritative
    *  (opt-in; default empty = md-canonical). For each listed field, the
    *  vault-md mirror copies the stored card's value over the md-deserialized
@@ -285,6 +291,18 @@ export async function walkAndIngest(
   if (opts.vectorBackfill) {
     try {
       fireVectorBackfillBestEffort(opts.memoryDir, opts.vectorBackfill);
+    } catch {
+      // best-effort — never break ingest
+    }
+  }
+
+  // LeanRAG ① / ticket 04b-2: best-effort hierarchy build. Fire-and-forget,
+  // never awaited, error-isolated inside the handler (catch-all console.warn).
+  // kbDir = <vaultPath>/<folder>; unset vaultPath (no seam / no vault) →
+  // undefined → silent skip.
+  if (opts.hierarchy) {
+    try {
+      fireHierarchyBuildBestEffort(vaultPath ? join(vaultPath, folder) : undefined, opts.hierarchy);
     } catch {
       // best-effort — never break ingest
     }

@@ -23,6 +23,7 @@ import { registerIndexSessionsCommand } from "../handlers/index-sessions.js";
 import { buildKnowledgeSemanticOpts } from "./knowledge-semantic.js";
 import type { HermesCtx } from "./stores.js";
 import type { RecallSet } from "../handlers/worth-scoring.js";
+import { defaultEmbedder } from "../store/surreal/embedder.js";
 
 export function registerTools(
 	pi: ExtensionAPI,
@@ -49,7 +50,20 @@ export function registerTools(
 		resolveKnowledgeVaultPath,
 		buildKnowledgeSemanticOpts(config, globalDir),
 	);
-	registerKnowledgeIngestTool(pi, { memoryDir: globalDir });
+	registerKnowledgeIngestTool(pi, {
+		memoryDir: globalDir,
+		// LeanRAG ① (ticket 04b-2): fire-and-forget hierarchy build post-ingest.
+		// embedFn fails fast when LM Studio is down — the handler's catch-all
+		// warns and skips (same degradation class as the vector cold path).
+		hierarchy: {
+			enabled: process.env.PI_HIERARCHY_DISABLED !== "1" && config.hierarchyEnabled !== false,
+			embedFn: async (texts: string[]) =>
+				defaultEmbedder({ baseUrl: config.lmStudioBaseUrl ?? "http://127.0.0.1:1234" })(
+					texts,
+					"text-embedding-nomic-embed-text-v1.5",
+				),
+		},
+	});
 	// Phase-2 (knowledge-pipeline / 10-impl T6): the stale: query + revalidate
 	// Phase-2 (knowledge-pipeline / 10-impl T7): publish the staleness reverse
 	// seam for wayfind's graduation gate (T8) + read-side surfacing (T9). The

@@ -128,7 +128,7 @@ export interface HierarchyBuildOptions {
    *  from the .md files in kbDir (agg-L*-* MoCs skipped). */
   cards?: { id: string; text: string; entities: string[]; sources?: string[] }[];
   embedFn(texts: string[]): Promise<number[][]>;
-  summarizeFn(clusterText: string, budget: number): Promise<string>;
+  summarizeFn?(clusterText: string, budget: number): Promise<string>;
   tokenBudget?: number;
   threshold?: number;
   maxDepth?: number;

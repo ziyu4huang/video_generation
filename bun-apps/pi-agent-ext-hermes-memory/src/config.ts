@@ -86,6 +86,7 @@ const DEFAULT_CONFIG: MemoryConfig = {
   usedDetection: true,
   usedSignatureMinChars: DEFAULT_USED_SIGNATURE_MIN_CHARS,
   decayEnabled: true,
+  hierarchyEnabled: true,
   decayHalflifeDays: DEFAULT_DECAY_HALFLIFE_DAYS,
   decayWorthWeight: DEFAULT_DECAY_WORTH_WEIGHT,
   decayUsedBonus: DEFAULT_DECAY_USED_BONUS,
@@ -303,6 +304,7 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
       // numeric knobs via isNonNegativeNumber, mirroring the usedDetection
       // siblings just above).
       if (typeof parsed.decayEnabled === "boolean") config.decayEnabled = parsed.decayEnabled;
+      if (typeof parsed.hierarchyEnabled === "boolean") config.hierarchyEnabled = parsed.hierarchyEnabled;
       // halflife must be > 0: halflife 0 ⇒ exp(-age/0) = NaN ⇒ clamp(NaN) = NaN,
       // corrupting heat ordering (D5 determinism). Reject 0 → default.
       if (typeof parsed.decayHalflifeDays === "number" && Number.isFinite(parsed.decayHalflifeDays) && parsed.decayHalflifeDays > 0) config.decayHalflifeDays = parsed.decayHalflifeDays;

@@ -31,9 +31,9 @@ import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidia
 
 export interface HierarchyBuildOptions {
 	kbDir: string;
-	cards: { id: string; text: string; entities: string[]; sources?: string[] }[];
+	cards?: { id: string; text: string; entities: string[]; sources?: string[] }[];
 	embedFn(texts: string[]): Promise<number[][]>;
-	summarizeFn(clusterText: string, budget: number): Promise<string>;
+	summarizeFn?: (clusterText: string, budget: number) => Promise<string>;
 	tokenBudget?: number;
 	threshold?: number;
 	maxDepth?: number;
@@ -81,6 +81,13 @@ function flattenList(value: unknown): string[] {
 /** Load HierarchyCards from kbDir's *.md files (agg-L*-* MoCs skipped).
  *  Entities/sources come from frontmatter, extracted defensively — entries
  *  may be name strings or `{type, name}`-ish objects depending on the writer. */
+/** Truncation-only default summary (zk-owned; no LLM): the chatJson-backed
+ * default lands with ticket 06 budget/config. Deterministic by design. */
+function deterministicSummary(clusterText: string, budget: number): Promise<string> {
+	const norm = clusterText.replace(/\s+/g, " ").trim();
+	return Promise.resolve(norm.length > budget ? `${norm.slice(0, Math.max(0, budget - 1))}…` : norm);
+}
+
 async function loadKbCards(kbDir: string): Promise<HierarchyCard[]> {
 	const files = (await readdir(kbDir)).filter(
 		(f) => f.endsWith(".md") && !/^agg-L\d+-\d+\.md$/.test(f),
@@ -137,7 +144,7 @@ export async function buildHierarchy(opts: HierarchyBuildOptions): Promise<Hiera
 		const r = await buildLayer({
 			cards: current,
 			embedFn: opts.embedFn,
-			summarizeFn: opts.summarizeFn,
+			summarizeFn: opts.summarizeFn ?? deterministicSummary,
 			tokenBudget,
 			threshold: opts.threshold,
 			maxDepth,
