@@ -596,39 +596,39 @@ git commit -m "refactor(wayfind): slim ask-matt to wayfind-family routing"
   - `commands/grill-handlers.ts` → `export function makeGrillHandlers(pi, state, overlay)` returning `{ handleGrillMe, handleGrillDocs, handleGrillDone, handleGrillDomain }`
   - `commands/wayfind-handlers.ts` → `export function makeWayfindHandlers(pi, state, overlay)` returning `{ chart, status, spec, tickets, seed, sync, done, validate, statusbar, help }`
 
-- [ ] **Step 1: Baseline the current tests**
+- [x] **Step 1: Baseline the current tests**
 
 Run: `( cd bun-apps/pi-agent-ext-wayfind && bun test tests/commands.test.ts )`
 Expected: PASS — record the count; it must be identical after the split.
 
-- [ ] **Step 2: Move constants and pure helpers first**
+- [x] **Step 2: Move constants and pure helpers first**
 
 Create `commands/keywords.ts` and `commands/help.ts` by moving (cut-paste, no rewording) the three `Set` constants, `resolveWayfindEffortId`, and `renderWayfindHelp` out of `commands.ts`; `commands.ts` re-exports `resolveWayfindEffortId` and `renderWayfindHelp` (`export { resolveWayfindEffortId, renderWayfindHelp } from "./commands/help.js";`) so existing imports resolve.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 Run: `( cd bun-apps/pi-agent-ext-wayfind && bun test tests/commands.test.ts )`
 Expected: PASS, same count as Step 1.
 
-- [ ] **Step 4: Move the grill family**
+- [x] **Step 4: Move the grill family**
 
 Create `commands/shared.ts` (`startGrill`, `resolveEffortOrWarn` — they close over `pi`, `state`, `overlay`, hence the factory) and `commands/grill-handlers.ts` (the four grill handlers + `endGrillForSession`). Rewire `commands.ts` to use them. Move handler bodies verbatim; only the closure wiring changes.
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run: `( cd bun-apps/pi-agent-ext-wayfind && bun test tests/commands.test.ts )`
 Expected: PASS, same count.
 
-- [ ] **Step 6: Move the wayfind family**
+- [x] **Step 6: Move the wayfind family**
 
 Create `commands/wayfind-handlers.ts` with factory `makeWayfindHandlers(pi, state, overlay)` exposing `chart/status/spec/tickets/seed/sync/done/validate/statusbar/help` (bodies moved verbatim from `handleWayfinderChart`, `handleWayfinderStatus`, `handleToSpec`, `handleToTickets`, `handleWayfindSeed`, `handleChainSync`, `handleWayfindDone`, `handleWayfindValidate`, `handleWayfindStatusbar`, `handleWayfindHelp`). `commands.ts` shrinks to: imports, the two `pi.registerCommand` routing blocks (grill switch + wayfind keyword switch with the ambiguous-phrase guard, banner logic, and `--` force-chart escape — routing stays in the dispatcher), and the re-exports. Guards (banner, placeholder, ambiguous-phrase) live once in the dispatcher — do not duplicate them per-handler.
 
-- [ ] **Step 7: Run the full wayfind gate**
+- [x] **Step 7: Run the full wayfind gate**
 
 Run: `( cd bun-apps/pi-agent-ext-wayfind && bun run check && bun run typecheck && bun test )`
 Expected: PASS. `wc -l bun-apps/pi-agent-ext-wayfind/src/commands.ts` — Expected: ≤ 220 lines (dispatcher + re-exports).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add bun-apps/pi-agent-ext-wayfind/src/commands.ts bun-apps/pi-agent-ext-wayfind/src/commands/
