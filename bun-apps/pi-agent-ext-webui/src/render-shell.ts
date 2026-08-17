@@ -48,11 +48,18 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.5 -apple-system, system-ui, sans-serif; }
-  header { display: flex; gap: .5rem; padding: .5rem; border-bottom: 1px solid #8884; flex-wrap: wrap; }
+  /* webui-v3 (dynamic shell): full-viewport app layout — body is a flex
+     column; panes fill the remaining height and scroll internally, so the
+     surface adapts to ANY browser size (dvh tracks mobile chrome too). */
+  body { margin: 0; font: 14px/1.5 -apple-system, system-ui, sans-serif; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+  header { display: flex; gap: .5rem; padding: .5rem; border-bottom: 1px solid #8884; flex-wrap: wrap; flex: 0 0 auto; }
   .tab { padding: .35rem .7rem; border-radius: 6px; cursor: pointer; border: 1px solid transparent; background: #8882; }
   .tab.active { border-color: #6cf; background: #6cf3; }
-  main { padding: 1rem; max-width: 1100px; margin: 0 auto; }
+  main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 1rem; max-width: 1500px; width: 100%; margin: 0 auto; overflow: hidden; }
+  /* dynamic shell: #content (present surface) fills + scrolls like the panes;
+     entirely hidden while idle so the active pane gets the full height. */
+  #content { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .4rem; overflow-y: auto; }
+  #content:empty { display: none; }
   .meta { color: #888; font-size: .8rem; margin-bottom: .5rem; }
   #content iframe { width: 100%; min-height: 70vh; border: 1px solid #8884; border-radius: 6px; background: #fff; }
   #content :is(pre,table) { background: #8881; padding: .5rem; border-radius: 4px; overflow:auto; }
@@ -76,9 +83,9 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   /* event-cards (01): Cards tab pane — projected card frames. Every field is
      textContent-rendered (raw HTML injection forbidden); the article id is the
      deep-link anchor; newest LAST (chronological). Badge color per attention. */
-  #cards-pane { display: flex; flex-direction: column; gap: .5rem; padding: .4rem 0; max-height: 70vh; overflow-y: auto; }
+  #cards-pane { display: flex; flex-direction: column; gap: .5rem; padding: .4rem 0; flex: 1; min-height: 0; overflow-y: auto; }
   #cards-pane[hidden] { display: none; } /* the flex display must not defeat [hidden] */
-  #report-pane, #data-pane { display: flex; flex-direction: column; gap: .4rem; padding: .4rem 0; max-height: 70vh; overflow-y: auto; }
+  #report-pane, #data-pane { display: flex; flex-direction: column; gap: .4rem; padding: .4rem 0; flex: 1; min-height: 0; overflow-y: auto; }
   #report-pane[hidden], #data-pane[hidden] { display: none; }
   /* webui-v3 fix (report-iframe): html reports render in a sandboxed iframe
      that NO other rule sizes — the browser default is 300x150, unreadable for
