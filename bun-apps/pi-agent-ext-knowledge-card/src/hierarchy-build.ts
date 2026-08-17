@@ -10,10 +10,13 @@
  *                          nodes back in as pseudo-cards (id/text/entities/
  *                          sources — text = summary).
  *
- * Stops on buildLayer's `done` flag (≤4 nodes / depth cap). The loop is PURE:
- * imports only hierarchy.ts + aggregation-write.ts — the embedder and
- * summarizer are injected callables (D4), so no store/vector-DB/LLM client
- * dependency lives here.
+ * Stops on buildLayer's `done` flag (≤4 nodes / depth cap). The loop is
+ * PURE: imports only hierarchy.ts + aggregation-write.ts + llm-chat.ts — the
+ * embedder stays an injected callable (D4) and the summarizer is injectable
+ * too, with a chatJson-backed default (ticket 06) that degrades to a
+ * deterministic truncation on ANY LLM failure (chatJson never throws). The
+ * per-layer budget schedule (layerBudgetOf — halving, floor 1200) replaces
+ * the old flat tokenBudget.
  *
  * Library only — no ExtensionAPI, no network, no console.
  */
@@ -25,6 +28,8 @@ import {
 	type HierarchyCard,
 } from "./hierarchy.ts";
 import { writeAggregationMocs } from "./aggregation-write.ts";
+import { chatJson, type LmChatOptions } from "./llm-chat.ts";
+import { HIERARCHY_DEFAULTS } from "./zk-task-config.ts";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
@@ -34,6 +39,9 @@ export interface HierarchyBuildOptions {
 	cards?: { id: string; text: string; entities: string[]; sources?: string[] }[];
 	embedFn(texts: string[]): Promise<number[][]>;
 	summarizeFn?: (clusterText: string, budget: number) => Promise<string>;
+	/** Test-only injection threaded into the default summarizer's chatJson
+	 *  call (deterministic `_fetchImpl`) — production callers omit it. */
+	_chatOpts?: LmChatOptions;
 	tokenBudget?: number;
 	threshold?: number;
 	maxDepth?: number;
@@ -81,11 +89,41 @@ function flattenList(value: unknown): string[] {
 /** Load HierarchyCards from kbDir's *.md files (agg-L*-* MoCs skipped).
  *  Entities/sources come from frontmatter, extracted defensively — entries
  *  may be name strings or `{type, name}`-ish objects depending on the writer. */
-/** Truncation-only default summary (zk-owned; no LLM): the chatJson-backed
- * default lands with ticket 06 budget/config. Deterministic by design. */
-function deterministicSummary(clusterText: string, budget: number): Promise<string> {
+
+/** Per-layer budget schedule (ticket 06; LeanRAG (max_depth−layer)×80 analog,
+ *  chars-scaled): halve the base each level, floor 1200. Deterministic. */
+export function layerBudgetOf(depth: number, base: number): number {
+	return Math.max(1200, base >> depth);
+}
+
+/** chatJson-backed default cluster summary (ticket 06): one LM Studio call
+ *  returning JSON {"summary"} (fenced json tolerated). Null / invalid /
+ *  empty — any LLM failure — degrades to the deterministic truncation
+ *  fallback. Exported for direct tests. */
+export async function defaultSummary(
+	clusterText: string,
+	budget: number,
+	chatOpts?: LmChatOptions,
+): Promise<string> {
 	const norm = clusterText.replace(/\s+/g, " ").trim();
-	return Promise.resolve(norm.length > budget ? `${norm.slice(0, Math.max(0, budget - 1))}…` : norm);
+	const parsed = await chatJson<{ summary: string }>(
+		[
+			"Summarize the following cluster of notes into one dense, information-rich paragraph.",
+			'Respond with ONLY a JSON object: {"summary": "<your paragraph>"}',
+			"---",
+			clusterText,
+		].join("\n"),
+		(text) => {
+			const fence = /```(?:json)?\s*([\s\S]*?)\s*```/i.exec(text);
+			const j = JSON.parse((fence ? fence[1] : text).trim()) as { summary?: unknown };
+			if (typeof j.summary !== "string" || !j.summary.trim()) throw new Error("missing summary");
+			return { summary: j.summary.trim() };
+		},
+		chatOpts,
+	);
+	const summary = parsed?.summary?.trim();
+	if (summary) return summary;
+	return norm.length > budget ? `${norm.slice(0, Math.max(0, budget - 1))}…` : norm;
 }
 
 async function loadKbCards(kbDir: string): Promise<HierarchyCard[]> {
@@ -124,8 +162,9 @@ export async function buildHierarchy(opts: HierarchyBuildOptions): Promise<Hiera
 	if (cards.length === 0 || cards.every((c) => c.entities.length === 0)) {
 		return { layers: 0, nodes: [], llmCalls: 0, resumed: false, skipped: "no-entities" };
 	}
-	const tokenBudget = opts.tokenBudget ?? 10_000;
-	const maxDepth = opts.maxDepth ?? 3;
+	const baseBudget = opts.tokenBudget ?? HIERARCHY_DEFAULTS.baseBudget;
+	const maxDepth = opts.maxDepth ?? HIERARCHY_DEFAULTS.maxDepth;
+	const threshold = opts.threshold ?? HIERARCHY_DEFAULTS.threshold;
 	const all: AggregationNode[] = [];
 	let llmCalls = 0;
 	let resumed = false;
@@ -141,12 +180,15 @@ export async function buildHierarchy(opts: HierarchyBuildOptions): Promise<Hiera
 			current = ckpt.nodes.map(nodeToCard);
 			continue;
 		}
+		const budget = layerBudgetOf(depth, baseBudget);
 		const r = await buildLayer({
 			cards: current,
 			embedFn: opts.embedFn,
-			summarizeFn: opts.summarizeFn ?? deterministicSummary,
-			tokenBudget,
-			threshold: opts.threshold,
+			summarizeFn:
+				opts.summarizeFn ??
+				((text: string, b: number) => defaultSummary(text, b, opts._chatOpts)),
+			tokenBudget: budget,
+			threshold,
 			maxDepth,
 			currentDepth: depth,
 		});
