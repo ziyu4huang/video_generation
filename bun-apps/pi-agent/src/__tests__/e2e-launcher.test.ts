@@ -12,7 +12,7 @@
  * `bun-apps/pi-agent-ext-devops/scripts/run-test.sh high` or `PI_AGENT_E2E=1 bun test`.
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, mkdirSync, readFileSync, realpathSync, lstatSync, readlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -201,5 +201,106 @@ describe.skipIf(!E2E_ENABLED)("read-only deploy env exports", () => {
 		const result = run([], { cwd: dir, env: { PIAGENT_DEBUG: "1" } });
 		expect(result.status).toBe(0);
 		expect(result.stderr).toMatch(/read-only deploy: JITI_FS_CACHE=0 PI_CODING_AGENT_DIR=/);
+	});
+});
+
+/**
+ * Source-mode root-node_modules self-heal.
+ *
+ * These matter more than the usual launcher assertion because the reclaim path
+ * runs `rm -rf` on every launch. The guard that keeps that safe — "a real
+ * directory is only removed when it contains zero regular files" — is asserted
+ * from both sides: the farm shape IS reclaimed, and anything holding real
+ * content is NOT.
+ *
+ * Each fixture is a self-contained git repo with the nested layout the guard
+ * keys on: <root>/ws/pi-agent/{run.sh,src/cli.ts} and <root>/ws/node_modules.
+ * The workspace dir is deliberately NOT named "bun-apps" — that also pins the
+ * link target being derived from the real directory name rather than hardcoded.
+ */
+describe.skipIf(!E2E_ENABLED)("source-mode root node_modules self-heal", () => {
+	const STUB = "console.log('stub');\n";
+
+	/** Build a git repo whose workspace sits one level below the git root. */
+	function makeRepo(name: string): { root: string; pkgDir: string } {
+		const root = path.join(TMP, name);
+		const pkgDir = path.join(root, "ws", "pi-agent");
+		mkdirSync(path.join(pkgDir, "src"), { recursive: true });
+		mkdirSync(path.join(root, "ws", "node_modules"), { recursive: true });
+		writeFileSync(path.join(pkgDir, "run.sh"), readFileSync(RUN_SH, "utf8"));
+		chmodSync(path.join(pkgDir, "run.sh"), 0o755);
+		writeFileSync(path.join(pkgDir, "src", "cli.ts"), STUB);
+		spawnSync("git", ["init", "-q"], { cwd: root });
+		return { root, pkgDir };
+	}
+
+	function launch(pkgDir: string, debug = false) {
+		return spawnSync("bash", [path.join(pkgDir, "run.sh")], {
+			cwd: pkgDir,
+			env: { ...process.env, ...(debug ? { PIAGENT_DEBUG: "1" } : {}) },
+			encoding: "utf8",
+			timeout: 15_000,
+		});
+	}
+
+	test("absent -> creates a symlink naming the real workspace dir", () => {
+		const { root, pkgDir } = makeRepo("selfheal-absent");
+		launch(pkgDir);
+		const nm = path.join(root, "node_modules");
+		expect(lstatSync(nm).isSymbolicLink()).toBe(true);
+		// "ws/node_modules", NOT a hardcoded "bun-apps/node_modules".
+		expect(readlinkSync(nm)).toBe("ws/node_modules");
+	});
+
+	test("a pure link farm is reclaimed and replaced by the symlink", () => {
+		const { root, pkgDir } = makeRepo("selfheal-farm");
+		const nm = path.join(root, "node_modules");
+		// Shape of a real Bun farm: scoped dirs containing only symlinks, plus a
+		// top-level symlink. No regular files anywhere.
+		mkdirSync(path.join(nm, "@repo"), { recursive: true });
+		mkdirSync(path.join(nm, ".bun"), { recursive: true });
+		symlinkSync(path.join(root, "ws", "pi-agent"), path.join(nm, "@repo", "pi-agent"));
+		symlinkSync(path.join(root, "ws", "node_modules"), path.join(nm, "typebox"));
+		expect(lstatSync(nm).isSymbolicLink()).toBe(false);
+
+		const result = launch(pkgDir, true);
+		expect(result.stderr).toMatch(/reclaimed .*node_modules \(Bun link farm/);
+		expect(lstatSync(nm).isSymbolicLink()).toBe(true);
+		expect(readlinkSync(nm)).toBe("ws/node_modules");
+	});
+
+	test("a directory holding a regular file is LEFT ALONE (rm -rf guard)", () => {
+		const { root, pkgDir } = makeRepo("selfheal-real");
+		const nm = path.join(root, "node_modules");
+		mkdirSync(path.join(nm, "real-pkg"), { recursive: true });
+		// One regular file, nested — enough to disqualify the whole tree.
+		writeFileSync(path.join(nm, "real-pkg", "package.json"), '{"name":"real-pkg"}');
+
+		const result = launch(pkgDir, true);
+		expect(result.stderr).not.toMatch(/reclaimed/);
+		expect(lstatSync(nm).isSymbolicLink()).toBe(false);
+		// The content survived untouched — this is the assertion that makes the
+		// `rm -rf` acceptable.
+		expect(readFileSync(path.join(nm, "real-pkg", "package.json"), "utf8")).toBe('{"name":"real-pkg"}');
+	});
+
+	test("an existing symlink is left exactly as-is", () => {
+		const { root, pkgDir } = makeRepo("selfheal-existing-link");
+		const nm = path.join(root, "node_modules");
+		symlinkSync("ws/node_modules", nm);
+		launch(pkgDir);
+		expect(lstatSync(nm).isSymbolicLink()).toBe(true);
+		expect(readlinkSync(nm)).toBe("ws/node_modules");
+	});
+
+	test("a DANGLING symlink does not crash the launcher", () => {
+		// `-e` is false for a dangling link, so the old `[ ! -e ]` guard alone
+		// would have tried `ln -s` over it and failed with "File exists".
+		const { root, pkgDir } = makeRepo("selfheal-dangling");
+		const nm = path.join(root, "node_modules");
+		symlinkSync("nowhere/node_modules", nm);
+		const result = launch(pkgDir);
+		expect(result.status).toBe(0);
+		expect(result.stderr).not.toMatch(/File exists/);
 	});
 });
