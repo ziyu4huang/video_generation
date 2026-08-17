@@ -38,6 +38,9 @@ export type RenderRouteHandler = (
 export interface RenderRouteOptions {
   /** tab-views (02): report producer sink — receives validated report frames. */
   onReport?: (frame: Extract<WebFrame, { type: "report" }>) => void;
+  /** Standalone report reader for GET /api/report/<id>/raw (wiring: session
+   *  store lookup — same frames the Report tab replays). */
+  getReport?: (id: string) => Extract<WebFrame, { type: "report" }> | undefined;
   /**
    * SSE heartbeat interval in ms for /api/events (Fix 3): Bun.serve's idle
    * timeout (and any intermediate proxy) closes silent streams; a periodic
@@ -105,6 +108,32 @@ export function createRenderRoutes(
         sink(r.frame);
         return json({ ok: true, id: r.frame.id });
       }, (): Response => new Response("bad request", { status: 400 }));
+    }
+
+    // Standalone report view: GET /api/report/<id>/raw — serves a stored
+    // report frame's html as a top-level document with the SAME CSP trust
+    // boundary as /files (sandbox allow-scripts allow-downloads): export
+    // menus work and the browser provides native edge scrolling. Loopback +
+    // origin-guarded like every other route on this chain.
+    if (req.method === "GET" && pathname.startsWith("/api/report/") && pathname.endsWith("/raw")) {
+      const reader = opts.getReport;
+      if (!reader) return new Response("not found", { status: 404 });
+      let id: string;
+      try {
+        id = decodeURIComponent(pathname.slice("/api/report/".length, pathname.length - "/raw".length));
+      } catch {
+        return new Response("bad request", { status: 400 });
+      }
+      const f = reader(id);
+      if (!f || typeof f.html !== "string") return new Response("not found", { status: 404 });
+      return new Response(f.html, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Security-Policy": "sandbox allow-scripts allow-downloads",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
     }
 
     if (req.method === "GET" && pathname.startsWith("/api/view/")) {
