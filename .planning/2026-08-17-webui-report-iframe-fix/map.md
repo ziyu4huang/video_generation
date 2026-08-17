@@ -17,7 +17,7 @@ probe against the live :8890:
   strips; post-t03 they are the primary surfaces.
 - dead #ask-pane CSS selectors survived t03.
 
-## What (PR #<PR>)
+## What (PR #1576)
 
 - #report-pane article iframe: width 100%, min-height 70vh (mirrors the
   present-surface frame rule).
