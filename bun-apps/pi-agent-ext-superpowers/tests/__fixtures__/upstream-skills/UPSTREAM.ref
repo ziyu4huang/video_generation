@@ -64,3 +64,6 @@ baselined: 2026-07-26
 #     - executing-plans — "Entry criteria" + "Dispatch ledger" sections
 #       (repo-local addition, develop-pipeline ticket 03, 2026-08-16 —
 #       do-not-drop-on-resync)
+#     - dispatching-parallel-agents — "Verify-child protocol" section
+#       (repo-local addition, develop-pipeline ticket 04, 2026-08-17 —
+#       do-not-drop-on-resync)
