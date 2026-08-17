@@ -1,7 +1,3 @@
-// @ts-nocheck — pre-existing type errors, never checked before this file
-// became reachable via pi-agent's static import (src/static-extensions.ts);
-// see that file's header comment for the full rationale. Runtime unaffected
-// (Bun doesn't enforce types).
 // src/tools/grill-decision-tool.ts
 import type { MemoryStore } from "../store/memory-store.js";
 import type { CardStore } from "../store/card-store.js";
