@@ -20,6 +20,9 @@ A locked simplification SPEC for the four knowledge-pipeline packages (pi-agent-
 ## Decisions so far
 
 - [Charter — destination, scope, criterion](tickets/00-charter.md) — simplification spec; all four packages; structural clarity over LOC.
+- [Docs drift census](tickets/01-docs-drift-census.md) — 3 high / 4 med / 1 low drift findings; surreal-default + dead peerDep story + tool-list omissions top the list.
+- [Dead-code census](tickets/02-dead-code-census.md) — 0 DEAD modules in all four packages; ~704 LOC lives only behind zk's CLI tier; ~17 trivially dead.
+- [Redundancy census](tickets/03-redundancy-census.md) — layering already healthy; ≈830 LOC total levers (CLI retirement + leaf hoists + trivia); cross-pkg redundancy ~0.
 
 ## Not yet specified
 
