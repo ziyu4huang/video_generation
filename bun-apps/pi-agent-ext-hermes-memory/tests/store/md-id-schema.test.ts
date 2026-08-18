@@ -20,9 +20,14 @@ describe("md_id schema", () => {
     expect(await repo.getMdIdByContent("a", { target: "memory" })).toBeNull();
   });
 
-  // NOTE: `setMdIdByContent` is added in Task 4, not this task. This test is
-  // skipped here and will be re-enabled/moved in Task 4's test file.
-  test.skip("SQLite: md_id is unique among non-NULL values", async () => {
+  // Un-skipped 2026-08-18. The stated reason — "`setMdIdByContent` is added in
+  // Task 4, not this task" — expired when Task 4 shipped it on both backends,
+  // but the skip stayed. Running it then failed on the FIRST assertion: the
+  // return was 9, not 1, because bun:sqlite's `.changes` counts the rows the
+  // FTS5 triggers touch (see sqlite-memory-repo.setMdIdByContent). The UNIQUE
+  // index itself was fine all along. So this file's skip was hiding a real
+  // count bug rather than a missing feature.
+  test("SQLite: md_id is unique among non-NULL values", async () => {
     const backend = new SqliteBackend(dir); await backend.init();
     const repo = new SqliteMemoryRepository(backend);
     await repo.addMemory({ target: "memory", project: null, content: "a", created: "2026-08-01", lastReferenced: "2026-08-01" });

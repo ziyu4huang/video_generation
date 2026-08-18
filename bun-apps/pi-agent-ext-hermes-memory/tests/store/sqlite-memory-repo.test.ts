@@ -26,6 +26,59 @@ describe("SqliteMemoryRepository", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  /**
+   * `removed` / `setMdIdByContent` must report ROWS, not `.changes`.
+   *
+   * bun:sqlite counts trigger-written rows in `Statement.run().changes`, and
+   * `memories` carries FTS5 sync triggers — so the old implementation reported
+   * 9 for a single-row write, and disagreed with the Surreal backend, which
+   * returns a real row count for the same interface. Every assertion below
+   * compares against the ACTUAL table delta so it can never be satisfied by an
+   * inflated number.
+   */
+  describe("row counts are real row counts (not bun:sqlite .changes)", () => {
+    const count = () => (backend as unknown as { db: { prepare(q: string): { get(): { n: number } } } }).db
+      .prepare("SELECT COUNT(*) AS n FROM memories").get().n;
+
+    it("removeSyncedMemories: removed === the real table delta", async () => {
+      for (const c of ["alpha one", "alpha two", "beta"]) await repo.addMemory({ content: c, target: "memory" });
+      const before = count();
+      const res = await repo.removeSyncedMemories("alpha", { target: "memory" });
+      expect(res).toEqual({ matched: 2, removed: 2 });
+      expect(before - count()).toBe(res.removed);
+    });
+
+    it("removeExactSyncedMemories: removed === the real table delta", async () => {
+      await repo.addMemory({ content: "exact", target: "memory" });
+      const before = count();
+      const res = await repo.removeExactSyncedMemories("exact", { target: "memory" });
+      expect(res).toEqual({ matched: 1, removed: 1 });
+      expect(before - count()).toBe(1);
+    });
+
+    it("removeByMdId: removed === the real table delta", async () => {
+      await repo.addMemory({ content: "keyed", target: "memory" });
+      await repo.setMdIdByContent("keyed", "md-1", { target: "memory" });
+      const before = count();
+      const res = await repo.removeByMdId("md-1", { target: "memory" });
+      expect(res).toEqual({ matched: 1, removed: 1 });
+      expect(before - count()).toBe(1);
+    });
+
+    it("setMdIdByContent returns the number of rows it stamped", async () => {
+      await repo.addMemory({ content: "one", target: "memory" });
+      expect(await repo.setMdIdByContent("one", "md-a", { target: "memory" })).toBe(1);
+      expect(await repo.setMdIdByContent("no-such-content", "md-b", { target: "memory" })).toBe(0);
+    });
+
+    it("a no-match remove reports {matched:0, removed:0} and deletes nothing", async () => {
+      await repo.addMemory({ content: "survivor", target: "memory" });
+      const before = count();
+      expect(await repo.removeSyncedMemories("nope", { target: "memory" })).toEqual({ matched: 0, removed: 0 });
+      expect(count()).toBe(before);
+    });
+  });
+
   it("addMemory + getMemories round-trip", async () => {
     const entry = await repo.addMemory({ content: "use pnpm not npm", target: "failure" });
     expect(entry.id).toBeGreaterThan(0);

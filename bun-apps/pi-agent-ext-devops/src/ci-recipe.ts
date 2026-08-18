@@ -38,7 +38,14 @@ import { ONESHOT_SMOKE_GATE_NAME, runOneshotSmoke, type OneshotSmokeResult } fro
 
 export interface CiPackageResult {
 	name: string;
-	typecheck?: { exitCode: number; skipped?: boolean; note?: string; durationMs?: number };
+	typecheck?: {
+		exitCode: number;
+		skipped?: boolean;
+		note?: string;
+		durationMs?: number;
+		/** Captured output tail on a FAILED typecheck (see `failureDetail`). */
+		detail?: string;
+	};
 	test: {
 		exitCode: number;
 		note?: string;
@@ -52,6 +59,8 @@ export interface CiPackageResult {
 		/** The command as executed, for matrix rows (the row's `test-cmd`). */
 		command?: string;
 		durationMs?: number;
+		/** Captured output tail on a FAILED test run (see `failureDetail`). */
+		detail?: string;
 	};
 }
 
@@ -271,6 +280,55 @@ function auditCommand(file: string): string {
 	return `bash scripts/${file}`;
 }
 
+/**
+ * Last `MAX_TAIL_LINES` lines of a failed command's output, for `detail`.
+ *
+ * Every spawn here already captures stdout/stderr — until now the recipe threw
+ * both away and kept only the exit code, so a red package or gate reported a
+ * bare number and nothing to act on. (`CiGateResult.detail` was even documented
+ * as "captured tail"; nothing ever captured one.) A red main that cannot be
+ * diagnosed from its own report sends the reader back to re-run the whole suite
+ * by hand, which is how an intermittent failure gets waved through as a flake.
+ *
+ * Only populated on a NON-ZERO exit: on green there is nothing to explain, and
+ * carrying every passing package's output would bloat a JSON payload that
+ * callers print verbatim.
+ *
+ * The two streams are tailed and labelled SEPARATELY rather than concatenated —
+ * they are captured as two strings, so their true interleaving is already lost
+ * and inventing one would misrepresent the order. `bun test` puts the failure
+ * summary on stderr and progress on stdout, so the interesting half is usually
+ * the stderr block.
+ */
+const MAX_TAIL_LINES = 40;
+const MAX_TAIL_CHARS = 4000;
+
+function tailOf(stream: string): string {
+	const lines = stream.replace(/\s+$/, "").split("\n");
+	const tail = lines.slice(-MAX_TAIL_LINES).join("\n");
+	return tail.length > MAX_TAIL_CHARS ? `…${tail.slice(-MAX_TAIL_CHARS)}` : tail;
+}
+
+export function failureDetail(r: { stdout: string; stderr: string; exitCode: number }): string | undefined {
+	if (r.exitCode === 0) return undefined;
+	const blocks: string[] = [];
+	const out = tailOf(r.stdout ?? "");
+	const err = tailOf(r.stderr ?? "");
+	if (err) blocks.push(`stderr (last ${MAX_TAIL_LINES} lines):\n${err}`);
+	if (out) blocks.push(`stdout (last ${MAX_TAIL_LINES} lines):\n${out}`);
+	return blocks.length > 0 ? blocks.join("\n\n") : undefined;
+}
+
+/**
+ * Spread form: `{ detail }` on failure, `{}` on success. An absent key rather
+ * than an explicit `detail: undefined` keeps the JSON payload — and every
+ * `toEqual` in the tests — unchanged for passing rows.
+ */
+function detailOf(r: { stdout: string; stderr: string; exitCode: number }): { detail?: string } {
+	const detail = failureDetail(r);
+	return detail ? { detail } : {};
+}
+
 /** JSON.parse that returns null on empty/garbage (never throws). */
 function parseJson(s: string): unknown {
 	try {
@@ -371,10 +429,10 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 		const t0 = now();
 		if (typeof scripts.typecheck === "string") {
 			const r = await spawn("bun", ["run", "typecheck"], { cwd: pkgDir, timeoutMs });
-			result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0 };
+			result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0, ...detailOf(r) };
 		} else if (typeof scripts.check === "string" && /tsc/.test(scripts.check)) {
 			const r = await spawn("bun", ["run", "check"], { cwd: pkgDir, timeoutMs });
-			result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0 };
+			result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0, ...detailOf(r) };
 		} else {
 			result.typecheck = { exitCode: -1, skipped: true, note: "no tsc key" };
 		}
@@ -419,6 +477,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 						command: matrixCmd,
 						durationMs: now() - t0,
 						...(r.exitCode === SPAWN_TIMEOUT_EXIT_CODE ? { note: timedOutNote } : {}),
+						...detailOf(r),
 					};
 				} else if (typeof scripts.test === "string") {
 					const r = await spawn("bun", ["run", "test"], { cwd: pkgDir, timeoutMs });
@@ -427,6 +486,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 						source: "package-script",
 						durationMs: now() - t0,
 						...(r.exitCode === SPAWN_TIMEOUT_EXIT_CODE ? { note: timedOutNote } : {}),
+						...detailOf(r),
 					};
 				} else {
 					result.test = { exitCode: -1, note: "no test script" };
@@ -496,7 +556,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 				if (opts.signal?.aborted) break;
 				const cwd = spec.cwd === "." ? opts.repoRoot : `${opts.repoRoot}/${spec.cwd}`;
 				const r = await spawn("bash", ["-c", spec.run], { cwd });
-				gates.push({ name: spec.name, exitCode: r.exitCode });
+				gates.push({ name: spec.name, exitCode: r.exitCode, ...detailOf(r) });
 			}
 			// oneshot-smoke — the ONE gate hand-added beside the workflow-derived set,
 			// and it can never have a workflow home: it boots the real pi-agent CLI,
