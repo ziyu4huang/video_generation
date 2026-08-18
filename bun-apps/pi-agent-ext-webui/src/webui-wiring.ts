@@ -118,6 +118,20 @@ export interface WebuiSessionCtx {
  * tiny; the real {@link ExtensionAPI} is a structural superset (assigned at
  * the extensions/webui.ts entry via a cast).
  */
+/** webui-readability G1: concat the text parts of an AgentMessage content
+ * array (defensive — unknown shapes yield ""). */
+function assistantText(message: unknown): string {
+  const content = (message as { content?: unknown } | null | undefined)?.content;
+  if (!Array.isArray(content)) return "";
+  let out = "";
+  for (const part of content) {
+    if (part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string") {
+      out += (part as { text: string }).text;
+    }
+  }
+  return out;
+}
+
 export interface WebuiHost {
   on(event: string, handler: (event: any, ctx: any) => any): void;
   /**
@@ -1191,6 +1205,17 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   reg("agent_settled", () => controller.handleSettled());
   reg("message_update", () => controller.handleActivity());
   reg("tool_execution_update", () => controller.handleActivity());
+
+  // webui-readability G1: the assistant's FINAL text reaches the browser —
+  // ONE message_end frame per assistant message (the v3 diet holds: the
+  // per-delta message_update family still broadcasts nothing). message_end
+  // carries the final authoritative message (pi docs json.md); empty text
+  // broadcasts nothing (no empty bubbles). Stays in SNOOP_SKIP_EVENTS — the
+  // card snoop never projected it either.
+  reg("message_end", (event) => {
+    const text = assistantText((event as { message?: unknown }).message);
+    if (text !== "") broadcaster.broadcast({ type: "message_end", text });
+  });
 
   // lifecycle — lazy server start on first session_start; re-point on subsequent.
   reg("session_start", (_event, ctx) => {

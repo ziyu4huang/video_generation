@@ -166,11 +166,14 @@ describe("wireWebui — construction", () => {
     // webui-v3 (02) D4 diet: the log family no longer registers ANY broadcast
     // handler — gate handlers (agent_settled / message_update /
     // tool_execution_update) remain; the outbound broadcast set is gone.
+    // webui-readability G1 adds message_end (assistant final text -> ONE
+    // frame per message; the per-delta family still broadcasts nothing).
     const expected = [
       "input",
       "agent_settled",
       "message_update",
       "tool_execution_update",
+      "message_end",
       "session_start",
       "session_shutdown",
     ];

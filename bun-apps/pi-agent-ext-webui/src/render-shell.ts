@@ -78,6 +78,13 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   #composer input { flex: 1; padding: .35rem .55rem; border-radius: 6px; border: 1px solid #8884; background: #0000; color: inherit; font-size: .8rem; }
   #composer button { padding: .35rem .7rem; border-radius: 6px; border: 1px solid #8884; background: #0000; color: inherit; font-size: .8rem; cursor: pointer; }
   #webui-abort { color: #f88; }
+  /* webui-readability G1: the Inbox chat feed — user echo rows + assistant
+     markdown bubbles (sandboxed iframes; page-origin innerHTML stays banned). */
+  #chat-feed { display: flex; flex-direction: column; gap: .4rem; padding: .4rem 1rem; max-width: 1500px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+  #chat-feed[hidden] { display: none; }
+  .chat-row.user { align-self: flex-end; max-width: 80%; background: #1f6feb33; border: 1px solid #1f6feb55; border-radius: 10px; padding: .3rem .55rem; font-size: .8rem; white-space: pre-wrap; word-break: break-word; }
+  .chat-row.assistant { align-self: stretch; border-left: 2px solid #6cf6; padding-left: .5rem; }
+  iframe.chat-md { width: 100%; border: 0; background: #0000; }
   .btw-box .btw-send, .btw-entry .btw-resolve { align-self: flex-start; margin-top: .35rem; padding: .35rem .9rem; border-radius: 6px; border: 1px solid #6cf; background: #6cf3; color: inherit; cursor: pointer; font-size: .8rem; }
   .btw-entry .btw-resolve { border-color: #8886; background: #8882; font-size: .72rem; padding: .2rem .6rem; }
   .btw-chips { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .3rem; }
@@ -157,6 +164,7 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
 <main>
   <div id="content"></div>
   <section id="report-pane" hidden></section>
+  <div id="chat-feed"></div>
   <section id="cards-pane"></section>
   <section id="more-pane" hidden>
     <section id="data-pane"></section>
@@ -352,11 +360,49 @@ function sendRaw(payload) {
   return false;
 }
 
+// webui-readability G1: assistant bubbles — markdown via /api/markdown (the
+// Report marked pipeline), displayed in a sandboxed iframe (the shell's
+// security boundary; agent HTML never runs in page origin). The sandbox
+// forbids scripts so the frame cannot self-size — a crude line heuristic
+// sizes it and long text scrolls inside the frame; the escaped plain text is
+// the instant fallback while the fetch renders.
+function chatMdHeight(text) {
+  var lines = String(text).split('\n').length;
+  return Math.min(480, Math.max(72, 24 + lines * 20));
+}
+function mdDoc(body) {
+  return '<!doctype html><meta charset="utf-8"><body style="margin:0;font:13px/1.5 -apple-system,system-ui,sans-serif;color:#dbdbdb;background:transparent">' + body + '</body>';
+}
+function renderChatAssistant(text) {
+  if (!chatFeedEl || !text) return;
+  var row = document.createElement('div');
+  row.className = 'chat-row assistant';
+  var f = document.createElement('iframe');
+  f.className = 'chat-md';
+  f.setAttribute('sandbox', '');
+  f.height = chatMdHeight(text);
+  f.srcdoc = mdDoc(text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+  row.appendChild(f);
+  chatFeedEl.appendChild(row);
+  fetch('/api/markdown', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text }) })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) { if (d && typeof d.html === 'string') f.srcdoc = mdDoc(d.html); })
+    .catch(function () { /* keep the escaped-text fallback */ });
+}
+function appendChatUser(text) {
+  if (!chatFeedEl || !text) return;
+  var row = document.createElement('div');
+  row.className = 'chat-row user';
+  row.textContent = text;
+  chatFeedEl.appendChild(row);
+}
+
 // chat-restore (webui-simplify §1): the Inbox composer — a thin second
 // client. Send rides {type:'prompt'} through sendRaw (queued while the WS is
-// down, flushed on open); the user's text echoes client-side into the feed;
-// assistant text already streams as message_update frames in the same feed.
-// The IME guard is MANDATORY (a CJK IME's confirmation Enter must never send).
+// down, flushed on open); the user's text echoes client-side into the feed
+// (appendChatUser — G1); the assistant's FINAL text arrives as message_end
+// frames (G1). The IME guard is MANDATORY (a CJK IME's confirmation Enter
+// must never send).
 (function () {
   var input = document.getElementById('webui-input');
   var sendBtn = document.getElementById('webui-send');
@@ -366,6 +412,7 @@ function sendRaw(payload) {
     var text = input.value.trim();
     if (!text) return;
     sendRaw(JSON.stringify({ type: 'prompt', text: text }));
+    appendChatUser(text); // G1: the visible chat row (the log line stays for HITL traces)
     logResponse('you: ' + text);
     input.value = '';
   }
@@ -417,6 +464,7 @@ function txApply(frame) {
       if (ss) ss.textContent = (frame.cwd || '') + (frame.branch ? ' (' + frame.branch + ')' : '');
       break;
     }
+    case 'message_end': renderChatAssistant(frame.text || ''); break; // webui-readability G1: final assistant text
     case 'card': renderCard(frame); break;
     case 'card_done': retireCard(frame); break; // event-cards (02) tombstone
     case 'report': renderReport(frame); break; // tab-views (01)
@@ -428,6 +476,7 @@ function txRenderSnapshot(state) {
   // webui-v3 (03): authoritative replay — panes reset, then txApply re-appends
   // (kept-family frames only: cards / reports / ask / status).
   if (cardsPaneEl) cardsPaneEl.textContent = '';
+  if (chatFeedEl) chatFeedEl.textContent = ''; // G1: chat history replays from transcript message_end frames
   if (reportPaneEl) reportPaneEl.textContent = '';
   if (dataPaneEl) dataPaneEl.textContent = '';
   if (state && Array.isArray(state.transcript)) state.transcript.forEach(txApply);
@@ -443,6 +492,7 @@ function txRenderSnapshot(state) {
 const cardsPaneEl = document.getElementById('cards-pane');
 const reportPaneEl = document.getElementById('report-pane');
 const dataPaneEl = document.getElementById('data-pane');
+const chatFeedEl = document.getElementById('chat-feed');
 let activePane = 'events'; // webui-simplify §2: 'report'|'events'(Inbox)|'more'|null — Inbox at boot
 let cardsVisible = false;
 
@@ -490,6 +540,7 @@ function setPane(name) {
   if (morePaneEl) morePaneEl.hidden = name !== 'more';
   var composerEl = document.getElementById('composer');
   if (composerEl) composerEl.hidden = name !== 'events'; // chat lives in the Inbox only
+  if (chatFeedEl) chatFeedEl.hidden = name !== 'events'; // G1: the chat feed too
   if (name === 'more') { renderBtwPane(); renderDataPane(); btwPollStart(); } else { btwPollStop(); }
   for (const tn of ['report', 'more']) {
     const el = document.getElementById('pane-tab-' + tn);
