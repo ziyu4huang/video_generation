@@ -27,6 +27,7 @@ import { dirname, join } from "node:path";
 
 type Rec = {
   status?: string;
+  startedAt?: string; // ISO timestamp — new-run detection under the rolling window
   usage?: { total?: number };
   turns?: { turnsUsed?: number };
   budget?: { source?: "explicit" | "envelope-recon" | "envelope-writer" | "tier" };
@@ -203,13 +204,23 @@ if (doSnapshot) {
 
 if (doTrend) {
   const rows = readHistory(trendFile ?? DEFAULT_HISTORY);
-  let lastDelta = 0;
+  // The runs DB is a ~200-record ROLLING window: new runs evict old ones, so
+  // totalRuns never grows and total-deltas are always ~0. New-run detection
+  // must instead compare each record's startedAt against snapshot dates.
+  const recs = readRuns(dir);
+  const startedAt = (r: Rec): string | undefined => (typeof r.startedAt === "string" ? r.startedAt : undefined);
   rows.forEach((r, i) => {
     const total = Number(r.totalRuns ?? 0) || 0;
-    // First row (or a single-row history) is a delta vs 0 = its own totalRuns.
-    const prev = i === 0 ? 0 : Number(rows[i - 1]?.totalRuns ?? 0) || 0;
-    const delta = total - prev;
-    lastDelta = delta;
+    // Interval accrual: records whose startedAt falls in (prev row's date,
+    // this row's date]; the first row has no prior snapshot, so everything
+    // up to its date counts (surviving-window floor of the old delta-vs-0).
+    const prevDate = i === 0 ? undefined : rows[i - 1]?.date;
+    const delta = recs.filter((m) => {
+      const s = startedAt(m);
+      if (s === undefined) return false;
+      if (r.date === undefined || s > r.date) return false;
+      return !(prevDate !== undefined && s <= prevDate);
+    }).length;
     const cohorts = r.cohorts
       ? Object.entries(r.cohorts)
           .map(([k, c]) => `${k} n=${c.n ?? 0} tokenMedian=${c.tokenMedian ?? "-"}`)
@@ -217,6 +228,17 @@ if (doTrend) {
       : "-";
     console.log(`${r.date ?? "-"} | total=${total} | runsSinceLast=${delta} | cohorts: ${cohorts}`);
   });
+  // Gate: count of run records strictly newer than the LAST ledger snapshot's
+  // date (ISO string compare). Total-deltas can never arm under the rolling
+  // window; startedAt vs the last snapshot's date can.
+  const lastDate = rows.length > 0 ? rows[rows.length - 1]?.date : undefined;
+  const lastDelta =
+    lastDate !== undefined
+      ? recs.filter((m) => {
+          const s = startedAt(m);
+          return s !== undefined && s > lastDate;
+        }).length
+      : 0;
   if (lastDelta >= 100) console.log(`GATE: ${lastDelta} runs since last snapshot — ARMED`);
   else console.log(`GATE: NOT ARMED (need ${100 - lastDelta} more)`);
 }
