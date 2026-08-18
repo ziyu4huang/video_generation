@@ -1,7 +1,7 @@
 ---
 type: code
 blocking: none
-status: open
+status: done
 ---
 
 # 02 Subagent maxTurns default (spec M2, authorized in grill D5)
@@ -23,3 +23,11 @@ without touching token ceilings or explicit caller values?
 - ( cd bun-apps/pi-agent-ext-subagent && bun run test && bun run typecheck )
   green (test = check + build + test:unit).
 - New tests present and passing; no behavior change for explicit maxTurns.
+
+## Completion 2026-08-18
+Re-scoped on execution: role-aware maxTurns defaults ALREADY landed via the
+parallel dispatch-budget-rebalance work (ROLE_AWARE_DISPATCH_BOUNDS: recon 12 /
+writer 28, 2026-08-18 ledger rebalance — same 200-run census). The delta this
+ticket ships: SUBAGENT_MAX_TURNS env valve replacing the envelope's turn cap
+(replace semantics, mirroring SUBAGENT_TOKEN_BUDGET_<TIER>), +3 tests, README
+row. Explicit params still opt the whole envelope out.

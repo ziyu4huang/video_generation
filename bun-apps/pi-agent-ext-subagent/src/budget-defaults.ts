@@ -47,6 +47,7 @@ const ENV_KEYS = {
   medium: "SUBAGENT_TOKEN_BUDGET_MEDIUM",
   big: "SUBAGENT_TOKEN_BUDGET_BIG",
   multiplier: "SUBAGENT_TOKEN_BUDGET_MULTIPLIER",
+  maxTurns: "SUBAGENT_MAX_TURNS",
 } as const;
 
 /** "1" or "true" (case-insensitive) → true; anything else (incl. unset) → false. */
@@ -188,11 +189,16 @@ export function roleAwareDefaults(
     return { applied: false };
   }
   const bounds = ROLE_AWARE_DISPATCH_BOUNDS[role];
+  // #02 SUBAGENT_MAX_TURNS: global turn-cap valve over the role envelope —
+  // replaces the role's maxTurns when set (positive integer), mirroring how
+  // SUBAGENT_TOKEN_BUDGET_<TIER> replaces a tier ceiling. Explicit params
+  // still opt the whole envelope out (checked above).
+  const envMaxTurns = parsePositiveInt(process.env[ENV_KEYS.maxTurns]);
   return {
     applied: true,
     tokenBudget:
       role === "recon" && tierCeiling !== undefined ? Math.min(bounds.tokenBudget, tierCeiling) : bounds.tokenBudget,
-    maxTurns: bounds.maxTurns,
+    maxTurns: envMaxTurns ?? bounds.maxTurns,
     timeoutMs: bounds.timeoutMs,
     notice: `bounds: defaults applied (${role}) — pass tokenBudget/maxTurns/timeoutMs to override`,
   };
