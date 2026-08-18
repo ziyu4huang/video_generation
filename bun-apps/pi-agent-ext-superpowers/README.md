@@ -1,17 +1,17 @@
 # pi-agent-ext-superpowers
 
-Pi-native port of [Superpowers](https://github.com/primeradiant/superpowers) — a complete software-development methodology built on composable skills (brainstorming → writing-plans → executing-plans → subagent-driven-development → verification, plus systematic-debugging, test-driven-development, code-review, git-worktrees, etc.).
+Pi-native port of [Superpowers](https://github.com/primeradiant/superpowers) — a complete software-development methodology built on composable skills (brainstorming → writing-plans → executing-plans → subagent-driven-development → verification, plus systematic-debugging, test-driven-development, code-review, git-worktrees, dispatch-recovery (repo-native: janitor-first child-death recovery), etc.).
 
 This package ships Superpowers as a **Layer-3 Pi extension**:
 
-- **14 skills** ported **verbatim** from the upstream repo (`skills/*`).
+- **15 skills**: 14 ported **verbatim** from the upstream repo + 1 repo-native (`dispatch-recovery`).
 - A `using-superpowers` **bootstrap** that Pi injects into context once per session/compaction (until the first `agent_end`), so the agent treats Superpowers as already-loaded instead of re-reading the skill — a Pi-port of upstream `.pi/extensions/superpowers.ts`.
 
 Only the Pi extension wrapper (`src/`, `extensions/`, `tests/`, config) is this package's own code. Skill content is kept byte-identical to upstream; do not reformat or rewrite it (the `skills` dir is excluded from biome for that reason).
 
 ## How it works
 
-1. `resources_discover` → hands Pi the package's `skills/` dir; all 14 skills load natively as Pi skills.
+1. `resources_discover` → hands Pi the package's `skills/` dir; all 15 skills load natively as Pi skills.
 2. `session_start` / `session_compact` → re-arm bootstrap injection.
 3. `context` → if armed and the bootstrap is absent from the visible messages, insert the `using-superpowers` payload (skill body + a Pi tool-mapping note + path/routing overrides) right after any leading `compactionSummary` messages.
 4. `agent_end` → stand down for the rest of the session.
@@ -28,7 +28,7 @@ No slash commands, no coordination globals — Superpowers is skill-driven, not 
 extensions/superpowers.ts   # thin Pi entry — delegates to src/index.ts
 src/index.ts          # default factory (re-export)
 src/superpowers.ts    # discovery + bootstrap logic (port of upstream .pi/extensions/superpowers.ts)
-skills/               # 14 skills, byte-identical to upstream (assets — excluded from biome)
+skills/               # 15 skills: 14 byte-identical upstream ports + repo-native dispatch-recovery (assets — excluded from biome)
 tests/                # skills.test.ts (Pi-loader rules) + bootstrap.test.ts (wiring)
 ```
 

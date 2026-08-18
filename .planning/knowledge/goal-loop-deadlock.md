@@ -35,3 +35,17 @@
 - Fix implications tracked in issue #1616 (5 comments): in-driver per-iteration
   persisted-status re-read that defers to explicit completion records;
   goal_complete must ship with goal mode; toggle must write state immediately.
+
+## RESOLUTION (2026-08-18)
+
+- Repo-side mitigation LANDED: no-progress tripwire — 3 consecutive zero-tool-call
+  continuations auto-pause the goal (PR #1625, squash 3b0e0860, 18/18 gates).
+- Root cause definitive: goal_complete registers unconditionally
+  (pi-agent-ext-task src/goal/goal.ts:77-79) but carries gating: { core: true }
+  (goal-complete-tool.ts:84-85) — the harness curates core-gated tools per
+  session and omitted it. Full chain on issue #1616 (9 comments).
+- Candidate skill goal-loop-hygiene: SUPERSEDED — do not promote. The landed
+  tripwire automates what it would teach; promoting now fails the need-gate.
+- Remaining work is harness-side (ship core-gated goal_complete with goal mode,
+  default continuation budget, heartbeat availability check) — tracked on #1616.
+- Live-loop stop remains: /goal pause or exit to a fresh session (restart-safe).
