@@ -929,3 +929,112 @@ describe("runLocalCi — each package's test runs exactly once", () => {
 		expect(calls.filter((c) => pkgOf(c.cwd) === "pkg-a" && c.args[1] === "test").length).toBe(1);
 	});
 });
+
+/**
+ * Failure DETAIL — the captured output tail on a red row.
+ *
+ * Before this, every spawn's stdout/stderr was discarded and a failing package
+ * or gate reported a bare exit code. A `main_health` run that says
+ * `pi-agent test.exitCode = 1` and nothing else cannot be acted on: the reader
+ * has to re-run the suite by hand to learn anything, and an intermittent
+ * failure that passes on the re-run gets written off as a flake with no
+ * evidence either way. That is what happened on 2026-08-18.
+ *
+ * The invariant these pin: a NON-ZERO row carries a tail, a ZERO row carries
+ * NO `detail` key at all (not `undefined` — absent), so green payloads and the
+ * `toEqual` assertions above are byte-identical to before.
+ */
+describe("runLocalCi — failure detail", () => {
+	const failWith = (stdout: string, stderr: string) => ({
+		match: (c: string, a: string[]) => c === "bun" && a[0] === "run" && a[1] === "test",
+		result: { stdout, stderr, exitCode: 1 },
+	});
+
+	test("a failed package test carries the stderr AND stdout tail", async () => {
+		const { fn } = mkSpawn([verifyOk(), failWith("running 3 tests", "error: expected 1, got 9")]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: mkDetect({ "pkg-a": true }).fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+			includeGates: false,
+		});
+		expect(out.overall).toBe("fail");
+		const detail = out.packages[0].test.detail;
+		expect(detail).toContain("error: expected 1, got 9");
+		expect(detail).toContain("running 3 tests");
+		// stderr first — `bun test` puts the failure summary there.
+		expect(detail!.indexOf("stderr")).toBeLessThan(detail!.indexOf("stdout"));
+	});
+
+	test("a PASSING package has no `detail` key at all", async () => {
+		const { fn } = mkSpawn([verifyOk()]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: mkDetect({ "pkg-a": true }).fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+			includeGates: false,
+		});
+		expect(out.overall).toBe("pass");
+		expect("detail" in out.packages[0].test).toBe(false);
+	});
+
+	test("a failed typecheck carries its own tail", async () => {
+		const { fn } = mkSpawn([
+			verifyOk(),
+			{
+				match: (c: string, a: string[]) => c === "bun" && a[0] === "run" && a[1] === "typecheck",
+				result: { stdout: "src/x.ts(3,1): error TS2304: Cannot find name 'foo'.", stderr: "", exitCode: 2 },
+			},
+		]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: mkDetect({ "pkg-a": true }).fn,
+			readPkg: mkReadPkg({ "pkg-a": { typecheck: "tsc --noEmit", test: "bun test" } }),
+			includeGates: false,
+		});
+		expect(out.packages[0].typecheck!.exitCode).toBe(2);
+		expect(out.packages[0].typecheck!.detail).toContain("TS2304");
+	});
+
+	test("a failed GATE carries a tail — the field its doc-comment always promised", async () => {
+		const { fn } = mkSpawn([
+			verifyOk(),
+			{
+				match: (c: string, a: string[]) => c === "bash" && a[1] === GATE_DEPS.run,
+				result: { stdout: "", stderr: "dep-guard: hermes -> hub edge reintroduced", exitCode: 1 },
+			},
+		]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: mkDetect({ "pkg-a": true }).fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+			readGates: fakeGates(),
+			runOneshotSmoke: async () => null,
+		});
+		const gate = out.gates.find((g) => g.name === GATE_DEPS.name)!;
+		expect(gate.exitCode).toBe(1);
+		expect(gate.detail).toContain("hermes -> hub edge reintroduced");
+		// the gate that passed stays bare.
+		expect("detail" in out.gates.find((g) => g.name === GATE_FILE_SIZE.name)!).toBe(false);
+	});
+
+	test("the tail is bounded to the LAST 40 lines", async () => {
+		const noisy = Array.from({ length: 200 }, (_, i) => `line-${i}`).join("\n");
+		const { fn } = mkSpawn([verifyOk(), failWith("", noisy)]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: mkDetect({ "pkg-a": true }).fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+			includeGates: false,
+		});
+		const detail = out.packages[0].test.detail!;
+		expect(detail).toContain("line-199");
+		expect(detail).toContain("line-160");
+		expect(detail).not.toContain("line-159");
+	});
+});

@@ -575,11 +575,13 @@ export class SqliteMemoryRepository implements MemoryRepository {
 
       const deleteParams = matchingIds.map((row) => row.id);
       const placeholders = deleteParams.map(() => "?").join(", ");
-      const result = this.db.prepare(`DELETE FROM memories WHERE id IN (${placeholders})`).run(...deleteParams);
+      this.db.prepare(`DELETE FROM memories WHERE id IN (${placeholders})`).run(...deleteParams);
 
+      // `removed` is the matched-id count, NOT the statement's `.changes` —
+      // see the note on setMdIdByContent below.
       return {
         matched: matchingIds.length,
-        removed: result.changes,
+        removed: matchingIds.length,
       };
     }));
   }
@@ -604,11 +606,13 @@ export class SqliteMemoryRepository implements MemoryRepository {
 
       const deleteParams = matchingIds.map((row) => row.id);
       const placeholders = deleteParams.map(() => "?").join(", ");
-      const result = this.db.prepare(`DELETE FROM memories WHERE id IN (${placeholders})`).run(...deleteParams);
+      this.db.prepare(`DELETE FROM memories WHERE id IN (${placeholders})`).run(...deleteParams);
 
+      // `removed` is the matched-id count, NOT the statement's `.changes` —
+      // see the note on setMdIdByContent below.
       return {
         matched: matchingIds.length,
-        removed: result.changes,
+        removed: matchingIds.length,
       };
     }));
   }
@@ -632,11 +636,13 @@ export class SqliteMemoryRepository implements MemoryRepository {
 
       const deleteParams = matchingIds.map((row) => row.id);
       const placeholders = deleteParams.map(() => "?").join(", ");
-      const result = this.db.prepare(`DELETE FROM memories WHERE id IN (${placeholders})`).run(...deleteParams);
+      this.db.prepare(`DELETE FROM memories WHERE id IN (${placeholders})`).run(...deleteParams);
 
+      // `removed` is the matched-id count, NOT the statement's `.changes` —
+      // see the note on setMdIdByContent below.
       return {
         matched: matchingIds.length,
-        removed: result.changes,
+        removed: matchingIds.length,
       };
     }));
   }
@@ -651,13 +657,39 @@ export class SqliteMemoryRepository implements MemoryRepository {
     }));
   }
 
+  /**
+   * WHY THESE COUNTS ARE NOT `.changes`
+   *
+   * `memories` carries FTS5 sync triggers (`memories_ai/_ad/_au`), and
+   * bun:sqlite's `Statement.run().changes` COUNTS THE ROWS A TRIGGER TOUCHES —
+   * unlike `sqlite3_changes()`, which excludes them by definition. Measured on
+   * this schema: updating ONE row reports 9; on a trigger-free table with a
+   * trigger inserting 2 log rows, a 1-row UPDATE reports 3. So `.changes` here
+   * is "rows the statement and its triggers wrote", which is not what
+   * `MemoryRemoveResult.removed` / this return value mean.
+   *
+   * It also made the two backends disagree on the same interface: the Surreal
+   * repo returns `matched.length` (a real row count) while SQLite returned an
+   * FTS-inflated number. Counting the matched ids — which the DELETE paths
+   * already SELECT, and which the UPDATE below now does too — gives both
+   * backends the same meaning, and is exact because the write targets those
+   * ids explicitly.
+   *
+   * The 0-vs-non-0 distinction was always right, which is why the one live
+   * caller (`memory-store`'s `> 0` mirror check) never misbehaved and nothing
+   * caught this for as long as it existed.
+   */
   async setMdIdByContent(content: string, mdId: string, options: MemoryRemoveOptions): Promise<number> {
     return runWithTransientRetry(() => this.backend.withCorruptionRecovery(() => {
-      const params: unknown[] = [mdId];
+      const params: unknown[] = [];
       const conditions = buildScopeConditions(params, options.target, options.project ?? undefined);
       conditions.push("content = ?"); params.push(content.trim());
-      const res = this.db.prepare(`UPDATE memories SET md_id = ? WHERE ${conditions.join(" AND ")}`).run(...params);
-      return res.changes;
+      const matchingIds = this.db.prepare(`SELECT id FROM memories WHERE ${conditions.join(" AND ")}`).all(...params) as Array<{ id: number }>;
+      if (matchingIds.length === 0) return 0;
+      const ids = matchingIds.map((row) => row.id);
+      const placeholders = ids.map(() => "?").join(", ");
+      this.db.prepare(`UPDATE memories SET md_id = ? WHERE id IN (${placeholders})`).run(mdId, ...ids);
+      return ids.length;
     }));
   }
 
