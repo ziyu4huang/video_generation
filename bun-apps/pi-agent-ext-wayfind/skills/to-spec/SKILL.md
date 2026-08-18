@@ -35,3 +35,11 @@ Required sections:
 7. **Further Notes** — anything else worth recording.
 
 Write the file to `.planning/<effort>/spec.md` (never `docs/specs/` or anywhere else — superpowers' `brainstorming` converges on the same `.planning/` home; its no-effort specs land in the flat `.planning/specs/`, a separate entry path). Tell the user the path.
+
+## Dispatch discipline
+
+When this skill dispatches subagents: superpowers:dispatch-recovery is the
+single source (trust rules, janitor-first recovery, verbatim-apply, ledger).
+Size BEFORE sending — maxTurns >= task steps + 2, tokenBudget by tier ceiling;
+author content parent-side (verbatim-apply) and put all reads in turn 1
+(mega-block).

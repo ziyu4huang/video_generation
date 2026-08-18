@@ -24,3 +24,11 @@ Finding _facts_ is your job, never the user's. When a frontier question needs a 
 But the environment reflects the current branch, which may lag the line of development — before treating gathered facts as ground truth for a decision, confirm the branch is current (`/wayfind` checks this; otherwise `git rev-list --count HEAD..origin/<default>`); if behind, say so and prefer rebasing.
 
 The session is done when the frontier is empty: every branch of the design tree visited, nothing left silently assumed. Do not act on it until the user confirms you have reached a shared understanding.
+
+## Dispatch discipline
+
+When this skill dispatches subagents: superpowers:dispatch-recovery is the
+single source (trust rules, janitor-first recovery, verbatim-apply, ledger).
+Size BEFORE sending — maxTurns >= task steps + 2, tokenBudget by tier ceiling;
+author content parent-side (verbatim-apply) and put all reads in turn 1
+(mega-block).

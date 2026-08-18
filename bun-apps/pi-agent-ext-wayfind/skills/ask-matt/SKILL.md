@@ -105,3 +105,11 @@ Off the main flow entirely.
 - **wizard** — for the steps only a **human** can take: provisioning infrastructure, setting up credentials or CI secrets, clicking through an unfamiliar third-party dashboard, running a one-off migration or cutover. It generates an interactive bash script that opens each URL, captures each value, and writes it into `.env` and GitHub secrets — so the procedure stops being something you re-explain to an agent every time. Model-reachable, so the agent reaches for it the moment it hits a wall only you can pass. If the agent could just do it itself, it should; this is for where a human is genuinely in the loop.
 - **teach** — learn a concept over multiple sessions, using the current directory as a stateful workspace.
 - **wait-what** — a message did not land. Stop and re-pitch it from scratch in Simplified Technical English using the project's ubiquitous language — a sentence of context, where you are, what's next, nothing else. The conversational repair when you (or the user) lost the thread.
+
+## Dispatch discipline
+
+When this skill dispatches subagents: superpowers:dispatch-recovery is the
+single source (trust rules, janitor-first recovery, verbatim-apply, ledger).
+Size BEFORE sending — maxTurns >= task steps + 2, tokenBudget by tier ceiling;
+author content parent-side (verbatim-apply) and put all reads in turn 1
+(mega-block).
