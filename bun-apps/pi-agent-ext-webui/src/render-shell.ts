@@ -78,6 +78,17 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   #composer input { flex: 1; padding: .35rem .55rem; border-radius: 6px; border: 1px solid #8884; background: #0000; color: inherit; font-size: .8rem; }
   #composer button { padding: .35rem .7rem; border-radius: 6px; border: 1px solid #8884; background: #0000; color: inherit; font-size: .8rem; cursor: pointer; }
   #webui-abort { color: #f88; }
+  /* webui-readability G2: mobile pass — check the agent from a phone. Narrow
+     viewports: wrap the tab strip, pin the composer above the keyboard, stop
+     iOS zoom-on-focus (16px inputs), grow touch targets, shrink gutters. */
+  @media (max-width: 720px) {
+    #tabs { flex-wrap: wrap; }
+    #tabs .tab { padding: .45rem .6rem; min-height: 40px; box-sizing: border-box; }
+    #composer { position: sticky; bottom: 0; background: #0d1117; z-index: 5; padding: .5rem .6rem; }
+    #composer input, #composer button { font-size: 16px; min-height: 40px; box-sizing: border-box; }
+    .btw-box textarea, .btw-box input, .btw-box select { font-size: 16px; }
+    #report-pane, #cards-pane, #chat-feed, #more-pane { padding: .4rem .6rem; }
+  }
   /* webui-readability G1: the Inbox chat feed — user echo rows + assistant
      markdown bubbles (sandboxed iframes; page-origin innerHTML stays banned). */
   #chat-feed { display: flex; flex-direction: column; gap: .4rem; padding: .4rem 1rem; max-width: 1500px; width: 100%; margin: 0 auto; box-sizing: border-box; }
