@@ -53,14 +53,18 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
      column; panes fill the remaining height and scroll internally, so the
      surface adapts to ANY browser size (dvh tracks mobile chrome too). */
   body { margin: 0; font: 14px/1.5 -apple-system, system-ui, sans-serif; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
-  header { display: flex; gap: .5rem; padding: .5rem; border-bottom: 1px solid #8884; flex-wrap: wrap; flex: 0 0 auto; }
+  header { display: flex; gap: .5rem; padding: .5rem 1rem; border-bottom: 1px solid #8884; flex-wrap: wrap; flex: 0 0 auto; }
   .tab { padding: .35rem .7rem; border-radius: 6px; cursor: pointer; border: 1px solid transparent; background: #8882; }
   .tab.active { border-color: #6cf; background: #6cf3; }
-  main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 1rem; max-width: 1500px; width: 100%; margin: 0 auto; overflow: hidden; }
+  main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 1rem 0; width: 100%; overflow: hidden; }
   /* dynamic shell: #content (present surface) fills + scrolls like the panes;
      entirely hidden while idle so the active pane gets the full height. */
-  #content { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .4rem; overflow-y: auto; }
+  #content { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .4rem; padding: 0 1rem; overflow-y: auto; }
   #content:empty { display: none; }
+  /* full-bleed scroll: panes span the viewport so the scrollbar sits at the
+     browser edge; the reading-measure cap moved HERE (content layer) so the
+     capped-column layout is preserved on wide screens. */
+  #content > *, #cards-pane .card, #report-pane article { max-width: 1500px; width: 100%; margin-left: auto; margin-right: auto; }
   .meta { color: #888; font-size: .8rem; margin-bottom: .5rem; }
   #content iframe { width: 100%; min-height: 70vh; border: 1px solid #8884; border-radius: 6px; background: #fff; }
   #content :is(pre,table) { background: #8881; padding: .5rem; border-radius: 4px; overflow:auto; }
@@ -84,9 +88,9 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   /* event-cards (01): Cards tab pane — projected card frames. Every field is
      textContent-rendered (raw HTML injection forbidden); the article id is the
      deep-link anchor; newest LAST (chronological). Badge color per attention. */
-  #cards-pane { display: flex; flex-direction: column; gap: .5rem; padding: .4rem 0; flex: 1; min-height: 0; overflow-y: auto; }
+  #cards-pane { display: flex; flex-direction: column; gap: .5rem; padding: .4rem 1rem; flex: 1; min-height: 0; overflow-y: auto; }
   #cards-pane[hidden] { display: none; } /* the flex display must not defeat [hidden] */
-  #report-pane, #data-pane { display: flex; flex-direction: column; gap: .4rem; padding: .4rem 0; flex: 1; min-height: 0; overflow-y: auto; }
+  #report-pane, #data-pane { display: flex; flex-direction: column; gap: .4rem; padding: .4rem 1rem; flex: 1; min-height: 0; overflow-y: auto; }
   #report-pane[hidden], #data-pane[hidden] { display: none; }
   /* webui-v3 fix (report-iframe): html reports render in a sandboxed iframe
      that NO other rule sizes — the browser default is 300x150, unreadable for
