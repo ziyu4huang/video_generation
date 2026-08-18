@@ -47,7 +47,14 @@ export interface WebuiAuditState {
   panes: Array<{
     id: string;
     hidden: boolean;
-    articles: Array<{ id: string; kind: string; attention: string; title: string }>;
+    articles: Array<{
+    id: string;
+    kind: string;
+    attention: string;
+    title: string;
+    /** report-iframe-sized (inv 7): first iframe rect, when present. */
+    iframe?: { w: number; h: number };
+  }>;
   }>;
   consoleErrors: string[];
   pageErrors: string[];
@@ -60,7 +67,7 @@ export interface WebuiAuditFinding {
 }
 
 /**
- * The six design invariants of the v3 simplify effort. Family-tolerant where
+ * The design invariants of the v3 simplify effort (seven as of inv 7). Family-tolerant where
  * v2 and v3 legitimately differ (pane families, rest-state visibility) and
  * strict where the design is absolute (at most one visible pane, zero errors).
  * The tool DETECTS the live state; it never assumes which version is running.
@@ -138,6 +145,35 @@ export function evaluateInvariants(state: WebuiAuditState): WebuiAuditFinding[] 
         : `misplaced: ${reportOffenders.join(", ")}`,
   });
 
+  // report-iframe-sized (inv 7): the #1576 bug class — the html-report iframe
+  // rendered at the browser default 304x150 because NO sizing rule matched it
+  // — passed all six prior invariants. Sized iframes in report panes must be
+  // readable: >= 320x300. Thresholds catch the 300x150 default on ANY sane
+  // viewport (a 390px-wide phone pane still measures ~358 wide) while never
+  // failing a healthy 70vh frame (>= ~400 tall even on short windows). An
+  // absent iframe field (older shells, markdown articles) is not checked.
+  const IFRAME_MIN_W = 320;
+  const IFRAME_MIN_H = 300;
+  const reportPanes7 = state.panes.filter((pane) => pane.id.includes("report"));
+  // 0x0 = unmeasured (markdown article, older shell, or a pane the tab loop
+  // never managed to show) — not evidence of an undersized frame.
+  const sizedFrames = reportPanes7.flatMap((pane) =>
+    pane.articles.filter((a) => a.iframe && !(a.iframe.w === 0 && a.iframe.h === 0)),
+  );
+  const undersized = sizedFrames
+    .filter((a) => a.iframe!.w < IFRAME_MIN_W || a.iframe!.h < IFRAME_MIN_H)
+    .map((a) => `${a.id} at ${a.iframe!.w}x${a.iframe!.h}`);
+  findings.push({
+    check: "report-iframe-sized",
+    pass: undersized.length === 0,
+    detail:
+      sizedFrames.length === 0
+        ? `no sized html-report iframes present (markdown articles only)`
+        : undersized.length === 0
+          ? `${sizedFrames.length} report iframe(s) sized >= ${IFRAME_MIN_W}x${IFRAME_MIN_H}`
+          : `undersized (min ${IFRAME_MIN_W}x${IFRAME_MIN_H}): ${undersized.join(", ")}`,
+  });
+
   // zero-page-errors / zero-console-errors: the webui must load clean.
   findings.push({
     check: "zero-page-errors",
@@ -204,12 +240,16 @@ function collectDom(): WebuiDom {
       panes.push({
         id: el.id,
         hidden: el.hasAttribute("hidden"),
-        articles: Array.from(el.querySelectorAll("article"), (a) => ({
-          id: a.id,
-          kind: a.getAttribute("data-kind") ?? "",
-          attention: a.getAttribute("data-attention") ?? "",
-          title: (a.querySelector("h4")?.textContent ?? "").trim(),
-        })),
+        articles: Array.from(el.querySelectorAll("article"), (a) => {
+          const fr = a.querySelector("iframe")?.getBoundingClientRect();
+          return {
+            id: a.id,
+            kind: a.getAttribute("data-kind") ?? "",
+            attention: a.getAttribute("data-attention") ?? "",
+            title: (a.querySelector("h4")?.textContent ?? "").trim(),
+            ...(fr ? { iframe: { w: Math.round(fr.width), h: Math.round(fr.height) } } : {}),
+          };
+        }),
       });
     } else if (/^pane-tab-/.test(el.id) || el.id === "cards-tab") {
       tabIds.push(el.id);
@@ -266,7 +306,7 @@ export function makeWebuiTool() {
       "console/page errors, screenshots every tab into the run dir " +
       "(~/.pi/power-browser/runs/), and evaluates design invariants (at most " +
       "one visible pane, ask cards in the inbox family, viewer cards in data " +
-      "panes, report articles in report panes, zero errors). Returns a markdown " +
+      "panes, report articles in report panes, report iframes sized readably, zero errors). Returns a markdown " +
       "audit report; a connect failure returns a short error report instead of " +
       "throwing. Args: {port} (default 8890).",
     parameters: Type.Object({
@@ -312,6 +352,12 @@ export function makeWebuiTool() {
           pageErrors,
         };
 
+        // Exercise every tab: click + screenshot into the run dir. Inv 7
+        // needs GEOMETRY, and geometry needs VISIBILITY — a hidden pane's
+        // iframe measures 0x0 (display:none). The rest-state collectDom above
+        // captures structure/exclusivity; this overlay captures iframe rects
+        // with each pane actually shown, applied before evaluateInvariants.
+        const iframeMeasured = new Map<string, { w: number; h: number }>();
         // Exercise every tab: click + screenshot into the run dir.
         const dir = makeRunDir();
         const screenshots: string[] = [];
@@ -323,9 +369,23 @@ export function makeWebuiTool() {
             // A dead tab id shows up in the outline/screenshots; keep auditing
             // the remaining tabs instead of aborting the whole call.
           }
+          for (const pane of (await page.evaluate(collectDom)).panes) {
+            for (const a of pane.articles) {
+              if (a.iframe && !(a.iframe.w === 0 && a.iframe.h === 0)) {
+                iframeMeasured.set(a.id, a.iframe);
+              }
+            }
+          }
           const shot = path.join(dir, `tab-${tabId}.png`);
           await page.screenshot({ path: shot, fullPage: true });
           screenshots.push(shot);
+        }
+
+        for (const pane of state.panes) {
+          for (const a of pane.articles) {
+            const m = iframeMeasured.get(a.id);
+            if (m) a.iframe = m;
+          }
         }
 
         const findings = evaluateInvariants(state);
