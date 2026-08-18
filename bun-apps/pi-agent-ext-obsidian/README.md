@@ -192,7 +192,7 @@ bun-apps/pi-obsidian/
 | `OB_DISTILL_TOOLS` | *(built-in set)* | Comma-separated tool names the distill subagent may call (B6). |
 | `OB_GARDEN_AUDIT_TOOLS` / `OB_GARDEN_FIX_TOOLS` | *(built-in set)* | Same for garden audit / fix modes. Fix defaults to audit + write tools. |
 | `OB_PARENT_MODEL` / `OB_SUBAGENT_MODEL` | — | Model-id inheritance floor for distill/garden subagents (B2). `OB_SUBAGENT_MODEL` is a trusted floor; a known-weak `OB_PARENT_MODEL` is refused. |
-| `OB_SUBAGENT_TIMEOUT_MS` | `300000` | Per-call timeout for distill/garden subagents. |
+| `OB_SUBAGENT_TIMEOUT_MS` | `1200000` | Per-call wall-clock timeout for distill/garden subagents (writer archetype — aligned to the 20-min writer envelope, `ROLE_AWARE_DISPATCH_BOUNDS`; `0` = no gate). |
 | `VAULT_MIND_BASE_URL` | `http://127.0.0.1:8000` | Base URL of the vault-mind service for `obsidian_semantic_search`. A path prefix is honoured (e.g. `http://host:9999/vm/` → `…/vm/api/search`). Unset + no service → the tool returns a structured `isError` so the agent falls back to `obsidian_search`. |
 | `VAULT_MIND_AUTO_REINDEX` | unset (off) | Set to `1` (or any truthy string other than `0`/`false`) to auto-fire a `POST /api/index {force_reindex:true}` after `obsidian_distill` writes notes, so new Zettelkasten cards are picked up without a manual re-index. **Default OFF** — when unset/`0`/`false` no HTTP is issued and distill behaves exactly as before. Fire-and-forget: failures only `console.warn`, never alter the distill tool result. |
 
