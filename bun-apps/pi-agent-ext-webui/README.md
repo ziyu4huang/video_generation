@@ -38,7 +38,7 @@ transcript scrollback and stopped subscribing the log frame family at the source
   Producers (identical frames): the agent-side `webui_report` tool (in-process,
   no HTTP) and `POST /api/report {title, markdown|html, source?}` (external,
   loopback, origin-guarded); exactly one body mode, title 1–200 chars, 16MB
-  cap; frames are replay-eligible (refresh-safe).
+  cap; frames are replay-eligible (refresh-safe). Restart safety: report frames are mirrored to ~/.pi/webui/reports/reports-<port>.jsonl (best-effort; WEBUI_REPORT_DIR override) and the newest 25 reload at boot.
 - **Data** — viewer cards (interactive HTML, sandboxed iframes).
 
 Frame diet — web clients receive ONLY: `card`, `card_done`, `report`, `ask_user`,

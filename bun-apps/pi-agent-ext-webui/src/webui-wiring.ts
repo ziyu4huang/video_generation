@@ -58,6 +58,7 @@ import { createWebuiReportTool } from "./report-tool.js";
 import { resolvePort } from "./port-resolver.js";
 import { resolveFileRoots, resolveWebuiEnabled } from "./webui-config.js";
 import { createSessionStore, type SessionStore } from "./session-store.js";
+import { appendReport, loadReports, reportPersistPath, type ReportFrame } from "./report-persist.js";
 
 /**
  * The event-bus surface the render framework needs (ticket 06 D2). The real
@@ -397,7 +398,8 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // ticket 06 (archify-webui-html spec §4.1): /files root allowlist — resolved
   // ONCE here so the route and the webui:open handler anchor identically.
   const fileRoots = resolveFileRoots(process.env, deps.fileRoots);
-  const server = deps.server ?? getServer(deps.port ?? resolvePort());
+  const resolvedWebuiPort = deps.port ?? resolvePort();
+  const server = deps.server ?? getServer(resolvedWebuiPort);
   // ticket 07 D1: loopback wiring — token OFF (null => no check). Loopback
   // binding + the DNS-rebinding-safe originAllowed guard is the v1 boundary;
   // the token mechanism stays AVAILABLE but OFF (a future non-loopback deployer
@@ -410,9 +412,21 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // history. The store wrapper is the single broadcast sink — the notifier and
   // the outbound event loop both go through it.
   const sessionStore: SessionStore = createSessionStore();
+  // report persistence (2026-08-17): the store is in-memory — a restart used
+  // to wipe every published report. Mirror report frames to a per-port JSONL
+  // file and reload the newest ones at boot. append() does NOT broadcast:
+  // restored frames surface via the connect-time snapshot only — no bell, no
+  // live push. Port comes from the RESOLVED value (the WebServer port getter
+  // throws before start()).
+  const reportPath = reportPersistPath(resolvedWebuiPort);
+  for (const persisted of loadReports(reportPath)) sessionStore.append(persisted as WebFrame);
   const broadcaster: Broadcaster = {
     broadcast(frame: WebFrame): void {
       sessionStore.append(frame);
+      // report persistence: the ONE point every report frame crosses (both
+      // doors — the webui_report tool and POST /api/report). Best-effort
+      // mirror; never blocks the broadcast.
+      if (frame.type === "report") appendReport(reportPath, frame as ReportFrame);
       // cards-ux2 (02): the card_send title ledger — the ONE point every
       // card frame crosses (snoop, pilot ask cards, archify, future t05
       // producers alike). Silent cards record too (they are still cards; the
