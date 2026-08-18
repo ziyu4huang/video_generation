@@ -47,6 +47,7 @@
 - Candidate skill goal-loop-hygiene: SUPERSEDED — do not promote. The landed
   tripwire automates what it would teach; promoting now fails the need-gate.
 - Default continuation budget LANDED: goals without --tokens now get a conservative 500k-token default (PR pending; see issue #1616).
-- Remaining work is harness-side (ship core-gated goal_complete with goal mode,
-  heartbeat availability check) — tracked on #1616.
+- Heartbeat persisted-check LANDED: refire honors the journal's explicit non-active verdict (PR #1636).
+- Remaining work is harness-side only, ship core-gated goal_complete with goal
+  mode (or ungate while a goal is active) — tracked on #1616.
 - Live-loop stop remains: /goal pause or exit to a fresh session (restart-safe).
