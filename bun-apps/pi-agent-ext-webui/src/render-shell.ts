@@ -73,7 +73,9 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   .btw-box textarea, .btw-box select, .btw-box input { width: 100%; padding: .3rem .5rem; border-radius: 6px; border: 1px solid #8884; background: #0000; color: inherit; font-size: .8rem; box-sizing: border-box; }
   .btw-box textarea { min-height: 3.2rem; resize: vertical; margin-top: .3rem; }
   /* chat-restore (webui-simplify §1): the Inbox-only composer bar. */
-  #composer { display: flex; gap: .4rem; padding: .5rem 1rem; border-top: 1px solid #8884; max-width: 1500px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+  /* fix(2026-08-18): positioned + z 60 — the fixed feedback-log overlay (z 50)
+     used to intercept Send/Abort clicks (composer is the PRIMARY input). */
+  #composer { display: flex; gap: .4rem; padding: .5rem 1rem; border-top: 1px solid #8884; max-width: 1500px; margin: 0 auto; width: 100%; box-sizing: border-box; position: relative; z-index: 60; background: #0d1117; }
   #composer[hidden] { display: none; }
   #composer input { flex: 1; padding: .35rem .55rem; border-radius: 6px; border: 1px solid #8884; background: #0000; color: inherit; font-size: .8rem; }
   #composer button { padding: .35rem .7rem; border-radius: 6px; border: 1px solid #8884; background: #0000; color: inherit; font-size: .8rem; cursor: pointer; }
@@ -84,7 +86,7 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   @media (max-width: 720px) {
     #tabs { flex-wrap: wrap; }
     #tabs .tab { padding: .45rem .6rem; min-height: 40px; box-sizing: border-box; }
-    #composer { position: sticky; bottom: 0; background: #0d1117; z-index: 5; padding: .5rem .6rem; }
+    #composer { position: sticky; bottom: 0; background: #0d1117; z-index: 60; padding: .5rem .6rem; }
     #composer input, #composer button { font-size: 16px; min-height: 40px; box-sizing: border-box; }
     .btw-box textarea, .btw-box input, .btw-box select { font-size: 16px; }
     #report-pane, #cards-pane, #chat-feed, #more-pane { padding: .4rem .6rem; }
@@ -125,7 +127,10 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   .webui-toolbar input { padding: .2rem .4rem; border: 1px solid #8886; border-radius: 4px; background: transparent; color: inherit; }
   .webui-tweak { display: inline-flex; gap: .3rem; align-items: center; }
   #webui-feedback-log { position: fixed; right: .6rem; bottom: .6rem; width: 22rem; max-width: 70vw; max-height: 38vh; overflow: auto; background: #0009; color: #eee; padding: .45rem .55rem; border-radius: 6px; font: 12px/1.45 ui-monospace, monospace; box-shadow: 0 2px 10px #0006; z-index: 50; }
-  #webui-feedback-log .webui-log-head { display: flex; justify-content: space-between; align-items: center; opacity: .85; margin-bottom: .2rem; }
+  #webui-feedback-log .webui-log-head { display: flex; justify-content: space-between; align-items: center; opacity: .85; margin-bottom: .2rem; cursor: pointer; }
+  /* fix(2026-08-18): the log is a TRACE — collapsed to its head by default so
+     it never covers the composer; click the head to expand, clear stays. */
+  #webui-feedback-log.collapsed #webui-feedback-log-body { display: none; }
   #webui-feedback-log .webui-log-head a { color: #9cf; cursor: pointer; text-decoration: none; }
   #webui-feedback-log-body > div { border-bottom: 1px solid #fff2; padding: .12rem 0; word-break: break-word; }
   /* v2 live transcript (architecture v2 §3.3): the agent stream rendered as a
@@ -199,7 +204,7 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
     <button id="webui-abort" title="Abort the in-flight turn">Abort</button>
   </div>
 </main>
-<div id="webui-feedback-log">
+<div id="webui-feedback-log" class="collapsed">
   <div class="webui-log-head"><span>response log</span><a id="webui-log-clear" href="#">clear</a></div>
   <div id="webui-feedback-log-body"></div>
 </div>
@@ -362,6 +367,17 @@ function scheduleWsRetry() {
 }
 
 connectWs();
+
+// fix(2026-08-18): the log head toggles the collapsed trace (clear link keeps
+// its own handler — the guard below lets it pass through untouched).
+(function () {
+  var logEl = document.getElementById('webui-feedback-log');
+  var head = logEl && logEl.querySelector('.webui-log-head');
+  if (head) head.addEventListener('click', function (e) {
+    if (e.target && e.target.id === 'webui-log-clear') return;
+    if (logEl) logEl.classList.toggle('collapsed');
+  });
+})();
 
 function logResponse(text) {
   const body = document.getElementById('webui-feedback-log-body');
