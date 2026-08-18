@@ -19,3 +19,19 @@
   effort, 8 merged PRs #1574-#1589, complete + verified); loop continued 6+
   times post-verification; probes documented in session transcript.
 - **Candidate skill-name**: goal-loop-hygiene
+
+## Verified mechanics addendum (2026-08-18, full forensics)
+
+- The loop driver appends a FRESH goal-state snapshot (status: active) at every
+  continuation boundary — a surgically appended complete entry is superseded
+  within the same turn; journal-last-word protection fails while the loop lives.
+- Full ~/.pi audit: goal id lives in exactly 9 files (1 session journal + 8
+  subagent-run records = inert text mentions, not state). settings.json carries
+  no goal state. pi is single-process per session (turn executor and
+  continuation driver share one Bun event loop; no killable driver exists).
+- Therefore: the ONLY restart-safe stop is exiting to a FRESH session (new
+  journal, no harness-side goal store). Resuming the looping session would
+  resurrect the goal from its last active entry.
+- Fix implications tracked in issue #1616 (5 comments): in-driver per-iteration
+  persisted-status re-read that defers to explicit completion records;
+  goal_complete must ship with goal mode; toggle must write state immediately.
