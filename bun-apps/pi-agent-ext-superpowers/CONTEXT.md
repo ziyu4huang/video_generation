@@ -1,17 +1,17 @@
 # pi-agent-ext-superpowers
 
-The ubiquitous language of pi-agent-ext-superpowers — a Pi-native port of the Superpowers (Primer Radiant) software-development methodology: 14 composable skills ported verbatim from upstream, wrapped in this package's own Pi extension (CSO skill discovery + `using-superpowers` bootstrap). This context records the port's own vocabulary — the pin/bootstrap model, pipeline stages, and artifact-home rules — not the upstream skill bodies (those are pinned, see ADR-superpowers-0004).
+The ubiquitous language of pi-agent-ext-superpowers — a Pi-native port of the Superpowers (Primer Radiant) software-development methodology: 16 skills — 14 ported from upstream (byte-pinned, with sanctioned local divergences) and 2 repo-owned, wrapped in this package's own Pi extension (CSO skill discovery + `using-superpowers` bootstrap). This context records the port's own vocabulary — the pin/bootstrap model, pipeline stages, and artifact-home rules — not the upstream skill bodies (those are pinned, see ADR-superpowers-0004).
 
 ## Language
 
 ### Package purpose
 
 **Superpowers port**:
-This package's product — the 14 upstream skills (brainstorming, writing-plans, executing-plans, subagent-driven-development, test-driven-development, systematic-debugging, requesting/receiving-code-review, verification-before-completion, finishing-a-development-branch, using-git-worktrees, dispatching-parallel-agents, writing-skills, using-superpowers) plus the Pi extension wrapper that discovers and injects them.
-_Avoid_: our methodology, homegrown skills (the skill bodies are upstream-verbatim; only the wrapper is ours)
+This package's product — the 14 upstream skills (brainstorming, writing-plans, executing-plans, subagent-driven-development, test-driven-development, systematic-debugging, requesting/receiving-code-review, verification-before-completion, finishing-a-development-branch, using-git-worktrees, dispatching-parallel-agents, writing-skills, using-superpowers), the 2 repo-owned ones promoted from `.planning/knowledge` (dispatch-recovery, dispatch-budget-rebalance), plus the Pi extension wrapper that discovers and injects them.
+_Avoid_: our methodology (the ported bodies are upstream-derived, not repo-authored — but they are NOT bare-verbatim any more: see the LOCAL-DIVERGENCES record in UPSTREAM.ref)
 
 **Positive content pin** (ADR-superpowers-0004):
-The fidelity guard — `tests/skills-fidelity.test.ts` asserts every ported `SKILL.md` is byte-identical to its baseline fixture under `tests/__fixtures__/upstream-skills/`. Re-sync only via the explicit `scripts/rebaseline-upstream-skills.ts` (writes a `UPSTREAM.ref` provenance record). Consequence: repo conventions never land in a skill body — not even a "small path fix".
+The fidelity guard — `tests/skills-fidelity.test.ts` asserts every ported `SKILL.md` is byte-identical to its baseline fixture under `tests/__fixtures__/upstream-skills/`. Re-sync only via the explicit `scripts/rebaseline-upstream-skills.ts --note "<why>"`, which rewrites `UPSTREAM.ref`'s `fixtures-digest:` and logs the note; the test asserts that digest still matches the fixtures, so the record cannot describe a state that no longer exists. Which skills are pinned is declared once in `scripts/skill-provenance.ts` (`upstream` vs `repo-owned`), not restated per consumer. Consequence: repo conventions never land in a skill body — not even a "small path fix".
 _Avoid_: denylist, lint rule (it is a full-content equality pin, not a pattern guard)
 
 **Bootstrap injection** (`src/superpowers.ts`):

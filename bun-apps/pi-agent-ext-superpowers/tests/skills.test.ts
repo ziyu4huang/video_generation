@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { EXPECTED_SKILLS } from "../scripts/skill-provenance.js";
 
 /**
  * Guards the skill-loading rules Pi's skill loader actually enforces, plus the
@@ -25,25 +26,6 @@ import { join } from "node:path";
  */
 
 const skillsDir = join(import.meta.dir, "..", "skills");
-
-const EXPECTED_SKILLS = [
-  "brainstorming",
-  "dispatch-budget-rebalance",
-  "dispatch-recovery",
-  "dispatching-parallel-agents",
-  "executing-plans",
-  "finishing-a-development-branch",
-  "receiving-code-review",
-  "requesting-code-review",
-  "subagent-driven-development",
-  "systematic-debugging",
-  "test-driven-development",
-  "using-git-worktrees",
-  "using-superpowers",
-  "verification-before-completion",
-  "writing-plans",
-  "writing-skills",
-];
 
 function listSkillFiles(): { name: string; path: string }[] {
   return readdirSync(skillsDir)

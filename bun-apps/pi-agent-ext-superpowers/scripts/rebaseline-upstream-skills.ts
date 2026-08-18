@@ -2,50 +2,58 @@
 /**
  * rebaseline-upstream-skills.ts — regenerate the skill-fidelity baseline.
  *
- * Guarded by tests/skills-fidelity.test.ts (ADR-0004). Run this ONLY when
- * re-syncing the superpowers SKILL.md from upstream. It is NEVER automatic.
+ * Guarded by tests/skills-fidelity.test.ts (ADR-superpowers-0004). Run this ONLY
+ * when the ported SKILL.md legitimately changed — an upstream re-sync, or a
+ * sanctioned local edit. It is NEVER automatic.
  *
  * What it does:
  *   - Copies each skills/<name>/SKILL.md → tests/__fixtures__/upstream-skills/<name>.md
- *   - PRESERVES UPSTREAM.ref (never clobbers provenance) and reminds you to
- *     update its upstream-ref if this was an upstream re-sync.
+ *     for every skill declared `upstream` in scripts/skill-provenance.ts, and
+ *     removes fixtures that no longer answer to a declared upstream skill.
+ *   - Rewrites UPSTREAM.ref's `fixtures-digest:` to match what it just wrote,
+ *     and appends the mandatory `--note` to the re-baseline log.
  *
- * After running: review the fixture diff in your PR, update UPSTREAM.ref's
- * upstream-ref to the new commit/version, then commit. The pin test then passes
- * against the new baseline.
+ * Why --note is mandatory: the record is the whole point. UPSTREAM.ref tells the
+ * next re-porter which divergences to preserve, and it used to be possible —
+ * and it happened, in PR #1682 — to rewrite every fixture while leaving the
+ * record describing a state that no longer existed. The note is one line and it
+ * is the only thing that carries WHY the bytes moved.
  *
- * Usage: bun scripts/rebaseline-upstream-skills.ts
+ * Usage: bun scripts/rebaseline-upstream-skills.ts --note "<why the fixtures moved>"
  */
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { computeFixturesDigest, FIXTURES_DIGEST_KEY, PORTED_SKILLS } from "./skill-provenance.js";
+
+const LOG_HEADER = "# Re-baseline log (appended by scripts/rebaseline-upstream-skills.ts):";
+
+function parseNote(argv: string[]): string | null {
+  const i = argv.indexOf("--note");
+  if (i === -1) return null;
+  const value = argv[i + 1];
+  if (value === undefined || value.startsWith("--") || value.trim() === "") return null;
+  return value.trim();
+}
+
+const note = parseNote(process.argv.slice(2));
+if (note === null) {
+  console.error(
+    'usage: bun scripts/rebaseline-upstream-skills.ts --note "<why the fixtures moved>"\n' +
+      "\n" +
+      "The note is recorded in UPSTREAM.ref's re-baseline log. It is required:\n" +
+      "a fixture rewrite with no record is the exact failure this script exists\n" +
+      "to prevent (see PR #1682).",
+  );
+  process.exit(2);
+}
 
 const root = import.meta.dir;
 const skillsDir = join(root, "..", "skills");
 const fixturesDir = join(root, "..", "tests", "__fixtures__", "upstream-skills");
-
-// Keep in sync with tests/skills-fidelity.test.ts PORTED_SKILLS.
-// Every dir under skills/ is currently an upstream port; if a pi-owned skill is
-// ever added here, EXCLUDE it from this list (and the test) so it isn't pinned.
-const PORTED_SKILLS = [
-  "brainstorming",
-  "dispatching-parallel-agents",
-  "executing-plans",
-  "finishing-a-development-branch",
-  "receiving-code-review",
-  "requesting-code-review",
-  "subagent-driven-development",
-  "systematic-debugging",
-  "test-driven-development",
-  "using-git-worktrees",
-  "using-superpowers",
-  "verification-before-completion",
-  "writing-plans",
-  "writing-skills",
-];
+const refPath = join(fixturesDir, "UPSTREAM.ref");
 
 mkdirSync(fixturesDir, { recursive: true });
 
-let copied = 0;
 for (const name of PORTED_SKILLS) {
   const src = join(skillsDir, name, "SKILL.md");
   if (!existsSync(src)) {
@@ -53,18 +61,43 @@ for (const name of PORTED_SKILLS) {
     process.exit(1);
   }
   copyFileSync(src, join(fixturesDir, `${name}.md`));
-  copied++;
 }
-console.log(`✓ re-baselined ${copied} skill fixture(s) → ${fixturesDir}`);
+console.log(`✓ re-baselined ${PORTED_SKILLS.length} skill fixture(s) → ${fixturesDir}`);
 
-const refPath = join(fixturesDir, "UPSTREAM.ref");
+// A fixture with no declared upstream skill behind it pins a body nothing ships.
+const orphans = readdirSync(fixturesDir)
+  .filter((f) => f.endsWith(".md"))
+  .filter((f) => !PORTED_SKILLS.includes(f.slice(0, -".md".length)));
+for (const orphan of orphans) {
+  rmSync(join(fixturesDir, orphan));
+  console.log(`✓ removed orphan fixture ${orphan} (no longer a declared upstream skill)`);
+}
+
 if (!existsSync(refPath)) {
   console.error(
     `✗ UPSTREAM.ref missing. Create it at ${refPath} declaring the upstream source ` +
-      "(see ADR-0004). The pin test requires it to be present and non-empty.",
+      "(see ADR-superpowers-0004). The pin test requires it to be present and non-empty.",
   );
   process.exit(1);
 }
+
+const digest = computeFixturesDigest(fixturesDir);
+const today = new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD, local — matches commit dates
+const digestLine = `${FIXTURES_DIGEST_KEY}: ${digest}`;
+const digestPattern = new RegExp(`^${FIXTURES_DIGEST_KEY}:[ \\t]*\\S*[ \\t]*$`, "m");
+
+let ref = readFileSync(refPath, "utf8");
+ref = digestPattern.test(ref)
+  ? ref.replace(digestPattern, digestLine)
+  : `${ref.replace(/\n*$/, "\n")}\n${digestLine}\n`;
+if (!ref.includes(LOG_HEADER)) ref = `${ref.replace(/\n*$/, "\n")}\n${LOG_HEADER}\n`;
+ref = `${ref.replace(/\n*$/, "\n")}#   ${today} — ${note} (${digest.slice(0, 19)}…)\n`;
+writeFileSync(refPath, ref);
+
+console.log(`✓ UPSTREAM.ref updated: ${digestLine}`);
+console.log(`✓ logged: ${today} — ${note}`);
 console.log(
-  `✓ preserved UPSTREAM.ref — if this was an upstream re-sync, EDIT it to record the new upstream-ref: ${refPath}`,
+  "→ review the fixture diff in your PR. If this was an UPSTREAM re-sync, also edit\n" +
+    "  UPSTREAM.ref's upstream-ref: to the new commit/version, and add a LOCAL-DIVERGENCES\n" +
+    "  row for any repo-local section a future naive re-port would blow away.",
 );
