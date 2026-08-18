@@ -1,7 +1,7 @@
 ---
 type: docs+process
 blocking: [01, 02, 03]
-status: open
+status: done
 ---
 
 # 04 Docs truth + soak wiring + close (spec M4, G4)
@@ -17,3 +17,6 @@ status: open
 ## Acceptance
 - README/CLAUDE.md grep truths match reality; issue comment posted; done/
   folder exists; PR merged.
+
+## Completion 2026-08-19
+README verified truthful; CLAUDE.md loop line (9e5d7600a); #1681 comment 5334062313; effort archived to .planning/done/.

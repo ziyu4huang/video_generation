@@ -2,7 +2,7 @@
 effort: 2026-08-18-self-improve-loop
 created: 2026-08-18
 last: 2026-08-18
-status: active
+status: done
 ---
 
 # Wayfinder map: self-improve-loop
@@ -52,3 +52,14 @@ dev cycle.
 - Re-enabling remote CI; goal-mode autonomous long-running agents (#1616
   lesson: blocked-on-human loops must stay user-stopppable).
 - webui/gui packages.
+
+
+## Addendum 2026-08-19 — executed (all tickets done)
+| Goal | Result |
+|---|---|
+| G1 ./pi-agent.sh | Pre-existing surface (symlink -> 238-line run.sh launcher); honest close; launcher restored after child overwrite |
+| G2 loop status | commands/loop.ts wired into COMMANDS (bun bun-apps/pi-agent/src/cli.ts cli loop status); 5 signals; parsers 8/0; report-only exit 0 |
+| G3 skill merge | dispatch-budget-rebalance -> dispatch-recovery Calibration (7732e1ec1); 16->15 skills; suite 140/0 |
+| G4 docs/soak | README verified truthful; CLAUDE.md loop surface (9e5d7600a); #1681 verification scripted |
+
+Commits: b51522614/586686992 (01), a0b7997e1 (02), 7732e1ec1 (03), 9e5d7600a (04p1) + this close commit.
