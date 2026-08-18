@@ -46,27 +46,9 @@ Implement fresh from tests. Period.
 
 ## Red-Green-Refactor
 
-```dot
-digraph tdd_cycle {
-    rankdir=LR;
-    red [label="RED\nWrite failing test", shape=box, style=filled, fillcolor="#ffcccc"];
-    verify_red [label="Verify fails\ncorrectly", shape=diamond];
-    green [label="GREEN\nMinimal code", shape=box, style=filled, fillcolor="#ccffcc"];
-    verify_green [label="Verify passes\nAll green", shape=diamond];
-    refactor [label="REFACTOR\nClean up", shape=box, style=filled, fillcolor="#ccccff"];
-    next [label="Next", shape=ellipse];
-
-    red -> verify_red;
-    verify_red -> green [label="yes"];
-    verify_red -> red [label="wrong\nfailure"];
-    green -> verify_green;
-    verify_green -> refactor [label="yes"];
-    verify_green -> green [label="no"];
-    refactor -> verify_green [label="stay\ngreen"];
-    verify_green -> next;
-    next -> red;
-}
-```
+RED (write failing test) → verify RED (watch it fail correctly) → GREEN
+(minimal code) → verify GREEN (watch it pass, all green) → REFACTOR (clean up,
+stay green) → repeat for the next test.
 
 ### RED - Write Failing Test
 
@@ -190,10 +172,7 @@ After green only:
 - Extract helpers
 
 Keep tests green. Don't add behavior.
-
-### Repeat
-
-Next failing test for next feature.
+Repeat for the next failing test.
 
 ## Good Tests
 
@@ -306,9 +285,8 @@ Can't check all boxes? You skipped TDD. Start over.
 
 ## Debugging Integration
 
-Bug found? Write failing test reproducing it. Follow TDD cycle. Test proves fix and prevents regression.
-
-Never fix bugs without a test.
+Bug found? Write the failing test reproducing it, fix, and let the test prevent
+regression. Never fix bugs without a test.
 
 ## Final Rule
 
