@@ -319,6 +319,15 @@ export function formatSessionStamp(d: Date): string {
  * non-card frame are null too. A non-empty serverUrl prefixes the
  * `#card-<id>` deep link ("" → bare anchor); the title truncates to ~60 chars.
  */
+export function btwBellMessage(
+  entry: { question: string },
+  serverUrl: string
+): string {
+  const raw = typeof entry.question === "string" ? entry.question : String(entry.question ?? "");
+  const q = raw.length > 60 ? `${raw.slice(0, 57)}...` : raw;
+  return `[webui] BTW branch queued: "${q}" — the user asked this from the BTW tab (${serverUrl ? serverUrl + "/#btw" : "webui"}). Answer it in chat, then drain the rest with the webui tool {mode: "btw"}.`;
+}
+
 export function cardBellMessage(
   card: { type: string; id: string; title: string; attention: string },
   serverUrl: string
@@ -877,6 +886,7 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     // btw-branch + Data telemetry (demo): the BTW tab queue and the
     // /api/data/summary snapshot ride the same route options.
     btw: btwStore,
+    onBtwCreate: (entry) => safeNotify(btwBellMessage(entry, resolvedServerUrl())),
     dataSummary: () => btwDataSummary(reportPath, btwPath, btwStore, resolvedWebuiPort),
   });
   // ticket 06 (archify-webui-html spec §4.1): /files serves full-fidelity HTML

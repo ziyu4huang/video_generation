@@ -77,6 +77,7 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   .btw-chips { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .3rem; }
   .btw-chip { padding: .15rem .55rem; border: 1px solid #6cf; border-radius: 999px; background: #6cf3; font-size: .72rem; }
   .btw-entry .meta, #data-pane .tel .meta { font-size: .7rem; color: #8b949e; }
+  .tab .tab-badge { padding: 0 .4rem; margin-left: .35rem; border: 1px solid #6cf; border-radius: 999px; font-size: .65rem; background: #6cf3; }
   #data-pane .tel { border: 1px solid #8884; border-radius: 6px; padding: .6rem .7rem; max-width: 900px; width: 100%; margin-left: auto; margin-right: auto; }
   #data-pane .tel dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .8rem; margin: 0; font-size: .78rem; }
   #data-pane .tel dt { color: #8b949e; }
@@ -1002,13 +1003,13 @@ function renderBtwPane() {
     var pending = (d && d.pending) || [];
     if (!pending.length) {
       var empty = btwEl('div', 'btw-entry');
-      empty.appendChild(btwEl('span', 'meta', 'No pending branches — the agent sees queued questions via the webui tool (mode: "btw").'));
+      empty.appendChild(btwEl('span', 'meta', 'How to use: pick context (from the Report tab), type a question, add optional hint chips, press Queue branch. The TUI agent is belled the moment you queue — it answers in chat and marks this resolved. Questions survive restarts.'));
       pane.appendChild(empty);
       return;
     }
     pending.forEach(function (e) {
       var card = btwEl('div', 'btw-entry');
-      card.appendChild(btwEl('span', 'meta', (e.aboutTitle ? 'from: ' + e.aboutTitle : 'general') + ' · ' + new Date(e.createdAt).toLocaleTimeString()));
+      card.appendChild(btwEl('span', 'meta', (e.aboutTitle ? 'from: ' + e.aboutTitle : 'general') + ' · ' + new Date(e.createdAt).toLocaleTimeString() + ' · queued — the agent was belled in the TUI; answer lands in chat'));
       card.appendChild(btwEl('div', null, e.question));
       if (e.chips && e.chips.length) {
         var row = btwEl('div', 'btw-chips');
@@ -1048,10 +1049,26 @@ function renderDataPane() {
     pane.insertBefore(art, pane.firstChild);
   }).catch(function () { /* keep existing viewers */ });
 }
+// Loop closure (browser half): badge the BTW tab whenever a question waits,
+// from ANY tab — a 15s visibility-gated poll (the 4s detail poll only runs
+// while the BTW pane itself shows).
+function btwBadgeUpdate() {
+  fetch('/api/btw').then(function (r) { return r.json(); }).then(function (d) {
+    var tab = document.getElementById('pane-tab-btw');
+    if (!tab) return;
+    var n = (d && d.pending && d.pending.length) || 0;
+    var b = tab.querySelector('.tab-badge');
+    if (n > 0) {
+      if (!b) { b = document.createElement('span'); b.className = 'tab-badge'; tab.appendChild(b); }
+      b.textContent = String(n);
+    } else if (b) b.remove();
+  }).catch(function () { /* offline tab keep */ });
+}
+setInterval(function () { if (document.visibilityState === 'visible') btwBadgeUpdate(); }, 15000);
 function btwPollStart() {
   if (btwPollTimer) return;
   btwPollTimer = setInterval(function () {
-    if (activePane === 'btw' && document.visibilityState === 'visible') renderBtwPane();
+    if (activePane === 'btw' && document.visibilityState === 'visible') { renderBtwPane(); btwBadgeUpdate(); }
   }, 4000);
 }
 function btwPollStop() { if (btwPollTimer) { clearInterval(btwPollTimer); btwPollTimer = null; } }
