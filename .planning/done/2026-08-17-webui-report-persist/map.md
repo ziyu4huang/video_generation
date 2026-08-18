@@ -19,3 +19,15 @@ webui suite 512 pass / 0 fail; ci-local PASS. Live end-to-end (publish -> restar
 ## Follow-up (2026-08-18): wiring-level integration guard + contamination fix
 
 tests/report-restore.integration.test.ts boots the real wireWebui (fresh injected WebServer per boot — the getServer singleton would poison sibling tests) against a seeded JSONL mirror and proves disk -> restore loop -> store -> /raw 200 + the #1592 204 contract — converting the manual /tmp proof into a permanent regression guard. LATENT DEFECT exposed and fixed: unisolated wiring tests (webui-wiring, wiring-live-smoke) absorbed the REAL user mirror (~/.pi/webui/reports/reports-8890.jsonl, +6 frames) the moment it existed — any bun test on a machine with report history failed 4 tests; both files now isolate WEBUI_REPORT_DIR to a tmp dir per run. webui 516/0.
+
+## Measured headroom (2026-08-18, post-merge performance audit)
+
+Worst-case restore: 25 archify-class frames (~620KB each, 16MB mirror) parses
+in ~16ms (python json scale check; the live 8-frame/1.2MB restore measured
+1.8ms via loadReports). Boot-time restore cost is negligible at the v1 cap;
+the JSONL append-per-frame mirror is O(1) per publish. No action needed —
+recorded so the next person does not re-litigate the cap from first principles.
+If ever needed: raise REPORT_RESTORE_CAP freely; the cost curve is linear and
+milliseconds-cheap. The 16MB body cap (#1573) bounds per-frame size; the
+mirror file itself is append-only and unbounded (by design — it IS the
+archive).
