@@ -56,6 +56,10 @@ export interface WalkAndIngestOptions extends WalkOptions {
   wikiAware?: boolean;
   /** Link ranking weighting. */
   linkWeighting?: LinkWeighting;
+  /** kg.llm extractor model override — call-opts layer; config-file value is
+   *  seeded here by the composition site, env fallback PI_KG_LLM_MODEL stays
+   *  terminal in zk. */
+  kgLlmModel?: string;
   /** The SQLite memory dir backing the 06a unified card-store (the SAME DB the
    *  memory-cards use). Defaults to the existing hermes memory DB dir
    *  (`<AGENT_ROOT>/pi-hermes-memory`) — NEVER inside the obsidian vault. The
@@ -231,6 +235,7 @@ export async function walkAndIngest(
       maxLinks: opts.maxLinks,
       wikiAware: opts.wikiAware,
       linkWeighting: opts.linkWeighting,
+      kgLlmModel: opts.kgLlmModel,
     });
 
     // 7. Heal (leaf, once). hermes decides WHEN; zk provides the primitive.

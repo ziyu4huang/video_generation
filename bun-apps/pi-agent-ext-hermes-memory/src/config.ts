@@ -374,6 +374,12 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
         if (trimmed.length > 0) config.llmModelOverride = trimmed;
       }
       if (isThinkingLevel(parsed.llmThinkingOverride)) config.llmThinkingOverride = parsed.llmThinkingOverride;
+      // ticket 04: kg.llm extractor model — config-file layer of the precedence
+      // chain call-opts > config > env(PI_KG_LLM_MODEL, terminal in zk ingest.ts).
+      if (typeof parsed.kgLlmModel === "string") {
+        const trimmed = parsed.kgLlmModel.trim();
+        if (trimmed.length > 0) config.kgLlmModel = trimmed;
+      }
       // Vector / semantic search (ticket 14 phase A): the #06 config-gap lesson —
       // every knob is allowlisted here so a config-file value reaches the
       // consumer. String knobs get a trim guard; numeric knobs via finite checks.

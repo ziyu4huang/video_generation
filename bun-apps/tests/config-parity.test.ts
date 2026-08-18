@@ -54,7 +54,7 @@ const PACKAGES = [
 		// the global hermes-memory-config.json — so a global `parsed.<field>` copy
 		// would be wrong (it'd defeat the per-repo opt-in). Read in
 		// applyRepoLocalProjectMemoryOverlay (as `overlay.<field>`, not `parsed.<field>`).
-		allowlist: ["autoCommitProjectMemory", "projectName", "kgLlmModel"] as string[], // kgLlmModel: deferred — carried via IngestOptions, not loadConfig
+		allowlist: ["autoCommitProjectMemory", "projectName"] as string[],
 	},
 ] as const;
 
