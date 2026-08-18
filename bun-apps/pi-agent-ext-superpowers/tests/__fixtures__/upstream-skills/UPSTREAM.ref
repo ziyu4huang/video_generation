@@ -73,3 +73,9 @@ baselined: 2026-07-26
 #   via writing-skills), NOT an upstream port — intentionally unpinned by the
 #   fidelity guard (absent from PORTED_SKILLS by design); do not mistake its
 #   absence from upstream fixtures for drift on re-sync.
+#
+# LOCAL-DIVERGENCES addendum (2026-08-18, 2nd): skills/dispatch-budget-rebalance/
+#   is likewise repo-owned (promoted from
+#   .planning/knowledge/dispatch-budget-rebalance.md), NOT an upstream port —
+#   intentionally unpinned (absent from PORTED_SKILLS by design); same
+#   treatment as dispatch-recovery above.
