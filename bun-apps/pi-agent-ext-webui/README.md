@@ -58,6 +58,24 @@ Frame diet — web clients receive ONLY: `card`, `card_done`, `report`, `ask_use
   a dialog in the shell; answers ride the loose appexec channel back as
   `rpiv:ask-user:answer` — same `done` callback as the TUI dialog, first answer wins.
 
+## Report rendering + the standalone door (#1583)
+
+HTML report frames render in the Report tab inside a `sandbox="allow-scripts
+allow-downloads"` iframe (NO allow-same-origin) sized 70vh — plus two escape
+hatches, because a sandboxed iframe has an OPAQUE origin: the parent can never
+measure the inner document, and without `allow-downloads` Chromium silently
+blocks `a[download]`/blob exports (fullscreen does NOT change sandbox flags):
+
+- **fullscreen button** — per html report article; requestFullscreen on the
+  frame for a quick in-tab zoom.
+- **`GET /api/report/<id>/raw`** — serves a stored html frame's body as a
+  TOP-LEVEL document with the SAME CSP as `/files`
+  (`sandbox allow-scripts allow-downloads` + `nosniff`): native browser-edge
+  scrolling AND working export menus (the proven combo for archify diagrams —
+  verified with Playwright download events). Every html article carries an
+  "open standalone" button (`window.open` from the parent shell — no sandbox
+  constraint). Unknown ids and markdown-only frames answer 404 by design.
+
 ## Full-fidelity HTML: `/files` route + `webui:open` event
 
 Rendered views (`webui:render`) deliberately sandbox HTML with NO scripts. Some artifacts
