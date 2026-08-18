@@ -700,16 +700,24 @@ jobs:
       - name: Test-portability audit (--strict, blocks)
         run: bash scripts/test-portability-audit.sh --strict
 
-      # Test-determinism prevention check (warn-only v1). The cross-RUN twin of
-      # the portability audit: scans for the four flake classes (uncontrolled
-      # time; real host-state writes; cross-file ordering; live network) and
-      # classifies each file CONTROLLED / UNCONTROLLED. D2 (real-host-state
-      # writes) blocks under --strict; D1/D4 are review-only (a Date.now() is
-      # often a benign seed; a URL string isn't a live call). Flip D2 to --strict
-      # once trusted — same discipline as the portability flip above. See
-      # .github/TEST-DETERMINISM.md for the full catalog + dispositions.
-      - name: Test-determinism audit (warn-only v1)
-        run: bash scripts/test-determinism-audit.sh
+      # Test-determinism prevention check — now BLOCKING (--strict). The
+      # cross-RUN twin of the portability audit: scans for the four flake
+      # classes (uncontrolled time; real host-state writes; cross-file ordering;
+      # live network) and classifies each file CONTROLLED / UNCONTROLLED. Only
+      # D2 (real host-state writes) blocks; D1/D4 stay review-only (a Date.now()
+      # is often a benign seed; a URL string isn't a live call).
+      #
+      # Flipped 2026-08-18, the condition its own v1 comment set ("once
+      # trusted"). Warn-only was never going to earn that on its own: this gate
+      # ran without --strict, so the exit code it produced could not distinguish
+      # a clean tree from a dirty one — measured 0 either way. What justified the
+      # flip is that --strict exits 0 on main today, and that the check is a
+      # static scan of the test surface: deterministic given the tree, with no
+      # flake channel of its own. Verified by mutation — a test writing to
+      # ~/.pi/ under a write-op makes it exit 1 and name the file.
+      # See .github/TEST-DETERMINISM.md for the full catalog + dispositions.
+      - name: Test-determinism audit (D2 --strict, blocks)
+        run: bash scripts/test-determinism-audit.sh --strict
 
       # Decision tests for the PR-finish flow — the bash script was ported
       # into pi-agent-ext-devops (bin devops-pr-finish), so the tests moved
