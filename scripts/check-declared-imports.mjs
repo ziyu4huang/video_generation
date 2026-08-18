@@ -6,14 +6,20 @@
 // masked by hoisting variance across parallel worktrees and caught only late.
 // WARN-ONLY v1: findings print; exit is always 0. Flip to exit 1 after the
 // baseline is clean (tracked in #1645).
+// Allowances: bare Node builtins (node:module#builtinModules), self-deep-imports
+// (@repo/<self>/... resolves to this very package), and specs that are not
+// module-id-shaped (string-artifact captures like ', ' from template literals).
 
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { builtinModules } from "node:module";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appsDir = join(repoRoot, "bun-apps");
 const ALWAYS_ALLOWED = new Set(["bun", "bun:test"]);
+const NODE_BUILTINS = new Set(builtinModules);
+const MODULE_ID_RE = /^[a-zA-Z@][a-zA-Z0-9@/._-]*$/;
 const isRelative = (s) => s.startsWith(".") || s.startsWith("/");
 const pkgName = (s) => (s.startsWith("@") ? s.split("/").slice(0, 2).join("/") : s.split("/")[0]);
 
@@ -50,6 +56,7 @@ for (const app of readdirSync(appsDir, { withFileTypes: true })) {
 		...Object.keys(pkg.peerDependencies ?? {}),
 		...Object.keys(pkg.optionalDependencies ?? {}),
 	]);
+	const selfName = pkg.name;
 	const files = [];
 	for (const scope of ["src", "extensions"]) {
 		const d = join(appsDir, app.name, scope);
@@ -63,8 +70,9 @@ for (const app of readdirSync(appsDir, { withFileTypes: true })) {
 		try { text = readFileSync(file, "utf8"); } catch { continue; }
 		for (const spec of specifiersOf(text)) {
 			if (isRelative(spec) || spec.startsWith("node:") || spec.startsWith("bun:") || spec.startsWith("data:")) continue;
+			if (!MODULE_ID_RE.test(spec)) continue; // string artifacts, not module ids
 			const name = pkgName(spec);
-			if (ALWAYS_ALLOWED.has(name) || declared.has(name)) continue;
+			if (ALWAYS_ALLOWED.has(name) || NODE_BUILTINS.has(name) || name === selfName || declared.has(name)) continue;
 			findings.push(`${app.name}: ${file.slice(repoRoot.length + 1)} imports '${spec}' — not declared in package.json`);
 		}
 	}
