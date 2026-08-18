@@ -1,6 +1,6 @@
 # 01 — surface registerTool tools to session + subagents
 
-status: open
+status: closed
 
 ## Problem
 
@@ -84,3 +84,27 @@ to call subagent with tools:["webui_report"] + requiredTools:["webui_report"].
 
 Ticket 01 scope: DOWNGRADED to "verify the expected-working path live" —
 no known repo defect. Close on that verification.
+
+## CLOSED by L2 live verification (2026-08-18)
+
+Full chain proven live with a REAL model (LM Studio qwen3.8-27b-mlx via
+`--provider lm-studio`; the CLI's `defaultProvider: "zai"` in
+~/.pi/agent/settings.json silently hijacked provider-less `--model` values —
+the explicit `--provider lm-studio` flag was the missing piece):
+
+1. The model called the repo `subagent` tool with EXACT params
+   (tools=["webui_report"], requiredTools=["webui_report"]).
+2. requiredTools preflight PASSED — webui_report accepted in the child
+   allowlist (no silent drop).
+3. The child RAN and its own result reported the tool reachable; during its
+   exploration it called webui_report for real:
+   ~/.pi/webui/reports/reports-8890.jsonl line 8 =
+   {"title": "Subagent door proof", "source": "api"} — the exact task title.
+4. Combined with #1600 (session tool list has all registerTool tools) and
+   #1602 (static chain sound): registerTool tools flow to sessions AND
+   subagents with explicit tools allowlists. No repo defect exists.
+
+Done-when: ALL satisfied (live-session call PROVEN earlier; subagent
+preflight + call + publish PROVEN here; schema-cost N/A — tools already
+registered; gating audit documented per tool in present-tool/webui-tool).
+CLOSED.
