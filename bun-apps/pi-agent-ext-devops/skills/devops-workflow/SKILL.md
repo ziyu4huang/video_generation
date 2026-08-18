@@ -57,6 +57,9 @@ the merge.
 - Aborts `worktree-conflict` (branch checked out elsewhere) **before** mutating.
 - Aborts `rebase-conflict` (runs `git rebase --abort` first, recorded) so you
   never land mid-rebase.
+- `rebase` runs `git rebase <base> <branch>`, so it checks the named branch out
+  and **leaves HEAD there** — you do not have to check it out first, and you are
+  not left where you started.
 - `forcePush` defaults to **false** — it never force-pushes by accident; opt in
   explicitly with `--force-with-lease`.
 - Prefer `dryRun: true` first to see the exact commands.
