@@ -1,7 +1,7 @@
 ---
 type: code
 blocking: none
-status: open
+status: done
 ---
 
 # 04 Wayfind coverage-guided prune (spec M4)
@@ -25,3 +25,18 @@ reachability) — and can the package shrink ~20% with zero behavior loss?
   clean.
 - LOC: <=8,470 OR documented shortfall with the census table.
 - Census table committed in ticket completion / effort notes.
+
+## Completion 2026-08-18 — documented shortfall (the honest outcome)
+Coverage census (bun test --coverage, 513/0 green): ALL 27 src files >= 60%
+line coverage (lowest: src/index.ts 60%, state.ts 76.9%, grill-handlers 81%).
+Zero dead-path candidates: the only <=5% rows are gitignored dist/ build output
+and the extensions/wayfind.ts registration entry (0% = untested shim, ALIVE —
+3 external importers). REAL source baseline is 4,210 LOC (src/+extensions/*.ts
+incl. 3 test files) — the spec's 10,585 figure was a find+xargs measurement
+artifact (whole-package *.ts incl. tests/skills/fixtures). Per this ticket's
+own rule: no live-code cuts to hit a number; yield = coverage script added +
+census recorded. -20% LOC target NOT MET and correctly so — round 1 already
+pruned this package; it is coverage-healthy.
+Observation for follow-up (out of scope): pi-agent/run-dir/manifest.json:70
+lists pi-agent-ext-wayfind while static-extensions.ts:92 also registers it —
+verify not double-registered.
