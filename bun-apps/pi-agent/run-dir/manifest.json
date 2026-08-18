@@ -53,7 +53,8 @@
     "pi-agent-ext-superpowers/skills",
     "pi-agent-ext-web-access/skills",
     "pi-agent-ext-archify/skills",
-    "pi-agent-ext-devops/skills"
+    "pi-agent-ext-devops/skills",
+    "pi-agent-ext-power-tool/skills"
   ],
   "binarySkills": [
     "pi-agent-ext-hermes-memory/skills",
