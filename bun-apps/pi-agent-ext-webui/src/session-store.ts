@@ -46,6 +46,10 @@ export interface SessionStore {
   setPresentId(id: string | null): void;
   snapshot(): SessionSnapshot;
   clear(): void;
+  /** report-cleanup: remove ONE report frame by id (false if absent). */
+  removeReport(id: string): boolean;
+  /** report-cleanup: drop EVERY report frame (returns the count removed). */
+  clearReports(): number;
 }
 
 export function createSessionStore(cap = TRANSCRIPT_CAP): SessionStore {
@@ -98,6 +102,21 @@ export function createSessionStore(cap = TRANSCRIPT_CAP): SessionStore {
       transcript = [];
       presentId = null;
       driver = null;
+    },
+    removeReport(id: string): boolean {
+      for (let i = transcript.length - 1; i >= 0; i -= 1) {
+        const f = transcript[i];
+        if (f?.type === "report" && f.id === id) {
+          transcript.splice(i, 1);
+          return true;
+        }
+      }
+      return false;
+    },
+    clearReports(): number {
+      const before = transcript.length;
+      transcript = transcript.filter((f) => f?.type !== "report");
+      return before - transcript.length;
     },
   };
 }

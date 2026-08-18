@@ -692,7 +692,20 @@ function renderReport(frame) {
     body.appendChild(renderMarkdown(frame.markdown));
   }
   art.appendChild(body);
+  // report-cleanup: per-article remove — DELETE /api/report/<id> (store +
+  // mirror), then the article drops locally. Sits on EVERY report article
+  // (markdown too), next to fullscreen/standalone when those exist.
+  const delBtn = document.createElement('button');
+  delBtn.type = 'button';
+  delBtn.textContent = '\u2715';
+  delBtn.title = 'remove this report';
+  delBtn.style.cssText = 'margin-top:.35rem;align-self:flex-start;padding:.2rem .55rem;border:1px solid #8886;border-radius:4px;background:#8882;color:inherit;cursor:pointer;font-size:.75rem;margin-left:.4rem';
+  delBtn.addEventListener('click', function () {
+    fetch('/api/report/' + encodeURIComponent(frame.id), { method: 'DELETE' }).then(function (r) { if (r.ok) { art.remove(); refreshReportClearAll(); } });
+  });
+  body.appendChild(delBtn);
   reportPaneEl.appendChild(art);
+  refreshReportClearAll();
 }
 
 // tab-views (01): minimal markdown to DOM (createElement/textContent ONLY —
@@ -1102,6 +1115,33 @@ function btwPollStart() {
   }, 4000);
 }
 function btwPollStop() { if (btwPollTimer) { clearInterval(btwPollTimer); btwPollTimer = null; } }
+
+// report-cleanup: the pane-level "clear all" affordance — rendered at the top
+// of the Report pane whenever it holds articles; DELETE /api/report wipes the
+// store + mirror, then the DOM follows (other open tabs catch up on refresh —
+// the connect-time snapshot is the source of truth).
+function refreshReportClearAll() {
+  var pane = document.getElementById('report-pane');
+  if (!pane) return;
+  var old = document.getElementById('report-clear-all');
+  if (old) old.remove();
+  if (!pane.querySelectorAll('article').length) return;
+  var bar = document.createElement('button');
+  bar.type = 'button';
+  bar.id = 'report-clear-all';
+  bar.textContent = 'clear all reports';
+  bar.title = 'remove every report from the tab AND the disk mirror';
+  bar.style.cssText = 'align-self:flex-start;padding:.25rem .7rem;border:1px solid #8886;border-radius:6px;background:#8881;color:#8b949e;cursor:pointer;font-size:.72rem';
+  bar.addEventListener('click', function () {
+    fetch('/api/report', { method: 'DELETE' }).then(function (r) {
+      if (!r.ok) return;
+      var arts = pane.querySelectorAll('article');
+      for (var i = 0; i < arts.length; i++) arts[i].remove();
+      bar.remove();
+    });
+  });
+  pane.insertBefore(bar, pane.firstChild);
+}
 
 // --- ask-user bridge dialog (§C3) -------------------------------------
 // Mirrors the core-task questionnaire: options as toggle buttons,

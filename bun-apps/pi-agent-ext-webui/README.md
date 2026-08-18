@@ -265,3 +265,15 @@ badge, zero-latency pane switches). `#card-<id>` deep links keep precedence:
 a card hash owns routing and is never clobbered by pane sync. The TUI bell's
 `/#btw` link lands on the BTW tab directly. For a truly separate page (share /
 fullscreen / export), the standalone door `GET /api/report/<id>/raw` remains.
+
+### Cleaning the Report tab
+
+- **Remove one**: every report article carries a `✕` button (markdown articles
+  too, next to fullscreen/standalone on html ones). It DELETEs the frame from
+  the live store AND compacts the disk mirror — the article drops immediately,
+  and a restart will not bring it back.
+- **Clear all**: the `clear all reports` button (top of the pane whenever it
+  holds articles) wipes every frame from the store and truncates the mirror.
+- API: `DELETE /api/report/<id>` (404 for unknown ids) and
+  `DELETE /api/report` (returns `{removed: n}`). Other open tabs catch up on
+  refresh — the connect-time snapshot is the source of truth.

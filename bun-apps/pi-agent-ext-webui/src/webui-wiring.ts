@@ -58,7 +58,14 @@ import { createWebuiReportTool } from "./report-tool.js";
 import { resolvePort } from "./port-resolver.js";
 import { resolveFileRoots, resolveWebuiEnabled } from "./webui-config.js";
 import { createSessionStore, type SessionStore } from "./session-store.js";
-import { appendReport, loadReports, reportPersistPath, type ReportFrame } from "./report-persist.js";
+import {
+  appendReport,
+  clearReportsFile,
+  compactReports,
+  loadReports,
+  reportPersistPath,
+  type ReportFrame,
+} from "./report-persist.js";
 import { btwDataSummary, btwPersistPath, createBtwStore } from "./btw-store.js";
 
 /**
@@ -888,6 +895,18 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     btw: btwStore,
     onBtwCreate: (entry) => safeNotify(btwBellMessage(entry, resolvedServerUrl())),
     dataSummary: () => btwDataSummary(reportPath, btwPath, btwStore, resolvedWebuiPort),
+    // report-cleanup: DELETE /api/report[/<id>] — store removal FIRST (the
+    // live truth), then mirror compaction (best-effort) so restarts stay clean.
+    removeReport: (id) => {
+      const ok = sessionStore.removeReport(id);
+      if (ok) compactReports(reportPath, new Set([id]));
+      return ok;
+    },
+    clearReports: () => {
+      const removed = sessionStore.clearReports();
+      clearReportsFile(reportPath);
+      return removed;
+    },
   });
   // ticket 06 (archify-webui-html spec §4.1): /files serves full-fidelity HTML
   // from the configured root allowlist — chained AFTER render routes, BEFORE
