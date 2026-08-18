@@ -68,3 +68,21 @@ articles incl. markdown) + pane-level "clear all reports" toolbar that
 self-manages with article count. E2E on a WS-snapshot stub (:8893): 3 articles
 + 3 crosses + toolbar -> delete one (right two remain) -> clear all (0, toolbar
 gone) -> mirror 0 lines -> restart restored=0; 0 console errors. webui 532/0.
+
+## Follow-up 4: Report tab regenerate — v3.1 architecture IR (archify EXT)
+
+User: clean the Report tab and regenerate current-architecture content via the
+archify EXT. Path: (1) the live :8890 process (restarted 22:02, post-#1641)
+took DELETE /api/report -> mirror 0 lines, tab clean; (2) authored
+ir/pi-agent-ext-webui-v31.architecture.json in the archify package (21
+components, 26 connections, 5 views, 5 regions, 3 cards) covering v3.1: 4
+hash-addressable tabs, full-bleed shell, two-door report pipeline w/
+persistence + cleanup, BTW reverse-ask loop w/ TUI bell, Data telemetry,
+Playwright instrument; (3) rendered through the archify deliver path
+(archifyRender, vendored archify deliver --json) — the layout validator
+enforced clean-flow routing (no edge-through-node, no container-border-run,
+label placement); ~15 iterations of via/labelAt routing later: 9/9 checks,
+composition pass, sha256 3a94510e6fde; (4) published via POST /api/report
+(source archify) -> report-msyr904o-reab; mirror exactly 1 line. Live
+verification: Report tab = exactly 1 article (the interactive diagram) with
+fullscreen/standalone/x + clear-all, 0 console errors.
