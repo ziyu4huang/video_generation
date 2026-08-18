@@ -341,24 +341,22 @@ describe("wireWebui — lifecycle", () => {
 });
 
 describe("wireWebui — inbound dispatch", () => {
-  test("agentic prompt/steer/followUp/abort frames are deliberately IGNORED (de-chat 00)", () => {
-    const frames = [
-      { type: "prompt", text: "hello web" },
-      { type: "steer", text: "nudge" },
-      { type: "followUp", text: "more" },
-      { type: "abort" },
-    ];
-    for (const frame of frames) {
-      const { pi, server } = setup();
-      pi.emit("session_start", { type: "session_start", reason: "startup" });
-      const replies = dispatch(pi, server, frame);
-      // RETIRED (event-cards 00, de-chat): frames validate (protocol) + parse
-      // (transport) but the wiring's dispatch is a deliberate no-op — chat
-      // lives in the TUI, the served composer is gone.
-      expect(pi.sent).toEqual([]); // sendUserMessage never called
-      expect(pi.ctx.abortCalls).toBe(0); // abort never called
-      expect(replies).toEqual([]); // silent — no error, no ack frame
-    }
+  test("agentic frames route again (chat-restore, webui-simplify §1): deliverAs mapping + abort slice", () => {
+    const { pi, server } = setup();
+    pi.emit("session_start", { type: "session_start", reason: "startup" });
+    const replies = dispatch(pi, server, { type: "prompt", text: "hello web" });
+    // RESTORED: the browser is a thin second client — pi.sendUserMessage
+    // fires the host `input` event which IS the mutex gate (block feedback
+    // stays broadcast-only; no per-command ack).
+    expect(pi.sent).toEqual([{ content: "hello web", opts: undefined }]);
+    dispatch(pi, server, { type: "steer", text: "nudge" });
+    expect(pi.sent[1]).toEqual({ content: "nudge", opts: { deliverAs: "steer" } });
+    dispatch(pi, server, { type: "followUp", text: "more" });
+    expect(pi.sent[2]).toEqual({ content: "more", opts: { deliverAs: "followUp" } });
+    dispatch(pi, server, { type: "abort" });
+    expect(pi.sent).toHaveLength(3); // abort is NOT a message
+    expect(pi.ctx.abortCalls).toBe(1);
+    expect(replies).toEqual([]); // silent — no error, no ack frame
   });
 
   describe("HITL appexec return transport (respond resolve + registry + abort)", () => {

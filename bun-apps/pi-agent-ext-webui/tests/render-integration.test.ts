@@ -191,13 +191,15 @@ describe("wireWebui render framework — end-to-end", () => {
 });
 
 describe("wireWebui render framework — de-chat: the send-queue machinery survives (event-cards 00)", () => {
-  it("the SERVED shell still ships sendRaw + wsQueue + sendAppexecResponse (composer removed, queue kept)", async () => {
+  it("the SERVED shell still ships sendRaw + wsQueue + sendAppexecResponse (composer restored, queue kept)", async () => {
     const { pi, server } = setup();
     pi.emit("session_start", {}, pi.ctx());
     const body = await (await fetch(`${server.url}/`)).text();
-    // The main composer is gone (no prompt input / send button)...
-    expect(body).not.toContain('id="webui-compose"');
-    expect(body).not.toContain('id="webui-input"');
+    // chat-restore (webui-simplify §1): the Inbox composer is back...
+    expect(body).not.toContain('id="webui-compose"'); // the v2-era id stays retired
+    expect(body).toContain('id="webui-input"');
+    expect(body).toContain('id="webui-send"');
+    expect(body).toContain('id="webui-abort"');
     // ...but the outbound queue machinery — the thing that guarantees a HITL
     // answer is never lost across a WS reconnect — is fully intact in the
     // served HTML.
