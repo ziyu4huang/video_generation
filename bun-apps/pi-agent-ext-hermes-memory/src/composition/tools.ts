@@ -52,6 +52,9 @@ export function registerTools(
 	);
 	registerKnowledgeIngestTool(pi, {
 		memoryDir: globalDir,
+		// ticket 04: seed the config-file value as the call-opts layer —
+		// precedence walk-opts (direct callers) > config-file > env (zk-terminal).
+		kgLlmModel: config.kgLlmModel,
 		// LeanRAG ① (ticket 04b-2): fire-and-forget hierarchy build post-ingest.
 		// embedFn fails fast when LM Studio is down — the handler's catch-all
 		// warns and skips (same degradation class as the vector cold path).

@@ -94,6 +94,10 @@ export interface MemoryConfig {
   llmModelOverride?: string;
   /** Override thinking level used for child pi -p subprocess LLM calls. Default: unset */
   llmThinkingOverride?: ThinkingLevel;
+  /** Chat model id for the zk kg.llm relation extractor. Threaded to
+   *  IngestOptions.kgLlmModel; env fallback PI_KG_LLM_MODEL stays terminal in
+   *  zk (ingest.ts). Default: unset. */
+  kgLlmModel?: string;
   /** Strategy when memory is full. Default: auto-consolidate */
   memoryOverflowStrategy?: MemoryOverflowStrategy;
   /** Legacy alias for memoryOverflowStrategy. Default: true */
