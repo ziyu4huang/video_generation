@@ -25,6 +25,9 @@
  *    activation).
  */
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { MockPi } from "./helpers/mock-pi.js";
 import { FakeClock } from "./helpers/fake-clock.js";
 import { MemoryBroadcaster } from "../src/broadcaster.js";
@@ -72,6 +75,8 @@ class FakeWebServer implements WebuiServer {
   stop(): void {
     this.stopCalls++;
   }
+  /** Live WS client count (the bell gate reads this; fakes default to 0). */
+  clientCount = 0;
 }
 
 /** Standard fixture: wiring built over injected fakes (no real Bun.serve). */
@@ -128,7 +133,10 @@ describe("cardBellMessage — pure bell routing", () => {
 // --- (b/c) integration — the store-wrapped broadcaster is the bell point ----
 describe("wireWebui — bell at the store-wrapped broadcaster", () => {
   test("bound session: input card → fan-out + exactly ONE notify with deep link; silent + card_done add none", () => {
-    const { pi, broadcaster, wiring } = setup();
+    const { pi, broadcaster, server, wiring } = setup();
+    // Client gate doctrine: the bell rings only when a browser is watching —
+    // this legacy test predates the gate, so put one client on the line.
+    (server as FakeWebServer).clientCount = 1;
     pi.emit("session_start", { type: "session_start", reason: "startup" });
     const card: WebFrame = {
       type: "card",
@@ -187,6 +195,60 @@ describe("wireWebui — bell at the store-wrapped broadcaster", () => {
     expect(pi.ctx.notifications).toHaveLength(0);
     // Fan-out still happened — unbound means "replay-visible only", not dropped.
     expect(broadcaster.frames.some((f) => f.type === "card")).toBe(true);
+  });
+});
+
+// --- (c2) client gate — the 2026-08-18 doctrine: TUI->webui is OPTIONAL ------
+// A bell nobody can act on is noise: cards are agent->browser projections
+// (direction 1, optional by doctrine), so the TUI bell rings ONLY when a
+// browser client is actually connected (clientCount > 0). The frame pipeline
+// is untouched — the card still broadcasts + replays for the next connect.
+// (BTW bells stay ungated: a queued branch is direction 2, REQUIRED.)
+describe("wireWebui — bell + open-notify are client-gated", () => {
+  test("0 clients: input card broadcasts but does NOT bell; 1 client bells", () => {
+    const { pi, broadcaster, server, wiring } = setup();
+    pi.emit("session_start", { type: "session_start", reason: "startup" });
+    wiring.broadcaster.broadcast({
+      type: "card", id: "card-g0", kind: "interactive", title: "Nobody watching",
+      source: "test", ts: 1, attention: "input", body: { question: "q", fields: [] },
+    });
+    // Fan-out intact, bell silent — no browser is connected.
+    expect(broadcaster.frames.some((f) => f.type === "card")).toBe(true);
+    expect(pi.ctx.notifications).toHaveLength(0);
+    // A browser connects: the NEXT card bells.
+    (server as FakeWebServer).clientCount = 1;
+    wiring.broadcaster.broadcast({
+      type: "card", id: "card-g1", kind: "interactive", title: "Watched",
+      source: "test", ts: 2, attention: "input", body: { question: "q", fields: [] },
+    });
+    expect(pi.ctx.notifications).toHaveLength(1);
+    expect(pi.ctx.notifications[0]!.message).toContain("Watched");
+  });
+
+  test("0 clients: webui:open registers + broadcasts but does NOT notify; 1 client notifies", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bellgate-"));
+    const file = join(dir, "view-a.html");
+    writeFileSync(file, "<p>a</p>", "utf8");
+    process.env.WEBUI_FILE_ROOTS = dir;
+    try {
+      const { pi, broadcaster, server, wiring } = setup();
+      pi.emit("session_start", { type: "session_start", reason: "startup" });
+      pi.events.emit("webui:open", { path: file, view: "view-a", title: "A" });
+      // The open pipeline ran (view_opened broadcast) — only the NOTIFY is gated.
+      // (Filter the one-time async "webui ready" banner out of the counts.)
+      const bells = () => pi.ctx.notifications.filter((n) => !n.message.startsWith("webui ready"));
+      expect(broadcaster.frames.some((f) => f.type === "view_opened")).toBe(true);
+      expect(bells()).toHaveLength(0);
+      (server as FakeWebServer).clientCount = 1;
+      pi.events.emit("webui:open", { path: file, view: "view-b", title: "B" });
+      // Direction-1 pair, both gated on viewers: the open TOAST ("... open <url>")
+      // + the archify card BELL ("[webui] card ... #card-archify-<view>").
+      expect(bells()).toHaveLength(2);
+      expect(bells().some((n) => n.message.includes("open"))).toBe(true);
+      expect(bells().some((n) => n.message.includes("[webui] card"))).toBe(true);
+    } finally {
+      delete process.env.WEBUI_FILE_ROOTS;
+    }
   });
 });
 

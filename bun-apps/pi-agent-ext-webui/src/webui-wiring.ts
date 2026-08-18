@@ -459,7 +459,13 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       // out of broadcast. Replayed snapshots never cross this path (the store
       // READS back — no re-broadcast), so no double-bell by construction.
       if (frame.type === "card" && frame.attention !== "silent" && isCardFrame(frame)) {
-        safeNotify(cardBellMessage(frame, resolvedServerUrl()));
+        // Client gate (2026-08-18 doctrine): cards are agent->browser
+        // projections — direction 1, OPTIONAL. Ringing the TUI bell when NO
+        // browser is connected is noise nobody can act on (the wedge
+        // incident's confusing "[webui] card Questionnaire" line). The frame
+        // pipeline is untouched; the bell waits for an actual viewer. BTW
+        // bells stay ungated — a queued branch is direction 2, REQUIRED.
+        if ((server.clientCount ?? 0) > 0) safeNotify(cardBellMessage(frame, resolvedServerUrl()));
       }
       rawBroadcaster.broadcast(frame);
     },
@@ -996,7 +1002,11 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
           return ""; // server not started/stopped — announce a bare /files path
         }
       },
-      notify: (message) => bound?.ctx?.ui?.notify(message),
+      // Client gate (same doctrine): the "view ready — open <url>" toast is a
+      // direction-1 projection; it only matters when a browser can see it.
+      notify: (message) => {
+        if ((server.clientCount ?? 0) > 0) bound?.ctx?.ui?.notify(message);
+      },
       registerView: (input) => registry.openUrl(input),
       // event-cards (05): wrap the broadcast dep so a successful open ALSO
       // projects an archify readonly card (attention view; deep link = the
