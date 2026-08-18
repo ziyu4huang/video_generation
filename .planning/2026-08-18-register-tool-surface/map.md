@@ -59,3 +59,7 @@ landed at the session level.
 
 REMAINING true scope of ticket 01: SUBAGENT allowlists only (preflight
 rejects registerTool names in `tools`/`requiredTools`).
+
+## Repro update (2026-08-18)
+
+tools-explicit experiment: preflight ACCEPTS the registerTool name, but the child's actual surface is the default coding set — the allowlist value does not survive the child-dispatch chain (silent drop, not rejection). Precise seam pointers captured in ticket 01.
