@@ -44,3 +44,5 @@ Subagent budgets become self-calibrating and symmetric across tokens/turns/time 
 ## Cross-effort links
 
 Shares-decision-with: 2026-08-16-optimize-planning-pipeline-aka-extension — its dispatch-cost destination is absorbed into that effort's spec (which cites this map's 4 closed decisions and settles report-edge headroom + recalibration cadence). Revivable as its own effort; the 6 remaining Not-yet-specified items stay here.
+2026-08-18 — ROLE_AWARE_DISPATCH_BOUNDS rebalanced from the 200-run ledger + leanrag-completion session dispatch deaths: recon 60k/8t → 120k/12t (done-median 71k sat above the old ceiling; turns = top killer 31/200), writer 24t → 28t (turns-abort median ≈28); timeouts unchanged (6/200). Shipped in the PR carrying this change.
+2026-08-18 — footer-gate interaction resolved: recon 12t intentionally crosses shouldInjectFooter's maxTurns>10 gate (read-only recon now carries the abort-safety footer — empirics: turns-limit deaths are the top killer; as-you-go logs are what make janitor recovery work). Tests pin both sides of the boundary.

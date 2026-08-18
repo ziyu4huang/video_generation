@@ -140,12 +140,15 @@ export function tierDefaultToken(
  *
  * | role   | tokenBudget | maxTurns | timeoutMs | rationale                           |
  * |--------|-------------|----------|-----------|-------------------------------------|
- * | recon  | 60k (≤ tier | 8        | 5 min     | locate/read/paste work is 1-3 turns |
- * |        | ceiling)    |          |           | at p90; the min() keeps the tier    |
- * |        |             |          |           | policy (budget-protocol knowledge   |
- * |        |             |          |           | file, 2026-08-15) intact.           |
- * | writer | 400k        | 24       | 20 min    | implementer children run 3-10 min   |
- * |        |             |          |           | well under 24 turns on real work.   |
+ * | recon  | 120k (≤     | 12       | 5 min     | 2026-08-18 rebalance (200-run       |
+ * |        | tier        |          |           | ledger): done-median 71k sat ABOVE  |
+ * |        | ceiling)    |          |           | the old 60k ceiling; turns is the   |
+ * |        |             |          |           | top killer (31/200) and 8 turns     |
+ * |        |             |          |           | starved read-heavy recon (~10k      |
+ * |        |             |          |           | fixed overhead per turn); min() vs  |
+ * |        |             |          |           | tier ceiling still intact.          |
+ * | writer | 400k        | 28       | 20 min    | turns-abort median ≈28 — writers    |
+ * |        |             |          |           | died one step from finishing at 24. |
  *
  * Applied ONLY when all three are omitted AT THE PARAMS level (timeoutMs is
  * always defaulted downstream in buildSpawnOptions/mergeReadOnlyExclusion, so
@@ -153,8 +156,8 @@ export function tierDefaultToken(
  * any kind opts the WHOLE envelope out — partial overrides are never mixed in.
  */
 export const ROLE_AWARE_DISPATCH_BOUNDS = {
-  recon: { tokenBudget: 60_000, maxTurns: 8, timeoutMs: 5 * 60_000 },
-  writer: { tokenBudget: 400_000, maxTurns: 24, timeoutMs: 20 * 60_000 },
+  recon: { tokenBudget: 120_000, maxTurns: 12, timeoutMs: 5 * 60_000 },
+  writer: { tokenBudget: 400_000, maxTurns: 28, timeoutMs: 20 * 60_000 },
 } as const;
 
 export type DispatchRole = keyof typeof ROLE_AWARE_DISPATCH_BOUNDS;
