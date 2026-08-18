@@ -534,17 +534,15 @@ jobs:
       # list from THIS job's `run:` steps, and local_ci is the only CI that
       # actually executes (this workflow is .disabled).
       #
-      # A dirty diff means the lock in the commit does not match the
-      # package.json in the commit: run `bun install` from bun-apps/ and commit
-      # the result.
-      #
-      # ONE PHYSICAL LINE, deliberately. ci-gates.ts joins a `run:` block's
-      # newlines with spaces before handing it to the shell, so a multi-line
-      # body here becomes `cmd1 cmd2` — one malformed command. Written as a
-      # block first, this gate "failed" for that reason and not for drift,
-      # which is a false red that looks exactly like a true one.
+      # The check lives in a script, not inline: its message needs a `: ` and
+      # its failure branch needs braces, which a YAML plain scalar cannot hold,
+      # and ci-gates.ts joins a multi-line `run:` block's newlines with spaces —
+      # turning two commands into one malformed one. Both shapes were tried and
+      # both went red for reasons unrelated to the lockfile.
+      # See scripts/check-lockfile-freshness.sh for why it is not
+      # `--frozen-lockfile` (measured: that exits 0 on the exact drift).
       - name: Lockfile freshness guard (package.json vs bun.lock, blocks)
-        run: bun install --cwd bun-apps >/dev/null && { git diff --exit-code -- bun-apps/bun.lock || { echo "FAIL: bun.lock is stale vs package.json — run 'bun install' in bun-apps/ and commit bun.lock"; exit 1; }; }
+        run: bash scripts/check-lockfile-freshness.sh
 
       # Dependency-direction + import-hygiene guard (ADR-monorepo-0001, blocks). The
       # remote twin of `bun run test:deps` — 5 invariants over every @repo/*
