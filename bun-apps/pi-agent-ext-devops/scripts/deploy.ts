@@ -34,6 +34,7 @@ import {
 	readdirSync,
 	mkdirSync,
 	readFileSync,
+	readlinkSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -67,9 +68,30 @@ const APP_NAME = "pi-agent";
 // import, not optional). Leaving that pattern external would make the compiled
 // binary crash at runtime (`Cannot find module ... from '/$bunfs/root/pi-agent'`)
 // because $bunfs has no node_modules to resolve the bare specifier against. So
-// the list is now EMPTY: every @repo/* sibling resolves at build time and is
-// inlined (deduped by resolved path with the relative static import).
-const OPTIONAL_EXTERNALS: string[] = [];
+// so no @repo/* sibling belongs here: every one of them resolves at build time
+// and is inlined (deduped by resolved path with the relative static import).
+//
+// chromium-bidi/* is the one genuine entry, and it is NOT the same situation.
+// power-tool is a static extension, so its `await import("playwright-core")`
+// (browser-tool.ts) pulls playwright-core into the graph. That package's
+// bundled coreBundle.js does `require("chromium-bidi/lib/cjs/...")` while its
+// package.json declares ZERO dependencies — so chromium-bidi is never
+// installed, and `bun build`, which resolves statically, failed the whole
+// deploy on it. bun.lock is not at fault; it faithfully records the zero deps.
+//
+// External is correct here rather than a cover-up: those requires sit inside
+// esbuild's lazy `__esm({...})` initializer for bidiOverCdp, which only runs on
+// the BiDi-over-CDP path. browser-tool drives Chromium over plain CDP, so it
+// never fires — and if it ever did, unbundled source would fail identically,
+// because the package simply is not there. Marking it external makes the
+// bundle behave like the source instead of failing to build at all.
+//
+// Regression window: broken from #1544 (2026-08-16, the commit that added both
+// browser-tool.ts and the playwright-core dep) until this line, because the
+// only jobs that build a bundle — deploy-verify / compile-verify — live in a
+// workflow that does not run. scripts/check-deploy-artifacts.sh now gates it from
+// regression-gates, the job local_ci actually executes.
+const OPTIONAL_EXTERNALS: string[] = ["chromium-bidi/*"];
 
 // ── Flag parsing ─────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -478,6 +500,66 @@ function closeOverWorkspaceDeps(seeds: Set<string>, bunAppsDir: string): Set<str
 }
 
 /**
+ * Re-point the copied workspace-root `@repo/*` links at the snapshot's own
+ * package dirs.
+ *
+ * `bun-apps/node_modules/@repo/<name>` is written by Bun as
+ * `../../bun-apps/<dir>` — a path relative to the GIT ROOT, while the link
+ * physically sits one level deeper, under `bun-apps/`. Resolved literally it
+ * lands on `bun-apps/bun-apps/<dir>`, so all 28 of them are dangling IN THE
+ * SOURCE REPO TOO. Nothing notices because nothing resolves through them: the
+ * isolated linker gives every package its own `node_modules/@repo/<name>` ->
+ * `../../../<dir>`, and those are correct. The workspace-root copies are
+ * vestigial.
+ *
+ * cpSync copies symlinks verbatim, so the snapshot inherited all 28 — and
+ * assertNoDanglingRepoLinks, which walks the ARTIFACT rather than trusting the
+ * source, correctly refused to call that a deploy. That is the check doing its
+ * job; the artifact was genuinely malformed.
+ *
+ * Fixing them in the snapshot is right even though they are broken upstream: a
+ * shipped tree should resolve, and the correct target is unambiguous here. From
+ * `<target>/node_modules/@repo/`, `../../<dir>` IS `<target>/<dir>`, which is
+ * exactly where stageSnapshot copies each package. The source links are Bun's
+ * `bun install` output and are left alone — rewriting those is the installer's
+ * business, not a deploy's.
+ */
+function relinkWorkspaceRootRepoLinks(root: string): void {
+	const repoDir = join(root, "node_modules", "@repo");
+	if (!existsSync(repoDir)) return;
+	let fixed = 0;
+	let dropped = 0;
+	for (const e of readdirSync(repoDir, { withFileTypes: true })) {
+		if (!e.isSymbolicLink()) continue;
+		const link = join(repoDir, e.name);
+		if (existsSync(link)) continue; // already resolves — leave it alone
+		// Trust the link's own last segment for the package dir name rather than
+		// re-deriving it: `@repo/<name>` and `bun-apps/<dir>` can differ (a
+		// package's `name` need not match its directory), and the existing
+		// target already carries the dir Bun chose.
+		const dir = basename(readlinkSync(link));
+		if (existsSync(join(root, dir))) {
+			rmSync(link);
+			symlinkSync(join("..", "..", dir), link);
+			fixed++;
+			continue;
+		}
+		// The package is a workspace member the snapshot deliberately does not
+		// ship (perf-harness, gui-movie-director — neither is an extension).
+		// Keeping a broken link to something intentionally excluded would fail
+		// the integrity check for no defect. Dropping it does NOT weaken that
+		// check: resolution runs through each SHIPPED package's own
+		// node_modules/@repo/<name> -> ../../../<dir>, which the same walk still
+		// validates, so a genuinely-missing required package still surfaces
+		// there rather than here.
+		rmSync(link);
+		dropped++;
+	}
+	if (fixed > 0) console.log(`  ✓ re-pointed ${fixed} workspace-root @repo link(s) at the snapshot`);
+	if (dropped > 0) console.log(`  ✓ dropped ${dropped} workspace-root @repo link(s) to unshipped packages`);
+}
+
+/**
  * Post-copy integrity check: walk the produced tree's `@repo` symlinks and fail
  * if any points outside it. The transitive closure above is the fix; this is the
  * check that a future gap surfaces as a failed deploy instead of as someone
@@ -560,6 +642,7 @@ async function stageSnapshot(bunAppsDir: string) {
 	writeRunSh(target, "bun", "pi-agent/src/cli.ts");
 
 	// Prove the tree can actually resolve before calling the deploy a success.
+	relinkWorkspaceRootRepoLinks(target);
 	assertNoDanglingRepoLinks(target);
 	console.log(`  ✓ no dangling @repo symlinks`);
 	await assertSnapshotBoots();
