@@ -575,6 +575,16 @@ jobs:
         working-directory: bun-apps
         run: bun run test:adr
 
+      # Cross-skill reference guard (blocks). Skills defer to each other by
+      # `<package>:<skill>` rather than restating rules — #1682 built five
+      # wayfind pointer blocks on top of superpowers:dispatch-recovery that way.
+      # Rename the target and every pointer becomes a dead end in silence: 6 of
+      # the 11 references cross a package boundary, and a package suite only
+      # ever sees its own skills/ dir, so neither side can catch it alone.
+      - name: Cross-skill reference guard (blocks)
+        working-directory: bun-apps
+        run: bun run test:skills-ref
+
       # Cross-extension seam-contract guard (ADR-wayfind-0004). The
       # status-widget seam (__piCoreTaskStatusWidget) is duplicated across
       # ext-task (publisher) + wayfind/power-tool (consumers) with no
