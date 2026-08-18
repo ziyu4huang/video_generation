@@ -729,6 +729,9 @@ jobs:
       - name: Schema-cost regression (warns >5%, not a block)
         run: bun scripts/check-schema-cost.ts
 
+      - name: Declared-imports audit (warn-only v1)
+        run: node scripts/check-declared-imports.mjs
+
   # ──────────────────────────────────────────────────────────────────────
   # Thrust C — determinism spot-check (cross-RUN flake detector). Runs the
   # flake-prone subset (see the `package` matrix below — the same list lives in
