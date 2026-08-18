@@ -1,7 +1,7 @@
 ---
 type: code
 blocking: [01]
-status: open
+status: done
 ---
 
 # 02 loop status subcommand (spec M2, G2)
@@ -28,3 +28,6 @@ Can one report-only command make all five drift signals visible in one shot?
 ## Acceptance
 - bun bun-apps/pi-agent/src/cli.ts loop status prints all 5 rows, exit 0.
 - ( cd bun-apps/pi-agent && bun test ) green incl. new loop.test.ts.
+
+## Completion 2026-08-18
+Parser keyword-first+anchored (cohort-row guard); wired into COMMANDS (dispatch: bun bun-apps/pi-agent/src/cli.ts cli loop status); parsers unit-tested 8/0; report-only exit 0; fixed comment inner-*/ syntax error. Full-suite bar at pre-push 20-gate hook.
