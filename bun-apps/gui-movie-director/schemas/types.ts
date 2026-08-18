@@ -17,6 +17,12 @@ export const CONTROL_TO_CLI: Record<ControlType, CliType> = {
   multiselect: "multiselect", // backend-only list fields (e.g. lora_path/lora_scale)
 };
 
+/** Extra context a dynamic `hint` can read (see UnifiedField.hint). */
+export interface HintContext {
+  /** Dimensions of the currently loaded input image, or null when none is set. */
+  inputDims: { w: number; h: number } | null;
+}
+
 export interface UnifiedField {
   key: string;
   cliFlag?: string;
@@ -38,6 +44,20 @@ export interface UnifiedField {
   section?: string;
   visible?: (s: Record<string, any>) => boolean;
   multiline?: boolean;
+  /**
+   * Secondary text rendered under the control (the `field-hint` span).
+   *
+   * A function receives the current form state plus the loaded image's
+   * dimensions, so a field can describe what its value will actually produce
+   * (purify's resolution field previews the output size and warns about the
+   * VRAM cliff). A plain string is the static case.
+   *
+   * This property was in use by CommandForm and by purify.ts BEFORE it existed
+   * on this interface, and two schemas (video-compare, video-quality) instead
+   * carried a `help:` string that NOTHING read — so their text never reached
+   * the UI. Both are folded into this one property; there is no `help`.
+   */
+  hint?: string | ((s: Record<string, any>, ctx: HintContext) => string | undefined);
   // "loras" control only: static list of compatible LoRA manifest `pipeline`
   // tags, for commands with no user-facing pipeline picker (e.g. anime2real,
   // fixed to the flux2-klein-9b base model). Commands that DO have a

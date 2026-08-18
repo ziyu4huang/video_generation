@@ -1,4 +1,5 @@
 import type { Server } from "bun";
+import type { WsData } from "./ws";
 import fs from "fs";
 import path from "path";
 import { FRONTEND_DIR } from "../lib/paths";
@@ -26,7 +27,7 @@ export { buildFrontendBundle, rebuildFrontendBundle };
 const TEXT_HTML = { "Content-Type": "text/html; charset=utf-8" };
 const TEXT_CSS = { "Content-Type": "text/css; charset=utf-8" };
 
-export async function handleRequest(req: Request, server: Server): Promise<Response | undefined> {
+export async function handleRequest(req: Request, server: Server<WsData>): Promise<Response | undefined> {
   const url = new URL(req.url);
   const { pathname } = url;
 

@@ -89,7 +89,7 @@ export async function handleSelfTestResults(req: Request): Promise<Response> {
     const runJsonPath = path.join(dirPath, `${nameNoExt}.run.json`);
     const captionJsonPath = path.join(dirPath, `${nameNoExt}.caption.json`);
 
-    const runParams = fs.existsSync(runJsonPath) ? readJsonFile(runJsonPath) : null;
+    const runParams = fs.existsSync(runJsonPath) ? readJsonFile<Record<string, any>>(runJsonPath) : null;
     const caption = fs.existsSync(captionJsonPath) ? readJsonFile(captionJsonPath) : null;
 
     variants.push({

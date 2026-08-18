@@ -10,7 +10,12 @@ type MessageHandler = (msg: Record<string, any>) => void;
 
 const _handlers = new Set<MessageHandler>();
 let _ws: WebSocket | null = null;
-let _reconnectTimer: ReturnType<typeof window.setTimeout> | null = null;
+// `number`, not ReturnType<typeof window.setTimeout>: this package compiles with
+// both the DOM lib and @types/bun in scope, and they disagree — bun's setTimeout
+// returns a Timeout while the `window.` call below returns a number, so the
+// ReturnType form resolved to the wrong one. This module is browser-only (it
+// uses window/WebSocket), where the handle is a number.
+let _reconnectTimer: number | null = null;
 let _reconnectDelay = 1000;
 
 function _connect() {

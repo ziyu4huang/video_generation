@@ -116,7 +116,7 @@ function lookupModel(transformer: string | null | undefined): ModelInfo {
   const dir = path.join(MODELS_DIR, "transformer", transformer);
   const man = path.join(dir, "manifest.json");
   if (fs.existsSync(man)) {
-    const m = readJsonFile(man);
+    const m = readJsonFile<Record<string, any>>(man);
     return { format: m?.format ?? null, dir: path.relative(REPO_DIR, dir) + "/" };
   }
   return { format: null, dir: null };
@@ -405,7 +405,7 @@ export async function handleAbTest(req: Request): Promise<Response> {
     return {
       runPath,
       manifestPath,
-      run: runPath ? readJsonFile(runPath) : null,
+      run: runPath ? readJsonFile<Record<string, any>>(runPath) : null,
     };
   };
   const aComp = readCompanions(aRes.abs);
@@ -420,7 +420,7 @@ export async function handleAbTest(req: Request): Promise<Response> {
   );
   let signalMetrics: Record<string, any> = { winners: {} };
   if (qRes.code === 0 && fs.existsSync(qJson)) {
-    const qd = readJsonFile(qJson);
+    const qd = readJsonFile<Record<string, any>>(qJson);
     const imgs = Array.isArray(qd?.images) ? qd.images : [];
     const byRole: Record<string, any> = {};
     const winners: Record<string, string> = {};

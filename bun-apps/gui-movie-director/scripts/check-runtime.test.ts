@@ -32,7 +32,7 @@ function runJson(): { json: any; exitCode: number | null } {
 // or a fresh clone, before `bash scripts/setup-offline.sh` recreates it) so a
 // clean tree produces clean skips, not red ENOENT JSON-parse failures.
 const VENV_PRESENT = existsSync(resolvePythonBin());
-describe.skipIf(process.env.CI || !VENV_PRESENT)("check-runtime", () => {
+describe.skipIf(Boolean(process.env.CI) || !VENV_PRESENT)("check-runtime", () => {
   it("emits a well-formed JSON contract", () => {
     const { json } = runJson();
     expect(typeof json.findingCount).toBe("number");

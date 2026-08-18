@@ -236,13 +236,14 @@ export class SubprocessManager {
     this.finalizers.set(id, finalize);
 
     // Wait for exit, then drain remaining stream output before finalizing status
-    proc.exited.then(async (code) => {
+    proc.exited.then(async (code: number) => {
       await Promise.all([stdoutDone, stderrDone]);
       finalize(code === 0 ? "completed" : "failed", code);
-    }).catch((err) => {
+    }).catch((err: unknown) => {
       // Process exited with an error (e.g. signal, spawn-level failure) — surface
       // the reason instead of silently marking failed.
-      const msg = `[process exited with error: ${err?.message || err}]`;
+      const detail = err instanceof Error ? err.message : String(err);
+      const msg = `[process exited with error: ${detail}]`;
       job.logs.push({ text: msg, stream: "stderr" });
       this.broadcastLog(id, msg, "stderr");
       finalize("failed", -1);
@@ -265,8 +266,12 @@ export class SubprocessManager {
     const job = this.jobs.get(id);
     if (!job || job.status !== "running") return false;
     if (job.pid === undefined) return false;
+    // Capture the narrowed pid. The SIGKILL fallback below fires 5s later and
+    // would otherwise re-read `job.pid` at that point — a widening TypeScript
+    // was right to flag, since the read happens long after this guard.
+    const pid = job.pid;
     try {
-      process.kill(job.pid, "SIGTERM");
+      process.kill(pid, "SIGTERM");
       job.logs.push({ text: "[cancelled by user]", stream: "stdout" });
       // Do NOT finalize synchronously. The proc.exited → drain → finalize path
       // above will finalize as 'failed' once the process exits and its
@@ -284,7 +289,7 @@ export class SubprocessManager {
       setTimeout(() => {
         const j = this.jobs.get(id);
         if (!j || j.status !== "running") return;
-        try { process.kill(job.pid, "SIGKILL"); } catch { /* already gone */ }
+        try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
       }, 5000);
       return true;
     } catch {

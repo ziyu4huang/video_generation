@@ -67,8 +67,11 @@ export function SelfTestResults({ job }: Props) {
     async (v: SelfTestVariant): Promise<Record<string, any> | null> => {
       const data = await runCaption({ image: v.fullPath, style: "score" });
       if (data.ok && data.caption) {
-        setCaptionOverrides((prev) => ({ ...prev, [v.filename]: data.caption }));
-        return data.caption;
+        // Bind the narrowed value: the guard above does not carry into the
+        // setState callback, which is a separate closure evaluated later.
+        const caption = data.caption;
+        setCaptionOverrides((prev) => ({ ...prev, [v.filename]: caption }));
+        return caption;
       }
       return null;
     },

@@ -12,6 +12,7 @@ function img(name: string, transformer?: string): GalleryImage {
     size: 1,
     createdAt: name, // fake timestamp — only order matters
     run: transformer ? { transformer } : null,
+    manifest: null,
   };
 }
 

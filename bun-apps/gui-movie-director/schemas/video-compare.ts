@@ -40,6 +40,6 @@ export const videoCompareCommand: UnifiedCommand = {
     { key: "height", cliFlag: "--height", control: "number", label: "Height", default: 448 },
     { key: "stage1_steps", cliFlag: "--stage1-steps", control: "number", label: "Stage 1 Steps", default: 8 },
     { key: "dry_run", cliFlag: "--dry-run", control: "toggle", label: "Dry Run",
-      help: "Print comparison plan without generating" },
+      hint: "Print comparison plan without generating" },
   ],
 };

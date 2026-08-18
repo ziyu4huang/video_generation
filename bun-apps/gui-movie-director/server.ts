@@ -88,6 +88,13 @@ if (globalThis._devServer) {
 
   globalThis._devServer = serveWithFallback(serverConfig);
   const actualPort = globalThis._devServer.port;
+  // Bun.serve's `port` is optional in the type (a unix-socket server has none).
+  // Registering `undefined` would put `http://<host>:undefined` in the registry
+  // and hand `bun run gui:port` a URL nothing can open, so this fails loudly
+  // rather than publishing a broken entry.
+  if (actualPort === undefined) {
+    throw new Error("Bun.serve returned no port — cannot register this GUI server");
+  }
   const url = `http://${HOSTNAME}:${actualPort}`;
   // Broadcast to the shared registry so `bun run gui:port` can identify this
   // worktree's server and distinguish it from others.

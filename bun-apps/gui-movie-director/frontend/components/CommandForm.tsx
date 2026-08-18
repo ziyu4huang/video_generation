@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import type { CommandSchema, FieldDef } from "../schemas/types";
+import type { CommandSchema, FieldDef, Hint } from "../schemas/types";
 import { TextField, NumberField, RangeField, SelectField, ToggleField } from "./FieldComponents";
 import { FileUpload } from "./FileUpload";
 import { LoraField } from "./LoraField";
@@ -84,6 +84,20 @@ function groupIntoRows(fields: FieldDef[], state: Record<string, any>): FieldDef
   }
   if (current.length > 0) rows.push(current);
   return rows;
+}
+
+/**
+ * A field's hint may be a plain string or a function of the current state.
+ * Called for every render of a select/toggle, so it must tolerate a field with
+ * no hint at all (most of them).
+ */
+function resolveHint(
+  field: FieldDef & { hint?: Hint },
+  state: Record<string, any>,
+  inputDims: { w: number; h: number } | null,
+): string | undefined {
+  const h = field.hint;
+  return typeof h === "function" ? h(state, { inputDims }) : h;
 }
 
 export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraActions }: CommandFormProps) {
@@ -213,7 +227,7 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
             onChange={(v) => setField(field.key, v)}
             options={options}
             loading={isLoading}
-            hint={field.hint?.(state, { inputDims })}
+            hint={resolveHint(field, state, inputDims)}
           />
         );
       }
@@ -224,6 +238,7 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
             label={field.label}
             checked={state[field.key] ?? field.default ?? false}
             onChange={(v) => setField(field.key, v)}
+            hint={resolveHint(field, state, inputDims)}
           />
         );
       case "image":
