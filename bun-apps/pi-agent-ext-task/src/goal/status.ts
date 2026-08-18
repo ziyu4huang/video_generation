@@ -16,7 +16,13 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ActiveGoal } from "./format.js";
 import { goalState } from "./state.js";
 import type { StatusContext } from "./context.js";
-import { clearPersistedGoal, persistGoal, persistGoalState } from "./persistence.js";
+import {
+	clearPersistedGoal,
+	loadGoalStateFromSession,
+	persistGoal,
+	persistGoalState,
+	shouldHonorPersistedStatus,
+} from "./persistence.js";
 import { isLoopActive, refireLoopContinuation } from "../loop/loop.js";
 import {
 	HEARTBEAT_INTERVAL_MS,
@@ -123,6 +129,12 @@ export function syncHeartbeatTimer() {
 				if (isLoopActive()) {
 					void refireLoopContinuation((goalState.extensionApi as ExtensionAPI), ctx as StatusContext);
 				} else if (goalState.activeGoal?.status === "active") {
+					const persisted = loadGoalStateFromSession(ctx.sessionManager);
+					if (shouldHonorPersistedStatus(goalState.activeGoal, persisted.goal)) {
+						goalState.activeGoal = persisted.goal;
+						stopHeartbeatTimer();
+						return;
+					}
 					void sendContinuationPrompt((goalState.extensionApi as ExtensionAPI), ctx, goalState.activeGoal);
 				}
 			}
