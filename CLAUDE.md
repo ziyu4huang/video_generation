@@ -56,6 +56,7 @@ python/venv/bin/python -m pytest python/mlx-movie-director/app/tests [--run-gpu]
 ## DevOps (standing rule)
 
 All git sync / branch prep / rebase / PR merge / local CI / branch sweep / post-run review goes through the devops tool chain (`sync_repo`, `prepare_branch`, `local_ci`, `await_pr_merge`, `verify_merge`, `sweep_branches`, `devops_retrospect`) per `bun-apps/pi-agent-ext-devops/skills/devops-workflow/SKILL.md` — never hand-rolled raw-bash git/gh subagents for phases a devops tool owns. Plain `pi` sessions: CLI fallbacks under `bun-apps/pi-agent-ext-devops/src/*-cli.ts` (`sync-cli`, `main-health-cli`, `sweep-cli`, `local-ci-cli`, `prepare-cli`, `verify-merge-cli`, `pr-finish-cli`; all take `--help`, emit JSON, exit 0/1/2). Sync example (plain session): `bun bun-apps/pi-agent-ext-devops/src/sync-cli.ts`. "Is main itself green?" → `main-health-cli.ts` (`local_ci` is change-scoped). Prefer the pi-agent wrapper `bun bun-apps/pi-agent/src/cli.ts` (auto-loads run-dir extensions and skills).
+  - Self-improve drift report: `./pi-agent.sh cli loop status` (report-only: death rate, skill lines, duplicates, canary, coverage).
 
 ## Key Directories
 
