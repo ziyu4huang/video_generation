@@ -261,6 +261,26 @@ function setup(): { pi: MockPi; server: WebServer; wiring: WebuiWiring } {
 // Tier A — MUST pass
 // ===========================================================================
 
+import { beforeAll, afterAll } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// #1590 isolation: wiring tests must not absorb the REAL user report mirror
+// (~/.pi/webui/reports/reports-<port>.jsonl) into their snapshot stores \x{2014}
+// unisolated runs failed with +N frames the moment a real mirror existed.
+let __isoDir: string | undefined;
+const __prevReportDir = process.env["WEBUI_REPORT_DIR"];
+beforeAll(() => {
+  __isoDir = mkdtempSync(join(tmpdir(), "webui-test-iso-"));
+  process.env["WEBUI_REPORT_DIR"] = __isoDir;
+});
+afterAll(() => {
+  if (__prevReportDir === undefined) delete process.env["WEBUI_REPORT_DIR"];
+  else process.env["WEBUI_REPORT_DIR"] = __prevReportDir;
+  if (__isoDir) rmSync(__isoDir, { recursive: true, force: true });
+});
+
 describe("wireWebui live smoke — Tier A", () => {
   it("A) after session_start, GET / serves the render shell (ticket 06)", async () => {
     const { pi, server, wiring } = setup();

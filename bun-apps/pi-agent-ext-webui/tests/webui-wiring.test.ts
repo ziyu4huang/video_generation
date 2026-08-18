@@ -110,6 +110,26 @@ function dispatch(pi: MockPi, server: FakeWebServer, frame: unknown): WebFrame[]
 }
 
 // --- Phase 4: chained httpRoutes seam (render ?? output) ---------------------
+import { beforeAll, afterAll } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// #1590 isolation: wiring tests must not absorb the REAL user report mirror
+// (~/.pi/webui/reports/reports-<port>.jsonl) into their snapshot stores \x{2014}
+// unisolated runs failed with +N frames the moment a real mirror existed.
+let __isoDir: string | undefined;
+const __prevReportDir = process.env["WEBUI_REPORT_DIR"];
+beforeAll(() => {
+  __isoDir = mkdtempSync(join(tmpdir(), "webui-test-iso-"));
+  process.env["WEBUI_REPORT_DIR"] = __isoDir;
+});
+afterAll(() => {
+  if (__prevReportDir === undefined) delete process.env["WEBUI_REPORT_DIR"];
+  else process.env["WEBUI_REPORT_DIR"] = __prevReportDir;
+  if (__isoDir) rmSync(__isoDir, { recursive: true, force: true });
+});
+
 describe("wireWebui — chained render+output http routes", () => {
   test("seam serves /output/0/... via deps.outputDir; render routes still first", () => {
     const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "webui-wiring-out-"));
