@@ -486,11 +486,7 @@ test("buildSpawnOptions: tools precedence — params.tools beats agentDef.tools;
   );
   assert.deepEqual(a.tools, ["webui_report"]);
   // 2) a registerTool name flows through verbatim (never filtered/renamed).
-  const b = buildSpawnOptions(
-    base({ tools: ["webui_report", "webui_present"] }) as never,
-    progress,
-    mkDeps(["read"]),
-  );
+  const b = buildSpawnOptions(base({ tools: ["webui_report", "webui_present"] }) as never, progress, mkDeps(["read"]));
   assert.deepEqual(b.tools, ["webui_report", "webui_present"]);
   // 3) neither params nor agentDef: falls back to the session's active tools.
   const c = buildSpawnOptions(base({}) as never, progress, mkDeps(["read", "bash", "edit", "write"]));
