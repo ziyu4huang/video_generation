@@ -56,6 +56,9 @@ import { buildBtwEntry } from "./btw-store.js";
 
 const encoder = new TextEncoder();
 
+/** G1 cap on /api/markdown body text (chat messages, not file payloads). */
+const MARKDOWN_TEXT_MAX = 512 * 1024;
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -79,6 +82,23 @@ export function createRenderRoutes(
       return new Response(RENDER_SHELL_HTML, {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
+    }
+
+    // webui-readability G1: chat-feed markdown — the SAME marked pipeline the
+    // Report tab uses, exposed for the Inbox chat bubbles (the shell displays
+    // it in a sandboxed iframe). Capped: chat text, not file payloads.
+    if (req.method === "POST" && pathname === "/api/markdown") {
+      return (async () => {
+        try {
+          const body = (await req.json()) as { text?: unknown };
+          if (typeof body.text !== "string" || body.text.trim() === "")
+            return json({ error: "text must be a non-empty string" }, 400);
+          if (body.text.length > MARKDOWN_TEXT_MAX) return json({ error: "text too long" }, 400);
+          return json({ html: renderMarkdown(body.text) });
+        } catch {
+          return json({ error: "invalid json body" }, 400);
+        }
+      })();
     }
 
     if (req.method === "GET" && pathname === "/api/views") {
