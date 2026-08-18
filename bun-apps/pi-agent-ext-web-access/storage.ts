@@ -22,6 +22,20 @@ export interface StoredSearchData {
 
 const storedResults = new Map<string, StoredSearchData>();
 
+/**
+ * Drop the binary payloads before a fetch result is stored.
+ *
+ * Thumbnails and extracted video frames are base64 image data that only the
+ * immediate tool return needs — keeping them would grow the in-memory store and
+ * the session entry by megabytes per call, for bytes no `get_search_content`
+ * retrieval ever reads back. Lives here rather than at a call site because both
+ * web_search and fetch_content build a StoredSearchData, and it is a property of
+ * what gets stored, not of who is storing it.
+ */
+export function stripThumbnails(results: ExtractedContent[]): ExtractedContent[] {
+	return results.map(({ thumbnail, frames, ...rest }) => rest);
+}
+
 export function generateId(): string {
 	return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }

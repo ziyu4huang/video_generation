@@ -1,32 +1,36 @@
-// @ts-nocheck — the last suppressed file in this package. The other five are
+// @ts-nocheck — the last suppressed file in this package. The other six are
 // fixed and checked.
 //
 // The errors are NOT spread across this file. Lifting the directive and running
-// tsc gives 49, and they cluster in the inline handler bodies passed to
+// tsc gives 25 (was 49), and they cluster in the inline handler bodies passed to
 // `pi.registerTool` / `pi.registerCommand` — the package's own tool surface:
 //
-//   fetch_content        1755-2005   251 lines   20 errors
-//   web_search           1206-1753   548 lines   12 errors
-//   /websearch command   2172-2419   248 lines    5 errors
-//   get_search_content   2007-2170   164 lines    2 errors
-//   (rest: shortcut/commands 5, module scope 3, gaps 2)
+//   web_search           web_search handler   13 errors
+//   /websearch command                         5 errors
+//   module scope / openCuratorBrowser region   6 errors
+//   /search command                            1 error
 //
-// `openCuratorBrowser` has ZERO. An earlier revision of this header claimed 43
-// of the 49 were in it and that it spanned ~1,660 lines; both were wrong. They
-// came from locating the function's end with a "next top-level declaration"
-// heuristic — and since it is the LAST such declaration, the heuristic ran on
-// to the end of the closure and swallowed ~1,400 lines of unrelated
-// registration code. Brace-balanced, it is 911-1156: 246 lines, no errors.
+// `openCuratorBrowser` itself has ZERO. An earlier revision of this header
+// claimed 43 of the 49 were in it and that it spanned ~1,660 lines; both were
+// wrong. They came from locating the function's end with a "next top-level
+// declaration" heuristic — and since it is the LAST such declaration, the
+// heuristic ran on to the end of the closure and swallowed ~1,400 lines of
+// unrelated registration code. Brace-balanced it is 246 lines, no errors.
 // Leave it alone; it is not the problem.
 //
 // The way out is to give each tool its own module, which also makes the file
-// structure match the three tools CONTEXT.md names. Two of them are nearly
-// free — measured against the enclosing scope, `fetch_content` and
-// `get_search_content` close over NOTHING from it (fetch_content needs only
-// `pi.appendEntry` threaded in). That is 415 lines and 22 errors, 45% of the
-// total, moved into checked modules with no closure threading at all. Do those
-// first. `web_search` (5 closure names) and `/websearch` (4) are the harder
-// half and can follow separately.
+// structure match the three tools CONTEXT.md names. `fetch_content` and
+// `get_search_content` are DONE — they closed over nothing here but `pi`, so
+// they moved into fetch-content-tool.ts with no state threaded, taking 24 of
+// the 49 errors with them (all fixed there, none re-suppressed). Two shared
+// helpers moved out with them, to the modules they belong to rather than into
+// the tool file: `renderSearchErrorPlan` → render-error-plan.ts (all three
+// tools' error branches call it), `stripThumbnails` → storage.ts (it is a
+// property of what gets stored).
+//
+// `web_search` (5 closure names) and `/websearch` (4) are the harder half —
+// they genuinely close over enclosing state, so they need that state threaded
+// or hoisted first. They can follow separately.
 //
 // Do NOT read the suppression as "these are cosmetic". Checking this file
 // temporarily surfaced two live ReferenceErrors that no test could reach —
@@ -48,20 +52,6 @@ import { normalizeFetchContentParams } from "./fetch-params.ts";
 import { clearCloneCache } from "./github-extract.ts";
 import { search, type SearchProvider, type ResolvedSearchProvider } from "./gemini-search.ts";
 
-// ─── Gate family (wayfinder ticket 02 — demoted from core) ──────────────────
-// get_search_content is a companion retrieval surface for stored web_search /
-// fetch_content results — on-demand, not needed every turn (web_search +
-// fetch_content themselves stay core). Keywords are the stored-content
-// retrieval vocabulary.
-GATE_DEFS["get_search_content"] = {
-  id: "get_search_content",
-  keywords: ["get search content", "full content", "stored content", "previous search", "responseId", "取回內容", "完整內容"],
-  requires: {
-    nouns: ["content", "search", "response", "url", "query", "內容"],
-    verbs: ["retrieve", "get", "fetch", "取回", "取得"],
-  },
-  description: "Retrieve full content from a previous web_search/fetch_content",
-};
 import type { SearchResult } from "./perplexity.ts";
 import { formatSeconds, getWebSearchConfigDir, getWebSearchConfigPath } from "./utils.ts";
 import {
@@ -72,6 +62,7 @@ import {
 	getResult,
 	restoreFromSession,
 	storeResult,
+	stripThumbnails,
 	type QueryResultData,
 	type StoredSearchData,
 } from "./storage.ts";
@@ -107,27 +98,11 @@ import { isParallelAvailable } from "./parallel.ts";
 import { isTavilyAvailable } from "./tavily.ts";
 import { isZaiAvailable } from "./zai.ts";
 import { buildSearchErrorPlan, type SearchErrorDetails, type SearchErrorPlan } from "./render-search-error.ts";
+import { renderSearchErrorPlan } from "./render-error-plan.ts";
+import { registerFetchContentTool, registerGetSearchContentTool } from "./fetch-content-tool.ts";
 import { loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
 
 const WEB_SEARCH_CONFIG_PATH = getWebSearchConfigPath();
-
-/** Shared collapsed/expanded renderer for an error/cancel plan produced by
- * buildSearchErrorPlan(). Used by every tool renderResult's error branch so
- * Ctrl+O (app.tools.expand) reveals diagnostics instead of a dead-end single line. */
-function renderSearchErrorPlan(plan: SearchErrorPlan, expanded: boolean, theme: { fg: (key: string, s: string) => string; bg: (key: string, s: string) => string }) {
-	if (expanded) {
-		return new Text(plan.expanded.map((l, i) => i === 0 ? theme.fg("error", l) : theme.fg("toolOutput", l)).join("\n"), 0, 0);
-	}
-	const box = new Box(1, 0, (t) => theme.bg("toolErrorBg", t));
-	box.addChild(new Text(theme.fg("error", plan.expanded[0]), 0, 0));
-	for (const line of plan.collapsed) {
-		box.addChild(new Text(theme.fg("dim", line), 0, 0));
-	}
-	if (plan.expandHint) {
-		box.addChild(new Text(theme.fg("muted", plan.expandHint), 0, 0));
-	}
-	return box;
-}
 
 interface WebSearchConfig {
 	provider?: string;
@@ -372,12 +347,6 @@ interface PendingCurate {
 }
 
 
-const MAX_INLINE_CONTENT = 30000; // Content returned directly to agent
-
-function stripThumbnails(results: ExtractedContent[]): ExtractedContent[] {
-	return results.map(({ thumbnail, frames, ...rest }) => rest);
-}
-
 function formatSearchSummary(results: SearchResult[], answer: string): string {
 	let output = answer ? `${answer}\n\n---\n\n**Sources:**\n` : "";
 	output += results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}`).join("\n\n");
@@ -405,17 +374,6 @@ function hasFullInlineCoverage(urls: string[], inlineContent: ExtractedContent[]
 	if (!inlineContent || inlineContent.length === 0) return false;
 	const coveredUrls = new Set(inlineContent.map(c => c.url));
 	return urls.every(url => coveredUrls.has(url));
-}
-
-function formatFullResults(queryData: QueryResultData): string {
-	let output = `## Results for: "${queryData.query}"\n\n`;
-	if (queryData.answer) {
-		output += `${queryData.answer}\n\n---\n\n`;
-	}
-	for (const r of queryData.results) {
-		output += `### ${r.title}\n${r.url}\n\n`;
-	}
-	return output;
 }
 
 function abortPendingFetches(): void {
@@ -1767,422 +1725,11 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
-		name: "fetch_content",
-		label: "Fetch Content",
-		gating: { core: true },
-		description: "Fetch URL(s) and extract readable content as markdown. Supports YouTube video transcripts (with thumbnail), GitHub repository contents, and local video files (with frame thumbnail). Video frames can be extracted via timestamp/range or sampled across the entire video with frames alone. Falls back to Gemini for pages that block bots or fail Readability extraction. For YouTube and video files: ALWAYS pass the user's specific question via the prompt parameter — this directs the AI to focus on that aspect of the video, producing much better results than a generic extraction. Content is always stored and can be retrieved with get_search_content.",
-		promptSnippet:
-			"Use to extract readable content from URL(s), YouTube, GitHub repos, or local videos. For video questions, pass the user's exact question in prompt.",
-		parameters: Type.Object({
-			url: Type.Optional(Type.String({ description: "Single URL to fetch" })),
-			urls: Type.Optional(Type.Array(Type.String(), { description: "Multiple URLs (parallel)" })),
-			forceClone: Type.Optional(Type.Boolean({
-				description: "Force cloning large GitHub repositories that exceed the size threshold",
-			})),
-			prompt: Type.Optional(Type.String({
-				description: "Question or instruction for video analysis (YouTube and video files). Pass the user's specific question here — e.g. 'describe the book shown at the advice for beginners section'. Without this, a generic transcript extraction is used which may miss what the user is asking about.",
-			})),
-			timestamp: Type.Optional(Type.String({
-				description: "Extract video frame(s) at a timestamp or time range. Single: '1:23:45', '23:45', or '85' (seconds). Range: '23:41-25:00' extracts evenly-spaced frames across that span (default 6). Use frames with ranges to control density; single+frames uses a fixed 5s interval. YouTube requires yt-dlp + ffmpeg; local videos require ffmpeg. Use a range when you know the approximate area but not the exact moment — you'll get a contact sheet to visually identify the right frame.",
-			})),
-			frames: Type.Optional(Type.Integer({
-				minimum: 1,
-				maximum: 12,
-				description: "Number of frames to extract. Use with timestamp range for custom density, with single timestamp to get N frames at 5s intervals, or alone to sample across the entire video. Requires yt-dlp + ffmpeg for YouTube, ffmpeg for local video.",
-			})),
-			model: Type.Optional(Type.String({
-				description: "Override the Gemini model for video/YouTube analysis (e.g. 'gemini-2.5-flash', 'gemini-3-flash-preview'). Defaults to config or gemini-3-flash-preview.",
-			})),
-		}),
-
-		async execute(_toolCallId, params, signal, onUpdate) {
-			const { urlList, options } = normalizeFetchContentParams(params);
-			if (urlList.length === 0) {
-				return {
-					content: [{ type: "text", text: "Error: No URL provided." }],
-					details: { error: "No URL provided" },
-				};
-			}
-
-			onUpdate?.({
-				content: [{ type: "text", text: `Fetching ${urlList.length} URL(s)...` }],
-				details: { phase: "fetch", progress: 0 },
-			});
-
-			const fetchResults = await fetchAllContent(urlList, signal, options);
-			const successful = fetchResults.filter((r) => !r.error).length;
-			const totalChars = fetchResults.reduce((sum, r) => sum + r.content.length, 0);
-
-			// ALWAYS store results (even for single URL)
-			const responseId = generateId();
-			const data: StoredSearchData = {
-				id: responseId,
-				type: "fetch",
-				timestamp: Date.now(),
-				urls: stripThumbnails(fetchResults),
-			};
-			storeResult(responseId, data);
-			pi.appendEntry("web-search-results", data);
-
-			// Single URL: return content directly (possibly truncated) with responseId
-			if (urlList.length === 1) {
-				const result = fetchResults[0];
-				if (result.error) {
-					return {
-						content: [{ type: "text", text: `Error: ${result.error}` }],
-						details: { urls: urlList, urlCount: 1, successful: 0, error: result.error, responseId, prompt: params.prompt, timestamp: params.timestamp, frames: params.frames },
-					};
-				}
-
-				const fullLength = result.content.length;
-				const truncated = fullLength > MAX_INLINE_CONTENT;
-				let output = truncated
-					? result.content.slice(0, MAX_INLINE_CONTENT) + "\n\n[Content truncated...]"
-					: result.content;
-
-				if (truncated) {
-					output += `\n\n---\nShowing ${MAX_INLINE_CONTENT} of ${fullLength} chars. ` +
-						`Use get_search_content({ responseId: "${responseId}", urlIndex: 0 }) for full content.`;
-				}
-
-				const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [];
-				if (result.frames?.length) {
-					for (const frame of result.frames) {
-						content.push({ type: "image", data: frame.data, mimeType: frame.mimeType });
-						content.push({ type: "text", text: `Frame at ${frame.timestamp}` });
-					}
-				} else if (result.thumbnail) {
-					content.push({ type: "image", data: result.thumbnail.data, mimeType: result.thumbnail.mimeType });
-				}
-				content.push({ type: "text", text: output });
-
-				const imageCount = (result.frames?.length ?? 0) + (result.thumbnail ? 1 : 0);
-				return {
-					content,
-					details: {
-						urls: urlList,
-						urlCount: 1,
-						successful: 1,
-						totalChars: fullLength,
-						title: result.title,
-						responseId,
-						truncated,
-						hasImage: imageCount > 0,
-						imageCount,
-						prompt: params.prompt,
-						timestamp: params.timestamp,
-						frames: params.frames,
-						duration: result.duration,
-					},
-				};
-			}
-
-			// Multi-URL: existing behavior (summary + responseId)
-			let output = "## Fetched URLs\n\n";
-			for (const { url, title, content, error } of fetchResults) {
-				if (error) {
-					output += `- ${url}: Error - ${error}\n`;
-				} else {
-					output += `- ${title || url} (${content.length} chars)\n`;
-				}
-			}
-			output += `\n---\nUse get_search_content({ responseId: "${responseId}", urlIndex: 0 }) to retrieve full content.`;
-
-			return {
-				content: [{ type: "text", text: output }],
-				details: { urls: urlList, urlCount: urlList.length, successful, totalChars, responseId },
-			};
-		},
-
-		renderCall(args, theme) {
-			const { url, urls, prompt, timestamp, frames, model } = args as { url?: string; urls?: string[]; prompt?: string; timestamp?: string; frames?: number; model?: string };
-			const urlList = urls ?? (url ? [url] : []);
-			if (urlList.length === 0) {
-				return new Text(theme.fg("toolTitle", theme.bold("fetch ")) + theme.fg("error", "(no URL)"), 0, 0);
-			}
-			const lines: string[] = [];
-			if (urlList.length === 1) {
-				const display = urlList[0].length > 60 ? urlList[0].slice(0, 57) + "..." : urlList[0];
-				lines.push(theme.fg("toolTitle", theme.bold("fetch ")) + theme.fg("accent", display));
-			} else {
-				lines.push(theme.fg("toolTitle", theme.bold("fetch ")) + theme.fg("accent", `${urlList.length} URLs`));
-				for (const u of urlList.slice(0, 5)) {
-					const display = u.length > 60 ? u.slice(0, 57) + "..." : u;
-					lines.push(theme.fg("muted", "  " + display));
-				}
-				if (urlList.length > 5) {
-					lines.push(theme.fg("muted", `  ... and ${urlList.length - 5} more`));
-				}
-			}
-			if (timestamp) {
-				lines.push(theme.fg("dim", "  timestamp: ") + theme.fg("warning", timestamp));
-			}
-			if (typeof frames === "number") {
-				lines.push(theme.fg("dim", "  frames: ") + theme.fg("warning", String(frames)));
-			}
-			if (prompt) {
-				const display = prompt.length > 250 ? prompt.slice(0, 247) + "..." : prompt;
-				lines.push(theme.fg("dim", "  prompt: ") + theme.fg("muted", `"${display}"`));
-			}
-			if (model) {
-				lines.push(theme.fg("dim", "  model: ") + theme.fg("warning", model));
-			}
-			return new Text(lines.join("\n"), 0, 0);
-		},
-
-		renderResult(result, { expanded, isPartial }, theme) {
-			const details = result.details as {
-				urlCount?: number;
-				successful?: number;
-				totalChars?: number;
-				error?: string;
-				title?: string;
-				truncated?: boolean;
-				responseId?: string;
-				phase?: string;
-				progress?: number;
-				hasImage?: boolean;
-				imageCount?: number;
-				prompt?: string;
-				timestamp?: string;
-				frames?: number;
-				duration?: number;
-			};
-
-			if (isPartial) {
-				const progress = details?.progress ?? 0;
-				const bar = "\u2588".repeat(Math.floor(progress * 10)) + "\u2591".repeat(10 - Math.floor(progress * 10));
-				return new Text(theme.fg("accent", `[${bar}] ${details?.phase || "fetching"}`), 0, 0);
-			}
-
-			if (details?.error) {
-				const fd = details as typeof details & { urls?: string[] };
-				const extras: string[] = [];
-				if (typeof fd.urlCount === "number" || typeof fd.successful === "number") {
-					extras.push(`urls: ${fd.successful ?? 0}/${fd.urlCount ?? 0} succeeded`);
-				}
-				if (fd.responseId) extras.push(`response id: ${fd.responseId}`);
-				if (fd.urls && fd.urls.length > 0) {
-					for (const u of fd.urls.slice(0, 8)) extras.push(`  \u25b8 ${u}`);
-					if (fd.urls.length > 8) extras.push(`  ... and ${fd.urls.length - 8} more`);
-				}
-				const plan = buildSearchErrorPlan({ error: details.error, extraLines: extras });
-				if (plan) return renderSearchErrorPlan(plan, expanded, theme);
-				return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
-			}
-
-			if (details?.urlCount === 1) {
-				const title = details?.title || "Untitled";
-				const imgCount = details?.imageCount ?? (details?.hasImage ? 1 : 0);
-				const imageBadge = imgCount > 1
-					? theme.fg("accent", ` [${imgCount} images]`)
-					: imgCount === 1
-						? theme.fg("accent", " [image]")
-						: "";
-				let statusLine = theme.fg("success", title) + theme.fg("muted", ` (${details?.totalChars ?? 0} chars)`) + imageBadge;
-				if (details?.truncated) {
-					statusLine += theme.fg("warning", " [truncated]");
-				}
-				if (typeof details?.duration === "number") {
-					statusLine += theme.fg("muted", ` | ${formatSeconds(Math.floor(details.duration))} total`);
-				}
-				const textContent = result.content.find((c) => c.type === "text")?.text || "";
-				if (!expanded) {
-					const brief = textContent.length > 200 ? textContent.slice(0, 200) + "..." : textContent;
-					return new Text(statusLine + "\n" + theme.fg("dim", brief), 0, 0);
-				}
-				const lines = [statusLine];
-				if (details?.prompt) {
-					const display = details.prompt.length > 250 ? details.prompt.slice(0, 247) + "..." : details.prompt;
-					lines.push(theme.fg("dim", `  prompt: "${display}"`));
-				}
-				if (details?.timestamp) {
-					lines.push(theme.fg("dim", `  timestamp: ${details.timestamp}`));
-				}
-				if (typeof details?.frames === "number") {
-					lines.push(theme.fg("dim", `  frames: ${details.frames}`));
-				}
-				const preview = textContent.length > 500 ? textContent.slice(0, 500) + "..." : textContent;
-				lines.push(theme.fg("dim", preview));
-				return new Text(lines.join("\n"), 0, 0);
-			}
-
-			const countColor = (details?.successful ?? 0) > 0 ? "success" : "error";
-			const statusLine = theme.fg(countColor, `${details?.successful}/${details?.urlCount} URLs`) + theme.fg("muted", " (content stored)");
-			if (!expanded) {
-				return new Text(statusLine, 0, 0);
-			}
-			const textContent = result.content.find((c) => c.type === "text")?.text || "";
-			const preview = textContent.length > 500 ? textContent.slice(0, 500) + "..." : textContent;
-			return new Text(statusLine + "\n" + theme.fg("dim", preview), 0, 0);
-		},
-	});
-
-	pi.registerTool({
-		name: "get_search_content",
-		label: "Get Search Content",
-		gating: { gate: "get_search_content" }, // demoted from core (ticket 02),
-		description: "Retrieve full content from a previous web_search or fetch_content call.",
-		promptSnippet:
-			"Use after web_search/fetch_content when full stored content is needed via responseId plus query/url selectors.",
-		parameters: Type.Object({
-			responseId: Type.String({ description: "The responseId from web_search or fetch_content" }),
-			query: Type.Optional(Type.String({ description: "Get content for this query (web_search)" })),
-			queryIndex: Type.Optional(Type.Number({ description: "Get content for query at index" })),
-			url: Type.Optional(Type.String({ description: "Get content for this URL" })),
-			urlIndex: Type.Optional(Type.Number({ description: "Get content for URL at index" })),
-		}),
-
-		async execute(_toolCallId, params) {
-			const data = getResult(params.responseId);
-			if (!data) {
-				return {
-					content: [{ type: "text", text: `Error: No stored results for "${params.responseId}"` }],
-					details: { error: "Not found", responseId: params.responseId },
-				};
-			}
-
-			if (data.type === "search" && data.queries) {
-				let queryData: QueryResultData | undefined;
-
-				if (params.query !== undefined) {
-					queryData = data.queries.find((q) => q.query === params.query);
-					if (!queryData) {
-						const available = data.queries.map((q) => `"${q.query}"`).join(", ");
-						return {
-							content: [{ type: "text", text: `Query "${params.query}" not found. Available: ${available}` }],
-							details: { error: "Query not found" },
-						};
-					}
-				} else if (params.queryIndex !== undefined) {
-					queryData = data.queries[params.queryIndex];
-					if (!queryData) {
-						return {
-							content: [{ type: "text", text: `Index ${params.queryIndex} out of range (0-${data.queries.length - 1})` }],
-							details: { error: "Index out of range" },
-						};
-					}
-				} else {
-					const available = data.queries.map((q, i) => `${i}: "${q.query}"`).join(", ");
-					return {
-						content: [{ type: "text", text: `Specify query or queryIndex. Available: ${available}` }],
-						details: { error: "No query specified" },
-					};
-				}
-
-				if (queryData.error) {
-					return {
-						content: [{ type: "text", text: `Error for "${queryData.query}": ${queryData.error}` }],
-						details: { error: queryData.error, query: queryData.query },
-					};
-				}
-
-				return {
-					content: [{ type: "text", text: formatFullResults(queryData) }],
-					details: { query: queryData.query, resultCount: queryData.results.length },
-				};
-			}
-
-			if (data.type === "fetch" && data.urls) {
-				let urlData: ExtractedContent | undefined;
-
-				if (params.url !== undefined) {
-					urlData = data.urls.find((u) => u.url === params.url);
-					if (!urlData) {
-						const available = data.urls.map((u) => u.url).join("\n  ");
-						return {
-							content: [{ type: "text", text: `URL not found. Available:\n  ${available}` }],
-							details: { error: "URL not found" },
-						};
-					}
-				} else if (params.urlIndex !== undefined) {
-					urlData = data.urls[params.urlIndex];
-					if (!urlData) {
-						return {
-							content: [{ type: "text", text: `Index ${params.urlIndex} out of range (0-${data.urls.length - 1})` }],
-							details: { error: "Index out of range" },
-						};
-					}
-				} else {
-					const available = data.urls.map((u, i) => `${i}: ${u.url}`).join("\n  ");
-					return {
-						content: [{ type: "text", text: `Specify url or urlIndex. Available:\n  ${available}` }],
-						details: { error: "No URL specified" },
-					};
-				}
-
-				if (urlData.error) {
-					return {
-						content: [{ type: "text", text: `Error for ${urlData.url}: ${urlData.error}` }],
-						details: { error: urlData.error, url: urlData.url },
-					};
-				}
-
-				return {
-					content: [{ type: "text", text: `# ${urlData.title}\n\n${urlData.content}` }],
-					details: { url: urlData.url, title: urlData.title, contentLength: urlData.content.length },
-				};
-			}
-
-			return {
-				content: [{ type: "text", text: "Invalid stored data format" }],
-				details: { error: "Invalid data" },
-			};
-		},
-
-		renderCall(args, theme) {
-			const { responseId, query, queryIndex, url, urlIndex } = args as {
-				responseId: string;
-				query?: string;
-				queryIndex?: number;
-				url?: string;
-				urlIndex?: number;
-			};
-			let target = "";
-			if (query) target = `query="${query}"`;
-			else if (queryIndex !== undefined) target = `queryIndex=${queryIndex}`;
-			else if (url) target = url.length > 30 ? url.slice(0, 27) + "..." : url;
-			else if (urlIndex !== undefined) target = `urlIndex=${urlIndex}`;
-			return new Text(theme.fg("toolTitle", theme.bold("get_content ")) + theme.fg("accent", target || responseId.slice(0, 8)), 0, 0);
-		},
-
-		renderResult(result, { expanded }, theme) {
-			const details = result.details as {
-				error?: string;
-				query?: string;
-				url?: string;
-				title?: string;
-				resultCount?: number;
-				contentLength?: number;
-			};
-
-			if (details?.error) {
-				const extras: string[] = [];
-				if (details.query) extras.push(`query: ${details.query}`);
-				if (details.url) extras.push(`url: ${details.url}`);
-				else if (details.title) extras.push(`resource: ${details.title}`);
-				const plan = buildSearchErrorPlan({ error: details.error, extraLines: extras });
-				if (plan) return renderSearchErrorPlan(plan, expanded, theme);
-				return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
-			}
-
-			let statusLine: string;
-			if (details?.query) {
-				statusLine = theme.fg("success", `"${details.query}"`) + theme.fg("muted", ` (${details.resultCount} results)`);
-			} else {
-				statusLine = theme.fg("success", details?.title || "Content") + theme.fg("muted", ` (${details?.contentLength ?? 0} chars)`);
-			}
-
-			if (!expanded) {
-				return new Text(statusLine, 0, 0);
-			}
-
-			const textContent = result.content.find((c) => c.type === "text")?.text || "";
-			const preview = textContent.length > 500 ? textContent.slice(0, 500) + "..." : textContent;
-			return new Text(statusLine + "\n" + theme.fg("dim", preview), 0, 0);
-		},
-	});
+	// fetch_content + get_search_content live in fetch-content-tool.ts — they
+	// closed over nothing here but `pi`, so they moved out of this closure into a
+	// type-checked module. See that file and this one's header.
+	registerFetchContentTool(pi);
+	registerGetSearchContentTool(pi);
 
 	pi.registerCommand("websearch", {
 		description: "Open web search curator",
