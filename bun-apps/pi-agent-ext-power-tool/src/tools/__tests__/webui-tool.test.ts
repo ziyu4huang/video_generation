@@ -55,13 +55,14 @@ function finding(findings: ReturnType<typeof evaluateInvariants>, check: string)
 // ─── evaluateInvariants (pure, no Chrome) ─────────────────────────────────────
 
 describe("evaluateInvariants (pure)", () => {
-  test("healthy v2 five-tab state: all 6 checks pass in canonical order", () => {
+  test("healthy v2 five-tab state: all 7 checks pass in canonical order", () => {
     const findings = evaluateInvariants(healthyV2());
     expect(findings.map((f) => f.check)).toEqual([
       "panes-exclusive",
       "ask-cards-located",
       "viewer-cards-located",
       "report-articles-located",
+      "report-iframe-sized",
       "zero-page-errors",
       "zero-console-errors",
     ]);
