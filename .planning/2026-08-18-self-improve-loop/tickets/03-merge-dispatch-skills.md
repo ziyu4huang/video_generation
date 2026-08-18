@@ -1,7 +1,7 @@
 ---
 type: skill-docs
 blocking: none
-status: open
+status: done
 ---
 
 # 03 Merge dispatch-budget-rebalance into dispatch-recovery (spec M3, G3)
@@ -23,3 +23,6 @@ One skill owning dispatch-time rules + calibration — 16 -> 15?
   section; grep dispatch-budget-rebalance bun-apps/ --include='*.md' -> only
   historical ADR/changelog mentions (no live skill references).
 - superpowers bun test green.
+
+## Completion 2026-08-18
+Merged as Calibration section (triggers + 6-step procedure + pitfalls); description extended; dir deleted 16->15; subagent README/runs-stats/ADR-0005 repointed; rebaseline ran; suite green.

@@ -104,7 +104,7 @@ On top of the tier ceiling, a dispatch that omits **all three** of `tokenBudget`
 
 Programmatic callers that use `spawnSubagent` directly (not the LLM tools) bypass the tool seam where envelopes apply — use the exported **`roleAwareDirectCall(role, task, logId)`**: it applies the role's caps AND appends the abort-safety footer (the as-you-go `/tmp/subagent-runs/<logId>.md` progress-log mandate) atomically at call time; `SUBAGENT_TOKEN_BUDGET_DISABLE=1` strips both. Children at 12+ turns cross the footer gate by design — turns-limit deaths are the top killer and the as-you-go log is what makes a budget death recoverable.
 
-To recalibrate: `bun scripts/runs-stats.ts` emits per-status counts plus token/turns medians straight from `~/.pi/subagents/runs` — bounds move from those medians, never intuition (procedure: `superpowers/skills/dispatch-budget-rebalance`).
+To recalibrate: `bun scripts/runs-stats.ts` emits per-status counts plus token/turns medians straight from `~/.pi/subagents/runs` — bounds move from those medians, never intuition (procedure: `superpowers/skills/dispatch-recovery` Calibration section).
 
 The defaults are adjustable at runtime via environment variables (read at call time, no caching; invalid values are silently ignored):
 
