@@ -31,6 +31,11 @@ tested protection and a complete root-cause record. Reached.
 - Repo hygiene: branch sweep via devops sweep-cli (merged-evidence only).
 - Live-loop stop remains user-side: /goal pause or exit to a fresh session
   (restart-safe: journal last-entry-wins, no harness-side goal store).
+- Addendum 2026-08-18 (post-close): two more guards landed after this map was
+  written — default 500k-token continuation budget (PR #1634) and heartbeat
+  persisted-status check (PR #1636). Repo-side ledger closed (issue #1616
+  comment 11); the sole remaining item is harness-side core-gated
+  goal_complete curation.
 
 ## Decisions so far
 - Tripwire over tool unregistration changes: repo-side minimal guard; the
