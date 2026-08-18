@@ -132,6 +132,17 @@ export interface HierarchyBuildResult {
   skipped?: string;
 }
 
+/** OPTIONAL entity-summary augmentation leaf for embed-text construction
+ *  (es1 = entity-summary augmented embed lineage). zk publishes it backed by
+ *  entity-summary.ts's pure augmentEmbedText; consumers (hermes's vector
+ *  backfill) read it defensively — an absent leaf means unaugmented embed
+ *  texts, byte-identical to the pre-es1 behavior. */
+export interface EntityAugment {
+  /** Pure transform: empty/absent summary → base unchanged; otherwise
+   *  (summary.slice(0, 200) + " " + base).slice(0, 1000). */
+  augmentEmbedText(base: string, summary?: string | null): string;
+}
+
 export interface KnowledgePipeline {
   collectInputFiles(paths: string[], opts: { source: SourceFamily; cwd: string }): CollectInputFilesResult;
   ingestRecords(records: KnowledgeRecord[], opts: IngestOptions): Promise<IngestSummary>;
@@ -147,4 +158,8 @@ export interface KnowledgePipeline {
    *  crashed batch build resumes at the last complete layer. */
   buildHierarchy(opts: HierarchyBuildOptions): Promise<HierarchyBuildResult>;
   retrieveRecords(opts: RetrieveOptions): Promise<RetrieveResult>;
+  /** OPTIONAL entity-augment leaf (es1 lineage). Absent on hosts without
+   *  zk's entity-summary surface — consumers must treat that as "no
+   *  augmentation" (identical embed texts), never as an error. */
+  entityAugment?: EntityAugment;
 }

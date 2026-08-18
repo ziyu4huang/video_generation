@@ -177,7 +177,7 @@ export async function summarizeEntity(
  * summary → base unchanged (zero behavior change when summaries are absent).
  * Wiring into the embed pipeline is deferred to the ③/20 integration.
  */
-export function augmentEmbedText(base: string, summary: string | undefined): string {
+export function augmentEmbedText(base: string, summary: string | null | undefined): string {
 	if (!summary || summary.length === 0) return base;
 	return `${summary.slice(0, 200)} ${base}`.slice(0, 1000);
 }

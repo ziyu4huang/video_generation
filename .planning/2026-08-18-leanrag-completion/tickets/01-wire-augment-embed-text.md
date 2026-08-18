@@ -1,5 +1,5 @@
 ---
-status: open
+status: done
 blocking: [03]
 ---
 # 01 — Wire augmentEmbedText into hermes backfill
@@ -15,3 +15,10 @@ Original premise "hermes imports FROM zk" was WRONG: hermes has no zk dependency
 - Re-embed on modelVersion bump covered by/consistent with existing delta tests.
 - hermes + zk package tests green; hermes schema-cost pin ≤2100 tok unchanged (run the schema-cost canary).
 - dep-guard test green (no new static package edges).
+
+## Resolution
+- Seam leaf `entityAugment` added to `KnowledgePipeline` (pi-agent-core-interface): zk publishes the entity-summary capability (summarizeEntity + persisted cache + augmentEmbedText) via `publishSeam`; hermes `cardEmbedText` reads it defensively (absent → raw text unchanged, same posture as resolveCards).
+- Card embed text augmented per the augmentEmbedText contract; A/B tested (fixture cards with entity summaries → augmented embed text differs from raw; empty summary → unchanged).
+- `DEFAULT_EMBED_MODEL_VERSION` bumped `nomic-embed-text-v1.5` → `nomic-embed-text-v1.5+es1`: SurrealDB ids `${mdId}__${modelVersion}` + delta check re-embed existing cards naturally; no bespoke migration.
+- Query side untouched (embedQuery / semantic-search.ts).
+- Suites: hermes 1625/0 + zk + core-interface green.
