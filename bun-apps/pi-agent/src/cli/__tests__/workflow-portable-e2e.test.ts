@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { statSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,7 +14,23 @@ const EXE = join(process.cwd(), "..", "..", "dist", "pi-agent", "pi-agent");
  * <cwd>/workflows tier works. Skipped when the exe isn't built — run
  * `bun run --cwd bun-apps/pi-agent build:exe` first.
  */
-describe.skipIf(!existsSync(EXE))("compiled pi-agent: portable workflow-pack run", () => {
+/**
+ * The guard was `!existsSync(EXE)`, which is also true for a DIRECTORY. A
+ * `--snapshot` deploy writes `dist/pi-agent/pi-agent/` (the copied package
+ * dir), so after one the suite stopped skipping and spawned a directory —
+ * 2 failures that had nothing to do with the code under test. Require an
+ * executable FILE, which is the thing these tests actually need.
+ */
+const EXE_READY = (() => {
+	try {
+		const st = statSync(EXE);
+		return st.isFile() && (st.mode & 0o111) !== 0;
+	} catch {
+		return false;
+	}
+})();
+
+describe.skipIf(!EXE_READY)("compiled pi-agent: portable workflow-pack run", () => {
   function makePack(dir: string, desc: string): void {
     mkdirSync(join(dir, "workflows", "echo"), { recursive: true });
     writeFileSync(join(dir, "workflows", "echo", "manifest.json"), JSON.stringify({ name: "echo", description: desc, entry: "index.js" }));
