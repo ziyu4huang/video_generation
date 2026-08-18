@@ -29,6 +29,14 @@
  * each — a `: ToolDefinition` annotation that discarded the TypeBox schema, and
  * a details generic inferred from the first `return` — not deep type debt.
  *
+ * That claim was written one file early. grill-decision-tool.ts kept its
+ * directive for weeks after the errors under it were fixed by unrelated store
+ * refactors, and nothing caught the drift: `tsc --noEmit` is green whether a
+ * suppression is load-bearing or inert, so a stale one emits no signal at all.
+ * hermes-memory now carries tests/no-ts-nocheck.test.ts, which fails if any
+ * source file's PROLOGUE (the only place the checker honors the directive)
+ * contains it. Prefer that shape over re-asserting cleanliness in a comment.
+ *
  * web-access is down to ONE suppressed file, its `index.ts`. Five of the six
  * are fixed and checked; fixing them surfaced three live ReferenceErrors that
  * `@ts-nocheck` had been hiding, so the suppressions were never cosmetic.
