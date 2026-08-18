@@ -56,3 +56,31 @@ allowlist VALUE fails to survive the child-dispatch chain. Prime suspects:
 Fix shape: make the child tool resolution UNION the explicit allowlist with
 extension-registered tool names (or validate at spawn time against the
 parent's getAllTools — preflight already has options.getExtensionTools).
+
+## CONFOUND CORRECTION (2026-08-18, static chain audit) — the repro above is NOT the repo's subagent tool
+
+The 2026-08-18 tools-explicit experiment dispatched through the ORCHESTRATOR
+HARNESS's own subagent tool — a DIFFERENT implementation with a restricted
+surface (that parent session has no webui_report either; its children get
+read/bash/edit/write). The observed "silent drop" is that harness, not
+pi-agent-ext-subagent.
+
+Static audit of the REPO chain shows it is SOUND, every hop code-evidenced:
+
+1. subagent-tool.ts L227: buildSpawnOptions(ctx {params...}).
+2. subagent-tool-run.ts L419: effectiveTools = params.tools ?? agentDef?.tools ?? defaultActiveTools.
+3. spawn-subagent-subprocess.ts L257-261: buildSubagentArgs(promptPath, { tools: opts.tools, ... }).
+4. L135-136: args.push("--tools", opts.tools.join(",")) — the csv IS emitted.
+5. getPiInvocation -> `pi` launcher shim -> self-resolves to the SAME
+   worktree's cli.ts -> load-run-dir-resources patch splices the manifest's
+   -e extensions AND --skills -> webui extension registers webui_report in
+   the child -> `--tools webui_report` matches a registered name.
+
+Combined with the 2026-08-18 getAllTools probe (#1600: plain cli.ts session
+lists webui_report among 75 tools), the repo-side subagent path for
+registerTool tools is EXPECTED TO WORK. Definitive live check (needs a
+provider, so user-side or an L2 tier): a cli.ts one-shot prompting the model
+to call subagent with tools:["webui_report"] + requiredTools:["webui_report"].
+
+Ticket 01 scope: DOWNGRADED to "verify the expected-working path live" —
+no known repo defect. Close on that verification.
