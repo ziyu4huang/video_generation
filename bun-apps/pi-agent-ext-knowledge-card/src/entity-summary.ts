@@ -83,14 +83,19 @@ function summaryCachePath(vaultPath: string, model: string): string {
 }
 
 /*
- * PRUNE-ON-REBUILD — deliberately NOT implemented here. Dead-entry eviction
- * belongs in the summaries-pass consumer: after iterating the FULL current
- * entity set, that consumer should rebuild the cache to only the entries it
- * touched (lookup hits + regenerations) and save that. No such consumer
- * exists yet — loadEntitySummaries/saveEntitySummaries have no callers in
- * src/ (embed-pipeline wiring is deferred to the ③/20 integration; see
- * module header). Content-keying makes stale entries self-heal, but dead
- * entries are only evicted once that consumer lands and prunes on rebuild.
+ * PRUNE-ON-REBUILD — still deliberately NOT implemented here, and as of the
+ * D6 merge-on-write change it CANNOT ride on save: saveEntitySummaries now
+ * loads the on-disk entries and overlays the new ones on top, so summaries
+ * persist across runs incrementally (partial regenerations no longer
+ * discard previously condensed ones — the old wholesale-rewrite semantics
+ * are gone). Consequence: a pruning consumer can no longer save a pruned
+ * subset and expect eviction — the merge would resurrect whatever is
+ * already on disk. Dead-entry eviction belongs in the summaries-pass
+ * consumer: after iterating the FULL current entity set, rebuild to only
+ * the entries it touched (lookup hits + regenerations) and replace the file
+ * (delete-then-save or an explicit full rewrite). Content-keying makes
+ * stale entries self-heal; dead entries merely accumulate (bounded by the
+ * derived cache's lazily-regenerating nature) until that consumer lands.
  */
 
 /** Load the derived cache; missing/corrupt/version-mismatch → {}
@@ -117,14 +122,23 @@ export function loadEntitySummaries(vaultPath: string, model: string): EntitySum
 	}
 }
 
-/** Save the derived cache; write failure is silently swallowed (non-fatal). */
+/**
+ * Save the derived cache, MERGE-ON-WRITE (D6): the entries already on disk
+ * are loaded and overlaid with the new ones, so a partial regeneration
+ * never discards previously condensed summaries. Overlapping keys resolve
+ * to the NEW value. Load failure (missing/corrupt/version-mismatch file) →
+ * empty base — loadEntitySummaries already swallows those as {}, so a bad
+ * on-disk file silently degrades to a fresh write rather than failing the
+ * pipeline. Write failure is silently swallowed (non-fatal).
+ */
 export function saveEntitySummaries(vaultPath: string, model: string, cache: EntitySummaryCache): void {
 	try {
 		const p = summaryCachePath(vaultPath, model);
 		mkdirSync(join(vaultPath, ".knowledge-semantic"), { recursive: true });
+		const existing = loadEntitySummaries(vaultPath, model);
 		const file: EntitySummaryCacheFile = {
 			version: ENTITY_SUMMARY_CACHE_VERSION,
-			entries: cache,
+			entries: { ...existing, ...cache },
 		};
 		writeFileSync(p, JSON.stringify(file, null, 2), "utf8");
 	} catch {
