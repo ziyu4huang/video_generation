@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-17-develop-pipeline
 created: 2026-08-17
-last: 2026-08-17
-status: active
+last: 2026-08-18
+status: complete
 ---
 
 # Wayfinder map: develop-pipeline
@@ -19,6 +19,13 @@ One spine of artifacts, one owner per stage, verified handoffs, and feedback
 loops that route fog back to wayfind instead of improvising past it.
 
 ## Notes
+
+- Closed 2026-08-17: spec M1-M5 executed as tickets 01-05, all closed; merged as
+  PR #1582 (squash 769a50b9). Gates at close: wayfind 513/0, superpowers 132/0,
+  repo 17/17.
+- Harvest: next goal = first greenfield effort run fully under the codified
+  pipeline (entry criteria + verify children + dispatch ledger), collecting
+  ledger lines to validate the 150-260k/6-14 turn baseline.
 
 ### Diagram of record — stage spine
 
