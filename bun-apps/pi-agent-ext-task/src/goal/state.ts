@@ -194,6 +194,11 @@ export interface GoalRuntimeState {
 	lastActivityAt: number;
 	lastWedgeAlertAt: number;
 	nudgeCount: number;
+	// HITL wedge exemption (#1616 family): true between the tool_call and
+	// tool_execution_end of ask_user_question — the session is busy but only
+	// because a human answer is pending, which shouldWedgeAlert must not score
+	// as a wedge. Any tool_execution_end clears it (asks cannot nest).
+	hitlToolInFlight: boolean;
 	// Loop 2 (D2): the /list goal queue. `list` is the tail of pending items
 	// (goal-to-bes with no status/usage); `headAdvances` counts how many heads
 	// have been promoted so far — it drives the widget position so a re-promoted
@@ -227,6 +232,7 @@ export const goalState: GoalRuntimeState = {
 	lastActivityAt: Date.now(),
 	lastWedgeAlertAt: 0,
 	nudgeCount: 0,
+	hitlToolInFlight: false,
 	list: [],
 	headAdvances: 0,
 	reviewerEnabled: true,
@@ -255,6 +261,7 @@ export function __resetGoalState(): void {
 	goalState.lastActivityAt = Date.now();
 	goalState.lastWedgeAlertAt = 0;
 	goalState.nudgeCount = 0;
+	goalState.hitlToolInFlight = false;
 	goalState.list = [];
 	goalState.headAdvances = 0;
 	goalState.reviewerEnabled = true;

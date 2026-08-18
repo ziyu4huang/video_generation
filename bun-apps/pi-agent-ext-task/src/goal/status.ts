@@ -145,6 +145,7 @@ export function syncHeartbeatTimer() {
 					silentMs: Date.now() - goalState.lastActivityAt,
 					msSinceLastAlert: Date.now() - goalState.lastWedgeAlertAt,
 					thresholdMs: WEDGE_ALERT_DEFAULT_MINUTES * 60_000,
+					awaitingUser: goalState.hitlToolInFlight,
 				})
 			) {
 				goalState.lastWedgeAlertAt = Date.now();
