@@ -1,15 +1,38 @@
 /**
  * e2e-launcher — spawns real child processes against run.sh itself (not the
  * TS modules it loads). Covers symlink resolution, entry-mode detection,
- * --update-help, --upgrade passthrough, and read-only env exports — none of
- * which any other test file exercises (they all import TS directly).
+ * --update-help, --upgrade passthrough, read-only env exports, and the
+ * source-mode node_modules self-heal — none of which any other test file
+ * exercises (they all import TS directly).
  *
- * Run: bun test src/__tests__/e2e-launcher.test.ts  (folded into run-test.sh's
- * `high` tier via run_extensions() — bun test auto-discovers *.test.ts files).
+ * Run: bun test src/__tests__/e2e-launcher.test.ts
  *
- * Gated on PI_AGENT_E2E=1 (keeps `bun test` baseline fast), same convention as
- * e2e-patches.test.ts / e2e-extensions.test.ts / e2e-readonly.test.ts. Run via
- * `bun-apps/pi-agent-ext-devops/scripts/run-test.sh high` or `PI_AGENT_E2E=1 bun test`.
+ * WHY MOST OF THIS FILE IS UNGATED
+ * --------------------------------
+ * It used to gate every block on PI_AGENT_E2E=1, copying the convention from
+ * e2e-patches / e2e-extensions / e2e-readonly. But read what e2e-harness.ts
+ * says that gate is FOR: those files call `ensureBundle()`, and "builds are
+ * slow". Five of the six blocks here build nothing and boot no pi — they write
+ * a stub entry into a tmpdir, copy run.sh next to it, and assert on what bash
+ * does. They inherited a cost gate for a cost they do not have.
+ *
+ * What that inheritance cost, measured: PI_AGENT_E2E=1 is set only by
+ * run-test.sh at the `medium`+ tiers, which only the `deploy-verify` job runs
+ * — a job in `ci.yml.disabled` (GitHub Actions does not run in this repo) and
+ * conditional on changed deploy paths besides. `local_ci`, the only CI that
+ * executes here, derives its gate list from the `regression-gates` job alone
+ * and runs pi-agent's matrix command (`bun test && bun run typecheck`) with no
+ * PI_AGENT_E2E. So every assertion in this file was dead: `bun test` reported
+ * `16 skip` and nothing anywhere turned them on. run.sh is the entry point
+ * every session starts through, and it was covered only on paper.
+ *
+ * This is the failure mode e2e-harness.ts already documents one instance of
+ * (#1305 moved deploy.ts; `Module not found` surfaced only at tiers the
+ * default `bun test` does not run). Cost of undoing it here: 1.3s.
+ *
+ * The ONE block still gated is `symlink resolution`, which spawns the real
+ * src/cli.ts — a full pi boot that touches the shared ~/.pi backend. That one
+ * genuinely does not belong in a default `bun test`.
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, mkdirSync, readFileSync, realpathSync, lstatSync, readlinkSync } from "node:fs";
@@ -39,6 +62,9 @@ function run(args: string[], opts: { cwd?: string; env?: Record<string, string> 
 	});
 }
 
+// Still gated: the only block that spawns the REAL src/cli.ts. A full pi boot
+// touches the shared ~/.pi backend and costs ~1.3s on its own, so it stays
+// opt-in while the five stub-based blocks below run by default.
 describe.skipIf(!E2E_ENABLED)("symlink resolution", () => {
 	test("entry/mode resolve against the REAL script dir, not the symlink's dir", () => {
 		// bun-apps/pi-agent ships src/cli.ts (no pi-agent.js) in this checkout, so
@@ -76,7 +102,7 @@ describe.skipIf(!E2E_ENABLED)("symlink resolution", () => {
 	});
 });
 
-describe.skipIf(!E2E_ENABLED)("entry-mode detection", () => {
+describe("entry-mode detection", () => {
 	function makeFixture(name: string, files: Record<string, string>) {
 		const dir = path.join(TMP, name);
 		mkdirSync(dir, { recursive: true });
@@ -124,7 +150,7 @@ describe.skipIf(!E2E_ENABLED)("entry-mode detection", () => {
 	});
 });
 
-describe.skipIf(!E2E_ENABLED)("--update-help", () => {
+describe("--update-help", () => {
 	test("exits 0, prints the upgrade wrapper docs, never execs bun", () => {
 		const result = run(["--update-help"]);
 		expect(result.status).toBe(0);
@@ -140,7 +166,7 @@ describe.skipIf(!E2E_ENABLED)("--update-help", () => {
 	});
 });
 
-describe.skipIf(!E2E_ENABLED)("--upgrade / -U passthrough", () => {
+describe("--upgrade / -U passthrough", () => {
 	function makeUpgradeFixture(name: string) {
 		const dir = path.join(TMP, name);
 		mkdirSync(dir, { recursive: true });
@@ -171,7 +197,7 @@ describe.skipIf(!E2E_ENABLED)("--upgrade / -U passthrough", () => {
 	});
 });
 
-describe.skipIf(!E2E_ENABLED)("read-only deploy env exports", () => {
+describe("read-only deploy env exports", () => {
 	test(".deploy-readonly sets JITI_FS_CACHE and PI_CODING_AGENT_DIR for the child", () => {
 		const dir = path.join(TMP, "readonly-fixture");
 		mkdirSync(dir, { recursive: true });
@@ -218,7 +244,7 @@ describe.skipIf(!E2E_ENABLED)("read-only deploy env exports", () => {
  * The workspace dir is deliberately NOT named "bun-apps" — that also pins the
  * link target being derived from the real directory name rather than hardcoded.
  */
-describe.skipIf(!E2E_ENABLED)("source-mode root node_modules self-heal", () => {
+describe("source-mode root node_modules self-heal", () => {
 	const STUB = "console.log('stub');\n";
 
 	/** Build a git repo whose workspace sits one level below the git root. */
