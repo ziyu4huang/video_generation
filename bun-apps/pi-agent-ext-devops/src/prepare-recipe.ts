@@ -17,9 +17,11 @@
  *      guard prevents it.
  *   2. `create` → `git checkout -b <branch> <base>` (base defaults to
  *      `origin/<defaultBranch>`). Non-zero → abort `create-failed`.
- *   3. `rebase` → `git rebase <base>`; on conflict (exit!=0) run
- *      `git rebase --abort` (recorded) then abort `rebase-conflict`. Around
- *      this step the outcome reports `head: {from, to}` (HEAD before/after).
+ *   3. `rebase` → `git rebase <base> <branch>` — the branch is named, so this
+ *      checks it out rather than rebasing whatever HEAD happens to be; on
+ *      conflict (exit!=0) run `git rebase --abort` (recorded) then abort
+ *      `rebase-conflict`. Around this step the outcome reports
+ *      `head: {from, to}` (HEAD before/after).
  *   4. `forcePush` (only when explicitly true) →
  *      `git push --force-with-lease origin <branch>`; non-zero → abort
  *      `force-push-failed`. When `forcePush` is falsy NO push command is ever
@@ -246,11 +248,20 @@ export async function runPrepare(opts: PrepareOptions): Promise<PrepareOutcome> 
 	// --- 4. rebase -------------------------------------------------------------
 	// The only step that moves HEAD (`checkout -b` keeps the same commit), so
 	// `head.to` is resolved right after it.
+	//
+	// `<branch>` is passed explicitly. `git rebase <base>` alone rebases whatever
+	// HEAD happens to be, so a caller sitting on the default branch who asked to
+	// rebase a DIFFERENT branch used to get a no-op reported as `{step: "rebase",
+	// ok: true}` — the branch untouched, still BEHIND, which is the one thing
+	// this step exists to clear. `git rebase <base> <branch>` checks the branch
+	// out first, so the step operates on the branch the caller named. The
+	// worktree guard above has already refused the case where that checkout
+	// would fatal. Note this leaves HEAD on `branch`, like `create` does.
 	if (opts.rebase) {
-		const r = await git(repoRoot, ["rebase", base]);
+		const r = await git(repoRoot, ["rebase", base, branch]);
 		steps.push({ step: "rebase", ok: r.exitCode === 0 });
 		if (r.exitCode !== 0) {
-			warnings.push(`rebase ${base} failed: ${trim(r.stderr || r.stdout)}`);
+			warnings.push(`rebase ${base} ${branch} failed: ${trim(r.stderr || r.stdout)}`);
 			// Abort the in-progress rebase (recorded), then surface the abort.
 			await git(repoRoot, ["rebase", "--abort"]);
 			return outcome({

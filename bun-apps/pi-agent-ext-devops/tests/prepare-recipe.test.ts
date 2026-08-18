@@ -7,6 +7,8 @@
  * Coverage:
  *  (a) create off base → step ok;
  *  (b) rebase clean → step ok;
+ *  (b2) rebase names the branch even when the caller is on a DIFFERENT one —
+ *      the regression that let `--rebase` no-op while reporting ok;
  *  (c) rebase conflict (spawn exit 1 for rebase) → aborted `rebase-conflict`
  *      AND a `rebase --abort` command recorded;
  *  (d) forcePush true → `push --force-with-lease` in commands;
@@ -87,8 +89,30 @@ describe("runPrepare — rebase", () => {
 
 		expect(out.aborted).toBeUndefined();
 		expect(out.steps).toEqual([{ step: "rebase", ok: true }]);
-		expect(out.commands).toContain(`git -C "${REPO}" rebase origin/main`);
+		expect(out.commands).toContain(`git -C "${REPO}" rebase origin/main feat/x`);
 		expect(calls.some((c) => c.args.includes("rebase"))).toBe(true);
+	});
+
+	test("(b2) rebase targets the named branch, not the caller's HEAD", async () => {
+		// The bug this pins: step 4 ran `git rebase <base>` with no branch, so a
+		// caller sitting on `main` who asked to rebase `feat/x` rebased MAIN —
+		// a no-op reported as `{step: "rebase", ok: true}` while the branch stayed
+		// BEHIND. Every pre-existing rebase case had current === branch, which is
+		// precisely why it went unnoticed. Assert the branch reaches argv.
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runPrepare({ client, spawn: fn, repoRoot: REPO, branch: "feat/x", rebase: true });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.steps).toEqual([{ step: "rebase", ok: true }]);
+		expect(out.commands).toContain(`git -C "${REPO}" rebase origin/main feat/x`);
+		const rebaseCall = calls.find((c) => realArgs(c.args)[0] === "rebase");
+		expect(rebaseCall).toBeDefined();
+		expect(realArgs(rebaseCall!.args)).toEqual(["rebase", "origin/main", "feat/x"]);
 	});
 
 	test("(c) rebase conflict → aborted rebase-conflict + a rebase --abort recorded", async () => {
@@ -110,7 +134,7 @@ describe("runPrepare — rebase", () => {
 		expect(out.aborted?.reason).toBe("rebase-conflict");
 		expect(out.aborted?.message).toMatch(/rebase onto origin\/main failed/);
 		// the rebase attempt is recorded …
-		expect(out.commands).toContain(`git -C "${REPO}" rebase origin/main`);
+		expect(out.commands).toContain(`git -C "${REPO}" rebase origin/main feat/x`);
 		// … and so is the cleanup rebase --abort.
 		expect(out.commands).toContain(`git -C "${REPO}" rebase --abort`);
 		expect(out.steps).toEqual([{ step: "rebase", ok: false }]);
@@ -210,7 +234,7 @@ describe("runPrepare — dryRun", () => {
 		expect(out.aborted).toBeUndefined();
 		// the full command plan is present …
 		expect(out.commands).toContain(`git -C "${REPO}" checkout -b feat/x origin/main`);
-		expect(out.commands).toContain(`git -C "${REPO}" rebase origin/main`);
+		expect(out.commands).toContain(`git -C "${REPO}" rebase origin/main feat/x`);
 		expect(out.commands).toContain(`git -C "${REPO}" push --force-with-lease origin feat/x`);
 		// all steps ok (canned success) …
 		expect(out.steps).toEqual([
