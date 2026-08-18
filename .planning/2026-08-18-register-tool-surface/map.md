@@ -63,3 +63,7 @@ rejects registerTool names in `tools`/`requiredTools`).
 ## Repro update (2026-08-18)
 
 tools-explicit experiment: preflight ACCEPTS the registerTool name, but the child's actual surface is the default coding set — the allowlist value does not survive the child-dispatch chain (silent drop, not rejection). Precise seam pointers captured in ticket 01.
+
+## Confound correction (2026-08-18)
+
+The tools-explicit repro ran through the orchestrator HARNESS's subagent tool (restricted surface), not the repo's pi-agent-ext-subagent. Static audit of the repo chain (params.tools -> buildSpawnOptions -> buildSubagentArgs --tools csv -> pi shim -> worktree cli.ts with run-dir extension loading) is sound end-to-end; combined with #1600, subagent + registerTool is EXPECTED TO WORK. Ticket 01 downgraded to live-verification-only. Details in ticket 01.
