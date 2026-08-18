@@ -9,7 +9,7 @@
  */
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { spawnSubagent } from "@repo/pi-agent-ext-subagent";
+import { roleAwareDefaults, spawnSubagent } from "@repo/pi-agent-ext-subagent";
 import { MemoryStore } from "../store/memory-store.js";
 import { readGrillActive } from "../grill-seam.js";
 import { formatFailureMemoryContent } from "../store/memory-format.js";
@@ -232,12 +232,23 @@ export function setupCorrectionDetector(
       if (!memoryToolDef) return;
       // llmThinkingOverride has no spawnSubagent equivalent — inert under the migration.
       const modelOverride = config.llmModelOverride?.trim();
+      // 2026-08-18 envelope closure (#1652/#1654/#1655 companion): direct
+      // spawnSubagent calls bypass the tool-seam role bounds — same gap
+      // class. Caps only; the tighter local timeoutMs wins over the envelope
+      // wall. SUBAGENT_TOKEN_BUDGET_DISABLE escape hatch honored (computed at
+      // call time). Computed here — not module scope — so the env flag is
+      // read at call time.
+      const reconCaps = (() => {
+        const d = roleAwareDefaults({}, "recon");
+        return d.applied ? { tokenBudget: d.tokenBudget, maxTurns: d.maxTurns } : {};
+      })();
       const result = await spawn({
         task: prompt.join("\n"),
         ...(modelOverride ? { model: modelOverride } : { tier: "small" }),
         instructions: "Use ONLY the memory tool to save the correction as instructed. Do not read or modify files.",
         tools: ["memory"],
         extensionTools: [memoryToolDef],
+        ...reconCaps,
         timeoutMs: 30000,
         externalSignal: ctx.signal,
         retryOnTransient: true,

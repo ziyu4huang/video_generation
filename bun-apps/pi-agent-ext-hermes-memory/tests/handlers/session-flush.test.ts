@@ -287,6 +287,48 @@ describe("setupSessionFlush", () => {
     assert.strictEqual(fake.calls[0]!.timeoutMs, 10000, "shutdown flush should cap at 10s");
   });
 
+  it("caps the flush writer with the writer envelope (escape hatch honored)", async () => {
+    const config = defaultConfig();
+    setupSessionFlush(mockPi.pi, mockStore, null, config, memoryToolDef, fake.spawn);
+
+    await emitUserTurns(mockPi.handlers, 8);
+
+    const ctx = { sessionManager: { getBranch: () => mockBranch(8) } };
+    await emit(mockPi.handlers, "session_before_compact", { signal: undefined }, ctx);
+
+    assert.equal(fake.calls.length, 1);
+    const opts = fake.calls[0]!;
+    // roleAwareDefaults({}, "writer") threads the writer bounds into the spawn
+    // opts (the flush previously ran envelope-less — direct calls bypass the
+    // tool-seam role bounds).
+    assert.strictEqual(opts.tokenBudget, 400_000, "writer tokenBudget cap");
+    assert.strictEqual(opts.maxTurns, 28, "writer maxTurns cap");
+    // The tighter local wall-clock stays (compact 30s / shutdown 10s).
+    assert.strictEqual(opts.timeoutMs, 30000);
+
+    // SUBAGENT_TOKEN_BUDGET_DISABLE=1 → envelope absent (env read at call time).
+    const saved = process.env.SUBAGENT_TOKEN_BUDGET_DISABLE;
+    process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = "1";
+    try {
+      const escapePi = createMockPi();
+      const escapeFake = createFakeSpawn();
+      setupSessionFlush(escapePi.pi, mockStore, null, config, memoryToolDef, escapeFake.spawn);
+
+      await emitUserTurns(escapePi.handlers, 8);
+      const escapeCtx = { sessionManager: { getBranch: () => mockBranch(8) } };
+      await emit(escapePi.handlers, "session_before_compact", { signal: undefined }, escapeCtx);
+
+      assert.equal(escapeFake.calls.length, 1);
+      const escapeOpts = escapeFake.calls[0]!;
+      assert.strictEqual(escapeOpts.tokenBudget, undefined, "escape hatch drops tokenBudget");
+      assert.strictEqual(escapeOpts.maxTurns, undefined, "escape hatch drops maxTurns");
+      assert.strictEqual(escapeOpts.timeoutMs, 30000, "wall-clock stays even under the escape hatch");
+    } finally {
+      if (saved === undefined) delete process.env.SUBAGENT_TOKEN_BUDGET_DISABLE;
+      else process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = saved;
+    }
+  });
+
   it("Flush includes the full conversation by default", async () => {
     const config = defaultConfig();
     setupSessionFlush(mockPi.pi, mockStore, null, config, memoryToolDef, fake.spawn);

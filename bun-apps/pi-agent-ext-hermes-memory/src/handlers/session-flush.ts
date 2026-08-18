@@ -5,7 +5,7 @@
  */
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { spawnSubagent } from "@repo/pi-agent-ext-subagent";
+import { roleAwareDefaults, spawnSubagent } from "@repo/pi-agent-ext-subagent";
 import { MemoryStore } from "../store/memory-store.js";
 import { FLUSH_PROMPT } from "../constants.js";
 import type { MemoryConfig } from "../types.js";
@@ -49,12 +49,23 @@ export function setupSessionFlush(
       if (!memoryToolDef) return;
       // llmThinkingOverride has no spawnSubagent equivalent — inert under the migration.
       const modelOverride = config.llmModelOverride?.trim();
+      // 2026-08-18 envelope closure (#1652/#1654/#1655 companion): direct
+      // spawnSubagent calls bypass the tool-seam role bounds — same gap
+      // class. Caps only; the tighter local timeoutMs wins over the envelope
+      // wall. SUBAGENT_TOKEN_BUDGET_DISABLE escape hatch honored (computed at
+      // call time). Computed here — not module scope — so the env flag is
+      // read at call time.
+      const writerCaps = (() => {
+        const d = roleAwareDefaults({}, "writer");
+        return d.applied ? { tokenBudget: d.tokenBudget, maxTurns: d.maxTurns } : {};
+      })();
       await spawn({
         task: flushMessage,
         ...(modelOverride ? { model: modelOverride } : { tier: "small" }),
         instructions: "Use ONLY the memory tool to save memories before context is lost. Do not read or modify files.",
         tools: ["memory"],
         extensionTools: [memoryToolDef],
+        ...writerCaps,
         timeoutMs,
         // Forward the host signal (compact path) so a cancellation propagates;
         // shutdown path passes undefined. Brief omitted this, but it is the

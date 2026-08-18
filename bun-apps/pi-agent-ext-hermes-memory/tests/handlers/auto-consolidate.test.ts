@@ -117,6 +117,38 @@ describe("triggerConsolidation", () => {
     assert.match(opts.instructions ?? "", /memory consolidator/i, "instructions should frame the consolidator role");
   });
 
+  it("caps the consolidator with the writer envelope (escape hatch honored)", async () => {
+    const { spawn, calls } = createFakeSpawn();
+    await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
+
+    assert.strictEqual(calls.length, 1);
+    const opts = calls[0]!;
+    // roleAwareDefaults({}, "writer") threads the writer bounds into the spawn
+    // opts (the consolidator previously ran envelope-less — direct calls
+    // bypass the tool-seam role bounds).
+    assert.strictEqual(opts.tokenBudget, 400_000, "writer tokenBudget cap");
+    assert.strictEqual(opts.maxTurns, 28, "writer maxTurns cap");
+    // The timeoutMs param default (60000) stays verbatim.
+    assert.strictEqual(opts.timeoutMs, 60000);
+
+    // SUBAGENT_TOKEN_BUDGET_DISABLE=1 → envelope absent (env read at call time).
+    const saved = process.env.SUBAGENT_TOKEN_BUDGET_DISABLE;
+    process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = "1";
+    try {
+      const escape = createFakeSpawn();
+      await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, escape.spawn);
+
+      assert.strictEqual(escape.calls.length, 1);
+      const escapeOpts = escape.calls[0]!;
+      assert.strictEqual(escapeOpts.tokenBudget, undefined, "escape hatch drops tokenBudget");
+      assert.strictEqual(escapeOpts.maxTurns, undefined, "escape hatch drops maxTurns");
+      assert.strictEqual(escapeOpts.timeoutMs, 60000, "wall-clock stays even under the escape hatch");
+    } finally {
+      if (saved === undefined) delete process.env.SUBAGENT_TOKEN_BUDGET_DISABLE;
+      else process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = saved;
+    }
+  });
+
   it("passes retryOnTransient:false — consolidation holds the cross-process fileLock, so a timed-out run must NOT be retried", async () => {
     // Regression guard for the 120s lock-contention bug (perf.jsonl):
     // auto-consolidation runs WHILE the parent holds the cross-process

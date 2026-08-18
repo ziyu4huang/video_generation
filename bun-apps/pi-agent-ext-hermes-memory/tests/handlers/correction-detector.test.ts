@@ -419,6 +419,54 @@ describe("setupCorrectionDetector handler", () => {
     assert.strictEqual(opts.retryOnTransient, true);
   });
 
+  it("caps the correction save with the recon envelope (escape hatch honored)", async () => {
+    const pi = createMockPi();
+    setupCorrectionDetector(pi, mockStore, null, config, null, undefined, memoryToolDef, makeSpawn());
+
+    const branch = [
+      { type: "message", message: { role: "user", content: [{ type: "text", text: "no, delete that file" }] } },
+      { type: "message", message: { role: "assistant", content: [{ type: "text", text: "ok" }] } },
+    ];
+
+    fireMessageEnd("user", "no, delete that file");
+    fireTurnEnd(branch);
+    await settle();
+
+    assert.strictEqual(spawnCalls.length, 1);
+    const opts = spawnCalls[0]!;
+    // roleAwareDefaults({}, "recon") threads the recon bounds into the spawn
+    // opts (the correction save previously ran envelope-less — direct calls
+    // bypass the tool-seam role bounds).
+    assert.strictEqual(opts.tokenBudget, 120_000, "recon tokenBudget cap");
+    assert.strictEqual(opts.maxTurns, 12, "recon maxTurns cap");
+    assert.strictEqual(opts.timeoutMs, 30000);
+
+    // SUBAGENT_TOKEN_BUDGET_DISABLE=1 → envelope absent (env read at call time).
+    // Reset shared harness state between scenarios (sibling suites do the same).
+    handlers = {};
+    spawnCalls = [];
+    notifyCalls = [];
+    const saved = process.env.SUBAGENT_TOKEN_BUDGET_DISABLE;
+    process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = "1";
+    try {
+      const escapePi = createMockPi();
+      setupCorrectionDetector(escapePi, mockStore, null, config, null, undefined, memoryToolDef, makeSpawn());
+
+      fireMessageEnd("user", "no, delete that file");
+      fireTurnEnd(branch);
+      await settle();
+
+      assert.strictEqual(spawnCalls.length, 1);
+      const escapeOpts = spawnCalls[0]!;
+      assert.strictEqual(escapeOpts.tokenBudget, undefined, "escape hatch drops tokenBudget");
+      assert.strictEqual(escapeOpts.maxTurns, undefined, "escape hatch drops maxTurns");
+      assert.strictEqual(escapeOpts.timeoutMs, 30000, "wall-clock stays even under the escape hatch");
+    } finally {
+      if (saved === undefined) delete process.env.SUBAGENT_TOKEN_BUDGET_DISABLE;
+      else process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = saved;
+    }
+  });
+
   it("does NOT trigger on normal messages", async () => {
     const pi = createMockPi();
     setupCorrectionDetector(pi, mockStore, null, config, null, undefined, memoryToolDef, makeSpawn());
