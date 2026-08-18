@@ -39,6 +39,20 @@ export interface SubagentBudgetDetails {
   actual?: number;
   /** Informational 80% warning (completed-run path only). */
   warning?: BudgetWarning;
+  /**
+   * Budget-history cohort (2026-08-18 forward-fix): WHICH mechanism set this
+   * dispatch's envelope — the role-aware default (split recon/writer), an
+   * explicit caller param, or the tier ceilings. Cohort medians (not raw
+   * aggregates) drive recalibration; absent on legacy records = unknown
+   * cohort. Coexists with the exhaustion fields above on budget-abort runs.
+   */
+  source?: "explicit" | "envelope-recon" | "envelope-writer" | "tier";
+  /** Cohort envelope's token ceiling, when the tagged mechanism set one. */
+  tokenBudget?: number;
+  /** Cohort envelope's turn ceiling, when the tagged mechanism set one. */
+  maxTurns?: number;
+  /** Cohort envelope's wall-clock ceiling (ms), when the tagged mechanism set one. */
+  timeoutMs?: number;
 }
 
 /**

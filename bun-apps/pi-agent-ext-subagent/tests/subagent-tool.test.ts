@@ -1570,7 +1570,18 @@ test("execute persists budget on the durable run record (status 'budget')", asyn
   await tool.execute("id", { task: "t", spendBudget: 0.5 }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(saved.length, 1);
   assert.equal(saved[0].status, "budget");
-  assert.deepEqual(saved[0].budget, { kind: "spend", limit: 0.5, actual: 0.62 });
+  // 2026-08-18 cohort tag: spendBudget is not one of the three envelope
+  // params, so the role-aware default still applies → envelope-writer cohort
+  // fields merge alongside the exhaustion fields.
+  assert.deepEqual(saved[0].budget, {
+    source: "envelope-writer",
+    tokenBudget: 400_000,
+    maxTurns: 28,
+    timeoutMs: 20 * 60_000,
+    kind: "spend",
+    limit: 0.5,
+    actual: 0.62,
+  });
 });
 
 // ── schemaRepairAttempts (structured-output repair) ──

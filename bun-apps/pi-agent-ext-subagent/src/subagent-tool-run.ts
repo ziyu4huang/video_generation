@@ -267,13 +267,32 @@ export function roleAwareDirectCall(
   role: "recon" | "writer",
   task: string,
   logId: string,
-): { task: string; tokenBudget?: number; maxTurns?: number; timeoutMs?: number } {
+): {
+  task: string;
+  tokenBudget?: number;
+  maxTurns?: number;
+  timeoutMs?: number;
+  budgetCohort?: SubagentToolDetails["budget"];
+} {
   const d = roleAwareDefaults({}, role);
   if (!d.applied) return { task };
   const wrapped = shouldInjectFooter({ maxTurns: d.maxTurns })
     ? `${task}${abortSafetyFooter(abortSafetyLogPath(logId))}`
     : task;
-  return { task: wrapped, tokenBudget: d.tokenBudget, maxTurns: d.maxTurns, timeoutMs: d.timeoutMs };
+  // Cohort tag mirrors the tool-seam derivation: direct calls omit all three
+  // bounds by construction, so the cohort is always "envelope-<role>".
+  return {
+    task: wrapped,
+    tokenBudget: d.tokenBudget,
+    maxTurns: d.maxTurns,
+    timeoutMs: d.timeoutMs,
+    budgetCohort: {
+      source: `envelope-${role}` as const,
+      tokenBudget: d.tokenBudget,
+      maxTurns: d.maxTurns,
+      timeoutMs: d.timeoutMs,
+    },
+  };
 }
 
 type SubagentRunRecord = Parameters<SubagentRunPersistence["save"]>[0];
@@ -290,6 +309,10 @@ export interface RunRecordCtx {
   runCwd: string;
   t0: number;
   elapsedMs: number;
+  /** Budget-history cohort tag (envelope-<role>/explicit/tier + caps) —
+   *  merged into the record's budget block by buildRunRecord below; cohort
+   *  fields never clobber the per-run exhaustion fields in RunRecordDelta. */
+  budgetCohort?: SubagentToolDetails["budget"];
 }
 
 /** Per-path delta. Optional fields are omitted from the record when absent
@@ -335,7 +358,11 @@ export function buildRunRecord(ctx: RunRecordCtx, delta: RunRecordDelta): Subage
     output: delta.output,
   };
   if (delta.error !== undefined) rec.error = delta.error;
-  if (delta.budget !== undefined) rec.budget = delta.budget;
+  if (delta.budget !== undefined || ctx.budgetCohort !== undefined) {
+    // Cohort tag (source + effective caps) coexists with the exhaustion
+    // fields; spread order keeps delta's exhaustion keys authoritative.
+    rec.budget = { ...ctx.budgetCohort, ...delta.budget };
+  }
   if (delta.turns !== undefined) rec.turns = delta.turns;
   if (delta.history !== undefined) rec.history = delta.history;
   if (delta.report !== undefined) rec.report = delta.report;
