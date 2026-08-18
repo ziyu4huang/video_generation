@@ -86,3 +86,23 @@ composition pass, sha256 3a94510e6fde; (4) published via POST /api/report
 (source archify) -> report-msyr904o-reab; mirror exactly 1 line. Live
 verification: Report tab = exactly 1 article (the interactive diagram) with
 fullscreen/standalone/x + clear-all, 0 console errors.
+
+## Follow-up 5: wedge incident — webui-side fix (ask watchdog suspension)
+
+Incident (user report 2026-08-18): `[webui] card "Questionnaire"` bell, then
+`A web turn was force-released after inactivity (driver: web)`, then 8x goal
+wedge alerts, resolved when the user finally answered hours later. Root cause
+(webui half): syncPendingState suspended the stale watchdog ONLY for pending
+webui_present frames — a pending QUESTIONNAIRE (ask-user bridge) left the
+mutex's 10-min stale watchdog armed, so a browser input (web acquires) +
+a human deciding >10min = spurious force-release + warning; downstream the
+goal heartbeat misread the wait as a stalled session (goal-ext half is a
+separate worktree's fix, per the user's split). Fix: pendingAskIds ledger
+(rpiv:ask-user:prompt adds + suspend sync; rpiv:ask-user:answered deletes +
+re-arm; session_shutdown/dispose clear — no suspension leaks across
+sessions); syncPendingState suspends on pending OR pendingAskIds (presentId
+stays presentation-only). RED->GREEN TDD: fake-clock test replays the
+incident (web acquires, prompt out, +11min fake -> NO force-release; answered
+-> re-arm -> +11min -> force-release fires). Test-channel lesson: prompt/
+answered ride the pi.events bus (EventEmitter), NOT reg() handlers — emitHost
+misses them. webui 533/0.
