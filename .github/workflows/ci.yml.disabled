@@ -518,6 +518,32 @@ jobs:
       - name: Lockfile duplicate-version guard (blocks)
         run: bash scripts/check-lockfile-duplicate-versions.sh
 
+      # Lockfile freshness guard (blocks). #1586 added `yaml: ^2` to
+      # pi-agent-core-interface's package.json without the matching bun.lock
+      # workspace entry. With no edge recorded, `bun install` linked nothing,
+      # and main went red on a runtime "Cannot find package 'yaml'" from
+      # embedding-leaf.ts — a failure no typecheck could see.
+      #
+      # It is `bun install` + `git diff`, NOT `--frozen-lockfile`. Measured:
+      # `bun install --frozen-lockfile` against the drifted lock exits 0. It
+      # verifies that the lock's own resolutions are installable, not that the
+      # lock still reflects every package.json. Only re-resolving and diffing
+      # catches a workspace block that is missing a declared dependency.
+      #
+      # Stated here rather than in setup-env because local_ci derives its gate
+      # list from THIS job's `run:` steps, and local_ci is the only CI that
+      # actually executes (this workflow is .disabled).
+      #
+      # The check lives in a script, not inline: its message needs a `: ` and
+      # its failure branch needs braces, which a YAML plain scalar cannot hold,
+      # and ci-gates.ts joins a multi-line `run:` block's newlines with spaces —
+      # turning two commands into one malformed one. Both shapes were tried and
+      # both went red for reasons unrelated to the lockfile.
+      # See scripts/check-lockfile-freshness.sh for why it is not
+      # `--frozen-lockfile` (measured: that exits 0 on the exact drift).
+      - name: Lockfile freshness guard (package.json vs bun.lock, blocks)
+        run: bash scripts/check-lockfile-freshness.sh
+
       # Dependency-direction + import-hygiene guard (ADR-monorepo-0001, blocks). The
       # remote twin of `bun run test:deps` — 5 invariants over every @repo/*
       # import in bun-apps/*: declared deps, no self-import, knowledge-layer
