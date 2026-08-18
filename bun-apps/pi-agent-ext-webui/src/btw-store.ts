@@ -6,7 +6,8 @@
  * then resolves. Mirror contract copies report-persist: BEST-EFFORT JSONL
  * event log (create/resolve lines), failures silent, never breaks a route.
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
+import { appendLine, readLines } from "./jsonl-mirror.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -70,8 +71,8 @@ function btwId(now: number): string {
  * them answered. Corrupt/unknown lines skip. Never throws. */
 export function loadBtw(path: string): BtwEntry[] {
   try {
-    if (!existsSync(path)) return [];
-    const lines = readFileSync(path, "utf8").split("\n").slice(-BTW_RESTORE_CAP);
+    // cap on the replayed (non-empty) lines; readLines never throws.
+    const lines = readLines(path).slice(-BTW_RESTORE_CAP);
     const out: BtwEntry[] = [];
     for (const line of lines) {
       const s = line.trim();
@@ -105,12 +106,7 @@ export function loadBtw(path: string): BtwEntry[] {
 }
 
 function mirror(path: string, event: Record<string, unknown>): void {
-  try {
-    mkdirSync(join(path, ".."), { recursive: true });
-    appendFileSync(path, JSON.stringify(event) + "\n", "utf8");
-  } catch {
-    /* best-effort by contract */
-  }
+  appendLine(path, event);
 }
 
 export function createBtwStore(path: string, now = () => Date.now()): BtwStore {
