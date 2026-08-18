@@ -21,6 +21,6 @@ export const videoQualityCommand: UnifiedCommand = {
         { value: "zh_TW", label: "繁體中文" },
       ], default: "en" },
     { key: "vlm_score", cliFlag: "--vlm-score", control: "toggle", label: "VLM Scoring",
-      help: "Also score using Qwen3-VL (requires LM Studio)" },
+      hint: "Also score using Qwen3-VL (requires LM Studio)" },
   ],
 };

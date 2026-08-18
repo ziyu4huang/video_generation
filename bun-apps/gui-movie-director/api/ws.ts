@@ -2,13 +2,13 @@ import type { Server, ServerWebSocket } from "bun";
 import { subprocessManager } from "../lib/subprocess";
 import { originAllowed } from "../lib/origin";
 
-interface WsData {
+export interface WsData {
   subscribedJobId: string | null;
 }
 
 const connectedClients = new Set<ServerWebSocket<WsData>>();
 
-export function handleWebSocketUpgrade(req: Request, server: Server): boolean {
+export function handleWebSocketUpgrade(req: Request, server: Server<WsData>): boolean {
   const url = new URL(req.url);
   if (url.pathname !== "/ws") return false;
 

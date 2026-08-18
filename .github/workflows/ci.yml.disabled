@@ -169,7 +169,12 @@ jobs:
           - { package: pi-agent-ext-file2md, test-cmd: "bun test --isolate" }
           # gui-movie-director: lint is pure static analysis (CI-safe); the
           # check-runtime suite probes run.py via the venv and skips under CI.
-          - { package: gui-movie-director, test-cmd: "bun run test" }
+          # `typecheck` is chained (as pi-agent does) AND now exists as a script:
+          # this package had no tsc key at all, so main_health reported
+          # `typecheck: {skipped: true, note: "no tsc key"}` — which reads as
+          # benign — while `tsc --noEmit` by hand produced 133 errors, among them
+          # a dropped `hint` that kept a GPU-crash warning off the screen.
+          - { package: gui-movie-director, test-cmd: "bun run test && bun run typecheck" }
           # ── scoped test paths (plain `bun test` discovers vault-needing
           #    files outside extensions/__tests__ in pi-agent-ext-obsidian) ──
           # Run order matters: e2e uses --isolate (avoids mock.module leak),

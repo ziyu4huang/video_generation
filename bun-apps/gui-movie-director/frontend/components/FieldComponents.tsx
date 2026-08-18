@@ -211,9 +211,11 @@ interface ToggleFieldProps {
   label: string;
   checked: boolean;
   onChange: (val: boolean) => void;
+  /** Same `field-hint` treatment SelectField gives its hint. */
+  hint?: string;
 }
 
-export function ToggleField({ label, checked, onChange }: ToggleFieldProps) {
+export function ToggleField({ label, checked, onChange, hint }: ToggleFieldProps) {
   return (
     <div className="toggle-group">
       <input
@@ -223,6 +225,7 @@ export function ToggleField({ label, checked, onChange }: ToggleFieldProps) {
         id={`toggle-${label.replace(/\s+/g, "-")}`}
       />
       <label htmlFor={`toggle-${label.replace(/\s+/g, "-")}`}>{label}</label>
+      {hint && <span className="field-hint">{hint}</span>}
     </div>
   );
 }

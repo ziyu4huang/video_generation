@@ -13,6 +13,7 @@
     "check:schema": "bun run scripts/check-schema.ts",
     "check:runtime": "bun run scripts/check-runtime.ts",
     "check:lint": "eslint .",
+    "typecheck": "tsc --noEmit",
     "knowledge:scan": "bun run scripts/knowledge-cli.ts scan",
     "knowledge:extract": "bun run scripts/knowledge-cli.ts extract-captions",
     "knowledge:learn": "bun run scripts/knowledge-cli.ts learn",

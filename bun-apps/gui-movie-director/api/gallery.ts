@@ -134,7 +134,10 @@ function scanRawEntries(): { entries: RawEntry[]; dirFileCache: Map<string, Set<
     // uploads/ subdir — tool outputs on an uploaded input (e.g. image purify,
     // faceswap) are saved next to the input in uploads/, so without this they'd
     // never surface in the gallery.
-    let allFiles: string[] = [];
+    // Dirent[], not string[] — `withFileTypes: true` is what the loop below
+    // needs (.isDirectory()/.name). The annotation said string[] and the code
+    // used Dirent members, so 8 of this file's type errors were that one word.
+    let allFiles: fs.Dirent[] = [];
     try { allFiles = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
     for (const ent of allFiles) {
       if (!ent.isDirectory()) continue;
@@ -164,10 +167,10 @@ function buildImageEntry(entry: RawEntry, dirFileCache: Map<string, Set<string>>
 
     // T2I2V entries: use t2i2v_manifest.json as the primary manifest (shows full pipeline info)
     const manifestPath = entry.t2i2vManifestPath ?? findCompanionJson(entry.dir, base, ".manifest.json");
-    const manifest = manifestPath ? readJsonFile(manifestPath) : null;
+    const manifest = manifestPath ? readJsonFile<Record<string, any>>(manifestPath) : null;
 
     const runPath = findCompanionJson(entry.dir, base, ".run.json");
-    const run = runPath ? readJsonFile(runPath) : null;
+    const run = runPath ? readJsonFile<Record<string, any>>(runPath) : null;
 
     const dirIdx = OUTPUT_DIRS.indexOf(entry.rootDir);
     let thumbnailUrl: string | null = null;
@@ -439,7 +442,7 @@ export async function handleGalleryDelete(req: Request): Promise<Response> {
   // companions deleted too. Previously only the exact base was stripped, which
   // orphaned companion JSON whenever the media name carried _segNN/_relay
   // (findCompanionJson would still resolve and DISPLAY them on next scan).
-  for (const suffix of [".manifest.json", ".run.json", ".caption.json"]) {
+  for (const suffix of [".manifest.json", ".run.json", ".caption.json"] as const) {
     const companion = findCompanionJson(actualDir, base, suffix);
     if (companion) tryDelete(companion);
   }
