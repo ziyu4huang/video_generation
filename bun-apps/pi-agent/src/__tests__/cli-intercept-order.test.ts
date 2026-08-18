@@ -29,10 +29,10 @@ const cliSource = readFileSync(join(__dirname, "..", "cli.ts"), "utf8");
 /**
  * Specifiers of the real top-level ESM `import` statements in `source`.
  *
- * Matches `import … from "x"` (including the multi-line brace form — the clause
- * cannot contain a quote, so `[^'"]` safely spans newlines) and the bare
- * `import "x"`. Anchored at start-of-line, so an `await import()` inside a
- * function body — indented, and not the `import` keyword in statement position
+ * Matches `import … from <specifier>` (including the multi-line brace form —
+ * the clause cannot contain a quote, so `[^'"]` safely spans newlines) and
+ * the bare `import <specifier>` form. Anchored at start-of-line, so an
+ * `await import()` inside a function body — indented, and not the `import` keyword in statement position
  * — is correctly NOT reported. That distinction is the entire point: only the
  * top-level form is hoisted.
  */
