@@ -390,7 +390,7 @@ function sendRaw(payload) {
 // sizes it and long text scrolls inside the frame; the escaped plain text is
 // the instant fallback while the fetch renders.
 function chatMdHeight(text) {
-  var lines = String(text).split('\n').length;
+  var lines = String(text).split('\\n').length;
   return Math.min(480, Math.max(72, 24 + lines * 20));
 }
 function mdDoc(body) {
