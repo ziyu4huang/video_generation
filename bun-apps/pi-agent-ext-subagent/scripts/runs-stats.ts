@@ -30,8 +30,17 @@ type Rec = {
   usage?: { total?: number };
   turns?: { turnsUsed?: number };
   budget?: { source?: "explicit" | "envelope-recon" | "envelope-writer" | "tier" };
+  history?: unknown[];
 };
-type CohortAgg = { n: number; done: number; turns: number; budget: number; timedout: number; tokens: number[] };
+type CohortAgg = {
+  n: number;
+  done: number;
+  turns: number;
+  budget: number;
+  timedout: number;
+  tokens: number[];
+  turnsVals: number[];
+};
 type HistoryRow = {
   date?: string;
   totalRuns?: number;
@@ -42,6 +51,19 @@ const DEFAULT_HISTORY = join(import.meta.dir, "..", "docs", "budget-history.json
 
 const med = (xs: number[]): number | null =>
   xs.length === 0 ? null : [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+
+/** Turns used: prefers the abort path's authoritative TurnExhaustion, else
+ *  projects from the persisted transcript (assistant-message count) — done
+ *  runs never carried a turns block, and history IS the canonical record,
+ *  so the projection covers done + legacy records alike. */
+const turnsOf = (r: Rec): number | undefined => {
+  if (typeof r.turns?.turnsUsed === "number") return r.turns.turnsUsed;
+  if (Array.isArray(r.history)) {
+    const n = r.history.filter((m) => (m as { role?: string }).role === "assistant").length;
+    if (n > 0) return n;
+  }
+  return undefined;
+};
 
 // --- arg parsing: [runs-dir] positional; [file] optional after each flag ---
 const args = process.argv.slice(2);
@@ -102,13 +124,15 @@ const cohortsOf = (recs: Rec[]): Map<string, CohortAgg> => {
   const byCohort = new Map<string, CohortAgg>();
   for (const r of recs) {
     const c = r.budget?.source ?? "unknown";
-    const b = byCohort.get(c) ?? { n: 0, done: 0, turns: 0, budget: 0, timedout: 0, tokens: [] };
+    const b = byCohort.get(c) ?? { n: 0, done: 0, turns: 0, budget: 0, timedout: 0, tokens: [], turnsVals: [] };
     b.n += 1;
     if (r.status === "done") b.done += 1;
     if (r.status === "turns") b.turns += 1;
     if (r.status === "budget") b.budget += 1;
     if (r.status === "timedout") b.timedout += 1;
     if (typeof r.usage?.total === "number") b.tokens.push(r.usage.total);
+    const tu = turnsOf(r);
+    if (tu !== undefined) b.turnsVals.push(tu);
     byCohort.set(c, b);
   }
   return byCohort;
@@ -206,7 +230,8 @@ if (!doSeed && !doSnapshot && !doTrend) {
     const b = byStatus.get(s) ?? { n: 0, tokens: [], turns: [] };
     b.n += 1;
     if (typeof r.usage?.total === "number") b.tokens.push(r.usage.total);
-    if (typeof r.turns?.turnsUsed === "number") b.turns.push(r.turns.turnsUsed);
+    const tu = turnsOf(r);
+    if (tu !== undefined) b.turns.push(tu);
     byStatus.set(s, b);
   }
 
@@ -220,7 +245,7 @@ if (!doSeed && !doSnapshot && !doTrend) {
 
   for (const [c, b] of [...cohortsOf(recs).entries()].sort((a, x) => x[1].n - a[1].n)) {
     console.log(
-      `cohort ${c}: n=${b.n} done=${b.done} turns=${b.turns} budget=${b.budget} tokenMedian=${med(b.tokens) ?? "-"}`,
+      `cohort ${c}: n=${b.n} done=${b.done} turns=${b.turns} budget=${b.budget} tokenMedian=${med(b.tokens) ?? "-"} turnsMedian=${med(b.turnsVals) ?? "-"}`,
     );
   }
 }
