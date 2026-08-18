@@ -580,8 +580,9 @@ describe("WebServer buildServeOptions", () => {
   it("disables the Bun.serve idle timeout (idleTimeout === 0)", () => {
     const s = makeServer();
     const opts = s.buildServeOptions("127.0.0.1", 8099);
-    // Bun's default 10s idle timeout kills idle SSE (/api/events) connections
-    // and floods the agent TUI with stderr "[Bun.serve]: request timed out".
+    // Bun's default 10s idle timeout kills idle long-lived connections
+    // (the /ws transport) and floods the agent TUI with stderr
+    // "[Bun.serve]: request timed out".
     expect(opts.idleTimeout).toBe(0);
   });
 

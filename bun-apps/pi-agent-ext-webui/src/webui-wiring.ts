@@ -910,6 +910,12 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       }
     },
   });
+  // webui-simplify §3: one live transport — the registry's view changes ride
+  // the WS frames (the SSE /api/events route is gone). Broadcast-only: the
+  // frame joins the transcript ring (connect-time replay carries it too).
+  registry.subscribe((viewId) => {
+    broadcaster.broadcast({ type: "view_update", viewId, ts: clock.now() });
+  });
   // Phase 4 (spec Component 5): chain the /output serving route BEHIND the
   // render routes — render answers first (incl. GET / shell), output serves
   // /output/{...}, everything else falls through to the WebServer defaults.
