@@ -85,9 +85,12 @@ export interface SubagentRunRecord {
    */
   budget?: SubagentBudgetDetails;
   /**
-   * Turns-exhaustion block: set when the run was aborted for exceeding
-   * `maxTurns` (status "turns" — mirrors SpawnSubagentResult.turns /
-   * core-runtime TurnExhaustion). Absent on every other path; old records
+   * Turns block since 2026-08-18: the ABORT path (exceeding `maxTurns`, status
+   * "turns" — mirrors SpawnSubagentResult.turns / core-runtime TurnExhaustion)
+   * keeps its exhaustion semantics; the DONE path now ALSO sets it with the
+   * authoritative TurnGuard count (captured via the runner's onTurns —
+   * `maxTurns` key absent for unlimited runs). Legacy done records lack it;
+   * the runs-stats assistant-message projection covers them. Old records
    * without it parse unchanged (optional field, no migration needed).
    */
   turns?: TurnExhaustion;

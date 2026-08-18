@@ -167,6 +167,15 @@ export interface SpawnSubagentResult {
    * Advisory only: it never aborts, never retries, and never sets `failure`.
    */
   budgetWarning?: BudgetWarning;
+  /**
+   * Authoritative loop-turn count for a COMPLETED run, captured from the
+   * runner's onTurns (TurnGuard turn_end count) per attempt — set on the
+   * success path so done runs persist the real count instead of leaving it
+   * to the runs-stats assistant-message projection. `maxTurns` key is absent
+   * for unlimited runs. Abort paths do NOT set it here: the `turns` failure
+   * kind carries its own exhaustion detail.
+   */
+  turns?: TurnExhaustion;
 }
 
 const TRANSIENT_NETWORK_RE =
@@ -331,6 +340,9 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
     }
     const timer = opts.timeoutMs ? setTimeout(() => ac.abort(), opts.timeoutMs) : undefined;
     let usage: AgentUsage | undefined;
+    // Per-attempt turn count: the producing attempt's own count, so the retry
+    // merge (spread of the second attempt's result) keeps it — never a sum.
+    let turns: TurnExhaustion | undefined;
     try {
       const out = await runner.run(opts.task, {
         label: opts.label ?? deriveTaskLabel(opts.task),
@@ -349,6 +361,9 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
           usage = u;
           opts.onUsage?.(u);
         },
+        onTurns: (t) => {
+          turns = t as TurnExhaustion;
+        },
         onHistory: opts.onHistory,
         tokenBudget: opts.tokenBudget,
         spendBudget: opts.spendBudget,
@@ -365,7 +380,7 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
       // abort guard uses, but purely advisory.
       const budgetWarning = budgetWarningFor(usage, opts);
       return {
-        result: { output, usage, ...(budgetWarning ? { budgetWarning } : {}) },
+        result: { output, usage, ...(budgetWarning ? { budgetWarning } : {}), ...(turns ? { turns } : {}) },
         transient: false,
       };
     } catch (e) {

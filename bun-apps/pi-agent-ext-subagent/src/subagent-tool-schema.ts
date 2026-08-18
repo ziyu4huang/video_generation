@@ -96,11 +96,13 @@ export interface SubagentToolDetails {
   /** Budget block — exhaustion fields on the abort path, `warning` on the completed ≥80% path (see {@link SubagentBudgetDetails}). */
   budget?: SubagentBudgetDetails;
   /**
-   * Turns-exhaustion block: present only when the run was ABORTED for
-   * exceeding `maxTurns` (status "turns" — mirrors SpawnSubagentResult.turns /
-   * core-runtime TurnExhaustion). Timeout-like semantics: transient, so the
-   * dispatch is retried once under retryOnTransient. Absent on every other
-   * path; old records without it stay valid.
+   * Turns block: on the ABORT path, present only when the run was aborted
+   * for exceeding `maxTurns` (status "turns" — mirrors SpawnSubagentResult.turns /
+   * core-runtime TurnExhaustion; timeout-like transient semantics, retried once
+   * under retryOnTransient). Since 2026-08-18 the DONE path ALSO sets it with
+   * the authoritative TurnGuard count (via the runner's onTurns; `maxTurns` key
+   * absent for unlimited runs) — legacy done records lack it and are covered by
+   * the runs-stats assistant-message projection.
    */
   turns?: TurnExhaustion;
   /**

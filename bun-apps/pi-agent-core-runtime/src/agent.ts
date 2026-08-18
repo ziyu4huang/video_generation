@@ -121,6 +121,16 @@ export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefi
    */
   onUsage?: (usage: AgentUsage) => void;
   /**
+   * Called once with this run's authoritative loop-turn count from the
+   * TurnGuard (turn_end events observed), right before disposal — the same
+   * seam as onUsage, firing on both the success and error paths. The
+   * TURNS_EXHAUSTED error already carries the count in its details; this
+   * surface exists for SUCCESS, where nothing else reports it (the runner's
+   * callers persist it on done runs). `maxTurns` is omitted (key absent) for
+   * unlimited runs — only a capped run reports a ceiling.
+   */
+  onTurns?: (turns: { turnsUsed: number; maxTurns?: number }) => void;
+  /**
    * Model spec for this subagent: either `provider/modelId` (unambiguous) or a
    * bare `modelId`. When it can't be resolved, the session default is used and
    * a warning is logged. When omitted, the session default applies.
@@ -388,7 +398,9 @@ export class CoreAgent {
         options.signal.addEventListener("abort", onAbort, { once: true });
         removeAbortListener = () => options.signal?.removeEventListener("abort", onAbort);
       }
-      if (options.onHistory || hasBudget || hasMaxTurns) {
+      // onTurns reads turnGuard.turnsUsed in the finally — it needs the guard
+      // fed even on an uncapped, unbudgeted run, so it joins the condition.
+      if (options.onHistory || hasBudget || hasMaxTurns || options.onTurns) {
         removeHistoryListener = session.subscribe((event) => {
           budgetGuard.onSessionEvent(event);
           turnGuard.onSessionEvent(event);
@@ -469,6 +481,19 @@ export class CoreAgent {
           });
         } catch {
           // Usage is best-effort; never let stats failure mask the real result/error.
+        }
+      }
+      // Authoritative turn count before disposal (pure closure getter — cannot
+      // throw, unlike the session-stats read above). Diagnostic like history:
+      // a throwing listener must never mask the real result/error.
+      if (options.onTurns) {
+        try {
+          options.onTurns({
+            turnsUsed: turnGuard.turnsUsed,
+            ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
+          });
+        } catch {
+          // Turns is diagnostic only; never let it mask the real result/error.
         }
       }
       session.dispose();

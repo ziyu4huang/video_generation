@@ -143,6 +143,19 @@ describe("spawnSubagent", () => {
     assert.deepEqual(res.usage, usage, "result.usage captured even with no caller onUsage");
   });
 
+  it("onTurns (TurnGuard count) → done run carries authoritative result.turns with turnsUsed", async () => {
+    const runner = mkRunner(async ({ opts }) => {
+      (opts.onTurns as ((t: { maxTurns?: number; turnsUsed: number }) => void) | undefined)?.({
+        maxTurns: 5,
+        turnsUsed: 3,
+      });
+      return "ok";
+    });
+    const res = await spawnSubagent({ task: "t", agent: runner });
+    assert.equal(res.failure, undefined, "done path: no failure");
+    assert.deepEqual(res.turns, { maxTurns: 5, turnsUsed: 3 }, "success result carries the runner's TurnGuard count");
+  });
+
   it("timeout (AGENT_TIMEOUT) → failure.kind timedout, retried once when retryOnTransient:true", async () => {
     let n = 0;
     const runner = mkRunner(async () => {
