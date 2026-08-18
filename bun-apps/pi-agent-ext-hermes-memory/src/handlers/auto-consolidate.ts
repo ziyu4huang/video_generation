@@ -13,7 +13,7 @@
  */
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { spawnSubagent } from "@repo/pi-agent-ext-subagent";
+import { roleAwareDefaults, spawnSubagent } from "@repo/pi-agent-ext-subagent";
 import type { SpawnSubagentResult } from "@repo/pi-agent-ext-subagent";
 import type { TSchema } from "typebox";
 import { MemoryStore } from "../store/memory-store.js";
@@ -123,6 +123,16 @@ export async function triggerConsolidation(
   try {
     // llmThinkingOverride has no spawnSubagent equivalent — inert under the migration.
     const modelOverride = llmConfig.llmModelOverride?.trim();
+    // 2026-08-18 envelope closure (#1652/#1654/#1655 companion): direct
+    // spawnSubagent calls bypass the tool-seam role bounds — same gap
+    // class. Caps only; the tighter local timeoutMs wins over the envelope
+    // wall. SUBAGENT_TOKEN_BUDGET_DISABLE escape hatch honored (computed at
+    // call time). Computed here — not module scope — so the env flag is
+    // read at call time.
+    const writerCaps = (() => {
+      const d = roleAwareDefaults({}, "writer");
+      return d.applied ? { tokenBudget: d.tokenBudget, maxTurns: d.maxTurns } : {};
+    })();
     const result = await spawn({
       task: prompt,
       // Honor llmModelOverride when set (keeps resolveConsolidatorModelLabel
@@ -132,6 +142,7 @@ export async function triggerConsolidation(
         "You are a memory consolidator. Use ONLY the memory tool to merge/dedup entries as instructed. Do not read or modify any files.",
       tools: ["memory"],
       extensionTools: [memoryToolDef],
+      ...writerCaps,
       timeoutMs,
       externalSignal: signal,
       // Consolidation runs WHILE the parent holds the cross-process fileLock on
