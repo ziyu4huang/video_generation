@@ -3,7 +3,7 @@
  *
  * Parses the durable subagent run records (~/.pi/subagents/runs/*.json) and
  * emits status counts + per-status token medians plus a cohort split by
- * budget.source — the inputs the dispatch-budget-rebalance skill's procedure
+ * budget.source — the inputs the dispatch-recovery skill's Calibration procedure
  * step 1 calls for. The >=100-run re-measure gate (#1663) is checked against
  * these numbers, never intuition.
  *

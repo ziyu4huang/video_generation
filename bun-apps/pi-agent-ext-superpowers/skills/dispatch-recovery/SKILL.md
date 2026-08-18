@@ -1,6 +1,6 @@
 ---
 name: dispatch-recovery
-description: Use when a dispatched subagent dies at its tokenBudget or maxTurns, or before redispatching after any child death — recovery decisions, not pre-dispatch planning. Janitor-first recovery, verify-by-git trust rules, verbatim-apply redispatch briefs.
+description: Use when a dispatched subagent dies at its tokenBudget or maxTurns, before redispatching after any child death, or when rebalancing dispatch budgets (turns-aborts dominate the ledger, a role ceiling sits below the done-run median, an envelope-less spawn consumer appears) — recovery decisions and median-driven calibration, never hand tuning.
 ---
 
 # Dispatch recovery
@@ -34,10 +34,25 @@ Design-in-child dispatches die mid-design. The surviving shape:
 
 ## Budget before dispatch (sizing rule)
 
-Size every dispatch BEFORE sending: maxTurns >= task steps + 2 (each turn
-re-pays ~10k+ tokens of fixed overhead); tokenBudget by tier ceiling. Default
-authoring mode = verbatim-apply (parent authors content, child applies
-mechanically). Every dispatch starts with one mega-block — all reads in turn 1.
+Size every dispatch BEFORE sending: maxTurns >= task steps + 2 (each turn re-pays ~10k+ tokens of fixed overhead); tokenBudget by tier ceiling. Default authoring mode = verbatim-apply (parent authors content, child applies mechanically). Every dispatch starts with one mega-block — all reads in turn 1.
+
+## Calibration (rebalance procedure)
+
+From the 200-run ledger: turns is the top killer (31/200 aborts) vs tokens (23) vs timeout (6). Raise turn ceilings before token ceilings — a ceiling below the done-run median starves typical successful runs (old recon 60k ceiling vs done-median 71k). `ROLE_AWARE_DISPATCH_BOUNDS` applies ONLY at the subagent tool seam; bounds move from ledger medians, never intuition.
+
+**Trigger when:** turns-aborts dominate the ledger; a role ceiling sits below the done-median for that role; an envelope-less `spawnSubagent`/`spawnSubagentSubprocess` consumer appears; a direct call site carries caps but no abort-safety footer (budget death there = unrecoverable).
+
+**Procedure:**
+1. Ledger medians: `bun scripts/runs-stats.ts` (pi-agent-ext-subagent; counts + per-status medians from `~/.pi/subagents/runs`; `--trend` trajectory, `--snapshot` append). Prioritize turns > tokens > time.
+2. Consumer census: grep ALL spawn/tool consumers; disposition each as tool-seam (envelope applies) / direct-call (fix in 3) / subprocess-seam (wall-clock is the ONLY knob) / workflow-family (own budget closure — NO-GAP BY DESIGN, do not re-audit).
+3. Direct sites: classify recon vs writer from the effective toolset; spread `roleAwareDefaults(role)` / `roleAwareDirectCall` so caps AND footer apply atomically.
+4. Bounds only from medians: ceiling >= done-median; turns headroom to the turns-abort median; leave unindicted dimensions unchanged.
+5. Test pins: budget-defaults table pins + footer-gate pins (`shouldInjectFooter` flips at maxTurns > 10 — pin both sides).
+6. Ship + re-verify (devops local-ci + pr-finish); suites green at merged HEAD.
+
+**Pitfalls:** ANY explicit tokenBudget/maxTurns/timeout opts the whole envelope out (audit call sites for accidental explicit values); subprocess seam has no token/turn fields; re-measure gate — wait >=100 post-merge runs before touching bounds again.
+
+**Verify:** package suites green; grep audit zero uncapped `spawnSubagent(` callers outside the library.
 
 ## Ledger
 
@@ -53,4 +68,4 @@ Record every dispatch outcome on the SDD ledger line (see executing-plans "Dispa
 
 ## Provenance
 
-> Provenance: goal 5464ff67 session chain (PRs #1574-#1626); run-record census 2026-08-18 (200 records); candidate `.planning/knowledge/subagent-dispatch-empirics.md` (consumed on promotion).
+> Provenance: goal 5464ff67 session chain (PRs #1574-#1626); run-record census 2026-08-18 (200 records); candidate `.planning/knowledge/subagent-dispatch-empirics.md` (consumed on promotion). Calibration section merged from dispatch-budget-rebalance (2026-08-18 rebalance session, PRs #1652-#1661; candidate `.planning/knowledge/dispatch-budget-rebalance.md`).
