@@ -281,16 +281,33 @@ function makeRunDir(): string {
   return candidate;
 }
 
-/** Connect/launch failure → short markdown error report; the tool NEVER throws. */
-function connectFailureReport(url: string, error: unknown): string {
+/** Connect/launch failure → short markdown error report; the tool NEVER throws.
+ * ErrDX: distinguish the three failure kinds so the fix hint matches the cause —
+ * a Chrome LAUNCH failure must not tell the user to "start the webui". */
+export function connectFailureReport(url: string, error: unknown): string {
   const message = oneLine(error instanceof Error ? error.message : String(error));
+  const launchFailure =
+    /Failed to launch|browserType\\.launch|Executable doesn't exist|Target closed/i.test(message);
+  const chromeMissing = !chromeLikelyAvailable();
+  const cause = launchFailure
+    ? "headless Chrome failed to launch"
+    : chromeMissing
+      ? "no system Chrome/Chromium found"
+      : "cannot reach the webui";
+  const hint = launchFailure
+    ? "Chrome is installed but would not start. Check that Chrome runs manually, " +
+      "that no management policy blocks it, and that playwright-core matches the " +
+      "installed Chrome version (bun install in bun-apps refreshes it)."
+    : chromeMissing
+      ? "Install Google Chrome (the tool drives the SYSTEM Chrome and never downloads one)."
+      : "Start the webui (`bun run dev` in bun-apps/gui-movie-director; `bun run gui:port` " +
+        "prints the actual port) or pass {port} for a different one.";
   return [
     `## webui audit — ${url}`,
     "",
-    `cannot audit: ${message}`,
+    `cannot audit (${cause}): ${message}`,
     "",
-    "Start the webui (`bun run dev` in bun-apps/gui-movie-director; `bun run gui:port` " +
-      "prints the actual port) or pass {port} for a different one.",
+    hint,
   ].join("\n");
 }
 
