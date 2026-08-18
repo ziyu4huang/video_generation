@@ -517,6 +517,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@earendil-works/pi-ai": "0.84.2",
+        "@earendil-works/pi-coding-agent": "0.84.2",
         "marked": "^15",
       },
       "devDependencies": {
