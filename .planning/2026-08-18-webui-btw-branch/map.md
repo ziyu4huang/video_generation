@@ -55,3 +55,16 @@ precedence (pane sync never clobbers a card hash); collapsed state clears the
 hash via replaceState. Verified live on :8891: deep-link load, click->URL
 sync, goBack->pane restore, reload keeps position, inbox alias; 0 console
 errors. webui 527/0.
+
+## Follow-up 3: Report tab cleanup (user: how to clean the Report tab)
+
+No cleanup surface existed — the mirror was deliberately append-only (the
+archive). Shipped the full path: store.removeReport/clearReports (session
+store splices report frames by id); report-persist compactReports (uncapped
+rewrite minus removed ids, order kept, corrupt lines kept) + clearReportsFile;
+routes DELETE /api/report/<id> (404 unknown) + DELETE /api/report ({removed});
+wiring seams remove-first-then-compact; shell: per-article x button (ALL
+articles incl. markdown) + pane-level "clear all reports" toolbar that
+self-manages with article count. E2E on a WS-snapshot stub (:8893): 3 articles
++ 3 crosses + toolbar -> delete one (right two remain) -> clear all (0, toolbar
+gone) -> mirror 0 lines -> restart restored=0; 0 console errors. webui 532/0.

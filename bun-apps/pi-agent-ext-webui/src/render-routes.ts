@@ -51,6 +51,10 @@ export interface RenderRouteOptions {
   /** Standalone report reader for GET /api/report/<id>/raw (wiring: session
    *  store lookup — same frames the Report tab replays). */
   getReport?: (id: string) => Extract<WebFrame, { type: "report" }> | undefined;
+  /** report-cleanup: remove one report frame (store + mirror); false -> 404. */
+  removeReport?: (id: string) => boolean;
+  /** report-cleanup: clear every report frame; returns the count removed. */
+  clearReports?: () => number;
   /**
    * SSE heartbeat interval in ms for /api/events (Fix 3): Bun.serve's idle
    * timeout (and any intermediate proxy) closes silent streams; a periodic
@@ -128,6 +132,22 @@ export function createRenderRoutes(
     // boundary as /files (sandbox allow-scripts allow-downloads): export
     // menus work and the browser provides native edge scrolling. Loopback +
     // origin-guarded like every other route on this chain.
+    // report-cleanup: DELETE /api/report/<id> removes one frame; DELETE
+    // /api/report clears all. Both are wiring-seamed (store removal + mirror
+    // compaction) so a restart stays clean. Method-guarded — never collides
+    // with the POST producer or the GET /raw reader.
+    if (req.method === "DELETE" && pathname === "/api/report" && opts.clearReports) {
+      return json({ ok: true, removed: opts.clearReports() });
+    }
+    if (req.method === "DELETE" && pathname.startsWith("/api/report/") && opts.removeReport) {
+      try {
+        const id = decodeURIComponent(pathname.slice("/api/report/".length));
+        return opts.removeReport(id) ? json({ ok: true }) : new Response("not found", { status: 404 });
+      } catch {
+        return new Response("bad request", { status: 400 });
+      }
+    }
+
     if (req.method === "GET" && pathname.startsWith("/api/report/") && pathname.endsWith("/raw")) {
       const reader = opts.getReport;
       if (!reader) return new Response("not found", { status: 404 });

@@ -12,7 +12,7 @@
  * connect-time snapshot like any replayed history.
  * Env override WEBUI_REPORT_DIR (tests, sandboxes).
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { WebFrame } from "./protocol.js";
@@ -72,5 +72,40 @@ export function loadReports(path: string): ReportFrame[] {
     return out.slice(-REPORT_RESTORE_CAP);
   } catch {
     return [];
+  }
+}
+
+/** report-cleanup: best-effort compaction — rewrite the mirror WITHOUT the
+ * removed ids. Reads the UNCAPPED file (the archive may exceed the restore
+ * cap); only the named ids go, order preserved, corrupt lines kept as-is.
+ * Failures are silent by the same contract as append. */
+export function compactReports(path: string, removeIds: Set<string>): void {
+  try {
+    if (!existsSync(path) || removeIds.size === 0) return;
+    const lines = readFileSync(path, "utf8").split("\n");
+    const kept: string[] = [];
+    for (const line of lines) {
+      const s = line.trim();
+      if (s === "") continue;
+      try {
+        const v: unknown = JSON.parse(s);
+        if (typeof v === "object" && v !== null && removeIds.has((v as { id?: unknown }).id as string)) continue;
+      } catch {
+        /* corrupt line — keep as-is (load skips it anyway) */
+      }
+      kept.push(s);
+    }
+    writeFileSync(path, kept.join("\n") + (kept.length > 0 ? "\n" : ""), "utf8");
+  } catch {
+    /* best-effort by contract */
+  }
+}
+
+/** report-cleanup: truncate the mirror entirely (clear-all). Best-effort. */
+export function clearReportsFile(path: string): void {
+  try {
+    writeFileSync(path, "", "utf8");
+  } catch {
+    /* best-effort by contract */
   }
 }
