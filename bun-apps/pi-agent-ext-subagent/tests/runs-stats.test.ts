@@ -84,6 +84,37 @@ test("cohort split groups runs by budget.source with untagged records as unknown
   }
 });
 
+test("turns medians: done runs project from history, turns block stays authoritative", () => {
+  const dir = mkdtempSync(join(tmpdir(), "runs-stats-turnsproj-"));
+  try {
+    const rec = (o: Record<string, unknown>) =>
+      writeFileSync(join(dir, `${crypto.randomUUID()}.json`), JSON.stringify(o));
+    // (a) done run, no turns block -> projection counts assistant messages (2).
+    rec({
+      status: "done",
+      history: [{ role: "user" }, { role: "assistant" }, { role: "tool" }, { role: "assistant" }],
+    });
+    // (b) turns run: authoritative TurnExhaustion beats the history projection (1).
+    rec({
+      status: "turns",
+      history: [{ role: "user" }, { role: "assistant" }],
+      turns: { turnsUsed: 7, maxTurns: 7 },
+    });
+
+    const out = runCli([dir]).stdout;
+    assert.ok(
+      out.includes("done: n=1 tokenMedian=- turnsMedian=2"),
+      `done row must project turnsMedian=2 from history\n${out}`,
+    );
+    assert.ok(
+      out.includes("turns: n=1 tokenMedian=- turnsMedian=7"),
+      `turns row must use authoritative turnsUsed=7, not projection 1\n${out}`,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("--snapshot appends exactly one JSON line (note optional) to a tmp history file", () => {
   const dir = mkdtempSync(join(tmpdir(), "runs-stats-snap-"));
   try {
