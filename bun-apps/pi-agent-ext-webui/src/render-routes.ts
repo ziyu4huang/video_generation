@@ -38,6 +38,12 @@ export type RenderRouteHandler = (
 export interface RenderRouteOptions {
   /** tab-views (02): report producer sink — receives validated report frames. */
   onReport?: (frame: Extract<WebFrame, { type: "report" }>) => void;
+  /** btw-branch (demo): the BTW tab queue — browser-authored branch questions
+   * (webui -> agent; the reverse of ask cards). Injected by wiring with the
+   * JSONL-backed store. */
+  btw?: BtwStore;
+  /** Data tab demo: live pipeline telemetry snapshot. */
+  dataSummary?: () => Record<string, string | number>;
   /** Standalone report reader for GET /api/report/<id>/raw (wiring: session
    *  store lookup — same frames the Report tab replays). */
   getReport?: (id: string) => Extract<WebFrame, { type: "report" }> | undefined;
@@ -52,6 +58,9 @@ export interface RenderRouteOptions {
 
 /** Default SSE heartbeat interval (see {@link RenderRouteOptions.heartbeatMs}). */
 const DEFAULT_HEARTBEAT_MS = 30_000;
+
+import type { BtwStore } from "./btw-store.js";
+import { buildBtwEntry } from "./btw-store.js";
 
 const encoder = new TextEncoder();
 
@@ -175,6 +184,37 @@ export function createRenderRoutes(
         ...(view.controls !== undefined ? { controls: view.controls } : {}),
         ...(view.presentId !== undefined ? { presentId: view.presentId } : {}),
       });
+    }
+
+    // btw-branch (demo): POST /api/btw queues a branch question authored in
+    // the browser (optionally seeded with report context); GET /api/btw lists
+    // pending; POST /api/btw/<id>/resolve marks one answered (agent or the
+    // tab's resolved button). Same async-body contract as POST /api/report.
+    if (opts.btw) {
+      if (req.method === "GET" && pathname === "/api/btw") {
+        return json({ pending: opts.btw.list().filter((e) => !e.resolvedAt) });
+      }
+      if (req.method === "POST" && pathname === "/api/btw") {
+        const store = opts.btw;
+        return req.text().then((raw: string): Response => {
+          if (raw.length > 16384) return new Response("payload too large", { status: 413 });
+          let body: unknown;
+          try { body = JSON.parse(raw); } catch { return new Response("bad request", { status: 400 }); }
+          const r = buildBtwEntry(body);
+          if (!r.ok) return new Response(r.error, { status: 400 });
+          const e = store.create(r.entry);
+          return json({ ok: true, id: e.id });
+        }, (): Response => new Response("bad request", { status: 400 }));
+      }
+      if (req.method === "POST" && pathname.startsWith("/api/btw/") && pathname.endsWith("/resolve")) {
+        const id = decodeURIComponent(pathname.slice("/api/btw/".length, pathname.length - "/resolve".length));
+        return opts.btw.resolve(id) ? json({ ok: true }) : new Response("not found", { status: 404 });
+      }
+    }
+    // Data tab demo: one-glance pipeline telemetry (port, uptime, mirror
+    // sizes, pending BTWs). Absent injector -> 404 like any unknown route.
+    if (req.method === "GET" && pathname === "/api/data/summary" && opts.dataSummary) {
+      return json(opts.dataSummary());
     }
 
     if (req.method === "GET" && pathname === "/api/events") {

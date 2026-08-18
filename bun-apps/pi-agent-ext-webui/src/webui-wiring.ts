@@ -59,6 +59,7 @@ import { resolvePort } from "./port-resolver.js";
 import { resolveFileRoots, resolveWebuiEnabled } from "./webui-config.js";
 import { createSessionStore, type SessionStore } from "./session-store.js";
 import { appendReport, loadReports, reportPersistPath, type ReportFrame } from "./report-persist.js";
+import { btwDataSummary, btwPersistPath, createBtwStore } from "./btw-store.js";
 
 /**
  * The event-bus surface the render framework needs (ticket 06 D2). The real
@@ -419,6 +420,10 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // live push. Port comes from the RESOLVED value (the WebServer port getter
   // throws before start()).
   const reportPath = reportPersistPath(resolvedWebuiPort);
+  // BTW tab (demo): browser-authored branch questions — same per-port mirror
+  // directory, independent file so report restore stays untouched.
+  const btwPath = btwPersistPath(resolvedWebuiPort);
+  const btwStore = createBtwStore(btwPath);
   for (const persisted of loadReports(reportPath)) sessionStore.append(persisted as WebFrame);
   const broadcaster: Broadcaster = {
     broadcast(frame: WebFrame): void {
@@ -869,6 +874,10 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       sessionStore.snapshot().transcript.find(
         (f) => f.type === "report" && f.id === id
       ) as Extract<WebFrame, { type: "report" }> | undefined,
+    // btw-branch + Data telemetry (demo): the BTW tab queue and the
+    // /api/data/summary snapshot ride the same route options.
+    btw: btwStore,
+    dataSummary: () => btwDataSummary(reportPath, btwPath, btwStore, resolvedWebuiPort),
   });
   // ticket 06 (archify-webui-html spec §4.1): /files serves full-fidelity HTML
   // from the configured root allowlist — chained AFTER render routes, BEFORE

@@ -65,6 +65,22 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
      browser edge; the reading-measure cap moved HERE (content layer) so the
      capped-column layout is preserved on wide screens. */
   #content > *, #cards-pane .card, #report-pane article { max-width: 1500px; width: 100%; margin-left: auto; margin-right: auto; }
+  /* BTW tab (demo): branch-a-question composer + pending list. */
+  #btw-pane { display: flex; flex-direction: column; gap: .5rem; padding: .4rem 1rem; flex: 1; min-height: 0; overflow-y: auto; }
+  #btw-pane[hidden] { display: none; }
+  .btw-box, .btw-entry { border: 1px solid #8884; border-radius: 6px; padding: .6rem .7rem; max-width: 900px; width: 100%; margin-left: auto; margin-right: auto; }
+  .btw-box h5 { margin: 0 0 .4rem; font-size: .8rem; }
+  .btw-box textarea, .btw-box select, .btw-box input { width: 100%; padding: .3rem .5rem; border-radius: 6px; border: 1px solid #8884; background: #0000; color: inherit; font-size: .8rem; box-sizing: border-box; }
+  .btw-box textarea { min-height: 3.2rem; resize: vertical; margin-top: .3rem; }
+  .btw-box .btw-send, .btw-entry .btw-resolve { align-self: flex-start; margin-top: .35rem; padding: .35rem .9rem; border-radius: 6px; border: 1px solid #6cf; background: #6cf3; color: inherit; cursor: pointer; font-size: .8rem; }
+  .btw-entry .btw-resolve { border-color: #8886; background: #8882; font-size: .72rem; padding: .2rem .6rem; }
+  .btw-chips { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .3rem; }
+  .btw-chip { padding: .15rem .55rem; border: 1px solid #6cf; border-radius: 999px; background: #6cf3; font-size: .72rem; }
+  .btw-entry .meta, #data-pane .tel .meta { font-size: .7rem; color: #8b949e; }
+  #data-pane .tel { border: 1px solid #8884; border-radius: 6px; padding: .6rem .7rem; max-width: 900px; width: 100%; margin-left: auto; margin-right: auto; }
+  #data-pane .tel dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .8rem; margin: 0; font-size: .78rem; }
+  #data-pane .tel dt { color: #8b949e; }
+  #data-pane .tel dd { margin: 0; font-family: ui-monospace, monospace; }
   .meta { color: #888; font-size: .8rem; margin-bottom: .5rem; }
   #content iframe { width: 100%; min-height: 70vh; border: 1px solid #8884; border-radius: 6px; background: #fff; }
   #content :is(pre,table) { background: #8881; padding: .5rem; border-radius: 4px; overflow:auto; }
@@ -134,6 +150,7 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   <section id="report-pane" hidden></section>
   <section id="cards-pane"></section>
   <section id="data-pane" hidden></section>
+  <section id="btw-pane" hidden></section>
 </main>
 <div id="webui-feedback-log">
   <div class="webui-log-head"><span>response log</span><a id="webui-log-clear" href="#">clear</a></div>
@@ -190,7 +207,7 @@ async function loadViews() {
   cardsTab.onclick = function () { toggleCardsTab(); };
   tabsEl.appendChild(cardsTab);
   // tab-views (01): Report / Ask / Data tabs — same strip, exclusive panes.
-  for (const spec of [['Report', 'report', 'static reports by agent/skill'], ['Data', 'data', 'interactive HTML views']]) {
+  for (const spec of [['Report', 'report', 'static reports by agent/skill'], ['Data', 'data', 'interactive HTML views'], ['BTW', 'btw', 'branch a chat question from current content']]) {
     const el = document.createElement('div');
     el.className = 'tab';
     el.id = 'pane-tab-' + spec[1];
@@ -402,7 +419,11 @@ function setPane(name) {
   if (reportPaneEl) reportPaneEl.hidden = name !== 'report';
   if (cardsPaneEl) cardsPaneEl.hidden = name !== 'events';
   if (dataPaneEl) dataPaneEl.hidden = name !== 'data';
-  for (const tn of ['report', 'data']) {
+  var btwPaneEl = document.getElementById('btw-pane');
+  if (btwPaneEl) btwPaneEl.hidden = name !== 'btw';
+  if (name === 'btw') { renderBtwPane(); btwPollStart(); } else { btwPollStop(); }
+  if (name === 'data') renderDataPane();
+  for (const tn of ['report', 'data', 'btw']) {
     const el = document.getElementById('pane-tab-' + tn);
     if (el) el.classList.toggle('active', name === tn);
   }
@@ -911,6 +932,129 @@ function handleCardHash() {
     focusCardArticle(id, 0);
   } catch { /* never break boot */ }
 }
+
+// --- BTW tab: branch a chat question from current content (demo) --------
+// The ask direction REVERSED: ask cards flow agent -> webui; a BTW branch
+// flows webui -> agent. The composer seeds context from the Report tab (or
+// none), POSTs /api/btw, and the pending list polls while the tab shows.
+// The TUI agent drains it via the webui tool (mode: 'btw') and answers in
+// chat, then resolves (button below does the same from the browser side).
+var btwPollTimer = null;
+function btwOptionsFromReports() {
+  var arts = document.querySelectorAll('#report-pane article');
+  var out = [];
+  for (var i = arts.length - 1; i >= 0 && out.length < 12; i--) {
+    var h = arts[i].querySelector('h4, h3');
+    out.push({ id: arts[i].id.replace(/^report-/, ''), title: h ? h.textContent.trim().slice(0, 80) : arts[i].id });
+  }
+  return out;
+}
+function btwEl(tag, cls, text) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function renderBtwPane() {
+  var pane = document.getElementById('btw-pane');
+  if (!pane) return;
+  fetch('/api/btw').then(function (r) { return r.json(); }).then(function (d) {
+    pane.textContent = '';
+    var box = btwEl('div', 'btw-box');
+    box.appendChild(btwEl('h5', null, 'Branch a question from current content'));
+    var sel = document.createElement('select');
+    sel.id = 'btw-context';
+    var optNone = document.createElement('option');
+    optNone.value = '';
+    optNone.textContent = '(no context — general question)';
+    sel.appendChild(optNone);
+    var opts = btwOptionsFromReports();
+    opts.forEach(function (o) {
+      var op = document.createElement('option');
+      op.value = o.id;
+      op.textContent = o.title;
+      sel.appendChild(op);
+    });
+    box.appendChild(sel);
+    var ta = document.createElement('textarea');
+    ta.id = 'btw-question';
+    ta.placeholder = 'e.g. why does this report show ... — branch: apply it to my repo';
+    box.appendChild(ta);
+    var chipsIn = document.createElement('input');
+    chipsIn.id = 'btw-chips';
+    chipsIn.placeholder = 'optional hints, comma-separated (like ask options)';
+    box.appendChild(chipsIn);
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btw-send';
+    btn.textContent = 'Queue branch';
+    btn.onclick = function () {
+      var q = ta.value.trim();
+      if (!q) { ta.focus(); return; }
+      var chips = chipsIn.value.split(',').map(function (s) { return s.trim(); }).filter(function (s) { return s.length > 0; }).slice(0, 6);
+      var aboutId = sel.value || undefined;
+      var ctx = opts.filter(function (o) { return o.id === aboutId; })[0];
+      fetch('/api/btw', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, chips: chips, aboutId: aboutId, aboutTitle: ctx ? ctx.title : undefined }) })
+        .then(function () { ta.value = ''; chipsIn.value = ''; renderBtwPane(); });
+    };
+    box.appendChild(btn);
+    pane.appendChild(box);
+    var pending = (d && d.pending) || [];
+    if (!pending.length) {
+      var empty = btwEl('div', 'btw-entry');
+      empty.appendChild(btwEl('span', 'meta', 'No pending branches — the agent sees queued questions via the webui tool (mode: "btw").'));
+      pane.appendChild(empty);
+      return;
+    }
+    pending.forEach(function (e) {
+      var card = btwEl('div', 'btw-entry');
+      card.appendChild(btwEl('span', 'meta', (e.aboutTitle ? 'from: ' + e.aboutTitle : 'general') + ' · ' + new Date(e.createdAt).toLocaleTimeString()));
+      card.appendChild(btwEl('div', null, e.question));
+      if (e.chips && e.chips.length) {
+        var row = btwEl('div', 'btw-chips');
+        e.chips.forEach(function (c) { row.appendChild(btwEl('span', 'btw-chip', c)); });
+        card.appendChild(row);
+      }
+      var done = document.createElement('button');
+      done.type = 'button';
+      done.className = 'btw-resolve';
+      done.textContent = 'resolved';
+      done.onclick = function () {
+        fetch('/api/btw/' + encodeURIComponent(e.id) + '/resolve', { method: 'POST' }).then(function () { renderBtwPane(); });
+      };
+      card.appendChild(done);
+      pane.appendChild(card);
+    });
+  }).catch(function () { /* pane keeps last render */ });
+}
+function renderDataPane() {
+  var pane = document.getElementById('data-pane');
+  if (!pane) return;
+  fetch('/api/data/summary').then(function (r) { return r.json(); }).then(function (d) {
+    var old = document.getElementById('data-telemetry');
+    if (old) old.remove();
+    var art = btwEl('article', 'tel');
+    art.id = 'data-telemetry';
+    art.appendChild(btwEl('h4', null, 'Pipeline telemetry'));
+    var dl = document.createElement('dl');
+    Object.keys(d).forEach(function (k) {
+      dl.appendChild(btwEl('dt', null, k));
+      dl.appendChild(btwEl('dd', null, String(d[k])));
+    });
+    art.appendChild(dl);
+    var hint = btwEl('div', 'meta', 'Data tab scenarios: telemetry (this) · raw frame explorer · artifacts registry · ask analytics — see README.');
+    hint.style.marginTop = '.4rem';
+    art.appendChild(hint);
+    pane.insertBefore(art, pane.firstChild);
+  }).catch(function () { /* keep existing viewers */ });
+}
+function btwPollStart() {
+  if (btwPollTimer) return;
+  btwPollTimer = setInterval(function () {
+    if (activePane === 'btw' && document.visibilityState === 'visible') renderBtwPane();
+  }, 4000);
+}
+function btwPollStop() { if (btwPollTimer) { clearInterval(btwPollTimer); btwPollTimer = null; } }
 
 // --- ask-user bridge dialog (§C3) -------------------------------------
 // Mirrors the core-task questionnaire: options as toggle buttons,
