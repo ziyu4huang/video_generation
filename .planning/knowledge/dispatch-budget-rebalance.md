@@ -16,3 +16,7 @@
 ## Post-rebalance snapshot (2026-08-18, ~2h after #1652/#1658 landed)
 
 Parsed all 200 run records in ~/.pi/subagents/runs: **done 124 (62%) / turns-abort 64 / budget-abort 12 / timedout 0 / failed 0**. Two caveats before reading tea leaves: (a) most turns-aborts in this window were ORCHESTRATOR-set explicit maxTurns (dispatch prompts pinning 3–8 turns), not the rebalanced envelopes — the envelopes only govern omitted-budget dispatches; (b) sample depth after the merge is shallow (~12 recent runs, 9 done). Early signal nonetheless leans right: zero timedout since the wall alignments, and recent runs skew done. Re-measure at ≥100 post-merge runs before touching the bounds again — the ledger, not intuition, moves the table (re-derive from the runs DB, never hand-tune).
+
+## Workflow-family disposition (2026-08-18, closes the last unexamined corner)
+
+The workflow extension's `agent()`/`parallel()` children do NOT go through spawnSubagent — they use their own createAgentSession path. Audited and dispositioned NO-GAP BY DESIGN: the workflow family runs a different, coherent budget model — run-level aggregate (`budget` closure from the dispatch's tokenBudget, `throwIfAborted` at total, per-phase soft sub-budgets) plus optional per-agent `tokenBudget`/`agentTimeoutMs` opts, with run-persistence explicitly modeling budget-pause/resume. Role envelopes are the subagent-dispatch model; the two are parallel by design, not an oversight. Do not re-audit this corner unless the workflow runtime loses its run-level budget closure.
