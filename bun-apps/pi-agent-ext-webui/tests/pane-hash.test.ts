@@ -1,0 +1,34 @@
+import { afterEach, describe, expect, it } from "bun:test";
+import { WebServer } from "../src/web-server.js";
+import { createRenderRoutes } from "../src/render-routes.js";
+import { RenderService } from "../src/render-service.js";
+
+// Hash-addressable panes: #inbox/#report/#data/#btw make tabs shareable,
+// back/forward-able, and refresh-stable WITHOUT giving up the single-page
+// live shell (one SSE/WS subscription, cross-tab badge, zero-latency pane
+// switches). #card-<id> deep links keep precedence over pane routing.
+describe("render shell — hash-addressable panes", () => {
+  it("carries the pane-hash router + card precedence guard", async () => {
+    const s = new WebServer({ port: 0 });
+    try {
+      s.setHttpRoutes(createRenderRoutes(new RenderService()));
+      s.start();
+      const html = await (await fetch(s.url + "/")).text();
+      expect(html).toContain("function paneHashOf(name)");
+      expect(html).toContain("function syncPaneHash()");
+      expect(html).toContain("function handlePaneHash()");
+      // pane names map onto hashes (inbox alias included)
+      expect(html).toContain("if (name === 'events') return '#inbox';");
+      expect(html).toContain("'#' + name");
+      // card deep links own routing — both guards present
+      expect(html.match(/parseCardHashInline\(location\.hash\) !== null\) return;/g)?.length).toBe(2);
+      // boot restores from hash; hashchange routes cards FIRST (they own it)
+      expect(html).toContain("handlePaneHash(); // hash-addressable panes");
+      expect(html).toContain("handleCardHash(); handlePaneHash();");
+      // setPane syncs the URL after switching (and vice versa)
+      expect(html).toContain("syncPaneHash(); // hash-addressable panes");
+    } finally {
+      s.stop();
+    }
+  });
+});

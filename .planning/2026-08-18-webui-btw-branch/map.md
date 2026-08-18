@@ -43,3 +43,15 @@ wiring rings the TUI bell (btwBellMessage mirrors cardBellMessage — the agent
 learns without polling); (2) BTW tab badge from any tab (15s visibility-gated
 poll; 4s detail poll on-pane); (3) how-to copy in the empty state + "agent was
 belled" on pending cards. webui 526/0.
+
+## Follow-up 2: hash-addressable panes (user: why not separate pages?)
+
+Design answer recorded: single page keeps ONE live SSE/WS subscription (no
+frame loss mid-switch for the HITL inbox), cross-tab BTW badge state, and
+zero-latency pane switches; the share/export case already has the standalone
+/raw door. The MPA wins (shareable URLs, back/forward, refresh-stable) ship
+as hash routing instead: #inbox/#report/#data/#btw; #card-<id> keeps
+precedence (pane sync never clobbers a card hash); collapsed state clears the
+hash via replaceState. Verified live on :8891: deep-link load, click->URL
+sync, goBack->pane restore, reload keeps position, inbox alias; 0 console
+errors. webui 527/0.

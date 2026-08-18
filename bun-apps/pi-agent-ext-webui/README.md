@@ -255,3 +255,13 @@ webui tool {mode: "btw"}` without polling. The BTW tab also badges its pending
 count from any tab (15s visibility-gated poll), and the pending card says the
 agent was belled. Resolve from either side: the tab's `resolved` button or the
 agent's POST after answering.
+
+### Hash-addressable panes (shareable tab URLs, no MPA)
+
+Tabs map onto hashes — `#inbox`, `#report`, `#data`, `#btw` — so a tab URL is
+shareable, back/forward works, and a refresh keeps you on the same tab, WITHOUT
+giving up the single-page live shell (one SSE/WS subscription, cross-tab BTW
+badge, zero-latency pane switches). `#card-<id>` deep links keep precedence:
+a card hash owns routing and is never clobbered by pane sync. The TUI bell's
+`/#btw` link lands on the BTW tab directly. For a truly separate page (share /
+fullscreen / export), the standalone door `GET /api/report/<id>/raw` remains.
