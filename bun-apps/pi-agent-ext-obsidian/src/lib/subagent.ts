@@ -305,6 +305,12 @@ export async function runObsidianSubagent(
 	opts: RunObsidianSubagentOptions,
 ): Promise<{ output: string; failure?: SubagentFailure; result: any }> {
 	const resolved = resolveSubagentModel({});
+	// 2026-08-18 budget rebalance: distill/garden children are the writer archetype
+	// (read inputs, write notes) — wall clock aligned to the writer envelope (20 min,
+	// ROLE_AWARE_DISPATCH_BOUNDS). The subprocess seam carries no token/turn fields,
+	// so this is the leaf's only budget knob; env override OB_SUBAGENT_TIMEOUT_MS and
+	// 0=no-gate semantics unchanged. Old 5-min default killed mid-distill runs
+	// (partial notes).
 	const res = await spawnSubagentSubprocess({
 		cwd: opts.cwd,
 		systemPrompt: opts.systemPrompt,
@@ -313,7 +319,7 @@ export async function runObsidianSubagent(
 		model: resolved.model,
 		externalSignal: opts.signal,
 		onEvent: opts.onEvent,
-		timeoutMs: Number(process.env.OB_SUBAGENT_TIMEOUT_MS ?? 5 * 60_000),
+		timeoutMs: Number(process.env.OB_SUBAGENT_TIMEOUT_MS ?? 20 * 60_000),
 		// §4: register a phantom entry visible to /subagents (best-effort —
 		// cross-extension singleton sharing determines viewer visibility).
 		inFlight: getSubagentInFlightRegistry(),

@@ -1530,7 +1530,7 @@ export default function (pi: ExtensionAPI) {
 					content: [
 						{
 							type: "text",
-							text: `Distiller timed out after ${Number(process.env.OB_SUBAGENT_TIMEOUT_MS ?? 5 * 60_000) / 1000}s. Partial output:
+							text: `Distiller timed out after ${Number(process.env.OB_SUBAGENT_TIMEOUT_MS ?? 20 * 60_000) / 1000}s. Partial output:
 ${output.slice(-2000)}`,
 						},
 					],
@@ -1716,7 +1716,7 @@ ${output.slice(-2000)}`,
 					content: [
 						{
 							type: "text",
-							text: `Gardener timed out after ${Number(process.env.OB_SUBAGENT_TIMEOUT_MS ?? 5 * 60_000) / 1000}s. Partial output:\n${output.slice(-2000)}`,
+							text: `Gardener timed out after ${Number(process.env.OB_SUBAGENT_TIMEOUT_MS ?? 20 * 60_000) / 1000}s. Partial output:\n${output.slice(-2000)}`,
 						},
 					],
 					isError: true,
