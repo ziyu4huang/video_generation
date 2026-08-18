@@ -60,3 +60,4 @@ Wiring-only — no new concepts ported, no behavior change outside these seams.
 - 2026-08-18 — 03 merged (entity-summary cache merge-on-write).
 - 2026-08-18 — ticket 01 Work amended: seam-mediated design (dep-guard correction; hermes≠zk dep).
 - 2026-08-18 — 01 merged (augmentEmbedText wired via entityAugment seam leaf + modelVersion +es1).
+- 2026-08-18 — 02 merged (hierarchy hang-mode breaker, summaryBreaker=3).

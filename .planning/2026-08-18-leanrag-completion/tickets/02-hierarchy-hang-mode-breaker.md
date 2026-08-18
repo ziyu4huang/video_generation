@@ -1,5 +1,5 @@
 ---
-status: open
+status: done
 blocking: []
 ---
 # 02 — Hang-mode circuit-breaker in zk hierarchy build
@@ -10,3 +10,15 @@ In the cluster loop: count consecutive empty/null summarizeFn results; on reachi
 - Unit test: summarizeFn stub returning null always → build completes fast, no empty summaries propagated, breaker trips at K.
 - Stub returning null×K then valid → counter resets, later summaries used.
 - zk tests green.
+
+## Resolution
+Consecutive-empty summarizeFn circuit-breaker in the hierarchy.ts cluster loop:
+after K consecutive empty/null results the layer stops calling `summarizeFn` and
+degrades remaining over-budget clusters to deterministic truncation. Knob
+`summaryBreaker` default 3 in `HIERARCHY_DEFAULTS` (zk-task-config.ts),
+per-call overridable via the hierarchy-build fallback pattern
+(`opts.summaryBreaker ?? HIERARCHY_DEFAULTS.summaryBreaker`). Empty-summary
+nodes never propagate upward (degraded nodes carry `truncateSummary` text);
+the streak counter resets on a non-empty result; `summaryBreakerTripped`
+surfaces the trip on `BuildLayerResult`. zk 470/0 incl. 3 breaker tests
+(`__tests__/hierarchy-breaker.test.ts`).

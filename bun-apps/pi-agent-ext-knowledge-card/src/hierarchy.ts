@@ -82,6 +82,12 @@ export interface BuildLayerInput {
 	maxDepth?: number;
 	/** Layer index being built (default 0). */
 	currentDepth?: number;
+	/** Hang-mode circuit-breaker K (ticket 02): consecutive empty/null
+	 *  summarizeFn results tolerated before further LLM summary requests are
+	 *  skipped for the rest of the layer — over-budget clusters fall back to
+	 *  the deterministic truncation instead (default 3, mirrors
+	 *  HIERARCHY_DEFAULTS.summaryBreaker). */
+	summaryBreaker?: number;
 }
 
 export interface BuildLayerResult {
@@ -90,6 +96,10 @@ export interface BuildLayerResult {
 	llmCalls: number;
 	/** true when no further layers are needed: ≤4 nodes or depth cap hit. */
 	done: boolean;
+	/** true when K consecutive empty/null summarizeFn results tripped the
+	 *  circuit-breaker: remaining clusters of the layer skipped the LLM and
+	 *  degraded to deterministic truncations (ticket 02). */
+	summaryBreakerTripped: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +198,14 @@ export function truncateSummary(text: string): string {
  * invoked ONLY when the joined cluster text exceeds `tokenBudget`; under
  * budget the summary is the deterministic truncation. `done` = ≤4 nodes or
  * `currentDepth ≥ maxDepth` — the caller stops the batch loop on it.
+ *
+ * Circuit-breaker (ticket 02): a summarizer stuck returning empty/null burns
+ * one LLM call per cluster for nothing. After `summaryBreaker` (default 3)
+ * CONSECUTIVE empty results the layer stops calling `summarizeFn` and every
+ * remaining over-budget cluster degrades to the deterministic truncation —
+ * an empty summary never propagates upward (layer N+1 pseudo-card text =
+ * summary). A non-empty result resets the streak; `summaryBreakerTripped`
+ * surfaces the trip on the result.
  */
 export async function buildLayer(input: BuildLayerInput): Promise<BuildLayerResult> {
 	const depth = input.currentDepth ?? 0;
@@ -199,6 +217,9 @@ export async function buildLayer(input: BuildLayerInput): Promise<BuildLayerResu
 	const byId = new Map(input.cards.map((c) => [c.id, c]));
 	const nodes: AggregationNode[] = [];
 	let llmCalls = 0;
+	let emptyStreak = 0;
+	let summaryBreakerTripped = false;
+	const summaryBreaker = input.summaryBreaker ?? 3;
 	for (let i = 0; i < groups.length; i++) {
 		const members = groups[i]
 			.map((id) => byId.get(id)!)
@@ -211,10 +232,21 @@ export async function buildLayer(input: BuildLayerInput): Promise<BuildLayerResu
 		}
 		const joined = members.map((m) => m.text).join("\n\n");
 		let summary: string;
-		if (joined.length > input.tokenBudget) {
-			summary = await input.summarizeFn(joined, input.tokenBudget);
+		if (joined.length > input.tokenBudget && !summaryBreakerTripped) {
+			const res = await input.summarizeFn(joined, input.tokenBudget);
 			llmCalls++;
+			if (res && res.trim()) {
+				emptyStreak = 0; // non-empty result resets the streak
+				summary = res;
+			} else {
+				// Empty/null result: degrade to the deterministic truncation so
+				// no empty summary is pushed upward as the next layer's text.
+				emptyStreak++;
+				if (emptyStreak >= summaryBreaker) summaryBreakerTripped = true;
+				summary = truncateSummary(joined);
+			}
 		} else {
+			// Under budget, or the breaker already tripped — no LLM call.
 			summary = truncateSummary(joined);
 		}
 		nodes.push({
@@ -227,7 +259,7 @@ export async function buildLayer(input: BuildLayerInput): Promise<BuildLayerResu
 			clusterSize: groups[i].length,
 		});
 	}
-	return { nodes, llmCalls, done: nodes.length <= 4 || depth >= maxDepth };
+	return { nodes, llmCalls, done: nodes.length <= 4 || depth >= maxDepth, summaryBreakerTripped };
 }
 
 // ---------------------------------------------------------------------------

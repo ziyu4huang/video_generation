@@ -115,5 +115,10 @@ export function ragToolsFor(blend: BlendMode = "default"): string[] {
 		: [...RAG_TOOLS];
 }
 
-/** LeanRAG ① hierarchy defaults (ticket 06). Budget is a CHARS proxy — the per-layer schedule halves it each level (LeanRAG (max_depth−layer)×80 analog, chars-scaled), floor 1200. */
-export const HIERARCHY_DEFAULTS = { threshold: 0.72, maxDepth: 3, baseBudget: 10_000 } as const;
+/** LeanRAG ① hierarchy defaults (ticket 06). Budget is a CHARS proxy — the per-layer schedule halves it each level (LeanRAG (max_depth−layer)×80 analog, chars-scaled), floor 1200. `summaryBreaker` (ticket 02) is the hang-mode circuit-breaker K: consecutive empty/null summarizeFn results tolerated per layer before further LLM summary requests are skipped. */
+export const HIERARCHY_DEFAULTS = {
+	threshold: 0.72,
+	maxDepth: 3,
+	baseBudget: 10_000,
+	summaryBreaker: 3,
+} as const;
