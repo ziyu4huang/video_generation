@@ -91,6 +91,9 @@
     "pi-agent-core-interface": {
       "name": "@repo/pi-agent-core-interface",
       "version": "0.1.0",
+      "dependencies": {
+        "yaml": "^2",
+      },
       "devDependencies": {
         "typescript": "^6.0.3",
       },
