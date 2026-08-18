@@ -560,6 +560,47 @@ function relinkWorkspaceRootRepoLinks(root: string): void {
 }
 
 /**
+ * Drop per-package `node_modules/@repo/*` links that point at unshipped dirs.
+ *
+ * The rename class relinkWorkspaceRootRepoLinks does not see: when a workspace
+ * package is renamed (pi-agent-ext-core-runtime → pi-agent-core-runtime),
+ * `bun install` adds links for the NEW name but never prunes the OLD-name
+ * links from dependents' node_modules/@repo/. They stay resolvable in the
+ * source repo only because the rename left the old dirs behind as husks
+ * (node_modules, no package.json) — so nothing upstream complains. The husks
+ * declare no `@repo` name and nothing depends on the old names anymore, so
+ * the transitive closure correctly does NOT ship them — and cpSync copies the
+ * stale links verbatim, leaving them dangling in the snapshot.
+ *
+ * Dropping (not re-pointing) is right: an unresolved link's target dir is by
+ * definition not in the snapshot, and no shipped source imports the old name
+ * (if it did, the closure would have died on the unindexed-name edge first).
+ * Like the workspace-root drop, this does not weaken the integrity check —
+ * assertNoDanglingRepoLinks still walks every shipped package's links, so a
+ * genuinely-missing required package still fails the deploy.
+ */
+function dropStalePackageRepoLinks(root: string, dirs: Iterable<string>): void {
+	let dropped = 0;
+	for (const dir of dirs) {
+		const repoDir = join(root, dir, "node_modules", "@repo");
+		let entries: import("node:fs").Dirent[];
+		try {
+			entries = readdirSync(repoDir, { withFileTypes: true });
+		} catch {
+			continue;
+		}
+		for (const e of entries) {
+			if (!e.isSymbolicLink()) continue;
+			const link = join(repoDir, e.name);
+			if (existsSync(link)) continue; // already resolves — leave it alone
+			rmSync(link);
+			dropped++;
+		}
+	}
+	if (dropped > 0) console.log(`  ✓ dropped ${dropped} stale rename-leftover @repo link(s) in shipped packages`);
+}
+
+/**
  * Post-copy integrity check: walk the produced tree's `@repo` symlinks and fail
  * if any points outside it. The transitive closure above is the fix; this is the
  * check that a future gap surfaces as a failed deploy instead of as someone
@@ -643,6 +684,8 @@ async function stageSnapshot(bunAppsDir: string) {
 
 	// Prove the tree can actually resolve before calling the deploy a success.
 	relinkWorkspaceRootRepoLinks(target);
+	// pi-agent is copied separately above but carries stale links like the rest.
+	dropStalePackageRepoLinks(target, ["pi-agent", ...pkgDirs]);
 	assertNoDanglingRepoLinks(target);
 	console.log(`  ✓ no dangling @repo symlinks`);
 	await assertSnapshotBoots();
