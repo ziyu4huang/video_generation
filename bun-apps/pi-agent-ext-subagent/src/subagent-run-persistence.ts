@@ -78,7 +78,10 @@ export interface SubagentRunRecord {
   /**
    * Budget block: exhaustion fields set when the run was aborted for exceeding
    * tokenBudget/spendBudget; `warning` set when the run COMPLETED at ≥80% of
-   * a set budget (informational, fixed 0.8 ratio). See SubagentBudgetDetails.
+   * a set budget (informational, fixed 0.8 ratio). `source` (+ tokenBudget/
+   * maxTurns/timeoutMs caps) tags the budget-history cohort (2026-08-18
+   * forward-fix: envelope-recon/envelope-writer/explicit/tier; absent on
+   * legacy records = unknown cohort). See SubagentBudgetDetails.
    */
   budget?: SubagentBudgetDetails;
   /**

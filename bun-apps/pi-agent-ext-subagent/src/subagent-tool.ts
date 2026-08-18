@@ -212,16 +212,42 @@ export function createSubagentTool(
       const dispatchRole = hasWriteTools(effectiveAllowlist, params.excludeTools ?? agentDef?.disallowedTools)
         ? "writer"
         : "recon";
+      const explicitBounds =
+        params.tokenBudget !== undefined || params.maxTurns !== undefined || params.timeoutMs !== undefined;
+      const tierCeiling = tierDefaultToken(tier, requestedModel ?? mainModel);
       const bounds = roleAwareDefaults(
         { tokenBudget: params.tokenBudget, maxTurns: params.maxTurns, timeoutMs: params.timeoutMs },
         dispatchRole,
-        tierDefaultToken(tier, requestedModel ?? mainModel),
+        tierCeiling,
       );
       if (bounds.applied) {
         params.tokenBudget = bounds.tokenBudget;
         params.maxTurns = bounds.maxTurns;
         params.timeoutMs = bounds.timeoutMs;
       }
+      // Budget-history cohort tag (2026-08-18 forward-fix): WHICH mechanism
+      // set this dispatch's envelope — role-aware default ("envelope-<role>"),
+      // explicit caller param ("explicit", captured pre-write-back), or tier
+      // ceilings only ("tier"; a disabled ceiling leaves the bare tag).
+      // Threads RunRecordCtx → durable record budget.source; absent on legacy
+      // records = unknown cohort.
+      const budgetCohort: SubagentToolDetails["budget"] = bounds.applied
+        ? {
+            source: `envelope-${dispatchRole}` as const,
+            tokenBudget: bounds.tokenBudget,
+            maxTurns: bounds.maxTurns,
+            timeoutMs: bounds.timeoutMs,
+          }
+        : explicitBounds
+          ? {
+              source: "explicit",
+              tokenBudget: params.tokenBudget,
+              maxTurns: params.maxTurns,
+              timeoutMs: params.timeoutMs,
+            }
+          : tierCeiling !== undefined
+            ? { source: "tier", tokenBudget: tierCeiling }
+            : { source: "tier" };
 
       try {
         const opts = buildSpawnOptions(
@@ -349,6 +375,7 @@ export function createSubagentTool(
                 requestedModel,
                 fellBack: progress.fellBack,
                 tier,
+                budgetCohort,
                 runCwd,
                 t0,
                 elapsedMs,
@@ -433,6 +460,7 @@ export function createSubagentTool(
               requestedModel,
               fellBack: progress.fellBack,
               tier,
+              budgetCohort,
               runCwd,
               t0,
               elapsedMs,
