@@ -17,6 +17,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { runMainHealth, type MainHealthClient } from "../src/main-health-recipe.js";
 import type { CiOutcome, CiOptions } from "../src/ci-recipe.js";
+import type { SpawnFn } from "../src/spawn.js";
 import type { WorktreeRecord } from "../src/gh.js";
 
 const MAIN_WT = "/repo/main-wt";
@@ -286,5 +287,76 @@ describe("runMainHealth — a package with no toolchain is UNVERIFIED, not faile
 		const out = await runMainHealth({ client: fakeClient({}), spawn: noSpawn, runCi: mkCi(ci).fn });
 		expect(out.toolchainMissing).toEqual(["no-deps"]);
 		expect(out.failingPackages).toEqual(["real-break"]);
+	});
+});
+
+describe("runMainHealth — temp-worktree fallback (all-detached multi-worktree mode)", () => {
+	// Real defect (2026-08-18): this repo's steady state is EVERY worktree
+	// detached, so "find the worktree holding main" never held and the tool
+	// could only ever abort — "is main green?" was unanswerable. The fallback
+	// MINTS a throwaway detached worktree at <D>, runs there, and removes it.
+	// mkdtemp/rm hit the real OS temp dir; everything else stays faked.
+	const DETACHED_WTS: WorktreeRecord[] = [{ worktree: "/repo/detached-a", detached: true }];
+
+	/** Records every spawn call so the tests can assert add/remove + cwd. */
+	function recordingSpawn(exitCodes: { add?: number } = {}) {
+		const calls: Array<{ cmd: string; args: string[]; cwd?: string }> = [];
+		const spawn: SpawnFn = async (cmd, args, options) => {
+			calls.push({ cmd, args, cwd: options?.cwd });
+			const isAdd = args[0] === "worktree" && args[1] === "add";
+			return { stdout: "", stderr: "", exitCode: isAdd ? (exitCodes.add ?? 0) : 0 };
+		};
+		return { calls, spawn };
+	}
+
+	test("no default-branch holder → mints a throwaway worktree, runs CI THERE, always removes it", async () => {
+		const ci = mkCi(greenCi());
+		const { calls, spawn } = recordingSpawn();
+		const out = await runMainHealth({
+			client: fakeClient({ worktrees: DETACHED_WTS }),
+			spawn,
+			runCi: ci.fn,
+		});
+		// minted: `git worktree add --detach <tmp>/wt main`, anchored at a known
+		// worktree of the repo (git lists the main one first).
+		const add = calls.find((c) => c.args[0] === "worktree" && c.args[1] === "add");
+		expect(add).toBeDefined();
+		expect(add!.cmd).toBe("git");
+		expect(add!.args).toContain("--detach");
+		expect(add!.args[add!.args.length - 1]).toBe("main");
+		expect(add!.cwd).toBe("/repo/detached-a");
+		const wt = add!.args[add!.args.length - 2];
+		expect(wt).toMatch(/main-health-.*\/wt$/);
+		// the suite ran IN the throwaway tree, not the caller's, full matrix
+		expect(ci.calls).toHaveLength(1);
+		expect(ci.calls[0].repoRoot).toBe(wt);
+		expect(ci.calls[0].all).toBe(true);
+		// healthy verdict + provenance: outcome says WHERE it really ran
+		expect(out.healthy).toBe(true);
+		expect(out.aborted).toBeUndefined();
+		expect(out.tempWorktree).toBe(wt);
+		expect(out.worktree).toBe(wt);
+		expect(out.warnings.join(" ")).toMatch(/throwaway worktree/);
+		// ALWAYS removed — even on the success path
+		const remove = calls.find((c) => c.args[0] === "worktree" && c.args[1] === "remove");
+		expect(remove).toBeDefined();
+		expect(remove!.args).toContain("--force");
+		expect(remove!.args[remove!.args.length - 1]).toBe(wt);
+		// the temp dir itself is swept too (rm is real fs — nothing left behind)
+	});
+
+	test("worktree add FAILS → the existing abort, nothing runs", async () => {
+		const ci = mkCi(greenCi());
+		const { spawn } = recordingSpawn({ add: 128 });
+		const out = await runMainHealth({
+			client: fakeClient({ worktrees: DETACHED_WTS }),
+			spawn,
+			runCi: ci.fn,
+		});
+		expect(out.aborted).toBe("no-default-branch-worktree");
+		expect(out.healthy).toBe(false);
+		expect(out.tempWorktree).toBeUndefined();
+		expect(ci.calls).toHaveLength(0);
+		expect(out.message).toContain("main");
 	});
 });
