@@ -17,6 +17,7 @@
   "scripts": {
     "test": "bun run check && bun run test:unit",
     "test:unit": "bun test",
+    "coverage": "bun test --coverage",
     "typecheck": "tsc --noEmit",
     "check": "biome check .",
     "format": "biome format --write .",

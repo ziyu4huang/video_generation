@@ -2,7 +2,7 @@
 effort: 2026-08-18-ext-simplification-round-2
 created: 2026-08-18
 last: 2026-08-18
-status: active
+status: done
 ---
 
 # Wayfinder map: ext-simplification-round-2
@@ -65,3 +65,15 @@ losing behavior (both suites green) or the codified pipeline's guarantees.
   in pi-agent-ext-subagent, explicitly authorized).
 - Re-architecting the subagent tool core; token-budget recalibration.
 - Schema-cost canary re-registration.
+
+## Addendum 2026-08-18 — executed (all tickets done)
+| Metric | Before | After | Verdict |
+|---|---|---|---|
+| superpowers SKILL.md total | 3,510 lines | 2,802 | -708 (target ~-671): MET; all 15 skills <=300 (max 298) |
+| skills over 300-line bar | 4 | 0 | MET |
+| wayfind dead code (LOC) | unknown | 0 candidates; real baseline 4,210 LOC all >=60% cov | -20% NOT MET — 10,585 was a measurement artifact; shortfall documented (ticket 04): no live-code cuts |
+| dispatch death rate (broad) | 37% (200 runs) | soak issue #1681 tracks <15% over next 100 | deferred per D7 |
+| suites | wayfind 513/0, superpowers 144/0 | same, green | MET |
+
+Commits: 12e0bc392 (02), 612a7d291+e32e4ee61 (01), 74367cc59 (03), c07d8ad15 (04).
+Follow-up observed (out of scope): pi-agent/run-dir/manifest.json:70 + static-extensions.ts:92 may double-register wayfind — verify.

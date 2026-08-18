@@ -32,6 +32,13 @@ Design-in-child dispatches die mid-design. The surviving shape:
 - The child receives a verbatim apply brief (heredoc content, exact commands, exact commit message).
 - Every turn starts with one mega-block (all reads in turn 1), never exploratory drip-reads.
 
+## Budget before dispatch (sizing rule)
+
+Size every dispatch BEFORE sending: maxTurns >= task steps + 2 (each turn
+re-pays ~10k+ tokens of fixed overhead); tokenBudget by tier ceiling. Default
+authoring mode = verbatim-apply (parent authors content, child applies
+mechanically). Every dispatch starts with one mega-block — all reads in turn 1.
+
 ## Ledger
 
 Record every dispatch outcome on the SDD ledger line (see executing-plans "Dispatch ledger"): task, tokenBudget, maxTurns, done|died|janitored, commit SHA. Run records do not persist tokenUsage — the orchestrator's ledger is the only cost record.

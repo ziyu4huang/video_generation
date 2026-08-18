@@ -113,6 +113,7 @@ The defaults are adjustable at runtime via environment variables (read at call t
 | `SUBAGENT_TOKEN_BUDGET_DISABLE=1|true` | No default budget at all (explicit `tokenBudget` still applies). |
 | `SUBAGENT_TOKEN_BUDGET_SMALL` / `_MEDIUM` / `_BIG` | Replace that tier's ceiling (positive integer; applies to whichever tier the dispatch resolved to). |
 | `SUBAGENT_TOKEN_BUDGET_MULTIPLIER` | Multiply the result after any absolute override (positive finite float). |
+| `SUBAGENT_MAX_TURNS` | Replace the role envelope's turn cap (positive integer; applies only when the envelope applies — explicit params still opt out entirely). |
 
 The final value is clamped to `Math.max(1, Math.floor(result))`. When the token budget is crossed the child gets a **graceful wrap-up turn** (part 2): a final-turn user message tells it to flush findings/state/artifacts to disk, exactly one more turn runs, and the next crossing aborts for real with `status:"budget"`. `spendBudget` stays a hard stop (no wrap-up) — it is a money valve; if both budgets cross at once, the hard abort wins.
 

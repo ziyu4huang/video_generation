@@ -82,3 +82,11 @@ For **alternative interfaces** of the deepened module, use **`codebase-design`'s
 ---
 
 **Anti-delegation guard**: Delegate the raw code walk to a subagent, but perform the vocabulary synthesis and the Top-recommendation ranking yourself — do not let the subagent pick the candidates.
+
+## Dispatch discipline
+
+When this skill dispatches subagents: superpowers:dispatch-recovery is the
+single source (trust rules, janitor-first recovery, verbatim-apply, ledger).
+Size BEFORE sending — maxTurns >= task steps + 2, tokenBudget by tier ceiling;
+author content parent-side (verbatim-apply) and put all reads in turn 1
+(mega-block).

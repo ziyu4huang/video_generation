@@ -1,7 +1,7 @@
 ---
 type: docs+process
 blocking: [01, 02, 03, 04]
-status: open
+status: done
 ---
 
 # 05 Close-out: re-census + soak issue + done ceremony (spec M5)
@@ -22,3 +22,6 @@ Did round 2 move the measured numbers, and is the 100-dispatch bar tracked?
 - Soak issue number recorded in map.
 - Re-census numbers recorded.
 - done/ folder exists with map/spec/tickets; PR merged.
+
+## Completion 2026-08-18
+Soak issue #1681 filed; re-census baseline recorded in map addendum (37% broad, 200 runs); done ceremony: effort moved to .planning/done/.

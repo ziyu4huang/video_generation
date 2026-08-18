@@ -84,26 +84,7 @@ You MUST complete each phase before proceeding to the next.
    THEN investigate that specific component
    ```
 
-   **Example (multi-layer system):**
-   ```bash
-   # Layer 1: Workflow
-   echo "=== Secrets available in workflow: ==="
-   echo "IDENTITY: ${IDENTITY:+SET}${IDENTITY:-UNSET}"
-
-   # Layer 2: Build script
-   echo "=== Env vars in build script: ==="
-   env | grep IDENTITY || echo "IDENTITY not in environment"
-
-   # Layer 3: Signing script
-   echo "=== Keychain state: ==="
-   security list-keychains
-   security find-identity -v
-
-   # Layer 4: Actual signing
-   codesign --sign "$IDENTITY" --verbose=4 "$APP"
-   ```
-
-   **This reveals:** Which layer fails (secrets → workflow ✓, workflow → build ✗)
+   **Example:** log the value at each layer boundary (workflow → build script → signing → codesign) — the first layer where the value is missing/unset is the failure site.
 
 5. **Trace Data Flow**
 
@@ -197,19 +178,10 @@ You MUST complete each phase before proceeding to the next.
 
 5. **If 3+ Fixes Failed: Question Architecture**
 
-   **Pattern indicating architectural problem:**
-   - Each fix reveals new shared state/coupling/problem in different place
-   - Fixes require "massive refactoring" to implement
-   - Each fix creates new symptoms elsewhere
-
-   **STOP and question fundamentals:**
-   - Is this pattern fundamentally sound?
-   - Are we "sticking with it through sheer inertia"?
-   - Should we refactor architecture vs. continue fixing symptoms?
-
-   **Discuss with your human partner before attempting more fixes**
-
-   This is NOT a failed hypothesis - this is a wrong architecture.
+   Patterns: each fix reveals new coupling elsewhere; fixes demand "massive
+   refactoring"; each fix creates new symptoms. STOP — question fundamentals
+   with your human partner (sound pattern, or inertia? refactor vs keep
+   fixing?). NOT a failed hypothesis: a wrong architecture.
 
 ## Red Flags - STOP and Follow Process
 
@@ -230,16 +202,12 @@ If you catch yourself thinking:
 
 **If 3+ fixes failed:** Question the architecture (see Phase 4.5)
 
-## your human partner's Signals You're Doing It Wrong
+## Your human partner's Signals You're Doing It Wrong
 
-**Watch for these redirections:**
-- "Is that not happening?" - You assumed without verifying
-- "Will it show us...?" - You should have added evidence gathering
-- "Stop guessing" - You're proposing fixes without understanding
-- "Ultra-think this" - Question fundamentals, not just symptoms
-- "We're stuck?" (frustrated) - Your approach isn't working
-
-**When you see these:** STOP. Return to Phase 1.
+Redirections meaning STOP, return to Phase 1: "Is that not happening?"
+(assumed without verifying); "Will it show us...?" (add evidence gathering);
+"Stop guessing" (fixing without understanding); "Ultra-think this" (question
+fundamentals, not symptoms); "We're stuck?" (approach not working).
 
 ## Common Rationalizations
 
@@ -265,14 +233,10 @@ If you catch yourself thinking:
 
 ## When Process Reveals "No Root Cause"
 
-If systematic investigation reveals issue is truly environmental, timing-dependent, or external:
-
-1. You've completed the process
-2. Document what you investigated
-3. Implement appropriate handling (retry, timeout, error message)
-4. Add monitoring/logging for future investigation
-
-**But:** 95% of "no root cause" cases are incomplete investigation.
+If investigation shows the issue is truly environmental, timing-dependent, or
+external: document what you investigated, implement appropriate handling
+(retry, timeout, error message), add monitoring for next time. But 95% of "no
+root cause" cases are incomplete investigation.
 
 ## Supporting Techniques
 

@@ -1,7 +1,7 @@
 ---
 type: skill-docs
 blocking: none
-status: open
+status: done
 ---
 
 # 01 Superpowers skill slimming + discipline injection (spec M1)
@@ -27,3 +27,6 @@ while dispatch discipline gains a single-source sizing rule?
 - wc -l bun-apps/pi-agent-ext-superpowers/skills/*/SKILL.md -> max <=300.
 - ( cd bun-apps/pi-agent-ext-superpowers && bun test ) green (144+).
 - Rebaseline script ran clean; tests pass.
+
+## Completion 2026-08-18
+writing-skills 715->298, SDD 503->262 (wave A, commit 612a7d291); systematic-debugging + test-driven-development trimmed under 300 (wave B); dispatch-recovery +sizing rule; executing-plans +single-source reference. Rebaseline ran; 144 tests green; max skill line count 298 <= 300.

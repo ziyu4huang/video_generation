@@ -1,7 +1,7 @@
 ---
 type: skill-docs
 blocking: none
-status: open
+status: done
 ---
 
 # 03 Wayfind dispatch pointer blocks (spec M3)
@@ -22,3 +22,9 @@ duplicating the recovery recipe?
 - grep shows the pointer block present in all 5 SKILL.md files.
 - ( cd bun-apps/pi-agent-ext-wayfind && bun test ) green (513+).
 - dispatch-recovery remains the only full-recipe text (grep check).
+
+## Completion 2026-08-18
+Dispatch-discipline pointer block (single source: superpowers:dispatch-recovery + sizing one-liner) appended to all 5 dispatch-mentioning skills; no recipe duplication. Wayfind tests green.
+
+## Completion 2026-08-18
+Dispatch-discipline pointer block (single source: superpowers:dispatch-recovery + sizing one-liner) appended to all 5 dispatch-mentioning skills; no recipe duplication. Wayfind tests green.

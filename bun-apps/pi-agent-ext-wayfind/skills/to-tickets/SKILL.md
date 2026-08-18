@@ -43,3 +43,11 @@ The end-to-end behaviour this ticket makes work, from the user's perspective —
 ## Chain wiring
 
 Input: `spec.md` / wayfinder map decisions (`/wayfind spec` precedes). Output: `/wayfind seed <effort>` flattens the frontier into `task_plan.md` — one phase per ticket (topo-sorted by `blocking`), `[NN-slug]` phase headers, acceptance criteria carried through — then execute per ticket (executing-plans / subagent-driven-development); when a phase completes, `/wayfind sync` closes the originating ticket.
+
+## Dispatch discipline
+
+When this skill dispatches subagents: superpowers:dispatch-recovery is the
+single source (trust rules, janitor-first recovery, verbatim-apply, ledger).
+Size BEFORE sending — maxTurns >= task steps + 2, tokenBudget by tier ceiling;
+author content parent-side (verbatim-apply) and put all reads in turn 1
+(mega-block).

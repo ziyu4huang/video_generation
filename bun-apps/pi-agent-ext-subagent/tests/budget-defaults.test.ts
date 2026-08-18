@@ -15,6 +15,7 @@ const ENV_KNOBS = [
   "SUBAGENT_TOKEN_BUDGET_MEDIUM",
   "SUBAGENT_TOKEN_BUDGET_BIG",
   "SUBAGENT_TOKEN_BUDGET_MULTIPLIER",
+  "SUBAGENT_MAX_TURNS",
 ] as const;
 
 // Save/restore every knob so tests are hermetic against the ambient env.
@@ -211,4 +212,23 @@ test("roleAwareDirectCall: SUBAGENT_TOKEN_BUDGET_DISABLE=1 → plain task, no ca
   assert.deepEqual(r2, { task: "T" });
   assert.equal(r1.timeoutMs, undefined);
   assert.equal(r2.timeoutMs, undefined);
+});
+
+test("roleAwareDefaults: SUBAGENT_MAX_TURNS replaces the role turn cap", () => {
+  process.env.SUBAGENT_MAX_TURNS = "9";
+  const d = roleAwareDefaults({}, "recon");
+  assert.equal(d.applied, true);
+  assert.equal(d.maxTurns, 9);
+});
+
+test("roleAwareDefaults: unset env keeps ledger-calibrated caps", () => {
+  const d = roleAwareDefaults({}, "writer");
+  assert.equal(d.maxTurns, ROLE_AWARE_DISPATCH_BOUNDS.writer.maxTurns);
+});
+
+test("roleAwareDefaults: explicit params opt out regardless of env", () => {
+  process.env.SUBAGENT_MAX_TURNS = "9";
+  const d = roleAwareDefaults({ maxTurns: 4 }, "recon");
+  assert.equal(d.applied, false);
+  assert.equal(d.maxTurns, undefined);
 });

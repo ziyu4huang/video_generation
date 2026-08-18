@@ -50,6 +50,7 @@ The SDD progress.md carries one line per dispatched child:
 ```
 
 Baseline from the 2026-08-16 effort: tokenBudget 150-260k, maxTurns 6-14, retryOnTransient false. Janitor recovery for died children: status -> gate -> check boxes -> commit green work (check git log before redispatching — budget-dead children still commit completed work).
+Sizing + verbatim-apply + janitor rules: superpowers:dispatch-recovery (single source).
 
 ## When to Stop and Ask for Help
 
