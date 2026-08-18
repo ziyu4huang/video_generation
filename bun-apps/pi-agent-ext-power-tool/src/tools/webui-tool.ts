@@ -294,6 +294,26 @@ function connectFailureReport(url: string, error: unknown): string {
   ].join("\n");
 }
 
+/** Dogfood door: POST the audit report to the audited webui's /api/report.
+ * Returns "ok" (published), "rejected" (non-200), or "unreachable" (fetch
+ * threw) — NEVER throws: publishing must not fail the audit it reports on. */
+export async function publishAuditReport(port: number, markdown: string): Promise<"ok" | "rejected" | "unreachable"> {
+  try {
+    const res = await fetch("http://localhost:" + port + "/api/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "webui audit — localhost:" + port,
+        source: "webui-audit",
+        markdown,
+      }),
+    });
+    return res.ok ? "ok" : "rejected";
+  } catch {
+    return "unreachable";
+  }
+}
+
 export function makeWebuiTool() {
   return defineTool({
     name: "webui",
@@ -308,9 +328,11 @@ export function makeWebuiTool() {
       "one visible pane, ask cards in the inbox family, viewer cards in data " +
       "panes, report articles in report panes, report iframes sized readably, zero errors). Returns a markdown " +
       "audit report; a connect failure returns a short error report instead of " +
-      "throwing. Args: {port} (default 8890).",
+      "throwing. Args: {port} (default 8890), {publish} (default true — also POSTs this audit " +
+      "report into the audited webui's Report tab, so findings are visible in the browser).",
     parameters: Type.Object({
       port: Type.Optional(Type.Number({ description: "webui port (default 8890)" })),
+      publish: Type.Optional(Type.Boolean({ description: "Publish this audit report into the audited webui's Report tab (default true)." })),
     }),
 
     async execute(_toolCallId, params, signal) {
@@ -406,7 +428,20 @@ export function makeWebuiTool() {
         );
         fs.writeFileSync(path.join(dir, "report.md"), `${report}\n`);
 
-        return { content: [{ type: "text" as const, text: report }], details: null };
+        // Dogfood (audit -> report loop): publish the audit report INTO the
+        // webui it just verified — one call leaves the findings visible in the
+        // browser's Report tab, and the persistence mirror accumulates audit
+        // history across restarts. Best-effort by contract: a publish failure
+        // NEVER fails the audit it reports on.
+        let publishNote = "";
+        if (params.publish !== false) {
+          const published = await publishAuditReport(params.port ?? DEFAULT_PORT, report);
+          publishNote =
+            published === "ok"
+              ? "\n\n_audit report published to the webui Report tab._"
+              : "\n\n_audit report NOT published (" + published + ") — the webui report route was unreachable._";
+        }
+        return { content: [{ type: "text" as const, text: report + publishNote }], details: null };
       } catch (error) {
         return {
           content: [{ type: "text" as const, text: connectFailureReport(url, error) }],
