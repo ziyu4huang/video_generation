@@ -17,6 +17,7 @@
 ## Post-rebalance snapshot (2026-08-18, ~2h after #1652/#1658 landed)
 
 Parsed all 200 run records in ~/.pi/subagents/runs: **done 124 (62%) / turns-abort 64 / budget-abort 12 / timedout 0 / failed 0**. Two caveats before reading tea leaves: (a) most turns-aborts in this window were ORCHESTRATOR-set explicit maxTurns (dispatch prompts pinning 3–8 turns), not the rebalanced envelopes — the envelopes only govern omitted-budget dispatches; (b) sample depth after the merge is shallow (~12 recent runs, 9 done). Early signal nonetheless leans right: zero timedout since the wall alignments, and recent runs skew done. Re-measure at ≥100 post-merge runs before touching the bounds again — the ledger, not intuition, moves the table (re-derive from the runs DB, never hand-tune).
+- Measurement addendum (2026-08-18): run records DO persist usage — 200/200 records carry {input, output, cacheRead, cacheWrite, total, cost}. The old empirics' "records don't persist tokenUsage" note is stale; the ≥100-run re-measure gate needs no orchestrator-side ledger — medians re-derive directly from the runs DB.
 
 ## Workflow-family disposition (2026-08-18, closes the last unexamined corner)
 
