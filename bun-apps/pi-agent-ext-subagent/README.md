@@ -100,6 +100,12 @@ See `docs/adr/0001-why-extracted.md` for the full rationale and `CONTEXT.md` for
 
 Every dispatch gets a **tier-calibrated default token ceiling** (a hard-abort fuse, measured p90 + headroom so only the runaway tail is aborted): **small = 500k**, **medium = 1.2M**, **big = 1.5M**. The tier comes from the explicit `tier` param, a reverse-map of the resolved model via `~/.pi/workflows/model-tiers.json`, or the safe `medium` fallback. An explicit per-dispatch `tokenBudget` always wins over the default; setting one explicitly is normally reserved for deliberate spend caps (see `.planning/knowledge/subagent-dispatch-budget-protocol.md`).
 
+On top of the tier ceiling, a dispatch that omits **all three** of `tokenBudget`/`maxTurns`/`timeoutMs` gets a **role-aware envelope** (`ROLE_AWARE_DISPATCH_BOUNDS`, rebalanced 2026-08-18 from the 200-run dispatch ledger): **recon** (read-only toolset) = 120k tokens / 12 turns / 5 min; **writer** (write-capable or unrestricted) = 400k / 28 turns / 20 min. Any explicit bound opts the WHOLE envelope out — partial mixing never happens. Batch children in the `subagents` tool always run recon bounds.
+
+Programmatic callers that use `spawnSubagent` directly (not the LLM tools) bypass the tool seam where envelopes apply — use the exported **`roleAwareDirectCall(role, task, logId)`**: it applies the role's caps AND appends the abort-safety footer (the as-you-go `/tmp/subagent-runs/<logId>.md` progress-log mandate) atomically at call time; `SUBAGENT_TOKEN_BUDGET_DISABLE=1` strips both. Children at 12+ turns cross the footer gate by design — turns-limit deaths are the top killer and the as-you-go log is what makes a budget death recoverable.
+
+To recalibrate: `bun scripts/runs-stats.ts` emits per-status counts plus token/turns medians straight from `~/.pi/subagents/runs` — bounds move from those medians, never intuition (procedure: `superpowers/skills/dispatch-budget-rebalance`).
+
 The defaults are adjustable at runtime via environment variables (read at call time, no caching; invalid values are silently ignored):
 
 | Env var | Effect |
