@@ -5,6 +5,7 @@ import {
   embedQuery,
   cosine,
   splitFencedYaml,
+  type FetchLike,
 } from "../embedding-leaf.js";
 
 describe("splitFencedYaml", () => {
@@ -56,17 +57,31 @@ describe("embedQuery", () => {
 });
 
 describe("defaultEmbedder", () => {
+  // Mocks are typed `FetchLike`, not `typeof fetch`. That is the contract
+  // `defaultEmbedder` actually declares, and this module's header says why it
+  // exists: a structural {ok,status,json} so no consumer needs DOM types. The
+  // original mocks cast a zero-arg arrow to `typeof fetch`, which the checker
+  // rejected twice over — the arrow has no `preconnect`, and a real `Response`
+  // is not a `FetchLikeResponse` under this package's lib settings. Casting to
+  // the browser type to satisfy a parameter that never wanted it was the bug.
   test("ok response → returns embeddings", async () => {
-    const mockFetch = (async () =>
-      new Response(JSON.stringify({ data: [{ embedding: [1, 2] }] }), { status: 200 })) as typeof fetch;
+    const mockFetch: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [{ embedding: [1, 2] }] }),
+    });
     const embed = defaultEmbedder({ baseUrl: "http://127.0.0.1:1234/", fetch: mockFetch });
     const out = await embed(["x"], SEMANTIC_MODEL_DEFAULT);
     expect(out).toEqual([[1, 2]]);
   });
 
   test("non-ok response → throws", async () => {
-    const mockFetch = (async () => new Response("err", { status: 500 })) as typeof fetch;
+    const mockFetch: FetchLike = async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+    });
     const embed = defaultEmbedder({ baseUrl: "http://127.0.0.1:1234", fetch: mockFetch });
-    expect(embed(["x"], SEMANTIC_MODEL_DEFAULT)).rejects.toThrow("HTTP 500");
+    await expect(embed(["x"], SEMANTIC_MODEL_DEFAULT)).rejects.toThrow("HTTP 500");
   });
 });
