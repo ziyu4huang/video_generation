@@ -38,3 +38,24 @@ lands.
   rationale documented in present-tool.ts).
 - Subagent allowlist: children run with an explicit tool set; decide policy
   (allowlist passthrough vs explicit tools:["webui_report"] param).
+
+## Evidence update (2026-08-18, probe)
+
+A `pi.getAllTools()` probe through the REAL CLI (`cli.ts -e probe -p x`,
+session_start, offline) settles the premise:
+
+```
+[PROBE-TOOLS] total=75 found=["webui_report","webui_present","webui","archify_render"]
+```
+
+ALL registerTool tools DO reach the session tool list in real CLI sessions.
+The original "never reach the orchestrator session model tool list" claim is
+WRONG at the pi-agent level — the orchestrator-seat blindness observed during
+the 2026-08-17 demo was THIS pi-harness session's restricted tool config
+(that seat sees neither registerTool tools nor read/write/bash), out of
+pi-agent's scope. User impact: after a pi restart the TUI model can already
+call webui_report directly — the agent-side in-process door (#1572) is fully
+landed at the session level.
+
+REMAINING true scope of ticket 01: SUBAGENT allowlists only (preflight
+rejects registerTool names in `tools`/`requiredTools`).
