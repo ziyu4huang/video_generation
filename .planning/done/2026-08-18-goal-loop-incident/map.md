@@ -36,6 +36,17 @@ tested protection and a complete root-cause record. Reached.
   persisted-status check (PR #1636). Repo-side ledger closed (issue #1616
   comment 11); the sole remaining item is harness-side core-gated
   goal_complete curation.
+- Addendum 2 (2026-08-18, final ledger): the aftermath outgrew the incident.
+  (a) clean main itself was red — pi-agent-ext-webui imported
+  @earendil-works/pi-coding-agent undeclared (fixed, #1642); diagnosis
+  blocked pushes, so main-health gained a temp-worktree fallback for this
+  repo's all-detached mode (#1644). (b) that rescue exposed the 3-incident
+  defect class (yaml #1589, lockfile #1591, webui #1642) — now guarded by
+  the declared-imports audit gate (warn-only v1, #1647) with a zero
+  baseline (#1649); blocking flip scheduled after soak week (issue #1645).
+  (c) issue board triaged: #1435 closed verified-fixed; #1431 kept open
+  with contained-not-fixed addendum. Total session ledger: 23 merged PRs
+  (#1574-#1649), gate suite 17 -> 20, superpowers 14 -> 15 skills.
 
 ## Decisions so far
 - Tripwire over tool unregistration changes: repo-side minimal guard; the
