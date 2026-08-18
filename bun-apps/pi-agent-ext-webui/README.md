@@ -246,3 +246,12 @@ Scenario sketch (telemetry demo shipped; the rest are candidates):
 | raw frame explorer | inspect actual JSONL mirror payloads (debug persist/evict) | candidate |
 | artifacts registry | files the pipeline produced (exports, screenshots) with links | candidate |
 | ask analytics | card throughput, answer latency | candidate |
+
+### Loop closure (how the agent learns you asked)
+
+Queuing a branch rings the bound TUI session's bell instantly — the agent sees
+`[webui] BTW branch queued: "…" — answer it in chat, then drain the rest with the
+webui tool {mode: "btw"}` without polling. The BTW tab also badges its pending
+count from any tab (15s visibility-gated poll), and the pending card says the
+agent was belled. Resolve from either side: the tab's `resolved` button or the
+agent's POST after answering.

@@ -96,3 +96,45 @@ describe("btw-store", () => {
     expect(buildBtwEntry({ question: "q", chips: Array.from({ length: 7 }, () => "x") }).ok).toBe(false);
   });
 });
+
+describe("btw loop closure", () => {
+  it("onBtwCreate fires with the created entry (the wiring's TUI-bell hook)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "btw-bell-"));
+    const registry = new RenderService({ urlFor: (id) => `http://t/#${id}` });
+    const server = new WebServer({ port: 0 });
+    const fired: Array<{ question: string }> = [];
+    server.setHttpRoutes(
+      createRenderRoutes(registry, {
+        btw: createBtwStore(join(dir, "btw.jsonl")),
+        onBtwCreate: (e) => fired.push({ question: e.question }),
+      }),
+    );
+    server.start();
+    started.push(server);
+    await fetch(server.url + "/api/btw", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: "bell me" }),
+    });
+    expect(fired).toEqual([{ question: "bell me" }]);
+  });
+
+  it("btwBellMessage formats + truncates like the card bell", async () => {
+    const { btwBellMessage } = await import("../src/webui-wiring.js");
+    const msg = btwBellMessage({ question: "q".repeat(80) }, "http://x:8890");
+    expect(msg).toContain('[webui] BTW branch queued: "');
+    expect(msg).toContain("...");
+    expect(msg.length).toBeLessThan(240);
+    expect(msg).toContain('{mode: "btw"}');
+    expect(btwBellMessage({ question: "short" }, "")).toContain("webui");
+  });
+
+  it("served shell carries the badge poll + how-to copy", async () => {
+    const { server } = setup();
+    const html = await (await fetch(server.url + "/")).text();
+    expect(html).toContain("btwBadgeUpdate");
+    expect(html).toContain("tab-badge");
+    expect(html).toContain("How to use: pick context");
+    expect(html).toContain("the agent was belled in the TUI");
+  });
+});

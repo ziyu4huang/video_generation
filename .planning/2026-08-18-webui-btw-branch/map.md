@@ -32,3 +32,14 @@ lists entries with context + hints + resolve hint). Live demo on :8891
 (standalone WebServer + routes, headless Chrome): 4 tabs, pane right ==
 innerWidth, queue→pending(chips)→resolve flow, telemetry card, 0 console
 errors; demo report w/ 3 screenshots published to the live :8890 Report tab.
+
+## Follow-up: loop closure (user "it seems no works")
+
+Automated debug (Playwright on the live :8890): shell current, composer
+functional, pending EMPTY, mirror absent — the user never completed a queue.
+Root cause = loop not closed: nothing told the agent a question waited, and no
+badge showed state. Fix (verified live on :8891): (1) onBtwCreate route hook →
+wiring rings the TUI bell (btwBellMessage mirrors cardBellMessage — the agent
+learns without polling); (2) BTW tab badge from any tab (15s visibility-gated
+poll; 4s detail poll on-pane); (3) how-to copy in the empty state + "agent was
+belled" on pending cards. webui 526/0.

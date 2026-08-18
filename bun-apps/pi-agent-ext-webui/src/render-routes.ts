@@ -44,6 +44,10 @@ export interface RenderRouteOptions {
   btw?: BtwStore;
   /** Data tab demo: live pipeline telemetry snapshot. */
   dataSummary?: () => Record<string, string | number>;
+  /** btw-branch (loop closure): fires when the browser queues a branch
+   * question — the wiring rings the bound TUI session's bell here (the
+   * agent learns a question waits WITHOUT polling; mirror of the card bell). */
+  onBtwCreate?: (entry: import("./btw-store.js").BtwEntry) => void;
   /** Standalone report reader for GET /api/report/<id>/raw (wiring: session
    *  store lookup — same frames the Report tab replays). */
   getReport?: (id: string) => Extract<WebFrame, { type: "report" }> | undefined;
@@ -203,6 +207,7 @@ export function createRenderRoutes(
           const r = buildBtwEntry(body);
           if (!r.ok) return new Response(r.error, { status: 400 });
           const e = store.create(r.entry);
+          opts.onBtwCreate?.(e);
           return json({ ok: true, id: e.id });
         }, (): Response => new Response("bad request", { status: 400 }));
       }
