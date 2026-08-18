@@ -63,6 +63,23 @@ import {
 import { sendContinuationPrompt, sendLengthContinue, sendPrompt } from "./prompting.js";
 import { pauseGoalAfterAgentEnd, updateGoalUsage } from "./lifecycle.js";
 
+// No-progress guard (issue #1616): counts consecutive goal continuations that
+// carried zero tool activity. A session whose agent lacks the goal_complete
+// tool (or just narrates forever) would otherwise spin on auto-continuations.
+let noProgressContinuations = 0;
+let noProgressGoalId: string | null = null;
+
+export function turnMadeToolProgress(messages: unknown[]): boolean {
+	const text = JSON.stringify(messages ?? []);
+	return (
+		text.includes('"tool_use"') ||
+		text.includes('"toolUse"') ||
+		text.includes('"tool_calls"') ||
+		text.includes('"toolCall"') ||
+		text.includes('"toolCalls"')
+	);
+}
+
 /** Register every session/agent hook the goal subsystem listens on. */
 export function registerGoalHooks(pi: ExtensionAPI): void {
 
@@ -325,6 +342,33 @@ export function registerGoalHooks(pi: ExtensionAPI): void {
 		// Not stuck — reset the streak, then continue normally.
 		goalState.consecutiveStuck = 0;
 		goalState.stuckStartedAt = undefined;
+		// No-progress guard (issue #1616): before firing the next continuation,
+		// check whether this turn produced ANY tool activity. Three consecutive
+		// toolless continuations means the loop is spinning without progress —
+		// auto-pause instead of burning tokens on a fourth identical turn.
+		const activeGoal = goalState.activeGoal;
+		if (noProgressGoalId !== activeGoal.id) {
+			noProgressGoalId = activeGoal.id;
+			noProgressContinuations = 0;
+		}
+		if (turnMadeToolProgress(event.messages ?? [])) {
+			noProgressContinuations = 0;
+		} else {
+			noProgressContinuations += 1;
+			if (noProgressContinuations >= 3) {
+				goalState.activeGoal = transitionGoal(activeGoal, "paused");
+				setAndPersistGoal(goalState.activeGoal, ctx);
+				if (goalState.continuationPending?.goalId === activeGoal.id) goalState.continuationPending = undefined;
+				ctx.ui.notify(
+					"Goal auto-paused after " +
+						noProgressContinuations +
+						" continuations with no tool progress (agent may lack the goal_complete tool). Run /goal resume to continue or /goal clear to drop.",
+					"warning",
+				);
+				noProgressContinuations = 0;
+				return;
+			}
+		}
 		await sendContinuationPrompt(pi, ctx, currentGoal);
 	});	// Heartbeat supervision seam (Task 8). syncHeartbeatTimer's `shouldRun` now
 	// includes isLoopActive(), so the heartbeat supervises a goal XOR a loop. But
