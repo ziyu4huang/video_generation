@@ -30,3 +30,16 @@ Scenario: subagent, tools [read, edit, bash], task "change 'hello' to 'hi' in /t
 - Run 2 (edit tool available): used read+edit+cat directly — the freelance-edit pattern, NO /tmp pair-replacement script, NO HIT/MISS/AMBIG, no git checkout reset discipline. Both runs finished the task but by luck-of-simplicity, not by protocol; nothing enforces idempotence, MISS recovery, or template-literal safety.
 
 RED verdict: without the skill text, children do NOT apply the protocol — the candidate addresses a real behavioral gap (green test pending: same scenario with the Procedure section in-prompt must show script-based edits with ALREADY guards).
+
+## TDD green (2026-08-18, promotion test 2 of 2 — GREEN confirmed)
+
+Same scenario as the RED baseline (subagent, tools [read,edit,bash], 'hello'->'hi' in /tmp/baseline-target.ts), with the skill's Procedure text IN the prompt. The child:
+
+- authored /tmp/apply-hello-to-hi.ts unprompted — a verbatim rep(from,to,tag) helper with the ALREADY idempotence guard FIRST, then occurrences==0 -> MISS, >1 -> AMBIG, else HIT+write;
+- ran it via bun; re-running prints ALREADY (no MISS, so the reset step never fired — exactly per protocol);
+- NEVER touched the edit tool; the script was the only mutation path;
+- final file correct ('hi'), script body archived in this record's evidence.
+
+RED (freelance read+edit, no protocol) vs GREEN (script-only, idempotent) — the candidate's Procedure demonstrably changes child behavior. Candidate READY for promotion via the writing-skills process.
+
+Evidence: /tmp/apply-hello-to-hi.ts (verbatim in the promotion transcript); runs 2026-08-18.
