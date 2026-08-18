@@ -106,3 +106,19 @@ incident (web acquires, prompt out, +11min fake -> NO force-release; answered
 -> re-arm -> +11min -> force-release fires). Test-channel lesson: prompt/
 answered ride the pi.events bus (EventEmitter), NOT reg() handlers — emitHost
 misses them. webui 533/0.
+
+## Follow-up 6: bell client gate (direction doctrine enforcement)
+
+User doctrine after the wedge incident: TUI->webui projections are OPTIONAL
+(notifications, must never confuse the TUI); webui->TUI/core requests are
+REQUIRED (mutex coordination stays). Full contact-surface audit found ONE
+violator: the card bell rang for every non-silent card even with ZERO browser
+clients connected (pure TUI noise — the incident's confusing "[webui]
+card Questionnaire" line). Fix: both direction-1 notifies (card bell + the
+webui:open "view ready" toast) now gate on server.clientCount > 0; frame
+pipelines untouched (cards/views still broadcast + replay for the next
+connect). BTW bells stay ungated (direction 2, required). Tests: 0 clients ->
+card broadcasts but no bell, open registers+broadcasts but no toast; 1 client
+-> open rings the direction-1 PAIR (toast + archify card bell). FakeWebServer
+gained a controllable clientCount; the async "webui ready" banner is filtered
+from counts (it lands after sync resets). webui 535/0.
