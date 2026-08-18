@@ -90,8 +90,10 @@ export const DEFAULT_EMBED_MODEL = "text-embedding-nomic-embed-text-v1.5";
 /** A short, stable model tag used as the delta-key on card_vectors rows so a
  *  model swap re-embeds (the old rows are left in place; missingMdIds surfaces
  *  the cold set for the new tag). Distinct from embedModel (which is the LM
- *  Studio endpoint id) — this is the human-readable lineage tag. */
-export const DEFAULT_EMBED_MODEL_VERSION = "nomic-embed-text-v1.5";
+ *  Studio endpoint id) — this is the human-readable lineage tag.
+ *  es1 = entity-summary augmented embed lineage (seam entityAugment leaf):
+ *  the bump re-embeds the corpus once with entity-summary augmented texts. */
+export const DEFAULT_EMBED_MODEL_VERSION = "nomic-embed-text-v1.5+es1";
 /** Default LM Studio base URL (serves the embedding model + bge-m3 + qwen3). */
 export const DEFAULT_LMSTUDIO_BASE_URL = "http://127.0.0.1:1234";
 /** Default K for the HNSW KNN query (top-K nearest neighbors). */

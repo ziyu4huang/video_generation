@@ -30,9 +30,10 @@ import type { TimedFn } from "../perf.js";
 import type { Card, CardKind } from "../store/card.js";
 import type { CardStore } from "../store/card-store.js";
 import type { VectorStore } from "../store/surreal/vector-store.js";
-import type { Embedder } from "@repo/pi-agent-core-interface";
+import type { Embedder, EntityAugment } from "@repo/pi-agent-core-interface";
 import { planningContentHash } from "../store/planning-sync-state.js";
 import { upsertCachedCardVectors } from "../store/card-vectors-cache.js";
+import { getKnowledgePipeline } from "../knowledge-pipeline-seam.js";
 
 export const VECTOR_BACKFILL_SHUTDOWN_TIMEOUT_MS = 5000;
 /** Embedding batch size — matches the embedder default (LM Studio /v1/embeddings
@@ -95,7 +96,7 @@ interface ResolvedCard {
  *  and capped at 1000 chars (mirrors zk's cardEmbedText convention). The
  *  content-hash (planningContentHash) already covers kind+content+frontmatter,
  *  so this only decides WHAT gets embedded; the delta-key is independent. */
-function cardEmbedText(card: Card): string {
+function cardEmbedText(card: Card, augmentEmbedText?: EntityAugment["augmentEmbedText"]): string {
   const fm = card.frontmatter ?? {};
   const parts: string[] = [];
   const title = typeof fm.title === "string" ? fm.title.trim() : "";
@@ -105,7 +106,14 @@ function cardEmbedText(card: Card): string {
     if (tags.length > 0) parts.push(tags.join(" "));
   }
   const body = typeof card.content === "string" ? card.content.trim() : "";
-  if (body) parts.push(body);
+  // es1 entity-summary augmentation: when the zk seam publishes the optional
+  // entityAugment leaf AND the card carries a non-empty `entity_summary`
+  // frontmatter string, the BODY is wrapped via the leaf (summary prefix,
+  // leaf-capped at 1000). Absent leaf or absent/empty summary → the raw body,
+  // so pre-es1 embed texts are reproduced byte-identically.
+  const entitySummary = typeof fm.entity_summary === "string" ? fm.entity_summary.trim() : "";
+  const bodyText = augmentEmbedText && entitySummary ? augmentEmbedText(body, entitySummary) : body;
+  if (bodyText) parts.push(bodyText);
   return parts.join(" ").replace(/\s+/g, " ").trim().slice(0, 1000);
 }
 
@@ -125,6 +133,10 @@ async function resolveCards(
   kinds: CardKind[],
   timed: TimedFn,
 ): Promise<ResolvedCard[]> {
+  // Read the seam ONCE per resolve (call-scope, defensive — mirrors how the
+  // hermes knowledge paths consume zk's surface): the optional entityAugment
+  // leaf. zk absent (unit tests, non-zk hosts) → undefined → plain texts.
+  const augmentEmbedText = getKnowledgePipeline()?.entityAugment?.augmentEmbedText;
   const out: ResolvedCard[] = [];
   for (const kind of kinds) {
     const rows = await timed("vectorBackfill.getCardsByKind", () => cardStore.getCardsByKind(kind));
@@ -133,7 +145,7 @@ async function resolveCards(
       out.push({
         mdId: card.id,
         kind: card.kind,
-        text: cardEmbedText(card),
+        text: cardEmbedText(card, augmentEmbedText),
         contentHash: planningContentHash(card),
       });
     }
