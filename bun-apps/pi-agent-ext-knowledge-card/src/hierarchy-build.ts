@@ -45,6 +45,11 @@ export interface HierarchyBuildOptions {
 	tokenBudget?: number;
 	threshold?: number;
 	maxDepth?: number;
+	/** Hang-mode circuit-breaker K (ticket 02): consecutive empty/null
+	 *  summarizeFn results tolerated per layer before further LLM summary
+	 *  calls are skipped (default HIERARCHY_DEFAULTS.summaryBreaker = 3).
+	 *  Threaded straight into buildLayer's input. */
+	summaryBreaker?: number;
 }
 
 export interface HierarchyBuildResult {
@@ -165,6 +170,7 @@ export async function buildHierarchy(opts: HierarchyBuildOptions): Promise<Hiera
 	const baseBudget = opts.tokenBudget ?? HIERARCHY_DEFAULTS.baseBudget;
 	const maxDepth = opts.maxDepth ?? HIERARCHY_DEFAULTS.maxDepth;
 	const threshold = opts.threshold ?? HIERARCHY_DEFAULTS.threshold;
+	const summaryBreaker = opts.summaryBreaker ?? HIERARCHY_DEFAULTS.summaryBreaker;
 	const all: AggregationNode[] = [];
 	let llmCalls = 0;
 	let resumed = false;
@@ -191,6 +197,7 @@ export async function buildHierarchy(opts: HierarchyBuildOptions): Promise<Hiera
 			threshold,
 			maxDepth,
 			currentDepth: depth,
+			summaryBreaker,
 		});
 		// Materialize with the full accumulated set so parent links (and the
 		// stale-prune) see the complete tree; the final pass after the last
