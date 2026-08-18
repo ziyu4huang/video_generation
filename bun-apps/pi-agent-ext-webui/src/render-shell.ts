@@ -72,6 +72,12 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   .btw-box h5 { margin: 0 0 .4rem; font-size: .8rem; }
   .btw-box textarea, .btw-box select, .btw-box input { width: 100%; padding: .3rem .5rem; border-radius: 6px; border: 1px solid #8884; background: #0000; color: inherit; font-size: .8rem; box-sizing: border-box; }
   .btw-box textarea { min-height: 3.2rem; resize: vertical; margin-top: .3rem; }
+  /* chat-restore (webui-simplify §1): the Inbox-only composer bar. */
+  #composer { display: flex; gap: .4rem; padding: .5rem 1rem; border-top: 1px solid #8884; max-width: 1500px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+  #composer[hidden] { display: none; }
+  #composer input { flex: 1; padding: .35rem .55rem; border-radius: 6px; border: 1px solid #8884; background: #0000; color: inherit; font-size: .8rem; }
+  #composer button { padding: .35rem .7rem; border-radius: 6px; border: 1px solid #8884; background: #0000; color: inherit; font-size: .8rem; cursor: pointer; }
+  #webui-abort { color: #f88; }
   .btw-box .btw-send, .btw-entry .btw-resolve { align-self: flex-start; margin-top: .35rem; padding: .35rem .9rem; border-radius: 6px; border: 1px solid #6cf; background: #6cf3; color: inherit; cursor: pointer; font-size: .8rem; }
   .btw-entry .btw-resolve { border-color: #8886; background: #8882; font-size: .72rem; padding: .2rem .6rem; }
   .btw-chips { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .3rem; }
@@ -152,6 +158,11 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   <section id="cards-pane"></section>
   <section id="data-pane" hidden></section>
   <section id="btw-pane" hidden></section>
+  <div id="composer" hidden>
+    <input id="webui-input" type="text" placeholder="Message the session (mutex-gated)..." />
+    <button id="webui-send">Send</button>
+    <button id="webui-abort" title="Abort the in-flight turn">Abort</button>
+  </div>
 </main>
 <div id="webui-feedback-log">
   <div class="webui-log-head"><span>response log</span><a id="webui-log-clear" href="#">clear</a></div>
@@ -341,6 +352,32 @@ function sendRaw(payload) {
   return false;
 }
 
+// chat-restore (webui-simplify §1): the Inbox composer — a thin second
+// client. Send rides {type:'prompt'} through sendRaw (queued while the WS is
+// down, flushed on open); the user's text echoes client-side into the feed;
+// assistant text already streams as message_update frames in the same feed.
+// The IME guard is MANDATORY (a CJK IME's confirmation Enter must never send).
+(function () {
+  var input = document.getElementById('webui-input');
+  var sendBtn = document.getElementById('webui-send');
+  var abortBtn = document.getElementById('webui-abort');
+  function doSend() {
+    if (!input) return;
+    var text = input.value.trim();
+    if (!text) return;
+    sendRaw(JSON.stringify({ type: 'prompt', text: text }));
+    logResponse('you: ' + text);
+    input.value = '';
+  }
+  if (sendBtn) sendBtn.addEventListener('click', doSend);
+  if (input) input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !(e.isComposing || e.keyCode === 229)) { e.preventDefault(); doSend(); }
+  });
+  if (abortBtn) abortBtn.addEventListener('click', function () {
+    sendRaw(JSON.stringify({ type: 'abort' }));
+  });
+})();
+
 function sendAppexecResponse(id, action, tweak) {
   const extra = { kind: 'respond', id: id, action: action };
   if (tweak) extra.tweak = tweak; // omit the key when absent (present-tool details semantics)
@@ -451,6 +488,8 @@ function setPane(name) {
   if (dataPaneEl) dataPaneEl.hidden = name !== 'data';
   var btwPaneEl = document.getElementById('btw-pane');
   if (btwPaneEl) btwPaneEl.hidden = name !== 'btw';
+  var composerEl = document.getElementById('composer');
+  if (composerEl) composerEl.hidden = name !== 'events'; // chat lives in the Inbox only
   if (name === 'btw') { renderBtwPane(); btwPollStart(); } else { btwPollStop(); }
   if (name === 'data') renderDataPane();
   for (const tn of ['report', 'data', 'btw']) {

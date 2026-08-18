@@ -100,6 +100,9 @@ export interface WebuiUi {
  * MockPi ctx stub tiny.
  */
 export interface WebuiSessionCtx {
+  /** chat-restore (webui-simplify §1): the Abort button's op — an optional
+   * slice, mirroring the guarded seams (an absent host no-ops). */
+  abort?(): void;
   ui: WebuiUi;
 }
 
@@ -124,7 +127,10 @@ export interface WebuiHost {
    * on card_send and always guards (`?.`), so a host predating cards-ux2
    * boots unchanged (the send no-ops; the card_done tombstone still fires).
    */
-  sendUserMessage?(text: string): unknown;
+  sendUserMessage?(
+    text: string,
+    opts?: { deliverAs?: "steer" | "followUp" }
+  ): unknown;
   /** Shared event bus (ticket 06 render channel "webui:render"). Optional —
    *  the render seam may be absent on host SDK builds that predate ticket 06;
    *  wiring no-ops the render registration then instead of throwing at boot. */
@@ -226,7 +232,10 @@ export interface WebuiDeps {
    * when the host predates cards-ux2). Injectable so tests capture the exact
    * message text without a live pi.
    */
-  sendMessage?: (text: string) => void;
+  sendMessage?: (
+    text: string,
+    opts?: { deliverAs?: "steer" | "followUp" }
+  ) => void;
 }
 
 /**
@@ -613,8 +622,8 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // the send no-ops (the card_done tombstone still fires).
   const sendMessage =
     deps.sendMessage ??
-    ((text: string): void => {
-      pi.sendUserMessage?.(text);
+    ((text: string, opts?: { deliverAs?: "steer" | "followUp" }): void => {
+      pi.sendUserMessage?.(text, opts);
     });
   // event-cards (05): pilot wiring state — the pending ask-card ledger (which
   // ask-<promptId> cards were broadcast; gates the card_done tombstone the
@@ -814,12 +823,19 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   function dispatch(action: DispatchAction): void {
     switch (action.kind) {
       case "agentic":
-        // RETIRED (event-cards 00, de-chat): chat lives in the TUI — the served
-        // shell's main composer is gone. prompt/steer/followUp/abort frames
-        // still VALIDATE (protocol) and parse (web-transport) but are
-        // deliberately NOT routed to pi.sendUserMessage / ctx.abort. The
-        // browser's web-native input surface is the HITL appexec return
-        // transport (below).
+        // RESTORED (webui-simplify §1): the browser is a thin second client
+        // again. prompt/steer/followUp route through the sendMessage seam —
+        // pi.sendUserMessage fires the host `input` event which IS the mutex
+        // gate (block => "handled" suppression + mutex_blocked broadcast;
+        // feedback stays broadcast-only, no per-command ack). abort rides the
+        // optional ctx slice.
+        if (action.op === "abort") {
+          bound?.ctx?.abort?.();
+        } else if (action.text) {
+          const deliverAs =
+            action.op === "steer" ? "steer" : action.op === "followUp" ? "followUp" : undefined;
+          sendMessage(action.text, deliverAs ? { deliverAs } : undefined);
+        }
         break;
       case "appexec": {
         // Phase 1 return transport (spec Component 1): `action` is the typed

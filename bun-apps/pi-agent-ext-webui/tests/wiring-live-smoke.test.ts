@@ -349,19 +349,19 @@ describe("wireWebui live smoke — Tier A", () => {
     expect(frame.state.driver).toBe("web"); // blocked-TUI fixture: web legitimately holds the lock
   });
 
-  it("D) inbound prompt frame is deliberately IGNORED (de-chat): pi.sendUserMessage never called", async () => {
+  it("D) inbound prompt frame routes to pi.sendUserMessage (chat-restore): thin second client", async () => {
     const { pi, server } = setup();
     pi.emit("session_start", {}, pi.ctx());
     const ws = await withTimeout(openWs(`${server.url.replace("http", "ws")}/ws`), 2000, "ws open");
     await waitFor("client registered", () => server.clientCount === 1);
 
-    // DE-CHAT (event-cards 00): the main composer is gone — the wiring no
-    // longer routes prompt frames to pi.sendUserMessage. The frame still
-    // validates (protocol) + parses (transport), but the wiring's dispatch
-    // seam is a deliberate no-op for agentic frames.
+    // RESTORED (webui-simplify §1): the composer is back — a WS prompt frame
+    // routes through the sendMessage seam; pi.sendUserMessage fires the host
+    // `input` event which IS the mutex gate (this fresh fixture holds no
+    // driver, so the message is delivered, not suppressed).
     ws.send(JSON.stringify({ type: "prompt", text: "smoke hello" }));
-    await Bun.sleep(150); // give the (absent) dispatch time to never fire
-    expect(pi.sent).toEqual([]); // sendUserMessage never called
+    await Bun.sleep(150); // give the revived dispatch time to fire
+    expect(pi.sent).toEqual([{ content: "smoke hello", opts: undefined }]);
   });
 
   it("E) origin guard: a non-loopback Origin is rejected (HTTP 403)", async () => {
