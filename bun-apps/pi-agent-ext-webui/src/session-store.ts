@@ -59,12 +59,16 @@ export function createSessionStore(cap = TRANSCRIPT_CAP): SessionStore {
       // cards-ux2 (04) / tab-views (01a): card frames AND reports are sparse
       // and review-critical — a plain FIFO would evict them early in any long
       // session (browser-probe-proven). Evict only NON-card/NON-report frames,
-      // oldest first.
+      // oldest first. webui-v3 diet follow-up: appexec frames ride the same
+      // protection — they carry HITL tool RESULTS (the answer payload a
+      // settled tool needs); under the v3 pure-HITL frame mix they are as
+      // sparse and review-critical as cards, and the diet removed the log
+      // frames that used to absorb eviction pressure.
       if (transcript.length > cap) {
         let remove = transcript.length - cap;
         for (let i = 0; i < transcript.length && remove > 0; i += 1) {
           const t = transcript[i]?.type;
-          if (t === "card" || t === "card_done" || t === "report") continue;
+          if (t === "card" || t === "card_done" || t === "report" || t === "appexec") continue;
           transcript.splice(i, 1);
           remove -= 1;
           i -= 1;
