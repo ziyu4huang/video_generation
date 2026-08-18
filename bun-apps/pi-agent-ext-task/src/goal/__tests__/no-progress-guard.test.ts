@@ -25,4 +25,24 @@ describe("turnMadeToolProgress", () => {
 		const messages = [{ role: "assistant", toolCalls: [{ name: "x" }] }];
 		expect(turnMadeToolProgress(messages)).toBe(true);
 	});
+
+	test("guard: stale tool_use before the turn's user message does not count as progress", () => {
+		// Full-history shape: an old assistant turn used tools, then the user
+		// sent the continuation prompt, then the new turn is plain narration.
+		// The stale tool_use must NOT reset the no-progress counter.
+		const messages = [
+			{ role: "assistant", content: [{ type: "tool_use", id: "stale" }] },
+			{ role: "user", content: "continue working on the goal" },
+			{ role: "assistant", content: [{ type: "text", text: "all done narrating" }] },
+		];
+		expect(turnMadeToolProgress(messages)).toBe(false);
+	});
+
+	test("guard: tool_use after the turn's user message counts as progress", () => {
+		const messages = [
+			{ role: "user", content: "go" },
+			{ role: "assistant", content: [{ type: "tool_use", id: "t1" }] },
+		];
+		expect(turnMadeToolProgress(messages)).toBe(true);
+	});
 });

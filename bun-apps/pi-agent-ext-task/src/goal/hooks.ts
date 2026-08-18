@@ -69,8 +69,32 @@ import { pauseGoalAfterAgentEnd, updateGoalUsage } from "./lifecycle.js";
 let noProgressContinuations = 0;
 let noProgressGoalId: string | null = null;
 
+/**
+ * Decide whether the current turn contained any tool activity.
+ *
+ * Scans only the current-turn slice — the entries AFTER the last user-role
+ * message — so stale tool_use blocks from earlier turns can never reset the
+ * no-progress counter. This makes the guard event-scope-agnostic: whether
+ * `agent_end`'s event.messages carries just the turn or the full history, the
+ * verdict is identical. If no user entry exists (single-turn scope), the whole
+ * array is the current turn, so scan everything.
+ */
 export function turnMadeToolProgress(messages: unknown[]): boolean {
-	const text = JSON.stringify(messages ?? []);
+	const entries = messages ?? [];
+	// Find the LAST user entry, mirroring findFinalAssistantMessage's shape
+	// detection (skip non-objects, then match the `role` field — it checks
+	// `role === "assistant"`, so we check `role === "user"`).
+	let lastUserIndex = -1;
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (!entry || typeof entry !== "object") continue;
+		if ((entry as Record<string, unknown>).role === "user") {
+			lastUserIndex = i;
+			break;
+		}
+	}
+	const turn = lastUserIndex === -1 ? entries : entries.slice(lastUserIndex + 1);
+	const text = JSON.stringify(turn);
 	return (
 		text.includes('"tool_use"') ||
 		text.includes('"toolUse"') ||
