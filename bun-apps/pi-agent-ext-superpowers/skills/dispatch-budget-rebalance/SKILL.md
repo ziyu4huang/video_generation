@@ -16,7 +16,7 @@ From the 200-run dispatch ledger: turns is the top killer (31/200 aborts) vs tok
 
 ## Procedure
 
-1. **Ledger medians** — parse the runs DB (`~/.pi/subagents/runs`) plus `.planning/knowledge/` empirics; compute done vs aborted medians per dimension; prioritize turns > tokens > time.
+1. **Ledger medians** — run `bun scripts/runs-stats.ts` (pi-agent-ext-subagent; emits status counts + per-status token/turns medians straight from `~/.pi/subagents/runs`) plus `.planning/knowledge/` empirics; prioritize turns > tokens > time.
 2. **Consumer census** — grep ALL consumers of `spawnSubagent` / `spawnSubagentSubprocess` / the subagent tools; disposition each as:
    - tool-seam — envelope applies, nothing to do;
    - direct-call — envelope-less, fix in step 3;
