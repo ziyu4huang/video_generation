@@ -21,3 +21,12 @@ webui-v3 arc 2026-08-17/18: 22 PRs shipped through ~40 child aborts using exactl
 
 ## Candidate skill-name
 deterministic-edit-dispatch
+
+## TDD baseline (2026-08-18, promotion test 1 of 2 — RED confirmed)
+
+Scenario: subagent, tools [read, edit, bash], task "change 'hello' to 'hi' in /tmp/baseline-target.ts; report every command verbatim".
+
+- Run 1 (progress-log-only child): detected the target state, NO edit protocol used — wrote a progress log via printf heredoc instead.
+- Run 2 (edit tool available): used read+edit+cat directly — the freelance-edit pattern, NO /tmp pair-replacement script, NO HIT/MISS/AMBIG, no git checkout reset discipline. Both runs finished the task but by luck-of-simplicity, not by protocol; nothing enforces idempotence, MISS recovery, or template-literal safety.
+
+RED verdict: without the skill text, children do NOT apply the protocol — the candidate addresses a real behavioral gap (green test pending: same scenario with the Procedure section in-prompt must show script-based edits with ALREADY guards).
