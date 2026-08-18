@@ -20,7 +20,7 @@
  * git / gh / network.
  */
 import { test, expect, describe } from "bun:test";
-import { runPrFinishCli, parsePrFinishArgs, PR_FINISH_CLI_USAGE } from "../src/pr-finish-cli.js";
+import { runPrFinishCli, parsePrFinishArgs, settlePrStatus, MERGE_STATE_POLLS, PR_FINISH_CLI_USAGE } from "../src/pr-finish-cli.js";
 import type { GhClient } from "../src/recipe.js";
 import type { BranchClient } from "../src/branch-recipe.js";
 import type { runLocalCi } from "../src/ci-recipe.js";
@@ -41,7 +41,13 @@ function fakeSpawn(): { fn: SpawnFn; calls: { cmd: string; args: string[] }[] } 
 
 type PrStatus = Awaited<ReturnType<GhClient["prStatus"]>>;
 
-/** Stateful gh fake: each prStatus() call pops the next snapshot. */
+/** Stateful gh fake: each prStatus() call pops the next snapshot.
+ *
+ *  The snapshot list IS the expected call sequence, and it is deliberately
+ *  strict (running out throws) — a run that reads the PR status more or fewer
+ *  times than the test says is itself a finding. A full green run reads it
+ *  three times: preflight (for the ref names), the post-CI refresh the merge
+ *  gates read, and verify_merge's own post-merge read. */
 function fakeGh(statuses: PrStatus[], mergeCalls: number[] = []) {
 	return {
 		gh: {
@@ -137,7 +143,7 @@ function ciFail(): CiOutcome {
 /** Standard green deps: OPEN+CLEAN pre-merge, MERGED post-merge, CI pass.
  *  `client` forwards to fakeClient so a test can vary the worktree situation. */
 function greenDeps(client: Parameters<typeof fakeClient>[0] = {}) {
-	const ghParts = fakeGh([OPEN_CLEAN, MERGED]);
+	const ghParts = fakeGh([OPEN_CLEAN, OPEN_CLEAN, MERGED]);
 	const clientParts = fakeClient(client);
 	const ciOpts: Array<Parameters<typeof runLocalCi>[0]> = [];
 	return {
@@ -237,7 +243,7 @@ describe("pr-finish-cli — wrapper contract", () => {
 	});
 
 	test("BEHIND → abort behind, exit 1 (points at prepare_branch)", async () => {
-		const ghParts = fakeGh([{ ...OPEN_CLEAN, mergeState: "BEHIND" }]);
+		const ghParts = fakeGh([OPEN_CLEAN, { ...OPEN_CLEAN, mergeState: "BEHIND" }]);
 		const res = await runPrFinishCli(["42"], {
 			gh: ghParts.gh,
 			client: fakeClient().client,
@@ -253,7 +259,7 @@ describe("pr-finish-cli — wrapper contract", () => {
 	});
 
 	test("BLOCKED (non-CLEAN) → abort not-clean", async () => {
-		const ghParts = fakeGh([{ ...OPEN_CLEAN, mergeState: "BLOCKED" }]);
+		const ghParts = fakeGh([OPEN_CLEAN, { ...OPEN_CLEAN, mergeState: "BLOCKED" }]);
 		const res = await runPrFinishCli(["42"], {
 			gh: ghParts.gh,
 			client: fakeClient().client,
@@ -506,5 +512,177 @@ describe("pr-finish-cli — verification failures are not passes", () => {
 		expect(outcome.merged).toBe(true);
 		expect(outcome.verdict).toBe("UNVERIFIED");
 		expect(outcome.warnings.some((w: string) => /runVerifyMerge threw: verify exploded/.test(w))).toBe(true);
+	});
+});
+
+/**
+ * The merge gates must read a FRESH pr status, and an UNKNOWN mergeState is
+ * "GitHub hasn't computed it yet", not "cannot merge".
+ *
+ * Both halves cost a real merge on 2026-08-18 (PR #1646): the preflight
+ * snapshot was taken, ~2 minutes of local_ci ran, and the gate then rejected a
+ * mergeState that had already settled to CLEAN — at the price of a full CI
+ * re-run per manual retry.
+ */
+describe("pr-finish-cli — the merge gates read a fresh, settled status", () => {
+	const OID = "b".repeat(40);
+	const noSleep = async () => {};
+
+	test("UNKNOWN settles to CLEAN across polls → merges, and says so", async () => {
+		const ghParts = fakeGh([
+			OPEN_CLEAN,
+			{ ...OPEN_CLEAN, mergeState: "UNKNOWN" },
+			{ ...OPEN_CLEAN, mergeState: "UNKNOWN" },
+			OPEN_CLEAN,
+			MERGED,
+		]);
+		const res = await runPrFinishCli(["42"], {
+			gh: ghParts.gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: noSleep,
+		});
+		expect(res.exitCode).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(ghParts.mergeCalls).toEqual([42]);
+		expect(outcome.mergeStateSettle).toEqual({ mergeState: "CLEAN", polls: 3 });
+		expect(outcome.warnings.some((w: string) => /mergeState was UNKNOWN and settled to CLEAN after 3 reads/.test(w))).toBe(true);
+	});
+
+	test("a mergeState that never settles is bounded, and aborts not-clean", async () => {
+		// The poll must not become an unbounded wait: an UNKNOWN that is really
+		// stuck has to surface as a normal abort the caller can act on.
+		const unknown = { ...OPEN_CLEAN, mergeState: "UNKNOWN" as const };
+		const ghParts = fakeGh([OPEN_CLEAN, unknown, unknown, unknown, unknown]);
+		const res = await runPrFinishCli(["42"], {
+			gh: ghParts.gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: noSleep,
+		});
+		expect(res.exitCode).toBe(1);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.aborted.reason).toBe("not-clean");
+		expect(outcome.mergeStateSettle).toEqual({ mergeState: "UNKNOWN", polls: MERGE_STATE_POLLS });
+		expect(ghParts.mergeCalls).toEqual([]);
+	});
+
+	test("a CLEAN preflight snapshot does NOT authorize the merge — the refresh does", async () => {
+		// Kills the pre-fix code directly: it gated on the preflight snapshot, so
+		// a base that moved during the CI run merged on stale evidence.
+		const ghParts = fakeGh([OPEN_CLEAN, { ...OPEN_CLEAN, mergeState: "BEHIND" }]);
+		const res = await runPrFinishCli(["42"], {
+			gh: ghParts.gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: noSleep,
+		});
+		expect(res.exitCode).toBe(1);
+		expect(JSON.parse(res.stdout).aborted.reason).toBe("behind");
+		expect(ghParts.mergeCalls).toEqual([]);
+	});
+
+	test("the common path costs exactly one extra read (no polling when the answer is real)", async () => {
+		const g = greenDeps();
+		const res = await runPrFinishCli(["42"], { ...g.deps, sleep: noSleep });
+		expect(res.exitCode).toBe(0);
+		expect(JSON.parse(res.stdout).mergeStateSettle).toEqual({ mergeState: "CLEAN", polls: 1 });
+	});
+
+	test("settlePrStatus returns a non-UNKNOWN answer immediately", async () => {
+		let reads = 0;
+		const gh = {
+			prStatus: async () => {
+				reads++;
+				return { ...OPEN_CLEAN, mergeState: "DIRTY" as const };
+			},
+		} as unknown as GhClient;
+		const settled = await settlePrStatus(gh, 42, noSleep);
+		expect(settled.polls).toBe(1);
+		expect(reads).toBe(1);
+		expect(settled.status.mergeState).toBe("DIRTY");
+	});
+
+	test("--assume-ci-green matching the CURRENT head skips local CI and merges", async () => {
+		let ciRuns = 0;
+		const ghParts = fakeGh([
+			{ ...OPEN_CLEAN, headRefOid: OID },
+			{ ...OPEN_CLEAN, headRefOid: OID },
+			MERGED,
+		]);
+		const res = await runPrFinishCli(["42", "--assume-ci-green", OID], {
+			gh: ghParts.gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => {
+				ciRuns++;
+				return ciPass();
+			},
+			sleep: noSleep,
+		});
+		expect(res.exitCode).toBe(0);
+		expect(ciRuns).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.ciSkipped).toEqual({ assumedSha: OID });
+		expect(outcome.warnings.some((w: string) => /local_ci SKIPPED/.test(w))).toBe(true);
+		expect(ghParts.mergeCalls).toEqual([42]);
+	});
+
+	test("--assume-ci-green against a head that moved aborts instead of merging", async () => {
+		// The whole safety of the shortcut is this comparison: without it the
+		// flag would merge a commit no gate has ever seen.
+		const ghParts = fakeGh([
+			{ ...OPEN_CLEAN, headRefOid: "c".repeat(40) },
+			{ ...OPEN_CLEAN, headRefOid: "c".repeat(40) },
+		]);
+		const res = await runPrFinishCli(["42", "--assume-ci-green", OID], {
+			gh: ghParts.gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: noSleep,
+		});
+		expect(res.exitCode).toBe(1);
+		expect(JSON.parse(res.stdout).aborted.reason).toBe("ci-assumption-stale");
+		expect(ghParts.mergeCalls).toEqual([]);
+	});
+
+	test("--assume-ci-green with no headRefOid to compare against is refused, not trusted", async () => {
+		const ghParts = fakeGh([OPEN_CLEAN, OPEN_CLEAN]);
+		const res = await runPrFinishCli(["42", "--assume-ci-green", OID], {
+			gh: ghParts.gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: noSleep,
+		});
+		expect(res.exitCode).toBe(1);
+		expect(JSON.parse(res.stdout).aborted.reason).toBe("ci-assumption-unverifiable");
+		expect(ghParts.mergeCalls).toEqual([]);
+	});
+
+	test("a normal run carries NO ciSkipped key — its absence is the proof CI ran", async () => {
+		const g = greenDeps();
+		const res = await runPrFinishCli(["42"], { ...g.deps, sleep: noSleep });
+		expect("ciSkipped" in JSON.parse(res.stdout)).toBe(false);
+	});
+
+	test("--assume-ci-green rejects an abbreviated sha at argv parse time (exit 2)", async () => {
+		const short = parsePrFinishArgs(["42", "--assume-ci-green", "b".repeat(7)]);
+		expect(short.ok).toBe(false);
+		const missing = parsePrFinishArgs(["42", "--assume-ci-green"]);
+		expect(missing.ok).toBe(false);
+		const good = parsePrFinishArgs(["42", "--assume-ci-green", OID.toUpperCase()]);
+		expect(good.ok).toBe(true);
+		if (good.ok) expect(good.args.assumeCiGreen).toBe(OID);
 	});
 });

@@ -259,6 +259,26 @@ guessing at launch flags. When they are absent:
   left alone (that tree is not ours to move) and reported in `warnings`; its
   remote counterpart is still deleted.
 
+  Its **merge gates read a snapshot taken after the CI gate, not the preflight
+  one**. `mergeState: UNKNOWN` means GitHub has not finished computing
+  mergeability (it recomputes on every push to the PR *and* to its base), so an
+  UNKNOWN is polled up to `MERGE_STATE_POLLS` times rather than treated as a
+  refusal. The outcome reports `mergeStateSettle: { mergeState, polls }`;
+  `polls > 1` means it started UNKNOWN and settled. Before this, the gates read
+  a snapshot from before a two-minute local_ci run — an UNKNOWN that had long
+  since settled to CLEAN aborted the merge, and each manual retry paid for a
+  full CI re-run (observed on PR #1646, 2026-08-18).
+
+  `--assume-ci-green <sha>` skips the local-CI gate for exactly that retry
+  case, asserting a full 40-hex head sha you already saw green. It is checked
+  against the PR's **current** head, so a push landing in between aborts
+  (`ci-assumption-stale`) instead of merging an ungated commit; a PR whose
+  status carries no `headRefOid` is refused (`ci-assumption-unverifiable`)
+  rather than trusted. The outcome carries `ciSkipped: { assumedSha }` and a
+  warning — its **absence** is the proof this invocation ran CI itself. Use it
+  only to retry a merge that already passed; never to merge something local CI
+  has not seen.
+
 ## Discipline
 
 - **No raw-bash git for owned phases.** If a devops tool exists for the
