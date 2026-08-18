@@ -79,3 +79,23 @@ baselined: 2026-07-26
 #   .planning/knowledge/dispatch-budget-rebalance.md), NOT an upstream port —
 #   intentionally unpinned (absent from PORTED_SKILLS by design); same
 #   treatment as dispatch-recovery above.
+#
+# LOCAL-DIVERGENCES addendum (2026-08-18, 3rd): ext-simplification-round-2
+#   (PR #1682) compressed five ported SKILL.md IN PLACE — writing-skills
+#   715->298, subagent-driven-development 503->262, systematic-debugging and
+#   test-driven-development trimmed under 300, executing-plans given a
+#   single-source reference to skills/dispatch-recovery's budget sizing rule.
+#   Intent-preserving by design: rules kept, prose tightened, examples merged,
+#   no rule deleted. The fixtures were re-baselined to the COMPRESSED bodies,
+#   so the byte-pin now guards those — not upstream v6.2.0's text.
+#   An upstream re-sync MUST NOT naively restore the v6.2.0 bodies: re-apply the
+#   compression onto the new upstream text, or accept the longer bodies as a
+#   deliberate decision and record that here.
+#   Backfilled 2026-08-19 — #1682 rewrote the fixtures without touching this
+#   file at all, and every test stayed green. That silence is what the
+#   fixtures-digest: line below now prevents.
+
+fixtures-digest: sha256:7eca97ecfe79054c67d1b0ff4fad5b2f166ab350edfb80b8fed0a3ed9f209440
+
+# Re-baseline log (appended by scripts/rebaseline-upstream-skills.ts):
+#   2026-08-19 — backfill: record the ext-simplification-round-2 (#1682) in-place compression and tie the record to the fixtures via fixtures-digest (sha256:7eca97ecfe79…)
