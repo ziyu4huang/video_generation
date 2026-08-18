@@ -23,6 +23,14 @@
  * REQUIREMENTS:
  *   - LM Studio running on localhost:1234 with google/gemma-4-12b
  *     loaded (or a different model configured via PI_L2_MODEL)
+ *
+ *     PORTABILITY PITFALL (found live 2026-08-18): a user-level
+ *     `defaultProvider` in ~/.pi/agent/settings.json (e.g. "zai") SILENTLY
+ *     HIJACKS a provider-less `--model` value - the request goes to that
+ *     provider and 400s ("modelCode: does not exist") even though the same
+ *     model id is properly registered in ~/.pi/agent/models.json under
+ *     another provider (lm-studio). Set PI_L2_PROVIDER (e.g. "lm-studio")
+ *     to append an explicit `--provider` flag and make the spawn immune.
  *   - pi-agent dependencies installed (bun install at repo root)
  *   - Model inference per tool: ~5-15s (warming) + ~2-5s (steady)
  *
@@ -66,6 +74,10 @@ const REPO_ROOT = findRepoRoot(FILE_DIR);
 const CLI = `${REPO_ROOT}/bun-apps/pi-agent/src/cli.ts`;
 const EXT = `${REPO_ROOT}/bun-apps/pi-agent-ext-power-tool/extensions/power-tool.ts`;
 const MODEL = process.env.PI_L2_MODEL || "google/gemma-4-12b";
+// Optional explicit provider (see the pitfall note above): when set, the CLI
+// spawn carries `--provider <PI_L2_PROVIDER>` so a user-level defaultProvider
+// cannot hijack the model resolution. Unset = legacy behavior (bare --model).
+const PROVIDER = process.env.PI_L2_PROVIDER || "";
 
 // Each tool: prompt to invoke it + expected-content markers (case-insensitive).
 // An empty markers array = content-agnostic (exit 0 is the gate).
@@ -131,6 +143,7 @@ function invokeTool(prompt: string, timeoutMs = 120_000): { exitCode: number; st
     "-e", EXT,
     "-p", prompt,
     "--model", MODEL,
+    ...(PROVIDER ? ["--provider", PROVIDER] : []),
   ];
 
   const proc = Bun.spawnSync(["bun", ...args], {
