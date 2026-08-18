@@ -18,7 +18,7 @@
  *  - neither → capability "vision" (unified capabilities.vision config).
  */
 import { ModelRegistry, type ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { spawnSubagent } from "@repo/pi-agent-ext-subagent";
+import { roleAwareDirectCall, spawnSubagent } from "@repo/pi-agent-ext-subagent";
 import type { ResolvedLLM } from "../sessions.js";
 
 export interface VisionInferenceResult {
@@ -81,9 +81,15 @@ export async function runVisionInference(opts: {
   }
 
   try {
+    // 2026-08-18 final repo-wide closure (#1658/#1660 companions): last raw
+    // spawnSubagent consumer — recon caps + abort-safety footer travel together;
+    // SUBAGENT_TOKEN_BUDGET_DISABLE strips both. Vision inference is a
+    // read-and-describe call → recon archetype (envelope wall, not writer caps).
+    const venv = roleAwareDirectCall("recon", opts.task, `file2md-vision-${Date.now()}`);
     const result = await spawnSubagent({
-      task: opts.task,
+      task: venv.task,
       images: opts.images,
+      ...(venv.tokenBudget !== undefined ? { tokenBudget: venv.tokenBudget, maxTurns: venv.maxTurns, timeoutMs: venv.timeoutMs } : {}),
       ...(opts.systemPrompt ? { instructions: opts.systemPrompt } : {}),
       ...(modelSpec ? { model: modelSpec } : {}),
       ...(capability ? { capability } : {}),
