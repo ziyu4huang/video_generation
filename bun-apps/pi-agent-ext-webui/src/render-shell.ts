@@ -113,8 +113,10 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
      deep-link anchor; newest LAST (chronological). Badge color per attention. */
   #cards-pane { display: flex; flex-direction: column; gap: .5rem; padding: .4rem 1rem; flex: 1; min-height: 0; overflow-y: auto; }
   #cards-pane[hidden] { display: none; } /* the flex display must not defeat [hidden] */
-  #report-pane, #data-pane { display: flex; flex-direction: column; gap: .4rem; padding: .4rem 1rem; flex: 1; min-height: 0; overflow-y: auto; }
-  #report-pane[hidden], #data-pane[hidden] { display: none; }
+  #report-pane, #more-pane { display: flex; flex-direction: column; gap: .4rem; padding: .4rem 1rem; flex: 1; min-height: 0; overflow-y: auto; }
+  #report-pane[hidden], #more-pane[hidden] { display: none; }
+  /* webui-simplify §2: inside More, data/btw are plain stacked blocks. */
+  #more-pane #data-pane, #more-pane #btw-pane { display: block; }
   /* webui-v3 fix (report-iframe): html reports render in a sandboxed iframe
      that NO other rule sizes — the browser default is 300x150, unreadable for
      archify-class diagrams. Size it like the present-surface frames. */
@@ -156,8 +158,10 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   <div id="content"></div>
   <section id="report-pane" hidden></section>
   <section id="cards-pane"></section>
-  <section id="data-pane" hidden></section>
-  <section id="btw-pane" hidden></section>
+  <section id="more-pane" hidden>
+    <section id="data-pane"></section>
+    <section id="btw-pane"></section>
+  </section>
   <div id="composer" hidden>
     <input id="webui-input" type="text" placeholder="Message the session (mutex-gated)..." />
     <button id="webui-send">Send</button>
@@ -219,7 +223,7 @@ async function loadViews() {
   cardsTab.onclick = function () { toggleCardsTab(); };
   tabsEl.appendChild(cardsTab);
   // tab-views (01): Report / Ask / Data tabs — same strip, exclusive panes.
-  for (const spec of [['Report', 'report', 'static reports by agent/skill'], ['Data', 'data', 'interactive HTML views'], ['BTW', 'btw', 'branch a chat question from current content']]) {
+  for (const spec of [['Report', 'report', 'static reports by agent/skill'], ['More', 'more', 'BTW branch questions + data telemetry (secondary)']]) {
     const el = document.createElement('div');
     el.className = 'tab';
     el.id = 'pane-tab-' + spec[1];
@@ -443,7 +447,7 @@ function txRenderSnapshot(state) {
 const cardsPaneEl = document.getElementById('cards-pane');
 const reportPaneEl = document.getElementById('report-pane');
 const dataPaneEl = document.getElementById('data-pane');
-let activePane = 'events'; // webui-v3 (03): 'report'|'events'(Inbox)|'data'|null — Inbox at boot
+let activePane = 'events'; // webui-simplify §2: 'report'|'events'(Inbox)|'more'|null — Inbox at boot
 let cardsVisible = false;
 
 // toggleCardsTab: the ONE tab-activation path the Cards tab click AND the
@@ -456,7 +460,7 @@ let cardsVisible = false;
 // precedence (a card hash owns routing — the pane sync never clobbers it).
 function paneHashOf(name) {
   if (name === 'events') return '#inbox';
-  if (name === 'report' || name === 'data' || name === 'btw') return '#' + name;
+  if (name === 'report' || name === 'more') return '#' + name;
   return null; // collapsed (null) — clear the hash without a history entry
 }
 function syncPaneHash() {
@@ -475,7 +479,8 @@ function handlePaneHash() {
     if (parseCardHashInline(location.hash) !== null) return;
     var h = location.hash.replace(/^#/, '');
     if (h === 'inbox') h = 'events';
-    if (h === 'report' || h === 'data' || h === 'btw' || h === 'events') {
+    if (h === 'data' || h === 'btw') h = 'more'; // legacy aliases fold into More
+    if (h === 'report' || h === 'more' || h === 'events') {
       if (activePane !== h) setPane(h);
     }
   } catch { /* never break boot */ }
@@ -485,14 +490,12 @@ function setPane(name) {
   cardsVisible = name === 'events';
   if (reportPaneEl) reportPaneEl.hidden = name !== 'report';
   if (cardsPaneEl) cardsPaneEl.hidden = name !== 'events';
-  if (dataPaneEl) dataPaneEl.hidden = name !== 'data';
-  var btwPaneEl = document.getElementById('btw-pane');
-  if (btwPaneEl) btwPaneEl.hidden = name !== 'btw';
+  var morePaneEl = document.getElementById('more-pane');
+  if (morePaneEl) morePaneEl.hidden = name !== 'more';
   var composerEl = document.getElementById('composer');
   if (composerEl) composerEl.hidden = name !== 'events'; // chat lives in the Inbox only
-  if (name === 'btw') { renderBtwPane(); btwPollStart(); } else { btwPollStop(); }
-  if (name === 'data') renderDataPane();
-  for (const tn of ['report', 'data', 'btw']) {
+  if (name === 'more') { renderBtwPane(); renderDataPane(); btwPollStart(); } else { btwPollStop(); }
+  for (const tn of ['report', 'more']) {
     const el = document.getElementById('pane-tab-' + tn);
     if (el) el.classList.toggle('active', name === tn);
   }
@@ -1011,7 +1014,7 @@ function handleCardHash() {
     const art = document.getElementById(cardDomId(id));
     const owner = art && art.closest ? art.closest('section') : null;
     const pid = owner ? owner.id : 'cards-pane';
-    setPane(pid === 'report-pane' ? 'report' : pid === 'data-pane' ? 'data' : 'events');
+    setPane(pid === 'report-pane' ? 'report' : (pid === 'more-pane' || pid === 'data-pane' || pid === 'btw-pane') ? 'more' : 'events');
     focusCardArticle(id, 0);
   } catch { /* never break boot */ }
 }
@@ -1136,7 +1139,7 @@ function renderDataPane() {
 // while the BTW pane itself shows).
 function btwBadgeUpdate() {
   fetch('/api/btw').then(function (r) { return r.json(); }).then(function (d) {
-    var tab = document.getElementById('pane-tab-btw');
+    var tab = document.getElementById('pane-tab-more');
     if (!tab) return;
     var n = (d && d.pending && d.pending.length) || 0;
     var b = tab.querySelector('.tab-badge');
@@ -1150,7 +1153,7 @@ setInterval(function () { if (document.visibilityState === 'visible') btwBadgeUp
 function btwPollStart() {
   if (btwPollTimer) return;
   btwPollTimer = setInterval(function () {
-    if (activePane === 'btw' && document.visibilityState === 'visible') { renderBtwPane(); btwBadgeUpdate(); }
+    if (activePane === 'more' && document.visibilityState === 'visible') { renderBtwPane(); btwBadgeUpdate(); }
   }, 4000);
 }
 function btwPollStop() { if (btwPollTimer) { clearInterval(btwPollTimer); btwPollTimer = null; } }
@@ -1354,7 +1357,7 @@ function renderControls(v) {
   try {
     await refresh();
     handleCardHash(); // event-cards (03): #card-<id> deep link — after the first render; the retry backoff covers the async snapshot
-    handlePaneHash(); // hash-addressable panes: #report/#data/#btw/#inbox restore on load + refresh
+    handlePaneHash(); // hash-addressable panes: #report/#more/#inbox restore on load + refresh
     subscribe();
     window.addEventListener('hashchange', function () { handleCardHash(); handlePaneHash(); }); // live re-route on later hash changes (cards first — they own routing)
     // event-cards (04): host listener for the viewer bridge — ONE global

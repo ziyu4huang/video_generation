@@ -24,7 +24,9 @@ describe("tab-views 01b — five tabs (literal)", () => {
     // report-raw: downloads unblocked in-frame + the standalone door.
     expect(src).toContain("'allow-scripts allow-downloads'");
     expect(src).toContain("encodeURIComponent(frame.id)");
-    expect(src).toContain('<section id="data-pane" hidden></section>');
+    expect(src).toContain('<section id="more-pane" hidden>');
+    expect(src).toContain('<section id="data-pane"></section>');
+    expect(src).toContain('<section id="btw-pane"></section>');
   });
   test("setPane exclusive + tabs wired + Events relabel", () => {
     expect(src).toContain("function setPane(name)");
@@ -45,7 +47,7 @@ describe("tab-views 01b — five tabs (literal)", () => {
     expect(src).not.toContain("askPaneEl");
   });
   test("hash activates the OWNING pane", () => {
-    expect(src).toContain("setPane(pid === 'report-pane' ? 'report' : pid === 'data-pane' ? 'data' : 'events')");
+    expect(src).toContain("(pid === 'more-pane' || pid === 'data-pane' || pid === 'btw-pane') ? 'more'");
   });
 });
 describe("tab-views 01c — template-literal escape guard (regex SyntaxError class)", () => {
