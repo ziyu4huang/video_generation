@@ -75,3 +75,20 @@ describe("evaluateInvariants â report-iframe-sized (inv 7)", () => {
     expect(r.find((f) => f.check === "panes-exclusive")?.pass).toBe(false);
   });
 });
+
+import { connectFailureReport } from "../tools/webui-tool.js";
+
+describe("connectFailureReport — failure-kind classification (errdx)", () => {
+  test("Chrome launch failure -> launch hint, NOT 'start the webui'", () => {
+    const r = connectFailureReport("http://localhost:8890", new Error("browserType.launch: Failed to launch chrome"));
+    expect(r).toContain("headless Chrome failed to launch");
+    expect(r).toContain("management policy");
+    expect(r).not.toContain("Start the webui");
+  });
+  test("connection refused -> either unreachable-hint (Chrome present) or chrome-missing hint (CI runner)", () => {
+    const r = connectFailureReport("http://localhost:8890", new Error("net::ERR_CONNECTION_REFUSED at http://localhost:8890"));
+    const unreachable = r.includes("cannot reach the webui") && r.includes("Start the webui");
+    const noChrome = r.includes("no system Chrome/Chromium found") && r.includes("Install Google Chrome");
+    expect(unreachable || noChrome).toBe(true);
+  });
+});
