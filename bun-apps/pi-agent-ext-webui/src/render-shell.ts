@@ -442,8 +442,12 @@ function applyFeedFilter() {
     });
   });
   var mo = new MutationObserver(applyFeedFilter);
-  if (chatFeedEl) mo.observe(chatFeedEl, { childList: true });
-  if (cardsPaneEl) mo.observe(cardsPaneEl, { childList: true });
+  // TDZ guard: this IIFE runs BEFORE the const lookups below are initialized
+  // — query the DOM directly, never touch chatFeedEl/cardsPaneEl here.
+  var cf = document.getElementById('chat-feed');
+  if (cf) mo.observe(cf, { childList: true });
+  var cp = document.getElementById('cards-pane');
+  if (cp) mo.observe(cp, { childList: true });
 })();
 
 function appendChatUser(text) {
@@ -1464,6 +1468,7 @@ function renderControls(v) {
     await refresh();
     handleCardHash(); // event-cards (03): #card-<id> deep link — after the first render; the retry backoff covers the async snapshot
     handlePaneHash(); // hash-addressable panes: #report/#more/#inbox restore on load + refresh
+    if (!location.hash) setPane('events'); // boot default: unhide the Inbox surfaces (composer/feed/filter)
     // (webui-simplify §3: view refresh rides /ws — no separate boot step.)
     window.addEventListener('hashchange', function () { handleCardHash(); handlePaneHash(); }); // live re-route on later hash changes (cards first — they own routing)
     // event-cards (04): host listener for the viewer bridge — ONE global
