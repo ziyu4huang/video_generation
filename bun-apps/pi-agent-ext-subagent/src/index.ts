@@ -36,6 +36,9 @@ export {
   setRateLimitCapResolver,
   WorkflowAgent,
 } from "@repo/pi-agent-core-runtime";
+// ── owned: role-aware dispatch bounds (calibrated 2026-08 dispatch empirics) ──
+export type { DispatchRole } from "./budget-defaults.js";
+export { ROLE_AWARE_DISPATCH_BOUNDS, roleAwareDefaults } from "./budget-defaults.js";
 // ── owned: detach dispatch (Task 06) — alt+s global + ctrl+b in-viewer ─────
 export {
   DETACH_KEY_BYTE,
