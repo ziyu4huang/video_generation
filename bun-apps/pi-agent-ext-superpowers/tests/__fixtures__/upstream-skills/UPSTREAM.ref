@@ -67,3 +67,9 @@ baselined: 2026-07-26
 #     - dispatching-parallel-agents — "Verify-child protocol" section
 #       (repo-local addition, develop-pipeline ticket 04, 2026-08-17 —
 #       do-not-drop-on-resync)
+#
+# LOCAL-DIVERGENCES addendum (2026-08-18): skills/dispatch-recovery/ is
+#   repo-owned (promoted from .planning/knowledge/subagent-dispatch-empirics.md
+#   via writing-skills), NOT an upstream port — intentionally unpinned by the
+#   fidelity guard (absent from PORTED_SKILLS by design); do not mistake its
+#   absence from upstream fixtures for drift on re-sync.
