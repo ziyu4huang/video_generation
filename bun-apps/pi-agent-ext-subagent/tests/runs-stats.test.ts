@@ -166,32 +166,69 @@ test("--trend renders rows with runsSinceLast and gates in both directions", () 
       writeFileSync(join(dir, `${crypto.randomUUID()}.json`), JSON.stringify(o));
     const tag = (i: number) => (i % 2 === 0 ? "envelope-recon" : "explicit");
 
-    // 3 tagged runs -> snapshot 1.
-    for (let i = 0; i < 3; i++) rec({ status: "done", usage: { total: 100 + i }, budget: { source: tag(i) } });
+    // 3 tagged runs -> snapshot 1. startedAt at write time is strictly before
+    // the snapshot taken right after (wall clock advances through the spawns).
+    for (let i = 0; i < 3; i++)
+      rec({
+        status: "done",
+        usage: { total: 100 + i },
+        budget: { source: tag(i) },
+        startedAt: new Date().toISOString(),
+      });
     runCli([dir, "--snapshot", hist]);
 
-    // Single-row history: delta vs 0 = totalRuns.
-    let out = runCli(["--trend", hist]).stdout;
+    // Single-row history: everything up to row 1's date counts (surviving-window
+    // floor of the old delta-vs-0). Gate: no runs newer than snapshot 1 yet.
+    let out = runCli([dir, "--trend", hist]).stdout;
     assert.ok(out.includes("runsSinceLast=3"), `single-row trend missing runsSinceLast=3\n${out}`);
-    assert.ok(out.includes("GATE: NOT ARMED (need 97 more)"), `single-row gate wrong\n${out}`);
+    assert.ok(out.includes("GATE: NOT ARMED (need 100 more)"), `single-row gate wrong\n${out}`);
     assert.ok(out.includes("envelope-recon n=2 tokenMedian=102"), `missing compact cohort medians\n${out}`);
 
-    // +2 runs -> snapshot 2 (delta 2 < 100 -> NOT ARMED).
-    for (let i = 0; i < 2; i++) rec({ status: "turns", usage: { total: 900 }, budget: { source: "explicit" } });
+    // +2 runs newer than snapshot 1 -> snapshot 2 (row 2 accrues 2; the gate
+    // still sees 0 runs newer than snapshot 2 -> NOT ARMED).
+    for (let i = 0; i < 2; i++)
+      rec({
+        status: "turns",
+        usage: { total: 900 },
+        budget: { source: "explicit" },
+        startedAt: new Date().toISOString(),
+      });
     runCli([dir, "--snapshot", hist]);
-    out = runCli(["--trend", hist]).stdout;
+    out = runCli([dir, "--trend", hist]).stdout;
     assert.ok(out.includes("total=3") && out.includes("total=5"), `both rows must render\n${out}`);
     assert.ok(out.includes("runsSinceLast=3"), `row 1 runsSinceLast wrong\n${out}`);
     assert.ok(out.includes("runsSinceLast=2"), `row 2 runsSinceLast wrong\n${out}`);
-    assert.ok(out.includes("GATE: NOT ARMED (need 98 more)"), `delta<100 gate wrong\n${out}`);
+    assert.ok(out.includes("GATE: NOT ARMED (need 100 more)"), `no-new-runs gate wrong\n${out}`);
 
-    // +100 untagged runs -> snapshot 3 (delta 100 >= 100 -> ARMED).
-    for (let i = 0; i < 100; i++) rec({ status: "done", usage: { total: 1 } });
-    runCli([dir, "--snapshot", hist]);
-    out = runCli(["--trend", hist]).stdout;
-    assert.ok(out.includes("runsSinceLast=100"), `row 3 runsSinceLast wrong\n${out}`);
+    // +100 runs newer than snapshot 2, NO further snapshot: the between-snapshots
+    // state the gate exists to detect -> ARMED.
+    for (let i = 0; i < 100; i++) rec({ status: "done", usage: { total: 1 }, startedAt: new Date().toISOString() });
+    out = runCli([dir, "--trend", hist]).stdout;
     assert.ok(out.includes("GATE: 100 runs since last snapshot — ARMED"), `delta>=100 gate wrong\n${out}`);
-    assert.equal(jsonlRows(hist).length, 3, `history should hold exactly 3 snapshots`);
+    assert.equal(jsonlRows(hist).length, 2, `history should hold exactly 2 snapshots`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("--trend gate counts records by startedAt newer than the last snapshot, not total delta", () => {
+  const dir = mkdtempSync(join(tmpdir(), "runs-stats-gate-"));
+  try {
+    const hist = join(dir, "budget-history.jsonl");
+    // Single ledger snapshot at T.
+    writeFileSync(hist, `${JSON.stringify({ date: "2026-08-18T20:00:00.000Z", totalRuns: 200 })}\n`);
+    const rec = (o: Record<string, unknown>) =>
+      writeFileSync(join(dir, `${crypto.randomUUID()}.json`), JSON.stringify(o));
+    // 3 records started AFTER T, 2 BEFORE T — the rolling window keeps totals
+    // pinned, so only startedAt can tell new runs from old ones.
+    for (let i = 0; i < 3; i++)
+      rec({ status: "done", usage: { total: 100 }, startedAt: `2026-08-18T20:3${i}:00.000Z` });
+    for (let i = 0; i < 2; i++)
+      rec({ status: "done", usage: { total: 100 }, startedAt: `2026-08-18T19:0${i}:00.000Z` });
+
+    const out = runCli([dir, "--trend", hist]).stdout;
+    assert.ok(out.includes("runsSinceLast=2"), `per-row interval must count only pre-T records\n${out}`);
+    assert.ok(out.includes("GATE: NOT ARMED (need 97 more)"), `gate must count the 3 post-T runs\n${out}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

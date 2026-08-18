@@ -23,3 +23,19 @@ Parsed all 200 run records in ~/.pi/subagents/runs: **done 124 (62%) / turns-abo
 ## Workflow-family disposition (2026-08-18, closes the last unexamined corner)
 
 The workflow extension's `agent()`/`parallel()` children do NOT go through spawnSubagent — they use their own createAgentSession path. Audited and dispositioned NO-GAP BY DESIGN: the workflow family runs a different, coherent budget model — run-level aggregate (`budget` closure from the dispatch's tokenBudget, `throwIfAborted` at total, per-phase soft sub-budgets) plus optional per-agent `tokenBudget`/`agentTimeoutMs` opts, with run-persistence explicitly modeling budget-pause/resume. Role envelopes are the subagent-dispatch model; the two are parallel by design, not an oversight. Do not re-audit this corner unless the workflow runtime loses its run-level budget closure.
+
+## battery1 — paired A/B (2026-08-18, 24 runs, ledger @ 20:34:36Z)
+
+Design: 12 task pairs (6 recon read-only, 6 writer /tmp-script), identical task text per pair, arms = explicit insurance caps (30-45k/4t/4min, the orchestrator's habitual params) vs envelope (omit all three). Same tier (medium), same tools per pair, order counterbalanced.
+
+| arm | n | done | turns-aborts | tokenMedian | turnsMedian |
+|---|---|---|---|---|---|
+| envelope (recon 12t / writer 28t) | 12 | 12 | 0 | 31,967 | 6 |
+| explicit (4t cap) | 12 | 9 | 3 | 22,753 | 3.5 |
+
+- All 3 explicit aborts hit the 4t cap exactly on verification-loop tasks (write→run→verify→report); 168,955 tokens burned for zero output + 3 re-dispatches.
+- Envelope turns range 3-17 vs caps 12/28 — children self-terminate well below caps; no abuse of headroom.
+- Envelope token premium (~40%) buys verification + richer reports (P14-env caught a live-DB scan race and cross-verified).
+- Emergent memory: a dying child read prior runs records for env hints ("macOS has no timeout") — runs DB is already ambient memory for children.
+- VERDICT: habitual insurance caps are net-negative on multi-step tasks. Orchestrator default should be envelope (omit params); explicit only for blast-radius control.
+- BUG FOUND+FIXED: runsSinceLast used total-delta — under the 200-record rolling window the gate could never arm. Now counts startedAt > last snapshot date.
