@@ -176,3 +176,15 @@ export function loadReviewerEntries(sessionManager: unknown): ReviewerLedgerReco
 		.filter((e) => e.type === "custom" && e.customType === REVIEWER_ENTRY_TYPE)
 		.map((e) => e.data as ReviewerLedgerRecord);
 }
+
+// Issue #1616: the running loop is memory-resident; the journal's last explicit
+// verdict for the SAME goal outranks the in-memory snapshot (which the driver
+// re-stamps itself). True = skip the refire and defer to the persisted status.
+export function shouldHonorPersistedStatus(
+	current: { id: string; status: string } | null | undefined,
+	persisted: { id: string; status: string } | null | undefined,
+): boolean {
+	if (!persisted?.id || !current) return false;
+	if (persisted.id !== current.id) return false;
+	return persisted.status !== "active";
+}
