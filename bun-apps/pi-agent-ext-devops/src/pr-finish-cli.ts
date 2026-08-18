@@ -27,8 +27,9 @@
  *   - `--help` / `-h`                usage (exit 0)
  *   - stdout: the structured outcome as JSON (nothing else on stdout)
  *   - exit 0 on success (incl. dry-run); exit 1 on abort (dirty_tree /
- *     local_ci_failed / not-open / behind / not-clean / ...); exit 2 on a
- *     usage error. Throw-free: every failure is a structured `aborted`.
+ *     local_ci_failed / not-open / behind / not-clean / missing-workflow-scope
+ *     / ci-assumption-stale / ...); exit 2 on a usage error. Throw-free: every
+ *     failure is a structured `aborted`.
  *
  * THE SNAPSHOT THE MERGE GATES READ MUST BE FRESH.
  *   The merge gates (OPEN / not-BEHIND / CLEAN) used to be evaluated against
@@ -239,6 +240,27 @@ export interface PrFinishDeps {
 }
 
 const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** The one command that fixes a missing `workflow` scope. */
+export const WORKFLOW_SCOPE_FIX = "gh auth refresh -h github.com -s workflow";
+
+/**
+ * Is this merge failure the missing-`workflow`-scope refusal?
+ *
+ * GitHub refuses `mergePullRequest` for an OAuth app without the `workflow`
+ * scope whenever the PR's diff touches `.github/workflows/` — classified by
+ * PATH, so `ci.yml.disabled` counts even though nothing runs it. This repo's
+ * gate work lives in that file, so it recurs; and the scope is not stable
+ * across a session (observed 2026-08-18: one such PR merged, another was
+ * refused ~90 minutes later on the same account).
+ *
+ * It arrived as a raw GraphQL passthrough inside a generic `merge-failed`,
+ * which says nothing about what to do. It is a distinct, recoverable class
+ * with exactly one fix, so it gets its own reason and carries that fix.
+ */
+export function isMissingWorkflowScope(message: string): boolean {
+	return /without\s+[`'"]?workflow[`'"]?\s+scope/i.test(message) || /refusing to allow an? .*to (?:create or update|update) workflow/i.test(message);
+}
 
 /** Wrap a SpawnFn so every invocation is recorded (rendered runnable).
  * NB: options (cwd) MUST be forwarded — dropping it makes every spawn local_ci
@@ -499,7 +521,17 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	try {
 		await gh.mergeNow(pr, "squash", false);
 	} catch (err) {
-		return abort("merge-failed", `gh pr merge ${pr} --squash failed: ${errMsg(err)}`);
+		const message = errMsg(err);
+		if (isMissingWorkflowScope(message)) {
+			return abort(
+				"missing-workflow-scope",
+				`gh pr merge ${pr} --squash was refused: the gh token has no \`workflow\` scope, and this PR ` +
+					`touches .github/workflows/. Fix: ${WORKFLOW_SCOPE_FIX} (interactive — the token owner must run it), ` +
+					`then re-run with --assume-ci-green <head sha> to skip re-paying for local CI. ` +
+					`Original: ${message}`,
+			);
+		}
+		return abort("merge-failed", `gh pr merge ${pr} --squash failed: ${message}`);
 	}
 	// The merge advanced ${baseRefName} on origin — the worktree holding the
 	// default branch (possibly this cwd) is now behind until synced. Nudge the
