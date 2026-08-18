@@ -29,3 +29,14 @@ fills whatever viewport it is given.
 webui suite 0 fail; template parse guard PARSE-OK; three-viewport headless
 probe (1920x1080 / 1440x900 / 390x844): pane height tracks viewport height
 (header + padding overhead only).
+
+## Live UX measurement (2026-08-18, post-#1592-era code on :8890)
+
+Playwright against the live shell (1440x900), Report tab, after scrollIntoView per article:
+
+- 8 articles (4 markdown, 4 html iframes), all restored + live-published mix.
+- Scroll chain from innermost content to body: EXACTLY ONE scrollable ancestor (report-pane, 817px client vs 4189px scroll); body overflow hidden, page never scrolls — the #1577 app-shell holds on the LIVE process.
+- HTML iframes: 1408x630 (70vh) fully in viewport (visibleFraction 1.0) after one scrollIntoView; sandbox allow-scripts allow-downloads; fullscreen + open-standalone buttons present on every html article.
+- The 2 console 404s (favicon + main-slot) are the pre-#1592 process — fixes merged, pending the user restart.
+
+Reading a report = ONE pane scroll + (optional) ONE inner-frame scroll. Recorded so future layout work starts from measured numbers, not impressions.
