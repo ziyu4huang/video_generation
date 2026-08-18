@@ -138,6 +138,9 @@ export type WebFrame =
   // connect-time replay (the wiring's store wrapper appends it to the
   // transcript ring like any outbound frame).
   | { type: "view_opened"; view?: string; title?: string; url: string; ts: number }
+  // webui-simplify §3: one live transport — the registry's render listener
+  // broadcasts view changes over the WS channel (SSE /api/events was cut).
+  | { type: "view_update"; viewId: string; ts: number }
   // ask-user bridge (webui-present-adoption §C3): the core-task questionnaire
   // prompt mirrored to the shell (promptId correlates the answer). Replay-
   // eligible: rides live broadcast + the store-wrapped connect replay.

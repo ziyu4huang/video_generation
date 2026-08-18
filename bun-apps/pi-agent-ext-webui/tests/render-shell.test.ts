@@ -26,7 +26,8 @@ describe("RENDER_SHELL_HTML constant", () => {
     expect(RENDER_SHELL_HTML).toContain("<!doctype html>");
     expect(RENDER_SHELL_HTML).toContain('id="tabs"');
     expect(RENDER_SHELL_HTML).toContain('id="content"');
-    expect(RENDER_SHELL_HTML).toContain("EventSource('/api/events')");
+    expect(RENDER_SHELL_HTML).not.toContain("EventSource"); // webui-simplify §3: one live transport (WS)
+    expect(RENDER_SHELL_HTML).toContain("view_update");
     expect(RENDER_SHELL_HTML).toContain("/api/view/");
   });
 

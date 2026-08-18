@@ -161,32 +161,31 @@ describe("wireWebui render framework — end-to-end", () => {
     expect(body).toContain("webui-render-shell");
   });
 
-  it("GET /api/events SSE delivers a view_update on webui:render", async () => {
+  it("WS delivers a view_update frame on webui:render (webui-simplify §3: one live transport)", async () => {
     const { pi, server } = setup();
     pi.emit("session_start", {}, pi.ctx());
-    const ctrl = new AbortController();
-    const res = await fetch(`${server.url}/api/events`, { signal: ctrl.signal });
-    expect(res.headers.get("content-type") || "").toContain("text/event-stream");
-    const reader = res.body!.getReader();
-    const dec = new TextDecoder();
-    let buf = "";
-    const first = await withTimeout(reader.read(), 2000, "no initial chunk");
-    buf += dec.decode(first.value ?? new Uint8Array(), { stream: true });
-    expect(buf).toContain(": connected");
+    const ws = await withTimeout(openWs(`${server.url.replace("http", "ws")}/ws`), 2000, "ws open");
     pi.events.emit("webui:render", { content: "# hi", view: "sse-view" });
-    let payload: { viewId?: string; updatedAt?: number } | null = null;
-    const deadline = Date.now() + 2000;
-    while (Date.now() < deadline && !payload) {
-      const chunk = await Promise.race([
-        reader.read(),
-        new Promise<{ done: true }>((r) => setTimeout(() => r({ done: true }), 40)),
-      ]);
-      if ("value" in chunk && chunk.value) buf += dec.decode(chunk.value, { stream: true });
-      const m = buf.match(/data: (\{.*\})\n\n/);
-      if (m) payload = JSON.parse(m[1]);
-    }
-    expect(payload).toMatchObject({ viewId: "sse-view" });
-    ctrl.abort();
+    // The registry render fires view_update to subscribers; the wiring's
+    // subscriber broadcasts it as a frame through the store-wrapped
+    // broadcaster (live fan-out + connect-time replay both carry it).
+    const raw = await withTimeout(
+      (async () => {
+        for (;;) {
+          const msg = await new Promise<MessageEvent>((resolve) => {
+            ws.addEventListener("message", resolve, { once: true });
+          });
+          try {
+            const f = JSON.parse(String(msg.data));
+            if (f.type === "view_update") return String(msg.data);
+          } catch { /* skip non-JSON */ }
+        }
+      })(),
+      2000,
+      "view_update frame not delivered"
+    );
+    expect(JSON.parse(raw)).toMatchObject({ type: "view_update", viewId: "sse-view" });
+    ws.close();
   });
 });
 

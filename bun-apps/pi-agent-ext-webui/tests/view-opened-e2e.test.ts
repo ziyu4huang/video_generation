@@ -88,7 +88,19 @@ describe("view_opened E2E (ticket 08)", () => {
 
     pi.events.emit("webui:open", { path: path.join(dir, "a.html"), view: "diagram", title: "T" });
 
-    const raw = await withTimeout(nextNonSnapshot(ws), 2000, "view_opened frame not delivered");
+    // webui-simplify §3: the registry render fires a view_update frame FIRST
+    // (the open registers a url view); scan past it for the view_opened frame.
+    const raw = await withTimeout(
+      (async () => {
+        for (;;) {
+          const m = await nextNonSnapshot(ws);
+          try { if (JSON.parse(m).type === "view_update") continue; } catch { /* not JSON */ }
+          return m;
+        }
+      })(),
+      2000,
+      "view_opened frame not delivered"
+    );
     const frame = JSON.parse(raw);
     expect(frame.type).toBe("view_opened");
     expect(frame.url).toContain("/files/0/a.html");

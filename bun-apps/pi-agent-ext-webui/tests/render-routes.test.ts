@@ -167,70 +167,13 @@ describe("createRenderRoutes — fall-through", () => {
   });
 });
 
-describe("createRenderRoutes — GET /api/events (SSE)", () => {
-  it("opens text/event-stream and emits a view_update on render, then unsubscribes on disconnect", async () => {
+// --- GET /api/events — REMOVED (webui-simplify §3: one live transport) ------
+
+describe("createRenderRoutes — GET /api/events is gone (webui-simplify §3)", () => {
+  it("404s like any unknown route — live view refresh rides the WS view_update frames", async () => {
     const { registry, server } = setup();
-    const ctrl = new AbortController();
-    const res = await fetch(`${server.url}/api/events`, { signal: ctrl.signal });
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/event-stream");
-    expect(registry.subscriberCount).toBe(1);
-
-    const reader = res.body!.getReader();
-    const dec = new TextDecoder();
-    let buf = "";
-
-    // initial comment frame
-    const first = await withTimeout(reader.read(), 2000, "no initial chunk");
-    buf += dec.decode(first.value ?? new Uint8Array(), { stream: true });
-    expect(buf).toContain(": connected");
-
-    // push a view -> expect a `data:` frame
-    registry.render({ content: "# hi", view: "sse-view" });
-    let payload: { viewId?: string; updatedAt?: number } | null = null;
-    const deadline = Date.now() + 2000;
-    while (Date.now() < deadline && !payload) {
-      const chunk = await Promise.race([
-        reader.read(),
-        new Promise<{ done: true }>((r) => setTimeout(() => r({ done: true }), 40)),
-      ]);
-      if ("value" in chunk && chunk.value) buf += dec.decode(chunk.value, { stream: true });
-      const m = buf.match(/data: (\{.*\})\n\n/);
-      if (m) payload = JSON.parse(m[1]);
-    }
-    expect(payload).toEqual({ viewId: "sse-view", updatedAt: 1000 });
-
-    // disconnect -> subscriber removed (ReadableStream.cancel -> unsubscribe)
-    ctrl.abort();
-    await waitFor("subscriber removed", () => registry.subscriberCount === 0, 2000);
-  });
-});
-
-// --- GET /api/events heartbeat ----------------------------------------------
-
-describe("createRenderRoutes — GET /api/events heartbeat", () => {
-  it("emits ': ping' comment frames at the injected heartbeatMs interval", async () => {
-    const registry = new RenderService({ urlFor: (id) => `http://t/#${id}`, now: () => 1000 });
-    const server = makeServer({ port: 0 });
-    server.setHttpRoutes(createRenderRoutes(registry, { heartbeatMs: 20 }));
-    server.start();
-
-    const ctrl = new AbortController();
-    const res = await fetch(`${server.url}/api/events`, { signal: ctrl.signal });
-    expect(res.status).toBe(200);
-    const reader = res.body!.getReader();
-    const dec = new TextDecoder();
-
-    // initial comment frame
-    const first = await withTimeout(reader.read(), 2000, "no initial chunk");
-    expect(dec.decode(first.value ?? new Uint8Array(), { stream: true })).toContain(": connected");
-
-    // the next chunk (well within 2s for a 20ms heartbeat) is the heartbeat
-    const second = await withTimeout(reader.read(), 2000, "no heartbeat chunk");
-    expect(dec.decode(second.value ?? new Uint8Array(), { stream: true })).toBe(": ping\n\n");
-
-    // abort is clean (no throw) and unsubscribes
-    expect(() => ctrl.abort()).not.toThrow();
-    await waitFor("subscriber removed", () => registry.subscriberCount === 0, 2000);
+    const res = await fetch(`${server.url}/api/events`);
+    expect(res.status).toBe(404);
+    expect(registry.subscriberCount).toBe(0); // nothing subscribes anymore
   });
 });

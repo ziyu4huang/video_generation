@@ -67,11 +67,11 @@ describe("RENDER_SHELL_HTML — declarative HITL response wiring (phase 3)", () 
     expect(RENDER_SHELL_HTML).toContain("disabled = true");
   });
 
-  it("auto-focuses a presenting view in the SSE handler without changing the payload shape", () => {
+  it("auto-focuses a presenting view in the view_update handler (webui-simplify §3)", () => {
     expect(RENDER_SHELL_HTML).toContain("v.presentId");
-    expect(RENDER_SHELL_HTML).toContain("location.hash = data.viewId");
-    // payload stays {viewId, updatedAt} — the handler only reads data.viewId
-    expect(RENDER_SHELL_HTML).toContain("data.viewId");
+    expect(RENDER_SHELL_HTML).toContain("location.hash = viewId");
+    // the frame shape is {type:'view_update', viewId} — the handler reads viewId
+    expect(RENDER_SHELL_HTML).toContain("onViewUpdate(frame.viewId)");
   });
 
   it("reconnects the ws with a 2s guarded backoff (mirrors the SSE pattern)", () => {
@@ -111,7 +111,8 @@ describe("RENDER_SHELL_HTML — declarative HITL response wiring (phase 3)", () 
     expect(RENDER_SHELL_HTML).toContain("<!doctype html>");
     expect(RENDER_SHELL_HTML).toContain('id="tabs"');
     expect(RENDER_SHELL_HTML).toContain('id="content"');
-    expect(RENDER_SHELL_HTML).toContain("EventSource('/api/events')");
+    expect(RENDER_SHELL_HTML).not.toContain("EventSource"); // webui-simplify §3: one live transport (WS)
+    expect(RENDER_SHELL_HTML).toContain("view_update");
     expect(RENDER_SHELL_HTML).toContain("setAttribute('sandbox', '')");
   });
 });

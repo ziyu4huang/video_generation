@@ -10,17 +10,10 @@
  *   GET /api/view/:id   -> md: { id, mode, html, title, updatedAt }
  *                          html: { id, mode, content, title, updatedAt }
  *                          absent -> 404
- *   GET /api/events     -> text/event-stream; emits `data:{viewId,updatedAt}`
- *                          on each render(); unsubscribes on client disconnect.
+ *   (GET /api/events was CUT in webui-simplify §3 — view refresh rides the
+ *    WS view_update frames broadcast by the wiring's registry subscriber.)
  *   (GET / lives in render-shell.ts / Task 5; everything else -> null fall-through)
  *
- * NOTE on the SSE unsubscribe: the per-stream unsubscribe handle is kept in
- * PER-REQUEST scope (a local `unsubscribe` declared inside the /api/events
- * branch and closed over by `start` + `cancel`). A module-scoped slot would be
- * a bug: with >=2 concurrent SSE clients, client B's `start` would overwrite
- * the shared slot, so client A's disconnect `cancel` would unsubscribe B's
- * listener — leaking A's listener and silencing B. Per-request scope makes each
- * stream's lifecycle independent.
  */
 import type { Server } from "bun";
 import type { RenderService, RenderView } from "./render-service.js";
@@ -55,17 +48,8 @@ export interface RenderRouteOptions {
   removeReport?: (id: string) => boolean;
   /** report-cleanup: clear every report frame; returns the count removed. */
   clearReports?: () => number;
-  /**
-   * SSE heartbeat interval in ms for /api/events (Fix 3): Bun.serve's idle
-   * timeout (and any intermediate proxy) closes silent streams; a periodic
-   * `: ping` comment frame keeps the connection observably alive without
-   * emitting a view_update. Default 30s; injectable so tests can use ~20ms.
-   */
-  heartbeatMs?: number;
+  // (webui-simplify §3: the SSE heartbeatMs option was removed with the route.)
 }
-
-/** Default SSE heartbeat interval (see {@link RenderRouteOptions.heartbeatMs}). */
-const DEFAULT_HEARTBEAT_MS = 30_000;
 
 import type { BtwStore } from "./btw-store.js";
 import { buildBtwEntry } from "./btw-store.js";
@@ -87,7 +71,6 @@ export function createRenderRoutes(
   registry: RenderService,
   opts: RenderRouteOptions = {}
 ): RenderRouteHandler {
-  const heartbeatMs = opts.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
   return (req) => {
     const url = new URL(req.url);
     const { pathname } = url;
@@ -242,62 +225,9 @@ export function createRenderRoutes(
       return json(opts.dataSummary());
     }
 
-    if (req.method === "GET" && pathname === "/api/events") {
-      // Per-request unsubscribe handle (NOT module-scoped): each /api/events
-      // response owns its own ReadableStream and its own slot, so concurrent
-      // SSE clients cannot clobber each other's unsubscribe closure.
-      let unsubscribe: (() => void) | null = null;
-      let closed = false;
-      // Per-request heartbeat timer (Fix 3), started in start() and cleared in
-      // cancel() alongside unsubscribe — same per-request scope rationale as
-      // above (a module-scoped timer would leak / cross streams).
-      let beat: ReturnType<typeof setInterval> | null = null;
-      const stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.enqueue(encoder.encode(": connected\n\n"));
-          beat = setInterval(() => {
-            if (closed) return;
-            try {
-              // SSE comment frame — keeps the connection alive, ignored by
-              // EventSource parsers (never surfaces as a view_update).
-              controller.enqueue(encoder.encode(": ping\n\n"));
-            } catch {
-              closed = true;
-              if (beat) clearInterval(beat);
-            }
-          }, heartbeatMs);
-          unsubscribe = registry.subscribe((viewId, updatedAt) => {
-            if (closed) return;
-            try {
-              controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify({ viewId, updatedAt })}\n\n`)
-              );
-            } catch {
-              closed = true;
-              if (beat) clearInterval(beat);
-            }
-          });
-        },
-        cancel() {
-          closed = true;
-          if (beat) {
-            clearInterval(beat);
-            beat = null;
-          }
-          if (unsubscribe) {
-            unsubscribe();
-            unsubscribe = null;
-          }
-        },
-      });
-      return new Response(stream, {
-        headers: {
-          "Content-Type": "text/event-stream; charset=utf-8",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        },
-      });
-    }
+    // webui-simplify §3: GET /api/events (SSE) was CUT — one live transport.
+    // View refresh rides the WS frames (view_update, broadcast by the wiring's
+    // registry subscriber); the REST content routes below are untouched.
 
     return null; // fall through to the WebServer defaults
   };

@@ -444,24 +444,19 @@ describe("wireWebui live smoke — Tier A", () => {
     expect(new URL(server.url).port).not.toBe("0");
   });
 
-  it("I) v1 wires null token => /, /api/views, /api/events all pass WITHOUT ?session=", async () => {
+  it("I) v1 wires null token => / and /api/views pass WITHOUT ?session=; /api/events is gone (§3)", async () => {
     // wireWebui calls server.setTokenAuth(null) (T4). With the token null the
-    // fetch token block is skipped, so NO request needs ?session=. Proves the
-    // loopback wiring is "off" end-to-end against a live server.
+    // fetch token block is skipped, so NO request needs ?session=. /api/events
+    // was REMOVED (webui-simplify §3: one live transport — WS carries
+    // view_update frames); the route falls through to the 404 default.
     const { pi, server } = setup();
     pi.emit("session_start", {}, pi.ctx());
     const root = await fetch(`${server.url}/`);
     expect(root.status).toBe(200);
     const views = await fetch(`${server.url}/api/views`);
     expect(views.status).toBe(200);
-    const ctrl = new AbortController();
-    const events = await fetch(`${server.url}/api/events`, { signal: ctrl.signal });
-    // /api/events is an SSE stream — the origin guard + null-token skip let it
-    // through (200); we only assert it is reachable (not 403/404).
-    expect(events.status).toBe(200);
-    // The stream is long-lived — abort it so it cannot dangle (matches the
-    // other SSE tests, e.g. render-routes.test.ts view_update/heartbeat).
-    ctrl.abort();
+    const events = await fetch(`${server.url}/api/events`);
+    expect(events.status).toBe(404); // cut with the SSE transport
   });
 
   it("J) v1 wires null token => /ws upgrade succeeds WITHOUT ?session=", async () => {

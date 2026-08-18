@@ -8,7 +8,7 @@
  *   - on load: GET /api/views -> render tabs; select location.hash (or "main").
  *   - GET /api/view/:id -> md injects the server-rendered html; html sets an
  *     <iframe sandbox=""> (no allow-scripts / allow-same-origin) srcdoc (D5).
- *   - EventSource('/api/events') -> on view_update refresh tabs + re-render the
+ *   - /ws view_update frames -> refresh tabs + re-render the
  *     affected view; a view carrying presentId auto-focuses (blocking HITL gate).
  *   - When a view JSON carries presentId + controls, renderView appends a
  *     declarative .webui-toolbar under #content; a control click sends an
@@ -268,28 +268,23 @@ async function renderView(id) {
 
 async function refresh() { await loadViews(); await renderView(activeId); }
 
-function subscribe() {
-  const es = new EventSource('/api/events');
-  es.onmessage = async function (e) {
-    let data; try { data = JSON.parse(e.data); } catch { return; }
-    if (!data || !data.viewId) return;
-    await loadViews();
-    // Auto-focus on present (blocking gate): a presenting view the user is not
-    // looking at is a silent deadlock, so probe the updated view and switch to
-    // it when it carries a presentId. The SSE payload shape stays
-    // {viewId, updatedAt} — the probe uses the normal /api/view endpoint.
-    if (data.viewId !== activeId) {
-      try {
-        const res = await fetch('/api/view/' + encodeURIComponent(data.viewId));
-        if (res.ok) {
-          const v = await res.json();
-          if (v && v.presentId) { activeId = data.viewId; location.hash = data.viewId; }
-        }
-      } catch { /* probe failed — stay on the current view */ }
-    }
-    if (data.viewId === activeId) await renderView(activeId);
-  };
-  es.onerror = function () { es.close(); setTimeout(subscribe, 2000); };
+// webui-simplify §3: one live transport — the view-refresh signal rides the
+// EXISTING /ws frames (view_update) — no second live channel.
+async function onViewUpdate(viewId) {
+  await loadViews();
+  // Auto-focus on present (blocking gate): a presenting view the user is not
+  // looking at is a silent deadlock, so probe the updated view and switch to
+  // it when it carries a presentId.
+  if (viewId !== activeId) {
+    try {
+      const res = await fetch('/api/view/' + encodeURIComponent(viewId));
+      if (res.ok) {
+        const v = await res.json();
+        if (v && v.presentId) { activeId = viewId; location.hash = viewId; }
+      }
+    } catch { /* probe failed — stay on the current view */ }
+  }
+  if (viewId === activeId) await renderView(activeId);
 }
 
 // --- HITL response channel: the EXISTING inbound /ws (web-server.ts upgrade) ---
@@ -325,6 +320,7 @@ function connectWs() {
     let frame; try { frame = JSON.parse(message.data); } catch { return; }
     if (!frame || typeof frame.type !== 'string') return;
     if (frame.type === 'snapshot' && frame.state) { txRenderSnapshot(frame.state); return; }
+    if (frame.type === 'view_update') { onViewUpdate(frame.viewId); return; } // §3: the SSE successor
     txApply(frame);
   };
 }
@@ -1353,12 +1349,12 @@ function renderControls(v) {
     if (body) body.innerHTML = '';
   };
   // v2 (architecture v2 §3.6): a rejected initial fetch must not permanently
-  // skip subscribe() — retry the whole boot.
+  // skip the view boot — retry the whole thing.
   try {
     await refresh();
     handleCardHash(); // event-cards (03): #card-<id> deep link — after the first render; the retry backoff covers the async snapshot
     handlePaneHash(); // hash-addressable panes: #report/#more/#inbox restore on load + refresh
-    subscribe();
+    // (webui-simplify §3: view refresh rides /ws — no separate boot step.)
     window.addEventListener('hashchange', function () { handleCardHash(); handlePaneHash(); }); // live re-route on later hash changes (cards first — they own routing)
     // event-cards (04): host listener for the viewer bridge — ONE global
     // message listener. A postMessage carrying __webuiCard becomes a LOCAL
