@@ -538,7 +538,10 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
    * browser a presentation is awaiting its answer.
    */
   function syncPendingState(): void {
-    controller.setWatchdogSuspended(pending.size > 0);
+    // Suspend under EITHER hitl shape: an open presentation OR a pending
+    // questionnaire (a human deciding is legitimate no-activity in both).
+    // presentId stays presentation-only — asks have their own dialog surface.
+    controller.setWatchdogSuspended(pending.size > 0 || pendingAskIds.size > 0);
     const id = pending.size === 1 ? [...pending.keys()][0]! : null;
     sessionStore.setPresentId(id);
   }
@@ -615,6 +618,13 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
   // Reset in the session_shutdown handler + dispose() next to answeredCardIds
   // — a fresh session re-broadcasts fresh pilot cards.
   const askCardIds = new Set<string>();
+  // Wedge incident (2026-08-18): pending questionnaire promptIds — while one
+  // is out, the ask tool is legitimately awaiting a HUMAN (the driver can be
+  // silent for far longer than staleMs while the user decides). The stale
+  // watchdog must suspend exactly like it does under an open presentation
+  // (§3.5), or a slow human triggers a spurious force-release + warning (and
+  // downstream goal heartbeats misread the wait as a stalled session).
+  const pendingAskIds = new Set<string>();
   const viewUrls = new Map<string, string>();
   let archifySeq = 0;
 
@@ -1050,6 +1060,8 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       body: { question: "Answer the questionnaire", fields: askCardFields(p?.questions) },
     });
     askCardIds.add(cardId);
+    pendingAskIds.add(promptId);
+    syncPendingState(); // suspend the stale watchdog while the human decides
   });
 
   // ask-user tombstone (webui-tui-parity C1): every questionnaire exit emits
@@ -1065,6 +1077,8 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     // rides the same replay path, so a refreshed shell replays card then
     // card_done IN ORDER and renders the answered form, never a ghost form.
     askCardIds.delete(`ask-${promptId}`); // cards-ux2 (04): tombstone moved to the answer guard
+    pendingAskIds.delete(promptId);
+    syncPendingState(); // no pending asks left -> the stale watchdog re-arms
   });
 
   // webui_present (the blocking HITL gate, spec Component 2): the `present` dep
@@ -1217,6 +1231,8 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
     // event-cards (05): pilot wiring state resets with the rest of the
     // per-session card state (see the declaration for the lifetime contract).
     askCardIds.clear();
+    pendingAskIds.clear(); // wedge fix: never leak a suspension across sessions
+    syncPendingState();
     viewUrls.clear();
     archifySeq = 0;
   });
@@ -1321,6 +1337,8 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
       sessionStamp = "";
       // event-cards (05): pilot wiring state — same reset as shutdown.
       askCardIds.clear();
+      pendingAskIds.clear();
+      syncPendingState();
       viewUrls.clear();
       archifySeq = 0;
       server.setHttpRoutes(null);

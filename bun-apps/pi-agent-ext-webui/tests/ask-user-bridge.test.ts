@@ -173,3 +173,40 @@ describe("ask-user bridge (ticket 03)", () => {
     expect(Array.isArray((captured?.result as { answers?: unknown[] })?.answers)).toBe(true);
   });
 });
+
+describe("ask-user bridge — watchdog suspension (wedge incident 2026-08-18)", () => {
+  it("a pending questionnaire suspends the stale watchdog; answering re-arms it", async () => {
+    // Incident replay: browser input acquires the web driver, the user takes
+    // longer than staleMs to decide -> the OLD code force-released + warned
+    // (and downstream goal heartbeats misread the wait as a stalled session).
+    // Contract: while a questionnaire is pending, silence = a human deciding
+    // (same §3.5 rule as presentations); after it is answered, re-arm.
+    let fakeNow = 1_000_000;
+    const clock = {
+      now: () => fakeNow,
+      setInterval(handler: () => void, ms: number) {
+        const id = globalThis.setInterval(handler, ms);
+        return { clear: () => globalThis.clearInterval(id) };
+      },
+    };
+    const pi = new MockPi();
+    const server = new WebServer({ port: 0 });
+    started.push(server);
+    const wiring = wireWebui(pi as never, { server, clock });
+    wirings.push(wiring);
+    pi.emitHost("session_start", {});
+    // web acquires the driver (a browser input — source "extension")
+    pi.emitHost("input", { source: "extension" });
+    // the questionnaire goes out — pending from this moment
+    pi.events.emit("rpiv:ask-user:prompt", { promptId: "wedge-1", questions: [{ question: "Pick", options: ["a", "b"] }] });
+    // ...the human thinks for 11 minutes (staleMs is 10m) — NO force-release
+    fakeNow += 11 * 60_000;
+    await Bun.sleep(1500); // watchdog interval is 1s real-time
+    expect(pi.notified.some((m) => m.includes("force-released"))).toBe(false);
+    // answered -> suspension lifts -> the SAME silence now force-releases
+    pi.events.emit("rpiv:ask-user:answered", { promptId: "wedge-1" });
+    fakeNow += 11 * 60_000;
+    await Bun.sleep(1500);
+    expect(pi.notified.some((m) => m.includes("force-released"))).toBe(true);
+  });
+});
