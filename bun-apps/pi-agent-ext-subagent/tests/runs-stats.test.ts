@@ -18,7 +18,7 @@ test("runs-stats reports status counts and per-status medians for a fixture runs
     rec({ status: "turns", usage: { total: 500 }, turns: { turnsUsed: 8 } });
     rec({ status: "turns", usage: { total: 700 }, turns: { turnsUsed: 12 } });
 
-    const proc = Bun.spawnSync(["bun", join(import.meta.dir, "..", "scripts", "runs-stats.ts"), dir], {
+    const proc = Bun.spawnSync([process.execPath, join(import.meta.dir, "..", "scripts", "runs-stats.ts"), dir], {
       cwd: import.meta.dir,
     });
     const out = new TextDecoder().decode(proc.stdout);
