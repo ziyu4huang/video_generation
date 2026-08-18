@@ -45,6 +45,7 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>webui render</title>
+<link rel="icon" href="data:,"> <!-- no favicon request: a 404 there logged a console error on every clean boot -->
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
@@ -202,7 +203,7 @@ async function renderView(id) {
   const seq = ++renderSeq;
   const res = await fetch('/api/view/' + encodeURIComponent(id));
   if (seq !== renderSeq) return; // superseded by a newer render — drop the stale write
-  if (!res.ok) { contentEl.innerHTML = ''; return; }
+  if (!res.ok || res.status === 204) { contentEl.innerHTML = ''; return; } // 204 = empty main slot (boot probe)
   const v = await res.json();
   // 02-A guardrail (defensive — tab clicks already intercept url mode): a url
   // view must NEVER render into the sandbox srcdoc iframe. v2 cards-first:

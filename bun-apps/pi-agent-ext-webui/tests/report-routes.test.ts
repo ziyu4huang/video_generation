@@ -101,3 +101,16 @@ describe("GET /api/report/<id>/raw (standalone door)", () => {
     expect((await get(server.url, "report-md-1")).status).toBe(404);
   });
 });
+
+describe("GET /api/view/<id> — empty main slot is 204, not console noise (main-slot-204)", () => {
+  it("missing MAIN view -> 204 No Content (boot probe, no console error)", async () => {
+    const { server } = setup();
+    const res = await fetch(`${server.url}/api/view/main`);
+    expect(res.status).toBe(204);
+    expect(await res.text()).toBe("");
+  });
+  it("any OTHER missing id -> 404 (true not-found semantics kept)", async () => {
+    const { server } = setup();
+    expect((await fetch(`${server.url}/api/view/other`)).status).toBe(404);
+  });
+});
