@@ -1,6 +1,6 @@
 # register-tool-surface — extension registerTool tools on the agent tool surface
 
-status: active
+status: done
 
 ## Why (user-approved 2026-08-17)
 
@@ -67,3 +67,7 @@ tools-explicit experiment: preflight ACCEPTS the registerTool name, but the chil
 ## Confound correction (2026-08-18)
 
 The tools-explicit repro ran through the orchestrator HARNESS's subagent tool (restricted surface), not the repo's pi-agent-ext-subagent. Static audit of the repo chain (params.tools -> buildSpawnOptions -> buildSubagentArgs --tools csv -> pi shim -> worktree cli.ts with run-dir extension loading) is sound end-to-end; combined with #1600, subagent + registerTool is EXPECTED TO WORK. Ticket 01 downgraded to live-verification-only. Details in ticket 01.
+
+## Closed (2026-08-18)
+
+L2 live verification: real model -> repo subagent tool -> preflight pass -> child sees webui_report -> child CALLS it -> report lands in the persistence mirror (line 8, exact task title). Chain: #1600 session surface + #1602 static audit + this. No repo defect; effort done.
