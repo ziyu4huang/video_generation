@@ -18,8 +18,10 @@ export interface TurnSessionSurface {
 
 /** Why a turn-capped subagent run was aborted before its next turn. */
 export interface TurnExhaustion {
-  /** The caller-declared ceiling on prompt→response turns. */
-  maxTurns: number;
+  /** The caller-declared ceiling on prompt→response turns. Optional only on the
+   *  success surface (an unlimited done run reports turnsUsed with no cap) —
+   *  abort paths (the `turns` failure kind) always set it. */
+  maxTurns?: number;
   /** Turns completed when the abort fired (== maxTurns). */
   turnsUsed: number;
 }

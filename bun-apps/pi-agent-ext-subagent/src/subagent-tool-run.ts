@@ -6,7 +6,7 @@
  * of the inline code it replaces.
  */
 
-import type { AgentHistoryEntry, BudgetWarning } from "@repo/pi-agent-core-runtime";
+import type { AgentHistoryEntry, BudgetWarning, TurnExhaustion } from "@repo/pi-agent-core-runtime";
 import { parseSddReport } from "@repo/pi-agent-core-runtime";
 import type { TSchema } from "typebox";
 import { roleAwareDefaults, tierDefaultToken } from "./budget-defaults.js";
@@ -379,6 +379,8 @@ export function buildDetails(
     usage?: SubagentToolDetails["usage"];
     /** Informational 80% warning from the spawn result — surfaced as details.budget.warning. */
     budgetWarning?: BudgetWarning;
+    /** Authoritative TurnGuard count on the done path (from the runner's onTurns) — `maxTurns` key absent for unlimited runs. */
+    turns?: TurnExhaustion;
     output: string;
   },
   model: { model: string; requestedModel: string | undefined; fellBack: boolean },
@@ -412,7 +414,11 @@ export function buildDetails(
         : result.budgetWarning
           ? { warning: result.budgetWarning }
           : undefined,
-    turns: failure?.kind === "turns" ? failure.turns : undefined,
+    // Turns on both surfaces since 2026-08-18: the abort path (failure kind
+    // "turns") carries its exhaustion record; the done path carries the
+    // authoritative TurnGuard count captured via onTurns. Mutually exclusive
+    // by construction — the spawn result sets turns only on success.
+    turns: failure?.kind === "turns" ? failure.turns : result.turns,
     report: parseSddReport(result.output),
     scopeCheck: extra.scopeCheck,
     watchdog: extra.watchdog,
