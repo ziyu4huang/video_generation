@@ -10,7 +10,7 @@ console error, so the power-tool webui audit invariant zero-console-errors
 could NEVER pass on a clean boot (both the live audit and the e2e stub probe
 showed 2x "Failed to load resource: 404" traced to this exact URL).
 
-## What (PR #<PR>)
+## What (PR #1592)
 
 - render-routes.ts: missing view + id === "main" -> 204 No Content (an empty
   main slot is a normal state, not a missing resource); every other missing id
