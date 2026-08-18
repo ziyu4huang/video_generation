@@ -1,0 +1,14 @@
+# Skill candidate: dispatch-budget-rebalance
+
+- **candidate skill-name**: dispatch-budget-rebalance
+- **trigger/symptom**: Subagent dispatches dying at maxTurns (turns aborts outnumber token aborts); role envelopes set below the done-run median (starvation by design); any dispatch consumer found envelope-less (calling spawnSubagent / spawnSubagentSubprocess directly instead of the subagent tool seam); a new extraction/leaf dispatch path appearing.
+- **lesson**: From the 200-run dispatch ledger + the 2026-08-18 rebalance session (PRs #1652/#1653/#1654): turns is the top killer (31/200) vs tokens (23) vs timeout (6) — raise turn ceilings before token ceilings; a ceiling below the done-run median (old recon 60k vs median 71k) starves typical successful runs; ROLE_AWARE_DISPATCH_BOUNDS applies ONLY at the subagent tool seam — direct spawnSubagent callers (zk extension dispatches) and subprocess-seam callers (obsidian leaf) get NO envelope unless they spread roleAwareDefaults themselves; on the subprocess seam wall-clock is the ONLY budget knob (no token/turn fields); explicit params of ANY kind opt the whole envelope out, so audit call sites for accidental explicit values.
+- **proposed procedure**:
+  1. Read the runs ledger (~/.pi/subagents/runs + .planning/knowledge/ empirics) — compute done vs aborted medians per dimension; prioritize turns > tokens > time.
+  2. Grep ALL consumers of spawnSubagent / spawnSubagentSubprocess / the subagent tools; classify each as tool-seam (envelope applies), direct-call (envelope-less), or subprocess-seam (wall-clock only).
+  3. For envelope-less callers: classify recon vs writer from the effective toolset; spread roleAwareDefaults(role) at the call site (exported from @repo/pi-agent-ext-subagent).
+  4. Adjust ROLE_AWARE_DISPATCH_BOUNDS only from medians: ceiling ≥ done-median; turns headroom to the turns-abort median; leave unindicted dimensions unchanged.
+  5. Update test pins — budget-defaults.test.ts table pins AND tool tests pinning footer-gate interactions (shouldInjectFooter flips at maxTurns > 10; envelope changes can cross it by design — pin both sides).
+  6. Ship via devops local-ci + pr-finish; re-verify affected package suites green at the merged HEAD.
+- **evidence**: 200-run ledger (see pi-agent-ext-superpowers skills/dispatch-recovery + git #1626); dynamic-budgets effort map `.planning/2026-08-15-subagent-dynamic-budgets/map.md` (recon 60k/8t → 120k/12t, writer 24t → 28t, footer-gate crossing, leaf 5→20 min, zk bounds closure — PRs #1652/#1653/#1654).
+- **promotion gate**: writing-skills test-first process — NOT yet run; this file is the candidate capture only.
