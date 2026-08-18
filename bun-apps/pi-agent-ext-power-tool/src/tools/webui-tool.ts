@@ -314,15 +314,56 @@ export function connectFailureReport(url: string, error: unknown): string {
 /** Dogfood door: POST the audit report to the audited webui's /api/report.
  * Returns "ok" (published), "rejected" (non-200), or "unreachable" (fetch
  * threw) — NEVER throws: publishing must not fail the audit it reports on. */
-export async function publishAuditReport(port: number, markdown: string): Promise<"ok" | "rejected" | "unreachable"> {
+export async function publishAuditReport(
+  port: number,
+  markdown: string,
+  screenshots: string[] = [],
+): Promise<"ok" | "rejected" | "unreachable"> {
   try {
+    // Visual dogfood: when tab screenshots exist, embed them as data-URI
+    // <img> in an HTML body — the per-tab VISUAL evidence lands in the Report
+    // tab next to the findings, instead of staying buried in
+    // ~/.pi/power-browser/runs/. Read failures degrade to the markdown frame
+    // (best-effort by contract: publishing must not fail the audit).
+    let htmlBody: string | undefined;
+    if (screenshots.length > 0) {
+      try {
+        const shots = screenshots
+          .map((p) => {
+            const b64 = fs.readFileSync(p).toString("base64");
+            const name = path.basename(p).replace(/\.png$/, "");
+            return (
+              '<figure style="margin:0 0 18px"><figcaption style="font:600 12px -apple-system,system-ui,sans-serif;color:#8b949e;margin-bottom:6px">' +
+              name +
+              '</figcaption><img alt="' +
+              name +
+              '" src="data:image/png;base64,' +
+              b64 +
+              '" style="max-width:100%;border:1px solid #30363d;border-radius:8px" /></figure>'
+            );
+          })
+          .join("");
+        const text = markdown
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/\n/g, "<br />");
+        htmlBody =
+          '<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;background:#0d1117;color:#e6edf3;font:13px/1.55 -apple-system,system-ui,sans-serif;padding:14px}pre{white-space:pre-wrap}</style></head><body><pre style="font:inherit;margin:0 0 18px">' +
+          text +
+          "</pre>" +
+          shots +
+          "</body></html>";
+      } catch {
+        htmlBody = undefined; // fall back to the markdown frame
+      }
+    }
     const res = await fetch("http://localhost:" + port + "/api/report", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: "webui audit — localhost:" + port,
         source: "webui-audit",
-        markdown,
+        ...(htmlBody ? { html: htmlBody } : { markdown }),
       }),
     });
     return res.ok ? "ok" : "rejected";
@@ -452,7 +493,7 @@ export function makeWebuiTool() {
         // NEVER fails the audit it reports on.
         let publishNote = "";
         if (params.publish !== false) {
-          const published = await publishAuditReport(params.port ?? DEFAULT_PORT, report);
+          const published = await publishAuditReport(params.port ?? DEFAULT_PORT, report, screenshots);
           publishNote =
             published === "ok"
               ? "\n\n_audit report published to the webui Report tab._"

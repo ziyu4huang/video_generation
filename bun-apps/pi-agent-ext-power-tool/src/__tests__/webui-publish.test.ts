@@ -40,3 +40,28 @@ describe("publishAuditReport (dogfood door)", () => {
     expect(await publishAuditReport(dead, "x")).toBe("unreachable");
   });
 });
+
+describe("publishAuditReport — visual dogfood (screenshots embedded)", () => {
+  test("with a screenshot, the frame is html with a data-URI img; without, markdown is kept", async () => {
+    const { writeFileSync, mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "webui-vis-"));
+    const png = join(dir, "tab-report.png");
+    // 1x1 transparent PNG
+    writeFileSync(png, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64"));
+    received.length = 0;
+    expect(await publishAuditReport((srv.address() as { port: number }).port, "# md", [png])).toBe("ok");
+    expect(received.length).toBe(1);
+    const htmlFrame = received[0] as { html?: string; markdown?: string };
+    expect(typeof htmlFrame.html).toBe("string");
+    expect(htmlFrame.html).toContain("data:image/png;base64,");
+    expect(htmlFrame.html).toContain("tab-report");
+    expect(htmlFrame.markdown).toBeUndefined();
+    received.length = 0;
+    expect(await publishAuditReport((srv.address() as { port: number }).port, "# md only")).toBe("ok");
+    const mdFrame = received[0] as { html?: string; markdown?: string };
+    expect(typeof mdFrame.markdown).toBe("string");
+    expect(mdFrame.html).toBeUndefined();
+  });
+});
