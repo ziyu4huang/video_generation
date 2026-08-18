@@ -81,8 +81,9 @@ Two structural gaps made the ceilings worse than a mere miscalibration:
 
 - [ADR-subagent-0001](./0001-why-extracted.md) — the subagent extraction whose
   tool-seam-only bounds this ADR generalizes.
-- The `dispatch-budget-rebalance` skill
-  (`pi-agent-ext-superpowers/skills/dispatch-recovery/`) — the re-measure
+- The `dispatch-recovery` skill's Calibration section
+  (`pi-agent-ext-superpowers/skills/dispatch-recovery/`, merged in from the
+  former `dispatch-budget-rebalance` skill in #1699) — the re-measure
   procedure and grep audit this decision is operated through.
 - `.planning/knowledge/dispatch-budget-rebalance.md` — the ledger analysis.
 - PRs #1652, #1653, #1654, #1655, #1656, #1658, #1660, #1661, #1668 — the
