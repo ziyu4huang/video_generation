@@ -6,7 +6,10 @@ G3 (multi-session index) DEFERRED — needs cross-process discovery, a new
 architecture decision.
 
 Follow-ups:
-1. G1 — markdown in the chat feed (reuse the Report marked pipeline via a
-   server endpoint; sandboxed display) [next]
-2. G2 — mobile responsive pass (viewport, narrow-width CSS, sticky composer)
-3. G4 — transcript search/filter in the Inbox feed (client-side)
+1. G1 — markdown chat feed (#1691: message_end broadcast + /api/markdown +
+   sandboxed chat bubbles; also fixed the invisible-assistant-reply gap the
+   v3 diet left in #1683)
+2. G2 — mobile responsive pass (#1692)
+3. G4 — transcript search/filter (#1693: substring + all/text/cards chips,
+   MutationObserver-driven)
+G3 stays DEFERRED (multi-session index — architecture decision pending).

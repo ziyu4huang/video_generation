@@ -96,6 +96,12 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
   .chat-row.user { align-self: flex-end; max-width: 80%; background: #1f6feb33; border: 1px solid #1f6feb55; border-radius: 10px; padding: .3rem .55rem; font-size: .8rem; white-space: pre-wrap; word-break: break-word; }
   .chat-row.assistant { align-self: stretch; border-left: 2px solid #6cf6; padding-left: .5rem; }
   iframe.chat-md { width: 100%; border: 0; background: #0000; }
+  /* webui-readability G4: the Inbox filter bar — substring + kind chips. */
+  #feed-filter-bar { display: flex; gap: .4rem; align-items: center; padding: .3rem 1rem; max-width: 1500px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+  #feed-filter-bar[hidden] { display: none; }
+  #feed-filter { flex: 1; padding: .3rem .55rem; border-radius: 6px; border: 1px solid #8884; background: #0000; color: inherit; font-size: .8rem; }
+  #feed-filter-bar .chip { border: 1px solid #8886; border-radius: 999px; padding: .15rem .6rem; font-size: .72rem; cursor: pointer; color: #8b949e; }
+  #feed-filter-bar .chip.active { border-color: #6cf; color: #6cf; }
   .btw-box .btw-send, .btw-entry .btw-resolve { align-self: flex-start; margin-top: .35rem; padding: .35rem .9rem; border-radius: 6px; border: 1px solid #6cf; background: #6cf3; color: inherit; cursor: pointer; font-size: .8rem; }
   .btw-entry .btw-resolve { border-color: #8886; background: #8882; font-size: .72rem; padding: .2rem .6rem; }
   .btw-chips { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .3rem; }
@@ -175,6 +181,12 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
 <main>
   <div id="content"></div>
   <section id="report-pane" hidden></section>
+  <div id="feed-filter-bar">
+    <input id="feed-filter" type="text" placeholder="Filter the feed (text match)..." />
+    <span class="chip active" data-kind="all">All</span>
+    <span class="chip" data-kind="text">Text</span>
+    <span class="chip" data-kind="cards">Cards</span>
+  </div>
   <div id="chat-feed"></div>
   <section id="cards-pane"></section>
   <section id="more-pane" hidden>
@@ -400,6 +412,40 @@ function renderChatAssistant(text) {
     .then(function (d) { if (d && typeof d.html === 'string') f.srcdoc = mdDoc(d.html); })
     .catch(function () { /* keep the escaped-text fallback */ });
 }
+// webui-readability G4: find-across-turns — substring + kind filter over the
+// Inbox feed (chat rows + card articles). A MutationObserver re-applies on
+// every appended row, so the render functions stay untouched.
+var feedFilterKind = 'all';
+function applyFeedFilter() {
+  var input = document.getElementById('feed-filter');
+  var q = ((input && input.value) || '').trim().toLowerCase();
+  var showText = feedFilterKind !== 'cards';
+  var showCards = feedFilterKind !== 'text';
+  if (chatFeedEl) Array.prototype.forEach.call(chatFeedEl.children, function (row) {
+    var matches = q === '' || String(row.textContent || '').toLowerCase().indexOf(q) !== -1;
+    row.style.display = (showText && matches) ? '' : 'none';
+  });
+  if (cardsPaneEl) Array.prototype.forEach.call(cardsPaneEl.children, function (card) {
+    var matches = q === '' || String(card.textContent || '').toLowerCase().indexOf(q) !== -1;
+    card.style.display = (showCards && matches) ? '' : 'none';
+  });
+}
+(function () {
+  var input = document.getElementById('feed-filter');
+  if (input) input.addEventListener('input', applyFeedFilter);
+  var chips = document.querySelectorAll('#feed-filter-bar .chip');
+  Array.prototype.forEach.call(chips, function (chip) {
+    chip.addEventListener('click', function () {
+      feedFilterKind = chip.getAttribute('data-kind') || 'all';
+      Array.prototype.forEach.call(chips, function (c) { c.classList.toggle('active', c === chip); });
+      applyFeedFilter();
+    });
+  });
+  var mo = new MutationObserver(applyFeedFilter);
+  if (chatFeedEl) mo.observe(chatFeedEl, { childList: true });
+  if (cardsPaneEl) mo.observe(cardsPaneEl, { childList: true });
+})();
+
 function appendChatUser(text) {
   if (!chatFeedEl || !text) return;
   var row = document.createElement('div');
@@ -552,6 +598,8 @@ function setPane(name) {
   var composerEl = document.getElementById('composer');
   if (composerEl) composerEl.hidden = name !== 'events'; // chat lives in the Inbox only
   if (chatFeedEl) chatFeedEl.hidden = name !== 'events'; // G1: the chat feed too
+  var filterBar = document.getElementById('feed-filter-bar');
+  if (filterBar) filterBar.hidden = name !== 'events'; // G4: the filter is Inbox-only
   if (name === 'more') { renderBtwPane(); renderDataPane(); btwPollStart(); } else { btwPollStop(); }
   for (const tn of ['report', 'more']) {
     const el = document.getElementById('pane-tab-' + tn);
