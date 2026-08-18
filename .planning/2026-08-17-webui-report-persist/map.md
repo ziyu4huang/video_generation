@@ -15,3 +15,7 @@ The session store is in-memory: every pi restart wiped the Report tab clean (bit
 ## Verification
 
 webui suite 512 pass / 0 fail; ci-local PASS. Live end-to-end (publish -> restart -> reports still present) lands at the user's next pi restart.
+
+## Follow-up (2026-08-18): wiring-level integration guard + contamination fix
+
+tests/report-restore.integration.test.ts boots the real wireWebui (fresh injected WebServer per boot — the getServer singleton would poison sibling tests) against a seeded JSONL mirror and proves disk -> restore loop -> store -> /raw 200 + the #1592 204 contract — converting the manual /tmp proof into a permanent regression guard. LATENT DEFECT exposed and fixed: unisolated wiring tests (webui-wiring, wiring-live-smoke) absorbed the REAL user mirror (~/.pi/webui/reports/reports-8890.jsonl, +6 frames) the moment it existed — any bun test on a machine with report history failed 4 tests; both files now isolate WEBUI_REPORT_DIR to a tmp dir per run. webui 516/0.
