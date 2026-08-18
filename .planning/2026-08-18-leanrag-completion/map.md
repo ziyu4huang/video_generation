@@ -57,3 +57,4 @@ Wiring-only — no new concepts ported, no behavior change outside these seams.
 ## Build log
 - 2026-08-18 — effort created from grilling; recon folded in (see recon/); spec locked.
 - 2026-08-18 — tickets 03→01→02/04 cut (01 blocks on 03; 02/04 independent). Execution next (SDD).
+- 2026-08-18 — 03 merged (entity-summary cache merge-on-write).

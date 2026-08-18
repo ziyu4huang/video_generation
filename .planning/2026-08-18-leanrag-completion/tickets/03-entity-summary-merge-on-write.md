@@ -1,5 +1,5 @@
 ---
-status: open
+status: done
 blocking: []
 ---
 # 03 — Entity-summary cache merge-on-write
@@ -10,3 +10,5 @@ Inside saveEntitySummaries: load existing entries via loadEntitySummaries, sprea
 - Round-trip unit test: save A, save B (disjoint keys) in a tmp vault → file contains A∪B.
 - Existing zk tests green (`( cd bun-apps/pi-agent-ext-knowledge-card && bun test )`).
 - Zero behavior change for in-memory cache semantics.
+## Resolution
+Landed merge-on-write in `saveEntitySummaries` (load-disk + `{...existing, ...cache}` overlay; PRUNE-ON-REBUILD comment rewritten to note pruning must delete-then-save) with a disjoint-keys round-trip test — package suite green (465 pass, 0 fail).

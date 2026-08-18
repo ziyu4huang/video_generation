@@ -13,6 +13,9 @@
  *  - load/save round-trip in a temp dir; corrupt JSON → {}; version
  *    envelope: mismatched version (v1) or old plain-object shape → {}
  *    (wholesale reset — cache is derived, regenerates lazily).
+ *  - merge-on-write (D6): save A then disjoint B → persisted file holds
+ *    A∪B; overlapping key → later save wins; corrupt on-disk base degrades
+ *    to a fresh write (no crash, non-fatal).
  *  - augmentEmbedText: undefined → base unchanged; with summary → prefixed,
  *    capped at 1000 chars total.
  */
@@ -210,6 +213,45 @@ describe("entity summary cache load/save", () => {
 		// pre-v2 on-disk shape: { [mergedText]: summary } directly, no wrapper
 		writeFileSync(p, JSON.stringify({ "person:ada": "legacy summary" }), "utf8");
 		expect(loadEntitySummaries(dir, "model/x")).toEqual({});
+	});
+
+	test("merge-on-write: save A then disjoint B → persisted file contains A∪B", () => {
+		const dir = mkdtempSync(join(tmpdir(), "es-"));
+		tmpDirs.push(dir);
+		const a: EntitySummaryCache = { "person:ada": "ada summary", "org:acme": "acme summary" };
+		const b: EntitySummaryCache = { "tool:rust": "rust summary" };
+		saveEntitySummaries(dir, "model/x", a);
+		saveEntitySummaries(dir, "model/x", b);
+		// in-memory view after the second save is the union
+		expect(loadEntitySummaries(dir, "model/x")).toEqual({ ...a, ...b });
+		// on-disk shape is the v2 envelope holding the union
+		const p = join(dir, ".knowledge-semantic", "entity-summaries-model-x.json");
+		expect(JSON.parse(readFileSync(p, "utf8"))).toEqual({
+			version: ENTITY_SUMMARY_CACHE_VERSION,
+			entries: { ...a, ...b },
+		});
+	});
+
+	test("merge-on-write: overlapping key → later save (B) wins", () => {
+		const dir = mkdtempSync(join(tmpdir(), "es-"));
+		tmpDirs.push(dir);
+		saveEntitySummaries(dir, "model/x", { "person:ada": "stale ada" });
+		saveEntitySummaries(dir, "model/x", { "person:ada": "fresh ada", "org:acme": "acme" });
+		expect(loadEntitySummaries(dir, "model/x")).toEqual({
+			"person:ada": "fresh ada",
+			"org:acme": "acme",
+		});
+	});
+
+	test("merge-on-write: corrupt on-disk file degrades to a fresh write", () => {
+		const dir = mkdtempSync(join(tmpdir(), "es-"));
+		tmpDirs.push(dir);
+		mkdirSync(join(dir, ".knowledge-semantic"), { recursive: true });
+		const p = join(dir, ".knowledge-semantic", "entity-summaries-model-x.json");
+		writeFileSync(p, "{ not json", "utf8");
+		saveEntitySummaries(dir, "model/x", { "person:ada": "ada" });
+		// corrupt base loaded as {} → the save is a clean full replace, not a crash
+		expect(loadEntitySummaries(dir, "model/x")).toEqual({ "person:ada": "ada" });
 	});
 });
 
