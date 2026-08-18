@@ -30,7 +30,10 @@
  *
  * Env:
  *   OB_VAULT_PATH / OB_VAULT_DIR   vault resolution (passed through to obsidian)
- *   OB_SUBAGENT_TIMEOUT_MS         subagent timeout (default 5 min)
+ *   zk_* dispatch                  in-process spawnSubagent + role-aware bounds
+ *                                  (writer/recon via roleAwareDefaults) since
+ *                                  2026-08-18; the old 5-min child-process
+ *                                  runner timeout no longer applies.
  *   KC_SUBAGENT_MODEL              distill/CRUD/RAG subagent model (default
  *                                  google/gemma-4-12b — a LOCAL LM Studio
  *                                  model, keeps knowledge-card's LLM spend
@@ -120,6 +123,7 @@ import {
 } from "../src/knowledge-pipeline-seam.ts";
 import {
 	spawnSubagent as __defaultSpawnSubagent,
+	roleAwareDefaults,
 	type SpawnSubagentOptions,
 	type SpawnSubagentResult,
 } from "@repo/pi-agent-ext-subagent";
@@ -146,6 +150,17 @@ import {
 	buildUpdateTask,
 	CHECK_TASK,
 } from "../src/task-builders.ts";
+
+// 2026-08-18: zk_card/zk_ask dispatches ran envelope-less — spawnSubagent
+// forwards only EXPLICIT budgets and the role bounds live at the tool seam
+// these calls bypass. Calibrated per dispatch empirics (turns-limit deaths
+// are the top killer, 31/200): zk_card children write notes (writer), zk_ask
+// retrieves + synthesizes (recon). SUBAGENT_TOKEN_BUDGET_DISABLE remains the
+// global escape hatch (roleAwareDefaults → applied:false).
+const zkRoleBounds = (role: "recon" | "writer") => {
+	const d = roleAwareDefaults({}, role);
+	return d.applied ? { tokenBudget: d.tokenBudget, maxTurns: d.maxTurns, timeoutMs: d.timeoutMs } : {};
+};
 
 // ---------------------------------------------------------------------------
 // zk_* spawn seam (sub-project ①) — zk_card / zk_ask spawn through this
@@ -465,6 +480,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				task,
 				tools,
 				model: resolveDistillModel(params.model),
+				...zkRoleBounds("writer"),
 				excludeTools: params.exclude_tools,
 				externalSignal: signal,
 				extensionTools: parentExtensionTools,
@@ -613,6 +629,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				task,
 				tools: ragToolsFor(params.blend ?? "default"),
 				model: resolveDistillModel(params.model),
+				...zkRoleBounds("recon"),
 				excludeTools: params.exclude_tools,
 				externalSignal: signal,
 				extensionTools: parentExtensionTools,

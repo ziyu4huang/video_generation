@@ -100,6 +100,70 @@ describe("zk_card spawn migration (① Phase 3 parity)", () => {
 	});
 });
 
+describe("zk_* role-aware dispatch bounds (writer/recon envelopes at the zk seam)", () => {
+	const ENV_KEY = "SUBAGENT_TOKEN_BUDGET_DISABLE";
+	let prev: string | undefined;
+	let calls: any[];
+	beforeEach(() => {
+		prev = process.env[ENV_KEY];
+		delete process.env[ENV_KEY];
+		calls = [];
+		__setZkSpawnForTest(async (opts: any) => {
+			calls.push(opts);
+			return { output: "SUBAGENT_OUTPUT" };
+		});
+	});
+	afterEach(() => {
+		__setZkSpawnForTest(null);
+		if (prev === undefined) delete process.env[ENV_KEY];
+		else process.env[ENV_KEY] = prev;
+	});
+
+	it("zk_card gets writer bounds, zk_ask gets recon bounds; SUBAGENT_TOKEN_BUDGET_DISABLE strips both", async () => {
+		const { pi, tools } = mkPi();
+		piKnowledgeCardExtension(pi);
+		const zkCard: any = tools.get("zk_card");
+		const zkAsk: any = tools.get("zk_ask");
+
+		// writer envelope: zk_card → zkRoleBounds("writer") → roleAwareDefaults({}, "writer")
+		await zkCard.execute("id", { action: "check" }, undefined, undefined, CTX);
+		assert.deepEqual(
+			{
+				tokenBudget: calls.at(-1)!.tokenBudget,
+				maxTurns: calls.at(-1)!.maxTurns,
+				timeoutMs: calls.at(-1)!.timeoutMs,
+			},
+			{ tokenBudget: 400_000, maxTurns: 28, timeoutMs: 1_200_000 },
+			"zk_card → writer bounds 400k / 28 turns / 20 min",
+		);
+
+		// recon envelope: zk_ask → zkRoleBounds("recon") → roleAwareDefaults({}, "recon")
+		await zkAsk.execute("id", { question: "what is a zettel?" }, undefined, undefined, CTX);
+		assert.deepEqual(
+			{
+				tokenBudget: calls.at(-1)!.tokenBudget,
+				maxTurns: calls.at(-1)!.maxTurns,
+				timeoutMs: calls.at(-1)!.timeoutMs,
+		},
+			{ tokenBudget: 120_000, maxTurns: 12, timeoutMs: 300_000 },
+			"zk_ask → recon bounds 120k / 12 turns / 5 min",
+		);
+
+		// global escape hatch: envelope absent entirely (no partial leftovers)
+		process.env[ENV_KEY] = "1";
+		await zkCard.execute("id", { action: "check" }, undefined, undefined, CTX);
+		await zkAsk.execute("id", { question: "what is a zettel?" }, undefined, undefined, CTX);
+		for (const [label, opts] of [
+			["zk_card", calls.at(-2)],
+			["zk_ask", calls.at(-1)],
+		] as const) {
+			assert.equal(opts.tokenBudget, undefined, `${label}: tokenBudget absent under disable`);
+			assert.equal(opts.maxTurns, undefined, `${label}: maxTurns absent under disable`);
+			assert.equal(opts.timeoutMs, undefined, `${label}: timeoutMs absent under disable`);
+		}
+	});
+});
+
 describe("resolveDistillModel precedence (explicit arg > KC_SUBAGENT_MODEL env > default)", () => {
 	const ENV_KEY = "KC_SUBAGENT_MODEL";
 	let prev: string | undefined;
