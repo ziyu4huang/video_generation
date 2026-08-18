@@ -24,7 +24,20 @@ test("accountTurnForNudges resets on tools, else increments", () => {
 	expect(accountTurnForNudges(0, 1)).toBe(2);
 });
 test("shouldWedgeAlert throttles to once per threshold", () => {
-	const base = { supervising: true, sessionBusy: true, silentMs: 31 * 60_000, thresholdMs: 30 * 60_000 };
+	const base = { supervising: true, sessionBusy: true, silentMs: 31 * 60_000, thresholdMs: 30 * 60_000, awaitingUser: false };
 	expect(shouldWedgeAlert({ ...base, msSinceLastAlert: 31 * 60_000 })).toBe(true);
 	expect(shouldWedgeAlert({ ...base, msSinceLastAlert: 1000 })).toBe(false);
+});
+test("shouldWedgeAlert exempts HITL waits even when fully armed", () => {
+	// #1616 family: ask_user_question pending = blocked on a human, not wedged.
+	expect(
+		shouldWedgeAlert({
+			supervising: true,
+			sessionBusy: true,
+			silentMs: 31 * 60_000,
+			msSinceLastAlert: 31 * 60_000,
+			thresholdMs: 30 * 60_000,
+			awaitingUser: true,
+		}),
+	).toBe(false);
 });

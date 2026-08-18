@@ -36,8 +36,13 @@ export function accountTurnForNudges(toolCalls: number, currentNudges: number): 
 export interface WedgeInput {
 	supervising: boolean; sessionBusy: boolean; silentMs: number;
 	msSinceLastAlert: number; thresholdMs: number;
+	awaitingUser: boolean;
 }
 export function shouldWedgeAlert(i: WedgeInput): boolean {
+	// HITL wedge exemption (#1616 family): a busy session whose silence is an
+	// ask_user_question awaiting a human answer is blocked-on-human, not
+	// wedged — never alert while an ask is in flight.
+	if (i.awaitingUser) return false;
 	if (!i.supervising || !i.sessionBusy || i.thresholdMs <= 0 || i.silentMs < i.thresholdMs) return false;
 	return i.msSinceLastAlert >= i.thresholdMs;
 }

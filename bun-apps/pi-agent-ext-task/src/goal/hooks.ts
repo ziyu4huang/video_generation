@@ -62,6 +62,7 @@ import {
 } from "./status.js";
 import { sendContinuationPrompt, sendLengthContinue, sendPrompt } from "./prompting.js";
 import { pauseGoalAfterAgentEnd, updateGoalUsage } from "./lifecycle.js";
+import { ASK_USER_QUESTION_TOOL_NAME } from "../ask-user/ask-user-question.js";
 
 // No-progress guard (issue #1616): counts consecutive goal continuations that
 // carried zero tool activity. A session whose agent lacks the goal_complete
@@ -177,7 +178,11 @@ export function registerGoalHooks(pi: ExtensionAPI): void {
 		clearStaleGoalToolCallBlock();
 	});
 
-	pi.on("tool_call", () => {
+	pi.on("tool_call", (event: { toolName: string }) => {
+		// HITL wedge exemption (#1616 family): mark an in-flight ask_user_question
+		// so shouldWedgeAlert knows the session is blocked on a human answer, not
+		// wedged. Cleared by the next tool_execution_end (asks cannot nest).
+		if (event.toolName === ASK_USER_QUESTION_TOOL_NAME) goalState.hitlToolInFlight = true;
 		if (!goalState.staleGoalToolCallsBlocked) return;
 		if (!goalState.activeGoal || goalState.activeGoal.status !== "paused") {
 			clearStaleGoalToolCallBlock();
@@ -195,6 +200,10 @@ export function registerGoalHooks(pi: ExtensionAPI): void {
 	// serialized result so repeated identical outputs (e.g. an error the agent
 	// keeps re-triggering, or a no-op read) surface as "no new information".
 	pi.on("tool_execution_end", (event: { toolName: string; result?: unknown; isError?: boolean }) => {
+		// HITL wedge exemption (#1616 family): any tool result clears the pending
+		// ask flag — unconditionally, before the no-goal skip, so a cleared goal
+		// mid-ask can never strand the exemption on.
+		goalState.hitlToolInFlight = false;
 		// Skip the (cheap-but-wasteful) fingerprint work when no goal is active.
 		if (!goalState.activeGoal) return;
 		// Task 10: a tool call is the strongest liveness signal — stamp it so the
