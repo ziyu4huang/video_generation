@@ -13,7 +13,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { formatBudget, type ActiveGoal } from "./format.js";
-import { goalState, incrementGoal, transitionGoal } from "./state.js";
+import { applyDefaultTokenBudget, goalState, incrementGoal, transitionGoal } from "./state.js";
 import { clearPersistedGoal, loadGoalStateFromSession, persistGoal } from "./persistence.js";
 import { isLoopActive, runLoopTick } from "../loop/loop.js";
 import {
@@ -277,6 +277,7 @@ export function registerGoalHooks(pi: ExtensionAPI): void {
 
 		clearGoalRecoveryForGoal(goalId);
 
+		applyDefaultTokenBudget(goalState.activeGoal);
 		if (goalState.activeGoal.tokenBudget !== undefined && goalState.activeGoal.tokensUsed >= goalState.activeGoal.tokenBudget) {
 			cancelContinuationPending();
 			goalState.activeGoal = transitionGoal(goalState.activeGoal, "budget_limited");

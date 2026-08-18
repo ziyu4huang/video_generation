@@ -82,6 +82,14 @@ export function createGoal(
 	};
 }
 
+// Issue #1616: conservative default so every goal is bounded even when created
+// without --tokens; raise explicitly via /goal --tokens for large efforts.
+export const DEFAULT_GOAL_TOKEN_BUDGET = 500_000;
+
+export function applyDefaultTokenBudget(goal: ActiveGoal): void {
+	if (goal.tokenBudget === undefined) goal.tokenBudget = DEFAULT_GOAL_TOKEN_BUDGET;
+}
+
 export function transitionGoal(goal: ActiveGoal, status: GoalStatus): ActiveGoal {
 	return normalizeGoalForBudget({ ...goal, status, updatedAt: Date.now() });
 }
