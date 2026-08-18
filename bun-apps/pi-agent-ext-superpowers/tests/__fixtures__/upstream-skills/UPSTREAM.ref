@@ -79,6 +79,11 @@ baselined: 2026-07-26
 #   .planning/knowledge/dispatch-budget-rebalance.md), NOT an upstream port —
 #   intentionally unpinned (absent from PORTED_SKILLS by design); same
 #   treatment as dispatch-recovery above.
+#   SUPERSEDED 2026-08-19 (PR #1699): that skill was merged INTO dispatch-recovery
+#   as its Calibration section and the directory deleted — 16 skill dirs -> 15.
+#   Nothing about the pinned set changed (it was never pinned); the entry is kept
+#   so a future reader does not go looking for a directory that was removed on
+#   purpose.
 #
 # LOCAL-DIVERGENCES addendum (2026-08-18, 3rd): ext-simplification-round-2
 #   (PR #1682) compressed five ported SKILL.md IN PLACE — writing-skills

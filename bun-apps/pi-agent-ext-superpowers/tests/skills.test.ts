@@ -65,13 +65,21 @@ const skillFiles = listSkillFiles();
 describe("skills suite (Pi loader rules)", () => {
   it(`discovers all ${EXPECTED_SKILLS.length} expected skills`, () => {
     const names = skillFiles.map((s) => s.name).sort();
-    expect(names).toEqual([...EXPECTED_SKILLS].sort());
+    expect(
+      names,
+      "skills/ and scripts/skill-provenance.ts disagree. Adding or removing a skill DIRECTORY is only " +
+        "half the change — declare it (or drop it) in scripts/skill-provenance.ts, which is the single " +
+        "source both this test and the fidelity pin derive from.",
+    ).toEqual([...EXPECTED_SKILLS].sort());
   });
 
   it("skills/ is a byte-identical port — no stray files added", () => {
     // Every file under skills/ must live inside one of the expected skill dirs.
     const all = readdirSync(skillsDir).filter((e) => statSync(join(skillsDir, e)).isDirectory());
-    expect(all.sort()).toEqual([...EXPECTED_SKILLS].sort());
+    expect(
+      all.sort(),
+      "a directory under skills/ is not declared in scripts/skill-provenance.ts (or vice versa)",
+    ).toEqual([...EXPECTED_SKILLS].sort());
   });
 
   for (const { name, path } of skillFiles) {

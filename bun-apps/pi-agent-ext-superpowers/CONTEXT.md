@@ -1,13 +1,13 @@
 # pi-agent-ext-superpowers
 
-The ubiquitous language of pi-agent-ext-superpowers — a Pi-native port of the Superpowers (Primer Radiant) software-development methodology: 16 skills — 14 ported from upstream (byte-pinned, with sanctioned local divergences) and 2 repo-owned, wrapped in this package's own Pi extension (CSO skill discovery + `using-superpowers` bootstrap). This context records the port's own vocabulary — the pin/bootstrap model, pipeline stages, and artifact-home rules — not the upstream skill bodies (those are pinned, see ADR-superpowers-0004).
+The ubiquitous language of pi-agent-ext-superpowers — a Pi-native port of the Superpowers (Primer Radiant) software-development methodology: 15 skills — 14 ported from upstream (byte-pinned, with sanctioned local divergences) and 1 repo-owned, wrapped in this package's own Pi extension (CSO skill discovery + `using-superpowers` bootstrap). This context records the port's own vocabulary — the pin/bootstrap model, pipeline stages, and artifact-home rules — not the upstream skill bodies (those are pinned, see ADR-superpowers-0004).
 
 ## Language
 
 ### Package purpose
 
 **Superpowers port**:
-This package's product — the 14 upstream skills (brainstorming, writing-plans, executing-plans, subagent-driven-development, test-driven-development, systematic-debugging, requesting/receiving-code-review, verification-before-completion, finishing-a-development-branch, using-git-worktrees, dispatching-parallel-agents, writing-skills, using-superpowers), the 2 repo-owned ones promoted from `.planning/knowledge` (dispatch-recovery, dispatch-budget-rebalance), plus the Pi extension wrapper that discovers and injects them.
+This package's product — the 14 upstream skills (brainstorming, writing-plans, executing-plans, subagent-driven-development, test-driven-development, systematic-debugging, requesting/receiving-code-review, verification-before-completion, finishing-a-development-branch, using-git-worktrees, dispatching-parallel-agents, writing-skills, using-superpowers), the 1 repo-owned one promoted from `.planning/knowledge` (dispatch-recovery, which absorbed dispatch-budget-rebalance's Calibration section in #1699), plus the Pi extension wrapper that discovers and injects them.
 _Avoid_: our methodology (the ported bodies are upstream-derived, not repo-authored — but they are NOT bare-verbatim any more: see the LOCAL-DIVERGENCES record in UPSTREAM.ref)
 
 **Positive content pin** (ADR-superpowers-0004):
