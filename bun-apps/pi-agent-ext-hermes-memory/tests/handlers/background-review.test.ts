@@ -286,6 +286,59 @@ describe("setupBackgroundReview", () => {
     assert.strictEqual(opts.retryOnTransient, true);
   });
 
+  it("caps the fallback reviewer with the recon envelope (escape hatch honored)", async () => {
+    const pi = createMockPi();
+    setupWithSpawn(pi);
+
+    fireMessageEnd("user");
+    fireMessageEnd("user");
+    fireMessageEnd("user");
+
+    for (let i = 0; i < 10; i++) {
+      fireTurnEnd();
+    }
+    await settle();
+
+    assert.strictEqual(spawnCalls.length, 1);
+    const opts = spawnCalls[0]!;
+    // roleAwareDefaults({}, "recon") threads the recon bounds into the spawn
+    // opts (the fallback reviewer previously ran envelope-less).
+    assert.strictEqual(opts.tokenBudget, 120_000, "recon tokenBudget cap");
+    assert.strictEqual(opts.maxTurns, 12, "recon maxTurns cap");
+    // The deliberate 120s wall-clock stays (tighter than the envelope's 5min).
+    assert.strictEqual(opts.timeoutMs, 120000);
+
+    // SUBAGENT_TOKEN_BUDGET_DISABLE=1 → envelope absent (env read at call time).
+    // Reset shared harness state between scenarios (sibling tests do the same).
+    handlers = {};
+    spawnCalls = [];
+    notifyCalls = [];
+    const saved = process.env.SUBAGENT_TOKEN_BUDGET_DISABLE;
+    process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = "1";
+    try {
+      const escapePi = createMockPi();
+      setupWithSpawn(escapePi);
+
+      fireMessageEnd("user");
+      fireMessageEnd("user");
+      fireMessageEnd("user");
+
+      for (let i = 0; i < 10; i++) {
+        fireTurnEnd();
+      }
+      await settle();
+
+      assert.strictEqual(spawnCalls.length, 1);
+      const escapeOpts = spawnCalls[0]!;
+      assert.strictEqual(escapeOpts.tokenBudget, undefined, "escape hatch drops tokenBudget");
+      assert.strictEqual(escapeOpts.maxTurns, undefined, "escape hatch drops maxTurns");
+      assert.strictEqual(escapeOpts.timeoutMs, 120000, "wall-clock stays even under the escape hatch");
+    } finally {
+      if (saved === undefined) delete process.env.SUBAGENT_TOKEN_BUDGET_DISABLE;
+      else process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = saved;
+    }
+  });
+
   it("does NOT trigger review when reviewEnabled is false", async () => {
     const config = { ...defaultConfig, reviewEnabled: false };
     const pi = createMockPi();
