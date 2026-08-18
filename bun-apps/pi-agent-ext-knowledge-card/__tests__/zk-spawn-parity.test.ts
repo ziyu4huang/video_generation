@@ -134,8 +134,11 @@ describe("zk_* role-aware dispatch bounds (writer/recon envelopes at the zk seam
 				timeoutMs: calls.at(-1)!.timeoutMs,
 			},
 			{ tokenBudget: 400_000, maxTurns: 28, timeoutMs: 1_200_000 },
-			"zk_card → writer bounds 400k / 28 turns / 20 min",
+			"zk_card → writer bounds 400k / 28 turns (no timeout at the zk seam)",
 		);
+		const writerOpts = calls.at(-1)!;
+		assert.match(writerOpts.task, /--- abort-safety/, "writer task carries the abort-safety footer");
+		assert.match(writerOpts.task, /\/tmp\/subagent-runs\/zk-card-\d+\.md/, "cites the run-scoped log path");
 
 		// recon envelope: zk_ask → zkRoleBounds("recon") → roleAwareDefaults({}, "recon")
 		await zkAsk.execute("id", { question: "what is a zettel?" }, undefined, undefined, CTX);
@@ -146,17 +149,28 @@ describe("zk_* role-aware dispatch bounds (writer/recon envelopes at the zk seam
 				timeoutMs: calls.at(-1)!.timeoutMs,
 		},
 			{ tokenBudget: 120_000, maxTurns: 12, timeoutMs: 300_000 },
-			"zk_ask → recon bounds 120k / 12 turns / 5 min",
+			"zk_ask → recon bounds 120k / 12 turns (no timeout at the zk seam)",
 		);
+		const reconOpts = calls.at(-1)!;
+		assert.match(reconOpts.task, /--- abort-safety/, "recon task carries the abort-safety footer");
+		assert.match(reconOpts.task, /\/tmp\/subagent-runs\/zk-ask-\d+\.md/, "cites the run-scoped log path");
 
 		// global escape hatch: envelope absent entirely (no partial leftovers)
 		process.env[ENV_KEY] = "1";
 		await zkCard.execute("id", { action: "check" }, undefined, undefined, CTX);
 		await zkAsk.execute("id", { question: "what is a zettel?" }, undefined, undefined, CTX);
+		// the dispatch layer appends the footer to the enabled captures; strip it to
+		// recover the exact original task the disable invocations (same args) must match
+		const taskSansFooter = (t: string) => t.replace(/(?:\r?\n)*--- abort-safety[\s\S]*$/, "");
 		for (const [label, opts] of [
 			["zk_card", calls.at(-2)],
 			["zk_ask", calls.at(-1)],
 		] as const) {
+			assert.equal(
+				opts.task,
+				taskSansFooter(label === "zk_card" ? writerOpts.task : reconOpts.task),
+				`${label}: disable: task verbatim, no footer`,
+			);
 			assert.equal(opts.tokenBudget, undefined, `${label}: tokenBudget absent under disable`);
 			assert.equal(opts.maxTurns, undefined, `${label}: maxTurns absent under disable`);
 			assert.equal(opts.timeoutMs, undefined, `${label}: timeoutMs absent under disable`);

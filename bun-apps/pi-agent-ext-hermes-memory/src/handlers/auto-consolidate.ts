@@ -13,7 +13,7 @@
  */
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { roleAwareDefaults, spawnSubagent } from "@repo/pi-agent-ext-subagent";
+import { roleAwareDirectCall, spawnSubagent } from "@repo/pi-agent-ext-subagent";
 import type { SpawnSubagentResult } from "@repo/pi-agent-ext-subagent";
 import type { TSchema } from "typebox";
 import { MemoryStore } from "../store/memory-store.js";
@@ -125,16 +125,14 @@ export async function triggerConsolidation(
     const modelOverride = llmConfig.llmModelOverride?.trim();
     // 2026-08-18 envelope closure (#1652/#1654/#1655 companion): direct
     // spawnSubagent calls bypass the tool-seam role bounds — same gap
-    // class. Caps only; the tighter local timeoutMs wins over the envelope
+    // class. roleAwareDirectCall carries the caps and the abort-safety
+    // footer together; the tighter local timeoutMs wins over the envelope
     // wall. SUBAGENT_TOKEN_BUDGET_DISABLE escape hatch honored (computed at
     // call time). Computed here — not module scope — so the env flag is
     // read at call time.
-    const writerCaps = (() => {
-      const d = roleAwareDefaults({}, "writer");
-      return d.applied ? { tokenBudget: d.tokenBudget, maxTurns: d.maxTurns } : {};
-    })();
+    const d = roleAwareDirectCall("writer", prompt, `hermes-auto-consolidate-${Date.now()}`);
     const result = await spawn({
-      task: prompt,
+      task: d.task,
       // Honor llmModelOverride when set (keeps resolveConsolidatorModelLabel
       // honest); otherwise fall back to the small tier.
       ...(modelOverride ? { model: modelOverride } : { tier: "small" }),
@@ -142,8 +140,8 @@ export async function triggerConsolidation(
         "You are a memory consolidator. Use ONLY the memory tool to merge/dedup entries as instructed. Do not read or modify any files.",
       tools: ["memory"],
       extensionTools: [memoryToolDef],
-      ...writerCaps,
-      timeoutMs,
+      tokenBudget: d.tokenBudget,
+      maxTurns: d.maxTurns,      timeoutMs,
       externalSignal: signal,
       // Consolidation runs WHILE the parent holds the cross-process fileLock on
       // the target (so the in-process child, which bypasses the lock, is the

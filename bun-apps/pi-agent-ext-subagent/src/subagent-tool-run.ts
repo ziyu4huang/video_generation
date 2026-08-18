@@ -9,7 +9,7 @@
 import type { AgentHistoryEntry, BudgetWarning } from "@repo/pi-agent-core-runtime";
 import { parseSddReport } from "@repo/pi-agent-core-runtime";
 import type { TSchema } from "typebox";
-import { tierDefaultToken } from "./budget-defaults.js";
+import { roleAwareDefaults, tierDefaultToken } from "./budget-defaults.js";
 import type { computeScopeCheck, GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
 import { deriveTaskLabel, type SpawnSubagentOptions, type SubagentFailure } from "./spawn-subagent.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
@@ -254,6 +254,26 @@ export function abortSafetyFooter(logPath: string): string {
     "- Wrap long shell commands in `timeout <seconds> <cmd>`; kill orphan processes you spawn.",
     "- Near your turn/budget limits, FIRST write your final report to that log file, then reply.",
   ].join("\n");
+}
+
+/** 2026-08-18 recovery parity: direct spawnSubagent callers bypassed the tool
+ * layer's abort-safety footer — their children died at the new role caps with
+ * no as-you-go log, defeating janitor recovery (dispatch empirics: last words
+ * are not evidence; the log file is). Caps and footer travel together: applied
+ * envelope ⇒ footer appended; disabled (SUBAGENT_TOKEN_BUDGET_DISABLE) ⇒ neither.
+ * The envelope wall is included; a caller wanting a tighter wall sets its own
+ * timeoutMs after the spread (object-literal later keys win). */
+export function roleAwareDirectCall(
+  role: "recon" | "writer",
+  task: string,
+  logId: string,
+): { task: string; tokenBudget?: number; maxTurns?: number; timeoutMs?: number } {
+  const d = roleAwareDefaults({}, role);
+  if (!d.applied) return { task };
+  const wrapped = shouldInjectFooter({ maxTurns: d.maxTurns })
+    ? `${task}${abortSafetyFooter(abortSafetyLogPath(logId))}`
+    : task;
+  return { task: wrapped, tokenBudget: d.tokenBudget, maxTurns: d.maxTurns, timeoutMs: d.timeoutMs };
 }
 
 type SubagentRunRecord = Parameters<SubagentRunPersistence["save"]>[0];

@@ -102,6 +102,7 @@ export {
   latestMessageLine,
   STREAMING_EXPANDED_TAIL,
 } from "./subagent-tool-render.js";
+export { roleAwareDirectCall } from "./subagent-tool-run.js";
 export type { SubagentToolDetails, SubagentToolOptions } from "./subagent-tool-schema.js";
 export type {
   BatchResultSlot,

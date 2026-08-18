@@ -142,7 +142,7 @@ describe("zk_card — per-action wiring (zkSpawn seam)", () => {
 		await run("zk_card", { action: "add", content: "BODY", folder: "Inbox", force: true });
 		const c = lastZkSpawnCall();
 		expect(c.tools).toEqual(ADD_TOOLS);
-		expect(c.task).toBe(buildAddTask("BODY", "Inbox", true));
+		expect(c.task.startsWith(buildAddTask("BODY", "Inbox", true))).toBe(true);
 		expect(c.cwd).toBe(CWD);
 	});
 
@@ -150,28 +150,28 @@ describe("zk_card — per-action wiring (zkSpawn seam)", () => {
 		await run("zk_card", { action: "find", query: "Q", limit: 4, context_lines: 0 });
 		const c = lastZkSpawnCall();
 		expect(c.tools).toEqual(FIND_TOOLS);
-		expect(c.task).toBe(buildFindTask("Q", 0, 4));
+		expect(c.task.startsWith(buildFindTask("Q", 0, 4))).toBe(true);
 	});
 
 	it("update → UPDATE_TOOLS + buildUpdateTask", async () => {
 		await run("zk_card", { action: "update", note: "n.md", content: "MORE" });
 		const c = lastZkSpawnCall();
 		expect(c.tools).toEqual(UPDATE_TOOLS);
-		expect(c.task).toBe(buildUpdateTask("n.md", "MORE"));
+		expect(c.task.startsWith(buildUpdateTask("n.md", "MORE"))).toBe(true);
 	});
 
 	it("remove → REMOVE_TOOLS + buildRemoveTask", async () => {
 		await run("zk_card", { action: "remove", note: "n.md", force: false });
 		const c = lastZkSpawnCall();
 		expect(c.tools).toEqual(REMOVE_TOOLS);
-		expect(c.task).toBe(buildRemoveTask("n.md", false));
+		expect(c.task.startsWith(buildRemoveTask("n.md", false))).toBe(true);
 	});
 
 	it("check → CHECK_TOOLS + CHECK_TASK", async () => {
 		await run("zk_card", { action: "check" });
 		const c = lastZkSpawnCall();
 		expect(c.tools).toEqual(CHECK_TOOLS);
-		expect(c.task).toBe(CHECK_TASK);
+		expect(c.task.startsWith(CHECK_TASK)).toBe(true);
 	});
 });
 
@@ -182,7 +182,7 @@ describe("zk_ask — wiring + defaults (zkSpawn seam)", () => {
 		expect(c.tools).toEqual(RAG_TOOLS);
 		// defaults: depth=2, top_k=8, summarize=false, retrieveOnly=false,
 		// maxNeighbors=5, maxNoteTokens=2000, noRefine=false, folder=undefined
-		expect(c.task).toBe(buildRagTask("Why?", 2, 8, false, false, 5, 2000, false, undefined));
+		expect(c.task.startsWith(buildRagTask("Why?", 2, 8, false, false, 5, 2000, false, undefined))).toBe(true);
 	});
 
 	it("forwards explicit RAG params", async () => {
@@ -197,9 +197,9 @@ describe("zk_ask — wiring + defaults (zkSpawn seam)", () => {
 			no_refine: true,
 			folder: "Notes",
 		});
-		expect(lastZkSpawnCall().task).toBe(
+		expect(lastZkSpawnCall().task.startsWith(
 			buildRagTask("Why?", 1, 3, true, true, 2, 500, true, "Notes"),
-		);
+		)).toBe(true);
 	});
 });
 

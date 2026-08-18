@@ -12,7 +12,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { roleAwareDefaults, spawnSubagent } from "@repo/pi-agent-ext-subagent";
+import { roleAwareDirectCall, spawnSubagent } from "@repo/pi-agent-ext-subagent";
 import { COMBINED_REVIEW_PROMPT } from "../constants.js";
 import { MemoryStore } from "../store/memory-store.js";
 import type { CardStore } from "../store/card-store.js";
@@ -100,20 +100,19 @@ async function runReviewSubagent(
   // bypasses — same gap class as zk #1654). Review = read + synthesize → recon
   // envelope for token/turn caps; the deliberate 120s wall-clock stays (it is
   // tighter than the envelope's 5min and wins). SUBAGENT_TOKEN_BUDGET_DISABLE
-  // remains the global escape hatch (roleAwareDefaults → applied:false).
+  // remains the global escape hatch (roleAwareDirectCall → applied:false; caps
+  // and the abort-safety footer travel together).
   // Computed here — not module scope — so the env flag is read at call time.
-  const reconCaps = (() => {
-    const d = roleAwareDefaults({}, "recon");
-    return d.applied ? { tokenBudget: d.tokenBudget, maxTurns: d.maxTurns } : {};
-  })();
+  const d = roleAwareDirectCall("recon", prompt, `hermes-bg-review-${Date.now()}`);
   const result = await spawn({
-    task: prompt,
+    task: d.task,
     ...(modelOverride ? { model: modelOverride } : { tier: "small" }),
     instructions:
       "You are a memory reviewer. Use ONLY the memory tool to save notable facts as instructed. Do not read or modify files.",
     tools: ["memory"],
     extensionTools: [memoryToolDef],
-    ...reconCaps,
+    tokenBudget: d.tokenBudget,
+    maxTurns: d.maxTurns,
     timeoutMs: 120000,
     retryOnTransient: true,
   });
