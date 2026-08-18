@@ -391,11 +391,47 @@ export function makeWebuiTool() {
     parameters: Type.Object({
       port: Type.Optional(Type.Number({ description: "webui port (default 8890)" })),
       publish: Type.Optional(Type.Boolean({ description: "Publish this audit report into the audited webui's Report tab (default true)." })),
+      mode: Type.Optional(
+        Type.Union([Type.Literal("audit"), Type.Literal("btw")], {
+          description:
+            '"audit" (default): full Playwright audit. "btw": list the BTW tab\u0027s pending branch questions (browser -> agent; NO browser launched) — answer them in chat, then resolve each via POST /api/btw/<id>/resolve.',
+        }),
+      ),
     }),
 
     async execute(_toolCallId, params, signal) {
       signal?.throwIfAborted();
       const url = `http://localhost:${params.port ?? DEFAULT_PORT}`;
+      // mode "btw": NO browser — drain the BTW tab's pending branch questions
+      // (browser -> agent direction; the reverse of ask cards).
+      if (params.mode === "btw") {
+        try {
+          const res = await fetch(url + "/api/btw", { signal });
+          if (!res.ok) return { content: [{ type: "text", text: "webui btw: GET /api/btw -> HTTP " + res.status }], details: undefined };
+          const d = (await res.json()) as { pending?: Array<{ id: string; question: string; chips?: string[]; aboutTitle?: string }> };
+          const pending = d.pending ?? [];
+          if (pending.length === 0)
+            return { content: [{ type: "text", text: "webui btw: no pending branch questions. The user queues them from the BTW tab (branch a question from current content); answer in chat when one appears, then resolve it via POST " + url + "/api/btw/<id>/resolve" }], details: undefined };
+          const lines = pending.map(
+            (e) =>
+              "- " + e.id + (e.aboutTitle ? " (about: " + e.aboutTitle + ")" : "") + "\n  " + e.question +
+              (e.chips && e.chips.length ? "\n  hints: " + e.chips.join(", ") : ""),
+          );
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  "webui btw — " + pending.length + " pending branch question(s) from the user:\n" + lines.join("\n") +
+                  "\nAnswer these in chat (they reference webui content), then resolve each: POST " + url + "/api/btw/<id>/resolve",
+              },
+            ],
+            details: null,
+          };
+        } catch (err) {
+          return { content: [{ type: "text", text: "webui btw: unreachable — " + (err instanceof Error ? err.message : String(err)) }], details: undefined };
+        }
+      }
       const consoleErrors: string[] = [];
       const pageErrors: string[] = [];
       let browser: Browser | null = null;

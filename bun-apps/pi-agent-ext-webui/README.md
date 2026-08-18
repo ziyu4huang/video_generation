@@ -223,3 +223,26 @@ package — no build step); `typecheck` alone is not the gate.
 
 The browser shell HTML is an embedded string in `src/render-shell.ts` (no separate
 static file).
+
+## BTW tab — branch a chat question from current content (demo)
+
+The ask direction reversed: ask cards flow agent → webui; a **BTW branch** flows
+webui → agent. Pick context from the Report tab (or none), write a question,
+optional comma-separated hint chips (ask-option style), and queue it. Pending
+branches poll while the tab is visible and survive restarts (event mirror
+`btw-<port>.jsonl`, same best-effort contract as report persistence). The agent
+drains them with the power-tool `webui` tool in `btw` mode (`{mode: "btw", port}` —
+no browser launched), answers in chat, and resolves via
+`POST /api/btw/<id>/resolve` (the tab's `resolved` button does the same). Routes:
+`POST/GET /api/btw`, `POST /api/btw/<id>/resolve`.
+
+## Data tab — what it can serve
+
+Scenario sketch (telemetry demo shipped; the rest are candidates):
+
+| scenario | serves | status |
+|---|---|---|
+| pipeline telemetry | one-glance health: port, uptime, mirror sizes, pending BTWs | **demo** — `GET /api/data/summary`, refreshed on tab activation |
+| raw frame explorer | inspect actual JSONL mirror payloads (debug persist/evict) | candidate |
+| artifacts registry | files the pipeline produced (exports, screenshots) with links | candidate |
+| ask analytics | card throughput, answer latency | candidate |
