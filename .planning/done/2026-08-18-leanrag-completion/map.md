@@ -1,6 +1,6 @@
 ---
 effort: 2026-08-18-leanrag-completion
-status: active
+status: complete
 created: 2026-08-18
 pipeline: wayfind→superpowers
 ---
