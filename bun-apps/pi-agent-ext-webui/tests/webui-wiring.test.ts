@@ -34,6 +34,7 @@ import { MockPi } from "./helpers/mock-pi.js";
 import { FakeClock } from "./helpers/fake-clock.js";
 import { MemoryBroadcaster } from "../src/broadcaster.js";
 import { wireWebui, type WebuiServer, type WebuiWiring } from "../src/webui-wiring.js";
+import { createSessionStore } from "../src/session-store.js";
 import { WebServer, type CommandHandler, type HttpRouteHandler } from "../src/web-server.js";
 import type { WebFrame } from "../src/protocol.js";
 
@@ -1135,4 +1136,20 @@ describe("wireWebui — webui-v3 02 frame diet", () => {
     const t = JSON.parse(sent[0]).state.transcript.map((f: { type: string }) => f.type);
     expect(t).toEqual(["session_info"]); // diet frames never stored; no snoop cards for them
   });
+});
+
+// webui-v3 diet follow-up: appexec frames (HITL tool RESULTS) share the
+// card/report eviction exemption — a long pure-HITL session must never
+// evict the answer payload a settled tool is waiting on.
+test("session store: appexec frames survive eviction past the cap (v3 diet)", () => {
+  const store = createSessionStore(3);
+  const appexec = { type: "appexec", id: "ae-1", callId: "c1", result: "ANSWER" } as unknown as WebFrame;
+  store.append(appexec);
+  for (let i = 0; i < 8; i += 1) {
+    store.append({ type: "session_info", info: "n" + i } as unknown as WebFrame);
+  }
+  const snap = store.snapshot();
+  const kept = snap.transcript.filter((f) => f.type === "appexec");
+  expect(kept.length).toBe(1);
+  expect((kept[0] as { result?: string }).result).toBe("ANSWER");
 });
