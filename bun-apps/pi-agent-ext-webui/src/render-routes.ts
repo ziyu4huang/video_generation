@@ -146,7 +146,15 @@ export function createRenderRoutes(
         return new Response("bad request", { status: 400 });
       }
       const view = registry.getView(id);
-      if (!view) return new Response("not found", { status: 404 });
+      // console-noise fix: the shell probes /api/view/main at boot; an EMPTY
+      // main slot is a normal state, but a 404 logs a console error in
+      // Chromium and keeps the audit's zero-console-errors invariant red on
+      // every clean boot. Answer 204 (no content) for THE main slot only —
+      // every other missing id stays a true 404.
+      if (!view) {
+        if (id === "main") return new Response(null, { status: 204 });
+        return new Response("not found", { status: 404 });
+      }
       if (view.mode === "html") {
         return json({
           id: view.id,
