@@ -414,6 +414,35 @@ let cardsVisible = false;
 // link — never toggles a visible pane away); undefined toggles. The tab is
 // looked up by id on every call — loadViews rebuilds the strip, so no stale
 // element closure survives a rebuild.
+// Hash-addressable panes (shareable tab URLs + back/forward + refresh-stable):
+// #inbox / #report / #data / #btw map onto setPane; #card-<id> deep links keep
+// precedence (a card hash owns routing — the pane sync never clobbers it).
+function paneHashOf(name) {
+  if (name === 'events') return '#inbox';
+  if (name === 'report' || name === 'data' || name === 'btw') return '#' + name;
+  return null; // collapsed (null) — clear the hash without a history entry
+}
+function syncPaneHash() {
+  try {
+    if (parseCardHashInline(location.hash) !== null) return; // card link owns it
+    var want = paneHashOf(activePane);
+    if (want === null) {
+      if (location.hash !== '') history.replaceState(null, '', location.pathname + location.search);
+      return;
+    }
+    if (location.hash !== want) location.hash = want; // history entry -> back/forward
+  } catch { /* never break a tab switch */ }
+}
+function handlePaneHash() {
+  try {
+    if (parseCardHashInline(location.hash) !== null) return;
+    var h = location.hash.replace(/^#/, '');
+    if (h === 'inbox') h = 'events';
+    if (h === 'report' || h === 'data' || h === 'btw' || h === 'events') {
+      if (activePane !== h) setPane(h);
+    }
+  } catch { /* never break boot */ }
+}
 function setPane(name) {
   activePane = name;
   cardsVisible = name === 'events';
@@ -430,6 +459,7 @@ function setPane(name) {
   }
   const ct = document.getElementById('cards-tab');
   if (ct) ct.classList.toggle('active', name === 'events');
+  syncPaneHash(); // hash-addressable panes: the URL follows the tab (and vice versa)
 }
 function toggleCardsTab(force) { setPane(typeof force === 'boolean' && !force ? null : 'events'); }
 
@@ -1245,8 +1275,9 @@ function renderControls(v) {
   try {
     await refresh();
     handleCardHash(); // event-cards (03): #card-<id> deep link — after the first render; the retry backoff covers the async snapshot
+    handlePaneHash(); // hash-addressable panes: #report/#data/#btw/#inbox restore on load + refresh
     subscribe();
-    window.addEventListener('hashchange', handleCardHash); // live re-route on later hash changes
+    window.addEventListener('hashchange', function () { handleCardHash(); handlePaneHash(); }); // live re-route on later hash changes (cards first — they own routing)
     // event-cards (04): host listener for the viewer bridge — ONE global
     // message listener. A postMessage carrying __webuiCard becomes a LOCAL
     // confirm card (Approve -> the t02 card_answer loop, Deny -> discard).
