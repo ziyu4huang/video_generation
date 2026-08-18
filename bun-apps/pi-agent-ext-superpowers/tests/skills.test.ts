@@ -28,6 +28,7 @@ const skillsDir = join(import.meta.dir, "..", "skills");
 
 const EXPECTED_SKILLS = [
   "brainstorming",
+  "dispatch-recovery",
   "dispatching-parallel-agents",
   "executing-plans",
   "finishing-a-development-branch",
