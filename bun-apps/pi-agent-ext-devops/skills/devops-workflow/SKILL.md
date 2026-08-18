@@ -279,6 +279,15 @@ guessing at launch flags. When they are absent:
   only to retry a merge that already passed; never to merge something local CI
   has not seen.
 
+  A merge refused for a **missing `workflow` scope** aborts as
+  `missing-workflow-scope` (not the generic `merge-failed`) and names the fix:
+  `gh auth refresh -h github.com -s workflow`, which the token owner must run
+  interactively. GitHub classifies this by PATH, so any PR touching
+  `.github/workflows/` trips it — including `ci.yml.disabled`, which nothing
+  runs. The scope is **not stable across a session**, so one successful merge
+  is not evidence it is still there. After refreshing, re-run with
+  `--assume-ci-green <head sha>` instead of paying for local_ci again.
+
 ## Discipline
 
 - **No raw-bash git for owned phases.** If a devops tool exists for the

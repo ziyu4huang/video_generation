@@ -20,7 +20,7 @@
  * git / gh / network.
  */
 import { test, expect, describe } from "bun:test";
-import { runPrFinishCli, parsePrFinishArgs, settlePrStatus, MERGE_STATE_POLLS, PR_FINISH_CLI_USAGE } from "../src/pr-finish-cli.js";
+import { runPrFinishCli, parsePrFinishArgs, settlePrStatus, isMissingWorkflowScope, MERGE_STATE_POLLS, PR_FINISH_CLI_USAGE } from "../src/pr-finish-cli.js";
 import type { GhClient } from "../src/recipe.js";
 import type { BranchClient } from "../src/branch-recipe.js";
 import type { runLocalCi } from "../src/ci-recipe.js";
@@ -684,5 +684,72 @@ describe("pr-finish-cli — the merge gates read a fresh, settled status", () =>
 		const good = parsePrFinishArgs(["42", "--assume-ci-green", OID.toUpperCase()]);
 		expect(good.ok).toBe(true);
 		if (good.ok) expect(good.args.assumeCiGreen).toBe(OID);
+	});
+});
+
+/**
+ * A missing `workflow` scope is a distinct, recoverable failure with exactly
+ * one fix — not a generic merge error. It blocked PR #1646 on 2026-08-18 and
+ * arrived as a raw GraphQL passthrough that named no remedy.
+ */
+describe("pr-finish-cli — the missing-workflow-scope refusal is its own class", () => {
+	const GRAPHQL_REFUSAL =
+		"gh pr merge 42 (direct) failed (exit 1): GraphQL: refusing to allow an OAuth App to create or " +
+		"update workflow `.github/workflows/ci.yml.disabled` without `workflow` scope (mergePullRequest)";
+
+	function ghThatRefuses(message: string) {
+		const statuses: PrStatus[] = [OPEN_CLEAN, OPEN_CLEAN];
+		return {
+			prStatus: async () => {
+				const s = statuses.shift();
+				if (!s) throw new Error("fake gh: no more prStatus snapshots");
+				return s;
+			},
+			mergeNow: async () => {
+				throw new Error(message);
+			},
+		} as unknown as GhClient;
+	}
+
+	test("the GraphQL refusal aborts as missing-workflow-scope and carries the fix command", async () => {
+		const res = await runPrFinishCli(["42"], {
+			gh: ghThatRefuses(GRAPHQL_REFUSAL),
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: async () => {},
+		});
+		expect(res.exitCode).toBe(1);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.aborted.reason).toBe("missing-workflow-scope");
+		expect(outcome.aborted.message).toContain("gh auth refresh -h github.com -s workflow");
+		// The retry shortcut is named too — without it the caller re-pays for CI.
+		expect(outcome.aborted.message).toContain("--assume-ci-green");
+		// The original text is preserved, not swallowed by the friendlier message.
+		expect(outcome.aborted.message).toContain("mergePullRequest");
+		expect(outcome.merged).toBe(false);
+	});
+
+	test("an unrelated merge failure still aborts as merge-failed (the class is not a catch-all)", async () => {
+		const res = await runPrFinishCli(["42"], {
+			gh: ghThatRefuses("gh pr merge 42 (direct) failed (exit 1): Base branch was modified"),
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: async () => {},
+		});
+		expect(JSON.parse(res.stdout).aborted.reason).toBe("merge-failed");
+	});
+
+	test("isMissingWorkflowScope matches the real wordings and nothing else", () => {
+		expect(isMissingWorkflowScope(GRAPHQL_REFUSAL)).toBe(true);
+		// GitHub has used both an OAuth-App and a GitHub-App phrasing.
+		expect(
+			isMissingWorkflowScope("refusing to allow a GitHub App to update workflow `.github/workflows/ci.yml` without `workflow` scope"),
+		).toBe(true);
+		expect(isMissingWorkflowScope("Base branch was modified. Review and try the merge again.")).toBe(false);
+		expect(isMissingWorkflowScope("Resource not accessible by integration")).toBe(false);
 	});
 });
