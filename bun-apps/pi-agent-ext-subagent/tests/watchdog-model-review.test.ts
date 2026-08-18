@@ -56,4 +56,58 @@ describe("model-review", () => {
     assert.equal(r.ran, false);
     assert.match(r.note ?? "", /review-skipped|boom/);
   });
+
+  it("caps the L2 reviewer with the recon envelope (caps + footer travel together)", async () => {
+    let task = "";
+    let opts: Record<string, unknown> = {};
+    const agent = {
+      run: async (t: string, o: Record<string, unknown>) => {
+        task = t;
+        opts = o;
+        return JSON.parse(okFinding().output);
+      },
+    };
+    await runModelReview({
+      cwd: process.cwd(),
+      diffText: "diff",
+      taskLabel: "t",
+      loadConfig: () => mockCfg,
+      // @ts-expect-error inject a mock runner
+      agent,
+    });
+    assert.match(task, /--- abort-safety/);
+    assert.match(task, /\/tmp\/subagent-runs\/watchdog-l2-\d+\.md/);
+    assert.equal(opts.tokenBudget, 120_000);
+    assert.equal(opts.maxTurns, 12);
+  });
+
+  it("SUBAGENT_TOKEN_BUDGET_DISABLE strips the L2 caps and footer", async () => {
+    const prev = process.env.SUBAGENT_TOKEN_BUDGET_DISABLE;
+    process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = "1";
+    try {
+      let task = "";
+      let opts: Record<string, unknown> = {};
+      const agent = {
+        run: async (t: string, o: Record<string, unknown>) => {
+          task = t;
+          opts = o;
+          return JSON.parse(okFinding().output);
+        },
+      };
+      await runModelReview({
+        cwd: process.cwd(),
+        diffText: "diff",
+        taskLabel: "t",
+        loadConfig: () => mockCfg,
+        // @ts-expect-error inject a mock runner
+        agent,
+      });
+      assert.equal(task.includes("abort-safety"), false);
+      assert.equal(opts.tokenBudget, undefined);
+      assert.equal(opts.maxTurns, undefined);
+    } finally {
+      if (prev === undefined) delete process.env.SUBAGENT_TOKEN_BUDGET_DISABLE;
+      else process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = prev;
+    }
+  });
 });

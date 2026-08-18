@@ -2,6 +2,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { loadModelTierConfig, type ModelTierConfig, resolveModelRole } from "@repo/pi-agent-core-runtime";
 import { Type } from "typebox";
 import { type SpawnSubagentOptions, spawnSubagent } from "../spawn-subagent.js";
+import { roleAwareDirectCall } from "../subagent-tool-run.js";
 import type { WatchdogFinding, WatchdogL2Result } from "./types.js";
 
 const ReviewSchema = Type.Object(
@@ -48,8 +49,16 @@ export async function runModelReview(input: {
   const reviewSpec = resolveModelRole({ capability: "review" }, cfg) ?? resolveModelRole({ tier: "big" }, cfg);
   if (!reviewSpec) return { ran: false, findings: [], note: "review-skipped: no review/big model configured" };
   try {
+    // 2026-08-18 envelope closure (#1658 companion): the L2 reviewer ran completely
+    // unbounded — recon caps + abort-safety footer travel together via
+    // roleAwareDirectCall; SUBAGENT_TOKEN_BUDGET_DISABLE strips both.
+    const review = roleAwareDirectCall(
+      "recon",
+      buildPrompt(input.diffText, input.taskLabel),
+      `watchdog-l2-${Date.now()}`,
+    );
     const res = await spawnSubagent({
-      task: buildPrompt(input.diffText, input.taskLabel),
+      task: review.task,
       cwd: input.cwd,
       model: reviewSpec,
       schema: ReviewSchema,
@@ -57,6 +66,9 @@ export async function runModelReview(input: {
       externalSignal: input.signal,
       retryOnTransient: false,
       // NO watchdog param — recursion-safe (spawnSubagent has no such field anyway).
+      ...(review.tokenBudget !== undefined
+        ? { tokenBudget: review.tokenBudget, maxTurns: review.maxTurns, timeoutMs: review.timeoutMs }
+        : {}),
       ...(input.agent ? { agent: input.agent } : {}),
     });
     if (res.failure) return { ran: false, findings: [], note: `review-skipped: ${res.failure.message}` };
