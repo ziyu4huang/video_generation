@@ -12,7 +12,7 @@
  * connect-time snapshot like any replayed history.
  * Env override WEBUI_REPORT_DIR (tests, sandboxes).
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendLine, readLines, rewriteLines } from "./jsonl-mirror.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { WebFrame } from "./protocol.js";
@@ -44,35 +44,22 @@ function isReportFrame(v: unknown): v is ReportFrame {
 
 /** Best-effort mirror write — one JSON line; failures are silent by contract. */
 export function appendReport(path: string, frame: ReportFrame): void {
-  try {
-    mkdirSync(join(path, ".."), { recursive: true });
-    appendFileSync(path, JSON.stringify(frame) + "\n", "utf8");
-  } catch {
-    /* best-effort by contract */
-  }
+  appendLine(path, frame);
 }
 
 /** Load the newest persisted report frames; corrupt or non-report lines
  * skipped; missing file -> []. Never throws. */
 export function loadReports(path: string): ReportFrame[] {
-  try {
-    if (!existsSync(path)) return [];
-    const lines = readFileSync(path, "utf8").split("\n");
-    const out: ReportFrame[] = [];
-    for (const line of lines) {
-      const s = line.trim();
-      if (s === "") continue;
-      try {
-        const v: unknown = JSON.parse(s);
-        if (isReportFrame(v)) out.push(v);
-      } catch {
-        /* corrupt line — skip */
-      }
+  const out: ReportFrame[] = [];
+  for (const s of readLines(path)) {
+    try {
+      const v: unknown = JSON.parse(s);
+      if (isReportFrame(v)) out.push(v);
+    } catch {
+      /* corrupt line — skip */
     }
-    return out.slice(-REPORT_RESTORE_CAP);
-  } catch {
-    return [];
   }
+  return out.slice(-REPORT_RESTORE_CAP);
 }
 
 /** report-cleanup: best-effort compaction — rewrite the mirror WITHOUT the
@@ -80,32 +67,21 @@ export function loadReports(path: string): ReportFrame[] {
  * cap); only the named ids go, order preserved, corrupt lines kept as-is.
  * Failures are silent by the same contract as append. */
 export function compactReports(path: string, removeIds: Set<string>): void {
-  try {
-    if (!existsSync(path) || removeIds.size === 0) return;
-    const lines = readFileSync(path, "utf8").split("\n");
-    const kept: string[] = [];
-    for (const line of lines) {
-      const s = line.trim();
-      if (s === "") continue;
-      try {
-        const v: unknown = JSON.parse(s);
-        if (typeof v === "object" && v !== null && removeIds.has((v as { id?: unknown }).id as string)) continue;
-      } catch {
-        /* corrupt line — keep as-is (load skips it anyway) */
-      }
-      kept.push(s);
+  if (removeIds.size === 0) return;
+  const kept: string[] = [];
+  for (const s of readLines(path)) {
+    try {
+      const v: unknown = JSON.parse(s);
+      if (typeof v === "object" && v !== null && removeIds.has((v as { id?: unknown }).id as string)) continue;
+    } catch {
+      /* corrupt line — keep as-is (load skips it anyway) */
     }
-    writeFileSync(path, kept.join("\n") + (kept.length > 0 ? "\n" : ""), "utf8");
-  } catch {
-    /* best-effort by contract */
+    kept.push(s);
   }
+  rewriteLines(path, kept);
 }
 
 /** report-cleanup: truncate the mirror entirely (clear-all). Best-effort. */
 export function clearReportsFile(path: string): void {
-  try {
-    writeFileSync(path, "", "utf8");
-  } catch {
-    /* best-effort by contract */
-  }
+  rewriteLines(path, []);
 }
