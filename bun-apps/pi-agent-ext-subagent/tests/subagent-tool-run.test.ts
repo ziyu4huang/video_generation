@@ -442,3 +442,57 @@ test("abortSafetyFooter: ≤6 lines citing the log path, shell timeout, report-f
 test("abortSafetyLogPath: run-scoped under /tmp/subagent-runs", () => {
   assert.equal(abortSafetyLogPath("id-1"), "/tmp/subagent-runs/id-1.md");
 });
+
+// ── tools precedence (register-tool-surface #1603 guard) ────────────────────
+// Live-proven chain: model -> subagent(tools=[webui_report]) -> preflight
+// pass -> child sees and calls the tool. This pins the seam so a refactor
+// cannot silently drop the explicit allowlist: params.tools > agentDef.tools
+// > defaultActiveTools, and registerTool names flow through VERBATIM.
+test("buildSpawnOptions: tools precedence — params.tools beats agentDef.tools; registerTool names verbatim; getActiveTools fallback", async () => {
+  const progress: RunProgress = {
+    resolvedModel: undefined,
+    fellBack: false,
+    lastHistory: undefined,
+    maxToolCallsSeen: 0,
+  };
+  const mkDeps = (active: string[]) =>
+    ({
+      getActiveTools: () => active,
+      getExtensionTools: () => [],
+      inFlight: { updateModel: () => {}, markFallback: () => {}, update: () => {} },
+      persistence: undefined,
+      onUpdate: () => {},
+    }) as never;
+  const base = (params: Record<string, unknown>, agentDef?: { tools?: string[] }) => ({
+    toolCallId: "call-p",
+    t0: 1_700_000_000_000,
+    params: { task: "t", timeoutMs: 1000, ...params },
+    agentDef,
+    modelCtx: {
+      requestedModel: "req",
+      tier: undefined,
+      capability: undefined,
+      mainModel: undefined,
+      displayModelBeforeResolve: "req",
+    },
+    spawnCwd: "/r",
+    childSignal: new AbortController().signal,
+  });
+  // 1) explicit params.tools WINS over agentDef.tools — the live-proven path.
+  const a = buildSpawnOptions(
+    base({ tools: ["webui_report"] }, { tools: ["read"] }) as never,
+    progress,
+    mkDeps(["read", "bash"]),
+  );
+  assert.deepEqual(a.tools, ["webui_report"]);
+  // 2) a registerTool name flows through verbatim (never filtered/renamed).
+  const b = buildSpawnOptions(
+    base({ tools: ["webui_report", "webui_present"] }) as never,
+    progress,
+    mkDeps(["read"]),
+  );
+  assert.deepEqual(b.tools, ["webui_report", "webui_present"]);
+  // 3) neither params nor agentDef: falls back to the session's active tools.
+  const c = buildSpawnOptions(base({}) as never, progress, mkDeps(["read", "bash", "edit", "write"]));
+  assert.deepEqual(c.tools, ["read", "bash", "edit", "write"]);
+});
