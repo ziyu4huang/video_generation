@@ -80,7 +80,12 @@ test("execute maps params to spawn and returns the child output verbatim", async
     undefined,
     NO_CTX,
   );
-  assert.equal(f.calls[0]?.task, "do X");
+  assert.ok((f.calls[0]?.task ?? "").startsWith("do X"), "raw task still leads");
+  assert.match(
+    f.calls[0]?.task ?? "",
+    /--- abort-safety/,
+    "12-turn recon envelope crosses the footer gate by design (2026-08-18 rebalance)",
+  );
   assert.equal(f.calls[0]?.model, "anthropic/claude-sonnet-4");
   assert.deepEqual(f.calls[0]?.tools, ["read"]);
   assert.equal(f.calls[0]?.instructions, "You are the implementer for this task.");
@@ -2271,11 +2276,15 @@ test("H4: abort-safety footer rides the SPAWNED task for write-capable children;
   assert.equal(f.calls[0]?.label, "refactor-module", "H1: derived label threads through the tool seam");
 });
 
-test("H4: read-only short dispatch gets NO footer", async () => {
+test("H4: read-only SHORT (≤10-turn) dispatch gets NO footer; the 12-turn recon default DOES", async () => {
   const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
-  await tool.execute("id-h4b", { task: "read only", tools: ["read"] }, NO_SIGNAL, undefined, NO_CTX);
+  // (a) explicit 8 ≤ 10 → no footer (explicit maxTurns also opts out of the envelope — fine)
+  await tool.execute("id-h4b", { task: "read only", tools: ["read"], maxTurns: 8 }, NO_SIGNAL, undefined, NO_CTX);
   assert.equal(f.calls[0]?.task, "read only");
+  // (b) default recon envelope (12 turns) crosses the gate → footer
+  await tool.execute("id-h4c", { task: "read only long", tools: ["read"] }, NO_SIGNAL, undefined, NO_CTX);
+  assert.match(f.calls[1]?.task ?? "", /--- abort-safety/, "default recon envelope (12 turns) gets the footer");
 });
 
 // ── effort 2026-08-15-subagent-tui-display (ticket 01): width-aware pure render layer ──

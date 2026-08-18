@@ -136,16 +136,16 @@ test("env knobs: disable flag with an invalid value is ignored (still budgeted)"
 
 // ── #03 role-aware dispatch bounds (2026-08-15 hardening) ──
 
-test("ROLE_AWARE_DISPATCH_BOUNDS: recon 60k/8/5min, writer 400k/24/20min", () => {
-  assert.deepEqual(ROLE_AWARE_DISPATCH_BOUNDS.recon, { tokenBudget: 60_000, maxTurns: 8, timeoutMs: 300_000 });
-  assert.deepEqual(ROLE_AWARE_DISPATCH_BOUNDS.writer, { tokenBudget: 400_000, maxTurns: 24, timeoutMs: 1_200_000 });
+test("ROLE_AWARE_DISPATCH_BOUNDS: recon 120k/12/5min, writer 400k/28/20min", () => {
+  assert.deepEqual(ROLE_AWARE_DISPATCH_BOUNDS.recon, { tokenBudget: 120_000, maxTurns: 12, timeoutMs: 300_000 });
+  assert.deepEqual(ROLE_AWARE_DISPATCH_BOUNDS.writer, { tokenBudget: 400_000, maxTurns: 28, timeoutMs: 1_200_000 });
 });
 
 test("roleAwareDefaults: all-omitted recon → full envelope + notice", () => {
   const d = roleAwareDefaults({}, "recon");
   assert.equal(d.applied, true);
-  assert.equal(d.tokenBudget, 60_000);
-  assert.equal(d.maxTurns, 8);
+  assert.equal(d.tokenBudget, 120_000);
+  assert.equal(d.maxTurns, 12);
   assert.equal(d.timeoutMs, 300_000);
   assert.match(d.notice ?? "", /defaults applied \(recon\)/);
 });
@@ -155,7 +155,7 @@ test("roleAwareDefaults: all-omitted writer → full envelope + notice", () => {
   assert.equal(d.applied, true);
   assert.deepEqual(
     { tokenBudget: d.tokenBudget, maxTurns: d.maxTurns, timeoutMs: d.timeoutMs },
-    { tokenBudget: 400_000, maxTurns: 24, timeoutMs: 1_200_000 },
+    { tokenBudget: 400_000, maxTurns: 28, timeoutMs: 1_200_000 },
   );
   assert.match(d.notice ?? "", /defaults applied \(writer\)/);
 });
@@ -177,8 +177,8 @@ test("roleAwareDefaults: SUBAGENT_TOKEN_BUDGET_DISABLE=1 escapes entirely", () =
   assert.equal(roleAwareDefaults({}, "writer").applied, false);
 });
 
-test("roleAwareDefaults: recon ceiling is min(60k, tierCeiling); writer ignores it", () => {
+test("roleAwareDefaults: recon ceiling is min(120k, tierCeiling); writer ignores it", () => {
   assert.equal(roleAwareDefaults({}, "recon", 40_000).tokenBudget, 40_000);
-  assert.equal(roleAwareDefaults({}, "recon", 2_000_000).tokenBudget, 60_000);
+  assert.equal(roleAwareDefaults({}, "recon", 2_000_000).tokenBudget, 120_000);
   assert.equal(roleAwareDefaults({}, "writer", 40_000).tokenBudget, 400_000);
 });

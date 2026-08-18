@@ -223,7 +223,13 @@ export function hasWriteTools(tools: string[] | undefined, excludeTools?: string
   return tools.some((t) => WRITE_TOOL_NAMES.has(t) && !denied.has(t));
 }
 
-/** Footer gate: write-capable child OR a long (maxTurns>10) run. */
+/**
+ * Footer gate: write-capable child OR a long (maxTurns>10) run.
+ *
+ * 2026-08-18: the recon role envelope (12 turns) intentionally crosses this
+ * gate — read-only recon children must log progress as-you-go per the dispatch
+ * empirics (turns-limit deaths are the top killer; last words are not evidence).
+ */
 export function shouldInjectFooter(ctx: { tools?: string[]; excludeTools?: string[]; maxTurns?: number }): boolean {
   return hasWriteTools(ctx.tools, ctx.excludeTools) || (ctx.maxTurns ?? 0) > 10;
 }
