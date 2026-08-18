@@ -123,7 +123,7 @@ import {
 } from "../src/knowledge-pipeline-seam.ts";
 import {
 	spawnSubagent as __defaultSpawnSubagent,
-	roleAwareDefaults,
+	roleAwareDirectCall,
 	type SpawnSubagentOptions,
 	type SpawnSubagentResult,
 } from "@repo/pi-agent-ext-subagent";
@@ -150,17 +150,6 @@ import {
 	buildUpdateTask,
 	CHECK_TASK,
 } from "../src/task-builders.ts";
-
-// 2026-08-18: zk_card/zk_ask dispatches ran envelope-less — spawnSubagent
-// forwards only EXPLICIT budgets and the role bounds live at the tool seam
-// these calls bypass. Calibrated per dispatch empirics (turns-limit deaths
-// are the top killer, 31/200): zk_card children write notes (writer), zk_ask
-// retrieves + synthesizes (recon). SUBAGENT_TOKEN_BUDGET_DISABLE remains the
-// global escape hatch (roleAwareDefaults → applied:false).
-const zkRoleBounds = (role: "recon" | "writer") => {
-	const d = roleAwareDefaults({}, role);
-	return d.applied ? { tokenBudget: d.tokenBudget, maxTurns: d.maxTurns, timeoutMs: d.timeoutMs } : {};
-};
 
 // ---------------------------------------------------------------------------
 // zk_* spawn seam (sub-project ①) — zk_card / zk_ask spawn through this
@@ -475,12 +464,13 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				}
 			}
 
+			const zkEnv = roleAwareDirectCall("writer", task, `zk-card-${Date.now()}`);
 			const { output, failure } = await zkSpawn({
 				cwd,
-				task,
+				task: zkEnv.task,
 				tools,
 				model: resolveDistillModel(params.model),
-				...zkRoleBounds("writer"),
+				...(zkEnv.tokenBudget !== undefined ? { tokenBudget: zkEnv.tokenBudget, maxTurns: zkEnv.maxTurns, timeoutMs: zkEnv.timeoutMs } : {}),
 				excludeTools: params.exclude_tools,
 				externalSignal: signal,
 				extensionTools: parentExtensionTools,
@@ -624,12 +614,13 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				params.folder,
 				params.blend ?? "default",
 			);
+			const zkAskEnv = roleAwareDirectCall("recon", task, `zk-ask-${Date.now()}`);
 			const { output, failure } = await zkSpawn({
 				cwd,
-				task,
+				task: zkAskEnv.task,
 				tools: ragToolsFor(params.blend ?? "default"),
 				model: resolveDistillModel(params.model),
-				...zkRoleBounds("recon"),
+				...(zkAskEnv.tokenBudget !== undefined ? { tokenBudget: zkAskEnv.tokenBudget, maxTurns: zkAskEnv.maxTurns, timeoutMs: zkAskEnv.timeoutMs } : {}),
 				excludeTools: params.exclude_tools,
 				externalSignal: signal,
 				extensionTools: parentExtensionTools,

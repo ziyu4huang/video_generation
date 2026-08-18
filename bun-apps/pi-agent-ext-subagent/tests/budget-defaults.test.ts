@@ -7,6 +7,7 @@ import {
   TIERED_TOKEN_BUDGET_DEFAULTS,
   tierDefaultToken,
 } from "../src/budget-defaults.js";
+import { roleAwareDirectCall } from "../src/subagent-tool-run.js";
 
 const ENV_KNOBS = [
   "SUBAGENT_TOKEN_BUDGET_DISABLE",
@@ -181,4 +182,33 @@ test("roleAwareDefaults: recon ceiling is min(120k, tierCeiling); writer ignores
   assert.equal(roleAwareDefaults({}, "recon", 40_000).tokenBudget, 40_000);
   assert.equal(roleAwareDefaults({}, "recon", 2_000_000).tokenBudget, 120_000);
   assert.equal(roleAwareDefaults({}, "writer", 40_000).tokenBudget, 400_000);
+});
+
+test("roleAwareDirectCall: recon → 120k/12 caps + abort-safety footer with run log", () => {
+  const r = roleAwareDirectCall("recon", "T", "id-x");
+  assert.ok(r.task.startsWith("T"), "original task stays the prefix");
+  assert.ok(r.task.includes("--- abort-safety"), "footer marker travels with the caps");
+  assert.ok(r.task.includes("/tmp/subagent-runs/id-x.md"), "footer cites the run-scoped log");
+  assert.equal(r.tokenBudget, 120_000);
+  assert.equal(r.maxTurns, 12);
+  assert.equal(r.timeoutMs, 300_000);
+});
+
+test("roleAwareDirectCall: writer → 400k/28 caps + footer (maxTurns>10 gate)", () => {
+  const r = roleAwareDirectCall("writer", "T", "id-w");
+  assert.ok(r.task.includes("--- abort-safety"));
+  assert.ok(r.task.includes("/tmp/subagent-runs/id-w.md"));
+  assert.equal(r.tokenBudget, 400_000);
+  assert.equal(r.maxTurns, 28);
+  assert.equal(r.timeoutMs, 1_200_000);
+});
+
+test("roleAwareDirectCall: SUBAGENT_TOKEN_BUDGET_DISABLE=1 → plain task, no caps, no footer", () => {
+  process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = "1"; // restored by the ENV_KNOBS afterEach
+  const r1 = roleAwareDirectCall("recon", "T", "id-x");
+  const r2 = roleAwareDirectCall("writer", "T", "id-x");
+  assert.deepEqual(r1, { task: "T" });
+  assert.deepEqual(r2, { task: "T" });
+  assert.equal(r1.timeoutMs, undefined);
+  assert.equal(r2.timeoutMs, undefined);
 });
