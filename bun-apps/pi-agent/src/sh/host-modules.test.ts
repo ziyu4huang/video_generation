@@ -28,6 +28,15 @@ describe("host-modules", () => {
 		expect(typeof mod.defineTool).toBe("function");
 	});
 
+	test("hostRequire serves node builtins the bundle's interop shims ask for", () => {
+		// A minified extension bundle requires `module` / `child_process` even when
+		// the extension source never mentions them; rejecting those skipped every
+		// real extension at boot.
+		expect(typeof hostRequire("child_process")).toBe("object");
+		expect(typeof hostRequire("module")).toBe("function");
+		expect(typeof hostRequire("node:fs")).toBe("object");
+	});
+
 	test("hostRequire throws a typed error for an unknown specifier", () => {
 		expect(() => hostRequire("left-pad")).toThrow(HostModuleNotFoundError);
 		expect(() => hostRequire("left-pad")).toThrow(/left-pad/);

@@ -18,6 +18,9 @@ import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { extractBareSpecifiers } from "./build-extensions.ts";
 import { evaluateExtModule } from "../../../pi-agent/src/sh/ext-loader.ts";
+// The builtin list is the CORE's — a second copy here would drift, and the gate
+// would then disagree with the runtime it is supposed to be simulating.
+import { isBuiltinSpecifier } from "../../../pi-agent/src/sh/host-modules.ts";
 import type { ShExtConfig } from "./sh-config.ts";
 
 /**
@@ -46,24 +49,11 @@ export interface BuildExtResult {
 	hostModules: string[];
 }
 
-const BUILTIN_PREFIXES = ["node:", "bun:"];
-const BUILTINS = new Set([
-	"assert", "async_hooks", "buffer", "child_process", "cluster", "crypto", "dgram", "dns",
-	"events", "fs", "http", "http2", "https", "module", "net", "os", "path", "perf_hooks",
-	"process", "punycode", "querystring", "readline", "repl", "stream", "string_decoder",
-	"timers", "tls", "tty", "url", "util", "v8", "vm", "worker_threads", "zlib",
-]);
-
-function isBuiltin(spec: string): boolean {
-	if (BUILTIN_PREFIXES.some((p) => spec.startsWith(p))) return true;
-	return BUILTINS.has(spec.split("/")[0]!);
-}
-
 /** Bare specifiers left in the bundle that the host does not provide. */
 export function scanForeignSpecifiers(code: string, hostModules: readonly string[]): string[] {
 	const foreign = new Set<string>();
 	for (const spec of extractBareSpecifiers(code)) {
-		if (isBuiltin(spec)) continue;
+		if (isBuiltinSpecifier(spec)) continue;
 		if (hostModules.includes(spec)) continue;
 		foreign.add(spec);
 	}
@@ -87,7 +77,7 @@ export function loadProbe(cjsPath: string, hostModules: readonly string[], resol
 		// Node/Bun builtins are resolved for real: a minified bundle calls
 		// require("module")/require("node:fs") for its own interop shims, and those
 		// are not host modules — rejecting them would fail every real bundle.
-		if (isBuiltin(spec)) return nodeRequire(spec);
+		if (isBuiltinSpecifier(spec)) return nodeRequire(spec);
 		if (!hostModules.includes(spec)) throw new Error(`bundle required non-host module "${spec}"`);
 		try {
 			// Bun.resolveSync honors the workspace's isolated linker (packages live
