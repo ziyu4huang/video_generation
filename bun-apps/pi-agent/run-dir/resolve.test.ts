@@ -184,7 +184,7 @@ describe("resolveRunDirArgv (integration, source mode against the real repo)", (
 				expect(existsSync(path)).toBe(true);
 				i++; // consume the path token
 			} else if (tok === "-ne") {
-				// -ne is a flag with no path payload (deploy-package mode) — not hit here
+				// -ne is a flag with no path payload (deploy-bundle mode) — not hit here
 				continue;
 			} else {
 				throw new Error(`unexpected token in source-mode argv: ${tok}`);
