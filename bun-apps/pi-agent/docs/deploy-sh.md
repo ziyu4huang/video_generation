@@ -17,6 +17,7 @@ This pipeline does not touch the four modes in `../pi-agent-ext-devops/scripts/d
     pi-agent            # compiled minimal core (~70 MB)
     run.sh              # launcher: env hardening + exec ./pi-agent
     deploy.json         # provenance: version, builtAt, git sha, bun version, config snapshot
+    package.json        # {"version": ...} — pi reads its version from next to the exe
     ext/
       task/       ext.json  ext.cjs                    (~160 KB)
       power-tool/ ext.json  ext.cjs                    (~215 KB)
@@ -24,7 +25,9 @@ This pipeline does not touch the four modes in `../pi-agent-ext-devops/scripts/d
 ```
 
 Version string: `<pi-agent package.json version>+g<git short sha>`. The executable locates its own
-tree via `dirname(process.execPath)` — no repo path is baked in.
+tree via `dirname(process.execPath)` — no repo path is baked in. In compiled-binary mode pi also
+resolves its reported version from that directory's `package.json` (hence the deployed one); without
+it the banner reads `pi v0.0.0`.
 
 ## Commands
 
