@@ -88,7 +88,7 @@ export interface MainHealthOutcome {
 	message?: string;
 	/** Caveats about WHAT was tested — a dirty or behind tree. Never a failure. */
 	warnings: string[];
-	/** Packages whose test or (non-skipped) typecheck genuinely failed. */
+	/** Packages whose test, (non-skipped) typecheck, or (non-skipped) lint genuinely failed. */
 	failingPackages: string[];
 	/**
 	 * Packages whose typecheck exited 127 — the command does not exist, i.e. that
@@ -216,8 +216,12 @@ export async function runMainHealth(opts: MainHealthOptions): Promise<MainHealth
 		// "main is red" is how a health signal turns into noise nobody reads: the
 		// first live run reported 7 red packages, 5 of which were just uninstalled.
 		const TOOLCHAIN_MISSING = 127;
+		// Lint is checked for the same reason: `biome` is a package-local binary, so
+		// an uninstalled worktree fails it with 127 exactly as it fails tsc. A
+		// package whose typecheck is skipped ("no tsc key") but whose lint is 127 is
+		// still an uninstalled worktree, not a red branch.
 		const toolchainMissing = ci.packages
-			.filter((p) => p.typecheck?.exitCode === TOOLCHAIN_MISSING)
+			.filter((p) => p.typecheck?.exitCode === TOOLCHAIN_MISSING || p.lint?.exitCode === TOOLCHAIN_MISSING)
 			.map((p) => p.name);
 		// A package with no toolchain is UNVERIFIED across the board — its test is
 		// meaningless too. Several matrix rows are `bun run build && …`, which fails
@@ -229,7 +233,8 @@ export async function runMainHealth(opts: MainHealthOptions): Promise<MainHealth
 				(p) =>
 					!missing.has(p.name) &&
 					((p.test.exitCode !== 0 && p.test.exitCode !== -1) ||
-						(!!p.typecheck && !p.typecheck.skipped && p.typecheck.exitCode !== 0)),
+						(!!p.typecheck && !p.typecheck.skipped && p.typecheck.exitCode !== 0) ||
+						(!!p.lint && !p.lint.skipped && p.lint.exitCode !== 0)),
 			)
 			.map((p) => p.name);
 		const failingGates = ci.gates.filter((g) => g.exitCode !== 0).map((g) => g.name);

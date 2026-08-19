@@ -21,10 +21,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { GATE_DEFS } from "@repo/pi-agent-core-interface";
+import { Type } from "typebox";
 
 // ─── Gate family (wayfinder ticket 01 — reference form) ─────────────────────
 // Declared ONCE by id; file2md + vision_ask both reference it via

@@ -66,8 +66,8 @@ the merge.
 
 ### 2. `local_ci` — self-verify (the local proxy for remote CI)
 
-Run typecheck + tests scoped to the packages changed vs `origin/main`, plus
-**every step of the workflow's `regression-gates` job** (~14 gates, ~5s).
+Run typecheck + lint + tests scoped to the packages changed vs `origin/main`,
+plus **every step of the workflow's `regression-gates` job** (~15 gates, ~5s).
 **Offline** — a green run is the local proxy for a green remote run (remote CI
 is intentionally disabled in this repo). This is what `await_pr_merge` gates on;
 run it standalone to self-verify before merge.
@@ -75,7 +75,12 @@ run it standalone to self-verify before merge.
 **Nothing here is hand-copied.** Both halves are derived from
 `.github/workflows/ci.yml.disabled` at runtime: the per-package command from the
 `tests` matrix (`src/ci-matrix.ts`), the gate list from the `regression-gates`
-job (`src/ci-gates.ts`). A hand-written gate list previously ran 2 of the 14
+job (`src/ci-gates.ts`). The per-package **typecheck** and **lint** phases are the
+one exception and always have been: they are local_ci-native, resolved by script
+NAME inside each package (`typecheck` / `check`-if-tsc; `check`-if-biome /
+`lint`-if-biome), because the matrix rows give most packages a bare `bun test`
+that chains neither. Which packages must declare such a script is asserted by
+`tests/extension-entry-typechecked.test.ts` and `tests/lint-executor-coverage.test.ts`. A hand-written gate list previously ran 2 of the 14
 steps, so `test:deps` / `test:adr` / `test:seam` / `test:routing` /
 `test:config-parity` / `test:ci-workflow` / `test:scripts` and the `--strict`
 portability audit never ran under the gate `await_pr_merge` merges on. If you add
@@ -111,16 +116,17 @@ name. Read-only: it never checks out, syncs, or mutates.
   "We could not test it" must never read as "it is fine".
 - A dirty or behind tree still runs, but the outcome carries a `warnings` entry
   saying the verdict is about that tree and not exactly `origin/<default>`.
-- **A package whose typecheck exits 127 goes to `toolchainMissing`, not
+- **A package whose typecheck OR lint exits 127 goes to `toolchainMissing`, not
   `failingPackages`.** 127 is "command not found" — that worktree has no deps
-  installed, which is an environment problem, not a broken branch. Its test is
+  installed, which is an environment problem, not a broken branch. `biome` is a
+  package-local binary too, so it fails 127 for exactly the same reason `tsc` does. Its test is
   discounted too (several matrix rows are `bun run build && …`, which fails for
   the same reason). The branch still counts as unverified: an unrun check is not
   evidence of health. Fix with `bun install` from that worktree's `bun-apps/`.
 
 It is STRICTER than `ci-local.sh`, which runs only each matrix row's `test-cmd`
-and no typechecks at all. Expect `main_health` to surface typecheck failures that
-`ci-local.sh` reports as green.
+and no typechecks or lints at all. Expect `main_health` to surface typecheck and
+biome failures that `ci-local.sh` reports as green.
 
 Run it before starting work, and when a merge you did not expect to matter looks
 suspicious. Do NOT gate `await_pr_merge` on it: your PR is not responsible for a
@@ -176,7 +182,7 @@ tree, or an unexpected ahead+behind / far-behind divergence. Run it last for a
 | Situation | Tool |
 | --- | --- |
 | Need to create / rebase / force-push a branch (esp. to clear BEHIND) | `prepare_branch` |
-| Self-verify typecheck + tests before merge | `local_ci` |
+| Self-verify typecheck + lint + tests before merge | `local_ci` |
 | Merge a PR (gated on local CI + mergeable) | `await_pr_merge` |
 | Confirm a merge's scope + that the branch is spent | `verify_merge` |
 | Post-run "anything risky?" anomaly readout | `devops_retrospect` |

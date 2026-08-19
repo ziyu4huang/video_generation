@@ -729,6 +729,20 @@ jobs:
         working-directory: bun-apps
         run: bun run typecheck:ext
 
+      # Lint-executor coverage (blocks). The biome twin of the two steps above.
+      # Six packages carry a biome.json and the same `"check": "biome check ."`.
+      # Four of them chain that script inside their own `test` script and have a
+      # matrix row of `bun run test`, so their biome ran; core-runtime and file2md
+      # have rows of bare `bun test` / `bun test --isolate`, which bypass the
+      # package's `test` script — so their biome ran nowhere, and core-runtime sat
+      # red on main for days with every gate green. local_ci now runs biome as a
+      # per-package phase resolved by script NAME (ci-recipe.ts 3a); this guard is
+      # the other half, asserting that a package with a biome config declares a
+      # script that phase can find. Executor + coverage, as on the typecheck side.
+      - name: Lint-executor coverage (blocks)
+        working-directory: bun-apps
+        run: bun run test:lint-coverage
+
       # Test-portability prevention check — now BLOCKING (--strict). Scans the
       # test surface for the four "works on my machine" signal patterns and
       # exits non-zero on any UNGATED P1/P2 hit (existsSync of a machine-coupled

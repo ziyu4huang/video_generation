@@ -121,7 +121,7 @@ function fmtTest(t: { exitCode: number; note?: string }): string {
 	return mark(t.exitCode) + (t.exitCode !== 0 ? ` exit ${t.exitCode}` : "");
 }
 
-/** Render a typecheck result: ✓ / ✗ / skip / –. */
+/** Render a typecheck / lint result: ✓ / ✗ / skip / –. */
 function fmtTypecheck(tc?: { exitCode: number; skipped?: boolean; note?: string }): string {
 	if (!tc) return "–";
 	if (tc.skipped) return "skip";
@@ -143,7 +143,9 @@ function formatCiOutcome(o: CiOutcome): string {
 			// package that is the CI row (e.g. `bun test --isolate`), not the generic
 			// `bun run test`, and the difference is usually the whole diagnosis.
 			const cmd = p.test.exitCode > 0 && p.test.command ? ` [${p.test.command}]` : "";
-			L.push(`  ${p.name}: test ${fmtTest(p.test)}${cmd} (typecheck ${fmtTypecheck(p.typecheck)})`);
+			L.push(
+				`  ${p.name}: test ${fmtTest(p.test)}${cmd} (typecheck ${fmtTypecheck(p.typecheck)}, lint ${fmtTypecheck(p.lint)})`,
+			);
 		}
 	}
 	// A gate-read failure is NOT "0 gates passed" — say so loudly, since the run

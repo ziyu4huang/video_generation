@@ -9,8 +9,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { MODEL_TIERS_FILE } from "./config.js";
-import { homeDir } from "./home.js";
 import { logModelDecision } from "./debug-models.js";
+import { homeDir } from "./home.js";
 
 /**
  * Model tier + capability configuration. `tiers` maps size names

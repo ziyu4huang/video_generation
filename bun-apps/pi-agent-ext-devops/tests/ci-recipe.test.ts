@@ -238,7 +238,7 @@ describe("runLocalCi — typecheck precedence", () => {
 		expect(out.packages[0].typecheck?.exitCode).toBe(0);
 	});
 
-	test("no typecheck + scripts.check is biome (not tsc) → typecheck skipped", async () => {
+	test("no typecheck + scripts.check is biome (not tsc) → typecheck skipped, lint runs it", async () => {
 		const { fn, calls } = base();
 		const out = await runLocalCi({
 			repoRoot: REPO,
@@ -249,10 +249,113 @@ describe("runLocalCi — typecheck precedence", () => {
 		});
 		expect(out.packages[0].typecheck?.skipped).toBe(true);
 		expect(out.packages[0].typecheck?.note).toBe("no tsc key");
-		// neither typecheck nor check was spawned.
-		expect(calls.some((c) => c.args[0] === "run" && (c.args[1] === "typecheck" || c.args[1] === "check"))).toBe(false);
+		// `typecheck` was never spawned...
+		expect(calls.some((c) => c.args.join(" ") === "run typecheck")).toBe(false);
+		// ...but `check` WAS — claimed by the lint phase, not the typecheck one.
+		// The two phases read the same script name and must not both take it.
+		expect(out.packages[0].lint?.exitCode).toBe(0);
+		expect(calls.filter((c) => c.args.join(" ") === "run check").length).toBe(1);
 		// test still ran.
 		expect(calls.some((c) => c.args.join(" ") === "run test")).toBe(true);
+	});
+});
+
+describe("runLocalCi — lint phase (biome), resolved by script name", () => {
+	const detect = () => mkDetect({ "pkg-a": true });
+	/** Recording spawn with `git rev-parse --verify` canned, plus optional failures
+	 * keyed by the joined argv (e.g. `"run check": 1`). */
+	const base = (failing: Record<string, number> = {}) =>
+		mkSpawn([
+			verifyOk(),
+			...Object.entries(failing).map(([argv, exitCode]) => ({
+				match: (_c: string, a: string[]) => a.join(" ") === argv,
+				result: { stdout: "", stderr: "biome: 1 error", exitCode },
+			})),
+		]);
+
+	test("scripts.check running biome is the executor", async () => {
+		const { fn, calls } = base();
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect().fn,
+			readPkg: mkReadPkg({ "pkg-a": { typecheck: "tsc --noEmit", check: "biome check .", test: "bun test" } }),
+			includeGates: false,
+		});
+		expect(out.packages[0].lint?.exitCode).toBe(0);
+		expect(out.packages[0].typecheck?.exitCode).toBe(0);
+		expect(calls.some((c) => c.args.join(" ") === "run check")).toBe(true);
+		expect(calls.some((c) => c.args.join(" ") === "run typecheck")).toBe(true);
+	});
+
+	test("scripts.check is PREFERRED over scripts.lint — `biome lint` skips format/organizeImports", async () => {
+		const { fn, calls } = base();
+		await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect().fn,
+			readPkg: mkReadPkg({ "pkg-a": { check: "biome check .", lint: "biome lint .", test: "bun test" } }),
+			includeGates: false,
+		});
+		expect(calls.some((c) => c.args.join(" ") === "run check")).toBe(true);
+		expect(calls.some((c) => c.args.join(" ") === "run lint")).toBe(false);
+	});
+
+	test("scripts.lint is the fallback when check does not run biome", async () => {
+		const { fn, calls } = base();
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect().fn,
+			readPkg: mkReadPkg({ "pkg-a": { check: "tsc --noEmit", lint: "biome lint .", test: "bun test" } }),
+			includeGates: false,
+		});
+		expect(out.packages[0].lint?.exitCode).toBe(0);
+		// `check` here is the TYPECHECK executor; `lint` is the biome one.
+		expect(out.packages[0].typecheck?.exitCode).toBe(0);
+		expect(calls.some((c) => c.args.join(" ") === "run lint")).toBe(true);
+	});
+
+	test("no biome-running script → skipped, and nothing is spawned for it", async () => {
+		const { fn, calls } = base();
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect().fn,
+			readPkg: mkReadPkg({ "pkg-a": { typecheck: "tsc --noEmit", lint: "eslint .", test: "bun test" } }),
+			includeGates: false,
+		});
+		expect(out.packages[0].lint?.skipped).toBe(true);
+		expect(out.packages[0].lint?.note).toBe("no biome key");
+		expect(calls.some((c) => c.args.join(" ") === "run lint")).toBe(false);
+	});
+
+	test("a FAILED lint fails the whole run — the point of the phase", async () => {
+		// The regression this pins: core-runtime's `bun run check` was red on
+		// origin/main for days while local_ci reported pass, because no phase ran it.
+		const { fn } = base({ "run check": 1 });
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect().fn,
+			readPkg: mkReadPkg({ "pkg-a": { check: "biome check .", test: "bun test" } }),
+			includeGates: false,
+		});
+		expect(out.packages[0].lint?.exitCode).toBe(1);
+		expect(out.overall).toBe("fail");
+	});
+
+	test("a SKIPPED lint never fails the run", async () => {
+		const { fn } = base();
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect().fn,
+			readPkg: mkReadPkg({ "pkg-a": { typecheck: "tsc --noEmit", test: "bun test" } }),
+			includeGates: false,
+		});
+		expect(out.packages[0].lint?.skipped).toBe(true);
+		expect(out.overall).toBe("pass");
 	});
 });
 

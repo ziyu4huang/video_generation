@@ -6,7 +6,7 @@
  *
  * Not a second runner: `scripts/ci-local.sh` executes the workflow's matrix and
  * gate job directly, while this is the change-SCOPED gate `await_pr_merge` uses
- * — typecheck + tests for the packages touched vs the base ref, plus the whole
+ * — typecheck + lint + tests for the packages touched vs the base ref, plus the whole
  * regression-gates suite. Both derive their commands from the same workflow, so
  * they cannot disagree about what a package's command or a gate is.
  *
@@ -20,7 +20,7 @@ export const LOCAL_CI_CLI_USAGE = [
 	"usage: local-ci-cli.ts [--base <ref>] [--all] [--packages <a,b>] [--strict]",
 	"                       [--no-gates] [--repo-root <path>]",
 	"",
-	"Runs typecheck + tests for the packages changed vs the base ref, plus every",
+	"Runs typecheck + lint + tests for the packages changed vs the base ref, plus every",
 	"step of the workflow's regression-gates job, and prints the structured",
 	"outcome as JSON on stdout. OFFLINE — never fetches; the base ref must already",
 	"exist locally.",
