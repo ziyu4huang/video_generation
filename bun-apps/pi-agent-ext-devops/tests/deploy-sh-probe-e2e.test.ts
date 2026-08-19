@@ -25,6 +25,7 @@ import { existsSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runShDeploy } from "../scripts/deploy-sh.ts";
+import { parseShConfig } from "../scripts/lib/sh-config.ts";
 import { freezeTree, rmTree, unfreezeTree } from "../scripts/lib/sh-fs.ts";
 
 const RUN = process.env.PI_AGENT_E2E === "1";
@@ -35,6 +36,17 @@ const outRoot = mkdtempSync(join(tmpdir(), "sh-probe-"));
 const piHome = join(outRoot, "pi-home");
 let target = "";
 let binary = "";
+
+// Expected loaded set is DERIVED from deploy-config.yaml, not hardcoded: #1713
+// added hyperframes as a third configured extension and every hardcoded
+// ["power-tool","task"] / count-2 assertion here went stale the moment it
+// merged. The config is the source of truth for what a deploy must load.
+const BUN_APPS_DIR = join(import.meta.dir, "..", "..");
+const shConfig = parseShConfig(
+	readFileSync(join(BUN_APPS_DIR, "pi-agent", "deploy-config.yaml"), "utf8"),
+	{ bunAppsDir: BUN_APPS_DIR },
+);
+const configuredNames = shConfig.extensions.map((e) => e.name).sort();
 
 afterAll(() => rmTree(outRoot));
 
@@ -210,7 +222,7 @@ describeE2E("pi-agent-sh L1 — the deployed binary really runs its extensions",
 		]);
 		expect(await proc.exited).toBe(0);
 		expect(stderr).toBe("");
-		expect(JSON.parse(stdout).loaded.sort()).toEqual(["power-tool", "task"]);
+		expect(JSON.parse(stdout).loaded.sort()).toEqual(configuredNames);
 	}, 60_000);
 
 	test("boots from an unrelated cwd with a foreign HOME", async () => {
@@ -219,7 +231,7 @@ describeE2E("pi-agent-sh L1 — the deployed binary really runs its extensions",
 		const foreignHome = mkdtempSync(join(tmpdir(), "sh-home-"));
 		const r = await run(["--ext-list"], { cwd: "/", env: { HOME: foreignHome } });
 		expect(r.code).toBe(0);
-		expect(JSON.parse(r.stdout).loadedCount).toBe(2);
+		expect(JSON.parse(r.stdout).loadedCount).toBe(configuredNames.length);
 		rmTree(foreignHome);
 	}, 60_000);
 
