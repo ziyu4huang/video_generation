@@ -13,7 +13,8 @@ import { RENDER_SHELL_HTML } from "../src/render-shell.js";
 
 describe("composer vs feedback-log stacking", () => {
   test("composer is positioned and stacked ABOVE the log overlay (z 60 > 50)", () => {
-    expect(RENDER_SHELL_HTML).toContain("#composer { display: flex; gap: .4rem; padding: .5rem 1rem; border-top: 1px solid #8884; max-width: 1500px; margin: 0 auto; width: 100%; box-sizing: border-box; position: relative; z-index: 60;");
+    // pin synced to the dsw token restyle — guard semantics unchanged: positioned + z-60 + opaque backdrop beats the z-50 log.
+    expect(RENDER_SHELL_HTML).toContain("#composer { display: flex; gap: .4rem; padding: .5rem 1rem; border-top: 1px solid var(--dsw-alias-border-l1); max-width: 1500px; margin: 0 auto; width: 100%; box-sizing: border-box; position: relative; z-index: 60; background: var(--dsw-alias-bg-base);");
   });
 
   test("the log ships COLLAPSED by default with a toggle (trace demoted, primary input unblocked)", () => {
