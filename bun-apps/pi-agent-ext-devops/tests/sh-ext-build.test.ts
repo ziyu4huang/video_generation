@@ -80,6 +80,7 @@ describe("buildExtPackage", () => {
 				order: 50,
 				skills: ["skills"],
 				enabled: true,
+				externals: ["playwright-core"],
 			},
 			bunAppsDir: BUN_APPS,
 			outDir: join(out, "power-tool"),
@@ -99,6 +100,10 @@ describe("buildExtPackage", () => {
 		expect(manifest.skills).toEqual(["skills"]);
 		// only host modules may remain unresolved
 		expect(manifest.hostModules.every((m: string) => HOST_MODULES.includes(m))).toBe(true);
+		// A declared runtime external is recorded but NOT claimed as host-provided:
+		// the core does not supply playwright-core, it merely is not bundled.
+		expect(manifest.runtimeExternals).toEqual(["playwright-core"]);
+		expect(manifest.hostModules).not.toContain("playwright-core");
 		expect(res.bytes).toBeGreaterThan(0);
 	}, 120_000);
 
@@ -113,7 +118,15 @@ describe("buildExtPackage", () => {
 		);
 		await expect(
 			buildExtPackage({
-				ext: { name: "fake-ext", package: "fake-ext", entry: "extensions/fake.ts", order: 1, skills: [], enabled: true },
+				ext: {
+					name: "fake-ext",
+					package: "fake-ext",
+					entry: "extensions/fake.ts",
+					order: 1,
+					skills: [],
+					enabled: true,
+					externals: [],
+				},
 				bunAppsDir: out,
 				outDir: join(out, "built"),
 				hostApi: 1,

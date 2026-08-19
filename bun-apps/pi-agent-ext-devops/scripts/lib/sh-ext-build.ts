@@ -112,10 +112,14 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 	mkdirSync(opts.outDir, { recursive: true });
 
 	const cjsPath = join(opts.outDir, "ext.cjs");
-	const externalFlags = opts.hostModules.flatMap((m) => ["--external", m]);
+	// Host modules + the extension's own declared runtime externals. The two are
+	// different promises: a host module IS provided by the core, a runtime
+	// external is merely not bundled.
+	const allExternals = [...opts.hostModules, ...opts.ext.externals];
+	const externalFlags = allExternals.flatMap((m) => ["--external", m]);
 	// Subpath imports need their own external pattern: "typebox" does not cover
 	// "typebox/value" as a bundler external in every bun version.
-	const wildcardFlags = [...new Set(opts.hostModules.map((m) => `${packageRoot(m)}/*`))].flatMap((p) => [
+	const wildcardFlags = [...new Set(allExternals.map((m) => `${packageRoot(m)}/*`))].flatMap((p) => [
 		"--external",
 		p,
 	]);
@@ -145,7 +149,7 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 
 	// ── Gate 1: nothing foreign may remain unresolved ────────────────────────
 	const built = readFileSync(cjsPath, "utf8");
-	const foreign = scanForeignSpecifiers(built, opts.hostModules);
+	const foreign = scanForeignSpecifiers(built, allExternals);
 	if (foreign.length > 0) {
 		throw new Error(
 			`${opts.ext.name}: bundle references specifier(s) the host does not provide: ${foreign.join(", ")}. ` +
@@ -154,7 +158,7 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 	}
 
 	// ── Gate 2: it loads the way the runtime loads it ─────────────────────────
-	loadProbe(cjsPath, opts.hostModules);
+	loadProbe(cjsPath, allExternals);
 
 	// ── Skills ───────────────────────────────────────────────────────────────
 	for (const rel of opts.ext.skills) {
@@ -177,6 +181,7 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 		enabled: true,
 		skills: opts.ext.skills,
 		hostModules: usedHostModules,
+		runtimeExternals: opts.ext.externals,
 		builtAt: opts.builtAt,
 		sourceSha: opts.sourceSha,
 	};

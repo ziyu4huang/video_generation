@@ -18,6 +18,15 @@ export interface ShExtConfig {
 	order: number;
 	/** Skill dirs relative to the package dir, copied into the deployed ext dir. */
 	skills: string[];
+	/**
+	 * Specifiers left OUT of the bundle and out of the host registry — heavy,
+	 * optional deps the extension reaches for lazily at runtime (power-tool's
+	 * `await import("playwright-core")`). Bundling them is not an option:
+	 * playwright-core's vendored bundle requires chromium-bidi paths the bundler
+	 * cannot resolve, which fails the build outright. Declaring one here means
+	 * "this extension degrades if the dep is absent", not "the host provides it".
+	 */
+	externals: string[];
 	enabled: boolean;
 }
 
@@ -32,7 +41,7 @@ export interface ShConfig {
 }
 
 const TOP_KEYS = new Set(["outRoot", "version", "freeze", "current", "hostApi", "hostModules", "extensions"]);
-const EXT_KEYS = new Set(["name", "package", "entry", "order", "skills", "enabled"]);
+const EXT_KEYS = new Set(["name", "package", "entry", "order", "skills", "enabled", "externals"]);
 
 function expandHome(p: string): string {
 	if (p === "~") return homedir();
@@ -111,6 +120,11 @@ export function parseShConfig(text: string, opts: { bunAppsDir: string }): ShCon
 			}
 		}
 
+		const externals = ext.externals === undefined ? [] : ext.externals;
+		if (!Array.isArray(externals) || !externals.every((s) => typeof s === "string")) {
+			throw new Error(`extensions[${i}].externals must be an array of strings`);
+		}
+
 		const order = ext.order === undefined ? 100 : ext.order;
 		if (typeof order !== "number" || !Number.isFinite(order)) {
 			throw new Error(`extensions[${i}].order must be a number`);
@@ -125,6 +139,7 @@ export function parseShConfig(text: string, opts: { bunAppsDir: string }): ShCon
 			order,
 			skills: skills as string[],
 			enabled,
+			externals: externals as string[],
 		};
 	});
 

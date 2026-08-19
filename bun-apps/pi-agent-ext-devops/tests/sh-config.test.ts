@@ -32,6 +32,18 @@ describe("parseShConfig", () => {
 		expect(cfg.version).toEqual({ from: "package.json", gitSha: true });
 		expect(cfg.extensions[0]!.order).toBe(100);
 		expect(cfg.extensions[0]!.skills).toEqual([]);
+		expect(cfg.extensions[0]!.externals).toEqual([]);
+	});
+
+	test("parses declared runtime externals", () => {
+		const cfg = parseShConfig(`${MINIMAL}    externals: ["playwright-core"]\n`, { bunAppsDir: BUN_APPS });
+		expect(cfg.extensions[0]!.externals).toEqual(["playwright-core"]);
+	});
+
+	test("rejects a non-array externals", () => {
+		expect(() => parseShConfig(`${MINIMAL}    externals: nope\n`, { bunAppsDir: BUN_APPS })).toThrow(
+			/externals must be an array/,
+		);
 	});
 
 	test("rejects an unknown top-level key", () => {

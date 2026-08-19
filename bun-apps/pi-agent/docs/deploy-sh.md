@@ -91,6 +91,16 @@ inlined by the bundler (check the package declares it in its own `package.json` 
 
 `order` controls load order (ascending, ties broken by name): `task` = 10, `power-tool` = 50.
 
+### Runtime externals
+
+`externals: ["playwright-core"]` marks a specifier as neither bundled nor host-provided — a heavy,
+optional dep the extension reaches for lazily (`await import(...)`). power-tool needs this:
+playwright-core's vendored bundle requires `chromium-bidi` paths the bundler cannot resolve, so
+bundling it fails the build outright — the same failure the legacy `--exe` compile hits. Left
+external, power-tool's browser/webui tools error when invoked on a machine without playwright;
+everything else in the extension works. `ext.json` records these under `runtimeExternals`, kept
+distinct from `hostModules` so the two promises never get confused.
+
 ## The three gates
 
 Every deploy runs these; any failure aborts, removes the staging dir, and leaves `current` untouched.
