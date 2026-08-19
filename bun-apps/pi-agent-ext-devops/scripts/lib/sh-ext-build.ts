@@ -27,7 +27,7 @@ import { homedir } from "node:os";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { extractBareSpecifiers } from "./build-extensions.ts";
-import { evaluateExtModule } from "../../../pi-agent/src/sh/ext-loader.ts";
+import { evaluateExtModule, EXT_DIR_SPEC } from "../../../pi-agent/src/sh/ext-loader.ts";
 // The builtin list is the CORE's — a second copy here would drift, and the gate
 // would then disagree with the runtime it is supposed to be simulating.
 import { isBuiltinSpecifier } from "../../../pi-agent/src/sh/host-modules.ts";
@@ -241,6 +241,10 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 	// Vendored packages are external to the bundle as well — they ship as real
 	// directories and are resolved at runtime from the extension's own dir.
 	const allExternals = [...opts.hostModules, ...opts.ext.externals, ...opts.ext.vendor];
+	// #pi/ext-dir is served by the loader's injected require (the extension's own
+	// deployed dir), never by the bundler — bun would otherwise try and fail to
+	// resolve the # subpath import at build time.
+	allExternals.push(EXT_DIR_SPEC);
 	const externalFlags = allExternals.flatMap((m) => ["--external", m]);
 	// Subpath imports need their own external pattern: "typebox" does not cover
 	// "typebox/value" as a bundler external in every bun version.
@@ -315,6 +319,13 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 		cpSync(resolve(pkgDir, rel), join(opts.outDir, rel), { recursive: true, dereference: true });
 	}
 
+	// ── Copied data dirs ─────────────────────────────────────────────────────
+	// Same verbatim copy as skills, but NOT forwarded as --skill by the loader —
+	// runtime data the extension reads relative to its own directory.
+	for (const rel of opts.ext.copy) {
+		cpSync(resolve(pkgDir, rel), join(opts.outDir, rel), { recursive: true, dereference: true });
+	}
+
 	// ── Manifest ─────────────────────────────────────────────────────────────
 	const usedHostModules = opts.hostModules.filter((m) => built.includes(`"${m}"`));
 	const pkgJson = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")) as {
@@ -330,6 +341,7 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 		order: opts.ext.order,
 		enabled: true,
 		skills: opts.ext.skills,
+		copy: opts.ext.copy,
 		hostModules: usedHostModules,
 		runtimeExternals: opts.ext.externals,
 		vendored: opts.ext.vendor,

@@ -32,6 +32,7 @@ describe("parseShConfig", () => {
 		expect(cfg.version).toEqual({ from: "package.json", gitSha: true });
 		expect(cfg.extensions[0]!.order).toBe(100);
 		expect(cfg.extensions[0]!.skills).toEqual([]);
+		expect(cfg.extensions[0]!.copy).toEqual([]);
 		expect(cfg.extensions[0]!.externals).toEqual([]);
 	});
 
@@ -93,6 +94,43 @@ describe("parseShConfig", () => {
 		expect(cfg.hostApi).toBe(HOST_API);
 		expect([...cfg.hostModules].sort()).toEqual([...HOST_MODULE_IDS].sort());
 		expect(cfg.extensions.map((e) => e.name).sort()).toEqual(["power-tool", "task"]);
+		// (the 12-ext full-profile set assertion lands with the config commit)
+	});
+});
+
+describe("copy", () => {
+	const base = (extra: string) => `
+outRoot: /tmp/out
+hostApi: 1
+hostModules: ["@earendil-works/pi-coding-agent"]
+extensions:
+  - name: wayfind
+    package: pi-agent-ext-wayfind
+    entry: extensions/wayfind.ts
+${extra}
+`;
+
+	test("defaults to an empty list", () => {
+		const cfg = parseShConfig(base(""), { bunAppsDir: BUN_APPS });
+		expect(cfg.extensions[0]!.copy).toEqual([]);
+	});
+
+	test("parses a declared list", () => {
+		const cfg = parseShConfig(base(`    copy: [procedures]`), { bunAppsDir: BUN_APPS });
+		expect(cfg.extensions[0]!.copy).toEqual(["procedures"]);
+	});
+
+	test("rejects a copy dir that does not exist in the package", () => {
+		expect(() => parseShConfig(base(`    copy: [nope]`), { bunAppsDir: BUN_APPS })).toThrow(
+			/copy dir not found/,
+		);
+	});
+
+	test("rejects a non-array copy", () => {
+		expect(() => parseShConfig(base(`    copy: procedures`), { bunAppsDir: BUN_APPS })).toThrow(
+			/copy must be an array/,
+		);
+>>>>>>> 5fa56b04b (feat(devops): sh pipeline copy: field — data dirs copied beside skills, not forwarded as --skill)
 	});
 });
 

@@ -19,6 +19,16 @@ export interface ShExtConfig {
 	/** Skill dirs relative to the package dir, copied into the deployed ext dir. */
 	skills: string[];
 	/**
+	 * Data dirs relative to the package dir, copied into the deployed ext dir
+	 * WITHOUT being forwarded as `--skill` (the loader only forwards `skills`).
+	 * For non-skill assets the extension reads at runtime through
+	 * `import.meta.url` / `__dirname` relative resolution (wayfind's
+	 * procedures/*.md): the bundler does not carry data files, so they must be
+	 * copied like skills — but they are not skills and must not pollute the
+	 * system prompt.
+	 */
+	copy: string[];
+	/**
 	 * Specifiers left OUT of the bundle and out of the host registry — heavy,
 	 * optional deps the extension reaches for lazily at runtime (power-tool's
 	 * `await import("playwright-core")`). Bundling them is not an option:
@@ -56,7 +66,7 @@ export interface ShConfig {
 }
 
 const TOP_KEYS = new Set(["outRoot", "version", "freeze", "current", "hostApi", "hostModules", "extensions"]);
-const EXT_KEYS = new Set(["name", "package", "entry", "order", "skills", "enabled", "externals", "vendor"]);
+const EXT_KEYS = new Set(["name", "package", "entry", "order", "skills", "copy", "enabled", "externals", "vendor"]);
 
 function expandHome(p: string): string {
 	if (p === "~") return homedir();
@@ -135,6 +145,16 @@ export function parseShConfig(text: string, opts: { bunAppsDir: string }): ShCon
 			}
 		}
 
+		const copy = ext.copy === undefined ? [] : ext.copy;
+		if (!Array.isArray(copy) || !copy.every((s) => typeof s === "string")) {
+			throw new Error(`extensions[${i}].copy must be an array of strings`);
+		}
+		for (const c of copy as string[]) {
+			if (!existsSync(resolve(pkgDir, c))) {
+				throw new Error(`extensions[${i}] copy dir not found: ${resolve(pkgDir, c)}`);
+			}
+		}
+
 		const externals = ext.externals === undefined ? [] : ext.externals;
 		if (!Array.isArray(externals) || !externals.every((s) => typeof s === "string")) {
 			throw new Error(`extensions[${i}].externals must be an array of strings`);
@@ -166,6 +186,7 @@ export function parseShConfig(text: string, opts: { bunAppsDir: string }): ShCon
 			entry: ext.entry as string,
 			order,
 			skills: skills as string[],
+			copy: copy as string[],
 			enabled,
 			externals: externals as string[],
 			vendor: vendor as string[],
