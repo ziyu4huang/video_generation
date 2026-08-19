@@ -211,9 +211,10 @@ describe("computeChangedPackages — matrix-irrelevant paths (scoped, NOT fail-o
 	//   bun-apps/tests/**— workspace-root gate tests; they run in the
 	//                      regression-gates job (bun run test:dist), which
 	//                      local_ci executes regardless of package scoping.
-	//   bun-apps/dsh-plugin-sv-analyzer/** — standalone Rust/DSH plugin
-	//                      project (own cargo/node build, not a workspace
-	//                      member); cannot affect any bun-apps/<pkg>.
+	//   dsh-plugin/sv-analyzer/** — standalone Rust/DSH plugin project under
+	//                      the top-level dsh-plugin/ host dir (own cargo/node
+	//                      build, not part of the bun workspace); cannot affect
+	//                      any bun-apps/<pkg>.
 	const PKGS = ["a", "b"];
 
 	test(".planning/ docs only → all false (docs need no package matrix)", async () => {
@@ -252,8 +253,8 @@ describe("computeChangedPackages — matrix-irrelevant paths (scoped, NOT fail-o
 		expect(map).toEqual({ a: false, b: false });
 	});
 
-	test("bun-apps/dsh-plugin-sv-analyzer/ only → all false (standalone project, needs no package matrix)", async () => {
-		const { fn } = mkSpawn({ diffStdout: "bun-apps/dsh-plugin-sv-analyzer/plugin/index.js\n" });
+	test("dsh-plugin/sv-analyzer/ only → all false (standalone project, needs no package matrix)", async () => {
+		const { fn } = mkSpawn({ diffStdout: "dsh-plugin/sv-analyzer/plugin/index.js\n" });
 		const map = await computeChangedPackages({
 			repoRoot: REPO,
 			baseRef: "main",
@@ -264,8 +265,8 @@ describe("computeChangedPackages — matrix-irrelevant paths (scoped, NOT fail-o
 		expect(map).toEqual({ a: false, b: false });
 	});
 
-	test("package file + bun-apps/dsh-plugin-sv-analyzer/ file → scoped, NOT all true", async () => {
-		const { fn } = mkSpawn({ diffStdout: "bun-apps/dsh-plugin-sv-analyzer/rust/src/lib.rs\nbun-apps/a/x.ts\n" });
+	test("package file + dsh-plugin/sv-analyzer/ file → scoped, NOT all true", async () => {
+		const { fn } = mkSpawn({ diffStdout: "dsh-plugin/sv-analyzer/rust/src/lib.rs\nbun-apps/a/x.ts\n" });
 		const map = await computeChangedPackages({
 			repoRoot: REPO,
 			baseRef: "main",
