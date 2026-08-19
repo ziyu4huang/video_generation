@@ -65,5 +65,3 @@ if (hookable) {
  * false as a patch failure instead of claiming success — see ./index.ts.
  */
 export const patchApplied = hookable;
-/** @deprecated legacy alias — always `true`, kept only for import-site compat. */
-export const preLoadProvidersPatchApplied = true;

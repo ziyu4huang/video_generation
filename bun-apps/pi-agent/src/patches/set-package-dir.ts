@@ -61,5 +61,3 @@ export function shouldSetPackageDir(mode: BundlerMode, piPkgDir: string): boolea
 if (shouldSetPackageDir(mode, PI_PKG_DIR)) {
   process.env.PI_PACKAGE_DIR ??= PI_PKG_DIR;
 }
-
-export const setPackageDirPatchApplied = true;

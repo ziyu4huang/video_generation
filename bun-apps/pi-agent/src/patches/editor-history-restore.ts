@@ -51,5 +51,3 @@ if (process.env.BUN_PI_DEBUG_PATCHES === "1" || process.env.BUN_PI_DEBUG_PATCHES
  * false as a patch failure instead of claiming success — see ./index.ts.
  */
 export const patchApplied = outcome;
-/** @deprecated legacy alias — always `true`, kept only for import-site compat. */
-export const editorHistoryRestorePatchApplied = true;

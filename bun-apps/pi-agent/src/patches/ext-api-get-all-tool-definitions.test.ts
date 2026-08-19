@@ -126,11 +126,9 @@ describe("applyGetAllToolDefinitionsPatch logic", () => {
   });
 });
 
-// ─── Integration test ─────────────────────────────────────────────────────────
-
-describe("ext-api-get-all-tool-definitions integration", () => {
-  test("patch module loads and exports the applied flag", async () => {
-    const mod = await import("./ext-api-get-all-tool-definitions.ts");
-    expect(mod.extApiGetAllToolDefinitionsPatchApplied).toBe(true);
-  });
-});
+// The module-level "does it export an applied flag" check lives in
+// patch-outcome.test.ts, which imports this module in a SUBPROCESS (these
+// patches apply at import time and are idempotent-guarded, so a second import
+// in this process reports false for the honest reason "already applied") and
+// asserts a real boolean outcome. The integration test that used to sit here
+// asserted a hardcoded `= true` constant equalled true — it could not fail.

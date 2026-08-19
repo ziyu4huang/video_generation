@@ -105,5 +105,3 @@ if (enabled) {
  * exactly what it was asked to do.
  */
 export const patchApplied = enabled ? outcome : true;
-/** @deprecated legacy alias — always `true`, kept only for import-site compat. */
-export const extContextGetSystemPromptOptionsPatchApplied = true;

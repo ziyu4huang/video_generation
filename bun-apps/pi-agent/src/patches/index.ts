@@ -196,6 +196,13 @@ export function resolvePatchPlan(
  * chain built AFTER that incident could not have detected a recurrence — and
  * neither could e2e-patches.test.ts, which asserts every entry reports
  * `✓ applied`.
+ *
+ * Both patterns are now structurally blocked: patch-outcome.test.ts scans every
+ * module in this directory and fails on a hardcoded `…PatchApplied = true` or a
+ * top-level call that discards its own `: boolean` return. The list of modules
+ * held to the `patchApplied` contract is DERIVED from those sources, not typed
+ * out — `force-response-language` was missing from the hand-written roster from
+ * the day it was written until 2026-08-19.
  */
 export function readPatchOutcome(mod: unknown): boolean | undefined {
   const v = (mod as { patchApplied?: unknown } | null)?.patchApplied;

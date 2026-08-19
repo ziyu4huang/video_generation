@@ -265,10 +265,21 @@ export function applyForceResponseLanguagePatch(): boolean {
 
 // Import-time side effect: wrap the prototype. Runs inside applyPatches() (the
 // PATCH_TABLE import gate controls whether this file is loaded at all).
-applyForceResponseLanguagePatch();
+const outcome = applyForceResponseLanguagePatch();
 
 if (process.env.BUN_PI_DEBUG_PATCHES === "1" || process.env.BUN_PI_DEBUG_PATCHES === "true") {
-	console.error("[bun-pi] force-response-language patch applied");
+	console.error(`[bun-pi] force-response-language patch ${outcome ? "applied" : "DID NOT BIND"}`);
 }
 
-export const forceResponseLanguagePatchApplied = true;
+/**
+ * Outcome, not intent — read by `readPatchOutcome()` in ./index.ts.
+ *
+ * `wrapInstallAgentNextTurnRefresh` returns false when
+ * `AgentSession.prototype._installAgentNextTurnRefresh` is missing, i.e. when
+ * the pinned pi core moved under us. This module used to discard that boolean,
+ * print "patch applied" unconditionally under debug, and export a hardcoded
+ * `true` — the two failure modes ./index.ts `readPatchOutcome` was written to
+ * end. The reply language would have silently stopped being forced while every
+ * check reported success.
+ */
+export const patchApplied = outcome;

@@ -79,5 +79,3 @@ if (shouldEnsureModelTiers({ fileExists: existsSync(MODEL_TIERS_PATH), enabled }
 		}
 	}
 }
-
-export const ensureModelTiersPatchApplied = true;

@@ -107,5 +107,3 @@ if (isBunBinary(import.meta.url) && EMBEDDED_ASSETS.length > 0) {
   // Also export the extract dir via env var so run-dir/resolve.ts can use it.
   process.env.BUN_PI_EMBEDDED_EXTRACT_DIR = cacheDir ?? "";
 }
-
-export const extractEmbeddedAssetsPatchApplied = true;
