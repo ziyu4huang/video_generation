@@ -2,7 +2,7 @@
   "name": "@repo/pi-agent",
   "version": "0.1.0",
   "private": true,
-  "description": "Interactive pi TUI with monkey-patch hooks — forces model loading from .pi/agent/models.json, delegates everything else to the official pi main().",
+  "description": "Interactive pi TUI wrapper — injects a source-hardcoded provider catalog via a ModelRuntime.create monkey-patch, delegates everything else to the official pi main().",
   "type": "module",
   "piConfig": {
     "name": "pi-agent"
