@@ -110,6 +110,11 @@ jobs:
           - { package: pi-agent-ext-ltx, test-cmd: "bun test" }
           - { package: pi-agent-ext-movie-director, test-cmd: "bun test" }
           - { package: pi-agent-ext-power-tool, test-cmd: "bun test" }
+          # skills-only carrier (vendored HyperFrames family): its `test`
+          # script is scoped to tests/ so upstream's vendored .test.mjs in
+          # skills/ (machine-coupled, byte-identical upstream content) never
+          # runs — the portability audit likewise excludes */skills/*.
+          - { package: pi-agent-ext-hyperframes, test-cmd: "bun run test" }
           - { package: pi-agent-ext-btw, test-cmd: "bun test" }
           - { package: pi-agent-ext-task, test-cmd: "bun test" }
           - { package: pi-agent-ext-research-tool, test-cmd: "bun test" }

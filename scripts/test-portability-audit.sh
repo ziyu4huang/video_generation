@@ -79,14 +79,15 @@ else
 fi
 cd "$ROOT"
 
-# Test surface: *.test.ts / *.test.mjs under bun-apps/, excluding node_modules
-# and compiled dist/ (which can contain stale test artifacts). grep --include /
-# --exclude-dir let us scan without buffering a file list (portable to bash 3.2,
-# which macOS ships — no mapfile/readarray until bash 4).
-GREP_FILTERS=(--include='*.test.ts' --include='*.test.mjs' --exclude-dir=node_modules --exclude-dir=dist)
+# Test surface: *.test.ts / *.test.mjs under bun-apps/, excluding node_modules,
+# compiled dist/ (which can contain stale test artifacts), and skills/ dirs
+# (vendored prompt content — e.g. pi-agent-ext-hyperframes's upstream .test.mjs
+# — which is byte-identical upstream material, not this repo's test surface and
+# not ours to gate or edit).
+GREP_FILTERS=(--include='*.test.ts' --include='*.test.mjs' --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=skills)
 TOTAL_FILES="$(
 	find bun-apps -type f \( -name '*.test.ts' -o -name '*.test.mjs' \) \
-		-not -path '*/node_modules/*' -not -path '*/dist/*' | wc -l | tr -d ' '
+		-not -path '*/node_modules/*' -not -path '*/dist/*' -not -path '*/skills/*' | wc -l | tr -d ' '
 )"
 
 # guard_signals regex — if a file matches ANY of these it is GUARDED.

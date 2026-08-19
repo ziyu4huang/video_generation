@@ -54,13 +54,15 @@
     "pi-agent-ext-web-access/skills",
     "pi-agent-ext-archify/skills",
     "pi-agent-ext-devops/skills",
-    "pi-agent-ext-power-tool/skills"
+    "pi-agent-ext-power-tool/skills",
+    "pi-agent-ext-hyperframes/skills"
   ],
   "binarySkills": [
     "pi-agent-ext-hermes-memory/skills",
     "pi-agent-ext-superpowers/skills",
     "pi-agent-ext-wayfind/skills",
-    "pi-agent-ext-web-access/skills"
+    "pi-agent-ext-web-access/skills",
+    "pi-agent-ext-hyperframes/skills"
   ],
   "staticExtensions": [
     "pi-agent-ext-task",
@@ -76,7 +78,8 @@
     "pi-agent-ext-workflow",
     "pi-agent-ext-knowledge-card",
     "pi-agent-ext-power-tool",
-    "pi-agent-ext-webui"
+    "pi-agent-ext-webui",
+    "pi-agent-ext-hyperframes"
   ],
   "npmExtensions": [],
   "lazyExtensions": {}
