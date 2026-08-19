@@ -1,69 +1,69 @@
 ---
-id: b896eb49-99c6-4d0c-ae98-f446801da1b2
-created: 2026-08-14
-last: 2026-08-15
+id: 5e52bf2b-f03a-42f1-9df9-b0e348f11db0
+created: 2026-08-17
+last: 2026-08-17
 ---
-RunView + AgentRow architecture — pinned decisions: home = core-runtime (both packages already depend, no new edges); RunView = immutable read-only derived projection, Variant A 'fat projection record' (all presentation incl. frozen elapsed resolved at BUILD time); status vocabulary unified on ActivityStatus 9-value union (queued|running|done|error|failed|skipped|timedout|budget|aborted — NO 'completed' member) with markCompleted gaining terminal param + new markFailed (closes 'failed children leave no terminal record' gap); glyphFor = single glyph source; registry derived reads as methods over internal pure functions; explicit updateTaskPreview write seam (workflow-manager stops poking entry.taskPreview); FULL destructive convergence of InFlightSubagent public surface → RunView; recorded in core-runtime/CONTEXT.md + ADR-0001 (docs/adr/0001-runview-destructive-convergence). Phase 2 (workflow-side migration + TUI subagents section rendering RunViews) shipped on main via PRs #1410–#1412.
+docs/superpowers/ namespace RETIRED (user directive 2026-08-16): never write specs/plans/docs under docs/superpowers/ again — everything lives under .planning/ (.planning/specs/, .planning/plans/, audit dockets → .planning/audit/). Migration included: pi-agent-ext-task plan-coordinator legacy fallback switched from docs/superpowers/plans to .planning/plans (done BEFORE symlink removal), symlink deletion, guard test + ADR, and ~25 dangling reference fixes. Superpowers skills-fidelity guardrail: skills-fidelity.test.ts (ADR-0004) pins ported skills byte-equal to baseline fixtures — intentional drift from a merge/surgery MUST run bun scripts/rebaseline-upstream-skills.ts before tests pass.
 §
 ---
-id: 749ef2b2-5347-4a57-909c-e78e11025375
-created: 2026-08-14
-last: 2026-08-15
+id: 89f47e61-2353-4a48-b7ca-0298350e9c82
+created: 2026-08-17
+last: 2026-08-17
 ---
-When a repo gate fails on a docs-only/unrelated PR, suspect pre-existing main drift FIRST — verify against clean origin/main before touching your own change; if a --no-verify bypass is unavoidable, log it explicitly in the PR description and flag it for a dedicated fix round.
+Effort .planning/2026-08-17-develop-pipeline/ (wayfind→superpowers↔subagents pipeline design): map+grill D5–D9 merged (#1575/#1578), spec.md merged (#1580), D1–D4/D7/D9 already satisfied by landed state — build surface is only skill-file modules M1–M5 (to-spec entry-criteria, writing-plans entry-criteria, verify-child rule in superpowers, budget ledger extension, CONTEXT-MAP as diagram-of-record home). Ticket format is the UNIFIED schema (YAML frontmatter type/blocking/status + ## Question/## What to build/## Acceptance) read by parseTicketFile; /wayfind done = manual move to .planning/done/ + status:complete + next-goal harvest — no automated mv, so efforts run without a map need a retro done-map.
 §
 ---
-id: 7738820c-39ed-408b-b593-c22084266b13
-created: 2026-08-14
-last: 2026-08-15
+id: da6eaf71-bf0b-4c95-a8d6-44f5895152f8
+created: 2026-08-18
+last: 2026-08-18
 ---
-C1 codec unification closed via PR #1343 (splitPlanningFrontmatter rewired to the splitFencedYaml leaf in frontmatter-codec.ts, plus sole-source regression gate frontmatter-codec-sole-source.test.ts). DURABLE LESSON: architecture-review recommendations go stale fast in this repo — re-scan residual scope against current HEAD before executing review candidates; duplicate implementations re-emerge organically even after a canonical leaf exists, so ship a grep/sole-source gate test with every consolidation.
+Wayfind conventions (2026-08-14–17): there is NO self-named skills/wayfind/SKILL.md — the wayfinder process lives in procedures/wayfinder.md, the grilling discipline in skills/grilling/SKILL.md, and ~22 SKILL.md files exist under bun-apps/pi-agent-ext-wayfind/skills/. Landed-work attribution: when a landed PR implements a standing decision in an effort map but has no existing ticket seat, record it as a NEW landed decision row in the owning effort's map.md (+ fog-item annotation), merging follow-up PRs into the same row. First verify the suspected effort actually owns the work. Keep tickets open when their declared interface is explicitly narrower than the landed work.
 §
 ---
-id: dc2ec7a8-51ad-4acd-8324-7ba9e0bfd18b
-created: 2026-08-14
-last: 2026-08-15
+id: a39f1481-765c-4407-acd9-32d94ad4d1cd
+created: 2026-08-18
+last: 2026-08-18
 ---
-Wayfind package layout: there is NO self-named skills/wayfind/SKILL.md — the wayfinder process lives in procedures/wayfinder.md, the grilling discipline in skills/grilling/SKILL.md, and ~22 SKILL.md files exist under bun-apps/pi-agent-ext-wayfind/skills/.
+Gitignored transient scratch files (standing rule, .gitignore): task_plan.md, progress.md, findings.md are per-filename carve-outs — do NOT commit them and never `git add -f` past the ignore. Children hitting this wall should leave them as local scratch; seeds/progress live local only.
 §
 ---
-id: f2baa43e-06b3-46ca-b258-c2b3b25fd9f6
-created: 2026-08-14
-last: 2026-08-15
+id: 483dc9a6-fd15-4897-a466-2daa845e83cb
+created: 2026-08-18
+last: 2026-08-18
 ---
-DevOps unification — durable lessons NOT covered by CLAUDE.md: (1) port-then-delete rule — once logic is ported into a pi extension, the standalone script MUST be deleted (canonical engines live in extensions; copies are not canonical); (2) import-depth pitfall when relocating directory trees — files in scripts/lib/ needed ../../../pi-agent/... while scripts/deploy.ts needed ../../pi-agent/... for manifest.json; verify all relative imports after moving trees; (3) deploy.ts cwd-guard lesson — tests must spawn deploy.ts with cwd=pi-agent (the guard requires running from the pi-agent package directory) while keeping the DEPLOY path script-relative.
+Subagent dispatch empirics (grounded 2026-08-18 from ~/.pi/subagents/runs/ — 200 parseable JSON run records): 166 done / 20 turn-capped / 14 budget-dead ≈ 17% death rate, zero unrecoverable failures — salvage/verify always recovers the work. Distilled to .planning/knowledge/subagent-dispatch-empirics.md. Recurring abort pattern: children die between 'staging' and 'commit' or mid-report — after every abort, verify git/PR state with fresh commands instead of redispatching full tasks; janitor finishers (verify → commit → push only) reliably close them. Also: unit-test decision logic with self-contained fakes instead of coupling to large existing test harnesses — three children died reading one 215-line harness before restructuring worked.
 §
 ---
-id: 540be258-dc14-4f67-953b-bfeee8951acb
-created: 2026-08-15
-last: 2026-08-15
+id: 22c8ac43-ceab-4521-8ceb-f15db22432e7
+created: 2026-08-18
+last: 2026-08-18
 ---
-Subagent token-budget + dispatch guardrails (root cause = model-side exploration/looping, NOT constraints alone; 13+ dispatches died at 300k–1.2M tokens): (1) pre-extract exact APIs/patterns via cheap researcher + inline near-complete spec — open-ended prompts burn entire budgets; (2) cap verbose command output; (3) SINGLE-SHOT dispatch mode (one command per subagent) is the only reliably surviving shape; (4) stop-before-commit — implementer does write+verify then STOPS, orchestrator ships via single-shot runners; (5) split multi-package tasks per child; (6) salvage beats re-dispatch — finisher = verify → commit → push, ≤3 fix cycles, WIP-push if red; (7) COMMIT-BEFORE-REPORT — commit + push to branch FIRST, then write report; (8) ABSOLUTE ban on `git reset --hard` in child dispatches — soft reset + selective restore instead (hard reset destroyed another session's MEMORY.md); (9) after zero-output death, re-dispatch SPLIT IN HALF per child; (10) salvagers/finishers self-merged ahead of reviewer gate — plan post-hoc review as norm; (11) after EVERY abort inspect git state first — work is often complete-but-uncommitted; (12) subagent reports echoing commands WITHOUT outputs are untrustworthy — re-verify git/PR state with fresh commands; quirk: preflight rejects tasks missing required tools — add them to 'tools' explicitly. Budget seam lived at subagent-tool-run.ts / subagents-tool.ts spawn args as of PR #1334 — re-locate after the #1340 barrel slimming.
+pi-agent.sh at repo root already exists as a symlink → bun-apps/pi-agent/run.sh, a pre-existing 238-line launcher (logic-free shim exec into bun src/cli.ts). Do not overwrite run.sh with a new shim — an early self-improve-loop child clobbered it and it had to be git-restored (ticket 01 closed as 'completed by pre-existing surface').
 §
 ---
-id: fd401c04-84e1-4f2f-99e1-decc2fa5dec4
-created: 2026-08-15
-last: 2026-08-15
+id: e83dcbaa-6053-4d29-a58c-6305737dafe4
+created: 2026-08-18
+last: 2026-08-18
 ---
-Planning-effort hygiene sweep rules: after any sibling mass-archive/sweep, verify still-active efforts weren't swept (a mass-sweep once archived a still-active effort and needed a rescue PR); plain-pi sessions lack extension tools (no wayfind_effort) — enumerate .planning/ via the filesystem, listing bare dirs too (many efforts have no map.md), not only map.md-bearing ones.
+DevOps + Git workflow lessons (2026-08-15–17): (1) Mass dirty-tree after sync = mechanical revert residue — verify blob identity before discarding (git log --all --find-object <blob>; if all blobs resolve to pre-merge commits, churn is zero unique work; git restore --worktree -- . is safe). Delete untracked "resurrections" only if byte-identical to done/ copies. (2) After squash-merge, cut fresh branch from origin/main instead of rebasing old branch (squash may carry both commits — git cherry-pick --skip for empty). (3) Worktree topology: main checked out at /Users/huangziyu/proj/video_generation; secondaries must use detached HEAD (checkout main fatal). All worktrees share ~/.pi/agent/settings.json → defaultModel/defaultProvider leak. After squash-merge, remote branch deleted; leftover local branch harmless. Sibling sessions move origin/main mid-session → re-fetch and list sibling PRs before branching/rebasing; check file overlap of open sibling PRs. (4) DevOps unification: port-then-delete rule — once logic ported into pi extension, delete standalone script. Import-depth pitfall when relocating directory trees — verify all relative imports after moving. deploy.ts cwd-guard lesson — tests must spawn with cwd=pi-agent while keeping DEPLOY path script-relative. (5) sweep-cli safety: default is dry-run (prints JSON plan). SAFE-to-delete requires POSITIVE gh evidence: MERGED PR for head ref AND no open PR reusing it. Triple guards (never deleted): branches checked out in any worktree, main/master/default, current branch.
 §
 ---
-id: 4806129f-69c5-4a47-a691-83a3d7033604
-created: 2026-08-15
-last: 2026-08-15
+id: d3215a26-f737-4812-a818-b09b5ebe98c5
+created: 2026-08-18
+last: 2026-08-18
 ---
-Worktree topology (video_generation repo): `main` is checked out in the PRIMARY worktree at /Users/huangziyu/proj/video_generation — secondary worktrees must operate on detached HEAD (git checkout main → fatal 'main is already used by worktree'); after squash-merge the remote branch is deleted but a leftover local branch is harmless. Sibling sessions run in parallel and move origin/main mid-session — always re-fetch and list sibling PRs before branching/rebasing, and check file overlap of open sibling PRs before dispatching into the same area.
+Planning-effort hygiene sweep rule: after any sibling mass-archive/sweep, verify still-active efforts weren't swept (a mass-sweep once archived a still-active effort and needed a rescue PR). Plain-pi sessions lack extension tools (no wayfind_effort) — enumerate .planning/ via filesystem, listing bare dirs too (many efforts have no map.md), not only map.md-bearing ones.
 §
 ---
-id: dfdd1bf5-2d65-4a87-9dad-fcb9e860212c
-created: 2026-08-15
-last: 2026-08-15
+id: 644730bd-7e55-4d1e-894a-d5a5b728659c
+created: 2026-08-18
+last: 2026-08-18
 ---
-kp ticket 13 — memory-card graduation architecture (shipped 2026-08-15, waves A/B/C = PRs #1363/#1372/#1378): dual-backend card-store keyed by md_id forming the markdown↔DB mirror; Surreal delegates to SurrealMemoryRepository behind the CardPersistence seam (C6 dedup rides free); card-store joins BackendBundle (hot-swap covers cards); lazy re-migration on startup re-mirrors §-entries keyed by md_id; Tier-1 drift detection shipped in 13 (Tier-2/3 deferred to ticket 21); legacy content-key bridge retired (DELETE legacy mirror at end). SurrealDB-vs-SQLite decision (Surreal = primary CRUD+vector backend; SQLite fallback for non-vector CRUD+FTS5) recorded canonically in hermes-memory PRD.md + kp tickets/04.
+Knowledge-candidate → skill promotion pipeline (PR #1628, #1629, 2026-08-18): `.planning/knowledge/` candidates promoted via superpowers writing-skills test-first process. RED evidence = documented incident (verbatim session records count). EXPECTED_SKILLS count +1 in tests/skills.test.ts. UPSTREAM.ref LOCAL-DIVERGENCES row for repo-local additions. Candidate consumed on promotion. Status post-truth-sync: goal-loop-hygiene SUPERSEDED (no-progress tripwire #1625 fails need-gate); goal-loop-deadlock RESOLVED (fix #1625 landed). Superpowers count = 15 (14 upstream + repo-native dispatch-recovery). Home: bun-apps/pi-agent-ext-superpowers/skills/ (dispatching-parallel-agents owns pre-dispatch + verify-child; dispatch-recovery owns post-death recovery).
 §
 ---
-id: 68c5150a-c54e-4707-a98b-6c350b32503b
-created: 2026-08-15
-last: 2026-08-15
+id: 4929d939-b2f7-4956-b89b-cd1f2e66252f
+created: 2026-08-18
+last: 2026-08-18
 ---
-[insight] Mass dirty-tree before sync = mechanical revert residue — verify blob identity before discarding (2026-08-15, PR #1424 run): When `sync-cli.ts` would abort `dirty_tree` because the working tree has dozens of modified+deleted files that don't match any branch's purpose, suspect a botched rebase/checkout that mechanically reverted already-squash-merged PRs to their pre-states. Diagnosis that proves it losslessly discardable: for each modified file, hash the working-tree blob and run `git log --all --find-object <blob>` — if every blob resolves to a historical pre-merge commit, and every deleted file still exists on HEAD/origin/main, the churn contains zero unique work; `git restore --worktree -- . ':(exclude).agents/memory/MEMORY.md'` (preserve the memory hot file) is safe. Also: delete untracked "resurrections" of files that were archived to `.planning/done/` only if byte-identical to the done/ copies (never keep both). On 2026-08-15 this pattern reverted merged PRs #1339–#1342 (77 files, +429/−8845) in the video_generation__memory worktree; resolved losslessly, PR #1424 (kp13 sdd docs) shipped. Also learned: sync-cli `--mode full` advances main + submodules but never rebases feature branches — after a merged squash PR, cut a fresh branch from origin/main and cherry-pick residuals instead of rebasing the old branch (an already-squash-merged commit's bookkeeping follow-up may cherry-pick EMPTY because the squash carried both commits — `git cherry-pick --skip` is correct there). Submodule note: sync's `submodule update --remote` re-dirties the gitlink if remote HEAD ≠ recorded pointer; fix with `git submodule update --checkout -- <path>` afterward.
+Self-improve loop surface (PR #1699, 2026-08-19): `./pi-agent.sh cli loop status` — report-only (always exit 0) 5-signal drift report over MVP packages (wayfind/superpowers/subagent + core-*; image/video extensions explicitly out of scope per user). Signals: dispatch death rate (broad <15% over ~100 runs, soak issue #1681), skill line budget (≤300/file), coverage floor, schema-cost, drift census. runStats parser must be line-start anchored so runs-stats cohort rows (`cohort x: n=154 done=119…`) don't false-match summary rows; also accepts keyword-first (`done 126`). New CLI commands follow `cli/commands/*.ts` + COMMANDS registry in dispatch.ts — forgetting the import causes silent fall-through to chat.
