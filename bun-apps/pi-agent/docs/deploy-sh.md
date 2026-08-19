@@ -93,13 +93,19 @@ inlined by the bundler (check the package declares it in its own `package.json` 
 
 ### Runtime externals
 
-`externals: ["playwright-core"]` marks a specifier as neither bundled nor host-provided — a heavy,
-optional dep the extension reaches for lazily (`await import(...)`). power-tool needs this:
-playwright-core's vendored bundle requires `chromium-bidi` paths the bundler cannot resolve, so
-bundling it fails the build outright — the same failure the legacy `--exe` compile hits. Left
-external, power-tool's browser/webui tools error when invoked on a machine without playwright;
-everything else in the extension works. `ext.json` records these under `runtimeExternals`, kept
-distinct from `hostModules` so the two promises never get confused.
+`externals` marks a specifier as neither bundled nor host-provided. An entry ending in `/*` covers
+every subpath of that package.
+
+power-tool needs this for playwright: playwright-core's vendored bundle does
+`require("chromium-bidi/...")` while declaring zero deps, and references the optional peers
+`kerberos`, `vite`, and `@playwright/test`. This is the same treatment `deploy.ts` already applies
+via its `OPTIONAL_EXTERNALS` (PR #1635) — **playwright-core itself stays bundled**, so power-tool's
+browser tools work in the deploy; only the unresolvable internals are left out. Those live in
+esbuild's lazy `__esm({...})` sections that the default CDP path never enters. The cost is size:
+power-tool's bundle is ~3.8 MB rather than ~74 KB.
+
+`ext.json` records these under `runtimeExternals`, deliberately separate from `hostModules` — one
+says the core supplies it, the other says only that it was not bundled.
 
 ## The three gates
 

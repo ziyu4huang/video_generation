@@ -49,12 +49,27 @@ export interface BuildExtResult {
 	hostModules: string[];
 }
 
-/** Bare specifiers left in the bundle that the host does not provide. */
-export function scanForeignSpecifiers(code: string, hostModules: readonly string[]): string[] {
+/**
+ * Does `spec` match one of the allowed entries? An entry ending in `/*` matches
+ * any subpath of that package — the form bun's `--external` takes for a package
+ * whose internals are unresolvable (`chromium-bidi/*`), where the specifier that
+ * actually survives in the bundle is a deep path like
+ * `chromium-bidi/lib/cjs/bidiMapper/BidiMapper`.
+ */
+export function matchesAllowed(spec: string, allowed: readonly string[]): boolean {
+	for (const entry of allowed) {
+		if (entry === spec) return true;
+		if (entry.endsWith("/*") && spec.startsWith(entry.slice(0, -1))) return true;
+	}
+	return false;
+}
+
+/** Bare specifiers left in the bundle that neither the host nor the config allows. */
+export function scanForeignSpecifiers(code: string, allowed: readonly string[]): string[] {
 	const foreign = new Set<string>();
 	for (const spec of extractBareSpecifiers(code)) {
 		if (isBuiltinSpecifier(spec)) continue;
-		if (hostModules.includes(spec)) continue;
+		if (matchesAllowed(spec, allowed)) continue;
 		foreign.add(spec);
 	}
 	return [...foreign];
@@ -70,7 +85,12 @@ export function scanForeignSpecifiers(code: string, hostModules: readonly string
  * resolved here is a hard error rather than a stub — degrading it silently is
  * what made an earlier version of this probe pass while proving nothing.
  */
-export function loadProbe(cjsPath: string, hostModules: readonly string[], resolveFrom = PI_AGENT_DIR): void {
+export function loadProbe(
+	cjsPath: string,
+	hostModules: readonly string[],
+	resolveFrom = PI_AGENT_DIR,
+	hostModuleIds: readonly string[] = hostModules,
+): void {
 	const code = readFileSync(cjsPath, "utf8");
 	const nodeRequire = createRequire(join(resolveFrom, "package.json"));
 	const probeRequire = (spec: string): unknown => {
@@ -78,13 +98,17 @@ export function loadProbe(cjsPath: string, hostModules: readonly string[], resol
 		// require("module")/require("node:fs") for its own interop shims, and those
 		// are not host modules — rejecting them would fail every real bundle.
 		if (isBuiltinSpecifier(spec)) return nodeRequire(spec);
-		if (!hostModules.includes(spec)) throw new Error(`bundle required non-host module "${spec}"`);
+		if (!matchesAllowed(spec, hostModules)) throw new Error(`bundle required non-host module "${spec}"`);
 		try {
 			// Bun.resolveSync honors the workspace's isolated linker (packages live
 			// in the global store, reachable only through that resolution), which a
 			// bare createRequire from the package dir cannot follow.
 			return nodeRequire(Bun.resolveSync(spec, resolveFrom));
 		} catch (e) {
+			// A declared runtime external is allowed to be unresolvable here: that is
+			// precisely why it was left out of the bundle. Only a HOST module failing
+			// to resolve means the build machine is broken.
+			if (!hostModuleIds.includes(spec)) return new Proxy({}, { get: () => () => undefined });
 			throw new Error(
 				`host module "${spec}" could not be resolved from ${resolveFrom}: ${e instanceof Error ? e.message : String(e)}. ` +
 					`The core embeds it, so the build machine must be able to resolve it too — run \`bun install\` in bun-apps/.`,
@@ -158,7 +182,7 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 	}
 
 	// ── Gate 2: it loads the way the runtime loads it ─────────────────────────
-	loadProbe(cjsPath, allExternals);
+	loadProbe(cjsPath, allExternals, PI_AGENT_DIR, opts.hostModules);
 
 	// ── Skills ───────────────────────────────────────────────────────────────
 	for (const rel of opts.ext.skills) {

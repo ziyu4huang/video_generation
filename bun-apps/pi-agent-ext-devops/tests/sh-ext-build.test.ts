@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildExtPackage, loadProbe, scanForeignSpecifiers } from "../scripts/lib/sh-ext-build.ts";
+import { buildExtPackage, loadProbe, matchesAllowed, scanForeignSpecifiers } from "../scripts/lib/sh-ext-build.ts";
 
 const BUN_APPS = join(import.meta.dir, "..", "..");
 const HOST_MODULES = [
@@ -23,10 +23,28 @@ afterEach(() => {
 	for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
+describe("matchesAllowed", () => {
+	test("matches an exact entry", () => {
+		expect(matchesAllowed("typebox", ["typebox"])).toBe(true);
+		expect(matchesAllowed("typebox/value", ["typebox"])).toBe(false);
+	});
+
+	test("a /* entry matches any subpath of that package", () => {
+		expect(matchesAllowed("chromium-bidi/lib/cjs/bidiMapper/BidiMapper", ["chromium-bidi/*"])).toBe(true);
+		expect(matchesAllowed("chromium-bidi", ["chromium-bidi/*"])).toBe(false);
+		expect(matchesAllowed("chromium-bidi-evil/x", ["chromium-bidi/*"])).toBe(false);
+	});
+});
+
 describe("scanForeignSpecifiers", () => {
 	test("accepts a bundle that only requires host modules", () => {
 		const code = `var a = require("typebox");\nimport x from "@earendil-works/pi-tui";`;
 		expect(scanForeignSpecifiers(code, HOST_MODULES)).toEqual([]);
+	});
+
+	test("accepts a deep subpath covered by a /* external", () => {
+		const code = `var b = require("chromium-bidi/lib/cjs/bidiMapper/BidiMapper");`;
+		expect(scanForeignSpecifiers(code, [...HOST_MODULES, "chromium-bidi/*"])).toEqual([]);
 	});
 
 	test("reports a specifier the host does not provide", () => {
@@ -80,7 +98,7 @@ describe("buildExtPackage", () => {
 				order: 50,
 				skills: ["skills"],
 				enabled: true,
-				externals: ["playwright-core"],
+				externals: ["chromium-bidi/*", "kerberos", "vite", "@playwright/test"],
 			},
 			bunAppsDir: BUN_APPS,
 			outDir: join(out, "power-tool"),
@@ -102,8 +120,11 @@ describe("buildExtPackage", () => {
 		expect(manifest.hostModules.every((m: string) => HOST_MODULES.includes(m))).toBe(true);
 		// A declared runtime external is recorded but NOT claimed as host-provided:
 		// the core does not supply playwright-core, it merely is not bundled.
-		expect(manifest.runtimeExternals).toEqual(["playwright-core"]);
-		expect(manifest.hostModules).not.toContain("playwright-core");
+		expect(manifest.runtimeExternals).toEqual(["chromium-bidi/*", "kerberos", "vite", "@playwright/test"]);
+		expect(manifest.hostModules).not.toContain("chromium-bidi/*");
+		// playwright-core itself IS bundled (only its unresolvable internals are
+		// external), so the bundle is megabytes, not kilobytes.
+		expect(res.bytes).toBeGreaterThan(1_000_000);
 		expect(res.bytes).toBeGreaterThan(0);
 	}, 120_000);
 

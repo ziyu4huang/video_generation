@@ -31,11 +31,14 @@ extensions:
     entry: extensions/power-tool.ts
     order: 50
     skills: [skills]
-    # Not bundled, not host-provided: power-tool reaches for playwright-core
-    # lazily (`await import`) in its browser/webui tools, and playwright-core's
-    # vendored bundle requires chromium-bidi paths the bundler cannot resolve —
-    # bundling it fails the build outright (the same failure the legacy --exe
-    # compile hits on this base). Left external, those two tools error when
-    # invoked on a machine without playwright; everything else in power-tool
-    # works.
-    externals: ["playwright-core"]
+    # power-tool pulls playwright-core (browser/webui tools). playwright-core's
+    # vendored bundle does require("chromium-bidi/...") while declaring zero
+    # deps, so the bundler cannot resolve those paths. Same treatment the legacy
+    # deploy.ts already uses (OPTIONAL_EXTERNALS, PR #1635): externalize only
+    # the unresolvable internals — playwright-core itself stays bundled, so the
+    # browser tools work in the deploy. The chromium-bidi requires sit in
+    # esbuild's lazy __esm({...}) for bidiOverCdp, which the default CDP path
+    # never enters.
+    # kerberos / vite / @playwright/test are playwright's own optional peers,
+    # reached only from code paths this agent never takes.
+    externals: ["chromium-bidi/*", "kerberos", "vite", "@playwright/test"]
