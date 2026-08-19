@@ -11,9 +11,6 @@
 /** Package name, used for status-bar / notification prefixes. */
 export const PKG_NAME = "pi-agent-ext-wayfind";
 
-/** Custom message type for wayfind-originated injected context. */
-export const CUSTOM_TYPE = "pi-wayfind";
-
 /**
  * globalThis key under which the plan coordinator publishes an
  * `(cwd: string) => boolean` telling wayfind whether a plan is incomplete.

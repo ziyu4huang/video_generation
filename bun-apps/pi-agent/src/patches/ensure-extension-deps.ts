@@ -175,5 +175,3 @@ if (isSource) {
 		}
 	}
 }
-
-export const __test = { isSource };

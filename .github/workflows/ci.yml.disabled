@@ -585,6 +585,14 @@ jobs:
         working-directory: bun-apps
         run: bun run test:skills-ref
 
+      # Dead-export guard (blocks). An exported value that nothing in the
+      # workspace references is misinformation: it tells a reader a code path
+      # exists. Sweep 2026-08-19 found 42, including a `clearSession` whose doc
+      # claimed the session_shutdown wiring that a different function owned.
+      - name: Dead-export guard (blocks)
+        working-directory: bun-apps
+        run: bun run test:dead-export
+
       # Cross-extension seam-contract guard (ADR-wayfind-0004). The
       # status-widget seam (__piCoreTaskStatusWidget) is duplicated across
       # ext-task (publisher) + wayfind/power-tool (consumers) with no

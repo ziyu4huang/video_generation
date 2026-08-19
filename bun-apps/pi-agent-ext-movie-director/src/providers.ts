@@ -302,11 +302,6 @@ function kokoroBinaryPresent(): boolean {
   }
   return kokoroBinaryCached;
 }
-/** Force the kokoro-tts-binary probe result (tests inject a deterministic value). */
-export function _setKokoroBinaryForTest(v: boolean | undefined): void {
-  kokoroBinaryCached = v;
-}
-
 /**
  * Runtime availability for a provider. Authoritative: a provider is callable iff
  * this returns true. The static `configured` is the declarative baseline (which
@@ -848,8 +843,6 @@ function clipBinaryPresent(): boolean {
 export function _setVisionRuntimeForTest(script: "clip", v: boolean | undefined): void {
   clipBinaryOverride = v;
 }
-
-
 
 export interface ClipOptions {
   /**

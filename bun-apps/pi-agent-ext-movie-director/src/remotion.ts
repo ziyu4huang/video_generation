@@ -191,10 +191,6 @@ export async function remotionAvailable(): Promise<boolean> {
   availableCached = bin !== null && bin.cmd !== "bunx"; // bunx fallback = "not really installed"
   return availableCached;
 }
-export function _setRemotionAvailableForTest(v: boolean | undefined): void {
-  availableCached = v;
-}
-
 // ─── render ──────────────────────────────────────────────────────────────────
 
 /**

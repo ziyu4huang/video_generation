@@ -42,14 +42,6 @@ export function setRenderSid(sid: string): void {
 	renderSid = sid;
 }
 
-export function getTodos(sid?: string): readonly Task[] {
-	return bucket(sid).tasks;
-}
-
-export function getNextId(sid?: string): number {
-	return bucket(sid).nextId;
-}
-
 export function getState(sid?: string): TaskState {
 	return bucket(sid);
 }
