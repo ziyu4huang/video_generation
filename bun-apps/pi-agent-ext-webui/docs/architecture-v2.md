@@ -4,7 +4,7 @@
 > Inputs: full codebase review (findings.md — 35+ catalogued findings incl.
 > 2 critical security, 10 major), the three module reviews, the original
 > specs (`.planning/done/2026-08-10-pi-agent-ext-webui-from-scratch/specs/`),
-> and external TUI+webUI hybrid research (docs/research-tui-agent-webui-hybrids.md).
+> and external TUI+webUI hybrid research (docs/research-tui-agent-webui-hybrids.md → moved alongside this file as `research-tui-agent-webui-hybrids.md`).
 > Status: IMPLEMENTED (see §7 — every §3/§4/§5 item shipped; the webui package
 > suite is green at 364 pass / 0 fail).
 
@@ -166,7 +166,7 @@ pi-agent CLI (`cli.ts` TUI path):
 
 ## 4. External patterns (from research)
 
-Full report: `docs/research-tui-agent-webui-hybrids.md` (verified live: gptme,
+Full report: `research-tui-agent-webui-hybrids.md` (verified live: gptme,
 opencode + OpenChamber, aider --browser, Qwen Code Dual Output, OmniTerm,
 Agentboard, codex-webui, pi-server/pi-client, ACP, ttyd/GoTTY/WeTTY).
 

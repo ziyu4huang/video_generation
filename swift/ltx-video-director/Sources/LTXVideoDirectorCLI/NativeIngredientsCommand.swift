@@ -23,7 +23,7 @@ struct NativeIngredients: ParsableCommand {
     )
 
     @Option(name: .customLong("input"), parsing: .upToNextOption,
-            help: "Reference image(s) (e.g. a character/product/scene reference sheet). Repeatable — pass multiple --input flags (or multiple paths after one --input) to condition on more than one reference simultaneously. Experimental multi-reference compositing: see docs/openmontage-capability-matrix.md and docs/superpowers/specs/2026-07-26-multi-reference-ingredients-design.md.")
+            help: "Reference image(s) (e.g. a character/product/scene reference sheet). Repeatable — pass multiple --input flags (or multiple paths after one --input) to condition on more than one reference simultaneously. Experimental multi-reference compositing: see python/mlx-movie-director/docs/openmontage-capability-matrix.md and docs/superpowers/specs/2026-07-26-multi-reference-ingredients-design.md.")
     var input: [String] = []
 
     @Option(name: .shortAndLong, help: "Output directory (frames/ subdirectory holds the generated PNG sequence, audio.wav holds generated audio).")

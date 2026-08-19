@@ -44,7 +44,7 @@ untouched: the dock consumes Esc ONLY while it holds the claim.
   after release no key leaks (single Esc consumed, then passive).
 - A future upstream focus API (component-level focus routing) supersedes the
   prefix claim; the migration path is recorded in
-  `docs/research-tui-agent-webui-hybrids.md` (#1384) — the dock's public
+  `bun-apps/pi-agent-ext-webui/docs/research-tui-agent-webui-hybrids.md` (#1384) — the dock's public
   interface (`createSubagentDock`) is designed so ONLY the input-claim wiring
   changes, not the keymap or render.
 - The byte-level claim is terminal-encoding dependent (raw C0 bytes); the

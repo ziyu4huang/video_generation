@@ -67,3 +67,21 @@ created: 2026-08-18
 last: 2026-08-18
 ---
 Self-improve loop surface (PR #1699, 2026-08-19): `./pi-agent.sh cli loop status` — report-only (always exit 0) 5-signal drift report over MVP packages (wayfind/superpowers/subagent + core-*; image/video extensions explicitly out of scope per user). Signals: dispatch death rate (broad <15% over ~100 runs, soak issue #1681), skill line budget (≤300/file), coverage floor, schema-cost, drift census. runStats parser must be line-start anchored so runs-stats cohort rows (`cohort x: n=154 done=119…`) don't false-match summary rows; also accepts keyword-first (`done 126`). New CLI commands follow `cli/commands/*.ts` + COMMANDS registry in dispatch.ts — forgetting the import causes silent fall-through to chat.
+§
+
+subagent tool vs direct-call gap: subagent tool seam 套用 role envelopes，但 direct `spawnSubagent()` 呼叫點無 cap。補救：`roleAwareDirectCall()` helper 統一 caps+abort-safety footer 原子同進退。（2026-08-18，#1654–#1661）
+id: 1ebce484-10e9-408a-b8b1-769774a84268
+created: 2026-08-18
+last: 2026-08-18
+runs DB persistence: `~/.pi/subagents/runs/*.json` 的 200/200 筆記錄全部帶完整 `usage` 欄位（input/output/cacheRead/total）。舊 empirics 說「run records don't persist tokenUsage」是過時主張，已推翻。（2026-08-18，#1667）
+id: e78e356c-1640-4223-82c0-c026454c7c25
+created: 2026-08-18
+last: 2026-08-18
+macOS + commit-scope anti-patterns (2026-08-18): GNU coreutils `timeout` 不存在，必須用 tool-level timeout 或 process 本身的 timeoutMs 參數；使用 shell `timeout` 會 exit 127 "command not found"。commit-scope 使用 `git add -A` 會 sweep 不相關檔案進 commit，造成 violation；必須使用明確路徑 `git add <files>`。 <!-- created=2026-08-18, last=2026-08-18 -->
+id: 648fc159-d9de-4763-bd37-51d7da282354
+created: 2026-08-18
+last: 2026-08-18
+parallel session 競態風險: 直接推 main 會被並行 session 的 pre-push CI 視窗截擋（~40s）。正確路徑: 分支推送→PR→pr-finish（API squash-merge）伺服器端原子處理。（2026-08-18，#1656 push 失敗案例）id: 6d248669-ce83-43a8-9fdd-4f174b891a30
+Dispatch budget envelope closure chain complete (2026-08-18): #1652 tool-seam rebalance (recon 120k/12t, writer 400k/28t) → #1653 obsidian distill OB_SUBAGENT_TIMEOUT_MS 5→20min → #1654 zk_card/zk_ask role bounds via exported ROLE_AWARE_DISPATCH_BOUNDS → #1655 hermes background-review fallback recon caps → #1656 hermes session-flush/auto-consolidate (writer) + correction-detector (recon) caps. Pattern for capping a raw spawnSubagent site: spread roleAwareDefaults(role) into options but override with the site's existing tighter timeoutMs; SUBAGENT_TOKEN_BUDGET_DISABLE escape hatch; pin with per-site tests.
+id: 2d40a851-883e-4140-ab73-b588f5b0c106
+LeanRAG completion (2026-08-18, PRs #1619/#1623/#1639/#1648, effort archived 8f36e219): augmentEmbedText wired via `entityAugment` seam leaf in core-interface KnowledgePipeline — zk publishes entity-summary capability, hermes defensively reads; direct hermes→zk import is FORBIDDEN by dep-guard.test.ts (ADR-monorepo-0001 invariant #4, no allowlist). Embed staleness escapes via DEFAULT_EMBED_MODEL_VERSION bump (+es1 suffix triggers full delta re-embed). hierarchy hang-mode breaker = summaryBreaker K=3 knob in zk hierarchy.ts cluster loop. kgLlmModel precedence: call-opts > config.kgLlmModel (hermes loadConfig) > PI_KG_LLM_MODEL env.

@@ -95,5 +95,5 @@ If the preflight reported missing weights, fetch them ONLINE once:
     $VENV_PY python/mlx-movie-director/app/ltx_downloader.py        # LTX-2.3 components
     $VENV_PY python/mlx-movie-director/run.py import-checkpoint …   # image transformers/LoRA
 
-See docs/offline-egress-map.md for the full runtime-egress map.
+See python/mlx-movie-director/docs/offline-egress-map.md for the full runtime-egress map.
 EOF
