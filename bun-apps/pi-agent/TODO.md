@@ -19,27 +19,13 @@ re-investigation.
 
 ## Open
 
-### 0. retire the `portable` / `release` layout branches in the launcher
+### 0. retire the `portable` / `release` layout branches in the launcher  ✅ DONE (2026-08-20)
 
-`doctor.ts` has been cleaned of the two modes `deploy.ts` cannot produce, but
-the two consumers that still *branch* on their markers have not:
-
-- `run.sh` — `.deploy-portable` → `MODE="deployed (portable)"` + a
-  `PI_PACKAGE_DIR` pin; `packages/` → `MODE="deployed (release)"`.
-- `run-dir/resolve.ts` — `.deploy-portable` gates `npmPaths`, and
-  `detectRunDirMode` exports a whole `"deploy-package"` layout variant keyed on
-  `packages/`.
-
-Both are dead by the same argument (`deploy.ts` accepts only
-`--bundle/--snapshot/--standalone/--exe` and writes only
-`.deploy-bundle`/`.deploy-readonly`), and both now carry an explicit DEAD/STALE
-comment so they cannot be misread as evidence the modes exist.
-
-Not done inline with the doctor cleanup because it is a different-shaped change:
-it retires an exported type (`RunDirLayoutMode`) and 4 tests
-(`e2e-launcher.test.ts` ×2, `resolve.test.ts` ×1, plus `detectRunDirMode`'s
-`deploy-package` cases). Bundling it into a doctor commit would repeat the
-over-reach that this arc's README needed reverting for.
+Both consumers were already retired upstream: `run.sh` detects only
+pi-agent.js (bundle) / src/cli.ts (source) with an explicit historical note,
+and `run-dir/resolve.ts`'s `RunDirLayoutMode` is `"deploy-bundle" | "source"`.
+This entry closed the bookkeeping: the last stale `deploy-package` reference
+in resolve.test.ts was corrected. (pi-agent-optimization Phase A.)
 
 ### 1. lazy `-e <alias>` e2e  ✅ DONE (2026-07-12) — shipped in `src/__tests__/e2e-extensions.test.ts`; see git history for the recipe notes
 

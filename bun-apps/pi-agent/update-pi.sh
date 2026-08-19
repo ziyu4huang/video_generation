@@ -143,14 +143,18 @@ check_lockstep() {
 # pins + reconciled bun.lock without rebuilding the bundle, and --rebuild is an
 # explicit request to rebuild regardless of whether versions changed this run.
 #
-# Builds via scripts/deploy.ts (default --bundle mode → dist/pi-agent/). NOTE:
-# this was once `scripts/build.ts --all`, but build.ts was unified INTO deploy.ts
-# (commit a0e512a7 / PR #647); the old command was a stale dead path that always
-# failed — fixed here.
+# Builds via the devops package's deploy.ts (default --bundle mode →
+# dist/pi-agent/). NOTE: deploy.ts moved to
+# bun-apps/pi-agent-ext-devops/scripts/ in PR #1305 (2026-08-14) — the old
+# local path (scripts/deploy.ts in this package) became a dead reference that
+# always failed. Earlier, the build command was scripts/build.ts --all, which
+# was unified INTO deploy.ts (commit a0e512a7 / PR #647). deploy.ts's
+# assertCorrectCwd still requires cwd == bun-apps/pi-agent, so we cd here and
+# reference the script relatively.
 do_rebuild() {
   echo
   echo "$(green '▶') rebuild pi-agent dist bundle"
-  (cd "$REPO_ROOT/bun-apps/pi-agent" && bun scripts/deploy.ts)
+  (cd "$REPO_ROOT/bun-apps/pi-agent" && bun ../pi-agent-ext-devops/scripts/deploy.ts)
 }
 
 # Cross-package TypeScript preflight. Runs `bun run typecheck` (tsc --noEmit)

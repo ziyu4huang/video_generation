@@ -708,7 +708,7 @@ export default function (pi: ExtensionAPI): void {
 		gating: { gate: "pi_deploy" }, // reference form (ticket 01) — shared family (pi_deploy + pi_verify)
 		label: "Build & Deploy pi-agent Bundle",
 		description:
-			"Build and deploy the pi-agent bundle + thin extension bundles (mirrors `bun scripts/deploy.ts`). " +
+			"Build and deploy the pi-agent bundle + thin extension bundles (runs pi-agent-ext-devops/scripts/deploy.ts). " +
 			"Returns mode, outDir, pi-agent.js size, ext-bundle built/failed counts, exit code, and a log path.",
 		parameters: Type.Object({
 			mode: Type.Optional(
@@ -760,7 +760,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Verify pi-agent (run-test.sh tier)",
 		description:
 			"Run a pi-agent run-test.sh tier (quick|medium|high|readonly|full; default medium) and report per-step pass/fail. " +
-			"high = the exact CI `deploy -- verify` job. Returns steps, exit code, and a log path.",
+			"high = the full build + deploy e2e tiers (patches, extension loading, launcher). Returns steps, exit code, and a log path.",
 		parameters: Type.Object({
 			tier: Type.Optional(
 				StringEnum(
