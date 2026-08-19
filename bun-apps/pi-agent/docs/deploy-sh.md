@@ -19,7 +19,7 @@ This pipeline does not touch the four modes in `../pi-agent-ext-devops/scripts/d
     deploy.json         # provenance: version, builtAt, git sha, bun version, config snapshot
     ext/
       task/       ext.json  ext.cjs                    (~160 KB)
-      power-tool/ ext.json  ext.cjs  skills/…          (~215 KB)
+      power-tool/ ext.json  ext.cjs                    (~215 KB)
                    node_modules/playwright-core/…      (vendored, ~13 MB)
 ```
 
@@ -168,8 +168,11 @@ cost:
 
 Skills in an sh deploy ship **inside an extension** (`skills: [skills]` in `deploy-config.yaml`
 copies the package's `skills/` dir into `ext/<name>/skills/`, and the core passes each to pi as a
-`--skill` path). `btw`, `playwright-cli`, and `webui-audit` come from power-tool this way — that is
-the intended single source; `~/.pi/agent/skills/` is empty by policy (PR #1713).
+`--skill` path). **No extension currently declares `skills:`** — power-tool's former
+`btw` / `playwright-cli` / `webui-audit` skill dirs and the hyperframes skills-only carrier were
+removed from the deploy (2026-08); the deployed tree ships zero skills. `~/.pi/agent/skills/`
+remains empty by policy (PR #1713); the hyperframes family is still reachable through the
+run-dir/manifest.json registration for repo-based sessions.
 
 `[Extensions] <inline:power-tool>` is also expected: the sh core hands pi extension *factories*
 (no file path), and pi labels factory-registered extensions `<inline:…>`. It does not mean the

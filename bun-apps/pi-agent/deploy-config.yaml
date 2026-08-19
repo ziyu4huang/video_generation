@@ -30,7 +30,6 @@ extensions:
     package: pi-agent-ext-power-tool
     entry: extensions/power-tool.ts
     order: 50
-    skills: [skills]
     # power-tool pulls playwright-core (browser/webui tools). It is VENDORED,
     # not bundled: bun's cjs output rewrites `__dirname` to the path the file
     # had on the BUILD MACHINE, and playwright-core locates its own resources
@@ -45,10 +44,3 @@ extensions:
     # CDP path never enters. kerberos / vite / @playwright/test are optional
     # peers reached only from code paths this agent never takes.
     externals: ["chromium-bidi/*", "kerberos", "vite", "@playwright/test"]
-  - name: hyperframes
-    package: pi-agent-ext-hyperframes
-    entry: extensions/hyperframes.ts
-    order: 60
-    skills: [skills]
-    # Skills-only carrier: the vendored HyperFrames + media-use family (~5.5MB
-    # incl. mp3 SFX / woff2 fonts). Factory is a no-op; skills copy verbatim.

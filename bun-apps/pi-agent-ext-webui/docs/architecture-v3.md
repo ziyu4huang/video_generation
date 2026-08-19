@@ -68,7 +68,8 @@ Report tab; the persistence mirror accumulates audit history):
 `report-articles-located` · `report-iframe-sized` (>=320x300, measured with
 the pane SHOWN — 0x0 counts as unmeasured; the #1576 300x150 default passed
 all earlier invariants) · `zero-page-errors` · `zero-console-errors`.
-Playbook: `skills/webui-audit/SKILL.md` + power-tool README.
+Playbook: power-tool README (the `skills/webui-audit/SKILL.md` playbook was removed with the
+power-tool skills dirs, 2026-08).
 
 ## 6. v2 sections that still hold
 

@@ -147,7 +147,7 @@ describeE2E("pi-agent-sh L1 — the deployed binary really runs its extensions",
 		expect(r.code).toBe(0);
 	}, 120_000);
 
-	test("a deployed extension's skills reach the assembled system prompt", async () => {
+	test("the sh deploy splices zero skills into the system prompt", async () => {
 		const r = await probe(
 			"probe-skills",
 			`export default (pi) => {
@@ -160,12 +160,11 @@ describeE2E("pi-agent-sh L1 — the deployed binary really runs its extensions",
 `,
 		);
 		const names = payload(r, "[SKILLS]") as unknown as string[];
-		// power-tool ships three skill dirs; the deploy copies them into
-		// ext/power-tool/skills and splices --skill paths onto pi's argv.
-		const joined = names.join(" ");
-		for (const s of ["btw", "playwright-cli", "webui-audit"]) {
-			expect(joined, `skill ${s} did not load`).toContain(s);
-		}
+		// The sh deploy ships no skills: power-tool's former btw /
+		// playwright-cli / webui-audit skill dirs were removed and no
+		// extension declares a `skills:` entry in deploy-config.yaml.
+		// This guards against a skills dir silently sneaking back in.
+		expect(names, `deploy must splice zero --skill paths, got: ${names.join(" ")}`).toEqual([]);
 	}, 120_000);
 
 	test("cross-extension state is shared — power-tool's consumer sees task's seams", async () => {

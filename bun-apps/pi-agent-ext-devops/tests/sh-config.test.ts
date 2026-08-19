@@ -92,11 +92,7 @@ describe("parseShConfig", () => {
 		const cfg = parseShConfig(text, { bunAppsDir: BUN_APPS });
 		expect(cfg.hostApi).toBe(HOST_API);
 		expect([...cfg.hostModules].sort()).toEqual([...HOST_MODULE_IDS].sort());
-		expect(cfg.extensions.map((e) => e.name).sort()).toEqual([
-			"hyperframes",
-			"power-tool",
-			"task",
-		]);
+		expect(cfg.extensions.map((e) => e.name).sort()).toEqual(["power-tool", "task"]);
 	});
 });
 
