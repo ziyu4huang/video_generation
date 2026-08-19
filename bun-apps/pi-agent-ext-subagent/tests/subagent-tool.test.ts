@@ -2288,6 +2288,10 @@ test("H4: abort-safety footer rides the SPAWNED task for write-capable children;
 });
 
 test("H4: read-only SHORT (≤10-turn) dispatch gets NO footer; the 12-turn recon default DOES", async () => {
+  // Hermetic vs the host's real ~/.pi/subagents/hints.md (presence = footer):
+  // (a)'s byte-equality only holds with the hints footer deterministically off.
+  const savedHints = process.env.PI_SUBAGENT_HINTS_FILE;
+  process.env.PI_SUBAGENT_HINTS_FILE = "/nonexistent/pi-subagent-hints-absent.fixture.md";
   const f = fakeSpawn(() => ok("ok"));
   const tool = createSubagentTool({ spawn: f.spawn });
   // (a) explicit 8 ≤ 10 → no footer (explicit maxTurns also opts out of the envelope — fine)
@@ -2296,6 +2300,8 @@ test("H4: read-only SHORT (≤10-turn) dispatch gets NO footer; the 12-turn reco
   // (b) default recon envelope (12 turns) crosses the gate → footer
   await tool.execute("id-h4c", { task: "read only long", tools: ["read"] }, NO_SIGNAL, undefined, NO_CTX);
   assert.match(f.calls[1]?.task ?? "", /--- abort-safety/, "default recon envelope (12 turns) gets the footer");
+  if (savedHints === undefined) delete process.env.PI_SUBAGENT_HINTS_FILE;
+  else process.env.PI_SUBAGENT_HINTS_FILE = savedHints;
 });
 
 // ── effort 2026-08-15-subagent-tui-display (ticket 01): width-aware pure render layer ──

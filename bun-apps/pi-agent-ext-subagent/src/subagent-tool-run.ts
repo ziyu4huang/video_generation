@@ -10,6 +10,7 @@ import type { AgentHistoryEntry, BudgetWarning, TurnExhaustion } from "@repo/pi-
 import { parseSddReport } from "@repo/pi-agent-core-runtime";
 import type { TSchema } from "typebox";
 import { roleAwareDefaults, tierDefaultToken } from "./budget-defaults.js";
+import { appendEnvHints } from "./env-hints.js";
 import type { computeScopeCheck, GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
 import { deriveTaskLabel, type SpawnSubagentOptions, type SubagentFailure } from "./spawn-subagent.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
@@ -275,10 +276,13 @@ export function roleAwareDirectCall(
   budgetCohort?: SubagentToolDetails["budget"];
 } {
   const d = roleAwareDefaults({}, role);
-  if (!d.applied) return { task };
+  // Hints are independent of the budget envelope: present file ⇒ appended in
+  // BOTH branches (applied + not-applied), always BEFORE abort-safety.
+  if (!d.applied) return { task: appendEnvHints(task) };
+  const withHints = appendEnvHints(task);
   const wrapped = shouldInjectFooter({ maxTurns: d.maxTurns })
-    ? `${task}${abortSafetyFooter(abortSafetyLogPath(logId))}`
-    : task;
+    ? `${withHints}${abortSafetyFooter(abortSafetyLogPath(logId))}`
+    : withHints;
   // Cohort tag mirrors the tool-seam derivation: direct calls omit all three
   // bounds by construction, so the cohort is always "envelope-<role>".
   return {
@@ -480,13 +484,17 @@ export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: Sp
   // H4: append the abort-safety footer to the SPAWNED task only — params.task
   // (persisted task / taskSignature circuit-breaker input) stays raw, so both
   // sides of the signature comparison keep seeing the identical string.
+  // Env-hints footer composes BEFORE abort-safety (working context first,
+  // abort-safety keeps the last word); it is unconditional — file presence is
+  // its own switch and never gates on the footer/write-tools heuristic.
+  const withHints = appendEnvHints(params.task);
   const task = shouldInjectFooter({
     tools: effectiveTools,
     excludeTools: effectiveExcludeTools,
     maxTurns: params.maxTurns,
   })
-    ? `${params.task}${abortSafetyFooter(abortSafetyLogPath(toolCallId))}`
-    : params.task;
+    ? `${withHints}${abortSafetyFooter(abortSafetyLogPath(toolCallId))}`
+    : withHints;
   return {
     task,
     // H1: real per-task label (was a hardcoded "zk-spawn" leaking into every

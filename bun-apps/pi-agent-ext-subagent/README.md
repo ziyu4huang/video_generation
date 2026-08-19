@@ -117,6 +117,10 @@ The defaults are adjustable at runtime via environment variables (read at call t
 
 The final value is clamped to `Math.max(1, Math.floor(result))`. When the token budget is crossed the child gets a **graceful wrap-up turn** (part 2): a final-turn user message tells it to flush findings/state/artifacts to disk, exactly one more turn runs, and the next crossing aborts for real with `status:"budget"`. `spendBudget` stays a hard stop (no wrap-up) — it is a money valve; if both budgets cross at once, the hard abort wins.
 
+### Environment-hints dispatch footer
+
+Recurring host/repo environment facts (macOS has no GNU `timeout`; never `git add -A`; subshell-scoped `cd`; English artifacts) live in a **user-owned hints file** — `~/.pi/subagents/hints.md`, overridable via `PI_SUBAGENT_HINTS_FILE` — and are auto-appended to every spawned task as a `--- environment hints (auto-appended by the dispatch layer — obey; don't restate) ---` block, mirroring the abort-safety footer. The file's **presence is the on/off switch** (no extra env flag): absent/unreadable/blank → no footer, and read failure is silently ignored so a broken hints file can never break dispatches. Content is trimmed and **capped at 2000 chars** (`[hints truncated]` sentinel). It is applied at two seams, both in `subagent-tool-run.ts`, always **before** the abort-safety footer (env facts are working context; abort-safety gets the last word): `buildSpawnOptions` (the tool seam — SPAWNED task only, `params.task` stays raw for the taskSignature circuit-breaker) and `roleAwareDirectCall` (both the applied and not-applied branches — hints are independent of the budget envelope).
+
 ## Upstream sync
 
 This package has **dual provenance**: the package body (33 src files) was extracted from `pi-agent-ext-workflow` (#789), while the 2 watchdog files (`src/watchdog/lsp-diagnostics.ts`, `src/watchdog/repo-diff.ts`) are a selective port from `nicobailon/pi-subagents`. The watchdog ports are documented in [`docs/upstream/pi-subagents.pin.md`](docs/upstream/pi-subagents.pin.md) — consult it before any upstream sync so those ports aren't lost again.

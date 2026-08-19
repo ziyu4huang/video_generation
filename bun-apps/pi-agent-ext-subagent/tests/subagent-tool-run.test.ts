@@ -230,6 +230,9 @@ test("buildDetails: matches the original normal details shape", () => {
 });
 
 test("buildSpawnOptions: forwards params + wires callbacks that mutate progress", async () => {
+  // Hermetic vs the host's real ~/.pi/subagents/hints.md (presence = footer):
+  const savedHints = process.env.PI_SUBAGENT_HINTS_FILE;
+  process.env.PI_SUBAGENT_HINTS_FILE = "/nonexistent/pi-subagent-hints-absent.fixture.md";
   const progress: RunProgress = {
     resolvedModel: undefined,
     fellBack: false,
@@ -277,6 +280,8 @@ test("buildSpawnOptions: forwards params + wires callbacks that mutate progress"
   assert.deepEqual(updatedModel, ["real-model"]);
   opts.onModelFallback?.("req");
   assert.equal(progress.fellBack, true);
+  if (savedHints === undefined) delete process.env.PI_SUBAGENT_HINTS_FILE;
+  else process.env.PI_SUBAGENT_HINTS_FILE = savedHints;
 });
 
 test("buildSpawnOptions: forwards params.maxTurns; omitted → undefined (no default injected)", async () => {
