@@ -166,8 +166,17 @@ describe("loadExtensions", () => {
 
 describe("extRequire", () => {
 	const dirs: string[] = [];
+	// Rooted INSIDE the repo, not tmpdir(): in Bun 1.3.14, a createRequire
+	// rooted outside the project that then RESOLVES a module poisons the
+	// process's dynamic import — every later `await import(<abs .ts>)` in the
+	// same test run dies with "Cannot find module … from ''". These tests call
+	// that fallback require, so a tmpdir fixture made schema-cost.test.ts
+	// (a dynamic-import test) fail whenever both files ran in one `bun test`.
+	// A repo-rooted dir exercises the same extRequire logic without the bug.
+	// CI-visible failure mode if this regresses: full-suite `bun test` red on
+	// collectExtensionToolCosts while each file passes alone.
 	const makeExt = (): string => {
-		const d = mkdtempSync(join(tmpdir(), "extreq-"));
+		const d = mkdtempSync(join(import.meta.dir, ".extreq-"));
 		dirs.push(d);
 		return d;
 	};
