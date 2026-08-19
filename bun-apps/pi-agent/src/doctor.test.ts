@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import manifest from "../run-dir/manifest.json";
+import { HOST_API } from "./sh/host-modules.ts";
 import {
 	classifyMode,
 	runChecks,
@@ -275,7 +276,11 @@ describe("runSmokeCheck (via injected spawn seam)", () => {
 
 // ── sh mode ─────────────────────────────────────────────────────────────────
 describe("checkShExtensions", () => {
-	const HOST_API_NOW = 1;
+	// Imported, not a literal: a HOST_API bump (1 -> 2 when the subagent package
+	// stopped being a host module) silently turned every fixture below into a
+	// version MISMATCH, so two assertions about entirely different failures
+	// started failing with "built for hostApi 1, host provides 2".
+	const HOST_API_NOW = HOST_API;
 	const manifestFor = (name: string, over: Record<string, unknown> = {}) =>
 		JSON.stringify({
 			name,
