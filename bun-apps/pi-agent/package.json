@@ -8,7 +8,6 @@
     "name": "pi-agent"
   },
   "exports": {
-    ".": "./src/index.ts",
     "./cli": "./src/cli.ts"
   },
   "bin": {

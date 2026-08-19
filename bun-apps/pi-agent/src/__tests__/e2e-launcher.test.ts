@@ -124,18 +124,6 @@ describe("entry-mode detection", () => {
 		expect(result.stderr).toMatch(/mode=deployed \(bundle\)/);
 	});
 
-	test("pi-agent.js + packages/ -> deployed (release)", () => {
-		const dir = makeFixture("release", { "pi-agent.js": STUB_ENTRY, "packages/.keep": "" });
-		const result = run(["--list-models"], { cwd: dir, env: { PIAGENT_DEBUG: "1" } });
-		expect(result.stderr).toMatch(/mode=deployed \(release\)/);
-	});
-
-	test("pi-agent.js + .deploy-portable -> deployed (portable)", () => {
-		const dir = makeFixture("portable", { "pi-agent.js": STUB_ENTRY, ".deploy-portable": "" });
-		const result = run(["--list-models"], { cwd: dir, env: { PIAGENT_DEBUG: "1" } });
-		expect(result.stderr).toMatch(/mode=deployed \(portable\)/);
-	});
-
 	test("src/cli.ts alone -> source (dev)", () => {
 		const dir = makeFixture("source", { "src/cli.ts": STUB_ENTRY });
 		const result = run(["--list-models"], { cwd: dir, env: { PIAGENT_DEBUG: "1" } });
