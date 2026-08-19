@@ -1,13 +1,11 @@
-import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
 import { existsSync } from "node:fs";
+import { describe, it } from "node:test";
 import { runVisionOcr } from "./ocr.js";
 
 // src/image → pkg → bun-apps → repo root.
-const CLI = new URL("../../../../swift/vision-ocr-cli/.build/release/vision-ocr-cli", import.meta.url)
-  .pathname;
-const FIXTURE = new URL("../../../../swift/vision-ocr-cli/fixtures/hello-123.png", import.meta.url)
-  .pathname;
+const CLI = new URL("../../../../swift/vision-ocr-cli/.build/release/vision-ocr-cli", import.meta.url).pathname;
+const FIXTURE = new URL("../../../../swift/vision-ocr-cli/fixtures/hello-123.png", import.meta.url).pathname;
 
 describe("vision-ocr-cli integration (ticket 07 T2)", () => {
   it("OCRs the committed fixture → JSON {text,width,height,format}", { skip: !existsSync(CLI) }, async () => {

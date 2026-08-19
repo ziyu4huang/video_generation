@@ -159,6 +159,39 @@ describe("runMainHealth — the verdict", () => {
 		expect(out.failingPackages).toEqual(["test-red", "types-red"]);
 	});
 
+	test("a red LINT is a failing package, and a skipped one is not", async () => {
+		// The gap this pins: biome was the one tool no phase ran, so a package
+		// could be lint-red on main while main_health called the branch green.
+		const red: CiOutcome = {
+			...greenCi(),
+			overall: "fail",
+			packages: [
+				{ name: "lint-red", lint: { exitCode: 1 }, test: { exitCode: 0 } },
+				{ name: "lint-skipped", lint: { exitCode: -1, skipped: true }, test: { exitCode: 0 } },
+			],
+		};
+		const out = await runMainHealth({ client: fakeClient({}), spawn: noSpawn, runCi: mkCi(red).fn });
+		expect(out.failingPackages).toEqual(["lint-red"]);
+		expect(out.healthy).toBe(false);
+	});
+
+	test("a LINT that exited 127 is toolchainMissing, not a red branch", async () => {
+		// biome is a package-local binary: an uninstalled worktree fails it with
+		// 127 exactly as it fails tsc, and blaming the branch for that is how the
+		// health signal turned into noise the first time.
+		const red: CiOutcome = {
+			...greenCi(),
+			overall: "fail",
+			packages: [
+				{ name: "no-deps", typecheck: { exitCode: -1, skipped: true }, lint: { exitCode: 127 }, test: { exitCode: 1 } },
+				{ name: "real-break", lint: { exitCode: 1 }, test: { exitCode: 0 } },
+			],
+		};
+		const out = await runMainHealth({ client: fakeClient({}), spawn: noSpawn, runCi: mkCi(red).fn });
+		expect(out.toolchainMissing).toEqual(["no-deps"]);
+		expect(out.failingPackages).toEqual(["real-break"]);
+	});
+
 	test("names every failing gate, separately from the packages", async () => {
 		const red: CiOutcome = {
 			...greenCi(),

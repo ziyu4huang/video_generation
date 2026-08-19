@@ -1,10 +1,10 @@
-import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, it } from "node:test";
 import { extractImageCard, isImageFile } from "./extract-image.js";
-import { sha256Hex, imageCardId, mergeImageContent } from "./image-card.js";
+import { imageCardId, mergeImageContent, sha256Hex } from "./image-card.js";
 import type { OcrResult } from "./ocr.js";
 
 const OCR_OK: OcrResult = { text: "HELLO 123", width: 800, height: 200, format: "png" };

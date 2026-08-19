@@ -87,7 +87,7 @@ export type { DispatchRole } from "./budget-defaults.js";
 export { ROLE_AWARE_DISPATCH_BOUNDS, roleAwareDefaults, tierDefaultToken } from "./budget-defaults.js";
 
 export { AGENTS_DIR, DEFAULT_BATCH_CONCURRENCY, MAX_BATCH_TASKS, MAX_CONCURRENCY, MODEL_TIERS_FILE } from "./config.js";
-
+export { debugModelsEnabled, logModelDecision } from "./debug-models.js";
 export { appendEnvHints, ENV_HINTS_MARKER } from "./env-hints.js";
 export {
   classifyProviderLimit,
@@ -100,7 +100,6 @@ export {
   wrapError,
 } from "./errors.js";
 export { homeDir } from "./home.js";
-export { debugModelsEnabled, logModelDecision } from "./debug-models.js";
 export { resolveModelRole } from "./model-role-config.js";
 export type { ModelTierConfig } from "./model-tier-config.js";
 export {

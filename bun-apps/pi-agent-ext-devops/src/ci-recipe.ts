@@ -1,7 +1,7 @@
 /**
  * runLocalCi — the PURE orchestration behind the `local_ci` tool. It mirrors
  * what remote CI would do, but LOCALLY and OFFLINE (no network): typecheck +
- * tests scoped to the packages affected vs origin/main, plus the repo's quality
+ * lint + tests scoped to the packages affected vs origin/main, plus the repo's quality
  * gates (file-size guard, lockfile-duplicate guard, optional audit gates, and an
  * info-only schema-cost check). Returns a STRUCTURED pass/fail so the agent can
  * decide "safe to merge" without eyeballing terminal noise.
@@ -54,6 +54,23 @@ export interface CiPackageResult {
 		note?: string;
 		durationMs?: number;
 		/** Captured output tail on a FAILED typecheck (see `failureDetail`). */
+		detail?: string;
+	};
+	/**
+	 * Biome result. Symmetric to `typecheck`, and separate for the same reason
+	 * the two tools are separate: a type error is a defect, a lint/format error
+	 * is drift. Only packages that declare a biome-invoking script are run —
+	 * `skipped: "no biome key"` otherwise. Whether a package that HAS a
+	 * biome.json declares such a script is a different claim, owned by
+	 * `tests/lint-executor-coverage.test.ts` (the same split as the typecheck
+	 * executor and its coverage guard).
+	 */
+	lint?: {
+		exitCode: number;
+		skipped?: boolean;
+		note?: string;
+		durationMs?: number;
+		/** Captured output tail on a FAILED lint (see `failureDetail`). */
 		detail?: string;
 	};
 	test: {
@@ -411,9 +428,10 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	//     the generic derivation; an unreadable workflow yields {} → all generic.
 	const matrix = await (opts.readMatrix ?? readCiMatrix)(opts.repoRoot);
 
-	// 3. Per package: typecheck + test, in three phases (≤5-minute budget rule):
-	//    (a) typechecks run in PARALLEL (tsc --noEmit is read-only — nothing
-	//        races), replacing the former N×sequential tsc wall-clock;
+	// 3. Per package: typecheck + lint + test, in three phases (≤5-minute budget
+	//    rule):
+	//    (a) typechecks AND biome runs go in PARALLEL (both are read-only —
+	//        nothing races), replacing the former N×sequential tsc wall-clock;
 	//    (b) BUILD-bearing test rows (matrix/`test` commands containing `build`)
 	//        run SEQUENTIALLY FIRST, in package order — they write shared dist/
 	//        trees, and ci-local.sh documented that parallel runs race them;
@@ -429,8 +447,21 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 		pkgNames.map((name) => [name, { name, test: { exitCode: -1 } } as CiPackageResult]),
 	);
 
-	// 3a. Parallel typechecks. Precedence: scripts.typecheck > scripts.check
-	//     (only if it runs tsc) > skipped.
+	// 3a. Parallel typechecks + lints. Precedence for tsc: scripts.typecheck >
+	//     scripts.check (only if it runs tsc) > skipped.
+	//
+	//     WHY LINT IS A PHASE AND NOT A MATRIX ROW
+	//     Four packages chain `bun run check` inside their own `test` script and
+	//     their matrix row is `bun run test`, so their biome ran. core-runtime and
+	//     file2md declare the identical `check` script with a matrix row of bare
+	//     `bun test`, which bypasses the package's `test` script entirely — so
+	//     their biome ran NOWHERE, and core-runtime sat red on main for days with
+	//     every gate green. Fixing the two rows would have closed those two cases
+	//     and left the next package to rediscover it. Resolving the executor by
+	//     SCRIPT NAME, per package, is the same shape the typecheck phase already
+	//     uses, and it is why a new package with a biome.json cannot opt out by
+	//     accident. Which packages must HAVE such a script is asserted separately
+	//     by tests/lint-executor-coverage.test.ts.
 	await mapPool(pkgNames, concurrency, async (name) => {
 		if (opts.signal?.aborted) return null;
 		const pkgDir = `${opts.repoRoot}/bun-apps/${name}`;
@@ -445,6 +476,21 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 			result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0, ...detailOf(r) };
 		} else {
 			result.typecheck = { exitCode: -1, skipped: true, note: "no tsc key" };
+		}
+		// Biome, in the same read-only pass. Precedence: scripts.check (only if it
+		// runs biome) > scripts.lint (only if it runs biome) > skipped. `check` is
+		// preferred over `lint` deliberately: `biome lint .` reports NEITHER format
+		// nor organizeImports, which is what every drift found so far has been —
+		// resolving to `lint` would produce a green gate over a red `check`.
+		const tLint = now();
+		if (typeof scripts.check === "string" && /biome/.test(scripts.check)) {
+			const r = await spawn("bun", ["run", "check"], { cwd: pkgDir, timeoutMs });
+			result.lint = { exitCode: r.exitCode, durationMs: now() - tLint, ...detailOf(r) };
+		} else if (typeof scripts.lint === "string" && /biome/.test(scripts.lint)) {
+			const r = await spawn("bun", ["run", "lint"], { cwd: pkgDir, timeoutMs });
+			result.lint = { exitCode: r.exitCode, durationMs: now() - tLint, ...detailOf(r) };
+		} else {
+			result.lint = { exitCode: -1, skipped: true, note: "no biome key" };
 		}
 		return null;
 	});
@@ -639,23 +685,26 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 		schemaCost = { exitCode: sc.exitCode, note: "info-only — never affects overall" };
 	}
 
-	// 5. Aggregate. overall = fail iff any non-skipped typecheck failed, any test
+	// 5. Aggregate. overall = fail iff any non-skipped typecheck failed, any
+	//    non-skipped lint failed, any test
 	//    failed (exit not in {0=pass, -1=no-test-script}), any gate failed, or the
 	//    gate job could not be read at all. schemaCost never participates.
 	//    Every gate is blocking: GitHub fails a job on any failed step and
 	//    `regression-gates` carries no continue-on-error, so a step's "warn-only"
 	//    naming is encoded in the SCRIPT's exit code, not in a per-gate flag here.
 	const typecheckFailed = packages.some((p) => !!p.typecheck && !p.typecheck.skipped && p.typecheck.exitCode !== 0);
+	const lintFailed = packages.some((p) => !!p.lint && !p.lint.skipped && p.lint.exitCode !== 0);
 	const testFailed = packages.some((p) => p.test.exitCode !== 0 && p.test.exitCode !== -1);
 	const gateFailed = gates.some((g) => g.exitCode !== 0);
-	const overall: "pass" | "fail" = typecheckFailed || testFailed || gateFailed || !!gateError ? "fail" : "pass";
+	const overall: "pass" | "fail" =
+		typecheckFailed || lintFailed || testFailed || gateFailed || !!gateError ? "fail" : "pass";
 
 	const elapsedMs = now() - t0;
 	const budgetMs = opts.budgetMs ?? 300_000;
 	const slowest = packages
 		.map((p) => ({
 			name: p.name,
-			durationMs: (p.typecheck?.durationMs ?? 0) + (p.test.durationMs ?? 0),
+			durationMs: (p.typecheck?.durationMs ?? 0) + (p.lint?.durationMs ?? 0) + (p.test.durationMs ?? 0),
 		}))
 		.sort((a, b) => b.durationMs - a.durationMs)
 		.slice(0, 5);

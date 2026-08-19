@@ -3,11 +3,12 @@
 // (askImage → lm-studio google/gemma-4-12b), merged into ONE atomic
 // kind=image vault-md card. Graceful degradation (decision #5): VLM failure
 // → OCR-only card + stderr warning; both stages failing → throw.
-import { basename, isAbsolute, resolve } from "node:path";
+
 import { readFileSync } from "node:fs";
+import { basename, isAbsolute, resolve } from "node:path";
 import { askImage } from "../vlm/ask.js";
-import { runVisionOcr, type OcrResult } from "./ocr.js";
 import { buildImageCardMarkdown, imageCardId, mergeImageContent, sha256Hex } from "./image-card.js";
+import { type OcrResult, runVisionOcr } from "./ocr.js";
 
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"]);
 

@@ -89,7 +89,9 @@ export async function runVisionInference(opts: {
     const result = await spawnSubagent({
       task: venv.task,
       images: opts.images,
-      ...(venv.tokenBudget !== undefined ? { tokenBudget: venv.tokenBudget, maxTurns: venv.maxTurns, timeoutMs: venv.timeoutMs } : {}),
+      ...(venv.tokenBudget !== undefined
+        ? { tokenBudget: venv.tokenBudget, maxTurns: venv.maxTurns, timeoutMs: venv.timeoutMs }
+        : {}),
       ...(opts.systemPrompt ? { instructions: opts.systemPrompt } : {}),
       ...(modelSpec ? { model: modelSpec } : {}),
       ...(capability ? { capability } : {}),

@@ -14,8 +14,9 @@
  * package reaches these through the barrel; the point is that the seam
  * exists, not that it is already used directly.
  */
-import { loadModelTierConfig, type ModelTierConfig, resolveTierModel, sortedTierNames } from "./model-tier-config.js";
+
 import { logModelDecision } from "./debug-models.js";
+import { loadModelTierConfig, type ModelTierConfig, resolveTierModel, sortedTierNames } from "./model-tier-config.js";
 
 /**
  * Resolve which concrete model spec a subagent should use. Precedence, most

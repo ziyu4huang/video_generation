@@ -16,7 +16,7 @@
 
 /** True when PI_DEBUG_MODELS asks for model-decision logging ("1"/"true"). */
 export function debugModelsEnabled(env: Record<string, string | undefined> = process.env): boolean {
-	return env.PI_DEBUG_MODELS === "1" || env.PI_DEBUG_MODELS === "true";
+  return env.PI_DEBUG_MODELS === "1" || env.PI_DEBUG_MODELS === "true";
 }
 
 /**
@@ -25,7 +25,7 @@ export function debugModelsEnabled(env: Record<string, string | undefined> = pro
  * `:` or `/` stay unambiguous.
  */
 export function logModelDecision(where: string, fields: Record<string, unknown>): void {
-	if (!debugModelsEnabled()) return;
-	const parts = Object.entries(fields).map(([k, v]) => `${k}=${JSON.stringify(v)}`);
-	console.error(`[models] ${where} ${parts.join(" ")}`);
+  if (!debugModelsEnabled()) return;
+  const parts = Object.entries(fields).map(([k, v]) => `${k}=${JSON.stringify(v)}`);
+  console.error(`[models] ${where} ${parts.join(" ")}`);
 }

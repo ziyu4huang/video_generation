@@ -43,11 +43,7 @@ export async function runVisionOcr(imagePath: string, opts: OcrOpts = {}): Promi
   }
   try {
     const parsed = JSON.parse(stdout) as OcrResult;
-    if (
-      typeof parsed.text !== "string" ||
-      typeof parsed.width !== "number" ||
-      typeof parsed.height !== "number"
-    ) {
+    if (typeof parsed.text !== "string" || typeof parsed.width !== "number" || typeof parsed.height !== "number") {
       return undefined;
     }
     return parsed;

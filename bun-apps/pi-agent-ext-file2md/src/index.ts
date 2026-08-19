@@ -1,3 +1,6 @@
+export * from "./image/extract-image.js";
+export * from "./image/image-card.js";
+export * from "./image/ocr.js";
 export * from "./native/pdf2png.ts";
 export type { ExtractedPageText, ExtractPdfTextOpts, ExtractPdfTextResult } from "./native/pdftext.ts";
 export { extractPdfText } from "./native/pdftext.ts";
@@ -8,9 +11,6 @@ export * from "./vlm/ask.ts";
 export * from "./vlm/classify.ts";
 export * from "./vlm/classify-vlm.ts";
 export { DEFAULT_EXTRACT, type ExtractStrategy, parseExtractStrategy } from "./vlm/extract-strategy.ts";
-export * from "./image/ocr.js";
-export * from "./image/image-card.js";
-export * from "./image/extract-image.js";
 export * from "./vlm/manifest.ts";
 export * from "./vlm/page-context.ts";
 export * from "./vlm/retry.ts";

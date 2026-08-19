@@ -43,7 +43,7 @@ bun run --cwd bun-apps/gui-movie-director check:schema                  # valida
 python/venv/bin/python -m pytest python/mlx-movie-director/app/tests [--run-gpu]
 ```
 
-**Per-package gates differ.** `pi-agent-ext-hermes-memory` `bun run check` = tsc; `pi-agent-ext-wayfind` `bun run check` = biome (tsc lives in `typecheck`, not under `check`/`test`) → for wayfind run **both** `bun run check && bun run typecheck && bun test`. Always run a package's canonical `bun run test` script (it may include `build`), not a hand-assembled subset.
+**Per-package gates differ.** `pi-agent-ext-hermes-memory` `bun run check` = tsc; `pi-agent-ext-wayfind` `bun run check` = biome (tsc lives in `typecheck`, not under `check`/`test`) → for wayfind run **both** `bun run check && bun run typecheck && bun test`. Always run a package's canonical `bun run test` script (it may include `build`), not a hand-assembled subset. `local_ci` resolves both by script NAME per package (tsc: `typecheck` → `check`-if-tsc; biome: `check`-if-biome → `lint`-if-biome), so a package that renames them is silently skipped — `tests/lint-executor-coverage.test.ts` + `tests/extension-entry-typechecked.test.ts` block that.
 
 ## Subagent dispatch
 
