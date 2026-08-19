@@ -25,7 +25,7 @@ run.py image profile --ratio standing --steps 6
 
 **What to expect:** Front, back, and side views will look like different people. This is not a
 bug — ZImage has no reference conditioning mechanism. See
-`docs/zimage-reference-conditioning.md` for the architectural explanation.
+`zimage-reference-conditioning.md` for the architectural explanation.
 
 ## Flux2-Klein Profile (Reference-Conditioned)
 
@@ -110,4 +110,4 @@ architectural limitation — ZImage uses simple noise interpolation (img2img), w
 concatenates the reference image latent alongside the denoising trajectory in the transformer.
 Retraining would be required to add reference conditioning to ZImage.
 
-See `docs/zimage-reference-conditioning.md` for the full analysis.
+See `zimage-reference-conditioning.md` for the full analysis.

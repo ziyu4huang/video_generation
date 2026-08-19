@@ -250,7 +250,7 @@ public struct NativeI2VStage {
         /// the temporal-keyframing generalization of `lastFrameImagePath`
         /// (which only covers frame 0 + the last frame). Mirrors
         /// `run.py video generate --image PATH FRAME_IDX STRENGTH`
-        /// (repeatable, Python-side, `docs/openmontage-capability-matrix.md`
+        /// (repeatable, Python-side, `python/mlx-movie-director/docs/openmontage-capability-matrix.md`
         /// "reference_to_video" row) but reuses this package's own
         /// `VideoConditionByLatentIndex` primitive already exercised by
         /// grid-guide/FFLF rather than porting new engine code — a CLI +
