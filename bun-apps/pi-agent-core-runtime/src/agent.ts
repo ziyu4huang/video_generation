@@ -16,7 +16,7 @@ import { type AgentUsage, createBudgetGuard } from "./agent-budget.js";
 import { type AgentHistoryEntry, compactAgentHistory } from "./agent-history.js";
 import { resolveFallbackModel, resolveScopedAgentModelSpec } from "./agent-model.js";
 import { applyToolPolicy } from "./agent-registry.js";
-import { createTurnGuard, turnExhaustionError } from "./agent-turns.js";
+import { createTurnGuard, createWrapUpNudgeQueue, turnExhaustionError } from "./agent-turns.js";
 import { WorkflowError, WorkflowErrorCode } from "./errors.js";
 import { loadModelTierConfig, type ModelTierConfig } from "./model-tier-config.js";
 import { throwIfProviderLimit } from "./provider-limit.js";
@@ -114,6 +114,20 @@ export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefi
    * guard: independent state and error classification. Omit = unlimited turns.
    */
   maxTurns?: number;
+  /**
+   * One-shot wrap-up nudge for capped runs (see maxTurns): turns-abort is the
+   * top killer in the dispatch ledger (capped subagents hard-abort at turn
+   * maxTurns+1 with work in flight — salvage shows near-complete work), so at
+   * the second-to-last turn's start the runner queues a steering message via
+   * the session's steering queue — delivered at the idle boundary after that
+   * turn's tool calls — telling the model its next turn is the last before the
+   * cap, so it spends its FINAL turn finalizing + reporting instead of dying
+   * mid-step. Converts turns-cap deaths into completions; the hard cap stays
+   * as the backstop. `true`/undefined = enabled when maxTurns is defined and
+   * >= 2; `false` disables; a string overrides the nudge text. One-shot: the
+   * message is queued at most once per run. See agent-turns.ts for the mechanism.
+   */
+  wrapUpNudge?: boolean | string;
   /**
    * Called once with this subagent's real usage, read from the session right
    * before disposal. Fires on both the success and error paths so partial
@@ -391,6 +405,15 @@ export class CoreAgent {
     // maxTurns leaves the guard inert (behavior identical to no guard).
     const hasMaxTurns = options.maxTurns !== undefined;
     const turnGuard = createTurnGuard(session, { maxTurns: options.maxTurns });
+    // Last-turn wrap-up nudge (wrapUpNudge, default on for capped runs): fed
+    // at the same subscribe seam below, AFTER turnGuard so it reads the guard's
+    // authoritative turnsUsed. The nudge needs maxTurns, so the seam's existing
+    // `hasMaxTurns` condition already guarantees subscription when it can fire.
+    // Independent of the guards: nudge or not, the hard cap stays the backstop.
+    const wrapUpNudge = createWrapUpNudgeQueue(session, {
+      maxTurns: options.maxTurns,
+      wrapUpNudge: options.wrapUpNudge,
+    });
     try {
       if (options.signal?.aborted) throw new Error("Subagent was aborted");
       if (options.signal) {
@@ -404,6 +427,7 @@ export class CoreAgent {
         removeHistoryListener = session.subscribe((event) => {
           budgetGuard.onSessionEvent(event);
           turnGuard.onSessionEvent(event);
+          wrapUpNudge.onSessionEvent(event, turnGuard.turnsUsed);
           maybeEmitHistory();
         });
       }

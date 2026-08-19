@@ -332,6 +332,15 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
   }
   const effectiveModel = opts.model ?? capabilitySpec ?? (opts.tier ? undefined : opts.mainModel);
 
+  // Last-turn wrap-up nudge kill-switch: same escape-hatch shape as
+  // SUBAGENT_TOKEN_BUDGET_DISABLE (read at call time, "1"/"true"
+  // case-insensitive, budget-defaults.ts envFlagTrue). Unset forwards nothing —
+  // the core default (nudge on for capped runs) applies.
+  const turnsNudgeDisabled = (() => {
+    const raw = process.env.SUBAGENT_TURNS_NUDGE_DISABLE;
+    return raw === "1" || raw?.toLowerCase() === "true";
+  })();
+
   const tryOnce = async (): Promise<{ result: SpawnSubagentResult; transient: boolean }> => {
     const ac = new AbortController();
     if (opts.externalSignal) {
@@ -368,6 +377,7 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
         tokenBudget: opts.tokenBudget,
         spendBudget: opts.spendBudget,
         maxTurns: opts.maxTurns,
+        ...(turnsNudgeDisabled ? { wrapUpNudge: false } : {}),
         maxSchemaRetries: opts.schemaRepairAttempts,
       } as Parameters<WorkflowAgent["run"]>[1]);
       // When `opts.schema` is set, `run()` returns a validated OBJECT (not a

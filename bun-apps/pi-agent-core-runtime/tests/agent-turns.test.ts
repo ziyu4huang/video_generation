@@ -2,7 +2,14 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { CoreAgent } from "../src/agent.js";
 import { type BudgetSessionSurface, createBudgetGuard } from "../src/agent-budget.js";
-import { createTurnGuard, type TurnSessionSurface, turnExhaustionError } from "../src/agent-turns.js";
+import {
+  createTurnGuard,
+  createWrapUpNudgeQueue,
+  type SteeringCapableSession,
+  type TurnSessionSurface,
+  turnExhaustionError,
+  wrapUpNudgeText,
+} from "../src/agent-turns.js";
 import { WorkflowError, WorkflowErrorCode } from "../src/errors.js";
 
 // ---------------------------------------------------------------------------
@@ -317,4 +324,115 @@ test("post-prompt decision: turn cap alone trips → TURNS_EXHAUSTED, never TOKE
   assert.equal(thrown.code, WorkflowErrorCode.TURNS_EXHAUSTED);
   assert.notEqual(thrown.code, WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED);
   assert.deepEqual(thrown.details, { maxTurns: 2, turnsUsed: 2 });
+});
+
+// ---------------------------------------------------------------------------
+// createWrapUpNudgeQueue (last-turn wrap-up nudge): at the turn_start of the
+// second-to-last turn of a capped run, queue the nudge text via the session's
+// steering method — exactly once, with the cap interpolated. Never for
+// uncapped runs, maxTurns:1, or wrapUpNudge:false; a string overrides the text.
+// ---------------------------------------------------------------------------
+
+/** Minimal session double: records steer() calls (mirrors fakeTurnSession). */
+function fakeSteerSession() {
+  const steered: string[] = [];
+  const session: SteeringCapableSession = {
+    steer: (text: string) => {
+      steered.push(text);
+      return Promise.resolve();
+    },
+  };
+  return { session, steered };
+}
+
+/**
+ * Drive a turn guard + nudge queue the way agent.ts's subscribe seam does:
+ * guard first, then the nudge reading the guard's authoritative turnsUsed.
+ */
+function mkCappedRun(
+  steerSession: SteeringCapableSession,
+  opts: { maxTurns?: number; wrapUpNudge?: boolean | string },
+) {
+  const guard = createTurnGuard({ abort: () => {} }, opts);
+  const nudge = createWrapUpNudgeQueue(steerSession, opts);
+  return {
+    feed(event: unknown) {
+      guard.onSessionEvent(event);
+      nudge.onSessionEvent(event, guard.turnsUsed);
+    },
+  };
+}
+
+test("maxTurns:3 → steer called exactly once at turn_start of turn 2, text names the cap", () => {
+  const { session, steered } = fakeSteerSession();
+  const run = mkCappedRun(session, { maxTurns: 3 });
+
+  run.feed(turnStart()); // turn 1 (turnsUsed 0 ≠ maxTurns-2) — not yet
+  assert.equal(steered.length, 0);
+  run.feed(turnEnd());
+
+  run.feed(turnStart()); // turn 2 (turnsUsed 1 === maxTurns-2) → queue the nudge
+  assert.equal(steered.length, 1);
+  assert.match(steered[0] ?? "", /Wrap-up notice/);
+  assert.match(steered[0] ?? "", /turns cap \(3\)/);
+
+  run.feed(turnEnd());
+  run.feed(turnStart()); // turn 3 (the final turn) — one-shot, never re-queued
+  assert.equal(steered.length, 1);
+});
+
+test("maxTurns:2 → queues at the FIRST turn's start (that run's second-to-last turn)", () => {
+  const { session, steered } = fakeSteerSession();
+  const run = mkCappedRun(session, { maxTurns: 2 });
+
+  run.feed(turnStart()); // turnsUsed 0 === maxTurns-2 → fire immediately
+  assert.equal(steered.length, 1);
+  assert.match(steered[0] ?? "", /turns cap \(2\)/);
+});
+
+test("no maxTurns → nudge never queued (uncapped runs have no last turn)", () => {
+  const { session, steered } = fakeSteerSession();
+  const run = mkCappedRun(session, {});
+  for (let i = 0; i < 4; i++) {
+    run.feed(turnStart());
+    run.feed(turnEnd());
+  }
+  assert.equal(steered.length, 0);
+});
+
+test("maxTurns:1 → never queued (a one-turn cap has no second-to-last turn to save)", () => {
+  const { session, steered } = fakeSteerSession();
+  const run = mkCappedRun(session, { maxTurns: 1 });
+
+  run.feed(turnStart());
+  run.feed(turnEnd());
+  run.feed(turnStart()); // turn 2 — the guard aborts here; the nudge stays silent
+  assert.equal(steered.length, 0);
+});
+
+test("wrapUpNudge:false → disabled even on a capped run", () => {
+  const { session, steered } = fakeSteerSession();
+  const run = mkCappedRun(session, { maxTurns: 3, wrapUpNudge: false });
+
+  run.feed(turnStart());
+  run.feed(turnEnd());
+  run.feed(turnStart()); // would fire without the kill-switch
+  assert.equal(steered.length, 0);
+});
+
+test("wrapUpNudge:string → the caller's text passes through verbatim", () => {
+  const { session, steered } = fakeSteerSession();
+  const run = mkCappedRun(session, { maxTurns: 3, wrapUpNudge: "CUSTOM: land the plane now" });
+
+  run.feed(turnStart());
+  run.feed(turnEnd());
+  run.feed(turnStart());
+  assert.deepEqual(steered, ["CUSTOM: land the plane now"]);
+});
+
+test("wrapUpNudgeText interpolates the cap into the default nudge", () => {
+  assert.equal(
+    wrapUpNudgeText(7),
+    "[dispatch] Wrap-up notice: your next turn is the last before the turns cap (7). Stop starting new work — finish the current step minimally, then produce your final report (include the commit sha if you committed).",
+  );
 });

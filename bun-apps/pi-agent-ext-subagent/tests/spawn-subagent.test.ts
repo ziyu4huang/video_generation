@@ -542,6 +542,30 @@ describe("spawnSubagent turns cap (maxTurns)", () => {
     await spawnSubagent({ task: "t", agent: runner });
     assert.equal(runner.calls[1]?.opts.maxTurns, undefined, "omit = unlimited turns (no default injected)");
   });
+
+  it("SUBAGENT_TURNS_NUDGE_DISABLE=1 threads wrapUpNudge:false; unset forwards nothing (core default = on)", async () => {
+    const prev = process.env.SUBAGENT_TURNS_NUDGE_DISABLE;
+    try {
+      process.env.SUBAGENT_TURNS_NUDGE_DISABLE = "1";
+      const runner = mkRunner(async () => "ok");
+      await spawnSubagent({ task: "t", maxTurns: 3, agent: runner });
+      assert.equal(
+        runner.calls[0]?.opts.wrapUpNudge,
+        false,
+        "kill-switch set → explicit wrapUpNudge:false reaches runner.run",
+      );
+
+      delete process.env.SUBAGENT_TURNS_NUDGE_DISABLE;
+      await spawnSubagent({ task: "t", maxTurns: 3, agent: runner });
+      assert.ok(
+        !("wrapUpNudge" in (runner.calls[1]?.opts ?? {})),
+        "unset → key absent from run opts (core default = nudge on)",
+      );
+    } finally {
+      if (prev === undefined) delete process.env.SUBAGENT_TURNS_NUDGE_DISABLE;
+      else process.env.SUBAGENT_TURNS_NUDGE_DISABLE = prev;
+    }
+  });
 });
 
 describe("resolveSessionOverride (modelRuntime merge — ticket 07)", () => {
