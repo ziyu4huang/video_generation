@@ -35,7 +35,7 @@
  * genuinely does not belong in a default `bun test`.
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, mkdirSync, readFileSync, realpathSync, lstatSync, readlinkSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, mkdirSync, readFileSync, realpathSync, lstatSync, readlinkSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -316,5 +316,21 @@ describe("source-mode root node_modules self-heal", () => {
 		const result = launch(pkgDir);
 		expect(result.status).toBe(0);
 		expect(result.stderr).not.toMatch(/File exists/);
+	});
+});
+
+// update-pi.sh spawns repo scripts with `bun <script>.ts` from the
+// bun-apps/pi-agent cwd (do_rebuild / do_typecheck). #1305 moved deploy.ts
+// out of pi-agent/scripts/ and --rebuild failed silently for a week because
+// nothing checked those references. Pure parse + existsSync: no spawns, so
+// this runs in the default ungated `bun test`.
+describe("update-pi.sh referenced scripts exist", () => {
+	test("every `bun <script>.ts` reference resolves from bun-apps/pi-agent", () => {
+		const wrapper = readFileSync(path.join(REAL_PKG_DIR, "update-pi.sh"), "utf8");
+		const refs = [...wrapper.matchAll(/bun (\.{0,2}\/?[^\s&;)"']+\.ts)/g)].map((m) => m[1]!);
+		expect(refs.length).toBeGreaterThan(0);
+		for (const rel of refs) {
+			expect(existsSync(path.resolve(REAL_PKG_DIR, rel))).toBe(true);
+		}
 	});
 });
