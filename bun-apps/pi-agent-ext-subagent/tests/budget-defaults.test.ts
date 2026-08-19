@@ -16,6 +16,7 @@ const ENV_KNOBS = [
   "SUBAGENT_TOKEN_BUDGET_BIG",
   "SUBAGENT_TOKEN_BUDGET_MULTIPLIER",
   "SUBAGENT_MAX_TURNS",
+  "PI_SUBAGENT_HINTS_FILE",
 ] as const;
 
 // Save/restore every knob so tests are hermetic against the ambient env.
@@ -25,6 +26,10 @@ beforeEach(() => {
     savedEnv[k] = process.env[k];
     delete process.env[k];
   }
+  // Hermetic vs a real ~/.pi/subagents/hints.md on the host: the env-hints
+  // footer's switch is FILE PRESENCE, so point its override at a path that
+  // never exists (raw-task assertions stay byte-comparable).
+  process.env.PI_SUBAGENT_HINTS_FILE = "/nonexistent/pi-subagent-hints-absent.fixture.md";
 });
 afterEach(() => {
   for (const k of ENV_KNOBS) {
