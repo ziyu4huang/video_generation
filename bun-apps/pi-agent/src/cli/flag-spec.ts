@@ -43,7 +43,7 @@ export type ValueField =
 	| "linkWeighting" | "probeEval"
 	| "outDir"
 	| "only" | "filesCsv" | "projectsDir" | "memoryDir"
-	| "effort" | "tier";
+	| "effort" | "tier" | "outcome";
 
 export type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
@@ -167,6 +167,11 @@ const PIPELINE_GATE_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--tier", field: "tier" },
 ];
 
+// ── dispatch-log — outcome filter ────────────────────────────────────────────────
+const DISPATCH_LOG_VALUE_FLAGS: readonly ValueFlagSpec[] = [
+	{ flag: "--outcome", field: "outcome" },
+];
+
 /** All value flags (merged, order-independent). */
 export const VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	...MEMORY_TO_VAULT_VALUE_FLAGS,
@@ -182,6 +187,7 @@ export const VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	...RESEARCH_VALUE_FLAGS,
 	...KCARD_LOOP_VALUE_FLAGS,
 	...PIPELINE_GATE_VALUE_FLAGS,
+	...DISPATCH_LOG_VALUE_FLAGS,
 ];
 
 // ════════════════════════════════════════════════════════════════════════════

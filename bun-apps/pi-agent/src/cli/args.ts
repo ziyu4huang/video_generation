@@ -110,6 +110,8 @@ export interface ParsedArgs {
 	effort?: string;
 	/** pipeline-gate: tier declaration (T1|T2|T3) */
 	tier?: string;
+	/** dispatch-log: outcome filter (green|red|budget-dead|skipped) */
+	outcome?: string;
 	/** zk-card: bypass duplicate/backlink safety checks */
 	force?: boolean;
 	/** zk-card add: read content from file instead of inline text */
