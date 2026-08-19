@@ -149,6 +149,11 @@ export function loadProbe(
  * false positives — minified bundles are full of URL paths ("/v1/chat/…"),
  * "/dev/null", and "/proc/self" — and a gate that cries wolf gets disabled.
  * These two roots are where the two real defects came from.
+ *
+ * A `file://` URL is a path in disguise: `createRequire("file:///Users/…")`
+ * bakes the build machine's layout just as much as the bare absolute path,
+ * and starts with `f` — so the quote-then-slash anchor alone would miss it.
+ * The prefix is stripped before matching.
  */
 export function scanForeignPaths(
 	code: string,
@@ -159,8 +164,8 @@ export function scanForeignPaths(
 	const repo = roots.repo ?? resolve(PI_AGENT_DIR, "..", "..");
 	const piState = join(home, ".pi");
 	const found = new Set<string>();
-	for (const m of code.matchAll(/["'`](\/[^"'`\n]{4,}?)["'`]/g)) {
-		const p = m[1]!;
+	for (const m of code.matchAll(/["'`]((?:file:\/\/)?\/[^"'`\n]{4,}?)["'`]/g)) {
+		const p = m[1]!.replace(/^file:\/\//, "");
 		if (p.startsWith(deployRoot)) continue;
 		if (p === piState || p.startsWith(`${piState}/`)) continue;
 		if (p.startsWith(`${home}/`) || p.startsWith(`${repo}/`)) found.add(p);

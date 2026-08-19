@@ -97,12 +97,22 @@ async function buildCore(outFile: string): Promise<number> {
 	}
 
 	const entry = join(PI_AGENT_DIR, "src", "cli-sh.ts");
+	// bun's build report is human progress. deploy-sh-cli promises stdout is
+	// PURE JSON, and "inherit" here put the child's report on the same stdout
+	// as the final JSON payload — so pipe it and re-emit on stderr.
 	const p = Bun.spawn(["bun", "build", "--compile", entry, `--outfile=${outFile}`, "--minify"], {
 		cwd: PI_AGENT_DIR,
-		stdout: "inherit",
+		stdout: "pipe",
 		stderr: "inherit",
 	});
-	if ((await p.exited) !== 0) throw new Error("bun build --compile failed for src/cli-sh.ts");
+	const report = new Response(p.stdout)
+		.text()
+		.then((t) => {
+			if (t) process.stderr.write(t);
+		});
+	const code = await p.exited;
+	await report;
+	if (code !== 0) throw new Error("bun build --compile failed for src/cli-sh.ts");
 
 	// Reset the embedded-asset manifest to its empty form now that the binary has
 	// been compiled. The embedMode file imports .png/.map assets with

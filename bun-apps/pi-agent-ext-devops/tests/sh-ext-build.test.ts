@@ -196,6 +196,20 @@ describe("scanForeignPaths", () => {
 		expect(scanForeignPaths(code, "/deploy/0.1.0", ROOTS)).toHaveLength(1);
 	});
 
+	test("flags the file:// form — createRequire's baked build-machine base", () => {
+		// The pre-a9ecc1aec sdk-patch shipped exactly this; the quote-then-slash
+		// anchor alone misses it because the string starts with 'f'.
+		const code = `var r=x.createRequire("file:///Users/builder/proj/repo/bun-apps/pi-agent-ext-power-tool/src/sdk-patch.ts");`;
+		expect(scanForeignPaths(code, "/deploy/0.1.0", ROOTS)).toEqual([
+			"/Users/builder/proj/repo/bun-apps/pi-agent-ext-power-tool/src/sdk-patch.ts",
+		]);
+	});
+
+	test("accepts a file:// URL outside home and repo", () => {
+		const code = `const u = "file:///deploy/0.1.0/ext/power-tool/ext.cjs";`;
+		expect(scanForeignPaths(code, "/deploy/0.1.0", ROOTS)).toEqual([]);
+	});
+
 	test("accepts paths inside the deploy tree", () => {
 		const code = `var d="/deploy/0.1.0/ext/power-tool/node_modules/playwright-core/lib";`;
 		expect(scanForeignPaths(code, "/deploy/0.1.0", ROOTS)).toEqual([]);
