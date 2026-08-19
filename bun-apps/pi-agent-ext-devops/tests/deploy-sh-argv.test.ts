@@ -1,0 +1,77 @@
+import { describe, expect, test } from "bun:test";
+import { parseDeployShArgv } from "../src/deploy-sh-argv.ts";
+
+describe("parseDeployShArgv", () => {
+	test("no flags means a full deploy", () => {
+		const r = parseDeployShArgv([]);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.action).toEqual({ kind: "deploy", options: {} });
+	});
+
+	test("--list is its own action", () => {
+		const r = parseDeployShArgv(["--list"]);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.action.kind).toBe("list");
+	});
+
+	test("--help is its own action", () => {
+		const r = parseDeployShArgv(["--help"]);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.action.kind).toBe("help");
+	});
+
+	test("collects repeated --ext", () => {
+		const r = parseDeployShArgv(["--ext", "task", "--ext", "power-tool"]);
+		expect(r.ok).toBe(true);
+		if (r.ok && r.action.kind === "deploy") expect(r.action.options.onlyExt).toEqual(["task", "power-tool"]);
+	});
+
+	test("parses value flags in both forms", () => {
+		const r = parseDeployShArgv(["--out=/tmp/a", "--version", "9.9.9", "--config=/tmp/c.yaml"]);
+		expect(r.ok).toBe(true);
+		if (r.ok && r.action.kind === "deploy") {
+			expect(r.action.options.outRoot).toBe("/tmp/a");
+			expect(r.action.options.version).toBe("9.9.9");
+			expect(r.action.options.configPath).toBe("/tmp/c.yaml");
+		}
+	});
+
+	test("parses negation flags", () => {
+		const r = parseDeployShArgv(["--no-freeze", "--no-current", "--force"]);
+		expect(r.ok).toBe(true);
+		if (r.ok && r.action.kind === "deploy") {
+			expect(r.action.options.freeze).toBe(false);
+			expect(r.action.options.current).toBe(false);
+			expect(r.action.options.force).toBe(true);
+		}
+	});
+
+	test("rejects an unknown flag", () => {
+		const r = parseDeployShArgv(["--nope"]);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.error).toMatch(/--nope/);
+	});
+
+	test("rejects a value flag with no value", () => {
+		const r = parseDeployShArgv(["--out"]);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.error).toMatch(/--out/);
+	});
+
+	test("rejects a positional argument", () => {
+		const r = parseDeployShArgv(["extra"]);
+		expect(r.ok).toBe(false);
+	});
+
+	test("rejects --list combined with deploy flags", () => {
+		const r = parseDeployShArgv(["--list", "--force"]);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.error).toMatch(/--list/);
+	});
+
+	test("--list still accepts --out and --config", () => {
+		const r = parseDeployShArgv(["--list", "--out", "/tmp/a"]);
+		expect(r.ok).toBe(true);
+		if (r.ok && r.action.kind === "list") expect(r.action.outRoot).toBe("/tmp/a");
+	});
+});
