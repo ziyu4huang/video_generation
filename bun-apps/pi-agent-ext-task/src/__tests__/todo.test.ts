@@ -497,12 +497,26 @@ describe("todo registration schema", () => {
     expect(COMMAND_NAME.length).toBeGreaterThan(0);
   });
 
-  test("TodoParamsSchema is a discriminated union with action discriminator", () => {
+  test("TodoParamsSchema is a flat object with an action discriminator", () => {
     const { TodoParamsSchema } = require("../todo/tool/types");
     const schema = TodoParamsSchema as any;
     expect(schema).toBeDefined();
-    // Schema is now a Union, not a single Object
-    expect(schema.anyOf || schema.oneOf).toBeDefined();
+    // OpenAI-compatible providers (z.ai GLM) reject any function schema whose
+    // root is not type:"object" — a Type.Union root (anyOf, no type key) 400s
+    // every request carrying this tool. Root must be a plain object.
+    expect(schema.type).toBe("object");
+    expect(schema.anyOf).toBeUndefined();
+    expect(schema.oneOf).toBeUndefined();
+    expect(schema.properties.action.enum).toEqual([
+      "create",
+      "update",
+      "list",
+      "get",
+      "delete",
+      "clear",
+    ]);
+    // Per-action strictness lives in the reducer, not the schema.
+    expect(schema.required).toEqual(["action"]);
   });
 });
 
