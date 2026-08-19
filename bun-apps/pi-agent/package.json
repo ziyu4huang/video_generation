@@ -44,6 +44,7 @@
     "@repo/pi-agent-ext-file2md": "workspace:*",
     "@repo/pi-agent-ext-flux2": "workspace:*",
     "@repo/pi-agent-ext-hermes-memory": "workspace:*",
+    "@repo/pi-agent-ext-hyperframes": "workspace:*",
     "@repo/pi-agent-ext-knowledge-card": "workspace:*",
     "@repo/pi-agent-ext-krea2": "workspace:*",
     "@repo/pi-agent-ext-ltx": "workspace:*",

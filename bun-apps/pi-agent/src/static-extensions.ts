@@ -99,6 +99,7 @@ import workflowExtension from "../../pi-agent-ext-workflow/extensions/workflow.t
 import knowledgeCardExtension from "../../pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 import powerToolExtension from "../../pi-agent-ext-power-tool/extensions/power-tool.ts";
 import webuiExtension from "../../pi-agent-ext-webui/extensions/webui.ts";
+import hyperframesExtension from "../../pi-agent-ext-hyperframes/extensions/hyperframes.ts";
 
 export const STATIC_EXTENSION_FACTORIES = [
 	// Group A — original "general productivity" set
@@ -124,4 +125,8 @@ export const STATIC_EXTENSION_FACTORIES = [
 	// webui — web frontend co-driving one AgentSession with the TUI behind an
 	// agentic mutex (Bun.serve WS transport; starts lazily on session_start).
 	{ name: "pi-agent-ext-webui", factory: webuiExtension },
+	// hyperframes — skills-only carrier: the vendored HyperFrames + media-use
+	// skill family ships in skills/ (manifest skills[]/binarySkills[]); the
+	// factory is a no-op that exists so the registration path stays uniform.
+	{ name: "pi-agent-ext-hyperframes", factory: hyperframesExtension },
 ];

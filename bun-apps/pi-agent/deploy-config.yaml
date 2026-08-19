@@ -42,3 +42,10 @@ extensions:
     # kerberos / vite / @playwright/test are playwright's own optional peers,
     # reached only from code paths this agent never takes.
     externals: ["chromium-bidi/*", "kerberos", "vite", "@playwright/test"]
+  - name: hyperframes
+    package: pi-agent-ext-hyperframes
+    entry: extensions/hyperframes.ts
+    order: 60
+    skills: [skills]
+    # Skills-only carrier: the vendored HyperFrames + media-use family (~5.5MB
+    # incl. mp3 SFX / woff2 fonts). Factory is a no-op; skills copy verbatim.
