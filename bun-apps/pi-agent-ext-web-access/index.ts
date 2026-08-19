@@ -433,8 +433,21 @@ interface GlimpseWindow {
 let glimpseOpen: ((html: string, opts: Record<string, unknown>) => GlimpseWindow) | null | undefined;
 
 function findGlimpseMjs(): string | null {
+	// NOT createRequire(import.meta.url): bun's cjs bundler folds that into a
+	// build-machine path literal, which the sh deploy's relocatability gate
+	// rejects. Resolve from the ambient require when it carries .resolve
+	// (jiti/source, native ESM under bun), else from the executable — this is
+	// an OPTIONAL dependency either way, and every miss falls through to the
+	// npm -g probe below.
 	try {
-		const req = createRequire(import.meta.url);
+		if (typeof require === "function" && typeof require.resolve === "function") {
+			return require.resolve("glimpseui");
+		}
+	} catch {
+		// Optional dependency.
+	}
+	try {
+		const req = createRequire(process.execPath);
 		return req.resolve("glimpseui");
 	} catch {
 		// Optional dependency.

@@ -61,8 +61,12 @@ function collectSkills(): { owned: Set<string>; shorts: string[]; files: { pkg: 
 const { owned, shorts, files } = collectSkills();
 
 // Longest-first so `hermes-memory:` is not matched as a bare `hermes` prefix.
+// `(?<!/)` excludes slash-command invocations: `/btw:new` is the btw
+// extension's COMMAND, not a pointer to a `btw:new` skill — the collision
+// became live when the btw skill moved to its owning package (short name
+// `btw`) and its own command docs started matching the pointer pattern.
 const referencePattern = new RegExp(
-  `\\b(${[...shorts].sort((a, b) => b.length - a.length).join("|")}):([a-z0-9][a-z0-9-]*)\\b`,
+  `(?<!/)\\b(${[...shorts].sort((a, b) => b.length - a.length).join("|")}):([a-z0-9][a-z0-9-]*)\\b`,
   "g",
 );
 

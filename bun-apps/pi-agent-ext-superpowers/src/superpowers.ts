@@ -63,30 +63,73 @@ function isBunBinaryUrl(fromUrl: string): boolean {
 }
 
 /**
- * Resolve the package's `skills/` directory from this compiled module's URL.
- * Works whether the entry runs from `src/` (tsx/dev) or `dist/` (built) because
- * the `skills/` dir is a sibling of both under the package root
- * (`<pkg>/src|dist/...` → `<pkg>/skills`).
+ * This extension's deployed directory under the sh loader, when running there.
  *
- * Compiled-binary mode (`bun build --compile`): the module URL is a $bunfs
- * virtual path, so `../skills` resolves to a path that does not exist on the
- * real filesystem. pi-agent's extract-embedded-assets patch extracts the real
- * skills to $BUN_PI_EMBEDDED_EXTRACT_DIR/pi-agent-ext-superpowers/skills (the
- * same dir its run-dir resolver passes via `--skill`, so pi dedups the two) —
- * resolve there instead.
+ * bun's cjs bundler REBINDS `__dirname`/`__filename` inside an extension bundle
+ * to the paths the source had on the BUILD MACHINE, and folds `import.meta.url`
+ * into a build-machine path literal — so neither is relocatable. The sh loader
+ * instead serves the extension's real deployed dir (`ext/<name>/`) through the
+ * injected require under the reserved pseudo-specifier below. Throws → returns
+ * undefined everywhere else (jiti/source, native ESM, tests).
  */
-export function resolveSkillsDir(fromUrl: string = import.meta.url): string {
-  if (isBunBinaryUrl(fromUrl)) {
-    const extractDir = process.env.BUN_PI_EMBEDDED_EXTRACT_DIR;
-    if (extractDir) return join(extractDir, "pi-agent-ext-superpowers", "skills");
+const EXT_DIR_SPEC = "#pi/ext-dir";
+
+function shExtDir(): string | undefined {
+  try {
+    if (typeof require === "function") {
+      const mod = require(EXT_DIR_SPEC) as { default?: unknown } | string;
+      if (typeof mod === "string") return mod; // sh loader: the deployed ext dir
+      if (mod !== null && typeof mod === "object" && typeof mod.default === "string") {
+        return mod.default; // jiti/source: package.json "#pi/ext-dir" imports entry
+      }
+    }
+  } catch {
+    // Not resolvable here (native ESM / tests) — fall through.
   }
-  const moduleDir = dirname(fileURLToPath(fromUrl));
-  // src/superpowers.ts → ../skills ; dist/superpowers.js → ../skills
-  return resolve(moduleDir, "..", "skills");
+  return undefined;
+}
+
+/**
+ * Resolve the package's `skills/` directory.
+ *
+ * Deliberately does NOT default to `import.meta.url`: bun's cjs bundler folds
+ * it into a build-machine path literal (which the sh deploy's relocatability
+ * gate rejects), and an unfolded `import.meta` is a SyntaxError inside the sh
+ * loader's cjs wrapper. Resolution order:
+ *
+ *   1. Compiled-binary mode (`bun build --compile`, detected via the
+ *      BUN_PI_EMBEDDED_EXTRACT_DIR env the extract-embedded-assets patch sets
+ *      before extensions load): skills are extracted to
+ *      $BUN_PI_EMBEDDED_EXTRACT_DIR/pi-agent-ext-superpowers/skills (the same
+ *      dir the run-dir resolver passes via `--skill`, so pi dedups the two).
+ *   2. sh deploy (cjs bundle): `require("#pi/ext-dir")` → skills/ ships beside
+ *      the bundle (ext/<name>/skills).
+ *   3. jiti/source and dist: the package.json `"#pi/ext-dir"` imports entry
+ *      (`src/sh-ext-dir.ts`, loaded by jiti as cjs with the REAL `__dirname`)
+ *      → the package root, where `skills/` lives.
+ *
+ * `fromUrl` stays injectable for tests and for callers that DO have a valid
+ * module URL (e.g. inside pi-agent's own --compile binary, where
+ * `import.meta.url` is the $bunfs virtual path).
+ */
+export function resolveSkillsDir(fromUrl?: string): string {
+  const extractDir = process.env.BUN_PI_EMBEDDED_EXTRACT_DIR;
+  if (extractDir && (fromUrl === undefined || isBunBinaryUrl(fromUrl))) {
+    return join(extractDir, "pi-agent-ext-superpowers", "skills");
+  }
+  if (fromUrl !== undefined) {
+    // src/superpowers.ts → ../skills ; dist/superpowers.js → ../skills
+    return resolve(dirname(fileURLToPath(fromUrl)), "..", "skills");
+  }
+  const extDir = shExtDir();
+  if (extDir !== undefined) return join(extDir, "skills");
+  throw new Error(
+    "resolveSkillsDir: cannot locate skills/ (no fromUrl injected, no BUN_PI_EMBEDDED_EXTRACT_DIR, no #pi/ext-dir)",
+  );
 }
 
 /** Path to the bootstrap skill, resolved relative to a caller module URL. */
-export function resolveBootstrapSkillPath(fromUrl: string = import.meta.url): string {
+export function resolveBootstrapSkillPath(fromUrl?: string): string {
   return resolve(resolveSkillsDir(fromUrl), "using-superpowers", "SKILL.md");
 }
 
@@ -164,7 +207,7 @@ export function resolveAdvertisedSkillPaths(skillsDir: string, exclude: Set<stri
  * Register the Superpowers Pi extension. The default export of `src/index.ts`
  * (and the thin `extensions/index.ts` wrapper) calls this.
  */
-export function superpowersExtension(pi: ExtensionAPI, fromUrl: string = import.meta.url): void {
+export function superpowersExtension(pi: ExtensionAPI, fromUrl?: string): void {
   // Self-gate: BUN_PI_SUPERPOWERS=0 disables the entire extension — no skill
   // advertisement (resources_discover), no bootstrap injection, no event hooks.
   // Mirrors prompt-history's BUN_PI_PROMPT_HISTORY=0 for a symmetric full-disable
@@ -228,7 +271,7 @@ let cachedBootstrap: string | null | undefined;
 
 /** Read + assemble the bootstrap payload. Cached after first call. `fromUrl`
  *  is injectable so tests can point at the real skill without importing.meta. */
-export function getBootstrapContent(fromUrl: string = import.meta.url): string | null {
+export function getBootstrapContent(fromUrl?: string): string | null {
   if (cachedBootstrap !== undefined) return cachedBootstrap;
 
   try {

@@ -189,12 +189,46 @@ export const realGitOps: GitOps = {
 
 /**
  * Resolve the absolute path to the bundled merge-driver script
- * (`scripts/pi-memory-merge.mjs`) from a module URL. Lives next to `src/`, so
- * the script is `<packageRoot>/scripts/pi-memory-merge.mjs`. Overridable for tests.
+ * (`scripts/pi-memory-merge.mjs`). Lives next to `src/`, so the script is
+ * `<packageRoot>/scripts/pi-memory-merge.mjs`. Overridable for tests.
+ *
+ * Resolution order (deliberately NOT `import.meta.url` by default: bun's cjs
+ * bundler folds that into a build-machine path literal — rejected by the sh
+ * deploy's relocatability gate — and REBINDS `__dirname` to the build machine
+ * as well, so the sh loader serves the deployed dir through the injected
+ * require instead):
+ *   1. `fromUrl` injected (tests) → `<moduleDir>/../scripts/…`
+ *   2. sh deploy: `require("#pi/ext-dir")` → the deploy copies `scripts/`
+ *      beside the bundle (`ext/<name>/scripts/…`)
+ *   3. jiti/source and dist: the package.json `"#pi/ext-dir"` imports entry
+ *      (`src/sh-ext-dir.ts`, loaded by jiti as cjs with the REAL `__dirname`)
+ *      → the package root, where `scripts/` lives.
  */
-export function resolveMergeDriverScriptPath(fromUrl: string = import.meta.url): string {
-  const here = path.dirname(fileURLToPath(fromUrl)); // .../src
-  return path.resolve(here, "..", "scripts", "pi-memory-merge.mjs");
+const EXT_DIR_SPEC = "#pi/ext-dir";
+
+function shExtDir(): string | undefined {
+  try {
+    if (typeof require === "function") {
+      const mod = require(EXT_DIR_SPEC) as { default?: unknown } | string;
+      if (typeof mod === "string") return mod; // sh loader: the deployed ext dir
+      if (mod !== null && typeof mod === "object" && typeof mod.default === "string") {
+        return mod.default; // jiti/source: package.json "#pi/ext-dir" imports entry
+      }
+    }
+  } catch {
+    // Not resolvable here (native ESM / tests) — fall through.
+  }
+  return undefined;
+}
+
+export function resolveMergeDriverScriptPath(fromUrl?: string): string {
+  if (fromUrl !== undefined) {
+    const here = path.dirname(fileURLToPath(fromUrl)); // .../src
+    return path.resolve(here, "..", "scripts", "pi-memory-merge.mjs");
+  }
+  const extDir = shExtDir();
+  if (extDir !== undefined) return path.join(extDir, "scripts", "pi-memory-merge.mjs");
+  return path.resolve("..", "scripts", "pi-memory-merge.mjs");
 }
 
 /**

@@ -13,10 +13,11 @@
  * that text yields the wrapper function, which we call with OUR require —
  * verified to work inside a `bun build --compile` binary.
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { isBuiltinSpecifier } from "./host-modules.ts";
 import { parseExtManifest, type ExtManifest, type HostContract } from "./ext-manifest.ts";
 
 /**
@@ -61,6 +62,14 @@ export interface LoadOptions {
  * way (playwright-core). Resolving it from the extension dir gives it a real
  * `__dirname` inside the deploy.
  *
+ * MEASUREMENT (why the manual resolver): inside a `bun build --compile` binary,
+ * `createRequire(<real path>)` and `Bun.resolveSync` CANNOT resolve PACKAGES
+ * from the real filesystem — module resolution is virtualized onto $bunfs and
+ * "Cannot find package 'x' from <real path>" is the result. Requiring an
+ * ABSOLUTE FILE path still works, so the fallback resolves the vendored entry
+ * file by reading the vendored package.json (exports → require/default/first,
+ * then main) and requires that file directly.
+ *
  * Host modules still win: the fallback is only consulted after hostRequire
  * throws, so a vendored copy can never shadow the shared runtime and split a
  * singleton.
@@ -72,6 +81,13 @@ export function extRequire(dir: string, hostRequire: (spec: string) => unknown):
 			return hostRequire(spec);
 		} catch (hostError) {
 			try {
+				const vendored = resolveVendoredEntryFile(spec, dir);
+				if (vendored !== null) {
+					local ??= createRequire(join(dir, "package.json"));
+					return local(vendored);
+				}
+				// Not a vendored package — still let createRequire try (a relative
+				// file require inside the ext dir reaches this path).
 				local ??= createRequire(join(dir, "package.json"));
 				return local(spec);
 			} catch {
@@ -83,10 +99,86 @@ export function extRequire(dir: string, hostRequire: (spec: string) => unknown):
 	};
 }
 
+/** "@scope/name/sub" → "@scope/name"; "pkg/sub" → "pkg". */
+function packageRootOf(spec: string): string {
+	const parts = spec.split("/");
+	return spec.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]!;
+}
+
+/**
+ * Absolute entry-file path for a vendored `spec` under `<dir>/node_modules/`,
+ * or null when the spec is not a vendored package there. Handles the common
+ * package.json shapes: `exports` (string, conditional object, subpath keys)
+ * and `main`. Anything fancier (wildcard patterns, browser maps) falls back to
+ * main/index probing — vendored packages in this repo are ordinary ones.
+ */
+function resolveVendoredEntryFile(spec: string, dir: string): string | null {
+	if (isBuiltinSpecifier(spec) || spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("#")) {
+		return null;
+	}
+	const root = packageRootOf(spec);
+	const pkgDir = join(dir, "node_modules", root);
+	const pkgJsonPath = join(pkgDir, "package.json");
+	if (!existsSync(pkgJsonPath)) return null;
+	let pkg: Record<string, unknown>;
+	try {
+		pkg = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as Record<string, unknown>;
+	} catch {
+		return null;
+	}
+	const sub = spec.slice(root.length).replace(/^\//, "");
+
+	const pickExport = (e: unknown): string | null => {
+		if (typeof e === "string") return e;
+		if (e !== null && typeof e === "object") {
+			const o = e as Record<string, unknown>;
+			// Prefer require → default → first condition, the ordering that
+			// matches how these packages declare their cjs entry.
+			return pickExport(o.require ?? o.default ?? Object.values(o)[0]);
+		}
+		return null;
+	};
+	const exp = pkg.exports;
+	if (exp !== null && typeof exp === "object" && !Array.isArray(exp)) {
+		const target = sub === "" ? (exp as Record<string, unknown>)["."] : (exp as Record<string, unknown>)[`./${sub}`];
+		const rel = pickExport(target);
+		if (rel !== null) return join(pkgDir, rel);
+	}
+
+	const tryFiles = (base: string): string | null => {
+		for (const candidate of [base, `${base}.js`, `${base}.mjs`, `${base}.cjs`, join(base, "index.js"), join(base, "index.mjs")]) {
+			try {
+				if (statSync(candidate).isFile()) return candidate;
+			} catch {
+				// keep probing
+			}
+		}
+		return null;
+	};
+	if (sub !== "") {
+		const bySub = tryFiles(join(pkgDir, sub));
+		if (bySub !== null) return bySub;
+	}
+	const mainRel = typeof pkg.main === "string" ? pkg.main : "index.js";
+	return tryFiles(join(pkgDir, mainRel));
+}
+
 interface Candidate {
 	dir: string;
 	manifest: ExtManifest;
 }
+
+/**
+ * Reserved pseudo-specifier an extension requires() to learn its own deployed
+ * directory at runtime: `require("#pi/ext-dir")` → the absolute `ext/<name>/`
+ * path. Needed because bun's cjs output REBINDS `__dirname`/`__filename` inside
+ * the bundle to the paths the entry had on the BUILD MACHINE (the playwright
+ * defect), so the wrapper arguments this loader passes are shadowed by the time
+ * extension code runs — the injected require is the one identity-preserving
+ * channel left. Served here (in evaluateExtModule) so every caller — the
+ * runtime loader and the build-time load probe — honors it identically.
+ */
+export const EXT_DIR_SPEC = "#pi/ext-dir";
 
 /** Evaluate a bun cjs bundle and return its module.exports. */
 export function evaluateExtModule(
@@ -101,7 +193,9 @@ export function evaluateExtModule(
 		throw new Error("bundle is not a cjs wrapper function — expected `bun build --format=cjs` output");
 	}
 	const mod = { exports: {} as Record<string, unknown> };
-	wrapper(mod.exports, requireFn, mod, filename, dirname);
+	const selfDirRequire = (spec: string): unknown =>
+		spec === EXT_DIR_SPEC ? dirname : requireFn(spec);
+	wrapper(mod.exports, selfDirRequire, mod, filename, dirname);
 	return mod.exports;
 }
 

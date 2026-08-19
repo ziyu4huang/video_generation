@@ -147,7 +147,7 @@ describeE2E("pi-agent-sh L1 — the deployed binary really runs its extensions",
 		expect(r.code).toBe(0);
 	}, 120_000);
 
-	test("the sh deploy splices zero skills into the system prompt", async () => {
+	test("every configured skill reaches the system prompt", async () => {
 		const r = await probe(
 			"probe-skills",
 			`export default (pi) => {
@@ -160,11 +160,17 @@ describeE2E("pi-agent-sh L1 — the deployed binary really runs its extensions",
 `,
 		);
 		const names = payload(r, "[SKILLS]") as unknown as string[];
-		// The sh deploy ships no skills: power-tool's former btw /
-		// playwright-cli / webui-audit skill dirs were removed and no
-		// extension declares a `skills:` entry in deploy-config.yaml.
-		// This guards against a skills dir silently sneaking back in.
-		expect(names, `deploy must splice zero --skill paths, got: ${names.join(" ")}`).toEqual([]);
+		// The full-profile deploy ships skills from their owning extensions:
+		// btw -> ext-btw, webui-audit -> ext-webui, playwright-cli stays with
+		// power-tool (the #1724 re-homing), plus the superpowers / wayfind /
+		// hermes-memory / web-access / hyperframes families. Spot-check one
+		// known skill per owner rather than pinning counts — the #1713 lesson:
+		// hardcoded totals go stale the moment a family grows.
+		const expected = ["btw", "playwright-cli", "webui-audit", "using-superpowers"];
+		expect(names.length, `skills: ${names.join(" ")}`).toBeGreaterThan(0);
+		for (const skill of expected) {
+			expect(names, `skill '${skill}' must reach the system prompt`).toContain(skill);
+		}
 	}, 120_000);
 
 	test("cross-extension state is shared — power-tool's consumer sees task's seams", async () => {
@@ -265,9 +271,11 @@ describeE2E("pi-agent-sh L1 — the deployed binary really runs its extensions",
 
 	test("no bundle carries a path from the build machine", async () => {
 		// The static half of gate 4, asserted against what actually shipped rather
-		// than against the string the build happened to scan.
+		// than against the string the build happened to scan. Every configured
+		// extension — the set derives from deploy-config.yaml, so a new entry is
+		// covered automatically (the #1713 lesson: hardcoded names go stale).
 		const home = process.env.HOME ?? "";
-		for (const name of ["task", "power-tool"]) {
+		for (const name of configuredNames) {
 			const code = readFileSync(join(target, "ext", name, "ext.cjs"), "utf8");
 			const hits = [...code.matchAll(/["'`](\/[^"'`\n]{4,}?)["'`]/g)]
 				.map((m) => m[1] as string)
@@ -285,6 +293,15 @@ describeE2E("pi-agent-sh L1 — the deployed binary really runs its extensions",
 		// `Cannot find package 'playwright-core' from '/$bunfs/root/pi-agent'`.
 		expect(code).not.toContain('import("playwright-core")');
 		expect(code).toContain('require("playwright-core")');
+	}, 30_000);
+
+	test("unpdf ships vendored for web-access — its import.meta.resolve syntax cannot live in a cjs bundle", async () => {
+		const vendored = join(target, "ext", "web-access", "node_modules", "unpdf");
+		expect(existsSync(join(vendored, "package.json"))).toBe(true);
+		const code = readFileSync(join(target, "ext", "web-access", "ext.cjs"), "utf8");
+		// `import.meta` (any form) is a SyntaxError inside the loader's indirect
+		// cjs eval — the ESM-only construct must stay inside the vendored module.
+		expect(code).not.toContain("import.meta");
 	}, 30_000);
 
 	test("the core still boots after ext/ is removed entirely", async () => {
