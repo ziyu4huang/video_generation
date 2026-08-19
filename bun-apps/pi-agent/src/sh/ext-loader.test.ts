@@ -149,7 +149,10 @@ describe("loadExtensions", () => {
 				throw new Error(`no host module ${spec}`);
 			},
 		});
-		expect(r.factories[0]!.factory()).toEqual({ got: "host" });
+		// The loader types factory as pi's ExtensionFactory (void-returning); this
+		// fixture returns a value so the injected require is observable.
+		const probe = r.factories[0]!.factory as unknown as () => { got: string };
+		expect(probe()).toEqual({ got: "host" });
 	});
 
 	test("returns absolute skill paths that exist", () => {

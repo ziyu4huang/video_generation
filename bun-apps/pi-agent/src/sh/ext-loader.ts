@@ -15,13 +15,18 @@
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { parseExtManifest, type ExtManifest, type HostContract } from "./ext-manifest.ts";
 
-/** The shape pi's `main({ extensionFactories })` consumes. */
+/**
+ * The shape pi's `main({ extensionFactories })` consumes. `factory` is typed as
+ * pi's own ExtensionFactory so the loaded set can be handed to main() without a
+ * cast — the runtime check below (`typeof factory === "function"`) is what
+ * actually enforces it, since a bundle read off disk carries no type.
+ */
 export interface LoadedExtension {
 	name: string;
-	// biome-ignore lint/suspicious/noExplicitAny: pi's ExtensionFactory signature varies by extension
-	factory: (...args: any[]) => unknown;
+	factory: ExtensionFactory;
 }
 
 export interface SkippedExtension {
