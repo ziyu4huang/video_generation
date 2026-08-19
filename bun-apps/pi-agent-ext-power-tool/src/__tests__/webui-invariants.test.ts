@@ -76,6 +76,48 @@ describe("evaluateInvariants â report-iframe-sized (inv 7)", () => {
   });
 });
 
+describe("evaluateInvariants — panes-exclusive is fold-aware (webui #1684 More fold)", () => {
+  test("Case A: healthy More fold — more-pane visible with nested data/btw children — PASSES; fold children not counted", () => {
+    const r = evaluateInvariants(state([
+      { id: "cards-pane", hidden: true, articles: [] },
+      { id: "report-pane", hidden: true, articles: [] },
+      { id: "more-pane", hidden: false, articles: [] },
+      { id: "data-pane", hidden: false, articles: [] },
+      { id: "btw-pane", hidden: false, articles: [] },
+    ]));
+    const f = r.find((x) => x.check === "panes-exclusive")!;
+    expect(f.pass).toBe(true);
+    expect(f.detail).toBe("1 visible pane: more-pane (+2 fold children)");
+  });
+
+  test("Case B: a REAL violation is still caught — cards AND report both visible — FAILS with 2 visible panes", () => {
+    const r = evaluateInvariants(state([
+      { id: "cards-pane", hidden: false, articles: [] },
+      { id: "report-pane", hidden: false, articles: [] },
+      { id: "more-pane", hidden: true, articles: [] },
+      { id: "data-pane", hidden: true, articles: [] },
+    ]));
+    const f = r.find((x) => x.check === "panes-exclusive")!;
+    expect(f.pass).toBe(false);
+    expect(f.detail).toContain("2 visible panes");
+    expect(f.detail).toContain("cards-pane");
+    expect(f.detail).toContain("report-pane");
+  });
+
+  test("Case C: Inbox family alone — cards visible, fold closed — PASSES as the one top-level pane", () => {
+    const r = evaluateInvariants(state([
+      { id: "cards-pane", hidden: false, articles: [] },
+      { id: "report-pane", hidden: true, articles: [] },
+      { id: "more-pane", hidden: true, articles: [] },
+      { id: "data-pane", hidden: true, articles: [] },
+      { id: "btw-pane", hidden: true, articles: [] },
+    ]));
+    const f = r.find((x) => x.check === "panes-exclusive")!;
+    expect(f.pass).toBe(true);
+    expect(f.detail).toBe("1 visible pane: cards-pane");
+  });
+});
+
 import { connectFailureReport } from "../tools/webui-tool.js";
 
 describe("connectFailureReport — failure-kind classification (errdx)", () => {

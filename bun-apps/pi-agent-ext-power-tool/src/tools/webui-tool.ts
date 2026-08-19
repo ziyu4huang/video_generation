@@ -75,17 +75,29 @@ export interface WebuiAuditFinding {
 export function evaluateInvariants(state: WebuiAuditState): WebuiAuditFinding[] {
   const findings: WebuiAuditFinding[] = [];
 
-  // panes-exclusive: at most ONE visible pane; the v3 rest default is ALL
-  // hidden (v2 kept a transcript-style default) — either passes, two don't.
-  const visible = state.panes.filter((pane) => !pane.hidden);
+  // panes-exclusive: at most ONE visible TOP-LEVEL pane. Fold-aware since
+  // webui #1684 ("More fold"): the More tab renders more-pane as a fold
+  // PARENT whose nested children (FOLD_CHILDREN: data-pane, btw-pane) show
+  // only inside it — they are one visible FAMILY, not independent panes, so
+  // they never count toward exclusivity (the pass detail still notes how
+  // many fold children are showing). The v3 rest default is ALL hidden (v2
+  // kept a transcript-style default) — either passes; two top-level panes
+  // don't. The Inbox family (cards + chat feed, v2) predates the fold and
+  // likewise occupies one visible slot.
+  const FOLD_CHILDREN = new Set(["data-pane", "btw-pane"]); // nested inside more-pane since webui #1684
+  const visible = state.panes
+    .filter((pane) => !FOLD_CHILDREN.has(pane.id))
+    .filter((pane) => !pane.hidden);
+  const foldVisible = state.panes.filter((pane) => FOLD_CHILDREN.has(pane.id) && !pane.hidden);
+  const foldNote = foldVisible.length > 0 ? ` (+${foldVisible.length} fold children)` : "";
   findings.push({
     check: "panes-exclusive",
     pass: visible.length <= 1,
     detail:
       visible.length === 0
-        ? "all panes hidden at rest (v3 default)"
+        ? `all panes hidden at rest (v3 default)${foldNote}`
         : visible.length === 1
-          ? `1 visible pane: ${visible[0].id}`
+          ? `1 visible pane: ${visible[0].id}${foldNote}`
           : `${visible.length} visible panes: ${visible.map((pane) => pane.id).join(", ")}`,
   });
 
@@ -233,13 +245,18 @@ interface WebuiDom {
  * only the function body is serialized into the page).
  */
 function collectDom(): WebuiDom {
+  // Pane regex covers the full pane vocabulary incl. the webui #1684 "More
+  // fold": more-pane (the fold parent) plus its nested children data-pane /
+  // btw-pane. `hidden` is EFFECTIVE visibility — el.closest("[hidden]")
+  // includes the element itself (own-attr semantics preserved) AND every
+  // ancestor, so fold children read hidden whenever the fold parent is.
   const panes: WebuiAuditState["panes"] = [];
   const tabIds: string[] = [];
   for (const el of document.querySelectorAll<HTMLElement>("[id]")) {
-    if (/^(report|ask|cards|inbox|data)-pane$/.test(el.id)) {
+    if (/^(report|ask|cards|inbox|data|btw|more)-pane$/.test(el.id)) {
       panes.push({
         id: el.id,
-        hidden: el.hasAttribute("hidden"),
+        hidden: el.closest("[hidden]") !== null,
         articles: Array.from(el.querySelectorAll("article"), (a) => {
           const fr = a.querySelector("iframe")?.getBoundingClientRect();
           return {
