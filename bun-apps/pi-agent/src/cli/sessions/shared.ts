@@ -46,6 +46,9 @@ import obsidianExtension, {
 // Importing registerAllProviders here is safe: ../../pre-load-providers.ts has
 // no import-time side effects, so this never applies that patch.
 import { registerAllProviders } from "../../pre-load-providers.ts";
+// Single-source built-in defaults (provider/model/thinking + obsidian floor) —
+// shared with the TUI argv-splice patch and the subagent floor patch.
+import { BUILTIN_MODEL_DEFAULT } from "../../builtin-model-default.ts";
 
 /** Allowed thinking levels (mirrors pi-agent-core). */
 const THINKING_LEVELS: readonly ThinkingLevel[] = [
@@ -61,11 +64,13 @@ export function isThinkingLevel(v: string): v is ThinkingLevel {
 	return (THINKING_LEVELS as readonly string[]).includes(v);
 }
 
-/** Hardcoded fallback when nothing else is configured. */
+/** Built-in fallback when nothing else is configured — single-sourced in
+ * builtin-model-default.ts so the CLI path, the TUI argv splice, and the
+ * obsidian floor all agree (thinking default: high). */
 const FALLBACK = {
-	provider: "zai",
-	modelId: "glm-5.3",
-	thinkingLevel: "medium" as ThinkingLevel,
+	provider: BUILTIN_MODEL_DEFAULT.provider,
+	modelId: BUILTIN_MODEL_DEFAULT.model,
+	thinkingLevel: BUILTIN_MODEL_DEFAULT.thinking as ThinkingLevel,
 };
 
 export interface ResolvedLLM {
@@ -442,15 +447,16 @@ function readUserSettings(): Record<string, unknown> | undefined {
 
 /**
  * Apply the obsidian distill/garden subagent model floor from user settings
- * (`obsidian.subagentModel` in ~/.pi/agent/settings.json). Injected as
- * `OB_SUBAGENT_MODEL` at session start so pi-obsidian's `runSubagent` spawns
- * children (obsidian_distill / obsidian_garden / zk_* subagents) on a fast
- * trusted floor instead of inheriting the (possibly slow) parent model. The
- * floor path in `resolveSubagentModel` is never weakness-checked, so a
- * `/flash` model is silent here. An explicit `OB_SUBAGENT_MODEL` env var
- * still wins (per-session override) — we only set when unset. Mirrors
- * `applyVaultEnv`. Pure logic over the parsed settings object; IO is in
- * `readUserSettings()` so this is unit-testable without touching disk.
+ * (`obsidian.subagentModel` in ~/.pi/agent/settings.json), falling back to the
+ * built-in default when the key is absent. Injected as `OB_SUBAGENT_MODEL` at
+ * session start so pi-obsidian's `runSubagent` spawns children (obsidian_distill
+ * / obsidian_garden / zk_* subagents) on a fast trusted floor instead of
+ * inheriting the (possibly slow) parent model. The floor path in
+ * `resolveSubagentModel` is never weakness-checked, so a `/flash` model is
+ * silent here. An explicit `OB_SUBAGENT_MODEL` env var still wins (per-session
+ * override) — we only set when unset. Mirrors `applyVaultEnv`. Pure logic over
+ * the parsed settings object; IO is in `readUserSettings()` so this is
+ * unit-testable without touching disk.
  */
 export function applyObsidianSubagentFloor(
 	settings: Record<string, unknown> | undefined,
@@ -459,7 +465,11 @@ export function applyObsidianSubagentFloor(
 	const floor = (settings as any)?.obsidian?.subagentModel;
 	if (typeof floor === "string" && floor.trim()) {
 		process.env.OB_SUBAGENT_MODEL = floor.trim();
+		return;
 	}
+	// Fill-gaps built-in: no personal floor configured → publish the package
+	// default so distill/garden subagents never fall to the slow parent model.
+	process.env.OB_SUBAGENT_MODEL = BUILTIN_MODEL_DEFAULT.obsidianSubagentFloor;
 }
 
 /**

@@ -27,9 +27,11 @@
  *
  * MODE GATING
  * -----------
- * Mode-agnostic: a distill floor is useful in every mode. No-op when the
- * settings field is absent or the env var is already set. Gated by
- * `BUN_PI_SUBAGENT_MODEL_FLOOR` (default on) via PATCH_TABLE.
+ * Mode-agnostic: a distill floor is useful in every mode. No-op when the env
+ * var is already set; when the personal settings floor is absent the built-in
+ * default floor (src/builtin-model-default.ts) fills the gap — zero ~/.pi
+ * config required. Gated by `BUN_PI_SUBAGENT_MODEL_FLOOR` (default on) via
+ * PATCH_TABLE.
  *
  * TESTABILITY
  * -----------
@@ -40,13 +42,16 @@
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { BUILTIN_MODEL_DEFAULT } from "../builtin-model-default.ts";
 
 /**
  * Pure: given parsed settings + env, return the floor model id to inject (or
- * undefined to do nothing). Returns undefined when:
- *   - `OB_SUBAGENT_MODEL` is already set in env (env override wins), OR
- *   - `settings.obsidian.subagentModel` is absent / non-string / blank.
- * A non-blank string is returned trimmed.
+ * undefined to do nothing). Returns undefined when `OB_SUBAGENT_MODEL` is
+ * already set in env (env override wins). Otherwise the personal floor
+ * (`settings.obsidian.subagentModel`, trimmed) wins; when it is absent /
+ * non-string / blank the built-in default floor (BUILTIN_MODEL_DEFAULT) fills
+ * the gap — fill-gaps semantics, mirroring applyObsidianSubagentFloor in
+ * pi-agent-cli's shared.ts.
  */
 export function resolveSubagentFloor(
 	settings: Record<string, unknown> | undefined,
@@ -55,9 +60,8 @@ export function resolveSubagentFloor(
 	// Env override wins — never clobber an explicit OB_SUBAGENT_MODEL.
 	if (env.OB_SUBAGENT_MODEL) return undefined;
 	const floor = (settings as any)?.obsidian?.subagentModel;
-	if (typeof floor !== "string") return undefined;
-	const trimmed = floor.trim();
-	return trimmed || undefined;
+	if (typeof floor === "string" && floor.trim()) return floor.trim();
+	return BUILTIN_MODEL_DEFAULT.obsidianSubagentFloor;
 }
 
 /** Best-effort read of ~/.pi/agent/settings.json. Non-fatal: undefined on any

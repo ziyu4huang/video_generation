@@ -151,20 +151,25 @@ describe("applyObsidianSubagentFloor — inject OB_SUBAGENT_MODEL from settings"
     expect(process.env.OB_SUBAGENT_MODEL).toBe("zai/glm-5.3");
   });
 
-  test("undefined settings → no-op (no env set)", () => {
+  test("undefined settings → fills the built-in default floor", () => {
     applyObsidianSubagentFloor(undefined);
-    expect(process.env.OB_SUBAGENT_MODEL).toBeUndefined();
+    expect(process.env.OB_SUBAGENT_MODEL).toBe("deepseek/deepseek-v4-flash");
   });
 
-  test("missing obsidian.subagentModel field → no-op", () => {
+  test("missing obsidian.subagentModel field → fills the built-in default floor", () => {
     applyObsidianSubagentFloor({ defaultModel: "glm-5.3", subagents: {} });
-    expect(process.env.OB_SUBAGENT_MODEL).toBeUndefined();
+    expect(process.env.OB_SUBAGENT_MODEL).toBe("deepseek/deepseek-v4-flash");
   });
 
-  test("non-string / empty floor → no-op", () => {
+  test("non-string / empty floor → fills the built-in default floor", () => {
     applyObsidianSubagentFloor({ obsidian: { subagentModel: 123 } });
-    expect(process.env.OB_SUBAGENT_MODEL).toBeUndefined();
+    expect(process.env.OB_SUBAGENT_MODEL).toBe("deepseek/deepseek-v4-flash");
     applyObsidianSubagentFloor({ obsidian: { subagentModel: "   " } });
-    expect(process.env.OB_SUBAGENT_MODEL).toBeUndefined();
+    expect(process.env.OB_SUBAGENT_MODEL).toBe("deepseek/deepseek-v4-flash");
+  });
+
+  test("a personal floor distinct from the built-in still wins over it", () => {
+    applyObsidianSubagentFloor({ obsidian: { subagentModel: "zai/glm-4.7" } });
+    expect(process.env.OB_SUBAGENT_MODEL).toBe("zai/glm-4.7");
   });
 });

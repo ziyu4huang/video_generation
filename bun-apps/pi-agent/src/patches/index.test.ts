@@ -71,6 +71,7 @@ describe("PATCH_TABLE", () => {
         "editor-history-restore",
         "ensure-extension-deps",
         "ensure-model-tiers",
+        "ensure-models-store",
         "ext-api-get-all-tool-definitions",
         "ext-context-get-system-prompt-options",
         "extract-embedded-assets",
