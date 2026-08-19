@@ -46,6 +46,14 @@ const FACADE_SYMBOLS: Record<string, string> = {
   resolveModelRole: "pi-agent-ext-file2md/src/sessions.ts",
   logModelDecision: "pi-agent-ext-file2md/src/sessions.ts",
   saveModelTierConfig: "pi-agent-ext-file2md/__tests__/resolve-vision-llm.test.ts",
+  // Dispatch MOVED to core-runtime (2026-08-20) — it used to be owned here, and
+  // hermes-memory/task importing it made an ext→ext runtime edge that the sh
+  // deploy papered over with a host-module entry. hermes-memory and task now
+  // declare core-runtime and import it directly; these three rows are the peers
+  // that still legitimately reach it through this barrel (neither package
+  // declares core-runtime, and neither ships in the portable base set).
+  spawnSubagent: "pi-agent-ext-knowledge-card/extensions/knowledge-card.ts",
+  roleAwareDirectCall: "pi-agent-ext-knowledge-card/extensions/knowledge-card.ts",
   // The cross-package module-identity guard asserts the package-root path and the
   // core-runtime path land on ONE limiter instance; it needs both spellings.
   getGlobalRateLimiter: "pi-agent-ext-subagent/tests/rate-limiter-cross-pkg.test.ts",
@@ -57,7 +65,15 @@ const FACADE_SYMBOLS: Record<string, string> = {
  * `SpawnSubagentResult.usage: AgentUsage`). Type-only, so they carry no runtime
  * identity concern, but they are still interface surface and still bounded.
  */
-const FACADE_TYPES = new Set(["AgentHistoryEntry", "AgentUsage"]);
+const FACADE_TYPES = new Set([
+  "AgentHistoryEntry",
+  "AgentUsage",
+  // Moved to core-runtime with spawnSubagent; obsidian and knowledge-card still
+  // name them in their own signatures and reach them through this barrel.
+  "SpawnSubagentOptions",
+  "SpawnSubagentResult",
+  "SubagentFailure",
+]);
 
 /** Names this barrel re-exports from core-runtime, split by value vs type-only. */
 function coreReExports(source: string): { values: Set<string>; types: Set<string> } {

@@ -61,8 +61,9 @@ Host modules (`src/sh/host-modules.ts`, `HOST_MODULE_IDS`):
 - `@earendil-works/pi-coding-agent`
 - `@earendil-works/pi-tui`
 - `typebox`, `typebox/value`
-- `@repo/pi-agent-core-runtime` — holds cross-extension singletons (`SubagentInFlightRegistry`);
-  inlining it per-extension would split the singleton
+- `@repo/pi-agent-core-runtime` — holds cross-extension singletons (`SubagentInFlightRegistry`)
+  AND the shared dispatch layer (`spawnSubagent`, `roleAwareDirectCall`, the agent-history trace
+  renderers); inlining it per-extension would split the singleton
 
 Node/Bun builtins are also served by the injected require. That is required, not a convenience: a
 minified bundle calls `require("module")` / `require("child_process")` for its own interop shims
@@ -73,8 +74,18 @@ even when the extension source never mentions them.
 two disagree, because a config that promises a module the core does not embed produces extensions
 that silently refuse to load.
 
-`hostApi` (currently `1`) is the contract version. Every `ext.json` records the version it was built
+`hostApi` (currently `2`) is the contract version. Every `ext.json` records the version it was built
 against; a mismatch skips that extension with a warning instead of half-loading it.
+
+**2 removed `@repo/pi-agent-ext-subagent` from the host registry.** It had been served because
+hermes-memory's background handlers imported `spawnSubagent` / `roleAwareDirectCall` from it — one
+extension importing another, resolved by promoting the whole package into the core. Serving an
+extension as a library is the shape to avoid: it makes that extension un-removable while looking
+like an ordinary entry in `ext/`. The dispatch layer moved to `@repo/pi-agent-core-runtime` (already
+a host module, and where the in-flight registry always lived), so subagent is a plain removable
+extension again. `bun-apps/tests/extension-isolation-contract.test.ts` (import statements) and
+`dep-guard.test.ts` invariant 7 (package.json declarations) now block the regression from both
+sides, over the base set derived from this file.
 
 ## Adding an extension
 
@@ -126,6 +137,29 @@ in esbuild's lazy `__esm({...})` sections that the default CDP path never enters
 
 `ext.json` records these under `runtimeExternals`, deliberately separate from `hostModules` — one
 says the core supplies it, the other says only that it was not bundled.
+
+## Removing / disabling an extension
+
+Three levers, cheapest first — none of them touches the core:
+
+| Lever | Scope | How |
+|---|---|---|
+| `BUN_PI_<NAME>=0` | one session | `BUN_PI_HERMES_MEMORY=0 run.sh` — the factory returns before registering anything |
+| `enabled: false` in `ext/<name>/ext.json` | one deploy | the loader reports it under `skipped` with that reason |
+| `rm -rf ext/<name>` | one deploy | the loader never sees it; `--ext-list` shows the smaller set |
+
+`<NAME>` is the short name upper-cased with `-` → `_` (`hermes-memory` → `BUN_PI_HERMES_MEMORY`).
+Every base-set extension has one, and
+`bun-apps/tests/extension-isolation-contract.test.ts` asserts it registers NOTHING when set —
+a knob that silently stopped working is the failure mode this guards. The one exemption is
+`hyperframes`, whose factory is a deliberate no-op (its payload is the skills tree, removed by
+dropping the `skills:` entry); the guard asserts that exemption is true rather than trusting it.
+
+`-ne` / `--no-extensions` disables ALL of them at once, and is what gate 3 uses.
+
+Removing an extension is safe because no extension imports another: cross-extension coupling goes
+through the Pi extension API, a `pi-agent-core-*` package, or a defensively-read `globalThis.__pi*`
+seam. The two guards named under "The host contract" above hold that line.
 
 ## The four gates
 
@@ -188,17 +222,18 @@ extension came from the repo's run-dir.
   stale on measurement: hermes-memory's sqlite is `bun:sqlite` (a builtin the host require serves),
   webui's HTML shell is a single inline string constant (no static assets), and the superpowers
   skills tree copies through the same path hyperframes already shipped.
-- **Excluded, with reasons**: `obsidian` (cross-extension imports of the subagent registry AND
-  `@earendil-works/pi-agent-core` — revisit after the subagent-lib host module settles),
+- **Excluded, with reasons**: `obsidian` (cross-extension imports of the subagent package's OWN
+  surface — `getSubagentRunPersistence` / `spawnSubagentSubprocess`, which stayed there when the
+  dispatch layer moved to core-runtime — AND `@earendil-works/pi-agent-core`),
   `knowledge-card` (imports obsidian's extension entry directly — dependency cascade),
   `file2md` (mupdf native/wasm + a hard LM Studio localhost dependency — not portable), the
   director/MCP wrappers (`movie-director`, `flux2`, `krea2`, `ltx`, `zai-mcp`, `research-tool`,
   `archify` — bound to this machine's swift CLIs and services), and repo-internal tooling
   (`devops`, `tool-gate`). All stay available through the legacy source/run-dir modes.
-- **Host modules grew by three**: `@earendil-works/pi-ai` (+`/compat`) — already compiled in via
-  pi-coding-agent, served for identity stability; `@repo/pi-agent-ext-subagent` — the package is
-  both an extension and a shared runtime library whose in-flight registry is an
-  identity-sensitive singleton. HOST_API stays 1 (additive registry, not a loader-contract break).
+- **Host modules**: `@earendil-works/pi-ai` (+`/compat`) — already compiled in via pi-coding-agent,
+  served for identity stability. `@repo/pi-agent-ext-subagent` was served for a while and is GONE
+  as of HOST_API 2 — see "The host contract" above for why an extension must never be a host
+  module.
 - **Locating bundled assets at runtime**: bun's cjs output folds `import.meta.url` into a
   build-machine path literal, REBINDS `__dirname`/`__filename` the same way, and an unfolded
   `import.meta` is a SyntaxError inside the loader's indirect cjs eval — so extensions resolve

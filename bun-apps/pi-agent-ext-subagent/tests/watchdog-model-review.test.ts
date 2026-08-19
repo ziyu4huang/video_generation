@@ -1,7 +1,6 @@
 import * as assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { ModelTierConfig } from "@repo/pi-agent-core-runtime";
-import type { SpawnSubagentResult } from "../src/spawn-subagent.js";
+import type { ModelTierConfig, SpawnSubagentResult } from "@repo/pi-agent-core-runtime";
 import { runModelReview } from "../src/watchdog/model-review.js";
 
 /**

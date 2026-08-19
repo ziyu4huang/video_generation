@@ -1,8 +1,7 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { AgentHistoryEntry } from "@repo/pi-agent-core-runtime";
+import type { AgentHistoryEntry, SubagentFailure } from "@repo/pi-agent-core-runtime";
 import type { GitScopeOps, SubagentScopeCheck } from "../src/git-scope.js";
-import type { SubagentFailure } from "../src/spawn-subagent.js";
 import {
   abortSafetyFooter,
   abortSafetyLogPath,

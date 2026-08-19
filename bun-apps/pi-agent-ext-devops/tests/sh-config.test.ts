@@ -9,7 +9,7 @@ const BUN_APPS = join(import.meta.dir, "..", "..");
 
 const MINIMAL = `
 outRoot: ~/proj/dist/pi-agent-sh
-hostApi: 1
+hostApi: 2
 hostModules: ["typebox"]
 extensions:
   - name: power-tool
@@ -21,7 +21,7 @@ describe("parseShConfig", () => {
 	test("parses a minimal config and expands ~", () => {
 		const cfg = parseShConfig(MINIMAL, { bunAppsDir: BUN_APPS });
 		expect(cfg.outRoot).toBe(join(homedir(), "proj/dist/pi-agent-sh"));
-		expect(cfg.hostApi).toBe(1);
+		expect(cfg.hostApi).toBe(2);
 		expect(cfg.extensions).toHaveLength(1);
 	});
 
@@ -82,7 +82,7 @@ describe("parseShConfig", () => {
 
 	test("rejects an empty extensions list", () => {
 		expect(() =>
-			parseShConfig(`outRoot: /tmp/x\nhostApi: 1\nhostModules: ["typebox"]\nextensions: []\n`, {
+			parseShConfig(`outRoot: /tmp/x\nhostApi: 2\nhostModules: ["typebox"]\nextensions: []\n`, {
 				bunAppsDir: BUN_APPS,
 			}),
 		).toThrow(/at least one extension/);
@@ -116,7 +116,7 @@ describe("parseShConfig", () => {
 describe("copy", () => {
 	const base = (extra: string) => `
 outRoot: /tmp/out
-hostApi: 1
+hostApi: 2
 hostModules: ["@earendil-works/pi-coding-agent"]
 extensions:
   - name: wayfind
@@ -151,7 +151,7 @@ ${extra}
 describe("vendor", () => {
 	const base = (extra: string) => `
 outRoot: /tmp/out
-hostApi: 1
+hostApi: 2
 hostModules: ["@earendil-works/pi-coding-agent"]
 extensions:
   - name: power-tool

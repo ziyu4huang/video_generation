@@ -17,6 +17,14 @@
  *     NOTHING from the TIER-1 hub (knowledge-card) — edges point down only.
  *  5. No extension imports the host (pi-agent) — the host is above all exts.
  *  6. The declared @repo dependency graph is acyclic.
+ *  7. No extension in the PORTABLE BASE SET (deploy-config.yaml) declares a
+ *     RUNTIME dependency on another extension. Complements
+ *     extension-isolation-contract.test.ts invariant (1): that one scans import
+ *     statements, this one scans declarations, so a package.json edge added
+ *     ahead of the import is caught at the moment it is declared. Scoped to
+ *     non-dev fields on purpose — a test-only devDependency between two
+ *     extensions (ext-task's ctrl-b notify test) is legitimate; a runtime edge
+ *     between two independently-removable extensions is not.
  *
  * Run: bun run test:deps   (from bun-apps/)
  */
@@ -162,6 +170,40 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 	it("no extension imports the host (pi-agent) — the host sits above all extensions", () => {
 		const violations = EXTS.filter((pkg) => edges(pkg).has("pi-agent"));
 		assert.deepEqual(violations, [], `extensions importing the host: ${violations.join(", ")}`);
+	});
+
+	it("no PORTABLE BASE SET extension declares a runtime dependency on another extension", () => {
+		// Base set is DERIVED from deploy-config.yaml, so promoting an extension
+		// into the portable profile enrolls it here automatically. The floor guard
+		// is what keeps a silent parse failure from making this vacuous.
+		const yamlText = readFileSync(join(ROOT, "pi-agent", "deploy-config.yaml"), "utf8");
+		const baseSet: string[] = [];
+		let inExtensions = false;
+		for (const raw of yamlText.split("\n")) {
+			if (/^extensions:\s*$/.test(raw)) {
+				inExtensions = true;
+				continue;
+			}
+			if (inExtensions && /^\S/.test(raw)) break;
+			if (!inExtensions) continue;
+			const m = /^\s*-\s*name:\s*(\S+)\s*$/.exec(raw);
+			if (m) baseSet.push(`pi-agent-ext-${m[1]}`);
+		}
+		assert.ok(baseSet.length >= 10, `parsed only ${baseSet.length} base-set name(s) from deploy-config.yaml`);
+
+		const violations: string[] = [];
+		for (const pkg of baseSet) {
+			const d = JSON.parse(readFileSync(join(ROOT, pkg, "package.json"), "utf8"));
+			for (const field of ["dependencies", "peerDependencies", "optionalDependencies"]) {
+				for (const n of Object.keys(d[field] ?? {})) {
+					const target = n.replace("@repo/", "");
+					if (n.startsWith("@repo/") && baseSet.includes(target) && target !== pkg) {
+						violations.push(`  ${pkg} → ${target} (${field}; forbidden — route it through a pi-agent-core-* package or a seam)`);
+					}
+				}
+			}
+		}
+		assert.deepEqual(violations, [], violations.length ? "base-set runtime edges:\n" + violations.join("\n") : "");
 	});
 
 	it("the declared @repo dependency graph is acyclic", () => {

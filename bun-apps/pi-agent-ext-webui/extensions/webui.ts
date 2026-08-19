@@ -20,6 +20,14 @@ import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { wireWebui, type WebuiHost } from "../src/webui-wiring.js";
 
 const extension: ExtensionFactory = (pi) => {
+  // Self-gate: BUN_PI_WEBUI=0 disables the entire extension — it registers
+  // nothing and publishes no seam. Mirrors prompt-history's
+  // BUN_PI_PROMPT_HISTORY=0 so every extension in the portable base set
+  // (deploy-config.yaml) shares one symmetric full-disable knob; enforced by
+  // tests/extension-isolation-contract.test.ts. Safe: every cross-extension
+  // consumer reads its seam defensively, so disabling degrades features,
+  // never crashes.
+  if (process.env.BUN_PI_WEBUI === "0") return;
   wireWebui(pi as unknown as WebuiHost);
 };
 

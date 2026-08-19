@@ -24,20 +24,24 @@ import * as coreRuntime from "@repo/pi-agent-core-runtime";
 // and the streaming helpers identity-stable against the host's session.
 import * as piAi from "@earendil-works/pi-ai";
 import * as piAiCompat from "@earendil-works/pi-ai/compat";
-// The subagent package is BOTH an extension (its factory registers tools) and a
-// shared runtime library: hermes-memory handlers import spawnSubagent /
-// roleAwareDirectCall, and the in-flight registry is an identity-sensitive
-// singleton — each sh extension is a separate cjs bundle, so letting consumers
-// bundle their own copy would split the registry (same reasoning as core-runtime).
-import * as subagentLib from "@repo/pi-agent-ext-subagent";
 
 /**
  * The host↔extension contract version. Bump ONLY on a breaking change to the
  * loader contract (ext.json shape, require semantics, factory shape). Every
  * ext.json declares the version it was built against; a mismatch skips that
  * extension instead of half-loading it.
+ *
+ * 2 (2026-08-20): `@repo/pi-agent-ext-subagent` was REMOVED from the registry.
+ * It had been served because hermes-memory's background handlers imported
+ * `spawnSubagent` / `roleAwareDirectCall` from it — an extension importing
+ * another extension, resolved by promoting the whole package into the core.
+ * Those symbols now live in `@repo/pi-agent-core-runtime` (already a host
+ * module, and where the in-flight registry always lived), so subagent is a
+ * plain removable extension again. REMOVING a served module is a breaking
+ * change for any bundle built against 1: it would resolve the specifier at
+ * load and be skipped with a clear reason instead of half-loading.
  */
-export const HOST_API = 1;
+export const HOST_API = 2;
 
 const REGISTRY: Readonly<Record<string, unknown>> = Object.freeze({
 	"@earendil-works/pi-coding-agent": piCodingAgent,
@@ -47,7 +51,6 @@ const REGISTRY: Readonly<Record<string, unknown>> = Object.freeze({
 	"@repo/pi-agent-core-runtime": coreRuntime,
 	"@earendil-works/pi-ai": piAi,
 	"@earendil-works/pi-ai/compat": piAiCompat,
-	"@repo/pi-agent-ext-subagent": subagentLib,
 });
 
 /** Specifiers an extension may require. Also the `--external` set at build time. */

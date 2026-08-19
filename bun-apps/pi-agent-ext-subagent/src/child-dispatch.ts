@@ -24,9 +24,14 @@
  * rendered and persisted. This module owns the run, not the request.
  */
 
-import type { AgentHistoryEntry, AgentUsage, SubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
+import type {
+  AgentHistoryEntry,
+  AgentUsage,
+  SpawnSubagentOptions,
+  SpawnSubagentResult,
+  SubagentInFlightRegistry,
+} from "@repo/pi-agent-core-runtime";
 import { computeScopeCheck, type GitScopeOps, realGitOps, type SubagentScopeCheck } from "./git-scope.js";
-import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
 import type { SubagentToolDetails } from "./subagent-tool-schema.js";
 
 /** One child dispatch. The caller supplies a fully-built request; this module runs it. */

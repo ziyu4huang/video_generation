@@ -13,8 +13,8 @@
  */
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { roleAwareDirectCall, spawnSubagent } from "@repo/pi-agent-ext-subagent";
-import type { SpawnSubagentResult } from "@repo/pi-agent-ext-subagent";
+import { roleAwareDirectCall, spawnSubagent } from "@repo/pi-agent-core-runtime";
+import type { SpawnSubagentResult } from "@repo/pi-agent-core-runtime";
 import type { TSchema } from "typebox";
 import { MemoryStore } from "../store/memory-store.js";
 import { mergePlanSchema, mergePlanValidate } from "../store/merge-plan.js";

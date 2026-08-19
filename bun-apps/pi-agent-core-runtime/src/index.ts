@@ -32,7 +32,6 @@ export {
 
 export type { AgentHistoryEntry, AgentHistoryKind, AgentHistoryOptions, AgentHistoryRole } from "./agent-history.js";
 export { compactAgentHistory, summarizeLatestAction } from "./agent-history.js";
-
 export type { FallbackDecision } from "./agent-model.js";
 export {
   clampModelToScope,
@@ -40,7 +39,6 @@ export {
   resolveFallbackModel,
   resolveScopedAgentModelSpec,
 } from "./agent-model.js";
-
 export type { AgentDefinition, AgentRegistry } from "./agent-registry.js";
 export {
   agentDefinitionKey,
@@ -50,7 +48,6 @@ export {
   parseAgentDefinition,
   resolveAgentType,
 } from "./agent-registry.js";
-
 export type { ActivityRow, ActivityStatus, ThemeLike } from "./agent-row-display.js";
 export {
   activityGlyph,
@@ -67,6 +64,15 @@ export {
   shorten,
   shortModel,
 } from "./agent-row-display.js";
+export {
+  capTraceTail,
+  formatHistoryLine,
+  formatSubagentLive,
+  formatSubagentProgress,
+  formatSubagentTrace,
+  latestMessageLine,
+  STREAMING_EXPANDED_TAIL,
+} from "./agent-trace-display.js";
 
 export type { TurnExhaustion, TurnGuard, TurnSessionSurface } from "./agent-turns.js";
 export {
@@ -77,7 +83,12 @@ export {
 } from "./agent-turns.js";
 
 export { listAvailableModelSpecs } from "./available-models.js";
+export type { DispatchRole } from "./budget-defaults.js";
+export { ROLE_AWARE_DISPATCH_BOUNDS, roleAwareDefaults, tierDefaultToken } from "./budget-defaults.js";
+
 export { AGENTS_DIR, DEFAULT_BATCH_CONCURRENCY, MAX_BATCH_TASKS, MAX_CONCURRENCY, MODEL_TIERS_FILE } from "./config.js";
+
+export { appendEnvHints, ENV_HINTS_MARKER } from "./env-hints.js";
 export {
   classifyProviderLimit,
   isAbortError,
@@ -110,11 +121,20 @@ export {
   setRateLimitCapResolver,
 } from "./rate-limiter.js";
 export { capWidth, ellipsizeMidToWidth, ellipsizeToWidth } from "./render-width.js";
+export type { DispatchBudgetCohort } from "./role-dispatch.js";
+export {
+  abortSafetyFooter,
+  abortSafetyLogPath,
+  hasWriteTools,
+  roleAwareDirectCall,
+  shouldInjectFooter,
+} from "./role-dispatch.js";
 export type { RunView } from "./run-view.js";
 export { buildRunView, isTerminalStatus } from "./run-view.js";
-
 export type { SddReport, SddReportStatus } from "./sdd-report.js";
 export { isSddReportActionable, parseSddReport, SDD_REPORT_STATUSES } from "./sdd-report.js";
+export type { SpawnSubagentOptions, SpawnSubagentResult, SubagentFailure } from "./spawn-subagent.js";
+export { deriveTaskLabel, resolveSessionOverride, spawnSubagent } from "./spawn-subagent.js";
 
 export type { StructuredOutputCapture, StructuredOutputToolOptions, StructuredSession } from "./structured-output.js";
 export { createStructuredOutputTool, extractValidated, resolveStructuredOutput } from "./structured-output.js";

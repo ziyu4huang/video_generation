@@ -24,7 +24,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { renderRunRow } from "@repo/pi-agent-core-runtime";
 import type { RunView } from "@repo/pi-agent-core-runtime";
-import { capTraceTail, formatSubagentTrace, latestMessageLine, STREAMING_EXPANDED_TAIL } from "@repo/pi-agent-ext-subagent";
+import { capTraceTail, formatSubagentTrace, latestMessageLine, STREAMING_EXPANDED_TAIL } from "@repo/pi-agent-core-runtime";
 import type { StatusSection } from "../shared/status-widget.js";
 import type { DockRenderState } from "./dock.js";
 import { SubagentNotify } from "./notify.js";
