@@ -12,6 +12,7 @@
     "test:deps": "bun test tests/dep-guard.test.ts",
     "test:adr": "bun test tests/adr-citation.test.ts",
     "test:skills-ref": "bun test tests/skill-reference.test.ts",
+    "test:dead-export": "bun test tests/dead-export.test.ts",
     "test:seam": "bun test tests/seam-contract.test.ts",
     "test:routing": "bun test tests/routing-contract.test.ts",
     "test:config-parity": "bun test tests/config-parity.test.ts",

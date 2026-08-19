@@ -35,10 +35,3 @@ export function getSessionId(ctx: AnyContext): string {
 export function isGrillActive(state: RuntimeState, sessionId: string): boolean {
   return state.activeGrillBySession.has(sessionId);
 }
-
-/** Clear all state for a session (called on session_shutdown). */
-export function clearSession(state: RuntimeState, sessionId: string): void {
-  state.activeGrillBySession.delete(sessionId);
-  state.activeEffortBySession.delete(sessionId);
-  state.grillWithDocsBySession.delete(sessionId);
-}

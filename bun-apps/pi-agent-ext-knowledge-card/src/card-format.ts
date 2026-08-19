@@ -139,15 +139,6 @@ export function buildMocContent(cardsAbs: string[]): string {
 	return lines.join("\n");
 }
 
-/** Plain card reader — readFileSync + parseFrontmatter, no validation, no
- *  defaults (the plain pattern other sites inline). Callers own error
- *  handling. */
-export function readCard(absPath: string) {
-	const content = readFileSync(absPath, "utf8");
-	const { data } = parseFrontmatter(content);
-	return { data, content };
-}
-
 /** Slugify a record id into a filename-safe basename (keeps the namespace
  *  prefix legible: "ltx:cfg-scale-7-lever" -> "ltx-cfg-scale-7-lever"). */
 export function slugify(id: string): string {
@@ -164,4 +155,3 @@ export function slugify(id: string): string {
 export function normTag(t: string): string {
 	return t.trim().toLowerCase().replace(/\s+/g, "-");
 }
-

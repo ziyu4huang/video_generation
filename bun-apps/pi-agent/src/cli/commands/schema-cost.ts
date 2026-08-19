@@ -239,12 +239,12 @@ export async function buildSchemaCostReport(
 
 // --- formatting (delegated to schema-cost submodule) -----------------------
 
-/** @deprecated delegate — use `formatReport` from `@repo/pi-agent-ext-power-tool/schema-cost` directly. */
+/**
+ * Disambiguated re-exports of the power-tool formatters. NOT deprecated
+ * scaffolding — `tools-metrics.ts` declares its own `formatReport` /
+ * `formatJson` over a different type (`MetricsReport`), so it imports the
+ * schema-cost pair under these names. Importing the bare names there is a
+ * silent type collision, not a cleanup.
+ */
 export const formatSchemaCostReport = _formatReport;
-/** @deprecated delegate — use `formatJson` from `@repo/pi-agent-ext-power-tool/schema-cost` directly. */
 export const formatSchemaCostJson = _formatJson;
-
-/** Human-readable relative path for a discovered entry (for --verbose). */
-export function describeEntries(entries: { source: string; path: string }[], cwd: string): string[] {
-	return entries.map((e) => `  ${e.source.padEnd(16)} ${relative(cwd, e.path)}`);
-}

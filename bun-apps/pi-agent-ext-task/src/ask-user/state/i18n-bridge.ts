@@ -31,8 +31,6 @@ import { DICTIONARIES, SUPPORTED_I18N_LOCALES } from "./i18n-dictionaries.js";
 import { ROW_INTENT_META, type SentinelKind } from "./row-intent.js";
 import { getLanguageKey, readSettingsFile } from "../../response-language/settings.js";
 
-export const I18N_NAMESPACE = "@juicesharp/rpiv-ask-user-question";
-
 /** Lookup function: a key plus a variable tail (legacy fallback OR format args). */
 export type ScopeFn = (key: string, ...rest: unknown[]) => string;
 

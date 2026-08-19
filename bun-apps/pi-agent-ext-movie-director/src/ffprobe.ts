@@ -16,9 +16,6 @@
  */
 import { runSpawn, type SpawnImpl } from "./spawn.ts";
 
-/** @deprecated kept as an alias — use `SpawnImpl` from `./spawn.ts` directly. */
-export type FfprobeSpawn = SpawnImpl;
-
 export interface ProbeResult {
   duration: number;
   format?: string;
@@ -44,7 +41,7 @@ export function parseFps(frac: string): number | undefined {
  * (never throws — the same contract the compose tiers already rely on).
  * `run` defaults to the real child_process spawn.
  */
-export async function probeMedia(path: string, run?: FfprobeSpawn): Promise<ProbeResult> {
+export async function probeMedia(path: string, run?: SpawnImpl): Promise<ProbeResult> {
   const spawnImpl = run ?? runSpawn;
   const r = await spawnImpl("ffprobe", ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", path]);
   if (r.code !== 0) return { duration: 0 };
@@ -71,7 +68,7 @@ export async function probeMedia(path: string, run?: FfprobeSpawn): Promise<Prob
  * audio-mix pass use (they only need the seconds). `run` defaults to the real
  * child_process spawn. Returns 0 on any failure (never throws).
  */
-export async function probeDuration(path: string, run?: FfprobeSpawn): Promise<number> {
+export async function probeDuration(path: string, run?: SpawnImpl): Promise<number> {
   const spawnImpl = run ?? runSpawn;
   const r = await spawnImpl("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", path]);
   const n = Number((r.stdout ?? "").trim());

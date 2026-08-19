@@ -169,16 +169,6 @@ function summarizeToolResult(value: unknown, maxLength = 400): { content: string
 
 // ─── Turn tracking ──────────────────────────────────────────────────────────
 
-export function removeTranscriptTurn(state: BtwTranscriptState, turnId: number | null): void {
-  if (turnId == null) return;
-  state.entries = state.entries.filter((e) => e.turnId !== turnId);
-  for (const [toolCallId, toolCall] of state.toolCalls.entries()) {
-    if (toolCall.turnId === turnId) state.toolCalls.delete(toolCallId);
-  }
-  if (state.currentTurnId === turnId) state.currentTurnId = null;
-  if (state.lastTurnId === turnId) state.lastTurnId = null;
-}
-
 // ─── Event-driven transcript construction ────────────────────────────────────
 
 function applyAssistantMessageToTranscript(
@@ -341,18 +331,3 @@ export function setTranscriptFailure(state: BtwTranscriptState, message: string)
 }
 
 // ─── Transcript queries ─────────────────────────────────────────────────────
-
-export function hasStreamingTranscriptEntry(entries: BtwTranscript): boolean {
-  return entries.some(
-    (e) => (e.type === "thinking" || e.type === "assistant-text" || e.type === "tool-result") &&
-      (e as { streaming: boolean }).streaming,
-  );
-}
-
-export function getCompletedExchangeCount(entries: BtwTranscript): number {
-  return entries.filter((e) => e.type === "assistant-text" && !(e as { streaming: boolean }).streaming).length;
-}
-
-export function getLastAssistantMessage(state: BtwTranscriptState): AssistantMessage | null {
-  return null; // Lookup happens via the session, not transcript
-}

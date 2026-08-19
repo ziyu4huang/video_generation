@@ -75,5 +75,3 @@ export function selectOverlayLayout(state: TaskState, budget: number): OverlayLa
 export function selectHasActive(state: TaskState): boolean {
 	return selectVisibleTasks(state).some((t) => t.status === "in_progress" || t.status === "pending");
 }
-
-export const ACTIVE_STATUSES: ReadonlySet<TaskStatus> = new Set(["pending", "in_progress"]);

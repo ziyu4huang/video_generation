@@ -338,10 +338,6 @@ export async function hyperframesAvailable(): Promise<boolean> {
   availableCached = bin !== null; // unlike remotion, the bunx fallback IS the vendor's supported invocation path
   return availableCached;
 }
-export function _setHyperframesAvailableForTest(v: boolean | undefined): void {
-  availableCached = v;
-}
-
 // ─── render ────────────────────────────────────────────────────────────────
 
 /**

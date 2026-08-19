@@ -642,13 +642,3 @@ export function stderrTail(res: InvokeResult, n = 12): string {
   const src = (res.stderr || res.output || "").trim();
   return src.split("\n").slice(-n).join("\n");
 }
-
-// Kept referenced for future output-size enrichment (mirrors flux2's outputs[].sizeBytes).
-export function fileSizeOrNull(path: string | null): number | null {
-  if (!path || !existsSync(path)) return null;
-  try {
-    return statSync(path).size;
-  } catch {
-    return null;
-  }
-}
