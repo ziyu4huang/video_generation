@@ -5,6 +5,7 @@
  *   pi-agent      minimal compiled core (zero extensions inside)
  *   run.sh        thin launcher
  *   deploy.json   provenance
+ *   package.json  deploy version — pi reads its version from next to the exe
  *   ext/<name>/   independently built extension packages
  *
  * Everything is staged in <outRoot>/.staging-<version> and only renamed into
@@ -279,6 +280,12 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 
 		writeFileSync(join(stage, "run.sh"), RUN_SH);
 		chmodSync(join(stage, "run.sh"), 0o755);
+		// pi resolves its version from <packageDir>/package.json, and in
+		// compiled-binary mode packageDir = dirname(execPath) = this version
+		// dir. Without this file VERSION falls back to "0.0.0" and the startup
+		// banner reads "pi v0.0.0". Minimal file: no name/piConfig keys, so
+		// PACKAGE_NAME / APP_NAME / CONFIG_DIR_NAME keep their defaults.
+		writeFileSync(join(stage, "package.json"), `${JSON.stringify({ version }, null, 2)}\n`);
 		writeFileSync(
 			join(stage, "deploy.json"),
 			`${JSON.stringify({ version, builtAt, sourceSha, bunVersion: Bun.version, configPath, config: cfg }, null, 2)}\n`,

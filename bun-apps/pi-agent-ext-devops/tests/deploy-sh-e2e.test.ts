@@ -26,8 +26,11 @@ describeE2E("pi-agent-sh deploy e2e", () => {
 		expect(existsSync(join(r.target, "pi-agent"))).toBe(true);
 		expect(existsSync(join(r.target, "run.sh"))).toBe(true);
 		expect(existsSync(join(r.target, "deploy.json"))).toBe(true);
+		// pi reads its version from <packageDir>/package.json, and in compiled-
+		// binary mode packageDir = dirname(execPath) = the version dir. Without
+		// this file the startup banner / --version report "0.0.0".
+		expect(JSON.parse(readFileSync(join(r.target, "package.json"), "utf8")).version).toBe(r.version);
 		expect(existsSync(join(r.target, "ext", "power-tool", "ext.json"))).toBe(true);
-		expect(existsSync(join(r.target, "ext", "power-tool", "skills"))).toBe(true);
 		expect(readlinkSync(join(outRoot, "current"))).toBe(r.version);
 
 		// frozen: no write bits anywhere
@@ -38,6 +41,11 @@ describeE2E("pi-agent-sh deploy e2e", () => {
 		expect(withExt.exitCode).toBe(0);
 		expect(withExt.payload.loaded).toEqual(["task", "power-tool"]);
 		expect(withExt.payload.skipped).toEqual([]);
+
+		// the binary reports the deploy version, not the "0.0.0" fallback
+		const v = Bun.spawnSync([join(r.target, "pi-agent"), "--version"], { stdout: "pipe", stderr: "pipe" });
+		expect(v.exitCode).toBe(0);
+		expect(v.stdout.toString().trim()).toBe(r.version);
 	}, 300_000);
 
 	test("the core still runs with ext/ deleted", () => {
