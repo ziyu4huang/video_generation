@@ -83,6 +83,6 @@ _Avoid_: "container" (it is a git worktree, not an OS container).
 
 ## Ownership boundary (why this package exists)
 
-This package owns: the `subagent` + `subagent_runs` TOOLS, the `WorkflowAgent` runner, `spawnSubagent`, the singletons, agent-registry, model-tier, worktree, errors, history helpers, the SDD-report parser, **and (since PR #821 / [ADR-0002](docs/adr/0002-relocate-viewer-command-to-subagent.md)) the `/subagents` interactive TUI viewer + slash command + the progress widget**, plus the shared agent-row render helpers (`src/agent-row-display.ts`).
+This package owns: the `subagent` + `subagent_runs` TOOLS, the `WorkflowAgent` runner, `spawnSubagent`, the singletons, agent-registry, model-tier, worktree, errors, history helpers, the SDD-report parser, **and (since PR #821 / [ADR-0002](docs/adr/0002-relocate-viewer-command-to-subagent.md)) the `/subagents` interactive TUI viewer + slash command + the progress widget**. The shared agent-row render helpers moved OUT in #1251 — they now live in `@repo/pi-agent-core-runtime` (`src/agent-row-display.ts`) and this package imports them.
 
 It does NOT own: the `workflow`/`workflow_control`/`workflow_help` tools or the workflow orchestration engine (those live in `pi-agent-ext-workflow`). The viewer/command originally stayed in workflow ([ADR-0001](docs/adr/0001-why-extracted.md)) due to a `display.ts ⟹ workflow.ts` cycle; #821 broke that cycle by extracting the generic render helpers into this package's `agent-row-display.ts`, so the viewer now imports only local code.
