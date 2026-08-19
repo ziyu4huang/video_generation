@@ -36,8 +36,9 @@
 # and spawned a directory as a binary. That guard is now an is-executable-file
 # check, and this order means the situation does not arise in the first place.
 #
-# SIDE EFFECT: deploy.ts always targets <repo>/dist/pi-agent and deletes it
-# first — there is no out-dir flag. dist/ is gitignored build output and a
+# SIDE EFFECT: this script's deploys target <repo>/dist/pi-agent (deploy.ts's
+# default; it also accepts an out-dir positional, unused here) and delete it
+# first. dist/ is gitignored build output and a
 # freshly rebuilt one beats a stale one, so this is accepted rather than worked
 # around. --no-freeze keeps the tree writable afterwards (the default --exe
 # deploy chmods it a-w), and both boot smokes run against a throwaway

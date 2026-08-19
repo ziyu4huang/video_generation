@@ -184,8 +184,10 @@ tree, or an unexpected ahead+behind / far-behind divergence. Run it last for a
 | Sync this repo/worktree to the latest default branch | `sync_repo` |
 | "Is `main` itself green?" (full matrix + gates, read-only) | `main_health` |
 | Classify + clean up merged local/remote branches | `sweep_branches` |
-| Build + deploy the pi-agent bundle + thin ext bundles (mirrors `scripts/deploy.ts`) | `pi_deploy` |
+| Build + deploy the pi-agent bundle + thin ext bundles (runs `pi-agent-ext-devops/scripts/deploy.ts`) | `pi_deploy` |
 | Run a pi-agent `run-test.sh` tier (quick/medium/high/readonly/full) to self-verify | `pi_verify` |
+| Deploy the versioned sh core + ext set (Pipeline B, config `deploy-config.yaml`) | `deploy:sh` — `bun run --cwd bun-apps/pi-agent deploy:sh` (CLI: `bun bun-apps/pi-agent-ext-devops/src/deploy-sh-cli.ts [--ext <name>] [--list]`) |
+| End-to-end verify a fresh bundle deploy (install → quick tier → deploy → foreign-cwd boot) | `bun bun-apps/pi-agent-ext-devops/src/verify-deploy-cli.ts` |
 
 ### `sweep_branches` — the worktree guard covers remotes too
 
@@ -235,6 +237,8 @@ guessing at launch flags. When they are absent:
   bun bun-apps/pi-agent-ext-devops/src/local-ci-cli.ts [--all]
   bun bun-apps/pi-agent-ext-devops/src/prepare-cli.ts --rebase [--force-push]
   bun bun-apps/pi-agent-ext-devops/src/verify-merge-cli.ts <pr> [--scope a,b]
+  bun bun-apps/pi-agent-ext-devops/src/deploy-sh-cli.ts [--list|--ext <name>]
+  bun bun-apps/pi-agent-ext-devops/src/verify-deploy-cli.ts          # full deploy verify
   ```
 
   They are THIN wrappers: argv in, JSON out, all logic in the recipe, and the
