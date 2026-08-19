@@ -441,23 +441,6 @@ describe("buildBundleArgvFromLayout (DEPLOY-BUNDLE mode)", () => {
 	test("empty layout → empty argv", () => {
 		expect(buildBundleArgvFromLayout({ extBundles: [], skillDirs: [], npmPaths: [] }, SELF, () => true, warnFn)).toEqual([]);
 	});
-
-	test("portable shape: ext-bundles + empty npmPaths (--portable bundles npm exts in) → no npm -e", () => {
-		// .deploy-portable → resolveRunDirArgv passes [] for npmPaths; the pure
-		// builder then emits ONLY ext-bundles + skills (npm exts are FULL-bundled).
-		const argv = buildBundleArgvFromLayout(
-			{ extBundles: ["obsidian.full.js", "pi-flux2.full.js"], skillDirs: ["pi-obsidian-skills"], npmPaths: [] },
-			SELF,
-			() => true,
-			warnFn,
-		);
-		expect(argv).toEqual([
-			"-e", join(SELF, "ext-bundles", "obsidian.full.js"),
-			"-e", join(SELF, "ext-bundles", "pi-flux2.full.js"),
-			"--skill", join(SELF, "skills", "pi-obsidian-skills"),
-		]);
-		expect(warns).toEqual([]);
-	});
 });
 
 // ─── detectRunDirMode (deploy layout detection — audit finding #1) ────────────
@@ -474,41 +457,14 @@ describe("detectRunDirMode", () => {
 		expect(detectRunDirMode(SELF, exists)).toBe("deploy-bundle");
 	});
 
-	test("deploy-package: packages/ dir + run-dir/manifest.json", () => {
-		const present = new Set([
-			join(SELF, "packages"),
-			join(SELF, "run-dir", "manifest.json"),
-		]);
-		const exists = (p: string) => present.has(p);
-		expect(detectRunDirMode(SELF, exists)).toBe("deploy-package");
-	});
-
 	test("source: no markers present", () => {
 		expect(detectRunDirMode(SELF, () => false)).toBe("source");
-	});
-
-	test("deploy-bundle takes precedence over deploy-package (mutually exclusive layouts)", () => {
-		// If both marker sets somehow exist, the deploy-bundle branch wins
-		// (mirrors resolveRunDirArgv's check order).
-		const present = new Set([
-			join(SELF, ".deploy-bundle"),
-			join(SELF, "ext-bundles"),
-			join(SELF, "packages"),
-			join(SELF, "run-dir", "manifest.json"),
-		]);
-		const exists = (p: string) => present.has(p);
-		expect(detectRunDirMode(SELF, exists)).toBe("deploy-bundle");
 	});
 
 	test("deploy-bundle requires BOTH the marker and the ext-bundles dir", () => {
 		// marker present but ext-bundles missing → not deploy-bundle
 		const markerOnly = new Set([join(SELF, ".deploy-bundle")]);
 		expect(detectRunDirMode(SELF, (p) => markerOnly.has(p))).toBe("source");
-	});
-
-	test("deploy-package requires BOTH packages/ and run-dir/manifest.json", () => {
-		const pkgsOnly = new Set([join(SELF, "packages")]);
-		expect(detectRunDirMode(SELF, (p) => pkgsOnly.has(p))).toBe("source");
 	});
 
 	test("the real module's selfDir is source mode (no deploy markers in the repo)", () => {

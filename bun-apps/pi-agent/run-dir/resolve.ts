@@ -68,20 +68,17 @@ const url = import.meta.url;
  * directory and an injected `exists`, decide which deploy layout (if any) is
  * present. Mirrors the precedence of resolveRunDirArgv's branch chain so the
  * detection is unit-testable without import.meta.url or real marker files.
- *   - "deploy-bundle"  : `.deploy-bundle` marker + `ext-bundles/` (deploy.ts default + --portable)
- *   - "deploy-package" : `packages/` + `run-dir/manifest.json` (deploy.ts --release)
+ *   - "deploy-bundle"  : `.deploy-bundle` marker + `ext-bundles/` (deploy.ts default)
  *   - "source"         : none of the above (repo source / a plain bundle with no markers)
  * Binary mode is decided separately by detectMode(url) (the $bunfs scheme), not
  * by selfDir, so it is NOT a layout mode here — resolveRunDirArgv guards on the
- * module-level `mode` first.
+ * module-level `mode` first. (Historical "deploy-package"/`--portable` variants
+ * were retired: deploy.ts writes only `.deploy-bundle`/`.deploy-readonly`.)
  */
-export type RunDirLayoutMode = "deploy-bundle" | "deploy-package" | "source";
+export type RunDirLayoutMode = "deploy-bundle" | "source";
 export function detectRunDirMode(selfDir: string, exists: (p: string) => boolean): RunDirLayoutMode {
   if (exists(join(selfDir, ".deploy-bundle")) && exists(join(selfDir, "ext-bundles"))) {
     return "deploy-bundle";
-  }
-  if (exists(join(selfDir, "packages")) && exists(join(selfDir, "run-dir", "manifest.json"))) {
-    return "deploy-package";
   }
   return "source";
 }
@@ -141,13 +138,12 @@ async function resolveRunDirArgvUnfiltered(): Promise<string[]> {
   const selfDir = dirname(fileURLToPath(url));
   const layoutMode = detectRunDirMode(selfDir, existsSync);
 
-  // DEPLOY-BUNDLE mode: the DEFAULT output of `scripts/deploy.ts` (no --release)
+  // DEPLOY-BUNDLE mode: the DEFAULT output of `scripts/deploy.ts`
   // — the bundle sits next to its own `ext-bundles/*.thin.js` (pre-bundled
   // single-file extensions) + a copied `node_modules/` + `.deploy-bundle`
   // marker. The dir listing is the source of truth (NOT manifest.extensions,
-  // which still names source .ts paths). Uses `-ne` for the same self-contained
-  // reason as DEPLOY-PACKAGE. Checked before `packages/` since the two layouts
-  // are mutually exclusive (deploy.ts emits one or the other).
+  // which still names source .ts paths). Uses `-ne` so the layout is
+  // self-contained: pi loads ONLY these -e paths and ignores any <cwd>/.pi/.
   if (layoutMode === "deploy-bundle") {
     const extBundlesDir = join(selfDir, "ext-bundles");
     if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
@@ -155,36 +151,8 @@ async function resolveRunDirArgvUnfiltered(): Promise<string[]> {
     }
     // npm exts resolve to the same baked .bun-store abs paths the THIN bundles
     // and pi-agent.js itself use (everything in this layout is machine-abs-pathed).
-    // EXCEPT in --portable: npm exts are FULL-bundled into ext-bundles (no
-    // separate -e path), and the baked abs paths would re-introduce a repo
-    // dependency, so emit none.
-    //
-    // DEAD BRANCH: nothing writes `.deploy-portable`. deploy.ts accepts only
-    // --bundle/--snapshot/--standalone/--exe (`--portable` hard-errors) and
-    // writes only `.deploy-bundle`/`.deploy-readonly`. This and the
-    // `deploy-package` mode below are leftovers from the rename that doctor.ts
-    // has now been cleaned of; removing them here also means retiring
-    // detectRunDirMode's exported "deploy-package" variant and its tests, so it
-    // is tracked as its own change. Not evidence that --portable exists.
-    const portable = existsSync(join(selfDir, ".deploy-portable"));
-    const npmPaths = portable ? [] : await resolveNpmExtensionPaths();
+    const npmPaths = await resolveNpmExtensionPaths();
     return ["-ne", ...buildBundleArgv(selfDir, npmPaths)];
-  }
-
-  // DEPLOY-PACKAGE mode: a self-contained package produced by `scripts/deploy.ts
-  // --release` — the bundle sits next to its own `packages/<pkg>/…` tree +
-  // `run-dir/manifest.json`. Resolve the manifest against packages/ (NOT the
-  // repo's bun-apps/, and NOT the build-time-baked run-dir-base.ts, which points
-  // at the repo). Uses `-ne` so the package is self-contained: pi loads ONLY
-  // these -e paths and ignores any <cwd>/.pi/ — avoiding cross-path tool-name
-  // conflicts when the package is run inside a repo that declares the same
-  // extensions from different paths.
-  if (layoutMode === "deploy-package") {
-    const packagesDir = join(selfDir, "packages");
-    if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
-      warn(`deploy-package mode — resolving manifest against ${packagesDir}`);
-    }
-    return ["-ne", ...(await buildArgv(packagesDir))];
   }
 
   // SOURCE / repo-bundle modes: additive layering (no -ne) with <cwd>/.pi/ +

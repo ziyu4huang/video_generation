@@ -4,9 +4,8 @@
 #
 # Auto-detects which layout it lives in and picks the right entry, so the SAME
 # script works in both places, from any cwd:
-#   • Deployed package: pi-agent.js + packages/ present → bun pi-agent.js
-#       (run-dir/resolve.ts deploy-package mode resolves extensions from
-#        packages/, self-contained via -ne)
+#   • Deployed bundle:  pi-agent.js present              → bun pi-agent.js
+#       (run-dir/resolve.ts deploy-bundle mode, self-contained via -ne)
 #   • Source / dev:     src/cli.ts present               → bun src/cli.ts
 #       (run-dir/resolve.ts source mode, additive with .pi/ + ~/.pi/)
 #
@@ -107,22 +106,12 @@ fi
 ENTRY=""
 MODE=""
 # Deployed layouts all ship pi-agent.js at the root. Source mode ships
-# src/cli.ts instead.
-#
-# STALE BRANCHES: the `packages/` and `.deploy-portable` arms below are dead.
-# deploy.ts accepts only --bundle/--snapshot/--standalone/--exe and writes only
-# `.deploy-bundle`/`.deploy-readonly`; no code path produces either marker (the
-# since-retired unified-deploy design doc said so explicitly). They survive a
-# rename that deploy.ts and the docs completed and the launcher did not — the
-# same drift removed from doctor.ts. Left in place only because ripping them out
-# also touches run-dir/resolve.ts's `deploy-package` layout mode (a documented
-# exported type with its own suite) and 4 tests; that is its own change.
-# Do NOT read these arms as evidence that the modes exist.
+# src/cli.ts instead. (Historical `.deploy-portable`/`packages/` layout arms
+# were retired: deploy.ts accepts only --bundle/--snapshot/--standalone/--exe
+# and writes only `.deploy-bundle`/`.deploy-readonly`.)
 if [ -f "$SCRIPT_DIR/pi-agent.js" ]; then
   ENTRY="$SCRIPT_DIR/pi-agent.js"
-  if [ -f "$SCRIPT_DIR/.deploy-portable" ]; then MODE="deployed (portable)"
-  elif [ -d "$SCRIPT_DIR/packages" ]; then MODE="deployed (release)"
-  else MODE="deployed (bundle)"; fi
+  MODE="deployed (bundle)"
 elif [ -f "$SCRIPT_DIR/src/cli.ts" ]; then
   ENTRY="$SCRIPT_DIR/src/cli.ts"
   MODE="source (dev)"
@@ -134,22 +123,6 @@ fi
 
 if [ "${PIAGENT_DEBUG:-0}" = "1" ]; then
   echo "[run.sh] mode=$MODE  entry=$ENTRY  cwd=$(pwd)" >&2
-fi
-
-# Portable deploy: pin PI_PACKAGE_DIR at the SHIPPED pi-coding-agent in
-# node_modules, so pi resolves theme/asset/template paths from here (NOT the
-# build-time-baked repo/global-store path — set-package-dir.ts bakes that, and
-# it isn't part of the deploy). pi's getPackageDir() looks for
-# <pkgDir>/dist/modes/interactive/{theme,assets} + dist/core/export-html, so the
-# pin MUST land on the package root (which holds dist/), not the deploy dir.
-# `bun install --production` materializes this package into <deploy>/node_modules,
-# so the path is stable and repo-independent on the same machine. Respects a
-# caller-set value (set-package-dir.ts uses ??=).
-#
-# DEAD: nothing writes `.deploy-portable` — `deploy.ts --portable` is not a
-# flag, it hard-errors with "unknown flag(s)". See the STALE BRANCHES note above.
-if [ -f "$SCRIPT_DIR/.deploy-portable" ]; then
-  export PI_PACKAGE_DIR="${PI_PACKAGE_DIR:-$SCRIPT_DIR/node_modules/@earendil-works/pi-coding-agent}"
 fi
 
 # Read-only deploy (the DEFAULT since deploy.ts freezes every artifact): apply

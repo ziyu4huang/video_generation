@@ -6,7 +6,7 @@
  * `PI_AGENT_E2E=1 bun test`, or directly `bun run verify`.)
  *
  * WHY THIS EXISTS
- *   run-dir/resolve.ts has three modes (source / repo-bundle / deploy-package)
+ *   run-dir/resolve.ts has multiple modes (source / repo-bundle / deploy-bundle)
  *   and cwd-coupled bugs that are INVISIBLE when you only test from inside the
  *   artifact or trust the model's `-p` reply. This codifies the method that
  *   catches them: build + deploy a fresh package, run a probe extension
@@ -96,8 +96,7 @@ export default (pi) => {
 // (pi-agent-ext-superpowers) actually loaded end-to-end, closing the gap the
 // extension-conversion goal left open (it proved extension injection, not skill
 // loading). The skill's filePath/baseDir includes "superpowers" in every layout
-// (source bun-apps/..., deploy-bundle skills/pi-superpowers-...,
-// deploy-package packages/pi-superpowers/...), so a substring check is
+// (source bun-apps/..., deploy-bundle skills/pi-superpowers-...), so a substring check is
 // layout-agnostic. Kills on [PROBE-SKILL] — still before the provider call, so
 // offline.
 const PROBE_TS_SKILL = `
