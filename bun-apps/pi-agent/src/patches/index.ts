@@ -19,6 +19,7 @@ export type PatchName =
 	| "default-model-env"
 	| "subagent-model-floor"
 	| "ensure-model-tiers"
+	| "ensure-models-store"
 	| "ensure-extension-deps"
 	| "ext-context-get-system-prompt-options"
 	| "ext-api-get-all-tool-definitions"
@@ -81,6 +82,14 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // gate, never clobbers) + best-effort (write wrapped in try/catch). Disable
   // with BUN_PI_ENSURE_MODEL_TIERS=0.
   { name: "ensure-model-tiers", env: "BUN_PI_ENSURE_MODEL_TIERS", defaultValue: true },
+  // ensure-models-store: seeds ~/.pi/agent/models-store.json (pi core's
+  // FileModelsStore — the zai/deepseek/huggingface provider catalogs the
+  // built-in default zai/glm-5.3 resolves against) from the typed
+  // DEFAULT_MODELS_STORE in src/models-store-default.ts, IF the file is
+  // absent. Never clobbers a live/refreshed catalog; pi's own refresh flow
+  // keeps working on top of the seed. Self-contained (no @earendil-works
+  // import), so no ordering dependency. Disable with BUN_PI_ENSURE_MODELS_STORE=0.
+  { name: "ensure-models-store", env: "BUN_PI_ENSURE_MODELS_STORE", defaultValue: true },
   // ensure-extension-deps runs LAST among setup patches: it materializes the
   // repo-root node_modules symlinks that let Bun native-import every extension
   // graph (so try-native succeeds and jiti never transforms — see the patch
@@ -249,6 +258,9 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         break;
       case "ensure-model-tiers":
         mod = await import("./ensure-model-tiers.ts");
+        break;
+      case "ensure-models-store":
+        mod = await import("./ensure-models-store.ts");
         break;
       case "ensure-extension-deps":
         mod = await import("./ensure-extension-deps.ts");

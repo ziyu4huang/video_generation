@@ -48,11 +48,11 @@ describe("isThinkingLevel", () => {
 });
 
 describe("resolveLLM — defaults (no opts, no env)", () => {
-  test("falls back to the hardcoded FALLBACK target (zai / glm-5.3 / medium)", () => {
+  test("falls back to the built-in default target (zai / glm-5.3 / high)", () => {
     const r = resolveLLM({});
     expect(r.provider).toBe("zai");
     expect(r.modelId).toBe("glm-5.3");
-    expect(r.thinkingLevel).toBe("medium");
+    expect(r.thinkingLevel).toBe("high");
   });
 });
 
@@ -128,7 +128,7 @@ describe("resolveLLM — --model shorthand", () => {
     const r = resolveLLM({ model: "foo/bar:notalevel" });
     expect(r.provider).toBe("foo");
     expect(r.modelId).toBe("bar:notalevel");
-    expect(r.thinkingLevel).toBe("medium"); // FALLBACK
+    expect(r.thinkingLevel).toBe("high"); // built-in default
   });
 
   test("colon with NO slash is not treated as a thinking separator", () => {
@@ -194,8 +194,8 @@ describe("resolveLLM — PI_THINKING env validation", () => {
     expect(() => resolveLLM({})).toThrow(/Invalid PI_THINKING "High"/);
   });
 
-  test("unset PI_THINKING → FALLBACK (medium), no throw", () => {
-    expect(resolveLLM({}).thinkingLevel).toBe("medium");
+  test("unset PI_THINKING → built-in default (high), no throw", () => {
+    expect(resolveLLM({}).thinkingLevel).toBe("high");
   });
 
   test("valid PI_THINKING is accepted", () => {

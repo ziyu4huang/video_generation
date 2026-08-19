@@ -119,3 +119,85 @@ describe("resolveEnvBridges — purity + injection-shape", () => {
     expect(out.length % 2).toBe(0);
   });
 });
+
+describe("resolveEnvBridges — built-in fill-gaps defaults", () => {
+  const BUILTIN = {
+    "--model": "glm-5.3",
+    "--provider": "zai",
+    "--thinking": "high",
+  };
+
+  test("no flag, no env, no personal settings → splices all three built-ins", () => {
+    expect(
+      resolveEnvBridges(["-p", "hi"], {}, BRIDGES, {
+        settings: {},
+        builtinByFlag: BUILTIN,
+      }),
+    ).toEqual(["--model", "glm-5.3", "--provider", "zai", "--thinking", "high"]);
+  });
+
+  test("settings absent entirely (undefined) → built-ins still splice", () => {
+    expect(
+      resolveEnvBridges([], {}, BRIDGES, { builtinByFlag: BUILTIN }),
+    ).toEqual(["--model", "glm-5.3", "--provider", "zai", "--thinking", "high"]);
+  });
+
+  test("personal settings defaults WIN over built-ins (fill-gaps, never override)", () => {
+    expect(
+      resolveEnvBridges(
+        [],
+        {},
+        BRIDGES,
+        {
+          settings: {
+            defaultProvider: "lm-studio",
+            defaultModel: "google/gemma-4-12b",
+            defaultThinkingLevel: "low",
+          },
+          builtinByFlag: BUILTIN,
+        },
+      ),
+    ).toEqual([]);
+  });
+
+  test("per-flag independence: personal defaultModel present → only its bridge suppressed", () => {
+    expect(
+      resolveEnvBridges([], {}, BRIDGES, {
+        settings: { defaultModel: "glm-4.7" },
+        builtinByFlag: BUILTIN,
+      }),
+    ).toEqual(["--provider", "zai", "--thinking", "high"]);
+  });
+
+  test("env still wins over BOTH settings and built-in", () => {
+    expect(
+      resolveEnvBridges([], E({ PI_MODEL: "env-m" }), BRIDGES, {
+        settings: { defaultModel: "settings-m" },
+        builtinByFlag: BUILTIN,
+      }),
+    ).toEqual(["--model", "env-m", "--provider", "zai", "--thinking", "high"]);
+  });
+
+  test("explicit flag beats everything (built-in not double-spliced)", () => {
+    expect(
+      resolveEnvBridges(["--model", "x"], {}, BRIDGES, {
+        builtinByFlag: BUILTIN,
+      }),
+    ).toEqual(["--provider", "zai", "--thinking", "high"]);
+  });
+
+  test("blank-string personal default is treated as absent (built-in fills)", () => {
+    expect(
+      resolveEnvBridges([], {}, BRIDGES, {
+        settings: { defaultModel: "   " },
+        builtinByFlag: BUILTIN,
+      }),
+    ).toEqual(["--model", "glm-5.3", "--provider", "zai", "--thinking", "high"]);
+  });
+
+  test("no builtinByFlag passed → legacy behavior (nothing spliced without env)", () => {
+    // Backward-compat: callers that don't opt into built-ins see the old
+    // env-only bridge semantics.
+    expect(resolveEnvBridges(["-p", "hi"], {})).toEqual([]);
+  });
+});
