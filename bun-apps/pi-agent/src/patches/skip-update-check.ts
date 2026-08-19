@@ -56,5 +56,3 @@ if (debug) {
     (isShippedArtifact ? "" : " (source mode — not forced)"),
   );
 }
-
-export const skipUpdateCheckPatchApplied = true;

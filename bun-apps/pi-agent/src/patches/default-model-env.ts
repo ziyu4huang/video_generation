@@ -85,5 +85,3 @@ if (
 ) {
 	console.error("[bun-pi] default-model-env spliced argv:", extra);
 }
-
-export const defaultModelEnvPatchApplied = true;

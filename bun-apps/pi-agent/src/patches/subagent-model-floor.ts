@@ -87,5 +87,3 @@ if (
 ) {
 	console.error("[bun-pi] subagent-model-floor set OB_SUBAGENT_MODEL:", floor);
 }
-
-export const subagentModelFloorPatchApplied = true;

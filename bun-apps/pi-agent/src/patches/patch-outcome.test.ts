@@ -23,7 +23,19 @@
  * permanently mutates process.argv for every later test file.
  */
 import { describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { readPatchOutcome, PATCH_TABLE, resolvePatchPlan } from "./index.ts";
+
+/** Every patch module in this directory, with its source. Not tests, not the registry. */
+function patchModules(): { name: string; source: string }[] {
+	return readdirSync(import.meta.dir)
+		.filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+		.map((f) => f.slice(0, -".ts".length))
+		.filter((n) => n !== "index" && n !== "model-tiers-default")
+		.sort()
+		.map((name) => ({ name, source: readFileSync(join(import.meta.dir, `${name}.ts`), "utf8") }));
+}
 
 describe("readPatchOutcome — the intent/outcome seam", () => {
 	test("a module reporting false is a failure", () => {
@@ -69,15 +81,19 @@ describe("resolvePatchPlan is intent only", () => {
  * meaningless.
  */
 describe("patch modules self-report a real outcome", () => {
-	const FAILABLE = [
-		"pre-load-providers",
-		"ext-context-get-system-prompt-options",
-		"ext-api-get-all-tool-definitions",
-		"footer-extension-status-notify",
-		"autocomplete-source-extension",
-		"editor-history-restore",
-		"startup-history-hint",
-	] as const;
+	// DERIVED, not hand-listed. This list used to be typed out by hand, and
+	// `force-response-language` was missing from it for its entire life: it
+	// wraps `AgentSession.prototype._installAgentNextTurnRefresh`, returns false
+	// when that target vanishes, discarded the boolean, and exported a hardcoded
+	// `= true`. A hand-synced roster is the same defect as the module it failed
+	// to cover — it reports success about a thing nobody checked.
+	const FAILABLE = patchModules().filter((m) => /^export const patchApplied\b/m.test(m.source)).map((m) => m.name);
+
+	test("the roster is non-empty (vacuity canary)", () => {
+		// Deriving the list means a broken derivation yields zero tests and a
+		// green suite. Any refactor that empties this must fail loudly instead.
+		expect(FAILABLE.length, "no patch module declares `export const patchApplied` — the derivation broke").toBeGreaterThan(0);
+	});
 
 	for (const name of FAILABLE) {
 		test(`${name} exports a boolean patchApplied`, async () => {
@@ -161,5 +177,61 @@ describe("RED: a vanished hook target is reported, not swallowed", () => {
 		// The warning must appear WITHOUT BUN_PI_DEBUG_PATCHES: a silent no-op is
 		// invisible by construction unless something shouts on the default path.
 		expect(err).toContain('patch "pre-load-providers" was enabled but did NOT bind');
+	});
+});
+
+/**
+ * STRUCTURAL. The tests above prove the contract holds for the modules that
+ * opted into it. These prove no module can quietly opt back out — which is how
+ * `force-response-language` sat outside the contract from the day the contract
+ * was written, reporting success while its wrap could have been binding to
+ * nothing.
+ *
+ * Both patterns below are the failure verbatim, taken from the incident
+ * described at the top of this file. They are source-level checks because
+ * that is where the defect is visible: the module still runs, still imports,
+ * still prints "applied". Only the source says the outcome went nowhere.
+ */
+describe("STRUCTURAL: a patch cannot silently stop reporting its outcome", () => {
+	test("no module hardcodes `…PatchApplied = true`", () => {
+		const offenders = patchModules()
+			.filter((m) => /\bexport const \w*PatchApplied\s*=\s*true\s*;/.test(m.source))
+			.map((m) => m.name);
+		expect(
+			offenders,
+			`these modules export a hardcoded applied-flag: ${offenders.join(", ")}. ` +
+				"A constant `true` is not an outcome — it reports success even when the wrap " +
+				"bound to nothing. Export `patchApplied` carrying the real return value instead " +
+				"(see ./index.ts readPatchOutcome).",
+		).toEqual([]);
+	});
+
+	test("no module discards the boolean its own apply function returns", () => {
+		// The exact `force-response-language` defect: `applyX(): boolean` declared
+		// in the file, then called at top level as a bare statement with the
+		// result thrown away. Bind it to something (`const outcome = applyX()`)
+		// and export it.
+		const offenders: string[] = [];
+		for (const { name, source } of patchModules()) {
+			const boolFns = [...source.matchAll(/^export function (\w+)\([^)]*\)\s*:\s*boolean\b/gm)].map((m) => m[1]!);
+			for (const fn of boolFns) {
+				if (new RegExp(`^${fn}\\(\\);\\s*$`, "m").test(source)) offenders.push(`${name}.${fn}()`);
+			}
+		}
+		expect(
+			offenders,
+			`these top-level calls throw away a boolean outcome: ${offenders.join(", ")}. ` +
+				"The function returns false when its hook target is missing — discarding that " +
+				"is how a dead patch reports itself as applied.",
+		).toEqual([]);
+	});
+
+	test("the structural scan reads real modules (vacuity canary)", () => {
+		const mods = patchModules();
+		expect(mods.length, "no patch modules were discovered — both scans above are vacuous").toBeGreaterThan(5);
+		expect(
+			mods.some((m) => /export function \w+\([^)]*\)\s*:\s*boolean\b/.test(m.source)),
+			"no patch module declares a boolean-returning apply function — the discarded-outcome scan has nothing to match",
+		).toBe(true);
 	});
 });
