@@ -51,8 +51,7 @@ CJK command previously rendered 100 columns and wrapped the row).
 
 ## Out of scope
 
-- Callers passing a live terminal width into `ctx.width` (subagent viewer /
-  workflow display can adopt later; the param exists and defaults safely).
+- ~~Callers passing a live terminal width into `ctx.width`~~ — **executed same day as a follow-up**: `describeLastActivity` / `formatHistoryLine` now forward their `width` param into `formatToolAction` ctx (toolCall/toolResult/error branches), and `subagent-viewer.ts` passes its render-time `width` to `formatHistoryLine`. Workflow display remains unthreaded — it has no Component.render(width) width source (plain-string builder).
 - `agent-history.ts` truncation — that is prompt-context content shaping
   (chars are the right unit for model context), not terminal display.
 

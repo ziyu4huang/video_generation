@@ -2498,3 +2498,41 @@ test("width does NOT touch the streaming caps (isPartial rows unchanged with a w
   assert.equal(collapsed.split("\n").length, 2, "collapsed stays the 2-line header shape");
   assert.equal(lines[0], "H-line-1", "streamed header lines are not re-truncated by width");
 });
+
+// ── width threading into formatToolAction targets (2026-08-19 next-goal) ──
+// The render-time terminal width now reaches the verb-phrase TARGET cap via
+// ToolActionContext.width: absent → legacy ~50 semantics; present → only
+// narrows. CJK already counted double-width by the shared render-width.
+
+test("formatHistoryLine narrows the toolCall target at small width", () => {
+  const e: AgentHistoryEntry = {
+    role: "assistant",
+    kind: "toolCall",
+    toolName: "bash",
+    text: JSON.stringify({ command: "c".repeat(120) }),
+  };
+  assert.equal(formatHistoryLine(e, undefined, 20), `→ Running: ${"c".repeat(19)}…`);
+});
+
+test("formatHistoryLine narrows the recovered toolResult target at small width (mid-ellipsis)", () => {
+  const e: AgentHistoryEntry = { role: "tool", kind: "toolResult", toolName: "read", text: "ok" };
+  assert.equal(
+    formatHistoryLine(e, { matchedCallArgs: { path: "p".repeat(120) } }, 20),
+    `✓ Read ${"p".repeat(10)}…${"p".repeat(9)}`,
+  );
+});
+
+test("formatSubagentProgress narrows the activity target at small width", () => {
+  const history: AgentHistoryEntry[] = [
+    { role: "assistant", kind: "toolCall", toolName: "bash", text: JSON.stringify({ command: "c".repeat(120) }) },
+  ];
+  assert.equal(formatSubagentProgress(history, 1000, 0, 20).split("\n")[0], `↳ Running: ${"c".repeat(19)}…`);
+});
+
+test("formatSubagentLive trace lines narrow at small width", () => {
+  const history: AgentHistoryEntry[] = [
+    { role: "assistant", kind: "toolCall", toolName: "bash", text: JSON.stringify({ command: "c".repeat(120) }) },
+  ];
+  const out = formatSubagentLive(history, 1000, 0, 100, 20);
+  assert.ok(out.includes(`→ Running: ${"c".repeat(19)}…`), "trace target narrowed to the width");
+});

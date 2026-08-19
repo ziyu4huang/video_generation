@@ -663,7 +663,7 @@ export class SubagentViewer {
 
     const traceWindow = (this.followedSnapshot?.history ?? []).slice(-FOLLOW_TRACE_LINES);
     const trace = traceWindow.map((e, i) =>
-      formatHistoryLine(e, { matchedCallArgs: matchedCallArgsFor(traceWindow, i) }),
+      formatHistoryLine(e, { matchedCallArgs: matchedCallArgsFor(traceWindow, i) }, width),
     );
     if (trace.length === 0) trace.push("…");
     for (const ln of trace) {
