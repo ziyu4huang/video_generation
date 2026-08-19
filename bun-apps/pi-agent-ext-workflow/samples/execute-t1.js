@@ -18,22 +18,30 @@ export const meta = {
 
 phase("Execute");
 
-// Gate first — red stops entry, fog flows left (spec §4).
-const gate = Bun.spawnSync([
-	"bun", "bun-apps/pi-agent/src/cli.ts", "pipeline-gate", "--tier", "T1",
-]);
-const gateText = gate.stdout ? gate.stdout.toString() : "";
-if (gate.exitCode !== 0) {
-	log(`pipeline-gate RED — refusing to dispatch:\n${gateText}`);
-	return { ok: false, stage: "gate", gateText };
+// Args validation — missing args stops before any agent dispatch.
+const a = args ?? {};
+if (!a.task) {
+	log("execute-t1: args JSON requires task/runCmd/expected/commitHint");
+	return { ok: false, stage: "args", note: "args JSON requires task/runCmd/expected/commitHint" };
 }
-log(`gate green:\n${gateText.trim().split("\n")[0]}`);
+
+// Gate first — red stops entry, fog flows left (spec §4). Uses the shell.run
+// host-fn (registered by pi-agent-ext-workflow) instead of Bun.spawnSync,
+// which is not available inside the workflow VM context.
+const gate = await call("shell.run", {
+	cmd: ["bun", "bun-apps/pi-agent/src/cli.ts", "pipeline-gate", "--tier", "T1"],
+});
+if (gate.exitCode !== 0) {
+	log(`pipeline-gate RED — refusing to dispatch:\n${gate.stdout}`);
+	return { ok: false, stage: "gate", gateText: gate.stdout };
+}
+log(`gate green:\n${String(gate.stdout).trim().split("\n")[0]}`);
 
 const brief = [
-	`Mission (bounded, T1): ${args.task}`,
-	`Run: ${args.runCmd}`,
-	`Expected: ${args.expected}`,
-	`Scope: ${args.commitHint}. Do not touch anything else.`,
+	`Mission (bounded, T1): ${a.task}`,
+	`Run: ${a.runCmd}`,
+	`Expected: ${a.expected}`,
+	`Scope: ${a.commitHint}. Do not touch anything else.`,
 	`Finish with: run the gate command, commit what is green with a clear message,`,
 	`and return a final report (mandatory, even on budget death):`,
 	`{ status, commit, gateOutput, notes }.`,

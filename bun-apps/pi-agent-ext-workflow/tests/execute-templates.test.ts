@@ -19,9 +19,14 @@ describe("execute-t1 template", () => {
     expect(src).toMatch(/label:\s*"verify"/);
     expect(src).toMatch(/tokenBudget|budget/);
   });
+  test("validates args at the top", () => {
+    expect(src).toContain("const a = args ?? {}");
+    expect(src).toContain('if (!a.task)');
+    expect(src).toContain("stage: \"args\"");
+  });
   test("gate check happens before any agent dispatch", () => {
-    const gateIdx = src.indexOf("pipeline-gate");
-    const agentIdx = src.indexOf("agent(");
+    const gateIdx = src.indexOf('call("shell.run"');
+    const agentIdx = src.indexOf("await agent(");
     expect(gateIdx).toBeGreaterThan(-1);
     expect(gateIdx).toBeLessThan(agentIdx);
   });

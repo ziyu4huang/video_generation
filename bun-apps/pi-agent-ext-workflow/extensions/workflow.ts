@@ -7,6 +7,7 @@ import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 // singleton docstring in src/subagent-in-flight.ts).
 import { getSubagentInFlightRegistry, setRateLimitCapResolver } from "@repo/pi-agent-core-runtime";
 import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
+import { shellRunHostFn } from "../src/shell-host-fn.js";
 import {
   buildWorkflowGuidelinesForTurn,
   createEffortState,
@@ -84,6 +85,8 @@ export default function extension(pi: ExtensionAPI) {
   // event bus; the registry is mutated in place so late registrations reach runs
   // started after they arrive. Load-order safe via the session_start solicitation.
   const sessionHostFns = new HostFnRegistry();
+  // Register built-in shell.run host-fn (generic command execution for templates).
+  applyHostFnRegistration(sessionHostFns, shellRunHostFn);
   manager.setHostFns(sessionHostFns);
   const HOSTFN_REGISTER = "workflow:hostfn:v1:register";
   const HOSTFN_REQUEST = "workflow:hostfn:v1:request";
