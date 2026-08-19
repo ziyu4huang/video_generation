@@ -20,6 +20,10 @@ loops that route fog back to wayfind instead of improvising past it.
 
 ## Notes
 
+- SUPERSEDED (execution leg + D5) by 2026-08-20-develop-pipeline-v2 on
+  2026-08-20: workflow is now the primary execution engine and
+  pipeline-gate enforces the handoffs. DECIDE/SYNTHESIZE (wayfind) and
+  DESIGN/PLAN (superpowers) stages unchanged.
 - Closed 2026-08-17: spec M1-M5 executed as tickets 01-05, all closed; merged as
   PR #1582 (squash 769a50b9). Gates at close: wayfind 513/0, superpowers 132/0,
   repo 17/17.

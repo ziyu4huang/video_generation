@@ -4,9 +4,11 @@ Guidance: each domain owns its CONTEXT.md + docs/adr/ (ADR-<context>-NNNN style,
 never bare numbers; bun-apps/docs/adr/INDEX.md lists all). This file is the index.
 
 ## Pipeline of record
-- Agent development pipeline (wayfind -> superpowers <=> subagents): diagram of
-  record lives in .planning/2026-08-17-develop-pipeline/map.md (D9). Routing
-  table: superpowers using-superpowers bootstrap.
+- Agent development pipeline (wayfind -> superpowers <=> workflow/subagents):
+  diagram of record lives in .planning/2026-08-20-develop-pipeline-v2/map.md
+  (workflow as primary execution engine, tier system T1/T2/T3, pipeline-gate
+  enforcement, unified dispatch records). Previous version:
+  .planning/done/2026-08-17-develop-pipeline/map.md.
 
 ## Domain contexts
 - bun-apps/pi-agent — thin monkey-patch wrapper around the real pi TUI (hardcoded
