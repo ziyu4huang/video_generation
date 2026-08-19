@@ -50,6 +50,10 @@ _Avoid_: helpers, utils (each module is a concern, not a grab bag)
 The three execution modes. Source (`bun src/cli.ts`) resolves deps via the real node_modules; bundle (`dist/pi-agent/pi-agent.js`) symlinks a node_modules for `getAliases()`; the compiled binary (`--exe`) cannot dynamically load `.ts` extensions (jiti + Bun-compile `ENAMETOOLONG`) — it statically imports the static extension set (`run-dir/manifest.json` → `staticExtensions`, mirrored by `src/static-extensions.ts`) instead. (The size is deliberately NOT restated here — it drifted independently in six documents before `run-dir/manifest-consistency.test.ts` made the manifest the single source of truth.) `deploy.ts` also has `--snapshot` (raw source copy) and `--standalone` (bundle + bun binary), both still "source" or "bundle" at the `detectMode()` level.
 _Avoid_: dev/prod modes (these are packaging modes, not environments)
 
+**sh deploy (pi-agent-sh)**:
+A SECOND, independent pipeline (`bun run deploy:sh` → `../pi-agent-ext-devops/src/deploy-sh-cli.ts`), unrelated to the four `deploy.ts` modes above: a versioned tree at `~/proj/dist/pi-agent-sh/<version>/` holding a minimal compiled core (entry `src/cli-sh.ts`, ZERO extensions inside) plus extension packages under `ext/<name>/` that the core discovers at runtime. Extensions are cjs bundles with pi's runtime `--external`; the core injects its own embedded modules through the bundle's `require` (`src/sh/host-modules.ts`), which is what keeps extension and host on ONE module instance. See `docs/deploy-sh.md`.
+_Avoid_: fifth mode (it is a separate pipeline, not a `deploy.ts` flag), plugin dir (the contract is `ext.json` + host-injected require, not drop-in files)
+
 **THIN bundle**:
 The (only, since the unified `deploy.ts`) extension-bundling mode: each extension is pre-bundled to one `.js` sharing a single typebox instance instead of each pulling its own copy. Deployed as `ext-bundles/*.thin.js`.
 _Avoid_: minified bundle, slim bundle, FULL bundle (a FULL/per-extension-typebox mode existed historically but was removed — see `docs/superpowers/plans/2026-07-18-unified-deploy.md`)

@@ -1,0 +1,44 @@
+# deploy-config.yaml — source of truth for the pi-agent-sh deploy.
+#
+# Consumed by bun-apps/pi-agent-ext-devops/scripts/deploy-sh.ts
+# (CLI: bun run --cwd bun-apps/pi-agent deploy:sh).
+# CLI flags override these values; this file never overrides an explicit flag.
+#
+# hostApi MUST match HOST_API in bun-apps/pi-agent/src/sh/host-modules.ts, and
+# hostModules MUST match HOST_MODULE_IDS there — the deploy hard-fails on drift,
+# because a config that promises a module the core does not embed produces
+# extensions that silently refuse to load.
+outRoot: ~/proj/dist/pi-agent-sh
+version:
+  from: package.json
+  gitSha: true
+freeze: true
+current: true
+hostApi: 1
+hostModules:
+  - "@earendil-works/pi-coding-agent"
+  - "@earendil-works/pi-tui"
+  - "typebox"
+  - "typebox/value"
+  - "@repo/pi-agent-core-runtime"
+extensions:
+  - name: task
+    package: pi-agent-ext-task
+    entry: extensions/task.ts
+    order: 10
+  - name: power-tool
+    package: pi-agent-ext-power-tool
+    entry: extensions/power-tool.ts
+    order: 50
+    skills: [skills]
+    # power-tool pulls playwright-core (browser/webui tools). playwright-core's
+    # vendored bundle does require("chromium-bidi/...") while declaring zero
+    # deps, so the bundler cannot resolve those paths. Same treatment the legacy
+    # deploy.ts already uses (OPTIONAL_EXTERNALS, PR #1635): externalize only
+    # the unresolvable internals — playwright-core itself stays bundled, so the
+    # browser tools work in the deploy. The chromium-bidi requires sit in
+    # esbuild's lazy __esm({...}) for bidiOverCdp, which the default CDP path
+    # never enters.
+    # kerberos / vite / @playwright/test are playwright's own optional peers,
+    # reached only from code paths this agent never takes.
+    externals: ["chromium-bidi/*", "kerberos", "vite", "@playwright/test"]
