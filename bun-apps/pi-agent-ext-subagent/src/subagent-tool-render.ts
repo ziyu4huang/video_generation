@@ -66,13 +66,13 @@ function describeLastActivity(
   if (!last) return "…";
   switch (last.kind) {
     case "toolCall":
-      return formatToolAction(last);
+      return formatToolAction(last, { width });
     case "toolResult":
-      return formatToolAction(last, { matchedCallArgs: ctx?.matchedCallArgs });
+      return formatToolAction(last, { matchedCallArgs: ctx?.matchedCallArgs, width });
     case "error":
       // Errors are the moment progress streaming matters most — `formatToolAction`
       // already conveys failure (`Failed to …` / `⚠ …`), so no extra marker here.
-      return formatToolAction(last);
+      return formatToolAction(last, { width });
     case "text":
       return ellipsizeToWidth(last.text.split("\n")[0] ?? "", capWidth(60, width));
     default:
@@ -162,18 +162,18 @@ export function formatHistoryLine(
     case "toolCall":
       // `text` holds the JSON-stringified arguments (compactAgentHistory);
       // formatToolAction parses them into a verb-led phrase (e.g. `Reading a.ts`).
-      return `→ ${formatToolAction(e)}`;
+      return `→ ${formatToolAction(e, { width })}`;
     case "toolResult":
       // Results carry no args; ctx.matchedCallArgs (from the matching preceding
       // toolCall) recovers the target → `✓ Read a.ts`. Orphan → verb-only `✓ Read`.
-      return `✓ ${formatToolAction(e, { matchedCallArgs: ctx?.matchedCallArgs })}`;
+      return `✓ ${formatToolAction(e, { matchedCallArgs: ctx?.matchedCallArgs, width })}`;
     case "error": {
       // `formatToolAction` already emits `⚠ <line>` for whole-turn assistant
       // errors — pass it through unchanged so we never double up `✗ ⚠`. Tool
       // errors (`Failed to …`) get the `✗` marker. Pass matchedCallArgs so a
       // tool error recovers the target it acted on (e.g. `✗ Failed to edit
       // src/parser.ts: …`) — consistent with the toolResult branch above.
-      const phrase = formatToolAction(e, { matchedCallArgs: ctx?.matchedCallArgs });
+      const phrase = formatToolAction(e, { matchedCallArgs: ctx?.matchedCallArgs, width });
       return phrase.startsWith("⚠") ? phrase : `✗ ${phrase}`;
     }
     case "text":
