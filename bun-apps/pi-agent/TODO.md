@@ -41,30 +41,15 @@ it retires an exported type (`RunDirLayoutMode`) and 4 tests
 `deploy-package` cases). Bundling it into a doctor commit would repeat the
 over-reach that this arc's README needed reverting for.
 
-### 1. lazy `-e <alias>` e2e  ✅ DONE (2026-07-12)
-
-Shipped in `src/__tests__/e2e-extensions.test.ts` (describe "e2e: SOURCE lazy
-`-e <alias>` splice loads the extension"). Two tests, gated on `PI_AGENT_E2E`
-alone so they run at the default `medium` tier:
-- alias run: `-e pi-agent-ext-zai-mcp` → splice rewrites to abs factory path →
-  extension loads (matched ≥ 1, zero load errors).
-- control: without the alias, the non-eager fixture is NOT loaded (matched = 0).
-
-**Fixture note (recipe was stale):** the original recipe proposed `-e flux2`, but
-flux2 is now in the EAGER manifest (so a no-alias control would still load it →
-matched > 0, no causal proof). `workflow`/`dynamic-workflows` (the declared
-`lazyExtensions`) now point at an eager package too (backwards-compat, SDK-dedup'd).
-Used `pi-agent-ext-zai-mcp` instead: NOT eager + exactly one `.ts` under
-`extensions/` (directory-fallback resolves) + registers tools (probe-visible).
-`movie-director` was rejected (2 `.ts` files → fallback can't pick).
+### 1. lazy `-e <alias>` e2e  ✅ DONE (2026-07-12) — shipped in `src/__tests__/e2e-extensions.test.ts`; see git history for the recipe notes
 
 ### 2. Patch unit-coverage gaps
 
-`src/patches/load-run-dir-resources.ts`, `set-package-dir.ts`, and
-`skip-update-check.ts` have no dedicated `.test.ts` (only `default-model-env`
-and `index` do). Lower ROI — these are thin and exercised indirectly by the
-patch e2e + `doctor --smoke` — but a focused unit per patch would pin each
-patch's env gate + effect.
+`src/patches/load-run-dir-resources.ts` and `skip-update-check.ts` have no
+dedicated `.test.ts` (the other 13 patches do, incl. `set-package-dir`). Lower
+ROI — these two are thin and exercised indirectly by the patch e2e +
+`doctor --smoke` — but a focused unit per patch would pin each patch's env
+gate + effect.
 
 ## Next-arc candidates (when this arc is resumed or closed)
 

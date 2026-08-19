@@ -80,7 +80,7 @@ its OWN owner-declared gating keywords (build/deploy/verify/bundle/dist),
 distinct from the PR/merge keywords above.
 
 - **pi_deploy** — build + deploy the pi-agent bundle + thin extension bundles.
-  Mirrors `bun-apps/pi-agent/scripts/deploy.ts` (codegen → bundle → ext bundles
+  Mirrors this package's `scripts/deploy.ts` (codegen → bundle → ext bundles
   → factory-verify → freeze). Params: `mode` (bundle|snapshot|standalone|exe,
   default bundle), `outDir` (path-guarded to `<repo>/dist/` or `$TMPDIR`),
   `noFreeze`.

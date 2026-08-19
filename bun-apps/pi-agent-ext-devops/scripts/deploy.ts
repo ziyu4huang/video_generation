@@ -304,7 +304,7 @@ function writeRunSh(outDir: string, bunCmd: string, entry: string) {
 DIR=$(cd "$(dirname "$0")" && pwd)
 if [ -f "$DIR/.deploy-readonly" ]; then
   # Frozen deploy (chmod a-w): route jiti's fs cache + per-user state OFF the
-  # read-only tree. See docs/deploy-readonly.md.
+  # read-only tree. See bun-apps/pi-agent/docs/deploy-readonly.md.
   export JITI_FS_CACHE="\${JITI_FS_CACHE:-0}"
   export PI_CODING_AGENT_DIR="\${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
 fi

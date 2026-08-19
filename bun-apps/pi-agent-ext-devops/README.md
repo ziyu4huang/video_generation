@@ -8,14 +8,13 @@ DevOps tools for the pi coding agent — a **robust, tool-based PR-merge lifecyc
 
 ### `await_pr_merge`
 
-Poll a PR's CI checks, enable auto-merge when they pass, on `BEHIND` rebase + force-push the feature branch (so checks re-run), and wait for `MERGED`. Returns merged / failed / timed-out + a check tally.
+A **local-CI-gated** squash merge: runs `local_ci` (offline typecheck + tests + gates over the PR's changed packages vs its base), then squash-merges when green **and** the PR is OPEN + not-BEHIND + CLEAN. Blocks — no merge — on red CI, detection error, BEHIND (go re-run `prepare_branch` with `rebase: true`), or a non-CLEAN merge state. No remote CI (disabled in this repo), no polling. Returns merged / aborted + the local-CI tally.
 
 ```
-await_pr_merge({ prNumber: 960 })               // defaults: strategy=rebase, 600s, auto-delete, auto-force-push-on-BEHIND
-await_pr_merge({ prNumber: 960, handleBehind: "fail" })  // opt out of autonomous force-push
+await_pr_merge({ prNumber: 960 })               // local-CI gate → squash-merge → report
 ```
 
-Replaces the old recipe:
+Replaces the old recipe (the polling design this package was born to kill):
 ```bash
 for i in 1..N; do
   state=$(gh pr view ...); pending=$(gh pr checks | grep -c ...)   # ← grep -c footgun
@@ -59,8 +58,8 @@ The same footgun recurs in **branch cleanup**: `git branch --merged` is silently
 
 ## Architecture
 
-- `src/pr-logic.ts` — **pure** decision logic (`decideRecipeAction`: state + checks → next action). Fully unit-tested, no I/O.
-- `src/recipe.ts` — `runMergeRecipe`: the polling loop, all I/O behind injectable `GhClient` / `Sleeper` / `clock` interfaces (tested with scripted fakes).
+- `src/pr-logic.ts` — **pure** types shared by the merge recipe (the polling-era `decideRecipeAction` was deleted when polling was removed).
+- `src/recipe.ts` — `runMergeRecipe`: the single-shot local-CI-gated squash merge, all I/O behind injectable `SpawnFn` / client interfaces (tested with scripted fakes).
 - `src/branch-logic.ts` — **pure** branch classification (`classifyBranch`: signals → confidence + bucket). Fully unit-tested, no I/O.
 - `src/branch-recipe.ts` — `buildSweepPlan` / `executeSweep` / `runSweep`: the sweep orchestration, I/O behind an injectable `BranchClient` (tested with scripted fakes).
 - `src/gh.ts` — the real `GhClient` / `BranchClient` wrapping the `gh` / `git` CLI via `Bun.spawn`; pure JSON/text parsers (`parsePrView`, `parseChecks`, `parseBranchVv`, `parseMergedPrs`, …).
@@ -81,7 +80,7 @@ only orchestrate + parse.
 ### `pi_deploy`
 
 Build and deploy the pi-agent bundle + thin extension bundles (mirrors
-`bun-apps/pi-agent/scripts/deploy.ts`: codegen → bundle pi-agent.js → thin ext
+this package's `scripts/deploy.ts`: codegen → bundle pi-agent.js → thin ext
 bundles → factory-verify → freeze). Params: `mode` (bundle|snapshot|standalone|exe,
 default bundle), `outDir` (path-guarded to `<repo>/dist/` or `$TMPDIR`),
 `noFreeze`. Returns mode, outDir, pi-agent.js size, ext-bundle built/failed
@@ -93,13 +92,14 @@ Run a `run-test.sh` tier (quick|medium|high|readonly|full, default medium) and
 report per-step pass/fail. `high` = the exact CI `deploy -- verify` job.
 Params: `tier`, `bail`. Returns steps, exit code, and a log path.
 
-Both resolve the **source** `bun-apps/pi-agent` dir at runtime (`PI_AGENT_DIR`
-env or an upward walk for a sibling `pi-agent/` containing `scripts/deploy.ts` +
-`run-test.sh`) and refuse to spawn if unreachable — `deploy.ts` / `run-test.sh`
-exist only in the source repo, never in a deployed bundle.
+Both resolve the source dirs at runtime (`PI_AGENT_DIR` env or an upward walk
+to the sibling `pi-agent/` / `pi-agent-ext-devops/scripts/` pair) and refuse to
+spawn if unreachable — `deploy.ts` / `run-test.sh` exist only in the source
+repo, never in a deployed bundle. `deploy.ts` still requires
+`cwd == bun-apps/pi-agent` (see its `assertCorrectCwd`); the tools spawn it that way.
 
 ## Test
 
 ```bash
-( cd bun-apps/pi-agent-ext-devops && bun test )   # 91 tests: logic + recipe + parsers + entry + branch-logic + branch-recipe
+( cd bun-apps/pi-agent-ext-devops && bun test )   # logic + recipes + parsers + CLI fallbacks + branch-logic + branch-recipe
 ```

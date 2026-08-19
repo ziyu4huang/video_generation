@@ -6,7 +6,7 @@ Users want to run the full pi-agent TUI with additional LLM providers (lm-studio
 
 ## Solution
 
-A thin wrapper around the official `@earendil-works/pi-coding-agent` TUI. It calls `main()` untouched, then applies reversible monkey-patches to `ModelRegistry.prototype.loadModels()` so extra providers are registered before the first session starts. The repo's fixed extension set (pi-obsidian, pi-file2md, zai-mcp, etc.) is baked in via `run-dir/manifest.json`, independent of invocation `cwd`.
+A thin wrapper around the official `@earendil-works/pi-coding-agent` TUI. It calls `main()` untouched, then applies reversible monkey-patches — notably wrapping `ModelRuntime.create()` (pre-0.80 SDK this hooked `ModelRegistry.prototype.loadModels`; that method was removed when ModelRegistry became a stateless facade) — so extra providers are registered before the first session starts. The repo's fixed extension set is baked in via `run-dir/manifest.json`, independent of invocation `cwd`.
 
 ## Capabilities
 
@@ -14,8 +14,8 @@ A thin wrapper around the official `@earendil-works/pi-coding-agent` TUI. It cal
 |---------|--------|
 | **TUI passthrough** | Full pi TUI, all flags, sessions, tools |
 | **Extra providers** | lm-studio, ollama, openrouter, llamacpp — hardcoded in `src/pre-load-providers.ts` |
-| **Fixed extension set** | `run-dir/manifest.json` — loads obsidian, vlm, flux2, krea2, ltx, movie-director, hermes, knowledge-card, research-tool, power-tool, web-access, workflow, zai-mcp |
-| **Bundle support** | `bun scripts/deploy.ts` → single output `dist/pi-agent/pi-agent.js` |
+| **Fixed extension set** | `run-dir/manifest.json` — the single source of truth (static + dynamic layers; membership asserted by `run-dir/manifest-consistency.test.ts`, counts deliberately not restated here) |
+| **Bundle support** | `bun run deploy` → single output `dist/pi-agent/pi-agent.js` (the deploy pipeline lives in `../pi-agent-ext-devops/scripts/deploy.ts`) |
 | **Deploy (4 modes)** | `deploy.ts` — `--bundle` (default, THIN) · `--snapshot` (source-copy) · `--standalone` (bundle + bun binary) · `--exe` (single compiled binary, all assets embedded) |
 | **E2E testing** | L2 (judgment) + L3 (real-model) + deploy e2e (bundle/snapshot/standalone × doctor + smoke + skill-load + readonly) |
 
@@ -39,11 +39,13 @@ Four self-contained deploy modes (see [`docs/deploy-cwd-trust.md`](docs/deploy-c
 for the full layout reference):
 
 ```bash
-bun scripts/deploy.ts                  # --bundle (default, THIN) → dist/pi-agent/
-bun scripts/deploy.ts --snapshot       # source-copy  → dist/pi-agent/
-bun scripts/deploy.ts --standalone     # bundle + bun binary → dist/pi-agent/
-bun scripts/deploy.ts --exe            # single compiled binary → dist/pi-agent/pi-agent
+bun run deploy                    # --bundle (default, THIN) → dist/pi-agent/
+bun run deploy:snapshot           # source-copy  → dist/pi-agent/
+bun run deploy:standalone         # bundle + bun binary → dist/pi-agent/
+bun run deploy:exe                # single compiled binary → dist/pi-agent/pi-agent
 ```
+
+(Run from the package dir; the scripts shell into `../pi-agent-ext-devops/scripts/deploy.ts`, which owns the deploy pipeline. A fifth, independent pipeline — `deploy:sh` → `deploy-sh-cli.ts` — is documented in `docs/deploy-sh.md`.)
 
 `deploy.ts` no longer has a standalone `--verify` boot-probe step (dropped in
 the bundle/snapshot/standalone/exe unification) — its job is now covered by
