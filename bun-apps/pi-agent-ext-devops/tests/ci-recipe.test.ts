@@ -1038,3 +1038,82 @@ describe("runLocalCi — failure detail", () => {
 		expect(detail).not.toContain("line-159");
 	});
 });
+
+describe("runLocalCi — change-triggered deploy-e2e gate", () => {
+	/** git diff --name-only responder. */
+	const diffFiles = (files: string[]) => ({
+		match: (c: string, a: string[]) =>
+			c === "git" && a[0] === "diff" && a[1] === "--name-only",
+		result: { stdout: `${files.join("\n")}\n`, stderr: "", exitCode: 0 },
+	});
+	const baseOpts = {
+		repoRoot: REPO,
+		readPkg: mkReadPkg({}),
+		detectChangedPackages: mkDetect({}).fn,
+		readGates: fakeGates([]),
+		readMatrix: async () => ({}),
+	};
+
+	test("sensitive file changed → gate runs with PI_AGENT_E2E command in pi-agent cwd", async () => {
+		const { fn, calls } = mkSpawn([
+			verifyOk(),
+			diffFiles(["bun-apps/pi-agent/src/patches/index.ts"]),
+		]);
+		const out = await runLocalCi({ ...baseOpts, spawn: fn });
+		const gate = out.gates.find((g) => g.name.includes("change-triggered"));
+		expect(gate).toBeDefined();
+		expect(gate!.exitCode).toBe(0);
+		const run = calls.find(
+			(c) => c.cmd === "bash" && c.args[1]?.includes("PI_AGENT_E2E=1 bun test"),
+		);
+		expect(run).toBeDefined();
+		expect(run!.cwd).toBe(`${REPO}/bun-apps/pi-agent`);
+		expect(out.overall).toBe("pass");
+	});
+
+	test("unrelated files only → no gate, no deploy-e2e spawn", async () => {
+		const { fn, calls } = mkSpawn([
+			verifyOk(),
+			diffFiles(["bun-apps/gui-movie-director/src/App.tsx"]),
+		]);
+		const out = await runLocalCi({ ...baseOpts, spawn: fn });
+		expect(out.gates.find((g) => g.name.includes("change-triggered"))).toBeUndefined();
+		expect(calls.find((c) => c.args[1]?.includes("PI_AGENT_E2E=1"))).toBeUndefined();
+	});
+
+	test("empty diff (no changes vs base) → no gate", async () => {
+		const { fn } = mkSpawn([verifyOk(), diffFiles([])]);
+		const out = await runLocalCi({ ...baseOpts, spawn: fn });
+		expect(out.gates.find((g) => g.name.includes("change-triggered"))).toBeUndefined();
+	});
+
+	test("failed deploy-e2e run fails overall", async () => {
+		const { fn } = mkSpawn([
+			verifyOk(),
+			diffFiles(["pi-agent.sh"]),
+			{
+				match: (c: string, a: string[]) =>
+					c === "bash" && a[1]?.includes("PI_AGENT_E2E=1 bun test"),
+				result: { stdout: "", stderr: "1 fail", exitCode: 1 },
+			},
+		]);
+		const out = await runLocalCi({ ...baseOpts, spawn: fn });
+		expect(out.overall).toBe("fail");
+		expect(out.gates.find((g) => g.name.includes("change-triggered"))!.exitCode).toBe(1);
+	});
+
+	test("git diff itself fails → gate skipped, overall still pass (unconditional deploy gates already ran)", async () => {
+		const { fn, calls } = mkSpawn([
+			verifyOk(),
+			{
+				match: (c: string, a: string[]) =>
+					c === "git" && a[0] === "diff" && a[1] === "--name-only",
+				result: { stdout: "", stderr: "fatal: bad object", exitCode: 128 },
+			},
+		]);
+		const out = await runLocalCi({ ...baseOpts, spawn: fn });
+		expect(out.gates.find((g) => g.name.includes("change-triggered"))).toBeUndefined();
+		expect(calls.find((c) => c.args[1]?.includes("PI_AGENT_E2E=1"))).toBeUndefined();
+		expect(out.overall).toBe("pass");
+	});
+});
