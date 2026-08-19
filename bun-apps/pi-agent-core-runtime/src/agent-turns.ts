@@ -88,6 +88,79 @@ export function createTurnGuard(session: TurnSessionSurface, options: { maxTurns
 }
 
 /**
+ * Minimal session surface the wrap-up nudge needs (real AgentSession or a
+ * test double): the SDK's steering queue, public as `steer(text, images?)` on
+ * AgentSession — "Delivered after the current assistant turn finishes
+ * executing its tool calls, before the next LLM call" (agent-session.d.ts
+ * ~L364-370). Narrowed here so this module never imports the SDK type
+ * (portability) and unit tests can pass a minimal fake.
+ */
+export interface SteeringCapableSession {
+  steer(text: string): Promise<unknown>;
+}
+
+/**
+ * The default wrap-up nudge text (English), with the cap interpolated so the
+ * model knows exactly how much runway is left.
+ */
+export function wrapUpNudgeText(maxTurns: number): string {
+  return `[dispatch] Wrap-up notice: your next turn is the last before the turns cap (${maxTurns}). Stop starting new work — finish the current step minimally, then produce your final report (include the commit sha if you committed).`;
+}
+
+/** The AgentRunOptions fields the wrap-up nudge reads. */
+export interface WrapUpNudgeOptions {
+  /** See AgentRunOptions.maxTurns: the nudge only exists on capped runs. */
+  maxTurns?: number;
+  /** true/undefined = enabled when maxTurns >= 2; false disables; string overrides the nudge text. */
+  wrapUpNudge?: boolean | string;
+}
+
+/** One-shot wrap-up nudge queue (see createWrapUpNudgeQueue). */
+export interface WrapUpNudgeQueue {
+  /** Route a session event + the turn guard's current turnsUsed; fires steer() at most once. */
+  onSessionEvent(event: unknown, turnsUsed: number): void;
+}
+
+/**
+ * One-shot last-turn wrap-up nudge for turn-capped runs. Turns-abort is the
+ * top killer in the dispatch ledger (capped subagents hard-abort at turn
+ * maxTurns+1 with work in flight — salvage shows near-complete work); this
+ * converts those deaths into completions. At the turn_start of the
+ * SECOND-TO-LAST turn (turnsUsed === maxTurns - 2, since at turn_start of turn
+ * T the guard has counted T-1 turn_ends) it queues the nudge text via the
+ * session's steering method, which delivers it at the idle boundary AFTER that
+ * turn's tool calls — so the model spends its ENTIRE final turn finalizing +
+ * reporting instead of dying mid-step. The hard cap (TurnGuard abort) stays as
+ * the backstop. Enabled by default whenever maxTurns is defined and >= 2
+ * (maxTurns === 1 has no second-to-last turn to save — nothing fires;
+ * maxTurns === 2 queues at the first turn's start, which is correct). One-shot:
+ * once steer() has been called, later events are ignored. Unit-testable with a
+ * minimal fake session, mirroring createTurnGuard.
+ */
+export function createWrapUpNudgeQueue(session: SteeringCapableSession, options: WrapUpNudgeOptions): WrapUpNudgeQueue {
+  // The turn whose turn_start triggers the queue: undefined = disabled
+  // (wrapUpNudge:false, no cap, or a cap with no second-to-last turn).
+  const triggerTurns =
+    options.wrapUpNudge !== false && options.maxTurns !== undefined && options.maxTurns >= 2
+      ? options.maxTurns - 2
+      : undefined;
+  let queued = false;
+  return {
+    onSessionEvent(event, turnsUsed) {
+      if (triggerTurns === undefined || queued || !isTurnStartObservation(event)) return;
+      if (turnsUsed !== triggerTurns) return;
+      queued = true;
+      const text = typeof options.wrapUpNudge === "string" ? options.wrapUpNudge : wrapUpNudgeText(triggerTurns + 2);
+      // Fire-and-forget: a failed queue must never kill the run — the hard
+      // turn cap remains the backstop.
+      void session.steer(text).catch(() => {
+        // ignored by design
+      });
+    },
+  };
+}
+
+/**
  * The distinct error surface for a turn-capped abort: non-recoverable (retrying
  * would re-burn the same turns), carrying {maxTurns, turnsUsed} in details.
  * Extracted from CoreAgent.run so the message/shape is unit-testable.
