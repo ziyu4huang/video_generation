@@ -103,6 +103,20 @@ async function buildCore(outFile: string): Promise<number> {
 		stderr: "inherit",
 	});
 	if ((await p.exited) !== 0) throw new Error("bun build --compile failed for src/cli-sh.ts");
+
+	// Reset the embedded-asset manifest to its empty form now that the binary has
+	// been compiled. The embedMode file imports .png/.map assets with
+	// `with { type: "file" }`, which `tsc --noEmit` cannot resolve — leaving it in
+	// place turns the repo's own typecheck gate red after every deploy. The
+	// binary already carries the embedded copies, so this only affects the
+	// working tree.
+	process.chdir(PI_AGENT_DIR);
+	try {
+		stageGenerateEmbeddedAssets(piPkgDir, BUN_APPS_DIR, [], false);
+	} finally {
+		process.chdir(prevCwd);
+	}
+
 	chmodSync(outFile, 0o755);
 	return Bun.file(outFile).size;
 }
