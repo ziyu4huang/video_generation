@@ -14,7 +14,7 @@
  * unit-testable without spawning or touching the real fs. `run()` wires real
  * process state. Invoke via `bun src/cli.ts doctor [--json]` or `./run.sh doctor`.
  */
-import { existsSync, readdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -22,6 +22,8 @@ import manifest from "../run-dir/manifest.json";
 import { PATCH_TABLE, resolvePatchPlan } from "./patches/index.ts";
 import { PROVIDERS, resolveApiKey, type ApiKey } from "./pre-load-providers.ts";
 import { detectMode } from "./mode.ts";
+import { HOST_API, HOST_MODULE_IDS } from "./sh/host-modules.ts";
+import { parseExtManifest } from "./sh/ext-manifest.ts";
 
 export type CheckStatus = "pass" | "warn" | "fail" | "info";
 
@@ -48,7 +50,7 @@ export function isFailing(r: CheckResult): boolean {
  * doctor.ts did not, and they took real behaviour down with them — see
  * checkHostDeps.
  */
-export type DeployMode = "source" | "bundle" | "binary";
+export type DeployMode = "source" | "bundle" | "binary" | "sh";
 
 /**
  * Classify the deploy mode from coarse mode + the layout markers. Pure.
@@ -61,10 +63,18 @@ export type DeployMode = "source" | "bundle" | "binary";
  */
 export interface LayoutMarkers {
 	dotDeployBundle: boolean;
+	/**
+	 * A pi-agent-sh deploy: `deploy.json` beside the executable. `ext/` alone is
+	 * not the marker — deleting it is a SUPPORTED state (the core boots with no
+	 * extensions), and a deploy that lost its extensions must still be
+	 * recognisable as an sh deploy or doctor reports the wrong mode exactly when
+	 * something is wrong.
+	 */
+	shDeploy: boolean;
 }
 
 export function classifyMode(coarse: "source" | "bundle" | "binary", markers: LayoutMarkers): DeployMode {
-	if (coarse === "binary") return "binary";
+	if (coarse === "binary") return markers.shDeploy ? "sh" : "binary";
 	if (coarse === "source") return "source";
 	// bundle coarse mode = a shipped pi-agent.js
 	if (markers.dotDeployBundle) return "bundle";
@@ -75,6 +85,13 @@ export function classifyMode(coarse: "source" | "bundle" | "binary", markers: La
 export interface DoctorContext {
 	mode: DeployMode;
 	selfDir: string;
+	/**
+	 * The directory the DEPLOY lives in. Same as selfDir everywhere except a
+	 * compiled binary, where selfDir points inside bun's virtual fs ($bunfs) and
+	 * only process.execPath's dir names anything on the real filesystem — which
+	 * is where an sh deploy keeps ext/ and deploy.json.
+	 */
+	deployDir: string;
 	entryPath: string;
 	bunVersion: string;
 	exists: (p: string) => boolean;
@@ -83,6 +100,8 @@ export interface DoctorContext {
 	depInstalled: (spec: string) => boolean;
 	/** List a dir (returns [] if absent). */
 	listDir: (p: string) => string[];
+	/** Read a file as utf8. Throws if absent — callers decide what that means. */
+	readFile: (p: string) => string;
 	env: Record<string, string | undefined>;
 }
 
@@ -131,6 +150,7 @@ export function checkEntry(ctx: DoctorContext): CheckResult {
 export function checkExtensions(ctx: DoctorContext): CheckResult {
 	const id = "extensions";
 	const label = "extension set";
+	if (ctx.mode === "sh") return checkShExtensions(ctx);
 	if (ctx.mode === "source" || ctx.mode === "binary") {
 		return { id, label, status: "info", detail: `${ctx.mode} mode loads extensions from source/baked paths` };
 	}
@@ -146,6 +166,54 @@ export function checkExtensions(ctx: DoctorContext): CheckResult {
 		};
 	}
 	return { id, label, status: "pass", detail: `ext-bundles/${bundles.length} .js (expected ≥ ${want})` };
+}
+
+/**
+ * extension set, sh mode — validate the DEPLOYED ext/ tree.
+ *
+ * The repo manifest that `expectedExtCount()` reads means nothing here: an sh
+ * deploy has no manifest and its extension set is whatever deploy-config.yaml
+ * shipped. So this reads each `<deployDir>/ext/<name>/ext.json` through the
+ * SAME parser the loader uses — a manifest that doctor accepts but the loader
+ * rejects would be worse than no check at all.
+ *
+ * An absent ext/ is `info`, not `fail`: booting with zero extensions is a
+ * designed, gated state.
+ */
+export function checkShExtensions(ctx: DoctorContext): CheckResult {
+	const id = "extensions";
+	const label = "extension set";
+	const extRoot = join(ctx.deployDir, "ext");
+	if (!ctx.exists(extRoot)) {
+		return { id, label, status: "info", detail: "no ext/ — core runs with zero extensions (supported)" };
+	}
+	const host = { hostApi: HOST_API, hostModules: HOST_MODULE_IDS };
+	const ok: string[] = [];
+	const bad: string[] = [];
+	for (const name of ctx.listDir(extRoot).sort()) {
+		const manifestPath = join(extRoot, name, "ext.json");
+		if (!ctx.exists(manifestPath)) continue; // not an extension dir
+		let parsed: ReturnType<typeof parseExtManifest>;
+		try {
+			parsed = parseExtManifest(JSON.parse(ctx.readFile(manifestPath)), name, host);
+		} catch (e) {
+			bad.push(`${name} (unreadable ext.json: ${e instanceof Error ? e.message : String(e)})`);
+			continue;
+		}
+		if (!parsed.ok) bad.push(`${name} (${parsed.reason})`);
+		else if (!ctx.exists(join(extRoot, name, parsed.manifest.entry))) bad.push(`${name} (entry missing)`);
+		else ok.push(name);
+	}
+	if (bad.length > 0) {
+		return {
+			id,
+			label,
+			status: "fail",
+			detail: `${ok.length} loadable, ${bad.length} would be SKIPPED at boot: ${bad.join(", ")}`,
+			hint: "rebuild that extension: `bun run --cwd bun-apps/pi-agent deploy:sh --ext <name>`",
+		};
+	}
+	return { id, label, status: "pass", detail: `${ok.length} extension(s) loadable: ${ok.join(", ") || "none"}` };
 }
 
 /**
@@ -172,7 +240,7 @@ export function checkExtensions(ctx: DoctorContext): CheckResult {
  * `<selfDir>/node_modules` too, which in source mode points at `src/`.
  */
 export function checkHostDeps(ctx: DoctorContext): CheckResult {
-	if (ctx.mode === "source" || ctx.mode === "binary") {
+	if (ctx.mode === "source" || ctx.mode === "binary" || ctx.mode === "sh") {
 		return { id: "host-deps", label: "host deps", status: "info", detail: `${ctx.mode} mode — pi resolves deps from its own loader` };
 	}
 	const need = [
@@ -300,9 +368,15 @@ export function removedFlagNotice(argv: readonly string[]): string | null {
  *  - binary:  "<inline:" — static-factory tools report sourceInfo.path
  *             "<inline:<pkg-name>>"; the probe itself loading via -e also
  *             proves the upstream jiti binary path works (0.80.10+).
+ *  - sh:      also "<inline:". sh loads each ext.cjs off disk but hands the
+ *             factories to main({extensionFactories}), and pi labels a factory
+ *             it did not resolve itself as inline — measured
+ *             `{"path":"<inline:power-tool>","source":"inline"}` against a real
+ *             deploy. The marker is right for the wrong-sounding reason, so it
+ *             is written down rather than left to look like a copy-paste.
  */
 export function smokeMarker(mode: DeployMode, selfDir: string): string {
-	if (mode === "binary") return "<inline:";
+	if (mode === "binary" || mode === "sh") return "<inline:";
 	if (mode === "source") return resolve(selfDir, "..", "..");
 	return join(selfDir, "ext-bundles"); // bundle
 }
@@ -403,9 +477,12 @@ export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {})
 	const id = "runtime-smoke";
 	const label = "runtime smoke (extension load)";
 	const marker = smokeMarker(ctx.mode, ctx.selfDir);
-	// Binary mode: selfDir is the non-existent $bunfs virtual dir — cwd there
-	// would fail the spawn. Use the exe's real on-disk dir instead.
-	const cwd = ctx.mode === "binary" ? dirname(ctx.entryPath) : ctx.selfDir;
+	// Compiled modes (binary AND sh): selfDir is the non-existent $bunfs virtual
+	// dir — spawning with that cwd fails before the probe ever runs, and the
+	// failure surfaces as a raw stack rather than a check result. deployDir is
+	// the exe's real on-disk dir.
+	const compiled = ctx.mode === "binary" || ctx.mode === "sh";
+	const cwd = compiled ? ctx.deployDir : ctx.selfDir;
 	const dir = mkdtempSync(join(tmpdir(), "pi-agent-smoke-"));
 	const probePath = join(dir, "smoke-probe.ts");
 	writeFileSync(probePath, SMOKE_PROBE);
@@ -420,7 +497,7 @@ export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {})
 					cwd,
 					env,
 					timeoutMs: opts.timeoutMs,
-					exeDirect: ctx.mode === "binary",
+					exeDirect: compiled,
 				});
 	} finally {
 		try {
@@ -443,7 +520,11 @@ export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {})
 	const total = +(m[1] ?? "");
 	const matched = +(m[2] ?? "");
 	if (matched > 0) {
-		return { id, label, status: "pass", detail: `total=${total} matched=${matched} — run-dir extensions loaded` };
+		// "run-dir" is the source of extensions in source/bundle mode only; an sh
+		// deploy has no run-dir at all, and a detail line naming one sends the
+		// operator to a directory that does not exist.
+		const from = ctx.mode === "sh" ? "ext/ extensions loaded" : "run-dir extensions loaded";
+		return { id, label, status: "pass", detail: `total=${total} matched=${matched} — ${from}` };
 	}
 	return {
 		id,
@@ -480,18 +561,24 @@ export function realContext(moduleUrl: string, env: Record<string, string | unde
 	// excess property TypeScript silently tolerates on a variable. `.deploy-portable`
 	// and `packages/` were still probed here after their modes were removed
 	// precisely because an inferred object type made the leftovers invisible.
+	// In a compiled binary selfDir is inside $bunfs; only the executable's own
+	// directory names anything on the real filesystem.
+	const deployDir = coarse === "binary" ? dirname(process.execPath) : selfDir;
 	const markers: LayoutMarkers = {
 		dotDeployBundle: existsSync(join(selfDir, ".deploy-bundle")),
+		shDeploy: coarse === "binary" && existsSync(join(deployDir, "deploy.json")),
 	};
 	const mode = classifyMode(coarse, markers);
 	return {
 		mode,
 		selfDir,
+		deployDir,
 		entryPath,
 		bunVersion: process.versions.bun ?? "unknown",
 		exists: existsSync,
 		depInstalled: (spec) => existsSync(join(selfDir, "node_modules", spec)),
 		listDir: (p) => (existsSync(p) ? readdirSync(p) : []),
+		readFile: (p) => readFileSync(p, "utf8"),
 		env,
 	};
 }
