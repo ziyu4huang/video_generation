@@ -1,8 +1,11 @@
 {
   "name": "@repo/pi-agent-ext-wayfind",
+  "imports": {
+    "#pi/ext-dir": "./src/sh-ext-dir.ts"
+  },
   "private": true,
   "version": "0.1.0",
-  "description": "Pi-native port of Matt Pocock's decision-chain skill suite — grilling (relentless one-question-at-a-time interview), grill-me-with-docs (grilling + domain-modeling: writes CONTEXT.md glossary + ADRs inline), domain-modeling, wayfinder (chart a huge effort as a local-markdown map of decision tickets), to-spec, and to-tickets. Ships as a Layer-3 Pi extension: CSO-compliant skills + slash commands that kick off grilling/wayfinding sessions, and hands off resolved decisions -> a task_plan.md seed. Pure TypeScript, no Python, no shell scripts.",
+  "description": "Pi-native port of Matt Pocock's decision-chain skill suite \u2014 grilling (relentless one-question-at-a-time interview), grill-me-with-docs (grilling + domain-modeling: writes CONTEXT.md glossary + ADRs inline), domain-modeling, wayfinder (chart a huge effort as a local-markdown map of decision tickets), to-spec, and to-tickets. Ships as a Layer-3 Pi extension: CSO-compliant skills + slash commands that kick off grilling/wayfinding sessions, and hands off resolved decisions -> a task_plan.md seed. Pure TypeScript, no Python, no shell scripts.",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

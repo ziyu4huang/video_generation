@@ -124,7 +124,13 @@ function loadDatabaseCtor(): DatabaseCtor {
   // Node/better-sqlite3 support was removed per the project's Bun-only directive
   // (PR follow-up to #460). The BunCompatDatabase class normalizes bun:sqlite's
   // API to the shape the rest of the codebase expects.
-  const require = createRequire(import.meta.url);
+  //
+  // createRequire base: only BUILTINS are ever required through it, so any base
+  // works — process.execPath is always a real file. Deliberately NOT
+  // import.meta.url / __filename: bun's cjs bundler folds those into
+  // build-machine path literals, which the sh deploy's relocatability gate
+  // rejects.
+  const require = createRequire(process.execPath);
   return createBunCompatDatabaseCtor(require);
 }
 
