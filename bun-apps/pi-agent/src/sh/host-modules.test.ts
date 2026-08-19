@@ -8,9 +8,12 @@ describe("host-modules", () => {
 
 	test("exposes exactly the whitelisted specifiers", () => {
 		expect([...HOST_MODULE_IDS].sort()).toEqual([
+			"@earendil-works/pi-ai",
+			"@earendil-works/pi-ai/compat",
 			"@earendil-works/pi-coding-agent",
 			"@earendil-works/pi-tui",
 			"@repo/pi-agent-core-runtime",
+			"@repo/pi-agent-ext-subagent",
 			"typebox",
 			"typebox/value",
 		]);

@@ -17,6 +17,8 @@ export interface ExtManifest {
 	order: number;
 	enabled: boolean;
 	skills: string[];
+	/** Data dirs copied beside skills but NOT forwarded as --skill (optional). */
+	copy: string[];
 	hostModules: string[];
 	builtAt?: string;
 	sourceSha?: string;
@@ -68,6 +70,11 @@ export function parseExtManifest(raw: unknown, dirName: string, host: HostContra
 		return { ok: false, reason: `ext.json skills must be relative paths inside the extension dir` };
 	}
 
+	const copy = m.copy === undefined ? [] : m.copy;
+	if (!Array.isArray(copy) || !copy.every((s) => isContainedRelPath(s))) {
+		return { ok: false, reason: `ext.json copy must be relative paths inside the extension dir` };
+	}
+
 	const hostModules = m.hostModules === undefined ? [] : m.hostModules;
 	if (!Array.isArray(hostModules) || !hostModules.every((s) => typeof s === "string")) {
 		return { ok: false, reason: `ext.json hostModules must be an array of strings` };
@@ -97,6 +104,7 @@ export function parseExtManifest(raw: unknown, dirName: string, host: HostContra
 			order,
 			enabled,
 			skills: skills as string[],
+			copy: copy as string[],
 			hostModules: hostModules as string[],
 			builtAt: typeof m.builtAt === "string" ? m.builtAt : undefined,
 			sourceSha: typeof m.sourceSha === "string" ? m.sourceSha : undefined,

@@ -220,4 +220,41 @@ describe("extRequire", () => {
 		};
 		expect(() => extRequire(makeExt(), host)("nowhere")).toThrow(/host does not provide "nowhere"/);
 	});
+
+	test("resolves a vendored package through its exports map (require → default)", () => {
+		const dir = makeExt();
+		const pkg = join(dir, "node_modules", "mapped-thing");
+		mkdirSync(pkg, { recursive: true });
+		writeFileSync(
+			join(pkg, "package.json"),
+			JSON.stringify({
+				name: "mapped-thing",
+				exports: {
+					".": {
+						import: { types: "./x.d.mts", default: "./x.mjs" },
+						require: { types: "./x.d.cts", default: "./x.cjs" },
+					},
+				},
+			}),
+		);
+		writeFileSync(join(pkg, "x.mjs"), "export const from = 'esm';");
+		writeFileSync(join(pkg, "x.cjs"), "module.exports = { from: 'cjs' };");
+		const host = (spec: string) => {
+			throw new Error(`no host module "${spec}"`);
+		};
+		expect(extRequire(dir, host)("mapped-thing")).toEqual({ from: "cjs" });
+	});
+
+	test("serves the extension's own dir under the reserved #pi/ext-dir spec", () => {
+		const root = makeRoot();
+		const dir = writeExt(root, "selfie", {
+			body: `module.exports.default = function factory() { return { dir: require("#pi/ext-dir") }; };`,
+		});
+		const result = loadExtensions({ extRoot: root, host: HOST, require: (s) => {
+			throw new Error(`no host module "${s}"`);
+		} });
+		expect(result.loaded).toEqual(["selfie"]);
+		const out = (result.factories[0]!.factory as unknown as () => { dir: string })();
+		expect(out.dir).toBe(dir);
+	});
 });

@@ -19,6 +19,17 @@ import * as piTui from "@earendil-works/pi-tui";
 import * as typebox from "typebox";
 import * as typeboxValue from "typebox/value";
 import * as coreRuntime from "@repo/pi-agent-core-runtime";
+// pi-ai is already compiled in via pi-coding-agent (it is a pi-agent dep), so
+// serving it costs ~zero core bytes while keeping every extension's model types
+// and the streaming helpers identity-stable against the host's session.
+import * as piAi from "@earendil-works/pi-ai";
+import * as piAiCompat from "@earendil-works/pi-ai/compat";
+// The subagent package is BOTH an extension (its factory registers tools) and a
+// shared runtime library: hermes-memory handlers import spawnSubagent /
+// roleAwareDirectCall, and the in-flight registry is an identity-sensitive
+// singleton — each sh extension is a separate cjs bundle, so letting consumers
+// bundle their own copy would split the registry (same reasoning as core-runtime).
+import * as subagentLib from "@repo/pi-agent-ext-subagent";
 
 /**
  * The host↔extension contract version. Bump ONLY on a breaking change to the
@@ -34,6 +45,9 @@ const REGISTRY: Readonly<Record<string, unknown>> = Object.freeze({
 	typebox: typebox,
 	"typebox/value": typeboxValue,
 	"@repo/pi-agent-core-runtime": coreRuntime,
+	"@earendil-works/pi-ai": piAi,
+	"@earendil-works/pi-ai/compat": piAiCompat,
+	"@repo/pi-agent-ext-subagent": subagentLib,
 });
 
 /** Specifiers an extension may require. Also the `--external` set at build time. */
@@ -54,10 +68,11 @@ const nodeRequire = createRequire(import.meta.url);
 
 const BUILTIN_PREFIXES = ["node:", "bun:"];
 const BUILTINS = new Set([
-	"assert", "async_hooks", "buffer", "child_process", "cluster", "crypto", "dgram", "dns",
-	"events", "fs", "http", "http2", "https", "module", "net", "os", "path", "perf_hooks",
-	"process", "punycode", "querystring", "readline", "repl", "stream", "string_decoder",
-	"timers", "tls", "tty", "url", "util", "v8", "vm", "worker_threads", "zlib",
+	"assert", "async_hooks", "buffer", "child_process", "cluster", "constants", "crypto",
+	"dgram", "dns", "domain", "events", "fs", "http", "http2", "https", "module", "net",
+	"os", "path", "perf_hooks", "process", "punycode", "querystring", "readline", "repl",
+	"stream", "string_decoder", "sys", "timers", "tls", "tty", "url", "util", "v8", "vm",
+	"worker_threads", "zlib",
 ]);
 
 /** True for a Node/Bun builtin specifier (with or without the node:/bun: prefix). */
