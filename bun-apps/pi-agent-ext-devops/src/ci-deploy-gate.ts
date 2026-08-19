@@ -13,7 +13,6 @@
  * One `bun test` process covers both files → the harness's existing
  * per-process ensureBundle() cache means a single bundle build (~15s).
  */
-import type { SpawnFn } from "./spawn.js";
 
 /**
  * Repo-relative path fragments that make a change deploy-sensitive. A diff

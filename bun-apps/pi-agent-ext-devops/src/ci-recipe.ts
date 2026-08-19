@@ -24,6 +24,11 @@
  * whose real CI command fails. Packages with no matrix row keep the generic
  * derivation. scripts/ci-local.sh parses the same matrix block, so the two local
  * runners cannot disagree about what a package's command is.
+ *
+ * One gate is hand-added beside the workflow-derived set beyond
+ * oneshot-smoke: the change-triggered deploy-e2e gate (src/ci-deploy-gate.ts)
+ * — PI_AGENT_E2E bundle-mode assertions, only when the diff is
+ * deploy-sensitive (see ci-deploy-gate.ts for the rationale).
  */
 import { SPAWN_TIMEOUT_EXIT_CODE, type SpawnFn } from "./spawn.js";
 import { runSchemaCostCheck } from "./schema-cost-check.js";
@@ -35,6 +40,11 @@ import {
 import { readCiMatrix, type CiMatrix } from "./ci-matrix.js";
 import { readCiGates, LOCAL_ONLY_AUDITS, type CiGatesResult } from "./ci-gates.js";
 import { ONESHOT_SMOKE_GATE_NAME, runOneshotSmoke, type OneshotSmokeResult } from "./oneshot-smoke.js";
+import {
+	DEPLOY_E2E_COMMAND,
+	DEPLOY_E2E_GATE_NAME,
+	shouldRunDeployE2e,
+} from "./ci-deploy-gate.js";
 
 export interface CiPackageResult {
 	name: string;
@@ -581,6 +591,39 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 						note: smoke.note,
 						...(smoke.detail ? { detail: smoke.detail } : {}),
 					});
+				}
+				// Change-triggered deploy e2e — the PI_AGENT_E2E bundle-mode
+				// assertions (e2e-patches + e2e-extensions SOURCE layers). The
+				// workflow-derived gates above already boot every deploy mode, but
+				// these assertions only exist behind PI_AGENT_E2E and were
+				// manual-tier-only before this gate (#1305 class drift). Runs ONLY
+				// when the diff touches a deploy-sensitive path; one bun-test
+				// process → ensureBundle()'s per-process cache builds once. A
+				// failed `git diff` skips the gate (fail-open): the unconditional
+				// deploy-artifact gates above already ran, and a base-ref that
+				// cannot diff was already rejected at step 1.
+				if (!opts.signal?.aborted) {
+					const diff = await spawn("git", ["diff", "--name-only", baseRef, headRef], {
+						cwd: opts.repoRoot,
+					});
+					if (diff.exitCode === 0) {
+						const files = diff.stdout
+							.split("\n")
+							.map((l) => l.trim())
+							.filter(Boolean);
+						if (shouldRunDeployE2e(files)) {
+							const r = await spawn("bash", ["-c", DEPLOY_E2E_COMMAND], {
+								cwd: `${opts.repoRoot}/bun-apps/pi-agent`,
+								// Bundle build + suite ≈ 20-40s; 240s only kills a HANG.
+								timeoutMs: 240_000,
+							});
+							gates.push({
+								name: DEPLOY_E2E_GATE_NAME,
+								exitCode: r.exitCode,
+								...detailOf(r),
+							});
+						}
+					}
 				}
 			}
 		}
