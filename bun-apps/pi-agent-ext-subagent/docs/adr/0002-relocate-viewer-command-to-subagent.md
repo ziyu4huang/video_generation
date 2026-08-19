@@ -59,3 +59,7 @@ hub, and nothing in `pi-agent-ext-subagent` imports it.
   future peer extension that wants to observe runs directly (none do today).
 - **One new rule:** subagent-local render helpers live in `src/agent-row-display.ts`;
   workflow-specific display types stay in workflow's `display.ts`. Don't re-fuse them.
+  *(Superseded 2026-08 by #1251, which extracted `@repo/pi-agent-core-runtime`: the
+  render helpers moved there as `pi-agent-core-runtime/src/agent-row-display.ts`.
+  The rule still holds — they stay out of workflow's `display.ts` — but the home is
+  now core-runtime, not this package.)*

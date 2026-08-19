@@ -46,7 +46,7 @@ The cost of Design B is the cross-extension singleton-sharing problem — which 
 The decision:
 
 - This package's own extension (`extensions/subagent.ts`) imports the singletons via the relative path `../src/index.js`, which resolves to `src/index.ts`.
-- Peer extensions — workflow's `extensions/workflow.ts` and `src/subagents-command.ts` — import them via the **`src/` subpath**: `@repo/pi-agent-ext-subagent/src/index.ts` (`.js` for the type-only import). The package's `exports` map exposes `"./src/*": "./src/*"` for exactly this.
+- Peer extensions — workflow's `pi-agent-ext-workflow/extensions/workflow.ts` and `src/subagents-command.ts` — import them via the **`src/` subpath**: `@repo/pi-agent-ext-subagent/src/index.ts` (`.js` for the type-only import). The package's `exports` map exposes `"./src/*": "./src/*"` for exactly this.
 - Both resolutions land on the identical `src/index.ts` module → one `_singleton` per process → the viewer sees the live runs the tool writes.
 
 The failure mode this prevents: if a peer extension imported the singletons via the **dist root** (`@repo/pi-agent-ext-subagent` → `dist/index.js`), it would get a *different* module instance — `dist/index.js` and `src/index.ts` are not guaranteed to be module-identical — and its lazily-initialized singleton would be a separate, empty registry. The `/subagents` viewer would show nothing during a run.
