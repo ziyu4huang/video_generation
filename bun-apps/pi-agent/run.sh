@@ -33,11 +33,12 @@
 #       ./bun-apps/pi-agent/update-pi.sh [same flags]   # the actual wrapper
 #       ./run.sh --update-help        # print this from the launcher
 #
-#   The wrapper runs `bun update <all 4 packages> --latest` at the monorepo
-#   root in ONE call (so they never drift apart from each other), verifies
-#   each installed version, and rewrites bun.lock (the canonical lockfile)
-#   for ALL bun-apps/* consumers at once. NEVER use `npm install` — it writes
-#   the gitignored package-lock.json and breaks the Bun workspace layout.
+#   The wrapper rewrites the exact version pins for all 4 packages across
+#   every bun-apps/*/package.json in one pass (perl in-place edit —
+#   `bun update --latest` cannot fix sub-workspace exact pins in bun 1.3.x),
+#   reconciles bun.lock, verifies each installed version, and lockstep-checks
+#   every consumer. NEVER use `npm install` — it writes the gitignored
+#   package-lock.json and breaks the Bun workspace layout.
 #   This file is a symlink target (./pi-agent.sh → here), so editing run.sh
 #   updates both invocations.
 ########################################
@@ -77,10 +78,11 @@ How to upgrade pi (@earendil-works/pi-agent-core/pi-ai/pi-coding-agent/pi-tui):
     ./bun-apps/pi-agent/update-pi.sh --rebuild  # also rebuild pi-agent dist bundle
     ./bun-apps/pi-agent/update-pi.sh --help     # full wrapper docs
 
-  The wrapper runs `bun update <all 4 packages> --latest` at the monorepo
-  root in ONE call (they're published in lockstep by the same upstream
-  vendor — pinned to exact versions everywhere, so this is the only way
-  they change), verifies each version, and bumps bun.lock for all consumers.
+  The wrapper rewrites the exact version pins for all 4 packages across
+  every bun-apps/*/package.json in one pass (they're published in lockstep
+  by the same upstream vendor, and `bun update --latest` cannot fix
+  sub-workspace exact pins — the wrapper's perl pin-edit can), reconciles
+  bun.lock, and verifies each installed version.
 
   Verify after:  ./pi-agent.sh --list-models
 
