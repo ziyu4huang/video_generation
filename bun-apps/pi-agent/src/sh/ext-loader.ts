@@ -14,6 +14,7 @@
  * verified to work inside a `bun build --compile` binary.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { parseExtManifest, type ExtManifest, type HostContract } from "./ext-manifest.ts";
@@ -47,6 +48,39 @@ export interface LoadOptions {
 	host: HostContract;
 	/** Module provider handed to each bundle (production: hostRequire). */
 	require: (spec: string) => unknown;
+}
+
+/**
+ * Wrap the host require with a per-extension fallback that resolves from the
+ * extension's OWN directory.
+ *
+ * A vendored package (deploy-config `vendor:`) ships as a real
+ * <ext>/node_modules/<pkg>/ tree rather than being inlined, because bun's cjs
+ * output rewrites `__dirname` to the build machine's path — fine for code that
+ * never looks at it, fatal for a package that locates its own resources that
+ * way (playwright-core). Resolving it from the extension dir gives it a real
+ * `__dirname` inside the deploy.
+ *
+ * Host modules still win: the fallback is only consulted after hostRequire
+ * throws, so a vendored copy can never shadow the shared runtime and split a
+ * singleton.
+ */
+export function extRequire(dir: string, hostRequire: (spec: string) => unknown): (spec: string) => unknown {
+	let local: NodeJS.Require | null = null;
+	return (spec: string): unknown => {
+		try {
+			return hostRequire(spec);
+		} catch (hostError) {
+			try {
+				local ??= createRequire(join(dir, "package.json"));
+				return local(spec);
+			} catch {
+				// Report the HOST's error: it names the contract the extension
+				// violated. The fallback failing merely means "not vendored either".
+				throw hostError;
+			}
+		}
+	};
 }
 
 interface Candidate {
@@ -123,7 +157,12 @@ export function loadExtensions(opts: LoadOptions): LoadResult {
 	for (const { dir, manifest } of candidates) {
 		const entryPath = join(dir, manifest.entry);
 		try {
-			const exports = evaluateExtModule(readFileSync(entryPath, "utf8"), entryPath, dir, opts.require);
+			const exports = evaluateExtModule(
+				readFileSync(entryPath, "utf8"),
+				entryPath,
+				dir,
+				extRequire(dir, opts.require),
+			);
 			const factory = exports.default;
 			if (typeof factory !== "function") {
 				result.skipped.push({ name: manifest.name, reason: "bundle has no callable default export" });

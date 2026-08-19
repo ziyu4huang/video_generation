@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadExtensions } from "./ext-loader.ts";
+import { extRequire, loadExtensions } from "./ext-loader.ts";
 
 const HOST = { hostApi: 1, hostModules: ["typebox"] };
 const roots: string[] = [];
@@ -161,5 +161,54 @@ describe("loadExtensions", () => {
 		mkdirSync(join(dir, "skills"), { recursive: true });
 		const r = loadExtensions({ extRoot: root, host: HOST, require: () => ({}) });
 		expect(r.skillPaths).toEqual([join(dir, "skills")]);
+	});
+});
+
+describe("extRequire", () => {
+	const dirs: string[] = [];
+	const makeExt = (): string => {
+		const d = mkdtempSync(join(tmpdir(), "extreq-"));
+		dirs.push(d);
+		return d;
+	};
+	afterEach(() => {
+		for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+	});
+
+	test("serves host modules unchanged", () => {
+		const host = (spec: string) => {
+			if (spec === "hosted") return { from: "host" };
+			throw new Error(`no host module "${spec}"`);
+		};
+		expect(extRequire(makeExt(), host)("hosted")).toEqual({ from: "host" });
+	});
+
+	test("falls back to the extension's own node_modules", () => {
+		const dir = makeExt();
+		const pkg = join(dir, "node_modules", "vendored-thing");
+		mkdirSync(pkg, { recursive: true });
+		writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "vendored-thing", main: "index.js" }));
+		writeFileSync(join(pkg, "index.js"), "module.exports = { from: 'vendored' };");
+		const host = (spec: string) => {
+			throw new Error(`no host module "${spec}"`);
+		};
+		expect(extRequire(dir, host)("vendored-thing")).toEqual({ from: "vendored" });
+	});
+
+	test("the host wins over a vendored copy — a shadowed runtime would split singletons", () => {
+		const dir = makeExt();
+		const pkg = join(dir, "node_modules", "shared-runtime");
+		mkdirSync(pkg, { recursive: true });
+		writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "shared-runtime", main: "index.js" }));
+		writeFileSync(join(pkg, "index.js"), "module.exports = { from: 'vendored' };");
+		const host = (spec: string) => (spec === "shared-runtime" ? { from: "host" } : (() => { throw new Error("x"); })());
+		expect(extRequire(dir, host)("shared-runtime")).toEqual({ from: "host" });
+	});
+
+	test("reports the HOST's error when neither can serve it", () => {
+		const host = (spec: string) => {
+			throw new Error(`host does not provide "${spec}"`);
+		};
+		expect(() => extRequire(makeExt(), host)("nowhere")).toThrow(/host does not provide "nowhere"/);
 	});
 });

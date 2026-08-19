@@ -99,3 +99,43 @@ describe("parseShConfig", () => {
 		]);
 	});
 });
+
+describe("vendor", () => {
+	const base = (extra: string) => `
+outRoot: /tmp/out
+hostApi: 1
+hostModules: ["@earendil-works/pi-coding-agent"]
+extensions:
+  - name: power-tool
+    package: pi-agent-ext-power-tool
+    entry: extensions/power-tool.ts
+${extra}
+`;
+
+	test("defaults to an empty list", () => {
+		const cfg = parseShConfig(base(""), { bunAppsDir: BUN_APPS });
+		expect(cfg.extensions[0]!.vendor).toEqual([]);
+	});
+
+	test("parses a declared list", () => {
+		const cfg = parseShConfig(base(`    vendor: ["playwright-core"]`), { bunAppsDir: BUN_APPS });
+		expect(cfg.extensions[0]!.vendor).toEqual(["playwright-core"]);
+	});
+
+	test("rejects a package declared both vendored and external", () => {
+		// The two answer the same question — "where does this come from at
+		// runtime?" — with different answers, so accepting both would make the
+		// build honor whichever it happened to read last.
+		expect(() =>
+			parseShConfig(base(`    vendor: ["playwright-core"]\n    externals: ["playwright-core"]`), {
+				bunAppsDir: BUN_APPS,
+			}),
+		).toThrow(/both vendor and externals/);
+	});
+
+	test("rejects a non-array vendor", () => {
+		expect(() => parseShConfig(base(`    vendor: "playwright-core"`), { bunAppsDir: BUN_APPS })).toThrow(
+			/vendor must be an array/,
+		);
+	});
+});

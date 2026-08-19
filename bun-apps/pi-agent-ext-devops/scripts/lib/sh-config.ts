@@ -27,6 +27,21 @@ export interface ShExtConfig {
 	 * "this extension degrades if the dep is absent", not "the host provides it".
 	 */
 	externals: string[];
+	/**
+	 * Packages copied VERBATIM into <ext>/node_modules/<pkg>/ instead of being
+	 * bundled, and resolved at runtime from the extension's own directory.
+	 *
+	 * This exists because bundling is not neutral for every dependency. Bun's cjs
+	 * output rewrites `__dirname` to the path the file had ON THE BUILD MACHINE,
+	 * so a package that locates its own resources through `__dirname`
+	 * (playwright-core) ends up pointing at the builder's install cache and the
+	 * deploy tree stops being relocatable. Vendoring gives it a real directory
+	 * inside the deploy, where `__dirname` means what it says.
+	 *
+	 * Distinct from `externals` (not bundled, NOT shipped — the extension
+	 * degrades without it) and from hostModules (the core provides it).
+	 */
+	vendor: string[];
 	enabled: boolean;
 }
 
@@ -41,7 +56,7 @@ export interface ShConfig {
 }
 
 const TOP_KEYS = new Set(["outRoot", "version", "freeze", "current", "hostApi", "hostModules", "extensions"]);
-const EXT_KEYS = new Set(["name", "package", "entry", "order", "skills", "enabled", "externals"]);
+const EXT_KEYS = new Set(["name", "package", "entry", "order", "skills", "enabled", "externals", "vendor"]);
 
 function expandHome(p: string): string {
 	if (p === "~") return homedir();
@@ -125,6 +140,19 @@ export function parseShConfig(text: string, opts: { bunAppsDir: string }): ShCon
 			throw new Error(`extensions[${i}].externals must be an array of strings`);
 		}
 
+		const vendor = ext.vendor === undefined ? [] : ext.vendor;
+		if (!Array.isArray(vendor) || !vendor.every((s) => typeof s === "string")) {
+			throw new Error(`extensions[${i}].vendor must be an array of strings`);
+		}
+		for (const v of vendor as string[]) {
+			// A package cannot be both shipped and declared-absent; the two answer
+			// the same question ("where does this come from at runtime?") with
+			// different answers, and the build would honor whichever it read last.
+			if ((externals as string[]).includes(v)) {
+				throw new Error(`extensions[${i}]: "${v}" is in both vendor and externals — pick one`);
+			}
+		}
+
 		const order = ext.order === undefined ? 100 : ext.order;
 		if (typeof order !== "number" || !Number.isFinite(order)) {
 			throw new Error(`extensions[${i}].order must be a number`);
@@ -140,6 +168,7 @@ export function parseShConfig(text: string, opts: { bunAppsDir: string }): ShCon
 			skills: skills as string[],
 			enabled,
 			externals: externals as string[],
+			vendor: vendor as string[],
 		};
 	});
 

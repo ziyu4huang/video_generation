@@ -51,3 +51,30 @@ describe("applyContextPolyfills", () => {
     expect((ctx.getSystemPrompt as () => unknown)()).toBe("SP");
   });
 });
+
+// ── the runner lookup (regression guard for the pi-agent-sh deploy) ──────────
+//
+// ensureGetSystemPromptOptions() used to reach the runner class through
+// `createRequire(import.meta.url).resolve(".../package.json")` + a derived deep
+// path. The bundler baked the BUILD MACHINE's absolute link-farm path into
+// power-tool's cjs bundle, so in a pi-agent-sh deploy the host require (bare
+// specifiers only) threw and this polyfill silently never applied — every
+// invocation printed a warning and inspect_context / inspect_hooks /
+// inspect_extensions ran degraded. Two guards: the behaviour, and the shape
+// (the regression is a re-introduced deep path, which the behaviour test cannot
+// see because it passes on the build machine).
+describe("ensureGetSystemPromptOptions", () => {
+  test("resolves the runner class and patches it", async () => {
+    const { ensureGetSystemPromptOptions } = await import("../sdk-patch.js");
+    expect(ensureGetSystemPromptOptions()).toBe(true);
+  });
+
+  test("reaches the SDK by root import only — no createRequire, no deep path", async () => {
+    const raw = await Bun.file(new URL("../sdk-patch.ts", import.meta.url)).text();
+    // Comments describe the old deep path on purpose; assert against CODE only.
+    const code = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    expect(code).not.toContain("createRequire");
+    expect(code).not.toContain("dist/core/");
+    expect(code).toContain('import { ExtensionRunner } from "@earendil-works/pi-coding-agent"');
+  });
+});

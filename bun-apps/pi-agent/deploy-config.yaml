@@ -31,16 +31,19 @@ extensions:
     entry: extensions/power-tool.ts
     order: 50
     skills: [skills]
-    # power-tool pulls playwright-core (browser/webui tools). playwright-core's
-    # vendored bundle does require("chromium-bidi/...") while declaring zero
-    # deps, so the bundler cannot resolve those paths. Same treatment the legacy
-    # deploy.ts already uses (OPTIONAL_EXTERNALS, PR #1635): externalize only
-    # the unresolvable internals — playwright-core itself stays bundled, so the
-    # browser tools work in the deploy. The chromium-bidi requires sit in
-    # esbuild's lazy __esm({...}) for bidiOverCdp, which the default CDP path
-    # never enters.
-    # kerberos / vite / @playwright/test are playwright's own optional peers,
-    # reached only from code paths this agent never takes.
+    # power-tool pulls playwright-core (browser/webui tools). It is VENDORED,
+    # not bundled: bun's cjs output rewrites `__dirname` to the path the file
+    # had on the BUILD MACHINE, and playwright-core locates its own resources
+    # that way — bundling it baked ~/.bun/install/cache/... into the deploy and
+    # made the tree non-relocatable (gate 4 now blocks that). Vendoring ships it
+    # as a real directory under ext/power-tool/node_modules/, where __dirname
+    # means what it says.
+    vendor: ["playwright-core"]
+    # playwright-core's own unresolvable internals + optional peers. Its vendored
+    # bundle does require("chromium-bidi/...") while declaring zero deps; those
+    # calls sit in esbuild's lazy __esm({...}) for bidiOverCdp, which the default
+    # CDP path never enters. kerberos / vite / @playwright/test are optional
+    # peers reached only from code paths this agent never takes.
     externals: ["chromium-bidi/*", "kerberos", "vite", "@playwright/test"]
   - name: hyperframes
     package: pi-agent-ext-hyperframes
