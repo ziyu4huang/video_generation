@@ -96,7 +96,7 @@ describe("loadProbe", () => {
 });
 
 describe("buildExtPackage", () => {
-	test("builds power-tool into ext.cjs + ext.json + skills", async () => {
+	test("builds power-tool into ext.cjs + ext.json", async () => {
 		const out = makeDir();
 		const res = await buildExtPackage({
 			ext: {
@@ -104,7 +104,7 @@ describe("buildExtPackage", () => {
 				package: "pi-agent-ext-power-tool",
 				entry: "extensions/power-tool.ts",
 				order: 50,
-				skills: ["skills"],
+				skills: [],
 				enabled: true,
 				externals: ["chromium-bidi/*", "kerberos", "vite", "@playwright/test"],
 				vendor: ["playwright-core"],
@@ -119,13 +119,13 @@ describe("buildExtPackage", () => {
 		});
 
 		expect(existsSync(join(out, "power-tool", "ext.cjs"))).toBe(true);
-		expect(existsSync(join(out, "power-tool", "skills"))).toBe(true);
+		expect(existsSync(join(out, "power-tool", "skills"))).toBe(false);
 		const manifest = JSON.parse(readFileSync(join(out, "power-tool", "ext.json"), "utf8"));
 		expect(manifest.name).toBe("power-tool");
 		expect(manifest.hostApi).toBe(1);
 		expect(manifest.entry).toBe("ext.cjs");
 		expect(manifest.order).toBe(50);
-		expect(manifest.skills).toEqual(["skills"]);
+		expect(manifest.skills).toEqual([]);
 		// only host modules may remain unresolved
 		expect(manifest.hostModules.every((m: string) => HOST_MODULES.includes(m))).toBe(true);
 		// A declared runtime external is recorded but NOT claimed as host-provided:
