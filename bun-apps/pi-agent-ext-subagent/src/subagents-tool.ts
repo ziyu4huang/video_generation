@@ -11,29 +11,32 @@ import type {
   AgentUsage,
   BudgetExhaustion,
   RunView,
+  SpawnSubagentOptions,
+  SpawnSubagentResult,
   SubagentInFlightRegistry,
   TurnExhaustion,
 } from "@repo/pi-agent-core-runtime";
 import {
   checkBudgetExhaustion,
   DEFAULT_BATCH_CONCURRENCY,
+  deriveTaskLabel,
   fmtElapsed,
   getGlobalRateLimiter,
   isTerminalStatus,
   MAX_BATCH_TASKS,
   MAX_CONCURRENCY,
   providerFromModelSpec,
+  roleAwareDefaults,
   shortModel,
+  spawnSubagent,
   summarizeLatestAction,
+  tierDefaultToken,
 } from "@repo/pi-agent-core-runtime";
 import { Type } from "typebox";
-import { roleAwareDefaults, tierDefaultToken } from "./budget-defaults.js";
 import { dispatchChild } from "./child-dispatch.js";
 import { ComposerComponent } from "./composer-component.js";
 import { realGitOps } from "./git-scope.js";
 import { missingRequiredTools } from "./impossible-tools.js";
-import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
-import { deriveTaskLabel, spawnSubagent } from "./spawn-subagent.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
 import { taskPreview, workIntentPreview } from "./subagent-tool-render.js";
 import { abortSafetyFooter, augmentOutputWithScopeViolation, extractSalvage } from "./subagent-tool-run.js";

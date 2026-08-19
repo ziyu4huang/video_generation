@@ -17,8 +17,7 @@
 
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
-import { type AgentUsage, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-core-runtime";
-import { spawnSubagent } from "../src/spawn-subagent.js";
+import { type AgentUsage, spawnSubagent, WorkflowError, WorkflowErrorCode } from "@repo/pi-agent-core-runtime";
 
 /** Runner that always throws `e`. Retry is disabled per-call so each test
  *  observes exactly one classification rather than a retried pair. */

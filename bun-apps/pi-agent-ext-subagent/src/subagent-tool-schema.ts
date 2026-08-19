@@ -10,13 +10,14 @@ import type {
   createWorktree,
   removeWorktree,
   SddReport,
+  SpawnSubagentOptions,
+  SpawnSubagentResult,
   SubagentInFlightRegistry,
   TurnExhaustion,
 } from "@repo/pi-agent-core-runtime";
 import type { TSchema } from "typebox";
 import { Type } from "typebox";
 import type { GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
-import type { SpawnSubagentOptions, SpawnSubagentResult } from "./spawn-subagent.js";
 import type { SubagentRunPersistence } from "./subagent-run-persistence.js";
 import type { WatchdogResult } from "./watchdog/types.js";
 

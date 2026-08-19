@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, test } from "bun:test";
 import assert from "node:assert/strict";
-import type { ModelTierConfig } from "@repo/pi-agent-core-runtime";
 import {
   ROLE_AWARE_DISPATCH_BOUNDS,
   roleAwareDefaults,
   TIERED_TOKEN_BUDGET_DEFAULTS,
   tierDefaultToken,
 } from "../src/budget-defaults.js";
-import { roleAwareDirectCall } from "../src/subagent-tool-run.js";
+import type { ModelTierConfig } from "../src/model-tier-config.js";
+import { roleAwareDirectCall } from "../src/role-dispatch.js";
 
 const ENV_KNOBS = [
   "SUBAGENT_TOKEN_BUDGET_DISABLE",

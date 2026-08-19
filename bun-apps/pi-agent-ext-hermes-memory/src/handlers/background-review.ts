@@ -12,7 +12,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { roleAwareDirectCall, spawnSubagent } from "@repo/pi-agent-ext-subagent";
+import { roleAwareDirectCall, spawnSubagent } from "@repo/pi-agent-core-runtime";
 import { COMBINED_REVIEW_PROMPT } from "../constants.js";
 import { MemoryStore } from "../store/memory-store.js";
 import type { CardStore } from "../store/card-store.js";

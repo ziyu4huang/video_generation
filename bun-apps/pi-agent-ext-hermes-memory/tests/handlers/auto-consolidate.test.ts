@@ -13,7 +13,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-ext-subagent";
+import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-core-runtime";
 import {
   fireProactiveIfReady,
   registerConsolidateCommand,
@@ -55,7 +55,7 @@ function createFakeSpawn(overrides: FakeSpawnOverrides = {}) {
     if (overrides.throwErr) throw new Error(overrides.throwErr);
     return result;
   };
-  return { spawn: spawn as typeof import("@repo/pi-agent-ext-subagent").spawnSubagent, calls, result };
+  return { spawn: spawn as typeof import("@repo/pi-agent-core-runtime").spawnSubagent, calls, result };
 }
 
 const mockStore = {

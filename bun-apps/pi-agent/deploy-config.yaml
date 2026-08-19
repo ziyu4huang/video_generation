@@ -19,7 +19,7 @@ version:
   gitSha: true
 freeze: true
 current: true
-hostApi: 1
+hostApi: 2
 hostModules:
   - "@earendil-works/pi-coding-agent"
   - "@earendil-works/pi-tui"
@@ -31,11 +31,6 @@ hostModules:
   # extensions that import it (subagent, workflow, hermes-memory, btw, webui).
   - "@earendil-works/pi-ai"
   - "@earendil-works/pi-ai/compat"
-  # The subagent package is BOTH an extension (factory registers tools) and a
-  # shared runtime library: hermes-memory handlers import spawnSubagent /
-  # roleAwareDirectCall, and the in-flight registry is an identity-sensitive
-  # singleton — per-ext bundles would split it (same reasoning as core-runtime).
-  - "@repo/pi-agent-ext-subagent"
 extensions:
   - name: task
     package: pi-agent-ext-task

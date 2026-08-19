@@ -9,8 +9,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ENV_HINTS_MARKER } from "../src/env-hints.js";
-import { buildSpawnOptions, type RunProgress, roleAwareDirectCall } from "../src/subagent-tool-run.js";
+import { ENV_HINTS_MARKER, roleAwareDirectCall } from "@repo/pi-agent-core-runtime";
+import { buildSpawnOptions, type RunProgress } from "../src/subagent-tool-run.js";
 
 const HINTS_ENV = "PI_SUBAGENT_HINTS_FILE";
 const DISABLE_ENV = "SUBAGENT_TOKEN_BUDGET_DISABLE";

@@ -2,11 +2,10 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import type { AgentHistoryEntry } from "@repo/pi-agent-core-runtime";
+import type { AgentHistoryEntry, SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-core-runtime";
 import { SubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
 import { ComposerComponent } from "../src/composer-component.js";
 import type { GitScopeOps } from "../src/git-scope.js";
-import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
 import { createSubagentTool } from "../src/subagent-tool.js";
 import {

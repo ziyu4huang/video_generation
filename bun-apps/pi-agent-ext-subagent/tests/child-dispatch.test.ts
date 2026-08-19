@@ -8,11 +8,11 @@
  */
 import { describe, it } from "bun:test";
 import * as assert from "node:assert/strict";
+import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-core-runtime";
 import { type AgentHistoryEntry, SubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
 import { type ChildDispatchDeps, dispatchChild } from "../src/child-dispatch.js";
 import { convertToBackground } from "../src/detach-run.js";
 import type { GitScopeOps } from "../src/git-scope.js";
-import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
 import { budgetAbort, failed, ok, timedout, turnsAbort } from "./_spawn-result.js";
 
 const OK: SpawnSubagentResult = ok("out");

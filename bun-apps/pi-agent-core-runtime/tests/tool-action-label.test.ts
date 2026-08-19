@@ -251,10 +251,7 @@ test("width: absent ctx.width keeps the legacy ~50 cap (ASCII byte-identical)", 
   const cmd = "c".repeat(120);
   assert.equal(formatToolAction(call("bash", JSON.stringify({ command: cmd }))), `Running: ${"c".repeat(49)}…`);
   const path = "p".repeat(120);
-  assert.equal(
-    formatToolAction(call("read", JSON.stringify({ path }))),
-    `Reading ${"p".repeat(25)}…${"p".repeat(24)}`,
-  );
+  assert.equal(formatToolAction(call("read", JSON.stringify({ path }))), `Reading ${"p".repeat(25)}…${"p".repeat(24)}`);
 });
 
 test("width: ctx.width narrows the target cap (end-ellipsis path, command key)", () => {

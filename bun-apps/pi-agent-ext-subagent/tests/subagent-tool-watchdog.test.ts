@@ -19,7 +19,7 @@
  */
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import type { SpawnSubagentOptions, SpawnSubagentResult } from "../src/spawn-subagent.js";
+import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-core-runtime";
 import { createSubagentTool } from "../src/subagent-tool.js";
 import { ok } from "./_spawn-result.js";
 

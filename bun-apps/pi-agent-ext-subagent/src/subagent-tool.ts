@@ -19,9 +19,11 @@ import {
   loadAgentRegistry,
   removeWorktree,
   resolveAgentType,
+  roleAwareDefaults,
+  spawnSubagent,
+  tierDefaultToken,
   type Worktree,
 } from "@repo/pi-agent-core-runtime";
-import { roleAwareDefaults, tierDefaultToken } from "./budget-defaults.js";
 import { dispatchChild } from "./child-dispatch.js";
 import { ComposerComponent, GuardedComponent } from "./composer-component.js";
 import { realGitOps } from "./git-scope.js";
@@ -34,7 +36,6 @@ import {
   shouldCircuitBreak,
   taskSignature,
 } from "./retry-loop-detector.js";
-import { spawnSubagent } from "./spawn-subagent.js";
 import {
   formatSubagentLive,
   formatSubagentResult,

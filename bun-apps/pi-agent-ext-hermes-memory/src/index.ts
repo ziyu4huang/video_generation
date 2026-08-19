@@ -35,5 +35,13 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { composeHermesMemory } from "./composition/compose.js";
 
 export default async function hermesMemoryExtension(pi: ExtensionAPI): Promise<void> {
+	// Self-gate: BUN_PI_HERMES_MEMORY=0 disables the entire extension — it registers
+	// nothing and publishes no seam. Mirrors prompt-history's
+	// BUN_PI_PROMPT_HISTORY=0 so every extension in the portable base set
+	// (deploy-config.yaml) shares one symmetric full-disable knob; enforced by
+	// tests/extension-isolation-contract.test.ts. Safe: every cross-extension
+	// consumer reads its seam defensively, so disabling degrades features,
+	// never crashes.
+	if (process.env.BUN_PI_HERMES_MEMORY === "0") return;
 	await composeHermesMemory(pi);
 }

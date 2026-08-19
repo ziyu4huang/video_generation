@@ -3,7 +3,7 @@ import { HOST_API, HOST_MODULE_IDS, HostModuleNotFoundError, hostRequire } from 
 
 describe("host-modules", () => {
 	test("HOST_API is the integer contract version", () => {
-		expect(HOST_API).toBe(1);
+		expect(HOST_API).toBe(2);
 	});
 
 	test("exposes exactly the whitelisted specifiers", () => {
@@ -13,7 +13,6 @@ describe("host-modules", () => {
 			"@earendil-works/pi-coding-agent",
 			"@earendil-works/pi-tui",
 			"@repo/pi-agent-core-runtime",
-			"@repo/pi-agent-ext-subagent",
 			"typebox",
 			"typebox/value",
 		]);

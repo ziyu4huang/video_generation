@@ -45,6 +45,14 @@ import { registerAskUserLanguage } from "../src/response-language/ask-user-langu
 import { getPlanPhases, getPlanSummary, isPlanIncomplete, refreshPlan, shouldRefreshAfterTool } from "../src/plan/coordinator.js";
 
 const extension: ExtensionFactory = (pi: ExtensionAPI) => {
+	// Self-gate: BUN_PI_TASK=0 disables the entire extension — it registers
+	// nothing and publishes no seam. Mirrors prompt-history's
+	// BUN_PI_PROMPT_HISTORY=0 so every extension in the portable base set
+	// (deploy-config.yaml) shares one symmetric full-disable knob; enforced by
+	// tests/extension-isolation-contract.test.ts. Safe: every cross-extension
+	// consumer reads its seam defensively, so disabling degrades features,
+	// never crashes.
+	if (process.env.BUN_PI_TASK === "0") return;
 	// ── Plan A coordination seam ─────────────────────────────────────────
 	// globalThis is process-singleton → the function always reads goal/goal's
 	// activeGoal. The in-package /loop subsystem reads globalThis.__piGoalActive?.()

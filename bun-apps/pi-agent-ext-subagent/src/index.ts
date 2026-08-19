@@ -26,20 +26,25 @@
 // Which peer consumes which symbol is recorded in FACADE_SYMBOLS in
 // tests/barrel-surface.test.ts, not in comments here — biome sorts export names,
 // so per-line attribution would drift out of alignment on the next `--write`.
-export type { AgentHistoryEntry, AgentUsage } from "@repo/pi-agent-core-runtime";
+export type {
+  AgentHistoryEntry,
+  AgentUsage,
+  SpawnSubagentOptions,
+  SpawnSubagentResult,
+  SubagentFailure,
+} from "@repo/pi-agent-core-runtime";
 export {
   getGlobalRateLimiter,
   getSubagentInFlightRegistry,
   loadModelTierConfig,
   logModelDecision,
   resolveModelRole,
+  roleAwareDirectCall,
   saveModelTierConfig,
   setRateLimitCapResolver,
+  spawnSubagent,
   WorkflowAgent,
 } from "@repo/pi-agent-core-runtime";
-// ── owned: role-aware dispatch bounds (calibrated 2026-08 dispatch empirics) ──
-export type { DispatchRole } from "./budget-defaults.js";
-export { ROLE_AWARE_DISPATCH_BOUNDS, roleAwareDefaults } from "./budget-defaults.js";
 // ── owned: detach dispatch (Task 06) — alt+s global + ctrl+b in-viewer ─────
 export {
   DETACH_KEY_BYTE,
@@ -57,9 +62,6 @@ export type {
   DetachOutcome,
 } from "./detach-run.js";
 export { convertToBackground, makeProdDetachDeps, spawnDetachedChild } from "./detach-run.js";
-// ── owned: programmatic dispatch ─────────────────────────────────────────────
-export type { SpawnSubagentOptions, SpawnSubagentResult, SubagentFailure } from "./spawn-subagent.js";
-export { spawnSubagent } from "./spawn-subagent.js";
 // The isolated-PROCESS analog (wayfind ticket 04). Consumers that need a clean
 // child pi process (obsidian distill/garden, tool-gate L2 A/B) use this instead
 // of the in-process spawnSubagent.
@@ -96,14 +98,6 @@ export {
 export type { SubagentRunsToolOptions } from "./subagent-runs-tool.js";
 export { createSubagentRunsTool } from "./subagent-runs-tool.js";
 export { createSubagentTool } from "./subagent-tool.js";
-export {
-  capTraceTail,
-  formatHistoryLine,
-  formatSubagentTrace,
-  latestMessageLine,
-  STREAMING_EXPANDED_TAIL,
-} from "./subagent-tool-render.js";
-export { roleAwareDirectCall } from "./subagent-tool-run.js";
 export type { SubagentToolDetails, SubagentToolOptions } from "./subagent-tool-schema.js";
 export type {
   BatchResultSlot,

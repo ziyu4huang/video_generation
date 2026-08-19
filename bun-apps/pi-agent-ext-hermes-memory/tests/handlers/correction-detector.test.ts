@@ -13,7 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-ext-subagent";
+import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/pi-agent-core-runtime";
 import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
 import { createCardStore } from "../../src/store/card-store.js";
@@ -267,7 +267,7 @@ describe("setupCorrectionDetector handler", () => {
       if (overrides.throwErr) throw new Error(overrides.throwErr);
       return result;
     };
-    return spawn as typeof import("@repo/pi-agent-ext-subagent").spawnSubagent;
+    return spawn as typeof import("@repo/pi-agent-core-runtime").spawnSubagent;
   }
 
   const mockStore = {

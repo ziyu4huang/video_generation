@@ -5,7 +5,7 @@
  */
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { roleAwareDirectCall, spawnSubagent } from "@repo/pi-agent-ext-subagent";
+import { roleAwareDirectCall, spawnSubagent } from "@repo/pi-agent-core-runtime";
 import { MemoryStore } from "../store/memory-store.js";
 import { FLUSH_PROMPT } from "../constants.js";
 import type { MemoryConfig } from "../types.js";

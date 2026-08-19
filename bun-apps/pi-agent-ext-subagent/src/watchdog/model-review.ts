@@ -1,7 +1,12 @@
 import { StringEnum } from "@earendil-works/pi-ai";
-import { loadModelTierConfig, type ModelTierConfig, resolveModelRole } from "@repo/pi-agent-core-runtime";
+import {
+  loadModelTierConfig,
+  type ModelTierConfig,
+  resolveModelRole,
+  type SpawnSubagentOptions,
+  spawnSubagent,
+} from "@repo/pi-agent-core-runtime";
 import { Type } from "typebox";
-import { type SpawnSubagentOptions, spawnSubagent } from "../spawn-subagent.js";
 import { roleAwareDirectCall } from "../subagent-tool-run.js";
 import type { WatchdogFinding, WatchdogL2Result } from "./types.js";
 

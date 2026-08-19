@@ -19,21 +19,15 @@
  */
 
 import type { CreateAgentSessionOptions, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { AgentHistoryEntry } from "@repo/pi-agent-core-runtime";
-import {
-  type AgentUsage,
-  type BudgetExhaustion,
-  type BudgetWarning,
-  checkBudgetWarning,
-  isWorkflowError,
-  loadModelTierConfig,
-  logModelDecision,
-  resolveModelRole,
-  type TurnExhaustion,
-  WorkflowAgent,
-  WorkflowErrorCode,
-} from "@repo/pi-agent-core-runtime";
 import type { TSchema } from "typebox";
+import { CoreAgent as WorkflowAgent } from "./agent.js";
+import { type AgentUsage, type BudgetExhaustion, type BudgetWarning, checkBudgetWarning } from "./agent-budget.js";
+import type { AgentHistoryEntry } from "./agent-history.js";
+import type { TurnExhaustion } from "./agent-turns.js";
+import { logModelDecision } from "./debug-models.js";
+import { isWorkflowError, WorkflowErrorCode } from "./errors.js";
+import { resolveModelRole } from "./model-role-config.js";
+import { loadModelTierConfig } from "./model-tier-config.js";
 
 export interface SpawnSubagentOptions {
   task: string;

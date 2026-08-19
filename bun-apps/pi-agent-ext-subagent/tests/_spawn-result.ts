@@ -11,8 +11,7 @@
  * silently re-runs its suites.
  */
 
-import type { BudgetExhaustion, TurnExhaustion } from "@repo/pi-agent-core-runtime";
-import type { SpawnSubagentResult } from "../src/spawn-subagent.js";
+import type { BudgetExhaustion, SpawnSubagentResult, TurnExhaustion } from "@repo/pi-agent-core-runtime";
 
 type Extra = Partial<SpawnSubagentResult>;
 
