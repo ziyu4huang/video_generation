@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { MODEL_TIERS_FILE } from "./config.js";
 import { homeDir } from "./home.js";
+import { logModelDecision } from "./debug-models.js";
 
 /**
  * Model tier + capability configuration. `tiers` maps size names
@@ -30,7 +31,10 @@ export function getModelTierConfigPath(): string {
 /** Load the config from disk. Returns null if absent or unparseable. */
 export function loadModelTierConfig(configPath?: string): ModelTierConfig | null {
   const path = configPath ?? getModelTierConfigPath();
-  if (!existsSync(path)) return null;
+  if (!existsSync(path)) {
+    logModelDecision("load-config", { path, result: "absent" });
+    return null;
+  }
   try {
     const raw = readFileSync(path, "utf-8");
     const parsed = JSON.parse(raw);
@@ -45,8 +49,10 @@ export function loadModelTierConfig(configPath?: string): ModelTierConfig | null
         if (typeof val !== "string") return null;
       }
     }
+    logModelDecision("load-config", { path, result: "loaded", ...parsed });
     return parsed as ModelTierConfig;
   } catch {
+    logModelDecision("load-config", { path, result: "unparseable" });
     return null;
   }
 }

@@ -58,7 +58,9 @@ const MODEL_TIERS_PATH = join(homedir(), ".pi", "workflows", "model-tiers.json")
 
 const debug =
 	process.env.BUN_PI_DEBUG_PATCHES === "1" ||
-	process.env.BUN_PI_DEBUG_PATCHES === "true";
+	process.env.BUN_PI_DEBUG_PATCHES === "true" ||
+	process.env.PI_DEBUG_MODELS === "1" ||
+	process.env.PI_DEBUG_MODELS === "true";
 const enabled = process.env.BUN_PI_ENSURE_MODEL_TIERS !== "0";
 
 // Import-time side effect: materialize the config file before main() if (and

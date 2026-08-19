@@ -204,6 +204,62 @@ export function rewriteVendoredDynamicImports(code: string, vendor: readonly str
 	return out;
 }
 
+/** All literal dynamic-import specifiers in `code` (template concat skipped). */
+function dynamicImportSpecs(code: string): string[] {
+	const specs = new Set<string>();
+	for (const m of code.matchAll(/import\(\s*(["'`])([^"'`]+)\1\s*\)/g)) {
+		const spec = m[2]!;
+		if (spec.includes("${")) continue;
+		specs.add(spec);
+	}
+	return [...specs];
+}
+
+/**
+ * Rewrite every DYNAMIC import of an ALLOWED specifier (host modules, declared
+ * runtime externals, vendored packages) into `Promise.resolve(require(spec))`.
+ *
+ * The same mechanism as rewriteVendoredDynamicImports, generalized from vendor:
+ * entries to the whole allow-list. The defect it closes (2026-08-20, /websearch):
+ * web-access's `await import("@earendil-works/pi-ai/compat")` — a HOST module —
+ * stayed a native dynamic import in the cjs bundle. Static imports are compiled
+ * to require calls inside the wrapper (routed through the loader's injected
+ * require), but dynamic ones are not; in a compiled binary they resolve against
+ * $bunfs and fail with `Cannot find module '…' from '/$bunfs/root/pi-agent'`.
+ * Gate 1 couldn't see it — the specifier IS allowed, it just wasn't REACHABLE
+ * as a dynamic import.
+ *
+ * Node builtins stay native: they resolve fine in a compiled binary and there
+ * is no reason to touch them. Non-allowed specifiers are left for Gate 1,
+ * which rejects them outright.
+ */
+export function rewriteAllowedDynamicImports(code: string, allowed: readonly string[]): string {
+	let out = code;
+	for (const spec of dynamicImportSpecs(code)) {
+		if (isBuiltinSpecifier(spec)) continue;
+		if (!matchesAllowed(spec, allowed)) continue;
+		const q = spec.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		out = out.replace(new RegExp(`import\\(\\s*(["'\`])${q}\\1\\s*\\)`, "g"), `Promise.resolve(require("${spec}"))`);
+	}
+	return out;
+}
+
+/**
+ * Bare dynamic-import specifiers that remain after the rewrites — none of these
+ * can resolve at runtime inside a compiled binary (that is the /websearch
+ * failure mode), so a non-empty result must fail the build. Builtins,
+ * relative/absolute paths, and the `#pi/…` channel are exempt.
+ */
+export function scanUnroutableDynamicImports(code: string): string[] {
+	return dynamicImportSpecs(code).filter(
+		(spec) =>
+			!isBuiltinSpecifier(spec) &&
+			!spec.startsWith(".") &&
+			!spec.startsWith("/") &&
+			!spec.startsWith("#"),
+	);
+}
+
 /**
  * Copy a vendored package verbatim into <outDir>/node_modules/<pkg>/.
  *
@@ -281,8 +337,13 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 	let built = readFileSync(cjsPath, "utf8");
 	if (opts.ext.vendor.length > 0) {
 		built = rewriteVendoredDynamicImports(built, opts.ext.vendor);
-		writeFileSync(cjsPath, built);
 	}
+	// ── Allowed dynamic imports → require ────────────────────────────────────
+	// Host modules / runtime externals too, not just vendored ones: a native
+	// dynamic import cannot reach them inside a compiled binary (see the
+	// rewriteAllowedDynamicImports header — the /websearch defect).
+	built = rewriteAllowedDynamicImports(built, allExternals);
+	writeFileSync(cjsPath, built);
 
 	// ── Gate 1: nothing foreign may remain unresolved ────────────────────────
 	const foreign = scanForeignSpecifiers(built, allExternals);
@@ -290,6 +351,20 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 		throw new Error(
 			`${opts.ext.name}: bundle references specifier(s) the host does not provide: ${foreign.join(", ")}. ` +
 				`Either add them to hostModules (and to src/sh/host-modules.ts) or make the bundler inline them.`,
+		);
+	}
+
+	// ── Gate 1b: no bare dynamic import may remain ───────────────────────────
+	// The rewrites above turn every ALLOWED dynamic import into a require; Gate 1
+	// has already rejected every non-allowed bare specifier. Anything left as a
+	// native `import("<bare>")` therefore cannot resolve at runtime inside a
+	// compiled binary — this is exactly how /websearch shipped broken while all
+	// existing gates stayed green.
+	const unroutable = scanUnroutableDynamicImports(built);
+	if (unroutable.length > 0) {
+		throw new Error(
+			`${opts.ext.name}: bundle keeps native dynamic import(s) that cannot resolve inside the compiled binary: ${unroutable.join(", ")}. ` +
+				`Import the module statically (the cjs wrapper routes static imports through the injected require), or declare it as an external so the build rewrites it to require().`,
 		);
 	}
 

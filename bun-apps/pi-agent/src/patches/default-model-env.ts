@@ -162,7 +162,9 @@ if (extra.length) {
 if (
 	extra.length &&
 	(process.env.BUN_PI_DEBUG_PATCHES === "1" ||
-		process.env.BUN_PI_DEBUG_PATCHES === "true")
+		process.env.BUN_PI_DEBUG_PATCHES === "true" ||
+		process.env.PI_DEBUG_MODELS === "1" ||
+		process.env.PI_DEBUG_MODELS === "true")
 ) {
 	console.error("[bun-pi] default-model-env spliced argv:", extra);
 }

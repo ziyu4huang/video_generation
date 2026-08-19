@@ -15,6 +15,7 @@
  * exists, not that it is already used directly.
  */
 import { loadModelTierConfig, type ModelTierConfig, resolveTierModel, sortedTierNames } from "./model-tier-config.js";
+import { logModelDecision } from "./debug-models.js";
 
 /**
  * Resolve which concrete model spec a subagent should use. Precedence, most
@@ -39,24 +40,35 @@ export function resolveAgentModelSpec(
   mainModel: string | undefined,
   loadConfig: () => ModelTierConfig | null = loadModelTierConfig,
 ): string | undefined {
-  if (options.model) return options.model;
+  if (options.model) {
+    logModelDecision("resolve", { branch: "explicit-model", spec: options.model });
+    return options.model;
+  }
   const config = loadConfig();
   if (options.tier) {
     const resolved = config ? resolveTierModel(options.tier, config) : undefined;
-    if (resolved) return resolved;
+    if (resolved) {
+      logModelDecision("resolve", { branch: "tier", tier: options.tier, spec: resolved });
+      return resolved;
+    }
     // RCA#6: an unknown/misspelled tier (or no tier config at all) used to fall
     // back to mainModel SILENTLY — often the most expensive model, so a typo
     // quietly escalated cost. Surface it so the degradation is visible.
     console.warn(
       `[workflow] unknown tier "${options.tier}"${config ? "" : " (no model-tiers config found)"} — falling back to the session default${mainModel ? ` (${mainModel})` : ""}. Configured tiers: ${config ? sortedTierNames(config).join(", ") || "(none)" : "(none)"}. Manage them via /workflows-models (or /models-preset to apply a full config).`,
     );
+    logModelDecision("resolve", { branch: "unknown-tier-fallback", tier: options.tier, spec: mainModel });
     return mainModel;
   }
   // Untagged agent: default to the configured medium tier when one exists.
   if (config) {
     const medium = resolveTierModel("medium", config);
-    if (medium) return medium;
+    if (medium) {
+      logModelDecision("resolve", { branch: "default-medium", spec: medium });
+      return medium;
+    }
   }
+  logModelDecision("resolve", { branch: "session-default", spec: mainModel });
   return undefined;
 }
 
@@ -130,6 +142,7 @@ export function resolveScopedAgentModelSpec(
   const resolved = resolveAgentModelSpec(options, mainModel, loadConfig);
   if (resolved === undefined) return { spec: undefined, clamped: false };
   const { spec, clamped } = clampModelToScope(resolved, scopedSpecs, mainModel);
+  if (clamped) logModelDecision("clamp", { requested: resolved, spec, reason: "out of session scope" });
   return clamped ? { spec, clamped, requested: resolved } : { spec, clamped };
 }
 

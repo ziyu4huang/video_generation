@@ -27,6 +27,7 @@ import {
   checkBudgetWarning,
   isWorkflowError,
   loadModelTierConfig,
+  logModelDecision,
   resolveModelRole,
   type TurnExhaustion,
   WorkflowAgent,
@@ -323,6 +324,12 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
   if (opts.capability) {
     const cfg = loadModelTierConfig();
     capabilitySpec = resolveModelRole({ capability: opts.capability }, cfg);
+    logModelDecision("capability", {
+      capability: opts.capability,
+      spec: capabilitySpec,
+      configured: cfg?.capabilities ? Object.keys(cfg.capabilities).join(",") : "(none)",
+      fallback: capabilitySpec ? undefined : "tier/mainModel",
+    });
     if (!capabilitySpec) {
       const known = cfg?.capabilities ? Object.keys(cfg.capabilities).join(", ") || "(none)" : "(none)";
       console.error(

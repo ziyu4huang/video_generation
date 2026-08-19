@@ -44,6 +44,7 @@ const FACADE_SYMBOLS: Record<string, string> = {
   getSubagentInFlightRegistry: "pi-agent-ext-obsidian/src/lib/subagent.ts",
   loadModelTierConfig: "pi-agent-ext-file2md/src/sessions.ts",
   resolveModelRole: "pi-agent-ext-file2md/src/sessions.ts",
+  logModelDecision: "pi-agent-ext-file2md/src/sessions.ts",
   saveModelTierConfig: "pi-agent-ext-file2md/__tests__/resolve-vision-llm.test.ts",
   // The cross-package module-identity guard asserts the package-root path and the
   // core-runtime path land on ONE limiter instance; it needs both spellings.
