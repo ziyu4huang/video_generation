@@ -54,7 +54,6 @@
     "pi-agent-ext-web-access/skills",
     "pi-agent-ext-archify/skills",
     "pi-agent-ext-devops/skills",
-    "pi-agent-ext-power-tool/skills",
     "pi-agent-ext-hyperframes/skills"
   ],
   "binarySkills": [
