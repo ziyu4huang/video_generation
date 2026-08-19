@@ -48,6 +48,7 @@ import { agentTrendsCommand } from "./commands/agent-trends.ts";
 import { sessionsCommand } from "./commands/sessions.ts";
 import { memoryCommand } from "./commands/memory.ts";
 import { loopCommand } from "./commands/loop.ts";
+import { pipelineGateCommand } from "./commands/pipeline-gate.ts";
 import { printCompletions, completionsMeta } from "./commands/completions.ts";
 import { EXTENSION_COMMANDS } from "./extensions/registry.ts";
 import { runPassthrough } from "./sessions/passthrough.ts";
@@ -81,6 +82,7 @@ const COMMANDS: Command[] = [
   sessionsCommand,
   memoryCommand,
   loopCommand,
+  pipelineGateCommand,
   // Extension-backed sub-commands (each = one workspace extension exporting an
   // ExtensionSubcommandSpec). See src/cli/extensions/registry.ts.
   ...EXTENSION_COMMANDS,

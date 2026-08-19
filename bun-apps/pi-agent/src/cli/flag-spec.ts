@@ -42,7 +42,8 @@ export type ValueField =
 	| "proxy" | "outputPath" | "hermesDir" | "vaultRoot" | "order"
 	| "linkWeighting" | "probeEval"
 	| "outDir"
-	| "only" | "filesCsv" | "projectsDir" | "memoryDir";
+	| "only" | "filesCsv" | "projectsDir" | "memoryDir"
+	| "effort" | "tier";
 
 export type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
@@ -160,6 +161,12 @@ const MEMORY_TO_VAULT_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--memory-dir", field: "memoryDir" },
 ];
 
+// ── pipeline-gate — tier/effort selector ──────────────────────────────────────
+const PIPELINE_GATE_VALUE_FLAGS: readonly ValueFlagSpec[] = [
+	{ flag: "--effort", field: "effort" },
+	{ flag: "--tier", field: "tier" },
+];
+
 /** All value flags (merged, order-independent). */
 export const VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	...MEMORY_TO_VAULT_VALUE_FLAGS,
@@ -174,6 +181,7 @@ export const VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	...WORKFLOW_VALUE_FLAGS,
 	...RESEARCH_VALUE_FLAGS,
 	...KCARD_LOOP_VALUE_FLAGS,
+	...PIPELINE_GATE_VALUE_FLAGS,
 ];
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -29,6 +29,7 @@ import {
 	isDoctorCommand,
 	isExtDoctorCommand,
 	isCliCommand,
+	isBareCliCommand,
 	userSuppressFlags,
 	overriddenStaticExtensions,
 	webuiFlags,
@@ -102,10 +103,13 @@ if (isExtDoctorCommand(argv)) {
 // The import is DYNAMIC so the TUI path never evaluates the CLI subtree — that
 // subtree statically pulls flux2/krea2/ltx/movie-director through each
 // extension's cli-subcommand.ts, which would otherwise land in every TUI boot.
-if (isCliCommand(argv)) {
+if (isCliCommand(argv) || isBareCliCommand(argv)) {
 	try {
 		const { runCli } = await import("./cli/dispatch.ts");
-		process.exit(await runCli(argv.slice(1)));
+		// `cli <command>`: drop the namespace token before dispatch. A bare
+		// `pipeline-gate` (no `cli` token) carries the command at argv[0] — pass
+		// argv verbatim; dispatch.ts resolves the command as the first positional.
+		process.exit(await runCli(isCliCommand(argv) ? argv.slice(1) : argv));
 	} catch (e: any) {
 		// A throw at module-eval time in the CLI subtree lands here rather than
 		// as a raw uncaught rejection, so the CLI's error presentation stays

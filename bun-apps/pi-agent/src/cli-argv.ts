@@ -30,6 +30,21 @@ export function isCliCommand(argv: string[]): boolean {
 }
 
 /**
+ * True iff argv should route into the non-interactive CLI namespace WITHOUT the
+ * leading `cli` token. The develop-pipeline v2 workflow templates spawn
+ * `bun bun-apps/pi-agent/src/cli.ts pipeline-gate --tier T1` bare (plan §Task 3,
+ * spec §4), and without this branch that argv falls through to pi's own
+ * parser, which answers `Error: Unknown option: --tier` — a flag-typo message
+ * for what is really a missing routing surface. Only argv[0] triggers it —
+ * same contract as isCliCommand/isDoctorCommand, so a literal "pipeline-gate"
+ * prompt or flag value is never hijacked. Extend the accepted set here if
+ * another command grows a bare-form caller.
+ */
+export function isBareCliCommand(argv: string[]): boolean {
+	return argv[0] === "pipeline-gate";
+}
+
+/**
  * User-passed suppression flags, read from the PRE-PATCH argv (the slice
  * cli.ts captures before applyPatches() splices run-dir `-e`/`--skill` paths
  * in). This is what distinguishes a USER's `-ne` from the `-ne` that deploy
