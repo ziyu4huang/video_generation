@@ -1,0 +1,196 @@
+/**
+ * sh-ext-build.ts — build ONE extension package for a pi-agent-sh deploy.
+ *
+ * Output per extension: <outDir>/{ext.cjs, ext.json, <skills dirs>}.
+ *
+ * The bundle is cjs with the host module whitelist marked --external, so the
+ * core can serve those specifiers from its own embedded copies (see
+ * bun-apps/pi-agent/src/sh/host-modules.ts for WHY that matters). Two gates run
+ * on every build:
+ *   1. scanForeignSpecifiers — nothing outside the whitelist may remain
+ *      unresolved, or the extension would fail to load on the user's machine.
+ *   2. loadProbe — the emitted bundle is actually loaded the way the runtime
+ *      loader loads it. This is what catches a change in bun's cjs output shape
+ *      at deploy time instead of at user runtime.
+ */
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { join, resolve } from "node:path";
+import { extractBareSpecifiers } from "./build-extensions.ts";
+import { evaluateExtModule } from "../../../pi-agent/src/sh/ext-loader.ts";
+import type { ShExtConfig } from "./sh-config.ts";
+
+/**
+ * Host modules are resolved from pi-agent's own package, not from the bundle's
+ * output dir: the output lives in the deploy tree (or a temp dir) with no
+ * node_modules, so resolving from there silently degrades every host module to
+ * a stub and the probe stops proving anything.
+ */
+const PI_AGENT_DIR = resolve(import.meta.dir, "..", "..", "..", "pi-agent");
+
+export interface BuildExtOptions {
+	ext: ShExtConfig;
+	/** Absolute path to bun-apps/. */
+	bunAppsDir: string;
+	/** Absolute path to the extension's output dir (…/ext/<name>). */
+	outDir: string;
+	hostApi: number;
+	hostModules: readonly string[];
+	sourceSha: string;
+	builtAt: string;
+}
+
+export interface BuildExtResult {
+	name: string;
+	bytes: number;
+	hostModules: string[];
+}
+
+const BUILTIN_PREFIXES = ["node:", "bun:"];
+const BUILTINS = new Set([
+	"assert", "async_hooks", "buffer", "child_process", "cluster", "crypto", "dgram", "dns",
+	"events", "fs", "http", "http2", "https", "module", "net", "os", "path", "perf_hooks",
+	"process", "punycode", "querystring", "readline", "repl", "stream", "string_decoder",
+	"timers", "tls", "tty", "url", "util", "v8", "vm", "worker_threads", "zlib",
+]);
+
+function isBuiltin(spec: string): boolean {
+	if (BUILTIN_PREFIXES.some((p) => spec.startsWith(p))) return true;
+	return BUILTINS.has(spec.split("/")[0]!);
+}
+
+/** Bare specifiers left in the bundle that the host does not provide. */
+export function scanForeignSpecifiers(code: string, hostModules: readonly string[]): string[] {
+	const foreign = new Set<string>();
+	for (const spec of extractBareSpecifiers(code)) {
+		if (isBuiltin(spec)) continue;
+		if (hostModules.includes(spec)) continue;
+		foreign.add(spec);
+	}
+	return [...foreign];
+}
+
+/**
+ * Load the built bundle exactly as the runtime loader does. Throws on any problem.
+ *
+ * The probe hands over the REAL host modules, resolved from the build machine's
+ * workspace. A stub object is not enough: extension bundles run top-level code
+ * against these modules (typebox schema literals, pi's defineTool), so a fake
+ * fails on code the deployed core executes fine. A host module that cannot be
+ * resolved here is a hard error rather than a stub — degrading it silently is
+ * what made an earlier version of this probe pass while proving nothing.
+ */
+export function loadProbe(cjsPath: string, hostModules: readonly string[], resolveFrom = PI_AGENT_DIR): void {
+	const code = readFileSync(cjsPath, "utf8");
+	const nodeRequire = createRequire(join(resolveFrom, "package.json"));
+	const probeRequire = (spec: string): unknown => {
+		// Node/Bun builtins are resolved for real: a minified bundle calls
+		// require("module")/require("node:fs") for its own interop shims, and those
+		// are not host modules — rejecting them would fail every real bundle.
+		if (isBuiltin(spec)) return nodeRequire(spec);
+		if (!hostModules.includes(spec)) throw new Error(`bundle required non-host module "${spec}"`);
+		try {
+			// Bun.resolveSync honors the workspace's isolated linker (packages live
+			// in the global store, reachable only through that resolution), which a
+			// bare createRequire from the package dir cannot follow.
+			return nodeRequire(Bun.resolveSync(spec, resolveFrom));
+		} catch (e) {
+			throw new Error(
+				`host module "${spec}" could not be resolved from ${resolveFrom}: ${e instanceof Error ? e.message : String(e)}. ` +
+					`The core embeds it, so the build machine must be able to resolve it too — run \`bun install\` in bun-apps/.`,
+			);
+		}
+	};
+	const exports = evaluateExtModule(code, cjsPath, join(cjsPath, ".."), probeRequire);
+	if (typeof exports.default !== "function") {
+		throw new Error(`${cjsPath}: bundle has no callable default export`);
+	}
+}
+
+/** "@scope/name/sub" → "@scope/name"; "pkg/sub" → "pkg". */
+function packageRoot(spec: string): string {
+	const parts = spec.split("/");
+	return spec.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]!;
+}
+
+export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtResult> {
+	const pkgDir = resolve(opts.bunAppsDir, opts.ext.package);
+	const entryAbs = resolve(pkgDir, opts.ext.entry);
+	if (!existsSync(entryAbs)) throw new Error(`entry not found: ${entryAbs}`);
+
+	if (existsSync(opts.outDir)) rmSync(opts.outDir, { recursive: true, force: true });
+	mkdirSync(opts.outDir, { recursive: true });
+
+	const cjsPath = join(opts.outDir, "ext.cjs");
+	const externalFlags = opts.hostModules.flatMap((m) => ["--external", m]);
+	// Subpath imports need their own external pattern: "typebox" does not cover
+	// "typebox/value" as a bundler external in every bun version.
+	const wildcardFlags = [...new Set(opts.hostModules.map((m) => `${packageRoot(m)}/*`))].flatMap((p) => [
+		"--external",
+		p,
+	]);
+
+	const proc = Bun.spawn(
+		[
+			"bun",
+			"build",
+			entryAbs,
+			"--target=bun",
+			"--format=cjs",
+			`--outfile=${cjsPath}`,
+			"--minify",
+			...externalFlags,
+			...wildcardFlags,
+		],
+		{ stdout: "pipe", stderr: "pipe", cwd: pkgDir },
+	);
+	const code = await proc.exited;
+	if (code !== 0) {
+		// Surface bun's own diagnostic: "bun build failed (exit 1)" alone gives the
+		// operator nothing to act on, and the usual cause (an undeclared dep) is
+		// named only in bun's stderr.
+		const stderr = (await new Response(proc.stderr).text()).trim();
+		throw new Error(`bun build failed for ${opts.ext.name} (exit ${code})${stderr ? `:\n${stderr}` : ""}`);
+	}
+
+	// ── Gate 1: nothing foreign may remain unresolved ────────────────────────
+	const built = readFileSync(cjsPath, "utf8");
+	const foreign = scanForeignSpecifiers(built, opts.hostModules);
+	if (foreign.length > 0) {
+		throw new Error(
+			`${opts.ext.name}: bundle references specifier(s) the host does not provide: ${foreign.join(", ")}. ` +
+				`Either add them to hostModules (and to src/sh/host-modules.ts) or make the bundler inline them.`,
+		);
+	}
+
+	// ── Gate 2: it loads the way the runtime loads it ─────────────────────────
+	loadProbe(cjsPath, opts.hostModules);
+
+	// ── Skills ───────────────────────────────────────────────────────────────
+	for (const rel of opts.ext.skills) {
+		cpSync(resolve(pkgDir, rel), join(opts.outDir, rel), { recursive: true, dereference: true });
+	}
+
+	// ── Manifest ─────────────────────────────────────────────────────────────
+	const usedHostModules = opts.hostModules.filter((m) => built.includes(`"${m}"`));
+	const pkgJson = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")) as {
+		name?: string;
+		version?: string;
+	};
+	const manifest = {
+		name: opts.ext.name,
+		package: pkgJson.name ?? opts.ext.package,
+		version: pkgJson.version ?? "0.0.0",
+		hostApi: opts.hostApi,
+		entry: "ext.cjs",
+		order: opts.ext.order,
+		enabled: true,
+		skills: opts.ext.skills,
+		hostModules: usedHostModules,
+		builtAt: opts.builtAt,
+		sourceSha: opts.sourceSha,
+	};
+	writeFileSync(join(opts.outDir, "ext.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+
+	return { name: opts.ext.name, bytes: statSync(cjsPath).size, hostModules: usedHostModules };
+}
