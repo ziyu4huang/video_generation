@@ -1,0 +1,162 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { loadExtensions } from "./ext-loader.ts";
+
+const HOST = { hostApi: 1, hostModules: ["typebox"] };
+const roots: string[] = [];
+
+function makeRoot(): string {
+	const dir = mkdtempSync(join(tmpdir(), "sh-ext-"));
+	roots.push(dir);
+	return dir;
+}
+
+/** Write an extension dir whose bundle mimics bun's cjs wrapper shape. */
+function writeExt(
+	root: string,
+	name: string,
+	opts: { manifest?: Record<string, unknown>; body?: string; skipBundle?: boolean } = {},
+) {
+	const dir = join(root, name);
+	mkdirSync(dir, { recursive: true });
+	const manifest = {
+		name,
+		package: `@repo/pi-agent-ext-${name}`,
+		version: "0.1.0",
+		hostApi: 1,
+		entry: "ext.cjs",
+		hostModules: [],
+		...opts.manifest,
+	};
+	writeFileSync(join(dir, "ext.json"), JSON.stringify(manifest));
+	if (!opts.skipBundle) {
+		const body =
+			opts.body ?? `module.exports.default = function factory(){ return { name: ${JSON.stringify(name)} }; };`;
+		writeFileSync(
+			join(dir, "ext.cjs"),
+			`// @bun @bun-cjs\n(function(exports, require, module, __filename, __dirname) {\n${body}\n})\n`,
+		);
+	}
+	return dir;
+}
+
+afterEach(() => {
+	for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
+});
+
+describe("loadExtensions", () => {
+	test("returns nothing when the ext root does not exist", () => {
+		const r = loadExtensions({ extRoot: join(makeRoot(), "absent"), host: HOST, require: () => ({}) });
+		expect(r.factories).toEqual([]);
+		expect(r.skillPaths).toEqual([]);
+		expect(r.skipped).toEqual([]);
+	});
+
+	test("loads an extension and returns its factory", () => {
+		const root = makeRoot();
+		writeExt(root, "alpha");
+		const r = loadExtensions({ extRoot: root, host: HOST, require: () => ({}) });
+		expect(r.loaded).toEqual(["alpha"]);
+		expect(r.factories).toHaveLength(1);
+		expect(r.factories[0]!.name).toBe("alpha");
+		expect(typeof r.factories[0]!.factory).toBe("function");
+	});
+
+	test("sorts by order then name", () => {
+		const root = makeRoot();
+		writeExt(root, "charlie", { manifest: { order: 10 } });
+		writeExt(root, "alpha", { manifest: { order: 50 } });
+		writeExt(root, "bravo", { manifest: { order: 50 } });
+		const r = loadExtensions({ extRoot: root, host: HOST, require: () => ({}) });
+		expect(r.loaded).toEqual(["charlie", "alpha", "bravo"]);
+	});
+
+	test("ignores a directory with no ext.json without reporting a skip", () => {
+		const root = makeRoot();
+		mkdirSync(join(root, "not-an-extension"), { recursive: true });
+		writeExt(root, "alpha");
+		const r = loadExtensions({ extRoot: root, host: HOST, require: () => ({}) });
+		expect(r.loaded).toEqual(["alpha"]);
+		expect(r.skipped).toEqual([]);
+	});
+
+	test("skips unparseable ext.json but keeps the rest", () => {
+		const root = makeRoot();
+		mkdirSync(join(root, "broken"), { recursive: true });
+		writeFileSync(join(root, "broken", "ext.json"), "{ not json");
+		writeExt(root, "alpha");
+		const r = loadExtensions({ extRoot: root, host: HOST, require: () => ({}) });
+		expect(r.loaded).toEqual(["alpha"]);
+		expect(r.skipped.map((s) => s.name)).toEqual(["broken"]);
+		expect(r.skipped[0]!.reason).toMatch(/JSON/i);
+	});
+
+	test("skips a hostApi mismatch", () => {
+		const root = makeRoot();
+		writeExt(root, "alpha", { manifest: { hostApi: 99 } });
+		const r = loadExtensions({ extRoot: root, host: HOST, require: () => ({}) });
+		expect(r.loaded).toEqual([]);
+		expect(r.skipped[0]!.reason).toMatch(/hostApi 99/);
+	});
+
+	test("skips a disabled extension", () => {
+		const root = makeRoot();
+		writeExt(root, "alpha", { manifest: { enabled: false } });
+		const r = loadExtensions({ extRoot: root, host: HOST, require: () => ({}) });
+		expect(r.loaded).toEqual([]);
+		expect(r.skipped[0]!.reason).toMatch(/disabled/);
+	});
+
+	test("skips when the entry file is missing", () => {
+		const root = makeRoot();
+		writeExt(root, "alpha", { skipBundle: true });
+		const r = loadExtensions({ extRoot: root, host: HOST, require: () => ({}) });
+		expect(r.loaded).toEqual([]);
+		expect(r.skipped[0]!.reason).toMatch(/entry file/);
+	});
+
+	test("skips a bundle that throws at evaluation, keeping the rest", () => {
+		const root = makeRoot();
+		writeExt(root, "boom", { body: `throw new Error("kaboom");` });
+		writeExt(root, "alpha");
+		const r = loadExtensions({ extRoot: root, host: HOST, require: () => ({}) });
+		expect(r.loaded).toEqual(["alpha"]);
+		expect(r.skipped.map((s) => s.name)).toEqual(["boom"]);
+		expect(r.skipped[0]!.reason).toMatch(/kaboom/);
+	});
+
+	test("skips a bundle whose default export is not a function", () => {
+		const root = makeRoot();
+		writeExt(root, "alpha", { body: `module.exports.default = 42;` });
+		const r = loadExtensions({ extRoot: root, host: HOST, require: () => ({}) });
+		expect(r.loaded).toEqual([]);
+		expect(r.skipped[0]!.reason).toMatch(/default export/);
+	});
+
+	test("passes the injected require through to the bundle", () => {
+		const root = makeRoot();
+		writeExt(root, "alpha", {
+			manifest: { hostModules: ["typebox"] },
+			body: `const t = require("typebox"); module.exports.default = () => ({ got: t.marker });`,
+		});
+		const r = loadExtensions({
+			extRoot: root,
+			host: HOST,
+			require: (spec) => {
+				if (spec === "typebox") return { marker: "host" };
+				throw new Error(`no host module ${spec}`);
+			},
+		});
+		expect(r.factories[0]!.factory()).toEqual({ got: "host" });
+	});
+
+	test("returns absolute skill paths that exist", () => {
+		const root = makeRoot();
+		const dir = writeExt(root, "alpha", { manifest: { skills: ["skills", "gone"] } });
+		mkdirSync(join(dir, "skills"), { recursive: true });
+		const r = loadExtensions({ extRoot: root, host: HOST, require: () => ({}) });
+		expect(r.skillPaths).toEqual([join(dir, "skills")]);
+	});
+});
