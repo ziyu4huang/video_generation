@@ -7,7 +7,7 @@
  *    lm-studio configured per the project CLAUDE.md
  */
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { loadModelTierConfig, resolveModelRole } from "@repo/pi-agent-ext-subagent";
+import { loadModelTierConfig, logModelDecision, resolveModelRole } from "@repo/pi-agent-ext-subagent";
 
 // createSharedSession + resolveModel live in ./session-factory.ts so tests can
 // mock the factory without clobbering resolveLLM below. Re-exported here for
@@ -72,10 +72,17 @@ export function resolveLLM(opts: { provider?: string; model?: string; thinking?:
  * Throws (via resolveLLM) when neither config nor env is set (ticket 01 contract).
  */
 export function resolveVisionLLM(opts: { model?: string; provider?: string; thinking?: string } = {}): ResolvedLLM {
-  if (opts.model) return resolveLLM(opts);
+  if (opts.model) {
+    logModelDecision("file2md-vision", { branch: "explicit-model", spec: opts.model });
+    return resolveLLM(opts);
+  }
   const spec = resolveModelRole({ capability: "vision" }, loadModelTierConfig());
-  if (spec) return resolveLLM({ ...opts, model: spec });
+  if (spec) {
+    logModelDecision("file2md-vision", { branch: "capabilities.vision", spec });
+    return resolveLLM({ ...opts, model: spec });
+  }
   // No capabilities.vision configured — resolveLLM falls through to the PI_MODEL
   // env escape hatch (deprecated, warns) or throws an actionable error (ticket 01).
+  logModelDecision("file2md-vision", { branch: "env/throw", spec: process.env.PI_MODEL });
   return resolveLLM(opts);
 }

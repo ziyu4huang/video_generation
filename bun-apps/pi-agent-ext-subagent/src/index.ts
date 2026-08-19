@@ -31,6 +31,7 @@ export {
   getGlobalRateLimiter,
   getSubagentInFlightRegistry,
   loadModelTierConfig,
+  logModelDecision,
   resolveModelRole,
   saveModelTierConfig,
   setRateLimitCapResolver,

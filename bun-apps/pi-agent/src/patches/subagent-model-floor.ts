@@ -87,7 +87,9 @@ if (floor) {
 if (
 	floor &&
 	(process.env.BUN_PI_DEBUG_PATCHES === "1" ||
-		process.env.BUN_PI_DEBUG_PATCHES === "true")
+		process.env.BUN_PI_DEBUG_PATCHES === "true" ||
+		process.env.PI_DEBUG_MODELS === "1" ||
+		process.env.PI_DEBUG_MODELS === "true")
 ) {
 	console.error("[bun-pi] subagent-model-floor set OB_SUBAGENT_MODEL:", floor);
 }

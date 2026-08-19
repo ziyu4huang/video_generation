@@ -89,6 +89,7 @@ export {
   wrapError,
 } from "./errors.js";
 export { homeDir } from "./home.js";
+export { debugModelsEnabled, logModelDecision } from "./debug-models.js";
 export { resolveModelRole } from "./model-role-config.js";
 export type { ModelTierConfig } from "./model-tier-config.js";
 export {
