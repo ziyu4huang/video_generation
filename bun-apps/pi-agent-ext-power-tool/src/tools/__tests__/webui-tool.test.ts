@@ -86,13 +86,23 @@ describe("evaluateInvariants (pure)", () => {
     expect(f.detail).toContain("report-pane");
   });
 
-  test("two visible panes → panes-exclusive FAIL naming both ids", () => {
+  test("two visible TOP-LEVEL panes → panes-exclusive FAIL naming both ids", () => {
     const state = healthyV2();
-    state.panes[0].hidden = false; // report-pane visible alongside data-pane
+    state.panes[0].hidden = false; // report-pane visible alongside cards-pane
+    state.panes[4].hidden = false; // cards-pane (top-level) — data-pane is a fold child since webui #1684
     const f = finding(evaluateInvariants(state), "panes-exclusive");
     expect(f.pass).toBe(false);
     expect(f.detail).toContain("report-pane");
-    expect(f.detail).toContain("data-pane");
+    expect(f.detail).toContain("cards-pane");
+  });
+
+  test("fold child visible alongside one top-level pane → panes-exclusive PASS (fold children don't count)", () => {
+    const state = healthyV2();
+    state.panes[0].hidden = false; // report-pane visible; data-pane already visible (fold child)
+    const f = finding(evaluateInvariants(state), "panes-exclusive");
+    expect(f.pass).toBe(true);
+    expect(f.detail).toContain("report-pane");
+    expect(f.detail).toContain("+1 fold children");
   });
 
   test("page error → zero-page-errors FAIL carrying the message", () => {
