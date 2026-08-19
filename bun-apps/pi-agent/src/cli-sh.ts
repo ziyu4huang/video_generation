@@ -87,9 +87,19 @@ if (isExtDoctorCommand(argv) || isCliCommand(argv)) {
 
 await applyPatches();
 
+// Re-slice AFTER patches, same as src/cli.ts does at its own main() call: the
+// default-model-env patch splices the built-in default (zai/glm-5.3) into
+// process.argv at import time DURING applyPatches(), and main(args) consumes
+// only the array it is handed — it does NOT re-read process.argv. The `argv`
+// sliced at the top of this file predates the splice (it must: the doctor /
+// cli intercepts above judge what the USER typed), so building mainArgv from
+// it silently dropped the built-in default and pi's provider-order fallback
+// (deepseek precedes zai) picked the wrong model. Regression-tested by
+// src/__tests__/cli-sh-main-argv.test.ts.
+const mainArgv = process.argv.slice(2);
+
 // Skills are passed the same way pi accepts them everywhere else: absolute
 // --skill paths on the argv it parses.
-const mainArgv = [...argv];
 for (const p of loaded.skillPaths) mainArgv.push("--skill", p);
 
 await main(mainArgv, {
