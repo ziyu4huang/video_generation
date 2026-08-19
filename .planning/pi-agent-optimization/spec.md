@@ -89,6 +89,17 @@ spot.
 
 Pure-function unit tests in the devops package: glob → trigger-set decision table.
 
+### Amendment (2026-08-20, ground truth from a live local_ci run)
+
+The premise "local_ci runs ZERO deploy e2e" was overstated: the
+workflow-derived gate suite already runs `Deploy-artifact guard` and
+`Deploy-sh L1 e2e` on every run. The actual gap — now closed — was the
+`PI_AGENT_E2E`-gated bundle-mode assertions (e2e-patches, e2e-extensions
+SOURCE layers), which were manual-tier-only. Item "shared bundle build:
+ensureBundle() per-process cache" was moot (cache already existed,
+e2e-harness.ts:54-62). Scope otherwise unchanged: change-triggered, ≤ +60s,
+glob→trigger decision unit-tested.
+
 ## Phase C — runpy shared core + low-risk dedup (3–4 PRs)
 
 ### C1 — `@repo/pi-agent-ext-runpy-core` (new package)
