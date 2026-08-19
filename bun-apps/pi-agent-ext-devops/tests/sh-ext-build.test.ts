@@ -6,9 +6,11 @@ import {
 	buildExtPackage,
 	loadProbe,
 	matchesAllowed,
+	rewriteAllowedDynamicImports,
 	rewriteVendoredDynamicImports,
 	scanForeignPaths,
 	scanForeignSpecifiers,
+	scanUnroutableDynamicImports,
 	vendorPackage,
 } from "../scripts/lib/sh-ext-build.ts";
 
@@ -180,6 +182,52 @@ describe("buildExtPackage", () => {
 			}),
 		).rejects.toThrow(/definitely-not-installed-pkg/);
 	}, 120_000);
+
+	// THE DEFECT THIS LOCKS OUT (2026-08-20, /websearch): web-access's
+	// resolveOpenAIAuth did `await import("@earendil-works/pi-ai/compat")` — a
+	// HOST module. Bun's --format=cjs turns static imports into require calls
+	// inside the wrapper (routed through the loader's injected require), but a
+	// dynamic import() stays native; inside a compiled binary native resolution
+	// is virtualized onto $bunfs and cannot see host modules or the real fs, so
+	// /websearch died with "Cannot find module '@earendil-works/pi-ai/compat'
+	// from '/$bunfs/root/pi-agent'". Gate 1 was blind to it (the specifier IS
+	// allowed — it just isn't REACHABLE as a dynamic import), and the load probe
+	// only executes top-level code. The fix rewrites every allowed dynamic
+	// import to require at build time; this test proves it on the real bundler.
+	test("rewrites an allowed (host) dynamic import through require — the /websearch defect", async () => {
+		const out = makeDir();
+		const pkgDir = join(out, "dynimp-ext");
+		mkdirSync(join(pkgDir, "extensions"), { recursive: true });
+		writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name: "dynimp-ext", version: "0.0.0", type: "module" }));
+		writeFileSync(
+			join(pkgDir, "extensions", "dyn.ts"),
+			// A host module dynamic import — exactly the openai-search.ts shape.
+			`export default () => ({ probe: async () => await import("@earendil-works/pi-tui") });\n`,
+		);
+		await buildExtPackage({
+			ext: {
+				name: "dynimp-ext",
+				package: "dynimp-ext",
+				entry: "extensions/dyn.ts",
+				order: 1,
+				skills: [],
+				copy: [],
+				enabled: true,
+				externals: [],
+				vendor: [],
+			},
+			bunAppsDir: out,
+			outDir: join(out, "built"),
+			deployRoot: out,
+			hostApi: 1,
+			hostModules: HOST_MODULES,
+			sourceSha: "deadbee",
+			builtAt: "2026-08-20T00:00:00Z",
+		});
+		const built = readFileSync(join(out, "built", "ext.cjs"), "utf8");
+		expect(built).toContain('Promise.resolve(require("@earendil-works/pi-tui"))');
+		expect(built).not.toMatch(/import\(\s*["@']@earendil-works\/pi-tui["@']/);
+	}, 120_000);
 });
 
 // ── Gate 4 ──────────────────────────────────────────────────────────────────
@@ -225,6 +273,44 @@ describe("scanForeignPaths", () => {
 	test("does not fire on URL paths or system paths (the false-positive trap)", () => {
 		const code = `fetch("/v1/chat/completions"); open("/dev/null"); spawn("/usr/bin/env");`;
 		expect(scanForeignPaths(code, "/deploy/0.1.0", ROOTS)).toEqual([]);
+	});
+});
+
+describe("rewriteAllowedDynamicImports", () => {
+	test("routes a HOST-module dynamic import through require — the /websearch defect shape", () => {
+		const code = `const { getModel } = await import("@earendil-works/pi-ai/compat");`;
+		expect(
+			rewriteAllowedDynamicImports(code, [...HOST_MODULES, "@earendil-works/pi-ai/compat"]),
+		).toBe(`const { getModel } = await Promise.resolve(require("@earendil-works/pi-ai/compat"));`);
+	});
+
+	test("covers subpaths via the /* wildcard form", () => {
+		const code = `await import("chromium-bidi/lib/cjs/bidiMapper/BidiMapper");`;
+		expect(rewriteAllowedDynamicImports(code, ["chromium-bidi/*"])).toBe(
+			`await Promise.resolve(require("chromium-bidi/lib/cjs/bidiMapper/BidiMapper"));`,
+		);
+	});
+
+	test("leaves node builtins native (they resolve fine in a compiled binary)", () => {
+		const code = `await import("node:sqlite"); await import("os");`;
+		expect(rewriteAllowedDynamicImports(code, HOST_MODULES)).toBe(code);
+	});
+
+	test("leaves a non-allowed dynamic import for Gate 1 to reject", () => {
+		const code = `await import("left-pad");`;
+		expect(rewriteAllowedDynamicImports(code, HOST_MODULES)).toBe(code);
+	});
+});
+
+describe("scanUnroutableDynamicImports", () => {
+	test("flags a bare dynamic import that survived the rewrite — the /websearch defect", () => {
+		const code = `const { getModel } = await import("@earendil-works/pi-ai/compat");`;
+		expect(scanUnroutableDynamicImports(code)).toEqual(["@earendil-works/pi-ai/compat"]);
+	});
+
+	test("accepts builtins, relative/absolute paths, and the # channel", () => {
+		const code = `await import("node:sqlite"); await import("./x.js"); await import("/abs/x.js"); await import("#pi/ext-dir");`;
+		expect(scanUnroutableDynamicImports(code)).toEqual([]);
 	});
 });
 

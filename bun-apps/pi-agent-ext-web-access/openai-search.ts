@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getModel } from "@earendil-works/pi-ai/compat";
 import { activityMonitor } from "./activity.ts";
 import type { SearchOptions, SearchResponse, SearchResult } from "./perplexity.ts";
 import { dropNullHeaders, getWebSearchConfigPath } from "./utils.ts";
@@ -135,11 +136,15 @@ type ModelProbe = (
 
 export async function resolveOpenAIAuth(ctx?: ExtensionContext): Promise<OpenAIAuth | undefined> {
 	if (ctx) {
-		const { getModel: rawGetModel } = await import("@earendil-works/pi-ai/compat");
-		const getModel = rawGetModel as ModelProbe;
+		// STATIC import (see the top of this file), deliberately NOT
+		// `await import(...)`: a dynamic import stays native in the sh deploy's
+		// cjs bundle and cannot reach host modules inside the compiled binary —
+		// the /websearch "Cannot find module '@earendil-works/pi-ai/compat'
+		// from '/$bunfs/root/pi-agent'" defect (2026-08-20).
+		const probeGetModel = getModel as unknown as ModelProbe;
 		for (const candidate of AUTH_MODEL_CANDIDATES) {
 			for (const modelId of candidate.models) {
-				const model = getModel(candidate.provider, modelId);
+				const model = probeGetModel(candidate.provider, modelId);
 				if (!model) continue;
 				try {
 					const resolved = await ctx.modelRegistry.getApiKeyAndHeaders(model);
