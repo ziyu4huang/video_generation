@@ -82,7 +82,8 @@ Add an entry to `deploy-config.yaml`:
     package: pi-agent-ext-my-ext
     entry: extensions/my-ext.ts
     order: 60
-    skills: [skills]        # optional
+    skills: [skills]        # optional — copied AND forwarded to pi as --skill paths
+    copy: [procedures]      # optional — copied but NOT forwarded (runtime data; see Limits)
     vendor: [some-pkg]      # optional — copy a real node_modules copy per extension (see below)
 ```
 
@@ -90,8 +91,6 @@ then run `deploy:sh`. If the build reports foreign specifiers, decide per specif
 runtime that must be identical to the host's goes in the host whitelist; anything else should be
 inlined by the bundler (check the package declares it in its own `package.json` and that
 `bun install` has run from `bun-apps/`).
-
-`order` controls load order (ascending, ties broken by name): `task` = 10, `power-tool` = 50.
 
 ### Vendored packages (`vendor:`)
 
@@ -168,11 +167,11 @@ cost:
 
 Skills in an sh deploy ship **inside an extension** (`skills: [skills]` in `deploy-config.yaml`
 copies the package's `skills/` dir into `ext/<name>/skills/`, and the core passes each to pi as a
-`--skill` path). **No extension currently declares `skills:`** — power-tool's former
-`btw` / `playwright-cli` / `webui-audit` skill dirs and the hyperframes skills-only carrier were
-removed from the deploy (2026-08); the deployed tree ships zero skills. `~/.pi/agent/skills/`
-remains empty by policy (PR #1713); the hyperframes family is still reachable through the
-run-dir/manifest.json registration for repo-based sessions.
+`--skill` path), each with its OWNING extension: `btw` lives in ext-btw, `webui-audit` in
+ext-webui (the #1724 re-homing — it had drifted into power-tool), `playwright-cli` stays with
+power-tool (the playwright owner), and the superpowers / wayfind / hermes-memory / web-access /
+hyperframes families ship from their own packages. `~/.pi/agent/skills/` remains empty by policy
+(PR #1713).
 
 `[Extensions] <inline:power-tool>` is also expected: the sh core hands pi extension *factories*
 (no file path), and pi labels factory-registered extensions `<inline:…>`. It does not mean the
@@ -180,9 +179,35 @@ extension came from the repo's run-dir.
 
 ## Limits
 
-- MVP ships `task` and `power-tool` only. The other 12 extensions in `src/static-extensions.ts` are
-  still available through the legacy modes; each needs its own assets/skills/native-dep review
-  before it can move (`hermes-memory` sqlite, `webui` static assets, `superpowers` skills tree).
+- **Base set (2026-08-20, "portable full-featured" profile): 12 extensions** — `task`,
+  `prompt-history`, `superpowers`, `wayfind`, `hermes-memory`, `subagent`, `workflow`, `btw`,
+  `web-access`, `power-tool`, `webui`, `hyperframes`. The earlier named blockers turned out to be
+  stale on measurement: hermes-memory's sqlite is `bun:sqlite` (a builtin the host require serves),
+  webui's HTML shell is a single inline string constant (no static assets), and the superpowers
+  skills tree copies through the same path hyperframes already shipped.
+- **Excluded, with reasons**: `obsidian` (cross-extension imports of the subagent registry AND
+  `@earendil-works/pi-agent-core` — revisit after the subagent-lib host module settles),
+  `knowledge-card` (imports obsidian's extension entry directly — dependency cascade),
+  `file2md` (mupdf native/wasm + a hard LM Studio localhost dependency — not portable), the
+  director/MCP wrappers (`movie-director`, `flux2`, `krea2`, `ltx`, `zai-mcp`, `research-tool`,
+  `archify` — bound to this machine's swift CLIs and services), and repo-internal tooling
+  (`devops`, `tool-gate`). All stay available through the legacy source/run-dir modes.
+- **Host modules grew by three**: `@earendil-works/pi-ai` (+`/compat`) — already compiled in via
+  pi-coding-agent, served for identity stability; `@repo/pi-agent-ext-subagent` — the package is
+  both an extension and a shared runtime library whose in-flight registry is an
+  identity-sensitive singleton. HOST_API stays 1 (additive registry, not a loader-contract break).
+- **Locating bundled assets at runtime**: bun's cjs output folds `import.meta.url` into a
+  build-machine path literal, REBINDS `__dirname`/`__filename` the same way, and an unfolded
+  `import.meta` is a SyntaxError inside the loader's indirect cjs eval — so extensions resolve
+  their deployed data (superpowers `skills/`, wayfind `procedures/`, hermes `scripts/`) through
+  `require("#pi/ext-dir")`, served by the loader. In jiti/source mode the same specifier resolves
+  via each package's `package.json` `"imports"` entry to `src/sh-ext-dir.ts` (real `__dirname`).
+- **Vendored packages resolve by absolute file, not by specifier**: inside a compiled binary,
+  `createRequire(<real path>)` and `Bun.resolveSync` cannot resolve *packages* from the real
+  filesystem (module resolution is virtualized onto $bunfs) — the loader's fallback reads the
+  vendored package.json (exports → require/default, then main) and requires the entry file
+  directly. `unpdf` (web-access) is vendored for a second reason: its ESM uses
+  `import.meta.resolve`, whose syntax cannot survive in a cjs bundle.
 - No automatic cleanup of old version directories — `current` plus version dirs, nothing else.
 - Same-machine assumption is unchanged from the legacy modes for the *build*; the deployed tree
   itself carries no repo paths.

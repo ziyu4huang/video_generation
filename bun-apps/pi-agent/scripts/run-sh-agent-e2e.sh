@@ -140,12 +140,20 @@ else
 
   # The banner renders the label and the list on separate lines (label, then an
   # indented grey list) with ANSI codes in between — assert them independently
-  # rather than as one joined string.
-  for needle in "\\[Extensions\\]" "<inline:power-tool>, <inline:task>" "\\[Skills\\]"; do
+  # rather than as one joined string. With 12 base extensions the list can also
+  # WRAP across lines, so assert per-name markers instead of a comma-joined run.
+  for needle in "\\[Extensions\\]" "\\[Skills\\]"; do
     if grep -q "$needle" "$LOG"; then
       echo "✓ TUI shows $needle"
     else
       note_fail "TUI missing '$needle' — see $LOG"
+    fi
+  done
+  for ext in task superpowers hermes-memory subagent workflow web-access power-tool webui; do
+    if grep -q "<inline:$ext>" "$LOG"; then
+      echo "✓ extension listed: $ext"
+    else
+      note_fail "extension '$ext' not listed — see $LOG"
     fi
   done
   for skill in btw playwright-cli webui-audit; do

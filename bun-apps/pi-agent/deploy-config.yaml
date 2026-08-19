@@ -8,6 +8,11 @@
 # hostModules MUST match HOST_MODULE_IDS there — the deploy hard-fails on drift,
 # because a config that promises a module the core does not embed produces
 # extensions that silently refuse to load.
+#
+# Base-set profile (2026-08-20, "portable full-featured agent"): memory, skills,
+# subagent/workflow, and web-access ship in the box. Everything machine-bound
+# (swift director CLIs, LM Studio) or repo-internal (devops, tool-gate) stays
+# out — see docs/deploy-sh.md "Limits" for the exclusion rationale.
 outRoot: ~/proj/dist/pi-agent-sh
 version:
   from: package.json
@@ -21,15 +26,81 @@ hostModules:
   - "typebox"
   - "typebox/value"
   - "@repo/pi-agent-core-runtime"
+  # pi-ai is already compiled in via pi-coding-agent; serving it costs ~zero
+  # core bytes and keeps the model/streaming types identity-stable for the
+  # extensions that import it (subagent, workflow, hermes-memory, btw, webui).
+  - "@earendil-works/pi-ai"
+  - "@earendil-works/pi-ai/compat"
+  # The subagent package is BOTH an extension (factory registers tools) and a
+  # shared runtime library: hermes-memory handlers import spawnSubagent /
+  # roleAwareDirectCall, and the in-flight registry is an identity-sensitive
+  # singleton — per-ext bundles would split it (same reasoning as core-runtime).
+  - "@repo/pi-agent-ext-subagent"
 extensions:
   - name: task
     package: pi-agent-ext-task
     entry: extensions/task.ts
     order: 10
+  - name: prompt-history
+    package: pi-agent-ext-prompt-history
+    entry: extensions/prompt-history.ts
+    order: 20
+    # Pure code: imports only pi-coding-agent + node builtins.
+  - name: superpowers
+    package: pi-agent-ext-superpowers
+    entry: extensions/superpowers.ts
+    order: 30
+    skills: [skills]
+    # Code + skills tree (52 files / ~450K). Skills resolve at runtime through
+    # require("#pi/ext-dir") — bun's cjs output folds import.meta.url into a
+    # build-machine path, which the relocatability gate rejects.
+  - name: wayfind
+    package: pi-agent-ext-wayfind
+    entry: extensions/wayfind.ts
+    order: 40
+    skills: [skills]
+    # procedures/ holds the wayfinder data file (NOT a skill — pi would
+    # auto-register it as /skill:<name>); copied beside the bundle and read
+    # through require("#pi/ext-dir") at runtime.
+    copy: [procedures]
+  - name: hermes-memory
+    package: pi-agent-ext-hermes-memory
+    entry: extensions/hermes-memory.ts
+    order: 50
+    skills: [skills]
+    # sqlite is bun:sqlite (a builtin, no native vendoring); scripts/ holds the
+    # git merge-driver resolved via require("#pi/ext-dir").
+    copy: [scripts]
+  - name: subagent
+    package: pi-agent-ext-subagent
+    entry: extensions/subagent.ts
+    order: 60
+    # Host-lib consumer: core-runtime + pi-ai + its own lib are all host modules.
+  - name: workflow
+    package: pi-agent-ext-workflow
+    entry: extensions/workflow.ts
+    order: 70
+    # Must load after subagent (registry population); acorn bundles inline.
+  - name: btw
+    package: pi-agent-ext-btw
+    entry: extensions/btw.ts
+    order: 80
+    skills: [skills]
+  - name: web-access
+    package: pi-agent-ext-web-access
+    entry: extensions/web-access.ts
+    order: 90
+    skills: [skills]
+    # Largest bundle (~880K: readability/linkedom/turndown etc. inline). unpdf
+    # is VENDORED, not bundled: its ESM uses import.meta.resolve, whose syntax
+    # is invalid inside the loader's cjs eval — as a real directory it loads as
+    # a proper module.
+    vendor: ["unpdf"]
   - name: power-tool
     package: pi-agent-ext-power-tool
     entry: extensions/power-tool.ts
-    order: 50
+    order: 100
+    skills: [skills]
     # power-tool pulls playwright-core (browser/webui tools). It is VENDORED,
     # not bundled: bun's cjs output rewrites `__dirname` to the path the file
     # had on the BUILD MACHINE, and playwright-core locates its own resources
@@ -44,3 +115,18 @@ extensions:
     # CDP path never enters. kerberos / vite / @playwright/test are optional
     # peers reached only from code paths this agent never takes.
     externals: ["chromium-bidi/*", "kerberos", "vite", "@playwright/test"]
+  - name: webui
+    package: pi-agent-ext-webui
+    entry: extensions/webui.ts
+    order: 110
+    # Pure code: the HTML shell is a single inline string constant; Bun.serve
+    # WS works in the compiled binary. webui-audit skill lives HERE (moved from
+    # power-tool — the audit drives the webui's own surface).
+    skills: [skills]
+  - name: hyperframes
+    package: pi-agent-ext-hyperframes
+    entry: extensions/hyperframes.ts
+    order: 120
+    skills: [skills]
+    # Skills-only carrier: the vendored HyperFrames + media-use family (~5.5MB
+    # incl. mp3 SFX / woff2 fonts). Factory is a no-op; skills copy verbatim.
