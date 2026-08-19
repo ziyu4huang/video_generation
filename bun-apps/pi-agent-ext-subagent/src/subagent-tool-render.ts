@@ -6,6 +6,8 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { AgentHistoryEntry, BudgetWarning } from "@repo/pi-agent-core-runtime";
 import {
+  capWidth,
+  ellipsizeToWidth,
   fmtCost,
   fmtElapsed,
   formatToolAction,
@@ -13,7 +15,6 @@ import {
   matchedCallArgsFor,
   shortModel,
 } from "@repo/pi-agent-core-runtime";
-import { capWidth, ellipsizeToWidth } from "./render-width.js";
 import type { SpawnSubagentResult } from "./spawn-subagent.js";
 import type { SubagentToolDetails } from "./subagent-tool-schema.js";
 

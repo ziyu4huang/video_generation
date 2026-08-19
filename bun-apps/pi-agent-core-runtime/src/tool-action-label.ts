@@ -21,6 +21,7 @@
  * toolName — and NEVER throw.
  */
 import type { AgentHistoryEntry } from "./agent-history.js";
+import { capWidth, ellipsizeMidToWidth, ellipsizeToWidth } from "./render-width.js";
 
 export interface ToolActionContext {
   /**
@@ -29,6 +30,13 @@ export interface ToolActionContext {
    * `matchedCallArgsFor`; absent for orphan results (→ verb-only).
    */
   matchedCallArgs?: Record<string, unknown>;
+  /**
+   * Terminal width (columns) available for the phrase's TARGET. Optional:
+   * absent → the historical ~50-char cap semantics (ASCII byte-identical);
+   * present → `capWidth(50, width)` only ever NARROWS it. Cuts are terminal-
+   * COLUMN aware either way (CJK double-width counted via render-width).
+   */
+  width?: number;
 }
 
 /** Arg keys tried, in order, when a tool's own per-tool key is absent (generic fallback). */
@@ -160,24 +168,25 @@ function firstLine(text: string | undefined): string {
 }
 
 function truncateEnd(s: string, max: number): string {
-  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+  return ellipsizeToWidth(s, max);
 }
 
 function truncateMid(s: string, max: number): string {
-  if (s.length <= max) return s;
-  const head = Math.ceil((max - 1) / 2);
-  const tail = Math.floor((max - 1) / 2);
-  return `${s.slice(0, head)}…${s.slice(-tail)}`;
+  return ellipsizeMidToWidth(s, max);
 }
 
 /** Shape a raw arg value into a display target: commands → first line; else mid-ellipsis (~50). */
-function shapeTarget(key: string, raw: string): string {
-  if (key === "command") return truncateEnd(firstLine(raw) || raw, 50);
-  return truncateMid(raw, 50);
+function shapeTarget(key: string, raw: string, cap = 50): string {
+  if (key === "command") return truncateEnd(firstLine(raw) || raw, cap);
+  return truncateMid(raw, cap);
 }
 
 /** Extract this tool's own target from parsed args (first matching key wins). */
-function extractTargetValue(spec: VerbSpec, args: Record<string, unknown> | undefined): string | undefined {
+function extractTargetValue(
+  spec: VerbSpec,
+  args: Record<string, unknown> | undefined,
+  cap: number,
+): string | undefined {
   if (!args) return undefined;
   for (const k of spec.keys) {
     const v = args[k];
@@ -186,21 +195,21 @@ function extractTargetValue(spec: VerbSpec, args: Record<string, unknown> | unde
       if (spec.count) return String(v.length);
       if (v.length === 0) continue;
       const first = v[0];
-      return typeof first === "object" ? undefined : shapeTarget(k, String(first));
+      return typeof first === "object" ? undefined : shapeTarget(k, String(first), cap);
     }
     if (typeof v === "object") continue;
-    return shapeTarget(k, String(v));
+    return shapeTarget(k, String(v), cap);
   }
   return undefined;
 }
 
 /** Generic-key fallback: first present of GENERIC_KEYS → shaped value. */
-function extractGeneric(args: Record<string, unknown> | undefined): string | undefined {
+function extractGeneric(args: Record<string, unknown> | undefined, cap: number): string | undefined {
   if (!args) return undefined;
   for (const k of GENERIC_KEYS) {
     const v = args[k];
     if (v == null || Array.isArray(v) || typeof v === "object") continue;
-    return shapeTarget(k, String(v));
+    return shapeTarget(k, String(v), cap);
   }
   return undefined;
 }
@@ -242,27 +251,33 @@ function parseArgs(text: string | undefined): Record<string, unknown> | undefine
 }
 
 /** toolCall (present-continuous) phrase. */
-function presentPhrase(toolName: string | undefined, args: Record<string, unknown> | undefined): string {
+function presentPhrase(
+  toolName: string | undefined,
+  args: Record<string, unknown> | undefined,
+  width?: number,
+): string {
   const spec = toolName ? VERBS[toolName] : undefined;
   const a = args ?? {};
+  const cap = capWidth(50, width);
   if (spec) {
-    const t = extractTargetValue(spec, a);
+    const t = extractTargetValue(spec, a, cap);
     if (t != null) return spec.present(t);
   }
-  const g = extractGeneric(a);
+  const g = extractGeneric(a, cap);
   if (g != null) return `Using ${g}`;
   return `Using ${toolName ?? "tool"}`;
 }
 
 /** toolResult (past) phrase — requires the matched call's args for a target. */
-function pastPhrase(toolName: string | undefined, args: Record<string, unknown> | undefined): string {
+function pastPhrase(toolName: string | undefined, args: Record<string, unknown> | undefined, width?: number): string {
   const spec = toolName ? VERBS[toolName] : undefined;
   const a = args ?? {};
+  const cap = capWidth(50, width);
   if (spec) {
-    const t = extractTargetValue(spec, a);
+    const t = extractTargetValue(spec, a, cap);
     if (t != null) return spec.past(t);
   }
-  const g = extractGeneric(a);
+  const g = extractGeneric(a, cap);
   if (g != null) return `Used ${g}`;
   return `Used ${toolName ?? "tool"}`;
 }
@@ -274,17 +289,22 @@ function pastVerbOnly(toolName: string | undefined): string {
 }
 
 /** error phrase — `Failed to <verb> <target>` (+ optional `: <detail>`); whole-turn → `⚠ <line>`. */
-function errorPhrase(entry: AgentHistoryEntry, matchedCallArgs: Record<string, unknown> | undefined): string {
+function errorPhrase(
+  entry: AgentHistoryEntry,
+  matchedCallArgs: Record<string, unknown> | undefined,
+  width?: number,
+): string {
   // Whole-turn model error (assistant, no toolName): surface the raw message.
   if (entry.role === "assistant" && !entry.toolName) {
     return `⚠ ${truncateEnd(firstLine(entry.text), 200)}`;
   }
   const toolName = entry.toolName;
   const spec = toolName ? VERBS[toolName] : undefined;
+  const cap = capWidth(50, width);
   let target: string | undefined;
   if (matchedCallArgs) {
-    target = spec ? extractTargetValue(spec, matchedCallArgs) : undefined;
-    if (target == null) target = extractGeneric(matchedCallArgs);
+    target = spec ? extractTargetValue(spec, matchedCallArgs, cap) : undefined;
+    if (target == null) target = extractGeneric(matchedCallArgs, cap);
   }
   const stem = spec?.stem ?? toolName ?? "tool";
   const detail = truncateEnd(firstLine(entry.text), 120);
@@ -307,11 +327,13 @@ function idlePhrase(text: string | undefined): string {
 export function formatToolAction(entry: AgentHistoryEntry, ctx?: ToolActionContext): string {
   switch (entry.kind) {
     case "toolCall":
-      return presentPhrase(entry.toolName, parseArgs(entry.text));
+      return presentPhrase(entry.toolName, parseArgs(entry.text), ctx?.width);
     case "toolResult":
-      return ctx?.matchedCallArgs ? pastPhrase(entry.toolName, ctx.matchedCallArgs) : pastVerbOnly(entry.toolName);
+      return ctx?.matchedCallArgs
+        ? pastPhrase(entry.toolName, ctx.matchedCallArgs, ctx?.width)
+        : pastVerbOnly(entry.toolName);
     case "error":
-      return errorPhrase(entry, ctx?.matchedCallArgs);
+      return errorPhrase(entry, ctx?.matchedCallArgs, ctx?.width);
     case "text":
       return idlePhrase(entry.text);
     default:

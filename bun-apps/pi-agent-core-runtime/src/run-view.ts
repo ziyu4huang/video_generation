@@ -8,6 +8,7 @@
  */
 import type { AgentHistoryEntry } from "./agent-history.js";
 import type { ActivityStatus } from "./agent-row-display.js";
+import { ellipsizeToWidth } from "./render-width.js";
 import type { InFlightSubagent } from "./subagent-in-flight.js";
 
 /** Internal alias for the raw registry record (NOT part of the barrel — Dispatch B removes the raw surface). */
@@ -50,11 +51,11 @@ export interface RunView {
   readonly tokensOut: number;
 }
 
-/** Short, compact model segment: drop provider prefix, cap runaway ids. */
+/** Short, compact model segment: drop provider prefix, cap runaway ids (by terminal columns). */
 function shortModelSeg(model: string): string {
   const slash = model.lastIndexOf("/");
   const seg = slash >= 0 ? model.slice(slash + 1) : model;
-  return seg.length > 24 ? `${seg.slice(0, 23)}…` : seg;
+  return ellipsizeToWidth(seg, 24);
 }
 
 function modelSegFor(r: RunRecord): string {

@@ -1,5 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type { AgentHistoryEntry, ToolActionContext } from "@repo/pi-agent-core-runtime";
 import { formatToolAction, matchedCallArgsFor } from "@repo/pi-agent-core-runtime";
 
@@ -239,4 +240,47 @@ test("text entry → first line (≤60)", () => {
 
 test("empty text entry → `…thinking`", () => {
   assert.equal(formatToolAction({ role: "assistant", kind: "text", text: "" }), "…thinking");
+});
+
+// ── width-aware target shaping (2026-08-19 core-runtime width adoption) ──
+// ctx.width is OPTIONAL: absent → today's ~50-cap semantics byte-identical for
+// ASCII; present → capWidth(50, width) only ever NARROWS; every cut becomes
+// terminal-COLUMN aware (CJK double-width counted, never overshoot).
+
+test("width: absent ctx.width keeps the legacy ~50 cap (ASCII byte-identical)", () => {
+  const cmd = "c".repeat(120);
+  assert.equal(formatToolAction(call("bash", JSON.stringify({ command: cmd }))), `Running: ${"c".repeat(49)}…`);
+  const path = "p".repeat(120);
+  assert.equal(
+    formatToolAction(call("read", JSON.stringify({ path }))),
+    `Reading ${"p".repeat(25)}…${"p".repeat(24)}`,
+  );
+});
+
+test("width: ctx.width narrows the target cap (end-ellipsis path, command key)", () => {
+  const cmd = "c".repeat(120);
+  const ctx: ToolActionContext = { width: 20 };
+  assert.equal(formatToolAction(call("bash", JSON.stringify({ command: cmd })), ctx), `Running: ${"c".repeat(19)}…`);
+});
+
+test("width: ctx.width only narrows — a wide width keeps the constant cap", () => {
+  const cmd = "c".repeat(120);
+  const ctx: ToolActionContext = { width: 500 };
+  assert.equal(formatToolAction(call("bash", JSON.stringify({ command: cmd })), ctx), `Running: ${"c".repeat(49)}…`);
+});
+
+test("width: CJK targets are clipped by terminal columns, not char count (default cap)", () => {
+  const cmd = "你".repeat(40); // 80 columns, 40 chars
+  const out = formatToolAction(call("bash", JSON.stringify({ command: cmd })));
+  assert.equal(out, `Running: ${"你".repeat(24)}…`); // 24×2 + 1 = 49 columns
+});
+
+test("width: CJK mid-ellipsis target lands inside the column budget", () => {
+  const path = "你".repeat(40); // 80 columns, 40 chars
+  const out = formatToolAction(call("read", JSON.stringify({ path })));
+  const target = out.replace(/^Reading /, "");
+  assert.equal(target.split("…").length - 1, 1, "exactly one ellipsis");
+  // head=25 cols caps at 24 (a wide char would straddle), tail=24 → 24+1+24 = 49.
+  assert.equal(visibleWidth(target), 49);
+  assert.ok(target.startsWith("你") && target.endsWith("你"), "head/tail preserved");
 });
