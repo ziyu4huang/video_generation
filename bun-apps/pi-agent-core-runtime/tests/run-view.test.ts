@@ -106,3 +106,17 @@ describe("buildRunView — accrued usage projection", () => {
     expect(v.tokensOut).toBe(0);
   });
 });
+
+// ── width-aware model segment cap (2026-08-19 core-runtime width adoption) ──
+
+describe("buildRunView — modelSeg column-aware cap", () => {
+  test("ASCII segment keeps legacy 24-char semantics byte-identical", () => {
+    const seg = "x".repeat(40);
+    expect(buildRunView(baseRun({ resolvedModel: `prov/${seg}` }), 0).modelSeg).toBe(`${"x".repeat(23)}…`);
+  });
+
+  test("CJK segment is capped by terminal columns, never overshoots 24", () => {
+    const v = buildRunView(baseRun({ resolvedModel: `prov/${"你".repeat(40)}` }), 0);
+    expect(v.modelSeg).toBe(`${"你".repeat(11)}…`); // 11×2 + 1 = 23 columns
+  });
+});

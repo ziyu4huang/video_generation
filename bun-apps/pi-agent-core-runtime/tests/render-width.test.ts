@@ -1,12 +1,14 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { capWidth, ellipsizeToWidth } from "../src/render-width.js";
+import { capWidth, ellipsizeMidToWidth, ellipsizeToWidth } from "../src/render-width.js";
 
-// ── effort 2026-08-15-subagent-tui-display (ticket 01): shared truncation helper ──
+// ── effort 2026-08-15-subagent-tui-display (ticket 01): shared truncation helper,
+//    ported home to core-runtime 2026-08-19 (deferred prize: every pure render
+//    site that clips a line goes through this ONE surface).
 // The helper module owns THREE invariants for every pure render adopter:
 //   1. terminal-COLUMN budgets (East-Asian double-width counted via visibleWidth),
-//   2. ONE trailing `…` INSIDE the budget whenever content is cut,
+//   2. ONE ellipsis INSIDE the budget whenever content is cut,
 //   3. graceful floor at degenerate widths — never empty, never a crash.
 
 test("capWidth keeps the constant when width is undefined or non-finite (defaulted callers stay byte-identical)", () => {
@@ -90,4 +92,62 @@ test("ellipsizeToWidth handles mixed CJK + ASCII by column budget, not char coun
   assert.ok(out.endsWith("…"), "cut marked");
   // Fits → verbatim, even with double-width chars inside.
   assert.equal(ellipsizeToWidth("你好x", 10), "你好x");
+});
+
+// ── ellipsizeMidToWidth (2026-08-19): the mid-ellipsis counterpart adopted by
+//    tool-action-label's shapeTarget for non-command targets. Same invariants as
+//    ellipsizeToWidth but the cut marker sits BETWEEN head and tail columns.
+
+test("ellipsizeMidToWidth returns content verbatim when it already fits (empty stays empty)", () => {
+  assert.equal(ellipsizeMidToWidth("hello", 80), "hello");
+  assert.equal(ellipsizeMidToWidth("", 80), "");
+});
+
+test("ellipsizeMidToWidth keeps legacy ASCII mid semantics: ceil/floor head-tail split around one `…`", () => {
+  // Legacy truncateMid: head = ceil((max-1)/2), tail = floor((max-1)/2).
+  const out = ellipsizeMidToWidth("x".repeat(120), 50);
+  assert.equal(out, `${"x".repeat(25)}…${"x".repeat(24)}`); // 25 + 1 + 24 = 50
+  assert.equal(visibleWidth(out), 50, "exactly at budget");
+  assert.equal(out.split("…").length - 1, 1, "exactly one ellipsis");
+  // A width that equals the content width does NOT cut.
+  assert.equal(ellipsizeMidToWidth("x".repeat(50), 50), "x".repeat(50));
+  // Asymmetry is preserved at odd content budgets: head gets the extra column.
+  assert.equal(ellipsizeMidToWidth("x".repeat(120), 7), `${"x".repeat(3)}…${"x".repeat(3)}`);
+});
+
+test("ellipsizeMidToWidth degrades gracefully at degenerate widths (never crashes, never empty, one `…`)", () => {
+  const s = "abcdef";
+  assert.equal(ellipsizeMidToWidth(s, 1), "…");
+  assert.equal(ellipsizeMidToWidth(s, 0), "…");
+  assert.equal(ellipsizeMidToWidth(s, -5), "…");
+  for (const w of [2, 3, 4]) {
+    const out = ellipsizeMidToWidth(s, w);
+    assert.ok(visibleWidth(out) <= w, `width ${w}: never overlong`);
+    assert.ok(out.length > 0, `width ${w}: never empty`);
+    assert.equal(out.split("…").length - 1, 1, `width ${w}: exactly one ellipsis`);
+  }
+});
+
+test("ellipsizeMidToWidth is CJK double-width aware: never exceeds the budget, wide chars stay whole", () => {
+  const cjk = "你好世界再见谢谢".repeat(30); // 480 columns
+  for (const w of [40, 80, 120]) {
+    const out = ellipsizeMidToWidth(cjk, w);
+    assert.ok(visibleWidth(out) <= w, `width ${w}: within budget`);
+    assert.equal(out.split("…").length - 1, 1, `width ${w}: exactly one ellipsis`);
+    assert.ok(out.startsWith("你"), `width ${w}: head preserved from the start`);
+    assert.ok(out.endsWith("…") === false || visibleWidth(out) <= w, `width ${w}: sanity`);
+  }
+  // Exact pin: budget 9 → content 8 cols → head 4 (你好), tail 4 (two CJK),
+  // total 4+1+4 = 9. A straddling wide char is dropped, never overshoot.
+  const out9 = ellipsizeMidToWidth(cjk, 9);
+  assert.equal(visibleWidth(out9), 9);
+  assert.equal(out9.split("…").length - 1, 1);
+});
+
+test("ellipsizeMidToWidth handles mixed CJK + ASCII by column budget", () => {
+  const mixed = `头${"x".repeat(40)}尾`; // 2 + 40 + 2 = 44 columns
+  const out = ellipsizeMidToWidth(mixed, 20);
+  // head=10 (头 + 8x), tail=9 (尾 + 7x) → 10+1+9 = 20 exactly.
+  assert.equal(out, `头${"x".repeat(8)}…${"x".repeat(7)}尾`);
+  assert.equal(visibleWidth(out), 20);
 });

@@ -1,6 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type { ActivityStatus } from "../src/agent-row-display.js";
-import { activityGlyph, glyphFor, NO_THEME, renderBadge, renderRunRow, runHeader } from "../src/agent-row-display.js";
+import {
+  activityGlyph,
+  glyphFor,
+  NO_THEME,
+  preview,
+  renderBadge,
+  renderRunRow,
+  runHeader,
+  shorten,
+} from "../src/agent-row-display.js";
 import type { RunView } from "../src/run-view.js";
 import { buildRunView } from "../src/run-view.js";
 
@@ -74,5 +84,33 @@ describe("renderRunRow — cost tail", () => {
   test("cost tail absent when costUsd is 0", () => {
     const v = buildRunView(base, 1000);
     expect(renderRunRow(v, NO_THEME)).not.toContain("$");
+  });
+});
+
+// ── width-aware shorten/preview (2026-08-19 core-runtime width adoption) ──
+// Signatures unchanged: the `max` argument becomes a terminal-COLUMN budget
+// (CJK double-width counted) instead of a char count. ASCII outputs stay
+// byte-identical to the legacy char-slice; wide-char inputs never overshoot.
+
+describe("shorten / preview — column-aware budgets", () => {
+  test("shorten: ASCII output byte-identical to legacy char-slice", () => {
+    expect(shorten("x".repeat(100), 50)).toBe(`${"x".repeat(49)}…`);
+    expect(shorten("fits", 50)).toBe("fits");
+  });
+
+  test("shorten: CJK clipped by columns, wide char never straddles the budget", () => {
+    const out = shorten("你".repeat(60), 50); // 120 columns
+    expect(out).toBe(`${"你".repeat(24)}…`); // 24×2 + 1 = 49 columns
+  });
+
+  test("preview: ASCII output byte-identical; default cap 80", () => {
+    expect(preview("y".repeat(100))).toBe(`${"y".repeat(79)}…`);
+    expect(preview("ok")).toBe("ok");
+  });
+
+  test("preview: CJSON/CJK payload clipped by columns, never overshoot", () => {
+    const out = preview({ note: "你".repeat(100) }, 40);
+    expect(visibleWidth(out)).toBeLessThanOrEqual(40);
+    expect(out.endsWith("…")).toBe(true);
   });
 });

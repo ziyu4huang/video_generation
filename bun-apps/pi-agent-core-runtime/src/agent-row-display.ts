@@ -10,6 +10,7 @@
  * workflow agents, completed subagent runs, and in-flight subagents.
  */
 
+import { ellipsizeToWidth } from "./render-width.js";
 import type { RunView } from "./run-view.js";
 
 /** Statuses a live agent row can show (superset of workflow's WorkflowAgentStatus). */
@@ -201,11 +202,11 @@ export function fmtCost(cost: number): string {
 
 export function shorten(value: string, max: number): string {
   const text = value.replace(/\s+/g, " ").trim();
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+  return ellipsizeToWidth(text, max);
 }
 
 export function preview(value: unknown, max = 80): string {
   const text = typeof value === "string" ? value : JSON.stringify(value);
   if (!text) return "";
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+  return ellipsizeToWidth(text, max);
 }

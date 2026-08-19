@@ -108,6 +108,7 @@ export {
   providerFromModelSpec,
   setRateLimitCapResolver,
 } from "./rate-limiter.js";
+export { capWidth, ellipsizeMidToWidth, ellipsizeToWidth } from "./render-width.js";
 export type { RunView } from "./run-view.js";
 export { buildRunView, isTerminalStatus } from "./run-view.js";
 

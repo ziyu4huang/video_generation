@@ -1,12 +1,13 @@
 /**
  * Shared width-aware truncation helpers (effort 2026-08-15-subagent-tui-display,
- * ticket 01 prefactor).
+ * ticket 01 prefactor; ported home to core-runtime 2026-08-19 so every package
+ * renders through ONE surface — subagent keeps no local copy).
  *
  * ONE surface for every pure render site that clips a line: terminal-COLUMN
  * aware (East-Asian double-width counted via pi-tui's `visibleWidth`), one
- * trailing `…` INSIDE the column budget whenever content is cut, an
- * upper-bound `min(constant, width)` combinator, and a graceful floor so
- * degenerate widths degrade to a clean short line — never empty, never a crash.
+ * ellipsis INSIDE the column budget whenever content is cut, an upper-bound
+ * `min(constant, width)` combinator, and a graceful floor so degenerate widths
+ * degrade to a clean short line — never empty, never a crash.
  *
  * Why this wraps `visibleWidth` instead of calling pi-tui `truncateToWidth`
  * directly: the library's truncation emits ANSI-reset-wrapped `"..."` (three
@@ -46,6 +47,24 @@ function clipColumns(s: string, budget: number): string {
   return out;
 }
 
+/** Clip from the END of `s` to at most `budget` columns (mid-ellipsis tail half). */
+function clipColumnsEnd(s: string, budget: number): string {
+  if (budget <= 0) return "";
+  let out = "";
+  let used = 0;
+  for (const ch of [...s].reverse()) {
+    const w = visibleWidth(ch);
+    if (w === 0) {
+      out = ch + out;
+      continue;
+    }
+    if (used + w > budget) break;
+    out = ch + out;
+    used += w;
+  }
+  return out;
+}
+
 /**
  * Truncate `s` to at most `width` terminal columns with ONE trailing `…`
  * (visible width 1) inside the budget whenever content is cut — the unified
@@ -59,6 +78,22 @@ export function ellipsizeToWidth(s: string, width: number): string {
   if (visibleWidth(s) <= width) return s;
   if (width <= 1) return "…";
   return `${clipColumns(s, width - 1)}…`;
+}
+
+/**
+ * Mid-ellipsis counterpart of {@link ellipsizeToWidth}: keep the head and tail,
+ * replace the cut middle with ONE `…` inside the budget. Column split mirrors
+ * the legacy char-based semantics — head gets the ceil half, tail the floor —
+ * so ASCII outputs are byte-identical to the old `truncateMid`; wide chars are
+ * dropped when they would straddle either half's column budget.
+ */
+export function ellipsizeMidToWidth(s: string, width: number): string {
+  if (visibleWidth(s) <= width) return s;
+  if (width <= 1) return "…";
+  const content = width - 1;
+  const head = Math.ceil(content / 2);
+  const tail = Math.floor(content / 2);
+  return `${clipColumns(s, head)}…${clipColumnsEnd(s, tail)}`;
 }
 
 /**
