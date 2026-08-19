@@ -1,0 +1,84 @@
+import { afterAll, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, readlinkSync, renameSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runShDeploy } from "../scripts/deploy-sh.ts";
+import { freezeTree, rmTree, unfreezeTree } from "../scripts/lib/sh-fs.ts";
+
+const RUN = process.env.PI_AGENT_E2E === "1";
+const describeE2E = RUN ? describe : describe.skip;
+
+const outRoot = mkdtempSync(join(tmpdir(), "sh-e2e-"));
+afterAll(() => rmTree(outRoot));
+
+function extList(binary: string) {
+	const p = Bun.spawnSync([binary, "--ext-list"], { stdout: "pipe", stderr: "pipe" });
+	return { exitCode: p.exitCode, payload: JSON.parse(p.stdout.toString()) };
+}
+
+describeE2E("pi-agent-sh deploy e2e", () => {
+	test("full deploy produces a working core, extensions, and current symlink", async () => {
+		const r = await runShDeploy({ outRoot, force: true });
+		expect(r.mode).toBe("full");
+		expect(r.extensions.map((e) => e.name).sort()).toEqual(["power-tool", "task"]);
+		expect(r.currentUpdated).toBe(true);
+
+		expect(existsSync(join(r.target, "pi-agent"))).toBe(true);
+		expect(existsSync(join(r.target, "run.sh"))).toBe(true);
+		expect(existsSync(join(r.target, "deploy.json"))).toBe(true);
+		expect(existsSync(join(r.target, "ext", "power-tool", "ext.json"))).toBe(true);
+		expect(existsSync(join(r.target, "ext", "power-tool", "skills"))).toBe(true);
+		expect(readlinkSync(join(outRoot, "current"))).toBe(r.version);
+
+		// frozen: no write bits anywhere
+		expect(statSync(join(r.target, "ext", "power-tool", "ext.cjs")).mode & 0o222).toBe(0);
+
+		// state 1: extensions load, in config order
+		const withExt = extList(join(r.target, "pi-agent"));
+		expect(withExt.exitCode).toBe(0);
+		expect(withExt.payload.loaded).toEqual(["task", "power-tool"]);
+		expect(withExt.payload.skipped).toEqual([]);
+	}, 300_000);
+
+	test("the core still runs with ext/ deleted", () => {
+		const version = readlinkSync(join(outRoot, "current"));
+		const target = join(outRoot, version);
+		const parked = join(target, "ext-parked");
+		// unfreeze just enough to move the directory
+		unfreezeTree(target);
+		renameSync(join(target, "ext"), parked);
+		try {
+			const without = extList(join(target, "pi-agent"));
+			expect(without.exitCode).toBe(0);
+			expect(without.payload.loadedCount).toBe(0);
+		} finally {
+			renameSync(parked, join(target, "ext"));
+			freezeTree(target);
+		}
+	}, 60_000);
+
+	test("single-extension rebuild updates that extension in place", async () => {
+		const version = readlinkSync(join(outRoot, "current"));
+		const target = join(outRoot, version);
+		const before = readFileSync(join(target, "ext", "power-tool", "ext.json"), "utf8");
+
+		const r = await runShDeploy({ outRoot, version, onlyExt: ["power-tool"] });
+		expect(r.mode).toBe("ext-only");
+		expect(r.extensions.map((e) => e.name)).toEqual(["power-tool"]);
+
+		const after = readFileSync(join(target, "ext", "power-tool", "ext.json"), "utf8");
+		expect(JSON.parse(after).name).toBe("power-tool");
+		expect(before.length).toBeGreaterThan(0);
+		expect(after.length).toBeGreaterThan(0);
+
+		// still frozen and still loading both extensions
+		expect(statSync(join(target, "ext", "power-tool", "ext.cjs")).mode & 0o222).toBe(0);
+		expect(extList(join(target, "pi-agent")).payload.loaded).toEqual(["task", "power-tool"]);
+	}, 180_000);
+
+	test("--ext against a version that does not exist is refused", async () => {
+		await expect(runShDeploy({ outRoot, version: "0.0.0-absent", onlyExt: ["power-tool"] })).rejects.toThrow(
+			/existing deploy/,
+		);
+	});
+});
