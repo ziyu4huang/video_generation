@@ -13,6 +13,7 @@ import {
 	checkHostDeps,
 	checkExtensions,
 	checkProviders,
+	checkShExtensions,
 	smokeMarker,
 	runSmokeCheck,
 	removedFlagNotice,
@@ -24,11 +25,13 @@ import {
 function ctx(over: Partial<DoctorContext> & { mode: DoctorContext["mode"] }): DoctorContext {
 	return {
 		selfDir: "/out",
+		deployDir: "/out",
 		entryPath: "/out/pi-agent.js",
 		bunVersion: "1.0.0",
 		exists: () => true,
 		depInstalled: () => true,
 		listDir: () => [],
+		readFile: () => "",
 		env: {},
 		...over,
 	} as DoctorContext;
@@ -38,17 +41,20 @@ describe("classifyMode", () => {
 	// `portable` and `release` were removed: nothing writes .deploy-portable or a
 	// packages/ dir, so those branches — and the ~15 tests that were the only
 	// thing exercising them — could never fire in production.
-	test("binary stays binary regardless of markers", () => {
-		expect(classifyMode("binary", { dotDeployBundle: true })).toBe("binary");
+	test("binary with no sh marker stays binary", () => {
+		expect(classifyMode("binary", { dotDeployBundle: true, shDeploy: false })).toBe("binary");
+	});
+	test("binary beside a deploy.json is an sh deploy", () => {
+		expect(classifyMode("binary", { dotDeployBundle: false, shDeploy: true })).toBe("sh");
 	});
 	test("source stays source regardless of markers", () => {
-		expect(classifyMode("source", { dotDeployBundle: true })).toBe("source");
+		expect(classifyMode("source", { dotDeployBundle: true, shDeploy: false })).toBe("source");
 	});
 	test("bundle coarse → bundle when .deploy-bundle present", () => {
-		expect(classifyMode("bundle", { dotDeployBundle: true })).toBe("bundle");
+		expect(classifyMode("bundle", { dotDeployBundle: true, shDeploy: false })).toBe("bundle");
 	});
 	test("bundle coarse with no marker → bundle (plain pi-agent.js)", () => {
-		expect(classifyMode("bundle", { dotDeployBundle: false })).toBe("bundle");
+		expect(classifyMode("bundle", { dotDeployBundle: false, shDeploy: false })).toBe("bundle");
 	});
 	/**
 	 * The guard for the original drift. A hardcoded `produced` set cannot be it:
@@ -67,6 +73,13 @@ describe("classifyMode", () => {
 		// means it moved again — loud, which is what a drift guard wants.
 		const DEPLOY_TS = join(import.meta.dir, "..", "..", "pi-agent-ext-devops", "scripts", "deploy.ts");
 		const deploySource = readFileSync(DEPLOY_TS, "utf8");
+		// There is a SECOND deploy pipeline now (deploy-sh.ts), and it is the only
+		// producer of the "sh" mode. Pinning `produced` to deploy.ts alone would
+		// have made (a) fail the moment sh mode was added — the guard firing on a
+		// legitimate change instead of a drift. Its existence is asserted the same
+		// way: read the file, fail loudly if it moved.
+		const DEPLOY_SH_TS = join(import.meta.dir, "..", "..", "pi-agent-ext-devops", "scripts", "deploy-sh.ts");
+		const deployShExists = readFileSync(DEPLOY_SH_TS, "utf8").length > 0;
 		const knownFlags = new Set(
 			[...deploySource.matchAll(/^\s*"(--[a-z-]+)",$/gm)].map((m) => m[1]),
 		);
@@ -97,15 +110,18 @@ describe("classifyMode", () => {
 		});
 
 		test("(a) every mode classifyMode can return is one deploy.ts produces", () => {
-			const produced = new Set(
+			const produced = new Set<DeployMode>(
 				Object.entries(MODE_BY_FLAG)
 					.filter(([flag]) => knownFlags.has(flag))
 					.map(([, mode]) => mode),
 			);
+			if (deployShExists) produced.add("sh");
 			for (const coarse of ["source", "bundle", "binary"] as const) {
 				for (const dotDeployBundle of [true, false]) {
-					const got = classifyMode(coarse, { dotDeployBundle });
-					expect(produced.has(got), `classifyMode returned "${got}", which no deploy mode produces`).toBe(true);
+					for (const shDeploy of [true, false]) {
+						const got = classifyMode(coarse, { dotDeployBundle, shDeploy });
+						expect(produced.has(got), `classifyMode returned "${got}", which no deploy mode produces`).toBe(true);
+					}
 				}
 			}
 		});
@@ -256,3 +272,77 @@ describe("runSmokeCheck (via injected spawn seam)", () => {
 	});
 });
 
+
+// ── sh mode ─────────────────────────────────────────────────────────────────
+describe("checkShExtensions", () => {
+	const HOST_API_NOW = 1;
+	const manifestFor = (name: string, over: Record<string, unknown> = {}) =>
+		JSON.stringify({
+			name,
+			package: `pi-agent-ext-${name}`,
+			version: "0.0.0",
+			hostApi: HOST_API_NOW,
+			entry: "ext.cjs",
+			order: 10,
+			enabled: true,
+			...over,
+		});
+
+	/** A context whose fs is a plain map of path → contents. */
+	function shCtx(files: Record<string, string>, dirs: Record<string, string[]>): DoctorContext {
+		return ctx({
+			mode: "sh",
+			deployDir: "/deploy",
+			exists: (p: string) => p in files || p in dirs,
+			listDir: (p: string) => dirs[p] ?? [],
+			readFile: (p: string) => {
+				const c = files[p];
+				if (c === undefined) throw new Error(`ENOENT: ${p}`);
+				return c;
+			},
+		});
+	}
+
+	test("an absent ext/ is info, not a failure — booting with none is designed", () => {
+		const r = checkShExtensions(shCtx({}, {}));
+		expect(r.status).toBe("info");
+		expect(r.detail).toContain("zero extensions");
+	});
+
+	test("fails on a manifest the LOADER would reject, naming the extension", () => {
+		// hostApi drift is the case that matters: --ext-list would report it
+		// skipped at boot, and doctor exists to say so before boot.
+		const files = {
+			"/deploy/ext/task/ext.json": manifestFor("task", { hostApi: 99 }),
+			"/deploy/ext/task/ext.cjs": "",
+		};
+		const r = checkShExtensions(shCtx(files, { "/deploy/ext": ["task"] }));
+		expect(r.status).toBe("fail");
+		expect(r.detail).toContain("task");
+		expect(r.detail).toContain("SKIPPED");
+	});
+
+	test("fails when the manifest is fine but its entry file is gone", () => {
+		const files = { "/deploy/ext/task/ext.json": manifestFor("task") };
+		const r = checkShExtensions(shCtx(files, { "/deploy/ext": ["task"] }));
+		expect(r.status).toBe("fail");
+		expect(r.detail).toContain("entry missing");
+	});
+
+	test("ignores a directory that carries no ext.json", () => {
+		const files = {
+			"/deploy/ext/task/ext.json": manifestFor("task"),
+			"/deploy/ext/task/ext.cjs": "",
+		};
+		const r = checkShExtensions(shCtx(files, { "/deploy/ext": ["task", "not-an-extension"] }));
+		expect(r.status).toBe("pass");
+		expect(r.detail).toContain("1 extension(s)");
+	});
+});
+
+describe("smokeMarker in sh mode", () => {
+	test("is the inline marker — sh factories reach pi via main({extensionFactories})", () => {
+		// Measured against a real deploy: {"path":"<inline:power-tool>","source":"inline"}.
+		expect(smokeMarker("sh", "/deploy")).toBe("<inline:");
+	});
+});

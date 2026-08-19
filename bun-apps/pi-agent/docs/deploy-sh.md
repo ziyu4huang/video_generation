@@ -18,8 +18,9 @@ This pipeline does not touch the four modes in `../pi-agent-ext-devops/scripts/d
     run.sh              # launcher: env hardening + exec ./pi-agent
     deploy.json         # provenance: version, builtAt, git sha, bun version, config snapshot
     ext/
-      task/       ext.json  ext.cjs                    (~155 KB)
-      power-tool/ ext.json  ext.cjs  skills/…          (~73 KB)
+      task/       ext.json  ext.cjs                    (~160 KB)
+      power-tool/ ext.json  ext.cjs  skills/…          (~215 KB)
+                   node_modules/playwright-core/…      (vendored, ~13 MB)
 ```
 
 Version string: `<pi-agent package.json version>+g<git short sha>`. The executable locates its own
@@ -82,6 +83,7 @@ Add an entry to `deploy-config.yaml`:
     entry: extensions/my-ext.ts
     order: 60
     skills: [skills]        # optional
+    vendor: [some-pkg]      # optional — copy a real node_modules copy per extension (see below)
 ```
 
 then run `deploy:sh`. If the build reports foreign specifiers, decide per specifier: a shared
@@ -91,6 +93,24 @@ inlined by the bundler (check the package declares it in its own `package.json` 
 
 `order` controls load order (ascending, ties broken by name): `task` = 10, `power-tool` = 50.
 
+### Vendored packages (`vendor:`)
+
+`vendor:` ships a package as a **real directory** under `ext/<name>/node_modules/<pkg>/` instead of
+bundling it. Two reasons, both measured:
+
+- **`__dirname` fidelity** — bun's cjs output rewrites `__dirname` to the path the file had on the
+  build machine. playwright-core locates its own resources via `__dirname`; bundling it baked
+  `~/.bun/install/cache/...` into the deploy and made the tree non-relocatable.
+- **Dynamic imports** — a real `import()` inside a compiled binary resolves against the
+  executable's virtual root (`/$bunfs/root/...`) and fails, because it never goes through the
+  injected `require`. The build rewrites `import("<vendored>")` to
+  `Promise.resolve(require("<vendored>"))`, putting it back on the loader's resolution path, where
+  the ext-local `node_modules/` fallback finds the vendored copy (the host module always wins over
+  a vendored copy, so vendoring can never shadow the shared runtime or split a singleton).
+
+Vendoring is what took power-tool's `ext.cjs` from ~3.8 MB to ~215 KB, at the cost of the ~13 MB
+playwright-core tree beside it.
+
 ### Runtime externals
 
 `externals` marks a specifier as neither bundled nor host-provided. An entry ending in `/*` covers
@@ -99,15 +119,13 @@ every subpath of that package.
 power-tool needs this for playwright: playwright-core's vendored bundle does
 `require("chromium-bidi/...")` while declaring zero deps, and references the optional peers
 `kerberos`, `vite`, and `@playwright/test`. This is the same treatment `deploy.ts` already applies
-via its `OPTIONAL_EXTERNALS` (PR #1635) — **playwright-core itself stays bundled**, so power-tool's
-browser tools work in the deploy; only the unresolvable internals are left out. Those live in
-esbuild's lazy `__esm({...})` sections that the default CDP path never enters. The cost is size:
-power-tool's bundle is ~3.8 MB rather than ~74 KB.
+via its `OPTIONAL_EXTERNALS` (PR #1635) — only the unresolvable internals are left out. Those live
+in esbuild's lazy `__esm({...})` sections that the default CDP path never enters.
 
 `ext.json` records these under `runtimeExternals`, deliberately separate from `hostModules` — one
 says the core supplies it, the other says only that it was not bundled.
 
-## The three gates
+## The four gates
 
 Every deploy runs these; any failure aborts, removes the staging dir, and leaves `current` untouched.
 
@@ -123,6 +141,39 @@ Every deploy runs these; any failure aborts, removes the staging dir, and leaves
 3. **Dual-state smoke** — `pi-agent --ext-list` must report every configured extension loaded; then
    `ext/` is moved aside and the same command must exit 0 with zero extensions. This is the
    executable proof that the core does not depend on its extensions.
+4. **Foreign-path scan** — no string in a bundle may be an absolute path under the builder's home
+   or repo (`file://` URLs count — they are paths in disguise). Exemptions: the deploy tree itself
+   and `$HOME/.pi` (the agent's per-user state dir, addressed by absolute path on every machine by
+   design). This is the gate that would have caught the baked `createRequire("file:///Users/…")`
+   base and playwright's build-machine `__dirname`.
+
+## E2E tiers
+
+The gates prove the tree is well-formed; they do not start a session. Three tiers do, in order of
+cost:
+
+- **L1 — `tests/deploy-sh-probe-e2e.test.ts`** (in CI via `scripts/check-deploy-sh-e2e.sh`, wired
+  into the `regression-gates` job). Runs the deployed binary offline: import-free `-e` probes fire
+  on `session_start`, inspect tools/commands/skills/cross-extension seams, and exit before any
+  provider call. Catches "registered but dead" (the sdk-patch polyfill was dead in every deploy for
+  a week while every gate was green).
+- **L2 — `scripts/run-sh-agent-e2e.sh`** (opt-in; spends tokens). One real model turn in **text
+  mode** — NOT `--mode json`, which truncates output after the first tool call (pre-existing,
+  source mode too). The agent must call a deployed tool; this is the tier that catches a tool
+  schema the provider rejects (z.ai 400s any function schema whose root is not `type: "object"`).
+- **L3 — `scripts/run-sh-agent-e2e.sh --tui`** (opt-in). The interactive TUI under a real pty
+  (`script -q` + `stty`): banner lists extensions/skills, no sdk-patch warning.
+
+## Skills and the `<inline:…>` label
+
+Skills in an sh deploy ship **inside an extension** (`skills: [skills]` in `deploy-config.yaml`
+copies the package's `skills/` dir into `ext/<name>/skills/`, and the core passes each to pi as a
+`--skill` path). `btw`, `playwright-cli`, and `webui-audit` come from power-tool this way — that is
+the intended single source; `~/.pi/agent/skills/` is empty by policy (PR #1713).
+
+`[Extensions] <inline:power-tool>` is also expected: the sh core hands pi extension *factories*
+(no file path), and pi labels factory-registered extensions `<inline:…>`. It does not mean the
+extension came from the repo's run-dir.
 
 ## Limits
 

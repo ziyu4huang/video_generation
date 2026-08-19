@@ -695,6 +695,16 @@ jobs:
       - name: Deploy-artifact guard (bundle + exe + snapshot, blocks)
         run: bash scripts/check-deploy-artifacts.sh
 
+      # Sh-deploy L1 e2e guard (blocks). The four sh build gates prove the tree
+      # is well-formed; this runs the DEPLOYED binary and proves its extensions
+      # actually work (tools, skills, cross-extension seams, doctor, both ext/
+      # states) — offline, via import-free `-e` probes that exit before any
+      # provider call. Without it the suite is invisible to local_ci, which is
+      # how a dead sdk-patch polyfill shipped in every deploy for a week.
+      # Must stay `if:`-free — parseCiGates refuses the whole gate list.
+      - name: Deploy-sh L1 e2e (deployed binary runs its extensions, blocks)
+        run: bash scripts/check-deploy-sh-e2e.sh
+
       # Extension-entry typecheck-coverage guard (blocks). An extension package's
       # registration entry lives at extensions/<X>.ts while its source lives in
       # src/ — and most of these packages wrote `include: ["src/**/*.ts"]`, so

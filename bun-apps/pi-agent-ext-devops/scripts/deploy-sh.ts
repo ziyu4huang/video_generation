@@ -97,12 +97,22 @@ async function buildCore(outFile: string): Promise<number> {
 	}
 
 	const entry = join(PI_AGENT_DIR, "src", "cli-sh.ts");
+	// bun's build report is human progress. deploy-sh-cli promises stdout is
+	// PURE JSON, and "inherit" here put the child's report on the same stdout
+	// as the final JSON payload — so pipe it and re-emit on stderr.
 	const p = Bun.spawn(["bun", "build", "--compile", entry, `--outfile=${outFile}`, "--minify"], {
 		cwd: PI_AGENT_DIR,
-		stdout: "inherit",
+		stdout: "pipe",
 		stderr: "inherit",
 	});
-	if ((await p.exited) !== 0) throw new Error("bun build --compile failed for src/cli-sh.ts");
+	const report = new Response(p.stdout)
+		.text()
+		.then((t) => {
+			if (t) process.stderr.write(t);
+		});
+	const code = await p.exited;
+	await report;
+	if (code !== 0) throw new Error("bun build --compile failed for src/cli-sh.ts");
 
 	// Reset the embedded-asset manifest to its empty form now that the binary has
 	// been compiled. The embedMode file imports .png/.map assets with
@@ -216,6 +226,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 					ext,
 					bunAppsDir: BUN_APPS_DIR,
 					outDir: join(target, "ext", ext.name),
+					deployRoot: target,
 					hostApi: cfg.hostApi,
 					hostModules: cfg.hostModules,
 					sourceSha,
@@ -257,6 +268,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 				ext,
 				bunAppsDir: BUN_APPS_DIR,
 				outDir: join(stage, "ext", ext.name),
+				deployRoot: stage,
 				hostApi: cfg.hostApi,
 				hostModules: cfg.hostModules,
 				sourceSha,

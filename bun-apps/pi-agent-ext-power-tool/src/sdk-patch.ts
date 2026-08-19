@@ -14,11 +14,10 @@
  * — tools simply omit the sub-breakdown and show "system prompt: ~X tok total".
  */
 
-import { createRequire } from "node:module";
+import { ExtensionRunner } from "@earendil-works/pi-coding-agent";
 import { collectHooks, wrapHookHandlers, type HooksSnapshot } from "./runner-hooks.js";
 
 let patched = false;
-const sdkRequire = createRequire(import.meta.url);
 
 // Runtime: ensureGetSystemPromptOptions() polyfills getSystemPromptOptions() AND
 // getHooks() onto the tool execution context (ExtensionContext) — the SDK only
@@ -85,28 +84,17 @@ export function ensureGetSystemPromptOptions(): boolean {
   if (patched) return true;
 
   try {
-    // The SDK's exports map (0.80.3) only exposes "." and "./rpc-entry", so a
-    // bare deep-subpath require(".../dist/core/extensions/runner.js") fails with
-    // "Cannot find module". Resolve the SDK package.json (always resolvable) and
-    // derive the runner path from it — a direct file-path require bypasses the
-    // exports map.
-    const pkgJsonPath = sdkRequire.resolve(
-      "@earendil-works/pi-coding-agent/package.json",
-    );
-    const runnerMod = require(
-      pkgJsonPath.replace(/package\.json$/, "dist/core/extensions/runner.js"),
-    );
-    // The runner class was renamed PiAgentRunner → ExtensionRunner; look it up
-    // by the createContext method on its prototype (name-agnostic) so a future
-    // rename doesn't silently break the polyfill again.
-    const Runner: unknown =
-      runnerMod.default ??
-      Object.values(runnerMod).find(
-        (v: unknown) =>
-          typeof v === "function" &&
-          typeof (v as { prototype?: { createContext?: unknown } }).prototype?.createContext ===
-            "function",
-      );
+    // The runner class comes from the package ROOT export. An earlier version
+    // resolved the SDK's package.json and required a derived deep path
+    // (".../dist/core/extensions/runner.js") because the 0.80.3 exports map
+    // exposed only "." and "./rpc-entry". That is obsolete twice over: 0.84.2
+    // re-exports ExtensionRunner from ".", and the deep path was a DEPLOY
+    // HAZARD — the bundler baked the build machine's absolute link-farm path
+    // into the cjs bundle, so pi-agent-sh's host require (which serves bare
+    // specifiers) threw and this polyfill silently never applied. The root
+    // import resolves to the same module instance in every mode: source,
+    // bundle, and sh (where the host serves its own embedded copy).
+    const Runner: unknown = ExtensionRunner;
 
     if (!Runner || typeof Runner !== "function") {
       console.warn(
