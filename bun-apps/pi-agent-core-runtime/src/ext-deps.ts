@@ -43,13 +43,13 @@ import { dirname, join } from "node:path";
  * spellings bun has used ($bunfs, ~BUN, and the URL-encoded %7EBUN).
  */
 export function isBunVirtualPath(path: string): boolean {
-	return path.includes("$bunfs") || path.includes("~BUN") || path.includes("%7EBUN");
+  return path.includes("$bunfs") || path.includes("~BUN") || path.includes("%7EBUN");
 }
 
 /** `@scope/name/deep` → `@scope/name`; `name/deep` → `name`. */
 export function packageBaseName(spec: string): string {
-	if (spec.startsWith("@")) return spec.split("/").slice(0, 2).join("/");
-	return spec.split("/")[0] ?? spec;
+  if (spec.startsWith("@")) return spec.split("/").slice(0, 2).join("/");
+  return spec.split("/")[0] ?? spec;
 }
 
 /**
@@ -62,14 +62,14 @@ export function packageBaseName(spec: string): string {
  * hand-forge the deploy's own manifest.
  */
 export function isDeployedExtDir(dir: string): boolean {
-	const manifest = join(dir, "ext.json");
-	if (!existsSync(manifest)) return false;
-	try {
-		const parsed = JSON.parse(readFileSync(manifest, "utf8")) as { hostApi?: unknown };
-		return typeof parsed.hostApi === "number";
-	} catch {
-		return false;
-	}
+  const manifest = join(dir, "ext.json");
+  if (!existsSync(manifest)) return false;
+  try {
+    const parsed = JSON.parse(readFileSync(manifest, "utf8")) as { hostApi?: unknown };
+    return typeof parsed.hostApi === "number";
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -80,19 +80,19 @@ export function isDeployedExtDir(dir: string): boolean {
  * not determine it — report nothing rather than guess.
  */
 export function missingExtDeps(deps: string[], from: string | undefined): string[] {
-	if (!from) return [];
-	if (isBunVirtualPath(from)) return [];
-	if (isDeployedExtDir(from)) return [];
-	return deps.filter((dep) => {
-		const pkg = packageBaseName(dep);
-		let dir = from;
-		for (;;) {
-			if (existsSync(join(dir, "node_modules", pkg, "package.json"))) return false;
-			const parent = dirname(dir);
-			if (parent === dir) return true;
-			dir = parent;
-		}
-	});
+  if (!from) return [];
+  if (isBunVirtualPath(from)) return [];
+  if (isDeployedExtDir(from)) return [];
+  return deps.filter((dep) => {
+    const pkg = packageBaseName(dep);
+    let dir = from;
+    for (;;) {
+      if (existsSync(join(dir, "node_modules", pkg, "package.json"))) return false;
+      const parent = dirname(dir);
+      if (parent === dir) return true;
+      dir = parent;
+    }
+  });
 }
 
 /**
@@ -101,18 +101,18 @@ export function missingExtDeps(deps: string[], from: string | undefined): string
  * which is itself a signal that the caller is not in a source checkout.
  */
 export function findWorkspaceRoot(from: string | undefined): string {
-	if (!from) return "(repo root)";
-	let dir = from;
-	while (dir !== dirname(dir)) {
-		try {
-			const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
-				workspaces?: unknown;
-			};
-			if (pkg.workspaces) return dir;
-		} catch {
-			/* no package.json here, or unreadable — keep walking up */
-		}
-		dir = dirname(dir);
-	}
-	return "(repo root)";
+  if (!from) return "(repo root)";
+  let dir = from;
+  while (dir !== dirname(dir)) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+        workspaces?: unknown;
+      };
+      if (pkg.workspaces) return dir;
+    } catch {
+      /* no package.json here, or unreadable — keep walking up */
+    }
+    dir = dirname(dir);
+  }
+  return "(repo root)";
 }
