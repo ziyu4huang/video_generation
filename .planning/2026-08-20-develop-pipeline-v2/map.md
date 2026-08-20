@@ -33,6 +33,15 @@ tier system + pipeline-gate teeth + unified dispatch records. Spec: ./spec.md.
 - D3 T1 efforts skip the effort folder; tier declaration via --tier /
   commit trailer; dispatch records still land.
 - D4 dispatch ledger = workflow Report phase output; dispatch-log queries it.
+- D5 security posture (2026-08-20 final review): shell.run exposes arbitrary
+  host execution to workflow scripts — including model-authored inline
+  scripts via the workflow tool, with no approval gate. ACCEPTED for this
+  local, single-user, no-cloud repo. Tightening option (future knob):
+  first-token allowlist (bun/git).
+- D6 workflow-side dispatch-log wiring (run-persistence aggregation export +
+  a normalizeWorkflowRun caller) deliberately deferred to a follow-up
+  ticket; until then dispatch-log is manual-archive-only and manual records
+  carry no effort attribution ("unknown").
 
 ## Not yet specified
 <!-- none -->
