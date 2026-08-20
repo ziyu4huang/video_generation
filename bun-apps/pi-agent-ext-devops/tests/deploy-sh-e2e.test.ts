@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, readlinkSync, renameSync, statSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runShDeploy } from "../scripts/deploy-sh.ts";
+import { parseShConfig } from "../scripts/lib/sh-config.ts";
 import { freezeTree, rmTree, unfreezeTree } from "../scripts/lib/sh-fs.ts";
 
 const RUN = process.env.PI_AGENT_E2E === "1";
@@ -10,6 +11,23 @@ const describeE2E = RUN ? describe : describe.skip;
 
 const outRoot = mkdtempSync(join(tmpdir(), "sh-e2e-"));
 afterAll(() => rmTree(outRoot));
+
+// The expected extension set is DERIVED from deploy-config.yaml, never written
+// out here. This file used to assert ["power-tool", "task"] — true when the base
+// set was two, silently wrong from #1713 (hyperframes) onward and flatly red
+// after #1738 took it to fourteen. Nothing caught that for two releases because
+// no gate ran this file: check-deploy-sh-e2e.sh runs the PROBE e2e, and the
+// PI_AGENT_E2E gate hides the rest from a plain `bun test`. Same lesson as the
+// probe suite's own header — the config is the source of truth for what a
+// deploy ships.
+const BUN_APPS_DIR = join(import.meta.dir, "..", "..");
+const shConfig = parseShConfig(
+	readFileSync(join(BUN_APPS_DIR, "pi-agent", "deploy-config.yaml"), "utf8"),
+	{ bunAppsDir: BUN_APPS_DIR },
+);
+/** Config order — what `--ext-list` reports, and what the loader loads in. */
+const configuredNames = shConfig.extensions.map((e) => e.name);
+const configuredNamesSorted = [...configuredNames].sort();
 
 function extList(binary: string) {
 	const p = Bun.spawnSync([binary, "--ext-list"], { stdout: "pipe", stderr: "pipe" });
@@ -20,7 +38,7 @@ describeE2E("pi-agent-sh deploy e2e", () => {
 	test("full deploy produces a working core, extensions, and current symlink", async () => {
 		const r = await runShDeploy({ outRoot, force: true });
 		expect(r.mode).toBe("full");
-		expect(r.extensions.map((e) => e.name).sort()).toEqual(["power-tool", "task"]);
+		expect(r.extensions.map((e) => e.name).sort()).toEqual(configuredNamesSorted);
 		expect(r.currentUpdated).toBe(true);
 
 		expect(existsSync(join(r.target, "pi-agent"))).toBe(true);
@@ -39,7 +57,7 @@ describeE2E("pi-agent-sh deploy e2e", () => {
 		// state 1: extensions load, in config order
 		const withExt = extList(join(r.target, "pi-agent"));
 		expect(withExt.exitCode).toBe(0);
-		expect(withExt.payload.loaded).toEqual(["task", "power-tool"]);
+		expect(withExt.payload.loaded).toEqual(configuredNames);
 		expect(withExt.payload.skipped).toEqual([]);
 
 		// the binary reports the deploy version, not the "0.0.0" fallback
@@ -81,7 +99,7 @@ describeE2E("pi-agent-sh deploy e2e", () => {
 
 		// still frozen and still loading both extensions
 		expect(statSync(join(target, "ext", "power-tool", "ext.cjs")).mode & 0o222).toBe(0);
-		expect(extList(join(target, "pi-agent")).payload.loaded).toEqual(["task", "power-tool"]);
+		expect(extList(join(target, "pi-agent")).payload.loaded).toEqual(configuredNames);
 	}, 180_000);
 
 	test("--ext against a version that does not exist is refused", async () => {

@@ -164,117 +164,47 @@ The `cli` subcommand tree ships a `doctor` self-check that verifies everything i
 ```bash
 bun bun-apps/pi-agent/src/cli.ts cli doctor [--json]
 ```
-## Build / Deploy modes
-pi-agent ships via four deploy modes, all driven by `../pi-agent-ext-devops/scripts/deploy.ts`.
-See the [Deploy](#deploy) section for full details.
-```bash
-bun ../pi-agent-ext-devops/scripts/deploy.ts                    # --bundle (default): thin bundles + node_modules symlink (same-machine)
-bun ../pi-agent-ext-devops/scripts/deploy.ts --exe              # single self-contained executable (all assets embedded, ~75 MB)
-bun ../pi-agent-ext-devops/scripts/deploy.ts --snapshot         # full source copy + node_modules symlink tree (same-machine)
-bun ../pi-agent-ext-devops/scripts/deploy.ts --standalone       # bundle + local bun binary + run.sh (same-machine)
-bun ../pi-agent-ext-devops/scripts/deploy.ts --no-freeze        # skip read-only freeze
-bun run deploy:exe                       # shorthand for --exe
-```
-The sourcemap is **opt-in** — the `.map` is ~20 MB (embeds full source) and is
-never shipped (`deploy.ts` copies only `pi-agent.js`), so it's off by default.
-Pass `--sourcemap` when debugging the bundle in place.
-Building also generates `src/generated/run-dir-base.ts` (gitignored) — `BUN_APPS_DIR`
-and pre-resolved npm-extension paths, baked in because `import.meta.dir` reflects the
-*bundle's* location once built, not the original source file's. **Portability
-caveat**: this makes the bundle work from any invocation directory *on the machine it
-was built on* (same trade-off the existing `PI_PKG_DIR`/node_modules-symlink pattern
-already accepts) — not relocatable to a different host/filesystem layout unless
-`bun-apps/` is copied to the identical absolute path there too.
-### Standalone binary (`--exe`)
-`run-dir/manifest.json`'s normal `-e <path>.ts` extension loading is jiti-based
-(runtime TS transpilation): in `isBunBinary` mode jiti feeds each extension as
-a `data:text/javascript;base64,…` URL, and Bun's compiled resolver rejects it
-with `NameTooLong` (`ENAMETOOLONG`). That's a bun-compile + jiti limitation,
-not a pi-agent bug, and it can't be worked around for extensions loaded that
-way — `run-dir/resolve.ts` detects binary mode and never emits `-e` at all.
-To still ship *some* extensions in the binary, the static extension set (`run-dir/manifest.json` → `staticExtensions`, mirrored by `src/static-extensions.ts`) —
-are **statically imported** instead, in `src/static-extensions.ts`:
-```
-Group A (original "general productivity" set):
-  pi-agent-ext-task · pi-agent-ext-prompt-history · pi-agent-ext-hermes-memory
-  pi-agent-ext-superpowers · pi-agent-ext-wayfind · pi-agent-ext-web-access
-Group B (migrated from dynamic `-e`, tool-providing):
-  pi-agent-ext-obsidian · pi-agent-ext-btw · pi-agent-ext-file2md
-  pi-agent-ext-subagent · pi-agent-ext-workflow · pi-agent-ext-knowledge-card
-  pi-agent-ext-power-tool
-```
-A static `import` is a native in-memory reference (no jiti involved), so
-`bun build --compile` inlines it into the executable like any other code —
-`main(argv, { extensionFactories: STATIC_EXTENSION_FACTORIES })` registers
-them without ever touching the `-e` path. These 13 are deliberately **absent**
-from `manifest.json`'s `extensions` array (keeping both would double-register
-them — a jiti-loaded module and a natively-imported module aren't guaranteed
-to be the same module identity) but four of them — hermes-memory, superpowers,
-wayfind, web-access — keep `binarySkills` entries there: their skill directories
-are plain markdown (no jiti/dynamic code
-involved), so `../pi-agent-ext-devops/scripts/deploy.ts`'s `--exe` mode ships them as sibling dirs
-next to the exe (`dist/pi-agent/<ext>/skills/`), and `resolve.ts` still emits
-`--skill <path>` for them in binary mode.
-Everything else in `manifest.json` (movie-director, flux2, research-tool, …)
-is **not available in the compiled binary**. Use source or bundle mode for
-those, or run the binary with `-ne` for a clean start with zero injected
-extensions (see "Flag semantics: `-ne` / `-ns`" below).
-```bash
-bun run deploy:exe                          # build dist/pi-agent/pi-agent
-dist/pi-agent/pi-agent --version
-dist/pi-agent/pi-agent doctor --json       # mode:"binary", ok:true
-bun src/cli.ts ext doctor --json           # verify every static factory registers (source-mode check;
-                                            # the binary's own `ext doctor` isn't binary-mode-aware)
-```
-CI's `compile-verify` job (`.github/workflows/ci.yml`) builds the binary on
-every `pi-agent`-touching PR and asserts: `doctor --json` is healthy, all 13
-static extensions (6 Group A productivity + 7 Group B tool-providing) register with
-0 conflicts, all 4 `binarySkills` paths resolve, and obsidian's module body
-IS inlined into the compiled binary (`strings … | grep -c obsidian_list`
-must be `>0`) — proving Group B's static imports actually got bundled, not
-silently dropped.
-See [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md) for the
-full rationale (why `require()` doesn't work, why some files carry
-`// @ts-nocheck`, the `manifest.json` field reference) and the steps to add
-or remove an extension from this static set.
-## Deploy
-`../pi-agent-ext-devops/scripts/deploy.ts` packages pi-agent + its extension set into a dir runnable from **any cwd on the build machine**. Only `--exe` is fully self-contained/portable; the other three modes rely on a `node_modules` symlink (Bundle/Standalone) or a copied symlink tree (Snapshot) into the machine-global bun store, so they are **same-machine only**.
-| Mode | Command | Layout | node_modules | Portable? |
-|------|---------|--------|-------------|-----------|
-| **Bundle** (default) | `bun ../pi-agent-ext-devops/scripts/deploy.ts` | `pi-agent.js` + `ext-bundles/*.thin.js` + `skills/` | symlink → global store | same-machine only |
-| **Snapshot** | `bun ../pi-agent-ext-devops/scripts/deploy.ts --snapshot` | Full source tree + sibling ext pkgs + `run.sh` | copied symlinks → global store | same-machine only |
-| **Standalone** | `bun ../pi-agent-ext-devops/scripts/deploy.ts --standalone` | Bundle + `bun` binary + `run.sh` | symlink → global store | same-machine only (no system `bun` needed) |
-| **Exe** | `bun ../pi-agent-ext-devops/scripts/deploy.ts --exe` | Single executable (~75 MB) | none (all embedded) | **yes — fully self-contained** |
-See [`docs/deploy-cwd-trust.md`](docs/deploy-cwd-trust.md) for the packaging/mode-detection details and [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md) for the `--exe` rationale — why extensions can't load in binary mode, how the static extension set works, the `@ts-nocheck` pattern, and how `--exe` packs all assets into one file.
-### Read-only deploy (the default)
-A deploy is an **immutable artifact**: code + bundled extensions, with ALL
-per-user state routed to `~/.pi/agent`. Both pi itself (`getAgentDir()` →
-`PI_CODING_AGENT_DIR`, default `~/.pi/agent`) and `pi-hermes-memory` (its sqlite
-DB honors the same env) write there — never into the deploy tree. So freezing
-the tree costs nothing at runtime, and `deploy.ts` does it automatically:
-- **`chmod -R a-w`** the out-dir, and
-- writes a **`.deploy-readonly`** marker.
-The result drops onto `/opt`, an app bundle, or any read-only prefix as-is.
-`run.sh` reads the marker and applies the env hardening that makes a frozen
-deploy actually run:
-| env | value | why |
-|---|---|---|
-| `JITI_FS_CACHE` | `0` (if unset) | `--snapshot` ships `.ts` source loaded by jiti at runtime; jiti's fs cache would otherwise write into the frozen tree (defensive — the current jiti version's unset default is already no-FS-cache) |
-| `PI_CODING_AGENT_DIR` | `$HOME/.pi/agent` (if unset) | pins per-user state to a writable dir, never the deploy tree |
+## Build / Deploy
+
+pi-agent ships as ONE artifact: a versioned, frozen tree under
+`~/proj/dist/pi-agent-sh/<version>/` holding a minimal compiled core plus one
+`ext/<name>/` directory per extension, discovered at runtime.
 
 ```bash
-bun ../pi-agent-ext-devops/scripts/deploy.ts /opt/pi-agent           # frozen by default (chmod a-w + marker)
-sudo chown -R root:wheel /opt/pi-agent        # now truly immutable to non-root
-cd ~/project && /opt/pi-agent/run.sh          # runs; state → ~/.pi/agent
-/opt/pi-agent/run.sh doctor --smoke           # proves extensions load despite the freeze
-bun ../pi-agent-ext-devops/scripts/deploy.ts /tmp/dev-deploy --no-freeze   # opt OUT of the freeze (iteration/cleanup)
+bun run --cwd bun-apps/pi-agent deploy:sh              # cut a new version, move `current`
+bun run --cwd bun-apps/pi-agent deploy:sh --ext power-tool   # rebuild one extension in place
+bun run --cwd bun-apps/pi-agent deploy:sh --no-freeze  # skip the read-only freeze
 ```
-Two contract rules for a read-only deploy: invoke `run.sh` from a **non-deploy
-cwd** (so `<cwd>/.pi` isn't the frozen tree), and keep `PI_CODING_AGENT_DIR` on a
-writable path (the default `~/.pi/agent` is fine). The read-only contract is
-guarded by `../pi-agent-ext-devops/scripts/run-test.sh readonly` — it freezes a deploy, runs `doctor` +
-`--smoke` from a foreign cwd, and asserts **zero files** are written into the
-frozen tree.
+
+The extension set, the host-module contract and the per-extension build
+metadata all live in `deploy-config.yaml`. **[`docs/deploy-sh.md`](docs/deploy-sh.md)
+is the reference** — layout, the host contract, adding and removing an
+extension, vendored packages, the four build gates, the e2e tiers, and why the
+tree is read-only.
+
+Four other deploy modes existed until #1740 — `--bundle`, `--snapshot`,
+`--standalone`, `--exe`, all driven by a `scripts/deploy.ts` that no longer
+exists. All four were same-machine-only or unbuilt, none was gated, and three
+were broken when they were finally tested. The runtime that served them went in
+Phase 1b. If you find a doc or a comment still describing them, it is stale.
+
+### The static extension set
+
+A compiled binary cannot load extensions the run-dir way: `-e <path>.ts` is
+jiti-based, and in `isBunBinary` mode jiti feeds each extension as a
+`data:text/javascript;base64,…` URL that Bun's compiled resolver rejects with
+`ENAMETOOLONG`. `run-dir/resolve.ts` detects binary mode and never emits `-e`.
+
+So the binary carries a fixed set that is **statically imported** instead —
+`run-dir/manifest.json` → `staticExtensions`, from which
+`src/static-extensions.ts` is generated. See
+[`docs/deploy-single-binary.md`](docs/deploy-single-binary.md) for why
+`require()` does not work, why some files carry `// @ts-nocheck`, how skills
+reach a binary, and the steps to add or remove one.
+
+An sh deploy does NOT use that set: its extensions load from `ext/` at runtime
+through the host-module contract, which is what makes the tree relocatable.
+
 ## Doctor (self-check)
 `doctor` runs offline (no model call) and checks the boundary conditions up front
 so a broken deploy / fresh machine surfaces an actionable checklist instead of an
@@ -393,7 +323,7 @@ pi-agent/
   This is a bun-compile + jiti limitation, not a pi-agent regression, and it
   can't be fixed for extensions loaded that way. **The static extension set
   sidesteps this** by being statically imported instead (see
-  [Standalone binary](#standalone-binary---exe) above /
+  [The static extension set](#the-static-extension-set) above /
   [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md)) — the
   binary is not extension-less, just limited to that fixed set. Everything
   else in `manifest.json` needs **source** / **bundle** mode, or run the

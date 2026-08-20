@@ -188,11 +188,19 @@ Every deploy runs these; any failure aborts, removes the staging dir, and leaves
 The gates prove the tree is well-formed; they do not start a session. Three tiers do, in order of
 cost:
 
-- **L1 — `tests/deploy-sh-probe-e2e.test.ts`** (in CI via `scripts/check-deploy-sh-e2e.sh`, wired
-  into the `regression-gates` job). Runs the deployed binary offline: import-free `-e` probes fire
-  on `session_start`, inspect tools/commands/skills/cross-extension seams, and exit before any
-  provider call. Catches "registered but dead" (the sdk-patch polyfill was dead in every deploy for
-  a week while every gate was green).
+- **L1 — `tests/deploy-sh-e2e.test.ts` + `tests/deploy-sh-probe-e2e.test.ts`** (both in CI via
+  `scripts/check-deploy-sh-e2e.sh`, wired into the `regression-gates` job). The first checks the
+  TREE — mode, freeze, version, `current` symlink, ext-only rebuild, the zero-extension state. The
+  second runs the deployed binary offline: import-free `-e` probes fire on `session_start`, inspect
+  tools/commands/skills/cross-extension seams, and exit before any provider call. Catches
+  "registered but dead" (the sdk-patch polyfill was dead in every deploy for a week while every
+  gate was green) and "starts dirty" (obsidian reported its host-served dependencies missing on
+  every single start; hermes-memory tried to mkdir into the frozen tree).
+
+  Both derive their expected extension set from `deploy-config.yaml`. A literal list here goes
+  stale the moment the base set grows — `deploy-sh-e2e` asserted `["power-tool", "task"]` through
+  two releases of growth, red and unnoticed, because it was `PI_AGENT_E2E`-gated and the gate
+  script ran only its sibling.
 - **L2 — `scripts/run-sh-agent-e2e.sh`** (opt-in; spends tokens). One real model turn in **text
   mode** — NOT `--mode json`, which truncates output after the first tool call (pre-existing,
   source mode too). The agent must call a deployed tool; this is the tier that catches a tool
@@ -213,6 +221,29 @@ hyperframes families ship from their own packages. `~/.pi/agent/skills/` remains
 `[Extensions] <inline:power-tool>` is also expected: the sh core hands pi extension *factories*
 (no file path), and pi labels factory-registered extensions `<inline:…>`. It does not mean the
 extension came from the repo's run-dir.
+
+## The tree is read-only
+
+`freeze: true` (the default) `chmod -R a-w`s the version dir once every gate has passed. `--ext`
+unfreezes, rebuilds, re-runs the smoke gate and re-freezes; a re-deploy of the same version
+unfreezes before removing. `--no-freeze` opts out — the e2e suites use it so their temp trees can
+be cleaned up without an `EPERM`.
+
+Freezing costs nothing at runtime because **no per-user state was ever written there**:
+
+- pi's `getAgentDir()` reads `PI_CODING_AGENT_DIR`, else `~/.pi/agent`. Sessions likewise.
+- hermes-memory's sqlite DB reads the SAME `PI_CODING_AGENT_DIR`, else `~/.pi/agent` — and since
+  Phase 1b a cwd it cannot write to holds no project store at all, so running the binary from
+  inside its own tree no longer tries to create `.agents/` in it.
+- The provider catalog is compiled into the core; model selection and API keys live in
+  `~/.pi/agent` or the env (`docs/provider-model-config.md`).
+
+`run.sh` beside the binary pins `PI_CODING_AGENT_DIR` anyway, so per-user state can never resolve
+into the tree even if a caller's environment is unusual.
+
+Two L1 assertions hold this: the tree gains no files while `doctor --smoke` runs, and none while a
+REAL session starts with cwd set to the tree itself — the harshest placement, and the one that
+found hermes-memory's mkdir.
 
 ## Limits
 

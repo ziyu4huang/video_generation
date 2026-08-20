@@ -298,7 +298,7 @@ export function runChecks(ctx: DoctorContext): DoctorReport {
  * `--fix` was silently ignored the moment the planner went: doctor takes no
  * flag-spec, so an unrecognised token just falls through and the report prints
  * as if nothing was asked for. A user following a stale doc — and one shipped
- * for a while, `docs/deploy-readonly.md` — would read a clean report as
+ * for a while, `docs/deploy-sh.md` § "The tree is read-only" — would read a clean report as
  * confirmation that `--fix` ran. Say so instead.
  *
  * Deliberately a notice rather than a hard error: `doctor` is the command you
