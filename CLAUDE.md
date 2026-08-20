@@ -69,6 +69,7 @@ bun-apps/gui-movie-director/  # ACTIVE — Bun + React GUI
 
 ## Extension packages (pi-agent-ext-*)
 
+- **Scaffold a new package**: `bun bun-apps/pi-agent/src/cli.ts ext new <name>` (`--lib` for a `src/index.ts` lib face + shim entry; `--register dynamic|static|none`, default dynamic — static auto-runs `bun run regen:static`; add `--no-install` to skip `bun install`). Then implement — every convention below (entry path, self-gate, tsconfig include, scripts, peer pin) is baked into the output.
 One registered entry per folder: `extensions/<X>.ts` where `<X>` = folder minus `pi-agent-ext-` — never `src/index.ts`, root `index.ts`, `extensions/index.ts`, or `extensions/pi-<X>.ts` as the registration entry.
 
 - **Lib entry stays separate**: src-entry (`main: "./src/index.ts"`) is the standard lib face (web-access uses root `index.ts`) — don't move it. If the registration entry has no in-file implementation (power-tool, hermes-memory), add a 1-line re-export shim `export { default } from "../src/index.ts";` at `extensions/<X>.ts`.
