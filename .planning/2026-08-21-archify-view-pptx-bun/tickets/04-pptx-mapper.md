@@ -2,7 +2,7 @@
 ticket: 04-pptx-mapper
 effort: archify-view-pptx-bun
 type: task
-status: open
+status: closed
 created: 2026-08-21
 blocks-on: [03]
 blocking: [05]
@@ -44,3 +44,16 @@ Notes:
 ## Gate
 
 `( cd bun-apps/pi-agent-ext-archify && bun run typecheck && bun run test )`
+
+## Result
+
+**closed 2026-08-21** — `lib/pptx-shapes.ts` + `__tests__/pptx-mapper.test.ts` (25 tests
+against a spy slide, including an explicit "addImage is NEVER called, for any node kind").
+
+Three pptxgenjs semantics were **measured, not assumed** (probed by generating a .pptx and
+reading its XML):
+- `custGeom` `points` are relative to the shape's own x/y, because pptxgenjs emits
+  `<a:path w= h=>` equal to the shape box. Every path therefore gets its own bbox with
+  points rebased onto it.
+- `rectRadius` is a fraction 0-1 (`adj val = r * 100000`), not a length.
+- `line.width` is in points while x/y/w/h are inches.

@@ -81,9 +81,9 @@ Phase 1 — ShapeIR (archify)
 - `tickets/03-shape-ir.md` — task, **closed** — node list → normalized ShapeIR + goldens
 
 Phase 2 — native-shape PPTX (archify)
-- `tickets/04-pptx-mapper.md` — task — ShapeIR → pptxgenjs primitives
-- `tickets/05-deck-rewrite-and-tool.md` — task — deck.ts without Playwright + `archify_export_pptx`
-- `tickets/06-pptx-acceptance.md` — task — pure-Bun zip assertion, all 5 diagram types
+- `tickets/04-pptx-mapper.md` — task, **closed** — ShapeIR → pptxgenjs primitives
+- `tickets/05-deck-rewrite-and-tool.md` — task, **closed** — browser-free deck + `archify_export_pptx`
+- `tickets/06-pptx-acceptance.md` — task, **closed** — pure-Bun zip assertion, all 5 types
 
 Phase 3 — webui Diagram pane
 - `tickets/07-deck-event.md` — task — `webui:deck` event + handler + frames
@@ -128,9 +128,9 @@ Phase 5 — Bun-native + guards + docs
 
 ## Frontier
 
-Phase 2 (tickets 04–06) — ShapeIR → native PPTX shapes. Phase 1 closed 2026-08-21: the
-ShapeIR seam exists, is golden-pinned for all five diagram types, and its arc math is verified
-against WebKit.
+Phase 3 (tickets 07–08) — the webui Diagram pane. Phases 1-2 closed 2026-08-21: PPTX export
+is native editable shapes (measured: the 5-slide example deck is 358 shapes with `<a:blip>`
+count 0 on every slide) and the PPTX path no longer touches a browser.
 
 ## Fog of war
 

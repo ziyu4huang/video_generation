@@ -2,7 +2,7 @@
 ticket: 05-deck-rewrite-and-tool
 effort: archify-view-pptx-bun
 type: task
-status: open
+status: closed
 created: 2026-08-21
 blocks-on: [04]
 blocking: [06, 09]
@@ -39,3 +39,18 @@ blocking: [06, 09]
 ## Gate
 
 `( cd bun-apps/pi-agent-ext-archify && bun run typecheck && bun run test )`
+
+## Result
+
+**closed 2026-08-21** — `lib/deck-build.ts` (shared core), `scripts/deck.ts` (thin CLI),
+`lib/export-pptx.ts` + registration in `extensions/archify.ts`, `pptxgenjs` promoted to
+`dependencies`. Tests: `__tests__/deck.test.ts` (13) + `__tests__/export-pptx.test.ts` (9).
+
+- Live proof: `bun run deck examples/deck/deck.config.json` produced the 5-slide deck as
+  **302 KB / 358 native shapes with no browser process**.
+- `ARCHIFY_DECK_TEST_BROWSER` gate deleted — the browser precondition no longer exists.
+- The old integration test asserted `>= 2` entries under `ppt/media/` because every slide
+  WAS a screenshot. That expectation is now exactly inverted (zero images, > 5 shapes per
+  slide); the inversion is called out in the test so the change reads as intentional.
+- `defaults.scale` is accepted and ignored rather than rejected, so existing manifests keep
+  working.
