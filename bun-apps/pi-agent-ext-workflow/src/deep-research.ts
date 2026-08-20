@@ -11,7 +11,7 @@ export interface DeepResearchConfig {
 }
 
 /**
- * Generate a deep-research workflow that uses the real web_search/web_fetch tools.
+ * Generate a deep-research workflow that uses the real wf_web_search/wf_web_fetch tools.
  *
  * The script is static and reads its inputs from `args` (question/angles/minSupport),
  * so the question is never string-interpolated into source — no escaping hazards.
@@ -45,8 +45,8 @@ if (!plan) throw new Error('deep-research: plan-queries agent returned no result
 phase('Gather')
 const gathered = await parallel(queries.map((q, i) => () =>
   agent(
-    'Research this query using the web_search and web_fetch tools.\\nQuery: ' + q +
-    '\\n\\nSteps: (1) call web_search with the query; (2) web_fetch the 2 most relevant result URLs; ' +
+    'Research this query using the wf_web_search and wf_web_fetch tools.\\nQuery: ' + q +
+    '\\n\\nSteps: (1) call wf_web_search with the query; (2) wf_web_fetch the 2 most relevant result URLs; ' +
     '(3) extract concrete, verifiable factual claims, each tagged with the exact source URL it came from. ' +
     'Do NOT invent sources or claims — report only what the fetched pages actually say.',
     { label: 'research ' + (i + 1), schema: { type: 'object', properties: { sources: { type: 'array', items: { type: 'object', properties: { url: { type: 'string' }, claims: { type: 'array', items: { type: 'string' } } }, required: ['url', 'claims'] } } }, required: ['sources'] } }

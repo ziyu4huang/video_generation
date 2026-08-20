@@ -12,7 +12,7 @@ import {
 
 test("createWebSearchTool has correct name and metadata", () => {
   const tool = createWebSearchTool();
-  assert.equal(tool.name, "web_search");
+  assert.equal(tool.name, "wf_web_search");
   assert.equal(tool.label, "Web Search");
   assert.ok(tool.description, "description should be truthy");
   assert.ok(tool.promptSnippet, "promptSnippet should be truthy");
@@ -39,7 +39,7 @@ test("createWebSearchTool has default count", () => {
 
 test("createWebFetchTool has correct name and metadata", () => {
   const tool = createWebFetchTool();
-  assert.equal(tool.name, "web_fetch");
+  assert.equal(tool.name, "wf_web_fetch");
   assert.equal(tool.label, "Web Fetch");
   assert.ok(tool.description, "description should be truthy");
   assert.ok(tool.promptSnippet, "promptSnippet should be truthy");
@@ -71,7 +71,7 @@ test("createWebTools returns both tools in correct order", () => {
   assert.equal(tools.length, 2);
   assert.ok(Array.isArray(tools), "tools should be an array");
   const names = tools.map((t) => t.name).sort();
-  assert.deepEqual(names, ["web_fetch", "web_search"]);
+  assert.deepEqual(names, ["wf_web_fetch", "wf_web_search"]);
 });
 
 test("createWebTools returns unique tool definitions (no duplicates)", () => {
