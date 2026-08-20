@@ -27,7 +27,7 @@ import {
 import { slugify } from "../src/card-format.ts";
 import { extractFeatures } from "../src/card-render.ts";
 import type { KnowledgeRecord } from "../src/types.ts";
-import { validateZettelNote } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { validateZettelNote } from "@repo/pi-agent-ext-obsidian";
 import { LlmRelationExtractor, type Extractor } from "../src/extractor.ts";
 import { retrieveRecords } from "../src/retrieve.ts";
 

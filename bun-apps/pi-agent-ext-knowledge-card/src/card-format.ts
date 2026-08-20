@@ -1,6 +1,6 @@
 // Single-source card format helpers (dedup ticket hermes-arch-12; from audit ticket 05 findings K4-K9)
 import { readFileSync } from "node:fs";
-import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian";
 
 /** Minimal YAML scalar renderer. Lifted verbatim from ingest.ts (was the
  *  local `yamlScalar` there); ingest imports it back for renderFrontmatter /

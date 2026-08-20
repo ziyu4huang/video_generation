@@ -17,7 +17,7 @@
  */
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian";
 import { yamlScalar } from "./card-format.ts";
 
 const GRAPH_FOLDER = "Zettelkasten/knowledge-graph";

@@ -63,9 +63,10 @@ const APP_NAME = "pi-agent";
 //
 // That file no longer exists (hermes-memory imports neither package today),
 // AND obsidian + knowledge-card are now STATIC extensions (static-extensions.ts)
-// — bundled into every build. knowledge-card itself imports obsidian via the
-// bare specifier `@repo/pi-agent-ext-obsidian/extensions/obsidian.ts` (a STATIC
-// import, not optional). Leaving that pattern external would make the compiled
+// — bundled into every build. knowledge-card imports obsidian via the bare
+// lib specifier `@repo/pi-agent-ext-obsidian` (which resolves to the package's
+// src/index.ts lib face — a STATIC import, not optional). Leaving that pattern
+// external would make the compiled
 // binary crash at runtime (`Cannot find module ... from '/$bunfs/root/pi-agent'`)
 // because $bunfs has no node_modules to resolve the bare specifier against. So
 // so no @repo/* sibling belongs here: every one of them resolves at build time

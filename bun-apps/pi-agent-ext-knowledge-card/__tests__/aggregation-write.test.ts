@@ -6,7 +6,7 @@ import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian";
 import {
 	writeAggregationMocs,
 	type WriteAggregationResult,

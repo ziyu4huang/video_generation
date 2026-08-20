@@ -41,7 +41,7 @@ import { registerServerTools } from "@repo/pi-agent-ext-zai-mcp/extensions/zai-m
 // ext-task's entry invokes registerAskUserQuestionTool/registerTodoTool directly.
 import knowledgeCardExtension from "@repo/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 import webAccessExtension from "@repo/pi-agent-ext-web-access";
-import obsidianExtension from "@repo/pi-agent-ext-obsidian";
+import obsidianExtension from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import { registerMemoryTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-tool.ts";
 import { registerSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/search-tool.ts";
 import { registerSkillTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";

@@ -49,7 +49,7 @@ let resolveVaultRet = {
 // validateZettelNote, graphDeadLinks, etc. flow through to sibling test files
 // even when our mock leaks.
 const _obsRealAbs = new URL(
-	"../../pi-agent-ext-obsidian/extensions/obsidian.ts",
+	"../../pi-agent-ext-obsidian/src/index.ts",
 	import.meta.url,
 ).pathname;
 const _obsReal = await import(_obsRealAbs);
@@ -68,7 +68,7 @@ mockObj.registerDeterministicHealthCheck = () => {};
 
 // MUST be registered before any import of pi-knowledge-card (which pulls
 // runSubagentWithRetry and resolveVault from pi-obsidian at module-eval time).
-mock.module("@repo/pi-agent-ext-obsidian/extensions/obsidian.ts", () => mockObj);
+mock.module("@repo/pi-agent-ext-obsidian", () => mockObj);
 
 // --- load the extension + its pure builders/allowlists for comparison --------
 const kc = await import("../extensions/knowledge-card.ts");

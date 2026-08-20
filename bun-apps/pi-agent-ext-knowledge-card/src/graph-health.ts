@@ -36,7 +36,7 @@
  */
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { getIndex, graphDeadLinks, graphOrphans, invalidateCache } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { getIndex, graphDeadLinks, graphOrphans, invalidateCache } from "@repo/pi-agent-ext-obsidian";
 import { isDerivedAggregation } from "./aggregation-write.ts";
 import { writeMoc } from "./ingest.ts";
 import { extractFeatures } from "./card-render.ts";

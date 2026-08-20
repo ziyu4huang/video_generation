@@ -1,7 +1,7 @@
 /** Source → KnowledgeRecord adapters + input collection + jsonl parsing (split from ingest.ts — hermes-arch-13). */
 import { type Dirent, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian";
 import type { ExtractedEntity } from "@repo/pi-agent-core-interface";
 import { normTag, slugify } from "./card-format.ts";
 import { extractFeatures } from "./card-render.ts";

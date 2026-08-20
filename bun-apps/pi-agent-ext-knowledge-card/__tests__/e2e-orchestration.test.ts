@@ -56,12 +56,12 @@ import { graphHealth, healGraph, formatHealth } from "../src/retrieve.ts";
 // ---------------------------------------------------------------------------
 
 const _obsRealAbs = new URL(
-	"../../pi-agent-ext-obsidian/extensions/obsidian.ts",
+	"../../pi-agent-ext-obsidian/src/index.ts",
 	import.meta.url,
 ).pathname;
 const _obsReal: Record<string, unknown> = await import(_obsRealAbs);
 
-mock.module("@repo/pi-agent-ext-obsidian/extensions/obsidian.ts", () => ({
+mock.module("@repo/pi-agent-ext-obsidian", () => ({
 	..._obsReal,
 	resolveVault: async (_cwd: string) => {
 		const envPath = process.env.OB_VAULT_PATH;
@@ -257,7 +257,7 @@ describe("E2E - zk_ingest (tool -> library -> real files)", () => {
 
 		const card = readFileSync(join(vault, FOLDER, "flux2-cfg-scale-7-lever.md"), "utf8");
 		const { validateZettelNote } = await import(
-			"@repo/pi-agent-ext-obsidian/extensions/obsidian.ts"
+			"@repo/pi-agent-ext-obsidian"
 		);
 		expect(validateZettelNote(card).ok).toBe(true);
 		expect(card).toContain('id: "flux2:cfg-scale-7-lever"');
@@ -272,7 +272,7 @@ describe("E2E - zk_ingest (tool -> library -> real files)", () => {
 
 		await run("zk_ingest", { files: [f], source: "workflow-jsonl", source_label: "e2e:flux2" });
 		const { invalidateCache } = await import(
-			"@repo/pi-agent-ext-obsidian/extensions/obsidian.ts"
+			"@repo/pi-agent-ext-obsidian"
 		);
 		invalidateCache(vault);
 		await run("zk_ingest", { files: [l], source: "workflow-jsonl", source_label: "e2e:ltx" });
@@ -291,7 +291,7 @@ describe("E2E - zk_ingest (tool -> library -> real files)", () => {
 
 		const before = readFileSync(join(vault, FOLDER, "flux2-cfg-scale-7-lever.md"), "utf8");
 		const { invalidateCache } = await import(
-			"@repo/pi-agent-ext-obsidian/extensions/obsidian.ts"
+			"@repo/pi-agent-ext-obsidian"
 		);
 		invalidateCache(vault);
 
@@ -341,7 +341,7 @@ describe("E2E - knowledge_query (tool -> library -> reads ingested cards)", () =
 		writeFileSync(l, jsonl(LTX_RECORDS));
 		await run("zk_ingest", { files: [f], source: "workflow-jsonl", source_label: "e2e:flux2" });
 		const { invalidateCache } = await import(
-			"@repo/pi-agent-ext-obsidian/extensions/obsidian.ts"
+			"@repo/pi-agent-ext-obsidian"
 		);
 		invalidateCache(vault);
 		await run("zk_ingest", { files: [l], source: "workflow-jsonl", source_label: "e2e:ltx" });
@@ -416,7 +416,7 @@ describe("E2E - graphHealth (library -> audits own output)", () => {
 		writeFileSync(l, jsonl(LTX_RECORDS));
 		await run("zk_ingest", { files: [f], source: "workflow-jsonl" });
 		const { invalidateCache } = await import(
-			"@repo/pi-agent-ext-obsidian/extensions/obsidian.ts"
+			"@repo/pi-agent-ext-obsidian"
 		);
 		invalidateCache(vault);
 		await run("zk_ingest", { files: [l], source: "workflow-jsonl" });
@@ -437,7 +437,7 @@ describe("E2E - graphHealth (library -> audits own output)", () => {
 		await seed();
 		rmSync(join(vault, MOC));
 		const { invalidateCache } = await import(
-			"@repo/pi-agent-ext-obsidian/extensions/obsidian.ts"
+			"@repo/pi-agent-ext-obsidian"
 		);
 		invalidateCache(vault);
 		const h = await auditHealth();
@@ -449,7 +449,7 @@ describe("E2E - graphHealth (library -> audits own output)", () => {
 		await seed();
 		rmSync(join(vault, MOC));
 		const { invalidateCache } = await import(
-			"@repo/pi-agent-ext-obsidian/extensions/obsidian.ts"
+			"@repo/pi-agent-ext-obsidian"
 		);
 		invalidateCache(vault);
 
@@ -482,7 +482,7 @@ describe("E2E - full deterministic orchestration (write -> read -> audit)", () =
 		const ingestRes = await run("zk_ingest", { files: [f], source: "workflow-jsonl", source_label: "e2e:flux2" });
 		expect(ingestRes.details.created).toBe(2);
 		const { invalidateCache } = await import(
-			"@repo/pi-agent-ext-obsidian/extensions/obsidian.ts"
+			"@repo/pi-agent-ext-obsidian"
 		);
 		invalidateCache(vault);
 		const ingestRes2 = await run("zk_ingest", { files: [l], source: "workflow-jsonl", source_label: "e2e:ltx" });
@@ -549,7 +549,7 @@ describe("E2E - real pi-ext-dev fixture (reproducible extraction guard)", () => 
 		expect(ingestRes.details.linked).toBeGreaterThan(0);
 
 		const { invalidateCache } = await import(
-			"@repo/pi-agent-ext-obsidian/extensions/obsidian.ts"
+			"@repo/pi-agent-ext-obsidian"
 		);
 		invalidateCache(vault);
 		const capped = await run("knowledge_query", { tags: ["pi-ext-dev"] });
@@ -579,7 +579,7 @@ describe("E2E - real pi-ext-dev fixture (reproducible extraction guard)", () => 
 		);
 		const before = readFileSync(aCard, "utf8");
 		const { invalidateCache } = await import(
-			"@repo/pi-agent-ext-obsidian/extensions/obsidian.ts"
+			"@repo/pi-agent-ext-obsidian"
 		);
 		invalidateCache(vault);
 		const re = await run("zk_ingest", {

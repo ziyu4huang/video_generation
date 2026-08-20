@@ -32,7 +32,7 @@ import { chatJson, type LmChatOptions } from "./llm-chat.ts";
 import { HIERARCHY_DEFAULTS } from "./zk-task-config.ts";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian";
 
 export interface HierarchyBuildOptions {
 	kbDir: string;
