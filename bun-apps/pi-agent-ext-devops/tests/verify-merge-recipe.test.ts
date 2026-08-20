@@ -231,6 +231,84 @@ describe("runVerifyMerge — rename handling (M1)", () => {
 	});
 });
 
+describe("runVerifyMerge — expectedScope glob semantics (regression, PRs #1737/#1739)", () => {
+	// `bun-apps/<pkg>/**` entries used to go through a literal startsWith, so
+	// every in-scope file failed the comparison and the verdict was CONTAMINATED
+	// on perfectly clean merges (PRs #1737/#1739). The scope check now goes
+	// through matchesScope (src/scope-match.ts), which also tightens bare
+	// entries against pseudo-prefix siblings.
+
+	/** Canned `git show --numstat` with two in-scope bun-apps/foo/ files. */
+	const SHOW_FOO: SpawnResult = {
+		stdout: "8\t2\tbun-apps/foo/src/a.ts\n5\t3\tbun-apps/foo/package.json\n",
+		stderr: "",
+		exitCode: 0,
+	};
+
+	/** SHOW_FOO plus one pseudo-prefix sibling under bun-apps/foo-bar/. */
+	const SHOW_FOO_DRIFT: SpawnResult = {
+		stdout: `${SHOW_FOO.stdout}1\t0\tbun-apps/foo-bar/x.ts\n`,
+		stderr: "",
+		exitCode: 0,
+	};
+
+	test("glob entry 'bun-apps/foo/**' yields CLEAN for in-scope files", async () => {
+		// Cloned from "(a) merged + all files in expectedScope → CLEAN"; only the
+		// canned numstat and expectedScope differ.
+		const gh = fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA });
+		const client = fakeClient({ defaultBranch: "main", contained: [] });
+		const { fn } = fakeSpawn([{ match: (a) => realArgs(a)[0] === "show", result: SHOW_FOO }]);
+		const out = await runVerifyMerge({
+			gh,
+			client,
+			spawn: fn,
+			repoRoot: REPO,
+			pr: 42,
+			expectedScope: ["bun-apps/foo/**"],
+		});
+
+		expect(out.merged).toBe(true);
+		expect(out.verdict).toBe("CLEAN");
+		expect(out.outOfScope).toEqual([]);
+	});
+
+	test("glob entry rejects a pseudo-prefix sibling as CONTAMINATED", async () => {
+		// Cloned from "(b) merged + a file outside expectedScope → CONTAMINATED";
+		// the drift file is the sibling package.
+		const gh = fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA });
+		const client = fakeClient({ defaultBranch: "main" });
+		const { fn } = fakeSpawn([{ match: (a) => realArgs(a)[0] === "show", result: SHOW_FOO_DRIFT }]);
+		const out = await runVerifyMerge({
+			gh,
+			client,
+			spawn: fn,
+			repoRoot: REPO,
+			pr: 42,
+			expectedScope: ["bun-apps/foo/**"],
+		});
+
+		expect(out.verdict).toBe("CONTAMINATED");
+		expect(out.outOfScope.map((f) => f.path)).toEqual(["bun-apps/foo-bar/x.ts"]);
+	});
+
+	test("bare entry 'bun-apps/foo' does NOT match 'bun-apps/foo-bar/x.ts' (tightened)", async () => {
+		// Old startsWith("bun-apps/foo") swallowed the sibling → false CLEAN risk.
+		const gh = fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA });
+		const client = fakeClient({ defaultBranch: "main" });
+		const { fn } = fakeSpawn([{ match: (a) => realArgs(a)[0] === "show", result: SHOW_FOO_DRIFT }]);
+		const out = await runVerifyMerge({
+			gh,
+			client,
+			spawn: fn,
+			repoRoot: REPO,
+			pr: 42,
+			expectedScope: ["bun-apps/foo"],
+		});
+
+		expect(out.outOfScope.map((f) => f.path)).toContain("bun-apps/foo-bar/x.ts");
+	});
+});
+
 describe("runVerifyMerge — branchSpent", () => {
 	test("(f) contained includes the head ref → branchSpent true", async () => {
 		const gh = fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA });
