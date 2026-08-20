@@ -93,6 +93,12 @@ async function probe(name: string, source: string, argv: string[] = []): Promise
 	return run(["-e", path, "-p", "hi", ...argv]);
 }
 
+/** Every regular file under `dir`, sorted — the frozen-tree write detector. */
+function filesIn(dir: string): string[] {
+	const r = Bun.spawnSync(["find", dir, "-type", "f"]);
+	return r.stdout.toString().trim().split("\n").filter(Boolean).sort();
+}
+
 /** The single JSON payload a probe writes, keyed by its marker. */
 function payload(r: Run, marker: string): Record<string, unknown> {
 	const line = r.stderr.split("\n").find((l) => l.startsWith(marker));
@@ -257,6 +263,42 @@ describeE2E("pi-agent-sh L1 — the deployed binary really runs its extensions",
 		expect(smoke?.detail).toMatch(/matched=[1-9]/);
 	}, 180_000);
 
+	test("a REAL session start is clean — no extension complains, nothing writes to the tree", async () => {
+		// The gate that was missing. "booting prints nothing on stderr" above runs
+		// `--ext-list`, which never fires session_start, so every defect that only
+		// shows once extensions actually START was invisible to CI. Two were live
+		// when this test was written:
+		//
+		//   - obsidian probed for `node_modules/@earendil-works/pi-coding-agent`
+		//     above its own dir and, finding none in a deploy, printed a red
+		//     "missing npm packages" error on every single start (#1738 put it in
+		//     the base set; the packages were served by the host all along).
+		//   - hermes-memory treated the deploy tree as a project when cwd was
+		//     inside it and tried to mkdir `.agents/` into the FROZEN tree.
+		//
+		// cwd is the deploy tree ON PURPOSE: that is the harshest placement, and
+		// the one that proves the read-only invariant under a real session rather
+		// than under `doctor --smoke`.
+		const before = filesIn(target);
+		const r = await probe(
+			"probe-session-start",
+			`export default (pi) => {
+  pi.on("session_start", () => {
+    // Give every other extension's handler a turn before deciding it was clean:
+    // an immediate exit would race past the very diagnostics under test.
+    setTimeout(() => { process.stderr.write("[SESSION-OK]\\n"); process.exit(0); }, 3000);
+  });
+};
+`,
+		);
+		expect(r.stderr, "the probe never reached session_start").toContain("[SESSION-OK]");
+		const noise = r.stderr
+			.split("\n")
+			.filter((l) => l.trim() !== "" && l !== "[SESSION-OK]");
+		expect(noise, `a real session start wrote to stderr:\n${noise.join("\n")}`).toEqual([]);
+		expect(filesIn(target), "a session start added files to the frozen tree").toEqual(before);
+	}, 180_000);
+
 	test("`cli` and `ext doctor` refuse with a reason instead of an arg error", async () => {
 		for (const [argv, needle] of [
 			[["cli", "tools-metrics"], "cli"],
@@ -316,11 +358,6 @@ describeE2E("pi-agent-sh L1 — the deployed binary really runs its extensions",
 	// MUST stay ahead of the ext/-removal test below, which deliberately
 	// unfreezes and renames inside the tree.
 	test("the frozen tree takes zero writes while the binary runs", async () => {
-		const filesIn = (dir: string): string[] => {
-			const r = Bun.spawnSync(["find", dir, "-type", "f"]);
-			return r.stdout.toString().trim().split("\n").filter(Boolean).sort();
-		};
-
 		const before = filesIn(target);
 		expect(before.length).toBeGreaterThan(0);
 

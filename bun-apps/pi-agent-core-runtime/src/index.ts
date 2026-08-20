@@ -90,6 +90,13 @@ export { AGENTS_DIR, DEFAULT_BATCH_CONCURRENCY, MAX_BATCH_TASKS, MAX_CONCURRENCY
 export { debugModelsEnabled, logModelDecision } from "./debug-models.js";
 export { appendEnvHints, ENV_HINTS_MARKER } from "./env-hints.js";
 export {
+  findWorkspaceRoot,
+  isBunVirtualPath,
+  isDeployedExtDir,
+  missingExtDeps,
+  packageBaseName,
+} from "./ext-deps.js";
+export {
   classifyProviderLimit,
   isAbortError,
   isProviderUsageLimit,

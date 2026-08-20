@@ -38,6 +38,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { Type, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 import { GATE_DEFS } from "@repo/pi-agent-core-interface";
+import { findWorkspaceRoot, missingExtDeps } from "@repo/pi-agent-core-runtime";
 import { shExtDir } from "../src/lib/ext-dir";
 
 // ─── Gate family (wayfinder ticket 02 — demoted from core) ──────────────────
@@ -173,8 +174,6 @@ import {
 	ZETTEL_REQUIRED_KEYS,
 	ZETTEL_SYSTEM_PROMPT,
 	__fileCacheOrder,
-	_findMonorepoRoot,
-	_missingDeps,
 	appendUnderHeading,
 	assertExtensionApi,
 	assertWithinVault,
@@ -2103,10 +2102,10 @@ ${output.slice(-2000)}`,
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		const missing = _missingDeps(["@earendil-works/pi-coding-agent"], _EXT_DIR);
+		const missing = missingExtDeps(["@earendil-works/pi-coding-agent"], _EXT_DIR);
 		if (missing.length > 0) {
 			ctx.ui.notify(
-				`pi-obsidian: missing npm packages: ${missing.join(", ")}.\nRun: bun install (in ${_findMonorepoRoot(_EXT_DIR)})`,
+				`pi-obsidian: missing npm packages: ${missing.join(", ")}.\nRun: bun install (in ${findWorkspaceRoot(_EXT_DIR)})`,
 				"error",
 			);
 			return;

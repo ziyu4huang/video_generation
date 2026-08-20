@@ -2,7 +2,7 @@
   "name": "@repo/pi-agent-ext-file2md",
   "version": "0.1.0",
   "private": true,
-  "description": "File\u2192Markdown bridge for text-only agents: convert any PDF/image/doc to structured Markdown a pure-text agent can read, via a local vision-LLM subagent (LM Studio).",
+  "description": "File→Markdown bridge for text-only agents: convert any PDF/image/doc to structured Markdown a pure-text agent can read, via a local vision-LLM subagent (LM Studio).",
   "license": "MIT",
   "keywords": [
     "pi-package",
@@ -55,6 +55,7 @@
   },
   "dependencies": {
     "@repo/pi-agent-core-interface": "workspace:*",
+    "@repo/pi-agent-core-runtime": "workspace:*",
     "mupdf": "^1.28.0"
   }
 }

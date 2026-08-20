@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { GATE_DEFS } from "@repo/pi-agent-core-interface";
+import { findWorkspaceRoot, missingExtDeps } from "@repo/pi-agent-core-runtime";
 import { Type } from "typebox";
 
 // ─── Gate family (wayfinder ticket 01 — reference form) ─────────────────────
@@ -64,53 +65,6 @@ const _EXT_DIR: string | undefined = (() => {
   } catch {}
   return undefined;
 })();
-
-// ---------------------------------------------------------------------------
-// Dependency detection helpers
-// ---------------------------------------------------------------------------
-
-function findMonorepoRoot(from: string | undefined): string {
-  if (!from) return "(repo root)";
-  let dir = from;
-  while (dir !== dirname(dir)) {
-    try {
-      const pkgPath = join(dir, "package.json");
-      if (existsSync(pkgPath)) {
-        const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-        if (pkg.workspaces) return dir;
-      }
-    } catch {}
-    dir = dirname(dir);
-  }
-  return "(repo root)";
-}
-
-function pkgBaseName(spec: string): string {
-  if (spec.startsWith("@")) {
-    const parts = spec.split("/");
-    return `${parts[0]}/${parts[1]}`;
-  }
-  return spec.split("/")[0];
-}
-
-export function missingDeps(deps: string[], from: string | undefined): string[] {
-  if (!from) return [];
-  // Compiled-binary mode: `from` is a $bunfs/~BUN virtual path — deps are
-  // inlined into the binary at build time, and walking the REAL filesystem up
-  // from a virtual path can never find node_modules (always false-alarms).
-  if (from.includes("$bunfs") || from.includes("~BUN") || from.includes("%7EBUN")) return [];
-  return deps.filter((dep) => {
-    const pkgName = pkgBaseName(dep);
-    let dir = from;
-    while (true) {
-      if (existsSync(join(dir, "node_modules", pkgName, "package.json"))) return false;
-      const parent = dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
-    }
-    return true;
-  });
-}
 
 // ---------------------------------------------------------------------------
 // pi:knowledge opt-in emit (ADR-0001: NO hub import)
@@ -165,9 +119,9 @@ export const __GATE_PROBES__ = {
 
 export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
-    const missing = missingDeps(["@earendil-works/pi-coding-agent"], _EXT_DIR);
+    const missing = missingExtDeps(["@earendil-works/pi-coding-agent"], _EXT_DIR);
     if (missing.length > 0) {
-      const root = findMonorepoRoot(_EXT_DIR);
+      const root = findWorkspaceRoot(_EXT_DIR);
       ctx.ui.notify(`pi-file2md: missing npm packages: ${missing.join(", ")}.\nRun: bun install (in ${root})`, "error");
       return;
     }
