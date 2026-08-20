@@ -667,7 +667,7 @@ export default function (pi: ExtensionAPI): void {
 		parameters: Type.Object({
 			pr: Type.Integer({ description: "The PR number to verify." }),
 			expectedScope: Type.Optional(
-				Type.Array(Type.String(), { description: "Optional scope prefixes; touched files outside ALL prefixes → CONTAMINATED." }),
+				Type.Array(Type.String(), { description: "Optional scope entries; touched files outside ALL entries → CONTAMINATED. Entry forms: `x/**` any depth, `x/*` one segment, `x/` prefix, bare `x` exact-or-directory." }),
 			),
 			allowFetch: Type.Optional(
 				Type.Boolean({

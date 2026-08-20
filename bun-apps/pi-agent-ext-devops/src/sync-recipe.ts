@@ -89,6 +89,19 @@ function isPreservable(path: string, preserve: string[]): boolean {
 	return preserve.some((e) => path === e || path.startsWith(e.endsWith("/") ? e : e + "/"));
 }
 
+/** Extract the ACTUALLY conflicted paths from a failed `git stash pop`: git's
+ *  stable conflict line is `CONFLICT (content): merge conflict in <path>`.
+ *  Parses stderr first, stdout as fallback; deduped, order-preserved. When the
+ *  output has no parsable line (other failure shapes), falls back to the full
+ *  parked list — worst case the warning over-lists, never under-lists. */
+function popConflictPaths(pop: SpawnResult, fallback: string[]): string[] {
+	for (const out of [pop.stderr, pop.stdout]) {
+		const paths = [...(`${out ?? ""}`.matchAll(/CONFLICT \(content\): merge conflict in (.+)/g) ?? [])].map((m) => m[1].trim());
+		if (paths.length > 0) return [...new Set(paths)];
+	}
+	return fallback;
+}
+
 /**
  * The read-only git surface sync_default_branch needs. A `Pick` of BranchClient so the
  * live `createBranchClient` (full BranchClient) satisfies it, while tests inject
@@ -537,10 +550,12 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 			if (!dry) {
 				if (pop.exitCode !== 0) {
 					preserved = { paths: parkedPaths, restored: false, conflict: trim(pop.stderr || pop.stdout) };
+					const conflictPaths = popConflictPaths(pop, parkedPaths);
 					warnings.push(
 						`preserve restore: stash pop CONFLICTED at ${advanceTarget}. ` +
-							`AFTERMATH: the worktree now has unmerged index entries + conflict markers in: ${parkedPaths.join(", ")}. ` +
-							`The stash is KEPT. Recover manually: resolve the markers, then ` +
+							`AFTERMATH: the worktree now has unmerged index entries + conflict markers in: ${conflictPaths.join(", ")}. ` +
+							`The stash is KEPT (find it: git -C ${advanceTarget} stash list | grep 'sync_default_branch preserve'). ` +
+							`Recover manually: resolve the markers, then ` +
 							`git -C ${advanceTarget} add <path> && git -C ${advanceTarget} stash drop. ` +
 							`Until resolved, the next sync will abort 'unmerged_index' by design.`,
 					);
@@ -652,10 +667,12 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		if (!dry) {
 			if (pop.exitCode !== 0) {
 				preserved = { paths: parkedPaths, restored: false, conflict: trim(pop.stderr || pop.stdout) };
+				const conflictPaths = popConflictPaths(pop, parkedPaths);
 				warnings.push(
 					`preserve restore: stash pop CONFLICTED at ${repoRoot}. ` +
-						`AFTERMATH: the worktree now has unmerged index entries + conflict markers in: ${parkedPaths.join(", ")}. ` +
-						`The stash is KEPT. Recover manually: resolve the markers, then ` +
+						`AFTERMATH: the worktree now has unmerged index entries + conflict markers in: ${conflictPaths.join(", ")}. ` +
+						`The stash is KEPT (find it: git -C ${repoRoot} stash list | grep 'sync_default_branch preserve'). ` +
+						`Recover manually: resolve the markers, then ` +
 						`git -C ${repoRoot} add <path> && git -C ${repoRoot} stash drop. ` +
 						`Until resolved, the next sync will abort 'unmerged_index' by design.`,
 				);

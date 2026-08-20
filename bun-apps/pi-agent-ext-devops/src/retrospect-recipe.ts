@@ -28,6 +28,7 @@
  */
 import type { SpawnFn, SpawnResult } from "./spawn.js";
 import type { BranchClient } from "./branch-recipe.js";
+import { matchesScope } from "./scope-match.js";
 
 /**
  * The read-only surface retrospect needs. A `Pick` of BranchClient so the live
@@ -231,9 +232,12 @@ export async function runRetrospect(opts: RetrospectOptions): Promise<Retrospect
 		});
 	}
 
-	// scope-drift: recent touched paths outside every expectedScope prefix.
+	// scope-drift: recent touched paths outside every expectedScope entry
+	// (matchesScope semantics — the same entry forms verify_merge_landed uses;
+	// the old literal startsWith had the same pseudo-prefix false-clean as
+	// verify_merge did: `src` matching `srcx/…`).
 	if (opts.expectedScope && opts.expectedScope.length > 0 && recentFiles.length > 0) {
-		const outOfScope = recentFiles.filter((f) => !opts.expectedScope!.some((p) => f.startsWith(p)));
+		const outOfScope = recentFiles.filter((f) => !opts.expectedScope!.some((p) => matchesScope(f, p)));
 		if (outOfScope.length > 0) {
 			anomalies.push({
 				kind: "scope-drift",

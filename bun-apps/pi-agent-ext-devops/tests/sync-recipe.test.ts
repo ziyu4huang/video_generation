@@ -481,26 +481,58 @@ describe("runSync — unmerged-index pre-flight (preserve-flow hardening)", () =
 // 'unmerged_index' by design (the 2026-08-19/20 incident: the old one-line
 // warning hid the state that broke the NEXT day's sync).
 describe("runSync — preserve pop-conflict aftermath warning", () => {
-	test("pop conflict warning names the conflicted paths, the kept stash, and manual recovery", async () => {
+	test("pop conflict warning names the CONFLICTED SUBSET (parsed from pop output), the kept stash's identifier, and manual recovery", async () => {
 		const client = fakeClient({
 			defaultBranch: "main",
 			current: "main",
 			worktrees: [{ worktree: REPO, branch: "main" }],
-			dirty: { [REPO]: [".agents/memory/MEMORY.md"] },
+			// THREE parked paths; the canned pop output conflicts on only TWO.
+			dirty: { [REPO]: ["a.md", "b.md", "c.md"] },
 			revs: { "origin/main": sha("b"), main: sha("a") },
 		});
 		const { fn } = fakeSpawn([
-			{ match: (a) => realArgs(a).join(" ").startsWith("stash pop"), result: { stdout: "", stderr: "CONFLICT (content): merge conflict in .agents/memory/MEMORY.md", exitCode: 1 } },
+			{
+				match: (a) => realArgs(a).join(" ").startsWith("stash pop"),
+				result: {
+					stdout: "",
+					stderr: "CONFLICT (content): merge conflict in a.md\nCONFLICT (content): merge conflict in b.md",
+					exitCode: 1,
+				},
+			},
 			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS },
 		]);
-		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", preserve: ["a.md", "b.md", "c.md"] });
 
 		expect(out.aborted).toBeUndefined(); // the advance itself succeeded
 		expect(out.preserved?.restored).toBe(false);
 		const w = out.warnings.join(" ");
 		expect(w).toContain("unmerged index entries"); // states the aftermath
+		// conflicted SUBSET only — c.md parked clean, must NOT be listed.
+		expect(w).toContain("a.md, b.md");
+		expect(w).not.toContain("c.md");
+		// the kept stash is identified by its push message.
+		expect(w).toContain("stash list | grep 'sync_default_branch preserve'");
 		expect(w).toContain("git -C"); // recovery commands
-		expect(w).toContain("stash"); // stash retention + pop/drop guidance
+		expect(w).toContain("stash drop"); // stash retention + drop guidance
+	});
+
+	test("pop output without parsable CONFLICT lines → warning falls back to ALL parked paths", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			dirty: { [REPO]: ["a.md", "b.md"] },
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		const { fn } = fakeSpawn([
+			{ match: (a) => realArgs(a).join(" ").startsWith("stash pop"), result: { stdout: "", stderr: "error: could not restore untracked files", exitCode: 1 } },
+			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS },
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", preserve: ["a.md", "b.md"] });
+
+		expect(out.preserved?.restored).toBe(false);
+		const w = out.warnings.join(" ");
+		expect(w).toContain("a.md, b.md"); // fallback: all parked paths listed
 	});
 });
 
