@@ -389,6 +389,28 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		}
 	};
 
+	/** Unmerged (conflicted) index entries: a previous stash pop / merge left the
+	 *  worktree mid-conflict. `stash push` against such an index fails with a
+	 *  cryptic "could not write index" (observed 2026-08-19/20 on both worktrees
+	 *  via MEMORY.md) — refuse EARLY with the fix instead. Shared by EVERY mode
+	 *  (full + rebase/pull): warns ALWAYS (dryRun keeps planning); returns the
+	 *  `unmerged_index` abort descriptor only when mutating. */
+	const unmergedAbort = async (target: string): Promise<SyncAbort | undefined> => {
+		const unmerged = await client.unmergedPaths(target);
+		if (unmerged.length === 0) return undefined;
+		const howTo = [
+			`resolve each file then: git -C ${target} add <path>`,
+			`or abort the leftover op: git -C ${target} merge --abort (or rebase --abort)`,
+			`or finish the interrupted stash pop: git -C ${target} stash pop`,
+		].join("; ");
+		const msg =
+			`unmerged index entries at ${target}: ${unmerged.join(", ")} — ` +
+			`a conflicted stash pop or interrupted merge left the tree mid-conflict. Fix first: ${howTo}.`;
+		warnings.push(msg);
+		if (dry) return undefined;
+		return { aborted: true, reason: "unmerged_index", message: msg };
+	};
+
 	const current = await client.currentBranch();
 
 	// --- 2. Pre-flight: unpushed-commit warnings (read-only; best-effort). ----
@@ -437,25 +459,10 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 			});
 		}
 
-		// Unmerged (conflicted) index entries: a previous stash pop / merge left
-		// this worktree mid-conflict. `stash push` against such an index fails
-		// with a cryptic "could not write index" (observed 2026-08-19/20 on
-		// both worktrees via MEMORY.md) — refuse EARLY with the fix instead.
-		const unmerged = await client.unmergedPaths(advanceTarget);
-		if (unmerged.length > 0) {
-			const howTo = [
-				`resolve each file then: git -C ${advanceTarget} add <path>`,
-				`or abort the leftover op: git -C ${advanceTarget} merge --abort (or rebase --abort)`,
-				`or finish the interrupted stash pop: git -C ${advanceTarget} stash pop`,
-			].join("; ");
-			const msg =
-				`unmerged index entries at ${advanceTarget}: ${unmerged.join(", ")} — ` +
-				`a conflicted stash pop or interrupted merge left the tree mid-conflict. Fix first: ${howTo}.`;
-			warnings.push(msg);
-			if (!dry) {
-				return outcome({ aborted: true, reason: "unmerged_index", message: msg });
-			}
-		}
+		// Unmerged (conflicted) index entries: refuse EARLY, before the fetch /
+		// preserve stash push (shared helper — see its doc comment).
+		const unmerged = await unmergedAbort(advanceTarget);
+		if (unmerged) return outcome(unmerged);
 
 		// 4. Fetch (mutating; skipped under dryRun).
 		await git(repoRoot, ["fetch", "origin"]);
@@ -522,13 +529,21 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 
 		// POP RIGHT AFTER the advance — restore the parked hot files whether the
 		// advance succeeded OR refused (so a divergent/reset abort never strands
-		// them in a stash). On pop conflict: keep the stash + warn (edits safe).
+		// them in a stash). On pop conflict: keep the stash + warn with the full
+		// aftermath + manual recovery (the next sync will refuse on the unmerged
+		// index — by design, via the shared unmerged pre-flight above).
 		if (wantPark) {
 			const pop = await git(advanceTarget, ["stash", "pop"]);
 			if (!dry) {
 				if (pop.exitCode !== 0) {
 					preserved = { paths: parkedPaths, restored: false, conflict: trim(pop.stderr || pop.stdout) };
-					warnings.push(`preserve restore: stash pop conflicted at ${advanceTarget}; local edits kept in stash (git -C ${advanceTarget} stash list).`);
+					warnings.push(
+						`preserve restore: stash pop CONFLICTED at ${advanceTarget}. ` +
+							`AFTERMATH: the worktree now has unmerged index entries + conflict markers in: ${parkedPaths.join(", ")}. ` +
+							`The stash is KEPT. Recover manually: resolve the markers, then ` +
+							`git -C ${advanceTarget} add <path> && git -C ${advanceTarget} stash drop. ` +
+							`Until resolved, the next sync will abort 'unmerged_index' by design.`,
+					);
 				} else {
 					preserved = { paths: parkedPaths, restored: true };
 				}
@@ -585,6 +600,13 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		});
 	}
 
+	// Unmerged (conflicted) index entries: refuse EARLY, before the fetch /
+	// preserve stash push (shared helper — same gate as full mode; this branch
+	// parks preserve paths via `stash push` too, and it dies the same cryptic
+	// way against a conflicted index).
+	const unmerged = await unmergedAbort(repoRoot);
+	if (unmerged) return outcome(unmerged);
+
 	await git(repoRoot, ["fetch", "origin"]);
 
 	const remoteTip = await client.revParse(`origin/${D}`);
@@ -622,12 +644,21 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	}
 
 	// POP RIGHT AFTER the advance — restore parked hot files even on a refusal.
+	// On pop conflict: keep the stash + warn with the full aftermath + manual
+	// recovery (mirrors the full-mode message; the next sync will refuse on the
+	// unmerged index via the shared pre-flight above).
 	if (wantPark) {
 		const pop = await git(repoRoot, ["stash", "pop"]);
 		if (!dry) {
 			if (pop.exitCode !== 0) {
 				preserved = { paths: parkedPaths, restored: false, conflict: trim(pop.stderr || pop.stdout) };
-				warnings.push(`preserve restore: stash pop conflicted at ${repoRoot}; local edits kept in stash (git -C ${repoRoot} stash list).`);
+				warnings.push(
+					`preserve restore: stash pop CONFLICTED at ${repoRoot}. ` +
+						`AFTERMATH: the worktree now has unmerged index entries + conflict markers in: ${parkedPaths.join(", ")}. ` +
+						`The stash is KEPT. Recover manually: resolve the markers, then ` +
+						`git -C ${repoRoot} add <path> && git -C ${repoRoot} stash drop. ` +
+						`Until resolved, the next sync will abort 'unmerged_index' by design.`,
+				);
 			} else {
 				preserved = { paths: parkedPaths, restored: true };
 			}

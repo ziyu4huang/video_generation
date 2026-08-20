@@ -433,6 +433,75 @@ describe("runSync — unmerged-index pre-flight (preserve-flow hardening)", () =
 		expect(out.commands).toContain(`git -C "${REPO}" fetch origin`);
 		expect(out.commands).toContain(`git -C "${REPO}" merge --ff-only origin/main`);
 	});
+
+	test("(iv) rebase mode with unmerged entries → abort 'unmerged_index' BEFORE the preserve stash push", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "feat/y",
+			worktrees: [{ worktree: REPO, branch: "feat/y" }],
+			dirty: { [REPO]: [".agents/memory/MEMORY.md"] }, // preserve-listed → NOT a dirty_tree abort
+			unmerged: { [REPO]: [".agents/memory/MEMORY.md"] },
+			revs: { "origin/main": sha("r"), HEAD: sha("h") },
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "rebase" });
+
+		expect(out.aborted?.aborted).toBe(true);
+		expect(out.aborted?.reason).toBe("unmerged_index");
+		expect(out.aborted?.message).toMatch(/unmerged index entries/);
+		expect(out.advanced).toEqual([]);
+		// No stash push, no fetch, no rebase — died in pre-flight like full mode.
+		expect(calls.some((c) => c.args.includes("stash"))).toBe(false);
+		expect(calls.some((c) => c.args.includes("fetch"))).toBe(false);
+		expect(calls.some((c) => c.args.includes("rebase"))).toBe(false);
+		expect(calls.length).toBe(0);
+	});
+
+	test("(v) rebase dryRun with unmerged entries: warning, no abort, zero spawns", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "feat/y",
+			worktrees: [{ worktree: REPO, branch: "feat/y" }],
+			unmerged: { [REPO]: ["a.ts"] },
+			revs: { "origin/main": sha("r"), HEAD: sha("h") },
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "rebase", dryRun: true });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.warnings.join(" ")).toContain("unmerged");
+		expect(calls.length).toBe(0);
+	});
+});
+
+// --- preserve pop-conflict aftermath warning: when `git stash pop` conflicts,
+// the worktree is left MID-CONFLICT (unmerged index entries + conflict markers
+// in the parked paths) and the stash is KEPT — the warning must state that
+// aftermath AND the manual recovery, plus that the next sync will refuse with
+// 'unmerged_index' by design (the 2026-08-19/20 incident: the old one-line
+// warning hid the state that broke the NEXT day's sync).
+describe("runSync — preserve pop-conflict aftermath warning", () => {
+	test("pop conflict warning names the conflicted paths, the kept stash, and manual recovery", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			dirty: { [REPO]: [".agents/memory/MEMORY.md"] },
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		const { fn } = fakeSpawn([
+			{ match: (a) => realArgs(a).join(" ").startsWith("stash pop"), result: { stdout: "", stderr: "CONFLICT (content): merge conflict in .agents/memory/MEMORY.md", exitCode: 1 } },
+			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS },
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.aborted).toBeUndefined(); // the advance itself succeeded
+		expect(out.preserved?.restored).toBe(false);
+		const w = out.warnings.join(" ");
+		expect(w).toContain("unmerged index entries"); // states the aftermath
+		expect(w).toContain("git -C"); // recovery commands
+		expect(w).toContain("stash"); // stash retention + pop/drop guidance
+	});
 });
 
 // --- default-branch detection: ported from scripts/sync-repo.test.ts ---------
@@ -640,7 +709,7 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 		expect(out.aborted).toBeUndefined(); // the advance itself succeeded
 		expect(out.preserved?.restored).toBe(false);
 		expect(out.preserved?.conflict).toMatch(/CONFLICT/);
-		expect(out.warnings.some((w) => /stash pop conflicted/.test(w))).toBe(true);
+		expect(out.warnings.some((w) => /stash pop CONFLICTED/.test(w))).toBe(true);
 		// we KEEP the stash on conflict (never drop it).
 		expect(out.commands.some((c) => c.includes("stash drop"))).toBe(false);
 	});
