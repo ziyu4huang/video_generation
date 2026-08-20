@@ -100,4 +100,12 @@ describe("parseRegistry", () => {
     const { text, bunAppsDir } = fixture();
     expect(() => parseRegistry(text.replace("load: static", "load: eager"), { bunAppsDir })).toThrow(/load/);
   });
+  test("a package both vendored and external → throws (silent wrong-build class)", () => {
+    const { text, bunAppsDir } = fixture();
+    const bad = text.replace(
+      "      order: 10",
+      '      order: 10\n      vendor: ["playwright-core"]\n      externals: ["playwright-core"]',
+    );
+    expect(() => parseRegistry(bad, { bunAppsDir })).toThrow(/both vendored and external.*playwright-core/);
+  });
 });

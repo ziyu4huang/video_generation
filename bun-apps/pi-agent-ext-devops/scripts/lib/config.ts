@@ -4,9 +4,11 @@
  * pi-agent.registry.yaml is the ONE config file, parsed + validated by
  * run-dir/registry.ts (`parseRegistry` — the schema authority). This module is
  * a pure projection: registry entries with a `deploy:` block that is not
- * `enabled: false` become ShExtConfig in deploy order; everything the old
- * hand-rolled config parser validated (unknown keys, ~ expansion, absolute
- * outRoot, entries on disk) is validated there before it gets here.
+ * `enabled: false` become ShExtConfig in deploy order. Schema-level checks
+ * (unknown keys, ~ expansion, absolute outRoot, entries on disk,
+ * vendor∩externals) live in parseRegistry; two disk checks the old parser
+ * made — skills/copy dirs existing — are NOT re-validated here and surface
+ * at build time (ext-build's cpSync), loudly but with less context.
  */
 import {
 	parseRegistry,

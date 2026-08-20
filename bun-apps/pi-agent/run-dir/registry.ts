@@ -197,11 +197,24 @@ export function parseRegistry(text: string, opts: { bunAppsDir: string }): Regis
       if (typeof enabled !== "boolean") {
         throw new Error(`extensions[${i}].deploy.enabled must be a boolean`);
       }
+      const copy = strArray("copy");
+      const vendor = strArray("vendor");
+      const externals = strArray("externals");
+      // A package in both lists is a silent wrong-build class: vendored means
+      // "shipped as a real directory", external means "not shipped" — the
+      // build would honour whichever it reads last. (Carried over from the
+      // retired parseShConfig, which threw the same way.)
+      const overlap = vendor.filter((p) => externals.includes(p));
+      if (overlap.length > 0) {
+        throw new Error(
+          `extensions[${i}] ("${name}") declares package(s) both vendored and external: ${overlap.join(", ")}`,
+        );
+      }
       deploy = {
         order: d.order,
-        copy: strArray("copy"),
-        vendor: strArray("vendor"),
-        externals: strArray("externals"),
+        copy,
+        vendor,
+        externals,
         enabled,
       };
     } else if (ext.excludeReason === undefined) {
