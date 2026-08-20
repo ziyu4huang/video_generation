@@ -1,8 +1,10 @@
 # Deploy architecture consolidation — one pipeline, one registry, one bundler
 
 Date: 2026-08-20
-Status: approved design (implementation not started)
-Base: `origin/main` @ 782d99b8a
+Status: Phase 1 SHIPPED (#1740 1a, #1745 1b, #1747 renames). Phase 2 revised
+2026-08-20 to synthesise with #1739's generated `static-extensions.ts`; 2a in
+flight. Phase 3 pending.
+Base: `origin/main` @ 782d99b8a (Phase 2 base: `bee29db52`)
 Supersedes the non-goals of `.planning/specs/2026-08-19-pi-agent-sh-deploy-design.md`
 (which explicitly deferred "replacing or deleting the existing four deploy modes").
 That deferral was correct while `deploy-sh` was unproven; it has since shipped,
@@ -173,68 +175,96 @@ sh deploy too and moves into `docs/deploy.md` intact.
 
 ## The registry
 
-`deploy-config.yaml` → `pi-agent.registry.yaml`, absorbing `manifest.json`'s
-`extensions[]`, `skills[]`, `binarySkills[]`, `staticExtensions[]`, `npmExtensions[]`.
+> **Revised 2026-08-20 (Phase 2 kickoff).** The original section below the examples
+> assumed `static-extensions.ts` is deleted and its `-e` migration measured. #1739
+> landed in between: `static-extensions.ts` is now GENERATED from
+> `manifest.json` (`regen:static`), and Risk #1's stated mitigation — "keep
+> `static-extensions.ts` as a source-mode-only file, generated from the registry" —
+> is exactly what we now build. The registry schema also changed from
+> `profiles: [...]` to **deploy-block-presence** (fewer fields that can disagree).
+
+`deploy-config.yaml` is renamed and promoted to `bun-apps/pi-agent/pi-agent.registry.yaml`,
+absorbing every array `manifest.json` carries. `manifest.json` becomes a **derived
+artifact**, generated from the registry — it is NOT deleted, because 12 consumers
+read it (including the deployed core, at runtime, through the embedded-assets
+pipeline; embedding a YAML parser there to save one generated file is a bad trade).
+The #1739 chain is preserved end-to-end:
+
+```
+pi-agent.registry.yaml ──(gen-manifest, Bun.YAML.parse)──▶ run-dir/manifest.json
+        │                                                        │
+        │                                                        └─▶ regen:static ─▶ static-extensions.ts
+        └─ deploy.ts / config.ts read the registry directly (deploy blocks)
+```
 
 ```yaml
 hostApi: 2
-hostModules:                             # hard-checked against src/sh/host-modules.ts
-  - "@earendil-works/pi-coding-agent"
-  # …
+hostModules: [...]                       # hard-checked against src/sh/host-modules.ts
 
 deploy:
   outRoot: ~/proj/dist/pi-agent-sh
   version: { from: package.json, gitSha: true }
   freeze: true
   current: true
-  keep: 5                                # NEW — retention
 
 extensions:
   - name: task
     package: pi-agent-ext-task
-    entry: extensions/task.ts
-    order: 10
-    profiles: [portable, local]          # the one new field
+    entry: extensions/task.ts            # package-relative; generator normalises
+    load: static                         # static import (codegen) | dynamic (-e)
 
-  - name: web-access
-    package: pi-agent-ext-web-access
-    entry: extensions/web-access.ts
-    order: 90
-    profiles: [portable, local]
-    skills: [skills]
-    vendor: [unpdf]
+  - name: file2md
+    load: static
+    excludeReason: vendored mupdf is machine-bound
+
+  - name: obsidian
+    load: static
+    skills: true                         # ships a skills dir → derived skills[]
+    deploy:                              # BLOCK PRESENCE = ships in the portable tree
+      order: 130
+      copy: [vault-template]
 
   - name: movie-director
-    package: pi-agent-ext-movie-director
-    entry: extensions/movie-director.ts
-    order: 500
-    profiles: [local]
+    load: dynamic                        # source mode loads it via -e
     excludeReason: bound to this machine's swift director CLIs
-    testGate: bun test --cwd bun-apps/pi-agent-ext-movie-director
 
-lazyExtensions:                          # unchanged mechanism, same file, own key
-  workflow: pi-agent-ext-workflow/extensions/workflow.ts
+lazyExtensions: {}                       # unchanged mechanism, same file, own key
 ```
 
-Rules the parser enforces (it is already strict — unknown keys are errors):
+Rules the generator enforces (schema-validated, unknown keys are errors):
 
-- `profiles` is required and non-empty; known values are `portable` and `local`.
-- `portable` implies `local` (anything shipped must also load in source mode) — the
-  parser normalises rather than requiring both to be typed.
-- An extension **not** in `portable` MUST declare `excludeReason`. This is the point of
-  the field: today the exclusion rationale lives in a prose paragraph in
-  `docs/deploy-sh.md` § Limits, which is exactly the kind of text that drifts. Making
-  it a required schema field means an extension cannot quietly fall out of the portable
-  set without someone writing down why.
-- `skills:` is the single source for skill paths. `manifest.json`'s separate `skills[]`
-  and `binarySkills[]` arrays are derived, not restated.
+- `load` is `static` or `dynamic`; the derived `staticExtensions[]` is exactly the
+  `load: static` set, `extensions[]` (the `-e` entries) exactly the `load: dynamic` set.
+- A `deploy:` block means the extension ships; **its absence requires
+  `excludeReason`**. Today that rationale lives in a prose paragraph in
+  `docs/deploy.md` § Limits — text that drifts. As a required schema field, an
+  extension cannot quietly fall out of the portable set without someone writing
+  down why.
+- `deploy.order` values are unique across the registry.
+- `entry` exists on disk (relative to the package dir).
+- `skills: true` is the single source for skill paths; `skills[]` and
+  `binarySkills[]` are derived (`binarySkills: true` marks the 5 that the
+  binary-mode patch extracts).
 
-Dying with legacy: `bundleMode` (thin/full), `fullReason`, `binarySkills`,
-`npmExtensions`, `staticExtensions`. `testGate` survives (read by `ext-doctor` and a
-consistency test). `lazyExtensions` survives — bare-alias `-e workflow` back-compat is
-a different job from registration, and 20+ scripts still pass those aliases.
+Dying with this change (verified dead or legacy residue): `bundleMode` (the
+legacy bundler's field; only `ext-doctor` displays it), `testGate` (zero
+consumers — grep finds only `manifest-types` and `ext new`'s writer),
+`npmExtensions` (empty, legacy), `fullReason` (died with Phase 1a).
+`lazyExtensions` survives verbatim.
 
-Result: adding an extension is **one YAML entry**, down from four files.
+**Anti-drift guards** (the effort's standing pattern):
+
+- A freshness gate: a CI test regenerates `manifest.json` from the registry and
+  byte-diffs the result — hand-editing the manifest, or editing the registry
+  without regenerating, both go red.
+- `manifest.json` gains an `@generated` header marker;
+  `manifest-consistency.test.ts` additionally asserts the derivation invariants
+  above against the registry.
+- A structural guard forbids a third registry: no new file may parse
+  configuration that names extensions + skills + deploy membership together.
+
+Result: adding an extension is **one YAML entry** (then `regen:manifest` +
+`regen:static` run by `ext new`), down from four files.
 
 ## Deploy pipeline hardening
 
@@ -278,28 +308,14 @@ a second.
 
 ## Source mode
 
-`cli.ts` drops the `STATIC_EXTENSION_FACTORIES` dynamic import, `overriddenStaticExtensions`,
-and its hand-rolled `-ne` gate — roughly 40 lines. Extensions arrive as `-e <abs>` paths
-spliced by the run-dir patch, exactly as the 8 manifest-declared extensions already do.
-
-Three things stop being needed, not merely move:
-
-- **`-e` override handling.** `overriddenStaticExtensions` exists because a user `-e`
-  pointing into a static package's directory registers the same tool names twice and pi
-  crashes with `Tool conflicts`. Upstream pi dedups `-e` against `-e` by resolved path;
-  the conflict class only exists because two different registration paths coexist.
-- **The custom `-ne` gate.** Upstream never gates `extensionFactories` on `-ne`, which
-  is why cli.ts had to. With no factories, `-ne` is upstream's job again.
-- **The load-order comment block.** The static import had to sit below the `cli`
-  intercept and below `applyPatches()` because evaluating 15 extension entry graphs has
-  import-time side effects (webui imports `pi-coding-agent` undeclared, resolvable only
-  after `ensure-extension-deps` runs). No static import, no ordering hazard.
-
-`static-extensions.ts` exists because only a literal `import` survives
-`bun build --compile`. After Phase 1 the only compile target is `cli-sh.ts`, which
-imports zero extensions. The reason is gone.
-
-**This is the riskiest part of the design, and it is unverified.** See "Risks".
+> **Superseded 2026-08-20.** This section proposed deleting `static-extensions.ts` and
+> moving its 15 extensions to `-e` loading — the design's single riskiest change.
+> #1739 landed `static-extensions.ts` as a GENERATED file (from `manifest.json`,
+> `regen:static`), which achieves the registry consolidation without touching the
+> source-mode boot path at all. The `-e` migration, the `overriddenStaticExtensions`
+> removal, and the `-ne` gate simplification are **dead**: the loading path stays as
+> it is, and Phase 2 only changes where the data comes from. Risk #1 below is retired
+> for the same reason.
 
 ## Gates and tests
 
@@ -368,13 +384,21 @@ nothing else is in flight.
 Nothing a user runs changes behaviour: source mode is untouched, and the sh deploy is
 byte-identical apart from the script name.
 
-**Phase 2 — one registry.**
-`deploy-config.yaml` → `pi-agent.registry.yaml` with `profiles:` / `excludeReason:`.
-Absorb `manifest.json`'s five arrays. Delete `static-extensions.ts` and simplify
-`cli.ts`. Update `dep-guard` / `extension-isolation-contract` to the new path.
+**Phase 2 — one registry.** Split into two PRs.
 
-Gated on a measurement, not a guess: **source-mode boot time and loaded-extension set
-before and after must match**, captured as a test, not a one-off observation.
+*2a — the registry + generator.* `deploy-config.yaml` → `pi-agent.registry.yaml`
+(deploy-block schema, see "The registry"), a `gen-manifest` generator
+(`Bun.YAML.parse`, schema-validated) emits `run-dir/manifest.json` byte-stably, the
+freshness gate + `@generated` marker + structural guard land with it, and `ext new`
+writes the registry instead of the manifest. The generated `manifest.json` must be
+byte-identical to the hand-maintained one minus the dead fields (`bundleMode`,
+`testGate`) — anything else is a behavioural change that belongs in 2b or never.
+
+*2b — cleanup.* Dead fields out of `manifest-types` / `ext-doctor`; docs fold;
+`deploy:sh` package script renamed to `deploy` (the Phase 3 note below folds into
+here); `update-pi.sh` help if affected.
+
+No source-mode measurement gate anymore: the loading path is untouched by design.
 
 **Phase 3 — deploy hardening.**
 Content-addressed core + hardlink, delete `--ext`, `keep: N` retention, gate 5
@@ -382,15 +406,10 @@ relocation smoke.
 
 ## Risks
 
-1. **Moving 15 static extensions to `-e` in source mode (Phase 2).** The highest-risk
-   change in this design. Unverified today: behavioural equivalence and boot cost. The
-   mechanism should work — the `ensure-extension-deps` patch already makes Bun natively
-   import extension `.ts` graphs, so jiti's `try-native` succeeds and no transform
-   happens, which is the same path the 8 manifest extensions take. But "should" is not
-   "does". Phase 2 starts by measuring both, and stops if either regresses.
-   Mitigation if it does: keep `static-extensions.ts` as a source-mode-only file,
-   generated from the registry rather than hand-maintained. That still collapses the
-   registries; it just keeps the loading path.
+1. **RETIRED 2026-08-20 — moving 15 static extensions to `-e`.** #1739's codegen made
+   `static-extensions.ts` a generated file, so the registry consolidation no longer
+   touches the source-mode boot path. The risk this section described (behavioural
+   equivalence + boot cost of `-e` loading) does not apply to Phase 2 as revised.
 
 2. **Hardlinked cores and `freeze` (Phase 3).** Shared inode means shared mode bits.
    Benign as designed (everything is `a-w`), but a future `--no-freeze` deploy that
@@ -423,8 +442,10 @@ Phase-specific, beyond `local_ci`:
   --force` succeeds and produces the same extension set as the pre-change deploy
   (`--ext-list` diff); `grep -r` finds no surviving reference to the deleted modes
   outside `.planning/` and `vaults_root/`.
-- **Phase 2** — a test asserting source-mode `--ext-list`-equivalent output (loaded
-  extension names, sorted) is unchanged, plus a recorded boot-time delta.
+- **Phase 2** — the freshness gate (regenerate `manifest.json`, byte-diff) is green on
+  the committed tree and RED when the manifest or registry is hand-edited (canary);
+  a full `deploy:sh` from the registry-built manifest boots the same 14-extension set;
+  `bun test` for pi-agent and pi-agent-ext-devops green.
 - **Phase 3** — deploy twice with no source change and assert the second run reuses the
   cached core (same inode); deploy `keep+2` times and assert the oldest dirs are gone
   and `current` still resolves; the relocation smoke as a build gate.
@@ -435,4 +456,5 @@ Phase-specific, beyond `local_ci`:
   proves it in 3.49 s. The argument is that they are unused and duplicative, not defective.
 - That `deploy-sh` is bug-free. Its `--ext` path mutates released versions (§b) and it
   has no retention (§c) — both are fixed here.
-- That the source-mode `-e` migration works. It is measured in Phase 2, not assumed.
+- That the source-mode `-e` migration works — moot: the migration was cancelled in the
+  Phase 2 revision (see "Source mode").
