@@ -20,6 +20,16 @@ export function isExtDoctorCommand(argv: string[]): boolean {
 }
 
 /**
+ * True iff argv should route into `ext new <name>` (the scaffold command).
+ * Only the two-token `ext new` prefix triggers it — same rationale as
+ * isExtDoctorCommand: matching the tokens ANYWHERE would also match a literal
+ * prompt string passed to `-p`/`--print`, silently hijacking it.
+ */
+export function isExtNewCommand(argv: string[]): boolean {
+	return argv[0] === "ext" && argv[1] === "new";
+}
+
+/**
  * True iff argv should route into the non-interactive CLI namespace
  * (`pi-agent cli <command> …`). Only `argv[0]` triggers it — same contract as
  * isDoctorCommand: matching a `cli` token ANYWHERE would also match a literal

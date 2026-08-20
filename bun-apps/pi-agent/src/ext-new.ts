@@ -262,3 +262,13 @@ Set \`${gate}=0\` to disable the extension entirely.
 
 	return files;
 }
+
+/**
+ * Task B3 replaces this stub with the real writer (files + manifest
+ * registration + install + next steps). It exists so the cli.ts intercept
+ * (Task B2) typechecks between the two commits.
+ */
+export async function runExtNew(_argv: string[]): Promise<number> {
+	console.error("ext new: writer not wired yet");
+	return 1;
+}
