@@ -39,11 +39,11 @@ Self-test `--self-test [t2i:portrait]`; `--offline` for zero network egress.
 ```bash
 ( cd bun-apps/<pkg> && bun test )                                        # any bun-apps/*
 bun run --cwd bun-apps/gui-movie-director check:schema                  # validate vs run.py
-( cd bun-apps/pi-agent-ext-workflow && bun run test )
+( cd bun-apps/s2-agent-ext-workflow && bun run test )
 python/venv/bin/python -m pytest python/mlx-movie-director/app/tests [--run-gpu]
 ```
 
-**Per-package gates differ.** `pi-agent-ext-hermes-memory` `bun run check` = tsc; `pi-agent-ext-wayfind` `bun run check` = biome (tsc lives in `typecheck`, not under `check`/`test`) → for wayfind run **both** `bun run check && bun run typecheck && bun test`. Always run a package's canonical `bun run test` script (it may include `build`), not a hand-assembled subset. `local_ci` resolves both by script NAME per package (tsc: `typecheck` → `check`-if-tsc; biome: `check`-if-biome → `lint`-if-biome), so a package that renames them is silently skipped — `tests/lint-executor-coverage.test.ts` + `tests/extension-entry-typechecked.test.ts` block that.
+**Per-package gates differ.** `s2-agent-ext-hermes-memory` `bun run check` = tsc; `s2-agent-ext-wayfind` `bun run check` = biome (tsc lives in `typecheck`, not under `check`/`test`) → for wayfind run **both** `bun run check && bun run typecheck && bun test`. Always run a package's canonical `bun run test` script (it may include `build`), not a hand-assembled subset. `local_ci` resolves both by script NAME per package (tsc: `typecheck` → `check`-if-tsc; biome: `check`-if-biome → `lint`-if-biome), so a package that renames them is silently skipped — `tests/lint-executor-coverage.test.ts` + `tests/extension-entry-typechecked.test.ts` block that.
 
 ## Subagent dispatch
 
@@ -55,8 +55,8 @@ python/venv/bin/python -m pytest python/mlx-movie-director/app/tests [--run-gpu]
 
 ## DevOps (standing rule)
 
-All git sync / branch prep / rebase / PR merge / local CI / branch sweep / post-run review goes through the devops tool chain (`sync_default_branch`, `prepare_feature_branch`, `run_local_ci`, `merge_pr_after_local_ci`, `verify_merge_landed`, `sweep_merged_branches`, `run_devops_retrospect`) per `bun-apps/pi-agent-ext-devops/skills/devops-workflow/SKILL.md` — never hand-rolled raw-bash git/gh subagents for phases a devops tool owns. Plain `pi` sessions: CLI fallbacks under `bun-apps/pi-agent-ext-devops/src/*-cli.ts` (`sync-default-branch-cli`, `main-health-cli`, `sweep-merged-branches-cli`, `local-ci-cli`, `prepare-feature-branch-cli`, `verify-merge-cli`, `merge-pr-after-ci-cli`; all take `--help`, emit JSON, exit 0/1/2). Sync example (plain session): `bun bun-apps/pi-agent-ext-devops/src/sync-default-branch-cli.ts`. "Is main itself green?" → `main-health-cli.ts` (`run_local_ci` is change-scoped). Prefer the pi-agent wrapper `bun bun-apps/pi-agent/src/cli.ts` (auto-loads run-dir extensions and skills).
-  - Self-improve drift report: `./pi-agent.sh cli loop status` (report-only: death rate, skill lines, duplicates, canary, coverage).
+All git sync / branch prep / rebase / PR merge / local CI / branch sweep / post-run review goes through the devops tool chain (`sync_default_branch`, `prepare_feature_branch`, `run_local_ci`, `merge_pr_after_local_ci`, `verify_merge_landed`, `sweep_merged_branches`, `run_devops_retrospect`) per `bun-apps/s2-agent-ext-devops/skills/devops-workflow/SKILL.md` — never hand-rolled raw-bash git/gh subagents for phases a devops tool owns. Plain `pi` sessions: CLI fallbacks under `bun-apps/s2-agent-ext-devops/src/*-cli.ts` (`sync-default-branch-cli`, `main-health-cli`, `sweep-merged-branches-cli`, `local-ci-cli`, `prepare-feature-branch-cli`, `verify-merge-cli`, `merge-pr-after-ci-cli`; all take `--help`, emit JSON, exit 0/1/2). Sync example (plain session): `bun bun-apps/s2-agent-ext-devops/src/sync-default-branch-cli.ts`. "Is main itself green?" → `main-health-cli.ts` (`run_local_ci` is change-scoped). Prefer the s2-agent wrapper `bun bun-apps/s2-agent/src/cli.ts` (auto-loads run-dir extensions and skills).
+  - Self-improve drift report: `./s2-agent.sh cli loop status` (report-only: death rate, skill lines, duplicates, canary, coverage).
 
 ## Key Directories
 
@@ -67,15 +67,21 @@ mlx-models/                   # MLX model tree (override: MLX_MODELS_DIR / --mod
 bun-apps/gui-movie-director/  # ACTIVE — Bun + React GUI
 ```
 
-## Extension packages (pi-agent-ext-*)
+## Extension packages (s2-agent-ext-*)
 
-- **Scaffold a new package**: `bun bun-apps/pi-agent/src/cli.ts ext new <name>` (`--lib` for a `src/index.ts` lib face + shim entry; `--register dynamic|static|none`, default dynamic — static auto-runs `bun run regen:static`; add `--no-install` to skip `bun install`). Then implement — every convention below (entry path, self-gate, tsconfig include, scripts, peer pin) is baked into the output.
-One registered entry per folder: `extensions/<X>.ts` where `<X>` = folder minus `pi-agent-ext-` — never `src/index.ts`, root `index.ts`, `extensions/index.ts`, or `extensions/pi-<X>.ts` as the registration entry.
+**Rename note**: s2-agent = renamed pi-agent (2026-08-21) — all 27 workspace
+packages were renamed; upstream `@earendil-works/pi-*` deps, `PI_*`/`BUN_PI_*`
+env names, and `~/.pi/agent` state dir are UNCHANGED by design; the devops tool
+names (`deploy_pi_agent_sh` etc.) keep their underscore form. Repo-root
+`./pi-agent.sh` remains as a deprecated compat alias for `./s2-agent.sh`.
+
+- **Scaffold a new package**: `bun bun-apps/s2-agent/src/cli.ts ext new <name>` (`--lib` for a `src/index.ts` lib face + shim entry; `--register dynamic|static|none`, default dynamic — static auto-runs `bun run regen:static`; add `--no-install` to skip `bun install`). Then implement — every convention below (entry path, self-gate, tsconfig include, scripts, peer pin) is baked into the output.
+One registered entry per folder: `extensions/<X>.ts` where `<X>` = folder minus `s2-agent-ext-` — never `src/index.ts`, root `index.ts`, `extensions/index.ts`, or `extensions/pi-<X>.ts` as the registration entry.
 
 - **Lib entry stays separate**: src-entry (`main: "./src/index.ts"`) is the standard lib face (web-access uses root `index.ts`) — don't move it. If the registration entry has no in-file implementation (power-tool, hermes-memory), add a 1-line re-export shim `export { default } from "../src/index.ts";` at `extensions/<X>.ts`.
-- **Registration**: ONE entry in `bun-apps/pi-agent/pi-agent.registry.yaml` (`load: dynamic` or `load: static`), then `bun run --cwd bun-apps/pi-agent regen:manifest` (+ `regen:static` for static) — `run-dir/manifest.json` is DERIVED (freshness-gated; never hand-edit); never register an extension as both static and dynamic (double-register).
-- **Schema-cost canary**: `bun-apps/pi-agent/src/cli/commands/schema-cost.ts` `discoverExtensionEntries()` derives from manifest.json — registered extensions measured automatically; only unregistered measure-worthy files need a manual `EXTRA_ENTRIES` row.
-- **CLI subcommands**: `extensions/cli-subcommand.ts`, wired in `bun-apps/pi-agent/src/cli/extensions/registry.ts`.
+- **Registration**: ONE entry in `bun-apps/s2-agent/s2-agent.registry.yaml` (`load: dynamic` or `load: static`), then `bun run --cwd bun-apps/s2-agent regen:manifest` (+ `regen:static` for static) — `run-dir/manifest.json` is DERIVED (freshness-gated; never hand-edit); never register an extension as both static and dynamic (double-register).
+- **Schema-cost canary**: `bun-apps/s2-agent/src/cli/commands/schema-cost.ts` `discoverExtensionEntries()` derives from manifest.json — registered extensions measured automatically; only unregistered measure-worthy files need a manual `EXTRA_ENTRIES` row.
+- **CLI subcommands**: `extensions/cli-subcommand.ts`, wired in `bun-apps/s2-agent/src/cli/extensions/registry.ts`.
 
 ## Vendor patches
 

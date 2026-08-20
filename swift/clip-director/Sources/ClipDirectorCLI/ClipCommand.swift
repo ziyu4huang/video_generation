@@ -3,7 +3,7 @@
 //  ClipDirectorCLI
 //
 //  `clip` — native (Swift/MLX) CLIP video-understanding, emitting the EXACT
-//  ClipResult JSON the Bun `clipAdapter` (pi-agent-ext-movie-director) parses:
+//  ClipResult JSON the Bun `clipAdapter` (s2-agent-ext-movie-director) parses:
 //  { ok, video, prompt, labels, score, prob_mean, frames[{path,index,score,
 //  prob}], model, duration_s }. Replaces python `clip_understand.py`
 //  (transformers + torch MPS) with a pure-Swift MLX CLIP.

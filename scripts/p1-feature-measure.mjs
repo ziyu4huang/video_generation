@@ -15,7 +15,7 @@
  *
  * WHY NOT THE LLM-JUDGE HARNESS (retrieval-quality-self-improve.js)
  *   That harness measures relevance@4 over the *human-authored* vault surface.
- *   A grep of vaults_root/pi-agent-vault (2026-07-07) confirms 0 callouts, 0
+ *   A grep of vaults_root/s2-agent-vault (2026-07-07) confirms 0 callouts, 0
  *   embeds, 1 task (a Daily-Note template) across 32 human-authored + 429
  *   converged cards. There is nothing for feature-aware retrieval to act on —
  *   an LLM-judge run over the real surface would show a vacuous zero delta. So
@@ -43,7 +43,7 @@ import { join } from "node:path";
 import { execSync } from "node:child_process";
 
 const ROOT = execSync("git rev-parse --show-toplevel", { encoding: "utf8" }).trim();
-const KC = `${ROOT}/bun-apps/pi-agent-ext-knowledge-card`;
+const KC = `${ROOT}/bun-apps/s2-agent-ext-knowledge-card`;
 // bun resolves .ts on dynamic import — no build step needed.
 const ingestMod = await import(`${KC}/src/ingest.ts`);
 const retrieveMod = await import(`${KC}/src/retrieve.ts`);
@@ -133,7 +133,7 @@ const gate = {
 gate.passed = gate.rankLift && gate.noDisplacement && gate.surfacingDelta;
 
 const corpusReality = {
-	vault: `${ROOT}/vaults_root/pi-agent-vault`,
+	vault: `${ROOT}/vaults_root/s2-agent-vault`,
 	humanAuthoredCards: 32,
 	convergedCards: 429,
 	callouts: 0,

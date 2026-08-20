@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "outDir": "dist",
+    // No `rootDir`: the registration entry lives in `extensions/`, outside `src/`,
+    // and `rootDir: "src"` would reject it (TS6059) instead of checking it.
+    // `check` is `tsc --noEmit`, so the emit layout this would have pinned is moot.
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
+    "types": [
+      "bun",
+      "@repo/s2-agent-core-interface"
+    ],
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "extensions/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}

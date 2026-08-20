@@ -1,6 +1,6 @@
 # Agent Learnings
 
-Durable, team-wide learnings about the pi-agent toolchain in this repo — tool quirks, architectural facts, and conventions surfaced during work. Per-user lessons also live in the memory store at `~/.pi/agent/pi-hermes-memory/failures.md`; this file captures the subset worth sharing across the team and version-controlling.
+Durable, team-wide learnings about the s2-agent toolchain in this repo — tool quirks, architectural facts, and conventions surfaced during work. Per-user lessons also live in the memory store at `~/.pi/agent/pi-hermes-memory/failures.md`; this file captures the subset worth sharing across the team and version-controlling.
 
 Entries are append-only and dated. Each is tagged `[tool-quirk]`, `[insight]`, or `[convention]`.
 
@@ -35,7 +35,7 @@ Consequences:
 - The diagnostic `name "X" collision … (skipped)` means the **bundled** copy is the active winner and the personal one was dropped — it is **informational noise, not a functional bug**; the correct (bundled) skill is already loaded.
 - There is **no override/precedence hook** in the `resources_discover` contract (it only accepts `skillPaths: string[]`), so you cannot make a discovered skill beat a bundled one. To eliminate a collision, **remove the duplicate source** rather than trying to change precedence.
 
-The `hermes-memory` extension uses `~/.pi/agent/pi-hermes-memory/skills/` as **both** a writable `skill_manage` store **and** a discovery source — that dual purpose is what collides with its own bundled skills. Bundled skills ship from `bun-apps/pi-agent-ext-hermes-memory/skills/`; `deploy.ts` copies the whole skill dir (including non-`SKILL.md` files like `dedup.sh`) in all deploy modes (`--bundle` / `--standalone` / `--exe` / `--snapshot`).
+The `hermes-memory` extension uses `~/.pi/agent/pi-hermes-memory/skills/` as **both** a writable `skill_manage` store **and** a discovery source — that dual purpose is what collides with its own bundled skills. Bundled skills ship from `bun-apps/s2-agent-ext-hermes-memory/skills/`; `deploy.ts` copies the whole skill dir (including non-`SKILL.md` files like `dedup.sh`) in all deploy modes (`--bundle` / `--standalone` / `--exe` / `--snapshot`).
 
 ---
 
@@ -43,7 +43,7 @@ The `hermes-memory` extension uses `~/.pi/agent/pi-hermes-memory/skills/` as **b
 
 **Added:** 2026-08-07
 
-Before any git/GitHub operation, reach for the repo's purpose-built tooling instead of dispatching a custom subagent that runs raw `git`/`gh`. The `pi-agent-ext-devops` extension and `scripts/` already handle base-ref correctness, worktree edge cases, and local-CI gating that hand-rolled git gets wrong.
+Before any git/GitHub operation, reach for the repo's purpose-built tooling instead of dispatching a custom subagent that runs raw `git`/`gh`. The `s2-agent-ext-devops` extension and `scripts/` already handle base-ref correctness, worktree edge cases, and local-CI gating that hand-rolled git gets wrong.
 
 | Operation | Use this | Not |
 |---|---|---|
@@ -54,4 +54,4 @@ Before any git/GitHub operation, reach for the repo's purpose-built tooling inst
 | Inspect a PR | `pr_status({ prNumber })` pi tool | `gh pr view` parsing |
 | Clean up branches | `sweep_branches({ execute: true })` pi tool (gh-confirmed merges only) | manual branch deletion |
 
-Why it matters: hand-running git in a subagent against a stale worktree is what produces the `commitScope` false-positive noise (see the `[tool-quirk]` entry above) and skips the local-CI self-verification that `await_pr_merge` enforces. Note: the devops tools are pi-agent extension tools — if they aren't directly callable in the current session, invoke them via a subagent rather than falling back to raw git.
+Why it matters: hand-running git in a subagent against a stale worktree is what produces the `commitScope` false-positive noise (see the `[tool-quirk]` entry above) and skips the local-CI self-verification that `await_pr_merge` enforces. Note: the devops tools are s2-agent extension tools — if they aren't directly callable in the current session, invoke them via a subagent rather than falling back to raw git.

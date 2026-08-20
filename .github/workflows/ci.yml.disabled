@@ -42,7 +42,7 @@ jobs:
   # on any change outside a known bun-apps/<pkg>/ path.)
   #
   # The implementation lives in the devops extension package
-  # (bun-apps/pi-agent-ext-devops/src/changed-packages.ts — the TS port of the
+  # (bun-apps/s2-agent-ext-devops/src/changed-packages.ts — the TS port of the
   # retired scripts/ci-changed-packages.sh), invoked through the thin CLI wrapper
   # src/changed-packages-cli.ts. Same argv contract the bash had (`--all`, or
   # `<baseRef> <headRef>`) and the same single-line JSON on stdout, so this step
@@ -79,9 +79,9 @@ jobs:
       - id: filter
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            json=$(bun bun-apps/pi-agent-ext-devops/src/changed-packages-cli.ts --all)
+            json=$(bun bun-apps/s2-agent-ext-devops/src/changed-packages-cli.ts --all)
           else
-            json=$(bun bun-apps/pi-agent-ext-devops/src/changed-packages-cli.ts "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+            json=$(bun bun-apps/s2-agent-ext-devops/src/changed-packages-cli.ts "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
           fi
           echo "packages=$json" >> "$GITHUB_OUTPUT"
 
@@ -103,23 +103,23 @@ jobs:
           # typecheck folded in: bun's transpiler skips tsc, so 0.80.10 cast-rule
           # / private-member drift in src/patches/* once landed ungated (PR #620
           # postmortem). tsc --noEmit keeps SDK-internal patches type-honest.
-          - { package: pi-agent, test-cmd: "bun test && bun run typecheck" }
+          - { package: s2-agent, test-cmd: "bun test && bun run typecheck" }
           # ── uniform `bun test` runner ──
-          - { package: pi-agent-ext-flux2, test-cmd: "bun test" }
-          - { package: pi-agent-ext-krea2, test-cmd: "bun test" }
-          - { package: pi-agent-ext-ltx, test-cmd: "bun test" }
-          - { package: pi-agent-ext-movie-director, test-cmd: "bun test" }
-          - { package: pi-agent-ext-power-tool, test-cmd: "bun test" }
+          - { package: s2-agent-ext-flux2, test-cmd: "bun test" }
+          - { package: s2-agent-ext-krea2, test-cmd: "bun test" }
+          - { package: s2-agent-ext-ltx, test-cmd: "bun test" }
+          - { package: s2-agent-ext-movie-director, test-cmd: "bun test" }
+          - { package: s2-agent-ext-power-tool, test-cmd: "bun test" }
           # skills-only carrier (vendored HyperFrames family): its `test`
           # script is scoped to tests/ so upstream's vendored .test.mjs in
           # skills/ (machine-coupled, byte-identical upstream content) never
           # runs — the portability audit likewise excludes */skills/*.
-          - { package: pi-agent-ext-hyperframes, test-cmd: "bun run test" }
-          - { package: pi-agent-ext-btw, test-cmd: "bun test" }
-          - { package: pi-agent-ext-task, test-cmd: "bun test" }
-          - { package: pi-agent-ext-research-tool, test-cmd: "bun test" }
-          - { package: pi-agent-ext-zai-mcp, test-cmd: "bun test" }
-          # pi-agent-ext-tool-gate: unit tests + the encoded QA verdict gate
+          - { package: s2-agent-ext-hyperframes, test-cmd: "bun run test" }
+          - { package: s2-agent-ext-btw, test-cmd: "bun test" }
+          - { package: s2-agent-ext-task, test-cmd: "bun test" }
+          - { package: s2-agent-ext-research-tool, test-cmd: "bun test" }
+          - { package: s2-agent-ext-zai-mcp, test-cmd: "bun test" }
+          # s2-agent-ext-tool-gate: unit tests + the encoded QA verdict gate
           # (`bun run qa` — savings floor ≥15%+2k ∧ L1 intended-behavior; exits
           # non-zero on regression, per the prior QA effort's encoded thresholds
           # in qa/run.ts). Was missing from the matrix entirely — its 8 test
@@ -127,11 +127,11 @@ jobs:
           # TOOL_GATE_LOG_PATH (beforeEach snapshot/delete/restore, matching the
           # hermes config.test.ts PR #938 pattern) so the harness exporting that
           # var in live sessions doesn't flake it.
-          - { package: pi-agent-ext-tool-gate, test-cmd: "bun test && bun run qa" }
+          - { package: s2-agent-ext-tool-gate, test-cmd: "bun test && bun run qa" }
           # --isolate: render-bin-missing / delta-bin-missing use mock.module on
           # ../lib/run.ts; without per-file process isolation the stub leaks into
-          # run.test.ts (same pattern as pi-agent-ext-knowledge-card e2e below).
-          - { package: pi-agent-ext-archify, test-cmd: "bun test --isolate" }
+          # run.test.ts (same pattern as s2-agent-ext-knowledge-card e2e below).
+          - { package: s2-agent-ext-archify, test-cmd: "bun test --isolate" }
           - { package: perf-harness, test-cmd: "bun test" }
           # wayfind's own `test` script chains check(biome) → build(tsc) →
           # test:unit(bun test); `bun run test` (not plain `bun test`) so that
@@ -140,67 +140,67 @@ jobs:
           # src/__tests__/settings.test.ts from #1228). Fixed — the lint was
           # fixed rather than the row weakened, as that note demanded. Green as
           # of the ci-local.sh matrix run.
-          - { package: pi-agent-ext-wayfind, test-cmd: "bun run test" }
-          - { package: pi-agent-ext-superpowers, test-cmd: "bun run test" }
-          - { package: pi-agent-ext-web-access, test-cmd: "bun test" }
-          # pi-agent-core-interface: the cross-extension seam contract
+          - { package: s2-agent-ext-wayfind, test-cmd: "bun run test" }
+          - { package: s2-agent-ext-superpowers, test-cmd: "bun run test" }
+          - { package: s2-agent-ext-web-access, test-cmd: "bun test" }
+          # s2-agent-core-interface: the cross-extension seam contract
           # (__piCoreTaskStatusWidget key + shape). 2 test files that had never
           # been in the matrix — the static seam guard in `regression gates`
           # covers the publisher/consumer drift, but nothing ran this package's
           # OWN tests.
-          - { package: pi-agent-core-interface, test-cmd: "bun test" }
-          # pi-agent-core-runtime: extracted from pi-agent-ext-subagent in
+          - { package: s2-agent-core-interface, test-cmd: "bun test" }
+          # s2-agent-core-runtime: extracted from s2-agent-ext-subagent in
           # #1251 (decouples workflow -> subagent). The extraction moved 10 test
           # files into a NEW package, and a new package is invisible to a matrix
           # that lists packages by hand — so those 10 files silently left CI the
           # moment they moved. Uses the package's plain `bun test`.
-          - { package: pi-agent-core-runtime, test-cmd: "bun test" }
-          # pi-agent-ext-devops: 17 test files (local-CI recipe, changed-packages
+          - { package: s2-agent-core-runtime, test-cmd: "bun test" }
+          # s2-agent-ext-devops: 17 test files (local-CI recipe, changed-packages
           # port, deploy/gh/branch/sync recipes) that had never been in the
           # matrix. Notably it owns src/changed-packages.ts + its CLI wrapper —
           # the code the `changed_packages` job above shells out to — so CI's own
           # routing logic was untested by CI. Plain `bun test` (its `check`
           # script is tsc --noEmit only).
-          - { package: pi-agent-ext-devops, test-cmd: "bun test" }
-          # pi-agent-ext-prompt-history: 2 test files, never in the matrix. It is
+          - { package: s2-agent-ext-devops, test-cmd: "bun test" }
+          # s2-agent-ext-prompt-history: 2 test files, never in the matrix. It is
           # one of the statically-bundled extensions compile-verify asserts on
           # (see that job's 13-extension list), so a break here ships straight
           # into the compiled binary. Plain `bun test`.
-          - { package: pi-agent-ext-prompt-history, test-cmd: "bun test" }
+          - { package: s2-agent-ext-prompt-history, test-cmd: "bun test" }
           # --isolate: classify-vlm/ask-io/vlm-ask-tool/pipeline mock.module()
           # sessions.ts + vision-inference.ts; without per-file process isolation
           # the stub leaks into sessions.test.ts / resolve-vision-llm.test.ts
-          # (same pattern as pi-agent-ext-archify above).
-          - { package: pi-agent-ext-file2md, test-cmd: "bun test --isolate" }
+          # (same pattern as s2-agent-ext-archify above).
+          - { package: s2-agent-ext-file2md, test-cmd: "bun test --isolate" }
           # gui-movie-director: lint is pure static analysis (CI-safe); the
           # check-runtime suite probes run.py via the venv and skips under CI.
-          # `typecheck` is chained (as pi-agent does) AND now exists as a script:
+          # `typecheck` is chained (as s2-agent does) AND now exists as a script:
           # this package had no tsc key at all, so main_health reported
           # `typecheck: {skipped: true, note: "no tsc key"}` — which reads as
           # benign — while `tsc --noEmit` by hand produced 133 errors, among them
           # a dropped `hint` that kept a GPU-crash warning off the screen.
           - { package: gui-movie-director, test-cmd: "bun run test && bun run typecheck" }
           # ── scoped test paths (plain `bun test` discovers vault-needing
-          #    files outside extensions/__tests__ in pi-agent-ext-obsidian) ──
+          #    files outside extensions/__tests__ in s2-agent-ext-obsidian) ──
           # Run order matters: e2e uses --isolate (avoids mock.module leak),
           # then toolWiring.test.mjs runs LAST so its mock.module() leak
           # never afflicts sibling files (see CLAUDE.md mock.module note).
-          - { package: pi-agent-ext-knowledge-card, test-cmd: "bun test __tests__/e2e-orchestration.test.ts --isolate && bun test __tests__/allowlists.test.mjs __tests__/ingest.test.ts __tests__/merge.test.ts __tests__/emit.test.ts __tests__/similarity.test.ts __tests__/retrieve.test.ts __tests__/pi-knowledge-card.test.ts __tests__/blend.test.ts && bun test __tests__/toolWiring.test.mjs" }
-          - { package: pi-agent-ext-obsidian, test-cmd: "bun test extensions/__tests__/" }
+          - { package: s2-agent-ext-knowledge-card, test-cmd: "bun test __tests__/e2e-orchestration.test.ts --isolate && bun test __tests__/allowlists.test.mjs __tests__/ingest.test.ts __tests__/merge.test.ts __tests__/emit.test.ts __tests__/similarity.test.ts __tests__/retrieve.test.ts __tests__/pi-knowledge-card.test.ts __tests__/blend.test.ts && bun test __tests__/toolWiring.test.mjs" }
+          - { package: s2-agent-ext-obsidian, test-cmd: "bun test extensions/__tests__/" }
           # ── special runners (see CLAUDE.md testing section) ──
-          # pi-agent-ext-workflow: src-entry package since the 2026-08-15
+          # s2-agent-ext-workflow: src-entry package since the 2026-08-15
           # src-entry migration (ticket 04): root resolves to ./src/index.ts,
           # no build step; the generic canonical chain (check && test:unit) is
           # the gate — biome check passes clean (warnings only; the old
           # formatting-drift note is stale).
-          - { package: pi-agent-ext-workflow, test-cmd: "bun run test" }
-          # pi-agent-ext-webui: 21 test files, never in the matrix — the largest
+          - { package: s2-agent-ext-workflow, test-cmd: "bun run test" }
+          # s2-agent-ext-webui: 21 test files, never in the matrix — the largest
           # single uncovered suite in the repo. Src-entry package since the
           # 2026-08-15 src-entry migration (ticket 02, PR #1391): package root
           # resolves to ./src/index.ts, no build step, dist/ deleted — a plain
           # `bun test` runs from source on any checkout.
-          - { package: pi-agent-ext-webui, test-cmd: "bun test" }
-          # pi-agent-ext-subagent: extracted from workflow (spawnSubagent +
+          - { package: s2-agent-ext-webui, test-cmd: "bun test" }
+          # s2-agent-ext-subagent: extracted from workflow (spawnSubagent +
           # WorkflowAgent runner + subagent/subagent_runs tools). Uses the
           # package's canonical `bun run test` chain (biome check → tsc build →
           # bun test), mirroring wayfind's `bun run test` convention.
@@ -209,8 +209,8 @@ jobs:
           # noNonNullAssertion in tests/install-subagent-context-widget.test.ts
           # from #1078). Fixed — the lint was fixed rather than the row
           # weakened. Green as of the ci-local.sh matrix run.
-          - { package: pi-agent-ext-subagent, test-cmd: "bun run test" }
-          # pi-agent-ext-hermes-memory: pure `bun test` (Bun-only package —
+          - { package: s2-agent-ext-subagent, test-cmd: "bun run test" }
+          # s2-agent-ext-hermes-memory: pure `bun test` (Bun-only package —
           # uses bun:sqlite via the BunCompatDatabase shim in src/store/db.ts;
           # better-sqlite3/Node support was removed). The historical tsx/Node
           # carve-out (tests/run-all.sh) is retired: the corruption-recovery
@@ -218,7 +218,7 @@ jobs:
           # recovery CONTRACT, not an exact count — see db.test.ts + D3 in
           # .github/TEST-DETERMINISM.md), so `bun test` is now the gate on every
           # platform. No Node setup needed.
-          - { package: pi-agent-ext-hermes-memory, test-cmd: "bun test" }
+          - { package: s2-agent-ext-hermes-memory, test-cmd: "bun test" }
 
     # `matrix` context is NOT available in a job-level `if:` (only github/
     # needs/vars/inputs are — see the context-availability table; actionlint
@@ -240,7 +240,7 @@ jobs:
       # would.
       - uses: actions/checkout@v4
         if: "!cancelled() && (github.event_name == 'push' || needs.changed_packages.result != 'success' || fromJSON(needs.changed_packages.outputs.packages)[matrix.package] == true)"
-      # Shared preamble (Bun + install + build pi-agent-ext-workflow). Every
+      # Shared preamble (Bun + install + build s2-agent-ext-workflow). Every
       # matrix entry is now pure Bun (hermes-memory dropped its Node/tsx carve-out).
       - uses: ./.github/actions/setup-env
         if: "!cancelled() && (github.event_name == 'push' || needs.changed_packages.result != 'success' || fromJSON(needs.changed_packages.outputs.packages)[matrix.package] == true)"
@@ -249,7 +249,7 @@ jobs:
       # runtime). ubuntu-latest doesn't ship it; install only for that matrix
       # entry. (compose.test.ts uses mocked ffmpeg; e2e.local is opt-in.)
       - name: Install ffmpeg (movie-director preflight probe)
-        if: "matrix.package == 'pi-agent-ext-movie-director' && !cancelled() && (github.event_name == 'push' || needs.changed_packages.result != 'success' || fromJSON(needs.changed_packages.outputs.packages)[matrix.package] == true)"
+        if: "matrix.package == 's2-agent-ext-movie-director' && !cancelled() && (github.event_name == 'push' || needs.changed_packages.result != 'success' || fromJSON(needs.changed_packages.outputs.packages)[matrix.package] == true)"
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Test
@@ -263,9 +263,9 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────────
   # Thrust B — extension contract as a NAMED, visible check (not buried in the
-  # pi-agent test run). The 5 tests gate every manifest extension: factory
+  # s2-agent test run). The 5 tests gate every manifest extension: factory
   # loads, wires up, no tool-name conflicts, valid schema, handler present.
-  # Path-gated on check-deploy-paths (a change inside pi-agent itself OR one of
+  # Path-gated on check-deploy-paths (a change inside s2-agent itself OR one of
   # the statically-imported "core" extension packages can affect this) so PRs
   # untouched by any of them don't pay for it.
   # ──────────────────────────────────────────────────────────────────────────
@@ -279,11 +279,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-env
       - name: Extension contract (5 tests)
-        working-directory: bun-apps/pi-agent
+        working-directory: bun-apps/s2-agent
         run: bun test src/__tests__/extension-contract.test.ts
 
   # ──────────────────────────────────────────────────────────────────────────
-  # Pre-check: does this PR touch bun-apps/pi-agent/, or one of the 5 "core"
+  # Pre-check: does this PR touch bun-apps/s2-agent/, or one of the 5 "core"
   # (statically-imported) extension packages? Push-to-main always runs. Gates
   # extension-contract below. It used to gate deploy-verify and compile-verify
   # too; both jobs built the four legacy deploy modes and were deleted with
@@ -291,8 +291,8 @@ jobs:
   # `bash scripts/check-deploy-e2e.sh`, which is unconditional.
   # Also matches the 5 "core" extension packages that src/static-extensions.ts
   # statically imports (see run-dir/manifest.json's `staticExtensions` field) —
-  # a change to any of THEIR source is just as capable of breaking pi-agent as
-  # a change inside bun-apps/pi-agent/ itself, since their code is inlined
+  # a change to any of THEIR source is just as capable of breaking s2-agent as
+  # a change inside bun-apps/s2-agent/ itself, since their code is inlined
   # directly rather than loaded as an independent jiti-dispatched extension.
   check-deploy-paths:
     runs-on: ubuntu-latest
@@ -305,7 +305,7 @@ jobs:
           fetch-depth: 0
       - id: filter
         run: |
-          PATTERN='^bun-apps/pi-agent/|^bun-apps/pi-agent-ext-(task|hermes-memory|superpowers|wayfind|web-access)/'
+          PATTERN='^bun-apps/s2-agent/|^bun-apps/s2-agent-ext-(task|hermes-memory|superpowers|wayfind|web-access)/'
           if [ "${{ github.event_name }}" = "push" ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           elif git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} | grep -qE "$PATTERN"; then
@@ -320,7 +320,7 @@ jobs:
   # `setup-env` (which `bun install`s) BEFORE launching pi, so the launcher's
   # OWN pre-flight self-heal (run-dir/check-deps.ts → `bun install` at the
   # detected workspace root) was never exercised. A `git clean -dxf` +
-  # `./pi-agent.sh` then failed: check-deps ran `bun install` at the repo root,
+  # `./s2-agent.sh` then failed: check-deps ran `bun install` at the repo root,
   # where package.json no longer lives → "could not find a package.json" →
   # unlinked @repo/* extension deps → jiti NameTooLong cascade. This job
   # reproduces that exact clean-checkout state: setup Bun but do NOT install,
@@ -360,7 +360,7 @@ jobs:
           # check-deps runs `bun install` at its detected workspace root and
           # must exit 0. If anyone re-introduces a repo-root install assumption,
           # this fails with "could not find a package.json".
-          bun bun-apps/pi-agent/run-dir/check-deps.ts
+          bun bun-apps/s2-agent/run-dir/check-deps.ts
           test -d bun-apps/node_modules || { echo "FAIL: self-heal did not materialize bun-apps/node_modules"; exit 1; }
           echo "OK: self-heal installed at the workspace root (bun-apps/)"
 
@@ -395,7 +395,7 @@ jobs:
         run: bash scripts/check-lockfile-duplicate-versions.sh
 
       # Lockfile freshness guard (blocks). #1586 added `yaml: ^2` to
-      # pi-agent-core-interface's package.json without the matching bun.lock
+      # s2-agent-core-interface's package.json without the matching bun.lock
       # workspace entry. With no edge recorded, `bun install` linked nothing,
       # and main went red on a runtime "Cannot find package 'yaml'" from
       # embedding-leaf.ts — a failure no typecheck could see.
@@ -512,7 +512,7 @@ jobs:
         run: bun run test:isolation
 
       # Config-field parity guard (ticket 03 — self-reflection frontier).
-      # pi-agent-ext-hermes-memory's loadConfig is a selective per-field copy; a
+      # s2-agent-ext-hermes-memory's loadConfig is a selective per-field copy; a
       # field added to MemoryConfig (types.ts) but omitted in loadConfig is
       # SILENTLY DROPPED — a config-file value is ignored, masked by the
       # consumer's `config.X ?? envOrDefault()` fallback. This static guard turns
@@ -535,8 +535,8 @@ jobs:
       # CI-workflow reference guard (blocks). The executor for a class that has
       # none: a reference inside a DISABLED workflow is never run, so it rots
       # silently (scripts/ci-changed-packages.sh was deleted while this file kept
-      # calling it; the matrix carried a row for the deleted pi-agent-ext-picker;
-      # pi-agent-core-runtime was created by #1251 and never got a row).
+      # calling it; the matrix carried a row for the deleted s2-agent-ext-picker;
+      # s2-agent-core-runtime was created by #1251 and never got a row).
       # Asserts: every matrix row names a real package, every path this workflow
       # shells out to resolves, and every bun-apps/* package has a matrix row.
       # Reads the matrix through scripts/ci-local.sh --tsv — the ONE parser — so
@@ -550,7 +550,7 @@ jobs:
       # names a binary its package does not declare. Under the isolated linker
       # that script exits 127, and since only 3 of the 10 `check` scripts are
       # chained into a CI command, nothing ever ran them — perf-harness's
-      # `tsc --noEmit` (no devDependencies at all) and pi-agent-core-runtime's
+      # `tsc --noEmit` (no devDependencies at all) and s2-agent-core-runtime's
       # `biome check .` (no @biomejs/biome) both sat broken. Also asserts every
       # biome user HAS a biome.json — core-runtime's was left behind when #1251
       # extracted it from subagent, so biome silently graded against its own
@@ -568,7 +568,7 @@ jobs:
       # (ensure-workspace-dist) is deleted. The gate now asserts ZERO @repo/*
       # packages resolve their root into ./dist/ — a re-added one resurrects
       # the whole class and is a regression, not a staleness to build away.
-      # Detection lives in ONE place (pi-agent/src/workspace-dist-staleness.ts).
+      # Detection lives in ONE place (s2-agent/src/workspace-dist-staleness.ts).
       - name: Workspace dist-freshness guard (blocks)
         working-directory: bun-apps
         run: bun run test:dist
@@ -588,7 +588,7 @@ jobs:
       # src/ — and most of these packages wrote `include: ["src/**/*.ts"]`, so
       # `bun run typecheck` inside the package compiled everything EXCEPT the one
       # file the package exists to export. The entry still had an executor, just
-      # the wrong one: the HOST pi-agent typechecks it through run-dir/manifest.json.
+      # the wrong one: the HOST s2-agent typechecks it through run-dir/manifest.json.
       # So the author's own pre-push gate said nothing and the failure surfaced one
       # package away, on main, after merge — twice. This asserts each package with
       # an extensions/ dir has a tsconfig, that its `include` covers every entry,
@@ -650,10 +650,10 @@ jobs:
         run: bash scripts/test-determinism-audit.sh --strict
 
       # Decision tests for the PR-finish flow — the bash script was ported
-      # into pi-agent-ext-devops (bin devops-merge-pr-after-ci), so the tests moved
+      # into s2-agent-ext-devops (bin devops-merge-pr-after-ci), so the tests moved
       # into the ext package. No live PR needed — fake gh + stubbed runCi.
       - name: PR-finish decision tests (devops-merge-pr-after-ci)
-        working-directory: bun-apps/pi-agent-ext-devops
+        working-directory: bun-apps/s2-agent-ext-devops
         run: bun test tests/merge-pr-after-ci-cli.test.ts
 
       - name: Schema-cost regression (warns >5%, not a block)
@@ -696,9 +696,9 @@ jobs:
       fail-fast: false
       matrix:
         package:
-          - pi-agent-ext-hermes-memory
-          - pi-agent-ext-workflow
-          - pi-agent-ext-obsidian
+          - s2-agent-ext-hermes-memory
+          - s2-agent-ext-workflow
+          - s2-agent-ext-obsidian
           # Added after a full local-matrix run failed once ("examples re-renders
           # every bundled example IR to HTML" expected >=5, got 0) and then went
           # green 6+ times on identical code. The test asserts a DELTA in the real
@@ -706,7 +706,7 @@ jobs:
           # Observe it here rather than diagnose it by guesswork. The package list
           # in scripts/test-determinism-spotcheck.sh must match this one — a guard
           # test asserts that.
-          - pi-agent-ext-archify
+          - s2-agent-ext-archify
     steps:
       # "should this instance's steps actually run" — same gate as the `tests`
       # matrix above (see that job's steps comment for why this can't move to

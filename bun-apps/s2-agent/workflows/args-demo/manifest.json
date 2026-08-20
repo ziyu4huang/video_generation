@@ -1,0 +1,10 @@
+{
+  "name": "args-demo",
+  "description": "Demo workflow pack — optional manifest args (topics) + the parallel() engine primitive. Proves packs carry real workflow behaviour, not just renamed single-file scripts.",
+  "entry": "index.js",
+  "kind": "workflow-pack",
+  "engine": "s2-agent-ext-workflow",
+  "args": { "topics": ["alpha", "beta"] },
+  "model": "lm-studio/google/gemma-4-12b",
+  "howToRun": "bun --cwd bun-apps/s2-agent src/cli.ts cli workflow run args-demo --dry-run   # then drop --dry-run (model defaults from manifest; override with --model)"
+}

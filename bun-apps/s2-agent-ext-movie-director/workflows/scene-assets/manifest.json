@@ -1,0 +1,7 @@
+{
+  "name": "scene-assets",
+  "description": "Parallel per-scene asset generation: T2I still → I2V clip (chained for long scenes) → TTS narration. Deterministic via call(\"movie.*\").",
+  "entry": "index.js",
+  "kind": "workflow-pack",
+  "engine": "s2-agent-ext-workflow"
+}

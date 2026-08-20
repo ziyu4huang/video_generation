@@ -1,7 +1,7 @@
 /**
  * Config-field parity guard (wayfinder ticket 03 — self-reflection frontier).
  *
- * The footgun: `pi-agent-ext-hermes-memory`'s `loadConfig` is a selective
+ * The footgun: `s2-agent-ext-hermes-memory`'s `loadConfig` is a selective
  * per-field copy (`if (typeof parsed.X === ...) config.X = parsed.X`). A field
  * added to the `MemoryConfig` type (`types.ts`) but omitted from `loadConfig`
  * is SILENTLY DROPPED — a config-file value is ignored, and (because the
@@ -45,7 +45,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // bun-apps
  */
 const PACKAGES = [
 	{
-		name: "pi-agent-ext-hermes-memory",
+		name: "s2-agent-ext-hermes-memory",
 		typeFile: "src/types.ts",
 		interfaceName: "MemoryConfig",
 		loadConfigFile: "src/config.ts",

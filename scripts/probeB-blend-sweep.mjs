@@ -1,7 +1,7 @@
 // Phase 4 — blend weight sweep. final = α·(lexical rank score) + (1-α)·(cosine, min-max norm).
 // Finds the α that maximizes recall with zero regression on the 21 baseline hits.
-import { retrieveRecords } from "../bun-apps/pi-agent-ext-knowledge-card/src/retrieve.ts";
-import { resolveVault } from "../bun-apps/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { retrieveRecords } from "../bun-apps/s2-agent-ext-knowledge-card/src/retrieve.ts";
+import { resolveVault } from "../bun-apps/s2-agent-ext-obsidian/extensions/obsidian.ts";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 

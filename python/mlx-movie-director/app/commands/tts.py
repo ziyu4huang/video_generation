@@ -2,7 +2,7 @@
 
 Isolates the edge-tts call already used inside `video relay` (--relay-tts-engine
 edge-tts, see video-relay.py) into its own top-level command so movie-director
-(bun-apps/pi-agent-ext-movie-director) can invoke natural-sounding narration
+(bun-apps/s2-agent-ext-movie-director) can invoke natural-sounding narration
 without going through the full relay pipeline. macOS `say` remains the
 zero-network fallback (see app.commands._shared / video-relay.py's `--relay-tts-
 engine say` path) — this command is the natural-voice alternative when network

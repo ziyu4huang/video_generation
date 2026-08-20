@@ -1,0 +1,751 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "s2-agent-ext-webui Architecture (v3 — pure HITL companion)",
+    "subtitle": "Loopback co-frontend for the pi agent — v3 (2026-08-17): the TUI owns conversation and tool logs (frame diet at the source); the webui owns interaction: Inbox (ask + event cards), Report (two-door producer, archive surface), Data (viewer) in a DYNAMIC app-shell (100dvh flex — panes fill any browser size) — plus /files + webui:open full-fidelity channel",
+    "output": "ir/s2-agent-ext-webui.architecture.html",
+    "visual_preset": "blueprint",
+    "quality_profile": "standard",
+    "views": [
+      {
+        "id": "config-serving",
+        "label": "Config & serving",
+        "focus": [
+          "config",
+          "ports",
+          "server",
+          "output-route",
+          "files-route"
+        ],
+        "note": "webui-config pins port/loopback/fileRoots; Bun.serve hosts /output and /files on 127.0.0.1, unref'd."
+      },
+      {
+        "id": "realtime-hitl",
+        "label": "Realtime — pure HITL frames",
+        "focus": [
+          "broadcaster",
+          "ws-gateway",
+          "session-store",
+          "report-producer",
+          "mutex-controller"
+        ],
+        "note": "t02 frame diet: log families (message_*, tool_*, turn_*…) never reach the wire — cards, reports, ask, status only."
+      },
+      {
+        "id": "surfaces",
+        "label": "Three tabs + views",
+        "focus": [
+          "render-shell",
+          "render-views",
+          "open-handler",
+          "files-route",
+          "archify-announce"
+        ],
+        "note": "Inbox, Report (sized 70vh iframe + fullscreen hatch, cap-exempt), Data (viewer) — panes flex-fill the viewport: 100dvh dynamic app-shell."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "config",
+      "type": "backend",
+      "label": "WebUI Config",
+      "sublabel": "webui-config · port/loopback · resolveFileRoots fail-closed",
+      "pos": [
+        60,
+        140
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "src/webui-config.ts"
+    },
+    {
+      "id": "ports",
+      "type": "backend",
+      "label": "Port Resolver",
+      "sublabel": "WEBUI_PORT > PORT > 0 · busy-walk +50",
+      "pos": [
+        280,
+        140
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "src/port-resolver.ts"
+    },
+    {
+      "id": "server",
+      "type": "backend",
+      "label": "Web Server",
+      "sublabel": "Bun.serve · 127.0.0.1 · unref() · idleTimeout 0",
+      "pos": [
+        60,
+        300
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "src/web-server.ts"
+    },
+    {
+      "id": "output-route",
+      "type": "backend",
+      "label": "Output Route",
+      "sublabel": "/output static · symlink-safe · MIME allowlist",
+      "pos": [
+        280,
+        300
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "src/output-routes.ts"
+    },
+    {
+      "id": "files-route",
+      "type": "security",
+      "label": "Files Route",
+      "sublabel": "/files/<i>/<rel> · CSP sandbox · uniform 404",
+      "pos": [
+        500,
+        300
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "src/file-routes.ts"
+    },
+    {
+      "id": "report-producer",
+      "type": "backend",
+      "label": "Report producers",
+      "sublabel": "webui_report tool (in-process) + POST /api/report · shared report-frame.ts · 16MB cap",
+      "pos": [
+        60,
+        460
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "src/report-tool.ts · report-frame.ts"
+    },
+    {
+      "id": "broadcaster",
+      "type": "backend",
+      "label": "Broadcaster",
+      "sublabel": "store-wrapped · pure-HITL frames only (t02 diet)",
+      "pos": [
+        280,
+        460
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "src/broadcaster.ts"
+    },
+    {
+      "id": "ws-gateway",
+      "type": "backend",
+      "label": "WS Gateway",
+      "sublabel": "upgrade · Host/Origin guard · ws idleTimeout 0",
+      "pos": [
+        500,
+        460
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "src/web-transport.ts"
+    },
+    {
+      "id": "session-store",
+      "type": "database",
+      "label": "Session store",
+      "sublabel": "bounded ring · reports exempt — archive surface",
+      "pos": [
+        720,
+        460
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "src/session-store.ts"
+    },
+    {
+      "id": "ask-bridge",
+      "type": "backend",
+      "label": "HITL answer bridge",
+      "sublabel": "appexec respond/cancel · first-answer-wins · queued offline",
+      "pos": [
+        740,
+        140
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "src/webui-wiring.ts"
+    },
+    {
+      "id": "mutex-controller",
+      "type": "security",
+      "label": "Mutex Controller",
+      "sublabel": "pi.on(input) gate → agent_settled release",
+      "pos": [
+        960,
+        140
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "src/mutex-controller.ts"
+    },
+    {
+      "id": "present-tool",
+      "type": "backend",
+      "label": "webui_present",
+      "sublabel": "blocking HITL controls · {action,tweak} / {cancelled:true}",
+      "pos": [
+        1180,
+        140
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "src/present-tool.ts"
+    },
+    {
+      "id": "render-shell",
+      "type": "frontend",
+      "label": "Browser shell (3 tabs)",
+      "sublabel": "Inbox · Report · Data · 100dvh shell · deep links · bell",
+      "pos": [
+        960,
+        300
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "src/render-shell.ts"
+    },
+    {
+      "id": "render-views",
+      "type": "frontend",
+      "label": "Render views",
+      "sublabel": "webui:render / viewer → sandboxed md/HTML (Data tab)",
+      "pos": [
+        1180,
+        300
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "src/render-event-handler.ts"
+    },
+    {
+      "id": "agent-session",
+      "type": "backend",
+      "label": "pi AgentSession",
+      "sublabel": "tool execute · events bus · ctx.abort",
+      "pos": [
+        740,
+        620
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "shared session"
+    },
+    {
+      "id": "tui",
+      "type": "frontend",
+      "label": "TUI",
+      "sublabel": "co-driver · owns conversation + tool logs (v3 diet)",
+      "pos": [
+        960,
+        620
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "terminal frontend"
+    },
+    {
+      "id": "open-handler",
+      "type": "backend",
+      "label": "Open handler",
+      "sublabel": "webui:open {path,view,title} → ui.notify URL",
+      "pos": [
+        1180,
+        460
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "src/open-event-handler.ts"
+    },
+    {
+      "id": "archify-announce",
+      "type": "external",
+      "label": "Archify announceOpen",
+      "sublabel": "optional-chain emit after render / delta",
+      "pos": [
+        1180,
+        620
+      ],
+      "size": [
+        160,
+        58
+      ],
+      "tag": "external producer"
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Config — fail-closed defaults",
+      "wraps": [
+        "config",
+        "ports"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Serving — loopback HTTP (idleTimeout 0)",
+      "wraps": [
+        "server",
+        "output-route",
+        "files-route"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Publish — pure-HITL frames, store-wrapped",
+      "wraps": [
+        "report-producer",
+        "broadcaster",
+        "ws-gateway",
+        "session-store"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Input & HITL — floor-controlled",
+      "wraps": [
+        "ask-bridge",
+        "mutex-controller",
+        "present-tool"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Surfaces — three tabs + views",
+      "wraps": [
+        "render-shell",
+        "render-views"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "config",
+      "to": "ports",
+      "label": "pins port"
+    },
+    {
+      "from": "config",
+      "to": "server",
+      "label": "127.0.0.1 · unref",
+      "labelAt": [
+        140,
+        212
+      ]
+    },
+    {
+      "from": "config",
+      "to": "files-route",
+      "label": "fileRoots allowlist"
+    },
+    {
+      "from": "server",
+      "to": "output-route",
+      "label": "hosts /output",
+      "labelAt": [
+        250,
+        372
+      ]
+    },
+    {
+      "from": "server",
+      "to": "ws-gateway",
+      "label": "WS upgrade",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          140,
+          400
+        ],
+        [
+          360,
+          400
+        ]
+      ],
+      "labelAt": [
+        140,
+        372
+      ]
+    },
+    {
+      "from": "broadcaster",
+      "to": "ws-gateway",
+      "label": "live broadcast",
+      "labelAt": [
+        250,
+        532
+      ]
+    },
+    {
+      "from": "broadcaster",
+      "to": "session-store",
+      "label": "append · replay",
+      "labelAt": [
+        560,
+        420
+      ],
+      "fromSide": "top",
+      "toSide": "top",
+      "via": [
+        [
+          360,
+          420
+        ],
+        [
+          800,
+          420
+        ]
+      ]
+    },
+    {
+      "from": "render-shell",
+      "to": "ws-gateway",
+      "label": "HITL answers (queued offline)",
+      "fromSide": "bottom",
+      "toSide": "bottom",
+      "via": [
+        [
+          1040,
+          420
+        ],
+        [
+          1160,
+          420
+        ],
+        [
+          1160,
+          610
+        ],
+        [
+          360,
+          610
+        ]
+      ],
+      "labelAt": [
+        760,
+        610
+      ]
+    },
+    {
+      "from": "ws-gateway",
+      "to": "ask-bridge",
+      "label": "appexec respond / cancel",
+      "fromSide": "right",
+      "toSide": "left",
+      "via": [
+        [
+          580,
+          489
+        ],
+        [
+          580,
+          680
+        ],
+        [
+          700,
+          680
+        ],
+        [
+          700,
+          169
+        ]
+      ],
+      "labelAt": [
+        610,
+        680
+      ]
+    },
+    {
+      "from": "ask-bridge",
+      "to": "agent-session",
+      "label": "tool results · first-answer-wins",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          820,
+          250
+        ],
+        [
+          700,
+          250
+        ],
+        [
+          700,
+          580
+        ],
+        [
+          820,
+          580
+        ]
+      ],
+      "labelAt": [
+        640,
+        560
+      ]
+    },
+    {
+      "from": "ask-bridge",
+      "to": "mutex-controller",
+      "label": "⇒ pi.on(input) gate",
+      "labelAt": [
+        930,
+        212
+      ]
+    },
+    {
+      "from": "tui",
+      "to": "agent-session",
+      "label": "co-drives",
+      "labelAt": [
+        930,
+        695
+      ]
+    },
+    {
+      "from": "agent-session",
+      "to": "broadcaster",
+      "label": "pure-HITL frames only (t02 diet)",
+      "fromSide": "bottom",
+      "toSide": "bottom",
+      "via": [
+        [
+          820,
+          700
+        ],
+        [
+          360,
+          700
+        ]
+      ],
+      "labelAt": [
+        560,
+        715
+      ]
+    },
+    {
+      "from": "agent-session",
+      "to": "render-views",
+      "label": "webui:render",
+      "fromSide": "right",
+      "toSide": "bottom",
+      "via": [
+        [
+          940,
+          649
+        ],
+        [
+          940,
+          380
+        ],
+        [
+          1260,
+          380
+        ]
+      ],
+      "labelAt": [
+        1090,
+        380
+      ]
+    },
+    {
+      "from": "report-producer",
+      "to": "broadcaster",
+      "label": "two doors · identical frames",
+      "labelAt": [
+        140,
+        432
+      ]
+    },
+    {
+      "from": "present-tool",
+      "to": "render-shell",
+      "label": "present ⇄ answer / cancel",
+      "fromSide": "left",
+      "toSide": "top",
+      "via": [
+        [
+          1160,
+          169
+        ],
+        [
+          1160,
+          225
+        ],
+        [
+          1040,
+          225
+        ]
+      ],
+      "labelAt": [
+        1030,
+        215
+      ]
+    },
+    {
+      "from": "render-views",
+      "to": "render-shell",
+      "label": "Data tab iframes",
+      "labelAt": [
+        1150,
+        372
+      ]
+    },
+    {
+      "from": "render-views",
+      "to": "output-route",
+      "label": "![image](/output/0/…)",
+      "fromSide": "top",
+      "toSide": "top",
+      "via": [
+        [
+          1260,
+          245
+        ],
+        [
+          360,
+          245
+        ]
+      ],
+      "labelAt": [
+        760,
+        245
+      ]
+    },
+    {
+      "from": "config",
+      "to": "open-handler",
+      "label": "same root allowlist",
+      "fromSide": "top",
+      "toSide": "left",
+      "via": [
+        [
+          140,
+          105
+        ],
+        [
+          1380,
+          105
+        ],
+        [
+          1380,
+          489
+        ]
+      ],
+      "labelAt": [
+        760,
+        105
+      ]
+    },
+    {
+      "from": "open-handler",
+      "to": "files-route",
+      "label": "shared containment core",
+      "fromSide": "right",
+      "toSide": "bottom",
+      "via": [
+        [
+          1360,
+          489
+        ],
+        [
+          1360,
+          410
+        ],
+        [
+          580,
+          410
+        ]
+      ],
+      "labelAt": [
+        900,
+        410
+      ]
+    },
+    {
+      "from": "archify-announce",
+      "to": "open-handler",
+      "label": "emit webui:open",
+      "labelAt": [
+        1260,
+        569
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Security posture",
+      "items": [
+        "Loopback-only bind (127.0.0.1) with a DNS-rebinding-safe Host/Origin guard on every HTTP request and the WS upgrade; the server is .unref()'d and never keeps the process alive.",
+        "Every /files response carries Content-Security-Policy: sandbox allow-scripts allow-downloads (opaque origin — the document can never reach /api or the WS endpoint same-origin) plus X-Content-Type-Options: nosniff.",
+        "Containment mirrors /output: decode-after-strip, NUL reject, realpathSync both sides, regular files only — traversal, symlink hop, escape, and missing file are all the SAME uniform 404 that never leaks existence."
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "v3 — pure HITL companion",
+      "items": [
+        "t02 frame diet at the SOURCE: message_*, tool_execution_*, tool_result, turn_*, agent_settled, session_*compact are never subscribed — the store, the wire, and the shell all stay lean; the TUI owns logs.",
+        "t03 shell rebuild: the transcript scrollback machinery is deleted (−68 lines); three tabs — Inbox (ask + event cards, boot default), Report, Data (viewer) — with #card-<id> deep links that activate the owning tab. Post-t03 hardening (#1576/#1577): the html-report iframe is properly sized (70vh — it was the 300x150 browser default) with a fullscreen escape hatch, and the shell is a dynamic 100dvh app-shell — panes fill any browser size, no fixed caps.",
+        "D1 decision: the webui is a pure interaction surface. No chat composer, no log mirror — answers flow back through the appexec bridge, first-answer-wins, queued while offline."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Report — two doors, one archive",
+      "items": [
+        "Producers: the webui_report tool (in-process, zero sockets) and POST /api/report (external) converge on ONE shared builder (report-frame.ts) — byte-identical frames: title 1–200, exactly-one body mode, 16MB cap (v3 follow-up #1573).",
+        "Store-wrapped broadcast: live delivery + replay append; report frames are EXEMPT from the bounded card-eviction cap — the Report tab is the durable archive surface.",
+        "Markdown renders via the DOM-built renderer; HTML renders in a sandboxed iframe — the same trust boundary as /files, inside the tab."
+      ]
+    }
+  ]
+}

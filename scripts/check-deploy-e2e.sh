@@ -31,7 +31,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-PKG_DIR="$REPO_ROOT/bun-apps/pi-agent-ext-devops"
+PKG_DIR="$REPO_ROOT/bun-apps/s2-agent-ext-devops"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -40,7 +40,7 @@ SUITES="tests/deploy-e2e.test.ts tests/deploy-probe-e2e.test.ts"
 
 if ! ( cd "$PKG_DIR" && PI_AGENT_E2E=1 bun test $SUITES ) > "$TMP/e2e.log" 2>&1; then
 	echo "FAIL: the sh deploy e2e did not pass against a fresh deploy."
-	echo "      Reproduce: ( cd bun-apps/pi-agent-ext-devops && PI_AGENT_E2E=1 bun test $SUITES )"
+	echo "      Reproduce: ( cd bun-apps/s2-agent-ext-devops && PI_AGENT_E2E=1 bun test $SUITES )"
 	echo "--- e2e output ---"
 	cat "$TMP/e2e.log"
 	exit 1

@@ -15,7 +15,7 @@
 # propagate across projects (each is a symlink into the global store). This repo
 # never patches node_modules in place (vendor patches live in Python, and JS
 # patches are monkey-patches applied at runtime — see
-# python/mlx-movie-director/app/vendor_patches.py and the pi-agent patches/ dir),
+# python/mlx-movie-director/app/vendor_patches.py and the s2-agent patches/ dir),
 # so the trade-off is free for us.
 #
 # To temporarily revert to the legacy layout (e.g. debugging a resolution oddity):

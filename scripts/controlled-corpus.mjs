@@ -4,7 +4,7 @@
  * controlled-corpus.mjs — build + index a small, clean vault-mind collection
  * for retrieval-quality measurement.
  *
- * The full pi-agent vault (2907 chunks) is a noisy retrieval field: graph
+ * The full s2-agent vault (2907 chunks) is a noisy retrieval field: graph
  * expansion and the semantic seed traverse the WHOLE vault, so a blend-score
  * measurement there conflates "did semantic find the right card" with "did the
  * graph drag in 400 unrelated auto-memory cards". This harness stages a tiny
@@ -29,7 +29,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 
 const PROJECT_ROOT = execSync("git rev-parse --show-toplevel", { encoding: "utf8" }).trim();
-const SRC_VAULT = path.join(PROJECT_ROOT, "vaults_root/pi-agent-vault");
+const SRC_VAULT = path.join(PROJECT_ROOT, "vaults_root/s2-agent-vault");
 const STAGE_ROOT = path.join(PROJECT_ROOT, "output/controlled-corpus-vault");
 // Folders to stage — distinct domains so graph cross-links are visibly spurious.
 const FOLDERS = ["Zettelkasten/papers-docagent", "Zettelkasten/distill"];

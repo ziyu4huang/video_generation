@@ -1,0 +1,61 @@
+{
+  "name": "@repo/s2-agent-ext-archify",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pi extension: author typed-JSON-IR technical diagrams and render them to validated, self-contained HTML. Vendors archify@2.12.0.",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "archify",
+    "diagrams",
+    "architecture",
+    "visualization"
+  ],
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "deck": "bun scripts/deck.ts",
+    "architecture:render": "bun run lib/architecture-render.ts",
+    "architecture:vendor": "bun run scripts/vendor-mermaid.ts",
+    "architecture:css": "bunx @tailwindcss/cli -i lib/architecture.css -o vendored/tailwind.css --minify"
+  },
+  "exports": {
+    "./extensions/*": "./extensions/*",
+    "./lib/*": "./lib/*",
+    "./vendored/*": "./vendored/*"
+  },
+  "files": [
+    "extensions",
+    "lib",
+    "vendored",
+    "skills",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "dependencies": {
+    "marked": "^15",
+    "mermaid": "^11",
+    "pptxgenjs": "4.0.1"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4",
+    "@types/bun": "latest",
+    "ajv": "^8.17.1",
+    "tailwindcss": "^4",
+    "typescript": "^6.0.3"
+  }
+}

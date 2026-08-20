@@ -18,8 +18,8 @@
  *
  * GATE: fullRecall@4 >= 0.475 (baseline 0.375 + 0.10).
  */
-import { resolveVault } from "../bun-apps/pi-agent-ext-obsidian/extensions/obsidian.ts";
-import { retrieveRecords } from "../bun-apps/pi-agent-ext-knowledge-card/src/retrieve.ts";
+import { resolveVault } from "../bun-apps/s2-agent-ext-obsidian/extensions/obsidian.ts";
+import { retrieveRecords } from "../bun-apps/s2-agent-ext-knowledge-card/src/retrieve.ts";
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 

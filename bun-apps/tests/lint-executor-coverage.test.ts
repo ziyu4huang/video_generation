@@ -11,7 +11,7 @@
  *   --isolate`, which bypass the package's `test` script entirely. Their biome
  *   therefore ran NOWHERE.
  *
- *   The result was not hypothetical: `pi-agent-core-runtime` sat with a red
+ *   The result was not hypothetical: `s2-agent-core-runtime` sat with a red
  *   `bun run check` on origin/main for days while local_ci, main_health and
  *   await_pr_merge all reported green, because the drift lived in the one tool
  *   no gate invoked. Nothing about the two halves marks which is which — the

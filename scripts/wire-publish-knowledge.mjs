@@ -67,7 +67,7 @@ function findFunctionEnd(content, startIdx) {
 // ─── Helper: determine the best workflow name variable in a file ───────────
 
 function detectWorkflowNameVar(content) {
-  // Check meta.name first (used in pi-agent-ext-flux2 style workflows).
+  // Check meta.name first (used in s2-agent-ext-flux2 style workflows).
   if (content.includes("meta.name")) return "meta.name";
   // Check explicit NAME constant.
   const nameMatch = content.match(/(?:const\s+)?(NAME|_WF_NAME)\s*=\s*["']/);

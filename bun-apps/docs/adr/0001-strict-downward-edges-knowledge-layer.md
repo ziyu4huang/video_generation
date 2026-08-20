@@ -15,13 +15,13 @@
 > `bun run test:adr` fails any citation that does not resolve to exactly one.
 
 The knowledge/memory layer is two tiers: **TIER-0 foundations**
-(`pi-agent-ext-obsidian` = vault I/O, `pi-agent-ext-hermes-memory` = memory I/O)
-and the **TIER-1 convergence hub** (`pi-agent-ext-knowledge-card` = `zk_*`).
+(`s2-agent-ext-obsidian` = vault I/O, `s2-agent-ext-hermes-memory` = memory I/O)
+and the **TIER-1 convergence hub** (`s2-agent-ext-knowledge-card` = `zk_*`).
 Dependency edges may point **DOWN only** (hub → foundation); a foundation must
-never import or reference a component above it. `pi-agent-ext-hermes-memory`
+never import or reference a component above it. `s2-agent-ext-hermes-memory`
 violated this: its `src/store/vault-converge.ts` dynamically imported both
-`@repo/pi-agent-ext-knowledge-card/src/ingest.ts` and
-`@repo/pi-agent-ext-obsidian/extensions/obsidian.ts` to auto-converge memory
+`@repo/s2-agent-ext-knowledge-card/src/ingest.ts` and
+`@repo/s2-agent-ext-obsidian/extensions/obsidian.ts` to auto-converge memory
 entries into the vault on `session_shutdown` — two upward edges from a
 foundation to the hub, plus a lateral reach into another foundation's vault.
 
@@ -52,7 +52,7 @@ foundation *pushing* through an import — no static dependency points upward.
 
 ## Consequences
 
-- `pi-agent-ext-hermes-memory` loses `src/store/vault-converge.ts`,
+- `s2-agent-ext-hermes-memory` loses `src/store/vault-converge.ts`,
   `src/store/converge-health.ts`, the `passive-converge.ts` `session_shutdown`
   handler, and its dev+peer deps on knowledge-card + obsidian. The `memory
   transfer` tool action (legacy, already superseded by auto-converge) loses its
@@ -74,7 +74,7 @@ The inversion came back. #1311 (ticket 20, `entityRecall`) added
 `hermes-memory/src/tools/knowledge-search-tool.ts:24`:
 
 ```ts
-import { extractEntities, normEntity } from "@repo/pi-agent-ext-knowledge-card/src/entities.ts";
+import { extractEntities, normEntity } from "@repo/s2-agent-ext-knowledge-card/src/entities.ts";
 ```
 
 with the in-code justification *"hermes→zk is the sanctioned spine direction"*.
@@ -94,7 +94,7 @@ signal dies whenever zk is not loaded.
 
 - **D — Shared primitive, owned below both (CHOSEN).** The module was
   self-contained (291 lines, zero imports), so it moved to
-  `pi-agent-core-interface/src/entities.ts` — a package both tiers already
+  `s2-agent-core-interface/src/entities.ts` — a package both tiers already
   depend on. Both edges now point down and the shared-normalization guarantee is
   structural. `LinkWeighting`, previously declared in both `entities.ts` and
   `interfaces/knowledge-pipeline.ts`, collapsed to one definition.

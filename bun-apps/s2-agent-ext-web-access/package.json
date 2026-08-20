@@ -1,0 +1,58 @@
+{
+  "name": "@repo/s2-agent-ext-web-access",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pi extension: web search, URL fetching, GitHub repo cloning, PDF extraction, YouTube video understanding, and local video analysis. Supports OpenAI, Brave, Parallel, Tavily, Exa, Perplexity, and Gemini.",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "web-search",
+    "fetch",
+    "scraping",
+    "youtube"
+  ],
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./extensions/*": "./extensions/*",
+    "./src/*": "./src/*"
+  },
+  "files": [
+    "index.ts",
+    "*.ts",
+    "skills",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "@repo/s2-agent-core-interface": "workspace:*",
+    "linkedom": "^0.16.0",
+    "p-limit": "^6.1.0",
+    "turndown": "^7.2.0",
+    "unpdf": "^1.6.2"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/turndown": "^5.0.6",
+    "typescript": "^6.0.3"
+  }
+}

@@ -18,7 +18,7 @@ assignees: ''
 
 <!-- If you have initial thoughts on implementation, architecture, or which part of the stack it touches:
 
-- Affected area: [run.py subcommand / Bun GUI / pi-agent extension / CI / docs]
+- Affected area: [run.py subcommand / Bun GUI / s2-agent extension / CI / docs]
 - Dependencies: [any new packages, model downloads, or API keys]
 - Trade-offs: [performance / complexity / backwards compatibility considerations]
 -->

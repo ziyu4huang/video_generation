@@ -1,0 +1,65 @@
+{
+  "name": "@repo/s2-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Interactive pi TUI wrapper — injects a source-hardcoded provider catalog via a ModelRuntime.create monkey-patch, delegates everything else to the official pi main(). [s2-agent = renamed pi-agent (2026-08-21); upstream deps still @earendil-works/pi-*; update flow unchanged (update-pi.sh); PI_*/BUN_PI_* env names and ~/.pi/agent state dir unchanged by design]",
+  "type": "module",
+  "piConfig": {
+    "name": "s2-agent"
+  },
+  "exports": {
+    "./cli": "./src/cli.ts"
+  },
+  "bin": {
+    "s2-agent": "src/cli.ts"
+  },
+  "scripts": {
+    "cli": "bun src/cli.ts",
+    "list": "bun src/cli.ts --list-models",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "regen:manifest": "bun scripts/regen-manifest.ts",
+    "regen:static": "bun scripts/regen-static-extensions.ts",
+    "test:e2e": "PI_AGENT_E2E=1 bun test",
+    "verify": "PI_AGENT_E2E=1 bun test src/__tests__/e2e-extensions.test.ts",
+    "//deploy": "ONE deploy pipeline: `bun run deploy` -> ../s2-agent-ext-devops/src/deploy-cli.ts. Builds a versioned tree at ~/proj/dist/s2-agent-sh/<version>/ — a minimal compiled core (src/cli-sh.ts, zero extensions inside) plus extension packages under ext/<name>/ that the core discovers at runtime. Registry: s2-agent.registry.yaml. Docs: docs/deploy.md. The four legacy modes (--bundle/--snapshot/--standalone/--exe) were retired in the deploy-architecture consolidation; see .planning/specs/2026-08-20-deploy-architecture-consolidation-design.md. (Renamed from deploy:sh in Phase 2b.)",
+    "deploy": "bun ../s2-agent-ext-devops/src/deploy-cli.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.84.2",
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2",
+    "@repo/s2-agent-ext-archify": "workspace:*",
+    "@repo/s2-agent-core-runtime": "workspace:*",
+    "@repo/s2-agent-ext-btw": "workspace:*",
+    "@repo/s2-agent-ext-task": "workspace:*",
+    "@repo/s2-agent-ext-devops": "workspace:*",
+    "@repo/s2-agent-ext-file2md": "workspace:*",
+    "@repo/s2-agent-ext-flux2": "workspace:*",
+    "@repo/s2-agent-ext-hermes-memory": "workspace:*",
+    "@repo/s2-agent-ext-hyperframes": "workspace:*",
+    "@repo/s2-agent-ext-knowledge-card": "workspace:*",
+    "@repo/s2-agent-ext-krea2": "workspace:*",
+    "@repo/s2-agent-ext-ltx": "workspace:*",
+    "@repo/s2-agent-ext-movie-director": "workspace:*",
+    "@repo/s2-agent-ext-obsidian": "workspace:*",
+    "@repo/s2-agent-ext-power-tool": "workspace:*",
+    "@repo/s2-agent-ext-prompt-history": "workspace:*",
+    "@repo/s2-agent-ext-research-tool": "workspace:*",
+    "@repo/s2-agent-ext-subagent": "workspace:*",
+    "@repo/s2-agent-ext-superpowers": "workspace:*",
+    "@repo/s2-agent-ext-tool-gate": "workspace:*",
+    "@repo/s2-agent-ext-wayfind": "workspace:*",
+    "@repo/s2-agent-ext-web-access": "workspace:*",
+    "@repo/s2-agent-ext-webui": "workspace:*",
+    "@repo/s2-agent-ext-workflow": "workspace:*",
+    "@repo/s2-agent-ext-zai-mcp": "workspace:*",
+    "typebox": "^1.3.7"
+  },
+  "devDependencies": {
+    "@repo/s2-agent-core-interface": "workspace:*",
+    "@types/bun": "latest",
+    "typescript": "^7.0.2"
+  }
+}

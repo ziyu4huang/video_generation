@@ -474,7 +474,7 @@ off regardless of `audioOnly`.
   `1.0` (off) for `.distilled`, `3.0` for `.dev`/`.dasiwa` (matches
   production's `LTX_2_3_PARAMS.modality_scale = 3.0`, confirmed against
   `ltx_pipelines_mlx/utils/constants.py`).
-- `bun-apps/pi-agent-ext-ltx/src/commands.ts` modeled the new flag in the
+- `bun-apps/s2-agent-ext-ltx/src/commands.ts` modeled the new flag in the
   same PR (per the standing lesson from PR #359: an unmodeled guidance flag
   went unnoticed for two milestones); `check-flags.ts` still reports 16/16.
 

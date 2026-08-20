@@ -2,7 +2,7 @@ name: Setup Bun workspace
 description: |
   The shared job preamble every CI job needs AFTER checkout: setup Bun →
   (optional) setup Node → `bun install --frozen-lockfile` → build the one
-  compiled workspace dep (`pi-agent-ext-workflow`, whose `main` resolves a
+  compiled workspace dep (`s2-agent-ext-workflow`, whose `main` resolves a
   gitignored `dist/`). Centralizes the Bun version + the build-first workspace
   pattern so a rename or version bump touches ONE place, not 5 job definitions.
   Also restores the Bun global install store (~/.bun/install/cache) from cache so
@@ -16,7 +16,7 @@ description: |
   be checked out first (a composite cannot check out the repo it lives in).
 
   Node is OPT-IN via `setup-node: true` — only jobs that shell out to `npx tsx`
-  need it (the `pi-agent-ext-hermes-memory` matrix entry via `tests/run-all.sh`,
+  need it (the `s2-agent-ext-hermes-memory` matrix entry via `tests/run-all.sh`,
   and the `determinism spot-check` job that runs that same script). Every other
   job is pure Bun and skips the Node setup (~1–2 s + a post-step saved).
 
@@ -66,9 +66,9 @@ runs:
       run: bun install --frozen-lockfile
       shell: bash
 
-    # pi-agent-ext-workflow ships TS source; its main/exports point at compiled
+    # s2-agent-ext-workflow ships TS source; its main/exports point at compiled
     # dist/index.js (gitignored). Importers resolve that dist/ — a fresh CI
     # checkout lacks it (locally it lingers), so build it. ~2.5 s.
-    - name: Build pi-agent-ext-workflow (workspace dep)
-      run: bun run --cwd bun-apps/pi-agent-ext-workflow build
+    - name: Build s2-agent-ext-workflow (workspace dep)
+      run: bun run --cwd bun-apps/s2-agent-ext-workflow build
       shell: bash

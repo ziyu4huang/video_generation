@@ -8,9 +8,9 @@
  *   shell script, or a doc have no executor, so they rot silently and detonate on
  *   the day someone re-enables CI. Confirmed instances, all found in one day:
  *     - `changed_packages` shelled out to scripts/ci-changed-packages.sh — deleted
- *       (ported to bun-apps/pi-agent-ext-devops/src/changed-packages.ts).
- *     - the matrix carried a row for pi-agent-ext-picker — package deleted.
- *     - pi-agent-core-runtime was created by #1251 and never entered the
+ *       (ported to bun-apps/s2-agent-ext-devops/src/changed-packages.ts).
+ *     - the matrix carried a row for s2-agent-ext-picker — package deleted.
+ *     - s2-agent-core-runtime was created by #1251 and never entered the
  *       matrix, so its 10 test files silently left CI the moment they moved.
  *
  * WHAT IS ASSERTED
@@ -35,7 +35,7 @@
  *       rejects unknown flags, so the documented full run exited 1 on step 5's
  *       first command every time it has ever been run. (verify-deploy.sh has
  *       since been unified into the `devops-verify-deploy` bin —
- *       bun-apps/pi-agent-ext-devops/src/verify-deploy-cli.ts — which is a .ts
+ *       bun-apps/s2-agent-ext-devops/src/verify-deploy-cli.ts — which is a .ts
  *       bin, outside this file's shell-script scanner, so it is pinned directly
  *       by the dedicated test below.)
  *     - the spot-check package list is duplicated between ci.yml.disabled and
@@ -67,7 +67,7 @@ const REPO_ROOT = resolve(BUN_APPS, "..");
 const WORKFLOW = join(REPO_ROOT, ".github", "workflows", "ci.yml.disabled");
 const CI_LOCAL = join(REPO_ROOT, "scripts", "ci-local.sh");
 const SPOTCHECK = join(REPO_ROOT, "scripts", "test-determinism-spotcheck.sh");
-const RUN_TEST = join(BUN_APPS, "pi-agent-ext-devops", "scripts", "run-test.sh");
+const RUN_TEST = join(BUN_APPS, "s2-agent-ext-devops", "scripts", "run-test.sh");
 
 interface MatrixRow {
 	pkg: string;
@@ -213,7 +213,7 @@ describe("ci.yml.disabled — parser agreement", () => {
 });
 
 describe("ci.yml.disabled — every matrix row points at a real package", () => {
-	test("no DEAD matrix row (the pi-agent-ext-picker class)", () => {
+	test("no DEAD matrix row (the s2-agent-ext-picker class)", () => {
 		const dead = readMatrix()
 			.filter((r) => !existsSync(join(BUN_APPS, r.pkg, "package.json")))
 			.map((r) => r.pkg);
@@ -221,7 +221,7 @@ describe("ci.yml.disabled — every matrix row points at a real package", () => 
 			dead,
 			`DEAD MATRIX ROW(S) in .github/workflows/ci.yml.disabled: ${dead.join(", ")} — ` +
 				"the tests matrix lists package(s) with no bun-apps/<pkg>/package.json. " +
-				"A deleted package left its row behind (pi-agent-ext-picker did exactly this). " +
+				"A deleted package left its row behind (s2-agent-ext-picker did exactly this). " +
 				"Remove the row from the workflow AND from the package list in .github/CI.md.",
 		).toEqual([]);
 	});
@@ -242,11 +242,11 @@ describe("ci.yml.disabled — every referenced path resolves", () => {
 		// the job never executed here anyway (GitHub Actions is disabled in this
 		// repo, and local_ci reads regression-gates alone).
 		for (const expected of [
-			"bun-apps/pi-agent-ext-devops/src/changed-packages-cli.ts",
+			"bun-apps/s2-agent-ext-devops/src/changed-packages-cli.ts",
 			"scripts/ci-file-size-guard.sh",
 			"scripts/check-schema-cost.ts",
 			"scripts/check-deploy-e2e.sh",
-			"bun-apps/pi-agent/run-dir/check-deps.ts",
+			"bun-apps/s2-agent/run-dir/check-deps.ts",
 		]) {
 			expect(found).toContain(expected);
 		}
@@ -412,7 +412,7 @@ describe("determinism-spotcheck — the workflow matrix and the script agree", (
 	test("the lists are non-empty and include the known flake-prone packages", () => {
 		const matrix = spotcheckMatrixPackages();
 		expect(matrix.length).toBeGreaterThanOrEqual(3);
-		expect(matrix).toContain("pi-agent-ext-workflow");
+		expect(matrix).toContain("s2-agent-ext-workflow");
 	});
 });
 
@@ -422,9 +422,9 @@ describe("run-test.sh — the `full`-tier sibling list names real packages", () 
 		const dead = siblings.filter((p) => !existsSync(join(BUN_APPS, p, "package.json")));
 		expect(
 			dead,
-			`DEAD SIBLING PACKAGE(S) in bun-apps/pi-agent-ext-devops/scripts/run-test.sh SIBLING_PKGS: ${dead.join(", ")} — ` +
+			`DEAD SIBLING PACKAGE(S) in bun-apps/s2-agent-ext-devops/scripts/run-test.sh SIBLING_PKGS: ${dead.join(", ")} — ` +
 				"the `full` tier loops over bare package NAMES, so nothing typechecks them. This list " +
-				"read `pi-obsidian` / `pi-knowledge-card` (the real dirs are `pi-agent-ext-*`) and a " +
+				"read `pi-obsidian` / `pi-knowledge-card` (the real dirs are `s2-agent-ext-*`) and a " +
 				"skip-if-absent branch swallowed both, so a 3-package baseline silently tested 1 while " +
 				"reporting green. Fix the name, or drop the package from SIBLING_PKGS.",
 		).toEqual([]);
@@ -437,7 +437,7 @@ describe("run-test.sh — the `full`-tier sibling list names real packages", () 
 });
 
 describe("ci.yml.disabled — every workspace package is in the matrix", () => {
-	test("no package is invisible to CI (the pi-agent-core-runtime class)", () => {
+	test("no package is invisible to CI (the s2-agent-core-runtime class)", () => {
 		const inMatrix = new Set(readMatrix().map((r) => r.pkg));
 		const uncovered = workspacePackages().filter((p) => !inMatrix.has(p));
 		expect(
@@ -445,7 +445,7 @@ describe("ci.yml.disabled — every workspace package is in the matrix", () => {
 			`WORKSPACE PACKAGE(S) MISSING FROM THE CI MATRIX: ${uncovered.join(", ")} — ` +
 				"bun-apps/<pkg>/package.json exists but the tests matrix in " +
 				".github/workflows/ci.yml.disabled has no row for it, so its tests never run in CI. " +
-				"This is how pi-agent-core-runtime's 10 test files silently left CI when #1251 " +
+				"This is how s2-agent-core-runtime's 10 test files silently left CI when #1251 " +
 				"extracted them into a new package. Add a `- { package: <pkg>, test-cmd: \"…\" }` row " +
 				"(and list it in .github/CI.md).",
 		).toEqual([]);

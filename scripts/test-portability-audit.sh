@@ -81,7 +81,7 @@ cd "$ROOT"
 
 # Test surface: *.test.ts / *.test.mjs under bun-apps/, excluding node_modules,
 # compiled dist/ (which can contain stale test artifacts), and skills/ dirs
-# (vendored prompt content — e.g. pi-agent-ext-hyperframes's upstream .test.mjs
+# (vendored prompt content — e.g. s2-agent-ext-hyperframes's upstream .test.mjs
 # — which is byte-identical upstream material, not this repo's test surface and
 # not ours to gate or edit).
 GREP_FILTERS=(--include='*.test.ts' --include='*.test.mjs' --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=skills)

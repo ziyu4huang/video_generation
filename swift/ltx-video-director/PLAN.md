@@ -1922,7 +1922,7 @@ re-discovering the same four files from scratch a third time.
 
 ## Milestone: `MP4Writer` real audio+video deadlock found + fixed (2026-07-04)
 
-A user-directed live proof ("prove FFLF works" via the real `pi-agent` CLI +
+A user-directed live proof ("prove FFLF works" via the real `s2-agent` CLI +
 `ltx` tool — `t2i` → `t2i` → `native-i2v --last-frame`, real generation, no
 mocks) hung indefinitely: `video.mp4` stayed at 0 bytes for 15+ minutes at
 ~0% CPU. `sample`'d the stuck process rather than guessing — the main
@@ -1946,7 +1946,7 @@ test `testWriteVideoWithAudioAtRealisticScaleDoesNotDeadlock` (49 frames,
 1.1s post-fix. `MP4WriterTests`: 4/4 pass.
 
 **Re-verified against the real, rebuilt release binary**, not just the unit
-test: reran the exact FFLF proof through the real `pi-agent` CLI end to end.
+test: reran the exact FFLF proof through the real `s2-agent` CLI end to end.
 Independent `ffprobe` (not the tool's own report): `h264 1280×1920, 49
 frames` / `aac, 97 frames` / `duration 2.041667s` (requested `--seconds
 2.0`) — both tracks present, valid container, matches requested duration.

@@ -1,7 +1,7 @@
 /**
  * Monorepo dependency-hygiene guard (ADR-0001).
  *
- * Encodes the architectural invariants of the pi-agent-ext-* layer so the
+ * Encodes the architectural invariants of the s2-agent-ext-* layer so the
  * hermes-class inversion (a TIER-0 foundation importing the TIER-1 hub) can
  * never silently return. Scans ACTUAL import statements (excludes comments /
  * string literals), not a naive grep — plus tsconfig `types` edges, which are
@@ -15,9 +15,9 @@
  *  3. No package imports itself via @repo/ (use relative imports).
  *  4. ADR-0001: knowledge-layer TIER-0 (obsidian, hermes-memory) imports
  *     NOTHING from the TIER-1 hub (knowledge-card) — edges point down only.
- *  5. No extension imports the host (pi-agent) — the host is above all exts.
+ *  5. No extension imports the host (s2-agent) — the host is above all exts.
  *  6. The declared @repo dependency graph is acyclic.
- *  7. No extension in the PORTABLE BASE SET (pi-agent.registry.yaml entries
+ *  7. No extension in the PORTABLE BASE SET (s2-agent.registry.yaml entries
  *     with a `deploy:` block) declares a
  *     RUNTIME dependency on another extension. Complements
  *     extension-isolation-contract.test.ts invariant (1): that one scans import
@@ -39,7 +39,7 @@ import { parseRegistryBaseSetNames } from "./lib/registry-base-set.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // bun-apps/
 const EXTS = readdirSync(ROOT)
-	.filter((d) => d.startsWith("pi-agent-ext-") && existsSync(join(ROOT, d, "package.json")));
+	.filter((d) => d.startsWith("s2-agent-ext-") && existsSync(join(ROOT, d, "package.json")));
 
 /** Targets a package's CODE actually imports via @repo/, excluding comments/strings. */
 function importedRepos(pkg: string): Set<string> {
@@ -59,7 +59,7 @@ function importedRepos(pkg: string): Set<string> {
 				// false positives were @example imports inside JSDoc.
 				if (trimmed.startsWith("*") || trimmed.startsWith("//") || trimmed.startsWith("/*")) continue;
 				// Static `from "@repo/X"` and dynamic `import("@repo/X"`.
-				for (const m of raw.matchAll(/(?:from\s+|import\s*\(\s*)["']@repo\/(pi-agent[-\w]*)(?:\/[^"']*)?["']/g)) {
+				for (const m of raw.matchAll(/(?:from\s+|import\s*\(\s*)["']@repo\/(s2-agent[-\w]*)(?:\/[^"']*)?["']/g)) {
 					targets.add(m[1] as string);
 				}
 			}
@@ -160,30 +160,30 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 		// link the amendment here. An allowlist that outruns its ADR turns this
 		// guard into a rubber stamp — it silently permitted the very inversion it
 		// was written to make impossible.
-		const TIER0 = ["pi-agent-ext-obsidian", "pi-agent-ext-hermes-memory"];
+		const TIER0 = ["s2-agent-ext-obsidian", "s2-agent-ext-hermes-memory"];
 		const violations: string[] = [];
 		for (const pkg of TIER0) {
-			const upward = [...edges(pkg)].filter((t) => t === "pi-agent-ext-knowledge-card");
+			const upward = [...edges(pkg)].filter((t) => t === "s2-agent-ext-knowledge-card");
 			if (upward.length) violations.push(`  ${pkg} → ${upward.join(", ")} (upward edge; forbidden by ADR-0001)`);
 		}
 		assert.deepEqual(violations, [], violations.length ? "upward edges:\n" + violations.join("\n") : "");
 	});
 
-	it("no extension imports the host (pi-agent) — the host sits above all extensions", () => {
-		const violations = EXTS.filter((pkg) => edges(pkg).has("pi-agent"));
+	it("no extension imports the host (s2-agent) — the host sits above all extensions", () => {
+		const violations = EXTS.filter((pkg) => edges(pkg).has("s2-agent"));
 		assert.deepEqual(violations, [], `extensions importing the host: ${violations.join(", ")}`);
 	});
 
 	it("no PORTABLE BASE SET extension declares a runtime dependency on another extension", () => {
-		// Base set is DERIVED from pi-agent.registry.yaml (entries carrying a
+		// Base set is DERIVED from s2-agent.registry.yaml (entries carrying a
 		// `deploy:` block that is not `enabled: false` — excluded entries have
 		// `excludeReason` instead), via the shared scanner in
 		// tests/lib/registry-base-set.ts, so promoting an extension into the
 		// portable profile enrolls it here automatically. The floor guard is
 		// what keeps a silent parse failure from making this vacuous.
-		const yamlText = readFileSync(join(ROOT, "pi-agent", "pi-agent.registry.yaml"), "utf8");
-		const baseSet = parseRegistryBaseSetNames(yamlText).map((n) => `pi-agent-ext-${n}`);
-		assert.ok(baseSet.length >= 10, `parsed only ${baseSet.length} base-set name(s) from pi-agent.registry.yaml`);
+		const yamlText = readFileSync(join(ROOT, "s2-agent", "s2-agent.registry.yaml"), "utf8");
+		const baseSet = parseRegistryBaseSetNames(yamlText).map((n) => `s2-agent-ext-${n}`);
+		assert.ok(baseSet.length >= 10, `parsed only ${baseSet.length} base-set name(s) from s2-agent.registry.yaml`);
 
 		const violations: string[] = [];
 		// The one sanctioned base-set lib edge: knowledge-card consumes
@@ -194,7 +194,7 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 		// and inline the tool factory); that no-entry invariant is enforced by
 		// its own test below.
 		const BASE_SET_LIB_EDGES: ReadonlySet<string> = new Set([
-			"pi-agent-ext-knowledge-card → pi-agent-ext-obsidian",
+			"s2-agent-ext-knowledge-card → s2-agent-ext-obsidian",
 		]);
 		for (const pkg of baseSet) {
 			const d = JSON.parse(readFileSync(join(ROOT, pkg, "package.json"), "utf8"));
@@ -204,7 +204,7 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 					if (n.startsWith("@repo/") && baseSet.includes(target) && target !== pkg) {
 						const edge = `${pkg} → ${target}`;
 						if (BASE_SET_LIB_EDGES.has(edge)) continue;
-						violations.push(`  ${edge} (${field}; forbidden — route it through a pi-agent-core-* package or a seam)`);
+						violations.push(`  ${edge} (${field}; forbidden — route it through a s2-agent-core-* package or a seam)`);
 					}
 				}
 			}
@@ -218,7 +218,7 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 		// This pins that: any import reaching obsidian's /extensions/
 		// registration entry from knowledge-card reverts the edge to forbidden
 		// territory and must fail here, not in a deploy smoke.
-		const KC = join(ROOT, "pi-agent-ext-knowledge-card");
+		const KC = join(ROOT, "s2-agent-ext-knowledge-card");
 		const files: string[] = [];
 		const walk = (dir: string) => {
 			for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -231,7 +231,7 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 		walk(join(KC, "src"));
 		walk(join(KC, "extensions"));
 		const bad: string[] = [];
-		const spec = /["']@repo\/pi-agent-ext-obsidian(\/[^"']*)?["']/g;
+		const spec = /["']@repo\/s2-agent-ext-obsidian(\/[^"']*)?["']/g;
 		for (const f of files) {
 			const text = readFileSync(f, "utf8");
 			for (const m of text.matchAll(spec)) {
@@ -254,7 +254,7 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 		const visit = (n: string, path: string[]): boolean => {
 			color.set(n, GRAY);
 			for (const m of adj.get(n) ?? []) {
-				if (!adj.has(m)) continue; // target outside ext set (e.g. pi-agent core) — skip
+				if (!adj.has(m)) continue; // target outside ext set (e.g. s2-agent core) — skip
 				if (color.get(m) === GRAY) { cycle = [...path, n, m]; return true; }
 				if ((color.get(m) ?? WHITE) === WHITE && visit(m, [...path, n])) return true;
 			}
@@ -268,8 +268,8 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 
 describe("parseTypesRepos (tsconfig `types` dependency edges)", () => {
 	it("extracts @repo entries from compilerOptions.types", () => {
-		const t = { compilerOptions: { types: ["bun", "@repo/pi-agent-core-interface"] } };
-		assert.deepEqual([...parseTypesRepos(t)], ["pi-agent-core-interface"]);
+		const t = { compilerOptions: { types: ["bun", "@repo/s2-agent-core-interface"] } };
+		assert.deepEqual([...parseTypesRepos(t)], ["s2-agent-core-interface"]);
 	});
 
 	it("ignores non-@repo entries", () => {

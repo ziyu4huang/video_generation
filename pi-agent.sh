@@ -1,1 +1,1 @@
-./bun-apps/pi-agent/run.sh
+./s2-agent.sh

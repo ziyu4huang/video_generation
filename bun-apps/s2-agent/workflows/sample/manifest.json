@@ -1,0 +1,11 @@
+{
+  "name": "sample",
+  "description": "Full-surface workflow-pack regression fixture — declares every manifest field (kind/engine/args/model/thinking/howToRun) and exercises the pipeline()/phase()/log() engine primitives that echo + args-demo don't cover. Hermetic: no bash, no writes, no network.",
+  "entry": "index.js",
+  "kind": "workflow-pack",
+  "engine": "s2-agent-ext-workflow",
+  "args": { "items": ["alpha", "beta", "gamma"] },
+  "model": "lm-studio/google/gemma-4-12b",
+  "thinking": "low",
+  "howToRun": "bun --cwd bun-apps/s2-agent src/cli.ts cli workflow run sample --dry-run   # then drop --dry-run (model/thinking default from manifest; override with --model/--thinking)"
+}

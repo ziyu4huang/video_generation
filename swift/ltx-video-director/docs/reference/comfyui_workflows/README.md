@@ -493,7 +493,7 @@ counts).
 
 ## Sixth pass (2026-07-04) — five more official Lightricks workflows found + fetched
 
-Driven by a `/review pi-agent-ext-ltx, search the internet for ComfyUI
+Driven by a `/review s2-agent-ext-ltx, search the internet for ComfyUI
 workflow JSON related to LTX2` request. Re-checked
 `https://github.com/Lightricks/ComfyUI-LTXVideo/tree/master/example_workflows/2.3`
 via `gh api` (not a plain web search — the earlier fifth-pass fetch used the
@@ -524,7 +524,7 @@ current Swift CLI surface (`LTXVideoDirectorCLI.swift`'s `subcommands:`
 array) rather than just workflow JSON turned up a wrapper-side gap instead:
 `native-t2a` (the T2A gap this document's fourth-pass note called "smallest
 and most cleanly scoped") had, in fact, already been ported natively
-(`NativeT2ACommand.swift` exists) — but `bun-apps/pi-agent-ext-ltx` never
+(`NativeT2ACommand.swift` exists) — but `bun-apps/s2-agent-ext-ltx` never
 picked it up, alongside the already-landed `segment` command. See that
 package's `TODO.md` item 14 for the fix (both now wrapped, plus a drift-
 guard blind spot and a real path-validation bug found by exercising them

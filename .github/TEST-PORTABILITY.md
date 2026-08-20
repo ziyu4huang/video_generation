@@ -83,13 +83,13 @@ opt-in. None runs ungated on a bare runner.
 | file | guard | disposition |
 |------|-------|-------------|
 | `gui-movie-director/scripts/check-runtime.test.ts` | `describe.skipIf(process.env.CI)` | **skip-guarded** (CI) — spawns `run.py` via the MLX venv |
-| `pi-agent-ext-movie-director/src/e2e.local.smoke.test.ts` | `describe.skipIf(!E2E)`, `E2E = MLX_E2E === "1"` | **skip-guarded** (opt-in) — probes `ffprobe` + the full local stack |
-| `pi-agent-ext-power-tool/src/__tests__/l2-e2e.test.ts` | `PI_RUN_L2 === "1"` + preflight (LM Studio / vault-mind reachability) | **skip-guarded** (opt-in) — spawns the real CLI per tool |
-| `pi-agent/src/__tests__/e2e-extensions.test.ts` | `describe.skipIf(!E2E_ENABLED \|\| !DEPLOY_ENABLED)`, `PI_AGENT_E2E` | **skip-guarded** (opt-in) — deploys + spawns the bundled artifact |
-| `pi-agent/src/__tests__/e2e-readonly.test.ts` | `describe.skipIf(SKIPPED)`, `PI_AGENT_E2E` + `PI_AGENT_E2E_DEPLOY` | **skip-guarded** (opt-in) — deploy + `find`/`chmod` probes |
-| `pi-agent/src/__tests__/e2e-image-agent.test.ts` | `IMAGE_E2E_ENABLED = truthy(PI_AGENT_E2E_IMAGE)` | **skip-guarded** (opt-in) — spawns the image-agent launcher |
+| `s2-agent-ext-movie-director/src/e2e.local.smoke.test.ts` | `describe.skipIf(!E2E)`, `E2E = MLX_E2E === "1"` | **skip-guarded** (opt-in) — probes `ffprobe` + the full local stack |
+| `s2-agent-ext-power-tool/src/__tests__/l2-e2e.test.ts` | `PI_RUN_L2 === "1"` + preflight (LM Studio / vault-mind reachability) | **skip-guarded** (opt-in) — spawns the real CLI per tool |
+| `s2-agent/src/__tests__/e2e-extensions.test.ts` | `describe.skipIf(!E2E_ENABLED \|\| !DEPLOY_ENABLED)`, `PI_AGENT_E2E` | **skip-guarded** (opt-in) — deploys + spawns the bundled artifact |
+| `s2-agent/src/__tests__/e2e-readonly.test.ts` | `describe.skipIf(SKIPPED)`, `PI_AGENT_E2E` + `PI_AGENT_E2E_DEPLOY` | **skip-guarded** (opt-in) — deploy + `find`/`chmod` probes |
+| `s2-agent/src/__tests__/e2e-image-agent.test.ts` | `IMAGE_E2E_ENABLED = truthy(PI_AGENT_E2E_IMAGE)` | **skip-guarded** (opt-in) — spawns the image-agent launcher |
 
-> `pi-agent-ext-movie-director`'s `preflight` test probes `ffmpeg` on PATH; CI
+> `s2-agent-ext-movie-director`'s `preflight` test probes `ffmpeg` on PATH; CI
 > installs ffmpeg for that matrix entry (see `ci.yml`). `compose.test.ts` uses
 > mocked ffmpeg; `e2e.local` is opt-in. **Class closed.**
 
@@ -97,9 +97,9 @@ opt-in. None runs ungated on a bare runner.
 
 | file | pattern | disposition |
 |------|---------|-------------|
-| `pi-agent-ext-web-access/__tests__/adapter-availability.test.ts` | `testWithoutEnv` clears **all** provider keys in-body before the "unavailable" assertion; `CONFIG_PRESENT` skip when a real config exists | **fixed** — the #381 env-isolation fix (in-body clear) |
-| `pi-agent-ext-web-access/__tests__/zai.test.ts` | `beforeEach` sets `ZAI_API_KEY`; the "unavailable" assertion does `delete process.env.ZAI_API_KEY` **in-body** before asserting; `afterEach` restores | **fixed** — in-body clear pattern (portable unit test; flagged UNGATED by the script only because it needs no CI/env gate, which is correct) |
-| `pi-agent-ext-workflow/tests/usage-limit-integration.test.ts` | helper sets `DEEPSEEK_API_KEY` to a **faux dummy** for a registered faux provider; `try/finally` restores — never asserts "key unset" | **fixed** — save/restore + faux provider (portable; no real key, no unset assertion) |
+| `s2-agent-ext-web-access/__tests__/adapter-availability.test.ts` | `testWithoutEnv` clears **all** provider keys in-body before the "unavailable" assertion; `CONFIG_PRESENT` skip when a real config exists | **fixed** — the #381 env-isolation fix (in-body clear) |
+| `s2-agent-ext-web-access/__tests__/zai.test.ts` | `beforeEach` sets `ZAI_API_KEY`; the "unavailable" assertion does `delete process.env.ZAI_API_KEY` **in-body** before asserting; `afterEach` restores | **fixed** — in-body clear pattern (portable unit test; flagged UNGATED by the script only because it needs no CI/env gate, which is correct) |
+| `s2-agent-ext-workflow/tests/usage-limit-integration.test.ts` | helper sets `DEEPSEEK_API_KEY` to a **faux dummy** for a registered faux provider; `try/finally` restores — never asserts "key unset" | **fixed** — save/restore + faux provider (portable; no real key, no unset assertion) |
 
 ### P4 — `process.env.OB_VAULT_*` — **42 hits, all `fixed`**
 
@@ -108,21 +108,21 @@ opt-in. None runs ungated on a bare runner.
 | `pi-knowledge-card/__tests__/pi-knowledge-card.test.ts` | `__setVaultResolverForTest(() => Promise.resolve(vault))` — deterministic injection seam; also save/restore `OB_VAULT_PATH` | **fixed** — the #381 stale-read fix (injection seam) |
 | `pi-obsidian/extensions/__tests__/{expectedMtime,deleteTool,readTool,createGuard,errorCodes,toolSmoke}.test.mjs` | `beforeAll`/`beforeEach` sets `OB_VAULT_PATH` to a fixture **once**; `getVault` caches the resolved vault in a closure (no mid-async re-read); `afterAll`/`afterEach` restores | **fixed** — set-once + closure cache (avoids the mid-async re-read by construction) |
 | `pi-hermes-memory/tests/{integration/passive-converge,integration/knowledge-pipeline,store/vault-converge}.test.ts` | `beforeEach` sets `OB_VAULT_PATH` to a tmp vault; `afterEach` restores — no sibling "unset" assertion | **fixed** — save/restore (portable; tmp vault fixture) |
-| `pi-agent/src/cli/__tests__/zk-extract.test.ts` | sets `OB_VAULT_PATH`/`OB_VAULT_DIR` in-body to fixtures; tests `resolveVault` directly with parsed args | **fixed** — in-body set to fixture (pure resolution test) |
-| `pi-agent/src/cli/__tests__/passthrough.test.ts` | asserts env flags pass through to the parsed config; save/restore around the "preexisting" case | **fixed** — pure parsing assertions (no vault resolution mid-async) |
+| `s2-agent/src/cli/__tests__/zk-extract.test.ts` | sets `OB_VAULT_PATH`/`OB_VAULT_DIR` in-body to fixtures; tests `resolveVault` directly with parsed args | **fixed** — in-body set to fixture (pure resolution test) |
+| `s2-agent/src/cli/__tests__/passthrough.test.ts` | asserts env flags pass through to the parsed config; save/restore around the "preexisting" case | **fixed** — pure parsing assertions (no vault resolution mid-async) |
 
 ## Thrust B — the four classes, retired
 
-1. **Unbuilt workspace dep.** `pi-agent-ext-workflow` is the **only** workspace
+1. **Unbuilt workspace dep.** `s2-agent-ext-workflow` is the **only** workspace
    package whose `main`/`exports` point at compiled `dist/` (verified: every
    other `bun-apps/*` package's `main`/`exports` resolve TypeScript `src/`
    directly via Bun). Its sole importers at test time are
-   `pi-agent/src/cli/commands/workflow.ts` and
-   `pi-agent/run-dir/workflows/verify-bun-pi-agent-cli.js`. The **fresh-clone
+   `s2-agent/src/cli/commands/workflow.ts` and
+   `s2-agent/run-dir/workflows/verify-bun-s2-agent-cli.js`. The **fresh-clone
    probe** confirms the class is contained: `rm -rf bun-apps/*/dist` → the 4
-   `pi-agent` CLI workflow tests fail with `Cannot find module
+   `s2-agent` CLI workflow tests fail with `Cannot find module
    '@quintinshaw/pi-dynamic-workflows'`; re-running the CI build step
-   (`bun run --cwd bun-apps/pi-agent-ext-workflow build`) → all 248 pass. CI
+   (`bun run --cwd bun-apps/s2-agent-ext-workflow build`) → all 248 pass. CI
    builds it in **every** job (see `ci.yml`). **No other unbuilt-dep surprises.**
 2. **Host-binary probe.** All 17 spawn/exec hits are `skip-guarded` (P2 table).
    `ffmpeg` is CI-installed for the one matrix entry that probes it. **None
@@ -150,12 +150,12 @@ the submodule initialized** while staying green on CI via the skip — the mirro
 image of a "works on my machine" failure (a dishonest CI green).
 
 **Disposition: `fixed`.** Regenerated `search-baseline.txt` via
-`bun run --cwd bun-apps/pi-agent-ext-obsidian regen:baseline`. The diff is data-only (2 new
+`bun run --cwd bun-apps/s2-agent-ext-obsidian regen:baseline`. The diff is data-only (2 new
 cards inserted + line-number shifts; search *behavior* unchanged). The skipIf
 guard itself is correct and untouched. Local matrix now 16/16 green.
 
 > Follow-up (out of scope, determinism cycle): the `regen:baseline` step should
-> run automatically when the `vaults_root/pi-agent-vault` submodule pointer
+> run automatically when the `vaults_root/s2-agent-vault` submodule pointer
 > changes, so a bump can't silently stale the baseline again.
 
 ## Prevention (Thrust C)

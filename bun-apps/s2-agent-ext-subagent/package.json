@@ -1,0 +1,73 @@
+{
+  "name": "@repo/s2-agent-ext-subagent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Isolated single-subagent dispatch for Pi — spawnSubagent + WorkflowAgent runner + subagent/subagent_runs tools. Extracted from s2-agent-ext-workflow as a lower-dependency library.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./src/*": "./src/*",
+    "./extensions/*": "./extensions/*"
+  },
+  "files": [
+    "dist/",
+    "extensions/",
+    "src/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "bun run check && bun run build && bun run test:unit",
+    "test:unit": "bun test",
+    "check": "biome check .",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "subagents",
+    "multi-agent",
+    "ai-agents",
+    "agents",
+    "isolated-context",
+    "spawn-subagent"
+  ],
+  "pi": {
+    "extensions": [
+      "extensions/subagent.ts"
+    ]
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@repo/s2-agent-core-runtime": "workspace:*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.16",
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2",
+    "@repo/s2-agent-core-interface": "workspace:*",
+    "@types/bun": "^1.3.14",
+    "tsx": "^4.23.4",
+    "typebox": "^1.3.7",
+    "typescript": "^7.0.2"
+  }
+}

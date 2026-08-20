@@ -66,14 +66,14 @@ are deterministic by construction and dispositioned `controlled (benign seed)`.
 | `pi-hermes-memory/tests/store/{session-parser,session-backfill}.test.ts`, `store/session-indexer.test.ts` (seed lines) | `timestamp: Date.now()` as a message fixture seed | **controlled (benign seed)** — never asserted against "now"; the indexer's own assertions use fixed `new Date('2026-05-03T…')` dates |
 | `pi-hermes-memory/tests/store/session-indexer.test.ts` (needsBackfill lines) | `needsBackfill(…, new Date('2026-05-03T01:00:00Z'))` | **controlled** — fully fixed literal dates; no wall-clock |
 | `pi-hermes-memory/tests/store/{memory-store,sqlite-memory-store}.test.ts` | `new Date()` for `dateDaysAgo()` fixture / today's date in a row | **controlled (benign seed)** — derives relative day offsets, not wall-clock assertions |
-| `pi-agent-ext-workflow/tests/{workflow-manager,run-persistence,task-panel}.test.ts` | `startedAt/updatedAt/completedAt: new Date().toISOString()` fixture fields | **controlled (benign seed)** — record-shape fixtures; tests assert structure/ordering, not "now" |
-| `pi-agent-ext-workflow/tests/workflow-{parser,runtime}.test.ts` | `Date.now()`/`new Date()` only inside **string literals** fed to the parse-time determinism guard (which REJECTS them) | **controlled** — these tests *enforce* determinism (the guard rejects `Date.now`/`Math.random` in workflow scripts); the literal is the test input, not a clock |
+| `s2-agent-ext-workflow/tests/{workflow-manager,run-persistence,task-panel}.test.ts` | `startedAt/updatedAt/completedAt: new Date().toISOString()` fixture fields | **controlled (benign seed)** — record-shape fixtures; tests assert structure/ordering, not "now" |
+| `s2-agent-ext-workflow/tests/workflow-{parser,runtime}.test.ts` | `Date.now()`/`new Date()` only inside **string literals** fed to the parse-time determinism guard (which REJECTS them) | **controlled** — these tests *enforce* determinism (the guard rejects `Date.now`/`Math.random` in workflow scripts); the literal is the test input, not a clock |
 | `pi-obsidian/extensions/__tests__/expectedMtime.test.mjs`, `indexCoherence.test.mjs` | `new Date(floor(now/1000)*1000 + 60_000)` → a **future** mtime SET via `utimes`, then compared to the value read back | **controlled** — deterministic relative computation (set + read the same derived future value) |
 | `pi-obsidian/extensions/__tests__/{createGuard,errorCodes}.test.mjs` | `expectedMtime: st.mtimeMs` (the file's own just-set mtime) | **controlled** — read from the fixture file, not the wall-clock |
 | `pi-obsidian/extensions/__tests__/subagentRobustness.test.mjs` | `Date.now() - t0` elapsed measurement | **controlled (benign seed)** — `dt` is computed but the assertions are on result *shape* (`output`/`stderr`/`timedOut`), not elapsed time |
-| `pi-agent/src/cli/__tests__/schema-cost.test.ts` | `join(tmpdir(), …-${Date.now()}.ts)` | **controlled (benign seed)** — uniqueness seed for a tmpdir filename |
+| `s2-agent/src/cli/__tests__/schema-cost.test.ts` | `join(tmpdir(), …-${Date.now()}.ts)` | **controlled (benign seed)** — uniqueness seed for a tmpdir filename |
 | `gui-movie-director/{scripts/gui-port,lib/gallery-index}.test.ts` | `startedAt: Date.now()` / `createdAt: new Date().toISOString()` fixture fields | **controlled (benign seed)** — record-shape fixtures, not wall-clock assertions |
-| `pi-agent/src/__tests__/e2e-image-agent.test.ts` | `statSync(p).mtimeMs >= sinceMs` (file-freshness) + `Date.now()-2000` | **controlled** — opt-in e2e (`PI_AGENT_E2E_IMAGE`); skips on CI |
+| `s2-agent/src/__tests__/e2e-image-agent.test.ts` | `statSync(p).mtimeMs >= sinceMs` (file-freshness) + `Date.now()-2000` | **controlled** — opt-in e2e (`PI_AGENT_E2E_IMAGE`); skips on CI |
 
 > The classifier still flags the 19 benign-seed files as UNCONTROLLED because
 > they have no clock seam — that is correct (they touch time) and harmless
@@ -87,7 +87,7 @@ Two real hits were found by the audit and fixed this cycle:
 
 | file | was | disposition |
 |------|-----|-------------|
-| `pi-agent-ext-power-tool/src/ask-user/__tests__/config.test.ts` | wrote to the **real `~/.config/rpiv-ask-user-question/config.json`** via `process.env.HOME`; the module read via `os.homedir()` (Bun ignores `HOME`) → read/write divergence + host pollution | **fixed** — added `__setConfigPathForTest` seam to `config.ts`; the test writes+reads a per-test tmpdir. Verified: real `~/.config` untouched after run |
+| `s2-agent-ext-power-tool/src/ask-user/__tests__/config.test.ts` | wrote to the **real `~/.config/rpiv-ask-user-question/config.json`** via `process.env.HOME`; the module read via `os.homedir()` (Bun ignores `HOME`) → read/write divergence + host pollution | **fixed** — added `__setConfigPathForTest` seam to `config.ts`; the test writes+reads a per-test tmpdir. Verified: real `~/.config` untouched after run |
 | `pi-hermes-memory/tests/integration/flow.test.ts` | constructed `new MemoryStore(loadConfig())` with no `memoryDir` → would resolve to the real `~/.pi/agent/pi-hermes-memory` if a write were ever added | **fixed** — added `__setAgentRootForTest` seam to `paths.ts`; the file points `AGENT_ROOT` at a tmpdir for its whole lifetime (latent footgun closed) |
 
 **Durable seams added this cycle (reusable infra — every future hermes/ask-user
@@ -156,7 +156,7 @@ The genuine network tests are in the `CONTROLLED` set:
 - `semanticSearch` degrades gracefully (returns `isError` when vault-mind is
   unreachable).
 - The only real `fetch()` calls in the whole test surface are reachability
-  probes in `pi-agent-ext-power-tool/src/__tests__/l2-e2e.test.ts`, which is
+  probes in `s2-agent-ext-power-tool/src/__tests__/l2-e2e.test.ts`, which is
   opt-in (`PI_RUN_L2 === "1"` + a preflight reachability gate) — the e2e set,
   not a portable test.
 

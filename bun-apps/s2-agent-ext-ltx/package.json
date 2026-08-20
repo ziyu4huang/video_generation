@@ -1,0 +1,51 @@
+{
+  "name": "@repo/s2-agent-ext-ltx",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pi extension: wraps the swift/ltx-video-director CLI (ltx-video) as an agent-optimized tool. One dispatcher tool with typed per-command parameters, stdout-regex result parsing, progress streaming + abort, and path-safety guards.",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "ltx",
+    "video-generation",
+    "mlx",
+    "swift"
+  ],
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./extensions/*": "./extensions/*"
+  },
+  "files": [
+    "extensions",
+    "src",
+    "scripts",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "scripts": {
+    "build:bundle": "bun scripts/build-bundle.ts",
+    "build:bundle:obf": "bun scripts/build-bundle.ts --obfuscate",
+    "check:flags": "bun scripts/check-flags.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.84.2",
+    "@repo/s2-agent-core-interface": "workspace:*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^6.0.3"
+  }
+}

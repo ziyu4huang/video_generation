@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ESNext", "DOM"],
+    "types": ["bun", "@repo/s2-agent-core-interface"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    // No `rootDir`: the registration entries live in `extensions/`, outside `src/`,
+    // and `rootDir: "src"` would reject them (TS6059) instead of checking them.
+    // `build` still emits, now mirroring the package layout (dist/src, dist/extensions);
+    // nothing consumes dist — `exports` resolves to ./src/* and dist/ is gitignored.
+    "outDir": "dist",
+    "declaration": true
+  },
+  "include": ["src/**/*.ts", "extensions/**/*.ts"]
+}

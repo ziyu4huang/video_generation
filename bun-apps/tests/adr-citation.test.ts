@@ -8,7 +8,7 @@
  * number in this repo.
  *
  * That is not hypothetical. PR #1323 read a planning doc's bare "ADR-0001",
- * resolved it to `pi-agent-ext-hermes-memory/docs/adr/0001-leanrag-selective-port.md`
+ * resolved it to `s2-agent-ext-hermes-memory/docs/adr/0001-leanrag-selective-port.md`
  * — which says nothing about dependency direction — concluded the dep-guard had
  * produced a false positive, and allowlisted a real ADR violation. Separately,
  * five wayfind files and one superpowers file cite an "ADR-0001" that has never
@@ -18,8 +18,8 @@
  * the ADR itself, and indexed in one place:
  *
  *     bun-apps/docs/adr/0001-strict-downward-edges-...  →  ADR-monorepo-0001
- *     bun-apps/pi-agent/docs/adr/0001-extensions-...    →  ADR-pi-agent-0001
- *     bun-apps/pi-agent-ext-wayfind/docs/adr/0004-...   →  ADR-wayfind-0004
+ *     bun-apps/s2-agent/docs/adr/0001-extensions-...    →  ADR-s2-agent-0001
+ *     bun-apps/s2-agent-ext-wayfind/docs/adr/0004-...   →  ADR-wayfind-0004
  *
  * Invariants:
  *  1. Every ADR file declares its canonical ID, and it matches its path.
@@ -73,12 +73,12 @@ export interface Adr {
  * Pure: the citation slug for an ADR-owning context directory.
  *
  * `bun-apps` itself is the monorepo-level context; every other owner is a
- * package directory, and `pi-agent-ext-` is dropped because it carries no
+ * package directory, and `s2-agent-ext-` is dropped because it carries no
  * information (all of them have it).
  */
 export function contextSlug(contextDirName: string): string {
 	if (contextDirName === "bun-apps") return "monorepo";
-	return contextDirName.replace(/^pi-agent-ext-/, "");
+	return contextDirName.replace(/^s2-agent-ext-/, "");
 }
 
 /** Every `docs/adr/NNNN-*.md` in the repo, with its derived identity. */
@@ -215,7 +215,7 @@ describe("ADR identity + citation guard", () => {
 	it("discovery finds the known ADR contexts (guards the walker itself)", () => {
 		assert.ok(ADRS.length >= 25, `expected the repo's ADR set, found ${ADRS.length}`);
 		const slugs = new Set(ADRS.map((a) => a.slug));
-		for (const expected of ["monorepo", "pi-agent", "wayfind", "hermes-memory"]) {
+		for (const expected of ["monorepo", "s2-agent", "wayfind", "hermes-memory"]) {
 			assert.ok(slugs.has(expected), `context slug "${expected}" not discovered — walker is broken`);
 		}
 	});
@@ -286,12 +286,12 @@ describe("contextSlug", () => {
 	it("maps the monorepo root context to `monorepo`", () => {
 		assert.equal(contextSlug("bun-apps"), "monorepo");
 	});
-	it("drops the uninformative pi-agent-ext- prefix", () => {
-		assert.equal(contextSlug("pi-agent-ext-wayfind"), "wayfind");
-		assert.equal(contextSlug("pi-agent-ext-hermes-memory"), "hermes-memory");
+	it("drops the uninformative s2-agent-ext- prefix", () => {
+		assert.equal(contextSlug("s2-agent-ext-wayfind"), "wayfind");
+		assert.equal(contextSlug("s2-agent-ext-hermes-memory"), "hermes-memory");
 	});
 	it("leaves the host package name alone", () => {
-		assert.equal(contextSlug("pi-agent"), "pi-agent");
+		assert.equal(contextSlug("s2-agent"), "s2-agent");
 	});
 });
 

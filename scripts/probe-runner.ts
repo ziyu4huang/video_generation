@@ -30,9 +30,9 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Type } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { createSubagentTool } from "../bun-apps/pi-agent-ext-subagent/src/index.ts";
-import { type SpawnSubagentResult, spawnSubagent } from "../bun-apps/pi-agent-ext-subagent/src/spawn-subagent.ts";
-import { SKILL_EXCLUDE_ENV } from "../bun-apps/pi-agent-ext-superpowers/src/superpowers.ts";
+import { createSubagentTool } from "../bun-apps/s2-agent-ext-subagent/src/index.ts";
+import { type SpawnSubagentResult, spawnSubagent } from "../bun-apps/s2-agent-ext-subagent/src/spawn-subagent.ts";
+import { SKILL_EXCLUDE_ENV } from "../bun-apps/s2-agent-ext-superpowers/src/superpowers.ts";
 import type { Probe, ProbeResult } from "../.planning/2026-07-25-simplify-ext-prompt-weight/probes/types.ts";
 import { passed } from "../.planning/2026-07-25-simplify-ext-prompt-weight/probes/types.ts";
 import {
@@ -72,7 +72,7 @@ const PER_DISPATCH_TIMEOUT_MS = Number(process.env.PROBE_TIMEOUT_MS ?? 240_000);
 // skill source so the knob is authoritative. Both fat and thin use `-ns` so the
 // ONLY variable between them is the exclude env.
 const REPO_ROOT = resolve(import.meta.dir, "..");
-const PI_CLI_TS = join(REPO_ROOT, "bun-apps", "pi-agent", "src", "cli.ts");
+const PI_CLI_TS = join(REPO_ROOT, "bun-apps", "s2-agent", "src", "cli.ts");
 const PI_MODE_TIMEOUT_MS = Number(process.env.PROBE_PI_TIMEOUT_MS ?? 300_000);
 
 // JSON Schema the judge must return (typebox → TSchema, what spawnSubagent expects).

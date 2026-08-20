@@ -16,7 +16,7 @@
  * `bun run build`.
  *
  * ONE implementation, no second copy: detection lives in
- * pi-agent/src/workspace-dist-staleness.ts (distEntryMain — the sole survivor
+ * s2-agent/src/workspace-dist-staleness.ts (distEntryMain — the sole survivor
  * of the old staleness machinery; the boot heal patch and mtime walkers were
  * deleted with the class they patrolled).
  *
@@ -26,7 +26,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { distEntryMain } from "../pi-agent/src/workspace-dist-staleness.ts";
+import { distEntryMain } from "../s2-agent/src/workspace-dist-staleness.ts";
 
 const BUN_APPS = import.meta.dirname + "/..";
 

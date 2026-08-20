@@ -25,8 +25,8 @@
 // Usage as a CLI self-test (no candidate — verifies the drift-guard alone):
 //   bun scripts/recall-eval-harness.mjs
 
-import { retrieveRecords } from "../bun-apps/pi-agent-ext-knowledge-card/src/retrieve.ts";
-import { resolveVault } from "../bun-apps/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { retrieveRecords } from "../bun-apps/s2-agent-ext-knowledge-card/src/retrieve.ts";
+import { resolveVault } from "../bun-apps/s2-agent-ext-obsidian/extensions/obsidian.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";

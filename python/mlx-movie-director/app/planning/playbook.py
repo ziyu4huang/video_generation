@@ -49,7 +49,7 @@ class Playbook:
     """The parsed OM style playbook — art direction for the planner + character-lock.
 
     Fields mirror the OM playbook YAML shape (see
-    ``bun-apps/pi-agent-ext-movie-director/data/styles/clean-professional.yaml``).
+    ``bun-apps/s2-agent-ext-movie-director/data/styles/clean-professional.yaml``).
     Unknown playbooks fall back to neutral defaults so a partial playbook still
     drives the pipeline (never hard-fail on a missing key).
     """
