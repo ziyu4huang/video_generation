@@ -133,7 +133,7 @@ export function checkEntry(ctx: DoctorContext): CheckResult {
 			label: "pi-agent entry",
 			status: "fail",
 			detail: `not found: ${ctx.entryPath}`,
-			hint: "rebuild: `bun ../pi-agent-ext-devops/scripts/deploy.ts` (source) or re-deploy",
+			hint: "rebuild: `bun run --cwd bun-apps/pi-agent deploy:sh` or re-deploy",
 		};
 	}
 	return { id: "entry", label: "pi-agent entry", status: "pass", detail: ctx.entryPath };
@@ -162,7 +162,7 @@ export function checkExtensions(ctx: DoctorContext): CheckResult {
 			label,
 			status: "fail",
 			detail: `ext-bundles/ has ${bundles.length} .js, expected ≥ ${want}`,
-			hint: "redeploy: `bun ../pi-agent-ext-devops/scripts/deploy.ts` (default bundle)",
+			hint: "redeploy: `bun run --cwd bun-apps/pi-agent deploy:sh`",
 		};
 	}
 	return { id, label, status: "pass", detail: `ext-bundles/${bundles.length} .js (expected ≥ ${want})` };
@@ -531,7 +531,7 @@ export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {})
 		label,
 		status: "fail",
 		detail: `total=${total} matched=0 — NO run-dir extension tools registered`,
-		hint: "silent load failure (the slice-bug class): verify cli.ts passes process.argv.slice(2) to main() AFTER applyPatches(), then re-run `./run-test.sh high`.",
+		hint: "silent load failure (the slice-bug class): verify cli.ts passes process.argv.slice(2) to main() AFTER applyPatches(), then re-run `./run-test.sh medium`.",
 	};
 }
 

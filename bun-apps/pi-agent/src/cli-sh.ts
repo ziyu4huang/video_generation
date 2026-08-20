@@ -80,7 +80,7 @@ if (isExtDoctorCommand(argv) || isCliCommand(argv)) {
 	console.error(
 		`[pi-agent-sh] \`${which}\` is not part of an sh deploy.\n` +
 			`  ${which === "cli" ? "The cli namespace bundles seven extension packages; embedding it would defeat the zero-extension core." : "It reads the repo's run-dir manifest, which a deployed tree does not have."}\n` +
-			`  Use \`pi-agent doctor\` here, or one of the legacy deploy modes (bun-apps/pi-agent-ext-devops/scripts/deploy.ts) for the full surface.`,
+			`  Use \`pi-agent doctor\` here, or run pi-agent from source (bun bun-apps/pi-agent/src/cli.ts) for the full surface.`,
 	);
 	process.exit(2);
 }

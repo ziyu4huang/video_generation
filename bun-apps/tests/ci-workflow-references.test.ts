@@ -31,7 +31,7 @@
  *     - run-test.sh's `full` tier looped over `pi-obsidian` / `pi-knowledge-card`
  *       — directories that have never existed — and a skip-if-absent branch
  *       swallowed both, so a 3-package baseline tested 1 and reported green.
- *     - verify-deploy.sh step 5 called `deploy.ts --verify --writable`; deploy.ts
+ *     - (historical) verify-deploy.sh step 5 called `deploy.ts --verify --writable`; deploy.ts
  *       rejects unknown flags, so the documented full run exited 1 on step 5's
  *       first command every time it has ever been run. (verify-deploy.sh has
  *       since been unified into the `devops-verify-deploy` bin —
@@ -68,7 +68,6 @@ const WORKFLOW = join(REPO_ROOT, ".github", "workflows", "ci.yml.disabled");
 const CI_LOCAL = join(REPO_ROOT, "scripts", "ci-local.sh");
 const SPOTCHECK = join(REPO_ROOT, "scripts", "test-determinism-spotcheck.sh");
 const RUN_TEST = join(BUN_APPS, "pi-agent-ext-devops", "scripts", "run-test.sh");
-const DEPLOY_TS = join(BUN_APPS, "pi-agent-ext-devops", "scripts", "deploy.ts");
 
 interface MatrixRow {
 	pkg: string;
@@ -235,17 +234,25 @@ describe("ci.yml.disabled — every referenced path resolves", () => {
 	test("the scanner actually finds the workflow's script references", () => {
 		const found = scriptReferences().map((r) => r.raw);
 		expect(found.length).toBeGreaterThanOrEqual(8);
+		// run-test.sh used to be pinned here. Its ONLY reference was the
+		// deploy-verify job, which ran run-test.sh's `high` + `readonly` tiers;
+		// that job was deleted with the four legacy deploy modes it built. So
+		// run-test.sh is now referenced by NO workflow job — it is a local /
+		// pi_verify tool only. That is a statement of fact, not a gap to fill:
+		// the job never executed here anyway (GitHub Actions is disabled in this
+		// repo, and local_ci reads regression-gates alone).
 		for (const expected of [
 			"bun-apps/pi-agent-ext-devops/src/changed-packages-cli.ts",
 			"scripts/ci-file-size-guard.sh",
 			"scripts/check-schema-cost.ts",
-			"../pi-agent-ext-devops/scripts/run-test.sh",
+			"scripts/check-deploy-sh-e2e.sh",
 			"bun-apps/pi-agent/run-dir/check-deps.ts",
 		]) {
 			expect(found).toContain(expected);
 		}
-		// …and it does NOT mistake prose for a reference (compile-verify's
-		// `echo "expected resolve.ts to emit …"` / `test -f bun-apps/package.json`).
+		// …and it does NOT mistake prose for a reference (the tokenizer trap the
+		// since-deleted compile-verify job used to exercise: `echo "expected
+		// resolve.ts to emit …"` / `test -f bun-apps/package.json`).
 		expect(found).not.toContain("resolve.ts");
 		expect(found.some((f) => f.endsWith("package.js"))).toBe(false);
 	});
@@ -325,41 +332,6 @@ function shellScripts(): string[] {
 	return out.sort();
 }
 
-/** deploy.ts's KNOWN_FLAGS, read from its definition site (not a copy). */
-function deployKnownFlags(): string[] {
-	const src = readFileSync(DEPLOY_TS, "utf8");
-	const block = src.match(/const KNOWN_FLAGS = new Set\(\[([\s\S]*?)\]\)/);
-	if (block === null) {
-		throw new Error(
-			"could not find `const KNOWN_FLAGS = new Set([...])` in deploy.ts. If the flag " +
-				"declaration was restructured, update this reader — do NOT hand-copy the flag list here.",
-		);
-	}
-	return [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-}
-
-interface DeployCall {
-	file: string;
-	line: number;
-	flags: string[];
-}
-
-/** Every `deploy.ts` invocation in a shell script, with the flags it passes. */
-function deployCalls(): DeployCall[] {
-	const calls: DeployCall[] = [];
-	for (const file of shellScripts()) {
-		const lines = readFileSync(file, "utf8").split("\n");
-		lines.forEach((raw, i) => {
-			// Strip `#` comments: prose ABOUT a flag is not a call passing it.
-			const line = raw.replace(/#.*$/, "");
-			if (!line.includes("deploy.ts")) return;
-			const after = line.slice(line.indexOf("deploy.ts") + "deploy.ts".length);
-			const flags = [...after.matchAll(/(^|\s)(--[A-Za-z][A-Za-z0-9-]*)/g)].map((m) => m[2]);
-			calls.push({ file: file.slice(REPO_ROOT.length + 1), line: i + 1, flags });
-		});
-	}
-	return calls;
-}
 
 interface HookRef {
 	hook: string;
@@ -461,49 +433,6 @@ describe("run-test.sh — the `full`-tier sibling list names real packages", () 
 	// Vacuity guard: `--list-siblings` printing nothing would pass the above.
 	test("the sibling list is non-empty", () => {
 		expect(runTestSiblings().length).toBeGreaterThanOrEqual(3);
-	});
-});
-
-describe("deploy.ts — every flag a shell script passes is a flag it accepts", () => {
-	test("no UNKNOWN deploy.ts flag (the --verify --writable class)", () => {
-		const known = new Set(deployKnownFlags());
-		const bad = deployCalls().flatMap((c) =>
-			c.flags.filter((f) => !known.has(f)).map((f) => `${f} (${c.file}:${c.line})`),
-		);
-		expect(
-			bad,
-			`UNKNOWN deploy.ts FLAG(S) passed from a shell script: ${bad.join(", ")} — ` +
-				`deploy.ts exits 1 on any unrecognised flag (known: ${[...known].join(", ")}), so the ` +
-				"call fails on its FIRST command. verify-deploy.sh step 5 (since unified " +
-				"into the devops-verify-deploy bin) passed `--verify --writable`, " +
-				"flags that have never existed, which means the documented full run has never once " +
-				"reached step 5's assertions. Use a real flag, or add it to KNOWN_FLAGS in deploy.ts.",
-		).toEqual([]);
-	});
-
-	// Vacuity guard: a scanner finding no calls, or a reader finding no flags,
-	// would pass the assertion above forever.
-	test("the scanner finds deploy.ts calls and the reader finds its flags", () => {
-		const calls = deployCalls();
-		// scripts/verify-deploy.sh (2 flagged calls) was unified into the
-		// devops-verify-deploy bin in PR-3 of the devops-scripts unification, so
-		// update-pi.sh's bare `bun scripts/deploy.ts` is the one remaining shell
-		// caller — still enough to prove the scanner itself runs.
-		expect(calls.length).toBeGreaterThanOrEqual(1);
-		expect(deployKnownFlags()).toContain("--no-freeze");
-		expect(deployKnownFlags().length).toBeGreaterThanOrEqual(5);
-	});
-
-	// The verify-deploy gate moved from scripts/verify-deploy.sh (shell-script
-	// scannable) to the .ts bin bun-apps/pi-agent-ext-devops/src/verify-deploy-cli.ts
-	// (bin `devops-verify-deploy`) — outside the shell scanner above, so pin its
-	// existence and its documented flags directly instead.
-	test("the devops-verify-deploy bin exists and keeps its documented flags", () => {
-		const bin = join(BUN_APPS, "pi-agent-ext-devops", "src", "verify-deploy-cli.ts");
-		expect(existsSync(bin)).toBe(true);
-		const src = readFileSync(bin, "utf8");
-		expect(src).toContain("--skip-install");
-		expect(src).toContain("--keep-deploy");
 	});
 });
 

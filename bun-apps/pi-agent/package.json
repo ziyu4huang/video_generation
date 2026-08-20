@@ -21,14 +21,7 @@
     "regen:static": "bun scripts/regen-static-extensions.ts",
     "test:e2e": "PI_AGENT_E2E=1 bun test",
     "verify": "PI_AGENT_E2E=1 bun test src/__tests__/e2e-extensions.test.ts",
-    "dist": "bun ../../dist/pi-agent/pi-agent.js",
-    "exe": "../../dist/pi-agent/pi-agent",
-    "//deploy": "4 modes — read docs BEFORE running: docs/deploy-cwd-trust.md (packaging + mode detection), docs/deploy-readonly.md (default chmod a-w freeze), docs/deploy-single-binary.md (--exe). Mode flags: --bundle (default), --snapshot, --standalone, --exe. Only --exe is fully self-contained/portable; the other three rely on a node_modules symlink into the machine-global bun store (same-machine only). Also see the mode table in scripts/deploy.ts header. Run via `bun run deploy[:mode]` from this dir. A FIFTH, independent pipeline lives at ../pi-agent-ext-devops/src/deploy-sh-cli.ts (`bun run deploy:sh`): versioned minimal-core deploy to ~/proj/dist/pi-agent-sh/<version>/ with extensions as separate packages under ext/ — see docs/deploy-sh.md.",
-    "deploy": "bun ../pi-agent-ext-devops/scripts/deploy.ts",
-    "deploy:bundle": "bun ../pi-agent-ext-devops/scripts/deploy.ts --bundle",
-    "deploy:snapshot": "bun ../pi-agent-ext-devops/scripts/deploy.ts --snapshot",
-    "deploy:standalone": "bun ../pi-agent-ext-devops/scripts/deploy.ts --standalone",
-    "deploy:exe": "bun ../pi-agent-ext-devops/scripts/deploy.ts --exe",
+    "//deploy": "ONE deploy pipeline: `bun run deploy:sh` -> ../pi-agent-ext-devops/src/deploy-sh-cli.ts. Builds a versioned tree at ~/proj/dist/pi-agent-sh/<version>/ — a minimal compiled core (src/cli-sh.ts, zero extensions inside) plus extension packages under ext/<name>/ that the core discovers at runtime. Config: deploy-config.yaml. Docs: docs/deploy-sh.md. The four legacy modes (--bundle/--snapshot/--standalone/--exe) were retired in the deploy-architecture consolidation; see .planning/specs/2026-08-20-deploy-architecture-consolidation-design.md.",
     "deploy:sh": "bun ../pi-agent-ext-devops/src/deploy-sh-cli.ts"
   },
   "dependencies": {
@@ -66,7 +59,6 @@
   "devDependencies": {
     "@repo/pi-agent-core-interface": "workspace:*",
     "@types/bun": "latest",
-    "javascript-obfuscator": "^5.4.3",
     "typescript": "^7.0.2"
   }
 }

@@ -5,39 +5,36 @@
 # Effort is a MONOTONIC stack: each level runs everything the lower one does,
 # plus more. Cost is driven by the build + deploy, not the tests themselves.
 #
-#   quick   (0)  unit only (pure fn + import-time smoke). No build.        ~0.2s
-#   medium  (1)  + build bundle + patch e2e (patches fire, env→argv         ~11s
-#                 splice, providers injected). DEFAULT.
-#   high    (2)  + deploy + 4-cwd extension-loading e2e across ALL 3        ~50s
-#                 non-exe deploy modes (bundle/snapshot/standalone)
-#                 + run.sh/pi-agent.sh launcher e2e (symlink resolution,
-#                 entry-mode detection, --update-help, --upgrade passthrough,
-#                 read-only env exports — auto-discovered by `bun test`).
-#   readonly (2.5) + read-only deploy e2e (freeze + foreign-cwd run + zero   ~6s
-#                  writes to the frozen tree). Opt-in tier (not in the stack).
-#   smoke    (2.7) + LIVE local-LLM check: boots the real launcher in print   ~30s
+#   quick   (0)  unit only (pure fn + import-time smoke).                  ~0.2s
+#   medium  (1)  + the pi-agent package suite, incl. the run.sh/pi-agent.sh   ~7s
+#                 launcher e2e (symlink resolution, entry-mode detection,
+#                 --update-help, --upgrade passthrough). DEFAULT.
+#   smoke    (2)  + LIVE local-LLM check: boots the real launcher in print   ~30s
 #                  mode against LM Studio (google/gemma-4-12b on
 #                  localhost:1234) — zero cost, zero egress, fully local.
 #                  Skips (passes) when LM Studio is down; fails if it's up
 #                  but the default model isn't loaded. Opt-in tier; also
 #                  folded into full (skips when down).
-#   full    (3)  + readonly + sibling pi-* unit baseline (whole stack).     ~70s
+#   full    (3)  + smoke + sibling pi-* unit baseline (whole stack).        ~40s
+#
+# The `high` and `readonly` tiers are GONE. They existed to deploy the
+# bundle/snapshot/standalone modes and run the e2e suites that asserted against
+# them; those modes and suites were retired with the deploy-architecture
+# consolidation. The deployed artifact's e2e now lives in
+# pi-agent-ext-devops/tests/deploy-sh-probe-e2e.test.ts, gated from CI by
+# scripts/check-deploy-sh-e2e.sh.
 #
 # USAGE
 #   ./run-test.sh                  # = medium
-#   ./run-test.sh quick            # pre-commit, no build
-#   ./run-test.sh high
-#   ./run-test.sh readonly         # read-only deploy e2e only
+#   ./run-test.sh quick            # pre-commit
 #   ./run-test.sh smoke            # live check vs local LM Studio only
-#   ./run-test.sh full             # whole stack (incl. readonly + smoke)
+#   ./run-test.sh full             # whole stack (incl. smoke)
 #   ./run-test.sh --effort=medium
 #   ./run-test.sh --list           # print the tier table, exit 0
 #   ./run-test.sh medium --bail    # extra flags forwarded to `bun test`
 #
-# medium+ force a FRESH build (they do not honor PI_AGENT_E2E_NO_BUILD) so a
-# stale dist/ can't mask a bundle regression. PI_AGENT_E2E_NO_BUILD=1 is still
-# honored at the quick… wait, quick doesn't build. Set it only if you hand-run
-# the e2e files. Exit code is 0 iff every selected tier/package passed.
+# Nothing here builds a deploy any more — PI_AGENT_E2E_NO_BUILD is gone with the
+# bundle it referred to. Exit code is 0 iff every selected tier/package passed.
 ########################################
 set -uo pipefail
 
@@ -80,40 +77,39 @@ while [ $# -gt 0 ]; do
 		# Machine-readable: one sibling package name per line. Consumed by the
 		# CI-reference guard test; keep the output one-bare-name-per-line.
 		--list-siblings) printf '%s\n' "${SIBLING_PKGS[@]}"; exit 0 ;;
-		quick|medium|high|readonly|smoke|full|0|1|2|3) EFFORT="$1"; shift ;;
+		quick|medium|smoke|full|0|1|2|3) EFFORT="$1"; shift ;;
 		*) EXTRA+=("$1"); shift ;;
 	esac
 done
 # normalize numeric aliases
 case "$EFFORT" in
-	0) EFFORT="quick" ;; 1) EFFORT="medium" ;; 2) EFFORT="high" ;; 3) EFFORT="full" ;;
+	0) EFFORT="quick" ;; 1) EFFORT="medium" ;; 2) EFFORT="smoke" ;; 3) EFFORT="full" ;;
 esac
 
 print_list() {
 	cat <<EOF
 $(Y "pi-agent run-test.sh — effort tiers (each ⊇ the one above)"):
 
-  $(G quick)   $(D '~0.2s')  unit only (pure fn + import-time smoke); no build
-  $(G medium)  $(D '~11s')   + build + patch e2e (patches fire / splice / providers)  $(Y "[default]")
-  $(G high)    $(D '~50s')   + deploy + 4-cwd extension-loading e2e (bundle/snapshot/standalone) + run.sh/pi-agent.sh launcher e2e
-  $(G readonly) $(D '~6s')   read-only deploy e2e ONLY (freeze + foreign-cwd run + zero writes)
+  $(G quick)   $(D '~0.2s')  unit only (pure fn + import-time smoke)
+  $(G medium)  $(D '~7s')    + the pi-agent package suite incl. the launcher e2e  $(Y "[default]")
   $(G smoke)   $(D '~30s')   LIVE local-LLM check vs LM Studio (gemma-4-12b, localhost:1234);
                             zero cost/egress. Skips when LM Studio is down, fails if the
                             model isn't loaded. Also folded into $(G full) (skips when down).
-  $(G full)    $(D '~70s')   + readonly + smoke + sibling pi-* unit baseline (whole stack)
+  $(G full)    $(D '~40s')   + smoke + sibling pi-* unit baseline (whole stack)
 
 Env gates the e2e test files read:
-  PI_AGENT_E2E=1          enable e2e-patches        (medium+)
-  PI_AGENT_E2E_DEPLOY=1   enable e2e-extensions      (high+)
-  PI_AGENT_E2E_NO_BUILD=1 reuse an existing dist     (ignored at medium+, which forces fresh)
+  PI_AGENT_E2E=1          enable the launcher symlink-resolution block (medium+)
+
+The deployed artifact's own e2e is a separate gate:
+  bash scripts/check-deploy-sh-e2e.sh
 EOF
 }
 
 if [ "$LIST" -eq 1 ]; then print_list; exit 0; fi
 
 case "$EFFORT" in
-	quick|medium|high|readonly|smoke|full) ;;
-	*) echo "$(R "error"): unknown effort '$EFFORT' (want: quick|medium|high|readonly|smoke|full)" >&2
+	quick|medium|smoke|full) ;;
+	*) echo "$(R "error"): unknown effort '$EFFORT' (want: quick|medium|smoke|full)" >&2
 	   echo "try: ./run-test.sh --list" >&2; exit 2 ;;
 esac
 
@@ -123,34 +119,16 @@ esac
 OVERALL=0
 
 run_unit() {
-	# quick baseline: e2e auto-skips (no PI_AGENT_E2E).
-	unset PI_AGENT_E2E PI_AGENT_E2E_DEPLOY
+	# quick baseline: the one E2E-gated block auto-skips (no PI_AGENT_E2E).
+	unset PI_AGENT_E2E
 	( cd "$PI_AGENT_DIR" && bun test ${EXTRA[@]+"${EXTRA[@]}"} )
 }
 
 run_patches() {
-	unset PI_AGENT_E2E_NO_BUILD      # medium+ forces a fresh build
+	# Same suite as quick, with PI_AGENT_E2E=1 so the launcher's
+	# symlink-resolution block (which spawns the real src/cli.ts) runs too.
 	export PI_AGENT_E2E=1
-	unset PI_AGENT_E2E_DEPLOY        # patches only (no deploy tier)
 	( cd "$PI_AGENT_DIR" && bun test ${EXTRA[@]+"${EXTRA[@]}"} )
-}
-
-run_extensions() {
-	unset PI_AGENT_E2E_NO_BUILD
-	export PI_AGENT_E2E=1
-	export PI_AGENT_E2E_DEPLOY=1
-	( cd "$PI_AGENT_DIR" && bun test ${EXTRA[@]+"${EXTRA[@]}"} )
-}
-
-# Read-only deploy e2e ONLY (src/__tests__/e2e-readonly.test.ts). Proves a frozen
-# deploy (chmod a-w + .deploy-readonly marker) runs from a foreign cwd and
-# writes nothing into the frozen tree. Opt-in tier — run via `./run-test.sh
-# readonly`; also folded into `full`.
-run_readonly() {
-	unset PI_AGENT_E2E_NO_BUILD
-	export PI_AGENT_E2E=1
-	export PI_AGENT_E2E_DEPLOY=1
-	( cd "$PI_AGENT_DIR" && bun test src/__tests__/e2e-readonly.test.ts ${EXTRA[@]+"${EXTRA[@]}"} )
 }
 
 # LIVE local-LLM smoke test. Boots the REAL launcher (`run.sh`) in print mode
@@ -239,21 +217,11 @@ case "$EFFORT" in
 	medium)
 		step "unit + patch e2e (medium)" run_patches
 		;;
-	high)
-		# One bun-test process for unit + patches + extensions so the harness
-		# build is shared (both e2e files import the same cached build promise).
-		step "unit + patch + extension e2e (high)" run_extensions
-		;;
-	readonly)
-		step "read-only deploy e2e (readonly)" run_readonly
-		;;
 	smoke)
 		smoke_step
 		;;
 	full)
-		step "unit + patch + extension e2e (high)" run_extensions
-		echo "$(Y "▶ read-only deploy contract")"
-		step "read-only deploy e2e" run_readonly
+		step "unit + patch e2e (medium)" run_patches
 		echo "$(Y "▶ live local-LLM smoke (skips when LM Studio is down)")"
 		smoke_step
 		echo "$(Y "▶ sibling stack-health baseline")"

@@ -4,6 +4,8 @@
  * recipe feeds it `git diff --name-only` output (see ci-recipe tests).
  */
 import { test, expect, describe } from "bun:test";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
 	DEPLOY_E2E_COMMAND,
 	DEPLOY_SENSITIVE_PATTERNS,
@@ -32,7 +34,7 @@ describe("shouldRunDeployE2e", () => {
 		// repo-relative diff lines look like "bun-apps/pi-agent/run.sh"
 		expect(shouldRunDeployE2e(["bun-apps/pi-agent/run.sh"])).toBe(true);
 		expect(shouldRunDeployE2e(["bun-apps/pi-agent/src/patches/index.ts"])).toBe(true);
-		expect(shouldRunDeployE2e(["bun-apps/pi-agent-ext-devops/scripts/deploy.ts"])).toBe(true);
+		expect(shouldRunDeployE2e(["bun-apps/pi-agent-ext-devops/scripts/deploy-sh.ts"])).toBe(true);
 		expect(shouldRunDeployE2e(["pi-agent.sh"])).toBe(true);
 	});
 	test("no false positives from similar names", () => {
@@ -40,10 +42,26 @@ describe("shouldRunDeployE2e", () => {
 		expect(shouldRunDeployE2e(["docs/pi-agent.sh.md"])).toBe(false);
 		expect(shouldRunDeployE2e(["bun-apps/pi-agent-ext-workflow/src/index.ts"])).toBe(false);
 	});
-	test("command constant pins the gated files (no DEPLOY matrix)", () => {
-		expect(DEPLOY_E2E_COMMAND).toBe(
-			"PI_AGENT_E2E=1 bun test src/__tests__/e2e-patches.test.ts src/__tests__/e2e-extensions.test.ts",
-		);
+	test("command constant pins the gated files", () => {
+		expect(DEPLOY_E2E_COMMAND).toBe("PI_AGENT_E2E=1 bun test src/__tests__/e2e-launcher.test.ts");
 		expect(DEPLOY_E2E_COMMAND).not.toContain("PI_AGENT_E2E_DEPLOY");
+	});
+
+	// The string pin above is not enough on its own, and that is not a
+	// hypothetical: the command named e2e-patches + e2e-extensions long enough
+	// for both files to be DELETED, and this suite stayed green while local_ci
+	// failed with "filters did not match any test files". Compare the pin to the
+	// filesystem, not only to itself.
+	test("every test file the command names actually exists", () => {
+		const piAgent = join(import.meta.dir, "..", "..", "pi-agent");
+		const files = DEPLOY_E2E_COMMAND.split(/\s+/).filter((t) => t.endsWith(".test.ts"));
+		expect(files.length, `no .test.ts file parsed out of "${DEPLOY_E2E_COMMAND}"`).toBeGreaterThan(0);
+		const missing = files.filter((f) => !existsSync(join(piAgent, f)));
+		expect(
+			missing,
+			`the gate would run \`bun test\` against missing file(s): ${missing.join(", ")} — ` +
+				"bun exits 1 with \"filters did not match any test files\", so local_ci goes red " +
+				"with a message that reads like a bun bug rather than a stale command.",
+		).toEqual([]);
 	});
 });

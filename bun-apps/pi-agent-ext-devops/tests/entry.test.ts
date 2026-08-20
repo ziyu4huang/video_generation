@@ -136,12 +136,17 @@ function fakePi() {
 			expect(tool?.description).toMatch(/CLEAN\/CONTAMINATED|scope/);
 		});
 
-		test("pi_deploy has optional mode/outDir/noFreeze (no required params) + owner-declared gating", () => {
+		test("pi_deploy has optional ext/force/noFreeze/noCurrent (no required params) + owner-declared gating", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
 			const tool = pi.tools.find((t) => t.name === "pi_deploy");
 			expect(tool?.parameters.required ?? []).toEqual([]);
-			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual(["mode", "noFreeze", "outDir"]);
+			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual([
+				"ext",
+				"force",
+				"noCurrent",
+				"noFreeze",
+			]);
 			// reference form (ticket 01): shared "pi_deploy" family (pi_deploy + pi_verify).
 			expect(tool?.gating?.gate).toBe("pi_deploy");
 			expect("keywords" in (tool?.gating ?? {})).toBe(false); // no inline keywords on the tool (01c)

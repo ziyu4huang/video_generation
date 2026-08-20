@@ -9,8 +9,6 @@ import { resolve } from "node:path";
 const TIER_TIMEOUT_MS: Record<VerifyTier, number> = {
 	quick: 60_000,
 	medium: 5 * 60_000,
-	high: 15 * 60_000,
-	readonly: 5 * 60_000,
 	full: 15 * 60_000,
 };
 

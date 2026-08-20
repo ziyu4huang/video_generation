@@ -1,38 +1,15 @@
 /**
- * argv.ts — PURE param→argv mapping for the deploy/verify tools.
+ * deploy-argv.ts — PURE param→argv mapping for the verify tool.
  *
- * Isolated from spawning so the tricky flag/positional ordering is unit-tested
- * without running a 50s deploy. deploy.ts parses argv as: one optional
- * positional (outDir) + known flags (--bundle/--snapshot/--standalone/--exe/
- * --no-freeze). run-test.sh takes the tier as its first positional + optional
- * forwarded flags (--bail).
+ * Isolated from spawning so the flag/positional ordering is unit-tested without
+ * running a multi-minute suite. run-test.sh takes the tier as its first
+ * positional + optional forwarded flags (--bail).
+ *
+ * The deploy half (DeployMode / buildDeployArgv) went with the four legacy
+ * deploy modes: the sh deploy is a typed call (runShDeploy), not an argv.
  */
 
-export type DeployMode = "bundle" | "snapshot" | "standalone" | "exe";
-
-export interface DeployParams {
-	mode?: DeployMode;
-	outDir?: string;
-	noFreeze?: boolean;
-}
-
-const DEPLOY_MODE_FLAG: Record<DeployMode, string> = {
-	bundle: "--bundle",
-	snapshot: "--snapshot",
-	standalone: "--standalone",
-	exe: "--exe",
-};
-
-/** Build the argv tail for `bun scripts/deploy.ts` (NOT including the script path). */
-export function buildDeployArgv(params: DeployParams = {}): string[] {
-	const argv: string[] = [];
-	if (params.outDir) argv.push(params.outDir);
-	argv.push(DEPLOY_MODE_FLAG[params.mode ?? "bundle"]);
-	if (params.noFreeze) argv.push("--no-freeze");
-	return argv;
-}
-
-export type VerifyTier = "quick" | "medium" | "high" | "readonly" | "full";
+export type VerifyTier = "quick" | "medium" | "full";
 
 export interface VerifyParams {
 	tier?: VerifyTier;

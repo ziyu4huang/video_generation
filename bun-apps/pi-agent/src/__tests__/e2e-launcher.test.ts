@@ -10,8 +10,8 @@
  * WHY MOST OF THIS FILE IS UNGATED
  * --------------------------------
  * It used to gate every block on PI_AGENT_E2E=1, copying the convention from
- * e2e-patches / e2e-extensions / e2e-readonly. But read what e2e-harness.ts
- * says that gate is FOR: those files call `ensureBundle()`, and "builds are
+ * the since-deleted e2e-patches / e2e-extensions / e2e-readonly. But read what
+ * that gate was FOR: those files called `ensureBundle()`, and "builds are
  * slow". Five of the six blocks here build nothing and boot no pi — they write
  * a stub entry into a tmpdir, copy run.sh next to it, and assert on what bash
  * does. They inherited a cost gate for a cost they do not have.
@@ -26,9 +26,16 @@
  * `16 skip` and nothing anywhere turned them on. run.sh is the entry point
  * every session starts through, and it was covered only on paper.
  *
- * This is the failure mode e2e-harness.ts already documents one instance of
+ * This is the failure mode e2e-harness.ts used to document one instance of
  * (#1305 moved deploy.ts; `Module not found` surfaced only at tiers the
  * default `bun test` does not run). Cost of undoing it here: 1.3s.
+ *
+ * The `pi-agent.js` / `.deploy-readonly` fixtures below still cover a LIVE arm
+ * of run.sh. The four legacy deploy modes are gone, but the launcher's
+ * bundle-entry detection is not — it is removed in the follow-up that collapses
+ * "bundle" out of run-dir/resolve.ts and mode.ts, and these tests go with it
+ * then. Deleting a test one PR ahead of the behaviour it guards is the gap this
+ * file's own header is about.
  *
  * The ONE block still gated is `symlink resolution`, which spawns the real
  * src/cli.ts — a full pi boot that touches the shared ~/.pi backend. That one
@@ -319,18 +326,46 @@ describe("source-mode root node_modules self-heal", () => {
 	});
 });
 
-// update-pi.sh spawns repo scripts with `bun <script>.ts` from the
-// bun-apps/pi-agent cwd (do_rebuild / do_typecheck). #1305 moved deploy.ts
-// out of pi-agent/scripts/ and --rebuild failed silently for a week because
-// nothing checked those references. Pure parse + existsSync: no spawns, so
-// this runs in the default ungated `bun test`.
+// update-pi.sh spawns repo scripts from the bun-apps/pi-agent cwd
+// (do_rebuild / do_typecheck). #1305 moved deploy.ts out of pi-agent/scripts/
+// and --rebuild failed silently for a week because nothing checked those
+// references. Pure parse + existsSync: no spawns, so this runs in the default
+// ungated `bun test`.
+//
+// It calls BOTH shapes now — `bun run <script>` (do_rebuild, since the deploy
+// moved behind the deploy:sh package script) and `bun <path>.ts` — so both are
+// checked, against package.json and the filesystem respectively. Each half
+// carries its own non-empty floor: a regex that silently matched nothing is
+// how a dead reference survives a green guard.
 describe("update-pi.sh referenced scripts exist", () => {
+	const wrapper = () => readFileSync(path.join(REAL_PKG_DIR, "update-pi.sh"), "utf8");
+
+	/** Only the executable body — the header block documents `$0 --rebuild`
+	 *  style usage that is not a spawn. Comments start with `#`. */
+	const commandLines = () =>
+		wrapper()
+			.split("\n")
+			.filter((l) => !l.trimStart().startsWith("#"))
+			.join("\n");
+
+	test("every `bun run <script>` names a script in pi-agent's package.json", () => {
+		const pkg = JSON.parse(readFileSync(path.join(REAL_PKG_DIR, "package.json"), "utf8")) as {
+			scripts: Record<string, string>;
+		};
+		const refs = [...commandLines().matchAll(/bun run ([A-Za-z][A-Za-z0-9:_-]*)/g)].map((m) => m[1]!);
+		expect(refs.length, "no `bun run <script>` calls found — the regex stopped matching").toBeGreaterThan(0);
+		const missing = refs.filter((r) => !(r in pkg.scripts));
+		expect(missing, `update-pi.sh calls \`bun run ${missing.join(", ")}\`, absent from package.json scripts`).toEqual(
+			[],
+		);
+	});
+
 	test("every `bun <script>.ts` reference resolves from bun-apps/pi-agent", () => {
-		const wrapper = readFileSync(path.join(REAL_PKG_DIR, "update-pi.sh"), "utf8");
-		const refs = [...wrapper.matchAll(/bun (\.{0,2}\/?[^\s&;)"']+\.ts)/g)].map((m) => m[1]!);
-		expect(refs.length).toBeGreaterThan(0);
+		const refs = [...commandLines().matchAll(/bun (\.{0,2}\/?[^\s&;)"']+\.ts)/g)].map((m) => m[1]!);
+		// May legitimately be empty: update-pi.sh reaches the deploy through a
+		// package script now. Assert only that whatever IS named exists.
 		for (const rel of refs) {
-			expect(existsSync(path.resolve(REAL_PKG_DIR, rel))).toBe(true);
+			expect(existsSync(path.resolve(REAL_PKG_DIR, rel)), `update-pi.sh names a missing script: ${rel}`).toBe(true);
 		}
 	});
 });

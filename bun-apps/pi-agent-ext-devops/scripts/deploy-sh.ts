@@ -12,8 +12,10 @@
  * place after all gates pass, so a failed deploy never leaves a half-written
  * version dir and never repoints `current`.
  *
- * This file deliberately does NOT touch scripts/deploy.ts or any of its four
- * modes — the two pipelines are independent.
+ * This is the ONLY deploy pipeline. The four legacy modes it used to sit beside
+ * (scripts/deploy.ts --bundle / --snapshot / --standalone / --exe) were retired
+ * in the deploy-architecture consolidation — see
+ * .planning/specs/2026-08-20-deploy-architecture-consolidation-design.md.
  */
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

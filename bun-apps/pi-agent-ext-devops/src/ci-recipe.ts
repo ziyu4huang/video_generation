@@ -638,16 +638,15 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 						...(smoke.detail ? { detail: smoke.detail } : {}),
 					});
 				}
-				// Change-triggered deploy e2e — the PI_AGENT_E2E bundle-mode
-				// assertions (e2e-patches + e2e-extensions SOURCE layers). The
-				// workflow-derived gates above already boot every deploy mode, but
-				// these assertions only exist behind PI_AGENT_E2E and were
-				// manual-tier-only before this gate (#1305 class drift). Runs ONLY
-				// when the diff touches a deploy-sensitive path; one bun-test
-				// process → ensureBundle()'s per-process cache builds once. A
-				// failed `git diff` skips the gate (fail-open): the unconditional
-				// deploy-artifact gates above already ran, and a base-ref that
-				// cannot diff was already rejected at step 1.
+				// Change-triggered launcher e2e — the one remaining PI_AGENT_E2E-
+				// gated assertion (e2e-launcher's `symlink resolution` block, which
+				// spawns the real src/cli.ts). The workflow-derived gates above
+				// boot the deployed artifact, but a PI_AGENT_E2E-gated block is
+				// invisible to a plain `bun test` and so to the package matrix —
+				// the #1305 class. Runs ONLY when the diff touches a
+				// launcher/entry-sensitive path. A failed `git diff` skips the gate
+				// (fail-open): the unconditional artifact gate above already ran,
+				// and a base-ref that cannot diff was already rejected at step 1.
 				if (!opts.signal?.aborted) {
 					const diff = await spawn("git", ["diff", "--name-only", baseRef, headRef], {
 						cwd: opts.repoRoot,

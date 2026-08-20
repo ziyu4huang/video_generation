@@ -36,7 +36,7 @@
 #   ./bun-apps/pi-agent/update-pi.sh            # upgrade all 4 to latest (unifies any drift)
 #   ./bun-apps/pi-agent/update-pi.sh --check    # current vs latest + lockstep report (network)
 #   ./bun-apps/pi-agent/update-pi.sh --lockstep # OFFLINE lockstep invariant gate (CI-friendly)
-#   ./bun-apps/pi-agent/update-pi.sh --rebuild  # also rebuild pi-agent dist bundle
+#   ./bun-apps/pi-agent/update-pi.sh --rebuild  # also cut a new versioned deploy (moves `current`)
 #   ./bun-apps/pi-agent/update-pi.sh -h|--help  # print this header
 #   The upgrade path also runs `bun run typecheck` (mirrors CI: test · pi-agent),
 #   exiting non-zero if the new pi core broke a shared type — fix before pushing.
@@ -138,23 +138,21 @@ check_lockstep() {
   [[ "$LOCKSTEP_OK" -eq 1 ]]
 }
 
-# Rebuild the pi-agent dist bundle. Extracted to a function so the early-exit
+# Cut a new pi-agent deploy. Extracted to a function so the early-exit
 # "already up to date" path can honor --rebuild too: a prior run may have bumped
-# pins + reconciled bun.lock without rebuilding the bundle, and --rebuild is an
-# explicit request to rebuild regardless of whether versions changed this run.
+# pins + reconciled bun.lock without rebuilding, and --rebuild is an explicit
+# request to rebuild regardless of whether versions changed this run.
 #
-# Builds via the devops package's deploy.ts (default --bundle mode →
-# dist/pi-agent/). NOTE: deploy.ts moved to
-# bun-apps/pi-agent-ext-devops/scripts/ in PR #1305 (2026-08-14) — the old
-# local path (scripts/deploy.ts in this package) became a dead reference that
-# always failed. Earlier, the build command was scripts/build.ts --all, which
-# was unified INTO deploy.ts (commit a0e512a7 / PR #647). deploy.ts's
-# assertCorrectCwd still requires cwd == bun-apps/pi-agent, so we cd here and
-# reference the script relatively.
+# NOTE: this produces a NEW VERSIONED DEPLOY under ~/proj/dist/pi-agent-sh/ and
+# REPOINTS `current` at it — a more consequential action than the old
+# dist/pi-agent bundle rebuild it replaces. The four legacy deploy modes were
+# retired in the deploy-architecture consolidation, so deploy:sh is the only
+# pipeline. Run the CLI directly with --no-current if you want a build that
+# does not move `current`.
 do_rebuild() {
   echo
-  echo "$(green '▶') rebuild pi-agent dist bundle"
-  (cd "$REPO_ROOT/bun-apps/pi-agent" && bun ../pi-agent-ext-devops/scripts/deploy.ts)
+  echo "$(green '▶') cut a new pi-agent deploy (versioned; repoints current)"
+  (cd "$REPO_ROOT/bun-apps/pi-agent" && bun run deploy:sh --force)
 }
 
 # Cross-package TypeScript preflight. Runs `bun run typecheck` (tsc --noEmit)
@@ -357,10 +355,10 @@ echo
 if [[ "$TYPECHECK_FAILED" -eq 1 ]]; then
   echo "$(yellow 'done — with typecheck errors.') The version bump is applied (pins + bun.lock are"
   echo "committable), but fix the TS errors above before pushing — CI's test · pi-agent gates it."
-  [[ "$REBUILD" -eq 1 ]] && echo "$(dim '  (rebuild skipped: source did not typecheck)')"
+  [[ "$REBUILD" -eq 1 ]] && echo "$(dim '  (deploy skipped: source did not typecheck)')"
   exit 1
 fi
 echo "$(green 'done.') Next:"
 echo "  - restart any running pi session so it loads the new version"
 echo "  - review the lockfile change:  git diff bun-apps/bun.lock"
-[[ "$REBUILD" -eq 1 ]] || echo "  - rebuild the bundle when ready:  $0 --rebuild"
+[[ "$REBUILD" -eq 1 ]] || echo "  - cut a new deploy when ready:  $0 --rebuild"
