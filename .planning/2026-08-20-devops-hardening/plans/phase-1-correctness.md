@@ -463,22 +463,22 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 - Consumes: devops chain per `skills/devops-workflow/SKILL.md`.
 - Produces: merged PR #TBD on main; Phase 2+ can then trust verify_merge_landed verdicts.
 
-- [ ] **Step 1: Canonical package gate**
+- [x] **Step 1: Canonical package gate**
 
 Run: `( cd bun-apps/pi-agent-ext-devops && bun test )`
 Expected: entire suite PASS (includes any build the canonical script defines).
 
-- [ ] **Step 2: Cross-package typecheck + lint via local_ci (change-scoped)**
+- [x] **Step 2: Cross-package typecheck + lint via local_ci (change-scoped)**
 
 Run: `CI=true bun bun-apps/pi-agent-ext-devops/src/local-ci-cli.ts`
 Expected: `overall: "pass"`, wall clock < 5 min. (CI=true skips the FLAKY_UNDER_CI e2e splice test — mandatory.)
 
-- [ ] **Step 3: Pre-merge re-sync (multi-worktree rule: fetch before rebase)**
+- [x] **Step 3: Pre-merge re-sync (multi-worktree rule: fetch before rebase)**
 
 Run: `bun bun-apps/pi-agent-ext-devops/src/sync-default-branch-cli.ts`
 If main advanced: rebase via `bun bun-apps/pi-agent-ext-devops/src/prepare-feature-branch-cli.ts --branch devops-hardening-phase1 --rebase --force-push`.
 
-- [ ] **Step 4: Finish the PR**
+- [x] **Step 4: Finish the PR**
 
 ```bash
 GH_PAGER=cat gh pr create --title "fix(devops): verify_merge_landed scope semantics + sync preserve hardening (devops-hardening Phase 1)" \
@@ -494,7 +494,7 @@ bun bun-apps/pi-agent-ext-devops/src/verify-merge-cli.ts <pr> --fetch \
 
 The Phase-1a fix makes this verdict trustworthy — this PR is its first real consumer. `CONTAMINATED` here is now a REAL signal: investigate, don't dismiss.
 
-- [ ] **Step 5: Post-merge**
+- [x] **Step 5: Post-merge**
 
 `bun bun-apps/pi-agent-ext-devops/src/prepare-feature-branch-cli.ts --branch devops-hardening-phase2 --create` BEFORE any new commit (detached-HEAD trap), then update spec status + commit on the new branch.
 
