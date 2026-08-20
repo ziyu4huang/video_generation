@@ -3,7 +3,7 @@
 // archify deck — IR[] → PPTX slide deck of NATIVE, EDITABLE shapes.
 //
 //   bun run deck [manifest] [--theme light|dark] [--output out.pptx]
-//                [--emit-shape-ir <dir>]
+//                [--slides-dir <dir> | --no-slides] [--emit-shape-ir <dir>]
 //
 // Thin CLI over lib/deck-build.ts, which both this and the `archify_export_pptx`
 // tool share so they can never drift.
@@ -21,6 +21,11 @@
 // `--output` resolves relative to cwd. `defaults.scale` is accepted and ignored —
 // it configured the old raster path and has no meaning for vector shapes.
 //
+// The rendered slide HTML is kept beside the .pptx in `<output>.slides/` (or
+// `--slides-dir`, or nowhere with `--no-slides`). Those files ARE the diagrams —
+// full-fidelity and interactive — and they are what a webui's Diagram pane
+// serves; the .pptx is the flattened, portable view of the same set.
+//
 // No browser is involved: slides carry real PowerPoint shapes and text runs, not
 // screenshots. `__tests__/pptx-shapes.test.ts` asserts zero `<a:blip>` in the
 // slide XML, which is the property a regression to images cannot fake.
@@ -30,6 +35,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildDeck,
   DeckError,
+  defaultSlidesDir,
   loadManifestFile,
   resolveDeckOutput,
   type Theme,
@@ -43,6 +49,8 @@ export interface DeckArgs {
   theme?: Theme;
   output?: string;
   emitShapeIr?: string;
+  /** Where the rendered slide HTML goes. `null` = do not keep it. */
+  slidesDir?: string | null;
 }
 
 export function parseArgs(argv: string[]): DeckArgs {
@@ -50,6 +58,7 @@ export function parseArgs(argv: string[]): DeckArgs {
   let theme: Theme | undefined;
   let output: string | undefined;
   let emitShapeIr: string | undefined;
+  let slidesDir: string | null | undefined;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === undefined) break;
@@ -65,6 +74,14 @@ export function parseArgs(argv: string[]): DeckArgs {
       emitShapeIr = argv[++i];
       continue;
     }
+    if (a === "--slides-dir") {
+      slidesDir = argv[++i];
+      continue;
+    }
+    if (a === "--no-slides") {
+      slidesDir = null;
+      continue;
+    }
     if (a.startsWith("--")) throw new Error(`Unknown flag: ${a}`);
     positional.push(a);
   }
@@ -76,6 +93,7 @@ export function parseArgs(argv: string[]): DeckArgs {
     ...(theme ? { theme } : {}),
     ...(output ? { output } : {}),
     ...(emitShapeIr ? { emitShapeIr } : {}),
+    ...(slidesDir !== undefined ? { slidesDir } : {}),
   };
 }
 
@@ -102,6 +120,14 @@ async function main(): Promise<void> {
     cwd: PKG_ROOT,
     ...(args.theme ? { theme: args.theme } : {}),
     ...(args.emitShapeIr ? { emitShapeIrDir: resolve(cwd, args.emitShapeIr) } : {}),
+    // Keep the rendered slides by default — they ARE the diagrams, and the
+    // .pptx is their flattened view. `--no-slides` opts out.
+    slidesDir:
+      args.slidesDir === null
+        ? null
+        : args.slidesDir
+          ? resolve(cwd, args.slidesDir)
+          : defaultSlidesDir(outputPath),
     onProgress: (m) => console.log(m),
   });
 
@@ -110,6 +136,7 @@ async function main(): Promise<void> {
     `saved ${result.output} (${(result.bytes / 1024).toFixed(0)} KB, ` +
       `${result.slides.length} slides, ${shapes} native shapes, theme=${result.theme})`
   );
+  if (result.slidesDir) console.log(`slides  ${result.slidesDir}`);
 }
 
 if (import.meta.main) {

@@ -55,7 +55,6 @@
     "@tailwindcss/cli": "^4",
     "@types/bun": "latest",
     "ajv": "^8.17.1",
-    "playwright": "1.60.0",
     "tailwindcss": "^4",
     "typescript": "^6.0.3"
   }

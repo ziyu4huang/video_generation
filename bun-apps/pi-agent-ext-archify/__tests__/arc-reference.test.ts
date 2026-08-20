@@ -78,9 +78,9 @@ describe("arc conversion vs the system SVG engine (Bun.WebView)", () => {
     await using view = new Bun.WebView({ width: 500, height: 500 });
     await view.navigate(`data:text/html;charset=utf-8,${encodeURIComponent(page)}`);
     const reference = JSON.parse(
-      await view.evaluate(
+      (await view.evaluate(
         `JSON.stringify([...document.querySelectorAll('path')].map(p => { const b = p.getBBox(); return [b.x, b.y, b.width, b.height]; }))`
-      )
+      )) as string
     ) as [number, number, number, number][];
 
     expect(reference).toHaveLength(CASES.length);

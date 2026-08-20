@@ -18,7 +18,7 @@
  * pictures and the package carried a browser dependency for it. Both are gone.
  */
 import PptxGenJS from "pptxgenjs";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { loadIrMeta } from "./load-ir.ts";
@@ -26,6 +26,7 @@ import { addShapeIrToSlide, type SlideLike } from "./pptx-shapes.ts";
 import { formatShapeIR, toShapeIR, type ShapeIR, type Theme } from "./shape-ir.ts";
 import { parseSvg } from "./svg-model.ts";
 import { runArchify, VENDORED_BIN } from "./run.ts";
+import { announceDeck, type OpenBus } from "./open-announce.ts";
 
 export type { Theme };
 
@@ -107,6 +108,22 @@ export interface BuildDeckParams {
   onProgress?: (message: string) => void;
   /** Debug hook: dump each slide's ShapeIR here (see `--emit-shape-ir`). */
   emitShapeIrDir?: string;
+  /**
+   * Where the rendered slide HTML lives.
+   *
+   * A path PERSISTS the slides there (and makes them announceable to a webui);
+   * `null` keeps them in a temp dir that is deleted when the build returns —
+   * the .pptx is then the only artifact.
+   *
+   * Persisting is the default for both entry points, and it is not merely a
+   * side effect: those HTML files ARE the diagrams, full-fidelity and
+   * interactive. The .pptx is the flattened, portable view of the same thing.
+   */
+  slidesDir?: string | null;
+  /** Optional host event bus — a deck build announces `webui:deck` on it. */
+  events?: OpenBus;
+  /** Deck title for the announce (defaults to the output basename). */
+  deckTitle?: string;
 }
 
 export interface BuiltSlide {
@@ -125,6 +142,8 @@ export interface DeckResult {
   theme: Theme;
   bytes: number;
   slides: BuiltSlide[];
+  /** Directory holding the rendered slide HTML, when it was persisted. */
+  slidesDir?: string;
 }
 
 /** Parse + shape-check a manifest. Throws `DeckError` with a printable message. */
@@ -264,7 +283,11 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
   const tag = manifest.tag ?? "archify deck";
   const progress = params.onProgress ?? (() => {});
 
-  const work = mkdtempSync(join(tmpdir(), "archify-deck-"));
+  // A persisted slidesDir doubles as the webui-servable copy of the deck; a
+  // temp dir means the .pptx is the only thing that survives the call.
+  const persist = params.slidesDir !== null && params.slidesDir !== undefined;
+  const work = persist ? params.slidesDir! : mkdtempSync(join(tmpdir(), "archify-deck-"));
+  if (persist) mkdirSync(work, { recursive: true });
   try {
     const pptx = new PptxGenJS();
     pptx.defineLayout({ name: "WIDE", width: STAGE.w, height: STAGE.h });
@@ -316,11 +339,32 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
 
     const data = (await pptx.write({ outputType: "nodebuffer" })) as Uint8Array;
     await Bun.write(params.outputPath, data);
-    return { output: params.outputPath, theme, bytes: data.length, slides: built };
+
+    // One manifest, two surfaces: the same ordered slide set that just became a
+    // .pptx is announced to any webui as a browsable deck. Webui-optional — no
+    // bus, or slides that were never persisted, makes this a silent no-op.
+    if (persist) {
+      announceDeck(
+        params.events,
+        params.outputPath,
+        built.map((b) => ({
+          path: b.htmlPath,
+          title: b.title,
+          ...(b.subtitle !== undefined ? { subtitle: b.subtitle } : {}),
+        })),
+        params.deckTitle
+      );
+    }
+
+    return {
+      output: params.outputPath,
+      theme,
+      bytes: data.length,
+      slides: built,
+      ...(persist ? { slidesDir: work } : {}),
+    };
   } finally {
-    // The rendered HTML lives in `work`; ticket 09 copies what it needs out
-    // BEFORE this returns, so cleaning up here is safe.
-    rmSync(work, { recursive: true, force: true });
+    if (!persist) rmSync(work, { recursive: true, force: true });
   }
 }
 
@@ -352,4 +396,13 @@ export function resolveDeckOutput(
     throw new DeckError("manifest missing `output` (and no --output given)");
   }
   return isAbsolute(manifest.output) ? manifest.output : resolve(manifestDir, manifest.output);
+}
+
+/**
+ * The default slide directory for an output path: `<output basename>.slides/`
+ * beside the .pptx. Predictable, obviously related to the deck, and trivially
+ * deletable.
+ */
+export function defaultSlidesDir(outputPath: string): string {
+  return outputPath.replace(/\.pptx$/i, "") + ".slides";
 }

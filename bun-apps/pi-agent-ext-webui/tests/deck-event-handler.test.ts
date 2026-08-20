@@ -205,3 +205,47 @@ describe("resolveDeckSlides", () => {
     ).toEqual([]);
   });
 });
+
+describe("the archify contract", () => {
+  /**
+   * A payload captured VERBATIM from a real `archify_export_pptx` run
+   * (2026-08-21, the 5-slide examples/deck manifest), trimmed to two slides and
+   * re-pathed into this test's root.
+   *
+   * The two packages import nothing from each other — the event shape IS the
+   * whole contract — so nothing else pins that archify's emission and this
+   * handler's expectation still agree. This fixture does.
+   */
+  test("consumes a real archify emission, CJK titles and all", () => {
+    handler()({
+      deckId: "itemize",
+      title: "itemize",
+      slides: [
+        {
+          path: join(root, "a.html"),
+          title: "為什麼 Itemize？— 一段壞散文 → 原子 Item",
+          subtitle: "散文改不動、查不出、驗不了；Itemize 拆成原子、唯一編碼、逐層可追溯",
+        },
+        {
+          path: join(root, "b.html"),
+          title: "範例：COCKPIT-26 車用座艙 SoC（只看 SAS 層）",
+          subtitle: "MRD → NoC → {AUDIO APU, ISP}",
+        },
+      ],
+    });
+    expect(frames).toHaveLength(1);
+    const f = frames[0]!;
+    expect(f.deckId).toBe("itemize");
+    expect(f.slides).toHaveLength(2);
+    expect(f.slides[0]!.title).toBe("為什麼 Itemize？— 一段壞散文 → 原子 Item");
+    expect(f.slides[0]!.url).toBe("http://127.0.0.1:1234/files/0/a.html");
+    expect(f.slides[1]!.subtitle).toBe("MRD → NoC → {AUDIO APU, ISP}");
+  });
+
+  test("the deckId is the .pptx basename, so a re-export replaces in place", () => {
+    const h = handler();
+    h({ deckId: "itemize", slides: [{ path: join(root, "a.html") }] });
+    h({ deckId: "itemize", slides: [{ path: join(root, "b.html") }] });
+    expect(frames.map((f) => f.deckId)).toEqual(["itemize", "itemize"]);
+  });
+});

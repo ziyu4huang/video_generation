@@ -90,12 +90,12 @@ Phase 3 — webui Diagram pane
 - `tickets/08-diagram-pane.md` — task, **closed** — shell pane: viewer, deck nav, hash, replay
 
 Phase 4 — one manifest, two surfaces
-- `tickets/09-manifest-single-source.md` — task — archify emits `webui:deck` from the manifest
+- `tickets/09-manifest-single-source.md` — task, **closed** — archify emits `webui:deck`
 - `tickets/10-thumbnails.md` — task — `Bun.Image` slide rail thumbnails
 
 Phase 5 — Bun-native + guards + docs
-- `tickets/11-webview-migration.md` — task — mermaid render test → `Bun.WebView`; drop playwright
-- `tickets/12-guard-and-docs.md` — task — `no-browser-deps` guard + READMEs + map sync
+- `tickets/11-webview-migration.md` — task, **closed** — mermaid test → `Bun.WebView`; drop playwright
+- `tickets/12-guard-and-docs.md` — task, **closed** — browser-download guard + READMEs + map sync
 - `tickets/13-fog-bun-markdown.md` — decision, open (fog) — is `Bun.markdown` worth the churn?
 
 ## Decisions
@@ -132,11 +132,15 @@ Phase 5 — Bun-native + guards + docs
 
 ## Frontier
 
-Phase 4 (ticket 09, then 10) — one manifest driving both surfaces. Phases 1-3 closed
-2026-08-21: PPTX export is native editable shapes (the 5-slide example deck is 358 shapes with
-`<a:blip>` count 0 on every slide), the PPTX path no longer touches a browser, and the webui
+Ticket 10 (slide-rail thumbnails) — the only build item left, and explicitly the lowest
+priority in the effort: the pane is fully usable with a title-only rail. Tickets 01-09 and
+11-12 closed 2026-08-21.
+
+Delivered: PPTX export is native editable shapes (the 5-slide example deck is 358 shapes with
+`<a:blip>` count 0 on every slide); the PPTX path no longer touches a browser; the webui
 Diagram pane renders artifacts at full runtime fidelity in-shell (verified live through the
-real `/files` route in `Bun.WebView`).
+real `/files` route in `Bun.WebView`); one manifest feeds both surfaces; and no browser
+download remains in either package, guarded.
 
 ## Fog of war
 

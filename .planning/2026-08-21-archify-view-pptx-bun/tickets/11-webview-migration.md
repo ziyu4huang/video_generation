@@ -2,7 +2,7 @@
 ticket: 11-webview-migration
 effort: archify-view-pptx-bun
 type: task
-status: open
+status: closed
 created: 2026-08-21
 blocks-on: [05]
 blocking: [12]
@@ -38,3 +38,18 @@ The mermaid test therefore keeps executing a real engine — coverage is preserv
 ## Gate
 
 `( cd bun-apps/pi-agent-ext-archify && bun run typecheck && bun run test )`
+
+## Result
+
+**closed 2026-08-21** — `__tests__/architecture-mermaid.test.ts` rewritten on `Bun.WebView`,
+`playwright` removed from `devDependencies`, `bun.lock` updated.
+
+**The test was not merely skipped — it was DEAD.** Three gates (`RUN_RENDER=1`, a vendored
+mermaid blob, a chromium install) meant it never ran, and its sample path was missing the
+`done/` segment the effort folder had since moved under, so even with all three satisfied it
+would have thrown on read. All three gates are gone: `Bun.WebView` needs no install, mermaid
+comes from `node_modules` (a declared dependency) with the vendored blob preferred, and the
+sample path is now asserted to exist rather than assumed. It runs in **345 ms** and really
+does assert that mermaid painted an `<svg>`.
+
+So D5 held in the end: coverage was gained, not traded.

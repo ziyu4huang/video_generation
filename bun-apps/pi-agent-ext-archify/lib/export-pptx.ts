@@ -9,6 +9,11 @@
  *
  * Slides carry NATIVE PowerPoint shapes, not screenshots — no browser is
  * launched and nothing is rasterized.
+ *
+ * The rendered interactive slide HTML is kept beside the .pptx (see
+ * `defaultSlidesDir`) and announced as `webui:deck`, so ONE manifest feeds both
+ * the exported deck and a webui Diagram pane. `slidesDir: null` opts out of
+ * both. Webui-optional as always: no bus, no effect.
  */
 import { Type } from "typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
@@ -16,6 +21,7 @@ import { isAbsolute, resolve } from "node:path";
 import {
   buildDeck,
   DeckError,
+  defaultSlidesDir,
   loadManifestFile,
   manifestFromIrPaths,
   resolveDeckOutput,
@@ -29,6 +35,8 @@ export interface ExportPptxParams {
   irPaths?: string[];
   outputPath?: string;
   theme?: string;
+  /** Where the rendered slide HTML goes; `null` keeps only the .pptx. */
+  slidesDir?: string | null;
 }
 
 export interface ExportPptxCtx {
@@ -96,6 +104,15 @@ export async function archifyExportPptx(
       ...(theme ? { theme } : {}),
       ...(ctx.bin ? { bin: ctx.bin } : {}),
       ...(signal ? { signal } : {}),
+      ...(ctx.events ? { events: ctx.events } : {}),
+      // Keep the rendered slides by default so the same manifest also feeds a
+      // webui Diagram pane (announced as `webui:deck`; a no-op without webui).
+      slidesDir:
+        params.slidesDir === null
+          ? null
+          : params.slidesDir
+            ? (isAbsolute(params.slidesDir) ? params.slidesDir : resolve(ctx.cwd, params.slidesDir))
+            : defaultSlidesDir(outputPath),
     });
 
     const shapes = result.slides.reduce((a, s) => a + s.shapes + s.texts, 0);
@@ -106,11 +123,13 @@ export async function archifyExportPptx(
           text:
             `Exported ${result.slides.length} slides → ${result.output} ` +
             `(${(result.bytes / 1024).toFixed(0)} KB, ${shapes} native shapes, theme=${result.theme}). ` +
-            `Shapes are editable in PowerPoint; nothing was rasterized.`,
+            `Shapes are editable in PowerPoint; nothing was rasterized.` +
+            (result.slidesDir ? ` Interactive slides: ${result.slidesDir}` : ""),
         },
       ],
       details: {
         path: result.output,
+        ...(result.slidesDir ? { slidesDir: result.slidesDir } : {}),
         theme: result.theme,
         bytes: result.bytes,
         slides: result.slides.map((s) => ({
@@ -135,7 +154,9 @@ export function makeExportPptxTool(events?: OpenBus) {
     description:
       "Export archify diagrams to a 16:9 .pptx as NATIVE, EDITABLE PowerPoint shapes (no screenshots). " +
       "Pass either `manifestPath` (a deck.config.json) or `irPaths` (one slide per IR). " +
-      "Optional `outputPath` and `theme` (light|dark). Returns the absolute .pptx path.",
+      "Optional `outputPath`, `theme` (light|dark) and `slidesDir`. " +
+      "Also keeps the interactive slide HTML in <output>.slides/ and announces it to a webui Diagram pane. " +
+      "Returns the absolute .pptx path.",
     parameters: Type.Object({
       manifestPath: Type.Optional(
         Type.String({
@@ -157,6 +178,12 @@ export function makeExportPptxTool(events?: OpenBus) {
       ),
       theme: Type.Optional(
         Type.String({ description: "light | dark. Overrides the manifest's theme." })
+      ),
+      slidesDir: Type.Optional(
+        Type.String({
+          description:
+            "Where to keep the rendered interactive slide HTML. Default: <output>.slides/ beside the .pptx (also what a webui Diagram pane serves).",
+        })
       ),
     }),
     async execute(_id, params, signal, _onUpdate, ctx) {

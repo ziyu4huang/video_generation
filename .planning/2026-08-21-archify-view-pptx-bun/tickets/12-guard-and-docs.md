@@ -2,7 +2,7 @@
 ticket: 12-guard-and-docs
 effort: archify-view-pptx-bun
 type: task
-status: open
+status: closed
 created: 2026-08-21
 blocks-on: [11]
 ---
@@ -34,3 +34,20 @@ blocks-on: [11]
 ## Gate
 
 Both package gates (§6).
+
+## Result
+
+**closed 2026-08-21** — `__tests__/no-browser-deps.test.ts`, both READMEs rewritten, `map.md`
+synced.
+
+**Scope corrected mid-build after a user challenge (see D5a).** The first cut banned every
+Playwright package. That cargo-culted the pure-Bun argument past the point where it stopped
+being true: Bun 1.4 runs Playwright natively, and `playwright-core` / `puppeteer-core` ship
+WITHOUT browsers and drive an already-installed Chrome over CDP. The guard now bans only
+packages that **bundle a browser download** (`playwright`, `@playwright/test`, `puppeteer`)
+and asserts explicitly that the `-core` clients are NOT banned, with the reasoning in the
+file so the next reader does not re-tighten it.
+
+Also caught: the guard tripped on ITSELF, because its proof-it-can-fail case contains a
+literal `from "playwright"`. Excluded via `import.meta.path` with a comment — the
+self-referential-scan trap this repo has hit before.

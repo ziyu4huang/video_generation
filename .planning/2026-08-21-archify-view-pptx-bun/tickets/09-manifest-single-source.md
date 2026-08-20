@@ -2,7 +2,7 @@
 ticket: 09-manifest-single-source
 effort: archify-view-pptx-bun
 type: task
-status: open
+status: closed
 created: 2026-08-21
 blocks-on: [05, 07]
 ---
@@ -31,3 +31,24 @@ blocks-on: [05, 07]
 ## Gate
 
 Both package gates (§6).
+
+## Result
+
+**closed 2026-08-21** — `announceDeck`/`deckAnnounceFor` in `lib/open-announce.ts`, a
+`slidesDir` option through `lib/deck-build.ts`, defaults wired into both entry points,
+`__tests__/deck-announce.test.ts` (14 tests).
+
+**Design question the ticket did not anticipate**: slide HTML was rendered into a temp dir
+that the build deleted on return, so there was nothing for a webui to serve. Resolved by
+PERSISTING the slides beside the .pptx in `<output>.slides/` by default
+(`--slides-dir` / `--no-slides` / `slidesDir: null` opt out). That is not a side effect worth
+apologising for — those files ARE the diagrams, full-fidelity and interactive; the .pptx is
+their flattened, portable view. A test asserts the ANNOUNCED paths still exist after the build
+returns, which is the obvious way to get this wrong.
+
+**Cross-package smoke, run live**: `examples/deck/` built 5 slides → one `webui:deck`
+emission → webui's REAL handler resolved 5 `/files` URLs in manifest order with CJK titles
+intact, and a `/etc/passwd` slide injected into the same payload was dropped by containment.
+That payload is now pinned verbatim as a fixture in webui's
+`tests/deck-event-handler.test.ts` — the two packages import nothing from each other, so
+nothing else binds archify's emission to webui's expectation.

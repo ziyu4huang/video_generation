@@ -27,15 +27,22 @@ With webui present adoption (2026-08-16), a successful render ALSO emits `webui:
 
 With webui event cards (2026-08-16), both emissions ALSO surface as readonly cards in the browser's Cards tab (attention `view`, clickable `/files` deep link via `#card-archify-<view>`).
 
-## Deck builder (`bun run deck`)
+## PPTX export — native, editable shapes
 
-Turn a set of IR files into a 16:9 PowerPoint deck — one diagram per slide with
-title / accent / footer chrome. Bun-native (`pptxgenjs` + Playwright); **dev-only**
-(not part of the registered extension bundle — `extensions/archify.ts` is untouched).
+Turn a set of IR files into a 16:9 PowerPoint deck. Slides carry **real PowerPoint shapes and
+text runs**, not screenshots: boxes are `rect`/`roundRect`, routed connectors are `custGeom`
+freeforms with real quadratic/cubic curves, straight runs stay single `line` shapes with
+native arrowheads, and every label is an editable text run. **No browser is involved.**
+
+Two entry points over one core (`lib/deck-build.ts`), so the CLI and the agent cannot drift:
 
 ```bash
 bun run deck [manifest] [--theme light|dark] [--output out.pptx]
+             [--slides-dir <dir> | --no-slides] [--emit-shape-ir <dir>]
 ```
+
+…and the registered **`archify_export_pptx`** tool (`{manifestPath | irPaths, outputPath?,
+theme?, slidesDir?}`).
 
 Manifest (`deck.config.json`, default):
 
@@ -44,15 +51,57 @@ Manifest (`deck.config.json`, default):
   "output": "out.pptx",
   "theme": "light",
   "tag": "archify deck",
-  "defaults": { "font": "PingFang TC", "scale": 2 },
+  "defaults": { "font": "PingFang TC" },
   "slides": [{ "ir": "slide1.json", "title": "…", "subtitle": "…" }]
 }
 ```
 
-`ir` / `output` resolve relative to the manifest dir (portable manifest);
-`--output` resolves relative to cwd. Each IR is rendered via the same `deliver`
-path as `archify_render` (validated, not just rendered). Light + dark themes.
-See `docs/2026-08-03-deck-design.md` for the full design.
+`ir` / `output` resolve relative to the manifest dir (portable manifest); `--output` resolves
+relative to cwd. `defaults.scale` configured the old raster path — it is **accepted and
+ignored** so existing manifests keep working. Each IR goes through the same `deliver` path as
+`archify_render`, so a deck can never be built from an artifact archify considers broken.
 
 **Canonical example:** `examples/deck/` — `bun run deck examples/deck/deck.config.json`
-renders the 5-slide SAS/MAS Itemize deck (INCOSE × ASPICE 4.0).
+renders the 5-slide SAS/MAS Itemize deck (INCOSE × ASPICE 4.0). Measured 2026-08-21: 302 KB,
+358 native shapes, zero images.
+
+### One manifest, two surfaces
+
+The rendered slide HTML is kept beside the `.pptx` in `<output>.slides/` (override with
+`--slides-dir`, opt out with `--no-slides`). Those files ARE the diagrams — full-fidelity and
+interactive — and a successful build emits **`webui:deck`** on the host bus with their paths,
+which a webui renders as a browsable deck in its Diagram pane. The `.pptx` is the flattened,
+portable view of the same ordered set. Webui-optional as ever: no webui, no effect.
+
+### The acceptance contract
+
+`__tests__/pptx-shapes.test.ts` builds all five diagram types and reads the `.pptx` back with
+a pure-Bun ZIP reader, asserting per slide that **`<a:blip>` count is 0** — a blip is an image
+reference, so zero of them means nothing was rasterized. That is the one property a
+regression back to screenshots cannot fake. (`Bun.Archive` cannot read zip — probed
+2026-08-21 — hence the local-header walk + `DecompressionStream("deflate-raw")`.)
+
+### How it works
+
+```
+IR .json --deliver--> .html --parseSvg--> SvgDoc --toShapeIR--> ShapeIR --> pptxgenjs
+          (validated)      (HTMLRewriter)        (+ svg-theme)
+```
+
+`ShapeIR` (`lib/shape-ir.ts`) is a format-neutral, paint-ordered shape list with transforms
+applied and styles resolved — the seam any future exporter (PDF, Keynote, Figma) attaches to.
+`lib/svg-model.ts` explains why `HTMLRewriter` and not `Bun.XML` (document order is paint
+order, and `Bun.XML` measurably loses it). Golden fixtures for all five diagram types live in
+`__tests__/fixtures/shape-ir/`; regenerate with `UPDATE_SHAPE_IR_GOLDENS=1 bun test`.
+
+## Browsers
+
+Neither this package nor `pi-agent-ext-webui` downloads a browser. The two tests that need a
+real rendering engine — the SVG-arc ground-truth check and the mermaid paint-check — use
+**`Bun.WebView`** (Bun 1.4): system WebKit on macOS, nothing to install, ~350 ms cold.
+
+`__tests__/no-browser-deps.test.ts` keeps it that way, but only for what actually matters:
+packages that **bundle a browser download** (`playwright`, `@playwright/test`, `puppeteer`)
+are banned here, while `playwright-core` / `puppeteer-core` are explicitly ALLOWED — Bun 1.4
+runs Playwright natively and those builds drive an already-installed Chrome over CDP with no
+download at all.
