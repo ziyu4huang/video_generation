@@ -298,9 +298,16 @@ describe("flux2 self-improve loop", () => {
 
     assert.equal(a.attemptsUsed, b.attemptsUsed);
     assert.equal(a.converged, b.converged);
-    assert.deepEqual(
-      a.trace.map((t) => ({ s: t.seed, ok: t.ok })),
-      b.trace.map((t) => ({ s: t.seed, ok: t.ok })),
+    // Compare JSON projections, not the objects: runWorkflow returns results
+    // from the workflow sandbox's realm, each run gets its own, and Bun 1.4's
+    // node:assert/strict deepEqual requires reference-equal prototypes across
+    // the two sides — so a plain deepEqual fails with "same structure but are
+    // not reference-equal" even when the trace content is byte-identical
+    // (which is the only thing this test means to assert). Under bun 1.3.14
+    // (the CI pin) both forms pass; this one passes under 1.4 too.
+    assert.equal(
+      JSON.stringify(a.trace.map((t) => ({ s: t.seed, ok: t.ok }))),
+      JSON.stringify(b.trace.map((t) => ({ s: t.seed, ok: t.ok }))),
       "per-attempt seed sequence + ok pattern must be identical",
     );
     assert.equal(a.winnerVerdict?.seed, b.winnerVerdict?.seed);

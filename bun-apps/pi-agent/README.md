@@ -58,7 +58,7 @@ See [docs/HISTORY.md](docs/HISTORY.md) for the full development history of all p
 | `BUN_PI_DEFAULT_MODEL_ENV` | `1` (on) | Bridge `PI_MODEL` / `PI_PROVIDER` / `PI_THINKING` env into argv as `--model` / `--provider` / `--thinking` when not already passed — the real pi TUI ignores these env vars (only the `cli` subcommands read them); this makes a shell `PI_MODEL=…` default apply to the interactive TUI too |
 | `BUN_PI_EXT_CTX_GET_SYSTEM_PROMPT_OPTIONS` | `1` (on) | Monkey-patch `ExtensionRunner.createContext()` to expose `getSystemPromptOptions()` on base `ExtensionContext` |
 | `BUN_PI_EXT_API_GET_ALL_TOOL_DEFS` | `1` (on) | Monkey-patch `ExtensionRunner.bindCore()` to expose `getAllToolDefinitions(): ToolDefinition[]` on the ExtensionAPI (`pi`) object |
-| `BUN_PI_EXTRACT_EMBEDDED_ASSETS` | `1` (on) | Extract embedded assets from the `--exe` binary to cache dir (no-op in non-binary modes) |
+| `BUN_PI_EXTRACT_EMBEDDED_ASSETS` | `1` (on) | Extract embedded assets from the compiled binary to cache dir (no-op outside binary mode) |
 | `BUN_PI_DEBUG_PATCHES` | `0` (off) | Print which patches were applied on startup |
 | `BUN_PI_DEBUG_RUN_DIR` | `0` (off) | Print the resolved `run-dir/` argv fragment on startup |
 Toggle:
@@ -173,9 +173,9 @@ pi-agent ships as ONE artifact: a versioned, frozen tree under
 `ext/<name>/` directory per extension, discovered at runtime.
 
 ```bash
-bun run --cwd bun-apps/pi-agent deploy:sh              # cut a new version, move `current`
-bun run --cwd bun-apps/pi-agent deploy:sh --ext power-tool   # rebuild one extension in place
-bun run --cwd bun-apps/pi-agent deploy:sh --no-freeze  # skip the read-only freeze
+bun run --cwd bun-apps/pi-agent deploy              # cut a new version, move `current`
+bun run --cwd bun-apps/pi-agent deploy --ext power-tool   # rebuild one extension in place
+bun run --cwd bun-apps/pi-agent deploy --no-freeze  # skip the read-only freeze
 ```
 
 The extension set, the host-module contract and the per-extension build
@@ -215,16 +215,13 @@ opaque runtime error:
 ```bash
 bun src/cli.ts doctor            # source mode
 bun src/cli.ts doctor --smoke    # + runtime probe (actually load the extensions)
-./run.sh doctor                  # any deployed layout (bundle/snapshot/standalone/exe)
+./run.sh doctor                  # inside a deployed sh tree
 bun src/cli.ts doctor --json     # machine-readable
 ```
-It detects the deploy mode (source/bundle/snapshot/standalone/exe), verifies the
-entry + extension set are complete for that mode, checks the host can resolve the
-deps pi's loader needs (`typebox` + `@earendil-works/*` — FAIL for `--snapshot` / `--standalone`
-where the node_modules subset is essential, WARN for THIN bundle which works via
-abs paths, INFO for source where pi resolves its own), reports provider apiKey
-availability, and lists which patches would apply. Exit 0 = all hard checks pass,
-1 = any failed.
+It detects the deploy mode (source / binary / sh), verifies the
+entry + extension set are complete for that mode (only the sh deploy has an
+on-disk ext/ tree to count), reports provider apiKey availability, and lists
+which patches would apply. Exit 0 = all hard checks pass, 1 = any failed.
 ### `doctor --smoke` — actually load the extensions
 The checks above are all **static** (filesystem / config) — they prove the
 extension FILES exist, not that pi loads them. Add `--smoke` and doctor spawns a
@@ -233,7 +230,7 @@ many tools came from the run-dir extension root. It runs **offline** (the probe
 exits at `session_start`, before the model call):
 ```bash
 bun src/cli.ts doctor --smoke     # + runtime smoke
-./run.sh doctor --smoke           # any deployed layout (bundle/snapshot/standalone)
+./run.sh doctor --smoke           # inside a deployed sh tree
 ```
 This catches the **silent-no-op class** the static checks miss — e.g. the #182
 regression where `cli.ts` captured `process.argv` *before* the run-dir patch
@@ -265,11 +262,10 @@ that can detect a broken deploy says so in its hint.
 is a multi-effort-level launcher — each level is a superset of the
 one below (cost is driven by the build + deploy, not the tests):
 ```bash
-../pi-agent-ext-devops/scripts/run-test.sh                  # = medium  (~11s)  unit + build + patch e2e   [default]
+../pi-agent-ext-devops/scripts/run-test.sh                  # = medium  (~7s)   pi-agent suite incl. launcher e2e   [default]
 ../pi-agent-ext-devops/scripts/run-test.sh quick            # (~0.2s)   unit only, no build — pre-commit safe
-../pi-agent-ext-devops/scripts/run-test.sh high             # (~46s)    + deploy + 4-cwd extension-loading e2e (bundle/snapshot/standalone)
-../pi-agent-ext-devops/scripts/run-test.sh readonly         # (~6s)     read-only deploy e2e ONLY (freeze + zero-write contract)
-../pi-agent-ext-devops/scripts/run-test.sh full             # (~70s)    + readonly + sibling pi-* unit baseline (whole stack)
+../pi-agent-ext-devops/scripts/run-test.sh smoke            # (~30s)    LIVE local-LLM check vs LM Studio (skips when down)
+../pi-agent-ext-devops/scripts/run-test.sh full             # (~40s)    + smoke + sibling pi-* unit baseline (whole stack)
 ../pi-agent-ext-devops/scripts/run-test.sh --list           # print the tier table
 ```
 | Level | Adds | Catches |
@@ -296,7 +292,7 @@ pi-agent/
 │   ├── manifest.json          # DERIVED from the registry (regen:manifest; never hand-edit) — eager ext/skill list + lazyExtensions aliases
 │   └── resolve.ts             # resolves manifest.json extensions + lazy aliases to absolute argv
 ├── scripts/
-│   ├── generate-embedded-assets.ts  # codegen for --exe's embedded theme/skills/assets
+│   ├── generate-embedded-assets.ts  # codegen for the compiled binary's embedded theme/skills/assets
 │   ├── run-ext-e2e.sh / run-image-agent-e2e.sh / run-self-improve-loop.sh  # opt-in runner scripts
 │   └── (deploy.ts + lib/ moved to ../pi-agent-ext-devops/scripts/ — see #1305)
 └── src/
@@ -341,8 +337,7 @@ for one-shot automation, or to call a specific agent workflow from a script.
 ```bash
 ./pi-agent.sh cli <command> [options]                    # from the repo root
 bun bun-apps/pi-agent/src/cli.ts cli <command> [options]  # same, no wrapper
-bun dist/pi-agent/pi-agent.js cli <command>               # deployed bundle
-dist/pi-agent/pi-agent cli <command>                      # deployed --exe
+~/proj/dist/pi-agent-sh/current/pi-agent cli <command>    # deployed sh tree
 ```
 > The `cli` token is intercepted in `src/cli.ts` **before** `applyPatches()`, so
 > a CLI invocation gets none of the TUI's run-dir splice, provider patch, or

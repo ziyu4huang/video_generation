@@ -15,9 +15,8 @@ A thin wrapper around the official `@earendil-works/pi-coding-agent` TUI. It cal
 | **TUI passthrough** | Full pi TUI, all flags, sessions, tools |
 | **Extra providers** | lm-studio, ollama, openrouter, llamacpp — hardcoded in `src/pre-load-providers.ts` |
 | **Fixed extension set** | `run-dir/manifest.json` — the single source of truth (static + dynamic layers; membership asserted by `run-dir/manifest-consistency.test.ts`, counts deliberately not restated here) |
-| **Bundle support** | `bun run deploy` → single output `dist/pi-agent/pi-agent.js` (the deploy pipeline lives in `../pi-agent-ext-devops/scripts/deploy.ts`) |
-| **Deploy (4 modes)** | `deploy.ts` — `--bundle` (default, THIN) · `--snapshot` (source-copy) · `--standalone` (bundle + bun binary) · `--exe` (single compiled binary, all assets embedded) |
-| **E2E testing** | L2 (judgment) + L3 (real-model) + deploy e2e (bundle/snapshot/standalone × doctor + smoke + skill-load + readonly) |
+| **Deploy** | `bun run deploy` → versioned minimal-core tree at `~/proj/dist/pi-agent-sh/<version>/` (drives `../pi-agent-ext-devops/scripts/deploy.ts`; see [`docs/deploy.md`](docs/deploy.md)) |
+| **E2E testing** | L2 (judgment) + L3 (real-model) + deploy tree e2e (doctor + smoke + readonly, gated in CI) |
 
 ## Key Dependencies
 
@@ -40,71 +39,24 @@ One deploy: a versioned, frozen tree of a minimal compiled core plus one
 [`docs/deploy.md`](docs/deploy.md) for the full reference.
 
 ```bash
-bun run --cwd bun-apps/pi-agent deploy:sh          # cut a new version, move `current`
-bun run --cwd bun-apps/pi-agent deploy:sh --ext <name>   # rebuild one extension in place
+bun run --cwd bun-apps/pi-agent deploy          # cut a new version, move `current`
+bun run --cwd bun-apps/pi-agent deploy --ext <name>   # rebuild one extension in place
 ```
 
-(Run from the package dir; `deploy:sh` shells into `../pi-agent-ext-devops/src/deploy-cli.ts`, which drives `scripts/deploy.ts` — the single deploy pipeline since the consolidation. See `docs/deploy.md`.)
+(Run from the package dir; `deploy` shells into `../pi-agent-ext-devops/src/deploy-cli.ts`, which drives `scripts/deploy.ts` — the single deploy pipeline since the consolidation. See `docs/deploy.md`.)
 
-`deploy.ts` no longer has a standalone `--verify` boot-probe step (dropped in
-the bundle/snapshot/standalone/exe unification) — its job is now covered by
-the e2e layers below, run per-mode instead of once at deploy time.
-
-### Deploy verification layers
-
-| Layer | What it checks | Where |
-|-------|----------------|-------|
-| **Runtime probe** (e2e) | `session_start` probe: tool load, command load, zero errors | `e2e-extensions.test.ts` |
-| **doctor** (e2e) | Mode detection + static checks (ext-bundles, host-deps, providers) | `doctor --json` |
-| **doctor --smoke** (e2e) | Runtime spawn: run-dir extensions actually loaded (matched > 0) | `doctor --smoke --json` |
-| **skill-load** (e2e) | `before_agent_start`: superpowers SKILL.md in `systemPromptOptions.skills` | `e2e-extensions.test.ts` |
-| **readonly** (e2e) | Frozen tree (chmod a-w): zero writes, foreign-cwd run, state routing | `e2e-readonly.test.ts` |
-
-### Verification pipeline
-
-```
-         ┌───────────────┬───────────────┬───────────────┐
-         ▼               ▼               ▼               ▼
-      BUNDLE          SNAPSHOT       STANDALONE          EXE
-  (THIN ext-bundles)  (raw source)  (bundle + bun)   (single binary)
-         │               │               │               │
-         ▼               ▼               ▼          CI-only smoke:
-  ┌────────────────────────────────────────────┐    doctor + ext-doctor
-  │ e2e-extensions.test.ts (per mode):          │    + binarySkills +
-  │  · runtime probe  (session_start)           │    obsidian-exclusion
-  │  · doctor --json  (mode + static checks)    │    (compile-verify CI job)
-  │  · doctor --smoke (runtime spawn)           │
-  │  · skill-load     (before_agent_start)      │
-  ├──────────────────────────────────────────────┤
-  │ e2e-readonly.test.ts (bundle + snapshot):    │
-  │  · frozen tree (chmod a-w) zero writes       │
-  │  · foreign-cwd run via run.sh                │
-  │  · state routing to PI_CODING_AGENT_DIR      │
-  └────────────────────────────────────────────┘
-```
-
-### Reproducibility
-
-- **build-extensions hash cache**: sha256 over source tree + thin/full flag + `Bun.version`
-  — the mechanism is intact (`scripts/lib/build-extensions.ts` + `ext-hash.ts`)
-  but currently never hits via `deploy.ts`, since `main()` wipes the target dir
-  (and its `.hash` sidecars) on every run before rebuilding.
-- **read-only freeze**: every deploy is `chmod a-w` + `.deploy-readonly` marker by default; `run.sh` applies `JITI_FS_CACHE=0` + `PI_CODING_AGENT_DIR` routing
-
-Run via:
-```bash
-bash bun-apps/pi-agent/run-test.sh high      # unit + patches + deploy e2e (bundle/snapshot/standalone)
-bash bun-apps/pi-agent/run-test.sh readonly   # frozen-deploy contract (bundle + snapshot)
-```
+Verification is not restated here: the deploy's four gates, its e2e tiers, and
+the read-only freeze contract live in ONE place — [`docs/deploy.md`](docs/deploy.md)
+("The four gates", "E2E tiers", "The tree is read-only"). This PRD previously
+duplicated them with the retired bundle/snapshot/standalone/exe pipeline diagram
+and a `run-test.sh high`/`readonly` invocation path that no longer exists.
 
 ## Use
 
 ```bash
 bun bun-apps/pi-agent/src/cli.ts   # source mode
 # or
-bun dist/pi-agent/pi-agent.js      # bundled mode
-# or
-bash dist/pi-agent/run.sh          # deployed mode (any cwd)
+bash ~/proj/dist/pi-agent-sh/current/run.sh   # deployed mode (any cwd)
 ```
 
 ## Known behavior: `<REPO>/node_modules/` regenerates on launch (intentional)

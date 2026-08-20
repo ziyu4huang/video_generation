@@ -35,6 +35,7 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readJsonc } from "./read-jsonc.ts";
+import { parseRegistryBaseSetNames } from "./lib/registry-base-set.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // bun-apps/
 const EXTS = readdirSync(ROOT)
@@ -175,37 +176,13 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 
 	it("no PORTABLE BASE SET extension declares a runtime dependency on another extension", () => {
 		// Base set is DERIVED from pi-agent.registry.yaml (entries carrying a
-		// `deploy:` block — excluded entries have `excludeReason` instead), so
-		// promoting an extension into the portable profile enrolls it here
-		// automatically. The floor guard is what keeps a silent parse failure
-		// from making this vacuous.
+		// `deploy:` block that is not `enabled: false` — excluded entries have
+		// `excludeReason` instead), via the shared scanner in
+		// tests/lib/registry-base-set.ts, so promoting an extension into the
+		// portable profile enrolls it here automatically. The floor guard is
+		// what keeps a silent parse failure from making this vacuous.
 		const yamlText = readFileSync(join(ROOT, "pi-agent", "pi-agent.registry.yaml"), "utf8");
-		const baseSet: string[] = [];
-		let inExtensions = false;
-		let name: string | null = null;
-		let hasDeployBlock = false;
-		const flush = (): void => {
-			if (name !== null && hasDeployBlock) baseSet.push(`pi-agent-ext-${name}`);
-		};
-		for (const raw of yamlText.split("\n")) {
-			if (/^extensions:\s*$/.test(raw)) {
-				inExtensions = true;
-				continue;
-			}
-			if (inExtensions && /^\S/.test(raw)) break;
-			if (!inExtensions) continue;
-			const m = /^\s*-\s*name:\s*(\S+)\s*$/.exec(raw);
-			if (m) {
-				flush();
-				name = m[1] as string;
-				hasDeployBlock = false;
-				continue;
-			}
-			// Entry-indented `deploy:` opens the block that marks an entry shipped
-			// (the top-level `deploy:` key is column-0 and never matches).
-			if (name !== null && /^\s+deploy:\s*$/.test(raw)) hasDeployBlock = true;
-		}
-		flush();
+		const baseSet = parseRegistryBaseSetNames(yamlText).map((n) => `pi-agent-ext-${n}`);
 		assert.ok(baseSet.length >= 10, `parsed only ${baseSet.length} base-set name(s) from pi-agent.registry.yaml`);
 
 		const violations: string[] = [];

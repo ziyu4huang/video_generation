@@ -4,7 +4,7 @@
  * `bun src/cli.ts ext doctor [--json]` — loads every manifest extension through
  * a mock pi, verifies the factory loads + wires up (tools/commands/events),
  * checks for cross-extension tool-name conflicts, and reports:
- *   - name + bundleMode (thin/full) + version + testGate (from manifest v2)
+ *   - name + version (from the manifest's declared entries)
  *   - tools/commands registered synchronously
  *   - OK / FAIL / DYNAMIC status
  *
@@ -36,9 +36,7 @@ const MANIFEST_PATH = join(PI_AGENT_DIR, "run-dir", "manifest.json");
 interface ExtDoctorEntry {
 	name: string;
 	entry: string;
-	bundleMode: string;
 	version?: string;
-	testGate?: string;
 	status: "OK" | "FAIL" | "DYNAMIC";
 	tools: string[];
 	commands: string[];
@@ -116,7 +114,7 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 			const mod = await import(abs);
 			const factory = mod.default;
 			if (typeof factory !== "function") {
-				results.push({ ...entry, bundleMode: entry.bundleMode ?? "thin", status: "FAIL", tools: [], commands: [], error: `no default factory (${typeof factory})` });
+				results.push({ ...entry, status: "FAIL", tools: [], commands: [], error: `no default factory (${typeof factory})` });
 				continue;
 			}
 			const mock = makeMockPi();
@@ -126,7 +124,6 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 			const wired = toolNames.length > 0 || mock.commands.length > 0 || mock.onCount > 0;
 			results.push({
 				...entry,
-				bundleMode: entry.bundleMode ?? "thin",
 				status: wired ? "OK" : "DYNAMIC",
 				tools: toolNames,
 				commands: mock.commands,
@@ -134,7 +131,6 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 		} catch (e) {
 			results.push({
 				...entry,
-				bundleMode: entry.bundleMode ?? "thin",
 				status: "FAIL",
 				tools: [],
 				commands: [],
@@ -166,7 +162,6 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 			results.push({
 				name,
 				entry: `static-extensions.ts (${name})`,
-				bundleMode: "static",
 				status: wired ? "OK" : "DYNAMIC",
 				tools: toolNames,
 				commands: mock.commands,
@@ -175,7 +170,6 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 			results.push({
 				name,
 				entry: `static-extensions.ts (${name})`,
-				bundleMode: "static",
 				status: "FAIL",
 				tools: [],
 				commands: [],
@@ -199,7 +193,6 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 					results.push({
 						name: `${alias} (lazy)`,
 						entry: rel,
-						bundleMode: "thin",
 						status: toolNames.length > 0 || mock.commands.length > 0 ? "OK" : "DYNAMIC",
 						tools: toolNames,
 						commands: mock.commands,
@@ -209,7 +202,6 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 				results.push({
 					name: `${alias} (lazy)`,
 					entry: rel,
-					bundleMode: "thin",
 					status: "FAIL",
 					tools: [],
 					commands: [],
@@ -248,7 +240,7 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 		process.stdout.write(`\n${B}pi-agent ext doctor${RST}  (${results.length} extensions)${binaryMode ? `${D}  [compiled binary — static factories only, manifest.json not in \$bunfs]${RST}` : ""}\n\n`);
 		for (const r of results) {
 			const badge = r.status === "OK" ? `${G}OK   ${RST}` : r.status === "DYNAMIC" ? `${Y}DYN  ${RST}` : `${R}FAIL ${RST}`;
-			const meta = [r.bundleMode, r.version, r.testGate].filter(Boolean).join(" · ");
+			const meta = [r.version].filter(Boolean).join(" · ");
 			process.stdout.write(`${badge} ${r.name.padEnd(34)} ${D}${meta}${RST}\n`);
 			if (r.tools.length) process.stdout.write(`${D}        tools: [${r.tools.join(", ")}]${RST}\n`);
 			if (r.commands.length) process.stdout.write(`${D}        cmds:  [${r.commands.join(", ")}]${RST}\n`);

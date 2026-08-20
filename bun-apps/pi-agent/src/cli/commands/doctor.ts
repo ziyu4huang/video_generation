@@ -126,8 +126,8 @@ export function checkRunDir(ctx: DoctorContext, repoRoot: string): CheckResult {
 		};
 	}
 	// The manifest's `extensions` array is MIXED-TYPE: plain strings (most
-	// entries) AND objects ({ name, entry, bundleMode, ... }) for entries that
-	// carry thin/full bundle metadata. The canonical resolver
+	// entries) AND objects ({ name, entry, version }) for entries that
+	// carry declared metadata. The canonical resolver
 	// (pi-agent/run-dir/resolve.ts) normalizes via `typeof e === "string" ? e :
 	// e?.entry`; doctor must do the same or `join(bunApps, <object>)` throws.
 	// Skills are always plain strings (no metadata objects today).

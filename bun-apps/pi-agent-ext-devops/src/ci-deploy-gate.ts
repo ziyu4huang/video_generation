@@ -29,7 +29,7 @@ export const DEPLOY_SENSITIVE_PATTERNS: readonly string[] = [
 	"bun-apps/pi-agent-ext-devops/scripts/",
 	"bun-apps/pi-agent/run.sh",
 	"pi-agent.sh", // repo-root symlink to bun-apps/pi-agent/run.sh
-	"bun-apps/pi-agent/package.json", // update-pi.sh + deploy:sh are declared here
+	"bun-apps/pi-agent/package.json", // update-pi.sh + deploy are declared here
 	"bun-apps/pi-agent/src/cli.ts", // the source entry the launcher spawns
 	"bun-apps/pi-agent/src/patches/",
 	"bun-apps/pi-agent/src/static-extensions.ts",

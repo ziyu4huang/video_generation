@@ -126,7 +126,7 @@ export function checkEntry(ctx: DoctorContext): CheckResult {
 			label: "pi-agent entry",
 			status: "fail",
 			detail: `not found: ${ctx.entryPath}`,
-			hint: "rebuild: `bun run --cwd bun-apps/pi-agent deploy:sh` or re-deploy",
+			hint: "rebuild: `bun run --cwd bun-apps/pi-agent deploy` or re-deploy",
 		};
 	}
 	return { id: "entry", label: "pi-agent entry", status: "pass", detail: ctx.entryPath };
@@ -193,7 +193,7 @@ export function checkShExtensions(ctx: DoctorContext): CheckResult {
 			label,
 			status: "fail",
 			detail: `${ok.length} loadable, ${bad.length} would be SKIPPED at boot: ${bad.join(", ")}`,
-			hint: "rebuild that extension: `bun run --cwd bun-apps/pi-agent deploy:sh --ext <name>`",
+			hint: "rebuild that extension: `bun run --cwd bun-apps/pi-agent deploy --ext <name>`",
 		};
 	}
 	return { id, label, status: "pass", detail: `${ok.length} extension(s) loadable: ${ok.join(", ") || "none"}` };

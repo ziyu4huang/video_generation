@@ -1,12 +1,10 @@
 # deploy — versioned minimal-core deploy
 
-A second, independent deploy pipeline. It builds a **minimal `pi-agent` executable with zero
-extensions compiled in**, plus **extension packages built separately** into `ext/<name>/`, all
-under a versioned directory. The core discovers extensions at runtime; delete `ext/` and it still
-boots, just without them.
-
-This pipeline does not touch the four modes in `../pi-agent-ext-devops/scripts/deploy.ts`
-(`--bundle` / `--snapshot` / `--standalone` / `--exe`), which keep working exactly as before.
+THE deploy pipeline (the only one since the deploy-architecture consolidation
+retired `--bundle` / `--snapshot` / `--standalone` / `--exe`). It builds a **minimal `pi-agent`
+executable with zero extensions compiled in**, plus **extension packages built separately** into
+`ext/<name>/`, all under a versioned directory. The core discovers extensions at runtime; delete
+`ext/` and it still boots, just without them.
 
 ## Layout
 
@@ -32,9 +30,9 @@ it the banner reads `pi v0.0.0`.
 ## Commands
 
 ```bash
-bun run --cwd bun-apps/pi-agent deploy:sh                  # full deploy
-bun run --cwd bun-apps/pi-agent deploy:sh --ext power-tool # rebuild ONE extension in place
-bun run --cwd bun-apps/pi-agent deploy:sh --list           # versions + current target
+bun run --cwd bun-apps/pi-agent deploy                  # full deploy
+bun run --cwd bun-apps/pi-agent deploy --ext power-tool # rebuild ONE extension in place
+bun run --cwd bun-apps/pi-agent deploy --list           # versions + current target
 ~/proj/dist/pi-agent-sh/current/run.sh                     # run it
 ~/proj/dist/pi-agent-sh/current/pi-agent --ext-list        # what loaded, what was skipped, and why
 ```
@@ -103,7 +101,7 @@ Add an entry to `pi-agent.registry.yaml`:
       vendor: [some-pkg]    # optional — copy a real node_modules copy per extension (see below)
 ```
 
-then run `bun run regen:manifest` (the run-dir manifest derives from the registry) and `deploy:sh`. If the build reports foreign specifiers, decide per specifier: a shared
+then run `bun run regen:manifest` (the run-dir manifest derives from the registry) and `deploy`. If the build reports foreign specifiers, decide per specifier: a shared
 runtime that must be identical to the host's goes in the host whitelist; anything else should be
 inlined by the bundler (check the package declares it in its own `package.json` and that
 `bun install` has run from `bun-apps/`).

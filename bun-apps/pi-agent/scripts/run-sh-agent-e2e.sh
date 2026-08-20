@@ -53,7 +53,7 @@ if [ -n "${DEPLOY_DIR:-}" ]; then
   echo "── reusing deploy: $DEPLOY_DIR ──"
 else
   echo "── deploying sh bundle to $TMP ──"
-  # Call the CLI directly — `bun run deploy:sh` would first echo its command
+  # Call the CLI directly — `bun run deploy` would first echo its command
   # line to stdout and pollute the JSON. deploy-cli promises PURE JSON on
   # stdout (that convention is what makes this parse safe — the build report
   # goes to stderr). --no-freeze keeps the tree removable by the EXIT trap.
