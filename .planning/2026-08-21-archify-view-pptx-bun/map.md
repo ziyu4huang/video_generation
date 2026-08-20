@@ -86,8 +86,8 @@ Phase 2 — native-shape PPTX (archify)
 - `tickets/06-pptx-acceptance.md` — task, **closed** — pure-Bun zip assertion, all 5 types
 
 Phase 3 — webui Diagram pane
-- `tickets/07-deck-event.md` — task — `webui:deck` event + handler + frames
-- `tickets/08-diagram-pane.md` — task — shell pane: viewer, deck nav, escape hatches, hash
+- `tickets/07-deck-event.md` — task, **closed** — `webui:deck` event + handler + frame
+- `tickets/08-diagram-pane.md` — task, **closed** — shell pane: viewer, deck nav, hash, replay
 
 Phase 4 — one manifest, two surfaces
 - `tickets/09-manifest-single-source.md` — task — archify emits `webui:deck` from the manifest
@@ -122,15 +122,21 @@ Phase 5 — Bun-native + guards + docs
   security surface.
 - **D5 — browser = `Bun.WebView`, and Playwright is removed.** Not a trade any more: WebView
   keeps the mermaid render-fidelity coverage AND drops the devDep + the chromium download.
+- **D6a (build correction, 2026-08-21) — no `diagram_open` frame.** The spec planned one for
+  single diagrams; `view_opened` already carries exactly that payload, is already broadcast
+  per render, and is already replay-eligible. Single diagrams reach the Diagram pane with zero
+  archify changes. See ticket 07's Result.
 - **D6 — cross-package contract unchanged.** archify imports nothing from webui; the
   string-literal event channel (`webui:open`, new `webui:deck`) is the entire contract.
   Absent webui ⇒ every emit is a no-op.
 
 ## Frontier
 
-Phase 3 (tickets 07–08) — the webui Diagram pane. Phases 1-2 closed 2026-08-21: PPTX export
-is native editable shapes (measured: the 5-slide example deck is 358 shapes with `<a:blip>`
-count 0 on every slide) and the PPTX path no longer touches a browser.
+Phase 4 (ticket 09, then 10) — one manifest driving both surfaces. Phases 1-3 closed
+2026-08-21: PPTX export is native editable shapes (the 5-slide example deck is 358 shapes with
+`<a:blip>` count 0 on every slide), the PPTX path no longer touches a browser, and the webui
+Diagram pane renders artifacts at full runtime fidelity in-shell (verified live through the
+real `/files` route in `Bun.WebView`).
 
 ## Fog of war
 

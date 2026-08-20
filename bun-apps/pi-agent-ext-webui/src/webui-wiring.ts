@@ -50,6 +50,7 @@ import { createOutputRoutes } from "./output-routes.js";
 import { createFileRoutes } from "./file-routes.js";
 import { createRenderEventHandler } from "./render-event-handler.js";
 import { createPresentEventHandler } from "./present-event-handler.js";
+import { createDeckEventHandler } from "./deck-event-handler.js";
 import { createOpenEventHandler } from "./open-event-handler.js";
 import { imageMd } from "./image-presentation.js";
 import { resolveOutputDir } from "./output-routes.js";
@@ -1069,6 +1070,25 @@ export function wireWebui(pi: WebuiHost, deps: WebuiDeps = {}): WebuiWiring {
           body: { text: "archify view ready", url: frame.url },
         });
       },
+    })
+  );
+
+  // archify-view-pptx-bun (07): the `webui:deck` channel — the multi-diagram
+  // sibling of webui:open. Same string-literal contract, same containment core
+  // (locateFileInRoots), same store-wrapped broadcaster so the deck rides the
+  // connect-time replay. No ui.notify: a deck's value is the in-shell Diagram
+  // pane, and the per-render open announcements already bell the TUI.
+  pi.events?.on(
+    "webui:deck",
+    createDeckEventHandler(fileRoots, {
+      getUrl: () => {
+        try {
+          return server.url.replace(/\/$/, "");
+        } catch {
+          return ""; // server not started/stopped — emit bare /files paths
+        }
+      },
+      broadcast: (frame) => broadcaster.broadcast(frame),
     })
   );
 

@@ -2,7 +2,7 @@
 ticket: 07-deck-event
 effort: archify-view-pptx-bun
 type: task
-status: open
+status: closed
 created: 2026-08-21
 blocking: [08, 09]
 ---
@@ -42,3 +42,17 @@ blocking: [08, 09]
 ## Gate
 
 `( cd bun-apps/pi-agent-ext-webui && bun run typecheck && bun run test )`
+
+## Result
+
+**closed 2026-08-21** — `src/deck-event-handler.ts`, the `diagram_deck` frame in
+`protocol.ts`, wiring in `webui-wiring.ts`, `tests/deck-event-handler.test.ts` (28 tests
+covering containment, traversal, symlink escape, directories, 13 malformed payloads, a
+throwing `getUrl` and a throwing `broadcast`).
+
+**Design correction during build — `diagram_open` was NOT added.** The spec called for a new
+single-diagram frame, but `view_opened` already exists, already carries
+`{view, title, url, ts}`, is already broadcast for every archify render, and is already
+replay-eligible. Adding a parallel frame would have been a second way to say the same thing.
+The Diagram pane consumes `view_opened` directly, so single diagrams reach it with **zero
+archify changes** — better than the spec's plan, not a compromise on it.

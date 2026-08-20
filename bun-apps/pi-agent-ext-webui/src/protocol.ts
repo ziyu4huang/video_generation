@@ -138,6 +138,23 @@ export type WebFrame =
   // connect-time replay (the wiring's store wrapper appends it to the
   // transcript ring like any outbound frame).
   | { type: "view_opened"; view?: string; title?: string; url: string; ts: number }
+  // archify-view-pptx-bun (07): a `webui:deck` emission resolved to servable
+  // /files URLs — the multi-diagram sibling of view_opened, which the Diagram
+  // pane renders as a slide deck. `deckId` is stable identity: re-emitting the
+  // same deck REPLACES it rather than stacking a duplicate. URLs are RESOLVED
+  // server-side (never raw paths — the view_opened precedent). Replay-eligible
+  // via the store-wrapped broadcaster, so a refresh restores the deck.
+  //
+  // Single diagrams deliberately reuse `view_opened` rather than adding a
+  // parallel `diagram_open`: that frame already carries {view,title,url,ts},
+  // is already broadcast for every archify render, and is already replayed.
+  | {
+      type: "diagram_deck";
+      deckId: string;
+      title?: string;
+      slides: { url: string; title?: string; subtitle?: string }[];
+      ts: number;
+    }
   // webui-simplify §3: one live transport — the registry's render listener
   // broadcasts view changes over the WS channel (SSE /api/events was cut).
   | { type: "view_update"; viewId: string; ts: number }
