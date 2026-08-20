@@ -69,6 +69,11 @@ describe("staticExtensions ↔ STATIC_EXTENSION_FACTORIES", () => {
 		// viewer reads a registry subagent populates. A manifest reordering that
 		// silently diverged from the code would break that invisibly.
 		expect(staticDirs).toEqual(STATIC_EXTENSION_FACTORIES.map((f) => f.name));
+		// With static-extensions.ts GENERATED from this manifest, the equality
+		// above compares one source with itself — it can no longer catch a
+		// reorder. Assert the invariant against the manifest array directly.
+		const idx = (dir: string) => staticDirs.indexOf(dir);
+		expect(idx("pi-agent-ext-subagent")).toBeLessThan(idx("pi-agent-ext-workflow"));
 	});
 
 	test("no package is registered both statically and dynamically", () => {
