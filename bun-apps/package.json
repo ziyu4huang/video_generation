@@ -22,6 +22,7 @@
     "test:scripts": "bun test tests/package-scripts-runnable.test.ts",
     "test:dist": "bun test tests/workspace-dist-fresh.test.ts",
     "test:ext-entry": "bun test tests/extension-entry-typechecked.test.ts",
+    "test:isolation": "bun test tests/extension-isolation-contract.test.ts",
     "test:lint-coverage": "bun test tests/lint-executor-coverage.test.ts",
     "typecheck:ext": "bun scripts/ext-entry-typecheck.ts"
   }
