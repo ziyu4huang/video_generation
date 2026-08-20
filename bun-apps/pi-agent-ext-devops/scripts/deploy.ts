@@ -21,6 +21,12 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { dirname, join, resolve } from "node:path";
 import { parseShConfig, type ShConfig } from "./lib/config.ts";
 import { buildExtPackage } from "./lib/ext-build.ts";
+import {
+	scanBinaryForeignPaths,
+	scanSymlinkEscapes,
+	verifyVendoredClosure,
+	verifyVendoredCompleteness,
+} from "./lib/offline-gate.ts";
 import { computeVersion, ensureOutRoot, resolveTargetDir, swapCurrent } from "./lib/version.ts";
 import { freezeTree, rmTree, unfreezeTree } from "./lib/fs.ts";
 import { stageGenerateEmbeddedAssets } from "./lib/codegen.ts";
@@ -152,6 +158,22 @@ SCRIPT_DIR="\$(cd -P "\$(dirname "\$SOURCE")" >/dev/null 2>&1 && pwd)"
 export JITI_FS_CACHE="\${JITI_FS_CACHE:-0}"
 export PI_CODING_AGENT_DIR="\${PI_CODING_AGENT_DIR:-\$HOME/.pi/agent}"
 
+# Offline dist: no browser is bundled. The vendored puppeteer (hyperframes
+# frame capture) launches SYSTEM Chrome — the same machine dependency
+# power-tool's playwright channel:"chrome" already makes. No candidate
+# found → var stays unset → puppeteer fails with its own clear launch error.
+if [ -z "\${PUPPETEER_EXECUTABLE_PATH:-}" ]; then
+  for _chrome in \\
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \\
+    "/Applications/Chromium.app/Contents/MacOS/Chromium" \\
+    "/usr/bin/google-chrome" \\
+    "/usr/bin/google-chrome-stable" \\
+    "/usr/bin/chromium" \\
+    "/usr/bin/chromium-browser"; do
+    [ -x "\$_chrome" ] && export PUPPETEER_EXECUTABLE_PATH="\$_chrome" && break
+  done
+fi
+
 exec "\$SCRIPT_DIR/pi-agent" "\$@"
 `;
 
@@ -191,6 +213,57 @@ function verifyDualState(stageDir: string, expected: string[]): void {
 		}
 	} finally {
 		renameSync(parked, extDir);
+	}
+}
+
+/**
+ * Gate 5: the tree is offline-contained (see lib/offline-gate.ts for the four
+ * checks and the defect each closes). `binary`/`finalTarget` only on a full
+ * deploy — the ext-only path never touches the binary, and its scan must key
+ * off the FINAL path anyway (a baked staging path is itself a violation).
+ * Allowlisted binary artifacts print as warnings, never block.
+ */
+function verifyOfflineContainment(
+	tree: string,
+	opts: { binary?: string; finalTarget?: string } = {},
+): void {
+	const problems: string[] = [];
+
+	const escapes = scanSymlinkEscapes(tree);
+	if (escapes.length > 0) {
+		problems.push(`symlink(s) escape the deploy tree: ${escapes.slice(0, 5).join("; ")}${escapes.length > 5 ? ` (+${escapes.length - 5} more)` : ""}`);
+	}
+
+	const incomplete = verifyVendoredCompleteness(tree);
+	if (incomplete.length > 0) {
+		problems.push(
+			`declared vendor package(s) not shipped: ${incomplete.map((m) => `${m.ext}:${m.pkg}`).join(", ")}`,
+		);
+	}
+
+	const dangling = verifyVendoredClosure(tree);
+	if (dangling.length > 0) {
+		problems.push(
+			`vendored package(s) with hard deps missing from the tree: ${dangling
+				.map((v) => `${v.pkg} → ${v.missing.join(", ")}`)
+				.join("; ")}`,
+		);
+	}
+
+	if (opts.binary && opts.finalTarget) {
+		const r = scanBinaryForeignPaths(opts.binary, opts.finalTarget);
+		for (const allowed of r.allowed) {
+			process.stderr.write(`gate5: allowlisted binary artifact: ${allowed}\n`);
+		}
+		if (r.foreign.length > 0) {
+			problems.push(`binary bakes build-machine path(s): ${r.foreign.slice(0, 5).join(", ")}${r.foreign.length > 5 ? ` (+${r.foreign.length - 5} more)` : ""}`);
+		}
+	}
+
+	if (problems.length > 0) {
+		throw new Error(
+			`Gate 5 (offline containment) failed — the deploy tree must be self-contained and relocatable:\n  ${problems.join("\n  ")}`,
+		);
 	}
 }
 
@@ -241,6 +314,8 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 				target,
 				enabled.map((e) => e.name),
 			);
+			// Gate 5, tree half only — the binary is untouched by an ext rebuild.
+			verifyOfflineContainment(target);
 		} finally {
 			if (freeze) freezeTree(target);
 		}
@@ -297,6 +372,12 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			stage,
 			enabled.map((e) => e.name),
 		);
+
+		// Gate 5 — BEFORE the rename/freeze/current swap, so a violation never
+		// becomes the deployed version. The binary scan keys off the FINAL
+		// version path: a baked `.staging-…` path is itself a violation (it
+		// sits under $HOME and would break relocatability).
+		verifyOfflineContainment(stage, { binary: join(stage, "pi-agent"), finalTarget: target });
 
 		if (existsSync(target)) rmTree(target);
 		renameSync(stage, target);

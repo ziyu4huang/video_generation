@@ -203,6 +203,12 @@ extensions:
     # incl. mp3 SFX / woff2 fonts). Factory is a no-op; skills copy verbatim.
     deploy:
       order: 120
+      # The skill helpers (animation-map / contrast-report) import these at
+      # runtime; vendoring their full closure lets the dist answer offline — no
+      # npm-install bootstrap. pinned exact in pi-agent-ext-hyperframes/package.json.
+      # Frame capture needs a browser: run.sh exports PUPPETEER_EXECUTABLE_PATH
+      # to system Chrome (none is bundled).
+      vendor: ["@hyperframes/core", "@hyperframes/producer", "sharp"]
   - name: pi-agent-ext-tool-gate
     package: pi-agent-ext-tool-gate
     entry: extensions/tool-gate.ts

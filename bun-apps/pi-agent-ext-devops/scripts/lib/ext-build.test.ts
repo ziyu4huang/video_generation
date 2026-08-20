@@ -9,7 +9,7 @@
  * function when the legacy build-extensions.ts was retired.
  */
 import { describe, expect, test } from "bun:test";
-import { extractBareSpecifiers } from "./ext-build.ts";
+import { extractBareSpecifiers, patchOfflinePackageLoader } from "./ext-build.ts";
 
 describe("extractBareSpecifiers", () => {
 	test("extracts real ESM bare specifiers", () => {
@@ -51,5 +51,30 @@ describe("extractBareSpecifiers", () => {
 		const specs = extractBareSpecifiers(code);
 		expect(specs).toContain("real-pkg");
 		expect(specs).toContain("other-pkg");
+	});
+});
+
+describe("patchOfflinePackageLoader", () => {
+	// Verbatim shape of the hyperframes skill helper's bootstrap branch
+	// (skills/*/scripts/package-loader.mjs, importPackagesOrBootstrap).
+	const LOADER = [
+		`const BOOTSTRAP_CONFIRM_ENV = "HYPERFRAMES_SKILL_BOOTSTRAP_DEPS";`,
+		`  if (missing.length > 0 && !process.env[BOOTSTRAP_ENV]) {`,
+		`    const npmPackages = options.npmPackages ?? missing;`,
+		`    assertPinnedPackageSpecs(npmPackages);`,
+		`    await confirmBootstrap(npmPackages);`,
+		`    bootstrapWithNpmInstall(npmPackages);`,
+		`  }`,
+	].join("\n");
+
+	test("replaces the npm-install bootstrap with a fail-fast offline throw", () => {
+		const patched = patchOfflinePackageLoader(LOADER);
+		expect(patched).not.toContain("await confirmBootstrap(npmPackages);");
+		expect(patched).not.toContain("bootstrapWithNpmInstall(npmPackages);");
+		expect(patched).toContain('throw new Error("package not vendored in the offline pi-agent-sh dist: " + missing.join(", "));');
+	});
+
+	test("throws on shape drift — a silent no-op patch is the failure mode gates exist to prevent", () => {
+		expect(() => patchOfflinePackageLoader("const x = 1;")).toThrow(/shape drifted/);
 	});
 });
