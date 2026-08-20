@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
 	parseTierFromMap,
 	countOpenQuestions,
@@ -29,8 +29,13 @@ tier: T3
 - who owns Y?
 `;
 
-// Mock repo root for classifySize tests
-const REPO_ROOT = "/Users/huangziyu/proj/video_generation__memory";
+// Repo root for classifySize's on-disk package lookup, derived from THIS
+// file's location (<root>/bun-apps/pi-agent/src/cli/commands/) — it was
+// hardcoded to one developer worktree's absolute path at birth (#1736),
+// which made the suite red in every other worktree/clone (CI is disabled,
+// and local_ci only ran green inside that one worktree, so main sat red
+// unnoticed until Phase 3's local_ci triage).
+const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..", "..", "..");
 
 describe("parseTierFromMap", () => {
 	test("reads tier from frontmatter", () => {
