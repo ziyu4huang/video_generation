@@ -26,7 +26,6 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFil
 import { homedir } from "node:os";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
-import { extractBareSpecifiers } from "./build-extensions.ts";
 import { evaluateExtModule, EXT_DIR_SPEC } from "../../../pi-agent/src/sh/ext-loader.ts";
 // The builtin list is the CORE's — a second copy here would drift, and the gate
 // would then disagree with the runtime it is supposed to be simulating.
@@ -64,6 +63,51 @@ export interface BuildExtResult {
 	bytes: number;
 	hostModules: string[];
 	vendored: string[];
+}
+
+/**
+ * A specifier that could plausibly be a module id. Filters the regex's
+ * structural false positives (captured operators, fragments with whitespace or
+ * brackets) before a caller ever sees them.
+ */
+function isValidModuleSpec(s: string): boolean {
+	if (s.length < 2) return false;
+	if (/[\s(){}=;<>+]/.test(s)) return false;
+	return true;
+}
+
+// The `from` / `import(` alternation matches ESM import + re-export forms.
+// The `(?<![\w$-])` lookbehind on `from` is REQUIRED: without it the regex also
+// matches a `from` that is merely the TAIL of a larger token — most painfully
+// the string `"sql-delete-from"` (is-unsafe's SQL-injection catalog, a
+// transitive dep of fast-xml-parser). There `from` is followed by the string's
+// closing `"`, so the regex captured `,description:` as a bogus bare specifier
+// and aborted the whole deploy. A real `from` keyword is never preceded by a
+// word char or `-` (minified `export{a}from"x"` → preceded by `}`;
+// `import a from"x"` → preceded by a space), so the lookbehind rejects only the
+// false positives. `import(` needs no anchor (the `(` disambiguates).
+const BARE_SPEC_RE =
+	/(?:((?<![\w$-])from|import\()\s*)(["'])([^"'#.][^"'']*?)\2/g;
+
+/**
+ * Scan bundled code for ESM bare specifiers (`from "x"`, `import("x")`,
+ * re-export `}from"x"`). Pure + exported so the notoriously fragile regex is
+ * unit-testable. Returns the de-duplicated specifiers in first-seen order;
+ * template-concat and obviously invalid specs are filtered here so callers see
+ * only plausible specifiers.
+ *
+ * Moved here from the retired build-extensions.ts, whose only surviving
+ * consumer this was: Gate 1 below.
+ */
+export function extractBareSpecifiers(code: string): string[] {
+	const bare = new Set<string>();
+	for (const m of code.matchAll(BARE_SPEC_RE)) {
+		const spec = m[3];
+		if (spec.includes("${") || spec.includes(" + ")) continue;
+		if (!isValidModuleSpec(spec)) continue;
+		bare.add(spec);
+	}
+	return [...bare];
 }
 
 /**
