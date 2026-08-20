@@ -6,6 +6,8 @@
  * manifest registration (dynamic object entry / static append + regen:static),
  * optional `bun install --cwd bun-apps`, and the next-steps banner.
  */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 
 /** Registration modes for the scaffolded package. */
 export type ExtNewRegister = "dynamic" | "static" | "none";
@@ -264,11 +266,114 @@ Set \`${gate}=0\` to disable the extension entirely.
 }
 
 /**
- * Task B3 replaces this stub with the real writer (files + manifest
- * registration + install + next steps). It exists so the cli.ts intercept
- * (Task B2) typechecks between the two commits.
+ * Writer half of `ext new` (Task B3): write the scaffold files under
+ * `<outRoot>/pi-agent-ext-<name>/`, register in run-dir/manifest.json
+ * (dynamic object entry, or static append + `bun run regen:static`), run
+ * `bun install --cwd bun-apps` unless suppressed, and print next steps.
+ * Returns a process exit code.
+ *
+ * NOTE on the manifest write-back: it is `JSON.stringify(manifest, null, "\t")
+ * + "\n"` — a one-time whole-file normalization from the current 2-space
+ * hand formatting to tabs (mixed object/bare-string entries and key order are
+ * preserved by JS object semantics). Runtime-only: the committed manifest
+ * stays untouched unless the user stages it deliberately.
  */
-export async function runExtNew(_argv: string[]): Promise<number> {
-	console.error("ext new: writer not wired yet");
-	return 1;
+export async function runExtNew(argv: string[]): Promise<number> {
+	let args: ExtNewArgs;
+	try {
+		args = parseExtNewArgs(argv);
+	} catch (e) {
+		console.error(`ext new: ${(e as Error).message}`);
+		return 1;
+	}
+
+	const pkgName = `pi-agent-ext-${args.name}`;
+	const pkgDir = join(args.outRoot, pkgName);
+	if (existsSync(pkgDir)) {
+		console.error(`ext new: target already exists: ${pkgDir}`);
+		return 1;
+	}
+
+	// Write the scaffold (path keys are relative to the package dir).
+	for (const [rel, content] of Object.entries(buildScaffoldFiles(args.name, { libFace: args.libFace }))) {
+		const target = join(pkgDir, rel);
+		mkdirSync(dirname(target), { recursive: true });
+		writeFileSync(target, content);
+	}
+	console.log(`ext new: wrote ${pkgDir}`);
+
+	// Registration — always against the real run-dir manifest, independent of
+	// --out-root (the hidden root is a test seam for the file writes only).
+	const manifestPath = join(import.meta.dir, "..", "run-dir", "manifest.json");
+	const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+		extensions: unknown[];
+		staticExtensions: string[];
+	};
+	if (manifest.staticExtensions.includes(pkgName) || manifest.extensions.some((e) => parseManifestName(e) === pkgName)) {
+		console.error(`ext new: ${pkgName} is already registered in run-dir/manifest.json`);
+		return 1;
+	}
+
+	if (args.register === "dynamic") {
+		manifest.extensions.push({
+			name: pkgName,
+			entry: `${pkgName}/extensions/${args.name}.ts`,
+			bundleMode: "thin",
+			testGate: `bun test --cwd bun-apps/${pkgName}`,
+			version: "0.1.0",
+		});
+		writeFileSync(manifestPath, `${JSON.stringify(manifest, null, "\t")}\n`);
+		console.log(`ext new: registered ${pkgName} in manifest extensions[] (dynamic)`);
+	} else if (args.register === "static") {
+		manifest.staticExtensions.push(pkgName);
+		writeFileSync(manifestPath, `${JSON.stringify(manifest, null, "\t")}\n`);
+		console.log(`ext new: appended ${pkgName} to manifest staticExtensions[]`);
+		const piAgentDir = join(import.meta.dir, "..");
+		const regen = Bun.spawn(["bun", "run", "--cwd", piAgentDir, "regen:static"], {
+			stdio: ["inherit", "inherit", "inherit"],
+		});
+		if ((await regen.exited) !== 0) {
+			console.error(
+				`ext new: \`bun run --cwd bun-apps/pi-agent regen:static\` failed (exit ${regen.exitCode}) — run it manually, or src/static-extensions.ts will drift from the manifest`,
+			);
+			return 1;
+		}
+	}
+
+	if (args.install) {
+		const bunApps = resolve(import.meta.dir, "..", "..");
+		if (resolve(args.outRoot) !== bunApps) {
+			console.log("ext new: --out-root is outside bun-apps/ — skipping install (test seam)");
+		} else {
+			console.log("ext new: running bun install --cwd bun-apps …");
+			const install = Bun.spawn(["bun", "install", "--cwd", bunApps], {
+				stdio: ["inherit", "inherit", "inherit"],
+			});
+			if ((await install.exited) !== 0) {
+				console.error(`ext new: bun install failed (exit ${install.exitCode}) — run it manually`);
+				return 1;
+			}
+		}
+	}
+
+	console.log(`
+Next steps:
+  1. implement the factory:  ${pkgDir}/extensions/${args.name}.ts
+  2. verify:                 bun test --cwd bun-apps/${pkgName}
+                             bun run --cwd bun-apps/${pkgName} typecheck`);
+	if (args.register === "none") {
+		console.log(`  3. register manually — either append to run-dir/manifest.json extensions[]:
+       { "name": "${pkgName}", "entry": "${pkgName}/extensions/${args.name}.ts", "bundleMode": "thin", "testGate": "bun test --cwd bun-apps/${pkgName}", "version": "0.1.0" }
+     or append "${pkgName}" to staticExtensions[] and run: bun run --cwd bun-apps/pi-agent regen:static`);
+	}
+	return 0;
+}
+
+/** Manifest extensions[] mixes object entries and bare "dir/entry.ts" strings. */
+function parseManifestName(entry: unknown): string | undefined {
+	if (typeof entry === "string") return entry.split("/")[0];
+	if (entry && typeof entry === "object" && "name" in entry) {
+		return (entry as { name: string }).name;
+	}
+	return undefined;
 }
