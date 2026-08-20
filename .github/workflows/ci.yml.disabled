@@ -432,6 +432,17 @@ jobs:
         working-directory: bun-apps
         run: bun run test:deps
 
+      # Base-set scanner unit guard (blocks). tests/lib/registry-base-set.ts is
+      # the ONE scanner behind two gated suites (dep-guard's portable-base-set
+      # invariant, extension-isolation-contract's derived scope). Its authority
+      # is run-dir/registry.ts: ships iff a `deploy:` block exists and is not
+      # `enabled: false`, in block OR flow style. Both historical copies missed
+      # one of those forms each; without this step the shared scanner could
+      # regress them silently.
+      - name: Registry base-set scanner guard (blocks)
+        working-directory: bun-apps
+        run: bun run test:base-set
+
       # ADR identity + citation guard (blocks). Contexts number their ADRs
       # independently from 0001, so the bare number 0001 names seven documents
       # and every number in use collides at least twice. #1323 resolved such a

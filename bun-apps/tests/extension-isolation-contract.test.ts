@@ -46,56 +46,21 @@ import * as assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseRegistryBaseSetNames } from "./lib/registry-base-set.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // bun-apps/
 
 /**
  * Base-set short names parsed out of pi-agent.registry.yaml's `extensions:`
- * block — an entry is in the base set iff its entry carries a `deploy:` block
- * (entries kept local have `excludeReason` instead).
- *
- * A hand-rolled line scanner rather than a YAML dependency or an import of
- * pi-agent's `parseRegistry`: this gate must stay immune to
- * `bun-apps/node_modules/@repo/*` link state (same reasoning as
- * seam-contract.test.ts's relative core-interface import), and the shape it
- * needs is two keys. The `MIN_EXPECTED` floor below is what keeps a silent
- * parse failure from turning every assertion vacuous.
+ * block by the shared scanner (tests/lib/registry-base-set.ts) — an entry is
+ * in the base set iff its entry carries a `deploy:` block that is not
+ * `enabled: false` (entries kept local have `excludeReason` instead). The
+ * `MIN_EXPECTED` floor below is what keeps a silent parse failure from
+ * turning every assertion vacuous.
  */
-function parseBaseSetNames(yamlText: string): string[] {
-	const names: string[] = [];
-	let inExtensions = false;
-	let name: string | null = null;
-	let hasDeployBlock = false;
-	const flush = (): void => {
-		if (name !== null && hasDeployBlock) names.push(name);
-	};
-	for (const raw of yamlText.split("\n")) {
-		if (/^extensions:\s*$/.test(raw)) {
-			inExtensions = true;
-			continue;
-		}
-		// Any other column-0 key ends the block.
-		if (inExtensions && /^\S/.test(raw)) break;
-		if (!inExtensions) continue;
-		const m = /^\s*-\s*name:\s*(\S+)\s*$/.exec(raw);
-		if (m) {
-			flush();
-			name = m[1] as string;
-			hasDeployBlock = false;
-			continue;
-		}
-		// Entry-indented `deploy:` marks the entry shipped (the top-level
-		// `deploy:` key is column-0 and never matches).
-		if (name !== null && /^\s+deploy:\s*$/.test(raw)) hasDeployBlock = true;
-	}
-	flush();
-	return names;
-}
-
-/** Floor guard: a parser that silently returns [] would make (1)–(3) vacuous. */
 const MIN_EXPECTED = 10;
 
-const BASE_SET_NAMES = parseBaseSetNames(
+const BASE_SET_NAMES = parseRegistryBaseSetNames(
 	readFileSync(join(ROOT, "pi-agent", "pi-agent.registry.yaml"), "utf8"),
 );
 const BASE_SET = BASE_SET_NAMES.map((n) => `pi-agent-ext-${n}`);
