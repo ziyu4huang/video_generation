@@ -8,6 +8,8 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { parseRegistry } from "../run-dir/registry.ts";
+import { appendRegistryExtension } from "../run-dir/registry-insert.ts";
 
 /** Registration modes for the scaffolded package. */
 export type ExtNewRegister = "dynamic" | "static" | "none";
@@ -253,9 +255,10 @@ bun run --cwd bun-apps/pi-agent-ext-${name} typecheck
 
 ## Registration
 
-Registered via \`bun-apps/pi-agent/run-dir/manifest.json\` — see the
-\`extensions[]\` array (dynamic) or \`staticExtensions[]\` + \`bun run regen:static\`
-(static). The entry point is \`extensions/${name}.ts\`.
+Registered via \`bun-apps/pi-agent/pi-agent.registry.yaml\` — one entry
+(\`load: dynamic\` or \`load: static\`), then \`bun run --cwd bun-apps/pi-agent
+regen:manifest\` (+ \`regen:static\` for static). The entry point is
+\`extensions/${name}.ts\`.
 
 ## Self-gate
 
@@ -267,16 +270,15 @@ Set \`${gate}=0\` to disable the extension entirely.
 
 /**
  * Writer half of `ext new` (Task B3): write the scaffold files under
- * `<outRoot>/pi-agent-ext-<name>/`, register in run-dir/manifest.json
- * (dynamic object entry, or static append + `bun run regen:static`), run
- * `bun install --cwd bun-apps` unless suppressed, and print next steps.
- * Returns a process exit code.
+ * `<outRoot>/pi-agent-ext-<name>/`, register in pi-agent.registry.yaml
+ * (one entry, then `bun run regen:manifest` — plus `regen:static` for a
+ * static registration), run `bun install --cwd bun-apps` unless suppressed,
+ * and print next steps. Returns a process exit code.
  *
- * NOTE on the manifest write-back: it is `JSON.stringify(manifest, null, "\t")
- * + "\n"` — a one-time whole-file normalization from the current 2-space
- * hand formatting to tabs (mixed object/bare-string entries and key order are
- * preserved by JS object semantics). Runtime-only: the committed manifest
- * stays untouched unless the user stages it deliberately.
+ * The registry is edited by TEXTUAL insert (appendRegistryExtension), never
+ * by a YAML round-trip — re-serialising would destroy the comments that carry
+ * each extension's exclusion rationale. run-dir/manifest.json is regenerated
+ * by script; it is never written directly.
  */
 export async function runExtNew(argv: string[]): Promise<number> {
 	let args: ExtNewArgs;
@@ -294,28 +296,27 @@ export async function runExtNew(argv: string[]): Promise<number> {
 		return 1;
 	}
 
-	// Registration — always against the real run-dir manifest, independent of
+	// Registration — always against the real registry, independent of
 	// --out-root (the hidden root is a test seam for the file writes only).
 	// Checked BEFORE any file write so a refusal leaves no orphan package.
-	const manifestPath = join(import.meta.dir, "..", "run-dir", "manifest.json");
-	let manifest: { extensions: unknown[]; staticExtensions: string[] };
+	const registryPath = join(import.meta.dir, "..", "pi-agent.registry.yaml");
+	const bunAppsDir = resolve(import.meta.dir, "..", "..");
+	let registryText: string;
 	try {
-		manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
-			extensions: unknown[];
-			staticExtensions: string[];
-		};
+		registryText = readFileSync(registryPath, "utf8");
+		const registry = parseRegistry(registryText, { bunAppsDir });
+		if (registry.extensions.some((e) => e.package === pkgName)) {
+			console.error(`ext new: ${pkgName} is already registered in pi-agent.registry.yaml`);
+			return 1;
+		}
 	} catch (e) {
-		console.error(`ext new: cannot read ${manifestPath} — ${(e as Error).message}`);
+		console.error(`ext new: cannot parse ${registryPath} — ${(e as Error).message}`);
 		return 1;
 	}
-	if (manifest.staticExtensions.includes(pkgName) || manifest.extensions.some((e) => parseManifestName(e) === pkgName)) {
-		console.error(`ext new: ${pkgName} is already registered in run-dir/manifest.json`);
-		return 1;
-	}
-	const realOutRoot = resolve(args.outRoot) !== resolve(import.meta.dir, "..", "..");
+	const realOutRoot = resolve(args.outRoot) !== bunAppsDir;
 	if (args.register !== "none" && realOutRoot) {
 		console.error(
-			`ext new: --register requires the default --out-root (bun-apps/) — registration writes the real run-dir/manifest.json, whose consistency tests require the package to exist under bun-apps/`,
+			`ext new: --register requires the default --out-root (bun-apps/) — registration writes the real pi-agent.registry.yaml, whose schema requires the package to exist under bun-apps/`,
 		);
 		return 1;
 	}
@@ -329,30 +330,53 @@ export async function runExtNew(argv: string[]): Promise<number> {
 	console.log(`ext new: wrote ${pkgDir}`);
 
 
-	if (args.register === "dynamic") {
-		manifest.extensions.push({
-			name: pkgName,
-			entry: `${pkgName}/extensions/${args.name}.ts`,
-			bundleMode: "thin",
-			testGate: `bun test --cwd bun-apps/${pkgName}`,
-			version: "0.1.0",
-		});
-		writeFileSync(manifestPath, `${JSON.stringify(manifest, null, "\t")}\n`);
-		console.log(`ext new: registered ${pkgName} in manifest extensions[] (dynamic)`);
-	} else if (args.register === "static") {
-		manifest.staticExtensions.push(pkgName);
-		writeFileSync(manifestPath, `${JSON.stringify(manifest, null, "\t")}\n`);
-		console.log(`ext new: appended ${pkgName} to manifest staticExtensions[]`);
-		const piAgentDir = join(import.meta.dir, "..");
-		const regen = Bun.spawn(["bun", "run", "--cwd", piAgentDir, "regen:static"], {
-			stdio: ["inherit", "inherit", "inherit"],
-		});
-		if ((await regen.exited) !== 0) {
-			console.error(
-				`ext new: \`bun run --cwd bun-apps/pi-agent regen:static\` failed (exit ${regen.exitCode}) — run it manually, or src/static-extensions.ts will drift from the manifest`,
+	// The registry write + regen is one transaction from the caller's view: a
+	// failed regen leaves the registry edited but the derived artifacts stale,
+	// so the error says exactly what to rerun.
+	try {
+		if (args.register === "dynamic") {
+			// Dynamic entries carry the FULL package id as `name` — that is what
+			// the derived manifest's extensions[] uses (source-mode -e matching),
+			// and the emitter writes `name` verbatim.
+			writeFileSync(
+				registryPath,
+				appendRegistryExtension(
+					registryText,
+					[
+						`  - name: ${pkgName}`,
+						`    package: ${pkgName}`,
+						`    entry: extensions/${args.name}.ts`,
+						`    load: dynamic`,
+						`    version: "0.1.0"`,
+						`    excludeReason: not yet curated for the portable set`,
+					].join("\n"),
+				),
 			);
-			return 1;
+			await runRegen("regen:manifest");
+			console.log(`ext new: registered ${pkgName} in pi-agent.registry.yaml (dynamic)`);
+		} else if (args.register === "static") {
+			// Static entries carry the SHORT name; the emitter derives
+			// staticExtensions[] from `package`.
+			writeFileSync(
+				registryPath,
+				appendRegistryExtension(
+					registryText,
+					[
+						`  - name: ${args.name}`,
+						`    package: ${pkgName}`,
+						`    entry: extensions/${args.name}.ts`,
+						`    load: static`,
+						`    excludeReason: not yet curated for the portable set`,
+					].join("\n"),
+				),
+			);
+			await runRegen("regen:manifest");
+			console.log(`ext new: appended ${pkgName} to the registry (static)`);
+			await runRegen("regen:static");
 		}
+	} catch (e) {
+		console.error(`ext new: ${(e as Error).message} — the registry is edited; rerun it manually, or the derived artifacts will drift`);
+		return 1;
 	}
 
 	if (args.install) {
@@ -377,18 +401,25 @@ Next steps:
   2. verify:                 bun test --cwd bun-apps/${pkgName}
                              bun run --cwd bun-apps/${pkgName} typecheck`);
 	if (args.register === "none") {
-		console.log(`  3. register manually — either append to run-dir/manifest.json extensions[]:
-       { "name": "${pkgName}", "entry": "${pkgName}/extensions/${args.name}.ts", "bundleMode": "thin", "testGate": "bun test --cwd bun-apps/${pkgName}", "version": "0.1.0" }
-     or append "${pkgName}" to staticExtensions[] and run: bun run --cwd bun-apps/pi-agent regen:static`);
+		console.log(`  3. register manually — append an entry to pi-agent.registry.yaml:
+       - name: ${args.name}
+         package: ${pkgName}
+         entry: extensions/${args.name}.ts
+         load: static          # or dynamic
+         excludeReason: <why it stays local, or move it into a deploy: block>
+     then: bun run --cwd bun-apps/pi-agent regen:manifest
+           bun run --cwd bun-apps/pi-agent regen:static   # load: static only`);
 	}
 	return 0;
 }
 
-/** Manifest extensions[] mixes object entries and bare "dir/entry.ts" strings. */
-function parseManifestName(entry: unknown): string | undefined {
-	if (typeof entry === "string") return entry.split("/")[0];
-	if (entry && typeof entry === "object" && "name" in entry) {
-		return (entry as { name: string }).name;
+/** Run a pi-agent package script (regen:manifest / regen:static). Non-zero exit → error path. */
+async function runRegen(script: string): Promise<void> {
+	const piAgentDir = join(import.meta.dir, "..");
+	const regen = Bun.spawn(["bun", "run", "--cwd", piAgentDir, script], {
+		stdio: ["inherit", "inherit", "inherit"],
+	});
+	if ((await regen.exited) !== 0) {
+		throw new Error(`\`bun run --cwd bun-apps/pi-agent ${script}\` failed (exit ${regen.exitCode})`);
 	}
-	return undefined;
 }
