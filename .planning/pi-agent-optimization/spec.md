@@ -173,6 +173,22 @@ blind spot class disappears because the probe list is generated, not hand-mainta
 
 Codegen idempotency test + drift tripwire; scaffold output passes the full gate once.
 
+### Amendment (2026-08-20, ground truth from exploration)
+
+D2's four codegen targets, re-audited before implementation:
+- `schema-cost.ts` `EXTRA_ENTRIES` — **already manifest-derived** (`discoverExtensionEntries()`,
+  #675); EXTRA_ENTRIES is `[]`. No work.
+- `ensure-extension-deps` probe list — **already auto-discovers** every `@repo/*` dir from disk;
+  `run-dir/deps-probe.ts` is already manifest-driven. No work.
+- `src/static-extensions.ts` — the one real remaining drift surface (15 imports + 15 rows
+  hand-maintained beside `manifest.staticExtensions[]`). Implemented (PR A): pure generator
+  `src/static-extensions-gen.ts` + `regen:static` script + byte-exact drift tripwire in
+  `manifest-consistency.test.ts`.
+- `src/cli/extensions/registry.ts` `EXTENSION_SPECS` — **NOT derivable** (which packages export
+  subcommand specs, symbol names, and the `extensions/cli-subcommand.ts` sub-path are not in the
+  manifest; generating them would need new manifest fields duplicating what already lives
+  single-sourced in the ext packages). Deliberately stays hand-written.
+
 ## Risks & guardrails
 
 - C1 is the only high-risk item (three production pipelines' path/binary guarantees
