@@ -7,7 +7,13 @@
  *   map-frozen     map.md "## Not yet specified" block has no open lines (T2/T3)
  *   spec-settled   spec.md has no unchecked decisions / open section (T2/T3)
  *   tickets-runnable  every task has Run: and Expected: markers (T2/T3)
- *   ledger-complete dispatch ledger exists with outcome+sha rows (T2/T3)
+ *   ledger-complete dispatch ledger exists with outcome+sha rows (T2/T3, close only)
+ *
+ * Phases: `--phase entry` (pre-execution bootstrap: everything above EXCEPT
+ * ledger-complete — the ledger only exists after the Report phase) and
+ * `--phase close` (default: all five). Without the entry phase the gate
+ * dead-locks a fresh effort: it demands a ledger that execution has not yet
+ * produced.
  *
  * Red output names the broken contract, the stage to return to, and what to
  * backfill ("fog flows left"). Exits 0 green / 1 red / 2 usage.
@@ -61,11 +67,18 @@ function countSectionLines(text: string, heading: string): number {
 	return n;
 }
 
-/** Tasks (### Task) vs tasks carrying both Run:/Expected: markers. */
+/** Tasks (### Task) vs tasks carrying both Run:/Expected: markers. Fenced
+ * code blocks are stripped first (embedded test fixtures legitimately contain
+ * example task blocks, some intentionally non-runnable); markers count in
+ * either the bold (`**Run:**`) or plain line-start (`Run:`) form — superpowers
+ * plans write the plain form in their step lists. */
 export function ticketRunExpected(text: string): { tasks: number; missing: number } {
-	const tasks = text.split("\n").filter((l) => /^###\s+Task\b/.test(l)).length;
-	const runnable = text.split(/^(?=###\s+Task\b)/m).filter(
-		(block) => /\*\*Run:\*\*/.test(block) && /\*\*Expected:\*\*/.test(block),
+	const stripped = text.split("```").filter((_, i) => i % 2 === 0).join("\n");
+	const tasks = stripped.split("\n").filter((l) => /^###\s+Task\b/.test(l)).length;
+	const runnable = stripped.split(/^(?=###\s+Task\b)/m).filter(
+		(block) =>
+			(/\*\*Run:\*\*/.test(block) || /^\s*Run:/m.test(block)) &&
+			(/\*\*Expected:\*\*/.test(block) || /^\s*Expected:/m.test(block)),
 	).length;
 	return { tasks, missing: Math.max(0, tasks - runnable) };
 }
@@ -110,6 +123,9 @@ export interface GateInput {
 	ledgerText: string;
 	changedFiles: string[];
 	repoRoot: string;
+	/** Gate phase: "entry" skips ledger-complete (pre-execution bootstrap),
+	 * "close" (default) runs all checks including the ledger. */
+	phase?: "entry" | "close";
 }
 
 export interface GateResult {
@@ -117,9 +133,12 @@ export interface GateResult {
 	exitCode: 0 | 1;
 }
 
-/** Run all checks for the declared tier. Pure — callers feed file contents. */
+/** Run all checks for the declared tier. Pure — callers feed file contents.
+ * `phase: "entry"` omits ledger-complete: the dispatch ledger is produced by
+ * execution (Report phase), so demanding it before execution always fails. */
 export function runGate(input: GateInput): GateResult {
 	const { declaredTier, mapText, specText, ticketTexts, ledgerText, changedFiles, repoRoot } = input;
+	const phase = input.phase ?? "close";
 	const checks: GateCheck[] = [];
 
 	const size = classifySize(changedFiles, repoRoot);
@@ -152,14 +171,16 @@ export function runGate(input: GateInput): GateResult {
 			detail: `${missing} task(s) missing Run:/Expected: markers`,
 			remedy: "return to superpowers writing-plans — every task needs a Run: and an Expected:",
 		});
-		const ledgerRows = ledgerText.split("\n").filter((l) => /^\|/.test(l) && /\b(green|red|budget-dead|skipped)\b/.test(l));
-		const badRows = ledgerRows.filter((l) => !/[0-9a-f]{7,40}/.test(l));
-		checks.push({
-			name: "ledger-complete",
-			pass: ledgerRows.length > 0 && badRows.length === 0,
-			detail: `${ledgerRows.length} ledger row(s), ${badRows.length} missing outcome or SHA`,
-			remedy: "finish the dispatch ledger (workflow Report phase) — every row needs an outcome and a commit SHA",
-		});
+		if (phase === "close") {
+			const ledgerRows = ledgerText.split("\n").filter((l) => /^\|/.test(l) && /\b(green|red|budget-dead|skipped)\b/.test(l));
+			const badRows = ledgerRows.filter((l) => !/[0-9a-f]{7,40}/.test(l));
+			checks.push({
+				name: "ledger-complete",
+				pass: ledgerRows.length > 0 && badRows.length === 0,
+				detail: `${ledgerRows.length} ledger row(s), ${badRows.length} missing outcome or SHA`,
+				remedy: "finish the dispatch ledger (workflow Report phase) — every row needs an outcome and a commit SHA",
+			});
+		}
 	}
 
 	return { checks, exitCode: checks.every((c) => c.pass) ? 0 : 1 };
@@ -201,17 +222,35 @@ function changedFilesSinceBase(repoRoot: string): { files: string[]; error: stri
 	return { files: Array.from(new Set([...committed, ...uncommitted])), error: null };
 }
 
+/** Ticket/plan texts for an effort dir — globs both tickets/*.md and plans/*.md
+ * (superpowers plan files carry the same ### Task + Run:/Expected: markers),
+ * deduped. Missing dirs contribute nothing. */
+export function readTicketTexts(effortDir: string): string[] {
+	return Array.from(
+		new Set([
+			...new Bun.Glob("tickets/*.md").scanSync({ cwd: effortDir }),
+			...new Bun.Glob("plans/*.md").scanSync({ cwd: effortDir }),
+		]),
+	).map((f) => readOr(join(effortDir, f), ""));
+}
+
 async function run(repoRoot: string, parsed: import("../args.ts").ParsedArgs): Promise<void> {
 	const effort = parsed.effort;
 	const tierArg = parsed.tier;
 	if (!effort && !tierArg) {
-		console.log("usage: pi-agent cli pipeline-gate --effort <name> [--tier T1]   (T1: --tier replaces the missing map.md declaration)");
+		console.log("usage: pi-agent cli pipeline-gate --effort <name> [--phase entry|close] [--tier T1]   (T1: --tier replaces the missing map.md declaration)");
 		process.exitCode = 2;
 		return;
 	}
 	// Validate tierArg against allowed values
 	if (tierArg && !["T1", "T2", "T3"].includes(tierArg)) {
 		console.log("usage: --tier must be T1, T2, or T3");
+		process.exitCode = 2;
+		return;
+	}
+	const phaseArg = parsed.phase ?? "close";
+	if (phaseArg !== "entry" && phaseArg !== "close") {
+		console.log("usage: --phase must be entry or close");
 		process.exitCode = 2;
 		return;
 	}
@@ -223,11 +262,9 @@ async function run(repoRoot: string, parsed: import("../args.ts").ParsedArgs): P
 		process.exitCode = 2;
 		return;
 	}
-	const tickets = effort
-		? Array.from(new Bun.Glob("tickets/*.md").scanSync({ cwd: effortDir })).map((f) =>
-				readOr(join(effortDir, f), ""),
-			)
-		: [];
+	// Tickets can live under tickets/ (ticket dispatch) or plans/ (superpowers
+	// plan files with ### Task blocks) — readTicketTexts scans both, deduped.
+	const tickets = effort ? readTicketTexts(effortDir) : [];
 	const filesResult = changedFilesSinceBase(repoRoot);
 	if (filesResult.error) {
 		console.log("RED pipeline-gate: cannot determine change size (git error)");
@@ -243,6 +280,7 @@ async function run(repoRoot: string, parsed: import("../args.ts").ParsedArgs): P
 		ledgerText: effort ? readOr(join(effortDir, "dispatch-ledger.md"), "") : "",
 		changedFiles: filesResult.files,
 		repoRoot,
+		phase: phaseArg,
 	});
 	for (const c of result.checks) {
 		console.log(`${c.pass ? "PASS" : "RED "} ${c.name}: ${c.detail}`);
@@ -255,15 +293,18 @@ export const pipelineGateCommand = {
 	name: "pipeline-gate",
 	summary: "mechanical tier/handoff-contract checks (pipeline v2)",
 	details: `Usage:
-  pi-agent cli pipeline-gate --effort <name>
+  pi-agent cli pipeline-gate --effort <name> [--phase entry|close]
   pi-agent cli pipeline-gate --tier T1
 
 Checks the develop-pipeline v2 handoff contracts for an effort: tier
 declaration vs mechanical change size (anti-drift), map.md frozen, spec
-settled, every ticket task has Run:/Expected:, dispatch ledger complete.
-Pure text scanning, no LLM. Exits 0 green, 1 red (with the stage to
-return to), 2 usage error. T1 efforts have no effort folder — pass
---tier T1 explicitly.`,
+settled, every ticket/plan task has Run:/Expected:, dispatch ledger
+complete. Tickets are scanned under both tickets/ and plans/. Phases:
+--phase entry runs everything except ledger-complete (the pre-execution
+bootstrap gate — the ledger only exists after the Report phase);
+--phase close (default) runs all checks. Pure text scanning, no LLM.
+Exits 0 green, 1 red (with the stage to return to), 2 usage error. T1
+efforts have no effort folder — pass --tier T1 explicitly.`,
 	run: async (parsed: import("../args.ts").ParsedArgs) => {
 		await run(join(import.meta.dir, "../../../../.."), parsed);
 	},

@@ -110,6 +110,8 @@ export interface ParsedArgs {
 	effort?: string;
 	/** pipeline-gate: tier declaration (T1|T2|T3) */
 	tier?: string;
+	/** pipeline-gate: gate phase — entry (pre-execution, skips ledger) | close */
+	phase?: string;
 	/** dispatch-log: outcome filter (green|red|budget-dead|skipped) */
 	outcome?: string;
 	/** zk-card: bypass duplicate/backlink safety checks */

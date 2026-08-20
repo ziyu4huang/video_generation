@@ -1,5 +1,8 @@
 // pipeline-gate.test.ts
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	parseTierFromMap,
 	countOpenQuestions,
@@ -7,6 +10,7 @@ import {
 	ticketRunExpected,
 	classifySize,
 	runGate,
+	readTicketTexts,
 } from "./pipeline-gate.ts";
 
 const MAP_T2 = `---
@@ -76,6 +80,16 @@ describe("ticketRunExpected", () => {
 		const t = ticketRunExpected("**Run:** preamble\n**Expected:** PASS\n### Task 1");
 		expect(t).toEqual({ tasks: 1, missing: 0 });
 	});
+	test("plain line-start Run:/Expected: (superpowers plan form) counts", () => {
+		const t = ticketRunExpected("### Task 1\n\nRun: `( cd pkg && bun test )`\nExpected: PASS");
+		expect(t).toEqual({ tasks: 1, missing: 0 });
+	});
+	test("fenced code blocks are ignored (embedded fixtures)", () => {
+		const t = ticketRunExpected(
+			"### Task 1\n\nRun: x\nExpected: y\n\n```ts\n### Task 1\n**Run:** fixture\n### Task 2\nno markers\n```",
+		);
+		expect(t).toEqual({ tasks: 1, missing: 0 });
+	});
 });
 
 describe("classifySize", () => {
@@ -139,5 +153,78 @@ describe("runGate", () => {
 			repoRoot: REPO_ROOT,
 		});
 		expect(r.checks.find((c) => c.name === "tier-match")!.pass).toBe(false);
+	});
+});
+
+describe("runGate phases", () => {
+	const T2_INPUT = {
+		declaredTier: "T2" as const,
+		mapText: MAP_T2,
+		specText: "# spec\nall decided",
+		ticketTexts: ["### Task 1\n**Run:** x\n**Expected:** y"],
+		ledgerText: "",
+		changedFiles: ["bun-apps/pi-agent/src/a.ts", "bun-apps/pi-agent/src/b.ts"],
+		repoRoot: REPO_ROOT,
+	};
+
+	test("entry phase on empty ledger exits 0 with no ledger-complete check", () => {
+		const r = runGate({ ...T2_INPUT, phase: "entry" });
+		expect(r.exitCode).toBe(0);
+		expect(r.checks.every((c) => c.pass)).toBe(true);
+		expect(r.checks.find((c) => c.name === "ledger-complete")).toBeUndefined();
+	});
+	test("close phase (default) still fails the empty ledger", () => {
+		const r = runGate(T2_INPUT);
+		const ledger = r.checks.find((c) => c.name === "ledger-complete")!;
+		expect(ledger).toBeDefined();
+		expect(ledger.pass).toBe(false);
+		expect(r.exitCode).toBe(1);
+	});
+	test("close phase passes once the ledger has outcome+sha rows", () => {
+		const r = runGate({
+			...T2_INPUT,
+			ledgerText: "| ticket | outcome | sha |\n|---|---|---|\n| 01 | green | abc1234 |",
+			phase: "close",
+		});
+		expect(r.exitCode).toBe(0);
+	});
+});
+
+describe("readTicketTexts", () => {
+	test("scans plans/ when tickets/ is absent (plans-only effort)", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pgate-plans-only-"));
+		try {
+			mkdirSync(join(dir, "plans"));
+			writeFileSync(
+				join(dir, "plans", "plan.md"),
+				"### Task 1\n**Run:** bun test\n**Expected:** PASS\n",
+			);
+			const texts = readTicketTexts(dir);
+			expect(texts).toHaveLength(1);
+			expect(texts[0]).toContain("**Run:**");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+	test("dedupes and unions tickets/ + plans/", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pgate-both-"));
+		try {
+			mkdirSync(join(dir, "tickets"));
+			mkdirSync(join(dir, "plans"));
+			writeFileSync(join(dir, "tickets", "01.md"), "### Task 1\n**Run:** a\n**Expected:** b\n");
+			writeFileSync(join(dir, "plans", "plan.md"), "### Task 2\n**Run:** c\n**Expected:** d\n");
+			const texts = readTicketTexts(dir);
+			expect(texts).toHaveLength(2);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+	test("missing dirs contribute nothing", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pgate-empty-"));
+		try {
+			expect(readTicketTexts(dir)).toEqual([]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });
