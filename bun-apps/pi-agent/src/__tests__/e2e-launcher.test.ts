@@ -30,12 +30,11 @@
  * (#1305 moved deploy.ts; `Module not found` surfaced only at tiers the
  * default `bun test` does not run). Cost of undoing it here: 1.3s.
  *
- * The `pi-agent.js` / `.deploy-readonly` fixtures below still cover a LIVE arm
- * of run.sh. The four legacy deploy modes are gone, but the launcher's
- * bundle-entry detection is not — it is removed in the follow-up that collapses
- * "bundle" out of run-dir/resolve.ts and mode.ts, and these tests go with it
- * then. Deleting a test one PR ahead of the behaviour it guards is the gap this
- * file's own header is about.
+ * The `pi-agent.js` / `.deploy-readonly` fixtures that used to live here were
+ * kept through #1740 on purpose: the launcher arm they covered was still live,
+ * and deleting a test one PR ahead of the behaviour it guards is the gap this
+ * file's own header is about. Phase 1b removed that arm, so they went in the
+ * SAME commit as it.
  *
  * The ONE block still gated is `symlink resolution`, which spawns the real
  * src/cli.ts — a full pi boot that touches the shared ~/.pi backend. That one
@@ -74,8 +73,8 @@ function run(args: string[], opts: { cwd?: string; env?: Record<string, string> 
 // opt-in while the five stub-based blocks below run by default.
 describe.skipIf(!E2E_ENABLED)("symlink resolution", () => {
 	test("entry/mode resolve against the REAL script dir, not the symlink's dir", () => {
-		// bun-apps/pi-agent ships src/cli.ts (no pi-agent.js) in this checkout, so
-		// real behavior here is "source (dev)". --list-models is a fast, offline,
+		// bun-apps/pi-agent ships src/cli.ts, so real behavior here is
+		// "source (dev)". --list-models is a fast, offline,
 		// no-model-server-required subcommand — good for proving the launcher
 		// reaches the real cli.ts through the symlink without spinning up a TUI.
 		const linkDir = path.join(TMP, "symlink-caller");
@@ -124,12 +123,6 @@ describe("entry-mode detection", () => {
 	}
 
 	const STUB_ENTRY = "console.log('stub-entry', process.argv.slice(2).join(' '));\n";
-
-	test("pi-agent.js alone -> deployed (bundle)", () => {
-		const dir = makeFixture("bundle", { "pi-agent.js": STUB_ENTRY });
-		const result = run(["--list-models"], { cwd: dir, env: { PIAGENT_DEBUG: "1" } });
-		expect(result.stderr).toMatch(/mode=deployed \(bundle\)/);
-	});
 
 	test("src/cli.ts alone -> source (dev)", () => {
 		const dir = makeFixture("source", { "src/cli.ts": STUB_ENTRY });
@@ -189,39 +182,6 @@ describe("--upgrade / -U passthrough", () => {
 		expect(result.status).toBe(0);
 		const received = readFileSync(path.join(dir, "received-args.txt"), "utf8").trim();
 		expect(received).toBe("--rebuild");
-	});
-});
-
-describe("read-only deploy env exports", () => {
-	test(".deploy-readonly sets JITI_FS_CACHE and PI_CODING_AGENT_DIR for the child", () => {
-		const dir = path.join(TMP, "readonly-fixture");
-		mkdirSync(dir, { recursive: true });
-		writeFileSync(path.join(dir, "run.sh"), readFileSync(RUN_SH, "utf8"));
-		chmodSync(path.join(dir, "run.sh"), 0o755);
-		writeFileSync(
-			path.join(dir, "pi-agent.js"),
-			"require('fs').writeFileSync(require('path').join(__dirname, 'env.json'), JSON.stringify(process.env));\n",
-		);
-		writeFileSync(path.join(dir, ".deploy-readonly"), "");
-
-		const result = run([], { cwd: dir });
-		expect(result.status).toBe(0);
-		const env = JSON.parse(readFileSync(path.join(dir, "env.json"), "utf8"));
-		expect(env.JITI_FS_CACHE).toBe("0");
-		expect(env.PI_CODING_AGENT_DIR).toBeTruthy();
-	});
-
-	test("PIAGENT_DEBUG=1 also prints the read-only export line", () => {
-		const dir = path.join(TMP, "readonly-fixture-debug");
-		mkdirSync(dir, { recursive: true });
-		writeFileSync(path.join(dir, "run.sh"), readFileSync(RUN_SH, "utf8"));
-		chmodSync(path.join(dir, "run.sh"), 0o755);
-		writeFileSync(path.join(dir, "pi-agent.js"), "console.log('stub');\n");
-		writeFileSync(path.join(dir, ".deploy-readonly"), "");
-
-		const result = run([], { cwd: dir, env: { PIAGENT_DEBUG: "1" } });
-		expect(result.status).toBe(0);
-		expect(result.stderr).toMatch(/read-only deploy: JITI_FS_CACHE=0 PI_CODING_AGENT_DIR=/);
 	});
 });
 

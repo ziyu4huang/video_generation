@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 ########################################
-# run.sh — ONE portable launcher for pi-agent, source OR deployed.
+# run.sh — the launcher for pi-agent FROM THE REPO, runnable from any cwd.
 #
-# Auto-detects which layout it lives in and picks the right entry, so the SAME
-# script works in both places, from any cwd:
-#   • Deployed bundle:  pi-agent.js present              → bun pi-agent.js
-#       (run-dir/resolve.ts deploy-bundle mode, self-contained via -ne)
-#   • Source / dev:     src/cli.ts present               → bun src/cli.ts
-#       (run-dir/resolve.ts source mode, additive with .pi/ + ~/.pi/)
+# Entry is src/cli.ts (run-dir/resolve.ts source mode, additive with .pi/ +
+# ~/.pi/). The deployed artifact does not come through here: the pi-agent-sh
+# tree ships its own run.sh beside a self-contained binary.
+#
+# It used to auto-detect a second layout — a deployed `pi-agent.js` — but its
+# producer and the runtime that resolved it are both gone (#1740, Phase 1b).
 #
 # USAGE
 #   ./run.sh                            # interactive TUI
@@ -29,7 +29,7 @@
 #
 #       ./run.sh --upgrade            # upgrade all 4 to latest (same as below)
 #       ./run.sh --upgrade --check    # current vs latest, no change
-#       ./run.sh --upgrade --rebuild  # also rebuild pi-agent dist bundle
+#       ./run.sh --upgrade --rebuild  # also cut a new versioned deploy
 #       ./bun-apps/pi-agent/update-pi.sh [same flags]   # the actual wrapper
 #       ./run.sh --update-help        # print this from the launcher
 #
@@ -47,7 +47,7 @@ set -euo pipefail
 # Resolve symlinks so this script works through a symlink (e.g. the repo-root
 # ./pi-agent.sh → bun-apps/pi-agent/run.sh convenience launcher). Without this,
 # BASH_SOURCE[0] is the symlink path and SCRIPT_DIR lands at the link's dir
-# (repo root), where neither pi-agent.js nor src/cli.ts exists → false "no entry"
+# (repo root), where src/cli.ts does not exist → false "no entry"
 # error. Portable while-loop (no `readlink -f` — not available on older macOS).
 SOURCE="${BASH_SOURCE[0]}"
 while [ -L "$SOURCE" ]; do
@@ -75,7 +75,7 @@ How to upgrade pi (@earendil-works/pi-agent-core/pi-ai/pi-coding-agent/pi-tui):
 
     ./bun-apps/pi-agent/update-pi.sh            # upgrade all 4 to latest
     ./bun-apps/pi-agent/update-pi.sh --check    # current vs latest only
-    ./bun-apps/pi-agent/update-pi.sh --rebuild  # also rebuild pi-agent dist bundle
+    ./bun-apps/pi-agent/update-pi.sh --rebuild  # also cut a new versioned deploy
     ./bun-apps/pi-agent/update-pi.sh --help     # full wrapper docs
 
   The wrapper rewrites the exact version pins for all 4 packages across
@@ -107,44 +107,27 @@ fi
 
 ENTRY=""
 MODE=""
-# Deployed layouts all ship pi-agent.js at the root. Source mode ships
-# src/cli.ts instead. (Historical `.deploy-portable`/`packages/` layout arms
-# were retired: deploy.ts accepts only --bundle/--snapshot/--standalone/--exe
-# and writes only `.deploy-bundle`/`.deploy-readonly`.)
-if [ -f "$SCRIPT_DIR/pi-agent.js" ]; then
-  ENTRY="$SCRIPT_DIR/pi-agent.js"
-  MODE="deployed (bundle)"
-elif [ -f "$SCRIPT_DIR/src/cli.ts" ]; then
+# This launcher runs pi-agent FROM THE REPO. The deployed artifact is a
+# self-contained binary with its own run.sh (the pi-agent-sh tree), so it never
+# reaches this file.
+#
+# There used to be a `pi-agent.js` arm ahead of this one, for the bundle deploy.
+# Its producer (scripts/deploy.ts) was retired in #1740 and the runtime that
+# resolved that layout went in Phase 1b, so the arm could only ever have matched
+# a stale artifact left over from before either — and would then have run it
+# with a runtime that no longer understands it.
+if [ -f "$SCRIPT_DIR/src/cli.ts" ]; then
   ENTRY="$SCRIPT_DIR/src/cli.ts"
   MODE="source (dev)"
 else
   echo "error: no pi-agent entry found in $SCRIPT_DIR" >&2
-  echo "       expected src/cli.ts (source) or pi-agent.js (deployed)" >&2
+  echo "       expected src/cli.ts — this launcher runs pi-agent from the repo;" >&2
+  echo "       a deployed tree has its own run.sh beside its binary" >&2
   exit 1
 fi
 
 if [ "${PIAGENT_DEBUG:-0}" = "1" ]; then
   echo "[run.sh] mode=$MODE  entry=$ENTRY  cwd=$(pwd)" >&2
-fi
-
-# Read-only deploy (the DEFAULT since deploy.ts freezes every artifact): apply
-# the env hardening that lets a chmod-a-w / read-only-prefix deploy actually run.
-# All per-user state already routes to ~/.pi/agent (pi sessions/auth +
-# pi-hermes-memory's sqlite DB both honor PI_CODING_AGENT_DIR), so the deploy
-# tree is never written — but two tweaks are still needed:
-#   1. JITI_FS_CACHE=0 — jiti caches compiled .ts to node_modules/.cache/jiti by
-#      default; a --snapshot deploy ships the extensions as .ts SOURCE, so that
-#      cache write would hit the frozen tree and EACCES. (bundle/standalone ship
-#      pre-compiled .js, so this is a no-op there, but it's free insurance.)
-#   2. PI_CODING_AGENT_DIR defaults to ~/.pi/agent — pi falls back there anyway,
-#      but pinning it explicitly guarantees per-user state never points at the
-#      (read-only) deploy tree. Respects a caller-set value.
-if [ -f "$SCRIPT_DIR/.deploy-readonly" ]; then
-  export JITI_FS_CACHE="${JITI_FS_CACHE:-0}"
-  export PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
-  if [ "${PIAGENT_DEBUG:-0}" = "1" ]; then
-    echo "[run.sh] read-only deploy: JITI_FS_CACHE=$JITI_FS_CACHE PI_CODING_AGENT_DIR=$PI_CODING_AGENT_DIR" >&2
-  fi
 fi
 
 # Source-mode pre-flight dep self-heal: ensure extension workspace deps are
