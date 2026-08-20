@@ -192,7 +192,7 @@ tree, or an unexpected ahead+behind / far-behind divergence. Run it last for a
 | Classify + clean up merged local/remote branches | `sweep_merged_branches` |
 | Build + deploy the pi-agent bundle + thin ext bundles (runs `pi-agent-ext-devops/scripts/deploy.ts`) | `deploy_pi_agent_sh` |
 | Run a pi-agent `run-test.sh` tier (quick/medium/high/readonly/full) to self-verify | `verify_pi_agent_deploy` |
-| Deploy the versioned sh core + ext set (Pipeline B, config `deploy-config.yaml`) | `deploy:sh` — `bun run --cwd bun-apps/pi-agent deploy:sh` (CLI: `bun bun-apps/pi-agent-ext-devops/src/deploy-cli.ts [--ext <name>] [--list]`) |
+| Deploy the versioned sh core + ext set (Pipeline B, registry `pi-agent.registry.yaml`) | `deploy:sh` — `bun run --cwd bun-apps/pi-agent deploy:sh` (CLI: `bun bun-apps/pi-agent-ext-devops/src/deploy-cli.ts [--ext <name>] [--list]`) |
 
 ### `sweep_merged_branches` — the worktree guard covers remotes too
 

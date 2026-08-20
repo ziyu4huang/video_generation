@@ -4,7 +4,7 @@
  * This package ships SKILLS, not tools: the eight vendored HyperFrames-family
  * skill trees under ../skills/ are the payload, wired through package.json's
  * `pi.skills`, pi-agent/run-dir/manifest.json's `skills` + `binarySkills`,
- * and deploy-config.yaml's `skills:` key for the sh deploy.
+ * and the registry's `skills:` key for the sh deploy.
  *
  * The factory below is a deliberate no-op. It exists so every registration
  * surface (run-dir manifest, static-extensions.ts, the sh ext build) has the

@@ -17,7 +17,7 @@ import { parseShConfig } from "../scripts/lib/config.ts";
 import { listVersions } from "../scripts/lib/version.ts";
 
 const BUN_APPS_DIR = resolve(import.meta.dir, "..", "..");
-const DEFAULT_CONFIG = join(BUN_APPS_DIR, "pi-agent", "deploy-config.yaml");
+const DEFAULT_CONFIG = join(BUN_APPS_DIR, "pi-agent", "pi-agent.registry.yaml");
 
 const HELP = `deploy-cli — versioned minimal-core deploy for pi-agent
 
@@ -25,7 +25,7 @@ USAGE
   bun src/deploy-cli.ts [flags]
 
 FLAGS
-  --config <path>   deploy config (default: bun-apps/pi-agent/deploy-config.yaml)
+  --config <path>   deploy registry (default: bun-apps/pi-agent/pi-agent.registry.yaml)
   --out <dir>       override outRoot from the config
   --version <str>   override the computed <pkgVersion>+g<sha> version
   --ext <name>      rebuild ONLY this extension into the existing version dir

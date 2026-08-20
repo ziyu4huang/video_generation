@@ -17,7 +17,8 @@
  *     NOTHING from the TIER-1 hub (knowledge-card) — edges point down only.
  *  5. No extension imports the host (pi-agent) — the host is above all exts.
  *  6. The declared @repo dependency graph is acyclic.
- *  7. No extension in the PORTABLE BASE SET (deploy-config.yaml) declares a
+ *  7. No extension in the PORTABLE BASE SET (pi-agent.registry.yaml entries
+ *     with a `deploy:` block) declares a
  *     RUNTIME dependency on another extension. Complements
  *     extension-isolation-contract.test.ts invariant (1): that one scans import
  *     statements, this one scans declarations, so a package.json edge added
@@ -173,12 +174,19 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 	});
 
 	it("no PORTABLE BASE SET extension declares a runtime dependency on another extension", () => {
-		// Base set is DERIVED from deploy-config.yaml, so promoting an extension
-		// into the portable profile enrolls it here automatically. The floor guard
-		// is what keeps a silent parse failure from making this vacuous.
-		const yamlText = readFileSync(join(ROOT, "pi-agent", "deploy-config.yaml"), "utf8");
+		// Base set is DERIVED from pi-agent.registry.yaml (entries carrying a
+		// `deploy:` block — excluded entries have `excludeReason` instead), so
+		// promoting an extension into the portable profile enrolls it here
+		// automatically. The floor guard is what keeps a silent parse failure
+		// from making this vacuous.
+		const yamlText = readFileSync(join(ROOT, "pi-agent", "pi-agent.registry.yaml"), "utf8");
 		const baseSet: string[] = [];
 		let inExtensions = false;
+		let name: string | null = null;
+		let hasDeployBlock = false;
+		const flush = (): void => {
+			if (name !== null && hasDeployBlock) baseSet.push(`pi-agent-ext-${name}`);
+		};
 		for (const raw of yamlText.split("\n")) {
 			if (/^extensions:\s*$/.test(raw)) {
 				inExtensions = true;
@@ -187,9 +195,18 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 			if (inExtensions && /^\S/.test(raw)) break;
 			if (!inExtensions) continue;
 			const m = /^\s*-\s*name:\s*(\S+)\s*$/.exec(raw);
-			if (m) baseSet.push(`pi-agent-ext-${m[1]}`);
+			if (m) {
+				flush();
+				name = m[1] as string;
+				hasDeployBlock = false;
+				continue;
+			}
+			// Entry-indented `deploy:` opens the block that marks an entry shipped
+			// (the top-level `deploy:` key is column-0 and never matches).
+			if (name !== null && /^\s+deploy:\s*$/.test(raw)) hasDeployBlock = true;
 		}
-		assert.ok(baseSet.length >= 10, `parsed only ${baseSet.length} base-set name(s) from deploy-config.yaml`);
+		flush();
+		assert.ok(baseSet.length >= 10, `parsed only ${baseSet.length} base-set name(s) from pi-agent.registry.yaml`);
 
 		const violations: string[] = [];
 		// The one sanctioned base-set lib edge: knowledge-card consumes

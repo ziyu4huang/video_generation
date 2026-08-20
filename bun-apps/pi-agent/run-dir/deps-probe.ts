@@ -34,9 +34,10 @@ import { mode, warn } from "./run-context.ts";
 //  - pi-lens: was in the old .pi/npm install set but never in the active
 //    .pi/settings.json packages list (installed-but-inert); intentionally
 //    dropped. Add it here + to package.json if ever needed.
-// The registry-derived manifest no longer carries `npmExtensions` (legacy,
-// always empty) — read it as optional until the machinery below is retired.
-const NPM_EXTENSIONS = (manifest as { npmExtensions?: Array<{ pkg: string; entry: string }> }).npmExtensions ?? [];
+// The registry-derived manifest carries no `npmExtensions` (legacy field, empty
+// in its last years) — the constant below stays an empty list until the
+// machinery around it is retired.
+const NPM_EXTENSIONS: Array<{ pkg: string; entry: string }> = [];
 
 // Set when an opt-in auto-install (`bun install`) completed successfully this
 // invocation. Bun's in-process module resolver does NOT re-scan node_modules

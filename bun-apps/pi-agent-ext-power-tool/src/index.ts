@@ -96,7 +96,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   // Self-gate: BUN_PI_POWER_TOOL=0 disables the entire extension — it registers
   // nothing and publishes no seam. Mirrors prompt-history's
   // BUN_PI_PROMPT_HISTORY=0 so every extension in the portable base set
-  // (deploy-config.yaml) shares one symmetric full-disable knob; enforced by
+  // (pi-agent.registry.yaml) shares one symmetric full-disable knob; enforced by
   // tests/extension-isolation-contract.test.ts. Safe: every cross-extension
   // consumer reads its seam defensively, so disabling degrades features,
   // never crashes.

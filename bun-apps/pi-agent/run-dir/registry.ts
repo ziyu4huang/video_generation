@@ -1,7 +1,7 @@
 /**
  * registry.ts — the ONE parser for pi-agent.registry.yaml.
  *
- * The registry replaces both deploy-config.yaml and hand-maintained
+ * The registry replaces both the retired deploy config and the hand-maintained
  * manifest.json (which becomes a DERIVED artifact — see regen-manifest.ts).
  * Schema authority lives HERE and nowhere else: the devops deploy config
  * derives ShConfig from parseRegistry(), the manifest emitter derives the
