@@ -90,6 +90,15 @@ const PRIVATE_DEFINITION =
 const NODE_MODULES_WALK =
 	/(?:existsSync|statSync|lstatSync)\s*\(\s*(?:path\.)?(?:join|resolve)\s*\([^)]*["'`]node_modules["'`][^)]*["'`]package\.json["'`]/;
 
+/**
+ * Build-time deploy scripts that audit a REAL filesystem tree (the staged
+ * deploy), where node_modules genuinely exists — not a runtime availability
+ * probe, which is what this guard bans. Same carve-out spirit as the mupdf
+ * asset import: a legitimate build-time use a code-shaped pattern flags
+ * forever. Keep this list short and justified.
+ */
+const BUILD_TIME_ALLOWLIST = new Set(["pi-agent-ext-devops/scripts/lib/offline-gate.ts"]);
+
 /** Strip line and block comments so prose never trips a code-shaped pattern. */
 function stripComments(src: string): string {
 	return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
@@ -119,6 +128,7 @@ describe("the dependency probe has exactly one implementation", () => {
 				// A test may legitimately construct a node_modules fixture; the
 				// probe itself is what must not be reimplemented.
 				if (file.endsWith(".test.ts")) continue;
+				if (BUILD_TIME_ALLOWLIST.has(file.slice(BUN_APPS.length + 1))) continue;
 				const src = stripComments(readFileSync(file, "utf8"));
 				if (NODE_MODULES_WALK.test(src)) offenders.push(file.slice(BUN_APPS.length + 1));
 			}
