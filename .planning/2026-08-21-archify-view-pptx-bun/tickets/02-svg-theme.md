@@ -2,8 +2,9 @@
 ticket: 02-svg-theme
 effort: archify-view-pptx-bun
 type: task
-status: open
+status: closed
 created: 2026-08-21
+last: 2026-08-21
 blocking: [03]
 ---
 # 02 — archify: `lib/svg-theme.ts` (class → style token table + drift guard)
@@ -37,3 +38,18 @@ engine — and make a vendored bump that adds a class fail loudly.
 ## Gate
 
 `( cd bun-apps/pi-agent-ext-archify && bun run typecheck && bun run test )`
+
+## Result
+
+**closed 2026-08-21** — `lib/svg-theme.ts` + `__tests__/theme-drift.test.ts` (22 tests). The
+guard renders ALL 13 vendored examples (558 ms total, measured) so all five diagram types are
+covered, not just architecture — no skip gate.
+
+**Correction found during build**: `semantic-sigil` was initially recorded as structural. It
+is not — `svg .semantic-sigil` sets `fill:none; stroke:currentColor; stroke-width:1.35;
+opacity:0.76`, and the sigil glyphs are UNCLASSED children that get their paint purely by SVG
+inheritance. Treating it as decoration rendered every glyph invisible. Fixed by adding real
+inherited-property support (`inheritStyle`) plus `vector-effect: non-scaling-stroke` handling;
+`resolveStyle` also gained a first pass for `color` so `currentColor` sees an own-element
+`s-*` class regardless of class order. Caught by ticket 03's "every node carries resolved
+paint" assertion.

@@ -2,8 +2,9 @@
 ticket: 01-svg-model
 effort: archify-view-pptx-bun
 type: task
-status: open
+status: closed
 created: 2026-08-21
+last: 2026-08-21
 blocking: [03]
 ---
 # 01 — archify: `lib/svg-model.ts` (HTMLRewriter → ordered node list)
@@ -46,3 +47,10 @@ place in the codebase that knows SVG-as-markup.
 ## Gate
 
 `( cd bun-apps/pi-agent-ext-archify && bun run typecheck && bun run test )`
+
+## Result
+
+**closed 2026-08-21** — `lib/svg-model.ts` + `__tests__/svg-model.test.ts` (23 tests).
+Element census matches exactly (359 nodes / 13 tag kinds) and `viewBox` reads back as
+1450x726. The order-preservation property `Bun.XML` loses is asserted explicitly so a future
+"optimization" to a DOM-map parser fails loudly.

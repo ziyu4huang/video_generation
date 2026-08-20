@@ -76,9 +76,9 @@ Local runtime is **bun 1.4.0**. Every claim below was probed on this machine.
 ## Tickets
 
 Phase 1 — ShapeIR (archify)
-- `tickets/01-svg-model.md` — task — HTMLRewriter → ordered node list + resolved transforms
-- `tickets/02-svg-theme.md` — task — class→style token table + drift guard
-- `tickets/03-shape-ir.md` — task — node list → normalized ShapeIR (incl. path parsing)
+- `tickets/01-svg-model.md` — task, **closed** — HTMLRewriter → ordered node list + transforms
+- `tickets/02-svg-theme.md` — task, **closed** — class→style token table + drift guard
+- `tickets/03-shape-ir.md` — task, **closed** — node list → normalized ShapeIR + goldens
 
 Phase 2 — native-shape PPTX (archify)
 - `tickets/04-pptx-mapper.md` — task — ShapeIR → pptxgenjs primitives
@@ -108,6 +108,11 @@ Phase 5 — Bun-native + guards + docs
   additionally cannot parse archify's boolean attributes. A hand-written tokenizer was the
   fallback plan and is no longer needed. Attribute-name lowercasing is absorbed by
   lowercase lookups over a fixed attribute set.
+- **D3a (build correction, 2026-08-21) — presentation properties are inherited parent→child,
+  as real SVG does it.** The first cut inherited only `color`; archify's semantic sigils are
+  unclassed shapes whose entire paint comes from the `.semantic-sigil` group above them, so
+  that cut rendered every glyph invisible. `vector-effect: non-scaling-stroke` is honored for
+  those children too. See ticket 02's Result.
 - **D3 — styling = pinned token table, NOT a CSS engine.** The class vocabulary is bounded
   (31 defined / 28 used). Resolving the template's CSS would mean implementing cascade +
   custom properties + theme switching. A hand-maintained table also makes the PPTX palette
@@ -123,7 +128,9 @@ Phase 5 — Bun-native + guards + docs
 
 ## Frontier
 
-Phase 1 (tickets 01–03) — the ShapeIR seam everything else consumes.
+Phase 2 (tickets 04–06) — ShapeIR → native PPTX shapes. Phase 1 closed 2026-08-21: the
+ShapeIR seam exists, is golden-pinned for all five diagram types, and its arc math is verified
+against WebKit.
 
 ## Fog of war
 

@@ -1,0 +1,98 @@
+# 1080x588 theme=light nodes=97
+rect 220,120 820x400 r12 fill=FBBF24@0.05 stroke=D97706 sw=1 dash=8,4
+text 228,138 start 9/600 fill=D97706 "AWS Region: us-west-2"
+rect 430,270 400x110 r8 fill=none stroke=E11D48 sw=1 dash=4,4
+text 438,288 start 9/600 fill=E11D48 "sg-api :443/:8000"
+path M160,330 L250,330 fill=none stroke=059669 sw=1.8 marker=arrowhead-emphasis
+path M160,142 L612,142 Q620,142 620,150 L620,238 Q620,246 628,246 L727,246 Q735,246 735,254 L735,300 fill=none stroke=E11D48 sw=1.5 dash=5,5 marker=arrowhead-security
+path M380,330 L460,330 fill=none stroke=94A3B8 sw=1.5 marker=arrowhead
+path M315,360 L315,440 fill=none stroke=7C3AED sw=1.5 dash=4,4 marker=arrowhead-dashed
+path M590,330 L670,330 fill=none stroke=94A3B8 sw=1.5 marker=arrowhead
+path M735,300 L735,210 fill=none stroke=94A3B8 sw=1.5 marker=arrowhead
+path M800,330 L880,330 fill=none stroke=94A3B8 sw=1.5 marker=arrowhead
+path M735,360 L735,440 fill=none stroke=7C3AED sw=1.5 dash=4,4 marker=arrowhead-dashed
+path M800,470 L880,470 fill=none stroke=94A3B8 sw=1.5 marker=arrowhead
+rect 40,300 120x60 r6 fill=FFFFFF stroke=none
+rect 40,300 120x60 r6 fill=94A3B8@0.18 stroke=64748B sw=1.5
+rect 47.72,309.44 5.84x5.5 r1.03 fill=none stroke=64748B sw=1.35 opacity=0.76 color=64748B
+path M51.5,307.72 L55.28,307.72 L55.28,311.5 M55.28,307.72 L51.16,311.84 fill=none stroke=64748B sw=1.35 opacity=0.76 color=64748B
+text 100,328 middle 11/600 fill=0F172A "Users"
+text 100,344 middle 9/400 fill=475569 "Browser / Mobile"
+rect 40,110 120x64 r6 fill=FFFFFF stroke=none
+rect 40,110 120x64 r6 fill=FB7185@0.15 stroke=E11D48 sw=1.5
+path* M51.5,117.51 L54.94,118.75 L54.94,121.16 C54.94,123.29 53.7,124.87 51.5,125.63 C49.3,124.87 48.06,123.29 48.06,121.16 L48.06,118.75 Z fill=none stroke=E11D48 sw=1.35 opacity=0.76 color=E11D48
+path M49.99,121.5 L51.02,122.53 L53.08,120.47 fill=none stroke=E11D48 sw=1.35 opacity=0.76 color=E11D48
+text 100,140 middle 11/600 fill=0F172A "Auth Provider"
+text 100,156 middle 9/400 fill=475569 "OAuth 2.0"
+text 100,166 middle 7/400 fill=E11D48 "JWT + PKCE"
+rect 250,300 130x60 r6 fill=FFFFFF stroke=none
+rect 250,300 130x60 r6 fill=FBBF24@0.18 stroke=D97706 sw=1.5
+path* M258.96,314.59 L263.98,314.59 C264.89,314.63 265.66,313.92 265.69,313.01 C265.73,312.1 265.02,311.33 264.11,311.29 C263.94,310.11 263.03,309.17 261.86,308.97 C260.68,308.77 259.51,309.34 258.96,310.4 C257.94,310.58 257.21,311.47 257.21,312.5 C257.21,313.53 257.94,314.41 258.96,314.59 Z fill=none stroke=D97706 sw=1.35 opacity=0.76 color=D97706
+text 315,328 middle 11/600 fill=0F172A "CloudFront"
+text 315,344 middle 9/400 fill=475569 "CDN"
+rect 460,300 130x60 r6 fill=FFFFFF stroke=none
+rect 460,300 130x60 r6 fill=FBBF24@0.18 stroke=D97706 sw=1.5
+path* M468.96,314.59 L473.98,314.59 C474.89,314.63 475.66,313.92 475.69,313.01 C475.73,312.1 475.02,311.33 474.11,311.29 C473.94,310.11 473.03,309.17 471.86,308.97 C470.68,308.77 469.51,309.34 468.96,310.4 C467.94,310.58 467.21,311.47 467.21,312.5 C467.21,313.53 467.94,314.41 468.96,314.59 Z fill=none stroke=D97706 sw=1.35 opacity=0.76 color=D97706
+text 525,328 middle 11/600 fill=0F172A "Load Balancer"
+text 525,344 middle 9/400 fill=475569 "HTTPS :443"
+rect 670,300 130x60 r6 fill=FFFFFF stroke=none
+rect 670,300 130x60 r6 fill=34D399@0.18 stroke=059669 sw=1.5
+path M680.13,308.06 L678.06,311.5 L680.13,314.94 M682.88,308.06 L684.94,311.5 L682.88,314.94 fill=none stroke=059669 sw=1.35 opacity=0.76 color=059669
+text 735,328 middle 11/600 fill=0F172A "API Server"
+text 735,344 middle 9/400 fill=475569 "FastAPI :8000"
+rect 670,150 130x60 r6 fill=FFFFFF stroke=none
+rect 670,150 130x60 r6 fill=A78BFA@0.2 stroke=7C3AED sw=1.5
+ellipse 681.5,158.75 3.44x1.38 fill=none stroke=7C3AED sw=1.35 opacity=0.76 color=7C3AED
+path M678.06,158.75 L678.06,164.25 C678.06,165.01 679.58,165.63 681.5,165.63 C683.43,165.63 684.94,165.01 684.94,164.25 L684.94,158.75 M678.06,161.5 C678.06,162.26 679.58,162.88 681.5,162.88 C683.43,162.88 684.94,162.26 684.94,161.5 fill=none stroke=7C3AED sw=1.35 opacity=0.76 color=7C3AED
+text 735,178 middle 11/600 fill=0F172A "Redis"
+text 735,194 middle 9/400 fill=475569 "cache :6379"
+rect 880,300 130x60 r6 fill=FFFFFF stroke=none
+rect 880,300 130x60 r6 fill=A78BFA@0.2 stroke=7C3AED sw=1.5
+ellipse 891.5,308.75 3.44x1.38 fill=none stroke=7C3AED sw=1.35 opacity=0.76 color=7C3AED
+path M888.06,308.75 L888.06,314.25 C888.06,315.01 889.58,315.63 891.5,315.63 C893.43,315.63 894.94,315.01 894.94,314.25 L894.94,308.75 M888.06,311.5 C888.06,312.26 889.58,312.88 891.5,312.88 C893.43,312.88 894.94,312.26 894.94,311.5 fill=none stroke=7C3AED sw=1.35 opacity=0.76 color=7C3AED
+text 945,328 middle 11/600 fill=0F172A "PostgreSQL"
+text 945,344 middle 9/400 fill=475569 "primary :5432"
+rect 250,440 130x60 r6 fill=FFFFFF stroke=none
+rect 250,440 130x60 r6 fill=FBBF24@0.18 stroke=D97706 sw=1.5
+path* M258.96,454.59 L263.98,454.59 C264.89,454.63 265.66,453.92 265.69,453.01 C265.73,452.1 265.02,451.33 264.11,451.29 C263.94,450.11 263.03,449.17 261.86,448.97 C260.68,448.77 259.51,449.34 258.96,450.4 C257.94,450.58 257.21,451.47 257.21,452.5 C257.21,453.53 257.94,454.41 258.96,454.59 Z fill=none stroke=D97706 sw=1.35 opacity=0.76 color=D97706
+text 315,468 middle 11/600 fill=0F172A "S3"
+text 315,484 middle 9/400 fill=475569 "static assets"
+text 315,492 middle 7/400 fill=D97706 "OAI protected"
+rect 670,440 130x60 r6 fill=FFFFFF stroke=none
+rect 670,440 130x60 r6 fill=FB923C@0.15 stroke=EA580C sw=1.5
+path M677.72,449.09 L685.28,449.09 M677.72,451.5 L685.28,451.5 M677.72,453.91 L685.28,453.91 fill=none stroke=EA580C sw=1.35 opacity=0.76 color=EA580C
+ellipse 679.44,449.09 0.69x0.69 fill=EA580C stroke=none sw=1.35 opacity=0.76 color=EA580C
+ellipse 683.22,451.5 0.69x0.69 fill=EA580C stroke=none sw=1.35 opacity=0.76 color=EA580C
+ellipse 680.81,453.91 0.69x0.69 fill=EA580C stroke=none sw=1.35 opacity=0.76 color=EA580C
+text 735,468 middle 11/600 fill=0F172A "SQS"
+text 735,484 middle 9/400 fill=475569 "job queue"
+rect 880,440 130x60 r6 fill=FFFFFF stroke=none
+rect 880,440 130x60 r6 fill=34D399@0.18 stroke=059669 sw=1.5
+path M890.13,448.06 L888.06,451.5 L890.13,454.94 M892.88,448.06 L894.94,451.5 L892.88,454.94 fill=none stroke=059669 sw=1.35 opacity=0.76 color=059669
+text 945,468 middle 11/600 fill=0F172A "Worker"
+text 945,484 middle 9/400 fill=475569 "async jobs"
+rect 188,310 34x14 r3 fill=FFFFFF stroke=none
+text 205,320 middle 8/400 fill=059669 "HTTPS"
+rect 591,174 58x14 r3 fill=FFFFFF stroke=none
+text 620,184 middle 8/400 fill=E11D48 "verify JWT"
+rect 295.6,398 38.8x14 r3 fill=FFFFFF stroke=none
+text 315,408 middle 8/400 fill=EA580C "static"
+rect 701.2,212 67.6x14 r3 fill=FFFFFF stroke=none
+text 735,222 middle 8/400 fill=475569 "read-through"
+rect 825,310 30x14 r3 fill=FFFFFF stroke=none
+text 840,320 middle 8/400 fill=475569 "SQL"
+rect 713.2,398 43.6x14 r3 fill=FFFFFF stroke=none
+text 735,408 middle 8/400 fill=EA580C "enqueue"
+text 40,559 start 9/600 fill=0F172A "Legend"
+rect 40,564 14x9 r2 fill=94A3B8@0.18 stroke=64748B sw=1
+text 60,572 start 8/400 fill=475569 "External"
+rect 144,564 14x9 r2 fill=FB7185@0.15 stroke=E11D48 sw=1
+text 164,572 start 8/400 fill=475569 "Security"
+rect 248,564 14x9 r2 fill=FBBF24@0.18 stroke=D97706 sw=1
+text 268,572 start 8/400 fill=475569 "Cloud"
+rect 337,564 14x9 r2 fill=34D399@0.18 stroke=059669 sw=1
+text 357,572 start 8/400 fill=475569 "Backend"
+rect 436,564 14x9 r2 fill=A78BFA@0.2 stroke=7C3AED sw=1
+text 456,572 start 8/400 fill=475569 "Database"
+rect 540,564 14x9 r2 fill=FB923C@0.15 stroke=EA580C sw=1
+text 560,572 start 8/400 fill=475569 "Message bus"

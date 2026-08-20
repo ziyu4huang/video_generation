@@ -1,0 +1,156 @@
+# 1080x780 theme=light nodes=155
+rect 16,46 168x660 r10 fill=F8FAFC@0.65 stroke=CBD5E1 sw=1 dash=6,6
+text 100,68 middle 9/600 fill=94A3B8 "01 / Producers"
+rect 231,46 168x660 r10 fill=F8FAFC@0.65 stroke=CBD5E1 sw=1 dash=6,6
+text 315,68 middle 9/600 fill=94A3B8 "02 / Transit"
+rect 446,46 168x660 r10 fill=F8FAFC@0.65 stroke=CBD5E1 sw=1 dash=6,6
+text 530,68 middle 9/600 fill=94A3B8 "03 / Processors"
+rect 661,46 168x660 r10 fill=F8FAFC@0.65 stroke=CBD5E1 sw=1 dash=6,6
+text 745,68 middle 9/600 fill=94A3B8 "04 / State + recovery"
+rect 876,46 168x660 r10 fill=F8FAFC@0.65 stroke=CBD5E1 sw=1 dash=6,6
+text 960,68 middle 9/600 fill=94A3B8 "05 / Consumers"
+path M156,157 L259,157 fill=none stroke=059669 sw=1.8 marker=arrowhead-emphasis
+path M156,385 L259,385 fill=none stroke=059669 sw=1.8 marker=arrowhead-emphasis
+path M371,157 L474,157 fill=none stroke=059669 sw=1.8 marker=arrowhead-emphasis
+path M371,385 L474,385 fill=none stroke=059669 sw=1.8 marker=arrowhead-emphasis
+path M586,157 L630,157 L630,271 L689,271 fill=none stroke=059669 sw=1.8 marker=arrowhead-emphasis
+path M586,385 L630,385 L630,271 L689,271 fill=none stroke=94A3B8 sw=1.4 marker=arrowhead
+path M801,271 L845,271 L845,157 L904,157 fill=none stroke=059669 sw=1.8 marker=arrowhead-emphasis
+path M801,271 L845,271 L845,385 L904,385 fill=none stroke=94A3B8 sw=1.4 marker=arrowhead
+path M530,128 L530,80 L20,80 L20,550 L745,550 L745,584 fill=none stroke=E11D48 sw=1.4 dash=5,5 marker=arrowhead-security
+path M586,385 L586,668 L689,668 L689,613 fill=none stroke=E11D48 sw=1.4 dash=5,5 marker=arrowhead-security
+path M801,613 L845,613 L845,481 L904,481 fill=none stroke=E11D48 sw=1.4 dash=5,5 marker=arrowhead-security
+path M801,613 L904,613 fill=none stroke=7C3AED sw=1.4 dash=4,4 marker=arrowhead-dashed
+rect 44,128 112x58 r6 fill=FFFFFF stroke=none
+rect 44,128 112x58 r6 fill=22D3EE@0.15 stroke=0891B2 sw=1.5
+rect 51.38,136.06 8.25x6.88 r1.38 fill=none stroke=0891B2 sw=1.35 opacity=0.76 color=0891B2
+path M51.38,138.47 L59.63,138.47 fill=none stroke=0891B2 sw=1.35 opacity=0.76 color=0891B2
+ellipse 52.82,137.3 0.48x0.48 fill=0891B2 stroke=none sw=1.35 opacity=0.76 color=0891B2
+ellipse 54.33,137.3 0.48x0.48 fill=0891B2 stroke=none sw=1.35 opacity=0.76 color=0891B2
+text 100,149 middle 10/600 fill=0F172A "Checkout API"
+text 100,165 middle 7/400 fill=475569 "order producer"
+text 100,175 middle 7/400 fill=0891B2 "team commerce"
+rect 44,356 112x58 r6 fill=FFFFFF stroke=none
+rect 44,356 112x58 r6 fill=34D399@0.18 stroke=059669 sw=1.5
+path M54.13,364.06 L52.06,367.5 L54.13,370.94 M56.88,364.06 L58.94,367.5 L56.88,370.94 fill=none stroke=059669 sw=1.35 opacity=0.76 color=059669
+text 100,377 middle 10/600 fill=0F172A "Billing API"
+text 100,393 middle 7/400 fill=475569 "payment producer"
+text 100,403 middle 7/400 fill=059669 "team money"
+rect 259,128 112x58 r6 fill=FFFFFF stroke=none
+rect 259,128 112x58 r6 fill=FB923C@0.15 stroke=EA580C sw=1.5
+path M266.72,137.09 L274.28,137.09 M266.72,139.5 L274.28,139.5 M266.72,141.91 L274.28,141.91 fill=none stroke=EA580C sw=1.35 opacity=0.76 color=EA580C
+ellipse 268.44,137.09 0.69x0.69 fill=EA580C stroke=none sw=1.35 opacity=0.76 color=EA580C
+ellipse 272.22,139.5 0.69x0.69 fill=EA580C stroke=none sw=1.35 opacity=0.76 color=EA580C
+ellipse 269.81,141.91 0.69x0.69 fill=EA580C stroke=none sw=1.35 opacity=0.76 color=EA580C
+text 315,149 middle 10/600 fill=0F172A "orders.v1"
+text 315,165 middle 7/400 fill=475569 "12 partitions"
+text 315,175 middle 7/400 fill=EA580C "key: order_id"
+rect 259,356 112x58 r6 fill=FFFFFF stroke=none
+rect 259,356 112x58 r6 fill=FB923C@0.15 stroke=EA580C sw=1.5
+path M266.72,365.09 L274.28,365.09 M266.72,367.5 L274.28,367.5 M266.72,369.91 L274.28,369.91 fill=none stroke=EA580C sw=1.35 opacity=0.76 color=EA580C
+ellipse 268.44,365.09 0.69x0.69 fill=EA580C stroke=none sw=1.35 opacity=0.76 color=EA580C
+ellipse 272.22,367.5 0.69x0.69 fill=EA580C stroke=none sw=1.35 opacity=0.76 color=EA580C
+ellipse 269.81,369.91 0.69x0.69 fill=EA580C stroke=none sw=1.35 opacity=0.76 color=EA580C
+text 315,377 middle 10/600 fill=0F172A "payments.v2"
+text 315,393 middle 7/400 fill=475569 "8 partitions"
+text 315,403 middle 7/400 fill=EA580C "key: order_id"
+rect 474,128 112x58 r6 fill=FFFFFF stroke=none
+rect 474,128 112x58 r6 fill=34D399@0.18 stroke=059669 sw=1.5
+path M484.13,136.06 L482.06,139.5 L484.13,142.94 M486.88,136.06 L488.94,139.5 L486.88,142.94 fill=none stroke=059669 sw=1.35 opacity=0.76 color=059669
+text 530,149 middle 10/600 fill=0F172A "Order Validate"
+text 530,165 middle 7/400 fill=475569 "group fulfillment"
+text 530,175 middle 7/400 fill=059669 "ordered"
+rect 474,356 112x58 r6 fill=FFFFFF stroke=none
+rect 474,356 112x58 r6 fill=34D399@0.18 stroke=059669 sw=1.5
+path M484.13,364.06 L482.06,367.5 L484.13,370.94 M486.88,364.06 L488.94,367.5 L486.88,370.94 fill=none stroke=059669 sw=1.35 opacity=0.76 color=059669
+text 530,377 middle 10/600 fill=0F172A "Payment Enrich"
+text 530,393 middle 7/400 fill=475569 "group analytics"
+text 530,403 middle 7/400 fill=059669 "at-least-once"
+rect 689,242 112x58 r6 fill=FFFFFF stroke=none
+rect 689,242 112x58 r6 fill=A78BFA@0.2 stroke=7C3AED sw=1.5
+ellipse 700.5,250.75 3.44x1.38 fill=none stroke=7C3AED sw=1.35 opacity=0.76 color=7C3AED
+path M697.06,250.75 L697.06,256.25 C697.06,257.01 698.58,257.63 700.5,257.63 C702.43,257.63 703.94,257.01 703.94,256.25 L703.94,250.75 M697.06,253.5 C697.06,254.26 698.58,254.88 700.5,254.88 C702.43,254.88 703.94,254.26 703.94,253.5 fill=none stroke=7C3AED sw=1.35 opacity=0.76 color=7C3AED
+text 745,263 middle 10/600 fill=0F172A "Order State"
+text 745,279 middle 7/400 fill=475569 "materialized view"
+text 745,289 middle 7/400 fill=7C3AED "idempotent"
+rect 689,584 112x58 r6 fill=FFFFFF stroke=none
+rect 689,584 112x58 r6 fill=FB923C@0.15 stroke=EA580C sw=1.5
+path M696.72,593.09 L704.28,593.09 M696.72,595.5 L704.28,595.5 M696.72,597.91 L704.28,597.91 fill=none stroke=EA580C sw=1.35 opacity=0.76 color=EA580C
+ellipse 698.44,593.09 0.69x0.69 fill=EA580C stroke=none sw=1.35 opacity=0.76 color=EA580C
+ellipse 702.22,595.5 0.69x0.69 fill=EA580C stroke=none sw=1.35 opacity=0.76 color=EA580C
+ellipse 699.81,597.91 0.69x0.69 fill=EA580C stroke=none sw=1.35 opacity=0.76 color=EA580C
+text 745,605 middle 10/600 fill=0F172A "events.dlq"
+text 745,621 middle 7/400 fill=475569 "poison events"
+text 745,631 middle 7/400 fill=EA580C "7-day retention"
+rect 904,128 112x58 r6 fill=FFFFFF stroke=none
+rect 904,128 112x58 r6 fill=34D399@0.18 stroke=059669 sw=1.5
+path M914.13,136.06 L912.06,139.5 L914.13,142.94 M916.88,136.06 L918.94,139.5 L916.88,142.94 fill=none stroke=059669 sw=1.35 opacity=0.76 color=059669
+text 960,149 middle 10/600 fill=0F172A "Fulfillment"
+text 960,165 middle 7/400 fill=475569 "shipping workflow"
+text 960,175 middle 7/400 fill=059669 "consumer"
+rect 904,356 112x58 r6 fill=FFFFFF stroke=none
+rect 904,356 112x58 r6 fill=A78BFA@0.2 stroke=7C3AED sw=1.5
+ellipse 915.5,364.75 3.44x1.38 fill=none stroke=7C3AED sw=1.35 opacity=0.76 color=7C3AED
+path M912.06,364.75 L912.06,370.25 C912.06,371.01 913.58,371.63 915.5,371.63 C917.43,371.63 918.94,371.01 918.94,370.25 L918.94,364.75 M912.06,367.5 C912.06,368.26 913.58,368.88 915.5,368.88 C917.43,368.88 918.94,368.26 918.94,367.5 fill=none stroke=7C3AED sw=1.35 opacity=0.76 color=7C3AED
+text 960,377 middle 10/600 fill=0F172A "Analytics"
+text 960,393 middle 7/400 fill=475569 "streaming facts"
+text 960,403 middle 7/400 fill=7C3AED "consumer"
+rect 904,584 112x58 r6 fill=FFFFFF stroke=none
+rect 904,584 112x58 r6 fill=FB7185@0.15 stroke=E11D48 sw=1.5
+path* M915.5,591.51 L918.94,592.75 L918.94,595.16 C918.94,597.29 917.7,598.87 915.5,599.63 C913.3,598.87 912.06,597.29 912.06,595.16 L912.06,592.75 Z fill=none stroke=E11D48 sw=1.35 opacity=0.76 color=E11D48
+path M913.99,595.5 L915.02,596.53 L917.08,594.47 fill=none stroke=E11D48 sw=1.35 opacity=0.76 color=E11D48
+text 960,605 middle 10/600 fill=0F172A "Replay Tool"
+text 960,621 middle 7/400 fill=475569 "approved batch"
+text 960,631 middle 7/400 fill=E11D48 "operator gate"
+rect 904,452 112x58 r6 fill=FFFFFF stroke=none
+rect 904,452 112x58 r6 fill=94A3B8@0.18 stroke=64748B sw=1.5
+rect 911.72,461.44 5.84x5.5 r1.03 fill=none stroke=64748B sw=1.35 opacity=0.76 color=64748B
+path M915.5,459.72 L919.28,459.72 L919.28,463.5 M919.28,459.72 L915.16,463.84 fill=none stroke=64748B sw=1.35 opacity=0.76 color=64748B
+text 960,473 middle 10/600 fill=0F172A "On-call"
+text 960,489 middle 7/400 fill=475569 "DLQ owner"
+text 960,499 middle 7/400 fill=64748B "SRE"
+rect 174.55,136 65.9x27 r4 fill=FFFFFF stroke=none
+text 207.5,147 middle 8/400 fill=059669 "OrderPlaced"
+text 207.5,158 middle 7/400 fill=94A3B8 "schema v1"
+rect 164.75,364 85.5x27 r4 fill=FFFFFF stroke=none
+text 207.5,375 middle 8/400 fill=059669 "PaymentCaptured"
+text 207.5,386 middle 7/400 fill=94A3B8 "schema v2"
+rect 382.2,136 80.6x27 r4 fill=FFFFFF stroke=none
+text 422.5,147 middle 8/400 fill=059669 "ordered orders"
+text 422.5,158 middle 7/400 fill=94A3B8 "consumer group"
+rect 384.65,364 75.7x27 r4 fill=FFFFFF stroke=none
+text 422.5,375 middle 8/400 fill=059669 "payment facts"
+text 422.5,386 middle 7/400 fill=94A3B8 "at-least-once"
+rect 597.05,193 65.9x27 r4 fill=FFFFFF stroke=none
+text 630,204 middle 8/400 fill=059669 "valid order"
+text 630,215 middle 7/400 fill=94A3B8 "idempotent"
+rect 584.8,307 90.4x27 r4 fill=FFFFFF stroke=none
+text 630,318 middle 8/400 fill=475569 "enriched payment"
+text 630,329 middle 7/400 fill=94A3B8 "idempotent"
+rect 809.6,193 70.8x27 r4 fill=FFFFFF stroke=none
+text 845,204 middle 8/400 fill=059669 "ready orders"
+text 845,215 middle 7/400 fill=94A3B8 "read model"
+rect 812.05,307 65.9x27 r4 fill=FFFFFF stroke=none
+text 845,318 middle 8/400 fill=475569 "order facts"
+text 845,329 middle 7/400 fill=94A3B8 "non-PII"
+rect 262.15,539 75.7x27 r4 fill=FFFFFF stroke=none
+text 300,550 middle 8/400 fill=E11D48 "invalid event"
+text 300,561 middle 7/400 fill=94A3B8 "dead letter"
+rect 602.1,677 70.8x27 r4 fill=FFFFFF stroke=none
+text 637.5,688 middle 8/400 fill=E11D48 "poison event"
+text 637.5,699 middle 7/400 fill=94A3B8 "dead letter"
+rect 804.7,526 80.6x27 r4 fill=FFFFFF stroke=none
+text 845,537 middle 8/400 fill=E11D48 "failure sample"
+text 845,548 middle 7/400 fill=94A3B8 "restricted"
+rect 809.75,622 85.5x27 r4 fill=FFFFFF stroke=none
+text 852.5,633 middle 8/400 fill=EA580C "approved replay"
+text 852.5,644 middle 7/400 fill=94A3B8 "audited batch"
+text 214,724 start 10/600 fill=0F172A "Legend"
+path M214,744 L248,744 fill=none stroke=059669 sw=1.8 marker=arrowhead-emphasis
+text 257,747 start 8/400 fill=475569 "primary data"
+path M340,744 L374,744 fill=none stroke=E11D48 sw=1.4 dash=5,5 marker=arrowhead-security
+text 383,747 start 8/400 fill=475569 "policy / PII"
+path M480,744 L514,744 fill=none stroke=7C3AED sw=1.4 dash=4,4 marker=arrowhead-dashed
+text 523,747 start 8/400 fill=475569 "async batch"
+rect 625,736 14x9 r2 fill=A78BFA@0.2 stroke=7C3AED sw=1
+text 646,744 start 8/400 fill=475569 "data store"
