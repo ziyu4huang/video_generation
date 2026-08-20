@@ -12,7 +12,7 @@
  */
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync } from "node:fs";
-import { isAbsolute, dirname, join, resolve, relative } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -52,28 +52,6 @@ export function resolvePiAgentDir(
 		dir = parent;
 	}
 	return null;
-}
-
-function isWithin(parent: string, child: string): boolean {
-	const rel = relative(parent, child);
-	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-}
-
-/**
- * outDir must resolve under <repo>/dist/ or the OS temp dir. Throws otherwise.
- *
- * Note: the tmpdir escape hatch applies only to paths OUTSIDE the repo. A path
- * inside the repo (which may itself live under tmpdir in tests) is rejected
- * unless it is under <repo>/dist/ — writing into the source tree is never safe.
- */
-export function assertSafeOutDir(outDir: string, repoRoot: string): void {
-	const abs = isAbsolute(outDir) ? resolve(outDir) : resolve(repoRoot, outDir);
-	if (isWithin(resolve(repoRoot, "dist"), abs)) return;
-	if (isWithin(resolve(repoRoot), abs)) {
-		throw new Error(`outDir must be under <repo>/dist/ or ${tmpdir()} (got ${abs})`);
-	}
-	if (isWithin(resolve(tmpdir()), abs)) return;
-	throw new Error(`outDir must be under <repo>/dist/ or ${tmpdir()} (got ${abs})`);
 }
 
 export interface RunOpts {

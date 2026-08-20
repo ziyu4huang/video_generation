@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolvePiAgentDir, assertSafeOutDir } from "../src/deploy-run.ts";
+import { resolvePiAgentDir } from "../src/deploy-run.ts";
 
 /** Build a fake repo tree so resolvePiAgentDir's walk can be tested in isolation. */
 function fakeRepo(): string {
@@ -47,20 +47,5 @@ describe("resolvePiAgentDir", () => {
 		mkdirSync(join(nowhere, "ext"), { recursive: true });
 		writeFileSync(modFile, "// x");
 		expect(resolvePiAgentDir({}, `file://${modFile}`)).toBeNull();
-	});
-});
-
-describe("assertSafeOutDir", () => {
-	const repo = mkdtempSync(join(tmpdir(), "deploy-ext-repoguard-"));
-	test("accepts a path under <repo>/dist/", () => {
-		expect(() => assertSafeOutDir(join(repo, "dist", "pi-agent"), repo)).not.toThrow();
-		expect(() => assertSafeOutDir("dist/out", repo)).not.toThrow(); // repo-relative
-	});
-	test("accepts a path under the OS temp dir", () => {
-		expect(() => assertSafeOutDir(join(tmpdir(), "deploy-ext-x"), repo)).not.toThrow();
-	});
-	test("rejects the source tree and arbitrary absolute paths", () => {
-		expect(() => assertSafeOutDir(join(repo, "bun-apps"), repo)).toThrow();
-		expect(() => assertSafeOutDir("/etc/pi-agent", repo)).toThrow();
 	});
 });

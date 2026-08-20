@@ -699,8 +699,9 @@ export default function (pi: ExtensionAPI): void {
 	// pi_deploy + pi_verify — absorbed from the former standalone deploy
 	// extension. Each tool keeps its OWN owner-declared gating keywords
 	// verbatim (NOT conflated with the devops PR/merge keywords above); the
-	// tools wrap scripts/deploy.ts + run-test.sh (single source of truth) and
-	// resolve the source pi-agent dir at runtime (see src/deploy-run.ts).
+	// tools wrap scripts/deploy-sh.ts + run-test.sh (single source of truth);
+	// pi_verify resolves the source pi-agent dir at runtime (src/deploy-run.ts),
+	// while pi_deploy calls runShDeploy directly.
 	// ────────────────────────────────────────────────────────────────────
 	pi.registerTool({
 		name: "pi_deploy",
@@ -708,38 +709,43 @@ export default function (pi: ExtensionAPI): void {
 		// (was the {names:["pi_deploy","pi_verify"]} gate). The SAME gating is
 		// mirrored on pi_verify so both activate together.
 		gating: { gate: "pi_deploy" }, // reference form (ticket 01) — shared family (pi_deploy + pi_verify)
-		label: "Build & Deploy pi-agent Bundle",
+		label: "Deploy pi-agent",
 		description:
-			"Build and deploy the pi-agent bundle + thin extension bundles (runs pi-agent-ext-devops/scripts/deploy.ts). " +
-			"Returns mode, outDir, pi-agent.js size, ext-bundle built/failed counts, exit code, and a log path.",
+			"Build a versioned pi-agent deploy: a minimal core plus independently built extension " +
+			"packages under ext/, at <outRoot>/<version>/ (see bun-apps/pi-agent/deploy-config.yaml). " +
+			"Returns the version, target dir, per-extension sizes, and whether `current` was repointed.",
 		parameters: Type.Object({
-			mode: Type.Optional(
-				StringEnum(
-					["bundle", "snapshot", "standalone", "exe"] as const,
-					{ description: "Deploy mode. Default: bundle.", default: "bundle" },
-				),
-			),
-			outDir: Type.Optional(
-				Type.String({
-					description: "Output dir. Must be under <repo>/dist/ or the OS temp dir. Default: <repo>/dist/pi-agent.",
+			ext: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"Rebuild ONLY these extensions into the existing version dir (skips the core compile). " +
+						"Omit for a full deploy.",
 				}),
 			),
-			noFreeze: Type.Optional(Type.Boolean({ description: "Skip chmod a-w (dev). Default: false.", default: false })),
+			force: Type.Optional(
+				Type.Boolean({ description: "Replace an existing version dir. Default: false.", default: false }),
+			),
+			noFreeze: Type.Optional(
+				Type.Boolean({ description: "Skip chmod a-w (dev). Default: false.", default: false }),
+			),
+			noCurrent: Type.Optional(
+				Type.Boolean({ description: "Do not repoint <outRoot>/current. Default: false.", default: false }),
+			),
 		}),
 		async execute(_id, params) {
 			try {
 				const r = await runDeploy({
-					mode: params.mode as "bundle" | "snapshot" | "standalone" | "exe" | undefined,
-					outDir: params.outDir,
+					ext: params.ext,
+					force: params.force ?? false,
 					noFreeze: params.noFreeze ?? false,
+					noCurrent: params.noCurrent ?? false,
 				});
-				const text =
-					(r.ok ? "✓ deployed" : "✗ deploy failed") +
-					` (mode=${r.mode}, exit=${r.exitCode}, ext built=${r.extBundles.built}` +
-					(r.extBundles.failed.length ? `, failed=${r.extBundles.failed.join(",")}` : "") +
-					`, pi-agent.js=${r.piAgentJsBytes ? `${(r.piAgentJsBytes / 1e6).toFixed(1)}MB` : "n/a"})` +
-					(r.logPath ? `\nlog: ${r.logPath}` : "") +
-					(r.errorTail ? `\n${r.errorTail}` : "");
+				const text = r.ok
+					? `✓ deployed ${r.version} → ${r.target}\n` +
+						`  mode=${r.mode}, core=${((r.coreBytes ?? 0) / 1e6).toFixed(1)}MB, ` +
+						`${r.extensions?.length ?? 0} extension(s)` +
+						(r.currentUpdated ? ", current repointed" : "")
+					: `✗ deploy failed\n${r.errorTail ?? ""}`;
 				return {
 					content: [{ type: "text" as const, text }],
 					details: r,
@@ -761,12 +767,12 @@ export default function (pi: ExtensionAPI): void {
 		gating: { gate: "pi_deploy" }, // reference form (ticket 01) — shared family (pi_deploy + pi_verify)
 		label: "Verify pi-agent (run-test.sh tier)",
 		description:
-			"Run a pi-agent run-test.sh tier (quick|medium|high|readonly|full; default medium) and report per-step pass/fail. " +
-			"high = the full build + deploy e2e tiers (patches, extension loading, launcher). Returns steps, exit code, and a log path.",
+			"Run a pi-agent run-test.sh tier (quick|medium|full; default medium) and report per-step pass/fail. " +
+			"full = medium plus the live local-LLM smoke and the sibling-package baseline. Returns steps, exit code, and a log path.",
 		parameters: Type.Object({
 			tier: Type.Optional(
 				StringEnum(
-					["quick", "medium", "high", "readonly", "full"] as const,
+					["quick", "medium", "full"] as const,
 					{ description: "run-test.sh tier. Default: medium.", default: "medium" },
 				),
 			),
@@ -775,7 +781,7 @@ export default function (pi: ExtensionAPI): void {
 		async execute(_id, params) {
 			try {
 				const r = await runVerify({
-					tier: params.tier as "quick" | "medium" | "high" | "readonly" | "full" | undefined,
+					tier: params.tier as "quick" | "medium" | "full" | undefined,
 					bail: params.bail ?? false,
 				});
 				const stepLines = r.steps.map((s) => `  ${s.passed ? "✓" : "✗"} ${s.name} (${s.seconds}s)`).join("\n");
