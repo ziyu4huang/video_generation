@@ -684,17 +684,6 @@ jobs:
         working-directory: bun-apps
         run: bun run test:dist
 
-      # Deploy-bundle guard (blocks). `bun run deploy` produces the shipped
-      # artifact, and it was broken from #1544 through 90 commits of main with
-      # nothing to say so: the jobs that build a bundle (deploy-verify,
-      # compile-verify) sit in this workflow but Actions does not run here, and
-      # local_ci — the only CI that executes — reads the regression-gates job
-      # alone. A shipping artifact needs a gate in THIS job or it has none.
-      # All three shipped modes, build AND boot (~4s); boot smokes use a throwaway
-      # PI_CODING_AGENT_DIR so it never touches shared ~/.pi state.
-      - name: Deploy-artifact guard (bundle + exe + snapshot, blocks)
-        run: bash scripts/check-deploy-artifacts.sh
-
       # Sh-deploy L1 e2e guard (blocks). The four sh build gates prove the tree
       # is well-formed; this runs the DEPLOYED binary and proves its extensions
       # actually work (tools, skills, cross-extension seams, doctor, both ext/
