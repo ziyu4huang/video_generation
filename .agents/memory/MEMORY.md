@@ -68,7 +68,11 @@ last: 2026-08-18
 ---
 Self-improve loop surface (PR #1699, 2026-08-19): `./pi-agent.sh cli loop status` — report-only (always exit 0) 5-signal drift report over MVP packages (wayfind/superpowers/subagent + core-*; image/video extensions explicitly out of scope per user). Signals: dispatch death rate (broad <15% over ~100 runs, soak issue #1681), skill line budget (≤300/file), coverage floor, schema-cost, drift census. runStats parser must be line-start anchored so runs-stats cohort rows (`cohort x: n=154 done=119…`) don't false-match summary rows; also accepts keyword-first (`done 126`). New CLI commands follow `cli/commands/*.ts` + COMMANDS registry in dispatch.ts — forgetting the import causes silent fall-through to chat.
 §
-
+---
+id: 9cc4cbbd-841d-4958-9078-3a4c3ceb56f0
+created: 2026-08-19
+last: 2026-08-19
+---
 subagent tool vs direct-call gap: subagent tool seam 套用 role envelopes，但 direct `spawnSubagent()` 呼叫點無 cap。補救：`roleAwareDirectCall()` helper 統一 caps+abort-safety footer 原子同進退。（2026-08-18，#1654–#1661）
 id: 1ebce484-10e9-408a-b8b1-769774a84268
 created: 2026-08-18

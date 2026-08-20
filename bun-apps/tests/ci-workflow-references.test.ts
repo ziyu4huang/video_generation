@@ -234,17 +234,25 @@ describe("ci.yml.disabled — every referenced path resolves", () => {
 	test("the scanner actually finds the workflow's script references", () => {
 		const found = scriptReferences().map((r) => r.raw);
 		expect(found.length).toBeGreaterThanOrEqual(8);
+		// run-test.sh used to be pinned here. Its ONLY reference was the
+		// deploy-verify job, which ran run-test.sh's `high` + `readonly` tiers;
+		// that job was deleted with the four legacy deploy modes it built. So
+		// run-test.sh is now referenced by NO workflow job — it is a local /
+		// pi_verify tool only. That is a statement of fact, not a gap to fill:
+		// the job never executed here anyway (GitHub Actions is disabled in this
+		// repo, and local_ci reads regression-gates alone).
 		for (const expected of [
 			"bun-apps/pi-agent-ext-devops/src/changed-packages-cli.ts",
 			"scripts/ci-file-size-guard.sh",
 			"scripts/check-schema-cost.ts",
-			"../pi-agent-ext-devops/scripts/run-test.sh",
+			"scripts/check-deploy-sh-e2e.sh",
 			"bun-apps/pi-agent/run-dir/check-deps.ts",
 		]) {
 			expect(found).toContain(expected);
 		}
-		// …and it does NOT mistake prose for a reference (compile-verify's
-		// `echo "expected resolve.ts to emit …"` / `test -f bun-apps/package.json`).
+		// …and it does NOT mistake prose for a reference (the tokenizer trap the
+		// since-deleted compile-verify job used to exercise: `echo "expected
+		// resolve.ts to emit …"` / `test -f bun-apps/package.json`).
 		expect(found).not.toContain("resolve.ts");
 		expect(found.some((f) => f.endsWith("package.js"))).toBe(false);
 	});
