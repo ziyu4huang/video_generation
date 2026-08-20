@@ -116,7 +116,8 @@ export const STATIC_EXTENSION_FACTORIES = [
 	{ name: "pi-agent-ext-obsidian", factory: obsidianExtension },
 	{ name: "pi-agent-ext-btw", factory: btwExtension },
 	{ name: "pi-agent-ext-file2md", factory: file2mdExtension },
-	// subagent — owns subagent + subagent_runs tools + shared singletons; must
+	// subagent — owns spawn_subagent + list_subagent_runs tools (renamed
+	// 2026-08-20, docs/agents/extension-naming.md) + shared singletons; must
 	// load before workflow so workflow's /subagents viewer reads a populated registry.
 	{ name: "pi-agent-ext-subagent", factory: subagentExtension },
 	{ name: "pi-agent-ext-workflow", factory: workflowExtension },

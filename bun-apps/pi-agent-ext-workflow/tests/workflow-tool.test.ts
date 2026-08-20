@@ -27,7 +27,8 @@ test("backgroundStartedText tells the user it auto-continues and they can wait",
 
 test("createWorkflowTool has correct name and label", () => {
   const tool = createWorkflowTool();
-  assert.equal(tool.name, "workflow");
+  // Renamed from `workflow` 2026-08-20 — docs/agents/extension-naming.md
+  assert.equal(tool.name, "run_workflow");
   assert.equal(tool.label, "Workflow");
 });
 
@@ -265,7 +266,7 @@ test("createWorkflowTool invalid args throws descriptive error", () => {
 
 test("createWorkflowTool with custom cwd creates tool", () => {
   const tool = createWorkflowTool({ cwd: "/tmp" });
-  assert.equal(tool.name, "workflow");
+  assert.equal(tool.name, "run_workflow");
 });
 
 test("modelRoutingGuideline output is non-empty and well-formed", async () => {

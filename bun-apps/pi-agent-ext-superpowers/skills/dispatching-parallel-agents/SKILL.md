@@ -19,7 +19,7 @@ and you keep the judgement part: briefs, budgets, and red-verdict triage.
   (`bun-apps/pi-agent-ext-workflow/samples/execute-t1.js`):
   one impl agent + one read-only verify agent, no phase overhead.
 
-Run a template through the `workflow` tool, or headless:
+Run a template through the `run_workflow` tool, or headless:
 
 ```bash
 bun bun-apps/pi-agent-ext-workflow/samples/run.ts \

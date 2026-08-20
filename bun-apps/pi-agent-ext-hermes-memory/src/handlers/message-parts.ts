@@ -29,8 +29,10 @@ export function collectMessageParts(entries: unknown[], recentMessages = 0): str
 /** Per-output cap for captured subagent findings (relaxed vs getMessageText's 500). */
 export const SUBAGENT_OUTPUT_MAX_CHARS = 4000;
 
-/** Dispatch tool whose results the learning loop should capture. */
-const SUBAGENT_TOOL_NAME = "subagent";
+/** Dispatch tool whose results the learning loop should capture.
+ * `spawn_subagent` renamed from `subagent` 2026-08-20 (docs/agents/extension-naming.md)
+ * — BOTH names accepted because historical transcripts carry the legacy name. */
+const SUBAGENT_TOOL_NAMES = new Set(["subagent", "spawn_subagent"]);
 
 /** Read the textual content of a tool_result block (string or text-block array). */
 function readToolResultContent(content: unknown): string {
@@ -89,7 +91,7 @@ export function collectSubagentOutputs(entries: unknown[]): string[] {
       const b = block as { type?: unknown; tool_use_id?: unknown; content?: unknown };
       if (b.type !== "tool_result") continue;
       const id = typeof b.tool_use_id === "string" ? b.tool_use_id : undefined;
-      if (!id || idToName.get(id) !== SUBAGENT_TOOL_NAME) continue;
+      if (!id || !SUBAGENT_TOOL_NAMES.has(idToName.get(id) ?? "")) continue;
       const text = readToolResultContent(b.content);
       if (!text) continue;
       parts.push(`[SUBAGENT]: ${text.slice(0, SUBAGENT_OUTPUT_MAX_CHARS)}`);

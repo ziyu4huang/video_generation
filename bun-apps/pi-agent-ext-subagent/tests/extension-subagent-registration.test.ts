@@ -4,13 +4,14 @@ import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-age
 
 /**
  * Moved from pi-agent-ext-workflow/tests/extension-subagent-registration.test.ts
- * when the `subagent` + `subagent_runs` tools moved to THIS package
+ * when the `subagent` + `subagent_runs` tools moved to THIS package (renamed
+ * `spawn_subagent` + `list_subagent_runs` 2026-08-20 — docs/agents/extension-naming.md)
  * (pi-agent-ext-subagent). The factory under test is now
  * `../extensions/subagent.ts`; the assertion is broadened to cover BOTH tools
  * the extension owns.
  */
 describe("subagent extension — tool registration", () => {
-  it("registers tools named 'subagent' and 'subagent_runs' at load", async () => {
+  it("registers tools named 'spawn_subagent' and 'list_subagent_runs' at load", async () => {
     const registered: ToolDefinition[] = [];
     // Permissive mock: record registerTool, no-op everything else the synchronous
     // load path touches (registerCommand, on, events, …). session_start handlers
@@ -34,11 +35,14 @@ describe("subagent extension — tool registration", () => {
     extension(pi);
 
     const names = registered.map((t) => t.name);
-    assert.ok(names.includes("subagent"), `expected 'subagent' registered; got: ${names.join(", ")}`);
-    assert.ok(names.includes("subagent_runs"), `expected 'subagent_runs' registered; got: ${names.join(", ")}`);
+    assert.ok(names.includes("spawn_subagent"), `expected 'spawn_subagent' registered; got: ${names.join(", ")}`);
+    assert.ok(
+      names.includes("list_subagent_runs"),
+      `expected 'list_subagent_runs' registered; got: ${names.join(", ")}`,
+    );
   });
 
-  it("force-activates 'subagent' + 'subagent_runs' on session_start and before_agent_start", async () => {
+  it("force-activates 'spawn_subagent' + 'list_subagent_runs' on session_start and before_agent_start", async () => {
     // Richer mock than the registration test: records setActiveTools calls and
     // captures lifecycle handlers so we can fire session_start / before_agent_start
     // and assert the extension force-activates its tools (Task 4 review fix).
@@ -76,23 +80,31 @@ describe("subagent extension — tool registration", () => {
     handlers.before_agent_start?.({});
 
     const names = registered.map((t) => t.name);
-    assert.ok(names.includes("subagent"), `expected 'subagent' registered; got: ${names.join(", ")}`);
-    assert.ok(names.includes("subagent_runs"), `expected 'subagent_runs' registered; got: ${names.join(", ")}`);
+    assert.ok(names.includes("spawn_subagent"), `expected 'spawn_subagent' registered; got: ${names.join(", ")}`);
+    assert.ok(
+      names.includes("list_subagent_runs"),
+      `expected 'list_subagent_runs' registered; got: ${names.join(", ")}`,
+    );
 
     // At least one setActiveTools call must include BOTH owned tools. session_start
     // is the first hook to fire, so it carries the activation here.
-    const sawBoth = setActiveToolsCalls.some((call) => call.includes("subagent") && call.includes("subagent_runs"));
+    const sawBoth = setActiveToolsCalls.some(
+      (call) => call.includes("spawn_subagent") && call.includes("list_subagent_runs"),
+    );
     assert.ok(
       sawBoth,
-      `expected a setActiveTools call containing both 'subagent' and 'subagent_runs'; got: ${JSON.stringify(setActiveToolsCalls)}`,
+      `expected a setActiveTools call containing both 'spawn_subagent' and 'list_subagent_runs'; got: ${JSON.stringify(setActiveToolsCalls)}`,
     );
 
     // And the active set must end up containing both (idempotent re-activation on
     // before_agent_start must not drop them).
-    assert.ok(active.includes("subagent"), `expected 'subagent' in active set; got: ${JSON.stringify(active)}`);
     assert.ok(
-      active.includes("subagent_runs"),
-      `expected 'subagent_runs' in active set; got: ${JSON.stringify(active)}`,
+      active.includes("spawn_subagent"),
+      `expected 'spawn_subagent' in active set; got: ${JSON.stringify(active)}`,
+    );
+    assert.ok(
+      active.includes("list_subagent_runs"),
+      `expected 'list_subagent_runs' in active set; got: ${JSON.stringify(active)}`,
     );
 
     // The /subagents command registration moved here with the viewer (self-contained).

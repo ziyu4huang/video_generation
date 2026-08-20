@@ -26,7 +26,7 @@ import researchDefault from "@repo/pi-agent-ext-research-tool/extensions/researc
 import powerToolDefault from "@repo/pi-agent-ext-power-tool/extensions/power-tool.ts";
 // tickets 10 + 11 (rolled out TOGETHER): the combined workflow/subagent gate.
 // workflow is imported FIRST so it precedes subagent in capture order, keeping
-// the canonical signature-group id "workflow" first (the id every qa/probes.ts
+// the canonical signature-group id "run_workflow" first (the id every qa/probes.ts
 // entry + findGate keys off of) — see the comment at the CORPUS_EFF call site.
 import workflowDefault from "@repo/pi-agent-ext-workflow/extensions/workflow.ts";
 import subagentDefault from "@repo/pi-agent-ext-subagent/extensions/subagent.ts";
@@ -156,7 +156,7 @@ function captureOwnerDeclaredDefs(registrars: Array<(pi: any) => void>): Capture
 // registrar order no longer affects names[0] (every gate IS names[0]); it still
 // fixes CORPUS_GATES ordering (and thus matchIntent's first-match / misroute
 // target in l2.ts). workflowDefault precedes subagentDefault so the canonical
-// signature-group id stays "workflow" (the id qa/probes.ts + findGate key off).
+// signature-group id stays "run_workflow" (the id qa/probes.ts + findGate key off).
 // The 5 tools share identical keywords-only gating → 5 single-name gates that
 // co-fire (subagent's companion subagent_runs carries no gating and is skipped
 // by buildEffectiveGates's `if (!g) continue`; subagents (plural) now carries

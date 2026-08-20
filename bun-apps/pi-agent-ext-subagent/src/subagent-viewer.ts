@@ -112,7 +112,9 @@ export function reconstructSubagentRuns(branch: Iterable<BranchEntry>): Subagent
       continue;
     }
 
-    if (msg.toolName !== "subagent") continue; // singular path — byte-identical to before
+    // 'spawn_subagent' renamed from 'subagent' 2026-08-20 (docs/agents/
+    // extension-naming.md) — historical transcripts still carry the legacy name.
+    if (msg.toolName !== "subagent" && msg.toolName !== "spawn_subagent") continue; // singular path
     i += 1;
     const d = msg.details;
     // `status` has been written by every version that produced these entries;

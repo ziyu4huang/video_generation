@@ -31,8 +31,8 @@ const DEFAULT_PI_TOOLS = [
   "web_search",
   "web_fetch",
   "advisor",
-  "subagent",
-  "workflow",
+  "spawn_subagent",
+  "run_workflow",
 ];
 
 // Additional tools from context-mode plugin (common but not guaranteed)
@@ -141,7 +141,7 @@ describe("installWorkflowEditor - tool availability", () => {
     const { installWorkflowEditor } = await import("../src/workflow-editor.js");
 
     // Add a bonus tool to simulate a plugin adding a tool
-    const originalTools = ["bash", "read", "edit", "write", "custom-plugin-tool", "workflow"];
+    const originalTools = ["bash", "read", "edit", "write", "custom-plugin-tool", "run_workflow"];
     const mockPi = createMockPi(originalTools);
 
     const ui = {

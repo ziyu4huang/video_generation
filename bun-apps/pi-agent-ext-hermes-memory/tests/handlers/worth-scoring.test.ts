@@ -146,7 +146,8 @@ describe("worth-scoring end-to-end (search → correction turn → bump)", () =>
   it("a search that recalls a memory, followed by a correction turn, bumps mw_fail", async () => {
     const m = await repo.addMemory({ content: "always commit on the main branch", target: "memory" });
     // recall it via the wired search tool in memory mode (populates recallSet)
-    await tools.search.execute("tc", { mode: "memory", query: "commit branch", target: "memory" });
+    // (`search` renamed to `search_memory` 2026-08-20 — docs/agents/extension-naming.md)
+    await tools.search_memory.execute("tc", { mode: "memory", query: "commit branch", target: "memory" });
     // correction turn — message_end flags hadCorrection, turn_end drains + bumps
     await fire("message_end", { message: { role: "user", content: [{ type: "text", text: "no, use feature branches instead" }] } });
     await fire("turn_end", {}, {});

@@ -311,7 +311,9 @@ export function createSubagentsTool(
   const defaultCwd = options.cwd ?? process.cwd();
 
   return defineTool<typeof subagentsToolSchema, SubagentsToolDetails>({
-    name: "subagents",
+    // Renamed 2026-08-20 (tool-name verb_object effort): legacy name `subagents`
+    // — see docs/agents/extension-naming.md for the rename history.
+    name: "list_subagents",
     label: "Subagents",
     description:
       "Dispatch N isolated read-only subagents in parallel (bounded) and return a positional array of results.",

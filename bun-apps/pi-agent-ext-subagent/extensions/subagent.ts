@@ -63,12 +63,13 @@ export default function extension(pi: ExtensionAPI) {
     persistence,
   });
 
-  // Best-effort guard: warn if another extension already registered 'subagent'.
+  // Best-effort guard: warn if another extension already registered
+  // 'spawn_subagent' (renamed from 'subagent' 2026-08-20 — docs/agents/extension-naming.md).
   try {
     const activeAtLoad = pi.getActiveTools();
-    if (Array.isArray(activeAtLoad) && activeAtLoad.includes("subagent")) {
+    if (Array.isArray(activeAtLoad) && activeAtLoad.includes("spawn_subagent")) {
       console.warn(
-        "[pi-agent-ext-subagent] a 'subagent' tool is already active; the two will shadow each other. This repo expects pi-agent-ext-subagent to own the 'subagent' name.",
+        "[pi-agent-ext-subagent] a 'spawn_subagent' tool is already active; the two will shadow each other. This repo expects pi-agent-ext-subagent to own the 'spawn_subagent' name.",
       );
     }
   } catch {

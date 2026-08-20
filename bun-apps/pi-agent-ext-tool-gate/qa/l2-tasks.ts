@@ -34,7 +34,7 @@ export const L2_TASKS: L2Task[] = [
 	{ id: "file2md-ocr", prompt: "ocr this scanned pdf and extract the text", intendedGate: "file2md", expectReachable: true, note: "keyword ocr (+ noun pdf ∧ verb extract)" },
 	{ id: "movie-make", prompt: "make a movie from these three clips", intendedGate: "movie", expectReachable: true, note: 'keyword "make a movie"' },
 	{ id: "research-bili", prompt: "collect the trending bilibili AI videos from today", intendedGate: "collect_videos", expectReachable: true, note: "keyword bilibili / collect videos" },
-	{ id: "workflow-fanout", prompt: "orchestrate a fan-out of parallel sub-agents to review these files", intendedGate: "workflow", expectReachable: true, note: "keyword orchestrate / parallel agent" },
+	{ id: "workflow-fanout", prompt: "orchestrate a fan-out of parallel sub-agents to review these files", intendedGate: "run_workflow", expectReachable: true, note: "keyword orchestrate / parallel agent" },
 
 	// ── REACHABLE after the fix (were gaps; keywords added) ──
 	{ id: "krea-realtime", prompt: "turn this rough sketch into an image in real time", intendedGate: "krea2", expectReachable: true, note: "FIXED — keyword sketch/real time closes the blind gap" },

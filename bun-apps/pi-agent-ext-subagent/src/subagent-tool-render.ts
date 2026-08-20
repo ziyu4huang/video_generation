@@ -86,7 +86,7 @@ export function renderSubagentCall(
   // Render-layer safe (2026-08-16 crash fix #2): tolerate nullish/partial args —
   // a composer must never throw per frame (uncaught render exception kills pi).
   if (!args) return "";
-  const parts: string[] = [theme.bold(theme.fg("toolTitle", "subagent"))];
+  const parts: string[] = [theme.bold(theme.fg("toolTitle", "spawn_subagent"))];
   if (args.agent) parts.push(theme.fg("accent", args.agent));
   // Requested-model slot: explicit model, else capability, else tier, else "default".
   // shortModel() drops the provider prefix on a real model id (ticket 04, finding 5 —

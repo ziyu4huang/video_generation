@@ -1,6 +1,6 @@
 /**
  * `workflow_control` tool — agent-callable stop/pause/resume (and, in later
- * tasks, status/list/wait) over a background `workflow` run.
+ * tasks, status/list/wait) over a background `run_workflow` run.
  *
  * Thin wrapper: WorkflowManager.stop()/pause()/resume() already do the real
  * work (including correctly calling a real AbortController.abort()
@@ -135,12 +135,12 @@ export function createWorkflowControlTool(
     label: "WorkflowControl",
     description:
       "Stop, pause, resume, inspect, or wait on a background workflow run (a run started by the workflow tool with background: true). Use runId from the workflow tool's background-start result.",
-    // Owner-declared gating — mirrored IDENTICALLY from `workflow` (same combined
-    // gate signature). See `workflow`'s gating comment: tickets 10 + 11 are one
+    // Owner-declared gating — mirrored IDENTICALLY from `run_workflow` (same combined
+    // gate signature). See `run_workflow`'s gating comment: tickets 10 + 11 are one
     // atomic rollout over the single combined workflow/subagent gate, so all 4
     // tools share the SAME keywords-only gating and collapse back into one
-    // 4-name gate (names[0] === "workflow") — when the gate fires, all 4 names
-    // activate together (co-fire preserved). See `workflow`'s gating comment.
+    // 4-name gate (names[0] === "run_workflow") — when the gate fires, all 4 names
+    // activate together (co-fire preserved). See `run_workflow`'s gating comment.
     gating: { gate: "workflow" }, // reference form (ticket 01) — family in GATE_DEFS["workflow"] (workflow ext)
     promptSnippet:
       "Control a background workflow run: workflow_control({ action, runId }). action is one of stop | pause | resume | status | list | wait.",

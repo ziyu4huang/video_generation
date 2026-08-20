@@ -98,7 +98,7 @@ describe("registerSearchTool (session mode, legacy variant)", () => {
     registerSearchTool(pi, {} as any, {} as any);
 
     const schema = JSON.stringify(captured().parameters);
-    assert.strictEqual(captured().name, "search");
+    assert.strictEqual(captured().name, "search_memory");
     assert.match(schema, /mode/);
     assert.match(schema, /memory/);
     assert.match(schema, /session/);
@@ -124,7 +124,7 @@ describe("registerSearchTool (session mode, anchors variant)", () => {
     registerSearchTool(pi, {} as any, {} as any, { variant: "anchors" }, undefined, { sessionsDir });
 
     const schema = JSON.stringify(captured().parameters);
-    assert.strictEqual(captured().name, "search");
+    assert.strictEqual(captured().name, "search_memory");
     assert.match(schema, /markdown/);
     assert.match(schema, /query/);
     assert.match(captured().description, /all terms must match/);

@@ -75,7 +75,9 @@ export function createSubagentTool(
   const spawn = options.spawn ?? spawnSubagent;
   const gitOps = options.gitOps ?? realGitOps;
   return defineTool({
-    name: "subagent",
+    // Renamed 2026-08-20 (tool-name verb_object effort): legacy name `subagent`
+    // — see docs/agents/extension-naming.md for the rename history.
+    name: "spawn_subagent",
     label: "Subagent",
     description: [
       "Dispatch a single subagent with an ISOLATED context to do a focused task and report back.",

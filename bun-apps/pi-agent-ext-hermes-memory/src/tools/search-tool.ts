@@ -47,7 +47,9 @@ export function registerSearchTool(
   const legacySessionExecute = createLegacySessionSearchExecute(sessionRepo);
 
   pi.registerTool({
-    name: "search",
+    // Renamed 2026-08-20 (tool-name verb_object effort): legacy name `search`
+    // — see docs/agents/extension-naming.md for the rename history.
+    name: "search_memory",
     label: "Search",
     gating: { core: true },
     description: `Search memories and past Pi sessions. mode=memory searches the extended memory store; mode=session searches past sessions.

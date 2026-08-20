@@ -197,7 +197,7 @@ test("get without id throws", async () => {
   assert.rejects(() => tool.execute("id", { action: "get" }, NO_SIGNAL, undefined, undefined), /requires id/);
 });
 
-test("createSubagentRunsTool → name 'subagent_runs'", () => {
+test("createSubagentRunsTool → name 'list_subagent_runs'", () => {
   const tool = createSubagentRunsTool({ persistence: fakePersistence([]) });
-  assert.equal(tool.name, "subagent_runs");
+  assert.equal(tool.name, "list_subagent_runs");
 });
