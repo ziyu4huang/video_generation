@@ -28,7 +28,7 @@ import { stageGenerateEmbeddedAssets } from "./lib/codegen.ts";
 const PI_AGENT_DIR = resolve(import.meta.dir, "..", "..", "pi-agent");
 const BUN_APPS_DIR = dirname(PI_AGENT_DIR);
 const REPO_ROOT = dirname(BUN_APPS_DIR);
-const DEFAULT_CONFIG = join(PI_AGENT_DIR, "deploy-config.yaml");
+const DEFAULT_CONFIG = join(PI_AGENT_DIR, "pi-agent.registry.yaml");
 
 export interface DeployShOptions {
 	configPath?: string;

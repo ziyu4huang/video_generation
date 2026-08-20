@@ -12,17 +12,17 @@ const describeE2E = RUN ? describe : describe.skip;
 const outRoot = mkdtempSync(join(tmpdir(), "sh-e2e-"));
 afterAll(() => rmTree(outRoot));
 
-// The expected extension set is DERIVED from deploy-config.yaml, never written
-// out here. This file used to assert ["power-tool", "task"] — true when the base
-// set was two, silently wrong from #1713 (hyperframes) onward and flatly red
-// after #1738 took it to fourteen. Nothing caught that for two releases because
-// no gate ran this file: check-deploy-e2e.sh runs the PROBE e2e, and the
-// PI_AGENT_E2E gate hides the rest from a plain `bun test`. Same lesson as the
-// probe suite's own header — the config is the source of truth for what a
-// deploy ships.
+// The expected extension set is DERIVED from pi-agent.registry.yaml, never
+// written out here. This file used to assert ["power-tool", "task"] — true when
+// the base set was two, silently wrong from #1713 (hyperframes) onward and
+// flatly red after #1738 took it to fourteen. Nothing caught that for two
+// releases because no gate ran this file: check-deploy-e2e.sh runs the PROBE
+// e2e, and the PI_AGENT_E2E gate hides the rest from a plain `bun test`. Same
+// lesson as the probe suite's own header — the registry is the source of truth
+// for what a deploy ships.
 const BUN_APPS_DIR = join(import.meta.dir, "..", "..");
 const shConfig = parseShConfig(
-	readFileSync(join(BUN_APPS_DIR, "pi-agent", "deploy-config.yaml"), "utf8"),
+	readFileSync(join(BUN_APPS_DIR, "pi-agent", "pi-agent.registry.yaml"), "utf8"),
 	{ bunAppsDir: BUN_APPS_DIR },
 );
 /** Config order — what `--ext-list` reports, and what the loader loads in. */

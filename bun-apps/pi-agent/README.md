@@ -89,8 +89,10 @@ root`. That made this repo's old `.pi/settings.json` `"packages"` list a `<PWD>/
 hack: copy/deploy pi-agent elsewhere, or invoke it via the `~/.zshrc` alias from any
 other directory, and every extension silently vanished.
 Fix: `-e`/`--extension` and `--skill` accept **absolute paths**, which bypass `cwd`
-resolution and trust-gating entirely. `run-dir/manifest.json` declares this repo's
-fixed extension/skill set (paths relative to `bun-apps/`); `run-dir/resolve.ts`
+resolution and trust-gating entirely. `pi-agent.registry.yaml` is the registry
+(one entry per extension — schema authority: `run-dir/registry.ts`); `run-dir/manifest.json`
+is its DERIVED form (`bun run regen:manifest`; byte-checked by a freshness test),
+declaring this repo's fixed extension/skill set (paths relative to `bun-apps/`); `run-dir/resolve.ts`
 resolves them to absolute paths (`import.meta.dir`-based in source mode, via a
 build-time-generated constant in bundle mode — same pattern as `PI_PKG_DIR` below);
 and the `load-run-dir-resources` patch splices them into argv before `main()` runs.
@@ -101,23 +103,23 @@ tree (`@juicesharp/rpiv-ask-user-question`, `pi-hermes-memory` — `rpiv-todo` i
 deliberately excluded, see the comment in `run-dir/resolve.ts`) are now plain
 `dependencies` in this package's own `package.json`, sharing the monorepo's single
 `node_modules` tree like everything else.
-To add/remove a workspace-local extension or skill, edit `run-dir/manifest.json`
-(paths relative to `bun-apps/`). To add/remove an npm-sourced one, add it as a
-`dependency` in `package.json` AND add its `{ pkg, entry }` to the
-`npmExtensions` array in `run-dir/manifest.json` — that one array is the single
-source of truth read by both `run-dir/resolve.ts` (source mode) and
-`../pi-agent-ext-devops/scripts/lib/codegen.ts` (which bakes resolved paths into the bundle).
-> `rpiv-todo` is intentionally NOT in `npmExtensions`: this user's global
+To add/remove a workspace-local extension or skill, add/remove ONE entry in
+`pi-agent.registry.yaml`, then `bun run --cwd bun-apps/pi-agent regen:manifest`
+(+ `regen:static` for a `load: static` entry) — never edit `run-dir/manifest.json`
+directly; the freshness test goes red. npm-sourced extensions are plain
+`dependencies` in `package.json` (the old `npmExtensions` array retired with the
+legacy deploy pipeline; it was empty).
+> `rpiv-todo` is intentionally NOT loaded here: this user's global
 > `~/.pi/agent/settings.json` already loads it, so a second copy here crashes
 > with `Tool "todo" conflicts`. Another clone/environment must add it to their
 > OWN `~/.pi/agent/settings.json` to get the `todo` tool.
 ### Lazy / opt-in extensions (`-e <alias>`)
-Everything in `manifest.json` above loads **every** session — fine for cheap,
+Everything registered above loads **every** session — fine for cheap,
 general-purpose extensions, wrong for heavy on-demand ones (e.g.
 `pi-agent-ext-workflow`'s `workflow` tool costs ~2.5k tok/req). Those live in a
-separate **lazy registry** — the `lazyExtensions` field of the same
-`run-dir/manifest.json` (there is no `run-dir/settings.json`; the old
-`settings.json` was consolidated into the manifest):
+separate **lazy registry** — the `lazyExtensions` key of the same
+`pi-agent.registry.yaml` (carried verbatim into the derived
+`run-dir/manifest.json`):
 ```json
 { "lazyExtensions": { "workflow": "pi-agent-ext-workflow/extensions/workflow.ts", … } }
 ```
@@ -177,7 +179,7 @@ bun run --cwd bun-apps/pi-agent deploy:sh --no-freeze  # skip the read-only free
 ```
 
 The extension set, the host-module contract and the per-extension build
-metadata all live in `deploy-config.yaml`. **[`docs/deploy.md`](docs/deploy.md)
+metadata all live in `pi-agent.registry.yaml`. **[`docs/deploy.md`](docs/deploy.md)
 is the reference** — layout, the host contract, adding and removing an
 extension, vendored packages, the four build gates, the e2e tiers, and why the
 tree is read-only.
@@ -195,9 +197,10 @@ jiti-based, and in `isBunBinary` mode jiti feeds each extension as a
 `data:text/javascript;base64,…` URL that Bun's compiled resolver rejects with
 `ENAMETOOLONG`. `run-dir/resolve.ts` detects binary mode and never emits `-e`.
 
-So the binary carries a fixed set that is **statically imported** instead —
+So the binary carries a fixed set that is **statically imported** instead — the
+registry's `load: static` entries, carried into the derived
 `run-dir/manifest.json` → `staticExtensions`, from which
-`src/static-extensions.ts` is generated. See
+`src/static-extensions.ts` is generated (`regen:manifest`, then `regen:static`). See
 [`docs/deploy-single-binary.md`](docs/deploy-single-binary.md) for why
 `require()` does not work, why some files carry `// @ts-nocheck`, how skills
 reach a binary, and the steps to add or remove one.
@@ -288,8 +291,9 @@ are `PI_AGENT_E2E=1` (patches) and `PI_AGENT_E2E_DEPLOY=1` (extensions).
 pi-agent/
 ├── package.json            # bin: pi-agent → src/cli.ts; also holds the migrated npm extension deps
 ├── README.md
+├── pi-agent.registry.yaml  # THE extension registry (one entry per extension; edit this)
 ├── run-dir/
-│   ├── manifest.json          # this repo's fixed extension/skill list (eager; edit this) + lazyExtensions aliases
+│   ├── manifest.json          # DERIVED from the registry (regen:manifest; never hand-edit) — eager ext/skill list + lazyExtensions aliases
 │   └── resolve.ts             # resolves manifest.json extensions + lazy aliases to absolute argv
 ├── scripts/
 │   ├── generate-embedded-assets.ts  # codegen for --exe's embedded theme/skills/assets

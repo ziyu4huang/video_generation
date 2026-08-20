@@ -155,7 +155,7 @@ export function checkExtensions(ctx: DoctorContext): CheckResult {
  * extension set, sh mode — validate the DEPLOYED ext/ tree.
  *
  * The repo's run-dir manifest means nothing here: an sh deploy has no manifest
- * and its extension set is whatever deploy-config.yaml shipped. So this reads
+ * and its extension set is whatever pi-agent.registry.yaml shipped. So this reads
  * each `<deployDir>/ext/<name>/ext.json` through the
  * SAME parser the loader uses — a manifest that doctor accepts but the loader
  * rejects would be worse than no check at all.

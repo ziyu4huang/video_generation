@@ -18,10 +18,11 @@
     "list": "bun src/cli.ts --list-models",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
+    "regen:manifest": "bun scripts/regen-manifest.ts",
     "regen:static": "bun scripts/regen-static-extensions.ts",
     "test:e2e": "PI_AGENT_E2E=1 bun test",
     "verify": "PI_AGENT_E2E=1 bun test src/__tests__/e2e-extensions.test.ts",
-    "//deploy": "ONE deploy pipeline: `bun run deploy:sh` -> ../pi-agent-ext-devops/src/deploy-cli.ts. Builds a versioned tree at ~/proj/dist/pi-agent-sh/<version>/ — a minimal compiled core (src/cli-sh.ts, zero extensions inside) plus extension packages under ext/<name>/ that the core discovers at runtime. Config: deploy-config.yaml. Docs: docs/deploy.md. The four legacy modes (--bundle/--snapshot/--standalone/--exe) were retired in the deploy-architecture consolidation; see .planning/specs/2026-08-20-deploy-architecture-consolidation-design.md.",
+    "//deploy": "ONE deploy pipeline: `bun run deploy:sh` -> ../pi-agent-ext-devops/src/deploy-cli.ts. Builds a versioned tree at ~/proj/dist/pi-agent-sh/<version>/ — a minimal compiled core (src/cli-sh.ts, zero extensions inside) plus extension packages under ext/<name>/ that the core discovers at runtime. Registry: pi-agent.registry.yaml. Docs: docs/deploy.md. The four legacy modes (--bundle/--snapshot/--standalone/--exe) were retired in the deploy-architecture consolidation; see .planning/specs/2026-08-20-deploy-architecture-consolidation-design.md.",
     "deploy:sh": "bun ../pi-agent-ext-devops/src/deploy-cli.ts"
   },
   "dependencies": {

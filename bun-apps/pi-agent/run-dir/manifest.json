@@ -1,88 +1,86 @@
 {
-  "extensions": [
-    {
-      "name": "pi-agent-ext-tool-gate",
-      "entry": "pi-agent-ext-tool-gate/extensions/tool-gate.ts",
-      "bundleMode": "thin",
-      "version": "0.1.0"
-    },
-    {
-      "name": "pi-agent-ext-devops",
-      "entry": "pi-agent-ext-devops/extensions/devops.ts",
-      "bundleMode": "thin",
-      "testGate": "bun test --cwd bun-apps/pi-agent-ext-devops",
-      "version": "0.1.0"
-    },
-    "pi-agent-ext-flux2/extensions/flux2.ts",
-    "pi-agent-ext-krea2/extensions/krea2.ts",
-    "pi-agent-ext-ltx/extensions/ltx.ts",
-    {
-      "name": "pi-agent-ext-research-tool",
-      "entry": "pi-agent-ext-research-tool/extensions/research-tool.ts",
-      "bundleMode": "thin",
-      "testGate": "bun test --cwd bun-apps/pi-agent-ext-research-tool",
-      "version": "0.1.0"
-    },
-    {
-      "name": "pi-agent-ext-zai-mcp",
-      "entry": "pi-agent-ext-zai-mcp/extensions/zai-mcp.ts",
-      "bundleMode": "thin",
-      "testGate": "bun test --cwd bun-apps/pi-agent-ext-zai-mcp",
-      "version": "0.1.0"
-    },
-    {
-      "name": "pi-agent-ext-movie-director",
-      "entry": "pi-agent-ext-movie-director/extensions/movie-director.ts",
-      "bundleMode": "thin",
-      "testGate": "bun test --cwd bun-apps/pi-agent-ext-movie-director",
-      "version": "0.1.0"
-    },
-    {
-      "name": "pi-agent-ext-archify",
-      "entry": "pi-agent-ext-archify/extensions/archify.ts",
-      "bundleMode": "thin",
-      "testGate": "bun test --cwd bun-apps/pi-agent-ext-archify --isolate",
-      "version": "0.1.0"
-    }
-  ],
-  "skills": [
-    "pi-agent-ext-obsidian/skills",
-    "pi-agent-ext-research-tool/skills",
-    "pi-agent-ext-wayfind/skills",
-    "pi-agent-ext-hermes-memory/skills",
-    "pi-agent-ext-superpowers/skills",
-    "pi-agent-ext-web-access/skills",
-    "pi-agent-ext-archify/skills",
-    "pi-agent-ext-devops/skills",
-    "pi-agent-ext-power-tool/skills",
-    "pi-agent-ext-hyperframes/skills",
-    "pi-agent-ext-btw/skills",
-    "pi-agent-ext-webui/skills"
-  ],
-  "binarySkills": [
-    "pi-agent-ext-hermes-memory/skills",
-    "pi-agent-ext-superpowers/skills",
-    "pi-agent-ext-wayfind/skills",
-    "pi-agent-ext-web-access/skills",
-    "pi-agent-ext-hyperframes/skills"
-  ],
-  "staticExtensions": [
-    "pi-agent-ext-task",
-    "pi-agent-ext-prompt-history",
-    "pi-agent-ext-hermes-memory",
-    "pi-agent-ext-superpowers",
-    "pi-agent-ext-wayfind",
-    "pi-agent-ext-web-access",
-    "pi-agent-ext-obsidian",
-    "pi-agent-ext-btw",
-    "pi-agent-ext-file2md",
-    "pi-agent-ext-subagent",
-    "pi-agent-ext-workflow",
-    "pi-agent-ext-knowledge-card",
-    "pi-agent-ext-power-tool",
-    "pi-agent-ext-webui",
-    "pi-agent-ext-hyperframes"
-  ],
-  "npmExtensions": [],
-  "lazyExtensions": {}
+	"$generated": "from pi-agent.registry.yaml by regen:manifest — do not edit",
+	"extensions": [
+		{
+			"name": "pi-agent-ext-tool-gate",
+			"entry": "pi-agent-ext-tool-gate/extensions/tool-gate.ts",
+			"version": "0.1.0"
+		},
+		{
+			"name": "pi-agent-ext-devops",
+			"entry": "pi-agent-ext-devops/extensions/devops.ts",
+			"version": "0.1.0"
+		},
+		{
+			"name": "pi-agent-ext-flux2",
+			"entry": "pi-agent-ext-flux2/extensions/flux2.ts"
+		},
+		{
+			"name": "pi-agent-ext-krea2",
+			"entry": "pi-agent-ext-krea2/extensions/krea2.ts"
+		},
+		{
+			"name": "pi-agent-ext-ltx",
+			"entry": "pi-agent-ext-ltx/extensions/ltx.ts"
+		},
+		{
+			"name": "pi-agent-ext-research-tool",
+			"entry": "pi-agent-ext-research-tool/extensions/research-tool.ts",
+			"version": "0.1.0"
+		},
+		{
+			"name": "pi-agent-ext-zai-mcp",
+			"entry": "pi-agent-ext-zai-mcp/extensions/zai-mcp.ts",
+			"version": "0.1.0"
+		},
+		{
+			"name": "pi-agent-ext-movie-director",
+			"entry": "pi-agent-ext-movie-director/extensions/movie-director.ts",
+			"version": "0.1.0"
+		},
+		{
+			"name": "pi-agent-ext-archify",
+			"entry": "pi-agent-ext-archify/extensions/archify.ts",
+			"version": "0.1.0"
+		}
+	],
+	"skills": [
+		"pi-agent-ext-hermes-memory/skills",
+		"pi-agent-ext-superpowers/skills",
+		"pi-agent-ext-wayfind/skills",
+		"pi-agent-ext-web-access/skills",
+		"pi-agent-ext-obsidian/skills",
+		"pi-agent-ext-btw/skills",
+		"pi-agent-ext-power-tool/skills",
+		"pi-agent-ext-webui/skills",
+		"pi-agent-ext-hyperframes/skills",
+		"pi-agent-ext-devops/skills",
+		"pi-agent-ext-research-tool/skills",
+		"pi-agent-ext-archify/skills"
+	],
+	"binarySkills": [
+		"pi-agent-ext-hermes-memory/skills",
+		"pi-agent-ext-superpowers/skills",
+		"pi-agent-ext-wayfind/skills",
+		"pi-agent-ext-web-access/skills",
+		"pi-agent-ext-hyperframes/skills"
+	],
+	"staticExtensions": [
+		"pi-agent-ext-task",
+		"pi-agent-ext-prompt-history",
+		"pi-agent-ext-hermes-memory",
+		"pi-agent-ext-superpowers",
+		"pi-agent-ext-wayfind",
+		"pi-agent-ext-web-access",
+		"pi-agent-ext-obsidian",
+		"pi-agent-ext-btw",
+		"pi-agent-ext-file2md",
+		"pi-agent-ext-subagent",
+		"pi-agent-ext-workflow",
+		"pi-agent-ext-knowledge-card",
+		"pi-agent-ext-power-tool",
+		"pi-agent-ext-webui",
+		"pi-agent-ext-hyperframes"
+	],
+	"lazyExtensions": {}
 }

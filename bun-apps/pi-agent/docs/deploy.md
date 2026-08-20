@@ -70,7 +70,7 @@ minified bundle calls `require("module")` / `require("child_process")` for its o
 even when the extension source never mentions them.
 
 **Adding a host module means editing two files** — `src/sh/host-modules.ts` (a static
-`import * as`, so the compiler embeds it) and `deploy-config.yaml`. The deploy hard-fails when the
+`import * as`, so the compiler embeds it) and `pi-agent.registry.yaml`. The deploy hard-fails when the
 two disagree, because a config that promises a module the core does not embed produces extensions
 that silently refuse to load.
 
@@ -89,19 +89,21 @@ sides, over the base set derived from this file.
 
 ## Adding an extension
 
-Add an entry to `deploy-config.yaml`:
+Add an entry to `pi-agent.registry.yaml`:
 
 ```yaml
   - name: my-ext
     package: pi-agent-ext-my-ext
     entry: extensions/my-ext.ts
-    order: 60
-    skills: [skills]        # optional — copied AND forwarded to pi as --skill paths
-    copy: [procedures]      # optional — copied but NOT forwarded (runtime data; see Limits)
-    vendor: [some-pkg]      # optional — copy a real node_modules copy per extension (see below)
+    load: static
+    skills: true            # optional — copies the package's skills/ dir AND forwards it to pi as --skill paths
+    deploy:
+      order: 60
+      copy: [procedures]    # optional — copied but NOT forwarded (runtime data; see Limits)
+      vendor: [some-pkg]    # optional — copy a real node_modules copy per extension (see below)
 ```
 
-then run `deploy:sh`. If the build reports foreign specifiers, decide per specifier: a shared
+then run `bun run regen:manifest` (the run-dir manifest derives from the registry) and `deploy:sh`. If the build reports foreign specifiers, decide per specifier: a shared
 runtime that must be identical to the host's goes in the host whitelist; anything else should be
 inlined by the bundler (check the package declares it in its own `package.json` and that
 `bun install` has run from `bun-apps/`).
@@ -197,7 +199,7 @@ cost:
   gate was green) and "starts dirty" (obsidian reported its host-served dependencies missing on
   every single start; hermes-memory tried to mkdir into the frozen tree).
 
-  Both derive their expected extension set from `deploy-config.yaml`. A literal list here goes
+  Both derive their expected extension set from `pi-agent.registry.yaml`. A literal list here goes
   stale the moment the base set grows — `deploy-e2e` asserted `["power-tool", "task"]` through
   two releases of growth, red and unnoticed, because it was `PI_AGENT_E2E`-gated and the gate
   script ran only its sibling.
@@ -210,7 +212,7 @@ cost:
 
 ## Skills and the `<inline:…>` label
 
-Skills in an sh deploy ship **inside an extension** (`skills: [skills]` in `deploy-config.yaml`
+Skills in an sh deploy ship **inside an extension** (`skills: true` in `pi-agent.registry.yaml`
 copies the package's `skills/` dir into `ext/<name>/skills/`, and the core passes each to pi as a
 `--skill` path), each with its OWNING extension: `btw` lives in ext-btw, `webui-audit` in
 ext-webui (the #1724 re-homing — it had drifted into power-tool), `playwright-cli` stays with

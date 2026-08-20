@@ -715,7 +715,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Build & Deploy pi-agent Bundle",
 		description:
 			"Build a versioned pi-agent deploy: a minimal core plus independently built extension " +
-			"packages under ext/, at <outRoot>/<version>/ (see bun-apps/pi-agent/deploy-config.yaml). " +
+			"packages under ext/, at <outRoot>/<version>/ (see bun-apps/pi-agent/pi-agent.registry.yaml). " +
 			"Returns the version, target dir, per-extension sizes, and whether `current` was repointed.",
 		parameters: Type.Object({
 			ext: Type.Optional(

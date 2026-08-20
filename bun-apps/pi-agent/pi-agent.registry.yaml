@@ -1,0 +1,260 @@
+# pi-agent.registry.yaml — THE extension registry. One entry per extension;
+# adding an extension is ONE edit here + `bun run regen:manifest`
+# (+ `regen:static` when load: static). run-dir/manifest.json is DERIVED from
+# this file — never edit it directly; the freshness test will go red.
+#
+# Schema (run-dir/registry.ts is the authority):
+#   load: static  → source mode statically imports it (via regen:static codegen)
+#   load: dynamic → source mode loads it via -e
+#   deploy: block PRESENT → ships in the portable tree (order/copy/vendor/externals)
+#   deploy: block ABSENT  → excludeReason is REQUIRED (why it stays local)
+#
+# Consumed by bun-apps/pi-agent-ext-devops (deploy blocks; CLI:
+# `bun run --cwd bun-apps/pi-agent deploy:sh`) and by `regen:manifest`.
+# CLI flags override these values; this file never overrides an explicit flag.
+#
+# hostApi MUST match HOST_API in bun-apps/pi-agent/src/sh/host-modules.ts, and
+# hostModules MUST match HOST_MODULE_IDS there — the deploy hard-fails on drift,
+# because a config that promises a module the core does not embed produces
+# extensions that silently refuse to load.
+#
+# Base-set profile (2026-08-20, "portable full-featured agent"): memory, skills,
+# subagent/workflow, web-access, and the knowledge layer (obsidian +
+# knowledge-card) ship in the box. Everything machine-bound (swift director
+# CLIs, LM Studio, mupdf) or repo-internal (devops, tool-gate) stays out — see
+# docs/deploy.md "Limits" for the exclusion rationale.
+#
+# Entry order: the `load: static` entries first, in staticExtensions[] order
+# (the order regen:static imports them — subagent MUST precede workflow), then
+# the `load: dynamic` entries in manifest extensions[] order. `name` on a
+# dynamic entry carries the full package id because it feeds manifest
+# extensions[].name verbatim; `name` on a static entry is the short id the
+# deploy tree lays out as ext/<name>/.
+deploy:
+  outRoot: ~/proj/dist/pi-agent-sh
+  version: { from: package.json, gitSha: true }
+  freeze: true
+  current: true
+hostApi: 2
+hostModules:
+  - "@earendil-works/pi-coding-agent"
+  - "@earendil-works/pi-tui"
+  - "typebox"
+  - "typebox/value"
+  - "@repo/pi-agent-core-runtime"
+  # pi-ai is already compiled in via pi-coding-agent; serving it costs ~zero
+  # core bytes and keeps the model/streaming types identity-stable for the
+  # extensions that import it (subagent, workflow, hermes-memory, btw, webui).
+  - "@earendil-works/pi-ai"
+  - "@earendil-works/pi-ai/compat"
+  # GATE_DEFS is a shared mutable registry — obsidian, knowledge-card and
+  # wayfind all register gate families into it at module scope, so it must be
+  # served as ONE host instance (an inlined copy per extension would split it).
+  - "@repo/pi-agent-core-interface"
+extensions:
+  - name: task
+    package: pi-agent-ext-task
+    entry: extensions/task.ts
+    load: static
+    deploy:
+      order: 10
+  - name: prompt-history
+    package: pi-agent-ext-prompt-history
+    entry: extensions/prompt-history.ts
+    load: static
+    # Pure code: imports only pi-coding-agent + node builtins.
+    deploy:
+      order: 20
+  - name: hermes-memory
+    package: pi-agent-ext-hermes-memory
+    entry: extensions/hermes-memory.ts
+    load: static
+    skills: true
+    binarySkills: true
+    # sqlite is bun:sqlite (a builtin, no native vendoring); scripts/ holds the
+    # git merge-driver resolved via require("#pi/ext-dir").
+    deploy:
+      order: 50
+      copy: [scripts]
+  - name: superpowers
+    package: pi-agent-ext-superpowers
+    entry: extensions/superpowers.ts
+    load: static
+    skills: true
+    binarySkills: true
+    # Code + skills tree (52 files / ~450K). Skills resolve at runtime through
+    # require("#pi/ext-dir") — bun's cjs output folds import.meta.url into a
+    # build-machine path, which the relocatability gate rejects.
+    deploy:
+      order: 30
+  - name: wayfind
+    package: pi-agent-ext-wayfind
+    entry: extensions/wayfind.ts
+    load: static
+    skills: true
+    binarySkills: true
+    # procedures/ holds the wayfinder data file (NOT a skill — pi would
+    # auto-register it as /skill:<name>); copied beside the bundle and read
+    # through require("#pi/ext-dir") at runtime.
+    deploy:
+      order: 40
+      copy: [procedures]
+  - name: web-access
+    package: pi-agent-ext-web-access
+    entry: extensions/web-access.ts
+    load: static
+    skills: true
+    binarySkills: true
+    # Largest bundle (~880K: readability/linkedom/turndown etc. inline). unpdf
+    # is VENDORED, not bundled: its ESM uses import.meta.resolve, whose syntax
+    # is invalid inside the loader's cjs eval — as a real directory it loads as
+    # a proper module.
+    deploy:
+      order: 90
+      vendor: ["unpdf"]
+  - name: obsidian
+    package: pi-agent-ext-obsidian
+    entry: extensions/obsidian.ts
+    load: static
+    skills: true
+    # Tier-0 vault I/O. The subagent-barrel imports inline safely post-#1733:
+    # the identity-sensitive symbols are core-runtime re-exports that resolve
+    # to the host module, and the barrel-owned ones (persistence, subprocess
+    # spawn) are disk-backed/stateless. vault-template/ seeds a fresh vault on
+    # a portable machine — located via require("#pi/ext-dir"), copied beside
+    # the bundle.
+    deploy:
+      order: 130
+      copy: [vault-template]
+  - name: btw
+    package: pi-agent-ext-btw
+    entry: extensions/btw.ts
+    load: static
+    skills: true
+    deploy:
+      order: 80
+  - name: file2md
+    package: pi-agent-ext-file2md
+    entry: extensions/file2md.ts
+    load: static
+    excludeReason: mupdf native/wasm + a hard LM Studio localhost dependency — not portable
+  - name: subagent
+    package: pi-agent-ext-subagent
+    entry: extensions/subagent.ts
+    load: static
+    # Host-lib consumer: core-runtime + pi-ai + its own lib are all host modules.
+    deploy:
+      order: 60
+  - name: workflow
+    package: pi-agent-ext-workflow
+    entry: extensions/workflow.ts
+    load: static
+    # Must load after subagent (registry population); acorn bundles inline.
+    deploy:
+      order: 70
+  - name: knowledge-card
+    package: pi-agent-ext-knowledge-card
+    entry: extensions/knowledge-card.ts
+    load: static
+    # Tier-1 knowledge hub (zk_card / zk_ask / zk_ingest / knowledge_query).
+    # Imports obsidian's src/lib directly (NOT the extension entry — inlining
+    # the entry would double-register GATE_DEFS and duplicate its bulk); the
+    # dispatch imports come from the core-runtime host module.
+    deploy:
+      order: 140
+  - name: power-tool
+    package: pi-agent-ext-power-tool
+    entry: extensions/power-tool.ts
+    load: static
+    skills: true
+    # power-tool pulls playwright-core (browser/webui tools). It is VENDORED,
+    # not bundled: bun's cjs output rewrites `__dirname` to the path the file
+    # had on the BUILD MACHINE, and playwright-core locates its own resources
+    # that way — bundling it baked ~/.bun/install/cache/... into the deploy and
+    # made the tree non-relocatable (gate 4 now blocks that). Vendoring ships it
+    # as a real directory under ext/power-tool/node_modules/, where __dirname
+    # means what it says.
+    deploy:
+      order: 100
+      vendor: ["playwright-core"]
+      # playwright-core's own unresolvable internals + optional peers. Its vendored
+      # bundle does require("chromium-bidi/...") while declaring zero deps; those
+      # calls sit in esbuild's lazy __esm({...}) for bidiOverCdp, which the default
+      # CDP path never enters. kerberos / vite / @playwright/test are optional
+      # peers reached only from code paths this agent never takes.
+      externals: ["chromium-bidi/*", "kerberos", "vite", "@playwright/test"]
+  - name: webui
+    package: pi-agent-ext-webui
+    entry: extensions/webui.ts
+    load: static
+    skills: true
+    # Pure code: the HTML shell is a single inline string constant; Bun.serve
+    # WS works in the compiled binary. webui-audit skill lives HERE (moved from
+    # power-tool — the audit drives the webui's own surface).
+    deploy:
+      order: 110
+  - name: hyperframes
+    package: pi-agent-ext-hyperframes
+    entry: extensions/hyperframes.ts
+    load: static
+    skills: true
+    binarySkills: true
+    # Skills-only carrier: the vendored HyperFrames + media-use family (~5.5MB
+    # incl. mp3 SFX / woff2 fonts). Factory is a no-op; skills copy verbatim.
+    deploy:
+      order: 120
+  - name: pi-agent-ext-tool-gate
+    package: pi-agent-ext-tool-gate
+    entry: extensions/tool-gate.ts
+    load: dynamic
+    version: "0.1.0"
+    excludeReason: repo-internal tooling
+  - name: pi-agent-ext-devops
+    package: pi-agent-ext-devops
+    entry: extensions/devops.ts
+    load: dynamic
+    skills: true
+    version: "0.1.0"
+    excludeReason: repo-internal tooling
+  - name: pi-agent-ext-flux2
+    package: pi-agent-ext-flux2
+    entry: extensions/flux2.ts
+    load: dynamic
+    excludeReason: bound to this machine's swift CLIs and services
+  - name: pi-agent-ext-krea2
+    package: pi-agent-ext-krea2
+    entry: extensions/krea2.ts
+    load: dynamic
+    excludeReason: bound to this machine's swift CLIs and services
+  - name: pi-agent-ext-ltx
+    package: pi-agent-ext-ltx
+    entry: extensions/ltx.ts
+    load: dynamic
+    excludeReason: bound to this machine's swift CLIs and services
+  - name: pi-agent-ext-research-tool
+    package: pi-agent-ext-research-tool
+    entry: extensions/research-tool.ts
+    load: dynamic
+    skills: true
+    version: "0.1.0"
+    excludeReason: bound to this machine's swift CLIs and services
+  - name: pi-agent-ext-zai-mcp
+    package: pi-agent-ext-zai-mcp
+    entry: extensions/zai-mcp.ts
+    load: dynamic
+    version: "0.1.0"
+    excludeReason: bound to this machine's swift CLIs and services
+  - name: pi-agent-ext-movie-director
+    package: pi-agent-ext-movie-director
+    entry: extensions/movie-director.ts
+    load: dynamic
+    version: "0.1.0"
+    excludeReason: bound to this machine's swift CLIs and services
+  - name: pi-agent-ext-archify
+    package: pi-agent-ext-archify
+    entry: extensions/archify.ts
+    load: dynamic
+    skills: true
+    version: "0.1.0"
+    excludeReason: bound to this machine's swift CLIs and services
+lazyExtensions: {}

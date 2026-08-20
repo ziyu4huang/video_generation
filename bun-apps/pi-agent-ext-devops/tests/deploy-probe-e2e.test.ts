@@ -37,13 +37,13 @@ const piHome = join(outRoot, "pi-home");
 let target = "";
 let binary = "";
 
-// Expected loaded set is DERIVED from deploy-config.yaml, not hardcoded: #1713
-// added hyperframes as a third configured extension and every hardcoded
+// Expected loaded set is DERIVED from pi-agent.registry.yaml, not hardcoded:
+// #1713 added hyperframes as a third configured extension and every hardcoded
 // ["power-tool","task"] / count-2 assertion here went stale the moment it
-// merged. The config is the source of truth for what a deploy must load.
+// merged. The registry is the source of truth for what a deploy must load.
 const BUN_APPS_DIR = join(import.meta.dir, "..", "..");
 const shConfig = parseShConfig(
-	readFileSync(join(BUN_APPS_DIR, "pi-agent", "deploy-config.yaml"), "utf8"),
+	readFileSync(join(BUN_APPS_DIR, "pi-agent", "pi-agent.registry.yaml"), "utf8"),
 	{ bunAppsDir: BUN_APPS_DIR },
 );
 const configuredNames = shConfig.extensions.map((e) => e.name).sort();
@@ -314,7 +314,7 @@ describeE2E("pi-agent-sh L1 — the deployed binary really runs its extensions",
 	test("no bundle carries a path from the build machine", async () => {
 		// The static half of gate 4, asserted against what actually shipped rather
 		// than against the string the build happened to scan. Every configured
-		// extension — the set derives from deploy-config.yaml, so a new entry is
+		// extension — the set derives from pi-agent.registry.yaml, so a new entry is
 		// covered automatically (the #1713 lesson: hardcoded names go stale).
 		const home = process.env.HOME ?? "";
 		for (const name of configuredNames) {

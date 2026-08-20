@@ -3,22 +3,34 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseShConfig } from "../scripts/lib/config.ts";
-import { HOST_API, HOST_MODULE_IDS } from "../../pi-agent/src/sh/host-modules.ts";
+import {
+	HOST_API,
+	HOST_MODULE_IDS,
+} from "../../pi-agent/src/sh/host-modules.ts";
 
 const BUN_APPS = join(import.meta.dir, "..", "..");
 
+// Fixtures are REGISTRY-shaped (pi-agent.registry.yaml, parsed by
+// run-dir/registry.ts): deploy knobs live under `deploy:`, per-extension
+// deploy fields under a `deploy:` block, and every entry that does not ship
+// needs an `excludeReason` saying why. parseShConfig is a pure projection on
+// top of parseRegistry — schema validation is owned (and tested) there.
 const MINIMAL = `
-outRoot: ~/proj/dist/pi-agent-sh
+deploy:
+  outRoot: ~/proj/dist/pi-agent-sh
 hostApi: 2
 hostModules: ["typebox"]
 extensions:
   - name: power-tool
     package: pi-agent-ext-power-tool
     entry: extensions/power-tool.ts
+    load: static
+    deploy:
+      order: 10
 `;
 
 describe("parseShConfig", () => {
-	test("parses a minimal config and expands ~", () => {
+	test("parses a minimal registry and expands ~", () => {
 		const cfg = parseShConfig(MINIMAL, { bunAppsDir: BUN_APPS });
 		expect(cfg.outRoot).toBe(join(homedir(), "proj/dist/pi-agent-sh"));
 		expect(cfg.hostApi).toBe(2);
@@ -30,66 +42,99 @@ describe("parseShConfig", () => {
 		expect(cfg.freeze).toBe(true);
 		expect(cfg.current).toBe(true);
 		expect(cfg.version).toEqual({ from: "package.json", gitSha: true });
-		expect(cfg.extensions[0]!.order).toBe(100);
+		expect(cfg.extensions[0]!.order).toBe(10);
 		expect(cfg.extensions[0]!.skills).toEqual([]);
 		expect(cfg.extensions[0]!.copy).toEqual([]);
 		expect(cfg.extensions[0]!.externals).toEqual([]);
+		expect(cfg.extensions[0]!.vendor).toEqual([]);
+		expect(cfg.extensions[0]!.enabled).toBe(true);
 	});
 
-	test("parses declared runtime externals", () => {
-		const cfg = parseShConfig(`${MINIMAL}    externals: ["playwright-core"]\n`, { bunAppsDir: BUN_APPS });
-		expect(cfg.extensions[0]!.externals).toEqual(["playwright-core"]);
-	});
-
-	test("rejects a non-array externals", () => {
-		expect(() => parseShConfig(`${MINIMAL}    externals: nope\n`, { bunAppsDir: BUN_APPS })).toThrow(
-			/externals must be an array/,
-		);
-	});
-
-	test("rejects an unknown top-level key", () => {
-		expect(() => parseShConfig(`${MINIMAL}\nfreze: true\n`, { bunAppsDir: BUN_APPS })).toThrow(
-			/unknown config key "freze"/,
-		);
-	});
-
-	test("rejects an unknown extension key", () => {
-		const bad = MINIMAL.replace(
-			"entry: extensions/power-tool.ts",
-			"entry: extensions/power-tool.ts\n    skils: [skills]",
-		);
-		expect(() => parseShConfig(bad, { bunAppsDir: BUN_APPS })).toThrow(/unknown extension key "skils"/);
-	});
-
-	test("rejects a package that does not exist under bun-apps", () => {
-		const bad = MINIMAL.replace("pi-agent-ext-power-tool", "pi-agent-ext-nope");
-		expect(() => parseShConfig(bad, { bunAppsDir: BUN_APPS })).toThrow(/pi-agent-ext-nope/);
-	});
-
-	test("rejects an entry file that does not exist", () => {
-		const bad = MINIMAL.replace("extensions/power-tool.ts", "extensions/ghost.ts");
-		expect(() => parseShConfig(bad, { bunAppsDir: BUN_APPS })).toThrow(/ghost\.ts/);
-	});
-
-	test("rejects duplicate extension names", () => {
-		const dup = `${MINIMAL}
+	test("projects the deploy block", () => {
+		const cfg = parseShConfig(
+			`
+deploy:
+  outRoot: /tmp/out
+hostApi: 2
+hostModules: ["typebox"]
+extensions:
   - name: power-tool
     package: pi-agent-ext-power-tool
     entry: extensions/power-tool.ts
-`;
-		expect(() => parseShConfig(dup, { bunAppsDir: BUN_APPS })).toThrow(/duplicate extension name/);
+    load: static
+    skills: true
+    deploy:
+      order: 100
+      vendor: ["playwright-core"]
+      externals: ["chromium-bidi/*"]
+`,
+			{ bunAppsDir: BUN_APPS },
+		);
+		expect(cfg.extensions[0]!.vendor).toEqual(["playwright-core"]);
+		expect(cfg.extensions[0]!.externals).toEqual(["chromium-bidi/*"]);
+		expect(cfg.extensions[0]!.skills).toEqual(["skills"]);
 	});
 
-	test("rejects an empty extensions list", () => {
+	test("drops entries without a deploy block (excludeReason keeps them local)", () => {
+		const cfg = parseShConfig(
+			`${MINIMAL}
+  - name: file2md
+    package: pi-agent-ext-file2md
+    entry: extensions/file2md.ts
+    load: static
+    excludeReason: mupdf native/wasm + LM Studio dependency — not portable
+`,
+			{ bunAppsDir: BUN_APPS },
+		);
+		expect(cfg.extensions.map((e) => e.name)).toEqual(["power-tool"]);
+	});
+
+	test("drops entries with deploy.enabled: false", () => {
+		const cfg = parseShConfig(`${MINIMAL}      enabled: false\n`, {
+			bunAppsDir: BUN_APPS,
+		});
+		expect(cfg.extensions).toEqual([]);
+	});
+
+	test("sorts the shipped set by deploy order", () => {
+		const cfg = parseShConfig(
+			`
+deploy:
+  outRoot: /tmp/out
+hostApi: 2
+hostModules: ["typebox"]
+extensions:
+  - name: power-tool
+    package: pi-agent-ext-power-tool
+    entry: extensions/power-tool.ts
+    load: static
+    deploy:
+      order: 100
+  - name: task
+    package: pi-agent-ext-task
+    entry: extensions/task.ts
+    load: static
+    deploy:
+      order: 10
+`,
+			{ bunAppsDir: BUN_APPS },
+		);
+		expect(cfg.extensions.map((e) => e.name)).toEqual(["task", "power-tool"]);
+	});
+
+	test("rejects a non-array externals (validation lives in parseRegistry)", () => {
 		expect(() =>
-			parseShConfig(`outRoot: /tmp/x\nhostApi: 2\nhostModules: ["typebox"]\nextensions: []\n`, {
+			parseShConfig(`${MINIMAL}      externals: nope\n`, {
 				bunAppsDir: BUN_APPS,
 			}),
-		).toThrow(/at least one extension/);
+		).toThrow(/externals must be an array/);
 	});
 
-	test("the real repo config parses and matches the core's host contract", () => {
-		const text = readFileSync(join(BUN_APPS, "pi-agent", "deploy-config.yaml"), "utf8");
+	test("the real repo registry parses and matches the core's host contract", () => {
+		const text = readFileSync(
+			join(BUN_APPS, "pi-agent", "pi-agent.registry.yaml"),
+			"utf8",
+		);
 		const cfg = parseShConfig(text, { bunAppsDir: BUN_APPS });
 		expect(cfg.hostApi).toBe(HOST_API);
 		expect([...cfg.hostModules].sort()).toEqual([...HOST_MODULE_IDS].sort());
@@ -110,20 +155,25 @@ describe("parseShConfig", () => {
 			"workflow",
 		]);
 		// subagent must load before workflow (registry population order).
-		const order = (name: string) => cfg.extensions.find((e) => e.name === name)!.order;
+		const order = (name: string) =>
+			cfg.extensions.find((e) => e.name === name)!.order;
 		expect(order("subagent")).toBeLessThan(order("workflow"));
 	});
 });
 
 describe("copy", () => {
 	const base = (extra: string) => `
-outRoot: /tmp/out
+deploy:
+  outRoot: /tmp/out
 hostApi: 2
 hostModules: ["@earendil-works/pi-coding-agent"]
 extensions:
   - name: wayfind
     package: pi-agent-ext-wayfind
     entry: extensions/wayfind.ts
+    load: static
+    deploy:
+      order: 40
 ${extra}
 `;
 
@@ -133,32 +183,32 @@ ${extra}
 	});
 
 	test("parses a declared list", () => {
-		const cfg = parseShConfig(base(`    copy: [procedures]`), { bunAppsDir: BUN_APPS });
+		const cfg = parseShConfig(base(`      copy: [procedures]`), {
+			bunAppsDir: BUN_APPS,
+		});
 		expect(cfg.extensions[0]!.copy).toEqual(["procedures"]);
 	});
 
-	test("rejects a copy dir that does not exist in the package", () => {
-		expect(() => parseShConfig(base(`    copy: [nope]`), { bunAppsDir: BUN_APPS })).toThrow(
-			/copy dir not found/,
-		);
-	});
-
 	test("rejects a non-array copy", () => {
-		expect(() => parseShConfig(base(`    copy: procedures`), { bunAppsDir: BUN_APPS })).toThrow(
-			/copy must be an array/,
-		);
+		expect(() =>
+			parseShConfig(base(`      copy: procedures`), { bunAppsDir: BUN_APPS }),
+		).toThrow(/copy must be an array/);
 	});
 });
 
 describe("vendor", () => {
 	const base = (extra: string) => `
-outRoot: /tmp/out
+deploy:
+  outRoot: /tmp/out
 hostApi: 2
 hostModules: ["@earendil-works/pi-coding-agent"]
 extensions:
   - name: power-tool
     package: pi-agent-ext-power-tool
     entry: extensions/power-tool.ts
+    load: static
+    deploy:
+      order: 100
 ${extra}
 `;
 
@@ -168,24 +218,17 @@ ${extra}
 	});
 
 	test("parses a declared list", () => {
-		const cfg = parseShConfig(base(`    vendor: ["playwright-core"]`), { bunAppsDir: BUN_APPS });
+		const cfg = parseShConfig(base(`      vendor: ["playwright-core"]`), {
+			bunAppsDir: BUN_APPS,
+		});
 		expect(cfg.extensions[0]!.vendor).toEqual(["playwright-core"]);
 	});
 
-	test("rejects a package declared both vendored and external", () => {
-		// The two answer the same question — "where does this come from at
-		// runtime?" — with different answers, so accepting both would make the
-		// build honor whichever it happened to read last.
+	test("rejects a non-array vendor", () => {
 		expect(() =>
-			parseShConfig(base(`    vendor: ["playwright-core"]\n    externals: ["playwright-core"]`), {
+			parseShConfig(base(`      vendor: "playwright-core"`), {
 				bunAppsDir: BUN_APPS,
 			}),
-		).toThrow(/both vendor and externals/);
-	});
-
-	test("rejects a non-array vendor", () => {
-		expect(() => parseShConfig(base(`    vendor: "playwright-core"`), { bunAppsDir: BUN_APPS })).toThrow(
-			/vendor must be an array/,
-		);
+		).toThrow(/vendor must be an array/);
 	});
 });

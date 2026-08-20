@@ -1,18 +1,18 @@
 /**
  * Cross-extension isolation contract — the "tight yet swappable" guard for the
- * PORTABLE BASE SET: every extension `pi-agent/deploy-config.yaml` ships in an
- * sh deploy. They coexist every session and share conventions (.planning/
+ * PORTABLE BASE SET: every extension `pi-agent/pi-agent.registry.yaml` ships in
+ * an sh deploy. They coexist every session and share conventions (.planning/
  * layout, ctx.cwd) but must NEVER import each other's code — coupling goes only
  * through Pi's extension API and the guarded globalThis seams. That
  * zero-cross-import invariant is what makes each independently removable, and
  * `rm -rf ext/<name>` is the operation it protects (deploy gate 3's dual-state
  * smoke is the runtime half of the same claim).
  *
- * SCOPE IS DERIVED, NOT HARDCODED: the set comes from deploy-config.yaml, so
- * promoting an extension into the portable profile automatically enrolls it
- * here. (An earlier revision covered only the trio {superpowers, wayfind,
- * prompt-history}; a shared convention that binds three packages and exempts
- * nine is not a contract.)
+ * SCOPE IS DERIVED, NOT HARDCODED: the set comes from the registry's `deploy:`
+ * blocks, so promoting an extension into the portable profile automatically
+ * enrolls it here. (An earlier revision covered only the trio {superpowers,
+ * wayfind, prompt-history}; a shared convention that binds three packages and
+ * exempts nine is not a contract.)
  *
  * Invariants:
  *  (1) NO CROSS-IMPORTS [static] — scan each base-set package's `src/` +
@@ -49,18 +49,25 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // bun-apps/
 
 /**
- * Base-set short names parsed out of deploy-config.yaml's `extensions:` block.
+ * Base-set short names parsed out of pi-agent.registry.yaml's `extensions:`
+ * block — an entry is in the base set iff its entry carries a `deploy:` block
+ * (entries kept local have `excludeReason` instead).
  *
  * A hand-rolled line scanner rather than a YAML dependency or an import of
- * pi-agent-ext-devops's `parseShConfig`: this gate must stay immune to
+ * pi-agent's `parseRegistry`: this gate must stay immune to
  * `bun-apps/node_modules/@repo/*` link state (same reasoning as
  * seam-contract.test.ts's relative core-interface import), and the shape it
- * needs is one key. The `MIN_EXPECTED` floor below is what keeps a silent parse
- * failure from turning every assertion vacuous.
+ * needs is two keys. The `MIN_EXPECTED` floor below is what keeps a silent
+ * parse failure from turning every assertion vacuous.
  */
 function parseBaseSetNames(yamlText: string): string[] {
 	const names: string[] = [];
 	let inExtensions = false;
+	let name: string | null = null;
+	let hasDeployBlock = false;
+	const flush = (): void => {
+		if (name !== null && hasDeployBlock) names.push(name);
+	};
 	for (const raw of yamlText.split("\n")) {
 		if (/^extensions:\s*$/.test(raw)) {
 			inExtensions = true;
@@ -70,8 +77,17 @@ function parseBaseSetNames(yamlText: string): string[] {
 		if (inExtensions && /^\S/.test(raw)) break;
 		if (!inExtensions) continue;
 		const m = /^\s*-\s*name:\s*(\S+)\s*$/.exec(raw);
-		if (m) names.push(m[1] as string);
+		if (m) {
+			flush();
+			name = m[1] as string;
+			hasDeployBlock = false;
+			continue;
+		}
+		// Entry-indented `deploy:` marks the entry shipped (the top-level
+		// `deploy:` key is column-0 and never matches).
+		if (name !== null && /^\s+deploy:\s*$/.test(raw)) hasDeployBlock = true;
 	}
+	flush();
 	return names;
 }
 
@@ -79,7 +95,7 @@ function parseBaseSetNames(yamlText: string): string[] {
 const MIN_EXPECTED = 10;
 
 const BASE_SET_NAMES = parseBaseSetNames(
-	readFileSync(join(ROOT, "pi-agent", "deploy-config.yaml"), "utf8"),
+	readFileSync(join(ROOT, "pi-agent", "pi-agent.registry.yaml"), "utf8"),
 );
 const BASE_SET = BASE_SET_NAMES.map((n) => `pi-agent-ext-${n}`);
 
@@ -173,11 +189,11 @@ function recordingPi(): { pi: any; count: () => number } {
 	return { pi, count: () => calls };
 }
 
-describe("portable base set is derived from deploy-config.yaml", () => {
+describe("portable base set is derived from pi-agent.registry.yaml", () => {
 	it(`parses at least ${MIN_EXPECTED} extensions (a silent [] would void this file)`, () => {
 		assert.ok(
 			BASE_SET_NAMES.length >= MIN_EXPECTED,
-			`parsed only ${BASE_SET_NAMES.length} extension name(s) from deploy-config.yaml: ${BASE_SET_NAMES.join(", ")}`,
+			`parsed only ${BASE_SET_NAMES.length} extension name(s) from pi-agent.registry.yaml: ${BASE_SET_NAMES.join(", ")}`,
 		);
 	});
 
