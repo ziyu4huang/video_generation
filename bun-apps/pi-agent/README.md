@@ -177,7 +177,7 @@ bun run --cwd bun-apps/pi-agent deploy:sh --no-freeze  # skip the read-only free
 ```
 
 The extension set, the host-module contract and the per-extension build
-metadata all live in `deploy-config.yaml`. **[`docs/deploy-sh.md`](docs/deploy-sh.md)
+metadata all live in `deploy-config.yaml`. **[`docs/deploy.md`](docs/deploy.md)
 is the reference** — layout, the host contract, adding and removing an
 extension, vendored packages, the four build gates, the e2e tiers, and why the
 tree is read-only.

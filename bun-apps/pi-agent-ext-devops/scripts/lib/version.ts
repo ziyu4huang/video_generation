@@ -1,5 +1,5 @@
 /**
- * sh-version.ts — version naming, target resolution, and the `current` symlink.
+ * version.ts — version naming, target resolution, and the `current` symlink.
  *
  * The symlink is relative (`current -> 0.1.0+g520acb9`) so the whole out root
  * can be moved without breaking it, and it is swapped via rename() so a reader

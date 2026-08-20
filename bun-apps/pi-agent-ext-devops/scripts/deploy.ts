@@ -1,5 +1,5 @@
 /**
- * deploy-sh.ts — orchestrator for the pi-agent-sh deploy.
+ * deploy.ts — orchestrator for the pi-agent-sh deploy.
  *
  * Produces <outRoot>/<version>/ containing:
  *   pi-agent      minimal compiled core (zero extensions inside)
@@ -19,10 +19,10 @@
  */
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { parseShConfig, type ShConfig } from "./lib/sh-config.ts";
-import { buildExtPackage } from "./lib/sh-ext-build.ts";
-import { computeVersion, ensureOutRoot, resolveTargetDir, swapCurrent } from "./lib/sh-version.ts";
-import { freezeTree, rmTree, unfreezeTree } from "./lib/sh-fs.ts";
+import { parseShConfig, type ShConfig } from "./lib/config.ts";
+import { buildExtPackage } from "./lib/ext-build.ts";
+import { computeVersion, ensureOutRoot, resolveTargetDir, swapCurrent } from "./lib/version.ts";
+import { freezeTree, rmTree, unfreezeTree } from "./lib/fs.ts";
 import { stageGenerateEmbeddedAssets } from "./lib/codegen.ts";
 
 const PI_AGENT_DIR = resolve(import.meta.dir, "..", "..", "pi-agent");
@@ -100,7 +100,7 @@ async function buildCore(outFile: string): Promise<number> {
 	}
 
 	const entry = join(PI_AGENT_DIR, "src", "cli-sh.ts");
-	// bun's build report is human progress. deploy-sh-cli promises stdout is
+	// bun's build report is human progress. deploy-cli promises stdout is
 	// PURE JSON, and "inherit" here put the child's report on the same stdout
 	// as the final JSON payload — so pipe it and re-emit on stderr.
 	const p = Bun.spawn(["bun", "build", "--compile", entry, `--outfile=${outFile}`, "--minify"], {

@@ -3,7 +3,7 @@
  * deploy-e2e gate.
  *
  * WHY THIS GATE EXISTS: `regression-gates` boots the deployed artifact on every
- * run (check-deploy-sh-e2e.sh), but a PI_AGENT_E2E-gated assertion is invisible
+ * run (check-deploy-e2e.sh), but a PI_AGENT_E2E-gated assertion is invisible
  * to a plain `bun test` and therefore invisible to local_ci's package matrix.
  * A test nobody runs is the same as no test — the #1305 class, where a literal
  * drifted and only failed at a tier nothing executed.
@@ -16,7 +16,7 @@
  *
  * It used to run e2e-patches + e2e-extensions, whose subject was the bundle
  * deploy. Both files went with the four legacy deploy modes; the deployed
- * artifact's own e2e is check-deploy-sh-e2e.sh, which is unconditional.
+ * artifact's own e2e is check-deploy-e2e.sh, which is unconditional.
  */
 
 /**

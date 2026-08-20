@@ -245,7 +245,7 @@ describe("ci.yml.disabled — every referenced path resolves", () => {
 			"bun-apps/pi-agent-ext-devops/src/changed-packages-cli.ts",
 			"scripts/ci-file-size-guard.sh",
 			"scripts/check-schema-cost.ts",
-			"scripts/check-deploy-sh-e2e.sh",
+			"scripts/check-deploy-e2e.sh",
 			"bun-apps/pi-agent/run-dir/check-deps.ts",
 		]) {
 			expect(found).toContain(expected);

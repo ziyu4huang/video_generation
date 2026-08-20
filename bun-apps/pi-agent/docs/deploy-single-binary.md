@@ -14,7 +14,7 @@ the static extension set: an sh deploy loads its extensions from `ext/` at
 runtime through the host-module contract, and only a bare compiled binary with
 no `deploy.json` beside it falls back to the static set.
 
-See [`deploy-sh.md`](./deploy-sh.md) for the deploy that actually ships.
+See [`deploy.md`](./deploy.md) for the deploy that actually ships.
 
 ## Why the binary can't just load every extension
 

@@ -37,14 +37,14 @@ A thin wrapper around the official `@earendil-works/pi-coding-agent` TUI. It cal
 
 One deploy: a versioned, frozen tree of a minimal compiled core plus one
 `ext/<name>/` dir per extension, discovered at runtime. See
-[`docs/deploy-sh.md`](docs/deploy-sh.md) for the full reference.
+[`docs/deploy.md`](docs/deploy.md) for the full reference.
 
 ```bash
 bun run --cwd bun-apps/pi-agent deploy:sh          # cut a new version, move `current`
 bun run --cwd bun-apps/pi-agent deploy:sh --ext <name>   # rebuild one extension in place
 ```
 
-(Run from the package dir; the scripts shell into `../pi-agent-ext-devops/scripts/deploy.ts`, which owns the deploy pipeline. A fifth, independent pipeline — `deploy:sh` → `deploy-sh-cli.ts` — is documented in `docs/deploy-sh.md`.)
+(Run from the package dir; `deploy:sh` shells into `../pi-agent-ext-devops/src/deploy-cli.ts`, which drives `scripts/deploy.ts` — the single deploy pipeline since the consolidation. See `docs/deploy.md`.)
 
 `deploy.ts` no longer has a standalone `--verify` boot-probe step (dropped in
 the bundle/snapshot/standalone/exe unification) — its job is now covered by

@@ -10,7 +10,7 @@
  * to spawn if it can't be found.
  *
  * The probe pair used to be deploy.ts + run-test.sh. deploy.ts went with the
- * four legacy deploy modes; deploy-sh.ts is the deploy script now, and probing
+ * four legacy deploy modes; deploy.ts is the deploy script now, and probing
  * for a file that no longer exists would make every resolve return null —
  * pi_verify would refuse to run with "could not locate the source pi-agent
  * dir", which reads like a broken checkout rather than a stale probe.
@@ -29,7 +29,7 @@ export interface ResolveOpts {
 function hasDevopsScripts(bunAppsDir: string): boolean {
 	const scriptsDir = join(bunAppsDir, "pi-agent-ext-devops", "scripts");
 	return (
-		existsSync(join(scriptsDir, "deploy-sh.ts")) && existsSync(join(scriptsDir, "run-test.sh"))
+		existsSync(join(scriptsDir, "deploy.ts")) && existsSync(join(scriptsDir, "run-test.sh"))
 	);
 }
 

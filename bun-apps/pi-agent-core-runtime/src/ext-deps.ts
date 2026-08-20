@@ -27,7 +27,7 @@
  *     inlined into the binary at build time; there is nothing on disk to find.
  *   - sh deploy       → the extension dir contains the `ext.json` the deploy
  *     wrote. Every dependency is then either bundled into `ext.cjs` or served
- *     by the host's injected `require`, and `sh-ext-build` already FAILED the
+ *     by the host's injected `require`, and `ext-build` already FAILED the
  *     build for any specifier that is neither. The question is settled before
  *     the tree ships; re-asking it at runtime can only produce false alarms.
  *   - source          → node_modules is genuinely the answer. Probe it.

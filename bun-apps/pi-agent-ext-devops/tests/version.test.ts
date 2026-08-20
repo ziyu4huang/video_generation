@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { computeVersion, listVersions, resolveTargetDir, swapCurrent } from "../scripts/lib/sh-version.ts";
-import { freezeTree, unfreezeTree } from "../scripts/lib/sh-fs.ts";
+import { computeVersion, listVersions, resolveTargetDir, swapCurrent } from "../scripts/lib/version.ts";
+import { freezeTree, unfreezeTree } from "../scripts/lib/fs.ts";
 
 const roots: string[] = [];
 function makeRoot(): string {

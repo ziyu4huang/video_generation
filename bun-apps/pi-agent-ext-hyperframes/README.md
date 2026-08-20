@@ -36,7 +36,7 @@ relative path (`../media-use/references/...`), so they MUST stay in one
 - `package.json` → `pi.skills: ["./skills"]` (dev/source mode)
 - `pi-agent/run-dir/manifest.json` → `skills[]` + `binarySkills[]` (binaries must be extracted to real disk in embedded/exe deploys) + `staticExtensions[]`
 - `pi-agent/src/static-extensions.ts` → static factory entry
-- `pi-agent/deploy-config.yaml` → `skills: [skills]` for the sh deploy (copied verbatim by `sh-ext-build.ts`)
+- `pi-agent/deploy-config.yaml` → `skills: [skills]` for the sh deploy (copied verbatim by `ext-build.ts`)
 - The extension factory (`src/index.ts`) is a **no-op** — the package carries skills, not tools.
 
 ## Runtime deps (NOT vendored)
