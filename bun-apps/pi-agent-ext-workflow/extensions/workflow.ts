@@ -7,7 +7,6 @@ import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 // singleton docstring in src/subagent-in-flight.ts).
 import { getSubagentInFlightRegistry, setRateLimitCapResolver } from "@repo/pi-agent-core-runtime";
 import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
-import { shellRunHostFn } from "../src/shell-host-fn.js";
 import {
   buildWorkflowGuidelinesForTurn,
   createEffortState,
@@ -30,6 +29,7 @@ import {
   shouldInjectFullWorkflowGuidelines,
   WorkflowManager,
 } from "../src/index.js";
+import { shellRunHostFn } from "../src/shell-host-fn.js";
 
 // ─── Gate family (wayfinder ticket 01 — reference form) ─────────────────────
 // Declared ONCE by id, shared by the CROSS-PACKAGE workflow/subagent family:

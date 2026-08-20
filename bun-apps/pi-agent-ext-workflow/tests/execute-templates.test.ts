@@ -21,8 +21,8 @@ describe("execute-t1 template", () => {
   });
   test("validates args at the top", () => {
     expect(src).toContain("const a = args ?? {}");
-    expect(src).toContain('if (!a.task)');
-    expect(src).toContain("stage: \"args\"");
+    expect(src).toContain("if (!a.task)");
+    expect(src).toContain('stage: "args"');
   });
   test("gate check happens before any agent dispatch", () => {
     const gateIdx = src.indexOf('call("shell.run"');
@@ -52,7 +52,20 @@ describe("execute-plan template", () => {
     expect(gateIdx).toBeLessThan(pipelineIdx);
     expect(src).toMatch(/return\s*\{\s*ok:\s*false,\s*stage:\s*"gate"/);
   });
+  test("Gate phase uses --phase entry (bootstrap: ledger does not exist yet)", () => {
+    const gateCall = src.slice(src.indexOf("pipeline-gate"));
+    expect(gateCall).toContain("--phase");
+    expect(gateCall).toContain('"entry"');
+  });
   test("Report phase emits ledger rows with outcome and sha columns", () => {
     expect(src).toMatch(/\|\s*ticket\s*\|\s*outcome\s*\|\s*sha\s*\|/);
+  });
+  test("Report phase writes dispatch-ledger.md via shell.run (close gate reads it)", () => {
+    const reportIdx = src.indexOf('phase("Report")');
+    expect(reportIdx).toBeGreaterThan(-1);
+    const reportSrc = src.slice(reportIdx);
+    expect(reportSrc).toContain('"dispatch-ledger.md"');
+    expect(reportSrc).toMatch(/call\("shell\.run"/);
+    expect(reportSrc).toMatch(/ledger write FAILED/);
   });
 });
