@@ -394,12 +394,21 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 
 		writeFileSync(join(stage, "run.sh"), RUN_SH);
 		chmodSync(join(stage, "run.sh"), 0o755);
-		// pi resolves its version from <packageDir>/package.json, and in
-		// compiled-binary mode packageDir = dirname(execPath) = this version
-		// dir. Without this file VERSION falls back to "0.0.0" and the startup
-		// banner reads "pi v0.0.0". Minimal file: no name/piConfig keys, so
-		// PACKAGE_NAME / APP_NAME / CONFIG_DIR_NAME keep their defaults.
-		writeFileSync(join(stage, "package.json"), `${JSON.stringify({ version }, null, 2)}\n`);
+		// pi resolves its version AND branding from <packageDir>/package.json,
+		// and in compiled-binary mode packageDir = dirname(execPath) = this
+		// version dir. Without this file VERSION falls back to "0.0.0", and
+		// without piConfig.name APP_NAME falls back to "pi" — which used to
+		// make the banner read "pi v0.0.0" and, worse, the exit hint print
+		// "To resume this session: pi --session …" (a binary that does not
+		// exist on the deploy target). piConfig.name = APP_NAME brands both;
+		// configDir stays pinned to ".pi" so CONFIG_DIR_NAME and the
+		// ~/.pi/agent state dir are deterministic. NOTE: ENV_AGENT_DIR becomes
+		// "<APP_NAME uppercased>_CODING_AGENT_DIR" (hyphenated for "s2-agent" —
+		// bash cannot `export` that name; override via `env` if ever needed).
+		writeFileSync(
+			join(stage, "package.json"),
+			`${JSON.stringify({ version, piConfig: { name: APP_NAME, configDir: ".pi" } }, null, 2)}\n`,
+		);
 		writeFileSync(
 			join(stage, "deploy.json"),
 			`${JSON.stringify({ version, builtAt, sourceSha, bunVersion: Bun.version, configPath, config: cfg }, null, 2)}\n`,

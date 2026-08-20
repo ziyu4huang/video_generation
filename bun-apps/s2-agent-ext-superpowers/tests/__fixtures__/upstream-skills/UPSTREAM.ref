@@ -114,9 +114,10 @@ baselined: 2026-07-26
 #   re-apply the pipeline v2 structure onto new upstream material only if it
 #   is still relevant, and record it here.
 
-fixtures-digest: sha256:df9bf1995f2f0e7bbfa9530a71f189cd8e5e4ba746a5d226867311beda643dd7
+fixtures-digest: sha256:f9c709bc314b2ca90fe9dc85107431bda1396b60e636002ff9fab79a2eed0c57
 
 # Re-baseline log (appended by scripts/rebaseline-upstream-skills.ts):
 #   2026-08-19 — backfill: record the ext-simplification-round-2 (#1682) in-place compression and tie the record to the fixtures via fixtures-digest (sha256:7eca97ecfe79…)
 #   2026-08-20 — develop-pipeline v2 task 5: dispatching-parallel-agents fully rewritten (workflow templates default, manual dispatch exception); see LOCAL-DIVERGENCES addendum 2026-08-20 (sha256:ee44613fa363…)
 #   2026-08-20 — tool renames 2026-08-20: workflow->run_workflow in dispatching-parallel-agents (docs/agents/extension-naming.md) (sha256:df9bf1995f2f…)
+#   2026-08-21 — pi-agent→s2-agent repo-wide rename (2026-08-21): skills reference repo paths (bun-apps/s2-agent-ext-*); content is otherwise byte-equal to upstream superpowers (sha256:f9c709bc314b…)

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Architecture review — s2-agent-ext-hermes-memory</title>
+<title>Architecture review — pi-agent-ext-hermes-memory</title>
 <style>/*! tailwindcss v4.3.3 | MIT License | https://tailwindcss.com */
 @layer properties {
   @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or
@@ -862,7 +862,7 @@
 </head>
 <body>
 <main>
-<header class="doc-head"><h1>Architecture review — s2-agent-ext-hermes-memory</h1></header><div class="legend"><span class="lg lg-mod">solid box = module</span><span class="lg lg-seam">dashed line = seam</span><span class="lg lg-leak">red = leakage</span><span class="lg lg-deep">dark box = deep module</span></div><section class="cards"><article class="card" data-strength="emerald"><div class="card-head"><h2><span class="num">1</span>Collapse the migration modules</h2><span class="badge emerald">Strong</span></div><div class="card-body"><p><strong>Files</strong>
+<header class="doc-head"><h1>Architecture review — pi-agent-ext-hermes-memory</h1></header><div class="legend"><span class="lg lg-mod">solid box = module</span><span class="lg lg-seam">dashed line = seam</span><span class="lg lg-leak">red = leakage</span><span class="lg lg-deep">dark box = deep module</span></div><section class="cards"><article class="card" data-strength="emerald"><div class="card-head"><h2><span class="num">1</span>Collapse the migration modules</h2><span class="badge emerald">Strong</span></div><div class="card-body"><p><strong>Files</strong>
 <code>src/failure-model-migration.ts</code>, <code>src/project-memory-migration.ts</code>, <code>src/extension-root-migration.ts</code>, <code>src/store/memory-format.ts</code></p><p><strong>Problem</strong>
 Three migration modules each re-implement <code>readEntries</code>, <code>writeEntries</code>, and a result struct. The format seam leaks across all three; the interface of each nearly matches its implementation — shallow by duplication.</p><p><strong>Solution</strong>
 One deep migration module behind a single interface; each migration kind becomes an adapter over the shared read/write/collapse implementation.</p><div class="before-after"><div class="diagram"><div class="cap">Before</div><pre class="mermaid">flowchart LR

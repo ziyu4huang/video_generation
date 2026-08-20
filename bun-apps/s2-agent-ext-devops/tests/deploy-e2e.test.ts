@@ -54,6 +54,13 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		// binary mode packageDir = dirname(execPath) = the version dir. Without
 		// this file the startup banner / --version report "0.0.0".
 		expect(JSON.parse(readFileSync(join(r.target, "package.json"), "utf8")).version).toBe(r.version);
+		// piConfig.name brands the banner AND the exit resume hint ("To resume
+		// this session: <APP_NAME> --session …"); without it both read "pi",
+		// which names a binary that does not exist on the deploy target.
+		expect(JSON.parse(readFileSync(join(r.target, "package.json"), "utf8")).piConfig).toEqual({
+			name: "s2-agent",
+			configDir: ".pi",
+		});
 		expect(existsSync(join(r.target, "ext", "power-tool", "ext.json"))).toBe(true);
 		expect(readlinkSync(join(outRoot, "current"))).toBe(r.version);
 
