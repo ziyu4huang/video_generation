@@ -29,6 +29,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GATE_DEFS } from "@repo/pi-agent-core-interface";
+import { findWorkspaceRoot, missingExtDeps } from "@repo/pi-agent-core-runtime";
 
 // @modelcontextprotocol/sdk is loaded dynamically so a missing bun install gives
 // a friendly error instead of a module-not-found crash at load time.
@@ -44,50 +45,6 @@ const _EXT_DIR: string | undefined = (() => {
 	return undefined;
 })();
 
-// ---------------------------------------------------------------------------
-// Dependency detection helpers
-// ---------------------------------------------------------------------------
-
-function findMonorepoRoot(from: string | undefined): string {
-	if (!from) return "(repo root)";
-	let dir = from;
-	while (dir !== dirname(dir)) {
-		try {
-			const pkgPath = join(dir, "package.json");
-			if (existsSync(pkgPath)) {
-				const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-				if (pkg.workspaces) return dir;
-			}
-		} catch {}
-		dir = dirname(dir);
-	}
-	return "(repo root)";
-}
-
-/** Extract bare package name from an import specifier (strips subpaths). */
-function pkgBaseName(spec: string): string {
-	if (spec.startsWith("@")) {
-		const parts = spec.split("/");
-		return `${parts[0]}/${parts[1]}`;
-	}
-	return spec.split("/")[0];
-}
-
-function missingDeps(deps: string[], from: string | undefined): string[] {
-	if (!from) return [];
-	return deps.filter((dep) => {
-		const pkgName = pkgBaseName(dep);
-		// Walk up checking node_modules/<pkgName>/package.json — works with Bun symlinked virtual store.
-		let dir = from;
-		while (true) {
-			if (existsSync(join(dir, "node_modules", pkgName, "package.json"))) return false;
-			const parent = dirname(dir);
-			if (parent === dir) break;
-			dir = parent;
-		}
-		return true;
-	});
-}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -446,9 +403,9 @@ export default function (pi: ExtensionAPI): void {
 		}
 
 		// Dependency check: @modelcontextprotocol/sdk must be installed (bun install at repo root).
-		const missing = missingDeps(["@modelcontextprotocol/sdk"], _EXT_DIR);
+		const missing = missingExtDeps(["@modelcontextprotocol/sdk"], _EXT_DIR);
 		if (missing.length > 0) {
-			const root = findMonorepoRoot(_EXT_DIR);
+			const root = findWorkspaceRoot(_EXT_DIR);
 			ctx.ui.notify(
 				`zai-mcp: missing npm package @modelcontextprotocol/sdk.\nRun: bun install (in ${root})`,
 				"error",

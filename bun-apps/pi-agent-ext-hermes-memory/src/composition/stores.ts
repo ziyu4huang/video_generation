@@ -32,7 +32,7 @@ import { syncMarkdownMemories } from "../handlers/sync-markdown-memories.js";
 import { SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "../handlers/session-backfill.js";
 import { SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "../handlers/session-live-index.js";
 import { shouldRunStartupSync } from "../config.js";
-import { detectProject, resolveProjectStoreDir } from "../project.js";
+import { canHoldProjectStore, detectProject, resolveProjectStoreDir } from "../project.js";
 import { MEMORY_FILE } from "../constants.js";
 import { migrateLegacyProjectMemoryDirs } from "../project-memory-migration.js";
 import { AGENT_ROOT } from "../paths.js";
@@ -161,7 +161,17 @@ export async function createStores(runtime: BackendRuntime, config: MemoryConfig
 	// Project-scoped store location (ticket 04, decision 01): default in-repo
 	// <cwd>/.agents/memory/ (git-trackable); null → opt-out (legacy global);
 	// explicit string → that path. resolveProjectStoreDir is the pure resolver.
-	const projectStoreDir = resolveProjectStoreDir(config.projectMemoryDir, project, process.cwd());
+	const resolvedProjectStoreDir = resolveProjectStoreDir(config.projectMemoryDir, project, process.cwd());
+	// A cwd we cannot write to holds no project store. Falling back to null (not
+	// to a warning) is the honest reading: the global store below still receives
+	// everything, so this is a choice of LOCATION, not a degradation worth
+	// interrupting the user about. See canHoldProjectStore() for the case that
+	// forced this — the deployed binary run from inside its own frozen tree,
+	// where the mkdir threw out of session_start as an Extension error.
+	const projectStoreDir =
+		resolvedProjectStoreDir && !canHoldProjectStore(resolvedProjectStoreDir)
+			? null
+			: resolvedProjectStoreDir;
 	// In-repo/explicit project memory file to backfill into the search index
 	// (ticket 02 merge). Skipped when projectMemoryDir===null (opt-out): that
 	// case resolves to the legacy global location scanProjectDirs already covers.

@@ -4,6 +4,7 @@
  */
 
 import * as path from "node:path";
+import * as fs from "node:fs";
 import * as os from "node:os";
 import { resolveProjectsRoot } from "./paths.js";
 
@@ -94,4 +95,29 @@ export function resolveProjectStoreDir(
     return path.resolve(cwd, projectMemoryDir.trim());
   }
   return detected.name ? path.join(cwd, ".agents", "memory") : null;
+}
+
+/**
+ * Can the project memory store actually live at `dir`?
+ *
+ * detectProject's rule is "any directory that is not $HOME is a project", which
+ * is right for a working copy and wrong for a directory the user is merely
+ * standing in. The case that made this real: running the DEPLOYED pi-agent
+ * binary from inside its own installation tree. That tree is frozen (the sh
+ * deploy chmod's it a-w), so the default `<cwd>/.agents/memory/` resolved to a
+ * path under it and the store's mkdir threw straight out of session_start —
+ * surfacing as `Extension error (<inline:hermes-memory>): EACCES`.
+ *
+ * Probing by creating is deliberate: it is exactly what the store does a moment
+ * later, so a true answer here means the store will succeed, and there is no
+ * TOCTOU gap worth worrying about. The directory it creates is the one that was
+ * going to be created anyway.
+ */
+export function canHoldProjectStore(dir: string): boolean {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    return true;
+  } catch {
+    return false;
+  }
 }
