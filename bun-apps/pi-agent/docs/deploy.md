@@ -1,12 +1,10 @@
 # deploy — versioned minimal-core deploy
 
-A second, independent deploy pipeline. It builds a **minimal `pi-agent` executable with zero
-extensions compiled in**, plus **extension packages built separately** into `ext/<name>/`, all
-under a versioned directory. The core discovers extensions at runtime; delete `ext/` and it still
-boots, just without them.
-
-This pipeline does not touch the four modes in `../pi-agent-ext-devops/scripts/deploy.ts`
-(`--bundle` / `--snapshot` / `--standalone` / `--exe`), which keep working exactly as before.
+THE deploy pipeline (the only one since the deploy-architecture consolidation
+retired `--bundle` / `--snapshot` / `--standalone` / `--exe`). It builds a **minimal `pi-agent`
+executable with zero extensions compiled in**, plus **extension packages built separately** into
+`ext/<name>/`, all under a versioned directory. The core discovers extensions at runtime; delete
+`ext/` and it still boots, just without them.
 
 ## Layout
 
