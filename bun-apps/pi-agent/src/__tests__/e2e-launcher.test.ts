@@ -10,8 +10,8 @@
  * WHY MOST OF THIS FILE IS UNGATED
  * --------------------------------
  * It used to gate every block on PI_AGENT_E2E=1, copying the convention from
- * e2e-patches / e2e-extensions / e2e-readonly. But read what e2e-harness.ts
- * says that gate is FOR: those files call `ensureBundle()`, and "builds are
+ * the since-deleted e2e-patches / e2e-extensions / e2e-readonly. But read what
+ * that gate was FOR: those files called `ensureBundle()`, and "builds are
  * slow". Five of the six blocks here build nothing and boot no pi — they write
  * a stub entry into a tmpdir, copy run.sh next to it, and assert on what bash
  * does. They inherited a cost gate for a cost they do not have.
@@ -26,9 +26,16 @@
  * `16 skip` and nothing anywhere turned them on. run.sh is the entry point
  * every session starts through, and it was covered only on paper.
  *
- * This is the failure mode e2e-harness.ts already documents one instance of
+ * This is the failure mode e2e-harness.ts used to document one instance of
  * (#1305 moved deploy.ts; `Module not found` surfaced only at tiers the
  * default `bun test` does not run). Cost of undoing it here: 1.3s.
+ *
+ * The `pi-agent.js` / `.deploy-readonly` fixtures below still cover a LIVE arm
+ * of run.sh. The four legacy deploy modes are gone, but the launcher's
+ * bundle-entry detection is not — it is removed in the follow-up that collapses
+ * "bundle" out of run-dir/resolve.ts and mode.ts, and these tests go with it
+ * then. Deleting a test one PR ahead of the behaviour it guards is the gap this
+ * file's own header is about.
  *
  * The ONE block still gated is `symlink resolution`, which spawns the real
  * src/cli.ts — a full pi boot that touches the shared ~/.pi backend. That one

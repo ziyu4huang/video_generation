@@ -616,19 +616,19 @@ Replace the file's header comment with:
  */
 ```
 
-- [ ] **Step 3: Trim `e2e-launcher.test.ts`**
+- [x] **Step 3: e2e-launcher.test.ts — DEVIATION: keep the bundle cases, defer to 1b**
 
-Delete exactly these three tests — they are the only ones that build a `pi-agent.js` fixture and assert the launcher routes to a bundle deploy:
+The plan called for deleting three tests here (`pi-agent.js alone -> deployed (bundle)`,
+and the two `.deploy-readonly` env-export cases). **Not done, deliberately.**
 
-- `test("pi-agent.js alone -> deployed (bundle)", …)` (~line 121)
-- `test(".deploy-readonly sets JITI_FS_CACHE and PI_CODING_AGENT_DIR for the child", …)` (~line 189)
-- `test("PIAGENT_DEBUG=1 also prints the read-only export line", …)` (~line 207)
+They assert an arm of `pi-agent.sh` that is still LIVE in 1a: the launcher's
+`pi-agent.js` entry detection and its `.deploy-readonly` env exports are removed in
+Phase 1b, together with `mode.ts`'s `"bundle"` and `resolve.ts`'s `deploy-bundle`
+layout. Deleting the tests in 1a would leave live behaviour untested for a whole PR
+— the exact gap this file's own header documents.
 
-If deleting those empties an enclosing `describe`, delete the `describe` too.
-
-Keep everything else, including `test("neither marker present -> error, exit 1", …)` — that arm survives Phase 1a and only changes in Phase 1b, when the launcher loses its `pi-agent.js` detection entirely.
-
-The two `.deploy-readonly` cases assert the launcher exports `JITI_FS_CACHE=0` and `PI_CODING_AGENT_DIR` for a frozen bundle deploy. The sh `run.sh` exports both unconditionally, and Task 1's zero-writes test is what proves the effect — so this is a fixture-bound duplicate, not a lost assertion.
+They go in 1b, with the behaviour. Only the file's header comment is updated here,
+because it referenced the three suites deleted in Step 1.
 
 - [ ] **Step 4: Run the surviving e2e suites**
 
