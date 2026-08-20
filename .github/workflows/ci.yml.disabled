@@ -488,6 +488,18 @@ jobs:
         working-directory: bun-apps
         run: bun run test:routing
 
+      # Cross-extension isolation-contract guard (portable base set). The base
+      # set's "tight yet swappable" invariant: no cross-imports among shipped
+      # extensions (one sanctioned lib-face edge: knowledge-card → obsidian,
+      # #1737), every entry factory loads standalone, and every one honors its
+      # BUN_PI_<NAME>=0 full-disable knob. The suite existed since the deploy
+      # profile was derived from the registry but NOTHING ran it — it sat red on
+      # main (a missing self-gate class) because bun-apps/tests/ lives outside
+      # every per-package matrix entry, the same rot class as dep-guard above.
+      - name: Cross-extension isolation-contract guard (portable base set, blocks)
+        working-directory: bun-apps
+        run: bun run test:isolation
+
       # Config-field parity guard (ticket 03 — self-reflection frontier).
       # pi-agent-ext-hermes-memory's loadConfig is a selective per-field copy; a
       # field added to MemoryConfig (types.ts) but omitted in loadConfig is

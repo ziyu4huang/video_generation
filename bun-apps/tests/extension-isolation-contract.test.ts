@@ -21,7 +21,8 @@
  *      (`@repo/pi-agent-ext-<x>` OR a relative `../pi-agent-ext-<x>`).
  *      Matches ONLY import syntax (`from "…"`, `import("…")`, side-effect
  *      `import "…"`) — never prose mentions in comments — so a JSDoc `@see`
- *      cannot false-positive. Relationship to `dep-guard.test.ts`: that guard
+ *      cannot false-positive. ONE sanctioned edge is exempt (see
+ *      SANCTIONED_EDGES below). Relationship to `dep-guard.test.ts`: that guard
  *      scans EVERY `pi-agent-ext-*` for `@repo/` declared-coupling (hidden deps,
  *      self-imports, tier edges, acyclicity) — it does NOT catch relative-path
  *      cross-imports and is not base-set-scoped, so invariant (1) stays here as
@@ -159,9 +160,37 @@ function collectTs(pkgDir: string): string[] {
 	return out;
 }
 
-/** Forbidden specs for a package = every OTHER base-set package, both forms. */
+/**
+ * The ONE sanctioned cross-import edge among the base set: knowledge-card (the
+ * TIER-1 knowledge hub) consumes obsidian's PURE LIBRARY face — the bare
+ * specifier resolves to src/index.ts → src/obsidian-lib.ts (#1737; vault
+ * resolution, frontmatter, graph index), and knowledge-card's header documents
+ * the forward-dep ("the hub asks its forward-dep (pi-obsidian) to serve vault
+ * resolution"). This is (from, to) COARSE on purpose: the finer rule — that
+ * knowledge-card may import the lib face but NEVER obsidian's /extensions/
+ * registration entry (which would double-register GATE_DEFS and the fat tool)
+ * — is pinned by dep-guard.test.ts's "lib face only" test, and duplicating it
+ * here would mean two copies to keep in lockstep. dep-guard also owns the
+ * downward-only ADR-monorepo-0001 invariant (obsidian/hermes import nothing
+ * from knowledge-card), which this table cannot express by construction —
+ * every other (from, to) pair stays forbidden here.
+ */
+const SANCTIONED_EDGES: ReadonlySet<string> = new Set([
+	"pi-agent-ext-knowledge-card → pi-agent-ext-obsidian",
+]);
+
+/** True when `self` importing `target` is a sanctioned lib-face edge. */
+function isSanctioned(self: string, target: string): boolean {
+	return SANCTIONED_EDGES.has(`${self} → ${target}`);
+}
+
+/** Forbidden specs for a package = every OTHER base-set package minus the
+ *  sanctioned lib-face edges, both specifier forms. */
 function forbiddenSpecs(self: string): string[] {
-	return BASE_SET.filter((p) => p !== self).flatMap((p) => [`@repo/${p}`, p]);
+	return BASE_SET.filter((p) => p !== self && !isSanctioned(self, p)).flatMap((p) => [
+		`@repo/${p}`,
+		p,
+	]);
 }
 
 /** Recording mock: counts the registration surfaces the base set uses and
