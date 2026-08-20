@@ -294,6 +294,32 @@ export async function runExtNew(argv: string[]): Promise<number> {
 		return 1;
 	}
 
+	// Registration — always against the real run-dir manifest, independent of
+	// --out-root (the hidden root is a test seam for the file writes only).
+	// Checked BEFORE any file write so a refusal leaves no orphan package.
+	const manifestPath = join(import.meta.dir, "..", "run-dir", "manifest.json");
+	let manifest: { extensions: unknown[]; staticExtensions: string[] };
+	try {
+		manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+			extensions: unknown[];
+			staticExtensions: string[];
+		};
+	} catch (e) {
+		console.error(`ext new: cannot read ${manifestPath} — ${(e as Error).message}`);
+		return 1;
+	}
+	if (manifest.staticExtensions.includes(pkgName) || manifest.extensions.some((e) => parseManifestName(e) === pkgName)) {
+		console.error(`ext new: ${pkgName} is already registered in run-dir/manifest.json`);
+		return 1;
+	}
+	const realOutRoot = resolve(args.outRoot) !== resolve(import.meta.dir, "..", "..");
+	if (args.register !== "none" && realOutRoot) {
+		console.error(
+			`ext new: --register requires the default --out-root (bun-apps/) — registration writes the real run-dir/manifest.json, whose consistency tests require the package to exist under bun-apps/`,
+		);
+		return 1;
+	}
+
 	// Write the scaffold (path keys are relative to the package dir).
 	for (const [rel, content] of Object.entries(buildScaffoldFiles(args.name, { libFace: args.libFace }))) {
 		const target = join(pkgDir, rel);
@@ -302,17 +328,6 @@ export async function runExtNew(argv: string[]): Promise<number> {
 	}
 	console.log(`ext new: wrote ${pkgDir}`);
 
-	// Registration — always against the real run-dir manifest, independent of
-	// --out-root (the hidden root is a test seam for the file writes only).
-	const manifestPath = join(import.meta.dir, "..", "run-dir", "manifest.json");
-	const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
-		extensions: unknown[];
-		staticExtensions: string[];
-	};
-	if (manifest.staticExtensions.includes(pkgName) || manifest.extensions.some((e) => parseManifestName(e) === pkgName)) {
-		console.error(`ext new: ${pkgName} is already registered in run-dir/manifest.json`);
-		return 1;
-	}
 
 	if (args.register === "dynamic") {
 		manifest.extensions.push({
