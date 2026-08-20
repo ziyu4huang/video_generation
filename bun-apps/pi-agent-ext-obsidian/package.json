@@ -6,9 +6,9 @@
   "license": "MIT",
   "keywords": ["pi-package", "obsidian", "pi", "knowledge-base", "vault"],
   "type": "module",
-  "main": "./extensions/obsidian.ts",
+  "main": "./src/index.ts",
   "exports": {
-    ".": "./extensions/obsidian.ts",
+    ".": "./src/index.ts",
     "./extensions/*": "./extensions/*",
     "./src/*": "./src/*"
   },

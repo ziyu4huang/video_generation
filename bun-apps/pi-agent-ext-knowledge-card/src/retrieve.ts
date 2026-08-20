@@ -35,8 +35,8 @@
  */
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { getIndex, graphDeadLinks, graphOrphans, invalidateCache } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
-import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { getIndex, graphDeadLinks, graphOrphans, invalidateCache } from "@repo/pi-agent-ext-obsidian";
+import { parseFrontmatter } from "@repo/pi-agent-ext-obsidian";
 import { writeMoc } from "./ingest.ts";
 import { extractFeatures } from "./card-render.ts";
 import { extractDetail, extractTitle } from "./graph-health.ts";

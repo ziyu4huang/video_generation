@@ -225,7 +225,9 @@ extension came from the repo's run-dir.
 - **Excluded, with reasons**: `obsidian` (cross-extension imports of the subagent package's OWN
   surface — `getSubagentRunPersistence` / `spawnSubagentSubprocess`, which stayed there when the
   dispatch layer moved to core-runtime — AND `@earendil-works/pi-agent-core`),
-  `knowledge-card` (imports obsidian's extension entry directly — dependency cascade),
+  `knowledge-card` (the former extension-entry import cascade is resolved — it now consumes
+  obsidian's lib face via the bare specifier `@repo/pi-agent-ext-obsidian`; it remains excluded
+  because its Tier-0 dependency obsidian is itself outside the portable base set),
   `file2md` (mupdf native/wasm + a hard LM Studio localhost dependency — not portable), the
   director/MCP wrappers (`movie-director`, `flux2`, `krea2`, `ltx`, `zai-mcp`, `research-tool`,
   `archify` — bound to this machine's swift CLIs and services), and repo-internal tooling

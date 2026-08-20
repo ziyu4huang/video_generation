@@ -58,7 +58,7 @@ import { registerServerTools } from "@repo/pi-agent-ext-zai-mcp/extensions/zai-m
 // (store/repo are deref'd only inside `execute`, which capture never calls).
 import knowledgeCardDefault from "@repo/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 import webAccessDefault from "@repo/pi-agent-ext-web-access";
-import obsidianDefault from "@repo/pi-agent-ext-obsidian";
+import obsidianDefault from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 import { registerMemoryTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-tool.ts";
 import { registerSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/search-tool.ts";
 import { registerSkillTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";

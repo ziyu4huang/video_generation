@@ -55,7 +55,7 @@ import { zkRetrieve, zkIngest, zkHealth, zkHeal } from "../src/host-fns.ts";
 import {
 	resolveVault,
 	registerDeterministicHealthCheck,
-} from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+} from "@repo/pi-agent-ext-obsidian";
 import { ingestRecords, formatSummary } from "../src/ingest.ts";
 import {
 	adaptAutoMemoryMarkdown,

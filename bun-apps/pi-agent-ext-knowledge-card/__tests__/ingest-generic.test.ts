@@ -15,7 +15,7 @@ import { ingestRecords } from "../src/ingest.ts";
 import { adaptGenericMarkdown, collectInputFiles } from "../src/adapters.ts";
 import { slugify } from "../src/card-format.ts";
 import type { KnowledgeRecord } from "../src/types.ts";
-import { validateZettelNote } from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { validateZettelNote } from "@repo/pi-agent-ext-obsidian";
 
 let vault: string;
 

@@ -48,7 +48,7 @@ import { dirname, join, relative } from "node:path";
 import {
 	validateZettelNote,
 	ZETTEL_MAX_BYTES,
-} from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
+} from "@repo/pi-agent-ext-obsidian";
 import { tokeniseText, bestMatch } from "./similarity.ts";
 import {
 	buildMocContent,

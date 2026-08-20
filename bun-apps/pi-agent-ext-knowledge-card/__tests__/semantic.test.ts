@@ -32,9 +32,9 @@ import {
 // absolute path and register a pass-through mock spreading the real exports,
 // overriding the leaked stub. Top-level await runs at module-eval time.
 import { mock } from "bun:test";
-const _obsRealAbs = new URL("../../pi-agent-ext-obsidian/extensions/obsidian.ts", import.meta.url).pathname;
+const _obsRealAbs = new URL("../../pi-agent-ext-obsidian/src/index.ts", import.meta.url).pathname;
 const _obsReal: Record<string, unknown> = await import(_obsRealAbs);
-mock.module("@repo/pi-agent-ext-obsidian/extensions/obsidian.ts", () => ({ ..._obsReal }));
+mock.module("@repo/pi-agent-ext-obsidian", () => ({ ..._obsReal }));
 
 let vault: string;
 const FOLDER = "Zettelkasten/knowledge-graph";
