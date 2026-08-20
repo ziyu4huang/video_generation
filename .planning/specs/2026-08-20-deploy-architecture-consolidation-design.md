@@ -126,10 +126,35 @@ it would churn the one part of the system that is already right.
 | `lib/deploy-target-guard.test.ts` | 154 | 1 | guards "out-dir is a free positional, so `bun run deploy /opt` deletes `/opt`" — a risk class that does not exist once `outRoot` comes from config and version dirs are derived |
 | `scripts/check-deploy-artifacts.sh` | 125 | 1 | gates the deleted modes |
 | `src/verify-deploy-cli.ts` | 275 | 1 | its steps 3–5 build and boot a `--bundle` deploy; steps 1–2 (`bun install`, quick tests) are `local_ci`'s job. Nothing invokes it. The `devops-verify-deploy` bin goes with it |
+| `src/__tests__/e2e-extensions.test.ts` | 744 | 1a | builds a `--bundle` deploy and probes extension loading across 4 cwds; every mode it covers is being deleted |
+| `src/__tests__/e2e-readonly.test.ts` | 170 | 1a | the read-only contract for bundle + snapshot. The contract itself survives on the sh deploy — see below |
+| `src/__tests__/e2e-patches.test.ts` | 142 | 1a | runs every patch around `main()` inside a built bundle |
 | `src/static-extensions.ts` | 132 | 2 | see §"Source mode" |
-| `dist/pi-agent/` | 45 MB | 1 | no consumer |
+| `dist/pi-agent/` | 45 MB | 1a | no consumer |
 
-Roughly **2,258 lines** plus the artifact tree. Further fallout, smaller but real:
+Repointed rather than deleted: the `pi_deploy` agent tool. It spawns `scripts/deploy.ts`
+and scrapes its human output with regexes; `runShDeploy` returns a typed object, so
+`deploy-tool.ts` shrinks to a params→options map and `parseDeployOutput` is deleted
+outright. `deploy-argv.ts` loses `DeployMode` / `buildDeployArgv`, `deploy-run.ts` loses
+`assertSafeOutDir` (an arbitrary out-dir positional no longer exists), and `pi_verify`'s
+tier union loses `high` / `readonly` with the `run-test.sh` tiers below.
+
+Trimmed rather than deleted:
+
+- `src/__tests__/e2e-harness.ts` (130) — loses `ensureBundle` / `runBundle` /
+  `DEPLOY_SCRIPT`; keeps `PI_AGENT_DIR` / `REPO_ROOT` / `E2E_ENABLED`, which
+  `e2e-image-agent.test.ts` and `e2e-launcher.test.ts` still import.
+- `src/__tests__/e2e-launcher.test.ts` (336) — loses the `pi-agent.js alone →
+  deployed (bundle)` routing cases; the source-mode routing cases stay.
+- `scripts/run-test.sh` — the `high` and `readonly` tiers go (they exist to deploy
+  bundle/snapshot/standalone); `quick` / `medium` / `smoke` stay.
+
+**The read-only contract is not lost with `e2e-readonly.test.ts`.** Freeze +
+foreign-cwd + zero-writes is a property of the sh deploy too, and `deploy-sh-probe-e2e.test.ts`
+already boots the deployed binary offline. Phase 1a **adds** the zero-writes assertion to
+that suite before deleting the old one — that is a task, not an assumption.
+
+Roughly **3,314 lines** plus the artifact tree. Further fallout, smaller but real:
 
 - `src/mode.ts` — `BundlerMode` loses `"bundle"`; only `source` and `binary` remain.
 - `run-dir/resolve.ts` (335 lines) — `RunDirLayoutMode` collapses to `"source"`; the
@@ -316,14 +341,25 @@ Each phase is independently shippable, independently revertible, and green on
 `local_ci` before the next starts. **Each phase gets its own implementation plan and
 its own PR** — this document is the shared design, not a single unit of work.
 
-**Phase 1 — deletion, zero behaviour change.**
-Delete the four modes, `build-extensions.ts`, `ext-hash.ts`, `deploy-target-guard.test.ts`,
-`check-deploy-artifacts.sh`, `verify-deploy-cli.ts` (+ its `devops-verify-deploy` bin),
-`dist/pi-agent`, the `deploy:*` / `dist` / `exe` scripts. Rename `deploy-sh.ts` →
-`deploy.ts`, `deploy-sh-cli.ts` → `deploy-cli.ts`, and `lib/sh-*.ts` → `lib/*.ts`.
-Repoint `update-pi.sh --rebuild` at the sh deploy. Collapse `mode.ts` / `resolve.ts` /
-`run-context.ts` / `set-package-dir.ts` bundle branches. Fold the three legacy docs into
-`docs/deploy.md`.
+**Phase 1 — deletion, zero behaviour change.** Split into two PRs; the blast radius is
+larger than a single reviewable diff.
+
+*1a — retire the legacy deploy pipeline.* First move the read-only assertions onto the sh
+e2e suite, then delete: `scripts/deploy.ts`, `build-extensions.ts`, `ext-hash.ts`,
+`deploy-target-guard.test.ts`, `check-deploy-artifacts.sh`, `verify-deploy-cli.ts` (+ its
+`devops-verify-deploy` bin), the three bundle-bound e2e suites, `run-test.sh`'s `high` /
+`readonly` tiers, the `deploy:*` / `dist` / `exe` package scripts, and `dist/pi-agent`.
+Move `extractBareSpecifiers` into `sh-ext-build.ts` before deleting its home, and
+repoint `pi_deploy` at `runShDeploy`. Repoint `update-pi.sh --rebuild` at the sh deploy.
+
+Plan: `.planning/plans/2026-08-20-deploy-phase-1a-retire-legacy-pipeline.md`.
+
+*1b — collapse "bundle" out of the runtime.* `mode.ts`'s `BundlerMode` loses `"bundle"`;
+`resolve.ts`'s `RunDirLayoutMode` collapses to `"source"`; `run-context.ts` and
+`set-package-dir.ts` lose their bundle branches; `pi-agent.sh` loses its
+`pi-agent.js`-detection arm. Then the renames (`deploy-sh.ts` → `deploy.ts`,
+`deploy-sh-cli.ts` → `deploy-cli.ts`, `lib/sh-*.ts` → `lib/*.ts`,
+`check-deploy-sh-e2e.sh` → `check-deploy-e2e.sh`) and the docs fold into `docs/deploy.md`.
 
 The `deploy:sh` package script keeps its name through Phase 1 (muscle memory, and it
 appears in `SKILL.md` / `CLAUDE.md`); renaming it to `deploy` is a Phase 3 cleanup once
