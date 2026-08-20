@@ -4,7 +4,7 @@
 #
 # WHY THIS EXISTS
 # ---------------
-# deploy's four build gates prove the sh tree is well-formed, but none of
+# deploy's six build gates prove the sh tree is well-formed, but none of
 # them starts a session — which is exactly how two silent defects shipped: the
 # sdk-patch polyfill was dead in every deploy for a week (it warned on every
 # run) and playwright's __dirname pointed at the build machine. Registration
@@ -16,8 +16,8 @@
 #
 # TWO suites, both PI_AGENT_E2E-gated and therefore both invisible to a plain
 # `bun test`:
-#   deploy-e2e        the tree: mode, freeze, version, current symlink,
-#                        ext-only rebuild, and the zero-extension state.
+#   deploy-e2e        the tree: freeze, version, current symlink, core-cache
+#                        reuse + keep:N pruning, and the zero-extension state.
 #   deploy-probe-e2e  the runtime: real sessions against the deployed binary.
 # Only the probe suite was wired in when this gate was written, so deploy-e2e
 # ran nowhere. It went stale on #1713 and outright red on #1738 — it asserted a

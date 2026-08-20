@@ -1,8 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	linkSync,
+	lstatSync,
+	mkdirSync,
+	mkdtempSync,
+	readlinkSync,
+	rmSync,
+	statSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { computeVersion, listVersions, resolveTargetDir, swapCurrent } from "../scripts/lib/version.ts";
+import { DEFAULT_KEEP, computeVersion, listVersions, pruneVersions, resolveTargetDir, swapCurrent } from "../scripts/lib/version.ts";
 import { freezeTree, unfreezeTree } from "../scripts/lib/fs.ts";
 
 const roots: string[] = [];
@@ -89,7 +100,7 @@ describe("listVersions", () => {
 });
 
 describe("freezeTree / unfreezeTree", () => {
-	test("freeze clears the write bits, unfreeze restores them", () => {
+	test("freeze clears write bits; unfreeze reopens DIRECTORIES only (hardlink-safe)", () => {
 		const root = makeRoot();
 		const sub = join(root, "ext", "alpha");
 		mkdirSync(sub, { recursive: true });
@@ -98,10 +109,71 @@ describe("freezeTree / unfreezeTree", () => {
 
 		freezeTree(root);
 		expect(statSync(file).mode & 0o222).toBe(0);
+		expect(statSync(sub).mode & 0o200).toBe(0);
 
 		unfreezeTree(root);
-		expect(statSync(file).mode & 0o200).not.toBe(0);
-		writeFileSync(file, "y"); // must not throw
-		expect(existsSync(file)).toBe(true);
+		// directories regain u+w — enough to unlink or reorganise inside the
+		// tree — while FILES stay a-w: the version dir's core is a hardlink
+		// into .cores, and chmod-ing it through one link would re-mode every
+		// version sharing the inode.
+		expect(statSync(sub).mode & 0o200).not.toBe(0);
+		expect(statSync(file).mode & 0o200).toBe(0);
+		rmSync(file); // unlink needs the parent dir's write bit, not the file's
+		expect(existsSync(file)).toBe(false);
+	});
+});
+
+describe("pruneVersions", () => {
+	/** A fake version dir with a controlled mtime (deploy time). */
+	function makeVersion(root: string, v: string, ageMs: number): string {
+		const dir = join(root, v);
+		mkdirSync(dir);
+		writeFileSync(join(dir, "pi-agent"), "core");
+		const at = new Date(ageMs);
+		utimesSync(join(dir, "pi-agent"), at, at);
+		utimesSync(dir, at, at);
+		return dir;
+	}
+	const T0 = Date.now() - 10 * 60_000;
+
+	test("prunes oldest-first down to keep, never the current target", () => {
+		const root = makeRoot();
+		for (let i = 1; i <= 4; i++) makeVersion(root, `v${i}`, T0 + i * 1000);
+		swapCurrent(root, "v4");
+		const pruned = pruneVersions(root, { keep: 2 });
+		expect(pruned).toEqual(["v1", "v2"]);
+		expect(listVersions(root).versions).toEqual(["v3", "v4"]);
+	});
+
+	test("a current target outside the newest keep still survives (keep+1)", () => {
+		const root = makeRoot();
+		for (let i = 1; i <= 4; i++) makeVersion(root, `v${i}`, T0 + i * 1000);
+		swapCurrent(root, "v1"); // current is the OLDEST
+		const pruned = pruneVersions(root, { keep: 2 });
+		expect(pruned).toEqual(["v2", "v3"]);
+		expect(listVersions(root)).toEqual({ versions: ["v1", "v4"], current: "v1" });
+	});
+
+	test("never drops below keep — nothing pruned when already within budget", () => {
+		const root = makeRoot();
+		for (let i = 1; i <= 3; i++) makeVersion(root, `v${i}`, T0 + i * 1000);
+		swapCurrent(root, "v3");
+		expect(pruneVersions(root, { keep: 5 })).toEqual([]);
+		expect(existsSync(join(root, "v1"))).toBe(true);
+	});
+
+	test("pruning removes only unlinks — a hardlinked core's other links keep it alive", () => {
+		const root = makeRoot();
+		const coreA = join(root, "v1", "pi-agent");
+		for (let i = 1; i <= 3; i++) makeVersion(root, `v${i}`, T0 + i * 1000);
+		linkSync(coreA, join(root, "v2", "pi-agent-clone")); // simulate the .cores link
+		swapCurrent(root, "v3");
+		pruneVersions(root, { keep: 2 }); // only v1 (oldest) goes
+		expect(existsSync(coreA)).toBe(false); // v1 pruned — its link to the bytes is unlinked
+		expect(existsSync(join(root, "v2", "pi-agent-clone"))).toBe(true); // sibling link intact
+	});
+
+	test("DEFAULT_KEEP is a sane positive integer", () => {
+		expect(Number.isInteger(DEFAULT_KEEP) && DEFAULT_KEEP >= 1).toBe(true);
 	});
 });

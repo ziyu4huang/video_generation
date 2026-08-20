@@ -49,6 +49,18 @@ describe("parseRegistry", () => {
     expect(r.extensions[1]).toMatchObject({ load: "dynamic", excludeReason: expect.stringContaining("swift") });
     expect(r.hostApi).toBe(2);
   });
+  test("deploy.keep is projected when valid, rejected when not", () => {
+    const { text, bunAppsDir } = fixture();
+    const withKeep = parseRegistry(text.replace("  current: true\n", "  current: true\n  keep: 3\n"), { bunAppsDir });
+    expect(withKeep.deploy.keep).toBe(3);
+    // absent → the key is simply not emitted (deploy applies its own default)
+    expect(parseRegistry(text, { bunAppsDir }).deploy.keep).toBeUndefined();
+    for (const bad of ["keep: 0", "keep: -1", "keep: two", "keep: 2.5"]) {
+      expect(() => parseRegistry(text.replace("  current: true\n", `  current: true\n  ${bad}\n`), { bunAppsDir })).toThrow(
+        /keep/,
+      );
+    }
+  });
   test("unknown TOP key → throws", () => {
     const { text, bunAppsDir } = fixture();
     expect(() => parseRegistry(text.replace("hostApi:", "hostapiX:"), { bunAppsDir })).toThrow(/hostapiX/);

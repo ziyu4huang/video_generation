@@ -193,7 +193,7 @@ export function checkShExtensions(ctx: DoctorContext): CheckResult {
 			label,
 			status: "fail",
 			detail: `${ok.length} loadable, ${bad.length} would be SKIPPED at boot: ${bad.join(", ")}`,
-			hint: "rebuild that extension: `bun run --cwd bun-apps/pi-agent deploy --ext <name>`",
+			hint: "redeploy: `bun run --cwd bun-apps/pi-agent deploy` (version dirs are immutable — no in-place rebuild)",
 		};
 	}
 	return { id, label, status: "pass", detail: `${ok.length} extension(s) loadable: ${ok.join(", ") || "none"}` };

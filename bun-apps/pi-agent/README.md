@@ -173,15 +173,14 @@ pi-agent ships as ONE artifact: a versioned, frozen tree under
 `ext/<name>/` directory per extension, discovered at runtime.
 
 ```bash
-bun run --cwd bun-apps/pi-agent deploy              # cut a new version, move `current`
-bun run --cwd bun-apps/pi-agent deploy --ext power-tool   # rebuild one extension in place
-bun run --cwd bun-apps/pi-agent deploy --no-freeze  # skip the read-only freeze
+bun run --cwd bun-apps/pi-agent deploy              # cut a new version, move `current`, prune old ones
+bun run --cwd bun-apps/pi-agent deploy --no-freeze  # skip the read-only freeze (bypasses the core cache)
 ```
 
 The extension set, the host-module contract and the per-extension build
 metadata all live in `pi-agent.registry.yaml`. **[`docs/deploy.md`](docs/deploy.md)
 is the reference** — layout, the host contract, adding and removing an
-extension, vendored packages, the four build gates, the e2e tiers, and why the
+extension, vendored packages, the six build gates, the e2e tiers, and why the
 tree is read-only.
 
 Four other deploy modes existed until #1740 — `--bundle`, `--snapshot`,

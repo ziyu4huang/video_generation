@@ -136,13 +136,13 @@ function fakePi() {
 			expect(tool?.description).toMatch(/CLEAN\/CONTAMINATED|scope/);
 		});
 
-		test("deploy_pi_agent_sh has optional ext/force/noFreeze/noCurrent (no required params) + owner-declared gating", () => {
+		test("deploy_pi_agent_sh has optional force/noFreeze/noCurrent (no required params) + owner-declared gating", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
 			const tool = pi.tools.find((t) => t.name === "deploy_pi_agent_sh");
 			expect(tool?.parameters.required ?? []).toEqual([]);
+			// no `ext` — version dirs are immutable (Phase 3 deleted the in-place rebuild)
 			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual([
-				"ext",
 				"force",
 				"noCurrent",
 				"noFreeze",

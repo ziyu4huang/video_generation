@@ -11,11 +11,9 @@
 import { runShDeploy, type DeployShOptions, type DeployShResult } from "../scripts/deploy.ts";
 
 export interface DeployParams {
-	/** Rebuild only these extensions into the existing version dir. */
-	ext?: string[];
 	/** Replace an existing version dir. */
 	force?: boolean;
-	/** Skip chmod a-w on the deployed tree. */
+	/** Skip chmod a-w on the deployed tree (also bypasses the core cache). */
 	noFreeze?: boolean;
 	/** Do not repoint <outRoot>/current. */
 	noCurrent?: boolean;
@@ -25,10 +23,13 @@ export interface DeployResult {
 	ok: boolean;
 	version?: string;
 	target?: string;
-	mode?: DeployShResult["mode"];
 	extensions?: Array<{ name: string; bytes: number }>;
 	coreBytes?: number;
+	/** True when the core came from the content-addressed cache (no recompile). */
+	coreCached?: boolean;
 	currentUpdated?: boolean;
+	/** Version dirs removed by keep:N retention, oldest first. */
+	pruned?: string[];
 	errorTail?: string;
 }
 
@@ -51,7 +52,6 @@ export async function runDeploy(
 ): Promise<DeployResult> {
 	const deploy = deps.deploy ?? runShDeploy;
 	const options: DeployShOptions = {};
-	if (params.ext && params.ext.length > 0) options.onlyExt = params.ext;
 	if (params.force) options.force = true;
 	if (params.noFreeze) options.freeze = false;
 	if (params.noCurrent) options.current = false;
@@ -62,10 +62,11 @@ export async function runDeploy(
 			ok: true,
 			version: r.version,
 			target: r.target,
-			mode: r.mode,
 			extensions: r.extensions,
 			coreBytes: r.coreBytes,
+			coreCached: r.coreCached,
 			currentUpdated: r.currentUpdated,
+			pruned: r.pruned,
 		};
 	} catch (e) {
 		return { ok: false, errorTail: e instanceof Error ? e.message : String(e) };

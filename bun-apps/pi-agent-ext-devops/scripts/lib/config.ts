@@ -67,6 +67,8 @@ export interface ShConfig {
 	version: { from: "package.json"; gitSha: boolean };
 	freeze: boolean;
 	current: boolean;
+	/** Version dirs to retain when pruning (registry `deploy.keep`); undefined = deploy default. */
+	keep?: number;
 	hostApi: number;
 	hostModules: string[];
 	extensions: ShExtConfig[];
@@ -106,6 +108,7 @@ export function parseShConfig(
 		version: registry.deploy.version,
 		freeze: registry.deploy.freeze,
 		current: registry.deploy.current,
+		keep: registry.deploy.keep,
 		hostApi: registry.hostApi,
 		hostModules: registry.hostModules,
 		extensions,

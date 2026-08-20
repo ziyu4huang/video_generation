@@ -3,6 +3,10 @@
  *
  * Kept separate from the CLI (same split as deploy-argv.ts / deploy-tool.ts) so
  * the flag contract is unit-testable without running a deploy.
+ *
+ * There is no --ext: version dirs are immutable (Phase 3 §b deleted the
+ * in-place rebuild); an extension-only change is an ordinary deploy, which the
+ * core cache makes compile-free.
  */
 import type { DeployShOptions } from "../scripts/deploy.ts";
 
@@ -13,12 +17,11 @@ export type DeployShAction =
 
 export type ParseArgvResult = { ok: true; action: DeployShAction } | { ok: false; error: string };
 
-const VALUE_FLAGS = new Set(["--config", "--out", "--version", "--ext"]);
+const VALUE_FLAGS = new Set(["--config", "--out", "--version"]);
 const BOOL_FLAGS = new Set(["--no-freeze", "--no-current", "--force", "--list", "--help", "--json"]);
 
 export function parseDeployShArgv(argv: string[]): ParseArgvResult {
 	const options: DeployShOptions = {};
-	const onlyExt: string[] = [];
 	let list = false;
 	let help = false;
 	let sawDeployFlag = false;
@@ -42,8 +45,7 @@ export function parseDeployShArgv(argv: string[]): ParseArgvResult {
 			}
 			if (flag === "--config") options.configPath = value;
 			else if (flag === "--out") options.outRoot = value;
-			else if (flag === "--version") options.version = value;
-			else onlyExt.push(value);
+			else options.version = value;
 			// --config/--out are meaningful for both actions; the rest are deploy-only.
 			if (flag !== "--config" && flag !== "--out") sawDeployFlag = true;
 			continue;
@@ -69,6 +71,5 @@ export function parseDeployShArgv(argv: string[]): ParseArgvResult {
 		if (sawDeployFlag) return { ok: false, error: `--list cannot be combined with deploy flags` };
 		return { ok: true, action: { kind: "list", outRoot: options.outRoot, configPath: options.configPath } };
 	}
-	if (onlyExt.length > 0) options.onlyExt = onlyExt;
 	return { ok: true, action: { kind: "deploy", options } };
 }

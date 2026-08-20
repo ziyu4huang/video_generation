@@ -30,8 +30,7 @@ it the banner reads `pi v0.0.0`.
 ## Commands
 
 ```bash
-bun run --cwd bun-apps/pi-agent deploy                  # full deploy
-bun run --cwd bun-apps/pi-agent deploy --ext power-tool # rebuild ONE extension in place
+bun run --cwd bun-apps/pi-agent deploy                  # cut a new version, move `current`, prune old ones
 bun run --cwd bun-apps/pi-agent deploy --list           # versions + current target
 ~/proj/dist/pi-agent-sh/current/run.sh                     # run it
 ~/proj/dist/pi-agent-sh/current/pi-agent --ext-list        # what loaded, what was skipped, and why
@@ -40,9 +39,17 @@ bun run --cwd bun-apps/pi-agent deploy --list           # versions + current tar
 Other flags: `--config <path>`, `--out <dir>`, `--version <str>`, `--force`, `--no-freeze`,
 `--no-current`. stdout is pure JSON; exit 0 = ok, 1 = failure, 2 = usage error.
 
-`--ext` requires the version dir to already exist: it unfreezes that tree, rebuilds only the named
-extensions, re-runs the smoke gate, and re-freezes. Changing one extension does not recompile the
-core.
+Version directories are **immutable** — there is no in-place rebuild (Phase 3 deleted the `--ext`
+mode, which unfroze a released tree and mutated it). An extension-only change is an ordinary
+deploy, and the content-addressed core cache makes it skip the core compile: the deploy hashes the
+core's build inputs (`pi-agent/src/` as compiled, the resolved `@earendil-works/pi-coding-agent`
+version, `Bun.version`, entry, flags) into `<outRoot>/.cores/<hash>` and hardlinks that file as the
+version dir's `pi-agent`. Unchanged core ⇒ cache hit ⇒ no compile, and no duplicate ~70 MB binary
+per version. `--no-freeze` deploys bypass the cache (hardlinks share an inode, so a writable cached
+core would re-mode every frozen version sharing it) and compile a private copy.
+
+After `current` flips, versions are pruned oldest-first down to the registry's
+`deploy.keep` (default 5), never touching the version `current` points at.
 
 ## The host contract
 
@@ -188,7 +195,7 @@ Removing an extension is safe because no extension imports another: cross-extens
 through the Pi extension API, a `pi-agent-core-*` package, or a defensively-read `globalThis.__pi*`
 seam. The two guards named under "The host contract" above hold that line.
 
-## The five gates
+## The six gates
 
 Every deploy runs these; any failure aborts, removes the staging dir, and leaves `current` untouched.
 
@@ -210,8 +217,8 @@ Every deploy runs these; any failure aborts, removes the staging dir, and leaves
    design). This is the gate that would have caught the baked `createRequire("file:///Users/…")`
    base and playwright's build-machine `__dirname`.
 5. **Offline containment** (`lib/offline-gate.ts`, runs on the staged tree before the rename/freeze/
-   `current` swap; the ext-only path runs the tree checks without the binary scan) — four checks,
-   each closing a way a "self-contained" deploy could still reach off itself:
+   `current` swap) — four checks, each closing a way a "self-contained" deploy could still reach
+   off itself:
    - no symlink anywhere in the tree may resolve outside it (a vendoring bug that copies a store
      symlink instead of dereferencing it points back at the build machine's `~/.bun` link farm);
    - the compiled binary may not bake build-machine paths beyond the documented
@@ -220,6 +227,10 @@ Every deploy runs these; any failure aborts, removes the staging dir, and leaves
    - every `vendor:` entry in every `ext.json` actually shipped;
    - every vendored package's HARD deps resolve inside the tree — a dangling dep has no offline
      remediation, because the dist never installs anything.
+6. **Relocation smoke** — the staged tree is cloned (`cp -c`, APFS) to a different absolute path
+   and booted there: `--ext-list` must report the same extension set. Gate 4 is a string heuristic
+   that deliberately accepts false negatives; this is the behavioural proof that "relocatable"
+   actually means relocatable. Costs about a second.
 
 ## E2E tiers
 
@@ -262,10 +273,11 @@ extension came from the repo's run-dir.
 
 ## The tree is read-only
 
-`freeze: true` (the default) `chmod -R a-w`s the version dir once every gate has passed. `--ext`
-unfreezes, rebuilds, re-runs the smoke gate and re-freezes; a re-deploy of the same version
-unfreezes before removing. `--no-freeze` opts out — the e2e suites use it so their temp trees can
-be cleaned up without an `EPERM`.
+`freeze: true` (the default) `chmod -R a-w`s the version dir once every gate has passed. A
+re-deploy of the same version unfreezes before removing — directories only, never the hardlinked
+core file, whose inode is shared with `.cores` and any sibling version. `--no-freeze` opts out (and
+bypasses the core cache) — the e2e suites use it so their temp trees can be cleaned up without an
+`EPERM`.
 
 Freezing costs nothing at runtime because **no per-user state was ever written there**:
 

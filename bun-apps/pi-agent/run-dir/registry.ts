@@ -34,7 +34,14 @@ export interface RegistryExt {
   deploy?: RegistryDeployBlock;
 }
 export interface Registry {
-  deploy: { outRoot: string; version: { from: "package.json"; gitSha: boolean }; freeze: boolean; current: boolean };
+  deploy: {
+    outRoot: string;
+    version: { from: "package.json"; gitSha: boolean };
+    freeze: boolean;
+    current: boolean;
+    /** Version dirs to retain when pruning (deploy Phase 3); undefined = deploy default. */
+    keep?: number;
+  };
   hostApi: number;
   hostModules: string[];
   extensions: RegistryExt[];
@@ -42,7 +49,7 @@ export interface Registry {
 }
 
 const TOP_KEYS = new Set(["deploy", "hostApi", "hostModules", "extensions", "lazyExtensions"]);
-const DEPLOY_KEYS = new Set(["outRoot", "version", "freeze", "current"]);
+const DEPLOY_KEYS = new Set(["outRoot", "version", "freeze", "current", "keep"]);
 const EXT_KEYS = new Set(["name", "package", "entry", "load", "skills", "binarySkills", "version", "excludeReason", "deploy"]);
 const DEPLOY_BLOCK_KEYS = new Set(["order", "copy", "vendor", "externals", "enabled"]);
 
@@ -101,6 +108,12 @@ export function parseRegistry(text: string, opts: { bunAppsDir: string }): Regis
   }
   if (deployRaw.current !== undefined && typeof deployRaw.current !== "boolean") {
     throw new Error(`deploy key "current" must be a boolean`);
+  }
+  if (
+    deployRaw.keep !== undefined &&
+    (typeof deployRaw.keep !== "number" || !Number.isInteger(deployRaw.keep) || deployRaw.keep < 1)
+  ) {
+    throw new Error(`deploy key "keep" must be an integer >= 1`);
   }
 
   if (typeof raw.hostApi !== "number" || !Number.isInteger(raw.hostApi)) {
@@ -255,6 +268,7 @@ export function parseRegistry(text: string, opts: { bunAppsDir: string }): Regis
       },
       freeze: deployRaw.freeze === undefined ? true : deployRaw.freeze === true,
       current: deployRaw.current === undefined ? true : deployRaw.current === true,
+      ...(deployRaw.keep !== undefined ? { keep: deployRaw.keep } : {}),
     },
     hostApi: raw.hostApi,
     hostModules: raw.hostModules as string[],
