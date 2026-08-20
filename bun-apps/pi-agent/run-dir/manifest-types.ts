@@ -1,13 +1,16 @@
 /**
- * manifest-types.ts — Extension manifest schema v2.
+ * manifest-types.ts — Extension manifest entry parser.
  *
  * The manifest's `extensions` array supports TWO entry formats:
  *   1. Bare string (backward compat): "pi-file2md/extensions/file2md.ts"
- *   2. Declared object (v2): { name, entry, bundleMode, fullReason, testGate, version }
+ *   2. Declared object: { name, entry, version }
  *
- * The declared format lets each extension specify HOW it should be bundled
- * (thin/full), its test gate command, and its version — replacing the hardcoded
- * DEFAULT_FULL set in build-extensions.ts with a declared protocol.
+ * The declared format carries per-extension name + version. The thin/full
+ * `bundleMode`/`fullReason`/`testGate` fields it once declared died with the
+ * FULL bundle mode (deploy-architecture consolidation Phase 1b) — the builder
+ * is thin-only and never read them, and the generated manifest (Phase 2a)
+ * stopped emitting them; Phase 2b removed them from the type so a manifest
+ * cannot declare fields nothing honours.
  */
 
 export interface ExtensionManifestEntry {
@@ -15,16 +18,6 @@ export interface ExtensionManifestEntry {
 	name: string;
 	/** Relative path to the entry file (from the bun-apps/ root). */
 	entry: string;
-	/**
-	 * Bundle mode: "thin" (default, shared deps external) | "full" (inline all
-	 * deps) | "auto" (try thin, fall back to full on verify failure).
-	 * Defaults to "thin".
-	 */
-	bundleMode?: "thin" | "full" | "auto";
-	/** Documented reason for requiring FULL mode (when bundleMode is "full"). */
-	fullReason?: string;
-	/** The shell command that gates this extension's tests. */
-	testGate?: string;
 	/** Semantic version for changelog/compat tracking. */
 	version?: string;
 	/** Original raw entry (for lazyExtensions backward compat). */
@@ -43,7 +36,7 @@ export function parseManifestEntry(raw: string | object): ExtensionManifestEntry
 			const parts = raw.split("/");
 			return parts.length > 1 ? parts[parts.length - 2]! : m;
 		});
-		return { name, entry: raw, bundleMode: "thin", raw };
+		return { name, entry: raw, raw };
 	}
 	if (raw && typeof raw === "object") {
 		const obj = raw as Partial<ExtensionManifestEntry>;
@@ -53,9 +46,6 @@ export function parseManifestEntry(raw: string | object): ExtensionManifestEntry
 		return {
 			name,
 			entry,
-			bundleMode: obj.bundleMode ?? "thin",
-			fullReason: obj.fullReason,
-			testGate: obj.testGate,
 			version: obj.version,
 			raw,
 		};

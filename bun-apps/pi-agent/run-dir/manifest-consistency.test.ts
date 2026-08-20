@@ -139,24 +139,15 @@ describe("binarySkills is a subset of skills", () => {
 });
 
 describe("declared-but-unenforced manifest fields", () => {
-	test("bundleMode is only ever a value the builder actually honours", () => {
-		// build-extensions.ts is thin-only by construction and never reads
-		// bundleMode. A manifest declaring "full" was silently built thin — the
-		// exact silent-drift the FULL mode was removed to avoid. Until the field
-		// is either wired or dropped, pin that nothing uses the unhandled values.
-		const unsupported = parseManifestEntries(manifest.extensions ?? [])
-			.map((e) => e.bundleMode)
-			.filter((m) => m !== undefined && m !== "thin");
-		expect(unsupported).toEqual([]);
-	});
-
-	test("testGate commands do not use a top-level `cd`", () => {
-		// The repo's no-cd-drift.sh hook blocks that form, so any runner wired to
-		// these strings later would have them rejected.
-		const gates = parseManifestEntries(manifest.extensions ?? [])
-			.map((e) => (e as { testGate?: string }).testGate)
-			.filter((g): g is string => typeof g === "string");
-		const offenders = gates.filter((g) => /^\s*cd\s/.test(g));
+	test("the manifest declares no field the builder does not honour", () => {
+		// bundleMode/fullReason/testGate died with FULL mode (Phase 1b) and left
+		// the generated manifest in Phase 2a; Phase 2b removed them from the
+		// TYPE too. Pin that they never come back — a manifest declaring fields
+		// nothing reads is exactly the silent-drift class this describe guards.
+		const RETIRED = ["bundleMode", "fullReason", "testGate"] as const;
+		const offenders = (manifest.extensions ?? [])
+			.filter((e) => typeof e === "object")
+			.flatMap((e) => RETIRED.filter((k) => k in (e as object)));
 		expect(offenders).toEqual([]);
 	});
 });

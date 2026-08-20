@@ -145,8 +145,8 @@ describe("individual checks", () => {
 	});
 
 	test("run-dir: manifest with MIXED-TYPE entries (strings + objects) → pass, no crash", () => {
-		// Regression guard: the real manifest.json has 8 plain strings + 5
-		// objects ({ name, entry, bundleMode, ... }). Before the fix,
+		// Regression guard: the real manifest.json mixes plain strings +
+		// objects ({ name, entry, version }). Before the fix,
 		// join(bunApps, <object>) threw "paths[1] must be string, got object".
 		const { ctx, repo } = makeCtx({});
 		const manifestDir = join(repo, "bun-apps", "pi-agent", "run-dir");
@@ -164,7 +164,6 @@ describe("individual checks", () => {
 					{
 						name: "pi-agent-ext-hermes-memory",
 						entry: "pi-agent-ext-hermes-memory/src/index.ts",
-						bundleMode: "thin",
 						version: "0.80.3",
 					},
 				],
