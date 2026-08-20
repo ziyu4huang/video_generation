@@ -1,11 +1,11 @@
 /**
  * readCiGates — the `regression-gates` job from .github/workflows/ci.yml.disabled,
- * as the ordered list of gate commands local_ci must run.
+ * as the ordered list of gate commands run_local_ci must run.
  *
  * WHY runLocalCi NEEDS THIS
- *   local_ci used to carry a HAND-WRITTEN gate list: two always-on files plus
+ *   run_local_ci used to carry a HAND-WRITTEN gate list: two always-on files plus
  *   four under `strict`. The real job has 14 steps. Eight blocking structural
- *   guards were therefore never run by the tool that `await_pr_merge` gates the
+ *   guards were therefore never run by the tool that `merge_pr_after_local_ci` gates the
  *   squash-merge on — dependency-direction, ADR identity/citation, the
  *   status-widget seam contract, bootstrap↔wayfind routing, hermes config-field
  *   parity, the CI-workflow reference guard, package-script runnability, and the
@@ -50,7 +50,7 @@ export interface CiGatesResult {
 
 /**
  * Audits that exist in scripts/ but have NO step in the workflow, so nothing
- * else would ever run them. `local_ci --strict` adds them on top of the derived
+ * else would ever run them. `run_local_ci --strict` adds them on top of the derived
  * set — that is the whole remaining meaning of `strict`: "what CI runs, plus
  * the audits CI has no home for". `tests/ci-gates.test.ts` fails if one of
  * these ever appears in the workflow (it would then run twice).

@@ -6,12 +6,12 @@ DevOps tools for the pi coding agent — a **robust, tool-based PR-merge lifecyc
 
 ## Tools
 
-### `await_pr_merge`
+### `merge_pr_after_local_ci`
 
-A **local-CI-gated** squash merge: runs `local_ci` (offline typecheck + tests + gates over the PR's changed packages vs its base), then squash-merges when green **and** the PR is OPEN + not-BEHIND + CLEAN. Blocks — no merge — on red CI, detection error, BEHIND (go re-run `prepare_branch` with `rebase: true`), or a non-CLEAN merge state. No remote CI (disabled in this repo), no polling. Returns merged / aborted + the local-CI tally.
+A **local-CI-gated** squash merge: runs `run_local_ci` (offline typecheck + tests + gates over the PR's changed packages vs its base), then squash-merges when green **and** the PR is OPEN + not-BEHIND + CLEAN. Blocks — no merge — on red CI, detection error, BEHIND (go re-run `prepare_feature_branch` with `rebase: true`), or a non-CLEAN merge state. No remote CI (disabled in this repo), no polling. Returns merged / aborted + the local-CI tally.
 
 ```
-await_pr_merge({ prNumber: 960 })               // local-CI gate → squash-merge → report
+merge_pr_after_local_ci({ prNumber: 960 })               // local-CI gate → squash-merge → report
 ```
 
 Replaces the old recipe (the polling design this package was born to kill):
@@ -24,11 +24,11 @@ for i in 1..N; do
 done
 ```
 
-### `pr_status`
+### `show_pr_status`
 
-One-shot snapshot of a PR's merge state + CI check tally (pass/fail/pending). Lighter than `await_pr_merge` when you only need to inspect.
+One-shot snapshot of a PR's merge state + CI check tally (pass/fail/pending). Lighter than `merge_pr_after_local_ci` when you only need to inspect.
 
-### `sweep_branches`
+### `sweep_merged_branches`
 
 Classify every local + remote branch and report which are safe to delete. **Conservative + confidence-tiered:**
 
@@ -39,22 +39,22 @@ Classify every local + remote branch and report which are safe to delete. **Cons
 Dry-run by default (plan only); `execute:true` deletes the high-confidence set, `confirm:[...]` deletes specific reviewed branches.
 
 ```
-sweep_branches({})                       // dry-run: returns {deleteLocal, deleteRemote, review, keep}
-sweep_branches({ execute: true })        // delete the high-confidence set (re-guarded)
-sweep_branches({ confirm: ["feat/x"] })  // human-approved reviewed branch (must be in review)
+sweep_merged_branches({})                       // dry-run: returns {deleteLocal, deleteRemote, review, keep}
+sweep_merged_branches({ execute: true })        // delete the high-confidence set (re-guarded)
+sweep_merged_branches({ confirm: ["feat/x"] })  // human-approved reviewed branch (must be in review)
 ```
 
 Replaces ad-hoc cleanup bash — critically, it never trusts `git branch --merged` (silently wrong for **squash** merges, the dominant strategy) nor `[gone]` alone (also left by closed-without-merge PRs). Only `gh` PR state is authoritative.
 
 ## CLI bins
 
-- `devops-pr-finish` (`src/pr-finish-cli.ts`) — bash-callable PR finish: preflight → local-CI gate → merge gates → squash-merge → verify_merge → branch cleanup (the TS port of the deleted `scripts/pr-finish.sh`).
+- `devops-merge-pr-after-ci` (`src/merge-pr-after-ci-cli.ts`) — bash-callable PR finish: preflight → local-CI gate → merge gates → squash-merge → verify_merge_landed → branch cleanup (the TS port of the deleted `scripts/pr-finish.sh`).
 
 ## Why
 
 The bash polling loops were (a) brittle — a `grep -c ... || echo 0` doubled the zero-count on no matches, so the loop's break condition never fired (320s timeout wasted); (b) duplicated ad-hoc across every merge. This extension encapsulates the recipe in **tested code** with **structured `gh ... --json`** parsing (no text grep).
 
-The same footgun recurs in **branch cleanup**: `git branch --merged` is silently wrong for squash merges (the branch tip never enters `main`'s history, so almost nothing reads as merged), and `[origin/…: gone]` is left by closed-without-merge PRs too — neither is merge evidence. `sweep_branches` treats only `gh` PR `state=MERGED` as authoritative, routes the uncertain remainder to a human `review` bucket, and hard-guards worktree/protected/current branches.
+The same footgun recurs in **branch cleanup**: `git branch --merged` is silently wrong for squash merges (the branch tip never enters `main`'s history, so almost nothing reads as merged), and `[origin/…: gone]` is left by closed-without-merge PRs too — neither is merge evidence. `sweep_merged_branches` treats only `gh` PR `state=MERGED` as authoritative, routes the uncertain remainder to a human `review` bucket, and hard-guards worktree/protected/current branches.
 
 ## Architecture
 
@@ -77,7 +77,7 @@ owner-declared gating keywords (build/deploy/verify/bundle), distinct from the
 PR/merge keywords above. The scripts stay the single source of truth; the tools
 only orchestrate + parse.
 
-### `pi_deploy`
+### `deploy_pi_agent_sh`
 
 Build and deploy the pi-agent bundle + thin extension bundles (mirrors
 this package's `scripts/deploy.ts`: codegen → bundle pi-agent.js → thin ext
@@ -86,7 +86,7 @@ default bundle), `outDir` (path-guarded to `<repo>/dist/` or `$TMPDIR`),
 `noFreeze`. Returns mode, outDir, pi-agent.js size, ext-bundle built/failed
 counts, exit code, and a log path.
 
-### `pi_verify`
+### `verify_pi_agent_deploy`
 
 Run a `run-test.sh` tier (quick|medium|high|readonly|full, default medium) and
 report per-step pass/fail. `high` = the exact CI `deploy -- verify` job.

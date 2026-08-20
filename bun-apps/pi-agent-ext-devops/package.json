@@ -2,7 +2,7 @@
   "name": "@repo/pi-agent-ext-devops",
   "private": true,
   "version": "0.1.0",
-  "description": "DevOps tools \u2014 await_pr_merge / pr_status: a robust, tool-based PR-merge lifecycle that replaces brittle agent-side bash polling loops. Wraps the gh CLI (poll checks \u2192 enable --auto \u2192 on BEHIND rebase+force-push \u2192 wait for MERGED), with structured JSON (no grep -c footguns).",
+  "description": "DevOps tools \u2014 merge_pr_after_local_ci / show_pr_status: a robust, tool-based PR-merge lifecycle that replaces brittle agent-side bash polling loops. Wraps the gh CLI (poll checks \u2192 enable --auto \u2192 on BEHIND rebase+force-push \u2192 wait for MERGED), with structured JSON (no grep -c footguns).",
   "license": "MIT",
   "keywords": [
     "pi-package",
@@ -24,12 +24,12 @@
   },
   "bin": {
     "ci-changed-packages": "./src/changed-packages-cli.ts",
-    "devops-sync": "./src/sync-cli.ts",
-    "devops-pr-finish": "./src/pr-finish-cli.ts",
+    "devops-sync-default-branch": "./src/sync-default-branch-cli.ts",
+    "devops-merge-pr-after-ci": "./src/merge-pr-after-ci-cli.ts",
     "devops-main-health": "./src/main-health-cli.ts",
-    "devops-sweep": "./src/sweep-cli.ts",
+    "devops-sweep-merged-branches": "./src/sweep-merged-branches-cli.ts",
     "devops-local-ci": "./src/local-ci-cli.ts",
-    "devops-prepare-branch": "./src/prepare-cli.ts",
+    "devops-prepare-feature-branch": "./src/prepare-feature-branch-cli.ts",
     "devops-verify-merge": "./src/verify-merge-cli.ts"
   },
   "scripts": {

@@ -1,5 +1,5 @@
 /**
- * runSync — the PURE orchestration behind the `sync_repo` tool. A TypeScript
+ * runSync — the PURE orchestration behind the `sync_default_branch` tool. A TypeScript
  * port of scripts/sync-repo.sh (+ scripts/git-remote-main-sync.sh), agent-invoked
  * only (no shell/CLI entry point). This is ticket 02 of the "move sync into
  * devops" wayfinder map; the bash scripts are intentionally left in place for
@@ -90,7 +90,7 @@ function isPreservable(path: string, preserve: string[]): boolean {
 }
 
 /**
- * The read-only git surface sync_repo needs. A `Pick` of BranchClient so the
+ * The read-only git surface sync_default_branch needs. A `Pick` of BranchClient so the
  * live `createBranchClient` (full BranchClient) satisfies it, while tests inject
  * a minimal fake covering only these six methods. NOTE: cleanliness is derived
  * from `dirtyPaths` (empty ⇒ clean) so the per-path preserve split can run on
@@ -138,7 +138,7 @@ export interface SyncSubmodule {
 /** Post-run snapshot of the CALLING worktree (opts.repoRoot): what is checked
  *  out there after the sync, and how far behind origin/<D> it now is. */
 export interface SyncCaller {
-	/** The worktree that invoked sync_repo. */
+	/** The worktree that invoked sync_default_branch. */
 	worktree: string;
 	/** The branch checked out there AFTER the run; null when detached. */
 	branch: string | null;
@@ -189,7 +189,7 @@ export interface SyncAbort {
 
 /** Every abort reason runSync can actually emit (the SyncAbort.reason union —
  *  kept in sync with the `outcome({ aborted: true, reason: … })` sites below).
- *  NOTE: reason strings are snake_case here; prepare_branch separately emits
+ *  NOTE: reason strings are snake_case here; prepare_feature_branch separately emits
  *  hyphenated reasons ("worktree-conflict", "rebase-conflict", …) — a
  *  different union, NOT shared with this one. */
 export const SYNC_ABORT_REASONS = [
@@ -455,7 +455,7 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		const wantPark = preservable.length > 0;
 		const parkedPaths = preservable;
 		if (wantPark) {
-			const push = await git(advanceTarget, ["stash", "push", "-m", "sync_repo preserve", "--", ...preservable]);
+			const push = await git(advanceTarget, ["stash", "push", "-m", "sync_default_branch preserve", "--", ...preservable]);
 			if (!dry && push.exitCode !== 0) {
 				return outcome({ aborted: true, reason: "preserve_failed", message: `stash push of preserve paths failed: ${trim(push.stderr || push.stdout)}` });
 			}
@@ -570,7 +570,7 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	const wantPark = preservable.length > 0;
 	const parkedPaths = preservable;
 	if (wantPark) {
-		const push = await git(repoRoot, ["stash", "push", "-m", "sync_repo preserve", "--", ...preservable]);
+		const push = await git(repoRoot, ["stash", "push", "-m", "sync_default_branch preserve", "--", ...preservable]);
 		if (!dry && push.exitCode !== 0) {
 			return outcome({ aborted: true, reason: "preserve_failed", message: `stash push of preserve paths failed: ${trim(push.stderr || push.stdout)}` });
 		}

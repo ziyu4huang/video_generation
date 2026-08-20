@@ -16,10 +16,10 @@
  *   "nothing was verified" into "verified fine".
  */
 import { test, expect, describe } from "bun:test";
-import { parseSweepArgs, runSweepCli } from "../src/sweep-cli.js";
+import { parseSweepArgs, runSweepCli } from "../src/sweep-merged-branches-cli.js";
 import { parseLocalCiArgs } from "../src/local-ci-cli.js";
 import { parseMainHealthArgs, runMainHealthCli } from "../src/main-health-cli.js";
-import { parsePrepareArgs } from "../src/prepare-cli.js";
+import { parsePrepareArgs } from "../src/prepare-feature-branch-cli.js";
 import { parseVerifyMergeArgs, runVerifyMergeCli } from "../src/verify-merge-cli.js";
 import type { BranchClient } from "../src/branch-recipe.js";
 import type { MainHealthClient } from "../src/main-health-recipe.js";
@@ -71,7 +71,7 @@ describe("shared CLI contract", () => {
 	});
 });
 
-describe("sweep-cli", () => {
+describe("sweep-merged-branches-cli", () => {
 	test("defaults to a DRY RUN — execute must be explicit", () => {
 		const r = parseSweepArgs([]);
 		expect(r.ok && r.args.execute).toBe(false);
@@ -195,7 +195,7 @@ describe("main-health-cli", () => {
 	});
 });
 
-describe("prepare-cli", () => {
+describe("prepare-feature-branch-cli", () => {
 	test("a bare invocation is a usage error, not a silent 0-exit no-op", () => {
 		const r = parsePrepareArgs([]);
 		expect(r.ok).toBe(false);

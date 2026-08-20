@@ -1,7 +1,7 @@
 /**
  * Smoke test for the extension entry: it registers exactly the four tools with
- * the right names + that await_pr_merge requires `prNumber`, sweep_branches
- * is fully optional (dry-run by default), and local_ci has no required params
+ * the right names + that merge_pr_after_local_ci requires `prNumber`, sweep_merged_branches
+ * is fully optional (dry-run by default), and run_local_ci has no required params
  * (defaults to origin/main..HEAD). (Tool behavior is covered by the
  * recipe/gh/branch-* and ci-recipe tests — execute() is not exercised here.)
  */
@@ -34,24 +34,24 @@ function fakePi() {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
 			expect(pi.tools.map((t) => t.name).sort()).toEqual([
-				"await_pr_merge",
-				"devops_retrospect",
-				"local_ci",
-				"main_health",
-				"pi_deploy",
-				"pi_verify",
-				"pr_status",
-				"prepare_branch",
-				"sweep_branches",
-				"sync_repo",
-				"verify_merge",
+				"check_main_health",
+				"deploy_pi_agent_sh",
+				"merge_pr_after_local_ci",
+				"prepare_feature_branch",
+				"run_devops_retrospect",
+				"run_local_ci",
+				"show_pr_status",
+				"sweep_merged_branches",
+				"sync_default_branch",
+				"verify_merge_landed",
+				"verify_pi_agent_deploy",
 			]);
 		});
 
-		test("await_pr_merge requires prNumber + only the local-ci-gated params (poll-loop params dropped)", () => {
+		test("merge_pr_after_local_ci requires prNumber + only the local-ci-gated params (poll-loop params dropped)", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
-			const tool = pi.tools.find((t) => t.name === "await_pr_merge");
+			const tool = pi.tools.find((t) => t.name === "merge_pr_after_local_ci");
 			expect(tool?.parameters.required).toEqual(["prNumber"]);
 			const keys = Object.keys(tool?.parameters.properties ?? {}).sort();
 			// only prNumber / strategy / deleteBranch remain …
@@ -62,45 +62,45 @@ function fakePi() {
 			}
 			// strategy default is squash (matches the repo's gh-ship convention).
 			expect((tool?.parameters.properties?.strategy as { description?: string }).description).toMatch(/squash/);
-			// the description frames it as a local_ci gate, not the old poll/auto-merge loop.
-			expect(tool?.description).toMatch(/local_ci/);
+			// the description frames it as a run_local_ci gate, not the old poll/auto-merge loop.
+			expect(tool?.description).toMatch(/run_local_ci/);
 			expect(tool?.description).not.toMatch(/auto-merge|force-push|rebase\+force-push/i);
 		});
 
-		test("sweep_branches has no required params (dry-run by default)", () => {
+		test("sweep_merged_branches has no required params (dry-run by default)", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
-			const tool = pi.tools.find((t) => t.name === "sweep_branches");
+			const tool = pi.tools.find((t) => t.name === "sweep_merged_branches");
 			expect(tool?.parameters.required ?? []).toEqual([]);
 			for (const opt of ["execute", "confirm", "includeLocal", "includeRemote", "protected", "prune", "limit"]) {
 				expect(tool?.parameters.properties).toHaveProperty(opt);
 			}
 		});
 
-		test("local_ci has no required params (defaults to origin/main..HEAD)", () => {
+		test("run_local_ci has no required params (defaults to origin/main..HEAD)", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
-			const tool = pi.tools.find((t) => t.name === "local_ci");
+			const tool = pi.tools.find((t) => t.name === "run_local_ci");
 			expect(tool?.parameters.required ?? []).toEqual([]);
 			for (const opt of ["baseRef", "packages", "all", "strict", "includeGates"]) {
 				expect(tool?.parameters.properties).toHaveProperty(opt);
 			}
 		});
 
-		test("sync_repo has optional mode + dryRun (no required params)", () => {
+		test("sync_default_branch has optional mode + dryRun (no required params)", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
-			const tool = pi.tools.find((t) => t.name === "sync_repo");
+			const tool = pi.tools.find((t) => t.name === "sync_default_branch");
 			expect(tool?.parameters.required ?? []).toEqual([]);
 			for (const opt of ["mode", "dryRun"]) {
 				expect(tool?.parameters.properties).toHaveProperty(opt);
 			}
 		});
 
-		test("devops_retrospect has no required params (expectedScope + lookback optional)", () => {
+		test("run_devops_retrospect has no required params (expectedScope + lookback optional)", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
-			const tool = pi.tools.find((t) => t.name === "devops_retrospect");
+			const tool = pi.tools.find((t) => t.name === "run_devops_retrospect");
 			expect(tool?.parameters.required ?? []).toEqual([]);
 			for (const opt of ["expectedScope", "lookback"]) {
 				expect(tool?.parameters.properties).toHaveProperty(opt);
@@ -110,10 +110,10 @@ function fakePi() {
 			expect(tool?.description).not.toMatch(/abort/i);
 		});
 
-		test("prepare_branch has optional branch/base/create/rebase/forcePush/dryRun (no required params)", () => {
+		test("prepare_feature_branch has optional branch/base/create/rebase/forcePush/dryRun (no required params)", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
-			const tool = pi.tools.find((t) => t.name === "prepare_branch");
+			const tool = pi.tools.find((t) => t.name === "prepare_feature_branch");
 			expect(tool?.parameters.required ?? []).toEqual([]);
 			for (const opt of ["branch", "base", "create", "rebase", "forcePush", "dryRun"]) {
 				expect(tool?.parameters.properties).toHaveProperty(opt);
@@ -121,10 +121,10 @@ function fakePi() {
 			expect(tool?.description).toMatch(/behind/i);
 		});
 
-		test("verify_merge requires pr; expectedScope + allowFetch are optional", () => {
+		test("verify_merge_landed requires pr; expectedScope + allowFetch are optional", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
-			const tool = pi.tools.find((t) => t.name === "verify_merge");
+			const tool = pi.tools.find((t) => t.name === "verify_merge_landed");
 			expect(tool?.parameters.required).toEqual(["pr"]);
 			// allowFetch is new (issue #1439): without it a call made right after a
 			// merge cannot read the sha, and the verdict is UNVERIFIED.
@@ -136,10 +136,10 @@ function fakePi() {
 			expect(tool?.description).toMatch(/CLEAN\/CONTAMINATED|scope/);
 		});
 
-		test("pi_deploy has optional ext/force/noFreeze/noCurrent (no required params) + owner-declared gating", () => {
+		test("deploy_pi_agent_sh has optional ext/force/noFreeze/noCurrent (no required params) + owner-declared gating", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
-			const tool = pi.tools.find((t) => t.name === "pi_deploy");
+			const tool = pi.tools.find((t) => t.name === "deploy_pi_agent_sh");
 			expect(tool?.parameters.required ?? []).toEqual([]);
 			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual([
 				"ext",
@@ -147,19 +147,19 @@ function fakePi() {
 				"noCurrent",
 				"noFreeze",
 			]);
-			// reference form (ticket 01): shared "pi_deploy" family (pi_deploy + pi_verify).
-			expect(tool?.gating?.gate).toBe("pi_deploy");
+			// reference form (ticket 01): shared "deploy_pi_agent_sh" family (deploy_pi_agent_sh + verify_pi_agent_deploy).
+			expect(tool?.gating?.gate).toBe("deploy_pi_agent_sh");
 			expect("keywords" in (tool?.gating ?? {})).toBe(false); // no inline keywords on the tool (01c)
 		});
 
-		test("pi_verify has optional tier/bail (no required params) + mirrors pi_deploy gating", () => {
+		test("verify_pi_agent_deploy has optional tier/bail (no required params) + mirrors deploy_pi_agent_sh gating", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
-			const tool = pi.tools.find((t) => t.name === "pi_verify");
+			const tool = pi.tools.find((t) => t.name === "verify_pi_agent_deploy");
 			expect(tool?.parameters.required ?? []).toEqual([]);
 			expect(Object.keys(tool?.parameters.properties ?? {}).sort()).toEqual(["bail", "tier"]);
-			// same "pi_deploy" family as pi_deploy — co-fire as one group (ticket 01).
-			expect(tool?.gating?.gate).toBe("pi_deploy");
+			// same "deploy_pi_agent_sh" family as deploy_pi_agent_sh — co-fire as one group (ticket 01).
+			expect(tool?.gating?.gate).toBe("deploy_pi_agent_sh");
 			expect("keywords" in (tool?.gating ?? {})).toBe(false); // no inline keywords on the tool (01c)
 		});
 	});

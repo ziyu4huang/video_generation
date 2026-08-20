@@ -25,7 +25,7 @@ requires: {
 
 ## Consequences
 
-- Core-noun gates (flux2, ltx, file2md, inspect, arxiv, pi_deploy) keep recall on real intents while killing bare-form false-fires — the best of both.
+- Core-noun gates (flux2, ltx, file2md, inspect, arxiv, deploy_pi_agent_sh) keep recall on real intents while killing bare-form false-fires — the best of both.
 - Gates whose keywords are already narrow enough to not bare-false-fire (krea2, workflow, research/collect, movie, zai-mcp) **skip `requires` entirely** — `requires` is only for the core-noun case.
 - Adds a noun∧verb data structure per qualifying gate; the L1 corpus tests the co-occurrence boundary directly (e.g. "docker image cleanup" → must-not-fire).
 

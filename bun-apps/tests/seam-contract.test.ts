@@ -47,7 +47,7 @@ import { fileURLToPath } from "node:url";
 // to bun-apps/node_modules/@repo/* link state. The Bun runtime (1.3.14)
 // rewrites those workspace links to a dangling form on bun invocations inside
 // bun-apps/ — a mid-CI bun-spawned step could otherwise ENOENT this import and
-// fail the gate spuriously (observed 2026-08-15: local_ci's seam gate red while
+// fail the gate spuriously (observed 2026-08-15: run_local_ci's seam gate red while
 // the same gate passed standalone). core-interface is a src-entry package
 // (exports["."] → ./src/index.ts), so the relative import is the same module
 // the specifier resolves to, with no node_modules indirection.

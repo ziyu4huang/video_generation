@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 /**
- * local-ci-cli — bash-callable entry point for `runLocalCi` (the local_ci recipe).
+ * local-ci-cli — bash-callable entry point for `runLocalCi` (the run_local_ci recipe).
  *
  * `bun bun-apps/pi-agent-ext-devops/src/local-ci-cli.ts [--all] [--strict]`
  *
  * Not a second runner: `scripts/ci-local.sh` executes the workflow's matrix and
- * gate job directly, while this is the change-SCOPED gate `await_pr_merge` uses
- * — typecheck + lint + tests for the packages touched vs the base ref, plus the whole
+ * gate job directly, while this is the change-SCOPED gate `merge_pr_after_local_ci` uses
+ * — typecheck + tests for the packages touched vs the base ref, plus the whole
  * regression-gates suite. Both derive their commands from the same workflow, so
  * they cannot disagree about what a package's command or a gate is.
  *

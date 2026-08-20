@@ -18,7 +18,7 @@
  * supplies (persistence.list(), newest-first), so this module has no I/O and is
  * fully unit-testable.
  */
-import type { SubagentRunRecord } from "./subagent-run-persistence.js";
+import type { SubagentRunRecord } from "@repo/pi-agent-core-runtime";
 
 /** Default: circuit-break after this many consecutive identical failures. */
 export const DEFAULT_RETRY_CIRCUIT_BREAK = 2;

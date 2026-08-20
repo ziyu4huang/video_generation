@@ -6,6 +6,9 @@
   "license": "MIT",
   "keywords": ["pi-package", "obsidian", "pi", "knowledge-base", "vault"],
   "type": "module",
+  "imports": {
+    "#pi/ext-dir": "./src/sh-ext-dir.ts"
+  },
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
@@ -30,7 +33,7 @@
     "skills": ["./skills"]
   },
   "dependencies": {
-    "@repo/pi-agent-ext-subagent": "workspace:*"
+    "@repo/pi-agent-core-runtime": "workspace:*"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "0.84.2",

@@ -159,7 +159,7 @@
       "schemaValid": true
     },
     {
-      "name": "sweep_branches",
+      "name": "sweep_merged_branches",
       "approxTokens": 376,
       "descLen": 649,
       "paramsLen": 855,
@@ -186,7 +186,7 @@
       "schemaValid": true
     },
     {
-      "name": "await_pr_merge",
+      "name": "merge_pr_after_local_ci",
       "approxTokens": 330,
       "descLen": 496,
       "paramsLen": 823,
@@ -330,7 +330,7 @@
       "schemaValid": true
     },
     {
-      "name": "pi_deploy",
+      "name": "deploy_pi_agent_sh",
       "approxTokens": 172,
       "descLen": 195,
       "paramsLen": 492,
@@ -402,7 +402,7 @@
       "schemaValid": true
     },
     {
-      "name": "pi_verify",
+      "name": "verify_pi_agent_deploy",
       "approxTokens": 149,
       "descLen": 198,
       "paramsLen": 399,
@@ -528,7 +528,7 @@
       "schemaValid": true
     },
     {
-      "name": "pr_status",
+      "name": "show_pr_status",
       "approxTokens": 82,
       "descLen": 201,
       "paramsLen": 128,

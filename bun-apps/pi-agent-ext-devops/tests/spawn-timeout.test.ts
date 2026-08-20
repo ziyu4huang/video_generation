@@ -36,7 +36,7 @@ afterEach(() => {
 });
 
 // P2 (host-binary probe) under the test-portability audit — these spawn real
-// bash/perl/pgrep. Gated per .github/TEST-PORTABILITY.md. Note `local_ci`
+// bash/perl/pgrep. Gated per .github/TEST-PORTABILITY.md. Note `run_local_ci`
 // deliberately does NOT export CI=true, so this suite still runs there — which
 // is the run that gates a merge in this repo.
 describe.skipIf(Boolean(process.env.CI))("createLiveSpawn — timeoutMs", () => {

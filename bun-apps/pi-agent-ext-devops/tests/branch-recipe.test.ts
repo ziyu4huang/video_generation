@@ -1,5 +1,5 @@
 /**
- * Tests for the sweep_branches orchestration: buildSweepPlan (read + classify),
+ * Tests for the sweep_merged_branches orchestration: buildSweepPlan (read + classify),
  * executeSweep (re-guard + delete, incl. the worktree-race invariant), runSweep
  * (dry-run / execute / prune), and resolveProtected. All via a fake BranchClient
  * — no real git/gh. Conservative guarantees under test:

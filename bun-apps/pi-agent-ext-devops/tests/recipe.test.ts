@@ -1,5 +1,5 @@
 /**
- * Tests for runMergeRecipe — the LOCAL-CI-GATED merge behind `await_pr_merge`.
+ * Tests for runMergeRecipe — the LOCAL-CI-GATED merge behind `merge_pr_after_local_ci`.
  *
  * Style mirrors tests/ci-recipe.test.ts: a RECORDING fake `SpawnFn` returns
  * canned results by match + records every call, so the whole flow runs with NO
@@ -58,7 +58,7 @@ interface Rec {
 }
 
 /** Recording spawn: records {cmd,args,cwd} + returns canned results by match.
- *  Unmatched calls default to {exitCode:0} — so a green local_ci (verify ok,
+ *  Unmatched calls default to {exitCode:0} — so a green run_local_ci (verify ok,
  *  gates pass, schema-cost ok) needs NO explicit responses. */
 function mkSpawn(responses: Array<{ match: (cmd: string, args: string[], cwd: string) => boolean; result: SpawnResult }>) {
 	const calls: Rec[] = [];
@@ -86,7 +86,7 @@ function mkDetect(map: ChangedPackagesMap = {}, throws = false) {
 }
 
 /**
- * The gate list local_ci derives from the workflow. Injected here so the recipe
+ * The gate list run_local_ci derives from the workflow. Injected here so the recipe
  * stays filesystem-free: the REAL reader parses the repo's workflow, and against
  * this fake REPO path it would fail closed (gateError) and block every merge.
  */
@@ -143,7 +143,7 @@ describe("runMergeRecipe — the 8 gates", () => {
 		const { fn } = mkSpawn([gateFail()]); // a gate fails
 		const r = await runMergeRecipe(baseOpts(client, fn, detect));
 		expect(r.merged).toBe(false);
-		expect(r.error).toMatch(/local_ci failed/);
+		expect(r.error).toMatch(/run_local_ci failed/);
 		expect(r.localCi?.overall).toBe("fail");
 		expect(calls.mergeNow).toHaveLength(0);
 	});
@@ -190,7 +190,7 @@ describe("runMergeRecipe — the 8 gates", () => {
 		expect(r.mergeSha).toBe("deadbeef");
 		expect(r.localCi).toBeUndefined(); // no gate run
 		expect(calls.mergeNow).toHaveLength(0);
-		expect(detect.calls.length).toBe(0); // short-circuited before any local_ci work
+		expect(detect.calls.length).toBe(0); // short-circuited before any run_local_ci work
 		expect(ranFetch(spawnCalls)).toBe(false);
 	});
 
@@ -207,7 +207,7 @@ describe("runMergeRecipe — the 8 gates", () => {
 	});
 
 	test("8. FETCH-FAIL → block (fail-closed): fetch exits non-zero, detect errors → detectionError", async () => {
-		// Models offline: fetch fails (ignored), local_ci still runs (fail-closed).
+		// Models offline: fetch fails (ignored), run_local_ci still runs (fail-closed).
 		// Detection THROWS (simulating an unrecoverable I/O failure during the
 		// base..head diff) → detectionError → overall fail → block. The recipe must
 		// NOT hard-fail on the fetch itself.
@@ -220,7 +220,7 @@ describe("runMergeRecipe — the 8 gates", () => {
 		expect(r.error).toMatch(/changed-packages/);
 		expect(calls.mergeNow).toHaveLength(0);
 		expect(ranFetch(spawnCalls)).toBe(true); // the fetch WAS attempted …
-		expect(detect.calls.length).toBe(1); // … and local_ci still ran (fail-closed), not crashed
+		expect(detect.calls.length).toBe(1); // … and run_local_ci still ran (fail-closed), not crashed
 	});
 });
 
@@ -250,9 +250,9 @@ describe("runMergeRecipe — robustness", () => {
 		expect(calls.mergeNow[0]).toMatchObject({ deleteBranch: false });
 	});
 
-	test("passes baseRef=origin/<base> + headRef=origin/<head> into local_ci detection", async () => {
+	test("passes baseRef=origin/<base> + headRef=origin/<head> into run_local_ci detection", async () => {
 		// PR's base/head names (from gh) become origin/<base> / origin/<head> in
-		// the local_ci diff — pins the fetch-then-diff contract.
+		// the run_local_ci diff — pins the fetch-then-diff contract.
 		const { client } = fakeGh([{ state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" }]);
 		const detect = mkDetect({});
 		const { fn } = mkSpawn([]);

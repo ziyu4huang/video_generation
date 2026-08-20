@@ -7,7 +7,7 @@
  * the owning tool's def (tickets 03–12 migrated flux2/ltx/krea2/movie/
  * research-tool/workflow/subagent/inspect/zai-mcp off the former hardcoded
  * GATES array; ticket 15 deleted that now-empty array — no legacy fallback).
- * (pi_deploy/pi_verify migrated to owner-declared gating in ticket 03;
+ * (deploy_pi_agent_sh/verify_pi_agent_deploy migrated to owner-declared gating in ticket 03;
  *  file2md/vision_ask migrated to owner-declared gating in ticket 04;
  *  flux2/flux2_help migrated to owner-declared gating in ticket 05;
  *  krea2/krea2_help migrated to owner-declared gating in ticket 06;

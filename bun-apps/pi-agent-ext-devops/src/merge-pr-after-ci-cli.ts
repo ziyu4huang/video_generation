@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * pr-finish-cli — the bash-callable entry point for finishing a PR
- * (bin `devops-pr-finish`): preflight → local-CI gate → merge gates →
+ * merge-pr-after-ci-cli — the bash-callable entry point for finishing a PR
+ * (bin `devops-merge-pr-after-ci`): preflight → local-CI gate → merge gates →
  * squash-merge → verify-merge → branch cleanup, in one throw-free wrapper.
  *
  * WHY THIS EXISTS (bash → TS port):
@@ -9,7 +9,7 @@
  *   Remote CI is intentionally disabled in this repo (see CLAUDE.md), so that
  *   waiting was dead code; LOCAL CI (`runLocalCi`) is the real gate. This port
  *   composes the existing devops recipes (`ci-recipe`, `gh`, `verify-merge-
- *   recipe`) behind a thin argv wrapper — same pattern as `src/sync-cli.ts`:
+ *   recipe`) behind a thin argv wrapper — same pattern as `src/sync-default-branch-cli.ts`:
  *   all logic stays in the recipes; this file only parses argv, sequences the
  *   steps, and serializes the outcome. Nothing is reimplemented here.
  *
@@ -18,7 +18,7 @@
  *   - `--dry-run`                    run the read-only gates (preflight /
  *                                   prStatus / local-CI), emit the PLANNED
  *                                   commands, mutate nothing
- *   - `--expected-scope <glob>`      repeatable; passed to verify_merge
+ *   - `--expected-scope <glob>`      repeatable; passed to verify_merge_landed
  *   - `--keep-branch`                skip branch deletion + prune after merge
  *   - `--assume-ci-green <sha>`      skip the local-CI gate, asserting <sha>
  *                                   was already verified green; aborts unless
@@ -33,7 +33,7 @@
  *
  * THE SNAPSHOT THE MERGE GATES READ MUST BE FRESH.
  *   The merge gates (OPEN / not-BEHIND / CLEAN) used to be evaluated against
- *   the preflight `prStatus` snapshot — taken BEFORE a local_ci run that
+ *   the preflight `prStatus` snapshot — taken BEFORE a run_local_ci run that
  *   routinely takes two minutes. Both directions were wrong: a `mergeState`
  *   of UNKNOWN (GitHub computes mergeability asynchronously; UNKNOWN means
  *   "not computed yet", NOT "cannot merge") aborted a PR that had settled to
@@ -59,20 +59,20 @@ export interface PrFinishCliResult {
 }
 
 export const PR_FINISH_CLI_USAGE = [
-	"usage: pr-finish-cli.ts <pr-number> [--dry-run] [--expected-scope <glob>]...",
+	"usage: merge-pr-after-ci-cli.ts <pr-number> [--dry-run] [--expected-scope <glob>]...",
 	"                         [--keep-branch] [--assume-ci-green <sha>]",
 	"                         [--repo-root <path>]",
 	"",
 	"Finishes a PR: preflight (clean tree + pr status) → local-CI gate →",
 	"merge gates (OPEN + not-BEHIND + CLEAN, read from a FRESH pr status) →",
-	"squash-merge → verify_merge → branch cleanup (delete local+remote head",
+	"squash-merge → verify_merge_landed → branch cleanup (delete local+remote head",
 	"branch, fetch --prune). Local CI is the gate (remote CI waiting is",
 	"intentionally NOT ported). Prints the structured outcome as JSON on",
 	"stdout. Exit 0 on success (incl. dry-run), 1 on abort, 2 on usage error.",
 	"Options:",
 	"  --pr <n>               PR number (same as the positional form)",
 	"  --dry-run              run read-only gates, emit planned commands only",
-	"  --expected-scope <g>   repeatable; verify_merge scope prefix",
+	"  --expected-scope <g>   repeatable; verify_merge_landed scope prefix",
 	"  --keep-branch          skip post-merge branch deletion + prune",
 	"  --assume-ci-green <sha>  skip local CI, asserting <sha> was already",
 	"                         verified green; aborts unless it equals the PR's",
@@ -200,7 +200,7 @@ type PrStatusSnapshot = Awaited<ReturnType<GhClient["prStatus"]>>;
  * UNKNOWN is not a verdict — it is GitHub saying it has not finished computing
  * mergeability yet (it recomputes on every push to the PR and on every push to
  * its base). Treating it as "not mergeable" turned a routine merge into a
- * manual poll-and-retry loop, at the cost of a full local_ci re-run each time.
+ * manual poll-and-retry loop, at the cost of a full run_local_ci re-run each time.
  * Anything else — CLEAN, BEHIND, DIRTY, BLOCKED — is a real answer and returns
  * immediately, so the common path costs exactly one `gh pr view`.
  */
@@ -263,9 +263,9 @@ export function isMissingWorkflowScope(message: string): boolean {
 }
 
 /** Wrap a SpawnFn so every invocation is recorded (rendered runnable).
- * NB: options (cwd) MUST be forwarded — dropping it makes every spawn local_ci
+ * NB: options (cwd) MUST be forwarded — dropping it makes every spawn run_local_ci
  * makes on pr-finish's behalf run at the baked-in default cwd (repo root), so
- * package tests and gate commands fail while the same local_ci passes
+ * package tests and gate commands fail while the same run_local_ci passes
  * standalone (observed 2026-08-15: 9 gates + the package row red inside
  * pr-finish, green directly). */
 /** Render a spawn as a runnable shell string — the `git -C <dir> …` form the
@@ -326,7 +326,7 @@ async function ownerWorktreeOf(
 export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): Promise<PrFinishCliResult> {
 	const parsed = parsePrFinishArgs(argv);
 	if (!parsed.ok) {
-		// --help: usage on stderr with exit 0 (matches sync-cli).
+		// --help: usage on stderr with exit 0 (matches sync-default-branch-cli).
 		if (argv.includes("-h") || argv.includes("--help")) {
 			return { exitCode: 0, stdout: "", stderr: PR_FINISH_CLI_USAGE };
 		}
@@ -385,7 +385,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 
 	// This snapshot supplies the REF NAMES the CI gate needs to scope its diff.
 	// It is deliberately NOT what the merge gates read — by the time they run,
-	// a local_ci pass has elapsed and this is stale (see the header note).
+	// a run_local_ci pass has elapsed and this is stale (see the header note).
 	let status: PrStatusSnapshot;
 	try {
 		status = await gh.prStatus(pr);
@@ -402,16 +402,16 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 		// THIS snapshot would let a push landing during the gap slip through.
 		ciSkipped = { assumedSha: assumeCiGreen };
 		warnings.push(
-			`local_ci SKIPPED — --assume-ci-green ${assumeCiGreen} asserts it already passed for that commit. ` +
+			`run_local_ci SKIPPED — --assume-ci-green ${assumeCiGreen} asserts it already passed for that commit. ` +
 				`This invocation did not run the gate.`,
 		);
 	} else {
 		try {
-			// Base the local_ci diff at the PR base's REMOTE-TRACKING ref, not the
+			// Base the run_local_ci diff at the PR base's REMOTE-TRACKING ref, not the
 			// local base branch. In this repo's multi-worktree layout `main` is
 			// checked out in another worktree and the local ref cannot be
 			// fast-forwarded here — a stale local `main` sweeps every commit since
-			// into the diff and over-scopes local_ci to the whole matrix (observed
+			// into the diff and over-scopes run_local_ci to the whole matrix (observed
 			// 318 s vs 69 s for the same branch). Fall back to the plain base name
 			// when the tracking ref doesn't resolve (fresh clone, no fetch yet).
 			const originBase = `origin/${status.baseRefName}`;
@@ -437,13 +437,13 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 			return abort("local_ci_failed", `local CI ${ci.overall} for ${status.baseRefName}..${status.headRefName} (${ci.elapsedMs}ms) — fix before merging`);
 		}
 		// ≤5-minute budget (house rule): advisory, never blocks the merge — but it
-		// must be LOUD, because a slow local_ci stops being used as a gate.
+		// must be LOUD, because a slow run_local_ci stops being used as a gate.
 		if (ci.overBudget) {
 			const slowest = (ci.slowest ?? [])
 				.map((s) => `${s.name} ${(s.durationMs / 1000).toFixed(1)}s`)
 				.join(", ");
 			warnings.push(
-				`local_ci took ${(ci.elapsedMs / 1000).toFixed(0)}s (budget ${(ci.budgetMs / 1000).toFixed(0)}s) — ` +
+				`run_local_ci took ${(ci.elapsedMs / 1000).toFixed(0)}s (budget ${(ci.budgetMs / 1000).toFixed(0)}s) — ` +
 					`over-budget CI is bad CI; optimize before the next run. Slowest: ${slowest || "n/a"}`,
 			);
 		}
@@ -489,7 +489,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 		return abort("not-open", `PR #${pr} state is ${status.state}, expected OPEN`);
 	}
 	if (status.mergeState === "BEHIND") {
-		return abort("behind", `PR #${pr} is BEHIND ${status.baseRefName} — run prepare_branch (rebase) first`);
+		return abort("behind", `PR #${pr} is BEHIND ${status.baseRefName} — run prepare_feature_branch (rebase) first`);
 	}
 	if (status.mergeState !== "CLEAN") {
 		return abort("not-clean", `PR #${pr} mergeState is ${status.mergeState}, expected CLEAN`);
@@ -535,9 +535,9 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	}
 	// The merge advanced ${baseRefName} on origin — the worktree holding the
 	// default branch (possibly this cwd) is now behind until synced. Nudge the
-	// caller (matches sync_repo's own behind-default warning style).
+	// caller (matches sync_default_branch's own behind-default warning style).
 	warnings.push(
-		`PR #${pr} merged into ${status.baseRefName} — the default-branch worktree / this cwd may now be behind origin/${status.baseRefName}; run sync_repo to catch up.`,
+		`PR #${pr} merged into ${status.baseRefName} — the default-branch worktree / this cwd may now be behind origin/${status.baseRefName}; run sync_default_branch to catch up.`,
 	);
 
 	// --- 5. Verify (read-only; CONTAMINATED warns, never rolls back). -------
@@ -570,7 +570,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	}
 	warnings.push(...verify.warnings);
 	if (verify.aborted) {
-		warnings.push(`verify_merge aborted (${verify.aborted.reason}): ${verify.aborted.message}`);
+		warnings.push(`verify_merge_landed aborted (${verify.aborted.reason}): ${verify.aborted.message}`);
 	}
 	if (verify.verdict === "CONTAMINATED") {
 		warnings.push(

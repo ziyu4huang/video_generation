@@ -32,7 +32,7 @@ const PASS_STATES = new Set(["SUCCESS", "SKIPPED", "NEUTRAL"]);
 
 /**
  * Parse `gh pr view --json state,…,headRefName,headRefOid`
- * into our domain types. The base/head refs drive the local_ci gate (diff
+ * into our domain types. The base/head refs drive the run_local_ci gate (diff
  * origin/<base>..origin/<head>); mergeCommit feeds mergeSha. Defensive:
  * unknown/garbage → OPEN/UNKNOWN defaults + empty ref names (never throws).
  */
@@ -77,7 +77,7 @@ export function parseChecks(rows: unknown): CheckTally {
 		// run's completedAt while its new run is WAITING/IN_PROGRESS. Relying on
 		// completedAt would wrongly count such a check as pass, masking a still-running
 		// check as complete+green. The merge recipe no longer consumes this tally (it
-		// gates on local_ci), but `pr_status` reports it, so classify conservatively:
+		// gates on run_local_ci), but `show_pr_status` reports it, so classify conservatively:
 		// unknown states default to pending — never claim success.
 		const state = typeof row?.state === "string" ? row.state.toUpperCase() : "";
 		if (FAIL_STATES.has(state)) fail++;
@@ -102,7 +102,7 @@ export function createGhClient(spawn: SpawnFn): GhClient {
 			return { ...parsed, checks: tally };
 		},
 		async mergeNow(n, strategy, deleteBranch) {
-			// Direct (synchronous) merge — NO --auto. Used once the local_ci gate is
+			// Direct (synchronous) merge — NO --auto. Used once the run_local_ci gate is
 			// green + mergeState is CLEAN: the merge completes here, so success IS
 			// the confirmation (there's no remote CI to wait on). Throw on non-zero
 			// exit so the recipe surfaces a clean block outcome.
@@ -199,7 +199,7 @@ export interface WorktreeRecord {
  * porcelain record is `worktree <path>` then `HEAD <sha>` + either `branch
  * refs/heads/<name>` or `detached` (+ optional `locked`/`bare`), records
  * separated by blank lines. Robust to a missing trailing blank line. Drives
- * sync_repo's worktree-aware default-branch advancement — find the worktree
+ * sync_default_branch's worktree-aware default-branch advancement — find the worktree
  * that holds <D> so we advance it THERE rather than hijacking <D> into this
  * worktree (which would fatal on `git checkout`).
  */
@@ -243,7 +243,7 @@ export interface SubmoduleStatus {
 /**
  * Parse `git submodule status --recursive` lines (`<flag><40-hex> <path>`, path
  * shell-quoted when it contains special chars) into structured rows. Used by
- * sync_repo's full-mode submodule report (flag `" "` = the checked-out SHA
+ * sync_default_branch's full-mode submodule report (flag `" "` = the checked-out SHA
  * matches the HEAD-recorded gitlink).
  */
 export function parseSubmoduleStatus(stdout: string): SubmoduleStatus[] {

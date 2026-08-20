@@ -9,7 +9,7 @@ import {
 } from "./dispatch-log.ts";
 
 // Typed fixture helpers with sensible defaults for real type shapes
-function mkSubagentRecord(overrides: Partial<import("@repo/pi-agent-ext-subagent").SubagentRunRecord>): import("@repo/pi-agent-ext-subagent").SubagentRunRecord {
+function mkSubagentRecord(overrides: Partial<import("@repo/pi-agent-core-runtime").SubagentRunRecord>): import("@repo/pi-agent-core-runtime").SubagentRunRecord {
 	return {
 		id: "test-id",
 		toolCallId: "tc-1",

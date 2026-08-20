@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { getSubagentInFlightRegistry, SubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
-import { createSubagentRunPersistence, getSubagentRunPersistence } from "../src/subagent-run-persistence.js";
+import {
+  createSubagentRunPersistence,
+  getSubagentInFlightRegistry,
+  getSubagentRunPersistence,
+  SubagentInFlightRegistry,
+} from "@repo/pi-agent-core-runtime";
 
 describe("subagent singletons", () => {
   it("getSubagentInFlightRegistry returns one shared instance", () => {

@@ -31,6 +31,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import type { SubagentScopeCheck } from "@repo/pi-agent-core-runtime";
 
 const exec = promisify(execFile);
 
@@ -38,19 +39,7 @@ const exec = promisify(execFile);
  * The result of an opt-in commit-scope check on one `subagent` run.
  * Surfaced on `SubagentToolDetails.scopeCheck` and persisted on the run record.
  */
-export interface SubagentScopeCheck {
-  /** Commit recorded before dispatch (the base for the child's work). */
-  baseCommit: string;
-  /**
-   * Commit after the child ran, when the repo advanced. Omitted when the child
-   * committed nothing (`base === head`) — in which case `touchedPaths` is empty.
-   */
-  headCommit?: string;
-  /** Paths the child committed across `base..HEAD` (best-effort). */
-  touchedPaths: string[];
-  /** Touched paths NOT covered by `commitScope` (the violation). Empty when in scope. */
-  outOfScope: string[];
-}
+export type { SubagentScopeCheck } from "@repo/pi-agent-core-runtime";
 
 /** Injectable git operations (mirrors the spawn/worktree injection seams). */
 export interface GitScopeOps {

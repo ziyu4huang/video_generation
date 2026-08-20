@@ -1,5 +1,5 @@
 /**
- * Tests for runLocalCi — the pure orchestration behind the `local_ci` tool.
+ * Tests for runLocalCi — the pure orchestration behind the `run_local_ci` tool.
  *
  * Style mirrors tests/gh.test.ts: a RECORDING fake `SpawnFn` returns canned
  * results by match and records every call, so the whole flow runs with NO real
@@ -365,7 +365,7 @@ describe("runLocalCi — gates come from the workflow, not a hand-written list",
 
 	test("runs EVERY gate the reader returns, as a shell command in the gate's own cwd", async () => {
 		// The regression this pins: the old code ran two hardcoded files, so the
-		// eight `bun run test:*` guards in the job — the ones await_pr_merge is
+		// eight `bun run test:*` guards in the job — the ones merge_pr_after_local_ci is
 		// supposed to gate on — never executed.
 		const { fn, calls } = mkSpawn([verifyOk()]);
 		const out = await runLocalCi({
@@ -644,7 +644,7 @@ describe("runLocalCi — detection failure fails LOUD (no false-green) [review M
  *
  * Before this, runLocalCi derived every package's command generically
  * (`bun run test`), which disagrees with CI for a third of the matrix — so
- * local_ci could report green on a package whose real CI command would fail.
+ * run_local_ci could report green on a package whose real CI command would fail.
  * These cases pin the precedence (matrix > package script > nothing), the
  * `bash -c` execution shape the compound rows need, and — against the REAL
  * workflow — that `pi-agent-ext-file2md` gets its `--isolate`.
@@ -736,7 +736,7 @@ describe("runLocalCi — the CI matrix is the source of truth for test commands"
 	test("DEFAULT reader: against the real workflow, file2md gets `bun test --isolate`", async () => {
 		// No readMatrix injected → the production path parses this repo's real
 		// .github/workflows/ci.yml.disabled. This is the end-to-end proof that a
-		// live `local_ci` run honors the matrix, not just the injected fake.
+		// live `run_local_ci` run honors the matrix, not just the injected fake.
 		const realRoot = resolve(import.meta.dir, "..", "..", "..");
 		const { fn, calls } = mkSpawn([verifyOk()]);
 		const out = await runLocalCi({
@@ -755,7 +755,7 @@ describe("runLocalCi — the CI matrix is the source of truth for test commands"
 });
 
 // ── ≤5-minute budget + execution model (hardened 2026-08-15) ──────────────────
-// USER RULE: a local_ci run over ~5 minutes is bad CI. The recipe now (a) tracks
+// USER RULE: a run_local_ci run over ~5 minutes is bad CI. The recipe now (a) tracks
 // per-step durations + an explicit budget (default 300 s) and reports overBudget,
 // and (b) cuts wall-clock: typechecks run in PARALLEL (tsc --noEmit is read-only),
 // and test rows are split so BUILD rows (matrix commands containing `build`) run
@@ -1037,7 +1037,7 @@ describe("runLocalCi — each package's test runs exactly once", () => {
  * Failure DETAIL — the captured output tail on a red row.
  *
  * Before this, every spawn's stdout/stderr was discarded and a failing package
- * or gate reported a bare exit code. A `main_health` run that says
+ * or gate reported a bare exit code. A `check_main_health` run that says
  * `pi-agent test.exitCode = 1` and nothing else cannot be acted on: the reader
  * has to re-run the suite by hand to learn anything, and an intermittent
  * failure that passes on the re-run gets written off as a flake with no

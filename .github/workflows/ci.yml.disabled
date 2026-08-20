@@ -627,11 +627,11 @@ jobs:
         run: bash scripts/test-determinism-audit.sh --strict
 
       # Decision tests for the PR-finish flow — the bash script was ported
-      # into pi-agent-ext-devops (bin devops-pr-finish), so the tests moved
+      # into pi-agent-ext-devops (bin devops-merge-pr-after-ci), so the tests moved
       # into the ext package. No live PR needed — fake gh + stubbed runCi.
-      - name: PR-finish decision tests (devops-pr-finish)
+      - name: PR-finish decision tests (devops-merge-pr-after-ci)
         working-directory: bun-apps/pi-agent-ext-devops
-        run: bun test tests/pr-finish-cli.test.ts
+        run: bun test tests/merge-pr-after-ci-cli.test.ts
 
       - name: Schema-cost regression (warns >5%, not a block)
         run: bun scripts/check-schema-cost.ts

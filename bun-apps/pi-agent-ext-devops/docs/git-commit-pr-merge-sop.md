@@ -20,7 +20,7 @@ via a pull request in this **multi-worktree** monorepo.
 4. **Pre-merge sync** — fetch, check divergence, rebase if behind, `--force-with-lease`.
 5. **Merge** — forward-merge (default) for 1:1 SHA mapping; squash only for throwaway chores.
 6. **Post-merge cleanup** — *propose → confirm → execute* (delete branch, sync main).
-7. **Branch hygiene** — run the devops `sweep_branches` tool (dry-run default); expect **0 stale**.
+7. **Branch hygiene** — run the devops `sweep_merged_branches` tool (dry-run default); expect **0 stale**.
 
 ---
 
@@ -204,16 +204,16 @@ git branch -r --merged origin/main
 ## 6. Branch hygiene — SOP #320
 
 Branches are deleted at **PR-merge time**, never left to accumulate. Enforcement is
-the devops `sweep_branches` tool — run it after every merge and at the start of each
+the devops `sweep_merged_branches` tool — run it after every merge and at the start of each
 cycle (`stale-branches.sh` was removed in the devops-scripts unification):
 
 ```
-sweep_branches({})           // dry-run (default): lists branches outside the keep-set, each w/ PR state
-sweep_branches({ execute: true })  // delete the high-confidence set
+sweep_merged_branches({})           // dry-run (default): lists branches outside the keep-set, each w/ PR state
+sweep_merged_branches({ execute: true })  // delete the high-confidence set
 ```
 
 For the full finish flow (merge gates → squash-merge → verify → cleanup), use the
-`devops-pr-finish` bin (`bun-apps/pi-agent-ext-devops/src/pr-finish-cli.ts`).
+`devops-merge-pr-after-ci` bin (`bun-apps/pi-agent-ext-devops/src/merge-pr-after-ci-cli.ts`).
 
 - Keep-set: `main` / current branch / worktree-checked-out / open-PR branches.
 - Expect **0 stale** on a clean repo.
@@ -262,12 +262,12 @@ git push origin --delete feat/<scope>
 git fetch --prune origin
 git merge --ff-only origin/main          # in the primary worktree (owns main)
 git branch -d feat/<scope>
-sweep_branches dry-run                 # expect 0 stale
+sweep_merged_branches dry-run                 # expect 0 stale
 ```
 
 ---
 
 ## Related
 - Vault SOP card: `pr-merge-sync-sop` (multi-session collision handling, full iter-7 gotchas)
-- `branch-cleanup` project skill + the devops `sweep_branches` tool (SOP #320)
+- `branch-cleanup` project skill + the devops `sweep_merged_branches` tool (SOP #320)
 - `self-improve-sop` — branch-off-main / clean-tree / detach rules for the workflow loops

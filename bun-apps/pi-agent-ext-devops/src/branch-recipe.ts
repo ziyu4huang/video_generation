@@ -1,7 +1,7 @@
 /**
- * sweep_branches orchestration types + the `BranchClient` IoC contract.
+ * sweep_merged_branches orchestration types + the `BranchClient` IoC contract.
  *
- * Mirrors the await_pr_merge split: the decision logic is PURE
+ * Mirrors the merge_pr_after_local_ci split: the decision logic is PURE
  * (src/branch-logic.ts → classifyBranch), the I/O is behind an injectable
  * `BranchClient` (real impl: src/gh.ts → createBranchClient; tests inject
  * fakes), and `buildSweepPlan` / `executeSweep` here orchestrate the two.
@@ -241,7 +241,7 @@ export async function executeSweep(plan: SweepPlan, client: BranchClient, opts: 
 
 	// 1. High-confidence auto-deletes (re-guarded). Delete failures (non-zero
 	// exit) are routed to `skipped` with a reason — `deleted*` holds only
-	// branches actually deleted (no false-success). Mirrors the await_pr_merge
+	// branches actually deleted (no false-success). Mirrors the merge_pr_after_local_ci
 	// recipe's throw-and-surface discipline.
 	for (const p of plan.deleteLocal) {
 		const why = localBlock(p.name);

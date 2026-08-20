@@ -12,6 +12,7 @@ describe("host-modules", () => {
 			"@earendil-works/pi-ai/compat",
 			"@earendil-works/pi-coding-agent",
 			"@earendil-works/pi-tui",
+			"@repo/pi-agent-core-interface",
 			"@repo/pi-agent-core-runtime",
 			"typebox",
 			"typebox/value",

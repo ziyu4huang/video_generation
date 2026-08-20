@@ -46,7 +46,7 @@
  *   Everything above is scoped to packages that HAVE an `extensions/`
  *   directory — which is why it said nothing about `gui-movie-director`, a
  *   package with ~200 TypeScript files, no `extensions/` dir, and no script
- *   that runs `tsc` at all. `local_ci` reported it as
+ *   that runs `tsc` at all. `run_local_ci` reported it as
  *   `typecheck: { skipped: true, note: "no tsc key" }`, which reads exactly
  *   like a package that does not need type checking. It hid 133 real errors
  *   until 2026-08-18 (PR #1646), including a `Bun.serve().port` that could
@@ -54,7 +54,7 @@
  *
  *   So the second block asks the wider question of EVERY package: if it has
  *   TypeScript sources, is there an executor that the gate which actually runs
- *   will find? "Find" is the operative word — `local_ci` looks for
+ *   will find? "Find" is the operative word — `run_local_ci` looks for
  *   `scripts.typecheck`, then `scripts.check` if that one invokes tsc, and
  *   nothing else (see `ci-recipe.ts`, "Precedence: scripts.typecheck >
  *   scripts.check (only if it runs tsc) > skipped"). A package whose tsc lives
@@ -216,9 +216,9 @@ function hasTypeScriptSources(dir: string, depth = 0): boolean {
 }
 
 /**
- * The script `local_ci` would actually run for this package, by ITS precedence
+ * The script `run_local_ci` would actually run for this package, by ITS precedence
  * (ci-recipe.ts): `typecheck` first, then `check` only if it invokes tsc.
- * Returns undefined when local_ci would report `skipped: "no tsc key"`.
+ * Returns undefined when run_local_ci would report `skipped: "no tsc key"`.
  */
 function localCiTypecheckExecutor(pkg: Record<string, unknown>): string | undefined {
   const scripts = (pkg.scripts ?? {}) as Record<string, string>;
@@ -254,20 +254,20 @@ describe("package typecheck executor coverage (every package, not just extension
     expect(ALL_PACKAGES.filter((p) => hasTypeScriptSources(p.dir)).length).toBeGreaterThan(20);
   });
 
-  test("every package with TypeScript sources has an executor local_ci can find", () => {
+  test("every package with TypeScript sources has an executor run_local_ci can find", () => {
     const unchecked = ALL_PACKAGES.filter((p) => hasTypeScriptSources(p.dir) && !localCiTypecheckExecutor(p.pkg)).map(
       (p) => p.name,
     );
     expect(
       unchecked,
       `NO TYPECHECK EXECUTOR: ${unchecked.join(", ")} — these packages ship TypeScript that no gate ` +
-        'compiles. local_ci reports them as `typecheck: { skipped: true, note: "no tsc key" }`, which ' +
+        'compiles. run_local_ci reports them as `typecheck: { skipped: true, note: "no tsc key" }`, which ' +
         'reads like "does not need type checking" and is why gui-movie-director hid 133 errors. ' +
         'Add `"typecheck": "tsc --noEmit"` to the package\'s scripts.',
     ).toEqual([]);
   });
 
-  test("a tsc script under any other name does NOT count — local_ci would not run it", () => {
+  test("a tsc script under any other name does NOT count — run_local_ci would not run it", () => {
     // The failure this pins is subtler than "nobody wrote a tsc script": a
     // package CAN have one, have it pass locally, and still be skipped by the
     // gate, because ci-recipe only ever looks at two script names.
@@ -279,7 +279,7 @@ describe("package typecheck executor coverage (every package, not just extension
     expect(
       strandedTsc,
       `TSC PRESENT BUT UNREACHABLE: ${strandedTsc.join("; ")} — the script exists and passes when a ` +
-        "human runs it, but local_ci resolves the executor by NAME (scripts.typecheck, then " +
+        "human runs it, but run_local_ci resolves the executor by NAME (scripts.typecheck, then " +
         "scripts.check-if-it-runs-tsc). Rename it, or add a `typecheck` script that calls it.",
     ).toEqual([]);
   });

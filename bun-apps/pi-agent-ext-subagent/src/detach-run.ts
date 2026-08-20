@@ -22,9 +22,14 @@
  */
 import { spawn } from "node:child_process";
 import type { SubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
-import { getSubagentInFlightRegistry, isTerminalStatus } from "@repo/pi-agent-core-runtime";
-import { buildSubagentArgs, getPiInvocation } from "./spawn-subagent-subprocess.js";
-import { getSubagentRunPersistence, type SubagentRunPersistence } from "./subagent-run-persistence.js";
+import {
+  buildSubagentArgs,
+  getPiInvocation,
+  getSubagentInFlightRegistry,
+  getSubagentRunPersistence,
+  isTerminalStatus,
+  type SubagentRunPersistence,
+} from "@repo/pi-agent-core-runtime";
 
 // ---- Public surface (Task 06/08 consume exactly this) ----------------------
 

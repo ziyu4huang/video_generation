@@ -1,5 +1,5 @@
 /**
- * runLocalCi — the PURE orchestration behind the `local_ci` tool. It mirrors
+ * runLocalCi — the PURE orchestration behind the `run_local_ci` tool. It mirrors
  * what remote CI would do, but LOCALLY and OFFLINE (no network): typecheck +
  * lint + tests scoped to the packages affected vs origin/main, plus the repo's quality
  * gates (file-size guard, lockfile-duplicate guard, optional audit gates, and an
@@ -20,7 +20,7 @@
  * That proxy only holds if the per-package COMMAND matches too, so the test step
  * is sourced from the CI matrix (src/ci-matrix.ts) rather than derived generically
  * — otherwise `bun run test` would stand in for `bun test --isolate`, `bun test &&
- * bun run qa`, or a build-first row, and local_ci could report green on a package
+ * bun run qa`, or a build-first row, and run_local_ci could report green on a package
  * whose real CI command fails. Packages with no matrix row keep the generic
  * derivation. scripts/ci-local.sh parses the same matrix block, so the two local
  * runners cannot disagree about what a package's command is.
@@ -112,7 +112,7 @@ export interface CiOutcome {
 	elapsedMs: number;
 	/**
 	 * The ≤5-minute budget this run was held to (default 300 000 ms — a house
-	 * rule: a local_ci run over ~5 minutes is bad CI and gets optimized, not
+	 * rule: a run_local_ci run over ~5 minutes is bad CI and gets optimized, not
 	 * accepted). Advisory: `overBudget` NEVER flips `overall`.
 	 */
 	budgetMs: number;
@@ -132,7 +132,7 @@ export interface CiOutcome {
 	 * Set when the `regression-gates` job could not be read out of the workflow.
 	 * `overall` is then "fail" and NO gate ran. An empty gate list is
 	 * indistinguishable from "every gate passed", so this fails closed rather
-	 * than letting `await_pr_merge` squash-merge on a gate suite that never ran.
+	 * than letting `merge_pr_after_local_ci` squash-merge on a gate suite that never ran.
 	 */
 	gateError?: string;
 }
@@ -391,7 +391,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	const verify = await spawn("git", ["rev-parse", "--verify", baseRef], { cwd: opts.repoRoot });
 	if (verify.exitCode !== 0) {
 		throw new Error(
-			`local_ci: base ref "${baseRef}" could not be resolved (git rev-parse --verify exited ${verify.exitCode}). ` +
+			`run_local_ci: base ref "${baseRef}" could not be resolved (git rev-parse --verify exited ${verify.exitCode}). ` +
 				`Set baseRef to an existing local ref, or fetch first (runLocalCi stays offline).`,
 		);
 	}
@@ -423,7 +423,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	//     Deriving it generically (`bun run test`) silently disagrees with CI for
 	//     every package whose row is special: --isolate (archify, file2md),
 	//     `bun test && bun run qa` (tool-gate), knowledge-card's 3-phase ordering,
-	//     build-first (workflow, webui). Without this, local_ci can report green on
+	//     build-first (workflow, webui). Without this, run_local_ci can report green on
 	//     a package whose real CI command would fail. A package with NO row keeps
 	//     the generic derivation; an unreadable workflow yields {} → all generic.
 	const matrix = await (opts.readMatrix ?? readCiMatrix)(opts.repoRoot);
@@ -501,7 +501,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	//        (`bun test && bun run qa`, knowledge-card's 3-phase chain,
 	//        `bun run build && bun test`) — the same way scripts/ci-local.sh
 	//        executes them. NB: ci-local.sh additionally exports CI=true;
-	//        local_ci deliberately does not, preserving its own pre-existing
+	//        run_local_ci deliberately does not, preserving its own pre-existing
 	//        behavior — locally the machine-coupled tests SHOULD run, that's the point.
 	interface TestPlan {
 		name: string;
@@ -588,7 +588,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	//    never hand-written here. A hardcoded list drifted into running 2 of the
 	//    job's 14 steps, so eight blocking structural guards (dep-direction, ADR,
 	//    seam, routing, config-parity, ci-workflow, package-scripts, --strict
-	//    portability) never ran under the tool await_pr_merge gates the merge on.
+	//    portability) never ran under the tool merge_pr_after_local_ci gates the merge on.
 	const gates: CiGateResult[] = [];
 	let gateError: string | undefined;
 	let schemaCost: CiOutcome["schemaCost"];

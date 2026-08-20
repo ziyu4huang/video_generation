@@ -1,5 +1,5 @@
 /**
- * verify-tool.ts — pi_verify: build argv, run run-test.sh at a chosen tier,
+ * verify-tool.ts — verify_pi_agent_deploy: build argv, run run-test.sh at a chosen tier,
  * parse its step summary. run-test.sh stays the single source of truth.
  */
 import { buildVerifyArgv, type VerifyParams, type VerifyTier } from "./deploy-argv.ts";

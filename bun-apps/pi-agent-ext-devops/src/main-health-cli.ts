@@ -24,7 +24,7 @@ export const MAIN_HEALTH_CLI_USAGE = [
 	"default branch, in the worktree that actually has it checked out, and prints",
 	"the structured outcome as JSON on stdout. Read-only.",
 	"",
-	"Exists because local_ci is change-scoped and remote CI is disabled: a branch",
+	"Exists because run_local_ci is change-scoped and remote CI is disabled: a branch",
 	"that avoids a broken package merges green forever and nothing reports that",
 	"the default branch itself is red.",
 	"",

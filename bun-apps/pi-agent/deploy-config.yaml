@@ -10,9 +10,10 @@
 # extensions that silently refuse to load.
 #
 # Base-set profile (2026-08-20, "portable full-featured agent"): memory, skills,
-# subagent/workflow, and web-access ship in the box. Everything machine-bound
-# (swift director CLIs, LM Studio) or repo-internal (devops, tool-gate) stays
-# out — see docs/deploy-sh.md "Limits" for the exclusion rationale.
+# subagent/workflow, web-access, and the knowledge layer (obsidian +
+# knowledge-card) ship in the box. Everything machine-bound (swift director
+# CLIs, LM Studio, mupdf) or repo-internal (devops, tool-gate) stays out — see
+# docs/deploy-sh.md "Limits" for the exclusion rationale.
 outRoot: ~/proj/dist/pi-agent-sh
 version:
   from: package.json
@@ -31,6 +32,10 @@ hostModules:
   # extensions that import it (subagent, workflow, hermes-memory, btw, webui).
   - "@earendil-works/pi-ai"
   - "@earendil-works/pi-ai/compat"
+  # GATE_DEFS is a shared mutable registry — obsidian, knowledge-card and
+  # wayfind all register gate families into it at module scope, so it must be
+  # served as ONE host instance (an inlined copy per extension would split it).
+  - "@repo/pi-agent-core-interface"
 extensions:
   - name: task
     package: pi-agent-ext-task
@@ -125,3 +130,23 @@ extensions:
     skills: [skills]
     # Skills-only carrier: the vendored HyperFrames + media-use family (~5.5MB
     # incl. mp3 SFX / woff2 fonts). Factory is a no-op; skills copy verbatim.
+  - name: obsidian
+    package: pi-agent-ext-obsidian
+    entry: extensions/obsidian.ts
+    order: 130
+    skills: [skills]
+    # Tier-0 vault I/O. The subagent-barrel imports inline safely post-#1733:
+    # the identity-sensitive symbols are core-runtime re-exports that resolve
+    # to the host module, and the barrel-owned ones (persistence, subprocess
+    # spawn) are disk-backed/stateless. vault-template/ seeds a fresh vault on
+    # a portable machine — located via require("#pi/ext-dir"), copied beside
+    # the bundle.
+    copy: [vault-template]
+  - name: knowledge-card
+    package: pi-agent-ext-knowledge-card
+    entry: extensions/knowledge-card.ts
+    order: 140
+    # Tier-1 knowledge hub (zk_card / zk_ask / zk_ingest / knowledge_query).
+    # Imports obsidian's src/lib directly (NOT the extension entry — inlining
+    # the entry would double-register GATE_DEFS and duplicate its bulk); the
+    # dispatch imports come from the core-runtime host module.

@@ -134,7 +134,22 @@ export type { SddReport, SddReportStatus } from "./sdd-report.js";
 export { isSddReportActionable, parseSddReport, SDD_REPORT_STATUSES } from "./sdd-report.js";
 export type { SpawnSubagentOptions, SpawnSubagentResult, SubagentFailure } from "./spawn-subagent.js";
 export { deriveTaskLabel, resolveSessionOverride, spawnSubagent } from "./spawn-subagent.js";
-
+// Isolated-PROCESS dispatch (moved from pi-agent-ext-subagent as the
+// #1733 continuation: base-set extensions — obsidian — consume it without an
+// ext→ext edge). Consumers that need a clean child pi process (obsidian
+// distill/garden, tool-gate L2 A/B) use this instead of in-process spawnSubagent.
+export type {
+  ChildProcessLike,
+  SpawnFn,
+  SpawnSubagentSubprocessOptions,
+  SubprocessArgsOptions,
+} from "./spawn-subagent-subprocess.js";
+export {
+  buildSubagentArgs,
+  getPiInvocation,
+  isTransientError,
+  spawnSubagentSubprocess,
+} from "./spawn-subagent-subprocess.js";
 export type { StructuredOutputCapture, StructuredOutputToolOptions, StructuredSession } from "./structured-output.js";
 export { createStructuredOutputTool, extractValidated, resolveStructuredOutput } from "./structured-output.js";
 export type { TerminalStatus } from "./subagent-in-flight.js";
@@ -142,6 +157,38 @@ export {
   getSubagentInFlightRegistry,
   SubagentInFlightRegistry,
 } from "./subagent-in-flight.js";
+// Record-shape types shared by the dispatch layer and run records (moved with
+// the persistence layer; subagent's git-scope / subagent-tool-schema /
+// watchdog/types re-export from here to keep their public surface).
+export type {
+  SubagentBudgetDetails,
+  SubagentSalvage,
+  SubagentScopeCheck,
+  WatchdogFinding,
+  WatchdogL1Result,
+  WatchdogL2Result,
+  WatchdogResult,
+  WatchdogSeverity,
+  WatchdogSource,
+} from "./subagent-record-types.js";
+// Durable run records for completed subagent-tool dispatches (moved from
+// pi-agent-ext-subagent with the isolated-process layer above).
+export type {
+  CreateSubagentRunPersistenceOptions,
+  SubagentFsLayer,
+  SubagentRunPersistence,
+  SubagentRunRecord,
+  SubagentRunStatus,
+} from "./subagent-run-persistence.js";
+export {
+  createSubagentRunPersistence,
+  generateSubagentRunId,
+  getSubagentRunPersistence,
+  SUBAGENT_HOME_RELATIVE_DIR,
+  SUBAGENT_RUNS_SUBDIR,
+  subagentHomeDir,
+  subagentRunsDir,
+} from "./subagent-run-persistence.js";
 
 export type { ToolActionContext } from "./tool-action-label.js";
 export { formatToolAction, matchedCallArgsFor } from "./tool-action-label.js";

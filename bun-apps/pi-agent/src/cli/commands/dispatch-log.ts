@@ -13,7 +13,7 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { SubagentRunRecord } from "@repo/pi-agent-ext-subagent";
+import type { SubagentRunRecord } from "@repo/pi-agent-core-runtime";
 import type { PersistedRunState } from "@repo/pi-agent-ext-workflow";
 
 export interface DispatchRecord {

@@ -1,5 +1,5 @@
 /**
- * runMergeRecipe — a LOCAL-CI-GATED merge for `await_pr_merge`. Remote CI is
+ * runMergeRecipe — a LOCAL-CI-GATED merge for `merge_pr_after_local_ci`. Remote CI is
  * intentionally DISABLED in this repo (`.github/workflows/ci.yml.disabled`),
  * so there is nothing to poll: this is a single-shot gate+merge.
  *
@@ -7,7 +7,7 @@
  *   2. state==="MERGED" → merged:true (already merged). state!=="OPEN"
  *      (CLOSED…) → block.
  *   3. Best-effort `git fetch origin <base> <head>` (offline-safe — exit code
- *      IGNORED; a failed/offline fetch just means local_ci will then error on
+ *      IGNORED; a failed/offline fetch just means run_local_ci will then error on
  *      a missing ref and we block fail-closed). The tool never hard-fails on
  *      the fetch itself.
  *   4. runLocalCi(base=origin/<base>, head=origin/<head>, strict:false,
@@ -37,16 +37,16 @@ export interface GhClient {
 		mergeState: MergeState;
 		baseRefName: string;
 		headRefName: string;
-		/** Check tally (used by the pr_status tool; the merge recipe ignores it). */
+		/** Check tally (used by the show_pr_status tool; the merge recipe ignores it). */
 		checks: CheckTally;
 		mergeSha?: string;
-		/** The head ref's SHA — what was merged. Lets verify_merge tell a spent
+		/** The head ref's SHA — what was merged. Lets verify_merge_landed tell a spent
 		 *  branch from one with commits pushed after the merge. */
 		headRefOid?: string;
 	}>;
 	/**
 	 * Direct (synchronous) merge — `gh pr merge` WITHOUT `--auto`. Used once the
-	 * local_ci gate is green + mergeState is CLEAN: the merge completes here, so
+	 * run_local_ci gate is green + mergeState is CLEAN: the merge completes here, so
 	 * success IS the confirmation (no remote CI to poll). Throws on non-zero exit.
 	 */
 	mergeNow(n: number, strategy: "rebase" | "merge" | "squash", deleteBranch: boolean): Promise<void>;
@@ -109,7 +109,7 @@ export async function runMergeRecipe(opts: RecipeOptions): Promise<RecipeOutcome
 	}
 
 	// 3. Best-effort fetch of the PR's base+head refs (offline-safe). A failed
-	//    /offline fetch is fine — local_ci then surfaces a missing-ref error
+	//    /offline fetch is fine — run_local_ci then surfaces a missing-ref error
 	//    (a thrown rev-parse on the base, or a detectionError on the diff) and
 	//    we block fail-closed. Do NOT hard-fail the tool on the fetch itself.
 	try {
@@ -140,13 +140,13 @@ export async function runMergeRecipe(opts: RecipeOptions): Promise<RecipeOutcome
 			merged: false,
 			finalState: status.state,
 			elapsedMs: elapsed(),
-			error: `local_ci could not run: ${errMsg(err)}`,
+			error: `run_local_ci could not run: ${errMsg(err)}`,
 		};
 	}
 
 	// 5. Gate failed (incl. detectionError) → BLOCK (no merge).
 	if (ci.overall !== "pass") {
-		const error = ci.detectionError ?? "local_ci failed; see packages/gates";
+		const error = ci.detectionError ?? "run_local_ci failed; see packages/gates";
 		return { merged: false, finalState: status.state, localCi: ci, elapsedMs: elapsed(), error };
 	}
 
@@ -157,7 +157,7 @@ export async function runMergeRecipe(opts: RecipeOptions): Promise<RecipeOutcome
 			finalState: status.state,
 			localCi: ci,
 			elapsedMs: elapsed(),
-			error: "PR is behind base; rebase locally + re-push, then re-run await_pr_merge.",
+			error: "PR is behind base; rebase locally + re-push, then re-run merge_pr_after_local_ci.",
 		};
 	}
 	if (status.mergeState !== "CLEAN") {

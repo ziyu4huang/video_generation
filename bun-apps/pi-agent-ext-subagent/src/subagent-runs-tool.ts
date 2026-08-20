@@ -12,8 +12,8 @@
 
 import { StringEnum } from "@earendil-works/pi-ai";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { SubagentRunPersistence, SubagentRunRecord } from "@repo/pi-agent-core-runtime";
 import { Type } from "typebox";
-import type { SubagentRunPersistence, SubagentRunRecord } from "./subagent-run-persistence.js";
 
 const subagentRunsActionEnum = StringEnum(["list", "get"] as const, {
   description: "Discriminator: 'list' recent runs or 'get' one run by id.",

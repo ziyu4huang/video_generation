@@ -1,5 +1,5 @@
 /**
- * deploy-tool.ts — pi_deploy: run the versioned sh deploy and shape its result
+ * deploy-tool.ts — deploy_pi_agent_sh: run the versioned sh deploy and shape its result
  * for the tool surface.
  *
  * The deploy itself is scripts/deploy-sh.ts (single source of truth). This file

@@ -1,5 +1,5 @@
 /**
- * PURE branch-classification logic (no I/O). The heart of `sweep_branches`:
+ * PURE branch-classification logic (no I/O). The heart of `sweep_merged_branches`:
  * given the observed signals for one branch, decide its confidence tier +
  * bucket. Kept pure (no gh/git) so it's fully testable without external services.
  *

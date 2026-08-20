@@ -97,6 +97,8 @@ describe("parseShConfig", () => {
 			"btw",
 			"hermes-memory",
 			"hyperframes",
+			"knowledge-card",
+			"obsidian",
 			"power-tool",
 			"prompt-history",
 			"subagent",

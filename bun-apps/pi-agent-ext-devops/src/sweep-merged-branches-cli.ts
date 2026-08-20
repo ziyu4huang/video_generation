@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
- * sweep-cli — bash-callable entry point for `runSweep` (the sweep_branches recipe).
+ * sweep-merged-branches-cli — bash-callable entry point for `runSweep` (the sweep_merged_branches recipe).
  *
- * `bun bun-apps/pi-agent-ext-devops/src/sweep-cli.ts [--execute]`
+ * `bun bun-apps/pi-agent-ext-devops/src/sweep-merged-branches-cli.ts [--execute]`
  *
  * DRY-RUN BY DEFAULT, exactly like the tool. `--execute` deletes the
  * high-confidence set; `--confirm a,b` additionally deletes named branches that
@@ -20,7 +20,7 @@ import { createLiveSpawn, type SpawnFn } from "./spawn.js";
 import { type CliResult, defaultRepoRoot, emit, helpRequested, jsonResult, usageError } from "./cli-common.js";
 
 export const SWEEP_CLI_USAGE = [
-	"usage: sweep-cli.ts [--execute] [--confirm <a,b>] [--protect <a,b>]",
+	"usage: sweep-merged-branches-cli.ts [--execute] [--confirm <a,b>] [--protect <a,b>]",
 	"                    [--no-local] [--no-remote] [--no-prune] [--limit <n>]",
 	"                    [--repo-root <path>]",
 	"",

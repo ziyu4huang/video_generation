@@ -15,10 +15,10 @@ import {
 	rm,
 } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
 import { execFileP } from "./utils";
 import { atomicWriteFile } from "./fs-cache";
+import { shExtDir } from "./ext-dir";
 
 export const OBSIDIAN_JSON = join(
 	homedir(),
@@ -84,23 +84,31 @@ export interface VaultConfigFile {
 }
 
 /** Resolve the pi-agent run-dir/ location from this extension's own path.
+ *  sh deploy: `require("#pi/ext-dir")` → no run-dir/ exists beside the ext
+ *  bundle, so the legacy migration read simply finds nothing (by design —
+ *  the portable deploy has no repo run-dir).
  *  Bundle mode: ext-bundles/obsidian.full.js → ../run-dir/
  *  Source mode: bun-apps/pi-obsidian/extensions/ → ../../pi-agent/run-dir/
  *  RETIRED as a config-write location; kept only to migrate any pre-existing
  *  run-dir config into <cwd>/.pi/ on first read (see readProjectConfig). */
-export function runDirPath(): string {
-	const selfDir = dirname(fileURLToPath(import.meta.url));
+export function runDirPath(): string | undefined {
+	const extDir = shExtDir();
+	if (extDir === undefined) return undefined;
+	const selfDir = dirname(extDir);
 	if (selfDir.includes("ext-bundles")) {
 		// Bundle mode: sibling run-dir/
 		return resolve(selfDir, "..", "run-dir");
 	}
-	// Source mode: bun-apps/pi-obsidian/extensions/../../pi-agent/run-dir/
-	return resolve(selfDir, "..", "..", "pi-agent", "run-dir");
+	// Source mode: <pkg>/ → ../../pi-agent/run-dir/ (ext-dir is the package root)
+	return resolve(extDir, "..", "..", "pi-agent", "run-dir");
 }
 
-/** Retired config location — one-time migration source only. */
-export function runDirConfigPath(): string {
-	return join(runDirPath(), "obsidian_config.json");
+/** Retired config location — one-time migration source only. Undefined when
+ *  the ext dir is unresolvable (native ESM / portable deploy) — there is no
+ *  run-dir to migrate from, which is the same as "nothing to migrate". */
+export function runDirConfigPath(): string | undefined {
+	const dir = runDirPath();
+	return dir === undefined ? undefined : join(dir, "obsidian_config.json");
 }
 
 /** Home-directory base for the personal tier. Honors `process.env.HOME`
@@ -146,7 +154,7 @@ export async function readProjectConfig(
 	const projPath = projectConfigPath(cwd);
 	if (!existsSync(projPath)) {
 		const legacy = runDirConfigPath();
-		if (existsSync(legacy)) {
+		if (legacy !== undefined && existsSync(legacy)) {
 			try {
 				const legacyCfg = JSON.parse(await readFile(legacy, "utf8"));
 				await mkdir(dirname(projPath), { recursive: true });
@@ -236,10 +244,14 @@ export async function isDirEmpty(dir: string): Promise<boolean> {
 
 /** Copy bundled `vault-template/` into a fresh vault. Skips files that already exist. */
 export async function seedFromTemplate(target: string): Promise<void> {
-	// Resolve template relative to this extension file: ../../vault-template
-	// (extension is in <pkg>/extensions/, template in <pkg>/vault-template/).
-	const here = fileURLToPath(import.meta.url);
-	const templateDir = resolve(here, "..", "..", "vault-template");
+	// Resolve the template through the ext-dir idiom (see ./ext-dir.ts):
+	// sh deploy copies `vault-template/` beside the bundle
+	// (`ext/obsidian/vault-template/`); source mode resolves the package root
+	// where `vault-template/` lives. NOT import.meta.url — bun's cjs output
+	// folds it into a build-machine path (relocatability gate rejects that).
+	const extDir = shExtDir();
+	if (extDir === undefined) return;
+	const templateDir = resolve(extDir, "vault-template");
 	if (!existsSync(templateDir)) return;
 	await cp(templateDir, target, {
 		recursive: true,

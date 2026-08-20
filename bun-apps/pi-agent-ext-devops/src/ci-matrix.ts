@@ -3,7 +3,7 @@
  * as a `package → test-cmd` map.
  *
  * WHY runLocalCi NEEDS THIS
- *   `local_ci` used to derive each package's command generically (`bun run test`),
+ *   `run_local_ci` used to derive each package's command generically (`bun run test`),
  *   which quietly disagrees with what CI would actually run for a third of the
  *   matrix:
  *     - pi-agent-ext-archify / pi-agent-ext-file2md need `bun test --isolate`
@@ -13,14 +13,14 @@
  *     - pi-agent-ext-knowledge-card needs its deliberate 3-phase ordering;
  *     - pi-agent-ext-workflow / pi-agent-ext-webui must BUILD first (their `main`
  *       resolves a gitignored dist/).
- *   So `local_ci` could report green on a package whose real CI command fails.
+ *   So `run_local_ci` could report green on a package whose real CI command fails.
  *   The matrix is the specification; this makes it the source of truth for both
  *   runners (scripts/ci-local.sh already parses the same block).
  *
  * NO SECOND COPY OF THE MATRIX. This parses the workflow file; it never carries a
  * hand-maintained table. A package with no row falls back to the generic
  * derivation, and a missing/unparseable workflow degrades to an EMPTY map (the
- * pre-existing generic behavior) rather than throwing — local_ci must stay usable
+ * pre-existing generic behavior) rather than throwing — run_local_ci must stay usable
  * in a tree where the workflow moved.
  */
 

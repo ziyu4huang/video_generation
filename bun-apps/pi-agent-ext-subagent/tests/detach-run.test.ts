@@ -16,10 +16,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
+import { createSubagentRunPersistence, SubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
 import type { DetachedChildHandle, DetachedSpawnSpec } from "../src/detach-run.js";
 import { convertToBackground, makeProdDetachDeps } from "../src/detach-run.js";
-import { createSubagentRunPersistence } from "../src/subagent-run-persistence.js";
 
 /** A foreground run in a real registry, as dispatchChild would register it. */
 function foregroundRun(registry: SubagentInFlightRegistry, id = "call-1", task = "the full raw task text") {
