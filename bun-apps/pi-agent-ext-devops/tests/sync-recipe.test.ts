@@ -40,6 +40,8 @@ function fakeClient(s: {
 	current?: string;
 	worktrees?: { worktree: string; branch?: string; detached?: boolean }[];
 	dirty?: Record<string, string[]>;
+	/** Unmerged (conflicted) index entries, per worktree dir; omitted ⇒ []. */
+	unmerged?: Record<string, string[]>;
 	revs?: Record<string, string>;
 	aheadBehind?: Record<string, { ahead: number; behind: number }>;
 	subjects?: string[];
@@ -49,6 +51,7 @@ function fakeClient(s: {
 		currentBranch: async () => s.current ?? "",
 		worktreeList: async () => s.worktrees ?? [],
 		dirtyPaths: async (dir: string) => s.dirty?.[dir] ?? [],
+		unmergedPaths: async (dir: string) => s.unmerged?.[dir] ?? [],
 		revParse: async (rev: string) => s.revs?.[rev],
 		aheadBehind: async (base: string, head: string) => s.aheadBehind?.[`${base}..${head}`] ?? { ahead: 0, behind: 0 },
 		logSubjects: async () => s.subjects ?? [],
@@ -362,6 +365,73 @@ describe("runSync — pre-flight abort (dirty tree)", () => {
 		expect(out.advanced).toEqual([]);
 		expect(out.commands).toEqual([]); // aborted before any git() log
 		expect(calls.length).toBe(0); // nothing mutated
+	});
+});
+
+// --- unmerged-index pre-flight (preserve-flow hardening): a conflicted stash
+// pop leaves unmerged index entries; the NEXT sync's preserve `stash push`
+// then died with a cryptic "could not write index" (observed 2026-08-19/20 on
+// both worktrees via MEMORY.md). runSync must refuse EARLY, before any stash
+// or fetch, with the concrete recovery commands.
+describe("runSync — unmerged-index pre-flight (preserve-flow hardening)", () => {
+	test("(i) unmerged entries abort 'unmerged_index' BEFORE any stash push — zero mutating spawns", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			dirty: { [REPO]: [".agents/memory/MEMORY.md"] }, // preserve-listed → NOT a dirty_tree abort
+			unmerged: { [REPO]: [".agents/memory/MEMORY.md"] },
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.aborted?.aborted).toBe(true);
+		expect(out.aborted?.reason).toBe("unmerged_index");
+		expect(out.aborted?.message).toMatch(/unmerged index entries/);
+		expect(out.aborted?.message).toMatch(/stash pop/); // recovery hint present
+		expect(out.advanced).toEqual([]);
+		// No stash, no fetch, no merge — died in pre-flight.
+		expect(calls.some((c) => c.args.includes("stash"))).toBe(false);
+		expect(calls.some((c) => c.args.includes("fetch"))).toBe(false);
+		expect(calls.some((c) => c.args.includes("merge"))).toBe(false);
+		expect(calls.length).toBe(0);
+	});
+
+	test("(ii) dryRun with unmerged entries: warning, no abort, zero spawns", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			unmerged: { [REPO]: ["a.ts"] },
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", dryRun: true });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.warnings.join(" ")).toContain("unmerged");
+		expect(calls.length).toBe(0);
+	});
+
+	test("(iii) clean index proceeds normally (unmergedPaths consulted, no regression)", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			unmerged: {},
+			revs: { "origin/main": sha("b"), main: sha("a") },
+			aheadBehind: { [`${sha("a")}..${sha("b")}`]: { ahead: 2, behind: 0 } },
+			subjects: ["feat: one", "feat: two"],
+		});
+		const { fn } = fakeSpawn([
+			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS },
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.commands).toContain(`git -C "${REPO}" fetch origin`);
+		expect(out.commands).toContain(`git -C "${REPO}" merge --ff-only origin/main`);
 	});
 });
 

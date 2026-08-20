@@ -92,13 +92,20 @@ function isPreservable(path: string, preserve: string[]): boolean {
 /**
  * The read-only git surface sync_default_branch needs. A `Pick` of BranchClient so the
  * live `createBranchClient` (full BranchClient) satisfies it, while tests inject
- * a minimal fake covering only these six methods. NOTE: cleanliness is derived
+ * a minimal fake covering only these seven methods. NOTE: cleanliness is derived
  * from `dirtyPaths` (empty ⇒ clean) so the per-path preserve split can run on
  * the SAME query — `isClean` stays on the full BranchClient for other recipes.
  */
 export type SyncClient = Pick<
 	BranchClient,
-	"defaultBranch" | "currentBranch" | "worktreeList" | "revParse" | "dirtyPaths" | "aheadBehind" | "logSubjects"
+	| "defaultBranch"
+	| "currentBranch"
+	| "worktreeList"
+	| "revParse"
+	| "dirtyPaths"
+	| "unmergedPaths"
+	| "aheadBehind"
+	| "logSubjects"
 >;
 
 export interface SyncAdvanced {
@@ -175,9 +182,9 @@ export interface SyncAbort {
 	/** Always true — discriminator (present only on an aborted run). */
 	aborted: true;
 	/** Machine reason — one of SYNC_ABORT_REASONS: "aborted_before_start" |
-	 *  "dirty_tree" | "no_origin_ref" | "checkout_failed" | "preserve_failed" |
-	 *  "divergent" | "reset_failed" | "detached_head" | "rebase_failed" |
-	 *  "merge_failed". */
+	 *  "dirty_tree" | "unmerged_index" | "no_origin_ref" | "checkout_failed" |
+	 *  "preserve_failed" | "divergent" | "reset_failed" | "detached_head" |
+	 *  "rebase_failed" | "merge_failed". */
 	reason: SyncAbortReason;
 	/** Human-readable summary (what happened + immediate remediation). */
 	message: string;
@@ -195,6 +202,7 @@ export interface SyncAbort {
 export const SYNC_ABORT_REASONS = [
 	"aborted_before_start",
 	"dirty_tree",
+	"unmerged_index",
 	"no_origin_ref",
 	"checkout_failed",
 	"preserve_failed",
@@ -427,6 +435,26 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 				reason: "dirty_tree",
 				message: `dirty tree at ${advanceTarget}; ${real.length} uncommitted path(s) outside the preserve list (stash or commit first).`,
 			});
+		}
+
+		// Unmerged (conflicted) index entries: a previous stash pop / merge left
+		// this worktree mid-conflict. `stash push` against such an index fails
+		// with a cryptic "could not write index" (observed 2026-08-19/20 on
+		// both worktrees via MEMORY.md) — refuse EARLY with the fix instead.
+		const unmerged = await client.unmergedPaths(advanceTarget);
+		if (unmerged.length > 0) {
+			const howTo = [
+				`resolve each file then: git -C ${advanceTarget} add <path>`,
+				`or abort the leftover op: git -C ${advanceTarget} merge --abort (or rebase --abort)`,
+				`or finish the interrupted stash pop: git -C ${advanceTarget} stash pop`,
+			].join("; ");
+			const msg =
+				`unmerged index entries at ${advanceTarget}: ${unmerged.join(", ")} — ` +
+				`a conflicted stash pop or interrupted merge left the tree mid-conflict. Fix first: ${howTo}.`;
+			warnings.push(msg);
+			if (!dry) {
+				return outcome({ aborted: true, reason: "unmerged_index", message: msg });
+			}
 		}
 
 		// 4. Fetch (mutating; skipped under dryRun).

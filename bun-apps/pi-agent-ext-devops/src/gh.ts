@@ -417,6 +417,21 @@ export function createBranchClient(spawn: SpawnFn): BranchClient {
 			const r = await spawn("git", ["-C", dir, "status", "--porcelain=v1"]);
 			return parseDirtyPaths(r.stdout);
 		},
+		async unmergedPaths(dir) {
+			// `git ls-files -u` lists every CONFLICTED index entry (one row per
+			// stage, so a path can appear up to 3×): format "<mode> <sha> <stage>\t<path>"
+			// — take the path column after the tab, dedupe. Empty ⇒ no conflict.
+			const r = await spawn("git", ["-C", dir, "ls-files", "-u"]);
+			if (r.exitCode !== 0) return [];
+			const paths = new Set(
+				r.stdout
+					.split("\n")
+					.map((l) => l.trim())
+					.filter(Boolean)
+					.map((l) => l.split("\t")[1] ?? ""),
+			);
+			return [...paths].filter(Boolean);
+		},
 		async aheadBehind(base, head) {
 			// A missing ref → rev-list exits non-zero with empty stdout → intOr0 → 0.
 			const ahead = await spawn("git", ["rev-list", "--count", `${base}..${head}`]);

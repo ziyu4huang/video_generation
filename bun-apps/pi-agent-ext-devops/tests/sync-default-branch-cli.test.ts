@@ -39,6 +39,7 @@ function fakeClient(s: {
 		currentBranch: async () => s.current ?? "",
 		worktreeList: async () => s.worktrees ?? [],
 		dirtyPaths: async (dir: string) => s.dirty?.[dir] ?? [],
+		unmergedPaths: async () => [],
 		revParse: async (rev: string) => s.revs?.[rev],
 		aheadBehind: async () => ({ ahead: 0, behind: 0 }),
 		logSubjects: async () => [],
