@@ -51,7 +51,7 @@
 **Files:**
 - Modify: `bun-apps/pi-agent-ext-devops/tests/deploy-sh-probe-e2e.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append this test inside the existing `describeE2E("pi-agent-sh L1 — the deployed binary really runs its extensions", …)` block, immediately before the final `test("the core still boots after ext/ is removed entirely", …)`:
 
@@ -84,7 +84,7 @@ Append this test inside the existing `describeE2E("pi-agent-sh L1 — the deploy
 	}, 120_000);
 ```
 
-- [ ] **Step 2: Run it and confirm it passes against today's tree**
+- [x] **Step 2: Run it and confirm it passes against today's tree**
 
 This is a characterisation test, not a red-green cycle: the contract already holds and we are moving its only witness. It must pass on the first run — if it fails, the sh deploy is violating the read-only contract *today* and that is a real bug to report, not a test to adjust.
 
@@ -94,7 +94,7 @@ Run:
 ```
 Expected: all tests pass, including `the frozen tree takes zero writes while the binary runs`.
 
-- [ ] **Step 3: Prove the test can fail**
+- [x] **Step 3: Prove the test can fail**
 
 Temporarily insert `writeFileSync(join(target, "canary.txt"), "x")` immediately after `const before = filesIn(target);`. Run the same command.
 
@@ -102,7 +102,7 @@ Expected: FAIL — `after` contains `canary.txt`. This proves the `find` snapsho
 
 Then remove the temporary line and re-run to confirm green.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add bun-apps/pi-agent-ext-devops/tests/deploy-sh-probe-e2e.test.ts
@@ -123,7 +123,7 @@ being retired. Move the witness before deleting its home."
 - Modify: `bun-apps/pi-agent-ext-devops/scripts/lib/sh-ext-build.ts`
 - Create: `bun-apps/pi-agent-ext-devops/scripts/lib/sh-ext-build.test.ts`
 
-- [ ] **Step 1: Add the function to `sh-ext-build.ts`**
+- [x] **Step 1: Add the function to `sh-ext-build.ts`**
 
 Delete this import line near the top of `sh-ext-build.ts`:
 
@@ -177,7 +177,7 @@ export function extractBareSpecifiers(code: string): string[] {
 }
 ```
 
-- [ ] **Step 2: Create the test file with the moved cases**
+- [x] **Step 2: Create the test file with the moved cases**
 
 Create `bun-apps/pi-agent-ext-devops/scripts/lib/sh-ext-build.test.ts`:
 
@@ -232,7 +232,7 @@ describe("extractBareSpecifiers", () => {
 });
 ```
 
-- [ ] **Step 3: Run the new tests**
+- [x] **Step 3: Run the new tests**
 
 Run:
 ```bash
@@ -240,7 +240,7 @@ Run:
 ```
 Expected: 4 pass.
 
-- [ ] **Step 4: Prove the sh deploy still builds with the moved function**
+- [x] **Step 4: Prove the sh deploy still builds with the moved function**
 
 Run:
 ```bash
@@ -250,7 +250,7 @@ Expected: exit 0, JSON on stdout listing every configured extension. (Gate 1 is 
 
 Then clean up: `chmod -R u+w /tmp/deploy-t2 && rm -rf /tmp/deploy-t2`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bun-apps/pi-agent-ext-devops/scripts/lib/sh-ext-build.ts bun-apps/pi-agent-ext-devops/scripts/lib/sh-ext-build.test.ts
@@ -274,7 +274,7 @@ cases that justify the lookbehind) unblocks deleting build-extensions.ts."
 - Modify: `bun-apps/pi-agent-ext-devops/tests/deploy-argv.test.ts`
 - Delete: `bun-apps/pi-agent-ext-devops/tests/deploy-e2e.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Replace the entire contents of `bun-apps/pi-agent-ext-devops/tests/deploy-tool.test.ts` with:
 
@@ -328,7 +328,7 @@ describe("runDeploy", () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run:
 ```bash
@@ -336,7 +336,7 @@ Run:
 ```
 Expected: FAIL — `runDeploy` does not accept a `deploy` dep and has no `version` / `extensions` fields.
 
-- [ ] **Step 3: Rewrite `deploy-tool.ts`**
+- [x] **Step 3: Rewrite `deploy-tool.ts`**
 
 Replace the entire contents of `bun-apps/pi-agent-ext-devops/src/deploy-tool.ts` with:
 
@@ -407,7 +407,7 @@ export async function runDeploy(
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run:
 ```bash
@@ -415,7 +415,7 @@ Run:
 ```
 Expected: 2 pass.
 
-- [ ] **Step 5: Update `deploy-argv.ts`**
+- [x] **Step 5: Update `deploy-argv.ts`**
 
 Delete the `DeployMode`, `DeployParams`, `DEPLOY_MODE_FLAG`, and `buildDeployArgv` declarations (the whole first half of the file, through the closing brace of `buildDeployArgv`). `DeployParams` now lives in `deploy-tool.ts`; nothing builds legacy argv any more.
 
@@ -427,7 +427,7 @@ export type VerifyTier = "quick" | "medium" | "full";
 
 Update the file's header comment to drop the `deploy.ts parses argv as…` sentence, leaving only the `run-test.sh` description.
 
-- [ ] **Step 6: Update the dependent files**
+- [x] **Step 6: Update the dependent files**
 
 In `bun-apps/pi-agent-ext-devops/src/verify-tool.ts`, delete the `high` and `readonly` entries from `TIER_TIMEOUT_MS`:
 
@@ -451,7 +451,7 @@ In `bun-apps/pi-agent-ext-devops/src/deploy-run.ts`, delete `assertSafeOutDir` (
 
 In `bun-apps/pi-agent-ext-devops/tests/deploy-run.test.ts`, delete the `assertSafeOutDir` describe block; keep the `resolvePiAgentDir` cases.
 
-- [ ] **Step 7: Update the `pi_deploy` tool registration**
+- [x] **Step 7: Update the `pi_deploy` tool registration**
 
 In `bun-apps/pi-agent-ext-devops/extensions/devops.ts`, replace the `pi.registerTool({ name: "pi_deploy", … })` block (starting at the `label:` line, through its closing `});`) with:
 
@@ -511,7 +511,7 @@ In `bun-apps/pi-agent-ext-devops/extensions/devops.ts`, replace the `pi.register
 
 Leave the `name`, `gating`, and the preceding comment block intact, but update the comment's "the tools wrap scripts/deploy.ts + run-test.sh" clause to "the tools wrap scripts/deploy-sh.ts + run-test.sh".
 
-- [ ] **Step 8: Typecheck and test the package**
+- [x] **Step 8: Typecheck and test the package**
 
 Run:
 ```bash
@@ -519,7 +519,7 @@ Run:
 ```
 Expected: typecheck clean, all tests pass.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add -u bun-apps/pi-agent-ext-devops
@@ -538,19 +538,19 @@ high/readonly ahead of those run-test.sh tiers being removed."
 - Delete: `scripts/check-deploy-artifacts.sh`
 - Modify: `.github/workflows/ci.yml.disabled`
 
-- [ ] **Step 1: Delete the gate script**
+- [x] **Step 1: Delete the gate script**
 
 ```bash
 git rm scripts/check-deploy-artifacts.sh
 ```
 
-- [ ] **Step 2: Remove its step from `regression-gates`**
+- [x] **Step 2: Remove its step from `regression-gates`**
 
 In `.github/workflows/ci.yml.disabled`, delete the whole comment block and step, from the line `      # Deploy-bundle guard (blocks). \`bun run deploy\` produces the shipped` through the line `        run: bash scripts/check-deploy-artifacts.sh` inclusive, plus the blank line after it.
 
 `local_ci` derives its gate list from this job, so removing the step is what removes the gate. The remaining steps must stay `if:`-free — `parseCiGates` refuses the whole list rather than guess at conditionals.
 
-- [ ] **Step 3: Verify the workflow-reference guard still passes**
+- [x] **Step 3: Verify the workflow-reference guard still passes**
 
 Run:
 ```bash
@@ -558,7 +558,7 @@ Run:
 ```
 Expected: PASS. This test scans the workflow for references to files that do not exist; a leftover reference to the deleted script fails it.
 
-- [ ] **Step 4: Verify `local_ci` parses the shortened gate list**
+- [x] **Step 4: Verify `local_ci` parses the shortened gate list**
 
 Run:
 ```bash
@@ -566,7 +566,7 @@ bun bun-apps/pi-agent-ext-devops/src/local-ci-cli.ts --list
 ```
 Expected: JSON listing the gates, with no `check-deploy-artifacts.sh` entry and no parse error.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -u scripts .github
@@ -585,7 +585,7 @@ sh deploy's four build gates plus check-deploy-sh-e2e.sh are what remain."
 - Modify: `bun-apps/pi-agent/src/__tests__/e2e-harness.ts`
 - Modify: `bun-apps/pi-agent/src/__tests__/e2e-launcher.test.ts`
 
-- [ ] **Step 1: Delete the three suites**
+- [x] **Step 1: Delete the three suites**
 
 ```bash
 git rm bun-apps/pi-agent/src/__tests__/e2e-extensions.test.ts \
@@ -595,7 +595,7 @@ git rm bun-apps/pi-agent/src/__tests__/e2e-extensions.test.ts \
 
 All three call `ensureBundle()` and assert against a `--bundle` / `--snapshot` deploy. The read-only contract they carried moved to `deploy-sh-probe-e2e.test.ts` in Task 1.
 
-- [ ] **Step 2: Trim `e2e-harness.ts`**
+- [x] **Step 2: Trim `e2e-harness.ts`**
 
 Delete these exports and everything only they use: `DIST_BUNDLE`, `DEPLOY_SCRIPT`, `DEPLOY_ENABLED`, `ensureBundle`, `runBundle`, `SpawnResult`, the module-level `bundlePromise`, and the `truthy` call for `PI_AGENT_E2E_DEPLOY`.
 
@@ -630,7 +630,7 @@ layout. Deleting the tests in 1a would leave live behaviour untested for a whole
 They go in 1b, with the behaviour. Only the file's header comment is updated here,
 because it referenced the three suites deleted in Step 1.
 
-- [ ] **Step 4: Run the surviving e2e suites**
+- [x] **Step 4: Run the surviving e2e suites**
 
 Run:
 ```bash
@@ -638,7 +638,7 @@ Run:
 ```
 Expected: PASS, with no `Module not found` and no reference to `ensureBundle`.
 
-- [ ] **Step 5: Run the package's full suite**
+- [x] **Step 5: Run the package's full suite**
 
 Run:
 ```bash
@@ -646,7 +646,7 @@ Run:
 ```
 Expected: PASS, typecheck clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -u bun-apps/pi-agent/src/__tests__
@@ -664,11 +664,11 @@ The harness keeps only its path constants and the E2E opt-in gate."
 **Files:**
 - Modify: `bun-apps/pi-agent-ext-devops/scripts/run-test.sh`
 
-- [ ] **Step 1: Delete the tier bodies**
+- [x] **Step 1: Delete the tier bodies**
 
 Delete the `run_extensions()` and `run_readonly()` function definitions. Both spawn deploys of the modes being retired, and both call test files deleted in Task 5.
 
-- [ ] **Step 2: Delete the tier dispatch arms**
+- [x] **Step 2: Delete the tier dispatch arms**
 
 In the `case "$EFFORT" in` block, delete the `high)` and `readonly)` arms entirely. In the `full)` arm, delete the two `step "…"` lines that call `run_extensions` / `run_readonly` and the two `echo` banners above them, leaving the smoke step and the sibling-package loop.
 
@@ -678,11 +678,11 @@ Replace the removed `full)` lines with a single medium-tier step so `full` still
 		step "unit + patch e2e (medium)" run_patches
 ```
 
-- [ ] **Step 3: Update the header and `print_list`**
+- [x] **Step 3: Update the header and `print_list`**
 
 In the header comment block, delete the `high (2)` and `readonly (2.5)` tier rows and the two `./run-test.sh …` usage lines for them. In `print_list()`, delete the corresponding `$(G high)` and `$(G readonly)` lines.
 
-- [ ] **Step 4: Run every surviving tier**
+- [x] **Step 4: Run every surviving tier**
 
 Run:
 ```bash
@@ -692,7 +692,7 @@ bash bun-apps/pi-agent-ext-devops/scripts/run-test.sh --list
 ```
 Expected: `quick` and `medium` exit 0; `--list` prints only `quick`, `medium`, `smoke`, `full`.
 
-- [ ] **Step 5: Confirm no caller still passes a removed tier**
+- [x] **Step 5: Confirm no caller still passes a removed tier**
 
 Run:
 ```bash
@@ -702,7 +702,7 @@ grep -rn "run-test.sh \(high\|readonly\)\|tier.*\"high\"\|tier.*\"readonly\"" \
 ```
 Expected: no output. (Hits inside `.planning/` or `vaults_root/` are historical records and are left alone.)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -u bun-apps/pi-agent-ext-devops/scripts/run-test.sh
@@ -720,7 +720,7 @@ deleted with them. quick / medium / smoke / full remain."
 - Delete: `bun-apps/pi-agent-ext-devops/src/verify-deploy-cli.ts`
 - Modify: `bun-apps/pi-agent-ext-devops/package.json`
 
-- [ ] **Step 1: Confirm nothing invokes it**
+- [x] **Step 1: Confirm nothing invokes it**
 
 Run:
 ```bash
@@ -730,7 +730,7 @@ grep -rn "devops-verify-deploy\|verify-deploy-cli" \
 ```
 Expected: only the `package.json` bin line and the file itself. The `ci-workflow-references.test.ts` hits are prose in comments, not invocations.
 
-- [ ] **Step 2: Delete the file and its bin entry**
+- [x] **Step 2: Delete the file and its bin entry**
 
 ```bash
 git rm bun-apps/pi-agent-ext-devops/src/verify-deploy-cli.ts
@@ -742,7 +742,7 @@ In `bun-apps/pi-agent-ext-devops/package.json`, delete this line from the `bin` 
     "devops-verify-deploy": "./src/verify-deploy-cli.ts",
 ```
 
-- [ ] **Step 3: Verify the package still resolves its bins**
+- [x] **Step 3: Verify the package still resolves its bins**
 
 Run:
 ```bash
@@ -751,7 +751,7 @@ Run:
 ```
 Expected: PASS, typecheck clean.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -u bun-apps/pi-agent-ext-devops
@@ -773,7 +773,7 @@ Everything that imported these is gone as of Task 7, so this is the last consume
 - Delete: `bun-apps/pi-agent-ext-devops/scripts/lib/ext-hash.ts` + `ext-hash.test.ts`
 - Delete: `bun-apps/pi-agent-ext-devops/scripts/lib/deploy-target-guard.test.ts`
 
-- [ ] **Step 1: Confirm no surviving import**
+- [x] **Step 1: Confirm no surviving import**
 
 Run:
 ```bash
@@ -783,7 +783,7 @@ grep -rn "scripts/deploy\.ts\|build-extensions\|ext-hash" \
 ```
 Expected: no output.
 
-- [ ] **Step 2: Delete**
+- [x] **Step 2: Delete**
 
 ```bash
 git rm bun-apps/pi-agent-ext-devops/scripts/deploy.ts \
@@ -796,7 +796,7 @@ git rm bun-apps/pi-agent-ext-devops/scripts/deploy.ts \
 
 `deploy-target-guard.test.ts` guards `deploy.ts`'s "the out-dir is a free positional, so `bun run deploy /opt` deletes `/opt`" hazard. The sh deploy takes `outRoot` from config and derives version dirs from it, so the hazard has no habitat — this is retiring a guard with its bug class, not dropping a check.
 
-- [ ] **Step 3: Typecheck and test the package**
+- [x] **Step 3: Typecheck and test the package**
 
 Run:
 ```bash
@@ -804,7 +804,7 @@ Run:
 ```
 Expected: typecheck clean, all tests pass.
 
-- [ ] **Step 4: Prove the sh deploy is unaffected**
+- [x] **Step 4: Prove the sh deploy is unaffected**
 
 Run:
 ```bash
@@ -814,7 +814,7 @@ Expected: exit 0, JSON listing every configured extension.
 
 Then: `chmod -R u+w /tmp/deploy-t8 && rm -rf /tmp/deploy-t8`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -u bun-apps/pi-agent-ext-devops/scripts
@@ -839,7 +839,7 @@ and the warm-build hash cache that only it used."
 - Modify: `bun-apps/pi-agent/package.json`
 - Modify: `bun-apps/pi-agent/update-pi.sh`
 
-- [ ] **Step 1: Delete the dead scripts**
+- [x] **Step 1: Delete the dead scripts**
 
 In `bun-apps/pi-agent/package.json`, delete these entries from `scripts`:
 
@@ -861,7 +861,7 @@ and replace the `"//deploy"` documentation key with:
 
 Keep `deploy:sh` exactly as it is.
 
-- [ ] **Step 2: Repoint `do_rebuild` in `update-pi.sh`**
+- [x] **Step 2: Repoint `do_rebuild` in `update-pi.sh`**
 
 Replace the `do_rebuild()` function (comment block included) with:
 
@@ -884,7 +884,7 @@ do_rebuild() {
 }
 ```
 
-- [ ] **Step 3: Update the `--rebuild` help text**
+- [x] **Step 3: Update the `--rebuild` help text**
 
 In the header's `USAGE` block, change:
 
@@ -900,7 +900,7 @@ to:
 
 and change the final next-steps line from `rebuild the bundle when ready` to `cut a new deploy when ready`.
 
-- [ ] **Step 4: Verify the scripts guard passes**
+- [x] **Step 4: Verify the scripts guard passes**
 
 Run:
 ```bash
@@ -909,7 +909,7 @@ bash bun-apps/pi-agent/update-pi.sh --lockstep
 ```
 Expected: test PASS; `--lockstep` prints `✓ lockstep OK` and exits 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -u bun-apps/pi-agent/package.json bun-apps/pi-agent/update-pi.sh
@@ -927,7 +927,7 @@ replaces — the help text says so."
 **Files:**
 - Delete: `dist/pi-agent/` (gitignored build output — a filesystem delete, not a git one)
 
-- [ ] **Step 1: Remove the stale artifact tree**
+- [x] **Step 1: Remove the stale artifact tree**
 
 ```bash
 chmod -R u+w dist/pi-agent 2>/dev/null || true
@@ -936,7 +936,7 @@ rm -rf dist/pi-agent
 
 Nothing regenerates it now. It is gitignored (`.gitignore:44`), so there is nothing to commit for this step alone.
 
-- [ ] **Step 2: Confirm no live reference survives**
+- [x] **Step 2: Confirm no live reference survives**
 
 Run:
 ```bash
@@ -946,7 +946,7 @@ grep -rn "dist/pi-agent" \
 ```
 Expected: no output. Hits in `*.md`, `.planning/`, or `vaults_root/` are documentation and history — Task 1b of the spec folds the docs; leave them for that PR.
 
-- [ ] **Step 3: Run the full local CI**
+- [x] **Step 3: Run the full local CI**
 
 Run:
 ```bash
@@ -954,7 +954,7 @@ bun bun-apps/pi-agent-ext-devops/src/local-ci-cli.ts
 ```
 Expected: every gate green. This is the gate that decides the PR.
 
-- [ ] **Step 4: Confirm the deployed artifact still works end to end**
+- [x] **Step 4: Confirm the deployed artifact still works end to end**
 
 Run:
 ```bash
@@ -965,7 +965,7 @@ Expected: the deploy exits 0, and `--ext-list` reports every extension in `deplo
 
 Then: `chmod -R u+w /tmp/deploy-final && rm -rf /tmp/deploy-final`
 
-- [ ] **Step 5: Push and open the PR**
+- [x] **Step 5: Push and open the PR**
 
 ```bash
 git push -u origin deploy-arch-simplification
@@ -991,3 +991,65 @@ Then open the PR with `gh pr create`, titling it
 
 - Collapsing `"bundle"` out of `mode.ts` / `resolve.ts` / `run-context.ts` / `set-package-dir.ts`, the `pi-agent.sh` launcher arm, the file renames, and the docs fold — that is Phase 1b.
 - Anything touching `deploy-config.yaml`, `manifest.json`, or `static-extensions.ts` — that is Phase 2, and it must not start while a sibling worktree has registry changes in flight.
+
+
+---
+
+## Execution record (2026-08-20)
+
+All 10 tasks executed on branch `deploy-arch-simplification`, 11 commits, each
+green before the next. Net **-4,959 / +2,036** lines across 55 files. Final
+`local_ci`: 25 gates, all pass, 130s of a 300s budget. Final deploy: 12
+extensions loaded, `skipped: []`.
+
+### Deviations from the plan
+
+1. **Task 5 — e2e-launcher's three bundle cases were KEPT**, not deleted. They
+   cover an arm of `pi-agent.sh` that is still live in 1a; they go in 1b with
+   the behaviour. Recorded inline in Task 5, Step 3.
+
+2. **Six consumers the plan had not found**, each surfaced by a guard rather
+   than by the grep sweeps:
+   - `deploy-run.ts`'s `resolvePiAgentDir` **probed for `scripts/deploy.ts`** to
+     decide whether a directory is the source repo. Deleting it would have made
+     every resolve return `null` and `pi_verify` refuse to run with "could not
+     locate the source pi-agent dir". Repointed at `deploy-sh.ts`. This was the
+     one deletion that would have shipped a silent break.
+   - `doctor.test.ts` derived its produced-mode set by reading `deploy.ts`'s
+     `KNOWN_FLAGS`. Rewritten as an orphan-set guard, not deleted.
+   - `ci-workflow-references.test.ts` carried a whole `deploy.ts — every flag a
+     shell script passes` describe block plus its `KNOWN_FLAGS` reader, and a
+     vacuity floor pinned on `run-test.sh`.
+   - `e2e-launcher.test.ts`'s `update-pi.sh` reference guard scanned for
+     `bun <x>.ts` and found zero once `do_rebuild` moved to a package script.
+   - `ci-deploy-gate.ts` ran `bun test e2e-patches.test.ts e2e-extensions.test.ts`
+     — the two files Task 5 deleted. Its unit test pinned the command STRING and
+     nothing else, so the suite stayed green while `local_ci` went red.
+   - the dead-export gate caught `e2e-harness.ts → SRC_CLI` after its only
+     consumer was deleted.
+
+3. **Extra deletions the plan did not list**: `workflow-portable-e2e.test.ts`
+   (spawns a compiled binary with `cli workflow run`, which the sh core refuses
+   by construction; `workflow-pack.test.ts` already covers the same
+   `cwd-workflows` tier at unit level), the `deploy-verify` and `compile-verify`
+   workflow jobs, `tests/verify-deploy-cli.test.ts`, `deploy-run.ts`'s
+   `assertSafeOutDir` + `isWithin`, `scripts/vendor-modules.d.ts`, and
+   pi-agent's `javascript-obfuscator` devDependency.
+
+### Facts established while executing
+
+- **`run-test.sh` is now referenced by no workflow job.** Its only reference was
+  `deploy-verify`. It is a local / `pi_verify` tool. Recorded in the vacuity
+  guard rather than papered over.
+- Two guards were falsification-checked before being trusted: the zero-writes
+  test (canary file into the frozen tree → fails on the find-snapshot diff) and
+  the `bun run <script>` guard (bogus script name → fails).
+
+### Follow-up (Phase 1b) — unchanged from the spec, plus
+
+- delete e2e-launcher's three bundle cases with the `pi-agent.sh` arm they cover
+- `PRD.md` / `README.md` / `deploy-cwd-trust.md` / `deploy-readonly.md` still
+  document `run-test.sh high|readonly` and the four modes; they fold into
+  `docs/deploy.md`
+- `doctor.test.ts`'s `KNOWN_ORPHANS = {bundle}` must empty out when `bundle`
+  leaves `DeployMode` — the guard is written to fail if it does not
