@@ -6,8 +6,9 @@
  * accumulated history.
  *
  * Sources:
- *   manual   — ~/.pi/subagents/runs/<id>.json (SubagentRunRecord)
+ *   manual   — ~/.pi/subagents/runs/<id>.json (SubagentRunRecord) — LIVE
  *   workflow — per-run PersistedRunState via createRunPersistence (workflow ext)
+ *              — NOT YET WIRED (future ticket; see the effort ledger)
  * Normalize functions are exported pure; live reads only in run().
  */
 import { readdirSync, readFileSync } from "node:fs";
@@ -28,20 +29,18 @@ export interface DispatchRecord {
 }
 
 /** Manual subagent run -> DispatchRecord. Status mapping:
- * done->green, failed->red, budget|timedout|turns->budget-dead, aborted->skipped. */
-export function normalizeSubagentRecord(
-	rec: SubagentRunRecord,
-	effort: string,
-	tier: string,
-): DispatchRecord {
+ * done->green, failed->red, budget|timedout|turns->budget-dead, aborted->skipped.
+ * The manual archive carries NO effort/tier attribution — records are stamped
+ * "unknown" rather than fabricating the query's values onto them. */
+export function normalizeSubagentRecord(rec: SubagentRunRecord): DispatchRecord {
 	const outcome =
 		rec.status === "done" ? "green"
 		: rec.status === "failed" ? "red"
 		: rec.status === "budget" || rec.status === "timedout" || rec.status === "turns" ? "budget-dead"
 		: "skipped";
 	return {
-		effort,
-		tier,
+		effort: "unknown",
+		tier: "unknown",
 		ticket: rec.task?.match(/(?:ticket|task)\s*#?(\d+)/i)?.[1] ?? rec.id,
 		engine: "manual",
 		tokenBudget: rec.usage?.total ?? 0,
@@ -82,14 +81,18 @@ export interface DispatchFilter {
 	outcome?: string;
 }
 
+/** Filter predicate shared by the renderer and the exit-code logic. */
+export function matchesDispatchFilter(r: DispatchRecord, filter: DispatchFilter): boolean {
+	return (
+		(!filter.effort || r.effort === filter.effort) &&
+		(!filter.tier || r.tier === filter.tier) &&
+		(!filter.outcome || r.outcome === filter.outcome)
+	);
+}
+
 /** Human-readable table + a death-rate summary line. */
 export function renderDispatchLog(records: DispatchRecord[], filter: DispatchFilter): string {
-	const rows = records.filter(
-		(r) =>
-			(!filter.effort || r.effort === filter.effort) &&
-			(!filter.tier || r.tier === filter.tier) &&
-			(!filter.outcome || r.outcome === filter.outcome),
-	);
+	const rows = records.filter((r) => matchesDispatchFilter(r, filter));
 	const death = rows.filter((r) => r.outcome === "budget-dead" || r.outcome === "red").length;
 	const pct = rows.length === 0 ? 0 : Math.round((death / rows.length) * 100);
 	const lines = rows.map(
@@ -99,7 +102,7 @@ export function renderDispatchLog(records: DispatchRecord[], filter: DispatchFil
 	return [...lines, ``, `${rows.length} dispatch(es), ${pct}% death rate (red + budget-dead)`].join("\n");
 }
 
-function loadManualRecords(effort: string, tier: string): DispatchRecord[] {
+function loadManualRecords(): DispatchRecord[] {
 	const dir = join(process.env.HOME ?? "~", ".pi/subagents/runs");
 	let files: string[] = [];
 	try {
@@ -110,7 +113,7 @@ function loadManualRecords(effort: string, tier: string): DispatchRecord[] {
 	const out: DispatchRecord[] = [];
 	for (const f of files) {
 		try {
-			out.push(normalizeSubagentRecord(JSON.parse(readFileSync(join(dir, f), "utf8")) as SubagentRunRecord, effort, tier));
+			out.push(normalizeSubagentRecord(JSON.parse(readFileSync(join(dir, f), "utf8")) as SubagentRunRecord));
 		} catch {
 			// malformed record — skip
 		}
@@ -119,17 +122,24 @@ function loadManualRecords(effort: string, tier: string): DispatchRecord[] {
 }
 
 async function run(repoRoot: string, parsed: import("../args.ts").ParsedArgs): Promise<void> {
-	const effort = parsed.effort ?? "";
-	const tier = parsed.tier ?? "T?";
+	const effort = parsed.effort;
 	const outcome = parsed.outcome;
-	const records = loadManualRecords(effort, tier);
-	console.log(renderDispatchLog(records, {
-			effort: effort || undefined,
-			tier: parsed.tier, // pass through when explicitly set
-			outcome,
-		}));
-	console.log(`(workflow-side records: run the workflow Report phase or 'workflow journal' — normalizeWorkflowRun is wired there)`);
-	process.exitCode = records.length === 0 && effort ? 1 : 0;
+	const records = loadManualRecords();
+	const filter: DispatchFilter = {
+		effort: effort || undefined,
+		tier: parsed.tier, // pass through when explicitly set
+		outcome,
+	};
+	console.log(renderDispatchLog(records, filter));
+	if (effort) {
+		// Manual records carry no effort attribution, so an --effort query can
+		// only ever match workflow-side records (not yet wired — future ticket).
+		console.log(
+			"(manual archive has no effort attribution — filtering by effort covers workflow records only (not yet wired))",
+		);
+		const matched = records.filter((r) => matchesDispatchFilter(r, filter)).length;
+		process.exitCode = matched === 0 ? 1 : 0;
+	}
 }
 
 export const dispatchLogCommand = {
@@ -139,8 +149,11 @@ export const dispatchLogCommand = {
   pi-agent cli dispatch-log [--effort <name>] [--tier T2] [--outcome budget-dead]
 
 Prints normalized dispatch records from the manual subagent archive
-(~/.pi/subagents/runs) plus the workflow journal summary, with a
-death-rate line. Exits 0 with records, 1 when --effort is set and no records match.`,
+(~/.pi/subagents/runs), with a death-rate line. The manual archive has no
+effort/tier attribution (records show "unknown"), so --effort/--tier
+filters match workflow records only — workflow-side wiring is future
+work (see the effort ledger). Exits 0 with records, 1 when --effort is
+set and no records match.`,
 	run: async (parsed: import("../args.ts").ParsedArgs) => {
 		await run(join(import.meta.dir, "../../../../.."), parsed);
 	},

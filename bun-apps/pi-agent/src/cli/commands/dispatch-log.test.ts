@@ -4,6 +4,7 @@ import {
 	normalizeSubagentRecord,
 	normalizeWorkflowRun,
 	renderDispatchLog,
+	matchesDispatchFilter,
 	type DispatchRecord,
 } from "./dispatch-log.ts";
 
@@ -44,18 +45,21 @@ describe("normalizeSubagentRecord", () => {
 	test("done -> green", () => {
 		const r = normalizeSubagentRecord(
 			mkSubagentRecord({ status: "done", usage: { total: 180000, input: 90000, output: 90000, cacheRead: 0, cacheWrite: 0, cost: 0 }, task: "impl ticket 02" }),
-			"demo-effort",
-			"T2",
 		);
 		expect(r.engine).toBe("manual");
 		expect(r.outcome).toBe("green");
 		expect(r.tokenBudget).toBe(180000);
 	});
+	test("manual records carry unknown effort/tier (no fabricated attribution)", () => {
+		const r = normalizeSubagentRecord(mkSubagentRecord({ status: "done" }));
+		expect(r.effort).toBe("unknown");
+		expect(r.tier).toBe("unknown");
+	});
 	test("budget -> budget-dead, timedout -> budget-dead, failed -> red, turns -> budget-dead", () => {
-		expect(normalizeSubagentRecord(mkSubagentRecord({ id: "r2", status: "budget" }), "e", "T1").outcome).toBe("budget-dead");
-		expect(normalizeSubagentRecord(mkSubagentRecord({ id: "r3", status: "timedout" }), "e", "T1").outcome).toBe("budget-dead");
-		expect(normalizeSubagentRecord(mkSubagentRecord({ id: "r4", status: "failed" }), "e", "T1").outcome).toBe("red");
-		expect(normalizeSubagentRecord(mkSubagentRecord({ id: "r5", status: "turns" }), "e", "T1").outcome).toBe("budget-dead");
+		expect(normalizeSubagentRecord(mkSubagentRecord({ id: "r2", status: "budget" })).outcome).toBe("budget-dead");
+		expect(normalizeSubagentRecord(mkSubagentRecord({ id: "r3", status: "timedout" })).outcome).toBe("budget-dead");
+		expect(normalizeSubagentRecord(mkSubagentRecord({ id: "r4", status: "failed" })).outcome).toBe("red");
+		expect(normalizeSubagentRecord(mkSubagentRecord({ id: "r5", status: "turns" })).outcome).toBe("budget-dead");
 	});
 });
 
@@ -93,5 +97,30 @@ describe("renderDispatchLog", () => {
 		expect(out).toContain("green");
 		expect(out).toContain("budget-dead");
 		expect(out).toContain("50%"); // death rate line
+	});
+});
+
+describe("honest effort filtering (manual archive has no attribution)", () => {
+	const manual: DispatchRecord[] = [
+		{ effort: "unknown", tier: "unknown", ticket: "01", engine: "manual", tokenBudget: 90000, maxTurns: 0, outcome: "green", commit: null, ts: "2026-08-20T10:00:00Z" },
+		{ effort: "unknown", tier: "unknown", ticket: "02", engine: "manual", tokenBudget: 80000, maxTurns: 0, outcome: "budget-dead", commit: null, ts: "2026-08-20T11:00:00Z" },
+	];
+
+	test("--effort query over manual-only records yields zero rows", () => {
+		const out = renderDispatchLog(manual, { effort: "nonexistent-effort" });
+		expect(out).toContain("0 dispatch(es)");
+		expect(manual.filter((r) => matchesDispatchFilter(r, { effort: "nonexistent-effort" }))).toHaveLength(0);
+	});
+	test("any --effort value excludes manual records (unknown never matches)", () => {
+		// Even a real effort name cannot match manual records — this is what
+		// makes the exit-1 path honest instead of fabricated.
+		for (const effort of ["nonexistent-effort", "2026-08-20-develop-pipeline-v2"]) {
+			expect(manual.some((r) => matchesDispatchFilter(r, { effort }))).toBe(false);
+		}
+	});
+	test("no filter shows all manual records with unknown labels", () => {
+		const out = renderDispatchLog(manual, {});
+		expect(out).toContain("unknown");
+		expect(out).toContain("2 dispatch(es)");
 	});
 });
