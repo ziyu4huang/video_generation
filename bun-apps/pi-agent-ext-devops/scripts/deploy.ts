@@ -24,6 +24,7 @@
  */
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { APP_NAME } from "./lib/app-name.ts";
 import { parseShConfig, type ShConfig } from "./lib/config.ts";
 import { buildExtPackage } from "./lib/ext-build.ts";
 import {
@@ -226,7 +227,7 @@ if [ -z "\${PUPPETEER_EXECUTABLE_PATH:-}" ]; then
   done
 fi
 
-exec "\$SCRIPT_DIR/pi-agent" "\$@"
+exec "\$SCRIPT_DIR/${APP_NAME}" "\$@"
 `;
 
 interface ExtListPayload {
@@ -246,7 +247,7 @@ function extListOf(binary: string): ExtListPayload {
 
 /** Gate 3: extensions load; with ext/ moved aside the core still exits 0 with none. */
 function verifyDualState(stageDir: string, expected: string[]): void {
-	const binary = join(stageDir, "pi-agent");
+	const binary = join(stageDir, APP_NAME);
 	const withExt = extListOf(binary);
 	const missing = expected.filter((n) => !withExt.loaded.includes(n));
 	if (missing.length > 0) {
@@ -375,7 +376,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 
 	const built: Array<{ name: string; bytes: number }> = [];
 	try {
-		const { bytes: coreBytes, cached: coreCached } = await buildCore(join(stage, "pi-agent"), { outRoot, freeze });
+		const { bytes: coreBytes, cached: coreCached } = await buildCore(join(stage, APP_NAME), { outRoot, freeze });
 
 		for (const ext of enabled) {
 			const r = await buildExtPackage({
@@ -413,7 +414,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 		// becomes the deployed version. The binary scan keys off the FINAL
 		// version path: a baked `.staging-…` path is itself a violation (it
 		// sits under $HOME and would break relocatability).
-		verifyOfflineContainment(stage, { binary: join(stage, "pi-agent"), finalTarget: target });
+		verifyOfflineContainment(stage, { binary: join(stage, APP_NAME), finalTarget: target });
 
 		// Gate 6 — behavioural relocatability: boot a clone of the staged tree
 		// from a different absolute path.
