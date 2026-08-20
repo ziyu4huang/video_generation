@@ -5,7 +5,7 @@
  * It used to build a bundle deploy and spawn it (ensureBundle / runBundle /
  * DEPLOY_SCRIPT / DIST_BUNDLE). That machinery went with the four legacy deploy
  * modes: the deployed artifact is now the versioned sh tree, and its e2e lives
- * in pi-agent-ext-devops/tests/deploy-sh-probe-e2e.test.ts, which calls
+ * in pi-agent-ext-devops/tests/deploy-probe-e2e.test.ts, which calls
  * runShDeploy directly rather than through a shared build cache.
  *
  * `bun-apps/pi-agent-ext-devops/scripts/run-test.sh` sets PI_AGENT_E2E=1 for

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { parseShConfig } from "../scripts/lib/sh-config.ts";
+import { parseShConfig } from "../scripts/lib/config.ts";
 import { HOST_API, HOST_MODULE_IDS } from "../../pi-agent/src/sh/host-modules.ts";
 
 const BUN_APPS = join(import.meta.dir, "..", "..");

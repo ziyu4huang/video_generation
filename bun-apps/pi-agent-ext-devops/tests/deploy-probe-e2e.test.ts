@@ -1,10 +1,10 @@
 /**
- * deploy-sh-probe-e2e — L1: run the DEPLOYED binary and prove the extensions
+ * deploy-probe-e2e — L1: run the DEPLOYED binary and prove the extensions
  * actually work, offline.
  *
  * WHY THIS EXISTS
  * ---------------
- * The four build gates prove the tree is well-formed; `deploy-sh-e2e.test.ts`
+ * The four build gates prove the tree is well-formed; `deploy-e2e.test.ts`
  * proves `--ext-list` reports the right names in both states. Neither starts a
  * session, so neither could see that power-tool's SDK polyfill was dead in every
  * deploy for a week (it printed a warning on every run) or that playwright's
@@ -24,9 +24,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runShDeploy } from "../scripts/deploy-sh.ts";
-import { parseShConfig } from "../scripts/lib/sh-config.ts";
-import { freezeTree, rmTree, unfreezeTree } from "../scripts/lib/sh-fs.ts";
+import { runShDeploy } from "../scripts/deploy.ts";
+import { parseShConfig } from "../scripts/lib/config.ts";
+import { freezeTree, rmTree, unfreezeTree } from "../scripts/lib/fs.ts";
 
 const RUN = process.env.PI_AGENT_E2E === "1";
 const describeE2E = RUN ? describe : describe.skip;
@@ -147,7 +147,7 @@ describeE2E("pi-agent-sh L1 — the deployed binary really runs its extensions",
 
 		// `<inline:` is what pi labels a factory handed to main({extensionFactories}),
 		// which is how sh delivers extensions it loaded off disk. It does NOT prove
-		// the code came from ext/ — the dual-state gate in deploy-sh-e2e does that
+		// the code came from ext/ — the dual-state gate in deploy-e2e does that
 		// by deleting ext/ and watching the count go to zero. Recorded so the
 		// marker is not mistaken for a provenance proof it cannot give.
 		expect(r.code).toBe(0);
@@ -372,7 +372,7 @@ describeE2E("pi-agent-sh L1 — the deployed binary really runs its extensions",
 	}, 120_000);
 
 	test("the core still boots after ext/ is removed entirely", async () => {
-		// deploy-sh-e2e asserts this against a frozen tree at deploy time; asserted
+		// deploy-e2e asserts this against a frozen tree at deploy time; asserted
 		// here too because every OTHER test in this file would still pass if the
 		// core had quietly grown a dependency on its extensions.
 		const parked = join(target, "ext-parked");

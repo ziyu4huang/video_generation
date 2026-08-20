@@ -1,6 +1,6 @@
 # deploy-config.yaml — source of truth for the pi-agent-sh deploy.
 #
-# Consumed by bun-apps/pi-agent-ext-devops/scripts/deploy-sh.ts
+# Consumed by bun-apps/pi-agent-ext-devops/scripts/deploy.ts
 # (CLI: bun run --cwd bun-apps/pi-agent deploy:sh).
 # CLI flags override these values; this file never overrides an explicit flag.
 #
@@ -13,7 +13,7 @@
 # subagent/workflow, web-access, and the knowledge layer (obsidian +
 # knowledge-card) ship in the box. Everything machine-bound (swift director
 # CLIs, LM Studio, mupdf) or repo-internal (devops, tool-gate) stays out — see
-# docs/deploy-sh.md "Limits" for the exclusion rationale.
+# docs/deploy.md "Limits" for the exclusion rationale.
 outRoot: ~/proj/dist/pi-agent-sh
 version:
   from: package.json

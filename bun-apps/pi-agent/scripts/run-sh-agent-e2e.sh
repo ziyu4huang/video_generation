@@ -6,7 +6,7 @@
 #     a deployed tool (todo) and the provider must accept it — this is the tier
 #     that catches a tool schema the provider rejects (the z.ai "Invalid schema
 #     for function 'todo': type: null" 400) and a tool that registers but dies
-#     on first execute. L1 (deploy-sh-probe-e2e.test.ts) proves registration;
+#     on first execute. L1 (deploy-probe-e2e.test.ts) proves registration;
 #     only L2 proves execution.
 #
 #   L3 (--tui): the deployed binary's interactive TUI under a real pty
@@ -54,10 +54,10 @@ if [ -n "${DEPLOY_DIR:-}" ]; then
 else
   echo "── deploying sh bundle to $TMP ──"
   # Call the CLI directly — `bun run deploy:sh` would first echo its command
-  # line to stdout and pollute the JSON. deploy-sh-cli promises PURE JSON on
+  # line to stdout and pollute the JSON. deploy-cli promises PURE JSON on
   # stdout (that convention is what makes this parse safe — the build report
   # goes to stderr). --no-freeze keeps the tree removable by the EXIT trap.
-  if ! bun "$DEVOPS/src/deploy-sh-cli.ts" --out "$TMP" --no-freeze > "$TMP/deploy.json" 2> "$TMP/deploy.err"; then
+  if ! bun "$DEVOPS/src/deploy-cli.ts" --out "$TMP" --no-freeze > "$TMP/deploy.json" 2> "$TMP/deploy.err"; then
     echo "error: deploy failed:" >&2
     cat "$TMP/deploy.err" >&2
     exit 1

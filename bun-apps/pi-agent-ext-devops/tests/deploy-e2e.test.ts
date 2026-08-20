@@ -2,9 +2,9 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, readlinkSync, renameSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runShDeploy } from "../scripts/deploy-sh.ts";
-import { parseShConfig } from "../scripts/lib/sh-config.ts";
-import { freezeTree, rmTree, unfreezeTree } from "../scripts/lib/sh-fs.ts";
+import { runShDeploy } from "../scripts/deploy.ts";
+import { parseShConfig } from "../scripts/lib/config.ts";
+import { freezeTree, rmTree, unfreezeTree } from "../scripts/lib/fs.ts";
 
 const RUN = process.env.PI_AGENT_E2E === "1";
 const describeE2E = RUN ? describe : describe.skip;
@@ -16,7 +16,7 @@ afterAll(() => rmTree(outRoot));
 // out here. This file used to assert ["power-tool", "task"] — true when the base
 // set was two, silently wrong from #1713 (hyperframes) onward and flatly red
 // after #1738 took it to fourteen. Nothing caught that for two releases because
-// no gate ran this file: check-deploy-sh-e2e.sh runs the PROBE e2e, and the
+// no gate ran this file: check-deploy-e2e.sh runs the PROBE e2e, and the
 // PI_AGENT_E2E gate hides the rest from a plain `bun test`. Same lesson as the
 // probe suite's own header — the config is the source of truth for what a
 // deploy ships.

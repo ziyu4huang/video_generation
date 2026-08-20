@@ -1,5 +1,5 @@
 /**
- * sh-fs.ts — filesystem helpers for the pi-agent-sh deploy.
+ * fs.ts — filesystem helpers for the pi-agent-sh deploy.
  *
  * freeze/unfreeze exist because a deployed tree is chmod a-w by default (a
  * deployed artifact must not be edited in place), and the single-extension

@@ -1,5 +1,5 @@
 /**
- * sh-config.ts — parse + validate bun-apps/pi-agent/deploy-config.yaml.
+ * config.ts — parse + validate bun-apps/pi-agent/deploy-config.yaml.
  *
  * Strict on purpose: an unknown key is an error, not a silent no-op. A typo in
  * a deploy config that silently does nothing is the failure mode this rejects.

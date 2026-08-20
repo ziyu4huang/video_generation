@@ -116,7 +116,7 @@ export function generateEmbeddedAssets(
 
   const outFile = join(bunAppsDir, "pi-agent", "src", "generated", "embedded-assets.ts");
   writeFileSync(outFile, output, "utf8");
-  // Progress line, and the sh deploy runs this under deploy-sh-cli — which
+  // Progress line, and the sh deploy runs this under deploy-cli — which
   // promises stdout is PURE JSON. stderr is where progress belongs.
   console.error(`  ✓ embedded-assets.ts  (${allFiles.length} files${embedMode ? ", embedded" : ", empty manifest"})`);
 }

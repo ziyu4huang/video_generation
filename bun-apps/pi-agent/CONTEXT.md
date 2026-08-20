@@ -46,25 +46,21 @@ _Avoid_: helpers, utils (each module is a concern, not a grab bag)
 
 ### Build & deploy
 
-**Source / bundle / binary modes**:
-The three execution modes. Source (`bun src/cli.ts`) resolves deps via the real node_modules; bundle (`dist/pi-agent/pi-agent.js`) symlinks a node_modules for `getAliases()`; the compiled binary (`--exe`) cannot dynamically load `.ts` extensions (jiti + Bun-compile `ENAMETOOLONG`) — it statically imports the static extension set (`run-dir/manifest.json` → `staticExtensions`, mirrored by `src/static-extensions.ts`) instead. (The size is deliberately NOT restated here — it drifted independently in six documents before `run-dir/manifest-consistency.test.ts` made the manifest the single source of truth.) `deploy.ts` also has `--snapshot` (raw source copy) and `--standalone` (bundle + bun binary), both still "source" or "bundle" at the `detectMode()` level.
-_Avoid_: dev/prod modes (these are packaging modes, not environments)
+**Execution modes**:
+The two that remain after the deploy consolidation (spec: `.planning/specs/2026-08-20-deploy-architecture-consolidation-design.md`): source (`bun src/cli.ts`) resolves deps via the real node_modules; binary (the deployed core, entry `src/cli-sh.ts`) cannot dynamically load `.ts` extensions (jiti + Bun-compile `ENAMETOOLONG`) — it statically imports the static extension set (`run-dir/manifest.json` → `staticExtensions`, generated into `src/static-extensions.ts` by #1739's codegen) and discovers deployed `ext/<name>/` cjs bundles at runtime. The four legacy `deploy.ts` modes (`--bundle`/`--snapshot`/`--standalone`/`--exe`) are gone; so are `.deploy-bundle` and `ext-bundles/`. (The extension count is deliberately NOT restated here — it drifted independently in six documents before `run-dir/manifest-consistency.test.ts` made the manifest the single source of truth.)
+_Avoid_: dev/prod modes (these are packaging modes, not environments), "three modes" (bundle mode was collapsed in Phase 1b)
 
-**sh deploy (pi-agent-sh)**:
-A SECOND, independent pipeline (`bun run deploy:sh` → `../pi-agent-ext-devops/src/deploy-sh-cli.ts`), unrelated to the four `deploy.ts` modes above: a versioned tree at `~/proj/dist/pi-agent-sh/<version>/` holding a minimal compiled core (entry `src/cli-sh.ts`, ZERO extensions inside) plus extension packages under `ext/<name>/` that the core discovers at runtime. Extensions are cjs bundles with pi's runtime `--external`; the core injects its own embedded modules through the bundle's `require` (`src/sh/host-modules.ts`), which is what keeps extension and host on ONE module instance. See `docs/deploy-sh.md`.
-_Avoid_: fifth mode (it is a separate pipeline, not a `deploy.ts` flag), plugin dir (the contract is `ext.json` + host-injected require, not drop-in files)
-
-**THIN bundle**:
-The (only, since the unified `deploy.ts`) extension-bundling mode: each extension is pre-bundled to one `.js` sharing a single typebox instance instead of each pulling its own copy. Deployed as `ext-bundles/*.thin.js`.
-_Avoid_: minified bundle, slim bundle, FULL bundle (a FULL/per-extension-typebox mode existed historically but was removed — see `docs/superpowers/plans/2026-07-18-unified-deploy.md`)
+**deploy (pi-agent-sh)**:
+THE deploy pipeline (`bun run deploy:sh` → `../pi-agent-ext-devops/src/deploy-cli.ts` → `scripts/deploy.ts`): a versioned tree at `~/proj/dist/pi-agent-sh/<version>/` holding a minimal compiled core (entry `src/cli-sh.ts`, ZERO extensions inside) plus extension packages under `ext/<name>/` that the core discovers at runtime. Extensions are cjs bundles with pi's runtime `--external`; the core injects its own embedded modules through the bundle's `require` (`src/sh/host-modules.ts`), which is what keeps extension and host on ONE module instance. See `docs/deploy.md`.
+_Avoid_: sh deploy as a separate thing (since the consolidation there is only one deploy), plugin dir (the contract is `ext.json` + host-injected require, not drop-in files)
 
 **Read-only deploy**:
 The default deploy artifact — immutable (chmod a-w + `.deploy-readonly` marker), with all per-user state routed to `~/.pi/agent`. Drops onto `/opt` or an app bundle as-is.
 _Avoid_: frozen release, static deploy (it is an immutable artifact with writable state routed out)
 
-**Warm-deploy hash cache**:
-Per-extension `<name>.<thin|full>.hash` sidecar (hashed over source tree + flag + externals + `Bun.version`) that lets a warm deploy skip rebuild for unchanged extensions.
-_Avoid_: build cache, incremental cache
+**Warm-deploy hash cache** (RETIRED with the legacy pipeline):
+The per-extension `<name>.<thin|full>.hash` sidecar is gone — a full deploy is ~2s, so nothing skips rebuilds anymore.
+_Avoid_: reusing the term for the sh deploy (it rebuilds unconditionally)
 
 ### Self-check
 

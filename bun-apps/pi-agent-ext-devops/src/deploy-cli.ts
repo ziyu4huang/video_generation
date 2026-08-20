@@ -1,28 +1,28 @@
 #!/usr/bin/env bun
 /**
- * deploy-sh-cli.ts — CLI for the pi-agent-sh deploy.
+ * deploy-cli.ts — CLI for the pi-agent-sh deploy.
  *
  * Convention (shared with the other devops CLIs): stdout is PURE JSON, human
  * text goes to stderr, exit 0 = ok / 1 = failure / 2 = usage error.
  *
- *   bun src/deploy-sh-cli.ts                     # full deploy
- *   bun src/deploy-sh-cli.ts --ext power-tool    # rebuild one extension in place
- *   bun src/deploy-sh-cli.ts --list              # deployed versions + current
+ *   bun src/deploy-cli.ts                     # full deploy
+ *   bun src/deploy-cli.ts --ext power-tool    # rebuild one extension in place
+ *   bun src/deploy-cli.ts --list              # deployed versions + current
  */
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseDeployShArgv } from "./deploy-sh-argv.ts";
-import { runShDeploy } from "../scripts/deploy-sh.ts";
-import { parseShConfig } from "../scripts/lib/sh-config.ts";
-import { listVersions } from "../scripts/lib/sh-version.ts";
+import { runShDeploy } from "../scripts/deploy.ts";
+import { parseShConfig } from "../scripts/lib/config.ts";
+import { listVersions } from "../scripts/lib/version.ts";
 
 const BUN_APPS_DIR = resolve(import.meta.dir, "..", "..");
 const DEFAULT_CONFIG = join(BUN_APPS_DIR, "pi-agent", "deploy-config.yaml");
 
-const HELP = `deploy-sh-cli — versioned minimal-core deploy for pi-agent
+const HELP = `deploy-cli — versioned minimal-core deploy for pi-agent
 
 USAGE
-  bun src/deploy-sh-cli.ts [flags]
+  bun src/deploy-cli.ts [flags]
 
 FLAGS
   --config <path>   deploy config (default: bun-apps/pi-agent/deploy-config.yaml)

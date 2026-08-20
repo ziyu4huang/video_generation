@@ -1,7 +1,7 @@
 // scripts/lib/codegen.ts
 //
 // All progress output here goes to STDERR: the deploy CLIs promise stdout is
-// PURE JSON (deploy-sh-cli.ts convention), and these stages run under them.
+// PURE JSON (deploy-cli.ts convention), and these stages run under them.
 import { existsSync, mkdirSync } from "node:fs";
 import { generateEmbeddedAssets } from "../../../pi-agent/scripts/generate-embedded-assets.ts";
 

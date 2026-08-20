@@ -1,5 +1,5 @@
 /**
- * sh-ext-build.ts — build ONE extension package for a pi-agent-sh deploy.
+ * ext-build.ts — build ONE extension package for a pi-agent-sh deploy.
  *
  * Output per extension: <outDir>/{ext.cjs, ext.json, <skills dirs>}.
  *
@@ -19,8 +19,8 @@
  *      bun's cjs output rewrote playwright-core's `__dirname` to the builder's
  *      install cache (so the tree was not relocatable).
  *
- * The numbering matches docs/deploy-sh.md; gate 3 (dual-state --ext-list) is a
- * whole-deploy check and lives in deploy-sh.ts.
+ * The numbering matches docs/deploy.md; gate 3 (dual-state --ext-list) is a
+ * whole-deploy check and lives in deploy.ts.
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -30,7 +30,7 @@ import { evaluateExtModule, EXT_DIR_SPEC } from "../../../pi-agent/src/sh/ext-lo
 // The builtin list is the CORE's — a second copy here would drift, and the gate
 // would then disagree with the runtime it is supposed to be simulating.
 import { isBuiltinSpecifier } from "../../../pi-agent/src/sh/host-modules.ts";
-import type { ShExtConfig } from "./sh-config.ts";
+import type { ShExtConfig } from "./config.ts";
 
 /**
  * Host modules are resolved from pi-agent's own package, not from the bundle's

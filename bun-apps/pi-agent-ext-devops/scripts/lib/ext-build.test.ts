@@ -1,5 +1,5 @@
 /**
- * sh-ext-build — unit tests for the pure helpers.
+ * ext-build — unit tests for the pure helpers.
  *
  * extractBareSpecifiers scans minified bundle output for ESM bare specifiers
  * (the things Gate 1 checks against the host whitelist). It MUST NOT match a
@@ -9,7 +9,7 @@
  * function when the legacy build-extensions.ts was retired.
  */
 import { describe, expect, test } from "bun:test";
-import { extractBareSpecifiers } from "./sh-ext-build.ts";
+import { extractBareSpecifiers } from "./ext-build.ts";
 
 describe("extractBareSpecifiers", () => {
 	test("extracts real ESM bare specifiers", () => {

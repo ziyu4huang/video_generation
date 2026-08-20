@@ -1,4 +1,4 @@
-# deploy-sh — versioned minimal-core deploy
+# deploy — versioned minimal-core deploy
 
 A second, independent deploy pipeline. It builds a **minimal `pi-agent` executable with zero
 extensions compiled in**, plus **extension packages built separately** into `ext/<name>/`, all
@@ -188,8 +188,8 @@ Every deploy runs these; any failure aborts, removes the staging dir, and leaves
 The gates prove the tree is well-formed; they do not start a session. Three tiers do, in order of
 cost:
 
-- **L1 — `tests/deploy-sh-e2e.test.ts` + `tests/deploy-sh-probe-e2e.test.ts`** (both in CI via
-  `scripts/check-deploy-sh-e2e.sh`, wired into the `regression-gates` job). The first checks the
+- **L1 — `tests/deploy-e2e.test.ts` + `tests/deploy-probe-e2e.test.ts`** (both in CI via
+  `scripts/check-deploy-e2e.sh`, wired into the `regression-gates` job). The first checks the
   TREE — mode, freeze, version, `current` symlink, ext-only rebuild, the zero-extension state. The
   second runs the deployed binary offline: import-free `-e` probes fire on `session_start`, inspect
   tools/commands/skills/cross-extension seams, and exit before any provider call. Catches
@@ -198,7 +198,7 @@ cost:
   every single start; hermes-memory tried to mkdir into the frozen tree).
 
   Both derive their expected extension set from `deploy-config.yaml`. A literal list here goes
-  stale the moment the base set grows — `deploy-sh-e2e` asserted `["power-tool", "task"]` through
+  stale the moment the base set grows — `deploy-e2e` asserted `["power-tool", "task"]` through
   two releases of growth, red and unnoticed, because it was `PI_AGENT_E2E`-gated and the gate
   script ran only its sibling.
 - **L2 — `scripts/run-sh-agent-e2e.sh`** (opt-in; spends tokens). One real model turn in **text

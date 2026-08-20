@@ -288,7 +288,7 @@ jobs:
   # extension-contract below. It used to gate deploy-verify and compile-verify
   # too; both jobs built the four legacy deploy modes and were deleted with
   # them. The deployed artifact's gate is now the regression-gates step
-  # `bash scripts/check-deploy-sh-e2e.sh`, which is unconditional.
+  # `bash scripts/check-deploy-e2e.sh`, which is unconditional.
   # Also matches the 5 "core" extension packages that src/static-extensions.ts
   # statically imports (see run-dir/manifest.json's `staticExtensions` field) —
   # a change to any of THEIR source is just as capable of breaking pi-agent as
@@ -558,7 +558,7 @@ jobs:
       # how a dead sdk-patch polyfill shipped in every deploy for a week.
       # Must stay `if:`-free — parseCiGates refuses the whole gate list.
       - name: Deploy-sh L1 e2e (deployed binary runs its extensions, blocks)
-        run: bash scripts/check-deploy-sh-e2e.sh
+        run: bash scripts/check-deploy-e2e.sh
 
       # Extension-entry typecheck-coverage guard (blocks). An extension package's
       # registration entry lives at extensions/<X>.ts while its source lives in

@@ -21,8 +21,8 @@
 # bundle/snapshot/standalone modes and run the e2e suites that asserted against
 # them; those modes and suites were retired with the deploy-architecture
 # consolidation. The deployed artifact's e2e now lives in
-# pi-agent-ext-devops/tests/deploy-sh-probe-e2e.test.ts, gated from CI by
-# scripts/check-deploy-sh-e2e.sh.
+# pi-agent-ext-devops/tests/deploy-probe-e2e.test.ts, gated from CI by
+# scripts/check-deploy-e2e.sh.
 #
 # USAGE
 #   ./run-test.sh                  # = medium
@@ -101,7 +101,7 @@ Env gates the e2e test files read:
   PI_AGENT_E2E=1          enable the launcher symlink-resolution block (medium+)
 
 The deployed artifact's own e2e is a separate gate:
-  bash scripts/check-deploy-sh-e2e.sh
+  bash scripts/check-deploy-e2e.sh
 EOF
 }
 

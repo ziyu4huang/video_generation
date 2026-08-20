@@ -1,10 +1,10 @@
 /**
- * deploy-sh-argv.ts — pure argv parsing for deploy-sh-cli.
+ * deploy-sh-argv.ts — pure argv parsing for deploy-cli.
  *
  * Kept separate from the CLI (same split as deploy-argv.ts / deploy-tool.ts) so
  * the flag contract is unit-testable without running a deploy.
  */
-import type { DeployShOptions } from "../scripts/deploy-sh.ts";
+import type { DeployShOptions } from "../scripts/deploy.ts";
 
 export type DeployShAction =
 	| { kind: "deploy"; options: DeployShOptions }

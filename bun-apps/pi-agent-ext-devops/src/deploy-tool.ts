@@ -2,13 +2,13 @@
  * deploy-tool.ts — deploy_pi_agent_sh: run the versioned sh deploy and shape its result
  * for the tool surface.
  *
- * The deploy itself is scripts/deploy-sh.ts (single source of truth). This file
+ * The deploy itself is scripts/deploy.ts (single source of truth). This file
  * only maps params and shapes failures. It used to spawn scripts/deploy.ts and
  * scrape its human output with regexes for the bundle size and the ext-bundle
  * built/failed counts; runShDeploy returns a typed object, so that parser is
  * gone rather than ported.
  */
-import { runShDeploy, type DeployShOptions, type DeployShResult } from "../scripts/deploy-sh.ts";
+import { runShDeploy, type DeployShOptions, type DeployShResult } from "../scripts/deploy.ts";
 
 export interface DeployParams {
 	/** Rebuild only these extensions into the existing version dir. */
