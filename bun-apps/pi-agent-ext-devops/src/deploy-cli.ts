@@ -5,8 +5,7 @@
  * Convention (shared with the other devops CLIs): stdout is PURE JSON, human
  * text goes to stderr, exit 0 = ok / 1 = failure / 2 = usage error.
  *
- *   bun src/deploy-cli.ts                     # full deploy
- *   bun src/deploy-cli.ts --ext power-tool    # rebuild one extension in place
+ *   bun src/deploy-cli.ts                     # deploy (version dirs are immutable)
  *   bun src/deploy-cli.ts --list              # deployed versions + current
  */
 import { readFileSync } from "node:fs";
@@ -28,10 +27,8 @@ FLAGS
   --config <path>   deploy registry (default: bun-apps/pi-agent/pi-agent.registry.yaml)
   --out <dir>       override outRoot from the config
   --version <str>   override the computed <pkgVersion>+g<sha> version
-  --ext <name>      rebuild ONLY this extension into the existing version dir
-                    (repeatable; fails if that version dir does not exist)
   --force           replace an existing version dir
-  --no-freeze       skip chmod a-w on the deployed tree
+  --no-freeze       skip chmod a-w on the deployed tree (also bypasses the core cache)
   --no-current      do not repoint <outRoot>/current
   --list            list deployed versions and the current target
   --help            this text

@@ -718,18 +718,11 @@ export default function (pi: ExtensionAPI): void {
 			"packages under ext/, at <outRoot>/<version>/ (see bun-apps/pi-agent/pi-agent.registry.yaml). " +
 			"Returns the version, target dir, per-extension sizes, and whether `current` was repointed.",
 		parameters: Type.Object({
-			ext: Type.Optional(
-				Type.Array(Type.String(), {
-					description:
-						"Rebuild ONLY these extensions into the existing version dir (skips the core compile). " +
-						"Omit for a full deploy.",
-				}),
-			),
 			force: Type.Optional(
 				Type.Boolean({ description: "Replace an existing version dir. Default: false.", default: false }),
 			),
 			noFreeze: Type.Optional(
-				Type.Boolean({ description: "Skip chmod a-w (dev). Default: false.", default: false }),
+				Type.Boolean({ description: "Skip chmod a-w (dev; bypasses the core cache). Default: false.", default: false }),
 			),
 			noCurrent: Type.Optional(
 				Type.Boolean({ description: "Do not repoint <outRoot>/current. Default: false.", default: false }),
@@ -738,16 +731,16 @@ export default function (pi: ExtensionAPI): void {
 		async execute(_id, params) {
 			try {
 				const r = await runDeploy({
-					ext: params.ext,
 					force: params.force ?? false,
 					noFreeze: params.noFreeze ?? false,
 					noCurrent: params.noCurrent ?? false,
 				});
 				const text = r.ok
 					? `✓ deployed ${r.version} → ${r.target}\n` +
-						`  mode=${r.mode}, core=${((r.coreBytes ?? 0) / 1e6).toFixed(1)}MB, ` +
+						`  core=${((r.coreBytes ?? 0) / 1e6).toFixed(1)}MB${r.coreCached ? " (cached)" : ""}, ` +
 						`${r.extensions?.length ?? 0} extension(s)` +
-						(r.currentUpdated ? ", current repointed" : "")
+						(r.currentUpdated ? ", current repointed" : "") +
+						(r.pruned && r.pruned.length > 0 ? `, pruned ${r.pruned.join(", ")}` : "")
 					: `✗ deploy failed\n${r.errorTail ?? ""}`;
 				return {
 					content: [{ type: "text" as const, text }],

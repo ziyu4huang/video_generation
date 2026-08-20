@@ -35,6 +35,9 @@ deploy:
   version: { from: package.json, gitSha: true }
   freeze: true
   current: true
+  # Phase 3 retention: prune oldest-first after every deploy, never touching
+  # the version `current` points at, never fewer than this many dirs.
+  keep: 5
 hostApi: 2
 hostModules:
   - "@earendil-works/pi-coding-agent"

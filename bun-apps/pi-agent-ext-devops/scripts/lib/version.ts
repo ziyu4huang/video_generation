@@ -13,9 +13,14 @@ import {
 	readlinkSync,
 	renameSync,
 	rmSync,
+	statSync,
 	symlinkSync,
 } from "node:fs";
 import { join } from "node:path";
+import { rmTree } from "./fs.ts";
+
+/** Version dirs retained when the registry's deploy block sets no `keep`. */
+export const DEFAULT_KEEP = 5;
 
 export function computeVersion(opts: { pkgVersion: string; gitSha: string | null; useGitSha: boolean }): string {
 	if (!opts.useGitSha || !opts.gitSha) return opts.pkgVersion;
@@ -66,6 +71,47 @@ export function listVersions(outRoot: string): { versions: string[]; current: st
 /** Create the out root if needed (deploys must work on a fresh machine). */
 export function ensureOutRoot(outRoot: string): void {
 	mkdirSync(outRoot, { recursive: true });
+}
+
+/**
+ * Prune version directories oldest-first (by dir mtime = deploy time), never
+ * dropping below `keep` and never touching the version `current` points at —
+ * even if that means keep+1 survive. This is the actual fix for the 1.2 GB
+ * out root: nothing was ever pruned before Phase 3.
+ *
+ * Removal goes through rmTree, which unfreezes DIRECTORIES only — the
+ * hardlinked core inside is unlinked, never chmod-ed, so versions (and the
+ * .cores cache) sharing its inode keep their modes.
+ */
+export function pruneVersions(
+	outRoot: string,
+	opts: { keep: number; protectedVersion?: string | null },
+): string[] {
+	const keep = Math.max(1, opts.keep);
+	const { versions, current } = listVersions(outRoot);
+	const protect = opts.protectedVersion ?? current;
+	if (versions.length <= keep) return [];
+
+	const byAge = versions
+		.map((v) => {
+			try {
+				return { v, mtime: statSync(join(outRoot, v)).mtimeMs };
+			} catch {
+				return { v, mtime: Number.POSITIVE_INFINITY };
+			}
+		})
+		.sort((a, b) => a.mtime - b.mtime);
+
+	const pruned: string[] = [];
+	let remaining = versions.length;
+	for (const { v } of byAge) {
+		if (remaining <= keep) break;
+		if (v === protect) continue;
+		rmTree(join(outRoot, v));
+		pruned.push(v);
+		remaining--;
+	}
+	return pruned;
 }
 
 function isSymlink(p: string): boolean {

@@ -20,10 +20,10 @@ describe("parseDeployShArgv", () => {
 		if (r.ok) expect(r.action.kind).toBe("help");
 	});
 
-	test("collects repeated --ext", () => {
-		const r = parseDeployShArgv(["--ext", "task", "--ext", "power-tool"]);
-		expect(r.ok).toBe(true);
-		if (r.ok && r.action.kind === "deploy") expect(r.action.options.onlyExt).toEqual(["task", "power-tool"]);
+	test("--ext is rejected — version dirs are immutable (Phase 3 deleted the in-place rebuild)", () => {
+		const r = parseDeployShArgv(["--ext", "task"]);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.error).toMatch(/--ext/);
 	});
 
 	test("parses value flags in both forms", () => {

@@ -2,22 +2,27 @@
  * deploy.ts — orchestrator for the pi-agent-sh deploy.
  *
  * Produces <outRoot>/<version>/ containing:
- *   pi-agent      minimal compiled core (zero extensions inside)
+ *   pi-agent      minimal compiled core (zero extensions inside), hardlinked
+ *                 from <outRoot>/.cores/<hash> when frozen (Phase 3 §a)
  *   run.sh        thin launcher
  *   deploy.json   provenance
  *   package.json  deploy version — pi reads its version from next to the exe
  *   ext/<name>/   independently built extension packages
  *
  * Everything is staged in <outRoot>/.staging-<version> and only renamed into
- * place after all gates pass, so a failed deploy never leaves a half-written
- * version dir and never repoints `current`.
+ * place after all six gates pass, so a failed deploy never leaves a
+ * half-written version dir and never repoints `current`. Version dirs are
+ * immutable — the in-place `--ext` rebuild was deleted in Phase 3 §b; an
+ * extension-only change is just an ordinary deploy (the core cache makes it
+ * skip the compile). After `current` flips, old versions are pruned oldest-
+ * first down to the registry's `keep` (§c).
  *
  * This is the ONLY deploy pipeline. The four legacy modes it used to sit beside
  * (scripts/deploy.ts --bundle / --snapshot / --standalone / --exe) were retired
  * in the deploy-architecture consolidation — see
  * .planning/specs/2026-08-20-deploy-architecture-consolidation-design.md.
  */
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parseShConfig, type ShConfig } from "./lib/config.ts";
 import { buildExtPackage } from "./lib/ext-build.ts";
@@ -27,8 +32,16 @@ import {
 	verifyVendoredClosure,
 	verifyVendoredCompleteness,
 } from "./lib/offline-gate.ts";
-import { computeVersion, ensureOutRoot, resolveTargetDir, swapCurrent } from "./lib/version.ts";
-import { freezeTree, rmTree, unfreezeTree } from "./lib/fs.ts";
+import {
+	DEFAULT_KEEP,
+	computeVersion,
+	ensureOutRoot,
+	pruneVersions,
+	resolveTargetDir,
+	swapCurrent,
+} from "./lib/version.ts";
+import { computeCoreHash, ensureCachedCore, linkCore } from "./lib/core-cache.ts";
+import { freezeTree, rmTree } from "./lib/fs.ts";
 import { stageGenerateEmbeddedAssets } from "./lib/codegen.ts";
 
 const PI_AGENT_DIR = resolve(import.meta.dir, "..", "..", "pi-agent");
@@ -40,8 +53,6 @@ export interface DeployShOptions {
 	configPath?: string;
 	outRoot?: string;
 	version?: string;
-	/** Rebuild only these extensions into an EXISTING version dir. */
-	onlyExt?: string[];
 	freeze?: boolean;
 	current?: boolean;
 	force?: boolean;
@@ -52,8 +63,11 @@ export interface DeployShResult {
 	target: string;
 	extensions: Array<{ name: string; bytes: number }>;
 	coreBytes: number;
+	/** True when the core came from <outRoot>/.cores without a recompile. */
+	coreCached: boolean;
 	currentUpdated: boolean;
-	mode: "full" | "ext-only";
+	/** Version dirs removed by retention, oldest first. */
+	pruned: string[];
 }
 
 function gitShortSha(): string | null {
@@ -83,8 +97,21 @@ async function assertHostContract(cfg: ShConfig): Promise<void> {
 	}
 }
 
-/** Compile the minimal core into `outFile`. Returns its size in bytes. */
-async function buildCore(outFile: string): Promise<number> {
+/**
+ * Produce the version dir's `pi-agent` core (Phase 3 §a).
+ *
+ * Frozen deploys go through the content-addressed cache: hash the build
+ * inputs (the src/ tree as it sits AFTER the embedded-assets codegen, the
+ * resolved pi-coding-agent version, Bun.version, entry, flags), reuse
+ * <outRoot>/.cores/<hash> on hit, compile-and-cache on miss, and HARDLINK
+ * the entry into the version dir. A no-freeze deploy bypasses the cache
+ * entirely (hardlinks share an inode; a writable cached core would re-mode
+ * every frozen version sharing it) and compiles a plain private copy.
+ */
+async function buildCore(
+	outFile: string,
+	opts: { outRoot: string; freeze: boolean },
+): Promise<{ bytes: number; cached: boolean }> {
 	const piPkgDir = resolvePiPkgDir();
 	// Embed pi's own theme/assets/export-html so the binary needs no repo on the
 	// target machine. Two sibling stages used to run here — pi-pkg-dir.ts and an
@@ -98,46 +125,71 @@ async function buildCore(outFile: string): Promise<number> {
 	// generated files into the caller's directory — observed polluting the repo
 	// root — so pin the cwd here and restore it after.
 	const prevCwd = process.cwd();
-	process.chdir(PI_AGENT_DIR);
-	try {
-		stageGenerateEmbeddedAssets(piPkgDir, BUN_APPS_DIR, [], true);
-	} finally {
-		process.chdir(prevCwd);
-	}
+	const withPinnedCwd = (embed: boolean) => {
+		process.chdir(PI_AGENT_DIR);
+		try {
+			stageGenerateEmbeddedAssets(piPkgDir, BUN_APPS_DIR, [], embed);
+		} finally {
+			process.chdir(prevCwd);
+		}
+	};
 
-	const entry = join(PI_AGENT_DIR, "src", "cli-sh.ts");
-	// bun's build report is human progress. deploy-cli promises stdout is
-	// PURE JSON, and "inherit" here put the child's report on the same stdout
-	// as the final JSON payload — so pipe it and re-emit on stderr.
-	const p = Bun.spawn(["bun", "build", "--compile", entry, `--outfile=${outFile}`, "--minify"], {
-		cwd: PI_AGENT_DIR,
-		stdout: "pipe",
-		stderr: "inherit",
-	});
-	const report = new Response(p.stdout)
-		.text()
-		.then((t) => {
-			if (t) process.stderr.write(t);
+	const compile = async (target: string): Promise<number> => {
+		const entry = join(PI_AGENT_DIR, "src", "cli-sh.ts");
+		// bun's build report is human progress. deploy-cli promises stdout is
+		// PURE JSON, and "inherit" here put the child's report on the same stdout
+		// as the final JSON payload — so pipe it and re-emit on stderr.
+		const p = Bun.spawn(["bun", "build", "--compile", entry, `--outfile=${target}`, "--minify"], {
+			cwd: PI_AGENT_DIR,
+			stdout: "pipe",
+			stderr: "inherit",
 		});
-	const code = await p.exited;
-	await report;
-	if (code !== 0) throw new Error("bun build --compile failed for src/cli-sh.ts");
+		const report = new Response(p.stdout)
+			.text()
+			.then((t) => {
+				if (t) process.stderr.write(t);
+			});
+		const code = await p.exited;
+		await report;
+		if (code !== 0) throw new Error("bun build --compile failed for src/cli-sh.ts");
+		chmodSync(target, 0o755);
+		return Bun.file(target).size;
+	};
 
-	// Reset the embedded-asset manifest to its empty form now that the binary has
-	// been compiled. The embedMode file imports .png/.map assets with
-	// `with { type: "file" }`, which `tsc --noEmit` cannot resolve — leaving it in
-	// place turns the repo's own typecheck gate red after every deploy. The
-	// binary already carries the embedded copies, so this only affects the
-	// working tree.
-	process.chdir(PI_AGENT_DIR);
+	withPinnedCwd(true);
 	try {
-		stageGenerateEmbeddedAssets(piPkgDir, BUN_APPS_DIR, [], false);
+		if (opts.freeze) {
+			const piPkgVersion = (JSON.parse(readFileSync(join(piPkgDir, "package.json"), "utf8")) as { version: string })
+				.version;
+			const hash = computeCoreHash({
+				piAgentDir: PI_AGENT_DIR,
+				piPkgVersion,
+				bunVersion: Bun.version,
+				entry: "src/cli-sh.ts",
+				flags: ["--minify"],
+			});
+			const core = await ensureCachedCore({
+				outRoot: opts.outRoot,
+				hash,
+				compile: async (target) => {
+					await compile(target);
+				},
+			});
+			linkCore(core.cacheFile, outFile);
+			return { bytes: core.bytes, cached: core.cached };
+		}
+		const bytes = await compile(outFile);
+		return { bytes, cached: false };
 	} finally {
-		process.chdir(prevCwd);
+		// Reset the embedded-asset manifest to its empty form now that the
+		// binary has been compiled (or the cache made compiling unnecessary).
+		// The embedMode file imports .png/.map assets with
+		// `with { type: "file" }`, which `tsc --noEmit` cannot resolve —
+		// leaving it in place turns the repo's own typecheck gate red after
+		// every deploy. The binary already carries the embedded copies, so
+		// this only affects the working tree.
+		withPinnedCwd(false);
 	}
-
-	chmodSync(outFile, 0o755);
-	return Bun.file(outFile).size;
 }
 
 const RUN_SH = `#!/usr/bin/env bash
@@ -218,10 +270,9 @@ function verifyDualState(stageDir: string, expected: string[]): void {
 
 /**
  * Gate 5: the tree is offline-contained (see lib/offline-gate.ts for the four
- * checks and the defect each closes). `binary`/`finalTarget` only on a full
- * deploy — the ext-only path never touches the binary, and its scan must key
- * off the FINAL path anyway (a baked staging path is itself a violation).
- * Allowlisted binary artifacts print as warnings, never block.
+ * checks and the defect each closes). The scan keys off the FINAL version
+ * path — a baked staging path is itself a violation. Allowlisted binary
+ * artifacts print as warnings, never block.
  */
 function verifyOfflineContainment(
 	tree: string,
@@ -267,6 +318,33 @@ function verifyOfflineContainment(
 	}
 }
 
+/**
+ * Gate 6: relocation smoke. Gate 4 (foreign-path scan) is a string heuristic
+ * that deliberately accepts false negatives; this is the behavioural proof —
+ * clone the staged tree to a DIFFERENT absolute path and boot it there. If
+ * anything baked the builder's layout into the tree, `--ext-list` fails or
+ * drops extensions from the new location. `cp -c` (APFS clone) keeps the copy
+ * ~free; cpSync is the portable fallback.
+ */
+function verifyRelocatable(stageDir: string, outRoot: string, expected: string[]): void {
+	const relocRoot = mkdtempSync(join(outRoot, ".reloc-"));
+	const copy = join(relocRoot, "tree");
+	const clone = Bun.spawnSync(["cp", "-cR", stageDir, copy], { stdout: "pipe", stderr: "pipe" });
+	if (clone.exitCode !== 0) cpSync(stageDir, copy, { recursive: true });
+	try {
+		const there = extListOf(join(copy, "pi-agent"));
+		const missing = expected.filter((n) => !there.loaded.includes(n));
+		if (there.loadedCount !== expected.length || missing.length > 0) {
+			throw new Error(
+				`relocation smoke: booted from ${copy} loaded [${there.loaded.join(", ")}], ` +
+					`expected [${expected.join(", ")}]; skipped=${JSON.stringify(there.skipped)}`,
+			);
+		}
+	} finally {
+		rmTree(relocRoot);
+	}
+}
+
 export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShResult> {
 	const configPath = opts.configPath ? resolve(opts.configPath) : DEFAULT_CONFIG;
 	if (!existsSync(configPath)) throw new Error(`config not found: ${configPath}`);
@@ -287,49 +365,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 
 	ensureOutRoot(outRoot);
 
-	// ── ext-only rebuild: patch an existing version dir in place ─────────────
-	if (opts.onlyExt && opts.onlyExt.length > 0) {
-		if (!existsSync(target)) throw new Error(`--ext requires an existing deploy at ${target}`);
-		const unknown = opts.onlyExt.filter((n) => !cfg.extensions.some((e) => e.name === n));
-		if (unknown.length > 0) throw new Error(`unknown extension(s) in config: ${unknown.join(", ")}`);
-		const selected = cfg.extensions.filter((e) => opts.onlyExt!.includes(e.name));
-
-		unfreezeTree(target);
-		const built: Array<{ name: string; bytes: number }> = [];
-		try {
-			for (const ext of selected) {
-				const r = await buildExtPackage({
-					ext,
-					bunAppsDir: BUN_APPS_DIR,
-					outDir: join(target, "ext", ext.name),
-					deployRoot: target,
-					hostApi: cfg.hostApi,
-					hostModules: cfg.hostModules,
-					sourceSha,
-					builtAt,
-				});
-				built.push({ name: r.name, bytes: r.bytes });
-			}
-			verifyDualState(
-				target,
-				enabled.map((e) => e.name),
-			);
-			// Gate 5, tree half only — the binary is untouched by an ext rebuild.
-			verifyOfflineContainment(target);
-		} finally {
-			if (freeze) freezeTree(target);
-		}
-		return {
-			version,
-			target,
-			extensions: built,
-			coreBytes: Bun.file(join(target, "pi-agent")).size,
-			currentUpdated: false,
-			mode: "ext-only",
-		};
-	}
-
-	// ── full deploy ──────────────────────────────────────────────────────────
+	// ── deploy (version dirs are immutable — the in-place ext rebuild is gone) ─
 	if (existsSync(target) && !opts.force) {
 		throw new Error(`${target} already exists — pass --force to replace it`);
 	}
@@ -339,7 +375,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 
 	const built: Array<{ name: string; bytes: number }> = [];
 	try {
-		const coreBytes = await buildCore(join(stage, "pi-agent"));
+		const { bytes: coreBytes, cached: coreCached } = await buildCore(join(stage, "pi-agent"), { outRoot, freeze });
 
 		for (const ext of enabled) {
 			const r = await buildExtPackage({
@@ -379,6 +415,14 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 		// sits under $HOME and would break relocatability).
 		verifyOfflineContainment(stage, { binary: join(stage, "pi-agent"), finalTarget: target });
 
+		// Gate 6 — behavioural relocatability: boot a clone of the staged tree
+		// from a different absolute path.
+		verifyRelocatable(
+			stage,
+			outRoot,
+			enabled.map((e) => e.name),
+		);
+
 		if (existsSync(target)) rmTree(target);
 		renameSync(stage, target);
 		if (freeze) freezeTree(target);
@@ -387,7 +431,8 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			swapCurrent(outRoot, version);
 			currentUpdated = true;
 		}
-		return { version, target, extensions: built, coreBytes, currentUpdated, mode: "full" };
+		const pruned = pruneVersions(outRoot, { keep: cfg.keep ?? DEFAULT_KEEP });
+		return { version, target, extensions: built, coreBytes, coreCached, currentUpdated, pruned };
 	} catch (e) {
 		rmTree(stage); // never leave a half-written deploy behind
 		throw e;

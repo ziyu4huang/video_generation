@@ -39,15 +39,14 @@ One deploy: a versioned, frozen tree of a minimal compiled core plus one
 [`docs/deploy.md`](docs/deploy.md) for the full reference.
 
 ```bash
-bun run --cwd bun-apps/pi-agent deploy          # cut a new version, move `current`
-bun run --cwd bun-apps/pi-agent deploy --ext <name>   # rebuild one extension in place
+bun run --cwd bun-apps/pi-agent deploy          # cut a new version, move `current`, prune old ones
 ```
 
 (Run from the package dir; `deploy` shells into `../pi-agent-ext-devops/src/deploy-cli.ts`, which drives `scripts/deploy.ts` — the single deploy pipeline since the consolidation. See `docs/deploy.md`.)
 
-Verification is not restated here: the deploy's four gates, its e2e tiers, and
+Verification is not restated here: the deploy's six gates, its e2e tiers, and
 the read-only freeze contract live in ONE place — [`docs/deploy.md`](docs/deploy.md)
-("The four gates", "E2E tiers", "The tree is read-only"). This PRD previously
+("The six gates", "E2E tiers", "The tree is read-only"). This PRD previously
 duplicated them with the retired bundle/snapshot/standalone/exe pipeline diagram
 and a `run-test.sh high`/`readonly` invocation path that no longer exists.
 

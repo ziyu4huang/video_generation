@@ -2,8 +2,11 @@
  * fs.ts — filesystem helpers for the pi-agent-sh deploy.
  *
  * freeze/unfreeze exist because a deployed tree is chmod a-w by default (a
- * deployed artifact must not be edited in place), and the single-extension
- * rebuild path has to temporarily reopen exactly one subtree.
+ * deployed artifact must not be edited in place), and removal has to reopen
+ * the tree first. Since Phase 3 the version dir's `pi-agent` is a HARDLINK
+ * into <outRoot>/.cores/ — chmod-ing that file re-modes every version sharing
+ * the inode — so unfreeze restores write bits on DIRECTORIES ONLY: unlinking
+ * a file needs the parent dir's write bit, never the file's own.
  */
 import { chmodSync, lstatSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -40,14 +43,21 @@ export function freezeTree(root: string): void {
 	chmodSync(root, statSync(root).mode & ~0o222);
 }
 
-/** Restore the owner write bit so the tree can be modified or removed. */
+/**
+ * Restore the owner write bit on the tree's DIRECTORIES so it can be removed
+ * or reorganised. Files stay a-w: nothing writes a frozen file in place (the
+ * in-place `--ext` rebuild died with Phase 3), and a hardlinked core must
+ * never be chmod-ed through one of its links.
+ */
 export function unfreezeTree(root: string): void {
 	try {
 		chmodSync(root, statSync(root).mode | 0o200);
 	} catch {
 		return;
 	}
-	walk(root, (p) => chmodSync(p, statSync(p).mode | 0o200));
+	walk(root, (p, isDir) => {
+		if (isDir) chmodSync(p, statSync(p).mode | 0o200);
+	});
 }
 
 /** Remove a tree, unfreezing first so a frozen deploy can be replaced. */

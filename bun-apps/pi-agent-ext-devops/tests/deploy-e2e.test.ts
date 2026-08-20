@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, readlinkSync, renameSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readlinkSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runShDeploy } from "../scripts/deploy.ts";
@@ -11,6 +11,7 @@ import {
 	verifyVendoredCompleteness,
 } from "../scripts/lib/offline-gate.ts";
 import { freezeTree, rmTree, unfreezeTree } from "../scripts/lib/fs.ts";
+import { HOST_API, HOST_MODULE_IDS } from "../../pi-agent/src/sh/host-modules.ts";
 
 const RUN = process.env.PI_AGENT_E2E === "1";
 const describeE2E = RUN ? describe : describe.skip;
@@ -43,7 +44,6 @@ function extList(binary: string) {
 describeE2E("pi-agent-sh deploy e2e", () => {
 	test("full deploy produces a working core, extensions, and current symlink", async () => {
 		const r = await runShDeploy({ outRoot, force: true });
-		expect(r.mode).toBe("full");
 		expect(r.extensions.map((e) => e.name).sort()).toEqual(configuredNamesSorted);
 		expect(r.currentUpdated).toBe(true);
 
@@ -89,30 +89,10 @@ describeE2E("pi-agent-sh deploy e2e", () => {
 		}
 	}, 60_000);
 
-	test("single-extension rebuild updates that extension in place", async () => {
-		const version = readlinkSync(join(outRoot, "current"));
-		const target = join(outRoot, version);
-		const before = readFileSync(join(target, "ext", "power-tool", "ext.json"), "utf8");
-
-		const r = await runShDeploy({ outRoot, version, onlyExt: ["power-tool"] });
-		expect(r.mode).toBe("ext-only");
-		expect(r.extensions.map((e) => e.name)).toEqual(["power-tool"]);
-
-		const after = readFileSync(join(target, "ext", "power-tool", "ext.json"), "utf8");
-		expect(JSON.parse(after).name).toBe("power-tool");
-		expect(before.length).toBeGreaterThan(0);
-		expect(after.length).toBeGreaterThan(0);
-
-		// still frozen and still loading both extensions
-		expect(statSync(join(target, "ext", "power-tool", "ext.cjs")).mode & 0o222).toBe(0);
-		expect(extList(join(target, "pi-agent")).payload.loaded).toEqual(configuredNames);
-	}, 180_000);
-
-	test("--ext against a version that does not exist is refused", async () => {
-		await expect(runShDeploy({ outRoot, version: "0.0.0-absent", onlyExt: ["power-tool"] })).rejects.toThrow(
-			/existing deploy/,
-		);
-	});
+	// Phase 3 §b deleted the in-place ext rebuild: the flag no longer parses
+	// (pinned in deploy-sh-argv.test.ts: "--ext is rejected") and runShDeploy
+	// has no onlyExt option. An extension-only change is an ordinary deploy —
+	// the core cache (below) makes it compile-free.
 
 	// The static half of Gate 5, asserted against what SHIPPED rather than what
 	// the in-process build scanned — the same discipline as the gate-4 static
@@ -127,4 +107,63 @@ describeE2E("pi-agent-sh deploy e2e", () => {
 		expect(verifyVendoredClosure(target), "vendored package(s) with dangling hard deps").toEqual([]);
 		expect(scanBinaryForeignPaths(join(target, "pi-agent"), target).foreign, "binary bakes build-machine path(s)").toEqual([]);
 	}, 60_000);
+});
+
+// ── Phase 3: content-addressed core + keep:N retention ─────────────────────
+//
+// A fixture registry that ships ZERO extensions (the one entry carries an
+// excludeReason) keeps these deploys compile-only, so the cache/prune flow is
+// exercised without paying 14 extension builds each time.
+describeE2E("core cache + keep:N retention", () => {
+	const keepRoot = mkdtempSync(join(tmpdir(), "sh-keep-"));
+	const configPath = join(keepRoot, "registry.yaml");
+	writeFileSync(
+		configPath,
+		[
+			"deploy:",
+			"  outRoot: /tmp/unused",
+			"  version: { from: package.json, gitSha: false }",
+			"  freeze: true",
+			"  current: true",
+			"  keep: 2",
+			`hostApi: ${HOST_API}`,
+			"hostModules:",
+			...HOST_MODULE_IDS.map((m) => `  - "${m}"`),
+			"extensions:",
+			"  - name: power-tool",
+			"    package: pi-agent-ext-power-tool",
+			"    entry: extensions/power-tool.ts",
+			"    load: dynamic",
+			"    excludeReason: e2e fixture — deploys a zero-extension core",
+			"lazyExtensions: {}",
+			"",
+		].join("\n"),
+	);
+	const deploy = (version: string) => runShDeploy({ outRoot: keepRoot, version, configPath });
+
+	test("second deploy with no source change reuses the cached core (same inode)", async () => {
+		const a = await deploy("e2e-cache-a");
+		expect(a.coreCached).toBe(false); // miss: the compile really happened
+		const b = await deploy("e2e-cache-b");
+		expect(b.coreCached).toBe(true); // hit: no recompile
+		// the two version dirs hardlink ONE cached core — same inode
+		expect(statSync(join(keepRoot, "e2e-cache-a", "pi-agent")).ino).toBe(
+			statSync(join(keepRoot, "e2e-cache-b", "pi-agent")).ino,
+		);
+	}, 300_000);
+
+	test("keep:N prunes oldest-first and current still resolves", async () => {
+		// state: [a, b], current → b. Two more deploys at keep: 2 prune a then b.
+		const c = await deploy("e2e-cache-c");
+		expect(c.pruned).toEqual(["e2e-cache-a"]);
+		const d = await deploy("e2e-cache-d");
+		expect(d.pruned).toEqual(["e2e-cache-b"]);
+
+		expect(existsSync(join(keepRoot, "e2e-cache-a"))).toBe(false);
+		expect(existsSync(join(keepRoot, "e2e-cache-b"))).toBe(false);
+		expect(readlinkSync(join(keepRoot, "current"))).toBe("e2e-cache-d");
+		// the pruned dirs' core links are gone but the cache entry survived
+		// every prune — d still boots through it.
+		expect(extList(join(keepRoot, "e2e-cache-d", "pi-agent")).payload.loadedCount).toBe(0);
+	}, 300_000);
 });

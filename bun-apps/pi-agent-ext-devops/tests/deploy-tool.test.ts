@@ -8,10 +8,10 @@ import { describe, expect, test } from "bun:test";
 import { runDeploy } from "../src/deploy-tool.ts";
 
 describe("runDeploy", () => {
-	test("maps params onto DeployShOptions", async () => {
+	test("maps params onto DeployShOptions and passes the cache/prune facts through", async () => {
 		let seen: unknown = null;
 		const r = await runDeploy(
-			{ ext: ["power-tool"], force: true, noFreeze: true },
+			{ force: true, noFreeze: true },
 			{
 				deploy: async (opts) => {
 					seen = opts;
@@ -20,16 +20,19 @@ describe("runDeploy", () => {
 						target: "/tmp/x/0.1.0+gabc1234",
 						extensions: [{ name: "power-tool", bytes: 1000 }],
 						coreBytes: 70_000_000,
+						coreCached: true,
 						currentUpdated: false,
-						mode: "ext-only" as const,
+						pruned: ["0.1.0+gold0000"],
 					};
 				},
 			},
 		);
-		expect(seen).toMatchObject({ onlyExt: ["power-tool"], force: true, freeze: false });
+		expect(seen).toMatchObject({ force: true, freeze: false });
 		expect(r.ok).toBe(true);
 		expect(r.version).toBe("0.1.0+gabc1234");
 		expect(r.extensions).toEqual([{ name: "power-tool", bytes: 1000 }]);
+		expect(r.coreCached).toBe(true);
+		expect(r.pruned).toEqual(["0.1.0+gold0000"]);
 	});
 
 	test("omits every option the caller did not ask for", async () => {
@@ -48,8 +51,9 @@ describe("runDeploy", () => {
 						target: "/tmp/x",
 						extensions: [],
 						coreBytes: 0,
+						coreCached: false,
 						currentUpdated: true,
-						mode: "full" as const,
+						pruned: [],
 					};
 				},
 			},
