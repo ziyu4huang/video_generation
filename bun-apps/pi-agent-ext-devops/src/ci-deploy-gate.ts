@@ -2,16 +2,21 @@
  * ci-deploy-gate — the pure decision behind local_ci's change-triggered
  * deploy-e2e gate.
  *
- * WHY THIS GATE EXISTS: the workflow-derived gate suite already boots all
- * deploy modes on every run (check-deploy-artifacts.sh / check-deploy-sh-e2e.sh
- * via `regression-gates`), but the PI_AGENT_E2E-gated bundle-mode assertions —
- * e2e-patches (every PATCH_TABLE entry reports applied in the built bundle)
- * and e2e-extensions' SOURCE blocks (doctor --smoke, >4 KB module load, lazy
- * `-e` splice) — never ran under local_ci. Those are the tiers that catch the
- * #1305 class (harness literal drift that only fails at the gated tiers), so
- * they run ONLY when the change set touches the deploy-sensitive paths below.
- * One `bun test` process covers both files → the harness's existing
- * per-process ensureBundle() cache means a single bundle build (~15s).
+ * WHY THIS GATE EXISTS: `regression-gates` boots the deployed artifact on every
+ * run (check-deploy-sh-e2e.sh), but a PI_AGENT_E2E-gated assertion is invisible
+ * to a plain `bun test` and therefore invisible to local_ci's package matrix.
+ * A test nobody runs is the same as no test — the #1305 class, where a literal
+ * drifted and only failed at a tier nothing executed.
+ *
+ * WHAT IT COVERS NOW: e2e-launcher's `symlink resolution` block, which spawns
+ * the REAL src/cli.ts through run.sh and is the only remaining PI_AGENT_E2E-
+ * gated assertion in the repo. It is gated because a full pi boot touches the
+ * shared ~/.pi backend, not because it is slow — so it runs ONLY when the
+ * change set touches the launcher/entry chain listed below.
+ *
+ * It used to run e2e-patches + e2e-extensions, whose subject was the bundle
+ * deploy. Both files went with the four legacy deploy modes; the deployed
+ * artifact's own e2e is check-deploy-sh-e2e.sh, which is unconditional.
  */
 
 /**
@@ -24,22 +29,21 @@ export const DEPLOY_SENSITIVE_PATTERNS: readonly string[] = [
 	"bun-apps/pi-agent-ext-devops/scripts/",
 	"bun-apps/pi-agent/run.sh",
 	"pi-agent.sh", // repo-root symlink to bun-apps/pi-agent/run.sh
-	"bun-apps/pi-agent/package.json", // deploy:* scripts live here
-	"bun-apps/pi-agent/src/cli.ts", // the bundled entry
+	"bun-apps/pi-agent/package.json", // update-pi.sh + deploy:sh are declared here
+	"bun-apps/pi-agent/src/cli.ts", // the source entry the launcher spawns
 	"bun-apps/pi-agent/src/patches/",
 	"bun-apps/pi-agent/src/static-extensions.ts",
 	"bun-apps/pi-agent/run-dir/manifest.json",
 	"bun-apps/pi-agent/scripts/",
 ];
 
-/** What the gate runs, from bun-apps/pi-agent. PI_AGENT_E2E only — the
- *  4-cwd DEPLOY matrix needs PI_AGENT_E2E_DEPLOY and stays a manual tier. */
+/** What the gate runs, from bun-apps/pi-agent. */
 export const DEPLOY_E2E_COMMAND =
-	"PI_AGENT_E2E=1 bun test src/__tests__/e2e-patches.test.ts src/__tests__/e2e-extensions.test.ts";
+	"PI_AGENT_E2E=1 bun test src/__tests__/e2e-launcher.test.ts";
 
 /** The gate's display name in the CiOutcome.gates list (consumed by ci-recipe). */
 export const DEPLOY_E2E_GATE_NAME =
-	"Deploy e2e — PI_AGENT_E2E bundle assertions (change-triggered)";
+	"Launcher e2e — PI_AGENT_E2E gated assertions (change-triggered)";
 
 /** True when any changed file is deploy-sensitive. */
 export function shouldRunDeployE2e(changedFiles: string[]): boolean {
