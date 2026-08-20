@@ -36,7 +36,10 @@ describe("subagent extension — tool registration", () => {
 
     const names = registered.map((t) => t.name);
     assert.ok(names.includes("spawn_subagent"), `expected 'spawn_subagent' registered; got: ${names.join(", ")}`);
-    assert.ok(names.includes("list_subagent_runs"), `expected 'list_subagent_runs' registered; got: ${names.join(", ")}`);
+    assert.ok(
+      names.includes("list_subagent_runs"),
+      `expected 'list_subagent_runs' registered; got: ${names.join(", ")}`,
+    );
   });
 
   it("force-activates 'spawn_subagent' + 'list_subagent_runs' on session_start and before_agent_start", async () => {
@@ -78,11 +81,16 @@ describe("subagent extension — tool registration", () => {
 
     const names = registered.map((t) => t.name);
     assert.ok(names.includes("spawn_subagent"), `expected 'spawn_subagent' registered; got: ${names.join(", ")}`);
-    assert.ok(names.includes("list_subagent_runs"), `expected 'list_subagent_runs' registered; got: ${names.join(", ")}`);
+    assert.ok(
+      names.includes("list_subagent_runs"),
+      `expected 'list_subagent_runs' registered; got: ${names.join(", ")}`,
+    );
 
     // At least one setActiveTools call must include BOTH owned tools. session_start
     // is the first hook to fire, so it carries the activation here.
-    const sawBoth = setActiveToolsCalls.some((call) => call.includes("spawn_subagent") && call.includes("list_subagent_runs"));
+    const sawBoth = setActiveToolsCalls.some(
+      (call) => call.includes("spawn_subagent") && call.includes("list_subagent_runs"),
+    );
     assert.ok(
       sawBoth,
       `expected a setActiveTools call containing both 'spawn_subagent' and 'list_subagent_runs'; got: ${JSON.stringify(setActiveToolsCalls)}`,
@@ -90,7 +98,10 @@ describe("subagent extension — tool registration", () => {
 
     // And the active set must end up containing both (idempotent re-activation on
     // before_agent_start must not drop them).
-    assert.ok(active.includes("spawn_subagent"), `expected 'spawn_subagent' in active set; got: ${JSON.stringify(active)}`);
+    assert.ok(
+      active.includes("spawn_subagent"),
+      `expected 'spawn_subagent' in active set; got: ${JSON.stringify(active)}`,
+    );
     assert.ok(
       active.includes("list_subagent_runs"),
       `expected 'list_subagent_runs' in active set; got: ${JSON.stringify(active)}`,
