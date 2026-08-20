@@ -52,6 +52,20 @@ function expandHome(p: string): string {
   return p;
 }
 
+/**
+ * Container-typed keys must be mappings. A YAML list or scalar here would
+ * otherwise sail through the key loops (Object.keys of a list yields index
+ * strings) and be cast to the wrong shape — the silent-typo failure mode
+ * this parser exists to reject.
+ */
+function requireMapping(value: unknown, key: string): Record<string, unknown> {
+  if (value === undefined) return {};
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`registry key "${key}" must be a mapping`);
+  }
+  return value as Record<string, unknown>;
+}
+
 /** Strict parse + validate. Throws Error with the offending key/entry in the message. */
 export function parseRegistry(text: string, opts: { bunAppsDir: string }): Registry {
   const raw = Bun.YAML.parse(text) as Record<string, unknown> | null;
@@ -62,7 +76,7 @@ export function parseRegistry(text: string, opts: { bunAppsDir: string }): Regis
     if (!TOP_KEYS.has(k)) throw new Error(`unknown registry key "${k}" (known: ${[...TOP_KEYS].join(", ")})`);
   }
 
-  const deployRaw = (raw.deploy ?? {}) as Record<string, unknown>;
+  const deployRaw = requireMapping(raw.deploy, "deploy");
   for (const k of Object.keys(deployRaw)) {
     if (!DEPLOY_KEYS.has(k)) throw new Error(`unknown deploy key "${k}" (known: ${[...DEPLOY_KEYS].join(", ")})`);
   }
@@ -72,7 +86,7 @@ export function parseRegistry(text: string, opts: { bunAppsDir: string }): Regis
   const outRoot = expandHome(deployRaw.outRoot);
   if (!isAbsolute(outRoot)) throw new Error(`outRoot must resolve to an absolute path, got "${outRoot}"`);
 
-  const versionRaw = (deployRaw.version ?? {}) as Record<string, unknown>;
+  const versionRaw = requireMapping(deployRaw.version, "deploy.version");
   for (const k of Object.keys(versionRaw)) {
     if (k !== "from" && k !== "gitSha") throw new Error(`unknown version key "${k}" (known: from, gitSha)`);
   }
@@ -104,7 +118,7 @@ export function parseRegistry(text: string, opts: { bunAppsDir: string }): Regis
     throw new Error(`registry key "extensions" must list at least one extension`);
   }
 
-  const lazyRaw = (raw.lazyExtensions ?? {}) as Record<string, unknown>;
+  const lazyRaw = requireMapping(raw.lazyExtensions, "lazyExtensions");
   for (const [k, v] of Object.entries(lazyRaw)) {
     if (typeof v !== "string") throw new Error(`lazyExtensions["${k}"] must be a string`);
   }

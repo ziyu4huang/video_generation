@@ -79,6 +79,23 @@ describe("parseRegistry", () => {
     const { text, bunAppsDir } = fixture();
     expect(() => parseRegistry(text.replace("extensions/task.ts", "extensions/nope.ts"), { bunAppsDir })).toThrow(/nope/);
   });
+  test("non-mapping lazyExtensions (list or scalar) → throws", () => {
+    const { text, bunAppsDir } = fixture();
+    const list = text.replace("lazyExtensions: {}", "lazyExtensions:\n  - foo");
+    expect(() => parseRegistry(list, { bunAppsDir })).toThrow(/lazyExtensions/);
+    const scalar = text.replace("lazyExtensions: {}", "lazyExtensions: 5");
+    expect(() => parseRegistry(scalar, { bunAppsDir })).toThrow(/lazyExtensions/);
+  });
+  test("non-mapping deploy.version → throws", () => {
+    const { text, bunAppsDir } = fixture();
+    const bad = text.replace("version: { from: package.json, gitSha: true }", "version:\n      - package.json");
+    expect(() => parseRegistry(bad, { bunAppsDir })).toThrow(/version/);
+  });
+  test("non-mapping deploy → throws", () => {
+    const { text, bunAppsDir } = fixture();
+    const bad = text.replace(/deploy:\n(?:  .*\n)+/, "deploy:\n  - not-a-mapping\n");
+    expect(() => parseRegistry(bad, { bunAppsDir })).toThrow(/"deploy"/);
+  });
   test("load outside {static,dynamic} → throws", () => {
     const { text, bunAppsDir } = fixture();
     expect(() => parseRegistry(text.replace("load: static", "load: eager"), { bunAppsDir })).toThrow(/load/);
