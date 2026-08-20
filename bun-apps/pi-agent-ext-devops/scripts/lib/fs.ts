@@ -8,7 +8,12 @@
 import { chmodSync, lstatSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-function walk(dir: string, fn: (p: string, isDir: boolean) => void): void {
+/**
+ * Depth-first walk that never follows symlinks (chmod through a link would
+ * escape the tree). Shared by the freeze/unfreeze helpers and the deploy-time
+ * source rewrites (e.g. patchOfflinePackageLoadersUnder).
+ */
+export function walk(dir: string, fn: (p: string, isDir: boolean) => void): void {
 	let entries: string[];
 	try {
 		entries = readdirSync(dir);

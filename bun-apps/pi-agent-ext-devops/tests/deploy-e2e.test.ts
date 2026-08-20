@@ -4,6 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runShDeploy } from "../scripts/deploy.ts";
 import { parseShConfig } from "../scripts/lib/config.ts";
+import {
+	scanBinaryForeignPaths,
+	scanSymlinkEscapes,
+	verifyVendoredClosure,
+	verifyVendoredCompleteness,
+} from "../scripts/lib/offline-gate.ts";
 import { freezeTree, rmTree, unfreezeTree } from "../scripts/lib/fs.ts";
 
 const RUN = process.env.PI_AGENT_E2E === "1";
@@ -107,4 +113,18 @@ describeE2E("pi-agent-sh deploy e2e", () => {
 			/existing deploy/,
 		);
 	});
+
+	// The static half of Gate 5, asserted against what SHIPPED rather than what
+	// the in-process build scanned — the same discipline as the gate-4 static
+	// test in the probe suite. Gate 5 runs on the staging tree before the
+	// rename; this re-runs the pure scans against the final, frozen tree.
+	test("the shipped tree is offline-contained (Gate 5 static half)", async () => {
+		const version = readlinkSync(join(outRoot, "current"));
+		const target = join(outRoot, version);
+
+		expect(scanSymlinkEscapes(target), "symlink(s) escape the deploy tree").toEqual([]);
+		expect(verifyVendoredCompleteness(target), "declared vendor package(s) missing").toEqual([]);
+		expect(verifyVendoredClosure(target), "vendored package(s) with dangling hard deps").toEqual([]);
+		expect(scanBinaryForeignPaths(join(target, "pi-agent"), target).foreign, "binary bakes build-machine path(s)").toEqual([]);
+	}, 60_000);
 });

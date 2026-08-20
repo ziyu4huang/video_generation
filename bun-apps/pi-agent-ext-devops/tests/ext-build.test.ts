@@ -228,6 +228,61 @@ describe("buildExtPackage", () => {
 		expect(built).toContain('Promise.resolve(require("@earendil-works/pi-tui"))');
 		expect(built).not.toMatch(/import\(\s*["@']@earendil-works\/pi-tui["@']/);
 	}, 120_000);
+
+	// Vendoring used to copy ONE package verbatim, which silently half-ships any
+	// root with a dependency tree (hyperframes' producer → puppeteer, fonts, …).
+	// The deploy must ship the closure or the skill dangles at runtime with no
+	// offline remediation. Optional deps that are simply not installed are
+	// pruned, never copied, never an error.
+	test("vendors the dependency CLOSURE of a vendor: root, recording pruned optionals", async () => {
+		const out = makeDir();
+		const pkgDir = join(out, "closure-ext");
+		mkdirSync(join(pkgDir, "extensions"), { recursive: true });
+		writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name: "closure-ext", version: "0.0.0", type: "module" }));
+		writeFileSync(join(pkgDir, "extensions", "closure.ts"), `export default () => ({});\n`);
+		const writePkg = (name: string, pkgJson: Record<string, unknown>) => {
+			const dir = join(pkgDir, "node_modules", name);
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(join(dir, "package.json"), JSON.stringify(pkgJson));
+		};
+		writePkg("vendored-root", {
+			name: "vendored-root",
+			version: "1.0.0",
+			dependencies: { "dep-a": "*" },
+			optionalDependencies: { "not-installed-opt": "*" },
+		});
+		writePkg("dep-a", { name: "dep-a", version: "1.0.0", dependencies: { "dep-b": "*" } });
+		writePkg("dep-b", { name: "dep-b", version: "1.0.0" });
+
+		await buildExtPackage({
+			ext: {
+				name: "closure-ext",
+				package: "closure-ext",
+				entry: "extensions/closure.ts",
+				order: 1,
+				skills: [],
+				copy: [],
+				enabled: true,
+				externals: [],
+				vendor: ["vendored-root"],
+			},
+			bunAppsDir: out,
+			outDir: join(out, "built"),
+			deployRoot: out,
+			hostApi: 1,
+			hostModules: HOST_MODULES,
+			sourceSha: "deadbee",
+			builtAt: "2026-08-21T00:00:00Z",
+		});
+
+		for (const name of ["vendored-root", "dep-a", "dep-b"]) {
+			expect(existsSync(join(out, "built", "node_modules", name, "package.json"))).toBe(true);
+		}
+		const manifest = JSON.parse(readFileSync(join(out, "built", "ext.json"), "utf8"));
+		expect(manifest.vendored).toEqual(["vendored-root"]);
+		expect(manifest.vendoredClosure.count).toBe(3);
+		expect(manifest.vendoredClosure.pruned).toContain("not-installed-opt");
+	}, 120_000);
 });
 
 // ── Gate 4 ──────────────────────────────────────────────────────────────────

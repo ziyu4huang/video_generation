@@ -124,6 +124,33 @@ bundling it. Two reasons, both measured:
 Vendoring is what took power-tool's `ext.cjs` from ~3.8 MB to ~215 KB, at the cost of the ~13 MB
 playwright-core tree beside it.
 
+**The dependency closure ships, not just the root** (`lib/vendor-closure.ts`): `vendor:` entries
+are resolved with their full `dependencies` + platform-matching `optionalDependencies` transitively
+(each dep resolved from its parent package's directory, following the isolated linker's store
+symlinks, copied with `dereference`). A hard dep that cannot be resolved fails the deploy; an
+optional dep that is not installed or whose `os`/`cpu` do not match the build platform is pruned
+(sharp's non-darwin-arm64 `@img/*` binaries never ship) and recorded in `ext.json` under
+`vendoredClosure`. Self-contained packages behave exactly as before — playwright-core and unpdf
+have empty closures. The hyperframes entry is the heavy one:
+`vendor: ["@hyperframes/core", "@hyperframes/producer", "sharp"]` pulls puppeteer, the
+`@fontsource` set, hono, linkedom… (~150 MB), pinned exact in
+`pi-agent-ext-hyperframes/package.json` so the skills' helpers (animation-map, contrast-report)
+resolve everything offline from `ext/hyperframes/node_modules/` through the loader's own ancestor
+walk. `bun add` there may download puppeteer's Chromium into `~/.cache/puppeteer` (bun trusts
+popular postinstalls) — that cache is never vendored and can be deleted; set
+`PUPPETEER_SKIP_DOWNLOAD=1` on install to skip it.
+
+Two consequences of the offline contract around vendored packages:
+
+- **The skill helpers' npm bootstrap is patched out at copy time** (`patchOfflinePackageLoader`):
+  the deployed `package-loader.mjs` throws "package not vendored in the offline pi-agent-sh dist"
+  instead of ever offering `npm install`. With the closure vendored the branch is dead in practice;
+  the patch makes it dead in fact.
+- **No browser is bundled.** Frame capture needs one; `run.sh` exports
+  `PUPPETEER_EXECUTABLE_PATH` to the first executable system-Chrome candidate (the same machine
+  dependency power-tool's playwright `channel:"chrome"` already makes). No candidate → the variable
+  stays unset → puppeteer fails with its own clear launch error.
+
 ### Runtime externals
 
 `externals` marks a specifier as neither bundled nor host-provided. An entry ending in `/*` covers
@@ -161,7 +188,7 @@ Removing an extension is safe because no extension imports another: cross-extens
 through the Pi extension API, a `pi-agent-core-*` package, or a defensively-read `globalThis.__pi*`
 seam. The two guards named under "The host contract" above hold that line.
 
-## The four gates
+## The five gates
 
 Every deploy runs these; any failure aborts, removes the staging dir, and leaves `current` untouched.
 
@@ -182,6 +209,17 @@ Every deploy runs these; any failure aborts, removes the staging dir, and leaves
    and `$HOME/.pi` (the agent's per-user state dir, addressed by absolute path on every machine by
    design). This is the gate that would have caught the baked `createRequire("file:///Users/…")`
    base and playwright's build-machine `__dirname`.
+5. **Offline containment** (`lib/offline-gate.ts`, runs on the staged tree before the rename/freeze/
+   `current` swap; the ext-only path runs the tree checks without the binary scan) — four checks,
+   each closing a way a "self-contained" deploy could still reach off itself:
+   - no symlink anywhere in the tree may resolve outside it (a vendoring bug that copies a store
+     symlink instead of dereferencing it points back at the build machine's `~/.bun` link farm);
+   - the compiled binary may not bake build-machine paths beyond the documented
+     `~/.bun/install/cache/` dead-`__dirname` artifacts (prefix + hit cap — a vendoring defect
+     bursts, it does not trickle);
+   - every `vendor:` entry in every `ext.json` actually shipped;
+   - every vendored package's HARD deps resolve inside the tree — a dangling dep has no offline
+     remediation, because the dist never installs anything.
 
 ## E2E tiers
 
@@ -244,6 +282,28 @@ into the tree even if a caller's environment is unusual.
 Two L1 assertions hold this: the tree gains no files while `doctor --smoke` runs, and none while a
 REAL session starts with cwd set to the tree itself — the harshest placement, and the one that
 found hermes-memory's mkdir.
+
+## Offline guarantees
+
+The dist runs with zero network and zero package installation — enforced, not assumed:
+
+- **No symlink escapes the version dir** (Gate 5a). Everything inside resolves inside.
+- **The compiled binary carries no build-machine paths** beyond the documented
+  `~/.bun/install/cache/` dead-`__dirname` artifacts (Gate 5b, allowlisted with a hit cap).
+- **Every `vendor:` package ships complete** — roots present (5c) and every hard dep of every
+  vendored package resolves within the tree (5d).
+- **Nothing installs at runtime.** `run.sh` performs no installs and no network calls; the
+  hyperframes skill loader is fail-fast patched at copy time so it can never offer `npm install`.
+  (pi's own version check is skipped in binary mode: `PI_SKIP_VERSION_CHECK=1`.)
+- **Proven under syscall-level network denial**: the L1 probe e2e boots `run.sh` and starts a real
+  session under `sandbox-exec '(deny network*)'` — if any startup path needed the network, that
+  test would be red.
+- System-level dependencies that are NOT bundled, by design: a browser (system Chrome, for
+  power-tool's playwright and the vendored hyperframes puppeteer) and `sqlite3` on PATH for one
+  hermes-memory bulk-dedup skill script.
+- The repo-root `dist/` tree is not part of this pipeline (stale output of the retired one);
+  excluded machine-bound extensions may still write `dist/pi-extensions/` from their manual bundle
+  scripts — that is out of scope here.
 
 ## Limits
 

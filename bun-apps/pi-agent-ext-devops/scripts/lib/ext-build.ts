@@ -20,16 +20,20 @@
  *      install cache (so the tree was not relocatable).
  *
  * The numbering matches docs/deploy.md; gate 3 (dual-state --ext-list) is a
- * whole-deploy check and lives in deploy.ts.
+ * whole-deploy check and lives in deploy.ts, and gate 5 (offline containment
+ * of the whole TREE — symlink escapes, binary paths, vendored closure) lives
+ * in offline-gate.ts.
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { createRequire } from "node:module";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { evaluateExtModule, EXT_DIR_SPEC } from "../../../pi-agent/src/sh/ext-loader.ts";
 // The builtin list is the CORE's — a second copy here would drift, and the gate
 // would then disagree with the runtime it is supposed to be simulating.
 import { isBuiltinSpecifier } from "../../../pi-agent/src/sh/host-modules.ts";
+import { vendorClosure } from "./vendor-closure.ts";
+import { walk } from "./fs.ts";
 import type { ShExtConfig } from "./config.ts";
 
 /**
@@ -320,6 +324,45 @@ export function vendorPackage(spec: string, outDir: string, resolveFrom: string)
 	return destDir;
 }
 
+/**
+ * Neutralize the hyperframes skill helper's npm-install bootstrap in the dist.
+ *
+ * The skills copy verbatim, and the helper's `importPackagesOrBootstrap` offers
+ * a one-time `npm install --ignore-scripts` when a package is missing — the one
+ * runtime install path an offline deploy must not have. With the dependency
+ * closure vendored the branch is dead in practice; this patch makes it dead in
+ * fact: a missing package now fails fast with a message that names what was
+ * expected to be vendored, instead of reaching for the network.
+ *
+ * Shape-asserted like the rewrites above: a patch that silently matched
+ * nothing is the failure mode this gate family exists to prevent.
+ */
+export function patchOfflinePackageLoader(code: string): string {
+	const CONFIRM = "await confirmBootstrap(npmPackages);";
+	const INSTALL = "bootstrapWithNpmInstall(npmPackages);";
+	if (!code.includes(CONFIRM) || !code.includes(INSTALL)) {
+		throw new Error("package-loader.mjs shape drifted — update patchOfflinePackageLoader (ext-build.ts)");
+	}
+	return code
+		.replace(CONFIRM, 'throw new Error("package not vendored in the offline pi-agent-sh dist: " + missing.join(", "));')
+		.replace(INSTALL, "");
+}
+
+/** Apply patchOfflinePackageLoader to every matching file under `dir`. */
+export function patchOfflinePackageLoadersUnder(dir: string): number {
+	let patched = 0;
+	walk(dir, (p, isDir) => {
+		if (isDir || basename(p) !== "package-loader.mjs") return;
+		const code = readFileSync(p, "utf8");
+		// Content sniff, not a path assumption: an unrelated package's
+		// same-named file is left untouched.
+		if (!code.includes("HYPERFRAMES_SKILL_BOOTSTRAP_DEPS")) return;
+		writeFileSync(p, patchOfflinePackageLoader(code));
+		patched++;
+	});
+	return patched;
+}
+
 /** "@scope/name/sub" → "@scope/name"; "pkg/sub" → "pkg". */
 function packageRoot(spec: string): string {
 	const parts = spec.split("/");
@@ -418,7 +461,12 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 	// ── Vendored packages ────────────────────────────────────────────────────
 	// Resolved from the EXTENSION's package dir, not pi-agent's: a vendored dep
 	// is declared by the extension that uses it, and pi-agent has no edge to it.
-	for (const spec of opts.ext.vendor) vendorPackage(spec, opts.outDir, pkgDir);
+	// The CLOSURE ships, not just the root — a half-shipped dependency tree
+	// dangles at runtime with no offline remediation (see vendor-closure.ts).
+	const vendoredClosure =
+		opts.ext.vendor.length > 0
+			? vendorClosure({ roots: opts.ext.vendor, resolveFrom: pkgDir, outDir: opts.outDir })
+			: [];
 
 	// ── Gate 4: no build-machine path may survive in the bundle ──────────────
 	// Runs after vendoring so the deploy-tree exemption covers what we just
@@ -436,6 +484,7 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 	// ── Skills ───────────────────────────────────────────────────────────────
 	for (const rel of opts.ext.skills) {
 		cpSync(resolve(pkgDir, rel), join(opts.outDir, rel), { recursive: true, dereference: true });
+		patchOfflinePackageLoadersUnder(join(opts.outDir, rel));
 	}
 
 	// ── Copied data dirs ─────────────────────────────────────────────────────
@@ -443,6 +492,7 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 	// runtime data the extension reads relative to its own directory.
 	for (const rel of opts.ext.copy) {
 		cpSync(resolve(pkgDir, rel), join(opts.outDir, rel), { recursive: true, dereference: true });
+		patchOfflinePackageLoadersUnder(join(opts.outDir, rel));
 	}
 
 	// ── Manifest ─────────────────────────────────────────────────────────────
@@ -464,6 +514,11 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 		hostModules: usedHostModules,
 		runtimeExternals: opts.ext.externals,
 		vendored: opts.ext.vendor,
+		vendoredClosure: {
+			count: vendoredClosure.length,
+			// Deps intentionally not shipped: not installed or wrong platform.
+			pruned: [...new Set(vendoredClosure.flatMap((n) => n.pruned))],
+		},
 		builtAt: opts.builtAt,
 		sourceSha: opts.sourceSha,
 	};
