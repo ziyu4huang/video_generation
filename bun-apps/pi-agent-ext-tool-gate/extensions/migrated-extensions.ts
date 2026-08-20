@@ -86,8 +86,10 @@ export interface MigratedExtension {
 	 *  forgotten gating; this is the documented, audited escape hatch for a
 	 *  companion tool that is always-on by design and is OUT of its extension's
 	 *  migration scope (gating it would newly dorman it = a behavior change).
-	 *  Example: pi-agent-ext-subagent owns `subagent` (gated by the shared
-	 *  workflow-family gating, ticket 10) PLUS `subagent_runs`, which declares no
+	 *  Example: pi-agent-ext-subagent owns `spawn_subagent` (renamed from
+	 *  `subagent` 2026-08-20; gated by the shared workflow-family gating, ticket
+	 *  10) PLUS `list_subagent_runs` (renamed from `subagent_runs` same date),
+	 *  which declares no
 	 *  gating at all — it was ungated BEFORE this migration and stays ungated to
 	 *  preserve behavior (tracked as a known always-on leak). */
 	ungatedByDesign?: string[];
@@ -161,15 +163,17 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		},
 	},
 	{
-		// ticket 10 — `subagent`, plus `subagents` (plural), which has SINCE been
+		// ticket 10 — `spawn_subagent` (renamed from `subagent` 2026-08-20), plus
+		// `list_subagents` (renamed from `subagents`), which has SINCE been
 		// given the workflow family's gating (subagents-tool.ts) and is therefore
 		// validated by the net like any other gated tool. It was exempted here
 		// while it was still always-on; that exemption was stale and was removed
 		// 2026-08-10 (it was suppressing validation of a tool that IS gated).
 		// `subagent_runs` genuinely declares no gating and stays exempt — the typo
 		// guard in runDriftGuardNet fails loudly if it is ever renamed or removed.
+		// (Renamed to `list_subagent_runs` 2026-08-20 — docs/agents/extension-naming.md.)
 		name: "subagent",
-		ungatedByDesign: ["subagent_runs"],
+		ungatedByDesign: ["list_subagent_runs"],
 		register: (pi) => {
 			subagentExtension(pi);
 		},
@@ -231,7 +235,8 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		},
 	},
 	{
-		// ticket 03+08 — hermes surface is 6 tools: memory / search /
+		// ticket 03+08 — hermes surface is 6 tools: memory / search_memory
+		// (renamed from `search` 2026-08-20, see docs/agents/extension-naming.md) /
 		// skill_manage (owner-declared core) + skill_manage_help (registered by
 		// registerSkillTool, ungated always-on companion) + knowledge_search /
 		// knowledge_ingest (keyword-gated; captured in qa/evaluate.ts's corpus).

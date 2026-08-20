@@ -286,17 +286,18 @@ export function buildForcedWorkflowPrompt(text: string, extraDirective?: string)
     "",
     "---",
     "[workflows mode is ON for this message]",
-    "You MUST handle this request by calling the tool named exactly `workflow` (Pi's",
-    "deterministic JavaScript workflow-orchestration tool from pi-agent-ext-workflow).",
+    "You MUST handle this request by calling the tool named exactly `run_workflow` (Pi's",
+    "deterministic JavaScript workflow-orchestration tool from pi-agent-ext-workflow;",
+    "renamed from `workflow` 2026-08-20 — docs/agents/extension-naming.md).",
     "Write a workflow script that fans the task out across subagents via",
     "agent()/parallel()/pipeline().",
     "",
-    "The ONLY acceptable action is a `workflow` tool call. Do NOT instead:",
+    "The ONLY acceptable action is a `run_workflow` tool call. Do NOT instead:",
     "- answer directly or in prose,",
-    "- call the `subagent` tool yourself,",
+    "- call the `spawn_subagent` tool yourself,",
     "- use any skill or command (e.g. pi-subagents, /code-review, deep-research),",
     '- or interpret the word "workflow/workflows" loosely as some other parallel/audit approach.',
-    "Even for a small task, wrap it in a minimal `workflow` call with at least one agent().",
+    "Even for a small task, wrap it in a minimal `run_workflow` call with at least one agent().",
   ];
   if (extraDirective) lines.push("", extraDirective);
   return lines.join("\n");
@@ -307,7 +308,9 @@ export function buildForcedWorkflowPrompt(text: string, extraDirective?: string)
  * Call once with the UI context (e.g. in `session_start`).
  */
 /** The exact name of the workflow tool that workflows mode forces. */
-export const WORKFLOW_TOOL_NAME = "workflow";
+// Renamed 2026-08-20 (tool-name verb_object effort): legacy name `workflow` —
+// see docs/agents/extension-naming.md for the rename history.
+export const WORKFLOW_TOOL_NAME = "run_workflow";
 
 export function registerWorkflowTriggerCommand(
   pi: ExtensionAPI,

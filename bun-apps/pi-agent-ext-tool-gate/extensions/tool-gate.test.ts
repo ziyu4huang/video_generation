@@ -11,7 +11,7 @@ import ltxExtension from "@repo/pi-agent-ext-ltx/extensions/ltx.ts";
 import movieExtension from "@repo/pi-agent-ext-movie-director/extensions/movie-director.ts";
 import researchExtension from "@repo/pi-agent-ext-research-tool/extensions/research-tool.ts";
 // tickets 10 + 11 (rolled out TOGETHER over their single shared combined
-// workflow/subagent gating). Captured in workflow-FIRST order so "workflow"
+// workflow/subagent gating). Captured in workflow-FIRST order so "run_workflow"
 // leads the family's gate order (the gate id qa + matchIntent key off of).
 import workflowExtension from "@repo/pi-agent-ext-workflow/extensions/workflow.ts";
 import subagentExtension from "@repo/pi-agent-ext-subagent/extensions/subagent.ts";
@@ -53,7 +53,7 @@ captureOwner(researchExtension);
 // keywords-only gating, and buildEffectiveGates emits ONE SINGLE-NAME GATE PER
 // DEF — so they become 5 single-name gates that co-fire, NOT one collapsed
 // multi-name gate. Capture order therefore fixes EFF.gates order (and so
-// matchIntent's result order), keeping "workflow" the family's canonical
+// matchIntent's result order), keeping "run_workflow" the family's canonical
 // first-listed id. NOTE:
 // the capture stub below (on/registerTool/registerCommand) tolerates BOTH
 // registrars — workflow guards `if (pi.events)` (absent → skipped) and calls
@@ -206,14 +206,15 @@ describe("matchIntent (S1)", () => {
     expect(matched[0]!.names).toEqual(["movie", "movie_help"]);
   });
   test("workflow intent → the 5-tool workflow/subagent family", () => {
-    // workflow/workflow_help/workflow_control/subagent/subagents all reference
-    // the ONE "workflow" gate family (ticket 01, declared in the workflow
-    // extension, referenced cross-package by subagent) → buildEffectiveGates
-    // groups all 5 into a single multi-name gate. Intent-mode fires the whole
-    // family; co-fire via updateSticky is preserved by the grouped names.
+    // run_workflow/workflow_help/workflow_control/spawn_subagent/list_subagents
+    // all reference the ONE "workflow" gate family (ticket 01, declared in the
+    // workflow extension, referenced cross-package by subagent) →
+    // buildEffectiveGates groups all 5 into a single multi-name gate. Intent-mode
+    // fires the whole family; co-fire via updateSticky is preserved by the
+    // grouped names. (Names renamed 2026-08-20 — docs/agents/extension-naming.md.)
     const matched = matchIntent("orchestrate a parallel pipeline", EFF.gates, sticky());
-    expect(matched.map((g) => g.names[0])).toEqual(["workflow"]);
-    expect(matched[0]!.names).toEqual(["workflow", "workflow_help", "workflow_control", "subagent", "subagents"]);
+    expect(matched.map((g) => g.names[0])).toEqual(["run_workflow"]);
+    expect(matched[0]!.names).toEqual(["run_workflow", "workflow_help", "workflow_control", "spawn_subagent", "list_subagents"]);
   });
   test("S2 flip: 'docker image cleanup' → [] (image noun, no gen-verb)", () => {
     expect(matchIntent("docker image cleanup", EFF.gates, sticky()).map((g) => g.names[0])).toEqual([]);
@@ -364,7 +365,7 @@ describe("enable_tool (S1 A escape hatch)", () => {
 
   test("enable_tool is registered and is owner-declared core (always active)", () => {
     expect(CORE_SET.has("enable_tool")).toBe(true);
-    const { enableTool } = setupPi([...CORE_NAMES, "ltx", "ltx_help", "flux2", "flux2_help", "workflow", "workflow_help"]);
+    const { enableTool } = setupPi([...CORE_NAMES, "ltx", "ltx_help", "flux2", "flux2_help", "run_workflow", "workflow_help"]);
     expect(enableTool).toBeTruthy();
   });
 
@@ -373,7 +374,7 @@ describe("enable_tool (S1 A escape hatch)", () => {
     // (owner-declared, tickets 10 + 11) AND zai-mcp (owner-declared, ticket 12,
     // synthesized into ownerByName above) all reconstruct as gates. All are
     // dormant (CORE-only active) → every one appears in the list.
-    const { enableTool } = setupPi([...CORE_NAMES, "workflow", "workflow_help", "zai_web_search_web_search_prime", "zai_web_reader_webReader"]);
+    const { enableTool } = setupPi([...CORE_NAMES, "run_workflow", "workflow_help", "zai_web_search_web_search_prime", "zai_web_reader_webReader"]);
     const res = await enableTool.execute("id", { list: true });
     const text = res.content[0].text;
     expect(text).toContain("workflow");
@@ -381,11 +382,11 @@ describe("enable_tool (S1 A escape hatch)", () => {
   });
 
   test("intent 'orchestrate a parallel pipeline' activates workflow (sticky) and calls setActiveTools", async () => {
-    const { enableTool, calls } = setupPi([...CORE_NAMES, "workflow", "workflow_help"]);
+    const { enableTool, calls } = setupPi([...CORE_NAMES, "run_workflow", "workflow_help"]);
     const res = await enableTool.execute("id", { intent: "orchestrate a parallel pipeline" });
-    expect(res.content[0].text).toContain("workflow");
+    expect(res.content[0].text).toContain("run_workflow");
     expect(calls.length).toBeGreaterThan(0);
-    expect(calls[calls.length - 1].setActiveTools).toEqual(expect.arrayContaining(["workflow", "workflow_help"]));
+    expect(calls[calls.length - 1].setActiveTools).toEqual(expect.arrayContaining(["run_workflow", "workflow_help"]));
   });
 
   test("name 'workflow' co-activates its sibling gates (identical gating)", async () => {
@@ -396,15 +397,15 @@ describe("enable_tool (S1 A escape hatch)", () => {
     // enable_tool NAME mode now mirrors that — requesting one sibling activates
     // ALL siblings with an identical gating fingerprint, so the escape hatch is
     // consistent regardless of whether a tool is requested by name or by intent.
-    const { enableTool, calls } = setupPi([...CORE_NAMES, "workflow", "workflow_help"]);
-    const res = await enableTool.execute("id", { name: "workflow" });
-    expect(res.content[0].text).toContain("workflow");
+    const { enableTool, calls } = setupPi([...CORE_NAMES, "run_workflow", "workflow_help"]);
+    const res = await enableTool.execute("id", { name: "run_workflow" });
+    expect(res.content[0].text).toContain("run_workflow");
     const lastActive = calls[calls.length - 1].setActiveTools;
-    expect(lastActive).toEqual(expect.arrayContaining(["workflow", "workflow_help"]));
+    expect(lastActive).toEqual(expect.arrayContaining(["run_workflow", "workflow_help"]));
   });
 
   test("no-match intent returns a non-error result pointing to list", async () => {
-    const { enableTool } = setupPi([...CORE_NAMES, "workflow", "workflow_help"]);
+    const { enableTool } = setupPi([...CORE_NAMES, "run_workflow", "workflow_help"]);
     const res = await enableTool.execute("id", { intent: "what's the weather" });
     expect(res.content[0].text).toMatch(/no dormant tool matched/i);
     expect(res.content[0].text).toMatch(/list:true/i);
@@ -416,14 +417,14 @@ describe("enable_tool (S1 A escape hatch)", () => {
     // against lastPrompt, which is unnecessary work and couples enable_tool to
     // the prompt-matching logic. filterActive computes the active list from
     // sticky alone — no gate re-evaluation, no risk of lastPrompt side effects.
-    const loaded = [...CORE_NAMES, "workflow", "workflow_help", "zai_web_search_web_search_prime", "zai_web_reader_webReader"];
+    const loaded = [...CORE_NAMES, "run_workflow", "workflow_help", "zai_web_search_web_search_prime", "zai_web_reader_webReader"];
     const { enableTool, calls } = setupPi(loaded);
-    const res = await enableTool.execute("id", { name: "workflow" });
-    expect(res.content[0].text).toContain("workflow");
+    const res = await enableTool.execute("id", { name: "run_workflow" });
+    expect(res.content[0].text).toContain("run_workflow");
     const lastActive = calls[calls.length - 1].setActiveTools;
     // workflow + its sibling workflow_help co-activate (identical gating
     // fingerprint — NAME mode now mirrors intent mode's sibling co-firing).
-    expect(lastActive).toEqual(expect.arrayContaining(["workflow", "workflow_help"]));
+    expect(lastActive).toEqual(expect.arrayContaining(["run_workflow", "workflow_help"]));
     // zai-mcp must NOT be active: it has DIFFERENT gating from workflow, so it
     // is not a sibling and must not co-activate. This proves co-activation is
     // gated by identical gating, not "everything". filterActive also doesn't
@@ -435,14 +436,14 @@ describe("enable_tool (S1 A escape hatch)", () => {
   test("F3 regression: enable_tool with already-active gate returns 'already active' (not 'Activated')", async () => {
     // When a gate is already fully active, enable_tool({name}) must not claim
     // it was "Activated" — it should say "already active".
-    const loaded = [...CORE_NAMES, "workflow", "workflow_help"];
+    const loaded = [...CORE_NAMES, "run_workflow", "workflow_help"];
     const { enableTool, handlers } = setupPi(loaded);
     // Activate workflow first via before_agent_start
     if (handlers.before_agent_start) {
       await handlers.before_agent_start({ prompt: "orchestrate a parallel pipeline" });
     }
     // Now request workflow again — it's already active
-    const res = await enableTool.execute("id", { name: "workflow" });
+    const res = await enableTool.execute("id", { name: "run_workflow" });
     expect(res.content[0].text).toMatch(/already active/i);
     expect(res.content[0].text).not.toMatch(/Activated/i);
   });
@@ -487,19 +488,19 @@ describe("filterActive (F1 fix)", () => {
     // flux2 (ticket 05) + ltx (ticket 07) + movie (ticket 08) + workflow
     // (tickets 10 + 11) migrated → absent from module TRACKED_TOOLS, so
     // filterActive would fail-open them. Thread EFF.tracked so they stay gated.
-    const all = [...CORE_NAMES, "zai_web_search_web_search_prime", "zai_web_reader_webReader", "workflow", "workflow_help"];
+    const all = [...CORE_NAMES, "zai_web_search_web_search_prime", "zai_web_reader_webReader", "run_workflow", "workflow_help"];
     const sticky = new Set([...CORE_NAMES, "zai_web_search_web_search_prime", "zai_web_reader_webReader"]);
     const active = filterActive(all, sticky, EFF.tracked);
     expect(active).toContain("zai_web_search_web_search_prime");
     expect(active).toContain("zai_web_reader_webReader");
-    expect(active).not.toContain("workflow");
+    expect(active).not.toContain("run_workflow");
     expect(active).not.toContain("workflow_help");
   });
 
   test("does NOT mutate sticky", () => {
     const sticky = new Set(CORE_SET);
     const before = sticky.size;
-    filterActive([...CORE_NAMES, "workflow", "workflow_help"], sticky);
+    filterActive([...CORE_NAMES, "run_workflow", "workflow_help"], sticky);
     expect(sticky.size).toBe(before);
     expect(sticky.has("workflow")).toBe(false);
   });
@@ -565,7 +566,7 @@ describe("S2 keyword audit (updateSticky + filterActive Effect table)", () => {
   // inspect_extensions dropped (Task-3 review Minor C): it's owner-declared now,
   // absent from hardcoded TRACKED_TOOLS → fail-open → always-active dead data.
   const all = [...CORE_NAMES, "flux2", "flux2_help", "krea2", "krea2_help", "ltx", "ltx_help",
-    "file2md", "vision_ask", "workflow", "workflow_help",
+    "file2md", "vision_ask", "run_workflow", "workflow_help",
     "collect_videos", "movie", "movie_help"];
   // flux2 (ticket 05) + file2md/vision_ask (ticket 04) + krea2/krea2_help
   // (ticket 06) + ltx/ltx_help (ticket 07) + movie/movie_help (ticket 08) +
@@ -677,9 +678,9 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
     // OWN single-name gate in EFF (buildEffectiveGates splits them). The
     // regression invariant these tests guard — the previously-leaked tools are
     // TRACKED (gated), NOT fail-open — is preserved: all 4 names are in EFF.tracked.
-    expect(EFF.tracked.has("workflow")).toBe(true);
+    expect(EFF.tracked.has("run_workflow")).toBe(true);
     expect(EFF.tracked.has("workflow_help")).toBe(true);
-    expect(EFF.tracked.has("subagent")).toBe(true);
+    expect(EFF.tracked.has("spawn_subagent")).toBe(true);
     expect(EFF.tracked.has("workflow_control")).toBe(true);
   });
 
@@ -703,7 +704,7 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
     // tracked regardless of which gate/set owns them.
     const tracked = new Set<string>([...CORE_NAMES, ...EFF.tracked]);
     const leaked = [
-      "subagent",
+      "spawn_subagent",
       "workflow_control",
       "zai_web_search_web_search_prime",
       "zai_web_reader_webReader",
@@ -719,7 +720,7 @@ describe("previously-leaked tools regression (2026-07-21)", () => {
     // EFF.tracked so the gates fire on the keyword AND stay tracked (else they
     // fail-open, hiding whether the keyword actually fired).
     const sticky = new Set(EFF.core);
-    const allTools = [...CORE_NAMES, "workflow", "workflow_help", "subagent", "workflow_control"];
+    const allTools = [...CORE_NAMES, "run_workflow", "workflow_help", "subagent", "workflow_control"];
     updateSticky("run a multi-step workflow", sticky, EFF.gates);
     const active = filterActive(allTools, sticky, EFF.tracked);
     expect(active).toContain("subagent");

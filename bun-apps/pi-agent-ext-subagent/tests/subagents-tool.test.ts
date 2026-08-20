@@ -35,9 +35,9 @@ import {
 } from "../src/subagents-tool.js";
 import { budgetAbort, failed, ok, timedout, turnsAbort } from "./_spawn-result.js";
 
-test("createSubagentsTool has name 'subagents' + executionMode 'sequential'", () => {
+test("createSubagentsTool has name 'list_subagents' + executionMode 'sequential'", () => {
   const tool = createSubagentsTool();
-  assert.equal(tool.name, "subagents");
+  assert.equal(tool.name, "list_subagents");
   assert.equal(tool.executionMode, "sequential");
   assert.equal(typeof tool.execute, "function");
   assert.ok(tool.parameters, "parameters schema defined");
@@ -486,7 +486,7 @@ test("a failed child is not persisted; a gate-skipped child is not persisted", a
 
 test("createSubagentsTool is re-exported from the package index", () => {
   assert.equal(fromIndex, createSubagentsTool);
-  assert.equal(fromIndex().name, "subagents");
+  assert.equal(fromIndex().name, "list_subagents");
 });
 
 test("renderBatchResult renders ok/failed/skipped sections", () => {

@@ -163,12 +163,14 @@ export function createSubagentRunsTool(
 ): ToolDefinition<typeof subagentRunsSchema, undefined> {
   const { persistence } = options;
   return defineTool({
-    name: "subagent_runs",
+    // Renamed 2026-08-20 (tool-name verb_object effort): legacy name
+    // `subagent_runs` — see docs/agents/extension-naming.md for the rename history.
+    name: "list_subagent_runs",
     label: "SubagentRuns",
     description:
       "Read back historical subagent-tool runs (cross-session, from ~/.pi/subagents/runs). action 'list' returns recent runs (newest-first; optional status/cwd filter, limit); action 'get' returns one run's full output + metadata by id (includeHistory for the compact transcript). Read-only — completed records, not live runs.",
     promptSnippet:
-      "Recall past subagent runs: subagent_runs({ action: 'list' [, status, cwd, limit] }) for recent runs, subagent_runs({ action: 'get', id }) for one run's output.",
+      "Recall past subagent runs: list_subagent_runs({ action: 'list' [, status, cwd, limit] }) for recent runs, list_subagent_runs({ action: 'get', id }) for one run's output.",
     parameters: subagentRunsSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       switch (params.action) {
@@ -185,13 +187,13 @@ export function createSubagentRunsTool(
           );
         }
         case "get": {
-          if (!params.id) throw new Error("subagent_runs: action 'get' requires id");
+          if (!params.id) throw new Error("list_subagent_runs: action 'get' requires id");
           const record = persistence.load(params.id);
           if (!record) return textResult(`No subagent run with id "${params.id}".`);
           return textResult(renderRun(record, params.includeHistory === true));
         }
         default:
-          throw new Error(`subagent_runs: action "${params.action}" not implemented`);
+          throw new Error(`list_subagent_runs: action "${params.action}" not implemented`);
       }
     },
   });

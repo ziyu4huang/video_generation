@@ -317,7 +317,7 @@ describe("buildForcedWorkflowPrompt", () => {
   it("includes the directive", async () => {
     const { buildForcedWorkflowPrompt } = await load();
     const result = buildForcedWorkflowPrompt("test");
-    assert.ok(result.includes("tool named exactly `workflow`"), "should contain tool named exactly `workflow");
+    assert.ok(result.includes("tool named exactly `run_workflow`"), "should contain tool named exactly `run_workflow");
     assert.ok(result.includes("MUST"), "should contain MUST");
   });
 
@@ -890,7 +890,10 @@ describe("installWorkflowEditor", () => {
       "should return transformed text",
     );
     assert.ok(resultTrigger.text?.includes("run a workflow test"), "transformed text should include original prompt");
-    assert.ok(savedTools.includes("workflow"), `saved tools (${savedTools.join(", ")}) should include "workflow"`);
+    assert.ok(
+      savedTools.includes("run_workflow"),
+      `saved tools (${savedTools.join(", ")}) should include "run_workflow"`,
+    );
   });
 
   it("does not transform keyword-triggered input when /workflows-trigger is off", async () => {
@@ -1066,7 +1069,7 @@ describe("installWorkflowEditor", () => {
 
     // First trigger: save tools and add "workflow"
     inputHandler?.({ source: "interactive", text: "trigger workflow test" });
-    assert.ok(currentTools.includes("workflow"), "workflow tool should be added");
+    assert.ok(currentTools.includes("run_workflow"), "workflow tool should be added");
     assert.ok(currentTools.length > initialTools.length, "tool set should be expanded");
 
     // turn_end: restore to saved tools

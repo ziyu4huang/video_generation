@@ -402,7 +402,9 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
   if (options.inFlight) manager.setInFlight(options.inFlight);
 
   return defineTool({
-    name: "workflow",
+    // Renamed 2026-08-20 (tool-name verb_object effort): legacy name `workflow`
+    // — see docs/agents/extension-naming.md for the rename history.
+    name: "run_workflow",
     label: "Workflow",
     description: [
       "Execute a deterministic JavaScript workflow that orchestrates multiple subagents with agent(), parallel(), and pipeline().",
@@ -413,8 +415,9 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
     // gate; tickets 10 + 11 rolled out TOGETHER as one atomic unit because they
     // SHARE that single combined gate). Per the semantics-preserving rule, the
     // SAME gating (keywords only, no `requires`) is mirrored IDENTICALLY on all
-    // 4 tools so they activate together and reconstructOwnerDeclaredGates
-    // collapses them back into one 4-name gate (names[0] === "workflow") —
+    // tools so they activate together and reconstructOwnerDeclaredGates
+    // collapses them back into one gate (names[0] === "run_workflow" since the
+    // 2026-08-20 verb_object renames; formerly "workflow") —
     // preserving the original co-fire behavior. Mirrors the original GATES entry
     // verbatim (keywords were unambiguous workflow/orchestration intents that
     // never false-fired the way image/video nouns do, so no requires is needed).
@@ -640,7 +643,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
 }
 
 /**
- * On-demand reference companion to the `workflow` tool (~100 tok schema).
+ * On-demand reference companion to the `run_workflow` tool (~100 tok schema).
  * Serves the advanced docs that are NOT inlined in the always-on guidelines:
  * quality helpers, spend control, phase() tracking, pipeline()/opts.schema/
  * synthesis patterns, and the full available-model list. Output is a tool
@@ -652,16 +655,16 @@ export function createWorkflowHelpTool(options: { getScopedModels?: () => readon
     name: "workflow_help",
     label: "Workflow Reference",
     description:
-      "On-demand reference for the `workflow` tool. Call when you need the advanced docs NOT inlined " +
+      "On-demand reference for the `run_workflow` tool. Call when you need the advanced docs NOT inlined " +
       "in the workflow guidelines: quality helpers (verify/judgePanel/loopUntilDry/completenessCheck), " +
       "spend control (tokenBudget/phase budget/retry/gate), phase() tracking, pipeline()/opts.schema/" +
       "synthesis patterns, or the full available-model list. Omit `topic` for a menu.",
-    // Owner-declared gating — mirrored IDENTICALLY from `workflow` (same combined
-    // gate signature). See `workflow`'s gating comment: tickets 10 + 11 are one
+    // Owner-declared gating — mirrored IDENTICALLY from `run_workflow` (same combined
+    // gate signature). See `run_workflow`'s gating comment: tickets 10 + 11 are one
     // atomic rollout over the single combined workflow/subagent gate, so all 4
     // tools share the SAME keywords-only gating and collapse back into one
-    // 4-name gate (names[0] === "workflow") — when the gate fires, all 4 names
-    // activate together (co-fire preserved). See `workflow`'s gating comment.
+    // 4-name gate (names[0] === "run_workflow") — when the gate fires, all 4 names
+    // activate together (co-fire preserved). See `run_workflow`'s gating comment.
     gating: { gate: "workflow" }, // reference form (ticket 01) — family in GATE_DEFS["workflow"] (workflow ext)
     promptSnippet: "On-demand advanced reference for the workflow tool (helpers/budget/phases/patterns/models).",
     parameters: Type.Object({

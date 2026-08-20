@@ -57,9 +57,9 @@ function mkRegistry(defs: AgentDefinition[]): AgentRegistry {
 }
 
 // ── factory shape (mirrors tests/workflow-tool.test.ts) ──
-test("createSubagentTool has name 'subagent' + label 'Subagent'", () => {
+test("createSubagentTool has name 'spawn_subagent' + label 'Subagent'", () => {
   const tool = createSubagentTool();
-  assert.equal(tool.name, "subagent");
+  assert.equal(tool.name, "spawn_subagent");
   assert.equal(tool.label, "Subagent");
 });
 test("createSubagentTool exposes parameters, execute, promptSnippet, executionMode", () => {
