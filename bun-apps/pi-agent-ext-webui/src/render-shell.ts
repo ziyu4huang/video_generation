@@ -218,6 +218,49 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
      + fade, timed to the classList remove (~1.6s). */
   @keyframes card-flash-pulse { from { background: rgba(103, 158, 254, 0.4); } to { background: #0000; } }
   #cards-pane .card.card-flash { animation: card-flash-pulse 1.6s ease-out; }
+  /* archify-view-pptx-bun (08): the Diagram pane — a full-bleed viewer over
+     the EXISTING /files route. The iframe is a top-level-equivalent document
+     served with 'CSP: sandbox allow-scripts allow-downloads', so archify's own
+     runtime (theme toggle, hover-trace, export menu) works inside it while the
+     opaque origin keeps it away from /api and the WS. */
+  #deck-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: .4rem 1rem; gap: .45rem; }
+  #deck-pane[hidden] { display: none; }
+  #deck-bar { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+  #deck-bar .spacer { flex: 1; }
+  #deck-bar button, #deck-bar .deck-chip {
+    font: inherit; font-size: .78rem; padding: .18rem .55rem; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1);
+    color: var(--dsw-alias-label-base);
+  }
+  #deck-bar button:disabled { opacity: .4; cursor: default; }
+  #deck-bar .deck-chip.active { border-color: rgb(103, 158, 254); color: rgb(103, 158, 254); }
+  #deck-title { font-size: .82rem; font-weight: 600; }
+  #deck-count { font-size: .74rem; color: var(--dsw-alias-label-caption); font-variant-numeric: tabular-nums; }
+  #deck-subtitle { font-size: .74rem; color: var(--dsw-alias-label-caption); }
+  #deck-stage { flex: 1; min-height: 0; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; overflow: auto; background: #fff; }
+  #deck-stage iframe { display: block; border: 0; background: #fff; }
+  #deck-stage.fit iframe { width: 100%; height: 100%; }
+  #deck-stage.actual iframe { width: 1600px; height: 1000px; }
+  #deck-rail { display: flex; gap: .3rem; overflow-x: auto; padding-bottom: .15rem; }
+  #deck-rail .slide-chip {
+    font-size: .72rem; padding: .16rem .5rem; border-radius: 6px; cursor: pointer; white-space: nowrap;
+    border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1);
+    color: var(--dsw-alias-label-caption);
+  }
+  #deck-rail .slide-chip.active { border-color: rgb(103, 158, 254); color: rgb(103, 158, 254); }
+  #deck-rail .slide-chip.has-thumb { display: flex; flex-direction: column; gap: .2rem; align-items: stretch; padding: .2rem; max-width: 140px; }
+  #deck-rail .slide-chip img { display: block; width: 128px; height: auto; border-radius: 4px; background: #fff; }
+  #deck-rail .slide-chip .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 128px; }
+  #deck-empty { color: var(--dsw-alias-label-caption); font-size: .8rem; padding: 1rem 0; }
+  /* A rendered artifact is ~600 KB of inline runtime; without this the pane
+     shows a blank white box for the first moment and reads as broken. */
+  #deck-stage { position: relative; }
+  #deck-stage::after {
+    content: 'loading diagram…'; position: absolute; inset: 0; display: none;
+    align-items: center; justify-content: center; pointer-events: none;
+    background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-caption); font-size: .8rem;
+  }
+  #deck-stage.loading::after { display: flex; }
 </style>
 </head>
 <body>
@@ -225,6 +268,11 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
 <main>
   <div id="content"></div>
   <section id="report-pane" hidden></section>
+  <section id="deck-pane" hidden>
+    <div id="deck-bar"></div>
+    <div id="deck-rail"></div>
+    <div id="deck-stage" class="fit"></div>
+  </section>
   <div id="feed-filter-bar">
     <input id="feed-filter" type="text" placeholder="Filter the feed (text match)..." />
     <span class="chip active" data-kind="all">All</span>
@@ -298,7 +346,7 @@ async function loadViews() {
   cardsTab.onclick = function () { toggleCardsTab(); };
   tabsEl.appendChild(cardsTab);
   // tab-views (01): Report / Ask / Data tabs — same strip, exclusive panes.
-  for (const spec of [['Report', 'report', 'static reports by agent/skill'], ['More', 'more', 'BTW branch questions + data telemetry (secondary)']]) {
+  for (const spec of [['Report', 'report', 'static reports by agent/skill'], ['Diagram', 'deck', 'archify diagrams — single view + deck playback'], ['More', 'more', 'BTW branch questions + data telemetry (secondary)']]) {
     const el = document.createElement('div');
     el.className = 'tab';
     el.id = 'pane-tab-' + spec[1];
@@ -559,6 +607,219 @@ function sendAppexecCancel(id) {
   logResponse('cancel requested');
 }
 
+// --- Diagram pane (archify-view-pptx-bun 08) --------------------------------
+// Renders archify artifacts full-fidelity INSIDE the shell by pointing an
+// iframe at the EXISTING /files route. That route already answers with
+// 'CSP: sandbox allow-scripts allow-downloads', so the document has an opaque
+// origin (it can never reach /api or the WS) while archify's own runtime —
+// theme toggle, hover-trace, PNG/SVG export menu — keeps working. No srcdoc, no
+// new transport, no weakened CSP.
+//
+// Everything is a "deck": 'diagram_deck' frames arrive as named decks, and
+// single 'view_opened' renders accumulate into a synthetic RECENT deck, so the
+// pane has ONE model instead of two.
+var RECENT_DECK = '__recent';
+var deckState = { order: [], byId: Object.create(null), activeId: null, index: 0, zoom: 'fit' };
+
+function deckReset() {
+  deckState = { order: [], byId: Object.create(null), activeId: null, index: 0, zoom: 'fit' };
+}
+
+// Upsert by id: a re-emitted deck REPLACES its slides and keeps its position in
+// the strip, so re-running a build never stacks duplicates.
+function deckUpsert(id, title, slides) {
+  if (!deckState.byId[id]) deckState.order.push(id);
+  var wasActive = deckState.activeId === id;
+  deckState.byId[id] = { id: id, title: title, slides: slides };
+  if (deckState.activeId === null) { deckState.activeId = id; deckState.index = 0; }
+  if (wasActive && deckState.index >= slides.length) deckState.index = Math.max(0, slides.length - 1);
+}
+
+function deckOnFrame(frame) {
+  if (frame.type === 'diagram_deck') {
+    var slides = Array.isArray(frame.slides) ? frame.slides : [];
+    if (!slides.length || typeof frame.deckId !== 'string') return;
+    deckUpsert(frame.deckId, frame.title || frame.deckId, slides);
+    // A named deck is the more deliberate artifact — focus it on arrival.
+    deckState.activeId = frame.deckId;
+    if (!deckState.byId[frame.deckId].slides[deckState.index]) deckState.index = 0;
+  } else if (frame.type === 'view_opened') {
+    if (typeof frame.url !== 'string' || frame.url === '') return;
+    var recent = deckState.byId[RECENT_DECK];
+    var list = recent ? recent.slides.slice() : [];
+    var key = typeof frame.view === 'string' && frame.view ? frame.view : frame.url;
+    var slide = { url: frame.url, title: frame.title || key, subtitle: frame.view || '' };
+    // Same view re-rendered -> replace in place (the view_opened id contract).
+    var at = -1;
+    for (var i = 0; i < list.length; i++) {
+      if ((list[i].subtitle || list[i].url) === (slide.subtitle || slide.url)) { at = i; break; }
+    }
+    if (at >= 0) list[at] = slide; else list.push(slide);
+    deckUpsert(RECENT_DECK, 'Recent renders', list);
+    if (deckState.activeId === RECENT_DECK && at < 0) deckState.index = list.length - 1;
+  } else {
+    return;
+  }
+  if (activePane === 'deck') renderDeckPane();
+}
+
+function deckActive() {
+  var d = deckState.activeId ? deckState.byId[deckState.activeId] : null;
+  return d && d.slides.length ? d : null;
+}
+
+function deckGo(delta) {
+  var d = deckActive();
+  if (!d) return;
+  var next = deckState.index + delta;
+  if (next < 0 || next >= d.slides.length) return; // no wrap: the ends are real
+  deckState.index = next;
+  renderDeckPane();
+}
+
+function deckBtn(label, title, onclick, disabled) {
+  var b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = label;
+  b.title = title;
+  if (disabled) b.disabled = true;
+  b.onclick = onclick;
+  return b;
+}
+
+function renderDeckPane() {
+  var bar = document.getElementById('deck-bar');
+  var rail = document.getElementById('deck-rail');
+  var stage = document.getElementById('deck-stage');
+  if (!bar || !rail || !stage) return;
+  bar.textContent = '';
+  rail.textContent = '';
+
+  var d = deckActive();
+  if (!d) {
+    stage.textContent = '';
+    var empty = document.createElement('div');
+    empty.id = 'deck-empty';
+    empty.textContent = 'No diagrams yet. Render one (archify_render) or export a deck — it lands here.';
+    stage.appendChild(empty);
+    return;
+  }
+  var slide = d.slides[deckState.index] || d.slides[0];
+
+  // deck chips — only when there is a choice to make
+  if (deckState.order.length > 1) {
+    for (var i = 0; i < deckState.order.length; i++) {
+      (function (id) {
+        var deck = deckState.byId[id];
+        if (!deck || !deck.slides.length) return;
+        var chip = document.createElement('span');
+        chip.className = 'deck-chip' + (id === deckState.activeId ? ' active' : '');
+        chip.textContent = deck.title || id;
+        chip.onclick = function () { deckState.activeId = id; deckState.index = 0; renderDeckPane(); };
+        bar.appendChild(chip);
+      })(deckState.order[i]);
+    }
+  }
+
+  var titleEl = document.createElement('span');
+  titleEl.id = 'deck-title';
+  titleEl.textContent = slide.title || d.title || 'diagram';
+  bar.appendChild(titleEl);
+
+  if (slide.subtitle) {
+    var sub = document.createElement('span');
+    sub.id = 'deck-subtitle';
+    sub.textContent = slide.subtitle;
+    bar.appendChild(sub);
+  }
+
+  var spacer = document.createElement('span');
+  spacer.className = 'spacer';
+  bar.appendChild(spacer);
+
+  bar.appendChild(deckBtn('‹', 'Previous slide (left arrow)', function () { deckGo(-1); }, deckState.index === 0));
+  var counter = document.createElement('span');
+  counter.id = 'deck-count';
+  counter.textContent = (deckState.index + 1) + ' / ' + d.slides.length;
+  bar.appendChild(counter);
+  bar.appendChild(deckBtn('›', 'Next slide (right arrow)', function () { deckGo(1); }, deckState.index >= d.slides.length - 1));
+
+  bar.appendChild(deckBtn(deckState.zoom === 'fit' ? 'fit' : 'actual', 'Toggle fit / actual size', function () {
+    deckState.zoom = deckState.zoom === 'fit' ? 'actual' : 'fit';
+    renderDeckPane();
+  }));
+  // Escape hatches, mirroring the Report tab's proven pair: a sandboxed frame
+  // has an opaque origin, so the parent can never measure or script it.
+  bar.appendChild(deckBtn('fullscreen', 'Fullscreen this diagram', function () {
+    var f = stage.querySelector('iframe');
+    if (f && f.requestFullscreen) f.requestFullscreen();
+  }));
+  bar.appendChild(deckBtn('open standalone', 'Open in its own browser tab', function () {
+    window.open(slide.url, '_blank', 'noopener');
+  }));
+
+  // slide rail
+  if (d.slides.length > 1) {
+    for (var k = 0; k < d.slides.length; k++) {
+      (function (idx) {
+        var slideAt = d.slides[idx];
+        var label = (idx + 1) + '. ' + (slideAt.title || 'slide ' + (idx + 1));
+        var chip = document.createElement('span');
+        chip.className = 'slide-chip' + (idx === deckState.index ? ' active' : '');
+        chip.title = label;
+        // A thumbnail is optional polish: when the producer supplied a servable
+        // one the rail shows it, otherwise the chip is exactly the title chip.
+        if (typeof slideAt.thumbUrl === 'string' && slideAt.thumbUrl) {
+          chip.className += ' has-thumb';
+          var img = document.createElement('img');
+          img.setAttribute('src', slideAt.thumbUrl);
+          img.setAttribute('alt', label);
+          img.setAttribute('loading', 'lazy');
+          // A broken/removed thumbnail must degrade to the title, not to a
+          // broken-image icon.
+          img.onerror = function () { chip.className = chip.className.replace(' has-thumb', ''); img.remove(); };
+          chip.appendChild(img);
+          var cap = document.createElement('span');
+          cap.className = 'chip-label';
+          cap.textContent = label;
+          chip.appendChild(cap);
+        } else {
+          chip.textContent = label;
+        }
+        chip.onclick = function () { deckState.index = idx; renderDeckPane(); };
+        rail.appendChild(chip);
+      })(k);
+    }
+  }
+
+  // stage — reuse the existing frame when the URL is unchanged so paging back
+  // and forth does not reload (and lose) the artifact's in-page state.
+  stage.className = deckState.zoom === 'fit' ? 'fit' : 'actual';
+  var frame = stage.querySelector('iframe');
+  if (!frame) {
+    stage.textContent = '';
+    frame = document.createElement('iframe');
+    frame.setAttribute('title', 'archify diagram');
+    stage.appendChild(frame);
+  }
+  if (frame.getAttribute('src') !== slide.url) {
+    stage.classList.add('loading');
+    frame.onload = function () { stage.classList.remove('loading'); };
+    frame.onerror = function () { stage.classList.remove('loading'); };
+    frame.setAttribute('src', slide.url);
+  }
+}
+
+// Arrow-key paging, active pane only, and never while the user is typing.
+document.addEventListener('keydown', function (e) {
+  if (activePane !== 'deck') return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  var t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  if (e.key === 'ArrowLeft') { deckGo(-1); e.preventDefault(); }
+  else if (e.key === 'ArrowRight') { deckGo(1); e.preventDefault(); }
+});
+
 // --- v2 live transcript mirror (architecture v2 §3.3) -----------------------
 // webui-v3 (03): the transcript scrollback (txEl/txAppend/txLine) is GONE —
 // log frames are TUI-only (t02 diet); the shell renders HITL surfaces only.
@@ -584,6 +845,9 @@ function txApply(frame) {
     case 'card': renderCard(frame); break;
     case 'card_done': retireCard(frame); break; // event-cards (02) tombstone
     case 'report': renderReport(frame); break; // tab-views (01)
+    // archify-view-pptx-bun (08): both diagram families feed the Diagram pane.
+    case 'diagram_deck': deckOnFrame(frame); break;
+    case 'view_opened': deckOnFrame(frame); break;
     default: break; // other frames handled elsewhere
   }
 }
@@ -595,7 +859,9 @@ function txRenderSnapshot(state) {
   if (chatFeedEl) chatFeedEl.textContent = ''; // G1: chat history replays from transcript message_end frames
   if (reportPaneEl) reportPaneEl.textContent = '';
   if (dataPaneEl) dataPaneEl.textContent = '';
+  deckReset(); // the deck rebuilds from replayed diagram_deck / view_opened frames
   if (state && Array.isArray(state.transcript)) state.transcript.forEach(txApply);
+  if (activePane === 'deck') renderDeckPane();
 }
 
 // --- event-cards (01): Cards tab projection --------------------------------
@@ -608,6 +874,7 @@ function txRenderSnapshot(state) {
 const cardsPaneEl = document.getElementById('cards-pane');
 const reportPaneEl = document.getElementById('report-pane');
 const dataPaneEl = document.getElementById('data-pane');
+const deckPaneEl = document.getElementById('deck-pane');
 const chatFeedEl = document.getElementById('chat-feed');
 let activePane = 'events'; // webui-simplify §2: 'report'|'events'(Inbox)|'more'|null — Inbox at boot
 let cardsVisible = false;
@@ -622,7 +889,7 @@ let cardsVisible = false;
 // precedence (a card hash owns routing — the pane sync never clobbers it).
 function paneHashOf(name) {
   if (name === 'events') return '#inbox';
-  if (name === 'report' || name === 'more') return '#' + name;
+  if (name === 'report' || name === 'more' || name === 'deck') return '#' + name;
   return null; // collapsed (null) — clear the hash without a history entry
 }
 function syncPaneHash() {
@@ -642,7 +909,7 @@ function handlePaneHash() {
     var h = location.hash.replace(/^#/, '');
     if (h === 'inbox') h = 'events';
     if (h === 'data' || h === 'btw') h = 'more'; // legacy aliases fold into More
-    if (h === 'report' || h === 'more' || h === 'events') {
+    if (h === 'report' || h === 'more' || h === 'events' || h === 'deck') {
       if (activePane !== h) setPane(h);
     }
   } catch { /* never break boot */ }
@@ -659,8 +926,10 @@ function setPane(name) {
   if (chatFeedEl) chatFeedEl.hidden = name !== 'events'; // G1: the chat feed too
   var filterBar = document.getElementById('feed-filter-bar');
   if (filterBar) filterBar.hidden = name !== 'events'; // G4: the filter is Inbox-only
+  if (deckPaneEl) deckPaneEl.hidden = name !== 'deck';
   if (name === 'more') { renderBtwPane(); renderDataPane(); btwPollStart(); } else { btwPollStop(); }
-  for (const tn of ['report', 'more']) {
+  if (name === 'deck') renderDeckPane(); // rebuild on activation (cheap: DOM only)
+  for (const tn of ['report', 'more', 'deck']) {
     const el = document.getElementById('pane-tab-' + tn);
     if (el) el.classList.toggle('active', name === tn);
   }

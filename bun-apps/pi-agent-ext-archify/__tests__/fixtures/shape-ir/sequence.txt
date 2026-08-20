@@ -1,0 +1,116 @@
+# 820x760 theme=light nodes=115
+rect 48,150 724x145 r10 fill=F8FAFC@0.65 stroke=CBD5E1 sw=1 dash=6,6
+text 62,168 start 9/600 fill=94A3B8 "Request"
+rect 48,315 724x190 r10 fill=F8FAFC@0.65 stroke=CBD5E1 sw=1 dash=6,6
+text 62,333 start 9/600 fill=94A3B8 "Fallback"
+rect 48,525 724x140 r10 fill=F8FAFC@0.65 stroke=CBD5E1 sw=1 dash=6,6
+text 62,543 start 9/600 fill=94A3B8 "Response + trace"
+path M62,142 L62,695 fill=none stroke=94A3B8 sw=0.8 dash=3,7
+path M170,142 L170,695 fill=none stroke=94A3B8 sw=0.8 dash=3,7
+path M278,142 L278,695 fill=none stroke=94A3B8 sw=0.8 dash=3,7
+path M386,142 L386,695 fill=none stroke=94A3B8 sw=0.8 dash=3,7
+path M494,142 L494,695 fill=none stroke=94A3B8 sw=0.8 dash=3,7
+path M602,142 L602,695 fill=none stroke=94A3B8 sw=0.8 dash=3,7
+path M710,142 L710,695 fill=none stroke=94A3B8 sw=0.8 dash=3,7
+path M69,185 L163,185 fill=none stroke=94A3B8 sw=1.4 marker=arrowhead
+rect 86.6,165 58.8x16 r3 fill=FFFFFF stroke=none
+text 116,175 middle 9/400 fill=059669 "open page"
+path M177,228 L271,228 fill=none stroke=059669 sw=1.8 marker=arrowhead-emphasis
+rect 181.6,208 84.8x16 r3 fill=FFFFFF stroke=none
+text 224,218 middle 9/400 fill=059669 "GET /dashboard"
+path M285,270 L379,270 fill=none stroke=E11D48 sw=1.4 dash=5,5 marker=arrowhead-security
+rect 300,250 64x16 r3 fill=FFFFFF stroke=none
+text 332,260 middle 9/400 fill=E11D48 "verify JWT"
+path M379,305 L285,305 fill=none stroke=94A3B8 sw=1.4 dash=3,5 marker=arrowhead
+rect 302.6,285 58.8x16 r3 fill=FFFFFF stroke=none
+text 332,295 middle 9/400 fill=475569 "claims ok"
+path M285,354 L487,354 fill=none stroke=94A3B8 sw=1.4 marker=arrowhead
+rect 354,334 64x16 r3 fill=FFFFFF stroke=none
+text 386,344 middle 9/400 fill=059669 "read cache"
+path M487,391 L285,391 fill=none stroke=94A3B8 sw=1.4 dash=3,5 marker=arrowhead
+rect 369,371 34x16 r3 fill=FFFFFF stroke=none
+text 386,381 middle 9/400 fill=475569 "miss"
+path M285,443 L595,443 fill=none stroke=059669 sw=1.8 marker=arrowhead-emphasis
+rect 374.2,423 131.6x16 r3 fill=FFFFFF stroke=none
+text 440,433 middle 9/400 fill=059669 "query profile + metrics"
+path M595,489 L285,489 fill=none stroke=94A3B8 sw=1.4 dash=3,5 marker=arrowhead
+rect 423,469 34x16 r3 fill=FFFFFF stroke=none
+text 440,479 middle 9/400 fill=475569 "rows"
+path M285,536 L487,536 fill=none stroke=7C3AED sw=1.4 dash=4,4 marker=arrowhead-dashed
+rect 356.6,516 58.8x16 r3 fill=FFFFFF stroke=none
+text 386,526 middle 9/400 fill=EA580C "set cache"
+path M285,580 L703,580 fill=none stroke=7C3AED sw=1.4 dash=4,4 marker=arrowhead-dashed
+rect 462,560 64x16 r3 fill=FFFFFF stroke=none
+text 494,570 middle 9/400 fill=EA580C "emit trace"
+path M271,625 L177,625 fill=none stroke=94A3B8 sw=1.4 dash=3,5 marker=arrowhead
+rect 197.2,605 53.6x16 r3 fill=FFFFFF stroke=none
+text 224,615 middle 9/400 fill=475569 "200 JSON"
+path M163,662 L69,662 fill=none stroke=94A3B8 sw=1.4 dash=3,5 marker=arrowhead
+rect 94.4,642 43.2x16 r3 fill=FFFFFF stroke=none
+text 116,652 middle 9/400 fill=475569 "render"
+rect 165,220 10x448 r3 fill=FFFFFF stroke=none
+rect 165,220 10x448 r3 fill=22D3EE@0.15 stroke=0891B2 sw=1
+rect 273,228 10x404 r3 fill=FFFFFF stroke=none
+rect 273,228 10x404 r3 fill=34D399@0.18 stroke=059669 sw=1
+rect 381,265 10x45 r3 fill=FFFFFF stroke=none
+rect 381,265 10x45 r3 fill=FB7185@0.15 stroke=E11D48 sw=1
+rect 489,349 10x49 r3 fill=FFFFFF stroke=none
+rect 489,349 10x49 r3 fill=A78BFA@0.2 stroke=7C3AED sw=1
+rect 597,438 10x58 r3 fill=FFFFFF stroke=none
+rect 597,438 10x58 r3 fill=A78BFA@0.2 stroke=7C3AED sw=1
+rect 705,575 10x55 r3 fill=FFFFFF stroke=none
+rect 705,575 10x55 r3 fill=FB923C@0.15 stroke=EA580C sw=1
+rect 19,72 86x54 r6 fill=FFFFFF stroke=none
+rect 19,72 86x54 r6 fill=94A3B8@0.18 stroke=64748B sw=1.5
+rect 26.72,81.44 5.84x5.5 r1.03 fill=none stroke=64748B sw=1.35 opacity=0.76 color=64748B
+path M30.5,79.72 L34.28,79.72 L34.28,83.5 M34.28,79.72 L30.16,83.84 fill=none stroke=64748B sw=1.35 opacity=0.76 color=64748B
+text 62,94 middle 11/600 fill=0F172A "User"
+text 62,111 middle 7/400 fill=475569 "browser session"
+rect 127,72 86x54 r6 fill=FFFFFF stroke=none
+rect 127,72 86x54 r6 fill=22D3EE@0.15 stroke=0891B2 sw=1.5
+rect 134.38,80.06 8.25x6.88 r1.38 fill=none stroke=0891B2 sw=1.35 opacity=0.76 color=0891B2
+path M134.38,82.47 L142.63,82.47 fill=none stroke=0891B2 sw=1.35 opacity=0.76 color=0891B2
+ellipse 135.82,81.3 0.48x0.48 fill=0891B2 stroke=none sw=1.35 opacity=0.76 color=0891B2
+ellipse 137.33,81.3 0.48x0.48 fill=0891B2 stroke=none sw=1.35 opacity=0.76 color=0891B2
+text 170,94 middle 11/600 fill=0F172A "Web App"
+text 170,111 middle 7/400 fill=475569 "React UI"
+rect 235,72 86x54 r6 fill=FFFFFF stroke=none
+rect 235,72 86x54 r6 fill=34D399@0.18 stroke=059669 sw=1.5
+path M245.13,80.06 L243.06,83.5 L245.13,86.94 M247.88,80.06 L249.94,83.5 L247.88,86.94 fill=none stroke=059669 sw=1.35 opacity=0.76 color=059669
+text 278,94 middle 11/600 fill=0F172A "API"
+text 278,111 middle 7/400 fill=475569 "request handler"
+rect 343,72 86x54 r6 fill=FFFFFF stroke=none
+rect 343,72 86x54 r6 fill=FB7185@0.15 stroke=E11D48 sw=1.5
+path* M354.5,79.51 L357.94,80.75 L357.94,83.16 C357.94,85.29 356.7,86.87 354.5,87.63 C352.3,86.87 351.06,85.29 351.06,83.16 L351.06,80.75 Z fill=none stroke=E11D48 sw=1.35 opacity=0.76 color=E11D48
+path M352.99,83.5 L354.02,84.53 L356.08,82.47 fill=none stroke=E11D48 sw=1.35 opacity=0.76 color=E11D48
+text 386,94 middle 11/600 fill=0F172A "Auth"
+text 386,111 middle 7/400 fill=475569 "JWT verify"
+rect 451,72 86x54 r6 fill=FFFFFF stroke=none
+rect 451,72 86x54 r6 fill=A78BFA@0.2 stroke=7C3AED sw=1.5
+ellipse 462.5,80.75 3.44x1.38 fill=none stroke=7C3AED sw=1.35 opacity=0.76 color=7C3AED
+path M459.06,80.75 L459.06,86.25 C459.06,87.01 460.58,87.63 462.5,87.63 C464.43,87.63 465.94,87.01 465.94,86.25 L465.94,80.75 M459.06,83.5 C459.06,84.26 460.58,84.88 462.5,84.88 C464.43,84.88 465.94,84.26 465.94,83.5 fill=none stroke=7C3AED sw=1.35 opacity=0.76 color=7C3AED
+text 494,94 middle 11/600 fill=0F172A "Redis"
+text 494,111 middle 7/400 fill=475569 "cache"
+rect 559,72 86x54 r6 fill=FFFFFF stroke=none
+rect 559,72 86x54 r6 fill=A78BFA@0.2 stroke=7C3AED sw=1.5
+ellipse 570.5,80.75 3.44x1.38 fill=none stroke=7C3AED sw=1.35 opacity=0.76 color=7C3AED
+path M567.06,80.75 L567.06,86.25 C567.06,87.01 568.58,87.63 570.5,87.63 C572.42,87.63 573.94,87.01 573.94,86.25 L573.94,80.75 M567.06,83.5 C567.06,84.26 568.58,84.88 570.5,84.88 C572.42,84.88 573.94,84.26 573.94,83.5 fill=none stroke=7C3AED sw=1.35 opacity=0.76 color=7C3AED
+text 602,94 middle 11/600 fill=0F172A "Postgres"
+text 602,111 middle 7/400 fill=475569 "source of truth"
+rect 667,72 86x54 r6 fill=FFFFFF stroke=none
+rect 667,72 86x54 r6 fill=FB923C@0.15 stroke=EA580C sw=1.5
+path M674.72,81.09 L682.28,81.09 M674.72,83.5 L682.28,83.5 M674.72,85.91 L682.28,85.91 fill=none stroke=EA580C sw=1.35 opacity=0.76 color=EA580C
+ellipse 676.44,81.09 0.69x0.69 fill=EA580C stroke=none sw=1.35 opacity=0.76 color=EA580C
+ellipse 680.22,83.5 0.69x0.69 fill=EA580C stroke=none sw=1.35 opacity=0.76 color=EA580C
+ellipse 677.81,85.91 0.69x0.69 fill=EA580C stroke=none sw=1.35 opacity=0.76 color=EA580C
+text 710,94 middle 11/600 fill=0F172A "Trace"
+text 710,111 middle 7/400 fill=475569 "async event"
+text 150,686 start 10/600 fill=0F172A "Legend"
+path M150,706 L184,706 fill=none stroke=059669 sw=1.8 marker=arrowhead-emphasis
+text 193,709 start 8/400 fill=475569 "request"
+path M270,706 L304,706 fill=none stroke=94A3B8 sw=1.4 dash=3,5 marker=arrowhead
+text 313,709 start 8/400 fill=475569 "return"
+path M385,706 L419,706 fill=none stroke=E11D48 sw=1.4 dash=5,5 marker=arrowhead-security
+text 428,709 start 8/400 fill=475569 "security"
+path M530,706 L564,706 fill=none stroke=7C3AED sw=1.4 dash=4,4 marker=arrowhead-dashed
+text 573,709 start 8/400 fill=475569 "async trace"

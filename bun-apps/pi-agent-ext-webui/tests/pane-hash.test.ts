@@ -8,7 +8,8 @@ import { RenderService } from "../src/render-service.js";
 // live shell (one SSE/WS subscription, cross-tab badge, zero-latency pane
 // switches). Legacy #data/#btw deep links alias into #more (webui-simplify
 // §2: BTW + Data fold into the secondary More tab). #card-<id> deep links
-// keep precedence over pane routing.
+// keep precedence over pane routing. The Diagram pane (#deck) joins the same
+// router — one more entry, not a second routing mechanism.
 describe("render shell — hash-addressable panes", () => {
   it("carries the pane-hash router + card precedence guard", async () => {
     const s = new WebServer({ port: 0 });
@@ -22,13 +23,18 @@ describe("render shell — hash-addressable panes", () => {
       // pane names map onto hashes (inbox alias included)
       expect(html).toContain("if (name === 'events') return '#inbox';");
       expect(html).toContain("'#' + name");
-      // webui-simplify §2: four tabs — More folds Data+BTW; legacy hashes alias
-      expect(html).toContain("if (name === 'report' || name === 'more') return '#' + name;");
+      // webui-simplify §2: More folds Data+BTW; legacy hashes alias.
+      // archify-view-pptx-bun (08) adds Diagram (#deck) to the same router.
+      expect(html).toContain(
+        "if (name === 'report' || name === 'more' || name === 'deck') return '#' + name;"
+      );
       expect(html).toContain("if (h === 'data' || h === 'btw') h = 'more';");
+      expect(html).toContain("h === 'events' || h === 'deck'");
+      expect(html).toContain("['Diagram', 'deck'");
       expect(html).toContain("['More', 'more'");
       expect(html).not.toContain("['Data', 'data'");
       expect(html).not.toContain("['BTW', 'btw'");
-      expect(html).toContain("['report', 'more']");
+      expect(html).toContain("['report', 'more', 'deck']");
       // card deep links own routing — both guards present
       expect(html.match(/parseCardHashInline\(location\.hash\) !== null\) return;/g)?.length).toBe(2);
       // boot restores from hash; hashchange routes cards FIRST (they own it)

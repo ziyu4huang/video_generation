@@ -35,3 +35,62 @@ export function announceOpen(events: OpenBus | undefined, kind: OpenAnnounceKind
     });
   } catch { /* bus robustness */ }
 }
+
+// ── deck announce (archify-view-pptx-bun, ticket 09) ────────────────────────
+
+export interface DeckAnnounceSlide {
+  /** Absolute path to the rendered slide HTML. */
+  path: string;
+  title: string;
+  subtitle?: string;
+  /** Absolute path to a generated thumbnail, when one exists. */
+  thumb?: string;
+}
+
+export interface DeckAnnouncePayload {
+  deckId: string;
+  title: string;
+  slides: DeckAnnounceSlide[];
+}
+
+/**
+ * Build the `webui:deck` payload for a completed deck build. Pure.
+ *
+ * `deckId` is the .pptx basename without its extension, so re-exporting the
+ * same deck REPLACES its pane entry instead of stacking a duplicate — the same
+ * identity rule `webui:open` uses for single views.
+ */
+export function deckAnnounceFor(
+  outputPath: string,
+  slides: DeckAnnounceSlide[],
+  title?: string
+): DeckAnnouncePayload {
+  const deckId = path.basename(outputPath).replace(/\.pptx$/i, "");
+  return {
+    deckId,
+    title: title ?? deckId,
+    slides: slides.map((s) => ({
+      path: path.resolve(s.path),
+      title: s.title,
+      ...(s.subtitle !== undefined ? { subtitle: s.subtitle } : {}),
+      ...(s.thumb !== undefined ? { thumb: path.resolve(s.thumb) } : {}),
+    })),
+  };
+}
+
+/**
+ * Fire-and-forget `webui:deck` emit. Webui-optional exactly like
+ * `announceOpen`: no bus (or a throwing one) is a silent no-op and the deck
+ * build's own result is unaffected.
+ */
+export function announceDeck(
+  events: OpenBus | undefined,
+  outputPath: string,
+  slides: DeckAnnounceSlide[],
+  title?: string
+): void {
+  try {
+    if (slides.length === 0) return;
+    events?.emit?.("webui:deck", deckAnnounceFor(outputPath, slides, title));
+  } catch { /* bus robustness */ }
+}
