@@ -73,7 +73,7 @@ bun-apps/gui-movie-director/  # ACTIVE — Bun + React GUI
 One registered entry per folder: `extensions/<X>.ts` where `<X>` = folder minus `pi-agent-ext-` — never `src/index.ts`, root `index.ts`, `extensions/index.ts`, or `extensions/pi-<X>.ts` as the registration entry.
 
 - **Lib entry stays separate**: src-entry (`main: "./src/index.ts"`) is the standard lib face (web-access uses root `index.ts`) — don't move it. If the registration entry has no in-file implementation (power-tool, hermes-memory), add a 1-line re-export shim `export { default } from "../src/index.ts";` at `extensions/<X>.ts`.
-- **Registration**: dynamic → `bun-apps/pi-agent/run-dir/manifest.json` (`extensions[]`); always-on/static → `bun-apps/pi-agent/src/static-extensions.ts`; never both (double-register).
+- **Registration**: ONE entry in `bun-apps/pi-agent/pi-agent.registry.yaml` (`load: dynamic` or `load: static`), then `bun run --cwd bun-apps/pi-agent regen:manifest` (+ `regen:static` for static) — `run-dir/manifest.json` is DERIVED (freshness-gated; never hand-edit); never register an extension as both static and dynamic (double-register).
 - **Schema-cost canary**: `bun-apps/pi-agent/src/cli/commands/schema-cost.ts` `discoverExtensionEntries()` derives from manifest.json — registered extensions measured automatically; only unregistered measure-worthy files need a manual `EXTRA_ENTRIES` row.
 - **CLI subcommands**: `extensions/cli-subcommand.ts`, wired in `bun-apps/pi-agent/src/cli/extensions/registry.ts`.
 
