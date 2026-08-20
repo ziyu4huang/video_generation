@@ -1,6 +1,6 @@
 /**
  * Unit tests for the change-triggered deploy-e2e decision — the pure half of
- * local_ci's PI_AGENT_E2E gate. Pattern list + predicate, no fs/git: the
+ * run_local_ci's PI_AGENT_E2E gate. Pattern list + predicate, no fs/git: the
  * recipe feeds it `git diff --name-only` output (see ci-recipe tests).
  */
 import { test, expect, describe } from "bun:test";

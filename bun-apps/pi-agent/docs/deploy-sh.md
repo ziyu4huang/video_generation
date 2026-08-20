@@ -216,26 +216,34 @@ extension came from the repo's run-dir.
 
 ## Limits
 
-- **Base set (2026-08-20, "portable full-featured" profile): 12 extensions** — `task`,
+- **Base set (2026-08-20, "portable full-featured" profile): 14 extensions** — `task`,
   `prompt-history`, `superpowers`, `wayfind`, `hermes-memory`, `subagent`, `workflow`, `btw`,
-  `web-access`, `power-tool`, `webui`, `hyperframes`. The earlier named blockers turned out to be
-  stale on measurement: hermes-memory's sqlite is `bun:sqlite` (a builtin the host require serves),
-  webui's HTML shell is a single inline string constant (no static assets), and the superpowers
-  skills tree copies through the same path hyperframes already shipped.
-- **Excluded, with reasons**: `obsidian` (cross-extension imports of the subagent package's OWN
-  surface — `getSubagentRunPersistence` / `spawnSubagentSubprocess`, which stayed there when the
-  dispatch layer moved to core-runtime — AND `@earendil-works/pi-agent-core`),
-  `knowledge-card` (the former extension-entry import cascade is resolved — it now consumes
-  obsidian's lib face via the bare specifier `@repo/pi-agent-ext-obsidian`; it remains excluded
-  because its Tier-0 dependency obsidian is itself outside the portable base set),
+  `web-access`, `power-tool`, `webui`, `hyperframes`, `obsidian`, `knowledge-card`. The earlier
+  named blockers turned out to be stale on measurement: hermes-memory's sqlite is `bun:sqlite` (a
+  builtin the host require serves), webui's HTML shell is a single inline string constant (no
+  static assets), and the superpowers skills tree copies through the same path hyperframes
+  already shipped.
+- **Knowledge layer (obsidian + knowledge-card) joined the base set** (the #1733 dispatch move
+  plus #1737's obsidian lib face made it possible; this change completes it): the
+  isolated-process dispatch layer (`getSubagentRunPersistence` / `spawnSubagentSubprocess` +
+  their record types) moved to `@repo/pi-agent-core-runtime`, so base-set extensions import it
+  from the core-runtime host module instead of the subagent extension package (dep-guard forbids
+  base-set ext→ext edges). knowledge-card consumes obsidian's lib face (#1737) instead of the
+  extension entry — inlining the entry would double-register GATE_DEFS and duplicate its bulk.
+  obsidian seeds a fresh vault on a portable machine from `vault-template/` (shipped via
+  `copy:`, located through `require("#pi/ext-dir")`).
+- **Excluded, with reasons**:
   `file2md` (mupdf native/wasm + a hard LM Studio localhost dependency — not portable), the
   director/MCP wrappers (`movie-director`, `flux2`, `krea2`, `ltx`, `zai-mcp`, `research-tool`,
   `archify` — bound to this machine's swift CLIs and services), and repo-internal tooling
   (`devops`, `tool-gate`). All stay available through the legacy source/run-dir modes.
 - **Host modules**: `@earendil-works/pi-ai` (+`/compat`) — already compiled in via pi-coding-agent,
-  served for identity stability. `@repo/pi-agent-ext-subagent` was served for a while and is GONE
+  served for identity stability; `@repo/pi-agent-core-interface` — GATE_DEFS is a shared mutable
+  registry (obsidian, knowledge-card and wayfind all register gate families at module scope), so
+  it must be ONE instance. `@repo/pi-agent-ext-subagent` was served for a while and is GONE
   as of HOST_API 2 — see "The host contract" above for why an extension must never be a host
-  module.
+  module. Adding a served module (as with core-interface) stays HOST_API 2: bundles built against
+  2 simply never require it.
 - **Locating bundled assets at runtime**: bun's cjs output folds `import.meta.url` into a
   build-machine path literal, REBINDS `__dirname`/`__filename` the same way, and an unfolded
   `import.meta` is a SyntaxError inside the loader's indirect cjs eval — so extensions resolve

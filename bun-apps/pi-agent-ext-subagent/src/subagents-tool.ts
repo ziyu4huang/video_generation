@@ -21,12 +21,14 @@ import {
   DEFAULT_BATCH_CONCURRENCY,
   deriveTaskLabel,
   fmtElapsed,
+  generateSubagentRunId,
   getGlobalRateLimiter,
   isTerminalStatus,
   MAX_BATCH_TASKS,
   MAX_CONCURRENCY,
   providerFromModelSpec,
   roleAwareDefaults,
+  type SubagentRunPersistence,
   shortModel,
   spawnSubagent,
   summarizeLatestAction,
@@ -37,7 +39,6 @@ import { dispatchChild } from "./child-dispatch.js";
 import { ComposerComponent } from "./composer-component.js";
 import { realGitOps } from "./git-scope.js";
 import { missingRequiredTools } from "./impossible-tools.js";
-import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
 import { taskPreview, workIntentPreview } from "./subagent-tool-render.js";
 import { abortSafetyFooter, augmentOutputWithScopeViolation, extractSalvage } from "./subagent-tool-run.js";
 import { DEFAULT_TIMEOUT_MS } from "./subagent-tool-schema.js";

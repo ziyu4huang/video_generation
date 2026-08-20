@@ -1,5 +1,5 @@
 /**
- * Tests for `pr-finish-cli.ts` (bin `devops-pr-finish`) — the TS port of the
+ * Tests for `merge-pr-after-ci-cli.ts` (bin `devops-merge-pr-after-ci`) — the TS port of the
  * deleted `scripts/pr-finish.sh`, with remote-CI waiting intentionally dropped
  * (local CI is the gate).
  *
@@ -10,17 +10,17 @@
  *  - gate sequencing: dirty_tree → local_ci_failed → behind → not-clean →
  *    not-open all abort with exit 1 and NEVER reach mergeNow,
  *  - happy path: squash-merge + branch cleanup (deletes + prune),
- *  - post-merge warning: run sync_repo (the default-branch worktree / cwd
+ *  - post-merge warning: run sync_default_branch (the default-branch worktree / cwd
  *    may now be behind after the merge),
  *  - --dry-run: read-only gates only, planned commands, zero mutations,
  *  - usage errors exit 2; --help exits 0 with usage on stderr.
  *
- * Dual-seam style of tests/sync-cli.test.ts: plain-async-stub `gh` +
+ * Dual-seam style of tests/sync-default-branch-cli.test.ts: plain-async-stub `gh` +
  * `BranchClient` fakes + a recording SpawnFn + a stubbed `runCi` seam. No real
  * git / gh / network.
  */
 import { test, expect, describe } from "bun:test";
-import { runPrFinishCli, parsePrFinishArgs, settlePrStatus, isMissingWorkflowScope, MERGE_STATE_POLLS, PR_FINISH_CLI_USAGE } from "../src/pr-finish-cli.js";
+import { runPrFinishCli, parsePrFinishArgs, settlePrStatus, isMissingWorkflowScope, MERGE_STATE_POLLS, PR_FINISH_CLI_USAGE } from "../src/merge-pr-after-ci-cli.js";
 import type { GhClient } from "../src/recipe.js";
 import type { BranchClient } from "../src/branch-recipe.js";
 import type { runLocalCi } from "../src/ci-recipe.js";
@@ -29,7 +29,7 @@ import type { CiOutcome } from "../src/ci-recipe.js";
 
 const REPO = "/repo";
 
-/** Quiet-success recording SpawnFn (feeds verify_merge's read-only git). */
+/** Quiet-success recording SpawnFn (feeds verify_merge_landed's read-only git). */
 function fakeSpawn(): { fn: SpawnFn; calls: { cmd: string; args: string[] }[] } {
 	const calls: { cmd: string; args: string[] }[] = [];
 	const fn: SpawnFn = async (cmd, args): Promise<SpawnResult> => {
@@ -47,7 +47,7 @@ type PrStatus = Awaited<ReturnType<GhClient["prStatus"]>>;
  *  strict (running out throws) — a run that reads the PR status more or fewer
  *  times than the test says is itself a finding. A full green run reads it
  *  three times: preflight (for the ref names), the post-CI refresh the merge
- *  gates read, and verify_merge's own post-merge read. */
+ *  gates read, and verify_merge_landed's own post-merge read. */
 function fakeGh(statuses: PrStatus[], mergeCalls: number[] = []) {
 	return {
 		gh: {
@@ -189,7 +189,7 @@ describe("parsePrFinishArgs — argv contract", () => {
 	});
 });
 
-describe("pr-finish-cli — wrapper contract", () => {
+describe("merge-pr-after-ci-cli — wrapper contract", () => {
 	test("happy path: OPEN+CLEAN+ci pass → merged, branches deleted, exit 0", async () => {
 		const g = greenDeps();
 		const res = await runPrFinishCli(["42"], g.deps);
@@ -215,7 +215,7 @@ describe("pr-finish-cli — wrapper contract", () => {
 			"deleteRemote:feature",
 			"fetchPrune",
 		]);
-		// The local_ci diff must be based at the PR base's REMOTE-TRACKING ref,
+		// The run_local_ci diff must be based at the PR base's REMOTE-TRACKING ref,
 		// not the local base branch: in this repo's multi-worktree layout `main`
 		// is checked out in another worktree and can never be fast-forwarded
 		// here, so a stale local `main` over-scopes the diff (observed 318 s vs
@@ -242,7 +242,7 @@ describe("pr-finish-cli — wrapper contract", () => {
 		expect(clientParts.calls).toEqual([]);
 	});
 
-	test("BEHIND → abort behind, exit 1 (points at prepare_branch)", async () => {
+	test("BEHIND → abort behind, exit 1 (points at prepare_feature_branch)", async () => {
 		const ghParts = fakeGh([OPEN_CLEAN, { ...OPEN_CLEAN, mergeState: "BEHIND" }]);
 		const res = await runPrFinishCli(["42"], {
 			gh: ghParts.gh,
@@ -254,7 +254,7 @@ describe("pr-finish-cli — wrapper contract", () => {
 		expect(res.exitCode).toBe(1);
 		const outcome = JSON.parse(res.stdout);
 		expect(outcome.aborted.reason).toBe("behind");
-		expect(outcome.aborted.message.includes("prepare_branch")).toBe(true);
+		expect(outcome.aborted.message.includes("prepare_feature_branch")).toBe(true);
 		expect(ghParts.mergeCalls).toEqual([]);
 	});
 
@@ -330,12 +330,12 @@ describe("pr-finish-cli — wrapper contract", () => {
 		expect(JSON.parse(res.stdout).aborted.reason).toBe("dirty_tree");
 	});
 
-	test("recordingSpawn forwards spawn options (cwd) — a dropped opts made every local_ci gate run at the repo root", async () => {
+	test("recordingSpawn forwards spawn options (cwd) — a dropped opts made every run_local_ci gate run at the repo root", async () => {
 		// Regression (2026-08-15): recordingSpawn dropped the third SpawnFn
-		// argument, so every spawn local_ci makes on pr-finish's behalf lost its
+		// argument, so every spawn run_local_ci makes on pr-finish's behalf lost its
 		// cwd and ran at the baked-in default — package tests and gate commands
 		// (`bun run test:seam` at bun-apps/) executed at the repo root and failed,
-		// while the same local_ci passed standalone. Drive the passthrough via the
+		// while the same run_local_ci passed standalone. Drive the passthrough via the
 		// default-runCi path's spawn seam and assert the fake receives options.
 		const seen: Array<{ args: string[]; cwd?: string }> = [];
 		const g = greenDeps();
@@ -374,7 +374,7 @@ describe("pr-finish-cli — wrapper contract", () => {
 // not ours to move and must be reported rather than force-deleted.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("pr-finish-cli — spent-branch deletion", () => {
+describe("merge-pr-after-ci-cli — spent-branch deletion", () => {
 	test("detaches onto the MERGE COMMIT, not the stale origin/<base> ref", async () => {
 		// `fetchPrune()` runs after this block, so `origin/main` still points at the
 		// PRE-merge tip — detaching onto it left the worktree one commit behind the
@@ -463,7 +463,7 @@ describe("pr-finish-cli — spent-branch deletion", () => {
 // reported as a verified-clean merge.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("pr-finish-cli — verification failures are not passes", () => {
+describe("merge-pr-after-ci-cli — verification failures are not passes", () => {
 	test("an unreadable merge sha does NOT report CLEAN", async () => {
 		// The reachable form of issue #1439 at this layer: the merge lands, but
 		// `git show` cannot read it. pr_finish used to print verdict CLEAN having
@@ -520,11 +520,11 @@ describe("pr-finish-cli — verification failures are not passes", () => {
  * "GitHub hasn't computed it yet", not "cannot merge".
  *
  * Both halves cost a real merge on 2026-08-18 (PR #1646): the preflight
- * snapshot was taken, ~2 minutes of local_ci ran, and the gate then rejected a
+ * snapshot was taken, ~2 minutes of run_local_ci ran, and the gate then rejected a
  * mergeState that had already settled to CLEAN — at the price of a full CI
  * re-run per manual retry.
  */
-describe("pr-finish-cli — the merge gates read a fresh, settled status", () => {
+describe("merge-pr-after-ci-cli — the merge gates read a fresh, settled status", () => {
 	const OID = "b".repeat(40);
 	const noSleep = async () => {};
 
@@ -631,7 +631,7 @@ describe("pr-finish-cli — the merge gates read a fresh, settled status", () =>
 		expect(ciRuns).toBe(0);
 		const outcome = JSON.parse(res.stdout);
 		expect(outcome.ciSkipped).toEqual({ assumedSha: OID });
-		expect(outcome.warnings.some((w: string) => /local_ci SKIPPED/.test(w))).toBe(true);
+		expect(outcome.warnings.some((w: string) => /run_local_ci SKIPPED/.test(w))).toBe(true);
 		expect(ghParts.mergeCalls).toEqual([42]);
 	});
 
@@ -692,7 +692,7 @@ describe("pr-finish-cli — the merge gates read a fresh, settled status", () =>
  * one fix — not a generic merge error. It blocked PR #1646 on 2026-08-18 and
  * arrived as a raw GraphQL passthrough that named no remedy.
  */
-describe("pr-finish-cli — the missing-workflow-scope refusal is its own class", () => {
+describe("merge-pr-after-ci-cli — the missing-workflow-scope refusal is its own class", () => {
 	const GRAPHQL_REFUSAL =
 		"gh pr merge 42 (direct) failed (exit 1): GraphQL: refusing to allow an OAuth App to create or " +
 		"update workflow `.github/workflows/ci.yml.disabled` without `workflow` scope (mergePullRequest)";

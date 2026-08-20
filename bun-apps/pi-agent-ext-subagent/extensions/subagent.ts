@@ -1,4 +1,7 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+// Moved to @repo/pi-agent-core-runtime (in-flight registry with the dispatch
+// layer; run persistence with the record layer).
+import { getSubagentInFlightRegistry, getSubagentRunPersistence } from "@repo/pi-agent-core-runtime";
 import { registerModelsPresetCommand } from "../extensions/models-preset.js";
 import {
   convertToBackground,
@@ -7,8 +10,6 @@ import {
   createSubagentTool,
   dispatchCtrlB,
   GLOBAL_DETACH_KEY,
-  getSubagentInFlightRegistry,
-  getSubagentRunPersistence,
   makeProdDetachDeps,
 } from "../src/index.js";
 import { createSubagentsCommand } from "../src/subagents-command.js";

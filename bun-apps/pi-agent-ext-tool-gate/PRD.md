@@ -65,8 +65,8 @@ Every gate family is declared in the shared `GATE_DEFS` registry by its **owning
 | arxiv | `arxiv_search`, `arxiv_fetch2md`, `arxiv_paper` | pi-agent-ext-research-tool | keywords + noun∧verb |
 | movie | `movie`, `movie_help` | pi-agent-ext-movie-director | keywords + noun∧verb |
 | zai | `zai_web_search_web_search_prime`, `zai_web_reader_webReader` | pi-agent-ext-zai-mcp *(env-gated on ZAI_API_KEY)* | keywords + noun∧verb |
-| pi_deploy | `pi_deploy`, `pi_verify` | pi-agent-ext-devops | keywords + noun∧verb |
-| await_pr_merge, sweep_branches, local_ci, main_health, sync_repo, devops_retrospect, prepare_branch, verify_merge | devops single-tool gates | pi-agent-ext-devops | keywords |
+| deploy_pi_agent_sh | `deploy_pi_agent_sh`, `verify_pi_agent_deploy` | pi-agent-ext-devops | keywords + noun∧verb |
+| merge_pr_after_local_ci, sweep_merged_branches, run_local_ci, check_main_health, sync_default_branch, run_devops_retrospect, prepare_feature_branch, verify_merge_landed | devops single-tool gates | pi-agent-ext-devops | keywords |
 | zk_card, zk_ask, zk_ingest, knowledge_query | knowledge-card on-demand | pi-agent-ext-knowledge-card | keywords + noun∧verb (ticket 02) |
 | skill_manage, session_search, knowledge_search, knowledge_ingest, planning_stale, grill_decision, memory_supersede | hermes-memory on-demand | pi-agent-ext-hermes-memory | keywords ± noun∧verb (ticket 02) |
 | wayfind_effort | wayfind | pi-agent-ext-wayfind | keywords + noun∧verb (ticket 02) |

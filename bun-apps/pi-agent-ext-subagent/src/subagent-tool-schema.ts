@@ -12,13 +12,15 @@ import type {
   SddReport,
   SpawnSubagentOptions,
   SpawnSubagentResult,
+  SubagentBudgetDetails,
   SubagentInFlightRegistry,
+  SubagentRunPersistence,
+  SubagentSalvage,
   TurnExhaustion,
 } from "@repo/pi-agent-core-runtime";
 import type { TSchema } from "typebox";
 import { Type } from "typebox";
 import type { GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
-import type { SubagentRunPersistence } from "./subagent-run-persistence.js";
 import type { WatchdogResult } from "./watchdog/types.js";
 
 /**
@@ -31,43 +33,7 @@ import type { WatchdogResult } from "./watchdog/types.js";
  * final usage ≥80% of a set budget — advisory only, status stays "done",
  * never aborts/retries. Old records without either stay valid.
  */
-export interface SubagentBudgetDetails {
-  /** Which budget was exceeded (abort path only). */
-  kind?: "tokens" | "spend";
-  /** The caller-declared ceiling (abort path only). */
-  limit?: number;
-  /** The cumulative usage at the moment of abort (abort path only). */
-  actual?: number;
-  /** Informational 80% warning (completed-run path only). */
-  warning?: BudgetWarning;
-  /**
-   * Budget-history cohort (2026-08-18 forward-fix): WHICH mechanism set this
-   * dispatch's envelope — the role-aware default (split recon/writer), an
-   * explicit caller param, or the tier ceilings. Cohort medians (not raw
-   * aggregates) drive recalibration; absent on legacy records = unknown
-   * cohort. Coexists with the exhaustion fields above on budget-abort runs.
-   */
-  source?: "explicit" | "envelope-recon" | "envelope-writer" | "tier";
-  /** Cohort envelope's token ceiling, when the tagged mechanism set one. */
-  tokenBudget?: number;
-  /** Cohort envelope's turn ceiling, when the tagged mechanism set one. */
-  maxTurns?: number;
-  /** Cohort envelope's wall-clock ceiling (ms), when the tagged mechanism set one. */
-  timeoutMs?: number;
-}
-
-/**
- * Terminal-abort salvage (2026-08-15 hardening): what an aborted child managed
- * to produce before the ceiling hit. Present only on abort outcomes
- * (budget/turns/timedout/user-abort); old records without it stay valid.
- */
-export interface SubagentSalvage {
-  /** The child's LAST assistant text, trimmed, capped at 1500 chars. */
-  lastText?: string;
-  /** Paths touched by write tool calls (edit/write/multiedit/apply_patch),
-   *  first-touch order, deduped, capped at 40. */
-  files?: string[];
-}
+export type { SubagentBudgetDetails, SubagentSalvage } from "@repo/pi-agent-core-runtime";
 
 export interface SubagentToolDetails {
   /** Role label (params.agent), if provided. */

@@ -1,16 +1,16 @@
 #!/usr/bin/env bun
 /**
- * sync-cli — the bash-callable entry point for `runSync` (the sync_repo recipe).
+ * sync-default-branch-cli — the bash-callable entry point for `runSync` (the sync_default_branch recipe).
  *
  * WHY THIS EXISTS (plain-`pi` discoverability gap):
- *   The devops tools (sync_repo et al.) load only via the pi-agent wrapper's
+ *   The devops tools (sync_default_branch et al.) load only via the pi-agent wrapper's
  *   run-dir argv splice. An agent session launched as plain `pi` gets no repo
  *   extensions — and the old bash fallback `scripts/sync-repo.sh` was deleted
  *   after the TS port, leaving nothing but hand-rolled raw git. This is the
  *   purpose-built replacement: the SAME runSync orchestration (same options,
  *   same safety gates — dirty-tree abort, ff-only default, preserve stash)
  *   behind a thin argv wrapper, callable as
- *     bun bun-apps/pi-agent-ext-devops/src/sync-cli.ts [--dry-run]
+ *     bun bun-apps/pi-agent-ext-devops/src/sync-default-branch-cli.ts [--dry-run]
  *
  *   It is a THIN wrapper (mirrors src/changed-packages-cli.ts, the existing bin
  *   pattern): all logic stays in runSync; the real git surface is the same one
@@ -46,10 +46,10 @@ export interface SyncCliResult {
 }
 
 export const SYNC_CLI_USAGE = [
-	"usage: sync-cli.ts [--mode full|rebase|pull] [--dry-run] [--force]",
+	"usage: sync-default-branch-cli.ts [--mode full|rebase|pull] [--dry-run] [--force]",
 	"                    [--preserve <path>]... [--preserve-strict] [--repo-root <path>]",
 	"",
-	"Runs the sync_repo recipe (fetch → advance default branch / rebase / pull,",
+	"Runs the sync_default_branch recipe (fetch → advance default branch / rebase / pull,",
 	"worktree-aware, submodule sync in full mode) and prints the structured",
 	"outcome as JSON on stdout. Exit 0 on success, 1 on abort (dirty_tree /",
 	"divergent / ...), 2 on usage error.",
@@ -132,7 +132,7 @@ export function parseSyncArgs(argv: string[]): { ok: true; args: ParsedSyncArgs 
 /**
  * Pure argv → result. `client` and `spawn` are injectable so tests never touch
  * a real git repo; the live entry point below supplies the real pair (the same
- * wiring extensions/devops.ts uses for the sync_repo tool).
+ * wiring extensions/devops.ts uses for the sync_default_branch tool).
  */
 export async function runSyncCli(
 	argv: string[],

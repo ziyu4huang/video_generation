@@ -52,10 +52,7 @@ import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { GATE_DEFS } from "@repo/pi-agent-core-interface";
 import { zkRetrieve, zkIngest, zkHealth, zkHeal } from "../src/host-fns.ts";
-import {
-	resolveVault,
-	registerDeterministicHealthCheck,
-} from "@repo/pi-agent-ext-obsidian";
+import { resolveVault, registerDeterministicHealthCheck } from "@repo/pi-agent-ext-obsidian";
 import { ingestRecords, formatSummary } from "../src/ingest.ts";
 import {
 	adaptAutoMemoryMarkdown,
@@ -126,7 +123,7 @@ import {
 	roleAwareDirectCall,
 	type SpawnSubagentOptions,
 	type SpawnSubagentResult,
-} from "@repo/pi-agent-ext-subagent";
+} from "@repo/pi-agent-core-runtime";
 import { runGate } from "../src/distill/gate.ts";
 import { runConverge } from "../src/distill/converge.ts";
 import { onKnowledge } from "../src/emit.ts";

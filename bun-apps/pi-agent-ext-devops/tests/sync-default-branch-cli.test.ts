@@ -1,6 +1,6 @@
 /**
- * Tests for the bash-callable `sync-cli.ts` wrapper (the plain-`pi` fallback
- * for the sync_repo tool).
+ * Tests for the bash-callable `sync-default-branch-cli.ts` wrapper (the plain-`pi` fallback
+ * for the sync_default_branch tool).
  *
  * The wrapper is what CLAUDE.md now tells plain-`pi` sessions (no run-dir
  * extensions → no devops tools) to run instead of hand-rolled git, so what is
@@ -17,7 +17,7 @@
 import { test, expect, describe } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
-import { runSyncCli, parseSyncArgs, SYNC_CLI_USAGE, defaultRepoRoot } from "../src/sync-cli.js";
+import { runSyncCli, parseSyncArgs, SYNC_CLI_USAGE, defaultRepoRoot } from "../src/sync-default-branch-cli.js";
 import { DEFAULT_PRESERVE_PATHS } from "../src/sync-recipe.js";
 import type { SyncClient } from "../src/sync-recipe.js";
 import type { BranchClient } from "../src/branch-recipe.js";
@@ -47,7 +47,7 @@ function fakeClient(s: {
 	return base as unknown as BranchClient;
 }
 
-/** Quiet-success recording SpawnFn (sync-cli only supplies it to runSync). */
+/** Quiet-success recording SpawnFn (sync-default-branch-cli only supplies it to runSync). */
 function fakeSpawn(): { fn: SpawnFn; calls: { cmd: string; args: string[] }[] } {
 	const calls: { cmd: string; args: string[] }[] = [];
 	const fn: SpawnFn = async (cmd, args): Promise<SpawnResult> => {
@@ -116,7 +116,7 @@ describe("parseSyncArgs — argv contract", () => {
 	});
 });
 
-describe("sync-cli — wrapper contract", () => {
+describe("sync-default-branch-cli — wrapper contract", () => {
 	test("clean run exits 0 with the structured SyncOutcome as JSON on stdout", async () => {
 		const res = await runSyncCli([], cleanDeps());
 		expect(res.exitCode).toBe(0);
@@ -255,19 +255,19 @@ describe("sync-cli — wrapper contract", () => {
 	});
 });
 
-describe("sync-cli — live entry point", () => {
+describe("sync-default-branch-cli — live entry point", () => {
 	// PORTABILITY-GUARDED: spawns `process.execPath` (the runtime already
 	// executing this test) on a committed file in this repo — no machine-coupled
 	// host binary. `--dry-run` is read-only: zero mutating git ops.
-	test("`bun src/sync-cli.ts --help` exits 0 with usage", () => {
-		const cli = join(import.meta.dir, "..", "src", "sync-cli.ts");
+	test("`bun src/sync-default-branch-cli.ts --help` exits 0 with usage", () => {
+		const cli = join(import.meta.dir, "..", "src", "sync-default-branch-cli.ts");
 		const r = spawnSync(process.execPath, [cli, "--help"], { encoding: "utf8" });
 		expect(r.status).toBe(0);
 		expect(r.stderr.includes("usage:")).toBe(true);
 	});
 
-	test("`bun src/sync-cli.ts --dry-run` exits 0 with parseable JSON (zero mutations)", () => {
-		const cli = join(import.meta.dir, "..", "src", "sync-cli.ts");
+	test("`bun src/sync-default-branch-cli.ts --dry-run` exits 0 with parseable JSON (zero mutations)", () => {
+		const cli = join(import.meta.dir, "..", "src", "sync-default-branch-cli.ts");
 		const r = spawnSync(process.execPath, [cli, "--dry-run", "--repo-root", defaultRepoRoot()], {
 			encoding: "utf8",
 		});

@@ -306,7 +306,7 @@ describe("BUG: `git show --stat` TRUNCATES long paths → false CONTAMINATED", (
 	// CONTAMINATED. The CLI then exits 1, blocking a clean merge.
 	//
 	// This is the mirror image of the failure the SKILL cites as the REASON to use
-	// verify_merge instead of hand-rolled `git show --stat` parsing: same disease,
+	// verify_merge_landed instead of hand-rolled `git show --stat` parsing: same disease,
 	// opposite sign (false CONTAMINATED rather than false CLEAN).
 	//
 	// `--numstat` emits `<added>\t<deleted>\t<path>` with FULL paths and never

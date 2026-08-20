@@ -12,16 +12,17 @@ import {
   abortSafetyLogPath,
   appendEnvHints,
   deriveTaskLabel,
+  generateSubagentRunId,
   parseSddReport,
   roleAwareDefaults,
   type SpawnSubagentOptions,
   type SubagentFailure,
+  type SubagentRunPersistence,
   shouldInjectFooter,
   tierDefaultToken,
 } from "@repo/pi-agent-core-runtime";
 import type { TSchema } from "typebox";
 import type { computeScopeCheck, GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
-import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
 import { formatSubagentLive, taskPreview } from "./subagent-tool-render.js";
 import { DEFAULT_TIMEOUT_MS, type SubagentSalvage, type SubagentToolDetails } from "./subagent-tool-schema.js";
 import type { computeBaseline, RepoBaseline } from "./watchdog/repo-diff.js";

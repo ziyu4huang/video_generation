@@ -2,7 +2,7 @@
  * runMainHealth — "is the default branch green right now?"
  *
  * WHY THIS EXISTS
- *   `local_ci` is CHANGE-SCOPED (packages touched vs origin/main) and remote CI
+ *   `run_local_ci` is CHANGE-SCOPED (packages touched vs origin/main) and remote CI
  *   is disabled in this repo. Together those mean a branch that happens not to
  *   touch a broken package merges green forever, and no step in the devops chain
  *   ever reports that the default branch itself is failing. On 2026-08-15 main
@@ -99,7 +99,7 @@ export interface MainHealthOutcome {
 	toolchainMissing: string[];
 	/** Gates that exited non-zero. */
 	failingGates: string[];
-	/** Carried up from local_ci when the gate job itself could not be read. */
+	/** Carried up from run_local_ci when the gate job itself could not be read. */
 	gateError?: string;
 	/** The full underlying outcome, for callers that want the detail. */
 	ci?: CiOutcome;

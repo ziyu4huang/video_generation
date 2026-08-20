@@ -70,7 +70,7 @@ export interface PrepareAbort {
 
 /** Every abort reason runPrepare can actually emit (the PrepareAbort.reason
  *  union — kept in sync with the `outcome({ aborted: true, reason: … })` sites
- *  below). Hyphenated, mirroring prepare_branch's own historical style;
+ *  below). Hyphenated, mirroring prepare_feature_branch's own historical style;
  *  deliberately NOT shared with snake_case SYNC_ABORT_REASONS (sync-recipe).
  */
 export const PREPARE_ABORT_REASONS = [
@@ -206,7 +206,7 @@ export async function runPrepare(opts: PrepareOptions): Promise<PrepareOutcome> 
 			aborted: true,
 			reason: "detached-head",
 			message: "caller is on a detached HEAD and no explicit branch was given — resolved branch name is empty.",
-			hint: "pass an explicit branch (prepare_branch --branch <name>) or check out a branch first.",
+			hint: "pass an explicit branch (prepare_feature_branch --branch <name>) or check out a branch first.",
 		});
 	}
 

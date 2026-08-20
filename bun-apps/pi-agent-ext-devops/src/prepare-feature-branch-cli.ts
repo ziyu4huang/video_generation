@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
- * prepare-cli — bash-callable entry point for `runPrepare` (the prepare_branch recipe).
+ * prepare-feature-branch-cli — bash-callable entry point for `runPrepare` (the prepare_feature_branch recipe).
  *
- * `bun bun-apps/pi-agent-ext-devops/src/prepare-cli.ts --rebase --dry-run`
+ * `bun bun-apps/pi-agent-ext-devops/src/prepare-feature-branch-cli.ts --rebase --dry-run`
  *
  * This is the one wrapper that can rewrite history, so it keeps the recipe's
  * refusals rather than softening them: `--force-push` is opt-in and never
@@ -19,7 +19,7 @@ import { createLiveSpawn, type SpawnFn } from "./spawn.js";
 import { type CliResult, defaultRepoRoot, emit, helpRequested, jsonResult, usageError } from "./cli-common.js";
 
 export const PREPARE_CLI_USAGE = [
-	"usage: prepare-cli.ts [--branch <name>] [--base <ref>] [--create] [--rebase]",
+	"usage: prepare-feature-branch-cli.ts [--branch <name>] [--base <ref>] [--create] [--rebase]",
 	"                      [--force-push] [--dry-run] [--repo-root <path>]",
 	"",
 	"Creates / rebases / force-pushes a branch and prints the structured outcome as",

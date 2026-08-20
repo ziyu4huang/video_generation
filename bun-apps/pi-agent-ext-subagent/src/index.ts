@@ -29,13 +29,9 @@
 export type {
   AgentHistoryEntry,
   AgentUsage,
-  SpawnSubagentOptions,
-  SpawnSubagentResult,
-  SubagentFailure,
 } from "@repo/pi-agent-core-runtime";
 export {
   getGlobalRateLimiter,
-  getSubagentInFlightRegistry,
   loadModelTierConfig,
   logModelDecision,
   resolveModelRole,
@@ -62,38 +58,6 @@ export type {
   DetachOutcome,
 } from "./detach-run.js";
 export { convertToBackground, makeProdDetachDeps, spawnDetachedChild } from "./detach-run.js";
-// The isolated-PROCESS analog (wayfind ticket 04). Consumers that need a clean
-// child pi process (obsidian distill/garden, tool-gate L2 A/B) use this instead
-// of the in-process spawnSubagent.
-export type {
-  ChildProcessLike,
-  SpawnFn,
-  SpawnSubagentSubprocessOptions,
-  SubprocessArgsOptions,
-} from "./spawn-subagent-subprocess.js";
-export {
-  buildSubagentArgs,
-  getPiInvocation,
-  isTransientError,
-  spawnSubagentSubprocess,
-} from "./spawn-subagent-subprocess.js";
-// ── owned: durable run records ───────────────────────────────────────────────
-export type {
-  CreateSubagentRunPersistenceOptions,
-  SubagentFsLayer,
-  SubagentRunPersistence,
-  SubagentRunRecord,
-  SubagentRunStatus,
-} from "./subagent-run-persistence.js";
-export {
-  createSubagentRunPersistence,
-  generateSubagentRunId,
-  getSubagentRunPersistence,
-  SUBAGENT_HOME_RELATIVE_DIR,
-  SUBAGENT_RUNS_SUBDIR,
-  subagentHomeDir,
-  subagentRunsDir,
-} from "./subagent-run-persistence.js";
 // ── owned: the LLM-facing tools ──────────────────────────────────────────────
 export type { SubagentRunsToolOptions } from "./subagent-runs-tool.js";
 export { createSubagentRunsTool } from "./subagent-runs-tool.js";

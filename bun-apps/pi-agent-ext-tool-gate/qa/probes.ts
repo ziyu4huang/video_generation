@@ -82,39 +82,39 @@ export const MUST_FIRE: Probe[] = [
 	// zai-mcp (keyword only — incl. "z.ai" after the fix)
 	{ gate: "zai_web_search_web_search_prime", prompt: "use zai search for this", note: 'keyword "zai search"' },
 	{ gate: "zai_web_search_web_search_prime", prompt: "read this webpage with Z.ai's reader endpoint", note: 'keyword "z.ai" (fix closed the blind gap)' },
-	// pi_deploy (upstream gate — wraps deploy.ts + run-test.sh)
-	{ gate: "pi_deploy", prompt: "build and deploy the pi-agent bundle", note: "requires: noun bundle ∧ verb build/deploy" },
-	{ gate: "pi_deploy", prompt: "部署 pi-agent 建置", note: "requires: noun pi-agent ∧ verb 部署/建置" },
+	// deploy_pi_agent_sh (upstream gate — wraps deploy.ts + run-test.sh)
+	{ gate: "deploy_pi_agent_sh", prompt: "build and deploy the pi-agent bundle", note: "requires: noun bundle ∧ verb build/deploy" },
+	{ gate: "deploy_pi_agent_sh", prompt: "部署 pi-agent 建置", note: "requires: noun pi-agent ∧ verb 部署/建置" },
 	// arxiv (keyword arxiv OR requires noun∧verb)
 	{ gate: "arxiv_search", prompt: "find papers on diffusion policies", note: "noun papers ∧ verb find" },
 	{ gate: "arxiv_search", prompt: "fetch the arxiv paper 2401.12345", note: "keyword arxiv" },
 	{ gate: "arxiv_search", prompt: "搜尋論文 robotics", note: "keyword 論文 / 搜尋論文" },
 	// devops (ticket 03) — keyword-only gates captured once their source
 	// registrars were wired into evaluate.ts's capture list.
-	// await_pr_merge + sweep_branches each carry a DISTINCT keyword signature
+	// merge_pr_after_local_ci + sweep_merged_branches each carry a DISTINCT keyword signature
 	// (no overlap with any prior gate), so each is its own signature-group; one
 	// must-fire per gate (a real keyword trigger) validates the whole group
 	// (the coverageGap check groups by signature).
 	// (memory_supersede probes removed with the gate — ticket 03 deleted the tool.)
-	{ gate: "await_pr_merge", prompt: "wait for PR 42 to merge", note: "keyword wait / pr / merge" },
-	{ gate: "sweep_branches", prompt: "sweep merged branches and clean up", note: "keyword sweep / branch / cleanup" },
-	// devops registrar — the 5 remaining devops gates (local_ci, sync_repo,
-	// devops_retrospect, prepare_branch, verify_merge) each carry a DISTINCT
+	{ gate: "merge_pr_after_local_ci", prompt: "wait for PR 42 to merge", note: "keyword wait / pr / merge" },
+	{ gate: "sweep_merged_branches", prompt: "sweep merged branches and clean up", note: "keyword sweep / branch / cleanup" },
+	// devops registrar — the 5 remaining devops gates (run_local_ci, sync_default_branch,
+	// run_devops_retrospect, prepare_feature_branch, verify_merge_landed) each carry a DISTINCT
 	// keyword-SET signature (individual keywords like merge/verify/rebase/branch
 	// overlap across devops gates, but the full {keywords} set is unique per gate
 	// → a distinct coverage group). One must-fire + one must-not-fire per gate
 	// closes their coverageGaps (the qa gate groups by full signature, so a
 	// mono-probed group counts as covered).
-	{ gate: "local_ci", prompt: "run typecheck and keep the build green before merge", note: "keyword typecheck / green / merge" },
-	{ gate: "sync_repo", prompt: "sync the repo to the latest default branch", note: "keyword sync / default branch" },
-	{ gate: "devops_retrospect", prompt: "do a post-run retrospect of the run", note: "keyword retrospect / post-run" },
-	{ gate: "prepare_branch", prompt: "prepare the feature branch off main", note: "keyword prepare / branch" },
-	{ gate: "verify_merge", prompt: "verify the merge scope is clean not contaminated", note: "keyword verify / merge / scope / contaminated" },
-	// main_health (devops registrar) — its keyword set (main/health/green/red/
+	{ gate: "run_local_ci", prompt: "run typecheck and keep the build green before merge", note: "keyword typecheck / green / merge" },
+	{ gate: "sync_default_branch", prompt: "sync the repo to the latest default branch", note: "keyword sync / default branch" },
+	{ gate: "run_devops_retrospect", prompt: "do a post-run retrospect of the run", note: "keyword retrospect / post-run" },
+	{ gate: "prepare_feature_branch", prompt: "prepare the feature branch off main", note: "keyword prepare / branch" },
+	{ gate: "verify_merge_landed", prompt: "verify the merge scope is clean not contaminated", note: "keyword verify / merge / scope / contaminated" },
+	// check_main_health (devops registrar) — its keyword set (main/health/green/red/
 	// default branch/broken/status/ci/devops) is unique among devops gates → its
 	// own signature-group; landed (e2cc0441) without corpus probes and was
 	// reported as a coverage gap — closed here.
-	{ gate: "main_health", prompt: "is main green right now", note: "keyword main / green" },
+	{ gate: "check_main_health", prompt: "is main green right now", note: "keyword main / green" },
 	// zk_* + knowledge_query (ticket 02 — demoted from core to on-demand gates).
 	{ gate: "zk_card", prompt: "add a vault note about the lora fix", note: "keyword vault note" },
 	{ gate: "zk_card", prompt: "find my card on argparse patterns", note: "keyword card + verb find (requires)" },
@@ -155,8 +155,8 @@ export const MUST_NOT_FIRE: Probe[] = [
 	{ gate: "movie", prompt: "film the event with my phone", note: "no movie/film keyword" },
 	{ gate: "zai_web_search_web_search_prime", prompt: "search the web for this", note: "generic web search → core web_search, not redundant zai-mcp" },
 	{ gate: "zai_web_search_web_search_prime", prompt: "zai is a company in Shanghai", note: 'bare "zai" is not a keyword' },
-	{ gate: "pi_deploy", prompt: "build the docker image", note: "no deploy/verify/bundle-pi-agent keyword (docker ≠ pi-agent deploy)" },
-	{ gate: "pi_deploy", prompt: "run the tests for this extension", note: "verb 'test' removed — testing an extension ≠ deploying pi-agent (audit I-5)" },
+	{ gate: "deploy_pi_agent_sh", prompt: "build the docker image", note: "no deploy/verify/bundle-pi-agent keyword (docker ≠ pi-agent deploy)" },
+	{ gate: "deploy_pi_agent_sh", prompt: "run the tests for this extension", note: "verb 'test' removed — testing an extension ≠ deploying pi-agent (audit I-5)" },
 	{ gate: "arxiv_search", prompt: "paper cut on my hand", note: "noun paper but no retrieval verb" },
 	// verb "inspect" IS in the verb list, but these prompts pair it with a noun
 	// that is NOT in [agent,context,extension,pathology,token,schema,tui,工具]
@@ -166,19 +166,19 @@ export const MUST_NOT_FIRE: Probe[] = [
 	// hyphenated "delete-branch" keyword — so it doesn't fire.
 	// (memory_supersede / planning_stale / grill_decision probes removed with
 	// their gates — ticket 03 deleted the tools from the surface.)
-	{ gate: "await_pr_merge", prompt: "summarize the open issues", note: "no pr/merge/wait keyword" },
-	{ gate: "sweep_branches", prompt: "delete the temp file", note: 'bare "delete" is not the "delete-branch" keyword' },
+	{ gate: "merge_pr_after_local_ci", prompt: "summarize the open issues", note: "no pr/merge/wait keyword" },
+	{ gate: "sweep_merged_branches", prompt: "delete the temp file", note: 'bare "delete" is not the "delete-branch" keyword' },
 	// devops registrar — the 5 remaining devops gates (see MUST_FIRE). Lookalikes
 	// in the git/build/advisory domain that correctly avoid EVERY keyword of the
 	// named gate. gateFires is checked only against the gate in `gate:`, so
 	// cross-gate keyword overlap (merge/verify/rebase/branch) is irrelevant —
 	// only the named gate's own keyword set must be absent from the prompt.
-	{ gate: "local_ci", prompt: "lint the staged changes", note: "no ci/test/typecheck/verify/gate/merge keyword" },
-	{ gate: "sync_repo", prompt: "clone the repository into a fresh folder", note: "no sync/fetch/rebase/pull keyword" },
-	{ gate: "devops_retrospect", prompt: "summarize what changed in this session", note: "no retrospect/review/anomaly keyword" },
-	{ gate: "prepare_branch", prompt: "commit the staged changes", note: "no prepare/rebase/branch keyword" },
-	{ gate: "verify_merge", prompt: "show the files changed by the last commit", note: "no verify/merge/scope keyword" },
-	{ gate: "main_health", prompt: "write a haiku about trees", note: "no main/health/green/red/status/ci keyword" },
+	{ gate: "run_local_ci", prompt: "lint the staged changes", note: "no ci/test/typecheck/verify/gate/merge keyword" },
+	{ gate: "sync_default_branch", prompt: "clone the repository into a fresh folder", note: "no sync/fetch/rebase/pull keyword" },
+	{ gate: "run_devops_retrospect", prompt: "summarize what changed in this session", note: "no retrospect/review/anomaly keyword" },
+	{ gate: "prepare_feature_branch", prompt: "commit the staged changes", note: "no prepare/rebase/branch keyword" },
+	{ gate: "verify_merge_landed", prompt: "show the files changed by the last commit", note: "no verify/merge/scope keyword" },
+	{ gate: "check_main_health", prompt: "write a haiku about trees", note: "no main/health/green/red/status/ci keyword" },
 	// zk_* lookalikes (ticket 02): surface words (note/card/vault/knowledge)
 	// WITHOUT the intent verb must NOT fire.
 	{ gate: "zk_card", prompt: "I noted the card number on my desk", note: "note as verb, no vault/add/find intent" },
@@ -209,7 +209,7 @@ export const ESCAPE_NAME: { gate: string; name: string }[] = [
 	{ gate: "collect_videos", name: "collect_videos" },
 	{ gate: "movie", name: "movie" },
 	{ gate: "zai_web_search_web_search_prime", name: "zai_web_search_web_search_prime" },
-	{ gate: "pi_deploy", name: "pi_deploy" },
+	{ gate: "deploy_pi_agent_sh", name: "deploy_pi_agent_sh" },
 	{ gate: "arxiv_search", name: "arxiv_search" },
 ];
 
@@ -224,7 +224,7 @@ export const ESCAPE_INTENT: EscapeIntentProbe[] = [
 	{ gate: "collect_videos", intent: "collect videos from youtube", prompt: "(no keyword)", note: "keywords" },
 	{ gate: "movie", intent: "orchestrate scenes into a film", prompt: "(no keyword)", note: 'keyword "scenes into"/"film" (was a misroute pre-fix)' },
 	{ gate: "zai_web_search_web_search_prime", intent: "use z.ai reader", prompt: "(no keyword)", note: 'keyword "z.ai" (was blind pre-fix)' },
-	{ gate: "pi_deploy", intent: "build and deploy the bundle", prompt: "(no keyword)", note: 'keyword deploy / build bundle' },
+	{ gate: "deploy_pi_agent_sh", intent: "build and deploy the bundle", prompt: "(no keyword)", note: 'keyword deploy / build bundle' },
 	{ gate: "arxiv_search", intent: "find papers on a topic", prompt: "(no keyword)", note: "noun papers ∧ verb find" },
 	// inspect); no keyword present, mirroring the noun∧verb escape pattern.,
 ];

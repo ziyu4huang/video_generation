@@ -1,6 +1,6 @@
 /**
  * Domain types shared by the PR-merge tooling. These were once the home of the
- * pure polling decision logic (`decideRecipeAction`), but `await_pr_merge` is
+ * pure polling decision logic (`decideRecipeAction`), but `merge_pr_after_local_ci` is
  * now a single-shot LOCAL-CI-GATED merge (src/recipe.ts `runMergeRecipe`) — no
  * poll loop, no check-tally branching — so the decision function is gone. The
  * types stay because `src/gh.ts` parsers + `GhClient.prStatus` speak them.
@@ -21,7 +21,7 @@ export type MergeState =
 	| "HAS_HOOKS" // mergeable but pre-merge hooks pending
 	| "UNSTABLE"; // failing/expected-status checks but otherwise mergeable
 
-/** CI check tally (gh pr checks) — surfaced by the `pr_status` tool. The merge
- *  recipe itself no longer consumes this (it gates on local_ci instead), but
- *  `pr_status` still reports it, so the type + parser remain. */
+/** CI check tally (gh pr checks) — surfaced by the `show_pr_status` tool. The merge
+ *  recipe itself no longer consumes this (it gates on run_local_ci instead), but
+ *  `show_pr_status` still reports it, so the type + parser remain. */
 export type CheckTally = { pass: number; fail: number; pending: number };

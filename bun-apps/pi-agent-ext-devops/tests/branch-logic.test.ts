@@ -1,6 +1,6 @@
 /**
  * Tests for the PURE branch-classification logic (no I/O). The heart of
- * sweep_branches: given the observed signals for a branch, decide its
+ * sweep_merged_branches: given the observed signals for a branch, decide its
  * confidence tier + bucket (delete / review / keep). Conservative by design —
  * delete only on positive gh merge evidence; [gone] is a hint, never proof.
  */

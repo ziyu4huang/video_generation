@@ -24,6 +24,13 @@ import * as coreRuntime from "@repo/pi-agent-core-runtime";
 // and the streaming helpers identity-stable against the host's session.
 import * as piAi from "@earendil-works/pi-ai";
 import * as piAiCompat from "@earendil-works/pi-ai/compat";
+// GATE_DEFS is a shared MUTABLE registry: obsidian, knowledge-card and wayfind
+// all register their gate families into it at module scope, and the gate
+// matcher must see ONE instance. Serving core-interface keeps that identity —
+// an inlined per-extension copy would split the registry and silently drop
+// every other extension's gates. (Host API stays 2: ADDING a served module is
+// backward-compatible; bundles built against 2 simply never require it.)
+import * as coreInterface from "@repo/pi-agent-core-interface";
 
 /**
  * The host↔extension contract version. Bump ONLY on a breaking change to the
@@ -49,6 +56,7 @@ const REGISTRY: Readonly<Record<string, unknown>> = Object.freeze({
 	typebox: typebox,
 	"typebox/value": typeboxValue,
 	"@repo/pi-agent-core-runtime": coreRuntime,
+	"@repo/pi-agent-core-interface": coreInterface,
 	"@earendil-works/pi-ai": piAi,
 	"@earendil-works/pi-ai/compat": piAiCompat,
 });

@@ -1,38 +1,16 @@
-export type WatchdogSeverity = "blocker" | "concern" | "watchdog-error";
-export type WatchdogSource = "lsp" | "model";
-
-export interface WatchdogFinding {
-  severity: WatchdogSeverity;
-  source: WatchdogSource;
-  path?: string;
-  line?: number;
-  message: string;
-  suggestedFix?: string;
-}
-
-export interface WatchdogL1Result {
-  ran: boolean;
-  provider?: string;
-  findings: WatchdogFinding[];
-  note?: string;
-}
-
-export interface WatchdogL2Result {
-  ran: boolean;
-  findings: WatchdogFinding[];
-  note?: string;
-  /** L2 reviewed a partial diff (noise-filtered and/or budget-truncated). */
-  truncated?: boolean;
-}
-
-export interface WatchdogResult {
-  ran: boolean;
-  editGated: boolean;
-  l1: WatchdogL1Result;
-  l2: WatchdogL2Result;
-  summary: string;
-  elapsedMs: number;
-}
+/**
+ * The watchdog record/result shapes moved to @repo/pi-agent-core-runtime
+ * (subagent-record-types.ts, with the run-persistence layer) — re-exported
+ * here so this package's public surface is unchanged.
+ */
+export type {
+  WatchdogFinding,
+  WatchdogL1Result,
+  WatchdogL2Result,
+  WatchdogResult,
+  WatchdogSeverity,
+  WatchdogSource,
+} from "@repo/pi-agent-core-runtime";
 
 export interface WatchdogOptions {
   l1: boolean;

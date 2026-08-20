@@ -1,5 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
+import type { SubagentRunRecord } from "@repo/pi-agent-core-runtime";
 import {
   consecutiveIdenticalFailures,
   DEFAULT_RETRY_CIRCUIT_BREAK,
@@ -7,7 +8,6 @@ import {
   shouldCircuitBreak,
   taskSignature,
 } from "../src/retry-loop-detector.js";
-import type { SubagentRunRecord } from "../src/subagent-run-persistence.js";
 
 /** Build a minimal record (only the fields the detector reads). */
 function rec(opts: {

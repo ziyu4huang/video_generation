@@ -1,5 +1,5 @@
 /**
- * Tests for runSync — the pure orchestration behind the `sync_repo` tool (a TS
+ * Tests for runSync — the pure orchestration behind the `sync_default_branch` tool (a TS
  * port of scripts/sync-repo.sh). Mirrors the dual-seam style of recipe.test.ts
  * (fake client) + ci-recipe.test.ts (recording SpawnFn): a minimal `SyncClient`
  * fake feeds canned read-only git state, a recording `SpawnFn` captures every
@@ -448,7 +448,7 @@ describe("runSync — pre-flight warnings (unpushed commits)", () => {
 // before the advance and restoring after — without weakening the dirty_tree
 // safety gate for genuinely uncommitted work.
 describe("runSync — preserve hot files (stash before, restore after)", () => {
-	const STASH_PUSH = `git -C "${OTHER}" stash push -m sync_repo preserve -- .agents/memory/MEMORY.md`;
+	const STASH_PUSH = `git -C "${OTHER}" stash push -m sync_default_branch preserve -- .agents/memory/MEMORY.md`;
 	const STASH_POP = `git -C "${OTHER}" stash pop`;
 
 	test("(a) preservable-only dirty (MEMORY.md) in the OTHER worktree → stash + advance + pop, NOT aborted", async () => {
@@ -519,7 +519,7 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 
 		expect(out.aborted).toBeUndefined();
 		expect(out.preserved).toEqual({ paths: ["build/out.json"], restored: true });
-		expect(out.commands).toContain(`git -C "${REPO}" stash push -m sync_repo preserve -- build/out.json`);
+		expect(out.commands).toContain(`git -C "${REPO}" stash push -m sync_default_branch preserve -- build/out.json`);
 		expect(out.commands).toContain(`git -C "${REPO}" stash pop`);
 	});
 
@@ -609,7 +609,7 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "rebase" });
 
 		expect(out.aborted).toBeUndefined();
-		expect(out.commands).toContain(`git -C "${REPO}" stash push -m sync_repo preserve -- .agents/memory/MEMORY.md`);
+		expect(out.commands).toContain(`git -C "${REPO}" stash push -m sync_default_branch preserve -- .agents/memory/MEMORY.md`);
 		expect(out.commands).toContain(`git -C "${REPO}" rebase origin/main`);
 		expect(out.commands).toContain(`git -C "${REPO}" stash pop`);
 		expect(out.preserved).toEqual({ paths: [".agents/memory/MEMORY.md"], restored: true });
@@ -629,7 +629,7 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 
 		expect(out.aborted).toBeUndefined();
 		// the planned park→advance→restore sequence is recorded (but not spawned).
-		expect(out.commands).toContain(`git -C "${REPO}" stash push -m sync_repo preserve -- .agents/memory/MEMORY.md`);
+		expect(out.commands).toContain(`git -C "${REPO}" stash push -m sync_default_branch preserve -- .agents/memory/MEMORY.md`);
 		expect(out.commands).toContain(`git -C "${REPO}" merge --ff-only origin/main`);
 		expect(out.commands).toContain(`git -C "${REPO}" stash pop`);
 		// warnings mention the preserve split; preserved is unset under dryRun.

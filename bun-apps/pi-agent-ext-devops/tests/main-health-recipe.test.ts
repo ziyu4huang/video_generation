@@ -2,7 +2,7 @@
  * Tests for runMainHealth — "is the default branch green right now?"
  *
  * WHY THIS EXISTS
- *   local_ci is change-scoped and remote CI is disabled, so a branch that avoids
+ *   run_local_ci is change-scoped and remote CI is disabled, so a branch that avoids
  *   a broken package merges green forever and nothing ever says main is red. On
  *   2026-08-15 main had been failing `pi-agent` for days and had just started
  *   failing `pi-agent-ext-obsidian`; no tool in the devops chain would report it.

@@ -192,18 +192,62 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 		assert.ok(baseSet.length >= 10, `parsed only ${baseSet.length} base-set name(s) from deploy-config.yaml`);
 
 		const violations: string[] = [];
+		// The one sanctioned base-set lib edge: knowledge-card consumes
+		// obsidian's PURE LIBRARY face (the bare specifier resolves to
+		// src/index.ts → src/obsidian-lib.ts, per #1737 — vault resolution,
+		// frontmatter, graph index). It never imports obsidian's extension
+		// entry /extensions/obsidian.ts (which would double-register GATE_DEFS
+		// and inline the tool factory); that no-entry invariant is enforced by
+		// its own test below.
+		const BASE_SET_LIB_EDGES: ReadonlySet<string> = new Set([
+			"pi-agent-ext-knowledge-card → pi-agent-ext-obsidian",
+		]);
 		for (const pkg of baseSet) {
 			const d = JSON.parse(readFileSync(join(ROOT, pkg, "package.json"), "utf8"));
 			for (const field of ["dependencies", "peerDependencies", "optionalDependencies"]) {
 				for (const n of Object.keys(d[field] ?? {})) {
 					const target = n.replace("@repo/", "");
 					if (n.startsWith("@repo/") && baseSet.includes(target) && target !== pkg) {
-						violations.push(`  ${pkg} → ${target} (${field}; forbidden — route it through a pi-agent-core-* package or a seam)`);
+						const edge = `${pkg} → ${target}`;
+						if (BASE_SET_LIB_EDGES.has(edge)) continue;
+						violations.push(`  ${edge} (${field}; forbidden — route it through a pi-agent-core-* package or a seam)`);
 					}
 				}
 			}
 		}
 		assert.deepEqual(violations, [], violations.length ? "base-set runtime edges:\n" + violations.join("\n") : "");
+	});
+
+	it("knowledge-card never imports obsidian's extension entry — lib face only", () => {
+		// The allowlisted edge above is safe BECAUSE it is pure library reuse
+		// through the bare specifier (exports["."] → src/index.ts, #1737).
+		// This pins that: any import reaching obsidian's /extensions/
+		// registration entry from knowledge-card reverts the edge to forbidden
+		// territory and must fail here, not in a deploy smoke.
+		const KC = join(ROOT, "pi-agent-ext-knowledge-card");
+		const files: string[] = [];
+		const walk = (dir: string) => {
+			for (const e of readdirSync(dir, { withFileTypes: true })) {
+				if (e.name === "node_modules" || e.name === "__tests__") continue;
+				const p = join(dir, e.name);
+				if (e.isDirectory()) walk(p);
+				else if (e.name.endsWith(".ts")) files.push(p);
+			}
+		};
+		walk(join(KC, "src"));
+		walk(join(KC, "extensions"));
+		const bad: string[] = [];
+		const spec = /["']@repo\/pi-agent-ext-obsidian(\/[^"']*)?["']/g;
+		for (const f of files) {
+			const text = readFileSync(f, "utf8");
+			for (const m of text.matchAll(spec)) {
+				const sub = m[1] ?? "";
+				if (sub.startsWith("/extensions/")) {
+					bad.push(`  ${f}: ${m[0]}`);
+				}
+			}
+		}
+		assert.deepEqual(bad, [], bad.length ? "non-lib obsidian imports:\n" + bad.join("\n") : "");
 	});
 
 	it("the declared @repo dependency graph is acyclic", () => {

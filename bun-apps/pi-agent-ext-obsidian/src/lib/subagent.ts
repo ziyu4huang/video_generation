@@ -1,7 +1,11 @@
-import { getSubagentInFlightRegistry } from "@repo/pi-agent-ext-subagent";
-import { getSubagentRunPersistence } from "@repo/pi-agent-ext-subagent";
-import { spawnSubagentSubprocess } from "@repo/pi-agent-ext-subagent";
-import type { SubagentFailure } from "@repo/pi-agent-ext-subagent";
+// All dispatch-layer symbols come from @repo/pi-agent-core-runtime (the
+// isolated-process spawn + run-persistence layer moved there as the #1733
+// continuation): a portable-base-set extension must not declare a dependency
+// on the subagent EXTENSION package (bun-apps/tests/dep-guard.test.ts).
+import { getSubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
+import { getSubagentRunPersistence } from "@repo/pi-agent-core-runtime";
+import { spawnSubagentSubprocess } from "@repo/pi-agent-core-runtime";
+import type { SubagentFailure } from "@repo/pi-agent-core-runtime";
 
 /** Resolve a tool-name allowlist from an env var (comma-separated), falling
  *  back to `defaults` when unset/empty. Used by distill/garden so a custom

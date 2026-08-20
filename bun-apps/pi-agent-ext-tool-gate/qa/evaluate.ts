@@ -30,13 +30,13 @@ import powerToolDefault from "@repo/pi-agent-ext-power-tool/extensions/power-too
 // entry + findGate keys off of) — see the comment at the CORPUS_EFF call site.
 import workflowDefault from "@repo/pi-agent-ext-workflow/extensions/workflow.ts";
 import subagentDefault from "@repo/pi-agent-ext-subagent/extensions/subagent.ts";
-// tickets 03 + 05 (wired): devops registers await_pr_merge + sweep_branches
-// (both keyword-gated) and pr_status (an ungated companion — skipped by
+// tickets 03 + 05 (wired): devops registers merge_pr_after_local_ci + sweep_merged_branches
+// (both keyword-gated) and show_pr_status (an ungated companion — skipped by
 // buildEffectiveGates's `if (!g) continue`). wayfind registers wayfind_effort
 // (gating:{ core:true } → routed to the core set, not a gate). Driving both
 // default factories against the capturing stub promotes these owner-declared
 // tools into CORPUS_EFF so the --strict ungated count drops to 0. NOTE: devops
-// ALSO registers pi_deploy + pi_verify (absorbed from the former pi-agent-ext-
+// ALSO registers deploy_pi_agent_sh + verify_pi_agent_deploy (absorbed from the former pi-agent-ext-
 // deploy extension) — both carry owner-declared gating, so they ride via
 // devopsDefault here (no separate deploy capture).
 import devopsDefault from "@repo/pi-agent-ext-devops/extensions/devops.ts";

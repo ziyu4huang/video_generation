@@ -203,14 +203,14 @@ describe("computeChangedPackages — fail-open semantics", () => {
 });
 
 describe("computeChangedPackages — matrix-irrelevant paths (scoped, NOT fail-open)", () => {
-	// The ≤5-minute local_ci budget depends on scoping. Three path classes are
+	// The ≤5-minute run_local_ci budget depends on scoping. Three path classes are
 	// provably package-matrix-irrelevant and must NOT trip the rule-4 fail-open:
 	//   .planning/**     — docs-only artifacts the standing rule REQUIRES
 	//                      committing with every branch/PR; before this guard,
 	//                      every PR that obeyed the rule ran the FULL matrix.
 	//   bun-apps/tests/**— workspace-root gate tests; they run in the
 	//                      regression-gates job (bun run test:dist), which
-	//                      local_ci executes regardless of package scoping.
+	//                      run_local_ci executes regardless of package scoping.
 	//   dsh-sv-analyzer/**— standalone top-level Rust/DSH plugin project with
 	//                      its own cargo/node build; cannot affect bun-apps.
 	const PKGS = ["a", "b"];
@@ -352,7 +352,7 @@ describe("computeChangedPackages — wiring with defaults", () => {
 		// Indirect: pass minimal opts, assert no throw on the --all path (defaults
 		// are only invoked for diff mode's graph build; --all skips them). The
 		// default fs/git behavior is exercised by the repo-wide `bun run check` +
-		// the live local_ci flow, not by these pure unit tests.
+		// the live run_local_ci flow, not by these pure unit tests.
 		const { fn } = mkSpawn({});
 		const map = await computeChangedPackages({ repoRoot: REPO, all: true, spawn: fn });
 		expect(typeof map).toBe("object");

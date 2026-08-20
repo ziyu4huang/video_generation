@@ -10,7 +10,7 @@
  *   The known-good fast path is `-ne -ns` (cli-argv.ts `userSuppressFlags`
  *   suppresses run-dir extensions/skills AND the static factories incl.
  *   hermes; an explicit `-e <path>` still loads). This gate encodes that
- *   knowledge as two bounded probes so local_ci pays seconds, not sessions:
+ *   knowledge as two bounded probes so run_local_ci pays seconds, not sessions:
  *
  *   - FAST probe (default, ≤90s): boot with `-ne -ns` — proves the CLI core
  *     reaches a model call. This is the invocation every quick one-shot should
@@ -113,7 +113,7 @@ export interface SmokeClassification {
 
 /**
  * The FAIL text attached to a timeout — the incident's known root cause, the
- * one-shot mitigation recipe, and the durable write-up. Printed by local_ci
+ * one-shot mitigation recipe, and the durable write-up. Printed by run_local_ci
  * gate output so the next session reads the fix instead of rediscovering it.
  */
 export const BOOT_HANG_DIAGNOSTIC = [
@@ -195,7 +195,7 @@ export function shouldRun(
 }
 
 export interface OneshotSmokeResult {
-	/** 0 for pass/skip, 1 for fail — the local_ci gates-table contract. */
+	/** 0 for pass/skip, 1 for fail — the run_local_ci gates-table contract. */
 	exitCode: number;
 	verdict: SmokeVerdict;
 	mode: SmokeMode | "env-skip" | "not-applicable";

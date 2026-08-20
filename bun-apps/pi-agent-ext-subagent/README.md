@@ -52,11 +52,13 @@ those from there instead.
 
 This barrel re-exports a small, fixed set of `@repo/pi-agent-core-runtime`
 symbols. That is not laziness — `pi-agent`, `pi-agent-ext-obsidian`,
-`pi-agent-ext-file2md` and `pi-agent-ext-knowledge-card` do **not** declare
-core-runtime in their `package.json`, and `bun-apps/tests/dep-guard.test.ts`
-(invariant 1) rejects an undeclared `@repo` edge. For those peers this package is
-the only legal path to `WorkflowAgent`, `getSubagentInFlightRegistry`, and the
-model-tier accessors.
+`pi-agent-ext-file2md` does **not** declare core-runtime in its
+`package.json`, and `bun-apps/tests/dep-guard.test.ts` (invariant 1) rejects an
+undeclared `@repo` edge. For that peer this package is the only legal path to
+`WorkflowAgent` and the model-tier accessors. (`getSubagentInFlightRegistry`
+is no longer re-exported here: obsidian, knowledge-card and hermes-memory all
+declare core-runtime directly — the portable base set forbids ext→ext edges,
+so the registry comes from the host module, not through this barrel.)
 
 The rule, enforced by [`tests/barrel-surface.test.ts`](tests/barrel-surface.test.ts)
 in both directions:

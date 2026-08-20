@@ -103,7 +103,7 @@ export function defaultReadDeps(pkgName: string, extsDir: string): string[] {
 /**
  * Repo path prefixes that are PROVABLY package-matrix-irrelevant: a change under
  * them cannot affect any bun-apps/<pkg> build or test, so they must NOT trip the
- * rule-4 fail-open (which makes local_ci run the FULL 29-package matrix — the
+ * rule-4 fail-open (which makes run_local_ci run the FULL 29-package matrix — the
  * ≤5-minute budget's worst amplifier). Each entry says where its coverage
  * actually lives:
  *   .planning/      — docs-only artifacts the standing rule REQUIRES committing
@@ -111,7 +111,7 @@ export function defaultReadDeps(pkgName: string, extsDir: string): string[] {
  *                      obeyed the rule ran everything (~12+ min observed).
  *   bun-apps/tests/ — workspace-root gate tests; they execute in the
  *                      regression-gates job (bun run test:dist / test:seam),
- *                      which local_ci runs REGARDLESS of package scoping.
+ *                      which run_local_ci runs REGARDLESS of package scoping.
  *   dsh-sv-analyzer/ — standalone top-level Rust/DSH plugin project with its
  *                      own cargo build + node tests; it neither imports nor
  *                      affects any bun-apps/<pkg> build or test.

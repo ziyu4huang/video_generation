@@ -39,7 +39,7 @@
  *   bad: a network round-trip inside a gate, a version nobody pinned (whatever
  *   the registry serves today), and a lockfile WRITE as a side effect of a
  *   read-only typecheck. Measured 2026-08-16: pi-agent's `typecheck` was killed
- *   mid-run (exit 137 at 866ms) during a local_ci matrix, which reads as a
+ *   mid-run (exit 137 at 866ms) during a run_local_ci matrix, which reads as a
  *   typecheck failure and is not one.
  *
  *   A declared dependency makes `bunx X` and `X` identical, so the scripts now

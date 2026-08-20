@@ -1,5 +1,5 @@
 /**
- * ci-deploy-gate — the pure decision behind local_ci's change-triggered
+ * ci-deploy-gate — the pure decision behind run_local_ci's change-triggered
  * deploy-e2e gate.
  *
  * WHY THIS GATE EXISTS: `regression-gates` boots the deployed artifact on every

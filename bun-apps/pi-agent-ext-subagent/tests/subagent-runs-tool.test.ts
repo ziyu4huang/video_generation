@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { SubagentRunPersistence, SubagentRunRecord } from "../src/subagent-run-persistence.js";
+import type { SubagentRunPersistence, SubagentRunRecord } from "@repo/pi-agent-core-runtime";
 import { createSubagentRunsTool } from "../src/subagent-runs-tool.js";
 
 function mkRecord(over: Partial<SubagentRunRecord> = {}): SubagentRunRecord {

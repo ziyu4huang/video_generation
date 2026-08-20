@@ -29,7 +29,7 @@
  *   The common trigger is mundane and hit on essentially every merge: right
  *   after `gh pr merge`, the squash commit exists on the remote but not in the
  *   local object store, so `git show <sha>` fails with `fatal: bad object` —
- *   and verify_merge reported CLEAN having inspected zero files. `allowFetch`
+ *   and verify_merge_landed reported CLEAN having inspected zero files. `allowFetch`
  *   removes the cause; UNVERIFIED makes the symptom impossible to miss even
  *   when the cause is something else.
  *
@@ -122,7 +122,7 @@ export interface VerifyMergeOptions {
 	 * the local object store, then retry the inspection.
 	 *
 	 * Default false, which keeps the documented read-only contract intact for
-	 * plain `verify_merge` callers. It exists because the object is missing on
+	 * plain `verify_merge_landed` callers. It exists because the object is missing on
 	 * essentially every post-merge call — `gh pr merge` lands the squash commit
 	 * on the remote, and nothing has fetched it locally yet — so without this
 	 * the caller must remember to fetch first, and forgetting used to look like
@@ -206,7 +206,7 @@ function resolveRename(path: string): string {
  *   a prose summary line.
  *
  *   This is the mirror of the failure the devops SKILL cites as the reason to use
- *   `verify_merge` over hand-rolled `git show --stat` parsing: the same disease,
+ *   `verify_merge_landed` over hand-rolled `git show --stat` parsing: the same disease,
  *   opposite sign (false CONTAMINATED rather than false CLEAN).
  *
  * `status` stays best-effort "M" — numstat exposes no M/A/D letter (that needs

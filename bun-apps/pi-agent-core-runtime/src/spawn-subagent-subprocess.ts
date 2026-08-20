@@ -25,8 +25,9 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
-import type { SpawnSubagentResult, SubagentInFlightRegistry } from "@repo/pi-agent-core-runtime";
-import { loadModelTierConfig, resolveModelRole } from "@repo/pi-agent-core-runtime";
+import { loadModelTierConfig, resolveModelRole } from "./model-role-config.js";
+import type { SpawnSubagentResult } from "./spawn-subagent.js";
+import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
 
 // ---- Injectable child-process surface (tests pass a mock) ----------------

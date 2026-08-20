@@ -1,14 +1,14 @@
 /**
  * Tests for src/ci-gates.ts — the `regression-gates` job reader that makes the
- * CI workflow the source of truth for WHICH gates local_ci runs.
+ * CI workflow the source of truth for WHICH gates run_local_ci runs.
  *
  * WHY THIS EXISTS
- *   local_ci used to carry a hand-written gate list (`BLOCKING_GATES_V1` = 2
+ *   run_local_ci used to carry a hand-written gate list (`BLOCKING_GATES_V1` = 2
  *   files, `STRICT_AUDIT_GATES` = 4). The real job has 14 steps, 8 of which
- *   local_ci never ran — `test:deps`, `test:adr`, `test:seam`, `test:routing`,
+ *   run_local_ci never ran — `test:deps`, `test:adr`, `test:seam`, `test:routing`,
  *   `test:config-parity`, `test:ci-workflow`, `test:scripts`, and the --strict
- *   portability audit. Since `await_pr_merge` gates the squash-merge on
- *   local_ci, a PR that broke any of those structural guards merged green.
+ *   portability audit. Since `merge_pr_after_local_ci` gates the squash-merge on
+ *   run_local_ci, a PR that broke any of those structural guards merged green.
  *   Two of the hand-written entries (check-workflow-patterns.mjs,
  *   verify-skills.ts) are in NO workflow step at all — drift in both
  *   directions, which is exactly what scripts/ci-local.sh's "NO COPY OF THE
@@ -162,7 +162,7 @@ describe("LOCAL_ONLY_AUDITS — the drift guard in the other direction", () => {
 
 	test("none of them appears in the workflow — that is what makes them local-only", async () => {
 		// If CI ever grows a step for one of these, it belongs in the derived gate
-		// set and must come OUT of this list, or local_ci runs it twice and the
+		// set and must come OUT of this list, or run_local_ci runs it twice and the
 		// `strict` flag stops meaning "CI's gates plus the ones CI has no home for".
 		const src = await Bun.file(`${REPO_ROOT}/${CI_WORKFLOW_PATH}`).text();
 		for (const file of LOCAL_ONLY_AUDITS) {

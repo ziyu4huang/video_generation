@@ -95,8 +95,8 @@ Current families (each declared once by id; all tools in a family reference it):
 | arxiv | `arxiv_search`, `arxiv_fetch2md`, `arxiv_paper` | `nouns` ∩ `verbs` |
 | movie | `movie`, `movie_help` | `nouns` ∩ `verbs` |
 | zai | `zai_web_search_web_search_prime`, `zai_web_reader_webReader` | `nouns` ∩ `verbs` |
-| pi_deploy | `pi_deploy`, `pi_verify` | `nouns` ∩ `verbs` |
-| await_pr_merge / sweep_branches / local_ci / main_health / sync_repo / devops_retrospect / prepare_branch / verify_merge | devops single-tool gates | — |
+| deploy_pi_agent_sh | `deploy_pi_agent_sh`, `verify_pi_agent_deploy` | `nouns` ∩ `verbs` |
+| merge_pr_after_local_ci / sweep_merged_branches / run_local_ci / check_main_health / sync_default_branch / run_devops_retrospect / prepare_feature_branch / verify_merge_landed | devops single-tool gates | — |
 | zk_card / zk_ask / zk_ingest / knowledge_query | knowledge-card on-demand | `nouns` ∩ `verbs` |
 | skill_manage / session_search / knowledge_search / knowledge_ingest / planning_stale / grill_decision / memory_supersede | hermes-memory on-demand | varies |
 | wayfind_effort | wayfind | `nouns` ∩ `verbs` |

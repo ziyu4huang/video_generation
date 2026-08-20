@@ -6,7 +6,7 @@
  *  - `parseCiMatrix` against synthetic YAML (shape handling + degradation), and
  *  - `readCiMatrix` against THIS repo's real .github/workflows/ci.yml.disabled,
  *    which is what pins the property that actually matters: the special rows
- *    (--isolate, `&& bun run qa`, build-first) are read verbatim, so local_ci
+ *    (--isolate, `&& bun run qa`, build-first) are read verbatim, so run_local_ci
  *    cannot substitute a generic `bun run test` for them.
  */
 import { test, expect, describe } from "bun:test";

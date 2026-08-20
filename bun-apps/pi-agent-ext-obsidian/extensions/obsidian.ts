@@ -17,7 +17,6 @@ import {
 	sep,
 	relative,
 	isAbsolute,
-	dirname,
 } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -33,13 +32,13 @@ import {
 	stat,
 } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 import { GATE_DEFS } from "@repo/pi-agent-core-interface";
+import { shExtDir } from "../src/lib/ext-dir";
 
 // ─── Gate family (wayfinder ticket 02 — demoted from core) ──────────────────
 // obsidian + obsidian_help share the vault I/O domain (vault read/write/search/
@@ -2023,17 +2022,11 @@ ${output.slice(-2000)}`,
 	});
 
 	// ---- Startup dep check --------------------------------------------------
-	const _EXT_DIR: string | undefined = (() => {
-		try {
-			const metaDir = (import.meta as any).dir;
-			if (typeof metaDir === "string" && metaDir) return metaDir;
-			if (typeof import.meta.url === "string")
-				return dirname(fileURLToPath(import.meta.url));
-		} catch {
-			/* import.meta unavailable (non-ESM context) — fall back to undefined */
-		}
-		return undefined;
-	})();
+	// Ext-dir via the `#pi/ext-dir` idiom (src/lib/ext-dir.ts): import.meta is
+	// a SyntaxError risk inside the sh loader's cjs eval and bun folds it into
+	// a build-machine path otherwise. Undefined under native ESM (tests) — the
+	// dep-check hint degrades gracefully.
+	const _EXT_DIR: string | undefined = shExtDir();
 
 
 	// ── THE FAT TOOL (Phase 3: 18 tools → 1) ──────────────────────────────
