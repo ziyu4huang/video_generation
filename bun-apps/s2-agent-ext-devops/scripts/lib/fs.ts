@@ -3,7 +3,7 @@
  *
  * freeze/unfreeze exist because a deployed tree is chmod a-w by default (a
  * deployed artifact must not be edited in place), and removal has to reopen
- * the tree first. Since Phase 3 the version dir's `pi-agent` is a HARDLINK
+ * the tree first. Since Phase 3 the version dir's `s2-agent` is a HARDLINK
  * into <outRoot>/.cores/ — chmod-ing that file re-modes every version sharing
  * the inode — so unfreeze restores write bits on DIRECTORIES ONLY: unlinking
  * a file needs the parent dir's write bit, never the file's own.

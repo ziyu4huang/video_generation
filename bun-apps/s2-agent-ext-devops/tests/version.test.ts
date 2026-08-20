@@ -128,9 +128,9 @@ describe("pruneVersions", () => {
 	function makeVersion(root: string, v: string, ageMs: number): string {
 		const dir = join(root, v);
 		mkdirSync(dir);
-		writeFileSync(join(dir, "pi-agent"), "core");
+		writeFileSync(join(dir, "s2-agent"), "core");
 		const at = new Date(ageMs);
-		utimesSync(join(dir, "pi-agent"), at, at);
+		utimesSync(join(dir, "s2-agent"), at, at);
 		utimesSync(dir, at, at);
 		return dir;
 	}
@@ -164,13 +164,13 @@ describe("pruneVersions", () => {
 
 	test("pruning removes only unlinks — a hardlinked core's other links keep it alive", () => {
 		const root = makeRoot();
-		const coreA = join(root, "v1", "pi-agent");
+		const coreA = join(root, "v1", "s2-agent");
 		for (let i = 1; i <= 3; i++) makeVersion(root, `v${i}`, T0 + i * 1000);
-		linkSync(coreA, join(root, "v2", "pi-agent-clone")); // simulate the .cores link
+		linkSync(coreA, join(root, "v2", "s2-agent-clone")); // simulate the .cores link
 		swapCurrent(root, "v3");
 		pruneVersions(root, { keep: 2 }); // only v1 (oldest) goes
 		expect(existsSync(coreA)).toBe(false); // v1 pruned — its link to the bytes is unlinked
-		expect(existsSync(join(root, "v2", "pi-agent-clone"))).toBe(true); // sibling link intact
+		expect(existsSync(join(root, "v2", "s2-agent-clone"))).toBe(true); // sibling link intact
 	});
 
 	test("DEFAULT_KEEP is a sane positive integer", () => {

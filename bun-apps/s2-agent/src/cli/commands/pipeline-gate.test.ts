@@ -30,7 +30,7 @@ tier: T3
 `;
 
 // Repo root for classifySize's on-disk package lookup, derived from THIS
-// file's location (<root>/bun-apps/pi-agent/src/cli/commands/) — it was
+// file's location (<root>/bun-apps/s2-agent/src/cli/commands/) — it was
 // hardcoded to one developer worktree's absolute path at birth (#1736),
 // which made the suite red in every other worktree/clone (CI is disabled,
 // and local_ci only ran green inside that one worktree, so main sat red
