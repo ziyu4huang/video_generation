@@ -27,6 +27,7 @@ import { formatShapeIR, toShapeIR, type ShapeIR, type Theme } from "./shape-ir.t
 import { parseSvg } from "./svg-model.ts";
 import { runArchify, VENDORED_BIN } from "./run.ts";
 import { announceDeck, type OpenBus } from "./open-announce.ts";
+import { generateThumbnails } from "./thumbnails.ts";
 
 export type { Theme };
 
@@ -124,6 +125,12 @@ export interface BuildDeckParams {
   events?: OpenBus;
   /** Deck title for the announce (defaults to the output basename). */
   deckTitle?: string;
+  /**
+   * Render a thumbnail per slide for a webui's slide rail. Needs persisted
+   * slides, costs a real page load each (~300 ms + the artifact's own weight),
+   * and is best-effort — a failure just means that slide shows its title.
+   */
+  thumbnails?: boolean;
 }
 
 export interface BuiltSlide {
@@ -344,13 +351,18 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
     // .pptx is announced to any webui as a browsable deck. Webui-optional — no
     // bus, or slides that were never persisted, makes this a silent no-op.
     if (persist) {
+      // Best-effort thumbnails; `null` entries simply carry no `thumb`.
+      const thumbs = params.thumbnails
+        ? await generateThumbnails(built.map((b) => b.htmlPath))
+        : built.map(() => null);
       announceDeck(
         params.events,
         params.outputPath,
-        built.map((b) => ({
+        built.map((b, i) => ({
           path: b.htmlPath,
           title: b.title,
           ...(b.subtitle !== undefined ? { subtitle: b.subtitle } : {}),
+          ...(thumbs[i] ? { thumb: thumbs[i]! } : {}),
         })),
         params.deckTitle
       );

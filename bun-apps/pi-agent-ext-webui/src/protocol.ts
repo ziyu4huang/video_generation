@@ -152,7 +152,7 @@ export type WebFrame =
       type: "diagram_deck";
       deckId: string;
       title?: string;
-      slides: { url: string; title?: string; subtitle?: string }[];
+      slides: { url: string; title?: string; subtitle?: string; thumbUrl?: string }[];
       ts: number;
     }
   // webui-simplify §3: one live transport — the registry's render listener

@@ -2,7 +2,7 @@
 effort: archify-view-pptx-bun
 created: 2026-08-21
 last: 2026-08-21
-status: active
+status: complete
 ---
 # archify-view-pptx-bun — native-shape PPTX, in-shell diagram viewer, Bun-1.4-native
 
@@ -91,7 +91,7 @@ Phase 3 — webui Diagram pane
 
 Phase 4 — one manifest, two surfaces
 - `tickets/09-manifest-single-source.md` — task, **closed** — archify emits `webui:deck`
-- `tickets/10-thumbnails.md` — task — `Bun.Image` slide rail thumbnails
+- `tickets/10-thumbnails.md` — task, **closed** — `Bun.WebView` + `Bun.Image` rail thumbnails
 
 Phase 5 — Bun-native + guards + docs
 - `tickets/11-webview-migration.md` — task, **closed** — mermaid test → `Bun.WebView`; drop playwright
@@ -132,15 +132,14 @@ Phase 5 — Bun-native + guards + docs
 
 ## Frontier
 
-Ticket 10 (slide-rail thumbnails) — the only build item left, and explicitly the lowest
-priority in the effort: the pane is fully usable with a title-only rail. Tickets 01-09 and
-11-12 closed 2026-08-21.
+cleared — tickets 01-12 all closed 2026-08-21. Ticket 13 (`Bun.markdown` vs `marked`) stays
+open as fog and was deliberately not started.
 
 Delivered: PPTX export is native editable shapes (the 5-slide example deck is 358 shapes with
 `<a:blip>` count 0 on every slide); the PPTX path no longer touches a browser; the webui
 Diagram pane renders artifacts at full runtime fidelity in-shell (verified live through the
-real `/files` route in `Bun.WebView`); one manifest feeds both surfaces; and no browser
-download remains in either package, guarded.
+real `/files` route in `Bun.WebView`); one manifest feeds both surfaces, optionally with
+slide-rail thumbnails; and no browser download remains in either package, guarded.
 
 ## Fog of war
 

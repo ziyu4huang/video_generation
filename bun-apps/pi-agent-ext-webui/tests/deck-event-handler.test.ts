@@ -249,3 +249,44 @@ describe("the archify contract", () => {
     expect(frames.map((f) => f.deckId)).toEqual(["itemize", "itemize"]);
   });
 });
+
+describe("thumbnails (ticket 10)", () => {
+  test("a servable thumb resolves to its own /files URL", () => {
+    writeFileSync(join(root, "a.thumb.webp"), "RIFF");
+    handler()({
+      deckId: "d",
+      slides: [{ path: join(root, "a.html"), thumb: join(root, "a.thumb.webp") }],
+    });
+    expect(frames[0]!.slides[0]!.thumbUrl).toBe("http://127.0.0.1:1234/files/0/a.thumb.webp");
+  });
+
+  test("a thumb outside the roots drops silently, keeping the slide", () => {
+    // A thumbnail is polish; an unservable one must never cost you the slide.
+    writeFileSync(join(outside, "evil.webp"), "RIFF");
+    handler()({
+      deckId: "d",
+      slides: [{ path: join(root, "a.html"), thumb: join(outside, "evil.webp") }],
+    });
+    expect(frames).toHaveLength(1);
+    expect(frames[0]!.slides[0]!.url).toBe("http://127.0.0.1:1234/files/0/a.html");
+    expect("thumbUrl" in frames[0]!.slides[0]!).toBe(false);
+  });
+
+  test("a missing thumb file is simply absent", () => {
+    handler()({
+      deckId: "d",
+      slides: [{ path: join(root, "a.html"), thumb: join(root, "not-generated.webp") }],
+    });
+    expect("thumbUrl" in frames[0]!.slides[0]!).toBe(false);
+  });
+
+  test("a non-string thumb does not throw", () => {
+    expect(() =>
+      handler()({
+        deckId: "d",
+        slides: [{ path: join(root, "a.html"), thumb: 42 as unknown as string }],
+      })
+    ).not.toThrow();
+    expect(frames).toHaveLength(1);
+  });
+});

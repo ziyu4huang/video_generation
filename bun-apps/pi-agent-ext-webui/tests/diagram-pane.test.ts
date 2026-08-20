@@ -135,3 +135,21 @@ describe("untrusted strings", () => {
     expect(block).toContain("chip.textContent");
   });
 });
+
+describe("slide-rail thumbnails", () => {
+  it("renders a thumbnail when the producer supplied a servable one", () => {
+    expect(html).toContain("typeof slideAt.thumbUrl === 'string'");
+    expect(html).toContain("img.setAttribute('src', slideAt.thumbUrl)");
+    expect(html).toContain("img.setAttribute('loading', 'lazy')");
+  });
+
+  it("degrades to the title chip when a thumbnail fails to load", () => {
+    // A broken image icon is worse than no image at all.
+    expect(html).toContain("img.onerror = function ()");
+    expect(html).toContain("chip.className.replace(' has-thumb', '')");
+  });
+
+  it("still builds a plain title chip with no thumbnail", () => {
+    expect(html).toContain("} else {\n          chip.textContent = label;");
+  });
+});

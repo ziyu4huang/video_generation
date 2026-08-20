@@ -43,6 +43,8 @@ export interface DeckAnnounceSlide {
   path: string;
   title: string;
   subtitle?: string;
+  /** Absolute path to a generated thumbnail, when one exists. */
+  thumb?: string;
 }
 
 export interface DeckAnnouncePayload {
@@ -71,6 +73,7 @@ export function deckAnnounceFor(
       path: path.resolve(s.path),
       title: s.title,
       ...(s.subtitle !== undefined ? { subtitle: s.subtitle } : {}),
+      ...(s.thumb !== undefined ? { thumb: path.resolve(s.thumb) } : {}),
     })),
   };
 }

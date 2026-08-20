@@ -3,7 +3,8 @@
 // archify deck — IR[] → PPTX slide deck of NATIVE, EDITABLE shapes.
 //
 //   bun run deck [manifest] [--theme light|dark] [--output out.pptx]
-//                [--slides-dir <dir> | --no-slides] [--emit-shape-ir <dir>]
+//                [--slides-dir <dir> | --no-slides] [--thumbnails]
+//                [--emit-shape-ir <dir>]
 //
 // Thin CLI over lib/deck-build.ts, which both this and the `archify_export_pptx`
 // tool share so they can never drift.
@@ -51,6 +52,8 @@ export interface DeckArgs {
   emitShapeIr?: string;
   /** Where the rendered slide HTML goes. `null` = do not keep it. */
   slidesDir?: string | null;
+  /** Render a thumbnail per slide (costs a page load each). */
+  thumbnails?: boolean;
 }
 
 export function parseArgs(argv: string[]): DeckArgs {
@@ -59,6 +62,7 @@ export function parseArgs(argv: string[]): DeckArgs {
   let output: string | undefined;
   let emitShapeIr: string | undefined;
   let slidesDir: string | null | undefined;
+  let thumbnails = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === undefined) break;
@@ -82,6 +86,10 @@ export function parseArgs(argv: string[]): DeckArgs {
       slidesDir = null;
       continue;
     }
+    if (a === "--thumbnails") {
+      thumbnails = true;
+      continue;
+    }
     if (a.startsWith("--")) throw new Error(`Unknown flag: ${a}`);
     positional.push(a);
   }
@@ -94,6 +102,7 @@ export function parseArgs(argv: string[]): DeckArgs {
     ...(output ? { output } : {}),
     ...(emitShapeIr ? { emitShapeIr } : {}),
     ...(slidesDir !== undefined ? { slidesDir } : {}),
+    ...(thumbnails ? { thumbnails } : {}),
   };
 }
 
@@ -128,6 +137,7 @@ async function main(): Promise<void> {
         : args.slidesDir
           ? resolve(cwd, args.slidesDir)
           : defaultSlidesDir(outputPath),
+    ...(args.thumbnails ? { thumbnails: true } : {}),
     onProgress: (m) => console.log(m),
   });
 

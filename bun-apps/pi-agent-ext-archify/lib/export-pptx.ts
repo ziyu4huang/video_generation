@@ -37,6 +37,8 @@ export interface ExportPptxParams {
   theme?: string;
   /** Where the rendered slide HTML goes; `null` keeps only the .pptx. */
   slidesDir?: string | null;
+  /** Render a thumbnail per slide for a webui slide rail (costs a page load each). */
+  thumbnails?: boolean;
 }
 
 export interface ExportPptxCtx {
@@ -113,6 +115,7 @@ export async function archifyExportPptx(
           : params.slidesDir
             ? (isAbsolute(params.slidesDir) ? params.slidesDir : resolve(ctx.cwd, params.slidesDir))
             : defaultSlidesDir(outputPath),
+      ...(params.thumbnails ? { thumbnails: true } : {}),
     });
 
     const shapes = result.slides.reduce((a, s) => a + s.shapes + s.texts, 0);
@@ -178,6 +181,12 @@ export function makeExportPptxTool(events?: OpenBus) {
       ),
       theme: Type.Optional(
         Type.String({ description: "light | dark. Overrides the manifest's theme." })
+      ),
+      thumbnails: Type.Optional(
+        Type.Boolean({
+          description:
+            "Render a thumbnail per slide for a webui slide rail. Costs a page load per slide; off by default.",
+        })
       ),
       slidesDir: Type.Optional(
         Type.String({

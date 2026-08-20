@@ -73,6 +73,13 @@ interactive — and a successful build emits **`webui:deck`** on the host bus wi
 which a webui renders as a browsable deck in its Diagram pane. The `.pptx` is the flattened,
 portable view of the same ordered set. Webui-optional as ever: no webui, no effect.
 
+`--thumbnails` (tool: `thumbnails: true`) additionally renders a WebP per slide for the
+webui's slide rail, via `Bun.WebView` + `Bun.Image` — no browser download. Off by default
+because it is wasted work when you only want a `.pptx`; measured at 1.3 s for the whole
+five-slide example deck INCLUDING the build, since the engine starts once and is reused.
+Generation is best-effort and cached by mtime: a failure just leaves that slide showing its
+title.
+
 ### The acceptance contract
 
 `__tests__/pptx-shapes.test.ts` builds all five diagram types and reads the `.pptx` back with

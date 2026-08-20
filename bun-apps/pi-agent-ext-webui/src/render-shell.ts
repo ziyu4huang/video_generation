@@ -248,6 +248,9 @@ export const RENDER_SHELL_HTML = `<!-- webui-render-shell -->
     color: var(--dsw-alias-label-caption);
   }
   #deck-rail .slide-chip.active { border-color: rgb(103, 158, 254); color: rgb(103, 158, 254); }
+  #deck-rail .slide-chip.has-thumb { display: flex; flex-direction: column; gap: .2rem; align-items: stretch; padding: .2rem; max-width: 140px; }
+  #deck-rail .slide-chip img { display: block; width: 128px; height: auto; border-radius: 4px; background: #fff; }
+  #deck-rail .slide-chip .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 128px; }
   #deck-empty { color: var(--dsw-alias-label-caption); font-size: .8rem; padding: 1rem 0; }
   /* A rendered artifact is ~600 KB of inline runtime; without this the pane
      shows a blank white box for the first moment and reads as broken. */
@@ -759,9 +762,30 @@ function renderDeckPane() {
   if (d.slides.length > 1) {
     for (var k = 0; k < d.slides.length; k++) {
       (function (idx) {
+        var slideAt = d.slides[idx];
+        var label = (idx + 1) + '. ' + (slideAt.title || 'slide ' + (idx + 1));
         var chip = document.createElement('span');
         chip.className = 'slide-chip' + (idx === deckState.index ? ' active' : '');
-        chip.textContent = (idx + 1) + '. ' + (d.slides[idx].title || 'slide ' + (idx + 1));
+        chip.title = label;
+        // A thumbnail is optional polish: when the producer supplied a servable
+        // one the rail shows it, otherwise the chip is exactly the title chip.
+        if (typeof slideAt.thumbUrl === 'string' && slideAt.thumbUrl) {
+          chip.className += ' has-thumb';
+          var img = document.createElement('img');
+          img.setAttribute('src', slideAt.thumbUrl);
+          img.setAttribute('alt', label);
+          img.setAttribute('loading', 'lazy');
+          // A broken/removed thumbnail must degrade to the title, not to a
+          // broken-image icon.
+          img.onerror = function () { chip.className = chip.className.replace(' has-thumb', ''); img.remove(); };
+          chip.appendChild(img);
+          var cap = document.createElement('span');
+          cap.className = 'chip-label';
+          cap.textContent = label;
+          chip.appendChild(cap);
+        } else {
+          chip.textContent = label;
+        }
         chip.onclick = function () { deckState.index = idx; renderDeckPane(); };
         rail.appendChild(chip);
       })(k);

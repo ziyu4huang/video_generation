@@ -34,6 +34,8 @@ export interface DeckEventSlide {
   path: string;
   title?: string;
   subtitle?: string;
+  /** Optional thumbnail image path — validated exactly like `path`. */
+  thumb?: string;
 }
 
 export interface DeckEventPayload {
@@ -48,6 +50,8 @@ export interface ResolvedDeckSlide {
   url: string;
   title?: string;
   subtitle?: string;
+  /** Resolved /files URL for the slide's thumbnail, when it is servable. */
+  thumbUrl?: string;
 }
 
 /** The outbound frame (protocol.ts `WebFrame` member). Replay-eligible. */
@@ -97,10 +101,17 @@ export function resolveDeckSlides(
     if (loc === null) continue; // outside the roots (includes the fail-closed empty case)
     const title = optionalString(slide.title);
     const subtitle = optionalString(slide.subtitle);
+    // A thumbnail is just another file: SAME containment core, no exceptions.
+    // An unservable thumb drops silently — the rail falls back to the title.
+    const thumbPath = optionalString(slide.thumb);
+    const thumbLoc = thumbPath ? locateFileInRoots(roots, thumbPath) : null;
     out.push({
       url: `${baseUrl}/files/${loc.rootIdx}/${relToUrl(loc.rel)}`,
       ...(title !== undefined ? { title } : {}),
       ...(subtitle !== undefined ? { subtitle } : {}),
+      ...(thumbLoc
+        ? { thumbUrl: `${baseUrl}/files/${thumbLoc.rootIdx}/${relToUrl(thumbLoc.rel)}` }
+        : {}),
     });
   }
   return out;
