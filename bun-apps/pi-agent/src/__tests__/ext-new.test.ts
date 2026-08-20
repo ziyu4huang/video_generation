@@ -169,7 +169,11 @@ function afterDocComment(src: string): string {
 }
 
 describe("runExtNew end-to-end (temp root, no repo mutation)", () => {
-	test("ext new scaffolds a loadable, self-testing package into a temp root", async () => {
+	// Host-binary spawn probe (bun × 2) — CI-gated per the test-portability audit
+	// (.github/TEST-PORTABILITY.md P2): hermetic and fast locally, skipped under CI.
+	test.skipIf(process.env.CI === "1" || process.env.PI_AGENT_E2E === "0")(
+		"ext new scaffolds a loadable, self-testing package into a temp root",
+		async () => {
 		const tmp = mkdtempSync(join(tmpdir(), "ext-new-"));
 		try {
 			const proc = Bun.spawn(
