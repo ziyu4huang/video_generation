@@ -422,6 +422,25 @@ describe("createBranchClient (glue)", () => {
 		expect(calls[0]).toEqual({ cmd: "git", args: ["-C", "/repo-wt", "status", "--porcelain=v1"] });
 	});
 
+	test("unmergedPaths issues git -C <dir> ls-files -u; dedupes per-stage rows; [] on failure", async () => {
+		const { fn, calls } = rec([
+			{
+				match: (c, a) => c === "git" && a.includes("ls-files"),
+				// one conflicted path, TWO stages (base + theirs) → deduped to one
+				result: {
+					stdout: "100644 616e2b4b375d47d0a5f6c11f4e2b6421 1\t.agents/memory/MEMORY.md\n100644 8a5f0e13d9c7f2b4a1c6e3d2f9b8a7c6 3\t.agents/memory/MEMORY.md\n",
+					stderr: "",
+					exitCode: 0,
+				},
+			},
+		]);
+		expect(await createBranchClient(fn).unmergedPaths("/repo-wt")).toEqual([".agents/memory/MEMORY.md"]);
+		expect(calls[0]).toEqual({ cmd: "git", args: ["-C", "/repo-wt", "ls-files", "-u"] });
+		// non-zero exit (not a repo, etc.) → [] (never throws; sync treats as clean).
+		const { fn: fn2 } = rec([{ match: (c, a) => c === "git" && a.includes("ls-files"), result: { stdout: "", stderr: "fatal: not a git repository", exitCode: 128 } }]);
+		expect(await createBranchClient(fn2).unmergedPaths("/repo-wt")).toEqual([]);
+	});
+
 	test("isClean stays available on the full BranchClient (true on exit 0)", async () => {
 		const { fn } = rec([{ match: (c, a) => c === "git" && a.includes("diff"), result: { stdout: "", stderr: "", exitCode: 0 } }]);
 		expect(await createBranchClient(fn).isClean("/repo-wt")).toBe(true);

@@ -40,6 +40,8 @@ function fakeClient(s: {
 	current?: string;
 	worktrees?: { worktree: string; branch?: string; detached?: boolean }[];
 	dirty?: Record<string, string[]>;
+	/** Unmerged (conflicted) index entries, per worktree dir; omitted ⇒ []. */
+	unmerged?: Record<string, string[]>;
 	revs?: Record<string, string>;
 	aheadBehind?: Record<string, { ahead: number; behind: number }>;
 	subjects?: string[];
@@ -49,6 +51,7 @@ function fakeClient(s: {
 		currentBranch: async () => s.current ?? "",
 		worktreeList: async () => s.worktrees ?? [],
 		dirtyPaths: async (dir: string) => s.dirty?.[dir] ?? [],
+		unmergedPaths: async (dir: string) => s.unmerged?.[dir] ?? [],
 		revParse: async (rev: string) => s.revs?.[rev],
 		aheadBehind: async (base: string, head: string) => s.aheadBehind?.[`${base}..${head}`] ?? { ahead: 0, behind: 0 },
 		logSubjects: async () => s.subjects ?? [],
@@ -365,6 +368,174 @@ describe("runSync — pre-flight abort (dirty tree)", () => {
 	});
 });
 
+// --- unmerged-index pre-flight (preserve-flow hardening): a conflicted stash
+// pop leaves unmerged index entries; the NEXT sync's preserve `stash push`
+// then died with a cryptic "could not write index" (observed 2026-08-19/20 on
+// both worktrees via MEMORY.md). runSync must refuse EARLY, before any stash
+// or fetch, with the concrete recovery commands.
+describe("runSync — unmerged-index pre-flight (preserve-flow hardening)", () => {
+	test("(i) unmerged entries abort 'unmerged_index' BEFORE any stash push — zero mutating spawns", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			dirty: { [REPO]: [".agents/memory/MEMORY.md"] }, // preserve-listed → NOT a dirty_tree abort
+			unmerged: { [REPO]: [".agents/memory/MEMORY.md"] },
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.aborted?.aborted).toBe(true);
+		expect(out.aborted?.reason).toBe("unmerged_index");
+		expect(out.aborted?.message).toMatch(/unmerged index entries/);
+		expect(out.aborted?.message).toMatch(/stash pop/); // recovery hint present
+		expect(out.advanced).toEqual([]);
+		// No stash, no fetch, no merge — died in pre-flight.
+		expect(calls.some((c) => c.args.includes("stash"))).toBe(false);
+		expect(calls.some((c) => c.args.includes("fetch"))).toBe(false);
+		expect(calls.some((c) => c.args.includes("merge"))).toBe(false);
+		expect(calls.length).toBe(0);
+	});
+
+	test("(ii) dryRun with unmerged entries: warning, no abort, zero spawns", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			unmerged: { [REPO]: ["a.ts"] },
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", dryRun: true });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.warnings.join(" ")).toContain("unmerged");
+		expect(calls.length).toBe(0);
+	});
+
+	test("(iii) clean index proceeds normally (unmergedPaths consulted, no regression)", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			unmerged: {},
+			revs: { "origin/main": sha("b"), main: sha("a") },
+			aheadBehind: { [`${sha("a")}..${sha("b")}`]: { ahead: 2, behind: 0 } },
+			subjects: ["feat: one", "feat: two"],
+		});
+		const { fn } = fakeSpawn([
+			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS },
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.commands).toContain(`git -C "${REPO}" fetch origin`);
+		expect(out.commands).toContain(`git -C "${REPO}" merge --ff-only origin/main`);
+	});
+
+	test("(iv) rebase mode with unmerged entries → abort 'unmerged_index' BEFORE the preserve stash push", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "feat/y",
+			worktrees: [{ worktree: REPO, branch: "feat/y" }],
+			dirty: { [REPO]: [".agents/memory/MEMORY.md"] }, // preserve-listed → NOT a dirty_tree abort
+			unmerged: { [REPO]: [".agents/memory/MEMORY.md"] },
+			revs: { "origin/main": sha("r"), HEAD: sha("h") },
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "rebase" });
+
+		expect(out.aborted?.aborted).toBe(true);
+		expect(out.aborted?.reason).toBe("unmerged_index");
+		expect(out.aborted?.message).toMatch(/unmerged index entries/);
+		expect(out.advanced).toEqual([]);
+		// No stash push, no fetch, no rebase — died in pre-flight like full mode.
+		expect(calls.some((c) => c.args.includes("stash"))).toBe(false);
+		expect(calls.some((c) => c.args.includes("fetch"))).toBe(false);
+		expect(calls.some((c) => c.args.includes("rebase"))).toBe(false);
+		expect(calls.length).toBe(0);
+	});
+
+	test("(v) rebase dryRun with unmerged entries: warning, no abort, zero spawns", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "feat/y",
+			worktrees: [{ worktree: REPO, branch: "feat/y" }],
+			unmerged: { [REPO]: ["a.ts"] },
+			revs: { "origin/main": sha("r"), HEAD: sha("h") },
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "rebase", dryRun: true });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.warnings.join(" ")).toContain("unmerged");
+		expect(calls.length).toBe(0);
+	});
+});
+
+// --- preserve pop-conflict aftermath warning: when `git stash pop` conflicts,
+// the worktree is left MID-CONFLICT (unmerged index entries + conflict markers
+// in the parked paths) and the stash is KEPT — the warning must state that
+// aftermath AND the manual recovery, plus that the next sync will refuse with
+// 'unmerged_index' by design (the 2026-08-19/20 incident: the old one-line
+// warning hid the state that broke the NEXT day's sync).
+describe("runSync — preserve pop-conflict aftermath warning", () => {
+	test("pop conflict warning names the CONFLICTED SUBSET (parsed from pop output), the kept stash's identifier, and manual recovery", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			// THREE parked paths; the canned pop output conflicts on only TWO.
+			dirty: { [REPO]: ["a.md", "b.md", "c.md"] },
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		const { fn } = fakeSpawn([
+			{
+				match: (a) => realArgs(a).join(" ").startsWith("stash pop"),
+				result: {
+					stdout: "",
+					stderr: "CONFLICT (content): merge conflict in a.md\nCONFLICT (content): merge conflict in b.md",
+					exitCode: 1,
+				},
+			},
+			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS },
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", preserve: ["a.md", "b.md", "c.md"] });
+
+		expect(out.aborted).toBeUndefined(); // the advance itself succeeded
+		expect(out.preserved?.restored).toBe(false);
+		const w = out.warnings.join(" ");
+		expect(w).toContain("unmerged index entries"); // states the aftermath
+		// conflicted SUBSET only — c.md parked clean, must NOT be listed.
+		expect(w).toContain("a.md, b.md");
+		expect(w).not.toContain("c.md");
+		// the kept stash is identified by its push message.
+		expect(w).toContain("stash list | grep 'sync_default_branch preserve'");
+		expect(w).toContain("git -C"); // recovery commands
+		expect(w).toContain("stash drop"); // stash retention + drop guidance
+	});
+
+	test("pop output without parsable CONFLICT lines → warning falls back to ALL parked paths", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			dirty: { [REPO]: ["a.md", "b.md"] },
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		const { fn } = fakeSpawn([
+			{ match: (a) => realArgs(a).join(" ").startsWith("stash pop"), result: { stdout: "", stderr: "error: could not restore untracked files", exitCode: 1 } },
+			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS },
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", preserve: ["a.md", "b.md"] });
+
+		expect(out.preserved?.restored).toBe(false);
+		const w = out.warnings.join(" ");
+		expect(w).toContain("a.md, b.md"); // fallback: all parked paths listed
+	});
+});
+
 // --- default-branch detection: ported from scripts/sync-repo.test.ts ---------
 // The bash suite asserted detect_default_branch() honored origin/HEAD for
 // main / master / develop / release-v2 and fell back to "main" offline. The TS
@@ -570,7 +741,7 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 		expect(out.aborted).toBeUndefined(); // the advance itself succeeded
 		expect(out.preserved?.restored).toBe(false);
 		expect(out.preserved?.conflict).toMatch(/CONFLICT/);
-		expect(out.warnings.some((w) => /stash pop conflicted/.test(w))).toBe(true);
+		expect(out.warnings.some((w) => /stash pop CONFLICTED/.test(w))).toBe(true);
 		// we KEEP the stash on conflict (never drop it).
 		expect(out.commands.some((c) => c.includes("stash drop"))).toBe(false);
 	});

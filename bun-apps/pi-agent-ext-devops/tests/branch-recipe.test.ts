@@ -58,6 +58,7 @@ function fakeClient(s: {
 		revParse: async () => undefined,
 		isClean: async () => true,
 		dirtyPaths: async () => [],
+		unmergedPaths: async () => [],
 		aheadBehind: async () => ({ ahead: 0, behind: 0 }),
 		logSubjects: async () => [],
 		fetchPrune: async () => {

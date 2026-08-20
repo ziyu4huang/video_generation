@@ -72,7 +72,7 @@ export const PR_FINISH_CLI_USAGE = [
 	"Options:",
 	"  --pr <n>               PR number (same as the positional form)",
 	"  --dry-run              run read-only gates, emit planned commands only",
-	"  --expected-scope <g>   repeatable; verify_merge_landed scope prefix",
+	"  --expected-scope <g>   repeatable; scope entry: x/** any depth, x/* one segment, x/ prefix, bare x exact-or-dir",
 	"  --keep-branch          skip post-merge branch deletion + prune",
 	"  --assume-ci-green <sha>  skip local CI, asserting <sha> was already",
 	"                         verified green; aborts unless it equals the PR's",

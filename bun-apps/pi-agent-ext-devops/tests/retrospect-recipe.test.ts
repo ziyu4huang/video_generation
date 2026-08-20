@@ -151,6 +151,25 @@ describe("runRetrospect — advisory read-only", () => {
 		expect(drift?.message).not.toContain("src/a.ts");
 	});
 
+	test("(c2) bare scope entry uses matchesScope — pseudo-prefix sibling IS drift, exact child is not", async () => {
+		const client = fakeClient({ defaultBranch: "main", current: "feat/x" });
+		const { fn } = fakeSpawn([
+			{ match: (a) => realArgs(a)[0] === "reflog", result: CLEAN_REFLOG },
+			{
+				match: (a) => realArgs(a)[0] === "log",
+				// srcx/b.ts is a PSEUDO-PREFIX sibling of `src` — the old literal
+				// startsWith treated it as in-scope (false-clean); matchesScope doesn't.
+				result: { stdout: "src/a.ts\nsrcx/b.ts\n", stderr: "", exitCode: 0 },
+			},
+		]);
+		const out = await runRetrospect({ client, spawn: fn, repoRoot: REPO, expectedScope: ["src"] });
+
+		const drift = out.anomalies.find((x) => x.kind === "scope-drift");
+		expect(drift).toBeDefined();
+		expect(drift?.message).toContain("srcx/b.ts");
+		expect(drift?.message).not.toContain("src/a.ts");
+	});
+
 	test("(d) current branch in 2 worktrees → worktree-conflict-risk", async () => {
 		const client = fakeClient({
 			defaultBranch: "main",

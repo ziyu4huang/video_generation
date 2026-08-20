@@ -13,10 +13,10 @@
  * Verdict (the headline result):
  *   - "NOT-MERGED"   — gh says the PR is not MERGED (OPEN/CLOSED/unknown).
  *   - "CLEAN"        — merged, the touched files WERE inspected, AND (no
- *                      expectedScope given, OR every touched file lives under
- *                      an expectedScope prefix).
- *   - "CONTAMINATED" — merged AND at least one touched file is outside every
- *                      expectedScope prefix (scope drift into the merge).
+ *                      expectedScope given, OR every touched file matches an
+ *                      expectedScope entry per matchesScope, src/scope-match.ts).
+ *   - "CONTAMINATED" — merged AND at least one touched file matches no
+ *                      expectedScope entry (scope drift into the merge).
  *   - "UNVERIFIED"   — merged but the touched files could NOT be inspected
  *                      (no mergeSha, or `git show` failed). See below.
  *
@@ -57,6 +57,7 @@ import type { SpawnFn, SpawnResult } from "./spawn.js";
 import type { BranchClient } from "./branch-recipe.js";
 import type { GhClient } from "./recipe.js";
 import type { PrState } from "./pr-logic.js";
+import { matchesScope } from "./scope-match.js";
 
 /**
  * The read-only git surface verify-merge needs. A `Pick` of BranchClient so the
@@ -115,7 +116,11 @@ export interface VerifyMergeOptions {
 	spawn: SpawnFn;
 	repoRoot: string;
 	pr: number;
-	/** Optional scope prefixes; touched files outside ALL prefixes → CONTAMINATED. */
+	/**
+	 * Optional scope entries; touched files outside ALL entries → CONTAMINATED.
+	 * Entry semantics (src/scope-match.ts): `x/**` directory prefix (any
+	 * depth), `x/*` one segment, `x/` prefix, bare `x` exact-or-directory.
+	 */
 	expectedScope?: string[];
 	/**
 	 * Permit ONE `git fetch origin <mergeSha>` when the merge commit is not in
@@ -360,7 +365,10 @@ export async function runVerifyMerge(opts: VerifyMergeOptions): Promise<VerifyMe
 	// --- 4. Scope check → outOfScope (only when expectedScope given). ----------
 	let outOfScope: VerifyFile[] = [];
 	if (opts.expectedScope && opts.expectedScope.length > 0) {
-		outOfScope = files.filter((f) => !opts.expectedScope!.some((p) => f.path.startsWith(p)));
+		// matchesScope (not bare startsWith): glob-style entries (`x/**`) must
+		// match, and bare entries must not swallow pseudo-prefix siblings.
+		// Literal startsWith made every `**` invocation report CONTAMINATED.
+		outOfScope = files.filter((f) => !opts.expectedScope!.some((p) => matchesScope(f.path, p)));
 	}
 
 	// --- 5. Verdict. -----------------------------------------------------------
