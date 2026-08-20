@@ -5,9 +5,7 @@ import { tmpdir } from "node:os";
 import manifest from "./manifest.json";
 import {
 	buildArgvFromManifest,
-	buildBundleArgvFromLayout,
 	detectMode,
-	detectRunDirMode,
 	resolveRunDirArgv,
 	looksLikeAlias,
 	resolveLazyExtension,
@@ -18,7 +16,7 @@ import {
 } from "./resolve.ts";
 
 describe("detectMode", () => {
-	test("source mode: url contains /run-dir/", () => {
+	test("source mode: an ordinary repo path", () => {
 		expect(
 			detectMode("file:///repo/bun-apps/pi-agent/run-dir/resolve.ts"),
 		).toBe("source");
@@ -41,8 +39,10 @@ describe("detectMode", () => {
 		expect(detectMode("file://$bunfs/run-dir/x")).toBe("binary");
 	});
 
-	test("bundle mode: none of the above (bundled .js next to packages)", () => {
-		expect(detectMode("file:///opt/pi-agent/dist/pi-agent.js")).toBe("bundle");
+	test("anything that is not the virtual-fs scheme is source", () => {
+		// The "bundle" answer this used to give belonged to a shipped pi-agent.js;
+		// nothing has produced one since #1740.
+		expect(detectMode("file:///opt/pi-agent/dist/pi-agent.js")).toBe("source");
 	});
 
 	test("the real module URL (this test run) is source mode", () => {
@@ -184,7 +184,6 @@ describe("resolveRunDirArgv (integration, source mode against the real repo)", (
 				expect(existsSync(path)).toBe(true);
 				i++; // consume the path token
 			} else if (tok === "-ne") {
-				// -ne is a flag with no path payload (deploy-bundle mode) — not hit here
 				continue;
 			} else {
 				throw new Error(`unexpected token in source-mode argv: ${tok}`);
@@ -386,96 +385,6 @@ describe("rewriteExtensionArgs", () => {
 		expect(rewriteExtensionArgs(argv, resolveFn)).toEqual(argv);
 	});
 });
-
-describe("buildBundleArgvFromLayout (DEPLOY-BUNDLE mode)", () => {
-	const SELF = "/out/pi-agent-bundle";
-	const warnFn = (m: string) => warns.push(m);
-	let warns: string[] = [];
-	beforeEach(() => {
-		warns = [];
-	});
-
-	test("emits -e per ext-bundle + --skill per skill dir + -e per present npm path", () => {
-		const argv = buildBundleArgvFromLayout(
-			{
-				extBundles: ["obsidian.thin.js", "pi-file2md.thin.js"],
-				skillDirs: ["pi-obsidian-skills"],
-				npmPaths: ["/repo/node_modules/.bun/x/node_modules/rpiv/index.ts"],
-			},
-			SELF,
-			() => true, // all exist
-			warnFn,
-		);
-		expect(argv).toEqual([
-			"-e", join(SELF, "ext-bundles", "obsidian.thin.js"),
-			"-e", join(SELF, "ext-bundles", "pi-file2md.thin.js"),
-			"-e", "/repo/node_modules/.bun/x/node_modules/rpiv/index.ts",
-			"--skill", join(SELF, "skills", "pi-obsidian-skills"),
-		]);
-		expect(warns).toEqual([]);
-	});
-
-	test("filters non-.js entries upstream (caller responsibility) — here just emits what's passed", () => {
-		// (deploy.ts filters .js before calling; the builder trusts the list.)
-		const argv = buildBundleArgvFromLayout(
-			{ extBundles: ["x.thin.js"], skillDirs: [], npmPaths: [] },
-			SELF,
-			() => true,
-			warnFn,
-		);
-		expect(argv).toEqual(["-e", join(SELF, "ext-bundles", "x.thin.js")]);
-	});
-
-	test("missing npm path → skipped + warned (not fatal)", () => {
-		const missing = "/repo/node_modules/.bun/x/node_modules/gone/index.ts";
-		const argv = buildBundleArgvFromLayout(
-			{ extBundles: ["obsidian.thin.js"], skillDirs: [], npmPaths: [missing] },
-			SELF,
-			(p) => p !== missing, // missing doesn't exist
-			warnFn,
-		);
-		expect(argv).toEqual(["-e", join(SELF, "ext-bundles", "obsidian.thin.js")]);
-		expect(warns.join("\n")).toContain("npm extension path not found");
-	});
-
-	test("empty layout → empty argv", () => {
-		expect(buildBundleArgvFromLayout({ extBundles: [], skillDirs: [], npmPaths: [] }, SELF, () => true, warnFn)).toEqual([]);
-	});
-});
-
-// ─── detectRunDirMode (deploy layout detection — audit finding #1) ────────────
-
-describe("detectRunDirMode", () => {
-	const SELF = "/out/pi-agent-bundle";
-
-	test("deploy-bundle: .deploy-bundle marker + ext-bundles/ dir", () => {
-		const present = new Set([
-			join(SELF, ".deploy-bundle"),
-			join(SELF, "ext-bundles"),
-		]);
-		const exists = (p: string) => present.has(p);
-		expect(detectRunDirMode(SELF, exists)).toBe("deploy-bundle");
-	});
-
-	test("source: no markers present", () => {
-		expect(detectRunDirMode(SELF, () => false)).toBe("source");
-	});
-
-	test("deploy-bundle requires BOTH the marker and the ext-bundles dir", () => {
-		// marker present but ext-bundles missing → not deploy-bundle
-		const markerOnly = new Set([join(SELF, ".deploy-bundle")]);
-		expect(detectRunDirMode(SELF, (p) => markerOnly.has(p))).toBe("source");
-	});
-
-	test("the real module's selfDir is source mode (no deploy markers in the repo)", () => {
-		// run-dir/resolve.ts → selfDir is run-dir/ itself; the repo has none of
-		// the deploy markers, so the live detection reads "source".
-		const selfDir = resolve(import.meta.dir);
-		expect(detectRunDirMode(selfDir, existsSync)).toBe("source");
-	});
-});
-
-// ─── ENOTDIR hardening (audit finding #3 — readdirSync on a file-as-dir) ──────
 
 describe("resolveLazyExtension — ENOTDIR hardening", () => {
 	const settings: LazySettings = {

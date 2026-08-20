@@ -16,12 +16,11 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import manifest from "./manifest.json";
-import { mode, loadRunDirBase, warn } from "./run-context.ts";
+import { mode, warn } from "./run-context.ts";
 
 // npm-sourced extensions ({ pkg, entry }) — manifest.json is the SINGLE source
-// of truth: scripts/build.ts reads the same `npmExtensions` field to bake
-// resolved paths into src/generated/run-dir-base.ts for bundle mode, so adding
-// one is a one-file edit (not two). `entry` is relative to each package's root.
+// of truth, so adding one is a one-file edit. `entry` is relative to each
+// package's root.
 // These are plain `dependencies` in package.json, resolved via the shared
 // node_modules tree (migrated off the old isolated .pi/npm/ tree).
 //
@@ -54,7 +53,7 @@ let autoInstalled = false;
  * reads baked paths; binary mode loads no extensions).
  */
 function probeMissingNpm(): string[] {
-  if (mode === "bundle" || mode === "binary") return [];
+  if (mode === "binary") return [];
   const missing: string[] = [];
   for (const { pkg } of NPM_EXTENSIONS) {
     try {
@@ -138,7 +137,7 @@ export function runtimeDependencyNames(pkg: PackageJsonWithDeps): string[] {
  * Returns missing dependency names, deduped.
  */
 export function probeMissingExtensionDeps(bunAppsDir: string | undefined): string[] {
-  if (mode === "bundle" || mode === "binary") return [];
+  if (mode === "binary") return [];
   if (!bunAppsDir) return [];
   // Distinct extension dirs from the manifest (top path segment of each entry).
   const dirs = new Set<string>();
@@ -286,8 +285,9 @@ export function emitMissingDepsGuide(bunAppsDir: string | undefined): void {
 }
 
 /**
- * Absolute entry paths for the declared npm extensions. Bundle mode returns the
- * build-time-baked paths; source mode resolves each package live.
+ * Absolute entry paths for the declared npm extensions, resolved live.
+ * Bundle mode used to return build-time-baked paths from run-dir-base.ts
+ * instead; both went in Phase 1b.
  *
  * A package that fails to resolve is skipped with one terse line — the
  * consolidated guide (emitMissingDepsGuide) prints the exact fix once, so
@@ -300,9 +300,6 @@ export function emitMissingDepsGuide(bunAppsDir: string | undefined): void {
  * with the split rather than carried across into this module.)
  */
 export async function resolveNpmExtensionPaths(): Promise<string[]> {
-  if (mode === "bundle") {
-    return (await loadRunDirBase())?.npmPaths ?? [];
-  }
   const paths: string[] = [];
   for (const { pkg, entry } of NPM_EXTENSIONS) {
     try {

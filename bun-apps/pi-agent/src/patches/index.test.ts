@@ -55,8 +55,15 @@ describe("PATCH_TABLE", () => {
     expect(new Set(envs).size).toBe(envs.length);
   });
 
-  test("set-package-dir is first (must run before other patches)", () => {
-    expect(PATCH_TABLE[0]!.name).toBe("set-package-dir");
+  test("extract-embedded-assets precedes load-run-dir-resources", () => {
+    // The one ordering constraint left after set-package-dir was retired with
+    // bundle mode: extract-embedded-assets must publish
+    // BUN_PI_EMBEDDED_EXTRACT_DIR before resolveRunDirArgv() resolves
+    // binary-mode --skill paths against it.
+    const names = PATCH_TABLE.map((p) => p.name);
+    expect(names.indexOf("extract-embedded-assets")).toBeLessThan(
+      names.indexOf("load-run-dir-resources"),
+    );
   });
 
   test("every entry defaults to enabled (patches opt-OFF, not opt-IN)", () => {
@@ -79,7 +86,6 @@ describe("PATCH_TABLE", () => {
         "force-response-language",
         "load-run-dir-resources",
         "pre-load-providers",
-        "set-package-dir",
         "skip-update-check",
         "startup-history-hint",
         "subagent-model-floor",
@@ -116,14 +122,14 @@ describe("resolvePatchPlan (pure decision)", () => {
 
   test("'no' / 'false' / 'TRUE' on a flag map correctly through the plan", () => {
     const env = {
-      BUN_PI_SET_PACKAGE_DIR: "no",
+      BUN_PI_EXTRACT_EMBEDDED_ASSETS: "no",
       BUN_PI_PRE_LOAD_PROVIDERS: "false",
       BUN_PI_LOAD_RUN_DIR: "TRUE",
     };
     const byName = Object.fromEntries(
       resolvePatchPlan(PATCH_TABLE, env).map((p) => [p.name, p.applied]),
     );
-    expect(byName["set-package-dir"]).toBe(false);
+    expect(byName["extract-embedded-assets"]).toBe(false);
     expect(byName["pre-load-providers"]).toBe(false);
     expect(byName["load-run-dir-resources"]).toBe(true);
     expect(byName["skip-update-check"]).toBe(true); // unset → default true
@@ -132,13 +138,13 @@ describe("resolvePatchPlan (pure decision)", () => {
   test("is pure — does not mutate the passed env or table", () => {
     const env = { BUN_PI_SKIP_UPDATE_CHECK: "0" };
     const table: PatchEntry[] = [
-      { name: "set-package-dir", env: "X", defaultValue: true },
+      { name: "extract-embedded-assets", env: "X", defaultValue: true },
       { name: "skip-update-check", env: "Y", defaultValue: false },
     ];
     resolvePatchPlan(table, env);
     expect(env).toEqual({ BUN_PI_SKIP_UPDATE_CHECK: "0" });
     expect(table).toEqual([
-      { name: "set-package-dir", env: "X", defaultValue: true },
+      { name: "extract-embedded-assets", env: "X", defaultValue: true },
       { name: "skip-update-check", env: "Y", defaultValue: false },
     ]);
   });
