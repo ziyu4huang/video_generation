@@ -27,6 +27,7 @@ import { join } from "node:path";
 import manifest from "./manifest.json";
 import { parseManifestEntries } from "./manifest-types.ts";
 import { STATIC_EXTENSION_FACTORIES } from "../src/static-extensions.ts";
+import { buildStaticExtensionsSource } from "../src/static-extensions-gen.ts";
 
 const PKG_DIR = join(import.meta.dir, "..");
 const BUN_APPS = join(PKG_DIR, "..");
@@ -73,6 +74,19 @@ describe("staticExtensions ↔ STATIC_EXTENSION_FACTORIES", () => {
 	test("no package is registered both statically and dynamically", () => {
 		const both = staticDirs.filter((d) => dynamicDirs.includes(d));
 		expect(both).toEqual([]);
+	});
+
+	test("static-extensions.ts is exactly the generated output (byte-for-byte)", () => {
+		// The set/order equality tests above catch membership drift; this catches
+		// HAND drift — editing static-extensions.ts directly (a renamed binding, a
+		// moved comment) leaves the two files agreeing on membership while the
+		// generator can no longer reproduce the file. The manifest is the only
+		// edit point: run `bun run regen:static` (bun-apps/pi-agent).
+		const generated = buildStaticExtensionsSource({
+			staticExtensions: manifest.staticExtensions ?? [],
+		});
+		const onDisk = readFileSync(join(PKG_DIR, "src", "static-extensions.ts"), "utf8");
+		expect(onDisk).toBe(generated);
 	});
 });
 
