@@ -3,11 +3,14 @@ import manifest from "../run-dir/manifest.json";
 import { STATIC_EXTENSION_FACTORIES } from "./static-extensions.ts";
 
 /**
- * Drift guard: scripts/deploy.ts copies package dirs from
- * manifest.staticExtensions, while runtime loading uses the static imports in
- * static-extensions.ts. If the two lists drift, a deploy silently ships
- * without a package the runtime needs (or copies dead weight). Names must
- * match 1:1.
+ * Drift guard: manifest.staticExtensions and the static imports in
+ * static-extensions.ts are two hand-maintained lists of the same set, and only
+ * the second one is what actually loads. Names must match 1:1.
+ *
+ * The list used to have a second consumer — scripts/deploy.ts copied package
+ * dirs from it — which is gone with the four legacy deploy modes. The
+ * double-registration hazard below is now the whole reason this guard exists,
+ * and it holds until the registry consolidation collapses both lists into one.
  */
 describe("static extensions ↔ manifest.staticExtensions", () => {
 	test("factory names equal manifest.staticExtensions exactly", () => {

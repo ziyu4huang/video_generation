@@ -8,13 +8,13 @@ import { resolvePiAgentDir } from "../src/deploy-run.ts";
 function fakeRepo(): string {
 	const root = mkdtempSync(join(tmpdir(), "deploy-ext-repo-"));
 	// mirror layout: scripts live in
-	// <root>/bun-apps/pi-agent-ext-devops/scripts/{deploy.ts,run-test.sh};
+	// <root>/bun-apps/pi-agent-ext-devops/scripts/{deploy-sh.ts,run-test.sh};
 	// the resolver returns the sibling <root>/bun-apps/pi-agent dir.
 	const piAgent = join(root, "bun-apps", "pi-agent");
 	mkdirSync(piAgent, { recursive: true });
 	const devopsScripts = join(root, "bun-apps", "pi-agent-ext-devops", "scripts");
 	mkdirSync(devopsScripts, { recursive: true });
-	writeFileSync(join(devopsScripts, "deploy.ts"), "// fake");
+	writeFileSync(join(devopsScripts, "deploy-sh.ts"), "// fake");
 	writeFileSync(join(devopsScripts, "run-test.sh"), "# fake");
 	// the deploy-run module now lives at
 	// <root>/bun-apps/pi-agent-ext-devops/src/deploy-run.ts

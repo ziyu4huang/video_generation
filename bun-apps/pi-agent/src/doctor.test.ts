@@ -59,72 +59,76 @@ describe("classifyMode", () => {
 	});
 	/**
 	 * The guard for the original drift. A hardcoded `produced` set cannot be it:
-	 * the drift ran the direction such a set is blind to — deploy.ts SHED two
-	 * mode flags while doctor.ts kept the modes, and a set written by hand at
+	 * the drift ran the direction such a set is blind to — the deploy script SHED
+	 * two mode flags while doctor.ts kept the modes, and a set written by hand at
 	 * that moment would have listed all five and stayed green forever.
 	 *
-	 * So derive it from deploy.ts, and assert BOTH directions. If deploy.ts drops
-	 * a mode flag, (b) fails and forces MODE_BY_FLAG to be updated; updating it
-	 * shrinks `produced`, which makes (a) fail on whatever doctor.ts still
-	 * returns. That chain is what would have fired the first time.
+	 * It used to derive `produced` by reading deploy.ts's KNOWN_FLAGS. That file
+	 * is gone with the four legacy deploy modes, and with it every producer of
+	 * `bundle`. What is left is one deploy script (deploy-sh.ts → `sh`) plus the
+	 * two modes that need no deploy at all: `source` (running src/cli.ts) and
+	 * `binary` (a compiled core with no deploy.json beside it).
+	 *
+	 * So the guard is inverted rather than deleted. `bundle` is now an ORPHAN —
+	 * classifyMode can still return it, nothing can produce it — and it is
+	 * removed in the follow-up that collapses "bundle" out of mode.ts and
+	 * run-dir/resolve.ts. Pinning the orphan set to exactly {bundle} means:
+	 *   • a NEW orphan (doctor gains a mode no deploy makes) fails immediately;
+	 *   • removing `bundle` in that follow-up ALSO fails here, forcing this block
+	 *     to be updated rather than left describing a mode that no longer exists.
+	 * A guard that cannot fail in either direction is what let the first drift
+	 * live.
 	 */
-	describe("doctor's mode set is pinned to what deploy.ts can produce", () => {
-		// deploy.ts lives in the sibling devops package since #1305. Read, not
-		// imported: it is a script with top-level side effects. An ENOENT here
-		// means it moved again — loud, which is what a drift guard wants.
-		const DEPLOY_TS = join(import.meta.dir, "..", "..", "pi-agent-ext-devops", "scripts", "deploy.ts");
-		const deploySource = readFileSync(DEPLOY_TS, "utf8");
-		// There is a SECOND deploy pipeline now (deploy-sh.ts), and it is the only
-		// producer of the "sh" mode. Pinning `produced` to deploy.ts alone would
-		// have made (a) fail the moment sh mode was added — the guard firing on a
-		// legitimate change instead of a drift. Its existence is asserted the same
-		// way: read the file, fail loudly if it moved.
+	describe("doctor's mode set is pinned to what a deploy can produce", () => {
+		// Read, not imported: it is a script with top-level side effects. An ENOENT
+		// means it moved — loud, which is what a drift guard wants.
 		const DEPLOY_SH_TS = join(import.meta.dir, "..", "..", "pi-agent-ext-devops", "scripts", "deploy-sh.ts");
-		const deployShExists = readFileSync(DEPLOY_SH_TS, "utf8").length > 0;
-		const knownFlags = new Set(
-			[...deploySource.matchAll(/^\s*"(--[a-z-]+)",$/gm)].map((m) => m[1]),
-		);
+		const deployShSource = readFileSync(DEPLOY_SH_TS, "utf8");
 
-		/** Which DeployMode each deploy.ts MODE flag lands on. `--snapshot` ships
-		 *  raw .ts so coarseFromUrl calls it `source`; `--standalone` is a bundle
-		 *  plus a bun binary. Non-mode flags (--no-freeze/--obfuscate/--force)
-		 *  are deliberately absent. */
-		const MODE_BY_FLAG: Record<string, DeployMode> = {
-			"--bundle": "bundle",
-			"--snapshot": "source",
-			"--standalone": "bundle",
-			"--exe": "binary",
-		};
+		/** Modes something can actually put on disk today. */
+		const PRODUCED = new Set<DeployMode>(["source", "binary"]);
+		if (deployShSource.length > 0) PRODUCED.add("sh");
 
-		test("the scan found deploy.ts's flag list", () => {
-			// A regex that matched nothing would make (b) vacuously pass.
-			expect(knownFlags.size).toBeGreaterThanOrEqual(Object.keys(MODE_BY_FLAG).length);
-		});
+		/** Modes classifyMode can still return that nothing produces. Removed in
+		 *  the "collapse bundle out of the runtime" follow-up. */
+		const KNOWN_ORPHANS = new Set<DeployMode>(["bundle"]);
 
-		test("(b) every flag this table claims is still accepted by deploy.ts", () => {
-			const stale = Object.keys(MODE_BY_FLAG).filter((f) => !knownFlags.has(f));
-			expect(
-				stale,
-				`deploy.ts no longer accepts ${stale.join(", ")} — drop the entry here, ` +
-					`then check whether doctor.ts still returns the mode it mapped to`,
-			).toEqual([]);
-		});
-
-		test("(a) every mode classifyMode can return is one deploy.ts produces", () => {
-			const produced = new Set<DeployMode>(
-				Object.entries(MODE_BY_FLAG)
-					.filter(([flag]) => knownFlags.has(flag))
-					.map(([, mode]) => mode),
-			);
-			if (deployShExists) produced.add("sh");
+		function reachableModes(): Set<DeployMode> {
+			const seen = new Set<DeployMode>();
 			for (const coarse of ["source", "bundle", "binary"] as const) {
 				for (const dotDeployBundle of [true, false]) {
 					for (const shDeploy of [true, false]) {
-						const got = classifyMode(coarse, { dotDeployBundle, shDeploy });
-						expect(produced.has(got), `classifyMode returned "${got}", which no deploy mode produces`).toBe(true);
+						seen.add(classifyMode(coarse, { dotDeployBundle, shDeploy }));
 					}
 				}
 			}
+			return seen;
+		}
+
+		test("the deploy script is where this guard thinks it is", () => {
+			// Vacuity guard: an empty read would make PRODUCED lose "sh" silently.
+			expect(deployShSource).toContain("export async function runShDeploy");
+		});
+
+		test("(a) every mode classifyMode returns is produced, or a KNOWN orphan", () => {
+			const unexpected = [...reachableModes()].filter((m) => !PRODUCED.has(m) && !KNOWN_ORPHANS.has(m));
+			expect(
+				unexpected,
+				`classifyMode returned ${unexpected.join(", ")}, which no deploy produces and which ` +
+					"is not a recorded orphan. Either a deploy mode was added without updating " +
+					"PRODUCED, or doctor grew a mode nothing can reach.",
+			).toEqual([]);
+		});
+
+		test("(b) every KNOWN orphan is still reachable — remove it here when it goes", () => {
+			const reachable = reachableModes();
+			const gone = [...KNOWN_ORPHANS].filter((m) => !reachable.has(m));
+			expect(
+				gone,
+				`${gone.join(", ")} is listed as a known orphan but classifyMode can no longer ` +
+					"return it. Drop it from KNOWN_ORPHANS (and from DeployMode, and from the " +
+					"classifyMode tests above) — a stale exemption is how a guard stops guarding.",
+			).toEqual([]);
 		});
 	});
 });

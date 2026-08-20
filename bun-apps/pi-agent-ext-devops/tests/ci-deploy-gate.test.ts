@@ -32,7 +32,7 @@ describe("shouldRunDeployE2e", () => {
 		// repo-relative diff lines look like "bun-apps/pi-agent/run.sh"
 		expect(shouldRunDeployE2e(["bun-apps/pi-agent/run.sh"])).toBe(true);
 		expect(shouldRunDeployE2e(["bun-apps/pi-agent/src/patches/index.ts"])).toBe(true);
-		expect(shouldRunDeployE2e(["bun-apps/pi-agent-ext-devops/scripts/deploy.ts"])).toBe(true);
+		expect(shouldRunDeployE2e(["bun-apps/pi-agent-ext-devops/scripts/deploy-sh.ts"])).toBe(true);
 		expect(shouldRunDeployE2e(["pi-agent.sh"])).toBe(true);
 	});
 	test("no false positives from similar names", () => {

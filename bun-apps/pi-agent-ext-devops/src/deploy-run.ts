@@ -1,14 +1,19 @@
 /**
- * run.ts — locate the source pi-agent dir, path-guard outDir, and spawn a
- * script with captured + logged output and a timeout.
+ * deploy-run.ts — locate the source pi-agent dir and spawn a script with
+ * captured + logged output and a timeout.
  *
- * deploy.ts and run-test.sh live ONLY in the source repo
- * (bun-apps/pi-agent-ext-devops/scripts/), never in a deployed bundle. The
- * resolver still returns the pi-agent package dir (deploy.ts requires that
- * cwd); a candidate is valid only when its SIBLING pi-agent-ext-devops/
- * contains scripts/deploy.ts + scripts/run-test.sh. So the tools are dev-time:
- * they resolve the source dir (PI_AGENT_DIR env, else an upward walk for a
- * sibling pi-agent/) and refuse to spawn if it can't be found.
+ * The devops scripts live ONLY in the source repo
+ * (bun-apps/pi-agent-ext-devops/scripts/), never in a deployed tree. A
+ * candidate bun-apps/ is valid only when its pi-agent-ext-devops/scripts/
+ * holds them. So the tools are dev-time: they resolve the source dir
+ * (PI_AGENT_DIR env, else an upward walk for a sibling pi-agent/) and refuse
+ * to spawn if it can't be found.
+ *
+ * The probe pair used to be deploy.ts + run-test.sh. deploy.ts went with the
+ * four legacy deploy modes; deploy-sh.ts is the deploy script now, and probing
+ * for a file that no longer exists would make every resolve return null —
+ * pi_verify would refuse to run with "could not locate the source pi-agent
+ * dir", which reads like a broken checkout rather than a stale probe.
  */
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync } from "node:fs";
@@ -24,15 +29,15 @@ export interface ResolveOpts {
 function hasDevopsScripts(bunAppsDir: string): boolean {
 	const scriptsDir = join(bunAppsDir, "pi-agent-ext-devops", "scripts");
 	return (
-		existsSync(join(scriptsDir, "deploy.ts")) && existsSync(join(scriptsDir, "run-test.sh"))
+		existsSync(join(scriptsDir, "deploy-sh.ts")) && existsSync(join(scriptsDir, "run-test.sh"))
 	);
 }
 
 /** Find the source bun-apps/pi-agent dir, or null if unreachable.
  *
- *  The deploy/run-test SCRIPTS live in the sibling pi-agent-ext-devops package
- *  (scripts/); the returned dir is still pi-agent's — deploy.ts must run with
- *  that package as cwd, and tools derive the ext-devops scripts dir from it. */
+ *  The devops SCRIPTS live in the sibling pi-agent-ext-devops package
+ *  (scripts/); the returned dir is still pi-agent's — run-test.sh drives that
+ *  package, and tools derive the ext-devops scripts dir from it. */
 export function resolvePiAgentDir(
 	env: ResolveOpts = (process.env as unknown as ResolveOpts),
 	modUrl: string = import.meta.url,
