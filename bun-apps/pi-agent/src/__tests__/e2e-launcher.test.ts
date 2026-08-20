@@ -293,7 +293,7 @@ describe("source-mode root node_modules self-heal", () => {
 // ungated `bun test`.
 //
 // It calls BOTH shapes now — `bun run <script>` (do_rebuild, since the deploy
-// moved behind the deploy:sh package script) and `bun <path>.ts` — so both are
+// moved behind the deploy package script) and `bun <path>.ts` — so both are
 // checked, against package.json and the filesystem respectively. Each half
 // carries its own non-empty floor: a regex that silently matched nothing is
 // how a dead reference survives a green guard.

@@ -173,9 +173,9 @@ pi-agent ships as ONE artifact: a versioned, frozen tree under
 `ext/<name>/` directory per extension, discovered at runtime.
 
 ```bash
-bun run --cwd bun-apps/pi-agent deploy:sh              # cut a new version, move `current`
-bun run --cwd bun-apps/pi-agent deploy:sh --ext power-tool   # rebuild one extension in place
-bun run --cwd bun-apps/pi-agent deploy:sh --no-freeze  # skip the read-only freeze
+bun run --cwd bun-apps/pi-agent deploy              # cut a new version, move `current`
+bun run --cwd bun-apps/pi-agent deploy --ext power-tool   # rebuild one extension in place
+bun run --cwd bun-apps/pi-agent deploy --no-freeze  # skip the read-only freeze
 ```
 
 The extension set, the host-module contract and the per-extension build

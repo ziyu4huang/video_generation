@@ -32,9 +32,9 @@ it the banner reads `pi v0.0.0`.
 ## Commands
 
 ```bash
-bun run --cwd bun-apps/pi-agent deploy:sh                  # full deploy
-bun run --cwd bun-apps/pi-agent deploy:sh --ext power-tool # rebuild ONE extension in place
-bun run --cwd bun-apps/pi-agent deploy:sh --list           # versions + current target
+bun run --cwd bun-apps/pi-agent deploy                  # full deploy
+bun run --cwd bun-apps/pi-agent deploy --ext power-tool # rebuild ONE extension in place
+bun run --cwd bun-apps/pi-agent deploy --list           # versions + current target
 ~/proj/dist/pi-agent-sh/current/run.sh                     # run it
 ~/proj/dist/pi-agent-sh/current/pi-agent --ext-list        # what loaded, what was skipped, and why
 ```
@@ -103,7 +103,7 @@ Add an entry to `pi-agent.registry.yaml`:
       vendor: [some-pkg]    # optional — copy a real node_modules copy per extension (see below)
 ```
 
-then run `bun run regen:manifest` (the run-dir manifest derives from the registry) and `deploy:sh`. If the build reports foreign specifiers, decide per specifier: a shared
+then run `bun run regen:manifest` (the run-dir manifest derives from the registry) and `deploy`. If the build reports foreign specifiers, decide per specifier: a shared
 runtime that must be identical to the host's goes in the host whitelist; anything else should be
 inlined by the bundler (check the package declares it in its own `package.json` and that
 `bun install` has run from `bun-apps/`).

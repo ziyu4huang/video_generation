@@ -51,7 +51,7 @@ The two that remain after the deploy consolidation (spec: `.planning/specs/2026-
 _Avoid_: dev/prod modes (these are packaging modes, not environments), "three modes" (bundle mode was collapsed in Phase 1b)
 
 **deploy (pi-agent-sh)**:
-THE deploy pipeline (`bun run deploy:sh` → `../pi-agent-ext-devops/src/deploy-cli.ts` → `scripts/deploy.ts`): a versioned tree at `~/proj/dist/pi-agent-sh/<version>/` holding a minimal compiled core (entry `src/cli-sh.ts`, ZERO extensions inside) plus extension packages under `ext/<name>/` that the core discovers at runtime. Extensions are cjs bundles with pi's runtime `--external`; the core injects its own embedded modules through the bundle's `require` (`src/sh/host-modules.ts`), which is what keeps extension and host on ONE module instance. See `docs/deploy.md`.
+THE deploy pipeline (`bun run deploy` → `../pi-agent-ext-devops/src/deploy-cli.ts` → `scripts/deploy.ts`): a versioned tree at `~/proj/dist/pi-agent-sh/<version>/` holding a minimal compiled core (entry `src/cli-sh.ts`, ZERO extensions inside) plus extension packages under `ext/<name>/` that the core discovers at runtime. Extensions are cjs bundles with pi's runtime `--external`; the core injects its own embedded modules through the bundle's `require` (`src/sh/host-modules.ts`), which is what keeps extension and host on ONE module instance. See `docs/deploy.md`.
 _Avoid_: sh deploy as a separate thing (since the consolidation there is only one deploy), plugin dir (the contract is `ext.json` + host-injected require, not drop-in files)
 
 **Read-only deploy**:

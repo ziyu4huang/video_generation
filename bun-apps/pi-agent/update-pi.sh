@@ -146,13 +146,13 @@ check_lockstep() {
 # NOTE: this produces a NEW VERSIONED DEPLOY under ~/proj/dist/pi-agent-sh/ and
 # REPOINTS `current` at it — a more consequential action than the old
 # dist/pi-agent bundle rebuild it replaces. The four legacy deploy modes were
-# retired in the deploy-architecture consolidation, so deploy:sh is the only
+# retired in the deploy-architecture consolidation, so deploy is the only
 # pipeline. Run the CLI directly with --no-current if you want a build that
 # does not move `current`.
 do_rebuild() {
   echo
   echo "$(green '▶') cut a new pi-agent deploy (versioned; repoints current)"
-  (cd "$REPO_ROOT/bun-apps/pi-agent" && bun run deploy:sh --force)
+  (cd "$REPO_ROOT/bun-apps/pi-agent" && bun run deploy --force)
 }
 
 # Cross-package TypeScript preflight. Runs `bun run typecheck` (tsc --noEmit)
