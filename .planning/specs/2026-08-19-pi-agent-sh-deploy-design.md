@@ -304,3 +304,17 @@ before the MVP is considered done.
   version dirs for MVP; no automatic cleanup).
 - Decide whether the legacy four modes get retired once this pipeline proves
   itself.
+
+## Resolution — non-goals superseded (2026-08-20)
+
+Superseded-by: `.planning/specs/2026-08-20-deploy-architecture-consolidation-design.md`
+
+The non-goal "Replacing or deleting the existing four deploy modes" no longer holds.
+It was the right call while this pipeline was unproven; the pipeline has since shipped
+with four build gates plus an L1 e2e and is the only deploy artifact with a consumer.
+The consolidation design deletes `scripts/deploy.ts`'s four modes, folds the three
+legacy deploy docs into one, and collapses the three extension registries into the
+config file this design introduced.
+
+The rest of this document — the host-module contract, the loader design, the gate
+family, the versioned layout — is unchanged and still current.
