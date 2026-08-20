@@ -1,7 +1,0 @@
-{
-  "name": "produce-video",
-  "description": "Full movie pipeline (idea→publish) as a journaled-resumable workflow. Composes /research-first, /scene-assets, /review-cut.",
-  "entry": "index.js",
-  "kind": "workflow-pack",
-  "engine": "pi-agent-ext-workflow"
-}

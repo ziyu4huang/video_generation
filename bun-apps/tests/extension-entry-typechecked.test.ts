@@ -8,12 +8,12 @@
  *   tsconfig — so `bun run typecheck` inside the package compiles everything
  *   EXCEPT the file that is the package's whole reason to exist.
  *
- *   The entry still got compiled, but by the HOST: pi-agent imports it through
- *   run-dir/manifest.json and typechecks it under pi-agent's tsconfig. So the
+ *   The entry still got compiled, but by the HOST: s2-agent imports it through
+ *   run-dir/manifest.json and typechecks it under s2-agent's tsconfig. So the
  *   file has an executor, just not the one whose gate the author runs before
  *   pushing. `bun run typecheck` in the package says nothing about the entry,
  *   `bun test` in the package says nothing about it, and the failure surfaces
- *   one package away — on main, in pi-agent's job, after merge.
+ *   one package away — on main, in s2-agent's job, after merge.
  *
  *   That is the shared structural cause of two main-red incidents. Both were
  *   diagnosed as one-off mistakes in the entry file; neither was, because
@@ -174,7 +174,7 @@ describe("extension-entry typecheck coverage", () => {
     expect(
       uncovered,
       `NOT TYPECHECKED BY ITS OWN PACKAGE:\n  ${uncovered.join("\n  ")}\n\n` +
-        "Each of these is the package's registration entry, compiled only by the host pi-agent. " +
+        "Each of these is the package's registration entry, compiled only by the host s2-agent. " +
         'Add "extensions/**/*.ts" to the package tsconfig\'s `include`. A type error here currently ' +
         "surfaces one package away, on main, after merge — which is how two main-red incidents happened.",
     ).toEqual([]);

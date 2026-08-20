@@ -18,7 +18,7 @@ st = importlib.import_module("app.commands.image-styletransfer")
 # Playbook shipped in the repo (OM baseline) — a real, parseable YAML.
 _PLAYBOOK = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "..", "..", "bun-apps", "pi-agent-ext-movie-director", "data", "styles",
+    "..", "..", "bun-apps", "s2-agent-ext-movie-director", "data", "styles",
     "clean-professional.yaml",
 )
 _PLAYBOOK = os.path.normpath(_PLAYBOOK)

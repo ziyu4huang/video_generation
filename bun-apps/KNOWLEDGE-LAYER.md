@@ -4,7 +4,7 @@
 > memory → knowledge layer. For depth, see each package's own docs (linked below).
 > Snapshot: 2026-07-14 · branch `docs/memory-ext-architecture-review`.
 >
-> ⚠ **CORRECTED 2026-07-18 (ADR-0001):** `pi-agent-ext-hermes-memory` is a
+> ⚠ **CORRECTED 2026-07-18 (ADR-0001):** `s2-agent-ext-hermes-memory` is a
 > **TIER-0 foundation** (raw memory I/O), NOT TIER-2. Its former auto-converge
 > created illegal upward edges (hermes→knowledge-card, hermes→obsidian); those
 > are removed — convergence ownership moves to the hub. See
@@ -18,14 +18,14 @@
 
 ```
 TIER 0 — FOUNDATIONS (raw I/O; no upward edges allowed)
-  pi-agent-ext-obsidian         vault I/O · parser · resolveVault · validateZettelNote
-  pi-agent-ext-hermes-memory    memory I/O · store · search · session index · flush
+  s2-agent-ext-obsidian         vault I/O · parser · resolveVault · validateZettelNote
+  s2-agent-ext-hermes-memory    memory I/O · store · search · session index · flush
         ▲                ▲
         │ hard import     │ hub reads hermes memory files at well-known path
         │ (down edge ✓)   │ on session_shutdown (NO hermes→hub edge — see ADR-0001)
         └────────┬────────┘
                  ▼
-TIER 1 — CONVERGENCE HUB: pi-agent-ext-knowledge-card
+TIER 1 — CONVERGENCE HUB: s2-agent-ext-knowledge-card
   zk_card · zk_ask · zk_ingest · knowledge_query
   src/ deterministic library: ingest.ts (WRITE) · retrieve.ts (READ) · merge · entities · emit
   zk_ingest = canonical convergence sink (4 source families: workflow-jsonl / hermes / auto-memory / generic)
@@ -39,10 +39,10 @@ TIER 1 — CONVERGENCE HUB: pi-agent-ext-knowledge-card
 
 | Extension | Role | Tools |
 | --- | --- | --- |
-| [`pi-agent-ext-obsidian`](./pi-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md) | Foundation: vault I/O, frontmatter parser/validation, `resolveVault` | `obsidian` (1 fat tool, ~17 actions) |
-| [`pi-agent-ext-knowledge-card`](./pi-agent-ext-knowledge-card/docs/ARCHITECTURE.md) | Convergence hub: deterministic ingest + retrieval over the shared graph | `zk_card`, `zk_ask`, `zk_ingest`, `knowledge_query` |
-| [`pi-agent-ext-hermes-memory`](./pi-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md) | Working memory + session search; auto-converges memory into the graph | `memory`, `search` (memory+session search), `knowledge_search`, `knowledge_ingest` (pinned 6-tool surface, effort #1556) |
-| [`zk_ingest` distill actions](./pi-agent-ext-knowledge-card/) | Agent-self-triggered distillation of hermes entries (Gate→Enrich→Converge) | `zk_ingest` with `action=gate`/`converge`/`status` |
+| [`s2-agent-ext-obsidian`](./s2-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md) | Foundation: vault I/O, frontmatter parser/validation, `resolveVault` | `obsidian` (1 fat tool, ~17 actions) |
+| [`s2-agent-ext-knowledge-card`](./s2-agent-ext-knowledge-card/docs/ARCHITECTURE.md) | Convergence hub: deterministic ingest + retrieval over the shared graph | `zk_card`, `zk_ask`, `zk_ingest`, `knowledge_query` |
+| [`s2-agent-ext-hermes-memory`](./s2-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md) | Working memory + session search; auto-converges memory into the graph | `memory`, `search` (memory+session search), `knowledge_search`, `knowledge_ingest` (pinned 6-tool surface, effort #1556) |
+| [`zk_ingest` distill actions](./s2-agent-ext-knowledge-card/) | Agent-self-triggered distillation of hermes entries (Gate→Enrich→Converge) | `zk_ingest` with `action=gate`/`converge`/`status` |
 
 ## Write path — sources → ONE shared graph
 
@@ -93,7 +93,7 @@ anything hermes touched.
 | `obsidian distill` (action) | Raw LLM decomposition of free-form markdown → atomic notes |
 | `zk_ingest` (tool) | Deterministic structured-records → graph sink (no LLM) |
 | `zk_ingest` `action=gate`/`converge`/`status` | distill pipeline (was the `distill` extension): gate → enrich → converge |
-| `buildDistillTask` (knowledge-card export) | **Live** builder — backs the CLI `zk-extract` subcommand (`pi-agent/src/cli/commands/zk-extract.ts:30,139`). The `zk_extract` *tool* registration was removed in #450; the *builder* remains. Not vestigial. |
+| `buildDistillTask` (knowledge-card export) | **Live** builder — backs the CLI `zk-extract` subcommand (`s2-agent/src/cli/commands/zk-extract.ts:30,139`). The `zk_extract` *tool* registration was removed in #450; the *builder* remains. Not vestigial. |
 
 ## Known issues tracked in the review
 
@@ -105,13 +105,13 @@ anything hermes touched.
   the original review conflated the removed `zk_extract` tool with the live builder.)*
 - **C4** 🟡 five overlapping search surfaces → R4 (above).
 - **C5** ✅ resolved — distill is now runtime-wired as `zk_ingest` actions (`gate`/`converge`/`status`) inside knowledge-card; the standalone `distill` extension was folded in.
-- runSubagentWithRetry lives in `pi-agent-ext-subagent` (moved pre-2026-08-17; the old tier-0 placement was a docs ghost, cleared 2026-08-17).
+- runSubagentWithRetry lives in `s2-agent-ext-subagent` (moved pre-2026-08-17; the old tier-0 placement was a docs ghost, cleared 2026-08-17).
 
 ## Package deep-dives
 
-- [pi-agent-ext-obsidian — KNOWLEDGE-LAYER](./pi-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md)
-- [pi-agent-ext-knowledge-card — ARCHITECTURE](./pi-agent-ext-knowledge-card/docs/ARCHITECTURE.md)
-- [pi-agent-ext-hermes-memory — KNOWLEDGE-LAYER](./pi-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md)
+- [s2-agent-ext-obsidian — KNOWLEDGE-LAYER](./s2-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md)
+- [s2-agent-ext-knowledge-card — ARCHITECTURE](./s2-agent-ext-knowledge-card/docs/ARCHITECTURE.md)
+- [s2-agent-ext-hermes-memory — KNOWLEDGE-LAYER](./s2-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md)
 
 ## 2026-08-17 polish (effort knowledge-pipeline-polish)
 
@@ -119,7 +119,7 @@ anything hermes touched.
   stages/flags retired; seam members `mergeDuplicates` / `runConvergenceLoop`
   removed from the pipeline contract.
 - **L2 leaf hoist**: embedder/cosine/fence-split leaf now lives in
-  `@repo/pi-agent-core-interface` `src/embedding-leaf.ts`; hermes'
+  `@repo/s2-agent-core-interface` `src/embedding-leaf.ts`; hermes'
   `store/surreal/embedder.ts` + `store/frontmatter-codec.ts` mirrors deleted;
   zk `semantic.ts` delegates. Standing rule: mirrors must hoist, never copy.
 - **L3**: dead `INTERVIEW_PROMPT` export removed.

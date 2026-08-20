@@ -70,7 +70,7 @@ final class MP4WriterTests: XCTestCase {
     }
 
     /// Regression for a real deadlock found via a live FFLF proof run through
-    /// the actual pi-agent `ltx` tool (not a unit test): a genuine
+    /// the actual s2-agent `ltx` tool (not a unit test): a genuine
     /// AVAssetWriter multi-track stall, not a slowness issue. `write()` used
     /// to append ALL video frames to completion, with the audio input never
     /// touched until video finished — AVAssetWriter throttles

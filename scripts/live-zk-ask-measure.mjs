@@ -41,7 +41,7 @@ import { readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 const REPO = process.cwd();
-const CLI_DIR = join(REPO, "bun-apps/pi-agent");
+const CLI_DIR = join(REPO, "bun-apps/s2-agent");
 const EVAL_FILE = join(REPO, "scripts/real-retrieval-eval.json");
 const OUT_DIR = join(REPO, "output/live-zk-ask-measurements");
 

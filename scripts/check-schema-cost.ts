@@ -3,7 +3,7 @@
  * check-schema-cost — CLI entry point for the schema-cost regression gate.
  *
  * The logic now lives in
- * `bun-apps/pi-agent-ext-devops/src/schema-cost-check.ts` (`runSchemaCostCheck`),
+ * `bun-apps/s2-agent-ext-devops/src/schema-cost-check.ts` (`runSchemaCostCheck`),
  * which `runLocalCi` (src/ci-recipe.ts) IMPORTs directly (no subprocess spawn).
  * This file remains as a thin argv-parsing shim so the documented
  * `bun scripts/check-schema-cost.ts` invocation (see .github/CI.md) and manual
@@ -18,7 +18,7 @@
  *   bun scripts/check-schema-cost.ts [--baseline <path>] [--threshold <pct>]
  *   bun scripts/check-schema-cost.ts --live <path>   # skip the spawn, compare a file
  */
-import { runSchemaCostCheck } from "../bun-apps/pi-agent-ext-devops/src/schema-cost-check.ts";
+import { runSchemaCostCheck } from "../bun-apps/s2-agent-ext-devops/src/schema-cost-check.ts";
 
 const REPO_ROOT = new URL("..", import.meta.url).pathname;
 

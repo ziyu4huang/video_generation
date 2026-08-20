@@ -23,7 +23,7 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveVault } from "../bun-apps/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { resolveVault } from "../bun-apps/s2-agent-ext-obsidian/extensions/obsidian.ts";
 
 const REPO = process.cwd();
 const EVAL_FILE = join(REPO, "scripts/multi-hop-eval.json");

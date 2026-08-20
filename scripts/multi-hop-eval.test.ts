@@ -49,7 +49,7 @@ const evalSet = JSON.parse(readFileSync(EVAL_FILE, "utf8")) as {
 let vaultPresent = false;
 try {
 	const { resolveVault } = await import(
-		"../bun-apps/pi-agent-ext-obsidian/extensions/obsidian.ts"
+		"../bun-apps/s2-agent-ext-obsidian/extensions/obsidian.ts"
 	);
 	const vault = (await resolveVault(REPO)).path;
 	vaultPresent = existsSync(join(vault, "Zettelkasten/knowledge-graph"));

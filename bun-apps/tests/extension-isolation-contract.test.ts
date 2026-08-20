@@ -1,6 +1,6 @@
 /**
  * Cross-extension isolation contract — the "tight yet swappable" guard for the
- * PORTABLE BASE SET: every extension `pi-agent/pi-agent.registry.yaml` ships in
+ * PORTABLE BASE SET: every extension `s2-agent/s2-agent.registry.yaml` ships in
  * an sh deploy. They coexist every session and share conventions (.planning/
  * layout, ctx.cwd) but must NEVER import each other's code — coupling goes only
  * through Pi's extension API and the guarded globalThis seams. That
@@ -18,12 +18,12 @@
  *  (1) NO CROSS-IMPORTS [static] — scan each base-set package's `src/` +
  *      `extensions/` + root `index.ts` `.ts` for import statements targeting
  *      ANY OTHER base-set package, in EITHER specifier form
- *      (`@repo/pi-agent-ext-<x>` OR a relative `../pi-agent-ext-<x>`).
+ *      (`@repo/s2-agent-ext-<x>` OR a relative `../s2-agent-ext-<x>`).
  *      Matches ONLY import syntax (`from "…"`, `import("…")`, side-effect
  *      `import "…"`) — never prose mentions in comments — so a JSDoc `@see`
  *      cannot false-positive. ONE sanctioned edge is exempt (see
  *      SANCTIONED_EDGES below). Relationship to `dep-guard.test.ts`: that guard
- *      scans EVERY `pi-agent-ext-*` for `@repo/` declared-coupling (hidden deps,
+ *      scans EVERY `s2-agent-ext-*` for `@repo/` declared-coupling (hidden deps,
  *      self-imports, tier edges, acyclicity) — it does NOT catch relative-path
  *      cross-imports and is not base-set-scoped, so invariant (1) stays here as
  *      the strict, both-specifier-forms version. They are complementary.
@@ -51,7 +51,7 @@ import { parseRegistryBaseSetNames } from "./lib/registry-base-set.ts";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // bun-apps/
 
 /**
- * Base-set short names parsed out of pi-agent.registry.yaml's `extensions:`
+ * Base-set short names parsed out of s2-agent.registry.yaml's `extensions:`
  * block by the shared scanner (tests/lib/registry-base-set.ts) — an entry is
  * in the base set iff its entry carries a `deploy:` block that is not
  * `enabled: false` (entries kept local have `excludeReason` instead). The
@@ -61,9 +61,9 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // bun-apps
 const MIN_EXPECTED = 10;
 
 const BASE_SET_NAMES = parseRegistryBaseSetNames(
-	readFileSync(join(ROOT, "pi-agent", "pi-agent.registry.yaml"), "utf8"),
+	readFileSync(join(ROOT, "s2-agent", "s2-agent.registry.yaml"), "utf8"),
 );
-const BASE_SET = BASE_SET_NAMES.map((n) => `pi-agent-ext-${n}`);
+const BASE_SET = BASE_SET_NAMES.map((n) => `s2-agent-ext-${n}`);
 
 /** short name → `BUN_PI_<SHOUT_CASE>` disable env var. */
 function disableEnvFor(name: string): string {
@@ -76,14 +76,14 @@ function disableEnvFor(name: string): string {
  * list by making its enabled path IO-free, never by asserting it is.
  */
 const LOAD_PROBE_SKIP: Record<string, string> = {
-	"pi-agent-ext-hermes-memory": "enabled path opens SQLite + writes under $HOME/.pi",
-	"pi-agent-ext-webui": "enabled path constructs the Bun.serve WebServer singleton",
-	"pi-agent-ext-power-tool": "enabled path monkey-patches the SDK + reaches playwright-core",
-	"pi-agent-ext-web-access": "enabled path reads user config + registers background fetch state",
-	"pi-agent-ext-subagent": "enabled path touches the run-persistence store on disk",
-	"pi-agent-ext-workflow": "enabled path constructs workflow storage under cwd",
-	"pi-agent-ext-task": "enabled path restores loop/todo session state from disk",
-	"pi-agent-ext-btw": "enabled path registers TUI keybindings against a real host",
+	"s2-agent-ext-hermes-memory": "enabled path opens SQLite + writes under $HOME/.pi",
+	"s2-agent-ext-webui": "enabled path constructs the Bun.serve WebServer singleton",
+	"s2-agent-ext-power-tool": "enabled path monkey-patches the SDK + reaches playwright-core",
+	"s2-agent-ext-web-access": "enabled path reads user config + registers background fetch state",
+	"s2-agent-ext-subagent": "enabled path touches the run-persistence store on disk",
+	"s2-agent-ext-workflow": "enabled path constructs workflow storage under cwd",
+	"s2-agent-ext-task": "enabled path restores loop/todo session state from disk",
+	"s2-agent-ext-btw": "enabled path registers TUI keybindings against a real host",
 };
 
 /**
@@ -94,7 +94,7 @@ const LOAD_PROBE_SKIP: Record<string, string> = {
  * key, so removing it means removing the skill path, not setting an env var.
  */
 const DISABLE_GATE_EXEMPT: Record<string, string> = {
-	"pi-agent-ext-hyperframes": "skills-only carrier; the factory is a deliberate no-op",
+	"s2-agent-ext-hyperframes": "skills-only carrier; the factory is a deliberate no-op",
 };
 
 /** Walk a package's `src/` + `extensions/` + root `index.ts` (skip tests/fixtures). */
@@ -141,7 +141,7 @@ function collectTs(pkgDir: string): string[] {
  * every other (from, to) pair stays forbidden here.
  */
 const SANCTIONED_EDGES: ReadonlySet<string> = new Set([
-	"pi-agent-ext-knowledge-card → pi-agent-ext-obsidian",
+	"s2-agent-ext-knowledge-card → s2-agent-ext-obsidian",
 ]);
 
 /** True when `self` importing `target` is a sanctioned lib-face edge. */
@@ -183,17 +183,17 @@ function recordingPi(): { pi: any; count: () => number } {
 	return { pi, count: () => calls };
 }
 
-describe("portable base set is derived from pi-agent.registry.yaml", () => {
+describe("portable base set is derived from s2-agent.registry.yaml", () => {
 	it(`parses at least ${MIN_EXPECTED} extensions (a silent [] would void this file)`, () => {
 		assert.ok(
 			BASE_SET_NAMES.length >= MIN_EXPECTED,
-			`parsed only ${BASE_SET_NAMES.length} extension name(s) from pi-agent.registry.yaml: ${BASE_SET_NAMES.join(", ")}`,
+			`parsed only ${BASE_SET_NAMES.length} extension name(s) from s2-agent.registry.yaml: ${BASE_SET_NAMES.join(", ")}`,
 		);
 	});
 
 	it("every parsed name resolves to a workspace package with the canonical entry", () => {
 		const missing = BASE_SET_NAMES.filter(
-			(n) => !existsSync(join(ROOT, `pi-agent-ext-${n}`, "extensions", `${n}.ts`)),
+			(n) => !existsSync(join(ROOT, `s2-agent-ext-${n}`, "extensions", `${n}.ts`)),
 		);
 		assert.deepEqual(missing, [], `deploy-config names with no extensions/<X>.ts: ${missing.join(", ")}`);
 	});
@@ -238,7 +238,7 @@ describe("cross-extension isolation contract (portable base set)", () => {
 	});
 
 	for (const name of BASE_SET_NAMES) {
-		const pkg = `pi-agent-ext-${name}`;
+		const pkg = `s2-agent-ext-${name}`;
 		const entry = join(ROOT, pkg, "extensions", `${name}.ts`);
 
 		it(`(${pkg}) HONORS DISABLE ENV`, async () => {
@@ -269,7 +269,7 @@ describe("cross-extension isolation contract (portable base set)", () => {
 	}
 
 	for (const name of BASE_SET_NAMES) {
-		const pkg = `pi-agent-ext-${name}`;
+		const pkg = `s2-agent-ext-${name}`;
 		const skip = LOAD_PROBE_SKIP[pkg];
 		if (skip !== undefined) continue;
 		if (DISABLE_GATE_EXEMPT[pkg] !== undefined) continue; // no-op factory: nothing to load-probe

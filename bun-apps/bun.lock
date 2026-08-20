@@ -5,7 +5,7 @@
     "": {
       "name": "video-generation-monorepo",
       "devDependencies": {
-        "@repo/pi-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
         "@types/bun": "latest",
       },
     },
@@ -38,59 +38,59 @@
       "name": "@repo/perf-harness",
       "version": "0.0.1",
       "devDependencies": {
-        "@repo/pi-agent-ext-hermes-memory": "workspace:*",
-        "@repo/pi-agent-ext-knowledge-card": "workspace:*",
-        "@repo/pi-agent-ext-obsidian": "workspace:*",
+        "@repo/s2-agent-ext-hermes-memory": "workspace:*",
+        "@repo/s2-agent-ext-knowledge-card": "workspace:*",
+        "@repo/s2-agent-ext-obsidian": "workspace:*",
         "@types/bun": "^1.3.14",
         "typescript": "^6.0.3",
       },
     },
-    "pi-agent": {
-      "name": "@repo/pi-agent",
+    "s2-agent": {
+      "name": "@repo/s2-agent",
       "version": "0.1.0",
       "bin": {
-        "pi-agent": "src/cli.ts",
+        "s2-agent": "src/cli.ts",
       },
       "dependencies": {
         "@earendil-works/pi-agent-core": "0.84.2",
         "@earendil-works/pi-ai": "0.84.2",
         "@earendil-works/pi-coding-agent": "0.84.2",
         "@earendil-works/pi-tui": "0.84.2",
-        "@repo/pi-agent-core-runtime": "workspace:*",
-        "@repo/pi-agent-ext-archify": "workspace:*",
-        "@repo/pi-agent-ext-btw": "workspace:*",
-        "@repo/pi-agent-ext-devops": "workspace:*",
-        "@repo/pi-agent-ext-file2md": "workspace:*",
-        "@repo/pi-agent-ext-flux2": "workspace:*",
-        "@repo/pi-agent-ext-hermes-memory": "workspace:*",
-        "@repo/pi-agent-ext-hyperframes": "workspace:*",
-        "@repo/pi-agent-ext-knowledge-card": "workspace:*",
-        "@repo/pi-agent-ext-krea2": "workspace:*",
-        "@repo/pi-agent-ext-ltx": "workspace:*",
-        "@repo/pi-agent-ext-movie-director": "workspace:*",
-        "@repo/pi-agent-ext-obsidian": "workspace:*",
-        "@repo/pi-agent-ext-power-tool": "workspace:*",
-        "@repo/pi-agent-ext-prompt-history": "workspace:*",
-        "@repo/pi-agent-ext-research-tool": "workspace:*",
-        "@repo/pi-agent-ext-subagent": "workspace:*",
-        "@repo/pi-agent-ext-superpowers": "workspace:*",
-        "@repo/pi-agent-ext-task": "workspace:*",
-        "@repo/pi-agent-ext-tool-gate": "workspace:*",
-        "@repo/pi-agent-ext-wayfind": "workspace:*",
-        "@repo/pi-agent-ext-web-access": "workspace:*",
-        "@repo/pi-agent-ext-webui": "workspace:*",
-        "@repo/pi-agent-ext-workflow": "workspace:*",
-        "@repo/pi-agent-ext-zai-mcp": "workspace:*",
+        "@repo/s2-agent-core-runtime": "workspace:*",
+        "@repo/s2-agent-ext-archify": "workspace:*",
+        "@repo/s2-agent-ext-btw": "workspace:*",
+        "@repo/s2-agent-ext-devops": "workspace:*",
+        "@repo/s2-agent-ext-file2md": "workspace:*",
+        "@repo/s2-agent-ext-flux2": "workspace:*",
+        "@repo/s2-agent-ext-hermes-memory": "workspace:*",
+        "@repo/s2-agent-ext-hyperframes": "workspace:*",
+        "@repo/s2-agent-ext-knowledge-card": "workspace:*",
+        "@repo/s2-agent-ext-krea2": "workspace:*",
+        "@repo/s2-agent-ext-ltx": "workspace:*",
+        "@repo/s2-agent-ext-movie-director": "workspace:*",
+        "@repo/s2-agent-ext-obsidian": "workspace:*",
+        "@repo/s2-agent-ext-power-tool": "workspace:*",
+        "@repo/s2-agent-ext-prompt-history": "workspace:*",
+        "@repo/s2-agent-ext-research-tool": "workspace:*",
+        "@repo/s2-agent-ext-subagent": "workspace:*",
+        "@repo/s2-agent-ext-superpowers": "workspace:*",
+        "@repo/s2-agent-ext-task": "workspace:*",
+        "@repo/s2-agent-ext-tool-gate": "workspace:*",
+        "@repo/s2-agent-ext-wayfind": "workspace:*",
+        "@repo/s2-agent-ext-web-access": "workspace:*",
+        "@repo/s2-agent-ext-webui": "workspace:*",
+        "@repo/s2-agent-ext-workflow": "workspace:*",
+        "@repo/s2-agent-ext-zai-mcp": "workspace:*",
         "typebox": "^1.3.7",
       },
       "devDependencies": {
-        "@repo/pi-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
         "@types/bun": "latest",
         "typescript": "^7.0.2",
       },
     },
-    "pi-agent-core-interface": {
-      "name": "@repo/pi-agent-core-interface",
+    "s2-agent-core-interface": {
+      "name": "@repo/s2-agent-core-interface",
       "version": "0.1.0",
       "dependencies": {
         "yaml": "^2",
@@ -103,15 +103,15 @@
         "typebox": "*",
       },
     },
-    "pi-agent-core-runtime": {
-      "name": "@repo/pi-agent-core-runtime",
+    "s2-agent-core-runtime": {
+      "name": "@repo/s2-agent-core-runtime",
       "version": "0.1.0",
       "devDependencies": {
         "@biomejs/biome": "2.4.16",
         "@earendil-works/pi-ai": "0.84.2",
         "@earendil-works/pi-coding-agent": "0.84.2",
         "@earendil-works/pi-tui": "0.84.2",
-        "@repo/pi-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
         "@types/bun": "^1.3.14",
         "typebox": "^1.3.7",
         "typescript": "^7.0.2",
@@ -122,8 +122,8 @@
         "typebox": "*",
       },
     },
-    "pi-agent-ext-archify": {
-      "name": "@repo/pi-agent-ext-archify",
+    "s2-agent-ext-archify": {
+      "name": "@repo/s2-agent-ext-archify",
       "version": "0.1.0",
       "dependencies": {
         "marked": "^15",
@@ -144,8 +144,8 @@
         "typebox": "*",
       },
     },
-    "pi-agent-ext-btw": {
-      "name": "@repo/pi-agent-ext-btw",
+    "s2-agent-ext-btw": {
+      "name": "@repo/s2-agent-ext-btw",
       "version": "0.1.0",
       "devDependencies": {
         "@types/bun": "latest",
@@ -157,22 +157,22 @@
         "@earendil-works/pi-tui": "0.84.2",
       },
     },
-    "pi-agent-ext-devops": {
-      "name": "@repo/pi-agent-ext-devops",
+    "s2-agent-ext-devops": {
+      "name": "@repo/s2-agent-ext-devops",
       "version": "0.1.0",
       "bin": {
         "ci-changed-packages": "./src/changed-packages-cli.ts",
-        "devops-sync": "./src/sync-cli.ts",
-        "devops-pr-finish": "./src/pr-finish-cli.ts",
+        "devops-sync-default-branch": "./src/sync-default-branch-cli.ts",
+        "devops-merge-pr-after-ci": "./src/merge-pr-after-ci-cli.ts",
         "devops-main-health": "./src/main-health-cli.ts",
-        "devops-sweep": "./src/sweep-cli.ts",
+        "devops-sweep-merged-branches": "./src/sweep-merged-branches-cli.ts",
         "devops-local-ci": "./src/local-ci-cli.ts",
-        "devops-prepare-branch": "./src/prepare-cli.ts",
+        "devops-prepare-feature-branch": "./src/prepare-feature-branch-cli.ts",
         "devops-verify-merge": "./src/verify-merge-cli.ts",
       },
       "dependencies": {
         "@earendil-works/pi-ai": "0.84.2",
-        "@repo/pi-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -183,12 +183,12 @@
         "typebox": "*",
       },
     },
-    "pi-agent-ext-file2md": {
-      "name": "@repo/pi-agent-ext-file2md",
+    "s2-agent-ext-file2md": {
+      "name": "@repo/s2-agent-ext-file2md",
       "version": "0.1.0",
       "dependencies": {
-        "@repo/pi-agent-core-interface": "workspace:*",
-        "@repo/pi-agent-core-runtime": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-runtime": "workspace:*",
         "mupdf": "^1.28.0",
       },
       "devDependencies": {
@@ -202,17 +202,17 @@
         "@earendil-works/pi-agent-core": "0.84.2",
         "@earendil-works/pi-ai": "0.84.2",
         "@earendil-works/pi-coding-agent": "0.84.2",
-        "@repo/pi-agent-ext-subagent": "workspace:*",
+        "@repo/s2-agent-ext-subagent": "workspace:*",
         "typebox": "*",
       },
     },
-    "pi-agent-ext-flux2": {
-      "name": "@repo/pi-agent-ext-flux2",
+    "s2-agent-ext-flux2": {
+      "name": "@repo/s2-agent-ext-flux2",
       "version": "0.1.0",
       "dependencies": {
         "@earendil-works/pi-ai": "0.84.2",
-        "@repo/pi-agent-core-interface": "workspace:*",
-        "@repo/pi-agent-ext-file2md": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-ext-file2md": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -223,19 +223,19 @@
         "typebox": "*",
       },
     },
-    "pi-agent-ext-hermes-memory": {
-      "name": "@repo/pi-agent-ext-hermes-memory",
+    "s2-agent-ext-hermes-memory": {
+      "name": "@repo/s2-agent-ext-hermes-memory",
       "version": "0.7.23",
       "dependencies": {
         "@earendil-works/pi-tui": "0.84.2",
-        "@repo/pi-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
         "proper-lockfile": "^4.1.2",
         "yaml": "^2.9.0",
       },
       "devDependencies": {
         "@earendil-works/pi-ai": "0.84.2",
         "@earendil-works/pi-coding-agent": "0.84.2",
-        "@repo/pi-agent-ext-file2md": "workspace:*",
+        "@repo/s2-agent-ext-file2md": "workspace:*",
         "@types/proper-lockfile": "^4.1.4",
         "@types/retry": "^0.12.5",
         "typebox": "^1.1.33",
@@ -244,11 +244,11 @@
       "peerDependencies": {
         "@earendil-works/pi-ai": "0.84.2",
         "@earendil-works/pi-coding-agent": "0.84.2",
-        "@repo/pi-agent-core-runtime": "workspace:*",
+        "@repo/s2-agent-core-runtime": "workspace:*",
       },
     },
-    "pi-agent-ext-hyperframes": {
-      "name": "@repo/pi-agent-ext-hyperframes",
+    "s2-agent-ext-hyperframes": {
+      "name": "@repo/s2-agent-ext-hyperframes",
       "version": "0.1.0",
       "dependencies": {
         "@hyperframes/core": "0.8.4",
@@ -263,8 +263,8 @@
         "@earendil-works/pi-coding-agent": "0.84.2",
       },
     },
-    "pi-agent-ext-knowledge-card": {
-      "name": "@repo/pi-agent-ext-knowledge-card",
+    "s2-agent-ext-knowledge-card": {
+      "name": "@repo/s2-agent-ext-knowledge-card",
       "version": "0.1.0",
       "devDependencies": {
         "typescript": "^7.0.2",
@@ -274,18 +274,18 @@
         "@earendil-works/pi-ai": "0.84.2",
         "@earendil-works/pi-coding-agent": "0.84.2",
         "@earendil-works/pi-tui": "0.84.2",
-        "@repo/pi-agent-core-interface": "workspace:*",
-        "@repo/pi-agent-core-runtime": "workspace:*",
-        "@repo/pi-agent-ext-obsidian": "*",
+        "@repo/s2-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-runtime": "workspace:*",
+        "@repo/s2-agent-ext-obsidian": "*",
         "typebox": "*",
       },
     },
-    "pi-agent-ext-krea2": {
-      "name": "@repo/pi-agent-ext-krea2",
+    "s2-agent-ext-krea2": {
+      "name": "@repo/s2-agent-ext-krea2",
       "version": "0.1.0",
       "dependencies": {
         "@earendil-works/pi-ai": "0.84.2",
-        "@repo/pi-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -296,12 +296,12 @@
         "typebox": "*",
       },
     },
-    "pi-agent-ext-ltx": {
-      "name": "@repo/pi-agent-ext-ltx",
+    "s2-agent-ext-ltx": {
+      "name": "@repo/s2-agent-ext-ltx",
       "version": "0.1.0",
       "dependencies": {
         "@earendil-works/pi-ai": "0.84.2",
-        "@repo/pi-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -312,12 +312,12 @@
         "typebox": "*",
       },
     },
-    "pi-agent-ext-movie-director": {
-      "name": "@repo/pi-agent-ext-movie-director",
+    "s2-agent-ext-movie-director": {
+      "name": "@repo/s2-agent-ext-movie-director",
       "version": "0.1.0",
       "dependencies": {
         "@earendil-works/pi-ai": "0.84.2",
-        "@repo/pi-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
         "ajv": "latest",
         "ajv-formats": "latest",
         "msedge-tts": "^2.0.7",
@@ -329,21 +329,21 @@
       },
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": "0.84.2",
-        "@repo/pi-agent-ext-flux2": "workspace:*",
-        "@repo/pi-agent-ext-krea2": "workspace:*",
-        "@repo/pi-agent-ext-ltx": "workspace:*",
-        "@repo/pi-agent-ext-workflow": "workspace:*",
+        "@repo/s2-agent-ext-flux2": "workspace:*",
+        "@repo/s2-agent-ext-krea2": "workspace:*",
+        "@repo/s2-agent-ext-ltx": "workspace:*",
+        "@repo/s2-agent-ext-workflow": "workspace:*",
         "typebox": "*",
       },
     },
-    "pi-agent-ext-obsidian": {
-      "name": "@repo/pi-agent-ext-obsidian",
+    "s2-agent-ext-obsidian": {
+      "name": "@repo/s2-agent-ext-obsidian",
       "version": "0.1.0",
       "dependencies": {
-        "@repo/pi-agent-core-runtime": "workspace:*",
+        "@repo/s2-agent-core-runtime": "workspace:*",
       },
       "devDependencies": {
-        "@repo/pi-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
         "@types/bun": "^1.3.14",
         "typescript": "^6.0.3",
       },
@@ -355,13 +355,13 @@
         "typebox": "*",
       },
     },
-    "pi-agent-ext-power-tool": {
-      "name": "@repo/pi-agent-ext-power-tool",
+    "s2-agent-ext-power-tool": {
+      "name": "@repo/s2-agent-ext-power-tool",
       "version": "0.1.0",
       "dependencies": {
         "@earendil-works/pi-coding-agent": "0.84.2",
         "@playwright/cli": "^0.1.17",
-        "@repo/pi-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
         "js-yaml": "latest",
         "playwright-core": "1.62.0-alpha-1783623505000",
         "typebox": "^1.3.7",
@@ -371,8 +371,8 @@
         "typescript": "^6.0.3",
       },
     },
-    "pi-agent-ext-prompt-history": {
-      "name": "@repo/pi-agent-ext-prompt-history",
+    "s2-agent-ext-prompt-history": {
+      "name": "@repo/s2-agent-ext-prompt-history",
       "version": "0.1.0",
       "devDependencies": {
         "@types/bun": "latest",
@@ -382,15 +382,15 @@
         "@earendil-works/pi-coding-agent": "0.84.2",
       },
     },
-    "pi-agent-ext-research-tool": {
-      "name": "@repo/pi-agent-ext-research-tool",
+    "s2-agent-ext-research-tool": {
+      "name": "@repo/s2-agent-ext-research-tool",
       "version": "0.1.0",
       "dependencies": {
         "fast-xml-parser": "^5.2.0",
       },
       "devDependencies": {
-        "@repo/pi-agent-core-interface": "workspace:*",
-        "@repo/pi-agent-ext-obsidian": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-ext-obsidian": "workspace:*",
         "@types/bun": "latest",
         "typescript": "^6.0.3",
       },
@@ -401,18 +401,18 @@
         "typebox": "*",
       },
     },
-    "pi-agent-ext-subagent": {
-      "name": "@repo/pi-agent-ext-subagent",
+    "s2-agent-ext-subagent": {
+      "name": "@repo/s2-agent-ext-subagent",
       "version": "0.1.0",
       "dependencies": {
-        "@repo/pi-agent-core-runtime": "workspace:*",
+        "@repo/s2-agent-core-runtime": "workspace:*",
       },
       "devDependencies": {
         "@biomejs/biome": "2.4.16",
         "@earendil-works/pi-ai": "0.84.2",
         "@earendil-works/pi-coding-agent": "0.84.2",
         "@earendil-works/pi-tui": "0.84.2",
-        "@repo/pi-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
         "@types/bun": "^1.3.14",
         "tsx": "^4.23.4",
         "typebox": "^1.3.7",
@@ -424,8 +424,8 @@
         "typebox": "*",
       },
     },
-    "pi-agent-ext-superpowers": {
-      "name": "@repo/pi-agent-ext-superpowers",
+    "s2-agent-ext-superpowers": {
+      "name": "@repo/s2-agent-ext-superpowers",
       "version": "6.1.1",
       "devDependencies": {
         "@biomejs/biome": "2.4.16",
@@ -438,13 +438,13 @@
         "@earendil-works/pi-coding-agent": "0.84.2",
       },
     },
-    "pi-agent-ext-task": {
-      "name": "@repo/pi-agent-ext-task",
+    "s2-agent-ext-task": {
+      "name": "@repo/s2-agent-ext-task",
       "version": "0.1.0",
       "devDependencies": {
-        "@repo/pi-agent-core-interface": "workspace:*",
-        "@repo/pi-agent-core-runtime": "workspace:*",
-        "@repo/pi-agent-ext-subagent": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-runtime": "workspace:*",
+        "@repo/s2-agent-ext-subagent": "workspace:*",
         "@types/bun": "latest",
         "typescript": "^6.0.3",
       },
@@ -454,31 +454,31 @@
         "typebox": "^1.3.6",
       },
     },
-    "pi-agent-ext-tool-gate": {
-      "name": "@repo/pi-agent-ext-tool-gate",
+    "s2-agent-ext-tool-gate": {
+      "name": "@repo/s2-agent-ext-tool-gate",
       "version": "0.1.0",
       "dependencies": {
-        "@repo/pi-agent-core-interface": "workspace:*",
-        "@repo/pi-agent-ext-power-tool": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-ext-power-tool": "workspace:*",
       },
       "devDependencies": {
-        "@repo/pi-agent-ext-devops": "workspace:*",
-        "@repo/pi-agent-ext-file2md": "workspace:*",
-        "@repo/pi-agent-ext-flux2": "workspace:*",
-        "@repo/pi-agent-ext-hermes-memory": "workspace:*",
-        "@repo/pi-agent-ext-knowledge-card": "workspace:*",
-        "@repo/pi-agent-ext-krea2": "workspace:*",
-        "@repo/pi-agent-ext-ltx": "workspace:*",
-        "@repo/pi-agent-ext-movie-director": "workspace:*",
-        "@repo/pi-agent-ext-obsidian": "workspace:*",
-        "@repo/pi-agent-ext-research-tool": "workspace:*",
-        "@repo/pi-agent-ext-subagent": "workspace:*",
-        "@repo/pi-agent-ext-task": "workspace:*",
-        "@repo/pi-agent-ext-wayfind": "workspace:*",
-        "@repo/pi-agent-ext-web-access": "workspace:*",
-        "@repo/pi-agent-ext-webui": "workspace:*",
-        "@repo/pi-agent-ext-workflow": "workspace:*",
-        "@repo/pi-agent-ext-zai-mcp": "workspace:*",
+        "@repo/s2-agent-ext-devops": "workspace:*",
+        "@repo/s2-agent-ext-file2md": "workspace:*",
+        "@repo/s2-agent-ext-flux2": "workspace:*",
+        "@repo/s2-agent-ext-hermes-memory": "workspace:*",
+        "@repo/s2-agent-ext-knowledge-card": "workspace:*",
+        "@repo/s2-agent-ext-krea2": "workspace:*",
+        "@repo/s2-agent-ext-ltx": "workspace:*",
+        "@repo/s2-agent-ext-movie-director": "workspace:*",
+        "@repo/s2-agent-ext-obsidian": "workspace:*",
+        "@repo/s2-agent-ext-research-tool": "workspace:*",
+        "@repo/s2-agent-ext-subagent": "workspace:*",
+        "@repo/s2-agent-ext-task": "workspace:*",
+        "@repo/s2-agent-ext-wayfind": "workspace:*",
+        "@repo/s2-agent-ext-web-access": "workspace:*",
+        "@repo/s2-agent-ext-webui": "workspace:*",
+        "@repo/s2-agent-ext-workflow": "workspace:*",
+        "@repo/s2-agent-ext-zai-mcp": "workspace:*",
         "typescript": "^7.0.2",
       },
       "peerDependencies": {
@@ -486,8 +486,8 @@
         "typebox": "*",
       },
     },
-    "pi-agent-ext-wayfind": {
-      "name": "@repo/pi-agent-ext-wayfind",
+    "s2-agent-ext-wayfind": {
+      "name": "@repo/s2-agent-ext-wayfind",
       "version": "0.1.0",
       "dependencies": {
         "@earendil-works/pi-ai": "0.84.2",
@@ -497,7 +497,7 @@
         "@biomejs/biome": "2.4.16",
         "@earendil-works/pi-coding-agent": "0.84.2",
         "@playwright/test": "^1",
-        "@repo/pi-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
         "@types/bun": "^1.3.14",
         "tsx": "^4.23.4",
         "typescript": "^7.0.2",
@@ -507,12 +507,12 @@
         "typebox": "*",
       },
     },
-    "pi-agent-ext-web-access": {
-      "name": "@repo/pi-agent-ext-web-access",
+    "s2-agent-ext-web-access": {
+      "name": "@repo/s2-agent-ext-web-access",
       "version": "0.1.0",
       "dependencies": {
         "@mozilla/readability": "^0.6.0",
-        "@repo/pi-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
         "linkedom": "^0.16.0",
         "p-limit": "^6.1.0",
         "turndown": "^7.2.0",
@@ -530,8 +530,8 @@
         "typebox": "*",
       },
     },
-    "pi-agent-ext-webui": {
-      "name": "@repo/pi-agent-ext-webui",
+    "s2-agent-ext-webui": {
+      "name": "@repo/s2-agent-ext-webui",
       "version": "0.1.0",
       "dependencies": {
         "@earendil-works/pi-ai": "0.84.2",
@@ -539,17 +539,17 @@
         "marked": "^15",
       },
       "devDependencies": {
-        "@repo/pi-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
         "@types/bun": "^1.3.14",
         "typebox": "^1.3.7",
         "typescript": "^7.0.2",
       },
     },
-    "pi-agent-ext-workflow": {
-      "name": "@repo/pi-agent-ext-workflow",
+    "s2-agent-ext-workflow": {
+      "name": "@repo/s2-agent-ext-workflow",
       "version": "2.9.0",
       "dependencies": {
-        "@repo/pi-agent-core-runtime": "workspace:*",
+        "@repo/s2-agent-core-runtime": "workspace:*",
         "acorn": "^8.16.0",
       },
       "devDependencies": {
@@ -557,7 +557,7 @@
         "@earendil-works/pi-ai": "0.84.2",
         "@earendil-works/pi-coding-agent": "0.84.2",
         "@earendil-works/pi-tui": "0.84.2",
-        "@repo/pi-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
         "@types/bun": "^1.3.14",
         "tsx": "^4.23.4",
         "typebox": "^1.3.7",
@@ -569,13 +569,13 @@
         "typebox": "*",
       },
     },
-    "pi-agent-ext-zai-mcp": {
-      "name": "@repo/pi-agent-ext-zai-mcp",
+    "s2-agent-ext-zai-mcp": {
+      "name": "@repo/s2-agent-ext-zai-mcp",
       "version": "0.1.0",
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.29.0",
-        "@repo/pi-agent-core-interface": "workspace:*",
-        "@repo/pi-agent-core-runtime": "workspace:*",
+        "@repo/s2-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-runtime": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "^1.3.14",
@@ -1035,59 +1035,59 @@
 
     "@repo/perf-harness": ["@repo/perf-harness@workspace:perf-harness"],
 
-    "@repo/pi-agent": ["@repo/pi-agent@workspace:pi-agent"],
+    "@repo/s2-agent": ["@repo/s2-agent@workspace:s2-agent"],
 
-    "@repo/pi-agent-core-interface": ["@repo/pi-agent-core-interface@workspace:pi-agent-core-interface"],
+    "@repo/s2-agent-core-interface": ["@repo/s2-agent-core-interface@workspace:s2-agent-core-interface"],
 
-    "@repo/pi-agent-core-runtime": ["@repo/pi-agent-core-runtime@workspace:pi-agent-core-runtime"],
+    "@repo/s2-agent-core-runtime": ["@repo/s2-agent-core-runtime@workspace:s2-agent-core-runtime"],
 
-    "@repo/pi-agent-ext-archify": ["@repo/pi-agent-ext-archify@workspace:pi-agent-ext-archify"],
+    "@repo/s2-agent-ext-archify": ["@repo/s2-agent-ext-archify@workspace:s2-agent-ext-archify"],
 
-    "@repo/pi-agent-ext-btw": ["@repo/pi-agent-ext-btw@workspace:pi-agent-ext-btw"],
+    "@repo/s2-agent-ext-btw": ["@repo/s2-agent-ext-btw@workspace:s2-agent-ext-btw"],
 
-    "@repo/pi-agent-ext-devops": ["@repo/pi-agent-ext-devops@workspace:pi-agent-ext-devops"],
+    "@repo/s2-agent-ext-devops": ["@repo/s2-agent-ext-devops@workspace:s2-agent-ext-devops"],
 
-    "@repo/pi-agent-ext-file2md": ["@repo/pi-agent-ext-file2md@workspace:pi-agent-ext-file2md"],
+    "@repo/s2-agent-ext-file2md": ["@repo/s2-agent-ext-file2md@workspace:s2-agent-ext-file2md"],
 
-    "@repo/pi-agent-ext-flux2": ["@repo/pi-agent-ext-flux2@workspace:pi-agent-ext-flux2"],
+    "@repo/s2-agent-ext-flux2": ["@repo/s2-agent-ext-flux2@workspace:s2-agent-ext-flux2"],
 
-    "@repo/pi-agent-ext-hermes-memory": ["@repo/pi-agent-ext-hermes-memory@workspace:pi-agent-ext-hermes-memory"],
+    "@repo/s2-agent-ext-hermes-memory": ["@repo/s2-agent-ext-hermes-memory@workspace:s2-agent-ext-hermes-memory"],
 
-    "@repo/pi-agent-ext-hyperframes": ["@repo/pi-agent-ext-hyperframes@workspace:pi-agent-ext-hyperframes"],
+    "@repo/s2-agent-ext-hyperframes": ["@repo/s2-agent-ext-hyperframes@workspace:s2-agent-ext-hyperframes"],
 
-    "@repo/pi-agent-ext-knowledge-card": ["@repo/pi-agent-ext-knowledge-card@workspace:pi-agent-ext-knowledge-card"],
+    "@repo/s2-agent-ext-knowledge-card": ["@repo/s2-agent-ext-knowledge-card@workspace:s2-agent-ext-knowledge-card"],
 
-    "@repo/pi-agent-ext-krea2": ["@repo/pi-agent-ext-krea2@workspace:pi-agent-ext-krea2"],
+    "@repo/s2-agent-ext-krea2": ["@repo/s2-agent-ext-krea2@workspace:s2-agent-ext-krea2"],
 
-    "@repo/pi-agent-ext-ltx": ["@repo/pi-agent-ext-ltx@workspace:pi-agent-ext-ltx"],
+    "@repo/s2-agent-ext-ltx": ["@repo/s2-agent-ext-ltx@workspace:s2-agent-ext-ltx"],
 
-    "@repo/pi-agent-ext-movie-director": ["@repo/pi-agent-ext-movie-director@workspace:pi-agent-ext-movie-director"],
+    "@repo/s2-agent-ext-movie-director": ["@repo/s2-agent-ext-movie-director@workspace:s2-agent-ext-movie-director"],
 
-    "@repo/pi-agent-ext-obsidian": ["@repo/pi-agent-ext-obsidian@workspace:pi-agent-ext-obsidian"],
+    "@repo/s2-agent-ext-obsidian": ["@repo/s2-agent-ext-obsidian@workspace:s2-agent-ext-obsidian"],
 
-    "@repo/pi-agent-ext-power-tool": ["@repo/pi-agent-ext-power-tool@workspace:pi-agent-ext-power-tool"],
+    "@repo/s2-agent-ext-power-tool": ["@repo/s2-agent-ext-power-tool@workspace:s2-agent-ext-power-tool"],
 
-    "@repo/pi-agent-ext-prompt-history": ["@repo/pi-agent-ext-prompt-history@workspace:pi-agent-ext-prompt-history"],
+    "@repo/s2-agent-ext-prompt-history": ["@repo/s2-agent-ext-prompt-history@workspace:s2-agent-ext-prompt-history"],
 
-    "@repo/pi-agent-ext-research-tool": ["@repo/pi-agent-ext-research-tool@workspace:pi-agent-ext-research-tool"],
+    "@repo/s2-agent-ext-research-tool": ["@repo/s2-agent-ext-research-tool@workspace:s2-agent-ext-research-tool"],
 
-    "@repo/pi-agent-ext-subagent": ["@repo/pi-agent-ext-subagent@workspace:pi-agent-ext-subagent"],
+    "@repo/s2-agent-ext-subagent": ["@repo/s2-agent-ext-subagent@workspace:s2-agent-ext-subagent"],
 
-    "@repo/pi-agent-ext-superpowers": ["@repo/pi-agent-ext-superpowers@workspace:pi-agent-ext-superpowers"],
+    "@repo/s2-agent-ext-superpowers": ["@repo/s2-agent-ext-superpowers@workspace:s2-agent-ext-superpowers"],
 
-    "@repo/pi-agent-ext-task": ["@repo/pi-agent-ext-task@workspace:pi-agent-ext-task"],
+    "@repo/s2-agent-ext-task": ["@repo/s2-agent-ext-task@workspace:s2-agent-ext-task"],
 
-    "@repo/pi-agent-ext-tool-gate": ["@repo/pi-agent-ext-tool-gate@workspace:pi-agent-ext-tool-gate"],
+    "@repo/s2-agent-ext-tool-gate": ["@repo/s2-agent-ext-tool-gate@workspace:s2-agent-ext-tool-gate"],
 
-    "@repo/pi-agent-ext-wayfind": ["@repo/pi-agent-ext-wayfind@workspace:pi-agent-ext-wayfind"],
+    "@repo/s2-agent-ext-wayfind": ["@repo/s2-agent-ext-wayfind@workspace:s2-agent-ext-wayfind"],
 
-    "@repo/pi-agent-ext-web-access": ["@repo/pi-agent-ext-web-access@workspace:pi-agent-ext-web-access"],
+    "@repo/s2-agent-ext-web-access": ["@repo/s2-agent-ext-web-access@workspace:s2-agent-ext-web-access"],
 
-    "@repo/pi-agent-ext-webui": ["@repo/pi-agent-ext-webui@workspace:pi-agent-ext-webui"],
+    "@repo/s2-agent-ext-webui": ["@repo/s2-agent-ext-webui@workspace:s2-agent-ext-webui"],
 
-    "@repo/pi-agent-ext-workflow": ["@repo/pi-agent-ext-workflow@workspace:pi-agent-ext-workflow"],
+    "@repo/s2-agent-ext-workflow": ["@repo/s2-agent-ext-workflow@workspace:s2-agent-ext-workflow"],
 
-    "@repo/pi-agent-ext-zai-mcp": ["@repo/pi-agent-ext-zai-mcp@workspace:pi-agent-ext-zai-mcp"],
+    "@repo/s2-agent-ext-zai-mcp": ["@repo/s2-agent-ext-zai-mcp@workspace:s2-agent-ext-zai-mcp"],
 
     "@silvia-odwyer/photon-node": ["@silvia-odwyer/photon-node@0.3.4", "", {}, "sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA=="],
 
@@ -2299,79 +2299,105 @@
 
     "@repo/perf-harness/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@repo/pi-agent/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+    "@repo/s2-agent/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-core-interface/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@repo/s2-agent/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
 
-    "@repo/pi-agent-core-runtime/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+    "@repo/s2-agent-core-interface/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@repo/pi-agent-core-runtime/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+    "@repo/s2-agent-core-runtime/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-ext-archify/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+    "@repo/s2-agent-core-runtime/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
 
-    "@repo/pi-agent-ext-archify/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@repo/s2-agent-ext-archify/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-ext-btw/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@repo/s2-agent-ext-archify/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@repo/pi-agent-ext-devops/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@repo/s2-agent-ext-btw/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-ext-file2md/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+    "@repo/s2-agent-ext-btw/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@repo/pi-agent-ext-file2md/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+    "@repo/s2-agent-ext-devops/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-ext-flux2/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@repo/s2-agent-ext-devops/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@repo/pi-agent-ext-hermes-memory/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@repo/s2-agent-ext-file2md/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-ext-hyperframes/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@repo/s2-agent-ext-file2md/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
 
-    "@repo/pi-agent-ext-knowledge-card/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+    "@repo/s2-agent-ext-flux2/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-ext-krea2/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@repo/s2-agent-ext-flux2/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@repo/pi-agent-ext-ltx/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@repo/s2-agent-ext-hermes-memory/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@repo/pi-agent-ext-movie-director/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@repo/s2-agent-ext-hyperframes/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-ext-obsidian/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+    "@repo/s2-agent-ext-hyperframes/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@repo/pi-agent-ext-obsidian/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@repo/s2-agent-ext-knowledge-card/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
 
-    "@repo/pi-agent-ext-power-tool/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@repo/s2-agent-ext-krea2/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-ext-prompt-history/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@repo/s2-agent-ext-krea2/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@repo/pi-agent-ext-research-tool/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@repo/s2-agent-ext-ltx/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-ext-subagent/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+    "@repo/s2-agent-ext-ltx/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@repo/pi-agent-ext-subagent/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+    "@repo/s2-agent-ext-movie-director/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-ext-superpowers/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+    "@repo/s2-agent-ext-movie-director/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@repo/pi-agent-ext-superpowers/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+    "@repo/s2-agent-ext-obsidian/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-ext-task/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@repo/s2-agent-ext-obsidian/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@repo/pi-agent-ext-tool-gate/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+    "@repo/s2-agent-ext-power-tool/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-ext-wayfind/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+    "@repo/s2-agent-ext-power-tool/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@repo/pi-agent-ext-wayfind/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+    "@repo/s2-agent-ext-prompt-history/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-ext-web-access/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@repo/s2-agent-ext-prompt-history/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@repo/pi-agent-ext-webui/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+    "@repo/s2-agent-ext-research-tool/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-ext-webui/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+    "@repo/s2-agent-ext-research-tool/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@repo/pi-agent-ext-workflow/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+    "@repo/s2-agent-ext-subagent/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-ext-workflow/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+    "@repo/s2-agent-ext-subagent/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
 
-    "@repo/pi-agent-ext-zai-mcp/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+    "@repo/s2-agent-ext-superpowers/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
-    "@repo/pi-agent-ext-zai-mcp/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+    "@repo/s2-agent-ext-superpowers/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+
+    "@repo/s2-agent-ext-task/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+
+    "@repo/s2-agent-ext-task/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@repo/s2-agent-ext-tool-gate/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+
+    "@repo/s2-agent-ext-wayfind/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+
+    "@repo/s2-agent-ext-wayfind/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+
+    "@repo/s2-agent-ext-web-access/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+
+    "@repo/s2-agent-ext-web-access/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@repo/s2-agent-ext-webui/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+
+    "@repo/s2-agent-ext-webui/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+
+    "@repo/s2-agent-ext-workflow/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+
+    "@repo/s2-agent-ext-workflow/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+
+    "@repo/s2-agent-ext-zai-mcp/@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+
+    "@repo/s2-agent-ext-zai-mcp/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
 
     "@tailwindcss/oxide-wasm32-wasi/@emnapi/core": ["@emnapi/core@1.11.3", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.3", "tslib": "^2.4.0" }, "bundled": true }, "sha512-zLpS5asjEb7lq8jYLq37N6XKaE41DIexlY1rF/z4/tIl3wo13Sqm28fRyfIsKZD+NZ8mM5RoKkpW/rBcuoSZSg=="],
 
@@ -2557,25 +2583,51 @@
 
     "@repo/perf-harness/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
-    "@repo/pi-agent-core-runtime/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+    "@repo/s2-agent-core-runtime/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
-    "@repo/pi-agent-ext-archify/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+    "@repo/s2-agent-ext-archify/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
-    "@repo/pi-agent-ext-file2md/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+    "@repo/s2-agent-ext-btw/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
-    "@repo/pi-agent-ext-obsidian/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+    "@repo/s2-agent-ext-devops/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
-    "@repo/pi-agent-ext-subagent/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+    "@repo/s2-agent-ext-file2md/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
-    "@repo/pi-agent-ext-superpowers/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+    "@repo/s2-agent-ext-flux2/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
-    "@repo/pi-agent-ext-wayfind/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+    "@repo/s2-agent-ext-hyperframes/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
-    "@repo/pi-agent-ext-webui/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+    "@repo/s2-agent-ext-krea2/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
-    "@repo/pi-agent-ext-workflow/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+    "@repo/s2-agent-ext-ltx/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
-    "@repo/pi-agent-ext-zai-mcp/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+    "@repo/s2-agent-ext-movie-director/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+
+    "@repo/s2-agent-ext-obsidian/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+
+    "@repo/s2-agent-ext-power-tool/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+
+    "@repo/s2-agent-ext-prompt-history/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+
+    "@repo/s2-agent-ext-research-tool/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+
+    "@repo/s2-agent-ext-subagent/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+
+    "@repo/s2-agent-ext-superpowers/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+
+    "@repo/s2-agent-ext-task/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+
+    "@repo/s2-agent-ext-wayfind/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+
+    "@repo/s2-agent-ext-web-access/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+
+    "@repo/s2-agent-ext-webui/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+
+    "@repo/s2-agent-ext-workflow/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+
+    "@repo/s2-agent-ext-zai-mcp/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+
+    "@repo/s2-agent/@types/bun/bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
     "axios/https-proxy-agent/agent-base": ["agent-base@6.0.2", "", { "dependencies": { "debug": "4" } }, "sha512-RZNwNclF7+MS/8bDg70amg32dyeZGZxiDuQmZxKLAlQjr3jGyLx+4Kkk58UO7D2QdgFIQCovuSuZESne6RG6XQ=="],
 

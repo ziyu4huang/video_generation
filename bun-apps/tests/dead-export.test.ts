@@ -1,11 +1,11 @@
 /**
- * dead-export.test.ts — no pi-agent package may grow a NEW exported value that
+ * dead-export.test.ts — no s2-agent package may grow a NEW exported value that
  * nothing anywhere references.
  *
  * WHY THIS EXISTS
  * ---------------
  * A sweep on 2026-08-19 found 42 exported functions/consts across ten
- * pi-agent packages with zero references in the entire repository — not in
+ * s2-agent packages with zero references in the entire repository — not in
  * other packages, not in tests, not even in their own file. They were not
  * harmless. The pattern they formed is what made them worth a gate:
  *
@@ -16,7 +16,7 @@
  *     unconditionally and shared its name with the real implementation in
  *     session.ts.
  *   - `envFloat` (hermes) outlived the near-dup gate it was added for by four
- *     merges; `__test` (pi-agent) outlived the stale-dist machinery retired in
+ *     merges; `__test` (s2-agent) outlived the stale-dist machinery retired in
  *     #1406.
  *   - Thirteen `…PatchApplied = true` constants encoded a reporting pattern
  *     that patches/index.ts documents as a defect.
@@ -45,59 +45,59 @@ const ALLOWED: readonly { symbol: string; file: string; reason: string }[] = [
   // ── deliberate package public API, reached through `export *` in src/index.ts
   {
     symbol: "getStageSkill",
-    file: "pi-agent-ext-movie-director/src/pipeline.ts",
+    file: "s2-agent-ext-movie-director/src/pipeline.ts",
     reason: "pipeline stage accessor — public surface via src/index.ts `export * from './pipeline.ts'`",
   },
   {
     symbol: "getStageReviewFocus",
-    file: "pi-agent-ext-movie-director/src/pipeline.ts",
+    file: "s2-agent-ext-movie-director/src/pipeline.ts",
     reason: "pipeline stage accessor — public surface via src/index.ts",
   },
   {
     symbol: "getStageTools",
-    file: "pi-agent-ext-movie-director/src/pipeline.ts",
+    file: "s2-agent-ext-movie-director/src/pipeline.ts",
     reason: "pipeline stage accessor — public surface via src/index.ts",
   },
   {
     symbol: "callableForCapability",
-    file: "pi-agent-ext-movie-director/src/providers.ts",
+    file: "s2-agent-ext-movie-director/src/providers.ts",
     reason: "provider-capability lookup — public surface via src/index.ts",
   },
   {
     symbol: "remotionAvailable",
-    file: "pi-agent-ext-movie-director/src/remotion.ts",
+    file: "s2-agent-ext-movie-director/src/remotion.ts",
     reason: "renderer availability probe — public surface via src/index.ts",
   },
   {
     symbol: "hyperframesAvailable",
-    file: "pi-agent-ext-movie-director/src/hyperframes_native.ts",
+    file: "s2-agent-ext-movie-director/src/hyperframes_native.ts",
     reason: "renderer availability probe — public surface via src/index.ts",
   },
   {
     symbol: "vaultConfigPath",
-    file: "pi-agent-ext-obsidian/src/lib/vault-resolution.ts",
+    file: "s2-agent-ext-obsidian/src/lib/vault-resolution.ts",
     reason: "vault-resolution tier API — public surface via obsidian-lib.ts `export *`",
   },
   {
     symbol: "readVaultConfig",
-    file: "pi-agent-ext-obsidian/src/lib/vault-resolution.ts",
+    file: "s2-agent-ext-obsidian/src/lib/vault-resolution.ts",
     reason: "vault-resolution tier API — public surface via obsidian-lib.ts `export *`",
   },
   // ── reference data, read by humans rather than code
   {
     symbol: "CORE_RELATIONS",
-    file: "pi-agent-ext-hermes-memory/src/store/relation-schema.ts",
+    file: "s2-agent-ext-hermes-memory/src/store/relation-schema.ts",
     reason: "documents the six core predicates that normalizeRelation() collapses aliases onto",
   },
   {
     symbol: "GOLDEN_STATS",
-    file: "pi-agent-ext-hermes-memory/bench/dedup-golden-corpus.ts",
+    file: "s2-agent-ext-hermes-memory/bench/dedup-golden-corpus.ts",
     reason: "recorded benchmark baseline in a bench fixture, not runtime code",
   },
   // ── a KNOWN GAP, kept visible on purpose
   {
     symbol: "presentAnswerToUserTurn",
-    file: "pi-agent-ext-webui/src/present-event-handler.ts",
+    file: "s2-agent-ext-webui/src/present-event-handler.ts",
     reason:
       "spec §C2's answer→user-turn formatter. The event-originated path is BUILT BUT UNWIRED: " +
       "createPresentEventHandler mints the view and invokes an optional `onEventPresent` callback " +
@@ -106,7 +106,7 @@ const ALLOWED: readonly { symbol: string; file: string; reason: string }[] = [
   },
 ];
 
-/** Every non-test TypeScript source under the pi-agent packages. */
+/** Every non-test TypeScript source under the s2-agent packages. */
 function sourceFiles(): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
@@ -123,7 +123,7 @@ function sourceFiles(): string[] {
       else if (/\.tsx?$/.test(p) && !/\.(test|spec)\.tsx?$/.test(p) && !/\.d\.ts$/.test(p)) out.push(p);
     }
   };
-  for (const pkg of readdirSync(ROOT).filter((d) => d.startsWith("pi-agent"))) {
+  for (const pkg of readdirSync(ROOT).filter((d) => d.startsWith("s2-agent"))) {
     try {
       if (statSync(join(ROOT, pkg)).isDirectory()) walk(join(ROOT, pkg));
     } catch {
@@ -209,7 +209,7 @@ function findDeadExports() {
   return dead;
 }
 
-describe("pi-agent packages carry no unreferenced exported values", () => {
+describe("s2-agent packages carry no unreferenced exported values", () => {
   const dead = findDeadExports();
   const allowKey = (s: string, f: string) => `${f}::${s}`;
   const allowed = new Set(ALLOWED.map((a) => allowKey(a.symbol, a.file)));
@@ -218,7 +218,7 @@ describe("pi-agent packages carry no unreferenced exported values", () => {
     // A derivation that matches nothing reports zero dead exports and passes
     // every assertion below in silence. Assert it found sources and exports.
     const files = sourceFiles();
-    expect(files.length, "no pi-agent source files were discovered — the scan is vacuous").toBeGreaterThan(200);
+    expect(files.length, "no s2-agent source files were discovered — the scan is vacuous").toBeGreaterThan(200);
     const exportsSeen = files.reduce((n, f) => {
       EXPORTED_VALUE.lastIndex = 0;
       return n + [...readFileSync(f, "utf8").matchAll(EXPORTED_VALUE)].length;

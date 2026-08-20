@@ -123,7 +123,7 @@ cmd_finish() {
   fi
   shift
   echo "◆ Finishing PR #${pr_number} (delegating to devops-merge-pr-after-ci)…"
-  exec bun "$(dirname "$0")/../bun-apps/pi-agent-ext-devops/src/merge-pr-after-ci-cli.ts" "$pr_number" "$@"
+  exec bun "$(dirname "$0")/../bun-apps/s2-agent-ext-devops/src/merge-pr-after-ci-cli.ts" "$pr_number" "$@"
 }
 
 cmd_list() {

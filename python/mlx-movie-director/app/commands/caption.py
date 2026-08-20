@@ -282,7 +282,7 @@ _STYLE_PROMPTS = {
         '"estimated_seconds": <integer seconds>}'
     ),
     # pose_dsg — DSG/TIFA-style atomic faithfulness + AbHuman anatomy gate.
-    # See bun-apps/pi-agent-ext-flux2/docs/pose-validation.md. Uses {prompt} +
+    # See bun-apps/s2-agent-ext-flux2/docs/pose-validation.md. Uses {prompt} +
     # {atoms_block} via str.replace (NOT .format — the JSON example has literal
     # braces). Single VLM call (batched/Soft-TIFA style) for local-MLX practicality.
     "pose_dsg": (
@@ -1286,7 +1286,7 @@ def median_score_caption(raws: list[str]) -> str:
 # DSG/TIFA-style: decompose a pose prompt into atomic yes/no propositions, have
 # the VLM verify each against the image, and recompute the aggregates in Python.
 # Anatomy gate is AbHuman-derived (limb count, hands, face, pose plausibility).
-# See bun-apps/pi-agent-ext-flux2/docs/pose-validation.md.
+# See bun-apps/s2-agent-ext-flux2/docs/pose-validation.md.
 
 def _load_atoms(spec: str | None) -> list[dict] | None:
     """Load explicit atoms for pose_dsg from a path or inline JSON string.

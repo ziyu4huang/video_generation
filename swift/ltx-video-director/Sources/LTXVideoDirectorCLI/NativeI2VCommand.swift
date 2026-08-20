@@ -232,9 +232,9 @@ struct NativeI2V: ParsableCommand {
         // effectiveWidth/effectiveHeight (not width/height) — when
         // --last-frame-derives-resolution overrides the requested dims, this
         // line must report what generation ACTUALLY ran at, since
-        // pi-agent-ext-ltx's result.ts parses this exact line for
+        // s2-agent-ext-ltx's result.ts parses this exact line for
         // details.width/details.height (found by
-        // pi-agent-ext-ltx-self-improve's review lane, 2026-07-05).
+        // s2-agent-ext-ltx-self-improve's review lane, 2026-07-05).
         print("→ native I2V (no run.py): \(request.frames) frames @ \(fps)fps, \(effectiveWidth)x\(effectiveHeight), transformer=\(transformer.rawValue)")
         let wallStart = Date()
         let stage = NativeI2VStage()

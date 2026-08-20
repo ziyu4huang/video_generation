@@ -20,33 +20,33 @@ import * as assert from "node:assert/strict";
 import { parseRegistryBaseSetNames } from "./lib/registry-base-set.ts";
 
 const FIXTURE = `deploy:
-  outRoot: ~/proj/dist/pi-agent-sh
+  outRoot: ~/proj/dist/s2-agent-sh
 extensions:
   - name: blocky
-    package: pi-agent-ext-blocky
+    package: s2-agent-ext-blocky
     entry: extensions/blocky.ts
     load: static
     deploy:
       order: 10
   - name: flowy
-    package: pi-agent-ext-flowy
+    package: s2-agent-ext-flowy
     entry: extensions/flowy.ts
     load: dynamic
     deploy: {order: 20}
   - name: blockyDisabled
-    package: pi-agent-ext-blocky-disabled
+    package: s2-agent-ext-blocky-disabled
     entry: extensions/blocky-disabled.ts
     load: dynamic
     deploy:
       order: 30
       enabled: false
   - name: flowyDisabled
-    package: pi-agent-ext-flowy-disabled
+    package: s2-agent-ext-flowy-disabled
     entry: extensions/flowy-disabled.ts
     load: dynamic
     deploy: {order: 40, enabled: false}
   - name: localOnly
-    package: pi-agent-ext-local-only
+    package: s2-agent-ext-local-only
     entry: extensions/local-only.ts
     load: dynamic
     excludeReason: machine-bound

@@ -26,12 +26,12 @@ import { createCapturePi, estimateTotalSchemaTokens, assertWithinBudget } from "
 // this suite when hermes-memory changes. These three are now declared workspace
 // devDependencies so the edge is real.
 // hermes-memory — individual register functions
-import { registerSearchTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/search-tool.ts";
-import { registerSkillTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/skill-tool.ts";
-import { registerMemoryTool } from "@repo/pi-agent-ext-hermes-memory/src/tools/memory-tool.ts";
+import { registerSearchTool } from "@repo/s2-agent-ext-hermes-memory/src/tools/search-tool.ts";
+import { registerSkillTool } from "@repo/s2-agent-ext-hermes-memory/src/tools/skill-tool.ts";
+import { registerMemoryTool } from "@repo/s2-agent-ext-hermes-memory/src/tools/memory-tool.ts";
 // obsidian + knowledge-card — main factories
-import obsidianFactory from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
-import kcardFactory from "@repo/pi-agent-ext-knowledge-card/extensions/knowledge-card.ts";
+import obsidianFactory from "@repo/s2-agent-ext-obsidian/extensions/obsidian.ts";
+import kcardFactory from "@repo/s2-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 
 function captureAll(): Record<string, any> {
   const all: Record<string, any> = {};

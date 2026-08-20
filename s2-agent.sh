@@ -1,0 +1,1 @@
+./bun-apps/s2-agent/run.sh

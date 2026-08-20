@@ -1,0 +1,50 @@
+{
+  "name": "@repo/s2-agent-ext-obsidian",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Obsidian integration for pi: project-local vault, 7 tools, 3 commands, auto-seeded starter notes.",
+  "license": "MIT",
+  "keywords": ["pi-package", "obsidian", "pi", "knowledge-base", "vault"],
+  "type": "module",
+  "imports": {
+    "#pi/ext-dir": "./src/sh-ext-dir.ts"
+  },
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./extensions/*": "./extensions/*",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "bun test extensions/__tests__/",
+    "test:coverage": "bun test --coverage extensions/__tests__/",
+    "typecheck": "tsc --noEmit",
+    "regen:contract": "bun run extensions/__tests__/fixtures/frozen-baseline.gen.mjs > extensions/__tests__/fixtures/frozen-baseline.txt",
+    "regen:baseline": "bun run extensions/__tests__/fixtures/search-baseline.real.mjs > extensions/__tests__/fixtures/search-baseline.txt"
+  },
+  "files": [
+    "extensions",
+    "vault-template",
+    "skills",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": ["./extensions"],
+    "skills": ["./skills"]
+  },
+  "dependencies": {
+    "@repo/s2-agent-core-runtime": "workspace:*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-agent-core": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@repo/s2-agent-core-interface": "workspace:*",
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
+  }
+}

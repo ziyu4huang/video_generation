@@ -19,7 +19,7 @@
  *
  * Invariants (the no-orphans/no-dead pattern, same as seam-contract.test.ts):
  *  1. NO DEAD — every routing-referenced wayfind skill exists in
- *     `pi-agent-ext-wayfind/skills/`.
+ *     `s2-agent-ext-wayfind/skills/`.
  *  2. NO ORPHAN — every routing-referenced wayfind skill still appears in
  *     superpowers' bootstrap source (the reference wasn't dropped).
  *
@@ -41,8 +41,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // bun-apps
  */
 const ROUTING_WAYFIND_SKILLS = ["grilling", "to-spec"] as const;
 
-const WAYFIND_SKILLS_DIR = join(ROOT, "pi-agent-ext-wayfind", "skills");
-const SUPERPOWERS_BOOTSTRAP = join(ROOT, "pi-agent-ext-superpowers", "src", "superpowers.ts");
+const WAYFIND_SKILLS_DIR = join(ROOT, "s2-agent-ext-wayfind", "skills");
+const SUPERPOWERS_BOOTSTRAP = join(ROOT, "s2-agent-ext-superpowers", "src", "superpowers.ts");
 
 describe("cross-extension routing contract (superpowers bootstrap ↔ wayfind skills; ticket 05)", () => {
   const bootstrapSrc = readFileSync(SUPERPOWERS_BOOTSTRAP, "utf8");
@@ -55,10 +55,10 @@ describe("cross-extension routing contract (superpowers bootstrap ↔ wayfind sk
   assert.ok(wayfindSkills.size >= 3, `expected ≥3 wayfind skills, got ${wayfindSkills.size}`);
   assert.ok(bootstrapSrc.length > 0, "superpowers.ts source unreadable");
 
-  it("NO DEAD — every routing-referenced wayfind skill exists in pi-agent-ext-wayfind/skills/", () => {
+  it("NO DEAD — every routing-referenced wayfind skill exists in s2-agent-ext-wayfind/skills/", () => {
     const missing = ROUTING_WAYFIND_SKILLS.filter((s) => !wayfindSkills.has(s));
     assert.deepEqual(missing, [], missing.length
-      ? `ROUTING DRIFT — superpowers' bootstrap names a wayfind skill that no longer exists (renamed? removed?). Update the bootstrap routing text OR the ROUTING_WAYFIND_SKILLS spec:\n${missing.map((s) => `  "${s}" not found in pi-agent-ext-wayfind/skills/`).join("\n")}`
+      ? `ROUTING DRIFT — superpowers' bootstrap names a wayfind skill that no longer exists (renamed? removed?). Update the bootstrap routing text OR the ROUTING_WAYFIND_SKILLS spec:\n${missing.map((s) => `  "${s}" not found in s2-agent-ext-wayfind/skills/`).join("\n")}`
       : "");
   });
 

@@ -1,0 +1,34 @@
+{
+  "name": "@repo/s2-agent-ext-knowledge-card",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Zettelkasten knowledge-management tools for pi: distill markdown into atomic notes, CRUD operations, and graph-enhanced RAG.",
+  "license": "MIT",
+  "keywords": ["pi-package", "knowledge", "zettelkasten", "rag", "obsidian"],
+  "type": "module",
+  "files": [
+    "extensions",
+    "src",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": ["./extensions"]
+  },
+  "scripts": {
+    "test": "bun test __tests__/",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-agent-core": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2",
+    "typebox": "*",
+    "@repo/s2-agent-ext-obsidian": "*",
+    "@repo/s2-agent-core-interface": "workspace:*",
+    "@repo/s2-agent-core-runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}

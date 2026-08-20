@@ -1,26 +1,26 @@
 # Extension / Tool / Skill Naming — Convention + Name History
 
-Single source of truth for naming style across every `pi-agent-ext-*` package,
+Single source of truth for naming style across every `s2-agent-ext-*` package,
 plus the rename history downstream consumers (wayfinder transcript matching,
 tool-gate keyword families, docs, CLAUDE.md, CI baselines) must track.
 
 **How to inspect the live extension surface** (the "way to inspect extensions"):
 
-1. `inspect_extensions` tool — registered by `pi-agent-ext-power-tool`
-   (`bun-apps/pi-agent-ext-power-tool/src/tools/inspect-extensions.ts`); in a
+1. `inspect_extensions` tool — registered by `s2-agent-ext-power-tool`
+   (`bun-apps/s2-agent-ext-power-tool/src/tools/inspect-extensions.ts`); in a
    live session this enumerates registered extensions + their tools/skills.
 2. Registration sources:
-   - dynamic → `bun-apps/pi-agent/run-dir/manifest.json` (`extensions[]`)
-   - static → `bun-apps/pi-agent/src/static-extensions.ts` (generated from the
+   - dynamic → `bun-apps/s2-agent/run-dir/manifest.json` (`extensions[]`)
+   - static → `bun-apps/s2-agent/src/static-extensions.ts` (generated from the
      manifest's `staticExtensions[]` — manifest is the only edit point)
-3. Gating-net enumeration (test support): `bun-apps/pi-agent-ext-tool-gate/
+3. Gating-net enumeration (test support): `bun-apps/s2-agent-ext-tool-gate/
    extensions/migrated-extensions.ts` (`MIGRATED_EXTENSIONS`).
 
 ## Canonical convention (per surface)
 
 | Surface | Style | Example | Status |
 |---|---|---|---|
-| Extension (package + registration) | `kebab-case` | `pi-agent-ext-research-tool` | ✅ consistent (all 23 pkgs) |
+| Extension (package + registration) | `kebab-case` | `s2-agent-ext-research-tool` | ✅ consistent (all 23 pkgs) |
 | Skill (dir + `SKILL.md` name) | `kebab-case` | `devops-workflow` | ✅ consistent |
 | CLI subcommand | `kebab-case` | `collect-videos` | ✅ consistent |
 | Agent tool | `snake_case`, `verb_object` (optionally `ns_verb`) | `sync_default_branch`, `obsidian_read` | ⚠️ see outliers |

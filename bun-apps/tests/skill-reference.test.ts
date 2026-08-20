@@ -27,9 +27,9 @@ import { join } from "node:path";
 
 const bunApps = join(import.meta.dir, "..");
 
-/** `pi-agent-ext-wayfind` → `wayfind`; the prefix skills actually write. */
+/** `s2-agent-ext-wayfind` → `wayfind`; the prefix skills actually write. */
 function shortName(pkgDir: string): string {
-  return pkgDir.replace(/^pi-agent-ext-/, "");
+  return pkgDir.replace(/^s2-agent-ext-/, "");
 }
 
 function isDir(path: string): boolean {

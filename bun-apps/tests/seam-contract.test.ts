@@ -51,21 +51,21 @@ import { fileURLToPath } from "node:url";
 // the same gate passed standalone). core-interface is a src-entry package
 // (exports["."] → ./src/index.ts), so the relative import is the same module
 // the specifier resolves to, with no node_modules indirection.
-import { SEAM_KEY_ENTRIES } from "../pi-agent-core-interface/src/index.ts";
+import { SEAM_KEY_ENTRIES } from "../s2-agent-core-interface/src/index.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // bun-apps/
-// Scannable workspace packages: every `pi-agent-ext-*` extension PLUS the
-// `pi-agent-core-*` seam-owning packages (core-runtime publishes `__pi*`
+// Scannable workspace packages: every `s2-agent-ext-*` extension PLUS the
+// `s2-agent-core-*` seam-owning packages (core-runtime publishes `__pi*`
 // globals — e.g. __piRateLimitState in rate-limiter.ts — after the
-// pi-agent-ext-core-{runtime,interface} → pi-agent-core-{runtime,interface}
+// s2-agent-ext-core-{runtime,interface} → s2-agent-core-{runtime,interface}
 // rename they no longer carry the `ext-` prefix, and excluding them made the
 // scanner report their keys as dead).
 const EXTS = readdirSync(ROOT)
-	.filter((d) => /^pi-agent-(ext|core)-/.test(d) && existsSync(join(ROOT, d, "package.json")));
+	.filter((d) => /^s2-agent-(ext|core)-/.test(d) && existsSync(join(ROOT, d, "package.json")));
 
 /**
  * The canonical `__pi*` seam-key contract. The registry now lives in
- * `@repo/pi-agent-core-interface` (`SEAM_KEY_ENTRIES`, single source of
+ * `@repo/s2-agent-core-interface` (`SEAM_KEY_ENTRIES`, single source of
  * truth) — aliased into `SEAM_KEYS` below; a key belongs iff it is a
  * process-global coordination/data surface. Value-shape noted per key; only the
  * object-valued status widget also carries a SHAPE invariant (see spec below).
@@ -197,10 +197,10 @@ function extractInlineTypeMethods(src: string, anchor: string): Set<string> {
 // invariant (consumer-declared methods ⊆ publisher class public methods).
 const STATUS_WIDGET = {
 	key: "__piCoreTaskStatusWidget",
-	publisher: { pkg: "pi-agent-ext-task", file: "src/shared/status-widget.ts", className: "CoreTaskStatusWidget" },
+	publisher: { pkg: "s2-agent-ext-task", file: "src/shared/status-widget.ts", className: "CoreTaskStatusWidget" },
 	consumers: [
-		{ pkg: "pi-agent-ext-wayfind", methods: () => extractInterfaceMethods(readPkgFile("pi-agent-ext-wayfind", "src/index.ts"), "SharedStatusWidget") },
-		{ pkg: "pi-agent-ext-power-tool", methods: () => extractInlineTypeMethods(readPkgFile("pi-agent-ext-power-tool", "src/tools/inspect-tui.ts"), "__piCoreTaskStatusWidget as {") },
+		{ pkg: "s2-agent-ext-wayfind", methods: () => extractInterfaceMethods(readPkgFile("s2-agent-ext-wayfind", "src/index.ts"), "SharedStatusWidget") },
+		{ pkg: "s2-agent-ext-power-tool", methods: () => extractInlineTypeMethods(readPkgFile("s2-agent-ext-power-tool", "src/tools/inspect-tui.ts"), "__piCoreTaskStatusWidget as {") },
 	],
 };
 

@@ -31,12 +31,12 @@ emit() { printf '%s\n' "$*"; }
 
 # Flake-prone subset: "package-dir<TAB>test-command". Commands run from repo
 # root (so --cwd / build paths are stable), matching the CI matrix commands.
-# - pi-agent-ext-hermes-memory: now pure bun test (Bun-only; the former
+# - s2-agent-ext-hermes-memory: now pure bun test (Bun-only; the former
 #   node:test-hang / tsx carve-out was retired when better-sqlite3/Node support
 #   was removed)
-# - pi-agent-ext-workflow: build-first; time/runtime fixtures
-# - pi-agent-ext-obsidian: mtime/time tests (scoped to the portable extensions suite)
-# - pi-agent-ext-archify: one observed non-reproducible failure — the `examples`
+# - s2-agent-ext-workflow: build-first; time/runtime fixtures
+# - s2-agent-ext-obsidian: mtime/time tests (scoped to the portable extensions suite)
+# - s2-agent-ext-archify: one observed non-reproducible failure — the `examples`
 #   subcommand rendered 0 of the expected >=5 HTML files in a full-matrix run,
 #   then went green 6+ consecutive times on identical code. The test reads the
 #   real vendored/examples/ directory before and after the run and asserts a
@@ -50,10 +50,10 @@ emit() { printf '%s\n' "$*"; }
 # here exits 2 ("unknown package"). bun-apps/tests/ci-workflow-references.test.ts
 # asserts the two lists are identical, so the drift cannot go unnoticed.
 ENTRIES=(
-	"pi-agent-ext-hermes-memory	( cd bun-apps/pi-agent-ext-hermes-memory && bun test )"
-	"pi-agent-ext-workflow	( cd bun-apps/pi-agent-ext-workflow && bun run build && bun test )"
-	"pi-agent-ext-obsidian	( cd bun-apps/pi-agent-ext-obsidian && bun test extensions/__tests__/ )"
-	"pi-agent-ext-archify	( cd bun-apps/pi-agent-ext-archify && bun test --isolate )"
+	"s2-agent-ext-hermes-memory	( cd bun-apps/s2-agent-ext-hermes-memory && bun test )"
+	"s2-agent-ext-workflow	( cd bun-apps/s2-agent-ext-workflow && bun run build && bun test )"
+	"s2-agent-ext-obsidian	( cd bun-apps/s2-agent-ext-obsidian && bun test extensions/__tests__/ )"
+	"s2-agent-ext-archify	( cd bun-apps/s2-agent-ext-archify && bun test --isolate )"
 )
 
 FLAKE_DETECTED=0

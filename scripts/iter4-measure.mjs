@@ -87,7 +87,7 @@ function runMode(q, mode) {
 	let error = null;
 	try {
 		execSync(
-			`OB_VAULT_PATH='${VAULT}' bun --cwd '${ROOT}/bun-apps/pi-agent' src/cli.ts cli zk-ask '${esc}' ` +
+			`OB_VAULT_PATH='${VAULT}' bun --cwd '${ROOT}/bun-apps/s2-agent' src/cli.ts cli zk-ask '${esc}' ` +
 			`--retrieve-only --no-refine --blend ${mode} --folder '${FOLDER}' --top-k ${TOP_K} ` +
 			`--model ${MODEL} --thinking medium --mode json -p > '${f}' 2>&1`,
 			{ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 90000 },

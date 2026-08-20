@@ -15,7 +15,7 @@
     "allowImportingTsExtensions": true
   },
   // src only, deliberately. tests/grand-total.regression.test.ts deep-imports
-  // sibling packages by relative path (../../../bun-apps/pi-agent-ext-*/…), and
+  // sibling packages by relative path (../../../bun-apps/s2-agent-ext-*/…), and
   // tsc follows imports regardless of `include` — so listing tests/ here pulls
   // the whole transitive sibling graph in and typechecks it under THIS
   // package's compiler options rather than each package's own. That produced

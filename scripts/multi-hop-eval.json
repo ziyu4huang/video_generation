@@ -78,7 +78,7 @@
       ]
     },
     {
-      "q": "argparse pi-agent-cli: a manual argv loop that forgets to advance the index hangs silently forever — what other argparse finding is logged",
+      "q": "argparse s2-agent-cli: a manual argv loop that forgets to advance the index hangs silently forever — what other argparse finding is logged",
       "anchor": "gotcha-argparse-loop-must-advance-index",
       "expect": [
         "gotcha-argparse-loop-must-advance-index",
@@ -86,7 +86,7 @@
       ],
       "bridgeTag": "argparse",
       "bridge": "argparse",
-      "why": "anchor named by pi-agent-cli argv loop; bridge (shared-flag default bleed) shares only argparse",
+      "why": "anchor named by s2-agent-cli argv loop; bridge (shared-flag default bleed) shares only argparse",
       "sources": [
         "real-callout-seed",
         "workflow-knowledge-jsonl:gui-movie-director-review-optimize"

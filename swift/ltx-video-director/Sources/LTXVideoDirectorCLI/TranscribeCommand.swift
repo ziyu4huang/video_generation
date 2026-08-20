@@ -3,7 +3,7 @@
 //  LTXVideoDirectorCLI
 //
 //  `ltx-video transcribe` — native (Swift/MLX) Whisper transcription emitting
-//  the EXACT WhisperResult JSON the Bun `whisperAdapter` (pi-agent-ext-movie-
+//  the EXACT WhisperResult JSON the Bun `whisperAdapter` (s2-agent-ext-movie-
 //  director) parses: { ok, audio, model, language, duration_s, text,
 //  segments[{start,end,text,words[]}] }. This is the Item-I native transcriber
 //  backend replacing the python `whisper_transcribe.py` → mlx_whisper spawn —

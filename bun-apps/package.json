@@ -5,7 +5,7 @@
     "./*"
   ],
   "devDependencies": {
-    "@repo/pi-agent-core-interface": "workspace:*",
+    "@repo/s2-agent-core-interface": "workspace:*",
     "@types/bun": "latest"
   },
   "scripts": {

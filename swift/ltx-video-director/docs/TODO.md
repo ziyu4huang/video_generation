@@ -125,7 +125,7 @@ no Traditional-vs-Simplified Chinese discriminator anywhere in this repo
   transcript (language match, content-overlap ratio, script classification,
   PASS/WARN/FAIL) is native. Wired into `ltx-video gate --asr-prompt <p>
   [--expected-script traditional|simplified]` (`GateCommand.swift`) and
-  exposed through `bun-apps/pi-agent-ext-ltx`'s `gate` schema
+  exposed through `bun-apps/s2-agent-ext-ltx`'s `gate` schema
   (`check:flags` passes — 0 drift on this command).
 
 **Still bridged to Python (not native):** the transcription itself. New
@@ -208,9 +208,9 @@ override until temperature-fallback retries close that gap.
 retries (the actual remaining quality gap). Tiktoken ENCODE direction not
 needed for decode-only ASR gating. Logged in `PLAN.md`'s matching entry.
 
-Not yet done (follow-up, not this iteration): a `pi-agent-ext-ltx-self-improve`
-workflow (no `.claude/workflows/pi-agent-ext-ltx-self-improve.js` exists yet —
-`pi-agent-ext-flux2-self-improve.js` is the reference template) whose
+Not yet done (follow-up, not this iteration): a `s2-agent-ext-ltx-self-improve`
+workflow (no `.claude/workflows/s2-agent-ext-ltx-self-improve.js` exists yet —
+`s2-agent-ext-flux2-self-improve.js` is the reference template) whose
 live-e2e lane would exercise this new gate end-to-end.
 
 # All four ComfyUI FFLF+Custom-Audio parity gaps — SOLVED (2026-07-04)
@@ -309,13 +309,13 @@ steps/shift 0.42 — the "6 steps" figure in the first pass's diagram was
 from the sibling 3-stage workflow, not this one.
 
 Nothing implemented this pass — pure verification. See
-`bun-apps/pi-agent-ext-ltx/TODO.md` if any of the four gaps get scoped into
+`bun-apps/s2-agent-ext-ltx/TODO.md` if any of the four gaps get scoped into
 that package's wrapper surface once ported.
 
 # `MP4Writer` deadlocked on real audio+video FFLF clips — FIXED (2026-07-04)
 
 Driven by a live, user-directed proof: "prove FFLF works" via the real
-`pi-agent` CLI + `ltx` tool, same pattern as an independent Flux-tool
+`s2-agent` CLI + `ltx` tool, same pattern as an independent Flux-tool
 verification the user ran in parallel (`t2i` → `t2i` → `native-i2v
 --last-frame`, natural-language prompt, local model, real generation, no
 mocks). The run hung indefinitely — `video.mp4` sat at 0 bytes for 15+
@@ -354,7 +354,7 @@ infinite hang pre-fix). `MP4WriterTests`: 4/4 pass.
 
 **Re-verified end-to-end, not just unit-tested**: reran the exact same FFLF
 proof (`native-i2v --last-frame`, real generation, real audio) through the
-rebuilt release binary via the real `pi-agent` CLI. Completed cleanly.
+rebuilt release binary via the real `s2-agent` CLI. Completed cleanly.
 Independent `ffprobe` on the output (not the tool's own self-report):
 `video: h264, 1280×1920, 49 frames` / `audio: aac, 97 frames` / `duration:
 2.041667s` (requested `--seconds 2.0`) — both tracks present, valid
@@ -368,9 +368,9 @@ live at real generation scale.
 
 # `gate --json` false negative on audio-less clips — FIXED (2026-07-04)
 
-Driven by `pi-agent-ext-ltx`'s live A/B upscale-verification run (chain
+Driven by `s2-agent-ext-ltx`'s live A/B upscale-verification run (chain
 `native-i2v` → `native-upscale` → independent `ffprobe` cross-check → `gate`
-on both outputs, through the real pi-agent `ltx` tool — see that package's
+on both outputs, through the real s2-agent `ltx` tool — see that package's
 `TODO.md` items 7-10). `native-upscale`'s own mp4 output (video-only, no
 `--refine-audio` given) came back from `gate --json --no-expect-voice` as
 `"could not read/probe video"` — but an independent `ffprobe` AND a

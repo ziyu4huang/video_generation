@@ -36,8 +36,8 @@
  * (expensive, hours). The deterministic baseline is what gates Track 3: any
  * retrieval change is measured HERE first; the live run is a later confirmation.
  */
-import { resolveVault } from "../bun-apps/pi-agent-ext-obsidian/extensions/obsidian.ts";
-import { retrieveRecords } from "../bun-apps/pi-agent-ext-knowledge-card/src/retrieve.ts";
+import { resolveVault } from "../bun-apps/s2-agent-ext-obsidian/extensions/obsidian.ts";
+import { retrieveRecords } from "../bun-apps/s2-agent-ext-knowledge-card/src/retrieve.ts";
 import { readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 

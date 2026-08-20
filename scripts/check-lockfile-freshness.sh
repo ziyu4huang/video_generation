@@ -3,7 +3,7 @@
 # Lockfile freshness guard — does bun-apps/bun.lock still reflect every
 # package.json in the workspace?
 #
-# WHY THIS EXISTS: #1586 added `yaml: ^2` to pi-agent-core-interface's
+# WHY THIS EXISTS: #1586 added `yaml: ^2` to s2-agent-core-interface's
 # package.json without the matching workspace block in bun.lock. With no edge
 # recorded, `bun install` linked nothing into that package's node_modules, and
 # main went red at RUNTIME on "Cannot find package 'yaml'" from

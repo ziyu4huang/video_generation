@@ -40,7 +40,7 @@ extension LTXVideoDirectorCLI {
             // the whole script-mismatch check rather than erroring — the
             // exact zh-CN-vs-zh-TW bug this flag exists to catch would then
             // slip through with no warning the flag value was invalid (found
-            // by pi-agent-ext-ltx-self-improve's review lane, 2026-07-05).
+            // by s2-agent-ext-ltx-self-improve's review lane, 2026-07-05).
             // "ambiguous" is a real ScriptVariant case but not a meaningful
             // EXPECTATION to assert, so it's rejected here too.
             var scriptVariant: ScriptVariant? = nil

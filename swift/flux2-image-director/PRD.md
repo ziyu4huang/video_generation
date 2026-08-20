@@ -224,7 +224,7 @@ swift build -c release --package-path swift/flux2-image-director
 bash        swift/flux2-image-director/scripts/build-metallib.sh   # ← don't skip
 ```
 
-`bun-apps/pi-agent-ext-flux2/src/binary.ts` runs `build-metallib.sh` automatically
+`bun-apps/s2-agent-ext-flux2/src/binary.ts` runs `build-metallib.sh` automatically
 after a fresh `swift build` (and heals a pre-existing binary that lacks the
 metallib), so the agent tool gets a working binary with no manual step. If you
 build flux2 by hand (outside the agent), you must run the script yourself —
@@ -236,10 +236,10 @@ path MLX never initializes) work.
 
 ---
 
-## 6b. pi-agent-ext-flux2 — agent tool wrapper
+## 6b. s2-agent-ext-flux2 — agent tool wrapper
 
-`bun-apps/pi-agent-ext-flux2/` (a sibling Bun workspace package) exposes flux2 as a
-single pi-agent dispatcher tool with typed per-command parameters, structured
+`bun-apps/s2-agent-ext-flux2/` (a sibling Bun workspace package) exposes flux2 as a
+single s2-agent dispatcher tool with typed per-command parameters, structured
 `.manifest.json` parsing, progress streaming, abort, and path-safety guards.
 Two result-parsing facts it depends on (relevant if you change the manifest
 schema):
@@ -292,7 +292,7 @@ source, ~0.7s, gate PASS).
 
 **Result-parsing note** (why the agent tool special-cases upscale): `upscale`
 writes only a `.run.json` (with `width`/`height`), **not** a `.manifest.json`.
-`bun-apps/pi-agent-ext-flux2/src/result.ts` therefore takes the output path from
+`bun-apps/s2-agent-ext-flux2/src/result.ts` therefore takes the output path from
 flux2's stdout (every single-image command prints the absolute PNG path on its
 own line) and matches sidecars by the output's basename — not "newest manifest in
 dir", which would collide with a prior run's manifest.

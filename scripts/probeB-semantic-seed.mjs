@@ -9,8 +9,8 @@
 // Drift-guard (real lexical retrieveRecords) must reproduce 0.84 in every run.
 
 import { runGate, q2t } from "./recall-eval-harness.mjs";
-import { retrieveRecords } from "../bun-apps/pi-agent-ext-knowledge-card/src/retrieve.ts";
-import { resolveVault } from "../bun-apps/pi-agent-ext-obsidian/extensions/obsidian.ts";
+import { retrieveRecords } from "../bun-apps/s2-agent-ext-knowledge-card/src/retrieve.ts";
+import { resolveVault } from "../bun-apps/s2-agent-ext-obsidian/extensions/obsidian.ts";
 import { resolve } from "node:path";
 import { writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 

@@ -1,6 +1,6 @@
 /**
  * registry-base-set.ts — the ONE line-scanner for "which extensions does
- * pi-agent.registry.yaml ship?", shared by extension-isolation-contract.test.ts
+ * s2-agent.registry.yaml ship?", shared by extension-isolation-contract.test.ts
  * and dep-guard.test.ts.
  *
  * Authority semantics (run-dir/registry.ts): an entry ships iff it carries a
@@ -9,7 +9,7 @@
  * (`deploy: {order: N}`) — and honours an explicit `enabled: false` in either.
  *
  * A hand-rolled line scanner rather than a YAML dependency or an import of
- * pi-agent's parseRegistry: the contract suites that consume this must stay
+ * s2-agent's parseRegistry: the contract suites that consume this must stay
  * immune to `bun-apps/node_modules/@repo/*` link state (same reasoning as
  * seam-contract.test.ts's relative core-interface import), and the shape
  * needed is one key. The MIN_EXPECTED floors at each call site are what keep a

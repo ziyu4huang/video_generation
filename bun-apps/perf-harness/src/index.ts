@@ -3,7 +3,7 @@
  * schema-cost and latency benchmarking.
  *
  * Token estimate: chars / 4 (matches the existing `measure-schema-tokens.mjs`
- * convention in pi-agent-ext-obsidian/scripts/). Sufficient for regression
+ * convention in s2-agent-ext-obsidian/scripts/). Sufficient for regression
  * detection without adding a tokenizer dependency.
  */
 

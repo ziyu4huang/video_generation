@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Adversarial proof: semantic (vault-mind /api/search) vs lexical (ripgrep substring).
-# For each query, show what each retrieval mode finds over the 425-card pi-agent-vault.
+# For each query, show what each retrieval mode finds over the 425-card s2-agent-vault.
 # A query phrased in natural language that shares NO words with a card's title/keywords
 # is the canonical "semantic beats lexical" case.
 set -uo pipefail
 
-VAULT_PATH="/Users/huangziyu/proj/video_generation__pi/vaults_root/pi-agent-vault"
-VAULT_NAME="pi-agent-vault"
+VAULT_PATH="/Users/huangziyu/proj/video_generation__pi/vaults_root/s2-agent-vault"
+VAULT_NAME="s2-agent-vault"
 VM_BASE="${VAULT_MIND_BASE_URL:-http://127.0.0.1:8000}"
 OUT_DIR="$(git rev-parse --show-toplevel)/output/vault-mind-bridge-proof"
 mkdir -p "$OUT_DIR"

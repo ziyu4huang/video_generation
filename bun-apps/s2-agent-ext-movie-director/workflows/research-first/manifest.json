@@ -1,0 +1,7 @@
+{
+  "name": "research-first",
+  "description": "Web research (parallel angles) + adversarial cross-check → proposal_packet for the movie pipeline.",
+  "entry": "index.js",
+  "kind": "workflow-pack",
+  "engine": "s2-agent-ext-workflow"
+}

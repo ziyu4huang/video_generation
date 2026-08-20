@@ -3,7 +3,7 @@
 //  LTXVideoDirectorTests
 //
 //  Regression for a real bug found via a live A/B upscale-verification run
-//  (pi-agent-ext-ltx TODO): `ltx-video gate --json` reported "could not
+//  (s2-agent-ext-ltx TODO): `ltx-video gate --json` reported "could not
 //  read/probe video" for a genuinely valid, ffprobe-readable audio-less mp4
 //  (native-upscale's own output when run without --refine-audio). The video
 //  itself decoded fine — `VideoGate.evaluate` returned a normal verdict.

@@ -1,0 +1,7 @@
+{
+  "name": "review-cut",
+  "description": "Adversarial review of a composed cut: movie.final-review probe + verify() against the script. Gates publish.",
+  "entry": "index.js",
+  "kind": "workflow-pack",
+  "engine": "s2-agent-ext-workflow"
+}

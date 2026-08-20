@@ -1,0 +1,74 @@
+{
+  "name": "@repo/s2-agent-ext-workflow",
+  "version": "2.9.0",
+  "private": true,
+  "description": "Claude-Code-style dynamic workflows for Pi — fan a task out across 100s of subagents with real model routing, token/cost accounting, resume, git-worktree isolation, an interactive /workflows TUI, and a real /deep-research.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./src/*": "./src/*",
+    "./extensions/*": "./extensions/*"
+  },
+  "scripts": {
+    "test": "bun run check && bun run test:unit",
+    "test:unit": "bun test",
+    "check": "biome check .",
+    "typecheck": "tsc --noEmit",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "dev": "tsx src/index.ts"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "workflow",
+    "workflows",
+    "dynamic-workflows",
+    "orchestration",
+    "subagents",
+    "multi-agent",
+    "agents",
+    "ai-agents",
+    "parallel",
+    "fan-out",
+    "claude-code",
+    "deep-research",
+    "code-review",
+    "llm"
+  ],
+  "pi": {
+    "extensions": [
+      "extensions/workflow.ts"
+    ]
+  },
+  "contributors": [
+    "michaelliv (original author)"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@repo/s2-agent-core-runtime": "workspace:*",
+    "acorn": "^8.16.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.16",
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2",
+    "@repo/s2-agent-core-interface": "workspace:*",
+    "@types/bun": "^1.3.14",
+    "tsx": "^4.23.4",
+    "typebox": "^1.3.7",
+    "typescript": "^7.0.2"
+  }
+}

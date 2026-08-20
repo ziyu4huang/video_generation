@@ -149,7 +149,7 @@ emit ""
 # per-file workaround (run-all.sh) and report whether the suite now runs
 # single-process (fixed) or still needs the workaround.
 emit "  D3  cross-file ordering (run-all.sh workaround):"
-if [ -f bun-apps/pi-agent-ext-hermes-memory/tests/run-all.sh ]; then
+if [ -f bun-apps/s2-agent-ext-hermes-memory/tests/run-all.sh ]; then
 	emit "    run-all.sh present (one-process-per-file workaround RETAINED)"
 	emit "    status: see .github/TEST-DETERMINISM.md for the root-cause disposition"
 else

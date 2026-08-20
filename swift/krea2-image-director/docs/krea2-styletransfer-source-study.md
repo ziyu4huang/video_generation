@@ -161,7 +161,7 @@ which any DiT has), but that is a substantial separate arc.
    (the composition arc's open question)?
 2. **Follow-up A — dual-ref** (Gap 2): port `multi_delta` + `step_cycle` +
    `primary_reference`. Larger; needs 2-ref RF cache + delta fusion.
-3. **Follow-up B — flux2 K/V-injection port** → then `pi-agent-ext-flux2` exposes
+3. **Follow-up B — flux2 K/V-injection port** → then `s2-agent-ext-flux2` exposes
    a real style-transfer command (today its `style` maps only to the weak
    Flux2KleinEdit path). Substantial; separate arc.
 4. Minor: strength-rescaling (Gap 5), other RF modes (Gap 3).

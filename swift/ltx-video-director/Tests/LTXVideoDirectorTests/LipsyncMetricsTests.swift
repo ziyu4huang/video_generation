@@ -160,7 +160,7 @@ final class LipsyncMetricsTests: XCTestCase {
     }
 
     func testLipsyncResultCodableRoundTripUsesDocumentedSnakeCaseWireKeys() throws {
-        // This is the actual contract bun-apps/pi-agent-ext-movie-director/
+        // This is the actual contract bun-apps/s2-agent-ext-movie-director/
         // src/lipsync_metrics.ts parses — lock down the
         // snake_case JSON keys, not Swift's camelCase property names.
         let result = LipsyncMetrics.LipsyncResult(
