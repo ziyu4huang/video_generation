@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	isDoctorCommand,
 	isExtDoctorCommand,
+	isExtNewCommand,
 	isCliCommand,
 	userSuppressFlags,
 	userExtensionPaths,
@@ -32,6 +33,20 @@ describe("isExtDoctorCommand", () => {
 		expect(isExtDoctorCommand(["doctor"])).toBe(false);
 		expect(isExtDoctorCommand(["ext"])).toBe(false);
 		expect(isExtDoctorCommand(["ext", "something-else"])).toBe(false);
+	});
+});
+
+describe("isExtNewCommand", () => {
+	test("true for `ext new <name>`", () => {
+		expect(isExtNewCommand(["ext", "new", "foo"])).toBe(true);
+		expect(isExtNewCommand(["ext", "new", "foo", "--lib"])).toBe(true);
+	});
+
+	test("false otherwise (same contract as isExtDoctorCommand)", () => {
+		expect(isExtNewCommand(["ext", "doctor"])).toBe(false);
+		expect(isExtNewCommand(["ext"])).toBe(false);
+		expect(isExtNewCommand(["new"])).toBe(false);
+		expect(isExtNewCommand(["-p", "ext new foo"])).toBe(false);
 	});
 });
 

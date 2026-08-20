@@ -28,6 +28,7 @@ import { runDoctor, removedFlagNotice } from "./doctor.ts";
 import {
 	isDoctorCommand,
 	isExtDoctorCommand,
+	isExtNewCommand,
 	isCliCommand,
 	isBareCliCommand,
 	userSuppressFlags,
@@ -93,6 +94,15 @@ if (isExtDoctorCommand(argv)) {
 	const { runExtDoctor } = await import("./ext-doctor.ts");
 	const report = await runExtDoctor({ json: argv.includes("--json") });
 	process.exit(report.ok ? 0 : 1);
+}
+
+// `ext new <name>`: scaffold a new extension package (writer + registration
+// + optional install). Intercepted before applyPatches() like ext doctor —
+// the scaffold writes files and edits the manifest; run-dir argv splices,
+// provider patches, and static factories must not run first.
+if (isExtNewCommand(argv)) {
+	const { runExtNew } = await import("./ext-new.ts");
+	process.exit(await runExtNew(argv.slice(2)));
 }
 
 // `cli <command>`: the non-interactive CLI namespace (agent commands, pipelines,
