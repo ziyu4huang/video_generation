@@ -85,7 +85,10 @@
  *     manifest.extensions AND (for workflow) manifest.lazyExtensions at the
  *     same time to avoid the static+dynamic double-registration noted above.
  */
-import coreTaskExtension from "../../pi-agent-ext-task/extensions/task.ts";
+
+// AUTO-GENERATED from run-dir/manifest.json staticExtensions[] — do not edit; run `bun run regen:static` (bun-apps/pi-agent).
+
+import taskExtension from "../../pi-agent-ext-task/extensions/task.ts";
 import promptHistoryExtension from "../../pi-agent-ext-prompt-history/extensions/prompt-history.ts";
 import hermesMemoryExtension from "../../pi-agent-ext-hermes-memory/extensions/hermes-memory.ts";
 import superpowersExtension from "../../pi-agent-ext-superpowers/extensions/superpowers.ts";
@@ -103,7 +106,7 @@ import hyperframesExtension from "../../pi-agent-ext-hyperframes/extensions/hype
 
 export const STATIC_EXTENSION_FACTORIES = [
 	// Group A — original "general productivity" set
-	{ name: "pi-agent-ext-task", factory: coreTaskExtension },
+	{ name: "pi-agent-ext-task", factory: taskExtension },
 	{ name: "pi-agent-ext-prompt-history", factory: promptHistoryExtension },
 	{ name: "pi-agent-ext-hermes-memory", factory: hermesMemoryExtension },
 	{ name: "pi-agent-ext-superpowers", factory: superpowersExtension },

@@ -18,6 +18,7 @@
     "list": "bun src/cli.ts --list-models",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
+    "regen:static": "bun scripts/regen-static-extensions.ts",
     "test:e2e": "PI_AGENT_E2E=1 bun test",
     "verify": "PI_AGENT_E2E=1 bun test src/__tests__/e2e-extensions.test.ts",
     "dist": "bun ../../dist/pi-agent/pi-agent.js",
