@@ -3,8 +3,8 @@
  * process (which has network access), not in a subagent sandbox, so they perform
  * genuine HTTP requests via Node's fetch.
  *
- * - web_search: best-effort Bing HTML scrape -> result {url, title}
- * - web_fetch:  fetch a URL and return readable text (HTML stripped, truncated)
+ * - wf_web_search: best-effort Bing HTML scrape -> result {url, title}
+ * - wf_web_fetch:  fetch a URL and return readable text (HTML stripped, truncated)
  */
 
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -59,9 +59,13 @@ export function parseBingResults(html: string, limit: number): Array<{ url: stri
 /** A tool that searches the web (best-effort) and returns result URLs + titles. */
 export function createWebSearchTool(): ToolDefinition {
   return defineTool({
-    name: "web_search",
+    // Namespaced 2026-08-20: legacy name `web_search` collided with web-access's
+    // session tool of the same name — workflow children compose
+    // [...baseTools, ...extensionTools] and AgentSession's registry silently
+    // kept the LAST entry, shadowing this one. See docs/agents/extension-naming.md.
+    name: "wf_web_search",
     label: "Web Search",
-    description: "Search the web and return a list of result URLs and titles. Use before web_fetch to find sources.",
+    description: "Search the web and return a list of result URLs and titles. Use before wf_web_fetch to find sources.",
     promptSnippet: "Search the web for sources",
     parameters: Type.Object({
       query: Type.String({ description: "The search query." }),
@@ -78,7 +82,7 @@ export function createWebSearchTool(): ToolDefinition {
         return { content: [{ type: "text", text }], details: { results } };
       } catch (error) {
         return {
-          content: [{ type: "text", text: `web_search failed: ${error instanceof Error ? error.message : error}` }],
+          content: [{ type: "text", text: `wf_web_search failed: ${error instanceof Error ? error.message : error}` }],
           details: { results: [] as Array<{ url: string; title: string }> },
         };
       }
@@ -89,7 +93,8 @@ export function createWebSearchTool(): ToolDefinition {
 /** A tool that fetches a URL and returns readable text. */
 export function createWebFetchTool(maxChars = 6000): ToolDefinition {
   return defineTool({
-    name: "web_fetch",
+    // Namespaced 2026-08-20 (legacy `web_fetch` — see the wf_web_search note above).
+    name: "wf_web_fetch",
     label: "Web Fetch",
     description: "Fetch a URL and return its readable text content (HTML stripped, truncated).",
     promptSnippet: "Fetch a URL's text",
@@ -109,7 +114,7 @@ export function createWebFetchTool(maxChars = 6000): ToolDefinition {
           content: [
             {
               type: "text",
-              text: `web_fetch failed for ${params.url}: ${error instanceof Error ? error.message : error}`,
+              text: `wf_web_fetch failed for ${params.url}: ${error instanceof Error ? error.message : error}`,
             },
           ],
           details: { status: 0, url: params.url },

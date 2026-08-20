@@ -43,7 +43,7 @@ history table below. Do not rename casually.
 | knowledge-card | `zk_card`, `zk_ask`, `zk_ingest`, `knowledge_query` (internal ns `zk`: retrieve/ingest/health/heal) |
 | hermes-memory | `memory`, `search_memory`, `skill_manage`, `skill_manage_help`, `knowledge_search`, `knowledge_ingest` |
 | task | `ask_user_question`, `todo`, `goal_complete` |
-| workflow | `run_workflow`, `workflow_help`, `workflow_control`, `web_search`, `web_fetch` |
+| workflow | `run_workflow`, `workflow_help`, `workflow_control`, `wf_web_search`, `wf_web_fetch` (child-session-only tools — never registered on the parent session) |
 | subagent | `spawn_subagent`, `list_subagents`, `list_subagent_runs` (ungated by design) |
 | web-access | `web_search`, `fetch_content`, `get_search_content` |
 | webui | `webui_present`, `webui_report` |
@@ -63,6 +63,8 @@ history table below. Do not rename casually.
 | 2026-08-20 | (this branch) | `subagents` → `list_subagents` | subagent pkg; workflow-family gate |
 | 2026-08-20 | (this branch) | `subagent_runs` → `list_subagent_runs` | subagent pkg; ungated-by-design — tool-gate `ungatedByDesign` + typo guard updated |
 | 2026-08-20 | (this branch) | `workflow` → `run_workflow` | workflow pkg; canonical workflow-family gate id (GATES[].names[0]) is now `run_workflow` — qa probes + `__GATE_PROBES__` keyed to it; GATE_DEFS family id stays `workflow` |
+| 2026-08-20 | (this branch) | `web_search` → `wf_web_search` | workflow pkg CHILD-SESSION tool (never parent-registered); collided with web-access's parent `web_search` — workflow children compose `[...baseTools, ...extensionTools]` and AgentSession's name-keyed Map let the LAST entry win, silently shadowing this one. `wf_` namespace kills the collision; web-access keeps the bare name |
+| 2026-08-20 | (this branch) | `web_fetch` → `wf_web_fetch` | renamed alongside `wf_web_search` for symmetry (no collision — web-access's fetchers are `fetch_content`/`get_search_content`) |
 | 2026-08-20 | #1738 | `pi_deploy` → `deploy_pi_agent_sh` | legacy kept as gate keyword |
 | 2026-08-20 | #1738 | `pi_verify` → `verify_pi_agent_deploy` | legacy kept as gate keyword |
 | 2026-08-20 | #1738 | `pr_status` → `show_pr_status` | legacy kept as gate keyword |

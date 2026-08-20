@@ -15,8 +15,8 @@ test("generateDeepResearchWorkflow produces a valid, parseable script", () => {
     ["Queries", "Gather", "Verify", "Report"],
   );
   assert.match(body, /args && args\.question/);
-  assert.match(body, /web_search/);
-  assert.match(body, /web_fetch/);
+  assert.match(body, /wf_web_search/);
+  assert.match(body, /wf_web_fetch/);
 });
 
 test("generateDeepResearchWorkflow uses configurable angles and minSupport", () => {
@@ -129,7 +129,7 @@ test("generateMultiPerspectiveWorkflow returns analyses and synthesis", () => {
 
 // ─── Web Tools ──────────────────────────────────────────────────────────────────
 
-test("createWebTools exposes web_search and web_fetch", () => {
+test("createWebTools exposes wf_web_search and wf_web_fetch", () => {
   const tools = createWebTools();
-  assert.deepEqual(tools.map((t) => t.name).sort(), ["web_fetch", "web_search"]);
+  assert.deepEqual(tools.map((t) => t.name).sort(), ["wf_web_fetch", "wf_web_search"]);
 });
