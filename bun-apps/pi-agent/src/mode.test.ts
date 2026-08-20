@@ -14,9 +14,8 @@ describe("isBunBinary", () => {
 		expect(isBunBinary("file:///%7EBUN/root/pi-agent.js")).toBe(true);
 	});
 
-	test("false for source / bundle URLs", () => {
+	test("false for a source URL", () => {
 		expect(isBunBinary("file:///repo/bun-apps/pi-agent/run-dir/resolve.ts")).toBe(false);
-		expect(isBunBinary("file:///opt/pi-agent/dist/pi-agent.js")).toBe(false);
 	});
 
 	test("false for empty string", () => {
@@ -25,61 +24,45 @@ describe("isBunBinary", () => {
 });
 
 describe("detectMode", () => {
-	test("binary takes precedence over source", () => {
-		// a compiled binary whose path coincidentally contains /run-dir/ is still binary
+	test("the virtual-fs scheme wins wherever it appears in the path", () => {
+		// A compiled binary whose virtual path coincidentally contains a real
+		// source-tree segment is still binary.
 		expect(detectMode("file://$bunfs/run-dir/resolve.ts")).toBe("binary");
-		expect(detectMode("file://$bunfs/src/patches/x.ts", "/src/patches/")).toBe("binary");
+		expect(detectMode("file://$bunfs/src/patches/x.ts")).toBe("binary");
 	});
 
-	test("source mode with default /run-dir/ marker", () => {
+	test("anything that is not the virtual-fs scheme is source", () => {
+		// This is the whole rule now. While "bundle" existed, a URL outside a
+		// caller's own directory marker was classified as a shipped pi-agent.js;
+		// nothing produces one since #1740, so an unrecognised path is a source
+		// checkout rather than a third thing.
 		expect(detectMode("file:///repo/bun-apps/pi-agent/run-dir/resolve.ts")).toBe("source");
+		expect(detectMode("file:///repo/bun-apps/pi-agent/src/patches/skip-update-check.ts")).toBe("source");
+		expect(detectMode("file:///opt/pi-agent/dist/pi-agent.js")).toBe("source");
 	});
 
-	test("source mode with custom /src/patches/ marker (the patches' call site)", () => {
-		const url = "file:///repo/bun-apps/pi-agent/src/patches/skip-update-check.ts";
-		// default marker (/run-dir/) does NOT match → bundle
-		expect(detectMode(url)).toBe("bundle");
-		// patches' marker DOES match → source
-		expect(detectMode(url, "/src/patches/")).toBe("source");
-	});
-
-	test("bundle mode when no marker matches", () => {
-		expect(detectMode("file:///opt/pi-agent/dist/pi-agent.js")).toBe("bundle");
-		expect(detectMode("file:///opt/pi-agent/dist/pi-agent.js", "/src/patches/")).toBe("bundle");
-	});
-
-	test("return type is exactly the three modes", () => {
+	test("the return type is exactly the two modes", () => {
 		const modes = new Set<BundlerMode>([
 			detectMode("file://$bunfs/x"),
 			detectMode("file:///r/run-dir/x"),
 			detectMode("file:///opt/x.js"),
 		]);
-		expect(modes).toEqual(new Set(["binary", "source", "bundle"]));
+		expect(modes).toEqual(new Set(["binary", "source"]));
 	});
 
-	test("this test file's URL is bundle mode (no /run-dir/ or /src/patches/ in path)", () => {
-		// src/mode.test.ts → URL contains /src/ but neither full marker
-		const m = detectMode(import.meta.url);
-		expect(m === "source" || m === "bundle").toBe(true);
+	test("this test file's own URL is source", () => {
+		expect(detectMode(import.meta.url)).toBe("source");
 	});
 });
 
-describe("patches consume detectMode correctly", () => {
-	// Regression: the patches must classify THEIR OWN url as source when run
-	// from source, so they don't force env overrides in dev. Simulate the exact
-	// URLs the patch files see.
-	test("set-package-dir source URL → source (no PI_PACKAGE_DIR override in dev)", () => {
-		const url = "file:///repo/bun-apps/pi-agent/src/patches/set-package-dir.ts";
-		expect(detectMode(url, "/src/patches/")).toBe("source");
+describe("the patches consume detectMode correctly", () => {
+	// Regression: a patch must classify ITS OWN url as source when run from
+	// source, so dev never gets a shipped-artifact override forced on it.
+	test("skip-update-check's source URL → source (no PI_SKIP_VERSION_CHECK in dev)", () => {
+		expect(detectMode("file:///repo/bun-apps/pi-agent/src/patches/skip-update-check.ts")).toBe("source");
 	});
 
-	test("skip-update-check source URL → source (no PI_SKIP_VERSION_CHECK force in dev)", () => {
-		const url = "file:///repo/bun-apps/pi-agent/src/patches/skip-update-check.ts";
-		expect(detectMode(url, "/src/patches/")).toBe("source");
-	});
-
-	test("skip-update-check bundled URL → bundle (force-skip in shipped artifact)", () => {
-		const url = "file:///opt/pi-agent/dist/pi-agent.js";
-		expect(detectMode(url, "/src/patches/")).toBe("bundle");
+	test("skip-update-check inside the compiled binary → binary (force-skip)", () => {
+		expect(detectMode("file://$bunfs/root/src/patches/skip-update-check.ts")).toBe("binary");
 	});
 });

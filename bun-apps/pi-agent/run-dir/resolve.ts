@@ -8,13 +8,20 @@
  * these paths are never trust-gated). See run-dir/manifest.json for the source
  * list and bun-apps/pi-agent/README.md for the full rationale.
  *
- * MODE DETECTION (same problem/pattern as src/patches/set-package-dir.ts):
- * Bun's bundler rewrites import.meta.url/import.meta.dir to the bundle output
- * location, so "resolve(import.meta.dir, '..', '..')" only computes the real
- * bun-apps/ dir in source mode. In bundle mode we load build-time-baked
- * absolute paths from src/generated/run-dir-base.ts (gitignored), written by
- * scripts/build.ts's stageGenerateRunDirBase(). `mode` and resolveBunAppsDir()
- * now live in run-context.ts so the split-out siblings branch identically.
+ * MODE DETECTION: `resolve(import.meta.dir, '..', '..')` computes the real
+ * bun-apps/ dir only when this file is loaded from source — bun's bundler
+ * rewrites import.meta.dir to the output location. That leaves two modes: the
+ * compiled binary, which resolves nothing from the repo and ships its default
+ * extensions as static factories instead, and source. `mode` and
+ * resolveBunAppsDir() live in run-context.ts so the split-out siblings branch
+ * identically.
+ *
+ * A third mode, "deploy-bundle", used to sit between them: a `pi-agent.js` next
+ * to its own `ext-bundles/` and a `.deploy-bundle` marker. Its producer
+ * (scripts/deploy.ts) was retired in #1740 and nothing writes those markers any
+ * more — dead-deploy-markers.test.ts keeps it that way — so the layout
+ * detector, its argv builder, and the baked run-dir-base.ts they read went with
+ * it in Phase 1b.
  *
  * WHAT THIS FILE OWNS after the step-1c split: deploy-layout detection and argv
  * construction. Two neighbouring concerns moved out and are re-exported below,
@@ -62,26 +69,6 @@ export {
 } from "./lazy-extensions.ts";
 
 const url = import.meta.url;
-
-/**
- * Pure layout detector for {@link resolveRunDirArgv}: given the bundle's own
- * directory and an injected `exists`, decide which deploy layout (if any) is
- * present. Mirrors the precedence of resolveRunDirArgv's branch chain so the
- * detection is unit-testable without import.meta.url or real marker files.
- *   - "deploy-bundle"  : `.deploy-bundle` marker + `ext-bundles/` (deploy.ts default)
- *   - "source"         : none of the above (repo source / a plain bundle with no markers)
- * Binary mode is decided separately by detectMode(url) (the $bunfs scheme), not
- * by selfDir, so it is NOT a layout mode here — resolveRunDirArgv guards on the
- * module-level `mode` first. (Historical "deploy-package"/`--portable` variants
- * were retired: deploy.ts writes only `.deploy-bundle`/`.deploy-readonly`.)
- */
-export type RunDirLayoutMode = "deploy-bundle" | "source";
-export function detectRunDirMode(selfDir: string, exists: (p: string) => boolean): RunDirLayoutMode {
-  if (exists(join(selfDir, ".deploy-bundle")) && exists(join(selfDir, "ext-bundles"))) {
-    return "deploy-bundle";
-  }
-  return "source";
-}
 
 /**
  * Returns a flat argv fragment: ["-e", absPath, ..., "--skill", absPath, ...],
@@ -135,27 +122,7 @@ async function resolveRunDirArgvUnfiltered(): Promise<string[]> {
     return argv;
   }
 
-  const selfDir = dirname(fileURLToPath(url));
-  const layoutMode = detectRunDirMode(selfDir, existsSync);
-
-  // DEPLOY-BUNDLE mode: the DEFAULT output of `scripts/deploy.ts`
-  // — the bundle sits next to its own `ext-bundles/*.thin.js` (pre-bundled
-  // single-file extensions) + a copied `node_modules/` + `.deploy-bundle`
-  // marker. The dir listing is the source of truth (NOT manifest.extensions,
-  // which still names source .ts paths). Uses `-ne` so the layout is
-  // self-contained: pi loads ONLY these -e paths and ignores any <cwd>/.pi/.
-  if (layoutMode === "deploy-bundle") {
-    const extBundlesDir = join(selfDir, "ext-bundles");
-    if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
-      warn(`deploy-bundle mode — resolving from ${extBundlesDir}`);
-    }
-    // npm exts resolve to the same baked .bun-store abs paths the THIN bundles
-    // and pi-agent.js itself use (everything in this layout is machine-abs-pathed).
-    const npmPaths = await resolveNpmExtensionPaths();
-    return ["-ne", ...buildBundleArgv(selfDir, npmPaths)];
-  }
-
-  // SOURCE / repo-bundle modes: additive layering (no -ne) with <cwd>/.pi/ +
+  // SOURCE mode: additive layering (no -ne) with <cwd>/.pi/ +
   // ~/.pi/. Safe because run-dir resolves to the same canonical bun-apps/ paths
   // a repo .pi/ would, so pi dedupes them.
   const bunAppsDir = await resolveBunAppsDir();
@@ -183,71 +150,6 @@ async function buildArgv(bunAppsDir: string | undefined): Promise<string[]> {
     existsSync,
     warn,
   );
-}
-
-/**
- * DEPLOY-BUNDLE argv builder. Resolves from the out-dir layout produced by
- * `scripts/deploy.ts` (no --release): `ext-bundles/*.js` + npm ext abs paths +
- * `skills/<dir>`. The dir listing of ext-bundles is the source of truth (the
- * bundles are pre-built single files, NOT the source paths named in
- * manifest.extensions). npmPaths are the baked .bun-store abs paths (same
- * machine-abs-pathed model the THIN bundles + pi-agent.js itself use).
- */
-function buildBundleArgv(selfDir: string, npmPaths: string[]): string[] {
-  // existsSync is true for FILES too, so a stray file named `ext-bundles` or
-  // `skills` would make readdirSync throw ENOTDIR and crash argv resolution
-  // (→ no extensions load). Treat any read failure — ENOTDIR, ENOENT, EACCES —
-  // as "empty listing" so a malformed layout degrades to "no ext-bundles" the
-  // same way a missing one does, instead of throwing.
-  const readDir = (d: string) => {
-    try {
-      return readdirSync(d);
-    } catch {
-      return [];
-    }
-  };
-  return buildBundleArgvFromLayout(
-    {
-      extBundles: readDir(join(selfDir, "ext-bundles")).filter((f) => f.endsWith(".js")),
-      skillDirs: readDir(join(selfDir, "skills")),
-      npmPaths,
-    },
-    selfDir,
-    existsSync,
-    warn,
-  );
-}
-
-/**
- * Pure DEPLOY-BUNDLE argv builder — everything passed in, no fs. Exported so the
- * ext-bundles + npm + skills assembly is unit-testable.
- *
- *   - ext-bundles → `-e <selfDir>/ext-bundles/<file>` (one per bundled .js)
- *   - npm exts    → `-e <absPath>` (the baked .bun-store path, when it exists)
- *   - skills      → `--skill <selfDir>/skills/<dir>`
- *   - missing npm → skipped + warned (not fatal — some bundles may inline it)
- */
-export function buildBundleArgvFromLayout(
-  layout: { extBundles: string[]; skillDirs: string[]; npmPaths: string[] },
-  selfDir: string,
-  exists: (p: string) => boolean,
-  warnFn: (msg: string) => void,
-): string[] {
-  const argv: string[] = [];
-  for (const f of layout.extBundles) {
-    argv.push("-e", join(selfDir, "ext-bundles", f));
-  }
-  for (const p of layout.npmPaths) {
-    if (exists(p)) {
-      argv.push("-e", p);
-    } else {
-      warnFn(`deploy-bundle: npm extension path not found, skipping: ${p}`);
-    }
-  }
-  for (const dir of layout.skillDirs) {
-    argv.push("--skill", join(selfDir, "skills", dir));
-  }
-  return argv;
 }
 
 /**

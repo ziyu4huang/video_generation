@@ -10,12 +10,18 @@
  *
  *   - "binary":  `bun build --compile` → import.meta.url is Bun's virtual fs
  *                scheme ($bunfs, or its ~BUN / URL-encoded %7EBUN variants).
- *   - "source":  loaded from source (the URL contains a path marker unique to
- *                the call site, e.g. "/run-dir/" or "/src/patches/").
- *   - "bundle":  bundled .js (the supported shipped path).
+ *                Both shipped artifacts are this: the sh deploy's core and a
+ *                plain compiled exe.
+ *   - "source":  everything else — `bun src/cli.ts` from the repo.
+ *
+ * There used to be a third mode, "bundle": a shipped `pi-agent.js` produced by
+ * `scripts/deploy.ts`. That script and its four deploy modes were retired in
+ * #1740, and nothing has produced a bundle since. The mode outlived its
+ * producer by one release; it is gone now, and `dead-deploy-markers.test.ts`
+ * keeps its layout markers unwritten.
  */
 
-export type BundlerMode = "binary" | "source" | "bundle";
+export type BundlerMode = "binary" | "source";
 
 /** True when the URL is Bun's compiled-binary virtual fs scheme. */
 export function isBunBinary(url: string): boolean {
@@ -25,13 +31,13 @@ export function isBunBinary(url: string): boolean {
 /**
  * Classify the execution mode from the module URL.
  *
- * @param url           the import.meta.url to classify
- * @param sourceMarker  substring that identifies source-mode loading for the
- *                      call site (defaults to "/run-dir/"; patches use
- *                      "/src/patches/"). Binary takes precedence over source.
+ * Takes no source-marker argument any more. While "bundle" existed, callers
+ * passed a substring unique to their own directory ("/run-dir/",
+ * "/src/patches/") to tell source apart from a bundle that had inlined them.
+ * With one non-binary mode left, that argument could no longer change the
+ * result — an argument that cannot affect the answer is a trap, so it is not
+ * offered.
  */
-export function detectMode(url: string, sourceMarker = "/run-dir/"): BundlerMode {
-  if (isBunBinary(url)) return "binary";
-  if (url.includes(sourceMarker)) return "source";
-  return "bundle";
+export function detectMode(url: string): BundlerMode {
+  return isBunBinary(url) ? "binary" : "source";
 }

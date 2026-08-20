@@ -43,19 +43,14 @@ describe("classifyMode", () => {
 	// packages/ dir, so those branches — and the ~15 tests that were the only
 	// thing exercising them — could never fire in production.
 	test("binary with no sh marker stays binary", () => {
-		expect(classifyMode("binary", { dotDeployBundle: true, shDeploy: false })).toBe("binary");
+		expect(classifyMode("binary", { shDeploy: false })).toBe("binary");
 	});
 	test("binary beside a deploy.json is an sh deploy", () => {
-		expect(classifyMode("binary", { dotDeployBundle: false, shDeploy: true })).toBe("sh");
+		expect(classifyMode("binary", { shDeploy: true })).toBe("sh");
 	});
 	test("source stays source regardless of markers", () => {
-		expect(classifyMode("source", { dotDeployBundle: true, shDeploy: false })).toBe("source");
-	});
-	test("bundle coarse → bundle when .deploy-bundle present", () => {
-		expect(classifyMode("bundle", { dotDeployBundle: true, shDeploy: false })).toBe("bundle");
-	});
-	test("bundle coarse with no marker → bundle (plain pi-agent.js)", () => {
-		expect(classifyMode("bundle", { dotDeployBundle: false, shDeploy: false })).toBe("bundle");
+		expect(classifyMode("source", { shDeploy: true })).toBe("source");
+		expect(classifyMode("source", { shDeploy: false })).toBe("source");
 	});
 	/**
 	 * The guard for the original drift. A hardcoded `produced` set cannot be it:
@@ -63,21 +58,19 @@ describe("classifyMode", () => {
 	 * two mode flags while doctor.ts kept the modes, and a set written by hand at
 	 * that moment would have listed all five and stayed green forever.
 	 *
-	 * It used to derive `produced` by reading deploy.ts's KNOWN_FLAGS. That file
-	 * is gone with the four legacy deploy modes, and with it every producer of
-	 * `bundle`. What is left is one deploy script (deploy-sh.ts → `sh`) plus the
-	 * two modes that need no deploy at all: `source` (running src/cli.ts) and
-	 * `binary` (a compiled core with no deploy.json beside it).
+	 * History: it first derived `produced` by reading deploy.ts's KNOWN_FLAGS.
+	 * That file went with the four legacy deploy modes (#1740), taking every
+	 * producer of `bundle` with it, so the guard was inverted — `bundle` became a
+	 * recorded ORPHAN, reachable but unproducible, and this block was written to
+	 * fail when it was finally removed. It did. Phase 1b removed it.
 	 *
-	 * So the guard is inverted rather than deleted. `bundle` is now an ORPHAN —
-	 * classifyMode can still return it, nothing can produce it — and it is
-	 * removed in the follow-up that collapses "bundle" out of mode.ts and
-	 * run-dir/resolve.ts. Pinning the orphan set to exactly {bundle} means:
-	 *   • a NEW orphan (doctor gains a mode no deploy makes) fails immediately;
-	 *   • removing `bundle` in that follow-up ALSO fails here, forcing this block
-	 *     to be updated rather than left describing a mode that no longer exists.
-	 * A guard that cannot fail in either direction is what let the first drift
-	 * live.
+	 * With the orphan list empty, an "is every orphan still reachable?" test
+	 * would be vacuously green — the exact shape this file warns about two
+	 * paragraphs up. So the second test now asserts the CONVERSE instead, which
+	 * is the one direction nothing else covers: every mode a deploy can produce
+	 * must be a mode classifyMode can actually return. That catches a new deploy
+	 * target whose mode doctor cannot name — the mirror image of the drift that
+	 * started all this.
 	 */
 	describe("doctor's mode set is pinned to what a deploy can produce", () => {
 		// Read, not imported: it is a script with top-level side effects. An ENOENT
@@ -89,17 +82,11 @@ describe("classifyMode", () => {
 		const PRODUCED = new Set<DeployMode>(["source", "binary"]);
 		if (deployShSource.length > 0) PRODUCED.add("sh");
 
-		/** Modes classifyMode can still return that nothing produces. Removed in
-		 *  the "collapse bundle out of the runtime" follow-up. */
-		const KNOWN_ORPHANS = new Set<DeployMode>(["bundle"]);
-
 		function reachableModes(): Set<DeployMode> {
 			const seen = new Set<DeployMode>();
-			for (const coarse of ["source", "bundle", "binary"] as const) {
-				for (const dotDeployBundle of [true, false]) {
-					for (const shDeploy of [true, false]) {
-						seen.add(classifyMode(coarse, { dotDeployBundle, shDeploy }));
-					}
+			for (const coarse of ["source", "binary"] as const) {
+				for (const shDeploy of [true, false]) {
+					seen.add(classifyMode(coarse, { shDeploy }));
 				}
 			}
 			return seen;
@@ -110,24 +97,24 @@ describe("classifyMode", () => {
 			expect(deployShSource).toContain("export async function runShDeploy");
 		});
 
-		test("(a) every mode classifyMode returns is produced, or a KNOWN orphan", () => {
-			const unexpected = [...reachableModes()].filter((m) => !PRODUCED.has(m) && !KNOWN_ORPHANS.has(m));
+		test("(a) every mode classifyMode returns is one a deploy produces", () => {
+			const unexpected = [...reachableModes()].filter((m) => !PRODUCED.has(m));
 			expect(
 				unexpected,
-				`classifyMode returned ${unexpected.join(", ")}, which no deploy produces and which ` +
-					"is not a recorded orphan. Either a deploy mode was added without updating " +
-					"PRODUCED, or doctor grew a mode nothing can reach.",
+				`classifyMode returned ${unexpected.join(", ")}, which no deploy produces. ` +
+					"Either a deploy mode was added without updating PRODUCED, or doctor grew a " +
+					"mode nothing can reach — the second is what left `portable`, `release` and " +
+					"`bundle` behind, each one taking a check's only failure path down with it.",
 			).toEqual([]);
 		});
 
-		test("(b) every KNOWN orphan is still reachable — remove it here when it goes", () => {
-			const reachable = reachableModes();
-			const gone = [...KNOWN_ORPHANS].filter((m) => !reachable.has(m));
+		test("(b) every mode a deploy produces is one classifyMode can return", () => {
+			const unreachable = [...PRODUCED].filter((m) => !reachableModes().has(m));
 			expect(
-				gone,
-				`${gone.join(", ")} is listed as a known orphan but classifyMode can no longer ` +
-					"return it. Drop it from KNOWN_ORPHANS (and from DeployMode, and from the " +
-					"classifyMode tests above) — a stale exemption is how a guard stops guarding.",
+				unreachable,
+				`a deploy produces ${unreachable.join(", ")} but classifyMode can never return it, ` +
+					"so doctor would misreport that layout as some other mode — and every " +
+					"mode-keyed check would run the wrong branch on it.",
 			).toEqual([]);
 		});
 	});
@@ -146,40 +133,25 @@ describe("removedFlagNotice", () => {
 	});
 });
 
-describe("checkHostDeps (mode-aware severity)", () => {
+describe("checkHostDeps", () => {
 	const noDeps = { depInstalled: () => false };
-	test("source → INFO regardless of resolution (pi resolves its own deps)", () => {
-		expect(checkHostDeps(ctx({ mode: "source", ...noDeps })).status).toBe("info");
-	});
-	test("bundle → PASS when deps installed", () => {
-		expect(checkHostDeps(ctx({ mode: "bundle" })).status).toBe("pass");
-	});
-	test("no mode can hard-fail — the only fail path keyed on `portable`", () => {
-		// Recorded deliberately rather than left implicit: for every mode that
-		// EXISTS, missing host deps are recoverable (bundle works via baked abs
-		// paths) or irrelevant (source/binary resolve their own). A future fail
-		// path needs a mode where they are genuinely essential.
-		for (const mode of ["source", "bundle", "binary"] as const) {
-			expect(checkHostDeps(ctx({ mode, ...noDeps })).status).not.toBe("fail");
+
+	test("informational in every mode, whatever resolves", () => {
+		// Recorded deliberately rather than left implicit. This check has never
+		// been able to fail: its only `fail` path keyed on `portable`, a mode
+		// nothing could produce, and the `warn` path that replaced it keyed on
+		// `bundle` and became unreachable the same way in Phase 1b. For every
+		// mode that EXISTS, missing host deps are either irrelevant (source and
+		// binary resolve their own through pi's loader) or caught earlier (an sh
+		// deploy hard-fails at build time on a host-module mismatch).
+		//
+		// A future `fail` path needs a mode where host deps are genuinely
+		// essential AND unverified until runtime. There is not one today.
+		for (const mode of ["source", "binary", "sh"] as const) {
+			const r = checkHostDeps(ctx({ mode, ...noDeps }));
+			expect(r.status).toBe("info");
+			expect(r.detail).toContain(mode);
 		}
-	});
-	test("bundle (THIN default) → WARN (not fail) when deps unresolvable — works via abs paths", () => {
-		const r = checkHostDeps(ctx({ mode: "bundle", ...noDeps }));
-		expect(r.status).toBe("warn");
-	});
-
-	test("names the specific missing dep (bundle) when only pi-agent-core is absent", () => {
-		const depInstalled = (spec: string) => spec !== "@earendil-works/pi-agent-core";
-		const r = checkHostDeps(ctx({ mode: "bundle", depInstalled }));
-		expect(r.status).toBe("warn");
-		expect(r.detail).toContain("@earendil-works/pi-agent-core");
-	});
-
-	test("warns (bundle) when @earendil-works/pi-ai is missing", () => {
-		const depInstalled = (spec: string) => spec !== "@earendil-works/pi-ai";
-		const r = checkHostDeps(ctx({ mode: "bundle", depInstalled }));
-		expect(r.status).toBe("warn");
-		expect(r.detail).toContain("@earendil-works/pi-ai");
 	});
 });
 
@@ -188,16 +160,12 @@ describe("checkExtensions (mode-aware)", () => {
 		expect(checkExtensions(ctx({ mode: "source" })).status).toBe("info");
 		expect(checkExtensions(ctx({ mode: "binary" })).status).toBe("info");
 	});
-	test("bundle → compares against extensions only (npm exts via baked abs paths)", () => {
-		const want = manifest.extensions?.length ?? 0;
-		const files = Array.from({ length: want }, (_, i) => `e${i}.js`);
-		expect(checkExtensions(ctx({ mode: "bundle", listDir: () => files })).status).toBe("pass");
-		expect(checkExtensions(ctx({ mode: "bundle", listDir: () => ["one.js"] })).status).toBe("fail");
-	});
-	test("only counts .js (ignores stray non-js files in ext-bundles)", () => {
-		const want = manifest.extensions?.length ?? 0;
-		const files = [...Array.from({ length: want }, (_, i) => `e${i}.js`), "README.md", ".gitkeep"];
-		expect(checkExtensions(ctx({ mode: "bundle", listDir: () => files })).status).toBe("pass");
+	test("sh delegates to the deployed-tree check", () => {
+		// The only mode with a tree on disk to be wrong about. An absent ext/ is
+		// the designed zero-extension state, so info — not a silent pass.
+		const r = checkExtensions(ctx({ mode: "sh", deployDir: "/deploy", exists: () => false }));
+		expect(r.status).toBe("info");
+		expect(r.detail).toContain("zero extensions");
 	});
 });
 
@@ -207,24 +175,50 @@ describe("checkProviders", () => {
 		// by checking the real resolveApiKey against an empty env where needed.
 		// lm-studio uses a literal, so it passes; this asserts the warn path via
 		// a synthetic provider-less env doesn't crash.
-		const r = checkProviders(ctx({ mode: "bundle", env: {} }));
+		const r = checkProviders(ctx({ mode: "source", env: {} }));
 		expect(["pass", "warn", "info"]).toContain(r.status);
 	});
 });
 
 describe("runChecks (aggregate)", () => {
 	test("ok=true when no FAIL", () => {
-		// Derive the fake bundle count from the manifest so this doesn't rot every
-		// time an extension is added.
-		const want = manifest.extensions?.length ?? 0;
-		const r = runChecks(ctx({ mode: "bundle", listDir: () => Array.from({ length: want }, (_, i) => `e${i}.js`) }));
+		const r = runChecks(ctx({ mode: "source" }));
 		expect(r.ok).toBe(true);
-		expect(r.mode).toBe("bundle");
+		expect(r.mode).toBe("source");
 	});
-	test("ok=false when any FAIL (bundle with an empty ext-bundles/)", () => {
-		const r = runChecks(ctx({ mode: "bundle", depInstalled: () => false, listDir: () => [] }));
+
+	test("ok=false when any FAIL — an sh deploy whose manifest the loader would reject", () => {
+		// Since host-deps went informational, the sh extension tree is the only
+		// thing left that CAN fail. Without this the aggregate's false path is
+		// untested, and `ok` could be hardcoded true without a red test.
+		const files: Record<string, string> = {
+			"/deploy/ext/task/ext.json": JSON.stringify({
+				name: "task",
+				package: "@repo/pi-agent-ext-task",
+				version: "0.0.0",
+				hostApi: HOST_API + 1, // drift: the loader would skip this at boot
+				entry: "ext.cjs",
+				order: 10,
+				enabled: true,
+			}),
+		};
+		const dirs: Record<string, string[]> = { "/deploy/ext": ["task"] };
+		const r = runChecks(
+			ctx({
+				mode: "sh",
+				deployDir: "/deploy",
+				exists: (p: string) => p in files || p in dirs,
+				listDir: (p: string) => dirs[p] ?? [],
+				readFile: (p: string) => {
+					const c = files[p];
+					if (c === undefined) throw new Error(`ENOENT: ${p}`);
+					return c;
+				},
+			}),
+		);
 		expect(r.ok).toBe(false);
 	});
+
 	test("source mode never hard-fails (host-deps is info)", () => {
 		const r = runChecks(ctx({ mode: "source", depInstalled: () => false }));
 		expect(r.ok).toBe(true);
@@ -236,8 +230,8 @@ describe("smokeMarker (pure)", () => {
 		// selfDir for source mode is .../pi-agent/src → marker is .../bun-apps
 		expect(smokeMarker("source", "/repo/bun-apps/pi-agent/src")).toBe("/repo/bun-apps");
 	});
-	test("bundle → <selfDir>/ext-bundles", () => {
-		expect(smokeMarker("bundle", "/out")).toBe("/out/ext-bundles");
+	test("sh → the same static-factory prefix as binary", () => {
+		expect(smokeMarker("sh", "/out")).toBe("<inline:");
 	});
 	test("binary → the static-factory source prefix (tools report path '<inline:<pkg>>')", () => {
 		expect(smokeMarker("binary", "/out")).toBe("<inline:");

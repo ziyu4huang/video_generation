@@ -11,7 +11,6 @@
 /** Literal union of registered patch names. Keep in sync with PATCH_TABLE + the
  *  `switch` in applyPatches() — the `default: never` guard catches a missing case. */
 export type PatchName =
-	| "set-package-dir"
 	| "skip-update-check"
 	| "extract-embedded-assets"
 	| "pre-load-providers"
@@ -44,16 +43,13 @@ export interface PatchEntry {
 }
 
 /**
- * The patch registry as data. Order = execution order (set-package-dir must run
- * first). The module to import per entry is resolved by name in applyPatches()
+ * The patch registry as data. Order = execution order. The module to import per
+ * entry is resolved by name in applyPatches()
  * via a static-literal switch (bun needs literal import paths to bundle — see
  * the file header). Adding a patch = add a PatchName literal, an entry here,
  * AND a `case` below (the `default: never` guard enforces the third).
  */
 export const PATCH_TABLE: readonly PatchEntry[] = [
-  // set-package-dir runs first: it sets PI_PACKAGE_DIR before any other patch
-  // might trigger pi module initialization.
-  { name: "set-package-dir", env: "BUN_PI_SET_PACKAGE_DIR", defaultValue: true },
   { name: "skip-update-check", env: "BUN_PI_SKIP_UPDATE_CHECK", defaultValue: true },
   // extract-embedded-assets runs BEFORE load-run-dir-resources: must set
   // BUN_PI_EMBEDDED_EXTRACT_DIR + PI_PACKAGE_DIR before resolveRunDirArgv()
@@ -191,8 +187,8 @@ export function resolvePatchPlan(
  *
  * Contract: a patch module MAY export `patchApplied: boolean` saying whether its
  * wrap actually bound. `undefined` means the module makes no claim (an
- * unconditional side effect like set-package-dir, where there is nothing to
- * fail) and is treated as applied.
+ * unconditional side effect, where there is nothing to fail) and is treated as
+ * applied.
  *
  * WHY: `applied` used to be a pure function of the environment — it said the
  * module was IMPORTED, never that the patch took hold. That is precisely the
@@ -235,9 +231,6 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
     if (!p.applied) continue;
     let mod: unknown;
     switch (p.name) {
-      case "set-package-dir":
-        mod = await import("./set-package-dir.ts");
-        break;
       case "skip-update-check":
         mod = await import("./skip-update-check.ts");
         break;

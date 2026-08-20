@@ -13,9 +13,11 @@
  *
  * `import.meta.url` MUST stay meaningful here: in source mode resolveBunAppsDir
  * walks up two levels from this file's own directory, which is correct only
- * while this module lives in run-dir/. Bun's bundler rewrites import.meta.dir
- * to the bundle output location, which is why bundle mode reads baked constants
- * instead — see the header of resolve.ts for the full rationale.
+ * while this module lives in run-dir/. The compiled binary never asks — it
+ * resolves nothing from the repo — so source is the only case left to serve.
+ * Bundle mode used to read baked constants from src/generated/run-dir-base.ts
+ * for exactly this reason; both the mode and that generated file went in
+ * Phase 1b (see the header of resolve.ts).
  */
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,34 +33,7 @@ export function warn(msg: string): void {
   console.error(`[bun-pi] run-dir: ${msg}`);
 }
 
-// Bundle mode reads build-time-baked constants from run-dir-base.ts. Cache the
-// dynamic import so resolveBunAppsDir and resolveNpmExtensionPaths share ONE
-// load. The module is absent in a clean source tree; the try/catch covers that.
-let runDirBase: Promise<{ bunAppsDir: string | undefined; npmPaths: string[] }> | null = null;
-
-export function loadRunDirBase(): Promise<{ bunAppsDir: string | undefined; npmPaths: string[] }> | null {
-  if (mode === "bundle" && !runDirBase) {
-    runDirBase = (async () => {
-      try {
-        // @ts-ignore — generated at build time; absent in a clean source tree
-        const mod = await import("../src/generated/run-dir-base.ts");
-        return {
-          bunAppsDir: (mod.BUN_APPS_DIR as string | undefined) || undefined,
-          npmPaths: (mod.NPM_EXTENSION_PATHS as string[] | undefined) ?? [],
-        };
-      } catch {
-        return { bunAppsDir: undefined, npmPaths: [] };
-      }
-    })();
-  }
-  return runDirBase;
-}
-
 export async function resolveBunAppsDir(): Promise<string | undefined> {
-  if (mode === "bundle") {
-    // Bundle mode: only the build-time-generated constant is reliable.
-    return (await loadRunDirBase())?.bunAppsDir;
-  }
-  // Source mode: run-dir/run-context.ts -> pi-agent/ -> bun-apps/
+  // run-dir/run-context.ts -> pi-agent/ -> bun-apps/
   return resolve(dirname(fileURLToPath(url)), "..", "..");
 }

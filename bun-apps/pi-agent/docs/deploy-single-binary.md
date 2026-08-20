@@ -1,12 +1,20 @@
-# Deploying pi-agent as a single binary (`--exe`)
+# pi-agent as a compiled binary
 
-`bun scripts/deploy.ts --exe` builds pi-agent as a standalone executable
-(`dist/pi-agent/pi-agent`, ~75 MB) with no `bun` runtime required on the
-target machine. This doc is the deep "why" + "how to change it" reference for
-the `--exe` mode only — see [README.md § Build / Deploy modes](../README.md#build--deploy-modes)
-for the canonical four-mode table, and
-[`deploy-cwd-trust.md`](./deploy-cwd-trust.md) for the full layout/resolution
-detail across all modes.
+`bun build --compile` builds pi-agent as a standalone executable with no `bun`
+runtime required on the target machine. This doc is the deep "why" + "how to
+change it" reference for what that compilation implies: why extensions cannot
+load the run-dir way inside a binary, how the STATIC extension set works
+instead, why some files carry `// @ts-nocheck`, and how assets get embedded.
+
+**Scope note.** The `--exe` flag this was written for is gone — `scripts/deploy.ts`
+and its four modes were retired in #1740. What survives is the compilation
+itself: the sh deploy's core is a `bun build --compile` binary, so everything
+below about binary-mode constraints still holds for it. What does NOT apply is
+the static extension set: an sh deploy loads its extensions from `ext/` at
+runtime through the host-module contract, and only a bare compiled binary with
+no `deploy.json` beside it falls back to the static set.
+
+See [`deploy-sh.md`](./deploy-sh.md) for the deploy that actually ships.
 
 ## Why the binary can't just load every extension
 

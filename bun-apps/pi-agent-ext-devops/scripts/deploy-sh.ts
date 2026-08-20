@@ -23,7 +23,7 @@ import { parseShConfig, type ShConfig } from "./lib/sh-config.ts";
 import { buildExtPackage } from "./lib/sh-ext-build.ts";
 import { computeVersion, ensureOutRoot, resolveTargetDir, swapCurrent } from "./lib/sh-version.ts";
 import { freezeTree, rmTree, unfreezeTree } from "./lib/sh-fs.ts";
-import { stageGenerateEmbeddedAssets, stageGeneratePkgDir, stageGenerateRunDirBase } from "./lib/codegen.ts";
+import { stageGenerateEmbeddedAssets } from "./lib/codegen.ts";
 
 const PI_AGENT_DIR = resolve(import.meta.dir, "..", "..", "pi-agent");
 const BUN_APPS_DIR = dirname(PI_AGENT_DIR);
@@ -80,9 +80,11 @@ async function assertHostContract(cfg: ShConfig): Promise<void> {
 /** Compile the minimal core into `outFile`. Returns its size in bytes. */
 async function buildCore(outFile: string): Promise<number> {
 	const piPkgDir = resolvePiPkgDir();
-	// Same codegen the --exe mode uses: bake pi's package dir, an EMPTY run-dir
-	// base (sh mode resolves nothing from the repo), and embed pi's own
-	// theme/assets/export-html so the binary needs no repo on the target machine.
+	// Embed pi's own theme/assets/export-html so the binary needs no repo on the
+	// target machine. Two sibling stages used to run here — pi-pkg-dir.ts and an
+	// EMPTY run-dir-base.ts — writing constants only the retired "bundle" mode
+	// ever read. Phase 1b removed the readers, so these writers went too;
+	// resolvePiPkgDir() is still needed, as an ARGUMENT to the asset embedder.
 	//
 	// codegen.ts writes to the CWD-relative "src/generated" and derives
 	// BUN_APPS_DIR from process.cwd() (it was written for `bun run deploy` from
@@ -92,8 +94,6 @@ async function buildCore(outFile: string): Promise<number> {
 	const prevCwd = process.cwd();
 	process.chdir(PI_AGENT_DIR);
 	try {
-		stageGeneratePkgDir(piPkgDir);
-		stageGenerateRunDirBase([]);
 		stageGenerateEmbeddedAssets(piPkgDir, BUN_APPS_DIR, [], true);
 	} finally {
 		process.chdir(prevCwd);

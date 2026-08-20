@@ -88,7 +88,7 @@ touching the bundle:
 ## 3. Why this matters for read-only deploys
 
 This two-layer design is exactly why a frozen deploy (`chmod a-w`, the default
-since 2026-07-03 — see `docs/deploy-readonly.md` / the `pi-agent-readonly-deploy`
+since 2026-07-03 — see `docs/deploy-sh.md` § "The tree is read-only" / the `pi-agent-readonly-deploy`
 memory) costs nothing at runtime:
 
 - **Catalog is in the artifact** → read-only is fine; nothing writes it.

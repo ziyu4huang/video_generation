@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import manifest from "../run-dir/manifest.json";
 import { PATCH_TABLE, resolvePatchPlan } from "./patches/index.ts";
 import { PROVIDERS, resolveApiKey, type ApiKey } from "./pre-load-providers.ts";
-import { detectMode } from "./mode.ts";
+import { detectMode, type BundlerMode } from "./mode.ts";
 import { HOST_API, HOST_MODULE_IDS } from "./sh/host-modules.ts";
 import { parseExtManifest } from "./sh/ext-manifest.ts";
 
@@ -43,26 +43,26 @@ export function isFailing(r: CheckResult): boolean {
 /**
  * The deploy mode doctor detects.
  *
- * `portable` and `release` used to be here. Nothing could ever return them:
- * deploy.ts accepts only --bundle/--snapshot/--standalone/--exe and writes only
- * `.deploy-bundle`; no code path writes `.deploy-portable` or a `packages/` dir.
- * They were left behind by a rename the docs and deploy.ts completed and
- * doctor.ts did not, and they took real behaviour down with them — see
- * checkHostDeps.
+ * `portable`, `release` and `bundle` were all here once, and none of them
+ * survived contact with what the pipeline could actually produce. The first two
+ * were left behind by a rename deploy.ts completed and doctor.ts did not; the
+ * third outlived its producer by one release, when #1740 retired deploy.ts
+ * altogether. Each took real behaviour down with it — see checkHostDeps, which
+ * had no reachable failure path for as long as its only `fail` keyed on
+ * `portable`.
+ *
+ * The lesson is written down rather than re-learned: a mode belongs here only
+ * while something can produce it.
  */
-export type DeployMode = "source" | "bundle" | "binary" | "sh";
+export type DeployMode = "source" | "binary" | "sh";
 
 /**
  * Classify the deploy mode from coarse mode + the layout markers. Pure.
  *
- * `.deploy-bundle` is currently the only marker any deploy writes, so the
- * marker argument exists for the next sub-classification rather than for a
- * live branch. A `--snapshot` deploy ships raw source and correctly reports
- * `source`; a `--standalone` deploy is a bundle plus a bun binary and reports
- * `bundle`.
+ * One marker left, and it is the one that matters: a compiled binary is either
+ * an sh deploy or a plain exe, and only `deploy.json` tells them apart.
  */
 export interface LayoutMarkers {
-	dotDeployBundle: boolean;
 	/**
 	 * A pi-agent-sh deploy: `deploy.json` beside the executable. `ext/` alone is
 	 * not the marker — deleting it is a SUPPORTED state (the core boots with no
@@ -73,12 +73,9 @@ export interface LayoutMarkers {
 	shDeploy: boolean;
 }
 
-export function classifyMode(coarse: "source" | "bundle" | "binary", markers: LayoutMarkers): DeployMode {
+export function classifyMode(coarse: BundlerMode, markers: LayoutMarkers): DeployMode {
 	if (coarse === "binary") return markers.shDeploy ? "sh" : "binary";
-	if (coarse === "source") return "source";
-	// bundle coarse mode = a shipped pi-agent.js
-	if (markers.dotDeployBundle) return "bundle";
-	return "bundle"; // a pi-agent.js with no marker — treat as plain bundle
+	return "source";
 }
 
 /** Injectable environment so checks are pure and unit-testable. */
@@ -111,10 +108,6 @@ export interface DoctorReport {
 	ok: boolean;
 }
 
-/** Every mode ships the same manifest, so this is mode-independent — it took a
- *  `mode` argument only while `release` counted `packages/` instead. */
-const expectedExtCount = (): number => manifest.extensions?.length ?? 0;
-
 /** runtime — bun version. Always info. */
 export function checkRuntime(ctx: DoctorContext): CheckResult {
 	return { id: "runtime", label: "runtime", status: "info", detail: `bun ${ctx.bunVersion}` };
@@ -140,40 +133,30 @@ export function checkEntry(ctx: DoctorContext): CheckResult {
 }
 
 /**
- * ext-bundles — the extension set is complete for the mode.
- *  - bundle: ext-bundles/*.js count ≥ expected
- *  - source / binary: ext-bundles not expected (loads from bun-apps/ or baked); info
+ * extension set — complete for the mode.
  *
- * The `release` branch that read `packages/` is gone with the mode — no deploy
- * has ever produced that layout.
+ * Only the sh deploy has a tree to count: source loads from bun-apps/ and the
+ * binary carries static factories, so for both there is nothing on disk that
+ * being wrong would show up here. The `bundle` branch that counted
+ * `ext-bundles/*.js` — and the `release` one that read `packages/` before it —
+ * went with the layouts they described.
  */
 export function checkExtensions(ctx: DoctorContext): CheckResult {
-	const id = "extensions";
-	const label = "extension set";
 	if (ctx.mode === "sh") return checkShExtensions(ctx);
-	if (ctx.mode === "source" || ctx.mode === "binary") {
-		return { id, label, status: "info", detail: `${ctx.mode} mode loads extensions from source/baked paths` };
-	}
-	const bundles = ctx.listDir(join(ctx.selfDir, "ext-bundles")).filter((f) => f.endsWith(".js"));
-	const want = expectedExtCount();
-	if (bundles.length < want) {
-		return {
-			id,
-			label,
-			status: "fail",
-			detail: `ext-bundles/ has ${bundles.length} .js, expected ≥ ${want}`,
-			hint: "redeploy: `bun run --cwd bun-apps/pi-agent deploy:sh`",
-		};
-	}
-	return { id, label, status: "pass", detail: `ext-bundles/${bundles.length} .js (expected ≥ ${want})` };
+	return {
+		id: "extensions",
+		label: "extension set",
+		status: "info",
+		detail: `${ctx.mode} mode loads extensions from source/baked paths`,
+	};
 }
 
 /**
  * extension set, sh mode — validate the DEPLOYED ext/ tree.
  *
- * The repo manifest that `expectedExtCount()` reads means nothing here: an sh
- * deploy has no manifest and its extension set is whatever deploy-config.yaml
- * shipped. So this reads each `<deployDir>/ext/<name>/ext.json` through the
+ * The repo's run-dir manifest means nothing here: an sh deploy has no manifest
+ * and its extension set is whatever deploy-config.yaml shipped. So this reads
+ * each `<deployDir>/ext/<name>/ext.json` through the
  * SAME parser the loader uses — a manifest that doctor accepts but the loader
  * rejects would be worse than no check at all.
  *
@@ -218,48 +201,26 @@ export function checkShExtensions(ctx: DoctorContext): CheckResult {
 
 /**
  * host-deps — can pi's loader resolve typebox/@earendil-works/* from the entry?
- *  - source / binary: pi resolves its OWN deps from the pi-coding-agent loader
- *    in node_modules, not from cli.ts — informational only.
- *  - bundle (THIN default): works WITHOUT a node_modules (ext bundles bake abs
- *    paths; pi-agent.js's own deps are inlined) — unresolvable is a WARN.
  *
- * There is deliberately no `fail` path left. The only one there ever was keyed
- * on `portable`, a mode nothing can produce, so this check has been warn-or-info
- * in practice since that rename. Stating it plainly beats an unreachable branch
- * that makes the check look stricter than it is: for every mode this function
- * can DISTINGUISH, missing host deps are recoverable (bundle) or irrelevant
- * (source/binary resolve their own).
+ * Informational in every mode that exists: source and binary resolve their own
+ * deps from the pi-coding-agent loader in node_modules, and an sh deploy's
+ * extensions are served by the host registry (host-modules.ts), which the
+ * deploy hard-fails on rather than discovering here.
  *
- * KNOWN GAP — not "every deploy mode", only every mode doctor can tell apart.
- * A `--snapshot` deploy ships raw `.ts`, so detectMode(…, "/src/") calls it `source` and
- * it takes the INFO branch — yet host deps are genuinely essential there
- * (deploy.ts's stageSnapshotHostDeps exists for exactly that reason: the
- * snapshot's own root is `target/`, so without those links the first sibling
- * import throws). Closing this needs a marker that distinguishes a snapshot
- * deploy from a repo checkout; `depInstalled` would have to move off
- * `<selfDir>/node_modules` too, which in source mode points at `src/`.
+ * This check once had a `fail` path. It keyed on `portable`, a mode nothing
+ * could produce, so it had been unreachable for its whole life; the `warn` path
+ * that replaced it keyed on `bundle` and became unreachable the same way when
+ * Phase 1b retired that mode. What is left is honest about what it can tell
+ * you, which is nothing — kept as an `info` row so `doctor` still reports the
+ * mode's dependency story rather than silently omitting the line.
  */
 export function checkHostDeps(ctx: DoctorContext): CheckResult {
-	if (ctx.mode === "source" || ctx.mode === "binary" || ctx.mode === "sh") {
-		return { id: "host-deps", label: "host deps", status: "info", detail: `${ctx.mode} mode — pi resolves deps from its own loader` };
-	}
-	const need = [
-		"typebox",
-		"@earendil-works/pi-coding-agent",
-		"@earendil-works/pi-agent-core",
-		"@earendil-works/pi-ai",
-	];
-	const missing = need.filter((s) => !ctx.depInstalled(s));
-	if (missing.length) {
-		return {
-			id: "host-deps",
-			label: "host deps (typebox/@earendil-works/*)",
-			status: "warn",
-			detail: `unresolved from entry: ${missing.join(", ")}`,
-			hint: "optional — THIN bundle works via abs paths; re-deploy if extensions fail to load",
-		};
-	}
-	return { id: "host-deps", label: "host deps (typebox/@earendil-works/*)", status: "pass", detail: "resolve from entry" };
+	return {
+		id: "host-deps",
+		label: "host deps",
+		status: "info",
+		detail: `${ctx.mode} mode — pi resolves deps from its own loader`,
+	};
 }
 
 /** providers — each configured provider's apiKey is available (literal or env). */
@@ -337,7 +298,7 @@ export function runChecks(ctx: DoctorContext): DoctorReport {
  * `--fix` was silently ignored the moment the planner went: doctor takes no
  * flag-spec, so an unrecognised token just falls through and the report prints
  * as if nothing was asked for. A user following a stale doc — and one shipped
- * for a while, `docs/deploy-readonly.md` — would read a clean report as
+ * for a while, `docs/deploy-sh.md` § "The tree is read-only" — would read a clean report as
  * confirmation that `--fix` ran. Say so instead.
  *
  * Deliberately a notice rather than a hard error: `doctor` is the command you
@@ -364,7 +325,6 @@ export function removedFlagNotice(argv: readonly string[]): string | null {
  * The marker the smoke probe greps tool sourceInfo.path for, per mode.
  * Pure (no fs).
  *  - source:  the bun-apps dir (selfDir is .../pi-agent/src → ../.. = bun-apps)
- *  - bundle:  <selfDir>/ext-bundles
  *  - binary:  "<inline:" — static-factory tools report sourceInfo.path
  *             "<inline:<pkg-name>>"; the probe itself loading via -e also
  *             proves the upstream jiti binary path works (0.80.10+).
@@ -377,8 +337,7 @@ export function removedFlagNotice(argv: readonly string[]): string | null {
  */
 export function smokeMarker(mode: DeployMode, selfDir: string): string {
 	if (mode === "binary" || mode === "sh") return "<inline:";
-	if (mode === "source") return resolve(selfDir, "..", "..");
-	return join(selfDir, "ext-bundles"); // bundle
+	return resolve(selfDir, "..", ".."); // source
 }
 
 const SMOKE_PROBE = [
@@ -551,12 +510,11 @@ export function realContext(moduleUrl: string, env: Record<string, string | unde
 	// passes instead of always failing against a pi-agent.js that never ships
 	// in this mode (a pre-existing gap: this branch was never binary-mode-aware
 	// before the compiled binary shipped real extensions worth doctoring).
-	// detectMode's source marker is "/src/" — doctor.ts's own dir — which also
+	// A `--snapshot` deploy shipping raw .ts also lands on "source", which
 	// matches a --snapshot deploy (it ships raw .ts under src/), mirroring the
 	// old coarseFromUrl's `.endsWith(".ts")` rule.
-	const coarse = detectMode(moduleUrl, "/src/");
-	const entryPath =
-		coarse === "source" ? join(selfDir, "cli.ts") : coarse === "binary" ? process.execPath : join(selfDir, "pi-agent.js");
+	const coarse = detectMode(moduleUrl);
+	const entryPath = coarse === "binary" ? process.execPath : join(selfDir, "cli.ts");
 	// Annotated (not inferred) so an unused marker is a tsc error rather than an
 	// excess property TypeScript silently tolerates on a variable. `.deploy-portable`
 	// and `packages/` were still probed here after their modes were removed
@@ -565,7 +523,6 @@ export function realContext(moduleUrl: string, env: Record<string, string | unde
 	// directory names anything on the real filesystem.
 	const deployDir = coarse === "binary" ? dirname(process.execPath) : selfDir;
 	const markers: LayoutMarkers = {
-		dotDeployBundle: existsSync(join(selfDir, ".deploy-bundle")),
 		shDeploy: coarse === "binary" && existsSync(join(deployDir, "deploy.json")),
 	};
 	const mode = classifyMode(coarse, markers);
