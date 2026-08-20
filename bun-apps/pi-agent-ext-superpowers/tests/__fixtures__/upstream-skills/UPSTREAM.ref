@@ -100,7 +100,22 @@ baselined: 2026-07-26
 #   file at all, and every test stayed green. That silence is what the
 #   fixtures-digest: line below now prevents.
 
-fixtures-digest: sha256:7eca97ecfe79054c67d1b0ff4fad5b2f166ab350edfb80b8fed0a3ed9f209440
+# LOCAL-DIVERGENCES addendum (2026-08-20): develop-pipeline v2 (task 5 of
+#   .planning/2026-08-20-develop-pipeline-v2/) FULLY REWROTE
+#   dispatching-parallel-agents/SKILL.md in place — the manual-dispatch-centric
+#   upstream body is gone; the skill now documents workflow templates
+#   (execute-t1 / execute-plan) as the default engine with manual dispatch as
+#   the exception path. This SUPERSEDES the two earlier
+#   dispatching-parallel-agents divergence rows above ("Pre-dispatch
+#   guardrails" + "Research as a background subagent" sections, "Verify-child
+#   protocol" section) — their surviving content lives on inside the new body
+#   as the brief contract, verify-child rule, and guardrails recap. An upstream
+#   re-sync must NOT restore the v6.2.0 body or the pre-v2 local sections;
+#   re-apply the pipeline v2 structure onto new upstream material only if it
+#   is still relevant, and record it here.
+
+fixtures-digest: sha256:ee44613fa363b182c242f9c143d31da30c2693e050f457a5b47c6295321147bd
 
 # Re-baseline log (appended by scripts/rebaseline-upstream-skills.ts):
 #   2026-08-19 — backfill: record the ext-simplification-round-2 (#1682) in-place compression and tie the record to the fixtures via fixtures-digest (sha256:7eca97ecfe79…)
+#   2026-08-20 — develop-pipeline v2 task 5: dispatching-parallel-agents fully rewritten (workflow templates default, manual dispatch exception); see LOCAL-DIVERGENCES addendum 2026-08-20 (sha256:ee44613fa363…)
