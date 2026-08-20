@@ -304,6 +304,36 @@ describeE2E("pi-agent-sh L1 — the deployed binary really runs its extensions",
 		expect(code).not.toContain("import.meta");
 	}, 30_000);
 
+	// Ported from the deleted src/__tests__/e2e-readonly.test.ts, which asserted
+	// this for the bundle and snapshot modes. The contract is not mode-specific:
+	// a deploy is an IMMUTABLE artifact and every per-user write belongs under
+	// PI_CODING_AGENT_DIR. What would break it — a patch that caches into the
+	// deploy dir, run.sh losing its JITI_FS_CACHE=0 export, an extension
+	// resolving a writable path relative to its own dir — is exactly what the
+	// sh pipeline's ext-local resolution makes newly possible, so the assertion
+	// belongs here now rather than nowhere.
+	//
+	// MUST stay ahead of the ext/-removal test below, which deliberately
+	// unfreezes and renames inside the tree.
+	test("the frozen tree takes zero writes while the binary runs", async () => {
+		const filesIn = (dir: string): string[] => {
+			const r = Bun.spawnSync(["find", dir, "-type", "f"]);
+			return r.stdout.toString().trim().split("\n").filter(Boolean).sort();
+		};
+
+		const before = filesIn(target);
+		expect(before.length).toBeGreaterThan(0);
+
+		// doctor --smoke is the heaviest read-only path the deploy has: it boots
+		// pi, loads every deployed extension, and counts registered tools.
+		const r = await run(["doctor", "--json", "--smoke"]);
+		expect(r.code).toBe(0);
+		expect(r.stderr).not.toMatch(/EACCES|EPERM/);
+
+		const after = filesIn(target);
+		expect(after).toEqual(before);
+	}, 120_000);
+
 	test("the core still boots after ext/ is removed entirely", async () => {
 		// deploy-sh-e2e asserts this against a frozen tree at deploy time; asserted
 		// here too because every OTHER test in this file would still pass if the
