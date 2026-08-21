@@ -7,7 +7,7 @@ import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { benchLatency } from "../../../../perf-harness/src/index.ts";
+import { benchLatency } from "@repo/perf-harness";
 import { retrieveRecords, type RetrieveOptions } from "../../../src/retrieve.ts";
 
 let vault: string;

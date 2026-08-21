@@ -8,7 +8,7 @@
  * its default (legacy) session variant, matching production.
  */
 import { test, expect, describe } from "bun:test";
-import { createCapturePi, estimateTotalSchemaTokens, assertWithinBudget } from "../../../perf-harness/src/index.ts";
+import { createCapturePi, estimateTotalSchemaTokens, assertWithinBudget } from "@repo/perf-harness";
 import { registerSearchTool } from "../../src/tools/search-tool.ts";
 import { registerSkillTool } from "../../src/tools/skill-tool.ts";
 import { registerMemoryTool } from "../../src/tools/memory-tool.ts";

@@ -60,6 +60,7 @@
   "devDependencies": {
     "@earendil-works/pi-ai": "0.84.2",
     "@earendil-works/pi-coding-agent": "0.84.2",
+    "@repo/perf-harness": "workspace:*",
     "@repo/s2-agent-ext-file2md": "workspace:*",
     "@types/proper-lockfile": "^4.1.4",
     "@types/retry": "^0.12.5",

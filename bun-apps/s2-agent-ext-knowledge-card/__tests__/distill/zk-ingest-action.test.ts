@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { captureTools } from "../../../perf-harness/src/index.ts";
+import { captureTools } from "@repo/perf-harness";
 import kcardFactory from "../../extensions/knowledge-card.ts";
 
 const tools = captureTools(kcardFactory);

@@ -29,6 +29,7 @@
     "@repo/s2-agent-core-runtime": "workspace:*"
   },
   "devDependencies": {
+    "@repo/perf-harness": "workspace:*",
     "typescript": "^7.0.2"
   }
 }

@@ -8,7 +8,7 @@
  * which createCapturePi provides).
  */
 import { test, expect, describe } from "bun:test";
-import { captureTools, estimateTotalSchemaTokens, assertWithinBudget } from "../../../../perf-harness/src/index.ts";
+import { captureTools, estimateTotalSchemaTokens, assertWithinBudget } from "@repo/perf-harness";
 import kcardFactory from "../../knowledge-card.ts";
 
 describe("knowledge-card schema-cost regression", () => {
