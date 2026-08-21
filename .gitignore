@@ -1,10 +1,11 @@
 node_modules
 # pi project-local runtime state. s2-agent itself does NOT generate this
 # (run-dir/manifest npmExtensions is []; it loads extensions via absolute -e
-# paths, never <cwd>/.pi). The .pi/npm/ dir is written only by pi CORE's
-# DefaultPackageManager on an explicit project-scope `pi install` — ignore it
-# so a stray install while cwd is in-repo can't pollute git status. Tracked
-# hand-authored files (.pi/obsidian_config.json, .pi/agents/*.md) stay tracked.
+# paths, never <cwd>/.pi). The repo-local .pi/ dir was removed entirely
+# (2026-08-22): run-dir loading is manifest-driven and never required it.
+# These ignores are pure defense-in-depth: .pi/npm/ is written only by pi
+# CORE's DefaultPackageManager on an explicit project-scope `pi install`, and
+# the review dirs are stray reviewer artifacts — neither may pollute git status.
 .pi/agent/auth.json
 .pi/agent/trust.json
 **/.pi/npm/
