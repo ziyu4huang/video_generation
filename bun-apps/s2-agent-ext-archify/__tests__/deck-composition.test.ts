@@ -193,9 +193,48 @@ describe("a composed deck", () => {
     expect(formatDiagnostics(await lintPptx(built.parts))).toBe("");
   });
 
-  test("passes the advisory content lint", async () => {
+  test("passes the content lint", async () => {
     const { manifest } = await loadManifestFile(COMPOSED_MANIFEST, PKG_ROOT);
     expect(lintDeck(manifest)).toEqual([]);
+  });
+});
+
+describe("a deck that would render broken is refused", () => {
+  const overflowing = {
+    output: "o.pptx",
+    slides: [{ layout: "bullets" as const, title: "一".repeat(30), bullets: ["a"] }],
+  };
+
+  test("buildDeck throws rather than writing a clipped title", async () => {
+    // The action-title band has no autofit and the accent rule sits below it at
+    // a fixed y, so a second line is struck through. Writing the file anyway
+    // just moves the discovery to whoever opens it.
+    await expect(
+      buildDeck({
+        manifest: overflowing,
+        manifestDir: PKG_ROOT,
+        outputPath: join(workDir, "refused.pptx"),
+        cwd: PKG_ROOT,
+        slidesDir: null,
+      })
+    ).rejects.toThrow(/would render broken[\s\S]*title-overflows/);
+  });
+
+  test("no file is left behind", async () => {
+    expect(existsSync(join(workDir, "refused.pptx"))).toBe(false);
+  });
+
+  test("a warn-severity note does NOT block", async () => {
+    // Only `error` blocks. A title-is-a-label note is a style opinion and a
+    // style opinion that refuses to build teaches people to disable the linter.
+    const result = await buildDeck({
+      manifest: { output: "o.pptx", slides: [{ layout: "bullets" as const, title: "延遲", bullets: ["a"] }] },
+      manifestDir: PKG_ROOT,
+      outputPath: join(workDir, "warned.pptx"),
+      cwd: PKG_ROOT,
+      slidesDir: null,
+    });
+    expect(result.slides).toHaveLength(1);
   });
 });
 

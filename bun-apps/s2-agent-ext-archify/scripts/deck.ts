@@ -24,7 +24,9 @@
 //
 // `--lint` additionally prints the title storyline (the deck's argument read from
 // the titles alone), the advisory content notes, and the OOXML structural
-// diagnostics for the file just written. It never changes the exit code.
+// diagnostics for the file just written. It never changes the exit code — but a
+// deck whose action title is too wide for its band never gets this far: the
+// build itself refuses it, with or without `--lint`.
 //
 // `ir` / `output` resolve relative to the manifest dir (portable manifest);
 // `--output` resolves relative to cwd. `defaults.scale` is accepted and ignored —

@@ -1,5 +1,5 @@
 /**
- * deck-lint.ts — advisory checks on a deck's CONTENT, not its file format.
+ * deck-lint.ts — checks on a deck's CONTENT, not its file format.
  *
  * These encode the conventions that separate a deck people can follow from a
  * pile of exhibits. They are consulting-desk practice, and each one is here
@@ -15,23 +15,31 @@
  *   - **No inline colour.** archify's Cardinal Rule for diagram IR — semantic
  *     type in, theme colour out — extended to slide copy.
  *
- * **Advisory means advisory.** `lintDeck` never throws and a build never fails
- * on its output. A style rule that blocks a deliverable teaches people to
- * disable the linter; one that prints a note gets read.
+ * **Style notes are advisory; a clipped title is not.** `lintDeck` never
+ * throws — a style rule that blocks a deliverable teaches people to disable the
+ * linter, and one that prints a note gets read. But a note of severity `error`
+ * says the deck will come out visibly broken, and `buildDeck` refuses to write
+ * one. Today exactly one rule can reach that severity: `title-overflows`, where
+ * the action title is wider than its band and the accent rule strikes line two
+ * through. That is not a matter of taste, so it does not get a taste-shaped
+ * remedy.
  */
+import { TITLE_BAND, TYPE_SCALE } from "./deck-theme.ts";
 import { normalizeBullets, resolveLayout, type Slide } from "./slide-model.ts";
+import { lineCapacityEms, textEms } from "./text-extent.ts";
 
 export interface DeckLintNote {
   /** 1-based slide number; absent for deck-wide notes. */
   slide?: number;
   code:
     | "title-is-a-label"
-    | "title-too-long"
+    | "title-overflows"
     | "too-many-bullets"
     | "bullets-too-deep"
     | "inline-color"
     | "missing-source";
-  severity: "warn" | "info";
+  /** `error` means the deck is broken, not merely unidiomatic — see the header. */
+  severity: "error" | "warn" | "info";
   message: string;
 }
 
@@ -39,8 +47,13 @@ export interface LintableDeck {
   slides: Slide[];
 }
 
-/** Above this a title stops being a claim and becomes a paragraph. */
-const TITLE_MAX = 90;
+/**
+ * How much of the title band one line may use before the estimate stops being
+ * trustworthy. `text-extent.ts` is accurate to ±1.7 % on the measured sample;
+ * inside this margin the honest answer is "may wrap", so the note drops to a
+ * warning rather than blocking a deck that probably fits.
+ */
+const TITLE_MARGIN = 0.95;
 
 /**
  * Below this a title is almost certainly a topic label. Counted in CJK-aware
@@ -70,6 +83,41 @@ function readsAsLabel(title: string): boolean {
   return len(title) <= TITLE_LABEL_MAX;
 }
 
+/**
+ * Will this title wrap out of its band?
+ *
+ * The band is a fixed-height box with no autofit (`emit-pptx.ts` withholds
+ * `fit: "shrink"` from the chrome roles so a `diagram` slide stays byte-
+ * identical to the pre-composition builder), and the accent rule is at a fixed
+ * y below it. So the budget is exactly ONE line, and the question is whether
+ * the title sets wider than one line of the narrower of the two band shapes.
+ *
+ * The narrower shape is used unconditionally rather than the one this slide
+ * will actually get: a title that fits only because the slide happens to carry
+ * no takeaway breaks the moment someone adds one, and that is a worse bug to
+ * ship than a slightly early warning.
+ */
+function titleOverflow(slide: Slide): Omit<DeckLintNote, "slide"> | undefined {
+  const band = TITLE_BAND.withTakeaway.w <= TITLE_BAND.alone.w
+    ? TITLE_BAND.withTakeaway
+    : TITLE_BAND.alone;
+  const sizePt = TYPE_SCALE.title.sizePt;
+  const budget = lineCapacityEms(band.w, sizePt);
+  const ems = textEms(slide.title);
+  if (ems <= budget * TITLE_MARGIN) return undefined;
+  const over = ems > budget;
+  return {
+    code: "title-overflows",
+    severity: over ? "error" : "warn",
+    message:
+      `title sets about ${ems.toFixed(1)} em against a ${budget.toFixed(1)} em band ` +
+      `(${band.w} in at ${sizePt} pt) — ` +
+      (over
+        ? "it will wrap onto a second line, which the accent rule strikes through; shorten it"
+        : "close enough to the edge that it may wrap depending on the font; consider shortening it"),
+  };
+}
+
 /** Every authored string on a slide, for the inline-colour sweep. */
 function copyOf(slide: Slide): string[] {
   return [
@@ -84,7 +132,10 @@ function copyOf(slide: Slide): string[] {
   ].filter((s): s is string => typeof s === "string");
 }
 
-/** Check a deck. Never throws; an empty array means nothing to say. */
+/**
+ * Check a deck. Never throws; an empty array means nothing to say. A returned
+ * note of severity `error` is a build blocker — `buildDeck` enforces that.
+ */
 export function lintDeck(deck: LintableDeck): DeckLintNote[] {
   const notes: DeckLintNote[] = [];
   deck.slides.forEach((slide, i) => {
@@ -103,13 +154,11 @@ export function lintDeck(deck: LintableDeck): DeckLintNote[] {
         message: `title ${JSON.stringify(slide.title)} names a topic rather than stating a takeaway — an action title lets the deck be read from the titles alone`,
       });
     }
-    if (len(slide.title) > TITLE_MAX) {
-      notes.push({
-        slide: n,
-        code: "title-too-long",
-        severity: "warn",
-        message: `title is ${len(slide.title)} characters (over ${TITLE_MAX}); it will overflow the title band, which does not autofit`,
-      });
+    // A statement slide's chrome is drawn WITHOUT a title (the statement is
+    // the title), so its `title` never occupies the band and cannot overflow it.
+    if (carriesAnArgument && layout !== "statement") {
+      const note = titleOverflow(slide);
+      if (note) notes.push({ slide: n, ...note });
     }
 
     const bullets = normalizeBullets(slide.bullets);
@@ -169,6 +218,6 @@ export function storyline(deck: LintableDeck): string {
 /** One line per note, for a CLI or a tool result. */
 export function formatLintNotes(notes: DeckLintNote[]): string {
   return notes
-    .map((n) => `${n.severity === "info" ? "info" : "warn"} ${n.slide ? `slide ${n.slide}: ` : ""}[${n.code}] ${n.message}`)
+    .map((n) => `${n.severity} ${n.slide ? `slide ${n.slide}: ` : ""}[${n.code}] ${n.message}`)
     .join("\n");
 }

@@ -32,7 +32,7 @@
     },
     {
       "layout": "diagram",
-      "title": "整顆 SoC 怎麼切、誰接誰——這是 SAS 層要回答的唯一問題",
+      "title": "整顆 SoC 怎麼切、誰接誰，是 SAS 層的唯一問題",
       "subtitle": "MRD → NoC → {AUDIO APU, ISP}，外加共享記憶體與電源域",
       "ir": "../deck/ir/slide2.json"
     },

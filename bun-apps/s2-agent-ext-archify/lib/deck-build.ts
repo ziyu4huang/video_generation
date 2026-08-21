@@ -30,6 +30,7 @@ import PptxGenJS from "pptxgenjs";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { lintDeck } from "./deck-lint.ts";
 import { PALETTES, type Palette, type Theme } from "./deck-theme.ts";
 import { emitHtmlSlide, type DiagramEmbed } from "./emit-html.ts";
 import { emitPptxSlide, type SlideLike } from "./emit-pptx.ts";
@@ -316,6 +317,18 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
   const font = manifest.defaults?.font ?? "Arial";
   const tag = manifest.tag ?? "archify deck";
   const progress = params.onProgress ?? (() => {});
+
+  // Style notes ride along in the tool result; an `error` note does not. It
+  // says the deck will come out visibly broken — today only a title too wide
+  // for its band, which the accent rule strikes through — and writing that file
+  // anyway just moves the discovery to whoever opens it. See `deck-lint.ts`.
+  const blocking = lintDeck(manifest).filter((n) => n.severity === "error");
+  if (blocking.length > 0) {
+    throw new DeckError(
+      `deck would render broken:\n` +
+        blocking.map((n) => `  slide ${n.slide}: [${n.code}] ${n.message}`).join("\n")
+    );
+  }
 
   // A persisted slidesDir doubles as the webui-servable copy of the deck; a
   // temp dir means the .pptx is the only thing that survives the call.

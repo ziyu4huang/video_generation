@@ -65,6 +65,28 @@ positioned div, and neither needs a glyph advance from us. This is also why the 
 path gets CJK right where the diagram path cannot.
 _Avoid_: layout engine, text fitting (there is no engine here; that is the whole point)
 
+**Title band**:
+The fixed box the action title occupies on a content slide (`TITLE_BAND` in `deck-theme.ts`;
+9.0 in wide, two heights depending on whether a takeaway shares the band). It is the one
+box on a slide that cannot absorb an overflow: it does not autofit, and the accent rule sits
+below it at a fixed `y`, so a second line comes out struck through and clipped.
+_Avoid_: header, title area (the point of the name is that it is a fixed band, not a region
+that grows)
+
+**Wrap budget**:
+The em width one line of the title band holds — box width minus OOXML's two default insets,
+divided by the type size. A title over budget is a **build error**, not a style note,
+because the result is a visibly broken deliverable rather than an unidiomatic one.
+_Avoid_: title length limit, max characters (a character count cannot predict a wrap; that
+miscalibration is exactly the defect this replaced)
+
+**Em advance**:
+The estimated set width of a character, in ems, bucketed into four classes — full width,
+space, narrow, wide — in `text-extent.ts`. Bucketed and not a per-glyph table on purpose: a
+metrics table would be tied to one font and would rot the first time a deck sets a different
+`defaults.font`. The buckets are calibrated against rendered ink and hold to ±2 %.
+_Avoid_: font metrics, glyph width (this estimates a class, it does not measure a glyph)
+
 **Role**:
 The semantic slot a piece of type occupies (`title`, `takeaway`, `bullet`, `statement`,
 `pageNumber`, …). Both emitters key off `Role` and nothing else, which is what stops them

@@ -95,6 +95,12 @@ a deck be read from the titles alone. `bun run deck --lint` prints exactly that 
 advisory notes (label-ish title, >6 bullets, nesting past level 1, a literal `#rrggbb` in
 copy) and the OOXML diagnostics for the file just written. It never changes the exit code.
 
+One content rule is **not** advisory. A title wider than its band wraps onto a second line,
+and the accent rule sits at a fixed `y` — so line two comes out struck through and clipped.
+`lib/text-extent.ts` predicts that wrap from the band width and the type size without
+measuring a glyph or opening a renderer (buckets calibrated against rendered ink, accurate to
+±2 %), and `buildDeck` refuses to write a deck that trips it. Everything else stays a note.
+
 **Canonical example:** `examples/deck-composed/` exercises all six —
 `bun run deck examples/deck-composed/deck.config.json --lint`.
 

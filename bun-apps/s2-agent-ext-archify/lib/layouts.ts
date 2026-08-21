@@ -19,6 +19,7 @@
  */
 import {
   CONTENT,
+  TITLE_BAND,
   type Role,
 } from "./deck-theme.ts";
 import {
@@ -71,9 +72,13 @@ function chrome(slide: Slide, ctx: LayoutCtx, opts: { title?: boolean } = {}): P
 
   if (withTitle) {
     blocks.push(
-      hasTakeaway
-        ? text({ x: 0.5, y: 0.16, w: 9.0, h: 0.56 }, "title", slide.title, "left", "middle")
-        : text({ x: 0.5, y: 0.22, w: 9.0, h: 0.75 }, "title", slide.title, "left", "middle")
+      text(
+        hasTakeaway ? TITLE_BAND.withTakeaway : TITLE_BAND.alone,
+        "title",
+        slide.title,
+        "left",
+        "middle"
+      )
     );
     if (hasTakeaway) {
       blocks.push(

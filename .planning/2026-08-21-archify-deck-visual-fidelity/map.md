@@ -59,6 +59,15 @@ The suite is 401 passing, `ooxml-lint` reports 0 diagnostics on both example dec
   and clipped. `deck-lint`'s title-length rule passed it. `map.md` of
   `archify-slide-composition` predicted this exact failure ("a title that silently shrinks is
   worse than one a linter complains about") and chose the linter — the linter did not hold.
+  **FIXED 2026-08-22 (ticket 02).** The decision held; the calibration did not. A
+  90-character count cannot see a box width, a type size, or the difference between `一` and
+  `i`. Measured on this machine: the title band holds **24.37 em** (9.0 in less OOXML's two
+  default insets, at 26 pt), the clipped title measured **27.66 em**, and the em dash it
+  carried is a **full em**, not a Latin character. Seven of the eight real content-slide
+  titles across both example decks already fit — so the band was the right size and the
+  title was too long. `lib/text-extent.ts` now predicts the wrap renderer-free (buckets
+  calibrated against rendered ink, ±1.7 %) and `buildDeck` refuses a deck that trips it.
+  Receipt: `receipts/archify-title-wrap-calibration-2026-08-22.md`.
 - **P3 — SVG node text clips and wraps wrongly.** `SYS.1/2 需求來源` renders clipped;
   the connector label `系統需求` breaks as `系統需 / 求`. This is the known `wrap: false` +
   `fontSize * 0.62 * length * 1.35` Latin advance estimate in `lib/pptx-shapes.ts`, now with
@@ -83,7 +92,8 @@ moment it runs anywhere without one. Hence D1 below.
 Phase 1 — the defects, each with a renderer-free assertion
 - `tickets/01-icon-fill-semantics.md` — task, **closed 2026-08-22** — the burst was an
   out-of-range `roundRect` adjustment, NOT fill semantics; see its `## Resolution`
-- `tickets/02-title-overflow.md` — task, open — wrap budget vs chrome height
+- `tickets/02-title-overflow.md` — task, **closed 2026-08-22** — wrap budget in ems, at
+  error severity; the chrome geometry is unchanged. See its `## Resolution`
 - `tickets/03-node-text-advance.md` — task, open — CJK-aware advance, or a real text box
 - `tickets/04-split-diagram-fit.md` — task, open — establish attribution, then fit
 
@@ -106,19 +116,29 @@ Phase 2 — seeing it, portably
   Charted-but-rejected, not merely unbuilt.
 - **D4 — fix before instrument.** P1–P4 are known and real now; building the harness first
   would defer four confirmed defects behind infrastructure. Chosen by the user 2026-08-21.
+- **D5 — a lint note may block a build, but only one may.** `deck-lint` was documented as
+  advisory-forever, on the sound reasoning that a style rule which refuses to build teaches
+  people to disable the linter. That reasoning is kept for every style rule; a title wider
+  than its band is exempt because the output is *visibly broken*, not merely unidiomatic.
+  The split is expressed as a severity (`error` vs `warn`/`info`), so the exemption is one
+  field rather than a special case, and `buildDeck` is the single enforcement point.
 
 ## Frontier
 
-`tickets/02-title-overflow.md` — P2. It is now the most visible remaining defect (the second
-line of composed slide 4's title is still struck through by the theme rule), it blocks
-nothing else, and it is the one whose *decision* is genuinely open: the prior effort chose a
-length lint over autofit on purpose, and this effort has evidence the calibration failed but
-not evidence the choice was wrong.
+`tickets/03-node-text-advance.md` — P3. With P1 and P2 closed it is the last defect whose
+*attribution is already established*: `lib/pptx-shapes.ts` places diagram labels with
+`wrap: false` and a `fontSize * 0.62 * length * 1.35` Latin advance estimate, and applies it
+to CJK. P4 still needs an attribution step before it can be worked, so P3 goes first.
 
-Ticket 01 closed 2026-08-22. Its dependency question is answered in full in its
-`## Resolution`: `<a:noFill/>` is reachable by OMITTING `fill`; `<a:path fill="none">` is not
-reachable at all, so `lib/write-zip.ts` + `lib/ooxml-postprocess.ts` now exist. **Neither
-was the cause of the bursts** — see the Context correction below.
+P3 is also cheaper now than when it was written, because ticket 02 built the thing it needs:
+`lib/text-extent.ts` already answers "how wide does this string set" with CJK-aware buckets
+measured on this machine, and P3's estimate is the same question with a worse answer.
+Whether P3's remedy is to route through `textEms()` or to give node labels a real wrapping
+text box is still open — the second is a larger change to the D3-locked diagram path.
+
+Tickets 01 and 02 both closed 2026-08-22, and both root causes turned out to differ from
+what `spec.md` predicted in the same way: a number crossing a library or format boundary in
+the wrong unit.
 
 ## Fog of war
 
@@ -143,10 +163,21 @@ was the cause of the bursts** — see the Context correction below.
   possible its OOXML fidelity differs enough from Apple's that the two backends disagree on
   what a slide looks like. That would not break D1 (nothing gates on either) but it would
   make cross-platform receipts non-comparable.
-- **Whether P2's right fix is a stricter lint, a taller chrome, or title autofit** is open.
-  The prior effort deliberately chose "no autofit on the title"; this effort has evidence
-  that the chosen alternative failed, but that is an argument to strengthen the guard, not
-  automatically to reverse the decision.
+- ~~**Whether P2's right fix is a stricter lint, a taller chrome, or title autofit.**~~
+  **RESOLVED 2026-08-22 — a stricter lint.** The measurement decided it: seven of eight real
+  content-slide titles fit the existing band, so the band was not too small and neither a
+  taller chrome nor autofit was warranted. Full reasoning in ticket 02's `## Resolution`.
+- **The advance buckets are calibrated on ONE font.** `EM_ADVANCE` was measured against
+  PingFang TC bold at 26 pt, which is what both example decks set. A deck choosing a wider
+  face via `defaults.font` would set wider than the model predicts and could wrap while
+  passing the check. Bounded risk — it is 4 buckets, not a metrics table — and the
+  calibration table frozen in `__tests__/text-extent.test.ts` is what any re-tune would have
+  to beat.
+- **Quick Look ignores `rIns` when breaking lines.** Measured: it breaks against the full box
+  width, PowerPoint against the box less both insets. The shipped budget follows PowerPoint,
+  so the check is deliberately stricter than the renderer used to calibrate it. Consequence
+  worth remembering: a render on this machine can NOT disprove a marginal `title-overflows`
+  note — it will show one line where PowerPoint shows two.
 - **Bun.WebView on Linux/Windows** (WebKitGTK / WebView2) is unprobed. Only relevant if the
   HTML twin ever becomes part of the receipt.
 
@@ -166,6 +197,10 @@ was the cause of the bursts** — see the Context correction below.
   unfixed fixed-height title band. Its D7 declines to absorb P1–P4 (they live in
   `pptx-shapes.ts`, the diagram-replay path; its own work is in `emit-pptx.ts`'s text-box
   path), and its D1 "the renderer sees, it never gates" is carried over verbatim. Neither
-  effort blocks the other in code, but **landing this effort's Phase 1 first is cheaper**:
-  P2's fix changes the chrome geometry all seven templates sit under, so doing it afterwards
-  means re-baselining seven geometry goldens.
+  effort blocks the other in code, but **landing this effort's Phase 1 first is cheaper**.
+  **Updated 2026-08-22**: the re-baselining worry is gone — P2's fix left `TITLE_BAND`
+  numerically unchanged and merely moved it from an inline literal in `layouts.ts` into
+  `deck-theme.ts`, so templates read the same geometry from a shared constant. What the seven
+  templates DO inherit is the new build gate: a template sample deck carrying an over-budget
+  title will refuse to build, so `06-template-library` should run its titles through
+  `textEms()` while authoring rather than discover it at build time.
