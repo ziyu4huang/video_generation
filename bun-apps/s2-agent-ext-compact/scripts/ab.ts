@@ -21,7 +21,15 @@ import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { summarizeCcStyle, type CcSummaryResult } from "../src/summarize.ts";
-import { computeMetrics, extractErrorStrings, selectSessions, type ArmMetrics, type SessionCandidate } from "./ab-metrics.ts";
+import {
+  computeMetrics,
+  extractErrorStrings,
+  maxPromptTokens,
+  partitionByTokenBudget,
+  selectSessions,
+  type ArmMetrics,
+  type SessionCandidate,
+} from "./ab-metrics.ts";
 
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -75,10 +83,18 @@ async function collectCandidates(): Promise<SessionCandidate[]> {
       if (!f.endsWith(".jsonl")) continue;
       const path = join(root, dir.name, f);
       const bytes = (await stat(path)).size;
-      // Cheap pre-filter: message-entry count ≈ lines starting with {"type":"message"
+      // Cheap pre-filter: message-entry count ≈ lines starting with {"type":"message";
+      // estimatedTokens = chars/4 of those message lines (same heuristic as tokensBefore).
       const text = await readFile(path, "utf8");
-      const messageEntries = text.split("\n").filter((l) => l.startsWith('{"type":"message"')).length;
-      out.push({ id: `${dir.name}/${f}`, path, messageEntries, bytes });
+      const messageLines = text.split("\n").filter((l) => l.startsWith('{"type":"message"'));
+      const messageChars = messageLines.reduce((a, l) => a + l.length, 0);
+      out.push({
+        id: `${dir.name}/${f}`,
+        path,
+        messageEntries: messageLines.length,
+        bytes,
+        estimatedTokens: Math.ceil(messageChars / 4),
+      });
     }
   }
   return out;
@@ -132,74 +148,100 @@ async function main() {
   if (!auth.ok || !auth.apiKey) throw new Error(`No API key for ${provider}/${id}`);
   const headers = headerMap(auth.headers);
 
-  const chosen = sessionArg
-    ? [{ id: sessionArg, path: sessionArg, messageEntries: Number.POSITIVE_INFINITY, bytes: 0 }]
-    : selectSessions(await collectCandidates(), { minMessages: 50, n });
+  // Context-size pre-filter: skip sessions whose estimated prompt would blow the
+  // model's usable context (0.5 × contextWindow; fallback constant without one).
+  // Applied BEFORE selectSessions so --n yields n runnable sessions, not candidates
+  // that get skipped later. An explicit --session bypasses the filter (operator choice).
+  const budget = maxPromptTokens(model);
+  let chosen: SessionCandidate[];
+  let skippedSessions: Array<{ id: string; reason: string }> = [];
+  if (sessionArg) {
+    chosen = [{ id: sessionArg, path: sessionArg, messageEntries: Number.POSITIVE_INFINITY, bytes: 0 }];
+  } else {
+    const { kept, skipped } = partitionByTokenBudget(await collectCandidates(), budget);
+    skippedSessions = skipped;
+    if (skipped.length) {
+      console.log(`↷ skipping ${skipped.length} over-budget sessions (> ${budget}tok prompt budget), e.g.:`);
+      for (const s of skipped.slice(0, 5)) console.log(`  ↷ ${s.id}: ${s.reason}`);
+    }
+    chosen = selectSessions(kept, { minMessages: 50, n });
+  }
 
   const results: SessionResult[] = [];
+  const errors: Array<{ session: string; error: string }> = [];
   for (const s of chosen) {
-    const entries = parseSessionEntries(await readFile(s.path, "utf8"));
-    const { messagesToSummarize, tokensBefore, previousSummary } = buildArmInputs(entries);
-    const reserveTokens = DEFAULT_COMPACTION_SETTINGS.reserveTokens;
-    const summarizedEntryTokens = Math.ceil(JSON.stringify(messagesToSummarize).length / 4);
-    const conversationText = messagesToSummarize.map((m) => JSON.stringify(m)).join("\n");
+    // Per-session resilience: one dead session (e.g. HTTP 400 "Prompt exceeds
+    // max length" despite the estimate) must not kill the whole run.
+    let result: SessionResult;
+    try {
+      const entries = parseSessionEntries(await readFile(s.path, "utf8"));
+      const { messagesToSummarize, tokensBefore, previousSummary } = buildArmInputs(entries);
+      const reserveTokens = DEFAULT_COMPACTION_SETTINGS.reserveTokens;
+      const summarizedEntryTokens = Math.ceil(JSON.stringify(messagesToSummarize).length / 4);
+      const conversationText = messagesToSummarize.map((m) => JSON.stringify(m)).join("\n");
 
-    const t0 = performance.now();
-    const builtIn = await generateSummaryWithUsage(
-      messagesToSummarize as never,
-      model,
-      reserveTokens,
-      auth.apiKey,
-      headers,
-      undefined,
-      undefined,
-      previousSummary,
-      undefined, // thinkingLevel
-      undefined, // streamFn
-      auth.env, // env — parity with arm B (env-dependent providers)
-    );
-    const t1 = performance.now();
-    const ccStyle = await summarizeCcStyle(
-      { messages: messagesToSummarize as never, previousSummary, reserveTokens, signal: new AbortController().signal },
-      model,
-      { apiKey: auth.apiKey, headers, env: auth.env },
-    );
-    const t2 = performance.now();
+      const t0 = performance.now();
+      const builtIn = await generateSummaryWithUsage(
+        messagesToSummarize as never,
+        model,
+        reserveTokens,
+        auth.apiKey,
+        headers,
+        undefined,
+        undefined,
+        previousSummary,
+        undefined, // thinkingLevel
+        undefined, // streamFn
+        auth.env, // env — parity with arm B (env-dependent providers)
+      );
+      const t1 = performance.now();
+      const ccStyle = await summarizeCcStyle(
+        { messages: messagesToSummarize as never, previousSummary, reserveTokens, signal: new AbortController().signal },
+        model,
+        { apiKey: auth.apiKey, headers, env: auth.env },
+      );
+      const t2 = performance.now();
 
-    results.push({
-      session: s.id,
-      tokensBefore,
-      armA: {
-        metrics: computeMetrics({
-          tokensBefore,
-          summaryTokens: Math.ceil(builtIn.text.length / 4),
-          summarizedEntryTokens,
-          wallMs: t1 - t0,
-          usage: toMetricsUsage(builtIn.usage),
-        }),
-        summaryPreview: builtIn.text.slice(0, 200),
-      },
-      armB: {
-        metrics: computeMetrics({
-          tokensBefore,
-          summaryTokens: Math.ceil(ccStyle.summary.length / 4),
-          summarizedEntryTokens,
-          wallMs: t2 - t1,
-          usage: toMetricsUsage(ccStyle.usage),
-        }),
-        summaryPreview: ccStyle.summary.slice(0, 200),
-        sessionType: ccStyle.sessionType,
-      },
-      // Fact set for later blind judging: deterministic ground truth both summaries should recall.
-      factSet: {
-        paths: [...ccStyle.fileOps.read, ...ccStyle.fileOps.edited, ...ccStyle.fileOps.written].slice(0, 50),
-        userRequests: ccStyle.userMessages.slice(0, 20).map((m) => m.text.slice(0, 200)),
-        errorStrings: extractErrorStrings(conversationText),
-      },
-    });
-    const last = results.at(-1)!;
+      result = {
+        session: s.id,
+        tokensBefore,
+        armA: {
+          metrics: computeMetrics({
+            tokensBefore,
+            summaryTokens: Math.ceil(builtIn.text.length / 4),
+            summarizedEntryTokens,
+            wallMs: t1 - t0,
+            usage: toMetricsUsage(builtIn.usage),
+          }),
+          summaryPreview: builtIn.text.slice(0, 200),
+        },
+        armB: {
+          metrics: computeMetrics({
+            tokensBefore,
+            summaryTokens: Math.ceil(ccStyle.summary.length / 4),
+            summarizedEntryTokens,
+            wallMs: t2 - t1,
+            usage: toMetricsUsage(ccStyle.usage),
+          }),
+          summaryPreview: ccStyle.summary.slice(0, 200),
+          sessionType: ccStyle.sessionType,
+        },
+        // Fact set for later blind judging: deterministic ground truth both summaries should recall.
+        factSet: {
+          paths: [...ccStyle.fileOps.read, ...ccStyle.fileOps.edited, ...ccStyle.fileOps.written].slice(0, 50),
+          userRequests: ccStyle.userMessages.slice(0, 20).map((m) => m.text.slice(0, 200)),
+          errorStrings: extractErrorStrings(conversationText),
+        },
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      errors.push({ session: s.id, error: message });
+      console.log(`✖ ${s.id}  ${message}`);
+      continue;
+    }
+    results.push(result);
     console.log(
-      `✔ ${s.id}  A:${last.armA.metrics.summaryTokens}tok/${Math.round(t1 - t0)}ms  B:${last.armB.metrics.summaryTokens}tok/${Math.round(t2 - t1)}ms`,
+      `✔ ${s.id}  A:${result.armA.metrics.summaryTokens}tok/${Math.round(result.armA.metrics.wallMs)}ms  B:${result.armB.metrics.summaryTokens}tok/${Math.round(result.armB.metrics.wallMs)}ms`,
     );
   }
 
@@ -226,8 +268,15 @@ async function main() {
   const out = arg("out");
   if (out) {
     await mkdir(dirname(out), { recursive: true });
-    await Bun.file(out).write(JSON.stringify({ model: `${provider}/${id}`, results }, null, 2));
+    await Bun.file(out).write(
+      JSON.stringify({ model: `${provider}/${id}`, results, skipped: skippedSessions, errors }, null, 2),
+    );
     console.log(`wrote ${out}`);
+  }
+
+  if (!results.length) {
+    console.error("no sessions produced results — all failed or skipped");
+    process.exit(1);
   }
 }
 

@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { computeMetrics, extractErrorStrings, selectSessions, type SessionCandidate } from "./ab-metrics.ts";
+import {
+  computeMetrics,
+  extractErrorStrings,
+  FALLBACK_CONTEXT_WINDOW_TOKENS,
+  maxPromptTokens,
+  partitionByTokenBudget,
+  selectSessions,
+  type SessionCandidate,
+} from "./ab-metrics.ts";
 
 describe("selectSessions", () => {
   test("keeps sessions with ≥ minMessages message entries, largest first, capped at n", () => {
@@ -11,6 +19,32 @@ describe("selectSessions", () => {
     });
     const out = selectSessions([c("a", 5), c("b", 500), c("c", 120), c("d", 40)], { minMessages: 50, n: 2 });
     expect(out.map((s) => s.id)).toEqual(["b", "c"]);
+  });
+});
+
+describe("maxPromptTokens", () => {
+  test("half the model's context window; fallback constant without one", () => {
+    expect(maxPromptTokens({ contextWindow: 200_000 })).toBe(100_000);
+    expect(maxPromptTokens(undefined)).toBe(FALLBACK_CONTEXT_WINDOW_TOKENS / 2);
+    expect(maxPromptTokens({ contextWindow: 0 })).toBe(FALLBACK_CONTEXT_WINDOW_TOKENS / 2);
+  });
+});
+
+describe("partitionByTokenBudget", () => {
+  const c = (id: string, estimatedTokens?: number): SessionCandidate => ({
+    id,
+    path: `/s/${id}.jsonl`,
+    messageEntries: 100,
+    bytes: 1000,
+    estimatedTokens,
+  });
+
+  test("drops over-budget sessions with a reason; keeps unknown estimates", () => {
+    const { kept, skipped } = partitionByTokenBudget([c("small", 1000), c("huge", 90_000), c("unknown")], 50_000);
+    expect(kept.map((s) => s.id)).toEqual(["small", "unknown"]);
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0].id).toBe("huge");
+    expect(skipped[0].reason).toContain("90000tok");
   });
 });
 
