@@ -1,11 +1,4 @@
 ---
-id: 5e52bf2b-f03a-42f1-9df9-b0e348f11db0
-created: 2026-08-17
-last: 2026-08-17
----
-docs/superpowers/ namespace RETIRED (user directive 2026-08-16): never write specs/plans/docs under docs/superpowers/ again — everything lives under .planning/ (.planning/specs/, .planning/plans/, audit dockets → .planning/audit/). Migration included: s2-agent-ext-task plan-coordinator legacy fallback switched from docs/superpowers/plans to .planning/plans (done BEFORE symlink removal), symlink deletion, guard test + ADR, and ~25 dangling reference fixes. Superpowers skills-fidelity guardrail: skills-fidelity.test.ts (ADR-0004) pins ported skills byte-equal to baseline fixtures — intentional drift from a merge/surgery MUST run bun scripts/rebaseline-upstream-skills.ts before tests pass.
-§
----
 id: 89f47e61-2353-4a48-b7ca-0298350e9c82
 created: 2026-08-17
 last: 2026-08-17
@@ -69,23 +62,22 @@ last: 2026-08-18
 Self-improve loop surface (PR #1699, 2026-08-19): `./s2-agent.sh cli loop status` — report-only (always exit 0) 5-signal drift report over MVP packages (wayfind/superpowers/subagent + core-*; image/video extensions explicitly out of scope per user). Signals: dispatch death rate (broad <15% over ~100 runs, soak issue #1681), skill line budget (≤300/file), coverage floor, schema-cost, drift census. runStats parser must be line-start anchored so runs-stats cohort rows (`cohort x: n=154 done=119…`) don't false-match summary rows; also accepts keyword-first (`done 126`). New CLI commands follow `cli/commands/*.ts` + COMMANDS registry in dispatch.ts — forgetting the import causes silent fall-through to chat.
 §
 ---
-id: 9cc4cbbd-841d-4958-9078-3a4c3ceb56f0
-created: 2026-08-19
-last: 2026-08-19
+id: 56eb5722-6988-43c9-b022-87be48e12c7f
+created: 2026-08-21
+last: 2026-08-21
 ---
-subagent tool vs direct-call gap: subagent tool seam 套用 role envelopes，但 direct `spawnSubagent()` 呼叫點無 cap。補救：`roleAwareDirectCall()` helper 統一 caps+abort-safety footer 原子同進退。（2026-08-18，#1654–#1661）
-id: 1ebce484-10e9-408a-b8b1-769774a84268
-created: 2026-08-18
-last: 2026-08-18
-runs DB persistence: `~/.pi/subagents/runs/*.json` 的 200/200 筆記錄全部帶完整 `usage` 欄位（input/output/cacheRead/total）。舊 empirics 說「run records don't persist tokenUsage」是過時主張，已推翻。（2026-08-18，#1667）
-id: e78e356c-1640-4223-82c0-c026454c7c25
-created: 2026-08-18
-last: 2026-08-18
-macOS + commit-scope anti-patterns (2026-08-18): GNU coreutils `timeout` 不存在，必須用 tool-level timeout 或 process 本身的 timeoutMs 參數；使用 shell `timeout` 會 exit 127 "command not found"。commit-scope 使用 `git add -A` 會 sweep 不相關檔案進 commit，造成 violation；必須使用明確路徑 `git add <files>`。 <!-- created=2026-08-18, last=2026-08-18 -->
-id: 648fc159-d9de-4763-bd37-51d7da282354
-created: 2026-08-18
-last: 2026-08-18
-parallel session 競態風險: 直接推 main 會被並行 session 的 pre-push CI 視窗截擋（~40s）。正確路徑: 分支推送→PR→pr-finish（API squash-merge）伺服器端原子處理。（2026-08-18，#1656 push 失敗案例）id: 6d248669-ce83-43a8-9fdd-4f174b891a30
-Dispatch budget envelope closure chain complete (2026-08-18): #1652 tool-seam rebalance (recon 120k/12t, writer 400k/28t) → #1653 obsidian distill OB_SUBAGENT_TIMEOUT_MS 5→20min → #1654 zk_card/zk_ask role bounds via exported ROLE_AWARE_DISPATCH_BOUNDS → #1655 hermes background-review fallback recon caps → #1656 hermes session-flush/auto-consolidate (writer) + correction-detector (recon) caps. Pattern for capping a raw spawnSubagent site: spread roleAwareDefaults(role) into options but override with the site's existing tighter timeoutMs; SUBAGENT_TOKEN_BUDGET_DISABLE escape hatch; pin with per-site tests.
-id: 2d40a851-883e-4140-ab73-b588f5b0c106
-LeanRAG completion (2026-08-18, PRs #1619/#1623/#1639/#1648, effort archived 8f36e219): augmentEmbedText wired via `entityAugment` seam leaf in core-interface KnowledgePipeline — zk publishes entity-summary capability, hermes defensively reads; direct hermes→zk import is FORBIDDEN by dep-guard.test.ts (ADR-monorepo-0001 invariant #4, no allowlist). Embed staleness escapes via DEFAULT_EMBED_MODEL_VERSION bump (+es1 suffix triggers full delta re-embed). hierarchy hang-mode breaker = summaryBreaker K=3 knob in zk hierarchy.ts cluster loop. kgLlmModel precedence: call-opts > config.kgLlmModel (hermes loadConfig) > PI_KG_LLM_MODEL env.
+Main health (2026-08-21) shows 5 packages with failing test gates: s2-agent-ext-movie-director (selectProvider soft-hint probe), s2-agent-ext-subagent (biome unused imports), s2-agent-ext-superpowers (biome unsafe literal-key fix), s2-agent-ext-task (IO-round-trip tests via PI_CODING_AGENT_DIR fail — real ~/.pi/agent/settings.json polluted), s2-agent-ext-wayfind (same IO-round-trip issue). Running fix-main-green-5pkgs branch to resolve.
+§
+---
+id: f0afbc32-edfa-44c4-a457-dcc850779047
+created: 2026-08-21
+last: 2026-08-21
+---
+Subagent tool gaps & platform fixes (2026-08-18, #1654–#1667): subagent tool envelopes roles but direct spawnSubagent() lacks caps → roleAwareDirectCall() helper unifies. runs DB persists full usage (input/output/cacheRead/total) — earlier empirics were wrong. macOS: GNU timeout unavailable (use tool-level/timeoutMs), commit-scope must use explicit paths not `git add -A`. Parallel push to main races with sibling CI (~40s) → branch→PR→pr-finish atomic squash-merge. Dispatch budget envelope chain: #1652 tool-seam rebalance (recon 120k/12t, writer 400k/28t) → #1653 OB_SUBAGENT_TIMEOUT_MS 5→20min → #1654 ROLE_AWARE_DISPATCH_BOUNDS → #1655 hermes recon caps → #1656 hermes writer caps. LeanRAG completion (#1619/#1623/#1639/#1648): embedText via entityAugment seam in KnowledgePipeline; no direct hermes→zk import (ADR-monorepo-0001 #4); embed staleness via DEFAULT_EMBED_MODEL_VERSION bump; hierarchy hang via summaryBreaker K=3; kgLlmModel precedence: call-opts > config.kgLlmModel > PI_KG_LLM_MODEL.
+§
+---
+id: 8675fe33-4887-46d9-9165-f5878fcbe448
+created: 2026-08-21
+last: 2026-08-21
+---
+The pi/s2-agent harness leaks PI_PACKAGE_DIR (+BUN_PI_EMBEDDED_EXTRACT_DIR) into every child process including `bun test` runs. pi-coding-agent's config.js resolves package.json via getPackageDir() (honoring PI_PACKAGE_DIR) at module init — under the leak, APP_NAME becomes "s2-agent" (embedded-assets piConfig.name), so getAgentDir() honors S2-AGENT_CODING_AGENT_DIR instead of PI_CODING_AGENT_DIR, themes resolve to embedded-assets (missing in dev trees), and extensions' skill/asset dirs resolve to the deployed extraction. Symptoms: wayfind/task settings IO tests, subagent theme ENOENT, superpowers skillPaths=[], all failing under check_main_health (2026-08-21, fixed in #1784). Canonical fix: reuse s2-agent's bunfig preload `bun-apps/s2-agent/scripts/scrub-session-env.preload.ts` (narrow rule — deletes PI_PACKAGE_DIR only when it points at .pi/agent/embedded-assets; #1775) in ANY extension package whose tests import pi-coding-agent; bun test does NOT read a parent bunfig, so the preload must be wired per-package via a package-local bunfig.toml (listed at top-level AND [test]). Alternative for extension-specific resolution: pass import.meta.url through the injectable fromUrl seam (superpowers' resolveSkillsDir/getBootstrapContent pattern).
