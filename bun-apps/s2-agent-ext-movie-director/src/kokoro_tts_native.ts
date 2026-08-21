@@ -141,9 +141,12 @@ export interface KokoroTtsInput {
   _spawnImpl?: (args: string[]) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
 }
 
-/** Build the argv tail for `kokoro-tts generate` from KokoroTtsOptions. */
+/** Build the argv tail for `kokoro-tts generate` from KokoroTtsOptions.
+ *  An omitted/blank voice resolves to the language-aware default here, so the
+ *  argv is always complete regardless of caller. */
 export function buildKokoroTtsArgs(opts: KokoroTtsOptions, output: string): string[] {
-  const args: string[] = ["generate", "--text", opts.text, "--voice", opts.voice, "--output", output];
+  const voice = opts.voice?.trim() || defaultKokoroVoice(opts.text);
+  const args: string[] = ["generate", "--text", opts.text, "--voice", voice, "--output", output];
   if (opts.speed != null) args.push("--speed", String(opts.speed));
   if (opts.modelRepo != null) args.push("--model-repo", opts.modelRepo);
   return args;
