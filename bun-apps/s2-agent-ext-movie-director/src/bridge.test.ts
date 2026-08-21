@@ -751,7 +751,7 @@ describe("selectAndGenerate — selector + bridge integration (mocked)", () => {
   });
 });
 
-describe("selectAndGenerate — tts quality-first fallback (edge-tts before say)", () => {
+describe("selectAndGenerate — tts quality-first chain (kokoro → edge-tts → say)", () => {
   const sayOk: ToolResult = {
     success: true, provider: "say", command: "narrate", artifacts: [{ path: "/out/say.aiff", kind: "audio" }],
     error: null, cost_usd: 0, duration_seconds: 1, seed: null, model: "say",
@@ -764,15 +764,77 @@ describe("selectAndGenerate — tts quality-first fallback (edge-tts before say)
     success: false, provider: "edge-tts", command: "narrate", artifacts: [],
     error: "network unreachable", cost_usd: 0, duration_seconds: 1, seed: null, model: "edge-tts",
   };
+  const kokoroOk: ToolResult = {
+    success: true, provider: "kokoro", command: "narrate", artifacts: [{ path: "/out/kokoro.wav", kind: "audio" }],
+    error: null, cost_usd: 0, duration_seconds: 1, seed: null, model: "kokoro",
+  };
+  const kokoroFail: ToolResult = {
+    success: false, provider: "kokoro", command: "narrate", artifacts: [],
+    error: "binary not built", cost_usd: 0, duration_seconds: 1, seed: null, model: "kokoro",
+  };
 
-  // These two rely on the REAL (unpinned) selectProvider("tts", {}) landing on
-  // "say" as the default pick — say's probe is hard-gated to
-  // process.platform === "darwin" (providers.ts, no test seam), so on
-  // non-darwin CI runners nothing resolves to "say" at all and these don't
-  // apply. The third test below (explicit provider:"say" hint) is
-  // platform-independent — an explicit hint matches statically-configured
-  // entries without going through the probe — so it still runs everywhere.
-  it.skipIf(process.platform !== "darwin")("no provider hint + default pick is say → tries edge-tts first and uses it on success", async () => {
+  // 2026-08-21: kokoro (local Swift MLX) is the bare-tts default; a missing
+  // adapter in the test deps is a runtime failure, so chains without a
+  // "bun:kokoro-tts" adapter exercise the downstream fallbacks exactly like a
+  // real kokoro failure does.
+  it("no provider hint → tries kokoro first and uses it on success (edge/say never run)", async () => {
+    let edgeCalled = false;
+    let sayCalled = false;
+    const { entry, result } = await selectAndGenerate(
+      "tts",
+      { command: "narrate", options: { text: "hello" } },
+      {},
+      {
+        adapters: {
+          "bun:kokoro-tts": (async () => kokoroOk) as Adapter,
+          "bun:tts-native": (async () => { edgeCalled = true; return edgeOk; }) as Adapter,
+          "macos:say": (async () => { sayCalled = true; return sayOk; }) as Adapter,
+        },
+      },
+    );
+    expect(entry.provider).toBe("kokoro");
+    expect(result).toBe(kokoroOk);
+    expect(edgeCalled).toBe(false);
+    expect(sayCalled).toBe(false);
+  });
+
+  it("kokoro fails at runtime (e.g. binary not built) → falls back to edge-tts", async () => {
+    let sayCalled = false;
+    const { entry, result } = await selectAndGenerate(
+      "tts",
+      { command: "narrate", options: { text: "hello" } },
+      {},
+      {
+        adapters: {
+          "bun:kokoro-tts": (async () => kokoroFail) as Adapter,
+          "bun:tts-native": (async () => edgeOk) as Adapter,
+          "macos:say": (async () => { sayCalled = true; return sayOk; }) as Adapter,
+        },
+      },
+    );
+    expect(entry.provider).toBe("edge-tts");
+    expect(result).toBe(edgeOk);
+    expect(sayCalled).toBe(false);
+  });
+
+  it("kokoro + edge-tts both fail → falls back to the say result", async () => {
+    const { entry, result } = await selectAndGenerate(
+      "tts",
+      { command: "narrate", options: { text: "hello" } },
+      {},
+      {
+        adapters: {
+          "bun:kokoro-tts": (async () => kokoroFail) as Adapter,
+          "bun:tts-native": (async () => edgeFail) as Adapter,
+          "macos:say": (async () => sayOk) as Adapter,
+        },
+      },
+    );
+    expect(entry.provider).toBe("say");
+    expect(result).toBe(sayOk);
+  });
+
+  it("no kokoro adapter wired (treated as failure) → edge-tts result (legacy deps shape)", async () => {
     let sayCalled = false;
     const { entry, result } = await selectAndGenerate(
       "tts",
@@ -788,22 +850,6 @@ describe("selectAndGenerate — tts quality-first fallback (edge-tts before say)
     expect(entry.provider).toBe("edge-tts");
     expect(result).toBe(edgeOk);
     expect(sayCalled).toBe(false); // edge succeeded — say's adapter must never run
-  });
-
-  it.skipIf(process.platform !== "darwin")("edge-tts fails at runtime (e.g. no network) → falls back to the say result", async () => {
-    const { entry, result } = await selectAndGenerate(
-      "tts",
-      { command: "narrate", options: { text: "hello" } },
-      {},
-      {
-        adapters: {
-          "bun:tts-native": (async () => edgeFail) as Adapter,
-          "macos:say": (async () => sayOk) as Adapter,
-        },
-      },
-    );
-    expect(entry.provider).toBe("say");
-    expect(result).toBe(sayOk);
   });
 
   it("explicit provider:\"say\" hint bypasses the edge-tts-first upgrade entirely", async () => {

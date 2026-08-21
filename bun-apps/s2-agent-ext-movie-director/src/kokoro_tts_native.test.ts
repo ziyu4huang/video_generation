@@ -1,8 +1,14 @@
 import { describe, expect, it, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildKokoroTtsArgs, runKokoroTtsNative } from "./kokoro_tts_native.ts";
+import {
+	buildKokoroTtsArgs,
+	chunkNarration,
+	concatWavFiles,
+	defaultKokoroVoice,
+	runKokoroTtsNative,
+} from "./kokoro_tts_native.ts";
 import type { KokoroTtsOptions } from "./kokoro_tts_native.ts";
 
 let dir: string;
@@ -113,19 +119,133 @@ describe("runKokoroTtsNative — spawn injection (no built binary needed)", () =
     expect(result.summary).toContain("ENOENT");
   });
 
-  it("ok=false + does NOT spawn when voice is empty (validated before the binary is invoked)", async () => {
-    const out = join(dir, "no-voice.wav");
-    let spawnCalls = 0;
+  it("empty voice falls back to the language-aware default (en text → af_heart)", async () => {
+    const out = join(dir, "default-voice.wav");
     const result = await runKokoroTtsNative({
-      options: { text: "x", voice: "" },
+      options: { text: "Hello there.", voice: "" },
       output: out,
       _spawnImpl: async () => {
-        spawnCalls++;
-        return { stdout: "", stderr: "", exitCode: 0 };
+        writeFileSync(out, "fake wav bytes");
+        return { stdout: "generated", stderr: "", exitCode: 0 };
       },
     });
+    expect(result.details.ok).toBe(true);
+    expect(result.details.voice).toBe("af_heart");
+  });
+
+  it("empty voice falls back to the language-aware default (zh text → zf_xiaobei)", async () => {
+    const out = join(dir, "default-voice-zh.wav");
+    const result = await runKokoroTtsNative({
+      options: { text: "這是一段中文旁白,用來測試預設聲音。" },
+      output: out,
+      _spawnImpl: async () => {
+        writeFileSync(out, "fake wav bytes");
+        return { stdout: "generated", stderr: "", exitCode: 0 };
+      },
+    });
+    expect(result.details.ok).toBe(true);
+    expect(result.details.voice).toBe("zf_xiaobei");
+  });
+});
+
+describe("chunkNarration — long-text chunking (g2p 510-token cap)", () => {
+  it("short text stays a single chunk", () => {
+    expect(chunkNarration("Hello from Kokoro.")).toEqual(["Hello from Kokoro."]);
+  });
+
+  it("CJK-dominant long text splits at sentence boundaries under the CJK limit", () => {
+    const sentence = "這是一個測試句子,用來驗證分段邏輯。";
+    const text = sentence.repeat(12); // ~14 chars × 12 = ~168 chars > 120
+    const chunks = chunkNarration(text);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(120);
+    // concatenation preserves all sentences in order
+    expect(chunks.join("")).toBe(text);
+  });
+
+  it("latin text uses the larger limit and keeps sentence boundaries", () => {
+    const sentence = "The model denoises one step at a time. ";
+    const text = sentence.repeat(20); // ~1.4k chars > 400
+    const chunks = chunkNarration(text);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(400);
+    // chunk-boundary trailing spaces are trimmed — re-insert one space at the
+    // join before comparing
+    expect(chunks.join(" ").replace(/\s+/g, " ").trim()).toBe(text.replace(/\s+/g, " ").trim());
+  });
+
+  it("a single over-limit sentence without boundary punctuation is hard-split", () => {
+    const text = "字".repeat(300); // one "sentence", no delimiters
+    const chunks = chunkNarration(text);
+    expect(chunks.length).toBeGreaterThanOrEqual(3);
+    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(120);
+    expect(chunks.join("")).toBe(text);
+  });
+
+  it("empty/whitespace input yields no chunks", () => {
+    expect(chunkNarration("")).toEqual([]);
+    expect(chunkNarration("   ")).toEqual([]);
+  });
+});
+
+describe("concatWavFiles — PCM WAV concatenation", () => {
+  function miniWav(samples: number[]): Buffer {
+    // 16-bit mono PCM, 24kHz, canonical 44-byte header
+    const data = Buffer.alloc(samples.length * 2);
+    samples.forEach((s, i) => data.writeInt16LE(s, i * 2));
+    const header = Buffer.alloc(44);
+    header.write("RIFF", 0, "ascii");
+    header.writeUInt32LE(36 + data.length, 4);
+    header.write("WAVE", 8, "ascii");
+    header.write("fmt ", 12, "ascii");
+    header.writeUInt32LE(16, 16);
+    header.writeUInt16LE(1, 20); // PCM
+    header.writeUInt16LE(1, 22); // mono
+    header.writeUInt32LE(24000, 24);
+    header.writeUInt32LE(48000, 28);
+    header.writeUInt16LE(2, 32);
+    header.writeUInt16LE(16, 34);
+    header.write("data", 36, "ascii");
+    header.writeUInt32LE(data.length, 40);
+    return Buffer.concat([header, data]);
+  }
+
+  it("concatenates two same-format WAVs into one valid PCM WAV", () => {
+    const a = join(dir, "c1.wav");
+    const b = join(dir, "c2.wav");
+    const out = join(dir, "cat.wav");
+    writeFileSync(a, miniWav([100, -100, 50]));
+    writeFileSync(b, miniWav([25, -25]));
+    concatWavFiles([a, b], out);
+    const buf = readFileSync(out);
+    expect(buf.toString("ascii", 0, 4)).toBe("RIFF");
+    expect(buf.readUInt32LE(40)).toBe(10); // 5 samples × 2 bytes
+    expect(buf.length).toBe(54);
+  });
+});
+
+describe("runKokoroTtsNative — multi-chunk synthesis", () => {
+  it("long CJK text spawns once per chunk, concatenates, and cleans up temp parts", async () => {
+    const out = join(dir, "multi.wav");
+    const text = "這是一個測試句子,用來驗證分段邏輯。".repeat(12);
+    let spawnCalls = 0;
+    const result = await runKokoroTtsNative({
+      options: { text },
+      output: out,
+      _spawnImpl: async (_args) => {
+        spawnCalls++;
+        const m = /--output (\S+)/.exec(_args.join(" "));
+        writeFileSync(m![1]!, "x".repeat(58)); // >44 bytes: RIFF-ish content, fine for ok check
+        return { stdout: "generated", stderr: "", exitCode: 0 };
+      },
+    });
+    expect(spawnCalls).toBeGreaterThan(1);
+    // The fake part content is not a parseable WAV, so concatenation fails
+    // gracefully (ok=false, actionable summary) — and the temp parts are
+    // cleaned up either way.
     expect(result.details.ok).toBe(false);
-    expect(result.summary).toContain("voice is required");
-    expect(spawnCalls).toBe(0);
+    expect(result.summary).toContain("concatenate");
+    expect(existsSync(`${out}.part0.wav`)).toBe(false);
+    expect(result.details.output ?? "").not.toContain(".part");
   });
 });

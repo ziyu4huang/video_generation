@@ -1459,22 +1459,28 @@ export async function selectAndGenerate(
   // in selectorOpts (command-routing tiebreak lives in the selector).
   const entry = selectProvider(capability, { ...selectorOpts, command: selectorOpts.command ?? req.command });
 
-  // Quality-first opportunistic upgrade for narration: the static ranking
-  // defaults tts to macOS `say` (offline-safe, robotic) because edge-tts's
-  // probe can't verify live network reachability ahead of time (see
-  // registry.ts's edge_tts notes). A 2026-07-11 A/B (edge-tts vs `say` vs
-  // LTX-2.3's own joint audio generation) confirmed edge-tts is clearly the
-  // most natural of the three. When the caller didn't pin a provider and the
-  // default landed on `say`, try edge-tts first — a real network failure
-  // falls straight through to the `say` result below, so this never
-  // regresses the offline/no-network case, it only upgrades the online one.
-  if (capability === "tts" && !selectorOpts.provider && entry.provider === "say") {
-    const edgeEntry = REGISTRY.find((p) => p.capability === "tts" && p.provider === "edge-tts" && p.configured);
-    if (edgeEntry) {
-      const edgeResult = await generate(edgeEntry, { ...req, capability }, deps);
-      if (edgeResult.success) return { entry: edgeEntry, result: edgeResult };
-      // fall through — network genuinely unavailable, use the `say` pick.
+  // Quality-first local narration chain (2026-08-21 A/B: kokoro — local
+  // Swift MLX — at latency parity with edge-tts, fully offline, higher
+  // quality than `say`; promoted over the 2026-07-11 edge-tts-first chain).
+  // The static ranking now lands kokoro for bare tts calls; a REAL runtime
+  // failure (binary missing/unbuildable, text edge case) falls through
+  // edge-tts (network) and then the offline-safe `say` pick — so the chain
+  // never regresses the offline/no-network case, it only upgrades it.
+  if (capability === "tts" && !selectorOpts.provider) {
+    const chain: string[] = [];
+    if (entry.provider !== "kokoro" && entry.provider !== "edge-tts" && entry.provider !== "say") {
+      chain.push(entry.provider);
     }
+    chain.push("kokoro", "edge-tts", "say");
+    let firstFailure: { entry: ProviderEntry; result: ToolResult } | null = null;
+    for (const provider of chain) {
+      const e = REGISTRY.find((p) => p.capability === "tts" && p.provider === provider && p.configured);
+      if (!e) continue;
+      const r = await generate(e, { ...req, capability }, deps);
+      if (r.success) return { entry: e, result: r };
+      firstFailure ??= { entry: e, result: r };
+    }
+    if (firstFailure) return firstFailure;
   }
 
   const result = await generate(entry, { ...req, capability }, deps);
