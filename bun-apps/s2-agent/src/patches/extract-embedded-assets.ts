@@ -9,6 +9,10 @@
  *
  * and sets process.env.PI_PACKAGE_DIR to that directory so pi's
  * getThemesDir()/getExportTemplateDir()/getAssetsDir() resolve correctly.
+ * It ALSO mirrors the deploy dir's package.json into the cache: pi reads
+ * VERSION / APP_NAME / CONFIG_DIR_NAME from <getPackageDir()>/package.json
+ * and getPackageDir() honors PI_PACKAGE_DIR, so the redirect alone made every
+ * deployed binary report VERSION "0.0.0" and APP_NAME "pi".
  *
  * Exports computeEmbeddedExtractDir() so run-dir/resolve.ts can compute the
  * SAME cache dir for binary-mode --skill path resolution.
@@ -22,7 +26,7 @@
  *   2) extracting the blobs (one Bun.write per file, ~88 files / ~1.6 MB)
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { isBunBinary } from "../mode.ts";
@@ -98,6 +102,32 @@ if (isBunBinary(import.meta.url) && EMBEDDED_ASSETS.length > 0) {
   if (cacheDir && !isAlreadyExtracted(cacheDir)) {
     await extractAll(cacheDir);
     markExtracted(cacheDir);
+  }
+  // Mirror the deploy dir's package.json (version + piConfig) into the cache
+  // so the PI_PACKAGE_DIR redirect below does not break version/branding
+  // resolution (deploy-e2e.test.ts asserts --version == the deploy version).
+  // Written on EVERY boot — unconditionally and outside the marker check:
+  // the cache dir is keyed by the asset manifest hash + Bun.version and is
+  // REUSED across deploy versions, so a copy made once at extraction time
+  // would go stale the moment a newer deploy shares the same hash.
+  // Atomic tmp+rename, NOT copyFileSync: copyfile(2) propagates the frozen
+  // deploy tree's read-only (444) mode onto the destination, and every later
+  // boot's overwrite then fails EACCES — an unhandled module-init exception
+  // that kills the binary. rename only needs write on the cache DIR; a
+  // concurrent reader sees either the old or the new file, never a partial
+  // JSON (config.js rethrows parse errors, so a torn write would crash pi).
+  // Any failure here degrades to pi's pre-existing fallback (VERSION "0.0.0")
+  // instead of taking boot down — never let a cache-dir hiccup kill startup.
+  const deployPkgJson = join(dirname(process.execPath), "package.json");
+  if (cacheDir && existsSync(deployPkgJson)) {
+    const dst = join(cacheDir, "package.json");
+    const tmp = `${dst}.tmp-${process.pid}`;
+    try {
+      writeFileSync(tmp, readFileSync(deployPkgJson, "utf8"), { mode: 0o644 });
+      renameSync(tmp, dst);
+    } catch {
+      rmSync(tmp, { force: true });
+    }
   }
   // Set PI_PACKAGE_DIR so pi's getThemesDir()/getAssetsDir() resolve here.
   // Uses ??= so an existing explicit override takes precedence. cacheDir is
