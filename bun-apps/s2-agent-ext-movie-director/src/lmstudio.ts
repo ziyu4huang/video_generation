@@ -13,6 +13,8 @@
  * LOCAL ONLY: LM Studio always resolves to localhost — never a cloud LLM API.
  */
 
+import { loadModelTierConfig, resolveModelRole, type ModelTierConfig } from "@repo/s2-agent-core-runtime";
+
 const DEFAULT_API_URL = "http://localhost:1234/v1";
 const FAST_MAX_TOKENS = 2048;
 const SAFETY_MAX_TOKENS = 14000;
@@ -70,19 +72,34 @@ export async function catalogModelKeys(apiUrl: string, fetchImpl: typeof fetch =
 
 /**
  * The gemma brain resolver (mirrors caption.py's `resolve_default_model` /
- * `_resolve_model` with no explicit `--model`): prefer an already-loaded
- * google/gemma-4-12b, then any already-loaded model, then the auto-load
- * default if it's downloaded. The local model convention across
- * s2-agent-ext-* is a single model (google/gemma-4-12b), so there is no
- * separate lightweight fallback anymore.
+ * `_resolve_model` with no explicit `--model`): the PREFERRED model is the
+ * central vision slot from ~/.pi/workflows/model-tiers.json
+ * (capabilities.vision — provider prefix stripped, so LM Studio ids keep their
+ * own "google/" prefix). When that isn't configured, fall back to the legacy
+ * local probe: any already-loaded model, then the auto-load default if it's
+ * downloaded, then DEFAULT_MODEL as terminal fallback.
  */
 const PREFERRED_MODELS = ["google/gemma-4-12b"];
 const DEFAULT_MODEL = "google/gemma-4-12b";
 const FALLBACK_MODELS: string[] = [];
 
-export async function resolveDefaultModel(apiUrl: string = DEFAULT_API_URL, fetchImpl: typeof fetch = fetch): Promise<string> {
+/** Central vision slot → LM Studio model id (provider prefix stripped), or null. */
+export function centralVisionModel(config: ModelTierConfig | null = loadModelTierConfig()): string | null {
+  const spec = resolveModelRole({ capability: "vision" }, config);
+  if (!spec) return null;
+  const slash = spec.indexOf("/");
+  return slash === -1 ? spec : spec.slice(slash + 1);
+}
+
+export async function resolveDefaultModel(
+  apiUrl: string = DEFAULT_API_URL,
+  fetchImpl: typeof fetch = fetch,
+  config: ModelTierConfig | null = loadModelTierConfig(),
+): Promise<string> {
+  const central = centralVisionModel(config);
   const loaded = (await loadedModelKeys(apiUrl, fetchImpl)) ?? new Set<string>();
-  for (const candidate of PREFERRED_MODELS) {
+  const preferred = central ? [central, ...PREFERRED_MODELS] : [...PREFERRED_MODELS];
+  for (const candidate of preferred) {
     if (loaded.has(candidate)) return candidate;
   }
   if (loaded.size > 0) {
@@ -90,11 +107,12 @@ export async function resolveDefaultModel(apiUrl: string = DEFAULT_API_URL, fetc
     return [...loaded][0]!;
   }
   const catalog = (await catalogModelKeys(apiUrl, fetchImpl)) ?? new Set<string>();
+  if (central && catalog.has(central)) return central;
   if (catalog.has(DEFAULT_MODEL)) return DEFAULT_MODEL;
   for (const fb of FALLBACK_MODELS) {
     if (catalog.has(fb)) return fb;
   }
-  return DEFAULT_MODEL;
+  return central ?? DEFAULT_MODEL;
 }
 
 /** Best-effort: POST /api/v1/models/load. Never throws — a failed ensure just proceeds anyway (mirrors story.py). */
