@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-16-simplefied-redesign-make-less-code-to-archive
 created: 2026-08-16
-last: 2026-08-16
-status: active
+last: 2026-08-21
+status: complete
 ---
 
 # Wayfinder map: 2026-08-16-simplefied-redesign-make-less-code-to-archive

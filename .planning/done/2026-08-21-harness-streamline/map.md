@@ -2,7 +2,7 @@
 effort: 2026-08-21-harness-streamline
 created: 2026-08-21
 last: 2026-08-21
-status: active
+status: complete
 ---
 
 # Wayfinder map: 2026-08-21-harness-streamline
