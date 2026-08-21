@@ -3,9 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { writeMap } from "../map.js";
-import type { WayfindState } from "../overlay.js";
-import { WayfindOverlay } from "../overlay.js";
+import { writeMap } from "../src/map.js";
+import type { WayfindState } from "../src/overlay.js";
+import { WayfindOverlay } from "../src/overlay.js";
 
 const plainTheme = {} as Theme;
 
