@@ -124,3 +124,26 @@ export function parseShConfig(
 		extensions,
 	};
 }
+
+export interface ExcludedExtension {
+	name: string;
+	package: string;
+	reason: string;
+}
+
+/**
+ * The not-shipped half of the registry — every entry WITHOUT a live deploy
+ * block, with its excludeReason verbatim. parseShConfig keeps only the shipped
+ * entries, so the deploy report reads this for its excluded table: the reason
+ * a package stays local is part of the deploy's record, not tribal knowledge.
+ */
+export function excludedExtensions(text: string, opts: { bunAppsDir: string }): ExcludedExtension[] {
+	const registry = parseRegistry(text, opts);
+	return registry.extensions
+		.filter((ext) => ext.deploy?.enabled !== true)
+		.map((ext) => ({
+			name: ext.name,
+			package: ext.package,
+			reason: ext.excludeReason ?? "(no excludeReason given)",
+		}));
+}
