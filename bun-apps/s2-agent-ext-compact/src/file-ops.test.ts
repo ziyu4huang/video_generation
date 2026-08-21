@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { extractFileOps, verifiedFilesBlock, allFiles } from "./file-ops.ts";
 
-const msg = (calls: Array<{ name: string; arguments: Record<string, unknown> }>) => ({
-  role: "assistant" as const,
-  content: calls.map((c, i) => ({ type: "toolCall" as const, id: `t${i}`, ...c })),
-});
+const msg = (calls: Array<{ name: string; arguments: Record<string, unknown> }>) =>
+  ({
+    role: "assistant" as const,
+    content: calls.map((c, i) => ({ type: "toolCall" as const, id: `t${i}`, ...c })),
+  }) as unknown as import("@earendil-works/pi-ai").Message;
 
 describe("extractFileOps", () => {
   test("buckets by tool name, dedupes and sorts", () => {
