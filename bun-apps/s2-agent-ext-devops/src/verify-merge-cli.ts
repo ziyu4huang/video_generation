@@ -23,7 +23,8 @@
  * pull that one object and actually verify.
  */
 import { runVerifyMerge, type VerifyMergeClient } from "./verify-merge-recipe.js";
-import { createGhClient, createBranchClient } from "./gh.js";
+import { createBranchClient } from "./gh.js";
+import { selectForgeClientCached } from "./forge/select.js";
 import type { GhClient } from "./recipe.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
 import { type CliResult, defaultRepoRoot, emit, helpRequested, jsonResult, usageError } from "./cli-common.js";
@@ -109,7 +110,7 @@ export async function runVerifyMergeCli(
 	const a = parsed.args;
 	const repoRoot = a.repoRoot ?? deps.repoRoot ?? defaultRepoRoot();
 	const spawn = deps.spawn ?? createLiveSpawn(repoRoot);
-	const gh = deps.gh ?? createGhClient(spawn);
+	const gh = deps.gh ?? (await selectForgeClientCached({ spawn, repoRoot })).client;
 	const client = deps.client ?? createBranchClient(spawn);
 
 	const outcome = await runVerifyMerge({

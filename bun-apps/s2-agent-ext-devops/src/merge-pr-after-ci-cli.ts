@@ -44,7 +44,8 @@
  */
 import path from "node:path";
 import { runLocalCi, summarizeCiFailures, type CiOutcome } from "./ci-recipe.js";
-import { createGhClient, createBranchClient } from "./gh.js";
+import { createBranchClient } from "./gh.js";
+import { selectForgeClientCached } from "./forge/select.js";
 import type { GhClient } from "./recipe.js";
 import type { BranchClient } from "./branch-recipe.js";
 import { runVerifyMerge, type VerifyMergeOutcome } from "./verify-merge-recipe.js";
@@ -337,7 +338,10 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 
 	const recorded = recordingSpawn(deps.spawn ?? createLiveSpawn(repoRoot));
 	const spawn = recorded.fn;
-	const gh = deps.gh ?? createGhClient(spawn);
+	// Forge selection is recorded like every other spawn (gh auth token /
+	// gh --version probes show up in `commands`); tests inject deps.gh directly
+	// and never reach the selector.
+	const gh = deps.gh ?? (await selectForgeClientCached({ spawn, repoRoot })).client;
 	const client = deps.client ?? createBranchClient(spawn);
 	const runCi = deps.runCi ?? runLocalCi;
 	const verifyMerge = deps.verify ?? runVerifyMerge;

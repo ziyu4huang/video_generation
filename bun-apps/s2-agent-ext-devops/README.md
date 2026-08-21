@@ -59,11 +59,18 @@ The same footgun recurs in **branch cleanup**: `git branch --merged` is silently
 ## Architecture
 
 - `src/pr-logic.ts` — **pure** types shared by the merge recipe (the polling-era `decideRecipeAction` was deleted when polling was removed).
-- `src/recipe.ts` — `runMergeRecipe`: the single-shot local-CI-gated squash merge, all I/O behind injectable `SpawnFn` / client interfaces (tested with scripted fakes).
+- `src/recipe.ts` — `runMergeRecipe`: the single-shot local-CI-gated squash merge, all I/O behind injectable `SpawnFn` / client interfaces (tested with scripted fakes). `GhClient` is now a type alias of the forge-agnostic `ForgeClient`.
+- `src/forge/` — the **forge abstraction** (git-host backends):
+  - `types.ts` — `ForgeClient`: the normalized PR/merge contract (`PrSnapshot`, `mergeNow`).
+  - `rest.ts` — shared REST transport (injectable fetch; `ForgeHttpError` embeds the response body so failure classification keeps working; the token value never appears in output).
+  - `github-rest.ts` — GitHub REST adapter (REST-first backend): pure mappers `mapPullRequest` / `mapChecksRollup` + thin client; union check-runs ∪ commit-statuses rollup; one mergeable-recompute re-GET before UNKNOWN.
+  - `gh-cli.ts` — the gh-CLI adapter (fallback backend; the historical impl, moved from `src/gh.ts`).
+  - `select.ts` — backend selection: `GITHUB_TOKEN`/`GH_TOKEN` env → `gh auth token` → gh on PATH → abort with remediation. Never anonymous REST; Gitea hosts refused with a pointer to the skeleton.
+  - `gitea.ts` — Gitea/Forgejo adapter SKELETON: researched capability map (merge `Do` styles, WIP-prefix drafts, combined-status checks, token auth), not implemented.
 - `src/branch-logic.ts` — **pure** branch classification (`classifyBranch`: signals → confidence + bucket). Fully unit-tested, no I/O.
 - `src/branch-recipe.ts` — `buildSweepPlan` / `executeSweep` / `runSweep`: the sweep orchestration, I/O behind an injectable `BranchClient` (tested with scripted fakes).
-- `src/gh.ts` — the real `GhClient` / `BranchClient` wrapping the `gh` / `git` CLI via `Bun.spawn`; pure JSON/text parsers (`parsePrView`, `parseChecks`, `parseBranchVv`, `parseMergedPrs`, …).
-- `extensions/devops.ts` — thin glue: registers the tools, wires the live `Bun.spawn` adapter.
+- `src/gh.ts` — `createBranchClient` (git operations, shared by every forge — git never goes through a forge adapter) + pure parsers (`parseBranchVv`, `parseMergedPrs`, …); re-exports the moved gh-client surface for import stability.
+- `extensions/devops.ts` — thin glue: registers the tools, wires the live `Bun.spawn` adapter + `selectForgeClientCached`.
 
 ## Install
 

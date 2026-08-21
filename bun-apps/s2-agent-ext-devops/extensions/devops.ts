@@ -19,7 +19,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { GATE_DEFS } from "@repo/s2-agent-core-interface";
-import { createGhClient, createBranchClient } from "../src/gh.js";
+import { createBranchClient } from "../src/gh.js";
+import { selectForgeClientCached } from "../src/forge/select.js";
 import { createLiveSpawn } from "../src/spawn.js";
 import { runMergeRecipe } from "../src/recipe.js";
 import { runSweep, type SweepOutcome } from "../src/branch-recipe.js";
@@ -389,11 +390,11 @@ export default function (pi: ExtensionAPI): void {
 		}),
 		async execute(_id, params, signal) {
 			const spawn = createLiveSpawn(process.cwd());
-			const gh = createGhClient(spawn);
 			// Resolve the repo root WITHOUT chdir (no top-level cd) — fall back to
 			// process.cwd() if not in a git worktree.
 			const root = await spawn("git", ["rev-parse", "--show-toplevel"]);
 			const repoRoot = root.exitCode === 0 ? root.stdout.trim() : process.cwd();
+			const gh = (await selectForgeClientCached({ spawn, repoRoot })).client;
 			const strategy = (params.strategy === "merge" || params.strategy === "rebase" ? params.strategy : "squash") as
 				| "rebase"
 				| "merge"
@@ -434,7 +435,7 @@ export default function (pi: ExtensionAPI): void {
 			prNumber: Type.Integer({ description: "The PR number to inspect." }),
 		}),
 		async execute(_id, params) {
-			const gh = createGhClient(createLiveSpawn(process.cwd()));
+			const gh = (await selectForgeClientCached({ spawn: createLiveSpawn(process.cwd()) })).client;
 			const s = await gh.prStatus(params.prNumber as number);
 			const c = `${s.checks.pass} pass / ${s.checks.fail} fail / ${s.checks.pending} pending`;
 			const text = `PR #${params.prNumber}: state=${s.state}, mergeState=${s.mergeState}, checks=[${c}]${s.mergeSha ? `, mergeSha=${s.mergeSha.slice(0, 7)}` : ""}.`;
@@ -678,7 +679,7 @@ export default function (pi: ExtensionAPI): void {
 		}),
 		async execute(_id, params, signal) {
 			const spawn = createLiveSpawn(process.cwd());
-			const gh = createGhClient(spawn);
+			const gh = (await selectForgeClientCached({ spawn })).client;
 			const client = createBranchClient(spawn);
 			// Resolve the repo root WITHOUT chdir (no top-level cd) — fall back to
 			// process.cwd() if not in a git worktree.
