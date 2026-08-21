@@ -22,7 +22,7 @@ const registry: Registry = {
       load: "static",
       skills: true,
       binarySkills: true,
-      deploy: { order: 1, copy: [], vendor: [], externals: [], enabled: true },
+      deploy: { order: 1, copy: [], vendor: [], externals: [], vendorExclude: [], enabled: true },
     },
     {
       name: "beta",
@@ -40,7 +40,7 @@ const registry: Registry = {
       load: "static",
       skills: false,
       binarySkills: false,
-      deploy: { order: 2, copy: [], vendor: [], externals: [], enabled: true },
+      deploy: { order: 2, copy: [], vendor: [], externals: [], vendorExclude: [], enabled: true },
     },
     {
       name: "delta",
@@ -50,7 +50,7 @@ const registry: Registry = {
       skills: false,
       binarySkills: false,
       version: "0.1.0",
-      deploy: { order: 3, copy: [], vendor: [], externals: [], enabled: true },
+      deploy: { order: 3, copy: [], vendor: [], externals: [], vendorExclude: [], enabled: true },
     },
     {
       name: "epsilon",

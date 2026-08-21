@@ -59,6 +59,15 @@ export interface ShExtConfig {
 	 * degrades without it) and from hostModules (the core provides it).
 	 */
 	vendor: string[];
+	/**
+	 * Closure deps deliberately dropped from the vendored tree, as exact
+	 * package names or `<scope>/*` patterns. For deps a vendored package
+	 * DECLARES but never resolves at runtime (hyperframes' @fontsource/*:
+	 * producer embeds its fonts as base64 and reads no font package from
+	 * disk) — ~22MB of pure weight otherwise. Recorded in ext.json's
+	 * vendoredClosure.excluded so Gate 5d treats the absence as deliberate.
+	 */
+	vendorExclude: string[];
 	enabled: boolean;
 }
 
@@ -99,6 +108,7 @@ export function parseShConfig(
 			copy: ext.deploy.copy,
 			vendor: ext.deploy.vendor,
 			externals: ext.deploy.externals,
+			vendorExclude: ext.deploy.vendorExclude,
 			enabled: ext.deploy.enabled,
 		}))
 		.sort((a, b) => a.order - b.order);

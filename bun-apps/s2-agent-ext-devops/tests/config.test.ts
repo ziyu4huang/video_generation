@@ -232,3 +232,32 @@ ${extra}
 		).toThrow(/vendor must be an array/);
 	});
 });
+
+describe("vendorExclude", () => {
+	const base = (extra: string) => `
+deploy:
+  outRoot: /tmp/out
+hostApi: 2
+hostModules: ["@earendil-works/pi-coding-agent"]
+extensions:
+  - name: power-tool
+    package: s2-agent-ext-power-tool
+    entry: extensions/power-tool.ts
+    load: static
+    deploy:
+      order: 100
+${extra}
+`;
+
+	test("defaults to an empty list", () => {
+		const cfg = parseShConfig(base(""), { bunAppsDir: BUN_APPS });
+		expect(cfg.extensions[0]!.vendorExclude).toEqual([]);
+	});
+
+	test("parses a declared list through to ShExtConfig", () => {
+		const cfg = parseShConfig(base(`      vendorExclude: ["@fontsource/*"]`), {
+			bunAppsDir: BUN_APPS,
+		});
+		expect(cfg.extensions[0]!.vendorExclude).toEqual(["@fontsource/*"]);
+	});
+});

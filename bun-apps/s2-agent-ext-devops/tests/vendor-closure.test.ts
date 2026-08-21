@@ -64,11 +64,20 @@ function fixtureWorkspace(pkgs: PkgJson[], roots: string[] = []): string {
 		return pkgDir;
 	};
 	const entries = new Map(pkgs.map((p) => [p.name, storeEntry(p)]));
+	// Link a dep into its parent's store row. A SCOPED dep name lives one dir
+	// deeper (@scope/name), and the real @scope dir must exist first — bun's
+	// own layout has it as a real dir of links, so mirror that.
+	const linkDep = (storeNodeModules: string, dep: string): void => {
+		const entry = entries.get(dep);
+		if (!entry) return;
+		const linkPath = join(storeNodeModules, dep);
+		mkdirSync(join(linkPath, ".."), { recursive: true });
+		symlinkSync(entry, linkPath, "dir");
+	};
 	for (const pkg of pkgs) {
 		const storeNodeModules = join(farm, ".bun", `${pkg.name}@${pkg.version}`, "node_modules");
 		for (const dep of [...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.optionalDependencies ?? {})]) {
-			const entry = entries.get(dep);
-			if (entry) symlinkSync(entry, join(storeNodeModules, dep), "dir");
+			linkDep(storeNodeModules, dep);
 		}
 	}
 	for (const root of roots) {
@@ -207,6 +216,83 @@ describe("collectVendorClosure", () => {
 		expect(() =>
 			collectVendorClosure({ roots: ["root-pkg"], resolveFrom: ws, platform: "darwin", arch: "arm64" }),
 		).toThrow(/not-installed/);
+	});
+
+	test("exclude drops a dep and its subtree, recorded as excluded (not pruned)", () => {
+		// The shipped shape: producer declares @fontsource/* but never resolves
+		// them; the font packages' own deps must not ride along either.
+		const ws = fixtureWorkspace(
+			[
+				{
+					name: "producer",
+					version: "1.0.0",
+					dependencies: { "@fontsource/inter": "*", "@fontsource/montserrat": "*", puppeteer: "*" },
+				},
+				{ name: "@fontsource/inter", version: "5.2.8", dependencies: { "font-dep-only": "*" } },
+				{ name: "@fontsource/montserrat", version: "5.2.8" },
+				{ name: "font-dep-only", version: "1.0.0" },
+				{ name: "puppeteer", version: "1.0.0" },
+			],
+			["producer"],
+		);
+		const outDir = makeDir();
+		const nodes = vendorClosure({
+			roots: ["producer"],
+			resolveFrom: ws,
+			outDir,
+			platform: "darwin",
+			arch: "arm64",
+			exclude: ["@fontsource/*"],
+		});
+
+		// The fonts and their transitive dep are gone; everything else ships.
+		expect(specNames(nodes)).toEqual(["producer", "puppeteer"]);
+		expect(nodes[0]!.excluded).toContain("@fontsource/inter");
+		expect(nodes[0]!.excluded).toContain("@fontsource/montserrat");
+		// An exclusion is an operator decision, a prune a platform one — the
+		// two must stay separable for Gate 5d and the ext.json manifest.
+		expect(nodes[0]!.pruned).toEqual([]);
+		expect(existsSync(join(outDir, "node_modules", "@fontsource"))).toBe(false);
+		expect(existsSync(join(outDir, "node_modules", "font-dep-only"))).toBe(false);
+		expect(existsSync(join(outDir, "node_modules", "puppeteer"))).toBe(true);
+	});
+
+	test("exclude also applies to optional deps and to exact (non-pattern) names", () => {
+		const ws = fixtureWorkspace(
+			[
+				{
+					name: "root-pkg",
+					version: "1.0.0",
+					optionalDependencies: { "heavy-optional": "*" },
+					dependencies: { "exact-drop": "*" },
+				},
+				{ name: "heavy-optional", version: "1.0.0", os: ["darwin"], cpu: ["arm64"] },
+				{ name: "exact-drop", version: "1.0.0" },
+			],
+			["root-pkg"],
+		);
+		const nodes = collectVendorClosure({
+			roots: ["root-pkg"],
+			resolveFrom: ws,
+			platform: "darwin",
+			arch: "arm64",
+			exclude: ["heavy-optional", "exact-drop"],
+		});
+		expect(specNames(nodes)).toEqual(["root-pkg"]);
+		expect([...nodes[0]!.excluded].sort()).toEqual(["exact-drop", "heavy-optional"]);
+	});
+
+	test("excluding a ROOT throws — vendor and vendorExclude contradict each other", () => {
+		const ws = fixtureWorkspace([{ name: "root-pkg", version: "1.0.0" }], ["root-pkg"]);
+		expect(() =>
+			collectVendorClosure({
+				roots: ["root-pkg"],
+				resolveFrom: ws,
+				platform: "darwin",
+				arch: "arm64",
+				exclude: ["root-pkg"],
+			}),
+		).toThrow(/root "root-pkg" is also in exclude/);
 	});
 });
 
