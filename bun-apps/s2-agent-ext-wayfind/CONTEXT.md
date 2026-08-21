@@ -87,3 +87,13 @@ _Avoid_: handoff chain, pipeline stages (they are two entry paths, not stages of
 **Plan-writability**:
 The discriminator that picks the pipeline: *can I write a plan right now from what's already settled?* Yes → plan/execute-phase; no → decide-phase. Size is secondary (picks `wayfinder` vs `grilling` within the decide-phase only).
 _Avoid_: complexity, size (it is can-the-plan-be-written, not how-big)
+
+## Deploy asset resolution (documented, deliberately not consolidated — decision D3, 2026-08-21)
+
+`src/procedures.ts` + `src/sh-ext-dir.ts` implement the same three-mode asset
+ladder as four other packages (`s2-agent-ext-superpowers/src/superpowers.ts`,
+obsidian, hermes-memory, host `s2-agent/src/sh/ext-loader.ts`):
+`BUN_PI_EMBEDDED_EXTRACT_DIR` → `require("#pi/ext-dir")` (sh deploy / jiti) →
+injected `fromUrl`. A shared `resolveBundledAssetDir()` in
+`@repo/s2-agent-core-interface` is the consolidation candidate; deferred
+2026-08-21 (D3: document-only) — see superpowers CONTEXT.md for the full note.

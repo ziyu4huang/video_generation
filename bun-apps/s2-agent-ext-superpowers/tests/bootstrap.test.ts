@@ -1,13 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   _resetBootstrapCacheForTests,
   BOOTSTRAP_MARKER,
   getBootstrapContent,
   superpowersExtension,
 } from "../src/index.js";
+import { createMockPi } from "./helpers/mock-pi.js";
 
 /**
  * Drives the Superpowers extension against a minimal in-memory mock of Pi's
@@ -19,23 +19,6 @@ import {
  *
  * Deterministic: no LLM, no network, no real Pi.
  */
-
-type Handler = (event: any, ctx?: any) => any;
-
-function createMockPi(): ExtensionAPI & { handlers: Map<string, Handler>; fire: (e: string, ev?: any) => any } {
-  const handlers = new Map<string, Handler>();
-  const pi = {
-    on: (event: string, handler: Handler) => {
-      handlers.set(event, handler);
-    },
-    // Unused by this extension but required by the ExtensionAPI surface shape
-    // for callers that probe it; kept permissive.
-    sendUserMessage: () => {},
-    registerCommand: () => {},
-  } as unknown as ExtensionAPI;
-  const fire = (event: string, ev: any = {}) => handlers.get(event)?.(ev);
-  return { ...pi, handlers, fire } as any;
-}
 
 describe("superpowers extension wiring", () => {
   it("registers exactly the upstream event hooks", () => {
