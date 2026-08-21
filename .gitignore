@@ -33,7 +33,6 @@ bun-apps/s2-agent-ext-workflow/docs/media/*.gif
 .DS_Store
 .claude/workflows/history/
 .claude/workflows/*.operation-lessons.proposed.jsonl
-.playwright-cli/
 tmp/
 python/mlx-movie-director/app/models/
 # face-restore: facexlib hardcodes a 'gfpgan/weights' download dir (relative to
