@@ -215,4 +215,43 @@ describe("createGithubRestClient", () => {
 		const c = createGithubRestClient({ owner: "o", repo: "r", token: "t", tokenKind: "k", fetchFn: fn, sleep: noSleep });
 		await c.mergeNow(7, "squash", true); // must NOT throw
 	});
+
+	test("prList(merged): closed-but-unmerged rows filtered, mergedAt kept, paginated to limit", async () => {
+		const mkRow = (n: number, merged: boolean) => ({
+			number: n,
+			head: { ref: `feat/${n}` },
+			state: "closed",
+			merged_at: merged ? "2026-01-01T00:00:00Z" : null,
+		});
+		const { fn, calls } = mockFetch([
+			// Page 1: 100 rows via seq? No — single static page of 3 (2 merged + 1 unmerged) < 100 → loop stops.
+			{ method: "GET", path: "/repos/o/r/pulls", body: [mkRow(1, true), mkRow(2, false), mkRow(3, true)] },
+		]);
+		const c = createGithubRestClient({ owner: "o", repo: "r", token: "t", tokenKind: "k", fetchFn: fn, sleep: noSleep });
+		const rows = await c.prList("merged", 200);
+		expect(rows).toEqual([
+			{ number: 1, headRefName: "feat/1", mergedAt: "2026-01-01T00:00:00Z" },
+			{ number: 3, headRefName: "feat/3", mergedAt: "2026-01-01T00:00:00Z" },
+		]);
+		// Short page → exactly one listing request.
+		expect(calls.filter((x) => x.path === "/repos/o/r/pulls").length).toBe(1);
+		// Query carries state=closed (REST has no merged filter).
+		expect(calls[0]!.path).toBe("/repos/o/r/pulls");
+	});
+
+	test("prList(open): open rows pass through; pagination continues past a FULL page", async () => {
+		const page = (n: number) => ({ number: n, head: { ref: `b/${n}` }, state: "open" });
+		const page1 = Array.from({ length: 100 }, (_, i) => page(i + 1));
+		const page2 = [page(101)];
+		const { fn, calls } = mockFetch([
+			{
+				method: "GET", path: "/repos/o/r/pulls",
+				seq: [{ body: page1 }, { body: page2 }],
+			},
+		]);
+		const c = createGithubRestClient({ owner: "o", repo: "r", token: "t", tokenKind: "k", fetchFn: fn, sleep: noSleep });
+		const rows = await c.prList("open", 150);
+		expect(rows.length).toBe(101);
+		expect(calls.filter((x) => x.path === "/repos/o/r/pulls").length).toBe(2);
+	});
 });

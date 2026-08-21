@@ -49,6 +49,9 @@ function fakeGh(
 		async mergeNow() {
 			/* unused by verify-merge */
 		},
+		async prList() {
+			return []; // unused by verify-merge
+		},
 	};
 }
 

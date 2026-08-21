@@ -47,6 +47,9 @@ function fakeGh(
 			calls.mergeNow.push({ n, strategy, deleteBranch });
 			if (opts.mergeNowThrows) throw new Error("merge method not allowed on this repo");
 		},
+		async prList() {
+			return []; // the merge recipe never lists PRs
+		},
 	};
 	return { client, calls };
 }

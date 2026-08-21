@@ -20,7 +20,7 @@ import type { SpawnFn } from "./spawn.js";
 export type { SpawnResult, SpawnFn, SpawnOptions } from "./spawn.js";
 
 // The gh-CLI ForgeClient + its parsers moved to src/forge/gh-cli.ts.
-export { createGhClient, parsePrView, parseChecks } from "./forge/gh-cli.js";
+export { createGhClient, parsePrView, parseChecks, parsePrList } from "./forge/gh-cli.js";
 
 /** Parse a `git rev-list --count` line to a non-negative int (0 on garbage / a
  *  failed/missing ref, where git exits non-zero with empty stdout). */
@@ -168,29 +168,8 @@ export function parseSubmoduleStatus(stdout: string): SubmoduleStatus[] {
 	return out;
 }
 
-/** Parse `gh pr list --state merged --json headRefName,number` into ref→prNumber.
- *  Defensive: non-array → empty map; rows missing fields are skipped. */
-export function parseMergedPrs(raw: unknown): Map<string, number> {
-	const map = new Map<string, number>();
-	const list = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
-	for (const row of list) {
-		const ref = typeof row?.headRefName === "string" ? row.headRefName : "";
-		const num = typeof row?.number === "number" ? row.number : undefined;
-		if (ref && num !== undefined) map.set(ref, num);
-	}
-	return map;
-}
-
-/** Parse `gh pr list --state open --json headRefName` into a ref set (name-conflict source). */
-export function parseOpenPrRefs(raw: unknown): Set<string> {
-	const set = new Set<string>();
-	const list = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
-	for (const row of list) {
-		const ref = typeof row?.headRefName === "string" ? row.headRefName : "";
-		if (ref) set.add(ref);
-	}
-	return set;
-}
+// parseMergedPrs / parseOpenPrRefs were folded into forge/gh-cli.ts's
+// parsePrList (PrListRow[]) when the PR listing moved to ForgeClient.prList.
 
 /** Unquote a `git` core.quotePath-quoted path: strip the surrounding `"..."` and
  *  unescape C-style sequences (`\"`, `\\`, `\n`, `\t`, and best-effort for
@@ -279,14 +258,8 @@ export function createBranchClient(spawn: SpawnFn): BranchClient {
 			const r = await spawn("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
 			return r.exitCode === 0 ? r.stdout.trim() : "";
 		},
-		async mergedPrRefs(limit) {
-			const r = await spawn("gh", ["pr", "list", "--state", "merged", "--json", "headRefName,number", "--limit", String(limit)]);
-			return parseMergedPrs(safeJson(r.stdout));
-		},
-		async openPrRefs() {
-			const r = await spawn("gh", ["pr", "list", "--state", "open", "--json", "headRefName", "--limit", "200"]);
-			return parseOpenPrRefs(safeJson(r.stdout));
-		},
+		// (mergedPrRefs / openPrRefs moved to ForgeClient.prList — a PR listing
+		// is a forge query, not a git op.)
 		async containedBranches(defaultBranch) {
 			const r = await spawn("git", ["branch", "--merged", defaultBranch]);
 			return parseContained(r.stdout);

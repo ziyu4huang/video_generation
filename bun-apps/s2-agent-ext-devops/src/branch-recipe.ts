@@ -12,15 +12,18 @@
  */
 import { classifyBranch } from "./branch-logic.js";
 import type { BranchKind, Confidence } from "./branch-logic.js";
+import type { ForgeClient } from "./forge/types.js";
 
-/** Injectable branch/git operations. Real impl: src/gh.ts. Tests inject fakes. */
+/**
+ * Injectable branch/git operations. Real impl: src/gh.ts. Tests inject fakes.
+ * Pure git — a PR listing is a FORGE query and lives on ForgeClient.prList
+ * (see SweepClient below).
+ */
 export interface BranchClient {
 	branchVv(): Promise<{ name: string; goneRemote: boolean }[]>;
 	remoteBranches(): Promise<string[]>;
 	worktrees(): Promise<string[]>;
 	currentBranch(): Promise<string>;
-	mergedPrRefs(limit: number): Promise<Map<string, number>>;
-	openPrRefs(): Promise<Set<string>>;
 	containedBranches(defaultBranch: string): Promise<Set<string>>;
 	defaultBranch(): Promise<string | undefined>;
 	/** All worktrees with their checked-out branch (porcelain records). */
@@ -55,6 +58,14 @@ export interface BranchClient {
 	deleteRemoteBranch(name: string): Promise<void>;
 }
 
+/**
+ * What sweep_merged_branches actually drives: the git surface PLUS the one
+ * forge query it needs (the PR listing). Compose at the wiring layer:
+ * `const sweep: SweepClient = { ...createBranchClient(spawn), prList: forge.prList }`
+ * — or spread a selected ForgeClient, which is a superset.
+ */
+export type SweepClient = BranchClient & Pick<ForgeClient, "prList">;
+
 /** Corroborating evidence surfaced on each plan entry (info; does not gate deletion). */
 export interface BranchSignals {
 	mergedPr?: number;
@@ -82,7 +93,7 @@ export interface SweepPlan {
 }
 
 export interface SweepOptions {
-	client: BranchClient;
+	client: SweepClient;
 	/** Dry-run by default: build the plan only, delete nothing. */
 	execute?: boolean;
 	/** Branches the human reviewed + approved (must have been in `review`); re-guarded. */
@@ -134,20 +145,25 @@ export interface BuildPlanOpts {
  * `origin/refactor/c1-residual-planning-parse` in the auto-delete set while a
  * sibling worktree was sitting on it, which is what closed this exemption.
  */
-export async function buildSweepPlan(client: BranchClient, opts: BuildPlanOpts): Promise<SweepPlan> {
+export async function buildSweepPlan(client: SweepClient, opts: BuildPlanOpts): Promise<SweepPlan> {
 	const includeLocal = opts.includeLocal !== false;
 	const includeRemote = opts.includeRemote !== false;
 	const defaultBranch = opts.defaultBranch ?? (await client.defaultBranch());
 
-	const [locals, remotes, worktrees, current, merged, open, contained] = await Promise.all([
+	const [locals, remotes, worktrees, current, mergedRows, openRows, contained] = await Promise.all([
 		client.branchVv(),
 		client.remoteBranches(),
 		client.worktrees(),
 		client.currentBranch(),
-		client.mergedPrRefs(opts.limit),
-		client.openPrRefs(),
+		client.prList("merged", opts.limit),
+		client.prList("open", 200),
 		defaultBranch ? client.containedBranches(defaultBranch) : Promise.resolve(new Set<string>()),
 	]);
+	// The forge listing is rows; sweep reasons over ref→prNumber (merge
+	// evidence) and a ref set (name-conflict guard). Same shapes the old
+	// BranchClient.mergedPrRefs/openPrRefs returned.
+	const merged = new Map(mergedRows.map((r) => [r.headRefName, r.number]));
+	const open = new Set(openRows.map((r) => r.headRefName));
 
 	const wtSet = new Set(worktrees);
 	const deleteLocal: BranchPlan[] = [];
@@ -217,15 +233,15 @@ export interface Executed {
  * reviewed branches (must be in `review`, still re-guarded). Returns what was
  * deleted vs skipped (with reason). Never deletes a guarded branch.
  */
-export async function executeSweep(plan: SweepPlan, client: BranchClient, opts: ExecuteOpts): Promise<Executed> {
+export async function executeSweep(plan: SweepPlan, client: SweepClient, opts: ExecuteOpts): Promise<Executed> {
 	const deletedLocal: string[] = [];
 	const deletedRemote: string[] = [];
 	const skipped: { name: string; reason: string }[] = [];
 
 	// Re-query the DYNAMIC guards once (the static protected set is passed in).
-	const [current, worktrees, open] = await Promise.all([client.currentBranch(), client.worktrees(), client.openPrRefs()]);
+	const [current, worktrees, openRows] = await Promise.all([client.currentBranch(), client.worktrees(), client.prList("open", 200)]);
 	const wtSet = new Set(worktrees);
-	const openSet = new Set(open);
+	const openSet = new Set(openRows.map((r) => r.headRefName));
 
 	const localBlock = (name: string): string | undefined => {
 		if (wtSet.has(name)) return "worktree-locked";

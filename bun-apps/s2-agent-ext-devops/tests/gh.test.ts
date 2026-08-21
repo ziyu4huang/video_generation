@@ -11,8 +11,7 @@ import {
 	parseBranchVv,
 	parseRemoteBranches,
 	parseWorktrees,
-	parseMergedPrs,
-	parseOpenPrRefs,
+	parsePrList,
 	parseContained,
 	parseDirtyPaths,
 	parseSubmoduleStatus,
@@ -134,6 +133,25 @@ describe("createGhClient (glue)", () => {
 		expect(calls[0]).toEqual({ cmd: "gh", args: ["pr", "merge", "9", "--squash", "--delete-branch"] });
 	});
 
+	test("prList issues gh pr list --state <s> --json number,headRefName,mergedAt --limit N", async () => {
+		const { fn, calls } = rec([
+			{
+				match: (c, a) => c === "gh" && a.includes("list"),
+				result: { stdout: JSON.stringify([{ number: 7, headRefName: "feat/x", mergedAt: "2026-01-01T00:00:00Z" }]), stderr: "", exitCode: 0 },
+			},
+		]);
+		const rows = await createGhClient(fn).prList("merged", 50);
+		expect(rows).toEqual([{ number: 7, headRefName: "feat/x", mergedAt: "2026-01-01T00:00:00Z" }]);
+		expect(calls[0]).toEqual({ cmd: "gh", args: ["pr", "list", "--state", "merged", "--json", "number,headRefName,mergedAt", "--limit", "50"] });
+	});
+
+	test("prList defaults --limit 200 for open state", async () => {
+		const { fn, calls } = rec([]);
+		await createGhClient(fn).prList("open");
+		expect(calls[0].args[calls[0].args.indexOf("--limit") + 1]).toBe("200");
+		expect(calls[0].args).toContain("open");
+	});
+
 	test("mergeNow omits --delete-branch when false + never adds --auto", async () => {
 		const { fn, calls } = rec([]);
 		await createGhClient(fn).mergeNow(9, "rebase", false);
@@ -200,34 +218,26 @@ describe("parseWorktrees", () => {
 	});
 });
 
-describe("parseMergedPrs", () => {
-	test("maps headRefName → number", () => {
-		const m = parseMergedPrs([{ headRefName: "feat/a", number: 10 }, { headRefName: "feat/b", number: 11 }]);
-		expect(m.get("feat/a")).toBe(10);
-		expect(m.get("feat/b")).toBe(11);
-		expect(m.size).toBe(2);
+describe("parsePrList (forge/gh-cli — supersedes parseMergedPrs/parseOpenPrRefs)", () => {
+	test("rows carry number + headRefName + mergedAt when present", () => {
+		const rows = parsePrList([
+			{ headRefName: "feat/a", number: 10, mergedAt: "2026-01-01T00:00:00Z" },
+			{ headRefName: "feat/b", number: 11 },
+		]);
+		expect(rows).toEqual([
+			{ number: 10, headRefName: "feat/a", mergedAt: "2026-01-01T00:00:00Z" },
+			{ number: 11, headRefName: "feat/b", mergedAt: undefined },
+		]);
 	});
 
-	test("non-array → empty map (defensive)", () => {
-		expect(parseMergedPrs(null).size).toBe(0);
+	test("non-array → empty list (defensive)", () => {
+		expect(parsePrList(null)).toEqual([]);
+		expect(parsePrList("nope")).toEqual([]);
 	});
 
-	test("rows missing fields are skipped", () => {
-		const m = parseMergedPrs([{ headRefName: "x" }, { number: 9 }, { headRefName: "y", number: 2 }]);
-		expect(m.size).toBe(1);
-		expect(m.get("y")).toBe(2);
-	});
-});
-
-describe("parseOpenPrRefs", () => {
-	test("collects headRefName set", () => {
-		expect(parseOpenPrRefs([{ headRefName: "a" }, { headRefName: "b" }, { headRefName: "a" }])).toEqual(
-			new Set(["a", "b"]),
-		);
-	});
-
-	test("non-array → empty set", () => {
-		expect(parseOpenPrRefs("nope").size).toBe(0);
+	test("rows missing number/headRefName are skipped", () => {
+		const rows = parsePrList([{ headRefName: "x" }, { number: 9 }, { headRefName: "y", number: 2 }]);
+		expect(rows).toEqual([{ number: 2, headRefName: "y", mergedAt: undefined }]);
 	});
 });
 
@@ -310,23 +320,10 @@ describe("createBranchClient (glue)", () => {
 		return { fn, calls };
 	}
 
-	test("mergedPrRefs issues gh pr list --state merged --limit N", async () => {
-		const { fn, calls } = rec([
-			{ match: (c, a) => c === "gh" && a.includes("merged"), result: { stdout: JSON.stringify([{ headRefName: "x", number: 7 }]), stderr: "", exitCode: 0 } },
-		]);
-		const m = await createBranchClient(fn).mergedPrRefs(50);
-		expect(m.get("x")).toBe(7);
-		expect(calls[0].args).toContain("--limit");
-		expect(calls[0].args[calls[0].args.indexOf("--limit") + 1]).toBe("50");
-	});
-
-	test("openPrRefs issues gh pr list --state open", async () => {
-		const { fn, calls } = rec([
-			{ match: (c, a) => c === "gh" && a.includes("open"), result: { stdout: JSON.stringify([{ headRefName: "o" }]), stderr: "", exitCode: 0 } },
-		]);
-		const s = await createBranchClient(fn).openPrRefs();
-		expect(s.has("o")).toBe(true);
-		expect(calls[0].args).toContain("open");
+	test("mergedPrRefs/openPrRefs are GONE from BranchClient (moved to ForgeClient.prList)", () => {
+		const client = createBranchClient(rec([]).fn) as unknown as Record<string, unknown>;
+		expect("mergedPrRefs" in client).toBe(false);
+		expect("openPrRefs" in client).toBe(false);
 	});
 
 	test("branchVv issues git branch -vv", async () => {

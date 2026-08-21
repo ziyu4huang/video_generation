@@ -13,7 +13,7 @@
  * Parsers are pure + fully tested; the client glue is tested with a recording
  * fake spawn. The live spawn adapter is the only untested seam.
  */
-import type { ForgeClient, MergeStrategy } from "./types.js";
+import type { ForgeClient, MergeStrategy, PrListRow } from "./types.js";
 import type { PrState, MergeState, CheckTally } from "../pr-logic.js";
 import type { SpawnFn } from "../spawn.js";
 
@@ -95,6 +95,23 @@ function safeJson(s: string): unknown {
 }
 
 /**
+ * Parse `gh pr list --json number,headRefName,mergedAt` rows into PrListRow[].
+ * Defensive like parseMergedPrs/parseOpenPrRefs before it: non-array → [];
+ * rows missing number/headRefName are skipped.
+ */
+export function parsePrList(raw: unknown): PrListRow[] {
+	const list = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
+	const out: PrListRow[] = [];
+	for (const row of list) {
+		const ref = typeof row?.headRefName === "string" ? row.headRefName : "";
+		const num = typeof row?.number === "number" ? row.number : undefined;
+		const mergedAt = typeof row?.mergedAt === "string" ? row.mergedAt : undefined;
+		if (ref && num !== undefined) out.push({ number: num, headRefName: ref, mergedAt });
+	}
+	return out;
+}
+
+/**
  * Build a `ForgeClient` backed by a `SpawnFn` driving the `gh` CLI. The live
  * adapter (src/spawn.ts `createLiveSpawn`) passes a Bun.spawn wrapper that
  * sets the repo cwd; tests pass a recording fake. All gh output is parsed as
@@ -120,6 +137,12 @@ export function createGhClient(spawn: SpawnFn): ForgeClient {
 			if (r.exitCode !== 0) {
 				throw new Error(`gh pr merge ${n} (direct) failed (exit ${r.exitCode}): ${(r.stderr || r.stdout).trim()}`);
 			}
+		},
+		async prList(state, limit = 200) {
+			const r = await spawn("gh", [
+				"pr", "list", "--state", state, "--json", "number,headRefName,mergedAt", "--limit", String(limit),
+			]);
+			return parsePrList(safeJson(r.stdout));
 		},
 	};
 }

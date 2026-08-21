@@ -21,7 +21,7 @@ import { parseLocalCiArgs } from "../src/local-ci-cli.js";
 import { parseMainHealthArgs, runMainHealthCli } from "../src/main-health-cli.js";
 import { parsePrepareArgs } from "../src/prepare-feature-branch-cli.js";
 import { parseVerifyMergeArgs, runVerifyMergeCli } from "../src/verify-merge-cli.js";
-import type { BranchClient } from "../src/branch-recipe.js";
+import type { BranchClient, SweepClient } from "../src/branch-recipe.js";
 import type { MainHealthClient } from "../src/main-health-recipe.js";
 import { runSchemaCostCheck } from "../src/schema-cost-check.js";
 import { runLocalCi } from "../src/ci-recipe.js";
@@ -132,16 +132,18 @@ describe("sweep-merged-branches-cli", () => {
 	});
 });
 
-/** Minimal BranchClient with exactly one merged, deletable local branch. */
-function sweepClient(o: { failLocal?: boolean } = {}): BranchClient {
+/** Minimal SweepClient (git + forge prList) with exactly one merged, deletable local branch. */
+function sweepClient(o: { failLocal?: boolean } = {}): SweepClient {
 	return {
 		branchVv: async () => [{ name: "feat/merged", goneRemote: false }],
 		remoteBranches: async () => [],
 		worktrees: async () => [],
 		worktreeList: async () => [],
 		currentBranch: async () => "main",
-		mergedPrRefs: async () => new Map([["feat/merged", 1]]),
-		openPrRefs: async () => new Set<string>(),
+		prList: async (state: "open" | "merged") =>
+			state === "merged"
+				? [{ number: 1, headRefName: "feat/merged", mergedAt: "2026-01-01T00:00:00Z" }]
+				: [],
 		containedBranches: async () => new Set<string>(),
 		defaultBranch: async () => "main",
 		fetchPrune: async () => {},
@@ -149,7 +151,7 @@ function sweepClient(o: { failLocal?: boolean } = {}): BranchClient {
 			if (o.failLocal) throw new Error("git branch -D failed (exit 1)");
 		},
 		deleteRemoteBranch: async () => {},
-	} as unknown as BranchClient;
+	} as unknown as SweepClient;
 }
 
 describe("local-ci-cli", () => {

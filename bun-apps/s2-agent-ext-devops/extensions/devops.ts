@@ -466,7 +466,9 @@ export default function (pi: ExtensionAPI): void {
 		}),
 		async execute(_id, params) {
 			const spawn = createLiveSpawn(process.cwd());
-			const client = createBranchClient(spawn);
+			// Sweep needs the git surface + the forge PR listing.
+			const forge = await selectForgeClientCached({ spawn });
+			const client = { ...createBranchClient(spawn), prList: forge.client.prList };
 			const outcome = await runSweep({
 				client,
 				execute: params.execute === true,

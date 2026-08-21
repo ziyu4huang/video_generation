@@ -28,7 +28,7 @@
  * - deleteBranch: one flag on gh, TWO calls on REST (merge, then DELETE the
  *   head ref). Only runMergeRecipe's opt ever passes true.
  */
-import type { PrSnapshot, ForgeClient, MergeStrategy } from "./types.js";
+import type { PrSnapshot, ForgeClient, MergeStrategy, PrListRow } from "./types.js";
 import type { PrState, MergeState, CheckTally } from "../pr-logic.js";
 import { createRestTransport, type FetchFn, type RestTransport } from "./rest.js";
 
@@ -184,6 +184,35 @@ export function createGithubRestClient(opts: GithubRestOptions): ForgeClient {
 					if (!(err instanceof Error && /HTTP 422/.test(err.message))) throw err;
 				}
 			}
+		},
+
+		async prList(state: "open" | "merged", limit = 200): Promise<PrListRow[]> {
+			// REST has no "merged" filter — list closed PRs and keep merged_at
+			// rows. Paginate at 100/page (GitHub's max) until `limit` rows or a
+			// short page. Sorted newest-first by the API; the cap keeps the
+			// tail bounded exactly like gh's --limit.
+			const rows: PrListRow[] = [];
+			const pageState = state === "open" ? "open" : "closed";
+			// Page until `limit` matching rows, a short page, or the hard cap of
+			// 10 pages (a repo with almost no merged PRs among 1000 closed ones
+			// must not page forever).
+			for (let page = 1; page <= 10 && rows.length < limit; page++) {
+				const batch = (await rest.request(
+					"GET",
+					`${root}/pulls?state=${pageState}&sort=updated&direction=desc&per_page=100&page=${page}`,
+				)) as Array<Record<string, unknown>>;
+				if (!Array.isArray(batch) || batch.length === 0) break;
+				for (const p of batch) {
+					const mergedAt = typeof p.merged_at === "string" ? p.merged_at : undefined;
+					if (state === "merged" && !mergedAt) continue; // closed-but-unmerged
+					const head = (p.head ?? {}) as { ref?: unknown };
+					const num = typeof p.number === "number" ? p.number : undefined;
+					const ref = typeof head.ref === "string" ? head.ref : "";
+					if (num !== undefined && ref) rows.push({ number: num, headRefName: ref, mergedAt });
+				}
+				if (rows.length >= limit || batch.length < 100) break;
+			}
+			return rows.slice(0, limit);
 		},
 	};
 }

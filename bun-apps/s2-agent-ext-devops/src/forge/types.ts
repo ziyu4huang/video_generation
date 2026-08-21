@@ -49,6 +49,14 @@ export type MergeStrategy = "rebase" | "merge" | "squash";
  *   to classify gh workflow-scope refusals — REST adapters must keep the
  *   response body in the error text for the same classification to work).
  */
+/** One row of a PR listing — the shape sweep_merged_branches consumes. */
+export interface PrListRow {
+	number: number;
+	headRefName: string;
+	/** ISO merge timestamp — present iff the PR is merged. */
+	mergedAt?: string;
+}
+
 export interface ForgeClient {
 	prStatus(n: number): Promise<PrSnapshot>;
 	/**
@@ -58,4 +66,12 @@ export interface ForgeClient {
 	 * on failure with the forge response text embedded.
 	 */
 	mergeNow(n: number, strategy: MergeStrategy, deleteBranch: boolean): Promise<void>;
+	/**
+	 * List PRs by coarse state. `merged` returns ONLY merged PRs (rows carry
+	 * mergedAt); `open` returns open PRs. Capped at `limit` (default 200 —
+	 * sweep's historical gh --limit). Formerly BranchClient.mergedPrRefs /
+	 * .openPrRefs; moved here because a PR listing is a FORGE query, not a git
+	 * operation (the Renovate Platform/PlatformScm split this module follows).
+	 */
+	prList(state: "open" | "merged", limit?: number): Promise<PrListRow[]>;
 }

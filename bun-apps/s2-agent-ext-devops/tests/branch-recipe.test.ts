@@ -13,7 +13,7 @@ import {
 	executeSweep,
 	runSweep,
 	resolveProtected,
-	type BranchClient,
+	type SweepClient,
 } from "../src/branch-recipe.js";
 
 /** A recording fake BranchClient. `mutate` simulates state races between plan & execute. */
@@ -34,7 +34,7 @@ function fakeClient(s: {
 	let worktrees = s.worktrees ?? [];
 	let current = s.current ?? "";
 	let open = s.open ?? [];
-	const client: BranchClient = {
+	const client: SweepClient = {
 		branchVv: async () => s.locals,
 		remoteBranches: async () => s.remotes,
 		worktrees: async () => {
@@ -46,10 +46,18 @@ function fakeClient(s: {
 			calls.push(`detachHead:${ref}`);
 			current = "";
 		},
-		mergedPrRefs: async () => new Map(Object.entries(s.merged ?? {})),
-		openPrRefs: async () => {
-			calls.push("openPrRefs");
-			return new Set(open);
+		// The PR listing is a FORGE query (was mergedPrRefs/openPrRefs): the fake
+		// serves prList("merged"|"open") from the same seed state.
+		prList: async (state: "open" | "merged") => {
+			calls.push(`prList:${state}`);
+			if (state === "merged") {
+				return Object.entries(s.merged ?? {}).map(([headRefName, number]) => ({
+					number: number as number,
+					headRefName,
+					mergedAt: "2026-01-01T00:00:00Z",
+				}));
+			}
+			return open.map((headRefName, i) => ({ number: 1000 + i, headRefName }));
 		},
 		containedBranches: async () => new Set(s.contained ?? []),
 		defaultBranch: async () => s.defaultBranch,
