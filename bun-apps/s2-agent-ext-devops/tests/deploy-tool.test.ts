@@ -23,6 +23,7 @@ describe("runDeploy", () => {
 						coreCached: true,
 						currentUpdated: false,
 						pruned: ["0.1.0+gold0000"],
+						prunedCores: [{ hash: "a".repeat(64), bytes: 89_523_400 }],
 					};
 				},
 			},
@@ -54,6 +55,7 @@ describe("runDeploy", () => {
 						coreCached: false,
 						currentUpdated: true,
 						pruned: [],
+						prunedCores: [],
 					};
 				},
 			},

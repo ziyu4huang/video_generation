@@ -15,7 +15,8 @@
  * immutable — the in-place `--ext` rebuild was deleted in Phase 3 §b; an
  * extension-only change is just an ordinary deploy (the core cache makes it
  * skip the compile). After `current` flips, old versions are pruned oldest-
- * first down to the registry's `keep` (§c).
+ * first down to the registry's `keep` (§c), and the .cores entries that
+ * pruning just left unreferenced are collected with them.
  *
  * This is the ONLY deploy pipeline. The four legacy modes it used to sit beside
  * (scripts/deploy.ts --bundle / --snapshot / --standalone / --exe) were retired
@@ -41,7 +42,7 @@ import {
 	resolveTargetDir,
 	swapCurrent,
 } from "./lib/version.ts";
-import { computeCoreHash, ensureCachedCore, linkCore } from "./lib/core-cache.ts";
+import { computeCoreHash, ensureCachedCore, linkCore, type PrunedCore, pruneOrphanCores } from "./lib/core-cache.ts";
 import { freezeTree, rmTree } from "./lib/fs.ts";
 import { stageGenerateEmbeddedAssets } from "./lib/codegen.ts";
 
@@ -69,6 +70,8 @@ export interface DeployShResult {
 	currentUpdated: boolean;
 	/** Version dirs removed by retention, oldest first. */
 	pruned: string[];
+	/** Cache entries in .cores/ collected because no version dir links them any more. */
+	prunedCores: PrunedCore[];
 }
 
 function gitShortSha(): string | null {
@@ -442,7 +445,11 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			currentUpdated = true;
 		}
 		const pruned = pruneVersions(outRoot, { keep: cfg.keep ?? DEFAULT_KEEP });
-		return { version, target, extensions: built, coreBytes, coreCached, currentUpdated, pruned };
+		// Strictly after pruneVersions: dropping a version dir is what turns its
+		// core into an orphan, and the core just linked above is protected by its
+		// own link count either way.
+		const prunedCores = pruneOrphanCores(outRoot);
+		return { version, target, extensions: built, coreBytes, coreCached, currentUpdated, pruned, prunedCores };
 	} catch (e) {
 		rmTree(stage); // never leave a half-written deploy behind
 		throw e;
