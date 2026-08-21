@@ -2,7 +2,7 @@
 	"name": "@repo/s2-agent-ext-compact",
 	"private": true,
 	"version": "0.1.0",
-	"description": "Pi extension: compact (scaffolded by `s2-agent ext new` — replace with a real description).",
+	"description": "Claude Code-style /compact summaries via the session_before_compact hook, degrading to built-in compaction on any failure.",
 	"license": "MIT",
 	"keywords": ["pi-package", "compact"],
 	"type": "module",
