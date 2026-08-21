@@ -4,7 +4,7 @@ import {
   rankedProviders,
   NoConfiguredProviderError,
 } from "./selector.ts";
-import { _setFfmpegAvailableForTest, _setRemotionProbeForTest, _setMotionFiltersForTest, _setWhisperRuntimeForTest, _setVisionRuntimeForTest, _setRunPyRuntimeForTest, _setKrea2BinaryForTest, _setFlux2BinaryForTest, _setMusicgenBinaryForTest, _setLmStudioReachableForTest, _setHyperframesCliForTest, probeConfigured } from "./providers.ts";
+import { _setFfmpegAvailableForTest, _setRemotionProbeForTest, _setMotionFiltersForTest, _setWhisperRuntimeForTest, _setVisionRuntimeForTest, _setRunPyRuntimeForTest, _setKrea2BinaryForTest, _setFlux2BinaryForTest, _setMusicgenBinaryForTest, _setKokoroBinaryForTest, _setLmStudioReachableForTest, _setHyperframesCliForTest, probeConfigured } from "./providers.ts";
 import { REGISTRY, type Capability, type ProviderEntry } from "./registry.ts";
 
 // Selector availability is runtime-probed (ffmpeg on PATH, cloud keys in env).
@@ -35,6 +35,11 @@ beforeAll(() => {
   // the fallthrough-to-default case made music_generation tests machine-
   // coupled to whether the binary happened to be built locally).
   _setMusicgenBinaryForTest(true);
+  // Same reasoning for the kokoro-tts binary — probeConfigured checks it
+  // explicitly for bun:kokoro-tts, and kokoro_tts (optIn removed 2026-08-21,
+  // A/B-promoted) is the bare tts fallback default, so without a pin a fresh
+  // host without the swift build would reroute the soft-hint test to say_tts.
+  _setKokoroBinaryForTest(true);
   // run.py runtime present so mlx:runpy / mlx:runpy-image are callable regardless
   // of whether this host has recreated python/venv (keeps the command-routing +
   // capability-coverage tests host-independent).
@@ -53,6 +58,7 @@ afterAll(() => {
   _setKrea2BinaryForTest(undefined);
   _setFlux2BinaryForTest(undefined);
   _setMusicgenBinaryForTest(undefined);
+  _setKokoroBinaryForTest(undefined);
   _setLmStudioReachableForTest(undefined);
   _setRunPyRuntimeForTest(undefined);
 });

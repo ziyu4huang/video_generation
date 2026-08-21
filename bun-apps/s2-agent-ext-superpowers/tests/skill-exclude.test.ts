@@ -51,7 +51,7 @@ describe("default exclude (Phase-3 clean-pass)", () => {
     delete process.env[ENV_KEY];
     delete process.env[DEFAULTS_KEY];
     const pi = createMockPi();
-    superpowersExtension(pi);
+    superpowersExtension(pi, import.meta.url);
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
 
     expect(Array.isArray(result.skillPaths)).toBe(true);
@@ -73,7 +73,7 @@ describe("default exclude (Phase-3 clean-pass)", () => {
     delete process.env[ENV_KEY];
     process.env[DEFAULTS_KEY] = "0";
     const pi = createMockPi();
-    superpowersExtension(pi);
+    superpowersExtension(pi, import.meta.url);
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
     expect(result.skillPaths).toHaveLength(1);
     expect(basename(result.skillPaths[0])).toBe("skills");
@@ -85,7 +85,7 @@ describe("default exclude (Phase-3 clean-pass)", () => {
       delete process.env[ENV_KEY];
       process.env[DEFAULTS_KEY] = v;
       const pi = createMockPi();
-      superpowersExtension(pi);
+      superpowersExtension(pi, import.meta.url);
       const result = await pi.fire("resources_discover", { type: "resources_discover" });
       expect(result.skillPaths, `DEFAULTS=${v} should load all skills (single dir)`).toHaveLength(1);
     }
@@ -95,7 +95,7 @@ describe("default exclude (Phase-3 clean-pass)", () => {
     delete process.env[ENV_KEY];
     process.env[DEFAULTS_KEY] = "1"; // not a falsy token → defaults still applied
     const pi = createMockPi();
-    superpowersExtension(pi);
+    superpowersExtension(pi, import.meta.url);
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
     for (const d of DEFAULT_SKILLS) expect(advertised).not.toContain(d);
@@ -121,7 +121,7 @@ describe("explicit PI_SUPERPOWERS_SKILL_EXCLUDE knob", () => {
     process.env[ENV_KEY] = "test-driven-development";
     delete process.env[DEFAULTS_KEY];
     const pi = createMockPi();
-    superpowersExtension(pi);
+    superpowersExtension(pi, import.meta.url);
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
     const expected = allSkillDirNames(skillsDir).filter(
@@ -134,7 +134,7 @@ describe("explicit PI_SUPERPOWERS_SKILL_EXCLUDE knob", () => {
     process.env[ENV_KEY] = " test-driven-development , systematic-debugging ,,";
     delete process.env[DEFAULTS_KEY];
     const pi = createMockPi();
-    superpowersExtension(pi);
+    superpowersExtension(pi, import.meta.url);
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
     const expected = allSkillDirNames(skillsDir).filter(
@@ -147,7 +147,7 @@ describe("explicit PI_SUPERPOWERS_SKILL_EXCLUDE knob", () => {
     process.env[ENV_KEY] = "!,systematic-debugging";
     delete process.env[DEFAULTS_KEY];
     const pi = createMockPi();
-    superpowersExtension(pi);
+    superpowersExtension(pi, import.meta.url);
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
     // defaults are GONE (using-superpowers is advertised), only the env-listed skill excluded
@@ -166,7 +166,7 @@ describe("explicit PI_SUPERPOWERS_SKILL_EXCLUDE knob", () => {
     process.env[ENV_KEY] = "!";
     delete process.env[DEFAULTS_KEY];
     const pi = createMockPi();
-    superpowersExtension(pi);
+    superpowersExtension(pi, import.meta.url);
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
     expect(result.skillPaths).toHaveLength(1);
     expect(basename(result.skillPaths[0])).toBe("skills");
@@ -183,7 +183,7 @@ describe("explicit PI_SUPERPOWERS_SKILL_EXCLUDE knob", () => {
     process.env[ENV_KEY] = "nonexistent-skill";
     process.env[DEFAULTS_KEY] = "0";
     const pi = createMockPi();
-    superpowersExtension(pi);
+    superpowersExtension(pi, import.meta.url);
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
     // An all-miss exclude list still flips representation to individual dirs
@@ -195,7 +195,7 @@ describe("explicit PI_SUPERPOWERS_SKILL_EXCLUDE knob", () => {
     process.env[ENV_KEY] = "test-driven-development";
     process.env[DEFAULTS_KEY] = "0";
     const pi = createMockPi();
-    superpowersExtension(pi);
+    superpowersExtension(pi, import.meta.url);
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
     const expected = allSkillDirNames(skillsDir).filter((n) => n !== "test-driven-development");

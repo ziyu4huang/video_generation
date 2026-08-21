@@ -4,16 +4,14 @@
  * (behavior-preserving split — no logic change).
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { AgentHistoryEntry, BudgetWarning } from "@repo/s2-agent-core-runtime";
+import type { BudgetWarning } from "@repo/s2-agent-core-runtime";
 import {
   capTraceTail,
   capWidth,
   ellipsizeToWidth,
   fmtCost,
   fmtElapsed,
-  formatToolAction,
   isSddReportActionable,
-  matchedCallArgsFor,
   type SpawnSubagentResult,
   STREAMING_EXPANDED_TAIL,
   shortModel,
