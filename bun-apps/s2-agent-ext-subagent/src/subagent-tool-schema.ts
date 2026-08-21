@@ -6,7 +6,6 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type {
   AgentRegistry,
   AgentUsage,
-  BudgetWarning,
   createWorktree,
   removeWorktree,
   SddReport,

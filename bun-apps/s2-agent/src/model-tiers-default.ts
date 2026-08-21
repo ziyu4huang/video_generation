@@ -25,7 +25,7 @@ export const DEFAULT_MODEL_TIER_CONFIG: ModelTierConfig = {
 	},
 };
 
-/** Pure: serialize the config the same way /models-preset writes it. Testable. */
+/** Pure: serialize the config for the startup seed (ensure-model-tiers). Testable. */
 export function buildModelTiersJson(config: ModelTierConfig = DEFAULT_MODEL_TIER_CONFIG): string {
 	return JSON.stringify(config, null, 2) + "\n";
 }

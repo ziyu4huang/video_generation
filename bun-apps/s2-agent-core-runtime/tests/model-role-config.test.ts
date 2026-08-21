@@ -1,13 +1,16 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  getEffectiveModelTierConfig,
+  getTransientModelTierConfig,
   loadModelTierConfig,
   type ModelTierConfig,
   resolveModelRole,
   resolveTierModel,
   saveModelTierConfig,
+  setTransientModelTierConfig,
 } from "@repo/s2-agent-core-runtime";
 
 function tmpConfig(obj: unknown): string {
@@ -97,4 +100,50 @@ test("resolveModelRole: vision-small falls back to vision", () => {
 test("resolveModelRole: unknown dashed capability still falls back once (vision-x → vision)", () => {
   expect(resolveModelRole({ capability: "vision-x" }, TIER_CFG)).toBe("lm-studio/google/gemma-4-12b");
   expect(resolveModelRole({ capability: "audio-large" }, TIER_CFG)).toBeUndefined();
+});
+
+// ─── Transient (session-scope) override — ADR-subagent-0006 ──────────────────
+// `/models-preset` applies presets TRANSIENTLY: the override lives in process
+// memory only and RESOLUTION reads it ahead of the on-disk file, while
+// loadModelTierConfig() stays FILE-ONLY (the /workflows-models editor shows
+// exactly what a save would write). These tests pin both halves so a
+// regression to persistent writes (or a leak into the file reader) fails
+// loudly.
+
+const PRESET_LIKE: ModelTierConfig = {
+  tiers: { small: "fake/small-m", medium: "fake/medium-m", big: "fake/big-m" },
+};
+
+test("transient override: resolution reads it ahead of the file; clearing restores", () => {
+  const before = loadModelTierConfig(); // machine state, whatever it is
+  setTransientModelTierConfig(PRESET_LIKE);
+
+  expect(getTransientModelTierConfig()).toEqual(PRESET_LIKE);
+  expect(getEffectiveModelTierConfig()).toEqual(PRESET_LIKE);
+  // The override actually steers role resolution, not just the getter.
+  expect(resolveModelRole({ tier: "big" }, getEffectiveModelTierConfig())).toBe("fake/big-m");
+  expect(resolveTierModel("small", getEffectiveModelTierConfig())).toBe("fake/small-m");
+
+  setTransientModelTierConfig(null);
+  // Clearing restores the file view exactly (comparative — machine-agnostic).
+  expect(getEffectiveModelTierConfig()).toEqual(before);
+  expect(getTransientModelTierConfig()).toBeNull();
+});
+
+test("transient override: loadModelTierConfig stays FILE-only", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tier-transient-"));
+  try {
+    const p = join(dir, "model-tiers.json");
+    writeFileSync(p, JSON.stringify({ tiers: { medium: "file/medium-m" } }));
+
+    setTransientModelTierConfig(PRESET_LIKE);
+    expect(loadModelTierConfig(p)).toEqual({ tiers: { medium: "file/medium-m" } });
+    expect(getEffectiveModelTierConfig()).toEqual(PRESET_LIKE);
+    // No explicit path: the file reader still reports the real file (glm preset
+    // on this machine, null on a clean CI box) — never the override.
+    expect(loadModelTierConfig()).not.toEqual(PRESET_LIKE);
+  } finally {
+    setTransientModelTierConfig(null);
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

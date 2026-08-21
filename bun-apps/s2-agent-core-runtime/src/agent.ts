@@ -18,7 +18,7 @@ import { resolveFallbackModel, resolveScopedAgentModelSpec } from "./agent-model
 import { applyToolPolicy } from "./agent-registry.js";
 import { createTurnGuard, createWrapUpNudgeQueue, turnExhaustionError } from "./agent-turns.js";
 import { WorkflowError, WorkflowErrorCode } from "./errors.js";
-import { loadModelTierConfig, type ModelTierConfig } from "./model-tier-config.js";
+import { getEffectiveModelTierConfig, type ModelTierConfig } from "./model-tier-config.js";
 import { throwIfProviderLimit } from "./provider-limit.js";
 import { parseSddReport, type SddReport } from "./sdd-report.js";
 import {
@@ -69,7 +69,7 @@ export interface WorkflowAgentOptions {
   scopedModels?: readonly string[];
   /**
    * Loads the model-tier config (model-tiers.json). Defaults to a disk read via
-   * loadModelTierConfig; the result is cached per CoreAgent instance so a
+   * getEffectiveModelTierConfig (transient preset ?? file); the result is cached per CoreAgent instance so a
    * run with many default/untagged agents does not re-read disk every call.
    * Injectable for tests (e.g. a counting loader to assert the cache).
    */
@@ -222,10 +222,10 @@ export class CoreAgent {
     this.instructions = options.instructions;
     this.mainModel = options.mainModel;
     this.scopedModels = options.scopedModels;
-    this.loadTierConfigFn = options.loadTierConfig ?? loadModelTierConfig;
+    this.loadTierConfigFn = options.loadTierConfig ?? getEffectiveModelTierConfig;
   }
 
-  /** Cached model-tier config, read from disk at most once per instance. */
+  /** Cached model-tier config (effective: transient preset ?? file), read at most once per instance. */
   private getTierConfig(): ModelTierConfig | null {
     if (this.tierConfigCache === undefined) {
       this.tierConfigCache = this.loadTierConfigFn();

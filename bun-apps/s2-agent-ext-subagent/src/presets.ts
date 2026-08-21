@@ -2,11 +2,17 @@
  * presets.ts — named model-config templates for `/models-preset`.
  *
  * The ONE place specific model ids live in the subagent package — as labeled
- * TEMPLATES a user explicitly applies (which writes to their personal
- * ~/.pi/workflows/model-tiers.json). Resolution code (resolveTierModel /
+ * TEMPLATES a user explicitly applies. Resolution code (resolveTierModel /
  * resolveModelRole / file2md vision-inference) stays config-driven and
- * env-agnostic; these presets are setup-time convenience data, not runtime
+ * env-agnostic; these presets are switch-time convenience data, not runtime
  * defaults.
+ *
+ * TRANSIENT BY CONTRACT (ADR-subagent-0006): applying a preset switches the
+ * CURRENT session only — main model via pi.setModel + tier/capability routing
+ * via the in-memory transient override. It NEVER writes
+ * ~/.pi/workflows/model-tiers.json (or anything else under ~/.pi); the only
+ * writer of that file is the ensure-model-tiers startup seed of the built-in
+ * default. Do not regress this to a persistent write.
  *
  * Every preset pairs a text-LLM tier mapping with an always-local vision model,
  * because the text providers (glm, deepseek, …) cannot do vision — only the
@@ -28,10 +34,10 @@ export interface ModelPreset {
 }
 
 /**
- * Built-in presets. Model ids are verified against the models-store catalog
- * (`validateConfigSpecs` in models-registry-reader.ts gates apply-time). A
- * preset's provider still needs its API key configured separately — runtime
- * auth is out of scope for preset validation.
+ * Built-in presets. Model ids are resolved against the live model catalog at
+ * apply time (ctx.modelRegistry.find — an unknown id is reported, not applied).
+ * A preset's provider still needs its API key configured separately — runtime
+ * auth is out of scope for preset application.
  */
 
 /** Shared vision capability block: single local model across all vision tiers
@@ -86,4 +92,16 @@ export const MODEL_PRESETS: ModelPreset[] = [
 /** Look up a preset by id. */
 export function findPreset(id: string): ModelPreset | undefined {
   return MODEL_PRESETS.find((p) => p.id === id);
+}
+
+/**
+ * The model the MAIN session switches to when this preset is applied.
+ *
+ * `big` is the preset's headline model in every built-in preset (the name a
+ * user reads in the label — "DeepSeek pro" → deepseek-v4-pro); small/medium
+ * exist for subagent routing. The fallback chain only exists so a future
+ * hand-written preset missing `big` still resolves to SOMETHING sensible.
+ */
+export function mainModelSpec(preset: ModelPreset): string | undefined {
+  return preset.config.tiers.big ?? preset.config.tiers.medium ?? preset.config.tiers.small;
 }

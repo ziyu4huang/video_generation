@@ -46,8 +46,8 @@ export const RAG_TOOLS_THREE_WAY = [...RAG_TOOLS];
 //   1. explicit `model` arg on the tool call  — highest (caller override)
 //   2. KC_SUBAGENT_MODEL env                   — per-session / global override
 //   3. central tiers.small (~/.pi/workflows/model-tiers.json — seeded by the
-//      s2-agent host / /models-preset; the "small" tier is the local/budget
-//      slot in every shipped preset)
+//      s2-agent host built-in; editable via /workflows-models; the "small"
+//      tier is the local/budget slot in every shipped preset)
 //   4. actionable throw (set tiers.small or KC_SUBAGENT_MODEL)
 //
 // The deterministic paths (zk_ingest convergence, knowledge_query digest) use
@@ -63,7 +63,7 @@ export function resolveDistillModel(
 	const spec = resolveModelRole({ tier: "small" }, config);
 	if (spec) return spec;
 	throw new Error(
-		"[knowledge-card] No distill model configured. Set model-tiers.json tiers.small (via /models-preset or /workflows-models) or export KC_SUBAGENT_MODEL.",
+		"[knowledge-card] No distill model configured. Set model-tiers.json tiers.small (via /workflows-models) or export KC_SUBAGENT_MODEL.",
 	);
 }
 

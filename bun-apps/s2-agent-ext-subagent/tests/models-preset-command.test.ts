@@ -1,145 +1,154 @@
 /**
- * /models-preset command — apply logic (dependency-injected config I/O).
+ * /models-preset command — TRANSIENT session-switch contract.
  *
- * Verifies: direct-apply writes the preset's full {tiers, capabilities}, the
- * prior file is backed up to .bak, and an unknown id notifies an error.
+ * Pins ADR-subagent-0006: applying a preset switches the main model +
+ * installs the in-memory tier override, and NEVER touches the filesystem —
+ * the DI surface has no save/write dependency at all, so any regression back
+ * to persisting ~/.pi/workflows/model-tiers.json has to ADD a dep (and show
+ * up here as an untested side effect) rather than slip through silently.
  *
  * Uses DI (not mock.module) so the test does NOT leak a model-role-config mock
  * into sibling test files under bun's shared-realm default.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
 import type { ModelTierConfig } from "@repo/s2-agent-core-runtime";
-import { createModelsPresetCommand } from "../extensions/models-preset.js";
+import { createModelsPresetCommand, parseModelSpec } from "../extensions/models-preset.js";
+import { MODEL_PRESETS, mainModelSpec } from "../src/presets.js";
 
-let tmpDir: string;
-let configPath: string;
-let savedConfig: ModelTierConfig | null = null;
-let existingConfig: ModelTierConfig | null = null;
+interface Harness {
+  ctx: any;
+  calls: {
+    switchMainModel: string[];
+    setTransientConfig: ModelTierConfig[];
+    notify: { msg: string; level: string }[];
+    select: { title: string; options: string[] }[];
+  };
+}
 
-/** Build a handler with config I/O pointed at the temp path (no real disk hit). */
-function makeHandler() {
-  return createModelsPresetCommand({
-    getConfigPath: () => configPath,
-    loadConfig: () => existingConfig,
-    saveConfig: (cfg: ModelTierConfig) => {
-      savedConfig = cfg;
+/** Build a handler with recorded side effects + a fake command context. */
+function makeHarness(opts: { switchResult?: { ok: boolean; reason?: string }; select?: string | null } = {}) {
+  const calls: Harness["calls"] = { switchMainModel: [], setTransientConfig: [], notify: [], select: [] };
+  const handler = createModelsPresetCommand({} as any, {
+    switchMainModel: async (spec) => {
+      calls.switchMainModel.push(spec);
+      return opts.switchResult ?? { ok: true };
+    },
+    setTransientConfig: (cfg) => {
+      calls.setTransientConfig.push(cfg);
     },
   });
+  const ctx = {
+    ui: {
+      confirm: async () => true, // must NEVER be called anymore — asserted below
+      select: async (title: string, options: string[]) => {
+        calls.select.push({ title, options });
+        return opts.select ?? null;
+      },
+      notify: (msg: string, level: string) => calls.notify.push({ msg, level }),
+    },
+  };
+  return { handler, ctx, calls };
 }
 
-function fakeCtx(overrides: { confirm?: boolean; select?: string | null } = {}) {
-  const calls: { confirm: { title: string; msg: string }[]; notify: { msg: string; level: string }[] } = {
-    confirm: [],
-    notify: [],
-  };
-  return {
-    calls,
-    ctx: {
-      ui: {
-        confirm: async (title: string, msg: string) => {
-          calls.confirm.push({ title, msg });
-          return overrides.confirm ?? true;
+describe("/models-preset — transient contract", () => {
+  test("direct apply switches the main model + installs the tier override, no confirm", async () => {
+    const { handler, ctx, calls } = makeHarness();
+    await handler("glm-lmstudio", ctx);
+
+    // Main model = the preset's headline (big) model.
+    expect(calls.switchMainModel).toEqual(["zai/glm-5.3"]);
+    // The FULL preset config (tiers + vision) goes to the transient override.
+    expect(calls.setTransientConfig).toEqual([
+      {
+        tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
+        capabilities: {
+          vision: "lm-studio/google/gemma-4-12b",
+          "vision-large": "lm-studio/google/gemma-4-12b",
+          "vision-medium": "lm-studio/google/gemma-4-12b",
+          "vision-small": "lm-studio/google/gemma-4-12b",
         },
-        select: async (_title: string, _options: string[]) => overrides.select ?? null,
-        notify: (msg: string, level: string) => calls.notify.push({ msg, level }),
       },
-    } as any,
-  };
-}
-
-beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "models-preset-"));
-  configPath = join(tmpDir, "model-tiers.json");
-  savedConfig = null;
-  existingConfig = null;
-});
-afterEach(() => {
-  rmSync(tmpDir, { recursive: true, force: true });
-});
-
-describe("/models-preset", () => {
-  test("direct apply writes the preset config + backs up the prior file", async () => {
-    writeFileSync(configPath, JSON.stringify({ tiers: { small: "old/x" } }));
-    existingConfig = { tiers: { small: "old/x" } };
-
-    const { ctx, calls } = fakeCtx({ confirm: true });
-    await makeHandler()("glm-lmstudio", ctx);
-
-    expect(savedConfig).toEqual({
-      tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
-      capabilities: {
-        vision: "lm-studio/google/gemma-4-12b",
-        "vision-large": "lm-studio/google/gemma-4-12b",
-        "vision-medium": "lm-studio/google/gemma-4-12b",
-        "vision-small": "lm-studio/google/gemma-4-12b",
-      },
-    });
-    expect(calls.confirm).toHaveLength(1);
-    expect(existsSync(`${configPath}.bak`)).toBe(true);
+    ]);
+    // Success notify says SESSION-only and that nothing is written.
+    expect(calls.notify).toHaveLength(1);
     expect(calls.notify[0]?.level).toBe("info");
     expect(calls.notify[0]?.msg).toContain("GLM");
+    expect(calls.notify[0]?.msg).toContain("THIS session only");
+    expect(calls.notify[0]?.msg).toContain("nothing written to ~/.pi");
+  });
+
+  test("deepseek-pro preset switches to its headline (big) model", async () => {
+    const { handler, ctx, calls } = makeHarness();
+    await handler("deepseek-pro", ctx);
+    expect(calls.switchMainModel).toEqual(["deepseek/deepseek-v4-pro"]);
+    expect(calls.setTransientConfig[0]?.tiers).toEqual({
+      small: "lm-studio/google/gemma-4-12b",
+      medium: "deepseek/deepseek-v4-flash",
+      big: "deepseek/deepseek-v4-pro",
+    });
+  });
+
+  test("model switch failure → error notify, NO transient override installed", async () => {
+    const { handler, ctx, calls } = makeHarness({
+      switchResult: { ok: false, reason: "no API key configured for zai" },
+    });
+    await handler("glm-lmstudio", ctx);
+    expect(calls.switchMainModel).toEqual(["zai/glm-5.3"]);
+    expect(calls.setTransientConfig).toEqual([]);
+    expect(calls.notify[0]?.level).toBe("error");
+    expect(calls.notify[0]?.msg).toContain("no API key configured for zai");
   });
 
   test("unknown preset id notifies an error + lists available", async () => {
-    const { ctx, calls } = fakeCtx();
-    await makeHandler()("bogus", ctx);
-    expect(savedConfig).toBeNull();
+    const { handler, ctx, calls } = makeHarness();
+    await handler("bogus", ctx);
+    expect(calls.switchMainModel).toEqual([]);
+    expect(calls.setTransientConfig).toEqual([]);
     expect(calls.notify[0]?.level).toBe("error");
     expect(calls.notify[0]?.msg).toContain("bogus");
     expect(calls.notify[0]?.msg).toContain("glm-lmstudio");
   });
 
-  test("no existing config → no confirm, no backup, just save", async () => {
-    existingConfig = null;
-    const { ctx, calls } = fakeCtx();
-    await makeHandler()("deepseek-pro", ctx);
-    expect(savedConfig).toEqual({
-      tiers: {
-        small: "lm-studio/google/gemma-4-12b",
-        medium: "deepseek/deepseek-v4-flash",
-        big: "deepseek/deepseek-v4-pro",
-      },
-      capabilities: {
-        vision: "lm-studio/google/gemma-4-12b",
-        "vision-large": "lm-studio/google/gemma-4-12b",
-        "vision-medium": "lm-studio/google/gemma-4-12b",
-        "vision-small": "lm-studio/google/gemma-4-12b",
-      },
-    });
-    expect(calls.confirm).toHaveLength(0);
-    expect(existsSync(`${configPath}.bak`)).toBe(false);
+  test("interactive picker applies the chosen preset", async () => {
+    const { handler, ctx, calls } = makeHarness({ select: "deepseek-flash  —  tiers: …" });
+    await handler("", ctx);
+    expect(calls.select).toHaveLength(1);
+    expect(calls.select[0]?.title).toContain("session");
+    expect(calls.switchMainModel).toEqual(["deepseek/deepseek-v4-flash"]);
+    expect(calls.setTransientConfig[0]?.tiers.big).toBe("deepseek/deepseek-v4-flash");
   });
 
-  test("deepseek-flash preset applies the budget tier mapping", async () => {
-    existingConfig = null;
-    const { ctx, calls } = fakeCtx();
-    await makeHandler()("deepseek-flash", ctx);
-    expect(savedConfig).toEqual({
-      tiers: {
-        small: "lm-studio/google/gemma-4-12b",
-        medium: "lm-studio/google/gemma-4-12b",
-        big: "deepseek/deepseek-v4-flash",
-      },
-      capabilities: {
-        vision: "lm-studio/google/gemma-4-12b",
-        "vision-large": "lm-studio/google/gemma-4-12b",
-        "vision-medium": "lm-studio/google/gemma-4-12b",
-        "vision-small": "lm-studio/google/gemma-4-12b",
-      },
-    });
-    expect(calls.confirm).toHaveLength(0);
-    expect(calls.notify[0]?.level).toBe("info");
-    expect(calls.notify[0]?.msg).toContain("flash");
+  test("picker cancelled → nothing happens", async () => {
+    const { handler, ctx, calls } = makeHarness({ select: null });
+    await handler("", ctx);
+    expect(calls.switchMainModel).toEqual([]);
+    expect(calls.setTransientConfig).toEqual([]);
+    expect(calls.notify).toEqual([]);
   });
+});
 
-  test("confirm cancelled → nothing saved", async () => {
-    writeFileSync(configPath, JSON.stringify({ tiers: { small: "old/x" } }));
-    existingConfig = { tiers: { small: "old/x" } };
-    const { ctx } = fakeCtx({ confirm: false });
-    await makeHandler()("glm-lmstudio", ctx);
-    expect(savedConfig).toBeNull();
+describe("parseModelSpec", () => {
+  test("provider/id split at the FIRST slash, optional :thinking suffix", () => {
+    expect(parseModelSpec("zai/glm-5.3")).toEqual({ provider: "zai", modelId: "glm-5.3" });
+    expect(parseModelSpec("lm-studio/google/gemma-4-12b")).toEqual({
+      provider: "lm-studio",
+      modelId: "google/gemma-4-12b",
+    });
+    expect(parseModelSpec("zai/glm-5.3:low")).toEqual({ provider: "zai", modelId: "glm-5.3", thinking: "low" });
+    expect(parseModelSpec("no-slash")).toBeUndefined();
+    expect(parseModelSpec("/leading")).toBeUndefined();
+    expect(parseModelSpec("zai/")).toBeUndefined();
+  });
+});
+
+describe("mainModelSpec — every preset has a headline model", () => {
+  test("big tier is the switch target for every built-in preset", () => {
+    expect(MODEL_PRESETS.length).toBeGreaterThanOrEqual(3);
+    for (const p of MODEL_PRESETS) {
+      const spec = mainModelSpec(p);
+      expect(spec).toBeTruthy();
+      expect(spec).toBe(p.config.tiers.big);
+      expect(spec).toMatch(/^[a-z0-9.-]+\//i);
+    }
   });
 });

@@ -33,11 +33,11 @@ export function resolveLLM(opts: { provider?: string; model?: string; thinking?:
   let model = opts.model ?? fromEnv;
   if (!model) {
     throw new Error(
-      "[file2md] No model configured. Set model config via `/models-preset` (or `/workflows-models`), or export PI_MODEL as a temporary escape hatch.",
+      "[file2md] No model configured. Set capabilities.vision via `/workflows-models` (persisted; /models-preset is session-only and does not configure this), or export PI_MODEL as a temporary escape hatch.",
     );
   }
   if (fromEnv && !opts.model) {
-    console.error("[file2md] Using PI_MODEL env (deprecated) — set capabilities.vision via /models-preset.");
+    console.error("[file2md] Using PI_MODEL env (deprecated) — set capabilities.vision via /workflows-models.");
   }
   let provider = opts.provider ?? process.env.PI_PROVIDER ?? "lm-studio";
   let thinkingLevel: ThinkingLevel = (process.env.PI_THINKING ?? "off") as ThinkingLevel;
