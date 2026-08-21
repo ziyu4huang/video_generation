@@ -37,11 +37,6 @@
 			"name": "s2-agent-ext-movie-director",
 			"entry": "s2-agent-ext-movie-director/extensions/movie-director.ts",
 			"version": "0.1.0"
-		},
-		{
-			"name": "s2-agent-ext-archify",
-			"entry": "s2-agent-ext-archify/extensions/archify.ts",
-			"version": "0.1.0"
 		}
 	],
 	"skills": [
@@ -81,6 +76,7 @@
 		"s2-agent-ext-power-tool",
 		"s2-agent-ext-webui",
 		"s2-agent-ext-hyperframes",
+		"s2-agent-ext-archify",
 		"s2-agent-ext-compact"
 	],
 	"lazyExtensions": {}
