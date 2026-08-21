@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { activityMonitor } from "./activity.ts";
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
-import { isGeminiApiAvailable, queryGeminiApiWithVideo } from "./gemini-api.ts";
+import { isGeminiApiAvailable, queryGeminiApiWithVideo, defaultGeminiModel } from "./gemini-api.ts";
 import { isPerplexityAvailable, searchWithPerplexity } from "./perplexity.ts";
 import { extractHeadingTitle, type ExtractedContent, type FrameResult, type VideoFrame } from "./extract.ts";
 import { formatSeconds, readExecError, isTimeoutError, trimErrorText, mapFfmpegError, getWebSearchConfigPath } from "./utils.ts";
@@ -48,7 +48,9 @@ function normalizeEnabled(value: unknown, fallback: boolean): boolean {
 	return typeof value === "boolean" ? value : fallback;
 }
 
-const defaults: YouTubeConfig = { enabled: true, preferredModel: "gemini-3-flash-preview" };
+// Falls back to gemini-3-flash-preview when the central medium tier isn't a
+// google model (see defaultGeminiModel).
+const defaults: YouTubeConfig = { enabled: true, preferredModel: defaultGeminiModel() };
 let cachedConfig: YouTubeConfig | null = null;
 
 function loadYouTubeConfig(): YouTubeConfig {

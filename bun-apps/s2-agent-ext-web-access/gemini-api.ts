@@ -1,11 +1,19 @@
 import { existsSync, readFileSync } from "node:fs";
 import { getWebSearchConfigPath } from "./utils.ts";
+import { centralTierModelFor } from "./central-tier.ts";
 
 const DEFAULT_API_HOST = "https://generativelanguage.googleapis.com";
 const API_VERSION = "v1beta";
 export const API_BASE = `${DEFAULT_API_HOST}/${API_VERSION}`;
 const CONFIG_PATH = getWebSearchConfigPath();
 export const DEFAULT_MODEL = "gemini-3-flash-preview";
+
+/** Default Gemini model: the central tiers.medium model when it points at the
+ *  google provider family, else the historical DEFAULT_MODEL. A non-google
+ *  medium tier must NOT silently become a Gemini API model id. */
+export function defaultGeminiModel(): string {
+	return centralTierModelFor(["google"]) ?? DEFAULT_MODEL;
+}
 
 interface GeminiApiConfig {
 	geminiApiKey?: unknown;
@@ -113,7 +121,7 @@ export async function queryGeminiApiWithVideo(
 		);
 	}
 
-	const model = options.model ?? DEFAULT_MODEL;
+	const model = options.model ?? defaultGeminiModel();
 	const signal = withTimeout(options.signal, options.timeoutMs ?? 120000);
 	const url = `${getVersionedApiBase()}/models/${model}:generateContent${buildKeyParam(apiKey)}`;
 

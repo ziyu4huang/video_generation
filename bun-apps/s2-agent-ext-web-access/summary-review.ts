@@ -1,6 +1,7 @@
 import { complete, type Api, type Message, type Model } from "@earendil-works/pi-ai/compat";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
+import { centralTierModel } from "./central-tier.ts";
 import type { QueryResultData } from "./storage.ts";
 import { dropNullHeaders } from "./utils.ts";
 
@@ -200,6 +201,9 @@ async function resolveSummaryModelCandidates(
 	const specs: Array<{ provider: string; id: string }> = [];
 	const normalizedOverride = typeof modelOverride === "string" ? modelOverride.trim() : "";
 	if (normalizedOverride.length > 0) specs.push(parseModelSelector(normalizedOverride));
+	// Central tiers.medium first (repo-wide default), historical candidates as fallback.
+	const central = centralTierModel();
+	if (central) specs.push(central);
 	specs.push(...PREFERRED_SUMMARY_MODELS);
 
 	const candidates: Array<{ model: Model<Api>; apiKey: string; headers?: Record<string, string> }> = [];

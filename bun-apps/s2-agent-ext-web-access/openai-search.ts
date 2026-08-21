@@ -4,6 +4,7 @@ import { getModel } from "@earendil-works/pi-ai/compat";
 import { activityMonitor } from "./activity.ts";
 import type { SearchOptions, SearchResponse, SearchResult } from "./perplexity.ts";
 import { dropNullHeaders, getWebSearchConfigPath } from "./utils.ts";
+import { centralTierModel, centralTierModelFor } from "./central-tier.ts";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses";
@@ -14,6 +15,16 @@ const AUTH_MODEL_CANDIDATES = [
 	{ provider: "openai-codex", models: ["gpt-5.4", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2", "gpt-5.2-codex"] },
 	{ provider: "openai", models: ["gpt-5.4", "gpt-5.2", "gpt-4.1-mini", "gpt-4o"] },
 ] as const;
+
+/** Auth-probe candidates: the central tiers.medium model first when it points
+ *  at an OpenAI family provider, then the historical candidate lists. */
+function authModelCandidates(): Array<{ provider: "openai" | "openai-codex"; models: readonly string[] }> {
+	const central = centralTierModel();
+	if (central && (central.provider === "openai" || central.provider === "openai-codex")) {
+		return [{ provider: central.provider, models: [central.id] }, ...AUTH_MODEL_CANDIDATES];
+	}
+	return [...AUTH_MODEL_CANDIDATES];
+}
 
 interface WebSearchConfig {
 	openaiApiKey?: unknown;
@@ -142,7 +153,7 @@ export async function resolveOpenAIAuth(ctx?: ExtensionContext): Promise<OpenAIA
 		// the /websearch "Cannot find module '@earendil-works/pi-ai/compat'
 		// from '/$bunfs/root/s2-agent'" defect (2026-08-20).
 		const probeGetModel = getModel as unknown as ModelProbe;
-		for (const candidate of AUTH_MODEL_CANDIDATES) {
+		for (const candidate of authModelCandidates()) {
 			for (const modelId of candidate.models) {
 				const model = probeGetModel(candidate.provider, modelId);
 				if (!model) continue;
@@ -164,7 +175,7 @@ export async function resolveOpenAIAuth(ctx?: ExtensionContext): Promise<OpenAIA
 
 	const apiKey = normalizeApiKey(process.env.OPENAI_API_KEY) ?? normalizeApiKey(loadConfig().openaiApiKey);
 	return apiKey
-		? { provider: "openai", apiKey, model: "gpt-5.4", headers: {} }
+		? { provider: "openai", apiKey, model: centralTierModelFor(["openai", "openai-codex"]) ?? "gpt-5.4", headers: {} }
 		: undefined;
 }
 
