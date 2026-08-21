@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { resolve, extname, basename, join, dirname } from "node:path";
 import { activityMonitor } from "./activity.ts";
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
-import { queryGeminiApiWithVideo, getApiKey, API_BASE } from "./gemini-api.ts";
+import { queryGeminiApiWithVideo, getApiKey, API_BASE, defaultGeminiModel } from "./gemini-api.ts";
 import { extractHeadingTitle, type ExtractedContent, type ExtractOptions, type FrameResult } from "./extract.ts";
 import { readExecError, trimErrorText, mapFfmpegError, getWebSearchConfigPath } from "./utils.ts";
 
@@ -66,7 +66,9 @@ function normalizeMaxSizeMB(value: unknown, fallback: number): number {
 
 const VIDEO_CONFIG_DEFAULTS: VideoConfig = {
 	enabled: true,
-	preferredModel: "gemini-3-flash-preview",
+	// Falls back to gemini-3-flash-preview when the central medium tier isn't a
+	// google model (see defaultGeminiModel).
+	preferredModel: defaultGeminiModel(),
 	maxSizeMB: 50,
 };
 

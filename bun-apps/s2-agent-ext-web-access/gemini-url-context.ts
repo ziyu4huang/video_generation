@@ -1,5 +1,5 @@
 import { activityMonitor } from "./activity.ts";
-import { getApiKey, getVersionedApiBase, buildKeyParam, buildAuthHeaders, isGatewayConfigured, DEFAULT_MODEL } from "./gemini-api.ts";
+import { getApiKey, getVersionedApiBase, buildKeyParam, buildAuthHeaders, isGatewayConfigured, defaultGeminiModel } from "./gemini-api.ts";
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
 import { extractHeadingTitle, type ExtractedContent } from "./extract.ts";
 
@@ -24,7 +24,7 @@ export async function extractWithUrlContext(
 	const activityId = activityMonitor.logStart({ type: "api", query: `url_context: ${url}` });
 
 	try {
-		const model = DEFAULT_MODEL;
+		const model = defaultGeminiModel();
 		const body = {
 			contents: [{ role: "user", parts: [{ text: EXTRACTION_PROMPT + url }] }],
 			tools: [{ url_context: {} }],

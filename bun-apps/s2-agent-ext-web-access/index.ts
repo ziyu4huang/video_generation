@@ -101,6 +101,7 @@ import { buildSearchErrorPlan, type SearchErrorDetails, type SearchErrorPlan } f
 import { renderSearchErrorPlan } from "./render-error-plan.ts";
 import { registerFetchContentTool, registerGetSearchContentTool } from "./fetch-content-tool.ts";
 import { loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
+import { centralTierModel } from "./central-tier.ts";
 
 const WEB_SEARCH_CONFIG_PATH = getWebSearchConfigPath();
 
@@ -690,7 +691,10 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	async function rewriteSearchQuery(query: string, ctx: SummaryGenerationContext, signal: AbortSignal): Promise<string> {
+		// Central tiers.medium first (repo-wide default), historical candidates as fallback.
+		const central = centralTierModel();
 		const { model, apiKey, headers } = await resolveFirstAvailableModel(ctx, [
+			...(central ? [central] : []),
 			{ provider: "anthropic", id: "claude-haiku-4-5" },
 			{ provider: "google", id: "gemini-2.5-flash" },
 			{ provider: "openai", id: "gpt-4.1-mini" },
@@ -792,7 +796,10 @@ export default function (pi: ExtensionAPI) {
 
 		const config = loadConfig();
 		const configuredSummaryModel = typeof config.summaryModel === "string" ? config.summaryModel.trim() : "";
+		// Central tiers.medium first (repo-wide default), historical candidates as fallback.
+		const centralDefault = centralTierModel();
 		const preferredDefaults = [
+			...(centralDefault ? [`${centralDefault.provider}/${centralDefault.id}`] : []),
 			"anthropic/claude-haiku-4-5",
 			"openai-codex/gpt-5.3-codex-spark",
 		];
