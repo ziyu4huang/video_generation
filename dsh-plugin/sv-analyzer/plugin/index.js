@@ -95,7 +95,15 @@ async function resolveCode(args, ctx, toolName, exec) {
         `${toolName}: file input requested but the fs service is unavailable; pass \`code\` instead`,
       )
     }
-    const target = await fs.resolve(args.file)
+    // Resolve like the harness's own file tools do: relative paths must be
+    // interpreted against the *session* workspace (exec.agent.session.header.cwd),
+    // not the DSH process cwd — without this, `file: "some/rel/path.sv"`
+    // only works when the process happens to start in the workspace.
+    const sessionCwd = exec?.agent?.session?.header?.cwd
+    const target = await fs.resolve(args.file, {
+      ...(typeof sessionCwd === 'string' && sessionCwd ? { cwd: sessionCwd } : {}),
+      signal: exec?.signal,
+    })
     // Size pre-check when the backend exposes metadata, so an oversized
     // file is rejected before its content is ever buffered.
     if (typeof fs.stat === 'function') {

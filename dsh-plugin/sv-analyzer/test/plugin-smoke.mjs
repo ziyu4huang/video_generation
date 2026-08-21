@@ -55,6 +55,8 @@ const disposers = []
 const FS_FILES = new Map()
 const counterSource = await readFile(join(here, '..', 'examples', 'counter.sv'), 'utf8')
 FS_FILES.set('examples/counter.sv', counterSource)
+// Records the opts each fs.resolve call received (cwd-forwarding regression).
+const resolveCalls = []
 
 const ctx = {
   tools: {
@@ -66,7 +68,8 @@ const ctx = {
   get(name) {
     if (name === 'fs') {
       return {
-        async resolve(path) {
+        async resolve(path, opts) {
+          resolveCalls.push({ path, opts })
           return { path }
         },
         async stat(target) {
@@ -131,6 +134,25 @@ assert(
 assert(
   fileResult.design_units.find((u) => u.name === 'counter').ports.some((p) => p.name === 'clk' && p.direction === 'input'),
   'file input extracts port clk/input',
+)
+
+console.log('file input forwards the session cwd to fs.resolve')
+resolveCalls.length = 0
+await analyze.execute(
+  { file: 'examples/counter.sv', dialect: 'auto' },
+  {
+    signal: { aborted: false },
+    agent: { session: { header: { cwd: '/tmp/fake-workspace' } } },
+  },
+)
+assert(resolveCalls.length === 1, 'one fs.resolve call for file input')
+assert(
+  resolveCalls[0].opts && resolveCalls[0].opts.cwd === '/tmp/fake-workspace',
+  'fs.resolve receives exec session cwd (relative-path regression)',
+)
+assert(
+  resolveCalls[0].opts && typeof resolveCalls[0].opts.signal === 'object',
+  'fs.resolve receives the abort signal',
 )
 
 console.log('executing sv_ast via stub ctx')
