@@ -42,8 +42,10 @@
   },
   "dependencies": {
     "marked": "^15",
-    "mermaid": "^11",
     "pptxgenjs": "4.0.1"
+  },
+  "imports": {
+    "#pi/ext-dir": "./lib/sh-ext-dir.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "0.84.2",
@@ -55,6 +57,7 @@
     "@tailwindcss/cli": "^4",
     "@types/bun": "latest",
     "ajv": "^8.17.1",
+    "mermaid": "^11",
     "tailwindcss": "^4",
     "typescript": "^6.0.3"
   }

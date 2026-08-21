@@ -1,19 +1,55 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveVendoredBin, runArchify, VENDORED_BIN } from "../lib/run.ts";
+import { resolveVendoredBin, resolveRuntime, runArchify, VENDORED_BIN } from "../lib/run.ts";
 
 const _env = process.env.PI_ARCHIFY_BIN;
+const _runtimeEnv = process.env.PI_ARCHIFY_RUNTIME;
 afterEach(() => {
   if (_env === undefined) delete process.env.PI_ARCHIFY_BIN;
   else process.env.PI_ARCHIFY_BIN = _env;
+  if (_runtimeEnv === undefined) delete process.env.PI_ARCHIFY_RUNTIME;
+  else process.env.PI_ARCHIFY_RUNTIME = _runtimeEnv;
 });
 
 describe("resolveVendoredBin", () => {
   it("honors PI_ARCHIFY_BIN env override first", () => {
     process.env.PI_ARCHIFY_BIN = "/custom/path/archify.mjs";
     expect(resolveVendoredBin("/anywhere")).toBe("/custom/path/archify.mjs");
+  });
+
+  it("honors PI_ARCHIFY_RUNTIME env override for the script runtime", () => {
+    process.env.PI_ARCHIFY_RUNTIME = "/custom/bun";
+    expect(resolveRuntime()).toBe("/custom/bun");
+  });
+
+  it("resolves a real runtime under bun (the compiled binary cannot run scripts)", () => {
+    delete process.env.PI_ARCHIFY_RUNTIME;
+    // Under bun test, Bun.which("bun") finds a real bun — the vendored .mjs
+    // bins MUST NOT be spawned via process.execPath when that is a
+    // `bun build --compile` agent entry: it would run the agent CLI instead
+    // of the script.
+    expect(resolveRuntime()).not.toBe("");
+  });
+
+  it("runArchify with no resolvable runtime fails with a clear message, not an agent spawn", async () => {
+    const r = await runArchify(["--version"], process.cwd(), undefined, VENDORED_BIN, "");
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("PI_ARCHIFY_RUNTIME");
+  });
+
+  it("default resolution is #pi/ext-dir based, independent of cwd", () => {
+    // The default start dir comes from require("#pi/ext-dir") — the package
+    // root in source mode (package.json imports entry), the deployed ext dir
+    // under the sh loader. It must resolve the REAL bin without any explicit
+    // start dir and regardless of where the process happens to sit — the
+    // import.meta-based default it replaced folded to a build-machine path
+    // inside the sh-deploy bundle (Gate 4, the #809 defect class).
+    const bin = resolveVendoredBin();
+    expect(existsSync(bin)).toBe(true);
+    expect(bin).toBe(join(dirname(bin), "archify.mjs"));
+    expect(bin).toContain(join("vendored", "bin", "archify.mjs"));
   });
 
   it("finds vendored/bin/archify.mjs at the start dir (depth 0)", () => {

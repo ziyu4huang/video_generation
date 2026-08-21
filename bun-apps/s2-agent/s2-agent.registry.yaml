@@ -266,11 +266,28 @@ extensions:
     load: dynamic
     version: "0.1.0"
     excludeReason: bound to this machine's swift CLIs and services
-  - name: s2-agent-ext-archify
+  - name: archify
     package: s2-agent-ext-archify
     entry: extensions/archify.ts
-    load: dynamic
+    load: static
     skills: true
-    version: "0.1.0"
-    excludeReason: bound to this machine's swift CLIs and services
+    # Typed-IR technical diagrams → validated self-contained HTML → .pptx deck.
+    # Fully offline and zero-browser (pptx = pptxgenjs native shapes; the HTML
+    # template inlines its own script/style — audited in #809). The vendored/
+    # tree (~1.5MB) carries the renderer bins + schemas the tools spawn via
+    # process.execPath; lib/run.ts resolves it through the #pi/ext-dir idiom
+    # (import.meta folds to a build-machine path inside the cjs bundle — the
+    # #809 defect class), and the bins re-resolve renderers from their own
+    # __dirname, so the whole tree relocates with the deploy. marked/pptxgenjs
+    # are INLINED by the bundler, not vendored: they are pure JS with no
+    # __dirname resources, and a vendored pptxgenjs dies inside the compiled
+    # binary anyway — its internal require("jszip") is a package specifier,
+    # which the $bunfs-virtualized resolution cannot serve (vendoring is for
+    # resource/path-sensitive packages like playwright-core/sharp/unpdf).
+    # mermaid is devDep-only: the `architecture:vendor` build step copies its
+    # UMD into vendored/ at repo time; NO extension tool imports it at runtime
+    # (kept out of deps so no closure can ever drag its ~84MB in).
+    deploy:
+      order: 150
+      copy: [vendored]
 lazyExtensions: {}
