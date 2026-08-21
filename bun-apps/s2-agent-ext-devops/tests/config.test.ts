@@ -139,6 +139,7 @@ extensions:
 		expect(cfg.hostApi).toBe(HOST_API);
 		expect([...cfg.hostModules].sort()).toEqual([...HOST_MODULE_IDS].sort());
 		expect(cfg.extensions.map((e) => e.name).sort()).toEqual([
+			"archify",
 			"btw",
 			"hermes-memory",
 			"hyperframes",

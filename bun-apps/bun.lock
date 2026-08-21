@@ -127,13 +127,13 @@
       "version": "0.1.0",
       "dependencies": {
         "marked": "^15",
-        "mermaid": "^11",
         "pptxgenjs": "4.0.1",
       },
       "devDependencies": {
         "@tailwindcss/cli": "^4",
         "@types/bun": "latest",
         "ajv": "^8.17.1",
+        "mermaid": "^11",
         "tailwindcss": "^4",
         "typescript": "^6.0.3",
       },

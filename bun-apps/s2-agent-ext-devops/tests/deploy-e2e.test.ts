@@ -71,8 +71,9 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		const report = readFileSync(reportPath, "utf8");
 		expect(report).toContain(r.version);
 		for (const name of configuredNamesSorted) expect(report).toContain(name);
-		// excluded half, with a registry excludeReason verbatim
-		expect(report).toContain("s2-agent-ext-archify");
+		// archify ships now — its name appears in the included table
+		expect(report).toContain("archify");
+		// the not-shipped half still renders, with a registry excludeReason verbatim
 		expect(report).toContain("excludeReason");
 		// baked provider/model layers
 		expect(report).toContain("lm-studio");
