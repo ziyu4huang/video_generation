@@ -14,7 +14,8 @@
  * reason; a dry-run plan is always exit 0. See src/cli-common.ts for the
  * shared contract.
  */
-import { runSweep, type BranchClient } from "./branch-recipe.js";
+import { runSweep, type SweepClient } from "./branch-recipe.js";
+import { selectForgeClientCached } from "./forge/select.js";
 import { createBranchClient } from "./gh.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
 import { type CliResult, defaultRepoRoot, emit, helpRequested, jsonResult, usageError } from "./cli-common.js";
@@ -104,7 +105,7 @@ export function parseSweepArgs(argv: string[]): { ok: true; args: ParsedSweepArg
 
 export async function runSweepCli(
 	argv: string[],
-	deps: { client?: BranchClient; spawn?: SpawnFn; repoRoot?: string } = {},
+	deps: { client?: SweepClient; spawn?: SpawnFn; repoRoot?: string } = {},
 ): Promise<CliResult> {
 	const parsed = parseSweepArgs(argv);
 	if (!parsed.ok) {
@@ -114,7 +115,10 @@ export async function runSweepCli(
 	const a = parsed.args;
 	const repoRoot = a.repoRoot ?? deps.repoRoot ?? defaultRepoRoot();
 	const spawn = deps.spawn ?? createLiveSpawn(repoRoot);
-	const client = deps.client ?? createBranchClient(spawn);
+	// Sweep needs the git surface + the forge PR listing (REST-first selection,
+	// same as every other forge consumer; tests inject deps.client directly).
+	const client =
+		deps.client ?? { ...createBranchClient(spawn), prList: (await selectForgeClientCached({ spawn, repoRoot })).client.prList };
 
 	const outcome = await runSweep({
 		client,

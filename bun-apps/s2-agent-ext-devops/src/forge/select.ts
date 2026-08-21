@@ -25,6 +25,7 @@ import { createGhClient } from "./gh-cli.js";
 import type { FetchFn } from "./rest.js";
 import type { SpawnFn } from "../spawn.js";
 import { createLiveSpawn } from "../spawn.js";
+import { resolveRemoteName } from "../remote.js";
 
 /** A git remote URL split into its forge coordinates. */
 export interface ForgeCoords {
@@ -95,15 +96,18 @@ export async function selectForgeClient(deps: SelectForgeDeps = {}): Promise<Sel
 	const spawn = deps.spawn ?? createLiveSpawn(deps.repoRoot ?? process.cwd());
 	const env = deps.env ?? process.env;
 
-	const remote = await spawn("git", ["remote", "get-url", "origin"]);
+	// The remote name is configurable (DEVOPS_REMOTE > git config devops.remote
+	// > origin — see src/remote.ts); everything else keys off its URL.
+	const remoteName = await resolveRemoteName(spawn, env);
+	const remote = await spawn("git", ["remote", "get-url", remoteName]);
 	if (remote.exitCode !== 0 || !remote.stdout.trim()) {
 		throw new Error(
-			`forge selection: could not read the origin remote URL (git remote get-url origin, exit ${remote.exitCode}). Set one, or point the tool at a git checkout.`,
+			`forge selection: could not read the ${remoteName} remote URL (git remote get-url ${remoteName}, exit ${remote.exitCode}). Set one, or point the tool at a git checkout.`,
 		);
 	}
 	const coords = parseRemoteUrl(remote.stdout);
 	if (!coords) {
-		throw new Error(`forge selection: unparseable origin remote URL: ${remote.stdout.trim()}`);
+		throw new Error(`forge selection: unparseable ${remoteName} remote URL: ${remote.stdout.trim()}`);
 	}
 	if (!isGithubHost(coords.host)) {
 		const hint = looksLikeGitea(coords.host)
